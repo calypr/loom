@@ -149,6 +149,60 @@ func (i *Index) RepeatedCodingPaths(root DefinitionName) ([]string, error) {
 	return result, nil
 }
 
+// HasRepeatedCodingPath reports whether a reachable element is a repeated Coding.
+// It visits named definitions once without enumerating root-relative paths.
+func (i *Index) HasRepeatedCodingPath(root DefinitionName) (bool, error) {
+	if i == nil {
+		return false, fmt.Errorf("schema index is unavailable")
+	}
+	visited := make(map[DefinitionName]bool)
+	found := false
+	var visit func([]Element) error
+	var visitDefinition func(DefinitionName) error
+	visitDefinition = func(name DefinitionName) error {
+		if visited[name] {
+			return nil
+		}
+		definition, ok := i.definitions[name]
+		if !ok {
+			return fmt.Errorf("schema definition %q is unavailable", name)
+		}
+		visited[name] = true
+		return visit(definition.Elements)
+	}
+	visit = func(elements []Element) error {
+		for _, element := range elements {
+			if element.JSONType == JSONTypeArray {
+				if element.ArrayElementType == "Coding" {
+					found = true
+				}
+				if len(element.ArrayElements) != 0 {
+					if err := visit(element.ArrayElements); err != nil {
+						return err
+					}
+				} else if element.ArrayElementType != "" {
+					if err := visitDefinition(element.ArrayElementType); err != nil {
+						return err
+					}
+				}
+			} else if len(element.Elements) != 0 {
+				if err := visit(element.Elements); err != nil {
+					return err
+				}
+			} else if element.ReferencedType != "" {
+				if err := visitDefinition(element.ReferencedType); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	}
+	if err := visitDefinition(root); err != nil {
+		return false, err
+	}
+	return found, nil
+}
+
 func cloneDefinitionStack(active map[DefinitionName]bool, name DefinitionName) map[DefinitionName]bool {
 	cloned := make(map[DefinitionName]bool, len(active)+1)
 	for existing := range active {

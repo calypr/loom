@@ -89,6 +89,28 @@ func (r *physicalPlanRenderer) renderGroupedTablePivot(pivot ir.PhysicalGroupedP
 	if sortGroups && previewIdentityVariable == "" {
 		lines = append(lines, "  SORT "+strings.Join(sort, ", "))
 	}
+	rowValueRows := pivot.GroupRowsVariable
+	if pivot.OneInputRowPerGroup {
+		rowValueRows = "[" + pivot.InputRowVariable + "]"
+	}
+	rowValueLines, rowValueErr := r.renderConstructionRowValueLets(pivot.RowValues, rowValueRows, "")
+	if rowValueErr != nil {
+		return nil, rowValueErr
+	}
+	lines = append(lines, rowValueLines...)
+	if pivot.RootContributorInputColumn != "" {
+		columnBind := r.newInternalBindKey("pivot_root_contributor_column")
+		r.bindVars[columnBind] = pivot.RootContributorInputColumn
+		contributorRows := r.newInternalVariable("pivot_root_contributor_row")
+		contributorValue := fmt.Sprintf("%s[@%s]", contributorRows, columnBind)
+		if !pivot.RootContributorInputMany {
+			contributorValue = "[" + contributorValue + "]"
+		}
+		lines = append(lines, fmt.Sprintf(
+			"  LET %s = SORTED_UNIQUE(FLATTEN((FOR %s IN %s RETURN %s), 1))",
+			pivot.RootContributorVariable, contributorRows, rowValueRows, contributorValue,
+		))
+	}
 
 	categoryTypeBind := ""
 	if pivot.CodedCorrelation == nil {
@@ -115,13 +137,21 @@ func (r *physicalPlanRenderer) renderGroupedTablePivot(pivot ir.PhysicalGroupedP
 	if pivot.CodedCorrelation != nil {
 		categoryCount = len(pivot.CodedCategories)
 	}
-	outputProjections := make([]ir.PhysicalProjection, 0, len(pivot.GroupKeys)+categoryCount+2)
+	outputProjections := make([]ir.PhysicalProjection, 0, len(pivot.GroupKeys)+categoryCount+len(pivot.RowValues)+3)
 	for _, key := range pivot.GroupKeys {
 		name := key.Output
 		if name == "" {
 			name = key.Column
 		}
 		outputProjections = append(outputProjections, ir.PhysicalProjection{Name: name, Hidden: key.Hidden, Value: ir.PhysicalValue{Variable: key.Variable}})
+	}
+	for _, rowValue := range pivot.RowValues {
+		outputProjections = append(outputProjections, ir.PhysicalProjection{Name: rowValue.Output, Value: ir.PhysicalValue{Variable: rowValue.Variable}})
+	}
+	if pivot.RootContributorOutputColumn != "" {
+		outputProjections = append(outputProjections, ir.PhysicalProjection{
+			Name: pivot.RootContributorOutputColumn, Hidden: true, Value: ir.PhysicalValue{Variable: pivot.RootContributorVariable},
+		})
 	}
 	for index, category := range pivot.Categories {
 		cellVariable := r.newInternalVariable(fmt.Sprintf("reshape_cell_%d", index))

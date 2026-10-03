@@ -30,8 +30,8 @@ func ComposeClickHouseCombine(prefix ir.PhysicalPlan, combine ir.PhysicalClickHo
 		}
 	}
 	for _, stage := range prefix.StageSequence.Stages {
-		if stage.Kind == ir.PhysicalStageGroupOp {
-			return ir.PhysicalPlan{}, fmt.Errorf("GROUP prefixes cannot feed a private ClickHouse Combine until authorization scope is preserved by grouping")
+		if stage.Kind == ir.PhysicalStageGroupOp || stage.Kind == ir.PhysicalStageCohortGroupOp {
+			return ir.PhysicalPlan{}, fmt.Errorf("%s prefixes cannot feed a private ClickHouse Combine until authorization scope is preserved by grouping", stage.Kind)
 		}
 	}
 	if err := validateClickHousePrefixBindings(prefix, bindings); err != nil {

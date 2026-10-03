@@ -95,6 +95,7 @@ func appendRecipeRowExpansion(plan *ir.PhysicalPlan, output semantic.OutputPlan,
 	if source.Value != nil && source.Value.Variable != parentVariable {
 		return nil, fmt.Errorf("row expansion source did not bind to owner occurrence %q", expansion.Owner.OccurrenceID)
 	}
+	ancestors := recipeExpansionAncestors(source)
 	var emptyPolicy ir.PhysicalUnnestEmptyPolicy
 	switch expansion.EmptyPolicy {
 	case semantic.ExpansionExclude:
@@ -115,11 +116,35 @@ func appendRecipeRowExpansion(plan *ir.PhysicalPlan, output semantic.OutputPlan,
 		Unnest: &ir.PhysicalUnnest{
 			Owner:          ir.PhysicalUnnestOwner{OccurrenceID: expansion.Owner.OccurrenceID, ResourceType: expansion.Owner.ResourceType, RootVariable: "root", OwnerVariable: parentVariable, Route: route},
 			OutputVariable: expansion.ItemBinding, Ordinality: ordinality, HasItemVariable: "__loom_has_expanded_item",
-			Expression: source, EmptyPolicy: emptyPolicy,
+			Expression: source, Ancestors: ancestors, EmptyPolicy: emptyPolicy,
 		},
 	}
 	plan.Operations = append(plan.Operations, operation)
 	return bindings, nil
+}
+
+func recipeExpansionAncestors(source ir.PhysicalExpression) []ir.PhysicalUnnestAncestor {
+	if source.Extract == nil {
+		return nil
+	}
+	selector := source.Extract.Selector
+	if len(selector.Steps) < 2 {
+		return nil
+	}
+	ancestors := make([]ir.PhysicalUnnestAncestor, 0, len(selector.Steps)-1)
+	for index, step := range selector.Steps[:len(selector.Steps)-1] {
+		if !step.Iterate {
+			continue
+		}
+		ancestors = append(ancestors, ir.PhysicalUnnestAncestor{
+			StepIndex: index,
+			Variable:  fmt.Sprintf("__loom_expansion_ancestor_%d", len(ancestors)),
+		})
+	}
+	if len(ancestors) == 0 {
+		return nil
+	}
+	return ancestors
 }
 
 func appendRecipeExpansionIdentity(plan *ir.PhysicalPlan, output semantic.OutputPlan) error {

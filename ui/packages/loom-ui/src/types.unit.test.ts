@@ -13,10 +13,12 @@ import {
   constructionInputsResponseSchema,
   constructionSchema,
   explorerBuilderCandidateSchema,
+  explorerBuilderCatalogEdgeSchema,
   constructionChoiceSchema,
   explorerBuilderCommandSchema,
   explorerBuilderDocumentSchema,
   explorerColumnSourceSchema,
+  relatedExpandContributorSearchResponseSchema,
   rowDefinitionChoicesResponseSchema,
   rowDefinitionProposalSchema,
   explicitGroupCreateRequestSchema,
@@ -173,7 +175,197 @@ describe('explorerBuilderDocumentSchema', () => {
   });
 });
 
+describe('population route storage direction contract', () => {
+  it('parses optional direction on persisted steps and catalog edges', () => {
+    const document = explorerBuilderDocumentSchema.parse({
+      kind: 'ExplorerBuilderDocument',
+      output: { id: 'specimens', title: 'Specimens' },
+      rootResourceType: 'Specimen',
+      population: {
+        selectionRevisionId: 'selection-1',
+        route: [{
+          resourceType: 'Specimen',
+          relationship: 'parent',
+          catalogEdgeId: 'parent-edge',
+          storageDirection: 'INBOUND',
+        }],
+      },
+      route: { occurrenceId: 'base', resourceType: 'Specimen' },
+      rows: { kind: 'RECORDS', records: {} },
+      columns: [],
+    });
+    expect(document.population?.route[0].storageDirection).toBe('INBOUND');
+
+    expect(explorerBuilderCatalogEdgeSchema.parse({
+      edgeId: 'parent-edge',
+      fromNodeId: 'specimen',
+      toNodeId: 'specimen',
+      label: 'parent',
+      storageDirection: 'INBOUND',
+      populated: true,
+    }).storageDirection).toBe('INBOUND');
+    expect(explorerBuilderCatalogEdgeSchema.safeParse({
+      edgeId: 'parent-edge', fromNodeId: 'specimen', toNodeId: 'specimen',
+      label: 'parent', storageDirection: 'ANY', populated: true,
+    }).success).toBe(false);
+  });
+});
+
 describe('staged construction contract', () => {
+  it('retains route-bound metadata for scalar and repeated Related Expand contributor sources', () => {
+    const route = [{
+      edgeId: 'patient-observation',
+      fromNodeId: 'patient-node',
+      toNodeId: 'observation-node',
+      fromResourceType: 'Patient',
+      toResourceType: 'Observation',
+      relationship: 'subject_Patient',
+      storageDirection: 'INBOUND',
+      matchMode: 'OPTIONAL',
+    }];
+    const relatedExpand = (source: unknown, quantifier?: 'ANY') => ({
+      version: 1,
+      steps: [{
+        id: 'expand-observations',
+        inputs: [{ kind: 'SOURCE_PROJECTION' }],
+        operation: {
+          kind: 'RELATED_EXPAND',
+          relatedExpand: {
+            anchorColumnId: 'patient-id',
+            choiceId: 'observation-route',
+            targetNodeId: 'observation-node',
+            targetResourceType: 'Observation',
+            route,
+            contributorRule: {
+              policy: 'ALL_MATCHES',
+              predicate: {
+                candidateId: 'category-code',
+                ...(quantifier ? { quantifier } : {}),
+                operator: 'EXISTS',
+              },
+            },
+            contributorSource: source,
+            contributorChoiceId: 'signed-category-code',
+            emptyPolicy: 'PRESERVE_PARENT',
+            relatedRecordColumnId: 'observation-id',
+          },
+        },
+        outputs: [],
+      }],
+    });
+    const relatedEligibility = (source: unknown) => ({
+      version: 1,
+      steps: [{
+        id: 'eligible-observations',
+        inputs: [{ kind: 'SOURCE_PROJECTION' }],
+        operation: {
+          kind: 'RELATED_ELIGIBILITY',
+          relatedEligibility: {
+            anchorColumnId: 'patient-id',
+            choiceId: 'observation-route',
+            targetNodeId: 'observation-node',
+            targetResourceType: 'Observation',
+            route,
+            contributorRule: { policy: 'ALL_MATCHES' },
+            contributorSource: source,
+            contributorChoiceId: 'signed-category-code',
+            match: { kind: 'EXISTS' },
+          },
+        },
+        outputs: [],
+      }],
+    });
+    const constructionWithOperation = (operation: unknown) => constructionSchema.safeParse({
+      version: 1,
+      steps: [{
+        id: 'related-source-check',
+        inputs: [{ kind: 'SOURCE_PROJECTION' }],
+        operation,
+        outputs: [],
+      }],
+    });
+    const scalarSource = {
+      kind: 'FIELD',
+      candidateId: 'status-code',
+      nodeId: 'observation-node',
+      resourceType: 'Observation',
+      path: 'status',
+      cardinality: 'optional_one',
+      logicalType: 'code',
+    };
+    const repeatedSource = {
+      kind: 'FIELD',
+      candidateId: 'category-code',
+      nodeId: 'observation-node',
+      resourceType: 'Observation',
+      path: 'category[].coding[].code',
+      cardinality: 'many',
+      logicalType: 'code',
+      repeatedBoundaries: [
+        { path: 'category[]', maxItems: 8 },
+        { path: 'category[].coding[]', maxItems: 8 },
+      ],
+    };
+
+    expect(constructionSchema.parse(relatedExpand(scalarSource)).steps[0]?.operation)
+      .toMatchObject({ kind: 'RELATED_EXPAND', relatedExpand: { contributorSource: scalarSource } });
+    expect(constructionSchema.parse(relatedExpand(repeatedSource, 'ANY')).steps[0]?.operation)
+      .toMatchObject({
+        kind: 'RELATED_EXPAND',
+        relatedExpand: {
+          contributorRule: { predicate: { candidateId: 'category-code', quantifier: 'ANY' } },
+          contributorSource: repeatedSource,
+        },
+      });
+    expect(constructionSchema.safeParse(relatedExpand({ ...repeatedSource, repeatedBoundaries: [] }, 'ANY')).success)
+      .toBe(false);
+    expect(constructionSchema.parse(relatedEligibility(scalarSource)).steps[0]?.operation)
+      .toMatchObject({ kind: 'RELATED_ELIGIBILITY', relatedEligibility: { contributorSource: scalarSource } });
+    expect(constructionSchema.safeParse(relatedEligibility(repeatedSource)).success).toBe(false);
+    for (const source of [scalarSource, repeatedSource]) {
+      const cardinality = source.cardinality;
+      const fieldOperation = {
+        kind: 'RELATED_FIELD',
+        relatedField: { choiceId: 'signed-field', source, outputColumnId: 'related-code' },
+      };
+      const sourceOperation = {
+        kind: 'RELATED_SOURCE',
+        relatedSource: {
+          anchorColumnId: 'patient-id',
+          choiceId: 'observation-route',
+          sourceOccurrenceId: 'observation-occurrence',
+          source,
+          route,
+          contributorRule: { policy: 'ALL_MATCHES' },
+          form: 'ALL',
+          outputColumnId: 'related-code',
+        },
+      };
+      expect(constructionWithOperation(fieldOperation).success).toBe(cardinality !== 'many');
+      expect(constructionWithOperation(sourceOperation).success).toBe(cardinality !== 'many');
+    }
+    expect(relatedExpandContributorSearchResponseSchema.parse({
+      snapshotToken: 'snapshot-1',
+      draftVersion: 1,
+      draftDigest: 'draft-1',
+      outputId: 'patients',
+      stageId: 'source_projection',
+      routeChoiceId: 'observation-route',
+      complete: true,
+      truncated: false,
+      choices: [{
+        choiceId: 'signed-category-code',
+        source: repeatedSource,
+        label: 'Category coding code',
+        operators: ['EXISTS', 'EQUALS'],
+        suggestedValues: [],
+        suggestionsComplete: true,
+        suggestionsTruncated: false,
+        suggestionsSource: 'catalog',
+      }],
+    }).choices[0]?.source).toEqual(repeatedSource);
+  });
+
   it('parses typed GROUP and EXPAND operations and enforces aggregate inputs', () => {
     const column = { id: 'source', name: 'source', label: 'Source' };
     const construction = {

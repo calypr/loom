@@ -56,7 +56,7 @@ func TestRenderPhysicalPlanErrorUnnestUsesAssertAtOwnerBoundary(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RenderPhysicalPlan() error = %v", err)
 	}
-	if !strings.Contains(rendered.Query, "FILTER ASSERT(LENGTH(__loom_physical_unnest_source_0) > 0") || !strings.Contains(rendered.Query, "root._key") {
+	if !strings.Contains(rendered.Query, "FILTER ASSERT(LENGTH(__loom_physical_unnest_source_0) > 0") || !strings.Contains(rendered.Query, "root._key") || !strings.Contains(rendered.Query, "CONSTRUCTION_EXPANSION_EMPTY: row expansion occurrence") {
 		t.Fatalf("ERROR unnest did not assert a nonempty source with owner evidence:\n%s", rendered.Query)
 	}
 	if got := rendered.BindVars["unnest_error_occurrence_0"]; got != "root-occurrence" {

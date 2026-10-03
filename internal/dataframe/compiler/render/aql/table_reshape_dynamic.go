@@ -77,7 +77,7 @@ func (r *physicalPlanRenderer) renderGroupedTablePivotDynamicPreview(
 		categorySpecVariable, cellResultVariable,
 	))
 
-	outputProjections := make([]ir.PhysicalProjection, 0, len(pivot.GroupKeys)+2)
+	outputProjections := make([]ir.PhysicalProjection, 0, len(pivot.GroupKeys)+len(pivot.RowValues)+3)
 	for _, key := range pivot.GroupKeys {
 		name := key.Output
 		if name == "" {
@@ -85,6 +85,16 @@ func (r *physicalPlanRenderer) renderGroupedTablePivotDynamicPreview(
 		}
 		outputProjections = append(outputProjections, ir.PhysicalProjection{
 			Name: name, Hidden: key.Hidden, Value: ir.PhysicalValue{Variable: key.Variable},
+		})
+	}
+	for _, rowValue := range pivot.RowValues {
+		outputProjections = append(outputProjections, ir.PhysicalProjection{
+			Name: rowValue.Output, Value: ir.PhysicalValue{Variable: rowValue.Variable},
+		})
+	}
+	if pivot.RootContributorOutputColumn != "" {
+		outputProjections = append(outputProjections, ir.PhysicalProjection{
+			Name: pivot.RootContributorOutputColumn, Hidden: true, Value: ir.PhysicalValue{Variable: pivot.RootContributorVariable},
 		})
 	}
 

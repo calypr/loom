@@ -318,6 +318,26 @@ func TestCompilationReceiptIdentityIncludesConstructionStageDescriptors(t *testi
 	}
 }
 
+func TestCompilationReceiptAcceptsGroupRowsValuesCapability(t *testing.T) {
+	receipt := testReceipt()
+	receipt.ConstructionStages = map[string][]ReceiptConstructionStage{"out": {
+		{ID: recipe.ConstructionSourceProjectionID},
+		{
+			ID: "group_rows", InputStageID: recipe.ConstructionSourceProjectionID, Operation: "GROUP_ROWS",
+			Columns:      []ReceiptConstructionStageColumn{{ID: "group_id", Name: "group_id", Label: "Group ID"}},
+			Capabilities: []ReceiptConstructionOperationChoice{{Kind: "ROW_VALUES", Supported: true}},
+		},
+	}}
+	var err error
+	receipt.CompilationKey, err = CompilationKey(receipt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := receipt.Validate(); err != nil {
+		t.Fatalf("valid GROUP_ROWS value capability failed receipt validation: %v", err)
+	}
+}
+
 func TestCompilationReceiptRejectsUnknownConstructionStageColumnCardinality(t *testing.T) {
 	receipt := testReceipt()
 	receipt.ConstructionStages = map[string][]ReceiptConstructionStage{"out": {{

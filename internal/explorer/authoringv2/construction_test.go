@@ -975,3 +975,130 @@ func TestOldV2DocumentSerializationOmitsConstructionFields(t *testing.T) {
 		t.Fatalf("old V2 document acquired staged fields without migration: %s", raw)
 	}
 }
+
+func TestApplyCommandsPreservesPivotGroupKeyPresentationOrder(t *testing.T) {
+	document := stagedConstructionDocument()
+	zero := 0
+	for index := range document.Columns {
+		if document.Columns[index].ColumnID == "group_id" {
+			document.Columns[index].Label = "Specimen ID"
+			document.Columns[index].Table = &TablePresentation{Order: &zero}
+		}
+	}
+	visible := true
+	for index := range document.Construction.Steps[0].Outputs {
+		output := &document.Construction.Steps[0].Outputs[index]
+		switch output.ID {
+		case "group_id":
+			output.Name, output.Type = "stale_group", "boolean"
+			output.Table = &TablePresentation{Visible: &visible, Order: &zero}
+		case "pivot_a":
+			output.Name, output.Label = "d", "d"
+			output.Table = &TablePresentation{Order: &zero}
+		}
+	}
+	beforeOperation := document.Construction.Steps[0].Operation
+	var beforeSource ColumnSource
+	for _, column := range document.Columns {
+		if column.ColumnID == "group_id" {
+			beforeSource = column.Source
+			break
+		}
+	}
+	workspace := constructionWorkspace(document)
+	one := 1
+
+	updated, _, err := ApplyCommands(workspace, commandCatalog(), "drag-pivot-group-key", []Command{
+		{
+			Type: CommandUpdateColumn, OutputID: "patients", Column: "group_id",
+			ColumnValue: &Column{Label: "Specimen ID", Table: &TablePresentation{Order: &one}},
+		},
+		{
+			Type: CommandUpdateConstructionOutput, OutputID: "patients",
+			ConstructionOutput: &ConstructionOutputPresentation{
+				StepID: "pivot_step", ColumnID: "group_id", Label: "Group",
+				Table: &TablePresentation{Order: &one},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("apply source and Pivot group-key presentation updates: %v", err)
+	}
+
+	updatedDocument := updated.Documents[0]
+	var source Column
+	for _, column := range updatedDocument.Columns {
+		if column.ColumnID == "group_id" {
+			source = column
+			break
+		}
+	}
+	if source.ColumnID != "group_id" || source.Table == nil || source.Table.Order == nil || *source.Table.Order != 0 {
+		t.Fatalf("authored source column should normalize independently to order 0: %#v", source)
+	}
+	if !reflect.DeepEqual(source.Source, beforeSource) {
+		t.Fatalf("authored source binding changed: before=%#v after=%#v", beforeSource, source.Source)
+	}
+	pivot := updatedDocument.Construction.Steps[0]
+	if !reflect.DeepEqual(pivot.Operation, beforeOperation) {
+		t.Fatalf("Pivot compiler operation changed during presentation update")
+	}
+	groupKey, found := findStageColumnByID(pivot.Outputs, "group_id")
+	if !found || groupKey.Name != "group_id" || groupKey.Type != "string" || groupKey.Label != "Specimen ID" ||
+		groupKey.Table == nil || groupKey.Table.Order == nil || *groupKey.Table.Order != 1 {
+		t.Fatalf("Pivot group-key identity/presentation = %#v, found=%v; want declared order 1", groupKey, found)
+	}
+	generated, found := findStageColumnByID(pivot.Outputs, "pivot_a")
+	if !found || generated.Name != "d" || generated.Table == nil || generated.Table.Order == nil || *generated.Table.Order != 0 {
+		t.Fatalf("generated d presentation = %#v, found=%v; want order 0", generated, found)
+	}
+	if normalized := updated.NormalizePresentationOrders(); !reflect.DeepEqual(updated, normalized) {
+		t.Fatalf("presentation normalization is not idempotent")
+	}
+
+	canonical, err := updated.CanonicalJSON()
+	if err != nil {
+		t.Fatalf("canonicalize updated workspace: %v", err)
+	}
+	reloaded, err := DecodeWorkspace(canonical)
+	if err != nil {
+		t.Fatalf("reload updated workspace: %v", err)
+	}
+	reloadedPivot := reloaded.Documents[0].Construction.Steps[0]
+	reloadedGroup, groupFound := findStageColumnByID(reloadedPivot.Outputs, "group_id")
+	reloadedGenerated, generatedFound := findStageColumnByID(reloadedPivot.Outputs, "pivot_a")
+	if !groupFound || reloadedGroup.Table == nil || reloadedGroup.Table.Order == nil || *reloadedGroup.Table.Order != 1 {
+		t.Fatalf("reloaded Pivot group-key presentation = %#v, found=%v", reloadedGroup, groupFound)
+	}
+	if !generatedFound || reloadedGenerated.Table == nil || reloadedGenerated.Table.Order == nil || *reloadedGenerated.Table.Order != 0 {
+		t.Fatalf("reloaded generated d presentation = %#v, found=%v", reloadedGenerated, generatedFound)
+	}
+	reencoded, err := reloaded.CanonicalJSON()
+	if err != nil || string(reencoded) != string(canonical) {
+		t.Fatalf("canonical JSON changed after reload: err=%v", err)
+	}
+}
+
+func TestPivotRebuildPreservesConstructedGroupKeyPresentation(t *testing.T) {
+	zero, one := 0, 1
+	step := ConstructionStep{
+		Operation: ConstructionOperation{Kind: ConstructionOperationPivot, Pivot: &ConstructionPivot{
+			GroupKeyIDs: []string{"constructed_key"},
+			Categories:  []ConstructionPivotCategory{{OutputColumnID: "d"}},
+		}},
+		Outputs: []StageColumn{
+			{ID: "constructed_key", Name: "stale_name", Label: "Terminal label", Type: "boolean", Table: &TablePresentation{Order: &one}},
+			{ID: "d", Name: "d", Label: "d", Type: "integer", Table: &TablePresentation{Order: &zero}},
+		},
+	}
+	input := []StageColumn{{ID: "constructed_key", Name: "derived_key", Label: "Upstream label", Type: "string"}}
+	outputs, err := rebuildStageColumns(step, input, map[string]struct{}{})
+	if err != nil {
+		t.Fatalf("rebuild Pivot with a constructed group key: %v", err)
+	}
+	groupKey, found := findStageColumnByID(outputs, "constructed_key")
+	if !found || groupKey.Name != "derived_key" || groupKey.Type != "string" || groupKey.Label != "Terminal label" ||
+		groupKey.Table == nil || groupKey.Table.Order == nil || *groupKey.Table.Order != 1 {
+		t.Fatalf("constructed Pivot group-key identity/presentation = %#v, found=%v", groupKey, found)
+	}
+}

@@ -17,7 +17,8 @@ type FilterOperation = Extract<ConstructionOperation, { readonly kind: 'FILTER' 
 type FilterPayload = FilterOperation['filter'];
 type FilterValue = NonNullable<FilterPayload['values']>[number];
 type FilterValueKind = FilterValue['kind'];
-type FilterOperator = Extract<FilterPayload['operator'], 'EQUALS' | 'MISSING'>;
+type FilterOperator = FilterPayload['operator'];
+type ScalarFilterOperator = Exclude<FilterOperator, 'EXISTS' | 'MISSING' | 'IN'>;
 type DeriveOperation = Extract<ConstructionOperation, { readonly kind: 'DERIVE' }>;
 type DerivePayload = DeriveOperation['derive'];
 type DerivedOperand = DerivePayload['left'];
@@ -40,14 +41,20 @@ type ExpressionState =
   | { readonly kind: 'formula-invalid'; readonly lastDraft: ArithmeticExpressionDraft; readonly source: string; readonly error: string };
 
 type FilterForm =
+  | { readonly kind: 'exists'; readonly columnId: string }
   | { readonly kind: 'missing'; readonly columnId: string }
   | {
-      readonly kind: 'equals';
+      readonly kind: 'comparison';
+      readonly operator: ScalarFilterOperator;
       readonly columnId: string;
-      readonly valueText: string;
-      readonly valueEdited: boolean;
+      readonly value: FilterValueDraft;
     }
+  | { readonly kind: 'membership'; readonly operator: 'IN'; readonly columnId: string; readonly values: ReadonlyArray<FilterValueDraft> }
   | { readonly kind: 'unsupported'; readonly message: string };
+
+type FilterValueDraft =
+  | { readonly kind: 'blank' | 'edited'; readonly text: string }
+  | { readonly kind: 'saved'; readonly text: string; readonly value: FilterValue };
 
 type OperandDraft =
   | { readonly kind: 'unset' }
@@ -195,8 +202,79 @@ const filterValueInputText = (value: FilterValue): string => {
 const filterOperatorFromInput = (value: string): FilterOperator | undefined => {
   switch (value) {
     case 'EQUALS': return 'EQUALS';
+    case 'NOT_EQUALS': return 'NOT_EQUALS';
+    case 'IN': return 'IN';
+    case 'EXISTS': return 'EXISTS';
     case 'MISSING': return 'MISSING';
+    case 'CONTAINS_TEXT': return 'CONTAINS_TEXT';
+    case 'GT': return 'GT';
+    case 'GTE': return 'GTE';
+    case 'LT': return 'LT';
+    case 'LTE': return 'LTE';
     default: return undefined;
+  }
+};
+
+const filterOperatorsForColumn = (column: ConstructionStageDescriptor['columns'][number]): ReadonlyArray<FilterOperator> => {
+  const kind = filterValueKindFor(column.type);
+  const operators: FilterOperator[] = ['EXISTS'];
+  if (kind) operators.push('EQUALS', 'NOT_EQUALS', 'IN');
+  if (kind === 'STRING') operators.push('CONTAINS_TEXT');
+  if (kind === 'INTEGER' || kind === 'DECIMAL' || kind === 'DATE' || kind === 'DATE_TIME') {
+    operators.push('GT', 'GTE', 'LT', 'LTE');
+  }
+  operators.push('MISSING');
+  return operators;
+};
+
+const filterOperatorLabel = (operator: FilterOperator): string => {
+  switch (operator) {
+    case 'EXISTS': return 'is present';
+    case 'EQUALS': return 'equals';
+    case 'NOT_EQUALS': return 'does not equal';
+    case 'IN': return 'is one of';
+    case 'MISSING': return 'is missing';
+    case 'CONTAINS_TEXT': return 'contains text';
+    case 'GT': return 'is greater than';
+    case 'GTE': return 'is greater than or equal to';
+    case 'LT': return 'is less than';
+    case 'LTE': return 'is less than or equal to';
+    default: {
+      const exhaustive: never = operator;
+      return exhaustive;
+    }
+  }
+};
+
+const filterValueDraftsFor = (form: FilterForm): ReadonlyArray<FilterValueDraft> => {
+  if (form.kind === 'comparison') return [form.value];
+  if (form.kind === 'membership') return form.values;
+  return [];
+};
+
+const filterFormForOperator = (
+  operator: FilterOperator,
+  columnId: string,
+  drafts: ReadonlyArray<FilterValueDraft>,
+): FilterForm => {
+  if (operator === 'EXISTS') return { kind: 'exists', columnId };
+  if (operator === 'MISSING') return { kind: 'missing', columnId };
+  const blank: FilterValueDraft = { kind: 'blank', text: '' };
+  const first = drafts[0] ?? blank;
+  const values = drafts.length > 0 ? drafts : [blank];
+  if (operator === 'IN') return { kind: 'membership', operator, columnId, values };
+  return { kind: 'comparison', operator, columnId, value: first };
+};
+
+const filterValueFromDraft = (kind: FilterValueKind, draft: FilterValueDraft): FilterValue | undefined => {
+  switch (draft.kind) {
+    case 'saved': return draft.value;
+    case 'blank': return undefined;
+    case 'edited': return filterValueFor(kind, draft.text, true);
+    default: {
+      const exhaustive: never = draft;
+      return exhaustive;
+    }
   }
 };
 
@@ -283,31 +361,39 @@ const filterFormFromStep = (
       return { kind: 'unsupported', message: 'Only saved row filter steps can be edited here.' };
     }
     const filter = step.operation.filter;
+    if (filter.operator === 'EXISTS') {
+      return stage.columns.some((candidate) => candidate.id === filter.columnId)
+        ? { kind: 'exists', columnId: filter.columnId }
+        : { kind: 'unsupported', message: 'The saved condition column is no longer present in Loom’s predecessor stage.' };
+    }
     if (filter.operator === 'MISSING') {
       return stage.columns.some((candidate) => candidate.id === filter.columnId)
         ? { kind: 'missing', columnId: filter.columnId }
         : { kind: 'unsupported', message: 'The saved condition column is no longer present in Loom’s predecessor stage.' };
     }
-    if (filter.operator !== 'EQUALS') {
-      return { kind: 'unsupported', message: 'This saved filter uses an operator that this editor does not change yet.' };
-    }
     const column = stage.columns.find((candidate) => candidate.id === filter.columnId);
-    const value = filter.values?.[0];
-    if (!column || !value || filterValueKindFor(column.type) !== value.kind) {
+    if (!column) {
+      return { kind: 'unsupported', message: 'The saved condition column is no longer present in Loom’s predecessor stage.' };
+    }
+    if (!filterOperatorsForColumn(column).includes(filter.operator)) {
+      return { kind: 'unsupported', message: 'This saved condition is incompatible with the predecessor column type.' };
+    }
+    const valueKind = filterValueKindFor(column.type);
+    const values = filter.values ?? [];
+    const validCount = filter.operator === 'IN' ? values.length > 0 : values.length === 1;
+    if (!valueKind || !validCount || values.some((value) => value.kind !== valueKind)) {
       return { kind: 'unsupported', message: 'Loom did not return a matching typed value for this saved condition.' };
     }
-    return {
-      kind: 'equals',
-      columnId: filter.columnId,
-      valueText: filterValueInputText(value),
-      valueEdited: true,
-    };
+    const drafts = values.map((value): FilterValueDraft => ({
+      kind: 'saved', text: filterValueInputText(value), value,
+    }));
+    return filterFormForOperator(filter.operator, filter.columnId, drafts);
   }
 
   const column = stage.columns.find((candidate) => selectedColumns.includes(candidate.id)) ?? stage.columns[0];
   if (!column) return { kind: 'missing', columnId: '' };
   return filterValueKindFor(column.type)
-    ? { kind: 'equals', columnId: column.id, valueText: '', valueEdited: false }
+    ? { kind: 'comparison', operator: 'EQUALS', columnId: column.id, value: { kind: 'blank', text: '' } }
     : { kind: 'missing', columnId: column.id };
 };
 
@@ -326,12 +412,19 @@ const buildFilterCandidate = (args: {
   let filter: FilterPayload;
   if (form.kind === 'missing') {
     filter = { columnId: column.id, operator: 'MISSING' };
+  } else if (form.kind === 'exists') {
+    filter = { columnId: column.id, operator: 'EXISTS' };
   } else {
     const valueKind = filterValueKindFor(column.type);
     if (!valueKind) return undefined;
-    const value = filterValueFor(valueKind, form.valueText, form.valueEdited);
-    if (!value) return undefined;
-    filter = { columnId: column.id, operator: 'EQUALS', values: [value] };
+    const values: FilterValue[] = [];
+    for (const draft of filterValueDraftsFor(form)) {
+      const value = filterValueFromDraft(valueKind, draft);
+      if (!value) return undefined;
+      values.push(value);
+    }
+    if (values.length === 0 || (form.kind === 'comparison' && values.length !== 1)) return undefined;
+    filter = { columnId: column.id, operator: form.operator, values };
   }
 
   const step = {
@@ -641,12 +734,9 @@ const filterStepDescription = (
   }
 };
 
-const filterStepEditorSupported = (step: ConstructionStep): boolean =>
-  step.operation.kind === 'FILTER' &&
-  (step.operation.filter.operator === 'EQUALS' || step.operation.filter.operator === 'MISSING');
-
 const FilterValueInput = (props: {
   readonly kind: FilterValueKind;
+  readonly ariaLabel: string;
   readonly value: string;
   readonly disabled: boolean;
   readonly onChange: (value: string) => void;
@@ -654,25 +744,25 @@ const FilterValueInput = (props: {
   switch (props.kind) {
     case 'STRING':
     case 'CODE':
-      return <input aria-label="Value" type="text" value={props.value} disabled={props.disabled} onChange={(event) => props.onChange(event.currentTarget.value)} className="rounded border border-slate-300 px-2 py-1.5" />;
+      return <input aria-label={props.ariaLabel} type="text" value={props.value} disabled={props.disabled} onChange={(event) => props.onChange(event.currentTarget.value)} className="rounded border border-slate-300 px-2 py-1.5" />;
     case 'BOOLEAN':
       return (
-        <select aria-label="Value" value={props.value} disabled={props.disabled} onChange={(event) => props.onChange(event.currentTarget.value)} className="rounded border border-slate-300 px-2 py-1.5">
+        <select aria-label={props.ariaLabel} value={props.value} disabled={props.disabled} onChange={(event) => props.onChange(event.currentTarget.value)} className="rounded border border-slate-300 px-2 py-1.5">
           <option value="">Choose true or false</option>
           <option value="true">True</option>
           <option value="false">False</option>
         </select>
       );
     case 'INTEGER':
-      return <input aria-label="Value" type="number" step="1" value={props.value} disabled={props.disabled} onChange={(event) => props.onChange(event.currentTarget.value)} className="rounded border border-slate-300 px-2 py-1.5" />;
+      return <input aria-label={props.ariaLabel} type="number" step="1" value={props.value} disabled={props.disabled} onChange={(event) => props.onChange(event.currentTarget.value)} className="rounded border border-slate-300 px-2 py-1.5" />;
     case 'DECIMAL':
-      return <input aria-label="Value" type="number" step="any" value={props.value} disabled={props.disabled} onChange={(event) => props.onChange(event.currentTarget.value)} className="rounded border border-slate-300 px-2 py-1.5" />;
+      return <input aria-label={props.ariaLabel} type="number" step="any" value={props.value} disabled={props.disabled} onChange={(event) => props.onChange(event.currentTarget.value)} className="rounded border border-slate-300 px-2 py-1.5" />;
     case 'DATE':
-      return <input aria-label="Value" type="date" value={props.value} disabled={props.disabled} onChange={(event) => props.onChange(event.currentTarget.value)} className="rounded border border-slate-300 px-2 py-1.5" />;
+      return <input aria-label={props.ariaLabel} type="date" value={props.value} disabled={props.disabled} onChange={(event) => props.onChange(event.currentTarget.value)} className="rounded border border-slate-300 px-2 py-1.5" />;
     case 'DATE_TIME':
       return (
         <>
-          <input aria-label="Value" type="datetime-local" value={props.value} disabled={props.disabled} onChange={(event) => props.onChange(event.currentTarget.value)} className="rounded border border-slate-300 px-2 py-1.5" />
+          <input aria-label={props.ariaLabel} type="datetime-local" value={props.value} disabled={props.disabled} onChange={(event) => props.onChange(event.currentTarget.value)} className="rounded border border-slate-300 px-2 py-1.5" />
           <span className="text-xs text-slate-500">Saved as UTC.</span>
         </>
       );
@@ -697,9 +787,13 @@ const KeepRowsEditor = (props: ConstructionOperationEditorProps) => {
 
   const support = operationSupport(stage, 'FILTER');
   const supportedSavedSteps = filterSteps(construction);
-  const valueKind = form.kind === 'equals'
+  const valueKind = form.kind === 'comparison' || form.kind === 'membership'
     ? filterValueKindFor(stage.columns.find((column) => column.id === form.columnId)?.type)
     : undefined;
+  const conditionColumn = form.kind === 'unsupported'
+    ? undefined
+    : stage.columns.find((column) => column.id === form.columnId);
+  const conditionOperators = conditionColumn ? filterOperatorsForColumn(conditionColumn) : [];
 
   const updateForm = (next: FilterForm) => {
     setForm(next);
@@ -729,7 +823,7 @@ const KeepRowsEditor = (props: ConstructionOperationEditorProps) => {
                 <button
                   type="button"
                   data-testid={`construction-filter-edit-${step.id}`}
-                  disabled={disabled || !filterStepEditorSupported(step)}
+                  disabled={disabled}
                   onClick={() => props.onEditStep(step.id)}
                   className="shrink-0 rounded px-2 py-1 font-medium text-blue-800 hover:bg-blue-100 disabled:cursor-not-allowed disabled:text-slate-400"
                 >
@@ -738,9 +832,6 @@ const KeepRowsEditor = (props: ConstructionOperationEditorProps) => {
               </li>
             ))}
           </ol>
-          {supportedSavedSteps.some((step) => !filterStepEditorSupported(step)) ? (
-            <p className="mt-2 text-xs text-slate-600">Some saved filters use operators this editor cannot reopen yet. They remain unchanged while you add another condition.</p>
-          ) : null}
         </fieldset>
       ) : null}
 
@@ -762,10 +853,12 @@ const KeepRowsEditor = (props: ConstructionOperationEditorProps) => {
                   onChange={(event) => {
                     const column = stage.columns.find((candidate) => candidate.id === event.currentTarget.value);
                     if (!column) return;
-                    const next: FilterForm = form.kind === 'missing' || !filterValueKindFor(column.type)
-                      ? { kind: 'missing', columnId: column.id }
-                      : { kind: 'equals', columnId: column.id, valueText: '', valueEdited: false };
-                    updateForm(next);
+                    const currentOperator = form.kind === 'exists' ? 'EXISTS' : form.kind === 'missing' ? 'MISSING' : form.operator;
+                    const availableOperators = filterOperatorsForColumn(column);
+                    const nextOperator = availableOperators.includes(currentOperator)
+                      ? currentOperator
+                      : filterValueKindFor(column.type) ? 'EQUALS' : 'MISSING';
+                    updateForm(filterFormForOperator(nextOperator, column.id, []));
                   }}
                   className="rounded border border-slate-300 bg-white px-2 py-1.5"
                 >
@@ -777,39 +870,84 @@ const KeepRowsEditor = (props: ConstructionOperationEditorProps) => {
                 Condition
                 <select
                   aria-label="Condition"
-                  value={form.kind === 'missing' ? 'MISSING' : 'EQUALS'}
+                  value={form.kind === 'missing' ? 'MISSING' : form.kind === 'exists' ? 'EXISTS' : form.operator}
                   disabled={disabled}
                   onChange={(event) => {
                     const column = stage.columns.find((candidate) => candidate.id === form.columnId);
                     if (!column) return;
                     const operator = filterOperatorFromInput(event.currentTarget.value);
-                    if (!operator) return;
-                    updateForm(operator === 'MISSING'
-                      ? { kind: 'missing', columnId: column.id }
-                      : { kind: 'equals', columnId: column.id, valueText: '', valueEdited: false });
+                    if (!operator || !filterOperatorsForColumn(column).includes(operator)) return;
+                    updateForm(filterFormForOperator(operator, column.id, filterValueDraftsFor(form)));
                   }}
                   className="rounded border border-slate-300 bg-white px-2 py-1.5"
                 >
-                  {filterValueKindFor(stage.columns.find((column) => column.id === form.columnId)?.type)
-                    ? <option value="EQUALS">equals</option>
-                    : null}
-                  <option value="MISSING">is missing</option>
+                  {conditionOperators.map((operator) => (
+                    <option key={operator} value={operator}>{filterOperatorLabel(operator)}</option>
+                  ))}
                 </select>
               </label>
 
-              {form.kind === 'equals' && valueKind ? (
+              {form.kind === 'comparison' && valueKind ? (
                 <label className="grid gap-1 text-sm font-medium text-slate-700">
                   Value
                   <FilterValueInput
                     kind={valueKind}
-                    value={form.valueText}
+                    ariaLabel="Value"
+                    value={form.value.text}
                     disabled={disabled}
-                    onChange={(valueText) => updateForm({ ...form, valueText, valueEdited: true })}
+                    onChange={(text) => updateForm({ ...form, value: { kind: 'edited', text } })}
                   />
                 </label>
               ) : null}
-              {form.kind === 'equals' && !valueKind ? (
-                <p role="status" className="text-sm text-amber-900">Equality is unavailable for this column type. Choose “is missing”.</p>
+              {form.kind === 'comparison' && !valueKind ? (
+                <p role="status" className="text-sm text-amber-900">Value comparisons are unavailable for this column type. Choose “is present” or “is missing”.</p>
+              ) : null}
+
+              {form.kind === 'membership' && valueKind ? (
+                <div className="grid gap-2">
+                  {form.values.map((value, index) => (
+                    <div key={index} className="flex items-end gap-2">
+                      <label className="grid flex-1 gap-1 text-sm font-medium text-slate-700">
+                        Value {index + 1}
+                        <FilterValueInput
+                          kind={valueKind}
+                          ariaLabel={`Value ${index + 1}`}
+                          value={value.text}
+                          disabled={disabled}
+                          onChange={(text) => updateForm({
+                            ...form,
+                            values: form.values.map((candidate, candidateIndex) =>
+                              candidateIndex === index ? { kind: 'edited', text } : candidate,
+                            ),
+                          })}
+                        />
+                      </label>
+                      {form.values.length > 1 ? (
+                        <button
+                          type="button"
+                          aria-label={`Remove value ${index + 1}`}
+                          disabled={disabled}
+                          onClick={() => updateForm({ ...form, values: form.values.filter((_, candidateIndex) => candidateIndex !== index) })}
+                          className="rounded border border-slate-300 px-2 py-1.5 text-sm"
+                        >
+                          Remove
+                        </button>
+                      ) : null}
+                    </div>
+                  ))}
+                  <button
+                    type="button"
+                    aria-label="Add another value"
+                    disabled={disabled}
+                    onClick={() => updateForm({ ...form, values: [...form.values, { kind: 'blank', text: '' }] })}
+                    className="w-fit rounded border border-slate-300 px-2 py-1.5 text-sm"
+                  >
+                    Add another value
+                  </button>
+                </div>
+              ) : null}
+              {form.kind === 'membership' && !valueKind ? (
+                <p role="status" className="text-sm text-amber-900">A value list is unavailable for this column type. Choose “is present” or “is missing”.</p>
               ) : null}
             </>
           )}

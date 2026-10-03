@@ -20,6 +20,7 @@ func renderPhysicalStageSequence(plan ir.PhysicalPlan, options physicalRenderOpt
 	} else if eligible {
 		return rendered, nil
 	}
+	groupPreviewShape, hasRelatedGroupPreview := relatedGroupPreviewShapeFor(plan, sequence, options)
 	stages := pruneUnusedRelatedOutputsForCountRows(sequence)
 	inlineSourceForKeylessCount := terminalKeylessCountRowsOnly(sequence)
 	sourcePlan := ir.ClonePhysicalPlan(plan)
@@ -27,13 +28,14 @@ func renderPhysicalStageSequence(plan ir.PhysicalPlan, options physicalRenderOpt
 	sourcePlan.PreviewSourceWindowByRootID = sequence.PreviewSourceWindowByRootID && sequence.PreviewLimitBindKey != ""
 	inlineCodedGroupRoot := codedGroupSourceRootVariable(sourcePlan, sequence, stages, options)
 	inlineCodedPivotRoot := codedPivotSourceRootVariable(sourcePlan, sequence, stages, options)
+	inlineGroupSourceRow := groupSourceRowVariable(sourcePlan, sequence, stages, options)
 	for _, stage := range stages {
 		if stage.GroupedPivot != nil && stage.GroupedPivot.CodedCorrelation != nil && inlineCodedPivotRoot == "" {
 			return RenderedPhysicalPlan{}, fmt.Errorf("coded Pivot requires the source root to be streamed into its first stage")
 		}
 	}
-	inlineSourceIntoFirstStage := inlineSourceForKeylessCount || inlineCodedGroupRoot != "" || inlineCodedPivotRoot != ""
-	if !inlineSourceIntoFirstStage {
+	inlineSourceIntoFirstStage := inlineSourceForKeylessCount || inlineCodedGroupRoot != "" || inlineCodedPivotRoot != "" || inlineGroupSourceRow != ""
+	if inlineGroupSourceRow != "" || !inlineSourceIntoFirstStage {
 		pruneUnusedSourceGroupProjections(&sourcePlan, sequence)
 	}
 	collectionKeys, err := collectionBindKeys(plan)
@@ -41,6 +43,22 @@ func renderPhysicalStageSequence(plan ir.PhysicalPlan, options physicalRenderOpt
 		return RenderedPhysicalPlan{}, err
 	}
 	reservedVars := stageSequenceVariableNames(plan)
+	for _, name := range []string{"cohort_member", "member", "resource", "selected", "source", "members", "definitions", "all_memberships", "unassigned", "unassigned_records", "unassigned_members", "unassigned_row", "revision", "revision_guard", "selection", "selection_guard", "policy_guard", "rows", "row_value"} {
+		reservedVars[name] = struct{}{}
+	}
+	groupPreviewFrontier := relatedGroupPreviewFrontier{}
+	if hasRelatedGroupPreview {
+		groupPreviewFrontier, err = renderRelatedGroupPreviewFrontier(plan, sequence, groupPreviewShape, collectionKeys)
+		if err != nil {
+			return RenderedPhysicalPlan{}, fmt.Errorf("render related Group preview frontier: %w", err)
+		}
+		options.previewGroupIdentityFilter = &previewGroupIdentityFilter{
+			StageIndex:              groupPreviewShape.groupFilterIndex,
+			ColumnBindKey:           groupPreviewFrontier.groupIdentityColumnBindKey,
+			SelectedGroupIdentities: groupPreviewFrontier.groupIdentitiesVariable,
+			BoundedVariable:         groupPreviewFrontier.boundedVariable,
+		}
+	}
 	selectedGroupKeysVariable := ""
 	groupKeySourceVariable := ""
 	groupIdentityVariable := ""
@@ -82,21 +100,36 @@ func renderPhysicalStageSequence(plan ir.PhysicalPlan, options physicalRenderOpt
 	}
 	sourceOptions := physicalRenderOptions{
 		rootIndexHint:                   options.rootIndexHint,
+		disableRootIndex:                options.disableRootIndex,
 		pivotGroupTupleFilter:           options.pivotGroupTupleFilter,
 		preserveProjectionPresenceNames: options.preserveProjectionPresenceNames,
 		projectionPresenceMarkerColumn:  options.projectionPresenceMarkerColumn,
 	}
-	if inlineSourceIntoFirstStage {
+	if inlineGroupSourceRow != "" {
+		sourceOptions.terminalReturnVariable = inlineGroupSourceRow
+	} else if inlineSourceIntoFirstStage {
 		sourceOptions.omitTerminalReturn = true
 	}
 	source, err := renderPhysicalPlanWithOptions(sourcePlan, sourceOptions)
 	if err != nil {
 		return RenderedPhysicalPlan{}, fmt.Errorf("render source projection: %w", err)
 	}
-	bindVars := make(map[string]any, len(source.BindVars)+len(groupKeyQuery.BindVars)+len(plan.BindVars))
+	var groupPreviewWindow RenderedPhysicalPlan
+	if hasRelatedGroupPreview {
+		groupPreviewWindow, err = renderRelatedGroupPreviewSourceWindow(sourcePlan, sourceOptions, groupPreviewFrontier.rootKeysVariable)
+		if err != nil {
+			return RenderedPhysicalPlan{}, fmt.Errorf("render related Group preview source window: %w", err)
+		}
+		source.Query = renderRelatedGroupPreviewConditionalSource(
+			groupPreviewFrontier.boundedVariable, groupPreviewWindow.Query, source.Query,
+		)
+	}
+	bindVars := make(map[string]any, len(source.BindVars)+len(groupPreviewWindow.BindVars)+len(groupPreviewFrontier.bindVars)+len(groupKeyQuery.BindVars)+len(plan.BindVars))
 	for _, values := range []map[string]any{
 		groupKeyQuery.BindVars,
 		source.BindVars,
+		groupPreviewWindow.BindVars,
+		groupPreviewFrontier.bindVars,
 		runtimePhysicalBindVars(plan.BindVars, collectionKeys),
 	} {
 		if err := mergeRenderedBindVars(bindVars, values); err != nil {
@@ -122,12 +155,30 @@ func renderPhysicalStageSequence(plan ir.PhysicalPlan, options physicalRenderOpt
 		preserveProjectionPresenceNames: options.preserveProjectionPresenceNames,
 		projectionPresenceMarkerColumn:  options.projectionPresenceMarkerColumn,
 		projectionPresenceMarkerRows:    presenceMarkerRows,
+		previewGroupIdentityFilter:      options.previewGroupIdentityFilter,
+	}
+	relatedExpandPreviewStageIndex, hasRelatedExpandPreviewStage := terminalRelatedExpandPreviewStage(sequence)
+	if options.omitTerminalRowSort || options.terminalProjectionColumn != "" || options.projectionPresenceMarkerColumn != "" ||
+		options.twoScanPivotPreview || options.dynamicPivotPreview {
+		hasRelatedExpandPreviewStage = false
+	}
+	relatedExpandPreviewLimitBindKey := ""
+	if hasRelatedExpandPreviewStage {
+		if options.relatedExpandPreviewLimit > 0 {
+			relatedExpandPreviewLimitBindKey = renderer.newInternalBindKey("related_expand_preview_limit")
+			renderer.bindVars[relatedExpandPreviewLimitBindKey] = options.relatedExpandPreviewLimit
+		} else if previewLimit, ok := renderer.bindVars[sequence.PreviewLimitBindKey].(int); sequence.PreviewLimitBindKey != "" && ok && previewLimit > 0 {
+			relatedExpandPreviewLimitBindKey = sequence.PreviewLimitBindKey
+		}
 	}
 	if sequence.RowLineageReturn != nil {
-		return renderer.renderConstructionRowLineage(source.Query, stages[0], *sequence.RowLineageReturn)
+		return renderer.renderConstructionRowLineage(source.Query, stages, *sequence.RowLineageReturn)
 	}
 
 	lines := make([]string, 0, 16)
+	if hasRelatedGroupPreview {
+		lines = append(lines, strings.Split(strings.TrimSuffix(groupPreviewFrontier.query, "\n"), "\n")...)
+	}
 	if options.twoScanPivotPreview {
 		pivot, _ := terminalPreviewPivot(sequence)
 		groupLines, groupErr := renderTerminalPivotGroupIdentitySelection(
@@ -160,7 +211,10 @@ func renderPhysicalStageSequence(plan ir.PhysicalPlan, options physicalRenderOpt
 			}
 		}
 		if stage.Kind == ir.PhysicalStageGroupOp {
-			rendered, renderErr := renderer.renderConstructionGroupStage(stage, priorRows)
+			rendered, renderErr := renderer.renderConstructionGroupStage(stage, constructionGroupInput{
+				RowsVariable:     priorRows,
+				SourceRowInScope: inlineGroupSourceRow != "" && index == 0,
+			})
 			if renderErr != nil {
 				return RenderedPhysicalPlan{}, fmt.Errorf("render stage %q group: %w", stage.ID, renderErr)
 			}
@@ -183,8 +237,26 @@ func renderPhysicalStageSequence(plan ir.PhysicalPlan, options physicalRenderOpt
 			priorRows = stageRows
 			continue
 		}
+		if stage.Kind == ir.PhysicalStageCohortGroupOp {
+			rendered, renderErr := renderer.renderConstructionCohortGroupStage(stage, priorRows)
+			if renderErr != nil {
+				return RenderedPhysicalPlan{}, fmt.Errorf("render stage %q cohort group: %w", stage.ID, renderErr)
+			}
+			lines = append(lines, rendered...)
+			lines = append(lines, ")")
+			priorRows = stageRows
+			continue
+		}
 		if !inlineCodedPivotStage {
 			lines = append(lines, fmt.Sprintf("  FOR %s IN %s", stage.InputRowVariable, priorRows))
+		}
+		if hasRelatedGroupPreview && options.previewGroupIdentityFilter != nil &&
+			options.previewGroupIdentityFilter.StageIndex == index {
+			filter := options.previewGroupIdentityFilter
+			lines = append(lines, fmt.Sprintf(
+				"  FILTER !%s OR %s[@%s] IN %s", filter.BoundedVariable, stage.InputRowVariable,
+				filter.ColumnBindKey, filter.SelectedGroupIdentities,
+			))
 		}
 		switch stage.Kind {
 		case ir.PhysicalStagePivotOp:
@@ -223,7 +295,11 @@ func renderPhysicalStageSequence(plan ir.PhysicalPlan, options physicalRenderOpt
 			}
 			lines = appendIndented(lines, rendered)
 		case ir.PhysicalStageRelatedExpandOp:
-			rendered, renderErr := renderer.renderConstructionRelatedExpandStage(stage)
+			previewLimitBindKey := ""
+			if index == relatedExpandPreviewStageIndex {
+				previewLimitBindKey = relatedExpandPreviewLimitBindKey
+			}
+			rendered, renderErr := renderer.renderConstructionRelatedExpandStage(stage, previewLimitBindKey)
 			if renderErr != nil {
 				return RenderedPhysicalPlan{}, fmt.Errorf("render stage %q related expansion: %w", stage.ID, renderErr)
 			}
@@ -259,8 +335,20 @@ func renderPhysicalStageSequence(plan ir.PhysicalPlan, options physicalRenderOpt
 		priorRows = stageRows
 	}
 	finalRow := "__loom_construction_final_row"
+	if hasRelatedGroupPreview && options.previewGroupIdentityFilter != nil && options.previewGroupIdentityFilter.StageIndex < 0 {
+		groupRows := renderer.newInternalVariable("related_group_preview_filtered_rows")
+		lines = append(lines, fmt.Sprintf("LET %s = (", groupRows))
+		lines = append(lines, fmt.Sprintf("  FOR %s IN %s", finalRow, priorRows))
+		filter := options.previewGroupIdentityFilter
+		lines = append(lines, fmt.Sprintf(
+			"  FILTER !%s OR %s[@%s] IN %s", filter.BoundedVariable, finalRow,
+			filter.ColumnBindKey, filter.SelectedGroupIdentities,
+		))
+		lines = append(lines, "  RETURN "+finalRow, ")")
+		priorRows = groupRows
+	}
 	lines = append(lines, fmt.Sprintf("FOR %s IN %s", finalRow, priorRows))
-	if !options.omitTerminalRowSort && (len(stages) == 0 || stages[len(stages)-1].Kind != ir.PhysicalStageGroupOp) {
+	if !options.omitTerminalRowSort && (len(stages) == 0 || stages[len(stages)-1].Kind != ir.PhysicalStageGroupOp && stages[len(stages)-1].Kind != ir.PhysicalStageCohortGroupOp) {
 		lines = append(lines, fmt.Sprintf("SORT %s.%s ASC", finalRow, sequence.FinalRowIdentity))
 	}
 	if sequence.PreviewLimitBindKey != "" {
@@ -327,7 +415,65 @@ func renderPhysicalStageSequence(plan ir.PhysicalPlan, options physicalRenderOpt
 		lines = append(lines, "RETURN "+returned)
 	}
 	query := strings.Join(lines, "\n") + "\n"
-	return RenderedPhysicalPlan{Query: query, BindVars: pruneUnusedRuntimeBindVars(renderer.bindVars, query)}, nil
+	return RenderedPhysicalPlan{
+		Query: query, BindVars: pruneUnusedRuntimeBindVars(renderer.bindVars, query),
+		PartialValidation: hasRelatedGroupPreview,
+	}, nil
+}
+
+// groupSourceRowVariable returns the first Group input row variable when a
+// terminal keyed COUNT_ROWS Group can consume its direct root source in scope.
+// The generic source RETURN is rendered as a LET before the Group COLLECT, so
+// source rows are never collected into an intermediate array.
+func groupSourceRowVariable(sourcePlan ir.PhysicalPlan, sequence *ir.PhysicalStageSequence, stages []ir.PhysicalConstructionStage, options physicalRenderOptions) string {
+	if sequence == nil || len(stages) != 1 || sequence.RowLineageReturn != nil || sequence.CellTraceReturn != nil ||
+		sequence.PreviewSourceWindowByRootID || sequence.PreviewTerminalPivotWindow || sequence.OutputAuthResourcePathBindKey != "" ||
+		options.omitTerminalReturn || options.terminalReturnVariable != "" || options.terminalProjectionColumn != "" ||
+		options.omitTerminalRowSort || options.projectionPresenceMarkerColumn != "" ||
+		len(options.preserveProjectionPresenceNames) != 0 || options.twoScanPivotPreview || options.dynamicPivotPreview {
+		return ""
+	}
+	stage := stages[0]
+	group := stage.Group
+	if stage.ID != sequence.FinalStageID || stage.InputStageID != sequence.SourceStageID ||
+		stage.Kind != ir.PhysicalStageGroupOp || group == nil || len(group.Keys) == 0 ||
+		group.RootContributorInputColumn != "" ||
+		!constructionGroupCountsOnlyRows(group) ||
+		(len(group.RowValues) > 0 && !constructionGroupRowValuesCanAggregate(group.RowValues)) {
+		return ""
+	}
+	if len(sourcePlan.Operations) < 6 || sourcePlan.PreviewSourceWindowByRootID ||
+		sourcePlan.Operations[0].Kind != ir.PhysicalRootScanOp || sourcePlan.Operations[0].RootScan == nil ||
+		sourcePlan.Operations[0].RootScan.Population != nil {
+		return ""
+	}
+	last := len(sourcePlan.Operations) - 1
+	if sourcePlan.Operations[last].Kind != ir.PhysicalReturnOp || sourcePlan.Operations[last].Return == nil {
+		return ""
+	}
+	for index, operation := range sourcePlan.Operations[:last] {
+		switch {
+		case index == 0:
+			if operation.Kind != ir.PhysicalRootScanOp || operation.RootScan == nil {
+				return ""
+			}
+		case index < 5:
+			if operation.Kind != ir.PhysicalFilterOp && operation.Kind != ir.PhysicalDerivedLetOp {
+				return ""
+			}
+		default:
+			if operation.Kind != ir.PhysicalFilterOp && operation.Kind != ir.PhysicalExpressionLetOp {
+				return ""
+			}
+		}
+	}
+	if stage.InputRowVariable == "" {
+		return ""
+	}
+	if _, collision := physicalPlanVariableNames(sourcePlan)[stage.InputRowVariable]; collision {
+		return ""
+	}
+	return stage.InputRowVariable
 }
 
 // codedGroupSourceRootVariable returns the physical root variable only when
@@ -427,7 +573,7 @@ func pruneUnusedSourceGroupProjections(plan *ir.PhysicalPlan, sequence *ir.Physi
 	if groupStage.Kind != ir.PhysicalStageGroupOp || groupStage.Group == nil || groupStage.InputStageID != sequence.SourceStageID {
 		return
 	}
-	required := make(map[string]bool, len(groupStage.Group.Keys)+len(groupStage.Group.Aggregates))
+	required := make(map[string]bool, len(groupStage.Group.Keys)+len(groupStage.Group.Aggregates)+len(groupStage.Group.RowValues))
 	for _, key := range groupStage.Group.Keys {
 		required[key.InputColumn] = true
 	}
@@ -435,6 +581,12 @@ func pruneUnusedSourceGroupProjections(plan *ir.PhysicalPlan, sequence *ir.Physi
 		if aggregate.InputColumn != "" {
 			required[aggregate.InputColumn] = true
 		}
+	}
+	for _, rowValue := range groupStage.Group.RowValues {
+		required[rowValue.InputColumn] = true
+	}
+	if groupStage.Group.RootContributorInputColumn != "" {
+		required[groupStage.Group.RootContributorInputColumn] = true
 	}
 	for index := range plan.Operations {
 		operation := &plan.Operations[index]
@@ -448,6 +600,212 @@ func pruneUnusedSourceGroupProjections(plan *ir.PhysicalPlan, sequence *ir.Physi
 			}
 		}
 		operation.Return.Projections = projections
+	}
+	pruneUnusedSourceGroupOperations(plan)
+}
+
+// pruneUnusedSourceGroupOperations removes root-row LETs and sets that cannot
+// affect a source Group's retained projection, filters, or execution window.
+// It only handles the row-preserving root-scan shape; plans with any other
+// top-level operation keep their original source query.
+func pruneUnusedSourceGroupOperations(plan *ir.PhysicalPlan) {
+	if plan == nil || len(plan.Operations) < 2 ||
+		plan.Operations[0].Kind != ir.PhysicalRootScanOp || plan.Operations[0].RootScan == nil ||
+		plan.Operations[0].RootScan.Population != nil {
+		return
+	}
+	rootVariable := plan.Operations[0].RootScan.Variable
+	if rootVariable == "" {
+		return
+	}
+
+	returnCount := 0
+	for index, operation := range plan.Operations {
+		switch operation.Kind {
+		case ir.PhysicalRootScanOp:
+			if index != 0 {
+				return
+			}
+		case ir.PhysicalFilterOp:
+			if operation.Filter == nil {
+				return
+			}
+		case ir.PhysicalDerivedLetOp:
+			if operation.DerivedLet == nil || operation.DerivedLet.Variable == "" {
+				return
+			}
+		case ir.PhysicalExpressionLetOp:
+			if operation.ExpressionLet == nil || operation.ExpressionLet.Variable == "" {
+				return
+			}
+		case ir.PhysicalSetOp:
+			if operation.Set == nil || operation.Set.Variable == "" {
+				return
+			}
+		case ir.PhysicalSortOp:
+			if operation.Sort == nil {
+				return
+			}
+		case ir.PhysicalLimitOp:
+			if operation.Limit == nil {
+				return
+			}
+		case ir.PhysicalReturnOp:
+			returnCount++
+			if operation.Return == nil || index != len(plan.Operations)-1 {
+				return
+			}
+			for _, projection := range operation.Return.Projections {
+				if !directRootCategoryProjection(projection, rootVariable) {
+					return
+				}
+			}
+		default:
+			return
+		}
+	}
+	if returnCount != 1 {
+		return
+	}
+
+	needed := map[string]struct{}{rootVariable: {}}
+	keep := make([]bool, len(plan.Operations))
+	keep[0] = true
+	for index, operation := range plan.Operations {
+		if operation.Kind == ir.PhysicalFilterOp || operation.Kind == ir.PhysicalSortOp ||
+			operation.Kind == ir.PhysicalLimitOp || operation.Kind == ir.PhysicalReturnOp {
+			keep[index] = true
+			addSourceGroupOperationReferences(needed, operation)
+		}
+	}
+
+	for index := len(plan.Operations) - 1; index > 0; index-- {
+		operation := plan.Operations[index]
+		variables, producer := sourceGroupOperationVariables(operation)
+		if !producer {
+			continue
+		}
+		live := false
+		for _, variable := range variables {
+			if _, found := needed[variable]; found {
+				live = true
+				break
+			}
+		}
+		if !live {
+			continue
+		}
+		keep[index] = true
+		addSourceGroupOperationReferences(needed, operation)
+	}
+
+	operations := plan.Operations[:0]
+	for index, operation := range plan.Operations {
+		if keep[index] {
+			operations = append(operations, operation)
+		}
+	}
+	plan.Operations = operations
+}
+
+func sourceGroupOperationVariables(operation ir.PhysicalOperation) ([]string, bool) {
+	switch operation.Kind {
+	case ir.PhysicalDerivedLetOp:
+		return []string{operation.DerivedLet.Variable}, true
+	case ir.PhysicalExpressionLetOp:
+		return []string{operation.ExpressionLet.Variable}, true
+	case ir.PhysicalSetOp:
+		variables := []string{operation.Set.Variable}
+		if operation.Set.Reduction != nil {
+			variables = append(variables, operation.Set.Reduction.Variable)
+		}
+		if operation.Set.Prepared != nil {
+			variables = append(variables, operation.Set.Prepared.Variable)
+		}
+		return variables, true
+	default:
+		return nil, false
+	}
+}
+
+func addSourceGroupOperationReferences(needed map[string]struct{}, operation ir.PhysicalOperation) {
+	physicalValueType := reflect.TypeOf(ir.PhysicalValue{})
+	physicalObjectLookupType := reflect.TypeOf(ir.PhysicalObjectLookup{})
+	physicalObjectKeysType := reflect.TypeOf(ir.PhysicalObjectKeys{})
+	physicalPreparedReferenceType := reflect.TypeOf(ir.PhysicalPreparedReference{})
+	physicalPreparedSetType := reflect.TypeOf(ir.PhysicalPreparedSet{})
+	physicalSetType := reflect.TypeOf(ir.PhysicalSet{})
+	physicalSubplanType := reflect.TypeOf(ir.PhysicalSubplan{})
+	visited := map[uintptr]struct{}{}
+	var visit func(reflect.Value)
+	visit = func(value reflect.Value) {
+		if !value.IsValid() {
+			return
+		}
+		if value.Type() == physicalValueType {
+			variable := value.FieldByName("Variable").String()
+			if variable != "" {
+				needed[variable] = struct{}{}
+			}
+			return
+		}
+		switch value.Type() {
+		case physicalObjectLookupType:
+			addSourceGroupVariableReference(needed, value.FieldByName("ObjectVariable").String())
+		case physicalObjectKeysType:
+			addSourceGroupVariableReference(needed, value.FieldByName("ObjectVariable").String())
+		case physicalPreparedReferenceType:
+			addSourceGroupVariableReference(needed, value.FieldByName("SetVariable").String())
+		case physicalPreparedSetType:
+			addSourceGroupVariableReference(needed, value.FieldByName("SourceSetVariable").String())
+		case physicalSetType:
+			addSourceGroupVariableReference(needed, value.FieldByName("SourceSetVariable").String())
+		case physicalSubplanType:
+			captures := value.FieldByName("Captures")
+			for index := 0; index < captures.Len(); index++ {
+				addSourceGroupVariableReference(needed, captures.Index(index).String())
+			}
+		}
+		switch value.Kind() {
+		case reflect.Interface, reflect.Pointer:
+			if value.IsNil() {
+				return
+			}
+			if value.Kind() == reflect.Pointer {
+				pointer := value.Pointer()
+				if _, found := visited[pointer]; found {
+					return
+				}
+				visited[pointer] = struct{}{}
+			}
+			visit(value.Elem())
+		case reflect.Struct:
+			for index := 0; index < value.NumField(); index++ {
+				field := value.Field(index)
+				if field.CanInterface() {
+					visit(field)
+				}
+			}
+		case reflect.Slice, reflect.Array:
+			for index := 0; index < value.Len(); index++ {
+				visit(value.Index(index))
+			}
+		case reflect.Map:
+			iterator := value.MapRange()
+			for iterator.Next() {
+				visit(iterator.Value())
+			}
+		}
+	}
+	visit(reflect.ValueOf(operation))
+	if operation.Kind == ir.PhysicalSetOp && operation.Set != nil && operation.Set.SourceSetVariable != "" {
+		needed[operation.Set.SourceSetVariable] = struct{}{}
+	}
+}
+
+func addSourceGroupVariableReference(needed map[string]struct{}, variable string) {
+	if variable != "" {
+		needed[variable] = struct{}{}
 	}
 }
 

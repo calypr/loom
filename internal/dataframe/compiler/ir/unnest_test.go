@@ -156,6 +156,28 @@ func TestClonePhysicalUnnestClonesExpression(t *testing.T) {
 	}
 }
 
+func TestClonePhysicalUnnestClonesTypedFallbackBinding(t *testing.T) {
+	plan := depthTwoUnnestPlan(t)
+	fallback, err := spec.ParseSelector("identifier.value")
+	if err != nil {
+		t.Fatal(err)
+	}
+	index := 0
+	fallback.Steps[0].Index = &index
+	plan.Operations[1].Unnest.Expression.Extract.Fallbacks = []PhysicalSelectorFallback{{
+		Source: PhysicalValue{Variable: "root", Path: []string{"payload"}}, ResourceType: "Patient", Selector: fallback,
+	}}
+	copy := ClonePhysicalPlan(plan)
+	cloned := &copy.Operations[1].Unnest.Expression.Extract.Fallbacks[0]
+	cloned.Source.Path[0] = "changed"
+	cloned.Selector.Steps[0].Field = "changed"
+	*cloned.Selector.Steps[0].Index = 3
+	original := plan.Operations[1].Unnest.Expression.Extract.Fallbacks[0]
+	if original.Source.Path[0] != "payload" || original.Selector.Steps[0].Field != "identifier" || *original.Selector.Steps[0].Index != 0 {
+		t.Fatalf("clone mutations changed the original typed fallback: %#v", original)
+	}
+}
+
 func contains(value, want string) bool {
 	for i := 0; i+len(want) <= len(value); i++ {
 		if value[i:i+len(want)] == want {

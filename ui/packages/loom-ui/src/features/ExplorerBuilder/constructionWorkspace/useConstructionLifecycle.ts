@@ -28,7 +28,7 @@ export type ConstructionLifecycleClient = Pick<
 
 export type ConstructionCandidateIntent = Pick<
   ConstructionProposalRequest,
-  'candidateConstruction' | 'changedStepId' | 'removeStepIds' | 'groupSource' | 'pivotSources'
+  'candidateConstruction' | 'changedStepId' | 'removeStepIds' | 'groupSource' | 'groupSources' | 'pivotSources'
 >;
 
 export type ConstructionCapabilitiesViewState =
@@ -69,6 +69,9 @@ const capabilitiesIdentity = (
 
 const errorMessage = (error: unknown, fallback: string): string =>
   error instanceof Error && error.message.trim() ? error.message : fallback;
+
+const errorIsRetryable = (error: unknown): boolean =>
+  typeof error === 'object' && error !== null && 'retryable' in error && Reflect.get(error, 'retryable') === true;
 
 const previewMatchesProposal = (
   preview: ExplorerBuilderPreviewResult | undefined,
@@ -292,6 +295,7 @@ export const useConstructionLifecycle = ({
           state: {
             status: 'error',
             message: errorMessage(error, 'Loom could not check this construction change.'),
+            retryable: errorIsRetryable(error),
           },
         });
       });

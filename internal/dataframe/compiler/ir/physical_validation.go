@@ -46,6 +46,11 @@ func (p PhysicalPlan) Validate() error {
 				return fmt.Errorf("GROUP prefixes cannot feed a private ClickHouse Combine until authorization scope is preserved by grouping")
 			}
 		}
+		for _, stage := range p.StageSequence.Stages {
+			if stage.Kind == PhysicalStageGroupOp || stage.Kind == PhysicalStageCohortGroupOp {
+				return fmt.Errorf("%s prefixes cannot feed a private ClickHouse Combine until authorization scope is preserved by grouping", stage.Kind)
+			}
+		}
 		if err := p.ClickHouseCombine.ValidateWithPrivateStage(); err != nil {
 			return fmt.Errorf("composite ClickHouse combine: %w", err)
 		}
@@ -141,6 +146,14 @@ func (p PhysicalPlan) Validate() error {
 			if operation.RootScan.Population != nil {
 				if err := validatePhysicalPopulationRootSource(*operation.RootScan.Population, p.BindVars); err != nil {
 					return fmt.Errorf("operation %d population root source: %w", i, err)
+				}
+			}
+			if operation.RootScan.CohortSource != nil {
+				if operation.RootScan.Population != nil {
+					return fmt.Errorf("operation %d cannot combine population and cohort root sources", i)
+				}
+				if err := validatePhysicalCohortRootSource(*operation.RootScan.CohortSource, p.BindVars); err != nil {
+					return fmt.Errorf("operation %d cohort root source: %w", i, err)
 				}
 			}
 			if err := definePhysicalVariable(defined, operation.RootScan.Variable); err != nil {
@@ -338,10 +351,104 @@ func (p PhysicalPlan) Validate() error {
 			return fmt.Errorf("construction stage sequence: %w", err)
 		}
 	}
+	if err := validateCohortRootSourceProof(p); err != nil {
+		return err
+	}
+	return nil
+}
+
+func validateCohortRootSourceProof(plan PhysicalPlan) error {
+	var source *PhysicalCohortRootSource
+	for _, operation := range plan.Operations {
+		if operation.RootScan != nil && operation.RootScan.CohortSource != nil {
+			source = operation.RootScan.CohortSource
+			break
+		}
+	}
+	if source == nil {
+		return nil
+	}
+	if source.CohortStageID != "group_rows" || source.CohortInputStageID == "" || source.RootIdentityColumn != "_key" || source.RootResourceType == "" || source.RootResourceType != plan.Source.ResourceType {
+		return fmt.Errorf("cohort root source has invalid typed identity proof")
+	}
+	if plan.StageSequence == nil {
+		return nil
+	}
+	for _, stage := range plan.StageSequence.Stages {
+		if stage.ID != source.CohortStageID || stage.Kind != PhysicalStageCohortGroupOp || stage.CohortGroup == nil {
+			continue
+		}
+		if stage.InputStageID != source.CohortInputStageID {
+			return fmt.Errorf("cohort root source input stage differs from typed cohort stage")
+		}
+		rows := stage.CohortGroup.Rows
+		if source.RevisionCollectionBindKey != rows.RevisionCollectionBindKey ||
+			source.SelectionCollectionBindKey != rows.SelectionCollectionBindKey ||
+			source.SelectionMembersCollectionBindKey != rows.SelectionMembersCollectionBindKey ||
+			source.MembershipsCollectionBindKey != rows.MembershipsCollectionBindKey ||
+			source.RevisionIDBindKey != rows.RevisionIDBindKey ||
+			source.ProjectBindKey != rows.ProjectBindKey ||
+			source.DatasetGenerationBindKey != rows.DatasetGenerationBindKey ||
+			source.ResourceTypeBindKey != rows.ResourceTypeBindKey ||
+			source.PolicyBindKey != rows.PolicyBindKey {
+			return fmt.Errorf("cohort root source bindings differ from the typed cohort stage")
+		}
+		for _, column := range stage.InputColumns {
+			if column.Internal && column.Name == source.RootIdentityColumn && column.RootContributorResourceType == source.RootResourceType &&
+				column.Kind == "string" && column.Cardinality == "required_one" {
+				return nil
+			}
+		}
+		return fmt.Errorf("cohort root source requires one exact root identity per cohort input row")
+	}
+	return fmt.Errorf("cohort root source requires a typed COHORT_GROUP stage")
+}
+
+func validatePhysicalCohortRootSource(source PhysicalCohortRootSource, bindVars map[string]any) error {
+	for _, key := range []string{
+		source.RevisionCollectionBindKey,
+		source.SelectionCollectionBindKey,
+		source.SelectionMembersCollectionBindKey,
+		source.MembershipsCollectionBindKey,
+	} {
+		if err := requireCollectionBind(bindVars, key); err != nil {
+			return err
+		}
+	}
+	for _, key := range []string{
+		source.RevisionIDBindKey,
+		source.ProjectBindKey,
+		source.DatasetGenerationBindKey,
+		source.ResourceTypeBindKey,
+		source.PolicyBindKey,
+	} {
+		if err := requireBind(bindVars, key); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
 func validatePhysicalGroupRows(rows PhysicalGroupRows, bindVars map[string]any) error {
+	outputs := map[string]bool{"group_revision_id": true, "group_id": true, "group_label": true, "group_ordinal": true, "members": true, "__loom_row_id": true}
+	for index, value := range rows.MemberValues {
+		if !physicalVariablePattern.MatchString(value.Output) || outputs[value.Output] {
+			return fmt.Errorf("cohort member value %d has invalid or colliding output %q", index, value.Output)
+		}
+		outputs[value.Output] = true
+		if !validTableScalarKind(value.Kind) && value.Kind != "OBJECT" {
+			return fmt.Errorf("cohort member value %q has invalid kind %q", value.Output, value.Kind)
+		}
+		if value.Policy != "ALL" && value.Policy != "ONE" {
+			return fmt.Errorf("cohort member value %q has invalid policy %q", value.Output, value.Policy)
+		}
+		if value.Expression.Kind != PhysicalExtractExpression || value.Expression.Extract == nil || value.Expression.Extract.Source.Variable != "cohort_member" || len(value.Expression.Extract.Source.Path) != 1 || value.Expression.Extract.Source.Path[0] != "payload" {
+			return fmt.Errorf("cohort member value %q must select the exact member payload", value.Output)
+		}
+		if err := validatePhysicalExpression(value.Expression, map[string]bool{"cohort_member": true}, bindVars); err != nil {
+			return fmt.Errorf("cohort member value %q: %w", value.Output, err)
+		}
+	}
 	for _, key := range []string{
 		rows.RevisionCollectionBindKey, rows.SelectionCollectionBindKey,
 		rows.DefinitionsCollectionBindKey, rows.MembershipsCollectionBindKey,
@@ -813,6 +920,25 @@ func validatePhysicalUnnest(unnest PhysicalUnnest, defined map[string]bool, bind
 	if unnest.Expression.Cardinality != PhysicalArrayCardinality {
 		return fmt.Errorf("unnest source expression must be array-valued, got %q", unnest.Expression.Cardinality)
 	}
+	if len(unnest.Ancestors) > 0 {
+		if unnest.Expression.Extract == nil {
+			return fmt.Errorf("unnest ancestry requires an extract source")
+		}
+		seenAncestorSteps := map[int]bool{}
+		for index, ancestor := range unnest.Ancestors {
+			steps := unnest.Expression.Extract.Selector.Steps
+			if !physicalVariablePattern.MatchString(ancestor.Variable) {
+				return fmt.Errorf("unnest ancestor %d variable %q is unsafe", index, ancestor.Variable)
+			}
+			if ancestor.StepIndex < 0 || ancestor.StepIndex >= len(steps)-1 || !steps[ancestor.StepIndex].Iterate {
+				return fmt.Errorf("unnest ancestor %d does not identify a repeated prefix selector step", index)
+			}
+			if seenAncestorSteps[ancestor.StepIndex] {
+				return fmt.Errorf("unnest repeats ancestor selector step %d", ancestor.StepIndex)
+			}
+			seenAncestorSteps[ancestor.StepIndex] = true
+		}
+	}
 	if unnest.Expression.Extract != nil && len(owner.Route) > 0 {
 		if unnest.Expression.Extract.Source.Variable != owner.OwnerVariable || unnest.Expression.Extract.ResourceType != owner.ResourceType {
 			return fmt.Errorf("unnest source expression is not bound to its exact owner occurrence")
@@ -881,6 +1007,11 @@ func definePhysicalUnnestOutputs(unnest PhysicalUnnest, defined map[string]bool)
 			continue
 		}
 		if err := definePhysicalVariable(defined, variable); err != nil {
+			return err
+		}
+	}
+	for _, ancestor := range unnest.Ancestors {
+		if err := definePhysicalVariable(defined, ancestor.Variable); err != nil {
 			return err
 		}
 	}

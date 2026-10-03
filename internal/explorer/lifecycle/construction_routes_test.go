@@ -103,6 +103,40 @@ func TestConstructionChoiceSearchAndApplyUseCompilerProvedInboundRoute(t *testin
 	}
 }
 
+func TestConstructionChoiceAppliesRelatedAllForScalarField(t *testing.T) {
+	store, service, snapshot, _, candidate := inboundPatientObservationRouteFixture(t)
+	search, err := service.SearchConstructionChoices(context.Background(), ConstructionChoiceSearchRequest{
+		Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token, OutputID: "patients",
+		Source: ConstructionChoiceSearchSource{Kind: capability.ConstructionChoiceSourceField, CandidateID: candidate.ID},
+	})
+	if err != nil || len(search.Choices) != 1 {
+		t.Fatalf("route-bound search = %#v, %v", search, err)
+	}
+	var allSupported bool
+	for _, option := range search.Choices[0].Options {
+		if option.Form == capability.ConstructionChoiceAll && option.Support == capability.ConstructionChoiceSupported {
+			allSupported = true
+		}
+	}
+	if !allSupported {
+		t.Fatalf("related scalar ALL form was not advertised: %#v", search.Choices[0].Options)
+	}
+	response, err := service.ApplyCommands(context.Background(), "project-a", "patients",
+		constructionChoiceRequest(snapshot, "inbound-route-all", search.Choices[0].ChoiceID, capability.ConstructionChoiceAll), "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if store.saveDraftCalls != 1 {
+		t.Fatalf("applying advertised ALL saved the draft %d times, want once", store.saveDraftCalls)
+	}
+	document := response.Workspace.Documents[0]
+	column := document.Columns[len(document.Columns)-1]
+	if column.Source.Field == nil || column.Source.Field.Path != "status" || column.Source.Field.ProjectionMode != "ALL" ||
+		column.OccurrenceID != document.Route.Children[len(document.Route.Children)-1].OccurrenceID {
+		t.Fatalf("applied route-bound ALL source = %#v", column)
+	}
+}
+
 func TestConstructionChoiceSearchExplainsUnsupportedObjectField(t *testing.T) {
 	_, service, snapshot, _, candidate := inboundPatientObservationRouteFixture(t)
 	unsupported := candidate
@@ -175,7 +209,7 @@ func TestRelatedExpandChoiceSearchPinsRouteToCompilerSupportedStage(t *testing.T
 }
 
 func TestRelatedExpandContributorChoicesBindToSelectedRootAndActiveRoutes(t *testing.T) {
-	store, service, snapshot, _, candidate := inboundPatientObservationRouteFixture(t)
+	store, service, snapshot, catalog, candidate := inboundPatientObservationRouteFixture(t)
 	candidate.Observed = true
 	candidate.Populated = true
 	candidate.ObservedDocumentCount = 7
@@ -192,6 +226,27 @@ func TestRelatedExpandContributorChoicesBindToSelectedRootAndActiveRoutes(t *tes
 		FieldPath: "valueQuantity.value", Label: "Observation value", LogicalType: "decimal", Cardinality: "optional_one",
 		ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar},
 	})
+	repeatedCode := capability.Candidate{
+		ID: "observation-category-code", NodeID: "observation", ResourceType: "Observation",
+		FieldPath: "category[].coding[].code", Label: "Observation category code", LogicalType: "code", Cardinality: "many",
+		RepeatedBoundaries: []capability.RepeatedBoundary{
+			{Path: "category[]", MaxItems: 2}, {Path: "category[].coding[]", MaxItems: 4},
+		},
+		ProjectionModes: []capability.ProjectionMode{capability.ProjectionArray}, SuggestedValues: []string{"d", "t"},
+		SuggestionsComplete: true,
+	}
+	snapshot.Candidates = append(snapshot.Candidates, repeatedCode)
+	repeatedCatalogChoice, err := capability.NewFieldConstructionChoice(snapshot.Token, repeatedCode)
+	if err != nil {
+		t.Fatal(err)
+	}
+	catalog.Candidates = append(catalog.Candidates, authoringv2.CatalogCandidate{
+		ID: repeatedCode.ID, NodeID: repeatedCode.NodeID, FieldPath: repeatedCode.FieldPath, Label: repeatedCode.Label,
+		LogicalType: repeatedCode.LogicalType, Cardinality: repeatedCode.Cardinality, Repeated: true,
+		ProjectionModes: []string{"ARRAY"}, DefaultProjectionMode: "ARRAY",
+		RepeatedBoundaries: []authoringv2.RepeatedBoundary{{Path: "category[]", MaxItems: 2}, {Path: "category[].coding[]", MaxItems: 4}},
+		ConstructionChoice: &repeatedCatalogChoice,
+	})
 	snapshot.Candidates = append(snapshot.Candidates, capability.Candidate{
 		ID: "specimen-id", NodeID: "specimen", ResourceType: "Specimen",
 		FieldPath: "id", Label: "FHIR resource ID", LogicalType: "string", Cardinality: "required_one",
@@ -206,6 +261,7 @@ func TestRelatedExpandContributorChoicesBindToSelectedRootAndActiveRoutes(t *tes
 	service.config.Capability.ForCompilation = func(context.Context, string, string) (AuthorizedCapability, error) {
 		return AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
 	}
+	service.config.Capability.Catalog = func(capability.Snapshot, string) authoringv2.CatalogSnapshot { return catalog }
 	service.config.CompileReceipt = func(_ context.Context, request CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
 		receipt := lifecycleTableShapeReceipt(snapshot, request.Workspace)
 		root := explorer.ReceiptConstructionRelatedExpandAnchor{AnchorColumnID: "_key", Kind: "root", ResourceType: "Patient", Label: "Original Patient"}
@@ -289,6 +345,47 @@ func TestRelatedExpandContributorChoicesBindToSelectedRootAndActiveRoutes(t *tes
 		!rootChoice.SuggestionsComplete || rootChoice.SuggestionsTruncated || rootChoice.SuggestionsSource != "catalog" ||
 		len(rootChoice.SuggestedValues) != 2 || rootChoice.SuggestedValues[0] != "final" || rootChoice.SuggestedValues[1] != "preliminary" {
 		t.Fatalf("root-route catalog choice = %#v", rootChoice)
+	}
+	repeatedResult := searchContributors(recipe.ConstructionSourceProjectionID, rootRoute, "category[].coding", 10, "")
+	if !repeatedResult.Complete || len(repeatedResult.Choices) != 1 {
+		t.Fatalf("repeated scalar contributor choices = %#v", repeatedResult)
+	}
+	repeatedChoice := repeatedResult.Choices[0]
+	if repeatedChoice.Source.CandidateID != repeatedCode.ID || repeatedChoice.Source.Path != repeatedCode.FieldPath ||
+		repeatedChoice.Source.Cardinality != "many" || repeatedChoice.Source.LogicalType != "string" ||
+		!reflect.DeepEqual(repeatedChoice.Source.RepeatedBoundaries, repeatedCode.RepeatedBoundaries) ||
+		len(repeatedChoice.Operators) != 2 || repeatedChoice.Operators[0] != "EXISTS" || repeatedChoice.Operators[1] != "EQUALS" ||
+		!reflect.DeepEqual(repeatedChoice.SuggestedValues, []string{"d", "t"}) {
+		t.Fatalf("repeated contributor choice = %#v", repeatedChoice)
+	}
+	repeatedIdentity, err := capability.DecodeConstructionChoiceID(repeatedChoice.ChoiceID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signedRepeatedSource, ok := repeatedIdentity.Source.(capability.FieldChoiceSource)
+	if !ok || !reflect.DeepEqual(signedRepeatedSource.RepeatedBoundaries, repeatedChoice.Source.RepeatedBoundaries) ||
+		!reflect.DeepEqual(repeatedIdentity.Route, rootRoute.Route) {
+		t.Fatalf("repeated contributor choice did not sign exact boundaries and route: source=%#v route=%#v", repeatedIdentity.Source, repeatedIdentity.Route)
+	}
+	contributorValue := "d"
+	repeatedRelated := authoringv2.ConstructionRelatedExpand{
+		ChoiceID: rootRoute.ChoiceID, TargetNodeID: rootRoute.TargetNodeID, TargetResourceType: rootRoute.TargetResourceType,
+		Route: rootRoute.Route, ContributorChoiceID: repeatedChoice.ChoiceID, ContributorSource: &repeatedChoice.Source,
+		ContributorRule: authoringv2.ConstructionRelatedContributorRule{Policy: authoringv2.ConstructionRelatedAllMatches, Predicate: &authoringv2.ContributorPredicate{
+			CandidateID: repeatedCode.ID, Operator: authoringv2.ContributorEquals, Quantifier: authoringv2.ContributorAny,
+			Value: &authoringv2.ContributorValue{Kind: authoringv2.ContributorString, String: &contributorValue},
+		}},
+	}
+	base := constructionBase{snapshot: snapshot, authorized: AuthorizedCapability{Snapshot: snapshot, Scope: scope}, catalog: catalog}
+	if err := reauthorizeRelatedExpandContributor(context.Background(), base, "Patient", repeatedRelated); err != nil {
+		t.Fatalf("repeated contributor signed choice reauthorization: %v", err)
+	}
+	tamperedSource := repeatedChoice.Source
+	tamperedSource.RepeatedBoundaries = append([]capability.RepeatedBoundary(nil), repeatedChoice.Source.RepeatedBoundaries...)
+	tamperedSource.RepeatedBoundaries[1].MaxItems++
+	repeatedRelated.ContributorSource = &tamperedSource
+	if err := reauthorizeRelatedExpandContributor(context.Background(), base, "Patient", repeatedRelated); err == nil || lifecycleErrorCode(err) != "INVALID_CONSTRUCTION_CHOICE" {
+		t.Fatalf("tampered repeated boundaries were not rejected as an invalid signed choice: %v", err)
 	}
 	rootIdentity, err := capability.DecodeConstructionChoiceID(rootChoice.ChoiceID)
 	if err != nil || !reflect.DeepEqual(rootIdentity.Route, rootRoute.Route) {

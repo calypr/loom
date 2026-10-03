@@ -62,9 +62,18 @@ func (w Workspace) CanonicalJSON() ([]byte, error) {
 // return to the Builder.
 func (w Workspace) NormalizePresentationOrders() Workspace {
 	n := w
-	n.Documents = append([]Document(nil), w.Documents...)
+	n.Documents = make([]Document, len(w.Documents))
+	copy(n.Documents, w.Documents)
 	for documentIndex := range n.Documents {
 		document := &n.Documents[documentIndex]
+		if document.Rows.Groups != nil {
+			groups := *document.Rows.Groups
+			groups.RowValues = append([]ExplicitGroupRowValue(nil), groups.RowValues...)
+			sort.Slice(groups.RowValues, func(i, j int) bool {
+				return groups.RowValues[i].ColumnID < groups.RowValues[j].ColumnID
+			})
+			document.Rows.Groups = &groups
+		}
 		columns := append([]Column(nil), document.Columns...)
 		if columns == nil {
 			columns = []Column{}
@@ -96,14 +105,25 @@ func (w Workspace) NormalizePresentationOrders() Workspace {
 			}
 			return left.Column < right.Column
 		})
-		tableOrder := 0
+		cohortMembers := map[string]bool{}
+		if document.Rows.Kind == RowDefinitionGroups && document.Rows.Groups != nil && document.Rows.Groups.Source.Kind == GroupSourceExplicit {
+			for _, value := range document.Rows.Groups.RowValues {
+				cohortMembers[value.ColumnID] = true
+			}
+		}
+		tableOrder, cohortOrder := 0, 3
 		for columnIndex := range columns {
 			if columns[columnIndex].Table == nil {
 				continue
 			}
 			value := tableOrder
+			if cohortMembers[columns[columnIndex].ColumnID] {
+				value = cohortOrder
+				cohortOrder++
+			} else {
+				tableOrder++
+			}
 			columns[columnIndex].Table.Order = &value
-			tableOrder++
 		}
 		normalizeFilterOrders(columns)
 		normalizeChartOrders(columns)

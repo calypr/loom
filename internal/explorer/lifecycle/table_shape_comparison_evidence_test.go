@@ -169,7 +169,7 @@ func TestTableShapeExclusionExecutorFailureDegradesWithStableLimitation(t *testi
 			return dataframeexecution.TableShapeExclusionResult{}, errors.New("backend detail must not cross the response boundary")
 		},
 	}}
-	comparison := unavailableTableShapeComparison("PREVIEW_UNAVAILABLE", "preview unavailable")
+	comparison := tableShapeEvidenceComparison()
 	if err := service.attachTableShapeReceiptEvidence(context.Background(), tableShapeEvidenceReceipt(nil), candidate, recipe.RuntimeBindings{}, "patients", &comparison); err != nil {
 		t.Fatal(err)
 	}
@@ -210,7 +210,7 @@ func TestTableShapeExclusionExecutorCannotExceedFixedComparisonPage(t *testing.T
 			}, nil
 		},
 	}}
-	comparison := unavailableTableShapeComparison("PREVIEW_UNAVAILABLE", "preview unavailable")
+	comparison := tableShapeEvidenceComparison()
 	if err := service.attachTableShapeReceiptEvidence(context.Background(), tableShapeEvidenceReceipt(nil), candidate, recipe.RuntimeBindings{}, "patients", &comparison); err != nil {
 		t.Fatal(err)
 	}
@@ -219,6 +219,13 @@ func TestTableShapeExclusionExecutorCannotExceedFixedComparisonPage(t *testing.T
 	}
 	if len(comparison.EvidenceLimitations) != 1 || comparison.EvidenceLimitations[0].Code != "TABLE_SHAPE_EXCLUSIONS_SAMPLED" {
 		t.Fatalf("oversized executor limitations = %#v", comparison.EvidenceLimitations)
+	}
+}
+
+func tableShapeEvidenceComparison() TableShapeComparison {
+	return TableShapeComparison{
+		Status: TableShapeComparisonAvailable, ChangedColumns: []string{}, ChangedRows: []TableShapeChangedRow{},
+		Contributors: []TableShapeContributor{}, EvidenceLimitations: []TableShapeEvidenceLimitation{}, Notices: []string{},
 	}
 }
 

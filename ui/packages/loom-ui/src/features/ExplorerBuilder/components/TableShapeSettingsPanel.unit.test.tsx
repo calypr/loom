@@ -422,6 +422,25 @@ describe('TableShapeSettingsPanel receipt-driven controller', () => {
     expect(screen.queryByTestId('ui04-confirm-table-shape')).toBeNull();
   });
 
+  it('retains editable values when execution fails instead of offering an unavailable review', async () => {
+    const client = makeClient({ proposeTableShape: vi.fn(async () => { throw Object.assign(new Error('The candidate preview failed.'), { status: 500 }); }) });
+    const { onApply } = renderPanel(client);
+    await open();
+    fireEvent.click(screen.getByRole('button', { name: 'Add derived column' }));
+    enter('Derived column 1 output column', 'calculated');
+    enter('Derived column 1 output label', 'Calculated');
+    choose('Derived column 1 operation', 'add');
+    choose('Derived column 1 first operand', 'weight');
+    choose('Derived column 1 second operand', 'height');
+    choose('Derived column 1 missing-input policy', 'missing-propagate');
+    fireEvent.click(screen.getByRole('button', { name: 'Preview table shape' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('The candidate preview failed.');
+    expect(screen.getByDisplayValue('calculated')).toBeTruthy();
+    expect(screen.getByRole('combobox', { name: 'Derived column 1 first operand' })).toBeEnabled();
+    expect(screen.queryByTestId('ui04-confirm-table-shape')).toBeNull();
+    expect(onApply).not.toHaveBeenCalled();
+  });
+
   it('requires a separate confirmation to apply the proposal through the receipt command', async () => {
     const onApply = vi.fn(async () => true);
     const client = makeClient();

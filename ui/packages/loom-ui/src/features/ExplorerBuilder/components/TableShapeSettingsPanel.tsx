@@ -283,6 +283,13 @@ export const TableShapeSettingsPanel = (props: TableShapeSettingsPanelProps) => 
         setState({ kind: 'stale', session, intent, proposal, message: 'Loom returned a proposal for an older table or draft. Reload settings.' });
         return;
       }
+      if (proposal.comparison.status !== 'AVAILABLE' || !proposal.proposalId) {
+        setState({
+          kind: 'editing', session,
+          recoverableError: proposal.comparison.status === 'UNAVAILABLE' ? proposal.comparison.reason : 'Loom returned an incomplete table-shape preview. Your edits are still here.',
+        });
+        return;
+      }
       setState({ kind: 'review', session, intent, proposal });
     } catch (error) {
       if (isOperationCurrent(operation, session)) {

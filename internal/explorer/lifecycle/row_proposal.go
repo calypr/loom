@@ -241,10 +241,12 @@ type ExplicitGroupRevisionListRequest struct {
 	Project          string
 	Snapshot         capability.Snapshot
 	RootResourceType string
+	PinnedRevisionID string
 }
 
 type ExplicitGroupRevisionChoice struct {
 	RevisionID               string                               `json:"revisionId"`
+	SourceSelectionRevisionID string                               `json:"sourceSelectionRevisionId,omitempty"`
 	GroupCount               int64                                `json:"groupCount"`
 	MemberCount              int64                                `json:"memberCount"`
 	CreatedAt                time.Time                            `json:"createdAt"`
@@ -278,6 +280,9 @@ type ExplicitGroupRevisionResolver interface {
 func (s *Service) ProposeRowDefinition(ctx context.Context, request RowDefinitionProposalRequest) (RowDefinitionProposal, error) {
 	if err := request.Validate(); err != nil {
 		return RowDefinitionProposal{}, malformed("row-definition-proposal", err.Error(), err)
+	}
+	if request.Selection.Kind == RowDefinitionSelectionFieldGroup {
+		return RowDefinitionProposal{}, unsupportedFieldGroupRowDefinition()
 	}
 	if s.config.Capability.ForCompilation == nil || s.config.Capability.Catalog == nil || s.config.CompileReceipt == nil {
 		return RowDefinitionProposal{}, unavailable("row-definition-proposal", "PROPOSAL_UNAVAILABLE", "row definition proposal compilation is not configured", nil)
@@ -321,6 +326,9 @@ func (s *Service) ProposeRowDefinition(ctx context.Context, request RowDefinitio
 	if err != nil {
 		return RowDefinitionProposal{}, err
 	}
+	if s.config.PreviewReceipt == nil || s.config.Capability.ForExecution == nil {
+		return RowDefinitionProposal{}, unavailable("row-definition-proposal", "PREVIEW_UNAVAILABLE", "row definition preview execution is not configured", nil)
+	}
 	command := authoringv2.Command{Type: authoringv2.CommandApplyRowDefinitionProposal, OutputID: request.OutputID, ProposalID: "proposal-preview"}
 	if err := command.ResolveRowDefinitionProposal(rows); err != nil {
 		return RowDefinitionProposal{}, unprocessable("row-definition-proposal", "INVALID_ROW_DEFINITION", err.Error(), err)
@@ -354,17 +362,6 @@ func (s *Service) ProposeRowDefinition(ctx context.Context, request RowDefinitio
 	}
 	if err := s.validateExplicitGroupReceipt(ctx, baseGroupProof, baseReceipt); err != nil {
 		return RowDefinitionProposal{}, err
-	}
-	if request.Selection.Kind == RowDefinitionSelectionFieldGroup {
-		comparison, err := s.previewUnavailableRowDefinitionComparison(ctx, request, snapshot, baseReceipt, "GROUPED_ROW_COMPILER_UNAVAILABLE", "FIELD_GROUP row-definition execution is unavailable in this workflow.", limit)
-		if err != nil {
-			return RowDefinitionProposal{}, err
-		}
-		return RowDefinitionProposal{
-			BaseReceiptID: baseReceipt.ID, OutputID: request.OutputID, SnapshotToken: request.SnapshotToken,
-			DraftVersion: owner.DraftVersion, DraftDigest: owner.DraftDigest, BaseDocumentDigest: baseDocumentDigest,
-			CandidateWorkspaceDigest: candidateDigest, Mode: request.Selection.Kind, Comparison: comparison,
-		}, nil
 	}
 	binding := &explorer.RowDefinitionProposalBinding{
 		DraftVersion: owner.DraftVersion, DraftDigest: owner.DraftDigest, OutputID: request.OutputID,
@@ -402,21 +399,7 @@ func (s *Service) resolveRowDefinitionSelection(ctx context.Context, request Row
 	case RowDefinitionSelectionRecords:
 		return authoringv2.RecordsRowDefinition(), nil, nil
 	case RowDefinitionSelectionFieldGroup:
-		if s.config.RowChoiceResolver == nil {
-			return authoringv2.RowDefinition{}, nil, unavailable("row-definition-proposal", "ROW_CHOICE_UNAVAILABLE", "row choice resolution is not configured", nil)
-		}
-		resolved, err := s.config.RowChoiceResolver.ResolveRowChoiceID(ctx, RowChoiceResolveRequest{
-			Project: request.Project, ExplorerID: request.ExplorerID, OutputID: request.OutputID,
-			Snapshot: snapshot.Clone(), Route: document.Route, RowChoiceID: request.Selection.FieldGroup.RowChoiceID, ExpectedKind: RowChoiceFieldGroup,
-		})
-		if err != nil || validateResolvedRowChoice(document.Route, resolved, RowChoiceFieldGroup) != nil {
-			return authoringv2.RowDefinition{}, nil, conflict("row-definition-proposal", "STALE_ROW_CHOICE", "the selected field grouping choice is stale or unavailable", nil, err)
-		}
-		return authoringv2.RowDefinition{Kind: authoringv2.RowDefinitionGroups, Groups: &authoringv2.GroupedRows{
-			Source: authoringv2.GroupSource{Kind: authoringv2.GroupSourceField, Field: &authoringv2.FieldGroupSource{
-				OccurrenceID: resolved.OccurrenceID, FieldPath: resolved.FieldPath, MissingKeyPolicy: request.Selection.FieldGroup.MissingKeyPolicy,
-			}},
-		}}, nil, nil
+		return authoringv2.RowDefinition{}, nil, unsupportedFieldGroupRowDefinition()
 	case RowDefinitionSelectionExplicitGroup:
 		policy := request.Selection.ExplicitGroup
 		proof, err := s.resolveExplicitGroupRevision(ctx, ExplicitGroupRevisionResolveRequest{
@@ -426,11 +409,20 @@ func (s *Service) resolveRowDefinitionSelection(ctx context.Context, request Row
 		if err != nil {
 			return authoringv2.RowDefinition{}, nil, err
 		}
-		return authoringv2.RowDefinition{Kind: authoringv2.RowDefinitionGroups, Groups: &authoringv2.GroupedRows{
+		groups := &authoringv2.GroupedRows{
 			Source: authoringv2.GroupSource{Kind: authoringv2.GroupSourceExplicit, Explicit: &authoringv2.ExplicitGroupSource{
 				RevisionID: proof.RevisionID, UnassignedMemberPolicy: policy.UnassignedMemberPolicy,
 			}},
-		}}, &proof, nil
+		}
+		if existing := document.Rows.Groups; existing != nil && document.Rows.Kind == authoringv2.RowDefinitionGroups && existing.Source.Kind == authoringv2.GroupSourceExplicit {
+			// A policy or revision edit changes the pinned row source, not the
+			// stage boundary or the member fields already chosen for cohort rows.
+			groups.AfterStepID = existing.AfterStepID
+			groups.RowValues = append([]authoringv2.ExplicitGroupRowValue(nil), existing.RowValues...)
+		} else if document.Construction != nil && len(document.Construction.Steps) > 0 {
+			groups.AfterStepID = document.Construction.Steps[len(document.Construction.Steps)-1].ID
+		}
+		return authoringv2.RowDefinition{Kind: authoringv2.RowDefinitionGroups, Groups: groups}, &proof, nil
 	case RowDefinitionSelectionExpanded:
 		if s.config.RowChoiceResolver == nil {
 			return authoringv2.RowDefinition{}, nil, unavailable("row-definition-proposal", "ROW_CHOICE_UNAVAILABLE", "row choice resolution is not configured", nil)
@@ -449,6 +441,13 @@ func (s *Service) resolveRowDefinitionSelection(ctx context.Context, request Row
 	default:
 		return authoringv2.RowDefinition{}, nil, malformed("row-definition-proposal", "row selection kind is unsupported", nil)
 	}
+}
+
+func unsupportedFieldGroupRowDefinition() error {
+	return unprocessable(
+		"row-definition-proposal", "FIELD_GROUP_UNSUPPORTED",
+		"field-based row grouping is not supported by this workflow; choose an available row definition", nil,
+	)
 }
 
 func validateResolvedRowChoice(route authoringv2.RouteNode, resolved ResolvedRowChoice, expected RowChoiceKind) error {

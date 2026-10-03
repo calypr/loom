@@ -30,6 +30,7 @@ func (r *physicalPlanRenderer) renderConstructionCodedGroupStage(stage ir.Physic
 	systemKeyVariable := r.newInternalVariable("construction_coded_system")
 	versionKeyVariable := r.newInternalVariable("construction_coded_version")
 	codeKeyVariable := r.newInternalVariable("construction_coded_code")
+	rowValuesSource := stage.InputRowVariable
 	lines := make([]string, 0, 24)
 	if sourceRootVariable == "" {
 		lines = append(lines,
@@ -41,6 +42,14 @@ func (r *physicalPlanRenderer) renderConstructionCodedGroupStage(stage ir.Physic
 			fmt.Sprintf("    FILTER %s.project == @project", rootDocument),
 			fmt.Sprintf("    FILTER %s.dataset_generation == @dataset_generation", rootDocument),
 		)
+	}
+	if len(coded.RowValues) != 0 && sourceRootVariable != "" {
+		projection, err := r.renderReturn(ir.PhysicalReturn{Projections: coded.RowValueProjections})
+		if err != nil {
+			return nil, fmt.Errorf("row value source projection: %w", err)
+		}
+		rowValuesSource = r.newInternalVariable("construction_coded_group_row_values_source")
+		lines = append(lines, fmt.Sprintf("    LET %s = %s", rowValuesSource, projection))
 	}
 	lines = append(lines, fmt.Sprintf("    LET %s = (", rawCodings))
 	pathExpression := rootDocument + ".payload"
@@ -77,6 +86,16 @@ func (r *physicalPlanRenderer) renderConstructionCodedGroupStage(stage ir.Physic
 	default:
 		return nil, fmt.Errorf("unsupported coded-group missing-key policy %q", coded.MissingKeyPolicy)
 	}
+	rowValuesObject := "{}"
+	seenRowValueInputs := make(map[string]bool, len(coded.RowValues))
+	for _, rowValue := range coded.RowValues {
+		if seenRowValueInputs[rowValue.InputColumn] {
+			continue
+		}
+		columnBind := r.newInternalBindKeyWithValue("construction_coded_group_row_value_column", rowValue.InputColumn)
+		rowValuesObject = fmt.Sprintf("MERGE(%s, {[@%s]: %s[@%s]})", rowValuesObject, columnBind, rowValuesSource, columnBind)
+		seenRowValueInputs[rowValue.InputColumn] = true
+	}
 	lines = append(lines,
 		fmt.Sprintf("        LET %s = (%s ? %s.system : null)", coded.SystemVariable, valid, candidate),
 		fmt.Sprintf("        LET %s = (%s AND TYPENAME(%s.version) == \"string\" AND TRIM(%s.version) != \"\" ? %s.version : null)", coded.VersionVariable, valid, candidate, candidate, candidate),
@@ -84,11 +103,26 @@ func (r *physicalPlanRenderer) renderConstructionCodedGroupStage(stage ir.Physic
 		fmt.Sprintf("        COLLECT %s = %s, %s = %s, %s = %s",
 			systemKeyVariable, coded.SystemVariable, versionKeyVariable, coded.VersionVariable,
 			codeKeyVariable, coded.CodeVariable),
-		fmt.Sprintf("        RETURN {system: %s, version: %s, code: %s}", systemKeyVariable, versionKeyVariable, codeKeyVariable),
+		fmt.Sprintf("        RETURN {system: %s, version: %s, code: %s, rowValues: %s}", systemKeyVariable, versionKeyVariable, codeKeyVariable, rowValuesObject),
 		"    )",
 		fmt.Sprintf("    FOR %s IN %s", tuple, sourceTuples),
-		fmt.Sprintf("    COLLECT %s = %s.system, %s = %s.version, %s = %s.code AGGREGATE %s = SUM(1)",
-			coded.SystemVariable, tuple, coded.VersionVariable, tuple, coded.CodeVariable, tuple, coded.CountVariable),
+	)
+	if len(coded.RowValues) == 0 {
+		lines = append(lines, fmt.Sprintf("    COLLECT %s = %s.system, %s = %s.version, %s = %s.code AGGREGATE %s = SUM(1)",
+			coded.SystemVariable, tuple, coded.VersionVariable, tuple, coded.CodeVariable, tuple, coded.CountVariable))
+	} else {
+		lines = append(lines,
+			fmt.Sprintf("    COLLECT %s = %s.system, %s = %s.version, %s = %s.code INTO %s = %s",
+				coded.SystemVariable, tuple, coded.VersionVariable, tuple, coded.CodeVariable, tuple, coded.GroupRowsVariable, tuple),
+			fmt.Sprintf("    LET %s = LENGTH(%s)", coded.CountVariable, coded.GroupRowsVariable),
+		)
+		rowValueLines, rowValueErr := r.renderConstructionRowValueLets(coded.RowValues, coded.GroupRowsVariable, "rowValues")
+		if rowValueErr != nil {
+			return nil, rowValueErr
+		}
+		lines = append(lines, rowValueLines...)
+	}
+	lines = append(lines,
 		fmt.Sprintf("    SORT %s ASC, %s ASC, %s ASC", coded.SystemVariable, coded.VersionVariable, coded.CodeVariable),
 		fmt.Sprintf("  LET %s = TO_STRING([\"construction\", @%s, \"operation\", \"CODED_GROUP\", \"occurrence\", @%s, \"path\", @%s, \"system\", %s, \"version\", %s, \"code\", %s])",
 			coded.IdentityVariable, coded.ConstructionIDBindKey, coded.OccurrenceIDBindKey, coded.CodingPathBindKey,

@@ -97,7 +97,7 @@ func (r *physicalPlanRenderer) renderSlice(expression ir.PhysicalExpression) (st
 		if comparison.LeftExpression != nil && comparison.LeftExpression.Extract != nil {
 			left := *comparison.LeftExpression
 			extract := *left.Extract
-			extract.Source = ir.PhysicalValue{Variable: item, Path: []string{"payload"}}
+			rebindPhysicalExtractSource(&extract, ir.PhysicalValue{Variable: item, Path: []string{"payload"}})
 			left.Extract = &extract
 			comparison.LeftExpression = &left
 		} else {
@@ -133,7 +133,7 @@ func (r *physicalPlanRenderer) renderSlice(expression ir.PhysicalExpression) (st
 		projectionExpression := projection.Expression
 		if projectionExpression.Kind == ir.PhysicalExtractExpression && projectionExpression.Extract != nil {
 			extract := *projectionExpression.Extract
-			extract.Source = ir.PhysicalValue{Variable: item, Path: []string{"payload"}}
+			rebindPhysicalExtractSource(&extract, ir.PhysicalValue{Variable: item, Path: []string{"payload"}})
 			projectionExpression.Extract = &extract
 		}
 		previousPreparedItem := r.preparedItem
@@ -511,7 +511,7 @@ func (r *physicalPlanRenderer) renderAggregateItems(aggregate *ir.PhysicalAggreg
 		left := *comparison.LeftExpression
 		extract := *left.Extract
 		if extract.Prepared == nil {
-			extract.Source = ir.PhysicalValue{Variable: item, Path: []string{"payload"}}
+			rebindPhysicalExtractSource(&extract, ir.PhysicalValue{Variable: item, Path: []string{"payload"}})
 		}
 		left.Extract = &extract
 		comparison.LeftExpression = &left
@@ -673,7 +673,7 @@ func (r *physicalPlanRenderer) renderAggregateItemValue(expression ir.PhysicalEx
 	clone := expression
 	extract := *expression.Extract
 	if extract.Prepared == nil {
-		extract.Source = ir.PhysicalValue{Variable: item, Path: []string{"payload"}}
+		rebindPhysicalExtractSource(&extract, ir.PhysicalValue{Variable: item, Path: []string{"payload"}})
 	}
 	clone.Extract = &extract
 	previousPreparedItem := r.preparedItem

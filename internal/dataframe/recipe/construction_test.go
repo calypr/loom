@@ -103,3 +103,43 @@ func TestConstructionValidatesTypedIntermediateSequence(t *testing.T) {
 		t.Fatal("filter stage referencing a non-immediate output was accepted")
 	}
 }
+
+func TestConstructionValidatesEffectiveCohortBoundary(t *testing.T) {
+	selected := "a"
+	label := "pair"
+	construction := Construction{Version: 1, Steps: []ConstructionStep{
+		{
+			ID: "source_filter", Inputs: []ConstructionInputRef{{Kind: ConstructionSourceProjectionInput}},
+			Operation: ConstructionOperation{Kind: ConstructionFilterOp, Filter: &ConstructionFilter{
+				ColumnID: "id", Operator: FilterEquals, Values: []FilterValue{{Kind: FilterString, String: &selected}},
+			}},
+			Outputs: []StageColumn{{ID: "id", Name: "id", Type: "string"}},
+		},
+		{
+			ID: "group_filter", Inputs: []ConstructionInputRef{{Kind: ConstructionStepOutputInput, StepID: ConstructionCohortGroupStageID}},
+			Operation: ConstructionOperation{Kind: ConstructionFilterOp, Filter: &ConstructionFilter{
+				ColumnID: "group_id", Operator: FilterEquals, Values: []FilterValue{{Kind: FilterString, String: &label}},
+			}},
+			Outputs: []StageColumn{
+				{ID: "group_id", Name: "group_id", Type: "string"},
+				{ID: "group_label", Name: "group_label", Type: "string"},
+				{ID: "group_ordinal", Name: "group_ordinal", Type: "integer"},
+				{ID: "members", Name: "members", Type: "array"},
+				{ID: "id", Name: "id", Type: "array"},
+			},
+		},
+	}}
+	fields := []Field{{ColumnID: "id", Name: "id", Expr: Expression{Select: "root.id"}}}
+	rows := &GroupRows{
+		AfterStepID: "source_filter",
+		RowValues:   []GroupRowValuePolicy{{ColumnID: "id", Policy: ConstructionRowValueAll}},
+	}
+	if err := construction.ValidateWithGroupRows(fields, rows); err != nil {
+		t.Fatalf("effective source-filter → cohort → group-filter sequence rejected: %v", err)
+	}
+
+	construction.Steps[1].Inputs[0].StepID = "source_filter"
+	if err := construction.ValidateWithGroupRows(fields, rows); err == nil {
+		t.Fatal("post-cohort step referencing the anchor output instead of its immediate virtual predecessor was accepted")
+	}
+}

@@ -303,7 +303,11 @@ func recipeConstructionStep(step authoringv2.ConstructionStep) (recipe.Construct
 			ID: output.ID, Name: output.Name, Label: output.Label, Type: output.Type, Nullable: output.Nullable,
 		})
 	}
-	return recipe.ConstructionStep{ID: step.ID, Inputs: inputs, Operation: operation, Outputs: outputs}, nil
+	values := make([]recipe.ConstructionRowValue, 0, len(step.RowValues))
+	for _, value := range step.RowValues {
+		values = append(values, recipe.ConstructionRowValue{InputColumnID: value.InputColumnID, OutputColumnID: value.OutputColumnID, Policy: recipe.ConstructionRowValuePolicy(value.Policy)})
+	}
+	return recipe.ConstructionStep{ID: step.ID, Inputs: inputs, Operation: operation, Outputs: outputs, RowValues: values}, nil
 }
 
 func recipeConstructionOperation(authored authoringv2.ConstructionOperation) (recipe.ConstructionOperation, error) {
@@ -506,6 +510,7 @@ func recipeConstructionOperation(authored authoringv2.ConstructionOperation) (re
 				CandidateID: related.Source.CandidateID, NodeID: related.Source.NodeID,
 				ResourceType: related.Source.ResourceType, Path: related.Source.Path,
 				Cardinality: related.Source.Cardinality, LogicalType: related.Source.LogicalType,
+				RepeatedBoundaries: constructionRelatedRepeatedBoundaries(related.Source.RepeatedBoundaries),
 			},
 			ContributorPolicy: related.ContributorRule.Policy, Predicate: predicate, Form: string(related.Form),
 			OutputColumnID: related.OutputColumnID,
@@ -542,6 +547,7 @@ func recipeConstructionOperation(authored authoringv2.ConstructionOperation) (re
 			mapped.ContributorSource = &recipe.ConstructionRelatedFieldSource{
 				CandidateID: source.CandidateID, NodeID: source.NodeID, ResourceType: source.ResourceType,
 				Path: source.Path, Cardinality: source.Cardinality, LogicalType: source.LogicalType,
+				RepeatedBoundaries: constructionRelatedRepeatedBoundaries(source.RepeatedBoundaries),
 			}
 		}
 		for _, hop := range related.Route {
@@ -574,6 +580,7 @@ func recipeConstructionOperation(authored authoringv2.ConstructionOperation) (re
 			mapped.ContributorSource = &recipe.ConstructionRelatedFieldSource{
 				CandidateID: source.CandidateID, NodeID: source.NodeID, ResourceType: source.ResourceType,
 				Path: source.Path, Cardinality: source.Cardinality, LogicalType: source.LogicalType,
+				RepeatedBoundaries: constructionRelatedRepeatedBoundaries(source.RepeatedBoundaries),
 			}
 		}
 		for _, hop := range related.Route {
@@ -595,6 +602,7 @@ func recipeConstructionOperation(authored authoringv2.ConstructionOperation) (re
 				CandidateID: related.Source.CandidateID, NodeID: related.Source.NodeID,
 				ResourceType: related.Source.ResourceType, Path: related.Source.Path,
 				Cardinality: related.Source.Cardinality, LogicalType: related.Source.LogicalType,
+				RepeatedBoundaries: constructionRelatedRepeatedBoundaries(related.Source.RepeatedBoundaries),
 			},
 			OutputColumnID: related.OutputColumnID,
 		}
@@ -635,6 +643,7 @@ func constructionRelatedPredicate(predicate *authoringv2.ContributorPredicate) (
 	mapped := &recipe.ConstructionRelatedPredicate{
 		CandidateID: predicate.CandidateID,
 		Operator:    recipe.FilterOperator(predicate.Operator),
+		Quantifier:  recipe.ArrayQuantifier(predicate.Quantifier),
 	}
 	if predicate.Value == nil {
 		return mapped, nil
@@ -655,6 +664,17 @@ func constructionRelatedPredicate(predicate *authoringv2.ContributorPredicate) (
 	}
 	mapped.Value = value
 	return mapped, nil
+}
+
+func constructionRelatedRepeatedBoundaries(boundaries []capability.RepeatedBoundary) []recipe.ConstructionRelatedRepeatedBoundary {
+	if len(boundaries) == 0 {
+		return nil
+	}
+	mapped := make([]recipe.ConstructionRelatedRepeatedBoundary, 0, len(boundaries))
+	for _, boundary := range boundaries {
+		mapped = append(mapped, recipe.ConstructionRelatedRepeatedBoundary{Path: boundary.Path, MaxItems: boundary.MaxItems})
+	}
+	return mapped
 }
 
 func recipeConstructionOperand(operand authoringv2.ConstructionOperand) (recipe.ConstructionOperand, error) {

@@ -2,11 +2,14 @@ package compilation
 
 import (
 	"context"
+	"errors"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
+	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
 	"github.com/calypr/loom/internal/dataframe/lineage"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/semantic"
@@ -173,6 +176,133 @@ func TestCompileSourceOnlyConstructionCarriesColumnIDsIntoStageDescriptors(t *te
 	if columnsByID["status_id"] != "status" || columnsByID["untouched_id"] != "untouched" {
 		t.Fatalf("compiled source stage column identities = %#v", columnsByID)
 	}
+}
+
+func TestCompileRelatedScalarProjectionsFeedGroupedRowValues(t *testing.T) {
+	for _, test := range []struct {
+		name          string
+		projection    string
+		policy        authoringv2.ConstructionRowValuePolicy
+		outputType    string
+		wantInputMany bool
+	}{
+		{name: "VALUE remains scalar", projection: "VALUE", policy: authoringv2.ConstructionRowValueAll, outputType: "array"},
+		{name: "ALL collects route matches", projection: "ALL", policy: authoringv2.ConstructionRowValueAll, outputType: "array", wantInputMany: true},
+		{name: "ALL supports ONE policy", projection: "ALL", policy: authoringv2.ConstructionRowValueOne, outputType: "string", wantInputMany: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			lowered, rendered := compileRelatedScalarGroupRowValue(t, test.projection, test.policy, test.outputType)
+			if len(lowered.Outputs) != 1 || lowered.Outputs[0].Plan.StageSequence == nil {
+				t.Fatalf("construction stages missing: %#v", lowered.Outputs)
+			}
+			sequence := lowered.Outputs[0].Plan.StageSequence
+			if sequence.SourceRowIdentity != "_key" || len(sequence.Stages) != 1 || sequence.Stages[0].Group == nil {
+				t.Fatalf("related source changed the source row grain before Group: %#v", sequence)
+			}
+			group := sequence.Stages[0].Group
+			if len(group.RowValues) != 1 || group.RowValues[0].InputMany != test.wantInputMany || group.RowValues[0].Policy != string(test.policy) {
+				t.Fatalf("grouped related row value = %#v; want InputMany=%v Policy=%s", group.RowValues, test.wantInputMany, test.policy)
+			}
+			var relatedIDs *lower.CompiledOutputColumn
+			for index := range lowered.Outputs[0].Stages[1].Columns {
+				column := &lowered.Outputs[0].Stages[1].Columns[index]
+				if column.ID == "observation_ids" {
+					relatedIDs = column
+					break
+				}
+			}
+			if relatedIDs == nil || relatedIDs.Kind != "string" {
+				t.Fatalf("grouped related IDs schema = %#v", relatedIDs)
+			}
+			if (test.policy == authoringv2.ConstructionRowValueAll) != (relatedIDs.Cardinality == "many") {
+				t.Fatalf("grouped related IDs cardinality = %#v for row-value policy %s", relatedIDs, test.policy)
+			}
+			if test.projection == "ALL" {
+				if !strings.Contains(rendered.Query, "FOR child_set_1_edge IN @@child_set_1_edge_collection") ||
+					!strings.Contains(rendered.Query, "FLATTEN(child_set_1[*].__loom_projection_0)") ||
+					!strings.Contains(rendered.Query, "FOR root IN @@root_collection") {
+					t.Fatalf("related ALL did not collect route matches within each root row:\n%s", rendered.Query)
+				}
+			}
+		})
+	}
+}
+
+func TestCompileRootScalarAllStillRequiresAdvertisedMode(t *testing.T) {
+	document := authoringv2.Document{
+		Rows: authoringv2.RecordsRowDefinition(), Kind: authoringv2.Kind,
+		Output: authoringv2.Output{ID: "patients", Title: "Patients"}, RootResourceType: "Patient",
+		Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient"},
+		Columns: []authoringv2.Column{{ColumnID: "patient_id", Column: "patient_id", Label: "Patient ID", LogicalType: "string", OccurrenceID: authoringv2.RootOccurrenceID,
+			Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "id", ProjectionMode: "ALL"}}}},
+	}
+	_, err := Compile(context.Background(), "project-a", "explorer-a", document, contributorSnapshot())
+	var compileErr *Error
+	if !errors.As(err, &compileErr) || compileErr.Code != "UNSUPPORTED_PROJECTION_MODE" {
+		t.Fatalf("compile root scalar ALL = %v, want UNSUPPORTED_PROJECTION_MODE", err)
+	}
+}
+
+func compileRelatedScalarGroupRowValue(t *testing.T, projection string, policy authoringv2.ConstructionRowValuePolicy, outputType string) (lower.CompiledRecipe, aql.RenderedPhysicalPlan) {
+	t.Helper()
+	snapshot := contributorSnapshot()
+	snapshot.Candidates = append(snapshot.Candidates, capability.Candidate{
+		ID: "c_observation_id", NodeID: "n_observation", ResourceType: "Observation", FieldPath: "id",
+		Label: "Observation ID", LogicalType: "string", Cardinality: "optional_one",
+		ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar},
+	})
+	snapshot = capability.NewSnapshot(snapshot.Identity, snapshot.Policy, snapshot.Status, snapshot.Complete, snapshot.Truncated,
+		snapshot.Nodes, snapshot.Edges, snapshot.Candidates, snapshot.Diagnostics)
+
+	document := authoringv2.Document{
+		Rows: authoringv2.RecordsRowDefinition(), Kind: authoringv2.Kind,
+		Output: authoringv2.Output{ID: "patients", Title: "Patients"}, RootResourceType: "Patient",
+		Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient", Children: []authoringv2.RouteNode{{
+			OccurrenceID: "observation", ResourceType: "Observation", CatalogEdgeID: "e_observation", Relationship: "focus_Patient",
+		}}},
+		Columns: []authoringv2.Column{
+			{ColumnID: "patient_id_source", Column: "patient_id", Label: "Patient ID", LogicalType: "string", OccurrenceID: authoringv2.RootOccurrenceID,
+				Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "id", ProjectionMode: "VALUE"}}},
+			{ColumnID: "observation_id_source", Column: "observation_id", Label: "Observation ID", LogicalType: "string", OccurrenceID: "observation",
+				Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "id", ProjectionMode: projection}}},
+		},
+		Construction: &authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{{
+			ID: "group_patients", Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}},
+			Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationGroup, Group: &authoringv2.ConstructionGroup{
+				ConstructionID: "group_patients", MissingKeyPolicy: authoringv2.ConstructionGroupMissingKeyGroup,
+				Keys:       []authoringv2.ConstructionGroupKey{{InputColumnID: "patient_id_source", OutputColumnID: "patient_id_group"}},
+				Aggregates: []authoringv2.ConstructionGroupAggregate{{Operation: authoringv2.ConstructionGroupCountRows, OutputColumnID: "patient_count"}},
+			}},
+			Outputs: []authoringv2.StageColumn{
+				{ID: "patient_id_group", Name: "patient_id", Label: "Patient ID", Type: "string"},
+				{ID: "patient_count", Name: "patient_count", Label: "Patient count", Type: "integer"},
+				{ID: "observation_ids", Name: "observation_ids", Label: "Observation IDs", Type: outputType},
+			},
+			RowValues: []authoringv2.ConstructionRowValue{{InputColumnID: "observation_id_source", OutputColumnID: "observation_ids", Policy: policy}},
+		}}},
+	}
+
+	compiled, err := Compile(context.Background(), "project-a", "explorer-a", document, snapshot)
+	if err != nil {
+		t.Fatalf("compile related scalar %s into grouped row values: %v", projection, err)
+	}
+	plan, err := semantic.BuildRecipePlan(compiled.Bundle, recipe.RuntimeBindings{Project: "project-a", DatasetGeneration: "generation-a"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := semantic.ResolveRecipePlan(plan, "scope-a", "generation-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	lowered, err := lower.CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatalf("lower related scalar %s into grouped row values: %v", projection, err)
+	}
+	rendered, err := aql.RenderPhysicalPlan(lowered.Outputs[0].Plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return lowered, rendered
 }
 
 func TestRecipeConstructionKeepsScalarGroupSourceOutOfPublicColumns(t *testing.T) {

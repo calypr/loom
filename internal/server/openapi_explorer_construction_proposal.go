@@ -80,6 +80,12 @@ func (h *explorerHTTPHandlers) proposeConstructionDirect(ctx context.Context, pr
 			})
 		}
 	}
+	if body.GroupSources != nil {
+		request.GroupSources = make([]lifecycle.ConstructionGroupSourceSelection, 0, len(*body.GroupSources))
+		for _, selection := range *body.GroupSources {
+			request.GroupSources = append(request.GroupSources, lifecycle.ConstructionGroupSourceSelection{RowChoiceID: selection.RowChoiceId, ColumnID: selection.ColumnId})
+		}
+	}
 	if body.GroupSource != nil {
 		request.GroupSource = &lifecycle.ConstructionGroupSourceSelection{
 			RowChoiceID: body.GroupSource.RowChoiceId,

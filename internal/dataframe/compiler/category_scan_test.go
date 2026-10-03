@@ -121,7 +121,7 @@ func TestCompileCategoryScanProofChangesWithSchemaAndSelectedColumn(t *testing.T
 }
 
 func TestCompileCategoryScanUsesExactConstructionStagePrefixAndBindsPivotPair(t *testing.T) {
-	output := compilePopulationMappingOutput(t, constructionCellTraceRecipeOutput())
+	output := compilePopulationMappingOutput(t, categoryScanConstructionRecipeOutput())
 	scanned, err := CompileCategoryScanStageWithPolicy(output, "derive_total", "status_id", "total_id", 256, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
@@ -328,7 +328,7 @@ func categoryScanRelatedRecipeOutput(emptyPolicy recipe.ExpansionEmptyPolicy, wi
 }
 
 func TestCompileCategoryScanReturnsOnlyTerminalCategoryAfterFilter(t *testing.T) {
-	output := compilePopulationMappingOutput(t, constructionCellTraceRecipeOutput())
+	output := compilePopulationMappingOutput(t, categoryScanConstructionRecipeOutput())
 	scanned, err := CompileCategoryScanStageWithPolicy(output, "keep_positive", "status_id", "total_id", 256, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
@@ -384,6 +384,49 @@ func TestCompileCategoryScanReturnsOnlyTerminalCategoryAfterFilter(t *testing.T)
 	}
 	if scanned.Proof.QueryFingerprint != wantQueryDigest {
 		t.Fatalf("category proof does not bind the unordered query: got %q, want %q", scanned.Proof.QueryFingerprint, wantQueryDigest)
+	}
+}
+
+func categoryScanConstructionRecipeOutput() recipe.Output {
+	two := int64(2)
+	zero := int64(0)
+	return recipe.Output{
+		Name: "category_scan_construction_fixture", RootResourceType: "Observation", RowGrain: "observation",
+		RootColumnNaming: recipe.RootColumnNamingExact,
+		Fields: []recipe.Field{
+			{Name: "amount", ColumnID: "amount_id", Expr: recipe.Expression{Select: "root.valueInteger"}},
+			{Name: "status", ColumnID: "status_id", Expr: recipe.Expression{Select: "root.status"}},
+		},
+		Construction: &recipe.Construction{
+			Version: 1,
+			SourceColumns: []recipe.StageColumn{
+				{ID: "amount_id", Name: "amount"}, {ID: "status_id", Name: "status"},
+			},
+			Steps: []recipe.ConstructionStep{
+				{
+					ID: "derive_total", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
+					Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionDeriveOp, Derive: &recipe.ConstructionDerive{
+						ConstructionID: "calc_total", OutputColumnID: "total_id", Operation: recipe.DerivedAdd,
+						Left:               recipe.ConstructionOperand{Kind: recipe.DerivedColumnOperand, ColumnID: "amount_id"},
+						Right:              recipe.ConstructionOperand{Kind: recipe.DerivedLiteralOperand, Literal: &recipe.DerivedLiteral{Kind: recipe.NumericInteger, Integer: &two}},
+						MissingInputPolicy: recipe.MissingInputPropagateNull,
+					}},
+					Outputs: []recipe.StageColumn{
+						{ID: "amount_id", Name: "amount"}, {ID: "status_id", Name: "status"}, {ID: "total_id", Name: "total"},
+					},
+				},
+				{
+					ID: "keep_positive", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionStepOutputInput, StepID: "derive_total"}},
+					Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionFilterOp, Filter: &recipe.ConstructionFilter{
+						ColumnID: "total_id", Operator: recipe.FilterGreaterThan,
+						Values: []recipe.FilterValue{{Kind: recipe.FilterInteger, Integer: &zero}},
+					}},
+					Outputs: []recipe.StageColumn{
+						{ID: "amount_id", Name: "amount"}, {ID: "status_id", Name: "status"}, {ID: "total_id", Name: "total"},
+					},
+				},
+			},
+		},
 	}
 }
 
@@ -489,8 +532,13 @@ func TestCompileSourceProjectionCategoryScanOffersCoveringIndexForExplicitPivotP
 			t.Fatalf("source category scan retained projection %q=%#v", key, value)
 		}
 	}
-	if projectionCount != 1 || !strings.Contains(scanned.Query, "root.payload.gender") || strings.Contains(scanned.Query, "root.payload.id") || strings.Contains(scanned.Query, "root.payload.multipleBirthInteger") {
-		t.Fatalf("source category scan should return only the selected source field (found %d projection names):\n%s", projectionCount, scanned.Query)
+	if projectionCount != 0 || !strings.Contains(scanned.Query, "COLLECT value = root.payload.gender") || strings.Contains(scanned.Query, "root.payload.id") || strings.Contains(scanned.Query, "root.payload.multipleBirthInteger") {
+		t.Fatalf("source category scan should group the selected source field directly (found %d projection names):\n%s", projectionCount, scanned.Query)
+	}
+	for _, guard := range []string{"root.project == @project", "root.dataset_generation == @dataset_generation", "root.auth_resource_path IN @auth_resource_paths", "FILTER root_scope_allowed == @scope_allowed"} {
+		if !strings.Contains(scanned.Query, guard) {
+			t.Fatalf("direct source category scan lost scope guard %q:\n%s", guard, scanned.Query)
+		}
 	}
 	if strings.Contains(scanned.Query, "SORT root._key") {
 		t.Fatalf("complete category discovery must not sort source rows before grouping categories:\n%s", scanned.Query)
@@ -512,8 +560,8 @@ func TestCompileSourceProjectionCategoryScanOffersCoveringIndexForExplicitPivotP
 	if !strings.Contains(scanned.Query, "root_scope_allowed") || !strings.Contains(scanned.Query, "auth_resource_paths") {
 		t.Fatalf("narrowed source scan lost root authorization scope:\n%s", scanned.Query)
 	}
-	if strings.Contains(scanned.Query, "indexHint:") {
-		t.Fatalf("category scan should expose prewarm metadata without changing its query:\n%s", scanned.Query)
+	if !strings.Contains(scanned.Query, `indexHint: "`+previewCoveringIndexNamePrefix) || !strings.Contains(scanned.Query, "forceIndexHint: false") || strings.Contains(scanned.Query, "forceIndexHint: true") {
+		t.Fatalf("category scan should use its optional covering index without requiring it:\n%s", scanned.Query)
 	}
 
 	withoutPair, err := CompileCategoryScanOutputWithPolicy(output, "category", 256, ir.DefaultPhysicalOptimizationPolicy())

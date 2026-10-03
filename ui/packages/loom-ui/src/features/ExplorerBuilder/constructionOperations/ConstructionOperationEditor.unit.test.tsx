@@ -240,6 +240,139 @@ describe('ConstructionOperationEditor', () => {
     });
   });
 
+  it('builds and reopens value-free EXISTS filters', () => {
+    const onCandidateChange = vi.fn();
+    renderEditor({ family: 'KEEP_ROWS', onCandidateChange });
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Condition' }), { target: { value: 'EXISTS' } });
+    const candidate = onCandidateChange.mock.lastCall?.[0];
+    expect(candidate).toBeDefined();
+    if (!candidate) throw new Error('Expected an EXISTS filter candidate.');
+    expect(candidate.candidateConstruction.steps.at(-1)?.operation).toEqual({
+      kind: 'FILTER', filter: { columnId: 'age-id', operator: 'EXISTS' },
+    });
+
+    const savedExists: ConstructionStep = {
+      ...filterStep,
+      operation: { kind: 'FILTER', filter: { columnId: 'age-id', operator: 'EXISTS' } },
+    };
+    cleanup();
+    renderEditor({
+      family: 'KEEP_ROWS',
+      construction: { version: 1, steps: [savedExists] },
+      stages: [sourceStage, { ...sourceStage, id: savedExists.id, inputStageId: sourceStage.id, operation: 'FILTER' }],
+      editingStep: savedExists,
+      onCandidateChange,
+    });
+    const editButton = screen.getByTestId('construction-filter-edit-filter-saved');
+    expect(editButton).toBeEnabled();
+    const conditionControl = screen.getByRole('combobox', { name: 'Condition' });
+    if (!(conditionControl instanceof HTMLSelectElement)) throw new Error('Expected the filter condition control to be a select.');
+    expect(conditionControl.value).toBe('EXISTS');
+    fireEvent.change(screen.getByRole('combobox', { name: 'Column' }), { target: { value: 'status-id' } });
+    const edited = onCandidateChange.mock.lastCall?.[0];
+    expect(edited).toBeDefined();
+    if (!edited) throw new Error('Expected the saved EXISTS filter to remain editable.');
+    expect(edited.candidateConstruction.steps[0]?.operation).toEqual({
+      kind: 'FILTER', filter: { columnId: 'status-id', operator: 'EXISTS' },
+    });
+  });
+
+  it('reopens and edits a saved NOT_EQUALS filter without changing its typed operator', () => {
+    const savedNotEquals: ConstructionStep = {
+      ...filterStep,
+      operation: {
+        kind: 'FILTER',
+        filter: { columnId: 'status-id', operator: 'NOT_EQUALS', values: [{ kind: 'STRING', string: 'closed' }] },
+      },
+    };
+    const onCandidateChange = vi.fn();
+    renderEditor({
+      family: 'KEEP_ROWS',
+      construction: { version: 1, steps: [savedNotEquals] },
+      stages: [sourceStage, { ...sourceStage, id: savedNotEquals.id, inputStageId: sourceStage.id, operation: 'FILTER' }],
+      editingStep: savedNotEquals,
+      onCandidateChange,
+    });
+
+    const condition = screen.getByRole<HTMLSelectElement>('combobox', { name: 'Condition' });
+    expect(condition.value).toBe('NOT_EQUALS');
+    expect(screen.getByRole<HTMLInputElement>('textbox', { name: 'Value' }).value).toBe('closed');
+    fireEvent.change(screen.getByRole('textbox', { name: 'Value' }), { target: { value: 'paused' } });
+
+    const candidate = onCandidateChange.mock.lastCall?.[0];
+    expect(candidate).toBeDefined();
+    if (!candidate) throw new Error('Expected an editable NOT_EQUALS candidate.');
+    expect(candidate.candidateConstruction.steps[0]?.operation).toEqual({
+      kind: 'FILTER',
+      filter: { columnId: 'status-id', operator: 'NOT_EQUALS', values: [{ kind: 'STRING', string: 'paused' }] },
+    });
+  });
+
+  it('creates and edits typed IN lists without losing saved values', () => {
+    const onCandidateChange = vi.fn();
+    renderEditor({ family: 'KEEP_ROWS', onCandidateChange });
+
+    const condition = screen.getByRole<HTMLSelectElement>('combobox', { name: 'Condition' });
+    expect(Array.from(condition.options).map((option) => option.value)).toContain('GT');
+    expect(Array.from(condition.options).map((option) => option.value)).not.toContain('CONTAINS_TEXT');
+    fireEvent.change(screen.getByRole('combobox', { name: 'Column' }), { target: { value: 'status-id' } });
+    expect(Array.from(condition.options).map((option) => option.value)).toContain('CONTAINS_TEXT');
+    expect(Array.from(condition.options).map((option) => option.value)).not.toContain('GT');
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Condition' }), { target: { value: 'IN' } });
+    fireEvent.change(screen.getByRole('textbox', { name: 'Value 1' }), { target: { value: 'open' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Add another value' }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Value 2' }), { target: { value: 'in-progress' } });
+    const candidate = onCandidateChange.mock.lastCall?.[0];
+    expect(candidate).toBeDefined();
+    if (!candidate) throw new Error('Expected an IN candidate.');
+    expect(candidate.candidateConstruction.steps[0]?.operation).toEqual({
+      kind: 'FILTER',
+      filter: {
+        columnId: 'status-id', operator: 'IN',
+        values: [{ kind: 'STRING', string: 'open' }, { kind: 'STRING', string: 'in-progress' }],
+      },
+    });
+
+    const savedIn: ConstructionStep = {
+      ...filterStep,
+      operation: {
+        kind: 'FILTER',
+        filter: {
+          columnId: 'status-id', operator: 'IN',
+          values: [{ kind: 'STRING', string: 'open' }, { kind: 'STRING', string: 'in-progress' }],
+        },
+      },
+    };
+    cleanup();
+    onCandidateChange.mockClear();
+    renderEditor({
+      family: 'KEEP_ROWS',
+      construction: { version: 1, steps: [savedIn] },
+      stages: [sourceStage, { ...sourceStage, id: savedIn.id, inputStageId: sourceStage.id, operation: 'FILTER' }],
+      editingStep: savedIn,
+      onCandidateChange,
+    });
+    expect(screen.getByRole<HTMLInputElement>('textbox', { name: 'Value 1' }).value).toBe('open');
+    expect(screen.getByRole<HTMLInputElement>('textbox', { name: 'Value 2' }).value).toBe('in-progress');
+    fireEvent.change(screen.getByRole('textbox', { name: 'Value 1' }), { target: { value: 'opening' } });
+    const editedFirst = onCandidateChange.mock.lastCall?.[0];
+    expect(editedFirst?.candidateConstruction.steps[0]?.operation).toEqual({
+      kind: 'FILTER',
+      filter: {
+        columnId: 'status-id', operator: 'IN',
+        values: [{ kind: 'STRING', string: 'opening' }, { kind: 'STRING', string: 'in-progress' }],
+      },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Remove value 2' }));
+    const removedSecond = onCandidateChange.mock.lastCall?.[0];
+    expect(removedSecond?.candidateConstruction.steps[0]?.operation).toEqual({
+      kind: 'FILTER',
+      filter: { columnId: 'status-id', operator: 'IN', values: [{ kind: 'STRING', string: 'opening' }] },
+    });
+  });
+
   it('creates an arithmetic calculation with a new output and a canonical expression', () => {
     const onCandidateChange = vi.fn();
     renderEditor({ family: 'CALCULATE', onCandidateChange, selectedColumns: ['weight-id'] });

@@ -126,3 +126,37 @@ func TestRepeatedCodingPathsFindsDirectAndNestedFHIRCodings(t *testing.T) {
 		})
 	}
 }
+
+func TestHasRepeatedCodingPath(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		elements  []Element
+		want      bool
+		wantError bool
+	}{
+		{"direct", []Element{{Name: "coding", JSONType: JSONTypeArray, ArrayElementType: "Coding"}}, true, false},
+		{"scalar", []Element{{Name: "coding", ReferencedType: "Coding"}}, false, false},
+		{"cycle", []Element{{Name: "self", ReferencedType: "Root"}}, false, false},
+		{"nested", []Element{{Name: "child", ReferencedType: "Nested"}}, true, false},
+		{"invalid after coding", []Element{{Name: "coding", JSONType: JSONTypeArray, ArrayElementType: "Coding"}, {Name: "missing", ReferencedType: "Missing"}}, false, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			index := &Index{definitions: map[DefinitionName]Definition{
+				"Root":   {Name: "Root", Elements: tc.elements},
+				"Coding": {Name: "Coding"},
+				"Nested": {Name: "Nested", Elements: []Element{{Name: "parent", ReferencedType: "Root"}, {Name: "coding", JSONType: JSONTypeArray, ArrayElementType: "Coding"}}},
+			}}
+			got, err := index.HasRepeatedCodingPath("Root")
+			if (err != nil) != tc.wantError || got != tc.want {
+				t.Fatalf("got (%v, %v), want (%v, error=%v)", got, err, tc.want, tc.wantError)
+			}
+		})
+	}
+	var unavailable *Index
+	if _, err := unavailable.HasRepeatedCodingPath("Root"); err == nil {
+		t.Fatal("nil index must fail")
+	}
+	if _, err := (&Index{}).HasRepeatedCodingPath("Missing"); err == nil {
+		t.Fatal("missing root must fail")
+	}
+}

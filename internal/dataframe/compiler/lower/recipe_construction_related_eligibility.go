@@ -34,17 +34,25 @@ func lowerConstructionRelatedEligibility(
 		return ir.PhysicalFilter{}, nil, nil, nil, fmt.Errorf("related eligibility requires a retained exact row resource anchor")
 	}
 	anchor, ok := input[related.AnchorColumnID]
-	if !ok || !anchor.Internal || anchor.Kind != string(expression.KindString) ||
-		(anchor.Cardinality != string(expression.RequiredOne) && anchor.Cardinality != string(expression.OptionalOne)) {
+	if !ok || !anchor.Internal || anchor.Kind != string(expression.KindString) {
 		return ir.PhysicalFilter{}, nil, nil, nil, &RelatedEligibilityAnchorError{StepID: step.ID}
 	}
 	anchorKind, anchorNodeID, anchorResourceType := "root", related.Route[0].FromNodeID, rootResourceType
 	if related.AnchorColumnID == "_key" {
-		if anchor.Name != "_key" || anchor.Cardinality != string(expression.RequiredOne) || rootResourceType != plan.Source.ResourceType {
+		if anchor.Name != "_key" || anchor.Cardinality != string(expression.RequiredOne) ||
+			anchor.RootContributorResourceType != rootResourceType || rootResourceType != plan.Source.ResourceType {
 			return ir.PhysicalFilter{}, nil, nil, nil, fmt.Errorf("related eligibility root anchor is not the compiler-proven root document key")
 		}
+	} else if related.AnchorColumnID == rootContributorSetColumn {
+		_, found := rootContributorSetFromMap(input, rootResourceType)
+		if !found || anchor.Name != rootContributorSetColumn || anchor.Cardinality != string(expression.Many) ||
+			anchor.RootContributorResourceType != rootResourceType || rootResourceType == "" || rootResourceType != plan.Source.ResourceType {
+			return ir.PhysicalFilter{}, nil, nil, nil, fmt.Errorf("related eligibility root-contributor anchor is not the compiler-owned root identity set")
+		}
+		anchorKind = "rootContributors"
 	} else {
-		if anchor.RelatedRecordAnchor == nil || anchor.RelatedRecordAnchor.TargetNodeID == "" || anchor.RelatedRecordAnchor.TargetResourceType == "" {
+		if (anchor.Cardinality != string(expression.RequiredOne) && anchor.Cardinality != string(expression.OptionalOne)) ||
+			anchor.RelatedRecordAnchor == nil || anchor.RelatedRecordAnchor.TargetNodeID == "" || anchor.RelatedRecordAnchor.TargetResourceType == "" {
 			return ir.PhysicalFilter{}, nil, nil, nil, fmt.Errorf("related eligibility anchor is not an active exact related-record identity")
 		}
 		anchorKind = "activeRelatedRecord"
@@ -83,16 +91,22 @@ func lowerConstructionRelatedEligibility(
 	anchorVariable := allocateConstructionVariable(usedVariables, fmt.Sprintf("related_eligibility_%d_anchor", stepIndex), stepIndex)
 	anchorNode := semantic.SemanticNode{Alias: anchorNodeID, ResourceType: anchorResourceType}
 	subplan := ir.PhysicalSubplan{Captures: []string{inputRow}}
-	if anchorKind == "root" {
+	if anchorKind == "root" || anchorKind == "rootContributors" {
 		subplan.Operations = append(subplan.Operations, ir.PhysicalOperation{
 			Kind: ir.PhysicalCollectionScanOp, Source: ir.PhysicalSource{SemanticNode: anchorNode.Alias, ResourceType: anchorResourceType},
 			CollectionScan: &ir.PhysicalCollectionScan{Variable: anchorVariable, CollectionBindKey: "root_collection"},
 		})
+		operator := "EQUALS"
+		anchorPath := "_key"
+		if anchorKind == "rootContributors" {
+			operator = "IN"
+			anchorPath = anchor.Name
+		}
 		subplan.Operations = append(subplan.Operations, ir.PhysicalOperation{
 			Kind: ir.PhysicalFilterOp, Source: ir.PhysicalSource{SemanticNode: anchorNode.Alias, ResourceType: anchorResourceType, SemanticField: "_key"},
 			Filter: &ir.PhysicalFilter{Predicate: ir.PhysicalPredicate{
-				Operator: "EQUALS", Left: ir.PhysicalValue{Variable: anchorVariable, Path: []string{"_key"}},
-				Right: &ir.PhysicalValue{Variable: inputRow, Path: []string{anchor.Name}},
+				Operator: operator, Left: ir.PhysicalValue{Variable: anchorVariable, Path: []string{"_key"}},
+				Right: &ir.PhysicalValue{Variable: inputRow, Path: []string{anchorPath}},
 			}},
 		})
 	} else {

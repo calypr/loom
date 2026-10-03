@@ -168,7 +168,7 @@ const TableToolbar = ({
       <button
         type="button"
         onClick={onDeleteTable}
-        disabled={!selectedTable || tables.length <= 1 || busy}
+        disabled={!selectedTable || busy}
         aria-label="Delete table"
         title="Delete table"
         className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-40"

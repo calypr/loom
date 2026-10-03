@@ -6,6 +6,7 @@ import type {
   ExplorerBuilderPreviewRowSource,
   ExplorerBuilderRowLineageResponse,
   ConstructionStageColumn,
+  ConstructionStep,
 } from '../../../types';
 import type { DraftTable } from '../authoring/model';
 import { displayValue, losslessText } from '../../../valueDisplay';
@@ -63,6 +64,18 @@ const withPresentationTable = (
     ...entry.change,
     column: { ...entry.change.column, table },
   };
+};
+
+const withConstructionOutputTable = (
+  entry: PreviewPresentationColumn,
+  constructionStep: ConstructionStep | undefined,
+  table: NonNullable<ConstructionStageColumn['table']>,
+): PreviewTablePresentationChange | undefined => {
+  if (entry.change.kind !== 'AUTHORED_COLUMN' || !constructionStep) return undefined;
+  const output = constructionStep.outputs.find((candidate) => candidate.name === entry.name);
+  return output
+    ? { kind: 'CONSTRUCTION_OUTPUT', stepId: constructionStep.id, column: { ...output, table } }
+    : undefined;
 };
 
 const isStructuredRecord = (value: unknown): value is object =>
@@ -186,27 +199,82 @@ export const PreviewTable = ({
   const authoredByColumn = new Map(
     table?.document.columns.map((column) => [column.column, column]) ?? [],
   );
-  const constructionStep = table?.document.construction?.steps.at(-1);
+  const authoredConstructionStep = table?.document.construction?.steps.at(-1);
+  const rowDefinition = table?.document.rows;
+  const explicitGroups = rowDefinition?.kind === 'GROUPS' && rowDefinition.groups.source.kind === 'EXPLICIT'
+    ? rowDefinition.groups
+    : undefined;
+  const cohortTerminal = Boolean(explicitGroups && (
+    !authoredConstructionStep
+      ? (table?.document.construction?.steps.length ?? 0) === 0
+      : explicitGroups.afterStepId === authoredConstructionStep.id
+  ));
+  const constructionStep = cohortTerminal ? undefined : authoredConstructionStep;
+  // A row-value output represents the grouped value even when it reuses the
+  // authored source's physical name. Keep its stable output ID as the owner
+  // of presentation changes while leaving ordinary source passthroughs alone.
+  const rowValueOutputIds = new Set(
+    (constructionStep?.rowValues ?? []).map((value) => value.outputColumnId),
+  );
   const constructionOutputs = constructionStep?.outputs.filter(
-    (output) => !authoredByColumn.has(output.name),
+    (output) => !authoredByColumn.has(output.name) || rowValueOutputIds.has(output.id),
   ) ?? [];
   const constructionOutputByName = new Map(
     constructionOutputs.map((output) => [output.name, output]),
   );
-  const constructionOutputNames = new Set(
-    constructionOutputByName.keys(),
+  const constructionOrderByName = new Map(
+    constructionStep?.outputs.map((output, index) => [
+      output.name,
+      output.table?.order ?? index,
+    ] as const) ?? [],
   );
-  const authoredColumnsFor = (column: ExplorerBuilderEmission) => {
+  const cohortOrderByName = new Map<string, number>(
+    explicitGroups
+      ? [['group_label', 0], ['group_ordinal', 1], ['members', 2]]
+      : [],
+  );
+  const selectedCohortFields = new Set<string>();
+  (explicitGroups?.rowValues ?? []).forEach((value, index) => {
+      const column = table?.document.columns.find((candidate) => candidate.columnId === value.columnId);
+      if (!column) return;
+      selectedCohortFields.add(column.column);
+      cohortOrderByName.set(column.column, 3 + index);
+  });
+  const authoredColumnsFor = (column: Pick<ExplorerBuilderEmission, 'authoredColumns' | 'column'>) => {
     const names = column.authoredColumns ?? [column.column];
     return names.flatMap((name) => {
       const authored = authoredByColumn.get(name);
       return authored ? [authored] : [];
     });
   };
+  const effectiveConstructionOutputVisibility = (
+    columnName: string,
+    emission = preview?.columns.find((column) => column.column === columnName),
+  ) => {
+    const constructionOutput = constructionOutputByName.get(columnName);
+    if (constructionOutput?.table?.visible !== undefined) {
+      return constructionOutput.table.visible;
+    }
+    const authoredColumn = authoredByColumn.get(columnName);
+    const authoredColumns = emission
+      ? authoredColumnsFor(emission)
+      : authoredColumn ? [authoredColumn] : [];
+    return authoredColumns.length === 0 || authoredColumns.some(
+      (authored) => authored.table?.visible ?? Boolean(authored.table),
+    );
+  };
   const authoredColumnFor = (column: ExplorerBuilderEmission) =>
     authoredColumnsFor(column)[0];
+  const finalOutputNames = cohortTerminal
+    ? selectedCohortFields
+    : new Set(authoredConstructionStep?.outputs.map((output) => output.name));
   const configuredColumns: PreviewPresentationColumn[] = [
-    ...[...authoredByColumn.values()].map((column) => ({
+    ...[...authoredByColumn.values()]
+      .filter((column) => cohortTerminal
+        ? finalOutputNames.has(column.column)
+        : (!constructionStep || finalOutputNames.has(column.column)) &&
+          !constructionOutputByName.has(column.column))
+      .map((column) => ({
       name: column.column,
       label: column.label,
       table: column.table,
@@ -217,7 +285,7 @@ export const PreviewTable = ({
       name: column.name,
       label: column.label,
       table: column.table,
-      visibleByDefault: true,
+      visibleByDefault: effectiveConstructionOutputVisibility(column.name),
       change: {
         kind: 'CONSTRUCTION_OUTPUT' as const,
         stepId: constructionStep.id,
@@ -226,9 +294,20 @@ export const PreviewTable = ({
     })) : []),
   ].sort(
     (left, right) =>
-      (left.table?.order ?? Number.MAX_SAFE_INTEGER) -
-      (right.table?.order ?? Number.MAX_SAFE_INTEGER),
+      (constructionOrderByName.get(left.name) ?? left.table?.order ?? Number.MAX_SAFE_INTEGER) -
+      (constructionOrderByName.get(right.name) ?? right.table?.order ?? Number.MAX_SAFE_INTEGER),
   );
+  const orderForEmission = (column: ExplorerBuilderEmission): number => {
+    const outputOrder = constructionOrderByName.get(column.column);
+    if (outputOrder !== undefined) return outputOrder;
+    return Math.min(
+      Number.MAX_SAFE_INTEGER,
+      ...authoredColumnsFor(column).map(
+        (authored) => authored.table?.order ?? Number.MAX_SAFE_INTEGER,
+      ),
+      cohortOrderByName.get(column.column) ?? Number.MAX_SAFE_INTEGER,
+    );
+  };
   const orderedColumns: ExplorerBuilderEmission[] = (preview?.columns ?? [])
     .map((column) => {
       const authored = (column.authoredColumns ?? [column.column])
@@ -251,28 +330,23 @@ export const PreviewTable = ({
       };
     })
     .sort(
-      (left, right) =>
-        Math.min(
-          Number.MAX_SAFE_INTEGER,
-          ...authoredColumnsFor(left).map(
-            (column) => column.table?.order ?? Number.MAX_SAFE_INTEGER,
-          ),
-          constructionOutputByName.get(left.column)?.table?.order ?? Number.MAX_SAFE_INTEGER,
-        ) -
-        Math.min(
-          Number.MAX_SAFE_INTEGER,
-          ...authoredColumnsFor(right).map(
-            (column) => column.table?.order ?? Number.MAX_SAFE_INTEGER,
-          ),
-          constructionOutputByName.get(right.column)?.table?.order ?? Number.MAX_SAFE_INTEGER,
-        ),
+      (left, right) => {
+        const leftCohortOrder = cohortTerminal ? cohortOrderByName.get(left.column) : undefined;
+        const rightCohortOrder = cohortTerminal ? cohortOrderByName.get(right.column) : undefined;
+        if (leftCohortOrder !== undefined || rightCohortOrder !== undefined) {
+          return (leftCohortOrder ?? Number.MAX_SAFE_INTEGER) - (rightCohortOrder ?? Number.MAX_SAFE_INTEGER);
+        }
+        return orderForEmission(left) - orderForEmission(right);
+      },
     );
   const columns = orderedColumns.filter((column) => {
+    const constructionOutput = constructionOutputByName.get(column.column);
+    if (constructionOutput) {
+      return effectiveConstructionOutputVisibility(column.column, column);
+    }
     const authoredColumns = authoredColumnsFor(column);
     if (authoredColumns.length === 0) {
-      const constructionOutput = constructionOutputByName.get(column.column);
-      return constructionOutputNames.has(column.column) &&
-        (constructionOutput?.table?.visible ?? true);
+      return true;
     }
     return authoredColumns.some(
       (authored) => authored.table?.visible ?? Boolean(authored.table),
@@ -319,14 +393,18 @@ export const PreviewTable = ({
     );
     reordered.splice(adjustedIndex, 0, moved);
     const updates = reordered.flatMap((column, order) => {
-      return column.table?.order === order
-        ? []
-        : [
-            withPresentationTable(column, {
-              ...(column.table ?? {}),
-              order,
-            }),
-          ];
+      const changes: PreviewTablePresentationChange[] = [];
+      const table = { ...(column.table ?? {}), order };
+      if (column.table?.order !== order) changes.push(withPresentationTable(column, table));
+      const output = constructionStep?.outputs.find((candidate) => candidate.name === column.name);
+      if (output && output.table?.order !== order) {
+        const outputChange = withConstructionOutputTable(column, constructionStep, {
+          ...(output.table ?? {}),
+          order,
+        });
+        if (outputChange) changes.push(outputChange);
+      }
+      return changes;
     });
     if (updates.length > 0) onColumnsChange(updates);
   };
@@ -570,7 +648,12 @@ export const PreviewTable = ({
             </div>
             {rows.slice(rowRange.start, rowRange.end).map((row, visibleRowIndex) => {
               const rowIndex = rowRange.start + visibleRowIndex;
-              const rowIdentity = row.__loom_row_id;
+              const rawIdentity = row.__loom_row_id;
+              const rowIdentity = typeof rawIdentity === 'string'
+                ? rawIdentity
+                : rawIdentity && typeof rawIdentity === 'object'
+                  ? JSON.stringify(rawIdentity)
+                  : undefined;
               return (
                 <div
                   role="row"
@@ -654,8 +737,8 @@ export const PreviewTable = ({
       </div>
       {inspectedRow ? (
         <div className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-950/45 p-4" role="presentation">
-          <section aria-label={`Row ${inspectedRow.number} identity`} aria-modal="true" className="w-full max-w-lg rounded-xl bg-white p-5 shadow-2xl" role="dialog">
-            <div className="flex items-start gap-3">
+          <section aria-label={`Row ${inspectedRow.number} identity`} aria-modal="true" className="max-h-[calc(100dvh-2rem)] w-full max-w-lg overflow-y-auto rounded-xl bg-white p-5 shadow-2xl" role="dialog">
+            <div className="sticky top-0 z-10 flex items-start gap-3 bg-white pb-2">
               <div>
                 <h3 className="font-semibold text-slate-950">Row {inspectedRow.number}</h3>
                 <p className="mt-1 text-sm text-slate-600">Stable identity for this preview row. Use it to check whether edits preserve the same rows.</p>
@@ -680,8 +763,16 @@ export const PreviewTable = ({
                     {rowLineage?.status === 'COMPLETE' && rowLineage.contributors.length === 0 ? <p className="mt-2">No source records contributed to this row.</p> : null}
                     {rowLineage?.contributors.length ? (
                       <ul className="mt-2 max-h-64 overflow-y-auto rounded-md border border-slate-200 p-2">
-                        {rowLineage.contributors.map((contributor) => (
-                          <li key={contributor.occurrenceKey} className="break-all py-1">
+                        {rowLineage.contributors.map((contributor, index) => (
+                          <li key={JSON.stringify([
+                            preview?.receiptId ?? '',
+                            preview?.outputId ?? '',
+                            rowLineage.rowId,
+                            contributor.resourceType,
+                            contributor.resourceId,
+                            contributor.occurrenceKey,
+                            index,
+                          ])} className="break-all py-1">
                             {contributor.resourceType}/{contributor.resourceId}
                           </li>
                         ))}

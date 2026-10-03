@@ -11,17 +11,22 @@ import type {
 } from '../../../types';
 import { constructionSchema } from '../../../types';
 import { RelatedExpandContributorEditor, type ContributorChoice, type ContributorCondition } from './RelatedExpandContributorEditor';
-import { relationshipLabel, routeMeaning } from '../constructionWorkspace/routeDisplay';
+import { routePath } from '../constructionWorkspace/routeDisplay';
+import { TraversalPath } from '../constructionWorkspace/TraversalPath';
 
 type EligibilityOperation = Extract<ConstructionOperation, { readonly kind: 'RELATED_ELIGIBILITY' }>;
 export type EligibilityStep = Omit<ConstructionStep, 'operation'> & { readonly operation: EligibilityOperation };
 type RouteChoice = RelatedExpandChoiceSearchResponse['choices'][number];
 type Match = EligibilityOperation['relatedEligibility']['match'];
 type CandidateIntent = Pick<ConstructionProposalRequest, 'candidateConstruction' | 'changedStepId'>;
+type EligibilityContributorSource = NonNullable<EligibilityOperation['relatedEligibility']['contributorSource']>;
 
-const routeLabel = (choice: RouteChoice): string => choice.route.map((hop) =>
-  `${hop.fromResourceType} to ${hop.toResourceType} through ${relationshipLabel(hop).toLowerCase() || 'relationship'}`,
-).join(' then ');
+const isEligibilityContributorSource = (
+  source: ContributorChoice['source'],
+): source is EligibilityContributorSource =>
+  source.cardinality === 'optional_one' || source.cardinality === 'required_one';
+
+const routeLabel = (choice: RouteChoice): string => routePath(choice.route);
 
 const savedCondition = (step: EligibilityStep | undefined): ContributorCondition => {
   const eligibility = step?.operation.relatedEligibility;
@@ -60,6 +65,13 @@ const candidateFor = (
   condition: ContributorCondition,
 ): CandidateIntent | undefined => {
   if (!choice || !anchorColumnId || choice.anchorColumnId !== anchorColumnId || condition.kind === 'CHOOSE') return undefined;
+  let contributorSource: EligibilityContributorSource | undefined;
+  if (condition.kind !== 'ALL') {
+    const source = condition.choice.source;
+    if (!isEligibilityContributorSource(source)) return undefined;
+    contributorSource = source;
+  }
+  const contributorChoiceId = condition.kind === 'ALL' ? undefined : condition.choice.choiceId;
   if (condition.kind === 'EQUALS' && !condition.value.trim()) return undefined;
   const contributorRule = condition.kind === 'ALL'
     ? { policy: 'ALL_MATCHES' as const }
@@ -89,10 +101,7 @@ const candidateFor = (
         targetResourceType: choice.targetResourceType,
         route: choice.route,
         contributorRule,
-        ...(condition.kind === 'ALL' ? {} : {
-          contributorSource: condition.choice.source,
-          contributorChoiceId: condition.choice.choiceId,
-        }),
+        ...(contributorSource && contributorChoiceId ? { contributorSource, contributorChoiceId } : {}),
         match,
       },
     },
@@ -231,7 +240,7 @@ export const RelatedEligibilityEditor = ({
       <input type="radio" name={`eligibility-route-${stepId}`} aria-label={routeLabel(item)}
         checked={choice?.choiceId === item.choiceId} disabled={disabled}
         onChange={() => { setChoice(item); setCondition({ kind: 'ALL' }); emit(item, match, { kind: 'ALL' }); }} />
-      <span className="grid gap-1"><span>{routeLabel(item)}</span><span className="text-xs text-slate-600">{routeMeaning(item.route)}</span></span>
+      <TraversalPath route={item.route} referenceRoute={choice?.route ?? listedRoutes[0]?.route} />
     </label>
   );
 
@@ -248,6 +257,10 @@ export const RelatedEligibilityEditor = ({
         <p className="mt-1 text-sm text-slate-600">Keep rows according to records linked to each row. This does not add columns or multiply rows.</p>
       </div>
       {anchors.length === 0 ? <p role="status" className="text-sm text-amber-900">Loom has not confirmed a related-record anchor for this stage.</p> : null}
+      {anchors.length === 1 && anchors[0] ? <p className="grid gap-1 text-sm text-slate-800">
+        <span className="font-medium">Start from</span>
+        <span>{anchors[0].label}</span>
+      </p> : null}
       {anchors.length > 1 ? <label className="grid gap-1 text-sm font-medium text-slate-800">Start from
         <select aria-label="Related eligibility anchor" value={anchorColumnId} disabled={disabled}
           onChange={(event) => { setAnchorColumnId(event.target.value); setChoice(undefined); setCondition({ kind: 'ALL' }); emit(undefined, match, { kind: 'ALL' }, event.target.value); }}
@@ -288,6 +301,9 @@ export const RelatedEligibilityEditor = ({
             onChange={(event) => { const threshold = Number(event.target.value); const next = { kind: 'COUNT_AT_LEAST' as const, threshold }; setMatch(next); emit(choice, next); }}
             className="rounded border border-slate-300 px-3 py-2" />
         </label> : null}
+        {match.kind === 'COUNT_AT_LEAST' ? <p className="text-xs text-slate-600">
+          Each matching related record is counted once per current row, even if several starting records link to it.
+        </p> : null}
         <details open={conditionOpen} onToggle={(event) => setConditionOpen(event.currentTarget.open)} className="rounded border border-slate-200 bg-white p-3 text-sm">
           <summary className="cursor-pointer font-medium text-slate-800">Which related records count?</summary>
           {conditionOpen ? <div className="mt-3"><RelatedExpandContributorEditor

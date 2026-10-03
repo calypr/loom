@@ -56,6 +56,9 @@ func (b Bundle) Validate() error {
 				if strings.TrimSpace(step.ResourceType) == "" || strings.TrimSpace(step.Relationship) == "" {
 					return validationError("invalid_population_route", fmt.Sprintf("%s.population.route[%d]", path, index), "resourceType and relationship are required")
 				}
+				if step.StorageDirection != "" && step.StorageDirection != "INBOUND" && step.StorageDirection != "OUTBOUND" {
+					return validationError("invalid_population_route", fmt.Sprintf("%s.population.route[%d].storageDirection", path, index), "storageDirection must be INBOUND or OUTBOUND")
+				}
 			}
 		}
 		if !output.TraversalColumnNaming.Valid() {
@@ -92,10 +95,7 @@ func (b Bundle) Validate() error {
 			if output.TableReshape != nil || len(output.DerivedColumns) > 0 {
 				return validationError("ambiguous_construction", path+".construction", "construction cannot be combined with legacy tableReshape or derivedColumns")
 			}
-			if output.GroupRows != nil {
-				return validationError("unsupported_construction", path+".construction", "construction cannot be combined with explicit group rows")
-			}
-			if err := output.Construction.Validate(output.Fields); err != nil {
+			if err := output.Construction.ValidateWithGroupRows(output.Fields, output.GroupRows); err != nil {
 				return validationError("invalid_construction", path+".construction", err.Error())
 			}
 			if _, terminalCombine := output.Construction.TerminalCombineStep(); terminalCombine {
@@ -170,6 +170,9 @@ func (b Bundle) Validate() error {
 			if output.Expand != nil {
 				return validationError("invalid_group_rows", path+".groupRows", "group rows cannot be combined with row expansion")
 			}
+			if err := validateGroupRowValuePolicies(output, path+".groupRows.rowValues"); err != nil {
+				return err
+			}
 		}
 		if output.Identity != nil {
 			if err := validateRecipeName(output.Identity.Name, path+".identity.name"); err != nil {
@@ -196,6 +199,39 @@ func (b Bundle) Validate() error {
 			if err := projection.validateAt(fmt.Sprintf("%s.catalogProjections[%d]", path, index)); err != nil {
 				return err
 			}
+		}
+	}
+	return nil
+}
+
+func validateGroupRowValuePolicies(output Output, path string) error {
+	if output.GroupRows == nil || len(output.GroupRows.RowValues) == 0 {
+		return nil
+	}
+	fieldsByID := make(map[string][]Field, len(output.Fields))
+	for _, field := range output.Fields {
+		if field.ColumnID != "" {
+			fieldsByID[field.ColumnID] = append(fieldsByID[field.ColumnID], field)
+		}
+	}
+	seen := make(map[string]bool, len(output.GroupRows.RowValues))
+	for index, value := range output.GroupRows.RowValues {
+		valuePath := fmt.Sprintf("%s[%d]", path, index)
+		if strings.TrimSpace(value.ColumnID) == "" || value.ColumnID != strings.TrimSpace(value.ColumnID) || seen[value.ColumnID] {
+			return validationError("invalid_group_row_value", valuePath+".columnId", "columnId must be an exact unique source identity")
+		}
+		seen[value.ColumnID] = true
+		field, found := fieldsByID[value.ColumnID]
+		if len(field) != 1 || !found {
+			return validationError("invalid_group_row_value", valuePath+".columnId", "columnId must identify exactly one selected root field")
+		}
+		if strings.TrimSpace(field[0].Expr.Select) == "" || len(field[0].Fallbacks) != 0 {
+			return validationError("invalid_group_row_value", valuePath, "only direct root FHIR field projections are supported")
+		}
+		switch value.Policy {
+		case ConstructionRowValueAll, ConstructionRowValueOne:
+		default:
+			return validationError("invalid_group_row_value", valuePath+".policy", "policy must be ALL or ONE")
 		}
 	}
 	return nil

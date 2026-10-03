@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import type {
   ConstructionChoice,
   ConstructionChoiceForm,
+  ConstructionChoiceSelection,
 } from '../../../types';
 import {
   catalogItemDefaultForm,
@@ -13,7 +14,8 @@ import {
   type CatalogChoiceIntent,
   type CatalogChoiceGroup,
 } from '../catalogItems';
-import { relationshipLabel, routeMeaning } from '../constructionWorkspace/routeDisplay';
+import { routePath } from '../constructionWorkspace/routeDisplay';
+import { TraversalPath } from '../constructionWorkspace/TraversalPath';
 
 const optionLabel = (option: ConstructionChoice['options'][number]): string => {
   switch (option.form) {
@@ -39,15 +41,7 @@ const optionDescription = (option: ConstructionChoice['options'][number]): strin
   }
 };
 
-const routeLabel = (route: ConstructionChoice['route']): string => {
-  if (route.length === 0) return 'Same resource as each table row';
-  const resources = [route[0]!.fromResourceType, ...route.map((step) => step.toResourceType)];
-  const relationships = route.map(relationshipLabel).join(' then ');
-  const path = resources.join(' to ');
-  return route.length === 1
-    ? `Direct relationship: ${path} via ${relationships}`
-    : `${route.length}-relationship path: ${path} via ${relationships}`;
-};
+const routeLabel = (route: ConstructionChoice['route']): string => routePath(route);
 
 const routeTechnicalDetails = (route: ConstructionChoice['route']): string => route.length === 0
   ? 'This field is on the same resource as each table row.'
@@ -55,7 +49,9 @@ const routeTechnicalDetails = (route: ConstructionChoice['route']): string => ro
       `${step.fromResourceType} to ${step.toResourceType} via ${step.relationship}; storage ${step.storageDirection.toLowerCase()}; match ${step.matchMode.toLowerCase()}`,
     ).join(' · ');
 
-const routeCoverageForm = (item: CatalogChoiceGroup['item'], choice: ConstructionChoice, rowRoot: string): 'COUNT' | 'ALL' | undefined => {
+const routeCoverageForm = (item: CatalogChoiceGroup['item'], choice: ConstructionChoice, rowRoot: string, groupedRows: boolean): 'COUNT' | 'ALL' | undefined => {
+  if (groupedRows && item.kind === 'FIELD' && isRelatedFieldCatalogItem(item, rowRoot) &&
+    choice.options.some((option) => option.form === 'ALL' && option.support === 'SUPPORTED')) return 'ALL';
   if (item.kind === 'FIELD' && isRelatedFieldCatalogItem(item, rowRoot) &&
     choice.options.some((option) => option.form === 'COUNT' && option.support === 'SUPPORTED')) return 'COUNT';
   if (item.kind === 'SEMANTIC' && choice.route.length > 0 &&
@@ -90,10 +86,18 @@ export type CatalogInitialSelection = {
   readonly condition?: ConditionDraft;
 };
 
+type ConstructionRowValuePolicy = NonNullable<ConstructionChoiceSelection['rowValuePolicy']>;
+
+export type GroupedRowValuePolicyControl = Readonly<{
+  value: ConstructionRowValuePolicy;
+  onChange: (value: ConstructionRowValuePolicy) => void;
+}>;
+
 export const CatalogSelectionDialog = ({
   groups,
   rowRoot,
   initialSelection,
+  groupedRowValuePolicy,
   busy,
   loadingMoreRoutes,
   routeLoadError,
@@ -105,6 +109,7 @@ export const CatalogSelectionDialog = ({
   readonly groups: ReadonlyArray<CatalogChoiceGroup>;
   readonly rowRoot: string;
   readonly initialSelection?: CatalogInitialSelection;
+  readonly groupedRowValuePolicy?: GroupedRowValuePolicyControl;
   readonly busy: boolean;
   readonly loadingMoreRoutes?: string;
   readonly routeLoadError?: { readonly key: string; readonly message: string };
@@ -149,7 +154,7 @@ export const CatalogSelectionDialog = ({
   const [routeCoverage, setRouteCoverage] = useState<ReadonlyMap<string, RouteCoverageState>>(() => new Map());
   const coverageRequests = useRef<Map<string, AbortController>>(new Map());
   const inspectRouteCoverage = (group: CatalogChoiceGroup, choice: ConstructionChoice) => {
-    const form = routeCoverageForm(group.item, choice, rowRoot);
+    const form = routeCoverageForm(group.item, choice, rowRoot, groupedRowValuePolicy !== undefined);
     if (!onInspectRouteCoverage || !form || coverageRequests.current.has(choice.choiceId)) return;
     const selection = catalogChoiceIntent({ item: group.item, choice, form, rowRoot });
     if (form === 'COUNT' && !selection.relatedSource) return;
@@ -244,6 +249,26 @@ export const CatalogSelectionDialog = ({
         <p className="mt-1 text-sm text-slate-600">
           Choose where each field comes from and how it should appear in the table. When there are multiple paths, Loom leaves the choice open for you.
         </p>
+        {groupedRowValuePolicy ? (
+          <label className="mt-3 flex flex-wrap items-center gap-2 text-sm text-slate-700">
+            <span className="font-medium">Values per grouped row</span>
+            <select
+              aria-label="Values per grouped row"
+              data-testid="catalog-grouped-row-value-policy"
+              value={groupedRowValuePolicy.value}
+              disabled={busy}
+              onChange={(event) => {
+                const value = event.currentTarget.value;
+                if (value === 'ALL' || value === 'ONE') groupedRowValuePolicy.onChange(value);
+              }}
+              className="rounded border border-slate-300 bg-white px-2 py-1.5"
+            >
+              <option value="ALL">Keep all distinct values</option>
+              <option value="ONE">Require one distinct value</option>
+            </select>
+            <span className="text-xs text-slate-500">Missing values stay empty. If values disagree, switch to all distinct values and retry.</span>
+          </label>
+        ) : null}
         <div className="mt-4 min-h-0 space-y-3 overflow-y-auto pr-1">
           {groups.map((group) => {
             const { item } = group;
@@ -305,7 +330,7 @@ export const CatalogSelectionDialog = ({
                       const renderRouteChoice = ({ routeChoice }: typeof orderedChoices[number]) => {
                         const label = routeLabel(routeChoice.route);
                         const matchCoverage = routeCoverage.get(routeChoice.choiceId);
-                        const canInspectMatches = Boolean(onInspectRouteCoverage && routeCoverageForm(item, routeChoice, rowRoot));
+                        const canInspectMatches = Boolean(onInspectRouteCoverage && routeCoverageForm(item, routeChoice, rowRoot, groupedRowValuePolicy !== undefined));
                         return (
                           <div key={routeChoice.choiceId} className="rounded-md border border-slate-200 p-2.5">
                             <label className="flex cursor-pointer items-start gap-2">
@@ -355,18 +380,16 @@ export const CatalogSelectionDialog = ({
                                 }}
                                 className="mt-1 h-4 w-4 border-slate-300 text-blue-700"
                               />
-                              <span className="min-w-0 flex-1 text-sm font-semibold text-slate-900">{label}</span>
+                              <span className="min-w-0 flex-1"><TraversalPath route={routeChoice.route} referenceRoute={choice?.route ?? orderedChoices[0]?.routeChoice.route} /></span>
                             </label>
-                            {routeChoice.route.length > 0 ? (
-                              <p className="ml-6 mt-1 text-xs text-slate-600">{routeMeaning(routeChoice.route)}</p>
-                            ) : null}
+
                             {canInspectMatches ? (
                               <div data-testid={`catalog-route-coverage-${routeChoice.choiceId}`} className="ml-6 mt-2 text-xs text-slate-700">
                                 {matchCoverage?.status === 'ready' ? (
                                   'kind' in matchCoverage.coverage ? (
                                     <p>
                                       In {matchCoverage.coverage.displayedRows} displayed {matchCoverage.coverage.displayedRows === 1 ? 'row' : 'rows'}: {matchCoverage.coverage.empty} without this value, {matchCoverage.coverage.one} with one value, {matchCoverage.coverage.many} with two or more values.
-                                      {' This counts paired values, not matching records.'}
+                                      {item.kind === 'SEMANTIC' ? ' This counts paired values, not matching records.' : ' This counts distinct contributing values, not matching records.'}
                                       {matchCoverage.coverage.sampled ? ' This is a sample; full-table coverage has not been measured.' : ''}
                                     </p>
                                   ) : (
@@ -376,12 +399,12 @@ export const CatalogSelectionDialog = ({
                                     </p>
                                   )
                                 ) : matchCoverage?.status === 'loading' ? (
-                                  <p role="status">Checking {item.kind === 'SEMANTIC' ? 'paired values' : 'matching records'} in preview rows…</p>
+                                  <p role="status">Checking {item.kind === 'SEMANTIC' ? 'paired values' : groupedRowValuePolicy ? 'contributing values' : 'matching records'} in preview rows…</p>
                                 ) : (
                                   <>
                                     {matchCoverage?.status === 'error' ? <p role="status">{matchCoverage.message}</p> : null}
                                     <button type="button" disabled={busy} onClick={() => inspectRouteCoverage(group, routeChoice)} className="font-medium text-blue-800 underline underline-offset-2 disabled:text-slate-400">
-                                      {matchCoverage?.status === 'error' ? 'Retry coverage check' : item.kind === 'SEMANTIC' ? 'Check paired values' : 'Check matching rows'}
+                                      {matchCoverage?.status === 'error' ? 'Retry coverage check' : item.kind === 'SEMANTIC' ? 'Check paired values' : groupedRowValuePolicy ? 'Check contributing values' : 'Check matching rows'}
                                     </button>
                                   </>
                                 )}
@@ -450,7 +473,7 @@ export const CatalogSelectionDialog = ({
                 ) : null}
                 {choice && group.choices.length === 1 ? (
                   <div className="mt-2 rounded-md bg-blue-50 p-2 text-sm text-slate-700">
-                    <span className="font-semibold text-blue-900">Path: </span>{routeLabel(choice.route)}
+                    <TraversalPath route={choice.route} />
                     <details className="mt-2 text-xs text-slate-600">
                       <summary className="cursor-pointer font-medium text-blue-700">Technical path details</summary>
                       <p className="mt-2 font-medium">{choice.presentation.summary}</p>

@@ -45,8 +45,8 @@ func TestRelatedEligibilityCountRowsUsesScopedReverseRoute(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		"FOR __loom_physical_related_count_terminal IN @@__loom_related_count_terminal_collection",
-		"._from == __loom_physical_related_count_route_target_1._id",
+		"FOR __loom_physical_related_countterminal IN @@__loom_related_count_terminal_collection",
+		"._from == __loom_physical_related_countroute_target_1._id",
 		".from_type == @related_eligibility_0_hop_1_target_type",
 		".to_type == @related_eligibility_0_hop_1_source_type",
 		"COLLECT _id = __loom_construction_related_eligibility_0_anchor_1._id",
@@ -74,7 +74,7 @@ func TestRelatedEligibilityCountRowsUsesScopedReverseRoute(t *testing.T) {
 	}
 	if !strings.Contains(restrictedRendered.Query, "auth_resource_path IN @auth_resource_paths") ||
 		restrictedRendered.BindVars["auth_resource_paths_unrestricted"] != false ||
-		!strings.Contains(restrictedRendered.Query, "FOR __loom_physical_related_count_terminal IN @@") {
+		!strings.Contains(restrictedRendered.Query, "FOR __loom_physical_related_countterminal IN @@") {
 		t.Fatalf("restricted auth did not retain the reverse plan and exact scope binds:\n%s\n%#v", restrictedRendered.Query, restrictedRendered.BindVars)
 	}
 

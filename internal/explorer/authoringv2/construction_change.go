@@ -161,17 +161,25 @@ func (d Document) AnalyzeConstructionCandidate(candidateConstruction Constructio
 			}
 			continue
 		}
-		for expectedIndex < len(candidateSteps) && isNewOwnedPivotInput(candidateSteps[expectedIndex], changedStepID, base.Construction.Steps) {
+		for expectedIndex < len(candidateSteps) && isNewOwnedReshapeInput(candidateSteps[expectedIndex], changedStepID, base.Construction.Steps) {
 			expectedIndex++
 		}
 		if expectedIndex >= len(candidateSteps) || candidateSteps[expectedIndex].ID != oldStep.ID {
 			return d, ConstructionImpact{}, fmt.Errorf("candidate changes step order or omits step %q without listing it in removeStepIDs", oldStep.ID)
 		}
+		candidateStep := candidateSteps[expectedIndex]
+		if oldStep.OwnerStepID == changedStepID && oldStep.Operation.Kind == ConstructionOperationCodedPivot &&
+			candidateStep.OwnerStepID == changedStepID && candidateStep.Operation.Kind == ConstructionOperationCodedPivot &&
+			!reflect.DeepEqual(oldStep, candidateStep) && oldIndex < firstChanged {
+			// A direct-source coded-value input is part of its owning GROUP proposal.
+			// Recalculate from this helper when the owner edits its selected codes.
+			firstChanged = oldIndex
+		}
 		if oldStep.ID == changedStepID {
 			if oldIndex < firstChanged {
 				firstChanged = oldIndex
 			}
-		} else if oldIndex < firstChanged && !reflect.DeepEqual(oldStep, candidateSteps[expectedIndex]) {
+		} else if oldIndex < firstChanged && !reflect.DeepEqual(oldStep, candidateStep) {
 			if !constructionCanCarrySourceProjection(oldStep.Operation.Kind) ||
 				!stepDiffOnlyChangesOwnedProjection(oldStep, candidateSteps[expectedIndex], projectionOwners,
 					base.Construction.SourceProjections, cloned.SourceProjections) {
@@ -181,7 +189,7 @@ func (d Document) AnalyzeConstructionCandidate(candidateConstruction Constructio
 		expectedIndex++
 	}
 	if isAppend {
-		for expectedIndex < len(candidateSteps) && isNewOwnedPivotInput(candidateSteps[expectedIndex], changedStepID, base.Construction.Steps) {
+		for expectedIndex < len(candidateSteps) && isNewOwnedReshapeInput(candidateSteps[expectedIndex], changedStepID, base.Construction.Steps) {
 			expectedIndex++
 		}
 		if expectedIndex != len(candidateSteps)-1 || candidateSteps[expectedIndex].ID != changedStepID {
@@ -206,25 +214,22 @@ func (d Document) AnalyzeConstructionCandidate(candidateConstruction Constructio
 	result := cloneDocumentForConstructionChange(base)
 	result.Construction = cloned
 	result.TableShape = nil
-	for index := range result.Construction.Steps {
-		step := &result.Construction.Steps[index]
-		if step.Operation.Kind == ConstructionOperationCombine || step.Operation.Combine != nil {
-			continue
-		}
-		if index == 0 {
-			step.Inputs = []ConstructionInputRef{{Kind: ConstructionInputSourceProjection}}
-		} else {
-			step.Inputs = []ConstructionInputRef{{Kind: ConstructionInputStepOutput, StepID: result.Construction.Steps[index-1].ID}}
-		}
-	}
+	repairExplicitGroupAnchorAfterConstructionChange(base, &result)
+	normalizeEffectiveConstructionInputs(&result)
 	result.Construction.SourceProjections = pruneConstructionSourceProjections(result.Construction.SourceProjections, result.Construction.Steps)
 	start := len(result.Construction.Steps)
 	if changedStepID != "" {
 		start = candidateIDs[changedStepID]
 	}
 	for index, step := range result.Construction.Steps {
-		if isNewOwnedPivotInput(step, changedStepID, base.Construction.Steps) && index < start {
+		if isNewOwnedReshapeInput(step, changedStepID, base.Construction.Steps) && index < start {
 			start = index
+		}
+		if step.OwnerStepID == changedStepID && step.Operation.Kind == ConstructionOperationCodedPivot {
+			if previousIndex := findConstructionStep(base.Construction.Steps, step.ID); previousIndex >= 0 &&
+				!reflect.DeepEqual(base.Construction.Steps[previousIndex], step) && index < start {
+				start = index
+			}
 		}
 	}
 	if len(remove) != 0 {
@@ -320,14 +325,11 @@ func (d Document) ProposeStepRemoval(stepID string, removeStepIDs []string) (Doc
 	}
 	candidate.Construction.Steps = steps
 	candidate.Construction.SourceProjections = pruneConstructionSourceProjections(candidate.Construction.SourceProjections, steps)
+	repairExplicitGroupAnchorAfterConstructionChange(d, &candidate)
+	normalizeEffectiveConstructionInputs(&candidate)
 	for index := firstRemoved; index < len(candidate.Construction.Steps); index++ {
 		step := &candidate.Construction.Steps[index]
 		impact.AffectedStepIDs = append(impact.AffectedStepIDs, step.ID)
-		if index == 0 {
-			step.Inputs = []ConstructionInputRef{{Kind: ConstructionInputSourceProjection}}
-		} else {
-			step.Inputs = []ConstructionInputRef{{Kind: ConstructionInputStepOutput, StepID: candidate.Construction.Steps[index-1].ID}}
-		}
 	}
 	recalculateFrom := firstRemoved
 	if len(d.Construction.SourceProjections) != len(candidate.Construction.SourceProjections) || (len(d.Construction.SourceProjections) > 0 && !reflect.DeepEqual(d.Construction.SourceProjections, candidate.Construction.SourceProjections)) {
@@ -352,12 +354,12 @@ func recalculateCandidateStages(candidate *Document, start int, impact *Construc
 		return err
 	}
 	if start == 0 && len(candidate.Construction.Steps) > 0 {
-		first := candidate.Construction.Steps[0]
-		source, err = constructionSourceColumnsWithChildrenAndProjections(candidate.Columns, candidate.Construction.SourceProjections, first.Operation.inputColumnIDs(), first.Outputs)
+		source, err = effectiveConstructionSourceSchema(*candidate)
 		if err != nil {
 			return fmt.Errorf("source projection: %w", err)
 		}
 	}
+	authoredSourceIDs := constructionAuthoredSourceIDs(*candidate)
 	for index := start; index < len(candidate.Construction.Steps); index++ {
 		step := &candidate.Construction.Steps[index]
 		if step.Operation.Kind == ConstructionOperationCombine || step.Operation.Combine != nil {
@@ -366,7 +368,7 @@ func recalculateCandidateStages(candidate *Document, start int, impact *Construc
 			}
 			continue
 		}
-		inputColumns, err := constructionStepInputSchema(candidate.Construction.Steps, source, index)
+		inputColumns, err := effectiveConstructionInputSchema(*candidate, source, index)
 		if err != nil {
 			return fmt.Errorf("step %q input: %w", step.ID, err)
 		}
@@ -374,12 +376,12 @@ func recalculateCandidateStages(candidate *Document, start int, impact *Construc
 		if err != nil {
 			return fmt.Errorf("step %q input schema: %w", step.ID, err)
 		}
-		for _, columnID := range step.Operation.inputColumnIDs() {
+		for _, columnID := range step.inputColumnIDs() {
 			if _, exists := inputIndex[columnID]; !exists {
 				impact.MissingInputs = append(impact.MissingInputs, ConstructionDependencyIssue{StepID: step.ID, ColumnID: columnID})
 			}
 		}
-		outputs, err := rebuildStageColumns(*step, inputColumns)
+		outputs, err := rebuildStageColumns(*step, inputColumns, authoredSourceIDs)
 		if err != nil {
 			return fmt.Errorf("recalculate step %q: %w", step.ID, err)
 		}
@@ -388,12 +390,96 @@ func recalculateCandidateStages(candidate *Document, start int, impact *Construc
 	return nil
 }
 
+func effectiveConstructionSourceSchema(document Document) ([]StageColumn, error) {
+	if hasExplicitGroupRows(document) && document.Rows.Groups.AfterStepID == "" {
+		return sourceStageColumns(document.Columns)
+	}
+	if document.Construction == nil || len(document.Construction.Steps) == 0 {
+		return sourceStageColumns(document.Columns)
+	}
+	first := document.Construction.Steps[0]
+	return constructionSourceColumnsWithChildrenAndProjections(document.Columns, document.Construction.SourceProjections, first.inputColumnIDs(), first.Outputs)
+}
+
+func effectiveConstructionInputSchema(document Document, source []StageColumn, index int) ([]StageColumn, error) {
+	if document.Construction == nil || index < 0 || index >= len(document.Construction.Steps) {
+		return nil, fmt.Errorf("construction step index is invalid")
+	}
+	if !hasExplicitGroupRows(document) {
+		return constructionStepInputSchema(document.Construction.Steps, source, index)
+	}
+	anchorIndex := -1
+	if document.Rows.Groups.AfterStepID != "" {
+		anchorIndex = findConstructionStep(document.Construction.Steps, document.Rows.Groups.AfterStepID)
+		if anchorIndex < 0 {
+			return nil, fmt.Errorf("group rows afterStepId %q does not name a construction step", document.Rows.Groups.AfterStepID)
+		}
+	}
+	if index == anchorIndex+1 {
+		return explicitGroupStageColumns(document.Columns, document.Rows.Groups)
+	}
+	if index == 0 {
+		return source, nil
+	}
+	return document.Construction.Steps[index-1].Outputs, nil
+}
+
+func hasExplicitGroupRows(document Document) bool {
+	return document.Rows.Kind == RowDefinitionGroups && document.Rows.Groups != nil && document.Rows.Groups.Source.Kind == GroupSourceExplicit
+}
+
+func normalizeEffectiveConstructionInputs(document *Document) {
+	if document == nil || document.Construction == nil {
+		return
+	}
+	anchorIndex := -2
+	if hasExplicitGroupRows(*document) {
+		anchorIndex = -1
+		if document.Rows.Groups.AfterStepID != "" {
+			anchorIndex = findConstructionStep(document.Construction.Steps, document.Rows.Groups.AfterStepID)
+		}
+	}
+	for index := range document.Construction.Steps {
+		step := &document.Construction.Steps[index]
+		if step.Operation.Kind == ConstructionOperationCombine || step.Operation.Combine != nil {
+			continue
+		}
+		switch {
+		case anchorIndex != -2 && index == anchorIndex+1:
+			step.Inputs = []ConstructionInputRef{{Kind: ConstructionInputStepOutput, StepID: "group_rows"}}
+		case index == 0:
+			step.Inputs = []ConstructionInputRef{{Kind: ConstructionInputSourceProjection}}
+		default:
+			step.Inputs = []ConstructionInputRef{{Kind: ConstructionInputStepOutput, StepID: document.Construction.Steps[index-1].ID}}
+		}
+	}
+}
+
+func repairExplicitGroupAnchorAfterConstructionChange(before Document, after *Document) {
+	if after == nil || !hasExplicitGroupRows(before) || after.Construction == nil {
+		return
+	}
+	anchor := before.Rows.Groups.AfterStepID
+	if anchor == "" || findConstructionStep(after.Construction.Steps, anchor) >= 0 {
+		return
+	}
+	oldIndex := findConstructionStep(before.Construction.Steps, anchor)
+	for index := oldIndex - 1; index >= 0; index-- {
+		candidate := before.Construction.Steps[index].ID
+		if findConstructionStep(after.Construction.Steps, candidate) >= 0 {
+			after.Rows.Groups.AfterStepID = candidate
+			return
+		}
+	}
+	after.Rows.Groups.AfterStepID = ""
+}
+
 func pruneConstructionSourceProjections(projections []ConstructionSourceProjection, steps []ConstructionStep) []ConstructionSourceProjection {
 	used := make(map[string]bool)
 	owners := make(map[string]bool, len(steps))
 	for _, step := range steps {
-		owners[step.ID] = step.Operation.Kind == ConstructionOperationPivot
-		for _, columnID := range step.Operation.inputColumnIDs() {
+		owners[step.ID] = step.Operation.Kind == ConstructionOperationPivot || step.Operation.Kind == ConstructionOperationGroup
+		for _, columnID := range step.inputColumnIDs() {
 			used[columnID] = true
 		}
 	}
@@ -406,8 +492,9 @@ func pruneConstructionSourceProjections(projections []ConstructionSourceProjecti
 	return pruned
 }
 
-func isNewOwnedPivotInput(step ConstructionStep, ownerStepID string, existing []ConstructionStep) bool {
-	if ownerStepID == "" || step.OwnerStepID != ownerStepID || step.Operation.Kind != ConstructionOperationRelatedField {
+func isNewOwnedReshapeInput(step ConstructionStep, ownerStepID string, existing []ConstructionStep) bool {
+	if ownerStepID == "" || step.OwnerStepID != ownerStepID ||
+		(step.Operation.Kind != ConstructionOperationRelatedField && step.Operation.Kind != ConstructionOperationCodedPivot) {
 		return false
 	}
 	return findConstructionStep(existing, step.ID) < 0
@@ -487,7 +574,7 @@ func stepDiffOnlyChangesOwnedProjection(
 	return true
 }
 
-func rebuildStageColumns(step ConstructionStep, input []StageColumn) ([]StageColumn, error) {
+func rebuildStageColumns(step ConstructionStep, input []StageColumn, authoredSourceIDs map[string]struct{}) ([]StageColumn, error) {
 	declared, err := stageColumnIndex(step.Outputs)
 	if err != nil {
 		return nil, fmt.Errorf("output declaration: %w", err)
@@ -523,6 +610,12 @@ func rebuildStageColumns(step ConstructionStep, input []StageColumn) ([]StageCol
 		for _, id := range step.Operation.Pivot.GroupKeyIDs {
 			column, exists := findStageColumnByID(input, id)
 			if exists {
+				if presentation, declaredOutput := declared[id]; declaredOutput {
+					if _, authoredSource := authoredSourceIDs[id]; !authoredSource {
+						column.Label = presentation.Label
+					}
+					column.Table = cloneTablePresentation(presentation.Table)
+				}
 				outputs = append(outputs, column)
 			}
 		}
@@ -677,6 +770,13 @@ func rebuildStageColumns(step ConstructionStep, input []StageColumn) ([]StageCol
 	default:
 		return nil, fmt.Errorf("unsupported operation kind %q", step.Operation.Kind)
 	}
+	for _, value := range step.RowValues {
+		column, err := produced(value.OutputColumnID)
+		if err != nil {
+			return nil, err
+		}
+		outputs = append(outputs, column)
+	}
 	if err := validateStageColumns(outputs); err != nil {
 		return nil, err
 	}
@@ -739,7 +839,7 @@ func (o ConstructionOperation) inputColumnIDs() []string {
 		}
 	case ConstructionOperationRelatedSource:
 		if o.RelatedSource != nil {
-			if o.RelatedSource.AnchorColumnID != "_key" {
+			if o.RelatedSource.AnchorColumnID != "_key" && o.RelatedSource.AnchorColumnID != "__loom_row_id" {
 				add(o.RelatedSource.AnchorColumnID)
 			}
 		}
@@ -765,8 +865,33 @@ func findStageColumnByID(columns []StageColumn, id string) (StageColumn, bool) {
 	return StageColumn{}, false
 }
 
+func constructionAuthoredSourceIDs(document Document) map[string]struct{} {
+	ids := make(map[string]struct{}, len(document.Columns))
+	for _, column := range document.Columns {
+		if column.ColumnID != "" {
+			ids[column.ColumnID] = struct{}{}
+		}
+	}
+	if document.Construction != nil {
+		for _, projection := range document.Construction.SourceProjections {
+			if projection.ColumnID != "" {
+				ids[projection.ColumnID] = struct{}{}
+			}
+		}
+	}
+	return ids
+}
+
+func cloneTablePresentation(presentation *TablePresentation) *TablePresentation {
+	if presentation == nil {
+		return nil
+	}
+	cloned := *presentation
+	return &cloned
+}
+
 func stagedSourceColumnID(document Document, commandID string, commandIndex int, commandType string, identity ...any) string {
-	if document.Construction == nil {
+	if document.Construction == nil && document.Rows.Kind != RowDefinitionGroups {
 		return ""
 	}
 	values := make([]any, 0, len(identity)+5)
@@ -793,6 +918,11 @@ func cloneConstruction(construction *Construction) (*Construction, error) {
 func cloneDocumentForConstructionChange(document Document) Document {
 	candidate := document
 	candidate.Columns = append([]Column(nil), document.Columns...)
+	if document.Rows.Groups != nil {
+		groups := *document.Rows.Groups
+		groups.RowValues = append([]ExplicitGroupRowValue(nil), document.Rows.Groups.RowValues...)
+		candidate.Rows.Groups = &groups
+	}
 	construction := *document.Construction
 	construction.Steps = append([]ConstructionStep(nil), document.Construction.Steps...)
 	for index := range construction.Steps {
@@ -809,23 +939,19 @@ func normalizeConstructionOutputOrder(document *Document) {
 	}
 	construction := *document.Construction
 	construction.Steps = append([]ConstructionStep(nil), document.Construction.Steps...)
-	source, err := sourceStageColumns(document.Columns)
+	candidate := *document
+	candidate.Construction = &construction
+	source, err := effectiveConstructionSourceSchema(candidate)
 	if err != nil {
 		return
 	}
-	if len(construction.Steps) > 0 {
-		first := construction.Steps[0]
-		source, err = constructionSourceColumnsWithChildrenAndProjections(document.Columns, construction.SourceProjections, first.Operation.inputColumnIDs(), first.Outputs)
+	authoredSourceIDs := constructionAuthoredSourceIDs(candidate)
+	for index := range construction.Steps {
+		input, err := effectiveConstructionInputSchema(candidate, source, index)
 		if err != nil {
 			return
 		}
-	}
-	for index := range construction.Steps {
-		input := source
-		if index > 0 {
-			input = construction.Steps[index-1].Outputs
-		}
-		outputs, err := rebuildStageColumns(construction.Steps[index], input)
+		outputs, err := rebuildStageColumns(construction.Steps[index], input, authoredSourceIDs)
 		if err != nil {
 			return
 		}

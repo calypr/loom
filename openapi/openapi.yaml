@@ -1231,6 +1231,11 @@ paths:
               schema: {$ref: '#/components/schemas/RawJSON'}
         '422': {$ref: '#/components/responses/GraphQLUnprocessable'}
         '500': {$ref: '#/components/responses/GraphQLInternalError'}
+        '503':
+          description: The GraphQL backend or authorization service is unavailable.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RawJSON'}
   /graphql/dataframe:
     post:
       operationId: executeDataframeGraphQL
@@ -1255,6 +1260,11 @@ paths:
               schema: {$ref: '#/components/schemas/RawJSON'}
         '422': {$ref: '#/components/responses/GraphQLUnprocessable'}
         '500': {$ref: '#/components/responses/GraphQLInternalError'}
+        '503':
+          description: The GraphQL backend or authorization service is unavailable.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RawJSON'}
   /apollo:
     get:
       operationId: getApolloSandbox
@@ -2232,6 +2242,16 @@ components:
                             unassignedMemberPolicy: {type: string, enum: [ERROR, EXCLUDE, GROUP_AS_UNASSIGNED]}
                   discriminator:
                     propertyName: kind
+                afterStepId: {type: string, minLength: 1, description: "Authored construction step after which the explicit cohort stage is inserted. Omission means the source projection."}
+                rowValues:
+                  type: array
+                  items:
+                    type: object
+                    additionalProperties: false
+                    required: [columnId, policy]
+                    properties:
+                      columnId: {type: string, minLength: 1}
+                      policy: {type: string, enum: [ALL, ONE]}
         - type: object
           additionalProperties: false
           required: [kind, expanded]
@@ -2264,6 +2284,7 @@ components:
         resourceType: {type: string, minLength: 1}
         relationship: {type: string, minLength: 1}
         catalogEdgeId: {type: string, minLength: 1}
+        storageDirection: {type: string, enum: [INBOUND, OUTBOUND]}
     Output:
       type: object
       additionalProperties: false
@@ -2694,6 +2715,7 @@ components:
         choiceId: {type: string, minLength: 1}
         form: {type: string, enum: [VALUE, FIRST, ALL, DISTINCT, OWNER_RECORDS, COUNT, PRESENCE]}
         frameId: {type: string, minLength: 1}
+        rowValuePolicy: {type: string, enum: [ALL, ONE]}
     SemanticSelectionIntent:
       type: object
       additionalProperties: false
@@ -2885,6 +2907,7 @@ components:
         fromNodeId: {type: string, minLength: 1}
         toNodeId: {type: string, minLength: 1}
         label: {type: string, minLength: 1}
+        storageDirection: {type: string, enum: [INBOUND, OUTBOUND]}
         populated: {type: boolean}
     CatalogCandidate:
       type: object
@@ -3154,6 +3177,7 @@ components:
       required: [revisionId, groupCount, memberCount, createdAt, unassignedMemberPolicies]
       properties:
         revisionId: {type: string, minLength: 1}
+        sourceSelectionRevisionId: {type: string, minLength: 1}
         groupCount: {type: integer, minimum: 1}
         memberCount: {type: integer, minimum: 0}
         createdAt: {type: string, format: date-time}
@@ -3167,6 +3191,7 @@ components:
       required: [choiceId, fieldPath, label, description, occurrenceSummary, routeSummary, kind, valueType, policies]
       properties:
         choiceId: {type: string, minLength: 1}
+        occurrenceId: {type: string, minLength: 1}
         fieldPath: {type: string, minLength: 1}
         label: {type: string}
         description: {type: string}
@@ -3363,9 +3388,20 @@ components:
           type: array
           items: {$ref: '#/components/schemas/ConstructionInputRef'}
         operation: {$ref: '#/components/schemas/ConstructionOperation'}
+        rowValues:
+          type: array
+          items: {$ref: '#/components/schemas/ConstructionRowValue'}
         outputs:
           type: array
           items: {$ref: '#/components/schemas/ConstructionStageColumn'}
+    ConstructionRowValue:
+      type: object
+      additionalProperties: false
+      required: [inputColumnId, outputColumnId, policy]
+      properties:
+        inputColumnId: {type: string, minLength: 1}
+        outputColumnId: {type: string, minLength: 1}
+        policy: {type: string, enum: [ALL, ONE]}
     ConstructionInputRef:
       type: object
       additionalProperties: false
@@ -3494,7 +3530,7 @@ components:
           minItems: 1
           items: {$ref: '#/components/schemas/ConstructionRouteStep'}
         contributorRule: {$ref: '#/components/schemas/RelatedSourceContributorRule'}
-        contributorSource: {$ref: '#/components/schemas/RelatedSourceField'}
+        contributorSource: {$ref: '#/components/schemas/RelatedExpandContributorSource'}
         contributorChoiceId: {type: string, minLength: 1}
         emptyPolicy: {type: string, enum: [ERROR, EXCLUDE, PRESERVE_PARENT]}
         relatedRecordColumnId: {type: string, minLength: 1}
@@ -3865,7 +3901,7 @@ components:
       additionalProperties: false
       required: [kind, supported]
       properties:
-        kind: {type: string, enum: [PIVOT, CODED_PIVOT, DERIVE, FILTER, UNPIVOT, GROUP, CODED_GROUP, EXPAND, RELATED_SOURCE, RELATED_EXPAND, RELATED_ELIGIBILITY, RELATED_FIELD]}
+        kind: {type: string, enum: [PIVOT, CODED_PIVOT, DERIVE, FILTER, UNPIVOT, GROUP, CODED_GROUP, EXPAND, RELATED_SOURCE, RELATED_EXPAND, RELATED_ELIGIBILITY, RELATED_FIELD, ROW_VALUES]}
         supported: {type: boolean}
         reasonCode: {type: string}
         reason: {type: string}
@@ -3908,7 +3944,7 @@ components:
       required: [anchorColumnId, kind, resourceType, label]
       properties:
         anchorColumnId: {type: string, minLength: 1}
-        kind: {type: string, enum: [root, activeRelatedRecord]}
+        kind: {type: string, enum: [root, rootContributors, activeRelatedRecord]}
         nodeId: {type: string, minLength: 1}
         resourceType: {type: string, minLength: 1}
         label: {type: string, minLength: 1}
@@ -3927,7 +3963,7 @@ components:
       properties:
         anchorColumnId: {type: string, minLength: 1}
         anchorColumn: {type: string, minLength: 1}
-        anchorKind: {type: string, enum: [root, activeRelatedRecord]}
+        anchorKind: {type: string, enum: [root, rootContributors, activeRelatedRecord]}
         anchorNodeId: {type: string, minLength: 1}
         anchorResourceType: {type: string, minLength: 1}
         relatedRecordColumnId: {type: string, minLength: 1}
@@ -4022,6 +4058,9 @@ components:
           items: {type: string, minLength: 1}
         candidateConstruction: {$ref: '#/components/schemas/Construction'}
         groupSource: {$ref: '#/components/schemas/ConstructionGroupSource'}
+        groupSources:
+          type: array
+          items: {$ref: '#/components/schemas/ConstructionGroupSource'}
         pivotSources:
           type: array
           items: {$ref: '#/components/schemas/ConstructionPivotSourceSelection'}
@@ -4086,6 +4125,7 @@ components:
         choiceId: {type: string, minLength: 1, maxLength: 16384}
         form: {type: string, enum: [VALUE, FIRST, ALL, DISTINCT, OWNER_RECORDS]}
         frameId: {type: string, minLength: 1}
+        rowValuePolicy: {type: string, enum: [ALL, ONE]}
         title: {type: string}
     ConstructionChoiceProposalResponse:
       type: object
@@ -5223,7 +5263,7 @@ components:
       properties:
         choiceId: {type: string, minLength: 1}
         anchorColumnId: {type: string, minLength: 1}
-        kind: {type: string, enum: [root, activeRelatedRecord]}
+        kind: {type: string, enum: [root, rootContributors, activeRelatedRecord]}
         nodeId: {type: string, minLength: 1}
         resourceType: {type: string, minLength: 1}
         label: {type: string, minLength: 1}
@@ -5302,13 +5342,28 @@ components:
         query: {type: string, maxLength: 256}
         limit: {type: integer, minimum: 1, maximum: 50}
         cursor: {type: string, maxLength: 4096}
+    RelatedExpandContributorSource:
+      type: object
+      additionalProperties: false
+      required: [kind, candidateId, nodeId, resourceType, path, cardinality, logicalType]
+      properties:
+        kind: {type: string, enum: [FIELD]}
+        candidateId: {type: string, minLength: 1}
+        nodeId: {type: string, minLength: 1}
+        resourceType: {type: string, minLength: 1}
+        path: {type: string, minLength: 1}
+        cardinality: {type: string, pattern: '^(optional_one|required_one|many)$'}
+        logicalType: {type: string, minLength: 1}
+        repeatedBoundaries:
+          type: array
+          items: {$ref: '#/components/schemas/RepeatedBoundary'}
     RelatedExpandContributorChoice:
       type: object
       additionalProperties: false
       required: [choiceId, source, label, operators, suggestedValues, suggestionsComplete, suggestionsTruncated, suggestionsSource]
       properties:
         choiceId: {type: string, minLength: 1}
-        source: {$ref: '#/components/schemas/RelatedSourceField'}
+        source: {$ref: '#/components/schemas/RelatedExpandContributorSource'}
         label: {type: string, minLength: 1}
         operators:
           type: array

@@ -18,8 +18,8 @@ const state = { pageURL, tableName, clicks: [], timingsMs: {}, responses: [] };
 const browser = await launchBrowser('/private/tmp');
 let outputId;
 
-browser.cdp.on('Network.responseReceived', ({ response }) => {
-  if (response.url.includes('/authoring/v2/')) state.responses.push({ path: new URL(response.url).pathname, status: response.status });
+browser.cdp.on('Network.responseReceived', ({ response, requestId }) => {
+  if (response.url.includes('/authoring/v2/')) state.responses.push({ requestId, path: new URL(response.url).pathname, status: response.status });
 });
 const builder = async () => {
   const response = await fetch(`${authoringURL}/builder`, { signal: AbortSignal.timeout(30_000) });
@@ -30,7 +30,7 @@ const command = async (commands) => {
   const before = await builder();
   const response = await fetch(`${authoringURL}/commands`, {
     method: 'POST', headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ commandId: crypto.randomUUID(), semanticsVersion: 9,
+    body: JSON.stringify({ commandId: crypto.randomUUID(), semanticsVersion: 10,
       snapshotToken: before.catalog.snapshotToken,
       expectedDraftVersion: before.draftVersion, expectedDraftDigest: before.draftDigest, commands }),
     signal: AbortSignal.timeout(30_000),
@@ -39,6 +39,7 @@ const command = async (commands) => {
   assert.equal(response.status, 200, JSON.stringify(body));
 };
 const click = async (script, label) => {
+  state.lastActionStarted = Date.now();
   await browserEval(browser.cdp, script);
   state.clicks.push(label);
 };
@@ -47,10 +48,9 @@ const selectTable = async () => {
   await click(`[...document.querySelectorAll('button')].find(button=>button.innerText.trim().endsWith(${JSON.stringify(tableName)})).click();return true;`, 'Select temporary table');
 };
 const preview = async (label, expected) => {
-  const started = Date.now();
-  await waitForBrowser(browser.cdp, `Boolean([...document.querySelectorAll('button')].find(button=>button.textContent?.trim()==='Preview'&&!button.disabled))`, 30_000);
-  await click(`[...document.querySelectorAll('button')].find(button=>button.textContent?.trim()==='Preview'&&!button.disabled).click();return true;`, `Preview ${label}`);
+  const started = state.lastActionStarted ?? Date.now();
   await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid="preview-table-scroll"] [role="table"]'))&&!document.body.innerText.includes('Loading the preview…')`, 30_000);
+  await waitForBrowser(browser.cdp, `(()=>{const rows=[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]')].slice(1).map(row=>row.querySelector('[role="cell"]')?.innerText.trim()).filter(Boolean).sort();return JSON.stringify(rows)===JSON.stringify(${JSON.stringify([...expected].sort())});})()`, 30000);
   const result = await browserEval(browser.cdp, `const panel=document.querySelector('[data-testid="preview-table-scroll"]');return {headers:[...panel.querySelectorAll('[role="columnheader"]')].map(cell=>cell.innerText.trim()),rows:[...panel.querySelectorAll('[role="row"]')].slice(1).map(row=>[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText.trim())).filter(row=>row.length)};`);
   state.timingsMs[label] = Date.now() - started;
   assert(state.timingsMs[label] < 5000, `${label} preview took ${state.timingsMs[label]} ms`);
@@ -58,7 +58,7 @@ const preview = async (label, expected) => {
   state[label] = result;
 };
 const propose = async (label, expected) => {
-  const started = Date.now();
+  const started = state.lastActionStarted ?? Date.now();
   await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status')==='ready'`, 30_000);
   const result = await browserEval(browser.cdp, `const panel=document.querySelector('[data-testid="construction-proposal-preview"]');return {headers:[...panel.querySelectorAll('thead th')].map(cell=>cell.innerText.trim()),rows:[...panel.querySelectorAll('tbody tr')].map(row=>[...row.querySelectorAll('td')].map(cell=>cell.innerText.trim())),applyDisabled:document.querySelector('[data-testid="construction-apply-proposal"]')?.disabled};`);
   state.timingsMs[label] = Date.now() - started;
@@ -77,7 +77,7 @@ const editSaved = async () => {
 const setRule = async (rule) => click(`const select=document.querySelector('[aria-label="Related eligibility rule"]');select.value=${JSON.stringify(rule)};select.dispatchEvent(new Event('change',{bubbles:true}));return true;`, `Choose ${rule} rule`);
 const rawCounts = () => {
   const query = `FOR p IN Patient FILTER p.project == "loom_dev_cda_fhir" AND p.dataset_generation == "cda-fhir-v1" AND p.id IN ${JSON.stringify([manyId,zeroId])} LET n = LENGTH(UNIQUE(FOR e IN fhir_edge FILTER e._to == p._id AND STARTS_WITH(e._from, "Observation/") AND e.label == "subject_Patient" AND e.project == "loom_dev_cda_fhir" AND e.dataset_generation == "cda-fhir-v1" RETURN e._from)) RETURN {id:p.id,count:n}`;
-  const output = execFileSync('rtk', ['docker', 'exec', 'loom-dev-6d7df93d6a37-arangodb-1', 'arangosh', '--server.database', 'loom_dev', '--javascript.execute-string', `print(JSON.stringify(db._query(${JSON.stringify(query)}).toArray()))`], { encoding: 'utf8', maxBuffer: 200000 });
+  const output = execFileSync('rtk', ['proxy', 'docker', 'exec', 'loom-dev-6d7df93d6a37-arangodb-1', 'arangosh', '--server.database', 'loom_dev', '--javascript.execute-string', `print(JSON.stringify(db._query(${JSON.stringify(query)}).toArray()))`], { encoding: 'utf8', maxBuffer: 200000 });
   return JSON.parse(output.slice(output.indexOf('[')));
 };
 
@@ -93,9 +93,12 @@ try {
   const created = await builder();
   outputId = created.workspace.documents.find(document=>document.output.title===tableName)?.output.id;
   assert(outputId, 'Temporary table missing');
-  await click(`document.querySelector('[data-testid="construction-source-setup"] summary').click();return true;`, 'Open source setup');
+  await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-rows-settings-trigger"]')?.disabled===false`,30000);
+  await click(`document.querySelector('[data-testid="construction-rows-settings-trigger"]').click();return true;`, 'Open source setup');
   await waitForBrowser(browser.cdp, `Boolean([...document.querySelectorAll('[aria-label="Starting collection"] button')].find(button=>button.innerText==='Use selected resources'&&!button.disabled))`, 30_000);
   await click(`[...document.querySelectorAll('[aria-label="Starting collection"] button')].find(button=>button.innerText==='Use selected resources').click();return true;`, 'Use selected CDA patients');
+  await waitForBrowser(browser.cdp, `document.querySelector('[aria-label="Starting collection settings"]')?.innerText.includes('2 Patient resources attached')`,30000);
+  await click(`[...document.querySelectorAll('button')].find(button=>button.innerText.trim()==='Back to table').click();return true;`, 'Back to table');
   await preview('baseline', [manyId,zeroId]);
   await click(`document.querySelector('button[aria-label^="Filter rows:"]').click();return true;`, 'Open Filter rows');
   await waitForBrowser(browser.cdp, `Boolean([...document.querySelectorAll('button')].find(button=>button.innerText.trim()==='Related records'&&!button.disabled))`, 30_000);
@@ -123,6 +126,7 @@ try {
   await navigate(browser.cdp,pageURL); await selectTable(); await preview('restored',[manyId,zeroId]);
   assert(state.responses.every(response=>response.status<400), 'Browser received authoring API errors');
 } catch (error) {
+  state.failedResponseBodies = await Promise.all(state.responses.filter(r=>r.status>=400).map(async r=>({path:r.path,...await browser.cdp.send('Network.getResponseBody',{requestId:r.requestId}).catch(e=>({captureError:String(e)}))})));
   state.error = error instanceof Error ? error.message : String(error);
   state.failureUI = await browserEval(browser.cdp, `return {body:document.body.innerText.slice(0,5000),alerts:[...document.querySelectorAll('[role="alert"]')].map(item=>item.innerText)};`).catch(()=>undefined);
   throw error;

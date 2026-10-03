@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useAutomaticPreview } from './useAutomaticPreview';
+import { constructionAppendStageFor, constructionInputStageFor } from './constructionWorkspace/constructionStages';
 import {
   useApplyExplorerBuilderCommandsV2Mutation,
   useAssessExplorerRowChangeMutation,
@@ -28,6 +29,7 @@ import type {
   Construction,
   ConstructionOperation,
   ConstructionStep,
+  ConstructionChoiceSelection,
   ConstructionChoiceProposalResponse,
   RowChangeAssessment,
   RowChangeUnresolvedReference,
@@ -82,6 +84,7 @@ import { catalogSourceOptions, type CatalogChoiceIntent } from './catalogItems';
 
 import {
   ConstructionWorkspace,
+  ConstructionUndoButton,
   constructionOperationFamilies,
   type ConstructionHistorySelection,
   type ConstructionOperationFamily,
@@ -111,6 +114,10 @@ import {
   useConstructionLifecycle,
   type ConstructionCandidateIntent,
 } from './constructionWorkspace/useConstructionLifecycle';
+import {
+  matchesAcceptedChoicePreview,
+  type AppliedChoicePreview,
+} from './constructionWorkspace/appliedChoicePreview';
 import { ConstructionOperationEditor } from './constructionOperations/ConstructionOperationEditor';
 import { FilterRowsEditor } from './constructionOperations/FilterRowsEditor';
 import { ConstructionReshapeEditor, type ReshapeEntryKind } from './constructionOperations/ConstructionReshapeEditor';
@@ -150,7 +157,13 @@ const isRelatedFieldStep = (step: ConstructionStep): step is RelatedFieldStep =>
 type ChoiceProposalState =
   | { readonly status: 'idle' }
   | { readonly status: 'previewing' }
-  | { readonly status: 'ready'; readonly selections: ReadonlyArray<CatalogChoiceIntent>; readonly response: ConstructionChoiceProposalResponse }
+  | {
+      readonly status: 'ready';
+      readonly selections: ReadonlyArray<CatalogChoiceIntent>;
+      readonly ownerKey: string;
+      readonly limit: PreviewLimit;
+      readonly response: ConstructionChoiceProposalResponse;
+    }
   | { readonly status: 'error'; readonly message: string };
 
 const emptyCatalog = (): ExplorerBuilderCatalog => ({
@@ -230,19 +243,6 @@ const isDraftDesynchronized = (code: string | undefined) =>
 const opaqueId = (prefix: 'output' | 'tab' | 'step') =>
   `${prefix}-${window.crypto.randomUUID()}`;
 const constructionSourceStageId = 'source_projection';
-
-const constructionInputStageFor = (
-  construction: Construction | undefined,
-  stepId: string,
-): string => {
-  const index = construction?.steps.findIndex((step) => step.id === stepId) ?? -1;
-  return index <= 0
-    ? constructionSourceStageId
-    : construction?.steps[index - 1]?.id ?? constructionSourceStageId;
-};
-
-const constructionAppendStageFor = (construction: Construction | undefined): string =>
-  construction?.steps.at(-1)?.id ?? constructionSourceStageId;
 
 const editableConstructionFamily = (
   operation: ConstructionOperation,
@@ -367,6 +367,14 @@ const BuilderWorkspaceContent = ({
   const [selectedExplorerId, setSelectedExplorerId] =
     useState(requestedExplorerId);
   const ownerKey = builderOwnerKeyFor(projectId, authResourcePath, selectedExplorerId);
+  const selectedTableStorageKey = `loom.builder.selected-table:${ownerKey}`;
+  const rememberedOutputId = useMemo(() => {
+    try {
+      return window.sessionStorage.getItem(selectedTableStorageKey) ?? undefined;
+    } catch {
+      return undefined;
+    }
+  }, [selectedTableStorageKey]);
   const explorers = useGetExplorerAuthoringExplorersQuery({
     project: projectId,
     authResourcePath,
@@ -416,9 +424,17 @@ const BuilderWorkspaceContent = ({
         ? stateFromBuilder(builder.data, {
             project: projectId,
             explorerId: selectedExplorerId,
-            selectedOutputId: localState?.key.startsWith(`${ownerKey}:`) ? localState.value.selectedOutputId : undefined,
+            selectedOutputId: localState?.key.startsWith(`${ownerKey}:`) ? localState.value.selectedOutputId : rememberedOutputId,
           })
         : emptyBuilderState(projectId);
+  useEffect(() => {
+    if (!state.selectedOutputId) return;
+    try {
+      window.sessionStorage.setItem(selectedTableStorageKey, state.selectedOutputId);
+    } catch {
+      // Browser storage can be unavailable; table editing remains usable.
+    }
+  }, [selectedTableStorageKey, state.selectedOutputId]);
   const dispatch = useCallback(
     (action: Parameters<typeof builderAuthoringReducer>[1]) => {
       setLocalState((current) => {
@@ -429,7 +445,7 @@ const BuilderWorkspaceContent = ({
               ? stateFromBuilder(builderDataRef.current, {
                   project: projectId,
                   explorerId: selectedExplorerId,
-                  selectedOutputId: current?.key.startsWith(`${ownerKey}:`) ? current.value.selectedOutputId : undefined,
+                  selectedOutputId: current?.key.startsWith(`${ownerKey}:`) ? current.value.selectedOutputId : rememberedOutputId,
                 })
               : emptyBuilderState(projectId);
         return {
@@ -438,7 +454,7 @@ const BuilderWorkspaceContent = ({
         };
       });
     },
-    [authResourcePath, builderDataKey, ownerKey, projectId, selectedExplorerId],
+    [authResourcePath, builderDataKey, ownerKey, projectId, rememberedOutputId, selectedExplorerId],
   );
   const [message, setMessage] = useState<string>();
   const [pendingRowChange, setPendingRowChange] =
@@ -463,12 +479,14 @@ const BuilderWorkspaceContent = ({
   const [previewLimit, setPreviewLimit] = useState<PreviewLimit>(25);
   const [choiceProposal, setChoiceProposal] = useState<ChoiceProposalState>({ status: 'idle' });
   const choiceProposalRequest = useRef<AbortController | undefined>(undefined);
+  const appliedChoicePreview = useRef<AppliedChoicePreview | undefined>(undefined);
   const [featureMode, setFeatureMode] = useState<'catalog' | 'graph'>('catalog');
   const [pairedColumnSuggestion, setPairedColumnSuggestion] =
     useState<PairedColumnSuggestion>();
   const [activeConstructionFamily, setActiveConstructionFamily] =
     useState<ConstructionOperationFamily>();
   const [addColumnsView, setAddColumnsView] = useState<'coded' | 'fields'>('coded');
+  const [rowValuePolicy, setRowValuePolicy] = useState<NonNullable<ConstructionChoiceSelection['rowValuePolicy']>>('ALL');
   const [reshapeEntry, setReshapeEntry] = useState(0);
   const [reshapeEntryKind, setReshapeEntryKind] = useState<ReshapeEntryKind>('choose');
   const [addColumnsSource, setAddColumnsSource] = useState<{
@@ -602,7 +620,7 @@ const BuilderWorkspaceContent = ({
             ? stateFromBuilder(value, {
                 project: projectId,
                 explorerId: selectedExplorerId,
-                selectedOutputId: current?.key.startsWith(`${ownerKey}:`) ? current.value.selectedOutputId : undefined,
+                selectedOutputId: current?.key.startsWith(`${ownerKey}:`) ? current.value.selectedOutputId : rememberedOutputId,
               })
             : builderAuthoringReducer(
                 current?.key === builderDataKey
@@ -613,7 +631,7 @@ const BuilderWorkspaceContent = ({
         return { key: nextKey, value: nextValue };
       });
     },
-    [builderDataKey, ownerKey, projectId, selectedExplorerId],
+    [builderDataKey, ownerKey, projectId, rememberedOutputId, selectedExplorerId],
   );
 
   const incomplete = state.tables.some(
@@ -707,9 +725,21 @@ const BuilderWorkspaceContent = ({
     [applyCommandsWithResult],
   );
 
-  useDirtyBeforeUnload(state.dirty);
+  useDirtyBeforeUnload(state.dirty || pendingCommands > 0);
 
   const table = selectedTable(state);
+  useEffect(() => {
+    const candidate = appliedChoicePreview.current;
+    if (
+      candidate &&
+      (candidate.ownerKey !== ownerKey ||
+        candidate.outputId !== table?.outputId ||
+        candidate.limit !== previewLimit ||
+        candidate.snapshotToken !== state.catalog.snapshotToken)
+    ) {
+      appliedChoicePreview.current = undefined;
+    }
+  }, [ownerKey, table?.outputId, previewLimit, state.catalog.snapshotToken]);
   useEffect(() => {
     rowChangePreviewRequest.current?.abort();
     setPendingRowChangePreview(undefined);
@@ -740,7 +770,7 @@ const BuilderWorkspaceContent = ({
         outputId: table.outputId,
         stageId: editingConstructionStep
           ? constructionInputStageFor(construction, editingConstructionStep.id)
-          : constructionAppendStageFor(construction),
+          : constructionAppendStageFor(construction, table?.document.rows),
       }
     : undefined;
   const constructionLifecycle = useConstructionLifecycle({
@@ -875,35 +905,72 @@ const BuilderWorkspaceContent = ({
     setActivePopulationSelection(populationSelection);
     setPopulationVariantError(undefined);
   }, [handedOffPopulationSelectionID]);
+  const cohortRevisionID = table && table.document.rows.kind === 'GROUPS' &&
+    table.document.rows.groups.source.kind === 'EXPLICIT'
+    ? table.document.rows.groups.source.explicit.revisionId
+    : undefined;
   useEffect(() => {
     const attachedSelectionID = table?.document.population?.selectionRevisionId;
     if (
       handedOffPopulationSelectionID ||
-      !attachedSelectionID ||
-      activePopulationSelection?.id === attachedSelectionID
+      (!attachedSelectionID && !cohortRevisionID)
     ) {
       setActivePopulationSelectionLoading(false);
       return;
     }
+    const activeTable = table;
+    if (!activeTable) {
+      setActivePopulationSelectionLoading(false);
+      return;
+    }
     const controller = new AbortController();
+    setActivePopulationSelection(undefined);
     setActivePopulationSelectionLoading(true);
     setPopulationVariantError(undefined);
-    void loomClient.getSelection({
+    const selectionRevision = attachedSelectionID
+      ? Promise.resolve(attachedSelectionID)
+      : loomClient.listRowDefinitionChoices({
+          project: projectId,
+          explorerId: state.explorerId,
+          authResourcePath,
+          snapshotToken: state.catalog.snapshotToken,
+          outputId: activeTable.outputId,
+        }, controller.signal).then((choices) => {
+          if (choices.outputId !== activeTable.outputId || choices.snapshotToken !== state.catalog.snapshotToken) {
+            throw new Error('Loom returned cohort choices for a different table or catalog snapshot.');
+          }
+          const cohortChoice = choices.explicitGroups.find((candidate) => candidate.revisionId === cohortRevisionID);
+          if (!cohortChoice?.sourceSelectionRevisionId) {
+            throw new Error('The saved cohort does not expose its source selection in this authorized catalog snapshot.');
+          }
+          return cohortChoice.sourceSelectionRevisionId;
+        });
+    void selectionRevision.then((selectionRevisionID) => loomClient.getSelection({
       project: projectId,
       explorerId: state.explorerId,
       authResourcePath,
-      selectionRevision: attachedSelectionID,
+      selectionRevision: selectionRevisionID,
       limit: 1,
-    }, controller.signal).then(
-      (page) => setActivePopulationSelection(page.revision),
+    }, controller.signal).then((page) => {
+      if (controller.signal.aborted) return;
+      if (page.revision.id !== selectionRevisionID || page.revision.project !== projectId ||
+        page.revision.generation !== state.catalog.generation ||
+        (!attachedSelectionID && page.revision.resourceType !== activeTable.document.rootResourceType)) {
+        throw new Error('The saved cohort source selection does not match this table and catalog snapshot.');
+      }
+      setActivePopulationSelection(page.revision);
+    })).catch(
       (error: unknown) => {
-        if (!controller.signal.aborted) setPopulationVariantError(error instanceof Error ? error.message : 'Loom could not load the attached collection.');
+        if (!controller.signal.aborted) {
+          setActivePopulationSelection(undefined);
+          setPopulationVariantError(error instanceof Error ? error.message : 'Loom could not load the saved collection.');
+        }
       },
     ).finally(() => {
       if (!controller.signal.aborted) setActivePopulationSelectionLoading(false);
     });
     return () => controller.abort();
-  }, [activePopulationSelection?.id, authResourcePath, handedOffPopulationSelectionID, loomClient, projectId, state.explorerId, table?.document.population?.selectionRevisionId]);
+  }, [authResourcePath, cohortRevisionID, handedOffPopulationSelectionID, loomClient, projectId, state.catalog.generation, state.catalog.snapshotToken, state.explorerId, table?.document.population?.selectionRevisionId, table?.document.rootResourceType, table?.outputId]);
   const occurrences = useMemo(
     () => derivedOccurrences(table, state.catalog),
     [state.catalog, table],
@@ -927,7 +994,7 @@ const BuilderWorkspaceContent = ({
     const searchableSources = [{ kind: 'ALL' as const, key: 'all', label: 'All accessible resources' }, ...sources];
     const current = constructionLifecycle.capabilities;
     if (current.status !== 'ready' ||
-        current.response.selectedStage.id !== constructionAppendStageFor(current.response.baseConstruction) ||
+        current.response.selectedStage.id !== constructionAppendStageFor(current.response.baseConstruction, table?.document.rows) ||
         !current.response.selectedStage.activeRelatedRecord ||
         !current.response.selectedStage.capabilities.some((capability) => capability.kind === 'RELATED_FIELD' && capability.supported)) return searchableSources;
     const anchor = current.response.selectedStage.activeRelatedRecord;
@@ -1009,7 +1076,7 @@ const BuilderWorkspaceContent = ({
     const { selectedStage, baseConstruction } = capabilities.response;
     if (
       editingConstructionStep ||
-      selectedStage.id !== constructionAppendStageFor(baseConstruction)
+      selectedStage.id !== constructionAppendStageFor(baseConstruction, table?.document.rows)
     ) {
       throw new Error(
         'Close the saved-step editor before adding a related field; proposals must follow the current final step.',
@@ -1120,7 +1187,7 @@ const BuilderWorkspaceContent = ({
     };
   };
   const inspectRelatedRouteCoverage = async (selection: CatalogChoiceIntent, signal: AbortSignal) => {
-    if (selection.constructionChoice.form === 'ALL' && !selection.relatedSource) {
+    if (selection.constructionChoice.form === 'ALL' && (!selection.relatedSource || rowValuesSupported)) {
       const current = latestState.current;
       if (!current.catalog.snapshotToken || !current.draftVersion || !current.draftDigest || !table) {
         throw new Error('The current table is still loading.');
@@ -1134,7 +1201,8 @@ const BuilderWorkspaceContent = ({
         expectedDraftVersion: current.draftVersion,
         expectedDraftDigest: current.draftDigest,
         outputId: table.outputId,
-        constructionChoices: [{ ...selection.constructionChoice, ...(selection.title ? { title: selection.title } : {}) }],
+        constructionChoices: [{ ...selection.constructionChoice,
+          ...(sourceStageDescriptors?.at(-1)?.capabilities.some((capability) => capability.kind === 'ROW_VALUES' && capability.supported) ? { rowValuePolicy: 'ALL' as const } : {}), ...(selection.title ? { title: selection.title } : {}) }],
         limit: 25,
       }, signal);
       const latest = latestState.current;
@@ -1230,7 +1298,8 @@ const BuilderWorkspaceContent = ({
     saveImmediately = false,
   ) => {
     if (!table) throw new Error('Choose a table before adding features.');
-    const relatedSelections = selections.filter((selection) => selection.relatedSource);
+    const relatedSelections = selections.filter((selection) => selection.relatedSource &&
+      !(rowValuesSupported && selection.constructionChoice.form === 'ALL'));
     if (relatedSelections.length > 0) {
       if (relatedSelections.length !== 1 || selections.length !== 1) {
         throw new Error('Add one related field at a time so Loom can preview its exact route.');
@@ -1240,6 +1309,8 @@ const BuilderWorkspaceContent = ({
       return 'preview-pending' as const;
     }
     const current = latestState.current;
+    const proposalOwnerKey = ownerKey;
+    const proposalLimit = previewLimit;
     if (!current.catalog.snapshotToken || !current.draftVersion || !current.draftDigest) {
       throw new Error('The current table is still loading. Try adding the columns again.');
     }
@@ -1259,13 +1330,16 @@ const BuilderWorkspaceContent = ({
         outputId: table.outputId,
         constructionChoices: selections.map((selection) => ({
           ...selection.constructionChoice,
+          ...(sourceStageDescriptors?.at(-1)?.capabilities.some((capability) => capability.kind === 'ROW_VALUES' && capability.supported) ? { rowValuePolicy } : {}),
           ...(selection.title ? { title: selection.title } : {}),
         })),
-        limit: previewLimit,
+        limit: proposalLimit,
       }, controller.signal);
       const latest = latestState.current;
       if (
         controller.signal.aborted ||
+        ownerKey !== proposalOwnerKey ||
+        previewLimit !== proposalLimit ||
         latest.explorerId !== current.explorerId ||
         latest.catalog.snapshotToken !== response.snapshotToken ||
         latest.draftVersion !== response.draftVersion ||
@@ -1279,13 +1353,13 @@ const BuilderWorkspaceContent = ({
         const applied = await applyCommands(response.constructionChoices.map((choice) => ({
           type: 'APPLY_CONSTRUCTION_CHOICE',
           outputId: response.outputId,
-          constructionChoice: { choiceId: choice.choiceId, form: choice.form, ...(choice.frameId ? { frameId: choice.frameId } : {}) },
+          constructionChoice: { choiceId: choice.choiceId, form: choice.form, ...(choice.frameId ? { frameId: choice.frameId } : {}), ...(choice.rowValuePolicy ? { rowValuePolicy: choice.rowValuePolicy } : {}) },
           ...(choice.title ? { title: choice.title } : {}),
         } satisfies ExplorerBuilderCommand)), response.commandId);
         if (!applied) throw new Error('Loom could not save these coded-value columns. The table was not changed.');
         return;
       }
-      setChoiceProposal({ status: 'ready', selections, response });
+      setChoiceProposal({ status: 'ready', selections, ownerKey: proposalOwnerKey, limit: proposalLimit, response });
       return 'preview-ready' as const;
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Loom could not preview the selected columns.';
@@ -1646,7 +1720,7 @@ const BuilderWorkspaceContent = ({
     if (title && title !== target.title) renameTable(outputId, title);
   };
   const deleteSelectedTable = () => {
-    if (!table || state.tables.length <= 1) return;
+    if (!table) return;
     if (!window.confirm(`Delete ${table.title}?`)) return;
     if (table.document.rootResourceType) {
       void applyCommands([
@@ -2041,7 +2115,7 @@ const BuilderWorkspaceContent = ({
   };
 
   useAutomaticPreview({
-    requestKey: table ? JSON.stringify([ownerKey, state.draftDigest, table.outputId, previewLimit]) : undefined,
+    requestKey: table ? JSON.stringify([ownerKey, state.draftVersion, state.draftDigest, table.outputId, previewLimit]) : undefined,
     enabled: !previewDisabled && pendingCommands === 0 && firstTableProgress.kind === 'idle',
     cancel: () => {
       previewGeneration.current += 1;
@@ -2054,8 +2128,23 @@ const BuilderWorkspaceContent = ({
       if (!outputId) return;
       const receipt = current.receipt && current.reconciliation === 'resolved'
         ? current.receipt : await reconcileCurrent();
-      if (receipt && generation === previewGeneration.current)
-        await executePreview({ outputId, limit: previewLimit, receiptRefreshes: 0 }, receipt.receiptId);
+      if (generation !== previewGeneration.current) return;
+      const candidate = appliedChoicePreview.current;
+      appliedChoicePreview.current = undefined;
+      if (!receipt) return;
+      const acceptedOutputId = selectedTable(latestState.current)?.outputId;
+      if (acceptedOutputId === outputId && matchesAcceptedChoicePreview(candidate, {
+        ownerKey,
+        outputId,
+        limit: previewLimit,
+        snapshotToken: latestState.current.catalog.snapshotToken,
+        receipt,
+      })) {
+        dispatch({ type: 'preview', value: candidate.preview });
+        setMessage(undefined);
+        return;
+      }
+      await executePreview({ outputId, limit: previewLimit, receiptRefreshes: 0 }, receipt.receiptId);
     },
   });
   const applyPresentationChanges = (changes: ReadonlyArray<PreviewTablePresentationChange>) => {
@@ -2222,7 +2311,7 @@ const BuilderWorkspaceContent = ({
     setReshapeEntry((current) => current + 1);
     setActiveConstructionFamily('RESHAPE');
   };
-  const chooseReshapeRows = (kind: 'group' | 'source-group' | 'coded-group' | 'categories' | 'pivot' | 'coded-pivot') => {
+  const chooseReshapeRows = (kind: 'group' | 'source-group' | 'coded-group' | 'categories' | 'pivot' | 'coded-pivot' | 'unpivot') => {
     constructionLifecycle.cancel();
     setConstructionHistorySelection({ kind: 'source' });
     setEditingConstructionStepId(undefined);
@@ -2321,6 +2410,12 @@ const BuilderWorkspaceContent = ({
   const sourceStageDescriptors = constructionLifecycle.capabilities.status === 'ready'
     ? constructionLifecycle.capabilities.response.stages
     : undefined;
+  const rowValuesSupported = sourceStageDescriptors?.at(-1)?.capabilities.some(
+    (capability) => capability.kind === 'ROW_VALUES' && capability.supported,
+  ) ?? false;
+  const groupedRowValuePolicy = rowValuesSupported
+    ? { value: rowValuePolicy, onChange: setRowValuePolicy }
+    : undefined;
   const sourceAvailability = hasUnsupportedSavedSourceColumns
     ? { available: false, reason: 'Remove unsupported saved source fields before adding more fields.' }
     : constructionLifecycle.capabilities.status === 'error'
@@ -2339,6 +2434,7 @@ const BuilderWorkspaceContent = ({
   const capabilityIsForAppendStage = constructionLifecycle.capabilities.status === 'ready' &&
     capabilityStage?.id === constructionAppendStageFor(
       constructionLifecycle.capabilities.response.baseConstruction,
+      table?.document.rows,
     );
   const reshapeAvailabilityFor = (kind: 'GROUP' | 'PIVOT' | 'CODED_PIVOT') => {
     const capability = capabilityStage?.capabilities.find((candidate) => candidate.kind === kind);
@@ -2365,9 +2461,9 @@ const BuilderWorkspaceContent = ({
   const tablePivotAvailability = constructionLifecycle.capabilities.status === 'ready' && constructionLifecycle.capabilities.response.pivotSourceInput?.supported
     ? { supported: true } : reshapeAvailabilityFor('PIVOT');
   const groupEntries = [
+    ...(stageGroupingAvailability.supported || codedPivotAvailability.supported ? [{ kind: 'group' as const, label: 'By table column' }] : []),
+    ...(sourceGroupingAvailable ? [{ kind: 'source-group' as const, label: 'By source fields' }] : []),
     ...(codedGroupingAvailable ? [{ kind: 'coded-group' as const, label: 'By recorded code' }] : []),
-    ...(sourceGroupingAvailable ? [{ kind: 'source-group' as const, label: 'By source field' }] : []),
-    ...(stageGroupingAvailability.supported ? [{ kind: 'group' as const, label: 'By table column' }] : []),
   ];
   const reshapeRowsAvailability = {
     group: groupEntries.length > 0 ? { supported: true } : stageGroupingAvailability,
@@ -2491,6 +2587,19 @@ const BuilderWorkspaceContent = ({
       <div className="p-3">
         {activeOperation.family === 'ADD_COLUMNS' ? (
           <div className="grid gap-4">
+            {rowValuesSupported ? (
+              <label className="flex flex-wrap items-center gap-2 text-sm text-slate-700">
+                Values from each row's contributing records
+                <select aria-label="Values per grouped row" value={rowValuePolicy} onChange={(event) => {
+                  const value = event.currentTarget.value;
+                  if (value === 'ALL' || value === 'ONE') setRowValuePolicy(value);
+                }} className="rounded border border-slate-300 bg-white px-2 py-1.5">
+                  <option value="ALL">Keep all distinct values</option>
+                  <option value="ONE">Require one distinct value</option>
+                </select>
+                <span className="text-xs text-slate-500">Missing values stay empty. Require one stops if records disagree.</span>
+              </label>
+            ) : null}
             <div role="group" aria-label="Column types" className="flex gap-1 rounded-md bg-slate-100 p-1">
               <button type="button" aria-pressed={addColumnsView === 'coded'} onClick={() => setAddColumnsView('coded')}
                 className={`rounded px-3 py-1.5 text-sm font-medium ${addColumnsView === 'coded' ? 'bg-white text-blue-900 shadow-sm' : 'text-slate-600'}`}>
@@ -2650,6 +2759,7 @@ const BuilderWorkspaceContent = ({
               disabledReason={sourceSelectionDisabledReason}
               disabled={pendingCommands > 0 || state.reconciliation === 'pending'}
               pairedColumnSuggestion={pairedColumnSuggestion}
+              groupedRowValuePolicy={groupedRowValuePolicy}
               onPairedColumnSuggestionHandled={(requestId) =>
                 setPairedColumnSuggestion((current) => current?.requestId === requestId ? undefined : current)
               }
@@ -2713,9 +2823,6 @@ const BuilderWorkspaceContent = ({
               selectedColumns={selectedColumnIds}
               pivotDiscovery={constructionLifecycle.pivotDiscovery}
               onDiscoverCategories={constructionLifecycle.onDiscoverCategories}
-              onAddCodedValues={() => {
-                openCodedValueCatalog();
-              }}
               relatedExpandContext={{
                 project: projectId,
                 explorerId: state.explorerId,
@@ -2813,6 +2920,7 @@ const BuilderWorkspaceContent = ({
   const proposalPanel = (
     <ConstructionProposalPanel
       state={constructionLifecycle.proposal}
+      baseConstruction={construction ?? (constructionLifecycle.capabilities.status === 'ready' ? constructionLifecycle.capabilities.response.baseConstruction : undefined)}
       canApply={canApplyConstructionProposal}
       onApply={() => void applyConstructionProposal()}
       onCancel={() => {
@@ -2829,6 +2937,8 @@ const BuilderWorkspaceContent = ({
     const { response } = choiceProposal;
     const latest = latestState.current;
     if (
+      ownerKey !== choiceProposal.ownerKey ||
+      previewLimit !== choiceProposal.limit ||
       latest.catalog.snapshotToken !== response.snapshotToken ||
       latest.draftVersion !== response.draftVersion ||
       latest.draftDigest !== response.draftDigest ||
@@ -2840,10 +2950,22 @@ const BuilderWorkspaceContent = ({
     const applied = await applyCommands(response.constructionChoices.map((choice) => ({
       type: 'APPLY_CONSTRUCTION_CHOICE',
       outputId: response.outputId,
-      constructionChoice: { choiceId: choice.choiceId, form: choice.form, ...(choice.frameId ? { frameId: choice.frameId } : {}) },
+      constructionChoice: { choiceId: choice.choiceId, form: choice.form, ...(choice.frameId ? { frameId: choice.frameId } : {}), ...(choice.rowValuePolicy ? { rowValuePolicy: choice.rowValuePolicy } : {}) },
       ...(choice.title ? { title: choice.title } : {}),
     } satisfies ExplorerBuilderCommand)), response.commandId);
-    if (applied) setChoiceProposal({ status: 'idle' });
+    if (applied) {
+      appliedChoicePreview.current = {
+        ownerKey: choiceProposal.ownerKey,
+        outputId: response.outputId,
+        limit: choiceProposal.limit,
+        snapshotToken: response.snapshotToken,
+        candidateWorkspaceDigest: response.candidateWorkspaceDigest,
+        preview: response.preview,
+      };
+      setChoiceProposal({ status: 'idle' });
+    } else {
+      appliedChoicePreview.current = undefined;
+    }
   };
   const choiceProposalPanel = choiceProposal.status === 'idle' ? null : (
     <section data-testid="construction-choice-proposal-panel" data-proposal-status={choiceProposal.status} className="rounded-xl border border-blue-200 bg-white p-4 shadow-sm">
@@ -2896,6 +3018,14 @@ const BuilderWorkspaceContent = ({
       <h2 className="text-xl font-semibold text-slate-900">
         {state.tables.length === 0 ? 'Build your first table' : 'Build another table'}
       </h2>
+      {state.tables.length === 0 && previousDraftRevisionId ? (
+        <div className="mt-3">
+          <ConstructionUndoButton
+            onUndo={() => void restorePreviousDraft()}
+            disabled={pendingCommands > 0 || publishing || state.reconciliation === 'pending'}
+          />
+        </div>
+      ) : null}
       <p className="mt-2 max-w-xl text-sm text-slate-600">
         Choose a populated record type. Loom will add its direct ID column and
         load a preview. The table name is optional.
@@ -3159,12 +3289,15 @@ const BuilderWorkspaceContent = ({
                       />
                     )}
                     selection={activePopulationSelection}
+                    constructionHistory={persistedConstructionHistory}
                     disabled={pendingCommands > 0 || state.reconciliation === 'pending'}
                     relatedRows={relatedRowsAvailability}
                     reshapeRows={reshapeRowsAvailability}
                     onChooseRelatedRows={chooseRelatedRows}
                     onChooseReshape={chooseReshapeRows}
                     onChangeRootOccurrence={(nodeId, occurrenceId) => void changeTableRoot(nodeId, { rootOccurrenceId: occurrenceId })}
+                    onEditConstructionStep={editConstructionStep}
+                    onRemoveConstructionStep={removeConstructionStep}
                     onApply={(proposalId) => applyCommands([{
                       type: 'APPLY_ROW_DEFINITION_PROPOSAL', outputId: table.outputId, proposalId,
                     }])}

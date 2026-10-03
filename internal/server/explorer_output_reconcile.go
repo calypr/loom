@@ -171,11 +171,22 @@ func reconcileFinalOutputMetadata(translated explorercompilation.WorkspaceResult
 
 			metadata, authored := constructed[schemaColumn.Name]
 			emitted, translatedEmission := emittedByOutput[recipeOutput.Name][schemaColumn.Name]
-			stageShadow := authored && translatedEmission && metadata.TypedStageOutput
-			if authored && translatedEmission && !stageShadow {
-				return explorercompilation.WorkspaceResult{}, fmt.Errorf("output %q column %q is both a translated emission and a table-shape construction", recipeOutput.Name, schemaColumn.Name)
+			groupEmission, explicitGroupOutput, err := explicitGroupOutputEmission(documents[recipeOutput.Name], recipeOutput.Name, schemaColumn)
+			if err != nil {
+				return explorercompilation.WorkspaceResult{}, fmt.Errorf("reconcile explicit group output %q column %q: %w", recipeOutput.Name, schemaColumn.Name, err)
 			}
-			if translatedEmission && !stageShadow {
+			stageShadow := authored && translatedEmission && metadata.TypedStageOutput
+			if explicitGroupOutput {
+				if authored || translatedEmission {
+					return explorercompilation.WorkspaceResult{}, fmt.Errorf("explicit group output %q column %q conflicts with a source or construction output", recipeOutput.Name, schemaColumn.Name)
+				}
+				emitted = groupEmission
+				if _, collision := emittedIDs[recipeOutput.Name][emitted.EmissionID]; collision {
+					return explorercompilation.WorkspaceResult{}, fmt.Errorf("explicit group output %q column %q duplicates translated emission identity %q", recipeOutput.Name, schemaColumn.Name, emitted.EmissionID)
+				}
+			} else if authored && translatedEmission && !stageShadow {
+				return explorercompilation.WorkspaceResult{}, fmt.Errorf("output %q column %q is both a translated emission and a table-shape construction", recipeOutput.Name, schemaColumn.Name)
+			} else if translatedEmission && !stageShadow {
 				emitted = cloneEmittedColumn(emitted)
 				if err := applyCompiledColumnMetadata(&emitted, schemaColumn); err != nil {
 					return explorercompilation.WorkspaceResult{}, fmt.Errorf("reconcile output %q column %q: %w", recipeOutput.Name, schemaColumn.Name, err)
@@ -257,9 +268,13 @@ func reconcileFinalOutputMetadata(translated explorercompilation.WorkspaceResult
 			}
 			if !presented {
 				maxOrder++
+				order := maxOrder
+				if explicitGroupOutput {
+					order = publicOrder
+				}
 				columnPresentation = explorercompilation.PresentationColumn{
 					EmissionID: emitted.EmissionID, PublicColumn: schemaColumn.Name,
-					Label: emitted.Label, Visible: true, Order: maxOrder,
+					Label: emitted.Label, Visible: true, Order: order,
 				}
 			} else {
 				columnPresentation.EmissionID = emitted.EmissionID
@@ -291,6 +306,58 @@ func reconcileFinalOutputMetadata(translated explorercompilation.WorkspaceResult
 		return explorercompilation.WorkspaceResult{}, fmt.Errorf("reconciled output contract is inconsistent: %w", err)
 	}
 	return reconciled, nil
+}
+
+func explicitGroupOutputEmission(document authoringv2.Document, outputID string, column lower.CompiledOutputColumn) (explorer.EmittedColumn, bool, error) {
+	if document.Rows.Kind != authoringv2.RowDefinitionGroups || document.Rows.Groups == nil ||
+		document.Rows.Groups.Source.Kind != authoringv2.GroupSourceExplicit || document.Rows.Groups.Source.Explicit == nil {
+		return explorer.EmittedColumn{}, false, nil
+	}
+	explicit := document.Rows.Groups.Source.Explicit
+	if strings.TrimSpace(explicit.RevisionID) == "" {
+		return explorer.EmittedColumn{}, false, fmt.Errorf("explicit group revision identity is required")
+	}
+	shape, label, filterable, chartable := "", "", false, false
+	switch column.Name {
+	case "group_label":
+		shape, label, filterable, chartable = "scalar", "Group label", true, true
+		if column.Kind != "string" || column.Cardinality != "required_one" || column.Nullable {
+			return explorer.EmittedColumn{}, false, fmt.Errorf("compiled group label schema has unexpected type or cardinality")
+		}
+	case "group_ordinal":
+		shape, label, filterable, chartable = "scalar", "Group ordinal", true, true
+		if column.Kind != "integer" || column.Cardinality != "required_one" || column.Nullable {
+			return explorer.EmittedColumn{}, false, fmt.Errorf("compiled group ordinal schema has unexpected type or cardinality")
+		}
+	case "members":
+		shape, label = "record_list", "Members"
+		if column.Kind != "object" || column.Cardinality != "many" || column.Nullable {
+			return explorer.EmittedColumn{}, false, fmt.Errorf("compiled group members schema has unexpected type or cardinality")
+		}
+	default:
+		return explorer.EmittedColumn{}, false, nil
+	}
+	emitted := explorer.EmittedColumn{
+		EmissionID:            explicitGroupEmissionID(explicit.RevisionID, column.Name),
+		OutputID:              outputID,
+		PublicColumn:          column.Name,
+		Label:                 label,
+		Shape:                 shape,
+		Lossless:              false,
+		MLReady:               false,
+		StructuralSuitability: "requires-review",
+		LossReasons:           []string{"TABLE_SHAPE_GROUP_CHANGES_ROW_GRAIN", tableShapeMLReadinessUnassessed},
+		Filterable:            filterable,
+		Chartable:             chartable,
+	}
+	if err := applyCompiledColumnMetadata(&emitted, column); err != nil {
+		return explorer.EmittedColumn{}, false, err
+	}
+	return emitted, true, nil
+}
+
+func explicitGroupEmissionID(revisionID, column string) string {
+	return "explicit-group:" + revisionID + ":" + column
 }
 
 func authoredOutputColumns(workspace authoringv2.Workspace) (map[string]authoringv2.Document, map[string]map[string]authoredOutputColumn, error) {

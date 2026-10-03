@@ -82,6 +82,7 @@ func compileExplorerReceipt(ctx context.Context, request lifecycle.CompileReceip
 	if err := validateAuthorizedReadScope(authorized.Scope, snapshot.Identity.AuthorizationScopeDigest); err != nil {
 		return nil, capability.ErrStaleSnapshot
 	}
+	prepareStarted := time.Now()
 	catalog := authoringV2Catalog(snapshot, request.ExplorerID)
 	workspace, err := authoringv2.MigrateLegacyContributors(request.Workspace, catalog)
 	if err != nil {
@@ -96,15 +97,21 @@ func compileExplorerReceipt(ctx context.Context, request lifecycle.CompileReceip
 	if err != nil {
 		return nil, err
 	}
+	prepareDuration := time.Since(prepareStarted)
+	compileWorkspaceStarted := time.Now()
 	translated, err := explorercompilation.CompileWorkspace(ctx, request.Project, request.ExplorerID, workspace, snapshot, request.ResolvedInputs)
 	if err != nil {
 		return nil, err
 	}
+	compileWorkspaceDuration := time.Since(compileWorkspaceStarted)
 	bindings := recipe.RuntimeBindings{Project: projectid.Legacy(request.Project), SelectionProject: projectid.Canonical(request.Project), DatasetGeneration: snapshot.Identity.Generation, AuthResourcePaths: append([]string(nil), authorized.Scope.AuthResourcePaths...), AuthScopeMode: authorized.Scope.Mode, SelectionMembersCollection: request.SelectionMembersCollection}
+	compileResolvedStarted := time.Now()
 	resolved, err := recipeEngine.CompileResolvedBundle(ctx, translated.Bundle, bindings)
 	if err != nil {
 		return nil, classifyReceiptRecipeError(err)
 	}
+	compileResolvedDuration := time.Since(compileResolvedStarted)
+	contractBuildStarted := time.Now()
 	translated, err = reconcileFinalOutputMetadata(translated, resolved)
 	if err != nil {
 		return nil, fmt.Errorf("reconcile receipt output metadata: %w", err)
@@ -157,6 +164,8 @@ func compileExplorerReceipt(ctx context.Context, request lifecycle.CompileReceip
 	if err != nil {
 		return nil, err
 	}
+	contractBuildDuration := time.Since(contractBuildStarted)
+	validatePersistStarted := time.Now()
 	if err := validateReceiptResolution(&receipt, &resolved); err != nil {
 		return nil, receiptCompilationConflict(receipt.ID, err)
 	}
@@ -167,12 +176,17 @@ func compileExplorerReceipt(ctx context.Context, request lifecycle.CompileReceip
 	if err != nil {
 		return nil, err
 	}
+	validatePersistDuration := time.Since(validatePersistStarted)
 	receiptBytes := 0
 	if raw, marshalErr := json.Marshal(stored); marshalErr == nil {
 		receiptBytes = len(raw)
 	}
 	if logger != nil {
-		logger.Info("Explorer receipt compiled", "project", receipt.Project, "explorer_id", receipt.ExplorerID, "receipt_id", receipt.ID, "duration_ms", time.Since(started).Milliseconds(), "receipt_bytes", receiptBytes, "output_count", len(receipt.Bundle.Outputs), "column_count", len(receipt.EmittedColumns))
+		logger.Info("Explorer receipt compiled", "project", receipt.Project, "explorer_id", receipt.ExplorerID, "receipt_id", receipt.ID,
+			"duration_ms", time.Since(started).Milliseconds(), "prepare_ms", prepareDuration.Milliseconds(),
+			"compile_workspace_ms", compileWorkspaceDuration.Milliseconds(), "compile_resolved_bundle_ms", compileResolvedDuration.Milliseconds(),
+			"contract_build_ms", contractBuildDuration.Milliseconds(), "validate_persist_ms", validatePersistDuration.Milliseconds(),
+			"receipt_bytes", receiptBytes, "output_count", len(receipt.Bundle.Outputs), "column_count", len(receipt.EmittedColumns))
 	}
 	return stored, nil
 }

@@ -116,7 +116,7 @@ func classifyMaterializationError(stage string, err error) error {
 		if userErr.Code() == string(dataframeerrors.CodeRelationshipCardinalityViolation) {
 			instruction = "Choose how multiple related values should be reduced, then publish again."
 		} else if userErr.Code() == string(dataframeerrors.CodeConstructionExpansionEmpty) {
-			instruction = "Choose 'Drop the original row' or 'Keep the row with a missing item' for the empty-list policy, then publish again."
+			instruction = "Choose the empty-list or no-match policy, then publish again."
 		}
 		message := dataframeerrors.PublicMessage(err) + ". " + instruction + " The active revision was retained."
 		return failureDetails(ClassUnprocessable, stage, userErr.Code(), message, userErr.Details(), err)

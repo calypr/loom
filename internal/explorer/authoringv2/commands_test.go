@@ -51,6 +51,36 @@ func TestApplyCommandsCreatesRecipeSafeBackendIdentities(t *testing.T) {
 	}
 }
 
+func TestDeletingOnlyTableKeepsCommandResponseCollectionsAsArrays(t *testing.T) {
+	workspace, created, err := ApplyCommands(emptyCommandWorkspace(), commandCatalog(), "create-only-table", []Command{{Type: CommandCreateTable, Title: "Patients", RootNodeID: "patient"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	deleted, _, err := ApplyCommands(workspace, commandCatalog(), "delete-only-table", []Command{{Type: CommandDeleteTable, OutputID: created[0].OutputID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := json.Marshal(ApplyCommandsResponse{Workspace: deleted})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var response struct {
+		Workspace struct {
+			Documents json.RawMessage `json:"documents"`
+			Tabs      json.RawMessage `json:"tabs"`
+		} `json:"workspace"`
+	}
+	if err := json.Unmarshal(encoded, &response); err != nil {
+		t.Fatal(err)
+	}
+	if string(response.Workspace.Documents) != "[]" || string(response.Workspace.Tabs) != "[]" {
+		t.Fatalf("empty command workspace must serialize arrays, documents=%s tabs=%s", response.Workspace.Documents, response.Workspace.Tabs)
+	}
+	if len(workspace.Documents) != 1 || len(workspace.Tabs) != 1 {
+		t.Fatal("deleting the copied table mutated the input workspace")
+	}
+}
+
 func TestApplyCommandsSetsAndClearsPopulationUsingSemanticRoute(t *testing.T) {
 	catalog := commandCatalog()
 	workspace, created, err := ApplyCommands(emptyCommandWorkspace(), catalog, "create", []Command{{Type: CommandCreateTable, Title: "Patients", RootNodeID: "patient"}})

@@ -61,6 +61,9 @@ func (r *physicalPlanRenderer) renderExtract(expression ir.PhysicalExpression) (
 				return "", err
 			}
 			if expression.Cardinality == ir.PhysicalArrayCardinality {
+				if selectorEndsWithRepeatedValue(extract.Selector) {
+					values = r.flattenTerminalRepeatedValues(values)
+				}
 				if extract.Distinct {
 					return "SORTED_UNIQUE(" + values + ")", nil
 				}
@@ -70,12 +73,31 @@ func (r *physicalPlanRenderer) renderExtract(expression ir.PhysicalExpression) (
 		}
 	}
 	arrays := make([]string, 0, 1+len(extract.Fallbacks))
-	for _, selector := range append([]spec.Selector{extract.Selector}, extract.Fallbacks...) {
-		array, err := r.renderSelectorArrayFromSource(source, selector, setSource, false)
+	array, err := r.renderSelectorArrayFromSource(source, extract.Selector, setSource, false)
+	if err != nil {
+		return "", err
+	}
+	if expression.Cardinality == ir.PhysicalArrayCardinality && selectorEndsWithRepeatedValue(extract.Selector) {
+		array = r.flattenTerminalRepeatedValues(array)
+	}
+	arrays = append(arrays, array)
+	for _, fallback := range extract.Fallbacks {
+		fallbackSource, err := r.renderValue(fallback.Source)
 		if err != nil {
 			return "", err
 		}
-		arrays = append(arrays, array)
+		fallbackSetSource := fallback.Source.Variable != "" && r.setVariables[fallback.Source.Variable] != ""
+		if fallbackSetSource {
+			fallbackSource = fallback.Source.Variable
+		}
+		fallbackArray, err := r.renderSelectorArrayFromSource(fallbackSource, fallback.Selector, fallbackSetSource, false)
+		if err != nil {
+			return "", err
+		}
+		if expression.Cardinality == ir.PhysicalArrayCardinality && selectorEndsWithRepeatedValue(fallback.Selector) {
+			fallbackArray = r.flattenTerminalRepeatedValues(fallbackArray)
+		}
+		arrays = append(arrays, fallbackArray)
 	}
 	values := arrays[0]
 	if len(arrays) > 1 {
@@ -91,6 +113,30 @@ func (r *physicalPlanRenderer) renderExtract(expression ir.PhysicalExpression) (
 		return compileDirectExpr(source, extract.Selector.Steps), nil
 	}
 	return "FIRST(" + values + ")", nil
+}
+
+func selectorEndsWithRepeatedValue(selector spec.Selector) bool {
+	return len(selector.Steps) != 0 && selector.Steps[len(selector.Steps)-1].Iterate
+}
+
+func (r *physicalPlanRenderer) flattenTerminalRepeatedValues(values string) string {
+	flatValues := "FLATTEN(" + values + ", 1)"
+	valueVariable := r.newInternalVariable("selector_terminal_value")
+	return fmt.Sprintf("(FOR %s IN %s FILTER %s != null RETURN %s)", valueVariable, flatValues, valueVariable, valueVariable)
+}
+
+func rebindPhysicalExtractSource(extract *ir.PhysicalExtract, source ir.PhysicalValue) {
+	if extract == nil {
+		return
+	}
+	previous := extract.Source
+	extract.Source = source
+	extract.Fallbacks = append([]ir.PhysicalSelectorFallback(nil), extract.Fallbacks...)
+	for index := range extract.Fallbacks {
+		if samePhysicalValue(extract.Fallbacks[index].Source, previous) {
+			extract.Fallbacks[index].Source = source
+		}
+	}
 }
 
 // renderUnitNormalizedExtract converts each contributing measurement before
@@ -185,6 +231,11 @@ func (r *physicalPlanRenderer) renderConditionalSelectorArray(source string, sel
 	if len(selector.Steps) == 0 {
 		return "", fmt.Errorf("selector is required")
 	}
+	if !firstOnly {
+		if expanded, ok := renderSingleConditionalArrayExpansion(source, selector); ok {
+			return expanded, nil
+		}
+	}
 	prefix, last := selector.Steps[:len(selector.Steps)-1], selector.Steps[len(selector.Steps)-1]
 	lines := make([]string, 0, len(prefix)+3)
 	current := source
@@ -206,6 +257,39 @@ func (r *physicalPlanRenderer) renderConditionalSelectorArray(source string, sel
 	}
 	lines = append(lines, "RETURN __value")
 	return "(\n    " + strings.Join(lines, "\n    ") + "\n  )", nil
+}
+
+func renderSingleConditionalArrayExpansion(source string, selector spec.Selector) (string, bool) {
+	if selector.Filter != nil {
+		return "", false
+	}
+	iterated := -1
+	for index, step := range selector.Steps {
+		if step.Index != nil {
+			return "", false
+		}
+		if !step.Iterate {
+			continue
+		}
+		if iterated >= 0 {
+			return "", false
+		}
+		iterated = index
+	}
+	if iterated < 0 || iterated == len(selector.Steps)-1 {
+		return "", false
+	}
+
+	arrayPath := compileDirectExpr(source, selector.Steps[:iterated+1])
+	valuePath := "CURRENT"
+	for _, step := range selector.Steps[iterated+1:] {
+		valuePath += "." + step.Field
+	}
+	array := fmt.Sprintf(
+		"(%s == null ? [] : (ASSERT(IS_ARRAY(%s), \"CONSTRUCTION_SELECTOR_ARRAY_TYPE_MISMATCH\") ? %s : []))",
+		arrayPath, arrayPath, arrayPath,
+	)
+	return fmt.Sprintf("(%s)[* FILTER %s != null RETURN %s]", array, valuePath, valuePath), true
 }
 
 func (r *physicalPlanRenderer) renderSelectorArrayFromSource(source string, selector spec.Selector, setSource, firstOnly bool) (string, error) {

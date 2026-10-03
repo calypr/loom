@@ -82,6 +82,11 @@ func clonePhysicalStageSequence(sequence *PhysicalStageSequence) *PhysicalStageS
 	}
 	if sequence.RowLineageReturn != nil {
 		rowLineage := *sequence.RowLineageReturn
+		if sequence.RowLineageReturn.Trace != nil {
+			trace := *sequence.RowLineageReturn.Trace
+			trace.Stages = append([]PhysicalRowLineageStageMatch(nil), sequence.RowLineageReturn.Trace.Stages...)
+			rowLineage.Trace = &trace
+		}
 		copy.RowLineageReturn = &rowLineage
 	}
 	copy.Stages = make([]PhysicalConstructionStage, len(sequence.Stages))
@@ -96,12 +101,23 @@ func clonePhysicalStageSequence(sequence *PhysicalStageSequence) *PhysicalStageS
 			groupCopy := *stage.Group
 			groupCopy.Keys = append([]PhysicalStageGroupKey(nil), stage.Group.Keys...)
 			groupCopy.Aggregates = append([]PhysicalStageGroupAggregate(nil), stage.Group.Aggregates...)
+			groupCopy.RowValues = append([]PhysicalStageRowValue(nil), stage.Group.RowValues...)
 			cloned.Group = &groupCopy
 		}
 		if stage.CodedGroup != nil {
 			codedGroupCopy := *stage.CodedGroup
 			codedGroupCopy.PathSegments = append([]PhysicalCodedGroupPathSegment(nil), stage.CodedGroup.PathSegments...)
+			codedGroupCopy.RowValues = append([]PhysicalStageRowValue(nil), stage.CodedGroup.RowValues...)
+			codedGroupCopy.RowValueProjections = clonePhysicalProjections(stage.CodedGroup.RowValueProjections)
 			cloned.CodedGroup = &codedGroupCopy
+		}
+		if stage.CohortGroup != nil {
+			cohortCopy := *stage.CohortGroup
+			cohortCopy.Rows.MemberValues = append([]PhysicalGroupMemberValue(nil), stage.CohortGroup.Rows.MemberValues...)
+			for valueIndex := range cohortCopy.Rows.MemberValues {
+				cohortCopy.Rows.MemberValues[valueIndex].Expression = clonePhysicalExpression(stage.CohortGroup.Rows.MemberValues[valueIndex].Expression)
+			}
+			cloned.CohortGroup = &cohortCopy
 		}
 		if stage.Expand != nil {
 			expandCopy := *stage.Expand
@@ -276,6 +292,16 @@ func canonicalizePhysicalStageSequence(sequence *PhysicalStageSequence) {
 				canonicalizePhysicalExpression(stage.GroupedPivot.InputProjections[projection].Expression)
 			}
 		}
+		if stage.CodedGroup != nil {
+			for projection := range stage.CodedGroup.RowValueProjections {
+				canonicalizePhysicalExpression(stage.CodedGroup.RowValueProjections[projection].Expression)
+			}
+		}
+		if stage.CohortGroup != nil {
+			for valueIndex := range stage.CohortGroup.Rows.MemberValues {
+				canonicalizePhysicalExpression(&stage.CohortGroup.Rows.MemberValues[valueIndex].Expression)
+			}
+		}
 		if stage.Unpivot != nil {
 			for projection := range stage.Unpivot.InputProjections {
 				canonicalizePhysicalExpression(stage.Unpivot.InputProjections[projection].Expression)
@@ -388,6 +414,10 @@ func clonePhysicalOperation(operation PhysicalOperation) PhysicalOperation {
 			populationCopy.MemberID = clonePhysicalValue(operation.RootScan.Population.MemberID)
 			rootScanCopy.Population = &populationCopy
 		}
+		if operation.RootScan.CohortSource != nil {
+			cohortSourceCopy := *operation.RootScan.CohortSource
+			rootScanCopy.CohortSource = &cohortSourceCopy
+		}
 		copy.RootScan = &rootScanCopy
 	}
 	if operation.Traversal != nil {
@@ -432,6 +462,7 @@ func clonePhysicalOperation(operation PhysicalOperation) PhysicalOperation {
 	if operation.Unnest != nil {
 		unnestCopy := *operation.Unnest
 		unnestCopy.Expression = clonePhysicalExpression(operation.Unnest.Expression)
+		unnestCopy.Ancestors = append([]PhysicalUnnestAncestor(nil), operation.Unnest.Ancestors...)
 		unnestCopy.Owner.Route = append([]PhysicalUnnestRouteStep(nil), operation.Unnest.Owner.Route...)
 		for routeIndex := range unnestCopy.Owner.Route {
 			step := &unnestCopy.Owner.Route[routeIndex]
@@ -563,6 +594,10 @@ func clonePhysicalOperation(operation PhysicalOperation) PhysicalOperation {
 	}
 	if operation.GroupRows != nil {
 		groupRowsCopy := *operation.GroupRows
+		groupRowsCopy.MemberValues = append([]PhysicalGroupMemberValue(nil), operation.GroupRows.MemberValues...)
+		for index := range groupRowsCopy.MemberValues {
+			groupRowsCopy.MemberValues[index].Expression = ClonePhysicalExpression(groupRowsCopy.MemberValues[index].Expression)
+		}
 		copy.GroupRows = &groupRowsCopy
 	}
 	if operation.GroupedPivot != nil {
@@ -571,6 +606,7 @@ func clonePhysicalOperation(operation PhysicalOperation) PhysicalOperation {
 		pivotCopy.GroupKeys = append([]PhysicalGroupedPivotKey(nil), operation.GroupedPivot.GroupKeys...)
 		pivotCopy.Categories = append([]PhysicalGroupedPivotCategory(nil), operation.GroupedPivot.Categories...)
 		pivotCopy.CodedCategories = append([]PhysicalGroupedCodedPivotCategory(nil), operation.GroupedPivot.CodedCategories...)
+		pivotCopy.RowValues = append([]PhysicalStageRowValue(nil), operation.GroupedPivot.RowValues...)
 		pivotCopy.CodedCorrelation = clonePhysicalCorrelation(operation.GroupedPivot.CodedCorrelation)
 		if operation.GroupedPivot.CategoryPresence != nil {
 			presence := clonePhysicalProjectionPresence(*operation.GroupedPivot.CategoryPresence)
@@ -709,16 +745,24 @@ func clonePhysicalExpression(expression PhysicalExpression) PhysicalExpression {
 	if expression.Extract != nil {
 		extract := *expression.Extract
 		extract.Source = clonePhysicalValue(extract.Source)
-		extract.Fallbacks = append([]spec.Selector(nil), extract.Fallbacks...)
+		if expression.Extract.Fallbacks != nil {
+			extract.Fallbacks = make([]PhysicalSelectorFallback, len(expression.Extract.Fallbacks))
+			for index, fallback := range expression.Extract.Fallbacks {
+				extract.Fallbacks[index] = PhysicalSelectorFallback{
+					Source: clonePhysicalValue(fallback.Source), ResourceType: fallback.ResourceType,
+					Selector: clonePhysicalSelector(fallback.Selector),
+				}
+			}
+		}
 		if extract.Prepared != nil {
 			prepared := *extract.Prepared
 			extract.Prepared = &prepared
 		}
 		if extract.UnitNormalization != nil {
 			normalization := *extract.UnitNormalization
-			normalization.OriginalValue.Steps = append([]spec.SelectorStep(nil), extract.UnitNormalization.OriginalValue.Steps...)
-			normalization.SourceSystem.Steps = append([]spec.SelectorStep(nil), extract.UnitNormalization.SourceSystem.Steps...)
-			normalization.SourceCode.Steps = append([]spec.SelectorStep(nil), extract.UnitNormalization.SourceCode.Steps...)
+			normalization.OriginalValue = clonePhysicalSelector(extract.UnitNormalization.OriginalValue)
+			normalization.SourceSystem = clonePhysicalSelector(extract.UnitNormalization.SourceSystem)
+			normalization.SourceCode = clonePhysicalSelector(extract.UnitNormalization.SourceCode)
 			normalization.Rules = append([]unit.UnitConversionRule(nil), extract.UnitNormalization.Rules...)
 			extract.UnitNormalization = &normalization
 		}
@@ -830,6 +874,14 @@ func clonePhysicalExpression(expression PhysicalExpression) PhysicalExpression {
 		}
 		copy.Object = &object
 	}
+	if expression.Call != nil {
+		call := *expression.Call
+		call.Args = make([]PhysicalExpression, len(expression.Call.Args))
+		for index, argument := range expression.Call.Args {
+			call.Args[index] = clonePhysicalExpression(argument)
+		}
+		copy.Call = &call
+	}
 	if expression.Subplan != nil {
 		subplan := clonePhysicalSubplan(*expression.Subplan)
 		copy.Subplan = &subplan
@@ -849,6 +901,10 @@ func clonePhysicalSubplan(subplan PhysicalSubplan) PhysicalSubplan {
 		sort := clonePhysicalValue(*subplan.Sort)
 		copy.Sort = &sort
 	}
+	if subplan.DistinctBy != nil {
+		distinctBy := clonePhysicalValue(*subplan.DistinctBy)
+		copy.DistinctBy = &distinctBy
+	}
 	return copy
 }
 
@@ -856,4 +912,19 @@ func clonePhysicalValue(value PhysicalValue) PhysicalValue {
 	copy := value
 	copy.Path = cloneStrings(value.Path)
 	return copy
+}
+
+func clonePhysicalSelector(selector spec.Selector) spec.Selector {
+	selector.Steps = append([]spec.SelectorStep(nil), selector.Steps...)
+	for index := range selector.Steps {
+		if selector.Steps[index].Index != nil {
+			value := *selector.Steps[index].Index
+			selector.Steps[index].Index = &value
+		}
+	}
+	if selector.Filter != nil {
+		filter := *selector.Filter
+		selector.Filter = &filter
+	}
+	return selector
 }

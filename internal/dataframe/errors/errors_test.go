@@ -24,7 +24,7 @@ func TestErrorCodesAreUniqueAndStable(t *testing.T) {
 		CodeDynamicSchemaDrift, CodeRecipeContractViolation,
 		CodeInvalidSelector, CodeReceiptStoreUnavailable, CodePreviewTimeout,
 		CodePreviewResponseTooLarge, CodeQueryMemoryLimitExceeded, CodeQueryResourceLimitExceeded, CodeQueryBackendOutOfMemory,
-		CodeUnitIdentityUnknown, CodeUnitDimensionIncompatible, CodeConstructionExpansionEmpty,
+		CodeUnitIdentityUnknown, CodeUnitDimensionIncompatible, CodeConstructionExpansionEmpty, CodeExplicitGroupUnassignedMember,
 		CodeTablePivotCellCardinality, CodeTablePivotUnlistedCategory,
 	}
 	seen := make(map[ErrorCode]struct{}, len(codes))
@@ -104,6 +104,13 @@ func TestNormalizeUsesTypedAndContextConditionsOnly(t *testing.T) {
 	}
 	if PublicMessage(unknown) != "internal server error" {
 		t.Fatalf("unknown message was exposed: %q", PublicMessage(unknown))
+	}
+}
+
+func TestConstructionExpansionEmptyPublicMessageCoversListsAndRelatedRecords(t *testing.T) {
+	want := "At least one row has an empty list or no matching related records. Choose 'Drop the original row' or 'Keep the row with a missing item' for lists, or 'Leave that current row out' or 'Keep that current row once, with no related record ID' for related records."
+	if got := PublicMessage(NewError(CodeConstructionExpansionEmpty, "")); got != want {
+		t.Fatalf("PublicMessage(CONSTRUCTION_EXPANSION_EMPTY) = %q, want %q", got, want)
 	}
 }
 

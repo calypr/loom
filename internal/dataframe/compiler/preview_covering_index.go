@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
+	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
 )
 
 const previewCoveringIndexNamePrefix = "loom_pivot_preview_"
@@ -16,15 +17,13 @@ var previewCoveringIndexPrefixFields = []string{"project", "dataset_generation",
 
 func previewCoveringIndexSpec(plan ir.PhysicalPlan) *PreviewCoveringIndexSpec {
 	sequence := plan.StageSequence
-	if sequence == nil || !sequence.PreviewTerminalPivotWindow || sequence.PreviewLimitBindKey == "" ||
-		sequence.PreviewSourceWindowByRootID || sequence.CellTraceReturn != nil || len(sequence.Stages) != 1 {
+	if sequence == nil || sequence.PreviewLimitBindKey == "" || sequence.PreviewSourceWindowByRootID ||
+		sequence.CellTraceReturn != nil || sequence.RowLineageReturn != nil || len(sequence.Stages) != 1 {
 		return nil
 	}
 	stage := sequence.Stages[0]
 	if stage.ID != sequence.FinalStageID || stage.InputStageID != sequence.SourceStageID ||
-		stage.Kind != ir.PhysicalStagePivotOp || stage.GroupedPivot == nil ||
-		stage.GroupedPivot.OneInputRowPerGroup || len(stage.GroupedPivot.GroupKeys) == 0 ||
-		stage.GroupedPivot.CategoryPresence != nil || stage.GroupedPivot.CategoryPresenceColumn != "" {
+		stage.Kind != ir.PhysicalStagePivotOp && stage.Kind != ir.PhysicalStageGroupOp {
 		return nil
 	}
 
@@ -36,23 +35,178 @@ func previewCoveringIndexSpec(plan ir.PhysicalPlan) *PreviewCoveringIndexSpec {
 	if !ok || strings.TrimSpace(collection) == "" {
 		return nil
 	}
-	projectionPaths, ok := previewCoveringProjectionPaths(sourceReturn.Projections, rootScan.Variable)
-	if !ok {
-		return nil
+	switch stage.Kind {
+	case ir.PhysicalStagePivotOp:
+		if !sequence.PreviewTerminalPivotWindow || stage.GroupedPivot == nil ||
+			stage.GroupedPivot.OneInputRowPerGroup || len(stage.GroupedPivot.GroupKeys) == 0 ||
+			stage.GroupedPivot.CategoryPresence != nil || stage.GroupedPivot.CategoryPresenceColumn != "" {
+			return nil
+		}
+		projectionPaths, ok := previewCoveringProjectionPaths(sourceReturn.Projections, rootScan.Variable)
+		if !ok || !pivotInputsPassThroughSourceColumns(stage, sourceReturn.Projections) {
+			return nil
+		}
+		groupKeyPaths, ok := previewCoveringPivotGroupKeyPaths(stage.GroupedPivot, sourceReturn.Projections, rootScan.Variable)
+		if !ok {
+			return nil
+		}
+		spec := previewCoveringIndexSpecForSourcePaths(collection, projectionPaths)
+		if spec != nil {
+			spec.pivotGroupKeyPaths = groupKeyPaths
+		}
+		return spec
+	case ir.PhysicalStageGroupOp:
+		if sequence.PreviewTerminalPivotWindow {
+			return nil
+		}
+		projectionPaths, ok := previewCoveringGroupProjectionPaths(stage, sourceReturn.Projections, rootScan.Variable)
+		if !ok {
+			return nil
+		}
+		spec := previewCoveringGroupIndexSpec(collection, projectionPaths)
+		if spec != nil {
+			spec.PrepareAfterPreview = true
+		}
+		return spec
 	}
-	if !pivotInputsPassThroughSourceColumns(stage, sourceReturn.Projections) {
-		return nil
-	}
-	groupKeyPaths, ok := previewCoveringPivotGroupKeyPaths(stage.GroupedPivot, sourceReturn.Projections, rootScan.Variable)
-	if !ok {
-		return nil
-	}
+	return nil
+}
 
-	spec := previewCoveringIndexSpecForSourcePaths(collection, projectionPaths)
-	if spec != nil {
-		spec.pivotGroupKeyPaths = groupKeyPaths
+func previewGroupScanSpec(plan ir.PhysicalPlan, covering *PreviewCoveringIndexSpec) *PreviewGroupScanSpec {
+	sequence := plan.StageSequence
+	if covering == nil || !covering.PrepareAfterPreview || sequence == nil || len(sequence.Stages) != 1 ||
+		sequence.PreviewSourceWindowByRootID || sequence.CellTraceReturn != nil || sequence.RowLineageReturn != nil {
+		return nil
 	}
-	return spec
+	stage := sequence.Stages[0]
+	if stage.ID != sequence.FinalStageID || stage.InputStageID != sequence.SourceStageID || stage.Kind != ir.PhysicalStageGroupOp {
+		return nil
+	}
+	root, _, ok := previewCoveringIndexSource(plan)
+	if !ok || root.Population != nil {
+		return nil
+	}
+	scopeCount, err := aql.RenderPhysicalRootScopeCount(plan)
+	if err != nil {
+		return nil
+	}
+	sequential, err := aql.RenderPhysicalPlanWithRootIndexDisabled(plan)
+	if err != nil {
+		return nil
+	}
+	return &PreviewGroupScanSpec{
+		Collection:         covering.Collection,
+		SequentialQuery:    sequential.Query,
+		SequentialBindVars: sequential.BindVars,
+		ScopeCountQuery:    scopeCount.Query,
+		ScopeCountBindVars: scopeCount.BindVars,
+	}
+}
+
+func previewCoveringGroupProjectionPaths(stage ir.PhysicalConstructionStage, projections []ir.PhysicalProjection, rootVariable string) ([]string, bool) {
+	group := stage.Group
+	if group == nil || len(group.Aggregates) == 0 {
+		return nil, false
+	}
+	for _, aggregate := range group.Aggregates {
+		if aggregate.Operation != "COUNT_ROWS" {
+			return nil, false
+		}
+	}
+	for _, rowValue := range group.RowValues {
+		if rowValue.Policy != "ALL" && rowValue.Policy != "ONE" {
+			return nil, false
+		}
+	}
+	inputProjections, ok := groupInputProjectionsByName(stage)
+	if !ok {
+		return nil, false
+	}
+	sourceProjections := make(map[string]ir.PhysicalProjection, len(projections))
+	for _, projection := range projections {
+		if projection.Name == "" {
+			return nil, false
+		}
+		if _, exists := sourceProjections[projection.Name]; exists {
+			return nil, false
+		}
+		sourceProjections[projection.Name] = projection
+	}
+	required := make(map[string]bool, len(group.Keys)+len(group.RowValues))
+	for _, key := range group.Keys {
+		required[key.InputColumn] = false
+	}
+	for _, rowValue := range group.RowValues {
+		required[rowValue.InputColumn] = true
+	}
+	paths := make([]string, 0, len(required))
+	for name, isRowValue := range required {
+		sourceProjection, sourceFound := sourceProjections[name]
+		inputProjection, inputFound := inputProjections[name]
+		if !sourceFound || !inputFound ||
+			inputProjection.Value.Variable != stage.InputRowVariable || len(inputProjection.Value.Path) != 1 || inputProjection.Value.Path[0] != name {
+			return nil, false
+		}
+		var path string
+		var pathFound bool
+		if isRowValue {
+			path, pathFound = previewCoveringGroupProjectionPath(sourceProjection, rootVariable)
+		} else {
+			path, pathFound = previewCoveringProjectionPath(sourceProjection, rootVariable)
+		}
+		if !pathFound {
+			return nil, false
+		}
+		paths = append(paths, path)
+	}
+	return paths, len(paths) != 0
+}
+
+func groupInputProjectionsByName(stage ir.PhysicalConstructionStage) (map[string]ir.PhysicalProjection, bool) {
+	inputProjections := make(map[string]ir.PhysicalProjection, len(stage.InputProjections))
+	for _, projection := range stage.InputProjections {
+		if projection.Name == "" || projection.Expression != nil || projection.Presence != nil ||
+			projection.Value.Variable != stage.InputRowVariable || len(projection.Value.Path) != 1 || projection.Value.Path[0] != projection.Name {
+			return nil, false
+		}
+		if _, duplicate := inputProjections[projection.Name]; duplicate {
+			return nil, false
+		}
+		inputProjections[projection.Name] = projection
+	}
+	return inputProjections, true
+}
+
+func previewCoveringGroupProjectionPath(projection ir.PhysicalProjection, rootVariable string) (string, bool) {
+	if projection.Expression == nil || projection.Expression.Cardinality == ir.PhysicalScalarCardinality {
+		return previewCoveringProjectionPath(projection, rootVariable)
+	}
+	expression := projection.Expression
+	if expression.Kind != ir.PhysicalExtractExpression || expression.Cardinality != ir.PhysicalArrayCardinality || expression.Extract == nil {
+		return "", false
+	}
+	extract := expression.Extract
+	if extract.ExecutionMode != ir.PhysicalSelectorConditionalArray || extract.Source.Variable != rootVariable ||
+		extract.Source.BindKey != "" || len(extract.Source.Path) == 0 || len(extract.Fallbacks) != 0 ||
+		extract.Distinct || extract.Prepared != nil || extract.UnitNormalization != nil || extract.Selector.Filter != nil {
+		return "", false
+	}
+	path := append([]string(nil), extract.Source.Path...)
+	for _, part := range path {
+		if !validPreviewIndexPath([]string{part}) {
+			return "", false
+		}
+	}
+	for _, step := range extract.Selector.Steps {
+		if step.Field == "" || step.Index != nil || !validPreviewIndexPath([]string{step.Field}) {
+			return "", false
+		}
+		path = append(path, step.Field)
+		if step.Iterate {
+			return strings.Join(path, "."), true
+		}
+	}
+	return "", false
 }
 
 func previewCoveringPivotGroupKeyPaths(pivot *ir.PhysicalGroupedPivot, projections []ir.PhysicalProjection, rootVariable string) ([][]string, bool) {
@@ -107,6 +261,30 @@ func previewCoveringIndexSpecForSourcePaths(collection string, projectionPaths [
 	}
 	name := previewCoveringIndexName(collection, fields)
 	return &PreviewCoveringIndexSpec{Collection: collection, Name: name, Fields: fields}
+}
+
+func previewCoveringGroupIndexSpec(collection string, projectionPaths []string) *PreviewCoveringIndexSpec {
+	if strings.TrimSpace(collection) == "" || len(projectionPaths) == 0 {
+		return nil
+	}
+	projectionPathSet := make(map[string]struct{}, len(projectionPaths))
+	for _, path := range projectionPaths {
+		if !validPreviewIndexPath(strings.Split(path, ".")) {
+			return nil
+		}
+		projectionPathSet[path] = struct{}{}
+	}
+	if len(projectionPathSet) == 0 || len(projectionPathSet)+len(previewCoveringIndexPrefixFields) > 32 {
+		return nil
+	}
+	projectionPaths = make([]string, 0, len(projectionPathSet))
+	for path := range projectionPathSet {
+		projectionPaths = append(projectionPaths, path)
+	}
+	sort.Strings(projectionPaths)
+	fields := append([]string(nil), previewCoveringIndexPrefixFields...)
+	fields = append(fields, projectionPaths...)
+	return &PreviewCoveringIndexSpec{Collection: collection, Name: previewCoveringIndexName(collection, fields), Fields: fields}
 }
 
 func previewCoveringIndexSource(plan ir.PhysicalPlan) (*ir.PhysicalRootScan, *ir.PhysicalReturn, bool) {

@@ -275,6 +275,7 @@ const explorerPopulationStepSchema = z.object({
   resourceType: opaqueIdSchema,
   relationship: opaqueIdSchema,
   catalogEdgeId: opaqueIdSchema.optional(),
+  storageDirection: z.enum(['INBOUND', 'OUTBOUND']).optional(),
 }).strict();
 export const explorerPopulationSchema = z.object({
   selectionRevisionId: opaqueIdSchema,
@@ -322,7 +323,13 @@ export const explorerRowDefinitionSchema = z.discriminatedUnion('kind', [
   z
     .object({
       kind: z.literal('GROUPS'),
-      groups: z.object({ source: groupSourceSchema }).strict(),
+      groups: z
+        .object({
+          source: groupSourceSchema,
+          afterStepId: opaqueIdSchema.optional(),
+          rowValues: z.array(z.object({ columnId: opaqueIdSchema, policy: z.enum(['ALL', 'ONE']) }).strict()).optional(),
+        })
+        .strict(),
     })
     .strict(),
   z
@@ -358,6 +365,7 @@ const rowDefinitionChoiceExpandedPolicySchema = z
   .strict();
 const rowDefinitionChoiceBaseSchema = z.object({
   choiceId: opaqueIdSchema,
+  occurrenceId: opaqueIdSchema.optional(),
   fieldPath: z.string().min(1),
   label: z.string().min(1),
   description: z.string(),
@@ -379,6 +387,7 @@ export const rowDefinitionChoiceSchema = z.discriminatedUnion('kind', [
 export type RowDefinitionChoice = z.infer<typeof rowDefinitionChoiceSchema>;
 export const explicitGroupRevisionChoiceSchema = z.object({
   revisionId: opaqueIdSchema,
+  sourceSelectionRevisionId: opaqueIdSchema.optional(),
   groupCount: z.number().int().positive().safe(),
   memberCount: z.number().int().nonnegative().safe(),
   createdAt: z.string().datetime(),
@@ -1251,19 +1260,41 @@ export const frameSourceOptionsResponseSchema = z.object({
 export type FrameSourceOptionsResponse = z.infer<typeof frameSourceOptionsResponseSchema>;
 export type FrameSourceOption = FrameSourceOptionsResponse['sources'][number];
 
+const constructionChoiceRepeatedBoundarySchema = z
+  .object({
+    path: z.string().min(1),
+    maxItems: z.number().int().nonnegative(),
+  })
+  .strict();
+
+const relatedFieldSourceSchema = z.object({
+  kind: z.literal('FIELD'),
+  candidateId: opaqueIdSchema,
+  nodeId: opaqueIdSchema,
+  resourceType: opaqueIdSchema,
+  path: opaqueIdSchema,
+  cardinality: z.enum(['optional_one', 'required_one']),
+  logicalType: opaqueIdSchema,
+}).strict();
+
+const relatedExpandContributorSourceSchema = relatedFieldSourceSchema.extend({
+  cardinality: z.enum(['optional_one', 'required_one', 'many']),
+  repeatedBoundaries: z.array(constructionChoiceRepeatedBoundarySchema).optional(),
+}).strict().superRefine((source, context) => {
+  if (source.cardinality === 'many' && (source.repeatedBoundaries?.length ?? 0) === 0) {
+    context.addIssue({
+      code: 'custom',
+      path: ['repeatedBoundaries'],
+      message: 'Repeated related fields must include repeated-boundary metadata.',
+    });
+  }
+});
+
 const relatedSourceSchema = z.object({
   anchorColumnId: opaqueIdSchema,
   choiceId: z.string().min(1),
   sourceOccurrenceId: opaqueIdSchema,
-  source: z.object({
-    kind: z.literal('FIELD'),
-    candidateId: opaqueIdSchema,
-    nodeId: opaqueIdSchema,
-    resourceType: opaqueIdSchema,
-    path: opaqueIdSchema,
-    cardinality: z.enum(['optional_one', 'required_one']),
-    logicalType: opaqueIdSchema,
-  }).strict(),
+  source: relatedFieldSourceSchema,
   route: z.array(constructionRouteStepSchema),
   contributorRule: z.object({
     policy: z.literal('ALL_MATCHES'),
@@ -1430,7 +1461,7 @@ const constructionOperationSchema = z.discriminatedUnion('kind', [
         policy: z.literal('ALL_MATCHES'),
         predicate: contributorPredicateSchema.optional(),
       }).strict(),
-      contributorSource: relatedSourceSchema.shape.source.optional(),
+      contributorSource: relatedExpandContributorSourceSchema.optional(),
       contributorChoiceId: z.string().min(1).optional(),
       emptyPolicy: z.enum(['ERROR', 'EXCLUDE', 'PRESERVE_PARENT']),
       relatedRecordColumnId: opaqueIdSchema,
@@ -1468,7 +1499,9 @@ const constructionOperationSchema = z.discriminatedUnion('kind', [
 ]);
 export type ConstructionOperation = z.infer<typeof constructionOperationSchema>;
 
+const constructionRowValuePolicySchema = z.enum(['ALL', 'ONE']);
 const constructionStepSchema = z.object({
+  rowValues: z.array(z.object({ inputColumnId: opaqueIdSchema, outputColumnId: opaqueIdSchema, policy: constructionRowValuePolicySchema }).strict()).optional(),
   id: opaqueIdSchema,
   ownerStepId: opaqueIdSchema.optional(),
   inputs: z.array(constructionInputRefSchema),
@@ -1493,7 +1526,7 @@ export const constructionSchema = z.object({
 export type Construction = z.infer<typeof constructionSchema>;
 
 const constructionOperationCapabilitySchema = z.object({
-  kind: z.enum(['PIVOT', 'CODED_PIVOT', 'DERIVE', 'FILTER', 'UNPIVOT', 'GROUP', 'CODED_GROUP', 'EXPAND', 'RELATED_SOURCE', 'RELATED_EXPAND', 'RELATED_FIELD', 'RELATED_ELIGIBILITY']),
+  kind: z.enum(['PIVOT', 'CODED_PIVOT', 'DERIVE', 'FILTER', 'UNPIVOT', 'GROUP', 'CODED_GROUP', 'EXPAND', 'RELATED_SOURCE', 'RELATED_EXPAND', 'RELATED_FIELD', 'RELATED_ELIGIBILITY', 'ROW_VALUES']),
   supported: z.boolean(),
   reasonCode: z.string().optional(),
   reason: z.string().optional(),
@@ -1501,7 +1534,7 @@ const constructionOperationCapabilitySchema = z.object({
 const constructionRelatedExpandStageDescriptorSchema = z.object({
   anchorColumnId: opaqueIdSchema,
   anchorColumn: opaqueIdSchema,
-  anchorKind: z.enum(['root', 'activeRelatedRecord']),
+  anchorKind: z.enum(['root', 'rootContributors', 'activeRelatedRecord']),
   anchorNodeId: opaqueIdSchema.optional(),
   anchorResourceType: opaqueIdSchema,
   relatedRecordColumnId: opaqueIdSchema,
@@ -1519,7 +1552,7 @@ const constructionActiveRelatedRecordSchema = z.object({
 }).strict();
 const constructionRelatedExpandAnchorSchema = z.object({
   anchorColumnId: opaqueIdSchema,
-  kind: z.enum(['root', 'activeRelatedRecord']),
+  kind: z.enum(['root', 'rootContributors', 'activeRelatedRecord']),
   nodeId: opaqueIdSchema.optional(),
   resourceType: opaqueIdSchema,
   label: z.string().min(1),
@@ -1666,6 +1699,7 @@ export const constructionProposalRequestSchema = z.object({
   changedStepId: z.string().optional(),
   removeStepIds: z.array(opaqueIdSchema).optional(),
   candidateConstruction: constructionSchema,
+  groupSources: z.array(z.object({ rowChoiceId: z.string().min(1), columnId: opaqueIdSchema }).strict()).optional(),
   groupSource: z.object({
     rowChoiceId: z.string().min(1),
     columnId: opaqueIdSchema,
@@ -1879,6 +1913,7 @@ export const explorerBuilderCatalogEdgeSchema = z
     fromNodeId: opaqueIdSchema,
     toNodeId: opaqueIdSchema,
     label: z.string(),
+    storageDirection: z.enum(['INBOUND', 'OUTBOUND']).optional(),
     populated: z.boolean().optional(),
   })
   .strict();
@@ -1909,13 +1944,6 @@ export const constructionChoiceOptionSchema = z
 export type ConstructionChoiceOption = z.infer<
   typeof constructionChoiceOptionSchema
 >;
-
-const constructionChoiceRepeatedBoundarySchema = z
-  .object({
-    path: z.string().min(1),
-    maxItems: z.number().int().nonnegative(),
-  })
-  .strict();
 
 export const fieldChoiceSourceSchema = z
   .object({
@@ -2059,7 +2087,7 @@ export const relatedExpandChoiceSearchResponseSchema = z.object({
   choices: z.array(z.object({
     choiceId: z.string().min(1),
     anchorColumnId: opaqueIdSchema,
-    kind: z.enum(['root', 'activeRelatedRecord']),
+    kind: z.enum(['root', 'rootContributors', 'activeRelatedRecord']),
     nodeId: opaqueIdSchema,
     resourceType: opaqueIdSchema,
     label: z.string().min(1),
@@ -2089,7 +2117,7 @@ export const relatedExpandContributorSearchResponseSchema = z.object({
   nextCursor: opaqueIdSchema.optional(),
   choices: z.array(z.object({
     choiceId: z.string().min(1),
-    source: relatedSourceSchema.shape.source,
+    source: relatedExpandContributorSourceSchema,
     label: z.string().min(1),
     operators: z.array(z.enum(['EXISTS', 'EQUALS'])).min(1),
     suggestedValues: z.array(z.string()),
@@ -2172,6 +2200,7 @@ export type PopulationRoutesResponse = z.infer<
 
 export const constructionChoiceSelectionSchema = z
   .object({
+    rowValuePolicy: constructionRowValuePolicySchema.optional(),
     choiceId: z.string().min(1),
     form: constructionChoiceFormSchema,
     frameId: opaqueIdSchema.optional(),

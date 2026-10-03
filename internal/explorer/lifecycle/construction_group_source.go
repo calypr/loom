@@ -38,7 +38,7 @@ func (s *Service) constructionGroupSourceCapability(ctx context.Context, base co
 		}
 		result.Choices = append(result.Choices, ConstructionGroupSourceChoice{
 			ChoiceID: choice.ChoiceID, OccurrenceID: choice.OccurrenceID, FieldPath: choice.Path,
-			Label: choice.Label, FHIRType: choice.FHIRType, LogicalType: candidate.LogicalType,
+			Label: constructionGroupFieldLabel(choice.Path), FHIRType: choice.FHIRType, LogicalType: candidate.LogicalType,
 			ValueType: choice.ValueType, IsIdentifier: false, IsReference: false, IsPopulated: candidate.Populated,
 		})
 	}
@@ -53,36 +53,51 @@ func (s *Service) constructionGroupSourceCapability(ctx context.Context, base co
 
 func (s *Service) constructionCandidateWithGroupSource(ctx context.Context, base constructionBase, request ConstructionProposalRequest) (authoringv2.Construction, error) {
 	candidate := request.CandidateConstruction
-	var groupKeyInputID string
-	if len(candidate.Steps) > 0 && candidate.Steps[0].Operation.Kind == authoringv2.ConstructionOperationGroup && candidate.Steps[0].Operation.Group != nil && len(candidate.Steps[0].Operation.Group.Keys) == 1 {
-		groupKeyInputID = candidate.Steps[0].Operation.Group.Keys[0].InputColumnID
+	if request.GroupSource == nil && request.GroupSources == nil {
+		candidate.SourceProjections = append([]authoringv2.ConstructionSourceProjection(nil), base.construction.SourceProjections...)
+		return candidate, nil
 	}
-	projections := make([]authoringv2.ConstructionSourceProjection, 0, 1)
+	if len(candidate.Steps) == 0 || candidate.Steps[0].ID != request.ChangedStepID || candidate.Steps[0].Operation.Kind != authoringv2.ConstructionOperationGroup || candidate.Steps[0].Operation.Group == nil {
+		return authoringv2.Construction{}, unprocessable("construction-proposal", "SOURCE_INPUT_REQUIRES_DIRECT_GROUP", "source grouping fields must be consumed by the first GROUP step", nil)
+	}
+	group := candidate.Steps[0].Operation.Group
+	selections := request.GroupSources
 	if request.GroupSource != nil {
-		if len(candidate.Steps) == 0 || candidate.Steps[0].Operation.Kind != authoringv2.ConstructionOperationGroup || candidate.Steps[0].Operation.Group == nil {
-			return authoringv2.Construction{}, unprocessable("construction-proposal", "SOURCE_INPUT_REQUIRES_DIRECT_GROUP", "a scalar source choice must be consumed by the first direct-source GROUP step", nil)
+		selections = []ConstructionGroupSourceSelection{*request.GroupSource}
+	}
+	if len(selections) != len(group.Keys) || len(group.Aggregates) == 0 {
+		return authoringv2.Construction{}, unprocessable("construction-proposal", "SOURCE_INPUT_COLUMN_MISMATCH", "select a source field for every grouping key", nil)
+	}
+	projections := make([]authoringv2.ConstructionSourceProjection, 0, len(candidate.SourceProjections)+len(selections))
+	for _, projection := range candidate.SourceProjections {
+		if projection.OwnerStepID != request.ChangedStepID && projection.OwnerStepID != "" {
+			projections = append(projections, projection)
 		}
-		group := candidate.Steps[0].Operation.Group
-		if len(group.Keys) != 1 || len(group.Aggregates) != 1 || group.Aggregates[0].Operation != authoringv2.ConstructionGroupCountRows {
-			return authoringv2.Construction{}, unprocessable("construction-proposal", "UNSUPPORTED_SOURCE_GROUP_SHAPE", "scalar source grouping currently requires one key and one COUNT_ROWS aggregate", nil)
-		}
-		if group.Keys[0].InputColumnID != request.GroupSource.ColumnID {
-			return authoringv2.Construction{}, unprocessable("construction-proposal", "SOURCE_INPUT_COLUMN_MISMATCH", "groupSource.columnId must match the direct GROUP key inputColumnId", nil)
-		}
-		projection, err := s.resolveConstructionGroupSource(ctx, base, request, groupKeyInputID)
-		if err != nil {
-			return authoringv2.Construction{}, err
-		}
-		projections = append(projections, projection)
-	} else if groupKeyInputID != "" {
-		for _, projection := range base.construction.SourceProjections {
-			if projection.ColumnID == groupKeyInputID {
-				projections = append(projections, projection)
+	}
+	for _, selection := range selections {
+		matched := false
+		for _, key := range group.Keys {
+			if key.InputColumnID == selection.ColumnID {
+				matched = true
 				break
 			}
 		}
+		if !matched {
+			return authoringv2.Construction{}, unprocessable("construction-proposal", "SOURCE_INPUT_COLUMN_MISMATCH", "source field must identify an exact grouping key", nil)
+		}
+		selectedRequest := request
+		selectedRequest.GroupSource = &selection
+		projection, err := s.resolveConstructionGroupSource(ctx, base, selectedRequest, selection.ColumnID)
+		if err != nil {
+			return authoringv2.Construction{}, err
+		}
+		if request.GroupSources != nil {
+			projection.OwnerStepID = request.ChangedStepID
+		}
+		projections = append(projections, projection)
 	}
 	candidate.SourceProjections = projections
+
 	return candidate, nil
 }
 
@@ -138,13 +153,7 @@ func (s *Service) resolveConstructionGroupSource(ctx context.Context, base const
 		facts.Cardinality != fhirschema.RowCardinalityOne || facts.Reference || facts.FHIRType != identity.FHIRType {
 		return authoringv2.ConstructionSourceProjection{}, conflict("construction-proposal", "STALE_GROUP_SOURCE_SCHEMA", "the selected field no longer matches generated FHIR scalar metadata", nil, err)
 	}
-	label := strings.TrimSpace(facts.Title)
-	if label == "" {
-		label = strings.TrimSpace(candidate.Label)
-	}
-	if label == "" {
-		label = resolved.FieldPath
-	}
+	label := constructionGroupFieldLabel(facts.CanonicalPath)
 	return authoringv2.ConstructionSourceProjection{
 		ColumnID: columnID, OccurrenceID: resolved.OccurrenceID, FieldPath: facts.CanonicalPath,
 		FHIRType: facts.FHIRType, LogicalType: candidate.LogicalType, Label: label,
@@ -186,4 +195,14 @@ func containsSourceProjectionMode(modes []capability.ProjectionMode, want capabi
 		}
 	}
 	return false
+}
+
+func constructionGroupFieldLabel(path string) string {
+	parts := strings.Split(path, ".")
+	for i, part := range parts {
+		if part != "" {
+			parts[i] = strings.ToUpper(part[:1]) + part[1:]
+		}
+	}
+	return strings.Join(parts, " / ")
 }

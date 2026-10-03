@@ -28,7 +28,16 @@ type RowDefinition struct {
 type RecordRows struct{}
 
 type GroupedRows struct {
-	Source GroupSource `json:"source"`
+	Source      GroupSource                `json:"source"`
+	AfterStepID string                     `json:"afterStepId,omitempty"`
+	RowValues   []ExplicitGroupRowValue    `json:"rowValues,omitempty"`
+}
+
+// ExplicitGroupRowValue retains a selected root FHIR field on each named
+// group row using values from that group's authorized members.
+type ExplicitGroupRowValue struct {
+	ColumnID string                        `json:"columnId"`
+	Policy   ConstructionRowValuePolicy    `json:"policy"`
 }
 
 type GroupSourceKind string
@@ -130,7 +139,34 @@ func (r RowDefinition) Validate() error {
 }
 
 func (g GroupedRows) validate() error {
-	return g.Source.validate()
+	if err := g.Source.validate(); err != nil {
+		return err
+	}
+	if g.AfterStepID != "" {
+		if err := requireTrimmedIdentity(g.AfterStepID, "afterStepId"); err != nil {
+			return err
+		}
+		if g.AfterStepID == "source_projection" {
+			return fmt.Errorf("afterStepId must name an authored construction step")
+		}
+	}
+	if len(g.RowValues) > 0 && g.Source.Kind != GroupSourceExplicit {
+		return fmt.Errorf("group row values require an explicit group source")
+	}
+	seen := make(map[string]bool, len(g.RowValues))
+	for index, value := range g.RowValues {
+		if err := requireTrimmedIdentity(value.ColumnID, fmt.Sprintf("rowValues[%d].columnId", index)); err != nil {
+			return err
+		}
+		if seen[value.ColumnID] {
+			return fmt.Errorf("group row values contain duplicate columnId %q", value.ColumnID)
+		}
+		seen[value.ColumnID] = true
+		if value.Policy != ConstructionRowValueAll && value.Policy != ConstructionRowValueOne {
+			return fmt.Errorf("group row values policy must be ALL or ONE")
+		}
+	}
+	return nil
 }
 
 func (s GroupSource) validate() error {

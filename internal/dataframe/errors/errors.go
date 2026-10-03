@@ -75,13 +75,16 @@ const (
 	CodeUnitIdentityUnknown              ErrorCode = "UNIT_IDENTITY_UNKNOWN"
 	CodeUnitDimensionIncompatible        ErrorCode = "UNIT_DIMENSION_INCOMPATIBLE"
 	CodeConstructionExpansionEmpty       ErrorCode = "CONSTRUCTION_EXPANSION_EMPTY"
+	CodeExplicitGroupUnassignedMember    ErrorCode = "EXPLICIT_GROUP_UNASSIGNED_MEMBER"
 )
+
+const CodeConstructionRowValueMultipleValues ErrorCode = "CONSTRUCTION_ROW_VALUE_MULTIPLE_VALUES"
 
 // IsFeatureResolutionCode identifies data-dependent feature policies that a
 // Builder user can resolve without an operator or a retry.
 func IsFeatureResolutionCode(code string) bool {
 	switch ErrorCode(code) {
-	case CodeRelationshipCardinalityViolation, CodeTemporalAnchorInvalid, CodeTemporalPrecisionUnsupported, CodeTemporalTieAmbiguous, CodeUnitIdentityUnknown, CodeUnitDimensionIncompatible, CodeConstructionExpansionEmpty, CodeTablePivotCellCardinality, CodeTablePivotUnlistedCategory:
+	case CodeRelationshipCardinalityViolation, CodeTemporalAnchorInvalid, CodeTemporalPrecisionUnsupported, CodeTemporalTieAmbiguous, CodeUnitIdentityUnknown, CodeUnitDimensionIncompatible, CodeConstructionExpansionEmpty, CodeExplicitGroupUnassignedMember, CodeConstructionRowValueMultipleValues, CodeTablePivotCellCardinality, CodeTablePivotUnlistedCategory:
 		return true
 	default:
 		return false
@@ -398,7 +401,11 @@ func defaultMessage(code ErrorCode) string {
 	case CodeUnitDimensionIncompatible:
 		return "a measurement unit is dimensionally incompatible with the feature target"
 	case CodeConstructionExpansionEmpty:
-		return "a list is empty for at least one row; choose 'Drop the original row' or 'Keep the row with a missing item', or populate the list"
+		return "At least one row has an empty list or no matching related records. Choose 'Drop the original row' or 'Keep the row with a missing item' for lists, or 'Leave that current row out' or 'Keep that current row once, with no related record ID' for related records."
+	case CodeExplicitGroupUnassignedMember:
+		return "Some records do not belong to a group. Choose 'Leave out records without a group' or 'Put records without a group in their own group', or assign them to a group."
+	case CodeConstructionRowValueMultipleValues:
+		return "Some grouped records have different values for this column. Keep all distinct values or choose more specific grouping fields."
 	case CodeTablePivotCellCardinality:
 		return "More than one record matched a Pivot cell; choose how to handle duplicates or filter the input rows."
 	case CodeTablePivotUnlistedCategory:

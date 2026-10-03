@@ -1029,16 +1029,13 @@ describe('ConceptCatalog', () => {
     const dialog = await screen.findByRole('dialog', { name: 'Choose how to add these fields' });
     expect(screen.getByText(/more relationship paths are available/i)).toBeInTheDocument();
     expect(within(dialog).getByRole('radio', {
-      name: 'Hemoglobin: Direct relationship: Patient to Observation via Subject',
+      name: 'Hemoglobin: Patient <-[subject]- Observation',
     })).toHaveProperty('checked', false);
     expect(within(dialog).getByRole('button', { name: 'Add 1 column' })).toBeDisabled();
     fireEvent.click(screen.getByRole('button', { name: 'Load more paths' }));
-    expect(await screen.findByRole('radio', {
-      name: 'Hemoglobin: 2-relationship path: Patient to DiagnosticReport to Observation via Subject then Result',
-    })).toBeInTheDocument();
-    fireEvent.click(within(dialog).getByText('Other relationship paths (1)'));
+    fireEvent.click(await within(dialog).findByText('Other relationship paths (1)'));
     fireEvent.click(screen.getByRole('radio', {
-      name: 'Hemoglobin: 2-relationship path: Patient to DiagnosticReport to Observation via Subject then Result',
+      name: 'Hemoglobin: Patient <-[subject]- DiagnosticReport -[result]-> Observation',
     }));
     fireEvent.click(within(dialog).getByRole('button', { name: 'Add 1 column' }));
 
@@ -1129,7 +1126,7 @@ describe('ConceptCatalog', () => {
     const countRadio = within(dialog).getByRole('radio', { name: 'Route count: Count matching records' });
     expect(countRadio).toHaveProperty('checked', true);
     fireEvent.click(within(dialog).getByRole('radio', {
-      name: 'Route count: Direct relationship: Patient to Observation via Focus',
+      name: 'Route count: Patient <-[focus]- Observation',
     }));
     expect(countRadio).toHaveProperty('checked', true);
     expect(within(dialog).getByRole('button', { name: 'Add 1 column' })).toBeEnabled();
@@ -1303,4 +1300,31 @@ describe('ConceptCatalog', () => {
     });
     expect(choiceRequest).not.toHaveProperty('route');
   });
+});
+
+
+it.each(['COUNT', 'PRESENCE'] as const)('keeps signed related %s ownership when grouped source projection is unavailable', async (form) => {
+  const sourceCandidate = catalog.candidates?.find(candidate => candidate.candidateId === 'candidate-observation-id');
+  if (!sourceCandidate) throw new Error('Missing related fixture candidate');
+  const choice: ConstructionChoice = {
+    ...fieldChoice(`related-${form}`, sourceCandidate.candidateId, sourceCandidate.nodeId, 'Observation', sourceCandidate.fieldPath),
+    route: [{ edgeId: 'patient-observation', fromNodeId: 'patient-node', toNodeId: 'observation-node', fromResourceType: 'Patient', toResourceType: 'Observation', relationship: 'observations', storageDirection: 'OUTBOUND', matchMode: 'OPTIONAL' }],
+    options: [{ form, shape: 'SCALAR', decision: 'DEFAULT', preservation: 'REDUCING', rowEffect: 'PRESERVES_ROW_GRAIN', support: 'SUPPORTED', reason: 'Summarize distinct related records across grouped contributors.' }],
+  };
+  const candidate = { ...sourceCandidate, constructionChoice: choice };
+  const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(async input => new Response(JSON.stringify(String(input).endsWith('/construction-choices')
+    ? { snapshotToken: 'snapshot-a', outputId: 'patients', complete: true, truncated: false, choices: [choice] }
+    : page([])), { status: 200, headers: { 'content-type': 'application/json' } }));
+  const onAddSelected = vi.fn().mockResolvedValue('preview-pending');
+  render(<LoomProvider client={createLoomClient({ fetch })}><ConceptCatalog
+    project="project-a" explorerId="explorer-a" snapshotToken="snapshot-a" outputId="patients" rowRoot="Patient" resourceType="Observation"
+    catalog={{ ...catalog, candidates: [candidate] }} sourceProjectionAvailability={{ available: false, reason: 'Grouped rows' }}
+    relatedSourceAvailability={{ supported: true }} groupedRowValuePolicy={{ value: 'ALL', onChange: vi.fn() }} onAddSelected={onAddSelected}
+  /></LoomProvider>);
+  fireEvent.click(await screen.findByRole('checkbox', { name: 'Select Observation.identifier' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Add 1 selected feature' }));
+  await waitFor(() => expect(onAddSelected).toHaveBeenCalledWith([{
+    constructionChoice: { choiceId: choice.choiceId, form }, title: candidate.label,
+    relatedSource: { choice, candidate },
+  }]));
 });

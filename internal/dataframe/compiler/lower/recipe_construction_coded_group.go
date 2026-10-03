@@ -13,7 +13,9 @@ import (
 func lowerConstructionCodedGroup(
 	plan *ir.PhysicalPlan,
 	group recipe.ConstructionCodedGroup,
+	rowValues []recipe.ConstructionRowValue,
 	declarations []recipe.StageColumn,
+	input map[string]CompiledOutputColumn,
 	inputIdentity string,
 	rootResourceType string,
 	usedVariables map[string]bool,
@@ -65,8 +67,8 @@ func lowerConstructionCodedGroup(
 	if err != nil {
 		return ir.PhysicalStageCodedGroup{}, nil, nil, err
 	}
-	if len(declarations) != 4 {
-		return ir.PhysicalStageCodedGroup{}, nil, nil, fmt.Errorf("CODED_GROUP requires exactly four declared output columns")
+	if len(declarations) != 4+len(rowValues) {
+		return ir.PhysicalStageCodedGroup{}, nil, nil, fmt.Errorf("CODED_GROUP requires four base output columns plus its declared row values")
 	}
 	outputs := make(map[string]recipe.StageColumn, len(declarations))
 	for _, declaration := range declarations {
@@ -112,6 +114,18 @@ func lowerConstructionCodedGroup(
 		CodeVariable:          allocateConstructionVariable(usedVariables, "coded_group_code", stepIndex),
 		CountVariable:         allocateConstructionVariable(usedVariables, "coded_group_count", stepIndex),
 		IdentityVariable:      allocateConstructionVariable(usedVariables, "coded_group_identity", stepIndex),
+		GroupRowsVariable:     allocateConstructionVariable(usedVariables, "coded_group_rows", stepIndex),
+	}
+	rowValuesIR, rowValueColumns, err := lowerConstructionRowValues(
+		rowValues, input, outputs, group.ConstructionID, usedVariables, stepIndex,
+	)
+	if err != nil {
+		return ir.PhysicalStageCodedGroup{}, nil, nil, err
+	}
+	physical.RowValues = rowValuesIR
+	physical.RowValueProjections, err = constructionSourceRowValueProjections(plan, physical.RowValues)
+	if err != nil {
+		return ir.PhysicalStageCodedGroup{}, nil, nil, err
 	}
 	compiled := make([]CompiledOutputColumn, 0, len(declarations))
 	projections := make([]ir.PhysicalProjection, 0, len(declarations)+1)
@@ -136,6 +150,11 @@ func lowerConstructionCodedGroup(
 			Kind:         output.kind, Cardinality: output.cardinal, Nullable: output.nullable,
 		})
 		projections = append(projections, ir.PhysicalProjection{Name: output.name, Value: ir.PhysicalValue{Variable: output.variable}})
+	}
+	for index, rowValue := range physical.RowValues {
+		column := rowValueColumns[index]
+		compiled = append(compiled, column)
+		projections = append(projections, ir.PhysicalProjection{Name: column.Name, Value: ir.PhysicalValue{Variable: rowValue.Variable}})
 	}
 	projections = append(projections, ir.PhysicalProjection{
 		Name: constructionRowID, Hidden: true, Value: ir.PhysicalValue{Variable: physical.IdentityVariable},

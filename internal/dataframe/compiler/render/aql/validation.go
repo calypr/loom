@@ -26,6 +26,16 @@ func collectionBindKeys(plan ir.PhysicalPlan) (map[string]struct{}, error) {
 			switch operation.Kind {
 			case ir.PhysicalRootScanOp:
 				keys[operation.RootScan.CollectionBindKey] = struct{}{}
+				if cohort := operation.RootScan.CohortSource; cohort != nil {
+					for _, key := range []string{
+						cohort.RevisionCollectionBindKey,
+						cohort.SelectionCollectionBindKey,
+						cohort.SelectionMembersCollectionBindKey,
+						cohort.MembershipsCollectionBindKey,
+					} {
+						keys[key] = struct{}{}
+					}
+				}
 				if population := operation.RootScan.Population; population != nil {
 					keys[population.MemberScan.CollectionBindKey] = struct{}{}
 					if err := collectOperations(population.ResourceOperations, owner+" POPULATION_ROOT"); err != nil {
@@ -102,6 +112,17 @@ func collectionBindKeys(plan ir.PhysicalPlan) (map[string]struct{}, error) {
 	if sequence := plan.StageSequence; sequence != nil {
 		for index, stage := range sequence.Stages {
 			owner := fmt.Sprintf("render construction stage %q", stage.ID)
+			if stage.CohortGroup != nil {
+				rows := stage.CohortGroup.Rows
+				for _, key := range []string{rows.RevisionCollectionBindKey, rows.SelectionCollectionBindKey, rows.DefinitionsCollectionBindKey, rows.MembershipsCollectionBindKey, rows.SelectionMembersCollectionBindKey, rows.ResourceCollectionBindKey} {
+					keys[key] = struct{}{}
+				}
+				for _, value := range rows.MemberValues {
+					if err := collectExpressionCollections(value.Expression, collectOperations, owner+" COHORT_GROUP"); err != nil {
+						return nil, err
+					}
+				}
+			}
 			if err := collectOperations(stage.DerivedLets, owner); err != nil {
 				return nil, err
 			}
@@ -308,7 +329,7 @@ func validateRenderableOperation(operation ir.PhysicalOperation, collectionKeys 
 				return fmt.Errorf("physical filter operator %q must not have a right value", operation.Filter.Predicate.Operator)
 			}
 			return checkValue(operation.Filter.Predicate.Left)
-		case "EQUALS", "IN", "GT":
+		case "EQUALS", "NOT_EQUALS", "IN", "CONTAINS_TEXT", "GT", "GTE", "LT", "LTE":
 		default:
 			return fmt.Errorf("unsupported physical filter operator %q", operation.Filter.Predicate.Operator)
 		}

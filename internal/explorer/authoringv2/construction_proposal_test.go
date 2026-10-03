@@ -19,7 +19,7 @@ func TestApplyConstructionProposalStrictlyAppliesServerResolvedCandidate(t *test
 		t.Fatalf("migrate proposal base: %v", err)
 	}
 	proposal := Command{Type: CommandApplyConstructionProposal, OutputID: "patients", ProposalID: "receipt-1"}
-	if err := proposal.ResolveConstructionProposal(candidate.Construction); err != nil {
+	if err := proposal.ResolveConstructionProposal(&candidate); err != nil {
 		t.Fatalf("resolve proposal: %v", err)
 	}
 	candidate.Construction.Steps[0].Operation.Pivot.Categories[0].OutputColumnID = "mutated_after_resolution"
@@ -80,6 +80,77 @@ func TestApplyConstructionProposalRejectsClientPlanAndUnresolvedApply(t *testing
 		t.Fatalf("unresolved apply error = %v", err)
 	}
 	if err := command.ResolveConstructionProposal(nil); err == nil {
-		t.Fatal("nil resolved construction was accepted")
+		t.Fatal("nil resolved candidate was accepted")
+	}
+}
+
+func TestApplyConstructionProposalCarriesValidatedCohortAnchorRepair(t *testing.T) {
+	document := rowValueGroupedDocument()
+	document.Columns[0].Source = ColumnSource{Kind: SourceField, Field: &FieldSource{Path: "status", ProjectionMode: "VALUE"}}
+	document.Rows = RowDefinition{Kind: RowDefinitionGroups, Groups: &GroupedRows{
+		Source: GroupSource{Kind: GroupSourceExplicit, Explicit: &ExplicitGroupSource{
+			RevisionID: "group-revision", UnassignedMemberPolicy: UnassignedMemberExclude,
+		}},
+		AfterStepID: "source_filter",
+		RowValues:   []ExplicitGroupRowValue{{ColumnID: "status", Policy: ConstructionRowValueAll}},
+	}}
+	document.Construction.Steps = []ConstructionStep{
+		{
+			ID: "source_filter", Inputs: []ConstructionInputRef{{Kind: ConstructionInputSourceProjection}},
+			Operation: ConstructionOperation{Kind: ConstructionOperationFilter, Filter: &ConstructionFilter{ColumnID: "status", Operator: ConstructionFilterExists}},
+			Outputs:   []StageColumn{{ID: "status", Name: "status", Label: "Status", Type: "string"}},
+		},
+		{
+			ID: "cohort_filter", Inputs: []ConstructionInputRef{{Kind: ConstructionInputStepOutput, StepID: "group_rows"}},
+			Operation: ConstructionOperation{Kind: ConstructionOperationFilter, Filter: &ConstructionFilter{ColumnID: "group_label", Operator: ConstructionFilterExists}},
+			Outputs: []StageColumn{
+				{ID: "group_id", Name: "group_id", Label: "Group ID", Type: "string"},
+				{ID: "group_label", Name: "group_label", Label: "Group label", Type: "string"},
+				{ID: "group_ordinal", Name: "group_ordinal", Label: "Group ordinal", Type: "integer"},
+				{ID: "members", Name: "members", Label: "Members", Type: "array"},
+				{ID: "status", Name: "status", Label: "Status", Type: "array"},
+			},
+		},
+	}
+	if err := document.Validate(); err != nil {
+		t.Fatalf("valid source-filter/cohort-filter base: %v", err)
+	}
+
+	candidate, _, err := document.ProposeStepRemoval("source_filter", nil)
+	if err != nil {
+		t.Fatalf("propose source-filter removal: %v", err)
+	}
+	if candidate.Rows.Groups.AfterStepID != "" {
+		t.Fatalf("candidate anchor was not rebased to source projection: %#v", candidate.Rows.Groups)
+	}
+
+	command := Command{Type: CommandApplyConstructionProposal, OutputID: "patients", ProposalID: "receipt-1"}
+	if err := command.ResolveConstructionProposal(&candidate); err != nil {
+		t.Fatalf("resolve exact candidate: %v", err)
+	}
+	wantRows, err := cloneRowDefinition(candidate.Rows)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantConstruction, err := cloneConstruction(candidate.Construction)
+	if err != nil {
+		t.Fatal(err)
+	}
+	candidate.Rows.Groups.Source.Explicit.RevisionID = "mutated-after-resolution"
+	candidate.Rows.Groups.RowValues[0].ColumnID = "mutated-after-resolution"
+	candidate.Construction.Steps[0].ID = "mutated-after-resolution"
+	workspace, results, err := ApplyCommands(constructionWorkspace(document), commandCatalog(), "apply-anchor-removal", []Command{command})
+	if err != nil {
+		t.Fatalf("apply anchor removal: %v", err)
+	}
+	got := workspace.Documents[0]
+	if !reflect.DeepEqual(got.Rows, wantRows) {
+		t.Fatalf("apply lost validated cohort rebase/source/values: got=%#v want=%#v", got.Rows, wantRows)
+	}
+	if !reflect.DeepEqual(got.Construction, wantConstruction) || len(results) != 1 {
+		t.Fatalf("applied construction/results = %#v / %#v, want exact candidate", got.Construction, results)
+	}
+	if err := got.Validate(); err != nil {
+		t.Fatalf("applied rebased cohort document is invalid: %v", err)
 	}
 }

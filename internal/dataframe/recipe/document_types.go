@@ -73,8 +73,17 @@ type ColumnTransformation struct {
 
 // GroupRows pins an output to an immutable explicit-group revision.
 type GroupRows struct {
-	RevisionID             string `json:"revisionId"`
-	UnassignedMemberPolicy string `json:"unassignedMemberPolicy"`
+	RevisionID             string                `json:"revisionId"`
+	UnassignedMemberPolicy string                `json:"unassignedMemberPolicy"`
+	AfterStepID            string                `json:"afterStepId,omitempty"`
+	RowValues              []GroupRowValuePolicy `json:"rowValues,omitempty"`
+}
+
+// GroupRowValuePolicy binds a selected root field projection to its reduction
+// across the exact member records of one explicit group.
+type GroupRowValuePolicy struct {
+	ColumnID string                     `json:"columnId"`
+	Policy   ConstructionRowValuePolicy `json:"policy"`
 }
 
 // PopulationConstraint is a storage-neutral row-root membership constraint.
@@ -89,8 +98,9 @@ type PopulationConstraint struct {
 }
 
 type PopulationRouteStep struct {
-	ResourceType string `json:"resourceType"`
-	Relationship string `json:"relationship"`
+	ResourceType     string `json:"resourceType"`
+	Relationship     string `json:"relationship"`
+	StorageDirection string `json:"storageDirection,omitempty"`
 }
 
 type RootColumnNaming string

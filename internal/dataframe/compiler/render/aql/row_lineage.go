@@ -7,10 +7,14 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 )
 
-func (r *physicalPlanRenderer) renderConstructionRowLineage(sourceQuery string, stage ir.PhysicalConstructionStage, terminal ir.PhysicalRowLineageReturn) (RenderedPhysicalPlan, error) {
-	if stage.Kind == ir.PhysicalStageRelatedExpandOp {
-		return r.renderRelatedExpandRowLineage(sourceQuery, stage, terminal)
+func (r *physicalPlanRenderer) renderConstructionRowLineage(sourceQuery string, stages []ir.PhysicalConstructionStage, terminal ir.PhysicalRowLineageReturn) (RenderedPhysicalPlan, error) {
+	if len(stages) == 0 {
+		return RenderedPhysicalPlan{}, fmt.Errorf("row lineage requires a construction stage")
 	}
+	if terminal.Trace != nil {
+		return r.renderComposedRelatedRowLineage(sourceQuery, stages, terminal)
+	}
+	stage := stages[0]
 	if stage.Kind == ir.PhysicalStageCodedGroupOp {
 		return r.renderCodedGroupRowLineage(sourceQuery, stage, terminal)
 	}
@@ -98,10 +102,22 @@ func (r *physicalPlanRenderer) renderConstructionRowLineage(sourceQuery string, 
 			"  FILTER "+identity+" == "+requestedRowID,
 			"  RETURN {"+strings.Join(selectedFields, ", ")+"}", ")")
 	}
+	filteredSelection := ""
+	if len(stages) > 1 {
+		passed, filterLines, renderErr := r.renderGroupFilterLineageCandidate(sourceQuery, stage, stages[1:], selected, keyAliases)
+		if renderErr != nil {
+			return RenderedPhysicalPlan{}, fmt.Errorf("render Group filter lineage candidate: %w", renderErr)
+		}
+		filteredSelection = passed
+		matchLines = append(matchLines, filterLines...)
+	}
 	page := r.newInternalVariable("row_lineage_page")
 	contributor := r.newInternalVariable("row_lineage_contributor")
-	filters := make([]string, 0, len(group.Keys)*2+1)
+	filters := make([]string, 0, len(group.Keys)*2+2)
 	filters = append(filters, selected+" != null")
+	if filteredSelection != "" {
+		filters = append(filters, filteredSelection+" != null")
+	}
 	for index, key := range group.Keys {
 		columnBind := r.newInternalBindKey("row_lineage_contributor_column")
 		r.bindVars[columnBind] = key.InputColumn
@@ -130,110 +146,159 @@ func (r *physicalPlanRenderer) renderConstructionRowLineage(sourceQuery string, 
 	lines = append(lines,
 		"LET "+page+" = (",
 		"  FOR "+contributor+" IN (\n"+indentQuery(sourceQuery, "    ")+"\n  )",
-		"  "+strings.Join(append([]string{"FILTER " + filters[0]}, mapStrings(filters[1:], "FILTER ")...), "\n  "),
+		"  "+strings.Join(mapStrings(filters, "FILTER "), "\n  "),
 		"  SORT "+contributor+"[@"+occurrenceKeyBind+"] ASC",
 		"  LIMIT @"+terminal.OffsetBindKey+", @"+terminal.FetchLimitBindKey,
 		"  RETURN {resourceType: @"+resourceTypeBind+", resourceId: "+contributor+"[@"+resourceIDBind+"], occurrenceKey: "+contributor+"[@"+occurrenceKeyBind+"]}",
 		")",
-		"RETURN {found: "+selected+" != null, contributors: SLICE("+page+", 0, @"+terminal.LimitBindKey+"), hasMore: LENGTH("+page+") > @"+terminal.LimitBindKey+"}",
+		"RETURN {found: "+selected+" != null"+lineagePassedCondition(filteredSelection)+", contributors: SLICE("+page+", 0, @"+terminal.LimitBindKey+"), hasMore: LENGTH("+page+") > @"+terminal.LimitBindKey+"}",
 	)
 	query := strings.Join(lines, "\n") + "\n"
 	return RenderedPhysicalPlan{Query: query, BindVars: pruneUnusedRuntimeBindVars(r.bindVars, query)}, nil
 }
 
-func (r *physicalPlanRenderer) renderRelatedExpandRowLineage(sourceQuery string, stage ir.PhysicalConstructionStage, terminal ir.PhysicalRowLineageReturn) (RenderedPhysicalPlan, error) {
-	related := stage.RelatedExpand
-	if related == nil {
-		return RenderedPhysicalPlan{}, fmt.Errorf("row lineage RELATED_EXPAND payload is required")
+func lineagePassedCondition(variable string) string {
+	if variable == "" {
+		return ""
 	}
-	input := stage.InputRowVariable
-	item := r.newInternalVariable("row_lineage_related_item")
-	identity := r.newInternalVariable("row_lineage_related_identity")
-	selected := r.newInternalVariable("row_lineage_related_selected")
-	page := r.newInternalVariable("row_lineage_related_page")
-	resourceIDColumnBind := r.newInternalBindKey("row_lineage_resource_id_column")
-	r.bindVars[resourceIDColumnBind] = terminal.ResourceIDColumn
-	occurrenceKeyColumnBind := r.newInternalBindKey("row_lineage_occurrence_key_column")
-	r.bindVars[occurrenceKeyColumnBind] = terminal.OccurrenceKeyColumn
-	parentIdentityColumnBind := r.newInternalBindKey("row_lineage_parent_identity_column")
-	r.bindVars[parentIdentityColumnBind] = related.ParentIdentityColumn
-	rootResourceTypeBind := r.newInternalBindKey("row_lineage_root_resource_type")
-	r.bindVars[rootResourceTypeBind] = terminal.ResourceType
-	targetResourceTypeBind := r.newInternalBindKey("row_lineage_target_resource_type")
-	r.bindVars[targetResourceTypeBind] = related.TargetResourceType
-	requestedRowID := "@" + terminal.RowIDBindKey
-	constructionID := "@" + related.ConstructionIDBindKey
-	var lines []string
-	var contributorExpressions []string
+	return " AND " + variable + " != null"
+}
 
-	subplan := related.RelatedRecords
-	subplan.Sort, subplan.Unique = nil, false
-	if terminal.RelatedRowKind == "EMPTY" {
-		if related.EmptyPolicy != ir.PhysicalUnnestPreserveParent {
-			return RenderedPhysicalPlan{}, fmt.Errorf("row lineage empty RELATED_EXPAND row requires PRESERVE_PARENT")
-		}
-		matches, err := r.renderSubplan(subplan, "    ", true)
-		if err != nil {
-			return RenderedPhysicalPlan{}, fmt.Errorf("render bounded exact related-route existence check: %w", err)
-		}
-		lines = append(lines,
-			"LET "+selected+" = FIRST(",
-			"  FOR "+input+" IN (\n"+indentQuery(sourceQuery, "    ")+"\n  )",
-			"  LET "+item+" = FIRST("+matches+")",
-			"  FILTER "+item+" == null",
-			"  LET "+identity+" = TO_STRING([[\"input\", "+input+"[@"+parentIdentityColumnBind+"]], [\"construction\", "+constructionID+"], [\"empty\"]])",
-			"  FILTER "+identity+" == "+requestedRowID,
-			"  RETURN {rootID: "+input+"[@"+resourceIDColumnBind+"], rootKey: "+input+"[@"+occurrenceKeyColumnBind+"]}",
-			")",
-		)
-		contributorExpressions = append(contributorExpressions,
-			"{resourceType: @"+rootResourceTypeBind+", resourceId: "+selected+".rootID, occurrenceKey: "+selected+".rootKey}",
-		)
-	} else {
-		terminalVariable := ""
-		for _, operation := range subplan.Operations {
-			if operation.Kind == ir.PhysicalTraversalOp && operation.Traversal != nil {
-				terminalVariable = operation.Traversal.TargetVariable
-			}
-		}
-		if terminalVariable == "" {
-			return RenderedPhysicalPlan{}, fmt.Errorf("row lineage RELATED_EXPAND route has no terminal traversal")
-		}
-		subplan.Operations = append(subplan.Operations, ir.PhysicalOperation{
-			Kind: ir.PhysicalFilterOp,
-			Filter: &ir.PhysicalFilter{Predicate: ir.PhysicalPredicate{
-				Operator: "EQUALS", Left: ir.PhysicalValue{Variable: terminalVariable, Path: []string{"_id"}},
-				Right: &ir.PhysicalValue{BindKey: terminal.RelatedTerminalIDBindKey},
-			}},
-		})
-		match, err := r.renderSubplan(subplan, "    ", true)
-		if err != nil {
-			return RenderedPhysicalPlan{}, fmt.Errorf("render exact authorized related-route lookup: %w", err)
-		}
-		lines = append(lines,
-			"LET "+selected+" = FIRST(",
-			"  FOR "+input+" IN (\n"+indentQuery(sourceQuery, "    ")+"\n  )",
-			"  LET "+item+" = FIRST("+match+")",
-			"  FILTER "+item+" != null",
-			"  LET "+identity+" = TO_STRING([[\"input\", "+input+"[@"+parentIdentityColumnBind+"]], [\"construction\", "+constructionID+"], [\"related\", "+item+".terminal_id]])",
-			"  FILTER "+identity+" == "+requestedRowID,
-			"  RETURN {rootID: "+input+"[@"+resourceIDColumnBind+"], rootKey: "+input+"[@"+occurrenceKeyColumnBind+"], terminalID: "+item+".terminal_id, relatedID: "+item+".resource_id}",
-			")",
-		)
-		targetOccurrenceKey := "PARSE_IDENTIFIER(" + selected + ".terminalID).key"
-		contributorExpressions = append(contributorExpressions,
-			"{resourceType: @"+rootResourceTypeBind+", resourceId: "+selected+".rootID, occurrenceKey: "+selected+".rootKey}",
-			"{resourceType: @"+targetResourceTypeBind+", resourceId: "+selected+".relatedID, occurrenceKey: "+targetOccurrenceKey+"}",
-		)
+func (r *physicalPlanRenderer) renderGroupFilterLineageCandidate(
+	sourceQuery string,
+	groupStage ir.PhysicalConstructionStage,
+	filterStages []ir.PhysicalConstructionStage,
+	selected string,
+	keyAliases []string,
+) (string, []string, error) {
+	group := groupStage.Group
+	if group == nil {
+		return "", nil, fmt.Errorf("GROUP payload is required")
 	}
-	allContributors := r.newInternalVariable("row_lineage_related_contributors")
+	groupRows := r.newInternalVariable("row_lineage_filter_group_rows")
+	groupOutput := groupStage
+	candidateFilters := append([]ir.PhysicalConstructionStage(nil), filterStages...)
+	contributorColumn := ""
+	if group.RootContributorInputColumn != "" {
+		contributorColumn = group.RootContributorOutputColumn
+		groupCopy := *group
+		groupCopy.RootContributorInputColumn = ""
+		groupCopy.RootContributorInputMany = false
+		groupCopy.RootContributorOutputColumn = ""
+		groupCopy.RootContributorVariable = ""
+		groupOutput.Group = &groupCopy
+		groupOutput.OutputColumns = withoutStageColumn(groupOutput.OutputColumns, contributorColumn)
+		groupOutput.OutputProjections = withoutStageProjection(groupOutput.OutputProjections, contributorColumn)
+		for index := range candidateFilters {
+			candidateFilters[index].InputColumns = withoutStageColumn(candidateFilters[index].InputColumns, contributorColumn)
+			candidateFilters[index].OutputColumns = withoutStageColumn(candidateFilters[index].OutputColumns, contributorColumn)
+			candidateFilters[index].OutputProjections = withoutStageProjection(candidateFilters[index].OutputProjections, contributorColumn)
+		}
+	}
+	var lines, groupLines []string
+	var err error
+	streamGroup := len(group.Keys) != 0
+	if streamGroup {
+		input := groupStage.InputRowVariable
+		lines = []string{
+			"LET " + groupRows + " = (",
+			"  FOR " + input + " IN (\n" + indentQuery(sourceQuery, "    ") + "\n  )",
+			"  FILTER " + selected + " != null",
+		}
+		for index, key := range group.Keys {
+			columnBind := r.newInternalBindKey("row_lineage_filter_group_input_column")
+			r.bindVars[columnBind] = key.InputColumn
+			keyVar := r.newInternalVariable(fmt.Sprintf("row_lineage_filter_group_key_%d", index))
+			lines = append(lines,
+				"  LET "+keyVar+" = "+input+"[@"+columnBind+"]",
+				"  FILTER "+keyVar+" == "+selected+"."+keyAliases[index],
+			)
+		}
+		groupLines, err = r.renderConstructionGroupStage(groupOutput, constructionGroupInput{SourceRowInScope: true})
+	} else {
+		input := r.newInternalVariable("row_lineage_filter_source")
+		inputRows := r.newInternalVariable("row_lineage_filter_group_inputs")
+		lines = []string{
+			"LET " + inputRows + " = (",
+			"  FOR " + input + " IN (\n" + indentQuery(sourceQuery, "    ") + "\n  )",
+			"  FILTER " + selected + " != null",
+		}
+		for index, key := range group.Keys {
+			columnBind := r.newInternalBindKey("row_lineage_filter_group_input_column")
+			r.bindVars[columnBind] = key.InputColumn
+			keyVar := r.newInternalVariable(fmt.Sprintf("row_lineage_filter_group_key_%d", index))
+			lines = append(lines,
+				"  LET "+keyVar+" = "+input+"[@"+columnBind+"]",
+				"  FILTER "+keyVar+" == "+selected+"."+keyAliases[index],
+			)
+		}
+		lines = append(lines, "  RETURN "+input, ")")
+		lines = append(lines, "LET "+groupRows+" = (")
+		groupLines, err = r.renderConstructionGroupStage(groupOutput, constructionGroupInput{RowsVariable: inputRows})
+	}
+	if err != nil {
+		return "", nil, err
+	}
+	lines = append(lines, groupLines...)
+	lines = append(lines, ")")
+	priorRows := groupRows
+	for index, filterStage := range candidateFilters {
+		stageRows := r.newInternalVariable(fmt.Sprintf("row_lineage_filter_stage_%d", index+1))
+		lines = append(lines,
+			"LET "+stageRows+" = (",
+			"  FOR "+filterStage.InputRowVariable+" IN "+priorRows,
+		)
+		predicate, renderErr := r.renderScopeOperation(ir.PhysicalOperation{Kind: ir.PhysicalFilterOp, Filter: filterStage.Filter}, "  ")
+		if renderErr != nil {
+			return "", nil, fmt.Errorf("filter stage %q: %w", filterStage.ID, renderErr)
+		}
+		lines = append(lines, predicate...)
+		object, renderErr := r.renderReturn(ir.PhysicalReturn{Projections: filterStage.OutputProjections})
+		if renderErr != nil {
+			return "", nil, fmt.Errorf("filter stage %q output row: %w", filterStage.ID, renderErr)
+		}
+		lines = append(lines,
+			"  LET "+filterStage.OutputRowVariable+" = "+object,
+			"  RETURN "+filterStage.OutputRowVariable,
+			")",
+		)
+		priorRows = stageRows
+	}
+	passed := r.newInternalVariable("row_lineage_filter_selected")
+	final := r.newInternalVariable("row_lineage_filter_final")
 	lines = append(lines,
-		"LET "+allContributors+" = ("+selected+" == null ? [] : ["+strings.Join(contributorExpressions, ", ")+"])",
-		"LET "+page+" = SLICE("+allContributors+", @"+terminal.OffsetBindKey+", @"+terminal.FetchLimitBindKey+")",
-		"RETURN {found: "+selected+" != null, contributors: SLICE("+page+", 0, @"+terminal.LimitBindKey+"), hasMore: LENGTH("+page+") > @"+terminal.LimitBindKey+"}",
+		"LET "+passed+" = FIRST(",
+		"  FOR "+final+" IN "+priorRows,
+		"  RETURN true",
+		")",
 	)
-	query := strings.Join(lines, "\n") + "\n"
-	return RenderedPhysicalPlan{Query: query, BindVars: pruneUnusedRuntimeBindVars(r.bindVars, query)}, nil
+	return passed, lines, nil
+}
+
+func withoutStageColumn(columns []ir.PhysicalStageColumn, name string) []ir.PhysicalStageColumn {
+	if name == "" {
+		return columns
+	}
+	result := make([]ir.PhysicalStageColumn, 0, len(columns))
+	for _, column := range columns {
+		if column.Name != name {
+			result = append(result, column)
+		}
+	}
+	return result
+}
+
+func withoutStageProjection(projections []ir.PhysicalProjection, name string) []ir.PhysicalProjection {
+	if name == "" {
+		return projections
+	}
+	result := make([]ir.PhysicalProjection, 0, len(projections))
+	for _, projection := range projections {
+		if projection.Name != name {
+			result = append(result, projection)
+		}
+	}
+	return result
 }
 
 func indentQuery(query, prefix string) string {

@@ -761,7 +761,7 @@ describe('BuilderWorkspace Add columns source selection', () => {
     expect(mockLoomClient.getConstructionCapabilities).not.toHaveBeenCalled();
   });
 
-  it('proposes a distinct related-record count at the selected stage and applies only the proposal', async () => {
+  it('proposes a distinct related-record count when row values are also supported and applies only the proposal', async () => {
     const construction = {
       version: 1,
       steps: [{
@@ -796,7 +796,7 @@ describe('BuilderWorkspace Add columns source selection', () => {
         label: 'Patient row key',
         cardinality: 'required_one',
       }],
-      capabilities: [{ kind: 'RELATED_SOURCE', supported: true }],
+      capabilities: [{ kind: 'RELATED_SOURCE', supported: true }, { kind: 'ROW_VALUES', supported: true }],
     };
     const relatedWorkspace: ExplorerBuilderWorkspace = {
       ...workspace,
@@ -1223,7 +1223,7 @@ describe('BuilderWorkspace Add columns source selection', () => {
     expect((outputName as HTMLInputElement).value).toBe('related_observation_status');
     expect((outputLabel as HTMLInputElement).value).toBe('Observation status');
     expect(screen.getByText('Current source: Observation.status')).toBeInTheDocument();
-    expect(screen.getByText('Current route: Patient → Observation via Observations')).toBeInTheDocument();
+    expect(screen.getByText('Current route: Patient -[observations]-> Observation')).toBeInTheDocument();
 
     const editor = within(screen.getByTestId('related-source-step-editor'));
     const relatedSourceSelector = editor.getByRole('combobox', { name: 'Related source to inspect' });

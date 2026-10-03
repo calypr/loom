@@ -102,3 +102,12 @@ func TestRowChoiceRejectsInapplicableShapesAndAmbiguousOccurrences(t *testing.T)
 		t.Fatal("occurrence resource type unrelated to its capability node was accepted")
 	}
 }
+
+func routeSnapshot(nodes []Node, edges []Edge, maxHops int) Snapshot {
+	return NewSnapshot(SnapshotIdentity{
+		Project: "row-choice-project", Generation: "row-choice-generation", AuthorizationScopeDigest: "scope",
+		SchemaDigest: "schema", ResourceInventoryDigest: "resources", RelationshipDigest: "relationships",
+		FieldDigest: "fields", ProtocolVersion: "protocol", CompilerVersion: "compiler",
+		TraversalPolicyVersion: "traversal", ProjectionPolicyVersion: "projection",
+	}, Policy{Route: RoutePolicy{Version: "test-route", MaxHops: maxHops}}, StatusReady, true, false, nodes, edges, nil, nil)
+}

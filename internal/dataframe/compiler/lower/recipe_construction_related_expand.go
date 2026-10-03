@@ -32,16 +32,30 @@ func lowerConstructionRelatedExpand(
 		return ir.PhysicalStageRelatedExpand{}, nil, nil, fmt.Errorf("related expansion route must contain at least one hop")
 	}
 	anchor, ok := input[related.AnchorColumnID]
-	if !ok || !anchor.Internal || anchor.Kind != string(expression.KindString) ||
-		(anchor.Cardinality != string(expression.RequiredOne) && anchor.Cardinality != string(expression.OptionalOne)) {
+	if !ok || !anchor.Internal || anchor.Kind != string(expression.KindString) {
 		return ir.PhysicalStageRelatedExpand{}, nil, nil, fmt.Errorf("related expansion anchor is not a compiler-proven exact resource identity")
 	}
 	anchorKind, anchorNodeID, anchorResourceType := "root", related.Route[0].FromNodeID, rootResourceType
-	if related.AnchorColumnID == "_key" {
+	rootContributorColumn := ""
+	if related.AnchorColumnID == rootContributorSetColumn {
+		contributor, found := rootContributorSetFromMap(input, rootResourceType)
+		if !found || contributor.Name != anchor.Name || anchor.RootContributorResourceType != rootResourceType ||
+			anchor.Cardinality != string(expression.Many) || rootResourceType == "" || rootResourceType != plan.Source.ResourceType {
+			return ir.PhysicalStageRelatedExpand{}, nil, nil, fmt.Errorf("related expansion contributor anchor is not the compiler-proven root identity set")
+		}
+		anchorKind = "rootContributors"
+		rootContributorColumn = contributor.Name
+	} else if related.AnchorColumnID == "_key" {
+		if anchor.Cardinality != string(expression.RequiredOne) {
+			return ir.PhysicalStageRelatedExpand{}, nil, nil, fmt.Errorf("related expansion root anchor is not scalar")
+		}
 		if anchor.Name != "_key" || anchor.Cardinality != string(expression.RequiredOne) || rootResourceType != plan.Source.ResourceType {
 			return ir.PhysicalStageRelatedExpand{}, nil, nil, fmt.Errorf("related expansion root anchor is not the compiler-proven root document key")
 		}
 	} else {
+		if anchor.Cardinality != string(expression.RequiredOne) && anchor.Cardinality != string(expression.OptionalOne) {
+			return ir.PhysicalStageRelatedExpand{}, nil, nil, fmt.Errorf("related expansion active anchor is not scalar")
+		}
 		if anchor.RelatedRecordAnchor == nil || anchor.RelatedRecordAnchor.TargetNodeID == "" || anchor.RelatedRecordAnchor.TargetResourceType == "" {
 			return ir.PhysicalStageRelatedExpand{}, nil, nil, fmt.Errorf("related expansion anchor is not an active exact related-record identity")
 		}
@@ -81,18 +95,22 @@ func lowerConstructionRelatedExpand(
 	anchorVariable := allocateConstructionVariable(usedVariables, fmt.Sprintf("related_expand_%d_anchor", stepIndex), stepIndex)
 	anchorNode := semantic.SemanticNode{Alias: anchorNodeID, ResourceType: anchorResourceType}
 	subplan := ir.PhysicalSubplan{Captures: []string{inputRow}}
-	if anchorKind == "root" {
+	if anchorKind == "root" || anchorKind == "rootContributors" {
 		subplan.Operations = append(subplan.Operations, ir.PhysicalOperation{
 			Kind:           ir.PhysicalCollectionScanOp,
 			Source:         ir.PhysicalSource{SemanticNode: anchorNode.Alias, ResourceType: anchorResourceType},
 			CollectionScan: &ir.PhysicalCollectionScan{Variable: anchorVariable, CollectionBindKey: "root_collection"},
 		})
+		operator, rightColumn := "EQUALS", anchor.Name
+		if anchorKind == "rootContributors" {
+			operator, rightColumn = "IN", rootContributorColumn
+		}
 		subplan.Operations = append(subplan.Operations, ir.PhysicalOperation{
 			Kind:   ir.PhysicalFilterOp,
 			Source: ir.PhysicalSource{SemanticNode: anchorNode.Alias, ResourceType: anchorResourceType, SemanticField: "_key"},
 			Filter: &ir.PhysicalFilter{Predicate: ir.PhysicalPredicate{
-				Operator: "EQUALS", Left: ir.PhysicalValue{Variable: anchorVariable, Path: []string{"_key"}},
-				Right: &ir.PhysicalValue{Variable: inputRow, Path: []string{anchor.Name}},
+				Operator: operator, Left: ir.PhysicalValue{Variable: anchorVariable, Path: []string{"_key"}},
+				Right: &ir.PhysicalValue{Variable: inputRow, Path: []string{rightColumn}},
 			}},
 		})
 	} else {
@@ -147,8 +165,14 @@ func lowerConstructionRelatedExpand(
 
 	if source := related.ContributorSource; source != nil {
 		if source.NodeID != related.TargetNodeID || source.ResourceType != related.TargetResourceType ||
-			(source.Cardinality != "optional_one" && source.Cardinality != "required_one") {
-			return ir.PhysicalStageRelatedExpand{}, nil, nil, fmt.Errorf("related expansion contributor field is not an exact target scalar")
+			(source.Cardinality != "optional_one" && source.Cardinality != "required_one" && source.Cardinality != "many") {
+			return ir.PhysicalStageRelatedExpand{}, nil, nil, fmt.Errorf("related expansion contributor field is not an exact target scalar or repeated scalar")
+		}
+		if source.Cardinality == "many" && len(source.RepeatedBoundaries) == 0 {
+			return ir.PhysicalStageRelatedExpand{}, nil, nil, fmt.Errorf("related expansion repeated contributor field is missing its exact repeated boundaries")
+		}
+		if source.Cardinality != "many" && len(source.RepeatedBoundaries) != 0 {
+			return ir.PhysicalStageRelatedExpand{}, nil, nil, fmt.Errorf("related expansion scalar contributor field cannot carry repeated boundaries")
 		}
 		selectorPath := strings.TrimPrefix(source.Path, source.ResourceType+".")
 		selector, err := spec.ParseSelector(selectorPath)
@@ -164,7 +188,9 @@ func lowerConstructionRelatedExpand(
 			if predicate.CandidateID != source.CandidateID {
 				return ir.PhysicalStageRelatedExpand{}, nil, nil, fmt.Errorf("related expansion predicate differs from its selected contributor field")
 			}
-			comparison := ir.PhysicalPredicate{Operator: string(predicate.Operator), LeftExpression: &field}
+			comparison := ir.PhysicalPredicate{
+				Operator: string(predicate.Operator), Quantifier: spec.ArrayQuantifier(predicate.Quantifier), LeftExpression: &field,
+			}
 			if predicate.Operator == recipe.FilterEquals {
 				if predicate.Value == nil {
 					return ir.PhysicalStageRelatedExpand{}, nil, nil, fmt.Errorf("related expansion EQUALS predicate requires a value")
@@ -201,9 +227,14 @@ func lowerConstructionRelatedExpand(
 	constructionBind := nextTableReshapeBindKey(plan.BindVars, "construction_related_expand_id")
 	plan.BindVars[constructionBind] = step.ID
 	parentColumnID, terminalColumnID := relatedExpandIdentityColumnNames(step.ID)
+	contributorRootType := ""
+	if rootContributorColumn != "" {
+		contributorRootType = rootResourceType
+	}
 	physical := ir.PhysicalStageRelatedExpand{
 		AnchorColumnID: related.AnchorColumnID, AnchorKind: anchorKind, AnchorNodeID: anchorNodeID,
 		AnchorResourceType: anchorResourceType, RelatedRecordColumnID: related.RelatedRecordColumnID,
+		RootContributorColumn: rootContributorColumn, RootResourceType: contributorRootType,
 		TargetNodeID: related.TargetNodeID, TargetResourceType: related.TargetResourceType,
 		ParentIdentityColumn: inputIdentity, ParentIdentityColumnID: parentColumnID,
 		TerminalIdentityColumn: terminalColumnID,

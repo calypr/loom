@@ -65,6 +65,21 @@ const allOperationFamilies = [
 }>;
 
 export const constructionOperationFamilies = allOperationFamilies;
+export const ConstructionUndoButton = ({ onUndo, disabled = false }: {
+  readonly onUndo: () => void;
+  readonly disabled?: boolean;
+}) => (
+  <button
+    type="button"
+    data-testid="construction-undo"
+    aria-label="Undo last saved draft change"
+    disabled={disabled}
+    onClick={onUndo}
+    className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+  >
+    Undo
+  </button>
+);
 const actionFamilies = allOperationFamilies.filter(
   ({ family }) => family === 'ADD_COLUMNS' || family === 'KEEP_ROWS',
 );
@@ -201,7 +216,7 @@ export const ConstructionTableNavigation = ({
         type="button"
         aria-label="Delete table"
         data-testid="construction-delete-table"
-        disabled={disabled || !selectedOutputId || tables.length < 2}
+        disabled={disabled || !selectedOutputId}
         onClick={onDeleteTable}
         className="rounded px-1 py-1 text-xs font-medium text-slate-700 hover:bg-red-50 hover:text-red-800 disabled:cursor-not-allowed disabled:opacity-45"
       >
@@ -389,16 +404,7 @@ export const ConstructionWorkspace = ({
             </div>
           </dl>
           {onUndo ? (
-            <button
-              type="button"
-              data-testid="construction-undo"
-              aria-label="Undo last saved draft change"
-              disabled={undoDisabled}
-              onClick={onUndo}
-              className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              Undo
-            </button>
+            <ConstructionUndoButton onUndo={onUndo} disabled={undoDisabled} />
           ) : null}
         </div>
       </header>

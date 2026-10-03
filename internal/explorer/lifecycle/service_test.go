@@ -1095,8 +1095,12 @@ func TestClassifyMaterializationErrorPreservesTemporalResolutionFailures(t *test
 				t.Fatalf("message = %q", lifecycleErr.Message)
 			}
 			if code == dataframeerrors.CodeConstructionExpansionEmpty &&
-				(!strings.Contains(lifecycleErr.Message, "Drop the original row") || !strings.Contains(lifecycleErr.Message, "Keep the row with a missing item")) {
-				t.Fatalf("empty expansion message = %q, want both supported empty-list policies", lifecycleErr.Message)
+				(!strings.Contains(lifecycleErr.Message, "Drop the original row") ||
+					!strings.Contains(lifecycleErr.Message, "Keep the row with a missing item") ||
+					!strings.Contains(lifecycleErr.Message, "Leave that current row out") ||
+					!strings.Contains(lifecycleErr.Message, "Keep that current row once, with no related record ID") ||
+					!strings.Contains(lifecycleErr.Message, "Choose the empty-list or no-match policy")) {
+				t.Fatalf("empty expansion message = %q, want list and related-record policy guidance", lifecycleErr.Message)
 			}
 			if code == dataframeerrors.CodeTablePivotUnlistedCategory && !strings.Contains(lifecycleErr.Message, "select all discovered categories or filter rows before Pivot") {
 				t.Fatalf("unlisted pivot category message = %q, want category-selection guidance", lifecycleErr.Message)

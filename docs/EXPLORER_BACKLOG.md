@@ -11,6 +11,31 @@ do not make further harness polish a prerequisite for product work.
 
 ## Delivery order
 
+### Active Builder regression: related Observation quantity Pivot
+
+User-reported on 2026-10-02 in “CDA indirect route QA 1790619839496”:
+Reshape → Turn categories into columns, grouping by
+`Observation.valueCodeableConcept.text`, category
+`Observation.valueQuantity.code`, values
+`Observation.valueQuantity.value` (decimal). Category discovery reports
+“finding all category values exceeded the preview time limit; filter the
+source rows and try again” and offers “Retry finding categories”.
+
+Prioritize reproducing the existing table's route and operation sequence in a
+fresh owned QA Explorer, then add a permanent `.mjs` browser regression.
+Investigate discovery query scope, traversal work, and category enumeration;
+fix the backend cause rather than requiring users to filter or retry.
+Verify discovered categories and decimal values against independent CDA
+records, discovery/action-to-render within five seconds, and native
+Preview/Cancel/Apply/edit/removal/reload with restoration. Do not mutate the
+reported Explorer. Existing Pivot discovery and wide-Pivot reload passes do
+not close this case.
+
+Also review the duplicate “Turn categories into columns” heading and explain
+or resolve disabled grouping choices. Track these presentation issues
+separately from the blocking discovery timeout. Runtime reproduction and a
+runnable regression are pending; the screenshot is user-report evidence.
+
 | Priority | User outcome | Current gap | Live acceptance case |
 | --- | --- | --- | --- |
 | 1 | Know when joining related records loses values | Scalar child fields can use `FIRST`, while the contract still reports lossless and ML-ready | Give one Patient two Observations. Selecting their value must not silently publish a supposedly lossless table that drops one. Explain the ambiguity and require an explicit policy, or clearly report the loss. |

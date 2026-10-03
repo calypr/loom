@@ -14,7 +14,7 @@ func applyColumnSource(workspace *Workspace, catalog CatalogSnapshot, commandID 
 		return result, fmt.Errorf("output %q was not found", command.OutputID)
 	}
 	source = editableSource(command.OccurrenceID, source)
-	if err := validateEditableSource(workspace.Documents[documentPos], catalog, command.OccurrenceID, source); err != nil {
+	if err := validateResolvedConstructionChoiceSource(workspace.Documents[documentPos], catalog, command, source); err != nil {
 		return result, err
 	}
 	var contributor *ContributorPredicate
@@ -47,9 +47,63 @@ func applyColumnSource(workspace *Workspace, catalog CatalogSnapshot, commandID 
 	}
 	column := Column{Column: columnID, Label: label, LogicalType: logicalType, OccurrenceID: command.OccurrenceID, Source: source, Contributor: contributor}
 	column.ColumnID = stagedSourceColumnID(workspace.Documents[documentPos], commandID, index, command.Type, column.Column)
-	applyInitialPresentation(&column, presentation, nextTableOrder(workspace.Documents[documentPos].Columns))
+	applyInitialPresentation(&column, presentation, nextTableOrder(workspace.Documents[documentPos]))
 	workspace.Documents[documentPos].Columns = append(workspace.Documents[documentPos].Columns, column)
+	var policy ConstructionRowValuePolicy
+	if command.ConstructionChoice != nil {
+		policy = command.ConstructionChoice.RowValuePolicy
+	}
+	document := &workspace.Documents[documentPos]
+	if document.Rows.Kind == RowDefinitionGroups && document.Rows.Groups != nil &&
+		document.Rows.Groups.Source.Kind == GroupSourceExplicit {
+		if command.ConstructionChoice != nil {
+			if err := populateExplicitGroupRowValue(document, column, policy); err != nil {
+				return result, err
+			}
+		}
+	} else if err := populateConstructionColumn(document, column, policy); err != nil {
+		return result, err
+	}
 	return CommandResult{Type: CommandResultColumnAdded, OutputID: command.OutputID, Column: columnID}, nil
+}
+
+func validateResolvedConstructionChoiceSource(document Document, catalog CatalogSnapshot, command Command, source ColumnSource) error {
+	validate := func(candidateSource ColumnSource) error {
+		return validateEditableSource(document, catalog, command.OccurrenceID, candidateSource)
+	}
+	selection, resolved := command.ConstructionChoice, command.ResolvedChoice
+	if selection == nil || resolved == nil || selection.Form != capability.ConstructionChoiceAll ||
+		command.OccurrenceID == RootOccurrenceID || source.Kind != SourceField || source.Field == nil ||
+		!strings.EqualFold(strings.TrimSpace(source.Field.ProjectionMode), string(capability.ConstructionChoiceAll)) ||
+		!sourceEqual(source, resolved.Source) || len(resolved.Route) == 0 {
+		return validate(source)
+	}
+
+	candidate, found := catalogCandidate(catalog, resolved.CandidateID)
+	occurrence := findRoute(&document.Route, command.OccurrenceID)
+	lastHop := resolved.Route[len(resolved.Route)-1]
+	if !found || occurrence == nil || occurrence.ResourceType != lastHop.ToResourceType ||
+		candidate.NodeID != lastHop.ToNodeID ||
+		strings.TrimPrefix(strings.TrimSpace(candidate.FieldPath), "root.") != strings.TrimPrefix(strings.TrimSpace(source.FieldPath()), "root.") ||
+		capability.IsRepeatedCardinality(candidate.Cardinality) ||
+		!contains(candidate.ProjectionModes, "VALUE") {
+		return validate(source)
+	}
+	if contains(candidate.ProjectionModes, string(capability.ConstructionChoiceAll)) {
+		return validate(source)
+	}
+
+	// Route-level ALL is compiler-supported for scalar fields even though the
+	// terminal field candidate itself advertises only scalar VALUE. The choice
+	// has already been re-authorized against its exact route and form by the
+	// lifecycle; validate its underlying field identity using that advertised
+	// scalar mode while preserving ALL in the saved source.
+	valueSource := source
+	field := *source.Field
+	field.ProjectionMode = "VALUE"
+	field.RelatedSelection = nil
+	valueSource.Field = &field
+	return validate(valueSource)
 }
 
 func ensureConstructionRoute(document *Document, catalog CatalogSnapshot, commandID string, commandIndex int, route []capability.ConstructionRouteStep, candidateID string) (string, error) {

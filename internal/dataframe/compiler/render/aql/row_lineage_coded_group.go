@@ -50,6 +50,7 @@ func (r *physicalPlanRenderer) renderCodedGroupRowLineage(
 	contributorDocument := r.newInternalVariable("row_lineage_coded_group_contributor_document")
 	contributorRows := []string{
 		"FOR " + contributor + " IN (\n" + indentQuery(strings.Join(contributors, "\n"), "  ") + "\n)",
+		"FILTER " + selected + " != null",
 		"FILTER " + contributor + ".system == " + selected + ".system",
 		"FILTER " + contributor + ".version == " + selected + ".version",
 		"FILTER " + contributor + ".code == " + selected + ".code",
@@ -71,7 +72,7 @@ func (r *physicalPlanRenderer) renderCodedGroupRowLineage(
 	}
 	lines = append(lines, pageLines...)
 	lines = append(lines,
-		"RETURN {found: "+selected+" != null, contributors: SLICE("+page+", @"+terminal.OffsetBindKey+", @"+terminal.LimitBindKey+"), hasMore: LENGTH("+page+") > @"+terminal.LimitBindKey+"}",
+		"RETURN {found: "+selected+" != null, contributors: SLICE("+page+", 0, @"+terminal.LimitBindKey+"), hasMore: LENGTH("+page+") > @"+terminal.LimitBindKey+"}",
 	)
 	query := strings.Join(lines, "\n") + "\n"
 	return RenderedPhysicalPlan{Query: query, BindVars: pruneUnusedRuntimeBindVars(r.bindVars, query)}, nil

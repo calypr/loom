@@ -109,6 +109,7 @@ type ConstructionProposalRequest struct {
 	ChangedStepID         string
 	RemoveStepIDs         []string
 	CandidateConstruction authoringv2.Construction
+	GroupSources          []ConstructionGroupSourceSelection `json:"groupSources,omitempty"`
 	GroupSource           *ConstructionGroupSourceSelection  `json:"groupSource,omitempty"`
 	PivotSources          []ConstructionPivotSourceSelection `json:"pivotSources,omitempty"`
 	Limit                 int
@@ -152,6 +153,22 @@ func (r ConstructionProposalRequest) Validate() error {
 	}
 	if r.ExpectedDraftVersion < 1 {
 		return fmt.Errorf("expectedDraftVersion must be positive")
+	}
+	if r.GroupSource != nil && len(r.GroupSources) != 0 {
+		return fmt.Errorf("use groupSource or groupSources, not both")
+	}
+	seenGroupChoices, seenGroupColumns := make(map[string]bool), make(map[string]bool)
+	for _, selection := range r.GroupSources {
+		if err := requireExactIdentity(selection.RowChoiceID, "groupSources.rowChoiceId"); err != nil {
+			return err
+		}
+		if err := requireExactIdentity(selection.ColumnID, "groupSources.columnId"); err != nil {
+			return err
+		}
+		if seenGroupChoices[selection.RowChoiceID] || seenGroupColumns[selection.ColumnID] {
+			return fmt.Errorf("groupSources contains a duplicate choice or column")
+		}
+		seenGroupChoices[selection.RowChoiceID], seenGroupColumns[selection.ColumnID] = true, true
 	}
 	if r.GroupSource != nil {
 		if err := requireExactIdentity(r.GroupSource.RowChoiceID, "groupSource.rowChoiceId"); err != nil {
@@ -217,6 +234,11 @@ func (s *Service) GetConstructionCapabilities(ctx context.Context, request Const
 	// stage slice before decorating the selected descriptor so a later request
 	// still validates the original signed compilation receipt.
 	stages := append([]explorer.ReceiptConstructionStage(nil), base.stages...)
+	if authoringv2.CanPopulateConstructionRows(&base.construction) && len(stages) > 0 {
+		last := len(stages) - 1
+		stages[last].Capabilities = append(append([]explorer.ReceiptConstructionOperationChoice(nil), stages[last].Capabilities...), explorer.ReceiptConstructionOperationChoice{Kind: "ROW_VALUES", Supported: true})
+	}
+
 	if len(stages) == 0 {
 		return ConstructionCapabilitiesResponse{}, conflict("construction-capabilities", "STAGE_CAPABILITIES_UNAVAILABLE", "the compiler receipt has no stage descriptors for this output", nil, nil)
 	}
@@ -275,7 +297,9 @@ func (s *Service) ProposeConstruction(ctx context.Context, request ConstructionP
 	if err != nil {
 		return ConstructionProposalResponse{}, err
 	}
-	candidateDocument, impact, err := base.document.AnalyzeConstructionCandidate(candidateConstruction, request.ChangedStepID, request.RemoveStepIDs)
+	candidateDocument, impact, err := analyzeConstructionCandidateWithCascade(
+		base.document, candidateConstruction, request.ChangedStepID, request.RemoveStepIDs, base.stages,
+	)
 	if err != nil {
 		return ConstructionProposalResponse{}, unprocessable("construction-proposal", "INVALID_CONSTRUCTION_CANDIDATE", err.Error(), err)
 	}
@@ -400,7 +424,7 @@ func (s *Service) ProposeConstruction(ctx context.Context, request ConstructionP
 	}
 	binding := &explorer.ConstructionProposalBinding{
 		DraftVersion: base.owner.DraftVersion, DraftDigest: base.owner.DraftDigest, OutputID: request.OutputID,
-		ChangedStepID: request.ChangedStepID, RemoveStepIDs: append([]string(nil), request.RemoveStepIDs...),
+		ChangedStepID: request.ChangedStepID, RemoveStepIDs: append([]string(nil), impact.RemovedStepIDs...),
 		BaseDocumentDigest: base.baseDocumentSHA, CandidateWorkspaceDigest: candidateDigest,
 		SnapshotToken: request.SnapshotToken, PreviewLimit: request.Limit,
 	}
@@ -422,6 +446,179 @@ func (s *Service) ProposeConstruction(ctx context.Context, request ConstructionP
 	baseResponse.Stages = candidateReceipt.ConstructionStages[request.OutputID]
 	baseResponse.PreviewStatus = "PREVIEW_PENDING"
 	return baseResponse, nil
+}
+
+func analyzeConstructionCandidateWithCascade(
+	base authoringv2.Document,
+	candidate authoringv2.Construction,
+	changedStepID string,
+	requestedRemovals []string,
+	baseStages []explorer.ReceiptConstructionStage,
+) (authoringv2.Document, authoringv2.ConstructionImpact, error) {
+	removeStepIDs := append([]string(nil), requestedRemovals...)
+	removed := make(map[string]bool, len(removeStepIDs))
+	for _, stepID := range removeStepIDs {
+		removed[stepID] = true
+	}
+	invalidatedProviders := append([]string(nil), requestedRemovals...)
+	if constructionRelatedExpandTargetChanged(base.Construction, candidate, changedStepID) {
+		invalidatedProviders = append(invalidatedProviders, changedStepID)
+	}
+	seedImpact := authoringv2.ConstructionImpact{RemovedStepIDs: invalidatedProviders}
+	seedImpact = constructionImpactForRemovedRelatedExpandAnchors(baseStages, &candidate, seedImpact)
+	for _, stepID := range constructionStepsToRemoveForMissingInputs(candidate.Steps, seedImpact.MissingInputs, changedStepID, removed) {
+		removed[stepID] = true
+		removeStepIDs = append(removeStepIDs, stepID)
+	}
+
+	for {
+		candidateAttempt := candidate
+		candidateAttempt.Steps = make([]authoringv2.ConstructionStep, 0, len(candidate.Steps))
+		for _, step := range candidate.Steps {
+			if !removed[step.ID] {
+				candidateAttempt.Steps = append(candidateAttempt.Steps, step)
+			}
+		}
+		candidateDocument, impact, err := base.AnalyzeConstructionCandidate(candidateAttempt, changedStepID, removeStepIDs)
+		if err != nil {
+			return authoringv2.Document{}, authoringv2.ConstructionImpact{}, err
+		}
+		impact = constructionImpactForRemovedRelatedExpandAnchors(baseStages, candidateDocument.Construction, impact)
+		if !impact.HasMissingInputs() {
+			return candidateDocument, impact, nil
+		}
+
+		newRemovals := constructionStepsToRemoveForMissingInputs(candidateDocument.Construction.Steps, impact.MissingInputs, changedStepID, removed)
+		if len(newRemovals) == 0 {
+			return candidateDocument, impact, nil
+		}
+		for _, stepID := range newRemovals {
+			removed[stepID] = true
+		}
+		removeStepIDs = append(removeStepIDs, newRemovals...)
+	}
+}
+
+func constructionRelatedExpandTargetChanged(base *authoringv2.Construction, candidate authoringv2.Construction, changedStepID string) bool {
+	if base == nil || changedStepID == "" {
+		return false
+	}
+	var baseStep, candidateStep *authoringv2.ConstructionStep
+	for index := range base.Steps {
+		if base.Steps[index].ID == changedStepID {
+			baseStep = &base.Steps[index]
+			break
+		}
+	}
+	for index := range candidate.Steps {
+		if candidate.Steps[index].ID == changedStepID {
+			candidateStep = &candidate.Steps[index]
+			break
+		}
+	}
+	if baseStep == nil || baseStep.Operation.RelatedExpand == nil {
+		return false
+	}
+	if candidateStep == nil || candidateStep.Operation.RelatedExpand == nil {
+		return true
+	}
+	return baseStep.Operation.RelatedExpand.TargetNodeID != candidateStep.Operation.RelatedExpand.TargetNodeID ||
+		baseStep.Operation.RelatedExpand.TargetResourceType != candidateStep.Operation.RelatedExpand.TargetResourceType
+}
+
+func constructionStepsToRemoveForMissingInputs(
+	steps []authoringv2.ConstructionStep,
+	missingInputs []authoringv2.ConstructionDependencyIssue,
+	protectedStepID string,
+	alreadyRemoved map[string]bool,
+) []string {
+	stepsByID := make(map[string]authoringv2.ConstructionStep, len(steps))
+	for _, step := range steps {
+		stepsByID[step.ID] = step
+	}
+	remove := make([]string, 0, len(missingInputs))
+	selected := make(map[string]bool, len(missingInputs))
+	for _, missing := range missingInputs {
+		if missing.StepID == protectedStepID {
+			continue
+		}
+		step, exists := stepsByID[missing.StepID]
+		if !exists {
+			continue
+		}
+		stepID := step.ID
+		if step.OwnerStepID != "" {
+			stepID = step.OwnerStepID
+		}
+		if stepID == protectedStepID || alreadyRemoved[stepID] || selected[stepID] {
+			continue
+		}
+		if _, exists := stepsByID[stepID]; !exists {
+			continue
+		}
+		selected[stepID] = true
+		remove = append(remove, stepID)
+	}
+	return remove
+}
+
+func constructionImpactForRemovedRelatedExpandAnchors(
+	baseStages []explorer.ReceiptConstructionStage,
+	candidate *authoringv2.Construction,
+	impact authoringv2.ConstructionImpact,
+) authoringv2.ConstructionImpact {
+	if candidate == nil || len(impact.RemovedStepIDs) == 0 {
+		return impact
+	}
+	removed := make(map[string]bool, len(impact.RemovedStepIDs))
+	for _, stepID := range impact.RemovedStepIDs {
+		removed[stepID] = true
+	}
+	removedTerminalIdentities := make(map[string]bool)
+	for _, stage := range baseStages {
+		if removed[stage.ID] && stage.Operation == string(recipe.ConstructionRelatedExpandOp) && stage.RelatedExpand != nil {
+			removedTerminalIdentities[stage.RelatedExpand.TerminalIdentityColumn] = true
+		}
+	}
+	if len(removedTerminalIdentities) == 0 {
+		return impact
+	}
+	for _, step := range candidate.Steps {
+		anchorColumnID := ""
+		switch step.Operation.Kind {
+		case authoringv2.ConstructionOperationRelatedField:
+			for _, stage := range baseStages {
+				if stage.ID == step.ID && stage.ActiveRelatedRecord != nil &&
+					removedTerminalIdentities[stage.ActiveRelatedRecord.TerminalIdentityColumn] {
+					anchorColumnID = stage.ActiveRelatedRecord.TerminalIdentityColumn
+					break
+				}
+			}
+		case authoringv2.ConstructionOperationRelatedExpand:
+			if step.Operation.RelatedExpand != nil {
+				anchorColumnID = step.Operation.RelatedExpand.AnchorColumnID
+			}
+		case authoringv2.ConstructionOperationRelatedEligibility:
+			if step.Operation.RelatedEligibility != nil {
+				anchorColumnID = step.Operation.RelatedEligibility.AnchorColumnID
+			}
+		}
+		if anchorColumnID == "" || !removedTerminalIdentities[anchorColumnID] {
+			continue
+		}
+		issue := authoringv2.ConstructionDependencyIssue{StepID: step.ID, ColumnID: anchorColumnID}
+		alreadyReported := false
+		for _, existing := range impact.MissingInputs {
+			if existing == issue {
+				alreadyReported = true
+				break
+			}
+		}
+		if !alreadyReported {
+			impact.MissingInputs = append(impact.MissingInputs, issue)
+		}
+	}
+	return impact
 }
 
 func reauthorizeConstructionRelatedField(
@@ -793,8 +990,29 @@ func reauthorizeRelatedExpandContributor(ctx context.Context, base constructionB
 		source.NodeID != related.TargetNodeID || source.ResourceType != related.TargetResourceType {
 		return unprocessable("construction-proposal", "INVALID_CONSTRUCTION_CHOICE", "related expansion contributor does not match the exact target route and field", nil)
 	}
+	form := capability.ConstructionChoiceValue
+	if capability.IsRepeatedCardinality(source.Cardinality) {
+		candidate, found := uniqueCapabilityCandidate(base.snapshot, source.CandidateID)
+		if !found {
+			return conflict("construction-proposal", "STALE_CONSTRUCTION_CHOICE", "the exact related expansion contributor is no longer available", nil, nil)
+		}
+		choice, choiceErr := capability.NewFieldConstructionChoiceForRoute(base.snapshot.Token, identity.Route, candidate)
+		if choiceErr != nil || !reflect.DeepEqual(choice.Source, source) {
+			return unprocessable("construction-proposal", "INVALID_CONSTRUCTION_CHOICE", "related expansion contributor does not match its current field choice", choiceErr)
+		}
+		foundForm := false
+		for _, option := range choice.Options {
+			if option.Support == capability.ConstructionChoiceSupported {
+				form, foundForm = option.Form, true
+				break
+			}
+		}
+		if !foundForm {
+			return unprocessable("construction-proposal", "INVALID_CONSTRUCTION_CHOICE", "related expansion contributor has no compiler-proved field form", nil)
+		}
+	}
 	resolved, _, err := resolveFieldConstructionChoice(ctx, base.authorized, base.snapshot, base.catalog, rootResourceType,
-		authoringv2.ConstructionChoiceSelection{ChoiceID: related.ContributorChoiceID, Form: capability.ConstructionChoiceValue}, identity, source)
+		authoringv2.ConstructionChoiceSelection{ChoiceID: related.ContributorChoiceID, Form: form}, identity, source)
 	if err != nil {
 		return err
 	}
@@ -1024,7 +1242,7 @@ func (s *Service) prepareConstructionProposal(ctx context.Context, project, expl
 	if _, err := s.verifyProposalReceipt(ctx, "construction-proposal", receipt, project, explorerID, request.SnapshotToken, snapshot, &expectedWorkspace); err != nil {
 		return nil, nil, err
 	}
-	if err := command.ResolveConstructionProposal(candidateDocument.Construction); err != nil {
+	if err := command.ResolveConstructionProposal(&candidateDocument); err != nil {
 		return nil, nil, conflict("commands", "INVALID_CONSTRUCTION_PROPOSAL", "the candidate construction is invalid", nil, err)
 	}
 	if _, err := s.Preview(ctx, PreviewRequest{

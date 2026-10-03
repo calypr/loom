@@ -3,6 +3,7 @@ package compiler
 import (
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"strings"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
@@ -53,31 +54,28 @@ type CompiledRowLineageQuery struct {
 func RowLineageCapabilityForOutput(output lower.CompiledRecipeOutput) RowLineageCapability {
 	sequence := output.Plan.StageSequence
 	if sequence == nil || len(sequence.Stages) == 0 {
+		if rowLineageStandaloneGroupRows(output) {
+			return RowLineageCapability{Available: true}
+		}
+		for _, operation := range output.Plan.Operations {
+			if operation.Kind == ir.PhysicalGroupRowsOp {
+				return RowLineageCapability{ReasonCode: "ROW_LINEAGE_IDENTITY_UNAVAILABLE", Operation: string(operation.Kind)}
+			}
+		}
 		return RowLineageCapability{ReasonCode: "ROW_LINEAGE_OPERATION_UNSUPPORTED", Operation: "SOURCE"}
 	}
-	if len(sequence.Stages) != 1 {
-		return RowLineageCapability{ReasonCode: "ROW_LINEAGE_OPERATION_UNSUPPORTED", Operation: string(sequence.Stages[1].Kind)}
+	if rowLineageHasRelatedExpand(sequence) {
+		return rowLineageRelatedSequenceCapability(output)
+	}
+	if rowLineageCohortGroupFilterSuffix(output) {
+		return RowLineageCapability{Available: true}
 	}
 	stage := sequence.Stages[0]
-	if stage.InputStageID != sequence.SourceStageID || stage.ID != sequence.FinalStageID {
+	if stage.InputStageID != sequence.SourceStageID {
 		return RowLineageCapability{ReasonCode: "ROW_LINEAGE_OPERATION_UNSUPPORTED", Operation: string(stage.Kind)}
 	}
-	if stage.Kind == ir.PhysicalStageRelatedExpandOp {
-		related := stage.RelatedExpand
-		if related == nil || related.AnchorKind != "root" || related.AnchorColumnID != "_key" ||
-			sequence.SourceRowIdentity != "_key" || related.ParentIdentityColumn != "_key" {
-			return RowLineageCapability{ReasonCode: "ROW_LINEAGE_ROOT_ANCHOR_UNSUPPORTED", Operation: string(stage.Kind)}
-		}
-		if !rowLineageHasDirectRootSource(output.Plan.Operations) {
-			return RowLineageCapability{ReasonCode: "ROW_LINEAGE_SOURCE_NOT_DIRECT", Operation: string(stage.Kind)}
-		}
-		if len(related.Route) != 1 {
-			return RowLineageCapability{ReasonCode: "ROW_LINEAGE_ROUTE_UNSUPPORTED", Operation: string(stage.Kind)}
-		}
-		if output.RowIdentity == nil || len(output.RowIdentity.Fields) != 1 || output.RowIdentity.Fields[0] != sequence.FinalRowIdentity {
-			return RowLineageCapability{ReasonCode: "ROW_LINEAGE_IDENTITY_UNAVAILABLE", Operation: string(stage.Kind)}
-		}
-		return RowLineageCapability{Available: true}
+	if len(sequence.Stages) > 1 && !rowLineageGroupFilterSuffix(sequence) {
+		return RowLineageCapability{ReasonCode: "ROW_LINEAGE_OPERATION_UNSUPPORTED", Operation: string(sequence.Stages[1].Kind)}
 	}
 	if stage.Kind == ir.PhysicalStageCodedGroupOp {
 		coded := stage.CodedGroup
@@ -88,7 +86,7 @@ func RowLineageCapabilityForOutput(output lower.CompiledRecipeOutput) RowLineage
 		if !rowLineageHasDirectRootSource(output.Plan.Operations) {
 			return RowLineageCapability{ReasonCode: "ROW_LINEAGE_SOURCE_NOT_DIRECT", Operation: string(stage.Kind)}
 		}
-		if output.RowIdentity == nil || len(output.RowIdentity.Fields) != 1 || output.RowIdentity.Fields[0] != sequence.FinalRowIdentity {
+		if !rowLineageHasPhysicalIdentity(output, stage, sequence) {
 			return RowLineageCapability{ReasonCode: "ROW_LINEAGE_IDENTITY_UNAVAILABLE", Operation: string(stage.Kind)}
 		}
 		return RowLineageCapability{Available: true}
@@ -103,10 +101,204 @@ func RowLineageCapabilityForOutput(output lower.CompiledRecipeOutput) RowLineage
 			return RowLineageCapability{ReasonCode: "ROW_LINEAGE_SOURCE_NOT_DIRECT", Operation: string(operation.Kind)}
 		}
 	}
-	if output.RowIdentity == nil || len(output.RowIdentity.Fields) != 1 || output.RowIdentity.Fields[0] != sequence.FinalRowIdentity {
+	if sequence.Stages[len(sequence.Stages)-1].ID != sequence.FinalStageID ||
+		!rowLineageHasPhysicalIdentity(output, sequence.Stages[len(sequence.Stages)-1], sequence) {
 		return RowLineageCapability{ReasonCode: "ROW_LINEAGE_IDENTITY_UNAVAILABLE", Operation: string(stage.Kind)}
 	}
 	return RowLineageCapability{Available: true}
+}
+
+func rowLineageHasRelatedExpand(sequence *ir.PhysicalStageSequence) bool {
+	if sequence == nil {
+		return false
+	}
+	for _, stage := range sequence.Stages {
+		if stage.Kind == ir.PhysicalStageRelatedExpandOp {
+			return true
+		}
+	}
+	return false
+}
+
+func rowLineageRelatedSequenceCapability(output lower.CompiledRecipeOutput) RowLineageCapability {
+	sequence := output.Plan.StageSequence
+	if sequence == nil || sequence.SourceRowIdentity != "_key" || !rowLineageHasDirectRootSource(output.Plan.Operations) {
+		return RowLineageCapability{ReasonCode: "ROW_LINEAGE_SOURCE_NOT_DIRECT", Operation: "RELATED_EXPAND"}
+	}
+	priorIdentity := sequence.SourceRowIdentity
+	owners := 0
+	for _, stage := range sequence.Stages {
+		if stage.InputStageID == "" || stage.RowIdentityColumn == "" {
+			return RowLineageCapability{ReasonCode: "ROW_LINEAGE_IDENTITY_UNAVAILABLE", Operation: string(stage.Kind)}
+		}
+		switch stage.Kind {
+		case ir.PhysicalStageDeriveOp, ir.PhysicalStageFilterOp, ir.PhysicalStageRelatedSourceOp,
+			ir.PhysicalStageRelatedEligibilityOp, ir.PhysicalStageRelatedFieldOp:
+			if stage.RowIdentityColumn != priorIdentity {
+				return RowLineageCapability{ReasonCode: "ROW_LINEAGE_IDENTITY_UNAVAILABLE", Operation: string(stage.Kind)}
+			}
+		case ir.PhysicalStageRelatedExpandOp:
+			related := stage.RelatedExpand
+			if related == nil || !rowLineageRelatedRouteSupported(*related, output.Plan.BindVars) {
+				return RowLineageCapability{ReasonCode: "ROW_LINEAGE_ROUTE_UNSUPPORTED", Operation: string(stage.Kind)}
+			}
+			if related.AnchorKind != "root" && related.AnchorKind != "activeRelatedRecord" {
+				return RowLineageCapability{ReasonCode: "ROW_LINEAGE_ROOT_ANCHOR_UNSUPPORTED", Operation: string(stage.Kind)}
+			}
+			if related.AnchorKind == "root" && related.AnchorColumnID != "_key" {
+				return RowLineageCapability{ReasonCode: "ROW_LINEAGE_ROOT_ANCHOR_UNSUPPORTED", Operation: string(stage.Kind)}
+			}
+			owners++
+		default:
+			return RowLineageCapability{ReasonCode: "ROW_LINEAGE_OPERATION_UNSUPPORTED", Operation: string(stage.Kind)}
+		}
+		priorIdentity = stage.RowIdentityColumn
+	}
+	last := sequence.Stages[len(sequence.Stages)-1]
+	if owners == 0 || last.ID != sequence.FinalStageID || last.RowIdentityColumn != sequence.FinalRowIdentity ||
+		!rowLineageHasPhysicalIdentity(output, last, sequence) {
+		return RowLineageCapability{ReasonCode: "ROW_LINEAGE_IDENTITY_UNAVAILABLE", Operation: string(last.Kind)}
+	}
+	return RowLineageCapability{Available: true}
+}
+
+func rowLineageRelatedRouteSupported(related ir.PhysicalStageRelatedExpand, bindVars map[string]any) bool {
+	if len(related.Route) == 0 {
+		return false
+	}
+	traversals := make([]ir.PhysicalOperation, 0, len(related.Route))
+	for _, operation := range related.RelatedRecords.Operations {
+		if operation.Kind == ir.PhysicalTraversalOp {
+			traversals = append(traversals, operation)
+		}
+	}
+	if len(traversals) != len(related.Route) {
+		return false
+	}
+	for index, hop := range related.Route {
+		if hop.EdgeID == "" || hop.FromNodeID == "" || hop.ToNodeID == "" || hop.FromResourceType == "" ||
+			hop.ToResourceType == "" || hop.Relationship == "" ||
+			(hop.StorageDirection != "INBOUND" && hop.StorageDirection != "OUTBOUND") ||
+			(hop.MatchMode != "OPTIONAL" && hop.MatchMode != "REQUIRED") ||
+			index > 0 && (related.Route[index-1].ToNodeID != hop.FromNodeID || related.Route[index-1].ToResourceType != hop.FromResourceType) {
+			return false
+		}
+		traversal := traversals[index]
+		wantDirection := ir.PhysicalInbound
+		if hop.StorageDirection == "OUTBOUND" {
+			wantDirection = ir.PhysicalOutbound
+		}
+		if traversal.Traversal == nil || traversal.Source.SemanticNode != hop.ToNodeID ||
+			traversal.Source.ResourceType != hop.ToResourceType || traversal.Source.Relationship != hop.Relationship ||
+			traversal.Traversal.Direction != wantDirection || traversal.Traversal.TargetTypeBindKey == "" ||
+			bindVars[traversal.Traversal.TargetTypeBindKey] != hop.ToResourceType {
+			return false
+		}
+	}
+	last := related.Route[len(related.Route)-1]
+	return last.ToNodeID == related.TargetNodeID && last.ToResourceType == related.TargetResourceType
+}
+
+func rowLineageStandaloneGroupRows(output lower.CompiledRecipeOutput) bool {
+	if output.Plan.StageSequence != nil || len(output.Plan.Operations) != 1 || output.RowIdentity == nil ||
+		output.RowIdentity.Grain != "groups" || !reflect.DeepEqual(output.RowIdentity.Fields, []string{"group_revision_id", "group_id"}) ||
+		output.RootResourceType == "" || output.Plan.Source.ResourceType != output.RootResourceType {
+		return false
+	}
+	operation := output.Plan.Operations[0]
+	if operation.Kind != ir.PhysicalGroupRowsOp || operation.GroupRows == nil || operation.Source.ResourceType != output.RootResourceType {
+		return false
+	}
+	rows := operation.GroupRows
+	revisionID, ok := output.Plan.BindVars[rows.RevisionIDBindKey].(string)
+	return ok && strings.TrimSpace(revisionID) != "" &&
+		rows.RevisionCollectionBindKey != "" && rows.SelectionCollectionBindKey != "" &&
+		rows.DefinitionsCollectionBindKey != "" && rows.MembershipsCollectionBindKey != "" &&
+		rows.SelectionMembersCollectionBindKey != "" && rows.ResourceCollectionBindKey != ""
+}
+
+func rowLineageCohortGroupFilterSuffix(output lower.CompiledRecipeOutput) bool {
+	sequence := output.Plan.StageSequence
+	if sequence == nil || len(sequence.Stages) < 2 || sequence.SourceRowIdentity != "_key" ||
+		sequence.Stages[0].Kind != ir.PhysicalStageCohortGroupOp || sequence.Stages[0].CohortGroup == nil ||
+		sequence.Stages[0].InputStageID != sequence.SourceStageID || !rowLineageHasDirectRootSource(output.Plan.Operations) ||
+		output.RowIdentity == nil || output.RowIdentity.Grain != "groups" {
+		return false
+	}
+	rows := sequence.Stages[0].CohortGroup.Rows
+	revisionID, ok := output.Plan.BindVars[rows.RevisionIDBindKey].(string)
+	if !ok || strings.TrimSpace(revisionID) == "" || rows.RevisionCollectionBindKey == "" ||
+		rows.SelectionCollectionBindKey == "" || rows.DefinitionsCollectionBindKey == "" ||
+		rows.MembershipsCollectionBindKey == "" || rows.SelectionMembersCollectionBindKey == "" ||
+		rows.ResourceCollectionBindKey == "" {
+		return false
+	}
+	prior := sequence.Stages[0]
+	for _, stage := range sequence.Stages[1:] {
+		if stage.Kind != ir.PhysicalStageFilterOp || stage.Filter == nil || stage.Filter.Expression != nil ||
+			stage.InputStageID != prior.ID || stage.RowIdentityColumn != prior.RowIdentityColumn ||
+			!reflect.DeepEqual(stage.InputColumns, prior.OutputColumns) ||
+			stage.Filter.Predicate.Left.Variable != stage.InputRowVariable || len(stage.Filter.Predicate.Left.Path) != 1 {
+			return false
+		}
+		columnName := stage.Filter.Predicate.Left.Path[0]
+		if columnName != "group_id" && columnName != "group_label" && columnName != "group_ordinal" {
+			return false
+		}
+		column, found := physicalStageColumn(stage.InputColumns, columnName)
+		outputColumn, outputFound := physicalStageColumn(stage.OutputColumns, columnName)
+		if !found || !outputFound || column.Internal || column.Cardinality == "many" ||
+			!reflect.DeepEqual(column, outputColumn) {
+			return false
+		}
+		operator := strings.ToUpper(strings.TrimSpace(stage.Filter.Predicate.Operator))
+		switch operator {
+		case "EXISTS", "MISSING":
+			if stage.Filter.Predicate.Right != nil {
+				return false
+			}
+		case "EQUALS", "NOT_EQUALS", "IN", "GT", "GTE", "LT", "LTE", "CONTAINS_TEXT":
+			if stage.Filter.Predicate.Right == nil || stage.Filter.Predicate.Right.BindKey == "" {
+				return false
+			}
+		default:
+			return false
+		}
+		prior = stage
+	}
+	last := sequence.Stages[len(sequence.Stages)-1]
+	return prior.ID == sequence.FinalStageID && prior.RowIdentityColumn == sequence.FinalRowIdentity &&
+		rowLineageHasPhysicalIdentity(output, last, sequence)
+}
+
+func physicalStageColumn(columns []ir.PhysicalStageColumn, name string) (ir.PhysicalStageColumn, bool) {
+	for _, column := range columns {
+		if column.Name == name {
+			return column, true
+		}
+	}
+	return ir.PhysicalStageColumn{}, false
+}
+
+func rowLineageGroupFilterSuffix(sequence *ir.PhysicalStageSequence) bool {
+	if sequence == nil || len(sequence.Stages) < 2 || sequence.Stages[0].Kind != ir.PhysicalStageGroupOp || sequence.Stages[0].Group == nil {
+		return false
+	}
+	prior := sequence.Stages[0]
+	for _, stage := range sequence.Stages[1:] {
+		if stage.Kind != ir.PhysicalStageFilterOp || stage.Filter == nil || stage.InputStageID != prior.ID ||
+			stage.RowIdentityColumn != prior.RowIdentityColumn || !reflect.DeepEqual(stage.InputColumns, prior.OutputColumns) ||
+			!reflect.DeepEqual(stage.OutputColumns, stage.InputColumns) {
+			return false
+		}
+		prior = stage
+	}
+	return prior.ID == sequence.FinalStageID && prior.RowIdentityColumn == sequence.FinalRowIdentity
+}
+
+func rowLineageHasPhysicalIdentity(output lower.CompiledRecipeOutput, stage ir.PhysicalConstructionStage, sequence *ir.PhysicalStageSequence) bool {
+	// Publication-grain metadata need not name a construction stage's physical row ID.
+	return output.RowIdentity != nil && stage.RowIdentityColumn != "" && stage.RowIdentityColumn == sequence.FinalRowIdentity
 }
 
 func rowLineageHasDirectRootSource(operations []ir.PhysicalOperation) bool {
@@ -150,6 +342,42 @@ func CompileRowLineageOutput(output lower.CompiledRecipeOutput, rowID string, of
 	if output.RowIdentity == nil {
 		return CompiledRowLineageQuery{}, fmt.Errorf("row lineage requires stable output row identity")
 	}
+	if rowLineageCohortGroupFilterSuffix(output) {
+		sequence := output.Plan.StageSequence
+		groupStage := sequence.Stages[0]
+		rows := groupStage.CohortGroup.Rows
+		revisionID, _ := output.Plan.BindVars[rows.RevisionIDBindKey].(string)
+		requestedRevisionID, requestedGroupID, canonical := parseGroupRowsRowID(rowID)
+		if !canonical || requestedRevisionID != revisionID {
+			requestedRevisionID, requestedGroupID = "", ""
+		}
+		rendered, err := aql.RenderPhysicalCohortGroupRowsLineage(
+			ir.ClonePhysicalPlan(output.Plan), groupStage, sequence.Stages[1:], requestedRevisionID, requestedGroupID, offset, limit,
+		)
+		if err != nil {
+			return CompiledRowLineageQuery{}, fmt.Errorf("render composed cohort row lineage: %w", err)
+		}
+		return CompiledRowLineageQuery{
+			Query: rendered.Query, BindVars: rendered.BindVars, Offset: offset, Limit: limit,
+			FoundColumn: "found", ContributorsColumn: "contributors", HasMoreColumn: "hasMore",
+		}, nil
+	}
+	if rowLineageStandaloneGroupRows(output) {
+		rows := output.Plan.Operations[0].GroupRows
+		revisionID, _ := output.Plan.BindVars[rows.RevisionIDBindKey].(string)
+		requestedRevisionID, requestedGroupID, canonical := parseGroupRowsRowID(rowID)
+		if !canonical || requestedRevisionID != revisionID {
+			requestedRevisionID, requestedGroupID = "", ""
+		}
+		rendered, err := aql.RenderPhysicalGroupRowsLineage(ir.ClonePhysicalPlan(output.Plan), requestedRevisionID, requestedGroupID, offset, limit)
+		if err != nil {
+			return CompiledRowLineageQuery{}, fmt.Errorf("render explicit group row lineage: %w", err)
+		}
+		return CompiledRowLineageQuery{
+			Query: rendered.Query, BindVars: rendered.BindVars, Offset: offset, Limit: limit,
+			FoundColumn: "found", ContributorsColumn: "contributors", HasMoreColumn: "hasMore",
+		}, nil
+	}
 	physical := ir.ClonePhysicalPlan(output.Plan)
 	_ = policy // Row lineage uses the canonical pre-optimization stage semantics.
 	if physical.StageSequence == nil {
@@ -169,32 +397,41 @@ func CompileRowLineageOutput(output lower.CompiledRecipeOutput, rowID string, of
 	if root == "" {
 		return CompiledRowLineageQuery{}, fmt.Errorf("row lineage requires a direct root source")
 	}
-	parentKeyBindKey := ""
-	relatedTerminalIDBindKey, relatedRowKind := "", ""
-	if related := physical.StageSequence.Stages[0].RelatedExpand; related != nil {
-		parentKeyBindKey = "row_lineage_parent_key"
-		relatedTerminalIDBindKey, relatedRowKind = "row_lineage_terminal_id", "RELATED"
-		parentKey, terminalID, rowKind, canonical := parseRelatedExpandRowID(
-			rowID, physical.BindVars[related.ConstructionIDBindKey],
-			related.EmptyPolicy == ir.PhysicalUnnestPreserveParent,
-		)
-		if !canonical {
-			// Arango _key is non-null. Keeping an invalid identity on a null key
-			// makes every malformed or cross-stage ID resolve as not found without
-			// revealing whether any related record exists.
-			physical.BindVars[parentKeyBindKey] = nil
-			terminalID = ""
-			rowKind = "RELATED"
-		} else {
-			physical.BindVars[parentKeyBindKey] = parentKey
+	var lineageTrace *ir.PhysicalRowLineageTrace
+	if rowLineageHasRelatedExpand(physical.StageSequence) {
+		rootKeyBindKey := "row_lineage_root_key"
+		lineageTrace = &ir.PhysicalRowLineageTrace{RootKeyBindKey: rootKeyBindKey}
+		rootKey, decoded, decodedOK := decodeRelatedRowLineageIdentity(rowID, physical.StageSequence.Stages, physical.BindVars)
+		var rootKeyValue any = rootKey
+		if !decodedOK {
+			// Null cannot be a stored Arango _key, so malformed, wrong-stage, and
+			// wrong-owner identities become an unmatchable query.
+			rootKeyValue = nil
+			for stageIndex, stage := range physical.StageSequence.Stages {
+				if stage.Kind != ir.PhysicalStageRelatedExpandOp {
+					continue
+				}
+				decoded = append(decoded, decodedRelatedLineageStage{
+					StageID: stage.ID, RowID: rowID, TerminalID: "", RowKind: "RELATED", StageIndex: stageIndex,
+				})
+			}
 		}
-		physical.BindVars[relatedTerminalIDBindKey] = terminalID
-		relatedRowKind = rowKind
+		physical.BindVars[rootKeyBindKey] = rootKeyValue
+		for _, owner := range decoded {
+			rowBindKey, terminalBindKey := relatedLineageStageBindKeys(owner.StageIndex)
+			physical.BindVars[rowBindKey] = owner.RowID
+			physical.BindVars[terminalBindKey] = owner.TerminalID
+			lineageTrace.Stages = append(lineageTrace.Stages, ir.PhysicalRowLineageStageMatch{
+				StageID: owner.StageID, Kind: ir.PhysicalStageRelatedExpandOp,
+				StageRowIDBindKey: rowBindKey, RelatedTerminalIDBindKey: terminalBindKey,
+				RelatedRowKind: owner.RowKind,
+			})
+		}
 		rootFilter := ir.PhysicalOperation{
 			Kind: ir.PhysicalFilterOp,
 			Filter: &ir.PhysicalFilter{Predicate: ir.PhysicalPredicate{
 				Operator: "EQUALS", Left: ir.PhysicalValue{Variable: root, Path: []string{"_key"}},
-				Right: &ir.PhysicalValue{BindKey: parentKeyBindKey},
+				Right: &ir.PhysicalValue{BindKey: rootKeyBindKey},
 			}},
 		}
 		if len(physical.Operations) == 0 || physical.Operations[0].Kind != ir.PhysicalRootScanOp {
@@ -233,9 +470,8 @@ func CompileRowLineageOutput(output lower.CompiledRecipeOutput, rowID string, of
 	physical.StageSequence.RowLineageReturn = &ir.PhysicalRowLineageReturn{
 		RowIDBindKey: rowLineageRowIDBind, OffsetBindKey: rowLineageOffsetBind,
 		LimitBindKey: rowLineageLimitBind, FetchLimitBindKey: rowLineageFetchLimitBind,
-		ParentKeyBindKey: parentKeyBindKey, RelatedTerminalIDBindKey: relatedTerminalIDBindKey,
-		RelatedRowKind: relatedRowKind,
-		ResourceType:   output.RootResourceType, ResourceIDColumn: rowLineageResourceID,
+		Trace:        lineageTrace,
+		ResourceType: output.RootResourceType, ResourceIDColumn: rowLineageResourceID,
 		OccurrenceKeyColumn: rowLineageOccurrenceKey,
 	}
 	if err := physical.Validate(); err != nil {
@@ -254,38 +490,94 @@ func CompileRowLineageOutput(output lower.CompiledRecipeOutput, rowID string, of
 	}, nil
 }
 
+func parseGroupRowsRowID(rowID string) (revisionID, groupID string, canonical bool) {
+	decoder := json.NewDecoder(strings.NewReader(rowID))
+	decoder.DisallowUnknownFields()
+	var identity map[string]string
+	if decoder.Decode(&identity) != nil || len(identity) != 2 || identity["group_revision_id"] == "" || identity["group_id"] == "" {
+		return "", "", false
+	}
+	if decoder.Decode(new(any)) == nil {
+		return "", "", false
+	}
+	encoded, err := json.Marshal(identity)
+	if err != nil || string(encoded) != rowID {
+		return "", "", false
+	}
+	return identity["group_revision_id"], identity["group_id"], true
+}
+
 func parseRelatedExpandRowID(rowID string, constructionID any, preserveEmpty bool) (string, string, string, bool) {
-	var fields [][]json.RawMessage
+	var fields [][]string
 	if err := json.Unmarshal([]byte(rowID), &fields); err != nil || len(fields) != 3 || len(fields[0]) != 2 || len(fields[1]) != 2 || len(fields[2]) == 0 {
 		return "", "", "", false
 	}
-	var inputTag, parentKey, constructionTag, requestedConstruction string
 	expectedConstruction, constructionOK := constructionID.(string)
-	if err := json.Unmarshal(fields[0][0], &inputTag); err != nil || inputTag != "input" ||
-		json.Unmarshal(fields[0][1], &parentKey) != nil || parentKey == "" ||
-		json.Unmarshal(fields[1][0], &constructionTag) != nil || constructionTag != "construction" ||
-		json.Unmarshal(fields[1][1], &requestedConstruction) != nil ||
-		!constructionOK || requestedConstruction != expectedConstruction {
+	if fields[0][0] != "input" || fields[0][1] == "" || fields[1][0] != "construction" ||
+		!constructionOK || fields[1][1] != expectedConstruction {
 		return "", "", "", false
 	}
 	if len(fields[2]) == 1 {
-		var emptyTag string
-		if json.Unmarshal(fields[2][0], &emptyTag) == nil && emptyTag == "empty" && preserveEmpty {
-			return parentKey, "", "EMPTY", true
+		if fields[2][0] == "empty" && preserveEmpty {
+			return fields[0][1], "", "EMPTY", true
 		}
 		return "", "", "", false
 	}
 	if len(fields[2]) != 2 {
 		return "", "", "", false
 	}
-	var relatedTag, terminalID string
-	if json.Unmarshal(fields[2][0], &relatedTag) != nil || relatedTag != "related" ||
-		json.Unmarshal(fields[2][1], &terminalID) != nil || terminalID == "" {
+	terminalID := fields[2][1]
+	if fields[2][0] != "related" || terminalID == "" {
 		return "", "", "", false
 	}
 	collection, key, ok := strings.Cut(terminalID, "/")
 	if !ok || collection == "" || key == "" {
 		return "", "", "", false
 	}
-	return parentKey, terminalID, "RELATED", true
+	return fields[0][1], terminalID, "RELATED", true
+}
+
+type decodedRelatedLineageStage struct {
+	StageID    string
+	RowID      string
+	TerminalID string
+	RowKind    string
+	StageIndex int
+}
+
+func relatedLineageStageBindKeys(stageIndex int) (rowIDBindKey, terminalIDBindKey string) {
+	return fmt.Sprintf("row_lineage_stage_%d_row_id", stageIndex), fmt.Sprintf("row_lineage_stage_%d_terminal_id", stageIndex)
+}
+
+func decodeRelatedRowLineageIdentity(rowID string, stages []ir.PhysicalConstructionStage, bindVars map[string]any) (string, []decodedRelatedLineageStage, bool) {
+	current := rowID
+	backward := make([]decodedRelatedLineageStage, 0)
+	for index := len(stages) - 1; index >= 0; index-- {
+		stage := stages[index]
+		if stage.Kind != ir.PhysicalStageRelatedExpandOp {
+			continue
+		}
+		related := stage.RelatedExpand
+		if related == nil {
+			return "", nil, false
+		}
+		parent, terminalID, rowKind, ok := parseRelatedExpandRowID(
+			current, bindVars[related.ConstructionIDBindKey],
+			related.EmptyPolicy == ir.PhysicalUnnestPreserveParent,
+		)
+		if !ok {
+			return "", nil, false
+		}
+		backward = append(backward, decodedRelatedLineageStage{
+			StageID: stage.ID, RowID: current, TerminalID: terminalID, RowKind: rowKind, StageIndex: index,
+		})
+		current = parent
+	}
+	if current == "" || len(backward) == 0 {
+		return "", nil, false
+	}
+	for left, right := 0, len(backward)-1; left < right; left, right = left+1, right-1 {
+		backward[left], backward[right] = backward[right], backward[left]
+	}
+	return current, backward, true
 }

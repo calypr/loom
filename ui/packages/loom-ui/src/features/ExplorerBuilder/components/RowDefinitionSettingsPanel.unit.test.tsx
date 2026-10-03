@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { RowDefinitionChoicesResponse, RowDefinitionProposal } from '../../../types';
 import type { SelectionRevision } from '../../../selection';
 import type { DraftTable } from '../authoring/model';
+import type { ConstructionHistoryStep } from '../constructionWorkspace/ConstructionWorkspace';
 import { RowDefinitionSettingsPanel } from './RowDefinitionSettingsPanel';
 
 const choices: RowDefinitionChoicesResponse = {
@@ -67,6 +68,32 @@ const table: DraftTable = {
   },
 };
 
+const tableWithGroupStep: DraftTable = {
+  ...table,
+  document: {
+    ...table.document,
+    construction: {
+      version: 1,
+      steps: [{
+        id: 'group-step',
+        inputs: [{ kind: 'SOURCE_PROJECTION' }],
+        operation: { kind: 'GROUP', group: {
+          constructionId: 'group-step',
+          keys: [{ inputColumnId: 'status-id', outputColumnId: 'status-id' }],
+        } },
+        outputs: [{ id: 'status-id', name: 'status', label: 'Status' }],
+      }],
+    },
+  },
+};
+
+const groupStepHistory: ConstructionHistoryStep = {
+  id: 'group-step',
+  title: 'Group',
+  summary: 'Group rows by Status.',
+  editable: true,
+};
+
 const sourceSelection: SelectionRevision = {
   id: 'selection-source-1',
   project: 'project-a',
@@ -120,6 +147,10 @@ const renderSettings = (overrides: {
   codedGroupDefault?: boolean;
   sourceGroupAlternative?: boolean;
   onChangeRootOccurrence?: (nodeId: string, occurrenceId: string) => void;
+  tableValue?: DraftTable;
+  constructionHistory?: ReadonlyArray<ConstructionHistoryStep>;
+  onEditConstructionStep?: (stepId: string) => void;
+  onRemoveConstructionStep?: (stepId: string) => void;
 } = {}) => {
   const listRowDefinitionChoices = vi.fn().mockResolvedValue(overrides.choicesValue ?? choices);
   const proposeRowDefinition = vi.fn().mockResolvedValue(overrides.proposalValue ?? proposal);
@@ -129,6 +160,8 @@ const renderSettings = (overrides: {
   const onChooseRelatedRows = vi.fn();
   const onChooseReshape = vi.fn();
   const onChangeRootOccurrence = overrides.onChangeRootOccurrence ?? vi.fn();
+  const onEditConstructionStep = overrides.onEditConstructionStep ?? vi.fn();
+  const onRemoveConstructionStep = overrides.onRemoveConstructionStep ?? vi.fn();
   const view = render(
     <RowDefinitionSettingsPanel
       {...relatedRowProps}
@@ -148,12 +181,15 @@ const renderSettings = (overrides: {
       snapshotToken="snapshot-1"
       draftVersion={overrides.draftVersion ?? 4}
       draftDigest={overrides.draftDigest ?? 'draft-digest-4'}
-      table={table}
+      table={overrides.tableValue ?? table}
+      constructionHistory={overrides.constructionHistory ?? []}
       disabled={false}
       onApply={onApply}
+      onEditConstructionStep={onEditConstructionStep}
+      onRemoveConstructionStep={onRemoveConstructionStep}
     />,
   );
-  return { ...view, listRowDefinitionChoices, proposeRowDefinition, getSelection, createExplicitGroupRevision, onApply, onChooseRelatedRows, onChooseReshape, onChangeRootOccurrence };
+  return { ...view, listRowDefinitionChoices, proposeRowDefinition, getSelection, createExplicitGroupRevision, onApply, onChooseRelatedRows, onChooseReshape, onChangeRootOccurrence, onEditConstructionStep, onRemoveConstructionStep };
 };
 
 afterEach(cleanup);
@@ -180,16 +216,61 @@ describe('RowDefinitionSettingsPanel', () => {
   it('opens executable related rows from the Rows settings dialog', async () => {
     const { onChooseRelatedRows } = renderSettings({ relatedRowsSupported: true });
     fireEvent.click(screen.getByTestId('construction-rows-settings-trigger'));
-    await screen.findByRole('button', { name: /Related records/ });
-    fireEvent.click(screen.getByRole('button', { name: /Related records/ }));
+    const related = await screen.findByRole('button', { name: /Make a row for each related record/ });
+    expect(related).toHaveTextContent('Follow a relationship to another record type, such as Patient to Observation');
+    expect(related).toHaveTextContent('Make a row for each match, with existing values repeated');
+    expect(related).toHaveTextContent('By default, keep a current row once when no records match');
+    expect(related).toHaveTextContent('Fields from each matched record become available in Add columns');
+    expect(related).toHaveTextContent('Patient A with 2 Observations → 2 rows');
+    fireEvent.click(related);
     expect(onChooseRelatedRows).toHaveBeenCalledOnce();
     expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('opens Unpivot from the compact reshape entry even when the editor will explain missing prerequisites', async () => {
+    const { onChooseReshape } = renderSettings({ pivotSupported: false });
+    fireEvent.click(screen.getByTestId('construction-rows-settings-trigger'));
+    const unpivot = await screen.findByTestId('construction-action-unpivot-rows');
+
+    expect(unpivot).toBeEnabled();
+    fireEvent.click(unpivot);
+
+    expect(onChooseReshape).toHaveBeenCalledWith('unpivot');
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('shows applied row changes and closes Define dataframe before editing the selected step', async () => {
+    const onEditConstructionStep = vi.fn();
+    renderSettings({ tableValue: tableWithGroupStep, constructionHistory: [groupStepHistory], onEditConstructionStep });
+    fireEvent.click(screen.getByTestId('construction-rows-settings-trigger'));
+    const history = await screen.findByTestId('construction-row-operation-history');
+    expect(history).toHaveTextContent('1');
+    expect(history).toHaveTextContent('Group rows by Status.');
+    expect(screen.getByRole('heading', { name: 'Named cohorts' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Create groups from this selection' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('construction-row-edit-group-step'));
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(onEditConstructionStep).toHaveBeenCalledWith('group-step');
+  });
+
+  it('closes Define dataframe before removing an applied row change', async () => {
+    const onRemoveConstructionStep = vi.fn();
+    renderSettings({ tableValue: tableWithGroupStep, constructionHistory: [groupStepHistory], onRemoveConstructionStep });
+    fireEvent.click(screen.getByTestId('construction-rows-settings-trigger'));
+    await screen.findByTestId('construction-row-operation-history');
+    fireEvent.click(screen.getByTestId('construction-row-remove-group-step'));
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(onRemoveConstructionStep).toHaveBeenCalledWith('group-step');
   });
 
   it('opens the selected grouping editor directly from Rows', async () => {
     const { onChooseReshape } = renderSettings();
     fireEvent.click(screen.getByTestId('construction-rows-settings-trigger'));
-    fireEvent.click(await screen.findByTestId('construction-action-group-rows'));
+    const group = await screen.findByTestId('construction-action-group-rows');
+    expect(group).toHaveTextContent('Combine rows into groups');
+    expect(group).toHaveTextContent('one row for each combination of matching values in the fields you choose');
+    expect(group).toHaveTextContent('3 rows with Status=active and Unit=north → 1 group row for active + north');
+    fireEvent.click(group);
     expect(onChooseReshape).toHaveBeenCalledWith('group');
     expect(screen.queryByRole('dialog')).toBeNull();
   });
@@ -198,7 +279,9 @@ describe('RowDefinitionSettingsPanel', () => {
     const { onChooseReshape } = renderSettings({ codedGroupDefault: true });
     fireEvent.click(screen.getByTestId('construction-rows-settings-trigger'));
     const group = await screen.findByTestId('construction-action-group-rows');
-    expect(group).toHaveTextContent('without adding a column first');
+    expect(group).toHaveTextContent('Combine rows into groups');
+    expect(group).toHaveTextContent('one row for each distinct recorded code');
+    expect(group).toHaveTextContent('3 rows with diagnosis code A → 1 group row for diagnosis A');
     fireEvent.click(group);
     expect(onChooseReshape).toHaveBeenCalledWith('coded-group');
   });
@@ -241,7 +324,8 @@ describe('RowDefinitionSettingsPanel', () => {
     const { onChooseReshape } = renderSettings({ codedPivotDefault: true, tablePivotAlternative: true });
     fireEvent.click(screen.getByTestId('construction-rows-settings-trigger'));
     const pivot = await screen.findByTestId('construction-action-pivot-rows');
-    expect(pivot).toHaveTextContent('Choose coded values, or choose fields');
+    expect(pivot).toHaveTextContent('Make a column for each category. Choose which values fill those columns.');
+    expect(pivot).toHaveTextContent('group by person. Height=170 and Weight=60 in two rows → one row with Height=170 and Weight=60 columns');
     expect(pivot).toBeEnabled();
     fireEvent.click(await screen.findByTestId('construction-action-table-pivot-rows'));
     expect(onChooseReshape).toHaveBeenCalledWith('pivot');
@@ -272,9 +356,26 @@ describe('RowDefinitionSettingsPanel', () => {
   it('explains when the backend has no executable related row path', async () => {
     const { onChooseRelatedRows } = renderSettings();
     fireEvent.click(screen.getByTestId('construction-rows-settings-trigger'));
-    expect(screen.getByRole('button', { name: /Related records/ })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /Make a row for each related record/ })).toBeDisabled();
     expect(screen.getByText('No executable route')).toBeInTheDocument();
     expect(onChooseRelatedRows).not.toHaveBeenCalled();
+  });
+
+  it('restores the saved expansion using occurrence, path, and empty policy', async () => {
+    renderSettings({
+      tableValue: { ...table, document: { ...table.document, rows: {
+        kind: 'EXPANDED', expanded: { occurrenceId: 'base', scopePath: 'name[]', emptyCollectionPolicy: 'EXCLUDE' },
+      } } },
+      choicesValue: { ...choices, choices: [
+        { ...choices.choices[0]!, choiceId: 'other-occurrence', occurrenceId: 'related' },
+        { ...choices.choices[0]!, occurrenceId: 'base' },
+      ] },
+    });
+    fireEvent.click(screen.getByTestId('construction-rows-settings-trigger'));
+    const shape = await screen.findByRole('combobox', { name: 'What should each row represent?' });
+    expect(shape instanceof HTMLSelectElement && shape.value).toBe('expanded:expanded-choice');
+    const policy = screen.getByRole('combobox', { name: 'Unmatched record policy' });
+    expect(policy instanceof HTMLSelectElement && policy.value).toBe('expanded:expanded-choice:EXCLUDE');
   });
 
   it('defaults repeated values to preserving unmatched records and allows an explicit policy change', async () => {
@@ -318,6 +419,8 @@ describe('RowDefinitionSettingsPanel', () => {
     fireEvent.change(shape, { target: { value: 'expanded:expanded-choice' } });
     await waitFor(() => expect(proposeRowDefinition).toHaveBeenCalledTimes(1));
     const firstSignal = proposeRowDefinition.mock.calls[0]?.[1] as AbortSignal;
+    expect(shape).toBeEnabled();
+    expect(screen.getByRole('combobox', { name: 'Unmatched record policy' })).toBeEnabled();
 
     fireEvent.change(screen.getByRole('combobox', { name: 'Unmatched record policy' }), {
       target: { value: 'expanded:expanded-choice:EXCLUDE' },
@@ -641,10 +744,10 @@ describe('RowDefinitionSettingsPanel', () => {
     expect(onApply).not.toHaveBeenCalled();
   });
 
-  it('shows the server reason when preview is unavailable and cancel makes no draft change', async () => {
+  it('treats an unavailable response as a failure, retaining controls without an Apply action', async () => {
     const unavailable: RowDefinitionProposal = {
       ...proposal,
-      proposalId: undefined,
+      proposalId: 'unavailable-receipt',
       comparison: {
         status: 'UNAVAILABLE',
         reasonCode: 'PREVIEW_UNAVAILABLE',
@@ -661,6 +764,9 @@ describe('RowDefinitionSettingsPanel', () => {
       target: { value: 'expanded:expanded-choice' },
     });
     expect((await screen.findAllByText('The server could not compare this row definition.')).length).toBeGreaterThan(0);
+    expect(screen.queryByRole('button', { name: 'Apply row definition' })).not.toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent('The server could not compare this row definition.');
+    expect(screen.getByRole('combobox', { name: 'Unmatched record policy' })).toBeEnabled();
     fireEvent.click(screen.getByRole('button', { name: 'Back to table' }));
     expect(screen.queryByRole('dialog')).toBeNull();
     expect(proposeRowDefinition).toHaveBeenCalledTimes(1);
@@ -691,8 +797,25 @@ describe('RowDefinitionSettingsPanel', () => {
       target: { value: 'expanded:expanded-choice' },
     });
     expect((await screen.findByRole('alert')).textContent).toContain(serverError.message);
+    expect(screen.getByRole('combobox', { name: 'What should each row represent?' })).toBeEnabled();
+    expect(screen.getByRole('combobox', { name: 'Unmatched record policy' })).toBeEnabled();
     fireEvent.click(screen.getByRole('button', { name: 'Back to table' }));
     expect(screen.queryByRole('dialog')).toBeNull();
     expect(onApply).not.toHaveBeenCalled();
+  });
+
+  it('repairs a missing-value validation failure by changing policy in the same dialog', async () => {
+    const { proposeRowDefinition, onApply } = renderSettings();
+    proposeRowDefinition.mockRejectedValueOnce(Object.assign(new Error('Some records have no values for this field. Choose another missing-value policy.'), { status: 422, code: 'EMPTY_COLLECTION_ERROR' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Configure rows' }));
+    fireEvent.change(await screen.findByRole('combobox', { name: 'What should each row represent?' }), { target: { value: 'expanded:expanded-choice' } });
+    expect(await screen.findByRole('alert')).toHaveTextContent('Some records have no values');
+    expect(screen.queryByRole('button', { name: 'Apply row definition' })).not.toBeInTheDocument();
+    const policy = screen.getByRole('combobox', { name: 'Unmatched record policy' });
+    expect(policy).toBeEnabled();
+    fireEvent.change(policy, { target: { value: 'expanded:expanded-choice:EXCLUDE' } });
+    fireEvent.click(await screen.findByRole('button', { name: 'Apply row definition' }));
+    await waitFor(() => expect(onApply).toHaveBeenCalledWith('proposal-receipt-1'));
+    expect(proposeRowDefinition).toHaveBeenLastCalledWith(expect.objectContaining({ selection: { kind: 'EXPANDED', expanded: { rowChoiceId: 'expanded-choice', emptyCollectionPolicy: 'EXCLUDE' } } }), expect.any(AbortSignal));
   });
 });

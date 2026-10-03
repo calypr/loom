@@ -1,6 +1,7 @@
 package compiler
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 
@@ -121,6 +122,66 @@ func TestCompileRecipeOutputPageKeepsRelatedStageOutOfRootKeyDiscovery(t *testin
 		t.Fatalf("selected-root page did not retain the related-source stage:\n%s", page.RowsQuery)
 	}
 }
+
+func TestRelatedExpandPreviewPageCapsOnlyTerminalIdentityPartition(t *testing.T) {
+	bindings := recipe.RuntimeBindings{Project: "related-expand-preview", DatasetGeneration: "generation-a"}
+	output := directRelatedExpandOutput(recipe.ExpansionExclude)
+	compiled := lowerConstructionOutput(t, output, bindings)
+
+	bindings.PreviewLimit = 3
+	page, err := CompileRecipeOutputPageWithPolicy(compiled, bindings, 10, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatalf("compile terminal related-expansion preview page: %v", err)
+	}
+	previewLimitBind := ""
+	for key, value := range page.RowsBindVars {
+		if strings.HasPrefix(key, "__loom_physical_construction_related_expand_preview_limit") && value == 3 {
+			previewLimitBind = key
+		}
+	}
+	if previewLimitBind == "" {
+		t.Fatalf("selected-root page has no per-parent preview limit bind: %#v", page.RowsBindVars)
+	}
+	if !strings.Contains(page.RowsQuery, "SORT TO_STRING([[\"input\",") || !strings.Contains(page.RowsQuery, "[\"related\",") ||
+		!strings.Contains(page.RowsQuery, "LIMIT @"+previewLimitBind) {
+		t.Fatalf("terminal related candidates were not capped by the exact final row identity:\n%s", page.RowsQuery)
+	}
+	if strings.Contains(page.RowsQuery, "LIMIT @limit") {
+		t.Fatalf("selected-root rows query gained a global page limit:\n%s", page.RowsQuery)
+	}
+	if !strings.Contains(page.RowsQuery, "SORTED_UNIQUE(") || !strings.Contains(page.RowsQuery, "SORT __loom_construction_final_row.__loom_row_id ASC") {
+		t.Fatalf("related deduplication or final identity ordering was removed:\n%s", page.RowsQuery)
+	}
+
+	full, err := CompileRecipeOutputWithPolicy(compiled, bindings, 0, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatalf("compile full related-expansion output: %v", err)
+	}
+	if strings.Contains(full.Query, "related_expand_preview_candidate") || strings.Contains(full.Query, "LIMIT @limit") {
+		t.Fatalf("preview cap leaked into full publication execution:\n%s", full.Query)
+	}
+
+	filteredOutput := directRelatedExpandOutput(recipe.ExpansionExclude)
+	expand := filteredOutput.Construction.Steps[0]
+	filteredOutput.Construction.Steps = append(filteredOutput.Construction.Steps, recipe.ConstructionStep{
+		ID: "filter_after_related_expand", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionStepOutputInput, StepID: expand.ID}},
+		Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionFilterOp, Filter: &recipe.ConstructionFilter{
+			ColumnID: "observation-id", Operator: recipe.FilterEquals,
+			Values: []recipe.FilterValue{{Kind: recipe.FilterString, String: stringPointer("observation-1")}},
+		}},
+		Outputs: append([]recipe.StageColumn(nil), expand.Outputs...),
+	})
+	filtered := lowerConstructionOutput(t, filteredOutput, recipe.RuntimeBindings{Project: bindings.Project, DatasetGeneration: bindings.DatasetGeneration})
+	filteredPage, err := CompileRecipeOutputPageWithPolicy(filtered, bindings, 10, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatalf("compile nonterminal related-expansion page: %v", err)
+	}
+	if strings.Contains(filteredPage.RowsQuery, "related_expand_preview_limit") || strings.Contains(filteredPage.RowsQuery, "related_expand_preview_candidate") {
+		t.Fatalf("nonterminal related expansion was capped before its downstream filter:\n%s", filteredPage.RowsQuery)
+	}
+}
+
+func stringPointer(value string) *string { return &value }
 
 func TestCompileRecipeOutputPageRetainsSinglePopulationComputation(t *testing.T) {
 	bundle := recipe.Bundle{
@@ -266,6 +327,92 @@ func TestCompileRecipeOutputPageFiltersMissingConstructionRowsBeforeRootWindow(t
 			}
 			if !strings.Contains(page.RowsQuery, "FILTER __loom_construction_input_1.specimen_id "+tc.comparison) {
 				t.Fatalf("selected-root execution lost the construction %s filter:\n%s", tc.name, page.RowsQuery)
+			}
+		})
+	}
+}
+
+func TestCompileRecipeOutputPageRendersEveryValueFilterBeforeRootWindow(t *testing.T) {
+	stringValue := func(value string) recipe.FilterValue {
+		return recipe.FilterValue{Kind: recipe.FilterString, String: &value}
+	}
+	decimalValue := func(value float64) recipe.FilterValue {
+		return recipe.FilterValue{Kind: recipe.FilterDecimal, Decimal: &value}
+	}
+	tests := []struct {
+		name       string
+		operator   recipe.FilterOperator
+		values     []recipe.FilterValue
+		columnType string
+		columnName string
+		selectExpr string
+		comparison string
+		wantBind   any
+	}{
+		{name: "NOT_EQUALS", operator: recipe.FilterNotEquals, values: []recipe.FilterValue{stringValue("excluded")}, columnType: "string", columnName: "specimen_id", selectExpr: "root.id", comparison: "!= @construction_filter_value", wantBind: "excluded"},
+		{name: "IN", operator: recipe.FilterIn, values: []recipe.FilterValue{stringValue("a"), stringValue("b")}, columnType: "string", columnName: "specimen_id", selectExpr: "root.id", comparison: "IN @construction_filter_value", wantBind: []any{"a", "b"}},
+		{name: "CONTAINS_TEXT", operator: recipe.FilterContains, values: []recipe.FilterValue{stringValue("sample")}, columnType: "string", columnName: "specimen_id", selectExpr: "root.id", comparison: "CONTAINS(TO_STRING(__loom_construction_input_1), @construction_filter_value)", wantBind: "sample"},
+		{name: "GT", operator: recipe.FilterGreaterThan, values: []recipe.FilterValue{decimalValue(18.5)}, columnType: "decimal", columnName: "quantity_value", selectExpr: "root.valueQuantity.value", comparison: "> @construction_filter_value", wantBind: 18.5},
+		{name: "GTE", operator: recipe.FilterGreaterEq, values: []recipe.FilterValue{decimalValue(18.5)}, columnType: "decimal", columnName: "quantity_value", selectExpr: "root.valueQuantity.value", comparison: ">= @construction_filter_value", wantBind: 18.5},
+		{name: "LT", operator: recipe.FilterLessThan, values: []recipe.FilterValue{decimalValue(18.5)}, columnType: "decimal", columnName: "quantity_value", selectExpr: "root.valueQuantity.value", comparison: "< @construction_filter_value", wantBind: 18.5},
+		{name: "LTE", operator: recipe.FilterLessEq, values: []recipe.FilterValue{decimalValue(18.5)}, columnType: "decimal", columnName: "quantity_value", selectExpr: "root.valueQuantity.value", comparison: "<= @construction_filter_value", wantBind: 18.5},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			output := constructionEqualsPageOutput("")
+			if tc.columnType == "decimal" {
+				output.RootResourceType = "Observation"
+				output.RowGrain = "observation"
+			}
+			columns := []recipe.StageColumn{{ID: "specimen-id", Name: tc.columnName, Label: tc.columnName, Type: tc.columnType}}
+			output.Fields[0].Name = tc.columnName
+			output.Fields[0].Expr.Select = tc.selectExpr
+			output.Construction.SourceColumns = columns
+			output.Construction.Steps[0].Outputs = columns
+			predicateFilter := output.Construction.Steps[0].Operation.Filter
+			predicateFilter.Operator = tc.operator
+			predicateFilter.Values = tc.values
+
+			bundle := recipe.Bundle{
+				RecipeSchemaVersion: recipe.CurrentSchemaVersion,
+				Name:                "construction-filter-root-page-" + tc.name,
+				TranslationVersion:  "construction-filter-root-page-" + tc.name,
+				Outputs:             []recipe.Output{output},
+			}
+			bindings := recipe.RuntimeBindings{Project: "project-a", SelectionProject: "project/a", DatasetGeneration: "generation-a"}
+			semanticPlan, err := semantic.BuildRecipePlan(bundle, bindings)
+			if err != nil {
+				t.Fatal(err)
+			}
+			resolved, err := semantic.ResolveRecipePlan(semanticPlan, "scope-a", bindings.DatasetGeneration)
+			if err != nil {
+				t.Fatal(err)
+			}
+			compiled, err := lower.CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
+			if err != nil {
+				t.Fatal(err)
+			}
+			page, err := CompileRecipeOutputPageWithPolicy(compiled.Outputs[0], bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			filterIndex := strings.Index(page.RootKeysQuery, "FILTER __loom_construction_input_1 "+tc.comparison)
+			if tc.operator == recipe.FilterContains {
+				filterIndex = strings.Index(page.RootKeysQuery, "FILTER "+tc.comparison)
+			}
+			window := strings.Index(page.RootKeysQuery, "SORT root._key ASC")
+			limit := strings.Index(page.RootKeysQuery, "LIMIT @limit")
+			if filterIndex < 0 || window < 0 || limit < 0 || filterIndex > window || window > limit {
+				t.Fatalf("construction %s filter must execute before the root-key window: filter=%d sort=%d limit=%d\n%s", tc.name, filterIndex, window, limit, page.RootKeysQuery)
+			}
+			if !strings.Contains(page.RowsQuery, "@construction_filter_value") {
+				t.Fatalf("selected-root execution lost the construction %s predicate:\n%s", tc.name, page.RowsQuery)
+			}
+			for label, bindVars := range map[string]map[string]any{"root keys": page.RootKeysBindVars, "selected rows": page.RowsBindVars} {
+				if got := bindVars["construction_filter_value"]; !reflect.DeepEqual(got, tc.wantBind) {
+					t.Fatalf("%s %s bind = %#v, want %#v", label, tc.name, got, tc.wantBind)
+				}
 			}
 		})
 	}

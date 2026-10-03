@@ -83,8 +83,12 @@ func classifyDataframeQueryError(err error) error {
 		return dataframeerrors.Wrap(err, dataframeerrors.CodeTablePivotCellCardinality, "")
 	case arangostore.IsQueryUserAssertion(err, string(dataframeerrors.CodeTablePivotUnlistedCategory)):
 		return dataframeerrors.Wrap(err, dataframeerrors.CodeTablePivotUnlistedCategory, "")
+	case arangostore.IsQueryUserAssertion(err, string(dataframeerrors.CodeConstructionRowValueMultipleValues)):
+		return dataframeerrors.Wrap(err, dataframeerrors.CodeConstructionRowValueMultipleValues, "")
 	case arangostore.IsQueryUserAssertion(err, string(dataframeerrors.CodeConstructionExpansionEmpty)):
 		return dataframeerrors.Wrap(err, dataframeerrors.CodeConstructionExpansionEmpty, "")
+	case arangostore.IsQueryUserAssertion(err, string(dataframeerrors.CodeExplicitGroupUnassignedMember)):
+		return dataframeerrors.Wrap(err, dataframeerrors.CodeExplicitGroupUnassignedMember, "")
 	case arangostore.IsQueryUserAssertion(err, string(dataframeerrors.CodeRelationshipCardinalityViolation)):
 		return dataframeerrors.Wrap(err, dataframeerrors.CodeRelationshipCardinalityViolation, "")
 	case arangostore.IsQueryUserAssertion(err, string(dataframeerrors.CodeTemporalAnchorInvalid)):
@@ -240,13 +244,18 @@ func run(ctx context.Context, serverConfig Config) error {
 		Revisions:     recipeRevisions,
 		ResolveBundle: recipeSchemaResolver(catalogStore.DiscoverFields, discoveryCache),
 		PreparePreviewIndex: func(ctx context.Context, spec compiler.PreviewCoveringIndexSpec) error {
-			err := lifecycleClient.EnsurePivotPreviewIndex(ctx, spec.Collection, spec.Name, spec.Fields)
+			err := lifecycleClient.EnsurePreviewCoveringIndex(ctx, spec.Collection, spec.Name, spec.Fields)
 			if err != nil {
-				logger.Warn("pivot preview covering index unavailable", "collection", spec.Collection, "error", err)
+				logger.Warn("preview covering index unavailable", "collection", spec.Collection, "error", err)
 			}
 			return err
 		},
-		ClickHouseQueryRows: clickHouseQueryRows,
+		PreviewCollectionRevision: lifecycleClient.CollectionRevision,
+		PreviewExplainQuery: func(ctx context.Context, query string, bindVars map[string]any) (arangostore.ExplainResult, error) {
+			return lifecycleClient.Explain(ctx, arangostore.ExplainRequest{Query: query, BindVars: bindVars})
+		},
+		PreviewCollectionCount: lifecycleClient.CollectionCount,
+		ClickHouseQueryRows:    clickHouseQueryRows,
 		PreviewQueryRows: func(ctx context.Context, query string, batchSize int, bindVars map[string]any, visit func(map[string]any) error) error {
 			started := time.Now()
 			digest := sha256.Sum256([]byte(query))

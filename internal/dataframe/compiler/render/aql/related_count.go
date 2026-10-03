@@ -28,7 +28,7 @@ func renderRelatedEligibilityCountRows(plan ir.PhysicalPlan, sequence *ir.Physic
 
 	grouped := renderer.newInternalVariable("grouped_rows")
 	lines = append(lines, fmt.Sprintf("LET %s = (", grouped))
-	groupLines, err := renderer.renderConstructionGroupStage(sequence.Stages[1], frontier)
+	groupLines, err := renderer.renderConstructionGroupStage(sequence.Stages[1], constructionGroupInput{RowsVariable: frontier})
 	if err != nil {
 		return RenderedPhysicalPlan{}, false, fmt.Errorf("render reverse related COUNT_ROWS group: %w", err)
 	}
@@ -325,7 +325,9 @@ func renderRelatedEligibilityCategoryScan(plan ir.PhysicalPlan, sequence *ir.Phy
 		if expression.Kind != ir.PhysicalExtractExpression || expression.Extract == nil {
 			return RenderedPhysicalPlan{}, false, nil
 		}
-		expression.Extract.Source.Variable = rootDocument
+		source := expression.Extract.Source
+		source.Variable = rootDocument
+		rebindPhysicalExtractSource(expression.Extract, source)
 		valueExpression, err = renderer.renderExpression(expression)
 	} else {
 		rootValue := sourceProjection.Value
@@ -414,7 +416,9 @@ func RenderRelatedEligibilityCategoryOverflowWitness(plan ir.PhysicalPlan, colum
 	var valueExpression string
 	if projection.Expression != nil {
 		expression := ir.ClonePhysicalExpression(*projection.Expression)
-		expression.Extract.Source.Variable = root
+		source := expression.Extract.Source
+		source.Variable = root
+		rebindPhysicalExtractSource(expression.Extract, source)
 		valueExpression, err = renderer.renderExpression(expression)
 	} else {
 		valueExpression, err = renderer.renderValue(projection.Value)

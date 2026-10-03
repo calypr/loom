@@ -25,6 +25,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipe/exec"
 	"github.com/calypr/loom/internal/dataframe/semantic"
 	"github.com/calypr/loom/internal/dataframe/spec"
+	"github.com/calypr/loom/internal/store/arango"
 )
 
 type QueryRows func(context.Context, string, int, map[string]any, func(map[string]any) error) error
@@ -79,35 +80,42 @@ type PreviewSummary struct {
 }
 
 type Config struct {
-	Registry                exec.Reader
-	Revisions               recipe.RevisionStore
-	ResolveBundle           func(context.Context, recipe.Bundle, recipe.RuntimeBindings) (recipe.Bundle, error)
-	QueryRows               QueryRows
-	PreviewQueryRows        QueryRows
-	PreparePreviewIndex     func(context.Context, compiler.PreviewCoveringIndexSpec) error
-	ClickHouseQueryRows     ClickHouseQueryRows
-	ResolveClickHouseInputs ResolveClickHouseInputs
-	WithExecutionReadPins   WithExecutionReadPins
-	ScopeDigest             func(recipe.RuntimeBindings) string
-	BatchSize               int
+	Registry                  exec.Reader
+	Revisions                 recipe.RevisionStore
+	ResolveBundle             func(context.Context, recipe.Bundle, recipe.RuntimeBindings) (recipe.Bundle, error)
+	QueryRows                 QueryRows
+	PreviewQueryRows          QueryRows
+	PreparePreviewIndex       func(context.Context, compiler.PreviewCoveringIndexSpec) error
+	PreviewCollectionRevision func(context.Context, string) (string, error)
+	PreviewExplainQuery       func(context.Context, string, map[string]any) (arango.ExplainResult, error)
+	PreviewCollectionCount    func(context.Context, string) (int64, error)
+	ClickHouseQueryRows       ClickHouseQueryRows
+	ResolveClickHouseInputs   ResolveClickHouseInputs
+	WithExecutionReadPins     WithExecutionReadPins
+	ScopeDigest               func(recipe.RuntimeBindings) string
+	BatchSize                 int
 	// RootPageRows bounds the number of root documents evaluated by one wide
 	// output query. Zero keeps the legacy single-query execution path.
 	RootPageRows int
 }
 
 type Engine struct {
-	registry                exec.Reader
-	revisions               recipe.RevisionStore
-	resolveBundle           func(context.Context, recipe.Bundle, recipe.RuntimeBindings) (recipe.Bundle, error)
-	queryRows               QueryRows
-	previewQueryRows        QueryRows
-	preparePreviewIndex     func(context.Context, compiler.PreviewCoveringIndexSpec) error
-	clickHouseQueryRows     ClickHouseQueryRows
-	resolveClickHouseInputs ResolveClickHouseInputs
-	withExecutionReadPins   WithExecutionReadPins
-	scopeDigest             func(recipe.RuntimeBindings) string
-	batchSize               int
-	rootPageRows            int
+	registry                  exec.Reader
+	revisions                 recipe.RevisionStore
+	resolveBundle             func(context.Context, recipe.Bundle, recipe.RuntimeBindings) (recipe.Bundle, error)
+	queryRows                 QueryRows
+	previewQueryRows          QueryRows
+	preparePreviewIndex       func(context.Context, compiler.PreviewCoveringIndexSpec) error
+	previewCollectionRevision func(context.Context, string) (string, error)
+	previewExplainQuery       func(context.Context, string, map[string]any) (arango.ExplainResult, error)
+	previewCollectionCount    func(context.Context, string) (int64, error)
+	groupPreviewRowsCache     groupPreviewRowsCache
+	clickHouseQueryRows       ClickHouseQueryRows
+	resolveClickHouseInputs   ResolveClickHouseInputs
+	withExecutionReadPins     WithExecutionReadPins
+	scopeDigest               func(recipe.RuntimeBindings) string
+	batchSize                 int
+	rootPageRows              int
 }
 
 // Resolved contains the immutable recipe after schema discovery, semantic
@@ -153,6 +161,7 @@ type OutputStream struct {
 	stream                  QueryRows
 	batchSize               int
 	rootPageRows            int
+	initialRootPageRows     int
 	page                    *compiler.CompiledOutputPage
 	physicalEngine          ir.PhysicalEngine
 	clickHouseCombine       *ir.PhysicalClickHouseCombine
@@ -197,7 +206,9 @@ func New(cfg Config) (*Engine, error) {
 	}
 	return &Engine{
 		registry: cfg.Registry, revisions: cfg.Revisions, resolveBundle: cfg.ResolveBundle,
-		queryRows: cfg.QueryRows, previewQueryRows: cfg.PreviewQueryRows, preparePreviewIndex: cfg.PreparePreviewIndex, clickHouseQueryRows: cfg.ClickHouseQueryRows,
+		queryRows: cfg.QueryRows, previewQueryRows: cfg.PreviewQueryRows, preparePreviewIndex: cfg.PreparePreviewIndex,
+		previewCollectionRevision: cfg.PreviewCollectionRevision, previewExplainQuery: cfg.PreviewExplainQuery,
+		previewCollectionCount: cfg.PreviewCollectionCount, clickHouseQueryRows: cfg.ClickHouseQueryRows,
 		resolveClickHouseInputs: cfg.ResolveClickHouseInputs, withExecutionReadPins: cfg.WithExecutionReadPins,
 		scopeDigest: cfg.ScopeDigest, batchSize: batch, rootPageRows: cfg.RootPageRows,
 	}, nil
@@ -515,12 +526,25 @@ func (e *Engine) streamForOutput(resolved Resolved, name string, limit int) (Out
 				wholeInput = true
 			}
 		}
+		if sequence := output.Plan.StageSequence; sequence != nil {
+			for _, stage := range sequence.Stages {
+				if stage.Kind == ir.PhysicalStageCohortGroupOp {
+					wholeInput = true
+					break
+				}
+			}
+		}
 		if e.rootPageRows > 0 && !wholeInput {
-			page, pageErr := compiler.CompileRecipeOutputPageWithPolicy(output, resolved.Semantic.SemanticPlan.Bindings, e.rootPageRows, ir.DefaultPhysicalOptimizationPolicy())
+			pageBindings := resolved.Semantic.SemanticPlan.Bindings.Clone()
+			pageBindings.PreviewLimit = limit
+			page, pageErr := compiler.CompileRecipeOutputPageWithPolicy(output, pageBindings, e.rootPageRows, ir.DefaultPhysicalOptimizationPolicy())
 			if pageErr != nil {
 				return OutputStream{}, compiler.CompiledQuery{}, fmt.Errorf("output %q paging: %w", output.Name, pageErr)
 			}
 			stream.page = &page
+			if limit > 0 && relatedExpandRootPageOrder(output.Plan.StageSequence) {
+				stream.initialRootPageRows = 1
+			}
 			query.PlanDiagnostics = page.RowsDiagnostics
 			stream.planFingerprint = query.PlanDiagnostics.Fingerprint
 		}
@@ -671,7 +695,7 @@ func (e *Engine) PreviewOutput(ctx context.Context, resolved Resolved, request P
 	if err := validatePreviewPlan(query, limit, stream.physicalEngine); err != nil {
 		return PreviewSummary{}, err
 	}
-	if query.PreviewCoveringIndex != nil && e.preparePreviewIndex != nil {
+	if query.PreviewCoveringIndex != nil && !query.PreviewCoveringIndex.PrepareAfterPreview && e.preparePreviewIndex != nil {
 		prepareCtx, cancel := context.WithTimeout(ctx, 4*time.Second)
 		_ = e.preparePreviewIndex(prepareCtx, *query.PreviewCoveringIndex)
 		cancel()
@@ -682,7 +706,36 @@ func (e *Engine) PreviewOutput(ctx context.Context, resolved Resolved, request P
 	if stream.physicalEngine != ir.PhysicalEngineClickHouse && e.previewQueryRows != nil {
 		stream.stream = e.previewQueryRows
 	}
-	summary := PreviewSummary{Output: stream.Name, Columns: append([]string(nil), stream.Columns...), PlanMode: query.PlanMode, PlanProfile: query.PlanProfile, PlanFingerprint: query.PlanDiagnostics.Fingerprint, TraversalCount: query.TraversalCount, LoweringDuration: time.Since(loweringStarted), Complete: true, PartialValidation: query.PartialValidation}
+	if err := e.chooseGroupPreviewScan(ctx, &query, &stream); err != nil {
+		return PreviewSummary{}, err
+	}
+	loweringDuration := time.Since(loweringStarted)
+	var previewCacheKey groupPreviewRowsKey
+	var previewCacheKeyWeight int
+	var previewCacheEnabled bool
+	var previewCacheHitRows []map[string]any
+	if query.PreviewCoveringIndex != nil && query.PreviewCoveringIndex.PrepareAfterPreview && e.previewCollectionRevision != nil {
+		revision, revisionErr := e.previewCollectionRevision(ctx, query.PreviewCoveringIndex.Collection)
+		if err := contextError(ctx); err != nil {
+			return PreviewSummary{}, err
+		}
+		if revisionErr == nil {
+			key, keyWeight, keyOK := newGroupPreviewRowsKey(query.Query, query.BindVars, query.PreviewCoveringIndex.Collection, revision, limit)
+			if keyOK {
+				previewCacheKey = key
+				previewCacheKeyWeight = keyWeight
+				if encodedRows, ok := e.groupPreviewRowsCache.get(key); ok {
+					if rows, decoded := decodeGroupPreviewRows(encodedRows); decoded {
+						previewCacheHitRows = rows
+					} else {
+						e.groupPreviewRowsCache.delete(key)
+					}
+				}
+				previewCacheEnabled = true
+			}
+		}
+	}
+	summary := PreviewSummary{Output: stream.Name, Columns: append([]string(nil), stream.Columns...), PlanMode: query.PlanMode, PlanProfile: query.PlanProfile, PlanFingerprint: query.PlanDiagnostics.Fingerprint, TraversalCount: query.TraversalCount, LoweringDuration: loweringDuration, Complete: true, PartialValidation: query.PartialValidation}
 	for _, output := range resolved.Compiled.Outputs {
 		if output.Name == request.Output {
 			summary.RowLineageCapability = compiler.RowLineageCapabilityForOutput(output)
@@ -692,7 +745,7 @@ func (e *Engine) PreviewOutput(ctx context.Context, resolved Resolved, request P
 	count := 0
 	var visitorErr error
 	queryStarted := time.Now()
-	queryErr := stream.streamRaw(ctx, func(row map[string]any) error {
+	consumeRow := func(row map[string]any) error {
 		if err := contextError(ctx); err != nil {
 			return err
 		}
@@ -722,7 +775,32 @@ func (e *Engine) PreviewOutput(ctx context.Context, resolved Resolved, request P
 			return errPreviewLimit
 		}
 		return nil
-	})
+	}
+	var queryErr error
+	var capture groupPreviewRowsCapture
+	if previewCacheHitRows != nil {
+		for _, row := range previewCacheHitRows {
+			if err := consumeRow(row); err != nil {
+				queryErr = err
+				break
+			}
+		}
+	} else {
+		if previewCacheEnabled {
+			capture = newGroupPreviewRowsCapture(previewCacheKeyWeight)
+		}
+		queryErr = stream.streamRaw(ctx, func(row map[string]any) error {
+			var encoded []byte
+			if previewCacheEnabled {
+				encoded = capture.encode(row)
+			}
+			rowErr := consumeRow(row)
+			if encoded != nil && (rowErr == nil || errors.Is(rowErr, errPreviewLimit)) && visitorErr == nil {
+				capture.append(encoded)
+			}
+			return rowErr
+		})
+	}
 	summary.RowCount = count
 	summary.QueryDuration = time.Since(queryStarted)
 	if visitorErr != nil {
@@ -737,6 +815,19 @@ func (e *Engine) PreviewOutput(ctx context.Context, resolved Resolved, request P
 	}
 	if err := contextError(ctx); err != nil {
 		return summary, err
+	}
+	if previewCacheEnabled && previewCacheHitRows == nil && capture.cacheable &&
+		(visitorErr == nil) && (queryErr == nil || errors.Is(queryErr, errPreviewLimit)) {
+		revision, revisionErr := e.previewCollectionRevision(ctx, previewCacheKey.collection)
+		if err := contextError(ctx); err != nil {
+			return summary, err
+		}
+		if revisionErr == nil && revision == previewCacheKey.revision {
+			e.groupPreviewRowsCache.put(previewCacheKey, capture.rows)
+		}
+	}
+	if query.PreviewCoveringIndex != nil && query.PreviewCoveringIndex.PrepareAfterPreview {
+		schedulePreviewIndexPrewarm(ctx, e, *query.PreviewCoveringIndex)
 	}
 	return summary, nil
 }
@@ -755,8 +846,8 @@ func previewSourceIdentityMode(output lower.CompiledRecipeOutput, querySchema []
 		}
 	}
 	for _, stage := range output.Stages {
-		if stage.Operation == string(recipe.ConstructionGroupOp) || stage.Operation == string(recipe.ConstructionPivotOp) ||
-			stage.Operation == string(recipe.ConstructionCodedGroupOp) ||
+		if stage.Operation == string(ir.PhysicalStageCohortGroupOp) || stage.Operation == string(recipe.ConstructionGroupOp) ||
+			stage.Operation == string(recipe.ConstructionPivotOp) || stage.Operation == string(recipe.ConstructionCodedGroupOp) ||
 			stage.Operation == string(recipe.ConstructionRelatedExpandOp) {
 			return previewSourceComposite
 		}
@@ -908,10 +999,15 @@ func (s OutputStream) streamRaw(ctx context.Context, visit func(map[string]any) 
 		return s.stream(ctx, s.query, s.batchSize, s.bindVars, visit)
 	}
 	after := ""
+	pageRows := s.rootPageRows
+	if s.initialRootPageRows > 0 {
+		pageRows = s.initialRootPageRows
+	}
 	for {
-		keys := make([]string, 0, s.rootPageRows)
+		keys := make([]string, 0, pageRows)
 		keyBinds := cloneBindVars(s.page.RootKeysBindVars)
 		keyBinds[compiler.RootPageAfterKeyBind] = after
+		keyBinds[compiler.RootPageSizeBind] = pageRows
 		if err := s.stream(ctx, s.page.RootKeysQuery, s.batchSize, keyBinds, func(row map[string]any) error {
 			key, ok := row["_key"].(string)
 			if !ok || key == "" {
@@ -930,12 +1026,23 @@ func (s OutputStream) streamRaw(ctx context.Context, visit func(map[string]any) 
 		}
 		rowBinds := cloneBindVars(s.page.RowsBindVars)
 		rowBinds[compiler.RootPageKeysBind] = keys
-		if err := s.stream(ctx, s.page.RowsQuery, s.batchSize, rowBinds, visit); err != nil {
+		emitted := 0
+		if err := s.stream(ctx, s.page.RowsQuery, s.batchSize, rowBinds, func(row map[string]any) error {
+			emitted++
+			return visit(row)
+		}); err != nil {
 			return err
 		}
 		after = keys[len(keys)-1]
-		if len(keys) < s.rootPageRows {
+		if len(keys) < pageRows {
 			return nil
+		}
+		if s.initialRootPageRows > 0 {
+			if emitted == 0 {
+				pageRows = min(pageRows*2, s.rootPageRows)
+			} else {
+				pageRows = s.initialRootPageRows
+			}
 		}
 	}
 }

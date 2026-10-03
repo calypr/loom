@@ -99,6 +99,64 @@ func TestPopulationRootSourceReversesRouteAndRemainsScoped(t *testing.T) {
 	}
 }
 
+func TestPopulationSelfRouteReversesThePinnedStorageDirection(t *testing.T) {
+	cases := []struct {
+		name                string
+		storageDirection    string
+		wantPhysicalRoute   string
+		wantSourceEndpoint  string
+		wantTargetTypeField string
+	}{
+		{
+			name:             "inbound selected route reverses outbound",
+			storageDirection: "INBOUND", wantPhysicalRoute: "OUTBOUND",
+			wantSourceEndpoint:  "population_root_edge_0._from == population_source._id",
+			wantTargetTypeField: "population_root_edge_0.to_type == @population_root_route_0_target_type",
+		},
+		{
+			name:             "outbound selected route reverses inbound",
+			storageDirection: "OUTBOUND", wantPhysicalRoute: "INBOUND",
+			wantSourceEndpoint:  "population_root_edge_0._to == population_source._id",
+			wantTargetTypeField: "population_root_edge_0.from_type == @population_root_route_0_target_type",
+		},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			rendered := renderPopulationRecipe(t, recipe.Output{
+				Name: "Specimens", RootResourceType: "Specimen", RowGrain: "specimen",
+				Fields: []recipe.Field{{Name: "id", Expr: recipe.Expression{Select: "root.id"}}},
+				Population: &recipe.PopulationConstraint{
+					SelectionRevisionID: "selection-self", MembershipDigest: "sha256:members", MemberCount: 1,
+					ResourceType: "Specimen",
+					Route: []recipe.PopulationRouteStep{{
+						ResourceType: "Specimen", Relationship: "parent", StorageDirection: test.storageDirection,
+					}},
+				},
+			})
+			for _, want := range []string{test.wantSourceEndpoint, test.wantTargetTypeField} {
+				if !strings.Contains(rendered.Query, want) {
+					t.Fatalf("population query is missing reverse-route evidence %q:\n%s", want, rendered.Query)
+				}
+			}
+			if strings.Contains(rendered.Query, "population_root_edge_0._from == population_source._id") != (test.wantPhysicalRoute == "OUTBOUND") {
+				t.Fatalf("population query did not preserve the pinned reverse direction %s:\n%s", test.wantPhysicalRoute, rendered.Query)
+			}
+		})
+	}
+
+	defaultRoute, err := BuildPhysicalTraversal(TraversalLoweringRequest{
+		FromType: "Specimen", EdgeLabel: "parent", ToType: "Specimen",
+		SourceVariable: "root", TargetVariable: "node", EdgeVariable: "edge",
+		BindPrefix: "self_default", Policy: ir.DefaultPhysicalOptimizationPolicy(),
+	})
+	if err != nil {
+		t.Fatalf("default self-type route: %v", err)
+	}
+	if defaultRoute.Traversal.Direction != ir.PhysicalInbound {
+		t.Fatalf("global self-type route default changed to %q", defaultRoute.Traversal.Direction)
+	}
+}
+
 func renderPopulationRecipe(t *testing.T, output recipe.Output) aql.RenderedPhysicalPlan {
 	t.Helper()
 	rendered, _ := compilePopulationRecipe(t, output)

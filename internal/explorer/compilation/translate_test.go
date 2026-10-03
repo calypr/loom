@@ -251,10 +251,10 @@ func TestProjectionWireModesPreserveDistinctArray(t *testing.T) {
 func TestCatalogCandidateRepeatedUsesCompilerCardinality(t *testing.T) {
 	snapshot := fixtureSnapshot()
 	snapshot.Candidates = []capability.Candidate{
-		{ID: "required", NodeID: "n_patient", ResourceType: "Patient", FieldPath: "id", Cardinality: "required_one", ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar}},
-		{ID: "optional", NodeID: "n_patient", ResourceType: "Patient", FieldPath: "active", Cardinality: "optional_one", ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar}},
-		{ID: "many", NodeID: "n_patient", ResourceType: "Patient", FieldPath: "name[].family", Cardinality: "many", ProjectionModes: []capability.ProjectionMode{capability.ProjectionArray}},
-		{ID: "observed-many", NodeID: "n_patient", ResourceType: "Patient", FieldPath: "identifier[].value", Cardinality: "unknown_observed_many", ProjectionModes: []capability.ProjectionMode{capability.ProjectionArray}},
+		{ID: "required", NodeID: "n_patient", ResourceType: "Patient", FieldPath: "id", LogicalType: "string", Cardinality: "required_one", ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar}},
+		{ID: "optional", NodeID: "n_patient", ResourceType: "Patient", FieldPath: "active", LogicalType: "boolean", Cardinality: "optional_one", ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar}},
+		{ID: "many", NodeID: "n_patient", ResourceType: "Patient", FieldPath: "name[].family", LogicalType: "string", Cardinality: "many", ProjectionModes: []capability.ProjectionMode{capability.ProjectionArray}},
+		{ID: "observed-many", NodeID: "n_patient", ResourceType: "Patient", FieldPath: "identifier[].value", LogicalType: "string", Cardinality: "unknown_observed_many", ProjectionModes: []capability.ProjectionMode{capability.ProjectionArray}},
 	}
 	catalog := catalogFromCapability(snapshot, "explorer-a")
 	got := map[string]bool{}
@@ -430,6 +430,77 @@ func TestCompileWorkspaceCarriesPopulationIntoRecipeAndReceiptIdentity(t *testin
 	}
 	if first.ResolvedInputsDigest == second.ResolvedInputsDigest || first.RecipeDigest == second.RecipeDigest {
 		t.Fatalf("population identity did not change compilation identity: first=%q/%q second=%q/%q", first.ResolvedInputsDigest, first.RecipeDigest, second.ResolvedInputsDigest, second.RecipeDigest)
+	}
+}
+
+func TestCompileWorkspaceAcceptsOnlyCapabilityProvenLegacyRouteDirection(t *testing.T) {
+	base := fixtureSnapshot()
+	snapshot := capability.NewSnapshot(base.Identity, base.Policy, capability.StatusReady, true, false,
+		[]capability.Node{{ID: "n_patient", ResourceType: "Patient", RowRootEligible: true, RowGrain: "patient"}},
+		[]capability.Edge{{ID: "e_patient_parent", FromNodeID: "n_patient", ToNodeID: "n_patient", Label: "parent", StorageDirection: "INBOUND", SourceResourceType: "Patient", TargetResourceType: "Patient"}},
+		[]capability.Candidate{{ID: "c_patient_id", NodeID: "n_patient", ResourceType: "Patient", FieldPath: "id", Label: "Patient ID", LogicalType: "string", Cardinality: "optional_one", ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar}}}, nil)
+	workspace := authoringv2.Workspace{
+		APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind,
+		Explorer: authoringv2.ExplorerMetadata{Title: "Patients"},
+		Documents: []authoringv2.Document{{
+			Rows: authoringv2.RecordsRowDefinition(), Kind: authoringv2.Kind,
+			Output: authoringv2.Output{ID: "patients", Title: "Patients"}, RootResourceType: "Patient",
+			Route:      authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient"},
+			Population: &authoringv2.Population{SelectionRevisionID: "selection-1", Route: []authoringv2.PopulationRouteStep{{ResourceType: "Patient", Relationship: "parent", CatalogEdgeID: "e_patient_parent"}}},
+			Columns:    []authoringv2.Column{{Column: "patient_id", Label: "Patient ID", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "id", ProjectionMode: "VALUE"}}}},
+		}},
+		Tabs: []authoringv2.Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Visible: true}},
+	}
+	resolved := ResolvedInputs{Populations: []ResolvedPopulation{{
+		OutputID: "patients", SelectionRevisionID: "selection-1", MembershipDigest: "sha256:members", MemberCount: 3,
+		ResourceType: "Patient", Route: []authoringv2.PopulationRouteStep{{ResourceType: "Patient", Relationship: "parent", CatalogEdgeID: "e_patient_parent", StorageDirection: "INBOUND"}},
+	}}}
+	result, err := CompileWorkspace(context.Background(), "project-a", "explorer-a", workspace, snapshot, resolved)
+	if err != nil {
+		t.Fatalf("compile capability-proven legacy route: %v", err)
+	}
+	if got := result.Bundle.Outputs[0].Population.Route[0].StorageDirection; got != "INBOUND" {
+		t.Fatalf("compiled legacy route direction = %q, want INBOUND", got)
+	}
+	if got := result.Workspace.Documents[0].Population.Route[0].StorageDirection; got != "" {
+		t.Fatalf("compilation rewrote authored legacy route direction to %q", got)
+	}
+
+	withoutDirection := resolved
+	withoutDirection.Populations = append([]ResolvedPopulation(nil), resolved.Populations...)
+	withoutDirection.Populations[0].Route = append([]authoringv2.PopulationRouteStep(nil), resolved.Populations[0].Route...)
+	withoutDirection.Populations[0].Route[0].StorageDirection = ""
+	if _, err := CompileWorkspace(context.Background(), "project-a", "explorer-a", workspace, snapshot, withoutDirection); err == nil || !strings.Contains(err.Error(), "current capability") {
+		t.Fatalf("unresolved legacy direction compiled: %v", err)
+	}
+
+	wrongDirection := resolved
+	wrongDirection.Populations = append([]ResolvedPopulation(nil), resolved.Populations...)
+	wrongDirection.Populations[0].Route = append([]authoringv2.PopulationRouteStep(nil), resolved.Populations[0].Route...)
+	wrongDirection.Populations[0].Route[0].StorageDirection = "OUTBOUND"
+	if _, err := CompileWorkspace(context.Background(), "project-a", "explorer-a", workspace, snapshot, wrongDirection); err == nil || !strings.Contains(err.Error(), "current capability") {
+		t.Fatalf("forged legacy direction compiled: %v", err)
+	}
+
+	changed := capability.NewSnapshot(snapshot.Identity, snapshot.Policy, capability.StatusReady, true, false, snapshot.Nodes,
+		[]capability.Edge{{ID: "e_patient_parent", FromNodeID: "n_patient", ToNodeID: "n_patient", Label: "parent", StorageDirection: "OUTBOUND", SourceResourceType: "Patient", TargetResourceType: "Patient"}}, snapshot.Candidates, nil)
+	if _, err := CompileWorkspace(context.Background(), "project-a", "explorer-a", workspace, snapshot, resolved); err != nil {
+		t.Fatalf("control compile with matching capability failed: %v", err)
+	}
+	if _, err := CompileWorkspace(context.Background(), "project-a", "explorer-a", workspace, changed, resolved); err == nil || !strings.Contains(err.Error(), "current capability") {
+		t.Fatalf("resolved direction from a stale capability was accepted: %v", err)
+	}
+
+	legacyDigest, err := ResolvedInputsDigest(workspace, snapshot, withoutDirection)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolvedDigest, err := ResolvedInputsDigest(workspace, snapshot, resolved)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if legacyDigest == resolvedDigest {
+		t.Fatal("capability-proven direction enrichment did not change resolved input identity")
 	}
 }
 

@@ -152,6 +152,16 @@ type PhysicalGroupRows struct {
 	AuthResourcePathsBindKey          string
 	AuthUnrestrictedBindKey           string
 	LimitBindKey                      string
+	MemberValues                      []PhysicalGroupMemberValue
+}
+
+// PhysicalGroupMemberValue reduces a checked field over the authorized members
+// of one pinned cohort, preserving the cohort's existing row identity.
+type PhysicalGroupMemberValue struct {
+	Output     string
+	Kind       string
+	Policy     string
+	Expression PhysicalExpression
 }
 
 type PhysicalRootScan struct {
@@ -161,6 +171,29 @@ type PhysicalRootScan struct {
 	// that starts from persisted selection members. The renderer deduplicates
 	// RootKey before restoring Variable from CollectionBindKey.
 	Population *PhysicalPopulationRootSource
+	// CohortSource replaces a full scan with pinned assigned and selection
+	// members when lowering proves the input rows retain exact root identity.
+	CohortSource *PhysicalCohortRootSource
+}
+
+// PhysicalCohortRootSource bounds a typed cohort's source rows to the union
+// of explicit memberships and pinned selection members. The latter preserves
+// unassigned semantics; the former preserves accepted assignments even if a
+// stored membership is outside the source selection.
+type PhysicalCohortRootSource struct {
+	CohortStageID                     string
+	CohortInputStageID                string
+	RootIdentityColumn                string
+	RootResourceType                  string
+	RevisionCollectionBindKey         string
+	SelectionCollectionBindKey        string
+	SelectionMembersCollectionBindKey string
+	MembershipsCollectionBindKey      string
+	RevisionIDBindKey                 string
+	ProjectBindKey                    string
+	DatasetGenerationBindKey          string
+	ResourceTypeBindKey               string
+	PolicyBindKey                     string
 }
 
 // PhysicalPopulationRootSource describes a membership-driven root scan. The

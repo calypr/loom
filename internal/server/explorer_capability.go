@@ -549,7 +549,10 @@ func authoringV2Catalog(snapshot capability.Snapshot, explorerID string) authori
 		})
 	}
 	for _, edge := range snapshot.Edges {
-		result.Edges = append(result.Edges, authoringv2.CatalogEdge{ID: edge.ID, FromNodeID: edge.FromNodeID, ToNodeID: edge.ToNodeID, Label: edge.Label, Populated: edge.ObservedEdgeCount > 0})
+		result.Edges = append(result.Edges, authoringv2.CatalogEdge{
+			ID: edge.ID, FromNodeID: edge.FromNodeID, ToNodeID: edge.ToNodeID, Label: edge.Label,
+			StorageDirection: edge.StorageDirection, Populated: edge.ObservedEdgeCount > 0,
+		})
 	}
 	for _, candidate := range snapshot.Candidates {
 		projectionModes := stringProjectionModes(candidate.ProjectionModes)

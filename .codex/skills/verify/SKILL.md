@@ -1,12 +1,59 @@
 ---
 name: verify
-description: Drive the isolated local Loom development stack through Builder, Preview, Publish, Viewer, filter, export, reload, and evidence checks.
+description: Verify Loom Builder features in the real local browser, including bounded operation composition, CDA correctness, persistence, performance, and publication.
 ---
 
 # Verify Loom development
 
 Use this skill for frontend and backend iterations against the development
 Compose project. It does not drive the canonical `loom-demo` deployment.
+
+## Required Builder coverage
+
+Inventory every visible dataframe-building feature. Read the bounded coverage
+rules in [features/README.md](features/README.md). Give every feature one complete
+browser lifecycle: open, configure, inspect enabled/disabled controls, obtain the
+automatically rendered result, compare values and identities with independent
+source records, Apply where present, reload, edit, remove, and verify restoration.
+An API 200, query timing, or screenshot alone cannot establish a browser pass.
+
+Test combinations by changes to row identity, multiplicity, available columns,
+and retained source/relationship bindings. Cover each distinct transition once;
+do not enumerate every sequence or repeat equivalent cases for every FHIR type.
+Keep reported failures as executable browser regressions with their preceding
+operations. Standalone operation tests cannot close composition regressions.
+Run an exploratory pass of at most ten additional sequences per wave; choose
+new contracts or data shapes, and record gaps instead of looping on permutations.
+Required features and known regressions are not subject to that exploration cap.
+
+Record DOM usability, result correctness, persistence, and performance separately,
+with the invocation and evidence path. Distinguish passed, failed, untested,
+skipped, and unreachable. Capture JavaScript exceptions, failed module loads,
+unexpected 4xx/5xx, dead controls, clicks, and action-to-render time including
+discovery and compilation. More than five seconds on CDA fails performance.
+Expected validation errors must offer an understandable repair path;
+INTERNAL_ERROR always fails. Record incidental asset errors explicitly.
+
+Build an integrated change before updating the shared stack. Freeze watched
+source throughout browser verification; workers prepare incomplete edits in an
+isolated checkout. A source/binary change invalidates the run. After failure,
+inspect the actual response and exception, fix the owning boundary, health-check,
+and repeat from a fresh page. Do not declare the UI fixed while unfinished edits
+are still breaking its build.
+
+Use the existing single Docker stack and loaded CDA data when requested; discover
+its ports rather than assuming the synthetic defaults. Use bounded independent
+source oracles and owned disposable QA tables. Verify cleanup only after the
+workspace loads, then verify absence after reload; a blank page proves nothing.
+Use bounded publication cases and independent ClickHouse checks.
+
+## Existing synthetic driver
+
+The commands below describe the older synthetic fixture driver, not complete
+coverage of the current Builder. Check script existence and current controls
+before running them. Adapt manual Preview paths to automatic rendering for V2.
+Missing scripts and stale selectors are harness gaps, never passes. Extend the
+real browser driver for required features and maintain honest coverage status.
 
 ## Launch
 
@@ -35,7 +82,7 @@ status.
 
 ## Drive
 
-Run the complete browser path:
+Run the browser path:
 
 ```bash
 make verify-fast
@@ -43,13 +90,11 @@ make verify-fast
 
 The driver launches a temporary headless Chrome profile through CDP. It uses
 accessible roles, labels, and visible text to create a new per-run Explorer,
-author row grain and related features, exercise reduction and interpretation
-controls, Preview, and Publish. It independently reads the exact published
-materialization, opens Viewer, applies a filter, explains a cell from its FHIR
-contributors, follows a repair action back to Builder, and returns to Viewer.
-It then downloads the server-built training artifact, parses the ZIP, and
-checks its fixed members, immutable publication identity, schema, literal rows,
-membership, and member checksums before reloading Viewer.
+create a table, choose Patient as the root, add the supported
+`Patient -> Observation` relationship, choose nested and scalar fields, click
+Preview, and click Publish. It then reads the published materialization through
+the API as independent proof, opens Viewer, loads and applies a filter, clicks
+Download CSV, parses the CSV, and reloads Viewer.
 
 Every run uses a unique `loom_dev_verify_<run-id>` project and checks that it
 has no Explorers or fixture generation before seeding. The stable
@@ -80,42 +125,10 @@ its DOM evidence. `.artifacts/loom-dev/report.json` holds the latest command
 report. These reports contain `status`,
 `scenario`, `target`, `assertions`, `timings`, and `evidencePaths`.
 
-Evidence includes initial, preview, explanation, repair, and post-reload DOM
-snapshots; the downloaded training artifact; the new materialization identity;
-and the failed-build log when the full path runs. The driver does not write
-credentials, raw network traces, or authorization headers.
-
-## External open-access fixture
-
-The same mounted stack can load a reusable FHIR directory without copying it
-into the repository. Supply a unique project and generation, the absolute
-fixture path, and a bounded load timeout to `make dev`, `make dev-doctor`, or
-`make verify-current`:
-
-```bash
-LOOM_DEV_PROJECT=loom_dev_cda_fhir \
-LOOM_DEV_GENERATION=cda-fhir-v1 \
-LOOM_DEV_FIXTURE_DIR=/absolute/path/to/CDA-FHIR/META \
-LOOM_DEV_FIXTURE_TIMEOUT_MS=3600000 \
-make dev
-```
-
-`verify-current` proves that the populated Builder and both source watchers
-remain usable. Use `verify-fast` or `verify-full` for the isolated, destructive
-end-to-end product journey; they intentionally create a fresh owned project.
-
-For the loaded CDA Builder, run the related identifier multiplicity journey
-against an Explorer with a Specimen table:
-
-```bash
-LOOM_CDA_UI_ORIGIN=http://127.0.0.1:30008 node scripts/verify-cda-identifier-multiplicity.mjs <explorer-id>
-```
-
-It duplicates the Specimen table, adds a Condition identifier through the
-Patient route with all matching values, checks the rendered value and preview
-time, then reloads, removes the column, and deletes its duplicate. Inspect its
-report under `.artifacts/cda-builder/`; this is one CDA slice, not a substitute
-for the full Builder feature ledger.
+Evidence includes initial, preview, and post-reload DOM snapshots, the parsed
+CSV, the new materialization identity, and the failed-build log when the full
+path runs. The driver does not write credentials, raw network traces, or
+authorization headers.
 
 ## Cleanup
 
@@ -152,11 +165,10 @@ The implemented checks are:
 | --- | --- |
 | Isolated target | Compose project, ports, volumes, and fixture validation |
 | Source iteration | Vite CSS HMR and Air build recovery in `verify-full` |
-| Builder authoring | Explorer creation, table creation, root/relationship controls, deliberate reductions, and interpretation revision apply/cancel |
-| Preview | Literal fixture rows, nested values, related-resource reductions, interpretation differences, and physical-column contract |
-| Publication | Exact receipt, quality report, runtime, and materialization identity for the current fixture generation |
-| Evidence and repair | Targeted cell contributors, missing/null distinction, and receipt-owned repair focus |
-| Viewer | Filtered rows, exact training-artifact ZIP, member checksums, and data after reload |
+| Builder authoring | Explorer creation, table creation, root and relationship controls |
+| Preview | Literal fixture rows, nested family values, related Observation value, and physical-column contract |
+| Publication | New runtime and materialization identity for the current fixture generation |
+| Viewer | Filtered rows, parsed CSV, and data after reload |
 
 The fixture intentionally does not claim correctness for multiple related
 resources projected with `FIRST`. The existing `verify-loom-ui` skill targets

@@ -107,7 +107,7 @@ func applySemanticSelections(workspace *Workspace, catalogSnapshot CatalogSnapsh
 			}
 			column := Column{Column: columnID, Label: label, LogicalType: plan.LogicalType, OccurrenceID: occurrenceID, Source: source}
 			column.ColumnID = stagedSourceColumnID(*document, commandID, commandIndex, command.Type, selectionIndex, selection.ConceptID, selection.BindingID)
-			applyInitialPresentation(&column, InitialPresentationTable, nextTableOrder(document.Columns))
+			applyInitialPresentation(&column, InitialPresentationTable, nextTableOrder(*document))
 			document.Columns = append(document.Columns, column)
 		}
 		result.SemanticSelections = append(result.SemanticSelections, SemanticSelectionResult{

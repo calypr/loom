@@ -225,6 +225,46 @@ func (c *Client) QueryRowsWithMaxRuntime(ctx context.Context, query string, batc
 	return queryRowsWithMaxRuntime(ctx, c.db, query, batchSize, bindVars, maxRuntime, visit)
 }
 
+// CollectionRevision returns ArangoDB's collection data revision. Callers can
+// use it to validate cached read results against intervening document writes.
+func (c *Client) CollectionRevision(ctx context.Context, name string) (string, error) {
+	if c == nil || c.db == nil || strings.TrimSpace(name) == "" {
+		return "", fmt.Errorf("Arango collection revision requires a client and collection")
+	}
+	collection, err := c.db.GetCollection(ctx, name, nil)
+	if err != nil {
+		return "", fmt.Errorf("get Arango collection %q for revision: %w", name, err)
+	}
+	properties, err := collection.Revision(ctx)
+	if err != nil {
+		return "", fmt.Errorf("read Arango collection %q revision: %w", name, err)
+	}
+	if properties.Revision == "" {
+		return "", fmt.Errorf("Arango collection %q returned an empty revision", name)
+	}
+	return properties.Revision, nil
+}
+
+// CollectionCount returns Arango's collection cardinality metadata without
+// scanning its documents.
+func (c *Client) CollectionCount(ctx context.Context, name string) (int64, error) {
+	if c == nil || c.db == nil || strings.TrimSpace(name) == "" {
+		return 0, fmt.Errorf("Arango collection count requires a client and collection")
+	}
+	collection, err := c.db.GetCollection(ctx, name, nil)
+	if err != nil {
+		return 0, fmt.Errorf("get Arango collection %q for count: %w", name, err)
+	}
+	count, err := collection.Count(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("read Arango collection %q count: %w", name, err)
+	}
+	if count < 0 {
+		return 0, fmt.Errorf("Arango collection %q returned a negative count", name)
+	}
+	return count, nil
+}
+
 func queryRowsWithMaxRuntime(ctx context.Context, queryer driver.DatabaseQuery, query string, batchSize int, bindVars map[string]interface{}, maxRuntime time.Duration, visit RowVisitor) error {
 	if maxRuntime <= 0 {
 		return fmt.Errorf("arango query max runtime must be positive")

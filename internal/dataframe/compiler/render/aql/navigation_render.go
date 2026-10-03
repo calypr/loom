@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
+	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 )
 
 func (r *physicalPlanRenderer) renderTraversalSet(block physicalNavigationTraversal, rootVariable string, traversalIndex int) ([]string, error) {
@@ -59,6 +60,77 @@ func (r *physicalPlanRenderer) renderTraversalScan(traversal ir.PhysicalTraversa
 	}
 }
 
+func (r *physicalPlanRenderer) renderUnnestSource(unnest ir.PhysicalUnnest) (string, error) {
+	if len(unnest.Ancestors) == 0 {
+		return r.renderExpression(unnest.Expression)
+	}
+	extract := unnest.Expression.Extract
+	if extract == nil || extract.Prepared != nil || len(extract.Selector.Steps) == 0 {
+		return "", fmt.Errorf("unnest ancestry requires an unprepared selector source")
+	}
+	selector := extract.Selector
+	if !selector.Steps[len(selector.Steps)-1].Iterate {
+		return "", fmt.Errorf("unnest ancestry requires a repeated terminal selector step")
+	}
+	source, err := r.renderValue(extract.Source)
+	if err != nil {
+		return "", err
+	}
+	ancestorsByStep := make(map[int]ir.PhysicalUnnestAncestor, len(unnest.Ancestors))
+	for index, ancestor := range unnest.Ancestors {
+		if ancestor.StepIndex < 0 || ancestor.StepIndex >= len(selector.Steps)-1 || !selector.Steps[ancestor.StepIndex].Iterate {
+			return "", fmt.Errorf("unnest ancestor %d does not refer to a repeated prefix step", index)
+		}
+		if _, duplicate := ancestorsByStep[ancestor.StepIndex]; duplicate {
+			return "", fmt.Errorf("unnest repeats ancestry step %d", ancestor.StepIndex)
+		}
+		ancestorsByStep[ancestor.StepIndex] = ancestor
+	}
+	root := r.newInternalVariable("unnest_lineage_root")
+	current := root
+	capturedAncestors := make(map[int]string, len(unnest.Ancestors))
+	lines := []string{"FOR " + root + " IN [" + source + "]"}
+	for index, step := range selector.Steps {
+		if index == len(selector.Steps)-1 && selector.Filter != nil {
+			key := r.newInternalBindKey("unnest_lineage_contains")
+			r.bindVars[key] = selector.Filter.Needle
+			lines = append(lines, fmt.Sprintf("  FILTER CONTAINS(%s.%s ? %s.%s : \"\", @%s)", current, selector.Filter.Field, current, selector.Filter.Field, key))
+		}
+		next := r.newInternalVariable(fmt.Sprintf("unnest_lineage_step_%d", index))
+		switch {
+		case step.Iterate:
+			lines = append(lines, fmt.Sprintf("  FOR %s IN (%s.%s ? %s.%s : [])", next, current, step.Field, current, step.Field))
+		case step.Index != nil:
+			lines = append(lines,
+				fmt.Sprintf("  LET %s = ((%s.%s ? %s.%s : [])[%d])", next, current, step.Field, current, step.Field, *step.Index),
+				"  FILTER "+next+" != null",
+			)
+		default:
+			lines = append(lines, fmt.Sprintf("  LET %s = %s.%s", next, current, step.Field))
+			if index < len(selector.Steps)-1 {
+				lines = append(lines, "  FILTER "+next+" != null")
+			}
+		}
+		current = next
+		if _, capture := ancestorsByStep[index]; capture {
+			capturedAncestors[index] = current
+		}
+		if index == len(selector.Steps)-1 {
+			lines = append(lines, "  FILTER "+current+" != null")
+		}
+	}
+	fields := []string{"item: " + current}
+	for index, ancestor := range unnest.Ancestors {
+		variable, ok := capturedAncestors[ancestor.StepIndex]
+		if !ok {
+			return "", fmt.Errorf("unnest ancestor %d was not captured", index)
+		}
+		fields = append(fields, fmt.Sprintf("ancestor_%d: %s", index, variable))
+	}
+	lines = append(lines, "  RETURN {"+strings.Join(fields, ", ")+"}")
+	return "(\n    " + strings.Join(lines, "\n    ") + "\n  )", nil
+}
+
 // renderUnnest lowers the canonical cardinality-changing operation into
 // correlated AQL loops. The physical IR deliberately does not contain AQL;
 // this is the sole renderer implementation for both recipe-originated and
@@ -70,7 +142,7 @@ func (r *physicalPlanRenderer) renderTraversalScan(traversal ir.PhysicalTraversa
 // are used whenever ordinality or OUTER semantics are requested, preserving
 // duplicate values and a stable zero-based position.
 func (r *physicalPlanRenderer) renderUnnest(unnest ir.PhysicalUnnest, indent string, ordinal, depth int) ([]string, error) {
-	source, err := r.renderExpression(unnest.Expression)
+	source, err := r.renderUnnestSource(unnest)
 	if err != nil {
 		return nil, fmt.Errorf("unnest source: %w", err)
 	}
@@ -110,7 +182,7 @@ func (r *physicalPlanRenderer) renderUnnest(unnest ir.PhysicalUnnest, indent str
 			occurrenceID = "root"
 		}
 		r.bindVars[errorBindKey] = occurrenceID
-		message := fmt.Sprintf("CONCAT(\"row expansion occurrence \", @%s, \" has no items for owner \", %s._key)", errorBindKey, unnest.Owner.OwnerVariable)
+		message := fmt.Sprintf("CONCAT(\"%s: row expansion occurrence \", @%s, \" has no items for owner \", %s._key)", dataframeerrors.CodeConstructionExpansionEmpty, errorBindKey, unnest.Owner.OwnerVariable)
 		lines = append(lines, fmt.Sprintf("%sFILTER ASSERT(LENGTH(%s) > 0, %s)", baseIndent, sourceVariable, message))
 	}
 	indexVariable := r.newInternalVariable(fmt.Sprintf("unnest_index_%d", ordinal))
@@ -119,9 +191,19 @@ func (r *physicalPlanRenderer) renderUnnest(unnest ir.PhysicalUnnest, indent str
 		indices = fmt.Sprintf("LENGTH(%s) == 0 ? [null] : RANGE(0, LENGTH(%s) - 1)", sourceVariable, sourceVariable)
 	}
 	lines = append(lines, fmt.Sprintf("%sFOR %s IN (%s)", baseIndent, indexVariable, indices))
-	item := fmt.Sprintf("%s == null ? null : %s[%s]", indexVariable, sourceVariable, indexVariable)
+	itemSource := fmt.Sprintf("%s[%s]", sourceVariable, indexVariable)
+	carrierVariable := ""
+	if len(unnest.Ancestors) > 0 {
+		carrierVariable = r.newInternalVariable(fmt.Sprintf("unnest_lineage_item_%d", ordinal))
+		lines = append(lines, fmt.Sprintf("%sLET %s = %s == null ? null : %s", baseIndent, carrierVariable, indexVariable, itemSource))
+		itemSource = carrierVariable + ".item"
+	}
+	item := fmt.Sprintf("%s == null ? null : %s", indexVariable, itemSource)
 	lines = append(lines, fmt.Sprintf("%sLET %s = %s", baseIndent, unnest.OutputVariable, item))
 	lines = append(lines, fmt.Sprintf("%sLET %s = %s != null", baseIndent, unnest.HasItemVariable, indexVariable))
+	for index, ancestor := range unnest.Ancestors {
+		lines = append(lines, fmt.Sprintf("%sLET %s = %s == null ? null : %s.ancestor_%d", baseIndent, ancestor.Variable, carrierVariable, carrierVariable, index))
+	}
 	if unnest.Ordinality != "" {
 		lines = append(lines, fmt.Sprintf("%sLET %s = %s", baseIndent, unnest.Ordinality, indexVariable))
 	}

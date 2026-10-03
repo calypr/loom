@@ -213,6 +213,64 @@ func TestCompileExpandedRowsBindsRootOccurrenceAndMapsEmptyPolicies(t *testing.T
 	}
 }
 
+func TestCompileExpandedRowsUsesAuthorizedRepeatedBoundaryWitnesses(t *testing.T) {
+	snapshot := expandedRowsSnapshot()
+	leafCandidates := snapshot.Candidates[:0]
+	for _, candidate := range snapshot.Candidates {
+		if candidate.ID != "c_patient_names" {
+			leafCandidates = append(leafCandidates, candidate)
+		}
+	}
+	snapshot.Candidates = leafCandidates
+	snapshot = capability.NewSnapshot(snapshot.Identity, snapshot.Policy, snapshot.Status, snapshot.Complete, snapshot.Truncated, snapshot.Nodes, snapshot.Edges, snapshot.Candidates, snapshot.Diagnostics)
+	document := expandedRowsDocument(authoringv2.RootOccurrenceID, "name[]")
+
+	compiled, err := Compile(context.Background(), "project-a", "explorer-a", document, snapshot)
+	if err != nil {
+		t.Fatalf("compile leaf-only repeated-boundary scope: %v", err)
+	}
+	if expanded := compiled.Bundle.Outputs[0].Expand; expanded == nil || expanded.OwnerOccurrenceID != authoringv2.RootOccurrenceID || expanded.From.Select != "root.name[]" {
+		t.Fatalf("expanded row definition = %#v, want root-owned root.name[]", expanded)
+	}
+
+	for _, test := range []struct {
+		name   string
+		mutate func(*capability.Snapshot)
+	}{
+		{
+			name: "boundary removed",
+			mutate: func(snapshot *capability.Snapshot) {
+				for index := range snapshot.Candidates {
+					if snapshot.Candidates[index].ID == "c_patient_given" || snapshot.Candidates[index].ID == "c_patient_family" {
+						snapshot.Candidates[index].RepeatedBoundaries = nil
+					}
+				}
+			},
+		},
+		{
+			name: "boundary belongs to another node",
+			mutate: func(snapshot *capability.Snapshot) {
+				for index := range snapshot.Candidates {
+					if snapshot.Candidates[index].ID == "c_patient_given" || snapshot.Candidates[index].ID == "c_patient_family" {
+						snapshot.Candidates[index].NodeID = "n_encounter"
+					}
+				}
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			stale := snapshot.Clone()
+			test.mutate(&stale)
+			stale = capability.NewSnapshot(stale.Identity, stale.Policy, stale.Status, stale.Complete, stale.Truncated, stale.Nodes, stale.Edges, stale.Candidates, stale.Diagnostics)
+			_, err := Compile(context.Background(), "project-a", "explorer-a", document, stale)
+			var compileErr *Error
+			if !errors.As(err, &compileErr) || compileErr.Code != "STALE_EXPANSION_SCOPE" {
+				t.Fatalf("Compile error = %v, want STALE_EXPANSION_SCOPE", err)
+			}
+		})
+	}
+}
+
 func TestCompileExplicitGroupRowsPinsRevisionAndPolicy(t *testing.T) {
 	document := expandedRowsDocument(authoringv2.RootOccurrenceID, "name[]")
 	document.Rows = authoringv2.RowDefinition{Kind: authoringv2.RowDefinitionGroups, Groups: &authoringv2.GroupedRows{Source: authoringv2.GroupSource{

@@ -8,7 +8,12 @@ import type {
   FieldChoiceSource,
 } from '../../../types';
 import type { CatalogChoiceGroup, CatalogChoiceIntent, CatalogItem } from '../catalogItems';
-import { CatalogSelectionDialog, type RouteMatchCoverage } from './CatalogSelectionDialog';
+import {
+  CatalogSelectionDialog,
+  type GroupedRowValuePolicyControl,
+  type RouteMatchCoverage,
+  type RouteCoverage,
+} from './CatalogSelectionDialog';
 
 type FieldChoice = ConstructionChoice & { readonly source: FieldChoiceSource };
 
@@ -59,14 +64,16 @@ const createDialog = (
   focusOperators: ConstructionChoice['options'][number]['contributorPredicateOperators'],
   routeMetadata: Partial<ConstructionChoice['route'][number]> = {},
   withSavedCondition = true,
-  onInspectRouteCoverage?: (selection: CatalogChoiceIntent, signal: AbortSignal) => Promise<RouteMatchCoverage>,
+  onInspectRouteCoverage?: (selection: CatalogChoiceIntent, signal: AbortSignal) => Promise<RouteCoverage>,
   insideClosedDetails = false,
+  groupedRowValuePolicy?: GroupedRowValuePolicyControl,
+  options: ReadonlyArray<ConstructionChoice['options'][number]> = [countOption],
 ) => {
-  const subjectChoice = routeChoice('saved-subject-choice', 'subject_Patient', [countOption], routeMetadata);
-  const focusChoice = routeChoice('focus-choice', 'focus_Patient', [{
-    ...countOption,
+  const subjectChoice = routeChoice('saved-subject-choice', 'subject_Patient', options, routeMetadata);
+  const focusChoice = routeChoice('focus-choice', 'focus_Patient', options.map(option => ({
+    ...option,
     contributorPredicateOperators: focusOperators,
-  }]);
+  })));
   const resourceType = routeMetadata.toResourceType ?? 'Observation';
   const candidate: ExplorerBuilderCandidate = {
     candidateId: 'observation-id',
@@ -122,6 +129,7 @@ const createDialog = (
         form: 'COUNT',
         ...(withSavedCondition ? { condition: { mode: 'EQUALS' as const, value: 'known-observation-id' } } : {}),
       }}
+      groupedRowValuePolicy={groupedRowValuePolicy}
       busy={false}
       onLoadMoreRoutes={vi.fn()}
       onInspectRouteCoverage={onInspectRouteCoverage}
@@ -135,6 +143,25 @@ const createDialog = (
 };
 
 describe('CatalogSelectionDialog', () => {
+  it('lets users change grouped value policy without losing the selected feature', async () => {
+    const onChange = vi.fn();
+    const { onConfirm } = createDialog(['EXISTS', 'EQUALS'], {}, false, undefined, false, {
+      value: 'ONE',
+      onChange,
+    });
+    const dialog = screen.getByRole('dialog', { name: 'Choose how to add these fields' });
+    const policy = within(dialog).getByRole('combobox', { name: 'Values per grouped row' });
+
+    expect(policy).toHaveProperty('value', 'ONE');
+    fireEvent.change(policy, { target: { value: 'ALL' } });
+    expect(onChange).toHaveBeenCalledWith('ALL');
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Add 1 column' }));
+    await waitFor(() => expect(onConfirm).toHaveBeenCalledWith([expect.objectContaining({
+      constructionChoice: { choiceId: 'saved-subject-choice', form: 'COUNT' },
+    })]));
+  });
+
   it('keeps the dialog visible when opened from a collapsed source disclosure', () => {
     createDialog(['EXISTS', 'EQUALS'], {}, false, undefined, true);
     const dialog = screen.getByRole('dialog', { name: 'Choose how to add these fields' });
@@ -169,18 +196,18 @@ describe('CatalogSelectionDialog', () => {
     const equals = within(dialog).getByRole('radio', { name: 'Only records where Observation ID equals' });
     expect(count).toHaveProperty('checked', true);
     expect(equals).toHaveProperty('checked', true);
-    expect(within(dialog).getByText('Find Observation records whose Subject points to this Patient.')).toBeInTheDocument();
+    expect(within(dialog).getAllByTitle(/Observation\.subject/).length).toBeGreaterThan(0);
     expect(within(dialog).getByText('Each row gets the number of matching records (0 if none), counting each record once.'))
       .toBeInTheDocument();
     const alternateRoute = within(dialog).getByRole('radio', {
-      name: 'Observation ID: Direct relationship: Patient to Observation via Focus',
+      name: 'Observation ID: Patient <-[focus]- Observation',
     });
     expect(alternateRoute.closest('details')).not.toHaveAttribute('open');
     fireEvent.click(within(dialog).getByText('Change relationship path (1 alternatives)'));
-    expect(within(dialog).getByText('Find Observation records whose Focus points to this Patient.')).toBeInTheDocument();
+    expect(within(dialog).getByRole('radio', { name: 'Observation ID: Patient <-[focus]- Observation' })).toBeInTheDocument();
 
     fireEvent.click(within(dialog).getByRole('radio', {
-      name: 'Observation ID: Direct relationship: Patient to Observation via Focus',
+      name: 'Observation ID: Patient <-[focus]- Observation',
     }));
 
     expect(count).toHaveProperty('checked', true);
@@ -208,7 +235,7 @@ describe('CatalogSelectionDialog', () => {
     fireEvent.click(within(dialog).getByText(/Matching records: only records where Observation ID equals known-observation-id/));
     fireEvent.click(within(dialog).getByText('Change relationship path (1 alternatives)'));
     fireEvent.click(within(dialog).getByRole('radio', {
-      name: 'Observation ID: Direct relationship: Patient to Observation via Focus',
+      name: 'Observation ID: Patient <-[focus]- Observation',
     }));
 
     expect(within(dialog).getByRole('alert')).toHaveTextContent(/known-observation-id.*not supported/i);
@@ -235,7 +262,7 @@ describe('CatalogSelectionDialog', () => {
     });
     const dialog = screen.getByRole('dialog', { name: 'Choose how to add these fields' });
 
-    expect(within(dialog).getByText('Find LabSample records pointed to by this StudyVisit through Tested By.')).toBeInTheDocument();
+    expect(within(dialog).getAllByTitle(/StudyVisit\.testedBy/).length).toBeGreaterThan(0);
   });
 
   it('keeps all related records by default and places optional filters under Advanced', () => {
@@ -249,4 +276,19 @@ describe('CatalogSelectionDialog', () => {
     fireEvent.click(within(matching).getByText('Matching records: all related records · Change'));
     expect(within(matching).getByRole('radio', { name: 'All related records' })).toHaveProperty('checked', true);
   });
+});
+
+
+it('checks distinct contributor values through ALL even when the grouped policy is ONE', async () => {
+  const inspect = vi.fn(async (_selection: CatalogChoiceIntent): Promise<RouteCoverage> => ({
+    kind: 'VALUES', empty: 0, one: 0, many: 1, displayedRows: 1, sampled: false,
+  }));
+  createDialog(['EXISTS', 'EQUALS'], {}, false, inspect, false,
+    { value: 'ONE', onChange: vi.fn() },
+    [{ ...countOption, form: 'ALL', shape: 'LIST' }, countOption]);
+  await waitFor(() => expect(inspect).toHaveBeenCalledTimes(2));
+  expect(inspect.mock.calls.every(([selection]) => selection.constructionChoice.form === 'ALL')).toBe(true);
+  expect(screen.getByTestId('catalog-route-coverage-saved-subject-choice')).toHaveTextContent(
+    '1 displayed row: 0 without this value, 0 with one value, 1 with two or more values. This counts distinct contributing values, not matching records.',
+  );
 });

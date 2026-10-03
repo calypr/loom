@@ -2,6 +2,7 @@ package compiler
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -12,8 +13,10 @@ import (
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
+	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/spec"
 	store "github.com/calypr/loom/internal/store/arango"
 	"github.com/google/uuid"
 )
@@ -228,6 +231,304 @@ func TestRelatedExpandDistinctTerminalRowsAndEmptyPoliciesAgainstArango(t *testi
 		}
 		t.Logf("ERROR policy result: %v", err)
 	})
+}
+
+func TestGroupedRelatedExpandUsesDistinctContributorUnionAndOnwardIdentityAgainstArango(t *testing.T) {
+	if os.Getenv("LOOM_TEST_ARANGO_URL") == "" || os.Getenv("LOOM_TEST_ARANGO_DATABASE") == "" {
+		t.Skip("LOOM_TEST_ARANGO_URL and LOOM_TEST_ARANGO_DATABASE must point to the supplied Docker Arango service")
+	}
+	ctx, client := openConstructionReshapeArango(t)
+	if err := client.Bootstrap(ctx, store.BootstrapSpec{Collections: []store.CollectionSpec{
+		{Name: "Patient"}, {Name: "Observation"}, {Name: "Specimen"}, {Name: "fhir_edge", Edge: true},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	project, generation := "loom_group_expand_"+uuid.NewString(), "generation-group-expand"
+	defer func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		for _, collection := range []string{"Patient", "Observation", "Specimen", "fhir_edge"} {
+			query := fmt.Sprintf("FOR document IN %s FILTER STARTS_WITH(document._key, @prefix) REMOVE document IN %s", collection, collection)
+			if err := client.ExecuteAQL(cleanupCtx, query, map[string]any{"prefix": project + "_"}); err != nil {
+				t.Errorf("remove grouped related-expansion fixtures from %s: %v", collection, err)
+			}
+		}
+	}()
+
+	key := func(id string) string { return project + "_" + id }
+	insertResources := func(collection string, docs ...map[string]any) {
+		t.Helper()
+		encoded := make([]json.RawMessage, 0, len(docs))
+		for _, doc := range docs {
+			resourceType := doc["resourceType"].(string)
+			payload := doc["payload"].(map[string]any)
+			documentGeneration, _ := doc["dataset_generation"].(string)
+			encodedDoc, err := json.Marshal(map[string]any{
+				"_key": doc["_key"], "id": payload["id"], "project": doc["project"], "project_id": doc["project"],
+				"dataset_generation": documentGeneration, "resourceType": resourceType,
+				"auth_resource_path": doc["auth_resource_path"], "payload": payload,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			encoded = append(encoded, encodedDoc)
+		}
+		if err := client.InsertBatchRaw(ctx, collection, encoded, false, "document"); err != nil {
+			t.Fatalf("insert grouped related-expansion fixtures into %s: %v", collection, err)
+		}
+	}
+	resource := func(id, resourceType string, payload map[string]any) map[string]any {
+		payload["id"], payload["resourceType"] = id, resourceType
+		return map[string]any{"_key": key(id), "project": project, "dataset_generation": generation,
+			"auth_resource_path": "/allowed", "resourceType": resourceType, "payload": payload}
+	}
+	wrongProjectObservation := resource("wrong-project-observation", "Observation", map[string]any{"status": "final"})
+	wrongProjectObservation["project"] = project + "_other"
+	wrongGenerationObservation := resource("wrong-generation-observation", "Observation", map[string]any{"status": "final"})
+	wrongGenerationObservation["dataset_generation"] = "old-generation"
+	deniedRoot := resource("p_denied", "Patient", map[string]any{"gender": "male"})
+	deniedRoot["auth_resource_path"] = "/forbidden"
+	deniedObservation := resource("o_denied", "Observation", map[string]any{"status": "denied-target"})
+	deniedObservation["auth_resource_path"] = "/forbidden"
+	rootOnlyObservation := resource("o_root_only", "Observation", map[string]any{"status": "root-denied"})
+	edgeOnlyObservation := resource("o_edge_only", "Observation", map[string]any{"status": "edge-denied"})
+	deniedSpecimen := resource("s_denied", "Specimen", map[string]any{"status": "denied-target"})
+	deniedSpecimen["auth_resource_path"] = "/forbidden"
+	wrongGenerationPatient := resource("p_old", "Patient", map[string]any{"gender": "male"})
+	wrongGenerationPatient["dataset_generation"] = "old-generation"
+	insertResources("Patient",
+		resource("p1", "Patient", map[string]any{"gender": "male"}),
+		resource("p2", "Patient", map[string]any{"gender": "male"}),
+		resource("p3", "Patient", map[string]any{"gender": "female"}),
+		deniedRoot,
+		wrongGenerationPatient,
+	)
+	insertResources("Observation",
+		resource("o1", "Observation", map[string]any{"status": "registered"}),
+		resource("o2", "Observation", map[string]any{"status": "final"}),
+		wrongProjectObservation, wrongGenerationObservation,
+		deniedObservation, rootOnlyObservation, edgeOnlyObservation,
+	)
+	insertResources("Specimen", resource("s1", "Specimen", map[string]any{"status": "available"}), deniedSpecimen)
+	edges := make([]json.RawMessage, 0, 8)
+	addEdge := func(index int, fromType, fromID, toType, toID, relationship, authPath string) {
+		t.Helper()
+		encoded, err := json.Marshal(map[string]any{
+			"_key":  fmt.Sprintf("%s_edge_%d", project, index),
+			"_from": fromType + "/" + key(fromID), "_to": toType + "/" + key(toID),
+			"project": project, "project_id": project, "dataset_generation": generation, "auth_resource_path": authPath,
+			"label":     relationship,
+			"from_type": fromType, "to_type": toType,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		edges = append(edges, encoded)
+	}
+	addEdge(1, "Observation", "o1", "Patient", "p1", "subject_Patient", "/allowed")
+	addEdge(2, "Observation", "o1", "Patient", "p2", "subject_Patient", "/allowed")
+	addEdge(3, "Observation", "o2", "Patient", "p1", "subject_Patient", "/allowed")
+	addEdge(4, "Observation", "o2", "Patient", "p2", "subject_Patient", "/allowed")
+	addEdge(5, "Observation", "wrong-project-observation", "Patient", "p1", "subject_Patient", "/allowed")
+	addEdge(6, "Observation", "wrong-generation-observation", "Patient", "p2", "subject_Patient", "/allowed")
+	addEdge(7, "Observation", "o1", "Specimen", "s1", "specimen_Specimen", "/allowed")
+	addEdge(8, "Observation", "o1", "Specimen", "s_denied", "specimen_Specimen", "/allowed")
+	addEdge(9, "Observation", "o_denied", "Patient", "p1", "subject_Patient", "/allowed")
+	addEdge(10, "Observation", "o_root_only", "Patient", "p_denied", "subject_Patient", "/allowed")
+	addEdge(11, "Observation", "o_edge_only", "Patient", "p2", "subject_Patient", "/forbidden")
+	if err := client.InsertBatchRaw(ctx, "fhir_edge", edges, false, "document"); err != nil {
+		t.Fatalf("insert grouped related-expansion edges: %v", err)
+	}
+
+	for _, policy := range []recipe.ExpansionEmptyPolicy{recipe.ExpansionPreserveParent, recipe.ExpansionExclude} {
+		t.Run(string(policy), func(t *testing.T) {
+			output := groupedRelatedExpansionOutput(policy)
+			bindings := recipe.RuntimeBindings{Project: project, DatasetGeneration: generation, AuthScopeMode: authscope.ReadScopeRestricted, AuthResourcePaths: []string{"/allowed"}}
+			compiled := lowerConstructionOutput(t, output, bindings)
+			if len(compiled.Stages) != 4 || len(compiled.Plan.StageSequence.Stages) != 3 || compiled.Plan.StageSequence.Stages[0].Group == nil ||
+				compiled.Plan.StageSequence.Stages[1].RelatedExpand == nil || compiled.Plan.StageSequence.Stages[1].RelatedExpand.AnchorKind != "rootContributors" ||
+				compiled.Plan.StageSequence.Stages[2].RelatedExpand == nil || compiled.Plan.StageSequence.Stages[2].RelatedExpand.AnchorKind != "activeRelatedRecord" {
+				t.Fatalf("expected Group → contributor-set expansion → exact onward identity stages: %#v", compiled.Stages)
+			}
+			query, err := CompileRecipeOutputWithPolicy(compiled, bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
+			if err != nil {
+				t.Fatal(err)
+			}
+			rows := executeReshapeOracleQuery(t, ctx, client, query)
+			rowIDs := map[string]bool{}
+			maleByObservation := map[string]any{}
+			femaleRows := 0
+			for _, row := range rows {
+				rowID, _ := row["__loom_row_id"].(string)
+				if rowID == "" || rowIDs[rowID] {
+					t.Errorf("missing or duplicate onward row identity: %#v", row)
+				}
+				rowIDs[rowID] = true
+				if row["gender"] == "female" {
+					femaleRows++
+					if row["observation_id"] != nil || row["specimen_id"] != nil {
+						t.Errorf("empty female contributor group acquired a related record: %#v", row)
+					}
+					continue
+				}
+				if !constructionNumericEqual(row["patient_count"], 2) {
+					t.Errorf("male group lost a root contributor: %#v", row)
+				}
+				observationID, _ := row["observation_id"].(string)
+				if observationID == "" || observationID == "wrong-project-observation" || observationID == "wrong-generation-observation" {
+					t.Errorf("wrong-scope observation appeared in contributor union: %#v", row)
+				}
+				if _, duplicate := maleByObservation[observationID]; duplicate {
+					t.Errorf("shared observation %q was emitted more than once for the grouped roots", observationID)
+				}
+				maleByObservation[observationID] = row["specimen_id"]
+			}
+			if policy == recipe.ExpansionPreserveParent && femaleRows != 1 {
+				t.Errorf("PRESERVE_PARENT emitted %d empty-group rows, want one; rows=%#v", femaleRows, rows)
+			}
+			if policy == recipe.ExpansionExclude && femaleRows != 0 {
+				t.Errorf("EXCLUDE retained empty-group rows: %#v", rows)
+			}
+			if len(maleByObservation) != 2 || maleByObservation["o1"] != "s1" || maleByObservation["o2"] != nil {
+				t.Errorf("onward expansion did not follow each distinct observation identity: %#v; rows=%#v", maleByObservation, rows)
+			}
+		})
+	}
+	t.Run("ERROR", func(t *testing.T) {
+		output := groupedRelatedExpansionOutput(recipe.ExpansionError)
+		query := compileConstructionOutputQueryWithBindings(t, output, project, generation,
+			recipe.RuntimeBindings{AuthScopeMode: authscope.ReadScopeRestricted, AuthResourcePaths: []string{"/allowed"}})
+		err := client.QueryRows(ctx, query.Query, 100, query.BindVars, func(map[string]any) error { return nil })
+		if err == nil {
+			t.Fatal("ERROR policy returned rows for the empty female contributor group")
+		}
+		if !strings.Contains(strings.ToLower(err.Error()), "related expansion") || !strings.Contains(strings.ToLower(err.Error()), "no related records") {
+			t.Fatalf("ERROR policy failed for an unrelated reason: %v", err)
+		}
+	})
+	thresholdTwo, thresholdThree := 2, 3
+	for _, match := range []struct {
+		name      string
+		kind      string
+		threshold *int
+		wantRows  int
+		wantGroup string
+	}{
+		{name: "EXISTS", kind: recipe.RelatedEligibilityExists, wantRows: 1, wantGroup: "male"},
+		{name: "ABSENT", kind: recipe.RelatedEligibilityAbsent, wantRows: 1, wantGroup: "female"},
+		{name: "COUNT_AT_LEAST two distinct scoped targets", kind: recipe.RelatedEligibilityCountAtLeast, threshold: &thresholdTwo, wantRows: 1, wantGroup: "male"},
+		{name: "COUNT_AT_LEAST excludes duplicate and unauthorized targets", kind: recipe.RelatedEligibilityCountAtLeast, threshold: &thresholdThree},
+	} {
+		t.Run("RELATED_ELIGIBILITY after Group/"+match.name, func(t *testing.T) {
+			output := groupedRelatedEligibilityOutput(match.kind, match.threshold)
+			bindings := recipe.RuntimeBindings{
+				Project: project, DatasetGeneration: generation,
+				AuthScopeMode: authscope.ReadScopeRestricted, AuthResourcePaths: []string{"/allowed"},
+			}
+			compiled := lowerConstructionOutput(t, output, bindings)
+			if len(compiled.Plan.StageSequence.Stages) != 2 || compiled.Plan.StageSequence.Stages[0].Group == nil ||
+				compiled.Plan.StageSequence.Stages[0].Group.RootContributorOutputColumn != "__loom_root_contributor_keys" ||
+				compiled.Plan.StageSequence.Stages[1].Kind != ir.PhysicalStageRelatedEligibilityOp {
+				t.Fatalf("expected direct Group -> related eligibility with materialized root contributors: %#v", compiled.Plan.StageSequence.Stages)
+			}
+			query, err := CompileRecipeOutputWithPolicy(compiled, bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
+			if err != nil {
+				t.Fatal(err)
+			}
+			rows := executeReshapeOracleQuery(t, ctx, client, query)
+			if len(rows) != match.wantRows {
+				t.Fatalf("%s returned %d grouped rows, want %d: %#v", match.name, len(rows), match.wantRows, rows)
+			}
+			if match.wantRows == 1 {
+				wantCount := float64(2)
+				if match.wantGroup == "female" {
+					wantCount = 1
+				}
+				if rows[0]["gender"] != match.wantGroup || !constructionNumericEqual(rows[0]["patient_count"], wantCount) {
+					t.Fatalf("%s returned wrong group or authorized root count: %#v", match.name, rows[0])
+				}
+			}
+		})
+	}
+}
+
+func groupedRelatedEligibilityOutput(matchKind string, threshold *int) recipe.Output {
+	groupColumns := []recipe.StageColumn{
+		{ID: "gender_id", Name: "gender", Type: "string"},
+		{ID: "patient_count_id", Name: "patient_count", Type: "integer"},
+	}
+	return recipe.Output{
+		Name: "grouped_related_eligibility", RootResourceType: "Patient", RowGrain: "patient", RootColumnNaming: recipe.RootColumnNamingExact,
+		Fields: []recipe.Field{{Name: "gender", ColumnID: "gender_id", Expr: recipe.Expression{Select: "root.gender"}}},
+		Construction: &recipe.Construction{Version: 1,
+			SourceColumns: []recipe.StageColumn{{ID: "gender_id", Name: "gender", Type: "string"}},
+			Steps: []recipe.ConstructionStep{
+				{ID: "group_patients", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
+					Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionGroupOp, Group: &recipe.ConstructionGroup{
+						ConstructionID: "group_patients",
+						Keys:           []recipe.ConstructionGroupKey{{InputColumnID: "gender_id", OutputColumnID: "gender_id"}},
+						Aggregates:     []recipe.ConstructionGroupAggregate{{Operation: recipe.ConstructionGroupCountRows, OutputColumnID: "patient_count_id"}},
+					}}, Outputs: groupColumns},
+				{ID: "filter_related", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionStepOutputInput, StepID: "group_patients"}},
+					Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionRelatedEligibilityOp, RelatedEligibility: &recipe.ConstructionRelatedEligibility{
+						AnchorColumnID: "__loom_root_contributor_keys", ChoiceID: "patient-observation",
+						TargetNodeID: "observation-node", TargetResourceType: "Observation",
+						Route: []recipe.ConstructionRelatedRouteStep{{
+							EdgeID: "patient-observation", FromNodeID: "patient-node", ToNodeID: "observation-node",
+							FromResourceType: "Patient", ToResourceType: "Observation", Relationship: "subject_Patient",
+							StorageDirection: "INBOUND", MatchMode: "OPTIONAL",
+						}}, ContributorPolicy: "ALL_MATCHES", MatchKind: matchKind, Threshold: threshold,
+					}}, Outputs: groupColumns},
+			},
+		},
+	}
+}
+
+func groupedRelatedExpansionOutput(emptyPolicy recipe.ExpansionEmptyPolicy) recipe.Output {
+	observationIdentity := fmt.Sprintf("__loom_related_terminal_id_%x", sha256.Sum256([]byte("expand_observations")))
+	groupColumns := []recipe.StageColumn{
+		{ID: "gender_id", Name: "gender", Type: "string"},
+		{ID: "patient_count_id", Name: "patient_count", Type: "integer"},
+	}
+	observationColumns := append(append([]recipe.StageColumn(nil), groupColumns...), recipe.StageColumn{
+		ID: "observation_id", Name: "observation_id", Type: "string", Nullable: emptyPolicy == recipe.ExpansionPreserveParent,
+	})
+	finalColumns := append(append([]recipe.StageColumn(nil), observationColumns...), recipe.StageColumn{
+		ID: "specimen_id", Name: "specimen_id", Type: "string", Nullable: true,
+	})
+	return recipe.Output{
+		Name: "grouped_related_expansion", RootResourceType: "Patient", RowGrain: "patient", RootColumnNaming: recipe.RootColumnNamingExact,
+		Fields: []recipe.Field{{Name: "gender", ColumnID: "gender_id", Expr: recipe.Expression{Select: "root.gender"}}},
+		Construction: &recipe.Construction{Version: 1,
+			SourceColumns: []recipe.StageColumn{{ID: "gender_id", Name: "gender", Type: "string"}},
+			Steps: []recipe.ConstructionStep{
+				{ID: "group_patients", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
+					Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionGroupOp, Group: &recipe.ConstructionGroup{
+						ConstructionID: "group_patients",
+						Keys:           []recipe.ConstructionGroupKey{{InputColumnID: "gender_id", OutputColumnID: "gender_id"}},
+						Aggregates:     []recipe.ConstructionGroupAggregate{{Operation: recipe.ConstructionGroupCountRows, OutputColumnID: "patient_count_id"}},
+					}}, Outputs: groupColumns},
+				{ID: "expand_observations", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionStepOutputInput, StepID: "group_patients"}},
+					Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionRelatedExpandOp, RelatedExpand: &recipe.ConstructionRelatedExpand{
+						AnchorColumnID: "__loom_root_contributor_keys", ChoiceID: "patient-observation", TargetNodeID: "observation-node", TargetResourceType: "Observation",
+						Route: []recipe.ConstructionRelatedRouteStep{{
+							EdgeID: "patient-observation", FromNodeID: "patient-node", ToNodeID: "observation-node",
+							FromResourceType: "Patient", ToResourceType: "Observation", Relationship: "subject_Patient",
+							StorageDirection: "INBOUND", MatchMode: "OPTIONAL",
+						}}, ContributorPolicy: "ALL_MATCHES", EmptyPolicy: emptyPolicy, RelatedRecordColumnID: "observation_id",
+					}}, Outputs: observationColumns},
+				{ID: "expand_specimens", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionStepOutputInput, StepID: "expand_observations"}},
+					Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionRelatedExpandOp, RelatedExpand: &recipe.ConstructionRelatedExpand{
+						AnchorColumnID: observationIdentity, ChoiceID: "observation-specimen", TargetNodeID: "specimen-node", TargetResourceType: "Specimen",
+						Route: []recipe.ConstructionRelatedRouteStep{{
+							EdgeID: "observation-specimen", FromNodeID: "observation-node", ToNodeID: "specimen-node",
+							FromResourceType: "Observation", ToResourceType: "Specimen", Relationship: "specimen_Specimen",
+							StorageDirection: "OUTBOUND", MatchMode: "OPTIONAL",
+						}}, ContributorPolicy: "ALL_MATCHES", EmptyPolicy: recipe.ExpansionPreserveParent, RelatedRecordColumnID: "specimen_id",
+					}}, Outputs: finalColumns},
+			},
+		},
+	}
 }
 
 func TestRelatedFieldReadsExactExpandedRecordAfterFilterAgainstArango(t *testing.T) {
@@ -585,4 +886,264 @@ func compileRelatedExpandCountQuery(t *testing.T, output recipe.Output) Compiled
 		t.Fatalf("render related expansion count recipe: %v", err)
 	}
 	return query
+}
+
+func TestRelatedExpandRepeatedScalarContributorMatchesWithinTerminalRecordAgainstArango(t *testing.T) {
+	if os.Getenv("LOOM_TEST_ARANGO_URL") == "" || os.Getenv("LOOM_TEST_ARANGO_DATABASE") == "" {
+		t.Skip("LOOM_TEST_ARANGO_URL and LOOM_TEST_ARANGO_DATABASE must point to the supplied Docker Arango service")
+	}
+	ctx, client := openConstructionReshapeArango(t)
+	if err := client.Bootstrap(ctx, store.BootstrapSpec{Collections: []store.CollectionSpec{
+		{Name: "Patient"}, {Name: "Observation"}, {Name: "fhir_edge", Edge: true},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	project, generation := "loom_related_repeated_"+uuid.NewString(), "generation-related-repeated"
+	key := func(id string) string { return project + "_" + id }
+	defer func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		for _, collection := range []string{"Patient", "Observation", "fhir_edge"} {
+			query := fmt.Sprintf("FOR document IN %s FILTER STARTS_WITH(document._key, @prefix) REMOVE document IN %s", collection, collection)
+			if err := client.ExecuteAQL(cleanupCtx, query, map[string]any{"prefix": project + "_"}); err != nil {
+				t.Errorf("remove repeated-contributor fixtures from %s: %v", collection, err)
+			}
+		}
+	}()
+
+	document := func(id, resourceType, documentProject, documentGeneration, authPath string, payload map[string]any) json.RawMessage {
+		t.Helper()
+		payload["id"], payload["resourceType"] = id, resourceType
+		encoded, err := json.Marshal(map[string]any{
+			"_key": key(id), "id": id, "project": documentProject, "project_id": documentProject,
+			"dataset_generation": documentGeneration, "resourceType": resourceType,
+			"auth_resource_path": authPath, "payload": payload,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return encoded
+	}
+	targetCategory := []any{
+		map[string]any{"coding": []any{
+			map[string]any{"system": "urn:system:one", "code": "target-code"},
+			map[string]any{"system": "urn:system:two", "code": "target-code"},
+		}},
+		map[string]any{"coding": []any{map[string]any{"system": "urn:system:three", "code": "target-code"}}},
+	}
+	nonmatchingCategory := []any{map[string]any{"coding": []any{map[string]any{"system": "urn:system:one", "code": "other-code"}}}}
+	nullOnlyCategory := []any{map[string]any{"coding": []any{map[string]any{"system": "urn:system:null", "code": nil}}}}
+	emptyOnlyCategory := []any{map[string]any{"coding": []any{}}}
+	missingCodeCategory := []any{map[string]any{"coding": []any{map[string]any{"system": "urn:system:missing"}}}}
+	patients := []json.RawMessage{
+		document("p1", "Patient", project, generation, "/allowed", map[string]any{"active": true}),
+		document("p2", "Patient", project, generation, "/allowed", map[string]any{"active": true}),
+	}
+	observations := []json.RawMessage{
+		document("o_match", "Observation", project, generation, "/allowed", map[string]any{"status": "final", "category": targetCategory}),
+		document("o_no_match", "Observation", project, generation, "/allowed", map[string]any{"status": "final", "category": nonmatchingCategory}),
+		document("o_null_only", "Observation", project, generation, "/allowed", map[string]any{"status": "final", "category": nullOnlyCategory}),
+		document("o_empty_only", "Observation", project, generation, "/allowed", map[string]any{"status": "final", "category": emptyOnlyCategory}),
+		document("o_missing_code", "Observation", project, generation, "/allowed", map[string]any{"status": "final", "category": missingCodeCategory}),
+		document("o_denied", "Observation", project, generation, "/denied", map[string]any{"status": "final", "category": targetCategory}),
+		document("o_stale", "Observation", project, "stale-generation", "/allowed", map[string]any{"status": "final", "category": targetCategory}),
+		document("o_foreign", "Observation", project+"_foreign", generation, "/allowed", map[string]any{"status": "final", "category": targetCategory}),
+	}
+	for collection, documents := range map[string][]json.RawMessage{"Patient": patients, "Observation": observations} {
+		if err := client.InsertBatchRaw(ctx, collection, documents, false, "document"); err != nil {
+			t.Fatalf("insert repeated-contributor fixtures into %s: %v", collection, err)
+		}
+	}
+	edges := make([]json.RawMessage, 0, len(observations))
+	for index, observationID := range []string{"o_match", "o_no_match", "o_null_only", "o_empty_only", "o_missing_code", "o_denied", "o_stale", "o_foreign"} {
+		encoded, err := json.Marshal(map[string]any{
+			"_key":  fmt.Sprintf("%s_edge_%d", project, index+1),
+			"_from": "Observation/" + key(observationID), "_to": "Patient/" + key("p1"),
+			"project": project, "project_id": project, "dataset_generation": generation, "auth_resource_path": "/allowed",
+			"label": "subject_Patient", "from_type": "Observation", "to_type": "Patient",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		edges = append(edges, encoded)
+	}
+	if err := client.InsertBatchRaw(ctx, "fhir_edge", edges, false, "document"); err != nil {
+		t.Fatalf("insert repeated-contributor edges: %v", err)
+	}
+
+	output := relatedExpandOracleOutput(recipe.ExpansionExclude)
+	related := output.Construction.Steps[1].Operation.RelatedExpand
+	code := "target-code"
+	related.ContributorPolicy = "ALL_MATCHES"
+	related.ContributorPredicate = &recipe.ConstructionRelatedPredicate{
+		CandidateID: "observation-code", Quantifier: recipe.QuantifierAny, Operator: recipe.FilterEquals,
+		Value: &recipe.FilterValue{Kind: recipe.FilterCode, Code: &recipe.CodeValue{Code: code}},
+	}
+	related.ContributorSource = &recipe.ConstructionRelatedFieldSource{
+		CandidateID: "observation-code", NodeID: "observation-node", ResourceType: "Observation",
+		Path: "Observation.category[].coding[].code", Cardinality: "many", LogicalType: "code",
+		RepeatedBoundaries: []recipe.ConstructionRelatedRepeatedBoundary{
+			{Path: "category[]", MaxItems: 8},
+			{Path: "category[].coding[]", MaxItems: 8},
+		},
+	}
+	related.ContributorChoiceID = "observation-code-choice"
+	bindings := recipe.RuntimeBindings{
+		Project: project, DatasetGeneration: generation,
+		AuthScopeMode: authscope.ReadScopeRestricted, AuthResourcePaths: []string{"/allowed"},
+	}
+	query := compileConstructionOutputQueryWithBindings(t, output, project, generation, bindings)
+	for _, required := range []string{".project == @project", ".dataset_generation == @dataset_generation", "auth_resource_path IN @auth_resource_paths"} {
+		if !strings.Contains(query.Query, required) {
+			t.Fatalf("repeated related predicate query omitted scope guard %q: %s", required, query.Query)
+		}
+	}
+	rows := executeReshapeOracleQuery(t, ctx, client, query)
+	if len(rows) != 1 || rows[0]["patient_id"] != "p1" || rows[0]["observation_id"] != "o_match" {
+		t.Fatalf("repeated code-only predicate returned %#v, want one p1/o_match terminal despite duplicate values", rows)
+	}
+
+	related.ContributorPredicate = &recipe.ConstructionRelatedPredicate{
+		CandidateID: "observation-code", Quantifier: recipe.QuantifierAny, Operator: recipe.FilterExists,
+	}
+	existsQuery := compileConstructionOutputQueryWithBindings(t, output, project, generation, bindings)
+	existsRows := executeReshapeOracleQuery(t, ctx, client, existsQuery)
+	if len(existsRows) != 2 {
+		t.Fatalf("repeated ANY EXISTS returned %#v, want only the two terminals with non-null code values", existsRows)
+	}
+	existing := map[string]bool{}
+	for _, row := range existsRows {
+		if row["patient_id"] != "p1" {
+			t.Fatalf("repeated ANY EXISTS escaped its root scope: %#v", row)
+		}
+		if id, ok := row["observation_id"].(string); !ok || existing[id] {
+			t.Fatalf("repeated ANY EXISTS returned a duplicate or invalid terminal: %#v", row)
+		} else {
+			existing[id] = true
+		}
+	}
+	if !existing["o_match"] || !existing["o_no_match"] || existing["o_null_only"] || existing["o_empty_only"] || existing["o_missing_code"] {
+		t.Fatalf("repeated ANY EXISTS included null/empty/missing values or omitted a populated terminal: %#v", existing)
+	}
+}
+
+func TestTerminalRepeatedPrimitiveSelectorValuesAgainstArango(t *testing.T) {
+	if os.Getenv("LOOM_TEST_ARANGO_URL") == "" || os.Getenv("LOOM_TEST_ARANGO_DATABASE") == "" {
+		t.Skip("LOOM_TEST_ARANGO_URL and LOOM_TEST_ARANGO_DATABASE must point to the supplied Docker Arango service")
+	}
+	ctx, client := openConstructionReshapeArango(t)
+	if err := client.Bootstrap(ctx, store.BootstrapSpec{Collections: []store.CollectionSpec{{Name: "Patient"}}}); err != nil {
+		t.Fatal(err)
+	}
+	project, generation := "loom_repeated_terminal_"+uuid.NewString(), "generation-repeated-terminal"
+	key := func(id string) string { return project + "_" + id }
+	defer func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		query := "FOR document IN Patient FILTER STARTS_WITH(document._key, @prefix) REMOVE document IN Patient"
+		if err := client.ExecuteAQL(cleanupCtx, query, map[string]any{"prefix": project + "_"}); err != nil {
+			t.Errorf("remove terminal repeated-selector fixtures: %v", err)
+		}
+	}()
+
+	nullGivenElement := map[string]any{"extension": []any{map[string]any{
+		"url": "https://example.org/fhir/StructureDefinition/test", "valueString": "extension-only",
+	}}}
+	givenNames := []any{
+		map[string]any{"given": []any{"alpha", "alpha", nil}, "_given": []any{nil, nil, nullGivenElement}},
+		map[string]any{"given": []any{nil}, "_given": []any{nullGivenElement}},
+		map[string]any{"given": []any{"beta"}},
+	}
+	patientDocument := func(id string, payload map[string]any) json.RawMessage {
+		t.Helper()
+		payload["id"], payload["resourceType"] = id, "Patient"
+		encoded, err := json.Marshal(map[string]any{
+			"_key": key(id), "id": id, "project": project, "project_id": project,
+			"dataset_generation": generation, "resourceType": "Patient",
+			"auth_resource_path": "/allowed", "payload": payload,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return encoded
+	}
+	documents := []json.RawMessage{
+		patientDocument("p_values", map[string]any{"name": givenNames}),
+		patientDocument("p_null", map[string]any{"name": []any{map[string]any{"given": []any{nil}, "_given": []any{nullGivenElement}}}}),
+		patientDocument("p_empty", map[string]any{"name": []any{map[string]any{"given": []any{}}}}),
+		patientDocument("p_missing", map[string]any{"name": []any{map[string]any{"family": "OnlyFamily"}}}),
+	}
+	if err := client.InsertBatchRaw(ctx, "Patient", documents, false, "document"); err != nil {
+		t.Fatalf("insert terminal repeated-selector fixtures: %v", err)
+	}
+
+	selector, err := spec.ParseSelector("name[].given[]")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, mode := range []ir.PhysicalSelectorExecutionMode{ir.PhysicalSelectorGeneric, ir.PhysicalSelectorConditionalArray} {
+		t.Run(string(mode), func(t *testing.T) {
+			plan, err := buildGenericPhysicalPlanWithContext(
+				semantic.OutputPlan{Root: semantic.SemanticNode{Alias: "root", ResourceType: "Patient"}},
+				semantic.ExecutionContext{
+					Project: project, DatasetGeneration: generation, AuthResourcePaths: []string{"/allowed"},
+					AuthScopeMode: authscope.ReadScopeRestricted,
+				},
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			plan.Operations[len(plan.Operations)-1].Return.Projections = []ir.PhysicalProjection{
+				{Name: "_key", Value: ir.PhysicalValue{Variable: "root", Path: []string{"_key"}}},
+				{Name: "given_values", Expression: &ir.PhysicalExpression{
+					Kind: ir.PhysicalExtractExpression, Cardinality: ir.PhysicalArrayCardinality, NullBehavior: ir.PhysicalEmptyOnNull,
+					Extract: &ir.PhysicalExtract{
+						Source:       ir.PhysicalValue{Variable: "root", Path: []string{"payload"}},
+						ResourceType: "Patient", Selector: selector, ExecutionMode: mode,
+					},
+				}},
+			}
+			rendered, err := aql.RenderPhysicalPlan(plan)
+			if err != nil {
+				t.Fatalf("render %s terminal primitive selector: %v", mode, err)
+			}
+			rows := executeReshapeOracleQuery(t, ctx, client, CompiledQuery{Query: rendered.Query, BindVars: rendered.BindVars})
+			if len(rows) != len(documents) {
+				t.Fatalf("%s terminal primitive query returned %d rows, want %d:\n%s", mode, len(rows), len(documents), rendered.Query)
+			}
+			valuesByKey := make(map[string][]string, len(rows))
+			for _, row := range rows {
+				rowKey, _ := row["_key"].(string)
+				rawValues, ok := row["given_values"].([]any)
+				if !ok {
+					t.Fatalf("%s given_values for %q has type %T: %#v", mode, rowKey, row["given_values"], row)
+				}
+				values := make([]string, 0, len(rawValues))
+				for _, rawValue := range rawValues {
+					value, ok := rawValue.(string)
+					if !ok {
+						t.Fatalf("%s terminal repeated selector retained a null/non-string leaf for %q: %#v", mode, rowKey, rawValues)
+					}
+					values = append(values, value)
+				}
+				valuesByKey[rowKey] = values
+			}
+			assertValues := func(id string, want []string) {
+				t.Helper()
+				got, ok := valuesByKey[key(id)]
+				if !ok || len(got) != len(want) {
+					t.Fatalf("%s values for %s = %#v (present=%t), want %#v", mode, id, got, ok, want)
+				}
+				for index := range want {
+					if got[index] != want[index] {
+						t.Fatalf("%s values for %s = %#v, want %#v", mode, id, got, want)
+					}
+				}
+			}
+			assertValues("p_values", []string{"alpha", "alpha", "beta"})
+			assertValues("p_null", nil)
+			assertValues("p_empty", nil)
+			assertValues("p_missing", nil)
+		})
+	}
 }

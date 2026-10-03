@@ -2,6 +2,7 @@ package ir
 
 import (
 	"fmt"
+	"reflect"
 
 	"strings"
 )
@@ -196,6 +197,14 @@ func validatePhysicalSubplan(subplan PhysicalSubplan, parent map[string]bool, bi
 	if subplan.Sort != nil {
 		if err := validatePhysicalValue(*subplan.Sort, defined, bindVars); err != nil {
 			return fmt.Errorf("subplan sort: %w", err)
+		}
+	}
+	if subplan.DistinctBy != nil {
+		if err := validatePhysicalValue(*subplan.DistinctBy, defined, bindVars); err != nil {
+			return fmt.Errorf("subplan distinct key: %w", err)
+		}
+		if subplan.Unique || subplan.Sort == nil || !reflect.DeepEqual(*subplan.Sort, *subplan.DistinctBy) {
+			return fmt.Errorf("distinct-key subplan requires the same stable sort key and cannot also use full-value uniqueness")
 		}
 	}
 	if subplan.Unique && subplan.Sort == nil {

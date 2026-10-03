@@ -286,7 +286,7 @@ export const stateFromCommands = (
     selectedOutputId,
     selectedOccurrenceId,
     diagnostics: value.diagnostics,
-    dirty: true,
+    dirty: false,
     reconciliation: 'idle',
   };
 };

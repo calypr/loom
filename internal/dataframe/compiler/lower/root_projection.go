@@ -70,7 +70,7 @@ func lowerSemanticFieldProjection(physical *ir.PhysicalPlan, node semantic.Seman
 	}
 	expression := ir.PhysicalExpression{
 		Kind: ir.PhysicalExtractExpression, Cardinality: cardinality, NullBehavior: ir.PhysicalPreserveNull,
-		Extract: &ir.PhysicalExtract{Source: source, ResourceType: node.ResourceType, Selector: selection.Selector, Fallbacks: fallbacks, Distinct: distinct, ExecutionMode: selectorExecutionMode(node.ResourceType, selection.Selector, fallbacks...)},
+		Extract: &ir.PhysicalExtract{Source: source, ResourceType: node.ResourceType, Selector: selection.Selector, Fallbacks: physicalSelectorFallbacks(source, node.ResourceType, fallbacks), Distinct: distinct, ExecutionMode: selectorExecutionMode(node.ResourceType, selection.Selector, fallbacks...)},
 	}
 	if cardinality == ir.PhysicalArrayCardinality {
 		expression.NullBehavior = ir.PhysicalEmptyOnNull
@@ -439,7 +439,7 @@ func physicalSliceExpression(physical *ir.PhysicalPlan, resourceType string, sou
 		physicalSlice.Projections = append(physicalSlice.Projections, ir.PhysicalExpressionProjection{
 			Name: selection.Name,
 			Expression: ir.PhysicalExpression{Kind: ir.PhysicalExtractExpression, Cardinality: cardinality, NullBehavior: nullBehavior,
-				Extract: &ir.PhysicalExtract{Source: leftSource, ResourceType: resourceType, Selector: selector, Fallbacks: fallbacks, Distinct: distinct, ExecutionMode: selectorExecutionMode(resourceType, selector, fallbacks...)}},
+				Extract: &ir.PhysicalExtract{Source: leftSource, ResourceType: resourceType, Selector: selector, Fallbacks: physicalSelectorFallbacks(leftSource, resourceType, fallbacks), Distinct: distinct, ExecutionMode: selectorExecutionMode(resourceType, selector, fallbacks...)}},
 		})
 	}
 	return ir.PhysicalExpression{Kind: ir.PhysicalSliceExpression, Cardinality: ir.PhysicalArrayCardinality, NullBehavior: ir.PhysicalEmptyOnNull, Slice: &physicalSlice}, nil
@@ -491,6 +491,20 @@ func appendRootPhysicalFilters(physical *ir.PhysicalPlan, root semantic.Semantic
 				physical.BindVars[key] = literal
 			}
 			predicate.Right = &ir.PhysicalValue{BindKey: key}
+		}
+		// Ingestion stores the FHIR id unchanged in both document.id and
+		// payload.id. Narrow exact ID matches with the indexed document field
+		// before extracting FHIR values or expanding repeated rows. Retain the
+		// original predicate below as the value-level check.
+		if selector.CanonicalPath() == "id" && selector.Filter == nil && filter.Quantifier == "" &&
+			(filter.Operator == spec.FilterEquals || filter.Operator == spec.FilterIn) {
+			physical.Operations = append(physical.Operations, ir.PhysicalOperation{
+				Kind:   ir.PhysicalFilterOp,
+				Source: ir.PhysicalSource{SemanticNode: root.Alias, ResourceType: root.ResourceType, SemanticField: "id"},
+				Filter: &ir.PhysicalFilter{Predicate: ir.PhysicalPredicate{
+					Operator: string(filter.Operator), Left: ir.PhysicalValue{Variable: "root", Path: []string{"id"}}, Right: predicate.Right,
+				}},
+			})
 		}
 		physical.Operations = append(physical.Operations, ir.PhysicalOperation{Kind: ir.PhysicalFilterOp,
 			Source: ir.PhysicalSource{SemanticNode: root.Alias, ResourceType: root.ResourceType, SemanticField: filter.FieldRef},

@@ -54,6 +54,8 @@ type OutputPlan struct {
 type SemanticGroupRows struct {
 	RevisionID             string
 	UnassignedMemberPolicy string
+	AfterStepID            string
+	RowValues              []recipe.GroupRowValuePolicy
 }
 
 // SemanticTableReshape is the document-level row operation over finalized
@@ -106,8 +108,9 @@ type SemanticPopulation struct {
 }
 
 type SemanticPopulationRouteStep struct {
-	ResourceType string
-	Relationship string
+	ResourceType     string
+	Relationship     string
+	StorageDirection string
 }
 
 // SemanticExpression keeps the checked typed AST together with the logical

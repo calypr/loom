@@ -111,47 +111,48 @@ func (r *ApplyCommandsRequest) UnmarshalJSON(raw []byte) error {
 }
 
 type Command struct {
-	Type                    string                            `json:"type"`
-	OutputID                string                            `json:"outputId,omitempty"`
-	SourceOutputID          string                            `json:"sourceOutputId,omitempty"`
-	Title                   string                            `json:"title,omitempty"`
-	RootNodeID              string                            `json:"rootNodeId,omitempty"`
-	SelectionRevisionID     string                            `json:"selectionRevisionId,omitempty"`
-	EdgeIDs                 []string                          `json:"edgeIds,omitempty"`
-	RouteChoiceID           string                            `json:"routeChoiceId,omitempty"`
-	ParentOccurrenceID      string                            `json:"parentOccurrenceId,omitempty"`
-	OccurrenceID            string                            `json:"occurrenceId,omitempty"`
-	EdgeID                  string                            `json:"edgeId,omitempty"`
-	MatchMode               RouteMatchMode                    `json:"matchMode,omitempty"`
-	CandidateID             string                            `json:"candidateId,omitempty"`
-	ProjectionMode          string                            `json:"projectionMode,omitempty"`
-	InitialPresentation     string                            `json:"initialPresentation,omitempty"`
-	Column                  string                            `json:"column,omitempty"`
-	ColumnValue             *Column                           `json:"columnValue,omitempty"`
-	ConstructionOutput      *ConstructionOutputPresentation   `json:"constructionOutput,omitempty"`
-	TransformationChange    *ColumnTransformationChange       `json:"transformationChange,omitempty"`
-	Contributor             *ContributorPredicate             `json:"contributor,omitempty"`
-	Source                  *ColumnSource                     `json:"source,omitempty"`
-	RowChange               *RowChangeProposal                `json:"rowChange,omitempty"`
-	InterpretationCandidate *ApplyInterpretationCandidate     `json:"interpretationCandidate,omitempty"`
-	ProposalID              string                            `json:"proposalId,omitempty"`
-	DraftRevisionID         string                            `json:"draftRevisionId,omitempty"`
-	ContextToken            string                            `json:"contextToken,omitempty"`
-	SemanticSelections      []SemanticSelection               `json:"semanticSelections,omitempty"`
-	ConstructionChoice      *ConstructionChoiceSelection      `json:"constructionChoice,omitempty"`
-	FrameChoiceID           string                            `json:"frameChoiceId,omitempty"`
-	FrameID                 string                            `json:"frameId,omitempty"`
-	FrameForm               capability.ConstructionChoiceForm `json:"form,omitempty"`
-	ResolvedChoice          *ResolvedConstructionChoice       `json:"-"`
-	resolvedFrame           *FrameDefinition
-	ResolvedPopulationRoute []PopulationRouteStep `json:"-"`
-	OutputIDs               []string              `json:"outputIds,omitempty"`
-	resolvedRowDefinition   *RowDefinition
-	resolvedTableShape      *TableShape
-	resolvedTableShapeSet   bool
-	resolvedConstruction    *Construction
-	resolvedConstructionSet bool
-	resolvedDraftRevision   *Workspace
+	Type                     string                            `json:"type"`
+	OutputID                 string                            `json:"outputId,omitempty"`
+	SourceOutputID           string                            `json:"sourceOutputId,omitempty"`
+	Title                    string                            `json:"title,omitempty"`
+	RootNodeID               string                            `json:"rootNodeId,omitempty"`
+	SelectionRevisionID      string                            `json:"selectionRevisionId,omitempty"`
+	EdgeIDs                  []string                          `json:"edgeIds,omitempty"`
+	RouteChoiceID            string                            `json:"routeChoiceId,omitempty"`
+	ParentOccurrenceID       string                            `json:"parentOccurrenceId,omitempty"`
+	OccurrenceID             string                            `json:"occurrenceId,omitempty"`
+	EdgeID                   string                            `json:"edgeId,omitempty"`
+	MatchMode                RouteMatchMode                    `json:"matchMode,omitempty"`
+	CandidateID              string                            `json:"candidateId,omitempty"`
+	ProjectionMode           string                            `json:"projectionMode,omitempty"`
+	InitialPresentation      string                            `json:"initialPresentation,omitempty"`
+	Column                   string                            `json:"column,omitempty"`
+	ColumnValue              *Column                           `json:"columnValue,omitempty"`
+	ConstructionOutput       *ConstructionOutputPresentation   `json:"constructionOutput,omitempty"`
+	TransformationChange     *ColumnTransformationChange       `json:"transformationChange,omitempty"`
+	Contributor              *ContributorPredicate             `json:"contributor,omitempty"`
+	Source                   *ColumnSource                     `json:"source,omitempty"`
+	RowChange                *RowChangeProposal                `json:"rowChange,omitempty"`
+	InterpretationCandidate  *ApplyInterpretationCandidate     `json:"interpretationCandidate,omitempty"`
+	ProposalID               string                            `json:"proposalId,omitempty"`
+	DraftRevisionID          string                            `json:"draftRevisionId,omitempty"`
+	ContextToken             string                            `json:"contextToken,omitempty"`
+	SemanticSelections       []SemanticSelection               `json:"semanticSelections,omitempty"`
+	ConstructionChoice       *ConstructionChoiceSelection      `json:"constructionChoice,omitempty"`
+	FrameChoiceID            string                            `json:"frameChoiceId,omitempty"`
+	FrameID                  string                            `json:"frameId,omitempty"`
+	FrameForm                capability.ConstructionChoiceForm `json:"form,omitempty"`
+	ResolvedChoice           *ResolvedConstructionChoice       `json:"-"`
+	resolvedFrame            *FrameDefinition
+	ResolvedPopulationRoute  []PopulationRouteStep `json:"-"`
+	OutputIDs                []string              `json:"outputIds,omitempty"`
+	resolvedRowDefinition    *RowDefinition
+	resolvedTableShape       *TableShape
+	resolvedTableShapeSet    bool
+	resolvedConstruction     *Construction
+	resolvedConstructionSet  bool
+	resolvedConstructionRows *RowDefinition
+	resolvedDraftRevision    *Workspace
 }
 
 // ConstructionOutputPresentation updates user-facing metadata for a stable
@@ -221,9 +222,10 @@ func (c ColumnTransformationChange) Validate() error {
 // ConstructionChoiceSelection carries only the server-issued source identity
 // and the form the author chose from its current supported options.
 type ConstructionChoiceSelection struct {
-	ChoiceID string                            `json:"choiceId"`
-	Form     capability.ConstructionChoiceForm `json:"form"`
-	FrameID  string                            `json:"frameId,omitempty"`
+	RowValuePolicy ConstructionRowValuePolicy        `json:"rowValuePolicy,omitempty"`
+	ChoiceID       string                            `json:"choiceId"`
+	Form           capability.ConstructionChoiceForm `json:"form"`
+	FrameID        string                            `json:"frameId,omitempty"`
 }
 
 func (s *ConstructionChoiceSelection) UnmarshalJSON(raw []byte) error {
@@ -236,14 +238,18 @@ func (s *ConstructionChoiceSelection) UnmarshalJSON(raw []byte) error {
 	if err := json.Unmarshal(raw, &fields); err != nil {
 		return err
 	}
-	if (len(fields) != 2 && len(fields) != 3) || fields["choiceId"] == nil || fields["form"] == nil || len(fields) == 3 && fields["frameId"] == nil {
-		return fmt.Errorf("constructionChoice requires choiceId and form, with optional frameId")
+	if fields["choiceId"] == nil || fields["form"] == nil {
+		return fmt.Errorf("constructionChoice requires choiceId and form")
 	}
 	*s = ConstructionChoiceSelection(decoded)
 	return nil
 }
 
 func (s ConstructionChoiceSelection) validate() error {
+	if s.RowValuePolicy != "" && s.RowValuePolicy != ConstructionRowValueAll && s.RowValuePolicy != ConstructionRowValueOne {
+		return fmt.Errorf("constructionChoice.rowValuePolicy must be ALL or ONE")
+	}
+
 	if strings.TrimSpace(s.ChoiceID) == "" || s.ChoiceID != strings.TrimSpace(s.ChoiceID) {
 		return fmt.Errorf("constructionChoice.choiceId must be an exact non-empty token")
 	}
@@ -421,10 +427,10 @@ func (c *Command) ResolveTableShapeProposal(shape *TableShape) error {
 	return nil
 }
 
-// ResolveConstructionProposal attaches the lifecycle-validated staged plan to
-// an apply command. The plan is server-resolved state and never appears in the
-// browser command payload.
-func (c *Command) ResolveConstructionProposal(construction *Construction) error {
+// ResolveConstructionProposal attaches the lifecycle-validated candidate
+// document's construction and row intent to an apply command. Both values are
+// server-resolved state and never appear in the browser command payload.
+func (c *Command) ResolveConstructionProposal(candidate *Document) error {
 	if c == nil || c.Type != CommandApplyConstructionProposal {
 		return fmt.Errorf("construction can only be resolved for APPLY_CONSTRUCTION_PROPOSAL")
 	}
@@ -432,15 +438,23 @@ func (c *Command) ResolveConstructionProposal(construction *Construction) error 
 		strings.TrimSpace(c.ProposalID) == "" || c.ProposalID != strings.TrimSpace(c.ProposalID) {
 		return fmt.Errorf("APPLY_CONSTRUCTION_PROPOSAL requires outputId and proposalId")
 	}
-	if construction == nil {
-		return fmt.Errorf("resolved construction is required")
+	if candidate == nil || candidate.Output.ID != c.OutputID || candidate.Construction == nil {
+		return fmt.Errorf("resolved construction candidate is required for the target output")
 	}
-	cloned, err := cloneConstruction(construction)
+	if err := candidate.Rows.Validate(); err != nil {
+		return fmt.Errorf("resolved construction candidate rows are invalid: %w", err)
+	}
+	clonedConstruction, err := cloneConstruction(candidate.Construction)
 	if err != nil {
 		return err
 	}
-	c.resolvedConstruction = cloned
+	clonedRows, err := cloneRowDefinition(candidate.Rows)
+	if err != nil {
+		return err
+	}
+	c.resolvedConstruction = clonedConstruction
 	c.resolvedConstructionSet = true
+	c.resolvedConstructionRows = &clonedRows
 	return nil
 }
 
@@ -1061,7 +1075,7 @@ func applyCommand(workspace *Workspace, catalog CatalogSnapshot, commandID strin
 		for i := range workspace.Documents[document].Columns {
 			column := &workspace.Documents[document].Columns[i]
 			if column.OccurrenceID == command.OccurrenceID && column.Source.Kind == SourceField && column.Source.Field != nil && strings.TrimPrefix(column.Source.Field.Path, "root.") == strings.TrimPrefix(candidate.FieldPath, "root.") && strings.EqualFold(column.Source.Field.ProjectionMode, mode) {
-				applyInitialPresentation(column, presentation, nextTableOrder(workspace.Documents[document].Columns))
+				applyInitialPresentation(column, presentation, nextTableOrder(workspace.Documents[document]))
 				return CommandResult{Type: CommandResultColumnAdded, OutputID: command.OutputID, Column: column.Column}, nil
 			}
 		}
@@ -1076,7 +1090,7 @@ func applyCommand(workspace *Workspace, catalog CatalogSnapshot, commandID strin
 		source := editableSource(command.OccurrenceID, ColumnSource{Kind: SourceField, Field: &FieldSource{Path: strings.TrimPrefix(candidate.FieldPath, "root."), ProjectionMode: mode}})
 		column := Column{Column: columnID, Label: label, LogicalType: candidate.LogicalType, OccurrenceID: command.OccurrenceID, Source: source}
 		column.ColumnID = stagedSourceColumnID(workspace.Documents[document], commandID, index, command.Type, column.Column)
-		applyInitialPresentation(&column, presentation, nextTableOrder(workspace.Documents[document].Columns))
+		applyInitialPresentation(&column, presentation, nextTableOrder(workspace.Documents[document]))
 		workspace.Documents[document].Columns = append(workspace.Documents[document].Columns, column)
 		return CommandResult{Type: CommandResultColumnAdded, OutputID: command.OutputID, Column: columnID}, nil
 	case CommandAddColumnSource:
@@ -1334,7 +1348,7 @@ func applyCommand(workspace *Workspace, catalog CatalogSnapshot, commandID strin
 		workspace.Documents[document].TableShape = shape
 		return CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID}, nil
 	case CommandApplyConstructionProposal:
-		if !command.resolvedConstructionSet || command.resolvedConstruction == nil {
+		if !command.resolvedConstructionSet || command.resolvedConstruction == nil || command.resolvedConstructionRows == nil {
 			return result, fmt.Errorf("APPLY_CONSTRUCTION_PROPOSAL has no lifecycle-resolved construction")
 		}
 		documentIndexValue := documentIndex(workspace, command.OutputID)
@@ -1350,6 +1364,11 @@ func applyCommand(workspace *Workspace, catalog CatalogSnapshot, commandID strin
 			return result, err
 		}
 		document.Construction = construction
+		rows, err := cloneRowDefinition(*command.resolvedConstructionRows)
+		if err != nil {
+			return result, err
+		}
+		document.Rows = rows
 		document.TableShape = nil
 		if err := document.Validate(); err != nil {
 			return result, fmt.Errorf("resolved construction is invalid: %w", err)
@@ -1400,6 +1419,8 @@ func applyCommand(workspace *Workspace, catalog CatalogSnapshot, commandID strin
 		for _, column := range workspace.Documents[document].Columns {
 			if column.Column == command.Column {
 				found = true
+				removeConstructionColumnValues(&workspace.Documents[document], column.ColumnID)
+				removeExplicitGroupRowValue(&workspace.Documents[document], column.ColumnID)
 				continue
 			}
 			columns = append(columns, column)
@@ -1484,7 +1505,10 @@ func setPopulation(document *Document, catalog CatalogSnapshot, selectionRevisio
 		if from.ResourceType == to.ResourceType && !catalog.RoutePolicy.AllowSelfLoops {
 			return fmt.Errorf("population edge %q is a self-loop but self-loops are not allowed", edgeID)
 		}
-		steps = append(steps, PopulationRouteStep{ResourceType: to.ResourceType, Relationship: edge.Label, CatalogEdgeID: edge.ID})
+		steps = append(steps, PopulationRouteStep{
+			ResourceType: to.ResourceType, Relationship: edge.Label,
+			CatalogEdgeID: edge.ID, StorageDirection: edge.StorageDirection,
+		})
 		seenEdges[edge.ID] = true
 		current = to
 	}
@@ -1998,11 +2022,27 @@ func applyInitialPresentation(column *Column, presentation string, tableOrder in
 	}
 }
 
-func nextTableOrder(columns []Column) int {
+func nextTableOrder(document Document) int {
 	result := 0
-	for _, column := range columns {
+	if document.Rows.Kind == RowDefinitionGroups && document.Rows.Groups != nil && document.Rows.Groups.Source.Kind == GroupSourceExplicit {
+		// Cohort label, ordinal and members precede the contributed fields.
+		result = 3 + len(document.Rows.Groups.RowValues)
+	}
+	for _, column := range document.Columns {
 		if column.Table != nil && column.Table.Order != nil && *column.Table.Order >= result {
 			result = *column.Table.Order + 1
+		}
+	}
+	if document.Construction != nil && len(document.Construction.Steps) > 0 {
+		outputs := document.Construction.Steps[len(document.Construction.Steps)-1].Outputs
+		for index, output := range outputs {
+			order := index
+			if output.Table != nil && output.Table.Order != nil {
+				order = *output.Table.Order
+			}
+			if order >= result {
+				result = order + 1
+			}
 		}
 	}
 	return result

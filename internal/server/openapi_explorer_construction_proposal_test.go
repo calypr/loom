@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"reflect"
 	"testing"
 
 	loomapi "github.com/calypr/loom/generated/loomapi"
@@ -348,7 +349,7 @@ func TestRelatedExpandChoiceHTTPReturnsExactStageBoundRoute(t *testing.T) {
 		t.Fatalf("related expansion contributor search envelope = %#v", contributors)
 	}
 	contributor := contributors.Choices[0]
-	if contributor.Source.Kind != loomapi.RelatedSourceFieldKindFIELD || contributor.Source.CandidateId != "c_observation_status" ||
+	if contributor.Source.Kind != loomapi.RelatedExpandContributorSourceKindFIELD || contributor.Source.CandidateId != "c_observation_status" ||
 		contributor.Source.NodeId != "n_observation" || contributor.Source.ResourceType != "Observation" || contributor.Source.Path != "status" ||
 		contributor.Source.LogicalType != "string" || len(contributor.Operators) != 2 ||
 		contributor.Operators[0] != loomapi.RelatedExpandContributorChoiceOperators("EXISTS") ||
@@ -943,5 +944,86 @@ func TestEmptyConstructionBootstrapAddFirstColumnAndProposeOperation(t *testing.
 	}
 	if len(workspace.Documents[0].Construction.Steps) != 1 || workspace.Documents[0].Construction.Steps[0].ID != "keep_observation_status" {
 		t.Fatalf("proposal did not atomically install its typed step: %#v", workspace.Documents[0].Construction)
+	}
+}
+
+func TestRelatedExpandContributorTypedWireSourcesPreserveRepeatedBoundaries(t *testing.T) {
+	boundaries := []capability.RepeatedBoundary{
+		{Path: "category[]", MaxItems: 4},
+		{Path: "category[].coding[]", MaxItems: 8},
+	}
+	source := authoringv2.ConstructionRelatedFieldSource{
+		Kind: capability.ConstructionChoiceSourceField, CandidateID: "candidate-code", NodeID: "node-observation",
+		ResourceType: "Observation", Path: "category[].coding[].code", Cardinality: "many", LogicalType: "string",
+		RepeatedBoundaries: boundaries,
+	}
+
+	response, err := directAuthoringJSON[loomapi.RelatedExpandContributorChoiceSearchResponse](
+		lifecycle.RelatedExpandContributorChoiceSearchResponse{
+			SnapshotToken: "snapshot", DraftVersion: 2, DraftDigest: "draft-digest", OutputID: "output",
+			StageID: "stage", RouteChoiceID: "route-choice", Complete: true,
+			Choices: []lifecycle.RelatedExpandContributorChoice{{
+				ChoiceID: "field-choice", Source: source, Label: "Observation.category[].coding[].code",
+				Operators: []string{"EXISTS", "EQUALS"}, SuggestedValues: []string{"d"},
+				SuggestionsComplete: true, SuggestionsSource: "catalog",
+			}},
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(response.Choices) != 1 {
+		t.Fatalf("typed contributor response choices = %#v", response.Choices)
+	}
+	wireSource := response.Choices[0].Source
+	if wireSource.Cardinality != "many" ||
+		wireSource.RepeatedBoundaries == nil || !reflect.DeepEqual(*wireSource.RepeatedBoundaries, []loomapi.RepeatedBoundary{
+		{Path: "category[]", MaxItems: 4}, {Path: "category[].coding[]", MaxItems: 8},
+	}) {
+		t.Fatalf("typed contributor response dropped repeated metadata: %#v", wireSource)
+	}
+
+	relatedExpand := authoringv2.ConstructionRelatedExpand{
+		AnchorColumnID: "anchor", ChoiceID: "route-choice", TargetNodeID: "node-observation",
+		TargetResourceType: "Observation", ContributorRule: authoringv2.ConstructionRelatedContributorRule{
+			Policy: authoringv2.ConstructionRelatedAllMatches,
+		},
+		ContributorSource: &source, ContributorChoiceID: "field-choice",
+		EmptyPolicy: authoringv2.ConstructionExpandEmptyExclude, RelatedRecordColumnID: "observation-id",
+	}
+	authored := authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{{
+		ID: "related-step", Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}},
+		Operation: authoringv2.ConstructionOperation{
+			Kind: authoringv2.ConstructionOperationRelatedExpand, RelatedExpand: &relatedExpand,
+		},
+		Outputs: []authoringv2.StageColumn{},
+	}}}
+	constructionJSON, err := json.Marshal(authored)
+	if err != nil {
+		t.Fatal(err)
+	}
+	proposalJSON := append([]byte(`{"candidateConstruction":`), constructionJSON...)
+	proposalJSON = append(proposalJSON, '}')
+	var proposalRequest loomapi.ConstructionProposalRequest
+	if err := json.Unmarshal(proposalJSON, &proposalRequest); err != nil {
+		t.Fatal(err)
+	}
+	if len(proposalRequest.CandidateConstruction.Steps) != 1 {
+		t.Fatalf("typed proposal request construction = %#v", proposalRequest.CandidateConstruction.Steps)
+	}
+	requestDTO := proposalRequest.CandidateConstruction.Steps[0].Operation.RelatedExpand
+	if requestDTO == nil || requestDTO.ContributorSource == nil ||
+		requestDTO.ContributorSource.Cardinality != "many" ||
+		requestDTO.ContributorSource.RepeatedBoundaries == nil ||
+		len(*requestDTO.ContributorSource.RepeatedBoundaries) != len(boundaries) {
+		t.Fatalf("typed RelatedExpand proposal request dropped repeated source metadata: %#v", requestDTO)
+	}
+	request, err := directAuthoringJSON[authoringv2.Construction](proposalRequest.CandidateConstruction)
+	if err != nil {
+		t.Fatal(err)
+	}
+	restoredSource := request.Steps[0].Operation.RelatedExpand.ContributorSource
+	if restoredSource == nil || !reflect.DeepEqual(restoredSource.RepeatedBoundaries, boundaries) {
+		t.Fatalf("typed RelatedExpand proposal request round trip dropped repeated boundaries: %#v", restoredSource)
 	}
 }

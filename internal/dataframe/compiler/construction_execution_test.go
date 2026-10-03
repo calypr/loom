@@ -286,6 +286,9 @@ func TestConstructionPreviewCoveringIndexMetadataAndRootHint(t *testing.T) {
 	if index == nil {
 		t.Fatalf("eligible terminal Pivot preview has no covering-index spec:\n%s", query.Query)
 	}
+	if index.PrepareAfterPreview {
+		t.Fatal("Pivot covering index must remain prepared before the preview query")
+	}
 	if index.Collection != "Patient" {
 		t.Fatalf("index collection = %q, want Patient", index.Collection)
 	}
@@ -329,6 +332,96 @@ func TestConstructionPreviewCoveringIndexIneligiblePlansStayUnhinted(t *testing.
 				t.Fatalf("ineligible plan received an index hint:\n%s", query.Query)
 			}
 		})
+	}
+}
+
+func TestConstructionGroupPreviewUsesProjectionFieldsAndOneRootHint(t *testing.T) {
+	query := compileConstructionOutputQuery(t, constructionGroupRowValuesOutput(), "group-covering-project", "group-covering-generation")
+	index := query.PreviewCoveringIndex
+	if index == nil {
+		t.Fatalf("eligible terminal Group preview has no covering-index spec:\n%s", query.Query)
+	}
+	if index.Collection != "Observation" {
+		t.Fatalf("index collection = %q, want Observation", index.Collection)
+	}
+	if !index.PrepareAfterPreview {
+		t.Fatal("eligible Group covering index should be prepared after the preview query")
+	}
+	wantFields := []string{"project", "dataset_generation", "auth_resource_path", "payload.note", "payload.status"}
+	if !reflect.DeepEqual(index.Fields, wantFields) {
+		t.Fatalf("index fields = %#v, want %#v", index.Fields, wantFields)
+	}
+	wantHint := "OPTIONS { indexHint: \"" + index.Name + "\", forceIndexHint: false }"
+	if strings.Count(query.Query, wantHint) != 1 || !strings.Contains(query.Query, "FOR root IN @@root_collection "+wantHint) {
+		t.Fatalf("Group source should receive one non-forcing root hint %q:\n%s", wantHint, query.Query)
+	}
+	if strings.Count(query.Query, "FOR root IN @@root_collection") != 1 {
+		t.Fatalf("Group preview unexpectedly changed its source scan count:\n%s", query.Query)
+	}
+	sequential := query.PreviewGroupScan
+	if sequential == nil || sequential.Collection != index.Collection {
+		t.Fatalf("eligible direct Group preview has no scan alternatives: %+v", sequential)
+	}
+	if !strings.Contains(sequential.SequentialQuery, "OPTIONS { disableIndex: true }") || strings.Contains(sequential.SequentialQuery, "indexHint:") {
+		t.Fatalf("sequential alternative did not disable only its direct root index:\n%s", sequential.SequentialQuery)
+	}
+	for _, scope := range []string{
+		"root.project == @project", "root.dataset_generation == @dataset_generation",
+		"root.auth_resource_path IN @auth_resource_paths", "FILTER root_scope_allowed == @scope_allowed",
+	} {
+		if !strings.Contains(sequential.ScopeCountQuery, scope) {
+			t.Fatalf("scope count omitted canonical filter %q:\n%s", scope, sequential.ScopeCountQuery)
+		}
+	}
+	if !strings.Contains(sequential.ScopeCountQuery, "COLLECT WITH COUNT INTO") ||
+		!strings.Contains(sequential.ScopeCountQuery, "RETURN {count:") ||
+		strings.Contains(sequential.ScopeCountQuery, "payload.note") || strings.Contains(sequential.ScopeCountQuery, "construction_group") {
+		t.Fatalf("scope count should return a named count without projecting or grouping source values:\n%s", sequential.ScopeCountQuery)
+	}
+	for _, bind := range []string{"project", "dataset_generation", "auth_resource_paths"} {
+		if _, ok := sequential.ScopeCountBindVars[bind]; !ok {
+			t.Fatalf("scope count omitted %q bind", bind)
+		}
+	}
+
+	repeated := compileConstructionOutputQuery(t, constructionGroupRowValuesOutput(), "group-covering-project", "group-covering-generation")
+	if repeated.PreviewCoveringIndex == nil || repeated.PreviewCoveringIndex.Name != index.Name || !repeated.PreviewCoveringIndex.PrepareAfterPreview ||
+		!reflect.DeepEqual(repeated.PreviewCoveringIndex.Fields, index.Fields) {
+		t.Fatalf("Group covering-index metadata is not deterministic: first=%+v second=%+v", index, repeated.PreviewCoveringIndex)
+	}
+
+	fullOutput := lowerConstructionOutput(t, constructionGroupRowValuesOutput(), recipe.RuntimeBindings{
+		Project: "group-covering-project", DatasetGeneration: "group-covering-generation",
+	})
+	full, err := CompileRecipeOutputWithPolicy(fullOutput, recipe.RuntimeBindings{
+		Project: "group-covering-project", DatasetGeneration: "group-covering-generation",
+	}, 0, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if full.PreviewCoveringIndex != nil || strings.Contains(full.Query, "indexHint:") {
+		t.Fatalf("full Group execution received preview index metadata or a hint: %+v\n%s", full.PreviewCoveringIndex, full.Query)
+	}
+}
+
+func TestConstructionGroupScanAlternativeRejectsExtraSourceFilters(t *testing.T) {
+	bindings := recipe.RuntimeBindings{Project: "group-scan-project", DatasetGeneration: "group-scan-generation"}
+	output := lowerConstructionOutput(t, constructionGroupRowValuesOutput(), bindings)
+	if len(output.Plan.Operations) < 2 || output.Plan.Operations[1].Kind != ir.PhysicalFilterOp {
+		t.Fatalf("expected canonical project scope filter in source plan: %+v", output.Plan.Operations)
+	}
+	operations := append([]ir.PhysicalOperation(nil), output.Plan.Operations[:len(output.Plan.Operations)-1]...)
+	operations = append(operations, output.Plan.Operations[1], output.Plan.Operations[len(output.Plan.Operations)-1])
+	output.Plan.Operations = operations
+	query, err := CompileRecipeOutputWithPolicy(output, bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if query.PreviewCoveringIndex == nil {
+		t.Fatal("extra source filter should not disable the independently safe covering-index hint")
+	}
+	if query.PreviewGroupScan != nil {
+		t.Fatalf("scan decision metadata must reject a Group source with a non-scope filter: %+v", query.PreviewGroupScan)
 	}
 }
 

@@ -290,14 +290,24 @@ type PhysicalUnnestRouteStep struct {
 	Scope        []PhysicalOperation
 }
 
+// PhysicalUnnestAncestor retains one repeated item traversed on the way to
+// the selected item. It lets correlated projections read sibling fields from
+// the exact enclosing item that produced each expanded row.
+type PhysicalUnnestAncestor struct {
+	StepIndex int
+	Variable  string
+}
+
 // PhysicalUnnest is the single enriched cardinality boundary. It carries the
-// typed owner route, source, empty policy, and compiler-owned item evidence.
+// typed owner route, source, empty policy, compiler-owned item evidence, and
+// any repeated ancestors needed to keep nested projections correlated.
 type PhysicalUnnest struct {
 	Owner           PhysicalUnnestOwner
 	OutputVariable  string
 	Ordinality      string
 	HasItemVariable string
 	Expression      PhysicalExpression
+	Ancestors       []PhysicalUnnestAncestor
 	EmptyPolicy     PhysicalUnnestEmptyPolicy
 }
 
@@ -397,6 +407,9 @@ type PhysicalSubplan struct {
 	// validated in the subplan's local scope and is absent from EXISTS plans.
 	Sort   *PhysicalValue
 	Unique bool
+	// DistinctBy groups projected values by one exact identity while preserving
+	// equal values from different identities. It is used for related ALL forms.
+	DistinctBy *PhysicalValue
 }
 
 // PhysicalCollectionScan reads a compiler-provided collection inside a
@@ -523,16 +536,21 @@ type PhysicalGroupedPivot struct {
 	// OneInputRowPerGroup is set only when lowering proves that a direct root
 	// resource ID is among the group keys and the source plan cannot multiply
 	// root rows. Renderers can then emit one pivot row per input without COLLECT.
-	OneInputRowPerGroup    bool
-	InputProjections       []PhysicalProjection
-	GroupKeys              []PhysicalGroupedPivotKey
-	CategoryColumn         string
-	CategoryPresenceColumn string
-	CategoryPresence       *PhysicalProjectionPresence
-	CategoryType           string
-	ValueColumn            string
-	ValueType              string
-	Categories             []PhysicalGroupedPivotCategory
+	OneInputRowPerGroup         bool
+	InputProjections            []PhysicalProjection
+	GroupKeys                   []PhysicalGroupedPivotKey
+	CategoryColumn              string
+	CategoryPresenceColumn      string
+	CategoryPresence            *PhysicalProjectionPresence
+	CategoryType                string
+	ValueColumn                 string
+	ValueType                   string
+	Categories                  []PhysicalGroupedPivotCategory
+	RowValues                   []PhysicalStageRowValue
+	RootContributorInputColumn  string
+	RootContributorInputMany    bool
+	RootContributorOutputColumn string
+	RootContributorVariable     string
 	// CodedCorrelation is present for construction CODED_PIVOT. The renderer
 	// substitutes each coded category's bound system/code pair into this one
 	// checked owner/key/value binding, keeping category identity and value in

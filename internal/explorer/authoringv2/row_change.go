@@ -97,7 +97,7 @@ func AssessRowChange(workspace Workspace, catalog CatalogSnapshot, request RowCh
 	for index := 0; index < len(path)-1; index++ {
 		parent, child := path[index], path[index+1]
 		reverseEdges := catalogEdgesBetweenResourceTypes(catalog, child.ResourceType, parent.ResourceType)
-		choice, unresolved := selectReverseEdge(reverseEdges, request.RouteRebase, parent.OccurrenceID)
+		choice, unresolved := selectReverseEdge(reverseEdges, request.RouteRebase, parent.OccurrenceID, child.Relationship)
 		if unresolved != nil {
 			assessment.Unresolved = append(assessment.Unresolved, *unresolved)
 			return assessment, nil
@@ -217,7 +217,10 @@ func applyRowChange(document Document, catalog CatalogSnapshot, proposal RowChan
 		prefix := make([]PopulationRouteStep, 0, len(path)-1)
 		for index := len(path) - 2; index >= 0; index-- {
 			edge := choices[path[index].OccurrenceID]
-			prefix = append(prefix, PopulationRouteStep{ResourceType: path[index].ResourceType, Relationship: edge.Label, CatalogEdgeID: edge.ID})
+			prefix = append(prefix, PopulationRouteStep{
+				ResourceType: path[index].ResourceType, Relationship: edge.Label,
+				CatalogEdgeID: edge.ID, StorageDirection: edge.StorageDirection,
+			})
 		}
 		document.Population.Route = append(prefix, document.Population.Route...)
 	}
@@ -298,7 +301,7 @@ func catalogEdgesBetweenResourceTypes(catalog CatalogSnapshot, fromResourceType,
 	return result
 }
 
-func selectReverseEdge(candidates []CatalogEdge, choices []RouteRebaseChoice, occurrenceID string) (CatalogEdge, *RowChangeUnresolvedReference) {
+func selectReverseEdge(candidates []CatalogEdge, choices []RouteRebaseChoice, occurrenceID, authoredRelationship string) (CatalogEdge, *RowChangeUnresolvedReference) {
 	requested := ""
 	for _, choice := range choices {
 		if choice.OccurrenceID == occurrenceID {
@@ -313,6 +316,22 @@ func selectReverseEdge(candidates []CatalogEdge, choices []RouteRebaseChoice, oc
 			}
 		}
 		return CatalogEdge{}, &RowChangeUnresolvedReference{Kind: RowReferenceRoute, ID: occurrenceID, Code: "INVALID_ROUTE_REBASE_EDGE", Message: "the selected inverse relationship cannot connect the new row root to the previous root"}
+	}
+	if authoredRelationship != "" {
+		var matching CatalogEdge
+		for _, candidate := range candidates {
+			if candidate.Label != authoredRelationship {
+				continue
+			}
+			if matching.ID != "" {
+				matching = CatalogEdge{}
+				break
+			}
+			matching = candidate
+		}
+		if matching.ID != "" {
+			return matching, nil
+		}
 	}
 	if len(candidates) == 1 {
 		return candidates[0], nil

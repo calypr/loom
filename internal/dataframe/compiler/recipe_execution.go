@@ -69,9 +69,14 @@ func CompileRecipeOutputWithPolicy(output lower.CompiledRecipeOutput, bindings r
 		}
 	}
 	previewCoveringIndex := previewCoveringIndexSpec(physical)
+	previewGroupScan := previewGroupScanSpec(physical, previewCoveringIndex)
 	var rendered aql.RenderedPhysicalPlan
 	if previewCoveringIndex != nil {
-		rendered, err = aql.RenderPhysicalPlanWithTwoScanPivotPreview(physical, previewCoveringIndex.Name, previewCoveringIndex.pivotGroupKeyPaths)
+		if len(previewCoveringIndex.pivotGroupKeyPaths) != 0 {
+			rendered, err = aql.RenderPhysicalPlanWithTwoScanPivotPreview(physical, previewCoveringIndex.Name, previewCoveringIndex.pivotGroupKeyPaths)
+		} else {
+			rendered, err = aql.RenderPhysicalPlanWithRootIndexHint(physical, previewCoveringIndex.Name)
+		}
 	} else if canRenderDynamicCategoryPivotPreview(physical) {
 		rendered, err = aql.RenderPhysicalPlanWithDynamicCategoryPivotPreview(physical)
 	} else {
@@ -119,9 +124,10 @@ func CompileRecipeOutputWithPolicy(output lower.CompiledRecipeOutput, bindings r
 		PublicColumns:      publicColumns,
 		PivotFields:        pivotFields,
 		Limit:              limit,
-		PartialValidation: physical.StageSequence != nil && physical.StageSequence.PreviewLimitBindKey != "" &&
-			(physical.StageSequence.PreviewSourceWindowByRootID || physical.StageSequence.PreviewTerminalPivotWindow),
+		PartialValidation: rendered.PartialValidation || (physical.StageSequence != nil && physical.StageSequence.PreviewLimitBindKey != "" &&
+			(physical.StageSequence.PreviewSourceWindowByRootID || physical.StageSequence.PreviewTerminalPivotWindow)),
 		PreviewCoveringIndex: previewCoveringIndex,
+		PreviewGroupScan:     previewGroupScan,
 		PlanDiagnostics:      physicalPlanDiagnostics(physical),
 	}, nil
 }
@@ -176,6 +182,11 @@ func withPreviewSourceResourceID(output lower.CompiledRecipeOutput, plan ir.Phys
 			stage.OutputProjections = appendUniqueProjection(stage.OutputProjections, inputProjection)
 			if stage.Unpivot != nil {
 				stage.Unpivot.InputProjections = appendUniqueProjection(stage.Unpivot.InputProjections, inputProjection)
+				if len(stage.Unpivot.PreservedOutputs) != 0 {
+					stage.Unpivot.PreservedOutputs = appendUniqueUnpivotOutput(stage.Unpivot.PreservedOutputs, ir.PhysicalUnpivotOutput{
+						InputColumn: sourceColumn.Name, OutputColumn: sourceColumn.Name,
+					})
+				}
 			}
 		}
 	}
@@ -187,8 +198,22 @@ func withPreviewSourceResourceID(output lower.CompiledRecipeOutput, plan ir.Phys
 		inputProjection := projection
 		inputProjection.Value = ir.PhysicalValue{Variable: rootVariable, Path: []string{"id"}}
 		operation.Unpivot.InputProjections = appendUniqueProjection(operation.Unpivot.InputProjections, inputProjection)
+		if len(operation.Unpivot.PreservedOutputs) != 0 {
+			operation.Unpivot.PreservedOutputs = appendUniqueUnpivotOutput(operation.Unpivot.PreservedOutputs, ir.PhysicalUnpivotOutput{
+				InputColumn: inputProjection.Name, OutputColumn: inputProjection.Name,
+			})
+		}
 	}
 	return plan, true, nil
+}
+
+func appendUniqueUnpivotOutput(outputs []ir.PhysicalUnpivotOutput, candidate ir.PhysicalUnpivotOutput) []ir.PhysicalUnpivotOutput {
+	for _, output := range outputs {
+		if output.InputColumn == candidate.InputColumn {
+			return outputs
+		}
+	}
+	return append(outputs, candidate)
 }
 
 func appendUniqueProjection(projections []ir.PhysicalProjection, candidate ir.PhysicalProjection) []ir.PhysicalProjection {
@@ -213,6 +238,13 @@ func outputHasCompositeSource(output lower.CompiledRecipeOutput) bool {
 	for _, operation := range output.Plan.Operations {
 		if operation.Kind == ir.PhysicalGroupRowsOp || operation.Kind == ir.PhysicalGroupedPivotOp {
 			return true
+		}
+	}
+	if sequence := output.Plan.StageSequence; sequence != nil {
+		for _, stage := range sequence.Stages {
+			if stage.Kind == ir.PhysicalStageCohortGroupOp {
+				return true
+			}
 		}
 	}
 	for _, stage := range output.Stages {

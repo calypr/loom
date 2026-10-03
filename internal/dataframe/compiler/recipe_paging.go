@@ -68,7 +68,12 @@ func CompileRecipeOutputPageWithPolicy(output lower.CompiledRecipeOutput, bindin
 	if err != nil {
 		return CompiledOutputPage{}, fmt.Errorf("render root-key page: %w", err)
 	}
-	rows, err := aql.RenderPhysicalPlan(rowsPlan)
+	var rows aql.RenderedPhysicalPlan
+	if bindings.PreviewLimit > 0 {
+		rows, err = aql.RenderPhysicalPlanWithRelatedExpandPreviewLimit(rowsPlan, bindings.PreviewLimit)
+	} else {
+		rows, err = aql.RenderPhysicalPlan(rowsPlan)
+	}
 	if err != nil {
 		return CompiledOutputPage{}, fmt.Errorf("render selected-root page: %w", err)
 	}

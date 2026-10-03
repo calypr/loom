@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
+	"github.com/calypr/loom/internal/dataframe/expression"
 	"github.com/calypr/loom/internal/dataframe/lineage"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/semantic"
@@ -88,6 +89,9 @@ type CompiledOutputColumn struct {
 	// RelatedRecordAnchor marks the hidden exact terminal document identity
 	// emitted by RELATED_EXPAND. It is copied only by row-preserving stages.
 	RelatedRecordAnchor *CompiledRelatedRecordAnchor
+	// RootContributorResourceType marks a compiler-proven root identity or a
+	// hidden, globally deduplicated set of contributing root identities.
+	RootContributorResourceType string
 }
 
 type CompiledRelatedRecordAnchor struct {
@@ -188,6 +192,7 @@ func CompileResolvedRecipePlan(resolved semantic.ResolvedRecipePlan, policy ir.P
 }
 
 func compileRecipeOutput(output semantic.OutputPlan, bindings recipe.RuntimeBindings, resolvedColumns map[string][]semantic.ResolvedColumn, policy ir.PhysicalOptimizationPolicy) (CompiledRecipeOutput, error) {
+	composedCohort := output.GroupRows != nil && output.Construction != nil && len(output.Construction.Steps) > 0
 	identity, ok := spec.DefaultRowIdentity(spec.RowGrain(output.RowGrain))
 	if !ok {
 		return CompiledRecipeOutput{}, fmt.Errorf("row grain %q has no canonical identity", output.RowGrain)
@@ -211,7 +216,7 @@ func compileRecipeOutput(output semantic.OutputPlan, bindings recipe.RuntimeBind
 	}
 	var physical ir.PhysicalPlan
 	var err error
-	if output.GroupRows != nil {
+	if output.GroupRows != nil && !composedCohort {
 		physical, err = buildGroupRowsPhysicalPlan(output, context)
 	} else {
 		physical, err = buildGenericPhysicalPlanWithPolicy(output, context, policy, recipeFieldProjectionLowerer(output))
@@ -219,7 +224,7 @@ func compileRecipeOutput(output semantic.OutputPlan, bindings recipe.RuntimeBind
 	if err != nil {
 		return CompiledRecipeOutput{}, err
 	}
-	if output.GroupRows == nil {
+	if output.GroupRows == nil || composedCohort {
 		if err := appendRecipeIdentity(&physical, output); err != nil {
 			return CompiledRecipeOutput{}, err
 		}
@@ -234,7 +239,25 @@ func compileRecipeOutput(output semantic.OutputPlan, bindings recipe.RuntimeBind
 	if err := appendRecipeColumnTransformations(&physical, output.ColumnTransformations); err != nil {
 		return CompiledRecipeOutput{}, err
 	}
-	baseOutputSchema, err := recipeOutputSchema(physical, output, dynamicMetadata, nil)
+	cohort := (*cohortGroupCompileInput)(nil)
+	if composedCohort {
+		rows, binds, groupErr := buildCohortGroupRows(output, context)
+		if groupErr != nil {
+			return CompiledRecipeOutput{}, groupErr
+		}
+		cohort = &cohortGroupCompileInput{Output: output, Rows: rows, BindVars: binds, AfterStepID: output.GroupRows.AfterStepID}
+		for key, value := range binds {
+			if _, exists := physical.BindVars[key]; exists {
+				return CompiledRecipeOutput{}, fmt.Errorf("cohort group bind %q collides with source plan", key)
+			}
+			physical.BindVars[key] = value
+		}
+	}
+	sourceOutput := output
+	if composedCohort {
+		sourceOutput.GroupRows = nil
+	}
+	baseOutputSchema, err := recipeOutputSchema(physical, sourceOutput, dynamicMetadata, nil)
 	if err != nil {
 		return CompiledRecipeOutput{}, err
 	}
@@ -242,8 +265,14 @@ func compileRecipeOutput(output semantic.OutputPlan, bindings recipe.RuntimeBind
 	var stageDescriptors []CompiledStageDescriptor
 	finalStageIdentity := ""
 	var derivedTypes map[string]derivedColumnMetadata
-	if output.Construction != nil {
-		reshapeSchema, stageDescriptors, finalStageIdentity, err = appendRecipeConstructionStages(&physical, output.Name, output.RootResourceType, *output.Construction, baseOutputSchema, policy)
+	if output.GroupRows != nil && !composedCohort {
+		reshapeSchema = CloneCompiledOutputSchema(baseOutputSchema)
+		stageDescriptors, finalStageIdentity, err = describeGroupRowsStages(output, baseOutputSchema)
+		if err != nil {
+			return CompiledRecipeOutput{}, err
+		}
+	} else if output.Construction != nil {
+		reshapeSchema, stageDescriptors, finalStageIdentity, err = appendRecipeConstructionStages(&physical, output.Name, output.RootResourceType, *output.Construction, baseOutputSchema, policy, cohort)
 		if err != nil {
 			return CompiledRecipeOutput{}, err
 		}
@@ -269,7 +298,7 @@ func compileRecipeOutput(output semantic.OutputPlan, bindings recipe.RuntimeBind
 	var outputSchema []CompiledOutputColumn
 	if output.Construction != nil {
 		outputSchema = CloneCompiledOutputSchema(reshapeSchema)
-		if len(output.Construction.Steps) > 0 {
+		if composedCohort && len(stageDescriptors) > 1 {
 			identity.Fields = []string{finalStageIdentity}
 		}
 	} else {
@@ -286,6 +315,43 @@ func compileRecipeOutput(output semantic.OutputPlan, bindings recipe.RuntimeBind
 		RowGrain: output.RowGrain, RootColumnNaming: output.RootColumnNaming, Columns: physicalOutputColumns(outputSchema), OutputSchema: outputSchema,
 		RowIdentity: (&identity).Clone(), DynamicColumns: dynamicMetadata, Stages: stageDescriptors, Plan: physical,
 	}, nil
+}
+
+func describeGroupRowsStages(output semantic.OutputPlan, outputSchema []CompiledOutputColumn) ([]CompiledStageDescriptor, string, error) {
+	if output.GroupRows == nil {
+		return nil, "", fmt.Errorf("explicit group rows are required")
+	}
+	fields := make(map[string]semantic.SemanticField, len(output.Root.Fields))
+	for _, field := range output.Root.Fields {
+		fields[field.ColumnID] = field
+	}
+	sourceColumns := make([]CompiledOutputColumn, 0, len(output.GroupRows.RowValues)+1)
+	for _, selected := range output.GroupRows.RowValues {
+		field, ok := fields[selected.ColumnID]
+		if !ok {
+			return nil, "", fmt.Errorf("group row value column ID %q is missing from the root projection", selected.ColumnID)
+		}
+		sourceColumns = append(sourceColumns, CompiledOutputColumn{
+			ID: field.ColumnID, Name: field.Name, Label: constructionFirstNonEmpty(field.Label, field.Name),
+			SemanticPath: recipeSemanticPath(output.RootResourceType, output.Root.ResourceType, field.FieldRef, field.Expr.Expression),
+			Kind:         string(field.Expr.Type.Kind), Cardinality: string(field.Expr.Type.Cardinality), Nullable: field.Expr.Type.Cardinality.Optional(),
+		})
+	}
+	sourceColumns = append(sourceColumns, CompiledOutputColumn{
+		ID: "_key", Name: "_key", Label: "_key", SemanticPath: "source:member_identity",
+		Kind: string(expression.KindString), Cardinality: string(expression.RequiredOne), Internal: true, Identity: true,
+	})
+	const rowIdentity = "__loom_row_id"
+	source := CompiledStageDescriptor{
+		ID: recipe.ConstructionSourceProjectionID, Operation: "SOURCE_PROJECTION",
+		Columns: sourceColumns, RowIdentityColumn: "_key",
+	}
+	groupRows := CompiledStageDescriptor{
+		ID: "group_rows", InputStageID: recipe.ConstructionSourceProjectionID, Operation: "GROUP_ROWS",
+		Columns: CloneCompiledOutputSchema(outputSchema), RowIdentityColumn: rowIdentity,
+		Capabilities: withConstructionCapability(stageCapabilities(outputSchema, false), StageOperationCapability{Operation: recipe.ConstructionOperationKind("ROW_VALUES"), Supported: true}),
+	}
+	return []CompiledStageDescriptor{source, groupRows}, rowIdentity, nil
 }
 
 func validateSemanticOutputNames(output semantic.OutputPlan) error {

@@ -38,7 +38,13 @@ func validatePhysicalExtract(extract PhysicalExtract, defined map[string]bool, b
 		return fmt.Errorf("conditional array selector mode requires one fallback-free repeated selector")
 	}
 	for index, fallback := range extract.Fallbacks {
-		if err := validatePhysicalSelector(extract.ResourceType, fallback); err != nil {
+		if err := validatePhysicalValue(fallback.Source, defined, bindVars); err != nil {
+			return fmt.Errorf("extract fallback %d source: %w", index, err)
+		}
+		if !schemaDefinitionExists(fallback.ResourceType) {
+			return fmt.Errorf("extract fallback %d resource type %q is not represented by the active generated FHIR schema", index, fallback.ResourceType)
+		}
+		if err := validatePhysicalSelector(fallback.ResourceType, fallback.Selector); err != nil {
 			return fmt.Errorf("extract fallback %d: %w", index, err)
 		}
 	}

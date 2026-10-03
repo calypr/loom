@@ -66,6 +66,8 @@ func (r *HTTPRoutes) ExecuteGraphQL(ctx context.Context, request loomapi.Execute
 		return loomapi.ExecuteGraphQL422JSONResponse{GraphQLUnprocessableJSONResponse: loomapi.GraphQLUnprocessableJSONResponse(value)}, nil
 	case http.StatusInternalServerError:
 		return loomapi.ExecuteGraphQL500JSONResponse{GraphQLInternalErrorJSONResponse: loomapi.GraphQLInternalErrorJSONResponse(value)}, nil
+	case http.StatusServiceUnavailable:
+		return loomapi.ExecuteGraphQL503JSONResponse(value), nil
 	default:
 		return nil, unexpectedResponseStatus("executeGraphQL", status)
 	}
@@ -98,6 +100,8 @@ func (r *HTTPRoutes) ExecuteDataframeGraphQL(ctx context.Context, request loomap
 		return loomapi.ExecuteDataframeGraphQL422JSONResponse{GraphQLUnprocessableJSONResponse: loomapi.GraphQLUnprocessableJSONResponse(value)}, nil
 	case http.StatusInternalServerError:
 		return loomapi.ExecuteDataframeGraphQL500JSONResponse{GraphQLInternalErrorJSONResponse: loomapi.GraphQLInternalErrorJSONResponse(value)}, nil
+	case http.StatusServiceUnavailable:
+		return loomapi.ExecuteDataframeGraphQL503JSONResponse(value), nil
 	default:
 		return nil, unexpectedResponseStatus("executeDataframeGraphQL", status)
 	}

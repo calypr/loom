@@ -52,8 +52,11 @@ describe('RelatedEligibilityEditor', () => {
       catalog={catalog} construction={capabilities.baseConstruction} capabilities={capabilities}
       disabled={false} onCandidateChange={onCandidateChange}
     />);
+    expect(screen.getByText('Start from')).toBeInTheDocument();
+    expect(screen.getByText('Original Patient record')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Related eligibility anchor')).not.toBeInTheDocument();
     fireEvent.change(screen.getByLabelText('Related eligibility record type'), { target: { value: 'Observation' } });
-    fireEvent.click(await screen.findByRole('radio', { name: 'Patient to Observation through subject' }));
+    fireEvent.click(await screen.findByRole('radio', { name: 'Patient <-[subject]- Observation' }));
     const exists = onCandidateChange.mock.lastCall?.[0]?.candidateConstruction.steps[0];
     expect(exists?.operation.relatedEligibility).toMatchObject({
       anchorColumnId: '_key', choiceId: 'signed-subject-route', targetNodeId: 'observation-node',
@@ -64,6 +67,7 @@ describe('RelatedEligibilityEditor', () => {
     expect(onCandidateChange.mock.lastCall?.[0]?.candidateConstruction.steps[0].operation.relatedEligibility.match).toEqual({ kind: 'ABSENT' });
     fireEvent.change(screen.getByLabelText('Related eligibility rule'), { target: { value: 'COUNT_AT_LEAST' } });
     expect(onCandidateChange.mock.lastCall?.[0]?.candidateConstruction.steps[0].operation.relatedEligibility.match).toEqual({ kind: 'COUNT_AT_LEAST', threshold: 2 });
+    expect(screen.getByText('Each matching related record is counted once per current row, even if several starting records link to it.')).toBeInTheDocument();
   });
 
   it('does not offer a route when the compiler has not enabled this operation', () => {

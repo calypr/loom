@@ -46,7 +46,11 @@ func buildRecipeOutput(output recipe.Output, bindings recipe.RuntimeBindings) (O
 		plan.TableReshape = reshape
 	}
 	if output.GroupRows != nil {
-		plan.GroupRows = &SemanticGroupRows{RevisionID: output.GroupRows.RevisionID, UnassignedMemberPolicy: output.GroupRows.UnassignedMemberPolicy}
+		plan.GroupRows = &SemanticGroupRows{
+			RevisionID: output.GroupRows.RevisionID, UnassignedMemberPolicy: output.GroupRows.UnassignedMemberPolicy,
+			AfterStepID: output.GroupRows.AfterStepID,
+			RowValues: append([]recipe.GroupRowValuePolicy(nil), output.GroupRows.RowValues...),
+		}
 	}
 	if output.Expand != nil {
 		occurrences, err := recipeOccurrenceIndex(output)
@@ -259,7 +263,10 @@ func finishRecipeOutput(plan OutputPlan, output recipe.Output, scope, projection
 	if output.Population != nil {
 		route := make([]SemanticPopulationRouteStep, len(output.Population.Route))
 		for index, step := range output.Population.Route {
-			route[index] = SemanticPopulationRouteStep{ResourceType: step.ResourceType, Relationship: step.Relationship}
+			route[index] = SemanticPopulationRouteStep{
+				ResourceType: step.ResourceType, Relationship: step.Relationship,
+				StorageDirection: step.StorageDirection,
+			}
 		}
 		plan.Population = &SemanticPopulation{SelectionRevisionID: output.Population.SelectionRevisionID, MembershipDigest: output.Population.MembershipDigest, MemberCount: output.Population.MemberCount, ResourceType: output.Population.ResourceType, Route: route}
 	}

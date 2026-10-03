@@ -79,6 +79,11 @@ func appendRecipeDynamicColumns(plan *ir.PhysicalPlan, output semantic.OutputPla
 				rewriteRecipeExpressionVariable(&source, dynamic.ScopeAlias, variable)
 				if source.Extract != nil {
 					source.Extract.Source.Path = []string{"payload"}
+					for index := range source.Extract.Fallbacks {
+						if source.Extract.Fallbacks[index].Source.Variable == variable {
+							source.Extract.Fallbacks[index].Source.Path = []string{"payload"}
+						}
+					}
 				}
 			}
 		}

@@ -31,20 +31,34 @@ type PhysicalStageSequence struct {
 }
 
 // PhysicalRowLineageReturn selects source records for one final construction
-// row. It is a diagnostic terminal over the canonical source and terminal
-// Group or RELATED_EXPAND stage; it never attaches contributors to ordinary
-// preview rows.
+// row. Trace carries exact owner identities for authored RELATED_EXPAND stages;
+// Group terminals retain their existing typed path. It is diagnostic metadata
+// and never attaches contributors to ordinary preview rows.
 type PhysicalRowLineageReturn struct {
-	RowIDBindKey             string
-	OffsetBindKey            string
-	LimitBindKey             string
-	FetchLimitBindKey        string
-	ParentKeyBindKey         string
+	RowIDBindKey        string
+	OffsetBindKey       string
+	LimitBindKey        string
+	FetchLimitBindKey   string
+	ResourceType        string
+	ResourceIDColumn    string
+	OccurrenceKeyColumn string
+	Trace               *PhysicalRowLineageTrace
+}
+
+// PhysicalRowLineageTrace carries exact compiler-decoded identities for the
+// row-changing construction stages that own authored contributor occurrences.
+// Stages are ordered from the source toward the final output row.
+type PhysicalRowLineageTrace struct {
+	RootKeyBindKey string
+	Stages         []PhysicalRowLineageStageMatch
+}
+
+type PhysicalRowLineageStageMatch struct {
+	StageID                  string
+	Kind                     PhysicalStageOperationKind
+	StageRowIDBindKey        string
 	RelatedTerminalIDBindKey string
 	RelatedRowKind           string
-	ResourceType             string
-	ResourceIDColumn         string
-	OccurrenceKeyColumn      string
 }
 
 type PhysicalStageColumn struct {
@@ -57,7 +71,10 @@ type PhysicalStageColumn struct {
 	Internal            bool
 	Identity            bool
 	RelatedRecordAnchor *PhysicalStageRelatedRecordAnchor
-	NormalizedUnit      *unit.UnitIdentity
+	// RootContributorResourceType marks a compiler-owned root identity or
+	// deduplicated set of root identities retained through a reshape.
+	RootContributorResourceType string
+	NormalizedUnit              *unit.UnitIdentity
 }
 
 type PhysicalStageRelatedRecordAnchor struct {
@@ -79,6 +96,7 @@ type PhysicalConstructionStage struct {
 	Filter            *PhysicalFilter
 	Group             *PhysicalStageGroup
 	CodedGroup        *PhysicalStageCodedGroup
+	CohortGroup       *PhysicalStageCohortGroup
 	Expand            *PhysicalStageExpand
 	GroupedPivot      *PhysicalGroupedPivot
 	Unpivot           *PhysicalUnpivot
@@ -97,6 +115,7 @@ const (
 	PhysicalStageUnpivotOp            PhysicalStageOperationKind = "UNPIVOT"
 	PhysicalStageGroupOp              PhysicalStageOperationKind = "GROUP"
 	PhysicalStageCodedGroupOp         PhysicalStageOperationKind = "CODED_GROUP"
+	PhysicalStageCohortGroupOp        PhysicalStageOperationKind = "COHORT_GROUP"
 	PhysicalStageExpandOp             PhysicalStageOperationKind = "EXPAND"
 	PhysicalStageRelatedSourceOp      PhysicalStageOperationKind = "RELATED_SOURCE"
 	PhysicalStageRelatedExpandOp      PhysicalStageOperationKind = "RELATED_EXPAND"
@@ -105,12 +124,39 @@ const (
 )
 
 type PhysicalStageGroup struct {
-	GroupRowsVariable     string
-	IdentityVariable      string
-	ConstructionIDBindKey string
-	MissingKeyPolicy      PhysicalStageGroupMissingKeyPolicy
-	Keys                  []PhysicalStageGroupKey
-	Aggregates            []PhysicalStageGroupAggregate
+	GroupRowsVariable           string
+	IdentityVariable            string
+	ConstructionIDBindKey       string
+	MissingKeyPolicy            PhysicalStageGroupMissingKeyPolicy
+	RootContributorInputColumn  string
+	RootContributorInputMany    bool
+	RootContributorOutputColumn string
+	RootContributorVariable     string
+	Keys                        []PhysicalStageGroupKey
+	Aggregates                  []PhysicalStageGroupAggregate
+	RowValues                   []PhysicalStageRowValue
+}
+
+// PhysicalStageCohortGroup inserts a pinned explicit-cohort boundary into an
+// ordinary construction sequence. Contributor columns are compiler-proven
+// root storage identities retained by the preceding stage.
+type PhysicalStageCohortGroup struct {
+	Rows                        PhysicalGroupRows
+	ContributorInputColumn      string
+	ContributorInputMany        bool
+	RootContributorOutputColumn string
+	RootContributorVariable     string
+}
+
+// PhysicalStageRowValue reduces values from contributors retained by a shape
+// operation's existing COLLECT.
+type PhysicalStageRowValue struct {
+	InputColumn string
+	InputKind   string
+	InputMany   bool
+	Output      string
+	Policy      string
+	Variable    string
 }
 
 // PhysicalStageCodedGroup groups root records by the tuple from one generated
@@ -122,6 +168,7 @@ type PhysicalStageCodedGroup struct {
 	CodingPathBindKey     string
 	ResourceType          string
 	SourceIdentityColumn  string
+	GroupRowsVariable     string
 	// SourceRowsUnique is set only after lowering proves that the direct source
 	// scan yields at most one row per root _key. CODED_GROUP uses it to count
 	// locally deduplicated tuples with SUM(1), without retaining contributor IDs.
@@ -138,6 +185,8 @@ type PhysicalStageCodedGroup struct {
 	CodeVariable        string
 	CountVariable       string
 	IdentityVariable    string
+	RowValues           []PhysicalStageRowValue
+	RowValueProjections []PhysicalProjection
 }
 
 type PhysicalCodedGroupPathSegment struct {
@@ -183,15 +232,19 @@ type PhysicalStageExpand struct {
 }
 
 type PhysicalStageRelatedSource struct {
-	AnchorColumnID     string
-	OutputColumnID     string
-	CandidateID        string
-	SourceOccurrenceID string
-	ResourceType       string
-	Path               string
-	LogicalType        string
-	Form               string
-	ContributorPolicy  string
+	AnchorColumnID string
+	// RootContributorColumn identifies compiler-proven root records when the
+	// signed row anchor is a shaped identity rather than the root document key.
+	RootContributorColumn string
+	RootResourceType      string
+	OutputColumnID        string
+	CandidateID           string
+	SourceOccurrenceID    string
+	ResourceType          string
+	Path                  string
+	LogicalType           string
+	Form                  string
+	ContributorPolicy     string
 }
 
 // PhysicalStageRelatedExpand emits one row for each distinct terminal
@@ -202,6 +255,8 @@ type PhysicalStageRelatedExpand struct {
 	AnchorKind             string
 	AnchorNodeID           string
 	AnchorResourceType     string
+	RootContributorColumn  string
+	RootResourceType       string
 	RelatedRecordColumnID  string
 	TargetNodeID           string
 	TargetResourceType     string

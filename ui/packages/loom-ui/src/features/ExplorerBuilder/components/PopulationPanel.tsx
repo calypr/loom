@@ -190,7 +190,7 @@ export const PopulationPanel = ({
             ) : null}
           </div>
         ) : selection && routeOptions.length > 0 ? (
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex w-full min-w-0 flex-wrap items-center gap-2">
             {routeOptions.length > 1 ? (
               <>
                 {directRouteFirst ? (
@@ -202,9 +202,9 @@ export const PopulationPanel = ({
                   </>
                 ) : null}
                 {!directRouteFirst || otherConnectionsOpen ? (
-                  <label className="flex items-center gap-2">
+                  <label className="flex w-full min-w-0 items-center gap-2">
                     <span className="font-medium">Connection</span>
-                    <select aria-label="Population connection" value={pathIndex} onChange={(event) => setPathIndex(Number(event.currentTarget.value))} className="rounded border border-slate-300 bg-white px-2 py-2">
+                    <select aria-label="Population connection" value={pathIndex} onChange={(event) => setPathIndex(Number(event.currentTarget.value))} className="min-w-0 flex-1 rounded border border-slate-300 bg-white px-2 py-2">
                       {routeOptions.map((option, index) => <option key={option.choice.routeChoiceId} value={index}>{option.label}</option>)}
                     </select>
                   </label>

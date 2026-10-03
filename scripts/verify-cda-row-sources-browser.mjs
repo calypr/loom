@@ -1,0 +1,446 @@
+import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
+import { spawnSync } from 'node:child_process';
+import { mkdir, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { browserEval, click, launchBrowser, navigate, selectOption, waitForBrowser } from './lib/browser.mjs';
+
+const project = 'loom_dev_cda_fhir';
+const lineageMode = process.env.LOOM_LINEAGE_MODE ?? 'GROUP';
+assert(['GROUP', 'CODED_GROUP', 'RELATED_EXPAND'].includes(lineageMode));
+const resourceType = lineageMode === 'CODED_GROUP' ? 'Observation' : 'Specimen';
+const withFilter = process.env.LOOM_LINEAGE_FILTER === '1';
+assert(!withFilter || lineageMode === 'GROUP', 'Composed filtering wave starts with ordinary Group');
+const explorer = `row-sources-browser-${Date.now()}`;
+const evidence = process.argv[2] ?? `/tmp/loom-row-sources-${Date.now()}`;
+const apiOrigin = process.env.LOOM_CDA_API_ORIGIN ?? 'http://127.0.0.1:8188';
+const uiOrigin = process.env.LOOM_CDA_UI_ORIGIN ?? 'http://127.0.0.1:30008';
+const root = `/api/v1/projects/${project}/explorers`;
+const base = `${root}/${explorer}/authoring/v2`;
+const report = { explorer, lineageMode, withFilter, cases: [], errors: [], requests: [], nativeRequests: [], started: new Date().toISOString() };
+await mkdir(evidence, { recursive: true });
+let browser, builder, outputId;
+const nativeById = new Map();
+const pendingNetworkReads = new Set();
+const api = async (path, body) => {
+  const response = await fetch(apiOrigin + path, {
+    method: body ? 'POST' : 'GET', headers: { 'Content-Type': 'application/json', 'X-Request-ID': `row-sources-browser-${randomUUID()}` },
+    ...(body ? { body: JSON.stringify(body) } : {}), signal: AbortSignal.timeout(30000),
+  });
+  const value = await response.json();
+  report.requests.push({ path, body, status: response.status, response: value });
+  assert(response.ok, JSON.stringify(value));
+  return value;
+};
+const command = async commands => {
+  await api(base + '/commands', { commandId: randomUUID(), semanticsVersion: builder.workspace?.semanticsVersion ?? 10,
+    snapshotToken: builder.catalog.snapshotToken, expectedDraftVersion: builder.draftVersion, expectedDraftDigest: builder.draftDigest, commands });
+  builder = await api(base + '/builder');
+};
+const doc = state => state.workspace.documents.find(d => d.output.id === outputId);
+const proposal = async (name, start, expectedRows, expectedFilter) => {
+  const deadline=start+5000;
+  let response;
+  const matchesRequest = request => !expectedFilter || request.body?.candidateConstruction?.steps?.some(step =>
+    step.operation?.kind === 'FILTER' && step.operation.filter.operator === expectedFilter.operator &&
+    JSON.stringify(step.operation.filter.values) === JSON.stringify(expectedFilter.values));
+  while (!(response=report.nativeRequests.findLast(request => request.path===base+'/construction-proposals' &&
+    request.startedAt>=start && request.completedAt && request.response && matchesRequest(request)))) {
+    assert(Date.now()<deadline, `${name} did not complete a fresh proposal within five seconds`);
+    await new Promise(resolve=>setTimeout(resolve,50));
+  }
+  if(response.status===200 && response.response.proposalId) {
+    await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalId===${JSON.stringify(response.response.proposalId)}`);
+  }
+  await waitForBrowser(browser.cdp, `['ready','error','needs-repair'].includes(document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalStatus)`);
+  const result = await browserEval(browser.cdp, `const p=document.querySelector('[data-testid="construction-proposal-panel"]');return {status:p?.dataset.proposalStatus,proposalId:p?.dataset.proposalId,text:p?.innerText,rows:[...document.querySelectorAll('[data-testid="construction-proposal-preview-row"]')].map(r=>[...r.querySelectorAll('td')].map(c=>c.innerText))};`);
+  assert.equal(result.status, 'ready', result.text);
+  assert.deepEqual(result.rows, expectedRows, 'Preview must match the independently selected CDA record');
+  const durationMs = Date.now() - start;
+  assert(durationMs <= 5000, `${name} took ${durationMs}ms`);
+  report.cases.push({ name, durationMs, result });
+};
+const recordRender = (name, start) => {
+  const durationMs = Date.now() - start;
+  assert(durationMs <= 5000, `${name} took ${durationMs}ms`);
+  report.cases.push({ name, durationMs });
+};
+const apply = async expectedRows => {
+  const start = Date.now();
+  await click(browser.cdp, '[data-testid="construction-apply-proposal"]');
+  await waitForBrowser(browser.cdp, `!document.querySelector('[data-testid="construction-proposal-panel"]')`);
+  const deadline=start+5000;
+  while(!report.nativeRequests.some(request=>request.path===base+'/preview'&&request.startedAt>=start&&request.completedAt&&request.status===200)) {
+    assert(Date.now()<deadline,'Apply did not complete a fresh saved preview within five seconds');
+    await new Promise(resolve=>setTimeout(resolve,50));
+  }
+  await rendered(expectedRows);
+  recordRender('apply-to-render', start);
+  builder = await api(base + '/builder');
+};
+const open = async expectedRows => {
+  const start = Date.now();
+  await navigate(browser.cdp, `${uiOrigin}/?project=${project}&explorer=${explorer}&mode=builder`);
+  await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-table-${outputId}"]')`);
+  await click(browser.cdp, `[data-testid="construction-table-${outputId}"]`);
+  await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-rows-settings-trigger"]')?.disabled === false`);
+  await rendered(expectedRows);
+  recordRender('load-to-render', start);
+};
+const rendered = async expectedRows => {
+  await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount') === ${JSON.stringify(String(expectedRows.length + 1))} && !document.body.innerText.includes('Loading your table…')`);
+  const rows = await browserEval(browser.cdp, `return [...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]')].slice(1).map(r=>[...r.querySelectorAll('[role="cell"]')].map(c=>c.innerText.trim())).filter(r=>r.length);`);
+  if (expectedRows.length > 5) {
+    assert(rows.length > 0 && rows.length <= expectedRows.length);
+    for (const row of rows) assert(expectedRows.some(expected => JSON.stringify(expected) === JSON.stringify(row)), 'Mounted source row must match the independent CDA page');
+  } else assert.deepEqual(rows, expectedRows, 'Saved rendered rows must match the CDA oracle');
+};
+try {
+  if (lineageMode === 'CODED_GROUP' || withFilter) {
+    const testName = withFilter
+      ? 'TestConstructionGroupFilterRowLineagePagesScopedContributorsAgainstArango'
+      : 'TestConstructionCodedGroupRowLineagePagesScopedContributorsAgainstArango';
+    const arangoContainer = process.env.LOOM_ARANGO_CONTAINER ?? 'loom-dev-6d7df93d6a37-arangodb-1';
+    const testArgs = ['proxy', 'docker', 'exec',
+      '-e', `LOOM_TEST_ARANGO_URL=http://${arangoContainer}:8529`, '-e', 'LOOM_TEST_ARANGO_DATABASE=loom_dev',
+      '-w', '/workspace', process.env.LOOM_API_CONTAINER ?? 'loom-dev-6d7df93d6a37-loom-api-1',
+      'go', 'test', './internal/dataframe/compiler', '-run', `^${testName}$`, '-count=1', '-v'];
+    const check = spawnSync('rtk', testArgs, { encoding: 'utf8', timeout: 60000 });
+    report.compilerChecks = [{ testName, args: testArgs, status: check.status, stdout: check.stdout, stderr: check.stderr }];
+    assert.equal(check.status, 0, check.stderr + check.stdout);
+    assert(check.stdout.includes(`--- PASS: ${testName}`) && !check.stdout.includes('--- SKIP:'), 'The scoped Arango regression must execute');
+  }
+  const rawQuery = query => {
+    const raw = spawnSync('rtk', ['proxy', 'docker', 'exec', process.env.LOOM_ARANGO_CONTAINER ?? 'loom-dev-6d7df93d6a37-arangodb-1', 'arangosh', '--server.database', 'loom_dev', '--javascript.execute-string', `print(JSON.stringify(db._query(${JSON.stringify(query)}).toArray()));`], { encoding: 'utf8', timeout: 30000 });
+    assert.equal(raw.status, 0, raw.stderr);
+    return JSON.parse(raw.stdout.slice(raw.stdout.indexOf('[')));
+  };
+  const sourceLimit = lineageMode === 'RELATED_EXPAND' ? 1 : 105;
+  const codingFilter = lineageMode === 'CODED_GROUP'
+    ? 'LET codes=FLATTEN(s.payload.component[*].code.coding) FILTER POSITION(codes[*].code,"specimen_type")'
+    : '';
+  const query = `FOR s IN ${resourceType} FILTER s.project == "${project}" AND s.dataset_generation == "cda-fhir-v1" ${codingFilter} SORT s._key LIMIT ${sourceLimit} RETURN {id:s.id,_id:s._id,generation:s.dataset_generation,component:s.payload.component}`;
+  const sources = rawQuery(query);
+  assert.equal(sources.length, sourceLimit);
+  assert.equal(new Set(sources.map(source => source.id)).size, sourceLimit);
+  assert(sources.every(source => source.generation === 'cda-fhir-v1'));
+  let groupedRows = [[resourceType, String(sourceLimit)]];
+  let expectedContributors = sources.map(source => resourceType + '/' + source.id);
+  const codingGroups = new Map();
+  let relatedPatients;
+  let compositeRowNumber = 1;
+  if (lineageMode === 'CODED_GROUP') {
+    for (const source of sources) {
+      const tuples = new Set(source.component.flatMap(component => (component.code?.coding ?? []).map(coding => JSON.stringify([coding.system ?? null, coding.version ?? null, coding.code ?? null]))));
+      for (const tuple of tuples) {
+        const ids = codingGroups.get(tuple) ?? new Set();
+        ids.add('Observation/' + source.id);
+        codingGroups.set(tuple, ids);
+      }
+    }
+    const tuples = [...codingGroups.keys()].sort();
+    assert(tuples.length > 0 && tuples.length <= 25, 'Use bounded complete CDA coding groups');
+    groupedRows = tuples.map(tuple => [...JSON.parse(tuple).map(value => value ?? '—'), String(codingGroups.get(tuple).size)]);
+    const inspectedTuple = tuples.find(tuple => JSON.parse(tuple)[2] === 'specimen_type' && codingGroups.get(tuple).size === 105);
+    assert(inspectedTuple, 'The selected coding tuple must have a multi-page independent witness');
+    compositeRowNumber = tuples.indexOf(inspectedTuple) + 1;
+    expectedContributors = [...codingGroups.get(inspectedTuple)];
+  } else if (lineageMode === 'RELATED_EXPAND') {
+    const relatedQuery = `FOR e IN fhir_edge FILTER e._from==${JSON.stringify(sources[0]._id)} AND e.label=="subject_Patient" AND e.project=="${project}" AND e.dataset_generation=="cda-fhir-v1" FILTER STARTS_WITH(e._to,"Patient/") LET d=DOCUMENT(e._to) FILTER d.project=="${project}" AND d.dataset_generation=="cda-fhir-v1" SORT d._key RETURN DISTINCT {id:d.id,_id:d._id}`;
+    relatedPatients = rawQuery(relatedQuery);
+    assert.equal(relatedPatients.length, 1, 'Use a bounded one-hop CDA relationship witness');
+    groupedRows = [[sources[0].id, 'Specimen', relatedPatients[0].id]];
+    expectedContributors = ['Specimen/' + sources[0].id, 'Patient/' + relatedPatients[0].id];
+  }
+  report.oracle = { query, sources, groupedRows, expectedContributors, relatedPatients };
+  await api(root, { name: explorer, title: 'Source records lifecycle QA' });
+  builder = await api(base + '/builder');
+  assert.equal(builder.catalog.generation, 'cda-fhir-v1');
+  const node = builder.catalog.nodes.find(candidate => candidate.resourceType === resourceType);
+  assert(node);
+  await command([{ type: 'CREATE_TABLE', title: `${lineageMode} source records QA`, rootNodeId: node.nodeId }]);
+  outputId = builder.workspace.documents[0].output.id;
+  for (const [fieldPath, title] of [['id', 'FHIR resource ID'], ['resourceType', 'Record type']]) {
+    const field = builder.catalog.candidates.find(candidate => candidate.nodeId === node.nodeId && candidate.fieldPath === fieldPath);
+    assert(field);
+    await command([{ type: 'ADD_COLUMN', outputId, occurrenceId: 'base', candidateId: field.candidateId, projectionMode: 'VALUE', initialPresentation: 'TABLE', title }]);
+  }
+  const selection = await api(base.replace('/authoring/v2', '/selections'), {
+    snapshotToken: builder.catalog.snapshotToken, idempotencyKey: explorer,
+    source: { kind: 'resources', resources: { refs: sources.map(source => ({ project, generation: source.generation, resourceType, id: source.id })) } },
+  });
+  const routes = await api(base + '/population-routes', { snapshotToken: builder.catalog.snapshotToken, outputId, selectionRevisionId: selection.id, limit: 50 });
+  const direct = routes.choices.find(choice => choice.route.length === 0);
+  assert(direct);
+  await command([{ type: 'SET_TABLE_POPULATION', outputId, selectionRevisionId: selection.id, routeChoiceId: direct.routeChoiceId }]);
+  const baseline = builder;
+  const sourceRows = sources.slice(0, 25).map(source => [source.id, resourceType]);
+  browser = await launchBrowser(evidence);
+  browser.cdp.on('Runtime.consoleAPICalled', event => { if (event.type === 'error') report.errors.push({ kind: 'console', args: event.args }); });
+  browser.cdp.on('Network.loadingFailed', event => { if (event.type === 'Script' && event.errorText !== 'net::ERR_ABORTED') report.errors.push({ kind: 'module', error: event.errorText }); });
+  browser.cdp.on('Runtime.exceptionThrown', event => report.errors.push({ kind: 'runtime', details: event.exceptionDetails }));
+  browser.cdp.on('Network.requestWillBeSent', ({requestId, request, wallTime}) => {
+    const path = new URL(request.url).pathname;
+    if (!path.startsWith(base + '/')) return;
+    const entry = { requestId, path, method: request.method, startedAt: Math.round(wallTime * 1000) };
+    if (request.postData) entry.body = JSON.parse(request.postData);
+    nativeById.set(requestId, entry); report.nativeRequests.push(entry);
+  });
+  browser.cdp.on('Network.responseReceived', ({requestId, response}) => {
+    const entry = nativeById.get(requestId);
+    if (entry) entry.status = response.status;
+    if (response.status >= 400 && !response.url.endsWith('/favicon.ico')) report.errors.push({kind: 'http', status: response.status, url: response.url});
+  });
+  browser.cdp.on('Network.loadingFinished', ({requestId}) => {
+    const entry = nativeById.get(requestId);
+    if (!entry) return;
+    entry.completedAt = Date.now();
+    const read = browser.cdp.send('Network.getResponseBody', {requestId}).then(result => {
+      const body = result.base64Encoded ? Buffer.from(result.body, 'base64').toString('utf8') : result.body;
+      try { entry.response = JSON.parse(body); } catch { entry.response = body.slice(0, 32768); }
+    }).catch(error => { entry.responseReadError = String(error); }).finally(() => pendingNetworkReads.delete(read));
+    pendingNetworkReads.add(read);
+  });
+  const inspect = async (name, composite) => {
+    const started = Date.now();
+    const rowNumber = composite ? compositeRowNumber : 1;
+    await click(browser.cdp, `button[aria-label="Inspect row ${rowNumber} identity"]`);
+    const selector = `[role="dialog"][aria-label="Row ${rowNumber} identity"]`;
+    await waitForBrowser(browser.cdp, `document.querySelector(${JSON.stringify(selector)})`);
+    let details = await browserEval(browser.cdp, `return document.querySelector(${JSON.stringify(selector)}).innerText;`);
+    assert(!/cannot be listed|unavailable|could not be fully listed|Could not load/i.test(details), details);
+    if (composite) {
+      await waitForBrowser(browser.cdp, `document.querySelector(${JSON.stringify(selector + ' ul li')})`, 5000);
+      recordRender(name + '-first-page', started);
+      let pages = 1;
+      while (await browserEval(browser.cdp, `return [...document.querySelectorAll(${JSON.stringify(selector + ' button')})].some(button => button.innerText === 'Show more source records');`)) {
+        const previousCount = await browserEval(browser.cdp, `return document.querySelectorAll(${JSON.stringify(selector + ' ul li')}).length;`);
+        const pageStarted = Date.now();
+        await browserEval(browser.cdp, `const button=[...document.querySelectorAll(${JSON.stringify(selector + ' button')})].find(button=>button.innerText==='Show more source records');button.dataset.qaLineageMore='true';return true;`);
+        await click(browser.cdp, '[data-qa-lineage-more="true"]');
+        await waitForBrowser(browser.cdp, `document.querySelectorAll(${JSON.stringify(selector + ' ul li')}).length > ${previousCount} && ![...document.querySelectorAll(${JSON.stringify(selector + ' button')})].some(button=>button.innerText==='Loading…')`, 5000);
+        recordRender(name + '-page-' + ++pages, pageStarted);
+        assert(pages <= 5, 'Contributor pagination must converge');
+      }
+      const contributors = await browserEval(browser.cdp, `return [...document.querySelectorAll(${JSON.stringify(selector + ' ul li')})].map(item=>item.innerText.trim());`);
+      assert.deepEqual([...contributors].sort(), [...expectedContributors].sort());
+      assert.equal(new Set(contributors).size, expectedContributors.length);
+      report.lineagePages = pages;
+      const bounds = await browserEval(browser.cdp, `const rect=document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect();return {top:rect.top,bottom:rect.bottom,height:rect.height,viewportHeight:innerHeight};`);
+      assert(bounds.top >= 0 && bounds.bottom <= bounds.viewportHeight, 'Inspector must fit the viewport: ' + JSON.stringify(bounds));
+      report.inspectorBounds = bounds;
+
+    } else {
+      assert(details.includes('Starting FHIR record'), details);
+      assert(details.includes(resourceType + '/' + sources[0].id), details);
+      recordRender(name, started);
+    }
+    const identity = await browserEval(browser.cdp, `return document.querySelector(${JSON.stringify(selector + ' p.font-mono')})?.textContent;`);
+    assert(identity);
+    await browserEval(browser.cdp, `const button=[...document.querySelectorAll(${JSON.stringify(selector + ' button')})].find(button=>button.innerText==='Close');button.dataset.qaLineageClose='true';return true;`);
+    await click(browser.cdp, '[data-qa-lineage-close="true"]');
+    await waitForBrowser(browser.cdp, `!document.querySelector(${JSON.stringify(selector)})`);
+    return identity;
+  };
+  await open(sourceRows);
+  await inspect('source-row-inspection', false);
+  const configureGroup = async name => {
+    const started = Date.now();
+    await click(browser.cdp, '[data-testid="construction-rows-settings-trigger"]');
+    if (lineageMode === 'RELATED_EXPAND') {
+      await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-action-related-rows"]:not(:disabled)')`, 5000);
+      await click(browser.cdp, '[data-testid="construction-action-related-rows"]');
+      await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-related-expand-editor"] select[aria-label="Related record type"]:not(:disabled)')`);
+      await selectOption(browser.cdp, '[data-testid="construction-related-expand-editor"] select[aria-label="Related record type"]', 'Patient');
+      await waitForBrowser(browser.cdp, `document.querySelector('input[aria-label="Specimen -[subject]-> Patient"]:not(:disabled)')`);
+      await click(browser.cdp, 'input[aria-label="Specimen -[subject]-> Patient"]');
+    } else if (lineageMode === 'CODED_GROUP') {
+      await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-action-coded-group-rows"]:not(:disabled)')`, 5000);
+      await click(browser.cdp, '[data-testid="construction-action-coded-group-rows"]');
+      await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-coded-group-path"]:not(:disabled)')`);
+      await selectOption(browser.cdp, '[data-testid="construction-coded-group-path"]', 'component[].code.coding[]');
+    } else {
+      await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-action-group-rows"]:not(:disabled)')`, 5000);
+      await click(browser.cdp, '[data-testid="construction-action-group-rows"]');
+      await waitForBrowser(browser.cdp, `document.querySelector('input[aria-label="Group by Record type"]:not(:disabled)')`);
+      await click(browser.cdp, 'input[aria-label="Group by Record type"]');
+    }
+    await proposal(name, started, groupedRows);
+  };
+  await configureGroup('source-records-group-preview');
+  await click(browser.cdp, '[data-testid="construction-cancel-proposal"]');
+  await waitForBrowser(browser.cdp, `!document.querySelector('[data-testid="construction-proposal-panel"]')`);
+  assert.deepEqual((await api(base + '/builder')).workspace, baseline.workspace);
+  await configureGroup('confirmed-source-records-group-preview');
+  await apply(groupedRows);
+  await open(groupedRows);
+  let grouped = builder;
+  const identity = await inspect('grouped-row-source-records', true);
+  await open(groupedRows);
+  assert.equal(await inspect('reloaded-grouped-row-source-records', true), identity);
+  assert.deepEqual((await api(base + '/builder')).workspace, grouped.workspace, 'Inspection must not change saved data');
+  if (withFilter) {
+    const groupStep = doc(builder).construction.steps.find(step => step.operation.kind === 'GROUP');
+    const countColumn = groupStep.outputs.find(column => column.type === 'integer');
+    assert(countColumn, 'The independently counted Group must expose its integer count');
+    const configureFilter = async (name, threshold, editingStepId) => {
+      const started = Date.now();
+      if (editingStepId) {
+        await click(browser.cdp, `[data-testid="construction-history-step-${editingStepId}"]`);
+        await click(browser.cdp, `[data-testid="construction-edit-step-${editingStepId}"]`);
+      } else {
+        await click(browser.cdp, '[data-testid="construction-action-keep-rows"]');
+      }
+      await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-filter-editor"] select[aria-label="Column"]:not(:disabled)')`);
+      await selectOption(browser.cdp, '[data-testid="construction-filter-editor"] select[aria-label="Column"]', countColumn.id);
+      await selectOption(browser.cdp, '[data-testid="construction-filter-editor"] select[aria-label="Condition"]', 'GT');
+      const valueSelector = '[data-testid="construction-filter-editor"] input[aria-label="Value"]';
+      await waitForBrowser(browser.cdp, `document.querySelector(${JSON.stringify(valueSelector + ':not(:disabled)')})`);
+      await click(browser.cdp, valueSelector);
+      await browserEval(browser.cdp, `document.querySelector(${JSON.stringify(valueSelector)}).select();return true;`);
+      await browser.cdp.send('Input.insertText', { text: String(threshold) });
+      await proposal(name, started, threshold < 105 ? groupedRows : [], { operator: 'GT', values: [{ kind: 'INTEGER', integer: threshold }] });
+    };
+    await configureFilter('group-count-filter-preview', 104);
+    await click(browser.cdp, '[data-testid="construction-cancel-proposal"]');
+    await waitForBrowser(browser.cdp, `!document.querySelector('[data-testid="construction-proposal-panel"]')`);
+    assert.deepEqual((await api(base + '/builder')).workspace, grouped.workspace);
+    await configureFilter('confirmed-group-count-filter-preview', 104);
+    await apply(groupedRows);
+    await open(groupedRows);
+    let filtered = builder;
+    const filterStep = doc(builder).construction.steps.find(step => step.operation.kind === 'FILTER');
+    assert.deepEqual(filterStep.operation.filter.values, [{ kind: 'INTEGER', integer: 104 }]);
+    assert.equal(await inspect('filtered-group-source-records', true), identity);
+    assert.deepEqual((await api(base + '/builder')).workspace, filtered.workspace);
+    await configureFilter('second-group-count-filter-preview', 103);
+    await click(browser.cdp, '[data-testid="construction-cancel-proposal"]');
+    await waitForBrowser(browser.cdp, `!document.querySelector('[data-testid="construction-proposal-panel"]')`);
+    assert.deepEqual((await api(base + '/builder')).workspace, filtered.workspace);
+    await configureFilter('confirmed-second-group-count-filter-preview', 103);
+    await apply(groupedRows);
+    await open(groupedRows);
+    const secondFilter = doc(builder).construction.steps.filter(step => step.operation.kind === 'FILTER').at(-1);
+    assert(secondFilter.id !== filterStep.id);
+    assert.deepEqual(secondFilter.operation.filter.values, [{ kind: 'INTEGER', integer: 103 }]);
+    assert.equal(await inspect('repeated-filter-group-source-records', true), identity);
+    filtered = builder;
+    await configureFilter('excluded-group-filter-edit-preview', 105, filterStep.id);
+    await click(browser.cdp, '[data-testid="construction-cancel-proposal"]');
+    await waitForBrowser(browser.cdp, `!document.querySelector('[data-testid="construction-proposal-panel"]')`);
+    assert.deepEqual((await api(base + '/builder')).workspace, filtered.workspace);
+    await configureFilter('confirmed-excluded-group-filter-edit-preview', 105, filterStep.id);
+    await apply([]);
+    await open([]);
+    const preview = report.nativeRequests.findLast(request => request.path === base + '/preview' && request.status === 200 && request.response)?.response;
+    assert(preview?.receiptId);
+    const notFoundResponse = await fetch(apiOrigin + base + '/row-lineage', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ receiptId: preview.receiptId, outputId, rowId: identity, offset: 0, limit: 25 }), signal: AbortSignal.timeout(5000),
+    });
+    const notFound = await notFoundResponse.json();
+    report.filteredOutIdentityCheck = { status: notFoundResponse.status, response: notFound };
+    assert.equal(notFoundResponse.status, 404, JSON.stringify(notFound));
+    assert.equal(notFound.error?.code, 'PREVIEW_ROW_NOT_FOUND');
+    assert(!sources.some(source => JSON.stringify(notFound).includes(source.id)), 'An excluded group must not disclose contributors');
+    const removeFilterStarted = Date.now();
+    await click(browser.cdp, `[data-testid="construction-history-step-${filterStep.id}"]`);
+    await click(browser.cdp, `[data-testid="construction-remove-step-${filterStep.id}"]`);
+    await proposal('remove-count-filter-preview', removeFilterStarted, groupedRows);
+    await click(browser.cdp, '[data-testid="construction-cancel-proposal"]');
+    await waitForBrowser(browser.cdp, `!document.querySelector('[data-testid="construction-proposal-panel"]')`);
+    assert.deepEqual((await api(base + '/builder')).workspace, builder.workspace);
+    const confirmedRemoveFilterStarted = Date.now();
+    await click(browser.cdp, `[data-testid="construction-history-step-${filterStep.id}"]`);
+    await click(browser.cdp, `[data-testid="construction-remove-step-${filterStep.id}"]`);
+    await proposal('confirmed-remove-count-filter-preview', confirmedRemoveFilterStarted, groupedRows);
+    await apply(groupedRows);
+    await open(groupedRows);
+    assert.equal(await inspect('group-after-intermediate-filter-removal-source-records', true), identity);
+    const remainingFilters = doc(builder).construction.steps.filter(step => step.operation.kind === 'FILTER');
+    assert.equal(remainingFilters.length, 1, 'Removing an identity-preserving filter must retain the later independent condition');
+    assert.equal(remainingFilters[0].id, secondFilter.id);
+    assert.deepEqual(remainingFilters[0].operation.filter, secondFilter.operation.filter);
+    const beforeFinalFilterRemoval = builder;
+    const lastFilterRemoveStarted = Date.now();
+    await click(browser.cdp, `[data-testid="construction-history-step-${secondFilter.id}"]`);
+    await click(browser.cdp, `[data-testid="construction-remove-step-${secondFilter.id}"]`);
+    await proposal('remove-final-count-filter-preview', lastFilterRemoveStarted, groupedRows);
+    await click(browser.cdp, '[data-testid="construction-cancel-proposal"]');
+    await waitForBrowser(browser.cdp, `!document.querySelector('[data-testid="construction-proposal-panel"]')`);
+    assert.deepEqual((await api(base + '/builder')).workspace, beforeFinalFilterRemoval.workspace);
+    const confirmedLastFilterRemoveStarted = Date.now();
+    await click(browser.cdp, `[data-testid="construction-history-step-${secondFilter.id}"]`);
+    await click(browser.cdp, `[data-testid="construction-remove-step-${secondFilter.id}"]`);
+    await proposal('confirmed-remove-final-count-filter-preview', confirmedLastFilterRemoveStarted, groupedRows);
+    await apply(groupedRows);
+    await open(groupedRows);
+    assert.equal(await inspect('restored-unfiltered-group-source-records', true), identity);
+    assert.deepEqual(doc(builder).construction, doc(grouped).construction, 'Removing both filters must preserve the exact upstream Group');
+    grouped = builder;
+  }
+  if (lineageMode !== 'GROUP') {
+    const savedStep = doc(builder).construction.steps.find(step => step.operation.kind === lineageMode);
+    const configureEdit = async name => {
+      const started = Date.now();
+      await click(browser.cdp, `[data-testid="construction-history-step-${savedStep.id}"]`);
+      await click(browser.cdp, `[data-testid="construction-edit-step-${savedStep.id}"]`);
+      if (lineageMode === 'CODED_GROUP') {
+        await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-coded-group-path"]')?.value === 'component[].code.coding[]'`);
+        await click(browser.cdp, '[data-testid="construction-reshape-coded-group"] summary');
+        await selectOption(browser.cdp, '[data-testid="construction-coded-group-missing"]', 'EXCLUDE');
+      } else {
+        await waitForBrowser(browser.cdp, `document.querySelector('select[aria-label="Related record type"]')?.value === 'Patient'`);
+        await selectOption(browser.cdp, 'select[aria-label="If a current row has no matches"]', 'EXCLUDE');
+      }
+      await proposal(name, started, groupedRows);
+    };
+    await configureEdit('source-records-edit-preview');
+    await click(browser.cdp, '[data-testid="construction-cancel-proposal"]');
+    await waitForBrowser(browser.cdp, `!document.querySelector('[data-testid="construction-proposal-panel"]')`);
+    assert.deepEqual((await api(base + '/builder')).workspace, grouped.workspace, 'Cancel must preserve the original source bindings and row operation');
+    await configureEdit('confirmed-source-records-edit-preview');
+    await apply(groupedRows);
+    await open(groupedRows);
+    const editedOperation = doc(builder).construction.steps.find(step => step.id === savedStep.id).operation;
+    assert.equal(lineageMode === 'CODED_GROUP' ? editedOperation.codedGroup.missingKeyPolicy : editedOperation.relatedExpand.emptyPolicy, 'EXCLUDE');
+    assert.equal(await inspect('edited-row-source-records', true), identity, 'Changing unmatched/missing policy must preserve identities of the same matched rows');
+    grouped = builder;
+  }
+  const group = doc(builder).construction.steps.find(step => step.operation.kind === lineageMode);
+  await click(browser.cdp, `[data-testid="construction-history-step-${group.id}"]`);
+  const removeStarted = Date.now();
+  await click(browser.cdp, `[data-testid="construction-remove-step-${group.id}"]`);
+  await proposal('remove-inspected-group-preview', removeStarted, sourceRows);
+  await click(browser.cdp, '[data-testid="construction-cancel-proposal"]');
+  await waitForBrowser(browser.cdp, `!document.querySelector('[data-testid="construction-proposal-panel"]')`);
+  assert.deepEqual((await api(base + '/builder')).workspace, grouped.workspace);
+  await click(browser.cdp, `[data-testid="construction-history-step-${group.id}"]`);
+  const confirmedRemoveStarted = Date.now();
+  await click(browser.cdp, `[data-testid="construction-remove-step-${group.id}"]`);
+  await proposal('confirmed-remove-inspected-group-preview', confirmedRemoveStarted, sourceRows);
+  await apply(sourceRows);
+  await open(sourceRows);
+  await inspect('restored-source-row-inspection', false);
+  assert.equal(doc(builder).construction?.steps?.length ?? 0, 0);
+  assert.deepEqual(doc(builder).population, doc(baseline).population);
+  const baselineColumns = doc(baseline).columns;
+  const restoredColumns = doc(builder).columns.map((column, index) => {
+    if (baselineColumns[index]?.columnId) return column;
+    const { columnId, ...authored } = column;
+    assert(columnId, 'Construction must preserve its generated source column identity');
+    return authored;
+  });
+  assert.deepEqual(restoredColumns, baselineColumns, 'Removing Group must restore authored source columns and bindings');
+  assert.deepEqual(report.errors, []);
+  report.status = 'passed';
+} catch (error) {
+  report.status = 'failed'; report.error = String(error.stack ?? error); process.exitCode = 1;
+  report.failureUI = browser ? await browserEval(browser.cdp, 'return document.body.innerText;').catch(String) : undefined;
+} finally {
+  await Promise.allSettled([...pendingNetworkReads]);
+  report.finished = new Date().toISOString();
+  await writeFile(join(evidence, 'report.json'), JSON.stringify(report, null, 2));
+  await browser?.close();
+}
+console.log(JSON.stringify({status:report.status,evidence,cases:report.cases.map(item=>({name:item.name,durationMs:item.durationMs})),error:report.error}));

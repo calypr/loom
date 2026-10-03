@@ -68,10 +68,10 @@ try {
   await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-rows-settings-trigger"]')?.disabled===false`);
   await click(`document.querySelector('[data-testid="construction-rows-settings-trigger"]').click();return true;`);
   if (related) {
-    await waitForBrowser(browser.cdp, `Boolean([...document.querySelectorAll('button')].find(button=>button.innerText.includes('Related records')&&!button.disabled))`);
-    await click(`[...document.querySelectorAll('button')].find(button=>button.innerText.includes('Related records')&&!button.disabled).click();return true;`);
-    await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid="construction-related-expand-editor"] select'))`);
-    await click(`const select=document.querySelector('[data-testid="construction-related-expand-editor"] select');Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(select,'Observation');select.dispatchEvent(new Event('change',{bubbles:true}));return true;`);
+    await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-action-related-rows"]')?.disabled===false`);
+    await click(`document.querySelector('[data-testid="construction-action-related-rows"]').click();return true;`);
+    await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid="construction-related-expand-editor"] select[aria-label="Related record type"]'))`);
+    await click(`const select=document.querySelector('[data-testid="construction-related-expand-editor"] select[aria-label="Related record type"]');Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(select,'Observation');select.dispatchEvent(new Event('change',{bubbles:true}));return true;`);
     await waitForBrowser(browser.cdp, `Boolean([...document.querySelectorAll('[data-testid="construction-related-expand-editor"] input[type="radio"]')].find(input=>input.getAttribute('aria-label')?.toLowerCase().includes('specimen')&&!input.disabled))`);
     await click(`[...document.querySelectorAll('[data-testid="construction-related-expand-editor"] input[type="radio"]')].find(input=>input.getAttribute('aria-label')?.toLowerCase().includes('specimen')).click();return true;`);
     await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status')==='ready'`,30000);

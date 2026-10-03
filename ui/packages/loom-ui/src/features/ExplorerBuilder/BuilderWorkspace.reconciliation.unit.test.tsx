@@ -18,11 +18,20 @@ import {
 } from '../../react';
 import BuilderWorkspace from './BuilderWorkspace';
 import type { SelectionRevision } from '../../selection';
-import type { ConstructionProposalResponse } from '../../types';
-import type { ProposeConstructionArgs } from '../../api';
+import type {
+  ConstructionCategoryDiscoveryResponse,
+  ConstructionProposalResponse,
+  ExplorerBuilderDocument,
+  ExplorerBuilderWorkspace,
+} from '../../types';
+import type {
+  ProposeConstructionArgs,
+  ProposeConstructionChoicesArgs,
+} from '../../api';
 
 const mockLoomClient = vi.hoisted(() => ({
   getSelection: vi.fn(),
+  listRowDefinitionChoices: vi.fn(),
   searchPopulationRoutes: vi.fn(),
   createSelection: vi.fn(),
   resolveConfiguredColumnContexts: vi.fn(),
@@ -33,6 +42,7 @@ const mockLoomClient = vi.hoisted(() => ({
   getConstructionCapabilities: vi.fn(),
   discoverConstructionCategories: vi.fn(),
   proposeConstruction: vi.fn(),
+  proposeConstructionChoices: vi.fn(),
   preview: vi.fn(),
   browseSemanticInventory: vi.fn(),
 }));
@@ -168,7 +178,7 @@ vi.mock('./components/ColumnSelector', () => ({
             kind: 'field',
             field: {
               path: 'identifier[].value',
-              projectionMode: 'FIRST',
+              projectionMode: 'FIRST' as const,
             },
           },
           table: { visible: true, order: 0 },
@@ -225,7 +235,7 @@ const column = {
     kind: 'field' as const,
     field: {
       path: 'identifier[].value',
-      projectionMode: 'FIRST',
+      projectionMode: 'FIRST' as const,
     },
   },
   table: { visible: true, order: 0 },
@@ -391,6 +401,52 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
 
   beforeEach(() => {
     mockLoomClient.getSelection.mockReset();
+    mockLoomClient.listRowDefinitionChoices.mockReset();
+    mockLoomClient.listRowDefinitionChoices.mockResolvedValue({
+      snapshotToken: 'snapshot-1',
+      outputId: 'specimens',
+      choices: [],
+      explicitGroups: [],
+    });
+    mockLoomClient.proposeConstructionChoices.mockReset();
+    mockLoomClient.proposeConstructionChoices.mockImplementation(async (args: ProposeConstructionChoicesArgs) => ({
+      commandId: args.commandId,
+      snapshotToken: args.snapshotToken,
+      draftVersion: args.expectedDraftVersion,
+      draftDigest: args.expectedDraftDigest,
+      outputId: args.outputId,
+      constructionChoices: args.constructionChoices,
+      candidateColumnIds: ['field-column-a', 'semantic-column-a'],
+      candidateWorkspaceDigest: 'sha256:candidate-choice-1',
+      previewStatus: 'READY' as const,
+      previewDurationMs: 4,
+      preview: {
+        apiVersion,
+        kind: 'ExplorerBuilderPreview' as const,
+        rowLineageCapability: { status: 'UNAVAILABLE' as const, reasonCode: 'TEST_FIXTURE' },
+        receiptId: 'choice-preview-1',
+        outputId: args.outputId,
+        columns: [
+          { column: 'field-column-a', label: 'Field A', logicalType: 'string', filterable: false, chartable: false },
+          { column: 'semantic-column-a', label: 'Feature A', logicalType: 'string', filterable: false, chartable: false },
+        ],
+        rows: [{ 'field-column-a': 'field value', 'semantic-column-a': 'feature value' }],
+        rowCount: 1,
+        diagnostics: [],
+      },
+    }));
+    mockLoomClient.preview.mockReset();
+    mockLoomClient.preview.mockResolvedValue({
+      apiVersion,
+      kind: 'ExplorerBuilderPreview' as const,
+      rowLineageCapability: { status: 'UNAVAILABLE' as const, reasonCode: 'TEST_FIXTURE' },
+      receiptId: 'receipt-1',
+      outputId: 'specimens',
+      columns: receipt.outputs[0].columns,
+      rows: [],
+      rowCount: 0,
+      diagnostics: [],
+    });
     mockLoomClient.browseSemanticInventory.mockResolvedValue({ state: 'complete', entries: [] });
     resolveContext = vi.fn(async (args: { snapshotToken: string; expectedDraftVersion: number; expectedDraftDigest: string }) => ({
       snapshotToken: args.snapshotToken,
@@ -454,7 +510,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
       readonly stageId: string;
       readonly categoryColumnId: string;
       readonly valueColumnId: string;
-    }) => ({
+    }): Promise<ConstructionCategoryDiscoveryResponse> => ({
       snapshotToken: args.snapshotToken,
       draftVersion: args.expectedDraftVersion,
       draftDigest: args.expectedDraftDigest,
@@ -462,6 +518,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
       stageId: args.stageId,
       categoryColumnId: args.categoryColumnId,
       valueColumnId: args.valueColumnId,
+      outcome: 'COMPLETE' as const,
       complete: true,
       proofFingerprint: 'proof-1',
       categories: [{ key: { kind: 'STRING' as const, string: 'final' }, label: 'final' }],
@@ -498,6 +555,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
         routeRebase: [{ occurrenceId: 'base', edgeId: 'patient-specimen' }],
         preservedFeatureKeys: ['specimen_identifier'],
       },
+      candidateReceiptId: 'receipt-1',
       unresolved: [],
       diagnostics: [],
     }));
@@ -632,6 +690,17 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: 'Add catalog fixture' }));
 
+    await screen.findByRole('button', { name: 'Apply columns' });
+    expect(mockLoomClient.proposeConstructionChoices).toHaveBeenCalledWith(expect.objectContaining({
+      outputId: 'specimens',
+      constructionChoices: [
+        { choiceId: 'field-choice-a', form: 'VALUE', title: 'Field A' },
+        { choiceId: 'semantic-choice-a', form: 'ALL', title: 'Feature A' },
+      ],
+    }), expect.any(AbortSignal));
+    expect(applyCommands).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Apply columns' }));
+
     await waitFor(() => expect(applyCommands).toHaveBeenCalledTimes(1));
     expect(applyCommands).toHaveBeenCalledWith(expect.objectContaining({
       commands: [
@@ -669,11 +738,22 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
         explorerId="test"
       />,
     );
-    fireEvent.click(await screen.findByRole('button', { name: 'Add catalog fixture' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Advanced graph' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Change relationship' }));
+    await waitFor(() => expect(applyCommands).toHaveBeenCalledTimes(1));
+    expect(applyCommands).toHaveBeenCalledWith(expect.objectContaining({
+      commands: [{
+        type: 'UPDATE_ROUTE_EDGE',
+        outputId: 'specimens',
+        occurrenceId: 'patient-subject',
+        edgeId: 'specimen-patient-participant',
+      }],
+    }));
 
     expect(await screen.findByText(
       'Loom is finishing the previous table update. Field selection will return when the draft refresh completes.',
     )).toHaveAttribute('role', 'status');
+    expect(screen.getByRole('button', { name: 'Add catalog fixture' })).toBeDisabled();
 
     pending.resolve({
       commandId: 'pending-command',
@@ -726,10 +806,9 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
       />,
     );
 
-    fireEvent.click(await screen.findByTestId('construction-action-reshape'));
-    expect(await screen.findByTestId('construction-reshape-editor')).toHaveAttribute('data-editing-step-id', '');
-    fireEvent.click(screen.getByTestId('construction-history-step-group_specimens'));
-    fireEvent.click(screen.getByTestId('construction-edit-step-group_specimens'));
+    fireEvent.click(await screen.findByRole('button', { name: 'Configure rows' }));
+    const rowSettings = await screen.findByRole('dialog', { name: 'Row definition settings' });
+    fireEvent.click(within(rowSettings).getByTestId('construction-row-edit-group_specimens'));
 
     await waitFor(() => {
       expect(screen.getByTestId('construction-reshape-editor')).toHaveAttribute('data-editing-step-id', 'group_specimens');
@@ -756,16 +835,22 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
         { kind: 'FILTER' as const, supported: true },
       ],
     };
-    mockLoomClient.getConstructionCapabilities.mockResolvedValueOnce({
-      snapshotToken: 'snapshot-1',
-      draftVersion: 1,
-      draftDigest: 'sha256:draft-1',
-      outputId: 'specimens',
-      stageId: sourceStage.id,
+    mockLoomClient.getConstructionCapabilities.mockImplementation(async (args: {
+      readonly snapshotToken: string;
+      readonly expectedDraftVersion: number;
+      readonly expectedDraftDigest: string;
+      readonly outputId: string;
+      readonly stageId: string;
+    }) => ({
+      snapshotToken: args.snapshotToken,
+      draftVersion: args.expectedDraftVersion,
+      draftDigest: args.expectedDraftDigest,
+      outputId: args.outputId,
+      stageId: args.stageId,
       baseConstruction: { version: 1, steps: [] },
       stages: [sourceStage],
       selectedStage: sourceStage,
-    });
+    }));
 
     render(
       <BuilderWorkspace
@@ -774,7 +859,9 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
         explorerId="test"
       />,
     );
-    fireEvent.click(await screen.findByTestId('construction-action-reshape'));
+    fireEvent.click(await screen.findByRole('button', { name: 'Configure rows' }));
+    const rowSettings = await screen.findByRole('dialog', { name: 'Row definition settings' });
+    fireEvent.click(within(rowSettings).getByTestId('construction-action-pivot-rows'));
 
     const editor = await screen.findByTestId('construction-reshape-editor');
     expect(editor).toHaveAttribute('data-construction-step-count', '0');
@@ -884,6 +971,187 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
 
+  it('reconciles a new draft version when its content digest stays the same', async () => {
+    const sourceStage = {
+      id: 'source_projection',
+      inputStageId: '',
+      rowIdentityColumn: 'source-row-id',
+      columns: [
+        { id: 'specimen-id', name: 'specimen_identifier', label: 'Specimen identifier', type: 'string' },
+        { id: 'gender-id', name: 'gender', label: 'Gender', type: 'string' },
+      ],
+      capabilities: [
+        { kind: 'FILTER' as const, supported: true },
+        { kind: 'DERIVE' as const, supported: true },
+        { kind: 'PIVOT' as const, supported: false, reason: 'Not needed by this test.' },
+        { kind: 'UNPIVOT' as const, supported: false, reason: 'Not needed by this test.' },
+      ],
+    };
+    let savedConstruction: ProposeConstructionArgs['candidateConstruction'] | undefined;
+    let latestCandidate: ProposeConstructionArgs['candidateConstruction'] | undefined;
+    const initialDocument: ExplorerBuilderDocument = workspace.documents[0]!;
+    let savedWorkspace: ExplorerBuilderWorkspace = { ...workspace, documents: [initialDocument] };
+    let nextDraftVersion = 1;
+    let proposalNumber = 0;
+    mockLoomClient.getConstructionCapabilities.mockImplementation(async (args: {
+      readonly snapshotToken: string;
+      readonly expectedDraftVersion: number;
+      readonly expectedDraftDigest: string;
+      readonly outputId: string;
+      readonly stageId: string;
+    }) => ({
+      snapshotToken: args.snapshotToken,
+      draftVersion: args.expectedDraftVersion,
+      draftDigest: args.expectedDraftDigest,
+      outputId: args.outputId,
+      stageId: args.stageId,
+      baseConstruction: savedConstruction ?? { version: 1, steps: [] },
+      stages: [sourceStage],
+      selectedStage: sourceStage,
+    }));
+    mockLoomClient.proposeConstruction.mockImplementation(async (
+      args: ProposeConstructionArgs,
+    ): Promise<ConstructionProposalResponse> => {
+      latestCandidate = args.candidateConstruction;
+      proposalNumber += 1;
+      return {
+        proposalId: `stable-content-proposal-${proposalNumber}`,
+        outputId: args.outputId,
+        snapshotToken: args.snapshotToken,
+        draftVersion: args.expectedDraftVersion,
+        draftDigest: args.expectedDraftDigest,
+        baseDocumentDigest: 'document-1',
+        candidateWorkspaceDigest: 'sha256:stable-content-candidate',
+        changedStepId: args.changedStepId ?? '',
+        candidateConstruction: args.candidateConstruction,
+        dependencyImpact: { affectedStepIds: [] },
+        stages: [sourceStage],
+        previewStatus: 'READY',
+        previewDurationMs: 1,
+      };
+    });
+    mockLoomClient.preview.mockImplementation(async (args: {
+      readonly outputId: string;
+      readonly receiptId: string;
+    }) => ({
+      apiVersion,
+      kind: 'ExplorerBuilderPreview' as const,
+      rowLineageCapability: { status: 'UNAVAILABLE' as const, reasonCode: 'TEST_FIXTURE' },
+      receiptId: args.receiptId,
+      outputId: args.outputId,
+      columns: receipt.outputs[0].columns,
+      rows: [{ specimen_identifier: `candidate-${args.receiptId}` }],
+      rowCount: 1,
+      diagnostics: [],
+    }));
+    applyCommands.mockImplementation((args: { readonly commandId: string }) => {
+      if (!latestCandidate) throw new Error('Expected a construction proposal before Apply.');
+      nextDraftVersion += 1;
+      savedConstruction = latestCandidate;
+      const savedDocument: ExplorerBuilderDocument = {
+        ...initialDocument,
+        construction: latestCandidate,
+      };
+      savedWorkspace = { ...workspace, documents: [savedDocument] };
+      return resolvedRequest({
+        commandId: args.commandId,
+        workspace: savedWorkspace,
+        draftVersion: nextDraftVersion,
+        // Reapplying the same construction creates a new saved revision with the same content digest.
+        draftDigest: 'sha256:draft-2',
+        results: [{ type: 'TABLE_CHANGED', outputId: 'specimens', column: 'specimen_identifier' }],
+        diagnostics: [],
+      });
+    });
+    reconcile.mockImplementation((args: {
+      readonly snapshotToken: string;
+      readonly draftVersion: number;
+      readonly draftDigest: string;
+    }) => resolvedRequest({
+      ...receipt,
+      receiptId: `receipt-v${args.draftVersion}`,
+      snapshotToken: args.snapshotToken,
+      builder: savedWorkspace,
+    }));
+    preview.mockImplementation((args: { readonly outputId: string; readonly receiptId: string }) =>
+      resolvedRequest({
+        apiVersion,
+        kind: 'ExplorerBuilderPreview' as const,
+        rowLineageCapability: { status: 'UNAVAILABLE' as const, reasonCode: 'TEST_FIXTURE' },
+        receiptId: args.receiptId,
+        outputId: args.outputId,
+        columns: receipt.outputs[0].columns,
+        rows: [{ specimen_identifier: `preview-${args.receiptId}` }],
+        rowCount: 1,
+        diagnostics: [],
+      }),
+    );
+
+    const view = render(
+      <BuilderWorkspace organization="HTAN_INT" project="BForePC" explorerId="test" />,
+    );
+    await waitFor(() => expect(reconcile).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(preview).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.getByTestId('construction-preview')).toHaveAttribute('data-preview-receipt-id', 'receipt-v1'));
+
+    fireEvent.click(await screen.findByTestId('construction-action-keep-rows'));
+    await screen.findByRole('combobox', { name: 'Column' });
+    fireEvent.change(screen.getByRole('combobox', { name: 'Column' }), { target: { value: 'gender-id' } });
+    fireEvent.change(screen.getByRole('combobox', { name: 'Condition' }), { target: { value: 'EQUALS' } });
+    fireEvent.change(screen.getByRole('textbox', { name: 'Value' }), { target: { value: 'female' } });
+    await screen.findByTestId('construction-proposal-ready');
+    await waitFor(() => expect(latestCandidate?.steps).toHaveLength(1));
+    const firstCandidate = latestCandidate;
+    const firstStepId = firstCandidate?.steps[0]?.id;
+    expect(firstStepId).toBeTruthy();
+    fireEvent.click(screen.getByTestId('construction-apply-proposal'));
+
+    await waitFor(() => expect(applyCommands).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(reconcile).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(preview).toHaveBeenCalledTimes(2));
+    expect(reconcile.mock.calls[1]?.[0]).toMatchObject({
+      draftVersion: 2,
+      draftDigest: 'sha256:draft-2',
+    });
+    expect(preview.mock.calls[1]?.[0]).toMatchObject({ outputId: 'specimens', receiptId: 'receipt-v2' });
+    await waitFor(() => expect(screen.getByTestId('construction-preview')).toHaveAttribute('data-preview-receipt-id', 'receipt-v2'));
+
+    fireEvent.click(screen.getByTestId(`construction-history-step-${firstStepId}`));
+    fireEvent.click(await screen.findByTestId(`construction-edit-step-${firstStepId}`));
+    const condition = await screen.findByRole('combobox', { name: 'Condition' });
+    const proposalCountBeforeEdit = mockLoomClient.proposeConstruction.mock.calls.length;
+    fireEvent.change(condition, { target: { value: 'MISSING' } });
+    fireEvent.change(await screen.findByRole('combobox', { name: 'Condition' }), { target: { value: 'EQUALS' } });
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Value' }), { target: { value: 'female' } });
+    await waitFor(() => expect(mockLoomClient.proposeConstruction.mock.calls.length).toBeGreaterThan(proposalCountBeforeEdit));
+    await screen.findByTestId('construction-proposal-ready');
+    expect(latestCandidate).toEqual(firstCandidate);
+    fireEvent.click(screen.getByTestId('construction-apply-proposal'));
+
+    await waitFor(() => expect(applyCommands).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(reconcile).toHaveBeenCalledTimes(3));
+    await waitFor(() => expect(preview).toHaveBeenCalledTimes(3));
+    expect(reconcile.mock.calls[2]?.[0]).toMatchObject({
+      draftVersion: 3,
+      draftDigest: 'sha256:draft-2',
+    });
+    expect(preview.mock.calls[2]?.[0]).toMatchObject({ outputId: 'specimens', receiptId: 'receipt-v3' });
+    await waitFor(() => {
+      const previewPanel = screen.getByTestId('construction-preview');
+      expect(previewPanel).toHaveAttribute('data-preview-receipt-id', 'receipt-v3');
+      expect(previewPanel).toHaveAttribute('data-current-draft-version', '3');
+    });
+
+    view.rerender(
+      <BuilderWorkspace organization="HTAN_INT" project="BForePC" explorerId="test" />,
+    );
+    await act(async () => {
+      await new Promise((resolve) => window.setTimeout(resolve, 300));
+    });
+    expect(reconcile).toHaveBeenCalledTimes(3);
+    expect(preview).toHaveBeenCalledTimes(3);
+  });
+
   it('automatically previews a hydrated draft and opens Review with its compile receipt and sample', async () => {
     preview.mockReturnValueOnce(
       resolvedRequest({
@@ -966,9 +1234,29 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
       isLoading: false,
       refetch: vi.fn(),
     });
-    mockLoomClient.getSelection.mockImplementation(
-      () => new Promise(() => undefined),
-    );
+    let loadSignal: AbortSignal | undefined;
+    let resolveSelection: (value: { readonly revision: SelectionRevision; readonly members: ReadonlyArray<never> }) => void = () => undefined;
+    const staleSelection: SelectionRevision = {
+      id: 'selection-1',
+      project: 'HTAN_INT/BForePC',
+      generation: 'generation-1',
+      resourceType: 'Specimen',
+      rule: { kind: 'EXPLICIT' },
+      source: { kind: 'EXPLICIT_REFS', generation: 'generation-1' },
+      scopeDigest: 'scope-1',
+      ruleDigest: 'rule-1',
+      membershipDigest: 'membership-1',
+      memberCount: 1,
+      memberBytes: 32,
+      complete: true,
+      createdAt: '2026-09-21T00:00:00Z',
+    };
+    mockLoomClient.getSelection.mockImplementation((_args: unknown, signal: AbortSignal) => {
+      loadSignal = signal;
+      return new Promise((resolve) => {
+        resolveSelection = resolve;
+      });
+    });
 
     render(
       <BuilderWorkspace
@@ -978,12 +1266,146 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
       />,
     );
 
-    expect(await screen.findByText('Loading the saved selection…')).toBeInTheDocument();
+    fireEvent.click(await screen.findByRole('button', { name: 'Configure rows' }));
+    const rowSettings = await screen.findByRole('dialog', { name: 'Row definition settings' });
+    expect(await within(rowSettings).findByText('Loading the saved selection…')).toBeInTheDocument();
+    fireEvent.click(within(rowSettings).getByRole('button', { name: 'Back to table' }));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Row definition settings' })).not.toBeInTheDocument());
     fireEvent.click(screen.getByRole('button', { name: 'Select second table' }));
+    await waitFor(() => expect(loadSignal?.aborted).toBe(true));
+    fireEvent.click(await screen.findByRole('button', { name: 'Configure rows' }));
+    const patientSettings = await screen.findByRole('dialog', { name: 'Row definition settings' });
+    expect(await within(patientSettings).findByText('All authorized Patient records')).toBeInTheDocument();
+    expect(within(patientSettings).queryByText('Loading the saved selection…')).not.toBeInTheDocument();
 
-    await waitFor(() =>
-      expect(screen.queryByText('Loading the saved selection…')).not.toBeInTheDocument(),
-    );
+    await act(async () => {
+      resolveSelection({ revision: staleSelection, members: [] });
+      await Promise.resolve();
+    });
+    expect(within(patientSettings).getByText('All authorized Patient records')).toBeInTheDocument();
+    expect(within(patientSettings).queryByText('1 Specimen selected, not attached')).not.toBeInTheDocument();
+  });
+
+  it('restores the source selection from a saved cohort after the starting collection is cleared', async () => {
+    const cohortWorkspace = {
+      ...workspace,
+      documents: [{
+        ...workspace.documents[0],
+        rows: {
+          kind: 'GROUPS' as const,
+          groups: {
+            source: {
+              kind: 'EXPLICIT' as const,
+              explicit: { revisionId: 'group-revision-1', unassignedMemberPolicy: 'EXCLUDE' as const },
+            },
+          },
+        },
+      }],
+    };
+    reconcile.mockReturnValue(resolvedRequest({ ...receipt, builder: cohortWorkspace }));
+    (useGetExplorerBuilderStateV2Query as Mock).mockReturnValue({
+      data: { ...builderState, workspace: cohortWorkspace },
+      isLoading: false,
+      refetch: vi.fn(),
+    });
+    const sourceSelection: SelectionRevision = {
+      id: 'selection-cohort-source',
+      project: 'HTAN_INT/BForePC',
+      generation: 'generation-1',
+      resourceType: 'Specimen',
+      rule: { kind: 'EXPLICIT' },
+      source: { kind: 'EXPLICIT_REFS', generation: 'generation-1' },
+      scopeDigest: 'scope-cohort-source',
+      ruleDigest: 'rule-cohort-source',
+      membershipDigest: 'membership-cohort-source',
+      memberCount: 2,
+      memberBytes: 64,
+      complete: true,
+      createdAt: '2026-09-21T00:00:00Z',
+    };
+    mockLoomClient.listRowDefinitionChoices.mockResolvedValue({
+      snapshotToken: 'snapshot-1',
+      outputId: 'specimens',
+      choices: [],
+      explicitGroups: [{
+        revisionId: 'group-revision-1',
+        sourceSelectionRevisionId: sourceSelection.id,
+        groupCount: 2,
+        memberCount: 2,
+        createdAt: '2026-09-21T00:00:00Z',
+        unassignedMemberPolicies: ['ERROR', 'EXCLUDE', 'GROUP_AS_UNASSIGNED'],
+      }],
+    });
+    mockLoomClient.getSelection.mockResolvedValue({ revision: sourceSelection, members: [] });
+    mockLoomClient.searchPopulationRoutes.mockResolvedValue({
+      snapshotToken: 'snapshot-1',
+      outputId: 'specimens',
+      selectionRevisionId: sourceSelection.id,
+      complete: true,
+      truncated: false,
+      choices: [],
+    });
+
+    render(<BuilderWorkspace organization="HTAN_INT" project="BForePC" explorerId="test" />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Configure rows' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Row definition settings' });
+    expect(await within(dialog).findByText('2 Specimen selected, not attached')).toBeInTheDocument();
+    await waitFor(() => expect(mockLoomClient.listRowDefinitionChoices).toHaveBeenCalledTimes(2));
+    expect(mockLoomClient.listRowDefinitionChoices).toHaveBeenCalledWith({
+      project: 'HTAN_INT/BForePC',
+      explorerId: 'test',
+      authResourcePath: '/programs/HTAN_INT/projects/BForePC',
+      snapshotToken: 'snapshot-1',
+      outputId: 'specimens',
+    }, expect.any(AbortSignal));
+    expect(mockLoomClient.getSelection).toHaveBeenCalledWith({
+      project: 'HTAN_INT/BForePC',
+      explorerId: 'test',
+      authResourcePath: '/programs/HTAN_INT/projects/BForePC',
+      selectionRevision: sourceSelection.id,
+      limit: 1,
+    }, expect.any(AbortSignal));
+  });
+
+  it('reports missing saved-cohort selection metadata without retaining another selection', async () => {
+    const cohortWorkspace = {
+      ...workspace,
+      documents: [{
+        ...workspace.documents[0],
+        rows: {
+          kind: 'GROUPS' as const,
+          groups: {
+            source: {
+              kind: 'EXPLICIT' as const,
+              explicit: { revisionId: 'group-revision-1', unassignedMemberPolicy: 'EXCLUDE' as const },
+            },
+          },
+        },
+      }],
+    };
+    reconcile.mockReturnValue(resolvedRequest({ ...receipt, builder: cohortWorkspace }));
+    (useGetExplorerBuilderStateV2Query as Mock).mockReturnValue({
+      data: { ...builderState, workspace: cohortWorkspace },
+      isLoading: false,
+      refetch: vi.fn(),
+    });
+    mockLoomClient.listRowDefinitionChoices.mockResolvedValue({
+      snapshotToken: 'snapshot-1', outputId: 'specimens', choices: [],
+      explicitGroups: [{
+        revisionId: 'group-revision-1', groupCount: 2, memberCount: 2,
+        createdAt: '2026-09-21T00:00:00Z',
+        unassignedMemberPolicies: ['ERROR', 'EXCLUDE', 'GROUP_AS_UNASSIGNED'],
+      }],
+    });
+
+    render(<BuilderWorkspace organization="HTAN_INT" project="BForePC" explorerId="test" />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Configure rows' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Row definition settings' });
+    expect(await within(dialog).findByText('The saved cohort does not expose its source selection in this authorized catalog snapshot.')).toBeInTheDocument();
+    expect(mockLoomClient.getSelection).not.toHaveBeenCalled();
+    expect(screen.queryByText(/selected, not attached/)).not.toBeInTheDocument();
   });
 
   it('keeps a handed-off selection active when the current table has another collection attached', async () => {
@@ -1031,7 +1453,9 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
       />,
     );
 
-    const panel = await screen.findByRole('region', { name: 'Starting collection' });
+    fireEvent.click(await screen.findByRole('button', { name: 'Configure rows' }));
+    const rowSettings = await screen.findByRole('dialog', { name: 'Row definition settings' });
+    const panel = await within(rowSettings).findByRole('region', { name: 'Starting collection' });
     expect(panel).toHaveAttribute('data-selection-revision-id', 'selection-2');
     expect(panel).toHaveAttribute('data-attached-selection-revision-id', 'selection-1');
     expect(mockLoomClient.getSelection).not.toHaveBeenCalled();
@@ -1056,6 +1480,9 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
       draftVersion: 1,
       draftDigest: 'sha256:draft-1',
     })));
+    await screen.findByRole('button', { name: 'Apply row change' });
+    expect(applyCommands).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Apply row change' }));
     await waitFor(() => expect(applyCommands).toHaveBeenCalledWith(expect.objectContaining({
       commands: [{
         type: 'APPLY_TABLE_ROOT_REBASE',
@@ -1100,7 +1527,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Advanced graph' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Change rows' }));
-    fireEvent.click(await screen.findByRole('button', { name: 'Use patient-specimen' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Match through patient-specimen' }));
 
     await waitFor(() => expect(assessRowChange).toHaveBeenLastCalledWith(
       expect.objectContaining({
@@ -1108,6 +1535,9 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
         routeRebase: [{ occurrenceId: 'base', edgeId: 'patient-specimen' }],
       }),
     ));
+    await screen.findByRole('button', { name: 'Apply row change' });
+    expect(applyCommands).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Apply row change' }));
     await waitFor(() => expect(applyCommands).toHaveBeenCalledWith(
       expect.objectContaining({
         commands: [expect.objectContaining({
@@ -1574,7 +2004,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     expect(screen.getByTestId('construction-action-add-columns')).toBeInTheDocument();
     expect(screen.getByTestId('construction-action-keep-rows')).toBeInTheDocument();
     expect(screen.getByTestId('construction-action-keep-rows')).toHaveTextContent('Filter rows');
-    expect(screen.getByTestId('construction-action-reshape')).toBeInTheDocument();
+    expect(screen.getByTestId('construction-rows-settings-trigger')).toBeInTheDocument();
     expect(screen.queryByTestId('construction-action-calculate')).not.toBeInTheDocument();
     expect(screen.queryByTestId('construction-action-combine')).not.toBeInTheDocument();
 

@@ -24,11 +24,11 @@ func TestConstructionGroupMissingKeyPolicyDefaultsAndPersists(t *testing.T) {
 
 	input := map[string]StageColumn{"input": {ID: "input"}}
 	output := map[string]StageColumn{"output": {ID: "output"}}
-	if err := validateConstructionGroup(legacy, input, output, "steps[0]", map[string]bool{}); err != nil {
+	if err := validateConstructionGroup(legacy, input, output, "steps[0]", map[string]bool{}, false); err != nil {
 		t.Fatalf("validate legacy group: %v", err)
 	}
 	legacy.MissingKeyPolicy = "SILENT_DEFAULT"
-	if err := validateConstructionGroup(legacy, input, output, "steps[0]", map[string]bool{}); err == nil || !strings.Contains(err.Error(), "missingKeyPolicy") {
+	if err := validateConstructionGroup(legacy, input, output, "steps[0]", map[string]bool{}, false); err == nil || !strings.Contains(err.Error(), "missingKeyPolicy") {
 		t.Fatalf("unsupported missingKeyPolicy error = %v", err)
 	}
 }

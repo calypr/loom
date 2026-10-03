@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"reflect"
 	"sort"
 	"strings"
 
@@ -251,6 +252,45 @@ func constructionPivotSourceHelperID(pivotID, columnID string) string {
 	return "pivot_source_" + hex.EncodeToString(digest[:10])
 }
 
+func preserveExistingPivotSourceTable(
+	construction authoringv2.Construction,
+	pivotID, helperID string,
+	source authoringv2.ConstructionRelatedFieldSource,
+	output authoringv2.StageColumn,
+) authoringv2.StageColumn {
+	index := constructionStepIndex(construction.Steps, helperID)
+	if index < 0 {
+		return output
+	}
+	previous := construction.Steps[index]
+	if previous.OwnerStepID != pivotID || previous.Operation.Kind != authoringv2.ConstructionOperationRelatedField ||
+		previous.Operation.RelatedField == nil || previous.Operation.RelatedField.OutputColumnID != output.ID ||
+		!reflect.DeepEqual(previous.Operation.RelatedField.Source, source) {
+		return output
+	}
+	for _, column := range previous.Outputs {
+		if column.ID != output.ID {
+			continue
+		}
+		if column.Table == nil {
+			output.Table = nil
+		} else {
+			table := *column.Table
+			if column.Table.Visible != nil {
+				visible := *column.Table.Visible
+				table.Visible = &visible
+			}
+			if column.Table.Order != nil {
+				order := *column.Table.Order
+				table.Order = &order
+			}
+			output.Table = &table
+		}
+		break
+	}
+	return output
+}
+
 func constructionFHIRPathLabel(resourceType, path string) string {
 	path = strings.TrimPrefix(strings.TrimSpace(path), resourceType+".")
 	return resourceType + "." + path
@@ -420,10 +460,12 @@ func (s *Service) constructionCandidateWithPivotSources(
 			}},
 			Outputs: append([]authoringv2.StageColumn(nil), currentInputColumns...),
 		}
-		step.Outputs = appendStageColumnIfAbsent(step.Outputs, authoringv2.StageColumn{
+		pivotSourceOutput := authoringv2.StageColumn{
 			ID: item.selection.ColumnID, Name: constructionPivotSourceOutputName(item.selection.ColumnID),
 			Label: item.label, Type: item.related.LogicalType, Nullable: true,
-		})
+		}
+		pivotSourceOutput = preserveExistingPivotSourceTable(base.construction, pivotID, helperID, *item.related, pivotSourceOutput)
+		step.Outputs = appendStageColumnIfAbsent(step.Outputs, pivotSourceOutput)
 		inserted = append(inserted, step)
 		currentInputColumns = append([]authoringv2.StageColumn(nil), step.Outputs...)
 		pivotAnchor = authoringv2.ConstructionInputRef{Kind: authoringv2.ConstructionInputStepOutput, StepID: helperID}

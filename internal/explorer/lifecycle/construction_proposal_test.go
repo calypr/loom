@@ -524,7 +524,7 @@ func TestConstructionGroupSourceExposesPopulatedGeneratedScalarWhenObserved(t *t
 		t.Fatalf("BodyStructure source choices = %#v, want one eligible root scalar", capability)
 	}
 	choice := capability.Choices[0]
-	if choice.FieldPath != "active" || choice.Label != "Whether this record is in active use" || choice.FHIRType != "boolean" ||
+	if choice.FieldPath != "active" || choice.Label != "Active" || choice.FHIRType != "boolean" ||
 		choice.LogicalType != "boolean" || choice.ValueType != "BOOLEAN" || choice.IsIdentifier || choice.IsReference || !choice.IsPopulated {
 		t.Fatalf("BodyStructure active choice = %#v", choice)
 	}
@@ -747,5 +747,19 @@ func TestApplyConstructionProposalPreviewFailureLeavesAcceptedDraftIntact(t *tes
 	}
 	if store.saveDraftCalls != 0 || store.created.DraftVersion != version || store.created.DraftDigest != digest || string(before) != string(store.created.DraftConfig) {
 		t.Fatalf("failed exact preview mutated accepted draft: saves=%d owner=%#v", store.saveDraftCalls, store.created)
+	}
+}
+
+func TestConstructionGroupEditCannotIntroduceUnsignedSourceProjection(t *testing.T) {
+	accepted := authoringv2.ConstructionSourceProjection{ColumnID: "accepted", FieldPath: "status", OwnerStepID: "group"}
+	forged := authoringv2.ConstructionSourceProjection{ColumnID: "forged", FieldPath: "secret", OwnerStepID: "group"}
+	base := constructionBase{construction: authoringv2.Construction{SourceProjections: []authoringv2.ConstructionSourceProjection{accepted}}}
+	service := &Service{}
+	candidate, err := service.constructionCandidateWithGroupSource(context.Background(), base, ConstructionProposalRequest{CandidateConstruction: authoringv2.Construction{SourceProjections: []authoringv2.ConstructionSourceProjection{forged}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(candidate.SourceProjections) != 1 || candidate.SourceProjections[0].ColumnID != "accepted" {
+		t.Fatalf("unsigned source metadata accepted: %#v", candidate.SourceProjections)
 	}
 }

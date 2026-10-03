@@ -88,7 +88,10 @@ func validatePhysicalGroupedPivot(pivot PhysicalGroupedPivot, defined map[string
 			codedDefined[variable] = isDefined
 		}
 		codedDefined[pivot.InputRowVariable] = true
-		return validatePhysicalGroupedCodedPivot(pivot, projectionNames, codedDefined, bindVars)
+		if err := validatePhysicalGroupedCodedPivot(pivot, projectionNames, codedDefined, bindVars); err != nil {
+			return err
+		}
+		return validatePhysicalGroupedPivotRowValues(pivot, projectionNames, defined)
 	}
 	for _, column := range []string{pivot.CategoryColumn, pivot.ValueColumn} {
 		if !projectionNames[column] {
@@ -195,6 +198,34 @@ func validatePhysicalGroupedPivot(pivot PhysicalGroupedPivot, defined map[string
 		if outputs[pivot.UnlistedEvidenceColumn] || groupColumns[pivot.UnlistedEvidenceColumn] || projectionNames[pivot.UnlistedEvidenceColumn] {
 			return fmt.Errorf("unlisted-category evidence column collides with an output")
 		}
+	}
+	return validatePhysicalGroupedPivotRowValues(pivot, projectionNames, defined)
+}
+
+func validatePhysicalGroupedPivotRowValues(pivot PhysicalGroupedPivot, projectionNames, defined map[string]bool) error {
+	reserved := groupedPivotBaseOutputs(pivot)
+	groupVariables := make(map[string]bool, len(pivot.GroupKeys))
+	for _, key := range pivot.GroupKeys {
+		groupVariables[key.Variable] = true
+	}
+	seenOutputs := make(map[string]bool, len(pivot.RowValues))
+	for index, rowValue := range pivot.RowValues {
+		if !projectionNames[rowValue.InputColumn] || (!validTableScalarKind(rowValue.InputKind) && rowValue.InputKind != "OBJECT") {
+			return fmt.Errorf("row value %d input column %q or scalar kind %q is unsupported", index, rowValue.InputColumn, rowValue.InputKind)
+		}
+		if !physicalPathPartPattern.MatchString(rowValue.Output) || reserved[rowValue.Output] || seenOutputs[rowValue.Output] {
+			return fmt.Errorf("row value %d output %q is unsafe or collides with another Pivot output", index, rowValue.Output)
+		}
+		if rowValue.Policy != "ALL" && rowValue.Policy != "ONE" {
+			return fmt.Errorf("row value %d has unsupported policy %q", index, rowValue.Policy)
+		}
+		if groupVariables[rowValue.Variable] {
+			return fmt.Errorf("row value %d variable %q collides with a group key", index, rowValue.Variable)
+		}
+		if err := definePhysicalVariable(defined, rowValue.Variable); err != nil {
+			return fmt.Errorf("row value %d: %w", index, err)
+		}
+		seenOutputs[rowValue.Output] = true
 	}
 	return nil
 }

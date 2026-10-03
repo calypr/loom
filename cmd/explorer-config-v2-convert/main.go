@@ -280,7 +280,7 @@ func inferSource(project, rootResourceType, occurrenceID, leaf, physical string)
 		return authoringv2.ColumnSource{Kind: authoringv2.SourceProjectID}, "string", nil
 	}
 	if marker := "observation_component_values__"; strings.Contains(leaf, marker) {
-		return authoringv2.ColumnSource{Kind: authoringv2.SourceObservationComponentByCode, Lookup: &authoringv2.LookupSource{Match: leaf[strings.Index(leaf, marker)+len(marker):], Path: "component[]", ProjectionMode: "FIRST"}}, "string", nil
+		return authoringv2.ColumnSource{}, "", fmt.Errorf("legacy Observation component-by-code source %q cannot be represented losslessly: the current codedValue source requires a validated system/code key and typed value binding", leaf)
 	}
 	if marker := "identifier_by_system_"; strings.Contains(leaf, marker) {
 		encoded := leaf[strings.Index(leaf, marker)+len(marker):]
@@ -308,7 +308,7 @@ func inferSource(project, rootResourceType, occurrenceID, leaf, physical string)
 		case "identifier":
 			return field("identifier[].value", "string"), "string", nil
 		default:
-			return authoringv2.ColumnSource{Kind: authoringv2.SourceCodingBySystem, Lookup: &authoringv2.LookupSource{Match: "https://humantumoratlas.org/" + name, Path: "category[].coding[]", ProjectionMode: "FIRST"}}, "string", nil
+			return authoringv2.ColumnSource{}, "", fmt.Errorf("legacy DocumentReference coding-by-system source %q cannot be represented losslessly: the current codedValue source requires an exact system/code key, while this source identifies only a system", name)
 		}
 	}
 	switch leaf {

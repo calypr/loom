@@ -22,7 +22,12 @@ import {
   type CatalogChoiceIntent,
   type CatalogItem,
 } from '../catalogItems';
-import { CatalogSelectionDialog, type CatalogInitialSelection, type RouteCoverage } from './CatalogSelectionDialog';
+import {
+  CatalogSelectionDialog,
+  type CatalogInitialSelection,
+  type GroupedRowValuePolicyControl,
+  type RouteCoverage,
+} from './CatalogSelectionDialog';
 import type { PairedColumnSuggestion } from '../constructionWorkspace/PairedColumnSuggestions';
 
 const PAGE_SIZE = 50;
@@ -464,6 +469,7 @@ export const ConceptCatalog = ({
   initialSelection,
   initialFieldSource,
   pairedColumnSuggestion,
+  groupedRowValuePolicy,
   onPairedColumnSuggestionHandled,
   onAddSelected,
   onInspectRouteCoverage,
@@ -487,6 +493,7 @@ export const ConceptCatalog = ({
   readonly initialSelection?: CatalogInitialSelection;
   readonly initialFieldSource?: Pick<FieldChoiceSource, 'candidateId' | 'nodeId' | 'path'>;
   readonly pairedColumnSuggestion?: PairedColumnSuggestion;
+  readonly groupedRowValuePolicy?: GroupedRowValuePolicyControl;
   readonly onPairedColumnSuggestionHandled?: (requestId: string) => void;
   readonly onAddSelected?: (
     selections: ReadonlyArray<CatalogChoiceIntent>,
@@ -982,6 +989,7 @@ export const ConceptCatalog = ({
           )}
           rowRoot={rowRoot}
           initialSelection={initialSelection}
+          groupedRowValuePolicy={groupedRowValuePolicy}
           busy={adding || loadingMoreRoutes !== undefined}
           loadingMoreRoutes={loadingMoreRoutes}
           routeLoadError={routeLoadError}

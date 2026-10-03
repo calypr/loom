@@ -26,14 +26,45 @@ import (
 // logical type/cardinality information.
 func recipeOutputSchema(plan ir.PhysicalPlan, output semantic.OutputPlan, dynamicMetadata []DynamicColumnMetadata, derivedTypes map[string]derivedColumnMetadata) ([]CompiledOutputColumn, error) {
 	if output.GroupRows != nil {
-		return []CompiledOutputColumn{
-			{Name: "group_revision_id", SemanticPath: "groups.revision_id", Kind: string(expression.KindString), Cardinality: string(expression.RequiredOne), Nullable: false, Internal: true, Identity: true},
-			{Name: "group_id", SemanticPath: "groups.group_id", Kind: string(expression.KindString), Cardinality: string(expression.RequiredOne), Nullable: false, Identity: true},
-			{Name: "group_label", SemanticPath: "groups.label", Kind: string(expression.KindString), Cardinality: string(expression.RequiredOne), Nullable: false},
-			{Name: "group_ordinal", SemanticPath: "groups.ordinal", Kind: string(expression.KindInteger), Cardinality: string(expression.RequiredOne), Nullable: false},
-			{Name: "members", SemanticPath: "groups.members", Kind: string(expression.KindObject), Cardinality: string(expression.Many), Nullable: false},
-			{Name: "__loom_row_id", SemanticPath: "groups.identity", Kind: string(expression.KindObject), Cardinality: string(expression.RequiredOne), Nullable: false, Internal: true, Identity: true},
-		}, nil
+		columns := []CompiledOutputColumn{
+			{ID: "group_revision_id", Name: "group_revision_id", Label: "Group revision ID", SemanticPath: "groups.revision_id", Kind: string(expression.KindString), Cardinality: string(expression.RequiredOne), Nullable: false, Internal: true, Identity: true},
+			{ID: "group_id", Name: "group_id", Label: "Group ID", SemanticPath: "groups.group_id", Kind: string(expression.KindString), Cardinality: string(expression.RequiredOne), Nullable: false, Identity: true},
+			{ID: "group_label", Name: "group_label", Label: "Group label", SemanticPath: "groups.label", Kind: string(expression.KindString), Cardinality: string(expression.RequiredOne), Nullable: false},
+			{ID: "group_ordinal", Name: "group_ordinal", Label: "Group ordinal", SemanticPath: "groups.ordinal", Kind: string(expression.KindInteger), Cardinality: string(expression.RequiredOne), Nullable: false},
+			{ID: "members", Name: "members", Label: "Group members", SemanticPath: "groups.members", Kind: string(expression.KindObject), Cardinality: string(expression.Many), Nullable: false},
+			{ID: "__loom_row_id", Name: "__loom_row_id", Label: "Group row identity", SemanticPath: "groups.identity", Kind: string(expression.KindObject), Cardinality: string(expression.RequiredOne), Nullable: false, Internal: true, Identity: true},
+		}
+		byID := make(map[string]semantic.SemanticField, len(output.Root.Fields))
+		for _, field := range output.Root.Fields {
+			byID[field.ColumnID] = field
+		}
+		seen := map[string]bool{"group_revision_id": true, "group_id": true, "group_label": true, "group_ordinal": true, "members": true, "__loom_row_id": true}
+		for _, selected := range output.GroupRows.RowValues {
+			field, ok := byID[selected.ColumnID]
+			if !ok {
+				return nil, fmt.Errorf("group row value column ID %q is missing from the root projection", selected.ColumnID)
+			}
+			if field.Expr.Expression.Selector == nil || field.Expr.Expression.Selector.Context != "" && field.Expr.Expression.Selector.Context != "root" || len(field.Fallbacks) != 0 {
+				return nil, fmt.Errorf("group row value column %q is not a direct root FHIR selector", selected.ColumnID)
+			}
+			if seen[field.Name] {
+				return nil, fmt.Errorf("group row value output %q collides with an existing group column", field.Name)
+			}
+			seen[field.Name] = true
+			cardinality := field.Expr.Type.Cardinality
+			nullable := cardinality.Optional()
+			if selected.Policy == recipe.ConstructionRowValueAll {
+				cardinality, nullable = expression.Many, false
+			} else {
+				cardinality, nullable = expression.OptionalOne, true
+			}
+			columns = append(columns, CompiledOutputColumn{
+				ID: field.ColumnID, Name: field.Name, Label: constructionFirstNonEmpty(field.Label, field.Name),
+				SemanticPath: recipeSemanticPath(output.RootResourceType, output.Root.ResourceType, field.FieldRef, field.Expr.Expression),
+				Kind:         string(field.Expr.Type.Kind), Cardinality: string(cardinality), Nullable: nullable,
+			})
+		}
+		return columns, nil
 	}
 	logical := make(map[string]CompiledOutputColumn)
 	fieldMetadata := make(map[string]struct{ id, label string })

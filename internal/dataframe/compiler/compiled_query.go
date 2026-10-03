@@ -7,13 +7,31 @@ import (
 )
 
 // PreviewCoveringIndexSpec describes a bounded compiler-selected persistent
-// index that can cover one terminal nonunique Pivot preview source scan.
-// Runtime owners may provision this index before executing the hinted query.
+// index that may cover a preview source scan. Runtime owners may provision
+// this index before executing the hinted query.
 type PreviewCoveringIndexSpec struct {
-	Collection         string
-	Name               string
-	Fields             []string
+	Collection string
+	Name       string
+	Fields     []string
+	// PrepareAfterPreview keeps Group index creation out of the query's critical
+	// path. The query uses a non-forcing hint and remains valid without it.
+	PrepareAfterPreview bool
+
+	// pivotGroupKeyPaths enables the Pivot-only two-scan renderer. Other
+	// preview covering indexes use a single hinted root scan.
 	pivotGroupKeyPaths [][]string
+}
+
+// PreviewGroupScanSpec contains compiler-rendered alternatives for a narrow
+// direct-source Group preview. Runtime may choose SequentialQuery only after
+// verifying the current scan is non-covering and that the exact scoped source
+// count is close to the collection cardinality.
+type PreviewGroupScanSpec struct {
+	Collection         string
+	SequentialQuery    string
+	SequentialBindVars map[string]any
+	ScopeCountQuery    string
+	ScopeCountBindVars map[string]any
 }
 
 // CompiledQuery is the executable result of the canonical recipe compiler.
@@ -45,5 +63,6 @@ type CompiledQuery struct {
 	// group window bounds validation to a deterministic subset of output rows.
 	PartialValidation    bool
 	PreviewCoveringIndex *PreviewCoveringIndexSpec
+	PreviewGroupScan     *PreviewGroupScanSpec
 	PlanDiagnostics      ir.CompilerPlanDiagnostics
 }

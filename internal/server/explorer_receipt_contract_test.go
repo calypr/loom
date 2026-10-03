@@ -142,12 +142,42 @@ func TestCompileExplorerReceiptReconcilesAuthoredDerivedOutput(t *testing.T) {
 }
 
 func TestCompileExplorerReceiptPersistsCompilerConstructionStages(t *testing.T) {
-	snapshot := testAuthoringV2CapabilitySnapshot()
+	readScope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
+	snapshot := capability.NewSnapshot(
+		capability.SnapshotIdentity{
+			Project: "project-a", Generation: "generation-a", AuthorizationScopeDigest: explorerScopeDigest(readScope),
+			SchemaDigest: strings.Repeat("c", 64), ResourceInventoryDigest: "inventory", RelationshipDigest: "relationships",
+			FieldDigest: "fields", ShapeDigest: strings.Repeat("d", 64), ProtocolVersion: explorerCapabilityProtocolVersion,
+			CompilerVersion: explorerCapabilityCompilerVersion, TraversalPolicyVersion: explorerTraversalPolicyVersion,
+			ProjectionPolicyVersion: explorerProjectionPolicyVersion,
+		},
+		capability.Policy{
+			Route:      capability.RoutePolicy{Version: explorerTraversalPolicyVersion, AllowsRepeatedEdges: true, AllowsSelfLoops: true},
+			Projection: capability.ProjectionPolicy{Version: explorerProjectionPolicyVersion},
+		},
+		capability.StatusReady, true, false,
+		[]capability.Node{{ID: "n_specimen", ResourceType: "Specimen", RowRootEligible: true, RowGrain: "RESOURCE", Populated: true, DocumentCount: 1, SupportedOperations: []capability.Operation{capability.OperationSelect}}},
+		nil,
+		[]capability.Candidate{{
+			ID: "c_specimen_id", NodeID: "n_specimen", ResourceType: "Specimen", FieldPath: "id", Label: "Specimen ID",
+			LogicalType: "string", Cardinality: "OPTIONAL_ONE", ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar, capability.ProjectionFirst},
+			SupportedOperations: []capability.Operation{capability.OperationSelect}, Observed: true, Populated: true,
+		}},
+		nil,
+	)
 	workspace, err := authoringv2.DecodeWorkspace(baselineExplorerWorkspaceV2())
 	if err != nil {
 		t.Fatal(err)
 	}
-	document, err := authoringv2.UpgradeDocumentToConstruction(workspace.Documents[0])
+	document := workspace.Documents[0]
+	document.Output.ID = "specimens"
+	document.Output.Title = "Named cohort QA"
+	document.RootResourceType = "Specimen"
+	document.Route.ResourceType = "Specimen"
+	document.Columns[0].ColumnID = "source_c7df487a53e218785ad00f6bd656f320"
+	document.Columns[0].Column = "col_26a18d9205b062fde575cdf7"
+	document.Columns[0].Label = "Original Specimen ID"
+	document, err = authoringv2.UpgradeDocumentToConstruction(document)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -155,15 +185,26 @@ func TestCompileExplorerReceiptPersistsCompilerConstructionStages(t *testing.T) 
 	for _, column := range document.Columns {
 		columns = append(columns, authoringv2.StageColumn{ID: column.ColumnID, Name: column.Column, Label: column.Label, Type: column.LogicalType})
 	}
+	sourceID := "b7cad184-db67-5542-a975-10fffa3e89e7"
 	document.Construction.Steps = []authoringv2.ConstructionStep{{
-		ID: "filter_step", Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}},
+		ID: "qa-source-filter", Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}},
 		Operation: authoringv2.ConstructionOperation{
-			Kind:   authoringv2.ConstructionOperationFilter,
-			Filter: &authoringv2.ConstructionFilter{ColumnID: columns[0].ID, Operator: authoringv2.ConstructionFilterExists},
+			Kind: authoringv2.ConstructionOperationFilter,
+			Filter: &authoringv2.ConstructionFilter{ColumnID: columns[0].ID, Operator: authoringv2.ConstructionFilterEquals,
+				Values: []authoringv2.FilterValue{{Kind: authoringv2.ConstructionFilterString, String: &sourceID}}},
 		},
 		Outputs: columns,
 	}}
+	document.Rows = authoringv2.RowDefinition{Kind: authoringv2.RowDefinitionGroups, Groups: &authoringv2.GroupedRows{
+		Source: authoringv2.GroupSource{
+			Kind:     authoringv2.GroupSourceExplicit,
+			Explicit: &authoringv2.ExplicitGroupSource{RevisionID: "grouprev_test", UnassignedMemberPolicy: authoringv2.UnassignedMemberGroupAsUnassigned},
+		},
+		AfterStepID: "qa-source-filter",
+	}}
+	document.Population = &authoringv2.Population{SelectionRevisionID: "selection_fddd4c3ae159949b4c7f0c7c0e80b713739ae4f390d8d4ebc3944723f4060fc5", Route: []authoringv2.PopulationRouteStep{}}
 	workspace.Documents[0] = document
+	workspace.Tabs[0].OutputID = "specimens"
 	if err := workspace.Validate(); err != nil {
 		t.Fatalf("validate typed construction workspace: %v", err)
 	}
@@ -180,17 +221,22 @@ func TestCompileExplorerReceiptPersistsCompilerConstructionStages(t *testing.T) 
 	}
 	request := lifecycle.CompileReceiptRequest{
 		Project: "project-a", ExplorerID: "custom", Workspace: workspace, SnapshotToken: snapshot.Token,
+		SelectionMembersCollection: "loom_explorer_selection_members",
+		ResolvedInputs: explorercompilation.ResolvedInputs{Populations: []explorercompilation.ResolvedPopulation{{
+			OutputID: "specimens", SelectionRevisionID: "selection_fddd4c3ae159949b4c7f0c7c0e80b713739ae4f390d8d4ebc3944723f4060fc5", MembershipDigest: "sha256:selection-members-qa",
+			MemberCount: 2, ResourceType: "Specimen", Route: []authoringv2.PopulationRouteStep{},
+		}}},
 		Authorized: lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}},
 	}
 	receipt, err := compileExplorerReceipt(context.Background(), request, nil, recipeEngine, service, nil)
 	if err != nil {
 		t.Fatalf("compile receipt with typed construction stages: %v", err)
 	}
-	stages := receipt.ConstructionStages["patients"]
-	if len(stages) != 2 || stages[0].ID != recipe.ConstructionSourceProjectionID || stages[0].Operation != "" || stages[1].ID != "filter_step" || stages[1].InputStageID != recipe.ConstructionSourceProjectionID || stages[1].Operation != "FILTER" {
+	stages := receipt.ConstructionStages["specimens"]
+	if len(stages) != 3 || stages[0].ID != recipe.ConstructionSourceProjectionID || stages[0].Operation != "" || stages[1].ID != "qa-source-filter" || stages[1].InputStageID != recipe.ConstructionSourceProjectionID || stages[1].Operation != "FILTER" || stages[2].ID != recipe.ConstructionCohortGroupStageID || stages[2].InputStageID != "qa-source-filter" || stages[2].Operation != "COHORT_GROUP" {
 		t.Fatalf("receipt stages = %#v", stages)
 	}
-	if len(stages[0].Columns) != 1 || stages[0].Columns[0].ID != document.Columns[0].ColumnID || stages[0].Columns[0].Name != "c_patient" {
+	if len(stages[0].Columns) != 1 || stages[0].Columns[0].ID != document.Columns[0].ColumnID || stages[0].Columns[0].Name != "col_26a18d9205b062fde575cdf7" {
 		t.Fatalf("source stage descriptor = %#v", stages[0])
 	}
 	if stages[0].Columns[0].Cardinality != "optional_one" {
@@ -205,6 +251,13 @@ func TestCompileExplorerReceiptPersistsCompilerConstructionStages(t *testing.T) 
 	}
 	if len(stages[1].Columns) != 1 || stages[1].Columns[0].ID != document.Columns[0].ColumnID || stages[1].Columns[0].Type == "" || stages[1].Columns[0].Cardinality != "optional_one" {
 		t.Fatalf("filter stage descriptor = %#v", stages[1])
+	}
+	bindings := recipe.RuntimeBindings{
+		Project: "project-a", SelectionProject: "project-a", DatasetGeneration: snapshot.Identity.Generation,
+		AuthScopeMode: authscope.ReadScopeUnrestricted, SelectionMembersCollection: request.SelectionMembersCollection,
+	}
+	if _, err := compileValidatedReceiptResolution(context.Background(), recipeEngine, receipt, bindings); err != nil {
+		t.Fatalf("cohort construction receipt failed deterministic re-lowering: %v", err)
 	}
 	repeated, err := compileExplorerReceipt(context.Background(), request, nil, recipeEngine, service, nil)
 	if err != nil {
@@ -1054,6 +1107,123 @@ func TestReconcileFinalOutputMetadataPublishesOnlyScalarGroupOutputs(t *testing.
 	}
 }
 
+func TestReconcileFinalOutputMetadataPublishesExplicitGroupRowsSchema(t *testing.T) {
+	const outputID = "specimens"
+	bundle := recipe.Bundle{Outputs: []recipe.Output{{
+		Name: outputID, RootResourceType: "Specimen", RowGrain: "groups",
+		GroupRows: &recipe.GroupRows{RevisionID: "grouprev_1", UnassignedMemberPolicy: "EXCLUDE"},
+	}}}
+	document := authoringv2.Document{
+		Output: authoringv2.Output{ID: outputID, Title: "Specimens"},
+		Rows: authoringv2.RowDefinition{Kind: authoringv2.RowDefinitionGroups, Groups: &authoringv2.GroupedRows{Source: authoringv2.GroupSource{
+			Kind:     authoringv2.GroupSourceExplicit,
+			Explicit: &authoringv2.ExplicitGroupSource{RevisionID: "grouprev_1", UnassignedMemberPolicy: authoringv2.UnassignedMemberExclude},
+		}}},
+	}
+	source := explorer.EmittedColumn{
+		EmissionID: "source-specimen-id", OutputID: outputID, PublicColumn: "specimen_id", Label: "Specimen ID",
+		LogicalType: "string", Cardinality: "optional_one", Nullable: true, Shape: "scalar",
+		SourceResourceType: "Specimen", SourcePath: "id", Lossless: true, MLReady: true,
+		StructuralSuitability: "scalar", Filterable: true, Chartable: true,
+	}
+	translated := explorercompilation.WorkspaceResult{
+		Bundle: bundle, Workspace: authoringv2.Workspace{Documents: []authoringv2.Document{document}},
+		EmittedColumns: []explorer.EmittedColumn{source},
+		OutputContracts: []explorer.PublicOutputContract{{
+			OutputID: outputID, RootResourceType: "Specimen", RowGrain: "groups", RowMultiplication: "none",
+			Lossless: true, MLReady: true, StructuralSuitability: "scalar",
+			Columns: []explorer.PublicOutputColumn{publicOutputColumnFromEmission(source)},
+		}},
+		Presentations: []explorercompilation.PresentationConfig{{
+			OutputID: outputID, Title: "Specimens",
+			Columns: []explorercompilation.PresentationColumn{{
+				EmissionID: source.EmissionID, PublicColumn: source.PublicColumn, Label: source.Label, Visible: true, Order: 0,
+			}},
+		}},
+	}
+	resolved := dataframeexecution.Resolved{
+		Bundle: bundle,
+		Compiled: lower.CompiledRecipe{Outputs: []lower.CompiledRecipeOutput{{
+			Name: outputID,
+			OutputSchema: []lower.CompiledOutputColumn{
+				{Name: "group_revision_id", Kind: "string", Cardinality: "required_one", Internal: true, Identity: true},
+				{Name: "group_id", Kind: "string", Cardinality: "required_one", Identity: true},
+				{Name: "group_label", SemanticPath: "groups.label", Kind: "string", Cardinality: "required_one"},
+				{Name: "group_ordinal", SemanticPath: "groups.ordinal", Kind: "integer", Cardinality: "required_one"},
+				{Name: "members", SemanticPath: "groups.members", Kind: "object", Cardinality: "many"},
+				{Name: "__loom_row_id", Kind: "object", Cardinality: "required_one", Internal: true, Identity: true},
+			},
+		}}},
+	}
+
+	reconciled, err := reconcileFinalOutputMetadata(translated, resolved)
+	if err != nil {
+		t.Fatalf("reconcile explicit group row outputs: %v", err)
+	}
+	wantNames := []string{"group_label", "group_ordinal", "members"}
+	if got := emittedPublicColumnNames(reconciled.EmittedColumns); !reflect.DeepEqual(got, wantNames) {
+		t.Fatalf("explicit group emissions = %#v, want %#v", got, wantNames)
+	}
+	if got := publicContractColumnNames(reconciled.OutputContracts[0].Columns); !reflect.DeepEqual(got, wantNames) {
+		t.Fatalf("explicit group contract columns = %#v, want %#v", got, wantNames)
+	}
+	if got := []string{reconciled.Presentations[0].Columns[0].Label, reconciled.Presentations[0].Columns[1].Label, reconciled.Presentations[0].Columns[2].Label}; !reflect.DeepEqual(got, []string{"Group label", "Group ordinal", "Members"}) {
+		t.Fatalf("explicit group presentation labels = %#v", got)
+	}
+	for index, emitted := range reconciled.EmittedColumns {
+		if emitted.EmissionID != explicitGroupEmissionID("grouprev_1", wantNames[index]) || emitted.ConstructionID != "" ||
+			len(emitted.AuthoredColumns) != 0 || len(emitted.InputColumns) != 0 || emitted.SourceResourceType != "" || emitted.SourcePath != "" ||
+			emitted.Lossless || emitted.MLReady || emitted.StructuralSuitability != "requires-review" ||
+			!reflect.DeepEqual(emitted.LossReasons, []string{"TABLE_SHAPE_GROUP_CHANGES_ROW_GRAIN", tableShapeMLReadinessUnassessed}) {
+			t.Fatalf("explicit group output metadata[%d] = %#v", index, emitted)
+		}
+	}
+	if got := reconciled.EmittedColumns[2]; got.LogicalType != "object" || got.Cardinality != "many" || got.Nullable || got.Shape != "record_list" || got.Filterable || got.Chartable {
+		t.Fatalf("explicit group members metadata = %#v", got)
+	}
+	if got := reconciled.EmittedColumns[0]; got.LogicalType != "string" || got.Cardinality != "required_one" || got.Nullable {
+		t.Fatalf("explicit group label metadata = %#v", got)
+	}
+	if got := reconciled.EmittedColumns[1]; got.LogicalType != "integer" || got.Cardinality != "required_one" || got.Nullable {
+		t.Fatalf("explicit group ordinal metadata = %#v", got)
+	}
+	if err := (explorer.PublicOutputContracts{Outputs: reconciled.OutputContracts}).ValidateAgainst(bundle, reconciled.EmittedColumns); err != nil {
+		t.Fatalf("validate explicit group public output contract: %v", err)
+	}
+
+	compiledOutput := resolved.Compiled.Outputs[0]
+	t.Run("member_field_order", func(t *testing.T) {
+		withMember := translated
+		withMember.Presentations = append([]explorercompilation.PresentationConfig(nil), translated.Presentations...)
+		withMember.Presentations[0].Columns = append([]explorercompilation.PresentationColumn(nil), translated.Presentations[0].Columns...)
+		withMember.Presentations[0].Columns[0].Order = 3
+		memberResolved := resolved
+		memberResolved.Compiled.Outputs = append([]lower.CompiledRecipeOutput(nil), resolved.Compiled.Outputs...)
+		memberResolved.Compiled.Outputs[0].OutputSchema = append(append([]lower.CompiledOutputColumn(nil), compiledOutput.OutputSchema...), lower.CompiledOutputColumn{
+			Name: source.PublicColumn, Kind: source.LogicalType, Cardinality: source.Cardinality, Nullable: source.Nullable,
+		})
+		got, err := reconcileFinalOutputMetadata(withMember, memberResolved)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var orders []int
+		for _, column := range got.Presentations[0].Columns {
+			orders = append(orders, column.Order)
+		}
+		if !reflect.DeepEqual(orders, []int{0, 1, 2, 3}) {
+			t.Fatalf("cohort column order changed across reconciliation: got %v, want [0 1 2 3]", orders)
+		}
+	})
+	compiledOutput.OutputSchema = append(append([]lower.CompiledOutputColumn(nil), compiledOutput.OutputSchema...), lower.CompiledOutputColumn{
+		Name: "group_count", Kind: "integer", Cardinality: "required_one",
+	})
+	resolvedWithUnknownGroupField := resolved
+	resolvedWithUnknownGroupField.Compiled.Outputs = []lower.CompiledRecipeOutput{compiledOutput}
+	if _, err := reconcileFinalOutputMetadata(translated, resolvedWithUnknownGroupField); err == nil || !strings.Contains(err.Error(), "no translated emission or authored table-shape identity") {
+		t.Fatalf("unmapped compiler group output error = %v", err)
+	}
+}
+
 func TestAuthoredOutputColumnsKeepsExactRelatedFieldScalarAndSource(t *testing.T) {
 	patient := authoringv2.StageColumn{ID: "patient-id", Name: "patient_id", Label: "Patient ID", Type: "string"}
 	status := authoringv2.StageColumn{ID: "observation-status", Name: "observation_status", Label: "Observation status", Type: "string", Nullable: true}
@@ -1476,6 +1646,82 @@ func TestCompileValidatedReceiptResolutionSurvivesCompilerMetadataJSONRoundTrip(
 	}
 }
 
+func TestCompileValidatedReceiptResolutionSurvivesCohortConstructionRoundTrip(t *testing.T) {
+	recipeEngine, err := dataframeexecution.New(dataframeexecution.Config{
+		Registry: compilerTestRegistry{},
+		QueryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error {
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	filterValue := "specimen-a"
+	bundle := recipe.Bundle{
+		RecipeSchemaVersion: recipe.CurrentSchemaVersion,
+		Name:                "cohort-receipt-round-trip",
+		TranslationVersion:  explorercompilation.TranslationVersion,
+		Outputs: []recipe.Output{{
+			Name: "specimens", RootResourceType: "Specimen", RowGrain: "groups",
+			Fields: []recipe.Field{{Name: "specimen_id", ColumnID: "specimen_id", Expr: recipe.Expression{Select: "root.id"}}},
+			Construction: &recipe.Construction{
+				Version:       1,
+				SourceColumns: []recipe.StageColumn{{ID: "specimen_id", Name: "specimen_id", Type: "string"}},
+				Steps: []recipe.ConstructionStep{{
+					ID:     "qa-source-filter",
+					Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
+					Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionFilterOp, Filter: &recipe.ConstructionFilter{
+						ColumnID: "specimen_id", Operator: recipe.FilterEquals,
+						Values: []recipe.FilterValue{{Kind: recipe.FilterString, String: &filterValue}},
+					}},
+					Outputs: []recipe.StageColumn{{ID: "specimen_id", Name: "specimen_id", Type: "string"}},
+				}},
+			},
+			GroupRows: &recipe.GroupRows{
+				RevisionID: "grouprev_qa", UnassignedMemberPolicy: "GROUP_AS_UNASSIGNED", AfterStepID: "qa-source-filter",
+				RowValues: []recipe.GroupRowValuePolicy{{ColumnID: "specimen_id", Policy: recipe.ConstructionRowValueOne}},
+			},
+		}},
+	}
+	bindings := recipe.RuntimeBindings{
+		Project: "project-a", SelectionProject: "project-a", DatasetGeneration: "generation-a",
+		AuthScopeMode: authscope.ReadScopeUnrestricted,
+	}
+	compiled, err := recipeEngine.CompileResolvedBundle(context.Background(), bundle, bindings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fingerprints, provenance, err := resolvedOutputArtifacts(compiled)
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest, err := compiled.Bundle.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	stages, err := receiptConstructionStages(&compiled)
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipt := explorer.CompilationReceipt{
+		Bundle: compiled.Bundle, RecipeDigest: compiled.StoredRecipeDigest, ResolvedRecipeDigest: digest,
+		ResolvedSchemaDigest: compiled.ResolvedSchemaDigest, OutputFingerprints: fingerprints,
+		OutputColumnProvenance: provenance, ConstructionStages: stages,
+		EmittedColumns: []explorer.EmittedColumn{{OutputID: "specimens", PublicColumn: "group_label"}},
+	}
+	raw, err := json.Marshal(receipt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stored explorer.CompilationReceipt
+	if err := json.Unmarshal(raw, &stored); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := compileValidatedReceiptResolution(context.Background(), recipeEngine, &stored, bindings); err != nil {
+		t.Fatalf("cohort construction receipt failed deterministic re-lowering: %v", err)
+	}
+}
+
 func TestPersistValidatedReceiptRejectsRuntimeMismatchBeforeStore(t *testing.T) {
 	recipeEngine, err := dataframeexecution.New(dataframeexecution.Config{Registry: compilerTestRegistry{}, QueryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil }})
 	if err != nil {
@@ -1615,6 +1861,116 @@ func TestPreviewSourceIdentityDoesNotChangeReceiptArtifacts(t *testing.T) {
 	}
 	if !reflect.DeepEqual(base.Compiled.Outputs[0].Stages, preview.Compiled.Outputs[0].Stages) {
 		t.Fatalf("preview-only source identity changed frozen construction stages: base=%#v preview=%#v", base.Compiled.Outputs[0].Stages, preview.Compiled.Outputs[0].Stages)
+	}
+}
+
+func TestPreviewSourceIdentityDoesNotChangeUnpivotReceiptArtifacts(t *testing.T) {
+	var renderedQuery string
+	recipeEngine, err := dataframeexecution.New(dataframeexecution.Config{Registry: compilerTestRegistry{}, QueryRows: func(_ context.Context, query string, _ int, _ map[string]any, _ func(map[string]any) error) error {
+		renderedQuery = query
+		return nil
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stringKeyOne, stringKeyTwo := "subject", "body_site"
+	bundle := recipe.Bundle{
+		RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "unpivot-preview-source-identity", TranslationVersion: "test",
+		Outputs: []recipe.Output{{
+			Name: "specimens", RootResourceType: "Specimen", RowGrain: "resource",
+			Fields: []recipe.Field{
+				{Name: "specimen_id", ColumnID: "specimen_id", Expr: recipe.Expression{Select: "root.id"}},
+				{Name: "subject_reference", ColumnID: "subject_reference", Expr: recipe.Expression{Select: "root.subject.reference"}},
+				{Name: "body_site_reference", ColumnID: "body_site_reference", Expr: recipe.Expression{Select: "root.collection.bodySite.reference.reference"}},
+			},
+			Construction: &recipe.Construction{
+				Version: 1,
+				SourceColumns: []recipe.StageColumn{
+					{ID: "specimen_id", Name: "specimen_id", Type: "string"},
+					{ID: "subject_reference", Name: "subject_reference", Type: "string"},
+					{ID: "body_site_reference", Name: "body_site_reference", Type: "string"},
+				},
+				Steps: []recipe.ConstructionStep{{
+					ID: "unpivot", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
+					Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionUnpivotOp, Unpivot: &recipe.ConstructionUnpivot{
+						ConstructionID: "unpivot", Inputs: []recipe.ConstructionUnpivotInput{
+							{ColumnID: "subject_reference", Key: recipe.TableScalar{Kind: recipe.TableScalarString, String: &stringKeyOne}},
+							{ColumnID: "body_site_reference", Key: recipe.TableScalar{Kind: recipe.TableScalarString, String: &stringKeyTwo}},
+						},
+						KeyOutputColumnID: "key", ValueOutputColumnID: "value", NullRowPolicy: recipe.UnpivotNullPreserve,
+					}},
+					Outputs: []recipe.StageColumn{
+						{ID: "specimen_id", Name: "specimen_id", Type: "string"},
+						{ID: "key", Name: "variable", Type: "string"},
+						{ID: "value", Name: "value", Type: "string"},
+					},
+				}},
+			},
+		}},
+	}
+	baseBindings := recipe.RuntimeBindings{Project: "project-a", DatasetGeneration: "generation-a"}
+	base, err := recipeEngine.CompileResolvedBundle(context.Background(), bundle, baseBindings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	previewBindings := baseBindings
+	previewBindings.IncludeRowIdentity = true
+	previewBindings.IncludeSourceIdentity = true
+	preview, err := recipeEngine.CompileResolvedBundle(context.Background(), bundle, previewBindings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	baseFingerprints, _, err := resolvedOutputArtifacts(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	previewFingerprints, _, err := resolvedOutputArtifacts(preview)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(baseFingerprints, previewFingerprints) {
+		t.Fatalf("preview-only identity bindings changed Unpivot receipt fingerprint: base=%#v preview=%#v", baseFingerprints, previewFingerprints)
+	}
+	_, provenance, err := resolvedOutputArtifacts(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stages, err := receiptConstructionStages(&base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bundleDigest, err := base.Bundle.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipt := explorer.CompilationReceipt{
+		Bundle: base.Bundle, RecipeDigest: base.StoredRecipeDigest, ResolvedRecipeDigest: bundleDigest,
+		ResolvedSchemaDigest: base.ResolvedSchemaDigest, OutputFingerprints: baseFingerprints,
+		OutputColumnProvenance: provenance, ConstructionStages: stages,
+		EmittedColumns: []explorer.EmittedColumn{
+			{OutputID: "specimens", PublicColumn: "specimen_id"},
+			{OutputID: "specimens", PublicColumn: "variable"},
+			{OutputID: "specimens", PublicColumn: "value"},
+		},
+	}
+	rawReceipt, err := json.Marshal(receipt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stored explorer.CompilationReceipt
+	if err := json.Unmarshal(rawReceipt, &stored); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := compileValidatedReceiptResolution(context.Background(), recipeEngine, &stored, previewBindings); err != nil {
+		t.Fatalf("JSON round-trip Unpivot receipt did not recompile under Builder preview bindings: %v", err)
+	}
+	if _, err := recipeEngine.PreviewOutput(context.Background(), preview, dataframeexecution.PreviewRequest{
+		Output: "specimens", Limit: 25, IncludeRowIdentity: true,
+	}, func(map[string]any) error { return nil }); err != nil {
+		t.Fatalf("Builder preview failed while lowering the Unpivot execution plan: %v", err)
+	}
+	if !strings.Contains(renderedQuery, ir.PreviewSourceResourceIDColumn) {
+		t.Fatalf("Builder preview query omitted source identity projection: %q", renderedQuery)
 	}
 }
 

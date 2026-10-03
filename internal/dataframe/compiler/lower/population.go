@@ -76,9 +76,14 @@ func configurePopulationRootSource(physical *ir.PhysicalPlan, output semantic.Se
 		step := population.Route[index]
 		targetVariable := fmt.Sprintf("population_root_node_%d", index)
 		edgeVariable := fmt.Sprintf("population_root_edge_%d", index)
+		directionOverride, err := reversePopulationStorageDirection(step.StorageDirection)
+		if err != nil {
+			return fmt.Errorf("reverse population route step %d: %w", index, err)
+		}
 		result, err := BuildPhysicalTraversal(TraversalLoweringRequest{
 			FromType: types[index+1], EdgeLabel: step.Relationship, ToType: types[index],
-			SourceVariable: terminalVariable, TargetVariable: targetVariable, EdgeVariable: edgeVariable,
+			DirectionOverride: directionOverride,
+			SourceVariable:    terminalVariable, TargetVariable: targetVariable, EdgeVariable: edgeVariable,
 			BindPrefix: fmt.Sprintf("population_root_route_%d", index), Policy: policy,
 		})
 		if err != nil {
@@ -97,4 +102,17 @@ func configurePopulationRootSource(physical *ir.PhysicalPlan, output semantic.Se
 	source.RootKey = ir.PhysicalValue{Variable: terminalVariable, Path: []string{"_key"}}
 	physical.Operations[0].RootScan.Population = source
 	return nil
+}
+
+func reversePopulationStorageDirection(direction string) (ir.PhysicalTraversalDirection, error) {
+	switch direction {
+	case "":
+		return "", nil
+	case "INBOUND":
+		return ir.PhysicalOutbound, nil
+	case "OUTBOUND":
+		return ir.PhysicalInbound, nil
+	default:
+		return "", fmt.Errorf("unsupported stored traversal direction %q", direction)
+	}
 }

@@ -247,8 +247,8 @@ func (prefix PhysicalClickHousePrefix) Validate(sequence *PhysicalStageSequence,
 		}
 	}
 	for _, stage := range sequence.Stages {
-		if stage.Kind == PhysicalStageGroupOp {
-			return fmt.Errorf("GROUP prefixes cannot feed a private ClickHouse Combine until authorization scope is preserved by grouping")
+		if stage.Kind == PhysicalStageGroupOp || stage.Kind == PhysicalStageCohortGroupOp {
+			return fmt.Errorf("%s prefixes cannot feed a private ClickHouse Combine until authorization scope is preserved by grouping", stage.Kind)
 		}
 	}
 	if prefix.AuthResourcePathBindKey == "" {

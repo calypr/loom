@@ -176,6 +176,216 @@ func TestExpandedItemProjectionUsesItemDefinitionAndPreservesModes(t *testing.T)
 	}
 }
 
+func TestExpandedNestedSiblingProjectionUsesItsRepeatedAncestor(t *testing.T) {
+	output := compileExpansionRecipeOutput(t, recipe.Output{
+		Name: "ExpandedObservationCodings", RootResourceType: "Observation", RootOccurrenceID: "observation-root", RowGrain: "expanded",
+		Fields: []recipe.Field{
+			{Name: "component_value", FieldRef: "component[].valueString", Expr: recipe.Expression{Select: "root.component[].valueString"}, ValueMode: recipe.ValueModeAll},
+			{Name: "component_code_text", FieldRef: "component[].code.text", Expr: recipe.Expression{Select: "root.component[].code.text"}, ValueMode: recipe.ValueModeAll},
+			{Name: "coding_code", FieldRef: "component[].code.coding[].code", Expr: recipe.Expression{Select: "item.code"}, ValueMode: recipe.ValueModeFirst},
+		},
+		Expand:   &recipe.Expansion{OwnerOccurrenceID: "observation-root", From: recipe.Expression{Select: "root.component[].code.coding[]"}, As: "item", Ordinality: "position", EmptyPolicy: recipe.ExpansionPreserveParent},
+		Identity: &recipe.Identity{Name: "row", Expansion: &recipe.ExpansionIdentity{}},
+	})
+
+	ancestorVariable := "__loom_expansion_ancestor_0"
+	projections := map[string]ir.PhysicalProjection{}
+	for _, operation := range output.Plan.Operations {
+		if operation.Kind != ir.PhysicalReturnOp || operation.Return == nil {
+			continue
+		}
+		for _, projection := range operation.Return.Projections {
+			projections[projection.Name] = projection
+		}
+	}
+	for name, wantSelector := range map[string]string{
+		"component_value":     "valueString",
+		"component_code_text": "code.text",
+	} {
+		projection := projections[name]
+		if projection.Expression == nil || projection.Expression.Extract == nil {
+			t.Fatalf("sibling projection %q is not an extract: %#v", name, projection)
+		}
+		extract := projection.Expression.Extract
+		if extract.Source.Variable != ancestorVariable || len(extract.Source.Path) != 0 || extract.Selector.CanonicalPath() != wantSelector {
+			t.Errorf("sibling projection %q = source %#v selector %q; want captured component and %q", name, extract.Source, extract.Selector.CanonicalPath(), wantSelector)
+		}
+	}
+	coding := projections["coding_code"]
+	if coding.Expression == nil || coding.Expression.Extract == nil || coding.Expression.Extract.Source.Variable != "item" || coding.Expression.Extract.Selector.CanonicalPath() != "code" {
+		t.Fatalf("expanded leaf projection was rebound away from item: %#v", coding)
+	}
+
+	rendered, err := aql.RenderPhysicalPlan(output.Plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"FOR __loom_physical_unnest_lineage_step_0 IN",
+		"ancestor_0: __loom_physical_unnest_lineage_step_0",
+		"LET __loom_expansion_ancestor_0 = __loom_physical_unnest_lineage_item_0 == null ? null : __loom_physical_unnest_lineage_item_0.ancestor_0",
+		"FOR __root IN [__loom_expansion_ancestor_0]",
+	} {
+		if !strings.Contains(rendered.Query, want) {
+			t.Fatalf("nested expansion query missing %q:\n%s", want, rendered.Query)
+		}
+	}
+}
+
+func TestExpandedSiblingProjectionKeepsUnrelatedFallbackAtRoot(t *testing.T) {
+	output := compileExpansionRecipeOutput(t, recipe.Output{
+		Name: "ExpandedObservationCodings", RootResourceType: "Observation", RootOccurrenceID: "observation-root", RowGrain: "expanded",
+		Fields: []recipe.Field{
+			{
+				Name: "mixed_values", FieldRef: "component[].valueString",
+				Expr:      recipe.Expression{Select: "root.component[].valueString"},
+				Fallbacks: []recipe.Expression{{Select: "root.identifier[].value"}},
+				ValueMode: recipe.ValueModeAll,
+			},
+			{
+				Name: "mixed_first", FieldRef: "component[].valueString",
+				Expr:      recipe.Expression{Select: "root.component[].valueString"},
+				Fallbacks: []recipe.Expression{{Select: "root.identifier[].value"}},
+				ValueMode: recipe.ValueModeFirst,
+			},
+			{
+				Name: "mixed_distinct", FieldRef: "component[].valueString",
+				Expr:      recipe.Expression{Select: "root.component[].valueString"},
+				Fallbacks: []recipe.Expression{{Select: "root.identifier[].value"}},
+				ValueMode: recipe.ValueModeDistinct,
+			},
+			{
+				Name: "mixed_coding", FieldRef: "component[].valueString",
+				Expr:      recipe.Expression{Select: "root.component[].valueString"},
+				Fallbacks: []recipe.Expression{{Select: "root.component[].code.coding[].code"}},
+				ValueMode: recipe.ValueModeAll,
+			},
+		},
+		Expand:   &recipe.Expansion{OwnerOccurrenceID: "observation-root", From: recipe.Expression{Select: "root.component[].code.coding[]"}, As: "item", Ordinality: "position", EmptyPolicy: recipe.ExpansionPreserveParent},
+		Identity: &recipe.Identity{Name: "row", Expansion: &recipe.ExpansionIdentity{}},
+	})
+
+	projection := findRecipeProjection(t, output.Plan, "mixed_values")
+	if projection.Expression == nil || projection.Expression.Extract == nil {
+		t.Fatalf("mixed selector projection is not an extract: %#v", projection)
+	}
+	extract := projection.Expression.Extract
+	if extract.Source.Variable != "__loom_expansion_ancestor_0" || extract.Selector.CanonicalPath() != "valueString" {
+		t.Fatalf("primary selector source=%#v path=%q; want the current component ancestor and valueString", extract.Source, extract.Selector.CanonicalPath())
+	}
+	if len(extract.Fallbacks) != 1 || extract.Fallbacks[0].Selector.CanonicalPath() != "identifier[].value" ||
+		extract.Fallbacks[0].Source.Variable != "root" || len(extract.Fallbacks[0].Source.Path) != 1 || extract.Fallbacks[0].Source.Path[0] != "payload" || extract.Fallbacks[0].ResourceType != "Observation" {
+		t.Fatalf("root fallback was not preserved independently: %#v", extract.Fallbacks)
+	}
+	codingFallback := findRecipeProjection(t, output.Plan, "mixed_coding").Expression.Extract.Fallbacks[0]
+	if codingFallback.Source.Variable != "item" || codingFallback.ResourceType != "Coding" || codingFallback.Selector.CanonicalPath() != "code" {
+		t.Fatalf("fallback beneath the expanded selector did not bind to the selected coding: %#v", codingFallback)
+	}
+	for name, want := range map[string]struct {
+		cardinality ir.PhysicalCardinality
+		distinct    bool
+	}{
+		"mixed_values":   {cardinality: ir.PhysicalArrayCardinality},
+		"mixed_first":    {cardinality: ir.PhysicalScalarCardinality},
+		"mixed_distinct": {cardinality: ir.PhysicalArrayCardinality, distinct: true},
+	} {
+		projection := findRecipeProjection(t, output.Plan, name)
+		if projection.Expression == nil || projection.Expression.Extract == nil || projection.Expression.Cardinality != want.cardinality || projection.Expression.Extract.Distinct != want.distinct {
+			t.Errorf("projection %q = %#v; want cardinality %q and distinct=%t", name, projection.Expression, want.cardinality, want.distinct)
+		}
+	}
+
+	rendered, err := aql.RenderPhysicalPlan(output.Plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(rendered.Query, "FOR __root IN [__loom_expansion_ancestor_0]") || !strings.Contains(rendered.Query, "__root.valueString") ||
+		!strings.Contains(rendered.Query, "FOR __root IN [root.payload]") || !strings.Contains(rendered.Query, "__root.identifier") ||
+		!strings.Contains(rendered.Query, "FOR __root IN [item]") || !strings.Contains(rendered.Query, "__root.code") ||
+		!strings.Contains(rendered.Query, "SORTED_UNIQUE(FLATTEN([") || !strings.Contains(rendered.Query, "FIRST(FLATTEN([") {
+		t.Fatalf("mixed source alternatives were not rendered from their owning scopes:\n%s", rendered.Query)
+	}
+}
+
+func TestExpandedDeepSiblingProjectionUsesTheNearestRepeatedAncestor(t *testing.T) {
+	output := compileExpansionRecipeOutput(t, recipe.Output{
+		Name: "ExpandedObservationExtensions", RootResourceType: "Observation", RootOccurrenceID: "observation-root", RowGrain: "expanded",
+		Fields: []recipe.Field{
+			{Name: "component_value", FieldRef: "component[].valueString", Expr: recipe.Expression{Select: "root.component[].valueString"}, ValueMode: recipe.ValueModeAll},
+			{Name: "outer_extension_url", FieldRef: "component[].extension[].url", Expr: recipe.Expression{Select: "root.component[].extension[].url"}, ValueMode: recipe.ValueModeAll},
+		},
+		Expand:   &recipe.Expansion{OwnerOccurrenceID: "observation-root", From: recipe.Expression{Select: "root.component[].extension[].extension[]"}, As: "item", Ordinality: "position", EmptyPolicy: recipe.ExpansionPreserveParent},
+		Identity: &recipe.Identity{Name: "row", Expansion: &recipe.ExpansionIdentity{}},
+	})
+
+	unnest := findRecipeUnnest(t, output.Plan)
+	if len(unnest.Ancestors) != 2 || unnest.Ancestors[0] != (ir.PhysicalUnnestAncestor{StepIndex: 0, Variable: "__loom_expansion_ancestor_0"}) || unnest.Ancestors[1] != (ir.PhysicalUnnestAncestor{StepIndex: 1, Variable: "__loom_expansion_ancestor_1"}) {
+		t.Fatalf("deep expansion ancestor bindings = %#v", unnest.Ancestors)
+	}
+	projections := map[string]ir.PhysicalProjection{}
+	for _, operation := range output.Plan.Operations {
+		if operation.Kind != ir.PhysicalReturnOp || operation.Return == nil {
+			continue
+		}
+		for _, projection := range operation.Return.Projections {
+			projections[projection.Name] = projection
+		}
+	}
+	for name, want := range map[string]struct {
+		variable string
+		selector string
+	}{
+		"component_value":     {variable: "__loom_expansion_ancestor_0", selector: "valueString"},
+		"outer_extension_url": {variable: "__loom_expansion_ancestor_1", selector: "url"},
+	} {
+		projection := projections[name]
+		if projection.Expression == nil || projection.Expression.Extract == nil || projection.Expression.Extract.Source.Variable != want.variable || projection.Expression.Extract.Selector.CanonicalPath() != want.selector {
+			t.Errorf("deep sibling projection %q = %#v; want %s.%s", name, projection.Expression, want.variable, want.selector)
+		}
+	}
+	rendered, err := aql.RenderPhysicalPlan(output.Plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"ancestor_0: __loom_physical_unnest_lineage_step_0",
+		"ancestor_1: __loom_physical_unnest_lineage_step_1",
+		"LET __loom_expansion_ancestor_1 = __loom_physical_unnest_lineage_item_0 == null ? null : __loom_physical_unnest_lineage_item_0.ancestor_1",
+		"FOR __root IN [__loom_expansion_ancestor_1]",
+	} {
+		if !strings.Contains(rendered.Query, want) {
+			t.Fatalf("deep expansion query missing %q:\n%s", want, rendered.Query)
+		}
+	}
+}
+
+func TestCompileExpandedRowsBeforeAuthoredConstruction(t *testing.T) {
+	output := compileExpansionRecipeOutput(t, recipe.Output{
+		Name: "ExpandedPatientsWithConstruction", RootResourceType: "Patient", RootOccurrenceID: "patient-root", RowGrain: "expanded",
+		Fields: []recipe.Field{
+			{Name: "id", ColumnID: "id", Expr: recipe.Expression{Select: "root.id"}},
+			{Name: "gender", ColumnID: "gender", Expr: recipe.Expression{Select: "root.gender"}},
+		},
+		Expand:   &recipe.Expansion{OwnerOccurrenceID: "patient-root", From: recipe.Expression{Select: "root.identifier[]"}, As: "item", Ordinality: "position", EmptyPolicy: recipe.ExpansionPreserveParent},
+		Identity: &recipe.Identity{Name: "row", Expansion: &recipe.ExpansionIdentity{}},
+		Construction: &recipe.Construction{
+			Version: 1, SourceColumns: []recipe.StageColumn{{ID: "id", Name: "id"}, {ID: "gender", Name: "gender"}},
+			Steps: []recipe.ConstructionStep{{
+				ID: "filter_gender", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
+				Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionFilterOp, Filter: &recipe.ConstructionFilter{ColumnID: "gender", Operator: recipe.FilterExists}},
+				Outputs:   []recipe.StageColumn{{ID: "id", Name: "id"}, {ID: "gender", Name: "gender"}},
+			}},
+		},
+	})
+	if output.Plan.StageSequence == nil || len(output.Plan.StageSequence.Stages) != 1 || output.Plan.StageSequence.Stages[0].Kind != ir.PhysicalStageFilterOp {
+		t.Fatalf("expanded authored construction sequence = %#v", output.Plan.StageSequence)
+	}
+	findRecipeUnnest(t, output.Plan)
+	if output.Plan.StageSequence.SourceRowIdentity != "__loom_expansion_identity" {
+		t.Fatalf("construction source row identity = %q, want compiler-owned expanded identity", output.Plan.StageSequence.SourceRowIdentity)
+	}
+}
+
 func TestCompileRecipeRelatedExpansionReusesDeepOwnerRoute(t *testing.T) {
 	output := compileExpansionRecipeOutput(t, recipe.Output{
 		Name: "ExpandedDocuments", RootResourceType: "Patient", RootOccurrenceID: "patient-root", RowGrain: "expanded",
@@ -275,6 +485,22 @@ func findRecipeUnnest(t *testing.T, plan ir.PhysicalPlan) *ir.PhysicalUnnest {
 	}
 	t.Fatal("compiled plan has no row expansion")
 	return nil
+}
+
+func findRecipeProjection(t *testing.T, plan ir.PhysicalPlan, name string) ir.PhysicalProjection {
+	t.Helper()
+	for _, operation := range plan.Operations {
+		if operation.Kind != ir.PhysicalReturnOp || operation.Return == nil {
+			continue
+		}
+		for _, projection := range operation.Return.Projections {
+			if projection.Name == name {
+				return projection
+			}
+		}
+	}
+	t.Fatalf("compiled plan has no projection %q", name)
+	return ir.PhysicalProjection{}
 }
 
 func findExpansionIdentityProjection(t *testing.T, plan ir.PhysicalPlan) *ir.PhysicalExpression {

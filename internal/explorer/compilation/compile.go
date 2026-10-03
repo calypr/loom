@@ -171,7 +171,7 @@ func CompileWorkspace(ctx context.Context, project, explorerID string, workspace
 			if !hasResolvedPopulation {
 				return WorkspaceResult{}, fail("intent", "POPULATION_UNRESOLVED", fmt.Sprintf("$.workspace.documents[%d].population", i), "population selection must be resolved before compilation", nil, nil)
 			}
-			if err := validateResolvedPopulation(document, population); err != nil {
+			if err := validateResolvedPopulation(document, population, snapshot); err != nil {
 				return WorkspaceResult{}, fail("intent", "POPULATION_INPUT_MISMATCH", fmt.Sprintf("$.workspace.documents[%d].population", i), err.Error(), nil, err)
 			}
 		}
@@ -231,7 +231,7 @@ func validateResolvedPopulationCoverage(workspace authoringv2.Workspace, inputs 
 	return nil
 }
 
-func validateResolvedPopulation(document authoringv2.Document, resolved ResolvedPopulation) error {
+func validateResolvedPopulation(document authoringv2.Document, resolved ResolvedPopulation, snapshot capability.Snapshot) error {
 	if strings.TrimSpace(resolved.OutputID) != document.Output.ID {
 		return fmt.Errorf("resolved population outputId %q does not match document outputId %q", resolved.OutputID, document.Output.ID)
 	}
@@ -247,12 +247,101 @@ func validateResolvedPopulation(document authoringv2.Document, resolved Resolved
 	if len(resolved.Route) != len(document.Population.Route) {
 		return fmt.Errorf("resolved population route does not match authoring intent")
 	}
-	for index := range document.Population.Route {
-		if resolved.Route[index] != document.Population.Route[index] {
+	for index, authoredStep := range document.Population.Route {
+		resolvedStep := resolved.Route[index]
+		withoutResolvedDirection := resolvedStep
+		withoutResolvedDirection.StorageDirection = authoredStep.StorageDirection
+		if withoutResolvedDirection != authoredStep || (authoredStep.StorageDirection != "" && resolvedStep.StorageDirection != authoredStep.StorageDirection) {
 			return fmt.Errorf("resolved population route does not match authoring intent")
+		}
+		if authoredStep.StorageDirection != "" {
+			continue
+		}
+		capabilityDirection, proven := populationRouteDirectionFromSnapshot(document, document.Population.Route, index, snapshot)
+		if !proven {
+			if resolvedStep.StorageDirection != "" {
+				return fmt.Errorf("resolved population route direction is not proven by the current capability")
+			}
+			continue
+		}
+		if capabilityDirection != resolvedStep.StorageDirection {
+			return fmt.Errorf("resolved population route direction does not match the current capability")
 		}
 	}
 	return nil
+}
+
+// populationRouteDirectionFromSnapshot proves a compile-only direction
+// enrichment against the current authorized capability, following the exact
+// saved route to the step being enriched. It deliberately does not rewrite
+// authoring intent or accept a direction that conflicts with the catalog.
+func populationRouteDirectionFromSnapshot(document authoringv2.Document, route []authoringv2.PopulationRouteStep, targetIndex int, snapshot capability.Snapshot) (string, bool) {
+	if targetIndex < 0 || targetIndex >= len(route) {
+		return "", false
+	}
+	rootID, currentType := "", strings.TrimSpace(document.RootResourceType)
+	for _, node := range snapshot.Nodes {
+		if node.RowRootEligible && node.ResourceType == currentType {
+			if rootID != "" {
+				return "", false
+			}
+			rootID = node.ID
+		}
+	}
+	if rootID == "" || currentType == "" {
+		return "", false
+	}
+	currentID := rootID
+	for index := 0; index <= targetIndex; index++ {
+		step := route[index]
+		edge, target, ok := resolvePopulationRouteEdge(snapshot, currentID, currentType, step)
+		if !ok {
+			return "", false
+		}
+		if index == targetIndex {
+			direction := strings.ToUpper(strings.TrimSpace(edge.StorageDirection))
+			if direction != "" && direction != "INBOUND" && direction != "OUTBOUND" {
+				return "", false
+			}
+			return direction, true
+		}
+		currentID, currentType = target.ID, target.ResourceType
+	}
+	return "", false
+}
+
+func resolvePopulationRouteEdge(snapshot capability.Snapshot, currentID, currentType string, step authoringv2.PopulationRouteStep) (capability.Edge, capability.Node, bool) {
+	valid := func(edge capability.Edge) (capability.Node, bool) {
+		from, fromOK := snapshot.Node(edge.FromNodeID)
+		to, toOK := snapshot.Node(edge.ToNodeID)
+		direction := strings.ToUpper(strings.TrimSpace(edge.StorageDirection))
+		directionMatches := step.StorageDirection == "" || direction == step.StorageDirection
+		return to, edge.ID != "" && edge.BlockedReason == "" && edge.FromNodeID == currentID &&
+			fromOK && toOK && from.ResourceType == currentType && (edge.SourceResourceType == "" || edge.SourceResourceType == currentType) &&
+			to.ResourceType == step.ResourceType && (edge.TargetResourceType == "" || edge.TargetResourceType == step.ResourceType) && edge.Label == step.Relationship &&
+			(direction == "" || direction == "INBOUND" || direction == "OUTBOUND") && directionMatches
+	}
+	if step.CatalogEdgeID != "" {
+		edge, found := snapshot.Edge(step.CatalogEdgeID)
+		if !found {
+			return capability.Edge{}, capability.Node{}, false
+		}
+		target, ok := valid(edge)
+		return edge, target, ok
+	}
+	var match capability.Edge
+	var target capability.Node
+	for _, edge := range snapshot.Edges {
+		resolvedTarget, ok := valid(edge)
+		if !ok {
+			continue
+		}
+		if match.ID != "" {
+			return capability.Edge{}, capability.Node{}, false
+		}
+		match, target = edge, resolvedTarget
+	}
+	return match, target, match.ID != ""
 }
 
 func validateResolvedInterpretationCoverage(project string, snapshot capability.Snapshot, workspace authoringv2.Workspace, inputs ResolvedInputs) error {
@@ -437,7 +526,10 @@ func (r ResolvedInputs) PopulationFor(outputID string) (ResolvedPopulation, bool
 func recipePopulation(input ResolvedPopulation) *recipe.PopulationConstraint {
 	route := make([]recipe.PopulationRouteStep, len(input.Route))
 	for index, step := range input.Route {
-		route[index] = recipe.PopulationRouteStep{ResourceType: step.ResourceType, Relationship: step.Relationship}
+		route[index] = recipe.PopulationRouteStep{
+			ResourceType: step.ResourceType, Relationship: step.Relationship,
+			StorageDirection: step.StorageDirection,
+		}
 	}
 	return &recipe.PopulationConstraint{SelectionRevisionID: input.SelectionRevisionID, MembershipDigest: input.MembershipDigest, MemberCount: input.MemberCount, ResourceType: input.ResourceType, Route: route}
 }
@@ -543,7 +635,10 @@ func catalogFromCapability(snapshot capability.Snapshot, explorerID string) auth
 		catalog.Nodes = append(catalog.Nodes, authoringv2.CatalogNode{ID: node.ID, ResourceType: node.ResourceType, RowRootEligible: node.RowRootEligible, RowGrain: node.RowGrain, Populated: node.Populated, DocumentCount: &count})
 	}
 	for _, edge := range snapshot.Edges {
-		catalog.Edges = append(catalog.Edges, authoringv2.CatalogEdge{ID: edge.ID, FromNodeID: edge.FromNodeID, ToNodeID: edge.ToNodeID, Label: edge.Label, Populated: edge.ObservedEdgeCount > 0})
+		catalog.Edges = append(catalog.Edges, authoringv2.CatalogEdge{
+			ID: edge.ID, FromNodeID: edge.FromNodeID, ToNodeID: edge.ToNodeID, Label: edge.Label,
+			StorageDirection: edge.StorageDirection, Populated: edge.ObservedEdgeCount > 0,
+		})
 	}
 	for _, candidate := range snapshot.Candidates {
 		modes := make([]string, len(candidate.ProjectionModes))

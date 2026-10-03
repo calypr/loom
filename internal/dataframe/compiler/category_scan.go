@@ -99,7 +99,7 @@ func CompileCategoryScanOutputWithPolicy(output lower.CompiledRecipeOutput, colu
 	if err != nil {
 		return CompiledCategoryScanQuery{}, err
 	}
-	return compileCategoryScan(output, output.OutputSchema, column, "", "", "", maxValues, policy)
+	return compileCategoryScan(output, output.OutputSchema, column, lower.CompiledOutputColumn{}, "", "", "", maxValues, policy)
 }
 
 // CompileCategoryScanStageWithPolicy compiles the exact prefix ending at a
@@ -158,7 +158,7 @@ func CompileCategoryScanStageWithPolicy(output lower.CompiledRecipeOutput, stage
 	} else if stageID != recipe.ConstructionSourceProjectionID {
 		return CompiledCategoryScanQuery{}, &CategoryScanRefusal{Code: CategoryScanStageUnknown, Column: stageID}
 	}
-	return compileCategoryScan(stageOutput, stageOutput.OutputSchema, category, stageID, category.ID, value.ID, maxValues, policy)
+	return compileCategoryScan(stageOutput, stageOutput.OutputSchema, category, value, stageID, category.ID, value.ID, maxValues, policy)
 }
 
 func compiledStageByID(stages []lower.CompiledStageDescriptor, stageID string) (lower.CompiledStageDescriptor, bool) {
@@ -183,7 +183,7 @@ func categoryScanStageColumn(columns []lower.CompiledOutputColumn, id string) (l
 	return lower.CompiledOutputColumn{}, &CategoryScanRefusal{Code: CategoryScanColumnUnknown, Column: id}
 }
 
-func compileCategoryScan(output lower.CompiledRecipeOutput, schema []lower.CompiledOutputColumn, column lower.CompiledOutputColumn, stageID, categoryColumnID, valueColumnID string, maxValues int, policy ir.PhysicalOptimizationPolicy) (CompiledCategoryScanQuery, error) {
+func compileCategoryScan(output lower.CompiledRecipeOutput, schema []lower.CompiledOutputColumn, column, valueColumn lower.CompiledOutputColumn, stageID, categoryColumnID, valueColumnID string, maxValues int, policy ir.PhysicalOptimizationPolicy) (CompiledCategoryScanQuery, error) {
 	if maxValues < 1 || maxValues > MaxCategoryScanValues {
 		return CompiledCategoryScanQuery{}, &CategoryScanRefusal{Code: CategoryScanInvalidLimit, Column: column.Name}
 	}
@@ -193,89 +193,99 @@ func compileCategoryScan(output lower.CompiledRecipeOutput, schema []lower.Compi
 		return CompiledCategoryScanQuery{}, err
 	}
 	previewCoveringIndex := categoryScanPreviewCoveringIndexSpec(physical, schema, stageID, categoryColumnID, valueColumnID)
-	sourceProjectionEquivalent := stageID == recipe.ConstructionSourceProjectionID ||
-		categoryScanPreservesSourceCategories(physical, stageID, categoryColumnID, column) ||
-		(stageID == "" && categoryScanDirectRootSource(physical, column))
-	if sourceProjectionEquivalent {
-		// The proof remains bound to the requested terminal stage, while the
-		// category query uses the cheaper source projection after proving that
-		// every row in the stage prefix still represents a source parent and
-		// carries this exact root category unchanged.
-		physical.StageSequence = nil
-		physical = narrowSourceCategoryScanProjection(physical, column.Name)
-	} else {
-		physical = withCategoryScanSourceFilterPushdown(physical)
-	}
-	physical, err = withGenericPhysicalExecutionWindow(physical, 0)
-	if err != nil {
-		return CompiledCategoryScanQuery{}, fmt.Errorf("apply category scan execution window: %w", err)
-	}
-	if sourceProjectionEquivalent {
-		physical = withoutCategoryScanRootIdentitySort(physical)
-	}
-	streamRootCategories := sourceProjectionEquivalent && categoryScanDirectRootSource(physical, column)
-	categoryIndex := categoryScanCategoryIndexSpec(physical, column)
 	presenceMarkerColumn := categoryScanPresenceMarkerColumn(physical, schema)
 	var query string
 	var bindVars map[string]any
 	var overflowWitness *CategoryOverflowWitness
-	if streamRootCategories && categoryIndex != nil {
-		query, bindVars, overflowWitness, err = categoryScanIndexedRootQueries(physical, column, categoryIndex, maxValues)
-		if err != nil {
-			return CompiledCategoryScanQuery{}, fmt.Errorf("compile indexed root category scan: %w", err)
-		}
-	} else {
-		var rendered aql.RenderedPhysicalPlan
-		if physical.StageSequence != nil {
-			rendered, err = aql.RenderPhysicalPlanWithUnorderedTerminalProjectionPresenceMarker(physical, column.Name, presenceMarkerColumn)
-		} else {
-			rendered, err = aql.RenderPhysicalPlanWithCategoryScanPresenceMarker(physical, column.Name, presenceMarkerColumn)
-		}
-		if err != nil {
-			return CompiledCategoryScanQuery{}, fmt.Errorf("render category scan output plan: %w", err)
-		}
-		if categoryIndex != nil {
-			root, _, ok := previewCoveringIndexSource(physical)
-			if !ok {
-				return CompiledCategoryScanQuery{}, fmt.Errorf("category index requires one direct root scan")
-			}
-			rendered.Query, ok = categoryScanWithRootIndexHint(rendered.Query, root.Variable, root.CollectionBindKey, categoryIndex.Name)
-			if !ok {
-				return CompiledCategoryScanQuery{}, fmt.Errorf("category index hint could not be attached to root scan")
-			}
-		}
-		if _, exists := rendered.BindVars[categoryColumnBind]; exists {
-			return CompiledCategoryScanQuery{}, fmt.Errorf("category scan bind %q is already defined", categoryColumnBind)
-		}
-		if _, exists := rendered.BindVars[categoryLimitBind]; exists {
-			return CompiledCategoryScanQuery{}, fmt.Errorf("category scan bind %q is already defined", categoryLimitBind)
-		}
-		bindVars = cloneCategoryScanBinds(rendered.BindVars)
-		bindVars[categoryColumnBind] = column.Name
-		bindVars[categoryLimitBind] = maxValues + 1
-		var streamed bool
-		query, streamed = categoryScanDistinctQuery(rendered.Query, presenceMarkerColumn, categoryColumnBind, categoryLimitBind, streamRootCategories)
-		if streamRootCategories && !streamed {
-			return CompiledCategoryScanQuery{}, fmt.Errorf("stream direct source category scan: terminal RETURN projection was not found")
-		}
+	categoryIndex := categoryScanCategoryIndexSpec(physical, column)
+	relatedQuery, relatedBinds, relatedIndex, relatedEligible, relatedErr :=
+		compileRelatedCategoryScan(physical, stageID, categoryColumnID, valueColumnID, column, valueColumn, maxValues)
+	if relatedErr != nil {
+		return CompiledCategoryScanQuery{}, fmt.Errorf("compile related category scan: %w", relatedErr)
 	}
-	if physical.StageSequence != nil {
-		witness, eligible, witnessErr := aql.RenderRelatedEligibilityCategoryOverflowWitness(physical, column.Name, presenceMarkerColumn, maxValues*4+1)
-		if witnessErr != nil {
-			return CompiledCategoryScanQuery{}, fmt.Errorf("render category overflow witness: %w", witnessErr)
+	if relatedEligible {
+		query, bindVars, categoryIndex = relatedQuery, relatedBinds, relatedIndex
+	} else {
+		sourceProjectionEquivalent := stageID == recipe.ConstructionSourceProjectionID ||
+			categoryScanPreservesSourceCategories(physical, stageID, categoryColumnID, column) ||
+			(stageID == "" && categoryScanDirectRootSource(physical, column))
+		if sourceProjectionEquivalent {
+			// The proof remains bound to the requested terminal stage, while the
+			// category query uses the cheaper source projection after proving that
+			// every row in the stage prefix still represents a source parent and
+			// carries this exact root category unchanged.
+			physical.StageSequence = nil
+			physical = narrowSourceCategoryScanProjection(physical, column.Name)
+		} else {
+			physical = withCategoryScanSourceFilterPushdown(physical)
 		}
-		if eligible {
-			witnessQuery := "LET __loom_witness_rows = (\n" + witness.Query + "\n)\n" +
-				"FOR __loom_witness_row IN __loom_witness_rows\n" +
-				fmt.Sprintf("  LET __loom_witness_present = __loom_witness_row[%q]\n", presenceMarkerColumn) +
-				"  LET __loom_witness_value = __loom_witness_present ? __loom_witness_row[@" + categoryColumnBind + "] : null\n" +
-				"  COLLECT present = __loom_witness_present, value = __loom_witness_value\n" +
-				"  LIMIT @" + categoryLimitBind + "\n" +
-				"  RETURN { present, value }"
-			witnessBinds := cloneCategoryScanBinds(witness.BindVars)
-			witnessBinds[categoryColumnBind] = column.Name
-			witnessBinds[categoryLimitBind] = maxValues + 1
-			overflowWitness = &CategoryOverflowWitness{Query: witnessQuery, BindVars: witnessBinds}
+		physical, err = withGenericPhysicalExecutionWindow(physical, 0)
+		if err != nil {
+			return CompiledCategoryScanQuery{}, fmt.Errorf("apply category scan execution window: %w", err)
+		}
+		if sourceProjectionEquivalent {
+			physical = withoutCategoryScanRootIdentitySort(physical)
+		}
+		streamRootCategories := sourceProjectionEquivalent && categoryScanDirectRootSource(physical, column)
+		categoryIndex = categoryScanCategoryIndexSpec(physical, column)
+		if streamRootCategories && categoryIndex != nil {
+			query, bindVars, overflowWitness, err = categoryScanIndexedRootQueries(physical, column, categoryIndex, maxValues)
+			if err != nil {
+				return CompiledCategoryScanQuery{}, fmt.Errorf("compile indexed root category scan: %w", err)
+			}
+		} else {
+			var rendered aql.RenderedPhysicalPlan
+			if physical.StageSequence != nil {
+				rendered, err = aql.RenderPhysicalPlanWithUnorderedTerminalProjectionPresenceMarker(physical, column.Name, presenceMarkerColumn)
+			} else {
+				rendered, err = aql.RenderPhysicalPlanWithCategoryScanPresenceMarker(physical, column.Name, presenceMarkerColumn)
+			}
+			if err != nil {
+				return CompiledCategoryScanQuery{}, fmt.Errorf("render category scan output plan: %w", err)
+			}
+			if categoryIndex != nil {
+				root, _, ok := previewCoveringIndexSource(physical)
+				if !ok {
+					return CompiledCategoryScanQuery{}, fmt.Errorf("category index requires one direct root scan")
+				}
+				rendered.Query, ok = categoryScanWithRootIndexHint(rendered.Query, root.Variable, root.CollectionBindKey, categoryIndex.Name)
+				if !ok {
+					return CompiledCategoryScanQuery{}, fmt.Errorf("category index hint could not be attached to root scan")
+				}
+			}
+			if _, exists := rendered.BindVars[categoryColumnBind]; exists {
+				return CompiledCategoryScanQuery{}, fmt.Errorf("category scan bind %q is already defined", categoryColumnBind)
+			}
+			if _, exists := rendered.BindVars[categoryLimitBind]; exists {
+				return CompiledCategoryScanQuery{}, fmt.Errorf("category scan bind %q is already defined", categoryLimitBind)
+			}
+			bindVars = cloneCategoryScanBinds(rendered.BindVars)
+			bindVars[categoryColumnBind] = column.Name
+			bindVars[categoryLimitBind] = maxValues + 1
+			var streamed bool
+			query, streamed = categoryScanDistinctQuery(rendered.Query, presenceMarkerColumn, categoryColumnBind, categoryLimitBind, streamRootCategories)
+			if streamRootCategories && !streamed {
+				return CompiledCategoryScanQuery{}, fmt.Errorf("stream direct source category scan: terminal RETURN projection was not found")
+			}
+		}
+		if physical.StageSequence != nil {
+			witness, eligible, witnessErr := aql.RenderRelatedEligibilityCategoryOverflowWitness(physical, column.Name, presenceMarkerColumn, maxValues*4+1)
+			if witnessErr != nil {
+				return CompiledCategoryScanQuery{}, fmt.Errorf("render category overflow witness: %w", witnessErr)
+			}
+			if eligible {
+				witnessQuery := "LET __loom_witness_rows = (\n" + witness.Query + "\n)\n" +
+					"FOR __loom_witness_row IN __loom_witness_rows\n" +
+					fmt.Sprintf("  LET __loom_witness_present = __loom_witness_row[%q]\n", presenceMarkerColumn) +
+					"  LET __loom_witness_value = __loom_witness_present ? __loom_witness_row[@" + categoryColumnBind + "] : null\n" +
+					"  COLLECT present = __loom_witness_present, value = __loom_witness_value\n" +
+					"  LIMIT @" + categoryLimitBind + "\n" +
+					"  RETURN { present, value }"
+				witnessBinds := cloneCategoryScanBinds(witness.BindVars)
+				witnessBinds[categoryColumnBind] = column.Name
+				witnessBinds[categoryLimitBind] = maxValues + 1
+				overflowWitness = &CategoryOverflowWitness{Query: witnessQuery, BindVars: witnessBinds}
+			}
 		}
 	}
 

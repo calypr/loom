@@ -237,7 +237,10 @@ func (s *Service) preparePopulationRouteChoices(ctx context.Context, project str
 		}
 		steps := make([]authoringv2.PopulationRouteStep, 0, len(route))
 		for _, step := range route {
-			steps = append(steps, authoringv2.PopulationRouteStep{ResourceType: step.ToResourceType, Relationship: step.Relationship, CatalogEdgeID: step.EdgeID})
+			steps = append(steps, authoringv2.PopulationRouteStep{
+				ResourceType: step.ToResourceType, Relationship: step.Relationship,
+				CatalogEdgeID: step.EdgeID, StorageDirection: step.StorageDirection,
+			})
 		}
 		command.ResolvedPopulationRoute = steps
 	}

@@ -57,7 +57,16 @@ func compileSemanticDocument(ctx context.Context, project, explorerID string, do
 			return Result{}, fail("lower", "UNSUPPORTED_GROUP_SOURCE", "$.rows.groups.source", "only pinned explicit group revisions can produce rows", nil, nil)
 		}
 		explicit := document.Rows.Groups.Source.Explicit
-		groupRows = &recipe.GroupRows{RevisionID: explicit.RevisionID, UnassignedMemberPolicy: string(explicit.UnassignedMemberPolicy)}
+		groupRows = &recipe.GroupRows{
+			RevisionID: explicit.RevisionID, UnassignedMemberPolicy: string(explicit.UnassignedMemberPolicy),
+			AfterStepID: document.Rows.Groups.AfterStepID,
+			RowValues: make([]recipe.GroupRowValuePolicy, 0, len(document.Rows.Groups.RowValues)),
+		}
+		for _, value := range document.Rows.Groups.RowValues {
+			groupRows.RowValues = append(groupRows.RowValues, recipe.GroupRowValuePolicy{
+				ColumnID: value.ColumnID, Policy: recipe.ConstructionRowValuePolicy(value.Policy),
+			})
+		}
 		rowGrain = spec.RowGrainGroups
 	}
 
@@ -113,7 +122,12 @@ func compileSemanticDocument(ctx context.Context, project, explorerID string, do
 				return Result{}, fail("intent", "STALE_FIELD", fmt.Sprintf("$.columns[%d].source.field.path", index), "field is not present on the resolved capability node", map[string]any{"resourceType": occurrence.graph.ResourceType, "fieldPath": sourcePath}, nil)
 			}
 			capabilityMode, supported := capabilityProjectionMode(projectionMode)
-			if !supported || !containsProjectionMode(candidate.ProjectionModes, capabilityMode) {
+			advertised := supported && containsProjectionMode(candidate.ProjectionModes, capabilityMode)
+			relatedScalarAll := projectionMode == string(capability.ConstructionChoiceAll) &&
+				column.OccurrenceID != authoringv2.RootOccurrenceID &&
+				!capability.IsRepeatedCardinality(candidate.Cardinality) &&
+				containsProjectionMode(candidate.ProjectionModes, capability.ProjectionScalar)
+			if !advertised && !relatedScalarAll {
 				return Result{}, fail("capability", "UNSUPPORTED_PROJECTION_MODE", fmt.Sprintf("$.columns[%d].source.projectionMode", index), "projection mode is not advertised by the resolved capability candidate", map[string]any{"candidateId": candidate.ID, "projectionMode": projectionMode, "advertisedModes": candidate.ProjectionModes}, nil)
 			}
 			if authoredType := strings.TrimSpace(column.LogicalType); authoredType != "" && authoredType != strings.TrimSpace(candidate.LogicalType) {

@@ -57,19 +57,43 @@ func compileExpandedRows(expanded *authoringv2.ExpandedRows, route authoringv2.R
 	}
 
 	var candidate capability.Candidate
-	matches := 0
+	exactMatches := 0
 	for _, item := range snapshot.Candidates {
 		if item.NodeID != owner.graph.ID || item.ResourceType != owner.graph.ResourceType || canonicalSemanticFieldPath(item.FieldPath) != path {
 			continue
 		}
 		candidate = item
-		matches++
+		exactMatches++
 	}
-	if matches == 0 {
-		return recipe.Expansion{}, fail("intent", "STALE_EXPANSION_SCOPE", "$.rows.expanded.scopePath", "expanded scope is not present on the selected capability occurrence", map[string]any{"occurrenceId": expanded.OccurrenceID, "resourceType": owner.graph.ResourceType, "scopePath": path}, nil)
+	if exactMatches > 1 {
+		return recipe.Expansion{}, fail("intent", "AMBIGUOUS_EXPANSION_SCOPE", "$.rows.expanded.scopePath", "expanded scope must resolve to exactly one capability candidate", map[string]any{"occurrenceId": expanded.OccurrenceID, "scopePath": path, "matches": exactMatches}, nil)
 	}
-	if matches != 1 {
-		return recipe.Expansion{}, fail("intent", "AMBIGUOUS_EXPANSION_SCOPE", "$.rows.expanded.scopePath", "expanded scope must resolve to exactly one capability candidate", map[string]any{"occurrenceId": expanded.OccurrenceID, "scopePath": path, "matches": matches}, nil)
+	if exactMatches == 0 {
+		boundaryMatches := false
+		for _, item := range snapshot.Candidates {
+			if item.NodeID != owner.graph.ID || item.ResourceType != owner.graph.ResourceType {
+				continue
+			}
+			for _, boundary := range item.RepeatedBoundaries {
+				if canonicalSemanticFieldPath(boundary.Path) != path {
+					continue
+				}
+				boundaryMatches = true
+				if capability.IsRepeatedCardinality(item.Cardinality) {
+					candidate = item
+					break
+				}
+			}
+			if candidate.ID != "" {
+				break
+			}
+		}
+		if !boundaryMatches {
+			return recipe.Expansion{}, fail("intent", "STALE_EXPANSION_SCOPE", "$.rows.expanded.scopePath", "expanded scope is not present on the selected capability occurrence", map[string]any{"occurrenceId": expanded.OccurrenceID, "resourceType": owner.graph.ResourceType, "scopePath": path}, nil)
+		}
+		if candidate.ID == "" {
+			return recipe.Expansion{}, fail("capability", "UNSUPPORTED_EXPANSION_SCOPE", "$.rows.expanded.scopePath", "expanded scope lacks repeated-value evidence in the current capability snapshot", map[string]any{"resourceType": owner.graph.ResourceType, "scopePath": path}, nil)
+		}
 	}
 	if !capability.IsRepeatedCardinality(candidate.Cardinality) || len(candidate.RepeatedBoundaries) == 0 {
 		return recipe.Expansion{}, fail("capability", "UNSUPPORTED_EXPANSION_SCOPE", "$.rows.expanded.scopePath", "expanded scope lacks repeated-value evidence in the current capability snapshot", map[string]any{"candidateId": candidate.ID, "cardinality": candidate.Cardinality}, nil)

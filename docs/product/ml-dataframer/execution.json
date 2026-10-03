@@ -140,7 +140,7 @@
       "resultCorrectness": "The editor's source inventory returned no direct paired source for the 135 authorized BodyStructure records",
       "persistence": "No edit was made; this is an availability decision",
       "artifact": ".artifacts/cda-builder/2026-09-28-category-discovery/bodystructure-choice.json",
-      "remaining": "Source availability is handled inside Pivot rather than disabling its entry. Ordinary Pivot still needs implicit acquisition of missing inputs."
+      "remaining": "Pivot entry opens its flow. Source fields can now be selected internally; unsupported combinations are explained inside the editor."
     },
     "directSourceColumnsEvidence": {
       "feature": "Add direct BodyStructure fields to a constructed CDA table",
@@ -238,14 +238,14 @@
         "Apply one editable operation"
       ],
       "inputAcquisition": "Pivot inputs may come from populated source fields even when not visible columns; acquire them internally without a separate Add columns action.",
-      "currentLimitation": "Ordinary table Pivot uses saved scalar columns and saved-stage category discovery. Direct coded Pivot already discovers root code/value pairs without adding columns. Related-source and general field acquisition inside ordinary Pivot remains unimplemented."
+      "currentLimitation": "Implicit scalar inputs are implemented for root fields and the active related resource where the current stage preserves source identity. Repeated/non-scalar fields still require an explicit row/multiplicity decision; this slice does not add arbitrary graph traversal inside Pivot."
     },
     "rowsMenuCleanup": {
       "status": "browser_path_passed",
       "artifact": ".artifacts/cda-builder/pivot-entry-cleanup/report.json",
       "screenshot": ".artifacts/cda-builder/pivot-entry-cleanup/define-rows.png",
       "checked": "Existing CDA Specimen table expanded to Medication: open Rows, inspect all settings without disclosures, select Categories to columns, read missing-input explanation, confirm incomplete Apply unavailable, return to table. No saved changes.",
-      "remaining": "Ordinary pivot source acquisition is still separate; implicit input binding and atomic removal are not implemented by this menu cleanup.",
+      "remaining": "Implicit scalar acquisition and owned-input removal are now verified in the separate implicitPivotInputs ledger entry. Broader editor cleanup remains part of the goal.",
       "regression": {
         "unitTests": "67 passed across five focused UI files",
         "typecheck": "passed",
@@ -258,6 +258,127 @@
           "editProposal": 4458
         }
       }
+    },
+    "implicitPivotInputs": {
+      "feature": "Choose row, category, and value fields inside Pivot without adding public columns first",
+      "status": "browser_path_passed",
+      "domUsability": "Root, related values, and all three roles from an active related record pass fresh-page selection, rendered proposal, Apply, reload, edit, remove, and restoration. Generated input helpers remain hidden from history; each Pivot is one editable operation. No manual Preview button.",
+      "resultCorrectness": "Rendered specimen-reference and patient-reference cells match the independently read Arango Observation record 485e2567-b566-56f3-b5bd-5f025f37cd95. No failed requests in the passing cases.",
+      "persistence": "Saved roles and readable field labels survive reload. Removing root Pivot restores its original Observation ID column; removing related Pivot retains preceding Observation row expansion and removes owned inputs.",
+      "performance": "All measured proposal requests in these bounded cases are below five seconds. Full-CDA/cold/concurrent performance is not established by these checks.",
+      "cases": [
+        {
+          "case": "root",
+          "artifact": ".artifacts/cda-builder/implicit-pivot-inputs-root.json",
+          "clicksFullLifecycle": 25,
+          "categoryDiscoveryMs": 3855,
+          "proposalRequestsMs": [
+            3974,
+            4371,
+            3891
+          ],
+          "result": {
+            "headers": [
+              "OBSERVATION.SPECIMEN.REFERENCE",
+              "FINAL"
+            ],
+            "rows": [
+              [
+                "Specimen/230b352c-99de-50f3-a3b1-a4f6680615ab",
+                "Patient/da65b4e6-3946-50d9-ab1a-65af2e560b1c"
+              ]
+            ]
+          },
+          "restoration": {
+            "historyCount": 0,
+            "headers": [
+              "OBSERVATION ID"
+            ]
+          },
+          "failedRequests": []
+        },
+        {
+          "case": "related",
+          "artifact": ".artifacts/cda-builder/implicit-pivot-inputs-related.json",
+          "clicksFullLifecycle": 28,
+          "categoryDiscoveryMs": 3053,
+          "proposalRequestsMs": [
+            2773,
+            2987,
+            2830,
+            2821
+          ],
+          "result": {
+            "headers": [
+              "SPECIMEN ID",
+              "FINAL"
+            ],
+            "rows": [
+              [
+                "230b352c-99de-50f3-a3b1-a4f6680615ab",
+                "Patient/da65b4e6-3946-50d9-ab1a-65af2e560b1c"
+              ]
+            ]
+          },
+          "restoration": {
+            "historyCount": 1,
+            "headers": [
+              "SPECIMEN ID",
+              "OBSERVATION FHIR RESOURCE ID"
+            ]
+          },
+          "failedRequests": []
+        },
+        {
+          "case": "related-source-key",
+          "artifact": ".artifacts/cda-builder/implicit-pivot-inputs-related-source-key.json",
+          "clicksFullLifecycle": 29,
+          "categoryDiscoveryMs": 3045,
+          "proposalRequestsMs": [
+            2784,
+            2988,
+            2960,
+            3006
+          ],
+          "result": {
+            "headers": [
+              "OBSERVATION.SPECIMEN.REFERENCE",
+              "FINAL"
+            ],
+            "rows": [
+              [
+                "Specimen/230b352c-99de-50f3-a3b1-a4f6680615ab",
+                "Patient/da65b4e6-3946-50d9-ab1a-65af2e560b1c"
+              ]
+            ]
+          },
+          "restoration": {
+            "historyCount": 1,
+            "headers": [
+              "SPECIMEN ID",
+              "OBSERVATION FHIR RESOURCE ID"
+            ]
+          },
+          "failedRequests": []
+        }
+      ],
+      "checks": {
+        "UI": "108 focused tests passed; final Pivot editor 28 passed; TypeScript passed",
+        "backend": "authoringv2, lifecycle, schema owning packages passed; server contract and promoted row-key metadata checks passed",
+        "review": "Sol review PASS"
+      },
+      "remaining": "Repeated-field acquisition and arbitrary new related routes are not introduced by this slice; select the row/multiplicity or related-record operation first.",
+      "codedPivotRegression": {
+        "status": "browser_path_passed",
+        "artifact": ".artifacts/cda-builder/bounded-coded-pivot-integer.json",
+        "checked": "Fresh-page bounded CDA integer code/value pivot; Apply, reload, edit, remove, and restoration; no failed requests",
+        "timingsMs": {
+          "proposal": 4452,
+          "preview": 3693,
+          "editProposal": 4455
+        }
+      },
+      "commit": "95f738370"
     }
   },
   "executionOrder": [
@@ -640,5 +761,32 @@
     ],
     "correctness": "Real CDA values matched independent source records; restored source columns after removal.",
     "regressionNote": "Nine failures in the existing reconciliation test file also reproduce unchanged at HEAD."
+  },
+  "pivotPerformanceVerification": {
+    "date": "2026-09-29",
+    "dataset": "full CDA, loom_dev_cda_fhir/cda-fhir-v1",
+    "status": "improved; remaining initial and first-use latency",
+    "verified": {
+      "categoryAqlMs": 270,
+      "pivotRowsAqlMs": 3,
+      "categoryBrowserMs": 2845,
+      "initialCategoriesToRenderedProposalMs": 5473,
+      "editRenderedProposalMs": 2815,
+      "removeRenderedProposalMs": 2734,
+      "existingSpecimenCategoryBrowserMs": 2968
+    },
+    "dom": "Full related-expansion/Pivot Apply, edit, reload, removal and restoration passed; visible values matched independent source oracle; no failed requests.",
+    "evidence": [
+      ".artifacts/cda-builder/full-related-pivot-perf.json",
+      ".artifacts/cda-builder/full-pivot-perf.json",
+      ".artifacts/cda-builder/current-pivot-category-perf.json"
+    ],
+    "remaining": [
+      "Initial category plus proposal flow remains about 5.5 seconds.",
+      "First-use category index creation can exceed the scan timeout.",
+      "Fast paths cover direct scalar root categories and root-ID grouping with parent-preserving related stages; other shapes still need measurement.",
+      "The existing Specimen bodySite category is absent in many records; Pivot reports that limitation instead of timing out once its index is prepared."
+    ],
+    "verificationNote": "Focused compiler/execution/server/index checks and full authoringv2 package pass. Earlier broad lower package run exposed an unrelated existing query-variable spelling expectation failure in TestRelatedEligibilityCountRowsUsesScopedReverseRoute."
   }
 }

@@ -36,6 +36,16 @@ func (r repositoryExplicitGroupRevisionResolver) ListExplicitGroupRevisions(ctx 
 	if err != nil {
 		return nil, err
 	}
+	if request.PinnedRevisionID != "" && !hasExplicitGroupRevision(revisions, request.PinnedRevisionID) {
+		pinned, err := r.store.GetExplicitGroupRevision(ctx, project, explorer.ExplicitGroupRevisionID(request.PinnedRevisionID))
+		if err != nil {
+			return nil, fmt.Errorf("load pinned explicit group revision %q: %w", request.PinnedRevisionID, err)
+		}
+		if pinned == nil || pinned.Project != project || pinned.Generation != generation || pinned.ScopeDigest != scopeDigest || pinned.ResourceType != request.RootResourceType {
+			return nil, fmt.Errorf("pinned explicit group revision %q does not match the authorized table scope", request.PinnedRevisionID)
+		}
+		revisions = append(revisions, *pinned)
+	}
 	choices := make([]ExplicitGroupRevisionChoice, 0, len(revisions))
 	for _, revision := range revisions {
 		selection, err := r.store.GetSelection(ctx, project, revision.SourceSelectionRevisionID)
@@ -46,7 +56,8 @@ func (r repositoryExplicitGroupRevisionResolver) ListExplicitGroupRevisions(ctx 
 			return nil, fmt.Errorf("validate explicit group revision %q: %w", revision.ID, err)
 		}
 		choices = append(choices, ExplicitGroupRevisionChoice{
-			RevisionID: string(revision.ID), GroupCount: revision.GroupCount, MemberCount: revision.MemberCount,
+			RevisionID: string(revision.ID), SourceSelectionRevisionID: revision.SourceSelectionRevisionID,
+			GroupCount: revision.GroupCount, MemberCount: revision.MemberCount,
 			CreatedAt: revision.CreatedAt,
 			UnassignedMemberPolicies: []authoringv2.UnassignedMemberPolicy{
 				authoringv2.UnassignedMemberError, authoringv2.UnassignedMemberExclude,
@@ -55,6 +66,15 @@ func (r repositoryExplicitGroupRevisionResolver) ListExplicitGroupRevisions(ctx 
 		})
 	}
 	return choices, nil
+}
+
+func hasExplicitGroupRevision(revisions []explorer.ExplicitGroupRevision, revisionID string) bool {
+	for _, revision := range revisions {
+		if string(revision.ID) == revisionID {
+			return true
+		}
+	}
+	return false
 }
 
 func (r repositoryExplicitGroupRevisionResolver) ResolveExplicitGroupRevision(ctx context.Context, request ExplicitGroupRevisionResolveRequest) (ExplicitGroupRevisionProof, error) {

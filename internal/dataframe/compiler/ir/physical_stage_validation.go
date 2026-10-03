@@ -72,6 +72,9 @@ func validatePhysicalStageSequence(sequence PhysicalStageSequence, sourceOperati
 		if stage.Kind != PhysicalStageCodedGroupOp && stage.CodedGroup != nil {
 			return fmt.Errorf("%s has a coded-group payload for operation %q", path, stage.Kind)
 		}
+		if stage.Kind != PhysicalStageCohortGroupOp && stage.CohortGroup != nil {
+			return fmt.Errorf("%s has a cohort-group payload for operation %q", path, stage.Kind)
+		}
 		switch stage.Kind {
 		case PhysicalStageDeriveOp:
 			if stage.Filter != nil || stage.Group != nil || stage.Expand != nil || stage.GroupedPivot != nil || stage.Unpivot != nil || stage.RelatedField != nil {
@@ -114,6 +117,21 @@ func validatePhysicalStageSequence(sequence PhysicalStageSequence, sourceOperati
 			if err := validatePhysicalGroupedPivot(*stage.GroupedPivot, defined, bindVars); err != nil {
 				return fmt.Errorf("%s grouped pivot: %w", path, err)
 			}
+			if err := validateRootContributorReduction(
+				stage.GroupedPivot.RootContributorInputColumn,
+				stage.GroupedPivot.RootContributorInputMany,
+				stage.GroupedPivot.RootContributorOutputColumn,
+				stage.GroupedPivot.RootContributorVariable,
+				stage.InputColumns, stage.OutputColumns, defined,
+			); err != nil {
+				return fmt.Errorf("%s grouped pivot root contributors: %w", path, err)
+			}
+			if err := validatePhysicalStageRowValues(
+				stage.GroupedPivot.RowValues, stage.InputColumns, stage.OutputColumns,
+				physicalProjectionNameSet(stage.GroupedPivot.InputProjections), groupedPivotBaseOutputs(*stage.GroupedPivot), nil,
+			); err != nil {
+				return fmt.Errorf("%s grouped pivot row values: %w", path, err)
+			}
 			if err := validateShapeStageOutput(stage, groupedPivotOutputNames(*stage.GroupedPivot)); err != nil {
 				return fmt.Errorf("%s: %w", path, err)
 			}
@@ -138,12 +156,18 @@ func validatePhysicalStageSequence(sequence PhysicalStageSequence, sourceOperati
 			if err := validatePhysicalStageGroup(stage, *stage.Group, bindVars); err != nil {
 				return fmt.Errorf("%s group: %w", path, err)
 			}
-			expected := make([]string, 0, len(stage.Group.Keys)+len(stage.Group.Aggregates)+1)
+			expected := make([]string, 0, len(stage.Group.Keys)+len(stage.Group.Aggregates)+len(stage.Group.RowValues)+2)
 			for _, key := range stage.Group.Keys {
 				expected = append(expected, key.OutputColumn)
 			}
 			for _, aggregate := range stage.Group.Aggregates {
 				expected = append(expected, aggregate.Output)
+			}
+			for _, rowValue := range stage.Group.RowValues {
+				expected = append(expected, rowValue.Output)
+			}
+			if stage.Group.RootContributorOutputColumn != "" {
+				expected = append(expected, stage.Group.RootContributorOutputColumn)
 			}
 			expected = append(expected, "__loom_row_id")
 			if err := validateShapeStageOutput(stage, expected); err != nil {
@@ -153,10 +177,30 @@ func validatePhysicalStageSequence(sequence PhysicalStageSequence, sourceOperati
 			if stage.CodedGroup == nil || stage.Group != nil || stage.Filter != nil || stage.Expand != nil || stage.GroupedPivot != nil || stage.Unpivot != nil || stage.RelatedSource != nil || stage.RelatedExpand != nil || stage.RelatedField != nil || len(stage.DerivedLets) != 0 {
 				return fmt.Errorf("%s CODED_GROUP requires only a coded-group payload", path)
 			}
-			if err := validatePhysicalStageCodedGroup(stage, *stage.CodedGroup, bindVars); err != nil {
+			if err := validatePhysicalStageCodedGroup(stage, *stage.CodedGroup, bindVars, sourceOperations); err != nil {
 				return fmt.Errorf("%s coded group: %w", path, err)
 			}
-			if err := validateShapeStageOutput(stage, []string{stage.CodedGroup.SystemOutputColumn, stage.CodedGroup.VersionOutputColumn, stage.CodedGroup.CodeOutputColumn, stage.CodedGroup.CountOutputColumn, "__loom_row_id"}); err != nil {
+			expected := []string{stage.CodedGroup.SystemOutputColumn, stage.CodedGroup.VersionOutputColumn, stage.CodedGroup.CodeOutputColumn, stage.CodedGroup.CountOutputColumn}
+			for _, rowValue := range stage.CodedGroup.RowValues {
+				expected = append(expected, rowValue.Output)
+			}
+			expected = append(expected, "__loom_row_id")
+			if err := validateShapeStageOutput(stage, expected); err != nil {
+				return fmt.Errorf("%s: %w", path, err)
+			}
+		case PhysicalStageCohortGroupOp:
+			if stage.CohortGroup == nil || stage.Group != nil || stage.CodedGroup != nil || stage.Filter != nil || stage.Expand != nil || stage.GroupedPivot != nil || stage.Unpivot != nil || len(stage.DerivedLets) != 0 || len(stage.OutputProjections) != 0 {
+				return fmt.Errorf("%s COHORT_GROUP requires only a cohort-group payload", path)
+			}
+			if err := validatePhysicalStageCohortGroup(stage, *stage.CohortGroup, bindVars); err != nil {
+				return fmt.Errorf("%s cohort group: %w", path, err)
+			}
+			expected := []string{"group_revision_id", "group_id", "group_label", "group_ordinal", "members"}
+			for _, value := range stage.CohortGroup.Rows.MemberValues {
+				expected = append(expected, value.Output)
+			}
+			expected = append(expected, stage.CohortGroup.RootContributorOutputColumn, "__loom_row_id")
+			if err := validateShapeStageOutput(stage, expected); err != nil {
 				return fmt.Errorf("%s: %w", path, err)
 			}
 		case PhysicalStageExpandOp:
@@ -241,7 +285,7 @@ func validatePhysicalStageSequence(sequence PhysicalStageSequence, sourceOperati
 		}
 	}
 	if sequence.RowLineageReturn != nil {
-		if err := validatePhysicalStageRowLineage(sequence, *sequence.RowLineageReturn, bindVars); err != nil {
+		if err := validatePhysicalStageRowLineage(sequence, *sequence.RowLineageReturn, sourceOperations, bindVars); err != nil {
 			return fmt.Errorf("row lineage: %w", err)
 		}
 	}
@@ -282,54 +326,40 @@ func validateCodedPivotSourceRoot(sourceOperations []PhysicalOperation, bindVars
 	return root.Variable, resourceType, nil
 }
 
-func validatePhysicalStageRowLineage(sequence PhysicalStageSequence, terminal PhysicalRowLineageReturn, bindVars map[string]any) error {
-	if len(sequence.Stages) != 1 {
-		return fmt.Errorf("row lineage requires exactly one construction stage")
+func validatePhysicalStageRowLineage(sequence PhysicalStageSequence, terminal PhysicalRowLineageReturn, sourceOperations []PhysicalOperation, bindVars map[string]any) error {
+	if len(sequence.Stages) == 0 {
+		return fmt.Errorf("row lineage requires a construction stage")
 	}
 	stage := sequence.Stages[0]
-	if stage.InputStageID != sequence.SourceStageID || stage.ID != sequence.FinalStageID || stage.RowIdentityColumn != sequence.FinalRowIdentity {
-		return fmt.Errorf("row lineage requires one terminal construction stage over the direct source projection")
+	lastStage := sequence.Stages[len(sequence.Stages)-1]
+	if stage.InputStageID != sequence.SourceStageID || lastStage.ID != sequence.FinalStageID || lastStage.RowIdentityColumn != sequence.FinalRowIdentity {
+		return fmt.Errorf("row lineage requires a supported construction sequence over the direct source projection")
 	}
-	switch stage.Kind {
-	case PhysicalStageGroupOp:
-		if stage.Group == nil || terminal.ParentKeyBindKey != "" || terminal.RelatedTerminalIDBindKey != "" || terminal.RelatedRowKind != "" {
-			return fmt.Errorf("row lineage Group payload or terminal bindings are invalid")
+	if terminal.Trace != nil {
+		if err := validatePhysicalRelatedRowLineageTrace(sequence, terminal, *terminal.Trace, sourceOperations, bindVars); err != nil {
+			return err
 		}
-	case PhysicalStageCodedGroupOp:
-		coded := stage.CodedGroup
-		if coded == nil || sequence.SourceRowIdentity != "_key" || coded.SourceIdentityColumn != "_key" ||
-			terminal.ResourceType != coded.ResourceType || terminal.ParentKeyBindKey != "" ||
-			terminal.RelatedTerminalIDBindKey != "" || terminal.RelatedRowKind != "" {
-			return fmt.Errorf("row lineage CODED_GROUP requires direct root identity and no related-row bindings")
-		}
-	case PhysicalStageRelatedExpandOp:
-		related := stage.RelatedExpand
-		if related == nil || related.AnchorKind != "root" || related.AnchorColumnID != "_key" ||
-			sequence.SourceRowIdentity != "_key" || related.ParentIdentityColumn != "_key" || len(related.Route) != 1 {
-			return fmt.Errorf("row lineage RELATED_EXPAND requires one direct root-anchored hop")
-		}
-		if terminal.ParentKeyBindKey == "" || terminal.RelatedTerminalIDBindKey == "" ||
-			(terminal.RelatedRowKind != "RELATED" && terminal.RelatedRowKind != "EMPTY") {
-			return fmt.Errorf("row lineage RELATED_EXPAND requires exact parent and terminal identity bindings")
-		}
-		if related.EmptyPolicy != PhysicalUnnestPreserveParent && terminal.RelatedRowKind == "EMPTY" {
-			return fmt.Errorf("row lineage empty row requires PRESERVE_PARENT")
-		}
-		if _, ok := bindVars[terminal.ParentKeyBindKey]; ok {
-			if value := bindVars[terminal.ParentKeyBindKey]; value != nil {
-				if _, stringOK := value.(string); !stringOK {
-					return fmt.Errorf("row lineage parent key bind %q must be a string or null", terminal.ParentKeyBindKey)
-				}
+	} else {
+		switch stage.Kind {
+		case PhysicalStageGroupOp:
+			if stage.Group == nil {
+				return fmt.Errorf("row lineage Group payload is invalid")
 			}
-		} else {
-			return fmt.Errorf("row lineage parent key bind %q is required", terminal.ParentKeyBindKey)
+			if err := validatePhysicalGroupFilterLineage(sequence.Stages); err != nil {
+				return err
+			}
+		case PhysicalStageCodedGroupOp:
+			if len(sequence.Stages) != 1 {
+				return fmt.Errorf("row lineage CODED_GROUP requires one terminal construction stage")
+			}
+			coded := stage.CodedGroup
+			if coded == nil || sequence.SourceRowIdentity != "_key" || coded.SourceIdentityColumn != "_key" ||
+				terminal.ResourceType != coded.ResourceType {
+				return fmt.Errorf("row lineage CODED_GROUP requires direct root identity and no related-row bindings")
+			}
+		default:
+			return fmt.Errorf("row lineage requires a terminal Group, CODED_GROUP, or RELATED_EXPAND Trace")
 		}
-		terminalID, terminalIDOK := bindVars[terminal.RelatedTerminalIDBindKey].(string)
-		if !terminalIDOK || terminal.RelatedRowKind == "RELATED" && bindVars[terminal.ParentKeyBindKey] != nil && terminalID == "" {
-			return fmt.Errorf("row lineage related terminal ID bind %q must be a string and nonempty for a valid parent", terminal.RelatedTerminalIDBindKey)
-		}
-	default:
-		return fmt.Errorf("row lineage requires a terminal Group or RELATED_EXPAND over the direct source projection")
 	}
 	if terminal.ResourceType == "" || terminal.ResourceIDColumn == "" || terminal.OccurrenceKeyColumn == "" {
 		return fmt.Errorf("resource type, source resource ID, and occurrence key columns are required")
@@ -349,6 +379,196 @@ func validatePhysicalStageRowLineage(sequence PhysicalStageSequence, terminal Ph
 		return fmt.Errorf("row lineage requires a nonnegative offset and a page of 1 through 100 plus one row")
 	}
 	return nil
+}
+
+func validatePhysicalRelatedRowLineageTrace(sequence PhysicalStageSequence, terminal PhysicalRowLineageReturn, trace PhysicalRowLineageTrace, sourceOperations []PhysicalOperation, bindVars map[string]any) error {
+	if sequence.SourceRowIdentity != "_key" || trace.RootKeyBindKey == "" {
+		return fmt.Errorf("composed RELATED_EXPAND lineage requires a direct root _key anchor")
+	}
+	if value, ok := bindVars[trace.RootKeyBindKey]; !ok {
+		return fmt.Errorf("row lineage root key bind %q is required", trace.RootKeyBindKey)
+	} else if value != nil {
+		if key, ok := value.(string); !ok || key == "" {
+			return fmt.Errorf("row lineage root key bind %q must be a string or null", trace.RootKeyBindKey)
+		}
+	}
+	rootVariable, sourceType, err := validateCodedPivotSourceRoot(sourceOperations, bindVars)
+	if err != nil {
+		return fmt.Errorf("composed RELATED_EXPAND lineage source: %w", err)
+	}
+	if sourceType != terminal.ResourceType {
+		return fmt.Errorf("row lineage source resource %q differs from terminal resource %q", sourceType, terminal.ResourceType)
+	}
+	rootKeyFilters, returnIndex := 0, -1
+	for index, operation := range sourceOperations {
+		if operation.Kind == PhysicalReturnOp {
+			returnIndex = index
+		}
+		if operation.Kind == PhysicalFilterOp && physicalRowLineageRootKeyFilter(operation.Filter, rootVariable, trace.RootKeyBindKey) {
+			rootKeyFilters++
+			if returnIndex >= 0 {
+				return fmt.Errorf("row lineage root key filter must precede the source projection")
+			}
+		}
+	}
+	if returnIndex < 0 || rootKeyFilters != 1 {
+		return fmt.Errorf("row lineage requires exactly one indexed root _key filter bound to %q before source projection", trace.RootKeyBindKey)
+	}
+
+	owners := 0
+	for _, stage := range sequence.Stages {
+		if stage.Kind == PhysicalStageRelatedExpandOp {
+			owners++
+		}
+	}
+	if owners == 0 || len(trace.Stages) != owners {
+		return fmt.Errorf("row lineage trace must name every authored RELATED_EXPAND stage")
+	}
+	seenBinds := map[string]bool{trace.RootKeyBindKey: true}
+	traceIndex := 0
+	priorIdentity := sequence.SourceRowIdentity
+	for _, stage := range sequence.Stages {
+		switch stage.Kind {
+		case PhysicalStageDeriveOp, PhysicalStageFilterOp, PhysicalStageRelatedSourceOp, PhysicalStageRelatedEligibilityOp, PhysicalStageRelatedFieldOp:
+			if stage.RowIdentityColumn != priorIdentity {
+				return fmt.Errorf("row lineage identity-preserving stage %q changes row identity", stage.ID)
+			}
+			projectionFound := false
+			for _, projection := range stage.OutputProjections {
+				if projection.Name != stage.RowIdentityColumn {
+					continue
+				}
+				projectionFound = projection.Value.Variable == stage.InputRowVariable && reflect.DeepEqual(projection.Value.Path, []string{priorIdentity})
+				break
+			}
+			if !projectionFound {
+				return fmt.Errorf("row lineage identity-preserving stage %q must pass through its exact row identity", stage.ID)
+			}
+		case PhysicalStageRelatedExpandOp:
+			related := stage.RelatedExpand
+			if related == nil {
+				return fmt.Errorf("row lineage RELATED_EXPAND stage %q has no typed payload", stage.ID)
+			}
+			if related.AnchorKind != "root" && related.AnchorKind != "activeRelatedRecord" {
+				return fmt.Errorf("row lineage RELATED_EXPAND stage %q has an unsupported composed anchor", stage.ID)
+			}
+			if related.AnchorKind == "root" && (related.AnchorColumnID != "_key" || related.ParentIdentityColumn != "_key") {
+				return fmt.Errorf("row lineage root anchor at stage %q must select root _key", stage.ID)
+			}
+			match := trace.Stages[traceIndex]
+			if match.StageID != stage.ID || match.Kind != PhysicalStageRelatedExpandOp {
+				return fmt.Errorf("row lineage trace stage %d does not match authored stage %q", traceIndex, stage.ID)
+			}
+			if match.StageRowIDBindKey == "" || match.RelatedTerminalIDBindKey == "" ||
+				(match.RelatedRowKind != "RELATED" && match.RelatedRowKind != "EMPTY") {
+				return fmt.Errorf("row lineage trace stage %q requires exact row and related terminal bindings", stage.ID)
+			}
+			for _, key := range []string{match.StageRowIDBindKey, match.RelatedTerminalIDBindKey} {
+				if seenBinds[key] {
+					return fmt.Errorf("row lineage trace bind %q is duplicated", key)
+				}
+				seenBinds[key] = true
+			}
+			if rowID, ok := bindVars[match.StageRowIDBindKey].(string); !ok || rowID == "" {
+				return fmt.Errorf("row lineage stage row ID bind %q must be a nonempty string", match.StageRowIDBindKey)
+			}
+			terminalID, ok := bindVars[match.RelatedTerminalIDBindKey].(string)
+			if !ok || match.RelatedRowKind == "RELATED" && bindVars[trace.RootKeyBindKey] != nil && terminalID == "" {
+				return fmt.Errorf("row lineage related terminal ID bind %q must be a string and nonempty for a valid root", match.RelatedTerminalIDBindKey)
+			}
+			if match.RelatedRowKind == "EMPTY" && related.EmptyPolicy != PhysicalUnnestPreserveParent {
+				return fmt.Errorf("row lineage empty stage %q requires PRESERVE_PARENT", stage.ID)
+			}
+			if match.RelatedRowKind == "RELATED" && bindVars[trace.RootKeyBindKey] != nil {
+				collection, key, found := strings.Cut(terminalID, "/")
+				if !found || collection != related.TargetResourceType || key == "" {
+					return fmt.Errorf("row lineage terminal identity %q is malformed", terminalID)
+				}
+			}
+			traceIndex++
+		default:
+			return fmt.Errorf("row lineage does not support identity-changing stage %q", stage.Kind)
+		}
+		priorIdentity = stage.RowIdentityColumn
+	}
+	if traceIndex != len(trace.Stages) {
+		return fmt.Errorf("row lineage trace has unmatched authored stages")
+	}
+	return nil
+}
+
+func physicalRowLineageRootKeyFilter(filter *PhysicalFilter, rootVariable, rootKeyBindKey string) bool {
+	if filter == nil || filter.Expression != nil {
+		return false
+	}
+	predicate := filter.Predicate
+	return predicate.Operator == "EQUALS" && predicate.LeftExpression == nil && predicate.Correlation == nil &&
+		predicate.Left.Variable == rootVariable && reflect.DeepEqual(predicate.Left.Path, []string{"_key"}) &&
+		predicate.Right != nil && predicate.Right.BindKey == rootKeyBindKey && predicate.Right.Variable == "" && len(predicate.Right.Path) == 0
+}
+
+func validatePhysicalGroupFilterLineage(stages []PhysicalConstructionStage) error {
+	if len(stages) == 1 {
+		return nil
+	}
+	prior := stages[0]
+	if prior.Group == nil {
+		return fmt.Errorf("row lineage GROUP payload is required")
+	}
+	contributorColumn := prior.Group.RootContributorOutputColumn
+	for index, stage := range stages[1:] {
+		if stage.Kind != PhysicalStageFilterOp || stage.Filter == nil || stage.InputStageID != prior.ID {
+			return fmt.Errorf("row lineage supports only identity-preserving FILTER stages after GROUP")
+		}
+		if stage.RowIdentityColumn != prior.RowIdentityColumn ||
+			!samePhysicalStageColumns(stage.InputColumns, prior.OutputColumns) ||
+			!samePhysicalStageColumns(stage.OutputColumns, stage.InputColumns) {
+			return fmt.Errorf("row lineage FILTER stage %d must preserve its input schema and row identity", index+1)
+		}
+		if contributorColumn != "" && physicalFilterReferencesColumn(*stage.Filter, stage.InputRowVariable, contributorColumn) {
+			return fmt.Errorf("row lineage FILTER cannot depend on hidden root contributor metadata")
+		}
+		prior = stage
+	}
+	return nil
+}
+
+func physicalFilterReferencesColumn(filter PhysicalFilter, variable, column string) bool {
+	return physicalValueReferencesColumn(reflect.ValueOf(filter), variable, column)
+}
+
+func physicalValueReferencesColumn(value reflect.Value, variable, column string) bool {
+	if !value.IsValid() {
+		return false
+	}
+	if value.Type() == reflect.TypeOf(PhysicalValue{}) {
+		physicalValue := value.Interface().(PhysicalValue)
+		return physicalValue.Variable == variable && len(physicalValue.Path) != 0 && physicalValue.Path[0] == column
+	}
+	switch value.Kind() {
+	case reflect.Interface, reflect.Pointer:
+		return !value.IsNil() && physicalValueReferencesColumn(value.Elem(), variable, column)
+	case reflect.Struct:
+		for index := 0; index < value.NumField(); index++ {
+			if physicalValueReferencesColumn(value.Field(index), variable, column) {
+				return true
+			}
+		}
+	case reflect.Slice, reflect.Array:
+		for index := 0; index < value.Len(); index++ {
+			if physicalValueReferencesColumn(value.Index(index), variable, column) {
+				return true
+			}
+		}
+	case reflect.Map:
+		iterator := value.MapRange()
+		for iterator.Next() {
+			if physicalValueReferencesColumn(iterator.Value(), variable, column) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func validatePhysicalStageRelatedField(stage PhysicalConstructionStage, related PhysicalStageRelatedField, bindVars map[string]any) error {
@@ -432,17 +652,25 @@ func validatePhysicalStageRelatedExpand(stage PhysicalConstructionStage, related
 
 	inputColumns := stageColumnsByID(stage.InputColumns)
 	anchor, found := inputColumns[related.AnchorColumnID]
-	if !found || !anchor.Internal || anchor.Name != related.AnchorColumnID || anchor.Kind != "string" ||
-		(anchor.Cardinality != "required_one" && anchor.Cardinality != "optional_one") {
-		return fmt.Errorf("selected anchor does not identify a retained exact string resource identity")
+	if !found || !anchor.Internal || anchor.Name != related.AnchorColumnID || anchor.Kind != "string" {
+		return fmt.Errorf("selected anchor does not identify compiler-proven resource identity")
 	}
 	switch related.AnchorKind {
 	case "root":
-		if related.AnchorColumnID != "_key" || anchor.Cardinality != "required_one" || related.AnchorNodeID != related.Route[0].FromNodeID {
+		if related.AnchorColumnID != "_key" || anchor.Cardinality != "required_one" || related.AnchorNodeID != related.Route[0].FromNodeID ||
+			related.RootContributorColumn != "" || related.RootResourceType != "" {
 			return fmt.Errorf("root anchor must select the retained _key and exact route root")
 		}
+	case "rootContributors":
+		if related.AnchorColumnID != "__loom_root_contributor_keys" || anchor.Cardinality != "many" ||
+			anchor.RootContributorResourceType == "" || related.RootResourceType != anchor.RootContributorResourceType ||
+			related.AnchorResourceType != related.RootResourceType || related.RootContributorColumn != related.AnchorColumnID ||
+			related.AnchorNodeID != related.Route[0].FromNodeID {
+			return fmt.Errorf("root-contributor anchor must select the exact compiler-owned root identity set")
+		}
 	case "activeRelatedRecord":
-		if related.AnchorColumnID == "_key" || anchor.RelatedRecordAnchor == nil ||
+		if related.AnchorColumnID == "_key" || anchor.Cardinality != "required_one" && anchor.Cardinality != "optional_one" ||
+			anchor.RelatedRecordAnchor == nil || related.RootContributorColumn != "" || related.RootResourceType != "" ||
 			anchor.RelatedRecordAnchor.NodeID != related.AnchorNodeID || anchor.RelatedRecordAnchor.ResourceType != related.AnchorResourceType {
 			return fmt.Errorf("active anchor must select the exact retained related-record identity")
 		}
@@ -456,8 +684,25 @@ func validatePhysicalStageRelatedExpand(stage PhysicalConstructionStage, related
 		return fmt.Errorf("related route has no exact anchor lookup")
 	}
 	firstOperation := related.RelatedRecords.Operations[0]
-	if related.AnchorKind == "root" && (firstOperation.Kind != PhysicalCollectionScanOp || firstOperation.CollectionScan == nil) {
-		return fmt.Errorf("root anchor route must begin with the scoped root collection lookup")
+	if related.AnchorKind == "root" || related.AnchorKind == "rootContributors" {
+		if firstOperation.Kind != PhysicalCollectionScanOp || firstOperation.CollectionScan == nil ||
+			bindVars[firstOperation.CollectionScan.CollectionBindKey] != related.AnchorResourceType || len(related.RelatedRecords.Operations) < 2 {
+			return fmt.Errorf("root anchor route must begin with the scoped root collection lookup")
+		}
+		rootFilter := related.RelatedRecords.Operations[1]
+		if rootFilter.Kind != PhysicalFilterOp || rootFilter.Filter == nil || rootFilter.Filter.Expression != nil {
+			return fmt.Errorf("root anchor route must filter its exact root key or contributor set")
+		}
+		predicate := rootFilter.Filter.Predicate
+		wantOperator, wantPath := "EQUALS", related.AnchorColumnID
+		if related.AnchorKind == "rootContributors" {
+			wantOperator, wantPath = "IN", related.RootContributorColumn
+		}
+		if predicate.Operator != wantOperator || predicate.Left.Variable != firstOperation.CollectionScan.Variable ||
+			!reflect.DeepEqual(predicate.Left.Path, []string{"_key"}) || predicate.Right == nil ||
+			predicate.Right.Variable != stage.InputRowVariable || !reflect.DeepEqual(predicate.Right.Path, []string{wantPath}) {
+			return fmt.Errorf("root anchor filter differs from its compiler-proven identity input")
+		}
 	}
 	if related.AnchorKind == "activeRelatedRecord" && (firstOperation.Kind != PhysicalDocumentLookupOp || firstOperation.DocumentLookup == nil ||
 		firstOperation.DocumentLookup.Variable == "" || firstOperation.DocumentLookup.ExactID.Variable != stage.InputRowVariable ||
@@ -602,16 +847,19 @@ func validatePhysicalStageRelatedEligibility(stage PhysicalConstructionStage, bi
 	if filter.Expression == nil {
 		return fmt.Errorf("eligible-row filter must use a typed predicate expression")
 	}
+	var relatedSubplan *PhysicalSubplan
 	switch filter.Expression.Kind {
 	case PhysicalExistsPredicate:
 		if filter.Expression.Exists == nil || len(stage.DerivedLets) != 0 {
 			return fmt.Errorf("EXISTS requires one correlated subplan and no scalar LET")
 		}
+		relatedSubplan = filter.Expression.Exists
 	case PhysicalNotPredicate:
 		if len(filter.Expression.Children) != 1 || filter.Expression.Children[0].Kind != PhysicalExistsPredicate ||
 			filter.Expression.Children[0].Exists == nil || len(stage.DerivedLets) != 0 {
 			return fmt.Errorf("ABSENT requires NOT over one correlated EXISTS subplan and no scalar LET")
 		}
+		relatedSubplan = filter.Expression.Children[0].Exists
 	case PhysicalComparisonPredicate:
 		comparison := filter.Expression.Comparison
 		if comparison == nil || strings.ToUpper(strings.TrimSpace(comparison.Operator)) != "GTE" || comparison.LeftExpression != nil ||
@@ -632,12 +880,73 @@ func validatePhysicalStageRelatedEligibility(stage PhysicalConstructionStage, bi
 			!reflect.DeepEqual(*array.Subplan.Sort, *array.Subplan.Return.Value) || len(array.Subplan.Sort.Path) != 1 || array.Subplan.Sort.Path[0] != "_id" {
 			return fmt.Errorf("COUNT_AT_LEAST must count a sorted, distinct terminal document _id subplan")
 		}
+		relatedSubplan = array.Subplan
 		threshold, ok := bindVars[comparison.Right.BindKey].(int)
 		if !ok || threshold <= 0 {
 			return fmt.Errorf("COUNT_AT_LEAST threshold must be a positive integer bind")
 		}
 	default:
 		return fmt.Errorf("related eligibility supports only EXISTS, ABSENT, or COUNT_AT_LEAST")
+	}
+	return validateRelatedEligibilityAnchor(stage, relatedSubplan, bindVars)
+}
+
+func validateRelatedEligibilityAnchor(stage PhysicalConstructionStage, subplan *PhysicalSubplan, bindVars map[string]any) error {
+	if subplan == nil || len(subplan.Captures) != 1 || subplan.Captures[0] != stage.InputRowVariable || len(subplan.Operations) < 2 {
+		return fmt.Errorf("related eligibility must correlate its exact row anchor")
+	}
+	columns := physicalStageColumnMap(stage.InputColumns)
+	first := subplan.Operations[0]
+	if first.Kind == PhysicalCollectionScanOp && first.CollectionScan != nil {
+		scan := first.CollectionScan
+		rootType, ok := bindVars["root_collection"].(string)
+		if !ok || rootType == "" || scan.CollectionBindKey != "root_collection" ||
+			first.Source.ResourceType != rootType || scan.Variable == "" {
+			return fmt.Errorf("root identity lookup must bind its compiler-proven resource type")
+		}
+		filter := subplan.Operations[1]
+		if filter.Kind != PhysicalFilterOp || filter.Filter == nil || filter.Filter.Expression != nil {
+			return fmt.Errorf("root identity lookup must filter its exact root key or contributor set")
+		}
+		predicate := filter.Filter.Predicate
+		if predicate.Left.Variable != scan.Variable || !reflect.DeepEqual(predicate.Left.Path, []string{"_key"}) || predicate.Right == nil ||
+			predicate.Right.Variable != stage.InputRowVariable {
+			return fmt.Errorf("root identity filter must compare the scanned _key to its input row anchor")
+		}
+		switch predicate.Operator {
+		case "EQUALS":
+			anchor, found := columns["_key"]
+			if len(predicate.Right.Path) != 1 || predicate.Right.Path[0] != "_key" || !found || !anchor.Internal ||
+				anchor.Name != "_key" || anchor.Kind != "string" || anchor.Cardinality != "required_one" ||
+				anchor.RootContributorResourceType != rootType || anchor.RelatedRecordAnchor != nil {
+				return fmt.Errorf("root eligibility anchor is not the exact compiler-proven root document key")
+			}
+		case "IN":
+			anchor, found := columns["__loom_root_contributor_keys"]
+			if len(predicate.Right.Path) != 1 || predicate.Right.Path[0] != "__loom_root_contributor_keys" || !found || !anchor.Internal ||
+				anchor.Name != "__loom_root_contributor_keys" || anchor.Kind != "string" || anchor.Cardinality != "many" ||
+				anchor.RootContributorResourceType != rootType {
+				return fmt.Errorf("root-contributor eligibility anchor is not the exact compiler-owned root identity set")
+			}
+		default:
+			return fmt.Errorf("root eligibility anchor must use exact key equality or contributor-set membership")
+		}
+		return nil
+	}
+	if first.Kind != PhysicalDocumentLookupOp || first.DocumentLookup == nil {
+		return fmt.Errorf("related eligibility must begin with an exact root scan or related-record lookup")
+	}
+	lookup := first.DocumentLookup
+	if lookup.ExactID.Variable != stage.InputRowVariable || len(lookup.ExactID.Path) != 1 || lookup.ExactID.Path[0] == "" {
+		return fmt.Errorf("active eligibility anchor must look up one exact input-row identity")
+	}
+	anchor, found := columns[lookup.ExactID.Path[0]]
+	resourceType, resourceOK := bindVars[lookup.CollectionBindKey].(string)
+	if !found || !anchor.Internal || anchor.Identity || anchor.Name != lookup.ExactID.Path[0] || anchor.Kind != "string" ||
+		(anchor.Cardinality != "required_one" && anchor.Cardinality != "optional_one") || anchor.RelatedRecordAnchor == nil ||
+		anchor.RelatedRecordAnchor.NodeID == "" || anchor.RelatedRecordAnchor.ResourceType == "" ||
+		!resourceOK || resourceType != anchor.RelatedRecordAnchor.ResourceType {
+		return fmt.Errorf("active eligibility anchor is not the exact retained related-record identity")
 	}
 	return nil
 }
@@ -661,8 +970,24 @@ func validatePhysicalStageRelatedSource(stage PhysicalConstructionStage, related
 			output = &stage.OutputColumns[index]
 		}
 	}
-	if anchor == nil || !anchor.Internal || !anchor.Identity || anchor.Name != "_key" || output == nil || output.Internal {
+	if anchor == nil || !anchor.Internal || !anchor.Identity || anchor.Name != stage.RowIdentityColumn || output == nil || output.Internal ||
+		related.RootResourceType == "" {
 		return fmt.Errorf("anchor or related output does not match the typed stage schema")
+	}
+	rootContributorColumn := ""
+	if related.RootContributorColumn == "" {
+		if anchor.Name != "_key" || anchor.RootContributorResourceType != related.RootResourceType || anchor.Kind != "string" || anchor.Cardinality != "required_one" {
+			return fmt.Errorf("direct related source anchor is not the exact root document identity")
+		}
+	} else {
+		contributor, found := physicalStageColumnMap(stage.InputColumns)[related.RootContributorColumn]
+		validScalar := contributor.Name == "_key" && (contributor.Cardinality == "required_one" || contributor.Cardinality == "optional_one")
+		validSet := contributor.Name == "__loom_root_contributor_keys" && contributor.Cardinality == "many"
+		if !found || !contributor.Internal || contributor.RootContributorResourceType != related.RootResourceType ||
+			contributor.Kind != "string" || !(validScalar || validSet) {
+			return fmt.Errorf("related source root contributor is not a compiler-proven root identity or set")
+		}
+		rootContributorColumn = contributor.Name
 	}
 	outputKind, outputCardinality, outputNullable := related.LogicalType, "many", true
 	switch related.Form {
@@ -688,6 +1013,24 @@ func validatePhysicalStageRelatedSource(stage PhysicalConstructionStage, related
 	if relatedProjection == nil || relatedProjection.Expression == nil || relatedSourceProjectionSubplan(*relatedProjection.Expression, related.Form) == nil {
 		return fmt.Errorf("related output does not match its typed route and form")
 	}
+	subplan := relatedSourceProjectionSubplan(*relatedProjection.Expression, related.Form)
+	if len(subplan.Operations) < 2 || subplan.Operations[0].CollectionScan == nil || subplan.Operations[1].Filter == nil {
+		return fmt.Errorf("related source route does not begin with its root contributor filter")
+	}
+	rootFilter := subplan.Operations[1].Filter.Predicate
+	rootVariable := subplan.Operations[0].CollectionScan.Variable
+	wantOperator, wantRight := "EQUALS", related.AnchorColumnID
+	if rootContributorColumn != "" {
+		wantRight = rootContributorColumn
+		if rootContributorColumn == "__loom_root_contributor_keys" {
+			wantOperator = "IN"
+		}
+	}
+	if rootFilter.Operator != wantOperator || rootFilter.Left.Variable != rootVariable ||
+		!reflect.DeepEqual(rootFilter.Left.Path, []string{"_key"}) || rootFilter.Right == nil ||
+		rootFilter.Right.Variable != stage.InputRowVariable || !reflect.DeepEqual(rootFilter.Right.Path, []string{wantRight}) {
+		return fmt.Errorf("related source root scan does not use the exact row anchor or compiler-owned contributor set")
+	}
 	if identityProjection == nil || identityProjection.Value.Variable != stage.InputRowVariable ||
 		len(identityProjection.Value.Path) != 1 || identityProjection.Value.Path[0] != stage.RowIdentityColumn {
 		return fmt.Errorf("related source must preserve the exact preceding row identity")
@@ -699,7 +1042,8 @@ func relatedSourceProjectionSubplan(expression PhysicalExpression, form string) 
 	if form == "ALL" {
 		if expression.Kind == PhysicalSubplanExpression && expression.Subplan != nil &&
 			expression.Cardinality == PhysicalArrayCardinality && expression.NullBehavior == PhysicalEmptyOnNull &&
-			!expression.Subplan.Unique {
+			!expression.Subplan.Unique && expression.Subplan.DistinctBy != nil &&
+			len(expression.Subplan.DistinctBy.Path) == 1 && expression.Subplan.DistinctBy.Path[0] == "_id" {
 			return expression.Subplan
 		}
 		return nil
@@ -727,8 +1071,40 @@ func relatedSourceProjectionSubplan(expression PhysicalExpression, form string) 
 	return source.Subplan
 }
 
+func validatePhysicalStageCohortGroup(stage PhysicalConstructionStage, cohort PhysicalStageCohortGroup, bindVars map[string]any) error {
+	if err := validatePhysicalGroupRows(cohort.Rows, bindVars); err != nil {
+		return err
+	}
+	if !physicalVariablePattern.MatchString(cohort.RootContributorVariable) {
+		return fmt.Errorf("root contributor variable is unsafe")
+	}
+	if cohort.RootContributorOutputColumn != "__loom_root_contributor_keys" {
+		return fmt.Errorf("root contributor output must use the compiler-owned contributor-set column")
+	}
+	resourceType, ok := bindVars[cohort.Rows.ResourceTypeBindKey].(string)
+	if !ok || strings.TrimSpace(resourceType) == "" {
+		return fmt.Errorf("root resource type is missing")
+	}
+	input, found := physicalStageColumnMap(stage.InputColumns)[cohort.ContributorInputColumn]
+	if !found || !input.Internal || input.RootContributorResourceType != resourceType || input.Kind != "string" {
+		return fmt.Errorf("contributor input %q is not a compiler-proven root identity", cohort.ContributorInputColumn)
+	}
+	if cohort.ContributorInputMany {
+		if input.Name != cohort.RootContributorOutputColumn || input.Cardinality != "many" {
+			return fmt.Errorf("contributor input %q is not a root contributor set", cohort.ContributorInputColumn)
+		}
+	} else if input.Name != "_key" || input.Identity != true || input.Cardinality != "required_one" {
+		return fmt.Errorf("contributor input %q is not the direct root storage identity", cohort.ContributorInputColumn)
+	}
+	output, found := physicalStageColumnMap(stage.OutputColumns)[cohort.RootContributorOutputColumn]
+	if !found || !output.Internal || output.Kind != "string" || output.Cardinality != "many" || output.RootContributorResourceType != resourceType {
+		return fmt.Errorf("root contributor output %q has an invalid schema", cohort.RootContributorOutputColumn)
+	}
+	return nil
+}
+
 func validatePhysicalStageGroup(stage PhysicalConstructionStage, group PhysicalStageGroup, bindVars map[string]any) error {
-	if len(group.Keys) == 0 && len(group.Aggregates) == 0 {
+	if len(group.Keys) == 0 && len(group.Aggregates) == 0 && len(group.RowValues) == 0 {
 		return fmt.Errorf("requires at least one key or aggregate")
 	}
 	switch group.MissingKeyPolicy {
@@ -755,6 +1131,15 @@ func validatePhysicalStageGroup(stage PhysicalConstructionStage, group PhysicalS
 		return err
 	}
 	inputByName, outputByName := physicalStageColumnMap(stage.InputColumns), physicalStageColumnMap(stage.OutputColumns)
+	if err := validateRootContributorReduction(
+		group.RootContributorInputColumn,
+		group.RootContributorInputMany,
+		group.RootContributorOutputColumn,
+		group.RootContributorVariable,
+		stage.InputColumns, stage.OutputColumns, defined,
+	); err != nil {
+		return err
+	}
 	for index, key := range group.Keys {
 		input, ok := inputByName[key.InputColumn]
 		if !ok || input.Internal || input.Cardinality == "many" {
@@ -816,6 +1201,19 @@ func validatePhysicalStageGroup(stage PhysicalConstructionStage, group PhysicalS
 			return fmt.Errorf("aggregate %d: %w", index, err)
 		}
 	}
+	reservedOutputs := make(map[string]bool, len(group.Keys)+len(group.Aggregates))
+	for _, key := range group.Keys {
+		reservedOutputs[key.OutputColumn] = true
+	}
+	for _, aggregate := range group.Aggregates {
+		reservedOutputs[aggregate.Output] = true
+	}
+	if err := validatePhysicalStageRowValues(
+		group.RowValues, stage.InputColumns, stage.OutputColumns,
+		physicalProjectionNameSet(stage.InputProjections), reservedOutputs, defined,
+	); err != nil {
+		return fmt.Errorf("row values: %w", err)
+	}
 	if err := definePhysicalVariable(defined, group.IdentityVariable); err != nil {
 		return fmt.Errorf("identity: %w", err)
 	}
@@ -833,7 +1231,101 @@ func validatePhysicalStageGroup(stage PhysicalConstructionStage, group PhysicalS
 	return nil
 }
 
-func validatePhysicalStageCodedGroup(stage PhysicalConstructionStage, coded PhysicalStageCodedGroup, bindVars map[string]any) error {
+func validateRootContributorReduction(
+	inputColumn string,
+	inputMany bool,
+	outputColumn string,
+	variable string,
+	inputColumns, outputColumns []PhysicalStageColumn,
+	defined map[string]bool,
+) error {
+	if inputColumn == "" && outputColumn == "" && variable == "" {
+		if inputMany {
+			return fmt.Errorf("root contributor cardinality is set without a contributor input")
+		}
+		return nil
+	}
+	if inputColumn == "" || outputColumn == "" || !physicalVariablePattern.MatchString(variable) {
+		return fmt.Errorf("root contributor input, output, and variable are required together")
+	}
+	input, ok := physicalStageColumnMap(inputColumns)[inputColumn]
+	if !ok || !input.Internal || input.Kind != "string" || input.RootContributorResourceType == "" {
+		return fmt.Errorf("input column %q is not a typed hidden root contributor", inputColumn)
+	}
+	validInput := input.Name == "_key" && (input.Cardinality == "required_one" || input.Cardinality == "optional_one") ||
+		input.Name == "__loom_root_contributor_keys" && input.Cardinality == "many"
+	if !validInput || inputMany != (input.Cardinality == "many") {
+		return fmt.Errorf("input column %q has an unsupported contributor shape", inputColumn)
+	}
+	output, ok := physicalStageColumnMap(outputColumns)[outputColumn]
+	if !ok || !output.Internal || output.Name != "__loom_root_contributor_keys" ||
+		output.Kind != "string" || output.Cardinality != "many" ||
+		output.RootContributorResourceType != input.RootContributorResourceType {
+		return fmt.Errorf("output column %q is not the matching typed contributor set", outputColumn)
+	}
+	if err := definePhysicalVariable(defined, variable); err != nil {
+		return fmt.Errorf("root contributor variable: %w", err)
+	}
+	return nil
+}
+
+func validatePhysicalStageRowValues(
+	rowValues []PhysicalStageRowValue,
+	inputColumns, outputColumns []PhysicalStageColumn,
+	projectedInputs, reservedOutputs map[string]bool,
+	defined map[string]bool,
+) error {
+	inputs, outputs := physicalStageColumnMap(inputColumns), physicalStageColumnMap(outputColumns)
+	seenOutputs := make(map[string]bool, len(rowValues))
+	for index, rowValue := range rowValues {
+		input, ok := inputs[rowValue.InputColumn]
+		inputKind, scalar := physicalStageScalarKind(input.Kind)
+		if input.Kind == "object" {
+			inputKind, scalar = "OBJECT", true
+		}
+		if !ok || input.Internal || !scalar || inputKind != rowValue.InputKind ||
+			(rowValue.InputMany != (input.Cardinality == "many")) {
+			return fmt.Errorf("row value %d input column %q is not a supported scalar or scalar array", index, rowValue.InputColumn)
+		}
+		if projectedInputs != nil && !projectedInputs[rowValue.InputColumn] {
+			return fmt.Errorf("row value %d input column %q is missing from shape projections", index, rowValue.InputColumn)
+		}
+		output, ok := outputs[rowValue.Output]
+		if !ok || output.Internal || output.Kind != input.Kind || !physicalPathPartPattern.MatchString(rowValue.Output) ||
+			seenOutputs[rowValue.Output] || reservedOutputs[rowValue.Output] {
+			return fmt.Errorf("row value %d output column %q is missing, mistyped, or collides with another shape output", index, rowValue.Output)
+		}
+		switch rowValue.Policy {
+		case "ALL":
+			if output.Cardinality != "many" || output.Nullable {
+				return fmt.Errorf("row value %d ALL output must be a non-null array of its scalar type", index)
+			}
+		case "ONE":
+			if output.Cardinality != "optional_one" || !output.Nullable {
+				return fmt.Errorf("row value %d ONE output must be a nullable scalar", index)
+			}
+		default:
+			return fmt.Errorf("row value %d has unsupported policy %q", index, rowValue.Policy)
+		}
+		if defined != nil {
+			if err := definePhysicalVariable(defined, rowValue.Variable); err != nil {
+				return fmt.Errorf("row value %d: %w", index, err)
+			}
+		}
+		seenOutputs[rowValue.Output] = true
+	}
+	return nil
+}
+
+func physicalProjectionNameSet(projections []PhysicalProjection) map[string]bool {
+	names := make(map[string]bool, len(projections))
+	for _, projection := range projections {
+		names[projection.Name] = true
+	}
+	return names
+}
+
+func validatePhysicalStageCodedGroup(stage PhysicalConstructionStage, coded PhysicalStageCodedGroup, bindVars map[string]any, sourceOperations []PhysicalOperation) error {
 	for key, label := range map[string]string{
 		coded.RootCollectionBindKey: "root collection",
 		coded.ConstructionIDBindKey: "construction ID",
@@ -926,6 +1418,56 @@ func validatePhysicalStageCodedGroup(stage PhysicalConstructionStage, coded Phys
 		projection, ok := projectionByName[name]
 		if !ok || projection.Value.Variable != variable || len(projection.Value.Path) != 0 || projection.Expression != nil {
 			return fmt.Errorf("coded-group output projection %q does not use its exact value variable", name)
+		}
+	}
+	for _, rowValue := range coded.RowValues {
+		projection, ok := projectionByName[rowValue.Output]
+		if !ok || projection.Value.Variable != rowValue.Variable || len(projection.Value.Path) != 0 || projection.Expression != nil {
+			return fmt.Errorf("coded-group row value output projection %q does not use its exact value variable", rowValue.Output)
+		}
+	}
+	reservedOutputs := map[string]bool{
+		coded.SystemOutputColumn: true, coded.VersionOutputColumn: true,
+		coded.CodeOutputColumn: true, coded.CountOutputColumn: true, "__loom_row_id": true,
+	}
+	projectionNames := physicalProjectionNameSet(coded.RowValueProjections)
+	if err := validatePhysicalStageRowValues(coded.RowValues, stage.InputColumns, stage.OutputColumns, projectionNames, reservedOutputs, seenVariables); err != nil {
+		return fmt.Errorf("row values: %w", err)
+	}
+	if len(coded.RowValueProjections) != len(projectionNames) {
+		return fmt.Errorf("row value source projections contain duplicate columns")
+	}
+	var sourceReturn *PhysicalReturn
+	for index := len(sourceOperations) - 1; index >= 0; index-- {
+		if sourceOperations[index].Kind == PhysicalReturnOp && sourceOperations[index].Return != nil {
+			sourceReturn = sourceOperations[index].Return
+			break
+		}
+	}
+	if len(coded.RowValues) != 0 && sourceReturn == nil {
+		return fmt.Errorf("row values require a resolved source projection")
+	}
+	if sourceReturn != nil {
+		sourceProjections := make(map[string]PhysicalProjection, len(sourceReturn.Projections))
+		for _, projection := range sourceReturn.Projections {
+			sourceProjections[projection.Name] = projection
+		}
+		expectedInputs := make(map[string]bool, len(coded.RowValues))
+		for _, rowValue := range coded.RowValues {
+			expectedInputs[rowValue.InputColumn] = true
+		}
+		if len(expectedInputs) != len(coded.RowValueProjections) {
+			return fmt.Errorf("row value source projections do not match requested input columns")
+		}
+		for _, projection := range coded.RowValueProjections {
+			want, ok := sourceProjections[projection.Name]
+			if !ok || !expectedInputs[projection.Name] {
+				return fmt.Errorf("row value source projection %q is not a requested public input", projection.Name)
+			}
+			want.Hidden = true
+			if !reflect.DeepEqual(projection, want) {
+				return fmt.Errorf("row value source projection %q differs from its resolved source", projection.Name)
+			}
 		}
 	}
 	return nil
@@ -1135,6 +1677,14 @@ func validatePhysicalStageColumns(columns []PhysicalStageColumn, identityName st
 		if strings.TrimSpace(column.Kind) == "" || strings.TrimSpace(column.Cardinality) == "" {
 			return fmt.Errorf("column %q requires logical kind and cardinality", column.Name)
 		}
+		if column.RootContributorResourceType != "" {
+			validScalar := column.Name == "_key" && column.Kind == "string" &&
+				(column.Cardinality == "required_one" || column.Cardinality == "optional_one")
+			validSet := column.Name == "__loom_root_contributor_keys" && column.Kind == "string" && column.Cardinality == "many"
+			if !column.Internal || !schemaDefinitionExists(column.RootContributorResourceType) || !(validScalar || validSet) {
+				return fmt.Errorf("root contributor column %q must be a hidden root identity or key set for a generated resource type", column.Name)
+			}
+		}
 		if column.RelatedRecordAnchor != nil && (!column.Internal || column.Identity || column.Kind != "string" ||
 			(column.Cardinality != "required_one" && column.Cardinality != "optional_one") ||
 			strings.TrimSpace(column.RelatedRecordAnchor.NodeID) == "" || strings.TrimSpace(column.RelatedRecordAnchor.ResourceType) == "") {
@@ -1160,7 +1710,8 @@ func samePhysicalStageColumns(left, right []PhysicalStageColumn) bool {
 	}
 	for index := range left {
 		a, b := left[index], right[index]
-		if a.ID != b.ID || a.Name != b.Name || a.Label != b.Label || a.Kind != b.Kind || a.Cardinality != b.Cardinality || a.Nullable != b.Nullable || a.Internal != b.Internal || a.Identity != b.Identity || !reflect.DeepEqual(a.RelatedRecordAnchor, b.RelatedRecordAnchor) {
+		if a.ID != b.ID || a.Name != b.Name || a.Label != b.Label || a.Kind != b.Kind || a.Cardinality != b.Cardinality || a.Nullable != b.Nullable || a.Internal != b.Internal || a.Identity != b.Identity ||
+			a.RootContributorResourceType != b.RootContributorResourceType || !reflect.DeepEqual(a.RelatedRecordAnchor, b.RelatedRecordAnchor) {
 			return false
 		}
 	}
@@ -1219,7 +1770,7 @@ func validateStageProjectionNames(projections []PhysicalProjection, columns []Ph
 }
 
 func groupedPivotOutputNames(pivot PhysicalGroupedPivot) []string {
-	columns := make([]string, 0, len(pivot.GroupKeys)+len(pivot.Categories)+len(pivot.CodedCategories)+2)
+	columns := make([]string, 0, len(pivot.GroupKeys)+len(pivot.Categories)+len(pivot.CodedCategories)+len(pivot.RowValues)+2)
 	for _, key := range pivot.GroupKeys {
 		name := key.Output
 		if name == "" {
@@ -1233,11 +1784,42 @@ func groupedPivotOutputNames(pivot PhysicalGroupedPivot) []string {
 	for _, category := range pivot.CodedCategories {
 		columns = append(columns, category.Output)
 	}
+	for _, rowValue := range pivot.RowValues {
+		columns = append(columns, rowValue.Output)
+	}
+	if pivot.RootContributorOutputColumn != "" {
+		columns = append(columns, pivot.RootContributorOutputColumn)
+	}
 	if pivot.UnlistedEvidenceColumn != "" {
 		columns = append(columns, pivot.UnlistedEvidenceColumn)
 	}
 	columns = append(columns, "__loom_row_id")
 	return columns
+}
+
+func groupedPivotBaseOutputs(pivot PhysicalGroupedPivot) map[string]bool {
+	outputs := make(map[string]bool, len(pivot.GroupKeys)+len(pivot.Categories)+len(pivot.CodedCategories)+2)
+	for _, key := range pivot.GroupKeys {
+		name := key.Output
+		if name == "" {
+			name = key.Column
+		}
+		outputs[name] = true
+	}
+	for _, category := range pivot.Categories {
+		outputs[category.Output] = true
+	}
+	for _, category := range pivot.CodedCategories {
+		outputs[category.Output] = true
+	}
+	if pivot.RootContributorOutputColumn != "" {
+		outputs[pivot.RootContributorOutputColumn] = true
+	}
+	if pivot.UnlistedEvidenceColumn != "" {
+		outputs[pivot.UnlistedEvidenceColumn] = true
+	}
+	outputs["__loom_row_id"] = true
+	return outputs
 }
 
 func unpivotOutputNames(unpivot PhysicalUnpivot) []string {

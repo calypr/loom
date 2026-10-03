@@ -299,6 +299,9 @@ func (s *Service) ProposeTableShape(ctx context.Context, request TableShapePropo
 	if s.config.TableShapeCapabilities == nil || s.config.Capability.Catalog == nil || s.config.CompileReceipt == nil {
 		return TableShapeProposal{}, unavailable("table-shape-proposal", "PROPOSAL_UNAVAILABLE", "table shape proposal compilation is not configured", nil)
 	}
+	if s.config.PreviewReceipt == nil || s.config.Capability.ForExecution == nil {
+		return TableShapeProposal{}, unavailable("table-shape-proposal", "PREVIEW_UNAVAILABLE", "table shape preview execution is not configured", nil)
+	}
 	base, catalog, err := s.tableShapeCatalogForRequest(ctx, request.catalogRequest(), request.CatalogID)
 	if err != nil {
 		return TableShapeProposal{}, err

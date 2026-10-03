@@ -80,6 +80,22 @@ type ConstructionStep struct {
 	Inputs      []ConstructionInputRef `json:"inputs"`
 	Operation   ConstructionOperation  `json:"operation"`
 	Outputs     []StageColumn          `json:"outputs"`
+	RowValues   []ConstructionRowValue `json:"rowValues,omitempty"`
+}
+
+type ConstructionRowValuePolicy string
+
+const (
+	ConstructionRowValueAll ConstructionRowValuePolicy = "ALL"
+	ConstructionRowValueOne ConstructionRowValuePolicy = "ONE"
+)
+
+// ConstructionRowValue populates a shaped row from the same records that
+// contributed to its grouping or pivot. It does not alter row membership.
+type ConstructionRowValue struct {
+	InputColumnID  string                     `json:"inputColumnId"`
+	OutputColumnID string                     `json:"outputColumnId"`
+	Policy         ConstructionRowValuePolicy `json:"policy"`
 }
 
 // ConstructionInputRef is a closed source-stage, prior-stage, or immutable

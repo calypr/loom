@@ -53,3 +53,30 @@ func TestConstructionChoiceRequestAcceptsOnlyBoundedChoiceBatches(t *testing.T) 
 		t.Fatalf("oversized construction-choice batch error = %v", err)
 	}
 }
+
+func TestConstructionChoiceAddsMemberFieldToExplicitCohort(t *testing.T) {
+	document := workspaceDocument("patients")
+	document.Columns = nil
+	document.Construction = nil
+	document.Rows = RowDefinition{Kind: RowDefinitionGroups, Groups: &GroupedRows{Source: GroupSource{
+		Kind: GroupSourceExplicit, Explicit: &ExplicitGroupSource{RevisionID: "grouprev_test", UnassignedMemberPolicy: "EXCLUDE"},
+	}}}
+	workspace := constructionWorkspace(document)
+	command := Command{Type: CommandApplyConstructionChoice, OutputID: "patients", OccurrenceID: RootOccurrenceID,
+		ConstructionChoice: &ConstructionChoiceSelection{ChoiceID: "resolved", Form: capability.ConstructionChoiceValue, RowValuePolicy: ConstructionRowValueAll},
+	}
+	_, err := applyColumnSource(&workspace, commandCatalog(), "cohort-field", 0, command,
+		ColumnSource{Kind: SourceField, Field: &FieldSource{Path: "id", ProjectionMode: "VALUE"}}, "string", "TABLE")
+	if err != nil {
+		t.Fatalf("cohort member field was rejected: %v", err)
+	}
+	workspace = workspace.NormalizePresentationOrders()
+	column := workspace.Documents[0].Columns[0]
+	if column.Table == nil || column.Table.Order == nil || *column.Table.Order != 3 {
+		t.Fatalf("member field must follow cohort label, ordinal and members: %#v", column.Table)
+	}
+	values := workspace.Documents[0].Rows.Groups.RowValues
+	if column.ColumnID == "" || len(values) != 1 || values[0].ColumnID != column.ColumnID || values[0].Policy != ConstructionRowValueAll {
+		t.Fatalf("cohort field lost stable identity or member policy: column=%#v values=%#v", column, values)
+	}
+}

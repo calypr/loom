@@ -168,9 +168,10 @@ func schedulePreviewIndexPrewarm(ctx context.Context, engine *Engine, spec compi
 
 	prepare := engine.preparePreviewIndex
 	indexSpec := compiler.PreviewCoveringIndexSpec{
-		Collection: spec.Collection,
-		Name:       spec.Name,
-		Fields:     append([]string(nil), spec.Fields...),
+		Collection:          spec.Collection,
+		Name:                spec.Name,
+		Fields:              append([]string(nil), spec.Fields...),
+		PrepareAfterPreview: spec.PrepareAfterPreview,
 	}
 	go func() {
 		defer func() {

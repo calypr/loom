@@ -297,13 +297,13 @@ func (r *physicalPlanRenderer) renderExistsSubplan(subplan ir.PhysicalSubplan, i
 }
 
 func (r *physicalPlanRenderer) renderSubplan(subplan ir.PhysicalSubplan, indent string, bounded bool) (string, error) {
-	if bounded && (subplan.Sort != nil || subplan.Unique) {
+	if bounded && (subplan.Sort != nil || subplan.Unique || subplan.DistinctBy != nil) {
 		return "", fmt.Errorf("EXISTS subplan cannot use projection-only sort or unique modifiers")
 	}
 	if subplan.Unique && subplan.Sort == nil {
 		return "", fmt.Errorf("unique subplan requires a stable sort value")
 	}
-	lines := make([]string, 0, len(subplan.Operations)*3+2)
+	lines := make([]string, 0, len(subplan.Operations)*3+6)
 	for index, operation := range subplan.Operations {
 		switch operation.Kind {
 		case ir.PhysicalCollectionScanOp:
@@ -326,12 +326,34 @@ func (r *physicalPlanRenderer) renderSubplan(subplan ir.PhysicalSubplan, indent 
 			return "", fmt.Errorf("subplan operation %d has unsupported render kind %q", index, operation.Kind)
 		}
 	}
-	if subplan.Sort != nil {
+	if subplan.Sort != nil && subplan.DistinctBy == nil {
 		sort, err := r.renderValue(*subplan.Sort)
 		if err != nil {
 			return "", fmt.Errorf("subplan sort: %w", err)
 		}
 		lines = append(lines, indent+"    SORT "+sort)
+	}
+	if subplan.DistinctBy != nil {
+		key, err := r.renderValue(*subplan.DistinctBy)
+		if err != nil {
+			return "", fmt.Errorf("subplan distinct key: %w", err)
+		}
+		value, err := r.renderExpression(subplan.Return)
+		if err != nil {
+			return "", err
+		}
+		keyVariable := r.newInternalVariable("subplan_distinct_key")
+		groupKeyVariable := r.newInternalVariable("subplan_distinct_group_key")
+		valueVariable := r.newInternalVariable("subplan_distinct_value")
+		groupedValues := r.newInternalVariable("subplan_distinct_values")
+		lines = append(lines,
+			indent+"    LET "+keyVariable+" = "+key,
+			indent+"    LET "+valueVariable+" = "+value,
+			indent+"    COLLECT "+groupKeyVariable+" = "+keyVariable+" INTO "+groupedValues+" = "+valueVariable,
+			indent+"    SORT "+groupKeyVariable+" ASC",
+			indent+"    RETURN FIRST("+groupedValues+")",
+		)
+		return "(\n" + strings.Join(lines, "\n") + "\n" + indent + "  )", nil
 	}
 	value, err := r.renderExpression(subplan.Return)
 	if err != nil {

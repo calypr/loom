@@ -7,6 +7,7 @@ import (
 
 	loomapi "github.com/calypr/loom/generated/loomapi"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
+	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle"
 )
@@ -23,6 +24,9 @@ func (h *explorerHTTPHandlers) proposeConstructionChoiceDirect(ctx context.Conte
 	for index, choice := range body.ConstructionChoices {
 		choices[index] = lifecycle.ConstructionChoiceProposalSelection{
 			ChoiceID: choice.ChoiceId, Form: capability.ConstructionChoiceForm(choice.Form),
+		}
+		if choice.RowValuePolicy != nil {
+			choices[index].RowValuePolicy = authoringv2.ConstructionRowValuePolicy(*choice.RowValuePolicy)
 		}
 		if choice.FrameId != nil {
 			choices[index].FrameID = *choice.FrameId

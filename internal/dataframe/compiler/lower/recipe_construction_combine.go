@@ -83,7 +83,7 @@ func appendRecipeTerminalCombine(plan *ir.PhysicalPlan, step recipe.Construction
 	*plan = ir.PhysicalPlan{Version: version, Engine: ir.PhysicalEngineClickHouse, ClickHouseCombine: &physical}
 	descriptor := CompiledStageDescriptor{
 		ID: step.ID, Operation: string(combine.Kind), Columns: cloneCompiledSchema(schema),
-		RowIdentityColumn: constructionRowID, Capabilities: stageCapabilities(schema),
+		RowIdentityColumn: constructionRowID, Capabilities: stageCapabilities(schema, false),
 	}
 	return schema, []CompiledStageDescriptor{descriptor}, constructionRowID, nil
 }

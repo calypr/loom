@@ -7,11 +7,17 @@ import (
 	"strings"
 
 	"github.com/calypr/loom/internal/dataframe/lineage"
+	"github.com/calypr/loom/internal/dataframe/spec"
 )
 
 // ConstructionSourceProjectionID names the implicit source projection stage
 // that precedes every authored construction step.
 const ConstructionSourceProjectionID = "source_projection"
+
+// ConstructionCohortGroupStageID identifies the compiler-owned stage inserted
+// at the persisted explicit-group boundary. Authored steps may reference it
+// only as the exact effective predecessor when a cohort is present.
+const ConstructionCohortGroupStageID = "group_rows"
 
 const maxConstructionSteps = 128
 
@@ -32,7 +38,23 @@ type ConstructionStep struct {
 	Inputs    []ConstructionInputRef `json:"inputs"`
 	Operation ConstructionOperation  `json:"operation"`
 	Outputs   []StageColumn          `json:"outputs"`
+	RowValues []ConstructionRowValue `json:"rowValues,omitempty"`
 }
+
+// ConstructionRowValue collects distinct source values from rows that
+// contribute to a grouped or pivoted output row.
+type ConstructionRowValue struct {
+	InputColumnID  string                     `json:"inputColumnId"`
+	OutputColumnID string                     `json:"outputColumnId"`
+	Policy         ConstructionRowValuePolicy `json:"policy"`
+}
+
+type ConstructionRowValuePolicy string
+
+const (
+	ConstructionRowValueAll ConstructionRowValuePolicy = "ALL"
+	ConstructionRowValueOne ConstructionRowValuePolicy = "ONE"
+)
 
 type ConstructionInputKind string
 
@@ -159,22 +181,31 @@ type ConstructionRelatedField struct {
 	OutputColumnID string                         `json:"outputColumnId"`
 }
 
-// ConstructionRelatedPredicate narrows the already selected scalar source
-// field. CandidateID is repeated deliberately so a recipe cannot silently
-// apply a predicate to a different source field.
+// ConstructionRelatedPredicate narrows the selected source field. CandidateID
+// is repeated deliberately so a recipe cannot silently apply a predicate to a
+// different source field.
 type ConstructionRelatedPredicate struct {
-	CandidateID string         `json:"candidateId"`
-	Operator    FilterOperator `json:"operator"`
-	Value       *FilterValue   `json:"value,omitempty"`
+	CandidateID string          `json:"candidateId"`
+	Quantifier  ArrayQuantifier `json:"quantifier,omitempty"`
+	Operator    FilterOperator  `json:"operator"`
+	Value       *FilterValue    `json:"value,omitempty"`
 }
 
+type ConstructionRelatedRepeatedBoundary struct {
+	Path     string `json:"path"`
+	MaxItems int    `json:"maxItems"`
+}
+
+// ConstructionRelatedFieldSource identifies an exact scalar leaf. Cardinality
+// is many when the path crosses one or more repeated boundaries.
 type ConstructionRelatedFieldSource struct {
-	CandidateID  string `json:"candidateId"`
-	NodeID       string `json:"nodeId"`
-	ResourceType string `json:"resourceType"`
-	Path         string `json:"path"`
-	Cardinality  string `json:"cardinality"`
-	LogicalType  string `json:"logicalType"`
+	CandidateID        string                                `json:"candidateId"`
+	NodeID             string                                `json:"nodeId"`
+	ResourceType       string                                `json:"resourceType"`
+	Path               string                                `json:"path"`
+	Cardinality        string                                `json:"cardinality"`
+	LogicalType        string                                `json:"logicalType"`
+	RepeatedBoundaries []ConstructionRelatedRepeatedBoundary `json:"repeatedBoundaries,omitempty"`
 }
 
 type ConstructionRelatedRouteStep struct {
@@ -381,6 +412,19 @@ type ConstructionExpand struct {
 }
 
 func (construction Construction) Validate(sourceFields []Field) error {
+	return construction.validate(sourceFields, nil)
+}
+
+// ValidateWithGroupRows validates construction against the effective stage
+// sequence formed by inserting the pinned cohort after GroupRows.AfterStepID.
+func (construction Construction) ValidateWithGroupRows(sourceFields []Field, groupRows *GroupRows) error {
+	if groupRows == nil {
+		return construction.Validate(sourceFields)
+	}
+	return construction.validate(sourceFields, groupRows)
+}
+
+func (construction Construction) validate(sourceFields []Field, groupRows *GroupRows) error {
 	if construction.Version != 1 {
 		return fmt.Errorf("construction version must be 1")
 	}
@@ -417,18 +461,42 @@ func (construction Construction) Validate(sourceFields []Field) error {
 		return err
 	}
 	if len(construction.Steps) == 0 {
+		if groupRows != nil && groupRows.AfterStepID != "" {
+			return fmt.Errorf("group rows afterStepId %q does not name a construction step", groupRows.AfterStepID)
+		}
 		return nil
+	}
+	groupAnchorIndex := -1
+	if groupRows != nil && groupRows.AfterStepID != "" {
+		groupAnchorIndex = -1
+		for index, step := range construction.Steps {
+			if step.ID == groupRows.AfterStepID {
+				groupAnchorIndex = index
+				break
+			}
+		}
+		if groupAnchorIndex < 0 {
+			return fmt.Errorf("group rows afterStepId %q does not name a construction step", groupRows.AfterStepID)
+		}
 	}
 	priorStepID := ""
 	priorColumns := sourceColumns
 	stepIDs := make(map[string]bool, len(construction.Steps))
 	constructionIDs := make(map[string]bool, len(construction.Steps))
+	var err error
 	for index, step := range construction.Steps {
+		if groupRows != nil && index == groupAnchorIndex+1 {
+			priorStepID = ConstructionCohortGroupStageID
+			priorColumns, err = cohortGroupStageColumns(sourceFields, groupRows)
+			if err != nil {
+				return fmt.Errorf("group rows stage: %w", err)
+			}
+		}
 		path := fmt.Sprintf("steps[%d]", index)
 		if err := validateOpaqueIdentity(step.ID, path+".id"); err != nil {
 			return err
 		}
-		if step.ID == ConstructionSourceProjectionID || stepIDs[step.ID] {
+		if step.ID == ConstructionSourceProjectionID || groupRows != nil && step.ID == ConstructionCohortGroupStageID || stepIDs[step.ID] {
 			return fmt.Errorf("%s.id is reserved or duplicated", path)
 		}
 		stepIDs[step.ID] = true
@@ -436,16 +504,16 @@ func (construction Construction) Validate(sourceFields []Field) error {
 			return fmt.Errorf("%s.inputs must contain exactly one stage reference", path)
 		}
 		input := step.Inputs[0]
-		if (step.Operation.Kind == ConstructionCodedGroupOp || step.Operation.Kind == ConstructionCodedPivotOp) && (index != 0 || input.Kind != ConstructionSourceProjectionInput) {
+		if (step.Operation.Kind == ConstructionCodedGroupOp || step.Operation.Kind == ConstructionCodedPivotOp) && (index != 0 || input.Kind != ConstructionSourceProjectionInput || priorStepID != "") {
 			return fmt.Errorf("%s %s currently requires the direct source projection stage; prior construction stages are not supported", path, step.Operation.Kind)
 		}
 		switch input.Kind {
 		case ConstructionSourceProjectionInput:
-			if index != 0 || input.StepID != "" || input.TableID != "" || input.RevisionID != "" || input.OutputID != "" {
+			if index != 0 || priorStepID != "" || input.StepID != "" || input.TableID != "" || input.RevisionID != "" || input.OutputID != "" {
 				return fmt.Errorf("%s.inputs[0] must reference the source projection only on the first step", path)
 			}
 		case ConstructionStepOutputInput:
-			if index == 0 || input.StepID != priorStepID || input.TableID != "" || input.RevisionID != "" || input.OutputID != "" {
+			if input.StepID != priorStepID || input.TableID != "" || input.RevisionID != "" || input.OutputID != "" || input.StepID == ConstructionCohortGroupStageID && groupRows == nil {
 				return fmt.Errorf("%s.inputs[0] must reference the immediately preceding step", path)
 			}
 		case ConstructionTableRevisionInput:
@@ -456,10 +524,10 @@ func (construction Construction) Validate(sourceFields []Field) error {
 		default:
 			return fmt.Errorf("%s.inputs[0] has unsupported kind %q", path, input.Kind)
 		}
-		if input.Kind == ConstructionStepOutputInput && !stepIDs[input.StepID] {
+		if input.Kind == ConstructionStepOutputInput && !stepIDs[input.StepID] && !(groupRows != nil && input.StepID == ConstructionCohortGroupStageID && input.StepID == priorStepID) {
 			return fmt.Errorf("%s.inputs[0] references unknown prior step %q", path, input.StepID)
 		}
-		if err := validateConstructionOperation(step.Operation, priorColumns, step.Outputs, path+".operation", constructionIDs); err != nil {
+		if err := validateConstructionOperation(step.Operation, priorColumns, step.Outputs, step.RowValues, path+".operation", constructionIDs); err != nil {
 			return err
 		}
 		if err := validateStageColumns(step.Outputs, path+".outputs"); err != nil {
@@ -468,7 +536,48 @@ func (construction Construction) Validate(sourceFields []Field) error {
 		priorStepID = step.ID
 		priorColumns = step.Outputs
 	}
+	if groupRows != nil && groupAnchorIndex == len(construction.Steps)-1 {
+		if _, err := cohortGroupStageColumns(sourceFields, groupRows); err != nil {
+			return fmt.Errorf("group rows stage: %w", err)
+		}
+	}
 	return nil
+}
+
+func cohortGroupStageColumns(sourceFields []Field, groupRows *GroupRows) ([]StageColumn, error) {
+	if groupRows == nil {
+		return nil, fmt.Errorf("group rows are required")
+	}
+	byID := make(map[string]Field, len(sourceFields))
+	for _, field := range sourceFields {
+		byID[field.ColumnID] = field
+	}
+	columns := []StageColumn{
+		{ID: "group_id", Name: "group_id", Type: "string"},
+		{ID: "group_label", Name: "group_label", Type: "string"},
+		{ID: "group_ordinal", Name: "group_ordinal", Type: "integer"},
+		{ID: "members", Name: "members", Type: "array"},
+	}
+	seen := map[string]bool{}
+	for _, column := range columns {
+		seen[column.ID] = true
+	}
+	for _, selected := range groupRows.RowValues {
+		field, ok := byID[selected.ColumnID]
+		if !ok || field.ColumnID == "" {
+			return nil, fmt.Errorf("row value column ID %q is missing from the root projection", selected.ColumnID)
+		}
+		if seen[field.ColumnID] || seen[field.Name] {
+			return nil, fmt.Errorf("row value column %q collides with a cohort stage column", selected.ColumnID)
+		}
+		seen[field.ColumnID], seen[field.Name] = true, true
+		typ := "INFER"
+		if selected.Policy == ConstructionRowValueAll {
+			typ = "array"
+		}
+		columns = append(columns, StageColumn{ID: field.ColumnID, Name: field.Name, Label: field.Label, Type: typ})
+	}
+	return columns, nil
 }
 
 func validateSourceChildLineage(columns []StageColumn) error {
@@ -564,7 +673,40 @@ func (construction Construction) validateTerminalCombine(sourceFields []Field) e
 	return nil
 }
 
-func validateConstructionOperation(operation ConstructionOperation, input, output []StageColumn, path string, constructionIDs map[string]bool) error {
+func validateConstructionOperation(operation ConstructionOperation, input, output []StageColumn, rowValues []ConstructionRowValue, path string, constructionIDs map[string]bool) error {
+	rowValueIDs := make(map[string]bool, len(rowValues))
+	if len(rowValues) != 0 {
+		switch operation.Kind {
+		case ConstructionGroupOp, ConstructionCodedGroupOp, ConstructionPivotOp, ConstructionCodedPivotOp:
+		default:
+			return fmt.Errorf("%s rowValues are supported only on GROUP, CODED_GROUP, PIVOT, and CODED_PIVOT", path)
+		}
+	}
+	inputColumns, outputColumns := stageColumnMap(input), stageColumnMap(output)
+	for index, rowValue := range rowValues {
+		if !validConstructionColumnID(rowValue.InputColumnID) || inputColumns[rowValue.InputColumnID].ID == "" {
+			return fmt.Errorf("%s.rowValues[%d].inputColumnId is missing from the input schema", path, index)
+		}
+		if !validConstructionColumnID(rowValue.OutputColumnID) || inputColumns[rowValue.OutputColumnID].ID != "" || rowValueIDs[rowValue.OutputColumnID] {
+			return fmt.Errorf("%s.rowValues[%d].outputColumnId is empty, duplicated, or collides with the input schema", path, index)
+		}
+		if _, ok := outputColumns[rowValue.OutputColumnID]; !ok {
+			return fmt.Errorf("%s.rowValues[%d].outputColumnId %q is missing from step outputs", path, index, rowValue.OutputColumnID)
+		}
+		switch rowValue.Policy {
+		case ConstructionRowValueAll, ConstructionRowValueOne:
+		default:
+			return fmt.Errorf("%s.rowValues[%d].policy %q is unsupported", path, index, rowValue.Policy)
+		}
+		rowValueIDs[rowValue.OutputColumnID] = true
+	}
+	baseOutput := make([]StageColumn, 0, len(output)-len(rowValues))
+	for _, column := range output {
+		if !rowValueIDs[column.ID] {
+			baseOutput = append(baseOutput, column)
+		}
+	}
+	output = baseOutput
 	payloads := 0
 	for _, present := range []bool{operation.Pivot != nil, operation.Derive != nil, operation.Filter != nil, operation.Unpivot != nil, operation.Group != nil, operation.CodedGroup != nil, operation.CodedPivot != nil, operation.Expand != nil, operation.RelatedSource != nil, operation.RelatedExpand != nil, operation.RelatedEligibility != nil, operation.RelatedField != nil} {
 		if present {
@@ -708,7 +850,7 @@ func validateConstructionOperation(operation ConstructionOperation, input, outpu
 		if operation.Group == nil || operation.Pivot != nil || operation.Derive != nil || operation.Filter != nil || operation.Unpivot != nil || operation.Expand != nil || operation.Combine != nil {
 			return fmt.Errorf("%s group operation requires only group payload", path)
 		}
-		return validateConstructionGroup(*operation.Group, inputByID, outputByID, path, constructionIDs)
+		return validateConstructionGroup(*operation.Group, inputByID, outputByID, path, constructionIDs, len(rowValues) != 0)
 	case ConstructionCodedGroupOp:
 		if operation.CodedGroup == nil || operation.Pivot != nil || operation.Derive != nil || operation.Filter != nil || operation.Unpivot != nil || operation.Group != nil || operation.Expand != nil || operation.Combine != nil || operation.RelatedSource != nil || operation.RelatedExpand != nil || operation.RelatedEligibility != nil || operation.RelatedField != nil {
 			return fmt.Errorf("%s coded group operation requires only codedGroup payload", path)
@@ -876,8 +1018,11 @@ func validateConstructionRelatedExpand(related ConstructionRelatedExpand, input,
 		source := *related.ContributorSource
 		if !validConstructionColumnID(source.CandidateID) || source.NodeID != related.TargetNodeID || source.ResourceType != related.TargetResourceType ||
 			!validConstructionColumnID(source.Path) || !validConstructionColumnID(source.LogicalType) ||
-			(source.Cardinality != "optional_one" && source.Cardinality != "required_one") {
-			return fmt.Errorf("%s.relatedExpand contributor source must be a scalar field on the target resource", path)
+			(source.Cardinality != "optional_one" && source.Cardinality != "required_one" && source.Cardinality != "many") {
+			return fmt.Errorf("%s.relatedExpand contributor source must be a scalar or repeated scalar field on the target resource", path)
+		}
+		if err := validateConstructionRelatedFieldSourceShape(source, path+".relatedExpand.contributorSource"); err != nil {
+			return err
 		}
 		if err := validateConstructionRelatedPredicate(source, related.ContributorPredicate, path+".relatedExpand.contributorPredicate"); err != nil {
 			return err
@@ -905,7 +1050,7 @@ func validateConstructionRelatedExpand(related ConstructionRelatedExpand, input,
 }
 
 func validateConstructionRelatedSource(related ConstructionRelatedSource, input, output map[string]StageColumn, path string) error {
-	if related.AnchorColumnID != "_key" || !validConstructionColumnID(related.AnchorColumnID) {
+	if !validConstructionRelatedSourceAnchorID(related.AnchorColumnID) {
 		return fmt.Errorf("%s.relatedSource.anchorColumnId must identify the hidden root row identity", path)
 	}
 	if !validConstructionColumnID(related.ChoiceID) || !validConstructionColumnID(related.SourceOccurrenceID) ||
@@ -953,9 +1098,20 @@ func validateConstructionRelatedSource(related ConstructionRelatedSource, input,
 	return requireExactStageOutputIDs(want, output, path)
 }
 
+func validConstructionRelatedSourceAnchorID(id string) bool {
+	return id == "_key" || id == "__loom_row_id"
+}
+
 func validateConstructionRelatedPredicate(source ConstructionRelatedFieldSource, predicate *ConstructionRelatedPredicate, path string) error {
 	if predicate == nil {
 		return nil
+	}
+	if source.Cardinality == "many" {
+		if predicate.Quantifier != QuantifierAny {
+			return fmt.Errorf("%s repeated contributor predicates require ANY quantifier", path)
+		}
+	} else if predicate.Quantifier != "" {
+		return fmt.Errorf("%s scalar contributor predicates must omit quantifier", path)
 	}
 	if !validConstructionColumnID(predicate.CandidateID) || predicate.CandidateID != source.CandidateID {
 		return fmt.Errorf("%s candidateId must match the selected related source field", path)
@@ -985,6 +1141,52 @@ func validateConstructionRelatedPredicate(source ConstructionRelatedFieldSource,
 	}
 	if predicate.Value.Kind != wantKind {
 		return fmt.Errorf("%s EQUALS requires a %s value for the selected source field", path, wantKind)
+	}
+	return nil
+}
+
+func validateConstructionRelatedFieldSourceShape(source ConstructionRelatedFieldSource, path string) error {
+	selectorPath := strings.TrimPrefix(source.Path, source.ResourceType+".")
+	selector, err := spec.ParseSelector(selectorPath)
+	if err != nil || selector.Filter != nil || len(selector.Steps) == 0 {
+		return fmt.Errorf("%s path must be an exact scalar selector", path)
+	}
+
+	pathParts := make([]string, 0, len(selector.Steps))
+	expectedBoundaries := make([]string, 0, len(source.RepeatedBoundaries))
+	for _, step := range selector.Steps {
+		if step.Index != nil {
+			return fmt.Errorf("%s path must not contain array indexes", path)
+		}
+		segment := step.Field
+		if step.Iterate {
+			segment += "[]"
+		}
+		pathParts = append(pathParts, segment)
+		if step.Iterate {
+			expectedBoundaries = append(expectedBoundaries, strings.Join(pathParts, "."))
+		}
+	}
+
+	if len(expectedBoundaries) == 0 {
+		if source.Cardinality != "optional_one" && source.Cardinality != "required_one" {
+			return fmt.Errorf("%s scalar path must have scalar cardinality", path)
+		}
+		if len(source.RepeatedBoundaries) != 0 {
+			return fmt.Errorf("%s scalar path cannot carry repeated boundaries", path)
+		}
+		return nil
+	}
+	if source.Cardinality != "many" {
+		return fmt.Errorf("%s repeated path requires many cardinality", path)
+	}
+	if len(source.RepeatedBoundaries) != len(expectedBoundaries) {
+		return fmt.Errorf("%s repeated boundaries do not match the selector path", path)
+	}
+	for index, boundary := range source.RepeatedBoundaries {
+		if boundary.Path != expectedBoundaries[index] || boundary.MaxItems < 0 {
+			return fmt.Errorf("%s repeated boundary %d does not match the selector path", path, index)
+		}
 	}
 	return nil
 }
@@ -1069,7 +1271,7 @@ func validateStageColumns(columns []StageColumn, path string) error {
 		if names[column.Name] {
 			return fmt.Errorf("%s.name %q is duplicated", columnPath, column.Name)
 		}
-		if column.Type != "" && !strings.EqualFold(column.Type, "INFER") && !validConstructionLogicalType(column.Type) {
+		if column.Type != "" && !strings.EqualFold(column.Type, "INFER") && !strings.EqualFold(column.Type, "array") && !validConstructionLogicalType(column.Type) {
 			return fmt.Errorf("%s.type %q is unsupported", columnPath, column.Type)
 		}
 		ids[column.ID] = true

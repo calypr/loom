@@ -154,6 +154,10 @@ dev-doctor:
 verify-current:
 	node scripts/loom-dev.mjs verify-current
 
+.PHONY: verify-base-settings
+verify-base-settings:
+	node scripts/verify-base-settings.mjs --browser
+
 verify-fast:
 	node scripts/loom-dev.mjs verify-fast
 
@@ -183,3 +187,7 @@ dev-down:
 
 clean:
 	rm -rf bin
+
+.PHONY: verify-cda-root-settings
+verify-cda-root-settings:
+	LOOM_ROOT_REPEAT_CYCLES=3 node scripts/verify-cda-root-settings.mjs

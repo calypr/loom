@@ -916,6 +916,11 @@ func (d Document) validateSemantic() error {
 			}
 		}
 	}
+	if d.Rows.Kind == RowDefinitionGroups && d.Rows.Groups != nil {
+		if err := validateExplicitGroupRowValues(d, d.Rows.Groups.RowValues); err != nil {
+			return err
+		}
+	}
 	for i, fixed := range d.FixedFilters {
 		if !seen[fixed.Column] || len(fixed.Values) == 0 {
 			return fmt.Errorf("fixedFilters[%d] must reference a declared column and contain values", i)
@@ -929,6 +934,29 @@ func (d Document) validateSemantic() error {
 			if !seen[binding.Column] {
 				return fmt.Errorf("actions[%d].columns[%d] references unknown column %q", i, j, binding.Column)
 			}
+		}
+	}
+	return nil
+}
+
+func validateExplicitGroupRowValues(document Document, values []ExplicitGroupRowValue) error {
+	if len(values) == 0 {
+		return nil
+	}
+	columnsByID := make(map[string][]Column, len(document.Columns))
+	for _, column := range document.Columns {
+		if column.ColumnID != "" {
+			columnsByID[column.ColumnID] = append(columnsByID[column.ColumnID], column)
+		}
+	}
+	for index, value := range values {
+		columns := columnsByID[value.ColumnID]
+		if len(columns) != 1 {
+			return fmt.Errorf("rows.groups.rowValues[%d].columnId %q must identify exactly one source column", index, value.ColumnID)
+		}
+		column := columns[0]
+		if column.OccurrenceID != RootOccurrenceID || column.Source.Kind != SourceField || column.Source.Field == nil || column.ValueTransformation != nil {
+			return fmt.Errorf("rows.groups.rowValues[%d] supports only an untransformed root FHIR field column", index)
 		}
 	}
 	return nil

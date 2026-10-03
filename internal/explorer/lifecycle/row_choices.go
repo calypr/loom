@@ -28,6 +28,7 @@ type RowDefinitionChoicesResponse struct {
 
 type RowDefinitionChoice struct {
 	ChoiceID          string                      `json:"choiceId"`
+	OccurrenceID      string                      `json:"occurrenceId,omitempty"`
 	FieldPath         string                      `json:"fieldPath"`
 	Label             string                      `json:"label"`
 	Description       string                      `json:"description"`
@@ -79,21 +80,35 @@ func (r *SchemaRowChoiceResolver) ListRowChoices(ctx context.Context, snapshot c
 			if candidate.NodeID != occurrence.NodeID || candidate.ResourceType != occurrence.ResourceType {
 				continue
 			}
-			facts, err := r.resolveFacts(candidate.ResourceType, candidate.FieldPath)
-			if err != nil {
-				continue
+			paths := []struct {
+				path     string
+				boundary bool
+			}{{path: candidate.FieldPath}}
+			for _, boundary := range candidate.RepeatedBoundaries {
+				paths = append(paths, struct {
+					path     string
+					boundary bool
+				}{path: boundary.Path, boundary: true})
 			}
-			kinds := applicableRowChoiceKinds(facts)
-			for _, kind := range kinds {
-				choice, err := capability.NewRowChoice(snapshot, []capability.RowChoiceOccurrence{occurrence}, occurrence.OccurrenceID, kind, facts)
+			for _, candidatePath := range paths {
+				facts, err := r.resolveFacts(candidate.ResourceType, candidatePath.path)
 				if err != nil {
 					continue
 				}
-				if _, ok := seen[choice.ChoiceID]; ok {
-					continue
+				for _, kind := range applicableRowChoiceKinds(facts) {
+					if candidatePath.boundary && kind != capability.RowChoiceExpandedScope {
+						continue
+					}
+					choice, err := capability.NewRowChoice(snapshot, []capability.RowChoiceOccurrence{occurrence}, occurrence.OccurrenceID, kind, facts)
+					if err != nil {
+						continue
+					}
+					if _, ok := seen[choice.ChoiceID]; ok {
+						continue
+					}
+					seen[choice.ChoiceID] = struct{}{}
+					choices = append(choices, choice)
 				}
-				seen[choice.ChoiceID] = struct{}{}
-				choices = append(choices, choice)
 			}
 		}
 		for _, child := range node.Children {
@@ -134,7 +149,7 @@ func (r *SchemaRowChoiceResolver) ResolveRowChoiceID(ctx context.Context, reques
 	if err != nil {
 		return ResolvedRowChoice{}, err
 	}
-	if !snapshotContainsRowCandidate(request.Snapshot, occurrence, identity.Path) {
+	if !snapshotContainsRowCandidate(request.Snapshot, occurrence, identity.Path, identity.Kind) {
 		return ResolvedRowChoice{}, fmt.Errorf("row choice path is no longer a candidate for the saved occurrence")
 	}
 	choice, err := capability.ResolveRowChoiceID(request.Snapshot, []capability.RowChoiceOccurrence{occurrence}, request.RowChoiceID, r.resolveFacts)
@@ -195,8 +210,14 @@ func (s *Service) ListRowDefinitionChoices(ctx context.Context, request RowDefin
 	}
 	result = responseFromRowChoices(request.SnapshotToken, request.OutputID, choices)
 	if s.config.ExplicitGroupResolver != nil {
+		pinnedRevisionID := ""
+		if document.Rows.Kind == authoringv2.RowDefinitionGroups && document.Rows.Groups != nil &&
+			document.Rows.Groups.Source.Kind == authoringv2.GroupSourceExplicit && document.Rows.Groups.Source.Explicit != nil {
+			pinnedRevisionID = document.Rows.Groups.Source.Explicit.RevisionID
+		}
 		result.ExplicitGroups, err = s.config.ExplicitGroupResolver.ListExplicitGroupRevisions(ctx, ExplicitGroupRevisionListRequest{
 			Project: request.Project, Snapshot: authorized.Snapshot.Clone(), RootResourceType: document.RootResourceType,
+			PinnedRevisionID: pinnedRevisionID,
 		})
 		if err != nil {
 			return RowDefinitionChoicesResponse{}, unavailable("row-definition-choices", "EXPLICIT_GROUP_UNAVAILABLE", "explicit group revisions are unavailable for this table", err)
@@ -208,8 +229,11 @@ func (s *Service) ListRowDefinitionChoices(ctx context.Context, request RowDefin
 func responseFromRowChoices(snapshotToken, outputID string, choices []capability.RowChoice) RowDefinitionChoicesResponse {
 	response := RowDefinitionChoicesResponse{SnapshotToken: snapshotToken, OutputID: outputID, Choices: make([]RowDefinitionChoice, 0, len(choices)), ExplicitGroups: []ExplicitGroupRevisionChoice{}}
 	for _, choice := range choices {
+		if choice.Kind != capability.RowChoiceExpandedScope {
+			continue
+		}
 		response.Choices = append(response.Choices, RowDefinitionChoice{
-			ChoiceID: choice.ChoiceID, FieldPath: choice.Path, Label: choice.Label, Description: choice.Description,
+			ChoiceID: choice.ChoiceID, OccurrenceID: choice.OccurrenceID, FieldPath: choice.Path, Label: choice.Label, Description: choice.Description,
 			FHIRType: choice.FHIRType, IsIdentifier: fhirIdentifierPath(choice.Path), IsReference: choice.Reference,
 			OccurrenceSummary: rowChoiceOccurrenceSummary(choice), RouteSummary: rowChoiceRouteSummary(choice),
 			Kind: lifecycleRowChoiceKind(choice.Kind), ValueType: choice.ValueType, Policies: rowChoicePolicies(choice.Kind),
@@ -285,10 +309,21 @@ func resolveRowChoiceOccurrence(snapshot capability.Snapshot, rootResourceType s
 	return capability.RowChoiceOccurrence{OccurrenceID: occurrenceID, NodeID: current.ID, ResourceType: current.ResourceType, Route: resolved}, nil
 }
 
-func snapshotContainsRowCandidate(snapshot capability.Snapshot, occurrence capability.RowChoiceOccurrence, path string) bool {
+func snapshotContainsRowCandidate(snapshot capability.Snapshot, occurrence capability.RowChoiceOccurrence, path string, kind capability.RowChoiceKind) bool {
 	for _, candidate := range snapshot.Candidates {
-		if candidate.NodeID == occurrence.NodeID && candidate.ResourceType == occurrence.ResourceType && candidate.FieldPath == path {
+		if candidate.NodeID != occurrence.NodeID || candidate.ResourceType != occurrence.ResourceType {
+			continue
+		}
+		if candidate.FieldPath == path {
 			return true
+		}
+		if kind != capability.RowChoiceExpandedScope {
+			continue
+		}
+		for _, boundary := range candidate.RepeatedBoundaries {
+			if boundary.Path == path {
+				return true
+			}
 		}
 	}
 	return false

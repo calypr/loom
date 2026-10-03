@@ -366,7 +366,7 @@ func validateReceiptConstructionStages(stagesByOutput map[string][]ReceiptConstr
 			seenOperations := make(map[string]struct{}, len(stage.Capabilities))
 			for choiceIndex, choice := range stage.Capabilities {
 				switch choice.Kind {
-				case "PIVOT", "CODED_PIVOT", "DERIVE", "FILTER", "UNPIVOT", "GROUP", "CODED_GROUP", "EXPAND", "RELATED_SOURCE", "RELATED_EXPAND", "RELATED_ELIGIBILITY", "RELATED_FIELD":
+				case "PIVOT", "CODED_PIVOT", "DERIVE", "FILTER", "UNPIVOT", "GROUP", "CODED_GROUP", "EXPAND", "RELATED_SOURCE", "RELATED_EXPAND", "RELATED_ELIGIBILITY", "RELATED_FIELD", "ROW_VALUES":
 				default:
 					return fmt.Errorf("constructionStages[%q][%d].capabilities[%d] has unsupported operation %q", outputID, index, choiceIndex, choice.Kind)
 				}
@@ -392,6 +392,10 @@ func validateReceiptConstructionStages(stagesByOutput map[string][]ReceiptConstr
 				case "root":
 					if anchor.AnchorColumnID != "_key" || anchor.NodeID != "" {
 						return fmt.Errorf("constructionStages[%q][%d] root expansion anchor must be _key without a node override", outputID, index)
+					}
+				case "rootContributors":
+					if anchor.AnchorColumnID != "__loom_root_contributor_keys" || anchor.NodeID != "" {
+						return fmt.Errorf("constructionStages[%q][%d] root-contributor anchor must be the compiler-owned identity set without a node override", outputID, index)
 					}
 				case "activeRelatedRecord":
 					if strings.TrimSpace(anchor.NodeID) == "" || anchor.NodeID != strings.TrimSpace(anchor.NodeID) {
@@ -427,7 +431,9 @@ func validateReceiptConstructionStages(stagesByOutput map[string][]ReceiptConstr
 					}
 				}
 				if inputAnchor == nil || inputAnchor.Kind != stage.RelatedExpand.AnchorKind || inputAnchor.ResourceType != stage.RelatedExpand.AnchorResourceType ||
-					(inputAnchor.Kind == "activeRelatedRecord" && inputAnchor.NodeID != stage.RelatedExpand.AnchorNodeID) {
+					(inputAnchor.Kind == "activeRelatedRecord" && inputAnchor.NodeID != stage.RelatedExpand.AnchorNodeID) ||
+					(inputAnchor.Kind == "rootContributors" && (stage.RelatedExpand.AnchorColumnID != "__loom_root_contributor_keys" ||
+						stage.RelatedExpand.Route[0].FromNodeID != stage.RelatedExpand.AnchorNodeID || stage.RelatedExpand.Route[0].FromResourceType != inputAnchor.ResourceType)) {
 					return fmt.Errorf("constructionStages[%q][%d] RELATED_EXPAND anchor differs from the compiler-proven input stage anchors", outputID, index)
 				}
 				foundOutput := false
@@ -467,7 +473,7 @@ func validateReceiptConstructionStages(stagesByOutput map[string][]ReceiptConstr
 					if active.TargetNodeID != stage.RelatedExpand.TargetNodeID || active.TargetResourceType != stage.RelatedExpand.TargetResourceType || active.TerminalIdentityColumn != stage.RelatedExpand.TerminalIdentityColumn {
 						return fmt.Errorf("constructionStages[%q][%d] active terminal identity differs from RELATED_EXPAND metadata", outputID, index)
 					}
-				case "FILTER", "DERIVE", "RELATED_SOURCE", "RELATED_ELIGIBILITY", "RELATED_FIELD":
+				case "FILTER", "DERIVE", "RELATED_SOURCE", "RELATED_ELIGIBILITY", "RELATED_FIELD", "UNPIVOT":
 				default:
 					return fmt.Errorf("constructionStages[%q][%d] cannot carry an active related record through %q", outputID, index, stage.Operation)
 				}

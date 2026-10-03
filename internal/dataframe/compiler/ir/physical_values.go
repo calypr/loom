@@ -123,12 +123,13 @@ type PhysicalRelatedField struct {
 
 // PhysicalExtract obtains one FHIR selector from a variable or prior set
 // element. ResourceType keeps schema validation available after semantic
-// lowering; fallbacks preserve the existing FIRST_NON_NULL behavior.
+// lowering; fallbacks remain ordered value alternatives and are flattened
+// with the primary selector before FIRST, ALL, or DISTINCT projection.
 type PhysicalExtract struct {
 	Source       PhysicalValue
 	ResourceType string
 	Selector     spec.Selector
-	Fallbacks    []spec.Selector
+	Fallbacks    []PhysicalSelectorFallback
 	// Distinct preserves the explicit DISTINCT projection mode after semantic
 	// lowering. It is meaningful only for an array-valued expression.
 	Distinct      bool
@@ -139,6 +140,15 @@ type PhysicalExtract struct {
 	// UnitNormalization retains the original measurement and exact source
 	// identity selectors until the renderer applies one approved rule per item.
 	UnitNormalization *PhysicalUnitNormalization
+}
+
+// PhysicalSelectorFallback is one ordered selector alternative. Keeping its
+// source and schema type with the selector lets recipes preserve fallbacks
+// whose lexical owner differs from the primary selector's owner.
+type PhysicalSelectorFallback struct {
+	Source       PhysicalValue
+	ResourceType string
+	Selector     spec.Selector
 }
 
 type PhysicalUnitNormalization struct {

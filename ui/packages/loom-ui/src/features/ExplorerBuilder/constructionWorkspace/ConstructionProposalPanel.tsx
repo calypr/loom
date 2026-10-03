@@ -1,9 +1,11 @@
 import React from 'react';
 import type {
+  Construction,
   ConstructionProposalResponse,
   ExplorerBuilderPreviewResult,
 } from '../../../types';
 import { PreviewValueCoverage } from './PreviewValueCoverage';
+import { constructionHistorySteps } from './constructionHistory';
 
 export type ConstructionProposalViewState =
   | { readonly status: 'idle' }
@@ -17,7 +19,7 @@ export type ConstructionProposalViewState =
       readonly status: 'needs-repair';
       readonly response: ConstructionProposalResponse;
     }
-  | { readonly status: 'error'; readonly message: string }
+  | { readonly status: 'error'; readonly message: string; readonly retryable?: boolean }
   | {
       readonly status: 'applying';
       readonly response: ConstructionProposalResponse;
@@ -50,20 +52,49 @@ export const ConstructionProposalPanel = ({
   onApply,
   onCancel,
   onRetry,
+  baseConstruction,
 }: {
   readonly state: ConstructionProposalViewState;
   readonly canApply: boolean;
   readonly onApply: () => void;
   readonly onCancel: () => void;
   readonly onRetry: () => void;
+  readonly baseConstruction?: Construction;
 }) => {
   if (state.status === 'idle') return null;
 
   const response = 'response' in state ? state.response : undefined;
   const isReady = state.status === 'ready';
   const missingInputCount = response?.dependencyImpact.missingInputs?.length ?? 0;
+  const removedIds = new Set(response?.dependencyImpact.removedStepIds ?? []);
+  const removedSteps = constructionHistorySteps(baseConstruction, []).filter((step) => removedIds.has(step.id));
+  const removedExpansions = baseConstruction?.steps.filter((step) => !step.ownerStepId && removedIds.has(step.id));
+  const expansionResources = removedExpansions?.flatMap((step) => step.operation.kind === 'RELATED_EXPAND'
+    ? [step.operation.relatedExpand.targetResourceType]
+    : []) ?? [];
+  const isEdit = Boolean(response?.changedStepId);
+  const expansionNames = new Intl.ListFormat('en', { style: 'long', type: 'conjunction' });
+  let removalSummary: string | undefined;
+  if (removedSteps.length > 0) {
+    const onlyExpansions = expansionResources.length === removedSteps.length;
+    if (isEdit) {
+      removalSummary = onlyExpansions
+        ? `This edit also removes the dependent ${expansionNames.format(expansionResources)} expansion${expansionResources.length > 1 ? 's' : ''}.`
+        : `This edit also removes ${removedSteps.length} dependent step${removedSteps.length > 1 ? 's' : ''}.`;
+    } else if (onlyExpansions) {
+      const dependents = expansionResources.length > 1
+        ? ` and its dependent ${expansionNames.format(expansionResources.slice(1))} expansion${expansionResources.length > 2 ? 's' : ''}`
+        : '';
+      removalSummary = `Remove ${expansionResources[0]} expansion${dependents}.`;
+    } else {
+      const dependents = removedSteps.length > 1
+        ? ` and ${removedSteps.length - 1} dependent step${removedSteps.length > 2 ? 's' : ''}`
+        : '';
+      removalSummary = `Remove ${removedSteps[0].title}${dependents}.`;
+    }
+  }
   const affectedStepCount = response?.dependencyImpact.affectedStepIds.filter(
-    (stepId) => stepId !== response.changedStepId,
+    (stepId) => stepId !== response.changedStepId && !removedIds.has(stepId),
   ).length ?? 0;
   const changedStep = response?.candidateConstruction.steps.find(
     (step) => step.id === response.changedStepId,
@@ -109,7 +140,20 @@ export const ConstructionProposalPanel = ({
 
       {state.status === 'ready' ? (
         <div data-testid="construction-proposal-ready">
-          <h3 className="font-semibold text-emerald-950">Proposal preview</h3>
+          {removalSummary ? (
+            <div data-testid="construction-removal-summary" className="mb-3 rounded-md border border-amber-200 bg-amber-50 p-3 text-amber-950">
+              <p className="text-sm font-semibold">{removalSummary}</p>
+              <ul className="mt-2 list-disc space-y-1 pl-5 text-xs">
+                {removedSteps.map((step) => (
+                  <li key={step.id} data-testid={`construction-removal-step-${step.id}`}>
+                    {step.title}: {step.summary}
+                  </li>
+                ))}
+              </ul>
+              <p className="mt-2 text-xs">The preview shows the resulting table. Nothing is saved until you apply this {isEdit ? 'change' : 'removal'}.</p>
+            </div>
+          ) : null}
+          <h3 className="font-semibold text-emerald-950">{removalSummary && !isEdit ? 'Removal preview' : 'Proposal preview'}</h3>
           <p className="mt-1 text-sm text-slate-700">
             {state.preview.rowCount.toLocaleString()} {state.preview.rowCount === 1 ? 'row' : 'rows'} and {state.preview.columns.length} {state.preview.columns.length === 1 ? 'column' : 'columns'}
             {' '}· checked in {state.response.previewDurationMs} ms.
@@ -134,14 +178,16 @@ export const ConstructionProposalPanel = ({
       {state.status === 'error' ? (
         <div role="alert" data-testid="construction-proposal-error">
           <p className="text-sm text-red-800">{state.message}</p>
-          <button
-            type="button"
-            data-testid="construction-retry-proposal"
-            className="mt-2 rounded border border-slate-300 px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
-            onClick={onRetry}
-          >
-            Retry preview
-          </button>
+          {state.retryable === true ? (
+            <button
+              type="button"
+              data-testid="construction-retry-proposal"
+              className="mt-2 rounded border border-slate-300 px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+              onClick={onRetry}
+            >
+              Retry preview
+            </button>
+          ) : null}
         </div>
       ) : null}
 
@@ -154,7 +200,7 @@ export const ConstructionProposalPanel = ({
             className="rounded-md bg-emerald-800 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-900 disabled:cursor-not-allowed disabled:opacity-45"
             onClick={onApply}
           >
-            Apply change
+            {removalSummary && !isEdit ? 'Apply removal' : 'Apply change'}
           </button>
         ) : null}
         {state.status !== 'applying' ? (

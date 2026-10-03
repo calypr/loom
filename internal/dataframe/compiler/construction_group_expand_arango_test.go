@@ -3,6 +3,7 @@ package compiler
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"math"
 	"os"
 	"reflect"
@@ -81,6 +82,272 @@ func TestConstructionGroupCountRowsOnlyKeylessEmptyAndNonemptyAgainstArango(t *t
 	}
 }
 
+func TestConstructionGroupRowLineagePagesScopedContributorsAgainstArango(t *testing.T) {
+	ctx, client := openConstructionReshapeArango(t)
+	project, foreignProject, generation := "loom_group_lineage_"+uuid.NewString(), "loom_group_lineage_foreign_"+uuid.NewString(), "generation-group-lineage"
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := client.ExecuteAQL(cleanupCtx,
+			"FOR document IN Observation FILTER document.project IN @projects REMOVE document IN Observation",
+			map[string]any{"projects": []string{project, foreignProject}},
+		); err != nil {
+			t.Errorf("remove Group row-lineage fixtures: %v", err)
+		}
+	})
+
+	type fixture struct {
+		project, generation, id, authPath string
+	}
+	fixtures := []fixture{
+		{project: project, generation: generation, id: "active-a", authPath: "Observation/visible"},
+		{project: project, generation: generation, id: "active-b", authPath: "Observation/visible"},
+		{project: project, generation: generation, id: "active-denied", authPath: "Observation/hidden"},
+		{project: project, generation: "old-generation", id: "active-old", authPath: "Observation/visible"},
+		{project: foreignProject, generation: generation, id: "active-foreign", authPath: "Observation/visible"},
+	}
+	documents := make([]json.RawMessage, 0, len(fixtures))
+	for _, item := range fixtures {
+		document, err := json.Marshal(map[string]any{
+			"_key": item.project + "_" + item.id, "id": item.id,
+			"project": item.project, "project_id": item.project, "dataset_generation": item.generation,
+			"resourceType": "Observation", "auth_resource_path": item.authPath,
+			"payload": map[string]any{"id": item.id, "resourceType": "Observation", "status": "active"},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		documents = append(documents, document)
+	}
+	if err := client.InsertBatchRaw(ctx, "Observation", documents, false, "document"); err != nil {
+		t.Fatalf("insert Group row-lineage fixtures: %v", err)
+	}
+
+	bindings := recipe.RuntimeBindings{
+		Project: project, DatasetGeneration: generation, AuthScopeMode: authscope.ReadScopeRestricted,
+		AuthResourcePaths: []string{"Observation/visible"},
+	}
+	output := lowerConstructionOutput(t, constructionMissingKeyPolicyOutput(recipe.ConstructionGroupMissingKeyGroup), bindings)
+	preview, err := CompileRecipeOutputWithPolicy(output, bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows := executeReshapeOracleQuery(t, ctx, client, preview)
+	if len(rows) != 1 || rows[0]["status"] != "active" || !constructionNumericEqual(rows[0]["rows"], 2) {
+		t.Fatalf("authorized grouped rows = %#v, want active with exactly the two visible current-generation records", rows)
+	}
+	rowID, ok := rows[0]["__loom_row_id"].(string)
+	if !ok || rowID == "" {
+		t.Fatalf("Group preview row identity = %#v", rows[0]["__loom_row_id"])
+	}
+
+	compilePage := func(rowID string, offset int) CompiledRowLineageQuery {
+		t.Helper()
+		query, compileErr := CompileRowLineageOutput(output, rowID, offset, 1, ir.DefaultPhysicalOptimizationPolicy())
+		if compileErr != nil {
+			t.Fatalf("compile Group row-lineage page at %d: %v", offset, compileErr)
+		}
+		for _, want := range []string{
+			"root.project == @project", "root.dataset_generation == @dataset_generation",
+			"root.auth_resource_path IN @auth_resource_paths",
+		} {
+			if !strings.Contains(query.Query, want) {
+				t.Errorf("Group row-lineage query lost source scope %q:\n%s", want, query.Query)
+			}
+		}
+		return query
+	}
+	first := executeRowLineageOracleQuery(t, ctx, client, compilePage(rowID, 0))
+	firstContributors, _ := first["contributors"].([]any)
+	if first["found"] != true || first["hasMore"] != true || len(firstContributors) != 1 {
+		t.Fatalf("first Group lineage page = %#v, want one contributor and another page", first)
+	}
+	assertContributor := func(got any, id, occurrenceKey string) {
+		t.Helper()
+		contributor, _ := got.(map[string]any)
+		if contributor["resourceType"] != "Observation" || contributor["resourceId"] != id || contributor["occurrenceKey"] != occurrenceKey {
+			t.Errorf("Group lineage contributor = %#v, want Observation/%s at %s", contributor, id, occurrenceKey)
+		}
+	}
+	assertContributor(firstContributors[0], "active-a", project+"_active-a")
+	second := executeRowLineageOracleQuery(t, ctx, client, compilePage(rowID, 1))
+	secondContributors, _ := second["contributors"].([]any)
+	if second["found"] != true || second["hasMore"] != false || len(secondContributors) != 1 {
+		t.Fatalf("second Group lineage page = %#v, want the final contributor", second)
+	}
+	assertContributor(secondContributors[0], "active-b", project+"_active-b")
+	empty := executeRowLineageOracleQuery(t, ctx, client, compilePage(rowID, 2))
+	if empty["found"] != true || empty["hasMore"] != false || len(empty["contributors"].([]any)) != 0 {
+		t.Fatalf("past-end Group lineage page = %#v, want found row and empty page", empty)
+	}
+
+	var identity [][]string
+	if err := json.Unmarshal([]byte(rowID), &identity); err != nil || len(identity) == 0 || len(identity[0]) != 2 {
+		t.Fatalf("decode Group row identity %q: %v", rowID, err)
+	}
+	identity[0][1] = "different_group"
+	wrongStageBytes, err := json.Marshal(identity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wrongStageID := string(wrongStageBytes)
+	for _, forgedID := range []string{"forged-group-row-id", wrongStageID} {
+		result := executeRowLineageOracleQuery(t, ctx, client, compilePage(forgedID, 0))
+		if result["found"] != false || len(result["contributors"].([]any)) != 0 {
+			t.Errorf("forged/wrong-stage Group identity disclosed contributors: %#v", result)
+		}
+	}
+}
+
+func TestConstructionGroupFilterRowLineagePagesScopedContributorsAgainstArango(t *testing.T) {
+	ctx, client := openConstructionReshapeArango(t)
+	project, foreignProject, generation := "loom_group_filter_lineage_"+uuid.NewString(), "loom_group_filter_lineage_foreign_"+uuid.NewString(), "generation-group-filter-lineage"
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := client.ExecuteAQL(cleanupCtx,
+			"FOR document IN Observation FILTER document.project IN @projects REMOVE document IN Observation",
+			map[string]any{"projects": []string{project, foreignProject}},
+		); err != nil {
+			t.Errorf("remove Group-filter row-lineage fixtures: %v", err)
+		}
+	})
+
+	type fixture struct {
+		project, generation, id, authPath, status string
+	}
+	fixtures := make([]fixture, 0, 214)
+	for index := 0; index < 105; index++ {
+		fixtures = append(fixtures, fixture{project, generation, fmt.Sprintf("active-%03d", index), "Observation/visible", "active"})
+	}
+	for index := 0; index < 104; index++ {
+		fixtures = append(fixtures, fixture{project, generation, fmt.Sprintf("borderline-%03d", index), "Observation/visible", "borderline"})
+	}
+	fixtures = append(fixtures,
+		fixture{project, generation, "active-denied", "Observation/hidden", "active"},
+		fixture{project, "old-generation", "active-old", "Observation/visible", "active"},
+		fixture{foreignProject, generation, "active-foreign", "Observation/visible", "active"},
+	)
+	documents := make([]json.RawMessage, 0, len(fixtures))
+	for _, item := range fixtures {
+		document, err := json.Marshal(map[string]any{
+			"_key": item.project + "_" + item.id, "id": item.id,
+			"project": item.project, "project_id": item.project, "dataset_generation": item.generation,
+			"resourceType": "Observation", "auth_resource_path": item.authPath,
+			"payload": map[string]any{"id": item.id, "resourceType": "Observation", "status": item.status},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		documents = append(documents, document)
+	}
+	if err := client.InsertBatchRaw(ctx, "Observation", documents, false, "document"); err != nil {
+		t.Fatalf("insert Group-filter row-lineage fixtures: %v", err)
+	}
+
+	bindings := recipe.RuntimeBindings{
+		Project: project, DatasetGeneration: generation, AuthScopeMode: authscope.ReadScopeRestricted,
+		AuthResourcePaths: []string{"Observation/visible"},
+	}
+	unfiltered := lowerConstructionOutput(t, constructionMissingKeyPolicyOutput(recipe.ConstructionGroupMissingKeyGroup), bindings)
+	unfilteredPreview, err := CompileRecipeOutputWithPolicy(unfiltered, bindings, 200, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	unfilteredRows := executeReshapeOracleQuery(t, ctx, client, unfilteredPreview)
+	var borderlineID string
+	for _, row := range unfilteredRows {
+		if row["status"] == "borderline" && constructionNumericEqual(row["rows"], 104) {
+			borderlineID, _ = row["__loom_row_id"].(string)
+		}
+	}
+	if borderlineID == "" {
+		t.Fatalf("unfiltered Group preview omitted the 104-row identity: %#v", unfilteredRows)
+	}
+
+	output := lowerConstructionOutput(t, constructionGroupFilterLineageOutput(104, 103), bindings)
+	preview, err := CompileRecipeOutputWithPolicy(output, bindings, 200, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows := executeReshapeOracleQuery(t, ctx, client, preview)
+	if len(rows) != 1 || rows[0]["status"] != "active" || !constructionNumericEqual(rows[0]["rows"], 105) {
+		t.Fatalf("two-filter Group output = %#v, want only the authorized 105-row active group", rows)
+	}
+	rowID, ok := rows[0]["__loom_row_id"].(string)
+	if !ok || rowID == "" {
+		t.Fatalf("filtered Group row identity = %#v", rows[0]["__loom_row_id"])
+	}
+
+	compilePage := func(compiled lower.CompiledRecipeOutput, id string, offset int) CompiledRowLineageQuery {
+		t.Helper()
+		query, compileErr := CompileRowLineageOutput(compiled, id, offset, 50, ir.DefaultPhysicalOptimizationPolicy())
+		if compileErr != nil {
+			t.Fatalf("compile filtered Group row-lineage page at %d: %v", offset, compileErr)
+		}
+		for _, want := range []string{
+			"root.project == @project", "root.dataset_generation == @dataset_generation",
+			"root.auth_resource_path IN @auth_resource_paths", "LIMIT @row_lineage_offset, @row_lineage_fetch_limit",
+		} {
+			if !strings.Contains(query.Query, want) {
+				t.Errorf("filtered Group row-lineage query lost required scope/page clause %q:\n%s", want, query.Query)
+			}
+		}
+		return query
+	}
+	contributors := make(map[string]bool, 105)
+	for pageIndex, offset := range []int{0, 50, 100} {
+		page := executeRowLineageOracleQuery(t, ctx, client, compilePage(output, rowID, offset))
+		items, _ := page["contributors"].([]any)
+		wantLengths := []int{50, 50, 5}
+		if page["found"] != true || len(items) != wantLengths[pageIndex] || page["hasMore"] != (offset < 100) {
+			t.Fatalf("filtered Group lineage page at %d = %#v", offset, page)
+		}
+		for _, item := range items {
+			contributor, _ := item.(map[string]any)
+			id, _ := contributor["resourceId"].(string)
+			key, _ := contributor["occurrenceKey"].(string)
+			if contributor["resourceType"] != "Observation" || id == "" || key != project+"_"+id || contributors[id] {
+				t.Errorf("scoped Group contributor = %#v, duplicate=%t", contributor, contributors[id])
+			}
+			contributors[id] = true
+		}
+	}
+	if len(contributors) != 105 {
+		t.Fatalf("paged Group contributor count = %d, want 105", len(contributors))
+	}
+	pastEnd := executeRowLineageOracleQuery(t, ctx, client, compilePage(output, rowID, 105))
+	if pastEnd["found"] != true || pastEnd["hasMore"] != false || len(pastEnd["contributors"].([]any)) != 0 {
+		t.Fatalf("past-end filtered Group lineage page = %#v, want found row and empty page", pastEnd)
+	}
+
+	var identity [][]string
+	if err := json.Unmarshal([]byte(borderlineID), &identity); err != nil || len(identity) < 3 {
+		t.Fatalf("decode unfiltered Group row identity %q: %v", borderlineID, err)
+	}
+	wrongStage := make([][]string, len(identity))
+	for index := range identity {
+		wrongStage[index] = append([]string(nil), identity[index]...)
+	}
+	wrongStage[0][1] = "other-construction"
+	wrongStageBytes, err := json.Marshal(wrongStage)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, excludedID := range []string{borderlineID, string(wrongStageBytes), "forged-group-row-id"} {
+		result := executeRowLineageOracleQuery(t, ctx, client, compilePage(output, excludedID, 0))
+		if result["found"] != false || len(result["contributors"].([]any)) != 0 {
+			t.Errorf("excluded or forged Group identity disclosed contributors: %#v", result)
+		}
+	}
+
+	lateFilterOutput := lowerConstructionOutput(t, constructionGroupFilterLineageOutput(103, 104), bindings)
+	lateExcluded := executeRowLineageOracleQuery(t, ctx, client, compilePage(lateFilterOutput, borderlineID, 0))
+	if lateExcluded["found"] != false || len(lateExcluded["contributors"].([]any)) != 0 {
+		t.Fatalf("identity rejected only by the last FILTER still disclosed contributors: %#v", lateExcluded)
+	}
+}
+
 func TestConstructionGroupCountRowsOnlyQueryAvoidsInputRowBuffers(t *testing.T) {
 	query := compileConstructionOutputQuery(t, constructionCountRowsOnlyOutput(), "construction-count-rows-only", "generation-count-rows-only")
 	if !strings.Contains(query.Query, "COLLECT WITH COUNT INTO ") {
@@ -143,6 +410,174 @@ func TestConstructionGroupCountRowsOnlyQueryAvoidsInputRowBuffers(t *testing.T) 
 	}
 	if !strings.Contains(pruned.Query, "SORT __loom_construction_group_key_1 ASC") || strings.Contains(pruned.Query, "SORT __loom_construction_final_row.__loom_row_id") {
 		t.Fatalf("group query did not preserve its key order without a second final sort:\n%s", pruned.Query)
+	}
+}
+
+func TestConstructionGroupAllRowValuesUsesStreamingTypedAggregates(t *testing.T) {
+	query := compileConstructionOutputQuery(t, constructionGroupRowValuesOutput(), "construction-group-row-values", "generation-group-row-values")
+	for _, want := range []string{
+		"COLLECT __loom_construction_group_key_",
+		"AGGREGATE __loom_physical_construction_construction_group_count_rows = SUM(__loom_construction_input_1 != null ? 1 : 0)",
+		"UNIQUE((__loom_construction_input_1[@",
+		"ASSERT(IS_ARRAY(__loom_construction_input_1[@",
+		"FLATTEN(__loom_physical_construction_construction_group_row_value_arrays_0, 1)",
+		"CONSTRUCTION_ROW_VALUE_TYPE_MISMATCH",
+		"SORTED_UNIQUE((FOR ",
+		"CONSTRUCTION_GROUP_KEY_TYPE_MISMATCH",
+	} {
+		if !strings.Contains(query.Query, want) {
+			t.Errorf("streaming Group query missing %q:\n%s", want, query.Query)
+		}
+	}
+	for _, buffered := range []string{
+		"construction_source_projection = (",
+		"construction_group_input_rows",
+		" INTO __loom_construction_group_rows_",
+		"LENGTH((FOR ",
+	} {
+		if strings.Contains(query.Query, buffered) {
+			t.Errorf("streaming Group query retained contributor materialization %q:\n%s", buffered, query.Query)
+		}
+	}
+	projectionAt := strings.Index(query.Query, "LET __loom_construction_input_1 = {")
+	collectAt := strings.Index(query.Query, "COLLECT __loom_construction_group_key_")
+	if projectionAt < 0 || collectAt < projectionAt {
+		t.Fatalf("direct source projection was not assigned in the Group scope before COLLECT:\n%s", query.Query)
+	}
+	for _, scopeClause := range []string{
+		"FILTER root.project == @project",
+		"FILTER root.dataset_generation == @dataset_generation",
+		"FILTER root_scope_allowed == @scope_allowed",
+	} {
+		if !strings.Contains(query.Query, scopeClause) {
+			t.Errorf("streamed Group source lost scope clause %q:\n%s", scopeClause, query.Query)
+		}
+	}
+	if strings.Contains(query.Query, "FOR __loom_selector_") || !strings.Contains(query.Query, "[* FILTER CURRENT.text != null RETURN CURRENT.text]") {
+		t.Fatalf("repeated source selector did not use a typed inline array expansion:\n%s", query.Query)
+	}
+	oneQuery := compileConstructionOutputQuery(t, constructionGroupOneRowValueOutput(), "construction-group-one-row-value", "generation-group-one-row-value")
+	if strings.Contains(oneQuery.Query, "construction_source_projection = (") || !strings.Contains(oneQuery.Query, "CONSTRUCTION_ROW_VALUE_MULTIPLE_VALUES") {
+		t.Fatalf("ONE row values did not use direct-source aggregation with its multiple-value check:\n%s", oneQuery.Query)
+	}
+}
+
+func TestConstructionGroupStreamingKeepsExpandedInputStage(t *testing.T) {
+	query := compileConstructionOutputQuery(t, constructionExpandGroupOutput(), "construction-group-expanded", "generation-group-expanded")
+	if !strings.Contains(query.Query, "FOR __loom_construction_input_2 IN __loom_construction_stage_1") {
+		t.Fatalf("Group after expansion no longer consumes the expanded stage:\n%s", query.Query)
+	}
+	if !strings.Contains(query.Query, "construction_source_projection = (") {
+		t.Fatalf("multi-stage Group bypassed its staged source input:\n%s", query.Query)
+	}
+}
+
+func TestConstructionGroupAllRowValuesMatchContributorsAgainstArango(t *testing.T) {
+	ctx, client := openConstructionReshapeArango(t)
+	project, generation := "loom_construction_group_row_values_"+uuid.NewString(), "generation-group-row-values"
+	insertConstructionReshapeRows(t, ctx, client, project, generation, []map[string]any{
+		{"id": "values-active-a", "status": "active", "note": []any{map[string]any{"text": "blue"}, map[string]any{"text": "red"}, map[string]any{"text": "red"}, map[string]any{"text": nil}}},
+		{"id": "values-active-b", "status": "active", "note": []any{map[string]any{"text": "green"}, map[string]any{"text": "red"}}},
+		{"id": "values-active-empty", "status": "active", "note": []any{}},
+		{"id": "values-inactive", "status": "inactive", "note": []any{map[string]any{"text": nil}}},
+		{"id": "values-missing-status", "note": []any{map[string]any{"text": "orphan"}}},
+	})
+
+	rows := executeConstructionOutput(t, ctx, client, constructionGroupRowValuesOutput(), project, generation)
+	byStatus := make(map[string]map[string]any, len(rows))
+	for _, row := range rows {
+		status := "<missing>"
+		if row["status"] != nil {
+			status = row["status"].(string)
+		}
+		byStatus[status] = row
+	}
+	want := map[string]struct {
+		count  float64
+		values []any
+	}{
+		"active":    {count: 3, values: []any{"blue", "green", "red"}},
+		"inactive":  {count: 1, values: []any{}},
+		"<missing>": {count: 1, values: []any{"orphan"}},
+	}
+	if len(byStatus) != len(want) {
+		t.Fatalf("Group output has %d keys, want %d: %#v", len(byStatus), len(want), byStatus)
+	}
+	for status, expected := range want {
+		row, ok := byStatus[status]
+		if !ok {
+			t.Fatalf("Group output omitted status %q: %#v", status, byStatus)
+		}
+		if !constructionNumericEqual(row["rows"], expected.count) {
+			t.Errorf("status %q row count = %#v, want %v", status, row["rows"], expected.count)
+		}
+		if !reflect.DeepEqual(row["tag_values"], expected.values) {
+			t.Errorf("status %q ALL values = %#v, want %#v", status, row["tag_values"], expected.values)
+		}
+	}
+}
+
+func TestConstructionGroupOneRowValuePreservesDistinctAndErrorSemanticsAgainstArango(t *testing.T) {
+	ctx, client := openConstructionReshapeArango(t)
+	generation := "generation-group-one-row-value"
+	validProject := "loom_construction_group_one_values_" + uuid.NewString()
+	multipleProject := "loom_construction_group_one_multiple_" + uuid.NewString()
+	invalidTypeProject := "loom_construction_group_one_invalid_type_" + uuid.NewString()
+	projects := []string{validProject, multipleProject, invalidTypeProject}
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		for _, project := range projects {
+			if err := client.ExecuteAQL(cleanupCtx,
+				"FOR document IN Observation FILTER document.project == @project REMOVE document IN Observation",
+				map[string]any{"project": project},
+			); err != nil {
+				t.Errorf("remove Group ONE fixture %q: %v", project, err)
+			}
+		}
+	})
+
+	insertConstructionReshapeRows(t, ctx, client, validProject, generation, []map[string]any{
+		{"id": "one-active-a", "status": "active", "note": []any{map[string]any{"text": "blue"}, map[string]any{"text": "blue"}}},
+		{"id": "one-active-b", "status": "active", "note": []any{map[string]any{"text": "blue"}}},
+		{"id": "one-empty", "status": "empty", "note": []any{}},
+		{"id": "one-null", "status": "null", "note": []any{map[string]any{"text": nil}}},
+	})
+	rows := executeConstructionOutput(t, ctx, client, constructionGroupOneRowValueOutput(), validProject, generation)
+	byStatus := make(map[string]map[string]any, len(rows))
+	for _, row := range rows {
+		byStatus[row["status"].(string)] = row
+	}
+	for status, want := range map[string]struct {
+		count float64
+		value any
+	}{
+		"active": {count: 2, value: "blue"},
+		"empty":  {count: 1, value: nil},
+		"null":   {count: 1, value: nil},
+	} {
+		row, ok := byStatus[status]
+		if !ok {
+			t.Fatalf("Group ONE omitted status %q: %#v", status, byStatus)
+		}
+		if !constructionNumericEqual(row["rows"], want.count) || !reflect.DeepEqual(row["tag_value"], want.value) {
+			t.Errorf("Group ONE status %q = %#v, want rows=%v value=%#v", status, row, want.count, want.value)
+		}
+	}
+
+	insertConstructionReshapeRows(t, ctx, client, multipleProject, generation, []map[string]any{
+		{"id": "one-multiple-a", "status": "active", "note": []any{map[string]any{"text": "blue"}}},
+		{"id": "one-multiple-b", "status": "active", "note": []any{map[string]any{"text": "red"}}},
+	})
+	if err := executeConstructionOutputError(t, ctx, client, constructionGroupOneRowValueOutput(), multipleProject, generation); err == nil || !strings.Contains(err.Error(), "CONSTRUCTION_ROW_VALUE_MULTIPLE_VALUES") {
+		t.Fatalf("Group ONE accepted multiple distinct values, error = %v", err)
+	}
+
+	insertConstructionReshapeRows(t, ctx, client, invalidTypeProject, generation, []map[string]any{
+		{"id": "one-invalid-type", "status": "active", "note": []any{map[string]any{"text": 7}}},
+	})
+	if err := executeConstructionOutputError(t, ctx, client, constructionGroupOneRowValueOutput(), invalidTypeProject, generation); err == nil || !strings.Contains(err.Error(), "CONSTRUCTION_ROW_VALUE_TYPE_MISMATCH") {
+		t.Fatalf("Group ONE accepted an invalid value type, error = %v", err)
 	}
 }
 
@@ -396,6 +831,44 @@ func constructionCountRowsOnlyOutput() recipe.Output {
 	}
 }
 
+func constructionGroupRowValuesOutput() recipe.Output {
+	return recipe.Output{
+		Name: "construction_group_all_row_values", RootResourceType: "Observation", RowGrain: "observation",
+		Fields: []recipe.Field{
+			{Name: "status", ColumnID: "status_id", Expr: recipe.Expression{Select: "root.status"}},
+			{Name: "tags", ColumnID: "tags_id", Expr: recipe.Expression{Select: "root.note[].text"}, ValueMode: recipe.ValueModeAll},
+		},
+		Construction: &recipe.Construction{
+			Version:       1,
+			SourceColumns: []recipe.StageColumn{{ID: "status_id", Name: "status"}, {ID: "tags_id", Name: "tags"}},
+			Steps: []recipe.ConstructionStep{{
+				ID: "group_status", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
+				Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionGroupOp, Group: &recipe.ConstructionGroup{
+					ConstructionID: "group_status",
+					Keys:           []recipe.ConstructionGroupKey{{InputColumnID: "status_id", OutputColumnID: "grouped_status_id"}},
+					Aggregates:     []recipe.ConstructionGroupAggregate{{Operation: recipe.ConstructionGroupCountRows, OutputColumnID: "rows_id"}},
+				}},
+				RowValues: []recipe.ConstructionRowValue{{InputColumnID: "tags_id", OutputColumnID: "tag_values_id", Policy: recipe.ConstructionRowValueAll}},
+				Outputs: []recipe.StageColumn{
+					{ID: "grouped_status_id", Name: "status", Type: "string"},
+					{ID: "rows_id", Name: "rows", Type: "integer"},
+					{ID: "tag_values_id", Name: "tag_values", Type: "array"},
+				},
+			}},
+		},
+	}
+}
+
+func constructionGroupOneRowValueOutput() recipe.Output {
+	output := constructionGroupRowValuesOutput()
+	output.Name = "construction_group_one_row_value"
+	step := &output.Construction.Steps[0]
+	step.RowValues[0].Policy = recipe.ConstructionRowValueOne
+	step.Outputs[2].Name = "tag_value"
+	step.Outputs[2].Type = "string"
+	return output
+}
+
 func constructionExpandOutput() recipe.Output {
 	return recipe.Output{
 		Name: "construction_expand_oracle", RootResourceType: "Observation", RowGrain: "observation",
@@ -486,6 +959,12 @@ func executeConstructionOutput(t *testing.T, ctx context.Context, client *store.
 	t.Helper()
 	query := compileConstructionOutputQuery(t, output, project, generation)
 	return executeReshapeOracleQuery(t, ctx, client, query)
+}
+
+func executeConstructionOutputError(t *testing.T, ctx context.Context, client *store.Client, output recipe.Output, project, generation string) error {
+	t.Helper()
+	query := compileConstructionOutputQuery(t, output, project, generation)
+	return client.QueryRows(ctx, query.Query, 500, query.BindVars, func(map[string]any) error { return nil })
 }
 
 func compileConstructionOutputQuery(t *testing.T, output recipe.Output, project, generation string) CompiledQuery {

@@ -54,6 +54,24 @@ func buildGroupRowsPhysicalPlan(output semantic.OutputPlan, context semantic.Exe
 		ResourceTypeBindKey: "resource_type", PolicyBindKey: "group_rows_unassigned_policy",
 		AuthResourcePathsBindKey: "auth_resource_paths", AuthUnrestrictedBindKey: "auth_resource_paths_unrestricted",
 	}
+	fields := make(map[string]semantic.SemanticField, len(output.Root.Fields))
+	for _, field := range output.Root.Fields {
+		fields[field.ColumnID] = field
+	}
+	for _, selected := range groups.RowValues {
+		field, found := fields[selected.ColumnID]
+		if !found || field.Expr.Expression.Selector == nil || len(field.Fallbacks) != 0 {
+			return ir.PhysicalPlan{}, fmt.Errorf("cohort member column %q requires a direct root selector", selected.ColumnID)
+		}
+		expression, err := lowerRecipeExpression(field.Expr.Expression, binds, output.RootResourceType)
+		if err != nil {
+			return ir.PhysicalPlan{}, fmt.Errorf("cohort member column %q: %w", selected.ColumnID, err)
+		}
+		expression.Extract.Source.Variable = "cohort_member"
+		rows.MemberValues = append(rows.MemberValues, ir.PhysicalGroupMemberValue{
+			Output: field.Name, Kind: strings.ToUpper(string(field.Expr.Type.Kind)), Policy: string(selected.Policy), Expression: expression,
+		})
+	}
 	plan := ir.PhysicalPlan{
 		Version:    1,
 		Engine:     ir.PhysicalEngineAQL,
@@ -65,4 +83,39 @@ func buildGroupRowsPhysicalPlan(output semantic.OutputPlan, context semantic.Exe
 		return ir.PhysicalPlan{}, fmt.Errorf("validate grouped physical plan: %w", err)
 	}
 	return plan, nil
+}
+
+func buildCohortGroupRows(output semantic.OutputPlan, context semantic.ExecutionContext) (ir.PhysicalGroupRows, map[string]any, error) {
+	plan, err := buildGroupRowsPhysicalPlan(output, context)
+	if err != nil {
+		return ir.PhysicalGroupRows{}, nil, err
+	}
+	if len(plan.Operations) != 1 || plan.Operations[0].GroupRows == nil {
+		return ir.PhysicalGroupRows{}, nil, fmt.Errorf("cohort group payload is missing")
+	}
+	rows := *plan.Operations[0].GroupRows
+	binds := make(map[string]any, len(plan.BindVars))
+	namespace := func(key string) string {
+		if key == "" {
+			return ""
+		}
+		return "cohort_" + key
+	}
+	for old, value := range plan.BindVars {
+		binds[namespace(old)] = value
+	}
+	rows.RevisionCollectionBindKey = namespace(rows.RevisionCollectionBindKey)
+	rows.SelectionCollectionBindKey = namespace(rows.SelectionCollectionBindKey)
+	rows.DefinitionsCollectionBindKey = namespace(rows.DefinitionsCollectionBindKey)
+	rows.MembershipsCollectionBindKey = namespace(rows.MembershipsCollectionBindKey)
+	rows.SelectionMembersCollectionBindKey = namespace(rows.SelectionMembersCollectionBindKey)
+	rows.ResourceCollectionBindKey = namespace(rows.ResourceCollectionBindKey)
+	rows.RevisionIDBindKey = namespace(rows.RevisionIDBindKey)
+	rows.ProjectBindKey = namespace(rows.ProjectBindKey)
+	rows.DatasetGenerationBindKey = namespace(rows.DatasetGenerationBindKey)
+	rows.ResourceTypeBindKey = namespace(rows.ResourceTypeBindKey)
+	rows.PolicyBindKey = namespace(rows.PolicyBindKey)
+	rows.AuthResourcePathsBindKey = namespace(rows.AuthResourcePathsBindKey)
+	rows.AuthUnrestrictedBindKey = namespace(rows.AuthUnrestrictedBindKey)
+	return rows, binds, nil
 }

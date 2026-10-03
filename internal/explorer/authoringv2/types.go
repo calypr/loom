@@ -23,16 +23,16 @@ const (
 // Document is the complete durable Builder intent. Route occurrences form a
 // semantic resource tree rooted at RootResourceType.
 type Document struct {
-	APIVersion       string        `json:"-"`
-	Kind             string        `json:"kind"`
-	Output           Output        `json:"output"`
-	RootResourceType string        `json:"rootResourceType,omitempty"`
-	Route            RouteNode     `json:"route,omitempty"`
-	Rows             RowDefinition `json:"rows"`
-	Population       *Population   `json:"population,omitempty"`
+	APIVersion       string            `json:"-"`
+	Kind             string            `json:"kind"`
+	Output           Output            `json:"output"`
+	RootResourceType string            `json:"rootResourceType,omitempty"`
+	Route            RouteNode         `json:"route,omitempty"`
+	Rows             RowDefinition     `json:"rows"`
+	Population       *Population       `json:"population,omitempty"`
 	Frames           []FrameDefinition `json:"frames,omitempty"`
-	Columns          []Column      `json:"columns"`
-	TableShape       *TableShape   `json:"tableShape,omitempty"`
+	Columns          []Column          `json:"columns"`
+	TableShape       *TableShape       `json:"tableShape,omitempty"`
 	// Construction is the canonical post-source operation sequence. When it is
 	// present, Route/Rows/Columns describe only the source projection and
 	// TableShape must be nil. A nil value preserves the existing V2 document
@@ -50,9 +50,10 @@ type Population struct {
 }
 
 type PopulationRouteStep struct {
-	ResourceType  string `json:"resourceType"`
-	Relationship  string `json:"relationship"`
-	CatalogEdgeID string `json:"catalogEdgeId,omitempty"`
+	ResourceType     string `json:"resourceType"`
+	Relationship     string `json:"relationship"`
+	CatalogEdgeID    string `json:"catalogEdgeId,omitempty"`
+	StorageDirection string `json:"storageDirection,omitempty"`
 }
 
 func (p Population) Validate() error {
@@ -62,6 +63,9 @@ func (p Population) Validate() error {
 	for i, step := range p.Route {
 		if strings.TrimSpace(step.ResourceType) == "" || strings.TrimSpace(step.Relationship) == "" {
 			return fmt.Errorf("population.route[%d] requires resourceType and relationship", i)
+		}
+		if step.StorageDirection != "" && step.StorageDirection != "INBOUND" && step.StorageDirection != "OUTBOUND" {
+			return fmt.Errorf("population.route[%d] has an unsupported storageDirection", i)
 		}
 	}
 	return nil
@@ -149,11 +153,12 @@ type CatalogNode struct {
 }
 
 type CatalogEdge struct {
-	ID         string `json:"edgeId"`
-	FromNodeID string `json:"fromNodeId"`
-	ToNodeID   string `json:"toNodeId"`
-	Label      string `json:"label"`
-	Populated  bool   `json:"populated"`
+	ID               string `json:"edgeId"`
+	FromNodeID       string `json:"fromNodeId"`
+	ToNodeID         string `json:"toNodeId"`
+	Label            string `json:"label"`
+	StorageDirection string `json:"storageDirection,omitempty"`
+	Populated        bool   `json:"populated"`
 }
 
 type CatalogCandidate struct {

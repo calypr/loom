@@ -181,6 +181,82 @@ func TestAssessRowChangeReturnsStructuredRelationshipChoices(t *testing.T) {
 	}
 }
 
+func TestAssessRowChangePrefersTheAuthoredInverseAmongDifferentRelationships(t *testing.T) {
+	workspace, catalog := rowChangeSubjectFocusFixture()
+	assessment, err := AssessRowChange(workspace, catalog, RowChangeRequest{
+		OutputID: "patients", RootNodeID: "observation", RootOccurrenceID: "observation",
+	})
+	if err != nil || assessment.Status != RowChangeReady || assessment.Proposal == nil {
+		t.Fatalf("assessment=%#v err=%v", assessment, err)
+	}
+	if !reflect.DeepEqual(assessment.Proposal.RouteRebase, []RouteRebaseChoice{{OccurrenceID: RootOccurrenceID, EdgeID: "observation-patient-subject"}}) {
+		t.Fatalf("authored inverse route choice=%#v, want the subject relationship", assessment.Proposal.RouteRebase)
+	}
+	rebased, err := ApplyRowChange(workspace.Documents[0], catalog, *assessment.Proposal)
+	if err != nil || rebased.RootResourceType != "Observation" || len(rebased.Route.Children) != 1 ||
+		rebased.Route.Children[0].ResourceType != "Patient" || rebased.Route.Children[0].Relationship != "subject_Patient" ||
+		rebased.Route.Children[0].CatalogEdgeID != "observation-patient-subject" {
+		t.Fatalf("rebased route=%#v err=%v, want Observation → Patient on the authored subject relationship", rebased.Route, err)
+	}
+
+	// An explicit user choice still takes priority over the inferred inverse.
+	assessment, err = AssessRowChange(workspace, catalog, RowChangeRequest{
+		OutputID: "patients", RootNodeID: "observation", RootOccurrenceID: "observation",
+		RouteRebase: []RouteRebaseChoice{{OccurrenceID: RootOccurrenceID, EdgeID: "observation-patient-focus"}},
+	})
+	if err != nil || assessment.Status != RowChangeReady || assessment.Proposal == nil ||
+		!reflect.DeepEqual(assessment.Proposal.RouteRebase, []RouteRebaseChoice{{OccurrenceID: RootOccurrenceID, EdgeID: "observation-patient-focus"}}) {
+		t.Fatalf("explicit inverse override assessment=%#v err=%v", assessment, err)
+	}
+}
+
+func TestAssessRowChangeKeepsAmbiguityBetweenMatchingInverseRelationships(t *testing.T) {
+	workspace, catalog := rowChangeSubjectFocusFixture()
+	catalog.Edges = append(catalog.Edges, CatalogEdge{
+		ID: "observation-patient-subject-secondary", FromNodeID: "observation", ToNodeID: "patient", Label: "subject_Patient",
+	})
+	assessment, err := AssessRowChange(workspace, catalog, RowChangeRequest{
+		OutputID: "patients", RootNodeID: "observation", RootOccurrenceID: "observation",
+	})
+	if err != nil || assessment.Status != RowChangeBlocked || len(assessment.Unresolved) != 1 || assessment.Unresolved[0].Code != "AMBIGUOUS_ROUTE_REBASE_EDGE" {
+		t.Fatalf("duplicate authored inverse assessment=%#v err=%v", assessment, err)
+	}
+	if !reflect.DeepEqual(assessment.Unresolved[0].Alternatives, []string{
+		"observation-patient-focus", "observation-patient-subject", "observation-patient-subject-secondary",
+	}) {
+		t.Fatalf("duplicate inverse alternatives=%#v", assessment.Unresolved[0].Alternatives)
+	}
+
+	assessment, err = AssessRowChange(workspace, catalog, RowChangeRequest{
+		OutputID: "patients", RootNodeID: "observation", RootOccurrenceID: "observation",
+		RouteRebase: []RouteRebaseChoice{{OccurrenceID: RootOccurrenceID, EdgeID: "observation-patient-subject-secondary"}},
+	})
+	if err != nil || assessment.Status != RowChangeReady || assessment.Proposal == nil ||
+		len(assessment.Proposal.RouteRebase) != 1 || assessment.Proposal.RouteRebase[0].EdgeID != "observation-patient-subject-secondary" {
+		t.Fatalf("explicit duplicate inverse selection assessment=%#v err=%v", assessment, err)
+	}
+}
+
+func rowChangeSubjectFocusFixture() (Workspace, CatalogSnapshot) {
+	workspace := rowChangeWorkspace()
+	workspace.Documents[0].Route.Children[0] = RouteNode{
+		OccurrenceID: "observation", ResourceType: "Observation", Relationship: "subject_Patient", CatalogEdgeID: "patient-observation-subject",
+	}
+	for index := range workspace.Documents[0].Columns {
+		if workspace.Documents[0].Columns[index].OccurrenceID == "encounter" {
+			workspace.Documents[0].Columns[index].OccurrenceID = "observation"
+		}
+	}
+	catalog := commandCatalog()
+	catalog.Nodes = append(catalog.Nodes, CatalogNode{ID: "observation", ResourceType: "Observation", RowRootEligible: true})
+	catalog.Edges = append(catalog.Edges,
+		CatalogEdge{ID: "patient-observation-subject", FromNodeID: "patient", ToNodeID: "observation", Label: "subject_Patient"},
+		CatalogEdge{ID: "observation-patient-subject", FromNodeID: "observation", ToNodeID: "patient", Label: "subject_Patient"},
+		CatalogEdge{ID: "observation-patient-focus", FromNodeID: "observation", ToNodeID: "patient", Label: "focus_Patient"},
+	)
+	return workspace, catalog
+}
+
 func TestAssessRowChangeRequiresAnExplicitOccurrenceWhenTheRouteHasDuplicates(t *testing.T) {
 	workspace := rowChangeWorkspace()
 	workspace.Documents[0].Route.Children = append(

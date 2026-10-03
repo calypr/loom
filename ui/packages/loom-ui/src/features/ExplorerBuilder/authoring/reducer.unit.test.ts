@@ -144,6 +144,52 @@ describe('semantic Builder hydration', () => {
     });
   });
 
+  it('treats selecting the current table as a no-op and clears preview when switching tables', () => {
+    const preview = {
+      apiVersion: 'loom.calypr.org/explorer-authoring/v2' as const,
+      kind: 'ExplorerBuilderPreview' as const,
+      rowLineageCapability: { status: 'UNAVAILABLE' as const, reasonCode: 'TEST_FIXTURE' },
+      receiptId: 'receipt_preview',
+      outputId: 'Specimen',
+      columns: [],
+      rows: [{ specimen_identifier: 'sample-1' }],
+      rowCount: 1,
+      diagnostics: [],
+    };
+    const state = {
+      ...stateFromBuilder(ready, {
+        project: 'project',
+        explorerId: 'default',
+      }),
+      preview,
+    };
+
+    const next = builderAuthoringReducer(state, {
+      type: 'selectTable',
+      outputId: 'Specimen',
+    });
+
+    expect(next).toBe(state);
+
+    const secondTable = {
+      ...state.tables[0],
+      outputId: 'Observation',
+      tabId: 'observation',
+      title: 'Observation',
+      document: {
+        ...state.tables[0].document,
+        output: { id: 'Observation', title: 'Observation' },
+      },
+    };
+    const switched = builderAuthoringReducer(
+      { ...state, tables: [...state.tables, secondTable] },
+      { type: 'selectTable', outputId: 'Observation' },
+    );
+
+    expect(switched.selectedOutputId).toBe('Observation');
+    expect(switched.preview).toBeUndefined();
+  });
+
   it('removes configured columns without candidate identity reconciliation', () => {
     const state = stateFromBuilder(
       {
@@ -712,12 +758,13 @@ describe('semantic Builder hydration', () => {
     expect(next.draftVersion).toBe(2);
     expect(next.workspace).toEqual(workspace);
     expect(next.reconciliation).toBe('idle');
+    expect(next.dirty).toBe(false);
 
     const requested = builderAuthoringReducer(next, {
       type: 'requestRecompile',
     });
     expect(requested.reconciliation).toBe('pending');
-    expect(requested.dirty).toBe(true);
+    expect(requested.dirty).toBe(false);
   });
 
   it('preserves the selected traversal node after a table presentation update', () => {

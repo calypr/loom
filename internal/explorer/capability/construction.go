@@ -382,7 +382,7 @@ func NewConstructionRelatedResourceRouteChoiceFromAnchor(
 	if strings.TrimSpace(anchorColumnID) == "" || strings.TrimSpace(anchorKind) == "" || strings.TrimSpace(anchorNodeID) == "" || strings.TrimSpace(anchorResource) == "" {
 		return ConstructionRelatedResourceRouteChoice{}, fmt.Errorf("related-resource route anchor identity is incomplete")
 	}
-	if anchorKind != "root" && anchorKind != "activeRelatedRecord" {
+	if anchorKind != "root" && anchorKind != "rootContributors" && anchorKind != "activeRelatedRecord" {
 		return ConstructionRelatedResourceRouteChoice{}, fmt.Errorf("related-resource route anchor kind %q is unsupported", anchorKind)
 	}
 	if err := validateConstructionRoute(route); err != nil {

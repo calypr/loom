@@ -32,7 +32,7 @@ const command = async (commands) => {
   const response = await fetch(`${authoringURL}/commands`, {
     method: 'POST', headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
-      commandId: crypto.randomUUID(), semanticsVersion: 9,
+      commandId: crypto.randomUUID(), semanticsVersion: 10,
       snapshotToken: before.catalog.snapshotToken,
       expectedDraftVersion: before.draftVersion,
       expectedDraftDigest: before.draftDigest,
@@ -46,6 +46,7 @@ const command = async (commands) => {
 };
 
 const click = async (script, label) => {
+  state.lastActionStarted = Date.now();
   await browserEval(browser.cdp, script);
   state.clicks.push(label);
 };
@@ -59,7 +60,7 @@ const selectTable = async () => {
 
 const preview = async (stage, expectedID) => {
   const started = Date.now();
-  await click(`[...document.querySelectorAll('button')].find(button=>button.textContent?.trim()==='Preview'&&!button.disabled).click();return true;`, `Preview ${stage}`);
+  // Confirmed changes render automatically; wait for the table rather than a removed Preview control.
   await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount') && !document.body.innerText.includes('Loading the preview…')`, 30_000);
   const result = await browserEval(browser.cdp, `const scroll=document.querySelector('[data-testid="preview-table-scroll"]');return {rowCount:scroll.querySelector('[role="table"]')?.getAttribute('aria-rowcount'),headers:[...scroll.querySelectorAll('[role="columnheader"]')].map(cell=>cell.innerText.trim()),rows:[...scroll.querySelectorAll('[role="row"]')].slice(1).map(row=>[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText.trim())).filter(row=>row.length)};`);
   state.timingsMs[stage] = Date.now() - started;
@@ -74,7 +75,7 @@ const preview = async (stage, expectedID) => {
 
 const rawPatients = (ids) => {
   const query = `FOR d IN Patient FILTER d.project == "loom_dev_cda_fhir" AND d.dataset_generation == "cda-fhir-v1" AND d.id IN ${JSON.stringify(ids)} RETURN d.id`;
-  const output = execFileSync('rtk', ['docker', 'exec', 'loom-dev-6d7df93d6a37-arangodb-1', 'arangosh', '--server.database', 'loom_dev', '--javascript.execute-string', `print(JSON.stringify(db._query(${JSON.stringify(query)}).toArray()))`], { encoding: 'utf8', maxBuffer: 200000 });
+  const output = execFileSync('rtk', ['proxy', 'docker', 'exec', 'loom-dev-6d7df93d6a37-arangodb-1', 'arangosh', '--server.database', 'loom_dev', '--javascript.execute-string', `print(JSON.stringify(db._query(${JSON.stringify(query)}).toArray()))`], { encoding: 'utf8', maxBuffer: 200000 });
   return JSON.parse(output.slice(output.indexOf('[')));
 };
 
@@ -94,7 +95,7 @@ const setEquals = async (id, value) => {
   await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid="construction-filter-editor"] input[aria-label="Value"]:not(:disabled)'))`, 30_000);
   await setValue('[data-testid="construction-filter-editor"] input[aria-label="Value"]', value);
   state.clicks.push('Enter Patient ID value');
-  const started = Date.now();
+  const started = state.lastActionStarted ?? Date.now();
   await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status')==='ready' && document.querySelector('[data-testid="construction-proposal-preview"]')?.innerText.includes(${JSON.stringify(value)})`, 30_000);
   const proposed = await browserEval(browser.cdp, `const panel=document.querySelector('[data-testid="construction-proposal-preview"]');return {rows:[...panel.querySelectorAll('tbody tr')].map(row=>[...row.querySelectorAll('td')].map(cell=>cell.innerText.trim())),applyDisabled:document.querySelector('[data-testid="construction-apply-proposal"]')?.disabled};`);
   assert.deepEqual(proposed.rows, [[value]]);

@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"reflect"
+	"slices"
 	"strings"
 	"unicode"
 
@@ -12,58 +12,65 @@ import (
 	"github.com/arangodb/go-driver/v2/utils"
 )
 
-const pivotPreviewIndexPrefix = "loom_pivot_preview_"
-const maxPivotPreviewIndexesPerCollection = 4
+const previewCoveringIndexPrefix = "loom_pivot_preview_"
+const maxPreviewCoveringIndexesPerCollection = 4
 
-var ErrPivotPreviewIndexLimit = errors.New("pivot preview index limit reached")
+var ErrPreviewCoveringIndexLimit = errors.New("preview covering index limit reached")
 
-// EnsurePivotPreviewIndex adds one bounded, compiler-selected covering index.
+// EnsurePreviewCoveringIndex adds one bounded, compiler-selected covering index.
 // The caller's AQL hint is non-forcing, so previews continue on the canonical
 // plan if index preparation is unavailable.
-func (c *Client) EnsurePivotPreviewIndex(ctx context.Context, collection, name string, fields []string) error {
-	if c == nil || !validPivotPreviewIndex(collection, name, fields) {
-		return fmt.Errorf("invalid pivot preview index specification")
+func (c *Client) EnsurePreviewCoveringIndex(ctx context.Context, collection, name string, fields []string) error {
+	if c == nil || !validPreviewCoveringIndex(collection, name, fields) {
+		return fmt.Errorf("invalid preview covering index specification")
 	}
 	c.previewIndexMu.Lock()
 	defer c.previewIndexMu.Unlock()
 
 	col, err := c.db.GetCollection(ctx, collection, nil)
 	if err != nil {
-		return fmt.Errorf("open pivot preview collection: %w", err)
+		return fmt.Errorf("open preview covering collection: %w", err)
 	}
 	indexes, err := col.Indexes(ctx)
 	if err != nil {
-		return fmt.Errorf("list pivot preview indexes: %w", err)
+		return fmt.Errorf("list preview covering indexes: %w", err)
 	}
 	count := 0
 	for _, index := range indexes {
 		if index.Name == name {
-			if index.Type != driver.IndexType("persistent") || index.RegularIndex == nil || !reflect.DeepEqual(index.RegularIndex.Fields, fields) {
-				return fmt.Errorf("pivot preview index name already has different fields")
+			if !previewCoveringIndexMatches(index, fields) {
+				return fmt.Errorf("preview covering index name already has different fields")
 			}
 			return nil
 		}
-		if strings.HasPrefix(index.Name, pivotPreviewIndexPrefix) {
+		if strings.HasPrefix(index.Name, previewCoveringIndexPrefix) {
 			count++
 		}
 	}
-	if count >= maxPivotPreviewIndexesPerCollection {
-		return ErrPivotPreviewIndexLimit
+	if count >= maxPreviewCoveringIndexesPerCollection {
+		return ErrPreviewCoveringIndexLimit
 	}
 	index, _, err := col.EnsurePersistentIndex(ctx, fields, &driver.CreatePersistentIndexOptions{
-		Name: name, Sparse: utils.NewType(false), Unique: utils.NewType(false),
+		Name:   name,
+		Sparse: utils.NewType(false), Unique: utils.NewType(false),
 	})
 	if err != nil {
-		return fmt.Errorf("create pivot preview index: %w", err)
+		return fmt.Errorf("create preview covering index: %w", err)
 	}
-	if index.Name != name || index.RegularIndex == nil || !reflect.DeepEqual(index.RegularIndex.Fields, fields) {
-		return fmt.Errorf("pivot preview covering index was not selected by Arango")
+	if index.Name != name || !previewCoveringIndexMatches(index, fields) {
+		return fmt.Errorf("preview covering index was not selected by Arango")
 	}
 	return nil
 }
 
-func validPivotPreviewIndex(collection, name string, fields []string) bool {
-	if collection == "" || !validIndexPath(collection) || !strings.HasPrefix(name, pivotPreviewIndexPrefix) || !validIndexPath(name) {
+func previewCoveringIndexMatches(index driver.IndexResponse, fields []string) bool {
+	return index.Type == driver.IndexType("persistent") && index.RegularIndex != nil &&
+		index.Unique != nil && !*index.Unique && index.Sparse != nil && !*index.Sparse &&
+		slices.Equal(index.RegularIndex.Fields, fields)
+}
+
+func validPreviewCoveringIndex(collection, name string, fields []string) bool {
+	if collection == "" || !validIndexPath(collection) || !strings.HasPrefix(name, previewCoveringIndexPrefix) || !validIndexPath(name) {
 		return false
 	}
 	if len(fields) < 4 || len(fields) > 32 || fields[0] != "project" || fields[1] != "dataset_generation" {

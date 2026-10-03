@@ -31,9 +31,17 @@ func (d Document) Validate() error {
 		if d.TableShape != nil {
 			return fmt.Errorf("construction and tableShape cannot both define post-source operations")
 		}
-		if err := d.Construction.Validate(d.Columns); err != nil {
-			return fmt.Errorf("construction: %w", err)
+		var constructionErr error
+		if d.Rows.Kind == RowDefinitionGroups && d.Rows.Groups != nil && d.Rows.Groups.Source.Kind == GroupSourceExplicit {
+			constructionErr = d.Construction.ValidateWithExplicitGroups(d.Columns, d.Rows.Groups)
+		} else {
+			constructionErr = d.Construction.Validate(d.Columns)
 		}
+		if constructionErr != nil {
+			return fmt.Errorf("construction: %w", constructionErr)
+		}
+	} else if d.Rows.Kind == RowDefinitionGroups && d.Rows.Groups != nil && d.Rows.Groups.Source.Kind == GroupSourceExplicit && d.Rows.Groups.AfterStepID != "" {
+		return fmt.Errorf("rows.groups.afterStepId requires an authored construction step")
 	} else if err := d.TableShape.Validate(d.Columns); err != nil {
 		return fmt.Errorf("tableShape: %w", err)
 	}
@@ -187,6 +195,9 @@ func (c CatalogSnapshot) Validate() error {
 	for i, e := range c.Edges {
 		if emptyID(e.ID) || nodes[e.FromNodeID].ID == "" || nodes[e.ToNodeID].ID == "" {
 			return fmt.Errorf("edges[%d] has stale node reference", i)
+		}
+		if e.StorageDirection != "" && e.StorageDirection != "INBOUND" && e.StorageDirection != "OUTBOUND" {
+			return fmt.Errorf("edges[%d] has an unsupported storageDirection", i)
 		}
 		if _, ok := edges[e.ID]; ok {
 			return fmt.Errorf("duplicate catalog edge %q", e.ID)

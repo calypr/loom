@@ -18,10 +18,11 @@ const maxConstructionChoiceProposalChoices = 100
 // command. Title is presentation input and remains optional, just like the
 // command itself.
 type ConstructionChoiceProposalSelection struct {
-	ChoiceID string                            `json:"choiceId"`
-	Form     capability.ConstructionChoiceForm `json:"form"`
-	FrameID  string                            `json:"frameId,omitempty"`
-	Title    *string                           `json:"title,omitempty"`
+	RowValuePolicy authoringv2.ConstructionRowValuePolicy `json:"rowValuePolicy,omitempty"`
+	ChoiceID       string                                 `json:"choiceId"`
+	Form           capability.ConstructionChoiceForm      `json:"form"`
+	FrameID        string                                 `json:"frameId,omitempty"`
+	Title          *string                                `json:"title,omitempty"`
 }
 
 type ConstructionChoiceProposalRequest struct {
@@ -132,7 +133,7 @@ func (s *Service) ProposeConstructionChoice(ctx context.Context, request Constru
 		}
 		commands[index] = authoringv2.Command{
 			Type: authoringv2.CommandApplyConstructionChoice, OutputID: request.OutputID, Title: title,
-			ConstructionChoice: &authoringv2.ConstructionChoiceSelection{ChoiceID: selection.ChoiceID, Form: selection.Form, FrameID: selection.FrameID},
+			ConstructionChoice: &authoringv2.ConstructionChoiceSelection{ChoiceID: selection.ChoiceID, Form: selection.Form, FrameID: selection.FrameID, RowValuePolicy: selection.RowValuePolicy},
 		}
 	}
 	applyRequest := authoringv2.ApplyCommandsRequest{

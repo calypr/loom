@@ -22,6 +22,9 @@ export const sourceProjectionAvailability = (
       reason: 'Loom could not confirm that source columns preserve this table’s row identity.',
     };
   }
+  if (finalStage.capabilities.some((capability) => capability.kind === 'ROW_VALUES' && capability.supported)) {
+    return { available: true, reason: 'Source values are populated from the records contributing to each grouped row.' };
+  }
   if (source.rowIdentityColumn !== finalStage.rowIdentityColumn) {
     return {
       available: false,

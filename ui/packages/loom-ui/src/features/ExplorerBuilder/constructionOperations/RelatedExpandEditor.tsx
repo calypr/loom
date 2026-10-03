@@ -11,7 +11,8 @@ import type {
 } from '../../../types';
 import { constructionSchema } from '../../../types';
 import { RelatedExpandContributorEditor, type ContributorChoice, type ContributorCondition } from './RelatedExpandContributorEditor';
-import { relationshipLabel, routeMeaning } from '../constructionWorkspace/routeDisplay';
+import { routePath } from '../constructionWorkspace/routeDisplay';
+import { TraversalPath } from '../constructionWorkspace/TraversalPath';
 
 type RelatedExpandOperation = Extract<ConstructionOperation, { readonly kind: 'RELATED_EXPAND' }>;
 type RelatedExpandStep = Omit<ConstructionStep, 'operation'> & { readonly operation: RelatedExpandOperation };
@@ -21,9 +22,10 @@ type EmptyPolicy = NonNullable<RelatedExpandOperation['relatedExpand']['emptyPol
 
 const newId = (prefix: string): string => `${prefix}_${globalThis.crypto.randomUUID()}`;
 
-const routeLabel = (choice: RouteChoice): string => choice.route.map((hop) => {
-  return `${hop.fromResourceType} to ${hop.toResourceType} through ${relationshipLabel(hop).toLowerCase() || 'relationship'}`;
-}).join(' then ');
+const contributorQuantifier = (choice: ContributorChoice) =>
+  choice.source.cardinality === 'many' ? { quantifier: 'ANY' as const } : {};
+
+const routeLabel = (choice: RouteChoice): string => routePath(choice.route);
 
 const availableColumnName = (base: string, columns: ReadonlyArray<{ readonly name: string }>): string => {
   const used = new Set(columns.map((column) => column.name.toLowerCase()));
@@ -33,9 +35,9 @@ const availableColumnName = (base: string, columns: ReadonlyArray<{ readonly nam
 };
 
 const emptyMatchEffect: Record<EmptyPolicy, string> = {
-  PRESERVE_PARENT: 'A parent with no match stays as one row with no related record ID.',
-  EXCLUDE: 'A parent with no match is left out.',
-  ERROR: 'The preview stops if a parent has no match.',
+  PRESERVE_PARENT: 'Keep that current row once, with no related record ID.',
+  EXCLUDE: 'Leave that current row out.',
+  ERROR: 'Stop with an error if any current row has no match.',
 };
 
 const choicesMatchRequest = (
@@ -87,8 +89,8 @@ const candidateFor = (
   const contributorRule = condition.kind === 'ALL'
     ? { policy: 'ALL_MATCHES' as const }
     : { policy: 'ALL_MATCHES' as const, predicate: condition.kind === 'EXISTS'
-      ? { candidateId: condition.choice.source.candidateId, operator: 'EXISTS' as const }
-      : { candidateId: condition.choice.source.candidateId, operator: 'EQUALS' as const,
+      ? { candidateId: condition.choice.source.candidateId, ...contributorQuantifier(condition.choice), operator: 'EXISTS' as const }
+      : { candidateId: condition.choice.source.candidateId, ...contributorQuantifier(condition.choice), operator: 'EQUALS' as const,
         value: condition.choice.source.logicalType === 'code'
           ? { kind: 'CODE' as const, code: { code: condition.value.trim() } }
           : { kind: 'STRING' as const, string: condition.value.trim() } } };
@@ -194,8 +196,6 @@ export const RelatedExpandEditor = ({
   });
   const [contributorOptionsOpen, setContributorOptionsOpen] = useState(condition.kind !== 'ALL');
   const [choices, setChoices] = useState<ReadonlyArray<RouteChoice>>([]);
-  const [cursor, setCursor] = useState<string | undefined>();
-  const moreController = useRef<AbortController | undefined>(undefined);
   const requestVersion = useRef(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -205,36 +205,49 @@ export const RelatedExpandEditor = ({
   const [outputLabel, setOutputLabel] = useState(savedOutput?.label ?? '');
   const targetTypes = [...new Set(catalog.nodes.map((node) => node.resourceType))].sort();
   const selectedAnchor = anchors.find((anchor) => anchor.anchorColumnId === anchorColumnId);
+  const startingAnchorLabel = selectedAnchor?.label ?? anchors[0]?.label;
   const matchingRowEffect = condition.kind === 'ALL'
-    ? `Each matching ${targetResourceType} record gets its own row.`
-    : `Each ${targetResourceType} record that meets your condition gets its own row.`;
+    ? `For each current row, make one row for each matching ${targetResourceType} record.`
+    : `For each current row, make one row for each ${targetResourceType} record that meets the selected condition.`;
+  const noMatchDescription = targetResourceType
+    ? `If a current row has no matching ${targetResourceType} records: `
+    : 'If a current row has no matching records: ';
   const expansionEffect = !targetResourceType
-    ? 'Each matching related record gets its own row. Multiple matches produce multiple rows.'
+    ? `Example: one current row with three matching records becomes three rows. Existing values on the current row repeat on each new row. ${noMatchDescription}${emptyMatchEffect[emptyPolicy]}`
     : condition.kind === 'CHOOSE'
-      ? 'Choose a condition in Which related records count? to preview the expansion.'
-      : `${matchingRowEffect} Multiple matches produce multiple rows. Existing columns stay on each row. ${emptyMatchEffect[emptyPolicy]}`;
-
-  useEffect(() => () => moreController.current?.abort(), [targetResourceType, stage.id, anchorColumnId]);
+      ? `Choose which ${targetResourceType} records count in the condition below. ${noMatchDescription}${emptyMatchEffect[emptyPolicy]}`
+      : `${matchingRowEffect} Existing values on the current row repeat on each new row. After Apply, choose fields from the matched records in Add columns. ${noMatchDescription}${emptyMatchEffect[emptyPolicy]}`;
 
   useEffect(() => {
-    if (!targetResourceType || !anchorColumnId) return;
+    if (disabled || !targetResourceType || !anchorColumnId) return;
     const controller = new AbortController();
     const version = ++requestVersion.current;
     setLoading(true);
     setError('');
-    void client.searchRelatedExpandChoices({
-      project, explorerId, authResourcePath, snapshotToken, outputId,
-      expectedDraftVersion: capabilities.draftVersion,
-      expectedDraftDigest: capabilities.draftDigest,
-      stageId: stage.id, anchorColumnId, targetResourceType, limit: 10,
-    }, controller.signal).then((result) => {
-      if (controller.signal.aborted || version !== requestVersion.current) return;
-      if (!choicesMatchRequest(result, snapshotToken, capabilities.draftVersion, capabilities.draftDigest, outputId, stage.id, anchorColumnId, targetResourceType)) {
-        throw new Error('The available paths changed. Reload this table before expanding records.');
-      }
-      setChoices(result.choices);
-      setCursor(result.nextCursor);
-    }).catch((cause: unknown) => {
+    setChoices([]);
+    void (async () => {
+      let cursor: string | undefined;
+      const seenCursors = new Set<string>();
+      const paths: RouteChoice[] = [];
+      do {
+        const result = await client.searchRelatedExpandChoices({
+          project, explorerId, authResourcePath, snapshotToken, outputId,
+          expectedDraftVersion: capabilities.draftVersion,
+          expectedDraftDigest: capabilities.draftDigest,
+          stageId: stage.id, anchorColumnId, targetResourceType, limit: 50,
+          ...(cursor ? { cursor } : {}),
+        }, controller.signal);
+        if (controller.signal.aborted || version !== requestVersion.current) return;
+        if (!choicesMatchRequest(result, snapshotToken, capabilities.draftVersion, capabilities.draftDigest, outputId, stage.id, anchorColumnId, targetResourceType)) {
+          throw new Error('The available paths changed. Reload this table before expanding records.');
+        }
+        paths.push(...result.choices);
+        setChoices([...paths]);
+        cursor = result.nextCursor;
+        if (cursor && seenCursors.has(cursor)) throw new Error('Could not finish loading relationship paths. Reopen this editor to retry.');
+        if (cursor) seenCursors.add(cursor);
+      } while (cursor);
+    })().catch((cause: unknown) => {
       if (!controller.signal.aborted && version === requestVersion.current) {
         setError(cause instanceof Error ? cause.message : 'Could not load related paths.');
       }
@@ -242,7 +255,7 @@ export const RelatedExpandEditor = ({
       if (!controller.signal.aborted && version === requestVersion.current) setLoading(false);
     });
     return () => controller.abort();
-  }, [client, project, explorerId, authResourcePath, snapshotToken, outputId, capabilities.draftVersion, capabilities.draftDigest, stage.id, anchorColumnId, targetResourceType]);
+  }, [client, project, explorerId, authResourcePath, snapshotToken, outputId, capabilities.draftVersion, capabilities.draftDigest, stage.id, anchorColumnId, targetResourceType, disabled]);
 
   const emit = (
     nextChoice = choice,
@@ -255,75 +268,83 @@ export const RelatedExpandEditor = ({
     nextChoice, anchorColumnId, nextCondition, nextEmptyPolicy, nextName, nextLabel,
   ));
 
-  const loadMore = async () => {
-    if (!cursor || !targetResourceType || !anchorColumnId || loading) return;
-    moreController.current?.abort();
-    const controller = new AbortController();
-    moreController.current = controller;
-    const version = requestVersion.current;
-    setLoading(true);
-    setError('');
-    try {
-      const result = await client.searchRelatedExpandChoices({
-        project, explorerId, authResourcePath, snapshotToken, outputId,
-        expectedDraftVersion: capabilities.draftVersion,
-        expectedDraftDigest: capabilities.draftDigest,
-        stageId: stage.id, anchorColumnId, targetResourceType, limit: 10, cursor,
-      }, controller.signal);
-      if (controller.signal.aborted || version !== requestVersion.current) return;
-      if (!choicesMatchRequest(result, snapshotToken, capabilities.draftVersion, capabilities.draftDigest, outputId, stage.id, anchorColumnId, targetResourceType)) {
-        throw new Error('The available paths changed. Reload this table before expanding records.');
-      }
-      setChoices((current) => [...current, ...result.choices]);
-      setCursor(result.nextCursor);
-    } catch (cause) {
-      if (!controller.signal.aborted && version === requestVersion.current) {
-        setError(cause instanceof Error ? cause.message : 'Could not load more paths.');
-      }
-    } finally {
-      if (!controller.signal.aborted && version === requestVersion.current) setLoading(false);
-    }
-  };
-
   const listedRoutes = [...choices, ...(choice && !choices.some((item) => item.choiceId === choice.choiceId) ? [choice] : [])];
   const shortestRoute = Math.min(...listedRoutes.map((item) => item.route.length));
-  const visibleRoutes = listedRoutes.filter((item) => item.route.length === shortestRoute || item.choiceId === choice?.choiceId);
-  const otherRoutes = listedRoutes.filter((item) => item.route.length > shortestRoute && item.choiceId !== choice?.choiceId);
+  const visibleRoutes = choice ? listedRoutes.filter((item) => item.choiceId === choice.choiceId) : listedRoutes.filter((item) => item.route.length === shortestRoute);
+  const otherRoutes = listedRoutes.filter((item) => !visibleRoutes.some((visible) => visible.choiceId === item.choiceId));
   const renderRoute = (item: RouteChoice) => (
     <label key={item.choiceId} className="flex gap-2 rounded border border-slate-200 bg-white p-2">
       <input type="radio" name={`related-expand-route-${stepId}`} aria-label={routeLabel(item)} checked={choice?.choiceId === item.choiceId}
         disabled={disabled} onChange={() => { setChoice(item); setCondition({ kind: 'ALL' }); emit(item, emptyPolicy, outputName, outputLabel, { kind: 'ALL' }); }} />
       <span className="grid gap-1">
-        <span>{routeLabel(item)}</span>
-        <span className="text-xs text-slate-600">{routeMeaning(item.route)}</span>
+        <TraversalPath route={item.route} referenceRoute={choice?.route ?? listedRoutes[0]?.route} />
       </span>
     </label>
   );
 
   return (
-    <div className="grid gap-4 rounded-lg border border-slate-200 bg-slate-50 p-4" data-testid="construction-related-expand-editor">
+    <div className="scroll-mt-20 grid gap-4 rounded-lg border border-slate-200 bg-slate-50 p-4" data-testid="construction-related-expand-editor">
       <div>
-        <h4 className="font-semibold text-slate-900">One row per related record</h4>
-        <p className="mt-1 text-sm text-slate-600">Choose a related record type and path. Every matching record becomes a row.</p>
+        <h4 className="font-semibold text-slate-900">Make a row for each related record</h4>
+        <p className="mt-1 text-sm text-slate-600">Choose the records you want each row to describe. Follow a relationship from a record already in the row, then make a separate row for each matching record.</p>
       </div>
+      <section aria-label="How related records change the table" className="grid gap-3 rounded-lg border border-slate-200 bg-white p-3 sm:grid-cols-2">
+        <div>
+          <h5 className="text-sm font-semibold text-slate-900">Rows before and after</h5>
+          <p className="mt-1 text-sm text-slate-700">Example: a Patient row links to two Observations.</p>
+          <div className="mt-2 grid gap-1 text-sm text-slate-700">
+            <p><span className="font-semibold">Before:</span> Patient A</p>
+            <p><span className="font-semibold">After:</span> Patient A + Observation 1</p>
+            <p className="pl-11">Patient A + Observation 2</p>
+          </div>
+          <p className="mt-2 text-xs text-slate-600">Existing column values repeat in both rows. Choose below what happens when there are no matches.</p>
+        </div>
+        <div>
+          <h5 className="text-sm font-semibold text-slate-900">Fields you can add</h5>
+          <p className="mt-1 text-sm text-slate-700">{targetResourceType
+            ? `After applying, Add columns offers fields from the matching ${targetResourceType} record in each row.`
+            : 'After applying, Add columns offers fields from the matching related record in each row.'}</p>
+          <p className="mt-2 text-xs text-slate-600">For example, each Observation row can have its own measurement value. Choosing a different record type or relationship path changes which records those fields come from.</p>
+        </div>
+      </section>
       {anchors.length === 0 ? <p role="status" className="text-sm text-slate-600">
         Loom has not confirmed a starting record for this stage. Reload the table to check available paths.
       </p> : null}
+      {anchors.length > 1 ? (
+        <label className="grid gap-1 text-sm font-medium text-slate-800">
+          Start from
+          <select aria-label="Start from" value={anchorColumnId} disabled={disabled} onChange={(event) => {
+            requestVersion.current += 1;
+            setAnchorColumnId(event.target.value);
+            setChoice(undefined);
+            setCondition({ kind: 'ALL' });
+            setChoices([]);
+            onCandidateChange(undefined);
+          }} className="rounded border border-slate-300 bg-white px-3 py-2">
+            {anchors.map((anchor) => <option key={anchor.anchorColumnId} value={anchor.anchorColumnId}>{anchor.label}</option>)}
+          </select>
+          <span className="text-xs font-normal text-slate-600">Relationship paths below start from this record.</span>
+        </label>
+      ) : startingAnchorLabel ? (
+        <div className="grid gap-1 text-sm text-slate-800">
+          <span className="font-medium">Start from</span>
+          <span>{startingAnchorLabel}</span>
+          <span className="text-xs text-slate-600">Relationship paths below start from this record.</span>
+        </div>
+      ) : null}
       <label className="grid gap-1 text-sm font-medium text-slate-800">
         Related record type
-        <select value={targetResourceType} disabled={disabled || anchors.length === 0} onChange={(event) => {
+        <select aria-label="Related record type" value={targetResourceType} disabled={disabled || anchors.length === 0} onChange={(event) => {
           const target = event.target.value;
           requestVersion.current += 1;
-          moreController.current?.abort();
           setTargetResourceType(target);
           setChoice(undefined);
           setCondition({ kind: 'ALL' });
           setChoices([]);
-          setCursor(undefined);
           const suggested = availableColumnName(`related_${target.toLowerCase()}_id`, stage.columns);
           setOutputName(suggested);
           setOutputLabel(`${target} FHIR resource ID`);
-          emit(undefined, emptyPolicy, suggested, `${target} FHIR resource ID`);
+          onCandidateChange(undefined);
         }} className="rounded border border-slate-300 bg-white px-3 py-2">
           <option value="">Choose a record type</option>
           {targetTypes.map((target) => <option key={target} value={target}>{target}</option>)}
@@ -331,23 +352,38 @@ export const RelatedExpandEditor = ({
       </label>
       {loading ? <p role="status" className="text-sm text-slate-600">Finding supported paths…</p> : null}
       {error ? <p role="alert" className="text-sm text-red-800">{error}</p> : null}
-      {targetResourceType && !loading && choices.length === 0 && !choice && !cursor && !error
+      {targetResourceType && !loading && choices.length === 0 && !choice && !error
         ? <p role="status" className="text-sm text-slate-600">No supported path reaches this record type from these rows.</p>
         : null}
-      {choices.length > 0 || choice || cursor ? (
+      {choices.length > 0 || choice ? (
         <fieldset className="grid gap-2 text-sm">
-          <legend className="font-medium text-slate-800">Relationship path</legend>
+          <legend className="font-medium text-slate-800">{choice ? 'Selected relationship path' : 'Choose a relationship path'}</legend>
+          <p className="text-xs text-slate-600">Each path begins at {selectedAnchor?.label ?? 'the selected starting record'} and leads to {targetResourceType} records.</p>
           {visibleRoutes.map(renderRoute)}
           {otherRoutes.length > 0 ? (
             <details data-testid="construction-related-expand-other-routes" className="rounded border border-slate-200 bg-white p-2">
               <summary className="cursor-pointer font-medium text-blue-800">Other relationship paths ({otherRoutes.length})</summary>
+              <p className="mt-2 text-xs text-slate-600"><span className="rounded bg-amber-100 px-1.5 py-0.5 text-amber-950">Highlighted segments</span> differ from {choice ? 'the selected path' : 'the shortest path'}. Select a path to use it.</p>
               <div className="mt-2 grid gap-2">{otherRoutes.map(renderRoute)}</div>
             </details>
           ) : null}
-          {cursor ? <button type="button" disabled={disabled || loading} onClick={() => void loadMore()} className="justify-self-start text-blue-800">Load more paths</button> : null}
+
         </fieldset>
       ) : null}
-      <p role="status" data-testid="construction-related-expand-effect" className="text-sm text-slate-600">
+      <label className="grid gap-1 text-sm font-medium text-slate-800">
+        If a current row has no matches
+        <select aria-label="If a current row has no matches" value={emptyPolicy} disabled={disabled} onChange={(event) => {
+          const next = event.target.value as EmptyPolicy;
+          setEmptyPolicy(next);
+          emit(choice, next);
+        }} className="rounded border border-slate-300 bg-white px-3 py-2">
+          <option value="EXCLUDE">Leave that current row out</option>
+          <option value="PRESERVE_PARENT">Keep that current row once, with no related record ID</option>
+          <option value="ERROR">Stop with an error if any current row has no match</option>
+        </select>
+      </label>
+      <p role="status" data-testid="construction-related-expand-effect" className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-slate-700">
+        <span className="mb-1 block font-semibold text-slate-900">What will change</span>
         {selectedAnchor ? `Starting from ${selectedAnchor.label}. ` : ''}{expansionEffect}
       </p>
       {choice ? (
@@ -367,6 +403,7 @@ export const RelatedExpandEditor = ({
               snapshotToken={snapshotToken} draftVersion={capabilities.draftVersion} draftDigest={capabilities.draftDigest}
               outputId={outputId} stageId={stage.id} routeChoiceId={choice.choiceId}
               targetNodeId={choice.targetNodeId} targetResourceType={choice.targetResourceType}
+              allowRepeatedFields
               condition={condition} disabled={disabled}
               onChange={(nextCondition) => { setCondition(nextCondition); emit(choice, emptyPolicy, outputName, outputLabel, nextCondition); }}
             />
@@ -376,34 +413,7 @@ export const RelatedExpandEditor = ({
       <details data-testid="construction-related-expand-advanced" className="rounded-lg border border-slate-200">
         <summary className="cursor-pointer px-3 py-2 text-sm font-medium text-slate-700">Advanced options</summary>
         <div className="grid gap-3 p-3 pt-0">
-          {anchors.length > 1 ? <label className="grid gap-1 text-sm font-medium text-slate-800">
-            Start from
-            <select value={anchorColumnId} disabled={disabled} onChange={(event) => {
-              requestVersion.current += 1;
-              moreController.current?.abort();
-              setAnchorColumnId(event.target.value);
-              setChoice(undefined);
-              setCondition({ kind: 'ALL' });
-              setChoices([]);
-              setCursor(undefined);
-              onCandidateChange(undefined);
-            }} className="rounded border border-slate-300 bg-white px-3 py-2">
-              {anchors.map((anchor) => <option key={anchor.anchorColumnId} value={anchor.anchorColumnId}>{anchor.label}</option>)}
-            </select>
-          </label> : null}
-          <label className="grid gap-1 text-sm font-medium text-slate-800">
-            When a parent has no matching record
-            <select value={emptyPolicy} disabled={disabled} onChange={(event) => {
-              const next = event.target.value as EmptyPolicy;
-              setEmptyPolicy(next);
-              emit(choice, next);
-            }} className="rounded border border-slate-300 bg-white px-3 py-2">
-              <option value="EXCLUDE">Omit that parent</option>
-              <option value="PRESERVE_PARENT">Keep one row with no related record</option>
-              <option value="ERROR">Stop if any parent has no match</option>
-            </select>
-          </label>
-          <label className="grid gap-1 text-sm font-medium text-slate-800">Related FHIR resource ID column
+          <label className="grid gap-1 text-sm font-medium text-slate-800">Related record ID column
             <input value={outputName} disabled={disabled} onChange={(event) => {
               setOutputName(event.target.value);
               emit(choice, emptyPolicy, event.target.value);

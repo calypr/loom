@@ -11,6 +11,7 @@ import (
 func lowerConstructionGroup(
 	plan *ir.PhysicalPlan,
 	group recipe.ConstructionGroup,
+	rowValues []recipe.ConstructionRowValue,
 	declarations []recipe.StageColumn,
 	input map[string]CompiledOutputColumn,
 	outputs map[string]recipe.StageColumn,
@@ -109,6 +110,18 @@ func lowerConstructionGroup(
 		projectionByOutputID[output.ID] = ir.PhysicalProjection{Name: output.Name, Value: ir.PhysicalValue{Variable: physicalAggregate.Variable}}
 		physical.Aggregates = append(physical.Aggregates, physicalAggregate)
 	}
+	physicalRowValues, rowValueColumns, err := lowerConstructionRowValues(
+		rowValues, input, outputs, group.ConstructionID, usedVariables, stepIndex,
+	)
+	if err != nil {
+		return ir.PhysicalStageGroup{}, nil, nil, err
+	}
+	physical.RowValues = physicalRowValues
+	for index, rowValue := range physicalRowValues {
+		column := rowValueColumns[index]
+		metadataByOutputID[column.ID] = column
+		projectionByOutputID[column.ID] = ir.PhysicalProjection{Name: column.Name, Value: ir.PhysicalValue{Variable: rowValue.Variable}}
+	}
 	compiled := make([]CompiledOutputColumn, 0, len(declarations)+1)
 	projections := make([]ir.PhysicalProjection, 0, len(declarations)+1)
 	for _, declaration := range declarations {
@@ -127,6 +140,106 @@ func lowerConstructionGroup(
 		Name: constructionRowID, Hidden: true, Value: ir.PhysicalValue{Variable: physical.IdentityVariable},
 	})
 	return physical, projections, compiled, nil
+}
+
+func lowerConstructionRowValues(
+	rowValues []recipe.ConstructionRowValue,
+	input map[string]CompiledOutputColumn,
+	outputs map[string]recipe.StageColumn,
+	constructionID string,
+	usedVariables map[string]bool,
+	stepIndex int,
+) ([]ir.PhysicalStageRowValue, []CompiledOutputColumn, error) {
+	physical := make([]ir.PhysicalStageRowValue, 0, len(rowValues))
+	compiled := make([]CompiledOutputColumn, 0, len(rowValues))
+	for _, rowValue := range rowValues {
+		inputColumn, ok := input[rowValue.InputColumnID]
+		if !ok || inputColumn.Internal {
+			return nil, nil, fmt.Errorf("row value input column ID %q is not public", rowValue.InputColumnID)
+		}
+		inputKind, scalar := constructionRowValueKind(inputColumn.Kind)
+		if !scalar {
+			return nil, nil, fmt.Errorf("row value input column %q has unsupported scalar or array item type %q", inputColumn.Name, inputColumn.Kind)
+		}
+		output, ok := outputs[rowValue.OutputColumnID]
+		if !ok {
+			return nil, nil, fmt.Errorf("row value output column ID %q is missing from step schema", rowValue.OutputColumnID)
+		}
+		if output.Type != "" && output.Type != "INFER" {
+			want := inputColumn.Kind
+			if rowValue.Policy == recipe.ConstructionRowValueAll {
+				want = "array"
+			}
+			if output.Type != want {
+				return nil, nil, fmt.Errorf("row value output %q type %q does not match inferred type %q", output.ID, output.Type, want)
+			}
+		}
+		many := inputColumn.Cardinality == string(expression.Many)
+		cardinality, nullable := string(expression.OptionalOne), true
+		if rowValue.Policy == recipe.ConstructionRowValueAll {
+			cardinality, nullable = string(expression.Many), false
+		}
+		if rowValue.Policy != recipe.ConstructionRowValueAll && rowValue.Policy != recipe.ConstructionRowValueOne {
+			return nil, nil, fmt.Errorf("row value policy %q is unsupported", rowValue.Policy)
+		}
+		physical = append(physical, ir.PhysicalStageRowValue{
+			InputColumn: inputColumn.Name, InputKind: inputKind, InputMany: many,
+			Output: output.Name, Policy: string(rowValue.Policy),
+			Variable: allocateConstructionVariable(usedVariables, "row_value", stepIndex),
+		})
+		compiled = append(compiled, CompiledOutputColumn{
+			ID: output.ID, Name: output.Name, Label: constructionFirstNonEmpty(output.Label, output.Name),
+			SemanticPath: "construction_row_value:" + constructionID + ":" + inputColumn.SemanticPath,
+			Kind:         inputColumn.Kind, Cardinality: cardinality, Nullable: nullable,
+		})
+	}
+	return physical, compiled, nil
+}
+
+func constructionRowValueKind(kind string) (string, bool) {
+	if scalar, ok := tableReshapeScalarKind(kind); ok {
+		return scalar, true
+	}
+	if expression.ValueKind(kind) == expression.KindObject {
+		return "OBJECT", true
+	}
+	return "", false
+}
+
+func constructionSourceRowValueProjections(plan *ir.PhysicalPlan, rowValues []ir.PhysicalStageRowValue) ([]ir.PhysicalProjection, error) {
+	if len(rowValues) == 0 {
+		return nil, nil
+	}
+	var sourceReturn *ir.PhysicalReturn
+	for index := len(plan.Operations) - 1; index >= 0; index-- {
+		operation := plan.Operations[index]
+		if operation.Kind == ir.PhysicalReturnOp && operation.Return != nil {
+			sourceReturn = operation.Return
+			break
+		}
+	}
+	if sourceReturn == nil {
+		return nil, fmt.Errorf("row values require a resolved source projection")
+	}
+	byName := make(map[string]ir.PhysicalProjection, len(sourceReturn.Projections))
+	for _, projection := range sourceReturn.Projections {
+		byName[projection.Name] = projection
+	}
+	seen := make(map[string]bool, len(rowValues))
+	projections := make([]ir.PhysicalProjection, 0, len(rowValues))
+	for _, rowValue := range rowValues {
+		if seen[rowValue.InputColumn] {
+			continue
+		}
+		projection, ok := byName[rowValue.InputColumn]
+		if !ok {
+			return nil, fmt.Errorf("row value source column %q has no resolved source projection", rowValue.InputColumn)
+		}
+		projection.Hidden = true
+		projections = append(projections, projection)
+		seen[rowValue.InputColumn] = true
+	}
+	return projections, nil
 }
 
 func lowerConstructionExpand(

@@ -17,6 +17,7 @@ import (
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
+	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 	"github.com/calypr/loom/internal/projectid"
 )
 
@@ -299,9 +300,9 @@ func (s *Service) SearchRelatedFieldChoices(ctx context.Context, request Related
 	return result, nil
 }
 
-// SearchRelatedExpandContributorChoices lists compiler-proved direct scalar
-// fields on the selected route's exact terminal resource. The route token and
-// catalog suggestions are bound to the current draft, snapshot, and stage.
+// SearchRelatedExpandContributorChoices lists compiler-proved scalar leaves,
+// including explicitly bounded repeated leaves, on the route's terminal resource.
+// The route token and catalog suggestions are bound to the current draft, snapshot, and stage.
 func (s *Service) SearchRelatedExpandContributorChoices(ctx context.Context, request RelatedExpandContributorChoiceSearchRequest) (RelatedExpandContributorChoiceSearchResponse, error) {
 	result := RelatedExpandContributorChoiceSearchResponse{
 		SnapshotToken: request.SnapshotToken, OutputID: request.OutputID, StageID: request.StageID,
@@ -376,9 +377,7 @@ func (s *Service) SearchRelatedExpandContributorChoices(ctx context.Context, req
 	query := strings.ToLower(request.Query)
 	for _, candidate := range base.snapshot.Candidates {
 		if candidate.NodeID != selected.NodeID || candidate.ResourceType != selected.ResourceType ||
-			!relatedContributorCandidateCardinality(candidate.Cardinality) ||
-			len(candidate.RepeatedBoundaries) != 0 || !containsProjectionMode(candidate.ProjectionModes, capability.ProjectionScalar) ||
-			!relatedFieldPathExecutable(candidate.FieldPath) || !relatedFieldLogicalTypeExecutable(candidate.LogicalType) {
+			!relatedContributorCandidateExecutable(candidate) {
 			continue
 		}
 		if query != "" && !strings.Contains(strings.ToLower(candidate.Label), query) && !strings.Contains(strings.ToLower(candidate.FieldPath), query) {
@@ -409,8 +408,7 @@ func (s *Service) SearchRelatedExpandContributorChoices(ctx context.Context, req
 	for _, candidate := range candidates[offset:end] {
 		proved, proofErr := proveConstructionCandidate(ctx, base.authorized, anchor.ResourceType, candidate, resolvedRoute)
 		if proofErr != nil || proved.NodeID != selected.NodeID || proved.ResourceType != selected.ResourceType ||
-			(proved.Cardinality != "optional_one" && proved.Cardinality != "required_one") || len(proved.RepeatedBoundaries) != 0 ||
-			!relatedFieldPathExecutable(proved.FieldPath) || !relatedFieldLogicalTypeExecutable(proved.LogicalType) {
+			!relatedContributorCandidateExecutable(proved) {
 			continue
 		}
 		choice, choiceErr := capability.NewFieldConstructionChoiceForRoute(base.snapshot.Token, resolvedRoute, proved)
@@ -427,7 +425,7 @@ func (s *Service) SearchRelatedExpandContributorChoices(ctx context.Context, req
 			Source: authoringv2.ConstructionRelatedFieldSource{
 				Kind: capability.ConstructionChoiceSourceField, CandidateID: proved.ID, NodeID: proved.NodeID,
 				ResourceType: proved.ResourceType, Path: proved.FieldPath, Cardinality: proved.Cardinality,
-				LogicalType: proved.LogicalType,
+				LogicalType: proved.LogicalType, RepeatedBoundaries: append([]capability.RepeatedBoundary(nil), proved.RepeatedBoundaries...),
 			},
 			Operators: operators, SuggestedValues: append([]string{}, proved.SuggestedValues...),
 			SuggestionsComplete: proved.SuggestionsComplete, SuggestionsTruncated: proved.SuggestionsTruncated,
@@ -451,8 +449,77 @@ func (s *Service) SearchRelatedExpandContributorChoices(ctx context.Context, req
 
 func relatedContributorCandidateCardinality(value string) bool {
 	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "optional_one", "required_one":
+	case "optional_one", "required_one", "many":
 		return true
+	default:
+		return false
+	}
+}
+
+func relatedContributorCandidateExecutable(candidate capability.Candidate) bool {
+	if !relatedContributorCandidateCardinality(candidate.Cardinality) || !relatedFieldLogicalTypeExecutable(candidate.LogicalType) {
+		return false
+	}
+	selector, err := spec.ParseSelector(candidate.FieldPath)
+	if err != nil || selector.Filter != nil || selector.CanonicalPath() != candidate.FieldPath {
+		return false
+	}
+	repeated := strings.EqualFold(strings.TrimSpace(candidate.Cardinality), "many")
+	if repeated {
+		if len(candidate.RepeatedBoundaries) == 0 || !relatedContributorRepeatedBoundariesMatch(selector, candidate.RepeatedBoundaries) {
+			return false
+		}
+	} else if len(candidate.RepeatedBoundaries) != 0 || !containsProjectionMode(candidate.ProjectionModes, capability.ProjectionScalar) {
+		return false
+	}
+	metadata, ok := fhirschema.ResolveTerminalScalarMetadata(candidate.ResourceType, selector.CanonicalPath())
+	if !ok || metadata.Primitive == fhirschema.PrimitiveUnknown || metadata.Repeated != repeated {
+		return false
+	}
+	return relatedContributorLogicalTypeMatches(candidate.LogicalType, metadata.Primitive)
+}
+
+func relatedContributorRepeatedBoundariesMatch(selector spec.Selector, boundaries []capability.RepeatedBoundary) bool {
+	want := make([]string, 0, len(boundaries))
+	path := make([]string, 0, len(selector.Steps))
+	for _, step := range selector.Steps {
+		if step.Index != nil {
+			return false
+		}
+		segment := step.Field
+		if step.Iterate {
+			segment += "[]"
+		}
+		path = append(path, segment)
+		if step.Iterate {
+			want = append(want, strings.Join(path, "."))
+		}
+	}
+	if len(want) != len(boundaries) {
+		return false
+	}
+	for index, boundary := range boundaries {
+		if boundary.Path != want[index] || boundary.MaxItems < 0 {
+			return false
+		}
+	}
+	return len(want) != 0
+}
+
+func relatedContributorLogicalTypeMatches(logicalType string, primitive fhirschema.PrimitiveKind) bool {
+	switch primitive {
+	case fhirschema.PrimitiveString:
+		return strings.EqualFold(logicalType, "string") || strings.EqualFold(logicalType, "code") || strings.EqualFold(logicalType, "uuid")
+	case fhirschema.PrimitiveDate:
+		return strings.EqualFold(logicalType, "date")
+	case fhirschema.PrimitiveDateTime:
+		return strings.EqualFold(logicalType, "date_time")
+	case fhirschema.PrimitiveBoolean:
+		return strings.EqualFold(logicalType, "boolean")
+	case fhirschema.PrimitiveInteger:
+		return strings.EqualFold(logicalType, "integer")
+	case fhirschema.PrimitiveDecimal:
+		return strings.EqualFold(logicalType, "decimal")
 	default:
 		return false
 	}
@@ -641,8 +708,10 @@ func resolveRelatedExpandAnchor(snapshot capability.Snapshot, stage explorer.Rec
 			ResourceType: anchor.ResourceType, Label: anchor.Label,
 		}
 		switch anchor.Kind {
-		case "root":
-			if anchor.AnchorColumnID != "_key" || anchor.ResourceType != rootResourceType || rootResourceType == "" {
+		case "root", "rootContributors":
+			if anchor.ResourceType != rootResourceType || rootResourceType == "" ||
+				anchor.Kind == "root" && (anchor.AnchorColumnID != "_key" || anchor.NodeID != "") ||
+				anchor.Kind == "rootContributors" && (anchor.AnchorColumnID != "__loom_root_contributor_keys" || anchor.NodeID != "") {
 				return resolvedRelatedExpandAnchor{}, fmt.Errorf("compiler root anchor differs from the output root resource")
 			}
 			for _, node := range snapshot.Nodes {

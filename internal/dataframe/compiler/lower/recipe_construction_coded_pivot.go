@@ -13,7 +13,9 @@ import (
 func lowerConstructionCodedPivot(
 	plan *ir.PhysicalPlan,
 	pivot recipe.ConstructionCodedPivot,
+	rowValues []recipe.ConstructionRowValue,
 	declarations []recipe.StageColumn,
+	input map[string]CompiledOutputColumn,
 	inputIdentity, rootResourceType, inputRow string,
 	usedVariables map[string]bool,
 	stepIndex int,
@@ -74,10 +76,22 @@ func lowerConstructionCodedPivot(
 		DuplicatePolicy: string(pivot.DuplicatePolicy), MissingCellPolicy: string(pivot.MissingCellPolicy),
 		UnlistedCategoryPolicy: "IGNORE", CodedSourceVariable: rootScan.Variable,
 	}
+	physicalRowValues, rowValueColumns, err := lowerConstructionRowValues(
+		rowValues, input, outputs, pivot.ConstructionID, usedVariables, stepIndex,
+	)
+	if err != nil {
+		return ir.PhysicalGroupedPivot{}, nil, nil, err
+	}
+	physical.RowValues = physicalRowValues
+	rowValueProjections, err := constructionSourceRowValueProjections(plan, physical.RowValues)
+	if err != nil {
+		return ir.PhysicalGroupedPivot{}, nil, nil, err
+	}
+	physical.InputProjections = append(physical.InputProjections, rowValueProjections...)
 
 	seenPairs, seenOutputs := map[string]bool{}, map[string]bool{}
-	compiled := make([]CompiledOutputColumn, 0, len(pivot.Categories))
-	projections := make([]ir.PhysicalProjection, 0, len(pivot.Categories)+2)
+	compiled := make([]CompiledOutputColumn, 0, len(pivot.Categories)+len(rowValueColumns))
+	projections := make([]ir.PhysicalProjection, 0, len(pivot.Categories)+len(rowValueColumns)+2)
 	for index, category := range pivot.Categories {
 		declaration, found := outputs[category.OutputColumnID]
 		if !found || strings.TrimSpace(category.System) == "" || strings.TrimSpace(category.Code) == "" {
@@ -116,6 +130,12 @@ func lowerConstructionCodedPivot(
 			Name: declaration.Name, Value: ir.PhysicalValue{Variable: physical.OutputRowVariable, Path: []string{declaration.Name}},
 		})
 	}
+	for _, column := range rowValueColumns {
+		compiled = append(compiled, column)
+		projections = append(projections, ir.PhysicalProjection{
+			Name: column.Name, Value: ir.PhysicalValue{Variable: physical.OutputRowVariable, Path: []string{column.Name}},
+		})
+	}
 	projections = append(projections,
 		ir.PhysicalProjection{Name: "_key", Hidden: true, Value: ir.PhysicalValue{Variable: physical.OutputRowVariable, Path: []string{"_key"}}},
 		ir.PhysicalProjection{Name: constructionRowID, Hidden: true, Value: ir.PhysicalValue{Variable: physical.OutputRowVariable, Path: []string{constructionRowID}}},
@@ -134,7 +154,8 @@ func reconcileConstructionCodedPivotSchema(declarations []recipe.StageColumn, co
 		if !ok {
 			return nil, fmt.Errorf("CODED_PIVOT output ID %q name %q has no physical category", declaration.ID, declaration.Name)
 		}
-		if declaration.Type != "" && declaration.Type != "INFER" && declaration.Type != column.Kind {
+		if declaration.Type != "" && declaration.Type != "INFER" && declaration.Type != column.Kind &&
+			!(declaration.Type == "array" && column.Cardinality == string(expression.Many)) {
 			return nil, fmt.Errorf("CODED_PIVOT output %q type %q does not match source type %q", declaration.ID, declaration.Type, column.Kind)
 		}
 		if _, exists := input[declaration.ID]; exists {

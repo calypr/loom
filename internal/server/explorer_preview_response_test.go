@@ -158,6 +158,7 @@ func TestPreviewErrorPreservesStableClassifications(t *testing.T) {
 		{"plan", dataframeerrors.NewError(dataframeerrors.CodePlanTooExpensive, "private"), http.StatusTooManyRequests, "PLAN_TOO_EXPENSIVE"},
 		{"relationship-cardinality", dataframeerrors.NewError(dataframeerrors.CodeRelationshipCardinalityViolation, "private"), http.StatusUnprocessableEntity, "RELATIONSHIP_CARDINALITY_VIOLATION"},
 		{"construction-expansion-empty", dataframeerrors.NewError(dataframeerrors.CodeConstructionExpansionEmpty, ""), http.StatusUnprocessableEntity, "CONSTRUCTION_EXPANSION_EMPTY"},
+		{"explicit-group-unassigned", dataframeerrors.NewError(dataframeerrors.CodeExplicitGroupUnassignedMember, ""), http.StatusUnprocessableEntity, "EXPLICIT_GROUP_UNASSIGNED_MEMBER"},
 		{"pivot-cell-cardinality", dataframeerrors.NewError(dataframeerrors.CodeTablePivotCellCardinality, ""), http.StatusUnprocessableEntity, "TABLE_PIVOT_CELL_CARDINALITY"},
 		{"pivot-unlisted-category", dataframeerrors.NewError(dataframeerrors.ErrorCode("TABLE_PIVOT_UNLISTED_CATEGORY"), ""), http.StatusUnprocessableEntity, "TABLE_PIVOT_UNLISTED_CATEGORY"},
 		{"temporal-anchor", dataframeerrors.NewError(dataframeerrors.CodeTemporalAnchorInvalid, "private"), http.StatusUnprocessableEntity, "TEMPORAL_ANCHOR_INVALID"},
@@ -185,7 +186,7 @@ func TestConstructionExpansionEmptyPreviewErrorIsActionable(t *testing.T) {
 	if !errors.As(previewRouteError(dataframeerrors.NewError(dataframeerrors.CodeConstructionExpansionEmpty, "")), &got) {
 		t.Fatal("previewRouteError() did not return an authoring error")
 	}
-	want := "a list is empty for at least one row; choose 'Drop the original row' or 'Keep the row with a missing item', or populate the list"
+	want := "At least one row has an empty list or no matching related records. Choose 'Drop the original row' or 'Keep the row with a missing item' for lists, or 'Leave that current row out' or 'Keep that current row once, with no related record ID' for related records."
 	if got.Status != http.StatusUnprocessableEntity || got.Diagnostic.Code != string(dataframeerrors.CodeConstructionExpansionEmpty) || got.Diagnostic.Message != want {
 		t.Fatalf("diagnostic = %#v, want 422 %s with actionable message", got.Diagnostic, dataframeerrors.CodeConstructionExpansionEmpty)
 	}

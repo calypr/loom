@@ -6,6 +6,42 @@ pstack skill only when the task needs one. Do not load `pstack:poteto-mode` as
 the automatic entry point. Follow a different skill when the user explicitly
 requests it.
 
+## Sol execution and Luna delegation
+
+Sol owns execution: maintain a working understanding of the goal, current
+state, architecture, dependencies, and evidence. Delegate work without
+outsourcing that understanding or final judgment.
+
+- Proactively offload bounded investigation and implementation to
+  `gpt-6-luna` at `xhigh` reasoning. Suitable work includes source and caller
+  inventories, hypothesis checks, focused fixes, verifier scripts, fixtures,
+  tests, mechanical refactors, and documentation with a clear brief.
+- Keep task decomposition, cross-cutting product and architecture decisions,
+  integration order, acceptance of changes, and final communication with Sol.
+  Sol must inspect consequential source and executable evidence rather than
+  accepting worker summaries as proof.
+- Give each worker an outcome, relevant context, invariants, file ownership,
+  allowed runtime actions, and a concrete verification target. Workers may
+  investigate an open question, but must return material ownership or design
+  choices to Sol before committing the project to them.
+- Aggressively delegate menial and bounded work to Luna xhigh. Default to
+  the maximum useful parallelism supported by available agent slots and
+  independent work; there is no fixed worker cap or conservative worker budget.
+  Keep workers supplied with ready tasks as they finish rather than making Sol
+  perform work Luna can handle. Do not create redundant or conflicting work
+  merely to occupy slots. This overrides worker-count limits in inherited
+  workflow guidance, including Peter mode. Keep the configured Sol reasoning
+  effort; delegation does not change the running root model.
+- Parallelize work with disjoint ownership. Sol coordinates shared files,
+  canonical worklists, integration, deployments, and mutable runtime state;
+  a worker may perform those actions when explicitly assigned sole ownership.
+- Serialize browser performance runs and shared database verification. Prepare
+  incomplete production patches outside the watched deployment and integrate
+  compiler-complete changes before freezing source for live verification.
+- Sol may handle a small task directly when delegation costs more than the
+  work, or when the next action requires its current context or judgment.
+  Otherwise, prefer giving the work to Luna and reviewing the result.
+
 ## Verification skills
 
 - For the local Compose Builder, load `.codex/skills/verify/SKILL.md` and run

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/calypr/loom/internal/dataframe/compiler"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
@@ -63,6 +64,88 @@ func testResolvedBundle(dynamicColumns []string) recipe.Bundle {
 				Name: "identifier", Source: recipe.Expression{Select: "root.identifier[].value"},
 				Columns: dynamicColumns,
 			}},
+		}},
+	}
+}
+
+func TestCohortPreviewDoesNotInventSingleSourceIdentityOrPageItsInput(t *testing.T) {
+	for _, test := range []struct {
+		name         string
+		rootPageRows int
+	}{
+		{name: "grouped preview identity"},
+		{name: "complete cohort input", rootPageRows: 1},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			engine, err := New(Config{
+				Registry:     invalidRecipeRegistry{},
+				ScopeDigest:  func(recipe.RuntimeBindings) string { return "test-scope" },
+				QueryRows:    func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil },
+				RootPageRows: test.rootPageRows,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			bindings := recipe.RuntimeBindings{
+				Project: "cohort-preview-project", SelectionProject: "cohort-preview-project",
+				DatasetGeneration: "cohort-preview-generation", PreviewLimit: 25, IncludeSourceIdentity: true,
+			}
+			resolved, err := engine.CompileResolvedBundle(context.Background(), testCohortCompositionBundle(), bindings)
+			if err != nil {
+				t.Fatalf("compile cohort receipt bundle: %v", err)
+			}
+			if len(resolved.Compiled.Outputs) != 1 || resolved.Compiled.Outputs[0].Plan.StageSequence == nil {
+				t.Fatal("cohort output has no typed stage sequence")
+			}
+			foundCohortStage := false
+			for _, stage := range resolved.Compiled.Outputs[0].Plan.StageSequence.Stages {
+				foundCohortStage = foundCohortStage || stage.Kind == ir.PhysicalStageCohortGroupOp
+			}
+			if !foundCohortStage {
+				t.Fatal("cohort output has no typed COHORT_GROUP stage")
+			}
+			stream, query, err := engine.streamForOutput(resolved, "Cohort", 25)
+			if err != nil {
+				t.Fatalf("compile cohort preview plan: %v", err)
+			}
+			if stream.page != nil {
+				t.Fatal("cohort preview paged roots before completing the group aggregation")
+			}
+			if strings.Contains(query.Query, "__loom_source_resource_id") {
+				t.Fatal("cohort preview assigned one scalar source identity to a multi-member group")
+			}
+			if !strings.Contains(query.Query, "group_revision_id") {
+				t.Fatal("cohort preview query omitted its grouped-row identity")
+			}
+		})
+	}
+}
+
+func testCohortCompositionBundle() recipe.Bundle {
+	value := "patient-a"
+	return recipe.Bundle{
+		RecipeSchemaVersion: recipe.CurrentSchemaVersion,
+		Name:                "cohort preview",
+		TranslationVersion:  "test",
+		Outputs: []recipe.Output{{
+			Name: "Cohort", RootResourceType: "Patient", RowGrain: "groups",
+			Fields: []recipe.Field{{Name: "id", ColumnID: "patient_id", Expr: recipe.Expression{Select: "root.id"}}},
+			Construction: &recipe.Construction{
+				Version:       1,
+				SourceColumns: []recipe.StageColumn{{ID: "patient_id", Name: "id", Type: "string"}},
+				Steps: []recipe.ConstructionStep{{
+					ID: "keep_patient", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
+					Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionFilterOp, Filter: &recipe.ConstructionFilter{
+						ColumnID: "patient_id", Operator: recipe.FilterEquals,
+						Values: []recipe.FilterValue{{Kind: recipe.FilterString, String: &value}},
+					}},
+					Outputs: []recipe.StageColumn{{ID: "patient_id", Name: "id", Type: "string"}},
+				}},
+			},
+			GroupRows: &recipe.GroupRows{
+				RevisionID: "grouprev_preview", AfterStepID: "keep_patient", UnassignedMemberPolicy: "EXCLUDE",
+				RowValues: []recipe.GroupRowValuePolicy{{ColumnID: "patient_id", Policy: recipe.ConstructionRowValueAll}},
+			},
 		}},
 	}
 }
@@ -195,6 +278,13 @@ func TestPreviewSourceClassificationDoesNotRecoverSingleAfterGroup(t *testing.T)
 	if got := previewSourceIdentityMode(output, querySchema); got != previewSourceComposite {
 		t.Fatalf("RELATED_EXPAND source mode = %q, want COMPOSITE", got)
 	}
+	output = lower.CompiledRecipeOutput{Stages: []lower.CompiledStageDescriptor{
+		{Operation: string(ir.PhysicalStageCohortGroupOp)},
+		{Operation: string(recipe.ConstructionFilterOp)},
+	}}
+	if got := previewSourceIdentityMode(output, querySchema); got != previewSourceComposite {
+		t.Fatalf("COHORT_GROUP followed by FILTER source mode = %q, want COMPOSITE", got)
+	}
 	output = lower.CompiledRecipeOutput{Stages: []lower.CompiledStageDescriptor{{Operation: string(recipe.ConstructionCodedGroupOp)}}}
 	if got := previewSourceIdentityMode(output, querySchema); got != previewSourceComposite {
 		t.Fatalf("CODED_GROUP source mode = %q, want COMPOSITE", got)
@@ -289,6 +379,189 @@ func TestPreviewOutputUsesPreviewExecutorWithoutChangingOrdinaryStreams(t *testi
 	}
 	if previewCalls != 1 || ordinaryCalls != 1 {
 		t.Fatalf("after ordinary stream: preview calls=%d ordinary calls=%d", previewCalls, ordinaryCalls)
+	}
+}
+
+func TestPreviewOutputDefersOnlyGroupIndexPreparation(t *testing.T) {
+	groupOutput := executionGroupPreviewOutput()
+	queryFinished := make(chan struct{})
+	prepared := make(chan bool, 1)
+	groupEngine, err := New(Config{
+		Registry:    invalidRecipeRegistry{},
+		ScopeDigest: func(recipe.RuntimeBindings) string { return "test-scope" },
+		QueryRows:   func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil },
+		PreviewQueryRows: func(_ context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+			defer close(queryFinished)
+			return visit(map[string]any{"status": "final", "rows": 1})
+		},
+		PreparePreviewIndex: func(_ context.Context, spec compiler.PreviewCoveringIndexSpec) error {
+			select {
+			case <-queryFinished:
+				prepared <- spec.PrepareAfterPreview
+			default:
+				prepared <- false
+			}
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	groupResolved, err := groupEngine.CompileResolvedBundle(context.Background(), recipe.Bundle{
+		RecipeSchemaVersion: recipe.CurrentSchemaVersion,
+		Name:                groupOutput.Name,
+		TranslationVersion:  "test",
+		Outputs:             []recipe.Output{groupOutput},
+	}, recipe.RuntimeBindings{Project: "P1", DatasetGeneration: "G1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := groupEngine.PreviewOutput(context.Background(), groupResolved, PreviewRequest{Output: groupOutput.Name, Limit: 1}, func(map[string]any) error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case afterQuery := <-prepared:
+		if !afterQuery {
+			t.Fatal("Group index preparation started before the preview query completed")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("successful Group preview did not schedule index preparation")
+	}
+
+	for _, test := range []struct {
+		name              string
+		rows              QueryRows
+		cancelDuringQuery bool
+	}{
+		{name: "query failure", rows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error {
+			return errors.New("query failed")
+		}},
+		{name: "canceled", cancelDuringQuery: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			prepareCalls := make(chan struct{}, 1)
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			rows := test.rows
+			if test.cancelDuringQuery {
+				rows = func(context.Context, string, int, map[string]any, func(map[string]any) error) error {
+					cancel()
+					return context.Canceled
+				}
+			}
+			engine, err := New(Config{
+				Registry:         invalidRecipeRegistry{},
+				ScopeDigest:      func(recipe.RuntimeBindings) string { return "test-scope" },
+				QueryRows:        func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil },
+				PreviewQueryRows: rows,
+				PreparePreviewIndex: func(context.Context, compiler.PreviewCoveringIndexSpec) error {
+					prepareCalls <- struct{}{}
+					return nil
+				},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			resolved, err := engine.CompileResolvedBundle(context.Background(), recipe.Bundle{
+				RecipeSchemaVersion: recipe.CurrentSchemaVersion,
+				Name:                groupOutput.Name,
+				TranslationVersion:  "test",
+				Outputs:             []recipe.Output{groupOutput},
+			}, recipe.RuntimeBindings{Project: "P1", DatasetGeneration: "G1"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := engine.PreviewOutput(ctx, resolved, PreviewRequest{Output: groupOutput.Name, Limit: 1}, func(map[string]any) error { return nil }); err == nil {
+				t.Fatal("preview returned no error")
+			}
+			select {
+			case <-prepareCalls:
+				t.Fatal("failed or canceled Group preview scheduled index preparation")
+			case <-time.After(25 * time.Millisecond):
+			}
+		})
+	}
+
+	pivotOutput := executionPivotPreviewOutput()
+	preparedBeforeQuery := false
+	pivotEngine, err := New(Config{
+		Registry:    invalidRecipeRegistry{},
+		ScopeDigest: func(recipe.RuntimeBindings) string { return "test-scope" },
+		QueryRows:   func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil },
+		PreparePreviewIndex: func(context.Context, compiler.PreviewCoveringIndexSpec) error {
+			preparedBeforeQuery = true
+			return nil
+		},
+		PreviewQueryRows: func(_ context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+			if !preparedBeforeQuery {
+				return errors.New("Pivot query started before its index preparation")
+			}
+			return visit(map[string]any{"resource_id": "r1", "female_amount": 1, "male_amount": nil})
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	pivotResolved, err := pivotEngine.CompileResolvedBundle(context.Background(), recipe.Bundle{
+		RecipeSchemaVersion: recipe.CurrentSchemaVersion,
+		Name:                pivotOutput.Name,
+		TranslationVersion:  "test",
+		Outputs:             []recipe.Output{pivotOutput},
+	}, recipe.RuntimeBindings{Project: "P1", DatasetGeneration: "G1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pivotEngine.PreviewOutput(context.Background(), pivotResolved, PreviewRequest{Output: pivotOutput.Name, Limit: 1}, func(map[string]any) error { return nil }); err != nil {
+		t.Fatalf("Pivot preview did not retain synchronous index preparation: %v", err)
+	}
+}
+
+func executionGroupPreviewOutput() recipe.Output {
+	return recipe.Output{
+		Name: "group_preview", RootResourceType: "Observation", RowGrain: "observation",
+		Fields: []recipe.Field{{Name: "status", ColumnID: "status_id", Expr: recipe.Expression{Select: "root.status"}}},
+		Construction: &recipe.Construction{
+			Version:       1,
+			SourceColumns: []recipe.StageColumn{{ID: "status_id", Name: "status"}},
+			Steps: []recipe.ConstructionStep{{
+				ID: "group_status", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
+				Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionGroupOp, Group: &recipe.ConstructionGroup{
+					ConstructionID: "group_status",
+					Keys:           []recipe.ConstructionGroupKey{{InputColumnID: "status_id", OutputColumnID: "grouped_status_id"}},
+					Aggregates:     []recipe.ConstructionGroupAggregate{{Operation: recipe.ConstructionGroupCountRows, OutputColumnID: "rows_id"}},
+				}},
+				Outputs: []recipe.StageColumn{{ID: "grouped_status_id", Name: "status"}, {ID: "rows_id", Name: "rows", Type: "integer"}},
+			}},
+		},
+	}
+}
+
+func executionPivotPreviewOutput() recipe.Output {
+	female, male := "female", "male"
+	return recipe.Output{
+		Name: "pivot_preview", RootResourceType: "Patient", RowGrain: "patient",
+		Fields: []recipe.Field{
+			{Name: "resource_id", ColumnID: "id_id", Expr: recipe.Expression{Select: "root.gender"}},
+			{Name: "category", ColumnID: "category_id", Expr: recipe.Expression{Select: "root.gender"}},
+			{Name: "amount", ColumnID: "amount_id", Expr: recipe.Expression{Select: "root.multipleBirthInteger"}},
+		},
+		Construction: &recipe.Construction{
+			Version:       1,
+			SourceColumns: []recipe.StageColumn{{ID: "id_id", Name: "resource_id"}, {ID: "category_id", Name: "category"}, {ID: "amount_id", Name: "amount"}},
+			Steps: []recipe.ConstructionStep{{
+				ID: "pivot_rows", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
+				Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionPivotOp, Pivot: &recipe.ConstructionPivot{
+					ConstructionID: "pivot_rows", GroupKeyIDs: []string{"id_id"}, CategoryColumnID: "category_id", ValueColumnID: "amount_id",
+					Categories: []recipe.ConstructionPivotCategory{
+						{Key: recipe.TableScalar{Kind: recipe.TableScalarString, String: &female}, OutputColumnID: "female_amount_id"},
+						{Key: recipe.TableScalar{Kind: recipe.TableScalarString, String: &male}, OutputColumnID: "male_amount_id"},
+					},
+					DuplicatePolicy: recipe.PivotDuplicateError, MissingCellPolicy: recipe.PivotMissingCellNull,
+					UnlistedCategoryPolicy: recipe.PivotUnlistedCategoryError,
+				}},
+				Outputs: []recipe.StageColumn{{ID: "id_id", Name: "resource_id"}, {ID: "female_amount_id", Name: "female_amount"}, {ID: "male_amount_id", Name: "male_amount"}},
+			}},
+		},
 	}
 }
 
@@ -710,5 +983,45 @@ func TestCompileResolvedBundleRejectsUnresolvedDynamicDeclarations(t *testing.T)
 	}
 	if len(resolved.Compiled.Outputs) != 1 {
 		t.Fatalf("compiled outputs = %d, want 1", len(resolved.Compiled.Outputs))
+	}
+}
+
+func TestAdaptiveRelatedPreviewPagesPreserveSparseRoots(t *testing.T) {
+	keys := []string{"a", "b", "c", "d", "e", "f", "g", "h"}
+	var sizes []int
+	var visited []string
+	stream := OutputStream{rootPageRows: 4, initialRootPageRows: 1, page: &compiler.CompiledOutputPage{}}
+	stream.stream = func(_ context.Context, _ string, _ int, binds map[string]any, visit func(map[string]any) error) error {
+		if after, ok := binds[compiler.RootPageAfterKeyBind].(string); ok {
+			size := binds[compiler.RootPageSizeBind].(int)
+			sizes = append(sizes, size)
+			count := 0
+			for _, key := range keys {
+				if key <= after || count >= size {
+					continue
+				}
+				if err := visit(map[string]any{"_key": key}); err != nil {
+					return err
+				}
+				count++
+			}
+			return nil
+		}
+		for _, key := range binds[compiler.RootPageKeysBind].([]string) {
+			visited = append(visited, key)
+			if key == "g" || key == "h" {
+				if err := visit(map[string]any{"id": key}); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	}
+	var rows []string
+	if err := stream.streamRaw(context.Background(), func(row map[string]any) error { rows = append(rows, row["id"].(string)); return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if fmt.Sprint(visited) != fmt.Sprint(keys) || fmt.Sprint(rows) != "[g h]" || fmt.Sprint(sizes) != "[1 2 4 1 1]" {
+		t.Fatalf("visited=%v rows=%v page sizes=%v", visited, rows, sizes)
 	}
 }

@@ -7,9 +7,11 @@ import (
 	"fmt"
 	"reflect"
 	"sort"
+	"strings"
 	"testing"
 
 	"github.com/calypr/loom/internal/dataframe/compiler"
+	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
@@ -36,7 +38,7 @@ func TestProposeTableShapeBindsCandidateReceiptWithoutMutatingDraft(t *testing.T
 	if proposal.ProposalID == "" || proposal.CandidateWorkspaceDigest == "" || proposal.Mode != TableShapeProposalAdd {
 		t.Fatalf("proposal identity = %#v", proposal)
 	}
-	if proposal.Comparison.Status != TableShapeComparisonUnavailable || proposal.Comparison.ReasonCode != "PREVIEW_UNAVAILABLE" {
+	if proposal.Comparison.Status != TableShapeComparisonAvailable {
 		t.Fatalf("comparison status = %#v", proposal.Comparison)
 	}
 	if len(compileBindings) != 1 || compileBindings[0] == nil {
@@ -64,6 +66,154 @@ func TestProposeTableShapeBindsCandidateReceiptWithoutMutatingDraft(t *testing.T
 	}
 	if err := tableShapeWorkspaceUnchanged(workspace, store.created); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestProposeTableShapeRequiresPreviewConfiguration(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		configure func(*Service)
+	}{
+		{name: "preview executor is absent", configure: func(service *Service) {
+			service.config.PreviewReceipt = nil
+		}},
+		{name: "execution authorization is absent", configure: func(service *Service) {
+			service.config.Capability.ForExecution = nil
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			service, store, snapshot, _ := tableShapeProposalService(t)
+			request := tableShapeProposalRequest(t, service, store.created, snapshot, TableShapeProposalAdd)
+			test.configure(service)
+			compileCalls := 0
+			compile := service.config.CompileReceipt
+			service.config.CompileReceipt = func(ctx context.Context, request CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+				compileCalls++
+				return compile(ctx, request)
+			}
+			before := append([]byte(nil), store.created.DraftConfig...)
+			version, digest := store.created.DraftVersion, store.created.DraftDigest
+			_, err := service.ProposeTableShape(context.Background(), request)
+			if !proposalErrorIs(err, ClassUnavailable, "PREVIEW_UNAVAILABLE") {
+				t.Fatalf("missing table-shape preview configuration error = %v", err)
+			}
+			if compileCalls != 0 || store.saveDraftCalls != 0 || store.created.DraftVersion != version || store.created.DraftDigest != digest || string(before) != string(store.created.DraftConfig) {
+				t.Fatalf("missing preview configuration compiled or mutated state: compiles=%d saves=%d owner=%#v", compileCalls, store.saveDraftCalls, store.created)
+			}
+		})
+	}
+}
+
+func TestCompareTableShapeReceiptsRejectsMissingOutputContract(t *testing.T) {
+	service, store, snapshot, _ := tableShapeProposalService(t)
+	request := tableShapeProposalBaseRequest(t, service, store.created, snapshot, TableShapeProposalAdd)
+	request.OutputID = "missing-output"
+	if store.receipt == nil {
+		t.Fatal("base table-shape receipt was not loaded")
+	}
+	_, err := service.compareTableShapeReceipts(context.Background(), request, snapshot, store.receipt, store.receipt, 25, &tableShapeProposalTimings{})
+	if !proposalErrorIs(err, ClassInternal, "PREVIEW_OUTPUT_INVALID") {
+		t.Fatalf("missing output contract error = %v, want internal receipt failure", err)
+	}
+	var lifecycleErr *Error
+	if !errors.As(err, &lifecycleErr) || lifecycleErr.Cause == nil {
+		t.Fatalf("missing output contract did not preserve its cause: %#v", err)
+	}
+}
+
+func TestProposeTableShapeCandidateFeatureErrorReturnsValidationError(t *testing.T) {
+	service, store, snapshot, _ := tableShapeProposalService(t)
+	request := tableShapeProposalRequest(t, service, store.created, snapshot, TableShapeProposalAdd)
+	featureFailure := dataframeerrors.NewError(dataframeerrors.CodeTablePivotCellCardinality, "")
+	service.config.PreviewReceipt = func(_ context.Context, receipt *explorer.CompilationReceipt, _ recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+		if receipt.TableShapeProposal != nil {
+			return dataframeexecution.PreviewSummary{}, featureFailure
+		}
+		if err := visit(map[string]any{"__loom_row_id": "row-1", "value": int64(1)}); err != nil {
+			return dataframeexecution.PreviewSummary{}, err
+		}
+		return dataframeexecution.PreviewSummary{Columns: []string{"value"}, RowCount: 1, Complete: true}, nil
+	}
+	before := append([]byte(nil), store.created.DraftConfig...)
+	version, digest := store.created.DraftVersion, store.created.DraftDigest
+	proposal, err := service.ProposeTableShape(context.Background(), request)
+	var lifecycleErr *Error
+	if proposal.ProposalID != "" || !proposalErrorIs(err, ClassUnprocessable, string(dataframeerrors.CodeTablePivotCellCardinality)) || !errors.As(err, &lifecycleErr) || lifecycleErr.Message != dataframeerrors.PublicMessage(featureFailure) || !errors.Is(err, featureFailure) {
+		t.Fatalf("candidate table-shape feature error = proposal %#v, error %v; want caused unprocessable feature error", proposal, err)
+	}
+	if store.saveDraftCalls != 0 || store.created.DraftVersion != version || store.created.DraftDigest != digest || string(before) != string(store.created.DraftConfig) {
+		t.Fatalf("candidate feature error mutated the draft: saves=%d owner=%#v", store.saveDraftCalls, store.created)
+	}
+}
+
+func TestProposeTableShapePreviewFailuresPropagate(t *testing.T) {
+	for _, test := range []struct {
+		name         string
+		failAt       string
+		identityFail bool
+		duplicateID  bool
+		wantCode     string
+		wantCause    bool
+	}{
+		{name: "base executor failure", failAt: "base", wantCode: "BASE_PREVIEW_FAILED", wantCause: true},
+		{name: "candidate executor failure", failAt: "candidate", wantCode: "CANDIDATE_PREVIEW_FAILED", wantCause: true},
+		{name: "candidate identity failure", failAt: "candidate", identityFail: true, wantCode: "CANDIDATE_PREVIEW_FAILED"},
+		{name: "candidate duplicate identity", failAt: "candidate", duplicateID: true, wantCode: "CANDIDATE_PREVIEW_FAILED"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			service, store, snapshot, _ := tableShapeProposalService(t)
+			request := tableShapeProposalRequest(t, service, store.created, snapshot, TableShapeProposalAdd)
+			executorFailure := errors.New("preview backend failed")
+			service.config.PreviewReceipt = func(_ context.Context, receipt *explorer.CompilationReceipt, _ recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+				stage := "base"
+				if receipt.TableShapeProposal != nil {
+					stage = "candidate"
+				}
+				summary := dataframeexecution.PreviewSummary{Columns: []string{"value"}, RowCount: 1, Complete: true}
+				if stage == test.failAt {
+					if test.identityFail {
+						return summary, visit(map[string]any{"value": int64(1)})
+					}
+					if test.duplicateID {
+						row := map[string]any{"__loom_row_id": "row-1", "value": int64(1)}
+						if err := visit(row); err != nil {
+							return summary, err
+						}
+						return summary, visit(row)
+					}
+					return summary, fmt.Errorf("preview execution failed: %w", executorFailure)
+				}
+				if err := visit(map[string]any{"__loom_row_id": "row-1", "value": int64(1)}); err != nil {
+					return summary, err
+				}
+				return summary, nil
+			}
+			before := append([]byte(nil), store.created.DraftConfig...)
+			version, digest := store.created.DraftVersion, store.created.DraftDigest
+			proposal, err := service.ProposeTableShape(context.Background(), request)
+			if !proposalErrorIs(err, ClassInternal, test.wantCode) {
+				t.Fatalf("table-shape preview error = %v, want internal %s", err, test.wantCode)
+			}
+			if proposal.ProposalID != "" {
+				t.Fatalf("failed table-shape preview issued proposal %q", proposal.ProposalID)
+			}
+			var lifecycleErr *Error
+			if !errors.As(err, &lifecycleErr) || lifecycleErr.Class != ClassInternal || lifecycleErr.Cause == nil {
+				t.Fatalf("table-shape preview error did not preserve its cause: %#v", err)
+			}
+			if test.wantCause && !errors.Is(err, executorFailure) {
+				t.Fatalf("table-shape preview error lost executor cause: %v", err)
+			}
+			if test.identityFail && !strings.Contains(lifecycleErr.Cause.Error(), "stable identity") {
+				t.Fatalf("table-shape identity error cause = %v", lifecycleErr.Cause)
+			}
+			if test.duplicateID && !strings.Contains(lifecycleErr.Cause.Error(), "duplicate stable row identity") {
+				t.Fatalf("table-shape duplicate-identity cause = %v", lifecycleErr.Cause)
+			}
+			if store.saveDraftCalls != 0 || store.created.DraftVersion != version || store.created.DraftDigest != digest || string(before) != string(store.created.DraftConfig) {
+				t.Fatalf("table-shape preview failure mutated the draft: saves=%d owner=%#v", store.saveDraftCalls, store.created)
+			}
+		})
 	}
 }
 
@@ -862,6 +1012,7 @@ func tableShapeProposalServiceWithShape(t *testing.T, saved *authoringv2.TableSh
 		store.receipt = receipt
 		return receipt, nil
 	}
+	setSingleValueTableShapePreview(service)
 	return service, store, snapshot
 }
 

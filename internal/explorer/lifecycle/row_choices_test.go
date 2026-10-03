@@ -67,6 +67,71 @@ func TestSchemaRowChoiceResolverListsEveryAuthoredOccurrenceAndPinsItsRoute(t *t
 	}
 }
 
+func TestSchemaRowChoiceResolverUsesAuthorizedRepeatedBoundaries(t *testing.T) {
+	index, err := fhirschema.NewIndex([]fhirschema.Definition{
+		{Name: "Observation", Elements: []fhirschema.Element{{
+			Name: "component", JSONType: fhirschema.JSONTypeArray, ArrayElementType: "ObservationComponent",
+		}}},
+		{Name: "ObservationComponent", Elements: []fhirschema.Element{{
+			Name: "valueString", JSONType: "string",
+		}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolver, err := NewSchemaRowChoiceResolver(index)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot := capability.NewSnapshot(
+		capability.SnapshotIdentity{
+			Project: "project-a", Generation: "generation-a", AuthorizationScopeDigest: "scope-digest",
+			SchemaDigest: "schema-digest", ResourceInventoryDigest: "inventory", RelationshipDigest: "relationship",
+			FieldDigest: "field", ShapeDigest: "shape", ProtocolVersion: "protocol", CompilerVersion: "compiler",
+			TraversalPolicyVersion: "route-policy", ProjectionPolicyVersion: "projection-policy",
+		},
+		capability.Policy{Route: capability.RoutePolicy{Version: "route-policy"}}, capability.StatusReady, true, false,
+		[]capability.Node{{ID: "observation", ResourceType: "Observation", RowRootEligible: true}}, nil,
+		[]capability.Candidate{{
+			ID: "component-value", NodeID: "observation", ResourceType: "Observation",
+			FieldPath: "component[].valueString", LogicalType: "string", Cardinality: "many",
+			RepeatedBoundaries: []capability.RepeatedBoundary{{Path: "component[]", MaxItems: 3}},
+		}}, nil,
+	)
+	route := authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Observation"}
+	document := authoringv2.Document{RootResourceType: "Observation", Route: route}
+
+	choices, err := resolver.ListRowChoices(context.Background(), snapshot, document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(choices) != 1 || choices[0].Kind != capability.RowChoiceExpandedScope || choices[0].Path != "component[]" || choices[0].OccurrenceID != authoringv2.RootOccurrenceID {
+		t.Fatalf("choices=%#v, want the authorized component[] expansion at base", choices)
+	}
+	resolved, err := resolver.ResolveRowChoiceID(context.Background(), RowChoiceResolveRequest{
+		Snapshot: snapshot, Route: route, RowChoiceID: choices[0].ChoiceID, ExpectedKind: RowChoiceExpanded,
+	})
+	if err != nil || resolved.OccurrenceID != authoringv2.RootOccurrenceID || resolved.ScopePath != "component[]" {
+		t.Fatalf("resolved=%#v err=%v, want the exact component[] scope", resolved, err)
+	}
+
+	withoutBoundary := snapshot.Clone()
+	withoutBoundary.Candidates[0].RepeatedBoundaries = nil
+	if _, err := resolver.ResolveRowChoiceID(context.Background(), RowChoiceResolveRequest{
+		Snapshot: withoutBoundary, Route: route, RowChoiceID: choices[0].ChoiceID, ExpectedKind: RowChoiceExpanded,
+	}); err == nil {
+		t.Fatal("resolved component[] after its authorizing repeated boundary was removed")
+	}
+
+	wrongOwner := snapshot.Clone()
+	wrongOwner.Candidates[0].NodeID = "another-observation"
+	if _, err := resolver.ResolveRowChoiceID(context.Background(), RowChoiceResolveRequest{
+		Snapshot: wrongOwner, Route: route, RowChoiceID: choices[0].ChoiceID, ExpectedKind: RowChoiceExpanded,
+	}); err == nil {
+		t.Fatal("resolved component[] from a candidate owned by a different occurrence node")
+	}
+}
+
 func TestRowDefinitionComparisonPreservesScalarDistinctionsWithoutReturningValues(t *testing.T) {
 	base := rowDefinitionPreviewRows{
 		Rows: map[string]map[string]any{"row-1": {

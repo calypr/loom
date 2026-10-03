@@ -411,6 +411,22 @@ func TestRelatedResourceRouteChoicePinsNodeAndRouteWithoutField(t *testing.T) {
 	); err == nil {
 		t.Fatal("route choice accepted a target node that differs from its terminal hop")
 	}
+	contributors, err := NewConstructionRelatedResourceRouteChoiceFromAnchor(
+		"snapshot", "grouped_stage", "__loom_root_contributor_keys", "rootContributors", "patient_node", "Patient",
+		"observation_node", "Observation", route,
+	)
+	if err != nil {
+		t.Fatalf("root-contributor route choice: %v", err)
+	}
+	contributorIdentity, err := DecodeConstructionChoiceID(contributors.ChoiceID)
+	if err != nil {
+		t.Fatalf("decode root-contributor route choice: %v", err)
+	}
+	contributorSource, ok := contributorIdentity.Source.(RelatedResourceChoiceSource)
+	if !ok || contributorSource.AnchorColumnID != "__loom_root_contributor_keys" || contributorSource.AnchorKind != "rootContributors" ||
+		contributorSource.AnchorNodeID != "patient_node" || contributorSource.AnchorResourceType != "Patient" {
+		t.Fatalf("root-contributor route choice lost its typed set identity: %#v", contributorIdentity)
+	}
 }
 
 func constructionOption(t *testing.T, choice ConstructionChoice, form ConstructionChoiceForm) ConstructionChoiceOption {

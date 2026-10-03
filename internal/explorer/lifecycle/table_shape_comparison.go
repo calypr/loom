@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/calypr/loom/internal/dataframe/compiler"
+	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
@@ -20,10 +21,7 @@ import (
 
 func (s *Service) compareTableShapeReceipts(ctx context.Context, request TableShapeProposalRequest, snapshot capability.Snapshot, base, candidate *explorer.CompilationReceipt, limit int, timings *tableShapeProposalTimings) (TableShapeComparison, error) {
 	if s.config.PreviewReceipt == nil || s.config.Capability.ForExecution == nil {
-		comparison := unavailableTableShapeComparison("PREVIEW_UNAVAILABLE", "Receipt preview execution is not configured.")
-		comparison.DeclaredInformationLoss = declaredTableShapeInformationLoss(base, candidate, request.OutputID)
-		comparison.EvidenceLimitations = tableShapeEvidenceLimitations(comparison.Exclusions, comparison.DeclaredInformationLoss)
-		return comparison, nil
+		return TableShapeComparison{}, unavailable("table-shape-proposal", "PREVIEW_UNAVAILABLE", "table shape preview execution is not configured", nil)
 	}
 	authorized, err := s.config.Capability.ForExecution(ctx, request.Project, request.SnapshotToken)
 	if err != nil || authorized.Snapshot.ValidateToken(request.SnapshotToken) != nil ||
@@ -41,13 +39,11 @@ func (s *Service) compareTableShapeReceipts(ctx context.Context, request TableSh
 	if err := validateAuthorizedReceiptExecution(candidate, authorized); err != nil {
 		return TableShapeComparison{}, conflict("table-shape-proposal", "RECEIPT_STALE", "the candidate receipt is no longer authorized for preview", nil, err)
 	}
-	if !receiptHasOutput(base.Bundle, request.OutputID) || validateReceiptOutputContract(base, request.OutputID) != nil ||
-		!receiptHasOutput(candidate.Bundle, request.OutputID) || validateReceiptOutputContract(candidate, request.OutputID) != nil {
-		comparison := unavailableTableShapeComparison("OUTPUT_UNAVAILABLE", "A proposal receipt does not contain the requested output.")
-		comparison.Exclusions = unavailableTableShapeExclusions("TABLE_SHAPE_OUTPUT_UNAVAILABLE")
-		comparison.DeclaredInformationLoss = unavailableTableShapeInformationLoss()
-		comparison.EvidenceLimitations = tableShapeEvidenceLimitations(comparison.Exclusions, comparison.DeclaredInformationLoss)
-		return comparison, nil
+	if err := validateReceiptOutputContract(base, request.OutputID); err != nil {
+		return TableShapeComparison{}, internal("table-shape-proposal", "PREVIEW_OUTPUT_INVALID", "the base proposal receipt is missing the requested output contract", err)
+	}
+	if err := validateReceiptOutputContract(candidate, request.OutputID); err != nil {
+		return TableShapeComparison{}, internal("table-shape-proposal", "PREVIEW_OUTPUT_INVALID", "the candidate proposal receipt is missing the requested output contract", err)
 	}
 	bindings := recipe.RuntimeBindings{
 		Project: projectid.Legacy(request.Project), SelectionProject: projectid.Canonical(request.Project),
@@ -59,34 +55,22 @@ func (s *Service) compareTableShapeReceipts(ctx context.Context, request TableSh
 	baseRows, err := s.previewReceiptRows(ctx, base, bindings, limit)
 	timings.basePreview += time.Since(phaseStarted)
 	if err != nil {
-		comparison := unavailableTableShapeComparison("BASE_PREVIEW_UNAVAILABLE", "The base receipt could not be previewed with stable row identities.")
-		comparison.Base = tableShapePreviewSummary(baseRows.Summary)
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return TableShapeComparison{}, ctxErr
 		}
-		phaseStarted = time.Now()
-		if err := s.attachTableShapeReceiptEvidence(ctx, base, candidate, bindings, request.OutputID, &comparison); err != nil {
-			return TableShapeComparison{}, err
-		}
-		timings.receiptEvidence += time.Since(phaseStarted)
-		return comparison, nil
+		return TableShapeComparison{}, internal("table-shape-proposal", "BASE_PREVIEW_FAILED", "the current table shape could not be previewed", err)
 	}
 	phaseStarted = time.Now()
 	candidateRows, err := s.previewReceiptRows(ctx, candidate, bindings, limit)
 	timings.candidatePreview += time.Since(phaseStarted)
 	if err != nil {
-		comparison := unavailableTableShapeComparison("CANDIDATE_PREVIEW_UNAVAILABLE", "The candidate receipt could not be previewed with stable row identities.")
-		comparison.Base = tableShapePreviewSummary(baseRows.Summary)
-		comparison.Candidate = tableShapePreviewSummary(candidateRows.Summary)
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return TableShapeComparison{}, ctxErr
 		}
-		phaseStarted = time.Now()
-		if err := s.attachTableShapeReceiptEvidence(ctx, base, candidate, bindings, request.OutputID, &comparison); err != nil {
-			return TableShapeComparison{}, err
+		if featureErr, ok := featureResolutionError(err); ok {
+			return TableShapeComparison{}, unprocessable("table-shape-proposal", featureErr.Code(), dataframeerrors.PublicMessage(featureErr), err)
 		}
-		timings.receiptEvidence += time.Since(phaseStarted)
-		return comparison, nil
+		return TableShapeComparison{}, internal("table-shape-proposal", "CANDIDATE_PREVIEW_FAILED", "the candidate table shape could not be previewed", err)
 	}
 	phaseStarted = time.Now()
 	comparison := compareTableShapePreviewRows(baseRows, candidateRows)
@@ -102,22 +86,6 @@ func (s *Service) compareTableShapeReceipts(ctx context.Context, request TableSh
 	}
 	timings.receiptEvidence += time.Since(phaseStarted)
 	return comparison, nil
-}
-
-func unavailableTableShapeComparison(code, reason string) TableShapeComparison {
-	return TableShapeComparison{
-		Status: TableShapeComparisonUnavailable, ReasonCode: code, Reason: reason,
-		ChangedColumns: []string{}, ChangedRows: []TableShapeChangedRow{}, Contributors: []TableShapeContributor{},
-		Exclusions: TableShapeExclusionEvidence{
-			Status: TableShapeExclusionsUnavailable, Records: []TableShapeExcludedRecord{}, Complete: false,
-			FailureCode: "TABLE_SHAPE_EXCLUSION_EXECUTOR_UNAVAILABLE",
-		},
-		DeclaredInformationLoss: TableShapeDeclaredInformationLoss{
-			Status: TableShapeInformationLossUnavailable, Items: []TableShapeInformationLoss{},
-			FailureCode: "TABLE_SHAPE_INFORMATION_LOSS_UNAVAILABLE",
-		},
-		EvidenceLimitations: []TableShapeEvidenceLimitation{}, Notices: []string{},
-	}
 }
 
 const (

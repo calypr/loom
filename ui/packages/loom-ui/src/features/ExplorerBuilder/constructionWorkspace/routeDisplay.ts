@@ -13,10 +13,15 @@ export const relationshipLabel = (edge: Pick<ConstructionRouteStep, 'fromResourc
     .replace(/^./, (first) => first.toUpperCase());
 };
 
-export const routeMeaning = (route: ReadonlyArray<ConstructionRouteStep>): string => route.map((edge, index) => {
-  const source = index === 0 ? `this ${edge.fromResourceType}` : `the matched ${edge.fromResourceType}`;
-  const relationship = relationshipLabel(edge);
-  return edge.storageDirection === 'INBOUND'
-    ? `Find ${edge.toResourceType} records whose ${relationship} points to ${source}.`
-    : `Find ${edge.toResourceType} records pointed to by ${source} through ${relationship}.`;
-}).join(' Then ');
+export const relationshipField = (edge: Pick<ConstructionRouteStep, 'fromResourceType' | 'toResourceType' | 'relationship'>): string =>
+  [edge.fromResourceType, edge.toResourceType].reduce((name, resource) =>
+    name.endsWith(`_${resource}`) || name.endsWith(`-${resource}`)
+      ? name.slice(0, -resource.length - 1) : name, edge.relationship);
+
+export const routePath = (route: ReadonlyArray<ConstructionRouteStep>): string => {
+  const first = route[0];
+  if (!first) return 'Same record';
+  return first.fromResourceType + route.map((edge) => edge.storageDirection === 'INBOUND'
+    ? ` <-[${relationshipField(edge)}]- ${edge.toResourceType}`
+    : ` -[${relationshipField(edge)}]-> ${edge.toResourceType}`).join('');
+};
