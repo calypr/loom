@@ -19,6 +19,7 @@ fixture_prepared=${LOOM_ACCEPTANCE_FIXTURE_PREPARED:-false}
 case "$isolated" in true|false) ;; *) echo "invalid LOOM_ACCEPTANCE_ISOLATED: $isolated" >&2; exit 2 ;; esac
 case "$fixture_prepared" in true|false) ;; *) echo "invalid LOOM_ACCEPTANCE_FIXTURE_PREPARED: $fixture_prepared" >&2; exit 2 ;; esac
 if [[ "$source_root" != /* ]]; then source_root="$repo_root/$source_root"; fi
+export LOOM_DEMO_FIXTURE_DIR=${LOOM_DEMO_FIXTURE_DIR:-"$source_root/testdata/acceptance/ncpi-tcga-brca"}
 mkdir -p "$artifacts" "$cache"
 cache=$(cd "$cache" && pwd)
 

@@ -39,6 +39,20 @@ class AcceptanceDeploymentContractTest(unittest.TestCase):
         self.assertIn('deployment_project:$deployment_project', source)
         self.assertIn('acceptance_project:$acceptance_project', source)
 
+    def test_acceptance_fixture_matches_the_api_source_revision(self) -> None:
+        source = SCRIPT.read_text(encoding="utf-8")
+        compose = COMPOSE.read_text(encoding="utf-8")
+
+        self.assertIn('source_root=${LOOM_DEMO_SOURCE_ROOT:-$repo_root}', source)
+        self.assertIn(
+            'export LOOM_DEMO_FIXTURE_DIR=${LOOM_DEMO_FIXTURE_DIR:-"$source_root/testdata/acceptance/ncpi-tcga-brca"}',
+            source,
+        )
+        self.assertEqual(
+            compose.count('${LOOM_DEMO_FIXTURE_DIR:-./testdata/acceptance/ncpi-tcga-brca}:/app/testdata:ro'),
+            2,
+        )
+
     def test_compose_has_source_contexts_run_namespace_and_named_artifacts(self) -> None:
         source = COMPOSE.read_text(encoding="utf-8")
 

@@ -4846,6 +4846,8 @@ export const j04DefaultRecordCellTraceRowID = (project, generation, resourceType
   return createHash('sha256').update(JSON.stringify([project, documentKey])).digest('hex');
 };
 
+export const builderDOMReadyCondition = `Boolean(document.querySelector('[data-testid="construction-workspace"]')) || Boolean(document.querySelector('#first-table-name') && document.querySelector('[aria-label="Choose row type"]'))`;
+
 const verifyBrowserScenario = async (target, report, full, entryTarget = target) => {
   const relatedValue = expectedFixtureRelatedValue(target.fixtureProject, target.fixtureGeneration);
   const maximumRelatedValue = 180;
@@ -4864,7 +4866,7 @@ const verifyBrowserScenario = async (target, report, full, entryTarget = target)
   let explorerId = '';
   try {
     await navigate(cdp, entryTarget.uiUrl);
-    await waitForBrowser(cdp, `Boolean(document.querySelector('[data-testid="construction-workspace"]')) || document.body.innerText.includes('Create your first table')`, 60000);
+    await waitForBrowser(cdp, builderDOMReadyCondition, 60000);
     recordAssertion(
       report,
       'bare-development-entry-loads-owned-bootstrap',
@@ -4875,7 +4877,7 @@ const verifyBrowserScenario = async (target, report, full, entryTarget = target)
     recordEvidence(report, join(evidenceDir, 'bare-entry.html'));
 
     await navigate(cdp, browserURL);
-    await waitForBrowser(cdp, `document.querySelector('.demo-controls span')?.textContent.trim() === ${JSON.stringify(`${target.fixtureProject} / ${bootstrapExplorerId}`)} && (Boolean(document.querySelector('[data-testid="construction-workspace"]')) || document.body.innerText.includes('Create your first table'))`, 60000);
+    await waitForBrowser(cdp, `document.querySelector('.demo-controls span')?.textContent.trim() === ${JSON.stringify(`${target.fixtureProject} / ${bootstrapExplorerId}`)} && (${builderDOMReadyCondition})`, 60000);
     await snapshot(cdp, join(evidenceDir, 'builder-initial.html'));
     recordEvidence(report, join(evidenceDir, 'builder-initial.html'));
 
@@ -4883,7 +4885,7 @@ const verifyBrowserScenario = async (target, report, full, entryTarget = target)
     await browserEval(cdp, `clickText('summary', 'New explorer')`);
     await browserEval(cdp, `setInput('new-explorer-name', ${JSON.stringify(ownerRecordsTitle)})`);
     await browserEval(cdp, `clickButton('Create blank')`);
-    await waitForBrowser(cdp, `document.querySelector('select[aria-label="Explorer"] option:checked')?.textContent.trim() === ${JSON.stringify(ownerRecordsTitle)} && document.body.innerText.includes('Create your first table')`);
+    await waitForBrowser(cdp, `document.querySelector('select[aria-label="Explorer"] option:checked')?.textContent.trim() === ${JSON.stringify(ownerRecordsTitle)} && (${builderDOMReadyCondition})`);
     const ownerRecordsExplorerId = await evaluate(cdp, `document.querySelector('select[aria-label="Explorer"]')?.value || ''`);
     recordAssertion(report, 'owner-records-browser-selected-owned-explorer', true, Boolean(ownerRecordsExplorerId && ownerRecordsExplorerId !== bootstrapExplorerId));
     report.target.ownerRecordsExplorerId = ownerRecordsExplorerId;
@@ -4974,13 +4976,13 @@ const verifyBrowserScenario = async (target, report, full, entryTarget = target)
     await browserEval(cdp, `clickButton('Close')`);
 
     await navigate(cdp, browserURL);
-    await waitForBrowser(cdp, `document.querySelector('.demo-controls span')?.textContent.trim() === ${JSON.stringify(`${target.fixtureProject} / ${bootstrapExplorerId}`)} && (Boolean(document.querySelector('[data-testid="construction-workspace"]')) || document.body.innerText.includes('Create your first table'))`, 60000);
+    await waitForBrowser(cdp, `document.querySelector('.demo-controls span')?.textContent.trim() === ${JSON.stringify(`${target.fixtureProject} / ${bootstrapExplorerId}`)} && (${builderDOMReadyCondition})`, 60000);
 
     const verificationTitle = `Loom dev verification ${target.fixtureProject.slice(-16)}`;
     await browserEval(cdp, `clickText('summary', 'New explorer')`);
     await browserEval(cdp, `setInput('new-explorer-name', ${JSON.stringify(verificationTitle)})`);
     await browserEval(cdp, `clickButton('Create blank')`);
-    await waitForBrowser(cdp, `document.querySelector('select[aria-label="Explorer"] option:checked')?.textContent.trim() === ${JSON.stringify(verificationTitle)} && document.body.innerText.includes('Create your first table')`);
+    await waitForBrowser(cdp, `document.querySelector('select[aria-label="Explorer"] option:checked')?.textContent.trim() === ${JSON.stringify(verificationTitle)} && (${builderDOMReadyCondition})`);
     explorerId = await evaluate(cdp, `document.querySelector('select[aria-label="Explorer"]')?.value || ''`);
     recordAssertion(report, 'browser-selected-owned-verification-explorer', true, Boolean(explorerId && explorerId !== bootstrapExplorerId));
     report.target.explorerId = explorerId;
