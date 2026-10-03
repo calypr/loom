@@ -109,8 +109,17 @@ const makeClient = () => {
 const LifecycleEditor = (props: {
   readonly client: ConstructionLifecycleClient;
   readonly onApply: (proposalId: string) => void;
+  readonly chooseGroupDuringLayout?: boolean;
 }) => {
   const lifecycle = useConstructionLifecycle({ client: props.client, capabilitiesRequest: request });
+  const layoutChoiceTriggered = React.useRef(false);
+  React.useLayoutEffect(() => {
+    if (!props.chooseGroupDuringLayout || lifecycle.capabilities.status !== 'ready' || layoutChoiceTriggered.current) return;
+    const choice = document.querySelector<HTMLButtonElement>('[data-testid="construction-reshape-choice-group"]');
+    if (!choice) return;
+    layoutChoiceTriggered.current = true;
+    choice.click();
+  }, [props.chooseGroupDuringLayout, lifecycle.capabilities.status]);
   if (lifecycle.capabilities.status !== 'ready') return <p role="status">Loading stage capabilities</p>;
   const response = lifecycle.capabilities.response;
   return (
@@ -141,6 +150,23 @@ const LifecycleEditor = (props: {
 };
 
 describe('ConstructionReshapeEditor construction lifecycle', () => {
+  it('preserves a GROUP choice issued from the committed chooser', async () => {
+    const { client, proposeConstruction } = makeClient();
+    render(<LifecycleEditor client={client} onApply={() => undefined} chooseGroupDuringLayout />);
+
+    const summaryLabel = await screen.findByLabelText('Summary output label 1');
+    fireEvent.change(summaryLabel, { target: { value: 'Specimens per group' } });
+    await waitFor(() => expect(screen.getByTestId('proposal-status')).toHaveTextContent('ready'));
+
+    expect(proposeConstruction).toHaveBeenCalledOnce();
+    const proposed = proposeConstruction.mock.calls[0]?.[0];
+    expect(proposed?.candidateConstruction.steps.at(-1)?.operation).toMatchObject({
+      kind: 'GROUP',
+      group: { aggregates: [{ operation: 'COUNT_ROWS', outputColumnId: expect.any(String) }] },
+    });
+    expect(proposed?.candidateConstruction.steps.at(-1)?.outputs.filter((column) => column.label === 'Specimens per group')).toHaveLength(1);
+  });
+
   it.each([
     { kind: 'GROUP' as const, choice: 'construction-reshape-choice-group' },
     { kind: 'EXPAND' as const, choice: 'construction-reshape-choice-expand' },
@@ -169,9 +195,43 @@ describe('ConstructionReshapeEditor construction lifecycle', () => {
       { kind: 'STEP_OUTPUT', stepId: priorStep.id },
     ]);
     expect(proposed?.candidateConstruction.steps.at(-1)?.operation.kind).toBe(kind);
+    if (kind === 'GROUP') {
+      expect(proposed?.candidateConstruction.steps.at(-1)?.operation).toMatchObject({
+        kind: 'GROUP',
+        group: { aggregates: [{ operation: 'COUNT_ROWS', outputColumnId: expect.any(String) }] },
+      });
+      expect(proposed?.candidateConstruction.steps.at(-1)?.outputs.filter((column) => column.label === 'Specimens per group')).toHaveLength(1);
+    }
     expect(apply).toBeEnabled();
 
     fireEvent.click(apply);
     expect(onApply).toHaveBeenCalledWith('proposal-1');
+  });
+
+  it('resets the selected operation when the editor context changes', async () => {
+    const onCandidateChange = vi.fn();
+    const renderEditor = (activeCapabilities: ConstructionCapabilitiesResponse) => (
+      <ConstructionReshapeEditor
+        construction={activeCapabilities.baseConstruction}
+        capabilities={activeCapabilities}
+        disabled={false}
+        onCandidateChange={onCandidateChange}
+        onEditStep={() => undefined}
+      />
+    );
+    const { rerender } = render(renderEditor(capabilities));
+
+    await screen.findByTestId('construction-reshape-choice-group');
+    fireEvent.click(screen.getByTestId('construction-reshape-choice-group'));
+    await screen.findByLabelText('Summary output label 1');
+
+    const nextCapabilities = {
+      ...capabilities,
+      snapshotToken: 'snapshot-2',
+      draftDigest: 'draft-2',
+    };
+    rerender(renderEditor(nextCapabilities));
+    await waitFor(() => expect(screen.queryByLabelText('Summary output label 1')).not.toBeInTheDocument());
+    expect(screen.getByTestId('construction-reshape-choice-group')).toBeInTheDocument();
   });
 });

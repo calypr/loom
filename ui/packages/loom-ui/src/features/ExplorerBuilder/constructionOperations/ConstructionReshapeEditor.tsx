@@ -1,4 +1,4 @@
-import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { LoomClient } from '../../../api';
 import type {
   Construction,
@@ -1479,7 +1479,7 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
     : { supported: false, reason: pivotSupport.supported ? 'Stage-scoped category discovery is not available yet.' : pivotSupport.reason };
   const pivotDiscovery = props.pivotDiscovery;
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const initialForm = formForStep(construction, capabilities, editingStep, groupStage, props.selectedColumns ?? [], props.initialKind);
     setForm(initialForm);
     setFormContextKey(contextKey);
