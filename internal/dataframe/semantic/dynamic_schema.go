@@ -46,6 +46,9 @@ func Freeze(spec DynamicSpec, candidates []Candidate) (FrozenSchema, error) {
 	if spec.MaxColumns < 0 {
 		return FrozenSchema{}, fmt.Errorf("dynamic column max must not be negative")
 	}
+	if len(spec.AllowedKeys) == 0 && spec.MaxColumns == 0 {
+		return FrozenSchema{}, fmt.Errorf("dynamic column max must be greater than zero when allowed keys are not frozen")
+	}
 	policy := spec.Collision
 	if policy == "" {
 		policy = "error"

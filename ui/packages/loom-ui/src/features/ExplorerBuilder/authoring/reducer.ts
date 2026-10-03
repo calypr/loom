@@ -188,7 +188,8 @@ export const builderAuthoringReducer = (
         project: state.project,
         explorerId: action.explorerId ?? state.explorerId,
       });
-    case 'selectTable':
+    case 'selectTable': {
+      if (state.selectedOutputId === action.outputId) return state;
       return state.tables.some((table) => table.outputId === action.outputId)
         ? {
             ...state,
@@ -197,6 +198,7 @@ export const builderAuthoringReducer = (
             preview: undefined,
           }
         : state;
+    }
     case 'selectOccurrence': {
       const table = state.tables.find(
         (candidate) => candidate.outputId === state.selectedOutputId,
@@ -325,6 +327,7 @@ export const builderAuthoringReducer = (
             {
               occurrenceId: action.occurrenceId,
               resourceType: target.resourceType,
+              catalogEdgeId: edge.edgeId,
               relationship: edge.label,
             },
           ],

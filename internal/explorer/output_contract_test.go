@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/calypr/loom/internal/dataframe/recipe"
+	"github.com/calypr/loom/internal/dataframe/unit"
 )
 
 func contractFixture() (recipe.Bundle, []EmittedColumn, PublicOutputContracts) {
@@ -67,6 +68,9 @@ func TestPublicOutputContractsMatchBundleAndOrderedEmissions(t *testing.T) {
 		"physical column": func(_ *recipe.Bundle, _ []EmittedColumn, c *PublicOutputContracts) {
 			c.Outputs[0].Columns[0].Column = "forged"
 		},
+		"authored column": func(_ *recipe.Bundle, _ []EmittedColumn, c *PublicOutputContracts) {
+			c.Outputs[0].Columns[0].AuthoredColumns = []string{"forged"}
+		},
 		"label metadata": func(_ *recipe.Bundle, _ []EmittedColumn, c *PublicOutputContracts) {
 			c.Outputs[0].Columns[0].Label = "forged"
 		},
@@ -87,6 +91,75 @@ func TestPublicOutputContractsMatchBundleAndOrderedEmissions(t *testing.T) {
 			mutate(&b, e, &c)
 			if err := c.ValidateAgainst(b, e); !errors.Is(err, ErrReceiptRecompileRequired) {
 				t.Fatalf("error=%v, want ErrReceiptRecompileRequired", err)
+			}
+		})
+	}
+}
+
+func TestPublicOutputContractRejectsForgedAggregateQualityFlags(t *testing.T) {
+	bundle, emitted, contract := contractFixture()
+	contract.Outputs[0].Lossless = true
+	if err := contract.ValidateAgainst(bundle, emitted); !errors.Is(err, ErrReceiptRecompileRequired) {
+		t.Fatalf("forged lossless aggregate accepted: %v", err)
+	}
+	contract.Outputs[0].Lossless = false
+	contract.Outputs[0].MLReady = true
+	if err := contract.ValidateAgainst(bundle, emitted); !errors.Is(err, ErrReceiptRecompileRequired) {
+		t.Fatalf("forged ML-ready aggregate accepted: %v", err)
+	}
+	contract.Outputs[0].MLReady = false
+	if err := contract.ValidateAgainst(bundle, emitted); err != nil {
+		t.Fatalf("matching lossless and ML-ready aggregates rejected: %v", err)
+	}
+}
+
+func TestPublicOutputContractPinsUnitTargetAndRuleIdentity(t *testing.T) {
+	bundle := recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "units", TranslationVersion: "test", Outputs: []recipe.Output{{Name: "out", RootResourceType: "Observation", RowGrain: "observation"}}}
+	normalization := &PublicUnitNormalization{Target: unit.UnitIdentity{System: "http://unitsofmeasure.org", Code: "cm"}, Rules: []PublicUnitRuleIdentity{{ID: "ucum:m-to-cm", Version: "1"}, {ID: "identity-v1", Version: "1"}}}
+	emitted := []EmittedColumn{{OutputID: "out", PublicColumn: "height", Label: "Height", LogicalType: "decimal", UnitNormalization: normalization}}
+	contract := PublicOutputContracts{Outputs: []PublicOutputContract{{OutputID: "out", Columns: []PublicOutputColumn{{Column: "height", Label: "Height", LogicalType: "decimal", UnitNormalization: &PublicUnitNormalization{Target: unit.UnitIdentity{System: "http://unitsofmeasure.org", Code: "cm"}, Rules: append([]PublicUnitRuleIdentity(nil), normalization.Rules...)}}}}}}
+	if err := contract.ValidateAgainst(bundle, emitted); err != nil {
+		t.Fatal(err)
+	}
+	contract.Outputs[0].Columns[0].UnitNormalization.Target.Code = "m"
+	if err := contract.ValidateAgainst(bundle, emitted); !errors.Is(err, ErrReceiptRecompileRequired) {
+		t.Fatalf("forged unit target accepted: %v", err)
+	}
+}
+
+func TestPublicOutputContractPinsCompilerColumnMetadata(t *testing.T) {
+	bundle := recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "compiler-metadata", TranslationVersion: "test", Outputs: []recipe.Output{{Name: "out", RootResourceType: "Observation", RowGrain: "observation"}}}
+	resultUnit := &unit.UnitIdentity{System: "http://unitsofmeasure.org", Code: "kg"}
+	emitted := []EmittedColumn{{
+		OutputID: "out", PublicColumn: "weight", Label: "Weight", ConstructionID: "derive_weight",
+		AuthoredColumns: []string{"weight_root"}, InputColumns: []string{"weight_input"},
+		LogicalType: "decimal", Cardinality: "optional_one", Nullable: true, ResultUnit: resultUnit,
+	}}
+	contract := PublicOutputContracts{Outputs: []PublicOutputContract{{OutputID: "out", Columns: []PublicOutputColumn{{
+		Column: "weight", Label: "Weight", ConstructionID: "derive_weight", LogicalType: "decimal",
+		AuthoredColumns: []string{"weight_root"}, InputColumns: []string{"weight_input"},
+		Cardinality: "optional_one", Nullable: true, ResultUnit: &unit.UnitIdentity{System: "http://unitsofmeasure.org", Code: "kg"},
+	}}}}}
+	if err := contract.ValidateAgainst(bundle, emitted); err != nil {
+		t.Fatal(err)
+	}
+	for name, mutate := range map[string]func(*PublicOutputContracts){
+		"construction identity": func(c *PublicOutputContracts) { c.Outputs[0].Columns[0].ConstructionID = "forged" },
+		"direct inputs":         func(c *PublicOutputContracts) { c.Outputs[0].Columns[0].InputColumns = []string{"forged"} },
+		"cardinality":           func(c *PublicOutputContracts) { c.Outputs[0].Columns[0].Cardinality = "required_one" },
+		"result unit":           func(c *PublicOutputContracts) { c.Outputs[0].Columns[0].ResultUnit.Code = "g" },
+	} {
+		t.Run(name, func(t *testing.T) {
+			forged := contract
+			forged.Outputs = append([]PublicOutputContract(nil), contract.Outputs...)
+			forged.Outputs[0].Columns = append([]PublicOutputColumn(nil), contract.Outputs[0].Columns...)
+			if forged.Outputs[0].Columns[0].ResultUnit != nil {
+				result := *forged.Outputs[0].Columns[0].ResultUnit
+				forged.Outputs[0].Columns[0].ResultUnit = &result
+			}
+			mutate(&forged)
+			if err := forged.ValidateAgainst(bundle, emitted); !errors.Is(err, ErrReceiptRecompileRequired) {
+				t.Fatalf("forged compiler metadata error=%v, want ErrReceiptRecompileRequired", err)
 			}
 		})
 	}

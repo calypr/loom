@@ -883,6 +883,7 @@ type ComplexityRoot struct {
 		Columns         func(childComplexity int) int
 		Materialization func(childComplexity int) int
 		PageInfo        func(childComplexity int) int
+		RowIds          func(childComplexity int) int
 		Rows            func(childComplexity int) int
 		TotalCount      func(childComplexity int) int
 	}
@@ -6633,6 +6634,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.DataframeRowConnection.PageInfo(childComplexity), true
+	case "DataframeRowConnection.rowIds":
+		if e.ComplexityRoot.DataframeRowConnection.RowIds == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeRowConnection.RowIds(childComplexity), true
 	case "DataframeRowConnection.rows":
 		if e.ComplexityRoot.DataframeRowConnection.Rows == nil {
 			break
@@ -20084,6 +20091,7 @@ type DataframeRowConnection {
   materialization: DataframeMaterialization!
   columns: [String!]!
   rows: JSON!
+  rowIds: [String!]!
   totalCount: Int
   pageInfo: DataframePageInfo!
 }
@@ -24713,6 +24721,8 @@ func (ec *executionContext) childFields_DataframeRowConnection(ctx context.Conte
 		return ec.fieldContext_DataframeRowConnection_columns(ctx, field)
 	case "rows":
 		return ec.fieldContext_DataframeRowConnection_rows(ctx, field)
+	case "rowIds":
+		return ec.fieldContext_DataframeRowConnection_rowIds(ctx, field)
 	case "totalCount":
 		return ec.fieldContext_DataframeRowConnection_totalCount(ctx, field)
 	case "pageInfo":

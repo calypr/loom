@@ -14,6 +14,10 @@ import (
 // from optional traversal materialization: it is a root semi-join and must run
 // before the root sort/window, while optional traversal sets remain post-limit.
 func appendRequiredTraversalMatchFilters(physical *ir.PhysicalPlan, root semantic.SemanticNode) error {
+	return appendRequiredTraversalMatchFiltersExcept(physical, root, nil)
+}
+
+func appendRequiredTraversalMatchFiltersExcept(physical *ir.PhysicalPlan, root semantic.SemanticNode, selectedOccurrences map[string]struct{}) error {
 	nextMatch := 0
 	seen := map[string]struct{}{}
 	var walk func(semantic.SemanticNode, []semantic.SemanticNode, bool) error
@@ -21,7 +25,8 @@ func appendRequiredTraversalMatchFilters(physical *ir.PhysicalPlan, root semanti
 		for _, child := range parent.Children {
 			next := append(append([]semantic.SemanticNode(nil), route...), child)
 			childRequired := child.MatchMode.Required()
-			if childRequired && requiredPrefix {
+			_, selectedRouteStep := selectedOccurrences[child.OccurrenceID]
+			if childRequired && requiredPrefix && !selectedRouteStep {
 				// Two required children with the same physical route and typed
 				// predicates are the same root semi-join even when their aliases
 				// differ. Deduplicating this exact proof is safe: it does not

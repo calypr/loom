@@ -131,11 +131,13 @@ func (l FragmentLibrary) expandOutput(output Output) (Output, error) {
 	}
 	if output.Identity != nil {
 		identity := *output.Identity
-		expr, err := l.ExpandExpression(identity.Expr)
-		if err != nil {
-			return Output{}, err
+		if identity.Expansion == nil {
+			expr, err := l.ExpandExpression(identity.Expr)
+			if err != nil {
+				return Output{}, err
+			}
+			identity.Expr = expr
 		}
-		identity.Expr = expr
 		output.Identity = &identity
 	}
 	output.DynamicColumns, err = l.expandDynamicColumns(output.DynamicColumns)

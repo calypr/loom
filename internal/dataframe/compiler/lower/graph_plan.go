@@ -37,6 +37,7 @@ func BuildGraphPhysicalPlan(output semantic.OutputPlan, context semantic.Executi
 
 	physical := ir.PhysicalPlan{
 		Version: 1,
+		Engine:  ir.PhysicalEngineAQL,
 		Source:  ir.PhysicalSource{SemanticNode: output.Root.Alias, ResourceType: output.Root.ResourceType},
 		BindVars: map[string]any{
 			"root_collection":                  output.Root.ResourceType,
@@ -239,7 +240,7 @@ func validateGraphNode(node semantic.SemanticNode, root bool) error {
 	if !root && node.MatchMode != spec.TraversalMatchRequired && node.MatchMode != spec.TraversalMatchOptional && node.MatchMode != "" {
 		return fmt.Errorf("graph traversal %q has invalid match mode %q", node.Alias, node.MatchMode)
 	}
-	if len(node.Fields) > 0 || len(node.Pivots) > 0 || len(node.Aggregates) > 0 || len(node.Slices) > 0 || len(node.DynamicMaps) > 0 {
+	if len(node.Fields) > 0 || len(node.Pivots) > 0 || len(node.OwnerRecords) > 0 || len(node.Aggregates) > 0 || len(node.Slices) > 0 || len(node.DynamicMaps) > 0 {
 		return fmt.Errorf("graph traversal %q cannot declare dataframe shaping fields", node.Alias)
 	}
 	for _, child := range node.Children {
@@ -254,6 +255,22 @@ func appendGraphPathFilters(operations *[]ir.PhysicalOperation, node semantic.Se
 	for index, filter := range node.Filters {
 		if err := spec.ValidateTypedFilterForResource(node.ResourceType, filter); err != nil {
 			return fmt.Errorf("graph traversal %q filter %q: %w", node.Alias, filter.FieldRef, err)
+		}
+		binding := filter.Correlation
+		if binding != nil {
+			if len(filter.Values) != 1 || filter.Values[0].Code == nil {
+				return fmt.Errorf("graph traversal %q correlated filter %q requires one CODE value", node.Alias, filter.FieldRef)
+			}
+			systemKey := fmt.Sprintf("graph_%s_filter_%d_system", sanitizeColumnName(node.Alias), index+1)
+			codeKey := fmt.Sprintf("graph_%s_filter_%d_code", sanitizeColumnName(node.Alias), index+1)
+			binds[systemKey] = filter.Values[0].Code.System
+			binds[codeKey] = filter.Values[0].Code.Code
+			predicate, err := correlatedPredicateWithBinds(node.ResourceType, *binding, ir.PhysicalValue{Variable: targetVariable, Path: []string{"payload"}}, systemKey, codeKey)
+			if err != nil {
+				return fmt.Errorf("graph traversal %q filter correlation: %w", node.Alias, err)
+			}
+			*operations = append(*operations, ir.PhysicalOperation{Kind: ir.PhysicalFilterOp, Source: ir.PhysicalSource{SemanticNode: node.Alias, ResourceType: node.ResourceType, Relationship: node.EdgeLabel, SemanticField: filter.FieldRef}, Filter: &ir.PhysicalFilter{Expression: &ir.PhysicalPredicateExpression{Kind: ir.PhysicalComparisonPredicate, Comparison: &predicate}}})
+			continue
 		}
 		selector, err := spec.ParseSelector(filter.Selector)
 		if err != nil {

@@ -20,11 +20,14 @@ import (
 )
 
 type Client struct {
-	db     driver.Database
-	rawURL string
-	dbName string
-	client *http.Client
+	db             driver.Database
+	rawURL         string
+	dbName         string
+	client         *http.Client
+	previewIndexMu sync.Mutex
 }
+
+const previewCursorCleanupTimeout = time.Second
 
 // RowQueryer is the narrow row-query surface shared by Arango adapters. It is
 // also the only capability exposed to transaction callbacks.
@@ -72,6 +75,16 @@ func IsQueryResourceLimitExceeded(err error) bool {
 // memory limit.
 func IsQueryOutOfMemory(err error) bool {
 	return shared.IsArangoErrorWithErrorNum(err, shared.ErrOutOfMemory)
+}
+
+// IsQueryUserAssertion reports whether AQL aborted through ASSERT with the
+// exact stable code emitted by Loom's typed physical plan.
+func IsQueryUserAssertion(err error, code string) bool {
+	if strings.TrimSpace(code) == "" {
+		return false
+	}
+	ok, arangoErr := shared.IsArangoError(err)
+	return ok && arangoErr.ErrorNum == shared.ErrQueryUserAssert && strings.Contains(arangoErr.ErrorMessage, "AQL: "+code)
 }
 
 type TransactionCollections struct {
@@ -205,6 +218,65 @@ func (c *Client) QueryRows(ctx context.Context, query string, batchSize int, bin
 	return queryRows(ctx, c.db, query, batchSize, bindVars, visit)
 }
 
+// QueryRowsWithMaxRuntime executes a row query with an ArangoDB server-side
+// runtime limit. It is intended for bounded previews whose client request may
+// be canceled while the server is still evaluating the query.
+func (c *Client) QueryRowsWithMaxRuntime(ctx context.Context, query string, batchSize int, bindVars map[string]interface{}, maxRuntime time.Duration, visit RowVisitor) error {
+	return queryRowsWithMaxRuntime(ctx, c.db, query, batchSize, bindVars, maxRuntime, visit)
+}
+
+// CollectionRevision returns ArangoDB's collection data revision. Callers can
+// use it to validate cached read results against intervening document writes.
+func (c *Client) CollectionRevision(ctx context.Context, name string) (string, error) {
+	if c == nil || c.db == nil || strings.TrimSpace(name) == "" {
+		return "", fmt.Errorf("Arango collection revision requires a client and collection")
+	}
+	collection, err := c.db.GetCollection(ctx, name, nil)
+	if err != nil {
+		return "", fmt.Errorf("get Arango collection %q for revision: %w", name, err)
+	}
+	properties, err := collection.Revision(ctx)
+	if err != nil {
+		return "", fmt.Errorf("read Arango collection %q revision: %w", name, err)
+	}
+	if properties.Revision == "" {
+		return "", fmt.Errorf("Arango collection %q returned an empty revision", name)
+	}
+	return properties.Revision, nil
+}
+
+// CollectionCount returns Arango's collection cardinality metadata without
+// scanning its documents.
+func (c *Client) CollectionCount(ctx context.Context, name string) (int64, error) {
+	if c == nil || c.db == nil || strings.TrimSpace(name) == "" {
+		return 0, fmt.Errorf("Arango collection count requires a client and collection")
+	}
+	collection, err := c.db.GetCollection(ctx, name, nil)
+	if err != nil {
+		return 0, fmt.Errorf("get Arango collection %q for count: %w", name, err)
+	}
+	count, err := collection.Count(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("read Arango collection %q count: %w", name, err)
+	}
+	if count < 0 {
+		return 0, fmt.Errorf("Arango collection %q returned a negative count", name)
+	}
+	return count, nil
+}
+
+func queryRowsWithMaxRuntime(ctx context.Context, queryer driver.DatabaseQuery, query string, batchSize int, bindVars map[string]interface{}, maxRuntime time.Duration, visit RowVisitor) error {
+	if maxRuntime <= 0 {
+		return fmt.Errorf("arango query max runtime must be positive")
+	}
+	options := &driver.QueryOptions{
+		BatchSize: batchSize,
+		BindVars:  bindVars,
+		Options:   driver.QuerySubOptions{MaxRuntime: maxRuntime.Seconds()},
+	}
+	return queryRowsWithOptions(ctx, queryer, query, options, visit, previewCursorCleanupTimeout)
+}
+
 func (c *Client) WithTransaction(ctx context.Context, collections TransactionCollections, fn TransactionFunc) error {
 	if fn == nil {
 		return fmt.Errorf("Arango transaction callback is required")
@@ -226,15 +298,27 @@ func (t transactionClient) QueryRows(ctx context.Context, query string, batchSiz
 }
 
 func queryRows(ctx context.Context, queryer driver.DatabaseQuery, query string, batchSize int, bindVars map[string]interface{}, visit RowVisitor) (resultErr error) {
+	options := &driver.QueryOptions{BatchSize: batchSize, BindVars: bindVars}
+	return queryRowsWithOptions(ctx, queryer, query, options, visit, 0)
+}
+
+func queryRowsWithOptions(ctx context.Context, queryer driver.DatabaseQuery, query string, options *driver.QueryOptions, visit RowVisitor, closeTimeout time.Duration) (resultErr error) {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	cursor, err := queryer.Query(ctx, query, &driver.QueryOptions{BatchSize: batchSize, BindVars: bindVars})
+	cursor, err := queryer.Query(ctx, query, options)
 	if err != nil {
 		return fmt.Errorf("arango query: %w", err)
 	}
 	defer func() {
-		closeErr := cursor.Close()
+		var closeErr error
+		if closeTimeout > 0 {
+			closeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), closeTimeout)
+			defer cancel()
+			closeErr = cursor.CloseWithContext(closeCtx)
+		} else {
+			closeErr = cursor.Close()
+		}
 		if closeErr != nil {
 			wrapped := fmt.Errorf("close arango query cursor: %w", closeErr)
 			resultErr = errors.Join(resultErr, wrapped)

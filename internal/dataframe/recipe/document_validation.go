@@ -42,11 +42,27 @@ func (b Bundle) Validate() error {
 		if strings.TrimSpace(output.RootResourceType) == "" {
 			return validationError("required", path+".rootResourceType", "rootResourceType is required")
 		}
+		if err := validateOccurrenceID(output.RootOccurrenceID, path+".rootOccurrenceId"); err != nil {
+			return err
+		}
 		if strings.TrimSpace(output.RowGrain) == "" {
 			return validationError("required", path+".rowGrain", "rowGrain is required")
 		}
+		if output.Population != nil {
+			if strings.TrimSpace(output.Population.SelectionRevisionID) == "" || strings.TrimSpace(output.Population.MembershipDigest) == "" || strings.TrimSpace(output.Population.ResourceType) == "" || output.Population.MemberCount < 0 {
+				return validationError("invalid_population", path+".population", "population identity and resource type are required")
+			}
+			for index, step := range output.Population.Route {
+				if strings.TrimSpace(step.ResourceType) == "" || strings.TrimSpace(step.Relationship) == "" {
+					return validationError("invalid_population_route", fmt.Sprintf("%s.population.route[%d]", path, index), "resourceType and relationship are required")
+				}
+				if step.StorageDirection != "" && step.StorageDirection != "INBOUND" && step.StorageDirection != "OUTBOUND" {
+					return validationError("invalid_population_route", fmt.Sprintf("%s.population.route[%d].storageDirection", path, index), "storageDirection must be INBOUND or OUTBOUND")
+				}
+			}
+		}
 		if !output.TraversalColumnNaming.Valid() {
-			return validationError("invalid_traversal_column_naming", path+".traversalColumnNaming", "must be PATH or ALIAS")
+			return validationError("invalid_traversal_column_naming", path+".traversalColumnNaming", "must be PATH, ALIAS, or EXACT")
 		}
 		if !output.RootColumnNaming.Valid() {
 			return validationError("invalid_root_column_naming", path+".rootColumnNaming", "must be PREFIXED or EXACT")
@@ -55,8 +71,62 @@ func (b Bundle) Validate() error {
 			return validationError("invalid_collision_policy", path+".collisionPolicy", "must be error, overwrite, or coalesce")
 		}
 		budget := 0
-		if err := validateNodeShape(output.Fields, output.Filters, output.Pivots, output.Aggregates, output.Slices, path, &budget); err != nil {
+		if err := validateNodeShape(output.Fields, output.Filters, output.Pivots, output.OwnerRecords, output.Aggregates, output.Slices, path, &budget); err != nil {
 			return err
+		}
+		transformedColumns := make(map[string]struct{}, len(output.ColumnTransformations))
+		for index, transformation := range output.ColumnTransformations {
+			transformationPath := fmt.Sprintf("%s.columnTransformations[%d]", path, index)
+			if err := validateRecipeName(transformation.Column, transformationPath+".column"); err != nil {
+				return err
+			}
+			if _, exists := transformedColumns[transformation.Column]; exists {
+				return validationError("duplicate_column_transformation", transformationPath+".column", "each output column can have only one value transformation")
+			}
+			transformedColumns[transformation.Column] = struct{}{}
+			if err := transformation.Transformation.Validate(); err != nil {
+				return validationError("invalid_column_transformation", transformationPath+".transformation", err.Error())
+			}
+		}
+		if err := validateDerivedColumns(output.DerivedColumns, path+".derivedColumns"); err != nil {
+			return err
+		}
+		if output.Construction != nil {
+			if output.TableReshape != nil || len(output.DerivedColumns) > 0 {
+				return validationError("ambiguous_construction", path+".construction", "construction cannot be combined with legacy tableReshape or derivedColumns")
+			}
+			if err := output.Construction.ValidateWithGroupRows(output.Fields, output.GroupRows); err != nil {
+				return validationError("invalid_construction", path+".construction", err.Error())
+			}
+			if _, terminalCombine := output.Construction.TerminalCombineStep(); terminalCombine {
+				if len(output.Filters) != 0 || len(output.Pivots) != 0 || len(output.OwnerRecords) != 0 || len(output.Aggregates) != 0 || len(output.Slices) != 0 || len(output.Traversals) != 0 || output.Expand != nil || output.Identity != nil || output.GroupRows != nil || len(output.DynamicColumns) != 0 || len(output.ExtensionColumns) != 0 || len(output.CatalogProjections) != 0 || len(output.ColumnTransformations) != 0 || output.Population != nil {
+					return validationError("invalid_construction", path+".construction", "terminal combine cannot include source projection operations")
+				}
+			}
+		}
+		if output.TableReshape != nil {
+			if err := output.TableReshape.Validate(); err != nil {
+				return validationError("invalid_table_reshape", path+".tableReshape", err.Error())
+			}
+			if output.TableReshape.Kind == TableReshapeUnpivot && len(output.DerivedColumns) != 0 {
+				return validationError("invalid_table_reshape", path+".tableReshape", "unpivot cannot be combined with derived columns")
+			}
+			reshapeID := output.TableReshape.GroupedPivot
+			if reshapeID != nil {
+				for _, derived := range output.DerivedColumns {
+					if derived.ConstructionID == reshapeID.ConstructionID {
+						return validationError("duplicate_construction_id", path+".tableReshape.groupedPivot.constructionId", "constructionId must be unique across table-shape constructions")
+					}
+				}
+			}
+			unpivotID := output.TableReshape.Unpivot
+			if unpivotID != nil {
+				for _, derived := range output.DerivedColumns {
+					if derived.ConstructionID == unpivotID.ConstructionID {
+						return validationError("duplicate_construction_id", path+".tableReshape.unpivot.constructionId", "constructionId must be unique across table-shape constructions")
+					}
+				}
+			}
 		}
 		if err := validateTraversals(output.Traversals, path+".traversals", 0); err != nil {
 			return err
@@ -67,10 +137,40 @@ func (b Bundle) Validate() error {
 			}
 		}
 		if output.Expand != nil {
+			if err := validateOccurrenceID(output.Expand.OwnerOccurrenceID, path+".expand.ownerOccurrenceId"); err != nil {
+				return err
+			}
 			if err := validateRecipeName(output.Expand.As, path+".expand.as"); err != nil {
 				return err
 			}
+			if output.Expand.Ordinality != "" {
+				if err := validateRecipeName(output.Expand.Ordinality, path+".expand.ordinality"); err != nil {
+					return err
+				}
+				if output.Expand.Ordinality == output.Expand.As {
+					return validationError("binding_collision", path+".expand.ordinality", "ordinality must differ from the item binding")
+				}
+			}
+			if !output.Expand.EmptyPolicy.Valid() {
+				return validationError("invalid_empty_policy", path+".expand.emptyPolicy", "must be ERROR, EXCLUDE, or PRESERVE_PARENT")
+			}
 			if err := validateExpressionBudget(output.Expand.From, path+".expand.from", &budget); err != nil {
+				return err
+			}
+		}
+		if output.GroupRows != nil {
+			if strings.TrimSpace(output.GroupRows.RevisionID) == "" || output.GroupRows.RevisionID != strings.TrimSpace(output.GroupRows.RevisionID) {
+				return validationError("invalid_group_rows", path+".groupRows.revisionId", "revisionId must be a non-empty trimmed identity")
+			}
+			switch output.GroupRows.UnassignedMemberPolicy {
+			case "ERROR", "EXCLUDE", "GROUP_AS_UNASSIGNED":
+			default:
+				return validationError("invalid_group_rows", path+".groupRows.unassignedMemberPolicy", "must be ERROR, EXCLUDE, or GROUP_AS_UNASSIGNED")
+			}
+			if output.Expand != nil {
+				return validationError("invalid_group_rows", path+".groupRows", "group rows cannot be combined with row expansion")
+			}
+			if err := validateGroupRowValuePolicies(output, path+".groupRows.rowValues"); err != nil {
 				return err
 			}
 		}
@@ -78,7 +178,14 @@ func (b Bundle) Validate() error {
 			if err := validateRecipeName(output.Identity.Name, path+".identity.name"); err != nil {
 				return err
 			}
-			if err := validateExpressionBudget(output.Identity.Expr, path+".identity.expr", &budget); err != nil {
+			if output.Identity.Expansion != nil {
+				if expressionPresent(output.Identity.Expr) {
+					return validationError("invalid_identity", path+".identity", "expr and expansion are mutually exclusive")
+				}
+				if output.Expand == nil {
+					return validationError("invalid_identity", path+".identity.expansion", "expansion identity requires an output expansion")
+				}
+			} else if err := validateExpressionBudget(output.Identity.Expr, path+".identity.expr", &budget); err != nil {
 				return err
 			}
 		}
@@ -92,6 +199,39 @@ func (b Bundle) Validate() error {
 			if err := projection.validateAt(fmt.Sprintf("%s.catalogProjections[%d]", path, index)); err != nil {
 				return err
 			}
+		}
+	}
+	return nil
+}
+
+func validateGroupRowValuePolicies(output Output, path string) error {
+	if output.GroupRows == nil || len(output.GroupRows.RowValues) == 0 {
+		return nil
+	}
+	fieldsByID := make(map[string][]Field, len(output.Fields))
+	for _, field := range output.Fields {
+		if field.ColumnID != "" {
+			fieldsByID[field.ColumnID] = append(fieldsByID[field.ColumnID], field)
+		}
+	}
+	seen := make(map[string]bool, len(output.GroupRows.RowValues))
+	for index, value := range output.GroupRows.RowValues {
+		valuePath := fmt.Sprintf("%s[%d]", path, index)
+		if strings.TrimSpace(value.ColumnID) == "" || value.ColumnID != strings.TrimSpace(value.ColumnID) || seen[value.ColumnID] {
+			return validationError("invalid_group_row_value", valuePath+".columnId", "columnId must be an exact unique source identity")
+		}
+		seen[value.ColumnID] = true
+		field, found := fieldsByID[value.ColumnID]
+		if len(field) != 1 || !found {
+			return validationError("invalid_group_row_value", valuePath+".columnId", "columnId must identify exactly one selected root field")
+		}
+		if strings.TrimSpace(field[0].Expr.Select) == "" || len(field[0].Fallbacks) != 0 {
+			return validationError("invalid_group_row_value", valuePath, "only direct root FHIR field projections are supported")
+		}
+		switch value.Policy {
+		case ConstructionRowValueAll, ConstructionRowValueOne:
+		default:
+			return validationError("invalid_group_row_value", valuePath+".policy", "policy must be ALL or ONE")
 		}
 	}
 	return nil
@@ -125,6 +265,9 @@ func validateTraversals(items []Traversal, path string, depth int) error {
 		if err := validateRecipeName(t.Name, p+".name"); err != nil {
 			return err
 		}
+		if err := validateOccurrenceID(t.OccurrenceID, p+".occurrenceId"); err != nil {
+			return err
+		}
 		// The relationship label is not an output namespace: two routes may
 		// legitimately use the same edge label while targeting different FHIR
 		// resources (for example Patient -> Condition and Patient -> Specimen).
@@ -150,7 +293,7 @@ func validateTraversals(items []Traversal, path string, depth int) error {
 				return err
 			}
 		}
-		if err := validateNodeShape(t.Fields, t.Filters, t.Pivots, t.Aggregates, t.Slices, p, &budget); err != nil {
+		if err := validateNodeShape(t.Fields, t.Filters, t.Pivots, t.OwnerRecords, t.Aggregates, t.Slices, p, &budget); err != nil {
 			return err
 		}
 		if err := validateDynamicColumns(t.DynamicColumns, p+".dynamicColumns", &budget); err != nil {
@@ -169,6 +312,17 @@ func validateTraversals(items []Traversal, path string, depth int) error {
 		}
 	}
 	return nil
+}
+
+func validateOccurrenceID(value, path string) error {
+	if value != "" && strings.TrimSpace(value) != value {
+		return validationError("invalid_occurrence_id", path, "must equal its trimmed value")
+	}
+	return nil
+}
+
+func expressionPresent(expression Expression) bool {
+	return expression.Select != "" || expression.Call != "" || expression.Literal != nil || expression.Document != nil || len(expression.Args) != 0
 }
 
 func validateExpression(e Expression, path string) error {
@@ -250,12 +404,14 @@ func validateExpression(e Expression, path string) error {
 type arity struct{ min, max int }
 
 var callArities = map[string]arity{
-	"coalesce": {1, -1}, "coalesce_string": {1, -1}, "first": {1, 1}, "all": {1, 1}, "distinct": {1, 1},
+	"coalesce": {1, -1}, "fallback": {1, -1}, "coalesce_string": {1, -1}, "first": {1, 1}, "all": {1, 1}, "distinct": {1, 1}, "length": {1, 1},
 	"canonical_json": {1, 1},
 	"concat":         {1, -1}, "join": {2, 2}, "cast": {2, 2}, "reference_id": {1, 1},
 	"path_segment": {1, 1}, "basename": {1, 1}, "last_segment": {1, 1},
 	"sanitize_name": {1, 1}, "sanitize_graphql_name": {1, 1}, "uuid3": {3, 3}, "uuid5": {3, 3},
 	"if": {3, 3}, "case": {2, -1},
+	"not": {1, 1}, "and": {2, -1}, "or": {2, -1},
+	"eq": {2, 2}, "neq": {2, 2}, "gt": {2, 2}, "gte": {2, 2}, "lt": {2, 2}, "lte": {2, 2}, "contains": {2, 2},
 }
 
 func maxString(max int) string {

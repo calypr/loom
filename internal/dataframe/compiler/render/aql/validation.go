@@ -8,7 +8,7 @@ import (
 )
 
 func (r *physicalPlanRenderer) newInternalBindKey(suffix string) string {
-	base := "__loom_physical_" + suffix
+	base := "__loom_physical_" + r.internalPrefix + suffix
 	key := base
 	for counter := 1; ; counter++ {
 		if _, exists := r.bindVars[key]; !exists {
@@ -26,11 +26,46 @@ func collectionBindKeys(plan ir.PhysicalPlan) (map[string]struct{}, error) {
 			switch operation.Kind {
 			case ir.PhysicalRootScanOp:
 				keys[operation.RootScan.CollectionBindKey] = struct{}{}
+				if cohort := operation.RootScan.CohortSource; cohort != nil {
+					for _, key := range []string{
+						cohort.RevisionCollectionBindKey,
+						cohort.SelectionCollectionBindKey,
+						cohort.SelectionMembersCollectionBindKey,
+						cohort.MembershipsCollectionBindKey,
+					} {
+						keys[key] = struct{}{}
+					}
+				}
+				if population := operation.RootScan.Population; population != nil {
+					keys[population.MemberScan.CollectionBindKey] = struct{}{}
+					if err := collectOperations(population.ResourceOperations, owner+" POPULATION_ROOT"); err != nil {
+						return err
+					}
+				}
+			case ir.PhysicalCollectionScanOp:
+				keys[operation.CollectionScan.CollectionBindKey] = struct{}{}
+			case ir.PhysicalDocumentLookupOp:
+				keys[operation.DocumentLookup.CollectionBindKey] = struct{}{}
+			case ir.PhysicalGroupRowsOp:
+				groupRows := operation.GroupRows
+				for _, key := range []string{groupRows.RevisionCollectionBindKey, groupRows.SelectionCollectionBindKey, groupRows.DefinitionsCollectionBindKey, groupRows.MembershipsCollectionBindKey, groupRows.SelectionMembersCollectionBindKey, groupRows.ResourceCollectionBindKey} {
+					keys[key] = struct{}{}
+				}
 			case ir.PhysicalTraversalOp:
 				if operation.Traversal.EdgeCollectionBindKey == "" {
 					return fmt.Errorf("%s operation %d (TRAVERSAL): edge collection bind key is required", owner, index)
 				}
 				keys[operation.Traversal.EdgeCollectionBindKey] = struct{}{}
+			case ir.PhysicalUnnestOp:
+				for routeIndex, step := range operation.Unnest.Owner.Route {
+					if step.Traversal.EdgeCollectionBindKey == "" {
+						return fmt.Errorf("%s operation %d (UNNEST owner route step %d): edge collection bind key is required", owner, index, routeIndex)
+					}
+					keys[step.Traversal.EdgeCollectionBindKey] = struct{}{}
+					if err := collectOperations(step.Scope, owner+" UNNEST OWNER ROUTE"); err != nil {
+						return err
+					}
+				}
 			case ir.PhysicalPathExtendOp:
 				if operation.PathExtend.Traversal.EdgeCollectionBindKey == "" {
 					return fmt.Errorf("%s operation %d (PATH_EXTEND): edge collection bind key is required", owner, index)
@@ -49,8 +84,22 @@ func collectionBindKeys(plan ir.PhysicalPlan) (map[string]struct{}, error) {
 						return err
 					}
 				}
+			case ir.PhysicalExpressionLetOp:
+				if operation.ExpressionLet != nil {
+					if err := collectExpressionCollections(operation.ExpressionLet.Expression, collectOperations, owner); err != nil {
+						return err
+					}
+				}
 			case ir.PhysicalSetOp:
 				if err := collectOperations(operation.Set.Subplan.Operations, owner+" SET"); err != nil {
+					return err
+				}
+			case ir.PhysicalGroupedPivotOp:
+				if err := collectProjectionCollections(operation.GroupedPivot.InputProjections, collectOperations, owner+" GROUPED_PIVOT"); err != nil {
+					return err
+				}
+			case ir.PhysicalUnpivotOp:
+				if err := collectProjectionCollections(operation.Unpivot.InputProjections, collectOperations, owner+" UNPIVOT"); err != nil {
 					return err
 				}
 			}
@@ -59,6 +108,46 @@ func collectionBindKeys(plan ir.PhysicalPlan) (map[string]struct{}, error) {
 	}
 	if err := collectOperations(plan.Operations, "render"); err != nil {
 		return nil, err
+	}
+	if sequence := plan.StageSequence; sequence != nil {
+		for index, stage := range sequence.Stages {
+			owner := fmt.Sprintf("render construction stage %q", stage.ID)
+			if stage.CohortGroup != nil {
+				rows := stage.CohortGroup.Rows
+				for _, key := range []string{rows.RevisionCollectionBindKey, rows.SelectionCollectionBindKey, rows.DefinitionsCollectionBindKey, rows.MembershipsCollectionBindKey, rows.SelectionMembersCollectionBindKey, rows.ResourceCollectionBindKey} {
+					keys[key] = struct{}{}
+				}
+				for _, value := range rows.MemberValues {
+					if err := collectExpressionCollections(value.Expression, collectOperations, owner+" COHORT_GROUP"); err != nil {
+						return nil, err
+					}
+				}
+			}
+			if err := collectOperations(stage.DerivedLets, owner); err != nil {
+				return nil, err
+			}
+			if stage.RelatedExpand != nil {
+				if err := collectOperations(stage.RelatedExpand.RelatedRecords.Operations, owner+" RELATED_EXPAND"); err != nil {
+					return nil, err
+				}
+			}
+			projections := append([]ir.PhysicalProjection(nil), stage.InputProjections...)
+			projections = append(projections, stage.OutputProjections...)
+			if stage.GroupedPivot != nil {
+				projections = append(projections, stage.GroupedPivot.InputProjections...)
+			}
+			if stage.Unpivot != nil {
+				projections = append(projections, stage.Unpivot.InputProjections...)
+			}
+			if err := collectProjectionCollections(projections, collectOperations, owner); err != nil {
+				return nil, err
+			}
+			if stage.Filter != nil && stage.Filter.Expression != nil {
+				if err := collectPredicateCollections(*stage.Filter.Expression, collectOperations, owner); err != nil {
+					return nil, fmt.Errorf("stage %d filter: %w", index, err)
+				}
+			}
+		}
 	}
 	for key := range keys {
 		value, ok := plan.BindVars[key]
@@ -73,12 +162,50 @@ func collectionBindKeys(plan ir.PhysicalPlan) (map[string]struct{}, error) {
 	return keys, nil
 }
 
+func collectProjectionCollections(projections []ir.PhysicalProjection, collectOperations func([]ir.PhysicalOperation, string) error, owner string) error {
+	for index, projection := range projections {
+		if projection.Expression == nil {
+			continue
+		}
+		if err := collectExpressionCollections(*projection.Expression, collectOperations, owner); err != nil {
+			return fmt.Errorf("projection %d (%s): %w", index, projection.Name, err)
+		}
+	}
+	return nil
+}
+
 func collectPredicateCollections(predicate ir.PhysicalPredicateExpression, collectOperations func([]ir.PhysicalOperation, string) error, owner string) error {
+	if predicate.Comparison != nil && predicate.Comparison.LeftExpression != nil {
+		if err := collectExpressionCollections(*predicate.Comparison.LeftExpression, collectOperations, owner); err != nil {
+			return err
+		}
+	}
 	if predicate.Exists != nil {
 		return collectOperations(predicate.Exists.Operations, owner+" EXISTS")
 	}
 	for _, child := range predicate.Children {
 		if err := collectPredicateCollections(child, collectOperations, owner); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func collectExpressionCollections(expression ir.PhysicalExpression, collectOperations func([]ir.PhysicalOperation, string) error, owner string) error {
+	if expression.Call != nil {
+		for _, argument := range expression.Call.Args {
+			if err := collectExpressionCollections(argument, collectOperations, owner+" CALL"); err != nil {
+				return err
+			}
+		}
+	}
+	if expression.Subplan != nil {
+		if err := collectOperations(expression.Subplan.Operations, owner+" SUBPLAN"); err != nil {
+			return err
+		}
+	}
+	if expression.Aggregate != nil && expression.Aggregate.Predicate != nil {
+		if err := collectPredicateCollections(*expression.Aggregate.Predicate, collectOperations, owner+" AGGREGATE"); err != nil {
 			return err
 		}
 	}
@@ -111,6 +238,29 @@ func validateRenderableOperation(operation ir.PhysicalOperation, collectionKeys 
 	switch operation.Kind {
 	case ir.PhysicalRootScanOp:
 		return nil
+	case ir.PhysicalCollectionScanOp:
+		return nil
+	case ir.PhysicalDocumentLookupOp:
+		lookup := operation.DocumentLookup
+		if err := checkValue(lookup.ExactID); err != nil {
+			return err
+		}
+		if _, exists := collectionKeys[lookup.CollectionBindKey]; !exists {
+			return fmt.Errorf("DOCUMENT_LOOKUP collection bind key %q is not defined", lookup.CollectionBindKey)
+		}
+		return nil
+	case ir.PhysicalGroupRowsOp:
+		return nil
+	case ir.PhysicalGroupedPivotOp:
+		if operation.GroupedPivot == nil {
+			return fmt.Errorf("GROUPED_PIVOT requires a payload")
+		}
+		return validateRenderableProjections(operation.GroupedPivot.InputProjections, collectionKeys)
+	case ir.PhysicalUnpivotOp:
+		if operation.Unpivot == nil {
+			return fmt.Errorf("UNPIVOT requires a payload")
+		}
+		return validateRenderableProjections(operation.Unpivot.InputProjections, collectionKeys)
 	case ir.PhysicalTraversalOp:
 		traversal := operation.Traversal
 		if traversal.EdgeVariable == "" {
@@ -129,6 +279,28 @@ func validateRenderableOperation(operation ir.PhysicalOperation, collectionKeys 
 		return nil
 	case ir.PhysicalPathSeedOp, ir.PhysicalPathExtendOp, ir.PhysicalGraphReturnOp:
 		return nil
+	case ir.PhysicalPopulationMappingReturnOp:
+		return nil
+	case ir.PhysicalCellTraceReturnOp:
+		if operation.CellTraceReturn == nil {
+			return fmt.Errorf("cell trace return requires a payload")
+		}
+		for _, key := range []string{operation.CellTraceReturn.OffsetBindKey, operation.CellTraceReturn.LimitBindKey, operation.CellTraceReturn.FetchLimitBindKey} {
+			if _, isCollection := collectionKeys[key]; isCollection {
+				return fmt.Errorf("cell trace bind key %q cannot be a collection bind", key)
+			}
+		}
+		return nil
+	case ir.PhysicalTableShapeExclusionReturnOp:
+		if operation.TableShapeExclusionReturn == nil {
+			return fmt.Errorf("table-shape exclusion return requires a payload")
+		}
+		for _, key := range []string{operation.TableShapeExclusionReturn.OffsetBindKey, operation.TableShapeExclusionReturn.LimitBindKey, operation.TableShapeExclusionReturn.FetchLimitBindKey} {
+			if _, isCollection := collectionKeys[key]; isCollection {
+				return fmt.Errorf("table-shape exclusion bind key %q cannot be a collection bind", key)
+			}
+		}
+		return validateRenderableProjections(operation.TableShapeExclusionReturn.Pivot.InputProjections, collectionKeys)
 	case ir.PhysicalUnnestOp:
 		if operation.Unnest == nil {
 			return fmt.Errorf("UNNEST requires a payload")
@@ -136,13 +308,28 @@ func validateRenderableOperation(operation ir.PhysicalOperation, collectionKeys 
 		if operation.Unnest.Expression.Cardinality != ir.PhysicalArrayCardinality {
 			return fmt.Errorf("UNNEST source expression must be array-valued")
 		}
+		for index, step := range operation.Unnest.Owner.Route {
+			if step.Traversal.EdgeVariable == "" || step.Traversal.EdgeLabelBindKey == "" || step.Traversal.TargetTypeBindKey == "" {
+				return fmt.Errorf("UNNEST owner route step %d requires edge and type bindings", index)
+			}
+			for scopeIndex, scoped := range step.Scope {
+				if err := validateRenderableOperation(scoped, collectionKeys); err != nil {
+					return fmt.Errorf("UNNEST owner route step %d scope operation %d: %w", index, scopeIndex, err)
+				}
+			}
+		}
 		return nil
 	case ir.PhysicalFilterOp:
 		if operation.Filter.Expression != nil {
 			return validateRenderablePredicateExpression(*operation.Filter.Expression, collectionKeys)
 		}
 		switch strings.ToUpper(strings.TrimSpace(operation.Filter.Predicate.Operator)) {
-		case "EQUALS", "IN", "GT":
+		case "EXISTS", "MISSING":
+			if operation.Filter.Predicate.Right != nil {
+				return fmt.Errorf("physical filter operator %q must not have a right value", operation.Filter.Predicate.Operator)
+			}
+			return checkValue(operation.Filter.Predicate.Left)
+		case "EQUALS", "NOT_EQUALS", "IN", "CONTAINS_TEXT", "GT", "GTE", "LT", "LTE":
 		default:
 			return fmt.Errorf("unsupported physical filter operator %q", operation.Filter.Predicate.Operator)
 		}
@@ -169,28 +356,40 @@ func validateRenderableOperation(operation ir.PhysicalOperation, collectionKeys 
 		}
 		return nil
 	case ir.PhysicalSortOp:
-		return checkValue(operation.Sort.Value)
+		if len(operation.Sort.Keys) == 0 {
+			return fmt.Errorf("SORT requires at least one key")
+		}
+		for _, key := range operation.Sort.Keys {
+			if err := checkValue(key); err != nil {
+				return err
+			}
+		}
+		return nil
 	case ir.PhysicalLimitOp:
 		if _, isCollection := collectionKeys[operation.Limit.BindKey]; isCollection {
 			return fmt.Errorf("bind key %q cannot be used as both a collection and scalar bind", operation.Limit.BindKey)
 		}
 		return nil
 	case ir.PhysicalReturnOp:
-		for _, projection := range operation.Return.Projections {
-			if projection.Expression != nil {
-				if projection.Expression.Kind != ir.PhysicalValueExpression && projection.Expression.Kind != ir.PhysicalExtractExpression && projection.Expression.Kind != ir.PhysicalAggregateExpression && projection.Expression.Kind != ir.PhysicalPivotExpression && projection.Expression.Kind != ir.PhysicalSliceExpression && projection.Expression.Kind != ir.PhysicalObjectLookupExpression && projection.Expression.Kind != ir.PhysicalKeyedMapExpression && projection.Expression.Kind != ir.PhysicalObjectKeysExpression && projection.Expression.Kind != ir.PhysicalKeySetExpression && projection.Expression.Kind != ir.PhysicalObjectExpression && projection.Expression.Kind != ir.PhysicalCallExpression {
-					return fmt.Errorf("unsupported physical return expression kind %q", projection.Expression.Kind)
-				}
-				continue
-			}
-			if err := checkValue(projection.Value); err != nil {
-				return err
-			}
-		}
-		return nil
+		return validateRenderableProjections(operation.Return.Projections, collectionKeys)
 	default:
 		return fmt.Errorf("unsupported physical operation %q", operation.Kind)
 	}
+}
+
+func validateRenderableProjections(projections []ir.PhysicalProjection, collectionKeys map[string]struct{}) error {
+	for _, projection := range projections {
+		if projection.Expression != nil {
+			if projection.Expression.Kind != ir.PhysicalValueExpression && projection.Expression.Kind != ir.PhysicalExtractExpression && projection.Expression.Kind != ir.PhysicalAggregateExpression && projection.Expression.Kind != ir.PhysicalPivotExpression && projection.Expression.Kind != ir.PhysicalOwnerRecordsExpression && projection.Expression.Kind != ir.PhysicalSliceExpression && projection.Expression.Kind != ir.PhysicalObjectLookupExpression && projection.Expression.Kind != ir.PhysicalKeyedMapExpression && projection.Expression.Kind != ir.PhysicalObjectKeysExpression && projection.Expression.Kind != ir.PhysicalKeySetExpression && projection.Expression.Kind != ir.PhysicalObjectExpression && projection.Expression.Kind != ir.PhysicalSubplanExpression && projection.Expression.Kind != ir.PhysicalCallExpression && projection.Expression.Kind != ir.PhysicalRelatedFieldExpression {
+				return fmt.Errorf("unsupported physical return expression kind %q", projection.Expression.Kind)
+			}
+			continue
+		}
+		if _, collectionBinding := collectionKeys[projection.Value.BindKey]; collectionBinding {
+			return fmt.Errorf("bind key %q cannot be used as both a collection and scalar bind", projection.Value.BindKey)
+		}
+	}
+	return nil
 }
 
 func validateRenderablePredicateExpression(predicate ir.PhysicalPredicateExpression, collectionKeys map[string]struct{}) error {

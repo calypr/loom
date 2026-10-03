@@ -1,0 +1,36 @@
+import assert from 'node:assert/strict';
+import {mkdirSync, writeFileSync} from 'node:fs';
+import {resolve} from 'node:path';
+import {pathToFileURL} from 'node:url';
+import {browserEval, launchBrowser, navigate} from './loom-dev.mjs';
+const dir=resolve('.audit/ml-plan-detail-20260918');
+mkdirSync(dir,{recursive:true});
+const browser=await launchBrowser(dir);
+const run=body=>browserEval(browser.cdp,body);
+const failures=[];
+browser.cdp.on('Runtime.exceptionThrown',e=>failures.push(e.exceptionDetails.text));
+const search=async value=>run(`const input=document.getElementById('search');input.value=${JSON.stringify(value)};input.dispatchEvent(new Event('input'));`);
+const click=async id=>run(`document.getElementById(${JSON.stringify(id)}).click();`);
+const count=async()=>run("return document.querySelectorAll('[data-column]').length;");
+const shot=async name=>{const {data}=await browser.cdp.send('Page.captureScreenshot',{format:'png'});writeFileSync(resolve(dir,name),Buffer.from(data,'base64'));};
+try{
+ await browser.cdp.send('Emulation.setDeviceMetricsOverride',{width:1440,height:1100,deviceScaleFactor:1,mobile:false});
+ await navigate(browser.cdp,pathToFileURL(resolve('docs/product/history/20260919-superseded/ml-dataframer/catalog-prototype.html')).href);
+ assert.equal(await count(),0);
+ assert.equal(await run("return document.querySelectorAll('#catalog .concept').length;"),50);
+ await click('concept-1');await click('next');await click('concept-51');await search('SYN-0900');await click('concept-900');
+ assert.equal(await count(),0);await click('add');
+ assert.equal(await run("return document.getElementById('decision').open;"),true);
+ await shot('basket-decision.png');await click('cancel');assert.equal(await count(),0);
+ assert.match(await run("return document.getElementById('basket').innerText;"),/3 selected/);
+ await click('add');await run("const select=document.getElementById('policy');select.value='list';select.dispatchEvent(new Event('change')); ");await click('confirm');assert.equal(await count(),3);
+ await search('');await shot('basket-selected.png');
+ await run("document.querySelector('[data-column=\"900\"] button').click();");assert.match(await run("return document.getElementById('inspect-body').innerText;"),/Observation.specimen/);await click('close-inspector');
+ await browser.cdp.send('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});await shot('basket-mobile.png');
+ assert.equal(await run('return document.documentElement.scrollWidth <= innerWidth;'),true);
+ await run("const mode=document.getElementById('mode');mode.value='immediate';mode.dispatchEvent(new Event('change')); ");
+ await click('concept-1');await click('next');await click('concept-51');await search('SYN-0900');await click('concept-900');await click('cancel');assert.equal(await count(),2);
+ assert.deepEqual(failures,[]);
+ const report={scope:'isolated synthetic interaction prototype, no backend verification',passed:['50 visible of 1000 concepts','cross-page/filter selection survives','basket cancel leaves zero columns and three selections','explicit choice adds exactly three','inspector exposes source path','390px no horizontal overflow','immediate-add cancel leaves two prior columns','no browser exceptions'],screenshots:['basket-decision.png','basket-selected.png','basket-mobile.png']};
+ writeFileSync(resolve(dir,'prototype-evidence.json'),JSON.stringify(report,null,2));console.log(JSON.stringify(report));
+}finally{await browser.close();}

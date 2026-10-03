@@ -19,14 +19,25 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/compiler/optimize"
+	clickhousecombine "github.com/calypr/loom/internal/dataframe/compiler/render/clickhouse"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/recipe/exec"
 	"github.com/calypr/loom/internal/dataframe/semantic"
 	"github.com/calypr/loom/internal/dataframe/spec"
+	"github.com/calypr/loom/internal/store/arango"
 )
 
 type QueryRows func(context.Context, string, int, map[string]any, func(map[string]any) error) error
+
+// ClickHouseQueryRows executes a typed ClickHouse result query with a fixed
+// result column contract and positional values. SQL fragments never come from
+// recipe or request data.
+type ClickHouseQueryRows func(context.Context, string, []string, func(map[string]any) error, ...any) error
+
+type ResolveClickHouseInputs func(context.Context, ir.PhysicalClickHouseCombine, recipe.RuntimeBindings) ([]ir.ResolvedClickHouseTable, error)
+
+type WithExecutionReadPins func(context.Context, []string, func(context.Context) error) error
 
 const (
 	// DefaultPreviewLimit is used when a preview request omits its limit.
@@ -39,8 +50,9 @@ const (
 
 // PreviewRequest selects one compiled output and bounds its preview rows.
 type PreviewRequest struct {
-	Output string
-	Limit  int
+	Output             string
+	Limit              int
+	IncludeRowIdentity bool
 }
 
 // PreviewSummary is safe execution metadata for one preview output. It does
@@ -55,28 +67,55 @@ type PreviewSummary struct {
 	TraversalCount   int
 	LoweringDuration time.Duration
 	QueryDuration    time.Duration
+	// Complete is true only when the execution naturally exhausted before
+	// reaching its configured row limit. Truncated is explicit when the
+	// bounded preview stopped at errPreviewLimit; callers must not infer full
+	// population facts from a bounded result.
+	Complete  bool
+	Truncated bool
+	// PartialValidation marks compiler-bounded construction previews that
+	// validate only the displayed deterministic sample of complete groups.
+	PartialValidation    bool
+	RowLineageCapability compiler.RowLineageCapability
 }
 
 type Config struct {
-	Registry      exec.Reader
-	Revisions     recipe.RevisionStore
-	ResolveBundle func(context.Context, recipe.Bundle, recipe.RuntimeBindings) (recipe.Bundle, error)
-	QueryRows     QueryRows
-	ScopeDigest   func(recipe.RuntimeBindings) string
-	BatchSize     int
+	Registry                  exec.Reader
+	Revisions                 recipe.RevisionStore
+	ResolveBundle             func(context.Context, recipe.Bundle, recipe.RuntimeBindings) (recipe.Bundle, error)
+	QueryRows                 QueryRows
+	PreviewQueryRows          QueryRows
+	PreparePreviewIndex       func(context.Context, compiler.PreviewCoveringIndexSpec) error
+	PreviewCollectionRevision func(context.Context, string) (string, error)
+	PreviewExplainQuery       func(context.Context, string, map[string]any) (arango.ExplainResult, error)
+	PreviewCollectionCount    func(context.Context, string) (int64, error)
+	ClickHouseQueryRows       ClickHouseQueryRows
+	ResolveClickHouseInputs   ResolveClickHouseInputs
+	WithExecutionReadPins     WithExecutionReadPins
+	ScopeDigest               func(recipe.RuntimeBindings) string
+	BatchSize                 int
 	// RootPageRows bounds the number of root documents evaluated by one wide
 	// output query. Zero keeps the legacy single-query execution path.
 	RootPageRows int
 }
 
 type Engine struct {
-	registry      exec.Reader
-	revisions     recipe.RevisionStore
-	resolveBundle func(context.Context, recipe.Bundle, recipe.RuntimeBindings) (recipe.Bundle, error)
-	queryRows     QueryRows
-	scopeDigest   func(recipe.RuntimeBindings) string
-	batchSize     int
-	rootPageRows  int
+	registry                  exec.Reader
+	revisions                 recipe.RevisionStore
+	resolveBundle             func(context.Context, recipe.Bundle, recipe.RuntimeBindings) (recipe.Bundle, error)
+	queryRows                 QueryRows
+	previewQueryRows          QueryRows
+	preparePreviewIndex       func(context.Context, compiler.PreviewCoveringIndexSpec) error
+	previewCollectionRevision func(context.Context, string) (string, error)
+	previewExplainQuery       func(context.Context, string, map[string]any) (arango.ExplainResult, error)
+	previewCollectionCount    func(context.Context, string) (int64, error)
+	groupPreviewRowsCache     groupPreviewRowsCache
+	clickHouseQueryRows       ClickHouseQueryRows
+	resolveClickHouseInputs   ResolveClickHouseInputs
+	withExecutionReadPins     WithExecutionReadPins
+	scopeDigest               func(recipe.RuntimeBindings) string
+	batchSize                 int
+	rootPageRows              int
 }
 
 // Resolved contains the immutable recipe after schema discovery, semantic
@@ -112,21 +151,36 @@ func (e *ResolutionError) Unwrap() error {
 }
 
 type OutputStream struct {
-	Name          string
-	Columns       []string
-	RowIdentity   *spec.RowIdentity
-	DynamicChecks map[string]map[string]DynamicColumnCheck
-	query         string
-	bindVars      map[string]any
-	stream        QueryRows
-	batchSize     int
-	rootPageRows  int
-	page          *compiler.CompiledOutputPage
+	Name                    string
+	Columns                 []string
+	sourceIdentityMode      string
+	RowIdentity             *spec.RowIdentity
+	DynamicChecks           map[string]map[string]DynamicColumnCheck
+	query                   string
+	bindVars                map[string]any
+	stream                  QueryRows
+	batchSize               int
+	rootPageRows            int
+	initialRootPageRows     int
+	page                    *compiler.CompiledOutputPage
+	physicalEngine          ir.PhysicalEngine
+	clickHouseCombine       *ir.PhysicalClickHouseCombine
+	project                 string
+	bindings                recipe.RuntimeBindings
+	clickHouseQueryRows     ClickHouseQueryRows
+	resolveClickHouseInputs ResolveClickHouseInputs
+	withExecutionReadPins   WithExecutionReadPins
+	queryLimit              int
+	recipeDigest            string
+	planFingerprint         string
+	stageID                 string
+	outputSchema            []lower.CompiledOutputColumn
 }
 
 type DynamicColumnCheck struct {
 	ColumnName       string
 	ValueType        string
+	Many             bool
 	AllowUnknownKeys bool
 }
 
@@ -150,7 +204,14 @@ func New(cfg Config) (*Engine, error) {
 	if cfg.RootPageRows < 0 {
 		return nil, fmt.Errorf("recipe root page rows cannot be negative")
 	}
-	return &Engine{registry: cfg.Registry, revisions: cfg.Revisions, resolveBundle: cfg.ResolveBundle, queryRows: cfg.QueryRows, scopeDigest: cfg.ScopeDigest, batchSize: batch, rootPageRows: cfg.RootPageRows}, nil
+	return &Engine{
+		registry: cfg.Registry, revisions: cfg.Revisions, resolveBundle: cfg.ResolveBundle,
+		queryRows: cfg.QueryRows, previewQueryRows: cfg.PreviewQueryRows, preparePreviewIndex: cfg.PreparePreviewIndex,
+		previewCollectionRevision: cfg.PreviewCollectionRevision, previewExplainQuery: cfg.PreviewExplainQuery,
+		previewCollectionCount: cfg.PreviewCollectionCount, clickHouseQueryRows: cfg.ClickHouseQueryRows,
+		resolveClickHouseInputs: cfg.ResolveClickHouseInputs, withExecutionReadPins: cfg.WithExecutionReadPins,
+		scopeDigest: cfg.ScopeDigest, batchSize: batch, rootPageRows: cfg.RootPageRows,
+	}, nil
 }
 
 func (e *Engine) Resolve(ctx context.Context, name string, bindings recipe.RuntimeBindings) (Resolved, error) {
@@ -432,26 +493,118 @@ func (e *Engine) streamForOutput(resolved Resolved, name string, limit int) (Out
 		if output.Name != name {
 			continue
 		}
+		switch output.Plan.Engine {
+		case ir.PhysicalEngineClickHouse:
+			return e.clickHouseStreamForOutput(resolved, output, limit)
+		case "", ir.PhysicalEngineAQL:
+		default:
+			return OutputStream{}, compiler.CompiledQuery{}, fmt.Errorf("output %q has unsupported physical engine %q", output.Name, output.Plan.Engine)
+		}
 		query, err := compiler.CompileRecipeOutputWithPolicy(output, resolved.Semantic.SemanticPlan.Bindings, limit, ir.DefaultPhysicalOptimizationPolicy())
 		if err != nil {
 			return OutputStream{}, compiler.CompiledQuery{}, fmt.Errorf("output %q: %w", output.Name, err)
 		}
 		stream := OutputStream{
-			Name: output.Name, Columns: append([]string(nil), query.PublicColumns...), RowIdentity: query.RowIdentity.Clone(),
+			Name: output.Name, Columns: append([]string(nil), query.PublicColumns...), sourceIdentityMode: previewSourceIdentityMode(output, query.OutputSchema), RowIdentity: query.RowIdentity.Clone(),
 			DynamicChecks: dynamicChecks(output.DynamicColumns), query: query.Query, bindVars: query.BindVars,
 			stream: e.queryRows, batchSize: e.batchSize, rootPageRows: e.rootPageRows,
+			queryLimit: limit, recipeDigest: resolved.StoredRecipeDigest, planFingerprint: query.PlanDiagnostics.Fingerprint,
+			bindings: resolved.Semantic.SemanticPlan.Bindings.Clone(),
+			stageID:  compiledFinalStageID(output.Plan), outputSchema: lower.CloneCompiledOutputSchema(output.OutputSchema),
 		}
-		if e.rootPageRows > 0 {
-			page, pageErr := compiler.CompileRecipeOutputPageWithPolicy(output, resolved.Semantic.SemanticPlan.Bindings, e.rootPageRows, ir.DefaultPhysicalOptimizationPolicy())
+		// Aggregation must see the full input before the output row limit applies.
+		wholeInput := len(output.Plan.Operations) == 1 &&
+			output.Plan.Operations[0].Kind == ir.PhysicalGroupRowsOp && output.Plan.Operations[0].GroupRows != nil
+		for _, operation := range output.Plan.Operations {
+			if operation.Kind == ir.PhysicalGroupedPivotOp {
+				wholeInput = true
+			}
+		}
+		for _, stage := range output.Stages {
+			if stage.Operation == string(recipe.ConstructionGroupOp) || stage.Operation == string(recipe.ConstructionPivotOp) ||
+				stage.Operation == string(recipe.ConstructionCodedGroupOp) {
+				wholeInput = true
+			}
+		}
+		if sequence := output.Plan.StageSequence; sequence != nil {
+			for _, stage := range sequence.Stages {
+				if stage.Kind == ir.PhysicalStageCohortGroupOp {
+					wholeInput = true
+					break
+				}
+			}
+		}
+		if e.rootPageRows > 0 && !wholeInput {
+			pageBindings := resolved.Semantic.SemanticPlan.Bindings.Clone()
+			pageBindings.PreviewLimit = limit
+			page, pageErr := compiler.CompileRecipeOutputPageWithPolicy(output, pageBindings, e.rootPageRows, ir.DefaultPhysicalOptimizationPolicy())
 			if pageErr != nil {
 				return OutputStream{}, compiler.CompiledQuery{}, fmt.Errorf("output %q paging: %w", output.Name, pageErr)
 			}
 			stream.page = &page
+			if limit > 0 && relatedExpandRootPageOrder(output.Plan.StageSequence) {
+				stream.initialRootPageRows = 1
+			}
 			query.PlanDiagnostics = page.RowsDiagnostics
+			stream.planFingerprint = query.PlanDiagnostics.Fingerprint
 		}
 		return stream, query, nil
 	}
 	return OutputStream{}, compiler.CompiledQuery{}, previewAdmissionError(dataframeerrors.CodeInvalidRequest, "requested preview output is not available", map[string]any{"output": name})
+}
+
+func compiledFinalStageID(plan ir.PhysicalPlan) string {
+	if plan.StageSequence != nil && plan.StageSequence.FinalStageID != "" {
+		return plan.StageSequence.FinalStageID
+	}
+	return recipe.ConstructionSourceProjectionID
+}
+
+func (e *Engine) clickHouseStreamForOutput(resolved Resolved, output lower.CompiledRecipeOutput, limit int) (OutputStream, compiler.CompiledQuery, error) {
+	if err := output.Plan.Validate(); err != nil {
+		return OutputStream{}, compiler.CompiledQuery{}, fmt.Errorf("output %q ClickHouse plan: %w", output.Name, err)
+	}
+	if output.Plan.ClickHouseCombine == nil {
+		return OutputStream{}, compiler.CompiledQuery{}, fmt.Errorf("output %q has no typed ClickHouse combine", output.Name)
+	}
+	if len(output.DynamicColumns) != 0 {
+		return OutputStream{}, compiler.CompiledQuery{}, fmt.Errorf("output %q ClickHouse combine does not support dynamic columns", output.Name)
+	}
+	combine := clonePhysicalClickHouseCombine(*output.Plan.ClickHouseCombine)
+	bindings := resolved.Semantic.SemanticPlan.Bindings.Clone()
+	query := compiler.CompiledQuery{
+		Project: bindings.Project, DatasetGeneration: bindings.DatasetGeneration,
+		TranslationVersion: output.TranslationVersion, AuthResourcePaths: append([]string(nil), bindings.AuthResourcePaths...),
+		PlanMode: "clickhouse", PlanProfile: "pinned_table_combine", RowIdentity: output.RowIdentity.Clone(),
+		Columns: append([]string(nil), output.Columns...), PublicColumns: append([]string(nil), output.Columns...),
+		OutputSchema: lower.CloneCompiledOutputSchema(output.OutputSchema), Limit: limit,
+		PlanDiagnostics: ir.CompilerPlanDiagnostics{Fingerprint: clickHouseCombineFingerprint(combine)},
+	}
+	stream := OutputStream{
+		Name: output.Name, Columns: append([]string(nil), output.Columns...), sourceIdentityMode: previewSourceIdentityMode(output, query.OutputSchema), RowIdentity: output.RowIdentity.Clone(),
+		DynamicChecks: map[string]map[string]DynamicColumnCheck{}, physicalEngine: ir.PhysicalEngineClickHouse,
+		clickHouseCombine: &combine, project: bindings.Project, bindings: bindings, queryLimit: limit,
+		clickHouseQueryRows: e.clickHouseQueryRows, resolveClickHouseInputs: e.resolveClickHouseInputs,
+		withExecutionReadPins: e.withExecutionReadPins,
+	}
+	return stream, query, nil
+}
+
+func clickHouseCombineFingerprint(plan ir.PhysicalClickHouseCombine) string {
+	payload, err := json.Marshal(plan)
+	if err != nil {
+		return ""
+	}
+	digest := sha256.Sum256(payload)
+	return hex.EncodeToString(digest[:])
+}
+
+func clonePhysicalClickHouseCombine(plan ir.PhysicalClickHouseCombine) ir.PhysicalClickHouseCombine {
+	plan.Inputs = append([]ir.PhysicalCombineInputRef(nil), plan.Inputs...)
+	plan.Keys = append([]ir.PhysicalCombineKey(nil), plan.Keys...)
+	plan.Projections = append([]ir.PhysicalCombineProjection(nil), plan.Projections...)
+	plan.Outputs = append([]ir.PhysicalCombineOutputColumn(nil), plan.Outputs...)
+	return plan
 }
 
 func selectedOutputNames(names []string, outputs []lower.CompiledRecipeOutput) map[string]bool {
@@ -539,14 +692,60 @@ func (e *Engine) PreviewOutput(ctx context.Context, resolved Resolved, request P
 	if err := contextError(ctx); err != nil {
 		return PreviewSummary{}, err
 	}
-	if err := validatePreviewPlan(query, limit); err != nil {
+	if err := validatePreviewPlan(query, limit, stream.physicalEngine); err != nil {
 		return PreviewSummary{}, err
 	}
-	summary := PreviewSummary{Output: stream.Name, Columns: append([]string(nil), stream.Columns...), PlanMode: query.PlanMode, PlanProfile: query.PlanProfile, PlanFingerprint: query.PlanDiagnostics.Fingerprint, TraversalCount: query.TraversalCount, LoweringDuration: time.Since(loweringStarted)}
+	if query.PreviewCoveringIndex != nil && !query.PreviewCoveringIndex.PrepareAfterPreview && e.preparePreviewIndex != nil {
+		prepareCtx, cancel := context.WithTimeout(ctx, 4*time.Second)
+		_ = e.preparePreviewIndex(prepareCtx, *query.PreviewCoveringIndex)
+		cancel()
+		if err := contextError(ctx); err != nil {
+			return PreviewSummary{}, err
+		}
+	}
+	if stream.physicalEngine != ir.PhysicalEngineClickHouse && e.previewQueryRows != nil {
+		stream.stream = e.previewQueryRows
+	}
+	if err := e.chooseGroupPreviewScan(ctx, &query, &stream); err != nil {
+		return PreviewSummary{}, err
+	}
+	loweringDuration := time.Since(loweringStarted)
+	var previewCacheKey groupPreviewRowsKey
+	var previewCacheKeyWeight int
+	var previewCacheEnabled bool
+	var previewCacheHitRows []map[string]any
+	if query.PreviewCoveringIndex != nil && query.PreviewCoveringIndex.PrepareAfterPreview && e.previewCollectionRevision != nil {
+		revision, revisionErr := e.previewCollectionRevision(ctx, query.PreviewCoveringIndex.Collection)
+		if err := contextError(ctx); err != nil {
+			return PreviewSummary{}, err
+		}
+		if revisionErr == nil {
+			key, keyWeight, keyOK := newGroupPreviewRowsKey(query.Query, query.BindVars, query.PreviewCoveringIndex.Collection, revision, limit)
+			if keyOK {
+				previewCacheKey = key
+				previewCacheKeyWeight = keyWeight
+				if encodedRows, ok := e.groupPreviewRowsCache.get(key); ok {
+					if rows, decoded := decodeGroupPreviewRows(encodedRows); decoded {
+						previewCacheHitRows = rows
+					} else {
+						e.groupPreviewRowsCache.delete(key)
+					}
+				}
+				previewCacheEnabled = true
+			}
+		}
+	}
+	summary := PreviewSummary{Output: stream.Name, Columns: append([]string(nil), stream.Columns...), PlanMode: query.PlanMode, PlanProfile: query.PlanProfile, PlanFingerprint: query.PlanDiagnostics.Fingerprint, TraversalCount: query.TraversalCount, LoweringDuration: loweringDuration, Complete: true, PartialValidation: query.PartialValidation}
+	for _, output := range resolved.Compiled.Outputs {
+		if output.Name == request.Output {
+			summary.RowLineageCapability = compiler.RowLineageCapabilityForOutput(output)
+			break
+		}
+	}
 	count := 0
 	var visitorErr error
 	queryStarted := time.Now()
-	queryErr := stream.streamRaw(ctx, func(row map[string]any) error {
+	consumeRow := func(row map[string]any) error {
 		if err := contextError(ctx); err != nil {
 			return err
 		}
@@ -557,7 +756,16 @@ func (e *Engine) PreviewOutput(ctx context.Context, resolved Resolved, request P
 		if err != nil {
 			return err
 		}
-		public := publicPreviewRow(resolvedRow, stream.Columns)
+		includeRowIdentity := request.IncludeRowIdentity || resolved.Semantic.SemanticPlan.Bindings.IncludeRowIdentity
+		if includeRowIdentity {
+			if err := ensureStableRowIdentity(resolvedRow, stream.RowIdentity, query.BindVars); err != nil {
+				return err
+			}
+		}
+		public := publicPreviewRow(resolvedRow, stream.Columns, includeRowIdentity)
+		if resolved.Semantic.SemanticPlan.Bindings.IncludeSourceIdentity {
+			public[previewSourceMetadataKey] = previewRowSource(resolvedRow, query.RootResourceType, stream.sourceIdentityMode)
+		}
 		if err := visit(public); err != nil {
 			visitorErr = err
 			return err
@@ -567,7 +775,32 @@ func (e *Engine) PreviewOutput(ctx context.Context, resolved Resolved, request P
 			return errPreviewLimit
 		}
 		return nil
-	})
+	}
+	var queryErr error
+	var capture groupPreviewRowsCapture
+	if previewCacheHitRows != nil {
+		for _, row := range previewCacheHitRows {
+			if err := consumeRow(row); err != nil {
+				queryErr = err
+				break
+			}
+		}
+	} else {
+		if previewCacheEnabled {
+			capture = newGroupPreviewRowsCapture(previewCacheKeyWeight)
+		}
+		queryErr = stream.streamRaw(ctx, func(row map[string]any) error {
+			var encoded []byte
+			if previewCacheEnabled {
+				encoded = capture.encode(row)
+			}
+			rowErr := consumeRow(row)
+			if encoded != nil && (rowErr == nil || errors.Is(rowErr, errPreviewLimit)) && visitorErr == nil {
+				capture.append(encoded)
+			}
+			return rowErr
+		})
+	}
 	summary.RowCount = count
 	summary.QueryDuration = time.Since(queryStarted)
 	if visitorErr != nil {
@@ -576,10 +809,71 @@ func (e *Engine) PreviewOutput(ctx context.Context, resolved Resolved, request P
 	if queryErr != nil && !errors.Is(queryErr, errPreviewLimit) {
 		return summary, normalizePreviewError(queryErr, true)
 	}
+	if errors.Is(queryErr, errPreviewLimit) {
+		summary.Complete = false
+		summary.Truncated = true
+	}
 	if err := contextError(ctx); err != nil {
 		return summary, err
 	}
+	if previewCacheEnabled && previewCacheHitRows == nil && capture.cacheable &&
+		(visitorErr == nil) && (queryErr == nil || errors.Is(queryErr, errPreviewLimit)) {
+		revision, revisionErr := e.previewCollectionRevision(ctx, previewCacheKey.collection)
+		if err := contextError(ctx); err != nil {
+			return summary, err
+		}
+		if revisionErr == nil && revision == previewCacheKey.revision {
+			e.groupPreviewRowsCache.put(previewCacheKey, capture.rows)
+		}
+	}
+	if query.PreviewCoveringIndex != nil && query.PreviewCoveringIndex.PrepareAfterPreview {
+		schedulePreviewIndexPrewarm(ctx, e, *query.PreviewCoveringIndex)
+	}
 	return summary, nil
+}
+
+const (
+	previewSourceMetadataKey = "__loom_preview_source"
+	previewSourceSingle      = "SINGLE"
+	previewSourceComposite   = "COMPOSITE"
+	previewSourceUnavailable = "UNAVAILABLE"
+)
+
+func previewSourceIdentityMode(output lower.CompiledRecipeOutput, querySchema []lower.CompiledOutputColumn) string {
+	for _, operation := range output.Plan.Operations {
+		if operation.Kind == ir.PhysicalGroupRowsOp || operation.Kind == ir.PhysicalGroupedPivotOp {
+			return previewSourceComposite
+		}
+	}
+	for _, stage := range output.Stages {
+		if stage.Operation == string(ir.PhysicalStageCohortGroupOp) || stage.Operation == string(recipe.ConstructionGroupOp) ||
+			stage.Operation == string(recipe.ConstructionPivotOp) || stage.Operation == string(recipe.ConstructionCodedGroupOp) ||
+			stage.Operation == string(recipe.ConstructionRelatedExpandOp) {
+			return previewSourceComposite
+		}
+	}
+	if output.Plan.Engine == ir.PhysicalEngineClickHouse {
+		return previewSourceUnavailable
+	}
+	for _, column := range querySchema {
+		if column.Name == ir.PreviewSourceResourceIDColumn && column.Internal {
+			return previewSourceSingle
+		}
+	}
+	return previewSourceUnavailable
+}
+
+func previewRowSource(row map[string]any, resourceType, mode string) map[string]any {
+	switch mode {
+	case previewSourceComposite:
+		return map[string]any{"kind": previewSourceComposite}
+	case previewSourceSingle:
+		id, ok := row[ir.PreviewSourceResourceIDColumn].(string)
+		if ok && strings.TrimSpace(id) != "" && strings.TrimSpace(resourceType) != "" {
+			return map[string]any{"kind": previewSourceSingle, "resourceType": resourceType, "id": id}
+		}
+	}
+	return map[string]any{"kind": previewSourceUnavailable}
 }
 
 func normalizePreviewLimit(limit int) (int, error) {
@@ -592,7 +886,13 @@ func normalizePreviewLimit(limit int) (int, error) {
 	return limit, nil
 }
 
-func validatePreviewPlan(query compiler.CompiledQuery, limit int) error {
+func validatePreviewPlan(query compiler.CompiledQuery, limit int, engine ir.PhysicalEngine) error {
+	if engine == ir.PhysicalEngineClickHouse {
+		if query.PlanMode != "clickhouse" || query.PlanProfile != "pinned_table_combine" || strings.TrimSpace(query.PlanDiagnostics.Fingerprint) == "" || query.Limit != limit {
+			return previewAdmissionError(dataframeerrors.CodePlanTooExpensive, "compiled ClickHouse combine plan is not in the approved preview plan class", nil)
+		}
+		return nil
+	}
 	if query.PlanMode != previewPlanMode || query.PlanProfile != previewPlanProfile || strings.TrimSpace(query.PlanDiagnostics.Fingerprint) == "" || query.Limit != limit {
 		return previewAdmissionError(dataframeerrors.CodePlanTooExpensive, "compiled preview plan is not in the approved preview plan class", nil)
 	}
@@ -637,11 +937,16 @@ func normalizePreviewError(err error, backend bool) error {
 	return dataframeerrors.Normalize(err)
 }
 
-func publicPreviewRow(row map[string]any, columns []string) map[string]any {
+func publicPreviewRow(row map[string]any, columns []string, includeRowIdentity bool) map[string]any {
 	public := make(map[string]any, len(columns))
 	for _, column := range columns {
 		if value, ok := row[column]; ok {
 			public[column] = value
+		}
+	}
+	if includeRowIdentity {
+		if value, ok := row["__loom_row_id"]; ok {
+			public["__loom_row_id"] = value
 		}
 	}
 	return public
@@ -670,14 +975,39 @@ func (s OutputStream) Stream(ctx context.Context, visit func(map[string]any) err
 }
 
 func (s OutputStream) streamRaw(ctx context.Context, visit func(map[string]any) error) error {
+	if s.physicalEngine == ir.PhysicalEngineClickHouse {
+		if s.clickHouseCombine == nil || s.resolveClickHouseInputs == nil || s.withExecutionReadPins == nil || s.clickHouseQueryRows == nil {
+			return fmt.Errorf("pinned ClickHouse combine execution dependencies are required")
+		}
+		revisions := make([]string, 0, len(s.clickHouseCombine.Inputs))
+		for _, input := range s.clickHouseCombine.Inputs {
+			revisions = append(revisions, input.RevisionID)
+		}
+		return s.withExecutionReadPins(ctx, revisions, func(pinnedCtx context.Context) error {
+			inputs, err := s.resolveClickHouseInputs(pinnedCtx, *s.clickHouseCombine, s.bindings.Clone())
+			if err != nil {
+				return err
+			}
+			rendered, err := clickhousecombine.RenderCombineWithLimit(*s.clickHouseCombine, inputs, s.project, s.queryLimit)
+			if err != nil {
+				return err
+			}
+			return s.clickHouseQueryRows(pinnedCtx, rendered.Query, rendered.Columns, visit, rendered.Args...)
+		})
+	}
 	if s.page == nil || s.rootPageRows == 0 {
 		return s.stream(ctx, s.query, s.batchSize, s.bindVars, visit)
 	}
 	after := ""
+	pageRows := s.rootPageRows
+	if s.initialRootPageRows > 0 {
+		pageRows = s.initialRootPageRows
+	}
 	for {
-		keys := make([]string, 0, s.rootPageRows)
+		keys := make([]string, 0, pageRows)
 		keyBinds := cloneBindVars(s.page.RootKeysBindVars)
 		keyBinds[compiler.RootPageAfterKeyBind] = after
+		keyBinds[compiler.RootPageSizeBind] = pageRows
 		if err := s.stream(ctx, s.page.RootKeysQuery, s.batchSize, keyBinds, func(row map[string]any) error {
 			key, ok := row["_key"].(string)
 			if !ok || key == "" {
@@ -696,12 +1026,23 @@ func (s OutputStream) streamRaw(ctx context.Context, visit func(map[string]any) 
 		}
 		rowBinds := cloneBindVars(s.page.RowsBindVars)
 		rowBinds[compiler.RootPageKeysBind] = keys
-		if err := s.stream(ctx, s.page.RowsQuery, s.batchSize, rowBinds, visit); err != nil {
+		emitted := 0
+		if err := s.stream(ctx, s.page.RowsQuery, s.batchSize, rowBinds, func(row map[string]any) error {
+			emitted++
+			return visit(row)
+		}); err != nil {
 			return err
 		}
 		after = keys[len(keys)-1]
-		if len(keys) < s.rootPageRows {
+		if len(keys) < pageRows {
 			return nil
+		}
+		if s.initialRootPageRows > 0 {
+			if emitted == 0 {
+				pageRows = min(pageRows*2, s.rootPageRows)
+			} else {
+				pageRows = s.initialRootPageRows
+			}
 		}
 	}
 }
@@ -770,7 +1111,7 @@ func dynamicChecks(metadata []lower.DynamicColumnMetadata) map[string]map[string
 		if checks[column.DynamicName] == nil {
 			checks[column.DynamicName] = map[string]DynamicColumnCheck{}
 		}
-		checks[column.DynamicName][column.SourceKey] = DynamicColumnCheck{ColumnName: column.Name, ValueType: column.ValueType, AllowUnknownKeys: column.AllowUnknownKeys}
+		checks[column.DynamicName][column.SourceKey] = DynamicColumnCheck{ColumnName: column.Name, ValueType: column.ValueType, Many: column.Many, AllowUnknownKeys: column.AllowUnknownKeys}
 	}
 	return checks
 }

@@ -22,6 +22,8 @@ func (r *physicalPlanRenderer) renderExpression(expression ir.PhysicalExpression
 		return r.renderAggregate(expression)
 	case ir.PhysicalPivotExpression:
 		return r.renderPivot(expression)
+	case ir.PhysicalOwnerRecordsExpression:
+		return r.renderOwnerRecords(expression)
 	case ir.PhysicalSliceExpression:
 		return r.renderSlice(expression)
 	case ir.PhysicalObjectLookupExpression:
@@ -31,7 +33,11 @@ func (r *physicalPlanRenderer) renderExpression(expression ir.PhysicalExpression
 		if _, ok := r.bindVars[expression.ObjectLookup.KeyBindKey]; !ok {
 			return "", fmt.Errorf("object lookup bind %q is not defined", expression.ObjectLookup.KeyBindKey)
 		}
-		return fmt.Sprintf("%s[@%s]", expression.ObjectLookup.ObjectVariable, expression.ObjectLookup.KeyBindKey), nil
+		lookup := fmt.Sprintf("%s[@%s]", expression.ObjectLookup.ObjectVariable, expression.ObjectLookup.KeyBindKey)
+		if expression.NullBehavior == ir.PhysicalEmptyOnNull {
+			return fmt.Sprintf("(HAS(%s, @%s) ? %s : [])", expression.ObjectLookup.ObjectVariable, expression.ObjectLookup.KeyBindKey, lookup), nil
+		}
+		return lookup, nil
 	case ir.PhysicalKeyedMapExpression:
 		return r.renderKeyedMap(expression)
 	case ir.PhysicalObjectKeysExpression:
@@ -43,11 +49,62 @@ func (r *physicalPlanRenderer) renderExpression(expression ir.PhysicalExpression
 		return r.renderKeySet(expression)
 	case ir.PhysicalObjectExpression:
 		return r.renderObject(expression)
+	case ir.PhysicalSubplanExpression:
+		if expression.Subplan == nil {
+			return "", fmt.Errorf("SUBPLAN expression is missing payload")
+		}
+		return r.renderSubplan(*expression.Subplan, "  ", false)
 	case ir.PhysicalCallExpression:
 		return r.renderCall(expression)
+	case ir.PhysicalRelatedFieldExpression:
+		return r.renderRelatedField(expression)
 	default:
 		return "", fmt.Errorf("physical renderer does not yet support expression kind %q", expression.Kind)
 	}
+}
+
+func (r *physicalPlanRenderer) renderRelatedField(expression ir.PhysicalExpression) (string, error) {
+	if expression.RelatedField == nil || expression.RelatedField.ResourceType == "" || len(expression.RelatedField.Path) == 0 {
+		return "", fmt.Errorf("RELATED_FIELD expression is missing its exact field path")
+	}
+	documentID, err := r.renderValue(expression.RelatedField.DocumentID)
+	if err != nil {
+		return "", fmt.Errorf("related field document ID: %w", err)
+	}
+	// The FOR variable is scoped to this expression's subquery, so a stable
+	// compiler-owned name is safe across projections and construction stages.
+	document := "related_field_document"
+	collection := "[DOCUMENT(" + documentID + ")]"
+	field := document + ".payload"
+	for index, segment := range expression.RelatedField.Path {
+		if index == 0 && segment == "payload" {
+			continue
+		}
+		if !validRelatedFieldSegment(segment) {
+			return "", fmt.Errorf("related field path segment %d is invalid", index)
+		}
+		pathBind := r.newInternalBindKey("related_field_path")
+		r.bindVars[pathBind] = segment
+		field += "[@" + pathBind + "]"
+	}
+	resourceTypeBind := r.newInternalBindKey("related_field_resource_type")
+	r.bindVars[resourceTypeBind] = expression.RelatedField.ResourceType
+	return fmt.Sprintf("FIRST(FOR %s IN %s FILTER %s != null AND %s.project == @project AND %s.dataset_generation == @dataset_generation AND %s.resourceType == @%s AND (@auth_resource_paths_unrestricted == true OR %s.auth_resource_path IN @auth_resource_paths) RETURN %s)",
+		document, collection, document, document, document, document, resourceTypeBind, document, field), nil
+}
+
+func validRelatedFieldSegment(segment string) bool {
+	if segment == "" || (segment[0] < 'a' || segment[0] > 'z') && (segment[0] < 'A' || segment[0] > 'Z') {
+		return false
+	}
+	for index := 1; index < len(segment); index++ {
+		character := segment[index]
+		if (character < 'a' || character > 'z') && (character < 'A' || character > 'Z') &&
+			(character < '0' || character > '9') && character != '_' {
+			return false
+		}
+	}
+	return true
 }
 
 func (r *physicalPlanRenderer) renderKeyedMap(expression ir.PhysicalExpression) (string, error) {
@@ -96,8 +153,13 @@ func (r *physicalPlanRenderer) renderKeyedMap(expression ir.PhysicalExpression) 
 		sourceLoop = "FLATTEN(" + source + ")"
 	}
 	values := "FIRST(__loom_keyed_group[*].__loom_keyed_value)"
-	if keyed.Reduction == ir.PhysicalMapFirstSorted {
+	switch keyed.Reduction {
+	case ir.PhysicalMapFirstSorted:
 		values = "FIRST(SORTED_UNIQUE(__loom_keyed_group[*].__loom_keyed_value))"
+	case ir.PhysicalMapAll:
+		values = "(FOR __loom_keyed_item IN __loom_keyed_group[*].__loom_keyed_value SORT __loom_keyed_item RETURN __loom_keyed_item)"
+	case ir.PhysicalMapDistinct:
+		values = "SORTED_UNIQUE(__loom_keyed_group[*].__loom_keyed_value)"
 	}
 	return fmt.Sprintf(`MERGE(
 	  FOR %s IN %s

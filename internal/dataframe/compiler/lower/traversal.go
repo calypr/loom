@@ -17,14 +17,18 @@ import (
 // the containing plan and stable for a given semantic traversal. It is used
 // only to derive bind keys; it is never rendered as AQL source.
 type TraversalLoweringRequest struct {
-	FromType       string
-	EdgeLabel      string
-	ToType         string
-	SourceVariable string
-	TargetVariable string
-	EdgeVariable   string
-	BindPrefix     string
-	Policy         ir.PhysicalOptimizationPolicy
+	FromType  string
+	EdgeLabel string
+	ToType    string
+	// DirectionOverride is only for a route whose exact stored-edge direction
+	// was already proven by its caller. It resolves self-type inverse routes,
+	// where swapping endpoint types cannot distinguish the original direction.
+	DirectionOverride ir.PhysicalTraversalDirection
+	SourceVariable    string
+	TargetVariable    string
+	EdgeVariable      string
+	BindPrefix        string
+	Policy            ir.PhysicalOptimizationPolicy
 }
 
 // TraversalLoweringResult contains the canonical physical traversal and the
@@ -80,8 +84,18 @@ func BuildPhysicalTraversal(request TraversalLoweringRequest) (TraversalLowering
 	if err != nil {
 		return TraversalLoweringResult{}, err
 	}
+	if request.DirectionOverride != "" {
+		if request.DirectionOverride != ir.PhysicalInbound && request.DirectionOverride != ir.PhysicalOutbound {
+			return TraversalLoweringResult{}, fmt.Errorf("traversal direction override %q is unsupported", request.DirectionOverride)
+		}
+		if request.FromType != request.ToType && route.Direction != request.DirectionOverride {
+			return TraversalLoweringResult{}, fmt.Errorf("traversal direction override %q conflicts with schema-derived route %q", request.DirectionOverride, route.Direction)
+		}
+		route.Direction = request.DirectionOverride
+	}
 	strategy, endpointField, endpointJoinField, endpointIndexFields := physicalTraversalStrategyForRoute(request.Policy, route)
 	labelBind := prefix + "_label"
+	sourceTypeBind := prefix + "_source_type"
 	typeBind := prefix + "_target_type"
 	edgeCollectionBind := prefix + "_edge_collection"
 	return TraversalLoweringResult{
@@ -92,6 +106,7 @@ func BuildPhysicalTraversal(request TraversalLoweringRequest) (TraversalLowering
 			Direction:             route.Direction,
 			EdgeCollectionBindKey: edgeCollectionBind,
 			EdgeLabelBindKey:      labelBind,
+			SourceTypeBindKey:     sourceTypeBind,
 			TargetTypeBindKey:     typeBind,
 			EdgeTargetTypeField:   route.targetEdgeTypeField(),
 			Strategy:              strategy,
@@ -101,6 +116,7 @@ func BuildPhysicalTraversal(request TraversalLoweringRequest) (TraversalLowering
 		},
 		BindVars: map[string]any{
 			labelBind:          request.EdgeLabel,
+			sourceTypeBind:     request.FromType,
 			typeBind:           request.ToType,
 			edgeCollectionBind: "fhir_edge",
 		},

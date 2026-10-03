@@ -1,6 +1,9 @@
 package ir
 
-import "github.com/calypr/loom/internal/dataframe/spec"
+import (
+	"github.com/calypr/loom/internal/dataframe/spec"
+	"github.com/calypr/loom/internal/dataframe/unit"
+)
 
 // PhysicalPlan is the renderer-independent AQL operation graph produced after
 // semantic planning. Operations are ordered because AQL variables have lexical
@@ -40,6 +43,7 @@ const (
 	PhysicalExtractExpression      PhysicalExpressionKind = "EXTRACT"
 	PhysicalAggregateExpression    PhysicalExpressionKind = "AGGREGATE"
 	PhysicalPivotExpression        PhysicalExpressionKind = "PIVOT_MAP"
+	PhysicalOwnerRecordsExpression PhysicalExpressionKind = "OWNER_RECORDS"
 	PhysicalSliceExpression        PhysicalExpressionKind = "SLICE"
 	PhysicalObjectLookupExpression PhysicalExpressionKind = "OBJECT_LOOKUP"
 	PhysicalKeyedMapExpression     PhysicalExpressionKind = "KEYED_MAP"
@@ -48,10 +52,16 @@ const (
 	// bounded source. It is executor metadata, not a public dataframe column.
 	PhysicalKeySetExpression PhysicalExpressionKind = "KEY_SET"
 	PhysicalObjectExpression PhysicalExpressionKind = "OBJECT"
+	// PhysicalSubplanExpression evaluates a compiler-owned correlated subquery
+	// as an array-valued projection, such as row-level population provenance.
+	PhysicalSubplanExpression PhysicalExpressionKind = "SUBPLAN"
 	// PhysicalCallExpression represents a recipe-neutral expression function.
 	// Name is validated against the compiler-owned operator registry and Args
 	// remain typed expressions; neither contains AQL source text.
 	PhysicalCallExpression PhysicalExpressionKind = "CALL"
+	// PhysicalRelatedFieldExpression loads one compiler-selected scalar path
+	// from a document identified by its exact retained Arango _id.
+	PhysicalRelatedFieldExpression PhysicalExpressionKind = "RELATED_FIELD"
 )
 
 // PhysicalSelectorExecutionMode records a schema-proven selector lowering.
@@ -77,13 +87,16 @@ type PhysicalExpression struct {
 	Extract      *PhysicalExtract
 	Aggregate    *PhysicalAggregate
 	Pivot        *PhysicalPivotMap
+	OwnerRecords *PhysicalOwnerRecords
 	Slice        *PhysicalSlice
 	ObjectLookup *PhysicalObjectLookup
 	KeyedMap     *PhysicalKeyedMap
 	ObjectKeys   *PhysicalObjectKeys
 	KeySet       *PhysicalKeySet
 	Object       *PhysicalObject
+	Subplan      *PhysicalSubplan
 	Call         *PhysicalCall
+	RelatedField *PhysicalRelatedField
 }
 
 // PhysicalLiteral references a value in the plan bind map. BindKey is
@@ -102,14 +115,21 @@ type PhysicalCall struct {
 	TargetKind string
 }
 
+type PhysicalRelatedField struct {
+	DocumentID   PhysicalValue
+	ResourceType string
+	Path         []string
+}
+
 // PhysicalExtract obtains one FHIR selector from a variable or prior set
 // element. ResourceType keeps schema validation available after semantic
-// lowering; fallbacks preserve the existing FIRST_NON_NULL behavior.
+// lowering; fallbacks remain ordered value alternatives and are flattened
+// with the primary selector before FIRST, ALL, or DISTINCT projection.
 type PhysicalExtract struct {
 	Source       PhysicalValue
 	ResourceType string
 	Selector     spec.Selector
-	Fallbacks    []spec.Selector
+	Fallbacks    []PhysicalSelectorFallback
 	// Distinct preserves the explicit DISTINCT projection mode after semantic
 	// lowering. It is meaningful only for an array-valued expression.
 	Distinct      bool
@@ -117,6 +137,27 @@ type PhysicalExtract struct {
 	// Prepared points at a selector value projected by a prepared child set.
 	// Source remains the owning set for scope validation and diagnostics.
 	Prepared *PhysicalPreparedReference
+	// UnitNormalization retains the original measurement and exact source
+	// identity selectors until the renderer applies one approved rule per item.
+	UnitNormalization *PhysicalUnitNormalization
+}
+
+// PhysicalSelectorFallback is one ordered selector alternative. Keeping its
+// source and schema type with the selector lets recipes preserve fallbacks
+// whose lexical owner differs from the primary selector's owner.
+type PhysicalSelectorFallback struct {
+	Source       PhysicalValue
+	ResourceType string
+	Selector     spec.Selector
+}
+
+type PhysicalUnitNormalization struct {
+	OriginalValue spec.Selector
+	SourceSystem  spec.Selector
+	SourceCode    spec.Selector
+	Target        unit.UnitIdentity
+	Dimension     unit.UnitDimension
+	Rules         []unit.UnitConversionRule
 }
 
 // PhysicalPreparedReference identifies one selector column in a prepared set.
@@ -149,9 +190,30 @@ const (
 	PhysicalDistinctValuesAggregate PhysicalAggregateOperation = "DISTINCT_VALUES"
 	PhysicalMinAggregate            PhysicalAggregateOperation = "MIN"
 	PhysicalMaxAggregate            PhysicalAggregateOperation = "MAX"
+	PhysicalSumAggregate            PhysicalAggregateOperation = "SUM"
+	PhysicalMeanAggregate           PhysicalAggregateOperation = "MEAN"
 	PhysicalFirstAggregate          PhysicalAggregateOperation = "FIRST"
 	PhysicalContainsAllAggregate    PhysicalAggregateOperation = "CONTAINS_ALL"
+	PhysicalRequireOneAggregate     PhysicalAggregateOperation = "REQUIRE_ONE"
+	PhysicalCollectAggregate        PhysicalAggregateOperation = "COLLECT"
+	PhysicalFirstOrderedAggregate   PhysicalAggregateOperation = "FIRST_ORDERED"
 )
+
+type PhysicalContributorWindow struct {
+	Timestamp      PhysicalExpression
+	Anchor         PhysicalExpression
+	LowerOffset    int64
+	UpperOffset    int64
+	LowerInclusive bool
+	UpperInclusive bool
+	Precision      string
+}
+
+type PhysicalTemporalOrdering struct {
+	Timestamp PhysicalExpression
+	Direction string
+	TiePolicy string
+}
 
 type PhysicalAggregate struct {
 	Source                PhysicalValue
@@ -159,6 +221,8 @@ type PhysicalAggregate struct {
 	Value                 *PhysicalExpression
 	Predicate             *PhysicalPredicateExpression
 	RequiredValuesBindKey string
+	ContributorWindow     *PhysicalContributorWindow
+	Ordering              *PhysicalTemporalOrdering
 }
 
 type PhysicalPivotMap struct {
@@ -177,8 +241,53 @@ type PhysicalPivotMap struct {
 	StringifyValue      bool
 	ColumnsBindKey      string
 	FlattenSingleColumn bool
+	ColumnAliases       map[string]string
+	ProjectionMode      string
 	PreparedKey         *PhysicalPreparedReference
 	PreparedValue       *PhysicalPreparedReference
+	// Correlation is optional for legacy pivots. When present, one owner item
+	// is iterated first, then its Coding items are matched by system+code in
+	// the same Coding object before ValueSelector is evaluated.
+	Correlation *PhysicalCorrelation
+}
+
+// PhysicalOwnerRecords emits one ordered record per repeated FHIR owner while
+// preserving the surrounding dataframe row grain.
+type PhysicalOwnerRecords struct {
+	Correlation        PhysicalCorrelation
+	OwnerPathBindKey   string
+	ChoiceArmBindKey   string
+	LogicalTypeBindKey string
+}
+
+// PhysicalCorrelation is the shared typed representation for correlated
+// terminology predicates and projections. Selectors are relative to Source's
+// owner payload, except SystemSelector and CodeSelector which are relative to
+// one item produced by KeySelector.
+type PhysicalCorrelation struct {
+	Source          PhysicalValue
+	ResourceType    string
+	OwnerResource   string
+	OwnerSelector   spec.Selector
+	KeyResource     string
+	KeySelector     spec.Selector
+	SystemSelector  spec.Selector
+	CodeSelector    spec.Selector
+	ValueSelector   spec.Selector
+	ValueFallbacks  []spec.Selector
+	ChoiceArms      []string
+	ChoiceSelectors []spec.Selector
+	LogicalType     string
+	ValuePrimitive  string
+	UnitSelector    *spec.Selector
+	SystemBindKey   string
+	CodeBindKey     string
+	// ExtensionURLSelectors and ExtensionURLBindKeys describe an ancestor-
+	// aware extension correlation. Each selector is relative to the current
+	// Extension item and each bind is matched before descending to the next
+	// nested extension. When non-empty, coding fields above are unused.
+	ExtensionURLSelectors []spec.Selector
+	ExtensionURLBindKeys  []string
 }
 
 type PhysicalObjectLookup struct {
@@ -191,6 +300,8 @@ type PhysicalMapReduction string
 const (
 	PhysicalMapFirst       PhysicalMapReduction = "FIRST"
 	PhysicalMapFirstSorted PhysicalMapReduction = "FIRST_SORTED"
+	PhysicalMapAll         PhysicalMapReduction = "ALL"
+	PhysicalMapDistinct    PhysicalMapReduction = "DISTINCT"
 )
 
 type PhysicalKeyedMap struct {

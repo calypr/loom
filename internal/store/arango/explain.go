@@ -44,14 +44,16 @@ type ExplainPlan struct {
 }
 
 type ExplainNode struct {
-	Type             string         `json:"type,omitempty"`
-	ID               int64          `json:"id,omitempty"`
-	Dependencies     []int64        `json:"dependencies,omitempty"`
-	Collection       string         `json:"collection,omitempty"`
-	EdgeCollections  []string       `json:"edgeCollections,omitempty"`
-	Indexes          ExplainIndexes `json:"indexes,omitempty"`
-	EstimatedCost    float64        `json:"estimatedCost,omitempty"`
-	EstimatedNrItems float64        `json:"estimatedNrItems,omitempty"`
+	Type                      string         `json:"type,omitempty"`
+	ID                        int64          `json:"id,omitempty"`
+	Dependencies              []int64        `json:"dependencies,omitempty"`
+	Collection                string         `json:"collection,omitempty"`
+	EdgeCollections           []string       `json:"edgeCollections,omitempty"`
+	Indexes                   ExplainIndexes `json:"indexes,omitempty"`
+	EstimatedCost             float64        `json:"estimatedCost,omitempty"`
+	EstimatedNrItems          float64        `json:"estimatedNrItems,omitempty"`
+	IndexCoversProjections    *bool          `json:"indexCoversProjections,omitempty"`
+	IndexCoversOutProjections *bool          `json:"indexCoversOutProjections,omitempty"`
 }
 
 // ExplainIndexes accepts the shapes emitted by different ArangoDB plan nodes.

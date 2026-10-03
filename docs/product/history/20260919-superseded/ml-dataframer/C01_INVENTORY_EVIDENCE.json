@@ -1,0 +1,117 @@
+{
+  "date": "2026-09-19",
+  "workPackage": "C01",
+  "task": "C01-02",
+  "status": "partial",
+  "implementationSha": "b27ec4004fb44a3c9feb9f85d10d93f7ec8f7919",
+  "integrationBranch": "arch/integration",
+  "scope": "Generation-ingest semantic contributions, durable build status, authorized catalog-store pagination, and read-only authoring inventory transport",
+  "verification": [
+    {
+      "command": "GOCACHE=/private/tmp/loom-c01-go-cache go test ./internal/catalog ./internal/catalog/arango ./internal/ingest",
+      "result": "pass",
+      "evidenceOwner": "implementation worker",
+      "reportedTests": 111
+    },
+    {
+      "command": "GOCACHE=/private/tmp/loom-c01-go-cache go test ./internal/explorer/capability ./internal/explorer/lifecycle ./internal/server -count=1",
+      "result": "pass",
+      "evidenceOwner": "foreground agent"
+    },
+    {
+      "command": "LOOM_C01_ARANGO_INTEGRATION=1 LOOM_C01_ARANGO_URL=http://arangodb:8529 LOOM_C01_ARANGO_DATABASE=<isolated-test-database> go test ./internal/catalog/arango -run '^TestSemanticInventoryPersistsAndPagesAcrossAuthorizedPaths$' -count=1 -v",
+      "runtime": "Temporary container using the local development image, candidate checkout mounted read-only, Arango 3.12.11",
+      "result": "pass",
+      "evidenceOwner": "foreground agent",
+      "durationSeconds": 1.754,
+      "assertions": [
+        "Exact 1000-concept set in scope A and 200-concept set in scope B",
+        "Exact 1100-concept union without duplicate shared concepts",
+        "Pages contain at most 50 entries even when 1000 are requested",
+        "Shared concept population counts only authorized contributions",
+        "Searching one display label does not discard other authorized contributions",
+        "Replaying identical source files does not double counts",
+        "Cursor reuse under a different authorization scope is rejected",
+        "Missing inventory collections and missing build markers report unknown",
+        "Running and failed builds expose no restricted progress or diagnostics",
+        "Failure preserves the internal scan checkpoint",
+        "Discarded unit variants and examples have explicit truncation flags"
+      ]
+    },
+    {
+      "check": "Cumulative source and test review, including production index parity",
+      "result": "pass",
+      "evidenceOwner": "foreground agent",
+      "acceptedScope": "Bounded inventory implementation unit only"
+    },
+    {
+      "command": "LOOM_DEV_PROJECT=loom_dev_c01_fixture LOOM_DEV_GENERATION=c01-fixture-v1 LOOM_DEV_FIXTURE_DIR=/private/tmp/loom-arch-integration/testdata/devloop-fixture LOOM_DEV_API_PORT=8182 LOOM_DEV_UI_PORT=30002 node scripts/loom-dev.mjs verify-fast",
+      "result": "pass",
+      "evidenceOwner": "foreground agent",
+      "assertionsPassed": 69,
+      "browserDurationMs": 23019,
+      "totalDurationMs": 32939,
+      "report": ".artifacts/loom-dev/6d7df93d6a37/mu8ikj2f-91e55dd8/report.json",
+      "scope": "Existing Builder, preview, publication, Viewer, filter, training-artifact export, and reload regression journey",
+      "limitation": "Local allow-all authentication does not prove HTTP authorization-denial behavior"
+    },
+    {
+      "check": "Read actual inventory build markers after normal browser-fixture ingestion",
+      "result": "pass",
+      "evidenceOwner": "foreground agent",
+      "generation": "c01-fixture-v1",
+      "projects": ["loom_dev_c01_fixture", "loom_dev_verify_mu8ikiis-b184a0aa"],
+      "stateForEach": "complete",
+      "scannedResourcesForEach": 14
+    }
+  ],
+  "browseTransportVerification": {
+    "date": "2026-09-19",
+    "route": "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/semantic-inventory",
+    "commands": [
+      "GOCACHE=/private/tmp/loom-c01-go-cache go test ./internal/explorer/lifecycle ./internal/server -count=1",
+      "make openapi-check"
+    ],
+    "result": "pass",
+    "liveChecks": [
+      "Existing loom_dev_c01_fixture returns complete inventory and two successive two-entry pages",
+      "Context token is stable between pages",
+      "Changing the search query while reusing a cursor returns HTTP 409",
+      "Existing loom_dev_cda_fhir returns HTTP 200, unknown inventory, and zero entries before backfill",
+      "CDA Builder remains draft version 4"
+    ],
+    "testChecks": [
+      "Restricted and empty-restricted authorization are explicitly forwarded to storage",
+      "A scope digest mismatch prevents any inventory read",
+      "Changing row root or build invalidates the outer cursor",
+      "Stale snapshot and oversized page requests are rejected",
+      "Client-supplied authorization paths cannot broaden the effective scope",
+      "Project read denial returns HTTP 403 before reading inventory"
+    ],
+    "limitations": [
+      "This endpoint exposes observed semantic bindings, not add-ready recipes or the complete combined scalar-field catalog",
+      "Live Docker uses allow-all authentication; denial behavior is tested through the generated HTTP route",
+      "No new frontend UI or atomic selected-feature authoring is included"
+    ]
+  },
+  "correctedDuringVerification": [
+    "Restricted incomplete-build metadata bypassed redaction",
+    "Display filtering before aggregation undercounted concepts",
+    "Bounded unit and example selection lacked truncation flags",
+    "Absent collections returned an error instead of unknown inventory",
+    "Marking a build failed discarded its previous checkpoint",
+    "The AQL variable aggregate was reserved syntax",
+    "The query index in the integration fixture was missing from production bootstrap"
+  ],
+  "remaining": [
+    "Backfill and resume from retained resources for existing generations, including CDA-FHIR",
+    "Query-plan and production-scale performance evidence",
+    "Combined field/concept catalog, selected-reference resolution, and apply-context enforcement",
+    "Atomic selected-feature authoring and retry recovery",
+    "Version-specific compiler matching or explicit unsupported readiness",
+    "Catalog UI integrated with the retained traversal graph",
+    "Three-selected-column DOM, reload, preview, and artifact acceptance journey"
+  ],
+  "notRun": ["Full repository suite deferred to the integrated C01 work-package checkpoint"],
+  "productKpisAccepted": 0
+}

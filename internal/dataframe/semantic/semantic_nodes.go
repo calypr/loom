@@ -3,12 +3,15 @@ package semantic
 import (
 	"github.com/calypr/loom/internal/dataframe/expression"
 	"github.com/calypr/loom/internal/dataframe/spec"
+	"github.com/calypr/loom/internal/dataframe/unit"
+	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
 // SemanticNode is the canonical backend-independent graph node used by every
 // dataframe frontend. Runtime request provenance belongs in ExecutionContext,
 // while output-specific shaping belongs in OutputPlan.
 type SemanticNode struct {
+	OccurrenceID string
 	Alias        string
 	ResourceType string
 	EdgeLabel    string
@@ -17,6 +20,7 @@ type SemanticNode struct {
 	Fields       []SemanticField
 	Filters      []spec.TypedFilter
 	Pivots       []SemanticPivot
+	OwnerRecords []SemanticOwnerRecords
 	Aggregates   []SemanticAggregate
 	Slices       []SemanticSlice
 	Children     []SemanticNode
@@ -25,6 +29,8 @@ type SemanticNode struct {
 
 type SemanticField struct {
 	Name     string
+	ColumnID string
+	Label    string
 	FieldRef string
 	// Expr and Fallbacks are the checked semantic expressions that produced
 	// this field. Selectors are intentionally derived from these expressions
@@ -47,27 +53,71 @@ type SemanticPivot struct {
 	ItemSource       spec.Selector
 	ItemResourceType string
 	Columns          []string
+	ColumnAliases    map[string]string
+	ProjectionMode   string
 	Family           string
 	Discovered       bool
+	// Correlation is the closed system+code/value binding used when a pivot
+	// must preserve one Coding and one owning repeated item. Nil retains the
+	// legacy validated pivot path.
+	Correlation       *fhirschema.CorrelatedBinding
+	CorrelationSystem string
+	CorrelationCode   string
+	// ExtensionCorrelation carries the checked ancestor-aware extension
+	// binding. It shares the physical correlation IR with terminology pivots.
+	ExtensionCorrelation *fhirschema.ExtensionBinding
+}
+
+type SemanticOwnerRecords struct {
+	Name     string
+	FieldRef string
+	Binding  fhirschema.CorrelatedBinding
+	Key      fhirschema.CorrelatedKey
 }
 
 type SemanticAggregate struct {
-	Name            string
-	OutputName      string
-	Operation       string
-	FieldRef        string
-	Selector        *spec.Selector
-	Predicate       *spec.Selector
-	PredicateEquals string
-	PredicateKind   spec.FilterValueKind
-	ValueMode       string
-	RequiredValues  []string
-	ValueKind       expression.ValueKind
+	Name       string
+	OutputName string
+	Operation  string
+	FieldRef   string
+	// Predicate is the complete canonical typed contributor predicate. It is
+	// retained until physical lowering so operator, quantifier, kind, and value
+	// cannot diverge across compiler stages.
+	Predicate      *spec.TypedFilter
+	Selector       *spec.Selector
+	ValueMode      string
+	RequiredValues []string
+	ValueKind      expression.ValueKind
+	// UnitNormalization is compiler-resolved and contains the pinned registry
+	// rules. Authoring/recipe references do not cross this boundary.
+	UnitNormalization  *unit.UnitNormalization
+	UnitSystemSelector *spec.Selector
+	UnitCodeSelector   *spec.Selector
+	ContributorWindow  *SemanticContributorWindow
+	Ordering           *SemanticTemporalOrdering
+}
+
+type SemanticContributorWindow struct {
+	Timestamp      spec.Selector
+	Anchor         spec.Selector
+	AnchorResource string
+	LowerOffset    int64
+	UpperOffset    int64
+	LowerInclusive bool
+	UpperInclusive bool
+	Precision      string
+}
+
+type SemanticTemporalOrdering struct {
+	Timestamp spec.Selector
+	Direction string
+	TiePolicy string
 }
 
 type SemanticSlice struct {
 	Name            string
 	Limit           int
+	TypedPredicate  *spec.TypedFilter
 	Predicate       *spec.Selector
 	PredicateEquals string
 	PredicateKind   spec.FilterValueKind

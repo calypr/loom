@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { facetValues } from './components';
+import { facetValues, textFor } from './components';
 
 describe('Explorer Viewer facet values', () => {
   it('coalesces duplicate display values for Mantine controls', () => {
@@ -16,5 +16,13 @@ describe('Explorer Viewer facet values', () => {
       { value: 'official', count: '5' },
       { value: 'secondary', count: '1' },
     ]);
+  });
+
+  it('shares scalar, FHIR, and array display policy with Preview', () => {
+    expect(textFor('  Tissue  ')).toBe('Tissue');
+    expect(textFor({ text: 'Fixation' })).toBe('Fixation');
+    expect(textFor({ coding: [{ code: 'fix' }] })).toBe('fix');
+    expect(textFor([null, 'active', { display: 'Ready' }])).toBe('active; Ready');
+    expect(textFor({ nested: { value: 'sample' } })).toBe('{"nested":{"value":"sample"}}');
   });
 });

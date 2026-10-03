@@ -16,6 +16,28 @@ func (b Bundle) CanonicalJSON() ([]byte, error) {
 	return json.Marshal(b)
 }
 
+// CanonicalBundle expands fragment macros and round-trips the validated
+// document so every registration and compilation boundary receives the same
+// immutable, standalone recipe shape.
+func (b Bundle) CanonicalBundle() (Bundle, error) {
+	if b.Fragments != nil {
+		expanded, err := b.ExpandFragments()
+		if err != nil {
+			return Bundle{}, err
+		}
+		b = expanded
+	}
+	canonical, err := b.CanonicalJSON()
+	if err != nil {
+		return Bundle{}, err
+	}
+	var normalized Bundle
+	if err := json.Unmarshal(canonical, &normalized); err != nil {
+		return Bundle{}, err
+	}
+	return normalized, nil
+}
+
 // Digest returns the SHA-256 digest of CanonicalJSON encoded as lowercase hex.
 func (b Bundle) Digest() (string, error) {
 	canonical, err := b.CanonicalJSON()

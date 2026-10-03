@@ -2,6 +2,7 @@ package ir
 
 import (
 	"fmt"
+	"reflect"
 
 	"strings"
 )
@@ -78,6 +79,9 @@ func validatePhysicalPredicateExpression(predicate PhysicalPredicateExpression, 
 		if predicate.Comparison != nil || len(predicate.Children) != 0 || predicate.Exists == nil {
 			return fmt.Errorf("EXISTS predicate requires exactly one subplan")
 		}
+		if predicate.Exists.Sort != nil || predicate.Exists.Unique {
+			return fmt.Errorf("EXISTS subplan cannot use projection-only sort or unique modifiers")
+		}
 		return validatePhysicalSubplan(*predicate.Exists, defined, bindVars)
 	default:
 		return fmt.Errorf("unknown predicate kind %q", predicate.Kind)
@@ -108,6 +112,24 @@ func validatePhysicalSubplan(subplan PhysicalSubplan, parent map[string]bool, bi
 			return fmt.Errorf("subplan operation %d (%s): %w", index, operation.Kind, err)
 		}
 		switch operation.Kind {
+		case PhysicalCollectionScanOp:
+			if err := requireCollectionBind(bindVars, operation.CollectionScan.CollectionBindKey); err != nil {
+				return fmt.Errorf("subplan operation %d: %w", index, err)
+			}
+			if err := definePhysicalVariable(defined, operation.CollectionScan.Variable); err != nil {
+				return fmt.Errorf("subplan operation %d: %w", index, err)
+			}
+		case PhysicalDocumentLookupOp:
+			lookup := operation.DocumentLookup
+			if err := requireCollectionBind(bindVars, lookup.CollectionBindKey); err != nil {
+				return fmt.Errorf("subplan operation %d collection: %w", index, err)
+			}
+			if err := validatePhysicalValue(lookup.ExactID, defined, bindVars); err != nil {
+				return fmt.Errorf("subplan operation %d exact document identity: %w", index, err)
+			}
+			if err := definePhysicalVariable(defined, lookup.Variable); err != nil {
+				return fmt.Errorf("subplan operation %d: %w", index, err)
+			}
 		case PhysicalTraversalOp:
 			traversal := operation.Traversal
 			if !defined[traversal.SourceVariable] {
@@ -162,19 +184,33 @@ func validatePhysicalSubplan(subplan PhysicalSubplan, parent map[string]bool, bi
 			if err := validatePhysicalUnnest(*operation.Unnest, defined, bindVars); err != nil {
 				return fmt.Errorf("subplan operation %d unnest: %w", index, err)
 			}
-			if err := definePhysicalVariable(defined, operation.Unnest.OutputVariable); err != nil {
-				return fmt.Errorf("subplan operation %d: %w", index, err)
-			}
-			if operation.Unnest.Ordinality != "" {
-				if err := definePhysicalVariable(defined, operation.Unnest.Ordinality); err != nil {
-					return fmt.Errorf("subplan operation %d: %w", index, err)
-				}
+			if err := definePhysicalUnnestVariables(*operation.Unnest, defined); err != nil {
+				return fmt.Errorf("subplan operation %d unnest bindings: %w", index, err)
 			}
 		default:
 			return fmt.Errorf("subplan operation %d has unsupported kind %q", index, operation.Kind)
 		}
 	}
-	return validatePhysicalExpression(subplan.Return, defined, bindVars)
+	if err := validatePhysicalExpression(subplan.Return, defined, bindVars); err != nil {
+		return err
+	}
+	if subplan.Sort != nil {
+		if err := validatePhysicalValue(*subplan.Sort, defined, bindVars); err != nil {
+			return fmt.Errorf("subplan sort: %w", err)
+		}
+	}
+	if subplan.DistinctBy != nil {
+		if err := validatePhysicalValue(*subplan.DistinctBy, defined, bindVars); err != nil {
+			return fmt.Errorf("subplan distinct key: %w", err)
+		}
+		if subplan.Unique || subplan.Sort == nil || !reflect.DeepEqual(*subplan.Sort, *subplan.DistinctBy) {
+			return fmt.Errorf("distinct-key subplan requires the same stable sort key and cannot also use full-value uniqueness")
+		}
+	}
+	if subplan.Unique && subplan.Sort == nil {
+		return fmt.Errorf("unique subplan requires a stable sort value")
+	}
+	return nil
 }
 
 func validatePhysicalValue(value PhysicalValue, defined map[string]bool, bindVars map[string]any) error {

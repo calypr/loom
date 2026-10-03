@@ -36,14 +36,81 @@ type OutputPlan struct {
 	RootColumnNaming      recipe.RootColumnNaming
 	TraversalColumnNaming recipe.TraversalColumnNaming
 	Identity              *SemanticExpression
-	// Unnest is the canonical semantic row-producing operation for an output.
-	// Persisted recipe expand syntax is lowered into this operation; consumers
-	// must not infer cardinality-changing behavior from a transport-facing
-	// explanation field; the typed UNNEST operation is authoritative.
-	Unnest             *SemanticUnnest
-	DynamicMaps        []SemanticDynamicMap
-	CatalogProjections []string
-	Collision          string
+	// RowExpansion is the sole semantic row-producing operation for an output.
+	RowExpansion          *SemanticRowExpansion
+	GroupRows             *SemanticGroupRows
+	TableReshape          *SemanticTableReshape
+	ExpansionIdentity     bool
+	DynamicMaps           []SemanticDynamicMap
+	CatalogProjections    []string
+	ColumnTransformations []recipe.ColumnTransformation
+	DerivedColumns        []recipe.DerivedColumn
+	Construction          *recipe.Construction
+	Collision             string
+	Population            *SemanticPopulation
+}
+
+// SemanticGroupRows pins the output row set to one immutable explicit-group revision.
+type SemanticGroupRows struct {
+	RevisionID             string
+	UnassignedMemberPolicy string
+	AfterStepID            string
+	RowValues              []recipe.GroupRowValuePolicy
+}
+
+// SemanticTableReshape is the document-level row operation over finalized
+// output columns. GroupedPivot is deliberately separate from SemanticPivot,
+// which remains a correlated FHIR-column projection.
+type SemanticTableReshape struct {
+	Kind         recipe.TableReshapeKind
+	GroupedPivot *SemanticGroupedPivot
+	Unpivot      *SemanticUnpivot
+}
+
+type SemanticGroupedPivot struct {
+	ConstructionID         string
+	GroupKeys              []string
+	CategoryColumn         string
+	ValueColumn            string
+	Categories             []SemanticGroupedPivotCategory
+	DuplicatePolicy        recipe.PivotDuplicatePolicy
+	MissingCellPolicy      recipe.PivotMissingCellPolicy
+	UnlistedCategoryPolicy recipe.PivotUnlistedCategoryPolicy
+}
+
+type SemanticGroupedPivotCategory struct {
+	Key    recipe.TableScalar
+	Output string
+	Label  string
+}
+
+type SemanticUnpivot struct {
+	ConstructionID string
+	Inputs         []SemanticUnpivotInput
+	KeyOutput      string
+	KeyLabel       string
+	ValueOutput    string
+	ValueLabel     string
+	NullRowPolicy  recipe.UnpivotNullRowPolicy
+}
+
+type SemanticUnpivotInput struct {
+	Column string
+	Key    recipe.TableScalar
+}
+
+type SemanticPopulation struct {
+	SelectionRevisionID string
+	MembershipDigest    string
+	MemberCount         int64
+	ResourceType        string
+	Route               []SemanticPopulationRouteStep
+}
+
+type SemanticPopulationRouteStep struct {
+	ResourceType     string
+	Relationship     string
+	StorageDirection string
 }
 
 // SemanticExpression keeps the checked typed AST together with the logical
@@ -56,62 +123,66 @@ type SemanticExpression struct {
 	Context    string
 }
 
-// UnnestJoinMode makes null/empty collection behavior explicit at the
-// semantic boundary. The renderer must not infer this from the AQL context.
-type UnnestJoinMode string
+// ExpansionEmptyPolicy defines what an existing owner contributes when its
+// selected collection is null or empty.
+type ExpansionEmptyPolicy string
 
 const (
-	UnnestInner UnnestJoinMode = "INNER"
-	UnnestOuter UnnestJoinMode = "OUTER"
+	ExpansionError          ExpansionEmptyPolicy = "ERROR"
+	ExpansionExclude        ExpansionEmptyPolicy = "EXCLUDE"
+	ExpansionPreserveParent ExpansionEmptyPolicy = "PRESERVE_PARENT"
 )
 
-// SemanticUnnest is a backend-neutral row-producing operation. It is the
-// semantic representation of recipe expand syntax and is available to any
-// frontend that needs one output row per element of a repeated value.
-//
-// Source is evaluated once per parent row. As introduces the item binding;
-// Ordinality, when non-empty, introduces a deterministic zero-based position
-// binding. The operation changes row cardinality and therefore is not a
-// projection or ordinary expression.
-type SemanticUnnest struct {
-	Source     SemanticExpression
-	As         string
-	Ordinality string
-	JoinMode   UnnestJoinMode
+type SemanticOccurrence struct {
+	OccurrenceID string
+	Alias        string
+	ResourceType string
 }
 
-// Validate checks the semantic invariants that are independent of a backend
-// renderer. Lexical scope validation belongs to the caller because only the
-// surrounding output scope knows which bindings are visible.
-func (u SemanticUnnest) Validate() error {
+// SemanticRowExpansion is the single checked cardinality boundary for an
+// output. Its owner is an exact authored route occurrence, not merely a
+// resource type or selector prefix.
+type SemanticRowExpansion struct {
+	Owner       SemanticOccurrence
+	Source      SemanticExpression
+	ItemBinding string
+	Ordinality  string
+	EmptyPolicy ExpansionEmptyPolicy
+}
+
+func (u SemanticRowExpansion) Validate() error {
+	if u.Owner.Alias == "" || u.Owner.ResourceType == "" {
+		return fmt.Errorf("row expansion owner occurrence is incomplete")
+	}
 	if u.Source.Type.Cardinality != expression.Many {
-		return fmt.Errorf("unnest source must be a repeated expression, got %s", u.Source.Type)
+		return fmt.Errorf("row expansion source must be repeated, got %s", u.Source.Type)
 	}
-	if strings.TrimSpace(u.As) == "" {
-		return fmt.Errorf("unnest item binding is required")
+	if strings.TrimSpace(u.ItemBinding) == "" {
+		return fmt.Errorf("row expansion item binding is required")
 	}
-	if !semanticBindingNamePattern.MatchString(u.As) {
-		return fmt.Errorf("unnest item binding %q is not a safe logical name", u.As)
+	if !semanticBindingNamePattern.MatchString(u.ItemBinding) {
+		return fmt.Errorf("row expansion item binding %q is not a safe logical name", u.ItemBinding)
 	}
 	if strings.TrimSpace(u.Ordinality) != "" {
 		if !semanticBindingNamePattern.MatchString(u.Ordinality) {
-			return fmt.Errorf("unnest ordinality binding %q is not a safe logical name", u.Ordinality)
+			return fmt.Errorf("row expansion ordinality binding %q is not a safe logical name", u.Ordinality)
 		}
-		if u.Ordinality == u.As {
-			return fmt.Errorf("unnest ordinality binding must differ from item binding %q", u.As)
+		if u.Ordinality == u.ItemBinding {
+			return fmt.Errorf("row expansion ordinality binding must differ from item binding %q", u.ItemBinding)
 		}
 	}
-	switch u.JoinMode {
-	case UnnestInner, UnnestOuter:
+	switch u.EmptyPolicy {
+	case ExpansionError, ExpansionExclude, ExpansionPreserveParent:
 		return nil
 	case "":
-		return fmt.Errorf("unnest join mode is required")
+		return fmt.Errorf("row expansion empty policy is required")
 	default:
-		return fmt.Errorf("unsupported unnest join mode %q", u.JoinMode)
+		return fmt.Errorf("unsupported row expansion empty policy %q", u.EmptyPolicy)
 	}
 }
 
 type SemanticDynamicMap struct {
+	ValueMode        recipe.ValueMode
 	Name             string
 	ColumnPrefix     *string
 	ScopeAlias       string
@@ -145,7 +216,6 @@ type OutputPlanExplanation struct {
 	RowGrain           spec.RowGrain
 	Fields             []ExpressionExplanation
 	Identity           *ExpressionExplanation
-	Unnest             *UnnestExplanation
 	Expansion          *ExpansionExplanation
 	DynamicMap         []string
 	CatalogProjections []string
@@ -159,15 +229,11 @@ type ExpressionExplanation struct {
 }
 
 type ExpansionExplanation struct {
-	SourcePath string
-	As         string
-}
-
-type UnnestExplanation struct {
-	SourcePath string
-	As         string
-	Ordinality string
-	JoinMode   UnnestJoinMode
+	SourcePath        string
+	OwnerOccurrenceID string
+	As                string
+	Ordinality        string
+	EmptyPolicy       ExpansionEmptyPolicy
 }
 
 // Explain returns a backend-neutral summary suitable for API diagnostics.
@@ -182,11 +248,8 @@ func (p RecipePlan) Explain() RecipePlanExplanation {
 			x := explainExpression(*output.Identity)
 			e.Identity = &x
 		}
-		if output.Unnest != nil {
-			e.Unnest = &UnnestExplanation{SourcePath: output.Unnest.Source.SourcePath, As: output.Unnest.As, Ordinality: output.Unnest.Ordinality, JoinMode: output.Unnest.JoinMode}
-		}
-		if output.Unnest != nil {
-			e.Expansion = &ExpansionExplanation{SourcePath: output.Unnest.Source.SourcePath, As: output.Unnest.As}
+		if output.RowExpansion != nil {
+			e.Expansion = &ExpansionExplanation{SourcePath: output.RowExpansion.Source.SourcePath, OwnerOccurrenceID: output.RowExpansion.Owner.OccurrenceID, As: output.RowExpansion.ItemBinding, Ordinality: output.RowExpansion.Ordinality, EmptyPolicy: output.RowExpansion.EmptyPolicy}
 		}
 		for _, dynamic := range output.DynamicMaps {
 			e.DynamicMap = append(e.DynamicMap, dynamic.Name)

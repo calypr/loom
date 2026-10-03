@@ -8,6 +8,7 @@ import (
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/spec"
+	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
 func testScope() Scope {
@@ -69,6 +70,13 @@ func TestProbeCandidateReportsScalarRepeatedObjectAndOperations(t *testing.T) {
 	if scalar.Candidate.Repeated || !scalar.Candidate.Filterable || len(scalar.Candidate.ProjectionModes) == 0 {
 		t.Fatalf("unexpected scalar candidate: %#v", scalar.Candidate)
 	}
+	status, err := ProbeCandidate(context.Background(), CandidateRequest{Scope: testScope(), ResourceType: "Observation", FieldRef: "Observation.status", Selector: "status"})
+	if err != nil {
+		t.Fatalf("Observation.status candidate: %v", err)
+	}
+	if status.Candidate.Repeated || status.Candidate.Cardinality != spec.CardinalityOptionalOne {
+		t.Fatalf("Observation.status must be scalar: %#v", status.Candidate)
+	}
 	repeated, err := ProbeCandidate(context.Background(), CandidateRequest{Scope: testScope(), ResourceType: "Observation", FieldRef: "Observation.code.coding[].display", Selector: "code.coding[].display"})
 	if err != nil {
 		t.Fatalf("repeated candidate: %v", err)
@@ -94,6 +102,57 @@ func TestProbeCandidateReportsScalarRepeatedObjectAndOperations(t *testing.T) {
 	}
 }
 
+func TestProbeCandidateExecutesNumericAggregateCompilerProofs(t *testing.T) {
+	numeric, err := ProbeCandidate(context.Background(), CandidateRequest{
+		Scope: testScope(), ResourceType: "Observation", FieldRef: "Observation.valueQuantity.value", Selector: "valueQuantity.value",
+	})
+	if err != nil {
+		t.Fatalf("numeric candidate: %v", err)
+	}
+	for _, operation := range []recipe.AggregateOperation{recipe.AggregateSum, recipe.AggregateMean} {
+		if !containsAggregateOperation(numeric.Candidate.ValueAggregateOperations, operation) {
+			t.Errorf("numeric compiler proof is missing %s: %#v", operation, numeric.Candidate.ValueAggregateOperations)
+		}
+	}
+	compiled, err := ProbeCandidate(context.Background(), CandidateRequest{
+		Scope: testScope(), ResourceType: "Observation", FieldRef: "Observation.valueQuantity.value", Selector: "valueQuantity.value",
+		Chart: &Chart{Operation: recipe.AggregateSum},
+	})
+	if err != nil {
+		t.Fatalf("execute literal SUM compiler request: %v", err)
+	}
+	for _, fragment := range []string{"SUM(", "IS_NUMBER(", "NUMERIC_AGGREGATE_NON_NUMERIC", "== 0 ? null"} {
+		if !strings.Contains(compiled.Rendered.Query, fragment) {
+			t.Errorf("rendered SUM query is missing %q:\n%s", fragment, compiled.Rendered.Query)
+		}
+	}
+	mean, err := ProbeCandidate(context.Background(), CandidateRequest{
+		Scope: testScope(), ResourceType: "Observation", FieldRef: "Observation.valueQuantity.value", Selector: "valueQuantity.value",
+		Chart: &Chart{Operation: recipe.AggregateMean},
+	})
+	if err != nil {
+		t.Fatalf("execute literal MEAN compiler request: %v", err)
+	}
+	if !strings.Contains(mean.Rendered.Query, "SUM(") || !strings.Contains(mean.Rendered.Query, " / LENGTH(") {
+		t.Fatalf("MEAN query must divide the non-null numeric sum by its contributor count:\n%s", mean.Rendered.Query)
+	}
+	if _, err := ProbeCandidate(context.Background(), CandidateRequest{
+		Scope: testScope(), ResourceType: "Patient", FieldRef: "Patient.gender", Selector: "gender",
+		Chart: &Chart{Operation: recipe.AggregateSum},
+	}); err == nil || !strings.Contains(err.Error(), "integer or decimal selector") {
+		t.Fatalf("string SUM error = %v", err)
+	}
+}
+
+func containsAggregateOperation(values []recipe.AggregateOperation, want recipe.AggregateOperation) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
+}
+
 func TestProbeCandidateRendersGenerationProjectAndAuthScope(t *testing.T) {
 	result, err := ProbeCandidate(context.Background(), CandidateRequest{Scope: testScope(), ResourceType: "Patient", Selector: "gender", Filter: &Filter{Operator: spec.FilterEquals}})
 	if err != nil {
@@ -115,6 +174,62 @@ func TestProbeCandidateSupportsRelatedOccurrence(t *testing.T) {
 	}
 	if result.Rendered.BindVars["child_set_1_label"] != "subject_Patient" || result.Candidate.ResourceType != "Specimen" {
 		t.Fatalf("related candidate lost route or metadata: %#v\n%s", result.Candidate, result.Rendered.Query)
+	}
+}
+
+func TestProbeOwnerRecordsProvesRootAndRelatedBindings(t *testing.T) {
+	binding := fhirschema.CorrelatedBinding{
+		OwnerPath: "component[]", KeyPath: "component[].code.coding[]",
+		SystemPath: "system", CodePath: "code", ValuePath: "valueQuantity.value",
+		ChoiceArms: []string{"valueQuantity"}, LogicalType: "decimal", UnitPath: "valueQuantity.unit",
+	}
+	root, err := ProbeOwnerRecords(context.Background(), OwnerRecordsRequest{
+		Scope: testScope(), RootResourceType: "Observation", ResourceType: "Observation",
+		Binding: binding, Key: fhirschema.CorrelatedKey{System: "http://loinc.org", Code: "8302-2"},
+	})
+	if err != nil {
+		t.Fatalf("root owner records: %v", err)
+	}
+	if root.OwnerRecords == nil || !strings.Contains(root.Rendered.Query, "ownerOrdinal") {
+		t.Fatalf("owner-record proof = %#v", root)
+	}
+	assertScopedQuery(t, root.Rendered)
+
+	related, err := ProbeOwnerRecords(context.Background(), OwnerRecordsRequest{
+		Scope: testScope(), RootResourceType: "Patient", ResourceType: "Observation",
+		Route:   []Traversal{{FromResourceType: "Patient", EdgeLabel: "subject_Patient", ToResourceType: "Observation", Alias: "observation"}},
+		Binding: binding, Key: fhirschema.CorrelatedKey{System: "http://loinc.org", Code: "8302-2"},
+	})
+	if err != nil {
+		t.Fatalf("related owner records: %v", err)
+	}
+	if related.Rendered.BindVars["child_set_1_label"] != "subject_Patient" {
+		t.Fatalf("related owner-record route binds = %#v", related.Rendered.BindVars)
+	}
+}
+
+func TestProbeOwnerRecordsRejectsUnprovedShapes(t *testing.T) {
+	base := OwnerRecordsRequest{
+		Scope: testScope(), ResourceType: "Observation",
+		Binding: fhirschema.CorrelatedBinding{
+			OwnerPath: "component[]", KeyPath: "component[].code.coding[]",
+			SystemPath: "system", CodePath: "code", ValuePath: "valueString", LogicalType: "string",
+		},
+		Key: fhirschema.CorrelatedKey{System: "urn:test", Code: "code"},
+	}
+	for _, mutate := range []func(*OwnerRecordsRequest){
+		func(request *OwnerRecordsRequest) {
+			request.Binding.OwnerPath = ""
+			request.Binding.KeyPath = "code.coding[]"
+		},
+		func(request *OwnerRecordsRequest) { request.Key.System = "" },
+		func(request *OwnerRecordsRequest) { request.Binding.ValuePath = "missing" },
+	} {
+		request := base
+		mutate(&request)
+		if _, err := ProbeOwnerRecords(context.Background(), request); err == nil {
+			t.Fatalf("invalid owner-record request was accepted: %#v", request)
+		}
 	}
 }
 

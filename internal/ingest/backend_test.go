@@ -4,6 +4,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/calypr/loom/internal/catalog"
 	arangostore "github.com/calypr/loom/internal/store/arango"
 )
 
@@ -60,7 +61,7 @@ func TestBootstrapSpecAddsGenerationScopedIndexesWithoutTraversalSpeculation(t *
 		}
 	}
 
-	catalog, found := bootstrapCollection(spec, "fhir_field_catalog")
+	fieldCatalog, found := bootstrapCollection(spec, "fhir_field_catalog")
 	if !found {
 		t.Fatal("field catalog bootstrap collection is missing")
 	}
@@ -72,8 +73,8 @@ func TestBootstrapSpecAddsGenerationScopedIndexesWithoutTraversalSpeculation(t *
 		{"project", "dataset_generation", "resource_type", "pivot_candidate"},
 		{"project", "dataset_generation", "auth_resource_path", "resource_type", "pivot_candidate"},
 	} {
-		if !containsIndex(catalog.Indexes, required) {
-			t.Fatalf("catalog indexes %#v do not include generation index %#v", catalog.Indexes, required)
+		if !containsIndex(fieldCatalog.Indexes, required) {
+			t.Fatalf("catalog indexes %#v do not include generation index %#v", fieldCatalog.Indexes, required)
 		}
 	}
 	relationships, found := bootstrapCollection(spec, "fhir_relationship_catalog")
@@ -89,6 +90,25 @@ func TestBootstrapSpecAddsGenerationScopedIndexesWithoutTraversalSpeculation(t *
 		if !containsIndex(relationships.Indexes, required) {
 			t.Fatalf("relationship catalog indexes %#v do not include %#v", relationships.Indexes, required)
 		}
+	}
+	inventory, found := bootstrapCollection(spec, catalog.SemanticInventoryCollection)
+	if !found || inventory.Truncate {
+		t.Fatalf("semantic inventory collection = %#v found=%v, want persistent non-truncated collection", inventory, found)
+	}
+	for _, required := range [][]string{
+		{"project", "dataset_generation", "build_id"},
+		{"project", "dataset_generation", "auth_resource_path", "resource_type", "binding_id", "concept_id"},
+		{"project", "dataset_generation", "build_id", "binding_id", "concept_id", "auth_resource_path"},
+		{"project", "dataset_generation", "build_id", "source_kind", "binding_id", "concept_id", "auth_resource_path"},
+		{"project", "dataset_generation", "build_id", "source_id"},
+	} {
+		if !containsIndex(inventory.Indexes, required) {
+			t.Fatalf("semantic inventory indexes %#v do not include %#v", inventory.Indexes, required)
+		}
+	}
+	builds, found := bootstrapCollection(spec, catalog.SemanticInventoryBuildCollection)
+	if !found || builds.Truncate {
+		t.Fatalf("semantic inventory build collection = %#v found=%v, want persistent non-truncated collection", builds, found)
 	}
 
 }

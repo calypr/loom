@@ -2,7 +2,10 @@ package authoringv2
 
 import (
 	"fmt"
+	"reflect"
 	"strings"
+
+	"github.com/calypr/loom/internal/explorer/capability"
 )
 
 func (d Document) Validate() error {
@@ -15,12 +18,49 @@ func (d Document) Validate() error {
 	if !physicalColumnPattern.MatchString(d.Output.ID) {
 		return fmt.Errorf("output id must contain only letters, digits, and underscores and may not start with a digit")
 	}
-	return d.validateSemantic()
+	if err := d.Rows.Validate(); err != nil {
+		return fmt.Errorf("rows: %w", err)
+	}
+	if err := d.validateSemantic(); err != nil {
+		return err
+	}
+	if err := validateDocumentFrames(d); err != nil {
+		return fmt.Errorf("framing: %w", err)
+	}
+	if d.Construction != nil {
+		if d.TableShape != nil {
+			return fmt.Errorf("construction and tableShape cannot both define post-source operations")
+		}
+		var constructionErr error
+		if d.Rows.Kind == RowDefinitionGroups && d.Rows.Groups != nil && d.Rows.Groups.Source.Kind == GroupSourceExplicit {
+			constructionErr = d.Construction.ValidateWithExplicitGroups(d.Columns, d.Rows.Groups)
+		} else {
+			constructionErr = d.Construction.Validate(d.Columns)
+		}
+		if constructionErr != nil {
+			return fmt.Errorf("construction: %w", constructionErr)
+		}
+	} else if d.Rows.Kind == RowDefinitionGroups && d.Rows.Groups != nil && d.Rows.Groups.Source.Kind == GroupSourceExplicit && d.Rows.Groups.AfterStepID != "" {
+		return fmt.Errorf("rows.groups.afterStepId requires an authored construction step")
+	} else if err := d.TableShape.Validate(d.Columns); err != nil {
+		return fmt.Errorf("tableShape: %w", err)
+	}
+	return nil
 }
 
 func (w Workspace) Validate() error {
+	w = migrateMissingRowsBeforeCurrent(w)
 	if w.APIVersion != APIVersion || w.Kind != WorkspaceKind {
 		return fmt.Errorf("unsupported V2 workspace protocol or kind")
+	}
+	if w.SemanticsVersion > CurrentSemanticsVersion {
+		return fmt.Errorf("UNSUPPORTED_SEMANTICS_VERSION: semanticsVersion %d is unsupported", w.SemanticsVersion)
+	}
+	if w.SemanticsVersion < CurrentSemanticsVersion && workspaceHasTableShape(w) {
+		return fmt.Errorf("tableShape requires semanticsVersion %d", CurrentSemanticsVersion)
+	}
+	if w.SemanticsVersion >= CurrentSemanticsVersion && workspaceHasLegacyContributors(w) {
+		return fmt.Errorf("aggregate source where is not writable in semantics version %d; use column.contributor", CurrentSemanticsVersion)
 	}
 	if strings.TrimSpace(w.Explorer.Title) == "" {
 		return fmt.Errorf("explorer.title is required")
@@ -72,7 +112,7 @@ func (w Workspace) Validate() error {
 // ValidateForPublication applies constraints that are intentionally too strict
 // for mutable Builder state. Changing a table root or route temporarily clears
 // its selections; that intermediate workspace remains compilable, but a visible
-// table must have at least one visible column before publication.
+// table must have a visible source column or final construction output to publish.
 func (w Workspace) ValidateForPublication() error {
 	visibleOutputs := make(map[string]bool, len(w.Tabs))
 	for _, tab := range w.Tabs {
@@ -82,10 +122,34 @@ func (w Workspace) ValidateForPublication() error {
 		if !visibleOutputs[document.Output.ID] {
 			continue
 		}
+		for columnIndex, column := range document.Columns {
+			if column.OccurrenceID == RootOccurrenceID || column.Source.Kind != SourceField || column.Source.Field == nil {
+				continue
+			}
+			mode := strings.ToUpper(strings.TrimSpace(column.Source.Field.ProjectionMode))
+			if mode == "" {
+				mode = "FIRST"
+			}
+			if mode != "VALUE" && mode != "FIRST" && mode != "INDEXED" {
+				continue
+			}
+			selection := column.Source.Field.RelatedSelection
+			if selection == nil || selection.Kind != "first-by-resource-key" || !selection.Acknowledged {
+				return fmt.Errorf("UNACKNOWLEDGED_RELATED_FIRST: documents[%d].columns[%d] requires relatedSelection acknowledgement", i, columnIndex)
+			}
+		}
 		visible := 0
 		for _, column := range document.Columns {
 			if column.Table != nil && (column.Table.Visible == nil || *column.Table.Visible) {
 				visible++
+			}
+		}
+		if visible == 0 && document.Construction != nil && len(document.Construction.Steps) > 0 {
+			outputs := document.Construction.Steps[len(document.Construction.Steps)-1].Outputs
+			for _, output := range outputs {
+				if output.Table == nil || output.Table.Visible == nil || *output.Table.Visible {
+					visible++
+				}
 			}
 		}
 		if visible == 0 {
@@ -132,6 +196,9 @@ func (c CatalogSnapshot) Validate() error {
 		if emptyID(e.ID) || nodes[e.FromNodeID].ID == "" || nodes[e.ToNodeID].ID == "" {
 			return fmt.Errorf("edges[%d] has stale node reference", i)
 		}
+		if e.StorageDirection != "" && e.StorageDirection != "INBOUND" && e.StorageDirection != "OUTBOUND" {
+			return fmt.Errorf("edges[%d] has an unsupported storageDirection", i)
+		}
 		if _, ok := edges[e.ID]; ok {
 			return fmt.Errorf("duplicate catalog edge %q", e.ID)
 		}
@@ -150,6 +217,9 @@ func (c CatalogSnapshot) Validate() error {
 		}
 		if len(candidate.ProjectionModes) == 0 || candidate.DefaultProjectionMode == "" {
 			return fmt.Errorf("candidate %q must advertise projection modes and a default", candidate.ID)
+		}
+		if err := validateCandidateConstructionChoice(candidate, nodes[candidate.NodeID], c.SnapshotToken); err != nil {
+			return fmt.Errorf("candidate %q: %w", candidate.ID, err)
 		}
 		if candidate.DefaultProjectionMode != "" {
 			foundMode := false
@@ -175,6 +245,75 @@ func (c CatalogSnapshot) Validate() error {
 			return fmt.Errorf("candidate %q suggestions cannot be complete and truncated", candidate.ID)
 		}
 		candidates[candidate.ID] = candidate
+	}
+	return nil
+}
+
+func validateCandidateConstructionChoice(candidate CatalogCandidate, node CatalogNode, snapshotToken string) error {
+	choice := candidate.ConstructionChoice
+	if choice == nil {
+		return fmt.Errorf("constructionChoice is required for selectable catalog candidates")
+	}
+	if strings.TrimSpace(choice.ChoiceID) == "" || len(choice.Options) == 0 {
+		return fmt.Errorf("constructionChoice requires an id and at least one compiler-proved option")
+	}
+	identity, err := capability.DecodeConstructionChoiceID(choice.ChoiceID)
+	if err != nil {
+		return fmt.Errorf("constructionChoice id is invalid: %w", err)
+	}
+	source, ok := choice.Source.(capability.FieldChoiceSource)
+	if !ok || identity.Kind != capability.ConstructionChoiceSourceField || identity.SnapshotToken != snapshotToken ||
+		source.Kind != capability.ConstructionChoiceSourceField || source.CandidateID != candidate.ID ||
+		source.NodeID != candidate.NodeID || source.ResourceType != node.ResourceType ||
+		source.Path != candidate.FieldPath || source.Cardinality != candidate.Cardinality {
+		return fmt.Errorf("constructionChoice source does not match the pinned field candidate")
+	}
+	identitySource, ok := identity.Source.(capability.FieldChoiceSource)
+	if !ok || !reflect.DeepEqual(identitySource, source) {
+		return fmt.Errorf("constructionChoice id does not pin its field source")
+	}
+	defaults := 0
+	for index, option := range choice.Options {
+		if option.RowEffect != capability.ConstructionChoicePreservesRows || strings.TrimSpace(option.Reason) == "" {
+			return fmt.Errorf("constructionChoice.options[%d] is incomplete", index)
+		}
+		switch option.Form {
+		case capability.ConstructionChoiceValue, capability.ConstructionChoiceFirst:
+			if option.Shape != capability.ConstructionChoiceScalar {
+				return fmt.Errorf("constructionChoice.options[%d] has a mismatched scalar form and shape", index)
+			}
+		case capability.ConstructionChoiceAll, capability.ConstructionChoiceDistinct:
+			if option.Shape != capability.ConstructionChoiceList {
+				return fmt.Errorf("constructionChoice.options[%d] has a mismatched list form and shape", index)
+			}
+		default:
+			return fmt.Errorf("constructionChoice.options[%d] has an unknown form", index)
+		}
+		if option.Decision != capability.ConstructionChoiceDefault && option.Decision != capability.ConstructionChoiceRequiresDecision {
+			return fmt.Errorf("constructionChoice.options[%d] has an unknown decision", index)
+		}
+		wantPreservation := capability.ConstructionChoicePreserving
+		if option.Form == capability.ConstructionChoiceFirst || option.Form == capability.ConstructionChoiceDistinct {
+			wantPreservation = capability.ConstructionChoiceReducing
+		}
+		if option.Preservation != wantPreservation {
+			return fmt.Errorf("constructionChoice.options[%d] has incorrect preservation semantics", index)
+		}
+		if option.Form == capability.ConstructionChoiceFirst && option.Decision == capability.ConstructionChoiceDefault {
+			return fmt.Errorf("constructionChoice.options[%d] cannot default to FIRST", index)
+		}
+		if option.Decision == capability.ConstructionChoiceDefault && option.Form != capability.ConstructionChoiceValue && option.Form != capability.ConstructionChoiceAll {
+			return fmt.Errorf("constructionChoice.options[%d] has a reducing default", index)
+		}
+		if option.Decision == capability.ConstructionChoiceDefault {
+			defaults++
+		}
+		if option.Support != capability.ConstructionChoiceSupported {
+			return fmt.Errorf("constructionChoice.options[%d] is not compiler-supported", index)
+		}
+	}
+	if defaults > 1 {
+		return fmt.Errorf("constructionChoice has multiple default options")
 	}
 	return nil
 }

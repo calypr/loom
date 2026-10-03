@@ -4,6 +4,7 @@ import { vi, type Mock } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import {
   useApplyExplorerBuilderCommandsV2Mutation,
+  useAssessExplorerRowChangeMutation,
   useCreateExplorerAuthoringMutation,
   useDeleteExplorerAuthoringMutation,
   useGetExplorerAuthoringCapabilityV2Query,
@@ -11,13 +12,18 @@ import {
   useGetExplorerBuilderStateV2Query,
   useGetExplorerCandidateSuggestionsV2Mutation,
   usePreviewExplorerAuthoringV2Mutation,
+  usePopulationMappingMutation,
   usePublishExplorerAuthoringV2Mutation,
   useReconcileExplorerBuilderV2Mutation,
 } from '../../react';
 import BuilderWorkspace from './BuilderWorkspace';
 
+const mockLoomClient = vi.hoisted(() => ({ getSelection: vi.fn(), createSelection: vi.fn() }));
+
 vi.mock('../../react', () => ({
+  useLoomClient: () => mockLoomClient,
   useApplyExplorerBuilderCommandsV2Mutation: vi.fn(),
+  useAssessExplorerRowChangeMutation: vi.fn(),
   useCreateExplorerAuthoringMutation: vi.fn(),
   useDeleteExplorerAuthoringMutation: vi.fn(),
   useGetExplorerAuthoringCapabilityV2Query: vi.fn(),
@@ -25,6 +31,7 @@ vi.mock('../../react', () => ({
   useGetExplorerBuilderStateV2Query: vi.fn(),
   useGetExplorerCandidateSuggestionsV2Mutation: vi.fn(),
   usePreviewExplorerAuthoringV2Mutation: vi.fn(),
+  usePopulationMappingMutation: vi.fn(),
   usePublishExplorerAuthoringV2Mutation: vi.fn(),
   useReconcileExplorerBuilderV2Mutation: vi.fn(),
 }));
@@ -71,6 +78,9 @@ describe('BuilderWorkspace route selection', () => {
     (useApplyExplorerBuilderCommandsV2Mutation as Mock).mockReturnValue(
       mutationResult(),
     );
+    (useAssessExplorerRowChangeMutation as Mock).mockReturnValue(
+      mutationResult(),
+    );
     (useReconcileExplorerBuilderV2Mutation as Mock).mockReturnValue(
       mutationResult(),
     );
@@ -80,6 +90,7 @@ describe('BuilderWorkspace route selection', () => {
     (usePreviewExplorerAuthoringV2Mutation as Mock).mockReturnValue(
       mutationResult(),
     );
+    (usePopulationMappingMutation as Mock).mockReturnValue(mutationResult());
     (usePublishExplorerAuthoringV2Mutation as Mock).mockReturnValue(
       mutationResult(),
     );

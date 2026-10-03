@@ -1,0 +1,591 @@
+import assert from 'node:assert/strict';
+import { fileURLToPath } from 'node:url';
+import { captureSourceFreeze } from './lib/source-freeze.mjs';
+import { randomUUID } from 'node:crypto';
+import { spawnSync } from 'node:child_process';
+import { mkdir, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { browserEval, click, launchBrowser, navigate, selectOption, waitForBrowser } from './lib/browser.mjs';
+
+const project = 'loom_dev_cda_fhir';
+const generation = 'cda-fhir-v1';
+const resourceType = 'Specimen';
+const groupLabel = 'Cohort';
+const memberFieldLabel = 'Specimen ID';
+const explorer = `cohort-membership-revision-browser-${Date.now()}`;
+const evidence = process.argv[2] ?? `/tmp/${explorer}`;
+const apiOrigin = process.env.LOOM_CDA_API_ORIGIN ?? 'http://127.0.0.1:8188';
+const uiOrigin = process.env.LOOM_CDA_UI_ORIGIN ?? 'http://127.0.0.1:30008';
+const arangoContainer = process.env.LOOM_ARANGO_CONTAINER ?? 'loom-dev-6d7df93d6a37-arangodb-1';
+const root = `/api/v1/projects/${project}/explorers`;
+const base = `${root}/${explorer}/authoring/v2`;
+const selections = base.replace('/authoring/v2', '/selections');
+const report = {
+  project, generation, resourceType, explorer, groupLabel, memberFieldLabel,
+  cases: [], errors: [], requests: [], nativeRequests: [], revisions: [], started: new Date().toISOString(),
+};
+await mkdir(evidence, { recursive: true });
+const sourceFreeze = await captureSourceFreeze(fileURLToPath(new URL('..', import.meta.url)));
+
+let browser;
+let builder;
+let outputId;
+const nativeById = new Map();
+const pendingNetworkReads = new Set();
+const pause = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
+const pathOf = entry => entry.path.split('?')[0];
+const doc = state => state.workspace.documents.find(document => document.output.id === outputId);
+const sorted = values => [...values].sort();
+const recordRender = (name, startedAt) => {
+  const durationMs = Date.now() - startedAt;
+  assert(durationMs <= 5000, `${name} took ${durationMs}ms`);
+  report.cases.push({ name, durationMs });
+};
+const api = async (path, body) => {
+  const startedAt = Date.now();
+  const response = await fetch(apiOrigin + path, {
+    method: body ? 'POST' : 'GET',
+    headers: { 'Content-Type': 'application/json', 'X-Request-ID': `cohort-membership-revision-${randomUUID()}` },
+    ...(body ? { body: JSON.stringify(body) } : {}),
+    signal: AbortSignal.timeout(30000),
+  });
+  const value = await response.json();
+  report.requests.push({ path, method: body ? 'POST' : 'GET', body, startedAt, completedAt: Date.now(), status: response.status, response: path.endsWith('/builder') ? {
+    draftVersion: value.draftVersion,
+    draftDigest: value.draftDigest,
+    catalog: { generation: value.catalog?.generation, authorizationScopeDigest: value.catalog?.authorizationScopeDigest },
+    workspace: value.workspace,
+  } : value });
+  assert(response.ok, JSON.stringify(value));
+  return value;
+};
+const command = async commands => {
+  await api(base + '/commands', {
+    commandId: randomUUID(), semanticsVersion: builder.workspace?.semanticsVersion ?? 10,
+    snapshotToken: builder.catalog.snapshotToken, expectedDraftVersion: builder.draftVersion,
+    expectedDraftDigest: builder.draftDigest, commands,
+  });
+  builder = await api(base + '/builder');
+};
+const waitNative = async (suffix, startedAt, predicate = () => true) => {
+  const deadline = startedAt + 5000;
+  while (Date.now() <= deadline) {
+    const match = report.nativeRequests.findLast(entry => pathOf(entry).endsWith(suffix) &&
+      entry.startedAt >= startedAt && entry.completedAt && entry.response !== undefined && predicate(entry));
+    if (match) return match;
+    await pause(40);
+  }
+  assert.fail(`Native ${suffix} request did not complete with a readable response within five seconds`);
+};
+const waitRowProposal = async (startedAt, expectedRevisionID, expectedPolicy) => {
+  const request = await waitNative('/row-definition-proposals', startedAt, entry => {
+    const choice = entry.body?.selection?.explicitGroup;
+    return choice?.revisionId === expectedRevisionID && choice?.unassignedMemberPolicy === expectedPolicy;
+  });
+  assert.equal(request.status, 200, JSON.stringify(request));
+  assert(request.response?.proposalId, JSON.stringify(request.response));
+  await waitForBrowser(browser.cdp, `document.querySelector('[aria-label="Row definition settings"] button')?.innerText === 'Back to table' || [...document.querySelectorAll('[aria-label="Row definition settings"] button')].some(button=>button.innerText==='Apply row definition'&&!button.disabled)`);
+  await waitForBrowser(browser.cdp, `[...document.querySelectorAll('[aria-label="Row definition settings"] button')].some(button=>button.innerText==='Apply row definition'&&!button.disabled)`);
+  return request;
+};
+const waitTable = async expectedRows => {
+  await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount')===${JSON.stringify(String(expectedRows + 1))}&&!document.body.innerText.includes('Loading your table…')&&!document.body.innerText.includes('Preview failed:')`);
+  return browserEval(browser.cdp, `return {
+    headers:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].map(cell=>cell.innerText.trim()),
+    rows:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]')].slice(1).map(row=>[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText.trim())).filter(row=>row.length),
+  };`);
+};
+const waitSavedPreview = async startedAt => {
+  const deadline = startedAt + 5000;
+  while (Date.now() < deadline) {
+    const response = report.nativeRequests.findLast(entry => entry.startedAt >= startedAt && entry.completedAt &&
+      entry.status === 200 && (pathOf(entry).endsWith('/preview') || pathOf(entry).endsWith('/commands')));
+    if (response) {
+      await waitForBrowser(browser.cdp, `!document.body.innerText.includes('Loading your table…')`);
+      report.previewDelivery ??= [];
+      report.previewDelivery.push({ path: pathOf(response), adoptedProposal: pathOf(response).endsWith('/commands') });
+      return response;
+    }
+    await pause(25);
+  }
+  assert.fail('Saved preview or accepted proposal did not render within five seconds');
+};
+const assertMemberField = (row, headers, expectedIDs, label = memberFieldLabel) => {
+  const columnIndex = headers.findIndex(header => header.toLowerCase().startsWith(label.toLowerCase()));
+  assert(columnIndex >= 0, `Expected a ${label} output column: ${JSON.stringify(headers)}`);
+  const values = String(row[columnIndex] ?? '').split(';').map(value => value.trim()).filter(Boolean);
+  assert.deepEqual(sorted(values), sorted(expectedIDs), `Member field must contain exactly the expected FHIR IDs: ${JSON.stringify(row)}`);
+};
+const assertGroupRow = (table, expectedIDs, requireMemberField = true) => {
+  assert.equal(table.rows.length, 1, `Expected one selected cohort row, got ${JSON.stringify(table.rows)}`);
+  const labelIndex = table.headers.findIndex(header => header.toLowerCase() === 'group label');
+  const membersIndex = table.headers.findIndex(header => header.toLowerCase() === 'members');
+  assert(labelIndex >= 0 && membersIndex >= 0, `Cohort columns are missing: ${JSON.stringify(table.headers)}`);
+  const row = table.rows[0];
+  assert.equal(row[labelIndex], groupLabel);
+  for (const id of expectedIDs) assert(row[membersIndex].includes(id), `Members cell omitted ${id}: ${row[membersIndex]}`);
+  if (expectedIDs.length === 1) {
+    const excluded = report.oracle.sourceIDs.find(id => id !== expectedIDs[0]);
+    assert(!row[membersIndex].includes(excluded), `Excluded FHIR ID ${excluded} leaked into the cohort row`);
+  }
+  if (requireMemberField) assertMemberField(row, table.headers, expectedIDs);
+};
+const openRows = async () => {
+  await click(browser.cdp, '[data-testid="construction-rows-settings-trigger"]');
+  const selector = 'select[aria-label="What should each row represent?"]';
+  await waitForBrowser(browser.cdp, `document.querySelector(${JSON.stringify(selector)})?.disabled===false`);
+  return selector;
+};
+const replaceInput = async (selector, text) => {
+  await click(browser.cdp, selector);
+  await browserEval(browser.cdp, `const input=document.querySelector(${JSON.stringify(selector)});input.focus();input.select();return true;`);
+  await browser.cdp.send('Input.insertText', { text });
+};
+const waitChoiceProposal = async startedAt => {
+  const proposal = await waitNative('/construction-choice-proposals', startedAt);
+  assert.equal(proposal.status, 200, JSON.stringify(proposal.response));
+  await waitForBrowser(browser.cdp, `['ready','error'].includes(document.querySelector('[data-testid="construction-choice-proposal-panel"]')?.dataset.proposalStatus)`);
+  const result = await browserEval(browser.cdp, `const panel=document.querySelector('[data-testid="construction-choice-proposal-panel"]');return {
+    status:panel?.dataset.proposalStatus,text:panel?.innerText,
+    rows:[...document.querySelectorAll('[data-testid="construction-proposal-preview-row"]')].map(row=>[...row.querySelectorAll('td')].map(cell=>cell.innerText.trim())),
+  };`);
+  assert.equal(result.status, 'ready', result.text);
+  return { proposal, result };
+};
+const createCohortNatively = async (memberIDs, memberKeyByID, revisionName) => {
+  await openRows();
+  const createButton = '[aria-label="Named cohorts"] button';
+  await waitForBrowser(browser.cdp, `document.querySelector(${JSON.stringify(createButton)})?.disabled===false`);
+  await click(browser.cdp, createButton, { name: 'Create groups from this selection' });
+  const editor = '[aria-label="Create explicit groups"]';
+  await waitForBrowser(browser.cdp, `document.querySelector(${JSON.stringify(editor + ' input[aria-label="Group 1 name"]')})?.disabled===false`);
+  await replaceInput(editor + ' input[aria-label="Group 1 name"]', groupLabel);
+  await click(browser.cdp, `${editor} button[aria-label="Remove Group B"]`);
+  const assignments = [];
+  for (const member of report.oracle.members) {
+    const label = `Assign ${member.uiLabel} to ${groupLabel}`;
+    const selector = `${editor} input[aria-label=${JSON.stringify(label)}]`;
+    const exists = await browserEval(browser.cdp, `return Boolean(document.querySelector(${JSON.stringify(selector)}));`);
+    assert(exists, `Native member assignment control is missing: ${label}`);
+    if (memberIDs.includes(member.ref.id)) {
+      await click(browser.cdp, selector);
+      assignments.push({ id: member.ref.id, memberKey: member.memberKey });
+    }
+  }
+  assert.deepEqual(sorted(assignments.map(member => member.id)), sorted(memberIDs));
+  const exactMembershipText = await browserEval(browser.cdp, `return document.querySelector('[aria-label="Exact group memberships"]')?.innerText;`);
+  assert(exactMembershipText?.includes(groupLabel), exactMembershipText);
+  for (const id of memberIDs) assert(exactMembershipText.includes(id), `Native exact-membership summary omitted ${id}: ${exactMembershipText}`);
+  const beforeCreate = Date.now();
+  await click(browser.cdp, `${editor} button`, { name: 'Create group revision' });
+  await waitForBrowser(browser.cdp, `!document.querySelector(${JSON.stringify(editor)})`);
+  const createRequest = await waitNative('/explicit-groups', beforeCreate);
+  assert.equal(createRequest.status, 201, JSON.stringify(createRequest.response));
+  const revision = createRequest.response;
+  assert.equal(revision.sourceSelectionRevisionId, report.oracle.selection.id);
+  assert.equal(revision.groupCount, 1);
+  assert.equal(revision.memberCount, memberIDs.length);
+  assert.equal(revision.groups.length, 1);
+  assert.equal(revision.groups[0].label, groupLabel);
+  assert.equal(revision.groups[0].memberCount, memberIDs.length);
+  const submitted = createRequest.body.groups;
+  assert.equal(submitted.length, 1);
+  assert.equal(submitted[0].label, groupLabel);
+  assert.deepEqual(sorted(submitted[0].memberIds), sorted(memberIDs.map(id => memberKeyByID.get(id))));
+  assert.deepEqual(sorted(assignments.map(member => member.memberKey)), sorted(submitted[0].memberIds), 'The native checkbox assignments must be the exact posted membership set');
+  await waitForBrowser(browser.cdp, `document.querySelector('select[aria-label="Unmatched record policy"]')?.disabled===false`);
+  recordRender(`${revisionName}-create-to-native-policy`, beforeCreate);
+  report.revisions.push({ name: revisionName, revision, submittedMembers: submitted[0].memberIds, submittedIDs: memberIDs });
+  return { revision };
+};
+const selectPolicyAndWait = async (revisionID, policy, name) => {
+  const selector = 'select[aria-label="Unmatched record policy"]';
+  await waitForBrowser(browser.cdp, `document.querySelector(${JSON.stringify(selector)})?.disabled===false`);
+  const options = await browserEval(browser.cdp, `return [...document.querySelector(${JSON.stringify(selector)}).options].map(option=>({value:option.value,disabled:option.disabled,text:option.text}));`);
+  const value = `explicit:${revisionID}:${policy}`;
+  assert(options.some(option => option.value === value && !option.disabled), `Unassigned policy ${value} is unavailable: ${JSON.stringify(options)}`);
+  const startedAt = Date.now();
+  await selectOption(browser.cdp, selector, value);
+  await waitRowProposal(startedAt, revisionID, policy);
+  recordRender(name, startedAt);
+};
+const applyRowDefinition = async (expectedRows, expectedIDs, name, requireMemberField = true) => {
+  const startedAt = Date.now();
+  await click(browser.cdp, '[aria-label="Row definition settings"] button', { name: 'Apply row definition' });
+  await waitForBrowser(browser.cdp, `!document.querySelector('[aria-label="Row definition settings"]')`);
+  await waitSavedPreview(startedAt);
+  const table = await waitTable(expectedRows);
+  if (expectedIDs.length > 0) assertGroupRow(table, expectedIDs, requireMemberField);
+  recordRender(name, startedAt);
+  builder = await api(base + '/builder');
+  return table;
+};
+const waitConstructionProposal = async (startedAt, predicate = () => true) => {
+  const request = await waitNative('/construction-proposals', startedAt, predicate);
+  assert.equal(request.status, 200, JSON.stringify(request.response));
+  await waitForBrowser(browser.cdp, `['ready','error','needs-repair'].includes(document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalStatus)`);
+  const result = await browserEval(browser.cdp, `const panel=document.querySelector('[data-testid="construction-proposal-panel"]');return {
+    status:panel?.dataset.proposalStatus,text:panel?.innerText,
+    rows:[...document.querySelectorAll('[data-testid="construction-proposal-preview-row"]')].map(row=>[...row.querySelectorAll('td')].map(cell=>cell.innerText.trim())),
+  };`);
+  assert.equal(result.status, 'ready', result.text);
+  return { request, result };
+};
+const waitLineage = async startedAt => {
+  const request = await waitNative('/row-lineage', startedAt);
+  assert.equal(request.status, 200, JSON.stringify(request.response));
+  return request;
+};
+const inspectFirstRow = async (name, expectedIDs) => {
+  const startedAt = Date.now();
+  await click(browser.cdp, 'button[aria-label="Inspect row 1 identity"]');
+  const dialog = '[role="dialog"][aria-label="Row 1 identity"]';
+  await waitForBrowser(browser.cdp, `document.querySelector(${JSON.stringify(dialog)})`);
+  await waitForBrowser(browser.cdp, `document.querySelectorAll(${JSON.stringify(dialog + ' ul li')}).length===${JSON.stringify(expectedIDs.length)} || /unavailable|cannot be listed|could not load|could not be fully listed/i.test(document.querySelector(${JSON.stringify(dialog)})?.innerText ?? '')`, 5000);
+  const inspectorText = await browserEval(browser.cdp, `return document.querySelector(${JSON.stringify(dialog)}).innerText;`);
+  assert(!/unavailable|cannot be listed|could not load|could not be fully listed/i.test(inspectorText), `${name}: ${inspectorText}`);
+  const native = await waitLineage(startedAt);
+  const body = native.response;
+  assert.equal(body.status, 'COMPLETE', JSON.stringify(body));
+  assert.equal(body.outputId, outputId);
+  assert.equal(body.rowId, native.body.rowId);
+  const expectedRefs = sorted(expectedIDs.map(id => `${resourceType}/${id}`));
+  const contributors = sorted(body.contributors.map(item => `${item.resourceType}/${item.resourceId}`));
+  assert.deepEqual(contributors, expectedRefs, `${name} lineage must match the independently scoped raw FHIR IDs`);
+  assert.equal(new Set(contributors).size, expectedIDs.length);
+  assert.equal(body.hasMore ?? false, false);
+  assert(body.contributors.every(item => item.resourceType === resourceType && item.resourceId),
+    'The lineage contributor contract is resourceType/resourceId; project and generation are proven by the independent scoped raw-source and selection oracle');
+  const listed = await browserEval(browser.cdp, `return [...document.querySelectorAll(${JSON.stringify(dialog + ' ul li')})].map(item=>item.innerText.trim()).sort();`);
+  assert.deepEqual(listed, expectedRefs);
+  const identity = await browserEval(browser.cdp, `return document.querySelector(${JSON.stringify(dialog + ' p.font-mono')})?.textContent;`);
+  assert(identity);
+  report.lineage ??= [];
+  report.lineage.push({ name, identity, rowId: body.rowId, receiptId: body.receiptId, contributors, status: body.status });
+  await click(browser.cdp, `${dialog} button`, { name: 'Close' });
+  await waitForBrowser(browser.cdp, `!document.querySelector(${JSON.stringify(dialog)})`);
+  recordRender(name, startedAt);
+  return identity;
+};
+
+try {
+  const query = `FOR s IN Specimen FILTER s.project=="${project}" AND s.dataset_generation=="${generation}" SORT s._key LIMIT 2 RETURN {id:s.id,resourceType:s.resourceType,generation:s.dataset_generation,project:s.project}`;
+  const raw = spawnSync('rtk', [
+    'proxy', 'docker', 'exec', arangoContainer, 'arangosh', '--server.database', 'loom_dev',
+    '--javascript.execute-string', `print(JSON.stringify(db._query(${JSON.stringify(query)}).toArray()));`,
+  ], { encoding: 'utf8', timeout: 30000 });
+  assert.equal(raw.status, 0, raw.stderr);
+  const sources = JSON.parse(raw.stdout.slice(raw.stdout.indexOf('[')));
+  assert.equal(sources.length, 2, 'The raw CDA oracle must select exactly two Specimen resources');
+  assert.equal(new Set(sources.map(source => source.id)).size, 2, 'The raw CDA witness must contain distinct FHIR IDs');
+  assert(sources.every(source => source.project === project && source.generation === generation && source.resourceType === resourceType));
+  report.oracle = { query, sources, sourceIDs: sources.map(source => source.id) };
+
+  await api(root, { name: explorer, title: 'Cohort membership revision lifecycle' });
+  builder = await api(base + '/builder');
+  assert.equal(builder.catalog.generation, generation);
+  const scopeDigest = builder.catalog.authorizationScopeDigest;
+  assert(scopeDigest, 'The table catalog must bind the active authorization scope');
+  const node = builder.catalog.nodes.find(candidate => candidate.resourceType === resourceType);
+  assert(node, `${resourceType} must be in the active catalog`);
+  await command([{ type: 'CREATE_TABLE', title: 'Cohort membership revision QA', rootNodeId: node.nodeId }]);
+  outputId = builder.workspace.documents[0].output.id;
+  const idField = builder.catalog.candidates.find(candidate => candidate.nodeId === node.nodeId && candidate.fieldPath === 'id');
+  assert(idField, 'The Specimen FHIR ID field must be available');
+  await command([{ type: 'ADD_COLUMN', outputId, occurrenceId: 'base', candidateId: idField.candidateId, projectionMode: 'VALUE', initialPresentation: 'TABLE', title: 'Source Specimen ID' }]);
+  const selection = await api(selections, {
+    snapshotToken: builder.catalog.snapshotToken,
+    idempotencyKey: `cohort-membership-${randomUUID()}`,
+    source: { kind: 'resources', resources: { refs: sources.map(source => ({ project, generation, resourceType, id: source.id })) } },
+  });
+  assert.equal(selection.project, project);
+  assert.equal(selection.generation, generation);
+  assert.equal(selection.resourceType, resourceType);
+  assert.equal(selection.scopeDigest, scopeDigest);
+  assert.equal(selection.memberCount, sources.length);
+  const routes = await api(base + '/population-routes', { snapshotToken: builder.catalog.snapshotToken, outputId, selectionRevisionId: selection.id, limit: 50 });
+  const directRoute = routes.choices.find(choice => choice.route.length === 0);
+  assert(directRoute, 'The exact CDA selection must have a direct root route');
+  await command([{ type: 'SET_TABLE_POPULATION', outputId, selectionRevisionId: selection.id, routeChoiceId: directRoute.routeChoiceId }]);
+  const selectionPage = await api(`${selections}/${selection.id}?limit=100`);
+  assert.equal(selectionPage.revision.id, selection.id);
+  assert.equal(selectionPage.revision.scopeDigest, scopeDigest);
+  assert.equal(selectionPage.revision.membershipDigest, selection.membershipDigest);
+  assert.equal(selectionPage.revision.memberCount, sources.length);
+  const selectedRefs = selectionPage.members.map(member => member.ref).map(ref => `${ref.project}/${ref.generation}/${ref.resourceType}/${ref.id}`).sort();
+  const oracleRefs = sources.map(source => `${project}/${generation}/${resourceType}/${source.id}`).sort();
+  assert.deepEqual(selectedRefs, oracleRefs, 'The attached selection must contain exactly the independent raw CDA witnesses');
+  const memberKeyByID = new Map(selectionPage.members.map(member => [member.ref.id, member.memberKey]));
+  assert.equal(memberKeyByID.size, 2);
+  assert([...memberKeyByID.values()].every(Boolean));
+  report.oracle.selection = selection;
+  report.oracle.members = selectionPage.members.map((member, index) => ({
+    memberKey: member.memberKey, ref: member.ref, uiLabel: `Record ${index + 1} · ${member.ref.id}`,
+  }));
+
+  browser = await launchBrowser(evidence);
+  browser.cdp.on('Network.requestWillBeSent', ({ requestId, request, wallTime }) => {
+    const url = new URL(request.url);
+    if (!url.pathname.startsWith(root + '/' + explorer + '/')) return;
+    let body;
+    try { body = request.postData ? JSON.parse(request.postData) : undefined; } catch { body = request.postData?.slice(0, 32768); }
+    const entry = { requestId, path: url.pathname + url.search, method: request.method, startedAt: wallTime ? Math.round(wallTime * 1000) : Date.now(), body };
+    nativeById.set(requestId, entry);
+    report.nativeRequests.push(entry);
+  });
+  browser.cdp.on('Network.responseReceived', ({ requestId, response }) => {
+    const entry = nativeById.get(requestId);
+    if (entry) {
+      entry.status = response.status;
+      entry.responseReceivedAt = Date.now();
+      entry.serverRequestId = Object.entries(response.headers).find(([name]) => name.toLowerCase() === 'x-request-id')?.[1];
+    }
+    if (response.status >= 400 && !response.url.endsWith('/favicon.ico')) report.errors.push({ kind: 'http', url: response.url, status: response.status });
+  });
+  browser.cdp.on('Network.loadingFinished', ({ requestId }) => {
+    const entry = nativeById.get(requestId);
+    if (!entry) return;
+    entry.completedAt = Date.now();
+    if (!(/explicit-groups|row-definition-proposals|construction-choice-proposals|construction-proposals|construction-capabilities|row-lineage|preview/.test(pathOf(entry)) || entry.status >= 400)) return;
+    const read = browser.cdp.send('Network.getResponseBody', { requestId }).then(result => {
+      const body = result.base64Encoded ? Buffer.from(result.body, 'base64').toString('utf8') : result.body;
+      try {
+        const parsed = JSON.parse(body);
+        entry.response = body.length <= 32768 ? parsed : { truncated: true, length: body.length, proposalId: parsed.proposalId, previewStatus: parsed.previewStatus };
+      } catch { entry.response = body.slice(0, 32768); }
+    }).catch(error => { entry.responseReadError = String(error); }).finally(() => pendingNetworkReads.delete(read));
+    pendingNetworkReads.add(read);
+  });
+  browser.cdp.on('Runtime.exceptionThrown', event => report.errors.push({ kind: 'runtime', details: event.exceptionDetails }));
+  browser.cdp.on('Runtime.consoleAPICalled', event => { if (event.type === 'error') report.errors.push({ kind: 'console', args: event.args }); });
+  browser.cdp.on('Network.loadingFailed', event => { if (event.type === 'Script' && event.errorText !== 'net::ERR_ABORTED') report.errors.push({ kind: 'module', error: event.errorText }); });
+
+  let start = Date.now();
+  await navigate(browser.cdp, `${uiOrigin}/?project=${project}&explorer=${explorer}&mode=builder`);
+  await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-table-${outputId}"]')`);
+  await click(browser.cdp, `[data-testid="construction-table-${outputId}"]`);
+  await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-rows-settings-trigger"]')?.disabled===false`);
+  let table = await waitTable(sources.length);
+  assert.deepEqual(sorted(table.rows.map(row => row[0])), sorted(report.oracle.sourceIDs));
+  recordRender('open-exact-source-selection', start);
+
+  const first = await createCohortNatively(report.oracle.sourceIDs, memberKeyByID, 'all-members');
+  await selectPolicyAndWait(first.revision.revisionId, 'EXCLUDE', 'initial-cohort-exclude-preview');
+  table = await applyRowDefinition(1, report.oracle.sourceIDs, 'apply-initial-two-member-cohort', false);
+  assert.equal(doc(builder).rows.groups.source.explicit.revisionId, first.revision.revisionId);
+  assert.equal(doc(builder).rows.groups.source.explicit.unassignedMemberPolicy, 'EXCLUDE');
+  assert.equal(doc(builder).population.selectionRevisionId, selection.id);
+  assert(table.rows[0].some(cell => cell.includes(report.oracle.sourceIDs[0])));
+  assert(table.rows[0].some(cell => cell.includes(report.oracle.sourceIDs[1])));
+  const initialIdentity = await inspectFirstRow('inspect-initial-two-member-cohort', report.oracle.sourceIDs);
+
+  start = Date.now();
+  await click(browser.cdp, '[data-testid="construction-action-add-columns"]');
+  await click(browser.cdp, '[aria-label="Column types"] button', { includes: 'Fields and related data' });
+  await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-add-columns-source"]')`);
+  await click(browser.cdp, '[data-testid="feature-catalog-raw-fields"] summary');
+  await waitForBrowser(browser.cdp, `document.querySelector('input[aria-label="Select Specimen.id"]:not(:disabled)')`);
+  await click(browser.cdp, 'input[aria-label="Select Specimen.id"]');
+  await click(browser.cdp, '[aria-label="Add columns editor"] button', { includes: 'Add 1 selected feature' });
+  const fieldProposal = await waitChoiceProposal(start);
+  assert.equal(fieldProposal.result.rows.length, 1, 'The retained member field proposal must contain one cohort row');
+  assertMemberField(fieldProposal.result.rows[0], ['Group label', 'Group ordinal', 'Members', memberFieldLabel], report.oracle.sourceIDs);
+  start = Date.now();
+  await click(browser.cdp, '[data-testid="construction-choice-proposal-panel"] button', { name: 'Apply columns' });
+  await waitForBrowser(browser.cdp, `!document.querySelector('[data-testid="construction-choice-proposal-panel"]')&&!document.body.innerText.includes('Loading your table…')`);
+  await waitSavedPreview(start);
+  table = await waitTable(1);
+  assertGroupRow(table, report.oracle.sourceIDs);
+  recordRender('apply-member-field', start);
+  builder = await api(base + '/builder');
+  assert.equal(doc(builder).rows.groups.source.explicit.revisionId, first.revision.revisionId);
+  const memberColumn = doc(builder).columns.find(column => column.label === memberFieldLabel);
+  assert(memberColumn, `Applying the member field must add the ${memberFieldLabel} column`);
+  const memberRowValue = doc(builder).rows.groups.rowValues.find(value => value.columnId === memberColumn.columnId);
+  assert(memberRowValue, 'The named cohort must retain the selected member-field row value');
+
+  await click(browser.cdp, '[data-testid="construction-close-operation-editor"]');
+  start = Date.now();
+  await click(browser.cdp, '[data-testid="construction-action-keep-rows"]');
+  const filterEditor = '[data-testid="construction-filter-editor"]';
+  await waitForBrowser(browser.cdp, `document.querySelector(${JSON.stringify(filterEditor + ' select[aria-label="Column"]:not(:disabled)')})`);
+  const groupLabelOption = await browserEval(browser.cdp, `return [...document.querySelector(${JSON.stringify(filterEditor + ' select[aria-label="Column"]')}).options].find(option=>option.textContent.trim().startsWith('Group label ('))?.value;`);
+  assert(groupLabelOption, 'The downstream filter must be able to select the cohort group label');
+  await selectOption(browser.cdp, `${filterEditor} select[aria-label="Column"]`, groupLabelOption);
+  await selectOption(browser.cdp, `${filterEditor} select[aria-label="Condition"]`, 'EQUALS');
+  await waitForBrowser(browser.cdp, `document.querySelector(${JSON.stringify(filterEditor + ' input[aria-label="Value"]:not(:disabled)')})`);
+  await replaceInput(`${filterEditor} input[aria-label="Value"]`, groupLabel);
+  const tableBeforeFilter = await waitTable(1);
+  const filteredProposal = await waitConstructionProposal(start, entry => entry.body?.candidateConstruction?.steps?.some(step =>
+    step.operation?.kind === 'FILTER' && step.operation.filter.operator === 'EQUALS' &&
+    step.operation.filter.values?.some(value => value.kind === 'STRING' && value.string === groupLabel)));
+  assert.deepEqual(filteredProposal.result.rows, tableBeforeFilter.rows, 'The downstream group-label filter must retain the exact cohort/member-field output row');
+  const nativeFilterStep = filteredProposal.request.body.candidateConstruction.steps.find(step => step.operation?.kind === 'FILTER');
+  assert(nativeFilterStep, 'The native downstream filter request must include its authored step');
+  recordRender('preview-downstream-group-filter', start);
+  start = Date.now();
+  await click(browser.cdp, '[data-testid="construction-apply-proposal"]');
+  await waitForBrowser(browser.cdp, `!document.querySelector('[data-testid="construction-proposal-panel"]')`);
+  await waitSavedPreview(start);
+  table = await waitTable(1);
+  assertGroupRow(table, report.oracle.sourceIDs);
+  recordRender('apply-downstream-group-filter', start);
+  builder = await api(base + '/builder');
+  const beforeReplacement = structuredClone(doc(builder));
+  const savedFilter = beforeReplacement.construction.steps.find(step => step.id === nativeFilterStep.id);
+  assert(savedFilter && savedFilter.operation.kind === 'FILTER');
+  assert.deepEqual(savedFilter.operation.filter, nativeFilterStep.operation.filter);
+  assert.equal(beforeReplacement.population.selectionRevisionId, selection.id);
+  assert.equal(beforeReplacement.rows.groups.source.explicit.revisionId, first.revision.revisionId);
+  const initialFinalIdentity = await inspectFirstRow('inspect-two-members-beneath-filter-and-field', report.oracle.sourceIDs);
+  assert.equal(initialFinalIdentity, initialIdentity, 'Adding downstream filter/member field must preserve cohort row identity');
+
+  const second = await createCohortNatively([report.oracle.sourceIDs[0]], memberKeyByID, 'one-member-replacement');
+  assert.notEqual(second.revision.revisionId, first.revision.revisionId, 'Membership replacement must pin a distinct immutable cohort revision');
+  await selectPolicyAndWait(second.revision.revisionId, 'EXCLUDE', 'subset-revision-preview');
+  const beforeCancel = await api(base + '/builder');
+  const beforeCancelTable = await waitTable(1);
+  assertGroupRow(beforeCancelTable, report.oracle.sourceIDs);
+  start = Date.now();
+  await click(browser.cdp, '[aria-label="Row definition settings"] button', { name: 'Cancel' });
+  await waitForBrowser(browser.cdp, `!document.querySelector('[aria-label="Row definition settings"]')`);
+  table = await waitTable(1);
+  assertGroupRow(table, report.oracle.sourceIDs);
+  builder = await api(base + '/builder');
+  assert.deepEqual(doc(builder), doc(beforeCancel), 'Cancel must preserve the original pinned revision and every downstream operation');
+  assert.deepEqual(table.rows, beforeCancelTable.rows, 'Cancel must leave the two-member output values untouched');
+  recordRender('cancel-subset-revision-preview', start);
+
+  const rowSelector = await openRows();
+  const revisionOption = `explicit:${second.revision.revisionId}`;
+  const choices = await browserEval(browser.cdp, `return [...document.querySelector(${JSON.stringify(rowSelector)}).options].map(option=>({value:option.value,disabled:option.disabled,text:option.text}));`);
+  assert(choices.some(option => option.value === revisionOption && !option.disabled), 'The canceled immutable revision must remain available for native reattachment');
+  await selectOption(browser.cdp, rowSelector, revisionOption);
+  await waitForBrowser(browser.cdp, `document.querySelector('select[aria-label="Unmatched record policy"]')?.disabled===false`);
+  await selectPolicyAndWait(second.revision.revisionId, 'EXCLUDE', 'rebind-subset-revision-preview');
+  const tableAfterReplacement = await applyRowDefinition(1, [report.oracle.sourceIDs[0]], 'apply-one-member-revision-under-filter-and-field');
+  builder = await api(base + '/builder');
+  const afterReplacement = doc(builder);
+  assert.equal(afterReplacement.rows.groups.source.explicit.revisionId, second.revision.revisionId);
+  assert.equal(afterReplacement.rows.groups.source.explicit.unassignedMemberPolicy, 'EXCLUDE');
+  assert.equal(afterReplacement.population.selectionRevisionId, selection.id);
+  assert.deepEqual(afterReplacement.construction, beforeReplacement.construction, 'Rebinding must retain the downstream authored filter exactly');
+  assert.deepEqual(afterReplacement.columns, beforeReplacement.columns, 'Rebinding must retain source and member-field column definitions');
+  assert.deepEqual(afterReplacement.rows.groups.rowValues, beforeReplacement.rows.groups.rowValues, 'Rebinding must retain the cohort member-field policy');
+  assertGroupRow(tableAfterReplacement, [report.oracle.sourceIDs[0]]);
+  const replacementIdentity = await inspectFirstRow('inspect-one-member-revision-beneath-filter-and-field', [report.oracle.sourceIDs[0]]);
+  assert.notEqual(replacementIdentity, initialFinalIdentity, 'A new immutable revision must produce its own cohort row identity');
+  report.replacement = {
+    sourceSelectionRevisionId: second.revision.sourceSelectionRevisionId,
+    previousRevisionId: first.revision.revisionId,
+    revisionId: second.revision.revisionId,
+    previousIDs: report.oracle.sourceIDs,
+    currentIDs: [report.oracle.sourceIDs[0]],
+    preservedFilterStepId: savedFilter.id,
+    preservedFilter: savedFilter.operation.filter,
+    preservedMemberColumn: memberFieldLabel,
+    initialIdentity: initialFinalIdentity,
+    replacementIdentity,
+  };
+
+  start = Date.now();
+  await navigate(browser.cdp, `${uiOrigin}/?project=${project}&explorer=${explorer}&mode=builder`);
+  await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-table-${outputId}"]')`);
+  await click(browser.cdp, `[data-testid="construction-table-${outputId}"]`);
+  table = await waitTable(1);
+  assertGroupRow(table, [report.oracle.sourceIDs[0]]);
+  builder = await api(base + '/builder');
+  assert.equal(doc(builder).rows.groups.source.explicit.revisionId, second.revision.revisionId);
+  assert.deepEqual(doc(builder).construction, beforeReplacement.construction);
+  recordRender('reload-replacement-revision-with-dependent-operations', start);
+  const reloadedIdentity = await inspectFirstRow('inspect-reloaded-one-member-revision', [report.oracle.sourceIDs[0]]);
+  assert.equal(reloadedIdentity, replacementIdentity, 'Reload must preserve the replacement revision row identity');
+
+  await click(browser.cdp, `[data-testid="construction-history-step-${savedFilter.id}"]`);
+  start = Date.now();
+  await click(browser.cdp, `[data-testid="construction-remove-step-${savedFilter.id}"]`);
+  const removeFilter = await waitConstructionProposal(start);
+  assert(JSON.stringify(removeFilter.request.body).includes(savedFilter.id), 'Filter-removal proposal must name the saved downstream step');
+  assert.deepEqual(removeFilter.result.rows, table.rows, 'Removing the filter must restore the exact saved one-member row');
+  const removePreview = removeFilter.result.rows[0];
+  assert(removePreview.includes(groupLabel));
+  assert(removePreview.some(cell => cell.includes(report.oracle.sourceIDs[0])));
+  recordRender('preview-downstream-filter-removal', start);
+  start = Date.now();
+  await click(browser.cdp, '[data-testid="construction-apply-proposal"]');
+  await waitForBrowser(browser.cdp, `!document.querySelector('[data-testid="construction-proposal-panel"]')`);
+  await waitSavedPreview(start);
+  table = await waitTable(1);
+  assertGroupRow(table, [report.oracle.sourceIDs[0]]);
+  recordRender('remove-downstream-filter', start);
+  builder = await api(base + '/builder');
+  assert(!doc(builder).construction.steps.some(step => step.id === savedFilter.id));
+  assert.equal(doc(builder).rows.groups.source.explicit.revisionId, second.revision.revisionId);
+
+  await click(browser.cdp, 'button', { name: 'Columns' });
+  start = Date.now();
+  await click(browser.cdp, `button[aria-label="Remove ${memberFieldLabel} column"]`);
+  await waitForBrowser(browser.cdp, `!document.body.innerText.includes('Loading your table…')&&document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-colcount')===${JSON.stringify(String(table.headers.length - 1))}`);
+  recordRender('remove-member-field', start);
+  builder = await api(base + '/builder');
+  assert.equal(doc(builder).rows.groups.source.explicit.revisionId, second.revision.revisionId);
+  assert(!(doc(builder).rows.groups.rowValues ?? []).some(value => value.columnId === memberColumn.columnId));
+  table = await waitTable(1);
+  const groupLabelIndex = table.headers.findIndex(header => header.toLowerCase() === 'group label');
+  const membersIndex = table.headers.findIndex(header => header.toLowerCase() === 'members');
+  assert.equal(table.rows[0][groupLabelIndex], groupLabel);
+  assert(table.rows[0][membersIndex].includes(report.oracle.sourceIDs[0]));
+
+  const recordsSelector = await openRows();
+  const recordsStart = Date.now();
+  await selectOption(browser.cdp, recordsSelector, 'records');
+  const recordsProposal = await waitNative('/row-definition-proposals', recordsStart, entry => entry.body?.selection?.kind === 'RECORDS');
+  assert.equal(recordsProposal.status, 200, JSON.stringify(recordsProposal.response));
+  await waitForBrowser(browser.cdp, `[...document.querySelectorAll('[aria-label="Row definition settings"] button')].some(button=>button.innerText==='Apply row definition'&&!button.disabled)`);
+  recordRender('preview-remove-cohort-row-definition', recordsStart);
+  const restoredTable = await applyRowDefinition(sources.length, [], 'remove-cohort-row-definition');
+  assert.deepEqual(sorted(restoredTable.rows.map(row => row[0])), sorted(report.oracle.sourceIDs));
+  builder = await api(base + '/builder');
+  assert.equal(doc(builder).rows.kind, 'RECORDS');
+  assert.equal(doc(builder).population.selectionRevisionId, selection.id);
+  assert(!doc(builder).construction.steps.some(step => step.id === savedFilter.id));
+  const reloadedBaselineStart = Date.now();
+  await navigate(browser.cdp, `${uiOrigin}/?project=${project}&explorer=${explorer}&mode=builder`);
+  await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-table-${outputId}"]')`);
+  await click(browser.cdp, `[data-testid="construction-table-${outputId}"]`);
+  const finalTable = await waitTable(sources.length);
+  assert.deepEqual(sorted(finalTable.rows.map(row => row[0])), sorted(report.oracle.sourceIDs));
+  builder = await api(base + '/builder');
+  assert.equal(doc(builder).rows.kind, 'RECORDS');
+  assert.equal(doc(builder).population.selectionRevisionId, selection.id);
+  recordRender('reload-restored-exact-source-scope', reloadedBaselineStart);
+
+  await Promise.allSettled([...pendingNetworkReads]);
+  assert.deepEqual(report.errors, []);
+  report.status = 'passed';
+} catch (error) {
+  report.status = 'failed';
+  report.error = String(error.stack ?? error);
+  process.exitCode = 1;
+  report.savedBuilderAtFailure = await api(base + '/builder').catch(fetchError => ({ readError: String(fetchError) }));
+  report.failureUI = browser ? await browserEval(browser.cdp, 'return document.body.innerText;').catch(String) : undefined;
+  report.failureControls = browser ? await browserEval(browser.cdp, `return [...document.querySelectorAll('select,button,input')].map(control=>({
+    tag:control.tagName,aria:control.getAttribute('aria-label'),testid:control.getAttribute('data-testid'),text:control.innerText,value:control.value,disabled:control.disabled,
+  }));`).catch(String) : undefined;
+} finally {
+  try { report.sourceFreeze = await sourceFreeze.assertUnchanged(); } catch (error) {
+    report.priorStatus = report.status;
+    report.status = 'invalidated';
+    report.sourceFreeze = { unchanged: false, changedPaths: error.changedPaths ?? [], invalidatesRun: true, productFailure: false, error: String(error) };
+    process.exitCode = 1;
+  }
+  await Promise.allSettled([...pendingNetworkReads]);
+  report.finished = new Date().toISOString();
+  await writeFile(join(evidence, 'report.json'), JSON.stringify(report, null, 2));
+  await browser?.close();
+}
+console.log(JSON.stringify({
+  status: report.status, evidence,
+  cases: report.cases.map(item => ({ name: item.name, durationMs: item.durationMs })),
+  error: report.error,
+}));

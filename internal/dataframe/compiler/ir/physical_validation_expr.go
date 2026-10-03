@@ -32,6 +32,9 @@ func validatePhysicalExpression(expression PhysicalExpression, defined map[strin
 	if expression.Pivot != nil {
 		payloads++
 	}
+	if expression.OwnerRecords != nil {
+		payloads++
+	}
 	if expression.Slice != nil {
 		payloads++
 	}
@@ -50,7 +53,13 @@ func validatePhysicalExpression(expression PhysicalExpression, defined map[strin
 	if expression.Object != nil {
 		payloads++
 	}
+	if expression.Subplan != nil {
+		payloads++
+	}
 	if expression.Call != nil {
+		payloads++
+	}
+	if expression.RelatedField != nil {
 		payloads++
 	}
 	if payloads != 1 {
@@ -85,6 +94,22 @@ func validatePhysicalExpression(expression PhysicalExpression, defined map[strin
 			return fmt.Errorf("expression payload does not match kind")
 		}
 		return validatePhysicalPivot(*expression.Pivot, defined, bindVars)
+	case PhysicalOwnerRecordsExpression:
+		if expression.OwnerRecords == nil {
+			return fmt.Errorf("expression payload does not match kind")
+		}
+		if err := validatePhysicalCorrelation(expression.OwnerRecords.Correlation, defined, bindVars); err != nil {
+			return fmt.Errorf("owner records correlation: %w", err)
+		}
+		for _, key := range []string{expression.OwnerRecords.OwnerPathBindKey, expression.OwnerRecords.ChoiceArmBindKey, expression.OwnerRecords.LogicalTypeBindKey} {
+			if err := requireBind(bindVars, key); err != nil {
+				return err
+			}
+			if _, ok := bindVars[key].(string); !ok {
+				return fmt.Errorf("owner records bind %q must be a string", key)
+			}
+		}
+		return nil
 	case PhysicalSliceExpression:
 		if expression.Slice == nil {
 			return fmt.Errorf("expression payload does not match kind")
@@ -121,14 +146,58 @@ func validatePhysicalExpression(expression PhysicalExpression, defined map[strin
 			return fmt.Errorf("expression payload does not match kind")
 		}
 		return validatePhysicalObject(*expression.Object, defined, bindVars)
+	case PhysicalSubplanExpression:
+		if expression.Subplan == nil {
+			return fmt.Errorf("expression payload does not match kind")
+		}
+		if expression.Cardinality != PhysicalArrayCardinality {
+			return fmt.Errorf("SUBPLAN expression must be array-valued, got %q", expression.Cardinality)
+		}
+		if expression.NullBehavior != PhysicalEmptyOnNull {
+			return fmt.Errorf("SUBPLAN expression must use EMPTY_ON_NULL, got %q", expression.NullBehavior)
+		}
+		return validatePhysicalSubplan(*expression.Subplan, defined, bindVars)
 	case PhysicalCallExpression:
 		if expression.Call == nil {
 			return fmt.Errorf("expression payload does not match kind")
 		}
 		return validatePhysicalCall(*expression.Call, defined, bindVars)
+	case PhysicalRelatedFieldExpression:
+		if expression.RelatedField == nil {
+			return fmt.Errorf("expression payload does not match kind")
+		}
+		if expression.Cardinality != PhysicalScalarCardinality || expression.NullBehavior != PhysicalPreserveNull {
+			return fmt.Errorf("related field expression must be a nullable scalar")
+		}
+		if err := validatePhysicalValue(expression.RelatedField.DocumentID, defined, bindVars); err != nil {
+			return fmt.Errorf("related field document ID: %w", err)
+		}
+		if expression.RelatedField.ResourceType == "" || len(expression.RelatedField.Path) == 0 || expression.RelatedField.Path[0] != "payload" {
+			return fmt.Errorf("related field path is empty")
+		}
+		for index, segment := range expression.RelatedField.Path {
+			if !validPhysicalFieldPathSegment(segment) {
+				return fmt.Errorf("related field path segment %d is invalid", index)
+			}
+		}
+		return nil
 	default:
 		return fmt.Errorf("unknown expression kind %q", expression.Kind)
 	}
+}
+
+func validPhysicalFieldPathSegment(segment string) bool {
+	if segment == "" || (segment[0] < 'a' || segment[0] > 'z') && (segment[0] < 'A' || segment[0] > 'Z') {
+		return false
+	}
+	for index := 1; index < len(segment); index++ {
+		character := segment[index]
+		if (character < 'a' || character > 'z') && (character < 'A' || character > 'Z') &&
+			(character < '0' || character > '9') && character != '_' {
+			return false
+		}
+	}
+	return true
 }
 
 func validatePhysicalKeyedMap(keyed PhysicalKeyedMap, defined map[string]bool, bindVars map[string]any) error {
@@ -138,7 +207,7 @@ func validatePhysicalKeyedMap(keyed PhysicalKeyedMap, defined map[string]bool, b
 	if !physicalVariablePattern.MatchString(keyed.ItemVariable) {
 		return fmt.Errorf("keyed map item variable %q is unsafe", keyed.ItemVariable)
 	}
-	if keyed.Reduction != PhysicalMapFirst && keyed.Reduction != PhysicalMapFirstSorted {
+	if keyed.Reduction != PhysicalMapFirst && keyed.Reduction != PhysicalMapFirstSorted && keyed.Reduction != PhysicalMapAll && keyed.Reduction != PhysicalMapDistinct {
 		return fmt.Errorf("unsupported keyed map reduction %q", keyed.Reduction)
 	}
 	if err := validatePhysicalExpression(keyed.Source, defined, bindVars); err != nil {
@@ -193,14 +262,15 @@ func validatePhysicalCall(call PhysicalCall, defined map[string]bool, bindVars m
 		return fmt.Errorf("call name is required")
 	}
 	known := map[string]bool{
-		"coalesce": true, "coalesce_string": true, "fallback": true, "first": true, "all": true, "distinct": true,
+		"coalesce": true, "coalesce_string": true, "fallback": true, "first": true, "all": true, "distinct": true, "length": true,
 		"canonical_json": true,
 		"concat":         true, "join": true, "cast": true, "reference_id": true,
 		"path_segment": true, "basename": true, "last_segment": true,
 		"sanitize_name": true, "sanitize_graphql_name": true, "uuid3": true, "uuid5": true,
 		"if": true, "case": true, "not": true, "and": true, "or": true,
 		"eq": true, "neq": true, "gt": true, "gte": true, "lt": true, "lte": true,
-		"contains": true,
+		"contains": true, "assert": true,
+		"add": true, "subtract": true, "multiply": true, "divide": true,
 	}
 	if !known[name] {
 		return fmt.Errorf("unsupported call %q", call.Name)
@@ -214,6 +284,10 @@ func validatePhysicalCall(call PhysicalCall, defined map[string]bool, bindVars m
 		default:
 			return fmt.Errorf("cast target kind %q is unsupported", call.TargetKind)
 		}
+	} else if name == "assert" && len(call.Args) != 2 {
+		return fmt.Errorf("assert requires a condition and message")
+	} else if (name == "add" || name == "subtract" || name == "multiply" || name == "divide") && len(call.Args) != 2 {
+		return fmt.Errorf("%s requires two arguments", name)
 	} else if call.TargetKind != "" {
 		return fmt.Errorf("target kind is only valid for cast")
 	}
@@ -294,6 +368,11 @@ func validatePhysicalExpressionObjectCycles(expression PhysicalExpression) error
 				}
 			}
 		}
+		if current.Subplan != nil {
+			if err := visitSubplan(*current.Subplan); err != nil {
+				return err
+			}
+		}
 		return nil
 	}
 	visitPredicate = func(predicate *PhysicalPredicateExpression) error {
@@ -324,6 +403,12 @@ func validatePhysicalExpressionObjectCycles(expression PhysicalExpression) error
 						return err
 					}
 				}
+			case PhysicalExpressionLetOp:
+				if operation.ExpressionLet != nil {
+					if err := visitExpression(operation.ExpressionLet.Expression); err != nil {
+						return err
+					}
+				}
 			case PhysicalSetOp:
 				if operation.Set != nil {
 					if err := visitSubplan(operation.Set.Subplan); err != nil {
@@ -334,6 +419,11 @@ func validatePhysicalExpressionObjectCycles(expression PhysicalExpression) error
 				if operation.Unnest != nil {
 					if err := visitExpression(operation.Unnest.Expression); err != nil {
 						return err
+					}
+					for _, step := range operation.Unnest.Owner.Route {
+						if err := visitSubplan(PhysicalSubplan{Operations: step.Scope}); err != nil {
+							return err
+						}
 					}
 				}
 			}

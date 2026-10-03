@@ -1,0 +1,15 @@
+# Local datasets, analysis artifacts, and agent tooling are not application code.
+/CDA-FHIR/
+/META_SMALL/
+/.audit/
+/.codex/
+/compiler.test
+/loom
+/loom-DocumentReference.csv
+
+# Keep generated API contracts, tests, fixtures, and CI in the architecture graph.
+!/generated/
+!__tests__/
+!__mocks__/
+!fixtures/
+!.github/

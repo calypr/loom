@@ -1,0 +1,8 @@
+{
+  "analyze": {
+    "indexOnly": true,
+    "embeddings": false,
+    "maxFileSize": 8192,
+    "workers": 4
+  }
+}

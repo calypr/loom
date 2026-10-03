@@ -1,0 +1,311 @@
+package authoringv2
+
+import (
+	"reflect"
+	"strings"
+	"testing"
+)
+
+func rowChangeWorkspace() Workspace {
+	visible := true
+	order := 0
+	return Workspace{
+		APIVersion: APIVersion,
+		Kind:       WorkspaceKind,
+		Explorer:   ExplorerMetadata{Title: "Patients"},
+		Documents: []Document{{
+			Kind:             Kind,
+			Output:           Output{ID: "patients", Title: "Patients"},
+			RootResourceType: "Patient",
+			Route: RouteNode{OccurrenceID: RootOccurrenceID, ResourceType: "Patient", Children: []RouteNode{{
+				OccurrenceID: "encounter", ResourceType: "Encounter", Relationship: "encounters",
+			}}},
+			Rows:       RecordsRowDefinition(),
+			Population: &Population{SelectionRevisionID: "selection-patients", Route: []PopulationRouteStep{}},
+			Columns: []Column{
+				{Column: "patient_id", Label: "Patient ID", OccurrenceID: RootOccurrenceID, Source: ColumnSource{Kind: SourceField, Field: &FieldSource{Path: "id", ProjectionMode: "VALUE"}}, Table: &TablePresentation{Visible: &visible, Order: &order}},
+				{Column: "encounter_id", Label: "Encounter ID", OccurrenceID: "encounter", Source: ColumnSource{Kind: SourceField, Field: &FieldSource{Path: "id", ProjectionMode: "VALUE", RelatedSelection: &RelatedSelection{Kind: "first-by-resource-key", Acknowledged: true}}}},
+			},
+			FixedFilters: []FixedFilter{{Column: "patient_id", Values: []string{"patient-1"}}},
+			Actions:      []Action{{Type: "download", Title: "Download", Columns: []ActionColumn{{Column: "encounter_id"}}}},
+		}},
+		Tabs: []Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Visible: true}},
+	}
+}
+
+func rowChangeCatalog() CatalogSnapshot {
+	catalog := commandCatalog()
+	catalog.Edges = append(catalog.Edges, CatalogEdge{ID: "encounter-patient", FromNodeID: "encounter", ToNodeID: "patient", Label: "patient"})
+	return catalog
+}
+
+func TestAssessAndApplyRowChangePreservesAuthoredTable(t *testing.T) {
+	workspace := rowChangeWorkspace()
+	catalog := rowChangeCatalog()
+	before, err := workspace.CanonicalJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	assessment, err := AssessRowChange(workspace, catalog, RowChangeRequest{OutputID: "patients", RootNodeID: "encounter"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if assessment.Status != RowChangeReady || assessment.Proposal == nil || len(assessment.Unresolved) != 0 {
+		t.Fatalf("assessment=%#v", assessment)
+	}
+	if !reflect.DeepEqual(assessment.PreservedFeatureKeys, []string{"encounter_id", "patient_id"}) {
+		t.Fatalf("preserved feature keys=%#v", assessment.PreservedFeatureKeys)
+	}
+	if after, _ := workspace.CanonicalJSON(); string(after) != string(before) {
+		t.Fatalf("assessment mutated workspace\nbefore=%s\nafter=%s", before, after)
+	}
+
+	rebased, _, err := ApplyCommands(workspace, catalog, "apply-rebase", []Command{{Type: CommandApplyTableRootRebase, RowChange: assessment.Proposal}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	document := rebased.Documents[0]
+	if document.RootResourceType != "Encounter" || document.Route.OccurrenceID != RootOccurrenceID || document.Route.ResourceType != "Encounter" {
+		t.Fatalf("rebased root=%#v", document.Route)
+	}
+	if len(document.Route.Children) != 1 || document.Route.Children[0].OccurrenceID != "encounter" || document.Route.Children[0].ResourceType != "Patient" || document.Route.Children[0].Relationship != "patient" {
+		t.Fatalf("rebased route=%#v", document.Route)
+	}
+	occurrences := map[string]string{}
+	for _, column := range document.Columns {
+		occurrences[column.Column] = column.OccurrenceID
+	}
+	if !reflect.DeepEqual(occurrences, map[string]string{"encounter_id": RootOccurrenceID, "patient_id": "encounter"}) {
+		t.Fatalf("rebased column occurrences=%#v", occurrences)
+	}
+	if document.Population == nil || document.Population.SelectionRevisionID != "selection-patients" || !reflect.DeepEqual(document.Population.Route, []PopulationRouteStep{{ResourceType: "Patient", Relationship: "patient", CatalogEdgeID: "encounter-patient"}}) {
+		t.Fatalf("rebased population=%#v", document.Population)
+	}
+	if !reflect.DeepEqual(document.FixedFilters, workspace.Documents[0].FixedFilters) || !reflect.DeepEqual(document.Actions, workspace.Documents[0].Actions) {
+		t.Fatalf("filters/actions changed: %#v %#v", document.FixedFilters, document.Actions)
+	}
+}
+
+func TestAssessAndApplyRowChangePromotesADeepDescendant(t *testing.T) {
+	workspace := rowChangeWorkspace()
+	workspace.Documents[0].Route.Children[0].MatchMode = RouteMatchRequired
+	workspace.Documents[0].Route.Children[0].Children = []RouteNode{
+		{OccurrenceID: "followup", ResourceType: "Encounter", Relationship: "revisits"},
+		{OccurrenceID: "observation", ResourceType: "Observation", Relationship: "observations", MatchMode: RouteMatchOptional},
+	}
+	workspace.Documents[0].Columns = append(workspace.Documents[0].Columns, Column{
+		Column: "observation_id", Label: "Observation ID", OccurrenceID: "observation",
+		Source: ColumnSource{Kind: SourceField, Field: &FieldSource{Path: "id", ProjectionMode: "VALUE", RelatedSelection: &RelatedSelection{Kind: "first-by-resource-key", Acknowledged: true}}},
+	})
+	catalog := rowChangeCatalog()
+	catalog.Nodes = append(catalog.Nodes, CatalogNode{ID: "observation", ResourceType: "Observation", RowRootEligible: true})
+	catalog.Edges = append(catalog.Edges,
+		CatalogEdge{ID: "encounter-observation", FromNodeID: "encounter", ToNodeID: "observation", Label: "observations"},
+		CatalogEdge{ID: "observation-encounter", FromNodeID: "observation", ToNodeID: "encounter", Label: "encounter"},
+	)
+
+	assessment, err := AssessRowChange(workspace, catalog, RowChangeRequest{
+		OutputID: "patients", RootNodeID: "observation", RootOccurrenceID: "observation",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if assessment.Status != RowChangeReady || assessment.Proposal == nil {
+		t.Fatalf("deep assessment=%#v", assessment)
+	}
+	if !reflect.DeepEqual(assessment.Proposal.RouteRebase, []RouteRebaseChoice{
+		{OccurrenceID: RootOccurrenceID, EdgeID: "encounter-patient"},
+		{OccurrenceID: "encounter", EdgeID: "observation-encounter"},
+	}) {
+		t.Fatalf("deep route choices=%#v", assessment.Proposal.RouteRebase)
+	}
+
+	rebased, err := ApplyRowChange(workspace.Documents[0], catalog, *assessment.Proposal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rebased.RootResourceType != "Observation" || rebased.Route.OccurrenceID != RootOccurrenceID {
+		t.Fatalf("deep root=%#v", rebased.Route)
+	}
+	if len(rebased.Route.Children) != 1 || rebased.Route.Children[0].OccurrenceID != "encounter" || rebased.Route.Children[0].Relationship != "encounter" || rebased.Route.Children[0].MatchMode != RouteMatchOptional {
+		t.Fatalf("deep encounter route=%#v", rebased.Route)
+	}
+	encounterChildren := rebased.Route.Children[0].Children
+	if len(encounterChildren) != 2 || encounterChildren[0].OccurrenceID != "followup" {
+		t.Fatalf("deep rebase lost the off-path Encounter branch: %#v", encounterChildren)
+	}
+	patient := encounterChildren[1]
+	if patient.OccurrenceID != "observation" || patient.ResourceType != "Patient" || patient.Relationship != "patient" || patient.MatchMode != RouteMatchRequired {
+		t.Fatalf("deep patient route=%#v", patient)
+	}
+	occurrences := map[string]string{}
+	for _, column := range rebased.Columns {
+		occurrences[column.Column] = column.OccurrenceID
+	}
+	if !reflect.DeepEqual(occurrences, map[string]string{"patient_id": "observation", "encounter_id": "encounter", "observation_id": RootOccurrenceID}) {
+		t.Fatalf("deep column occurrences=%#v", occurrences)
+	}
+	if rebased.Population == nil || !reflect.DeepEqual(rebased.Population.Route, []PopulationRouteStep{
+		{ResourceType: "Encounter", Relationship: "encounter", CatalogEdgeID: "observation-encounter"},
+		{ResourceType: "Patient", Relationship: "patient", CatalogEdgeID: "encounter-patient"},
+	}) {
+		t.Fatalf("deep population route=%#v", rebased.Population)
+	}
+}
+
+func TestAssessRowChangeReturnsStructuredRelationshipChoices(t *testing.T) {
+	workspace := rowChangeWorkspace()
+	catalog := commandCatalog()
+	assessment, err := AssessRowChange(workspace, catalog, RowChangeRequest{OutputID: "patients", RootNodeID: "encounter"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if assessment.Status != RowChangeBlocked || assessment.Proposal != nil || len(assessment.Unresolved) != 1 || assessment.Unresolved[0].Code != "MISSING_ROUTE_REBASE_EDGE" {
+		t.Fatalf("missing reverse assessment=%#v", assessment)
+	}
+
+	catalog = rowChangeCatalog()
+	catalog.Edges = append(catalog.Edges, CatalogEdge{ID: "encounter-subject", FromNodeID: "encounter", ToNodeID: "patient", Label: "subject"})
+	assessment, err = AssessRowChange(workspace, catalog, RowChangeRequest{OutputID: "patients", RootNodeID: "encounter"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if assessment.Status != RowChangeBlocked || len(assessment.Unresolved) != 1 || assessment.Unresolved[0].Code != "AMBIGUOUS_ROUTE_REBASE_EDGE" || !reflect.DeepEqual(assessment.Unresolved[0].Alternatives, []string{"encounter-patient", "encounter-subject"}) {
+		t.Fatalf("ambiguous reverse assessment=%#v", assessment)
+	}
+	assessment, err = AssessRowChange(workspace, catalog, RowChangeRequest{
+		OutputID: "patients", RootNodeID: "encounter", RouteRebase: []RouteRebaseChoice{{OccurrenceID: RootOccurrenceID, EdgeID: "encounter-patient"}},
+	})
+	if err != nil || assessment.Status != RowChangeReady || assessment.Proposal == nil {
+		t.Fatalf("resolved assessment=%#v err=%v", assessment, err)
+	}
+}
+
+func TestAssessRowChangePrefersTheAuthoredInverseAmongDifferentRelationships(t *testing.T) {
+	workspace, catalog := rowChangeSubjectFocusFixture()
+	assessment, err := AssessRowChange(workspace, catalog, RowChangeRequest{
+		OutputID: "patients", RootNodeID: "observation", RootOccurrenceID: "observation",
+	})
+	if err != nil || assessment.Status != RowChangeReady || assessment.Proposal == nil {
+		t.Fatalf("assessment=%#v err=%v", assessment, err)
+	}
+	if !reflect.DeepEqual(assessment.Proposal.RouteRebase, []RouteRebaseChoice{{OccurrenceID: RootOccurrenceID, EdgeID: "observation-patient-subject"}}) {
+		t.Fatalf("authored inverse route choice=%#v, want the subject relationship", assessment.Proposal.RouteRebase)
+	}
+	rebased, err := ApplyRowChange(workspace.Documents[0], catalog, *assessment.Proposal)
+	if err != nil || rebased.RootResourceType != "Observation" || len(rebased.Route.Children) != 1 ||
+		rebased.Route.Children[0].ResourceType != "Patient" || rebased.Route.Children[0].Relationship != "subject_Patient" ||
+		rebased.Route.Children[0].CatalogEdgeID != "observation-patient-subject" {
+		t.Fatalf("rebased route=%#v err=%v, want Observation → Patient on the authored subject relationship", rebased.Route, err)
+	}
+
+	// An explicit user choice still takes priority over the inferred inverse.
+	assessment, err = AssessRowChange(workspace, catalog, RowChangeRequest{
+		OutputID: "patients", RootNodeID: "observation", RootOccurrenceID: "observation",
+		RouteRebase: []RouteRebaseChoice{{OccurrenceID: RootOccurrenceID, EdgeID: "observation-patient-focus"}},
+	})
+	if err != nil || assessment.Status != RowChangeReady || assessment.Proposal == nil ||
+		!reflect.DeepEqual(assessment.Proposal.RouteRebase, []RouteRebaseChoice{{OccurrenceID: RootOccurrenceID, EdgeID: "observation-patient-focus"}}) {
+		t.Fatalf("explicit inverse override assessment=%#v err=%v", assessment, err)
+	}
+}
+
+func TestAssessRowChangeKeepsAmbiguityBetweenMatchingInverseRelationships(t *testing.T) {
+	workspace, catalog := rowChangeSubjectFocusFixture()
+	catalog.Edges = append(catalog.Edges, CatalogEdge{
+		ID: "observation-patient-subject-secondary", FromNodeID: "observation", ToNodeID: "patient", Label: "subject_Patient",
+	})
+	assessment, err := AssessRowChange(workspace, catalog, RowChangeRequest{
+		OutputID: "patients", RootNodeID: "observation", RootOccurrenceID: "observation",
+	})
+	if err != nil || assessment.Status != RowChangeBlocked || len(assessment.Unresolved) != 1 || assessment.Unresolved[0].Code != "AMBIGUOUS_ROUTE_REBASE_EDGE" {
+		t.Fatalf("duplicate authored inverse assessment=%#v err=%v", assessment, err)
+	}
+	if !reflect.DeepEqual(assessment.Unresolved[0].Alternatives, []string{
+		"observation-patient-focus", "observation-patient-subject", "observation-patient-subject-secondary",
+	}) {
+		t.Fatalf("duplicate inverse alternatives=%#v", assessment.Unresolved[0].Alternatives)
+	}
+
+	assessment, err = AssessRowChange(workspace, catalog, RowChangeRequest{
+		OutputID: "patients", RootNodeID: "observation", RootOccurrenceID: "observation",
+		RouteRebase: []RouteRebaseChoice{{OccurrenceID: RootOccurrenceID, EdgeID: "observation-patient-subject-secondary"}},
+	})
+	if err != nil || assessment.Status != RowChangeReady || assessment.Proposal == nil ||
+		len(assessment.Proposal.RouteRebase) != 1 || assessment.Proposal.RouteRebase[0].EdgeID != "observation-patient-subject-secondary" {
+		t.Fatalf("explicit duplicate inverse selection assessment=%#v err=%v", assessment, err)
+	}
+}
+
+func rowChangeSubjectFocusFixture() (Workspace, CatalogSnapshot) {
+	workspace := rowChangeWorkspace()
+	workspace.Documents[0].Route.Children[0] = RouteNode{
+		OccurrenceID: "observation", ResourceType: "Observation", Relationship: "subject_Patient", CatalogEdgeID: "patient-observation-subject",
+	}
+	for index := range workspace.Documents[0].Columns {
+		if workspace.Documents[0].Columns[index].OccurrenceID == "encounter" {
+			workspace.Documents[0].Columns[index].OccurrenceID = "observation"
+		}
+	}
+	catalog := commandCatalog()
+	catalog.Nodes = append(catalog.Nodes, CatalogNode{ID: "observation", ResourceType: "Observation", RowRootEligible: true})
+	catalog.Edges = append(catalog.Edges,
+		CatalogEdge{ID: "patient-observation-subject", FromNodeID: "patient", ToNodeID: "observation", Label: "subject_Patient"},
+		CatalogEdge{ID: "observation-patient-subject", FromNodeID: "observation", ToNodeID: "patient", Label: "subject_Patient"},
+		CatalogEdge{ID: "observation-patient-focus", FromNodeID: "observation", ToNodeID: "patient", Label: "focus_Patient"},
+	)
+	return workspace, catalog
+}
+
+func TestAssessRowChangeRequiresAnExplicitOccurrenceWhenTheRouteHasDuplicates(t *testing.T) {
+	workspace := rowChangeWorkspace()
+	workspace.Documents[0].Route.Children = append(
+		workspace.Documents[0].Route.Children,
+		RouteNode{OccurrenceID: "encounter-followup", ResourceType: "Encounter", Relationship: "encounters"},
+	)
+	catalog := rowChangeCatalog()
+
+	assessment, err := AssessRowChange(workspace, catalog, RowChangeRequest{
+		OutputID: "patients", RootNodeID: "encounter",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if assessment.Status != RowChangeBlocked || len(assessment.Unresolved) != 1 || assessment.Unresolved[0].Code != "AMBIGUOUS_ROW_ROOT_OCCURRENCE" || !reflect.DeepEqual(assessment.Unresolved[0].Alternatives, []string{"encounter", "encounter-followup"}) {
+		t.Fatalf("ambiguous occurrence assessment=%#v", assessment)
+	}
+
+	assessment, err = AssessRowChange(workspace, catalog, RowChangeRequest{
+		OutputID: "patients", RootNodeID: "encounter", RootOccurrenceID: "encounter-followup",
+	})
+	if err != nil || assessment.Status != RowChangeReady || assessment.Proposal == nil || assessment.Proposal.RootOccurrenceID != "encounter-followup" {
+		t.Fatalf("resolved occurrence assessment=%#v err=%v", assessment, err)
+	}
+}
+
+func TestApplyRowChangeRejectsStaleProposalWithoutPartialMutation(t *testing.T) {
+	workspace := rowChangeWorkspace()
+	catalog := rowChangeCatalog()
+	assessment, err := AssessRowChange(workspace, catalog, RowChangeRequest{OutputID: "patients", RootNodeID: "encounter"})
+	if err != nil || assessment.Proposal == nil {
+		t.Fatalf("assessment=%#v err=%v", assessment, err)
+	}
+	before, err := workspace.CanonicalJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _, err = ApplyCommands(workspace, catalog, "atomic-rebase", []Command{
+		{Type: CommandRenameTable, OutputID: "patients", Title: "Renamed"},
+		{Type: CommandApplyTableRootRebase, RowChange: assessment.Proposal},
+	})
+	if err == nil || !strings.Contains(err.Error(), "ROW_REBASE_PROPOSAL_STALE") {
+		t.Fatalf("stale proposal error=%v", err)
+	}
+	after, err := workspace.CanonicalJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(after) != string(before) {
+		t.Fatalf("failed batch mutated input\nbefore=%s\nafter=%s", before, after)
+	}
+}

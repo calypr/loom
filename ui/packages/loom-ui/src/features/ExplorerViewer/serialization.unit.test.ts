@@ -51,16 +51,21 @@ describe('Explorer Viewer request serialization', () => {
     expect(request.after).toBeUndefined();
     expect(request.facets).toEqual([
       { name: 'loom:patients:status', kind: 'TERMS', column: 'status', size: 50, excludeSelfFilter: true },
-      { name: 'loom:patients:chart:status', kind: 'TERMS', column: 'status', size: 12 },
     ]);
   });
 
-  it('drops chart aggregation work while charts are hidden', () => {
+  it('requests filter and chart facets only when their controls are opened', () => {
     const initial = createViewerReducerState(runtime);
-    const state = viewerReducer(initial, { type: 'toggleCharts', outputId: 'patients' });
+    expect(outputRequestFor('NCPI_ACCEPTANCE', runtime, initial, runtime.outputs[0]).facets).toEqual([]);
+    const withFilter = viewerReducer(initial, {
+      type: 'toggleFacet',
+      facet: 'patients:filter:status',
+    });
+    const state = viewerReducer(withFilter, { type: 'toggleCharts', outputId: 'patients' });
 
     expect(outputRequestFor('NCPI_ACCEPTANCE', runtime, state, runtime.outputs[0]).facets).toEqual([
       { name: 'loom:patients:status', kind: 'TERMS', column: 'status', size: 50, excludeSelfFilter: true },
+      { name: 'loom:patients:chart:status', kind: 'TERMS', column: 'status', size: 12 },
     ]);
   });
 });

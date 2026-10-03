@@ -4,17 +4,18 @@ import (
 	"context"
 	"testing"
 
+	recipeapi "github.com/calypr/loom/internal/api/recipe"
 	"github.com/calypr/loom/internal/catalog"
 	"github.com/calypr/loom/internal/dataframe/recipe/schema"
 )
 
-func TestRecipeCatalogDiscoverySkipsLoomMetadata(t *testing.T) {
-	discovery := recipeCatalogDiscovery{read: func(context.Context, catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error) {
+func TestRecipeFieldDiscoverySkipsLoomMetadata(t *testing.T) {
+	discovery := recipeapi.NewFieldDiscovery(func(context.Context, catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error) {
 		return []catalog.PopulatedField{
 			{ResourceType: "DocumentReference", Path: "project_id", Kind: "scalar"},
 			{ResourceType: "DocumentReference", Path: "status", Kind: "scalar"},
 		}, nil
-	}}
+	})
 
 	fields, err := discovery.Fields(context.Background(), schema.Scope{}, "DocumentReference")
 	if err != nil {
@@ -25,10 +26,10 @@ func TestRecipeCatalogDiscoverySkipsLoomMetadata(t *testing.T) {
 	}
 }
 
-func TestRecipeCatalogDiscoveryCarriesExtensionObservations(t *testing.T) {
-	discovery := recipeCatalogDiscovery{read: func(context.Context, catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error) {
+func TestRecipeFieldDiscoveryCarriesExtensionObservations(t *testing.T) {
+	discovery := recipeapi.NewFieldDiscovery(func(context.Context, catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error) {
 		return []catalog.PopulatedField{{ResourceType: "DocumentReference", Path: "content[].attachment.extension[].url", ExtensionValues: []catalog.ExtensionValueObservation{{URL: "http://example.org/source_path", SourcePath: "content[].attachment.extension[]", ValuePath: "valueUrl", ValueType: "string"}}}}, nil
-	}}
+	})
 	fields, err := discovery.Fields(context.Background(), schema.Scope{}, "DocumentReference")
 	if err != nil {
 		t.Fatal(err)

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { ExplorerRuntimeV1 } from '../../types';
 import { createViewerReducerState, viewerReducer } from './reducer';
+import { runtimeSessionKey } from './model';
 
 const runtime: ExplorerRuntimeV1 = {
   generation: 'generation-1',
@@ -26,6 +27,11 @@ const runtime: ExplorerRuntimeV1 = {
 };
 
 describe('Explorer Viewer reducer', () => {
+  it('does not invent a shared session key for an identity-free runtime', () => {
+    expect(runtimeSessionKey({ outputs: [], sharedFilters: {}, diagnostics: [] })).toBe('');
+    expect(runtimeSessionKey(runtime)).toBe('revision-1');
+  });
+
   it('resets cursor history when filter, sort, or page size changes', () => {
     let state = createViewerReducerState(runtime);
     state = viewerReducer(state, { type: 'nextPage', outputId: 'patients', cursor: 'cursor-1' });

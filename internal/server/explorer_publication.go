@@ -10,13 +10,15 @@ import (
 	materializationarango "github.com/calypr/loom/internal/dataframe/publication/arango"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
+	"github.com/calypr/loom/internal/explorer/authoringv2"
+	"github.com/calypr/loom/internal/explorer/compilation"
 	"github.com/calypr/loom/internal/explorer/lifecycle"
 )
 
 // explorerReceiptMaterializer keeps publication bound to the immutable
 // compilation receipt. The receipt is the only artifact crossing the HTTP to
 // execution boundary; its resolved recipe is lowered in memory by the execution package.
-func explorerReceiptMaterializer(recipeEngine *dataframeexecution.Engine, target publication.Target, registry *materializationarango.Registry, degradation error, logger *slog.Logger, batchRows, batchBytes int) lifecycle.ReceiptMaterializer {
+func explorerReceiptMaterializer(recipeEngine *dataframeexecution.Engine, target publication.Target, registry *materializationarango.Registry, degradation error, logger *slog.Logger, batchRows, batchBytes int, qualityMaxRows, qualityMaxDistinctKeys int64) lifecycle.ReceiptMaterializer {
 	return func(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings) (lifecycle.Execution, error) {
 		if receipt == nil {
 			return lifecycle.Execution{}, fmt.Errorf("compilation receipt is required")
@@ -24,14 +26,29 @@ func explorerReceiptMaterializer(recipeEngine *dataframeexecution.Engine, target
 		if target == nil {
 			return lifecycle.Execution{}, fmt.Errorf("Explorer publication is unavailable: %w", degradation)
 		}
+		workspace, err := authoringv2.DecodeWorkspace(receipt.NormalizedBundle)
+		if err != nil {
+			return lifecycle.Execution{}, fmt.Errorf("publication workspace: %w", err)
+		}
+		contracts, err := explorer.DecodePublicOutputContracts(receipt.PublicOutputContract)
+		if err != nil {
+			return lifecycle.Execution{}, fmt.Errorf("publication contracts: %w", err)
+		}
+		sourceRows := make(map[string]*publication.SourceRowMetadata)
+		for _, contract := range contracts.Outputs {
+			descriptor, proofErr := compilation.ResolveAddressableSourceRow(workspace, contract, receipt.EmittedColumns)
+			if proofErr == nil {
+				sourceRows[contract.OutputID] = &publication.SourceRowMetadata{ResourceType: descriptor.ResourceType, IDColumn: descriptor.PhysicalColumn}
+			}
+		}
 		bindings.IncludeAuthResourcePath = true
 		var identity publication.BundleIdentity
-		_, err := recipeEngine.MaterializeResolvedBundle(ctx, receipt.Bundle, bindings, func(run context.Context, full dataframeexecution.Resolved) error {
+		_, err = recipeEngine.MaterializeResolvedBundle(ctx, receipt.Bundle, bindings, func(run context.Context, full dataframeexecution.Resolved) error {
 			if validationErr := validateReceiptResolution(receipt, &full); validationErr != nil {
 				return validationErr
 			}
 			var publishErr error
-			identity, publishErr = publishResolvedRecipe(run, recipeEngine, target, receipt.Bundle.Name, bindings, full, batchRows, batchBytes)
+			identity, publishErr = publishResolvedRecipe(run, recipeEngine, target, receipt.Bundle.Name, bindings, full, receipt.ID, sourceRows, batchRows, batchBytes, qualityMaxRows, qualityMaxDistinctKeys)
 			return publishErr
 		})
 		if err != nil {
@@ -49,6 +66,12 @@ func explorerReceiptMaterializer(recipeEngine *dataframeexecution.Engine, target
 		if logger != nil {
 			logger.Info("Explorer receipt materialization complete", "project", bindings.Project, "execution", published.ID)
 		}
-		return lifecycle.Execution{ID: published.ID, Name: receipt.Bundle.Name, RecipeDigest: published.RecipeDigest, ResolvedSchemaDigest: published.SchemaDigest, SourceGeneration: published.DatasetGeneration, State: string(published.State.Canonical()), Outputs: outputs}, nil
+		return lifecycle.Execution{
+			ID: published.ID, Name: receipt.Bundle.Name, Project: published.Project,
+			RecipeDigest: published.RecipeDigest, ResolvedSchemaDigest: published.SchemaDigest,
+			SourceGeneration: published.DatasetGeneration, ScopeDigest: published.ScopeDigest,
+			State: string(published.State.Canonical()), Outputs: outputs,
+			QualityReports: publication.CloneQualityReports(published.QualityReports),
+		}, nil
 	}
 }

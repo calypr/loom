@@ -31,12 +31,14 @@ type FieldObservation struct {
 	Label                 string
 	LogicalType           string
 	Cardinality           string
+	RepeatedBoundaries    []RepeatedBoundary
 	Observed              bool
 	ObservedDocumentCount int64
 	Populated             bool
 	SuggestedValues       []string
 	SuggestionsComplete   bool
 	SuggestionsTruncated  bool
+	ConceptCandidates     []ConceptCandidate
 }
 
 // Evidence is the complete catalog evidence set used to build a capability
@@ -73,6 +75,7 @@ type CandidateProof struct {
 	FilterOperators     []FilterOperator
 	ChartAggregations   []ChartAggregation
 	SupportedOperations []Operation
+	AggregateOperations []AggregateOperationCapability
 	Reason              string
 }
 
@@ -125,6 +128,8 @@ func (b Builder) Build(ctx context.Context) (Snapshot, error) {
 	fields := append([]FieldObservation(nil), b.Evidence.Fields...)
 	for i := range fields {
 		fields[i].SuggestedValues = append([]string(nil), fields[i].SuggestedValues...)
+		fields[i].RepeatedBoundaries = append([]RepeatedBoundary(nil), fields[i].RepeatedBoundaries...)
+		fields[i].ConceptCandidates = cloneConceptCandidates(fields[i].ConceptCandidates)
 	}
 
 	policy := b.Policy
@@ -257,10 +262,11 @@ func (b Builder) Build(ctx context.Context) (Snapshot, error) {
 		base := t + "\x00" + path
 		ord := candOrd[base]
 		candOrd[base] = ord + 1
-		c := Candidate{ID: digestID("c_", idSeed, base, fmt.Sprint(ord)), NodeID: digestID("n_", idSeed, t), ResourceType: t, FieldPath: path, Label: first(strings.TrimSpace(f.Label), path), LogicalType: f.LogicalType, Cardinality: f.Cardinality, Observed: f.Observed, ObservedDocumentCount: f.ObservedDocumentCount, Populated: f.Populated}
+		c := Candidate{ID: digestID("c_", idSeed, base, fmt.Sprint(ord)), NodeID: digestID("n_", idSeed, t), ResourceType: t, FieldPath: path, Label: first(strings.TrimSpace(f.Label), path), LogicalType: f.LogicalType, Cardinality: f.Cardinality, RepeatedBoundaries: append([]RepeatedBoundary(nil), f.RepeatedBoundaries...), Observed: f.Observed, ObservedDocumentCount: f.ObservedDocumentCount, Populated: f.Populated}
 		c.SuggestedValues = append([]string(nil), f.SuggestedValues...)
 		c.SuggestionsComplete = f.SuggestionsComplete
 		c.SuggestionsTruncated = f.SuggestionsTruncated
+		c.ConceptCandidates = cloneConceptCandidates(f.ConceptCandidates)
 		sort.Strings(c.SuggestedValues)
 		if policy.Projection.SuggestionLimit > 0 && len(c.SuggestedValues) > policy.Projection.SuggestionLimit {
 			c.SuggestedValues = c.SuggestedValues[:policy.Projection.SuggestionLimit]
@@ -290,9 +296,13 @@ func (b Builder) Build(ctx context.Context) (Snapshot, error) {
 		c.LogicalType = first(proof.LogicalType, c.LogicalType)
 		c.Cardinality = first(proof.Cardinality, c.Cardinality)
 		c.ProjectionModes = append([]ProjectionMode(nil), proof.ProjectionModes...)
+		if len(c.RepeatedBoundaries) > 0 {
+			c.ProjectionModes = append([]ProjectionMode{ProjectionIndexed}, c.ProjectionModes...)
+		}
 		c.FilterOperators = append([]FilterOperator(nil), proof.FilterOperators...)
 		c.ChartAggregations = append([]ChartAggregation(nil), proof.ChartAggregations...)
 		c.SupportedOperations = append([]Operation(nil), proof.SupportedOperations...)
+		c.AggregateOperations = cloneAggregateOperationCapabilities(proof.AggregateOperations)
 		candidates = append(candidates, c)
 	}
 	status := StatusReady
@@ -308,6 +318,20 @@ func (b Builder) Build(ctx context.Context) (Snapshot, error) {
 	s.AuditCandidates = auditCandidates
 	s = rehash(s)
 	return s, nil
+}
+
+func cloneConceptCandidates(in []ConceptCandidate) []ConceptCandidate {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]ConceptCandidate, len(in))
+	for i := range in {
+		out[i] = in[i]
+		out[i].ExtensionURLPath = append([]string(nil), in[i].ExtensionURLPath...)
+		out[i].ObservedUnits = append([]string(nil), in[i].ObservedUnits...)
+		out[i].Examples = append([]string(nil), in[i].Examples...)
+	}
+	return out
 }
 
 func (b Builder) failed(identity SnapshotIdentity, code, message string) Snapshot {
@@ -354,7 +378,8 @@ func fieldKey(f FieldObservation) string {
 func fieldSortKey(f FieldObservation) string {
 	values := append([]string(nil), f.SuggestedValues...)
 	sort.Strings(values)
-	return fieldKey(f) + "\x00" + f.Cardinality + fmt.Sprintf("\x00%d\x00%d\x00%d\x00%d\x00%d\x00%s", f.ObservedDocumentCount, boolInt(f.Observed), boolInt(f.Populated), boolInt(f.SuggestionsComplete), boolInt(f.SuggestionsTruncated), strings.Join(values, "\x01"))
+	boundaries, _ := json.Marshal(f.RepeatedBoundaries)
+	return fieldKey(f) + "\x00" + f.Cardinality + fmt.Sprintf("\x00%d\x00%d\x00%d\x00%d\x00%d\x00%s\x00%s", f.ObservedDocumentCount, boolInt(f.Observed), boolInt(f.Populated), boolInt(f.SuggestionsComplete), boolInt(f.SuggestionsTruncated), strings.Join(values, "\x01"), boundaries)
 }
 func boolInt(v bool) int {
 	if v {

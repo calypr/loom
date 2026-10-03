@@ -113,6 +113,9 @@ To launch from a separate repository's hydrated `META` data and native Loom
 `CONFIG` workspace, including local CONFIG write-back on Publish, see
 [Launch Loom from a data repository](docs/LOCAL_REPOSITORY_DEMO.md).
 
+For warm backend and Explorer UI iterations with an isolated Compose project
+and real browser verification, see [Fast local Explorer development](docs/LOCAL_DEVELOPMENT.md).
+
 For backend-only development, the lightweight Compose stack starts ArangoDB and ClickHouse:
 
 ```bash
@@ -359,6 +362,8 @@ go test ./...
 - [Quickstart](docs/QUICKSTART.md)
 - [Explorer authoring contract](docs/EXPLORER_AUTHORING.md)
 - [Default dataframer recipe authoring guide](docs/DATAFRAMER_RECIPES.md)
+- [Fast local Explorer development](docs/LOCAL_DEVELOPMENT.md)
+- [Explorer dataframe backlog](docs/EXPLORER_BACKLOG.md)
 - [Dataframer recipe reference and operating manual](docs/DATAFRAMER_RECIPE_REFERENCE.md)
 - [GraphQL API guide](docs/GRAPHQL_API.md)
 - [Developer architecture](docs/DEVELOPER_ARCHITECTURE.md)

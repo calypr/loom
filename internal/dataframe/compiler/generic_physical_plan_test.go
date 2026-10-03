@@ -11,6 +11,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/semantic"
 	"github.com/calypr/loom/internal/dataframe/spec"
+	"github.com/calypr/loom/internal/dataframe/unit"
 )
 
 func TestBuildGenericPhysicalPlanNavigationSkeleton(t *testing.T) {
@@ -227,7 +228,10 @@ func TestBuildAndRenderGenericPhysicalPlanAggregates(t *testing.T) {
 		Alias: "root", ResourceType: "Patient",
 		Aggregates: []semantic.SemanticAggregate{
 			{Name: "patient_count", Operation: "COUNT"},
+			{Name: "gender_value_count", Operation: "COUNT", Selector: &gender},
 			{Name: "genders", Operation: "DISTINCT_VALUES", Selector: &gender},
+			{Name: "one_gender", Operation: "REQUIRE_ONE", Selector: &gender},
+			{Name: "all_genders", Operation: "COLLECT", Selector: &gender},
 		},
 		Children: []semantic.SemanticNode{{
 			Alias: "specimen", ResourceType: "Specimen", EdgeLabel: "subject_Patient",
@@ -242,13 +246,126 @@ func TestBuildAndRenderGenericPhysicalPlanAggregates(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"LENGTH([root])", "SORTED_UNIQUE(FLATTEN(", "LENGTH(child_set_1)", "[@__loom_physical_projection_1_name]"} {
+	for _, want := range []string{"LENGTH([root])", "FILTER __loom_physical_aggregate_count_value != null", "SORTED_UNIQUE(FLATTEN(", "ASSERT(LENGTH(", "RELATIONSHIP_CARDINALITY_VIOLATION", "LENGTH(child_set_1)", "[@__loom_physical_projection_1_name]"} {
 		if !strings.Contains(rendered.Query, want) {
 			t.Fatalf("aggregate query missing %q:\n%s", want, rendered.Query)
 		}
 	}
-	if got := rendered.BindVars["__loom_physical_projection_2_name"]; got != "genders" {
+	if got := rendered.BindVars["__loom_physical_projection_3_name"]; got != "genders" {
 		t.Fatalf("projection bind = %#v", got)
+	}
+}
+
+func TestBuildAndRenderOrderedContributorWindowAggregate(t *testing.T) {
+	value, err := spec.ParseSelector("valueQuantity.value")
+	if err != nil {
+		t.Fatal(err)
+	}
+	timestamp, err := spec.ParseSelector("effectiveDateTime")
+	if err != nil {
+		t.Fatal(err)
+	}
+	anchor, err := spec.ParseSelector("meta.lastUpdated")
+	if err != nil {
+		t.Fatal(err)
+	}
+	system, err := spec.ParseSelector("valueQuantity.system")
+	if err != nil {
+		t.Fatal(err)
+	}
+	code, err := spec.ParseSelector("valueQuantity.code")
+	if err != nil {
+		t.Fatal(err)
+	}
+	policy, err := unit.ResolveApprovedUnitPolicy("to-centimeters", "1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dimension, rules, err := unit.ResolveApprovedUnitRules(policy.Rules, policy.Target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	window := &semantic.SemanticContributorWindow{
+		Timestamp: timestamp, Anchor: anchor, AnchorResource: "Patient",
+		LowerOffset: -86400, UpperOffset: 0, LowerInclusive: true, UpperInclusive: true,
+		Precision: "INSTANT",
+	}
+	plan, err := buildGenericPhysicalPlan(semantic.OutputPlan{Root: semantic.SemanticNode{
+		Alias: "root", ResourceType: "Patient",
+		Children: []semantic.SemanticNode{{
+			Alias: "observation", ResourceType: "Observation", EdgeLabel: "subject_Patient",
+			Aggregates: []semantic.SemanticAggregate{
+				{
+					Name: "latest_height", Operation: "FIRST_ORDERED", Selector: &value,
+					UnitSystemSelector: &system, UnitCodeSelector: &code,
+					UnitNormalization: &unit.UnitNormalization{Target: policy.Target, Dimension: dimension, Rules: rules},
+					ContributorWindow: window,
+					Ordering:          &semantic.SemanticTemporalOrdering{Timestamp: timestamp, Direction: "DESC", TiePolicy: "REQUIRE_UNIQUE"},
+				},
+				{
+					Name: "sum_height", Operation: "SUM", Selector: &value,
+					UnitSystemSelector: &system, UnitCodeSelector: &code,
+					UnitNormalization: &unit.UnitNormalization{Target: policy.Target, Dimension: dimension, Rules: rules},
+					ContributorWindow: window,
+				},
+			},
+		}},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rendered, err := aql.RenderPhysicalPlan(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"TEMPORAL_ANCHOR_INVALID", "TEMPORAL_PRECISION_UNSUPPORTED", "TEMPORAL_TIE_AMBIGUOUS", "SORT DATE_TIMESTAMP(__loom_temporal_timestamp) DESC", "__loom_physical_contributor_window_anchor = root.payload.meta.lastUpdated", "DATE_ADD(__loom_physical_contributor_window_anchor", "UNIT_IDENTITY_UNKNOWN", ".scale +"} {
+		if !strings.Contains(rendered.Query, want) {
+			t.Fatalf("ordered temporal query missing %q:\n%s", want, rendered.Query)
+		}
+	}
+	windowFilter := strings.Index(rendered.Query, "LET __loom_physical_contributor_window_eligible =")
+	unitIdentityCheck := strings.Index(rendered.Query, "UNIT_IDENTITY_UNKNOWN")
+	if windowFilter < 0 || unitIdentityCheck <= windowFilter {
+		t.Fatalf("contributor window must filter resources before unit normalization; filter=%d conversion=%d:\n%s", windowFilter, unitIdentityCheck, rendered.Query)
+	}
+	if got := strings.Count(rendered.Query, "LET __loom_physical_contributor_window_eligible"); got != 2 {
+		t.Fatalf("ordered and numeric reducers must each consume a contributor window, got %d filters:\n%s", got, rendered.Query)
+	}
+	if !strings.Contains(rendered.Query, "FOR __loom_physical_aggregate_value_item IN FIRST(FOR __loom_physical_contributor_window_scope") {
+		t.Fatalf("numeric value extraction did not iterate the eligible window set:\n%s", rendered.Query)
+	}
+	if got := strings.Count(rendered.Query, "LET __loom_physical_temporal_candidates ="); got != 1 {
+		t.Fatalf("temporal candidates evaluated %d times, want once:\n%s", got, rendered.Query)
+	}
+	for _, check := range []struct {
+		name   string
+		filter string
+		assert string
+	}{
+		{
+			name:   "window timestamp",
+			filter: "FILTER __loom_physical_contributor_window_timestamp != null",
+			assert: "FILTER ASSERT(REGEX_TEST(TO_STRING(__loom_physical_contributor_window_timestamp)",
+		},
+		{
+			name:   "ordering timestamp",
+			filter: "FILTER __loom_temporal_timestamp != null",
+			assert: "FILTER ASSERT(REGEX_TEST(TO_STRING(__loom_temporal_timestamp)",
+		},
+	} {
+		nullFilter := strings.Index(rendered.Query, check.filter)
+		precisionAssertion := strings.Index(rendered.Query, check.assert)
+		if nullFilter < 0 || precisionAssertion <= nullFilter {
+			t.Fatalf("%s must exclude null timestamps before validating non-null precision; filter=%d assert=%d:\n%s", check.name, nullFilter, precisionAssertion, rendered.Query)
+		}
+	}
+	foundLower, foundUpper := false, false
+	for _, value := range rendered.BindVars {
+		foundLower = foundLower || value == int64(-86400)
+		foundUpper = foundUpper || value == int64(0)
+	}
+	if !foundLower || !foundUpper {
+		t.Fatalf("temporal offsets missing from binds: %#v", rendered.BindVars)
 	}
 }
 
@@ -286,13 +403,12 @@ func TestBuildAndRenderGenericPhysicalPlanRepresentativeSlices(t *testing.T) {
 
 func TestBuildAndRenderGenericPhysicalPlanAggregatePredicates(t *testing.T) {
 	status := spec.Selector{Steps: []spec.SelectorStep{{Field: "id"}}}
-	gender := spec.Selector{Steps: []spec.SelectorStep{{Field: "gender"}}}
 	plan, err := buildGenericPhysicalPlan(semantic.OutputPlan{Root: semantic.SemanticNode{
 		Alias: "root", ResourceType: "Patient",
-		Aggregates: []semantic.SemanticAggregate{{Name: "female_count", Operation: "COUNT", Predicate: &gender, PredicateEquals: "female"}},
+		Aggregates: []semantic.SemanticAggregate{{Name: "female_count", Operation: "COUNT", Predicate: &spec.TypedFilter{FieldRef: "Patient.gender", Selector: "gender", FieldKind: spec.FilterString, Operator: spec.FilterEquals, Values: []spec.FilterValue{{Kind: spec.FilterString, String: stringPtr("female")}}}}},
 		Children: []semantic.SemanticNode{{
 			Alias: "specimen", ResourceType: "Specimen", EdgeLabel: "subject_Patient",
-			Aggregates: []semantic.SemanticAggregate{{Name: "available_count", Operation: "COUNT_DISTINCT", Selector: &status, Predicate: &status, PredicateEquals: "available"}},
+			Aggregates: []semantic.SemanticAggregate{{Name: "available_count", Operation: "COUNT_DISTINCT", Selector: &status, Predicate: &spec.TypedFilter{FieldRef: "Specimen.status", Selector: "status", FieldKind: spec.FilterString, Operator: spec.FilterEquals, Values: []spec.FilterValue{{Kind: spec.FilterString, String: stringPtr("available")}}}}},
 		}},
 	},
 	})
@@ -306,7 +422,7 @@ func TestBuildAndRenderGenericPhysicalPlanAggregatePredicates(t *testing.T) {
 	if strings.Count(rendered.Query, "FOR __loom_physical_aggregate_item") < 2 {
 		t.Fatalf("aggregate predicates did not render per-item filters:\n%s", rendered.Query)
 	}
-	if rendered.BindVars["aggregate_root_female_count_predicate_equals"] != "female" || rendered.BindVars["aggregate_child_set_1_available_count_predicate_equals"] != "available" {
+	if rendered.BindVars["aggregate_root_female_count_predicate_value"] != "female" || rendered.BindVars["aggregate_child_set_1_available_count_predicate_value"] != "available" {
 		t.Fatalf("predicate binds missing: %#v", rendered.BindVars)
 	}
 }

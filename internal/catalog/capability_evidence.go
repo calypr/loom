@@ -67,6 +67,29 @@ func FieldEnrichmentDigest(records []FieldEnrichmentObservation) (string, error)
 	return canonicalDigest(canonical)
 }
 
+func RepeatedShapeDigest(records []FieldEnrichmentObservation) (string, error) {
+	type boundary struct {
+		Project           string `json:"project"`
+		DatasetGeneration string `json:"datasetGeneration,omitempty"`
+		AuthResourcePath  string `json:"authResourcePath,omitempty"`
+		ResourceType      string `json:"resourceType"`
+		Path              string `json:"path"`
+		MaxItems          int    `json:"maxItems"`
+	}
+	values := make([]boundary, 0)
+	for _, record := range records {
+		if record.MaxItems <= 0 {
+			continue
+		}
+		values = append(values, boundary{record.Project, record.DatasetGeneration, record.AuthResourcePath, record.ResourceType, record.Path, record.MaxItems})
+	}
+	sort.Slice(values, func(i, j int) bool {
+		left, right := values[i], values[j]
+		return left.Project+"\x00"+left.DatasetGeneration+"\x00"+left.AuthResourcePath+"\x00"+left.ResourceType+"\x00"+left.Path < right.Project+"\x00"+right.DatasetGeneration+"\x00"+right.AuthResourcePath+"\x00"+right.ResourceType+"\x00"+right.Path
+	})
+	return canonicalDigest(values)
+}
+
 func cloneFieldEnrichment(in []FieldEnrichmentObservation) []FieldEnrichmentObservation {
 	if len(in) == 0 {
 		return []FieldEnrichmentObservation{}
@@ -80,6 +103,12 @@ func cloneFieldEnrichment(in []FieldEnrichmentObservation) []FieldEnrichmentObse
 		out[i].ExtensionValues = append([]ExtensionValueObservation(nil), in[i].ExtensionValues...)
 		for j := range out[i].ExtensionValues {
 			out[i].ExtensionValues[j].URLPath = append([]string(nil), in[i].ExtensionValues[j].URLPath...)
+		}
+		out[i].SemanticObservations = append([]SemanticObservation(nil), in[i].SemanticObservations...)
+		for j := range out[i].SemanticObservations {
+			out[i].SemanticObservations[j].ExtensionURLPath = append([]string(nil), in[i].SemanticObservations[j].ExtensionURLPath...)
+			out[i].SemanticObservations[j].ObservedUnits = append([]string(nil), in[i].SemanticObservations[j].ObservedUnits...)
+			out[i].SemanticObservations[j].Examples = append([]string(nil), in[i].SemanticObservations[j].Examples...)
 		}
 	}
 	return out

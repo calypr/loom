@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/calypr/loom/internal/dataframe/publication"
 	"github.com/calypr/loom/internal/dataset"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/projectid"
@@ -34,6 +35,41 @@ func (s *Service) List(ctx context.Context, project string) ([]Explorer, error) 
 }
 func (s *Service) Get(ctx context.Context, project, id string) (*Explorer, error) {
 	return s.store.Get(ctx, projectid.Legacy(project), id)
+}
+
+// MigrateLegacyConstructionSteps normalizes drafts written when a nil empty
+// construction sequence serialized as null. It verifies that the stored
+// digest matches that exact legacy representation, then records the canonical
+// array representation through the normal draft compare-and-swap path.
+func (s *Service) MigrateLegacyConstructionSteps(ctx context.Context, project, id string, expectedVersion int64, expectedDigest string) (*Explorer, error) {
+	owner, err := s.Get(ctx, project, id)
+	if err != nil {
+		return nil, err
+	}
+	if owner == nil || owner.DraftVersion != expectedVersion || owner.DraftDigest != expectedDigest {
+		return nil, ErrDraftConflict
+	}
+	workspace, err := authoringv2.DecodeWorkspace(owner.DraftConfig)
+	if err != nil {
+		return nil, fmt.Errorf("decode legacy Explorer draft: %w", err)
+	}
+	currentDigest, err := workspace.Digest()
+	if err != nil {
+		return nil, fmt.Errorf("digest normalized Explorer draft: %w", err)
+	}
+	legacyDigest, err := workspace.LegacyNilConstructionStepsDigest()
+	if err != nil {
+		return nil, fmt.Errorf("digest legacy Explorer draft encoding: %w", err)
+	}
+	if currentDigest == expectedDigest || legacyDigest == "" || legacyDigest != expectedDigest {
+		return nil, ErrDraftConflict
+	}
+	owner.DraftConfig, err = workspace.CanonicalJSON()
+	if err != nil {
+		return nil, fmt.Errorf("encode normalized Explorer draft: %w", err)
+	}
+	owner.DraftDigest = currentDigest
+	return s.store.SaveDraft(ctx, *owner, expectedVersion, expectedDigest)
 }
 
 // LoadExplorerState returns the one canonical response for the public
@@ -73,10 +109,14 @@ func (s *Service) LoadExplorerState(ctx context.Context, project, id string) (Ex
 	state.Generated.Dataset = revision.Dataset
 	state.Generated.Dataset.Outputs = append([]DatasetOutput(nil), revision.Dataset.Outputs...)
 	state.Generated.Publication = revision.Publication
+	state.Generated.QualityReports = publication.CloneQualityReports(revision.QualityReports)
 	state.Generated.Publication.State = firstNonEmptyString(revision.Publication.State, string(revision.Status), ExplorerRuntimeV1NotPublished)
 	state.Generated.Publication.RevisionID = revision.ID
 	state.Generated.Diagnostics = append([]Diagnostic(nil), revision.Diagnostics...)
-	state.Runtime = BuildViewerProjection(revision)
+	state.Runtime, err = BuildViewerProjection(revision)
+	if err != nil {
+		return ExplorerStateV1{}, fmt.Errorf("active Explorer revision projection is invalid: %w", err)
+	}
 	if state.Runtime == nil || len(state.Runtime.Outputs) == 0 {
 		state.Generated.Publication.State = ExplorerRuntimeV1NotPublished
 		if state.Runtime != nil {
@@ -171,8 +211,21 @@ func (s *Service) CreateInteractiveFrom(ctx context.Context, project, id, title,
 
 // ApplyWorkspaceCommands is the authoritative Builder mutation boundary. It
 // resolves backend-owned identities, applies a command batch atomically, and
-// persists both the new draft and the replay record in one compare-and-swap.
+// persists both the new draft and the bounded last-command replay record in
+// one compare-and-swap. Older command IDs are rejected by draft CAS.
 func (s *Service) ApplyWorkspaceCommands(ctx context.Context, project, id string, catalog authoringv2.CatalogSnapshot, request authoringv2.ApplyCommandsRequest, actor string) (*authoringv2.ApplyCommandsResponse, error) {
+	return s.applyWorkspaceCommands(ctx, project, id, catalog, request, actor, nil, nil)
+}
+
+// ApplyWorkspaceCommandsChecked is the mutation boundary for workflows that
+// need external immutable references resolved and validated before the draft
+// CAS. The preparer runs against the single loaded workspace before reduction;
+// the checker runs against the fully reduced workspace before SaveDraft.
+func (s *Service) ApplyWorkspaceCommandsChecked(ctx context.Context, project, id string, catalog authoringv2.CatalogSnapshot, request authoringv2.ApplyCommandsRequest, actor string, prepare func(context.Context, authoringv2.Workspace, []authoringv2.Command) ([]authoringv2.Command, error), checker func(authoringv2.Workspace) error) (*authoringv2.ApplyCommandsResponse, error) {
+	return s.applyWorkspaceCommands(ctx, project, id, catalog, request, actor, prepare, checker)
+}
+
+func (s *Service) applyWorkspaceCommands(ctx context.Context, project, id string, catalog authoringv2.CatalogSnapshot, request authoringv2.ApplyCommandsRequest, actor string, prepare func(context.Context, authoringv2.Workspace, []authoringv2.Command) ([]authoringv2.Command, error), checker func(authoringv2.Workspace) error) (*authoringv2.ApplyCommandsResponse, error) {
 	if err := request.Validate(); err != nil {
 		return nil, err
 	}
@@ -198,7 +251,7 @@ func (s *Service) ApplyWorkspaceCommands(ctx context.Context, project, id string
 				return nil, fmt.Errorf("decode replayed authoring command results: %w", decodeErr)
 			}
 		}
-		return &authoringv2.ApplyCommandsResponse{CommandID: request.CommandID, Workspace: workspace, DraftVersion: owner.DraftVersion, DraftDigest: owner.DraftDigest, Results: results, Diagnostics: []any{}}, nil
+		return &authoringv2.ApplyCommandsResponse{CommandID: request.CommandID, Workspace: workspace, DraftVersion: owner.DraftVersion, DraftDigest: owner.DraftDigest, PreviousDraftRevisionID: owner.PreviousDraftRevisionID, Results: results, Diagnostics: []any{}}, nil
 	}
 	if owner.DraftVersion != request.ExpectedDraftVersion || (request.ExpectedDraftDigest != "" && owner.DraftDigest != request.ExpectedDraftDigest) {
 		return nil, ErrDraftConflict
@@ -217,9 +270,29 @@ func (s *Service) ApplyWorkspaceCommands(ctx context.Context, project, id string
 	if err != nil {
 		return nil, err
 	}
-	workspace, results, err := authoringv2.ApplyCommands(workspace, catalog, request.CommandID, request.Commands)
+	commands := cloneAuthoringCommands(request.Commands)
+	if prepare != nil {
+		commands, err = prepare(ctx, workspace, commands)
+		if err != nil {
+			return nil, err
+		}
+		if len(commands) != len(request.Commands) {
+			return nil, fmt.Errorf("prepared authoring command count changed")
+		}
+		for index := range commands {
+			if commands[index].Type != request.Commands[index].Type {
+				return nil, fmt.Errorf("prepared authoring command type changed at index %d", index)
+			}
+		}
+	}
+	workspace, results, err := authoringv2.ApplyCommands(workspace, catalog, request.CommandID, commands)
 	if err != nil {
 		return nil, err
+	}
+	if checker != nil {
+		if err := checker(workspace); err != nil {
+			return nil, err
+		}
 	}
 	canonical, err := workspace.CanonicalJSON()
 	if err != nil {
@@ -238,6 +311,11 @@ func (s *Service) ApplyWorkspaceCommands(ctx context.Context, project, id string
 	owner.LastAuthoringCommandID = request.CommandID
 	owner.LastAuthoringCommandDigest = commandDigest
 	owner.LastAuthoringCommandResults = resultJSON
+	if sourceContext := request.ResolvedDraftSourceContext(); sourceContext != nil {
+		owner.DraftSnapshotToken = sourceContext.SnapshotToken
+		owner.DraftSourceGeneration = sourceContext.SourceGeneration
+		owner.DraftAuthorizationScopeDigest = sourceContext.AuthorizationScopeDigest
+	}
 	owner.UpdatedBy = actor
 	owner.UpdatedAt = s.now()
 	if strings.TrimSpace(workspace.Explorer.Title) != "" {
@@ -247,8 +325,18 @@ func (s *Service) ApplyWorkspaceCommands(ctx context.Context, project, id string
 	if err != nil {
 		return nil, err
 	}
-	return &authoringv2.ApplyCommandsResponse{CommandID: request.CommandID, Workspace: workspace, DraftVersion: stored.DraftVersion, DraftDigest: stored.DraftDigest, Results: results, Diagnostics: []any{}}, nil
+	return &authoringv2.ApplyCommandsResponse{CommandID: request.CommandID, Workspace: workspace, DraftVersion: stored.DraftVersion, DraftDigest: stored.DraftDigest, PreviousDraftRevisionID: stored.PreviousDraftRevisionID, Results: results, Diagnostics: []any{}}, nil
 }
+
+func cloneAuthoringCommands(commands []authoringv2.Command) []authoringv2.Command {
+	cloned := make([]authoringv2.Command, len(commands))
+	copy(cloned, commands)
+	for i := range cloned {
+		cloned[i].SemanticSelections = append([]authoringv2.SemanticSelection(nil), commands[i].SemanticSelections...)
+	}
+	return cloned
+}
+
 func (s *Service) ActiveRevision(ctx context.Context, project, id string) (*Revision, error) {
 	e, err := s.store.Get(ctx, projectid.Legacy(project), id)
 	if err != nil {
@@ -274,6 +362,53 @@ func (s *Service) StoreCompilationReceipt(ctx context.Context, receipt Compilati
 	return s.store.InsertCompilationReceipt(ctx, receipt)
 }
 
+func (s *Service) BeginSelection(ctx context.Context, selection SelectionRevision, writerToken string) (*SelectionRevision, error) {
+	return s.store.BeginSelection(ctx, selection, writerToken)
+}
+
+func (s *Service) AppendSelectionMembers(ctx context.Context, selectionID, writerToken string, members []SelectionMember) ([]SelectionMember, error) {
+	return s.store.AppendSelectionMembers(ctx, selectionID, writerToken, members)
+}
+
+func (s *Service) DigestSelectionMembers(ctx context.Context, project, selectionID string) (string, int64, int64, error) {
+	return s.store.DigestSelectionMembers(ctx, projectid.Canonical(project), selectionID)
+}
+
+func (s *Service) CompleteSelection(ctx context.Context, selectionID, writerToken, digest string, count, bytes int64, completedAt time.Time) (*SelectionRevision, error) {
+	return s.store.CompleteSelection(ctx, selectionID, writerToken, digest, count, bytes, completedAt)
+}
+
+func (s *Service) AbortSelection(ctx context.Context, selectionID, writerToken string) error {
+	return s.store.AbortSelection(ctx, selectionID, writerToken)
+}
+
+func (s *Service) CleanupSelectionStaging(ctx context.Context, before time.Time, limit int) error {
+	return s.store.CleanupSelectionStaging(ctx, before, limit)
+}
+
+func (s *Service) GetSelection(ctx context.Context, project, selectionID string) (*SelectionRevision, error) {
+	return s.store.GetSelection(ctx, projectid.Canonical(project), selectionID)
+}
+
+func (s *Service) GetRevision(ctx context.Context, revisionID string) (*Revision, error) {
+	return s.store.GetRevision(ctx, strings.TrimSpace(revisionID))
+}
+
+// GetDraftRevision performs the tenant and Explorer scoped lookup required by
+// the Builder's server-resolved restore command. Stores without draft history
+// support cannot authorize a browser-supplied revision ID.
+func (s *Service) GetDraftRevision(ctx context.Context, project, explorerID, revisionID string) (*DraftRevision, error) {
+	reader, ok := s.store.(DraftRevisionReader)
+	if !ok {
+		return nil, ErrNotFound
+	}
+	return reader.GetDraftRevision(ctx, projectid.Legacy(project), strings.TrimSpace(explorerID), strings.TrimSpace(revisionID))
+}
+
+func (s *Service) VisitSelectionMembers(ctx context.Context, project, selectionID, after string, pageSize int, visit func(SelectionMember) error) (string, error) {
+	return s.store.VisitSelectionMembers(ctx, projectid.Canonical(project), selectionID, after, pageSize, visit)
+}
+
 // PublishAuthoring atomically stores the receipt and immutable revision, then
 // switches both the dataset release and Explorer active pointers.
 func (s *Service) PublishAuthoring(ctx context.Context, receipt CompilationReceipt, revision Revision, release dataset.ProjectRelease, expectedReleaseRevision int64) (*Revision, error) {
@@ -290,7 +425,7 @@ func (s *Service) PublishAuthoring(ctx context.Context, receipt CompilationRecei
 // Activation is intentionally a separate call so callers can compose it with
 // the dataset release switch where the durable adapter supports that atomic
 // transaction.
-func (s *Service) UpsertRepositoryV2(ctx context.Context, receipt CompilationReceipt, sourceCommit, actor string, materializations []Materialization, dataset DatasetMetadata, publication PublicationMetadata) (*Explorer, *Revision, error) {
+func (s *Service) UpsertRepositoryV2(ctx context.Context, receipt CompilationReceipt, sourceCommit, actor string, materializations []Materialization, dataset DatasetMetadata, qualityReports []publication.QualityReport, publicationMetadata PublicationMetadata) (*Explorer, *Revision, error) {
 	if err := receipt.Validate(); err != nil {
 		return nil, nil, fmt.Errorf("invalid repository compilation receipt: %w", err)
 	}
@@ -323,7 +458,7 @@ func (s *Service) UpsertRepositoryV2(ctx context.Context, receipt CompilationRec
 	}
 	revisionID := RepositoryRevisionID(project, sourceCommit, receipt.IntentDigest, receipt.SourceGeneration, receipt.ID)
 	now := s.now()
-	revision, err := s.store.InsertRevision(ctx, Revision{ID: revisionID, Project: storageProject, ExplorerID: "default", Config: compiledConfig, AuthoringBundle: workspace, IntentDigest: receipt.IntentDigest, CompilationReceiptID: receipt.ID, PublicOutputContract: append(json.RawMessage(nil), receipt.PublicOutputContract...), Recipe: receipt.Bundle, RecipeDigest: receipt.RecipeDigest, ResolvedSchemaDigest: receipt.ResolvedSchemaDigest, SourceGeneration: receipt.SourceGeneration, Dataset: dataset, Publication: publication, Materializations: append([]Materialization(nil), materializations...), EmittedColumns: append([]EmittedColumn(nil), receipt.EmittedColumns...), Status: RevisionReady, CreatedBy: actor, CreatedAt: now, ReadyAt: &now})
+	revision, err := s.store.InsertRevision(ctx, Revision{ID: revisionID, Project: storageProject, ExplorerID: "default", Config: compiledConfig, AuthoringBundle: workspace, IntentDigest: receipt.IntentDigest, CompilationReceiptID: receipt.ID, PublicOutputContract: append(json.RawMessage(nil), receipt.PublicOutputContract...), Recipe: receipt.Bundle, RecipeDigest: receipt.RecipeDigest, ResolvedSchemaDigest: receipt.ResolvedSchemaDigest, SourceGeneration: receipt.SourceGeneration, Dataset: dataset, QualityReports: publication.CloneQualityReports(qualityReports), Publication: publicationMetadata, Materializations: append([]Materialization(nil), materializations...), EmittedColumns: append([]EmittedColumn(nil), receipt.EmittedColumns...), Status: RevisionReady, CreatedBy: actor, CreatedAt: now, ReadyAt: &now})
 	if err != nil {
 		return nil, nil, err
 	}

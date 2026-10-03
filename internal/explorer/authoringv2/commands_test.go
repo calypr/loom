@@ -2,9 +2,15 @@ package authoringv2
 
 import (
 	"encoding/json"
+	"reflect"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/calypr/loom/internal/catalog"
+	"github.com/calypr/loom/internal/explorer/capability"
+	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
 func emptyCommandWorkspace() Workspace {
@@ -42,6 +48,543 @@ func TestApplyCommandsCreatesRecipeSafeBackendIdentities(t *testing.T) {
 	}
 	if !strings.Contains(string(wire), `"columns":[]`) {
 		t.Fatalf("empty columns must remain an array on the wire: %s", wire)
+	}
+}
+
+func TestDeletingOnlyTableKeepsCommandResponseCollectionsAsArrays(t *testing.T) {
+	workspace, created, err := ApplyCommands(emptyCommandWorkspace(), commandCatalog(), "create-only-table", []Command{{Type: CommandCreateTable, Title: "Patients", RootNodeID: "patient"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	deleted, _, err := ApplyCommands(workspace, commandCatalog(), "delete-only-table", []Command{{Type: CommandDeleteTable, OutputID: created[0].OutputID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := json.Marshal(ApplyCommandsResponse{Workspace: deleted})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var response struct {
+		Workspace struct {
+			Documents json.RawMessage `json:"documents"`
+			Tabs      json.RawMessage `json:"tabs"`
+		} `json:"workspace"`
+	}
+	if err := json.Unmarshal(encoded, &response); err != nil {
+		t.Fatal(err)
+	}
+	if string(response.Workspace.Documents) != "[]" || string(response.Workspace.Tabs) != "[]" {
+		t.Fatalf("empty command workspace must serialize arrays, documents=%s tabs=%s", response.Workspace.Documents, response.Workspace.Tabs)
+	}
+	if len(workspace.Documents) != 1 || len(workspace.Tabs) != 1 {
+		t.Fatal("deleting the copied table mutated the input workspace")
+	}
+}
+
+func TestApplyCommandsSetsAndClearsPopulationUsingSemanticRoute(t *testing.T) {
+	catalog := commandCatalog()
+	workspace, created, err := ApplyCommands(emptyCommandWorkspace(), catalog, "create", []Command{{Type: CommandCreateTable, Title: "Patients", RootNodeID: "patient"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	outputID := created[0].OutputID
+	workspace, _, err = ApplyCommands(workspace, catalog, "set-population", []Command{{
+		Type: CommandSetTablePopulation, OutputID: outputID, SelectionRevisionID: "selection-1", EdgeIDs: []string{"patient-encounter"},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	population := workspace.Documents[0].Population
+	if population == nil || population.SelectionRevisionID != "selection-1" || len(population.Route) != 1 || population.Route[0] != (PopulationRouteStep{ResourceType: "Encounter", Relationship: "encounters", CatalogEdgeID: "patient-encounter"}) {
+		t.Fatalf("population = %#v", population)
+	}
+	encoded, err := workspace.CanonicalJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(encoded), `"catalogEdgeId":"patient-encounter"`) {
+		t.Fatalf("catalog edge ID was not persisted in population route: %s", encoded)
+	}
+	workspace, _, err = ApplyCommands(workspace, catalog, "clear-population", []Command{{Type: CommandClearTablePopulation, OutputID: outputID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if workspace.Documents[0].Population != nil {
+		t.Fatalf("population was not cleared: %#v", workspace.Documents[0].Population)
+	}
+}
+
+func TestSetPopulationRouteEncodesZeroHopRouteAsArray(t *testing.T) {
+	document := Document{}
+	setPopulationRoute(&document, "selection-1", nil)
+
+	encoded, err := json.Marshal(document.Population)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(encoded) != `{"selectionRevisionId":"selection-1","route":[]}` {
+		t.Fatalf("zero-hop population route must remain an array on the wire: %s", encoded)
+	}
+}
+
+func TestApplyCommandsSetsAndClearsContributorExplicitly(t *testing.T) {
+	catalog := commandCatalog()
+	workspace, created, err := ApplyCommands(emptyCommandWorkspace(), catalog, "create", []Command{{Type: CommandCreateTable, Title: "Patients", RootNodeID: "patient"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	outputID := created[0].OutputID
+	workspace, added, err := ApplyCommands(workspace, catalog, "aggregate", []Command{{
+		Type: CommandAddColumnSource, OutputID: outputID, OccurrenceID: RootOccurrenceID,
+		Source: &ColumnSource{Kind: SourceAggregate, Aggregate: &AggregateSource{Operation: "COUNT"}},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	columnID := added[0].Column
+	predicate := &ContributorPredicate{CandidateID: "patient-id", Operator: ContributorEquals, Value: &ContributorValue{Kind: ContributorString, String: stringPtr("active")}}
+	set := Command{Type: CommandSetColumnContributor, OutputID: outputID, Column: columnID, Contributor: predicate}
+	workspace, _, err = ApplyCommands(workspace, catalog, "set-contributor", []Command{set})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if workspace.Documents[0].Columns[0].Contributor == nil || workspace.Documents[0].Columns[0].Contributor.CandidateID != "patient-id" {
+		t.Fatalf("contributor was not set: %#v", workspace.Documents[0].Columns[0].Contributor)
+	}
+	workspace, _, err = ApplyCommands(workspace, catalog, "set-contributor-retry", []Command{set})
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace, _, err = ApplyCommands(workspace, catalog, "clear-contributor", []Command{{Type: CommandClearColumnContributor, OutputID: outputID, Column: columnID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if workspace.Documents[0].Columns[0].Contributor != nil {
+		t.Fatalf("contributor was not cleared: %#v", workspace.Documents[0].Columns[0].Contributor)
+	}
+	workspace, _, err = ApplyCommands(workspace, catalog, "clear-contributor-retry", []Command{{Type: CommandClearColumnContributor, OutputID: outputID, Column: columnID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func stringPtr(value string) *string { return &value }
+
+func TestValidateEditableNumericAggregateUsesResolvedTypeAndRows(t *testing.T) {
+	catalog := CatalogSnapshot{
+		Nodes: []CatalogNode{{ID: "observation", ResourceType: "Observation"}},
+		Candidates: []CatalogCandidate{
+			{ID: "obs-value", NodeID: "observation", FieldPath: "valueQuantity.value", LogicalType: "decimal", Cardinality: "optional_one"},
+			{ID: "obs-status", NodeID: "observation", FieldPath: "status", LogicalType: "string", Cardinality: "optional_one"},
+		},
+	}
+	document := Document{
+		RootResourceType: "Observation",
+		Route:            RouteNode{OccurrenceID: RootOccurrenceID, ResourceType: "Observation"},
+		Rows:             RecordsRowDefinition(),
+	}
+	for _, operation := range []string{"SUM", "MEAN"} {
+		source := ColumnSource{Kind: SourceAggregate, Aggregate: &AggregateSource{Operation: operation, Path: "valueQuantity.value"}}
+		if err := validateEditableSource(document, catalog, RootOccurrenceID, source); err != nil {
+			t.Errorf("numeric %s was rejected: %v", operation, err)
+		}
+		source.Aggregate.Path = "status"
+		if err := validateEditableSource(document, catalog, RootOccurrenceID, source); err == nil || !strings.Contains(err.Error(), "NUMERIC_INPUT_REQUIRED") {
+			t.Errorf("string %s error = %v, want NUMERIC_INPUT_REQUIRED", operation, err)
+		}
+	}
+	document.Rows = RowDefinition{Kind: RowDefinitionGroups}
+	if err := validateEditableSource(document, catalog, RootOccurrenceID, ColumnSource{Kind: SourceAggregate, Aggregate: &AggregateSource{Operation: "SUM", Path: "valueQuantity.value"}}); err == nil || !strings.Contains(err.Error(), "ROW_CONTEXT_UNSUPPORTED") {
+		t.Fatalf("grouped row SUM error = %v, want ROW_CONTEXT_UNSUPPORTED", err)
+	}
+	document.Rows = RowDefinition{Kind: RowDefinitionExpanded}
+	if err := validateEditableSource(document, catalog, RootOccurrenceID, ColumnSource{Kind: SourceAggregate, Aggregate: &AggregateSource{Operation: "SUM", Path: "valueQuantity.value"}}); err == nil || !strings.Contains(err.Error(), "EXPANDED_AGGREGATE_SCOPE_UNDEFINED") {
+		t.Fatalf("expanded row SUM error = %v, want EXPANDED_AGGREGATE_SCOPE_UNDEFINED", err)
+	}
+	if err := validateEditableSource(document, catalog, RootOccurrenceID, ColumnSource{Kind: SourceAggregate, Aggregate: &AggregateSource{Operation: "COUNT"}}); err != nil {
+		t.Fatalf("existing pathless COUNT was rejected: %v", err)
+	}
+}
+
+func TestApplyCommandsAllowsIndependentOccurrencesThroughOneRelationship(t *testing.T) {
+	catalog := commandCatalog()
+	catalog.RoutePolicy.AllowRepeatedEdges = false
+	workspace, created, err := ApplyCommands(emptyCommandWorkspace(), catalog, "create", []Command{{Type: CommandCreateTable, Title: "Patients", RootNodeID: "patient"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	outputID := created[0].OutputID
+	workspace, results, err := ApplyCommands(workspace, catalog, "contributors", []Command{
+		{Type: CommandAddRoute, OutputID: outputID, ParentOccurrenceID: RootOccurrenceID, EdgeID: "patient-encounter"},
+		{Type: CommandAddRoute, OutputID: outputID, ParentOccurrenceID: RootOccurrenceID, EdgeID: "patient-encounter"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	children := workspace.Documents[0].Route.Children
+	if len(results) != 2 || len(children) != 2 {
+		t.Fatalf("route results=%#v children=%#v", results, children)
+	}
+	if children[0].OccurrenceID == children[1].OccurrenceID {
+		t.Fatalf("independent contributors share occurrence identity: %#v", children)
+	}
+	for index, child := range children {
+		if child.ResourceType != "Encounter" || child.Relationship != "encounters" || child.OccurrenceID != results[index].OccurrenceID {
+			t.Fatalf("child[%d]=%#v result=%#v", index, child, results[index])
+		}
+	}
+}
+
+func TestApplyCommandsSetTableRootPreservesSameRootAndRejectsDestructiveRebase(t *testing.T) {
+	catalog := commandCatalog()
+	workspace := Workspace{
+		APIVersion: APIVersion, Kind: WorkspaceKind, Explorer: ExplorerMetadata{Title: "Patients"},
+		Documents: []Document{{Kind: Kind, Output: Output{ID: "patients", Title: "Patients"}, RootResourceType: "Patient", Route: RouteNode{OccurrenceID: RootOccurrenceID, ResourceType: "Patient", Children: []RouteNode{{OccurrenceID: "encounter", ResourceType: "Encounter", Relationship: "encounters"}}}, Columns: []Column{{Column: "patient_id", Label: "Patient ID", OccurrenceID: RootOccurrenceID, Source: ColumnSource{Kind: SourceField, Field: &FieldSource{Path: "id", ProjectionMode: "VALUE"}}}}}},
+		Tabs:      []Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Visible: true}},
+	}
+	preserved, _, err := ApplyCommands(workspace, catalog, "same-root", []Command{{Type: CommandSetTableRoot, OutputID: "patients", RootNodeID: "patient"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(preserved.Documents[0].Route.Children) != 1 || len(preserved.Documents[0].Columns) != 1 {
+		t.Fatalf("same-root command discarded configured meaning: %#v", preserved.Documents[0])
+	}
+	if _, _, err := ApplyCommands(workspace, catalog, "change-root", []Command{{Type: CommandSetTableRoot, OutputID: "patients", RootNodeID: "encounter"}}); err == nil || !strings.Contains(err.Error(), "ROOT_REBASE_REQUIRED") {
+		t.Fatalf("destructive root rebase error = %v", err)
+	}
+}
+
+func TestApplyCommandsRejectsPopulationRouteBeyondCatalogMaxHops(t *testing.T) {
+	catalog := commandCatalog()
+	maxHops := 0
+	catalog.RoutePolicy.MaxHops = &maxHops
+	catalog.RoutePolicy.Unbounded = false
+	workspace, created, err := ApplyCommands(emptyCommandWorkspace(), catalog, "create", []Command{{Type: CommandCreateTable, Title: "Patients", RootNodeID: "patient"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _, err = ApplyCommands(workspace, catalog, "set-population", []Command{{Type: CommandSetTablePopulation, OutputID: created[0].OutputID, SelectionRevisionID: "selection-1", EdgeIDs: []string{"patient-encounter"}}})
+	if err == nil || !strings.Contains(err.Error(), "ROUTE_TOO_LONG") {
+		t.Fatalf("population over-depth error = %v, want ROUTE_TOO_LONG", err)
+	}
+}
+
+func TestApplyCommandsAcceptsCorrelatedLookupWithoutLegacyPath(t *testing.T) {
+	catalog := CatalogSnapshot{
+		APIVersion: APIVersion, Kind: CatalogKind, Project: "project", ExplorerID: "explorer",
+		SourceGeneration: "generation", AuthorizationScopeDigest: "scope", SnapshotToken: "sha256:snapshot", Complete: true,
+		Nodes:       []CatalogNode{{ID: "observation", ResourceType: "Observation", RowRootEligible: true}},
+		RoutePolicy: RoutePolicy{Unbounded: true},
+	}
+	workspace := Workspace{
+		APIVersion: APIVersion, Kind: WorkspaceKind, Explorer: ExplorerMetadata{Title: "Observations"},
+		Documents: []Document{{Kind: Kind, Output: Output{ID: "observations", Title: "Observations"}, RootResourceType: "Observation", Route: RouteNode{OccurrenceID: RootOccurrenceID, ResourceType: "Observation"}}},
+		Tabs:      []Tab{{ID: "observations", Title: "Observations", OutputID: "observations", Order: 0, Visible: true}},
+	}
+	source := &ColumnSource{Kind: SourceCodedValue, Lookup: &LookupSource{
+		Binding: &fhirschema.CorrelatedBinding{OwnerPath: "component[]", KeyPath: "component[].code.coding[]", SystemPath: "system", CodePath: "code", ValuePath: "valueQuantity.value", LogicalType: "decimal"},
+		Key:     &fhirschema.CorrelatedKey{System: "urn:study:A", Code: "shared"},
+	}}
+	updated, results, err := ApplyCommands(workspace, catalog, "add-correlated", []Command{{Type: CommandAddColumnSource, OutputID: "observations", OccurrenceID: RootOccurrenceID, Source: source}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 || len(updated.Documents[0].Columns) != 1 {
+		t.Fatalf("results=%#v workspace=%#v", results, updated)
+	}
+	column := updated.Documents[0].Columns[0]
+	if column.Source.Lookup == nil || column.Source.Lookup.Binding == nil || column.Source.Lookup.Path != "" || column.LogicalType != "decimal" {
+		t.Fatalf("correlated source was not preserved as typed input: %#v", column)
+	}
+}
+
+func TestApplySemanticSelectionsUsesStableIdentityAndServerRoutes(t *testing.T) {
+	catalogSnapshot := semanticSelectionCatalog()
+	workspace, created, err := ApplyCommands(emptyCommandWorkspace(), catalogSnapshot, "create", []Command{{Type: CommandCreateTable, Title: "Patients", RootNodeID: "patient"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	outputID := created[0].OutputID
+	workspace.Documents[0].Construction = &Construction{Version: ConstructionVersion, Steps: []ConstructionStep{}}
+	selections := []SemanticSelection{
+		{ConceptID: "concept-system-a-shared", BindingID: "binding-observation", RouteEdgeIDs: []string{"patient-observation"}, ProjectionMode: "VALUE", Title: "First label", ResolvedObservation: semanticSelectionEntry("concept-system-a-shared", "binding-observation", "urn:system:a", "shared", "")},
+		{ConceptID: "concept-system-b-shared", BindingID: "binding-observation", RouteEdgeIDs: []string{"patient-observation"}, ProjectionMode: "VALUE", ResolvedObservation: semanticSelectionEntry("concept-system-b-shared", "binding-observation", "urn:system:b", "shared", "")},
+		{ConceptID: "concept-system-a-other", BindingID: "binding-observation", RouteEdgeIDs: []string{"patient-encounter", "encounter-observation"}, ProjectionMode: "VALUE", ResolvedObservation: semanticSelectionEntry("concept-system-a-other", "binding-observation", "urn:system:a", "other", "")},
+		{ConceptID: "concept-system-a-shared", BindingID: "binding-observation", RouteEdgeIDs: []string{"patient-observation"}, ProjectionMode: "VALUE", Title: "Changed label", ResolvedObservation: semanticSelectionEntry("concept-system-a-shared", "binding-observation", "urn:system:a", "shared", "")},
+		{ConceptID: "concept-system-a-shared", BindingID: "binding-observation", RouteEdgeIDs: []string{"patient-observation"}, ProjectionMode: "FIRST", ResolvedObservation: semanticSelectionEntry("concept-system-a-shared", "binding-observation", "urn:system:a", "shared", "")},
+	}
+	updated, results, err := ApplyCommands(workspace, catalogSnapshot, "semantic-add", []Command{{Type: CommandAddSemanticSelections, OutputID: outputID, ContextToken: "context", SemanticSelections: selections}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 || results[0].Type != CommandResultSemanticSelectionsAdded || len(results[0].SemanticSelections) != len(selections) {
+		t.Fatalf("results = %#v", results)
+	}
+	gotStatuses := []string{}
+	gotColumnIDs := []string{}
+	for _, result := range results[0].SemanticSelections {
+		gotStatuses = append(gotStatuses, result.Status)
+		gotColumnIDs = append(gotColumnIDs, result.ColumnID)
+	}
+	wantStatuses := []string{SemanticSelectionAdded, SemanticSelectionAdded, SemanticSelectionAdded, SemanticSelectionAlreadyPresent, SemanticSelectionAdded}
+	if !reflect.DeepEqual(gotStatuses, wantStatuses) {
+		t.Fatalf("selection statuses = %v, want %v", gotStatuses, wantStatuses)
+	}
+	if gotColumnIDs[0] != gotColumnIDs[3] || gotColumnIDs[0] == gotColumnIDs[1] || gotColumnIDs[0] == gotColumnIDs[2] || gotColumnIDs[0] == gotColumnIDs[4] {
+		t.Fatalf("semantic column identities do not distinguish coding system, code, route, or value policy: %v", gotColumnIDs)
+	}
+	document := updated.Documents[0]
+	if len(document.Route.Children) != 2 || len(document.Route.Children[0].Children) != 0 || len(document.Route.Children[1].Children) != 1 {
+		t.Fatalf("route was not reused and allocated by selected edge path: %#v", document.Route)
+	}
+	if len(document.Columns) != 4 {
+		t.Fatalf("columns = %d, want four unique semantic identities", len(document.Columns))
+	}
+	stableSourceIDs := map[string]bool{}
+	for _, column := range document.Columns {
+		if column.ColumnID == "" || stableSourceIDs[column.ColumnID] {
+			t.Fatalf("staged semantic source has missing or duplicate ColumnID: %#v", column)
+		}
+		stableSourceIDs[column.ColumnID] = true
+	}
+	keys := map[string]fhirschema.CorrelatedKey{}
+	modes := map[string]string{}
+	for _, column := range document.Columns {
+		keys[column.Column] = *column.Source.Lookup.Key
+		modes[column.Column] = column.Source.Lookup.ProjectionMode
+	}
+	if keys[gotColumnIDs[0]] != (fhirschema.CorrelatedKey{System: "urn:system:a", Code: "shared"}) || keys[gotColumnIDs[1]] != (fhirschema.CorrelatedKey{System: "urn:system:b", Code: "shared"}) || keys[gotColumnIDs[2]].Code != "other" {
+		t.Fatalf("resolved coding keys = %#v", keys)
+	}
+	if modes[gotColumnIDs[0]] != "VALUE" || modes[gotColumnIDs[4]] != "FIRST" {
+		t.Fatalf("value policies = %#v", modes)
+	}
+}
+
+func TestApplySemanticSelectionsWritesTypedIdentifierBindingFromResolvedPlan(t *testing.T) {
+	catalogSnapshot := semanticSelectionCatalog()
+	workspace, created, err := ApplyCommands(emptyCommandWorkspace(), catalogSnapshot, "create", []Command{{Type: CommandCreateTable, Title: "Patients", RootNodeID: "patient"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	observation := catalog.SemanticObservation{
+		SchemaVersion: catalog.SemanticObservationSchemaVersion,
+		Source:        catalog.SemanticObservationSource{Type: "Patient", Path: "identifier[]"},
+		Key:           catalog.SemanticObservationKey{Selector: "identifier[].system", System: "urn:study:case-id", Display: "Case identifier"},
+		Value:         catalog.SemanticObservationValue{Selector: "identifier[].value", Type: "string"},
+		OwningScope:   "identifier[]", LogicalType: "string", Completeness: catalog.SemanticComplete,
+		Status: "SUPPORTED", RuleHint: "IDENTIFIER_SYSTEM_VALUE", RuleVersion: strconv.Itoa(catalog.SemanticObservationRuleVersion),
+	}
+	plan := ResolveSemanticSelectionPlan(observation)
+	updated, results, err := ApplyCommands(workspace, catalogSnapshot, "add-identifier", []Command{{
+		Type: CommandAddSemanticSelections, OutputID: created[0].OutputID, ContextToken: "context",
+		SemanticSelections: []SemanticSelection{{ConceptID: "case-id", BindingID: "identifier-binding", RouteEdgeIDs: []string{}, ProjectionMode: "VALUE", ResolvedObservation: &catalog.SemanticInventoryEntry{ConceptID: "case-id", BindingID: "identifier-binding", Observation: observation}}},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 || len(results[0].SemanticSelections) != 1 || len(updated.Documents[0].Columns) != 1 {
+		t.Fatalf("results=%#v workspace=%#v", results, updated)
+	}
+	column := updated.Documents[0].Columns[0]
+	if column.ColumnID == "" {
+		t.Fatal("first semantic source column did not receive a stable ColumnID")
+	}
+	if updated.Documents[0].Construction == nil || len(updated.Documents[0].Construction.Steps) != 0 {
+		t.Fatalf("first semantic source add did not initialize source-only construction: %#v", updated.Documents[0].Construction)
+	}
+	wantSource := plan.Source.Normalized()
+	wantSource.Lookup.ProjectionMode = "VALUE"
+	if !sourceEqual(column.Source, wantSource) || column.Source.Lookup.Identifier == nil || column.Source.Lookup.Match != "" || column.Source.Lookup.Path != "" || column.LogicalType != plan.LogicalType {
+		t.Fatalf("applied Identifier source=%#v logicalType=%q, want source=%#v type=%q", column.Source, column.LogicalType, wantSource, plan.LogicalType)
+	}
+}
+
+func TestApplySemanticSelectionsRollsBackInvalidLastItem(t *testing.T) {
+	catalogSnapshot := semanticSelectionCatalog()
+	workspace, created, err := ApplyCommands(emptyCommandWorkspace(), catalogSnapshot, "create", []Command{{Type: CommandCreateTable, Title: "Patients", RootNodeID: "patient"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, err := workspace.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	selections := []SemanticSelection{
+		{ConceptID: "valid", BindingID: "binding", RouteEdgeIDs: []string{"patient-observation"}, ProjectionMode: "VALUE", ResolvedObservation: semanticSelectionEntry("valid", "binding", "urn:system", "valid", "")},
+		{ConceptID: "versioned", BindingID: "binding", RouteEdgeIDs: []string{"patient-observation"}, ProjectionMode: "VALUE", ResolvedObservation: semanticSelectionEntry("versioned", "binding", "urn:system", "versioned", "v1")},
+	}
+	versionedPlan := ResolveSemanticSelectionPlan(selections[1].ResolvedObservation.Observation)
+	if _, _, err := ApplyCommands(workspace, catalogSnapshot, "atomic-add", []Command{{Type: CommandAddSemanticSelections, OutputID: created[0].OutputID, ContextToken: "context", SemanticSelections: selections}}); err == nil || !strings.Contains(err.Error(), versionedPlan.Readiness.Code) || !strings.Contains(err.Error(), versionedPlan.Readiness.Message) {
+		t.Fatalf("versioned last selection error = %v", err)
+	}
+	after, err := workspace.Digest()
+	if err != nil || after != before || len(workspace.Documents[0].Route.Children) != 0 || len(workspace.Documents[0].Columns) != 0 {
+		t.Fatalf("failed semantic batch mutated original workspace: digest %q -> %q err=%v workspace=%#v", before, after, err, workspace)
+	}
+}
+
+func TestApplySemanticSelectionsPreservesExistingGraphAuthoredConfig(t *testing.T) {
+	catalogSnapshot := semanticSelectionCatalog()
+	document := workspaceDocument("patients")
+	order := 0
+	document.Columns[0].Table.Order = &order
+	document.Route.Children = []RouteNode{{OccurrenceID: "authored-encounter", ResourceType: "Encounter", Relationship: "encounters"}}
+	document.FixedFilters = []FixedFilter{{Column: "patient_id", Values: []string{"active"}}}
+	document.Actions = []Action{{Type: "export", Title: "Export"}}
+	existingRoute := append([]RouteNode(nil), document.Route.Children...)
+	existingColumns := append([]Column(nil), document.Columns...)
+	existingFilters := append([]FixedFilter(nil), document.FixedFilters...)
+	existingActions := append([]Action(nil), document.Actions...)
+	workspace := Workspace{APIVersion: APIVersion, Kind: WorkspaceKind, Explorer: ExplorerMetadata{Title: "Builder"}, Documents: []Document{document}, Tabs: []Tab{{ID: "patients-tab", Title: "Patients", OutputID: "patients", Order: 0, Visible: true}}}
+	updated, _, err := ApplyCommands(workspace, catalogSnapshot, "semantic-add", []Command{{
+		Type: CommandAddSemanticSelections, OutputID: "patients", ContextToken: "context",
+		SemanticSelections: []SemanticSelection{{ConceptID: "concept", BindingID: "binding", RouteEdgeIDs: []string{"patient-observation"}, ProjectionMode: "VALUE", ResolvedObservation: semanticSelectionEntry("concept", "binding", "urn:system", "code", "")}},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	updatedDocument := updated.Documents[0]
+	if len(updatedDocument.Route.Children) != 2 || !reflect.DeepEqual(updatedDocument.Route.Children[0], existingRoute[0]) || !reflect.DeepEqual(updatedDocument.Columns[0], existingColumns[0]) || !reflect.DeepEqual(updatedDocument.FixedFilters, existingFilters) || !reflect.DeepEqual(updatedDocument.Actions, existingActions) {
+		t.Fatalf("existing graph-authored configuration changed: %#v", updatedDocument)
+	}
+}
+
+func TestSemanticSelectionIntentRequiresExplicitPolicyAndRejectsTrustedPayload(t *testing.T) {
+	command := Command{Type: CommandAddSemanticSelections, OutputID: "out", ContextToken: "context", SemanticSelections: []SemanticSelection{{ConceptID: "concept", BindingID: "binding", ProjectionMode: "VALUE"}}}
+	if err := command.validate(); err == nil || !strings.Contains(err.Error(), "routeEdgeIds must be explicit") {
+		t.Fatalf("omitted route list error = %v", err)
+	}
+	command.SemanticSelections[0].RouteEdgeIDs = []string{}
+	command.SemanticSelections[0].ProjectionMode = ""
+	if err := command.validate(); err == nil || !strings.Contains(err.Error(), "projectionMode") {
+		t.Fatalf("missing projection mode error = %v", err)
+	}
+	raw := `{"type":"ADD_SEMANTIC_SELECTIONS","outputId":"out","contextToken":"context","semanticSelections":[{"conceptId":"concept","bindingId":"binding","routeEdgeIds":[],"projectionMode":"VALUE","resolvedObservation":{"observation":{}}}]}`
+	var decoded Command
+	if err := json.Unmarshal([]byte(raw), &decoded); err == nil || !strings.Contains(err.Error(), "unknown field") {
+		t.Fatalf("client trusted observation payload was accepted: %v", err)
+	}
+}
+
+func semanticSelectionCatalog() CatalogSnapshot {
+	catalogSnapshot := CatalogSnapshot{
+		APIVersion: APIVersion, Kind: CatalogKind, Project: "project", ExplorerID: "explorer", SourceGeneration: "generation", AuthorizationScopeDigest: "scope", SnapshotToken: "snapshot", Complete: true,
+		Nodes: []CatalogNode{
+			{ID: "patient", ResourceType: "Patient", RowRootEligible: true},
+			{ID: "encounter", ResourceType: "Encounter"},
+			{ID: "observation", ResourceType: "Observation"},
+		},
+		Edges: []CatalogEdge{
+			{ID: "patient-encounter", FromNodeID: "patient", ToNodeID: "encounter", Label: "encounters"},
+			{ID: "encounter-observation", FromNodeID: "encounter", ToNodeID: "observation", Label: "observations"},
+			{ID: "patient-observation", FromNodeID: "patient", ToNodeID: "observation", Label: "observations"},
+		},
+		Candidates:  []CatalogCandidate{{ID: "patient-id", NodeID: "patient", FieldPath: "id", Cardinality: "optional_one", Label: "Patient ID", LogicalType: "string", ProjectionModes: []string{"VALUE"}, DefaultProjectionMode: "VALUE", ConstructionChoice: testFieldConstructionChoice("snapshot", "patient-id", "patient", "Patient", "id", "optional_one", capability.ProjectionScalar)}},
+		RoutePolicy: RoutePolicy{Unbounded: true},
+	}
+	return catalogSnapshot
+}
+
+func semanticSelectionEntry(conceptID, bindingID, system, code, version string) *catalog.SemanticInventoryEntry {
+	return &catalog.SemanticInventoryEntry{
+		ConceptID: conceptID,
+		BindingID: bindingID,
+		Observation: catalog.SemanticObservation{
+			SchemaVersion: catalog.SemanticObservationSchemaVersion,
+			Source:        catalog.SemanticObservationSource{Type: "Observation", Path: "code"},
+			Key:           catalog.SemanticObservationKey{Selector: "code.coding[]", System: system, Version: version, Code: code, Display: "Observed label"},
+			Value:         catalog.SemanticObservationValue{Selector: "valueQuantity.value", Type: "decimal"},
+			ChoiceArm:     "valueQuantity", LogicalType: "decimal", Completeness: catalog.SemanticComplete, Status: "SUPPORTED", RuleHint: catalog.SemanticRuleHintCodedValueV1, RuleVersion: strconv.Itoa(catalog.SemanticObservationRuleVersion),
+		},
+	}
+}
+
+func TestApplyCommandsAcceptsAncestorAwareExtensionAndRejectsLegacyWrite(t *testing.T) {
+	catalog := CatalogSnapshot{
+		APIVersion: APIVersion, Kind: CatalogKind, Project: "project", ExplorerID: "explorer",
+		SourceGeneration: "generation", AuthorizationScopeDigest: "scope", SnapshotToken: "sha256:snapshot", Complete: true,
+		Nodes: []CatalogNode{{ID: "observation", ResourceType: "Observation", RowRootEligible: true}}, RoutePolicy: RoutePolicy{Unbounded: true},
+	}
+	workspace := Workspace{
+		APIVersion: APIVersion, Kind: WorkspaceKind, Explorer: ExplorerMetadata{Title: "Observations"},
+		Documents: []Document{{Kind: Kind, Output: Output{ID: "observations", Title: "Observations"}, RootResourceType: "Observation", Route: RouteNode{OccurrenceID: RootOccurrenceID, ResourceType: "Observation"}}},
+		Tabs:      []Tab{{ID: "observations", Title: "Observations", OutputID: "observations", Order: 0, Visible: true}},
+	}
+	typed := &ColumnSource{Kind: SourceExtensionByURL, Lookup: &LookupSource{Extension: &fhirschema.ExtensionBinding{
+		OwnerPath: "extension[].extension[]", URLPath: []string{"urn:parent:left", "urn:leaf"}, ValuePath: "valueString", LogicalType: "string",
+	}}}
+	updated, results, err := ApplyCommands(workspace, catalog, "add-extension", []Command{{Type: CommandAddColumnSource, OutputID: "observations", OccurrenceID: RootOccurrenceID, Source: typed}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 || len(updated.Documents[0].Columns) != 1 || updated.Documents[0].Columns[0].Source.Lookup.Extension == nil {
+		t.Fatalf("typed extension result = %#v", updated)
+	}
+	legacy := &ColumnSource{Kind: SourceExtensionByURL, Lookup: &LookupSource{Match: "leaf", Path: "extension[].valueString"}}
+	if _, _, err := ApplyCommands(workspace, catalog, "legacy-extension", []Command{{Type: CommandAddColumnSource, OutputID: "observations", OccurrenceID: RootOccurrenceID, Source: legacy}}); err == nil || !strings.Contains(err.Error(), "explicit typed binding") {
+		t.Fatalf("legacy extension write error = %v", err)
+	}
+	wrongArm := &ColumnSource{Kind: SourceExtensionByURL, Lookup: &LookupSource{Extension: &fhirschema.ExtensionBinding{
+		OwnerPath: "extension[].extension[]", URLPath: []string{"urn:parent:left", "urn:leaf"}, ValuePath: "valueInteger", LogicalType: "string",
+	}}}
+	if _, _, err := ApplyCommands(workspace, catalog, "wrong-extension-arm", []Command{{Type: CommandAddColumnSource, OutputID: "observations", OccurrenceID: RootOccurrenceID, Source: wrongArm}}); err == nil || !strings.Contains(err.Error(), "incompatible") {
+		t.Fatalf("wrong extension arm error = %v", err)
+	}
+	missingParent := &ColumnSource{Kind: SourceExtensionByURL, Lookup: &LookupSource{Extension: &fhirschema.ExtensionBinding{
+		OwnerPath: "extension[].extension[]", URLPath: []string{"urn:leaf"}, ValuePath: "valueString", LogicalType: "string",
+	}}}
+	if _, _, err := ApplyCommands(workspace, catalog, "missing-extension-parent", []Command{{Type: CommandAddColumnSource, OutputID: "observations", OccurrenceID: RootOccurrenceID, Source: missingParent}}); err == nil || !strings.Contains(err.Error(), "one URL per extension boundary") {
+		t.Fatalf("missing extension parent error = %v", err)
+	}
+}
+
+func TestApplyCommandsRequestRequiresSemanticsV3(t *testing.T) {
+	request := ApplyCommandsRequest{CommandID: "cmd", SnapshotToken: "token", Commands: []Command{{Type: CommandDeleteTable, OutputID: "out"}}}
+	if err := request.Validate(); err == nil || !strings.Contains(err.Error(), "UNSUPPORTED_SEMANTICS_VERSION") {
+		t.Fatalf("version zero error=%v", err)
+	}
+	request.SemanticsVersion = CurrentSemanticsVersion
+	if err := request.Validate(); err != nil {
+		t.Fatalf("current semantics version rejected: %v", err)
+	}
+}
+
+func TestRestoreDraftRevisionCommandIsStrictAndRestoresServerResolvedWorkspace(t *testing.T) {
+	base := emptyCommandWorkspace()
+	base.Explorer.Title = "Before edit"
+	base.Documents = []Document{{Kind: Kind, Output: Output{ID: "patients", Title: "Patients"}, RootResourceType: "Patient", Route: RouteNode{OccurrenceID: RootOccurrenceID, ResourceType: "Patient"}}}
+	base.Tabs = []Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Order: 0, Visible: true}}
+	command := Command{Type: CommandRestoreDraftRevision, DraftRevisionID: "draft_revision_1"}
+	if err := command.ResolveDraftRevision(base); err != nil {
+		t.Fatal(err)
+	}
+	restored, results, err := ApplyCommands(emptyCommandWorkspace(), commandCatalog(), "restore", []Command{command})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if restored.Explorer.Title != "Before edit" || len(restored.Documents) != 1 || restored.Documents[0].Output.ID != "patients" {
+		t.Fatalf("restore result = %#v", restored)
+	}
+	if len(results) != 1 || results[0].Type != CommandResultDraftRestored {
+		t.Fatalf("restore results = %#v", results)
+	}
+
+	request := ApplyCommandsRequest{
+		CommandID: "restore-command", SemanticsVersion: CurrentSemanticsVersion, SnapshotToken: "snapshot",
+		ExpectedDraftVersion: 2, ExpectedDraftDigest: "sha256:current", Commands: []Command{{Type: CommandRestoreDraftRevision, DraftRevisionID: "draft_revision_1"}},
+	}
+	if err := request.Validate(); err != nil {
+		t.Fatalf("valid restore request rejected: %v", err)
+	}
+	request.Commands = append(request.Commands, Command{Type: CommandDeleteTable, OutputID: "patients"})
+	if err := request.Validate(); err == nil || !strings.Contains(err.Error(), "only command") {
+		t.Fatalf("mixed restore request error = %v", err)
+	}
+
+	var decoded Command
+	if err := json.Unmarshal([]byte(`{"type":"RESTORE_DRAFT_REVISION","draftRevisionId":"draft_revision_1","outputId":"patients"}`), &decoded); err == nil {
+		t.Fatal("restore command accepted an unrelated outputId")
 	}
 }
 
@@ -88,7 +631,7 @@ func TestApplyCommandsUpdatesRouteEdgeWithoutReplacingOccurrenceState(t *testing
 		t.Fatal(err)
 	}
 	child := updated.Documents[0].Route.Children[0]
-	if child.OccurrenceID != occurrenceID || child.Relationship != "researchEncounters" || len(child.Children) != 1 || child.Children[0].OccurrenceID != "nested" {
+	if child.OccurrenceID != occurrenceID || child.CatalogEdgeID != "patient-encounter-secondary" || child.Relationship != "researchEncounters" || len(child.Children) != 1 || child.Children[0].OccurrenceID != "nested" {
 		t.Fatalf("updated route=%#v", child)
 	}
 	if len(updated.Documents[0].Columns) != 1 || updated.Documents[0].Columns[0].OccurrenceID != occurrenceID {
@@ -96,8 +639,71 @@ func TestApplyCommandsUpdatesRouteEdgeWithoutReplacingOccurrenceState(t *testing
 	}
 }
 
+func TestApplyCommandsSetsRouteMatchModeWithoutChangingFeatureState(t *testing.T) {
+	workspace, created, err := ApplyCommands(emptyCommandWorkspace(), commandCatalog(), "create", []Command{{Type: CommandCreateTable, Title: "Patients", RootNodeID: "patient"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	outputID := created[0].OutputID
+	workspace, routes, err := ApplyCommands(workspace, commandCatalog(), "route", []Command{{Type: CommandAddRoute, OutputID: outputID, ParentOccurrenceID: RootOccurrenceID, EdgeID: "patient-encounter"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	occurrenceID := routes[0].OccurrenceID
+
+	updated, _, err := ApplyCommands(workspace, commandCatalog(), "required", []Command{{Type: CommandSetRouteMatchMode, OutputID: outputID, OccurrenceID: occurrenceID, MatchMode: RouteMatchRequired}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := updated.Documents[0].Route.Children[0].MatchMode; got != RouteMatchRequired {
+		t.Fatalf("matchMode=%q, want REQUIRED", got)
+	}
+	updated, _, err = ApplyCommands(updated, commandCatalog(), "optional", []Command{{Type: CommandSetRouteMatchMode, OutputID: outputID, OccurrenceID: occurrenceID, MatchMode: RouteMatchOptional}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := updated.Documents[0].Route.Children[0].MatchMode; got != RouteMatchOptional {
+		t.Fatalf("matchMode=%q, want OPTIONAL", got)
+	}
+	_, _, err = ApplyCommands(updated, commandCatalog(), "root", []Command{{Type: CommandSetRouteMatchMode, OutputID: outputID, OccurrenceID: RootOccurrenceID, MatchMode: RouteMatchRequired}})
+	if err == nil || !strings.Contains(err.Error(), "non-root") {
+		t.Fatalf("root match-mode error=%v", err)
+	}
+}
+
+func TestApplyCommandsRejectsRouteUpdateThatRepeatsADescendantEdge(t *testing.T) {
+	catalog := commandCatalog()
+	catalog.RoutePolicy.AllowRepeatedEdges = false
+	catalog.Edges = append(catalog.Edges,
+		CatalogEdge{ID: "patient-encounter-secondary", FromNodeID: "patient", ToNodeID: "encounter", Label: "researchEncounters"},
+		CatalogEdge{ID: "encounter-patient", FromNodeID: "encounter", ToNodeID: "patient", Label: "patient"},
+	)
+	workspace, created, err := ApplyCommands(emptyCommandWorkspace(), catalog, "create", []Command{{Type: CommandCreateTable, Title: "Patients", RootNodeID: "patient"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	outputID := created[0].OutputID
+	workspace, encounter, err := ApplyCommands(workspace, catalog, "encounter", []Command{{Type: CommandAddRoute, OutputID: outputID, ParentOccurrenceID: RootOccurrenceID, EdgeID: "patient-encounter-secondary"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace, patient, err := ApplyCommands(workspace, catalog, "patient", []Command{{Type: CommandAddRoute, OutputID: outputID, ParentOccurrenceID: encounter[0].OccurrenceID, EdgeID: "encounter-patient"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace, _, err = ApplyCommands(workspace, catalog, "descendant", []Command{{Type: CommandAddRoute, OutputID: outputID, ParentOccurrenceID: patient[0].OccurrenceID, EdgeID: "patient-encounter"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _, err = ApplyCommands(workspace, catalog, "update", []Command{{Type: CommandUpdateRouteEdge, OutputID: outputID, OccurrenceID: encounter[0].OccurrenceID, EdgeID: "patient-encounter"}})
+	if err == nil || !strings.Contains(err.Error(), "already used in this route") {
+		t.Fatalf("route update error=%v", err)
+	}
+}
+
 func TestApplyCommandsRejectsReusingRelationshipFromAnotherOccurrence(t *testing.T) {
 	catalog := commandCatalog()
+	catalog.RoutePolicy.AllowRepeatedEdges = false
 	catalog.Edges = append(catalog.Edges, CatalogEdge{ID: "encounter-patient", FromNodeID: "encounter", ToNodeID: "patient", Label: "patient"})
 	workspace, create, err := ApplyCommands(emptyCommandWorkspace(), catalog, "create", []Command{{Type: CommandCreateTable, Title: "Patients", RootNodeID: "patient"}})
 	if err != nil {
@@ -113,8 +719,33 @@ func TestApplyCommandsRejectsReusingRelationshipFromAnotherOccurrence(t *testing
 		t.Fatal(err)
 	}
 	_, _, err = ApplyCommands(workspace, catalog, "repeat", []Command{{Type: CommandAddRoute, OutputID: outputID, ParentOccurrenceID: patient[0].OccurrenceID, EdgeID: "patient-encounter"}})
-	if err == nil || !strings.Contains(err.Error(), "already used in this query") {
+	if err == nil || !strings.Contains(err.Error(), "already used in this route") {
 		t.Fatalf("error=%v", err)
+	}
+}
+
+func TestApplyCommandsRejectsRouteBeyondCatalogMaxHopsWithoutMutation(t *testing.T) {
+	catalog := commandCatalog()
+	maxHops := 0
+	catalog.RoutePolicy.MaxHops = &maxHops
+	catalog.RoutePolicy.Unbounded = false
+	workspace, create, err := ApplyCommands(emptyCommandWorkspace(), catalog, "create", []Command{{Type: CommandCreateTable, Title: "Patients", RootNodeID: "patient"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	outputID := create[0].OutputID
+	_, _, err = ApplyCommands(workspace, catalog, "route", []Command{{Type: CommandAddRoute, OutputID: outputID, ParentOccurrenceID: RootOccurrenceID, EdgeID: "patient-encounter"}})
+	if err == nil || !strings.Contains(err.Error(), "ROUTE_TOO_LONG") {
+		t.Fatalf("over-depth route error = %v, want ROUTE_TOO_LONG", err)
+	}
+	if len(workspace.Documents[0].Route.Children) != 0 {
+		t.Fatalf("rejected route mutated input = %#v", workspace.Documents[0].Route)
+	}
+
+	maxHops = 1
+	allowed, _, err := ApplyCommands(workspace, catalog, "route-allowed", []Command{{Type: CommandAddRoute, OutputID: outputID, ParentOccurrenceID: RootOccurrenceID, EdgeID: "patient-encounter"}})
+	if err != nil || len(allowed.Documents[0].Route.Children) != 1 {
+		t.Fatalf("bounded route = %#v, err=%v", allowed.Documents[0].Route, err)
 	}
 }
 
@@ -171,5 +802,150 @@ func TestApplyCommandsRejectsBatchAtomically(t *testing.T) {
 	}
 	if len(original.Documents) != 0 || len(original.Tabs) != 0 {
 		t.Fatalf("input mutated after rejected batch: %#v", original)
+	}
+}
+
+func TestApplyCommandsSourceEditsPreserveColumnIdentityAndAreIdempotent(t *testing.T) {
+	workspace, created, err := ApplyCommands(emptyCommandWorkspace(), commandCatalog(), "create", []Command{{Type: CommandCreateTable, Title: "Patients", RootNodeID: "patient"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	outputID := created[0].OutputID
+	count := &ColumnSource{Kind: SourceAggregate, Aggregate: &AggregateSource{Operation: "COUNT"}}
+	workspace, added, err := ApplyCommands(workspace, commandCatalog(), "count", []Command{{Type: CommandAddColumnSource, OutputID: outputID, OccurrenceID: RootOccurrenceID, Source: count, Title: "Patient count"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(added) != 1 || len(workspace.Documents[0].Columns) != 1 {
+		t.Fatalf("added=%#v columns=%#v", added, workspace.Documents[0].Columns)
+	}
+	column := workspace.Documents[0].Columns[0]
+	if column.Source.Aggregate == nil || column.Source.Aggregate.Operation != "COUNT" || column.Label != "Patient count" {
+		t.Fatalf("column=%#v", column)
+	}
+	workspace, replayed, err := ApplyCommands(workspace, commandCatalog(), "count", []Command{{Type: CommandAddColumnSource, OutputID: outputID, OccurrenceID: RootOccurrenceID, Source: count, Title: "Different title"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(workspace.Documents[0].Columns) != 1 || len(replayed) != 1 || replayed[0].Column != column.Column {
+		t.Fatalf("idempotent replay columns=%#v result=%#v", workspace.Documents[0].Columns, replayed)
+	}
+	presentation := workspace.Documents[0].Columns[0].Table
+	updated, results, err := ApplyCommands(workspace, commandCatalog(), "exists", []Command{{Type: CommandUpdateColumnSource, OutputID: outputID, Column: column.Column, Source: &ColumnSource{Kind: SourceAggregate, Aggregate: &AggregateSource{Operation: "EXISTS"}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	updatedColumn := updated.Documents[0].Columns[0]
+	if len(results) != 1 || results[0].Column != column.Column || updatedColumn.Column != column.Column || updatedColumn.Label != column.Label || updatedColumn.Table == nil || presentation == nil || *updatedColumn.Table.Visible != *presentation.Visible {
+		t.Fatalf("source update changed identity/presentation: before=%#v after=%#v result=%#v", column, updatedColumn, results)
+	}
+	if updatedColumn.Source.Aggregate == nil || updatedColumn.Source.Aggregate.Operation != "EXISTS" {
+		t.Fatalf("updated source=%#v", updatedColumn.Source)
+	}
+	if updatedColumn.LogicalType != "boolean" {
+		t.Fatalf("source update did not rederive logical type: %q", updatedColumn.LogicalType)
+	}
+	workspaceA, createdA, err := ApplyCommands(emptyCommandWorkspace(), commandCatalog(), "same-create", []Command{{Type: CommandCreateTable, Title: "Patients", RootNodeID: "patient"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspaceB, createdB, err := ApplyCommands(emptyCommandWorkspace(), commandCatalog(), "same-create", []Command{{Type: CommandCreateTable, Title: "Patients", RootNodeID: "patient"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rawSource, err := json.Marshal(ColumnSource{Kind: SourceAggregate, Aggregate: &AggregateSource{Operation: "COUNT"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decodedSource ColumnSource
+	if err := json.Unmarshal(rawSource, &decodedSource); err != nil {
+		t.Fatal(err)
+	}
+	workspaceA, addedA, err := ApplyCommands(workspaceA, commandCatalog(), "same-source", []Command{{Type: CommandAddColumnSource, OutputID: createdA[0].OutputID, OccurrenceID: RootOccurrenceID, Source: &ColumnSource{Kind: SourceAggregate, Aggregate: &AggregateSource{Operation: "COUNT"}}, Title: "Count"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, addedB, err := ApplyCommands(workspaceB, commandCatalog(), "same-source", []Command{{Type: CommandAddColumnSource, OutputID: createdB[0].OutputID, OccurrenceID: RootOccurrenceID, Source: &decodedSource, Title: "Count"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(addedA) != 1 || len(addedB) != 1 || addedA[0].Column != addedB[0].Column {
+		t.Fatalf("semantic source identity changed with pointer allocation: A=%#v B=%#v", addedA, addedB)
+	}
+}
+
+func TestApplyCommandsKeepsIdenticalAggregateSourcesWithDifferentContributors(t *testing.T) {
+	workspace, created, err := ApplyCommands(emptyCommandWorkspace(), commandCatalog(), "create", []Command{{Type: CommandCreateTable, Title: "Patients", RootNodeID: "patient"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	outputID := created[0].OutputID
+	count := &ColumnSource{Kind: SourceAggregate, Aggregate: &AggregateSource{Operation: "COUNT"}}
+	firstContributor := &ContributorPredicate{CandidateID: "patient-id", Operator: ContributorEquals, Value: &ContributorValue{Kind: ContributorString, String: stringPtr("case")}}
+	secondContributor := &ContributorPredicate{CandidateID: "patient-id", Operator: ContributorEquals, Value: &ContributorValue{Kind: ContributorString, String: stringPtr("control")}}
+
+	workspace, first, err := ApplyCommands(workspace, commandCatalog(), "case-count", []Command{{Type: CommandAddColumnSource, OutputID: outputID, OccurrenceID: RootOccurrenceID, Source: count, Contributor: firstContributor, Title: "Case count"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace, second, err := ApplyCommands(workspace, commandCatalog(), "control-count", []Command{{Type: CommandAddColumnSource, OutputID: outputID, OccurrenceID: RootOccurrenceID, Source: count, Contributor: secondContributor, Title: "Control count"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(workspace.Documents[0].Columns) != 2 || first[0].Column == second[0].Column {
+		t.Fatalf("independent aggregate features collapsed: columns=%#v first=%#v second=%#v", workspace.Documents[0].Columns, first, second)
+	}
+	if got := workspace.Documents[0].Columns[0].Contributor; got == nil || got.Value == nil || got.Value.String == nil || *got.Value.String != "case" {
+		t.Fatalf("first contributor=%#v", got)
+	}
+	if got := workspace.Documents[0].Columns[1].Contributor; got == nil || got.Value == nil || got.Value.String == nil || *got.Value.String != "control" {
+		t.Fatalf("second contributor=%#v", got)
+	}
+
+	replayed, result, err := ApplyCommands(workspace, commandCatalog(), "control-count", []Command{{Type: CommandAddColumnSource, OutputID: outputID, OccurrenceID: RootOccurrenceID, Source: count, Contributor: secondContributor, Title: "Control count"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(replayed.Documents[0].Columns) != 2 || result[0].Column != second[0].Column {
+		t.Fatalf("same request was not idempotent: columns=%#v result=%#v", replayed.Documents[0].Columns, result)
+	}
+}
+
+func TestApplyCommandsSourceValidationChecksCatalogProjectionMode(t *testing.T) {
+	workspace, created, err := ApplyCommands(emptyCommandWorkspace(), commandCatalog(), "create", []Command{{Type: CommandCreateTable, Title: "Patients", RootNodeID: "patient"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _, err = ApplyCommands(workspace, commandCatalog(), "bad-mode", []Command{{Type: CommandAddColumnSource, OutputID: created[0].OutputID, OccurrenceID: RootOccurrenceID, Source: &ColumnSource{Kind: SourceField, Field: &FieldSource{Path: "id", ProjectionMode: "FIRST"}}}})
+	if err == nil || !strings.Contains(err.Error(), "projection mode") {
+		t.Fatalf("unsupported source projection accepted: %v", err)
+	}
+}
+
+func TestApplyCommandsAddsUnacknowledgedRelatedSelectionForChildScalar(t *testing.T) {
+	catalog := commandCatalog()
+	workspace, created, err := ApplyCommands(emptyCommandWorkspace(), catalog, "create", []Command{{Type: CommandCreateTable, Title: "Patients", RootNodeID: "patient"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace, route, err := ApplyCommands(workspace, catalog, "route", []Command{{Type: CommandAddRoute, OutputID: created[0].OutputID, ParentOccurrenceID: RootOccurrenceID, EdgeID: "patient-encounter"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace, _, err = ApplyCommands(workspace, catalog, "child", []Command{{Type: CommandAddColumn, OutputID: created[0].OutputID, OccurrenceID: route[0].OccurrenceID, CandidateID: "encounter-id"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	selection := workspace.Documents[0].Columns[0].Source.Field.RelatedSelection
+	if selection == nil || selection.Kind != "first-by-resource-key" || selection.Acknowledged {
+		t.Fatalf("child source related selection=%#v", selection)
+	}
+	if err := workspace.ValidateForPublication(); err == nil || !strings.Contains(err.Error(), "UNACKNOWLEDGED_RELATED_FIRST") {
+		t.Fatalf("publication error=%v", err)
+	}
+	selection.Acknowledged = true
+	if err := workspace.ValidateForPublication(); err != nil {
+		t.Fatalf("acknowledged child source rejected: %v", err)
 	}
 }

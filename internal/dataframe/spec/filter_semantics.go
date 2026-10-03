@@ -41,12 +41,17 @@ func ValidateTypedFilterForResource(resourceType string, filter TypedFilter) err
 			if value.Code == nil {
 				continue
 			}
-			// The current selector compiler safely matches the terminal code. It
-			// must not pretend an independently collected system/display belongs
-			// to that same Coding array member; paired Coding lowering is added
-			// only once represented explicitly in the physical expression IR.
+			if filter.Correlation != nil {
+				if strings.TrimSpace(value.Code.System) == "" {
+					return fmt.Errorf("filter %q correlated CODE requires a non-empty system", filter.FieldRef)
+				}
+				if _, err := fhirschema.ValidateCorrelatedBinding(resourceType, *filter.Correlation); err != nil {
+					return fmt.Errorf("filter %q correlated binding: %w", filter.FieldRef, err)
+				}
+				continue
+			}
 			if strings.TrimSpace(value.Code.System) != "" || strings.TrimSpace(value.Code.Display) != "" {
-				return fmt.Errorf("filter %q supplies code system/display, which requires paired Coding lowering not available in this compiler version", filter.FieldRef)
+				return fmt.Errorf("filter %q supplies code system/display without a paired Coding binding", filter.FieldRef)
 			}
 		}
 	}

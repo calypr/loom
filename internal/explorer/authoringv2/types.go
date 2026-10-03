@@ -3,26 +3,72 @@
 // contracts: this package describes user intent and catalog facts only.
 package authoringv2
 
+import (
+	"fmt"
+	"strings"
+
+	"github.com/calypr/loom/internal/explorer/capability"
+)
+
 const (
-	APIVersion       = "loom.calypr.org/explorer-authoring/v2"
-	Kind             = "ExplorerBuilderDocument"
-	WorkspaceKind    = "ExplorerBuilderWorkspace"
-	StateKind        = "ExplorerBuilderState"
-	CatalogKind      = "ExplorerBuilderCatalog"
-	RootOccurrenceID = "base"
+	APIVersion              = "loom.calypr.org/explorer-authoring/v2"
+	Kind                    = "ExplorerBuilderDocument"
+	WorkspaceKind           = "ExplorerBuilderWorkspace"
+	StateKind               = "ExplorerBuilderState"
+	CatalogKind             = "ExplorerBuilderCatalog"
+	RootOccurrenceID        = "base"
+	CurrentSemanticsVersion = 10
 )
 
 // Document is the complete durable Builder intent. Route occurrences form a
 // semantic resource tree rooted at RootResourceType.
 type Document struct {
-	APIVersion       string        `json:"-"`
-	Kind             string        `json:"kind"`
-	Output           Output        `json:"output"`
-	RootResourceType string        `json:"rootResourceType,omitempty"`
-	Route            RouteNode     `json:"route,omitempty"`
-	Columns          []Column      `json:"columns"`
-	FixedFilters     []FixedFilter `json:"fixedFilters,omitempty"`
-	Actions          []Action      `json:"actions,omitempty"`
+	APIVersion       string            `json:"-"`
+	Kind             string            `json:"kind"`
+	Output           Output            `json:"output"`
+	RootResourceType string            `json:"rootResourceType,omitempty"`
+	Route            RouteNode         `json:"route,omitempty"`
+	Rows             RowDefinition     `json:"rows"`
+	Population       *Population       `json:"population,omitempty"`
+	Frames           []FrameDefinition `json:"frames,omitempty"`
+	Columns          []Column          `json:"columns"`
+	TableShape       *TableShape       `json:"tableShape,omitempty"`
+	// Construction is the canonical post-source operation sequence. When it is
+	// present, Route/Rows/Columns describe only the source projection and
+	// TableShape must be nil. A nil value preserves the existing V2 document
+	// semantics and compiler path.
+	Construction *Construction `json:"construction,omitempty"`
+	FixedFilters []FixedFilter `json:"fixedFilters,omitempty"`
+	Actions      []Action      `json:"actions,omitempty"`
+}
+
+// Population constrains an output's row roots to resources reachable from a
+// completed immutable selection.
+type Population struct {
+	SelectionRevisionID string                `json:"selectionRevisionId"`
+	Route               []PopulationRouteStep `json:"route"`
+}
+
+type PopulationRouteStep struct {
+	ResourceType     string `json:"resourceType"`
+	Relationship     string `json:"relationship"`
+	CatalogEdgeID    string `json:"catalogEdgeId,omitempty"`
+	StorageDirection string `json:"storageDirection,omitempty"`
+}
+
+func (p Population) Validate() error {
+	if strings.TrimSpace(p.SelectionRevisionID) == "" {
+		return fmt.Errorf("population.selectionRevisionId is required")
+	}
+	for i, step := range p.Route {
+		if strings.TrimSpace(step.ResourceType) == "" || strings.TrimSpace(step.Relationship) == "" {
+			return fmt.Errorf("population.route[%d] requires resourceType and relationship", i)
+		}
+		if step.StorageDirection != "" && step.StorageDirection != "INBOUND" && step.StorageDirection != "OUTBOUND" {
+			return fmt.Errorf("population.route[%d] has an unsupported storageDirection", i)
+		}
+	}
+	return nil
 }
 
 type Output struct {
@@ -34,13 +80,17 @@ type Output struct {
 // Workspace is the atomic authoring unit. Documents are independent table
 // intents; tabs provide their ordered, visible runtime presentation.
 type Workspace struct {
-	APIVersion    string                           `json:"apiVersion"`
-	Kind          string                           `json:"kind"`
-	Explorer      ExplorerMetadata                 `json:"explorer"`
-	Documents     []Document                       `json:"documents"`
-	Tabs          []Tab                            `json:"tabs"`
-	SharedFilters map[string][]SharedFilterBinding `json:"sharedFilters,omitempty"`
-	FileActions   *FileActions                     `json:"fileActions,omitempty"`
+	APIVersion       string `json:"apiVersion"`
+	Kind             string `json:"kind"`
+	SemanticsVersion int    `json:"semanticsVersion,omitempty"`
+	// MigrationDecisions records automatic interpretation of ambiguous legacy
+	// intent so the choice remains visible and part of the workspace digest.
+	MigrationDecisions []string                         `json:"migrationDecisions,omitempty"`
+	Explorer           ExplorerMetadata                 `json:"explorer"`
+	Documents          []Document                       `json:"documents"`
+	Tabs               []Tab                            `json:"tabs"`
+	SharedFilters      map[string][]SharedFilterBinding `json:"sharedFilters,omitempty"`
+	FileActions        *FileActions                     `json:"fileActions,omitempty"`
 }
 
 type Tab struct {
@@ -103,33 +153,72 @@ type CatalogNode struct {
 }
 
 type CatalogEdge struct {
-	ID         string `json:"edgeId"`
-	FromNodeID string `json:"fromNodeId"`
-	ToNodeID   string `json:"toNodeId"`
-	Label      string `json:"label"`
-	Populated  bool   `json:"populated"`
+	ID               string `json:"edgeId"`
+	FromNodeID       string `json:"fromNodeId"`
+	ToNodeID         string `json:"toNodeId"`
+	Label            string `json:"label"`
+	StorageDirection string `json:"storageDirection,omitempty"`
+	Populated        bool   `json:"populated"`
 }
 
 type CatalogCandidate struct {
-	ID                    string   `json:"candidateId"`
-	NodeID                string   `json:"nodeId"`
-	FieldPath             string   `json:"fieldPath"`
-	Label                 string   `json:"label"`
-	LogicalType           string   `json:"logicalType"`
-	Repeated              bool     `json:"repeated"`
-	Filterable            bool     `json:"filterable"`
-	Chartable             bool     `json:"chartable"`
-	ProjectionModes       []string `json:"projectionModes"`
-	DefaultProjectionMode string   `json:"defaultProjectionMode"`
-	FilterOperators       []string `json:"-"`
-	ChartOperations       []string `json:"-"`
-	Cardinality           string   `json:"-"`
-	Populated             bool     `json:"-"`
-	Count                 *int64   `json:"-"`
-	SuggestionsAvailable  bool     `json:"-"`
-	SuggestionsComplete   bool     `json:"-"`
-	SuggestionsTruncated  bool     `json:"-"`
-	SuggestionCount       int      `json:"-"`
+	ID                    string                                    `json:"candidateId"`
+	NodeID                string                                    `json:"nodeId"`
+	FieldPath             string                                    `json:"fieldPath"`
+	Label                 string                                    `json:"label"`
+	LogicalType           string                                    `json:"logicalType"`
+	Cardinality           string                                    `json:"cardinality"`
+	Repeated              bool                                      `json:"repeated"`
+	Filterable            bool                                      `json:"filterable"`
+	Chartable             bool                                      `json:"chartable"`
+	ProjectionModes       []string                                  `json:"projectionModes"`
+	DefaultProjectionMode string                                    `json:"defaultProjectionMode"`
+	RepeatedBoundaries    []RepeatedBoundary                        `json:"repeatedBoundaries,omitempty"`
+	ConstructionChoice    *capability.ConstructionChoice            `json:"constructionChoice"`
+	FilterOperators       []string                                  `json:"-"`
+	ChartOperations       []string                                  `json:"-"`
+	AggregateOperations   []capability.AggregateOperationCapability `json:"aggregateOperations"`
+	Transformations       AggregateTransformationCapabilities       `json:"transformations"`
+	ValueTransformations  ColumnValueTransformationCapabilities     `json:"valueTransformations"`
+	Populated             bool                                      `json:"-"`
+	Count                 *int64                                    `json:"-"`
+	SuggestionsAvailable  bool                                      `json:"-"`
+	SuggestionsComplete   bool                                      `json:"-"`
+	SuggestionsTruncated  bool                                      `json:"-"`
+	SuggestionCount       int                                       `json:"-"`
+	ConceptCandidates     []ConceptCandidate                        `json:"conceptCandidates,omitempty"`
+}
+
+// ConceptCandidate is an observed structural terminology/value candidate.
+// It is evidence for authoring, not a claim of clinical equivalence.
+type ConceptCandidate struct {
+	SourceResourceType     string   `json:"sourceResourceType"`
+	SourcePath             string   `json:"sourcePath,omitempty"`
+	SourceCanonical        string   `json:"sourceCanonical,omitempty"`
+	SourceProfile          string   `json:"sourceProfile,omitempty"`
+	OwningScope            string   `json:"owningScope,omitempty"`
+	ExtensionURLPath       []string `json:"extensionUrlPath,omitempty"`
+	KeySelector            string   `json:"keySelector,omitempty"`
+	System                 string   `json:"system,omitempty"`
+	Code                   string   `json:"code,omitempty"`
+	Display                string   `json:"display,omitempty"`
+	ValueSelector          string   `json:"valueSelector,omitempty"`
+	ChoiceArm              string   `json:"choiceArm,omitempty"`
+	LogicalType            string   `json:"logicalType,omitempty"`
+	ObservedUnits          []string `json:"observedUnits,omitempty"`
+	ObservedUnitsTruncated bool     `json:"observedUnitsTruncated,omitempty"`
+	Completeness           string   `json:"completeness"`
+	Status                 string   `json:"status"`
+	Population             int64    `json:"population"`
+	Examples               []string `json:"examples,omitempty"`
+	ExamplesTruncated      bool     `json:"examplesTruncated,omitempty"`
+	RuleHint               string   `json:"ruleHint,omitempty"`
+	RuleVersion            string   `json:"ruleVersion,omitempty"`
+}
+
+type RepeatedBoundary struct {
+	Path     string `json:"path"`
+	MaxItems int    `json:"maxItems"`
 }
 
 // RoutePolicy has no default hop ceiling: nil MaxHops means every finite
@@ -143,11 +232,12 @@ type RoutePolicy struct {
 
 // BuilderState joins one workspace to the one catalog snapshot that proves it.
 type BuilderState struct {
-	APIVersion     string          `json:"apiVersion"`
-	Kind           string          `json:"kind"`
-	LifecycleState string          `json:"lifecycleState"`
-	DraftVersion   int64           `json:"draftVersion"`
-	DraftDigest    string          `json:"draftDigest"`
-	Workspace      *Workspace      `json:"workspace"`
-	Catalog        CatalogSnapshot `json:"catalog"`
+	APIVersion              string          `json:"apiVersion"`
+	Kind                    string          `json:"kind"`
+	LifecycleState          string          `json:"lifecycleState"`
+	DraftVersion            int64           `json:"draftVersion"`
+	DraftDigest             string          `json:"draftDigest"`
+	PreviousDraftRevisionID string          `json:"previousDraftRevisionId,omitempty"`
+	Workspace               *Workspace      `json:"workspace"`
+	Catalog                 CatalogSnapshot `json:"catalog"`
 }

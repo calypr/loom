@@ -1,0 +1,3 @@
+{"resourceType":"Specimen","id":"dev-specimen-001","status":"available","type":{"coding":[{"system":"urn:loom:fixture:specimen","code":"tissue","display":"Tissue"}]}}
+{"resourceType":"Specimen","id":"dev-specimen-002","status":"available","type":{"coding":[{"system":"urn:loom:fixture:specimen","code":"fluid","display":"Fluid"}]}}
+{"resourceType":"Specimen","id":"dev-j02-specimen","status":"available","subject":{"reference":"Group/dev-j02-group"},"type":{"coding":[{"system":"urn:loom:devloop:j02","code":"route-specimen","display":"J02 route specimen"}]}}

@@ -268,3 +268,26 @@ func TestResolveRecordsStoredAndScopedSchemaDigests(t *testing.T) {
 		t.Fatalf("scope ordering changed resolution identity: first=%#v second=%#v", first, second)
 	}
 }
+
+func TestResolveCanonicalizesFragmentsBeforeCompilation(t *testing.T) {
+	fragment := recipe.FragmentLibrary{Fragments: map[string]recipe.Fragment{
+		"id": {Name: "id", Version: "1", Params: []string{"value"}, Expr: recipe.Expression{Call: "path_segment", Args: []recipe.Expression{{Select: "$value"}}}},
+	}}
+	bundle := recipe.Bundle{RecipeSchemaVersion: 1, Name: "fragmented", TranslationVersion: "1", Fragments: &fragment, Outputs: []recipe.Output{{
+		Name: "Patient", RootResourceType: "Patient", RowGrain: "patient",
+		Fields: []recipe.Field{{Name: "id", Expr: recipe.Expression{Call: "fragment:id", Args: []recipe.Expression{{Select: "root.id"}}}}},
+	}}}
+	resolved, err := Resolve(context.Background(), bundle, Scope{Project: "p"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolved.Bundle.Fragments != nil || resolved.Bundle.Outputs[0].Fields[0].Expr.Call != "path_segment" {
+		t.Fatalf("resolved bundle was not canonicalized: %#v", resolved.Bundle)
+	}
+	if resolved.StoredRecipeDigest == resolved.ExpandedRecipeDigest || resolved.ExpandedRecipeDigest == "" {
+		t.Fatalf("fragment identity digests were not separated: stored=%q expanded=%q", resolved.StoredRecipeDigest, resolved.ExpandedRecipeDigest)
+	}
+	if _, err := semantic.BuildRecipePlan(resolved.Bundle, recipe.RuntimeBindings{Project: "p"}); err != nil {
+		t.Fatal(err)
+	}
+}

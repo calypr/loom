@@ -56,6 +56,14 @@ type selectorModeContext struct {
 	MetadataOK   bool
 }
 
+func physicalSelectorFallbacks(source ir.PhysicalValue, resourceType string, selectors []spec.Selector) []ir.PhysicalSelectorFallback {
+	fallbacks := make([]ir.PhysicalSelectorFallback, len(selectors))
+	for index, selector := range selectors {
+		fallbacks[index] = ir.PhysicalSelectorFallback{Source: source, ResourceType: resourceType, Selector: selector}
+	}
+	return fallbacks
+}
+
 func selectorExecutionMode(resourceType string, selector spec.Selector, fallbacks ...spec.Selector) ir.PhysicalSelectorExecutionMode {
 	return selectorExecutionModeWithContext(selectorModeContext{
 		ResourceType: resourceType,

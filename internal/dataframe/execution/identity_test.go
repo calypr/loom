@@ -49,6 +49,7 @@ func TestOutputStreamStripsCompilerOnlyColumnsAfterIdentity(t *testing.T) {
 		stream: func(_ context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
 			return visit(map[string]any{
 				"_key":                        "internal-key",
+				"__loom_population_members":   []any{"file-a", "file-b"},
 				"__loom_dynamic_runtime_keys": map[string]any{"family": []string{"x"}},
 				"auth_resource_path":          "HTAN_INT-BForePC",
 				"id":                          "document-1",
@@ -70,5 +71,8 @@ func TestOutputStreamStripsCompilerOnlyColumnsAfterIdentity(t *testing.T) {
 	}
 	if _, ok := got["__loom_dynamic_runtime_keys"]; ok {
 		t.Fatalf("public row leaked dynamic runtime keys: %#v", got)
+	}
+	if _, ok := got["__loom_population_members"]; ok {
+		t.Fatalf("public row leaked population provenance: %#v", got)
 	}
 }

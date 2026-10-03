@@ -9,13 +9,17 @@ import (
 	"time"
 
 	"github.com/calypr/loom/internal/authscope"
+	"github.com/calypr/loom/internal/catalog"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/publication"
+	dataframepublished "github.com/calypr/loom/internal/dataframe/published"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataset"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
+	explorercompilation "github.com/calypr/loom/internal/explorer/compilation"
+	"github.com/calypr/loom/internal/explorer/tableshapecap"
 )
 
 // CapabilityResolver resolves the current or a retained immutable capability
@@ -42,28 +46,84 @@ func (a AuthorizedCapability) Clone() AuthorizedCapability {
 }
 
 type CompileReceiptRequest struct {
-	Project       string
-	ExplorerID    string
-	Workspace     authoringv2.Workspace
-	SnapshotToken string
-	RequestID     string
-	Authorized    AuthorizedCapability
+	Project                    string
+	ExplorerID                 string
+	Workspace                  authoringv2.Workspace
+	SnapshotToken              string
+	RequestID                  string
+	Authorized                 AuthorizedCapability
+	ResolvedInputs             explorercompilation.ResolvedInputs
+	SelectionMembersCollection string
+	RowDefinitionProposal      *explorer.RowDefinitionProposalBinding
+	TableShapeProposal         *explorer.TableShapeProposalBinding
+	ConstructionProposal       *explorer.ConstructionProposalBinding
 }
 
 type ReceiptCompiler func(context.Context, CompileReceiptRequest) (*explorer.CompilationReceipt, error)
 type ReceiptReader func(context.Context, string, string, string) (*explorer.CompilationReceipt, error)
 type ReceiptPreviewer func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings, func(map[string]any) error) (dataframeexecution.PreviewSummary, error)
 
+// ConstructionSourceStageCompiler describes a compiler-resolved source
+// projection for capability discovery. Its result is metadata only; callers
+// must not treat an empty public schema as an executable output.
+type ConstructionSourceStageCompiler func(context.Context, ConstructionSourceStageRequest) (explorer.ReceiptConstructionStage, error)
+
+type ConstructionSourceStageRequest struct {
+	Project                    string
+	ExplorerID                 string
+	OutputID                   string
+	Document                   authoringv2.Document
+	Authorized                 AuthorizedCapability
+	SelectionMembersCollection string
+}
+
+// CategoryScanner executes an exact compiler-owned category scan for one
+// already-validated receipt without exposing query details to lifecycle.
+type CategoryScanner func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings, dataframeexecution.CategoryScanRequest) (dataframeexecution.CategoryScanResult, error)
+
+// ArtifactPublishedReader is the exact-output surface lifecycle needs when
+// materializing a durable artifact. Keeping this contract narrow makes it
+// impossible for artifact orchestration to accidentally follow a moving
+// project-current pointer or bypass the published reader's read pin.
+type ArtifactPublishedReader interface {
+	ExactExecutionMaterialization(context.Context, string, string) (dataframepublished.Materialization, error)
+	StreamExactExport(context.Context, dataframepublished.ExactExportRequest, dataframepublished.ExactExportVisitor) (dataframepublished.ExactExportResult, error)
+}
+
+// PopulationMappingExecutor is the narrow lifecycle-to-execution adapter.
+// Lifecycle supplies the validated receipt, scope bindings, and immutable
+// selected IDs; execution owns compiler witness interpretation.
+type PopulationMappingExecutor func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings, string, []string, string, int) (dataframeexecution.PopulationMappingResult, error)
+
+// CellTraceExecutor explains one published cell from the immutable receipt
+// and authorization bindings validated by lifecycle.
+type CellTraceExecutor func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings, dataframeexecution.CellTraceRequest) (dataframeexecution.CellTraceResult, error)
+
+// RowLineageExecutor pages source records for one row in the immutable receipt output.
+type RowLineageExecutor func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings, dataframeexecution.RowLineageRequest) (dataframeexecution.RowLineageResult, error)
+
+// TableShapeExclusionExecutor enumerates exact exclusions from one validated
+// candidate receipt under its existing authorization bindings.
+type TableShapeExclusionExecutor func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings, dataframeexecution.TableShapeExclusionRequest) (dataframeexecution.TableShapeExclusionResult, error)
+
+// SelectionReferenceValidator resolves explicit references against the
+// authorized active generation. It must verify both resource existence and
+// auth_resource_path before lifecycle persists any member or exclusion.
+type SelectionReferenceValidator func(context.Context, string, string, authscope.ReadScope, []explorer.ResourceRef) error
+
 // Execution is the small logical publication result needed by Explorer. It
 // intentionally avoids the GraphQL resolver's execution type.
 type Execution struct {
 	ID                   string
 	Name                 string
+	Project              string
 	RecipeDigest         string
 	ResolvedSchemaDigest string
 	SourceGeneration     string
+	ScopeDigest          string
 	State                string
 	Outputs              []ExecutionOutput
+	QualityReports       []publication.QualityReport
 }
 
 type ExecutionOutput struct {
@@ -81,12 +141,44 @@ type ReleasePreparer func(context.Context, string, string, []dataset.DataframeSe
 // Config contains deployment adapters. Lifecycle policy calls these narrow
 // callbacks, but never imports the transport packages that construct them.
 type Config struct {
-	Capability CapabilityResolver
+	// SelectionMembersCollection is a deployment-owned runtime binding. It is
+	// never copied into authoring intent, recipes, or receipt identity.
+	SelectionMembersCollection         string
+	Capability                         CapabilityResolver
+	SemanticInventory                  func(context.Context, catalog.SemanticInventoryPageOptions) (catalog.SemanticInventoryPage, error)
+	ResolveSemanticInventorySelections func(context.Context, catalog.SemanticInventoryResolveOptions) (catalog.SemanticInventoryResolveResult, error)
+	// InterpretationRepository resolves exact immutable revision IDs. It is
+	// intentionally narrow so lifecycle cannot accidentally depend on heads or
+	// unrelated Explorer persistence methods.
+	InterpretationRepository explorer.InterpretationRepository
+	// SelectionSourceResolver resolves an exact immutable published revision
+	// after Capability.ForExecution has established project and scope.
+	SelectionSourceResolver     SelectionSourceResolver
+	SelectionReferenceValidator SelectionReferenceValidator
+	RowChoiceResolver           RowChoiceResolver
+	RowChoicePlanner            RowChoicePlanner
+	ExplicitGroupResolver       ExplicitGroupRevisionResolver
+	ExplicitGroupRepository     explorer.ExplicitGroupRepository
 
-	CompileReceipt     ReceiptCompiler
-	PreviewReceipt     ReceiptPreviewer
-	MaterializeReceipt ReceiptMaterializer
-	ReceiptLookup      ReceiptReader
+	CompileReceipt               ReceiptCompiler
+	ConstructionSourceStage      ConstructionSourceStageCompiler
+	PreviewReceipt               ReceiptPreviewer
+	TableShapeCapabilities       tableshapecap.Repository
+	ScanCategories               CategoryScanner
+	PopulationMapping            PopulationMappingExecutor
+	PopulationMappingCursorCodec PopulationMappingCursorCodec
+	CellTrace                    CellTraceExecutor
+	RowLineage                   RowLineageExecutor
+	TableShapeExclusions         TableShapeExclusionExecutor
+	MaterializeReceipt           ReceiptMaterializer
+	ReceiptLookup                ReceiptReader
+	ArtifactStore                explorer.ArtifactStore
+	PublishedReader              ArtifactPublishedReader
+	// Artifact limits are deployment policy, never caller-controlled request
+	// fields. Zero uses lifecycle's conservative defaults.
+	ArtifactTTL      time.Duration
+	ArtifactMaxRows  int64
+	ArtifactMaxBytes int64
 
 	ValidateReleaseGeneration GenerationValidator
 	ActivateRelease           ReleaseActivator
@@ -128,11 +220,14 @@ type BuilderRequest struct {
 }
 
 type compileRequest struct {
-	Project       string
-	ExplorerID    string
-	Workspace     authoringv2.Workspace
-	SnapshotToken string
-	RequestID     string
+	Project               string
+	ExplorerID            string
+	Workspace             authoringv2.Workspace
+	SnapshotToken         string
+	RequestID             string
+	RowDefinitionProposal *explorer.RowDefinitionProposalBinding
+	TableShapeProposal    *explorer.TableShapeProposalBinding
+	ConstructionProposal  *explorer.ConstructionProposalBinding
 }
 
 type ReconcileRequest struct {
@@ -141,6 +236,26 @@ type ReconcileRequest struct {
 	SnapshotToken string
 	DraftVersion  int64
 	DraftDigest   string
+}
+
+type AssessRowChangeRequest struct {
+	Project          string
+	ExplorerID       string
+	SnapshotToken    string
+	DraftVersion     int64
+	DraftDigest      string
+	OutputID         string
+	RootNodeID       string
+	RootOccurrenceID string
+	RouteRebase      []authoringv2.RouteRebaseChoice
+}
+
+type AssessRowChangeResult struct {
+	SnapshotToken      string
+	DraftVersion       int64
+	DraftDigest        string
+	CandidateReceiptID string
+	Assessment         authoringv2.RowChangeAssessment
 }
 
 type PreviewRequest struct {
@@ -159,6 +274,212 @@ type PreviewResult struct {
 	Receipt *explorer.CompilationReceipt
 	Columns []explorer.EmittedColumn
 	Summary dataframeexecution.PreviewSummary
+}
+
+// PreviewInterpretationCandidateRequest identifies an immutable candidate
+// revision and the exact draft against which it was proposed. The draft CAS
+// is checked before either receipt is compiled, but this operation never
+// saves the draft.
+type PreviewInterpretationCandidateRequest struct {
+	Project              string
+	ExplorerID           string
+	SnapshotToken        string
+	ExpectedDraftVersion int64
+	ExpectedDraftDigest  string
+	OutputID             string
+	Column               string
+	RevisionID           string
+	Limit                int
+}
+
+type CandidatePreviewCompleteness string
+
+const (
+	CandidatePreviewComplete   CandidatePreviewCompleteness = "COMPLETE"
+	CandidatePreviewIncomplete CandidatePreviewCompleteness = "INCOMPLETE"
+)
+
+type CandidatePreviewState string
+
+const (
+	CandidatePreviewUnchanged  CandidatePreviewState = "UNCHANGED"
+	CandidatePreviewChanged    CandidatePreviewState = "CHANGED"
+	CandidatePreviewResolved   CandidatePreviewState = "RESOLVED"
+	CandidatePreviewUnresolved CandidatePreviewState = "UNRESOLVED"
+)
+
+// InterpretationCandidatePreviewSample contains one stable output row. The
+// Before and After maps are keyed by the physical public column names present
+// in the preview, allowing one authored column to retain every indexed or
+// repeated physical emission.
+type InterpretationCandidatePreviewSample struct {
+	RowID  string                `json:"rowId"`
+	Before map[string]any        `json:"before"`
+	After  map[string]any        `json:"after"`
+	State  CandidatePreviewState `json:"state"`
+}
+
+// CandidatePreviewCounts describe only the bounded sample, never an
+// inferred whole-population count.
+type CandidatePreviewCounts struct {
+	Compared   int `json:"compared"`
+	Changed    int `json:"changed"`
+	Resolved   int `json:"resolved"`
+	Unresolved int `json:"unresolved"`
+}
+
+type PreviewInterpretationCandidateResult struct {
+	BaseReceiptID      string                                 `json:"baseReceiptId"`
+	CandidateReceiptID string                                 `json:"candidateReceiptId"`
+	OutputID           string                                 `json:"outputId"`
+	Column             string                                 `json:"column"`
+	RevisionID         string                                 `json:"revisionId"`
+	Completeness       CandidatePreviewCompleteness           `json:"completeness"`
+	Samples            []InterpretationCandidatePreviewSample `json:"samples"`
+	Counts             CandidatePreviewCounts                 `json:"counts"`
+}
+
+// InterpretationLibraryView expands the mutable library head into the exact
+// immutable revision that a client may inspect or propose. The view never
+// makes a workspace follow this head; pinned workspaces retain their exact
+// revision ID.
+type InterpretationLibraryView struct {
+	Library explorer.InterpretationLibrary
+	Head    *explorer.InterpretationRevision
+}
+
+type ListInterpretationLibrariesResult struct {
+	Project   string
+	Libraries []InterpretationLibraryView
+}
+
+type GetInterpretationRevisionRequest struct {
+	Project    string
+	RevisionID string
+}
+
+// CreateInterpretationRevisionRequest contains only typed authoring values.
+// Author is supplied by the authenticated transport subject, never by the
+// browser payload.
+type CreateInterpretationRevisionRequest struct {
+	Project          string
+	LibraryID        string
+	ParentRevisionID string
+	Applicability    explorer.InterpretationApplicability
+	Rules            []explorer.InterpretationRule
+	Explanation      string
+	Author           string
+}
+
+type PopulationMappingRequest struct {
+	Project    string
+	ExplorerID string
+	ReceiptID  string
+	OutputID   string
+	Cursor     string
+	Limit      int
+}
+
+type PopulationMappingBinding struct {
+	ReceiptID           string
+	OutputID            string
+	Project             string
+	ExplorerID          string
+	Generation          string
+	ScopeDigest         string
+	SelectionRevisionID string
+	MembershipDigest    string
+	ResourceType        string
+}
+
+type PopulationMappingCounts struct {
+	Selected    int64
+	Mapped      int64
+	Unmapped    int64
+	EmittedRows int64
+}
+
+type PopulationMappingDiagnostic struct {
+	Code    string
+	Message string
+}
+
+type PopulationMappingReport struct {
+	Binding     PopulationMappingBinding
+	Status      dataframeexecution.PopulationMappingStatus
+	Counts      *PopulationMappingCounts
+	Unmapped    []explorer.ResourceRef
+	NextCursor  string
+	Diagnostics []PopulationMappingDiagnostic
+}
+
+type PopulationMappingResult struct {
+	Report PopulationMappingReport
+}
+
+type CellTraceRequest struct {
+	Project    string
+	ExplorerID string
+	ReceiptID  string
+	OutputID   string
+	RowID      string
+	Column     string
+	Offset     int
+	Limit      int
+}
+
+type RowLineageRequest struct {
+	Project    string
+	ExplorerID string
+	ReceiptID  string
+	OutputID   string
+	RowID      string
+	Offset     int
+	Limit      int
+}
+
+type RowLineageResult struct {
+	ReceiptID    string
+	OutputID     string
+	RowID        string
+	Status       string
+	Contributors []dataframeexecution.RowLineageContributor
+	HasMore      bool
+	NextOffset   *int
+	ReasonCode   string
+	Operation    string
+}
+
+type CellTraceBinding struct {
+	ReceiptID   string `json:"receiptId"`
+	OutputID    string `json:"outputId"`
+	Project     string `json:"project"`
+	ExplorerID  string `json:"explorerId"`
+	Generation  string `json:"generation"`
+	ScopeDigest string `json:"scopeDigest"`
+}
+
+type CellTraceResult struct {
+	Binding CellTraceBinding                   `json:"binding"`
+	Feature CellTraceFeature                   `json:"feature"`
+	Trace   dataframeexecution.CellTraceResult `json:"trace"`
+}
+
+// CellTraceFeature is the receipt-owned descriptor for both explanation and
+// repair navigation. AuthoredColumn is the stable Builder key; Column is the
+// published physical key and may differ for expanded projections.
+type CellTraceFeature struct {
+	OutputID           string   `json:"outputId"`
+	Column             string   `json:"column"`
+	AuthoredColumn     string   `json:"authoredColumn"`
+	OccurrenceID       string   `json:"occurrenceId"`
+	Label              string   `json:"label"`
+	LogicalType        string   `json:"logicalType"`
+	SourceResourceType string   `json:"sourceResourceType,omitempty"`
+	SourcePath         string   `json:"sourcePath,omitempty"`
+	ProjectionMode     string   `json:"projectionMode,omitempty"`
+	Lossless           bool     `json:"lossless"`
+	LossReasons        []string `json:"lossReasons"`
 }
 
 type PublishRequest struct {

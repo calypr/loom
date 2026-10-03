@@ -39,3 +39,16 @@ func TestFieldEnrichmentDigestIncludesExactCanonicalRecord(t *testing.T) {
 		t.Fatalf("field enrichment clone lost values: %#v", got)
 	}
 }
+
+func TestFieldEnrichmentDigestIncludesArrayWidth(t *testing.T) {
+	base := FieldEnrichmentObservation{Project: "p", DatasetGeneration: "g", ResourceType: "Patient", Path: "name[]", Kind: "array", MaxItems: 2}
+	one, err := FieldEnrichmentDigest([]FieldEnrichmentObservation{base})
+	if err != nil {
+		t.Fatal(err)
+	}
+	base.MaxItems = 3
+	two, err := FieldEnrichmentDigest([]FieldEnrichmentObservation{base})
+	if err != nil || one == two {
+		t.Fatalf("digest omitted exact array width: %q == %q (err=%v)", one, two, err)
+	}
+}

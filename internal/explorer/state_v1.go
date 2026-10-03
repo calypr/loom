@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"time"
 
+	"github.com/calypr/loom/internal/dataframe/publication"
+	"github.com/calypr/loom/internal/dataframe/unit"
 	"github.com/calypr/loom/internal/dataset"
 )
 
@@ -59,25 +61,27 @@ type ExplorerStateV1Active struct {
 }
 
 type ExplorerStateV1Generated struct {
-	RecipeDigest         string              `json:"recipeDigest,omitempty"`
-	ResolvedSchemaDigest string              `json:"resolvedSchemaDigest,omitempty"`
-	SourceGeneration     string              `json:"sourceGeneration,omitempty"`
-	EmittedColumns       []EmittedColumn     `json:"emittedColumns,omitempty"`
-	Materializations     []Materialization   `json:"materializations,omitempty"`
-	Dataset              DatasetMetadata     `json:"dataset,omitempty"`
-	Publication          PublicationMetadata `json:"publication,omitempty"`
-	Diagnostics          []Diagnostic        `json:"diagnostics,omitempty"`
+	RecipeDigest         string                      `json:"recipeDigest,omitempty"`
+	ResolvedSchemaDigest string                      `json:"resolvedSchemaDigest,omitempty"`
+	SourceGeneration     string                      `json:"sourceGeneration,omitempty"`
+	EmittedColumns       []EmittedColumn             `json:"emittedColumns,omitempty"`
+	Materializations     []Materialization           `json:"materializations,omitempty"`
+	Dataset              DatasetMetadata             `json:"dataset,omitempty"`
+	Publication          PublicationMetadata         `json:"publication,omitempty"`
+	QualityReports       []publication.QualityReport `json:"qualityReports,omitempty"`
+	Diagnostics          []Diagnostic                `json:"diagnostics,omitempty"`
 }
 
 type ExplorerRuntimeV1 struct {
-	Status        string                                `json:"status"`
-	Generation    string                                `json:"generation,omitempty"`
-	Publication   PublicationMetadata                   `json:"publication,omitempty"`
-	Schema        ExplorerRuntimeSchemaV1               `json:"schema,omitempty"`
-	Outputs       []ExplorerRuntimeOutputV1             `json:"outputs"`
-	SharedFilters map[string][]ExplorerRuntimeBindingV1 `json:"sharedFilters"`
-	FileActions   FileActions                           `json:"fileActions,omitempty"`
-	Diagnostics   []Diagnostic                          `json:"diagnostics"`
+	Status         string                                `json:"status"`
+	Generation     string                                `json:"generation,omitempty"`
+	Publication    PublicationMetadata                   `json:"publication,omitempty"`
+	Schema         ExplorerRuntimeSchemaV1               `json:"schema,omitempty"`
+	Outputs        []ExplorerRuntimeOutputV1             `json:"outputs"`
+	SharedFilters  map[string][]ExplorerRuntimeBindingV1 `json:"sharedFilters"`
+	FileActions    FileActions                           `json:"fileActions,omitempty"`
+	QualityReports []publication.QualityReport           `json:"qualityReports,omitempty"`
+	Diagnostics    []Diagnostic                          `json:"diagnostics"`
 }
 
 type ExplorerRuntimeSchemaV1 struct {
@@ -101,18 +105,19 @@ type ExplorerRuntimeOutputV1 struct {
 }
 
 type ExplorerRuntimeColumnV1 struct {
-	Column       string `json:"column"`
-	EmissionID   string `json:"-"`
-	Name         string `json:"-"`
-	Label        string `json:"label"`
-	LogicalType  string `json:"logicalType"`
-	Visible      bool   `json:"visible"`
-	Order        int    `json:"order"`
-	Repeated     bool   `json:"repeated,omitempty"`
-	Filterable   bool   `json:"filterable"`
-	Sortable     bool   `json:"sortable,omitempty"`
-	Chartable    bool   `json:"chartable"`
-	Aggregatable bool   `json:"aggregatable,omitempty"`
+	Column       string             `json:"column"`
+	EmissionID   string             `json:"-"`
+	Name         string             `json:"-"`
+	Label        string             `json:"label"`
+	LogicalType  string             `json:"logicalType"`
+	ResultUnit   *unit.UnitIdentity `json:"resultUnit,omitempty"`
+	Visible      bool               `json:"visible"`
+	Order        int                `json:"order"`
+	Repeated     bool               `json:"repeated,omitempty"`
+	Filterable   bool               `json:"filterable"`
+	Sortable     bool               `json:"sortable,omitempty"`
+	Chartable    bool               `json:"chartable"`
+	Aggregatable bool               `json:"aggregatable,omitempty"`
 }
 
 type ExplorerRuntimeTableV1 struct {

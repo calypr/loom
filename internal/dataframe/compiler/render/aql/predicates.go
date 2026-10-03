@@ -9,30 +9,192 @@ import (
 )
 
 func (r *physicalPlanRenderer) renderPredicate(predicate ir.PhysicalPredicate) (string, error) {
+	if predicate.Correlation != nil {
+		return r.renderCorrelationPredicate(*predicate.Correlation)
+	}
 	if predicate.LeftExpression != nil {
 		return r.renderSelectorPredicate(predicate)
-	}
-	if predicate.Right == nil {
-		return "", fmt.Errorf("physical filter operator %q requires a right value", predicate.Operator)
 	}
 	left, err := r.renderValue(predicate.Left)
 	if err != nil {
 		return "", err
 	}
+	operator := strings.ToUpper(strings.TrimSpace(predicate.Operator))
+	if predicate.Right == nil {
+		switch operator {
+		case "EXISTS":
+			return left + " != null", nil
+		case "MISSING":
+			return left + " == null", nil
+		default:
+			return "", fmt.Errorf("physical filter operator %q requires a right value", predicate.Operator)
+		}
+	}
 	right, err := r.renderValue(*predicate.Right)
 	if err != nil {
 		return "", err
 	}
-	switch strings.ToUpper(strings.TrimSpace(predicate.Operator)) {
+	switch operator {
 	case "EQUALS":
 		return left + " == " + right, nil
+	case "NOT_EQUALS":
+		return left + " != " + right, nil
 	case "IN":
 		return left + " IN " + right, nil
 	case "GT":
 		return left + " > " + right, nil
+	case "GTE":
+		return left + " >= " + right, nil
+	case "LT":
+		return left + " < " + right, nil
+	case "LTE":
+		return left + " <= " + right, nil
+	case "CONTAINS_TEXT":
+		return "CONTAINS(TO_STRING(" + left + "), " + right + ")", nil
 	default:
 		return "", fmt.Errorf("unsupported direct physical filter operator %q", predicate.Operator)
 	}
+}
+
+// renderCorrelationPredicate keeps the Coding loop and owner value in one
+// lexical scope. A system from Coding[0] can therefore never match a code
+// from Coding[1], nor can a value from a different repeated component pass.
+func (r *physicalPlanRenderer) renderCorrelationPredicate(correlation ir.PhysicalCorrelation) (string, error) {
+	owners, err := r.renderCorrelationOwners(correlation.Source, correlation.OwnerSelector)
+	if err != nil {
+		return "", err
+	}
+	owner := r.newInternalVariable("correlation_owner")
+	coding := r.newInternalVariable("correlation_coding")
+	codings, err := r.renderSelectorArrayFromSource(owner, correlation.KeySelector, false, false)
+	if err != nil {
+		return "", fmt.Errorf("correlation key selector: %w", err)
+	}
+	system, err := r.renderCorrelationScalar(coding, correlation.SystemSelector)
+	if err != nil {
+		return "", fmt.Errorf("correlation system selector: %w", err)
+	}
+	code, err := r.renderCorrelationScalar(coding, correlation.CodeSelector)
+	if err != nil {
+		return "", fmt.Errorf("correlation code selector: %w", err)
+	}
+	if correlation.SystemBindKey == "" || correlation.CodeBindKey == "" {
+		return "", fmt.Errorf("correlation match binds are required")
+	}
+	values, err := r.renderCorrelationValues(owner, correlation.ValueSelector, correlation.ValueFallbacks)
+	if err != nil {
+		return "", err
+	}
+	unsupportedValues, err := r.renderCorrelationUnsupportedChoiceValues(owner, correlation)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf(`LENGTH(
+  FOR %s IN %s
+    FOR %s IN FLATTEN(%s)
+      LET __correlation_system = %s
+      LET __correlation_code = %s
+      FILTER __correlation_system != null AND __correlation_system != ""
+      FILTER __correlation_code != null AND __correlation_code != ""
+      FILTER __correlation_system == @%s
+	      FILTER __correlation_code == @%s
+	      LET __correlation_values = %s
+	      LET __correlation_unsupported_values = %s
+	      FILTER LENGTH(__correlation_unsupported_values) == 0
+	      FILTER LENGTH(FLATTEN(__correlation_values)) > 0
+	      LIMIT 1
+	      RETURN 1
+) > 0`, owner, owners, coding, codings, system, code, correlation.SystemBindKey, correlation.CodeBindKey, values, unsupportedValues), nil
+}
+
+func (r *physicalPlanRenderer) renderCorrelationOwners(source ir.PhysicalValue, ownerSelector spec.Selector) (string, error) {
+	raw, err := r.renderValue(source)
+	if err != nil {
+		return "", err
+	}
+	if source.Variable != "" && r.setVariables[source.Variable] != "" {
+		if ownerSelector.CanonicalPath() != "" {
+			owners, err := r.renderSelectorArrayFromSource(raw, ownerSelector, true, false)
+			if err != nil {
+				return "", err
+			}
+			return "FLATTEN(" + owners + ")", nil
+		}
+		return "(FOR __correlation_entry IN " + raw + " RETURN __correlation_entry.payload)", nil
+	}
+	if source.Variable != "" && len(source.Path) == 0 {
+		raw += ".payload"
+	}
+	if ownerSelector.CanonicalPath() != "" {
+		owners, err := r.renderSelectorArrayFromSource(raw, ownerSelector, false, false)
+		if err != nil {
+			return "", err
+		}
+		// A selector whose terminal step iterates an array returns one array
+		// per source document. Correlation loops over owner items, so flatten
+		// exactly that selector-result layer before pairing Coding/value data.
+		return "FLATTEN(" + owners + ")", nil
+	}
+	return "[" + raw + "]", nil
+}
+
+func (r *physicalPlanRenderer) renderCorrelationScalar(source string, selector spec.Selector) (string, error) {
+	values, err := r.renderSelectorArrayFromSource(source, selector, false, true)
+	if err != nil {
+		return "", err
+	}
+	return "FIRST(" + values + ")", nil
+}
+
+func (r *physicalPlanRenderer) renderCorrelationValues(source string, selector spec.Selector, fallbacks []spec.Selector) (string, error) {
+	selectors := append([]spec.Selector{selector}, fallbacks...)
+	values := make([]string, 0, len(selectors))
+	for _, candidate := range selectors {
+		value, err := r.renderSelectorArrayFromSource(source, candidate, false, false)
+		if err != nil {
+			return "", err
+		}
+		values = append(values, value)
+	}
+	if len(values) == 1 {
+		return values[0], nil
+	}
+	return "FIRST(FOR __correlation_candidate IN [" + strings.Join(values, ", ") + "] FILTER LENGTH(__correlation_candidate) > 0 RETURN __correlation_candidate)", nil
+}
+
+// renderCorrelationUnsupportedChoiceValues returns values observed on choice
+// arms that are not part of the checked binding. Keeping this separate from
+// the selected value expression lets projections expose an explicit typed
+// incompatibility while predicates reject that row instead of treating it as
+// ordinary absence.
+func (r *physicalPlanRenderer) renderCorrelationUnsupportedChoiceValues(source string, correlation ir.PhysicalCorrelation) (string, error) {
+	if len(correlation.ChoiceSelectors) == 0 || len(correlation.ChoiceArms) == 0 {
+		return "[]", nil
+	}
+	parts := make([]string, 0, len(correlation.ChoiceSelectors))
+	for _, selector := range correlation.ChoiceSelectors {
+		if len(selector.Steps) == 0 || correlationChoiceArmAllowed(selector.Steps[0].Field, correlation.ChoiceArms) {
+			continue
+		}
+		values, err := r.renderSelectorArrayFromSource(source, selector, false, false)
+		if err != nil {
+			return "", err
+		}
+		parts = append(parts, values)
+	}
+	if len(parts) == 0 {
+		return "[]", nil
+	}
+	return "FLATTEN([" + strings.Join(parts, ", ") + "])", nil
+}
+
+func correlationChoiceArmAllowed(arm string, allowed []string) bool {
+	for _, candidate := range allowed {
+		if strings.TrimSpace(candidate) == strings.TrimSpace(arm) {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *physicalPlanRenderer) renderSelectorPredicate(predicate ir.PhysicalPredicate) (string, error) {
@@ -127,17 +289,33 @@ func (r *physicalPlanRenderer) renderPredicateExpression(predicate ir.PhysicalPr
 // always bounded: relationship matching is a semi-join, never a row-expanding
 // traversal, so the renderer appends LIMIT 1 immediately before RETURN.
 func (r *physicalPlanRenderer) renderExistsSubplan(subplan ir.PhysicalSubplan, indent string) (string, error) {
-	lines := make([]string, 0, len(subplan.Operations)*3+2)
+	value, err := r.renderSubplan(subplan, indent, true)
+	if err != nil {
+		return "", err
+	}
+	return "LENGTH(" + value + ") > 0", nil
+}
+
+func (r *physicalPlanRenderer) renderSubplan(subplan ir.PhysicalSubplan, indent string, bounded bool) (string, error) {
+	if bounded && (subplan.Sort != nil || subplan.Unique || subplan.DistinctBy != nil) {
+		return "", fmt.Errorf("EXISTS subplan cannot use projection-only sort or unique modifiers")
+	}
+	if subplan.Unique && subplan.Sort == nil {
+		return "", fmt.Errorf("unique subplan requires a stable sort value")
+	}
+	lines := make([]string, 0, len(subplan.Operations)*3+6)
 	for index, operation := range subplan.Operations {
 		switch operation.Kind {
+		case ir.PhysicalCollectionScanOp:
+			lines = append(lines, fmt.Sprintf("%sFOR %s IN @@%s", indent+"  ", operation.CollectionScan.Variable, operation.CollectionScan.CollectionBindKey))
+		case ir.PhysicalDocumentLookupOp:
+			rendered, err := r.renderDocumentLookup(*operation.DocumentLookup, indent+"  ")
+			if err != nil {
+				return "", fmt.Errorf("subplan operation %d document lookup: %w", index, err)
+			}
+			lines = append(lines, rendered...)
 		case ir.PhysicalTraversalOp:
-			traversal := operation.Traversal
-			lines = append(lines,
-				fmt.Sprintf("%sFOR %s, %s IN 1..1 %s %s @@%s", indent+"  ", traversal.TargetVariable, traversal.EdgeVariable, traversal.Direction, traversal.SourceVariable, traversal.EdgeCollectionBindKey),
-				fmt.Sprintf("%s  FILTER %s.label == @%s", indent+"  ", traversal.EdgeVariable, traversal.EdgeLabelBindKey),
-				fmt.Sprintf("%s  FILTER %s.%s == @%s", indent+"  ", traversal.EdgeVariable, traversal.EdgeTargetTypeField, traversal.TargetTypeBindKey),
-				fmt.Sprintf("%s  FILTER %s.resourceType == @%s", indent+"  ", traversal.TargetVariable, traversal.TargetTypeBindKey),
-			)
+			lines = append(lines, r.renderTraversalScan(*operation.Traversal, operation.Traversal.SourceVariable, indent+"  ")...)
 		case ir.PhysicalFilterOp, ir.PhysicalDerivedLetOp:
 			rendered, err := r.renderScopeOperation(operation, indent+"    ")
 			if err != nil {
@@ -148,10 +326,58 @@ func (r *physicalPlanRenderer) renderExistsSubplan(subplan ir.PhysicalSubplan, i
 			return "", fmt.Errorf("subplan operation %d has unsupported render kind %q", index, operation.Kind)
 		}
 	}
+	if subplan.Sort != nil && subplan.DistinctBy == nil {
+		sort, err := r.renderValue(*subplan.Sort)
+		if err != nil {
+			return "", fmt.Errorf("subplan sort: %w", err)
+		}
+		lines = append(lines, indent+"    SORT "+sort)
+	}
+	if subplan.DistinctBy != nil {
+		key, err := r.renderValue(*subplan.DistinctBy)
+		if err != nil {
+			return "", fmt.Errorf("subplan distinct key: %w", err)
+		}
+		value, err := r.renderExpression(subplan.Return)
+		if err != nil {
+			return "", err
+		}
+		keyVariable := r.newInternalVariable("subplan_distinct_key")
+		groupKeyVariable := r.newInternalVariable("subplan_distinct_group_key")
+		valueVariable := r.newInternalVariable("subplan_distinct_value")
+		groupedValues := r.newInternalVariable("subplan_distinct_values")
+		lines = append(lines,
+			indent+"    LET "+keyVariable+" = "+key,
+			indent+"    LET "+valueVariable+" = "+value,
+			indent+"    COLLECT "+groupKeyVariable+" = "+keyVariable+" INTO "+groupedValues+" = "+valueVariable,
+			indent+"    SORT "+groupKeyVariable+" ASC",
+			indent+"    RETURN FIRST("+groupedValues+")",
+		)
+		return "(\n" + strings.Join(lines, "\n") + "\n" + indent + "  )", nil
+	}
 	value, err := r.renderExpression(subplan.Return)
 	if err != nil {
 		return "", err
 	}
-	lines = append(lines, indent+"    LIMIT 1", indent+"    RETURN "+value)
-	return "LENGTH((\n" + strings.Join(lines, "\n") + "\n" + indent + "  )) > 0", nil
+	if bounded {
+		lines = append(lines, indent+"    LIMIT 1")
+	}
+	lines = append(lines, indent+"    RETURN "+value)
+	result := "(\n" + strings.Join(lines, "\n") + "\n" + indent + "  )"
+	if subplan.Unique {
+		result = "SORTED_UNIQUE(" + result + ")"
+	}
+	return result, nil
+}
+
+func (r *physicalPlanRenderer) renderDocumentLookup(lookup ir.PhysicalDocumentLookup, indent string) ([]string, error) {
+	exactID, err := r.renderValue(lookup.ExactID)
+	if err != nil {
+		return nil, fmt.Errorf("render exact document identity: %w", err)
+	}
+	return []string{
+		fmt.Sprintf("%sFILTER %s != null", indent, exactID),
+		fmt.Sprintf("%sLET %s = DOCUMENT(@@%s, PARSE_IDENTIFIER(%s).key)", indent, lookup.Variable, lookup.CollectionBindKey, exactID),
+		fmt.Sprintf("%sFILTER %s != null && %s._id == %s", indent, lookup.Variable, lookup.Variable, exactID),
+	}, nil
 }

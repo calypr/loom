@@ -4,6 +4,10 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+
+	"github.com/calypr/loom/internal/dataframe/columntransform"
+	"github.com/calypr/loom/internal/dataframe/unit"
+	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
 const (
@@ -20,42 +24,540 @@ type ExplorerMetadata struct {
 // is empty only for the root; every child names the relationship from its
 // parent. Resource identities are stable FHIR resource types, not catalog IDs.
 type RouteNode struct {
-	OccurrenceID string      `json:"occurrenceId"`
-	ResourceType string      `json:"resourceType"`
-	Relationship string      `json:"relationship,omitempty"`
-	Children     []RouteNode `json:"children,omitempty"`
+	OccurrenceID  string         `json:"occurrenceId"`
+	ResourceType  string         `json:"resourceType"`
+	CatalogEdgeID string         `json:"catalogEdgeId,omitempty"`
+	Relationship  string         `json:"relationship,omitempty"`
+	MatchMode     RouteMatchMode `json:"matchMode,omitempty"`
+	Children      []RouteNode    `json:"children,omitempty"`
+}
+
+// RouteMatchMode distinguishes row-defining relationships from feature-only
+// relationships. Empty is the legacy OPTIONAL default.
+type RouteMatchMode string
+
+const (
+	RouteMatchOptional RouteMatchMode = "OPTIONAL"
+	RouteMatchRequired RouteMatchMode = "REQUIRED"
+)
+
+func (m RouteMatchMode) Valid() bool {
+	return m == "" || m == RouteMatchOptional || m == RouteMatchRequired
+}
+
+func (m RouteMatchMode) Normalized() RouteMatchMode {
+	if m == RouteMatchRequired {
+		return RouteMatchRequired
+	}
+	return RouteMatchOptional
 }
 
 type ColumnSource struct {
-	Kind           string   `json:"kind"`
-	FieldPath      string   `json:"fieldPath,omitempty"`
-	Match          string   `json:"match,omitempty"`
-	ProjectionMode string   `json:"projectionMode,omitempty"`
-	Operation      string   `json:"operation,omitempty"`
-	WherePath      string   `json:"wherePath,omitempty"`
-	WhereEquals    string   `json:"whereEquals,omitempty"`
-	RequiredValues []string `json:"requiredValues,omitempty"`
+	Kind         string              `json:"kind"`
+	Field        *FieldSource        `json:"field,omitempty"`
+	Aggregate    *AggregateSource    `json:"aggregate,omitempty"`
+	Lookup       *LookupSource       `json:"lookup,omitempty"`
+	OwnerRecords *OwnerRecordsSource `json:"ownerRecords,omitempty"`
+}
+
+// OwnerRecordsSource preserves one repeated FHIR owner as one structured
+// record in a list-valued cell. Binding and Key are server-resolved semantic
+// identity; clients never supply arbitrary selectors for this source.
+type OwnerRecordsSource struct {
+	Binding fhirschema.CorrelatedBinding `json:"binding"`
+	Key     fhirschema.CorrelatedKey     `json:"key"`
+}
+
+// UnitNormalizationPolicy is intentionally a nontechnical preset reference.
+// The compiler owns target identity, dimensions, conversion rules, and FHIR
+// Quantity sibling selectors.
+type UnitNormalizationPolicy struct {
+	PolicyID string `json:"policyId"`
+	Version  string `json:"version"`
+}
+
+type AggregateTransformationCapabilities struct {
+	Temporal          TemporalReductionCapabilities `json:"temporalReduction"`
+	UnitNormalization UnitNormalizationCapabilities `json:"unitNormalization"`
+}
+
+type TemporalReductionCapabilities struct {
+	Available       bool                  `json:"available"`
+	ReasonCode      string                `json:"reasonCode,omitempty"`
+	Reason          string                `json:"reason,omitempty"`
+	TimestampFields []TemporalFieldChoice `json:"timestampFields"`
+	AnchorFields    []TemporalFieldChoice `json:"anchorFields"`
+}
+
+type TemporalFieldChoice struct {
+	CandidateID  string `json:"candidateId"`
+	NodeID       string `json:"nodeId"`
+	ResourceType string `json:"resourceType"`
+	FieldPath    string `json:"fieldPath"`
+	Label        string `json:"label"`
+}
+
+type UnitNormalizationCapabilities struct {
+	Available  bool                                `json:"available"`
+	ReasonCode string                              `json:"reasonCode,omitempty"`
+	Reason     string                              `json:"reason,omitempty"`
+	Presets    []UnitNormalizationPresetCapability `json:"presets"`
+}
+
+type UnitNormalizationPresetCapability struct {
+	PolicyID   string            `json:"policyId"`
+	Version    string            `json:"version"`
+	Target     unit.UnitIdentity `json:"target"`
+	Available  bool              `json:"available"`
+	ReasonCode string            `json:"reasonCode,omitempty"`
+	Reason     string            `json:"reason,omitempty"`
+}
+
+func (p UnitNormalizationPolicy) Validate() error {
+	return unit.ValidateUnitPolicyReference(p.PolicyID, p.Version)
+}
+
+// FieldSource is the closed payload for a direct field projection. The
+// related-selection annotation is intentionally nested in the field variant.
+// It cannot accidentally be attached to a project, lookup, or aggregate.
+type FieldSource struct {
+	Path             string            `json:"path"`
+	ProjectionMode   string            `json:"projectionMode,omitempty"`
+	RelatedSelection *RelatedSelection `json:"relatedSelection,omitempty"`
+}
+
+type AggregateSource struct {
+	Operation         string                   `json:"operation"`
+	Path              string                   `json:"path,omitempty"`
+	UnitNormalization *UnitNormalizationPolicy `json:"unitNormalization,omitempty"`
+	// Where is retained only for decoding immutable/pre-v3 in-memory recipes.
+	// It is deliberately omitted from the current authoring JSON contract;
+	// writable contributor intent lives on Column.Contributor instead.
+	Where             *SourceWhere             `json:"-"`
+	RequiredValues    []string                 `json:"requiredValues,omitempty"`
+	ContributorWindow *ContributorWindowSource `json:"contributorWindow,omitempty"`
+	Ordering          *TemporalOrderingSource  `json:"ordering,omitempty"`
+}
+
+type ContributorWindowSource struct {
+	TimestampPath  string `json:"timestampPath"`
+	AnchorPath     string `json:"anchorPath"`
+	LowerOffset    int64  `json:"lowerOffsetSeconds"`
+	UpperOffset    int64  `json:"upperOffsetSeconds"`
+	LowerInclusive bool   `json:"lowerInclusive"`
+	UpperInclusive bool   `json:"upperInclusive"`
+	Precision      string `json:"precision"`
+}
+
+type TemporalOrderingSource struct {
+	TimestampPath string `json:"timestampPath"`
+	Direction     string `json:"direction"`
+	TiePolicy     string `json:"tiePolicy"`
+}
+
+type SourceWhere struct {
+	Path   string `json:"path"`
+	Equals string `json:"equals"`
+}
+
+// UnmarshalJSON keeps the current aggregate source shape closed. Persisted
+// legacy sources are decoded by decodePersistedSource, which is the only
+// compatibility boundary allowed to interpret wherePath/whereEquals or a
+// nested where object.
+func (s *AggregateSource) UnmarshalJSON(raw []byte) error {
+	type wire struct {
+		Operation         string                   `json:"operation"`
+		Path              string                   `json:"path,omitempty"`
+		UnitNormalization *UnitNormalizationPolicy `json:"unitNormalization,omitempty"`
+		RequiredValues    []string                 `json:"requiredValues,omitempty"`
+		ContributorWindow *ContributorWindowSource `json:"contributorWindow,omitempty"`
+		Ordering          *TemporalOrderingSource  `json:"ordering,omitempty"`
+	}
+	var decoded wire
+	if err := strictDecode(raw, &decoded); err != nil {
+		return err
+	}
+	*s = AggregateSource{
+		Operation: decoded.Operation, Path: decoded.Path,
+		UnitNormalization: cloneUnitNormalization(decoded.UnitNormalization), RequiredValues: append([]string(nil), decoded.RequiredValues...),
+		ContributorWindow: cloneContributorWindow(decoded.ContributorWindow), Ordering: cloneTemporalOrdering(decoded.Ordering),
+	}
+	return nil
+}
+
+type LookupSource struct {
+	Match          string `json:"match,omitempty"`
+	Path           string `json:"path,omitempty"`
+	ProjectionMode string `json:"projectionMode,omitempty"`
+	// Identifier is the checked namespace/value alternative for
+	// identifierBySystem. It is mutually exclusive with legacy Match/Path and
+	// the coding or extension binding alternatives.
+	Identifier *fhirschema.IdentifierBinding `json:"identifier,omitempty"`
+	// Binding is the validated correlated FHIR shape used by codedValue.
+	// It is a closed alternative to legacy Match/Path, never a precedence rule
+	// between two writable lookup meanings.
+	Binding *fhirschema.CorrelatedBinding `json:"binding,omitempty"`
+	// Key is required with Binding and carries the selected system/code
+	// identity.
+	Key *fhirschema.CorrelatedKey `json:"key,omitempty"`
+	// Extension is the ancestor-aware closed alternative for extensionByUrl.
+	// It cannot coexist with legacy Match/Path or the terminology Binding/Key.
+	Extension *fhirschema.ExtensionBinding `json:"extension,omitempty"`
+}
+
+type RelatedSelection struct {
+	Kind         string `json:"kind"`
+	Acknowledged bool   `json:"acknowledged"`
+}
+
+// UnmarshalJSON keeps the writable source contract closed. Legacy flat source
+// payloads are decoded only by DecodeWorkspace's persisted-draft migration.
+func (s *ColumnSource) UnmarshalJSON(raw []byte) error {
+	var wire struct {
+		Kind         string              `json:"kind"`
+		Field        *FieldSource        `json:"field,omitempty"`
+		Aggregate    *AggregateSource    `json:"aggregate,omitempty"`
+		Lookup       *LookupSource       `json:"lookup,omitempty"`
+		OwnerRecords *OwnerRecordsSource `json:"ownerRecords,omitempty"`
+	}
+	if err := strictDecode(raw, &wire); err != nil {
+		return err
+	}
+	value := ColumnSource{Kind: wire.Kind, Field: wire.Field, Aggregate: wire.Aggregate, Lookup: wire.Lookup, OwnerRecords: wire.OwnerRecords}
+	switch wire.Kind {
+	case SourceField:
+		if wire.Field == nil || wire.Aggregate != nil || wire.Lookup != nil || wire.OwnerRecords != nil {
+			return fmt.Errorf("field source requires exactly the field payload")
+		}
+	case SourceAggregate:
+		if wire.Aggregate == nil || wire.Field != nil || wire.Lookup != nil || wire.OwnerRecords != nil {
+			return fmt.Errorf("aggregate source requires exactly the aggregate payload")
+		}
+	case SourceIdentifierBySystem, SourceExtensionByURL, SourceCodedValue:
+		if wire.Lookup == nil || wire.Field != nil || wire.Aggregate != nil || wire.OwnerRecords != nil {
+			return fmt.Errorf("%s source requires exactly the lookup payload", wire.Kind)
+		}
+	case SourceOwnerRecords:
+		if wire.OwnerRecords == nil || wire.Field != nil || wire.Aggregate != nil || wire.Lookup != nil {
+			return fmt.Errorf("ownerRecords source requires exactly the ownerRecords payload")
+		}
+	case SourceProjectID:
+		if wire.Field != nil || wire.Aggregate != nil || wire.Lookup != nil || wire.OwnerRecords != nil {
+			return fmt.Errorf("projectId source does not accept a payload")
+		}
+	default:
+		return fmt.Errorf("unsupported source kind %q", wire.Kind)
+	}
+	*s = value
+	return nil
+}
+
+func (s ColumnSource) fieldPath() string {
+	if s.Field != nil {
+		return s.Field.Path
+	}
+	if s.Lookup != nil {
+		if s.Lookup.Identifier != nil {
+			return strings.Trim(strings.TrimSpace(s.Lookup.Identifier.OwnerPath)+"."+strings.TrimSpace(s.Lookup.Identifier.ValuePath), ".")
+		}
+		if s.Lookup.Binding != nil {
+			return qualifySemanticPath(s.Lookup.Binding.OwnerPath, s.Lookup.Binding.ValuePath)
+		}
+		return s.Lookup.Path
+	}
+	if s.OwnerRecords != nil {
+		return qualifySemanticPath(s.OwnerRecords.Binding.OwnerPath, s.OwnerRecords.Binding.ValuePath)
+	}
+	if s.Aggregate != nil {
+		return s.Aggregate.Path
+	}
+	return ""
+}
+
+func (s ColumnSource) FieldPath() string { return s.fieldPath() }
+
+func (s ColumnSource) projectionMode() string {
+	if s.Field != nil {
+		return s.Field.ProjectionMode
+	}
+	if s.Lookup != nil {
+		return s.Lookup.ProjectionMode
+	}
+	return ""
+}
+
+func (s ColumnSource) ProjectionMode() string { return s.projectionMode() }
+
+func (s ColumnSource) lookupMatch() string {
+	if s.Lookup != nil {
+		if s.Lookup.Identifier != nil {
+			return s.Lookup.Identifier.SystemURI
+		}
+		return s.Lookup.Match
+	}
+	return ""
+}
+
+func (s ColumnSource) LookupMatch() string { return s.lookupMatch() }
+
+func (s ColumnSource) Normalized() ColumnSource {
+	n := s
+	if n.Field != nil {
+		field := *n.Field
+		if strings.TrimSpace(field.ProjectionMode) == "" {
+			field.ProjectionMode = "FIRST"
+		}
+		if field.RelatedSelection != nil {
+			related := *field.RelatedSelection
+			field.RelatedSelection = &related
+		}
+		n.Field = &field
+	}
+	if n.Lookup != nil {
+		lookup := *n.Lookup
+		if strings.TrimSpace(lookup.ProjectionMode) == "" {
+			lookup.ProjectionMode = "FIRST"
+		}
+		if lookup.Identifier != nil {
+			identifier := *lookup.Identifier
+			lookup.Identifier = &identifier
+		}
+		if lookup.Binding != nil {
+			binding := *lookup.Binding
+			binding.ValueFallback = append([]string(nil), lookup.Binding.ValueFallback...)
+			binding.ChoiceArms = append([]string(nil), lookup.Binding.ChoiceArms...)
+			lookup.Binding = &binding
+		}
+		if lookup.Key != nil {
+			key := *lookup.Key
+			lookup.Key = &key
+		}
+		if lookup.Extension != nil {
+			extension := *lookup.Extension
+			extension.URLPath = append([]string(nil), lookup.Extension.URLPath...)
+			extension.ChoiceArms = append([]string(nil), lookup.Extension.ChoiceArms...)
+			extension.ValueFallback = append([]string(nil), lookup.Extension.ValueFallback...)
+			lookup.Extension = &extension
+		}
+		n.Lookup = &lookup
+	}
+	if n.OwnerRecords != nil {
+		ownerRecords := *n.OwnerRecords
+		ownerRecords.Binding.ValueFallback = append([]string(nil), n.OwnerRecords.Binding.ValueFallback...)
+		ownerRecords.Binding.ChoiceArms = append([]string(nil), n.OwnerRecords.Binding.ChoiceArms...)
+		n.OwnerRecords = &ownerRecords
+	}
+	if n.Aggregate != nil {
+		aggregate := *n.Aggregate
+		aggregate.UnitNormalization = cloneUnitNormalization(n.Aggregate.UnitNormalization)
+		aggregate.RequiredValues = append([]string(nil), n.Aggregate.RequiredValues...)
+		if n.Aggregate.Where != nil {
+			where := *n.Aggregate.Where
+			aggregate.Where = &where
+		}
+		aggregate.ContributorWindow = cloneContributorWindow(n.Aggregate.ContributorWindow)
+		aggregate.Ordering = cloneTemporalOrdering(n.Aggregate.Ordering)
+		n.Aggregate = &aggregate
+	}
+	return n
+}
+
+func cloneUnitNormalization(input *UnitNormalizationPolicy) *UnitNormalizationPolicy {
+	if input == nil {
+		return nil
+	}
+	copy := *input
+	return &copy
+}
+
+func cloneContributorWindow(input *ContributorWindowSource) *ContributorWindowSource {
+	if input == nil {
+		return nil
+	}
+	copy := *input
+	return &copy
+}
+
+func cloneTemporalOrdering(input *TemporalOrderingSource) *TemporalOrderingSource {
+	if input == nil {
+		return nil
+	}
+	copy := *input
+	return &copy
 }
 
 const (
-	SourceField                      = "field"
-	SourceIdentifierBySystem         = "identifierBySystem"
-	SourceExtensionByURL             = "extensionByUrl"
-	SourceCodingBySystem             = "codingBySystem"
-	SourceObservationComponentByCode = "observationComponentByCode"
-	SourceProjectID                  = "projectId"
-	SourceAggregate                  = "aggregate"
+	SourceField              = "field"
+	SourceIdentifierBySystem = "identifierBySystem"
+	SourceExtensionByURL     = "extensionByUrl"
+	SourceCodedValue         = "codedValue"
+	SourceOwnerRecords       = "ownerRecords"
+	SourceProjectID          = "projectId"
+	SourceAggregate          = "aggregate"
 )
 
 type Column struct {
-	Column       string              `json:"column"`
-	Label        string              `json:"label"`
-	LogicalType  string              `json:"logicalType,omitempty"`
-	OccurrenceID string              `json:"occurrenceId"`
-	Source       ColumnSource        `json:"source"`
-	Table        *TablePresentation  `json:"table,omitempty"`
-	Filter       *FilterPresentation `json:"filter,omitempty"`
-	Chart        *ChartPresentation  `json:"chart,omitempty"`
+	// ColumnID is the stable identity used by staged construction steps. Column
+	// remains the public physical name and Label remains presentation text.
+	ColumnID            string                               `json:"columnId,omitempty"`
+	FrameID             string                               `json:"frameId,omitempty"`
+	Column              string                               `json:"column"`
+	Label               string                               `json:"label"`
+	LogicalType         string                               `json:"logicalType,omitempty"`
+	OccurrenceID        string                               `json:"occurrenceId"`
+	Source              ColumnSource                         `json:"source"`
+	ValueTransformation *columntransform.ValueTransformation `json:"valueTransformation,omitempty"`
+	Contributor         *ContributorPredicate                `json:"contributor,omitempty"`
+	// Interpretation is nil for the existing inline meaning. A non-nil value
+	// is a closed authoring reference: PINNED names one immutable revision and
+	// never follows a mutable library head.
+	Interpretation *FeatureInterpretation `json:"interpretation,omitempty"`
+	Table          *TablePresentation     `json:"table,omitempty"`
+	Filter         *FilterPresentation    `json:"filter,omitempty"`
+	Chart          *ChartPresentation     `json:"chart,omitempty"`
+}
+
+// FeatureInterpretationKind is deliberately closed so a pinned column cannot
+// smuggle a second interpretation language into the workspace.
+type FeatureInterpretationKind string
+
+const (
+	FeatureInterpretationPinned FeatureInterpretationKind = "PINNED"
+)
+
+type FeatureInterpretation struct {
+	Kind   FeatureInterpretationKind `json:"kind"`
+	Pinned *PinnedInterpretation     `json:"pinned,omitempty"`
+}
+
+type PinnedInterpretation struct {
+	RevisionID string `json:"revisionId"`
+}
+
+func (i FeatureInterpretation) Validate() error {
+	switch i.Kind {
+	case FeatureInterpretationPinned:
+		if i.Pinned == nil || strings.TrimSpace(i.Pinned.RevisionID) == "" || i.Pinned.RevisionID != strings.TrimSpace(i.Pinned.RevisionID) {
+			return fmt.Errorf("pinned interpretation requires an exact revisionId")
+		}
+	default:
+		return fmt.Errorf("unsupported interpretation kind %q", i.Kind)
+	}
+	return nil
+}
+
+// ContributorPredicate is catalog intent scoped to one aggregate feature.
+// CandidateID is resolved against the occurrence's pinned catalog at compile
+// time; callers never provide a selector or AQL expression.
+type ContributorPredicate struct {
+	CandidateID string                `json:"candidateId"`
+	Operator    ContributorOperator   `json:"operator"`
+	Quantifier  ContributorQuantifier `json:"quantifier,omitempty"`
+	Value       *ContributorValue     `json:"value,omitempty"`
+}
+
+type ContributorOperator string
+
+const (
+	ContributorExists ContributorOperator = "EXISTS"
+	ContributorEquals ContributorOperator = "EQUALS"
+)
+
+func (op ContributorOperator) Valid() bool {
+	return op == ContributorExists || op == ContributorEquals
+}
+
+type ContributorQuantifier string
+
+const ContributorAny ContributorQuantifier = "ANY"
+
+func (q ContributorQuantifier) Valid() bool {
+	return q == "" || q == ContributorAny
+}
+
+type ContributorValueKind string
+
+const (
+	ContributorString    ContributorValueKind = "STRING"
+	ContributorValueCode ContributorValueKind = "CODE"
+)
+
+func (kind ContributorValueKind) Valid() bool {
+	return kind == ContributorString || kind == ContributorValueCode
+}
+
+type ContributorValue struct {
+	Kind   ContributorValueKind `json:"kind"`
+	String *string              `json:"string,omitempty"`
+	Code   *ContributorCode     `json:"code,omitempty"`
+}
+
+type ContributorCode struct {
+	Code string `json:"code"`
+}
+
+func (v ContributorValue) Validate() error {
+	if !v.Kind.Valid() {
+		return fmt.Errorf("unsupported contributor value kind %q", v.Kind)
+	}
+	if (v.String == nil) == (v.Code == nil) {
+		return fmt.Errorf("contributor value requires exactly one STRING or CODE member")
+	}
+	switch v.Kind {
+	case ContributorString:
+		if v.String == nil {
+			return fmt.Errorf("STRING contributor value requires string")
+		}
+	case ContributorValueCode:
+		if v.Code == nil || strings.TrimSpace(v.Code.Code) == "" {
+			return fmt.Errorf("CODE contributor value requires a non-empty code")
+		}
+	}
+	return nil
+}
+
+func (p ContributorPredicate) Validate() error {
+	if strings.TrimSpace(p.CandidateID) == "" || p.CandidateID != strings.TrimSpace(p.CandidateID) {
+		return fmt.Errorf("contributor candidateId is required")
+	}
+	if !p.Operator.Valid() {
+		return fmt.Errorf("unsupported contributor operator %q", p.Operator)
+	}
+	if !p.Quantifier.Valid() {
+		return fmt.Errorf("unsupported contributor quantifier %q", p.Quantifier)
+	}
+	switch p.Operator {
+	case ContributorExists:
+		if p.Value != nil {
+			return fmt.Errorf("EXISTS contributor predicate does not accept value")
+		}
+	case ContributorEquals:
+		if p.Value == nil {
+			return fmt.Errorf("EQUALS contributor predicate requires value")
+		}
+		if err := p.Value.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (p ContributorPredicate) Normalized() ContributorPredicate {
+	n := p
+	n.CandidateID = strings.TrimSpace(n.CandidateID)
+	if n.Value != nil {
+		value := *n.Value
+		if value.String != nil {
+			stringValue := *value.String
+			value.String = &stringValue
+		}
+		if value.Code != nil {
+			code := *value.Code
+			value.Code = &code
+		}
+		n.Value = &value
+	}
+	return n
 }
 
 type FixedFilter struct {
@@ -103,6 +605,12 @@ func (d Document) semanticOccurrences() (map[string]RouteNode, error) {
 		if _, duplicate := occurrences[node.OccurrenceID]; duplicate {
 			return fmt.Errorf("duplicate route occurrence id %q", node.OccurrenceID)
 		}
+		if !node.MatchMode.Valid() {
+			return fmt.Errorf("%s.matchMode is unsupported", path)
+		}
+		if node.OccurrenceID == RootOccurrenceID && node.MatchMode != "" {
+			return fmt.Errorf("route root cannot declare matchMode")
+		}
 		occurrences[node.OccurrenceID] = node
 		for i, child := range node.Children {
 			if strings.TrimSpace(child.Relationship) == "" {
@@ -121,65 +629,198 @@ func (d Document) semanticOccurrences() (map[string]RouteNode, error) {
 }
 
 func (s ColumnSource) validate(path string) error {
-	mode := strings.ToUpper(strings.TrimSpace(s.ProjectionMode))
+	if strings.TrimSpace(s.Kind) == "" {
+		return fmt.Errorf("%s.kind is required", path)
+	}
+	variants := 0
+	if s.Field != nil {
+		variants++
+	}
+	if s.Aggregate != nil {
+		variants++
+	}
+	if s.Lookup != nil {
+		variants++
+	}
+	if s.OwnerRecords != nil {
+		variants++
+	}
+	if s.Kind == SourceProjectID {
+		if variants != 0 {
+			return fmt.Errorf("%s projectId source does not accept a payload", path)
+		}
+		return nil
+	}
+	if variants != 1 {
+		return fmt.Errorf("%s must contain exactly one matching variant payload", path)
+	}
+	mode := ""
+	if s.Field != nil {
+		mode = s.Field.ProjectionMode
+	}
+	if s.Lookup != nil {
+		mode = s.Lookup.ProjectionMode
+	}
+	mode = strings.ToUpper(strings.TrimSpace(mode))
 	if mode == "" {
 		mode = "FIRST"
 	}
-	if mode != "VALUE" && mode != "FIRST" && mode != "ALL" && mode != "DISTINCT" {
-		return fmt.Errorf("%s.projectionMode %q is unsupported", path, s.ProjectionMode)
+	if mode != "VALUE" && mode != "INDEXED" && mode != "FIRST" && mode != "ALL" && mode != "DISTINCT" {
+		return fmt.Errorf("%s projectionMode %q is unsupported", path, mode)
 	}
 	switch s.Kind {
 	case SourceField:
-		if strings.TrimSpace(s.FieldPath) == "" || strings.TrimSpace(s.Match) != "" {
-			return fmt.Errorf("%s field source requires fieldPath and forbids match", path)
+		if s.Field == nil || strings.TrimSpace(s.Field.Path) == "" {
+			return fmt.Errorf("%s field source requires field.path", path)
 		}
-	case SourceIdentifierBySystem, SourceExtensionByURL, SourceCodingBySystem, SourceObservationComponentByCode:
-		if strings.TrimSpace(s.Match) == "" {
-			return fmt.Errorf("%s %s source requires match", path, s.Kind)
+		if s.Field.RelatedSelection != nil && s.Field.RelatedSelection.Kind != "first-by-resource-key" {
+			return fmt.Errorf("%s.field.relatedSelection.kind %q is unsupported", path, s.Field.RelatedSelection.Kind)
 		}
-	case SourceProjectID:
-		if strings.TrimSpace(s.FieldPath) != "" || strings.TrimSpace(s.Match) != "" || strings.TrimSpace(s.Operation) != "" || strings.TrimSpace(s.WherePath) != "" || strings.TrimSpace(s.WhereEquals) != "" || len(s.RequiredValues) != 0 || mode != "FIRST" {
-			return fmt.Errorf("%s projectId source only supports FIRST projectionMode and no other parameters", path)
+	case SourceIdentifierBySystem, SourceExtensionByURL, SourceCodedValue:
+		if s.Lookup == nil {
+			return fmt.Errorf("%s %s source requires lookup", path, s.Kind)
+		}
+		if s.Lookup.Identifier != nil {
+			if s.Kind != SourceIdentifierBySystem {
+				return fmt.Errorf("%s identifier binding is only supported for identifierBySystem", path)
+			}
+			if s.Lookup.Binding != nil || s.Lookup.Key != nil || s.Lookup.Extension != nil || strings.TrimSpace(s.Lookup.Match) != "" || strings.TrimSpace(s.Lookup.Path) != "" {
+				return fmt.Errorf("%s identifier lookup must not combine identifier with match, path, binding, key, or extension", path)
+			}
+			return nil
+		}
+		if s.Lookup.Extension != nil {
+			if s.Kind != SourceExtensionByURL {
+				return fmt.Errorf("%s extension binding is only supported for extensionByUrl", path)
+			}
+			if s.Lookup.Binding != nil || s.Lookup.Key != nil || strings.TrimSpace(s.Lookup.Match) != "" || strings.TrimSpace(s.Lookup.Path) != "" {
+				return fmt.Errorf("%s extension lookup must not combine extension with match, path, binding, or key", path)
+			}
+			return nil
+		}
+		if s.Kind == SourceCodedValue {
+			if s.Lookup.Binding == nil || s.Lookup.Key == nil || strings.TrimSpace(s.Lookup.Key.System) == "" || strings.TrimSpace(s.Lookup.Key.Code) == "" {
+				return fmt.Errorf("%s codedValue source requires lookup.binding and lookup.key.system/code", path)
+			}
+			if strings.TrimSpace(s.Lookup.Match) != "" || strings.TrimSpace(s.Lookup.Path) != "" || s.Lookup.Extension != nil || s.Lookup.Identifier != nil {
+				return fmt.Errorf("%s codedValue lookup must not combine its binding with legacy match, path, identifier, or extension", path)
+			}
+			return nil
+		}
+		if s.Lookup.Binding != nil || s.Lookup.Key != nil {
+			return fmt.Errorf("%s %s source does not accept a correlated binding", path, s.Kind)
+		}
+		if strings.TrimSpace(s.Lookup.Match) == "" {
+			return fmt.Errorf("%s %s source requires lookup.match", path, s.Kind)
+		}
+	case SourceOwnerRecords:
+		if s.OwnerRecords == nil || strings.TrimSpace(s.OwnerRecords.Binding.OwnerPath) == "" ||
+			strings.TrimSpace(s.OwnerRecords.Key.System) == "" || strings.TrimSpace(s.OwnerRecords.Key.Code) == "" {
+			return fmt.Errorf("%s ownerRecords source requires ownerRecords.binding.ownerPath and ownerRecords.key.system/code", path)
 		}
 	case SourceAggregate:
-		if strings.TrimSpace(s.Match) != "" || strings.TrimSpace(s.ProjectionMode) != "" {
-			return fmt.Errorf("%s aggregate source forbids match and projectionMode", path)
+		if s.Aggregate == nil {
+			return fmt.Errorf("%s aggregate source requires aggregate payload", path)
 		}
-		op := strings.ToUpper(strings.TrimSpace(s.Operation))
+		if s.Aggregate.UnitNormalization != nil {
+			if err := s.Aggregate.UnitNormalization.Validate(); err != nil {
+				return fmt.Errorf("%s.aggregate.unitNormalization: %w", path, err)
+			}
+			if strings.TrimSpace(s.Aggregate.Path) == "" {
+				return fmt.Errorf("%s.aggregate.unitNormalization requires aggregate.path", path)
+			}
+			switch strings.ToUpper(strings.TrimSpace(s.Aggregate.Operation)) {
+			case "MIN", "MAX", "SUM", "MEAN", "REQUIRE_ONE", "COLLECT", "DISTINCT_VALUES", "FIRST_ORDERED":
+			default:
+				return fmt.Errorf("%s.aggregate.unitNormalization is not supported for %s", path, s.Aggregate.Operation)
+			}
+		}
+		op := strings.ToUpper(strings.TrimSpace(s.Aggregate.Operation))
 		switch op {
-		case "COUNT", "COUNT_DISTINCT", "DISTINCT_VALUES", "MIN", "MAX", "EXISTS", "CONTAINS_ALL":
+		case "COUNT", "COUNT_DISTINCT", "DISTINCT_VALUES", "MIN", "MAX", "SUM", "MEAN", "EXISTS", "CONTAINS_ALL", "REQUIRE_ONE", "COLLECT", "FIRST_ORDERED":
 		default:
-			return fmt.Errorf("%s aggregate source operation %q is unsupported", path, s.Operation)
+			return fmt.Errorf("%s aggregate source operation %q is unsupported", path, s.Aggregate.Operation)
 		}
-		requiresField := op == "COUNT_DISTINCT" || op == "DISTINCT_VALUES" || op == "MIN" || op == "MAX" || op == "CONTAINS_ALL"
-		if requiresField && strings.TrimSpace(s.FieldPath) == "" {
-			return fmt.Errorf("%s aggregate operation %s requires fieldPath", path, op)
+		requiresField := op == "COUNT_DISTINCT" || op == "DISTINCT_VALUES" || op == "MIN" || op == "MAX" || op == "SUM" || op == "MEAN" || op == "CONTAINS_ALL" || op == "REQUIRE_ONE" || op == "COLLECT" || op == "FIRST_ORDERED"
+		if requiresField && strings.TrimSpace(s.Aggregate.Path) == "" {
+			return fmt.Errorf("%s aggregate operation %s requires path", path, op)
 		}
-		if !requiresField && strings.TrimSpace(s.FieldPath) != "" {
-			return fmt.Errorf("%s aggregate operation %s forbids fieldPath", path, op)
+		if s.Aggregate.Where != nil && strings.TrimSpace(s.Aggregate.Where.Path) == "" {
+			return fmt.Errorf("%s.aggregate.where requires path", path)
 		}
-		if strings.TrimSpace(s.WhereEquals) != "" && strings.TrimSpace(s.WherePath) == "" {
-			return fmt.Errorf("%s.whereEquals requires wherePath", path)
+		if op == "FIRST_ORDERED" {
+			if err := s.Aggregate.ContributorWindow.validate(path + ".aggregate.contributorWindow"); err != nil {
+				return err
+			}
+			if err := s.Aggregate.Ordering.validate(path + ".aggregate.ordering"); err != nil {
+				return err
+			}
+		} else {
+			if s.Aggregate.ContributorWindow != nil {
+				switch op {
+				case "COUNT", "EXISTS", "MIN", "MAX", "MEAN", "SUM":
+				default:
+					return fmt.Errorf("%s.aggregate.contributorWindow is not supported for %s", path, op)
+				}
+				if err := s.Aggregate.ContributorWindow.validate(path + ".aggregate.contributorWindow"); err != nil {
+					return err
+				}
+			}
+			if s.Aggregate.Ordering != nil {
+				return fmt.Errorf("%s.aggregate.ordering is only valid for FIRST_ORDERED", path)
+			}
 		}
 		if op == "CONTAINS_ALL" {
-			if len(s.RequiredValues) == 0 {
-				return fmt.Errorf("%s.requiredValues is required for CONTAINS_ALL", path)
+			if len(s.Aggregate.RequiredValues) == 0 {
+				return fmt.Errorf("%s.aggregate.requiredValues is required for CONTAINS_ALL", path)
 			}
 			seen := map[string]bool{}
-			for i, value := range s.RequiredValues {
+			for i, value := range s.Aggregate.RequiredValues {
 				if strings.TrimSpace(value) == "" {
-					return fmt.Errorf("%s.requiredValues[%d] must be non-empty", path, i)
+					return fmt.Errorf("%s.aggregate.requiredValues[%d] must be non-empty", path, i)
 				}
 				if seen[value] {
-					return fmt.Errorf("%s.requiredValues[%d] is duplicated", path, i)
+					return fmt.Errorf("%s.aggregate.requiredValues[%d] is duplicated", path, i)
 				}
 				seen[value] = true
 			}
-		} else if len(s.RequiredValues) != 0 {
-			return fmt.Errorf("%s.requiredValues is only valid for CONTAINS_ALL", path)
+		} else if len(s.Aggregate.RequiredValues) != 0 {
+			return fmt.Errorf("%s.aggregate.requiredValues is only valid for CONTAINS_ALL", path)
 		}
 	default:
 		return fmt.Errorf("%s source kind %q is unsupported", path, s.Kind)
+	}
+	return nil
+}
+
+func (w *ContributorWindowSource) validate(path string) error {
+	if w == nil {
+		return fmt.Errorf("%s is required", path)
+	}
+	if strings.TrimSpace(w.TimestampPath) == "" || strings.TrimSpace(w.AnchorPath) == "" {
+		return fmt.Errorf("%s requires timestampPath and anchorPath", path)
+	}
+	if w.LowerOffset > w.UpperOffset {
+		return fmt.Errorf("%s lowerOffsetSeconds must not exceed upperOffsetSeconds", path)
+	}
+	if w.Precision != "INSTANT" {
+		return fmt.Errorf("%s.precision must be INSTANT", path)
+	}
+	return nil
+}
+
+func (o *TemporalOrderingSource) validate(path string) error {
+	if o == nil {
+		return fmt.Errorf("%s is required", path)
+	}
+	if strings.TrimSpace(o.TimestampPath) == "" {
+		return fmt.Errorf("%s.timestampPath is required", path)
+	}
+	if o.Direction != "ASC" && o.Direction != "DESC" {
+		return fmt.Errorf("%s.direction must be ASC or DESC", path)
+	}
+	if o.TiePolicy != "REQUIRE_UNIQUE" && o.TiePolicy != "RESOURCE_KEY" {
+		return fmt.Errorf("%s.tiePolicy must be REQUIRE_UNIQUE or RESOURCE_KEY", path)
 	}
 	return nil
 }
@@ -188,6 +829,11 @@ func (d Document) validateSemantic() error {
 	occurrences, err := d.semanticOccurrences()
 	if err != nil {
 		return err
+	}
+	if d.Population != nil {
+		if err := d.Population.Validate(); err != nil {
+			return err
+		}
 	}
 	seen := map[string]bool{}
 	for i, column := range d.Columns {
@@ -208,6 +854,50 @@ func (d Document) validateSemantic() error {
 		if err := column.Source.validate(path + ".source"); err != nil {
 			return err
 		}
+		if column.Source.Aggregate != nil && column.Source.Aggregate.ContributorWindow != nil && column.OccurrenceID == RootOccurrenceID {
+			return fmt.Errorf("%s.source.aggregate.contributorWindow requires a related resource occurrence", path)
+		}
+		if column.ValueTransformation != nil {
+			if err := column.ValueTransformation.Validate(); err != nil {
+				return fmt.Errorf("%s.valueTransformation: %w", path, err)
+			}
+		}
+		if column.Contributor != nil {
+			if column.Source.Kind != SourceAggregate {
+				return fmt.Errorf("%s.contributor is only supported for aggregate sources", path)
+			}
+			if err := column.Contributor.Validate(); err != nil {
+				return fmt.Errorf("%s.contributor: %w", path, err)
+			}
+		}
+		if column.Interpretation != nil {
+			if err := column.Interpretation.Validate(); err != nil {
+				return fmt.Errorf("%s.interpretation: %w", path, err)
+			}
+			if column.Interpretation.Kind == FeatureInterpretationPinned && column.Contributor != nil {
+				return fmt.Errorf("%s.contributor must be omitted when interpretation is PINNED", path)
+			}
+		}
+		if column.Source.Lookup != nil && column.Source.Lookup.Binding != nil {
+			if _, err := fhirschema.ValidateCorrelatedBinding(occurrences[column.OccurrenceID].ResourceType, *column.Source.Lookup.Binding); err != nil {
+				return fmt.Errorf("%s.source.binding: %w", path, err)
+			}
+		}
+		if column.Source.OwnerRecords != nil {
+			if _, err := fhirschema.ValidateCorrelatedBinding(occurrences[column.OccurrenceID].ResourceType, column.Source.OwnerRecords.Binding); err != nil {
+				return fmt.Errorf("%s.source.ownerRecords.binding: %w", path, err)
+			}
+		}
+		if column.Source.Lookup != nil && column.Source.Lookup.Extension != nil {
+			if _, err := fhirschema.ValidateExtensionBinding(occurrences[column.OccurrenceID].ResourceType, *column.Source.Lookup.Extension); err != nil {
+				return fmt.Errorf("%s.source.extension: %w", path, err)
+			}
+		}
+		if column.Source.Lookup != nil && column.Source.Lookup.Identifier != nil {
+			if _, err := fhirschema.ValidateIdentifierBinding(occurrences[column.OccurrenceID].ResourceType, *column.Source.Lookup.Identifier); err != nil {
+				return fmt.Errorf("%s.source.identifier: %w", path, err)
+			}
+		}
 		if column.Table != nil && column.Table.Order != nil && *column.Table.Order < 0 {
 			return fmt.Errorf("%s.table.order must not be negative", path)
 		}
@@ -226,6 +916,11 @@ func (d Document) validateSemantic() error {
 			}
 		}
 	}
+	if d.Rows.Kind == RowDefinitionGroups && d.Rows.Groups != nil {
+		if err := validateExplicitGroupRowValues(d, d.Rows.Groups.RowValues); err != nil {
+			return err
+		}
+	}
 	for i, fixed := range d.FixedFilters {
 		if !seen[fixed.Column] || len(fixed.Values) == 0 {
 			return fmt.Errorf("fixedFilters[%d] must reference a declared column and contain values", i)
@@ -239,6 +934,29 @@ func (d Document) validateSemantic() error {
 			if !seen[binding.Column] {
 				return fmt.Errorf("actions[%d].columns[%d] references unknown column %q", i, j, binding.Column)
 			}
+		}
+	}
+	return nil
+}
+
+func validateExplicitGroupRowValues(document Document, values []ExplicitGroupRowValue) error {
+	if len(values) == 0 {
+		return nil
+	}
+	columnsByID := make(map[string][]Column, len(document.Columns))
+	for _, column := range document.Columns {
+		if column.ColumnID != "" {
+			columnsByID[column.ColumnID] = append(columnsByID[column.ColumnID], column)
+		}
+	}
+	for index, value := range values {
+		columns := columnsByID[value.ColumnID]
+		if len(columns) != 1 {
+			return fmt.Errorf("rows.groups.rowValues[%d].columnId %q must identify exactly one source column", index, value.ColumnID)
+		}
+		column := columns[0]
+		if column.OccurrenceID != RootOccurrenceID || column.Source.Kind != SourceField || column.Source.Field == nil || column.ValueTransformation != nil {
+			return fmt.Errorf("rows.groups.rowValues[%d] supports only an untransformed root FHIR field column", index)
 		}
 	}
 	return nil

@@ -12,6 +12,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/expression"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/spec"
+	"github.com/calypr/loom/internal/dataframe/unit"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
@@ -51,6 +52,58 @@ func lowerRecipePivots(resourceType, alias string, scope scopeFrame, pivots []re
 			}
 			columnNames[column] = struct{}{}
 			columns[columnIndex] = column
+		}
+		columnAliases := make(map[string]string, len(input.ColumnAliases))
+		aliasColumns := make(map[string]string, len(input.ColumnAliases))
+		for key, alias := range input.ColumnAliases {
+			if _, ok := columnNames[key]; !ok {
+				return nil, fmt.Errorf("%s.columnAliases[%q] is not one of the pivot columns", path, key)
+			}
+			if err := validateRecipeRichName(alias, path+".columnAliases["+key+"]"); err != nil {
+				return nil, err
+			}
+			if previous, exists := aliasColumns[alias]; exists && previous != key {
+				return nil, fmt.Errorf("%s.columnAliases output %q is shared by columns %q and %q", path, alias, previous, key)
+			}
+			aliasColumns[alias] = key
+			columnAliases[key] = alias
+		}
+		projectionMode := recipe.NormalizedPivotProjectionMode(input.ProjectionMode)
+		if !recipe.ValidPivotProjectionMode(input.ProjectionMode) {
+			return nil, fmt.Errorf("%s projectionMode %q is unsupported", path, input.ProjectionMode)
+		}
+		if input.Correlation != nil && input.ExtensionCorrelation != nil {
+			return nil, fmt.Errorf("%s cannot carry both terminology and extension correlation", path)
+		}
+		if input.ExtensionCorrelation != nil {
+			checked, bindingErr := fhirschema.ValidateExtensionBinding(resourceType, *input.ExtensionCorrelation)
+			if bindingErr != nil {
+				return nil, fmt.Errorf("%s extensionCorrelation: %w", path, bindingErr)
+			}
+			out = append(out, SemanticPivot{
+				Name: input.Name, FieldRef: input.FieldRef, Columns: columns, ColumnAliases: columnAliases, ProjectionMode: projectionMode,
+				Family: "extension_correlated", ExtensionCorrelation: cloneExtensionBinding(input.ExtensionCorrelation),
+				ValueKind: correlatedValueKind(checked.LogicalType), StringifyValue: checked.LogicalType == "string",
+				Discovered: input.Discovered,
+			})
+			continue
+		}
+		if input.Correlation != nil {
+			checked, bindingErr := fhirschema.ValidateCorrelatedBinding(resourceType, *input.Correlation)
+			if bindingErr != nil {
+				return nil, fmt.Errorf("%s correlation: %w", path, bindingErr)
+			}
+			if strings.TrimSpace(input.CorrelationSystem) == "" || strings.TrimSpace(input.CorrelationCode) == "" {
+				return nil, fmt.Errorf("%s correlation requires selected system and code", path)
+			}
+			out = append(out, SemanticPivot{
+				Name: input.Name, FieldRef: input.FieldRef, Columns: columns, ColumnAliases: columnAliases, ProjectionMode: projectionMode,
+				Family: "correlated", Correlation: cloneCorrelatedBinding(input.Correlation),
+				CorrelationSystem: input.CorrelationSystem, CorrelationCode: input.CorrelationCode,
+				ValueKind: correlatedValueKind(checked.LogicalType), StringifyValue: checked.LogicalType == "string",
+				Discovered: input.Discovered,
+			})
+			continue
 		}
 
 		column, err := recipeNodeSelector(resourceType, alias, scope, input.ColumnExpr, path+".columnExpr")
@@ -162,11 +215,76 @@ func lowerRecipePivots(resourceType, alias string, scope scopeFrame, pivots []re
 			ItemSource:       itemSource,
 			ItemResourceType: itemResourceType,
 			Columns:          columns,
+			ColumnAliases:    columnAliases,
+			ProjectionMode:   projectionMode,
 			Family:           pivotSpec.Family,
 			Discovered:       input.Discovered,
 		})
 	}
 	return out, nil
+}
+
+func cloneCorrelatedBinding(input *fhirschema.CorrelatedBinding) *fhirschema.CorrelatedBinding {
+	if input == nil {
+		return nil
+	}
+	copy := *input
+	copy.ValueFallback = append([]string(nil), input.ValueFallback...)
+	copy.ChoiceArms = append([]string(nil), input.ChoiceArms...)
+	return &copy
+}
+
+func cloneExtensionBinding(input *fhirschema.ExtensionBinding) *fhirschema.ExtensionBinding {
+	if input == nil {
+		return nil
+	}
+	copy := *input
+	copy.URLPath = append([]string(nil), input.URLPath...)
+	copy.ChoiceArms = append([]string(nil), input.ChoiceArms...)
+	copy.ValueFallback = append([]string(nil), input.ValueFallback...)
+	return &copy
+}
+
+func lowerRecipeOwnerRecords(resourceType string, inputs []recipe.OwnerRecordProjection) ([]SemanticOwnerRecords, error) {
+	result := make([]SemanticOwnerRecords, 0, len(inputs))
+	for index, input := range inputs {
+		path := fmt.Sprintf("ownerRecords[%d]", index)
+		if err := validateRecipeRichName(input.Name, path+".name"); err != nil {
+			return nil, err
+		}
+		if strings.TrimSpace(input.Key.System) == "" || strings.TrimSpace(input.Key.Code) == "" {
+			return nil, fmt.Errorf("%s requires key.system and key.code", path)
+		}
+		checked, err := fhirschema.ValidateCorrelatedBinding(resourceType, input.Binding)
+		if err != nil {
+			return nil, fmt.Errorf("%s binding: %w", path, err)
+		}
+		if checked.OwnerSelector.CanonicalPath() == "" {
+			return nil, fmt.Errorf("%s binding ownerPath must select a repeated owner", path)
+		}
+		binding := input.Binding
+		binding.ValueFallback = append([]string(nil), input.Binding.ValueFallback...)
+		binding.ChoiceArms = append([]string(nil), input.Binding.ChoiceArms...)
+		result = append(result, SemanticOwnerRecords{Name: input.Name, FieldRef: input.FieldRef, Binding: binding, Key: input.Key})
+	}
+	return result, nil
+}
+
+func correlatedValueKind(logicalType string) expression.ValueKind {
+	switch strings.ToLower(strings.TrimSpace(logicalType)) {
+	case "boolean":
+		return expression.KindBoolean
+	case "integer":
+		return expression.KindInteger
+	case "decimal", "number":
+		return expression.KindDecimal
+	case "date":
+		return expression.KindDate
+	case "date_time", "datetime":
+		return expression.KindDateTime
+	default:
+		return expression.KindString
+	}
 }
 
 // pivotValueKind derives the flat output type from the value selectors rather
@@ -268,6 +386,9 @@ func lowerRecipeAggregates(resourceType, alias string, scope scopeFrame, aggrega
 		if !input.ValueMode.Valid() {
 			return nil, fmt.Errorf("%s.valueMode %q is unsupported", path, input.ValueMode)
 		}
+		if input.ValueMode != "" && input.ValueMode != recipe.ValueModeAuto {
+			return nil, fmt.Errorf("%s.valueMode %q is unsupported; aggregate valueMode must be AUTO", path, input.ValueMode)
+		}
 		semanticAggregate := SemanticAggregate{
 			Name:           input.Name,
 			OutputName:     input.OutputName,
@@ -280,9 +401,15 @@ func lowerRecipeAggregates(resourceType, alias string, scope scopeFrame, aggrega
 			operation == string(recipe.AggregateDistinctValues) ||
 			operation == string(recipe.AggregateMin) ||
 			operation == string(recipe.AggregateMax) ||
-			operation == string(recipe.AggregateContainsAll)
+			operation == string(recipe.AggregateSum) ||
+			operation == string(recipe.AggregateMean) ||
+			operation == string(recipe.AggregateContainsAll) ||
+			operation == string(recipe.AggregateRequireOne) ||
+			operation == string(recipe.AggregateCollect) ||
+			operation == string(recipe.AggregateFirstOrdered)
+		acceptsSelector := requiresSelector || operation == string(recipe.AggregateCount) || operation == string(recipe.AggregateExists)
 		if input.Expr != nil {
-			if !requiresSelector {
+			if !acceptsSelector {
 				return nil, fmt.Errorf("%s.expr is not accepted for operation %s", path, operation)
 			}
 			selector, err := recipeNodeSelector(resourceType, alias, scope, *input.Expr, path+".expr")
@@ -298,10 +425,65 @@ func lowerRecipeAggregates(resourceType, alias string, scope scopeFrame, aggrega
 		} else if requiresSelector {
 			return nil, fmt.Errorf("%s.expr is required for operation %s", path, operation)
 		}
+		if input.UnitNormalization != nil {
+			if input.Expr == nil || semanticAggregate.Selector == nil {
+				return nil, fmt.Errorf("%s.unitNormalization requires a selector expression", path)
+			}
+			metadata, ok := fhirschema.ResolveTerminalScalarMetadata(resourceType, semanticAggregate.Selector.CanonicalPath())
+			if !ok || (metadata.Primitive != fhirschema.PrimitiveInteger && metadata.Primitive != fhirschema.PrimitiveDecimal) {
+				return nil, fmt.Errorf("%s.unitNormalization requires an integer or decimal measurement selector", path)
+			}
+			switch strings.ToUpper(operation) {
+			case string(recipe.AggregateMin), string(recipe.AggregateMax), string(recipe.AggregateSum), string(recipe.AggregateMean), string(recipe.AggregateRequireOne), string(recipe.AggregateCollect), string(recipe.AggregateDistinctValues), string(recipe.AggregateFirstOrdered):
+			default:
+				return nil, fmt.Errorf("%s.unitNormalization is not supported for aggregate operation %s", path, operation)
+			}
+			if err := input.UnitNormalization.Validate(); err != nil {
+				return nil, fmt.Errorf("%s.unitNormalization: %w", path, err)
+			}
+			system, err := recipeNodeSelector(resourceType, alias, scope, recipe.Expression{Select: alias + "." + strings.TrimPrefix(input.UnitNormalization.SystemPath, ".")}, path+".unitNormalization.systemPath")
+			if err != nil {
+				return nil, err
+			}
+			code, err := recipeNodeSelector(resourceType, alias, scope, recipe.Expression{Select: alias + "." + strings.TrimPrefix(input.UnitNormalization.CodePath, ".")}, path+".unitNormalization.codePath")
+			if err != nil {
+				return nil, err
+			}
+			valuePath := semanticAggregate.Selector.CanonicalPath()
+			if !strings.HasSuffix(valuePath, ".value") {
+				return nil, fmt.Errorf("%s.unitNormalization requires a FHIR Quantity value selector", path)
+			}
+			quantityPath := strings.TrimSuffix(valuePath, ".value")
+			quantity, quantityOK := fhirschema.ResolveFieldSemantics(resourceType, quantityPath)
+			if !quantityOK || quantity.Kind != fhirschema.FieldKindObject || quantity.Reference != "Quantity" {
+				return nil, fmt.Errorf("%s.unitNormalization selector must be owned by a FHIR Quantity", path)
+			}
+			if selectorIterates(*semanticAggregate.Selector) || selectorIterates(system) || selectorIterates(code) {
+				return nil, fmt.Errorf("%s.unitNormalization does not support repeated Quantity paths; select one indexed Quantity first", path)
+			}
+			if system.CanonicalPath() != quantityPath+".system" || code.CanonicalPath() != quantityPath+".code" {
+				return nil, fmt.Errorf("%s.unitNormalization systemPath and codePath must be siblings of the selected Quantity value", path)
+			}
+			if metadata, ok := fhirschema.ResolveTerminalScalarMetadata(resourceType, system.CanonicalPath()); !ok || metadata.Primitive != fhirschema.PrimitiveString {
+				return nil, fmt.Errorf("%s.unitNormalization.systemPath must resolve to a string", path)
+			}
+			if metadata, ok := fhirschema.ResolveTerminalScalarMetadata(resourceType, code.CanonicalPath()); !ok || metadata.Primitive != fhirschema.PrimitiveString {
+				return nil, fmt.Errorf("%s.unitNormalization.codePath must resolve to a string", path)
+			}
+			resolvedDimension, resolvedRules, resolveErr := unit.ResolveApprovedUnitRules(input.UnitNormalization.Rules, input.UnitNormalization.Target)
+			if resolveErr != nil {
+				return nil, fmt.Errorf("%s.unitNormalization: %w", path, resolveErr)
+			}
+			semanticAggregate.UnitNormalization = &unit.UnitNormalization{
+				Target: input.UnitNormalization.Target, Dimension: resolvedDimension, Rules: resolvedRules,
+			}
+			semanticAggregate.UnitSystemSelector = &system
+			semanticAggregate.UnitCodeSelector = &code
+		}
 		switch operation {
 		case string(recipe.AggregateCount), string(recipe.AggregateCountDistinct):
 			semanticAggregate.ValueKind = expression.KindInteger
-		case string(recipe.AggregateMin), string(recipe.AggregateMax):
+		case string(recipe.AggregateMin), string(recipe.AggregateMax), string(recipe.AggregateRequireOne), string(recipe.AggregateCollect), string(recipe.AggregateDistinctValues):
 			if semanticAggregate.ValueKind == "" {
 				semanticAggregate.ValueKind = expression.KindString
 			}
@@ -309,19 +491,82 @@ func lowerRecipeAggregates(resourceType, alias string, scope scopeFrame, aggrega
 			semanticAggregate.ValueKind = expression.KindBoolean
 		case string(recipe.AggregateContainsAll):
 			semanticAggregate.ValueKind = expression.KindBoolean
+		case string(recipe.AggregateSum), string(recipe.AggregateMean):
+			if semanticAggregate.Selector == nil {
+				return nil, fmt.Errorf("%s.expr is required for operation %s", path, operation)
+			}
+			metadata, ok := fhirschema.ResolveTerminalScalarMetadata(resourceType, semanticAggregate.Selector.CanonicalPath())
+			if !ok || (metadata.Primitive != fhirschema.PrimitiveInteger && metadata.Primitive != fhirschema.PrimitiveDecimal) {
+				return nil, fmt.Errorf("%s requires an integer or decimal input selector", operation)
+			}
+			semanticAggregate.ValueKind = expression.KindDecimal
+		case string(recipe.AggregateFirstOrdered):
+			if semanticAggregate.ValueKind == "" {
+				semanticAggregate.ValueKind = expression.KindString
+			}
 		}
-		if input.Where != nil {
-			predicate, equals, kind, err := lowerRecipePredicate(resourceType, alias, scope, input.Where, path+".where")
+		if input.ContributorWindow != nil {
+			window := input.ContributorWindow
+			timestamp, err := recipeNodeSelector(resourceType, alias, scope, window.Timestamp, path+".contributorWindow.timestamp")
 			if err != nil {
 				return nil, err
 			}
-			semanticAggregate.Predicate = predicate
-			semanticAggregate.PredicateEquals = equals
-			semanticAggregate.PredicateKind = kind
+			timestampMetadata, ok := fhirschema.ResolveTerminalScalarMetadata(resourceType, timestamp.CanonicalPath())
+			if !ok || timestampMetadata.Primitive != fhirschema.PrimitiveDateTime || timestampMetadata.Repeated {
+				return nil, fmt.Errorf("%s.contributorWindow.timestamp must resolve to one date_time value", path)
+			}
+			root := scope.aliases["root"]
+			anchor, err := recipeNodeSelector(root.ResourceType, "root", scope, window.Anchor, path+".contributorWindow.anchor")
+			if err != nil {
+				return nil, err
+			}
+			anchorMetadata, ok := fhirschema.ResolveTerminalScalarMetadata(root.ResourceType, anchor.CanonicalPath())
+			if !ok || anchorMetadata.Primitive != fhirschema.PrimitiveDateTime || anchorMetadata.Repeated {
+				return nil, fmt.Errorf("%s.contributorWindow.anchor must resolve to one root date_time value", path)
+			}
+			semanticAggregate.ContributorWindow = &SemanticContributorWindow{
+				Timestamp: timestamp, Anchor: anchor, AnchorResource: root.ResourceType,
+				LowerOffset: window.LowerOffset, UpperOffset: window.UpperOffset,
+				LowerInclusive: window.LowerInclusive, UpperInclusive: window.UpperInclusive,
+				Precision: string(window.Precision),
+			}
+		}
+		if input.Ordering != nil {
+			ordering := input.Ordering
+			timestamp, err := recipeNodeSelector(resourceType, alias, scope, ordering.Timestamp, path+".ordering.timestamp")
+			if err != nil {
+				return nil, err
+			}
+			timestampMetadata, ok := fhirschema.ResolveTerminalScalarMetadata(resourceType, timestamp.CanonicalPath())
+			if !ok || timestampMetadata.Primitive != fhirschema.PrimitiveDateTime || timestampMetadata.Repeated {
+				return nil, fmt.Errorf("%s.ordering.timestamp must resolve to one date_time value", path)
+			}
+			semanticAggregate.Ordering = &SemanticTemporalOrdering{
+				Timestamp: timestamp, Direction: string(ordering.Direction), TiePolicy: string(ordering.TiePolicy),
+			}
+		}
+		if input.Where != nil {
+			typedPredicate, typedErr := lowerRecipeTypedPredicate(resourceType, alias, scope, input.Where, path+".where")
+			if typedErr != nil {
+				return nil, typedErr
+			}
+			if err := validateAggregatePredicate(*typedPredicate, path+".where"); err != nil {
+				return nil, err
+			}
+			semanticAggregate.Predicate = typedPredicate
 		}
 		out = append(out, semanticAggregate)
 	}
 	return out, nil
+}
+
+func selectorIterates(selector spec.Selector) bool {
+	for _, step := range selector.Steps {
+		if step.Iterate {
+			return true
+		}
+	}
+	return false
 }
 
 // lowerRecipeSlices converts representative slices into canonical bounded
@@ -371,10 +616,15 @@ func lowerRecipeSlices(resourceType, alias string, scope scopeFrame, slices []re
 			semanticSlice.Fields = append(semanticSlice.Fields, semanticField)
 		}
 		if input.Where != nil {
+			typedPredicate, typedErr := lowerRecipeTypedPredicate(resourceType, alias, scope, input.Where, path+".where")
+			if typedErr != nil {
+				return nil, typedErr
+			}
 			predicate, equals, kind, err := lowerRecipePredicate(resourceType, alias, scope, input.Where, path+".where")
 			if err != nil {
 				return nil, err
 			}
+			semanticSlice.TypedPredicate = typedPredicate
 			semanticSlice.Predicate = predicate
 			semanticSlice.PredicateEquals = equals
 			semanticSlice.PredicateKind = kind
@@ -471,6 +721,38 @@ func lowerRecipePredicate(resourceType, alias string, scope scopeFrame, input *r
 		}
 	default:
 		return nil, "", "", fmt.Errorf("%s operator %s is not representable by canonical aggregate/slice predicates", path, filter.Operator)
+	}
+}
+
+// lowerRecipeTypedPredicate is the lossless semantic boundary for a rich
+// shaping predicate. Keeping the complete TypedFilter here avoids silently
+// dropping a quantifier or value kind when later compiler stages consume it.
+func lowerRecipeTypedPredicate(resourceType, alias string, scope scopeFrame, input *recipe.Filter, path string) (*spec.TypedFilter, error) {
+	if input == nil {
+		return nil, nil
+	}
+	filters, err := LowerRecipeFiltersForAlias(resourceType, alias, []recipe.Filter{*input})
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", path, err)
+	}
+	if len(filters) != 1 {
+		return nil, fmt.Errorf("%s must contain exactly one predicate", path)
+	}
+	filter := filters[0]
+	return &filter, nil
+}
+
+func validateAggregatePredicate(filter spec.TypedFilter, path string) error {
+	switch filter.Operator {
+	case spec.FilterExists:
+		return nil
+	case spec.FilterEquals:
+		if len(filter.Values) != 1 || (filter.Values[0].Kind != spec.FilterString && filter.Values[0].Kind != spec.FilterCode) {
+			return fmt.Errorf("%s equality predicate supports only STRING and CODE values", path)
+		}
+		return nil
+	default:
+		return fmt.Errorf("%s operator %s is not representable by canonical aggregate predicates", path, filter.Operator)
 	}
 }
 

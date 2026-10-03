@@ -13,20 +13,22 @@ import (
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
 	compilerprobe "github.com/calypr/loom/internal/dataframe/compiler/capability"
+	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/spec"
 	"github.com/calypr/loom/internal/dataset"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle"
+	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 	"github.com/calypr/loom/internal/projectid"
 	"golang.org/x/sync/singleflight"
 )
 
 const (
-	explorerCapabilityCompilerVersion = "loom-dataframe-compiler-v3"
+	explorerCapabilityCompilerVersion = "loom-dataframe-compiler-v4"
 	explorerCapabilityProtocolVersion = "loom.calypr.org/explorer-authoring/v2"
 	explorerTraversalPolicyVersion    = "finite-unbounded-v1"
-	explorerProjectionPolicyVersion   = "compiler-probed-v1"
+	explorerProjectionPolicyVersion   = "compiler-probed-v2"
 )
 
 func explorerScopeDigest(scope authscope.ReadScope) string {
@@ -100,6 +102,10 @@ func (r *explorerCapabilityResolver) Resolve(ctx context.Context, project, reque
 		CompilerVersion:          explorerCapabilityCompilerVersion,
 		TraversalPolicyVersion:   explorerTraversalPolicyVersion,
 		ProjectionPolicyVersion:  explorerProjectionPolicyVersion,
+	}
+	identity.ShapeDigest, err = catalog.RepeatedShapeDigest(evidence.FieldEnrichment.Values)
+	if err != nil {
+		return capability.Snapshot{}, fmt.Errorf("digest repeated shape evidence: %w", err)
 	}
 	key, err := capabilityIdentityKey(identity)
 	if err != nil {
@@ -296,8 +302,11 @@ func capabilityEvidenceFromCatalog(value catalog.CapabilityEvidence) capability.
 	type fieldAggregate struct {
 		observation capability.FieldObservation
 		values      map[string]struct{}
+		maxItems    int
 	}
 	fields := map[string]*fieldAggregate{}
+	pendingConcepts := map[string][]capability.ConceptCandidate{}
+	semanticOwnerFields := map[string]struct{}{}
 	for _, item := range value.FieldEnrichment.Values {
 		key := item.ResourceType + "\x00" + item.Path
 		aggregate := fields[key]
@@ -306,6 +315,7 @@ func capabilityEvidenceFromCatalog(value catalog.CapabilityEvidence) capability.
 			fields[key] = aggregate
 		}
 		aggregate.observation.ObservedDocumentCount += item.DocCount
+		aggregate.maxItems = max(aggregate.maxItems, item.MaxItems)
 		aggregate.observation.Populated = aggregate.observation.Populated || item.DocCount > 0
 		if item.DistinctTruncated {
 			aggregate.observation.SuggestionsComplete = false
@@ -314,8 +324,92 @@ func capabilityEvidenceFromCatalog(value catalog.CapabilityEvidence) capability.
 		for _, suggestion := range item.DistinctValues {
 			aggregate.values[suggestion] = struct{}{}
 		}
+		for _, observation := range item.SemanticObservations {
+			if semanticConceptOwnerPath(item.Path, observation) {
+				semanticOwnerFields[key] = struct{}{}
+			}
+			concept := capability.ConceptCandidate{
+				SourceResourceType: observation.Source.Type,
+				SourceCanonical:    observation.Source.Canonical,
+				SourceProfile:      observation.Source.Profile,
+				SourcePath:         observation.Source.Path,
+				OwningScope:        observation.OwningScope,
+				ExtensionURLPath:   append([]string(nil), observation.ExtensionURLPath...),
+				KeySelector:        observation.Key.Selector,
+				System:             observation.Key.System, Code: observation.Key.Code, Display: observation.Key.Display,
+				ValueSelector: observation.Value.Selector, ChoiceArm: observation.ChoiceArm,
+				LogicalType:            observation.LogicalType,
+				ObservedUnits:          append([]string(nil), observation.ObservedUnits...),
+				ObservedUnitsTruncated: observation.ObservedUnitsTruncated,
+				Completeness:           string(observation.Completeness), Status: observation.Status,
+				Population: observation.Population, Examples: append([]string(nil), observation.Examples...),
+				ExamplesTruncated: observation.ExamplesTruncated,
+				RuleHint:          observation.RuleHint, RuleVersion: observation.RuleVersion,
+			}
+			targetPath := semanticConceptValuePath(observation)
+			if targetPath == "" {
+				continue
+			}
+			metadata, scalar := fhirschema.ResolveTerminalScalarMetadata(item.ResourceType, targetPath)
+			if !scalar || metadata.Primitive == fhirschema.PrimitiveUnknown {
+				continue
+			}
+			targetKey := item.ResourceType + "\x00" + targetPath
+			pendingConcepts[targetKey] = append(pendingConcepts[targetKey], concept)
+		}
+	}
+	for key, concepts := range pendingConcepts {
+		aggregate := fields[key]
+		if aggregate == nil {
+			resourceType, targetPath, ok := strings.Cut(key, "\x00")
+			if !ok {
+				continue
+			}
+			metadata, scalar := fhirschema.ResolveTerminalScalarMetadata(resourceType, targetPath)
+			if !scalar || metadata.Primitive == fhirschema.PrimitiveUnknown {
+				// A semantic observation with no generated scalar value path is
+				// retained only in the source catalog. Never turn an object or
+				// unresolved structural path into a projectable capability.
+				continue
+			}
+			maxPopulation := int64(0)
+			for _, concept := range concepts {
+				if concept.Population > maxPopulation {
+					maxPopulation = concept.Population
+				}
+			}
+			aggregate = &fieldAggregate{observation: capability.FieldObservation{
+				ResourceType: resourceType, Path: targetPath, Label: targetPath, LogicalType: string(metadata.Primitive),
+				Observed: true, ObservedDocumentCount: maxPopulation, Populated: maxPopulation > 0,
+				SuggestionsComplete: true,
+			}, values: map[string]struct{}{}}
+			fields[key] = aggregate
+		}
+		aggregate.observation.ConceptCandidates = append(aggregate.observation.ConceptCandidates, concepts...)
 	}
 	for _, aggregate := range fields {
+		parts := strings.Split(aggregate.observation.Path, ".")
+		prefix := make([]string, 0, len(parts))
+		for _, part := range parts {
+			prefix = append(prefix, part)
+			if !strings.HasSuffix(part, "[]") {
+				continue
+			}
+			boundaryPath := strings.Join(prefix, ".")
+			boundary := fields[aggregate.observation.ResourceType+"\x00"+boundaryPath]
+			if boundary != nil && boundary.maxItems > 0 {
+				aggregate.observation.RepeatedBoundaries = append(aggregate.observation.RepeatedBoundaries, capability.RepeatedBoundary{Path: boundaryPath, MaxItems: boundary.maxItems})
+			}
+		}
+	}
+	for _, aggregate := range fields {
+		key := aggregate.observation.ResourceType + "\x00" + aggregate.observation.Path
+		if _, semanticOwner := semanticOwnerFields[key]; semanticOwner {
+			// The repeated object is an evidence owner, not a scalar Builder
+			// candidate. Its concepts are attached to the checked value path;
+			// its maxItems remains available to boundary derivation above.
+			continue
+		}
 		for suggestion := range aggregate.values {
 			aggregate.observation.SuggestedValues = append(aggregate.observation.SuggestedValues, suggestion)
 		}
@@ -326,6 +420,31 @@ func capabilityEvidenceFromCatalog(value catalog.CapabilityEvidence) capability.
 		return out.Fields[i].ResourceType+"\x00"+out.Fields[i].Path < out.Fields[j].ResourceType+"\x00"+out.Fields[j].Path
 	})
 	return out
+}
+
+// semanticConceptValuePath returns the generated scalar field that carries a
+// concept's value. Concept evidence is often discovered on an object owner
+// such as Observation.component[]; that owner is not itself a projectable
+// capability candidate. The owning scope and value selector preserve the
+// original pairing without advertising the object as scalar.
+func semanticConceptValuePath(observation catalog.SemanticObservation) string {
+	selector := strings.Trim(strings.TrimSpace(observation.Value.Selector), ".")
+	selector = strings.TrimPrefix(selector, "root.")
+	if selector == "" {
+		return ""
+	}
+	scope := strings.Trim(strings.TrimSpace(observation.OwningScope), ".")
+	scope = strings.TrimPrefix(scope, "root.")
+	if scope == "" || selector == scope || strings.HasPrefix(selector, scope+".") {
+		return selector
+	}
+	return scope + "." + selector
+}
+
+func semanticConceptOwnerPath(fieldPath string, observation catalog.SemanticObservation) bool {
+	fieldPath = strings.TrimPrefix(strings.Trim(strings.TrimSpace(fieldPath), "."), "root.")
+	ownerPath := strings.TrimPrefix(strings.Trim(strings.TrimSpace(observation.OwningScope), "."), "root.")
+	return fieldPath != "" && ownerPath != "" && fieldPath == ownerPath
 }
 
 type explorerCapabilityCompiler struct{ scope compilerprobe.Scope }
@@ -373,6 +492,37 @@ func (c explorerCapabilityCompiler) ProbeCandidate(ctx context.Context, candidat
 	if len(proof.ChartAggregations) > 0 {
 		proof.SupportedOperations = append(proof.SupportedOperations, capability.OperationChart, capability.OperationAggregate)
 	}
+	// Catalog candidates are route-independent. Advertise operations that the
+	// field can support when placed on a related occurrence; command validation
+	// derives the same contract again from the selected occurrence and rejects
+	// related-only operations at the row root.
+	input := capability.AggregateInput{
+		LogicalType:     string(result.Candidate.Primitive),
+		Cardinality:     string(result.Candidate.Cardinality),
+		HasField:        true,
+		RelatedResource: true,
+	}
+	valueOperations := make([]capability.AggregateOperationCapability, 0, len(result.Candidate.ValueAggregateOperations)*3)
+	for _, rows := range []capability.AggregateRowContext{capability.AggregateRowsRecords, capability.AggregateRowsGroups, capability.AggregateRowsExpanded} {
+		valueOperations = append(valueOperations, capability.DeriveAggregateOperationCapabilities(input, rows)...)
+	}
+	compilerOperations := make(map[recipe.AggregateOperation]struct{}, len(result.Candidate.ValueAggregateOperations))
+	for _, operation := range result.Candidate.ValueAggregateOperations {
+		compilerOperations[operation] = struct{}{}
+	}
+	for index := range valueOperations {
+		choice := &valueOperations[index]
+		if !choice.Supported || choice.Operation == capability.AggregateFirstOrdered {
+			continue
+		}
+		if _, ok := compilerOperations[recipe.AggregateOperation(choice.Operation)]; !ok {
+			choice.Supported = false
+			choice.ReasonCode = "COMPILER_NOT_PROVEN"
+			choice.Reason = "the compiler did not prove this operation for the candidate field"
+			choice.RequiresConfiguration = nil
+		}
+	}
+	proof.AggregateOperations = valueOperations
 	return proof, nil
 }
 
@@ -399,25 +549,51 @@ func authoringV2Catalog(snapshot capability.Snapshot, explorerID string) authori
 		})
 	}
 	for _, edge := range snapshot.Edges {
-		result.Edges = append(result.Edges, authoringv2.CatalogEdge{ID: edge.ID, FromNodeID: edge.FromNodeID, ToNodeID: edge.ToNodeID, Label: edge.Label, Populated: edge.ObservedEdgeCount > 0})
+		result.Edges = append(result.Edges, authoringv2.CatalogEdge{
+			ID: edge.ID, FromNodeID: edge.FromNodeID, ToNodeID: edge.ToNodeID, Label: edge.Label,
+			StorageDirection: edge.StorageDirection, Populated: edge.ObservedEdgeCount > 0,
+		})
 	}
 	for _, candidate := range snapshot.Candidates {
 		projectionModes := stringProjectionModes(candidate.ProjectionModes)
 		count := candidate.ObservedDocumentCount
 		wire := authoringv2.CatalogCandidate{
 			ID: candidate.ID, NodeID: candidate.NodeID, Label: candidate.Label,
-			FieldPath:   candidate.FieldPath,
-			LogicalType: candidate.LogicalType, Cardinality: candidate.Cardinality, Repeated: candidate.Cardinality != "scalar",
+			FieldPath:          candidate.FieldPath,
+			RepeatedBoundaries: repeatedBoundariesForAuthoring(candidate.RepeatedBoundaries),
+			LogicalType:        candidate.LogicalType, Cardinality: candidate.Cardinality, Repeated: capability.IsRepeatedCardinality(candidate.Cardinality),
 			Filterable: len(candidate.FilterOperators) > 0, Chartable: len(candidate.ChartAggregations) > 0,
 			ProjectionModes: projectionModes, DefaultProjectionMode: defaultProjectionMode(projectionModes),
 			FilterOperators: stringFilterOperators(candidate.FilterOperators), ChartOperations: stringChartOperations(candidate.ChartAggregations),
-			Populated: candidate.Populated, Count: &count,
+			AggregateOperations: append([]capability.AggregateOperationCapability{}, candidate.AggregateOperations...),
+			Populated:           candidate.Populated, Count: &count,
 			SuggestionsAvailable: len(candidate.SuggestedValues) > 0,
 			SuggestionsComplete:  candidate.SuggestionsComplete,
 			SuggestionsTruncated: candidate.SuggestionsTruncated,
 			SuggestionCount:      len(candidate.SuggestedValues),
+			ConceptCandidates:    authoringConceptCandidates(candidate.ConceptCandidates),
 		}
+		choice, err := capability.NewFieldConstructionChoice(snapshot.Token, candidate)
+		if err != nil {
+			code := "CONSTRUCTION_CHOICE_UNAVAILABLE"
+			message := "A catalog candidate was omitted because no compiler-proved construction output is available."
+			if !capability.IsSupportedConstructionSourceType(candidate.LogicalType) {
+				code = "UNSUPPORTED_CONSTRUCTION_SOURCE_TYPE"
+				if typeErr := capability.ValidateConstructionSourceType(candidate, snapshot.Candidates); typeErr != nil {
+					message = typeErr.Error()
+				}
+			}
+			result.Diagnostics = append(result.Diagnostics, authoringv2.CatalogDiagnostic{
+				Severity: "WARNING", Code: code, Message: message,
+			})
+			continue
+		}
+		wire.ConstructionChoice = &choice
 		result.Candidates = append(result.Candidates, wire)
+	}
+	for index := range result.Candidates {
+		result.Candidates[index].Transformations = authoringv2.AggregateTransformationCapabilitiesForCatalog(result, result.Candidates[index].ID)
+		result.Candidates[index].ValueTransformations = authoringv2.ColumnValueTransformationCapabilitiesForCatalog(result, result.Candidates[index].ID)
 	}
 	for _, diagnostic := range snapshot.Diagnostics {
 		severity := diagnostic.Severity
@@ -429,14 +605,54 @@ func authoringV2Catalog(snapshot capability.Snapshot, explorerID string) authori
 	return result
 }
 
+func authoringConceptCandidates(values []capability.ConceptCandidate) []authoringv2.ConceptCandidate {
+	if len(values) == 0 {
+		return nil
+	}
+	out := make([]authoringv2.ConceptCandidate, len(values))
+	for index, value := range values {
+		out[index] = authoringv2.ConceptCandidate{
+			SourceResourceType:     value.SourceResourceType,
+			SourcePath:             value.SourcePath,
+			SourceCanonical:        value.SourceCanonical,
+			SourceProfile:          value.SourceProfile,
+			OwningScope:            value.OwningScope,
+			ExtensionURLPath:       append([]string(nil), value.ExtensionURLPath...),
+			KeySelector:            value.KeySelector,
+			System:                 value.System,
+			Code:                   value.Code,
+			Display:                value.Display,
+			ValueSelector:          value.ValueSelector,
+			ChoiceArm:              value.ChoiceArm,
+			LogicalType:            value.LogicalType,
+			ObservedUnits:          append([]string(nil), value.ObservedUnits...),
+			ObservedUnitsTruncated: value.ObservedUnitsTruncated,
+			Completeness:           value.Completeness,
+			Status:                 value.Status,
+			Population:             value.Population,
+			Examples:               append([]string(nil), value.Examples...),
+			ExamplesTruncated:      value.ExamplesTruncated,
+			RuleHint:               value.RuleHint,
+			RuleVersion:            value.RuleVersion,
+		}
+	}
+	return out
+}
+
 func stringProjectionModes(values []capability.ProjectionMode) []string {
+	// ALL and DISTINCT are stable authoring-v2 spellings. Legacy workspaces
+	// keep decoding ALL as array projection; DISTINCT is only needed when the
+	// capability snapshot can prove distinct-array semantics, so no persisted
+	// workspace version migration is needed here.
 	out := make([]string, len(values))
 	for i, value := range values {
 		switch value {
 		case capability.ProjectionScalar:
 			out[i] = "VALUE"
-		case capability.ProjectionArray, capability.ProjectionDistinctArray:
+		case capability.ProjectionArray:
 			out[i] = "ALL"
+		case capability.ProjectionDistinctArray:
+			out[i] = "DISTINCT"
 		default:
 			out[i] = string(value)
 		}
@@ -458,7 +674,7 @@ func stringChartOperations(values []capability.ChartAggregation) []string {
 	return out
 }
 func defaultProjectionMode(values []string) string {
-	for _, preferred := range []string{"VALUE", "FIRST", "ALL", "COUNT"} {
+	for _, preferred := range []string{"VALUE", "INDEXED", "ALL", "FIRST", "COUNT"} {
 		for _, value := range values {
 			if value == preferred {
 				return value
@@ -466,4 +682,12 @@ func defaultProjectionMode(values []string) string {
 		}
 	}
 	return ""
+}
+
+func repeatedBoundariesForAuthoring(values []capability.RepeatedBoundary) []authoringv2.RepeatedBoundary {
+	out := make([]authoringv2.RepeatedBoundary, len(values))
+	for index, value := range values {
+		out[index] = authoringv2.RepeatedBoundary{Path: value.Path, MaxItems: value.MaxItems}
+	}
+	return out
 }

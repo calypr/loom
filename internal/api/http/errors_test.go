@@ -2,12 +2,62 @@ package httpapi
 
 import (
 	"errors"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"net/http"
+	"path/filepath"
+	"reflect"
+	"runtime"
+	"strings"
 	"testing"
 
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/gofiber/fiber/v3"
 )
+
+func TestHTTPCodePolicyCoversEveryPublicError(t *testing.T) {
+	_, filename, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller failed")
+	}
+	centralPath := filepath.Join(filepath.Dir(filename), "../../dataframe/errors/errors.go")
+	file, err := parser.ParseFile(token.NewFileSet(), centralPath, nil, 0)
+	if err != nil {
+		t.Fatalf("parse central error registry: %v", err)
+	}
+	ast.Inspect(file, func(node ast.Node) bool {
+		declaration, ok := node.(*ast.GenDecl)
+		if !ok || declaration.Tok != token.CONST {
+			return true
+		}
+		for _, spec := range declaration.Specs {
+			values, ok := spec.(*ast.ValueSpec)
+			if !ok {
+				continue
+			}
+			for index, name := range values.Names {
+				if !strings.HasPrefix(name.Name, "Code") || index >= len(values.Values) {
+					continue
+				}
+				literal, ok := values.Values[index].(*ast.BasicLit)
+				if !ok {
+					continue
+				}
+				code := strings.Trim(literal.Value, "\"")
+				policy, exists := httpCodePolicies[code]
+				if !exists || policy.Status < 400 {
+					t.Errorf("public error code %s has no valid HTTP policy", code)
+				}
+				mapped := MapDataframeError(dataframeerrors.NewError(dataframeerrors.ErrorCode(code), ""), "policy-test")
+				if mapped.Body.Error.Code != code || mapped.Body.Error.Message == "" || mapped.Status != policy.Status {
+					t.Errorf("public error code %s mapped = %#v, policy = %#v", code, mapped, policy)
+				}
+			}
+		}
+		return false
+	})
+}
 
 func TestMapDataframeErrorRedactsUnknownCause(t *testing.T) {
 	mapped := MapDataframeError(errors.New("arango password=secret collection=private"), "req-1")
@@ -33,6 +83,27 @@ func TestMapDataframeErrorBackendIsRetryable(t *testing.T) {
 	}
 }
 
+func TestMapDataframeErrorUnlistedPivotCategoryIsActionable(t *testing.T) {
+	code := dataframeerrors.ErrorCode("TABLE_PIVOT_UNLISTED_CATEGORY")
+	mapped := MapDataframeError(dataframeerrors.NewError(code, "private"), "req-pivot")
+	wantMessage := "Pivot found an unlisted category; select all discovered categories or filter rows before Pivot."
+	if mapped.Status != http.StatusUnprocessableEntity || mapped.Body.Error.Code != string(code) || mapped.Body.Error.Message != wantMessage || mapped.Body.Error.Retryable {
+		t.Fatalf("mapped = %#v, want non-retryable 422 %s with actionable message", mapped, code)
+	}
+}
+
+func TestMapDataframeErrorPreservesOrderedFieldPath(t *testing.T) {
+	err := dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, "", dataframeerrors.WithFieldPath("input", "outputs", "0", "columns", "2"))
+	mapped := MapDataframeError(err, "req-path")
+	want := []string{"input", "outputs", "0", "columns", "2"}
+	if mapped.Status != http.StatusBadRequest || mapped.Body.Error.Code != "INVALID_REQUEST" {
+		t.Fatalf("mapped = %#v, want INVALID_REQUEST/400", mapped)
+	}
+	if !reflect.DeepEqual(mapped.Body.Error.FieldPath, want) {
+		t.Fatalf("field path = %#v, want %#v", mapped.Body.Error.FieldPath, want)
+	}
+}
+
 func TestMapDataframeErrorPreviewClassifications(t *testing.T) {
 	for _, test := range []struct {
 		code      dataframeerrors.ErrorCode
@@ -40,6 +111,7 @@ func TestMapDataframeErrorPreviewClassifications(t *testing.T) {
 		retryable bool
 	}{
 		{dataframeerrors.CodePlanTooExpensive, http.StatusTooManyRequests, false},
+		{dataframeerrors.CodeTablePivotCellCardinality, http.StatusUnprocessableEntity, false},
 		{dataframeerrors.CodeReceiptStoreUnavailable, http.StatusServiceUnavailable, true},
 		{dataframeerrors.CodePreviewTimeout, http.StatusGatewayTimeout, true},
 		{dataframeerrors.CodePreviewResponseTooLarge, http.StatusRequestEntityTooLarge, false},
