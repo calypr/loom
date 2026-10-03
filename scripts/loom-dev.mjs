@@ -7440,13 +7440,15 @@ const verifyJ04BrowserScenario = async (target, report, entryTarget, fixture) =>
     const builderURL = `${target.uiUrl}/?project=${encodeURIComponent(target.fixtureProject)}&explorer=${encodeURIComponent(explorerId)}&mode=builder`;
     await navigate(cdp, entryTarget.uiUrl);
     await navigate(cdp, builderURL);
-    await waitForBrowser(cdp, `document.body.innerText.includes('Create your first table')`, 60000);
+    await waitForBrowser(cdp, `document.querySelector('.demo-controls span')?.textContent.trim() === ${JSON.stringify(`${target.fixtureProject} / ${explorerId}`)} && (${builderDOMReadyCondition})`, 60000);
     await captureDOM('j04-builder-before');
 
     await action('create-observation-table-in-builder', async () => {
       await browserEval(cdp, `setInput('first-table-name', 'J04 measurements')`);
-      await browserEval(cdp, `clickButton('Create table')`);
-      await waitForBrowser(cdp, `document.body.innerText.includes('What should one row represent?') && Boolean(document.querySelector('button[aria-label="Choose Observation rows"]'))`, 60000);
+      await waitForBrowser(cdp, `(() => {
+        const button = document.querySelector('button[aria-label="Choose Observation rows"]');
+        return Boolean(button && !button.disabled && button.getClientRects().length > 0);
+      })()`, 60000);
       await browserEval(cdp, `clickButton('Choose Observation rows')`);
       await waitForBrowser(cdp, `Boolean(document.querySelector('input[aria-label="Search features by field name, concept, or code"]'))`, 60000);
     });

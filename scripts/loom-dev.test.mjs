@@ -23,6 +23,21 @@ test('Builder browser readiness requires a loaded workspace or the current empty
   assert.equal(isReady(new Set(['[data-testid="construction-workspace"]'])), true);
 });
 
+test('J04 creates its initial table through the visible row-type control', () => {
+  const driver = readFileSync(join(process.cwd(), 'scripts/loom-dev.mjs'), 'utf8');
+  const rowPicker = readFileSync(join(process.cwd(), 'ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowRootPicker.tsx'), 'utf8');
+  const start = driver.indexOf("await action('create-observation-table-in-builder'");
+  const end = driver.indexOf('\n\n    let state = await fetchBuilderState(target, explorerId);', start);
+  assert.ok(start >= 0 && end > start, 'J04 browser creation action must remain identifiable');
+  const createAction = driver.slice(start, end);
+  assert.match(rowPicker, /aria-label=\{`Choose \$\{node\.resourceType\} rows`\}/);
+  assert.doesNotMatch(createAction, /clickButton\('Create table'\)/);
+  assert.match(createAction, /button\[aria-label="Choose Observation rows"\]/);
+  assert.match(createAction, /clickButton\('Choose Observation rows'\)/);
+  assert.match(createAction, /input\[aria-label="Search features by field name, concept, or code"\]/);
+  assert.match(driver.slice(driver.lastIndexOf('const builderURL =', start), start), /demo-controls span.*target\.fixtureProject.*explorerId/s);
+});
+
 test('J04 fixture keeps valid Observation values, recorded absence, Patient aggregates, and pivot types in separate row scopes', () => {
   const fixtureDir = join(process.cwd(), 'testdata/devloop-fixture');
   const loaded = loadJ04FixtureContract(fixtureDir);
