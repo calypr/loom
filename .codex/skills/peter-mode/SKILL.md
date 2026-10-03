@@ -76,6 +76,21 @@ for destructive changes, migrations, shared contracts, security boundaries,
 concurrency, deployment, or failures that focused checks cannot explain. State
 anything important that remains untested.
 
+## Frontend: no useEffect
+
+Do not use `useEffect` in frontend code. This includes imported, aliased,
+and `React.useEffect` calls. When changing a frontend flow that relies on it,
+remove the effect from that flow rather than adding another guard or dependency.
+Do not move the same synchronization into `useLayoutEffect` to evade this rule.
+
+Derive display state during rendering. Run user-triggered work from the action
+that owns it, and keep multi-step operations under one explicit lifecycle.
+Use the existing query or subscription owner for external data, with cancellation
+and stale-result ownership handled there. Avoid effects that copy props to state,
+chain requests from intermediate state, or reset user input after rendering.
+Prove the replacement preserves loading, cancellation, navigation, and saved
+state behavior with a regression for the original race.
+
 ## Engineering style
 
 Fix causes rather than masking symptoms. Prefer deletion and direct code over
