@@ -28,6 +28,17 @@ type PhysicalStageSequence struct {
 	OutputAuthResourcePathBindKey string
 	CellTraceReturn               *PhysicalCellTraceReturn
 	RowLineageReturn              *PhysicalRowLineageReturn
+	PopulationMappingReturn       *PhysicalStagePopulationMappingReturn
+}
+
+// PhysicalStagePopulationMappingReturn maps the final root-contributor keys
+// back to the exact selected member IDs captured in the original source rows.
+type PhysicalStagePopulationMappingReturn struct {
+	SourceRootKeyColumn        string
+	SourceMemberIDsColumn      string
+	FinalRootContributorColumn string
+	FinalRootContributorsMany  bool
+	RowIdentityColumn          string
 }
 
 // PhysicalRowLineageReturn selects source records for one final construction

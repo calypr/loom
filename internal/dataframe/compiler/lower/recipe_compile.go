@@ -261,6 +261,9 @@ func compileRecipeOutput(output semantic.OutputPlan, bindings recipe.RuntimeBind
 	if err != nil {
 		return CompiledRecipeOutput{}, err
 	}
+	if output.Population != nil && output.Construction != nil {
+		baseOutputSchema = markRootContributorIdentity(baseOutputSchema, output.RootResourceType)
+	}
 	if output.GroupRows != nil && !composedCohort {
 		baseOutputSchema = append(baseOutputSchema, CompiledOutputColumn{
 			ID: rootContributorSetColumn, Name: rootContributorSetColumn, Label: rootContributorSetColumn,

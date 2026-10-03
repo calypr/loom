@@ -277,17 +277,95 @@ func validatePhysicalStageSequence(sequence PhysicalStageSequence, sourceOperati
 		return fmt.Errorf("final output schema differs from the final stage")
 	}
 	if sequence.CellTraceReturn != nil {
-		if sequence.RowLineageReturn != nil {
-			return fmt.Errorf("cell trace and row lineage cannot share a terminal")
+		if sequence.RowLineageReturn != nil || sequence.PopulationMappingReturn != nil {
+			return fmt.Errorf("cell trace, row lineage, and population mapping cannot share a terminal")
 		}
 		if err := validatePhysicalStageCellTrace(sequence, *sequence.CellTraceReturn, bindVars); err != nil {
 			return fmt.Errorf("cell trace: %w", err)
 		}
 	}
 	if sequence.RowLineageReturn != nil {
+		if sequence.PopulationMappingReturn != nil {
+			return fmt.Errorf("row lineage and population mapping cannot share a terminal")
+		}
 		if err := validatePhysicalStageRowLineage(sequence, *sequence.RowLineageReturn, sourceOperations, bindVars); err != nil {
 			return fmt.Errorf("row lineage: %w", err)
 		}
+	}
+	if sequence.PopulationMappingReturn != nil {
+		if err := validatePhysicalStagePopulationMappingReturn(sequence, *sequence.PopulationMappingReturn, sourceOperations); err != nil {
+			return fmt.Errorf("population mapping: %w", err)
+		}
+	}
+	return nil
+}
+
+func validatePhysicalStagePopulationMappingReturn(sequence PhysicalStageSequence, terminal PhysicalStagePopulationMappingReturn, sourceOperations []PhysicalOperation) error {
+	if terminal.RowIdentityColumn == "" || terminal.RowIdentityColumn != sequence.FinalRowIdentity {
+		return fmt.Errorf("row identity column does not match the final construction identity")
+	}
+	if terminal.SourceRootKeyColumn != "_key" || terminal.SourceMemberIDsColumn != PhysicalPopulationMappingMembersColumn || terminal.FinalRootContributorColumn == "" {
+		return fmt.Errorf("source member and root-contributor columns are not the compiler-owned mapping fields")
+	}
+	var identity, sourceRootKey, finalContributors PhysicalStageColumn
+	var identityFound, sourceRootKeyFound, finalContributorsFound bool
+	for _, column := range sequence.FinalColumns {
+		if column.Name == terminal.RowIdentityColumn {
+			identity, identityFound = column, true
+		}
+		if column.Name == terminal.FinalRootContributorColumn {
+			finalContributors, finalContributorsFound = column, true
+		}
+	}
+	for _, column := range sequence.SourceColumns {
+		if column.Name == terminal.SourceRootKeyColumn {
+			sourceRootKey, sourceRootKeyFound = column, true
+		}
+	}
+	if !identityFound || !identity.Internal || !identity.Identity {
+		return fmt.Errorf("row identity column %q is not the typed final identity", terminal.RowIdentityColumn)
+	}
+	if !sourceRootKeyFound || !sourceRootKey.Internal || sourceRootKey.RootContributorResourceType == "" || sourceRootKey.Kind != "string" || sourceRootKey.Cardinality != "required_one" {
+		return fmt.Errorf("source root key column %q is not compiler-owned exact root provenance", terminal.SourceRootKeyColumn)
+	}
+	if !finalContributorsFound || !finalContributors.Internal || finalContributors.RootContributorResourceType != sourceRootKey.RootContributorResourceType || finalContributors.Kind != "string" {
+		return fmt.Errorf("final contributor column %q is not compiler-owned provenance for the source root", terminal.FinalRootContributorColumn)
+	}
+	if terminal.FinalRootContributorsMany != (finalContributors.Cardinality == "many") {
+		return fmt.Errorf("final contributor cardinality does not match its typed column")
+	}
+	if !terminal.FinalRootContributorsMany && finalContributors.Cardinality != "required_one" && finalContributors.Cardinality != "optional_one" {
+		return fmt.Errorf("scalar final contributor column has an unsupported cardinality")
+	}
+	var root *PhysicalRootScan
+	for index := range sourceOperations {
+		operation := &sourceOperations[index]
+		if operation.Kind == PhysicalRootScanOp && operation.RootScan != nil {
+			root = operation.RootScan
+			break
+		}
+	}
+	if root == nil || root.Population == nil || root.Population.CollectMembersVariable != PopulationMappingMembersVariable {
+		return fmt.Errorf("source does not collect exact population member IDs")
+	}
+	var rootKeyProjection, membersProjection bool
+	for _, operation := range sourceOperations {
+		if operation.Kind != PhysicalReturnOp || operation.Return == nil {
+			continue
+		}
+		for _, projection := range operation.Return.Projections {
+			if projection.Name == terminal.SourceRootKeyColumn && projection.Expression == nil &&
+				projection.Value.Variable == root.Variable && len(projection.Value.Path) == 1 && projection.Value.Path[0] == "_key" {
+				rootKeyProjection = true
+			}
+			if projection.Name == terminal.SourceMemberIDsColumn && projection.Hidden && projection.Expression == nil &&
+				projection.Value.Variable == PopulationMappingMembersVariable && len(projection.Value.Path) == 0 {
+				membersProjection = true
+			}
+		}
+	}
+	if !rootKeyProjection || !membersProjection {
+		return fmt.Errorf("original source RETURN does not preserve exact root keys and selected member IDs")
 	}
 	return nil
 }

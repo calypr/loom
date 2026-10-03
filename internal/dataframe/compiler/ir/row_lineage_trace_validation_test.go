@@ -116,6 +116,22 @@ func TestClonePhysicalPlanCopiesRowLineageTraceStages(t *testing.T) {
 	}
 }
 
+func TestClonePhysicalPlanCopiesPopulationMappingReturn(t *testing.T) {
+	plan := PhysicalPlan{StageSequence: &PhysicalStageSequence{PopulationMappingReturn: &PhysicalStagePopulationMappingReturn{
+		SourceRootKeyColumn: "_key", SourceMemberIDsColumn: PhysicalPopulationMappingMembersColumn,
+		FinalRootContributorColumn: "__loom_root_contributor_keys", FinalRootContributorsMany: true,
+		RowIdentityColumn: "__loom_row_id",
+	}}}
+	cloned := ClonePhysicalPlan(plan)
+	if cloned.StageSequence.PopulationMappingReturn == plan.StageSequence.PopulationMappingReturn {
+		t.Fatal("cloned plan shares the population mapping terminal pointer")
+	}
+	cloned.StageSequence.PopulationMappingReturn.SourceRootKeyColumn = "changed"
+	if plan.StageSequence.PopulationMappingReturn.SourceRootKeyColumn != "_key" {
+		t.Fatal("mutating the cloned population mapping terminal changed the source plan")
+	}
+}
+
 func validRelatedLineageFixture() (PhysicalStageSequence, PhysicalRowLineageReturn, PhysicalRowLineageTrace, map[string]any, []PhysicalOperation) {
 	sequence := PhysicalStageSequence{
 		SourceStageID: "source", SourceRowIdentity: "_key", FinalStageID: "related_two", FinalRowIdentity: "related_row_two",

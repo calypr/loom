@@ -274,6 +274,61 @@ func containsBindValue(bindVars map[string]any, want string) bool {
 	return false
 }
 
+func TestCompilePopulationMappingConstructionUsesFinalObjectIdentityAndRootMembers(t *testing.T) {
+	filterValue := "Cohort"
+	compiled := compilePopulationMappingRecipe(t, recipe.Output{
+		Name: "NamedCohort", RootResourceType: "Observation", RowGrain: "groups",
+		Fields: []recipe.Field{{Name: "specimen_id", ColumnID: "specimen_id", Expr: recipe.Expression{Select: "root.id"}}},
+		Population: &recipe.PopulationConstraint{
+			SelectionRevisionID: "selection-1", MembershipDigest: "sha256:members", MemberCount: 2,
+			ResourceType: "Observation",
+		},
+		Construction: &recipe.Construction{
+			Version:       1,
+			SourceColumns: []recipe.StageColumn{{ID: "specimen_id", Name: "specimen_id", Type: "string"}},
+			Steps: []recipe.ConstructionStep{{
+				ID: "filter_group_rows", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionStepOutputInput, StepID: recipe.ConstructionCohortGroupStageID}},
+				Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionFilterOp, Filter: &recipe.ConstructionFilter{
+					ColumnID: "group_label", Operator: recipe.FilterEquals,
+					Values: []recipe.FilterValue{{Kind: recipe.FilterString, String: &filterValue}},
+				}},
+				Outputs: []recipe.StageColumn{
+					{ID: "group_id", Name: "group_id", Type: "string"},
+					{ID: "group_label", Name: "group_label", Type: "string"},
+					{ID: "group_ordinal", Name: "group_ordinal", Type: "integer"},
+					{ID: "members", Name: "members", Type: "array"},
+					{ID: "specimen_id", Name: "specimen_id", Type: "array"},
+				},
+			}},
+		},
+		GroupRows: &recipe.GroupRows{
+			RevisionID: "grouprev_cohort_row_lineage", UnassignedMemberPolicy: "EXCLUDE",
+			RowValues: []recipe.GroupRowValuePolicy{{ColumnID: "specimen_id", Policy: recipe.ConstructionRowValueAll}},
+		},
+	})
+	wants := []string{
+		"INTO __loom_physical_population_member_ids = population_member.id",
+		"LET __loom_population_members_value = SORTED_UNIQUE(__loom_physical_population_member_ids)",
+		"FOR __loom_physical_construction_population_mapping_source_row IN __loom_construction_source_projection",
+		"FILTER __loom_physical_construction_population_mapping_source_row[@__loom_physical_construction_population_mapping_source_root_key] IN __loom_physical_construction_population_mapping_root_keys",
+		"FOR __loom_physical_construction_population_mapping_source_member IN (__loom_physical_construction_population_mapping_source_row[@__loom_physical_construction_population_mapping_source_members] == null ? [] : __loom_physical_construction_population_mapping_source_row[@__loom_physical_construction_population_mapping_source_members])",
+		"COLLECT __loom_physical_construction_population_mapping_selected_member = __loom_physical_construction_population_mapping_source_member, __loom_physical_construction_population_mapping_selected_identity = __loom_construction_final_row[@__loom_physical_construction_population_mapping_final_row_identity]",
+		"@__loom_physical_construction_population_mapping_identity_name]: [__loom_physical_construction_population_mapping_selected_identity]",
+	}
+	for _, want := range wants {
+		if !strings.Contains(compiled.Query, want) {
+			t.Fatalf("construction population mapping query is missing %q:\n%s", want, compiled.Query)
+		}
+	}
+	if compiled.RowIdentity == nil || len(compiled.RowIdentity.Fields) != 1 || compiled.RowIdentity.Fields[0] != "__loom_row_id" ||
+		compiled.IdentityPartsColumn != ir.PhysicalPopulationMappingIdentityPartsField || compiled.ExplicitIdentityColumn != "" {
+		t.Fatalf("construction population mapping identity columns = (%#v, %q, %q)", compiled.RowIdentity, compiled.IdentityPartsColumn, compiled.ExplicitIdentityColumn)
+	}
+	if !containsBindValue(compiled.BindVars, ir.PhysicalPopulationMappingMembersColumn) {
+		t.Fatal("construction population mapping source IDs are not projected through the private source mapping column")
+	}
+}
+
 func compilePopulationMappingRecipe(t *testing.T, output recipe.Output) CompiledPopulationMappingQuery {
 	t.Helper()
 	compiled := compilePopulationMappingOutput(t, output)

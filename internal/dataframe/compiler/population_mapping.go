@@ -70,19 +70,33 @@ func mappingPhysicalPlan(output lower.CompiledRecipeOutput, policy ir.PhysicalOp
 	if len(physical.Operations) == 0 || physical.Operations[0].Kind != ir.PhysicalRootScanOp || physical.Operations[0].RootScan == nil || physical.Operations[0].RootScan.Population == nil {
 		return ir.PhysicalPlan{}, fmt.Errorf("population mapping requires a membership-driven population root source")
 	}
-	physical.Operations[0].RootScan.Population.CollectMembersVariable = ir.PopulationMappingMembersVariable
-	terminalIndex, identityParts, explicitIdentity, err := finalPopulationMappingIdentity(physical, output.RowIdentity)
-	if err != nil {
-		return ir.PhysicalPlan{}, err
-	}
-	physical.Operations[terminalIndex] = ir.PhysicalOperation{
-		Kind:   ir.PhysicalPopulationMappingReturnOp,
-		Source: physical.Operations[terminalIndex].Source,
-		PopulationMappingReturn: &ir.PhysicalPopulationMappingReturn{
-			Members:          ir.PhysicalExpression{Kind: ir.PhysicalValueExpression, Cardinality: ir.PhysicalArrayCardinality, NullBehavior: ir.PhysicalEmptyOnNull, Value: &ir.PhysicalValue{Variable: ir.PopulationMappingMembersVariable}},
-			IdentityParts:    identityParts,
-			ExplicitIdentity: explicitIdentity,
-		},
+	if physical.StageSequence != nil {
+		rootKeyColumn, err := addConstructionPopulationMembersSourceProjection(&physical)
+		if err != nil {
+			return ir.PhysicalPlan{}, err
+		}
+		terminal, err := finalConstructionPopulationMappingIdentity(physical, output)
+		if err != nil {
+			return ir.PhysicalPlan{}, err
+		}
+		terminal.SourceRootKeyColumn = rootKeyColumn
+		terminal.SourceMemberIDsColumn = ir.PhysicalPopulationMappingMembersColumn
+		physical.StageSequence.PopulationMappingReturn = terminal
+	} else {
+		physical.Operations[0].RootScan.Population.CollectMembersVariable = ir.PopulationMappingMembersVariable
+		terminalIndex, identityParts, explicitIdentity, err := finalPopulationMappingIdentity(physical, output.RowIdentity)
+		if err != nil {
+			return ir.PhysicalPlan{}, err
+		}
+		physical.Operations[terminalIndex] = ir.PhysicalOperation{
+			Kind:   ir.PhysicalPopulationMappingReturnOp,
+			Source: physical.Operations[terminalIndex].Source,
+			PopulationMappingReturn: &ir.PhysicalPopulationMappingReturn{
+				Members:          ir.PhysicalExpression{Kind: ir.PhysicalValueExpression, Cardinality: ir.PhysicalArrayCardinality, NullBehavior: ir.PhysicalEmptyOnNull, Value: &ir.PhysicalValue{Variable: ir.PopulationMappingMembersVariable}},
+				IdentityParts:    identityParts,
+				ExplicitIdentity: explicitIdentity,
+			},
+		}
 	}
 	if err := physical.Validate(); err != nil {
 		return ir.PhysicalPlan{}, fmt.Errorf("validate population mapping physical plan: %w", err)
@@ -91,6 +105,84 @@ func mappingPhysicalPlan(output lower.CompiledRecipeOutput, policy ir.PhysicalOp
 		return ir.PhysicalPlan{}, fmt.Errorf("verify population mapping physical scope: %w", err)
 	}
 	return physical, nil
+}
+
+func addConstructionPopulationMembersSourceProjection(plan *ir.PhysicalPlan) (string, error) {
+	if plan == nil || plan.StageSequence == nil || len(plan.Operations) == 0 || plan.Operations[0].RootScan == nil || plan.Operations[0].RootScan.Population == nil {
+		return "", fmt.Errorf("construction population mapping requires a population root source")
+	}
+	root := plan.Operations[0].RootScan
+	root.Population.CollectMembersVariable = ir.PopulationMappingMembersVariable
+	rootKeyFound := false
+	for _, column := range plan.StageSequence.SourceColumns {
+		if column.Name == "_key" && column.Internal && column.RootContributorResourceType == plan.Source.ResourceType &&
+			column.Kind == "string" && column.Cardinality == "required_one" {
+			rootKeyFound = true
+			break
+		}
+	}
+	if !rootKeyFound {
+		return "", fmt.Errorf("construction population mapping source does not retain the exact root storage key")
+	}
+	for index := range plan.Operations {
+		operation := &plan.Operations[index]
+		if operation.Kind != ir.PhysicalReturnOp || operation.Return == nil {
+			continue
+		}
+		for _, projection := range operation.Return.Projections {
+			if projection.Name != ir.PhysicalPopulationMappingMembersColumn {
+				continue
+			}
+			if !projection.Hidden || projection.Expression != nil || projection.Value.Variable != ir.PopulationMappingMembersVariable || len(projection.Value.Path) != 0 {
+				return "", fmt.Errorf("construction population mapping source projection %q is not the collected selected member IDs", projection.Name)
+			}
+			return "_key", nil
+		}
+	}
+	for index := range plan.Operations {
+		operation := &plan.Operations[index]
+		if operation.Kind == ir.PhysicalReturnOp && operation.Return != nil {
+			operation.Return.Projections = append(operation.Return.Projections, ir.PhysicalProjection{
+				Name: ir.PhysicalPopulationMappingMembersColumn, Hidden: true,
+				Value: ir.PhysicalValue{Variable: ir.PopulationMappingMembersVariable},
+			})
+			return "_key", nil
+		}
+	}
+	return "", fmt.Errorf("construction population mapping source has no terminal source RETURN")
+}
+
+func finalConstructionPopulationMappingIdentity(plan ir.PhysicalPlan, output lower.CompiledRecipeOutput) (*ir.PhysicalStagePopulationMappingReturn, error) {
+	sequence := plan.StageSequence
+	if sequence == nil || output.RowIdentity == nil || len(output.RowIdentity.Fields) != 1 || output.RowIdentity.Fields[0] != sequence.FinalRowIdentity {
+		return nil, fmt.Errorf("construction population mapping requires the exact final row identity")
+	}
+	identityFound := false
+	for _, column := range sequence.FinalColumns {
+		if column.Name == sequence.FinalRowIdentity && column.Internal && column.Identity {
+			identityFound = true
+			break
+		}
+	}
+	if !identityFound {
+		return nil, fmt.Errorf("construction identity field %q is not present in the final typed stage", sequence.FinalRowIdentity)
+	}
+	for _, name := range []string{"__loom_root_contributor_keys", "_key"} {
+		for _, column := range sequence.FinalColumns {
+			if !column.Internal || column.Name != name || column.RootContributorResourceType != output.RootResourceType || column.Kind != "string" {
+				continue
+			}
+			many := column.Cardinality == "many"
+			if !many && column.Cardinality != "required_one" && column.Cardinality != "optional_one" {
+				continue
+			}
+			return &ir.PhysicalStagePopulationMappingReturn{
+				FinalRootContributorColumn: column.Name, FinalRootContributorsMany: many,
+				RowIdentityColumn: sequence.FinalRowIdentity,
+			}, nil
+		}
+	}
+	return nil, fmt.Errorf("construction population mapping requires compiler-proven root contributor identities in its final stage")
 }
 
 func finalPopulationMappingIdentity(plan ir.PhysicalPlan, identity *spec.RowIdentity) (int, []ir.PhysicalPopulationMappingIdentityPart, *ir.PhysicalExpression, error) {
@@ -147,6 +239,9 @@ func physicalProjectionExpression(projection ir.PhysicalProjection) (ir.Physical
 }
 
 func mappingIdentityPartsColumn(plan ir.PhysicalPlan) string {
+	if plan.StageSequence != nil && plan.StageSequence.PopulationMappingReturn != nil {
+		return ir.PhysicalPopulationMappingIdentityPartsField
+	}
 	for _, operation := range plan.Operations {
 		if operation.Kind == ir.PhysicalPopulationMappingReturnOp && operation.PopulationMappingReturn != nil && operation.PopulationMappingReturn.ExplicitIdentity == nil && len(operation.PopulationMappingReturn.IdentityParts) > 0 {
 			return ir.PhysicalPopulationMappingIdentityPartsField

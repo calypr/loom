@@ -156,7 +156,7 @@ func appendRecipeConstructionStages(plan *ir.PhysicalPlan, outputName, rootResou
 		Columns: cloneCompiledSchema(resolvedSource), RowIdentityColumn: sourceIdentity,
 	}}
 	rootContributorProvenance := hasRootContributorIdentity(resolvedSource, rootResourceType)
-	rootContributorSourceAvailable := false
+	rootContributorSourceAvailable := populationRootContributorAvailable(plan, resolvedSource, rootResourceType)
 	descriptors[0].Capabilities = stageCapabilities(resolvedSource, rootContributorSourceAvailable)
 	descriptors[0].Capabilities = withConstructionCapability(descriptors[0].Capabilities, codedGroupSourceCapability(resolvedSource, rootResourceType))
 	descriptors[0].Capabilities = withConstructionCapability(descriptors[0].Capabilities, codedPivotSourceCapability(resolvedSource, rootResourceType))
@@ -165,7 +165,8 @@ func appendRecipeConstructionStages(plan *ir.PhysicalPlan, outputName, rootResou
 		return resolvedSource, descriptors, sourceIdentity, nil
 	}
 	usedVariables := physicalPlanVariables(plan.Operations)
-	retainRootContributors := constructionNeedsRetainedRootContributors(construction.Steps) || cohortNeedsRetainedRootContributors(construction, cohort)
+	retainRootContributors := constructionNeedsRetainedRootContributors(construction.Steps) || cohortNeedsRetainedRootContributors(construction, cohort) ||
+		populationConstructionNeedsRetainedRootContributors(construction.Steps, cohort, rootContributorSourceAvailable)
 	priorSchema, priorIdentity := resolvedSource, sourceIdentity
 	priorStageID := recipe.ConstructionSourceProjectionID
 	cohortAnchorIndex, err := constructionCohortAnchorIndex(construction, cohort)
@@ -354,6 +355,38 @@ func cohortNeedsRetainedRootContributors(construction recipe.Construction, cohor
 			return true
 		}
 		if index > anchor && step.Operation.Kind == recipe.ConstructionRelatedSourceOp {
+			return true
+		}
+	}
+	return false
+}
+
+func populationConstructionNeedsRetainedRootContributors(steps []recipe.ConstructionStep, cohort *cohortGroupCompileInput, sourceAvailable bool) bool {
+	if !sourceAvailable {
+		return false
+	}
+	if cohort != nil {
+		return true
+	}
+	for _, step := range steps {
+		switch step.Operation.Kind {
+		case recipe.ConstructionGroupOp, recipe.ConstructionPivotOp:
+			return true
+		}
+	}
+	return false
+}
+
+func populationRootContributorAvailable(plan *ir.PhysicalPlan, schema []CompiledOutputColumn, rootResourceType string) bool {
+	root := constructionRootScan(plan)
+	if root == nil || root.Population == nil || rootResourceType == "" {
+		return false
+	}
+	for _, column := range schema {
+		if column.Internal && column.Name == "_key" &&
+			column.RootContributorResourceType == rootResourceType &&
+			column.Kind == string(expression.KindString) &&
+			column.Cardinality == string(expression.RequiredOne) {
 			return true
 		}
 	}

@@ -158,6 +158,10 @@ func buildNavigationRenderLayout(plan ir.PhysicalPlan) (physicalNavigationRender
 	}
 	reductionVariables := map[string]struct{}{}
 	for _, operation := range plan.Operations {
+		if operation.Kind == ir.PhysicalRootScanOp && operation.RootScan != nil && operation.RootScan.Population != nil &&
+			operation.RootScan.Population.CollectMembersVariable != "" {
+			reductionVariables[operation.RootScan.Population.CollectMembersVariable] = struct{}{}
+		}
 		if operation.Set != nil && operation.Set.Reduction != nil {
 			reductionVariables[operation.Set.Reduction.Variable] = struct{}{}
 		}

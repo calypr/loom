@@ -92,6 +92,10 @@ func clonePhysicalStageSequence(sequence *PhysicalStageSequence) *PhysicalStageS
 		}
 		copy.RowLineageReturn = &rowLineage
 	}
+	if sequence.PopulationMappingReturn != nil {
+		mappingReturn := *sequence.PopulationMappingReturn
+		copy.PopulationMappingReturn = &mappingReturn
+	}
 	copy.Stages = make([]PhysicalConstructionStage, len(sequence.Stages))
 	for index, stage := range sequence.Stages {
 		cloned := stage

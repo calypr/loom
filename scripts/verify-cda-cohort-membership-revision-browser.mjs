@@ -357,7 +357,7 @@ try {
     const entry = nativeById.get(requestId);
     if (!entry) return;
     entry.completedAt = Date.now();
-    if (!(/explicit-groups|row-definition-proposals|construction-choice-proposals|construction-proposals|construction-capabilities|row-lineage|population-mapping|preview/.test(pathOf(entry)) || entry.status >= 400)) return;
+    if (!(/commands|selections|explicit-groups|row-definition-proposals|construction-choice-proposals|construction-proposals|construction-capabilities|row-lineage|population-mapping|preview/.test(pathOf(entry)) || entry.status >= 400)) return;
     const read = browser.cdp.send('Network.getResponseBody', { requestId }).then(result => {
       const body = result.base64Encoded ? Buffer.from(result.body, 'base64').toString('utf8') : result.body;
       try {

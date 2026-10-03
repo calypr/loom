@@ -43,6 +43,7 @@ type PhysicalPlan struct {
 }
 
 const PopulationMappingMembersVariable = "__loom_population_members_value"
+const PhysicalPopulationMappingMembersColumn = "__loom_population_member_ids"
 
 // PhysicalSource retains semantic provenance through physical optimization so
 // explain output and compiler errors can point back to user intent.

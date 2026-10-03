@@ -29,6 +29,10 @@ func renderPhysicalStageSequence(plan ir.PhysicalPlan, options physicalRenderOpt
 	inlineCodedGroupRoot := codedGroupSourceRootVariable(sourcePlan, sequence, stages, options)
 	inlineCodedPivotRoot := codedPivotSourceRootVariable(sourcePlan, sequence, stages, options)
 	inlineGroupSourceRow := groupSourceRowVariable(sourcePlan, sequence, stages, options)
+	if sequence.PopulationMappingReturn != nil {
+		inlineCodedGroupRoot = ""
+		inlineGroupSourceRow = ""
+	}
 	for _, stage := range stages {
 		if stage.GroupedPivot != nil && stage.GroupedPivot.CodedCorrelation != nil && inlineCodedPivotRoot == "" {
 			return RenderedPhysicalPlan{}, fmt.Errorf("coded Pivot requires the source root to be streamed into its first stage")
@@ -114,6 +118,16 @@ func renderPhysicalStageSequence(plan ir.PhysicalPlan, options physicalRenderOpt
 	if err != nil {
 		return RenderedPhysicalPlan{}, fmt.Errorf("render source projection: %w", err)
 	}
+	var mappingSource RenderedPhysicalPlan
+	if sequence.PopulationMappingReturn != nil && inlineSourceIntoFirstStage {
+		mappingSourceOptions := sourceOptions
+		mappingSourceOptions.terminalReturnVariable = ""
+		mappingSourceOptions.omitTerminalReturn = false
+		mappingSource, err = renderPhysicalPlanWithOptions(sourcePlan, mappingSourceOptions)
+		if err != nil {
+			return RenderedPhysicalPlan{}, fmt.Errorf("render original population mapping source rows: %w", err)
+		}
+	}
 	var groupPreviewWindow RenderedPhysicalPlan
 	if hasRelatedGroupPreview {
 		groupPreviewWindow, err = renderRelatedGroupPreviewSourceWindow(sourcePlan, sourceOptions, groupPreviewFrontier.rootKeysVariable)
@@ -124,10 +138,11 @@ func renderPhysicalStageSequence(plan ir.PhysicalPlan, options physicalRenderOpt
 			groupPreviewFrontier.boundedVariable, groupPreviewWindow.Query, source.Query,
 		)
 	}
-	bindVars := make(map[string]any, len(source.BindVars)+len(groupPreviewWindow.BindVars)+len(groupPreviewFrontier.bindVars)+len(groupKeyQuery.BindVars)+len(plan.BindVars))
+	bindVars := make(map[string]any, len(source.BindVars)+len(mappingSource.BindVars)+len(groupPreviewWindow.BindVars)+len(groupPreviewFrontier.bindVars)+len(groupKeyQuery.BindVars)+len(plan.BindVars))
 	for _, values := range []map[string]any{
 		groupKeyQuery.BindVars,
 		source.BindVars,
+		mappingSource.BindVars,
 		groupPreviewWindow.BindVars,
 		groupPreviewFrontier.bindVars,
 		runtimePhysicalBindVars(plan.BindVars, collectionKeys),
@@ -192,6 +207,13 @@ func renderPhysicalStageSequence(plan ir.PhysicalPlan, options physicalRenderOpt
 		lines = append(lines, groupLines...)
 	}
 	priorRows := constructionSourceVariable
+	if sequence.PopulationMappingReturn != nil && inlineSourceIntoFirstStage {
+		lines = append(lines, fmt.Sprintf("LET %s = (", constructionSourceVariable))
+		for _, line := range strings.Split(strings.TrimSuffix(mappingSource.Query, "\n"), "\n") {
+			lines = append(lines, "  "+line)
+		}
+		lines = append(lines, ")")
+	}
 	if !inlineSourceIntoFirstStage {
 		lines = append(lines, fmt.Sprintf("LET %s = (", constructionSourceVariable))
 		for _, line := range strings.Split(strings.TrimSuffix(source.Query, "\n"), "\n") {
@@ -387,7 +409,10 @@ func renderPhysicalStageSequence(plan ir.PhysicalPlan, options physicalRenderOpt
 	if err != nil {
 		return RenderedPhysicalPlan{}, fmt.Errorf("render final stage output: %w", err)
 	}
-	if sequence.CellTraceReturn != nil {
+	if sequence.PopulationMappingReturn != nil {
+		mappingLines := renderer.renderConstructionPopulationMappingReturn(*sequence.PopulationMappingReturn, constructionSourceVariable, finalRow)
+		lines = append(lines, mappingLines...)
+	} else if sequence.CellTraceReturn != nil {
 		terminal := *sequence.CellTraceReturn
 		terminal.Value = ir.PhysicalExpression{
 			Kind:  ir.PhysicalValueExpression,
