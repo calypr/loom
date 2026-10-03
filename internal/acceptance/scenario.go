@@ -22,6 +22,7 @@ import (
 
 	dfpublication "github.com/calypr/loom/internal/dataframe/publication"
 	publicationarango "github.com/calypr/loom/internal/dataframe/publication/arango"
+	"github.com/calypr/loom/internal/explorer/authoringv2"
 	arangostore "github.com/calypr/loom/internal/store/arango"
 	clickhousestore "github.com/calypr/loom/internal/store/clickhouse"
 )
@@ -100,8 +101,18 @@ func RunScenario(ctx context.Context, cfg ScenarioConfig) (result ScenarioResult
 	if err := compareCounts(counts, cfg.Fixture.Counts); err != nil {
 		return result, err
 	}
+	publishBody := workspace
 	started = time.Now()
-	pub, err := publishWorkspace(ctx, cfg, cfg.HTTPClient, workspace)
+	migratedBody, migration, err := migrateLegacyWorkspaceForCurrentAPI(ctx, cfg, cfg.HTTPClient, workspace)
+	if err != nil {
+		return result, err
+	}
+	if migration != nil {
+		publishBody = migratedBody
+		stage("workspace_contract_migration", started, migration)
+	}
+	started = time.Now()
+	pub, err := publishWorkspace(ctx, cfg, cfg.HTTPClient, publishBody)
 	if err != nil {
 		return result, err
 	}
@@ -149,7 +160,7 @@ func RunScenario(ctx context.Context, cfg ScenarioConfig) (result ScenarioResult
 	}
 	stage("graphql", started, graphql)
 	started = time.Now()
-	second, err := publishWorkspace(ctx, cfg, cfg.HTTPClient, workspace)
+	second, err := publishWorkspace(ctx, cfg, cfg.HTTPClient, publishBody)
 	if err != nil {
 		return result, fmt.Errorf("idempotent second publication: %w", err)
 	}
@@ -368,6 +379,280 @@ func publishWorkspace(ctx context.Context, cfg ScenarioConfig, client *http.Clie
 		result.Output = "tcga_brca_cohort"
 	}
 	return result, nil
+}
+
+func migrateLegacyWorkspaceForCurrentAPI(ctx context.Context, cfg ScenarioConfig, client *http.Client, raw []byte) ([]byte, map[string]any, error) {
+	workspace, err := authoringv2.DecodeWorkspace(raw)
+	if err != nil {
+		return nil, nil, fmt.Errorf("decode acceptance workspace for publication: %w", err)
+	}
+	if !hasLegacyAggregateWhere(workspace) {
+		return raw, nil, nil
+	}
+	if workspace.SemanticsVersion != 3 {
+		return nil, nil, fmt.Errorf("acceptance workspace contains legacy aggregate predicates at semanticsVersion %d; only v3 migration is supported", workspace.SemanticsVersion)
+	}
+
+	supported, err := authoringV2Supported(ctx, cfg, client)
+	if err != nil {
+		return nil, nil, err
+	}
+	if !supported {
+		return raw, nil, nil
+	}
+
+	catalog, err := currentAcceptanceCatalog(ctx, cfg, client)
+	if err != nil {
+		return nil, nil, err
+	}
+	migrated, err := migrateLegacyAcceptanceWorkspace(workspace, catalog)
+	if err != nil {
+		return nil, nil, err
+	}
+	canonical, err := migrated.CanonicalJSON()
+	if err != nil {
+		return nil, nil, fmt.Errorf("canonicalize migrated acceptance workspace: %w", err)
+	}
+	return canonical, map[string]any{
+		"source_generation": catalog.SourceGeneration,
+		"catalog_complete":  catalog.Complete,
+		"column_count":      countWorkspaceColumns(migrated),
+		"predicate_count":   countContributorPredicates(migrated),
+	}, nil
+}
+
+func hasLegacyAggregateWhere(workspace authoringv2.Workspace) bool {
+	for _, document := range workspace.Documents {
+		for _, column := range document.Columns {
+			if column.Source.Kind == authoringv2.SourceAggregate && column.Source.Aggregate != nil && column.Source.Aggregate.Where != nil {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func migrateLegacyAcceptanceWorkspace(workspace authoringv2.Workspace, catalog authoringv2.CatalogSnapshot) (authoringv2.Workspace, error) {
+	if err := validatePinnedContributorCatalog(catalog); err != nil {
+		return authoringv2.Workspace{}, fmt.Errorf("validate pinned acceptance catalog: %w", err)
+	}
+	migrated, err := authoringv2.MigrateLegacyContributors(workspace, catalog)
+	if err != nil {
+		return authoringv2.Workspace{}, fmt.Errorf("migrate acceptance contributor predicates: %w", err)
+	}
+	migrated = authoringv2.MigrateLosslessDefaults(migrated, catalog).NormalizePresentationOrders()
+	if err := migrated.ValidateForPublication(); err != nil {
+		return authoringv2.Workspace{}, fmt.Errorf("validate migrated acceptance workspace: %w", err)
+	}
+	return migrated, nil
+}
+
+func countContributorPredicates(workspace authoringv2.Workspace) int {
+	count := 0
+	for _, document := range workspace.Documents {
+		for _, column := range document.Columns {
+			if column.Contributor != nil {
+				count++
+			}
+		}
+	}
+	return count
+}
+
+func countWorkspaceColumns(workspace authoringv2.Workspace) int {
+	count := 0
+	for _, document := range workspace.Documents {
+		count += len(document.Columns)
+	}
+	return count
+}
+
+func authoringV2Supported(ctx context.Context, cfg ScenarioConfig, client *http.Client) (bool, error) {
+	path := cfg.Connections.LoomURL + "/api/v1/projects/" + url.PathEscape(cfg.Namespace.Project) + "/explorers/default/authoring/v2/capability"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, path, nil)
+	if err != nil {
+		return false, err
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return false, fmt.Errorf("probe Explorer authoring v2 capability: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound {
+		return false, nil
+	}
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+	if err != nil {
+		return false, fmt.Errorf("read Explorer authoring capability: %w", err)
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return false, fmt.Errorf("probe Explorer authoring v2 capability: HTTP %s: %s", resp.Status, strings.TrimSpace(string(raw)))
+	}
+	var capability struct {
+		APIVersion string   `json:"apiVersion"`
+		Kind       string   `json:"kind"`
+		Operations []string `json:"operations"`
+	}
+	if err := json.Unmarshal(raw, &capability); err != nil {
+		return false, fmt.Errorf("decode Explorer authoring capability: %w", err)
+	}
+	if capability.APIVersion != authoringv2.APIVersion || capability.Kind != "ExplorerAuthoringCapabilities" {
+		return false, fmt.Errorf("unexpected Explorer authoring capability protocol: apiVersion=%q kind=%q", capability.APIVersion, capability.Kind)
+	}
+	for _, operation := range capability.Operations {
+		if operation == "builder" {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func currentAcceptanceCatalog(ctx context.Context, cfg ScenarioConfig, client *http.Client) (authoringv2.CatalogSnapshot, error) {
+	var empty authoringv2.CatalogSnapshot
+	if strings.TrimSpace(cfg.Namespace.Run) == "" {
+		return empty, errors.New("acceptance run ID is required to create a verifier-owned catalog Explorer")
+	}
+	runDigest := sha256.Sum256([]byte(cfg.Namespace.Run))
+	name := fmt.Sprintf("Acceptance catalog migration %x", runDigest[:6])
+	createPath := cfg.Connections.LoomURL + "/api/v1/projects/" + url.PathEscape(cfg.Namespace.Project) + "/explorers"
+	request, err := json.Marshal(map[string]string{"name": name, "title": name})
+	if err != nil {
+		return empty, err
+	}
+	created, err := doJSON(ctx, client, http.MethodPost, createPath, bytes.NewReader(request), "application/json", nil)
+	if err != nil {
+		return empty, fmt.Errorf("create verifier-owned catalog Explorer: %w", err)
+	}
+	explorerID, ok := created["explorerId"].(string)
+	if !ok || strings.TrimSpace(explorerID) == "" {
+		return empty, errors.New("created catalog Explorer response omitted explorerId")
+	}
+	builderPath := cfg.Connections.LoomURL + "/api/v1/projects/" + url.PathEscape(cfg.Namespace.Project) + "/explorers/" + url.PathEscape(explorerID) + "/authoring/v2/builder"
+	state, err := getJSON(ctx, client, builderPath)
+	if err != nil {
+		return empty, fmt.Errorf("read verifier-owned Builder catalog: %w", err)
+	}
+	return decodeAcceptanceCatalog(state, cfg.Namespace.Project, explorerID, cfg.Namespace.Generation)
+}
+
+func decodeAcceptanceCatalog(state map[string]any, project, explorerID, generation string) (authoringv2.CatalogSnapshot, error) {
+	var empty authoringv2.CatalogSnapshot
+	if state["apiVersion"] != authoringv2.APIVersion || state["kind"] != authoringv2.StateKind {
+		return empty, fmt.Errorf("unexpected Builder state protocol: apiVersion=%v kind=%v", state["apiVersion"], state["kind"])
+	}
+	catalogValue, ok := state["catalog"]
+	if !ok {
+		return empty, errors.New("Builder state omitted catalog")
+	}
+	catalogJSON, err := json.Marshal(catalogValue)
+	if err != nil {
+		return empty, fmt.Errorf("encode Builder catalog: %w", err)
+	}
+	var wire acceptanceCatalogWire
+	if err := json.Unmarshal(catalogJSON, &wire); err != nil {
+		return empty, fmt.Errorf("decode Builder catalog: %w", err)
+	}
+	catalog := authoringv2.CatalogSnapshot{
+		APIVersion: authoringv2.APIVersion, Kind: authoringv2.CatalogKind,
+		Project: project, ExplorerID: explorerID,
+		SourceGeneration: wire.Generation, AuthorizationScopeDigest: wire.AuthorizationScopeDigest,
+		SnapshotToken: wire.SnapshotToken, Complete: wire.Complete, Truncated: wire.Truncated,
+		Nodes:      make([]authoringv2.CatalogNode, 0, len(wire.Nodes)),
+		Candidates: make([]authoringv2.CatalogCandidate, 0, len(wire.Candidates)),
+	}
+	for _, node := range wire.Nodes {
+		catalog.Nodes = append(catalog.Nodes, authoringv2.CatalogNode{ID: node.ID, ResourceType: node.ResourceType})
+	}
+	for _, candidate := range wire.Candidates {
+		catalog.Candidates = append(catalog.Candidates, authoringv2.CatalogCandidate{
+			ID: candidate.ID, NodeID: candidate.NodeID, FieldPath: candidate.FieldPath,
+			LogicalType: candidate.LogicalType, Repeated: candidate.Repeated,
+			RepeatedBoundaries: candidate.RepeatedBoundaries,
+		})
+	}
+	// These scope fields are omitted from the public catalog representation;
+	// bind them to the request and the Explorer created above before validation.
+	if catalog.SourceGeneration != generation {
+		return empty, fmt.Errorf("Builder catalog generation %q does not match acceptance generation %q", catalog.SourceGeneration, generation)
+	}
+	if err := validatePinnedContributorCatalog(catalog); err != nil {
+		return empty, fmt.Errorf("validate verifier-owned Builder catalog: %w", err)
+	}
+	return catalog, nil
+}
+
+// The acceptance migration reads only node identity and field-candidate
+// identity/type/repetition metadata. Decode that public projection explicitly:
+// CatalogSnapshot cannot be unmarshaled directly because ConstructionChoice
+// contains a closed interface source. Complete and any explicit truncated
+// flag remain mandatory guards so this reduced view cannot consume a partial
+// catalog.
+type acceptanceCatalogWire struct {
+	AuthorizationScopeDigest string                           `json:"authorizationScopeDigest"`
+	Candidates               []acceptanceCatalogCandidateWire `json:"candidates"`
+	Complete                 bool                             `json:"complete"`
+	Generation               string                           `json:"generation"`
+	Nodes                    []acceptanceCatalogNodeWire      `json:"nodes"`
+	SnapshotToken            string                           `json:"snapshotToken"`
+	Truncated                bool                             `json:"truncated"`
+}
+
+type acceptanceCatalogNodeWire struct {
+	ID           string `json:"nodeId"`
+	ResourceType string `json:"resourceType"`
+}
+
+type acceptanceCatalogCandidateWire struct {
+	ID                 string                         `json:"candidateId"`
+	NodeID             string                         `json:"nodeId"`
+	FieldPath          string                         `json:"fieldPath"`
+	LogicalType        string                         `json:"logicalType"`
+	Repeated           bool                           `json:"repeated"`
+	RepeatedBoundaries []authoringv2.RepeatedBoundary `json:"repeatedBoundaries"`
+}
+
+func validatePinnedContributorCatalog(catalog authoringv2.CatalogSnapshot) error {
+	if catalog.APIVersion != authoringv2.APIVersion || catalog.Kind != authoringv2.CatalogKind {
+		return errors.New("catalog protocol or kind is unsupported")
+	}
+	if strings.TrimSpace(catalog.Project) == "" || strings.TrimSpace(catalog.ExplorerID) == "" || strings.TrimSpace(catalog.SourceGeneration) == "" {
+		return errors.New("catalog project, Explorer, or generation is missing")
+	}
+	if strings.TrimSpace(catalog.SnapshotToken) == "" || strings.TrimSpace(catalog.AuthorizationScopeDigest) == "" {
+		return errors.New("catalog snapshot token or authorization scope digest is missing")
+	}
+	if !catalog.Complete || catalog.Truncated {
+		return errors.New("catalog snapshot is incomplete or truncated")
+	}
+	nodes := make(map[string]authoringv2.CatalogNode, len(catalog.Nodes))
+	for _, node := range catalog.Nodes {
+		if strings.TrimSpace(node.ID) == "" || strings.TrimSpace(node.ResourceType) == "" {
+			return errors.New("catalog contains an invalid node")
+		}
+		if _, exists := nodes[node.ID]; exists {
+			return fmt.Errorf("catalog contains duplicate node %q", node.ID)
+		}
+		nodes[node.ID] = node
+	}
+	candidateIDs := make(map[string]bool, len(catalog.Candidates))
+	for _, candidate := range catalog.Candidates {
+		if strings.TrimSpace(candidate.ID) == "" || strings.TrimSpace(candidate.FieldPath) == "" || strings.TrimSpace(candidate.LogicalType) == "" {
+			return errors.New("catalog contains an invalid candidate")
+		}
+		if _, ok := nodes[candidate.NodeID]; !ok {
+			return fmt.Errorf("catalog candidate %q references a missing node", candidate.ID)
+		}
+		if candidateIDs[candidate.ID] {
+			return fmt.Errorf("catalog contains duplicate candidate %q", candidate.ID)
+		}
+		candidateIDs[candidate.ID] = true
+		for _, boundary := range candidate.RepeatedBoundaries {
+			if strings.TrimSpace(boundary.Path) == "" || boundary.MaxItems < 0 {
+				return fmt.Errorf("catalog candidate %q has an invalid repeated boundary", candidate.ID)
+			}
+		}
+	}
+	return nil
 }
 
 func successfulExecution(value map[string]any, pub publication) error {
