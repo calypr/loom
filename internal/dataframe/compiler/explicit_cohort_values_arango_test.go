@@ -70,14 +70,14 @@ func TestRelatedCountAppendPreservesExplicitCohortMembersAgainstArango(t *testin
 		"_key": selection, "complete": true, "project": project, "generation": generation, "resourceType": "Patient",
 		"scopeDigest": "scope-current", "membershipDigest": "members-current",
 	})
-	for ordinal, group := range []string{"many", "one", "zero"} {
+	for ordinal, group := range []string{"many", "one", "no_matches", "zero"} {
 		insert("loom_explorer_explicit_group_definitions", map[string]any{
 			"_key": project + "_definition_" + group, "revisionId": revision, "project": project,
 			"groupId": group, "label": group, "ordinal": ordinal,
 		})
 	}
 	const missingID, wrongProjectID, wrongGenerationID, filteredID, deniedID = "missing", "wrong_project", "wrong_generation", "filtered", "denied"
-	assigned := []string{"a", "b", filteredID, deniedID, missingID, wrongProjectID, wrongGenerationID, "c", "unassigned"}
+	assigned := []string{"a", "b", filteredID, deniedID, missingID, wrongProjectID, wrongGenerationID, "c", "no_observation", "unassigned"}
 	selectionMembers := make([]map[string]any, 0, len(assigned))
 	for _, id := range assigned {
 		selectionMembers = append(selectionMembers, map[string]any{
@@ -97,6 +97,10 @@ func TestRelatedCountAppendPreservesExplicitCohortMembersAgainstArango(t *testin
 		"_key": project + "_membership_one_c", "revisionId": revision, "project": project,
 		"generation": generation, "resourceType": "Patient", "id": "c", "groupId": "one",
 		"ref": map[string]any{"project": project, "generation": generation, "resourceType": "Patient", "id": "c"},
+	}, map[string]any{
+		"_key": project + "_membership_no_matches", "revisionId": revision, "project": project,
+		"generation": generation, "resourceType": "Patient", "id": "no_observation", "groupId": "no_matches",
+		"ref": map[string]any{"project": project, "generation": generation, "resourceType": "Patient", "id": "no_observation"},
 	})
 	patient := func(id, resourceProject, resourceGeneration, authPath string) map[string]any {
 		return map[string]any{
@@ -105,7 +109,7 @@ func TestRelatedCountAppendPreservesExplicitCohortMembersAgainstArango(t *testin
 			"resourceType": "Patient", "auth_resource_path": authPath, "payload": map[string]any{"id": id, "resourceType": "Patient"},
 		}
 	}
-	for _, id := range []string{"a", "b", filteredID, "c", "unassigned"} {
+	for _, id := range []string{"a", "b", filteredID, "c", "no_observation", "unassigned"} {
 		insert("Patient", patient(id, project, generation, "/allowed"))
 	}
 	insert("Patient", patient(deniedID, project, generation, "/denied"),
@@ -162,27 +166,28 @@ func TestRelatedCountAppendPreservesExplicitCohortMembersAgainstArango(t *testin
 		Fields:    []recipe.Field{{Name: "patient_id", ColumnID: "patient_id", Expr: recipe.Expression{Select: "root.id"}}},
 		GroupRows: groupRows(""),
 	}
-	relatedStep := func(input recipe.ConstructionInputRef) recipe.ConstructionStep {
+	relatedStep := func(input recipe.ConstructionInputRef, form string) recipe.ConstructionStep {
+		outputName := map[string]string{"COUNT": "observation_count", "PRESENCE": "has_observation", "ALL": "observations"}[form]
 		return recipe.ConstructionStep{
 			ID: "add_observation_count", Inputs: []recipe.ConstructionInputRef{input},
 			Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionRelatedSourceOp, RelatedSource: &recipe.ConstructionRelatedSource{
 				AnchorColumnID: "__loom_row_id", ChoiceID: "patient-observation-choice", SourceOccurrenceID: "observation-node",
 				Source:            recipe.ConstructionRelatedFieldSource{CandidateID: "observation-id", NodeID: "observation-node", ResourceType: "Observation", Path: "Observation.id", Cardinality: "required_one", LogicalType: "string"},
 				Route:             []recipe.ConstructionRelatedRouteStep{{EdgeID: "patient-observation", FromNodeID: "patient-node", ToNodeID: "observation-node", FromResourceType: "Patient", ToResourceType: "Observation", Relationship: "subject_Patient", StorageDirection: "INBOUND", MatchMode: "OPTIONAL"}},
-				ContributorPolicy: "ALL_MATCHES", Form: "COUNT", OutputColumnID: "observation-count",
+				ContributorPolicy: "ALL_MATCHES", Form: form, OutputColumnID: "observation-count",
 			}},
 			Outputs: []recipe.StageColumn{
 				{ID: "group_id", Name: "group_id"}, {ID: "group_label", Name: "group_label"},
 				{ID: "group_ordinal", Name: "group_ordinal"}, {ID: "members", Name: "members"},
 				{ID: "patient_id", Name: "patient_id"},
-				{ID: "observation-count", Name: "observation_count"},
+				{ID: "observation-count", Name: outputName},
 			},
 		}
 	}
-	withRelatedCount := func(output recipe.Output, steps []recipe.ConstructionStep, input recipe.ConstructionInputRef) recipe.Output {
+	withRelatedSource := func(output recipe.Output, steps []recipe.ConstructionStep, input recipe.ConstructionInputRef, form string) recipe.Output {
 		updated := output
 		construction := recipe.Construction{Version: 1, SourceColumns: []recipe.StageColumn{{ID: "patient_id", Name: "patient_id"}}}
-		construction.Steps = append(append([]recipe.ConstructionStep(nil), steps...), relatedStep(input))
+		construction.Steps = append(append([]recipe.ConstructionStep(nil), steps...), relatedStep(input, form))
 		updated.Construction = &construction
 		return updated
 	}
@@ -195,16 +200,51 @@ func TestRelatedCountAppendPreservesExplicitCohortMembersAgainstArango(t *testin
 		}
 		return executeReshapeOracleQuery(t, ctx, client, query)
 	}
-	assertRelatedCounts := func(rows []map[string]any, expected map[string]float64) {
+	assertRelatedCounts := func(rows []map[string]any, column string, expected map[string]float64) {
 		t.Helper()
 		counts := make(map[string]float64, len(rows))
 		for _, row := range rows {
-			if count, ok := row["observation_count"]; ok {
+			if count, ok := row[column]; ok {
 				counts[row["group_id"].(string)] = count.(float64)
 			}
 		}
 		if !reflect.DeepEqual(counts, expected) {
-			t.Fatalf("related COUNT values = %#v, want %#v (rows %#v)", counts, expected, rows)
+			t.Fatalf("related COUNT values in %q = %#v, want %#v (rows %#v)", column, counts, expected, rows)
+		}
+	}
+	assertRelatedPresence := func(rows []map[string]any, expected map[string]bool) {
+		t.Helper()
+		values := make(map[string]bool, len(rows))
+		for _, row := range rows {
+			value, ok := row["has_observation"].(bool)
+			if !ok {
+				t.Fatalf("related PRESENCE for group %q = %#v, want boolean", row["group_id"], row["has_observation"])
+			}
+			values[row["group_id"].(string)] = value
+		}
+		if !reflect.DeepEqual(values, expected) {
+			t.Fatalf("related PRESENCE values = %#v, want %#v", values, expected)
+		}
+	}
+	assertEmptyRelatedArrays := func(rows []map[string]any, groups ...string) {
+		t.Helper()
+		wantEmpty := make(map[string]bool, len(groups))
+		for _, group := range groups {
+			wantEmpty[group] = true
+		}
+		for _, row := range rows {
+			group := row["group_id"].(string)
+			if !wantEmpty[group] {
+				continue
+			}
+			values, ok := row["observations"].([]any)
+			if !ok || len(values) != 0 {
+				t.Fatalf("related ALL values for zero-match group %q = %#v, want []", group, row["observations"])
+			}
+			delete(wantEmpty, group)
+		}
+		if len(wantEmpty) != 0 {
+			t.Fatalf("related ALL omitted zero-match groups: %#v", wantEmpty)
 		}
 	}
 	assertSameMembers := func(before, after []map[string]any, name string) {
@@ -264,18 +304,28 @@ func TestRelatedCountAppendPreservesExplicitCohortMembersAgainstArango(t *testin
 		} else {
 			many = []string{"a", "b"}
 		}
-		want := map[string][]string{"many": many, "one": {"c"}, "zero": {}, "__loom_unassigned__": {"unassigned"}}
+		want := map[string][]string{"many": many, "one": {"c"}, "no_matches": {"no_observation"}, "zero": {}, "__loom_unassigned__": {"unassigned"}}
 		if !reflect.DeepEqual(ids, want) {
 			t.Fatalf("cohort fixture members = %#v, want %#v", ids, want)
 		}
 	}
 
 	baselineRows := execute(base)
-	candidate := withRelatedCount(base, nil, recipe.ConstructionInputRef{Kind: recipe.ConstructionStepOutputInput, StepID: recipe.ConstructionCohortGroupStageID})
+	candidate := withRelatedSource(base, nil, recipe.ConstructionInputRef{Kind: recipe.ConstructionStepOutputInput, StepID: recipe.ConstructionCohortGroupStageID}, "COUNT")
 	candidateRows := execute(candidate)
 	assertSameMembers(baselineRows, candidateRows, "adding related COUNT")
 	assertFixtureMembers(candidateRows, false)
-	assertRelatedCounts(candidateRows, map[string]float64{"many": 4, "one": 1, "zero": 0, "__loom_unassigned__": 1})
+	assertRelatedCounts(candidateRows, "observation_count", map[string]float64{"many": 4, "one": 1, "no_matches": 0, "zero": 0, "__loom_unassigned__": 1})
+	for _, form := range []string{"PRESENCE", "ALL"} {
+		formRows := execute(withRelatedSource(base, nil, recipe.ConstructionInputRef{Kind: recipe.ConstructionStepOutputInput, StepID: recipe.ConstructionCohortGroupStageID}, form))
+		assertSameMembers(baselineRows, formRows, "adding related "+form)
+		assertFixtureMembers(formRows, false)
+		if form == "PRESENCE" {
+			assertRelatedPresence(formRows, map[string]bool{"many": true, "one": true, "no_matches": false, "zero": false, "__loom_unassigned__": true})
+		} else {
+			assertEmptyRelatedArrays(formRows, "no_matches", "zero")
+		}
+	}
 
 	filterValue := filteredID
 	filteredSteps := []recipe.ConstructionStep{{
@@ -290,11 +340,11 @@ func TestRelatedCountAppendPreservesExplicitCohortMembersAgainstArango(t *testin
 	filteredBase.GroupRows = groupRows("exclude_filtered")
 	filteredBase.Construction = &recipe.Construction{Version: 1, SourceColumns: []recipe.StageColumn{{ID: "patient_id", Name: "patient_id"}}, Steps: filteredSteps}
 	filteredBaselineRows := execute(filteredBase)
-	filteredCandidate := withRelatedCount(filteredBase, filteredSteps, recipe.ConstructionInputRef{Kind: recipe.ConstructionStepOutputInput, StepID: recipe.ConstructionCohortGroupStageID})
+	filteredCandidate := withRelatedSource(filteredBase, filteredSteps, recipe.ConstructionInputRef{Kind: recipe.ConstructionStepOutputInput, StepID: recipe.ConstructionCohortGroupStageID}, "COUNT")
 	filteredRows := execute(filteredCandidate)
 	assertSameMembers(filteredBaselineRows, filteredRows, "adding related COUNT after a filtered cohort")
 	assertFixtureMembers(filteredRows, true)
-	assertRelatedCounts(filteredRows, map[string]float64{"many": 3, "one": 1, "zero": 0, "__loom_unassigned__": 1})
+	assertRelatedCounts(filteredRows, "observation_count", map[string]float64{"many": 3, "one": 1, "no_matches": 0, "zero": 0, "__loom_unassigned__": 1})
 }
 
 func TestExplicitCohortMemberValuesAgainstArango(t *testing.T) {
