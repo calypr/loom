@@ -153,6 +153,7 @@ describe('ConstructionReshapeEditor construction lifecycle', () => {
     const apply = screen.getByRole('button', { name: 'Apply change' });
     expect(apply).toBeDisabled();
     fireEvent.click(screen.getByTestId(choice));
+    await screen.findByLabelText(kind === 'EXPAND' ? 'Empty list policy' : 'Summary output label 1');
     if (kind === 'EXPAND') {
       fireEvent.change(screen.getByLabelText('Empty list policy'), { target: { value: 'PRESERVE_PARENT' } });
     } else {
