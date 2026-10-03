@@ -316,6 +316,30 @@ const savedPivotIntentWithTwoCategories = (): Extract<
 describe('TableShapeEditor', () => {
   afterEach(cleanup);
 
+  it('preserves a reshape choice dispatched during the initial editor commit', () => {
+    const ChoosePivotDuringMount = () => {
+      React.useLayoutEffect(() => {
+        const select = screen.getByRole('combobox', { name: 'Table shape' }) as HTMLSelectElement;
+        select.value = 'shape-pivot';
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+      }, []);
+      return (
+        <TableShapeEditor
+          savedProposalKey="saved-1"
+          savedProposalIntent={savedProposalIntent}
+          choices={choices}
+          onApply={vi.fn()}
+          onCancel={vi.fn()}
+          onRequestCategoryDiscovery={vi.fn()}
+        />
+      );
+    };
+
+    render(<ChoosePivotDuringMount />);
+
+    expect(screen.getByRole('checkbox', { name: 'Pivot group columns: Patient ID' })).toBeTruthy();
+  });
+
   it('keeps unsupported server options visible with the exact refusal reason', () => {
     const unsupportedChoices: TableShapeEditorChoices = {
       ...choices,

@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { ChoiceSelect } from './ChoiceSelect';
 import { DerivedColumnsEditor } from './DerivedColumnsEditor';
 import { GroupedPivotEditor } from './GroupedPivotEditor';
@@ -87,7 +87,7 @@ export const TableShapeEditor = ({
   latestChoices.current = choices;
   latestForm.current = form;
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     setForm(proposalIntentToForm(savedProposalIntent));
     pendingCategoryRequest.current = null;
     setCategoryDiscovery(discoveryForReset(latestChoices.current.pivotCategoryDiscovery));
