@@ -89,23 +89,46 @@ before running them. Adapt manual Preview paths to automatic rendering for V2.
 Missing scripts and stale selectors are harness gaps, never passes. Extend the
 real browser driver for required features and maintain honest coverage status.
 
-## Playwright migration
+## Official Playwright Test migration
 
-Read [the driver and caller inventory](../../../docs/PLAYWRIGHT_MIGRATION.md)
-before changing a browser script. `scripts/verify-ui/browser.mjs`,
-`scripts/lib/browser.mjs`, and the browser code in `scripts/loom-dev.mjs` are
-distinct CDP drivers. Migrate one registered case or standalone CDA lifecycle
-at a time, compare its retained assertions with the original, and keep its
-independent fixture or CDA oracle. Install `scripts/package-lock.json` with
-`npm ci --prefix scripts` before running a migrated case.
+Read [the official-runner migration record](../../../docs/PLAYWRIGHT_TEST_MIGRATION.md)
+before changing a browser case. The target is native `@playwright/test`
+discovery, fixtures, assertions, steps, deadlines, cleanup, and standard JSON
+reporting. Keep Loom-owned data setup, independent correctness oracles, scoped
+diagnostics, source/API identity, and lifecycle assertions in native fixtures
+and tests; a test must not invoke an old browser script as a subprocess or
+launch a second browser.
+
+Migration is partial. Append is the first native integration unit, but test
+discovery or an implementation patch is not a verified workflow. Keep Append
+unverified until a current JSON report proves its complete lifecycle. Other
+cases remain unmigrated until they are ported and their retained assertions are
+shown to pass.
+
+Install `scripts/package-lock.json` with `npm ci --prefix scripts`. With the
+owned development environment configured as described in the migration record,
+run the focused native Append case from the repository root:
+
+```bash
+./scripts/node_modules/.bin/playwright test --config scripts/playwright.config.mjs append.spec.mjs
+```
 
 Use Playwright locators and native actions for navigation, clicks, fills,
 selection, and waits. Require a unique visible, enabled, pointer-receiving
 target. A read-only page inspection can collect rows or transient state; it
-must not invoke application handlers or set application control values.
-Retain the first failed action, locator state, DOM, screenshot, console and
-owned request diagnostics, elapsed time, and a failure trace. Run on a
-physically separate source checkout and its own Compose project, with one
+must not invoke application handlers or set application control values. Keep
+per-file hashes, an aggregate source fingerprint, and API build identity before
+and after the run; source mutation invalidates the run. Retain the independent
+fixture or CDA oracle and the complete lifecycle requirements above.
+
+Use the JSON report and sanitized JSON diagnostics as primary failure evidence.
+Retain the first failed action, locator state, DOM, console and owned request
+diagnostics, and elapsed time. Traces and screenshots are optional follow-up
+artifacts, disabled by default in the native runner. Run from a physically separate source
+checkout with the source frozen. Use a dedicated Compose project for isolated
+state by default. A single explicitly named, owned development stack with a
+loaded CDA may be reused when authorized and its project and generation are
+validated; this flow does not require a second Compose project. Keep one
 browser session at a time. A passed historical report remains useful but is
 not current proof: `node scripts/verify-ui/coverage-status.mjs` shows status
 and source/build freshness separately. Missing API build identity is unknown.
@@ -117,7 +140,7 @@ stack, use `node scripts/verify-ui/builder-authoring.mjs --case authoring
 flag validates that stack and its bootstrap Builder, then creates a fresh
 Explorer without uploading the large dataset again. The CDA authoring report
 retains a failed Publish timing even when preview values and reload persistence
-pass; use the command and exact evidence paths in the migration inventory.
+pass; use the command and exact evidence paths in the migration record.
 
 ## Launch
 
@@ -152,8 +175,9 @@ Run the browser path:
 make verify-fast
 ```
 
-The driver launches a temporary headless Chrome profile through CDP. It uses
-accessible roles, labels, and visible text to create a new per-run Explorer,
+This command is the legacy synthetic-fixture workflow; native Append coverage
+runs with the focused Playwright Test command above. It uses accessible roles,
+labels, and visible text to create a new per-run Explorer,
 create a table, choose Patient as the root, add the supported
 `Patient -> Observation` relationship, choose nested and scalar fields, click
 Preview, and click Publish. It then reads the published materialization through

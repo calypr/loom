@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { executeScenario, runPlaywrightCase, browserURL } from './common.mjs';
+import { parseArgs } from './cli.mjs';
 import { sanitizeBody } from '../lib/playwright-browser.mjs';
 import { recordCheck } from './report.mjs';
 import { appendNullPaddingRows, builderRequestURL, builderResponseIdentity, constructionProposalPreviewEvidence, currentPublishedRevisionForOutput, displayAppendNullPaddingRows, findColumn, isCombineInputIDColumn, isNumericClickHouseType, isScalarStringColumn, joinOracleRows, appendEditorConfigurationEvidence, nativeCombineTargetBindingEvidence, sameSourceDocuments, snapshotSourceDocument, isOwnedConstructionCapabilitiesRequest, rootedEmptyTargetRestorationEvidence } from './builder-combine-helpers.mjs';
@@ -21,7 +22,6 @@ const expectedReports = [
 ];
 const captureConstructionCapabilitiesFailuresWithPlaywright = (page, report, owner) => {
   const requests = new Map();
-  const pendingReads = [];
   const onRequest = request => {
     if (!isOwnedConstructionCapabilitiesRequest({ requestURL: request.url(), method: request.method(), ...owner })) return;
     let parsed;
@@ -44,16 +44,15 @@ const captureConstructionCapabilitiesFailuresWithPlaywright = (page, report, own
     const diagnostic = { ...request, status: response.status(), mimeType: response.headers()['content-type'] ?? null, responseBody: null };
     report.constructionCapabilitiesFailures ??= [];
     report.constructionCapabilitiesFailures.push(diagnostic);
-    pendingReads.push(response.text().then(text => { diagnostic.responseBody = sanitizeBody(text); }, error => {
+    void response.text().then(text => { diagnostic.responseBody = sanitizeBody(text); }, error => {
       diagnostic.responseReadError = error instanceof Error ? error.message : String(error);
-    }));
+    });
   };
   page.on('request', onRequest);
   page.on('response', onResponse);
-  return { stop: async () => {
+  return { stop: () => {
     page.off('request', onRequest);
     page.off('response', onResponse);
-    await Promise.all(pendingReads);
   } };
 };
 
@@ -75,16 +74,21 @@ const captureOwnedConstructionProposals = (page, target) => {
     const entry = byRequest.get(response.request());
     if (!entry) return;
     entry.status = response.status();
-    entry.responsePromise = response.json().catch(error => ({ responseReadError: error instanceof Error ? error.message : String(error) }));
+    entry.responsePromise = response.json().then(value => {
+      entry.response = value;
+      return value;
+    }).catch(error => {
+      entry.response = { responseReadError: error instanceof Error ? error.message : String(error) };
+      return entry.response;
+    });
   };
   page.on('request', onRequest);
   page.on('response', onResponse);
   return {
     entries,
-    stop: async () => {
+    stop: () => {
       page.off('request', onRequest);
       page.off('response', onResponse);
-      await Promise.all(entries.map(entry => entry.responsePromise).filter(Boolean));
     },
   };
 };
@@ -845,7 +849,7 @@ const assertAppendNullPaddingStep = (report, name, step, api) => {
   return { actualInputs, actualProjections, outputNullability };
 };
 
-const runAppend = context => runPlaywrightCase(context, 'builder-combine', 'append', async ({ page, report, action }) => {
+export const appendWorkflow = async ({ page, report, action }, context) => {
   assert.equal(context.custom, false, 'Combine authoring requires an owned isolated fixture.');
   assert.equal(context.seed?.fresh, true, 'Combine authoring requires a fresh verification project.');
   const fixture = exactFixture(context.target.fixtureDir);
@@ -1082,29 +1086,47 @@ const runAppend = context => runPlaywrightCase(context, 'builder-combine', 'appe
     report.target.explorer = explorer;
     report.target.combineTarget = target;
   } finally {
-    await proposalCapture.stop();
-    report.nativeAppendProposals = await Promise.all(proposalCapture.entries.map(async entry => ({
+    proposalCapture.stop();
+    report.nativeAppendProposals = proposalCapture.entries.map(entry => ({
       requestSequence: entry.sequence,
       url: entry.url,
       requestBody: entry.body,
       status: entry.status,
-      response: entry.responsePromise ? await entry.responsePromise : null,
+      response: entry.response ?? null,
       stageId: entry.body?.stageId ?? null,
       outputId: entry.body?.outputId ?? null,
       snapshotToken: entry.body?.snapshotToken ?? null,
       expectedDraftVersion: entry.body?.expectedDraftVersion ?? null,
       expectedDraftDigest: entry.body?.expectedDraftDigest ?? null,
-    })));
-    await capabilitiesFailures.stop();
+    }));
+    capabilitiesFailures.stop();
   }
-});
+};
+
+const appendRunnerGuidance = 'APPEND browser workflow runs through the official Playwright test at scripts/playwright/append.spec.mjs.';
 
 export const runBuilderCombine = async (context, caseNames) => {
+  if (caseNames.includes('append')) throw new Error(appendRunnerGuidance);
   const reports = [];
-  for (const caseName of caseNames) reports.push(await (caseName === 'join' ? runJoin(context) : runAppend(context)));
+  for (const caseName of caseNames) {
+    if (caseName !== 'join') throw new Error('unsupported Builder Combine case: ' + caseName);
+    reports.push(await runJoin(context));
+  }
   return reports;
 };
 
 if (import.meta.url === new URL(process.argv[1] ?? '', 'file:').href) {
-  await executeScenario({ id: 'builder-combine', argv: process.argv.slice(2), runner: runBuilderCombine, mutating: true });
+  const argv = process.argv.slice(2);
+  let args;
+  try { args = parseArgs(argv); } catch {
+    await executeScenario({ id: 'builder-combine', argv, runner: runBuilderCombine, mutating: true });
+  }
+  if (args) {
+    if (!args.help && !args.list && (!args.caseName || args.caseName === 'append')) {
+      console.error(appendRunnerGuidance);
+      process.exitCode = 2;
+    } else {
+      await executeScenario({ id: 'builder-combine', argv, runner: runBuilderCombine, mutating: true });
+    }
+  }
 }

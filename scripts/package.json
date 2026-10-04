@@ -1,5 +1,10 @@
 {
   "devDependencies": {
+    "@playwright/test": "1.63.0",
     "playwright": "1.63.0"
+  },
+  "scripts": {
+    "test:browser": "playwright test --config playwright.config.mjs",
+    "test:browser:list": "playwright test --config playwright.config.mjs --list"
   }
 }

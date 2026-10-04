@@ -85,12 +85,20 @@ test('construction capability diagnostics bind exact owned origin, project, expl
 
 test('APPEND capability diagnostics use the seeded project and always release listeners after the full lifecycle', () => {
   const source = readFileSync(new URL('../builder-combine.mjs', import.meta.url), 'utf8');
-  const runAppend = source.indexOf('const runAppend = context => runPlaywrightCase');
-  const capture = source.indexOf('captureConstructionCapabilitiesFailuresWithPlaywright(page, report', runAppend);
+  const appendWorkflow = source.indexOf('export const appendWorkflow = async ({ page, report, action }, context) =>');
+  const capture = source.indexOf('captureConstructionCapabilitiesFailuresWithPlaywright(page, report', appendWorkflow);
   const lifecycle = source.indexOf('try {\n    const builderAtTarget', capture);
   const completedLifecycle = source.lastIndexOf('report.target.combineTarget = target;');
-  const finalizer = source.indexOf('await capabilitiesFailures.stop();', lifecycle);
-  assert.ok(runAppend >= 0 && capture > runAppend && lifecycle > capture && completedLifecycle > lifecycle && finalizer > completedLifecycle);
+  const finalizer = source.indexOf('capabilitiesFailures.stop();', lifecycle);
+  assert.ok(appendWorkflow >= 0 && capture > appendWorkflow && lifecycle > capture && completedLifecycle > lifecycle && finalizer > completedLifecycle);
+  assert.doesNotMatch(source, /const runAppend\s*=/, 'APPEND must not remain an executable legacy runner path');
+  assert.match(source, /caseNames\.includes\('append'\)[\s\S]*?appendRunnerGuidance/);
+  assert.match(source, /const argv = process\.argv\.slice\(2\);[\s\S]*?parseArgs\(argv\)[\s\S]*?!args\.caseName \|\| args\.caseName === 'append'[\s\S]*?console\.error\(appendRunnerGuidance\)/,
+    'legacy CLI must direct default and APPEND invocations before creating an owned fixture');
+  const officialSpec = readFileSync(new URL('../../playwright/append.spec.mjs', import.meta.url), 'utf8');
+  assert.match(officialSpec, /import \{ test \} from '\.\/fixtures\.mjs'/);
+  assert.match(officialSpec, /test\.use\(\{ scenarioID: 'builder-combine', caseName: 'append' \}\)/);
+  assert.match(officialSpec, /appendWorkflow\(\{ page, report: workflow\.report, action: workflow\.action \}, loomContext\)/);
   assert.match(source.slice(capture, lifecycle), /project: context\.target\.fixtureProject/);
   assert.match(source.slice(lifecycle, finalizer), /const builderAtTarget = await readBuilder/);
   assert.match(source.slice(completedLifecycle, finalizer + 40), /finally/);

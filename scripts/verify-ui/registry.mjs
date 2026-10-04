@@ -529,6 +529,7 @@ export const registry = Object.freeze([
       'Combine inputs are the exact published Observation and DiagnosticReport revisions; the basic ID-key case does not claim duplicate-key multiplication',
     ],
     script: 'builder-combine.mjs',
+    playwrightTests: { append: 'scripts/playwright/append.spec.mjs' },
     cases: ['join', 'append'],
     requiredChecks: {
       join: [

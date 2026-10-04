@@ -1,0 +1,338 @@
+import { test as base, expect } from '@playwright/test';
+import { performance } from 'node:perf_hooks';
+import { capabilityBinding, capabilityResponseMatches, isIncidentalFavicon, supersedingCapabilityRequest } from './network-evidence.mjs';
+import { checkContainerApiBuildStamp } from '../lib/api-build-freeze.mjs';
+import { sanitizePayload, sanitizeText } from '../lib/playwright-browser.mjs';
+import {
+  createRunContext,
+  makeReportLocation,
+  parseArgs,
+  scenarioFor,
+  validateScenarioCase,
+} from '../verify-ui/cli.mjs';
+import { createReport, finishReport, recordCheck, writeReport } from '../verify-ui/report.mjs';
+import { requiredChecksFor } from '../verify-ui/registry.mjs';
+import { sourceFingerprintChangedPaths, sourceFingerprintWithManifest } from '../verify-ui/source-fingerprint.mjs';
+
+const ACTION_TIMEOUT_MS = 5_000;
+const CONTEXT_SETUP_TIMEOUT_MS = 120_000;
+const MAX_DIAGNOSTICS = 100;
+const safeText = (value) => sanitizeText(value).slice(0, 4_000);
+
+const safeURL = (raw) => {
+  try {
+    const url = new URL(raw);
+    return safeText(`${url.origin}${url.pathname}`);
+  } catch {
+    return safeText(raw);
+  }
+};
+
+const apiIdentity = async (target) => {
+  if (!target.composeProject) return { identity: null, error: 'owned API container is unavailable' };
+  const observation = await checkContainerApiBuildStamp(`${target.composeProject}-loom-api-1`);
+  const stamp = /^([a-f0-9]{64})\s+([a-f0-9]{64})\s+([a-f0-9]{64})$/i.exec(observation.stdout.trim());
+  if (observation.status !== 0 || !stamp) {
+    return {
+      identity: null,
+      error: `API build identity check failed (status=${observation.status ?? 'unknown'}${observation.errorCode ? `, code=${observation.errorCode}` : ''})`,
+    };
+  }
+  return { identity: stamp.slice(1).join(':').toLowerCase() };
+};
+
+const safeTarget = (target) => ({
+  kind: target.kind ?? 'owned-dev-fixture',
+  uiUrl: new URL(target.uiUrl).origin,
+  sourceRoot: target.sourceRoot ?? null,
+  project: target.fixtureProject,
+  generation: target.fixtureGeneration,
+});
+
+const recordAuditFailure = (report, name, error) => {
+  const message = safeText(error?.message ?? error);
+  report.errors.push({ kind: 'fixture-audit-error', message });
+  recordCheck(report, 'correctness', name, false, { message });
+};
+
+export { expect };
+export const test = base.extend({
+  scenarioID: ['builder-combine', { option: true }],
+  caseName: ['append', { option: true }],
+
+  loomContext: [async ({ scenarioID, caseName }, use, testInfo) => {
+    const setupStarted = performance.now();
+    const scenario = scenarioFor(scenarioID);
+    validateScenarioCase(scenario, caseName);
+    const args = parseArgs([]);
+    args.caseName = caseName;
+    const contextStarted = performance.now();
+    const context = await createRunContext(args, scenario, { mutating: scenarioID === 'builder-combine' });
+    const contextSetupMs = performance.now() - contextStarted;
+    const location = makeReportLocation(context, scenarioID, caseName);
+    const report = createReport({
+      scenario: scenarioID,
+      caseName,
+      target: safeTarget(context.target),
+      evidenceDirectory: location.evidenceDirectory,
+      requiredChecks: requiredChecksFor(scenario, caseName, context.custom),
+    });
+    report.registryCoverage = scenario.coverage;
+    report.fixtureTimings = { createRunContextMs: contextSetupMs };
+
+    let sourceAtStart;
+    const fingerprintStarted = performance.now();
+    try {
+      sourceAtStart = sourceFingerprintWithManifest(context.target.sourceRoot);
+      report.target.sourceFingerprint = sourceAtStart.fingerprint;
+      report.sourceFingerprintManifest = { before: sourceAtStart.manifest };
+      recordCheck(report, 'correctness', 'watched source fingerprint baseline captured before browser lifecycle', true,
+        { fingerprint: sourceAtStart.fingerprint });
+    } catch (error) {
+      recordAuditFailure(report, 'watched source fingerprint baseline captured before browser lifecycle', error);
+    }
+    report.fixtureTimings.sourceFingerprintBeforeMs = performance.now() - fingerprintStarted;
+
+    const apiStarted = performance.now();
+    let apiAtStart;
+    try {
+      apiAtStart = await apiIdentity(context.target);
+      report.target.apiBuildIdentity = apiAtStart.identity;
+      if (!apiAtStart.identity) throw new Error(apiAtStart.error);
+      recordCheck(report, 'correctness', 'API build identity baseline captured before browser lifecycle', true,
+        { identity: apiAtStart.identity });
+    } catch (error) {
+      recordAuditFailure(report, 'API build identity baseline captured before browser lifecycle', error);
+    }
+    report.fixtureTimings.apiBuildIdentityBeforeMs = performance.now() - apiStarted;
+    report.fixtureTimings.totalSetupMs = performance.now() - setupStarted;
+
+    if (!sourceAtStart || !apiAtStart?.identity) {
+      finishReport(report);
+      writeReport(location.reportPath, sanitizePayload(report));
+      await testInfo.attach('loom-verification-report.json', { path: location.reportPath, contentType: 'application/json' });
+      throw new Error('Loom fixture source/API baseline could not be established; browser workflow was not executed.');
+    }
+    const fixture = { ...context, scenarioID, caseName, report, reportPath: location.reportPath, sourceAtStart, apiAtStart };
+    await use(fixture);
+
+    if (testInfo.status !== 'passed') {
+      report.errors.push({ kind: 'playwright-test', message: `official test finished with status ${testInfo.status}` });
+      recordCheck(report, 'correctness', 'official Playwright case completed without failure', false,
+        { status: testInfo.status });
+    }
+
+    if (sourceAtStart) {
+      const fingerprintAfterStarted = performance.now();
+      try {
+        const sourceAtEnd = sourceFingerprintWithManifest(context.target.sourceRoot);
+        const changedPaths = sourceFingerprintChangedPaths(sourceAtStart.manifest, sourceAtEnd.manifest);
+        report.target.sourceFingerprintAfter = sourceAtEnd.fingerprint;
+        report.sourceFingerprintManifest = {
+          before: sourceAtStart.manifest,
+          after: sourceAtEnd.manifest,
+          changedPaths,
+        };
+        recordCheck(report, 'correctness', 'watched source stayed unchanged during browser run',
+          sourceAtStart.fingerprint.sha256 === sourceAtEnd.fingerprint.sha256,
+          { before: sourceAtStart.fingerprint, after: sourceAtEnd.fingerprint, changedPaths });
+      } catch (error) {
+        recordAuditFailure(report, 'watched source stayed unchanged during browser run', error);
+      }
+      report.fixtureTimings.sourceFingerprintAfterMs = performance.now() - fingerprintAfterStarted;
+    } else {
+      recordCheck(report, 'correctness', 'watched source stayed unchanged during browser run', false,
+        { reason: 'source fingerprint baseline was unavailable' });
+    }
+
+    const apiAfterStarted = performance.now();
+    try {
+      const apiAtEnd = await apiIdentity(context.target);
+      report.apiBuildIdentity = { before: apiAtStart?.identity ?? null, after: apiAtEnd.identity };
+      recordCheck(report, 'correctness', 'API build identity stayed unchanged during browser run',
+        Boolean(apiAtStart?.identity && apiAtEnd.identity && apiAtStart.identity === apiAtEnd.identity),
+        { before: apiAtStart?.identity ?? null, after: apiAtEnd.identity, error: apiAtEnd.error });
+    } catch (error) {
+      recordAuditFailure(report, 'API build identity stayed unchanged during browser run', error);
+    }
+    report.fixtureTimings.apiBuildIdentityAfterMs = performance.now() - apiAfterStarted;
+
+    finishReport(report);
+    const sanitizedReport = sanitizePayload(report);
+    writeReport(location.reportPath, sanitizedReport);
+    await testInfo.attach('loom-verification-report.json', {
+      path: location.reportPath,
+      contentType: 'application/json',
+    });
+    if (testInfo.status === 'passed') {
+      expect(report.missingRequiredChecks, 'required Loom workflow checks were not recorded as passed').toEqual([]);
+      expect(report.status, 'Loom domain report did not pass').toBe('passed');
+    }
+  }, { timeout: CONTEXT_SETUP_TIMEOUT_MS }],
+
+  workflow: async ({ loomContext, page }, use, testInfo) => {
+    const { report, target } = loomContext;
+    const lifecycleStarted = performance.now();
+    const ownedOrigins = new Set([target.uiUrl, target.apiUrl].filter(Boolean).map((url) => new URL(url).origin));
+    const capabilityRequests = new Map();
+    let requestSequence = 0;
+    let activeAction;
+    let retainedDiagnostics = 0;
+    let droppedDiagnostics = 0;
+    const addDiagnostic = (entry) => {
+      if (retainedDiagnostics < MAX_DIAGNOSTICS) {
+        report.network.push(entry);
+        retainedDiagnostics += 1;
+      } else {
+        droppedDiagnostics += 1;
+      }
+    };
+    const belongsToTarget = (request) => {
+      try { return ownedOrigins.has(new URL(request.url()).origin); }
+      catch { return false; }
+    };
+
+    const onRequest = request => {
+      const binding = capabilityBinding(request, { ...target, explorer: report.target.explorer ?? target.bootstrapExplorerId });
+      if (binding) capabilityRequests.set(request, { binding, sequence: ++requestSequence, status: null, requestAction: activeAction });
+    };
+    const onConsole = (message) => {
+      if (message.type() !== 'error') return;
+      if (isIncidentalFavicon(message.location().url, target, 404) && message.text().includes('404')) {
+        report.assetFailures.push({ kind: 'asset-failure', url: safeURL(message.location().url), status: 404 });
+        return;
+      }
+      addDiagnostic({
+        kind: 'console-error',
+        text: safeText(message.text()),
+        location: safeURL(message.location().url),
+      });
+    };
+    const onPageError = (error) => addDiagnostic({
+      kind: 'exception', message: safeText(error.message), stack: safeText(error.stack),
+    });
+    const onResponse = (response) => {
+      const ownedRequest = capabilityRequests.get(response.request());
+      if (ownedRequest) {
+        ownedRequest.status = response.status();
+        if (response.ok()) void response.json().then(body => {
+          ownedRequest.responseMatches = capabilityResponseMatches(ownedRequest.binding, body);
+        }, error => { ownedRequest.responseReadError = safeText(error.message); });
+      }
+      if (response.status() < 400 || !belongsToTarget(response.request())) return;
+      if (isIncidentalFavicon(response.url(), target, response.status())) {
+        report.assetFailures.push({ kind: 'asset-failure', url: safeURL(response.url()), status: 404 });
+        return;
+      }
+      addDiagnostic({
+        kind: 'network', status: response.status(), method: response.request().method(),
+        url: safeURL(response.url()), resourceType: response.request().resourceType(),
+      });
+    };
+    const onRequestFailed = (request) => {
+      if (!belongsToTarget(request)) return;
+      const ownedRequest = capabilityRequests.get(request);
+      if (ownedRequest) ownedRequest.failed = true;
+      const errorText = safeText(request.failure()?.errorText);
+      addDiagnostic({
+        kind: 'network', method: request.method(), url: safeURL(request.url()),
+        resourceType: request.resourceType(), errorText,
+        ...capabilityRequests.get(request), triggerAction: activeAction,
+      });
+    };
+    const onRequestFinished = request => {
+      const ownedRequest = capabilityRequests.get(request);
+      if (ownedRequest) ownedRequest.finished = true;
+    };
+    page.on('requestfinished', onRequestFinished);
+    page.on('request', onRequest);
+    page.on('console', onConsole);
+    page.on('pageerror', onPageError);
+    page.on('response', onResponse);
+    page.on('requestfailed', onRequestFailed);
+
+    const check = (dimension, name, passed, evidence = {}) => {
+      const success = Boolean(passed);
+      recordCheck(report, dimension, name, success, evidence);
+      expect(success, name).toBe(true);
+      return success;
+    };
+
+    const action = async (label, locator, perform, {
+      after,
+      timeout = ACTION_TIMEOUT_MS,
+      budget = ACTION_TIMEOUT_MS,
+      editable = false,
+      requiredCheck,
+    } = {}) => test.step(label, async () => {
+      activeAction = label;
+      const started = performance.now();
+      const requestedTimeout = Number.isFinite(timeout) ? timeout : ACTION_TIMEOUT_MS;
+      const actionTimeout = Math.max(1, Math.min(ACTION_TIMEOUT_MS, requestedTimeout));
+      const requestedBudget = Number.isFinite(budget) ? budget : ACTION_TIMEOUT_MS;
+      const budgetMs = Math.max(1, Math.min(ACTION_TIMEOUT_MS, requestedBudget));
+      let performCompleted = false;
+      let afterCompleted = false;
+      let afterMs;
+      let elapsedMs;
+      try {
+        await expect(locator, `${label}: expected exactly one control`).toHaveCount(1, { timeout: actionTimeout });
+        await locator.click({ trial: true, timeout: actionTimeout });
+        if (editable) await expect(locator, `${label}: expected an editable control`).toBeEditable({ timeout: actionTimeout });
+        await perform();
+        performCompleted = true;
+        if (after) {
+          const afterStarted = performance.now();
+          await after();
+          afterMs = performance.now() - afterStarted;
+          afterCompleted = true;
+        }
+        elapsedMs = performance.now() - started;
+        expect(elapsedMs, `${label} action-to-render exceeded ${ACTION_TIMEOUT_MS} ms`).toBeLessThanOrEqual(budgetMs);
+      } finally {
+        elapsedMs ??= performance.now() - started;
+        const passed = performCompleted && (!after || afterCompleted) && elapsedMs <= budgetMs;
+        report.actions.push({
+          label: safeText(label), status: passed ? 'passed' : 'failed', elapsedMs: Math.round(elapsedMs),
+          locator: safeText(locator.toString()), ...(afterMs === undefined ? {} : { afterMs: Math.round(afterMs) }),
+        });
+        report.timings[label] = Math.round(elapsedMs);
+        recordCheck(report, 'usability', `${label} completed`, passed,
+          { elapsedMs: Math.round(elapsedMs), afterMs: afterMs === undefined ? null : Math.round(afterMs) });
+        if (after) {
+          recordCheck(report, 'performance', requiredCheck ?? `${label} action-to-render within budget`,
+            passed, { afterMs: afterMs === undefined ? null : Math.round(afterMs), budgetMs });
+        }
+      }
+    }, { timeout: ACTION_TIMEOUT_MS });
+
+    try {
+      await use({ ...loomContext, page, check, action });
+    } finally {
+      page.removeListener('requestfinished', onRequestFinished);
+      page.removeListener('request', onRequest);
+      page.removeListener('console', onConsole);
+      page.removeListener('pageerror', onPageError);
+      page.removeListener('response', onResponse);
+      page.removeListener('requestfailed', onRequestFailed);
+      for (const failure of report.network) {
+        const replacement = supersedingCapabilityRequest(failure, [...capabilityRequests.values()]);
+        if (!replacement) continue;
+        failure.canceled = true;
+        failure.cancellationReason = 'superseded capability binding has a later successful replacement';
+        failure.replacement = { sequence: replacement.sequence, status: replacement.status, finished: replacement.finished, responseMatches: replacement.responseMatches, binding: replacement.binding };
+      }
+      if (report.assetFailures.length) recordCheck(report, 'correctness', 'incidental asset failures are explicitly recorded', true, { failures: report.assetFailures });
+      report.browserLifecycle = {
+        kind: 'official-playwright-page',
+        status: testInfo.status,
+        durationMs: Math.round(performance.now() - lifecycleStarted),
+        diagnosticLimit: MAX_DIAGNOSTICS,
+        droppedDiagnostics,
+      };
+      if (droppedDiagnostics > 0) {
+        report.network.push({ kind: 'exception', message: `diagnostic limit exceeded; ${droppedDiagnostics} events omitted` });
+      }
+    }
+  },
+});
