@@ -234,8 +234,8 @@ const assertDirectFieldBinding = (column, candidate, projection, phase) => {
 };
 
 const rendered = async (expectedRows, expectedColumns, phase) => {
-  await waitForBrowser(browser.page, `(() => {const table=document.querySelector('[data-testid="preview-table-scroll"] [role="table"]');return Boolean(table&&table.getAttribute('aria-rowcount')===${JSON.stringify(String(expectedRows + 1))}&&table.getAttribute('aria-colcount')===${JSON.stringify(String(expectedColumns))}&&!document.body.innerText.includes('Loading your table…')&&!document.body.innerText.includes('Preview failed:'));})()`);
-  const view = await browserEval(browser.page, `const table=document.querySelector('[data-testid="preview-table-scroll"] [role="table"]');return {rowCount:table?.getAttribute('aria-rowcount'),columnCount:table?.getAttribute('aria-colcount'),headers:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].map(cell=>cell.innerText.trim()),rows:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]')].slice(1).map(row=>[...row.querySelectorAll('[role="cell"]')].map(cell=>({text:cell.innerText.trim(),raw:cell.title}))).filter(row=>row.length)};`);
+  await waitForBrowser(browser.page, ([__arg0, __arg1]) => Boolean((() => {const table=document.querySelector('[data-testid="preview-table-scroll"] [role="table"]');return Boolean(table&&table.getAttribute('aria-rowcount')===__arg0&&table.getAttribute('aria-colcount')===__arg1&&!document.body.innerText.includes('Loading your table…')&&!document.body.innerText.includes('Preview failed:'));})()), [String(expectedRows + 1), String(expectedColumns)]);
+  const view = await browserEval(browser.page, () => { const table=document.querySelector('[data-testid="preview-table-scroll"] [role="table"]');return {rowCount:table?.getAttribute('aria-rowcount'),columnCount:table?.getAttribute('aria-colcount'),headers:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].map(cell=>cell.innerText.trim()),rows:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]')].slice(1).map(row=>[...row.querySelectorAll('[role="cell"]')].map(cell=>({text:cell.innerText.trim(),raw:cell.title}))).filter(row=>row.length)}; });
   assert.equal(view.rowCount, String(expectedRows + 1), `${phase} rendered the wrong number of rows`);
   assert.equal(view.columnCount, String(expectedColumns), `${phase} rendered the wrong number of columns`);
   assert.equal(view.rows.length, expectedRows, `${phase} DOM table omitted visible witness rows`);
@@ -247,7 +247,7 @@ const openTable = async (expectedRows, expectedColumns, phase) => {
   const fromIndex = nativeIndex();
   const url = `${uiOrigin}/?project=${encodeURIComponent(project)}&explorer=${encodeURIComponent(explorer)}&mode=builder`;
   await navigate(browser.page, url);
-  await waitForBrowser(browser.page, `Boolean(document.querySelector(${JSON.stringify(`[data-testid="construction-table-${outputId}"]`)}))`);
+  await waitForBrowser(browser.page, ([__arg0]) => Boolean(Boolean(document.querySelector(__arg0))), [`[data-testid="construction-table-${outputId}"]`]);
   await click(browser.page, `[data-testid="construction-table-${outputId}"]`);
   const view = await rendered(expectedRows, expectedColumns, phase);
   const native = await waitNative((entry) => entry.path.endsWith('/preview') && entry.body?.outputId === outputId, fromIndex);
@@ -263,32 +263,32 @@ const setSearchInput = async (selector, value) => {
 
 const selectRawField = async (path) => {
   const selector = `[aria-label=${JSON.stringify(`Select Observation.${path}`)}]`;
-  let present = await browserEval(browser.page, `return Boolean(document.querySelector(${JSON.stringify(selector)}));`);
+  let present = await browserEval(browser.page, ([__arg0]) => { return Boolean(document.querySelector(__arg0)); }, [selector]);
   if (!present) {
     const search = '[aria-label="Search features by field name, concept, or code"]';
     await setSearchInput(search, path.includes('[]') ? path.split('[]')[0] : path);
     await click(browser.page, '[aria-label="Add columns editor"] form button', { name: 'Search' });
-    await waitForBrowser(browser.page, `Boolean(document.querySelector(${JSON.stringify(selector)}))`);
+    await waitForBrowser(browser.page, ([__arg0]) => Boolean(Boolean(document.querySelector(__arg0))), [selector]);
     present = true;
   }
   assert(present, `Native raw field catalog did not expose ${path}`);
-  const state = await browserEval(browser.page, `const input=document.querySelector(${JSON.stringify(selector)});return input?{disabled:input.disabled,checked:input.checked}:null;`);
+  const state = await browserEval(browser.page, ([__arg0]) => { const input=document.querySelector(__arg0);return input?{disabled:input.disabled,checked:input.checked}:null; }, [selector]);
   assert(state && !state.disabled, `Native raw field selection is unavailable for ${path}: ${JSON.stringify(state)}`);
   if (!state.checked) await click(browser.page, selector);
 };
 
 const openAddColumns = async () => {
-  const editorOpen = await browserEval(browser.page, `return Boolean(document.querySelector('[data-testid="construction-operation-editor"]'));`);
+  const editorOpen = await browserEval(browser.page, () => { return Boolean(document.querySelector('[data-testid="construction-operation-editor"]')); });
   if (!editorOpen) await click(browser.page, '[data-testid="construction-action-add-columns"]');
-  await waitForBrowser(browser.page, `Boolean(document.querySelector('[data-testid="construction-operation-editor"]'))`);
+  await waitForBrowser(browser.page, () => Boolean(Boolean(document.querySelector('[data-testid="construction-operation-editor"]'))), []);
   await click(browser.page, '[data-testid="construction-operation-editor"] [aria-label="Column types"] button', { includes: 'Fields and related data' });
-  await waitForBrowser(browser.page, `Boolean(document.querySelector('[data-testid="construction-add-columns-source"]'))`);
-  await waitForBrowser(browser.page, `Boolean(document.querySelector('[data-testid="feature-catalog-raw-fields"]'))`);
-  const rootScope = await browserEval(browser.page, `const button=[...document.querySelectorAll('[data-testid="construction-add-columns-source-option"]')].find(item=>item.dataset.sourceKind==='ROOT'&&item.dataset.sourceKey===${JSON.stringify(`root:Observation`)});return button?{label:button.getAttribute('aria-label'),selected:button.getAttribute('aria-pressed')==='true'}:null;`);
+  await waitForBrowser(browser.page, () => Boolean(Boolean(document.querySelector('[data-testid="construction-add-columns-source"]'))), []);
+  await waitForBrowser(browser.page, () => Boolean(Boolean(document.querySelector('[data-testid="feature-catalog-raw-fields"]'))), []);
+  const rootScope = await browserEval(browser.page, ([__arg0]) => { const button=[...document.querySelectorAll('[data-testid="construction-add-columns-source-option"]')].find(item=>item.dataset.sourceKind==='ROOT'&&item.dataset.sourceKey===__arg0);return button?{label:button.getAttribute('aria-label'),selected:button.getAttribute('aria-pressed')==='true'}:null; }, [`root:Observation`]);
   assert(rootScope, 'Native Add columns did not offer the Observation table-row source scope');
   if (!rootScope.selected) await click(browser.page, '[data-testid="construction-add-columns-source-option"]', { name: rootScope.label });
-  await waitForBrowser(browser.page, `document.querySelector('[data-testid="construction-add-columns-source-option"][data-source-key="root:Observation"]')?.getAttribute('aria-pressed')==='true'`);
-  const rawFieldsOpen = await browserEval(browser.page, `return document.querySelector('[data-testid="feature-catalog-raw-fields"]')?.open===true;`);
+  await waitForBrowser(browser.page, () => Boolean(document.querySelector('[data-testid="construction-add-columns-source-option"][data-source-key="root:Observation"]')?.getAttribute('aria-pressed')==='true'), []);
+  const rawFieldsOpen = await browserEval(browser.page, () => { return document.querySelector('[data-testid="feature-catalog-raw-fields"]')?.open===true; });
   if (!rawFieldsOpen) await click(browser.page, '[data-testid="feature-catalog-raw-fields"] summary');
 };
 
@@ -297,14 +297,14 @@ const addNativeFields = async (candidateByPath, cancelProposal) => {
   await openAddColumns();
   await selectRawField('component[].valueString');
   await selectRawField('status');
-  await waitForBrowser(browser.page, `Boolean([...document.querySelectorAll('[aria-label="Add columns editor"] button')].find(button=>button.innerText.includes('Add 2 selected features')&&!button.disabled))`);
+  await waitForBrowser(browser.page, () => Boolean(Boolean([...document.querySelectorAll('[aria-label="Add columns editor"] button')].find(button=>button.innerText.includes('Add 2 selected features')&&!button.disabled))), []);
   const fromIndex = nativeIndex();
   await click(browser.page, '[aria-label="Add columns editor"] button', { includes: 'Add 2 selected features' });
-  await waitForBrowser(browser.page, `Boolean(document.querySelector('[role="dialog"]')||document.querySelector('[data-testid="construction-choice-proposal-panel"]'))`);
+  await waitForBrowser(browser.page, () => Boolean(Boolean(document.querySelector('[role="dialog"]')||document.querySelector('[data-testid="construction-choice-proposal-panel"]'))), []);
 
-  const dialog = await browserEval(browser.page, `return Boolean(document.querySelector('[role="dialog"]'));`);
+  const dialog = await browserEval(browser.page, () => { return Boolean(document.querySelector('[role="dialog"]')); });
   if (dialog) {
-    const choiceInputs = await browserEval(browser.page, `return [...document.querySelectorAll('[role="dialog"] input[type="radio"][aria-label]')].map(input=>({name:input.name,label:input.getAttribute('aria-label'),checked:input.checked,disabled:input.disabled}));`);
+    const choiceInputs = await browserEval(browser.page, () => { return [...document.querySelectorAll('[role="dialog"] input[type="radio"][aria-label]')].map(input=>({name:input.name,label:input.getAttribute('aria-label'),checked:input.checked,disabled:input.disabled})); });
     const scalar = candidateByPath.get('status');
     const repeated = candidateByPath.get('component[].valueString');
     const nativeForm = (candidate, formLabel, fieldPath) => {
@@ -324,12 +324,12 @@ const addNativeFields = async (candidateByPath, cancelProposal) => {
     const scalarSelector = nativeChoiceSelector(scalarValueChoice);
     if (!repeatedChoice.checked) await click(browser.page, repeatedSelector);
     if (!scalarValueChoice.checked) await click(browser.page, scalarSelector);
-    await waitForBrowser(browser.page, `document.querySelector(${JSON.stringify(repeatedSelector)})?.checked===true && document.querySelector(${JSON.stringify(scalarSelector)})?.checked===true`);
-    await waitForBrowser(browser.page, `Boolean([...document.querySelectorAll('[role="dialog"] button')].find(button=>button.innerText.trim()==='Add 2 columns'&&!button.disabled))`);
+    await waitForBrowser(browser.page, ([__arg0, __arg1]) => Boolean(document.querySelector(__arg0)?.checked===true && document.querySelector(__arg1)?.checked===true), [repeatedSelector, scalarSelector]);
+    await waitForBrowser(browser.page, () => Boolean(Boolean([...document.querySelectorAll('[role="dialog"] button')].find(button=>button.innerText.trim()==='Add 2 columns'&&!button.disabled))), []);
     await click(browser.page, '[role="dialog"] button', { name: 'Add 2 columns' });
   }
 
-  await waitForBrowser(browser.page, `document.querySelector('[data-testid="construction-choice-proposal-panel"]')?.dataset.proposalStatus==='ready'`);
+  await waitForBrowser(browser.page, () => Boolean(document.querySelector('[data-testid="construction-choice-proposal-panel"]')?.dataset.proposalStatus==='ready'), []);
   const nativeProposal = await waitNative((entry) => entry.path.endsWith('/construction-choice-proposals') && entry.body?.constructionChoices?.length === 2, fromIndex);
   const proposal = nativeProposal.response;
   assert.equal(proposal.previewStatus, 'READY', 'Native field preflight must carry a successful preview receipt');
@@ -365,7 +365,7 @@ const addNativeFields = async (candidateByPath, cancelProposal) => {
     const workspaceBeforeCancel = structuredClone(builder.workspace);
     const commandCountBeforeCancel = nativeRequests.slice(fromIndex).filter((entry) => entry.path.endsWith('/commands')).length;
     await click(browser.page, '[data-testid="construction-choice-proposal-panel"] button', { name: 'Cancel' });
-    await waitForBrowser(browser.page, `!document.querySelector('[data-testid="construction-choice-proposal-panel"]')`);
+    await waitForBrowser(browser.page, () => Boolean(!document.querySelector('[data-testid="construction-choice-proposal-panel"]')), []);
     builder = await api(`${base}/builder`);
     assert.deepEqual(builder.workspace, workspaceBeforeCancel, 'Canceling the native proposed fields must preserve the saved workspace');
     assert.equal(nativeRequests.slice(fromIndex).filter((entry) => entry.path.endsWith('/commands')).length, commandCountBeforeCancel,
@@ -394,7 +394,7 @@ const addNativeFields = async (candidateByPath, cancelProposal) => {
 
 const saveDOM = async (name) => {
   const path = join(evidence, `${name}.dom.json`);
-  await writeFile(path, JSON.stringify(await browserEval(browser.page, `return {url:location.href,title:document.title,text:document.body.innerText.slice(-16000)};`), null, 2));
+  await writeFile(path, JSON.stringify(await browserEval(browser.page, () => { return {url:location.href,title:document.title,text:document.body.innerText.slice(-16000)}; }), null, 2));
   report.evidencePaths.push(path);
 };
 
@@ -480,7 +480,7 @@ try {
     browser = await launchBrowser(evidence);
     browserEvents = trackBrowser();
     const initial = await openTable(sourceRecords.length, 1, 'initial scoped Observation table');
-    const baselineDOM = await browserEval(browser.page, `return {headers:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].map(cell=>cell.innerText.trim()),cells:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="cell"]')].map(cell=>cell.innerText.trim())};`);
+    const baselineDOM = await browserEval(browser.page, () => { return {headers:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].map(cell=>cell.innerText.trim()),cells:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="cell"]')].map(cell=>cell.innerText.trim())}; });
     assert.equal(initial.native.status, 200);
     assert.deepEqual([...baselineDOM.cells].sort(), sourceRecords.map((record) => record.id).sort(), 'Native base table must render the exact selected Observation IDs');
     recordAssertion('native base table rendered the independently selected Observation membership', { receiptId: initial.preview.receiptId, ids: baselineDOM.cells });
@@ -522,7 +522,7 @@ try {
     const renameStartedAt = Date.now();
     await click(browser.page, 'button', { name: 'Columns' });
     const renameSelector = `[aria-label=${JSON.stringify(`Column name for ${repeatedColumn.label}`)}]`;
-    await waitForBrowser(browser.page, `Boolean(document.querySelector(${JSON.stringify(renameSelector)}))`);
+    await waitForBrowser(browser.page, ([__arg0]) => Boolean(Boolean(document.querySelector(__arg0))), [renameSelector]);
     const renameInput = browser.page.locator(renameSelector);
     await fill(browser.page, renameSelector, renameTo);
     await press(browser.page, renameSelector, 'Enter');
@@ -582,9 +582,9 @@ try {
       const currentColumnId = columnIdOf(currentColumn);
       const fromIndex = nativeIndex();
       const removalStartedAt = Date.now();
-      const columnsMenuOpen = await browserEval(browser.page, `return Boolean(document.querySelector('[aria-label="Table columns"]'));`);
+      const columnsMenuOpen = await browserEval(browser.page, () => { return Boolean(document.querySelector('[aria-label="Table columns"]')); });
       if (!columnsMenuOpen) await click(browser.page, 'button', { name: 'Columns' });
-      await waitForBrowser(browser.page, `Boolean(document.querySelector('[aria-label="Table columns"]'))`);
+      await waitForBrowser(browser.page, () => Boolean(Boolean(document.querySelector('[aria-label="Table columns"]'))), []);
       await click(browser.page, '[aria-label="Table columns"] button', { name: `Remove ${currentColumn.label} column` });
       const removeCommand = await waitNative((entry) => entry.path.endsWith('/commands') && entry.body?.commands?.some((item) => item.type === 'REMOVE_COLUMN' && item.column === currentColumnId), fromIndex);
       assert.equal(removeCommand.status, 200);
@@ -609,7 +609,7 @@ try {
     const restored = await openTable(sourceRecords.length, 1, 'reload after removing direct fields restores original population');
     const restoredDocumentAfterReload = document(await api(`${base}/builder`));
     assertPreview(restored.preview, restoredDocumentAfterReload, [], 'Restored source population reload');
-    const restoredIds = await browserEval(browser.page, `return [...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="cell"]')].map(cell=>cell.innerText.trim());`);
+    const restoredIds = await browserEval(browser.page, () => { return [...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="cell"]')].map(cell=>cell.innerText.trim()); });
     assert.deepEqual(restoredIds.sort(), sourceRecords.map((record) => record.id).sort(), 'Restored native table must retain exact Observation membership after reload');
     recordAssertion('native removal and reload restore the original ID field, direct RECORDS rows, and exact CDA population', {
       outputId,
@@ -642,13 +642,13 @@ try {
     draftDigest: state.draftDigest,
     workspace: state.workspace,
   })).catch((readError) => ({ readError: String(readError) })) : undefined;
-  report.failureUI = browser ? await browserEval(browser.page, `return {
+  report.failureUI = browser ? await browserEval(browser.page, () => { return {
     tail:document.body.innerText.slice(-12000),
     headers:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].map(cell=>cell.innerText.trim()),
     dialog:(()=>{const node=document.querySelector('[role="dialog"]');return node?{text:node.innerText,radios:[...node.querySelectorAll('input[type="radio"]')].map(input=>({label:input.getAttribute('aria-label'),checked:input.checked,disabled:input.disabled})),buttons:[...node.querySelectorAll('button')].map(button=>({text:button.innerText.trim(),disabled:button.disabled}))}:null})(),
     proposalPanel:(()=>{const node=document.querySelector('[data-testid="construction-choice-proposal-panel"]');return node?{status:node.dataset.proposalStatus,text:node.innerText}:null})(),
     statuses:[...document.querySelectorAll('[role="status"],[role="alert"]')].map(node=>node.innerText.trim()).filter(Boolean),
-  };`).catch(String) : undefined;
+  }; }).catch(String) : undefined;
 } finally {
   await flushNativeReads().catch(() => undefined);
   report.finished = new Date().toISOString();

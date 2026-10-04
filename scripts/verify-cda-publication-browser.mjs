@@ -190,9 +190,9 @@ const waitForProtocolResponse = async (pathSuffix, timeoutMs) => {
   return existing ?? waitForCapturedResponse(browser.page, browserEvents, predicate, timeoutMs);
 };
 
-const previewSnapshot = async () => browserEval(browser.page, `const panel=document.querySelector('[data-testid="construction-preview"]');const table=document.querySelector('[data-testid="preview-table-scroll"] [role="table"]');const headers=table?[...table.querySelectorAll('[role="columnheader"]')].map(cell=>cell.innerText.trim()):[];const rows=table?[...table.querySelectorAll('[role="row"]')].slice(1).map(row=>[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText.trim())):[];const idIndex=headers.findIndex(header=>header.toUpperCase()==='SPECIMEN ID');return {status:panel?.dataset.previewStatus,outputId:panel?.dataset.previewOutputId,currentDraftVersion:panel?.dataset.currentDraftVersion,currentDraftDigest:panel?.dataset.currentDraftDigest,receiptId:panel?.dataset.previewReceiptId,headers,rows,specimenIds:idIndex<0?[]:rows.map(row=>row[idIndex]).filter(Boolean),ariaRowCount:table?.getAttribute('aria-rowcount')};`);
+const previewSnapshot = async () => browserEval(browser.page, () => { const panel=document.querySelector('[data-testid="construction-preview"]');const table=document.querySelector('[data-testid="preview-table-scroll"] [role="table"]');const headers=table?[...table.querySelectorAll('[role="columnheader"]')].map(cell=>cell.innerText.trim()):[];const rows=table?[...table.querySelectorAll('[role="row"]')].slice(1).map(row=>[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText.trim())):[];const idIndex=headers.findIndex(header=>header.toUpperCase()==='SPECIMEN ID');return {status:panel?.dataset.previewStatus,outputId:panel?.dataset.previewOutputId,currentDraftVersion:panel?.dataset.currentDraftVersion,currentDraftDigest:panel?.dataset.currentDraftDigest,receiptId:panel?.dataset.previewReceiptId,headers,rows,specimenIds:idIndex<0?[]:rows.map(row=>row[idIndex]).filter(Boolean),ariaRowCount:table?.getAttribute('aria-rowcount')}; });
 
-const viewerSnapshot = async () => browserEval(browser.page, `const normalize=value=>String(value??'').replace(/\\s+/g,' ').trim();const tables=[...document.querySelectorAll('[role="table"],table')];const readTable=table=>{const headerNodes=[...table.querySelectorAll('[role="columnheader"],thead th')];const headers=headerNodes.map(cell=>normalize(cell.innerText||cell.textContent));const idIndex=headers.findIndex(header=>header.toUpperCase()==='SPECIMEN ID');const rowNodes=[...table.querySelectorAll('[role="row"],tbody tr')].filter(row=>!row.querySelector('[role="columnheader"],th'));const rows=rowNodes.map(row=>[...row.querySelectorAll('[role="cell"],td')].map(cell=>normalize(cell.innerText||cell.textContent)));return {headers,idIndex,rows,specimenIds:idIndex<0?[]:rows.map(row=>row[idIndex]).filter(Boolean),ariaRowCount:table.getAttribute('aria-rowcount')};};return {url:location.href,body:document.body.innerText.slice(0,1800),tables:tables.map(readTable)};`);
+const viewerSnapshot = async () => browserEval(browser.page, () => { const normalize=value=>String(value??'').replace(/\s+/g,' ').trim();const tables=[...document.querySelectorAll('[role="table"],table')];const readTable=table=>{const headerNodes=[...table.querySelectorAll('[role="columnheader"],thead th')];const headers=headerNodes.map(cell=>normalize(cell.innerText||cell.textContent));const idIndex=headers.findIndex(header=>header.toUpperCase()==='SPECIMEN ID');const rowNodes=[...table.querySelectorAll('[role="row"],tbody tr')].filter(row=>!row.querySelector('[role="columnheader"],th'));const rows=rowNodes.map(row=>[...row.querySelectorAll('[role="cell"],td')].map(cell=>normalize(cell.innerText||cell.textContent)));return {headers,idIndex,rows,specimenIds:idIndex<0?[]:rows.map(row=>row[idIndex]).filter(Boolean),ariaRowCount:table.getAttribute('aria-rowcount')};};return {url:location.href,body:document.body.innerText.slice(0,1800),tables:tables.map(readTable)}; });
 
 const assertExactIds = (actualIds, expectedIds, label) => {
   assert(actualIds.length > 0, `${label} rendered no source IDs`);
@@ -240,14 +240,21 @@ const readPublishedMaterialization = (publication) => {
 };
 
 const verifyViewerAndReload = async () => {
-  const viewerRowsReady = `([...document.querySelectorAll('[role="table"],table')].some(table=>{const headers=[...table.querySelectorAll('[role="columnheader"],thead th')];const index=headers.findIndex(cell=>cell.innerText.trim().toUpperCase()==='SPECIMEN ID');if(index<0)return false;const rows=[...table.querySelectorAll('[role="row"],tbody tr')].filter(row=>!row.querySelector('[role="columnheader"],th'));const ids=rows.map(row=>[...row.querySelectorAll('[role="cell"],td')][index]?.innerText.trim()).filter(Boolean);return JSON.stringify(ids.sort())===${JSON.stringify(JSON.stringify([...sourceIds].sort()))};}))`;
+  const viewerRowsReady = ([expectedIds]) => [...document.querySelectorAll('[role="table"],table')].some(table => {
+    const headers = [...table.querySelectorAll('[role="columnheader"],thead th')];
+    const index = headers.findIndex(cell => cell.innerText.trim().toUpperCase() === 'SPECIMEN ID');
+    if (index < 0) return false;
+    const rows = [...table.querySelectorAll('[role="row"],tbody tr')].filter(row => !row.querySelector('[role="columnheader"],th'));
+    const ids = rows.map(row => [...row.querySelectorAll('[role="cell"],td')][index]?.innerText.trim()).filter(Boolean);
+    return JSON.stringify(ids.sort()) === JSON.stringify([...expectedIds].sort());
+  });
   const openedAt = Date.now();
-  const viewerControl = await browserEval(browser.page, `const button=[...document.querySelectorAll('button')].find(candidate=>candidate.textContent?.trim()==='Viewer');return {visible:Boolean(button&&button.offsetParent!==null),disabled:button?.disabled};`);
+  const viewerControl = await browserEval(browser.page, () => { const button=[...document.querySelectorAll('button')].find(candidate=>candidate.textContent?.trim()==='Viewer');return {visible:Boolean(button&&button.offsetParent!==null),disabled:button?.disabled}; });
   assert(viewerControl.visible && !viewerControl.disabled, 'Native Viewer control is missing or disabled after publication');
   report.viewerControl = await click(browser.page, 'button', { name: 'Viewer' }, 1500);
-  await waitForBrowser(browser.page, `new URL(location.href).searchParams.get('mode')==='viewer'&&new URL(location.href).searchParams.get('project')===${JSON.stringify(project)}&&new URL(location.href).searchParams.get('explorer')===${JSON.stringify(explorerId)}`, 5000);
-  const currentViewerURL = await browserEval(browser.page, 'return location.href;');
-  await waitForBrowser(browser.page, viewerRowsReady, 5000);
+  await waitForBrowser(browser.page, ([__arg0, __arg1]) => Boolean(new URL(location.href).searchParams.get('mode')==='viewer'&&new URL(location.href).searchParams.get('project')===__arg0&&new URL(location.href).searchParams.get('explorer')===__arg1), [project, explorerId], 5000);
+  const currentViewerURL = await browserEval(browser.page, () => { return location.href; });
+  await waitForBrowser(browser.page, viewerRowsReady, [sourceIds], 5000);
   const first = await viewerSnapshot();
   const table = first.tables.find((candidate) => candidate.idIndex >= 0);
   assert(table, 'Viewer has no published Specimen ID output table');
@@ -261,7 +268,7 @@ const verifyViewerAndReload = async () => {
 
   const reloadStarted = Date.now();
   await navigate(browser.page, currentViewerURL);
-  await waitForBrowser(browser.page, viewerRowsReady, 5000);
+  await waitForBrowser(browser.page, viewerRowsReady, [sourceIds], 5000);
   const reloaded = await viewerSnapshot();
   const reloadedTable = reloaded.tables.find((candidate) => candidate.idIndex >= 0);
   assert(reloadedTable, 'Reloaded Viewer has no published Specimen ID output table');
@@ -282,8 +289,8 @@ const main = async () => {
 
   const previewStarted = Date.now();
   await navigate(browser.page, pageURL);
-  await waitForBrowser(browser.page, `Boolean(document.querySelector('[data-testid="construction-workspace"]'))`, 30000);
-  await waitForBrowser(browser.page, `(()=>{const p=document.querySelector('[data-testid="construction-preview"]');return Boolean(p&&p.dataset.previewStatus==='ready'&&p.dataset.previewReceiptId&&p.dataset.previewOutputId===${JSON.stringify(outputId)}&&p.dataset.currentDraftVersion&&p.dataset.currentDraftDigest);})()`, 30000);
+  await waitForBrowser(browser.page, () => Boolean(Boolean(document.querySelector('[data-testid="construction-workspace"]'))), [], 30000);
+  await waitForBrowser(browser.page, ([__arg0]) => Boolean((()=>{const p=document.querySelector('[data-testid="construction-preview"]');return Boolean(p&&p.dataset.previewStatus==='ready'&&p.dataset.previewReceiptId&&p.dataset.previewOutputId===__arg0&&p.dataset.currentDraftVersion&&p.dataset.currentDraftDigest);})()), [outputId], 30000);
   report.preview = await previewSnapshot();
   report.timingsMs.automaticPreviewRender = Date.now() - previewStarted;
   assert(report.timingsMs.automaticPreviewRender <= 5000, `Automatic preview render exceeded 5000 ms (${report.timingsMs.automaticPreviewRender} ms)`);
@@ -298,7 +305,7 @@ const main = async () => {
   assert.equal(previewProtocol.status, 200, `Native automatic preview request failed: ${JSON.stringify(previewProtocol)}`);
   report.nativePreviewProtocol = previewProtocol;
 
-  const publishButton = await browserEval(browser.page, `const button=[...document.querySelectorAll('button')].find(candidate=>candidate.textContent?.trim()==='Publish');return {disabled:button?.disabled,visible:Boolean(button)};`);
+  const publishButton = await browserEval(browser.page, () => { const button=[...document.querySelectorAll('button')].find(candidate=>candidate.textContent?.trim()==='Publish');return {disabled:button?.disabled,visible:Boolean(button)}; });
   assert(publishButton.visible && !publishButton.disabled, 'Publish is not enabled after the ready native preview');
   const publicationStarted = Date.now();
   report.publishClick = await click(browser.page, 'button', { name: 'Publish' }, 1500);
@@ -307,7 +314,7 @@ const main = async () => {
   const publication = publishProtocol.response;
   assert(publication && typeof publication === 'object', 'Native Publish response body is missing');
   report.publication = publication;
-  await waitForBrowser(browser.page, `(()=>{const button=[...document.querySelectorAll('button')].find(candidate=>candidate.textContent?.trim()==='Publish');return Boolean(button&&button.getAttribute('aria-busy')!=='true'&&button.disabled);})()`, 5000);
+  await waitForBrowser(browser.page, () => Boolean((()=>{const button=[...document.querySelectorAll('button')].find(candidate=>candidate.textContent?.trim()==='Publish');return Boolean(button&&button.getAttribute('aria-busy')!=='true'&&button.disabled);})()), [], 5000);
   report.timingsMs.publicationFullAction = Date.now() - publicationStarted;
   assert(report.timingsMs.publicationFullAction <= 5000, `Publication full action exceeded 5000 ms (${report.timingsMs.publicationFullAction} ms)`);
   const materializationStarted = Date.now();

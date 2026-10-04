@@ -6,6 +6,15 @@ import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
 
 const sourceRoot = resolve(fileURLToPath(new URL('../..', import.meta.url)));
+const forbiddenInspection = /\.(?:click|focus|blur|select|dispatchEvent|setAttribute|removeAttribute|scrollIntoView|submit|requestSubmit|remove|append|prepend|replaceWith|insertAdjacentHTML|on[A-Z]\w*|handle[A-Z]\w*)\s*\(|\[['"](?:click|focus|blur|select|dispatchEvent|setAttribute|removeAttribute|submit|requestSubmit)['"]\]\s*\(|\b(?:eval|Function)\s*\(|(?:^|[^\w$])(?:value|checked|selected|open|scrollTop|scrollLeft|innerHTML|outerHTML|textContent|innerText|dataset\.\w+|location(?:\.href)?)\s*=(?!=)|\[['"][^\]]+['"]\]\s*=(?!=)|\+\+|--/i;
+
+function requireInspectionCallback(callback, label) {
+  if (typeof callback !== 'function') throw new TypeError(`${label} requires a function callback.`);
+  const source = Function.prototype.toString.call(callback);
+  if (forbiddenInspection.test(source)) {
+    throw new TypeError(`${label} callbacks may inspect results only; use Playwright locators for control interaction.`);
+  }
+}
 
 export async function assertOwnedTarget({ project, apiOrigin, uiOrigin, arangoContainer, clickhouseContainer, requireClickhouse = false } = {}) {
   const ownedArango = arangoContainer ?? process.env.LOOM_ARANGO_CONTAINER;
@@ -23,8 +32,6 @@ export async function assertOwnedTarget({ project, apiOrigin, uiOrigin, arangoCo
     clickhouseContainer: ownedClickhouse,
   });
 }
-
-const forbiddenInspection = /\.(?:click|focus|blur|select|dispatchEvent|setAttribute|removeAttribute|scrollIntoView|submit|requestSubmit|on[A-Z]\w*|handle[A-Z]\w*)\s*\(|(?:^|[^\w$])(?:value|checked|selected|open|scrollTop|scrollLeft|innerHTML|outerHTML|textContent|innerText|dataset\.\w+|location(?:\.href)?)\s*=(?!=)|\+\+|--/i;
 
 export async function launchBrowser(evidence, onDialog, {
   noAuth = true,
@@ -57,22 +64,16 @@ export async function launchBrowser(evidence, onDialog, {
   return result;
 }
 
-function readOnlyBody(body) {
-  if (forbiddenInspection.test(body)) {
-    throw new Error('Browser evaluation is read-only. Use a Playwright locator or keyboard action for control interaction.');
-  }
-  return body;
+export async function browserEval(page, inspect, args = []) {
+  requireInspectionCallback(inspect, 'Browser inspection');
+  if (typeof args === 'string') throw new TypeError('Browser inspection arguments must be structured data, not source code.');
+  return page.evaluate(inspect, args);
 }
 
-export async function browserEval(page, body) {
-  const inspection = readOnlyBody(body);
-  return page.evaluate(new Function(inspection));
-}
-
-export async function waitForBrowser(page, expression, timeout = 30000) {
-  const predicateBody = readOnlyBody(`return Boolean(${expression});`);
-  const predicate = new Function(predicateBody);
-  await page.waitForFunction(predicate, undefined, { timeout });
+export async function waitForBrowser(page, predicate, args = [], timeout = 5000) {
+  requireInspectionCallback(predicate, 'Browser waits');
+  if (typeof args === 'string') throw new TypeError('Browser wait arguments must be structured data, not source code.');
+  await page.waitForFunction(predicate, args, { timeout });
 }
 
 function normalizedLabel(value) {
@@ -138,10 +139,21 @@ export async function selectOption(page, selector, value, options = {}) {
     await target.click({ ...actionOptions, trial: true });
     await target.selectOption(value, actionOptions);
   }, { timeout: options.timeout ?? 5000 });
-  await waitForBrowser(page, options.settledWhen ?? `document.querySelector(${JSON.stringify(selector)})?.value === ${JSON.stringify(value)}`,
-    options.timeout ?? 5000);
+  const settledWhen = options.settledWhen ?? ((target) => document.querySelector(target.selector)?.value === target.value);
+  await waitForBrowser(page, settledWhen, [{ selector, value }], options.timeout ?? 5000);
   if (options.dismissSelector) await click(page, options.dismissSelector);
   return { selector, label, value };
+}
+
+export async function scrollIntoView(page, selector, identity = {}, timeout = 5000) {
+  const { locator, label } = await exactTarget(page, selector, identity);
+  await locator.scrollIntoViewIfNeeded({ timeout });
+  const bounds = await locator.evaluate(element => {
+    const rect = element.getBoundingClientRect();
+    return { top: rect.top, bottom: rect.bottom, viewportHeight: innerHeight,
+      text: (element.getAttribute('aria-label') || element.innerText || element.textContent || '').trim() };
+  });
+  return { selector, label, ...bounds };
 }
 
 export async function navigate(page, url) {

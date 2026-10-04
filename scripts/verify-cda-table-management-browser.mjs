@@ -80,9 +80,9 @@ const orderedTables = (value) => {
     });
 };
 
-const nativeTables = async () => browserEval(browser.page, `return [...document.querySelectorAll('button[data-testid^="construction-table-"]')].map(button=>({outputId:button.dataset.testid.slice('construction-table-'.length),title:button.querySelector('span:last-child')?.textContent?.trim()??button.innerText.trim(),selected:button.getAttribute('aria-pressed')==='true'}));`);
+const nativeTables = async () => browserEval(browser.page, () => { return [...document.querySelectorAll('button[data-testid^="construction-table-"]')].map(button=>({outputId:button.dataset.testid.slice('construction-table-'.length),title:button.querySelector('span:last-child')?.textContent?.trim()??button.innerText.trim(),selected:button.getAttribute('aria-pressed')==='true'})); });
 
-const currentPreview = async () => browserEval(browser.page, `const panel=document.querySelector('[data-testid="construction-preview"]');const table=document.querySelector('[data-testid="preview-table-scroll"] [role="table"]');const headers=table?[...table.querySelectorAll('[role="columnheader"]')].map(cell=>cell.innerText.trim()):[];const rows=table?[...table.querySelectorAll('[role="row"]')].slice(1).map(row=>[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText.trim())):[];const idIndex=headers.findIndex(header=>header.toUpperCase()==='SPECIMEN ID');return {status:panel?.dataset.previewStatus,outputId:panel?.dataset.previewOutputId,currentDraftVersion:panel?.dataset.currentDraftVersion,currentDraftDigest:panel?.dataset.currentDraftDigest,receiptId:panel?.dataset.previewReceiptId,headers,rows,specimenIds:idIndex<0?[]:rows.map(row=>row[idIndex]).filter(Boolean)};`);
+const currentPreview = async () => browserEval(browser.page, () => { const panel=document.querySelector('[data-testid="construction-preview"]');const table=document.querySelector('[data-testid="preview-table-scroll"] [role="table"]');const headers=table?[...table.querySelectorAll('[role="columnheader"]')].map(cell=>cell.innerText.trim()):[];const rows=table?[...table.querySelectorAll('[role="row"]')].slice(1).map(row=>[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText.trim())):[];const idIndex=headers.findIndex(header=>header.toUpperCase()==='SPECIMEN ID');return {status:panel?.dataset.previewStatus,outputId:panel?.dataset.previewOutputId,currentDraftVersion:panel?.dataset.currentDraftVersion,currentDraftDigest:panel?.dataset.currentDraftDigest,receiptId:panel?.dataset.previewReceiptId,headers,rows,specimenIds:idIndex<0?[]:rows.map(row=>row[idIndex]).filter(Boolean)}; });
 
 const rawCdaOracle = (aql) => {
   const raw = spawnSync('rtk', [
@@ -119,13 +119,13 @@ const validateVisiblePreviewIds = () => {
 const readNativeState = async (expectedIds, expectedTitles, { selectedOutputId, maxMs = 5000 } = {}) => {
   const started = Date.now();
   const expectedDOM = JSON.stringify(expectedIds.map((outputId, index) => ({ outputId, title: expectedTitles[index] })));
-  await waitForBrowser(browser.page, `(()=>{const buttons=[...document.querySelectorAll('button[data-testid^="construction-table-"]')];const state=buttons.map(button=>({outputId:button.dataset.testid.slice('construction-table-'.length),title:button.querySelector('span:last-child')?.textContent?.trim()??button.innerText.trim()}));return JSON.stringify(state)===${JSON.stringify(expectedDOM)};})()`, maxMs);
+  await waitForBrowser(browser.page, ([__arg0]) => Boolean((()=>{const buttons=[...document.querySelectorAll('button[data-testid^="construction-table-"]')];const state=buttons.map(button=>({outputId:button.dataset.testid.slice('construction-table-'.length),title:button.querySelector('span:last-child')?.textContent?.trim()??button.innerText.trim()}));return JSON.stringify(state)===__arg0;})()), [expectedDOM], maxMs);
   const saved = await readBuilder();
   const savedTables = orderedTables(saved);
   assert.deepEqual(savedTables.map((table) => table.outputId), expectedIds, 'Saved output order differs');
   assert.deepEqual(savedTables.map((table) => table.title), expectedTitles, 'Saved table titles differ');
 
-  await waitForBrowser(browser.page, `(()=>{const p=document.querySelector('[data-testid="construction-preview"]');return Boolean(p&&p.dataset.previewStatus==='ready'&&p.dataset.previewReceiptId&&p.dataset.previewOutputId&&Number(p.dataset.currentDraftVersion)===${saved.draftVersion}&&p.dataset.currentDraftDigest===${JSON.stringify(saved.draftDigest)});})()`, maxMs);
+  await waitForBrowser(browser.page, ([__arg0, __arg1]) => Boolean((()=>{const p=document.querySelector('[data-testid="construction-preview"]');return Boolean(p&&p.dataset.previewStatus==='ready'&&p.dataset.previewReceiptId&&p.dataset.previewOutputId&&Number(p.dataset.currentDraftVersion)===__arg0&&p.dataset.currentDraftDigest===__arg1);})()), [saved.draftVersion, saved.draftDigest], maxMs);
   const [tables, preview] = await Promise.all([nativeTables(), currentPreview()]);
   assert.deepEqual(tables.map((table) => table.outputId), expectedIds, 'Native table order differs from saved order');
   assert.deepEqual(tables.map((table) => table.title), expectedTitles, 'Native table titles differ from saved titles');
@@ -151,7 +151,7 @@ const selectTable = async (outputId, expectedIds, expectedTitles) => {
   const started = Date.now();
   const selector = `button[data-testid=${JSON.stringify(`construction-table-${outputId}`)}]`;
   const control = await click(browser.page, selector, {}, 1500);
-  await waitForBrowser(browser.page, `document.querySelector(${JSON.stringify(selector)})?.getAttribute('aria-pressed')==='true'`, 5000);
+  await waitForBrowser(browser.page, ([__arg0]) => Boolean(document.querySelector(__arg0)?.getAttribute('aria-pressed')==='true'), [selector], 5000);
   const state = await readNativeState(expectedIds, expectedTitles, { selectedOutputId: outputId, maxMs: 5000 });
   const elapsedMs = Date.now() - started;
   assert(elapsedMs <= 5000, `Selecting ${outputId} took ${elapsedMs} ms to render`);
@@ -161,7 +161,7 @@ const selectTable = async (outputId, expectedIds, expectedTitles) => {
 
 const setInputText = async (selector, value) => {
   await fill(browser.page, selector, value, {}, 1500);
-  assert.equal(await browserEval(browser.page, `return document.querySelector(${JSON.stringify(selector)})?.value;`), value);
+  assert.equal(await browserEval(browser.page, ([__arg0]) => { return document.querySelector(__arg0)?.value; }, [selector]), value);
 };
 
 const queueDialog = (type, message, response) => dialogQueue.push({ type, message, response });
@@ -183,7 +183,7 @@ const normalizedDocument = (document) => ({
 const reloadAndRead = async (expectedIds, expectedTitles) => {
   const started = Date.now();
   await navigate(browser.page, pageURL);
-  await waitForBrowser(browser.page, `Boolean(document.querySelector('[data-testid="construction-workspace"]'))`, 5000);
+  await waitForBrowser(browser.page, () => Boolean(Boolean(document.querySelector('[data-testid="construction-workspace"]'))), [], 5000);
   const state = await readNativeState(expectedIds, expectedTitles, { maxMs: 5000 });
   const elapsedMs = Date.now() - started;
   assert(elapsedMs <= 5000, `Reload and saved state render took ${elapsedMs} ms`);
@@ -257,7 +257,7 @@ const main = async () => {
   browser = await launchBrowser(evidenceDirectory, dialogHandler);
   captureBrowserProtocol();
   await navigate(browser.page, pageURL);
-  await waitForBrowser(browser.page, `Boolean(document.querySelector('[data-testid="construction-workspace"]'))`, 30000);
+  await waitForBrowser(browser.page, () => Boolean(Boolean(document.querySelector('[data-testid="construction-workspace"]'))), [], 30000);
   const firstRender = await readNativeState([baselineOutputId], ['Specimen baseline'], { selectedOutputId: baselineOutputId, maxMs: 30000 });
   assert(firstRender.preview.specimenIds.includes(report.baseline.selectedSpecimenId), 'API-seeded starting selection did not render its exact raw CDA Specimen ID');
   report.initialNativeState = firstRender;
@@ -265,7 +265,7 @@ const main = async () => {
   const newTitle = `Specimen native ${Date.now()}`;
   const openStarted = Date.now();
   const createControl = await click(browser.page, '[data-testid="construction-new-table"]', {}, 1500);
-  await waitForBrowser(browser.page, `Boolean(document.querySelector('#first-table-name'))`, 3000);
+  await waitForBrowser(browser.page, () => Boolean(Boolean(document.querySelector('#first-table-name'))), [], 3000);
   const openState = await readNativeState([baselineOutputId], ['Specimen baseline'], { selectedOutputId: baselineOutputId, maxMs: 5000 });
   const openMs = Date.now() - openStarted;
   assert(openMs <= 5000, `Opening New table took ${openMs} ms`);
@@ -273,7 +273,7 @@ const main = async () => {
   await setInputText('#first-table-name', newTitle);
   const startCreate = Date.now();
   const rootControl = await click(browser.page, 'button[aria-label="Choose Specimen rows"]', {}, 1500);
-  await waitForBrowser(browser.page, `[...document.querySelectorAll('button[data-testid^="construction-table-"]')].some(button=>button.innerText.includes(${JSON.stringify(newTitle)}))`, 5000);
+  await waitForBrowser(browser.page, ([__arg0]) => Boolean([...document.querySelectorAll('button[data-testid^="construction-table-"]')].some(button=>button.innerText.includes(__arg0))), [newTitle], 5000);
   builder = await readBuilder();
   const createdDocument = builder.workspace.documents.find((document) => document.output.title === newTitle);
   assert(createdDocument, 'Native New table did not persist the custom Specimen title');
@@ -320,7 +320,7 @@ const main = async () => {
   const duplicateTitle = `${renamedTitle} copy`;
   const duplicateStarted = Date.now();
   const duplicateControl = await click(browser.page, '[data-testid="construction-duplicate-table"]', {}, 1500);
-  await waitForBrowser(browser.page, `[...document.querySelectorAll('button[data-testid^="construction-table-"]')].some(button=>button.innerText.includes(${JSON.stringify(duplicateTitle)}))`, 5000);
+  await waitForBrowser(browser.page, ([__arg0]) => Boolean([...document.querySelectorAll('button[data-testid^="construction-table-"]')].some(button=>button.innerText.includes(__arg0))), [duplicateTitle], 5000);
   builder = await readBuilder();
   const duplicateDocument = builder.workspace.documents.find((document) => document.output.title === duplicateTitle);
   const duplicateTab = builder.workspace.tabs.find((tab) => tab.outputId === duplicateDocument?.output.id);
@@ -447,7 +447,7 @@ try {
     stack: error?.stack,
     nativePreview: browser ? await currentPreview().catch(String) : undefined,
     nativeTables: browser ? await nativeTables().catch(String) : undefined,
-    dom: browser ? await browserEval(browser.page, `return document.body.innerText.slice(-18000);`).catch((domError) => `DOM capture failed: ${String(domError)}`) : undefined,
+    dom: browser ? await browserEval(browser.page, () => { return document.body.innerText.slice(-18000); }).catch((domError) => `DOM capture failed: ${String(domError)}`) : undefined,
   };
   process.exitCode = 1;
 } finally {
@@ -469,7 +469,7 @@ try {
       report.cleanup = { retainedBaselineOutputId: baselineOutputId, retainedTitle: 'Specimen baseline' };
       if (browser) {
         await navigate(browser.page, pageURL);
-        await waitForBrowser(browser.page, `Boolean(document.querySelector('[data-testid="construction-workspace"]'))`, 30000);
+        await waitForBrowser(browser.page, () => Boolean(Boolean(document.querySelector('[data-testid="construction-workspace"]'))), [], 30000);
         report.finalNativeState = await readNativeState([baselineOutputId], ['Specimen baseline'], { selectedOutputId: baselineOutputId, maxMs: 30000 });
       }
     } catch (error) {
