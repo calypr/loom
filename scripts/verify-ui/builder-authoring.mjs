@@ -392,13 +392,22 @@ const runCohortRecode = context => runPlaywrightCase(context, 'builder-authoring
   await action('choose ALL values per grouped row', groupedPolicy, () => groupedPolicy.selectOption('ALL'), {
     after: async () => assert.equal(await groupedPolicy.inputValue(), 'ALL'),
   });
-  const rawFields = page.getByTestId('feature-catalog-raw-fields');
+  const rawFieldDisclosures = page.getByTestId('feature-catalog-raw-fields');
+  assert(await rawFieldDisclosures.count() > 1,
+    'raw FHIR fields must scope the Patient choice among multiple resource disclosures');
+  const patientIDChoice = page.getByRole('checkbox', { name: 'Select Patient.id', exact: true });
+  const rawFields = page.locator(
+    '[data-testid="feature-catalog-raw-fields"]:has(input[type="checkbox"][aria-label="Select Patient.id"])');
+  assert.equal(await rawFields.count(), 1,
+    'exactly one raw FHIR disclosure must contain the Patient.id checkbox');
+  const rawFieldSummary = rawFields.locator('summary');
+  assert.equal(await rawFieldSummary.count(), 1, 'the Patient raw FHIR disclosure must have one unique summary control');
   if (!await rawFields.evaluate(element => element.open)) {
-    await action('open raw FHIR fields', rawFields.locator('summary'), () => rawFields.locator('summary').click(), {
+    await action('open Patient raw FHIR fields', rawFieldSummary, () => rawFieldSummary.click(), {
       after: async () => assert.equal(await rawFields.evaluate(element => element.open), true),
     });
   }
-  const patientIDChoice = rawFields.getByRole('checkbox', { name: 'Select Patient.id', exact: true });
+  assert.equal(await patientIDChoice.count(), 1, 'the Patient.id checkbox must be unique before interaction');
   await patientIDChoice.waitFor({ state: 'visible' });
   const patientIDChoiceState = {
     visible: await patientIDChoice.isVisible(),
