@@ -268,6 +268,107 @@ const renderCatalogAtRoute = (
 };
 
 describe('ConceptCatalog', () => {
+  it('keeps a pending inventory read when only source-availability presentation changes', async () => {
+    let resolveFetch: ((response: Response) => void) | undefined;
+    const fetch = vi.fn<typeof globalThis.fetch>(() => new Promise<Response>((resolve) => {
+      resolveFetch = resolve;
+    }));
+    const client = createLoomClient({ fetch });
+    const renderWithAvailability = (available: boolean, reason: string) => (
+      <LoomProvider client={client}>
+        <ConceptCatalog
+          project="project-a"
+          explorerId="explorer-a"
+          snapshotToken="snapshot-a"
+          outputId="patients"
+          rowRoot="Patient"
+          catalog={catalog}
+          sourceProjectionAvailability={{ available, reason }}
+        />
+      </LoomProvider>
+    );
+    const view = render(renderWithAvailability(true, 'Ready.'));
+    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+
+    view.rerender(renderWithAvailability(false, 'The stage uses a related source.'));
+    expect(fetch).toHaveBeenCalledTimes(1);
+    const request = JSON.parse(String(fetch.mock.calls[0]?.[1]?.body)) as {
+      snapshotToken?: string;
+      rowRoot?: string;
+    };
+    expect(request).toMatchObject({
+      snapshotToken: 'snapshot-a',
+      rowRoot: 'Patient',
+    });
+
+    resolveFetch?.(new Response(JSON.stringify(page([
+      item('availability-scope', 'Availability scope result', 2),
+    ])), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    }));
+    expect(await screen.findByRole('checkbox', { name: 'Select Availability scope result' })).toBeInTheDocument();
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('clears prior selection on actual scope change and ignores the late prior inventory response', async () => {
+    const pending: Array<{ resolve: (response: Response) => void }> = [];
+    const fetch = vi.fn<typeof globalThis.fetch>(() => new Promise<Response>((resolve) => {
+      pending.push({ resolve });
+    }));
+    const client = createLoomClient({ fetch });
+    const onAddSelected = vi.fn().mockResolvedValue(undefined);
+    const renderAtScope = (snapshotToken: string, rowRoot: string) => (
+      <LoomProvider client={client}>
+        <ConceptCatalog
+          project="project-a"
+          explorerId="explorer-a"
+          snapshotToken={snapshotToken}
+          outputId="patients"
+          rowRoot={rowRoot}
+          catalog={catalog}
+          onAddSelected={onAddSelected}
+        />
+      </LoomProvider>
+    );
+    const view = render(renderAtScope('snapshot-a', 'Patient'));
+    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+
+    fireEvent.click(await screen.findByRole('checkbox', { name: 'Select Patient.id' }));
+    expect(screen.getByRole('button', { name: 'Add 1 selected feature' })).toBeEnabled();
+    view.rerender(renderAtScope('snapshot-b', 'Observation'));
+    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+
+    const firstRequest = JSON.parse(String(fetch.mock.calls[0]?.[1]?.body)) as {
+      snapshotToken?: string;
+      rowRoot?: string;
+    };
+    const secondRequest = JSON.parse(String(fetch.mock.calls[1]?.[1]?.body)) as {
+      snapshotToken?: string;
+      rowRoot?: string;
+    };
+    expect(firstRequest).toMatchObject({ snapshotToken: 'snapshot-a', rowRoot: 'Patient' });
+    expect(secondRequest).toMatchObject({ snapshotToken: 'snapshot-b', rowRoot: 'Observation' });
+    expect(screen.getByRole('button', { name: 'Add selected features' })).toBeDisabled();
+
+    pending[1]?.resolve(new Response(JSON.stringify(page([
+      item('new-scope', 'New scope result', 3),
+    ])), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    }));
+    expect(await screen.findByRole('checkbox', { name: 'Select New scope result' })).toBeInTheDocument();
+
+    pending[0]?.resolve(new Response(JSON.stringify(page([
+      item('old-scope', 'Old scope result', 1),
+    ])), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    }));
+    await waitFor(() => expect(screen.queryByRole('checkbox', { name: 'Select Old scope result' })).not.toBeInTheDocument());
+    expect(screen.getByRole('checkbox', { name: 'Select New scope result' })).toBeInTheDocument();
+  });
+
   it('opens the existing route and result-form dialog for a ready-to-add paired concept without adding it', async () => {
     const daysToCollection = item('days_to_collection', 'Days to collection', 202195, 'Specimen');
     const resolvedChoice = semanticChoice('days-to-collection-route', daysToCollection, [
@@ -802,6 +903,117 @@ describe('ConceptCatalog', () => {
       relatedSource: { choice: relatedChoice, candidate: relatedCandidate },
     }]));
     expect(screen.getByText('Related-source proposal submitted. Review the preview before applying.')).toBeInTheDocument();
+  });
+
+  it('keeps the same related-field choice open after a failed ONE proposal so ALL can be retried directly', async () => {
+    const sourceCandidate = catalog.candidates?.find(
+      (candidate) => candidate.candidateId === 'candidate-observation-id',
+    );
+    if (!sourceCandidate) throw new Error('The related field candidate is missing.');
+    const relatedChoice: ConstructionChoice = {
+      ...fieldChoice(
+        'observation-identifier-related-choice',
+        sourceCandidate.candidateId,
+        sourceCandidate.nodeId,
+        'Observation',
+        sourceCandidate.fieldPath,
+      ),
+      route: [{
+        edgeId: 'patient-observation',
+        fromNodeId: 'patient-node',
+        toNodeId: 'observation-node',
+        fromResourceType: 'Patient',
+        toResourceType: 'Observation',
+        relationship: 'observations',
+        storageDirection: 'OUTBOUND',
+        matchMode: 'OPTIONAL',
+      }],
+      options: [choiceOption('VALUE', 'DEFAULT'), choiceOption('ALL', 'REQUIRES_DECISION')],
+    };
+    const relatedCandidate: ExplorerBuilderCandidate = {
+      ...sourceCandidate,
+      constructionChoice: relatedChoice,
+    };
+    const relatedCatalog: ExplorerBuilderCatalog = {
+      ...catalog,
+      candidates: (catalog.candidates ?? []).map((candidate) =>
+        candidate.candidateId === relatedCandidate.candidateId ? relatedCandidate : candidate,
+      ),
+    };
+    const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(async (input) => {
+      const response = String(input).endsWith('/construction-choices')
+        ? {
+            snapshotToken: 'snapshot-a',
+            outputId: 'patients',
+            complete: true,
+            truncated: false,
+            choices: [relatedChoice],
+          }
+        : page([]);
+      return new Response(JSON.stringify(response), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    });
+    let attempts = 0;
+    const onAddSelected = vi.fn(async () => {
+      attempts += 1;
+      if (attempts === 1) throw new Error('ONE has multiple distinct values.');
+      return 'preview-ready' as const;
+    });
+    const loomClient = createLoomClient({ fetch });
+    const RelatedCatalog = () => {
+      const [policy, setPolicy] = React.useState<'ALL' | 'ONE'>('ALL');
+      return (
+        <LoomProvider client={loomClient}>
+          <ConceptCatalog
+            project="project-a"
+            explorerId="explorer-a"
+            snapshotToken="snapshot-a"
+            outputId="patients"
+            rowRoot="Patient"
+            resourceType="Observation"
+            catalog={relatedCatalog}
+            sourceProjectionAvailability={{ available: false, reason: 'The stage uses a related source.' }}
+            relatedSourceAvailability={{ supported: true }}
+            groupedRowValuePolicy={{ value: policy, onChange: setPolicy }}
+            onAddSelected={onAddSelected}
+          />
+        </LoomProvider>
+      );
+    };
+    render(<RelatedCatalog />);
+
+    fireEvent.click(await screen.findByRole('checkbox', { name: 'Select Observation.identifier' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add 1 selected feature' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Choose how to add these fields' });
+    fireEvent.click(within(dialog).getByRole('radio', { name: 'Observation id: Keep all matching values' }));
+    fireEvent.change(within(dialog).getByRole('combobox', { name: 'Values per grouped row' }), {
+      target: { value: 'ONE' },
+    });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Add 1 column' }));
+
+    await waitFor(() => expect(screen.getByText('ONE has multiple distinct values.', { exact: true })).toBeInTheDocument());
+    expect(screen.getByRole('dialog', { name: 'Choose how to add these fields' })).toBeInTheDocument();
+    expect(within(dialog).getByRole('radio', { name: 'Observation id: Keep all matching values' })).toHaveProperty('checked', true);
+    expect(within(dialog).getByRole('combobox', { name: 'Values per grouped row' })).toHaveProperty('value', 'ONE');
+    expect(onAddSelected).toHaveBeenNthCalledWith(1, [{
+      constructionChoice: { choiceId: relatedChoice.choiceId, form: 'ALL', rowValuePolicy: 'ONE' },
+      title: 'Observation id',
+      relatedSource: { choice: relatedChoice, candidate: relatedCandidate },
+    }]);
+
+    fireEvent.change(within(dialog).getByRole('combobox', { name: 'Values per grouped row' }), {
+      target: { value: 'ALL' },
+    });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Add 1 column' }));
+    await waitFor(() => expect(onAddSelected).toHaveBeenCalledTimes(2));
+    expect(onAddSelected).toHaveBeenNthCalledWith(2, [{
+      constructionChoice: { choiceId: relatedChoice.choiceId, form: 'ALL' },
+      title: 'Observation id',
+      relatedSource: { choice: relatedChoice, candidate: relatedCandidate },
+    }]);
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Choose how to add these fields' })).not.toBeInTheDocument());
   });
 
   it('suppresses repeated capability errors while the Builder repairs saved source fields', async () => {

@@ -1,5 +1,5 @@
-import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
-import { useLoomClient } from '../../../react';
+import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { useLoomClient, useQuery } from '../../../react';
 import type {
   ConstructionChoiceOption,
   ConstructionChoiceSearchSource,
@@ -48,11 +48,6 @@ export interface CatalogRelatedSourceAvailability {
   readonly supported: boolean;
   readonly reason?: string;
 }
-
-type CatalogPage = {
-  readonly cursor?: string;
-  readonly response: SemanticInventoryBrowseResponse;
-};
 
 type CatalogLoadState =
   | { readonly status: 'idle' }
@@ -449,7 +444,7 @@ const CatalogItemRow = ({
   );
 };
 
-export const ConceptCatalog = ({
+const ConceptCatalogContent = ({
   project,
   explorerId,
   authResourcePath,
@@ -503,9 +498,12 @@ export const ConceptCatalog = ({
   const client = useLoomClient();
   const [queryInput, setQueryInput] = useState('');
   const [query, setQuery] = useState('');
-  const [pages, setPages] = useState<ReadonlyArray<CatalogPage>>([]);
-  const [pageIndex, setPageIndex] = useState(0);
-  const [loadState, setLoadState] = useState<CatalogLoadState>({ status: 'idle' });
+  const [pageNavigation, setPageNavigation] = useState<{
+    readonly scopeKey: string;
+    readonly cursors: ReadonlyArray<string | undefined>;
+    readonly index: number;
+  }>();
+  const [searchGeneration, setSearchGeneration] = useState(0);
   const [selected, setSelected] = useState<ReadonlyMap<string, CatalogItem>>(
     () => new Map(),
   );
@@ -521,7 +519,6 @@ export const ConceptCatalog = ({
   const visibleDisabledReasonId = disabled && disabledReason?.trim()
     ? disabledReasonId
     : undefined;
-  const activeRequest = useRef<AbortController | undefined>(undefined);
   const activeChoiceRequest = useRef<AbortController | undefined>(undefined);
   const selectionContext = useRef<string | undefined>(undefined);
   const handledSuggestionRequests = useRef<Set<string>>(new Set());
@@ -540,6 +537,81 @@ export const ConceptCatalog = ({
     relatedSourceAvailability?.supported ?? true,
     relatedSourceAvailability?.reason ?? '',
   ]);
+  const catalogRequestScopeKey = JSON.stringify([
+    project,
+    explorerId,
+    authResourcePath ?? '',
+    snapshotToken,
+    rowRoot,
+    resourceType ?? '',
+    query,
+    searchGeneration,
+  ]);
+  const currentPageNavigation = pageNavigation?.scopeKey === catalogRequestScopeKey
+    ? pageNavigation
+    : { scopeKey: catalogRequestScopeKey, cursors: [undefined], index: 0 };
+  const cursor = currentPageNavigation.cursors[currentPageNavigation.index];
+  const pageCache = useRef<{
+    readonly client: typeof client;
+    readonly scopeKey: string;
+    readonly pages: Map<string, SemanticInventoryBrowseResponse>;
+  }>({ client, scopeKey: catalogRequestScopeKey, pages: new Map() });
+  if (pageCache.current.client !== client || pageCache.current.scopeKey !== catalogRequestScopeKey) {
+    pageCache.current = { client, scopeKey: catalogRequestScopeKey, pages: new Map() };
+  }
+  const catalogPageCacheKey = JSON.stringify([catalogRequestScopeKey, cursor ?? null]);
+  const catalogQuery = useQuery(async (signal) => {
+    if (signal.aborted) return undefined;
+    const cached = pageCache.current.pages.get(catalogPageCacheKey);
+    if (cached) return cached;
+    const response = await client.browseSemanticInventory(
+      {
+        project,
+        explorerId,
+        authResourcePath,
+        snapshotToken,
+        rowRoot,
+        resourceType,
+        query,
+        cursor,
+        limit: PAGE_SIZE,
+        requestId: `feature-catalog-${window.crypto.randomUUID()}`,
+      },
+    );
+    if (!signal.aborted) {
+      if (selectionContext.current && selectionContext.current !== response.contextToken) {
+        setSelected(new Map());
+        setPendingSelection(undefined);
+        setActionMessage('The dataset catalog changed. Review and select the features again.');
+      }
+      selectionContext.current = response.contextToken;
+      pageCache.current.pages.set(catalogPageCacheKey, response);
+    }
+    return response;
+  }, [
+    authResourcePath,
+    catalogPageCacheKey,
+    client,
+    cursor,
+    explorerId,
+    project,
+    query,
+    resourceType,
+    rowRoot,
+    searchGeneration,
+    snapshotToken,
+  ], Boolean(snapshotToken && rowRoot));
+  const loadState: CatalogLoadState = !snapshotToken || !rowRoot
+    ? { status: 'idle' }
+    : catalogQuery.error
+      ? { status: 'error', message: catalogQuery.error instanceof Error
+        ? catalogQuery.error.message
+        : 'Loom could not load the feature catalog.' }
+      : catalogQuery.isLoading
+        ? { status: 'loading' }
+        : catalogQuery.data
+          ? { status: 'ready' }
+          : { status: 'idle' };
   const canAddFromSourceProjection = sourceProjectionAvailability?.available ?? true;
   const sourceProjectionReason = sourceProjectionAvailability?.reason.trim();
   const relatedSourceAvailabilityId = useId();
@@ -550,71 +622,6 @@ export const ConceptCatalog = ({
     return canAddFromSourceProjection;
   };
 
-  const loadPage = useCallback(
-    (searchQuery: string, cursor?: string, replace = false) => {
-      activeRequest.current?.abort();
-      const controller = new AbortController();
-      activeRequest.current = controller;
-      setLoadState({ status: 'loading' });
-      setActionMessage(undefined);
-      void client
-        .browseSemanticInventory(
-          {
-            project,
-            explorerId,
-            authResourcePath,
-            snapshotToken,
-            rowRoot,
-            resourceType,
-            query: searchQuery,
-            cursor,
-            limit: PAGE_SIZE,
-            requestId: `feature-catalog-${window.crypto.randomUUID()}`,
-          },
-          controller.signal,
-        )
-        .then((response) => {
-          if (controller.signal.aborted) return;
-          if (selectionContext.current && selectionContext.current !== response.contextToken) {
-            setSelected(new Map());
-            setPendingSelection(undefined);
-            setActionMessage('The dataset catalog changed. Review and select the features again.');
-          }
-          selectionContext.current = response.contextToken;
-          setPages((current) =>
-            replace ? [{ cursor, response }] : [...current, { cursor, response }],
-          );
-          setPageIndex((current) => (replace ? 0 : current + 1));
-          setLoadState({ status: 'ready' });
-        })
-        .catch((error: unknown) => {
-          if (controller.signal.aborted) return;
-          setLoadState({
-            status: 'error',
-            message: error instanceof Error
-              ? error.message
-              : 'Loom could not load the feature catalog.',
-          });
-        });
-    },
-    [authResourcePath, client, explorerId, project, resourceType, rowRoot, snapshotToken],
-  );
-
-  useEffect(() => {
-    setPages([]);
-    setPageIndex(0);
-    setSelected(new Map());
-    setChoiceDetails(new Map());
-    setPendingSelection(undefined);
-    setActionMessage(undefined);
-    setAdding(false);
-    selectionContext.current = undefined;
-    if (snapshotToken && rowRoot) loadPage('', undefined, true);
-    return () => {
-      activeRequest.current?.abort();
-      activeChoiceRequest.current?.abort();
-    };
-  }, [contextKey, loadPage, rowRoot, snapshotToken]);
 
   useEffect(() => {
     const suggestion = pairedColumnSuggestion;
@@ -674,8 +681,8 @@ export const ConceptCatalog = ({
     snapshotToken,
   ]);
 
-  const page = pages[pageIndex];
-  const response = page?.response;
+  const response = catalogQuery.data;
+  const pageIndex = currentPageNavigation.index;
   const warning = response ? availabilityMessage(response) : undefined;
   const canBrowseConcepts = response?.state === 'complete';
   const fieldItems = useMemo(
@@ -861,6 +868,7 @@ export const ConceptCatalog = ({
                 item: group.item,
                 choice,
                 form: selection.constructionChoice.form,
+                rowValuePolicy: selection.constructionChoice.rowValuePolicy,
                 ...(relatedSourceAvailability?.supported ? { rowRoot } : {}),
                 }),
                 ...(selection.contributorPredicate ? { contributorPredicate: selection.contributorPredicate } : {}),
@@ -975,7 +983,9 @@ export const ConceptCatalog = ({
     event.preventDefault();
     const nextQuery = queryInput.trim();
     setQuery(nextQuery);
-    loadPage(nextQuery, undefined, true);
+    setPageNavigation(undefined);
+    setActionMessage(undefined);
+    setSearchGeneration((generation) => generation + 1);
   };
 
   return (
@@ -1126,7 +1136,12 @@ export const ConceptCatalog = ({
             <button
               type="button"
               disabled={pageIndex === 0 || loadState.status === 'loading'}
-              onClick={() => setPageIndex((value) => Math.max(0, value - 1))}
+              onClick={() => setPageNavigation((current) => {
+                const navigation = current?.scopeKey === catalogRequestScopeKey
+                  ? current
+                  : { scopeKey: catalogRequestScopeKey, cursors: [undefined], index: 0 };
+                return { ...navigation, index: Math.max(0, navigation.index - 1) };
+              })}
               className="rounded border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
             >
               Previous
@@ -1136,8 +1151,21 @@ export const ConceptCatalog = ({
               type="button"
               disabled={!response?.nextCursor || loadState.status === 'loading'}
               onClick={() => {
-                if (pages[pageIndex + 1]) setPageIndex((value) => value + 1);
-                else if (response?.nextCursor) loadPage(query, response.nextCursor);
+                setPageNavigation((current) => {
+                  const navigation = current?.scopeKey === catalogRequestScopeKey
+                    ? current
+                    : { scopeKey: catalogRequestScopeKey, cursors: [undefined], index: 0 };
+                  if (navigation.index + 1 < navigation.cursors.length) {
+                    return { ...navigation, index: navigation.index + 1 };
+                  }
+                  return response?.nextCursor
+                    ? {
+                      ...navigation,
+                      cursors: [...navigation.cursors, response.nextCursor],
+                      index: navigation.index + 1,
+                    }
+                    : navigation;
+                });
               }}
               className="rounded border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
             >
@@ -1234,3 +1262,14 @@ export const ConceptCatalog = ({
     </section>
   );
 };
+
+export const ConceptCatalog = (props: React.ComponentProps<typeof ConceptCatalogContent>) => (
+  <ConceptCatalogContent
+    key={JSON.stringify([
+      props.project, props.explorerId, props.authResourcePath ?? '', props.snapshotToken,
+      props.outputId, props.rowRoot, props.resourceType ?? '', props.sourceNodeId ?? '',
+      props.routeContext?.occurrenceId ?? '', props.routeContext?.nodeId ?? '',
+    ])}
+    {...props}
+  />
+);
