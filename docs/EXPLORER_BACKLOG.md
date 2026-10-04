@@ -1,5 +1,12 @@
 # Explorer dataframe backlog
 
+## Active goal verification workflow
+
+For each changed UI feature, identify its user path and expected visible result. Use the relevant verifier registry case, creating one if missing. Run it against a stable source checkpoint and independent fixture data; retain the report and source fingerprint. Diagnose and fix failures before rerunning the same case. Keep the changed path mandatory and target roughly 20% of routine work time for verification. If setup or diagnosis exceeds that budget, record the gap and continue implementation without claiming a pass. Add related cases only for a concrete shared risk. Use real CDA follow-up after the basic browser path passes, prioritizing changes to data correctness, composition, and performance at scale; reserve broad sweeps for CI and coverage milestones.
+
+This workflow changes how the active Builder reliability goal is executed. It does not reduce its feature inventory, lifecycle requirements, or completion criteria. Use the already-updated verification skill and the handoff verifier registry; do not rewrite that skill or treat historical reports as evidence for changed source.
+
+
 The product goal is a researcher-facing workflow that turns nested, sparse
 FHIR data into understandable, reproducible training tables. Scalar-shaped
 columns alone do not establish that a dataset is suitable for machine learning.
@@ -32,6 +39,62 @@ verify append column alignment, types, nulls and membership. Exercise native
 Preview/Cancel/Apply, editing, removal, reload, and composition with existing
 row operations within five seconds. Preserve authorization, project and
 generation scope. Disabled controls do not count as completed coverage.
+
+### Join and Append restoration prerequisites
+
+Both remain unverified and disabled (matrix rows 101–102). Source review confirms
+`ConstructionCombineEditor` has no production caller, while the operations panel
+marks `MATCH_COLUMNS` and `APPEND_ROWS` unavailable. Existing combine contracts
+accept pinned `TABLE_REVISION` inputs. Source trace confirms the input catalog
+lists successful published executions with ready materializations, and runtime
+resolution requires that exact immutable table/revision/output identity in the
+same project and generation. A current draft is not an input. Candidate combine
+results can be previewed directly without publishing the combined result.
+Restoration therefore needs server-owned immutable capture or an equivalent
+private-artifact boundary for current draft inputs before wiring the editor;
+a UI-only restore would force users to publish first or use stale saved data.
+Owners: `internal/server/construction_inputs_catalog.go`,
+`internal/explorer/lifecycle/construction_proposal.go`, and
+`internal/server/recipe_combine_resolution.go`.
+
+Use an independent join fixture with two left and two right rows sharing one
+key, plus an unmatched row on each side: `PRESERVE_ALL` LEFT must return four
+matching pairs and the unmatched left row; INNER must return the four pairs.
+Assert exact source identities and multiplicity. Append must verify aligned
+values, nullable values, and missing input columns. Current projection validation
+requires every input/output mapping, so absent-schema null padding needs a backend
+contract change; do not claim that existing nullable-value support covers it.
+Keep publication prerequisites out of the user path where they can be handled
+as part of the operation.
+
+### Recoded explicit-cohort member values: runtime fix integrated
+
+Root review found and fixed the composed cohort bind-variable collision in the
+staged patch before integration. Scalar string category recoding now happens per
+member before ALL/ONE uniqueness reduction; composed cohort expressions use
+independent namespaced binds. Focused lowering/authoring/IR tests and 34
+PreviewTable tests pass. The integrated Arango regression also passes, including
+ALL, ONE, unknown-value errors, empty cohorts, and restricted empty scope:
+
+```bash
+docker exec -e LOOM_TEST_ARANGO_URL=http://arangodb:8529 \
+-e LOOM_TEST_ARANGO_DATABASE=loom_dev loom-dev-6d7df93d6a37-loom-api-1 \
+go test ./internal/dataframe/compiler \
+-run '^TestExplicitCohortMemberValuesAgainstArango$' -count=1 -v
+```
+
+The native CDA lifecycle remains unverified. Its pending case is
+`LOOM_COHORT_ROW_VALUE_CASE=transformed-category` in the existing cohort member
+verifier; do not mark browser correctness, persistence, or CDA performance
+passed from these compiler/runtime tests.
+
+### First-table Add columns availability fails before current Preview
+
+The explicit local `verify-fast` run against `loom-dev-6d7df93d6a37` recorded a product-level control-state failure in the owned Owner Records Explorer. At source snapshot 76d635, Add columns became enabled in four DOM mutation events before the current draft had an accepted Preview (1921, 2063, 2229, and 2399 ms; `draftVersion=2`, `previewDraftVersion=2`, `acceptedCurrentPreview=false`). The observer expected zero and failed with four. It also retained the positive path: the control was enabled after the current Preview was accepted at 2490/2493 ms and in the final snapshot at 2502 ms. Evidence: `/private/tmp/loom-construction-implementation/.artifacts/loom-dev/c89a69d7e137/mut7md9h-1e62c9d5/report.json` and `/tmp/loom-first-table-preview-window-red.log`; the exact explicit environment and `node scripts/loom-dev.mjs verify-fast` invocation is in matrix row 114. Fix the readiness gate and rerun from a fresh owned fixture. Result correctness, persistence, and action performance remain untested by this observer.
+
+### Registered Recompile recovery case fails
+
+The registered `builder-controls / recompile` case is RED in `/tmp/loom-basic-recompile-76d635.json.recompile`. Recompile appears after the intentionally injected compilation failure, but clicking it issues no second reconcile request. The required backend-compiler invocation, successful compile response, and Preview of both independent fixture Patients are missing. The visible actions render in 216/446/867 ms, all within five seconds; the source fingerprint remains unchanged at 1120 files. The 422 reconcile response is the injected fault, and the favicon 404 is incidental asset noise. Recompile recovery correctness and persistence are untested; the matrix keeps this separate from the first-table availability failure.
 
 ### Active Builder regression: related Observation quantity Pivot
 
@@ -160,3 +223,101 @@ The native report passes all nine timed checks with a maximum of 2144 ms and no 
 LOOM_RELATED_AFTER_UNPIVOT_CASE=resource-type-all node scripts/verify-cda-related-field-after-unpivot-browser.mjs /tmp/loom-related-resource-type-after-unpivot-native-complete passes 31 timed checks (maximum 2074 ms, no errors). Its independent raw CDA oracle is scoped to project loom_dev_cda_fhir and generation cda-fhir-v1; it selects one Specimen with exactly one subject_Patient link and verifies that the Patient resourceType is Patient. The native flow adds Patient id with ALL, unpivots Specimen ID while retaining the Patient ID array, then adds Patient resourceType with ALL on the same route. Preview, Cancel, Apply, reload, label edit, field removal, and Unpivot removal/reload all pass; ["Patient"] and the retained ID array match the raw source. The source freeze found 1057 files unchanged. The report has no API build-freeze result and makes no restricted-auth claim.
 
 The bounded first-2,000-Specimen scan found one valid resourceType witness. It does not establish project-wide availability or absence. Patient gender ALL remains untested: /tmp/loom-related-field-after-unpivot-execute-file-current/report.json found no populated gender witness and did not reach Builder behavior. Restricted-auth and Pivot compositions also remain untested. See row 113 in the Builder verification matrix.
+
+First-table readiness regression baseline (2026-10-03): registered
+`builder-controls --case first-table` is integrated. The corrected driver ran
+against owned stack `loom-dev-6d7df93d6a37` with unchanged source and reports
+`/tmp/loom-first-table-basic-red-fixed-driver.json.first-table`. It recorded six
+Add-columns enable events before current-draft preview acceptance; verified ID,
+independent Patient rows, native editor open/close, and timing assertions passed.
+There were no scenario errors. This remains FAILED until the staged automatic
+preview owner is integrated and the same browser case passes. Automatic preview
+is retained; the patch replaces its effect/timer ownership.
+
+Automatic-preview ownership unit integrated (2026-10-03): automatic rendering is
+retained, with keyed query ownership replacing the effect/timer. Recompile bumps
+an explicit request epoch; captured requests cancel on superseding edits and
+stale results cannot become accepted previews. Add columns waits for the current
+accepted preview without blocking Filter rows. Both registered first-table and
+Recompile browser regressions now pass; reports and source fingerprint are in
+the matrix. Native first-table action took 924 ms and editor open/close 265/267 ms.
+CDA follow-up and broader save/reload remain open; this does not close the goal.
+
+CDA preview-owner follow-up passes:
+`LOOM_COHORT_SOURCE_COLLECTION_CHANGE=1 node scripts/verify-cda-cohort-membership-revision-browser.mjs /tmp/loom-cohort-source-collection-preview-owner-green`.
+The report records 28 timed steps, max1890ms, errors[], independent exact-project /
+generation raw Specimen membership, unchanged1057-file source freeze and fresh
+unchanged API build. Cohort Apply/Cancel/revision replacement, collection repair
+under the field/filter, reload, downstream removal and restoration pass. This is
+the concrete shared-preview CDA risk check; unrelated feature gaps remain open.
+
+Coverage ledger after preview-owner integration: the current matrix has 114
+cases, 104 overall `passed` and10 `untested`. Only96 cases have every recorded
+dimension passed;18 retain a gap, including17 with an untested dimension.
+These are matrix cases rather than a complete feature count. The goal remains
+active: Join/Append, recoded-cohort native proof, and other declared transitions
+still need work. Do not infer whole-feature closure from the104 overall labels.
+
+Join/Append backend restoration source follow-up: existing private ClickHouse
+capture is not a production draft-input path. `execution/clickhouse_artifact.go`
+requires at least one exact published revision for `WithPrivateClickHouseArtifact`;
+its helper and `chartifact.New` have test callsites only. The composite lowering
+seam accepts one unbounded AQL prefix plus exact published inputs and explicitly
+rejects grouped prefixes until grouping preserves authorization scope. Restoring
+controls alone would therefore fail both draft-only and grouped-input workflows.
+A complete fix needs exact immutable draft/output references, full-source capture
+with workload bounds, N private input leases held through execution, scope /
+project / generation revalidation, and cleanup without publication pointer
+changes. Same-workspace and cross-Explorer inputs must be defined before wiring
+the editor. Existing published references remain valid; no floating head or
+preview-limited source may silently substitute for a complete table.
+
+Current full-population quantity-category discovery RED:
+`LOOM_QUANTITY_FULLPOP=1 node scripts/verify-cda-quantity-pivot-native-drag-browser.mjs /tmp/loom-quantity-fullpop-category-baseline-current`.
+HTTP503 CATEGORY_SCAN_TIMEOUT after8277ms; native action-to-render8815ms;
+unchanged1057-file source. Independent complete scoped route oracle is built
+into this case but is not reached on failure. This is one run, with no causal
+speedup claim or API-build stamp proof. Related-category renderer rescans the
+target collection per distinct category; index preparation also shares the8s
+scan timeout. A stage worker owns a single-terminal-scan rewrite and exact
+Arango-equivalence tests; attribution and native rerun remain required.
+
+Category discovery follow-up: terminal-once renderer passes both real-Arango equivalence regressions (restricted root/edge/target scopes and preserved empty witnesses), but the same full-population native CDA case still returns CATEGORY_SCAN_TIMEOUT after 8831ms action-to-render. Evidence: `/tmp/loom-quantity-fullpop-terminal-once/report.json`, unchanged 1057 watched files. This is still failed; isolate receipt resolution, index preparation, and scan time before another performance change.
+
+Registered cohort-recode basic case reached native explicit member-field proposal but exposed a new correctness failure: metadata has two members, rendered cohort member count is zero and Patient.id ALL is empty. Exact source IDs remain in lineage. Evidence `/tmp/loom-cohort-recode-basic-explicit-member.json.cohort-recode`. Investigate canonical versus legacy project identities at fixture/lookup boundary; do not weaken expected values or proceed to CDA recode until resolved. Existing API logs also attribute category timeout to main AQL execution (7.997s), after receipt compile54ms, in `/tmp/loom-category-terminal-once-api.log`.
+
+Timeout attribution is now supported by owned API logs: source watcher rebuilt at 03:56:29 and started the server at 03:56:34; discovery receipt compile54ms, main AQL query `4f713faf3d70d8f3` began04:00:54.603 and failed04:01:02.600 (7.997s), with `execute category scan` timeout cause. This rules out index preparation as the dominant phase for this run. The terminal-first rewrite still needs an execution-plan comparison against the earlier domain-first witness strategy before acceptance.
+
+Cohort zero-member root cause confirmed in source: selection refs and group metadata canonicalize project IDs, while resource validation queries the legacy storage alias. Runtime bindings carry both Project and SelectionProject, but group-row lowering binds only SelectionProject and direct/composed AQL resource lookup compares resource.project to the canonical member ref. Fix in progress: give resource lookups their own storage-project binding; retain canonical membership metadata and generation/auth predicates. The browser fixture expectations remain unchanged.
+
+Performance hypothesis correction: the committed baseline renderer already uses domain-first distinct candidates, bounded reverse witnesses, and per-stage empty-parent witnesses. Since the baseline native case also timed out, restoring that shape alone is not a fix. Next evidence must compare exact compiled queries and index plans, including separate matched-domain and empty-witness costs; earlier manual prototype timings cannot establish that production is fixed.
+
+E001 table-selection effect removal integrated with command/action-owned persistence. Focused creation, duplicate/manual selection, deletion fallback tests and TypeScript passed. Native registered tables case `/tmp/loom-selected-table-event-owner.json.tables` fails at rename because the verifier sets cdp.nextDialogResponse while launchBrowser ignores it; Chrome accepts the existing prompt text, so rename does not issue a command. Creation481ms, column Apply749ms, duplicate451ms passed. Fix the one-shot dialog response harness and rerun the same lifecycle; E001 remains open until native persistence proof.
+
+E001 native closure: registered tables case passes after one-shot dialog repair (`/tmp/loom-selected-table-event-owner-dialog-fixed.json.tables`), all required checks,11timedactions,max1076ms,errors[], unchanged fingerprint5d8ab7552022b1006b866c78496e89b51104abd044c3b5afd6097320b61c6323/1120files. Exact fixture Patient identities/values, duplicate/manual selection restoration, selected-delete fallback, Explorer copy, and last-table deletion verified. Automatic preview remains enabled.
+
+Repeated-empty registered native case now reproduces a product limitation: Expand disabled on a source-only table and instructs users to add a multiple-value column first (`/tmp/loom-repeated-empty-native-row-panel-fixed.json.repeated-empty`). Root source IDs independently verified; no Expand action dispatched. Investigate existing source-row choice versus authored compound source-field+Expand path, avoiding prerequisite user navigation. Full preserve/exclude/Cancel/reload/removal lifecycle remains untested until usable.
+
+Exact query phase profile `/tmp/loom-category-exact-phase-profile.json` compares fresh baseline/candidate captures from the same saved receipt with identical15binds and unchanged indexes. Baseline full6.22s/matched-only1.30s return matching NULL+string fingerprints; candidate full/matched-only kill at12s. Baseline both scanned821261 index entries and materialized821261 documents. Forced-empty witnesses kill12s, but cannot attribute full-query cost to them: baseline full has the same scan/lookup counts and NULL already suppresses witnesses; sequential warm-cache effects confound timing. Investigate category index coverage of the resourceType guard before another fix. Unsuccessful terminal-first rewrite is queued for revert while retaining real-Arango correctness regressions.
+
+Exact baseline EXPLAIN confirms Observation candidate index coverage is false (`/tmp/loom-category-baseline-exact-explain.json`, IndexNode143): the chosen category index has project/generation/category/auth fields and excludes resourceType, while the query retains its type guard. Terminal node146 is also non-covering. A reversible additional covering-index experiment is being prepared; no existing index or type predicate will be removed.
+
+Category discovery attribution follow-up: `/tmp/loom-category-domain-first-selftime.json` profiles the same captured domain-first query twice with equal binds and unchanged indexes. Full warmed database runs took 1.752s and 1.234s; matched-only took 1.208s twice. The candidate Observation IndexNode performed 815,262 items with 1.445s self time, and the full query recorded 821,261 document lookups. Forced empty-witness phases exceeded eight seconds. This is cost attribution, not a controlled speedup or native browser pass; the full-population browser regression remains failed. Next experiment must preserve resource type, project, generation and authorization and include index preparation in end-to-end timing.
+
+Cohort project-binding browser follow-up: `/tmp/loom-cohort-recode-project-binding.json.cohort-recode` ran against unchanged source fingerprint `2f5346866514dd0b9eb2083c233254afb2e79e8932f798b39073ea4acaf908a9` (1120 files). The native Patient.id ALL proposal now contains both literal fixture Patient IDs and Apply completes in 675ms. The lifecycle remains failed: the script waits for a separate `/preview` response after Apply, while the observed command and reconcile return 200 and no such request follows. Investigate current receipt-preview reuse and actual rendered state; do not force an extra Preview action or mark recode/reload passed.
+
+Cohort alias backend regression: after correcting private fixtures to reversible `LOOM_COHORT/<project-with-uuid>` identities, the root ran `docker exec -e LOOM_TEST_ARANGO_URL=http://arangodb:8529 -e LOOM_TEST_ARANGO_DATABASE=loom_dev loom-dev-6d7df93d6a37-loom-api-1 go test ./internal/dataframe/compiler -run 'TestRelatedCountAppendPreservesExplicitCohortMembersAgainstArango|TestExplicitCohortMemberValuesAgainstArango' -count=1 -v`: PASS, 0.186s. This exercises direct/composed cohort values, retained/post-cohort filters, ALL/ONE recoding, unknown-value errors and restricted empty scope. Native recode lifecycle remains open.
+
+Category covering-index experiment: `/tmp/loom-category-5field-index-experiment.json` changes only the captured query index hints, retaining both resourceType guards and all exact binds. Temporary five-field index build took 881ms; query took 343ms with 6000 document lookups versus 1240ms/821261 lookups for the four-field query. Both returned two values (NULL and string) with fingerprint `c1dffe3a`. Only the owned temporary index was dropped; index inventory restoration passed. This single-run directional experiment supports a production patch, not a benchmark speedup claim or browser closure.
+
+Category index integration constraint: root read `EnsurePreviewCoveringIndex` cap4 and `ScanCategoriesCompiled` ignoring non-context preparation errors, then queried owned Observation indexes. All four slots are occupied, including the superseded four-field quantity-code index `loom_pivot_preview_e358392c38a61a57`. A five-field compiler spec alone will silently fall back and is insufficient. Implement a bounded migration/replacement of the superseded same-category index with explicit ownership and in-flight nonforcing-hint compatibility; do not blindly increase the cap or delete unrelated indexes. Native regression must include the existing-index state.
+
+Selected category migration design: only at cap, match the superseded four-field same-path index by exact compiler-derived name and fields, create and verify the new five-field index before removing that exact old index. Failed creation must preserve the old index; unrelated indexes remain untouched; final cap stays four. Existing queries use nonforcing hints and preserve semantics during replacement. Generic root category scans also emit the old shape, so performance compatibility is a concrete shared risk requiring source inspection and a targeted root-category check before acceptance.
+
+Automatic proposal preview source finding: `BuilderWorkspace.tsx` reuses the applied construction-choice proposal preview when receipt ID, snapshot, output, limit, owner and candidate workspace digest match (`matchesAcceptedChoicePreview`, receipt `intentDigest`). A separate `/preview` request is therefore not required after this Apply. The cohort verifier must recognize that exact accepted proposal receipt and verify visible current table cells rather than require a redundant request.
+
+Repeated-value source expansion design: expose signed source repeated scopes alongside existing scalar list columns in Expand. Existing row proposal changes only `Document.Rows`, retains authored steps/column IDs, and compiles source expansion before all authored operations; preview must communicate that ordering and preserve Apply/Cancel. Object-valued Observation.component[] is supported by this source path, while authored scalar-column EXPAND cannot represent it. Mid-sequence object expansion and coexistence with a GROUPS row source remain explicit contract gaps, not closed by this UI change. Native repeated-empty regression must assert actual source shape and exact alpha/beta/empty/missing identities, reload, policy edit, Cancel and removal.
+
+Partial mapped collection repair now passes: `LOOM_COLLECTION_PARTIAL_LONG_ROUTE=1 node scripts/verify-cda-collection-repair.mjs /tmp/loom-partial-long-route-normalized`. Independent scoped CDA oracle, native exact exclusion, surviving membership/Observation row, unchanged exact saved route and reload all pass; max2525ms, no errors, unchanged source. The bounded CDA prefix supplies one output Observation; multi-result and restricted-auth evidence remain separate.
+
+Related category discovery native GREEN: `/tmp/loom-quantity-fullpop-type-index/report.json` passes fullpopulation discovery in2066ms and the complete independent raw scoped NULL+d oracle (815261Observations). Sourcefreeze unchanged1057files, pre-run APIbuildstamp matchescurrent. Root queried index inventory afterward: exact old fourfield quantity-code index replaced by `loom_pivot_preview_601548896a95cbf8`, remaining three preview indexes preserved/cap4. This closes discovery timeout, not Pivot lifecycle or generic root-category performance follow-up.

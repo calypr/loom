@@ -3,17 +3,21 @@ import { randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { sourceFingerprint } from './verify-ui/source-fingerprint.mjs';
 import { browserEval, click, launchBrowser, navigate, selectOption, waitForBrowser } from './lib/browser.mjs';
 
 const apiOrigin = process.env.LOOM_CDA_API_ORIGIN ?? 'http://127.0.0.1:8188';
 const uiOrigin = process.env.LOOM_CDA_UI_ORIGIN ?? 'http://127.0.0.1:30008';
-const longRoute=process.env.LOOM_COLLECTION_LONG_ROUTE==='1';
+const partialLongRoute=process.env.LOOM_COLLECTION_PARTIAL_LONG_ROUTE==='1';
+const longRoute=process.env.LOOM_COLLECTION_LONG_ROUTE==='1'||partialLongRoute;
 const project = 'loom_dev_cda_fhir';
 const evidence = process.argv[2] ?? `/tmp/loom-collection-repair-${Date.now()}`;
 const explorer = `collection-repair-${Date.now()}`;
 const root = `/api/v1/projects/${project}/explorers`;
 const base = `${root}/${explorer}/authoring/v2`;
-const report = { longRoute, explorer, cases: [], requests: [], exceptions: [], http: [], incidental: [], responses: [], responseCaptureErrors: [], started: new Date().toISOString() };
+const selections = base.replace('/authoring/v2','/selections');
+const report = { longRoute, partialLongRoute, explorer, cases: [], requests: [], exceptions: [], http: [], incidental: [], responses: [], responseCaptureErrors: [], started: new Date().toISOString() };
+report.sourceBefore = sourceFingerprint(process.cwd());
 await mkdir(evidence, { recursive: true });
 const recordCase = result => {
   report.cases.push(result);
@@ -33,6 +37,7 @@ const api = async (path, body) => {
 let builder;
 let browser;
 let outputId;
+let expectedObservationIDs=[];
 const pendingResponses = new Set();
 const command = async commands => {
   await api(base + '/commands', { commandId: randomUUID(), semanticsVersion: builder.workspace?.semanticsVersion ?? 10, snapshotToken: builder.catalog.snapshotToken, expectedDraftVersion: builder.draftVersion, expectedDraftDigest: builder.draftDigest, commands });
@@ -43,6 +48,22 @@ const rawQuery = query => {
   assert.equal(result.status, 0, result.stderr || result.stdout);
   return JSON.parse(result.stdout.slice(result.stdout.indexOf('[')));
 };
+const savedPopulationRoute = route => route.map(step=>({
+  resourceType:step.toResourceType,
+  relationship:step.relationship,
+  catalogEdgeId:step.edgeId,
+  storageDirection:step.storageDirection,
+}));
+const assertPreviewIDs = async name => {
+  if(!partialLongRoute)return;
+  const started=Date.now();
+  const expectedCount=expectedObservationIDs.length;
+  await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount')===${JSON.stringify(String(expectedCount+1))} && document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-colcount')==='1' && !document.body.innerText.includes('Loading your table…') && !document.body.innerText.includes('Preview failed:')`, 10000);
+  const rendered=await browserEval(browser.cdp, `const preview=document.querySelector('[data-testid="preview-table-scroll"]');const table=preview?.querySelector('[role="table"]');if(!preview||!table)throw new Error('Native preview table disappeared');const totalRows=Math.max(0,Number(table.getAttribute('aria-rowcount'))-1);const rowsByIndex=new Map();for(let page=0;page<100&&rowsByIndex.size<totalRows;page++){for(const row of table.querySelectorAll('[role="row"]')){const rawIndex=Number(row.getAttribute('aria-rowindex'));const labelIndex=Number(row.querySelector('button[aria-label^="Inspect row "]')?.getAttribute('aria-label')?.match(/^Inspect row (\\d+) identity$/)?.[1]);const gutterIndex=Number(row.firstElementChild?.textContent?.trim());const index=Number.isInteger(rawIndex)&&rawIndex>0?rawIndex:Number.isInteger(labelIndex)&&labelIndex>0?labelIndex+1:Number.isInteger(gutterIndex)&&gutterIndex>0?gutterIndex+1:NaN;if(!Number.isInteger(index)||index<=1)continue;const cells=[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText.trim());if(cells.length)rowsByIndex.set(index,cells);}if(rowsByIndex.size>=totalRows)break;const maxTop=Math.max(0,preview.scrollHeight-preview.clientHeight);const nextTop=Math.min(preview.scrollTop+Math.max(1,preview.clientHeight/2),maxTop);if(nextTop===preview.scrollTop)break;preview.scrollTop=nextTop;await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));}const rows=[...rowsByIndex.entries()].sort((a,b)=>a[0]-b[0]).map(([,cells])=>cells);preview.scrollTop=0;await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));return {rowCount:table.getAttribute('aria-rowcount'),columnCount:table.getAttribute('aria-colcount'),rows};`);
+  assert.equal(Number(rendered.rowCount)-1,expectedCount,`${name}: preview row count must match the scoped raw route oracle`);
+  assert.deepEqual(rendered.rows.map(row=>row[0]).sort(),[...expectedObservationIDs].sort(),`${name}: rendered Observation IDs and multiplicity must match the scoped edge oracle`);
+  recordCase({name,durationMs:Date.now()-started,rowCount:expectedCount,observationIDs:rendered.rows.map(row=>row[0])});
+};
 const open = async () => {
   const loadStart=Date.now();
   await Promise.all([...pendingResponses]);
@@ -50,11 +71,14 @@ const open = async () => {
   await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-table-${outputId}"]')`);
   await click(browser.cdp, `[data-testid="construction-table-${outputId}"]`);
   await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-rows-settings-trigger"]')?.disabled === false`);
-  await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount')==='1' && document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-colcount')==='1' && !document.body.innerText.includes('Loading your table…')`);
-  assert.equal(await browserEval(browser.cdp, `return document.querySelectorAll('[data-testid="preview-table-scroll"] [role="cell"]').length;`),0,'The independently unmapped selection must produce no table rows');
+  if(partialLongRoute)await assertPreviewIDs('partial-long-route-preview');
+  else {
+    await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount')==='1' && document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-colcount')==='1' && !document.body.innerText.includes('Loading your table…')`);
+    assert.equal(await browserEval(browser.cdp, `return document.querySelectorAll('[data-testid="preview-table-scroll"] [role="cell"]').length;`),0,'The independently unmapped selection must produce no table rows');
+  }
   await click(browser.cdp, '[data-testid="construction-rows-settings-trigger"]');
   await waitForBrowser(browser.cdp, `document.querySelector('section[aria-label="Starting collection"]')`);
-  const durationMs=Date.now()-loadStart;assert(durationMs<=5000,'Empty table and settings must render within five seconds');recordCase({name:'empty-table-load-to-settings',durationMs});
+  const durationMs=Date.now()-loadStart;assert(durationMs<=5000,'The native table and settings must render within five seconds');recordCase({name:partialLongRoute?'partial-long-route-table-load-to-settings':'empty-table-load-to-settings',durationMs});
 };
 const checkCoverage = async (name, counts) => {
   const start = Date.now();
@@ -66,10 +90,24 @@ const checkCoverage = async (name, counts) => {
   recordCase({name,durationMs:Date.now()-start,text});
 };
 try {
-  const specimens = rawQuery(`FOR s IN Specimen FILTER s.project == "${project}" AND s.dataset_generation == "cda-fhir-v1" LIMIT 10 LET parents = (FOR e IN fhir_edge FILTER e._from == s._id AND e.label == "parent" AND e.project == "${project}" AND e.dataset_generation == "cda-fhir-v1" RETURN e._to) LET children = (FOR e IN fhir_edge FILTER e._to == s._id AND e.label == "parent" AND e.project == "${project}" AND e.dataset_generation == "cda-fhir-v1" LET child = DOCUMENT(e._from) FILTER child.project == "${project}" AND child.dataset_generation == "cda-fhir-v1" RETURN child.id) RETURN {id:s.id, parents, children}`);
-  const selected = specimens.find(s=>s.parents.length===0 && s.children.length>0);
-  assert(selected, 'A real CDA Specimen with children but no parent is needed to detect reversed self-relationship traversal');
-  report.oracle = selected;
+  let selected;
+  let selectedResources;
+  if(partialLongRoute){
+    const routeOracleQuery=`LET seeds=(FOR s IN Specimen FILTER s.resourceType=="Specimen" AND s.project=="${project}" AND s.dataset_generation=="cda-fhir-v1" SORT s.id LIMIT 2000 RETURN s) FOR s IN seeds LET parents=(FOR e IN fhir_edge FILTER e._from==s._id AND e.label=="parent" AND e.from_type=="Specimen" AND e.to_type=="Specimen" AND e.project=="${project}" AND e.dataset_generation=="cda-fhir-v1" LET parent=DOCUMENT(e._to) FILTER parent!=null AND parent.resourceType=="Specimen" AND parent.project=="${project}" AND parent.dataset_generation=="cda-fhir-v1" RETURN parent._id) LET children=(FOR e IN fhir_edge FILTER e._to==s._id AND e.label=="parent" AND e.from_type=="Specimen" AND e.to_type=="Specimen" AND e.project=="${project}" AND e.dataset_generation=="cda-fhir-v1" LET child=DOCUMENT(e._from) FILTER child!=null AND child.resourceType=="Specimen" AND child.project=="${project}" AND child.dataset_generation=="cda-fhir-v1" RETURN child.id) LET routeRows=(FOR parentEdge IN fhir_edge FILTER parentEdge._from==s._id AND parentEdge.label=="parent" AND parentEdge.from_type=="Specimen" AND parentEdge.to_type=="Specimen" AND parentEdge.project=="${project}" AND parentEdge.dataset_generation=="cda-fhir-v1" LET parent=DOCUMENT(parentEdge._to) FILTER parent!=null AND parent.resourceType=="Specimen" AND parent.project=="${project}" AND parent.dataset_generation=="cda-fhir-v1" FOR specimenEdge IN fhir_edge FILTER specimenEdge._to==parent._id AND specimenEdge.label=="specimen_Specimen" AND specimenEdge.from_type=="Observation" AND specimenEdge.to_type=="Specimen" AND specimenEdge.project=="${project}" AND specimenEdge.dataset_generation=="cda-fhir-v1" LET observation=DOCUMENT(specimenEdge._from) FILTER observation!=null AND observation.resourceType=="Observation" AND observation.project=="${project}" AND observation.dataset_generation=="cda-fhir-v1" RETURN observation.id) RETURN {id:s.id,parents,children,routeRows}`;
+    const candidates=rawQuery(routeOracleQuery);
+    const mapped=candidates.find(candidate=>candidate.parents.length>0&&candidate.routeRows.length>=1&&candidate.routeRows.length<=24&&new Set(candidate.routeRows).size===candidate.routeRows.length);
+    const unmapped=candidates.find(candidate=>candidate.id!==mapped?.id&&candidate.parents.length===0&&candidate.children.length>0&&candidate.routeRows.length===0);
+    assert(mapped&&unmapped,`The bounded scoped CDA prefix must contain one mapped Specimen with 1–24 distinct Observation roots and one unmapped childless-parent Specimen; candidates=${JSON.stringify(candidates.slice(0,12).map(({id,parents,children,routeRows})=>({id,parentCount:parents.length,childCount:children.length,routeRows:routeRows.length})))}`);
+    expectedObservationIDs=[...mapped.routeRows].sort();
+    selectedResources=[mapped,unmapped];
+    report.oracle={query:routeOracleQuery,seedLimit:2000,mapped:{id:mapped.id,parentIDs:mapped.parents,rawObservationIDs:mapped.routeRows},unmapped:{id:unmapped.id,parentIDs:unmapped.parents,childIDs:unmapped.children}};
+  }else{
+    const specimens = rawQuery(`FOR s IN Specimen FILTER s.project == "${project}" AND s.dataset_generation == "cda-fhir-v1" LIMIT 10 LET parents = (FOR e IN fhir_edge FILTER e._from == s._id AND e.label == "parent" AND e.project == "${project}" AND e.dataset_generation == "cda-fhir-v1" RETURN e._to) LET children = (FOR e IN fhir_edge FILTER e._to == s._id AND e.label == "parent" AND e.project == "${project}" AND e.dataset_generation == "cda-fhir-v1" LET child = DOCUMENT(e._from) FILTER child.project == "${project}" AND child.dataset_generation == "cda-fhir-v1" RETURN child.id) RETURN {id:s.id, parents, children}`);
+    selected = specimens.find(s=>s.parents.length===0 && s.children.length>0);
+    assert(selected, 'A real CDA Specimen with children but no parent is needed to detect reversed self-relationship traversal');
+    selectedResources=[selected];
+    report.oracle = selected;
+  }
   await api(root, {name:explorer,title:'Collection repair browser QA'});
   builder = await api(base+'/builder');
   const node = builder.catalog.nodes.find(n=>n.resourceType===(longRoute?'Observation':'Specimen'));
@@ -77,7 +115,20 @@ try {
   outputId = builder.workspace.documents[0].output.id;
   const field = builder.catalog.candidates.find(c=>c.nodeId===node.nodeId && c.fieldPath==='id');
   await command([{type:'ADD_COLUMN',outputId,occurrenceId:'base',candidateId:field.candidateId,projectionMode:'VALUE',initialPresentation:'TABLE',title:longRoute?'Observation ID':'Specimen ID'}]);
-  const selection = await api(base.replace('/authoring/v2','/selections'), {snapshotToken:builder.catalog.snapshotToken,idempotencyKey:explorer,source:{kind:'resources',resources:{refs:[{project,generation:builder.catalog.generation,resourceType:'Specimen',id:selected.id}]}}});
+  const selection = await api(selections, {snapshotToken:builder.catalog.snapshotToken,idempotencyKey:explorer,source:{kind:'resources',resources:{refs:selectedResources.map(resource=>({project,generation:builder.catalog.generation,resourceType:'Specimen',id:resource.id}))}}});
+  const generation=builder.catalog.generation;
+  const scopeDigest=builder.catalog.authorizationScopeDigest;
+  assert.equal(selection.project,project);
+  assert.equal(selection.generation,generation);
+  assert.equal(selection.resourceType,'Specimen');
+  assert.equal(selection.scopeDigest,scopeDigest);
+  assert.equal(selection.memberCount,selectedResources.length);
+  const selectionPage=await api(`${selections}/${selection.id}?limit=100`);
+  assert.equal(selectionPage.revision.id,selection.id);
+  assert.equal(selectionPage.revision.scopeDigest,scopeDigest);
+  assert.equal(selectionPage.revision.generation,generation);
+  assert.equal(selectionPage.revision.resourceType,'Specimen');
+  assert.deepEqual(selectionPage.members.map(member=>member.ref).sort((a,b)=>a.id.localeCompare(b.id)),selectedResources.map(resource=>({project,generation,resourceType:'Specimen',id:resource.id})).sort((a,b)=>a.id.localeCompare(b.id)),'The initial selection must contain exactly the two scoped raw Specimen witnesses');
   const routes = await api(base+'/population-routes', {snapshotToken:builder.catalog.snapshotToken,outputId,selectionRevisionId:selection.id,limit:50});
   report.parentChoices = routes.choices.filter(c=>c.route.length===1 && c.route[0].relationship==='parent');
   // Routes run from table roots to selected members: parent roots reach child members inbound.
@@ -86,9 +137,11 @@ try {
     : report.parentChoices.find(c=>c.route[0].storageDirection==='INBOUND');
   assert(parent, 'The exact requested parent connection must be available: '+JSON.stringify(routes.choices.map(c=>c.route)));
   report.connection=parent.route;
+  report.savedConnection=savedPopulationRoute(parent.route);
   assert.equal(parent.route.length,longRoute?2:1);
   await command([{type:'SET_TABLE_POPULATION',outputId,selectionRevisionId:selection.id,routeChoiceId:parent.routeChoiceId}]);
   const original = builder.workspace.documents[0];
+  if(partialLongRoute)assert.deepEqual(original.population.route,report.savedConnection,'The saved route must match the exact catalog route before collection repair');
   browser = await launchBrowser(evidence);
   const responseInfo = new Map();
   browser.cdp.on('Runtime.exceptionThrown', e => report.exceptions.push(e.exceptionDetails));
@@ -107,7 +160,11 @@ try {
     }
   });
   await open();
-  await checkCoverage('unmapped-parent-coverage','1 selected · 0 produce rows · 1 needs attention');
+  await checkCoverage(partialLongRoute?'partial-mapped-unmapped-coverage':'unmapped-parent-coverage',partialLongRoute?'2 selected · 1 produce rows · 1 needs attention':'1 selected · 0 produce rows · 1 needs attention');
+  if(partialLongRoute){
+    const coverageText=await browserEval(browser.cdp,`return document.querySelector('[data-testid="population-coverage-report"]')?.innerText??'';`);
+    assert(coverageText.includes(report.oracle.unmapped.id),`Coverage must identify the independently unmapped Specimen ${report.oracle.unmapped.id}: ${coverageText}`);
+  }
   await waitForBrowser(browser.cdp, `[...document.querySelectorAll('[data-testid="population-coverage-report"] button')].some(b=>b.innerText==='Remove from collection'&&!b.disabled)`, 5000);
   const before = builder.draftDigest;
   const remove = await browserEval(browser.cdp, `return [...document.querySelectorAll('[data-testid="population-coverage-report"] button')].map(b=>({label:b.innerText,disabled:b.disabled}));`);
@@ -122,11 +179,42 @@ try {
   assert.deepEqual(revised.population.route,original.population.route,'Excluding a record must preserve the exact connection');
   assert.deepEqual(revised.columns,original.columns);
   assert.deepEqual(revised.construction,original.construction);
+  if(partialLongRoute){
+    assert.deepEqual(revised.population.route,report.savedConnection,'Partial collection repair must retain the exact saved two-hop route');
+    assert.equal(generation,'cda-fhir-v1');
+    const variantID=revised.population.selectionRevisionId;
+    const derived=await api(`${selections}/${variantID}?limit=100`);
+    assert.equal(derived.revision.id,variantID);
+    assert.equal(derived.revision.source.kind,'SELECTION_REVISION');
+    assert.equal(derived.revision.source.revisionId,selection.id);
+    assert.equal(derived.revision.source.membershipDigest,selection.membershipDigest);
+    assert.equal(derived.revision.scopeDigest,scopeDigest);
+    assert.equal(derived.revision.generation,generation);
+    assert.equal(derived.revision.resourceType,'Specimen');
+    assert.equal(derived.revision.memberCount,1);
+    assert.deepEqual(derived.revision.exclusions,[{project,generation,resourceType:'Specimen',id:report.oracle.unmapped.id}]);
+    assert.deepEqual(derived.members.map(member=>member.ref),[{project,generation,resourceType:'Specimen',id:report.oracle.mapped.id}],'The native removal must leave exactly the independently mapped Specimen');
+    const rawMembership=rawQuery(`FOR member IN loom_explorer_selection_members FILTER member.selectionId==${JSON.stringify(variantID)} AND member.project==${JSON.stringify(project)} AND member.generation==${JSON.stringify(generation)} AND member.resourceType=="Specimen" SORT member.id RETURN {id:member.id,project:member.project,generation:member.generation,resourceType:member.resourceType}`);
+    assert.deepEqual(rawMembership,[{id:report.oracle.mapped.id,project,generation,resourceType:'Specimen'}],'Raw Arango membership must retain only the mapped CDA Specimen');
+    report.partialRepair={selectionRevisionId:variantID,membershipDigest:derived.revision.membershipDigest,retainedSpecimenID:report.oracle.mapped.id,excludedSpecimenID:report.oracle.unmapped.id,expectedObservationIDs};
+  }
   assert(Date.now()-start<=5000,'Collection repair must finish within five seconds');
   recordCase({name:'remove-unmapped-record',durationMs:Date.now()-start});
   await open();
-  await checkCoverage('empty-collection-reload','0 selected · 0 produce rows · 0 needs attention');
-  if(longRoute){
+  if(partialLongRoute){
+    builder=await api(base+'/builder');
+    const reloaded=builder.workspace.documents[0];
+    assert.equal(builder.catalog.generation,generation);
+    assert.deepEqual(reloaded.population.route,report.savedConnection,'Reload must preserve the exact saved Observation → Specimen → parent route');
+    assert.equal(reloaded.population.selectionRevisionId,report.partialRepair.selectionRevisionId);
+    const reloadedSelection=await api(`${selections}/${reloaded.population.selectionRevisionId}?limit=100`);
+    assert.equal(reloadedSelection.revision.generation,generation);
+    assert.equal(reloadedSelection.revision.resourceType,'Specimen');
+    assert.deepEqual(reloadedSelection.members.map(member=>member.ref),[{project,generation,resourceType:'Specimen',id:report.oracle.mapped.id}]);
+    await assertPreviewIDs('partial-long-route-reload-raw-oracle');
+    await checkCoverage('partial-collection-reload','1 selected · 1 produce rows · 0 needs attention');
+  }else await checkCoverage('empty-collection-reload','0 selected · 0 produce rows · 0 needs attention');
+  if(longRoute&&!partialLongRoute){
     const clearStart=Date.now();
     await click(browser.cdp,'section[aria-label="Starting collection"] button',{name:'Use all authorized rows'});
     await waitForBrowser(browser.cdp,`document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount')==='26' && [...document.querySelectorAll('section[aria-label="Starting collection"] button')].some(button=>button.innerText==='Use selected resources'&&!button.disabled)`);
@@ -164,6 +252,9 @@ try {
   report.failureUI = browser ? await browserEval(browser.cdp, 'return document.body.innerText;').catch(()=>undefined) : undefined;
   process.exitCode = 1;
 } finally {
+  report.sourceAfter = sourceFingerprint(process.cwd());
+  report.sourceUnchanged = JSON.stringify(report.sourceBefore) === JSON.stringify(report.sourceAfter);
+  if (!report.sourceUnchanged) { report.status = 'failed'; report.error = [report.error, 'Watched source changed during verification'].filter(Boolean).join('; '); process.exitCode = 1; }
   report.finished = new Date().toISOString();
   await writeFile(join(evidence, 'report.json'), JSON.stringify(report, null, 2));
   await browser?.close();
