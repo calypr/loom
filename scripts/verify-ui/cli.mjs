@@ -1,15 +1,16 @@
-import { createDevSession, assertOwnedDevSession, createFreshVerificationFixture } from '../loom-dev.mjs';
+import { createDevSession, assertOwnedDevSession, createFreshVerificationFixture, doctor } from '../loom-dev.mjs';
 import { registry, getScenario } from './registry.mjs';
 import { writeReport } from './report.mjs';
 import { mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 
 export const parseArgs = (argv) => {
-  const args = { caseName: undefined, url: undefined, project: undefined, explorer: undefined, reportPath: undefined, help: false, list: false };
+  const args = { caseName: undefined, url: undefined, project: undefined, explorer: undefined, reportPath: undefined, help: false, list: false, reuseOwnedDataset: false };
   for (let index = 0; index < argv.length; index += 1) {
     const value = argv[index];
     if (value === '--help' || value === '-h') args.help = true;
     else if (value === '--list') args.list = true;
+    else if (value === '--reuse-owned-dataset') args.reuseOwnedDataset = true;
     else if (['--case', '--url', '--project', '--explorer', '--report'].includes(value)) {
       const next = argv[index + 1];
       if (!next || next.startsWith('--')) throw new Error(value + ' requires a value');
@@ -27,8 +28,9 @@ export const parseArgs = (argv) => {
 };
 
 export const usage = (id) =>
-  'Usage: node scripts/verify-ui/' + getScenario(id).script + ' [--help] [--list] [--case NAME] [--url URL --project PROJECT --explorer EXPLORER] [--report PATH]\n'
+  'Usage: node scripts/verify-ui/' + getScenario(id).script + ' [--help] [--list] [--case NAME] [--reuse-owned-dataset] [--url URL --project PROJECT --explorer EXPLORER] [--report PATH]\n'
   + 'Without --url, the script validates the owned loopback Loom dev stack and seeds a fresh disposable fixture.\n'
+  + '--reuse-owned-dataset is limited to Builder authoring and suggestions; it uses an already loaded, named, owned development generation.\n'
   + 'A custom URL requires project and explorer and runs read-only browser workflows.\n';
 
 const runID = () => Date.now().toString(36) + '-' + Math.random().toString(16).slice(2, 9);
@@ -67,6 +69,24 @@ export const createRunContext = async (args, scenario, { mutating = false } = {}
   assertNamedDevSessionEnvironment();
   const session = createDevSession();
   await assertOwnedDevSession(session);
+  if (args.reuseOwnedDataset) {
+    if (scenario.id !== 'builder-authoring' || !['authoring', 'suggestions'].includes(args.caseName)) {
+      throw new Error('--reuse-owned-dataset is limited to builder-authoring --case authoring or suggestions');
+    }
+    const health = await doctor(session);
+    if (health.api !== 200 || health.ui !== 200 || health.generation !== 200 ||
+        health.builder !== 200 || !health.bootstrapExplorerId) {
+      throw new Error('owned dataset is not fully loaded with a bootstrap Builder');
+    }
+    const id = runID();
+    return {
+      target: { ...session, bootstrapExplorerId: health.bootstrapExplorerId },
+      runID: id,
+      custom: false,
+      scenario,
+      args,
+    };
+  }
   const fixture = await createFreshVerificationFixture(session, runID());
   return {
     target: { ...fixture.target, bootstrapExplorerId: fixture.seed.bootstrapExplorerId },

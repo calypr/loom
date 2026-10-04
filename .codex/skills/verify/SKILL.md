@@ -110,6 +110,14 @@ browser session at a time. A passed historical report remains useful but is
 not current proof: `node scripts/verify-ui/coverage-status.mjs` shows status
 and source/build freshness separately. Missing API build identity is unknown.
 
+For an already loaded CDA generation on an explicitly named owned development
+stack, use `node scripts/verify-ui/builder-authoring.mjs --case authoring
+--reuse-owned-dataset` or `--case suggestions --reuse-owned-dataset`. The
+flag validates that stack and its bootstrap Builder, then creates a fresh
+Explorer without uploading the large dataset again. The CDA authoring report
+retains a failed Publish timing even when preview values and reload persistence
+pass; use the command and exact evidence paths in the migration inventory.
+
 ## Launch
 
 Start or attach to the isolated stack:

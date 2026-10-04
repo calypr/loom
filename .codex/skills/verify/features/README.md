@@ -20,8 +20,19 @@ It compares the visible Patient IDs with the independent
 fields after reload. Run it against an isolated `loom-dev` session with
 `node scripts/verify-ui/builder-authoring.mjs --case authoring`; the exact
 session variables and retained passing report are recorded in
-`docs/PLAYWRIGHT_MIGRATION.md`. This proves the small fixture's authoring
-lifecycle only. The other registered Builder cases still use the older driver.
+`docs/PLAYWRIGHT_MIGRATION.md`. That pass predates the CDA extension and is
+historical for its recorded source snapshot.
+
+The same Playwright authoring case can reuse the separately loaded CDA
+generation with `--reuse-owned-dataset`. It selects Patient identifier values
+with ALL, compares the first 25 visible rows and their duplicate-preserving
+value lists with the raw 159,047-Patient file, then checks Publish and reload.
+The retained CDA report passes those correctness and persistence assertions
+but fails the five-second Publish render gate at 14,690 ms. The migrated
+`builder-authoring/suggestions` case passes on that CDA generation for exact
+Patient ID candidate actionability; it does not Apply or reload. See
+`docs/PLAYWRIGHT_MIGRATION.md` for both commands and report paths. Eleven
+other registered Builder cases still use the older browser driver.
 
 ## Current Builder requirements
 
@@ -294,7 +305,8 @@ category set against the retained raw CDA witnesses, verifies exact visible
 cell identities and an unchanged draft, enforces five seconds per reload, and
 records source/build identity and first-failure evidence. This migration has
 passed syntax and isolation-guard checks; it has no live CDA pass from this
-branch because the isolated small fixture lacks its required 31 categories.
+branch because the loaded isolated CDA generation has no owned 31-category
+Pivot seed report yet.
 
 `node scripts/verify-cda-pivot-category-cycle-browser.mjs` changes an edited
 Pivot field pair and returns to the original pair before saving. Both previews

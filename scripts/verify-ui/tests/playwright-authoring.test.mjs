@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { launchBrowser } from '../../lib/playwright-browser.mjs';
-import { assertPreviewPatientIds, assertRestoredBuilder } from '../playwright-authoring.mjs';
+import { assertPreviewPatientIds, assertPreviewPatientWindow, assertRestoredBuilder } from '../playwright-authoring.mjs';
 
 test('authoring oracle rejects a wrong visible row and a missing persisted field', async t => {
   const evidence = await mkdtemp(join(tmpdir(), 'loom-playwright-authoring-test-'));
@@ -36,6 +36,16 @@ test('authoring oracle rejects a wrong visible row and a missing persisted field
     await assert.rejects(
       assertRestoredBuilder(page, { explorer: 'saved-explorer', title: 'Saved Explorer' }),
       /must survive reload/,
+    );
+    const ids = Array.from({ length: 25 }, (_, index) => `patient-${index}`);
+    const rawValues = new Map(ids.map(id => [id, ['same', 'same']]));
+    await page.setContent(`<div data-testid="preview-table-scroll"><div role="table" aria-rowcount="26">
+      <div role="row"><div role="columnheader">ID</div><div role="columnheader">Identifier Value</div></div>
+      ${ids.map((id, index) => `<div role="row"><span>${index + 1}</span><div role="cell">${id}</div><div role="cell">same</div></div>`).join('')}
+    </div></div>`);
+    await assert.rejects(
+      assertPreviewPatientWindow(page, ids, rawValues),
+      /Identifier ALL value differs from the independent CDA source/,
     );
   } finally {
     await browser?.close();

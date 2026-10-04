@@ -6168,7 +6168,7 @@ const measureHotReload = async (target, report, cdp) => {
   recordEvidence(report, logPath);
 };
 
-const doctor = async (target) => {
+export const doctor = async (target) => {
   await inspectOwnedResources(target, { requirePorts: true });
   const buildBarrier = await waitForFreshBuild(target);
   const api = await request(`${target.apiUrl}/readyz`, { timeout: 5000 });
