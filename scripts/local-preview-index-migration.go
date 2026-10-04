@@ -217,6 +217,7 @@ func transitionLocalIndex(ctx context.Context, collection migrationCollection, e
 	oldID := r.OldIndexID
 	oldPresent := oldID != ""
 	newIndex, newPresent := initialOwned[candidate.Name]
+	candidateCreatedByInvocation := false
 	if !oldPresent && !newPresent {
 		return r, errors.New("neither the exact authorized old index nor the exact candidate index exists")
 	}
@@ -254,18 +255,25 @@ func transitionLocalIndex(ctx context.Context, collection migrationCollection, e
 		}
 		newIndex = toState(created)
 		newPresent = true
+		candidateCreatedByInvocation = wasCreated
 		if wasCreated {
 			r.Mutations = append(r.Mutations, "created candidate compiler index")
 		}
 	}
 	r.NewIndexID = newIndex.ID
+	rollbackCreatedCandidate := func() error {
+		if !candidateCreatedByInvocation {
+			return nil
+		}
+		return rollbackCandidate(ctx, collection, newIndex.ID, candidate)
+	}
 
 	// The old ID and every unrelated definition are reread after creation and
 	// immediately before deletion. This local migration uses explicit inventory
 	// authorization; it is not a compiler replacement/supersedence claim.
 	preDeleteIndexes, err := collection.Indexes(ctx)
 	if err != nil {
-		rollbackErr := rollbackCandidate(ctx, collection, newIndex.ID, candidate)
+		rollbackErr := rollbackCreatedCandidate()
 		return r, errors.Join(fmt.Errorf("reread before legacy deletion: %w", err), rollbackErr)
 	}
 	preDeleteAll := snapshotAll(preDeleteIndexes)
@@ -279,19 +287,19 @@ func transitionLocalIndex(ctx context.Context, collection migrationCollection, e
 		}
 	}
 	if err != nil {
-		rollbackErr := rollbackCandidate(ctx, collection, newIndex.ID, candidate)
+		rollbackErr := rollbackCreatedCandidate()
 		return r, errors.Join(err, rollbackErr)
 	}
 
 	if err := collection.DeleteIndexByID(ctx, oldID); err != nil {
-		rollbackErr := restoreOriginalOwnedInventory(ctx, collection, expected, candidate, newIndex.ID)
+		rollbackErr := restoreOriginalOwnedInventory(ctx, collection, expected, candidate, newIndex.ID, candidateCreatedByInvocation)
 		return r, errors.Join(fmt.Errorf("delete exact old index ID %q: %w", oldID, err), rollbackErr)
 	}
 	r.Mutations = append(r.Mutations, "deleted exact reread old index ID")
 
 	finalIndexes, err := collection.Indexes(ctx)
 	if err != nil {
-		restoreErr := restoreOriginalOwnedInventory(ctx, collection, expected, candidate, newIndex.ID)
+		restoreErr := restoreOriginalOwnedInventory(ctx, collection, expected, candidate, newIndex.ID, candidateCreatedByInvocation)
 		return r, errors.Join(fmt.Errorf("read final index inventory after replacement: %w", err), restoreErr)
 	}
 	finalAll := snapshotAll(finalIndexes)
@@ -303,7 +311,7 @@ func transitionLocalIndex(ctx context.Context, collection migrationCollection, e
 	if err != nil {
 		// Restore the authorized old definition first, then remove only the exact
 		// candidate ID so a verification failure leaves the original inventory.
-		restoreErr := restoreOriginalOwnedInventory(ctx, collection, expected, candidate, newIndex.ID)
+		restoreErr := restoreOriginalOwnedInventory(ctx, collection, expected, candidate, newIndex.ID, candidateCreatedByInvocation)
 		return r, errors.Join(err, restoreErr)
 	}
 	r.Final = sortedStates(finalAll)
@@ -336,10 +344,8 @@ func validateInputs(m manifest, candidate compilerIndexSpec, endpoint string) er
 	if err != nil || parsed.Scheme != "http" || parsed.Host != "arangodb:8529" || parsed.User != nil || parsed.Path != "" || parsed.RawQuery != "" || parsed.Fragment != "" {
 		return errors.New("endpoint must be the owned Compose Arango service with no credentials, path, query, or fragment")
 	}
-	if candidate.Collection != collectionName || candidate.Name != storedValuesIndexName(candidate.Collection, candidate.Fields, candidate.StoredValues) ||
-		!slices.Equal(candidate.Fields, []string{"project", "dataset_generation", "auth_resource_path", "_key"}) ||
-		!slices.Equal(candidate.StoredValues, []string{"payload.id", "payload.status", "payload.subject.reference", "payload.valueQuantity"}) {
-		return errors.New("compiler spec is not the exact full-hash stored-parent projection for this local verification case")
+	if !sameCompilerIndexSpec(candidate, expectedCompilerIndexSpec()) {
+		return errors.New("compiler spec is not the exact current full-hash stored-parent projection for this local verification case")
 	}
 	if len(m.ExpectedOwnedIndexes) == 0 || m.ExpectedOwnedIndexes[0].Name != "loom_pivot_preview_46a620d918ffe1d6" {
 		return errors.New("manifest does not authorize the exact legacy preview index name")
@@ -350,6 +356,21 @@ func validateInputs(m manifest, candidate compilerIndexSpec, endpoint string) er
 		}
 	}
 	return nil
+}
+
+func expectedCompilerIndexSpec() compilerIndexSpec {
+	spec := compilerIndexSpec{
+		Collection:   collectionName,
+		Fields:       []string{"project", "dataset_generation", "auth_resource_path", "_key", "payload.id", "payload.status"},
+		StoredValues: []string{"payload.valueQuantity"},
+	}
+	spec.Name = storedValuesIndexName(spec.Collection, spec.Fields, spec.StoredValues)
+	return spec
+}
+
+func sameCompilerIndexSpec(a, b compilerIndexSpec) bool {
+	return a.Collection == b.Collection && a.Name == b.Name &&
+		slices.Equal(a.Fields, b.Fields) && slices.Equal(a.StoredValues, b.StoredValues)
 }
 
 func requireProjectGenerationWitness(ctx context.Context, db driver.Database) error {
@@ -571,7 +592,7 @@ func rollbackCandidate(ctx context.Context, collection migrationCollection, cand
 	return nil
 }
 
-func restoreOriginalOwnedInventory(ctx context.Context, collection migrationCollection, expected []indexSpec, candidate compilerIndexSpec, candidateID string) error {
+func restoreOriginalOwnedInventory(ctx context.Context, collection migrationCollection, expected []indexSpec, candidate compilerIndexSpec, candidateID string, removeCandidate bool) error {
 	old := expected[0]
 	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 	defer cancel()
@@ -602,8 +623,10 @@ func restoreOriginalOwnedInventory(ctx context.Context, collection migrationColl
 			return errors.New("restored old index returned a conflicting definition")
 		}
 	}
-	if err := rollbackCandidate(cleanupCtx, collection, candidateID, candidate); err != nil {
-		return fmt.Errorf("remove candidate after restoring old inventory: %w", err)
+	if removeCandidate {
+		if err := rollbackCandidate(cleanupCtx, collection, candidateID, candidate); err != nil {
+			return fmt.Errorf("remove candidate after restoring old inventory: %w", err)
+		}
 	}
 	return nil
 }

@@ -1,13 +1,28 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { registry } from './registry.mjs';
+import { registry, requiredChecksFor } from './registry.mjs';
 
 const dimensions = ['usability', 'correctness', 'persistence', 'performance'];
 
-export const classifyEvidence = (report) => {
+const registeredChecksFor = (scenario, caseName, report) => {
+  try {
+    return requiredChecksFor(scenario, caseName, report.target?.kind === 'read-only-custom');
+  } catch (error) {
+    if (error instanceof Error && error.message === `missing required checks for ${scenario.id}/${caseName}`) return undefined;
+    throw error;
+  }
+};
+
+export const classifyEvidence = (report, requiredChecks) => {
   if (report.status !== 'passed') return report.status;
-  if (report.schemaVersion >= 2) return 'passed';
+  if (report.schemaVersion >= 2) {
+    if (!Array.isArray(requiredChecks) || requiredChecks.length === 0 || !Array.isArray(report.assertions)) return 'partial';
+    if (requiredChecks.some((name) => report.assertions.some((assertion) => assertion?.name === name && assertion?.status === 'failed'))) return 'failed';
+    return requiredChecks.every((name) => report.assertions.some((assertion) => assertion?.name === name && assertion?.status === 'passed'))
+      ? 'passed'
+      : 'partial';
+  }
   return dimensions.every((dimension) => report.dimensions?.[dimension]?.status === 'passed')
     ? 'passed'
     : 'partial';
@@ -23,9 +38,10 @@ export const summarizeCoverage = (scenarios, reports) => {
   }
   return scenarios.flatMap((scenario) => scenario.cases.map((caseName) => {
     const evidence = latest.get(`${scenario.id}/${caseName}`);
+    const requiredChecks = evidence ? registeredChecksFor(scenario, caseName, evidence.report) : undefined;
     return {
       path: `${scenario.id}/${caseName}`,
-      status: evidence ? classifyEvidence(evidence.report) : 'untested',
+      status: evidence ? classifyEvidence(evidence.report, requiredChecks) : 'untested',
       finishedAt: evidence?.report.finishedAt ?? null,
       report: evidence?.path ?? null,
     };

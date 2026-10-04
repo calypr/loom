@@ -16,14 +16,9 @@ func TestLocalMigrationCompilerSpecUsesFullStoredValuesIdentity(t *testing.T) {
 	if fieldOnlyIndexName(collectionName, legacy.Fields) != "loom_pivot_preview_46a620d918ffe1d6" {
 		t.Fatalf("legacy field-only hash = %q", fieldOnlyIndexName(collectionName, legacy.Fields))
 	}
-	spec := compilerIndexSpec{
-		Collection:   collectionName,
-		Fields:       []string{"project", "dataset_generation", "auth_resource_path", "_key"},
-		StoredValues: []string{"payload.id", "payload.status", "payload.subject.reference", "payload.valueQuantity"},
-	}
-	spec.Name = storedValuesIndexName(spec.Collection, spec.Fields, spec.StoredValues)
-	if spec.Name != "loom_pivot_preview_c6ad049c4c4c0af3" {
-		t.Fatalf("full stored-values name = %q", spec.Name)
+	spec := expectedCompilerIndexSpec()
+	if spec.Name != "loom_pivot_preview_cdeb305dcc142386" {
+		t.Fatalf("current full stored-values name = %q", spec.Name)
 	}
 	if err := validateInputs(localMigrationManifest(), spec, "http://arangodb:8529"); err != nil {
 		t.Fatalf("valid compiler spec rejected: %v", err)
@@ -34,11 +29,23 @@ func TestLocalMigrationCompilerSpecUsesFullStoredValuesIdentity(t *testing.T) {
 	if err := validateInputs(localMigrationManifest(), bad, "http://arangodb:8529"); err == nil {
 		t.Fatal("legacy field-only name was accepted for the stored-values definition")
 	}
+	bad = compilerIndexSpec{
+		Collection:   collectionName,
+		Fields:       []string{"project", "dataset_generation", "auth_resource_path", "_key"},
+		StoredValues: []string{"payload.id", "payload.status", "payload.subject.reference", "payload.valueQuantity"},
+	}
+	bad.Name = storedValuesIndexName(bad.Collection, bad.Fields, bad.StoredValues)
+	if bad.Name != "loom_pivot_preview_c6ad049c4c4c0af3" {
+		t.Fatalf("stale stored-values name = %q", bad.Name)
+	}
+	if err := validateInputs(localMigrationManifest(), bad, "http://arangodb:8529"); err == nil {
+		t.Fatal("previous candidate tuple with subject.reference was accepted for the current production query")
+	}
 	bad = spec
-	bad.StoredValues = []string{"payload.status", "payload.valueQuantity.code"}
+	bad.StoredValues = []string{"payload.id", "payload.status", "payload.valueQuantity.value"}
 	bad.Name = storedValuesIndexName(bad.Collection, bad.Fields, bad.StoredValues)
 	if err := validateInputs(localMigrationManifest(), bad, "http://arangodb:8529"); err == nil {
-		t.Fatal("compiler spec missing the full stored parent projection was accepted")
+		t.Fatal("substituted scalar child projection was accepted in place of the current stored parent")
 	}
 }
 
@@ -160,13 +167,7 @@ func localMigrationManifest() manifest {
 }
 
 func localCompilerIndexSpec() compilerIndexSpec {
-	result := compilerIndexSpec{
-		Collection:   collectionName,
-		Fields:       []string{"project", "dataset_generation", "auth_resource_path", "_key"},
-		StoredValues: []string{"payload.id", "payload.status", "payload.subject.reference", "payload.valueQuantity"},
-	}
-	result.Name = storedValuesIndexName(result.Collection, result.Fields, result.StoredValues)
-	return result
+	return expectedCompilerIndexSpec()
 }
 
 func responseFromSpec(spec indexSpec) driver.IndexResponse {
@@ -320,6 +321,32 @@ func TestLocalMigrationCreatesCandidateBeforeDeletingExactOldID(t *testing.T) {
 		if eventIndex(fake.events, "delete:"+item.ID) >= 0 {
 			t.Fatalf("unrelated index %q was deleted: %v", item.ID, fake.events)
 		}
+	}
+}
+
+func TestLocalMigrationPreexistingCandidateSurvivesPredeleteFailure(t *testing.T) {
+	fake, _, _ := newFakeMigrationCollection()
+	expected := expectedInventory()
+	candidate := localCompilerIndexSpec()
+	preexisting := indexSpec{
+		Name: candidate.Name, ID: "Observation/9000000101", Type: "persistent",
+		Fields: candidate.Fields, StoredValues: candidate.StoredValues,
+	}
+	fake.indexes = append(fake.indexes, responseFromSpec(preexisting))
+	initialAll := snapshotAll(fake.indexes)
+	initialOwned, err := validateOwnedInventory(fake.indexes, expected, candidate)
+	if err != nil {
+		t.Fatalf("preexisting candidate inventory rejected: %v", err)
+	}
+	fake.failIndexRead[1] = errors.New("predelete inventory read failed")
+
+	_, err = transitionLocalIndex(context.Background(), fake, expected, candidate, true, initialAll, initialOwned, report{OldIndexID: expected[0].ID})
+	if err == nil || !strings.Contains(err.Error(), "predelete inventory read failed") {
+		t.Fatalf("expected predelete inventory read failure, got %v", err)
+	}
+	assertIDsPresent(t, fake.indexes, expected[0].ID, expected[1].ID, expected[2].ID, expected[3].ID, preexisting.ID)
+	if eventIndex(fake.events, "delete:"+preexisting.ID) >= 0 {
+		t.Fatalf("preexisting candidate was deleted while handling a failed retry: %v", fake.events)
 	}
 }
 

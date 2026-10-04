@@ -13,6 +13,9 @@ type PreviewCoveringIndexSpec struct {
 	Collection string
 	Name       string
 	Fields     []string
+	// StoredValues contains payload paths retained for projections by this
+	// persistent index. It does not change lookup or sort semantics.
+	StoredValues []string
 	// Supersedes identifies the exact legacy category index that may be
 	// replaced if the collection has reached its bounded preview-index cap.
 	Supersedes *PreviewCoveringIndexReplacement

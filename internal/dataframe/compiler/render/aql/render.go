@@ -256,6 +256,47 @@ func RenderPhysicalPlanWithDynamicCategoryPivotPreview(plan ir.PhysicalPlan) (Re
 	return renderPhysicalPlanWithOptions(plan, physicalRenderOptions{dynamicPivotPreview: true})
 }
 
+// RenderPhysicalPlanWithStreamingMissingCategoryPivotPreview renders a
+// direct-root terminal Pivot preview with per-category COLLECT aggregations.
+// It avoids retaining every projected source row in a group array while
+// preserving the full source scan and exact presence-aware category matches.
+func RenderPhysicalPlanWithStreamingMissingCategoryPivotPreview(plan ir.PhysicalPlan) (RenderedPhysicalPlan, error) {
+	return renderStreamingMissingCategoryPivotPreview(plan, "", false)
+}
+
+// RenderPhysicalPlanWithStreamingMissingCategoryPivotPreviewAndRootIndexHint
+// applies a non-forcing root index hint and renders the hidden missing
+// category marker directly from its stored parent object. Callers must supply
+// a compiler-owned stored-values index matching the source projections.
+func RenderPhysicalPlanWithStreamingMissingCategoryPivotPreviewAndRootIndexHint(plan ir.PhysicalPlan, indexHint string) (RenderedPhysicalPlan, error) {
+	if !rootIndexHintPattern.MatchString(indexHint) {
+		return RenderedPhysicalPlan{}, fmt.Errorf("root index hint %q is not a safe index name", indexHint)
+	}
+	return renderStreamingMissingCategoryPivotPreview(plan, indexHint, true)
+}
+
+func renderStreamingMissingCategoryPivotPreview(plan ir.PhysicalPlan, indexHint string, storedPresenceObject bool) (RenderedPhysicalPlan, error) {
+	sequence := plan.StageSequence
+	if sequence == nil || !sequence.PreviewTerminalPivotWindow || sequence.PreviewLimitBindKey == "" ||
+		sequence.PreviewSourceWindowByRootID || sequence.CellTraceReturn != nil || sequence.RowLineageReturn != nil ||
+		sequence.PopulationMappingReturn != nil || sequence.OutputAuthResourcePathBindKey != "" || len(sequence.Stages) != 1 {
+		return RenderedPhysicalPlan{}, fmt.Errorf("streaming missing-category preview requires one terminal Pivot preview")
+	}
+	stage := sequence.Stages[0]
+	pivot := stage.GroupedPivot
+	if stage.ID != sequence.FinalStageID || stage.InputStageID != sequence.SourceStageID ||
+		stage.Kind != ir.PhysicalStagePivotOp || pivot == nil || pivot.OneInputRowPerGroup ||
+		pivot.CodedCorrelation != nil || len(pivot.GroupKeys) == 0 || len(pivot.RowValues) != 0 ||
+		pivot.RootContributorInputColumn != "" || pivot.RootContributorOutputColumn != "" || len(pivot.Categories) == 0 ||
+		!pivot.CategoryPresenceFromInput || pivot.CategoryPresence != nil || pivot.CategoryPresenceColumn == "" {
+		return RenderedPhysicalPlan{}, fmt.Errorf("streaming missing-category preview requires a simple presence-aware Pivot")
+	}
+	return renderPhysicalPlanWithOptions(plan, physicalRenderOptions{
+		rootIndexHint: indexHint, streamingMissingCategoryPivotPreview: true,
+		storedPresenceObject: storedPresenceObject,
+	})
+}
+
 // RenderPhysicalPlanWithTwoScanPivotPreview renders a terminal Pivot preview
 // by selecting complete group tuples before reading their contributing source
 // rows. The caller must prove the source projection is a direct, terminal
@@ -302,22 +343,26 @@ func RenderPhysicalPlanWithTwoScanPivotPreview(plan ir.PhysicalPlan, indexHint s
 }
 
 type physicalRenderOptions struct {
-	rootIndexHint                   string
-	disableRootIndex                bool
-	internalPrefix                  string
-	relatedExpandPreviewLimit       int
-	terminalProjectionColumn        string
-	omitTerminalRowSort             bool
-	omitTerminalReturn              bool
-	terminalReturnVariable          string
-	preserveProjectionPresenceNames map[string]struct{}
-	projectionPresenceMarkerColumn  string
-	twoScanPivotPreview             bool
-	dynamicPivotPreview             bool
-	pivotGroupKeySourcePaths        [][]string
-	pivotGroupTupleFilter           *pivotGroupTupleFilter
-	previewRootKeyWindowVariable    string
-	previewGroupIdentityFilter      *previewGroupIdentityFilter
+	rootIndexHint                        string
+	disableRootIndex                     bool
+	internalPrefix                       string
+	relatedExpandPreviewLimit            int
+	terminalProjectionColumn             string
+	omitTerminalRowSort                  bool
+	omitTerminalReturn                   bool
+	terminalReturnVariable               string
+	preserveProjectionPresenceNames      map[string]struct{}
+	projectionPresenceMarkerColumn       string
+	twoScanPivotPreview                  bool
+	dynamicPivotPreview                  bool
+	streamingMissingCategoryPivotPreview bool
+	storedPresenceObject                 bool
+	storedPresenceOutputName             string
+	storedPresenceParentPath             []string
+	pivotGroupKeySourcePaths             [][]string
+	pivotGroupTupleFilter                *pivotGroupTupleFilter
+	previewRootKeyWindowVariable         string
+	previewGroupIdentityFilter           *previewGroupIdentityFilter
 }
 
 type pivotGroupTupleFilter struct {
@@ -408,6 +453,8 @@ func renderPhysicalPlanWithOptions(plan ir.PhysicalPlan, options physicalRenderO
 		tableShapeExclusion:             layout.exclusionReturn,
 		preserveProjectionPresenceNames: options.preserveProjectionPresenceNames,
 		projectionPresenceMarkerColumn:  options.projectionPresenceMarkerColumn,
+		storedPresenceOutputName:        options.storedPresenceOutputName,
+		storedPresenceParentPath:        append([]string(nil), options.storedPresenceParentPath...),
 		previewRootKeyWindowVariable:    options.previewRootKeyWindowVariable,
 		previewGroupIdentityFilter:      options.previewGroupIdentityFilter,
 	}
@@ -679,23 +726,26 @@ func (r *physicalPlanRenderer) renderRootWindowOperation(operation ir.PhysicalOp
 }
 
 type physicalPlanRenderer struct {
-	bindVars                        map[string]any
-	collectionKeys                  map[string]struct{}
-	rootIndexHint                   string
-	disableRootIndex                bool
-	setVariables                    map[string]string
-	reservedVars                    map[string]struct{}
-	internalPrefix                  string
-	preparedItem                    string
-	rootVariable                    string
-	cellTrace                       *ir.PhysicalCellTraceReturn
-	tableShapeExclusion             *ir.PhysicalTableShapeExclusionReturn
-	dynamicPivotPreview             bool
-	preserveProjectionPresenceNames map[string]struct{}
-	projectionPresenceMarkerColumn  string
-	projectionPresenceMarkerRows    map[string]struct{}
-	previewRootKeyWindowVariable    string
-	previewGroupIdentityFilter      *previewGroupIdentityFilter
+	bindVars                             map[string]any
+	collectionKeys                       map[string]struct{}
+	rootIndexHint                        string
+	disableRootIndex                     bool
+	setVariables                         map[string]string
+	reservedVars                         map[string]struct{}
+	internalPrefix                       string
+	preparedItem                         string
+	rootVariable                         string
+	cellTrace                            *ir.PhysicalCellTraceReturn
+	tableShapeExclusion                  *ir.PhysicalTableShapeExclusionReturn
+	dynamicPivotPreview                  bool
+	streamingMissingCategoryPivotPreview bool
+	storedPresenceOutputName             string
+	storedPresenceParentPath             []string
+	preserveProjectionPresenceNames      map[string]struct{}
+	projectionPresenceMarkerColumn       string
+	projectionPresenceMarkerRows         map[string]struct{}
+	previewRootKeyWindowVariable         string
+	previewGroupIdentityFilter           *previewGroupIdentityFilter
 }
 
 func (r *physicalPlanRenderer) renderExpressionLet(operation ir.PhysicalOperation, indent string) ([]string, error) {

@@ -2,6 +2,8 @@ package arango
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"slices"
@@ -37,6 +39,28 @@ func (c *Client) EnsurePreviewCoveringIndex(ctx context.Context, collection, nam
 	return c.ensurePreviewCoveringIndex(ctx, collection, name, fields, nil)
 }
 
+// EnsurePreviewCoveringIndexWithStoredValues provisions a compiler-owned
+// projection index. Stored values are validated and verified as part of the
+// exact index definition because Arango's ensure operation does not distinguish
+// otherwise identical field tuples by stored-value configuration.
+func (c *Client) EnsurePreviewCoveringIndexWithStoredValues(ctx context.Context, collection, name string, fields, storedValues []string) error {
+	if c == nil || !validPreviewCoveringIndexWithStoredValues(collection, name, fields, storedValues) {
+		return fmt.Errorf("invalid preview covering index specification")
+	}
+	return c.ensurePreviewCoveringIndexDefinition(ctx, collection, name, fields, storedValues, nil)
+}
+
+// EnsurePreviewCoveringIndexWithStoredValuesReplacing provisions a
+// compiler-owned stored-values index and replaces only the exact older
+// compiler-owned field-only definition supplied by the same plan.
+func (c *Client) EnsurePreviewCoveringIndexWithStoredValuesReplacing(ctx context.Context, collection, name string, fields, storedValues []string, supersededName string, supersededFields []string) error {
+	replacement := &previewIndexReplacement{name: supersededName, fields: append([]string(nil), supersededFields...)}
+	if c == nil || !validPreviewCoveringIndexStoredValuesReplacement(collection, name, fields, storedValues, replacement) {
+		return fmt.Errorf("invalid preview covering index replacement specification")
+	}
+	return c.ensurePreviewCoveringIndexDefinition(ctx, collection, name, fields, storedValues, replacement)
+}
+
 // EnsurePreviewCoveringIndexReplacing provisions a related-category index and,
 // only at the per-collection cap, may replace the exact compiler-named legacy
 // category index supplied by the same plan.
@@ -52,6 +76,17 @@ func (c *Client) ensurePreviewCoveringIndex(ctx context.Context, collection, nam
 	if c == nil || !validPreviewCoveringIndex(collection, name, fields) {
 		return fmt.Errorf("invalid preview covering index specification")
 	}
+	return c.ensurePreviewCoveringIndexDefinition(ctx, collection, name, fields, nil, replacement)
+}
+
+func (c *Client) ensurePreviewCoveringIndexDefinition(ctx context.Context, collection, name string, fields, storedValues []string, replacement *previewIndexReplacement) error {
+	valid := validPreviewCoveringIndex(collection, name, fields)
+	if len(storedValues) != 0 {
+		valid = validPreviewCoveringIndexWithStoredValues(collection, name, fields, storedValues)
+	}
+	if c == nil || !valid {
+		return fmt.Errorf("invalid preview covering index specification")
+	}
 	c.previewIndexMu.Lock()
 	defer c.previewIndexMu.Unlock()
 
@@ -59,10 +94,21 @@ func (c *Client) ensurePreviewCoveringIndex(ctx context.Context, collection, nam
 	if err != nil {
 		return fmt.Errorf("open preview covering collection: %w", err)
 	}
-	return ensurePreviewCoveringIndex(ctx, col, name, fields, replacement)
+	return ensurePreviewCoveringIndexDefinition(ctx, col, name, fields, storedValues, replacement)
 }
 
 func ensurePreviewCoveringIndex(ctx context.Context, col previewIndexCollection, name string, fields []string, replacement *previewIndexReplacement) error {
+	return ensurePreviewCoveringIndexDefinition(ctx, col, name, fields, nil, replacement)
+}
+
+func ensurePreviewCoveringIndexWithStoredValues(ctx context.Context, col previewIndexCollection, name string, fields, storedValues []string) error {
+	return ensurePreviewCoveringIndexDefinition(ctx, col, name, fields, storedValues, nil)
+}
+
+func ensurePreviewCoveringIndexDefinition(ctx context.Context, col previewIndexCollection, name string, fields, storedValues []string, replacement *previewIndexReplacement) error {
+	if len(storedValues) != 0 && !validPreviewCoveringIndexStoredValuesDefinition(name, fields, storedValues) {
+		return fmt.Errorf("invalid preview covering index specification")
+	}
 	indexes, err := col.Indexes(ctx)
 	if err != nil {
 		return fmt.Errorf("list preview covering indexes: %w", err)
@@ -72,8 +118,8 @@ func ensurePreviewCoveringIndex(ctx context.Context, col previewIndexCollection,
 	var superseded *driver.IndexResponse
 	for _, index := range indexes {
 		if index.Name == name {
-			if !previewCoveringIndexMatches(index, fields) {
-				return fmt.Errorf("preview covering index name already has different fields")
+			if !previewCoveringIndexMatchesDefinition(index, fields, storedValues) {
+				return fmt.Errorf("preview covering index name already has different fields or stored values")
 			}
 			copy := index
 			existing = &copy
@@ -81,7 +127,7 @@ func ensurePreviewCoveringIndex(ctx context.Context, col previewIndexCollection,
 		if strings.HasPrefix(index.Name, previewCoveringIndexPrefix) {
 			count++
 		}
-		if replacement != nil && index.Name == replacement.name && previewCoveringIndexMatches(index, replacement.fields) {
+		if replacement != nil && index.Name == replacement.name && previewCoveringIndexMatchesDefinition(index, replacement.fields, nil) {
 			copy := index
 			superseded = &copy
 		}
@@ -96,13 +142,13 @@ func ensurePreviewCoveringIndex(ctx context.Context, col previewIndexCollection,
 		return ErrPreviewCoveringIndexLimit
 	}
 	index, created, err := col.EnsurePersistentIndex(ctx, fields, &driver.CreatePersistentIndexOptions{
-		Name:   name,
+		Name: name, StoredValues: append([]string(nil), storedValues...),
 		Sparse: utils.NewType(false), Unique: utils.NewType(false),
 	})
 	if err != nil {
 		return fmt.Errorf("create preview covering index: %w", err)
 	}
-	if index.Name != name || !previewCoveringIndexMatches(index, fields) {
+	if index.Name != name || !previewCoveringIndexMatchesDefinition(index, fields, storedValues) {
 		verificationErr := fmt.Errorf("preview covering index was not selected by Arango")
 		if created {
 			if index.ID == "" {
@@ -159,9 +205,80 @@ func validPreviewCoveringIndexReplacement(collection, name string, fields []stri
 }
 
 func previewCoveringIndexMatches(index driver.IndexResponse, fields []string) bool {
+	return previewCoveringIndexMatchesDefinition(index, fields, nil)
+}
+
+func previewCoveringIndexMatchesDefinition(index driver.IndexResponse, fields, storedValues []string) bool {
 	return index.Type == driver.IndexType("persistent") && index.RegularIndex != nil &&
 		index.Unique != nil && !*index.Unique && index.Sparse != nil && !*index.Sparse &&
-		slices.Equal(index.RegularIndex.Fields, fields)
+		slices.Equal(index.RegularIndex.Fields, fields) && slices.Equal(index.RegularIndex.StoredValues, storedValues)
+}
+
+func validPreviewCoveringIndexWithStoredValues(collection, name string, fields, storedValues []string) bool {
+	return validPreviewCoveringIndex(collection, name, fields) &&
+		validPreviewCoveringIndexStoredValuesDefinition(name, fields, storedValues)
+}
+
+func validPreviewCoveringIndexStoredValuesReplacement(collection, name string, fields, storedValues []string, replacement *previewIndexReplacement) bool {
+	return validPreviewCoveringIndexWithStoredValues(collection, name, fields, storedValues) &&
+		replacement != nil && replacement.name != name &&
+		validPreviewCoveringIndex(collection, replacement.name, replacement.fields) &&
+		previewCoveringIndexName(collection, replacement.fields) == replacement.name
+}
+
+// previewCoveringIndexName is kept in lockstep with the compiler's stable
+// field-only name derivation so replacement is limited to an exact owned spec.
+func previewCoveringIndexName(collection string, fields []string) string {
+	digest := sha256.Sum256([]byte(collection + "\x00" + strings.Join(fields, "\x00")))
+	return previewCoveringIndexPrefix + hex.EncodeToString(digest[:8])
+}
+
+func validPreviewCoveringIndexStoredValuesDefinition(name string, fields, storedValues []string) bool {
+	if !strings.HasPrefix(name, previewCoveringIndexPrefix) || !validIndexPath(name) ||
+		len(fields) < 5 || len(fields) > 32 ||
+		!slices.Equal(fields[:4], []string{"project", "dataset_generation", "auth_resource_path", "_key"}) ||
+		len(storedValues) == 0 || len(storedValues) > 32 {
+		return false
+	}
+	fieldSet := make(map[string]struct{}, len(fields))
+	for _, field := range fields {
+		if !validIndexPath(field) {
+			return false
+		}
+		fieldSet[field] = struct{}{}
+	}
+	for index, field := range fields[4:] {
+		if !strings.HasPrefix(field, "payload.") || (index > 0 && fields[index+3] >= field) {
+			return false
+		}
+		for previous := 4; previous < index+4; previous++ {
+			if previewIndexPathsOverlap(fields[previous], field) {
+				return false
+			}
+		}
+	}
+	seen := make(map[string]struct{}, len(storedValues))
+	for _, path := range storedValues {
+		if !strings.HasPrefix(path, "payload.") || !validIndexPath(path) {
+			return false
+		}
+		for existing := range seen {
+			if previewIndexPathsOverlap(existing, path) {
+				return false
+			}
+		}
+		for field := range fieldSet {
+			if previewIndexPathsOverlap(field, path) {
+				return false
+			}
+		}
+		seen[path] = struct{}{}
+	}
+	return true
+}
+
+func previewIndexPathsOverlap(left, right string) bool {
+	return left == right || strings.HasPrefix(left, right+".") || strings.HasPrefix(right, left+".")
 }
 
 func validPreviewCoveringIndex(collection, name string, fields []string) bool {

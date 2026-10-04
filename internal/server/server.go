@@ -245,7 +245,16 @@ func run(ctx context.Context, serverConfig Config) error {
 		ResolveBundle: recipeSchemaResolver(catalogStore.DiscoverFields, discoveryCache),
 		PreparePreviewIndex: func(ctx context.Context, spec compiler.PreviewCoveringIndexSpec) error {
 			var err error
-			if spec.Supersedes != nil {
+			if len(spec.StoredValues) != 0 {
+				if spec.Supersedes != nil {
+					err = lifecycleClient.EnsurePreviewCoveringIndexWithStoredValuesReplacing(
+						ctx, spec.Collection, spec.Name, spec.Fields, spec.StoredValues,
+						spec.Supersedes.Name, spec.Supersedes.Fields,
+					)
+				} else {
+					err = lifecycleClient.EnsurePreviewCoveringIndexWithStoredValues(ctx, spec.Collection, spec.Name, spec.Fields, spec.StoredValues)
+				}
+			} else if spec.Supersedes != nil {
 				err = lifecycleClient.EnsurePreviewCoveringIndexReplacing(ctx, spec.Collection, spec.Name, spec.Fields, spec.Supersedes.Name, spec.Supersedes.Fields)
 			} else {
 				err = lifecycleClient.EnsurePreviewCoveringIndex(ctx, spec.Collection, spec.Name, spec.Fields)

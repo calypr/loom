@@ -50,6 +50,9 @@ func (r *physicalPlanRenderer) renderExtract(expression ir.PhysicalExpression) (
 		switch extract.ExecutionMode {
 		case ir.PhysicalSelectorDirectScalar:
 			if !setSource && expression.Cardinality != ir.PhysicalArrayCardinality {
+				if storedParentValue, ok := r.renderDirectScalarFromStoredParent(extract); ok {
+					return storedParentValue, nil
+				}
 				return compileDirectExpr(source, extract.Selector.Steps), nil
 			}
 		case ir.PhysicalSelectorConditionalArray:
@@ -113,6 +116,25 @@ func (r *physicalPlanRenderer) renderExtract(expression ir.PhysicalExpression) (
 		return compileDirectExpr(source, extract.Selector.Steps), nil
 	}
 	return "FIRST(" + values + ")", nil
+}
+
+func (r *physicalPlanRenderer) renderDirectScalarFromStoredParent(extract *ir.PhysicalExtract) (string, bool) {
+	if len(r.storedPresenceParentPath) == 0 || extract == nil || extract.Source.Variable != r.rootVariable ||
+		extract.Source.BindKey != "" || len(extract.Fallbacks) != 0 || extract.Distinct || extract.Selector.Filter != nil {
+		return "", false
+	}
+	path := append([]string(nil), extract.Source.Path...)
+	for _, step := range extract.Selector.Steps {
+		if step.Field == "" || step.Iterate || step.Index != nil {
+			return "", false
+		}
+		path = append(path, step.Field)
+	}
+	if !aqlPathHasPrefix(path, r.storedPresenceParentPath) {
+		return "", false
+	}
+	parent := renderAQLPropertyPath(r.rootVariable, r.storedPresenceParentPath)
+	return renderAQLPropertyPath("FIRST(["+parent+"])", path[len(r.storedPresenceParentPath):]), true
 }
 
 func selectorEndsWithRepeatedValue(selector spec.Selector) bool {
@@ -378,7 +400,11 @@ func (r *physicalPlanRenderer) renderReturn(returnOp ir.PhysicalReturn) (string,
 		var value string
 		var err error
 		if projection.PresenceOutput {
-			value, err = r.renderProjectionPresence(*projection.Presence)
+			if projection.Name == r.storedPresenceOutputName {
+				value, err = r.renderProjectionPresenceOnStoredParent(*projection.Presence)
+			} else {
+				value, err = r.renderProjectionPresence(*projection.Presence)
+			}
 		} else if projection.Expression != nil {
 			value, err = r.renderExpression(*projection.Expression)
 		} else {
@@ -438,19 +464,39 @@ func (r *physicalPlanRenderer) renderValue(value ir.PhysicalValue) (string, erro
 	if len(value.Path) == 0 {
 		return value.Variable, nil
 	}
-	var path strings.Builder
-	path.WriteString(value.Variable)
-	for _, segment := range value.Path {
+	if value.Variable == r.rootVariable && aqlPathHasPrefix(value.Path, r.storedPresenceParentPath) {
+		parent := renderAQLPropertyPath(value.Variable, r.storedPresenceParentPath)
+		return renderAQLPropertyPath("FIRST(["+parent+"])", value.Path[len(r.storedPresenceParentPath):]), nil
+	}
+	return renderAQLPropertyPath(value.Variable, value.Path), nil
+}
+
+func aqlPathHasPrefix(path, prefix []string) bool {
+	if len(prefix) == 0 || len(path) < len(prefix) {
+		return false
+	}
+	for index := range prefix {
+		if path[index] != prefix[index] {
+			return false
+		}
+	}
+	return true
+}
+
+func renderAQLPropertyPath(base string, path []string) string {
+	var expression strings.Builder
+	expression.WriteString(base)
+	for _, segment := range path {
 		if isSafeAQLPropertyIdentifier(segment) {
-			path.WriteByte('.')
-			path.WriteString(segment)
+			expression.WriteByte('.')
+			expression.WriteString(segment)
 			continue
 		}
-		path.WriteByte('[')
-		path.WriteString(strconv.Quote(segment))
-		path.WriteByte(']')
+		expression.WriteByte('[')
+		expression.WriteString(strconv.Quote(segment))
+		expression.WriteByte(']')
 	}
-	return path.String(), nil
+	return expression.String()
 }
 
 func isSafeAQLPropertyIdentifier(segment string) bool {

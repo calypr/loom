@@ -2,6 +2,7 @@ package aql
 
 import (
 	"fmt"
+	"reflect"
 	"strings"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
@@ -40,6 +41,21 @@ func (r *physicalPlanRenderer) renderGroupedTablePivot(pivot ir.PhysicalGroupedP
 		valueColumnBind = r.newInternalBindKey("reshape_value_column")
 		r.bindVars[valueColumnBind] = pivot.ValueColumn
 	}
+	categoryTypeBind := ""
+	if pivot.CodedCorrelation == nil {
+		categoryType, err := aqlTableScalarType(pivot.CategoryType)
+		if err != nil {
+			return nil, err
+		}
+		categoryTypeBind = r.newInternalBindKey("reshape_category_type")
+		r.bindVars[categoryTypeBind] = categoryType
+	}
+	valueType, err := aqlTableScalarType(pivot.ValueType)
+	if err != nil {
+		return nil, err
+	}
+	valueTypeBind := r.newInternalBindKey("reshape_value_type")
+	r.bindVars[valueTypeBind] = valueType
 	categoryPresenceBind := ""
 	if pivot.CategoryPresence != nil {
 		presence, err := r.renderProjectionPresence(*pivot.CategoryPresence)
@@ -71,6 +87,12 @@ func (r *physicalPlanRenderer) renderGroupedTablePivot(pivot ir.PhysicalGroupedP
 		collectClause := fmt.Sprintf(
 			"  COLLECT %s INTO %s = %s", strings.Join(collect, ", "), pivot.GroupRowsVariable, pivot.InputRowVariable,
 		)
+		if r.streamingMissingCategoryPivotPreview {
+			return r.renderGroupedTablePivotStreamingMissingPreview(
+				pivot, lines, collect, categoryColumnBind, valueColumnBind, categoryPresenceBind,
+				categoryTypeBind, valueTypeBind, previewLimitBindKey, sortGroups,
+			)
+		}
 		lines = append(lines, collectClause)
 	}
 	previewIdentityVariable := ""
@@ -116,21 +138,6 @@ func (r *physicalPlanRenderer) renderGroupedTablePivot(pivot ir.PhysicalGroupedP
 		))
 	}
 
-	categoryTypeBind := ""
-	if pivot.CodedCorrelation == nil {
-		categoryType, err := aqlTableScalarType(pivot.CategoryType)
-		if err != nil {
-			return nil, err
-		}
-		categoryTypeBind = r.newInternalBindKey("reshape_category_type")
-		r.bindVars[categoryTypeBind] = categoryType
-	}
-	valueType, err := aqlTableScalarType(pivot.ValueType)
-	if err != nil {
-		return nil, err
-	}
-	valueTypeBind := r.newInternalBindKey("reshape_value_type")
-	r.bindVars[valueTypeBind] = valueType
 	if r.dynamicPivotPreview && !pivot.OneInputRowPerGroup {
 		return r.renderGroupedTablePivotDynamicPreview(
 			pivot, lines, categoryColumnBind, valueColumnBind, categoryPresenceBind,
@@ -411,6 +418,33 @@ func (r *physicalPlanRenderer) renderProjectionPresence(presence ir.PhysicalProj
 		return paths[0], nil
 	}
 	return "(" + strings.Join(paths, " OR ") + ")", nil
+}
+
+func (r *physicalPlanRenderer) renderProjectionPresenceOnStoredParent(presence ir.PhysicalProjectionPresence) (string, error) {
+	if presence.Source.Variable != r.rootVariable || presence.Source.BindKey != "" || len(presence.Paths) != 1 || len(presence.Paths[0]) == 0 {
+		return "", fmt.Errorf("stored-parent presence requires one direct nested source path")
+	}
+	for _, segment := range presence.Source.Path {
+		if !previewSourcePathSegmentPattern.MatchString(segment) {
+			return "", fmt.Errorf("stored-parent presence source path has an unsafe segment")
+		}
+	}
+	path := presence.Paths[0]
+	for _, segment := range path {
+		if !previewSourcePathSegmentPattern.MatchString(segment) {
+			return "", fmt.Errorf("stored-parent presence path has an unsafe segment")
+		}
+	}
+	parentPath := append([]string(nil), presence.Source.Path...)
+	parentPath = append(parentPath, path[:len(path)-1]...)
+	if !reflect.DeepEqual(parentPath, r.storedPresenceParentPath) {
+		return "", fmt.Errorf("stored-parent presence path does not match its proven stored-value parent")
+	}
+	parent, err := r.renderValue(ir.PhysicalValue{Variable: presence.Source.Variable, Path: parentPath})
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("(IS_OBJECT(%s) ? HAS(%s, %q) : false)", parent, parent, path[len(path)-1]), nil
 }
 
 func (r *physicalPlanRenderer) renderPropertyPathPresence(source string, path []string) (string, error) {

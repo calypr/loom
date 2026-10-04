@@ -94,6 +94,155 @@ func TestPreviewCoveringIndexMatchesFieldsForIdempotence(t *testing.T) {
 	}
 }
 
+func TestStoredValuesPreviewIndexRequiresExactProjectionContract(t *testing.T) {
+	fields := []string{"project", "dataset_generation", "auth_resource_path", "_key", "payload.id", "payload.status"}
+	storedValues := []string{"payload.valueQuantity"}
+	if !validPreviewCoveringIndexWithStoredValues("Observation", "loom_pivot_preview_projection", fields, storedValues) {
+		t.Fatal("valid direct-root stored-values preview index was rejected")
+	}
+	for _, test := range []struct {
+		name   string
+		fields []string
+		values []string
+	}{
+		{name: "missing direct scalar key", fields: []string{"project", "dataset_generation", "auth_resource_path", "_key"}, values: storedValues},
+		{name: "nondeterministic key order", fields: []string{"project", "dataset_generation", "auth_resource_path", "_key", "payload.status", "payload.id"}, values: storedValues},
+		{name: "key overlaps stored parent", fields: []string{"project", "dataset_generation", "auth_resource_path", "_key", "payload.valueQuantity.code"}, values: storedValues},
+		{name: "missing stored values", fields: fields},
+		{name: "leaf parent overlap", fields: fields, values: []string{"payload.valueQuantity", "payload.valueQuantity.code"}},
+		{name: "unsafe path", fields: fields, values: []string{"payload.valueQuantity.code]"}},
+		{name: "duplicate stored value", fields: fields, values: []string{"payload.status", "payload.status"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if validPreviewCoveringIndexWithStoredValues("Observation", "loom_pivot_preview_projection", test.fields, test.values) {
+				t.Fatal("invalid stored-values preview index was accepted")
+			}
+		})
+	}
+	tooManyFields := []string{"project", "dataset_generation", "auth_resource_path", "_key"}
+	for index := 0; index < 29; index++ {
+		tooManyFields = append(tooManyFields, fmt.Sprintf("payload.extra%02d", index))
+	}
+	if validPreviewCoveringIndexWithStoredValues("Observation", "loom_pivot_preview_projection", tooManyFields, storedValues) {
+		t.Fatal("more than 32 index fields were accepted")
+	}
+	tooMany := make([]string, 33)
+	for index := range tooMany {
+		tooMany[index] = fmt.Sprintf("payload.extra%d", index)
+	}
+	if validPreviewCoveringIndexWithStoredValues("Observation", "loom_pivot_preview_projection", fields, tooMany) {
+		t.Fatal("more than 32 stored values were accepted")
+	}
+}
+
+func TestEnsurePreviewCoveringIndexWithStoredValuesVerifiesExactInventory(t *testing.T) {
+	ctx := context.Background()
+	fields := []string{"project", "dataset_generation", "auth_resource_path", "_key", "payload.id", "payload.status"}
+	storedValues := []string{"payload.valueQuantity"}
+	name := "loom_pivot_preview_projection"
+	t.Run("create exact definition", func(t *testing.T) {
+		fake := &fakePreviewIndexCollection{}
+		if err := ensurePreviewCoveringIndexWithStoredValues(ctx, fake, name, fields, storedValues); err != nil {
+			t.Fatal(err)
+		}
+		if len(fake.indexes) != 1 || !previewCoveringIndexMatchesDefinition(fake.indexes[0], fields, storedValues) {
+			t.Fatalf("created stored-values inventory = %#v", fake.indexes)
+		}
+	})
+	t.Run("refuse same name with different stored values", func(t *testing.T) {
+		wrong := previewIndexResponseWithStoredValues(name, "Observation/existing", fields, []string{"payload.other"})
+		fake := &fakePreviewIndexCollection{indexes: []driver.IndexResponse{wrong}}
+		if err := ensurePreviewCoveringIndexWithStoredValues(ctx, fake, name, fields, storedValues); err == nil {
+			t.Fatal("stored-values mismatch was treated as an idempotent index")
+		}
+		if !slices.Equal(fake.events, []string{}) || len(fake.indexes) != 1 {
+			t.Fatalf("mismatched inventory was mutated: events=%v indexes=%#v", fake.events, fake.indexes)
+		}
+	})
+}
+
+func TestStoredValuesReplacementDropsOnlyExactCompilerOwnedLegacyIndexAtCap(t *testing.T) {
+	ctx := context.Background()
+	fields := []string{"project", "dataset_generation", "auth_resource_path", "_key", "payload.id", "payload.status"}
+	storedValues := []string{"payload.valueQuantity"}
+	name := "loom_pivot_preview_stored_projection"
+	legacyFields := []string{"project", "dataset_generation", "auth_resource_path", "_key", "payload.id", "payload.status", "payload.subject.reference", "payload.valueQuantity.value"}
+	legacyName := previewCoveringIndexName("Observation", legacyFields)
+	if legacyName != "loom_pivot_preview_46a620d918ffe1d6" {
+		t.Fatalf("store replacement identity %q diverged from the compiler-owned live legacy index name", legacyName)
+	}
+	replacement := &previewIndexReplacement{name: legacyName, fields: legacyFields}
+	if !validPreviewCoveringIndexStoredValuesReplacement("Observation", name, fields, storedValues, replacement) {
+		t.Fatal("exact deterministic field-only index replacement was rejected")
+	}
+	wrongReplacement := &previewIndexReplacement{name: "loom_pivot_preview_user_owned", fields: legacyFields}
+	if validPreviewCoveringIndexStoredValuesReplacement("Observation", name, fields, storedValues, wrongReplacement) {
+		t.Fatal("replacement accepted an index name not derived from its compiler field tuple")
+	}
+
+	fake := &fakePreviewIndexCollection{indexes: []driver.IndexResponse{
+		previewIndexResponse("loom_pivot_preview_unrelated_a", "Observation/unrelated-a", []string{"project", "dataset_generation", "auth_resource_path", "payload.a"}),
+		previewIndexResponse("loom_pivot_preview_unrelated_b", "Observation/unrelated-b", []string{"project", "dataset_generation", "auth_resource_path", "payload.b"}),
+		previewIndexResponse("loom_pivot_preview_unrelated_c", "Observation/unrelated-c", []string{"project", "dataset_generation", "auth_resource_path", "payload.c"}),
+		previewIndexResponse(legacyName, "Observation/legacy-exact", legacyFields),
+	}}
+	if err := ensurePreviewCoveringIndexDefinition(ctx, fake, name, fields, storedValues, replacement); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(fake.events, []string{"ensure:" + name, "delete:Observation/legacy-exact"}) {
+		t.Fatalf("replacement operations = %v, want verified create before exact delete", fake.events)
+	}
+	if len(fake.indexes) != maxPreviewCoveringIndexesPerCollection ||
+		containsPreviewIndex(fake.indexes, legacyName) || !containsPreviewIndex(fake.indexes, name) {
+		t.Fatalf("replacement inventory = %#v, want cap %d with new index and exact old index replaced", fake.indexes, maxPreviewCoveringIndexesPerCollection)
+	}
+	for _, unrelated := range []string{"loom_pivot_preview_unrelated_a", "loom_pivot_preview_unrelated_b", "loom_pivot_preview_unrelated_c"} {
+		if !containsPreviewIndex(fake.indexes, unrelated) {
+			t.Errorf("unrelated index %q was removed", unrelated)
+		}
+	}
+
+	failDrop := &fakePreviewIndexCollection{
+		indexes: []driver.IndexResponse{
+			previewIndexResponse("loom_pivot_preview_unrelated_a", "Observation/unrelated-a", []string{"project", "dataset_generation", "auth_resource_path", "payload.a"}),
+			previewIndexResponse("loom_pivot_preview_unrelated_b", "Observation/unrelated-b", []string{"project", "dataset_generation", "auth_resource_path", "payload.b"}),
+			previewIndexResponse("loom_pivot_preview_unrelated_c", "Observation/unrelated-c", []string{"project", "dataset_generation", "auth_resource_path", "payload.c"}),
+			previewIndexResponse(legacyName, "Observation/legacy-exact", legacyFields),
+		},
+		deleteErr: errors.New("drop failed"), failDeleteID: "Observation/legacy-exact",
+	}
+	if err := ensurePreviewCoveringIndexDefinition(ctx, failDrop, name, fields, storedValues, replacement); err == nil {
+		t.Fatal("failed exact legacy drop unexpectedly succeeded")
+	}
+	if containsPreviewIndex(failDrop.indexes, name) || !containsPreviewIndex(failDrop.indexes, legacyName) ||
+		len(failDrop.indexes) != maxPreviewCoveringIndexesPerCollection {
+		t.Fatalf("failed drop did not preserve the previous capped inventory: %#v", failDrop.indexes)
+	}
+}
+
+func TestStoredValuesReplacementAtCapRefusesNonmatchingLegacyInventory(t *testing.T) {
+	ctx := context.Background()
+	fields := []string{"project", "dataset_generation", "auth_resource_path", "_key", "payload.id", "payload.status"}
+	storedValues := []string{"payload.valueQuantity"}
+	name := "loom_pivot_preview_stored_projection"
+	legacyFields := []string{"project", "dataset_generation", "auth_resource_path", "_key", "payload.id", "payload.status", "payload.subject.reference", "payload.valueQuantity.value"}
+	legacyName := previewCoveringIndexName("Observation", legacyFields)
+	replacement := &previewIndexReplacement{name: legacyName, fields: legacyFields}
+	wrongFields := []string{"project", "dataset_generation", "auth_resource_path", "_key", "payload.other"}
+	fake := &fakePreviewIndexCollection{indexes: []driver.IndexResponse{
+		previewIndexResponse("loom_pivot_preview_unrelated_a", "Observation/unrelated-a", []string{"project", "dataset_generation", "auth_resource_path", "payload.a"}),
+		previewIndexResponse("loom_pivot_preview_unrelated_b", "Observation/unrelated-b", []string{"project", "dataset_generation", "auth_resource_path", "payload.b"}),
+		previewIndexResponse("loom_pivot_preview_unrelated_c", "Observation/unrelated-c", []string{"project", "dataset_generation", "auth_resource_path", "payload.c"}),
+		previewIndexResponse(legacyName, "Observation/legacy-mismatch", wrongFields),
+	}}
+	if err := ensurePreviewCoveringIndexDefinition(ctx, fake, name, fields, storedValues, replacement); !errors.Is(err, ErrPreviewCoveringIndexLimit) {
+		t.Fatalf("nonmatching legacy inventory error = %v, want index-cap refusal", err)
+	}
+	if !slices.Equal(fake.events, []string{}) || len(fake.indexes) != maxPreviewCoveringIndexesPerCollection {
+		t.Fatalf("nonmatching replacement mutated inventory: events=%v indexes=%#v", fake.events, fake.indexes)
+	}
+}
+
 func TestRelatedCategoryIndexReplacementStaysWithinCapAndDropsExactLegacyOnly(t *testing.T) {
 	ctx := context.Background()
 	legacyName := "loom_pivot_preview_legacy_category"
@@ -256,7 +405,7 @@ func (f *fakePreviewIndexCollection) EnsurePersistentIndex(_ context.Context, fi
 		f.indexes = append(f.indexes, *f.createResponse)
 		return *f.createResponse, true, nil
 	}
-	index := previewIndexResponse(options.Name, "Observation/"+options.Name, fields)
+	index := previewIndexResponseWithStoredValues(options.Name, "Observation/"+options.Name, fields, options.StoredValues)
 	f.indexes = append(f.indexes, index)
 	return index, true, nil
 }
@@ -276,11 +425,17 @@ func (f *fakePreviewIndexCollection) DeleteIndexByID(_ context.Context, id strin
 }
 
 func previewIndexResponse(name, id string, fields []string) driver.IndexResponse {
+	return previewIndexResponseWithStoredValues(name, id, fields, nil)
+}
+
+func previewIndexResponseWithStoredValues(name, id string, fields, storedValues []string) driver.IndexResponse {
 	return driver.IndexResponse{
 		Name: name, Type: driver.IndexType("persistent"), IndexSharedOptions: driver.IndexSharedOptions{
 			ID: id, Unique: boolPointer(false), Sparse: boolPointer(false),
 		},
-		RegularIndex: &driver.IndexOptions{Fields: append([]string(nil), fields...)},
+		RegularIndex: &driver.IndexOptions{
+			Fields: append([]string(nil), fields...), StoredValues: append([]string(nil), storedValues...),
+		},
 	}
 }
 

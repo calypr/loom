@@ -1,12 +1,15 @@
 package compiler
 
 import (
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
+	"github.com/calypr/loom/internal/dataframe/compiler/optimize"
+	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/semantic"
 )
@@ -63,6 +66,135 @@ func TestConstructionPreviewLimitAppliesAfterFinalStage(t *testing.T) {
 	}
 	if strings.Contains(query.Query[:finalRows], "LIMIT @limit") {
 		t.Fatalf("preview limit leaked into source scan before construction stages:\n%s", query.Query)
+	}
+}
+
+func TestStreamingMissingCategoryPivotUsesStoredParentProjectionIndex(t *testing.T) {
+	bindings := recipe.RuntimeBindings{Project: "loom_dev_cda_fhir", DatasetGeneration: "cda-fhir-v1"}
+	output := streamingMissingCategoryPivotTestOutput()
+	id := recipe.StageColumn{ID: "id_id", Name: "id", Type: "string", Nullable: true}
+	subject := recipe.StageColumn{ID: "subject_id", Name: "subject", Type: "string", Nullable: true}
+	output.Fields = append([]recipe.Field{
+		{Name: "id", ColumnID: id.ID, Expr: recipe.Expression{Select: "root.id"}},
+		{Name: "subject", ColumnID: subject.ID, Expr: recipe.Expression{Select: "root.subject.reference"}},
+	}, output.Fields...)
+	output.Construction.SourceColumns = append([]recipe.StageColumn{id, subject}, output.Construction.SourceColumns...)
+	pivot := output.Construction.Steps[0].Operation.Pivot
+	pivot.GroupKeyIDs = []string{subject.ID, "status_id"}
+	output.Construction.Steps[0].Outputs = append([]recipe.StageColumn{subject}, output.Construction.Steps[0].Outputs...)
+	bindings.IncludeSourceIdentity = true
+	bundle := recipe.Bundle{
+		RecipeSchemaVersion: recipe.CurrentSchemaVersion,
+		Name:                output.Name,
+		TranslationVersion:  "test",
+		Outputs:             []recipe.Output{output},
+	}
+	plan, err := semantic.BuildRecipePlan(bundle, bindings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := semantic.ResolveRecipePlan(plan, bindings.Project, bindings.DatasetGeneration)
+	if err != nil {
+		t.Fatal(err)
+	}
+	compiled, err := lower.CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(compiled.Outputs) != 1 {
+		t.Fatalf("compiled outputs = %d, want one", len(compiled.Outputs))
+	}
+	if !outputHasCompositeSource(compiled.Outputs[0]) {
+		t.Fatal("production-shaped Pivot lost its composite-source classification under IncludeSourceIdentity")
+	}
+	query, err := CompileRecipeOutputWithPolicy(compiled.Outputs[0], bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if query.PreviewCoveringIndex == nil {
+		t.Fatalf("direct-root typed-MISSING Pivot has no stored-values index contract: %s", query.Query)
+	}
+	physical, err := optimize.OptimizePhysicalPlanWithPolicy(compiled.Outputs[0].Plan, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bindings.IncludeSourceIdentity {
+		physical, _, err = withPreviewSourceResourceID(compiled.Outputs[0], physical)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	physical, err = withGenericPhysicalExecutionWindow(physical, 25)
+	if err != nil {
+		t.Fatal(err)
+	}
+	physical = withoutUnusedTerminalPivotPresenceCompanions(physical)
+	legacyIndex := previewCoveringIndexSpec(physical)
+	if legacyIndex != nil {
+		t.Fatalf("MISSING-presence plan unexpectedly has a field-only pre-override index proof: %+v", legacyIndex)
+	}
+	if query.PreviewCoveringIndex.Supersedes != nil {
+		t.Fatalf("compiler claimed replacement without an exact pre-override spec: %+v", query.PreviewCoveringIndex.Supersedes)
+	}
+	wantFields := []string{"project", "dataset_generation", "auth_resource_path", "_key", "payload.id", "payload.status", "payload.subject.reference"}
+	wantStoredValues := []string{"payload.valueQuantity"}
+	if !reflect.DeepEqual(query.PreviewCoveringIndex.Fields, wantFields) || !reflect.DeepEqual(query.PreviewCoveringIndex.StoredValues, wantStoredValues) {
+		t.Fatalf("stored-values index = %+v, want fields=%v storedValues=%v", query.PreviewCoveringIndex, wantFields, wantStoredValues)
+	}
+	unhinted, err := aql.RenderPhysicalPlanWithStreamingMissingCategoryPivotPreview(physical)
+	if err != nil {
+		t.Fatalf("render unhinted streaming Pivot: %v", err)
+	}
+	if strings.Contains(unhinted.Query, "FIRST([root.payload.valueQuantity])") {
+		t.Fatalf("stored-parent access wrapper leaked into unhinted rendering:\n%s", unhinted.Query)
+	}
+	genericFields := []string{"project", "dataset_generation", "auth_resource_path", "_key"}
+	if previewCoveringIndexNameWithStoredValues("Observation", wantFields, wantStoredValues) ==
+		previewCoveringIndexNameWithStoredValues("Observation", genericFields, wantStoredValues) {
+		t.Fatal("scalar key fields did not participate in deterministic index identity")
+	}
+	if previewCoveringIndexNameWithStoredValues("Observation", wantFields, wantStoredValues) ==
+		previewCoveringIndexNameWithStoredValues("Observation", wantFields, []string{"payload.valueQuantity.code"}) {
+		t.Fatal("different stored-value definition reused the same index identity")
+	}
+	for _, field := range query.PreviewCoveringIndex.Fields {
+		for _, stored := range query.PreviewCoveringIndex.StoredValues {
+			if previewCoveringIndexPathsOverlap(field, stored) {
+				t.Fatalf("index field %q overlaps stored-value parent %q", field, stored)
+			}
+		}
+	}
+	for _, required := range []string{
+		"OPTIONS { indexHint: \"" + query.PreviewCoveringIndex.Name + "\", forceIndexHint: false }",
+		"FILTER root.project == @project",
+		"FILTER root.dataset_generation == @dataset_generation",
+		"FILTER root_scope_allowed == @scope_allowed",
+		"FIRST([root.payload.valueQuantity]).code",
+		"FIRST([root.payload.valueQuantity]).value",
+		"IS_OBJECT(FIRST([root.payload.valueQuantity]))",
+		"HAS(FIRST([root.payload.valueQuantity]), \"code\")",
+		"TABLE_PIVOT_UNLISTED_CATEGORY",
+	} {
+		if !strings.Contains(query.Query, required) {
+			t.Fatalf("stored-parent streaming query omitted %q:\n%s", required, query.Query)
+		}
+	}
+	compiledPivot := compiled.Outputs[0].Plan.StageSequence.Stages[0].GroupedPivot
+	categoryColumnBind := streamingTestBindKey(query.BindVars, "reshape_category_column", compiledPivot.CategoryColumn)
+	presenceColumnBind := streamingTestBindKey(query.BindVars, "reshape_category_presence_column", compiledPivot.CategoryPresenceColumn)
+	if categoryColumnBind == "" || presenceColumnBind == "" {
+		t.Fatalf("typed category binds missing: category=%q presence=%q", categoryColumnBind, presenceColumnBind)
+	}
+	missingMatch := fmt.Sprintf("NOT (%s[@%s] == true)", compiledPivot.InputRowVariable, presenceColumnBind)
+	nullMatch := fmt.Sprintf("(%s[@%s] == true AND %s[@%s] == null)", compiledPivot.InputRowVariable, presenceColumnBind, compiledPivot.InputRowVariable, categoryColumnBind)
+	if !strings.Contains(query.Query, missingMatch) || !strings.Contains(query.Query, nullMatch) {
+		t.Fatalf("stored-parent projection merged MISSING and explicit NULL categories: missing=%q null=%q\n%s", missingMatch, nullMatch, query.Query)
+	}
+	if strings.Contains(query.Query, "HAS(root.payload.valueQuantity.code)") {
+		t.Fatalf("presence test inspected the leaf instead of its stored parent object:\n%s", query.Query)
+	}
+	if !strings.Contains(query.Query, " AGGREGATE ") || strings.Contains(query.Query, "INTO __loom_reshape_pivot_group_rows_") {
+		t.Fatalf("stored-parent preview stopped using complete-population streaming aggregation:\n%s", query.Query)
 	}
 }
 

@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"reflect"
 	"sort"
 	"strings"
 
@@ -70,6 +71,172 @@ func previewCoveringIndexSpec(plan ir.PhysicalPlan) *PreviewCoveringIndexSpec {
 		return spec
 	}
 	return nil
+}
+
+// streamingMissingCategoryPivotIndexSpec describes the narrowly-scoped
+// covering index used by the direct-root streaming Pivot renderer. The key
+// fields retain the existing project, generation, and authorization filters;
+// payload values are stored as projections so a non-forcing hinted scan can
+// avoid document materialization when ArangoDB can cover the query.
+func streamingMissingCategoryPivotIndexSpec(plan ir.PhysicalPlan) *PreviewCoveringIndexSpec {
+	sequence := plan.StageSequence
+	if sequence == nil || !sequence.PreviewTerminalPivotWindow || sequence.PreviewLimitBindKey == "" ||
+		sequence.PreviewSourceWindowByRootID || sequence.CellTraceReturn != nil || sequence.RowLineageReturn != nil ||
+		sequence.PopulationMappingReturn != nil || len(sequence.Stages) != 1 {
+		return nil
+	}
+	stage := sequence.Stages[0]
+	pivot := stage.GroupedPivot
+	if stage.ID != sequence.FinalStageID || stage.InputStageID != sequence.SourceStageID ||
+		stage.Kind != ir.PhysicalStagePivotOp || pivot == nil || pivot.OneInputRowPerGroup ||
+		!pivot.CategoryPresenceFromInput || pivot.CategoryPresenceColumn == "" || len(pivot.Categories) == 0 {
+		return nil
+	}
+	hasMissing := false
+	for _, category := range pivot.Categories {
+		hasMissing = hasMissing || category.MatchKind == ir.PhysicalPivotCategoryMissingMatch
+	}
+	if !hasMissing {
+		return nil
+	}
+	root, sourceReturn, ok := previewCoveringIndexSource(plan)
+	if !ok || root.Population != nil || root.Variable == "" {
+		return nil
+	}
+	collection, ok := plan.BindVars[root.CollectionBindKey].(string)
+	if !ok || strings.TrimSpace(collection) == "" {
+		return nil
+	}
+	presenceParent, ok := streamingPivotPresenceParentPath(sourceReturn.Projections, *pivot, root.Variable)
+	if !ok {
+		return nil
+	}
+	keyPathSet := make(map[string]struct{}, len(sourceReturn.Projections))
+	storedPathSet := make(map[string]struct{}, len(sourceReturn.Projections))
+	seenNames := make(map[string]struct{}, len(sourceReturn.Projections))
+	presenceOutputs := 0
+	presenceParentPath := strings.Join(presenceParent, ".")
+	for _, projection := range sourceReturn.Projections {
+		if projection.Name == "" {
+			return nil
+		}
+		if _, duplicate := seenNames[projection.Name]; duplicate {
+			return nil
+		}
+		seenNames[projection.Name] = struct{}{}
+		if projection.PresenceOutput {
+			if projection.Name != pivot.CategoryPresenceColumn || projection.Presence == nil ||
+				projection.Presence.Source.Variable != root.Variable || projection.Presence.Source.BindKey != "" {
+				return nil
+			}
+			presenceOutputs++
+			continue
+		}
+		path, direct := previewCoveringProjectionPath(projection, root.Variable)
+		if !direct {
+			return nil
+		}
+		if path == "_key" || containsIndexField(previewCoveringIndexPrefixFields, path) {
+			continue
+		}
+		if !strings.HasPrefix(path, "payload.") {
+			return nil
+		}
+		if path == presenceParentPath || strings.HasPrefix(path, presenceParentPath+".") {
+			storedPathSet[presenceParentPath] = struct{}{}
+			continue
+		}
+		scalarPath, scalar := previewCoveringDirectScalarProjectionPath(projection, root.Variable)
+		if !scalar || scalarPath != path {
+			return nil
+		}
+		keyPathSet[path] = struct{}{}
+	}
+	if presenceOutputs != 1 || len(keyPathSet) == 0 || len(storedPathSet) != 1 {
+		return nil
+	}
+	keyPaths := make([]string, 0, len(keyPathSet))
+	for path := range keyPathSet {
+		keyPaths = append(keyPaths, path)
+	}
+	sort.Strings(keyPaths)
+	storedValues := make([]string, 0, len(storedPathSet))
+	for path := range storedPathSet {
+		storedValues = append(storedValues, path)
+	}
+	sort.Strings(storedValues)
+	fields := append([]string(nil), previewCoveringIndexPrefixFields...)
+	fields = append(fields, "_key")
+	fields = append(fields, keyPaths...)
+	if len(fields) > 32 || len(storedValues) > 32 {
+		return nil
+	}
+	for _, field := range keyPaths {
+		for _, stored := range storedValues {
+			if previewCoveringIndexPathsOverlap(field, stored) {
+				return nil
+			}
+		}
+	}
+	name := previewCoveringIndexNameWithStoredValues(collection, fields, storedValues)
+	return &PreviewCoveringIndexSpec{
+		Collection: collection, Name: name, Fields: fields, StoredValues: storedValues,
+	}
+}
+
+func previewCoveringIndexPathsOverlap(left, right string) bool {
+	return left == right || strings.HasPrefix(left, right+".") || strings.HasPrefix(right, left+".")
+}
+
+func previewCoveringDirectScalarProjectionPath(projection ir.PhysicalProjection, rootVariable string) (string, bool) {
+	if projection.Expression == nil {
+		return "", false
+	}
+	return previewCoveringProjectionPath(projection, rootVariable)
+}
+
+// streamingPivotPresenceParentPath proves that the missing-category marker is
+// a direct nested property and that its parent object can be retained whole in
+// storedValues. Keeping that object preserves an explicit null leaf separately
+// from an absent leaf; storing only the leaf would encode both as null.
+func streamingPivotPresenceParentPath(projections []ir.PhysicalProjection, pivot ir.PhysicalGroupedPivot, rootVariable string) ([]string, bool) {
+	var categoryPath []string
+	var presence *ir.PhysicalProjectionPresence
+	for index := range projections {
+		projection := &projections[index]
+		if projection.Name == pivot.CategoryColumn {
+			path, ok := previewCoveringProjectionPath(*projection, rootVariable)
+			if !ok {
+				return nil, false
+			}
+			categoryPath = strings.Split(path, ".")
+		}
+		if projection.Name == pivot.CategoryPresenceColumn && projection.PresenceOutput {
+			if projection.Presence == nil || projection.Presence.Source.Variable != rootVariable ||
+				projection.Presence.Source.BindKey != "" {
+				return nil, false
+			}
+			copy := *projection.Presence
+			presence = &copy
+		}
+	}
+	if presence == nil || len(categoryPath) < 3 || len(presence.Paths) != 1 {
+		return nil, false
+	}
+	fullPath := append(append([]string(nil), presence.Source.Path...), presence.Paths[0]...)
+	if len(fullPath) < 3 || !reflect.DeepEqual(fullPath, categoryPath) {
+		return nil, false
+	}
+	for _, segment := range fullPath {
+		if !validPreviewIndexPath([]string{segment}) {
+			return nil, false
+		}
+	}
+	parent := append([]string(nil), fullPath[:len(fullPath)-1]...)
+	if strings.Join(parent, ".") == "payload" {
+		return nil, false
+	}
+	return parent, true
 }
 
 func previewGroupScanSpec(plan ir.PhysicalPlan, covering *PreviewCoveringIndexSpec) *PreviewGroupScanSpec {
@@ -415,6 +582,18 @@ func containsIndexField(fields []string, field string) bool {
 
 func previewCoveringIndexName(collection string, fields []string) string {
 	canonical := collection + "\x00" + strings.Join(fields, "\x00")
+	digest := sha256.Sum256([]byte(canonical))
+	return fmt.Sprintf("%s%s", previewCoveringIndexNamePrefix, hex.EncodeToString(digest[:8]))
+}
+
+func previewCoveringIndexNameWithStoredValues(collection string, fields, storedValues []string) string {
+	if len(storedValues) == 0 {
+		return previewCoveringIndexName(collection, fields)
+	}
+	canonicalStoredValues := append([]string(nil), storedValues...)
+	sort.Strings(canonicalStoredValues)
+	canonical := collection + "\x00fields\x00" + strings.Join(fields, "\x00") +
+		"\x00storedValues\x00" + strings.Join(canonicalStoredValues, "\x00")
 	digest := sha256.Sum256([]byte(canonical))
 	return fmt.Sprintf("%s%s", previewCoveringIndexNamePrefix, hex.EncodeToString(digest[:8]))
 }

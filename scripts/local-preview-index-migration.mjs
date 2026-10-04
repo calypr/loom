@@ -5,6 +5,7 @@ import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
+import { buildMigrationHelperInvocation, verifyApiSourceMount } from './lib/local-preview-index-migration.mjs';
 
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const defaultSourceRoot = resolve(scriptDirectory, '..');
@@ -74,16 +75,6 @@ function sharedComposeNetwork(api, arango) {
   return shared.sort();
 }
 
-async function verifyApiSourceMount(api, sourceRoot) {
-  const root = await realpath(sourceRoot);
-  const mounts = api.Mounts ?? [];
-  const internal = mounts.find((mount) => mount.Destination === '/workspace/internal');
-  const module = mounts.find((mount) => mount.Destination === '/workspace/go.mod');
-  assert(internal && module, 'owned API container must mount internal/ and go.mod from the active source checkout');
-  assert.equal(await realpath(internal.Source), join(root, 'internal'), 'API internal source mount differs from this checkout');
-  assert.equal(await realpath(module.Source), join(root, 'go.mod'), 'API module source mount differs from this checkout');
-}
-
 async function main() {
   const options = parseArgs(process.argv.slice(2));
   const [manifestText, compilerSpecText, helperText] = await Promise.all([
@@ -116,7 +107,12 @@ async function main() {
     await Promise.all([
       writeFile(join(work, 'main.go'), helperText),
       writeFile(join(work, 'manifest.json'), manifestText),
-      writeFile(join(work, 'compiler-spec.json'), compilerSpecText),
+      writeFile(join(work, 'compiler-spec.json'), JSON.stringify({
+        collection: compilerSpec.collection,
+        name: compilerSpec.name,
+        fields: compilerSpec.fields,
+        storedValues: compilerSpec.storedValues,
+      })),
       writeFile(join(work, 'overlay.json'), JSON.stringify(overlay)),
     ]);
     run('docker', ['exec', expected.apiContainer, 'mkdir', '-p', remote]);
@@ -130,8 +126,8 @@ async function main() {
       '--endpoint=http://arangodb:8529',
     ];
     if (options.apply) helperArgs.push('--apply', '--authorize-local-migration');
-    const command = `cd /workspace && GOTOOLCHAIN=local GOCACHE=${shellQuote(`${remote}/gocache`)} ${helperArgs.map(shellQuote).join(' ')}`;
-    const result = spawnSync('docker', ['exec', expected.apiContainer, 'sh', '-lc', command], {
+    const invocation = buildMigrationHelperInvocation(expected.apiContainer, remote, helperArgs);
+    const result = spawnSync('docker', invocation.dockerArgs, {
       encoding: 'utf8', timeout: 120000, maxBuffer: 8 * 1024 * 1024,
     });
     if (result.error) throw result.error;
@@ -164,10 +160,6 @@ async function main() {
   await writeFile(reportPath, `${JSON.stringify(report, null, 2)}\n`);
   process.stdout.write(`${JSON.stringify({ reportPath, ...report }, null, 2)}\n`);
   if (scriptError) process.exitCode = 1;
-}
-
-function shellQuote(value) {
-  return `'${String(value).replaceAll("'", "'\\''")}'`;
 }
 
 await main();

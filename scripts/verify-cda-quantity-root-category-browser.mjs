@@ -5,19 +5,28 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { browserEval, click, launchBrowser, navigate, selectOption, waitForBrowser } from './lib/browser.mjs';
+import { isApplicationBrowserRequest } from './lib/browser-request-ownership.mjs';
+import { collectVirtualPreviewRows } from './lib/virtual-preview-rows.mjs';
 import { captureSourceFreeze } from './lib/source-freeze.mjs';
+import { assertBoundedPreviewCount, assertPreviewRowsMatchRawObservations, assertReloadPreviewContext } from './lib/root-quantity-raw-preview.mjs';
+import { captureValidationWaitFailure, refreshValidationWaitFailureRequests } from './lib/validation-wait-evidence.mjs';
 import { sourceFingerprint } from './verify-ui/source-fingerprint.mjs';
 import { captureApiBuildFreeze, checkContainerApiBuildStamp, localCDAApiContainer } from './lib/api-build-freeze.mjs';
 import { assertOwnedDevSession, createDevSession, createFreshVerificationFixture, fixtureSourceDigest } from './loom-dev.mjs';
 
-const mode = process.argv[2] === 'fixture-lifecycle' ? 'fixture-lifecycle' : 'full-population';
-const evidence = mode === 'fixture-lifecycle'
+const requestedMode = process.argv[2];
+const mode = requestedMode === 'fixture-lifecycle' || requestedMode === 'full-population-lifecycle'
+  ? requestedMode
+  : 'full-population';
+const isFixture = mode === 'fixture-lifecycle';
+const isFullCda = mode === 'full-population' || mode === 'full-population-lifecycle';
+const evidence = isFixture || mode === 'full-population-lifecycle'
   ? process.argv[3] ?? `/tmp/loom-root-quantity-pivot-lifecycle-${Date.now()}`
   : process.argv[2] ?? `/tmp/loom-root-quantity-category-${Date.now()}`;
 const sourceRoot = fileURLToPath(new URL('..', import.meta.url));
 const fixtureDirectory = process.env.LOOM_ROOT_QUANTITY_FIXTURE_DIR ?? fileURLToPath(new URL('../testdata/root-quantity-pivot-fixture', import.meta.url));
-let project = mode === 'full-population' ? 'loom_dev_cda_fhir' : undefined;
-let expectedGeneration = mode === 'full-population' ? 'cda-fhir-v1' : undefined;
+let project = isFullCda ? 'loom_dev_cda_fhir' : undefined;
+let expectedGeneration = isFullCda ? 'cda-fhir-v1' : undefined;
 const resourceType = 'Observation';
 const explorer = `root-quantity-category-${Date.now()}`;
 let apiOrigin = process.env.LOOM_CDA_API_ORIGIN ?? 'http://127.0.0.1:8188';
@@ -29,7 +38,41 @@ if (project) {
   base = `${root}/${explorer}/authoring/v2`;
 }
 const arangoContainer = process.env.LOOM_ARANGO_CONTAINER ?? 'loom-dev-6d7df93d6a37-arangodb-1';
-const report = { mode, project, expectedGeneration, resourceType, explorer, cases: [], requests: [], authoringRequests: [], browserErrors: { runtime: [], console: [], network: [] }, started: new Date().toISOString() };
+const reportCase = isFixture ? 'fixture-lifecycle' : mode === 'full-population-lifecycle' ? 'full-population-lifecycle' : 'full-population-discovery';
+const requiredChecksByCase = {
+  'full-population-discovery': [
+    'independent raw Arango oracle covers the complete scoped CDA Observation population',
+    'typed root category discovery preserves MISSING separately from explicit NULL and string categories',
+    'native category summary and selection match every oracle category',
+    'category discovery and render complete within the five-second budget',
+    'watched source, API build, project, and generation remain stable',
+  ],
+  'fixture-lifecycle': [
+    'fresh owned project contains the four exact raw Observation IDs and independent MISSING, NULL, and string d quantity-code states',
+    'ERROR-policy preview reports only TABLE_PIVOT_CELL_CARDINALITY for the exact draft and offers visible SUM repair',
+    'native SUM Pivot preview matches MISSING=3, NULL=5, and d=6',
+    'Cancel leaves the saved pre-Pivot workspace unchanged and issues no command',
+    'Apply and reload preserve the exact Pivot source bindings, generation, output, and source population',
+    'editing duplicate policy to MAX and renaming d to d maximum produces d=4 and persists after reload',
+    'removing Pivot restores the exact raw fixture IDs, code states, and numeric values after reload',
+    'all fixture native lifecycle actions complete within five seconds each',
+    'no unexpected browser/authoring errors occur and source, API build, and fixture fingerprints remain unchanged',
+  ],
+  'full-population-lifecycle': [
+    'independent raw Arango oracle groups the complete scoped CDA Observation population by status and typed quantity.code state',
+    'raw oracle proves a duplicate Pivot bucket with at least two numeric values and different SUM and MAX results',
+    'typed category discovery matches the full raw MISSING, NULL, and scalar category domain',
+    'native SUM Pivot preview matches every status/category aggregate from the raw oracle',
+    'Cancel preserves the exact saved full-population workspace and source scope',
+    'Apply and reload preserve the exact root output, source bindings, project, generation, and independent full raw source-scope count',
+    'editing the duplicate bucket from SUM to MAX and renaming its heading matches the raw MAX oracle after reload',
+    'removing Pivot restores the full raw oracle scope and exact bounded source tuples after reload',
+    'all full-population native lifecycle actions complete within five seconds each',
+    'no unexpected browser or authoring errors occur and source, API build, project, and generation remain stable',
+  ],
+};
+const reportStartedAt = new Date().toISOString();
+const report = { schemaVersion: 2, scenario: 'root-quantity-pivot', case: reportCase, mode, project, expectedGeneration, resourceType, explorer, requiredChecks: requiredChecksByCase[reportCase], assertions: [], missingRequiredChecks: [], cases: [], requests: [], authoringRequests: [], browserErrors: { runtime: [], console: [], network: [] }, started: reportStartedAt, startedAt: reportStartedAt };
 await mkdir(evidence, { recursive: true });
 const sourceFreeze = await captureSourceFreeze(sourceRoot);
 report.sourceFingerprint = { before: sourceFingerprint(sourceRoot) };
@@ -42,6 +85,15 @@ const networkRequests = new Map();
 let fixtureTarget;
 let fixtureDigest;
 const parseJSON = value => { try { return JSON.parse(value); } catch { return value; } };
+const recordRequirement = (name, condition, evidence = {}) => {
+  const passed = Boolean(condition);
+  report.assertions.push({ name, status: passed ? 'passed' : 'failed', evidence });
+  assert(passed, `Required check failed: ${name}`);
+};
+const recordFact = (name, condition, evidence = {}) => {
+  report.assertions.push({ name, status: condition ? 'passed' : 'failed', evidence });
+  return Boolean(condition);
+};
 const drainResponseReads = async () => { while (pendingResponseReads.size) await Promise.all([...pendingResponseReads]); };
 
 const api = async (path, body) => {
@@ -97,6 +149,97 @@ const runRawCategoryOracle = generation => {
         ? 'NULL'
         : JSON.stringify({ kind: 'STRING', string: category.value })).sort(),
   };
+};
+
+const runRawFullPopulationPivotOracle = generation => {
+  const query = `FOR o IN Observation FILTER o.project == ${JSON.stringify(project)} AND o.dataset_generation == ${JSON.stringify(generation)} LET quantity = o.payload.valueQuantity LET codePresent = IS_OBJECT(quantity) ? HAS(quantity, "code") : false LET codeValue = codePresent ? quantity.code : null LET valuePresent = IS_OBJECT(quantity) ? HAS(quantity, "value") : false LET quantityValue = valuePresent ? quantity.value : null COLLECT status = o.payload.status, categoryPresent = codePresent, categoryValue = codeValue AGGREGATE rowCount = COUNT(), numericCount = SUM(IS_NUMBER(quantityValue) ? 1 : 0), valueSum = SUM(IS_NUMBER(quantityValue) ? quantityValue : 0), valueMax = MAX(IS_NUMBER(quantityValue) ? quantityValue : null) SORT status, categoryPresent ASC, TYPENAME(categoryValue), categoryValue RETURN {status, present: categoryPresent, value: categoryValue, rowCount, numericCount, valueSum, valueMax}`;
+  const program = `print(JSON.stringify(db._query(${JSON.stringify(query)}).toArray()));`;
+  const result = spawnSync('rtk', [
+    'proxy', 'docker', 'exec', arangoContainer,
+    'arangosh', '--server.database', process.env.LOOM_ARANGO_DATABASE ?? 'loom_dev',
+    '--javascript.execute-string', program,
+  ], { encoding: 'utf8', timeout: 30000, maxBuffer: 8 * 1024 * 1024 });
+  if (result.error) throw result.error;
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  const payloadLine = result.stdout.split(/\r?\n/).findLast(line => line.trimStart().startsWith('['));
+  assert(payloadLine, `Raw full-population Pivot query returned no JSON array: ${result.stdout.slice(-1000)}`);
+  const groups = JSON.parse(payloadLine).map(group => ({
+    status: group.status,
+    present: group.present,
+    value: group.value,
+    rowCount: group.rowCount,
+    numericCount: group.numericCount,
+    valueSum: group.valueSum,
+    valueMax: group.valueMax,
+  }));
+  assert(groups.length > 0, 'The scoped CDA Observation source must contain at least one status/category group');
+  for (const group of groups) {
+    assert.equal(typeof group.status, 'string', `Raw Observation.status must be a scalar string for full Pivot grouping: ${JSON.stringify(group)}`);
+    assert.equal(typeof group.present, 'boolean', `Raw category presence must be boolean: ${JSON.stringify(group)}`);
+    if (!group.present) assert.equal(group.value, null, `A missing code path must project to null with present=false: ${JSON.stringify(group)}`);
+    else assert(group.value === null || typeof group.value === 'string', `Unexpected typed quantity.code category: ${JSON.stringify(group)}`);
+    assert(Number.isInteger(group.rowCount) && group.rowCount > 0, `Every raw aggregate bucket must have positive membership: ${JSON.stringify(group)}`);
+    assert(Number.isInteger(group.numericCount) && group.numericCount >= 0 && group.numericCount <= group.rowCount, `Raw numeric value count is invalid: ${JSON.stringify(group)}`);
+    if (group.numericCount > 0) {
+      assert(Number.isFinite(group.valueSum), `Raw numeric SUM must be finite: ${JSON.stringify(group)}`);
+      assert(Number.isFinite(group.valueMax), `Raw numeric MAX must be finite: ${JSON.stringify(group)}`);
+    } else {
+      assert.equal(group.valueMax, null, `An all-missing/non-numeric quantity bucket must have no numeric MAX: ${JSON.stringify(group)}`);
+    }
+  }
+  const byCategory = new Map();
+  for (const group of groups) {
+    const identity = categoryIdentity(group.present, group.value);
+    const current = byCategory.get(identity) ?? { present: group.present, value: group.value, rowCount: 0 };
+    current.rowCount += group.rowCount;
+    byCategory.set(identity, current);
+  }
+  const categories = [...byCategory.values()].sort((left, right) => categoryIdentity(left.present, left.value).localeCompare(categoryIdentity(right.present, right.value)));
+  const duplicateBuckets = groups.filter(group => group.present && typeof group.value === 'string'
+      && group.rowCount > 1 && group.numericCount > 1 && Math.abs(group.valueSum - group.valueMax) > 1e-9)
+    .sort((left, right) => Number(right.value === 'd') - Number(left.value === 'd')
+      || right.numericCount - left.numericCount
+      || left.status.localeCompare(right.status)
+      || categoryIdentity(left.present, left.value).localeCompare(categoryIdentity(right.present, right.value)));
+  assert(duplicateBuckets.length > 0, 'The full CDA oracle must prove at least one status/category bucket with duplicate numeric values whose SUM differs from MAX');
+  const duplicateWitness = duplicateBuckets[0];
+  const sourceRows = groups.reduce((sum, group) => sum + group.rowCount, 0);
+  const missingRows = categories.filter(category => !category.present).reduce((sum, category) => sum + category.rowCount, 0);
+  const explicitNullRows = categories.filter(category => category.present && category.value === null).reduce((sum, category) => sum + category.rowCount, 0);
+  const presentStringRows = categories.filter(category => category.present && typeof category.value === 'string').reduce((sum, category) => sum + category.rowCount, 0);
+  return {
+    query,
+    scope: { project, generation, collection: 'Observation', authorization: 'local Compose no-auth / unrestricted' },
+    sourceRows,
+    missingRows,
+    explicitNullRows,
+    presentStringRows,
+    categories,
+    categoryIdentities: categories.map(category => categoryIdentity(category.present, category.value)).sort(),
+    groups,
+    duplicateWitness,
+    rawGroupedOracle: 'status × MISSING/NULL/typed quantity.code with membership count, numeric value count, SUM, and MAX',
+  };
+};
+
+const runRawObservationTupleOracle = (generation, requestedIDs) => {
+  assert(Array.isArray(requestedIDs) && requestedIDs.length > 0 && requestedIDs.length <= 25, 'The bounded raw tuple query accepts only one to 25 native-preview IDs');
+  assert(requestedIDs.every(id => typeof id === 'string' && id.length > 0), 'Every native-preview Observation ID must be a nonempty string');
+  assert.equal(new Set(requestedIDs).size, requestedIDs.length, 'Native preview must not request duplicate source IDs');
+  const query = `FOR o IN Observation FILTER o.project == ${JSON.stringify(project)} AND o.dataset_generation == ${JSON.stringify(generation)} AND o.id IN ${JSON.stringify(requestedIDs)} LET quantity = o.payload.valueQuantity LET codePresent = IS_OBJECT(quantity) ? HAS(quantity, "code") : false LET valuePresent = IS_OBJECT(quantity) ? HAS(quantity, "value") : false SORT o.id RETURN {id: o.id, status: o.payload.status, codePresent, codeValue: codePresent ? quantity.code : null, valuePresent, value: valuePresent ? quantity.value : null}`;
+  const program = `print(JSON.stringify(db._query(${JSON.stringify(query)}).toArray()));`;
+  const result = spawnSync('rtk', [
+    'proxy', 'docker', 'exec', arangoContainer,
+    'arangosh', '--server.database', process.env.LOOM_ARANGO_DATABASE ?? 'loom_dev',
+    '--javascript.execute-string', program,
+  ], { encoding: 'utf8', timeout: 30000, maxBuffer: 2 * 1024 * 1024 });
+  if (result.error) throw result.error;
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  const payloadLine = result.stdout.split(/\r?\n/).findLast(line => line.trimStart().startsWith('['));
+  assert(payloadLine, `Raw bounded Observation tuple query returned no JSON array: ${result.stdout.slice(-1000)}`);
+  const rawRows = JSON.parse(payloadLine);
+  assert.deepEqual(rawRows.map(row => row.id).sort(), [...requestedIDs].sort(), 'Raw tuple query must return every requested source ID in the exact project/generation scope');
+  return { query, scope: { project, generation, collection: 'Observation', authorization: 'local Compose no-auth / unrestricted' }, rawRows };
 };
 
 const categoryIdentity = (present, value) => !present
@@ -227,8 +370,8 @@ const selectPivotSource = async (label, path) => {
   return matches[0].value;
 };
 
-const measure = (name, startedAt) => {
-  const durationMs = Date.now() - startedAt;
+const measure = (name, startedAt, finishedAt = Date.now()) => {
+  const durationMs = finishedAt - startedAt;
   assert(durationMs <= 5000, `${name} took ${durationMs}ms`);
   report.cases.push({ name, durationMs });
 };
@@ -238,6 +381,7 @@ const pivotIdentity = key => key?.kind === 'MISSING'
   : key?.kind === 'NULL'
     ? 'NULL'
     : JSON.stringify(key);
+const stableRows = rows => rows.map(row => JSON.stringify(Object.entries(row).sort(([left], [right]) => left.localeCompare(right)))).sort();
 
 const waitForProposal = async (requestOffset, previousProposalId, name) => {
   await waitForBrowser(browser.cdp,
@@ -278,43 +422,67 @@ const expectedPivot = (request, oracle, duplicatePolicy, labelOverrides = {}) =>
   assert.deepEqual(categories.map(category => pivotIdentity(category.key)).sort(), [...new Set(oracle.categoryIdentities)].sort(),
     'Pivot output categories must preserve MISSING, explicit NULL, and the string category identities');
   const categoryByIdentity = new Map(categories.map(category => [pivotIdentity(category.key), category.output]));
-  const aggregates = new Map();
-  for (const row of oracle.fixtureRows) {
-    const key = row.category;
-    const output = categoryByIdentity.get(key);
-    assert(output, `Fixture record ${row.id} has no exact typed Pivot output for ${key}`);
-    const current = aggregates.get(output.name);
-    if (duplicatePolicy === 'SUM') aggregates.set(output.name, (current ?? 0) + row.value);
-    else if (duplicatePolicy === 'MAX') aggregates.set(output.name, current === undefined ? row.value : Math.max(current, row.value));
-    else assert.fail(`Fixture lifecycle oracle does not implement unexpected duplicate policy ${duplicatePolicy}`);
+  let expectedRows;
+  if (oracle.groups) {
+    const statuses = [...new Set(oracle.groups.map(group => group.status))].sort();
+    expectedRows = statuses.map(status => {
+      const expectedRow = Object.fromEntries(groups.map(group => [group.name, status]));
+      for (const category of categories) {
+        const key = pivotIdentity(category.key);
+        const rawGroup = oracle.groups.find(group => group.status === status && categoryIdentity(group.present, group.value) === key);
+        if (!rawGroup || rawGroup.numericCount === 0) expectedRow[category.output.name] = null;
+        else if (duplicatePolicy === 'SUM') expectedRow[category.output.name] = rawGroup.valueSum;
+        else if (duplicatePolicy === 'MAX') expectedRow[category.output.name] = rawGroup.valueMax;
+        else assert.fail(`Full-population lifecycle oracle does not implement unexpected duplicate policy ${duplicatePolicy}`);
+      }
+      return expectedRow;
+    });
+  } else {
+    const aggregates = new Map();
+    for (const row of oracle.fixtureRows) {
+      const key = row.category;
+      const output = categoryByIdentity.get(key);
+      assert(output, `Fixture record ${row.id} has no exact typed Pivot output for ${key}`);
+      const current = aggregates.get(output.name);
+      if (duplicatePolicy === 'SUM') aggregates.set(output.name, (current ?? 0) + row.value);
+      else if (duplicatePolicy === 'MAX') aggregates.set(output.name, current === undefined ? row.value : Math.max(current, row.value));
+      else assert.fail(`Fixture lifecycle oracle does not implement unexpected duplicate policy ${duplicatePolicy}`);
+    }
+    const expectedRow = { [groups[0].name]: 'final' };
+    for (const category of categories) expectedRow[category.output.name] = aggregates.get(category.output.name) ?? null;
+    expectedRows = [expectedRow];
   }
   const preview = response.preview;
   assert(preview, 'Native construction proposal must include its typed table preview');
   assert.equal(preview.receiptId, response.proposalId, 'Preview must be bound to the exact proposal receipt');
   assert.equal(preview.outputId, outputId);
-  assert.equal(preview.rowCount, 1, 'All four fixture Observations share the final status group');
-  assert.equal(preview.rows.length, 1);
+  if (oracle.groups) {
+    const statusCount = new Set(oracle.groups.map(group => group.status)).size;
+    assert.equal(preview.rowCount, statusCount, 'Native Pivot must retain every raw Observation.status group');
+    assert.equal(preview.rows.length, expectedRows.length);
+  } else {
+    assert.equal(preview.rowCount, 1, 'All four fixture Observations share the final status group');
+    assert.equal(preview.rows.length, 1);
+  }
   const groupOutput = groups[0];
   const columns = preview.columns.map(column => ({ column: column.column, label: labelOverrides[column.column] ?? column.label, logicalType: column.logicalType }));
-  const expectedRow = Object.fromEntries(columns.map(column => {
-    if (column.column === groupOutput.name) return [column.column, 'final'];
-    const category = categories.find(candidate => candidate.output.name === column.column);
-    assert(category, `Unexpected Preview column ${column.column}`);
-    return [column.column, aggregates.get(column.column) ?? null];
-  }));
-  const actualRow = Object.fromEntries(columns.map(column => [column.column, preview.rows[0][column.column] ?? null]));
-  assert.deepEqual(actualRow, expectedRow, `Pivot ${duplicatePolicy} output must match the independent fixture values`);
+  const actualRows = preview.rows.map(row => Object.fromEntries(columns.map(column => [column.column, row[column.column] ?? null])));
+  assert.deepEqual(stableRows(actualRows), stableRows(expectedRows), `Pivot ${duplicatePolicy} output must match the independent raw values`);
   const identities = preview.rows.map(row => row.__loom_row_id);
   assert(identities.every(id => typeof id === 'string' && id.length > 0), 'Pivot preview must return a stable row identity');
   assert.equal(new Set(identities).size, identities.length);
-  return { step, operation, preview, columns, expectedRows: [expectedRow], categories, outputByIdentity: categoryByIdentity };
+  return { step, operation, preview, columns, expectedRows, categories, outputByIdentity: categoryByIdentity };
 };
 
 const assertRendered = async (columns, rows, label) => {
   await waitForBrowser(browser.cdp,
     `document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount')===${JSON.stringify(String(rows.length + 1))}&&!document.body.innerText.includes('Loading your table…')`,
     10000);
-  const actual = await browserEval(browser.cdp, `const root=document.querySelector('[data-testid="preview-table-scroll"]');return {headers:[...root.querySelectorAll('[role="columnheader"]')].map(cell=>cell.innerText.trim().split('\\n')[0]),rows:[...root.querySelectorAll('[role="row"]')].slice(1).map(row=>[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText.trim()))};`);
+  const actual = await collectVirtualPreviewRows({
+    expectedCount: rows.length,
+    readWindow: () => browserEval(browser.cdp, `const root=document.querySelector('[data-testid="preview-table-scroll"]');const table=root.querySelector('[role="table"]');return {headers:[...table.querySelectorAll('[role="columnheader"]')].map(cell=>cell.innerText.trim().split('\\n')[0]),rowCount:Number(table.getAttribute('aria-rowcount'))-1,clientHeight:root.clientHeight,scrollHeight:root.scrollHeight,scrollTop:root.scrollTop,rows:[...table.querySelectorAll('[role="row"]')].slice(1).map(row=>({index:Number(row.firstElementChild.innerText.trim()),cells:[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText.trim())}))};`),
+    scrollTo: top => browserEval(browser.cdp, `document.querySelector('[data-testid="preview-table-scroll"]').scrollTop=${top};await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));`),
+  });
   assert.deepEqual(actual.headers.map(header => header.toLowerCase()), columns.map(column => column.label.toLowerCase()), `${label} headers must match the native output labels`);
   const expectedCells = rows.map(row => columns.map(column => row[column.column] === null || row[column.column] === undefined ? '—' : String(row[column.column])));
   assert.deepEqual(actual.rows.map(row => JSON.stringify(row)).sort(), expectedCells.map(row => JSON.stringify(row)).sort(), `${label} rendered values must match the typed preview and raw oracle`);
@@ -340,20 +508,64 @@ const setPivotDuplicatePolicy = async (policy, requestOffset, name) => {
   const startedAt = Date.now();
   await click(browser.cdp, '[data-testid="construction-reshape-pivot-advanced"] > summary');
   if (policy === 'SUM') {
-    await waitForBrowser(browser.cdp,
-      `(()=>{const alert=document.querySelector('[data-testid="construction-proposal-error"]');const select=document.querySelector('select[aria-label="Pivot duplicate policy"]');return Boolean(alert)&&select?.value==='ERROR'})()`,
-      5000);
+    try {
+      await waitForBrowser(browser.cdp,
+        `(()=>{const alert=document.querySelector('[data-testid="construction-proposal-error"]');const select=document.querySelector('select[aria-label="Pivot duplicate policy"]');return Boolean(alert)&&select?.value==='ERROR'})()`,
+        5000);
+    } catch (waitError) {
+      let visibleState;
+      try {
+        visibleState = await browserEval(browser.cdp, `const panel=document.querySelector('[data-testid="construction-proposal-panel"]');const alert=document.querySelector('[data-testid="construction-proposal-error"]');const select=document.querySelector('select[aria-label="Pivot duplicate policy"]');const summary=document.querySelector('[data-testid="construction-reshape-pivot-policy-summary"]');return {proposalStatus:panel?.dataset.proposalStatus??null,proposalId:panel?.dataset.proposalId??null,alert:alert?.innerText.trim()??null,policy:select?.value??null,summary:summary?.innerText.trim()??null,statusMessages:[...document.querySelectorAll('[role="status"],[role="alert"]')].map(node=>node.innerText.trim()).filter(Boolean),visibleText:(document.body?.innerText??'').slice(-1800)};`);
+      } catch (captureError) {
+        visibleState = { captureError: String(captureError) };
+      }
+      const failureEvidence = captureValidationWaitFailure({
+        requests: report.authoringRequests,
+        requestOffset,
+        pathname: `${base}/construction-proposals`,
+        name,
+        timeoutMs: 5000,
+        error: waitError,
+        visibleState,
+      });
+      report.validationWaitFailures ??= [];
+      report.validationWaitFailures.push(failureEvidence);
+      await drainResponseReads();
+      refreshValidationWaitFailureRequests(failureEvidence, report.authoringRequests);
+      throw new Error(`${name}: expected cardinality rejection did not render within the existing 5000ms budget; request evidence is recorded as an unexpected failure`);
+    }
     await drainResponseReads();
+    measure(`${name} expected duplicate validation to render`, startedAt);
     const failures = report.authoringRequests.slice(requestOffset)
       .filter(request => request.endpoint === 'construction-proposals' && request.status >= 400);
     assert.equal(failures.length, 1, `${name} must have exactly one preceding validation rejection before SUM: ${JSON.stringify(failures.map(request => ({ status: request.status, code: request.response?.error?.code })))}`);
     const rejection = failures[0];
     const alert = await browserEval(browser.cdp, `const panel=document.querySelector('[data-testid="construction-proposal-error"]');const select=document.querySelector('select[aria-label="Pivot duplicate policy"]');const summary=document.querySelector('[data-testid="construction-reshape-pivot-policy-summary"]');const sum=[...select.options].find(option=>option.value==='SUM');return {alert:panel?.innerText.trim(),policy:select?.value,summary:summary?.innerText.trim(),sumOption:sum?{label:sum.textContent.trim(),disabled:sum.disabled}:null};`);
-    const duplicateCode = JSON.stringify({ kind: 'STRING', string: 'd' });
-    const duplicateWitnesses = report.oracle.fixtureRows.filter(row => row.category === duplicateCode);
-    assert.equal(duplicateWitnesses.length, 2, `${name} ERROR policy must be justified by two independent raw d witnesses`);
-    assert(duplicateWitnesses.every(row => row.status === duplicateWitnesses[0].status), `${name} raw d witnesses must share the selected status group`);
-    assert.equal(duplicateWitnesses[0].status, 'final');
+    let duplicateWitnesses;
+    let duplicateBucketEvidence;
+    if (report.oracle.groups) {
+      const bucket = report.oracle.duplicateWitness;
+      assert(bucket, `${name} ERROR policy must be justified by the raw full-population duplicate bucket`);
+      assert(bucket.present && typeof bucket.value === 'string', `${name} editable duplicate witness must be a literal string quantity.code category`);
+      assert(bucket.rowCount > 1 && bucket.numericCount > 1 && Math.abs(bucket.valueSum - bucket.valueMax) > 1e-9,
+        `${name} raw status/category bucket must prove repeated numeric values whose SUM differs from MAX`);
+      duplicateWitnesses = [bucket];
+      duplicateBucketEvidence = {
+        status: bucket.status,
+        category: categoryIdentity(bucket.present, bucket.value),
+        rowCount: bucket.rowCount,
+        numericCount: bucket.numericCount,
+        sum: bucket.valueSum,
+        max: bucket.valueMax,
+      };
+    } else {
+      const duplicateCode = JSON.stringify({ kind: 'STRING', string: 'd' });
+      duplicateWitnesses = report.oracle.fixtureRows.filter(row => row.category === duplicateCode);
+      assert.equal(duplicateWitnesses.length, 2, `${name} ERROR policy must be justified by two independent raw d witnesses`);
+      assert(duplicateWitnesses.every(row => row.status === duplicateWitnesses[0].status), `${name} raw d witnesses must share the selected status group`);
+      assert.equal(duplicateWitnesses[0].status, 'final');
+      duplicateBucketEvidence = { rawWitnessIDs: duplicateWitnesses.map(row => row.id), status: duplicateWitnesses[0].status, category: duplicateCode };
+    }
     assert.equal(rejection.status, 422, `${name} expected cardinality validation must use HTTP 422`);
     assert.equal(rejection.response?.error?.code, 'TABLE_PIVOT_CELL_CARDINALITY', `${name} must report the exact Pivot cell-cardinality validation code`);
     assert.equal(rejection.response?.error?.diagnostic?.code, 'TABLE_PIVOT_CELL_CARDINALITY');
@@ -390,17 +602,19 @@ const setPivotDuplicatePolicy = async (policy, requestOffset, name) => {
       outputId,
       snapshotToken: rejection.body.snapshotToken,
       draftVersion: rejection.body.expectedDraftVersion,
-      rawDuplicateWitnessIDs: duplicateWitnesses.map(row => row.id),
+      rawDuplicateWitnessIDs: duplicateWitnesses.flatMap(row => row.id ? [row.id] : []),
+      rawDuplicateBucket: duplicateBucketEvidence,
       visibleRepair: alert,
       classification: 'expected-domain-validation-repaired-by-user-selected-SUM',
     });
   }
   const prior = await browserEval(browser.cdp, `return document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalId??'';`);
+  const previewStartedAt = policy === 'SUM' ? Date.now() : startedAt;
   await selectOption(browser.cdp, 'select[aria-label="Pivot duplicate policy"]', policy, {
     settledWhen: `document.querySelector('select[aria-label="Pivot duplicate policy"]')?.value===${JSON.stringify(policy)}`,
   });
   const result = await waitForProposal(requestOffset, prior, name);
-  measure(`${name} automatic preview action to render`, startedAt);
+  measure(`${name} automatic preview action to render`, previewStartedAt);
   return result;
 };
 
@@ -452,6 +666,9 @@ const runFixtureLifecycle = async (discovery, oracle, prePivotWorkspace, prePivo
   assertBuilderScope(builder, 'After Cancel');
   assert.deepEqual(builder.workspace, prePivotWorkspace, 'Cancel must preserve the pre-Pivot saved workspace');
   assert.equal(report.authoringRequests.filter(entry => entry.endpoint === 'commands').length, commandCount, 'Cancel must not issue a native draft command');
+  recordRequirement(requiredChecksByCase[reportCase][3], JSON.stringify(builder.workspace) === JSON.stringify(prePivotWorkspace)
+    && report.authoringRequests.filter(entry => entry.endpoint === 'commands').length === commandCount,
+  { project, generation: builder.catalog.generation, outputId, commandCount });
   measure('quantity Pivot preview cancel', cancelStarted);
 
   await openPivotEditor();
@@ -506,6 +723,13 @@ const runFixtureLifecycle = async (discovery, oracle, prePivotWorkspace, prePivo
   await assertRendered(applyPivot.columns, applyPivot.expectedRows, 'Reloaded quantity Pivot');
   builder = await api(base + '/builder');
   document = assertSavedPivotScope(builder, 'SUM', undefined, 'After quantity Pivot reload');
+  recordRequirement(requiredChecksByCase[reportCase][4], builder.catalog.generation === expectedGeneration
+    && document.output.id === outputId
+    && JSON.stringify(document.rows) === JSON.stringify(prePivotDocument.rows)
+    && savedSourceBindings.groupKeyIds.length === 1
+    && savedSourceBindings.categoryColumnId === applyPivot.operation.categoryColumnId
+    && savedSourceBindings.valueColumnId === applyPivot.operation.valueColumnId,
+  { project, generation: builder.catalog.generation, outputId, sourceBindings: savedSourceBindings, sourceRowCount: oracle.sourceRows });
   measure('quantity Pivot reload to render', reloadStarted);
 
   const history = await browserEval(browser.cdp, `return [...document.querySelectorAll('[data-testid^="construction-history-step-"]')].map(button=>({testId:button.getAttribute('data-testid'),text:button.innerText}));`);
@@ -567,6 +791,10 @@ const runFixtureLifecycle = async (discovery, oracle, prePivotWorkspace, prePivo
     column: editPivot.categories.find(category => pivotIdentity(category.key) === JSON.stringify({ kind: 'STRING', string: 'd' })).output.name,
     label: 'd maximum',
   }, 'After edited quantity Pivot reload');
+  recordRequirement(requiredChecksByCase[reportCase][5], document.construction.steps.find(step => step.operation.kind === 'PIVOT')?.operation.pivot.duplicatePolicy === 'MAX'
+    && document.construction.steps.find(step => step.operation.kind === 'PIVOT')?.outputs.some(output => output.label === 'd maximum')
+    && document.output.id === outputId && builder.catalog.generation === expectedGeneration,
+  { policy: 'MAX', editedHeading: 'd maximum', generation: builder.catalog.generation, sourceBindings: savedSourceBindings });
   measure('quantity Pivot edited reload to render', editReloadStarted);
 
   const removeHistory = await browserEval(browser.cdp, `return [...document.querySelectorAll('[data-testid^="construction-history-step-"]')].map(button=>({testId:button.getAttribute('data-testid'),text:button.innerText}));`);
@@ -579,6 +807,7 @@ const runFixtureLifecycle = async (discovery, oracle, prePivotWorkspace, prePivo
   await click(browser.cdp, '[data-testid^="construction-remove-step-"]');
   await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalStatus==='ready'`, 10000);
   await drainResponseReads();
+  const removePreviewRenderedAt = Date.now();
   const removeRequest = report.authoringRequests.slice(removeRequestOffset).findLast(entry => entry.endpoint === 'construction-proposals');
   assert.equal(removeRequest?.status, 200, 'Removing the saved quantity Pivot must produce a native proposal');
   const removePreview = removeRequest.response.preview;
@@ -625,14 +854,343 @@ const runFixtureLifecycle = async (discovery, oracle, prePivotWorkspace, prePivo
     'Final reload must preserve the same exact restored source column identities');
   assert.equal(builder.catalog.generation, expectedGeneration);
   assert.deepEqual(oracle.fixtureRows.map(row => row.id).sort(), sourceRecords.map(row => row.id).sort(), 'Restored root membership must equal the independent raw fixture IDs');
+  recordRequirement(requiredChecksByCase[reportCase][6], document.output.id === outputId
+    && builder.catalog.generation === expectedGeneration
+    && JSON.stringify(document.rows) === JSON.stringify(prePivotDocument.rows)
+    && JSON.stringify(oracle.fixtureRows.map(row => row.id).sort()) === JSON.stringify(sourceRecords.map(row => row.id).sort())
+    && document.construction.steps.length === 0,
+  { project, generation: builder.catalog.generation, outputId, sourceIDs: sourceRecords.map(row => row.id).sort(), restoredColumnIDs });
   report.fixtureLifecycle.restoredSourceRows = sourceRecords.map(row => ({ id: row.id, category: row.category, value: row.value }));
   report.fixtureLifecycle.editedDuplicatePolicy = 'MAX';
   report.fixtureLifecycle.editedDValue = 4;
   report.fixtureLifecycle.lifecycle = ['Preview', 'Cancel', 'Apply', 'reload', 'edit heading/policy', 'Apply', 'reload', 'remove', 'restore', 'reload'];
 };
 
+const runFullPopulationLifecycle = async (discovery, oracle, prePivotWorkspace, prePivotDocument, discoveryRequestOffset) => {
+  const witness = oracle.duplicateWitness;
+  const initial = await setPivotDuplicatePolicy('SUM', discoveryRequestOffset, 'Initial full CDA Pivot preview');
+  const initialPivot = expectedPivot(initial.request, oracle, 'SUM');
+  await assertProposalPanel(initialPivot, 'Initial full CDA Pivot preview');
+  const initialActualRows = initialPivot.preview.rows.map(row => Object.fromEntries(initialPivot.columns.map(column => [column.column, row[column.column] ?? null])));
+  recordRequirement(requiredChecksByCase[reportCase][3],
+    initialPivot.preview.rowCount === new Set(oracle.groups.map(group => group.status)).size
+      && JSON.stringify(stableRows(initialActualRows)) === JSON.stringify(stableRows(initialPivot.expectedRows)),
+    { rowCount: initialPivot.preview.rowCount, expectedGroups: new Set(oracle.groups.map(group => group.status)).size, rows: initialPivot.expectedRows });
+
+  report.fullPopulationLifecycle = {
+    discoveryOutcome: discovery.response.outcome,
+    typedCategories: discovery.response.categories.map(category => category.key),
+    sourceRows: oracle.sourceRows,
+    rawGroupCount: oracle.groups.length,
+    duplicateWitness: {
+      status: witness.status,
+      category: categoryIdentity(witness.present, witness.value),
+      rowCount: witness.rowCount,
+      numericCount: witness.numericCount,
+      sum: witness.valueSum,
+      max: witness.valueMax,
+    },
+    initialDuplicatePolicy: 'SUM',
+    initialExpected: initialPivot.expectedRows,
+  };
+
+  const commandCount = report.authoringRequests.filter(entry => entry.endpoint === 'commands').length;
+  const cancelStarted = Date.now();
+  await click(browser.cdp, '[data-testid="construction-cancel-proposal"]');
+  await waitForBrowser(browser.cdp, `!document.querySelector('[data-testid="construction-proposal-panel"]')`, 5000);
+  builder = await api(base + '/builder');
+  const afterCancel = assertBuilderScope(builder, 'After full CDA Pivot Cancel');
+  assert.deepEqual(builder.workspace, prePivotWorkspace, 'Cancel must preserve the exact pre-Pivot full-population workspace');
+  assert.deepEqual(afterCancel.rows, prePivotDocument.rows, 'Cancel must preserve the exact full Observation source population definition');
+  assert.equal(report.authoringRequests.filter(entry => entry.endpoint === 'commands').length, commandCount, 'Cancel must not issue a native draft command');
+  recordRequirement(requiredChecksByCase[reportCase][4], builder.catalog.generation === expectedGeneration
+    && afterCancel.output.id === outputId
+    && JSON.stringify(afterCancel.rows) === JSON.stringify(prePivotDocument.rows)
+    && report.authoringRequests.filter(entry => entry.endpoint === 'commands').length === commandCount,
+  { project, generation: builder.catalog.generation, outputId, sourceRows: oracle.sourceRows, commandCount });
+  measure('full CDA quantity Pivot preview cancel', cancelStarted);
+
+  await openPivotEditor();
+  await selectPivotSource('Add pivot group field', 'Observation.status');
+  await selectPivotSource('Pivot category field', 'Observation.valueQuantity.code');
+  const requestOffset = report.authoringRequests.length;
+  await selectPivotSource('Pivot values field', 'Observation.valueQuantity.value');
+  await waitForBrowser(browser.cdp,
+    `Boolean(document.querySelector('[data-testid="construction-reshape-pivot-category-summary"]'))&&!document.querySelector('[data-testid="construction-reshape-pivot"]')?.innerText.includes('Finding categories')`,
+    10000);
+  const applyPreview = await setPivotDuplicatePolicy('SUM', requestOffset, 'Reopened full CDA Pivot preview');
+  const applyPivot = expectedPivot(applyPreview.request, oracle, 'SUM');
+  await assertProposalPanel(applyPivot, 'Reopened full CDA Pivot preview');
+  assert.equal(report.expectedAuthoringValidations?.length, 2, 'Only the two explicit ERROR-policy full-population previews may be classified as expected validation');
+  recordRequirement(requiredChecksByCase[reportCase][1], report.expectedAuthoringValidations.every(validation =>
+    validation.code === 'TABLE_PIVOT_CELL_CARDINALITY' && validation.duplicatePolicy === 'ERROR'
+      && validation.project === project && validation.outputId === outputId
+      && validation.rawDuplicateBucket?.rowCount > 1 && validation.rawDuplicateBucket?.numericCount > 1
+      && validation.rawDuplicateBucket?.sum !== validation.rawDuplicateBucket?.max),
+  { validations: report.expectedAuthoringValidations });
+
+  const applyStarted = Date.now();
+  await click(browser.cdp, '[data-testid="construction-apply-proposal"]');
+  await waitForBrowser(browser.cdp, `!document.querySelector('[data-testid="construction-proposal-panel"]')&&document.querySelectorAll('[data-testid^="construction-history-step-"]').length===1`, 10000);
+  await assertRendered(applyPivot.columns, applyPivot.expectedRows, 'Applied full CDA quantity Pivot');
+  measure('full CDA quantity Pivot Apply to render', applyStarted);
+  builder = await api(base + '/builder');
+  let document = assertBuilderScope(builder, 'After full CDA Pivot Apply');
+  assert.deepEqual(document.rows, prePivotDocument.rows, 'Pivot Apply must preserve the exact full Observation root population definition');
+  let savedPivot = document.construction.steps.find(step => step.operation.kind === 'PIVOT');
+  assert(savedPivot, 'Applied full CDA quantity Pivot must be saved');
+  assert.equal(savedPivot.operation.pivot.duplicatePolicy, 'SUM');
+  const savedSourceBindings = {
+    groupKeyIds: savedPivot.operation.pivot.groupKeyIds,
+    categoryColumnId: savedPivot.operation.pivot.categoryColumnId,
+    valueColumnId: savedPivot.operation.pivot.valueColumnId,
+  };
+  assert.deepEqual(savedSourceBindings.groupKeyIds, applyPivot.operation.groupKeyIds, 'Saved status grouping must match the accepted source binding');
+  assert.equal(savedSourceBindings.categoryColumnId, applyPivot.operation.categoryColumnId, 'Saved category source must match the accepted source binding');
+  assert.equal(savedSourceBindings.valueColumnId, applyPivot.operation.valueColumnId, 'Saved numeric value source must match the accepted source binding');
+  const assertSavedScope = (state, expectedPolicy, expectedHeading, label) => {
+    const scopedDocument = assertBuilderScope(state, label);
+    assert.deepEqual(scopedDocument.rows, prePivotDocument.rows, `${label} must retain the exact root Observation population definition`);
+    const pivot = scopedDocument.construction.steps.find(step => step.operation.kind === 'PIVOT');
+    assert(pivot, `${label} must retain the saved full CDA quantity Pivot`);
+    assert.equal(pivot.operation.pivot.duplicatePolicy, expectedPolicy);
+    assert.deepEqual(pivot.operation.pivot.groupKeyIds, savedSourceBindings.groupKeyIds);
+    assert.equal(pivot.operation.pivot.categoryColumnId, savedSourceBindings.categoryColumnId);
+    assert.equal(pivot.operation.pivot.valueColumnId, savedSourceBindings.valueColumnId);
+    if (expectedHeading) {
+      const output = pivot.outputs.find(candidate => candidate.name === expectedHeading.column);
+      assert.equal(output?.label, expectedHeading.label, `${label} must persist the edited category heading`);
+    }
+    return scopedDocument;
+  };
+  const reloadStarted = Date.now();
+  await navigate(browser.cdp, `${uiOrigin}/?project=${encodeURIComponent(project)}&explorer=${encodeURIComponent(explorer)}&mode=builder`);
+  await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid="construction-table-${outputId}"]'))`, 10000);
+  await click(browser.cdp, `[data-testid="construction-table-${outputId}"]`);
+  await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-rows-settings-trigger"]')?.disabled===false`, 10000);
+  await assertRendered(applyPivot.columns, applyPivot.expectedRows, 'Reloaded full CDA quantity Pivot');
+  builder = await api(base + '/builder');
+  document = assertSavedScope(builder, 'SUM', undefined, 'After full CDA quantity Pivot reload');
+  recordRequirement(requiredChecksByCase[reportCase][5], builder.catalog.generation === expectedGeneration
+    && document.output.id === outputId
+    && JSON.stringify(document.rows) === JSON.stringify(prePivotDocument.rows)
+    && savedSourceBindings.groupKeyIds.length === 1
+    && savedSourceBindings.categoryColumnId === applyPivot.operation.categoryColumnId
+    && savedSourceBindings.valueColumnId === applyPivot.operation.valueColumnId,
+  { project, generation: builder.catalog.generation, outputId, sourceRows: oracle.sourceRows, savedSourceBindings });
+  measure('full CDA quantity Pivot reload to render', reloadStarted);
+
+  const history = await browserEval(browser.cdp, `return [...document.querySelectorAll('[data-testid^="construction-history-step-"]')].map(button=>({testId:button.getAttribute('data-testid'),text:button.innerText}));`);
+  const pivotHistory = history.findLast(item => /pivot|categories into columns/i.test(item.text));
+  assert(pivotHistory, 'Reloaded full CDA construction history must expose the saved Pivot');
+  await click(browser.cdp, `[data-testid=${JSON.stringify(pivotHistory.testId)}]`);
+  await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid^="construction-edit-step-"]'))`, 5000);
+  await click(browser.cdp, '[data-testid^="construction-edit-step-"]');
+  await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid="construction-reshape-pivot"] select[aria-label="Pivot category field"]'))`, 5000);
+  const categoryKey = categoryIdentity(witness.present, witness.value);
+  const editedCategory = applyPivot.categories.find(category => pivotIdentity(category.key) === categoryKey);
+  assert(editedCategory, `Raw duplicate witness category ${categoryKey} must have a native output`);
+  const originalHeading = editedCategory.output.label;
+  const editedHeading = `${originalHeading} maximum`;
+  const editorBefore = await browserEval(browser.cdp, `const root=document.querySelector('[data-testid="construction-reshape-pivot"]');return {policy:root.querySelector('select[aria-label="Pivot duplicate policy"]')?.value,groups:[...root.querySelectorAll('input[aria-label^="Pivot group"]')].filter(input=>input.checked).map(input=>input.getAttribute('aria-label')),category:root.querySelector('select[aria-label="Pivot category field"]')?.selectedOptions[0]?.textContent,value:root.querySelector('select[aria-label="Pivot values field"]')?.selectedOptions[0]?.textContent,labels:[...root.querySelectorAll('input[aria-label^="Pivot output label "]')].map(input=>({ariaLabel:input.getAttribute('aria-label'),value:input.value}))};`);
+  assert.equal(editorBefore.policy, 'SUM', 'Saved full CDA Pivot edit must restore SUM');
+  assert(editorBefore.groups.some(label => label.includes('Observation.status')) || editorBefore.groups.some(label => /Observation status/i.test(label)), `Saved full CDA Pivot edit must retain status grouping: ${JSON.stringify(editorBefore.groups)}`);
+  assert(editorBefore.category?.includes('Observation.valueQuantity.code'));
+  assert(editorBefore.value?.includes('Observation.valueQuantity.value'));
+  assert(editorBefore.labels.some(item => item.value === originalHeading), `Saved Pivot editor must expose category label ${originalHeading}`);
+  const editRequestOffset = report.authoringRequests.length;
+  const priorEditProposal = await browserEval(browser.cdp, `return document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalId??'';`);
+  const editStarted = Date.now();
+  await click(browser.cdp, '[data-testid="construction-reshape-pivot-advanced"] > summary');
+  await selectOption(browser.cdp, 'select[aria-label="Pivot duplicate policy"]', 'MAX', {
+    settledWhen: `document.querySelector('select[aria-label="Pivot duplicate policy"]')?.value==='MAX'`,
+  });
+  await browserEval(browser.cdp, `const oldLabel=${JSON.stringify(originalHeading)};const newLabel=${JSON.stringify(editedHeading)};const input=[...document.querySelectorAll('input[aria-label^="Pivot output label "]')].find(candidate=>candidate.value===oldLabel);if(!input)throw Error('raw duplicate category label input not found');const setter=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value')?.set;if(!setter)throw Error('native input setter unavailable');setter.call(input,newLabel);input.dispatchEvent(new Event('input',{bubbles:true}));input.dispatchEvent(new Event('change',{bubbles:true}));return input.value;`);
+  await waitForBrowser(browser.cdp, `(()=>{const panel=document.querySelector('[data-testid="construction-proposal-panel"]');return panel?.dataset.proposalStatus==='ready'&&panel.dataset.proposalId!==${JSON.stringify(priorEditProposal)}&&[...document.querySelectorAll('[data-testid="construction-proposal-preview"] th')].some(cell=>cell.innerText.includes(${JSON.stringify(editedHeading)}))})()`, 15000);
+  await drainResponseReads();
+  const editRequest = report.authoringRequests.slice(editRequestOffset).findLast(entry => entry.endpoint === 'construction-proposals');
+  assert(editRequest, 'Full CDA Pivot edit must issue a native construction proposal');
+  assert.equal(editRequest.status, 200, `Full CDA Pivot edit proposal failed: ${JSON.stringify(editRequest.response)}`);
+  assert.equal(editRequest.pathname, `${base}/construction-proposals`);
+  assert.equal(editRequest.body?.outputId, outputId);
+  assert.equal(editRequest.body?.snapshotToken, builder.catalog.snapshotToken);
+  assert.equal(editRequest.body?.expectedDraftVersion, builder.draftVersion);
+  assert.equal(editRequest.body?.expectedDraftDigest, builder.draftDigest);
+  const editPivot = expectedPivot(editRequest, oracle, 'MAX', { [editedCategory.output.name]: editedHeading });
+  assert.deepEqual(editPivot.operation.groupKeyIds, savedSourceBindings.groupKeyIds);
+  assert.equal(editPivot.operation.categoryColumnId, savedSourceBindings.categoryColumnId);
+  assert.equal(editPivot.operation.valueColumnId, savedSourceBindings.valueColumnId);
+  const groupName = applyPivot.step.outputs.find(output => output.id === applyPivot.operation.groupKeyIds[0])?.name;
+  const witnessSum = applyPivot.expectedRows.find(row => row[groupName] === witness.status)?.[editedCategory.output.name];
+  const witnessMax = editPivot.expectedRows.find(row => row[groupName] === witness.status)?.[editedCategory.output.name];
+  assert.equal(witnessSum, witness.valueSum, 'Native SUM result for the raw duplicate witness must equal the independent aggregate');
+  assert.equal(witnessMax, witness.valueMax, 'Native MAX result for the raw duplicate witness must equal the independent aggregate');
+  assert.notEqual(witnessSum, witnessMax, 'The selected duplicate witness must make the SUM→MAX edit observable');
+  await assertProposalPanel(editPivot, 'Edited full CDA Pivot preview');
+  measure('full CDA quantity Pivot edit preview', editStarted);
+  const editApplyStarted = Date.now();
+  await click(browser.cdp, '[data-testid="construction-apply-proposal"]');
+  await waitForBrowser(browser.cdp, `!document.querySelector('[data-testid="construction-proposal-panel"]')&&document.querySelectorAll('[data-testid^="construction-history-step-"]').length===1`, 10000);
+  await assertRendered(editPivot.columns, editPivot.expectedRows, 'Edited full CDA quantity Pivot');
+  measure('full CDA quantity Pivot edit Apply to render', editApplyStarted);
+  builder = await api(base + '/builder');
+  document = assertSavedScope(builder, 'MAX', { column: editedCategory.output.name, label: editedHeading }, 'After full CDA Pivot edit Apply');
+  const editReloadStarted = Date.now();
+  await navigate(browser.cdp, `${uiOrigin}/?project=${encodeURIComponent(project)}&explorer=${encodeURIComponent(explorer)}&mode=builder`);
+  await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid="construction-table-${outputId}"]'))`, 10000);
+  await click(browser.cdp, `[data-testid="construction-table-${outputId}"]`);
+  await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-rows-settings-trigger"]')?.disabled===false`, 10000);
+  await assertRendered(editPivot.columns, editPivot.expectedRows, 'Reloaded edited full CDA quantity Pivot');
+  builder = await api(base + '/builder');
+  document = assertSavedScope(builder, 'MAX', { column: editedCategory.output.name, label: editedHeading }, 'After edited full CDA quantity Pivot reload');
+  recordRequirement(requiredChecksByCase[reportCase][6], witnessSum === witness.valueSum && witnessMax === witness.valueMax
+    && document.construction.steps.find(step => step.operation.kind === 'PIVOT')?.operation.pivot.duplicatePolicy === 'MAX'
+    && document.construction.steps.find(step => step.operation.kind === 'PIVOT')?.outputs.some(output => output.name === editedCategory.output.name && output.label === editedHeading),
+  { duplicateWitness: report.fullPopulationLifecycle.duplicateWitness, sum: witnessSum, max: witnessMax, persistedHeading: editedHeading, generation: builder.catalog.generation });
+  measure('full CDA quantity Pivot edited reload to render', editReloadStarted);
+
+  const removeHistory = await browserEval(browser.cdp, `return [...document.querySelectorAll('[data-testid^="construction-history-step-"]')].map(button=>({testId:button.getAttribute('data-testid'),text:button.innerText}));`);
+  const removeStep = removeHistory.findLast(item => /pivot|categories into columns/i.test(item.text));
+  assert(removeStep, 'Edited full CDA Pivot history must remain available for removal');
+  await click(browser.cdp, `[data-testid=${JSON.stringify(removeStep.testId)}]`);
+  await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid^="construction-remove-step-"]'))`, 5000);
+  const removeRequestOffset = report.authoringRequests.length;
+  const removeStarted = Date.now();
+  await click(browser.cdp, '[data-testid^="construction-remove-step-"]');
+  await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalStatus==='ready'`, 10000);
+  await drainResponseReads();
+  const removePreviewRenderedAt = Date.now();
+  const removeRequest = report.authoringRequests.slice(removeRequestOffset).findLast(entry => entry.endpoint === 'construction-proposals');
+  assert.equal(removeRequest?.status, 200, 'Removing the saved full CDA Pivot must produce a native proposal');
+  assert.equal(removeRequest.pathname, `${base}/construction-proposals`);
+  assert.equal(removeRequest.body?.outputId, outputId);
+  assert.equal(removeRequest.body?.snapshotToken, builder.catalog.snapshotToken);
+  assert.equal(removeRequest.body?.expectedDraftVersion, builder.draftVersion);
+  assert.equal(removeRequest.body?.expectedDraftDigest, builder.draftDigest);
+  assert.equal(removeRequest.response?.snapshotToken, builder.catalog.snapshotToken);
+  assert.equal(removeRequest.response?.outputId, outputId);
+  const removePreview = removeRequest.response.preview;
+  assert(removePreview, 'Full CDA Pivot removal proposal must include a bounded source-row preview');
+  const boundedCount = assertBoundedPreviewCount(removePreview, oracle.sourceRows);
+  const sourceColumns = removePreview.columns.map(column => ({ column: column.column, label: column.label, logicalType: column.logicalType }));
+  const idColumn = sourceColumns.find(column => column.label === 'Observation ID');
+  const categoryColumn = sourceColumns.find(column => column.label === 'Quantity Code');
+  const valueColumn = sourceColumns.find(column => column.label === 'Quantity Value');
+  assert(idColumn && categoryColumn && valueColumn, `Removal must restore the exact configured source fields: ${JSON.stringify(sourceColumns)}`);
+  const boundedIDs = removePreview.rows.map(row => row[idColumn.column]);
+  const boundedRawOracle = runRawObservationTupleOracle(expectedGeneration, boundedIDs);
+  const boundedRawTuples = assertPreviewRowsMatchRawObservations({
+    previewRows: removePreview.rows,
+    rawRows: boundedRawOracle.rawRows,
+    idColumn: idColumn.column,
+    categoryColumn: categoryColumn.column,
+    valueColumn: valueColumn.column,
+    rawAggregateGroups: oracle.groups,
+  });
+  const displayedRestoredRows = removePreview.rows.map(row => Object.fromEntries(sourceColumns.map(column => [column.column, row[column.column] ?? null])));
+  await assertProposalPanel({ columns: sourceColumns, expectedRows: displayedRestoredRows }, 'Full CDA Pivot removal preview');
+  report.fullPopulationLifecycle.boundedRestorationProof = {
+    rawSourceRows: oracle.sourceRows,
+    previewRowsConsumed: boundedCount.boundedPreviewRows,
+    previewLimit: boundedCount.limit,
+    sourceIDs: boundedIDs,
+    rawTupleQuery: boundedRawOracle.query,
+    rawTuples: boundedRawTuples,
+  };
+  measure('full CDA quantity Pivot removal preview', removeStarted, removePreviewRenderedAt);
+  const removeApplyStarted = Date.now();
+  await click(browser.cdp, '[data-testid="construction-apply-proposal"]');
+  await waitForBrowser(browser.cdp, `!document.querySelector('[data-testid="construction-proposal-panel"]')&&document.querySelectorAll('[data-testid^="construction-history-step-"]').length===0`, 10000);
+  await assertRendered(sourceColumns, displayedRestoredRows, 'Restored full CDA quantity source preview');
+  measure('full CDA quantity Pivot removal Apply to render', removeApplyStarted);
+  builder = await api(base + '/builder');
+  document = assertBuilderScope(builder, 'After full CDA Pivot removal Apply');
+  assert.deepEqual(document.construction.steps, [], 'Pivot removal must restore the original full-population table definition');
+  assert.deepEqual(document.rows, prePivotDocument.rows, 'Pivot removal must restore the exact full Observation root population definition');
+  const restoredColumnIDs = assertSourceBindingsRestored(prePivotDocument.columns, document.columns, 'Full CDA Pivot removal');
+  const reloadScope = {
+    snapshotToken: builder.catalog.snapshotToken,
+    draftVersion: builder.draftVersion,
+    draftDigest: builder.draftDigest,
+  };
+  const finalReloadStarted = Date.now();
+  const finalReloadRequestOffset = report.authoringRequests.length;
+  await navigate(browser.cdp, `${uiOrigin}/?project=${encodeURIComponent(project)}&explorer=${encodeURIComponent(explorer)}&mode=builder`);
+  await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid="construction-table-${outputId}"]'))`, 10000);
+  await click(browser.cdp, `[data-testid="construction-table-${outputId}"]`);
+  await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-rows-settings-trigger"]')?.disabled===false`, 10000);
+  await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount')==='${Math.min(25, oracle.sourceRows) + 1}'&&!document.body.innerText.includes('Loading your table…')`, 10000);
+  await drainResponseReads();
+  const reloadPreviewContext = assertReloadPreviewContext({
+    requests: report.authoringRequests,
+    requestOffset: finalReloadRequestOffset,
+    basePath: base,
+    outputId,
+    generation: expectedGeneration,
+    snapshotToken: reloadScope.snapshotToken,
+    draftVersion: reloadScope.draftVersion,
+    draftDigest: reloadScope.draftDigest,
+  });
+  const reloadPreview = reloadPreviewContext.preview;
+  const reloadPreviewCount = assertBoundedPreviewCount(reloadPreview, oracle.sourceRows);
+  const reloadSourceColumns = reloadPreview.columns.map(column => ({ column: column.column, label: column.label, logicalType: column.logicalType }));
+  assert.deepEqual(reloadSourceColumns, sourceColumns, 'Reloaded automatic preview must restore the exact source columns and labels');
+  const reloadPreviewIDs = reloadPreview.rows.map(row => row[idColumn.column]);
+  const displayedReloadRows = reloadPreview.rows.map(row => Object.fromEntries(sourceColumns.map(column => [column.column, row[column.column] ?? null])));
+  await assertRendered(sourceColumns, displayedReloadRows, 'Reloaded restored full CDA quantity source preview');
+  measure('full CDA quantity Pivot restoration reload to render', finalReloadStarted);
+  builder = await api(base + '/builder');
+  document = assertBuilderScope(builder, 'After final full CDA restoration reload');
+  assert.equal(builder.catalog.snapshotToken, reloadScope.snapshotToken, 'Final reload must use the exact post-removal snapshot');
+  assert.equal(builder.draftVersion, reloadScope.draftVersion, 'Final reload must retain the exact post-removal draft version');
+  assert.equal(builder.draftDigest, reloadScope.draftDigest, 'Final reload must retain the exact post-removal draft digest');
+  assert.deepEqual(document.construction.steps, [], 'Final reload must retain the restored root table definition');
+  assert.deepEqual(document.rows, prePivotDocument.rows, 'Final reload must retain the exact original full Observation population definition');
+  assert.deepEqual(assertSourceBindingsRestored(prePivotDocument.columns, document.columns, 'Full CDA final reload'), restoredColumnIDs,
+    'Final reload must preserve the same source field identities');
+  assert.equal(document.output.id, outputId);
+  assert.equal(builder.catalog.generation, expectedGeneration);
+  assert.deepEqual(document.construction.steps, [], 'The fresh raw reload sample must come from the restored untransformed source');
+  const restoredBoundedRawOracle = runRawObservationTupleOracle(expectedGeneration, reloadPreviewIDs);
+  const restoredBoundedRawTuples = assertPreviewRowsMatchRawObservations({
+    previewRows: reloadPreview.rows,
+    rawRows: restoredBoundedRawOracle.rawRows,
+    idColumn: idColumn.column,
+    categoryColumn: categoryColumn.column,
+    valueColumn: valueColumn.column,
+    rawAggregateGroups: oracle.groups,
+  });
+  const restoredOracle = runRawFullPopulationPivotOracle(expectedGeneration);
+  assert.deepEqual(restoredOracle.groups, oracle.groups, 'Full raw status/category membership and numeric aggregates must remain identical after removal and reload');
+  recordRequirement(requiredChecksByCase[reportCase][7], boundedCount.rawSourceRows === oracle.sourceRows
+    && boundedCount.boundedPreviewRows === Math.min(25, oracle.sourceRows)
+    && reloadPreviewCount.rawSourceRows === oracle.sourceRows
+    && reloadPreviewCount.boundedPreviewRows === Math.min(25, oracle.sourceRows)
+    && JSON.stringify(document.rows) === JSON.stringify(prePivotDocument.rows)
+    && document.construction.steps.length === 0
+    && builder.catalog.generation === expectedGeneration
+    && restoredOracle.sourceRows === oracle.sourceRows
+    && JSON.stringify(restoredOracle.groups) === JSON.stringify(oracle.groups)
+    && restoredBoundedRawTuples.length === reloadPreviewIDs.length,
+  { rawSourceRows: oracle.sourceRows, removalPreviewRows: removePreview.rowCount, removalPreviewIDs: boundedIDs, reloadPreviewRows: reloadPreview.rowCount, reloadPreviewIDs, restoredRowsDefinition: document.rows, generation: builder.catalog.generation, snapshotToken: builder.catalog.snapshotToken, draftVersion: builder.draftVersion, draftDigest: builder.draftDigest, rawGroupsUnchanged: true, reloadedRawBoundedTuples: restoredBoundedRawTuples });
+
+  const lifecycleActions = report.cases.filter(item => typeof item.durationMs === 'number');
+  assert.equal(lifecycleActions.length, 14, `Full CDA lifecycle must record all 14 native action and validation timings, found ${lifecycleActions.length}`);
+  assert(lifecycleActions.every(item => item.durationMs <= 5000), 'Every full CDA Pivot lifecycle transition must complete within five seconds');
+  recordRequirement(requiredChecksByCase[reportCase][8], lifecycleActions.length === 14 && lifecycleActions.every(item => item.durationMs <= 5000),
+    { actionCount: lifecycleActions.length, actions: lifecycleActions });
+  report.fullPopulationLifecycle.restoredSourceRows = oracle.sourceRows;
+  report.fullPopulationLifecycle.restoredPreviewRowsConsumed = boundedCount.boundedPreviewRows;
+  report.fullPopulationLifecycle.restoredRawGroupCount = restoredOracle.groups.length;
+  report.fullPopulationLifecycle.editedDuplicatePolicy = 'MAX';
+  report.fullPopulationLifecycle.editedHeading = editedHeading;
+  report.fullPopulationLifecycle.editedWitnessSum = witnessSum;
+  report.fullPopulationLifecycle.editedWitnessMax = witnessMax;
+  report.fullPopulationLifecycle.lifecycle = ['Preview', 'Cancel', 'Apply', 'reload', 'edit heading/policy', 'Apply', 'reload', 'remove', 'restore', 'reload'];
+};
+
 try {
-  if (mode === 'fixture-lifecycle') {
+  if (isFixture) {
     fixtureDigest = fixtureSourceDigest(fixtureDirectory);
     await createOwnedFixtureProject();
   }
@@ -640,25 +1198,40 @@ try {
   base ??= `${root}/${explorer}/authoring/v2`;
   apiBuildFreeze = await captureApiBuildFreeze(() => checkContainerApiBuildStamp(localCDAApiContainer()));
   assert.equal(new URL(apiOrigin).hostname, '127.0.0.1', 'This independent oracle is only valid for local Compose no-auth');
-  if (mode === 'full-population') assert.equal(new URL(apiOrigin).port, '8188', 'Full-population CDA oracle is only valid for the current local Compose API');
+  if (isFullCda) assert.equal(new URL(apiOrigin).port, '8188', 'Full-population CDA oracle is only valid for the current local Compose API');
   await api(root, { name: explorer, title: 'Root quantity category QA' });
   builder = await api(base + '/builder');
   assert.equal(builder.catalog.generation, expectedGeneration);
-  const oracle = mode === 'full-population'
-    ? runRawCategoryOracle(builder.catalog.generation)
-    : await runFixtureOracle(builder.catalog.generation);
+  const oracle = isFixture
+    ? await runFixtureOracle(builder.catalog.generation)
+    : mode === 'full-population-lifecycle'
+      ? runRawFullPopulationPivotOracle(builder.catalog.generation)
+      : runRawCategoryOracle(builder.catalog.generation);
   report.oracle = oracle;
+  if (mode === 'full-population-lifecycle') {
+    recordRequirement(requiredChecksByCase[reportCase][0], oracle.scope.project === project && oracle.scope.generation === expectedGeneration
+      && oracle.sourceRows === oracle.groups.reduce((sum, group) => sum + group.rowCount, 0)
+      && oracle.groups.length > 0,
+    { project, generation: expectedGeneration, sourceRows: oracle.sourceRows, groupCount: oracle.groups.length, scope: oracle.scope });
+    recordRequirement(requiredChecksByCase[reportCase][1], oracle.duplicateWitness?.rowCount > 1
+      && oracle.duplicateWitness?.numericCount > 1
+      && Math.abs(oracle.duplicateWitness.valueSum - oracle.duplicateWitness.valueMax) > 1e-9,
+    { duplicateWitness: oracle.duplicateWitness });
+  } else if (mode === 'full-population') {
+    recordRequirement(requiredChecksByCase[reportCase][0], oracle.scope.project === project && oracle.scope.generation === expectedGeneration && oracle.sourceRows > 0,
+      { project, generation: expectedGeneration, sourceRows: oracle.sourceRows, scope: oracle.scope });
+  }
 
   const rootNode = builder.catalog.nodes.find(node => node.resourceType === resourceType);
   const idField = builder.catalog.candidates.find(candidate => candidate.nodeId === rootNode?.nodeId && candidate.fieldPath === 'id');
   assert(rootNode && idField, 'The current catalog must expose the Observation root and its ID field');
-  const quantityCodeField = mode === 'fixture-lifecycle'
+  const quantityCodeField = !isFullCda || mode === 'full-population-lifecycle'
     ? builder.catalog.candidates.find(candidate => candidate.nodeId === rootNode.nodeId && candidate.fieldPath === 'valueQuantity.code')
     : undefined;
-  const quantityValueField = mode === 'fixture-lifecycle'
+  const quantityValueField = !isFullCda || mode === 'full-population-lifecycle'
     ? builder.catalog.candidates.find(candidate => candidate.nodeId === rootNode.nodeId && candidate.fieldPath === 'valueQuantity.value')
     : undefined;
-  if (mode === 'fixture-lifecycle') assert(quantityCodeField && quantityValueField, 'The bounded fixture catalog must expose ordinary valueQuantity.code and valueQuantity.value fields');
+  if (!isFullCda || mode === 'full-population-lifecycle') assert(quantityCodeField && quantityValueField, 'The source catalog must expose ordinary valueQuantity.code and valueQuantity.value fields');
   await command([{ type: 'CREATE_TABLE', title: 'Root Observation quantity QA', rootNodeId: rootNode.nodeId }]);
   outputId = builder.workspace.documents[0]?.output.id;
   assert(outputId);
@@ -666,7 +1239,7 @@ try {
     type: 'ADD_COLUMN', outputId, occurrenceId: 'base', candidateId: idField.candidateId,
     projectionMode: 'VALUE', initialPresentation: 'TABLE', title: 'Observation ID',
   }];
-  if (mode === 'fixture-lifecycle') {
+  if (!isFullCda || mode === 'full-population-lifecycle') {
     rootColumns.push({ type: 'ADD_COLUMN', outputId, occurrenceId: 'base', candidateId: quantityCodeField.candidateId,
       projectionMode: 'VALUE', initialPresentation: 'TABLE', title: 'Quantity Code' });
     rootColumns.push({ type: 'ADD_COLUMN', outputId, occurrenceId: 'base', candidateId: quantityValueField.candidateId,
@@ -681,7 +1254,11 @@ try {
   browser.cdp.on('Runtime.consoleAPICalled', ({ type, args }) => {
     if (type === 'error') report.browserErrors.console.push(args.map(argument => argument.value ?? argument.description ?? '').join(' '));
   });
-  browser.cdp.on('Network.requestWillBeSent', ({ requestId, request, timestamp }) => {
+  browser.cdp.on('Network.requestWillBeSent', ({ requestId, request, timestamp, initiator }) => {
+    if (!isApplicationBrowserRequest(request.url, initiator, [uiOrigin, apiOrigin])) {
+      report.excludedNonApplicationRequestCount = (report.excludedNonApplicationRequestCount ?? 0) + 1;
+      return;
+    }
     const pathname = new URL(request.url).pathname;
     const endpoint = ['construction-capabilities', 'construction-category-discoveries', 'construction-proposals', 'commands', 'reconcile', 'preview']
       .find(candidate => pathname.endsWith(`/${candidate}`));
@@ -863,14 +1440,40 @@ try {
     assert.deepEqual(editorState.categoryControls.map(item => item.label).sort(), expectedLabels, 'Visible Pivot category controls must preserve every API category label');
     assert(editorState.categoryControls.every(item => item.checked), 'Every complete raw category identity must be selected in the initial Pivot form');
     report.categoryCorrectness = 'complete raw project/generation Observation oracle matched MISSING, NULL, and typed scalar categories';
+    if (mode === 'full-population') {
+      recordRequirement(requiredChecksByCase[reportCase][1], JSON.stringify(actual) === JSON.stringify(expected),
+        { rawCategoryIdentities: expected, discoveredCategoryIdentities: actual, missingRows: oracle.missingRows, explicitNullRows: oracle.explicitNullRows });
+      recordRequirement(requiredChecksByCase[reportCase][2], editorState.summary.startsWith(`Selected ${expected.length} of ${expected.length} categories`)
+        && editorState.categoryControls.length === expectedLabels.length
+        && editorState.categoryControls.every(item => item.checked),
+      { summary: editorState.summary, selectedCount: editorState.categoryControls.filter(item => item.checked).length, categoryLabels: expectedLabels });
+      recordRequirement(requiredChecksByCase[reportCase][3], durationMs <= 5000,
+        { action: 'typed category discovery to native render', durationMs, rawCategories: expected.length });
+    } else if (mode === 'full-population-lifecycle') {
+      recordRequirement(requiredChecksByCase[reportCase][2], JSON.stringify(actual) === JSON.stringify(expected)
+        && editorState.summary.startsWith(`Selected ${expected.length} of ${expected.length} categories`)
+        && editorState.categoryControls.every(item => item.checked),
+      { rawCategoryIdentities: expected, discoveredCategoryIdentities: actual, summary: editorState.summary, selectedCount: editorState.categoryControls.filter(item => item.checked).length });
+    }
     if (mode === 'fixture-lifecycle') {
       assert.equal(oracle.sourceRows, 4, 'Bounded lifecycle oracle must contain exactly four independent Observation records');
       assert.equal(oracle.missingRows, 1);
       assert.equal(oracle.explicitNullRows, 1);
       assert.equal(oracle.presentStringRows, 2);
+      recordRequirement(requiredChecksByCase[reportCase][0], report.ownedFixtureProject?.createdFresh === true
+        && JSON.stringify(oracle.fixtureRows.map(row => row.id).sort()) === JSON.stringify(['quantity-pivot-missing', 'quantity-pivot-null', 'quantity-pivot-string-a', 'quantity-pivot-string-b']),
+      { project, generation: expectedGeneration, sourceIDs: oracle.fixtureRows.map(row => row.id).sort(), fixtureDigest: oracle.fixtureDigest });
       await runFixtureLifecycle(discovery, oracle, prePivotWorkspace, prePivotDocument, requestOffset);
       await drainResponseReads();
       assert.equal(report.expectedAuthoringValidations?.length, 2, 'Only the two explicit ERROR-policy previews should be classified as expected validation');
+      recordRequirement(requiredChecksByCase[reportCase][1], report.expectedAuthoringValidations.every(validation =>
+        validation.code === 'TABLE_PIVOT_CELL_CARDINALITY' && validation.duplicatePolicy === 'ERROR'
+          && validation.project === project && validation.outputId === outputId && validation.rawDuplicateWitnessIDs?.length === 2),
+      { validations: report.expectedAuthoringValidations });
+      recordRequirement(requiredChecksByCase[reportCase][2], report.fixtureLifecycle.initialExpected?.[0]?.missing_value === 3
+        && report.fixtureLifecycle.initialExpected?.[0]?.null_value === 5
+        && report.fixtureLifecycle.initialExpected?.[0]?.d === 6,
+      { expectedRows: report.fixtureLifecycle.initialExpected });
       assert.deepEqual(report.browserErrors.runtime, [], `Browser runtime exceptions after lifecycle: ${JSON.stringify(report.browserErrors.runtime)}`);
       assert.deepEqual(report.browserErrors.console, [], `Browser console errors after lifecycle: ${JSON.stringify(report.browserErrors.console)}`);
       const finalNetworkFailures = report.browserErrors.network.filter(failure => !failure.canceled);
@@ -879,6 +1482,21 @@ try {
       const failedAuthoringRequests = report.authoringRequests.filter(request => typeof request.status === 'number' && request.status >= 400 && !request.loadingFailure?.canceled && !expectedValidationRequestIDs.has(request.requestId));
       assert.deepEqual(failedAuthoringRequests, [], `Unexpected authoring request errors after lifecycle: ${JSON.stringify(failedAuthoringRequests)}`);
       report.fixtureLifecycle.finalErrors = { runtime: [], console: [], network: [], authoringHTTP: [] };
+      const timedActions = report.cases.filter(item => typeof item.durationMs === 'number');
+      recordRequirement(requiredChecksByCase[reportCase][7], timedActions.length === 14 && timedActions.every(item => item.durationMs <= 5000),
+        { actionCount: timedActions.length, actions: timedActions });
+      report.status = 'passed';
+    } else if (mode === 'full-population-lifecycle') {
+      await runFullPopulationLifecycle(discovery, oracle, prePivotWorkspace, prePivotDocument, requestOffset);
+      await drainResponseReads();
+      assert.deepEqual(report.browserErrors.runtime, [], `Browser runtime exceptions after full lifecycle: ${JSON.stringify(report.browserErrors.runtime)}`);
+      assert.deepEqual(report.browserErrors.console, [], `Browser console errors after full lifecycle: ${JSON.stringify(report.browserErrors.console)}`);
+      const finalNetworkFailures = report.browserErrors.network.filter(failure => !failure.canceled);
+      assert.deepEqual(finalNetworkFailures, [], `Unexpected browser network failures after full lifecycle: ${JSON.stringify(finalNetworkFailures)}`);
+      const expectedValidationRequestIDs = new Set((report.expectedAuthoringValidations ?? []).map(validation => validation.requestId));
+      const failedAuthoringRequests = report.authoringRequests.filter(request => typeof request.status === 'number' && request.status >= 400 && !request.loadingFailure?.canceled && !expectedValidationRequestIDs.has(request.requestId));
+      assert.deepEqual(failedAuthoringRequests, [], `Unexpected authoring request errors after full lifecycle: ${JSON.stringify(failedAuthoringRequests)}`);
+      report.fullPopulationLifecycle.finalErrors = { runtime: [], console: [], network: [], authoringHTTP: [] };
       report.status = 'passed';
     } else {
       report.status = 'passed';
@@ -907,7 +1525,7 @@ try {
   process.exitCode = 1;
 } finally {
   await drainResponseReads();
-  if (mode === 'fixture-lifecycle' && fixtureDigest) {
+  if (isFixture && fixtureDigest) {
     const afterDigest = fixtureSourceDigest(fixtureDirectory);
     report.fixtureSourceFreeze = {
       before: fixtureDigest,
@@ -950,7 +1568,36 @@ try {
     report.error = 'Source fingerprint changed during the browser run.';
     process.exitCode = 1;
   }
+  const sourceAndRuntimeStable = report.status === 'passed'
+    && report.sourceFreeze?.unchanged === true
+    && report.apiBuildFreeze?.unchanged === true
+    && report.sourceFingerprint.unchanged === true
+    && (!isFixture || report.fixtureSourceFreeze?.unchanged === true)
+    && (isFixture || (project === 'loom_dev_cda_fhir' && expectedGeneration === 'cda-fhir-v1'))
+    && report.browserErrors.runtime.length === 0
+    && report.browserErrors.console.length === 0
+    && report.browserErrors.network.every(failure => failure.canceled)
+    && report.authoringRequests.every(request => !Number.isInteger(request.status) || request.status < 400
+      || (report.expectedAuthoringValidations ?? []).some(validation => validation.requestId === request.requestId));
+  const stabilityRequirementIndex = requiredChecksByCase[reportCase].length - 1;
+  recordFact(requiredChecksByCase[reportCase][stabilityRequirementIndex], sourceAndRuntimeStable, {
+    sourceFreeze: report.sourceFreeze,
+    apiBuildFreeze: report.apiBuildFreeze,
+    sourceFingerprint: report.sourceFingerprint,
+    fixtureSourceFreeze: report.fixtureSourceFreeze,
+    project,
+    expectedGeneration,
+    browserErrors: report.browserErrors,
+  });
+  report.missingRequiredChecks = report.requiredChecks.filter(name => !report.assertions.some(assertion => assertion.name === name && assertion.status === 'passed'));
+  if (report.missingRequiredChecks.length > 0 && report.status === 'passed') {
+    report.status = 'failed';
+    report.error = `Required checks were not recorded as passed: ${report.missingRequiredChecks.join('; ')}`;
+    process.exitCode = 1;
+  }
   report.finished = new Date().toISOString();
+  report.finishedAt = report.finished;
+  for (const failure of report.validationWaitFailures ?? []) refreshValidationWaitFailureRequests(failure, report.authoringRequests);
   await writeFile(join(evidence, 'report.json'), JSON.stringify(report, null, 2));
   await browser?.close();
 }

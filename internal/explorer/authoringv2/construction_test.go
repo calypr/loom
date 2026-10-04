@@ -269,6 +269,38 @@ func TestPivotOwnedInputsStayPrivateAndAreRemovedWithPivot(t *testing.T) {
 	}
 }
 
+func TestPivotGroupKeepsDeclaredPublicPresentationAndSourceType(t *testing.T) {
+	const groupID = "pivot_status"
+	step := ConstructionStep{
+		Operation: ConstructionOperation{Kind: ConstructionOperationPivot, Pivot: &ConstructionPivot{
+			GroupKeyIDs: []string{groupID},
+		}},
+		Outputs: []StageColumn{{ID: groupID, Name: "status", Label: "Status", Type: "declared-wrong-type"}},
+	}
+	input := []StageColumn{{
+		ID: groupID, Name: ConstructionSourceProjectionName(groupID), Label: "Observation.status",
+		Type: "string", Nullable: true,
+	}}
+
+	outputs, err := rebuildStageColumns(step, input, map[string]struct{}{groupID: {}})
+	if err != nil {
+		t.Fatalf("rebuild Pivot output schema: %v", err)
+	}
+	if len(outputs) != 1 {
+		t.Fatalf("Pivot outputs = %#v, want one group key", outputs)
+	}
+	got := outputs[0]
+	if got.ID != groupID || got.Name != "status" || got.Label != "Status" {
+		t.Fatalf("Pivot group presentation = %#v, want stable ID %q with public name/label status/Status", got, groupID)
+	}
+	if got.Type != "string" || !got.Nullable {
+		t.Fatalf("Pivot group type metadata = %#v, want source-authoritative nullable string", got)
+	}
+	if strings.Contains(got.Name, "__construction_source_") {
+		t.Fatalf("private source alias leaked into Pivot output: %#v", got)
+	}
+}
+
 func TestPivotEditCanDropOwnedRootProjectionAcrossPrefix(t *testing.T) {
 	document := workspaceDocument("patients")
 	document.Columns = []Column{

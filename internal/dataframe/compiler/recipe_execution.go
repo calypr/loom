@@ -87,10 +87,28 @@ func CompileRecipeOutputWithPolicy(output lower.CompiledRecipeOutput, bindings r
 			return CompiledQuery{}, err
 		}
 	}
-	previewCoveringIndex := previewCoveringIndexSpec(physical)
+	streamingMissingCategoryPivot := canRenderStreamingMissingCategoryPivotPreview(output, bindings, physical)
+	legacyPreviewCoveringIndex := previewCoveringIndexSpec(physical)
+	previewCoveringIndex := legacyPreviewCoveringIndex
+	if streamingMissingCategoryPivot {
+		if storedValuesIndex := streamingMissingCategoryPivotIndexSpec(physical); storedValuesIndex != nil {
+			if legacyPreviewCoveringIndex != nil && legacyPreviewCoveringIndex.Name != storedValuesIndex.Name {
+				storedValuesIndex.Supersedes = &PreviewCoveringIndexReplacement{
+					Name: legacyPreviewCoveringIndex.Name, Fields: append([]string(nil), legacyPreviewCoveringIndex.Fields...),
+				}
+			}
+			previewCoveringIndex = storedValuesIndex
+		}
+	}
 	previewGroupScan := previewGroupScanSpec(physical, previewCoveringIndex)
 	var rendered aql.RenderedPhysicalPlan
-	if previewCoveringIndex != nil {
+	if streamingMissingCategoryPivot {
+		if previewCoveringIndex != nil && len(previewCoveringIndex.StoredValues) != 0 {
+			rendered, err = aql.RenderPhysicalPlanWithStreamingMissingCategoryPivotPreviewAndRootIndexHint(physical, previewCoveringIndex.Name)
+		} else {
+			rendered, err = aql.RenderPhysicalPlanWithStreamingMissingCategoryPivotPreview(physical)
+		}
+	} else if previewCoveringIndex != nil {
 		if len(previewCoveringIndex.pivotGroupKeyPaths) != 0 {
 			rendered, err = aql.RenderPhysicalPlanWithTwoScanPivotPreview(physical, previewCoveringIndex.Name, previewCoveringIndex.pivotGroupKeyPaths)
 		} else {
@@ -149,6 +167,120 @@ func CompileRecipeOutputWithPolicy(output lower.CompiledRecipeOutput, bindings r
 		PreviewGroupScan:     previewGroupScan,
 		PlanDiagnostics:      physicalPlanDiagnostics(physical),
 	}, nil
+}
+
+// canRenderStreamingMissingCategoryPivotPreview only enables the streaming
+// renderer for a direct typed-root scan feeding one terminal Pivot. The
+// renderer retains the full source query and all scope predicates; this gate
+// only excludes shapes whose projections or row membership need an
+// intermediate table.
+func canRenderStreamingMissingCategoryPivotPreview(output lower.CompiledRecipeOutput, bindings recipe.RuntimeBindings, plan ir.PhysicalPlan) bool {
+	sequence := plan.StageSequence
+	if sequence == nil || !sequence.PreviewTerminalPivotWindow || sequence.PreviewLimitBindKey == "" ||
+		sequence.PreviewSourceWindowByRootID || sequence.CellTraceReturn != nil || sequence.RowLineageReturn != nil ||
+		sequence.PopulationMappingReturn != nil || sequence.OutputAuthResourcePathBindKey != "" ||
+		bindings.IncludeAuthResourcePath ||
+		(bindings.IncludeSourceIdentity && !outputHasCompositeSource(output)) || len(sequence.Stages) != 1 {
+		return false
+	}
+	stage := sequence.Stages[0]
+	pivot := stage.GroupedPivot
+	if stage.ID != sequence.FinalStageID || stage.InputStageID != sequence.SourceStageID ||
+		stage.Kind != ir.PhysicalStagePivotOp || pivot == nil || pivot.OneInputRowPerGroup ||
+		pivot.CodedCorrelation != nil || len(pivot.GroupKeys) == 0 || len(pivot.RowValues) != 0 ||
+		pivot.RootContributorInputColumn != "" || pivot.RootContributorOutputColumn != "" ||
+		len(pivot.Categories) == 0 || len(pivot.Categories) > 32 ||
+		(pivot.DuplicatePolicy != "ERROR" && pivot.DuplicatePolicy != "SUM" && pivot.DuplicatePolicy != "MIN" && pivot.DuplicatePolicy != "MAX") ||
+		(pivot.MissingCellPolicy != "NULL" && pivot.MissingCellPolicy != "ERROR") ||
+		(pivot.UnlistedCategoryPolicy != "ERROR" && pivot.UnlistedCategoryPolicy != "EXCLUDE_WITH_EVIDENCE") {
+		return false
+	}
+	hasMissingCategory := false
+	for _, category := range pivot.Categories {
+		if category.MatchKind == ir.PhysicalPivotCategoryMissingMatch {
+			hasMissingCategory = true
+		}
+	}
+	if !hasMissingCategory || (!pivot.CategoryPresenceFromInput && pivot.CategoryPresence == nil) || pivot.CategoryPresenceColumn == "" {
+		return false
+	}
+	root, sourceReturn, ok := previewCoveringIndexSource(plan)
+	if !ok || root.Population != nil || root.Variable == "" {
+		return false
+	}
+	collection, ok := plan.BindVars[root.CollectionBindKey].(string)
+	if !ok || collection != output.RootResourceType {
+		return false
+	}
+	presenceOutputs := 0
+	for _, projection := range sourceReturn.Projections {
+		if projection.PresenceOutput {
+			if !pivot.CategoryPresenceFromInput || projection.Name != pivot.CategoryPresenceColumn || projection.Presence == nil ||
+				projection.Presence.Source.Variable != root.Variable || projection.Presence.Source.BindKey != "" {
+				return false
+			}
+			presenceOutputs++
+			continue
+		}
+		if _, ok := previewCoveringProjectionPath(projection, root.Variable); !ok {
+			return false
+		}
+	}
+	if presenceOutputs != 1 {
+		return false
+	}
+	sourceProjectionNames := make(map[string]struct{}, len(sourceReturn.Projections))
+	for _, projection := range sourceReturn.Projections {
+		if projection.Name == "" {
+			return false
+		}
+		if _, duplicate := sourceProjectionNames[projection.Name]; duplicate {
+			return false
+		}
+		sourceProjectionNames[projection.Name] = struct{}{}
+	}
+	if !streamingPivotInputProjectsSourceRows(*pivot, stage.InputRowVariable, sourceProjectionNames) {
+		return false
+	}
+	return true
+}
+
+// streamingPivotInputProjectsSourceRows proves that the Pivot's row-shaped
+// inputs are a pure projection of the immediately preceding source RETURN.
+// Lowering represents that relationship through the stage input variable,
+// even when the source itself is a direct root scan.
+func streamingPivotInputProjectsSourceRows(pivot ir.PhysicalGroupedPivot, inputRowVariable string, sourceNames map[string]struct{}) bool {
+	if inputRowVariable == "" || len(pivot.InputProjections) == 0 {
+		return false
+	}
+	seen := make(map[string]struct{}, len(pivot.InputProjections))
+	for _, projection := range pivot.InputProjections {
+		if projection.Name == "" || projection.Expression != nil || projection.Presence != nil || projection.PresenceOutput ||
+			projection.Value.Variable != inputRowVariable || projection.Value.BindKey != "" ||
+			len(projection.Value.Path) != 1 || projection.Value.Path[0] != projection.Name {
+			return false
+		}
+		if _, ok := sourceNames[projection.Name]; !ok {
+			return false
+		}
+		if _, duplicate := seen[projection.Name]; duplicate {
+			return false
+		}
+		seen[projection.Name] = struct{}{}
+	}
+	required := []string{pivot.CategoryColumn, pivot.ValueColumn, pivot.CategoryPresenceColumn}
+	for _, key := range pivot.GroupKeys {
+		required = append(required, key.Column)
+	}
+	for _, name := range required {
+		if name == "" {
+			return false
+		}
+		if _, ok := seen[name]; !ok {
+			return false
+		}
+	}
+	return true
 }
 
 // withoutUnusedTerminalPivotPresenceCompanions keeps category-presence

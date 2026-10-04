@@ -611,7 +611,11 @@ func rebuildStageColumns(step ConstructionStep, input []StageColumn, authoredSou
 			column, exists := findStageColumnByID(input, id)
 			if exists {
 				if presentation, declaredOutput := declared[id]; declaredOutput {
-					if _, authoredSource := authoredSourceIDs[id]; !authoredSource {
+					_, authoredSource := authoredSourceIDs[id]
+					if column.Name == ConstructionSourceProjectionName(id) {
+						column.Name = presentation.Name
+						column.Label = presentation.Label
+					} else if !authoredSource {
 						column.Label = presentation.Label
 					}
 					column.Table = cloneTablePresentation(presentation.Table)

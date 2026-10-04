@@ -11,6 +11,20 @@ The runner is read-only by default and requires both `--apply` and
 compiler request through `--compiler-spec`. It does not infer a candidate name
 or projection paths from the old index.
 
+For this authorized verification case, the accepted candidate is pinned to
+`Observation`, index name `loom_pivot_preview_cdeb305dcc142386`, fields
+`project`, `dataset_generation`, `auth_resource_path`, `_key`, `payload.id`, and
+`payload.status`, with stored value `payload.valueQuantity`. The helper rejects the
+previous `subject.reference` candidate and other substituted projections. The
+provenance artifact contains more evidence fields than the migration input;
+project it to the four fields the migration helper accepts:
+
+```sh
+jq '{collection, name, fields, storedValues}' \
+  /tmp/loom-category-pivot-covering-index-spec.json \
+  > /tmp/loom-local-preview-index-spec.json
+```
+
 The Docker preflight requires the already-running API and Arango containers to
 have the expected Compose project/service labels, to share a network, and for
 the API's mounted `internal/` and `go.mod` to resolve to this checkout. The Go
