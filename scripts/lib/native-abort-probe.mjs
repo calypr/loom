@@ -327,20 +327,6 @@ export const createNativeAbortProbeSource = ({ project, explorer }) => `(() => {
   send({ kind: 'probe-installed', at: wallNow(), project: scope.project, explorer: scope.explorer });
 })();`;
 
-/** Install before navigation so the page probe runs before the application modules. */
-export const installNativeAbortProbe = async (cdp, { project, explorer, onEvent }) => {
-  await cdp.send('Runtime.addBinding', { name: bindingName });
-  cdp.on('Runtime.bindingCalled', ({ name, payload, executionContextId }) => {
-    if (name !== bindingName) return;
-    let event;
-    try { event = JSON.parse(payload); } catch { onEvent({ kind: 'probe-payload-invalid', payloadLength: String(payload).length, executionContextId }); return; }
-    onEvent({ ...event, executionContextId });
-  });
-  await cdp.send('Page.addScriptToEvaluateOnNewDocument', {
-    source: createNativeAbortProbeSource({ project, explorer }),
-  });
-};
-
 const ownerRetirementActionForRule = (owner) =>
   nativeAbortDomOwnerRules.find((rule) => rule.owner === owner)?.retirementAction;
 
