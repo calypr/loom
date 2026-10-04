@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { executeScenario, runBrowserCase } from './common.mjs';
+import { executeScenario, runBrowserCase, runPlaywrightCase, browserURL } from './common.mjs';
 import { click, evaluate, fill, inspectAction, onCDP, recordBrowserTiming, reload, waitFor, waitForCDPEvent } from './browser.mjs';
 import { isActionable, recordCheck } from './report.mjs';
 import { createBlankExplorer } from './workflows.mjs';
@@ -610,6 +610,112 @@ const expectedLeftRows = joinOracleRows(expectedObservations, expectedReports, '
 const joinHeaders = ['Observation ID', 'Observation status', 'Report ID', 'Report status'];
 const appendHeaders = ['Record ID', 'Status', 'Patient gender'];
 
+const readGridWithPlaywright = async (page, kind = 'saved') => page.evaluate((viewKind) => {
+  const proposal = viewKind === 'proposal';
+  const table = proposal
+    ? document.querySelector('[data-testid="construction-proposal-preview"][data-preview-status="ready"] table')
+    : document.querySelector('[data-testid="preview-table-scroll"] [role="table"]');
+  if (!table) return { ready: false, headers: [], rows: [], ariaRowCount: null };
+  const tidy = value => String(value ?? '').replace(/\s+/g, ' ').trim();
+  const headers = proposal
+    ? [...table.querySelectorAll('thead th')].map(cell => tidy(cell.querySelector('span')?.textContent ?? cell.textContent))
+    : [...table.querySelectorAll('[role="columnheader"]')].map(cell => tidy(cell.textContent));
+  const rows = proposal
+    ? [...table.querySelectorAll('tbody tr[data-testid="construction-proposal-preview-row"]')].map(row => [...row.querySelectorAll('td')].map(cell => tidy(cell.innerText)))
+    : [...table.querySelectorAll('[role="row"]')].slice(1).map(row => [...row.querySelectorAll('[role="cell"]')].map(cell => tidy(cell.innerText)));
+  return { ready: true, headers, rows, ariaRowCount: table.getAttribute('aria-rowcount') };
+}, kind);
+
+const exactRowsWithPlaywright = async (report, name, page, kind, headers, rows) => {
+  const grid = await readGridWithPlaywright(page, kind);
+  exactRows(report, name, grid, headers, rows);
+  return grid;
+};
+
+const waitSavedPreviewWithPlaywright = async (page, count) => page.waitForFunction(expected => {
+  const preview = document.querySelector('[data-testid="construction-preview"]');
+  const table = document.querySelector('[data-testid="preview-table-scroll"] [role="table"]');
+  return preview?.getAttribute('data-preview-status') === 'ready' && table?.getAttribute('aria-rowcount') === String(expected + 1) &&
+    !document.body.innerText.includes('Loading your table…') && !document.body.innerText.includes('Preview failed:');
+}, count, { timeout: 30000 });
+
+const waitProposalWithPlaywright = async (page, outputId, count) => page.waitForFunction(({ expectedOutput, expectedRows }) => {
+  const panel = document.querySelector('[data-testid="construction-proposal-panel"][data-proposal-status="ready"]');
+  const preview = document.querySelector('[data-testid="construction-proposal-preview"][data-preview-status="ready"]');
+  return Boolean(panel && preview && panel.getAttribute('data-proposal-id') &&
+    preview.getAttribute('data-preview-receipt-id') === panel.getAttribute('data-proposal-id') &&
+    preview.getAttribute('data-preview-output-id') === expectedOutput &&
+    (expectedRows === undefined || preview.querySelectorAll('tbody tr[data-testid="construction-proposal-preview-row"]').length === expectedRows));
+}, { expectedOutput: outputId, expectedRows: count }, { timeout: 30000 });
+
+const selectInputWithPlaywright = async (page, action, selector, value, label) => {
+  const control = page.locator(selector);
+  await action(label, control, () => control.selectOption(String(value)));
+  const actual = await control.inputValue();
+  assert.equal(actual, String(value), `${label} must retain its exact selected value`);
+};
+
+const fillWithPlaywright = async (page, action, selector, value, label) => {
+  const control = page.locator(selector);
+  await action(label, control, () => control.fill(value), { editable: true });
+};
+
+const applyProposalWithPlaywright = async (page, action, label, savedRows, outputId) => {
+  const apply = page.getByTestId('construction-apply-proposal');
+  await action(label, apply, () => apply.click(), {
+    timeout: 30000,
+    budget: 5000,
+    after: async () => {
+      await page.getByTestId('construction-proposal-panel').waitFor({ state: 'hidden', timeout: 30000 });
+      if (savedRows === null) {
+        await page.waitForFunction(expectedOutput => {
+          const selected = document.querySelector(`[data-testid="construction-table-${CSS.escape(expectedOutput)}"]`);
+          const preview = document.querySelector('[data-testid="preview-table-scroll"]');
+          return selected?.getAttribute('aria-current') === 'page' &&
+            !document.querySelector('[data-testid="construction-history"]') &&
+            !document.querySelector('[data-testid="construction-combine-editor"]') &&
+            preview?.textContent?.trim() === 'Add a column to see your table.';
+        }, outputId, { timeout: 30000 });
+      } else {
+        await page.getByTestId('construction-history').waitFor({ state: 'visible', timeout: 30000 });
+        await waitSavedPreviewWithPlaywright(page, savedRows);
+      }
+    },
+  });
+};
+
+const selectTargetWithPlaywright = async (page, action, outputId) => {
+  const table = page.getByTestId(`construction-table-${outputId}`);
+  if (await table.getAttribute('aria-current') !== 'page') {
+    await action('select Combine target table', table, () => table.click(), {
+      after: () => page.waitForFunction(id => document.querySelector(`[data-testid="construction-table-${CSS.escape(id)}"]`)?.getAttribute('aria-current') === 'page', outputId),
+    });
+  }
+};
+
+const editSavedStepWithPlaywright = async (page, action, stepId) => {
+  const history = page.getByTestId(`construction-history-step-${stepId}`);
+  await action('select saved Combine step', history, () => history.click(), {
+    after: async () => {
+      await page.getByTestId(`construction-edit-step-${stepId}`).waitFor({ state: 'visible' });
+      await page.waitForFunction(id => {
+        const button = document.querySelector(`[data-testid="construction-edit-step-${CSS.escape(id)}"]`);
+        return Boolean(button && !button.disabled);
+      }, stepId, { timeout: 10000 });
+    },
+  });
+  const edit = page.getByTestId(`construction-edit-step-${stepId}`);
+  await action('open saved Combine editor and load pinned sources', edit, () => edit.click(), {
+    after: async () => {
+      await page.locator('[data-testid="construction-combine-editor"]').waitFor({ state: 'visible' });
+      await page.locator('select[aria-label="Input table 1"]').waitFor({ state: 'visible' });
+      await page.locator('input[aria-label="Output field 1 label"]').waitFor({ state: 'visible' });
+      await page.waitForFunction(() => !document.querySelector('select[aria-label="Input table 1"]')?.disabled &&
+        !document.querySelector('input[aria-label="Output field 1 label"]')?.disabled, undefined, { timeout: 10000 });
+    },
+  });
+};
+
 const editSavedStep = async (report, cdp, stepId) => {
   await click(cdp, '[data-testid="construction-history-step-' + stepId + '"]');
   await waitFor(cdp, 'Boolean(document.querySelector(\'[data-testid="construction-edit-step-' + stepId + '"]:not(:disabled)\'))', 10000);
@@ -655,7 +761,257 @@ const removeCombineAndRestoreEmptyRoot = async (context, cdp, report, explorer, 
   });
 };
 
-const runJoin = (context) => runBrowserCase(context, 'builder-combine', 'join', async ({ cdp, report }) => {
+const createAndPublishSourcesWithPlaywright = async (context, page, action, report, includePatient = false, rawFieldsByResource = {}) => {
+  await page.goto(browserURL(context.target, context.target.fixtureProject, context.target.bootstrapExplorerId, 'builder'), { waitUntil: 'domcontentloaded' });
+  const newExplorer = page.getByText('New explorer', { exact: true });
+  await action('open source Explorer creation', newExplorer, () => newExplorer.click(), {
+    after: () => page.locator('#new-explorer-name').waitFor({ state: 'visible' }),
+  });
+  const title = `Verify ${context.runID.slice(-10)} combine`;
+  await fillWithPlaywright(page, action, '#new-explorer-name', title, 'name source Explorer');
+  const create = page.getByRole('button', { name: 'Create blank', exact: true });
+  await action('create blank source Explorer', create, () => create.click(), {
+    timeout: 10000,
+    after: () => page.waitForFunction(expected => document.querySelector('select[aria-label="Explorer"]')?.selectedOptions[0]?.textContent?.trim() === expected &&
+      document.body.innerText.includes('Build your first table'), title),
+  });
+  const explorer = await page.getByRole('combobox', { name: 'Explorer' }).inputValue();
+  report.target.explorer = explorer;
+
+  const addRootWithUI = async (resourceType, tableTitle, expectedIDs) => {
+    await fillWithPlaywright(page, action, '#first-table-name', tableTitle, `name ${resourceType} source table`);
+    const choose = page.getByRole('button', { name: `Choose ${resourceType} rows`, exact: true });
+    await action(`create ${resourceType} source table with its direct identity`, choose, () => choose.click(), {
+      timeout: 30000,
+      budget: 5000,
+      after: async () => {
+        await page.getByTestId('construction-workspace').waitFor({ state: 'visible', timeout: 30000 });
+        await waitSavedPreviewWithPlaywright(page, expectedIDs.length);
+      },
+    });
+    const grid = await readGridWithPlaywright(page);
+    const wanted = resourceType.toLowerCase() + ' id';
+    const idIndex = grid.headers.findIndex(header => header.toLowerCase() === wanted || header.toLowerCase() === 'id');
+    const ids = idIndex < 0 ? [] : grid.rows.map(row => row[idIndex]).sort();
+    check(report, 'correctness', resourceType + ' source starts with every literal fixture identity',
+      JSON.stringify(ids) === JSON.stringify([...expectedIDs].sort()), { headers: grid.headers, ids, expectedIDs });
+  };
+
+  const addRawFieldsWithUI = async (resourceType, fieldPaths, expectedRows) => {
+    const addColumns = page.getByTestId('construction-action-add-columns');
+    await action(`open ${resourceType} source Add columns`, addColumns, () => addColumns.click(), {
+      after: () => page.locator('[aria-label="Add columns editor"]').waitFor({ state: 'visible' }),
+    });
+    const fields = page.getByRole('button', { name: 'Fields and related data', exact: true });
+    await action('open Fields and related data', fields, () => fields.click());
+    const raw = page.getByText('Raw FHIR fields (advanced)', { exact: true });
+    await action('open raw FHIR fields', raw, () => raw.click());
+    for (const path of fieldPaths) {
+      const checkbox = page.getByRole('checkbox', { name: `Select ${resourceType}.${path}`, exact: true });
+      await action(`select ${resourceType}.${path}`, checkbox, () => checkbox.check());
+    }
+    const addLabel = `Add ${fieldPaths.length} selected feature${fieldPaths.length === 1 ? '' : 's'}`;
+    const add = page.getByRole('button', { name: addLabel, exact: true });
+    await action(`add ${resourceType} source fields`, add, () => add.click(), {
+      after: () => page.getByRole('button', { name: 'Apply columns', exact: true }).waitFor({ state: 'visible' }),
+    });
+    const apply = page.getByRole('button', { name: 'Apply columns', exact: true });
+    await action(`apply ${resourceType} source fields and render its preview`, apply, () => apply.click(), {
+      timeout: 30000,
+      budget: 5000,
+      after: () => waitSavedPreviewWithPlaywright(page, expectedRows),
+    });
+    const close = page.getByRole('button', { name: 'Close operation editor', exact: true });
+    await action('close source operation editor', close, () => close.click(), {
+      after: () => page.locator('[aria-label="Add columns editor"]').waitFor({ state: 'hidden' }),
+    });
+  };
+
+  await addRootWithUI('Observation', 'Observations', expectedObservations.map(row => row.id));
+  await addRawFieldsWithUI('Observation', rawFieldsByResource.Observation ?? ['status', 'valueInteger'], expectedObservations.length);
+  const newTable = page.getByTestId('construction-new-table');
+  await action('start DiagnosticReport source table', newTable, () => newTable.click(), {
+    after: () => page.locator('#first-table-name').waitFor({ state: 'visible' }),
+  });
+  await addRootWithUI('DiagnosticReport', 'Diagnostic reports', expectedReports.map(row => row.id));
+  await addRawFieldsWithUI('DiagnosticReport', rawFieldsByResource.DiagnosticReport ?? ['status'], expectedReports.length);
+  if (includePatient) {
+    await action('start Patient source table', newTable, () => newTable.click(), {
+      after: () => page.locator('#first-table-name').waitFor({ state: 'visible' }),
+    });
+    await addRootWithUI('Patient', 'Patients', expectedPatients.map(row => row.id));
+    await addRawFieldsWithUI('Patient', rawFieldsByResource.Patient ?? ['gender'], expectedPatients.length);
+  }
+
+  const publishPath = `/api/v1/projects/${encodeURIComponent(context.target.fixtureProject)}/explorers/${encodeURIComponent(explorer)}/authoring/v2/publish`;
+  const publishResponse = page.waitForResponse(response => response.request().method() === 'POST' &&
+    new URL(response.url()).origin === new URL(context.target.uiUrl).origin && new URL(response.url()).pathname === publishPath, { timeout: 60000 });
+  const publish = page.getByRole('button', { name: 'Publish', exact: true });
+  await action(includePatient ? 'publish all three exact source tables' : 'publish both exact source tables', publish, () => publish.click(), {
+    timeout: 60000,
+    budget: 5000,
+    after: async () => {
+      const response = await publishResponse;
+      assert(response.status() >= 200 && response.status() < 300, `source table publication returned HTTP ${response.status()}`);
+    },
+  });
+  const publishedResponse = await publishResponse;
+  check(report, 'correctness', 'native source-table publication completed successfully', publishedResponse.status() >= 200 && publishedResponse.status() < 300,
+    { status: publishedResponse.status(), path: publishPath });
+
+  const builder = await readBuilder(context, explorer);
+  const observation = documentByRoot(builder, 'Observation');
+  const diagnosticReport = documentByRoot(builder, 'DiagnosticReport');
+  const docs = { observation, report: diagnosticReport, documents: [observation, diagnosticReport] };
+  if (includePatient) {
+    docs.patient = documentByRoot(builder, 'Patient');
+    docs.documents.push(docs.patient);
+  }
+  const api = await sourceAPI(context, explorer, title, docs, report);
+  check(report, 'correctness', 'source revisions are published in the exact project, generation, and authorization scope',
+    api.revisions.Observation.tableId && api.revisions.DiagnosticReport.tableId &&
+    (!includePatient || api.revisions.Patient.tableId) && api.builder.catalog.generation === context.target.fixtureGeneration &&
+    api.builder.catalog.authorizationScopeDigest && api.entries.length >= 2,
+    { project: context.target.fixtureProject, generation: api.builder.catalog.generation,
+      authorizationScopeDigest: api.builder.catalog.authorizationScopeDigest,
+      revisions: Object.fromEntries(Object.entries(api.revisions).map(([key, entry]) => [key, {
+        tableId: entry.tableId, revisionId: entry.revisionId, outputId: entry.outputId, isCurrent: entry.isCurrent,
+      }])) });
+  check(report, 'performance', 'published source API and schema fingerprint captured within five seconds', api.apiElapsedMs <= 5000,
+    { elapsedMs: api.apiElapsedMs, fingerprint: api.apiFingerprint, generation: api.builder.catalog.generation,
+      authorizationScopeDigest: api.builder.catalog.authorizationScopeDigest });
+  report.target.sourceExplorer = explorer;
+  report.target.sourceExplorerTitle = title;
+  report.target.fixtureRawOracle = {
+    fixtureDirectory: context.target.fixtureDir,
+    project: context.target.fixtureProject,
+    generation: context.target.fixtureGeneration,
+    patients: expectedPatients,
+    observations: expectedObservations,
+    diagnosticReports: expectedReports,
+    expectedJoin: { innerRows: 3, leftRows: 4, key: 'required resource id', unmatchedObservation: 'combine-observation-unmatched' },
+  };
+  report.target.combineSourceInputs = Object.fromEntries(Object.entries(api.revisions).map(([key, entry]) => [key, {
+    tableId: entry.tableId, revisionId: entry.revisionId, outputId: entry.outputId,
+    tableTitle: entry.tableTitle, outputTitle: entry.outputTitle, generation: api.builder.catalog.generation,
+    authorizationScopeDigest: api.builder.catalog.authorizationScopeDigest,
+  }]));
+  report.target.sourceApiFingerprint = api.apiFingerprint;
+  return { explorer, docs, api };
+};
+
+const startCombineTargetWithPlaywright = async (context, page, action, report, explorer, observationOutputId, sourceBuilder) => {
+  await selectTargetWithPlaywright(page, action, observationOutputId);
+  const project = context.target.fixtureProject;
+  const commandPath = `/api/v1/projects/${encodeURIComponent(project)}/explorers/${encodeURIComponent(explorer)}/authoring/v2/commands`;
+  const createRequest = request => {
+    if (request.method() !== 'POST' || new URL(request.url()).origin !== new URL(context.target.uiUrl).origin ||
+      new URL(request.url()).pathname !== commandPath) return false;
+    let body;
+    try { body = request.postDataJSON(); } catch { return false; }
+    return body?.commands?.some(command => command?.type === 'CREATE_TABLE');
+  };
+  const commandResponse = page.waitForResponse(response => createRequest(response.request()), { timeout: 15000 });
+  const operationChooser = page.getByTestId('construction-action-combine');
+  await action('open Combine operation chooser', operationChooser, () => operationChooser.click(), {
+    timeout: 30000,
+    budget: 5000,
+    after: async () => {
+      await page.locator('[data-testid="construction-operation-editor"][data-operation-family="COMBINE"][data-output-id]').waitFor({ state: 'visible', timeout: 30000 });
+      await page.getByTestId('construction-combine-editor').waitFor({ state: 'visible', timeout: 30000 });
+      await page.getByTestId('construction-combine-choice-key_join').waitFor({ state: 'visible', timeout: 30000 });
+    },
+  });
+  const response = await commandResponse;
+  const request = response.request();
+  const body = request.postDataJSON();
+  const responseBody = await response.json();
+  const mountedOutputId = await page.locator('[data-testid="construction-operation-editor"][data-operation-family="COMBINE"]').getAttribute('data-output-id');
+  const expectedRootNodeIds = (sourceBuilder.catalog?.nodes ?? []).filter(node => node.resourceType === 'Observation' && node.rowRootEligible).map(node => node.nodeId);
+  const previousOutputIds = (sourceBuilder.workspace?.documents ?? []).map(document => document.output?.id).filter(Boolean);
+  const evidence = nativeCombineTargetBindingEvidence({
+    requestBody: body,
+    responseStatus: response.status(),
+    response: responseBody,
+    expectedRootNodeIds,
+    expectedRootResourceType: 'Observation',
+    previousOutputIds,
+    mountedOutputId,
+  });
+  check(report, 'correctness', 'native Combine creates a rooted empty Observation target without adding an authored step or output column', evidence.ok, evidence);
+  if (!evidence.ok) throw new Error('Native Combine target identity did not bind its creation command, returned workspace, and mounted editor: ' + JSON.stringify(evidence));
+  return { outputId: evidence.outputId, rootNodeId: evidence.rootNodeId };
+};
+
+const chooseOperationWithPlaywright = async (page, action, kind, inputs) => {
+  const choice = page.getByTestId(`construction-combine-choice-${kind.toLowerCase()}`);
+  await action(`choose ${kind} and load the initial two input selectors`, choice, () => choice.click(), {
+    timeout: 30000,
+    after: async () => {
+      await page.locator('select[aria-label="Input table 1"]').waitFor({ state: 'visible' });
+      await page.locator('select[aria-label="Input table 2"]').waitFor({ state: 'visible' });
+    },
+  });
+  for (let index = 0; index < inputs.length; index += 1) {
+    if (index >= 2) {
+      assert.equal(kind, 'APPEND', 'Only APPEND may add inputs beyond two');
+      const addAnother = page.getByRole('button', { name: 'Add another table', exact: true });
+      await action(`add APPEND input table ${index + 1}`, addAnother, () => addAnother.click(), {
+        after: () => page.locator(`select[aria-label="Input table ${index + 1}"]`).waitFor({ state: 'visible' }),
+      });
+    }
+    const value = publishedRef(inputs[index]);
+    await selectInputWithPlaywright(page, action, `select[aria-label="Input table ${index + 1}"]`, value, `select exact published input revision ${index + 1}`);
+  }
+};
+
+const configureOutputWithPlaywright = async (page, action, index, name, label, sourceFields, kind) => {
+  const nameSelector = `input[aria-label="Output field ${index} name"]`;
+  await page.locator(nameSelector).waitFor({ state: 'visible', timeout: 10000 });
+  await fillWithPlaywright(page, action, nameSelector, name, `name output field ${index}`);
+  await fillWithPlaywright(page, action, `input[aria-label="Output field ${index} label"]`, label, `label output field ${index}`);
+  for (const [inputIndex, columnId] of sourceFields) {
+    const fieldKind = kind === 'APPEND' ? 'matching field in input ' : 'source field in input ';
+    const value = kind === 'APPEND' ? (columnId === null ? 'empty-for-this-table' : 'column:' + columnId) : columnId;
+    await selectInputWithPlaywright(page, action,
+      `select[aria-label="Output field ${index} ${fieldKind}${inputIndex + 1}"]`, value,
+      `map output field ${index} from input ${inputIndex + 1}`);
+  }
+};
+
+const addOutputWithPlaywright = async (page, action, index, name, label, sourceFields, kind) => {
+  const add = page.getByRole('button', { name: 'Add output field', exact: true });
+  await action(`add output field ${index}`, add, () => add.click(), {
+    after: () => page.locator(`input[aria-label="Output field ${index} name"]`).waitFor({ state: 'visible' }),
+  });
+  await configureOutputWithPlaywright(page, action, index, name, label, sourceFields, kind);
+};
+
+const removeCombineAndRestoreEmptyRootWithPlaywright = async (context, page, action, report, explorer, target, baseline, stepId, operation) => {
+  const history = page.getByTestId(`construction-history-step-${stepId}`);
+  await action('select saved Combine step for removal', history, () => history.click(), {
+    after: () => page.getByTestId(`construction-remove-step-${stepId}`).waitFor({ state: 'visible' }),
+  });
+  const remove = page.getByTestId(`construction-remove-step-${stepId}`);
+  await action(`preview ${operation} removal`, remove, () => remove.click(), {
+    timeout: 30000,
+    after: () => waitProposalWithPlaywright(page, target.outputId),
+  });
+  check(report, 'correctness', operation + ' removal proposal is ready for the rooted empty target', true, { outputId: target.outputId, stepId });
+  await applyProposalWithPlaywright(page, action, `Remove ${operation} and restore the rooted empty target`, null, target.outputId);
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await page.getByTestId(`construction-table-${target.outputId}`).waitFor({ state: 'visible', timeout: 30000 });
+  await selectTargetWithPlaywright(page, action, target.outputId);
+  const builder = await readBuilder(context, explorer);
+  const restored = readTargetDocument(builder, target.outputId);
+  const restoration = rootedEmptyTargetRestorationEvidence(restored, baseline, target);
+  check(report, 'persistence', 'removing ' + operation + ' and reloading restores the rooted empty target', restoration.ok, {
+    target, rootResourceType: restored.rootResourceType, columns: restored.columns, construction: restored.construction,
+    sameAsPreCombineDocument: restoration.unchanged, expectedDocument: baseline,
+  });
+};
+
+const runJoin = context => runPlaywrightCase(context, 'builder-combine', 'join', async ({ page, report, action }) => {
   assert.equal(context.custom, false, 'Combine authoring requires an owned isolated fixture.');
   assert.equal(context.seed?.fresh, true, 'Combine authoring requires a fresh verification project.');
   const fixture = exactFixture(context.target.fixtureDir);
@@ -663,13 +1019,10 @@ const runJoin = (context) => runBrowserCase(context, 'builder-combine', 'join', 
   check(report, 'correctness', 'fixture contains one bootstrap Patient, four Observations, and three DiagnosticReports',
     fixture.patients.length === 1 && fixture.observations.length === 4 && fixture.diagnosticReports.length === 3, fixture);
 
-  const prepared = await createAndPublishSources(context, cdp, report);
-  const explorer = prepared.explorer;
-  const docs = prepared.docs;
-  const api = prepared.api;
-  const target = await startCombineTarget(context, cdp, report, explorer, docs.observation.output.id, api.builder);
+  const prepared = await createAndPublishSourcesWithPlaywright(context, page, action, report);
+  const { explorer, docs, api } = prepared;
+  const target = await startCombineTargetWithPlaywright(context, page, action, report, explorer, docs.observation.output.id, api.builder);
   report.target.combineTarget = target;
-
   const builderAtTarget = await readBuilder(context, explorer);
   const emptyTargetBaseline = readTargetDocument(builderAtTarget, target.outputId);
   const catalogEntries = await readPublishedInputs(context, explorer, builderAtTarget);
@@ -680,25 +1033,24 @@ const runJoin = (context) => runBrowserCase(context, 'builder-combine', 'join', 
     publishedRef(reportRevision) === publishedRef(api.revisions.DiagnosticReport),
     { observationRevision, reportRevision, expected: api.revisions });
 
-  await chooseOperation(report, cdp, 'KEY_JOIN', [observationRevision, reportRevision]);
-  await setSelectValue(cdp, 'select[aria-label="Matching pair 1 first field"]', api.columns.observationID.id);
-  await setSelectValue(cdp, 'select[aria-label="Matching pair 1 second field"]', api.columns.reportID.id);
-  await setSelectValue(cdp, 'select[aria-label="If a row in the first table has no match"]', 'INNER');
-  await addOutput(cdp, 1, 'observation_id', 'Observation ID', [[0, api.columns.observationID.id]], 'KEY_JOIN');
-  await addOutput(cdp, 2, 'observation_status', 'Observation status', [[0, api.columns.observationStatus.id]], 'KEY_JOIN');
-  await addOutput(cdp, 3, 'report_id', 'Report ID', [[1, api.columns.reportID.id]], 'KEY_JOIN');
-  await addOutput(cdp, 4, 'report_status', 'Report status', [], 'KEY_JOIN');
-  await recordBrowserTiming(report, cdp, {
-    name: 'render INNER Join preview',
-    action: () => setSelectValue(cdp, 'select[aria-label="Output field 4 source field in input 2"]', api.columns.reportStatus.id),
-    after: proposalPreview(expectedInnerRows.length, target.outputId),
+  await chooseOperationWithPlaywright(page, action, 'KEY_JOIN', [observationRevision, reportRevision]);
+  await selectInputWithPlaywright(page, action, 'select[aria-label="Matching pair 1 first field"]', api.columns.observationID.id, 'select Observation ID join key');
+  await selectInputWithPlaywright(page, action, 'select[aria-label="Matching pair 1 second field"]', api.columns.reportID.id, 'select DiagnosticReport ID join key');
+  await selectInputWithPlaywright(page, action, 'select[aria-label="If a row in the first table has no match"]', 'INNER', 'select INNER join policy');
+  await addOutputWithPlaywright(page, action, 1, 'observation_id', 'Observation ID', [[0, api.columns.observationID.id]], 'KEY_JOIN');
+  await addOutputWithPlaywright(page, action, 2, 'observation_status', 'Observation status', [[0, api.columns.observationStatus.id]], 'KEY_JOIN');
+  await addOutputWithPlaywright(page, action, 3, 'report_id', 'Report ID', [[1, api.columns.reportID.id]], 'KEY_JOIN');
+  await addOutputWithPlaywright(page, action, 4, 'report_status', 'Report status', [], 'KEY_JOIN');
+  const reportStatus = page.locator('select[aria-label="Output field 4 source field in input 2"]');
+  await action('render INNER Join preview', reportStatus, () => reportStatus.selectOption(api.columns.reportStatus.id), {
     timeout: 30000,
+    budget: 5000,
+    after: () => waitProposalWithPlaywright(page, target.outputId, expectedInnerRows.length),
   });
-  exactRows(report, 'INNER preview returns the three exact rows matched on shared required IDs',
-    await readGrid(cdp, 'proposal'), joinHeaders, expectedInnerRows);
+  await exactRowsWithPlaywright(report, 'INNER preview returns the three exact rows matched on shared required IDs',
+    page, 'proposal', joinHeaders, expectedInnerRows);
 
-  await applyProposal(cdp, report, 'Apply INNER Join to the new target',
-    '!document.querySelector(\'[data-testid="construction-proposal-panel"]\') && Boolean(document.querySelector(\'[data-testid="construction-history"]\')) && ' + savedPreview(expectedInnerRows.length));
+  await applyProposalWithPlaywright(page, action, 'Apply INNER Join to the new target', expectedInnerRows.length);
   const appliedInner = await readBuilder(context, explorer);
   let targetDocument = readTargetDocument(appliedInner, target.outputId);
   let step = targetDocument.construction?.steps?.[0];
@@ -706,49 +1058,53 @@ const runJoin = (context) => runBrowserCase(context, 'builder-combine', 'join', 
     throw new Error('Applying INNER did not persist exactly one KEY_JOIN step: ' + JSON.stringify(targetDocument.construction));
   }
   assertPinnedInputs(report, step, api);
-  exactRows(report, 'INNER Apply preserves the exact joined rows',
-    await readGrid(cdp), joinHeaders, expectedInnerRows);
-  await reload(cdp, workspaceReady);
-  await selectTarget(cdp, target.outputId);
-  await waitForSavedRows(cdp, expectedInnerRows.length);
-  exactRows(report, 'INNER table reload retains the three exact rows',
-    await readGrid(cdp), joinHeaders, expectedInnerRows);
+  await exactRowsWithPlaywright(report, 'INNER Apply preserves the exact joined rows', page, 'saved', joinHeaders, expectedInnerRows);
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await page.getByTestId(`construction-table-${target.outputId}`).waitFor({ state: 'visible', timeout: 30000 });
+  await selectTargetWithPlaywright(page, action, target.outputId);
+  await waitSavedPreviewWithPlaywright(page, expectedInnerRows.length);
+  await exactRowsWithPlaywright(report, 'INNER table reload retains the three exact rows', page, 'saved', joinHeaders, expectedInnerRows);
 
-  await editSavedStep(report, cdp, step.id);
-  await recordBrowserTiming(report, cdp, {
-    name: 'render LEFT Join preview',
-    action: () => setSelectValue(cdp, 'select[aria-label="If a row in the first table has no match"]', 'LEFT'),
-    after: proposalPreview(expectedLeftRows.length, target.outputId),
+  await editSavedStepWithPlaywright(page, action, step.id);
+  const noMatch = page.locator('select[aria-label="If a row in the first table has no match"]');
+  await action('render LEFT Join preview', noMatch, () => noMatch.selectOption('LEFT'), {
     timeout: 30000,
+    budget: 5000,
+    after: () => waitProposalWithPlaywright(page, target.outputId, expectedLeftRows.length),
   });
-  exactRows(report, 'LEFT preview retains the unmatched Observation with empty right-side values',
-    await readGrid(cdp, 'proposal'), joinHeaders, expectedLeftRows);
+  await exactRowsWithPlaywright(report, 'LEFT preview retains the unmatched Observation with empty right-side values',
+    page, 'proposal', joinHeaders, expectedLeftRows);
 
-  await click(cdp, '[data-testid="construction-cancel-proposal"]');
-  await waitFor(cdp, "Boolean(document.querySelector('[data-testid=\"construction-history\"]')) && !document.querySelector('[data-testid=\"construction-combine-editor\"]') && !document.querySelector('[data-testid=\"construction-proposal-panel\"]')", 10000);
-  await reload(cdp, workspaceReady);
-  await selectTarget(cdp, target.outputId);
-  await waitForSavedRows(cdp, expectedInnerRows.length);
+  const cancel = page.getByTestId('construction-cancel-proposal');
+  await action('Cancel LEFT Join edit', cancel, () => cancel.click(), {
+    after: async () => {
+      await page.getByTestId('construction-proposal-panel').waitFor({ state: 'hidden' });
+      await page.getByTestId('construction-combine-editor').waitFor({ state: 'hidden' });
+      await page.getByTestId('construction-history').waitFor({ state: 'visible' });
+    },
+  });
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await page.getByTestId(`construction-table-${target.outputId}`).waitFor({ state: 'visible', timeout: 30000 });
+  await selectTargetWithPlaywright(page, action, target.outputId);
+  await waitSavedPreviewWithPlaywright(page, expectedInnerRows.length);
   const cancelledBuilder = await readBuilder(context, explorer);
   targetDocument = readTargetDocument(cancelledBuilder, target.outputId);
   step = targetDocument.construction?.steps?.[0];
   const originalStep = readTargetDocument(appliedInner, target.outputId).construction.steps[0];
   check(report, 'persistence', 'Canceling the LEFT edit leaves the saved INNER operation unchanged',
     Boolean(step?.id === originalStep.id && step?.operation?.combine?.joinType === 'INNER'), { step: step ?? null });
-  exactRows(report, 'cancelled LEFT edit keeps the saved INNER rows after reload',
-    await readGrid(cdp), joinHeaders, expectedInnerRows);
+  await exactRowsWithPlaywright(report, 'cancelled LEFT edit keeps the saved INNER rows after reload', page, 'saved', joinHeaders, expectedInnerRows);
 
-  await editSavedStep(report, cdp, step.id);
-  await recordBrowserTiming(report, cdp, {
-    name: 'repreview LEFT Join before Apply',
-    action: () => setSelectValue(cdp, 'select[aria-label="If a row in the first table has no match"]', 'LEFT'),
-    after: proposalPreview(expectedLeftRows.length, target.outputId),
+  await editSavedStepWithPlaywright(page, action, step.id);
+  const leftPolicy = page.locator('select[aria-label="If a row in the first table has no match"]');
+  await action('repreview LEFT Join before Apply', leftPolicy, () => leftPolicy.selectOption('LEFT'), {
     timeout: 30000,
+    budget: 5000,
+    after: () => waitProposalWithPlaywright(page, target.outputId, expectedLeftRows.length),
   });
-  exactRows(report, 'LEFT preview before Apply includes null projections for the unmatched row',
-    await readGrid(cdp, 'proposal'), joinHeaders, expectedLeftRows);
-  await applyProposal(cdp, report, 'Apply LEFT Join edit',
-    '!document.querySelector(\'[data-testid="construction-proposal-panel"]\') && ' + savedPreview(expectedLeftRows.length));
+  await exactRowsWithPlaywright(report, 'LEFT preview before Apply includes null projections for the unmatched row',
+    page, 'proposal', joinHeaders, expectedLeftRows);
+  await applyProposalWithPlaywright(page, action, 'Apply LEFT Join edit', expectedLeftRows.length);
   const appliedLeft = await readBuilder(context, explorer);
   targetDocument = readTargetDocument(appliedLeft, target.outputId);
   step = targetDocument.construction?.steps?.[0];
@@ -756,15 +1112,14 @@ const runJoin = (context) => runBrowserCase(context, 'builder-combine', 'join', 
     throw new Error('Applying LEFT did not preserve and update the existing KEY_JOIN step: ' + JSON.stringify(targetDocument.construction));
   }
   assertPinnedInputs(report, step, api);
-  exactRows(report, 'LEFT Apply preserves exact matches and unmatched null fields',
-    await readGrid(cdp), joinHeaders, expectedLeftRows);
-  await reload(cdp, workspaceReady);
-  await selectTarget(cdp, target.outputId);
-  await waitForSavedRows(cdp, expectedLeftRows.length);
-  exactRows(report, 'LEFT rows and nulls survive Builder reload',
-    await readGrid(cdp), joinHeaders, expectedLeftRows);
+  await exactRowsWithPlaywright(report, 'LEFT Apply preserves exact matches and unmatched null fields', page, 'saved', joinHeaders, expectedLeftRows);
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await page.getByTestId(`construction-table-${target.outputId}`).waitFor({ state: 'visible', timeout: 30000 });
+  await selectTargetWithPlaywright(page, action, target.outputId);
+  await waitSavedPreviewWithPlaywright(page, expectedLeftRows.length);
+  await exactRowsWithPlaywright(report, 'LEFT rows and nulls survive Builder reload', page, 'saved', joinHeaders, expectedLeftRows);
 
-  await removeCombineAndRestoreEmptyRoot(context, cdp, report, explorer, target, emptyTargetBaseline, step.id, 'KEY_JOIN');
+  await removeCombineAndRestoreEmptyRootWithPlaywright(context, page, action, report, explorer, target, emptyTargetBaseline, step.id, 'KEY_JOIN');
   await assertSourceImmutability(context, explorer, docs, api, report);
   report.target.explorer = explorer;
   report.target.combineTarget = target;
