@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { mkdir, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { mkdir, realpath, writeFile } from 'node:fs/promises';
+import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { captureApiBuildFreeze, checkContainerApiBuildStamp } from './lib/api-build-freeze.mjs';
 import { launchBrowser } from './lib/playwright-browser.mjs';
@@ -16,7 +16,7 @@ const apiOrigin = process.env.LOOM_CDA_API_ORIGIN;
 const uiOrigin = process.env.LOOM_CDA_UI_ORIGIN;
 const apiContainer = process.env.LOOM_CDA_API_CONTAINER;
 const composeProject = process.env.LOOM_CDA_COMPOSE_PROJECT;
-const sourceRoot = fileURLToPath(new URL('..', import.meta.url));
+const sourceRoot = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const evidence = process.argv[2] ?? `/tmp/loom-last-table-command-${Date.now()}`;
 const root = project ? `/api/v1/projects/${encodeURIComponent(project)}/explorers` : '';
 const base = `${root}/${encodeURIComponent(explorer)}/authoring/v2`;
@@ -78,8 +78,13 @@ async function validateOwnedTarget() {
   mappedLoopbackPort(ui, 8080, uiURL.port, 'loom-ui');
   const apiSource = api.Mounts?.find(mount => mount.Destination === '/workspace/cmd')?.Source;
   const uiSource = ui.Mounts?.find(mount => mount.Destination === '/workspace/packages/loom-ui/src')?.Source;
-  assert.equal(apiSource, `${sourceRoot}/cmd`, 'API container must be mounted from this isolated source checkout');
-  assert.equal(uiSource, `${sourceRoot}/ui/packages/loom-ui/src`, 'UI container must be mounted from this isolated source checkout');
+  const hostSource = async value => {
+    assert(value, 'Owned service source mount is missing');
+    const hostPath = value.startsWith('/host_mnt/') ? value.slice('/host_mnt'.length) : value;
+    return realpath(hostPath);
+  };
+  assert.equal(await hostSource(apiSource), await realpath(join(sourceRoot, 'cmd')), 'API container must be mounted from this isolated source checkout');
+  assert.equal(await hostSource(uiSource), await realpath(join(sourceRoot, 'ui/packages/loom-ui/src')), 'UI container must be mounted from this isolated source checkout');
   return { composeProject, apiContainer, uiContainer: ui.Name.replace(/^\//, ''), apiPort: apiURL.port, uiPort: uiURL.port, sourceRoot };
 }
 
@@ -239,9 +244,13 @@ try {
   await browser?.close();
   if (apiBuildFreeze) {
     try {
-      await apiBuildFreeze.assertUnchanged();
+      report.apiBuildFreeze = await apiBuildFreeze.assertUnchanged();
+      assert.equal(report.apiBuildFreeze.checked, true);
+      assert.equal(report.apiBuildFreeze.unchanged, true);
+      assert.equal(report.apiBuildFreeze.invalidatesRun, false);
       const finalObservation = await checkContainerApiBuildStamp(apiContainer);
       report.apiBuildIdentity.after = extractBuildIdentity(finalObservation);
+      assert.equal(report.apiBuildIdentity.after, report.apiBuildIdentity.before, 'API build identity changed during the run');
     } catch (error) {
       report.priorStatus = report.status;
       report.status = 'invalidated';
@@ -253,6 +262,8 @@ try {
     try {
       report.sourceFreeze.after = sourceFingerprint(sourceRoot);
       report.sourceFreeze.check = await sourceFreeze.assertUnchanged();
+      assert.equal(report.sourceFreeze.check.unchanged, true);
+      assert.equal(report.sourceFreeze.check.invalidatesRun, false);
     } catch (error) {
       report.priorStatus = report.status;
       report.status = 'invalidated';
