@@ -2274,11 +2274,24 @@ export const readJ05OutputRows = (rows, names, { preserveMissing = false } = {})
 export const J05_REQUIRED_ASSERTIONS = Object.freeze([
   'j05-starts-with-fresh-isolated-fixture-and-empty-bootstrap-explorer',
   'j05-empty-review-shows-deterministic-table-blocker',
+  'j05-review-blocker-action-to-render-within-five-seconds',
   'j05-blocker-action-focuses-owning-control',
+  'j05-create-table-action-to-render-within-five-seconds',
   'j05-reloaded-builder-keeps-the-reviewed-explorer-and-three-columns',
+  'j05-advanced-graph-action-to-render-within-five-seconds',
+  'j05-gender-filter-action-to-render-within-five-seconds',
+  'j05-preview-action-to-render-within-five-seconds',
+  'j05-preview-request-is-owned-by-fixture-project-and-explorer',
+  'j05-preview-response-matches-owned-request-receipt',
+  'j05-preview-dom-matches-saved-draft-identity',
   'j05-preview-represents-every-selected-authored-column',
   'j05-preview-preserves-fixture-literal-values-and-patient-identity',
   'j05-saved-table-review-has-no-blockers',
+  'j05-review-results-action-to-render-within-five-seconds',
+  'j05-close-review-action-to-render-within-five-seconds',
+  'j05-publish-action-to-render-within-five-seconds',
+  'j05-publish-request-is-owned-by-fixture-project-and-explorer',
+  'j05-publish-uses-the-rendered-preview-receipt',
   'j05-publish-response-identifies-the-current-output',
   'j05-publish-keeps-the-reviewed-output-and-physical-column-order',
   'j05-published-viewer-exposes-the-authored-gender-facet',
@@ -2286,13 +2299,21 @@ export const J05_REQUIRED_ASSERTIONS = Object.freeze([
   'j05-unfiltered-viewer-row-identities-are-stable-and-distinct',
   'j05-preview-and-unfiltered-viewer-retain-exact-literal-rows',
   'j05-published-viewer-data-survives-reload',
+  'j05-viewer-action-to-render-within-five-seconds',
+  'j05-viewer-reload-action-to-render-within-five-seconds',
   'j05-viewer-renders-all-published-patient-rows',
+  'j05-cell-explanation-action-to-render-within-five-seconds',
   'j05-viewer-explains-a-rendered-cell-with-fixture-evidence',
+  'j05-close-explanation-action-to-render-within-five-seconds',
+  'j05-load-values-action-to-render-within-five-seconds',
+  'j05-female-filter-action-to-render-within-five-seconds',
   'j05-viewer-female-filter-selects-only-matching-patient',
   'j05-viewer-stays-in-viewer-mode-after-filtering',
   'j05-download-modal-declares-complete-authorized-scope',
   'j05-download-modal-shows-current-generation-and-schema-digest',
   'j05-download-modal-shows-exact-declared-column-count-and-types',
+  'j05-download-modal-action-to-render-within-five-seconds',
+  'j05-download-zip-action-to-render-within-five-seconds',
   'j05-artifact-identity-is-current-not-a-stale-modal-result',
   'j05-artifact-manifest-is-bound-to-current-publication-identity',
   'j05-artifact-representation-matches-modal',
@@ -2305,6 +2326,7 @@ export const J05_REQUIRED_ASSERTIONS = Object.freeze([
   'j05-artifact-preserves-exact-unfiltered-viewer-values-and-row-identities',
   'j05-artifact-provenance-retains-fixture-project-and-publication-identities',
   'j05-filtered-viewer-reloads-to-published-rows',
+  'j05-filtered-viewer-reload-action-to-render-within-five-seconds',
   'j05-browser-has-no-unexpected-errors-or-api-failures',
 ]);
 
@@ -3124,6 +3146,12 @@ const verifyJ05BrowserScenario = async (target, report, entryTarget = target) =>
   recordEvidence(report, evidenceDir);
   report.requests = [];
   report.actions = [];
+  const ownedExplorerId = report.target.bootstrapExplorerId;
+  if (!ownedExplorerId) throw new Error('J05 fresh fixture bootstrap Explorer identity is missing');
+  const uiOrigin = new URL(target.uiUrl).origin;
+  const authoringPath = new URL(bootstrapAuthoringURL(target, ownedExplorerId)).pathname;
+  const previewPath = `${authoringPath}/preview`;
+  const publishPath = `${authoringPath}/publish`;
   const browser = await launchPlaywrightEvidenceBrowser({
     evidence: evidenceDir,
     appOrigins: [target.uiUrl, target.apiUrl, entryTarget.uiUrl],
@@ -3134,18 +3162,32 @@ const verifyJ05BrowserScenario = async (target, report, entryTarget = target) =>
   const requestByPlaywrightRequest = new Map();
   const previewResponses = [];
   const previewRequestForResponse = new Map();
+  const publishResponses = [];
+  const publishRequestForResponse = new Map();
   page.on('request', (request) => {
     const url = new URL(request.url());
-    if (!url.pathname.includes('/authoring/v2/') || !url.pathname.endsWith('/preview')) return;
-    const item = { method: request.method(), postData: request.postData() };
-    previewResponses.push(item);
+    if (url.origin !== uiOrigin || ![previewPath, publishPath].includes(url.pathname) || request.method() !== 'POST') return;
+    let body;
+    try { body = request.postDataJSON(); } catch {}
+    const headers = request.headers();
+    const item = {
+      origin: url.origin,
+      path: url.pathname,
+      method: request.method(),
+      requestId: headers['x-request-id'] ?? '',
+      requestBody: body,
+    };
+    const responses = url.pathname === previewPath ? previewResponses : publishResponses;
+    responses.push(item);
     requestByPlaywrightRequest.set(request, item);
   });
   page.on('response', (response) => {
     const item = requestByPlaywrightRequest.get(response.request());
     if (!item) return;
     item.response = { status: response.status(), mimeType: response.headers()['content-type'] ?? '' };
-    previewRequestForResponse.set(response, item);
+    const url = new URL(response.url());
+    const byResponse = url.pathname === previewPath ? previewRequestForResponse : publishRequestForResponse;
+    byResponse.set(response, item);
   });
 
   const action = async (name, operation) => {
@@ -3155,10 +3197,52 @@ const verifyJ05BrowserScenario = async (target, report, entryTarget = target) =>
     report.timings ??= {};
     report.timings[`j05_${name.replace(/[^a-z0-9]+/gi, '_').toLowerCase()}_ms`] = Date.now() - started;
   };
-  const click = async (label, locator = page.getByRole('button', { name: label, exact: true })) =>
-    performAction(actionTracker, `click ${label}`, locator, (targetLocator) => targetLocator.click());
-  const check = async (label, locator) =>
-    performAction(actionTracker, `check ${label}`, locator, (targetLocator) => targetLocator.check());
+  const actionToRender = async (label, locator, assertionName, perform, waitForRendered) => {
+    const startedAt = Date.now();
+    await performAction(actionTracker, label, locator,
+      (targetLocator, { timeout }) => perform(targetLocator, timeout), { timeout: 5000 });
+    actionTracker.activeAction = { label, locator: locator.toString(), targetLocator: locator, startedAt };
+    try {
+      const remainingMs = Math.max(1, 5000 - (Date.now() - startedAt));
+      await waitForRendered(remainingMs);
+    } catch (error) {
+      const elapsedMs = Date.now() - startedAt;
+      report.actions.push({ name: label, elapsedMs, rendered: false });
+      report.timings[`j05_${assertionName.replace(/[^a-z0-9]+/gi, '_').toLowerCase()}_ms`] = elapsedMs;
+      recordAssertion(report, assertionName, true, false);
+      throw error;
+    }
+    const elapsedMs = Date.now() - startedAt;
+    report.actions.push({ name: label, elapsedMs, rendered: true });
+    report.timings[`j05_${assertionName.replace(/[^a-z0-9]+/gi, '_').toLowerCase()}_ms`] = elapsedMs;
+    recordAssertion(report, assertionName, true, elapsedMs <= 5000);
+    actionTracker.activeAction = undefined;
+    return elapsedMs;
+  };
+  const operationToRender = async (label, assertionName, perform, waitForRendered) => {
+    const startedAt = Date.now();
+    actionTracker.activeAction = { label, locator: 'page operation', startedAt };
+    try {
+      await perform(5000);
+      await waitForRendered(Math.max(1, 5000 - (Date.now() - startedAt)));
+    } catch (error) {
+      const elapsedMs = Date.now() - startedAt;
+      report.actions.push({ name: label, elapsedMs, rendered: false });
+      report.timings[`j05_${assertionName.replace(/[^a-z0-9]+/gi, '_').toLowerCase()}_ms`] = elapsedMs;
+      recordAssertion(report, assertionName, true, false);
+      throw error;
+    }
+    const elapsedMs = Date.now() - startedAt;
+    report.actions.push({ name: label, elapsedMs, rendered: true });
+    report.timings[`j05_${assertionName.replace(/[^a-z0-9]+/gi, '_').toLowerCase()}_ms`] = elapsedMs;
+    recordAssertion(report, assertionName, true, elapsedMs <= 5000);
+    actionTracker.activeAction = undefined;
+    return elapsedMs;
+  };
+  const click = (label, gateName, waitForRendered, locator = page.getByRole('button', { name: label, exact: true })) =>
+    actionToRender(`click ${label}`, locator, gateName, (targetLocator, timeout) => targetLocator.click({ timeout }), waitForRendered);
+  const check = (label, locator, gateName, waitForRendered) =>
+    actionToRender(`check ${label}`, locator, gateName, (targetLocator, timeout) => targetLocator.check({ timeout }), waitForRendered);
   const captureHTML = async (name) => {
     const path = join(evidenceDir, `${name}.html`);
     const html = await page.content();
@@ -3191,14 +3275,17 @@ const verifyJ05BrowserScenario = async (target, report, entryTarget = target) =>
     await captureDOM('j05-empty-builder');
 
     await action('review-blocker-focuses-owner', async () => {
-      await click('Review dataset');
       const reviewPanel = page.locator('#dataset-review-panel').filter({ hasText: 'Create at least one output table before publishing.' });
-      await reviewPanel.waitFor({ state: 'visible' });
+      await click('Review dataset', 'j05-review-blocker-action-to-render-within-five-seconds',
+        (timeout) => reviewPanel.waitFor({ state: 'visible', timeout }));
       recordAssertion(report, 'j05-empty-review-shows-deterministic-table-blocker', true,
         (await page.locator('#dataset-review-panel').innerText()).includes('Create at least one output table before publishing.'));
-      await click('Create your first table');
       const firstTableName = page.locator('#first-table-name');
-      await firstTableName.waitFor({ state: 'visible' });
+      await click('Create your first table', 'j05-create-table-action-to-render-within-five-seconds',
+        async (timeout) => {
+          await firstTableName.waitFor({ state: 'visible', timeout });
+          if (await page.evaluate(() => document.activeElement?.id ?? '') !== 'first-table-name') throw new Error('Create table action did not focus the owning control');
+        });
       recordAssertion(report, 'j05-blocker-action-focuses-owning-control', 'first-table-name',
         await page.evaluate(() => document.activeElement?.id ?? ''));
       await captureDOM('j05-blocker-focused-control');
@@ -3223,11 +3310,14 @@ const verifyJ05BrowserScenario = async (target, report, entryTarget = target) =>
       report.target.columnIds = { id: fieldColumn('id'), family: fieldColumn('name[].family'), gender: fieldColumn('gender') };
       if (Object.values(report.target.columnIds).some((column) => !column)) throw new Error(`J05 seeded table omitted a required Patient field: ${JSON.stringify(report.target.columnIds)}`);
       report.target.previewSourcePaths = report.target.builderColumns.map((column) => column.sourcePath);
-      await click('Advanced graph');
       const genderFilter = page.getByRole('checkbox', { name: 'Use gender as filter', exact: true });
-      await page.getByText('Current query', { exact: true }).waitFor({ state: 'visible', timeout: 30000 });
-      await genderFilter.waitFor({ state: 'visible', timeout: 30000 });
-      await check('Use gender as filter', genderFilter);
+      const currentQuery = page.getByText('Current query', { exact: true });
+      await click('Advanced graph', 'j05-advanced-graph-action-to-render-within-five-seconds', async (timeout) => {
+        await currentQuery.waitFor({ state: 'visible', timeout });
+        await genderFilter.waitFor({ state: 'visible', timeout });
+      });
+      await check('Use gender as filter', genderFilter, 'j05-gender-filter-action-to-render-within-five-seconds',
+        async () => { if (!await genderFilter.isChecked()) throw new Error('gender filter checkbox did not become checked'); });
       await captureDOM('j05-builder-gender-filter-configured');
     });
 
@@ -3242,10 +3332,17 @@ const verifyJ05BrowserScenario = async (target, report, entryTarget = target) =>
       const previousPreviewCount = previewResponses.length;
       const previewResponsePromise = page.waitForResponse((response) => {
         const url = new URL(response.url());
-        return url.pathname.includes('/authoring/v2/') && url.pathname.endsWith('/preview') && response.request().method() === 'POST';
-      }, { timeout: 60000 });
-      await click('Preview');
-      const previewResponse = await previewResponsePromise;
+        return url.origin === uiOrigin && url.pathname === previewPath
+          && response.request().method() === 'POST' && previewRequestForResponse.has(response);
+      }, { timeout: 5000 });
+      const previewTable = page.locator('[data-testid="preview-table-scroll"] [role="table"]');
+      let previewResponse;
+      await click('Preview', 'j05-preview-action-to-render-within-five-seconds', async (timeout) => {
+        [previewResponse] = await Promise.all([
+          previewResponsePromise,
+          previewTable.waitFor({ state: 'visible', timeout }),
+        ]);
+      });
       const previewRequest = previewRequestForResponse.get(previewResponse);
       if (!previewRequest || previewResponse.status() !== 200) {
         throw new Error(`J05 Builder Preview response was unavailable: ${JSON.stringify(previewResponses.slice(previousPreviewCount).map(({ response }) => response))}`);
@@ -3258,7 +3355,42 @@ const verifyJ05BrowserScenario = async (target, report, entryTarget = target) =>
         throw new Error(`J05 Builder Preview response body was not JSON: ${String(error)}`, { cause: error });
       }
       if (!Array.isArray(previewBody?.rows)) throw new Error('J05 Builder Preview response omitted rows');
-      await page.locator('[data-testid="preview-table-scroll"] [role="table"]').waitFor({ state: 'visible', timeout: 60000 });
+      recordAssertion(report, 'j05-preview-request-is-owned-by-fixture-project-and-explorer', {
+        origin: uiOrigin, path: previewPath, method: 'POST',
+      }, {
+        origin: previewRequest.origin, path: previewRequest.path, method: previewRequest.method,
+      });
+      recordAssertion(report, 'j05-preview-response-matches-owned-request-receipt', true,
+        previewRequest.requestBody?.outputId === report.target.outputId
+        && typeof previewRequest.requestBody?.receiptId === 'string'
+        && previewRequest.requestBody.receiptId.length > 0
+        && previewBody.outputId === previewRequest.requestBody.outputId
+        && previewBody.receiptId === previewRequest.requestBody.receiptId);
+      const previewIdentityDOM = await page.locator('[data-testid="construction-preview"]').evaluate((element) => ({
+        outputId: element.dataset.previewOutputId,
+        receiptId: element.dataset.previewReceiptId,
+        draftVersion: Number(element.dataset.currentDraftVersion),
+        draftDigest: element.dataset.currentDraftDigest,
+      }));
+      recordAssertion(report, 'j05-preview-dom-matches-saved-draft-identity', {
+        outputId: report.target.outputId,
+        draftVersion: builder.draftVersion,
+        draftDigest: builder.draftDigest,
+        receiptId: previewBody.receiptId,
+      }, {
+        outputId: previewIdentityDOM.outputId,
+        draftVersion: previewIdentityDOM.draftVersion,
+        draftDigest: previewIdentityDOM.draftDigest,
+        receiptId: previewIdentityDOM.receiptId,
+      });
+      previewRequest.responseBody = { outputId: previewBody.outputId, receiptId: previewBody.receiptId, rowCount: previewBody.rowCount };
+      report.requests.push({
+        kind: 'owned-preview', origin: previewRequest.origin, path: previewRequest.path,
+        method: previewRequest.method, requestId: previewRequest.requestId,
+        body: previewRequest.requestBody, response: previewRequest.response,
+        responseIdentity: previewRequest.responseBody,
+        savedDraft: { snapshotToken: builder.catalog.snapshotToken, draftVersion: builder.draftVersion, draftDigest: builder.draftDigest },
+      });
       const previewColumns = previewBody.columns ?? [];
       const previewColumnIDs = previewColumns.map((column) => column.column);
       const previewRows = readRows(previewBody.rows, previewColumnIDs);
@@ -3298,33 +3430,52 @@ const verifyJ05BrowserScenario = async (target, report, entryTarget = target) =>
       report.target.preview = { columns: previewColumns.map((column) => ({ column: column.column, label: column.label })), rows: previewExpected };
       await captureDOM('j05-preview');
 
-      await click('Review dataset');
       const reviewPanel = page.locator('#dataset-review-panel').filter({ hasText: 'No blocking issues are currently reported for these saved tables.' });
-      await reviewPanel.waitFor({ state: 'visible', timeout: 30000 });
+      await click('Review dataset', 'j05-review-results-action-to-render-within-five-seconds',
+        (timeout) => reviewPanel.waitFor({ state: 'visible', timeout }));
       const reviewText = await page.locator('#dataset-review-panel').innerText();
       recordAssertion(report, 'j05-saved-table-review-has-no-blockers', true,
         reviewText.includes('No blocking issues are currently reported for these saved tables.')
         && reviewText.includes('Patients')
         && document.columns.every((column) => reviewText.includes(column.label)));
       await captureDOM('j05-dataset-review');
-      await click('Close review');
+      await click('Close review', 'j05-close-review-action-to-render-within-five-seconds',
+        (timeout) => page.locator('#dataset-review-panel').waitFor({ state: 'hidden', timeout }));
     });
 
     await action('publish-and-prove-current-revision', async () => {
       const publishResponsePromise = page.waitForResponse((response) => {
         const url = new URL(response.url());
-        return url.pathname.includes('/authoring/v2/') && /publish|publication/.test(url.pathname) && response.request().method() === 'POST';
-      }, { timeout: 60000 });
-      await click('Publish');
-      const publishResponse = await publishResponsePromise;
-      if (publishResponse.status() !== 200) throw new Error(`J05 publish response returned HTTP ${publishResponse.status()}`);
+        return url.origin === uiOrigin && url.pathname === publishPath
+          && response.request().method() === 'POST' && publishRequestForResponse.has(response);
+      }, { timeout: 5000 });
+      let publishResponse;
+      await click('Publish', 'j05-publish-action-to-render-within-five-seconds', async () => {
+        publishResponse = await publishResponsePromise;
+      });
+      if (!publishResponse.ok()) throw new Error(`J05 publish response returned HTTP ${publishResponse.status()}`);
       const publishBody = await publishResponse.json();
+      const publishRequest = publishRequestForResponse.get(publishResponse);
+      recordAssertion(report, 'j05-publish-request-is-owned-by-fixture-project-and-explorer', {
+        origin: uiOrigin, path: publishPath, method: 'POST',
+      }, {
+        origin: publishRequest?.origin, path: publishRequest?.path, method: publishRequest?.method,
+      });
+      recordAssertion(report, 'j05-publish-uses-the-rendered-preview-receipt', true,
+        publishRequest?.requestBody?.receiptId === previewBody.receiptId
+        && publishBody.receiptId === publishRequest.requestBody.receiptId);
       report.target.publishResponse = {
         status: publishResponse.status(),
         revisionId: publishBody.revisionId,
         state: publishBody.state,
         outputIds: Array.isArray(publishBody.outputs) ? publishBody.outputs.map((item) => item.outputId) : [],
       };
+      report.requests.push({
+        kind: 'owned-publish', origin: publishRequest.origin, path: publishRequest.path,
+        method: publishRequest.method, requestId: publishRequest.requestId,
+        body: publishRequest.requestBody, response: publishRequest.response,
+        responseIdentity: { receiptId: publishBody.receiptId, revisionId: publishBody.revisionId, state: publishBody.state },
+      });
       recordAssertion(report, 'j05-publish-response-identifies-the-current-output', report.target.outputId,
         report.target.publishResponse.outputIds.includes(report.target.outputId) ? report.target.outputId : undefined);
       const started = Date.now();
@@ -3379,14 +3530,20 @@ const verifyJ05BrowserScenario = async (target, report, entryTarget = target) =>
     });
 
     await action('reload-viewer-explain-and-filter', async () => {
-      await click('Viewer');
-      await page.getByText('Published', { exact: false }).waitFor({ state: 'visible', timeout: 60000 });
-      await page.getByText('dev-patient-001', { exact: true }).waitFor({ state: 'visible', timeout: 60000 });
-      await page.getByText('dev-patient-002', { exact: true }).waitFor({ state: 'visible', timeout: 60000 });
-      await page.reload({ waitUntil: 'domcontentloaded' });
-      await page.getByText('Published', { exact: false }).waitFor({ state: 'visible', timeout: 60000 });
-      await page.getByText('dev-patient-001', { exact: true }).waitFor({ state: 'visible', timeout: 60000 });
-      await page.getByText('dev-patient-002', { exact: true }).waitFor({ state: 'visible', timeout: 60000 });
+      const published = page.getByText('Published', { exact: false });
+      const patientOne = page.getByText('dev-patient-001', { exact: true });
+      const patientTwo = page.getByText('dev-patient-002', { exact: true });
+      await click('Viewer', 'j05-viewer-action-to-render-within-five-seconds', async (timeout) => {
+        await published.waitFor({ state: 'visible', timeout });
+        await patientOne.waitFor({ state: 'visible', timeout });
+        await patientTwo.waitFor({ state: 'visible', timeout });
+      });
+      await operationToRender('reload published Viewer', 'j05-viewer-reload-action-to-render-within-five-seconds',
+        (timeout) => page.reload({ waitUntil: 'domcontentloaded', timeout }), async (timeout) => {
+          await published.waitFor({ state: 'visible', timeout });
+          await patientOne.waitFor({ state: 'visible', timeout });
+          await patientTwo.waitFor({ state: 'visible', timeout });
+        });
       const viewerBody = await page.locator('body').innerText();
       recordAssertion(report, 'j05-published-viewer-data-survives-reload', ['dev-patient-001', 'dev-patient-002'], ['dev-patient-001', 'dev-patient-002'].filter((id) => viewerBody.includes(id)));
       const tableBeforeFilter = await page.locator('table[aria-label$=" results"]').evaluate((table) => ({ headers: [...table.querySelectorAll('thead th')].map((cell) => cell.textContent.trim()), ids: [...table.querySelectorAll('tbody tr')].map((row) => row.querySelector('td')?.textContent.trim()) }));
@@ -3395,23 +3552,25 @@ const verifyJ05BrowserScenario = async (target, report, entryTarget = target) =>
       const familyColumn = outputColumnForPath(builder, output, 'name[].family');
       const patientRow = page.getByRole('row').filter({ has: page.getByRole('cell', { name: 'dev-patient-001', exact: true }) });
       const explain = patientRow.getByRole('button', { name: new RegExp(`^Explain ${familyColumn.label} for row `) });
-      await performAction(actionTracker, 'explain family value for dev-patient-001', explain, (locator) => locator.click());
       const explanationDialog = page.getByRole('dialog').filter({ hasText: familyColumn.label });
-      await explanationDialog.waitFor({ state: 'visible', timeout: 30000 });
+      await click(`Explain ${familyColumn.label} for row dev-patient-001`, 'j05-cell-explanation-action-to-render-within-five-seconds',
+        (timeout) => explanationDialog.waitFor({ state: 'visible', timeout }), explain);
       const explanationText = await explanationDialog.innerText();
       recordAssertion(report, 'j05-viewer-explains-a-rendered-cell-with-fixture-evidence', true,
         explanationText.includes('Example') || explanationText.includes('dev-patient-001'));
       report.target.cellExplanation = { column: familyColumn.label, containsFixtureEvidence: explanationText.includes('Example') || explanationText.includes('dev-patient-001') };
       await captureDOM('j05-viewer-cell-explanation');
-      await click('Close cell explanation');
+      await click('Close cell explanation', 'j05-close-explanation-action-to-render-within-five-seconds',
+        (timeout) => explanationDialog.waitFor({ state: 'hidden', timeout }));
 
-      await click('Load values');
       const femaleFacet = page.getByRole('checkbox', { name: /^female(?:\s|$)/ });
-      await femaleFacet.waitFor({ state: 'visible', timeout: 30000 });
-      await check('female facet', femaleFacet);
+      await click('Load values', 'j05-load-values-action-to-render-within-five-seconds',
+        (timeout) => femaleFacet.waitFor({ state: 'visible', timeout }));
       const viewerTable = page.locator('table[aria-label$=" results"] tbody');
-      await viewerTable.locator('tr').nth(0).waitFor({ state: 'visible', timeout: 30000 });
-      await viewerTable.locator('tr').nth(1).waitFor({ state: 'detached', timeout: 30000 });
+      await check('female facet', femaleFacet, 'j05-female-filter-action-to-render-within-five-seconds', async (timeout) => {
+        await viewerTable.locator('tr').nth(0).waitFor({ state: 'visible', timeout });
+        await viewerTable.locator('tr').nth(1).waitFor({ state: 'detached', timeout });
+      });
       const filteredIDs = await viewerTable.locator('tr').evaluateAll((rows) => rows.map((row) => row.querySelector('td')?.textContent.trim()));
       recordAssertion(report, 'j05-viewer-female-filter-selects-only-matching-patient', ['dev-patient-001'], filteredIDs);
       recordAssertion(report, 'j05-viewer-stays-in-viewer-mode-after-filtering', 'viewer', await page.evaluate(() => new URL(window.location.href).searchParams.get('mode')));
@@ -3420,9 +3579,9 @@ const verifyJ05BrowserScenario = async (target, report, entryTarget = target) =>
 
     let modal;
     await action('prepare-download-zip-and-inspect-package', async () => {
-      await click('Download dataset');
       const downloadDialog = page.getByRole('dialog').filter({ hasText: 'Download dataset' });
-      await downloadDialog.getByLabel('Declared output types').waitFor({ state: 'visible', timeout: 60000 });
+      await click('Download dataset', 'j05-download-modal-action-to-render-within-five-seconds',
+        (timeout) => downloadDialog.getByLabel('Declared output types').waitFor({ state: 'visible', timeout }));
       modal = await downloadDialog.evaluate((dialog) => {
         const value = (label) => [...dialog.querySelectorAll('dt')].find((term) => term.textContent.trim() === label)?.nextElementSibling?.textContent.trim() ?? '';
         return { text: dialog.innerText, representation: value('Representation'), sourceGeneration: value('Source generation'), schemaDigest: value('Schema digest'), types: dialog.querySelector('[aria-label="Declared output types"]')?.innerText ?? '' };
@@ -3436,9 +3595,10 @@ const verifyJ05BrowserScenario = async (target, report, entryTarget = target) =>
         modal.text.includes(`${output.columns.length} declared output columns`)
         && output.columns.every((column) => modal.types.includes(column.label)));
       await captureDOM('j05-dataset-download-modal');
-      const downloadPromise = page.waitForEvent('download', { timeout: 60000 });
+      const downloadPromise = page.waitForEvent('download', { timeout: 5000 });
       const downloadLink = downloadDialog.getByRole('link', { name: 'Download ZIP', exact: true });
-      await click('Download ZIP', downloadLink);
+      await click('Download ZIP', 'j05-download-zip-action-to-render-within-five-seconds',
+        async () => { await downloadPromise; }, downloadLink);
       const download = await downloadPromise;
       const archivePath = join(downloadDir, download.suggestedFilename());
       await download.saveAs(archivePath);
@@ -3503,9 +3663,11 @@ const verifyJ05BrowserScenario = async (target, report, entryTarget = target) =>
       await captureDOM('j05-viewer-download-complete');
     });
 
-    await page.reload({ waitUntil: 'domcontentloaded' });
-    await page.getByText('Published', { exact: false }).waitFor({ state: 'visible', timeout: 60000 });
-    await page.getByText('dev-patient-001', { exact: true }).waitFor({ state: 'visible', timeout: 60000 });
+    await operationToRender('reload filtered Viewer', 'j05-filtered-viewer-reload-action-to-render-within-five-seconds',
+      (timeout) => page.reload({ waitUntil: 'domcontentloaded', timeout }), async (timeout) => {
+        await page.getByText('Published', { exact: false }).waitFor({ state: 'visible', timeout });
+        await page.getByText('dev-patient-001', { exact: true }).waitFor({ state: 'visible', timeout });
+      });
     recordAssertion(report, 'j05-filtered-viewer-reloads-to-published-rows', true,
       (await page.locator('body').innerText()).includes('dev-patient-001'));
     await captureDOM('j05-viewer-after-reload');
