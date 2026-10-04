@@ -1,9 +1,9 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { runBrowserCase } from './common.mjs';
-import { click, evaluate, fill, recordBrowserTiming, reload, waitFor } from './browser.mjs';
+import { browserURL, runPlaywrightCase } from './common.mjs';
+import { click, evaluate, fill, recordPlaywrightTiming, reload, waitFor, goto, setActionEvidence } from './playwright-dom.mjs';
 import { recordCheck } from './report.mjs';
-import { createBlankExplorer } from './workflows.mjs';
+
 
 const sourceIDs = ['verify-repeat-empty', 'verify-repeat-missing', 'verify-repeat-two'];
 const preservePairs = [
@@ -113,7 +113,29 @@ const rowDefinitionComparisonReadyExpression = (baseRows, candidateRows) => `(()
 const rowDefinitionOpenExpression = `Boolean(document.querySelector('[aria-label="Row definition settings"]'))`;
 const rowDefinitionReadyExpression = `Boolean(document.querySelector('[aria-label="Row definition settings"] select[aria-label="What should each row represent?"]'))`;
 
-const readGrid = async (cdp, proposal = false) => evaluate(cdp, `(()=>{
+const createBlankExplorer = async (page, browser, target, runID, label, report) => {
+  await goto(page, browserURL(target, target.fixtureProject, target.bootstrapExplorerId, 'builder'),
+    "document.body.innerText.includes('Build your first table') || document.body.innerText.includes('Dataset graph')");
+  const title = `Verify ${runID.slice(-10)} ${label}`;
+  await recordPlaywrightTiming(report, page, browser, {
+    name: 'open Explorer creation',
+    action: () => click(page, 'summary', { name: 'New explorer' }),
+    after: "Boolean(document.querySelector('#new-explorer-name'))",
+    timeout: 5000,
+  });
+  await fill(page, '#new-explorer-name', title);
+  await recordPlaywrightTiming(report, page, browser, {
+    name: 'create blank Explorer',
+    action: () => click(page, 'button', { name: 'Create blank' }),
+    after: `document.querySelector('select[aria-label="Explorer"] option:checked')?.textContent.trim() === ${JSON.stringify(title)} && document.body.innerText.includes('Build your first table')`,
+    timeout: 10000,
+  });
+  const explorer = await evaluate(page, "document.querySelector('select[aria-label=\"Explorer\"]')?.value || ''");
+  requireCheck(report, 'correctness', 'created a fresh Explorer distinct from the bootstrap', Boolean(explorer && explorer !== target.bootstrapExplorerId), { title, explorer });
+  return { explorer, title };
+};
+
+const readGrid = async (page, proposal = false) => evaluate(page, `(()=>{
   const root=document.querySelector(${JSON.stringify(proposal ? '[data-testid="construction-proposal-preview"]' : '[data-testid="preview-table-scroll"]')});
   const table=${proposal ? "root?.querySelector('table')" : "root?.querySelector('[role=table]')"};
   if(!table)return {ready:false,headers:[],rows:[],idIndex:-1,itemIndex:-1};
@@ -141,8 +163,8 @@ const observedPairs = (grid) => {
     .sort((left, right) => left[0].localeCompare(right[0]) || left[1].localeCompare(right[1]));
 };
 
-const requirePairs = async (report, cdp, { name, expected, proposal = false }) => {
-  const grid = await readGrid(cdp, proposal);
+const requirePairs = async (report, page, { name, expected, proposal = false }) => {
+  const grid = await readGrid(page, proposal);
   const actual = observedPairs(grid);
   const sortedExpected = [...expected].sort((left, right) => left[0].localeCompare(right[0]) || left[1].localeCompare(right[1]));
   requireCheck(report, 'correctness', name,
@@ -151,10 +173,10 @@ const requirePairs = async (report, cdp, { name, expected, proposal = false }) =
   return grid;
 };
 
-const readRowDefinitionComparison = async (cdp) => evaluate(cdp, `(()=>{const section=document.querySelector('[aria-label="Row definition settings"] [aria-label="Row definition preview"]');const summary=section?.querySelector('p')?.innerText||'';const rowCounts=summary.match(/(\\d+)\\s+rows\\s+→\\s+(\\d+)\\s+rows/);const membership=[...Array.from(section?.querySelector('[aria-label="Membership changes"]')?.querySelectorAll('li')??[])].map(item=>{const text=(item.innerText||'').replace(/\\s+/g,' ').trim();const [status,...identity]=text.split(' · ');return {status,identity:identity.join(' · ')}});return {ready:Boolean(section&&rowCounts),summary,baseRows:rowCounts?Number(rowCounts[1]):undefined,candidateRows:rowCounts?Number(rowCounts[2]):undefined,membership,removedCount:membership.filter(item=>item.status==='Removed').length,unchangedCount:membership.filter(item=>item.status==='Unchanged').length,addedCount:membership.filter(item=>item.status==='Added').length,affectedColumns:section?.querySelector('p:nth-of-type(2)')?.innerText}})()`);
+const readRowDefinitionComparison = async (page) => evaluate(page, `(()=>{const section=document.querySelector('[aria-label="Row definition settings"] [aria-label="Row definition preview"]');const summary=section?.querySelector('p')?.innerText||'';const rowCounts=summary.match(/(\\d+)\\s+rows\\s+→\\s+(\\d+)\\s+rows/);const membership=[...Array.from(section?.querySelector('[aria-label="Membership changes"]')?.querySelectorAll('li')??[])].map(item=>{const text=(item.innerText||'').replace(/\\s+/g,' ').trim();const [status,...identity]=text.split(' · ');return {status,identity:identity.join(' · ')}});return {ready:Boolean(section&&rowCounts),summary,baseRows:rowCounts?Number(rowCounts[1]):undefined,candidateRows:rowCounts?Number(rowCounts[2]):undefined,membership,removedCount:membership.filter(item=>item.status==='Removed').length,unchangedCount:membership.filter(item=>item.status==='Unchanged').length,addedCount:membership.filter(item=>item.status==='Added').length,affectedColumns:section?.querySelector('p:nth-of-type(2)')?.innerText}})()`);
 
-const requireRowDefinitionComparison = async (report, cdp, { name, baseRows, candidateRows, removedCount, unchangedCount }) => {
-  const comparison = await readRowDefinitionComparison(cdp);
+const requireRowDefinitionComparison = async (report, page, { name, baseRows, candidateRows, removedCount, unchangedCount }) => {
+  const comparison = await readRowDefinitionComparison(page);
   const membershipMatches = removedCount === undefined || (
     comparison.removedCount === removedCount && comparison.unchangedCount === unchangedCount &&
     comparison.membership.length === removedCount + unchangedCount
@@ -169,8 +191,8 @@ const requireRowDefinitionComparison = async (report, cdp, { name, baseRows, can
   return comparison;
 };
 
-const requireSourceIDs = async (report, cdp, { name, proposal = false, includeItem = false, checkItem = true }) => {
-  const grid = await readGrid(cdp, proposal);
+const requireSourceIDs = async (report, page, { name, proposal = false, includeItem = false, checkItem = true }) => {
+  const grid = await readGrid(page, proposal);
   const actual = grid.ready && grid.idIndex >= 0
     ? grid.rows.map((row) => row[grid.idIndex] ?? '').sort()
     : [];
@@ -181,33 +203,34 @@ const requireSourceIDs = async (report, cdp, { name, proposal = false, includeIt
   return grid;
 };
 
-const openRowPanel = async (report, cdp, name, after) => {
-  await recordBrowserTiming(report, cdp, {
+const openRowPanel = async (report, page, browser, name, after) => {
+  await recordPlaywrightTiming(report, page, browser, {
     name,
-    action: () => click(cdp, 'button', { name: 'Configure rows' }),
+    action: () => click(page, 'button', { name: 'Configure rows' }),
     after,
     timeout: 30000,
     budget: 5000,
   });
 };
 
-const openRowDefinition = (report, cdp, name) =>
-  openRowPanel(report, cdp, name, rowDefinitionReadyExpression);
+const openRowDefinition = (report, page, browser, name) =>
+  openRowPanel(report, page, browser, name, rowDefinitionReadyExpression);
 
-export const runRepeatedEmpty = (context) => runBrowserCase(
+export const runRepeatedEmpty = (context) => runPlaywrightCase(
   context,
   'builder-authoring',
   'repeated-empty',
-  async ({ cdp, report }) => {
+  async ({ page, browser, action, report }) => {
+    setActionEvidence(browser, report, action);
     const contract = fixtureContract(context);
     requireCheck(report, 'correctness', 'case started with a fresh owned project and the exact repeated-empty fixture contract',
       contract.passed, { ...contract.summary, errors: contract.errors });
     report.target.fixtureGeneration = context.target.fixtureGeneration;
 
-    const { explorer } = await createBlankExplorer(cdp, context.target, context.runID, 'repeated-empty', report);
+    const { explorer } = await createBlankExplorer(page, browser, context.target, context.runID, 'repeated-empty', report);
     report.target.explorer = explorer;
     const assertScope = async (name) => {
-      const scope = await evaluate(cdp, `(()=>{const query=new URLSearchParams(location.search);return {project:query.get('project'),explorer:query.get('explorer'),mode:query.get('mode')}})()`);
+      const scope = await evaluate(page, `(()=>{const query=new URLSearchParams(location.search);return {project:query.get('project'),explorer:query.get('explorer'),mode:query.get('mode')}})()`);
       const passed = scope.project === context.target.fixtureProject && scope.explorer === explorer && scope.mode === 'builder' &&
         report.target.fixtureGeneration === context.target.fixtureGeneration;
       requireCheck(report, 'correctness', name, passed, {
@@ -217,14 +240,14 @@ export const runRepeatedEmpty = (context) => runBrowserCase(
       });
     };
     await assertScope('native source-row lifecycle remains in the exact isolated project, generation, and Explorer');
-    await recordBrowserTiming(report, cdp, {
+    await recordPlaywrightTiming(report, page, browser, {
       name: 'choose Observation root and render the three source rows',
-      action: () => click(cdp, 'button', { name: 'Choose Observation rows' }),
+      action: () => click(page, 'button', { name: 'Choose Observation rows' }),
       after: mainReadyExpression(3),
       timeout: 30000,
       budget: 5000,
     });
-    const source = await requireSourceIDs(report, cdp, {
+    const source = await requireSourceIDs(report, page, {
       name: 'Observation root Preview contains the three exact fixture IDs before source expansion',
     });
     requireCheck(report, 'correctness', 'source Preview starts with one direct Observation identity column',
@@ -232,31 +255,31 @@ export const runRepeatedEmpty = (context) => runBrowserCase(
       { headers: source.headers, idIndex: source.idIndex, itemIndex: source.itemIndex });
 
     const openSourceEditor = async (name) => {
-      if (!await evaluate(cdp, rowDefinitionOpenExpression)) {
-        await openRowDefinition(report, cdp, 'open row-shape settings for source expansion');
+      if (!await evaluate(page, rowDefinitionOpenExpression)) {
+        await openRowDefinition(report, page, browser, 'open row-shape settings for source expansion');
       }
-      await recordBrowserTiming(report, cdp, {
+      await recordPlaywrightTiming(report, page, browser, {
         name,
-        action: () => click(cdp, 'button[data-testid="construction-reshape-expand-source"]'),
+        action: () => click(page, 'button[data-testid="construction-reshape-expand-source"]'),
         after: `Boolean(document.querySelector('[role="dialog"][aria-label="Expand a repeated source field"] select[aria-label="Repeated source field"]'))`,
         timeout: 10000,
         budget: 5000,
       });
     };
     const chooseComponentSource = async (name) => {
-      const choices = await evaluate(cdp, `(()=>{const select=document.querySelector('[role="dialog"][aria-label="Expand a repeated source field"] select[aria-label="Repeated source field"]');return [...(select?.options||[])].map(option=>({value:option.value,label:(option.textContent||'').trim()})).filter(option=>option.value)})()`);
+      const choices = await evaluate(page, `(()=>{const select=document.querySelector('[role="dialog"][aria-label="Expand a repeated source field"] select[aria-label="Repeated source field"]');return [...(select?.options||[])].map(option=>({value:option.value,label:(option.textContent||'').trim()})).filter(option=>option.value)})()`);
       const choice = choices.find((option) => /component\[\]/i.test(option.label));
       requireCheck(report, 'correctness', 'source EXPANDED chooser exposes the exact Observation.component[] collection',
         Boolean(choice), { choices, selected: choice ?? null });
       if (!choice) throw new Error('The native repeated-source chooser did not expose Observation.component[]');
-      await recordBrowserTiming(report, cdp, {
+      await recordPlaywrightTiming(report, page, browser, {
         name,
-        action: () => fill(cdp, '[role="dialog"][aria-label="Expand a repeated source field"] select[aria-label="Repeated source field"]', choice.value),
+        action: () => fill(page, '[role="dialog"][aria-label="Expand a repeated source field"] select[aria-label="Repeated source field"]', choice.value),
         after: `(()=>{const dialog=document.querySelector('[role="dialog"][aria-label="Expand a repeated source field"]');const apply=dialog?.querySelector('[data-testid="construction-source-expand-apply"]');const preview=dialog?.querySelector('[aria-label="Source expansion preview"]');const policy=dialog?.querySelector('select[aria-label="When a record has no values"]');return Boolean(apply&&!apply.disabled&&preview?.innerText.includes('3 rows → 4 rows')&&policy?.value==='PRESERVE_PARENT')})()`,
         timeout: 30000,
         budget: 5000,
       });
-      const candidate = await evaluate(cdp, `(()=>{const dialog=document.querySelector('[role="dialog"][aria-label="Expand a repeated source field"]');return {field:dialog?.querySelector('select[aria-label="Repeated source field"]')?.selectedOptions[0]?.textContent?.trim(),policy:dialog?.querySelector('select[aria-label="When a record has no values"]')?.value,preview:dialog?.querySelector('[aria-label="Source expansion preview"]')?.innerText,applyDisabled:dialog?.querySelector('[data-testid="construction-source-expand-apply"]')?.disabled}})()`);
+      const candidate = await evaluate(page, `(()=>{const dialog=document.querySelector('[role="dialog"][aria-label="Expand a repeated source field"]');return {field:dialog?.querySelector('select[aria-label="Repeated source field"]')?.selectedOptions[0]?.textContent?.trim(),policy:dialog?.querySelector('select[aria-label="When a record has no values"]')?.value,preview:dialog?.querySelector('[aria-label="Source expansion preview"]')?.innerText,applyDisabled:dialog?.querySelector('[data-testid="construction-source-expand-apply"]')?.disabled}})()`);
       requireCheck(report, 'correctness', 'source-row preview defaults to PRESERVE_PARENT and predicts four rows from three source records',
         candidate.policy === 'PRESERVE_PARENT' && candidate.preview?.includes('3 rows → 4 rows') && candidate.applyDisabled === false,
         candidate);
@@ -264,10 +287,10 @@ export const runRepeatedEmpty = (context) => runBrowserCase(
       return choice;
     };
     const closeRowDefinition = async (name) => {
-      if (!await evaluate(cdp, rowDefinitionOpenExpression)) return;
-      await recordBrowserTiming(report, cdp, {
+      if (!await evaluate(page, rowDefinitionOpenExpression)) return;
+      await recordPlaywrightTiming(report, page, browser, {
         name,
-        action: () => click(cdp, '[aria-label="Row definition settings"] button', { name: 'Back to table' }),
+        action: () => click(page, '[aria-label="Row definition settings"] button', { name: 'Back to table' }),
         after: `!(${rowDefinitionOpenExpression})`,
         timeout: 10000,
         budget: 5000,
@@ -276,30 +299,30 @@ export const runRepeatedEmpty = (context) => runBrowserCase(
 
     await openSourceEditor('open the native repeated-source expansion dialog');
     await chooseComponentSource('preview PRESERVE_PARENT for Observation.component[] without applying it');
-    await recordBrowserTiming(report, cdp, {
+    await recordPlaywrightTiming(report, page, browser, {
       name: 'Cancel the source expansion proposal',
-      action: () => click(cdp, '[role="dialog"][aria-label="Expand a repeated source field"] button', { name: 'Cancel' }),
+      action: () => click(page, '[role="dialog"][aria-label="Expand a repeated source field"] button', { name: 'Cancel' }),
       after: `!document.querySelector('[role="dialog"][aria-label="Expand a repeated source field"]')`,
       timeout: 10000,
       budget: 5000,
     });
     await closeRowDefinition('return to the table after cancelling source expansion');
-    await waitFor(cdp, mainReadyExpression(3), 10000);
-    await requireSourceIDs(report, cdp, {
+    await waitFor(page, mainReadyExpression(3), 10000);
+    await requireSourceIDs(report, page, {
       name: 'Cancel leaves all three original source Observation IDs unchanged',
     });
 
     await openSourceEditor('reopen the native repeated-source expansion dialog');
     const componentChoice = await chooseComponentSource('preview the source expansion that will be applied');
-    await recordBrowserTiming(report, cdp, {
+    await recordPlaywrightTiming(report, page, browser, {
       name: 'Apply source EXPANDED row definition with PRESERVE_PARENT',
-      action: () => click(cdp, '[role="dialog"][aria-label="Expand a repeated source field"] button[data-testid="construction-source-expand-apply"]'),
+      action: () => click(page, '[role="dialog"][aria-label="Expand a repeated source field"] button[data-testid="construction-source-expand-apply"]'),
       after: `!document.querySelector('[role="dialog"][aria-label="Expand a repeated source field"]')&&${mainReadyExpression(4)}`,
       timeout: 30000,
       budget: 5000,
     });
     await closeRowDefinition('return to the table after applying source expansion');
-    const preserveIDs = await readGrid(cdp);
+    const preserveIDs = await readGrid(page);
     const preserveIDMultiset = preserveIDs.ready && preserveIDs.idIndex >= 0
       ? preserveIDs.rows.map((row) => row[preserveIDs.idIndex] ?? '').sort()
       : [];
@@ -308,89 +331,89 @@ export const runRepeatedEmpty = (context) => runBrowserCase(
       JSON.stringify(preserveIDMultiset) === JSON.stringify(expectedPreserveIDs),
       { headers: preserveIDs.headers, observationIDMultiset: preserveIDMultiset, expected: expectedPreserveIDs });
 
-    await waitFor(cdp, "document.querySelector('[data-testid=construction-action-add-columns]:not(:disabled)')", 30000);
-    await click(cdp, 'button', { includes: 'Add columns:' });
-    await waitFor(cdp, "document.querySelector('[aria-label=\"Add columns editor\"]')", 10000);
-    await click(cdp, 'button', { name: 'Fields and related data' });
-    const rawFieldsOpen = await evaluate(cdp, `Boolean(document.querySelector('[data-testid="feature-catalog-raw-fields"]')?.open)`);
-    if (!rawFieldsOpen) await click(cdp, '[data-testid="feature-catalog-raw-fields"] summary');
-    await waitFor(cdp, "document.querySelector('[aria-label=\"Add columns editor\"] input[type=\"checkbox\"][aria-label]')", 10000);
-    const componentCodeChoices = await evaluate(cdp, `([...document.querySelectorAll('[aria-label="Add columns editor"] input[type="checkbox"][aria-label]')].map(input=>input.getAttribute('aria-label')).filter(label=>/Observation\.component.*code.*text/i.test(label||'')))`);
+    await waitFor(page, "document.querySelector('[data-testid=construction-action-add-columns]:not(:disabled)')", 30000);
+    await click(page, 'button', { includes: 'Add columns:' });
+    await waitFor(page, "document.querySelector('[aria-label=\"Add columns editor\"]')", 10000);
+    await click(page, 'button', { name: 'Fields and related data' });
+    const rawFieldsOpen = await evaluate(page, `Boolean(document.querySelector('[data-testid="feature-catalog-raw-fields"]')?.open)`);
+    if (!rawFieldsOpen) await click(page, '[data-testid="feature-catalog-raw-fields"] summary');
+    await waitFor(page, "document.querySelector('[aria-label=\"Add columns editor\"] input[type=\"checkbox\"][aria-label]')", 10000);
+    const componentCodeChoices = await evaluate(page, `([...document.querySelectorAll('[aria-label="Add columns editor"] input[type="checkbox"][aria-label]')].map(input=>input.getAttribute('aria-label')).filter(label=>/Observation\.component.*code.*text/i.test(label||'')))`);
     requireCheck(report, 'correctness', 'source EXPANDED rows expose the scalar component code text field for exact item verification',
       componentCodeChoices.length > 0, { componentCodeChoices });
     if (componentCodeChoices.length === 0) throw new Error('No native Observation.component[].code.text field is available after source expansion');
     const componentCodeChoice = componentCodeChoices.find((label) => /component\[\]/i.test(label)) ?? componentCodeChoices[0];
-    await click(cdp, '[aria-label="Add columns editor"] input[type="checkbox"][aria-label]', { name: componentCodeChoice });
-    await recordBrowserTiming(report, cdp, {
+    await click(page, '[aria-label="Add columns editor"] input[type="checkbox"][aria-label]', { name: componentCodeChoice });
+    await recordPlaywrightTiming(report, page, browser, {
       name: 'open native source and form choices for the component code text field',
-      action: () => click(cdp, '[aria-label="Add columns editor"] button', { includes: 'Add 1 selected feature' }),
+      action: () => click(page, '[aria-label="Add columns editor"] button', { includes: 'Add 1 selected feature' }),
       after: `Boolean(document.querySelector('[role="dialog"] input[type="radio"][aria-label="Component Code Text: Use the first value"]'))`,
       timeout: 30000,
       budget: 5000,
     });
-    const scalarForm = await evaluate(cdp, `(()=>{const dialog=document.querySelector('[role="dialog"]');const field=dialog?.querySelector('input[type="radio"][aria-label="Component Code Text: Use the first value"]');const title=dialog?.querySelector('#catalog-selection-dialog-title')?.innerText?.trim();const buttons=[...Array.from(dialog?.querySelectorAll('button')??[])];return {dialogTitle:title,firstValueAvailable:Boolean(field),firstValueChecked:Boolean(field?.checked),addButton:buttons.find(button=>button.innerText.trim()==='Add 1 column')?.disabled}})()`);
+    const scalarForm = await evaluate(page, `(()=>{const dialog=document.querySelector('[role="dialog"]');const field=dialog?.querySelector('input[type="radio"][aria-label="Component Code Text: Use the first value"]');const title=dialog?.querySelector('#catalog-selection-dialog-title')?.innerText?.trim();const buttons=[...Array.from(dialog?.querySelectorAll('button')??[])];return {dialogTitle:title,firstValueAvailable:Boolean(field),firstValueChecked:Boolean(field?.checked),addButton:buttons.find(button=>button.innerText.trim()==='Add 1 column')?.disabled}})()`);
     requireCheck(report, 'correctness', 'native component code field offers a selectable FIRST scalar form',
       scalarForm.dialogTitle === 'Choose how to add these fields' && scalarForm.firstValueAvailable && scalarForm.addButton === false,
       scalarForm);
-    await recordBrowserTiming(report, cdp, {
+    await recordPlaywrightTiming(report, page, browser, {
       name: 'preview component code text with the native FIRST form',
       action: async () => {
-        await click(cdp, '[role="dialog"] input[type="radio"]', { name: 'Component Code Text: Use the first value' });
-        await waitFor(cdp, `document.querySelector('[role="dialog"] input[type="radio"][aria-label="Component Code Text: Use the first value"]')?.checked === true`, 5000);
-        await click(cdp, '[role="dialog"] button', { name: 'Add 1 column' });
+        await click(page, '[role="dialog"] input[type="radio"]', { name: 'Component Code Text: Use the first value' });
+        await waitFor(page, `document.querySelector('[role="dialog"] input[type="radio"][aria-label="Component Code Text: Use the first value"]')?.checked === true`, 5000);
+        await click(page, '[role="dialog"] button', { name: 'Add 1 column' });
       },
       after: `['ready','error'].includes(document.querySelector('[data-testid="construction-choice-proposal-panel"]')?.dataset.proposalStatus)`,
       timeout: 30000,
       budget: 5000,
     });
-    const componentColumnProposal = await readGrid(cdp, true);
+    const componentColumnProposal = await readGrid(page, true);
     const componentProposalPairs = observedPairs(componentColumnProposal);
     const sortedPreservePairs = [...preservePairs].sort((left, right) => left[0].localeCompare(right[0]) || left[1].localeCompare(right[1]));
     requireCheck(report, 'correctness', 'native item-field proposal renders exact alpha, beta, explicit-empty, and missing pairs',
       JSON.stringify(componentProposalPairs) === JSON.stringify(sortedPreservePairs),
       { headers: componentColumnProposal.headers, pairs: componentProposalPairs, expected: sortedPreservePairs });
-    await recordBrowserTiming(report, cdp, {
+    await recordPlaywrightTiming(report, page, browser, {
       name: 'apply component code text field to the expanded source rows',
-      action: () => click(cdp, '[data-testid="construction-choice-proposal-panel"] button', { name: 'Apply columns' }),
+      action: () => click(page, '[data-testid="construction-choice-proposal-panel"] button', { name: 'Apply columns' }),
       after: mainReadyExpression(4),
       timeout: 30000,
       budget: 5000,
     });
-    await click(cdp, 'button', { name: 'Close operation editor' });
-    await requirePairs(report, cdp, {
+    await click(page, 'button', { name: 'Close operation editor' });
+    await requirePairs(report, page, {
       name: 'saved PRESERVE_PARENT source rows show exact Observation/component item multiplicity',
       expected: preservePairs,
     });
 
     const readSavedExpandedShape = async (name, expectedPolicy) => {
-      await waitFor(cdp, `Boolean(document.querySelector('[aria-label="Row definition settings"] select[aria-label="What should each row represent?"]')&&document.querySelector('[aria-label="Row definition settings"] select[aria-label="Unmatched record policy"]'))`, 10000);
-      const state = await evaluate(cdp, `(()=>{const shape=document.querySelector('[aria-label="Row definition settings"] select[aria-label="What should each row represent?"]');const policy=document.querySelector('[aria-label="Row definition settings"] select[aria-label="Unmatched record policy"]');return {shapeValue:shape?.value,shapeLabel:shape?.selectedOptions[0]?.textContent?.trim(),policyValue:policy?.value,policyLabel:policy?.selectedOptions[0]?.textContent?.trim(),hasAuthoredHistory:Boolean(document.querySelector('[aria-label="Row definition settings"] section[aria-label="Applied row changes"]'))}})()`);
+      await waitFor(page, `Boolean(document.querySelector('[aria-label="Row definition settings"] select[aria-label="What should each row represent?"]')&&document.querySelector('[aria-label="Row definition settings"] select[aria-label="Unmatched record policy"]'))`, 10000);
+      const state = await evaluate(page, `(()=>{const shape=document.querySelector('[aria-label="Row definition settings"] select[aria-label="What should each row represent?"]');const policy=document.querySelector('[aria-label="Row definition settings"] select[aria-label="Unmatched record policy"]');return {shapeValue:shape?.value,shapeLabel:shape?.selectedOptions[0]?.textContent?.trim(),policyValue:policy?.value,policyLabel:policy?.selectedOptions[0]?.textContent?.trim(),hasAuthoredHistory:Boolean(document.querySelector('[aria-label="Row definition settings"] section[aria-label="Applied row changes"]'))}})()`);
       requireCheck(report, 'persistence', name,
         Boolean(state.shapeValue?.startsWith('expanded:') && /component/i.test(state.shapeLabel ?? '') && state.policyValue?.endsWith(':' + expectedPolicy) && !state.hasAuthoredHistory), state);
       return state;
     };
-    await reload(cdp, mainReadyExpression(4));
-    await requirePairs(report, cdp, {
+    await reload(page, mainReadyExpression(4));
+    await requirePairs(report, page, {
       name: 'PRESERVE_PARENT source EXPANDED rows and item values survive Builder reload',
       expected: preservePairs,
     });
     await assertScope('reload keeps the same authorized fixture project, generation, and Explorer');
-    await openRowDefinition(report, cdp, 'open source EXPANDED row settings after reload');
+    await openRowDefinition(report, page, browser, 'open source EXPANDED row settings after reload');
     const savedPreserveShape = await readSavedExpandedShape('reloaded Rows controls restore component[] and PRESERVE_PARENT with no authored construction step', 'PRESERVE_PARENT');
 
-    const policyChoice = async (policy) => evaluate(cdp, `(()=>{const select=document.querySelector('[aria-label="Row definition settings"] select[aria-label="Unmatched record policy"]');const option=[...(select?.options||[])].find(candidate=>candidate.value.endsWith(${JSON.stringify(':' + policy)}));return option?{value:option.value,label:(option.textContent||'').trim()}:undefined})()`);
+    const policyChoice = async (policy) => evaluate(page, `(()=>{const select=document.querySelector('[aria-label="Row definition settings"] select[aria-label="Unmatched record policy"]');const option=[...(select?.options||[])].find(candidate=>candidate.value.endsWith(${JSON.stringify(':' + policy)}));return option?{value:option.value,label:(option.textContent||'').trim()}:undefined})()`);
     const chooseRowPolicy = async (policy, name, candidateRows, removedCount, unchangedCount) => {
       const option = await policyChoice(policy);
       requireCheck(report, 'correctness', `${policy} is available in the saved EXPANDED row definition`, Boolean(option), option ?? {});
       if (!option) throw new Error(`The saved EXPANDED row definition has no ${policy} policy option`);
-      await recordBrowserTiming(report, cdp, {
+      await recordPlaywrightTiming(report, page, browser, {
         name,
-        action: () => fill(cdp, '[aria-label="Row definition settings"] select[aria-label="Unmatched record policy"]', option.value),
+        action: () => fill(page, '[aria-label="Row definition settings"] select[aria-label="Unmatched record policy"]', option.value),
         after: rowDefinitionComparisonReadyExpression(4, candidateRows),
         timeout: 30000,
         budget: 5000,
       });
-      await requireRowDefinitionComparison(report, cdp, {
+      await requireRowDefinitionComparison(report, page, {
         name: `${policy} row-definition comparison shows four base rows and ${candidateRows} candidate rows`,
         baseRows: 4,
         candidateRows,
@@ -401,81 +424,81 @@ export const runRepeatedEmpty = (context) => runBrowserCase(
     };
 
     await chooseRowPolicy('EXCLUDE', 'preview EXCLUDE through the native saved-row policy control before Cancel', 2, 2, 2);
-    await recordBrowserTiming(report, cdp, {
+    await recordPlaywrightTiming(report, page, browser, {
       name: 'Cancel the EXCLUDE row-definition edit',
-      action: () => click(cdp, '[aria-label="Row definition settings"] button', { name: 'Cancel' }),
+      action: () => click(page, '[aria-label="Row definition settings"] button', { name: 'Cancel' }),
       after: mainReadyExpression(4),
       timeout: 10000,
       budget: 5000,
     });
-    await requirePairs(report, cdp, {
+    await requirePairs(report, page, {
       name: 'Cancel retains saved PRESERVE_PARENT pairs and all four rows',
       expected: preservePairs,
     });
 
-    await openRowDefinition(report, cdp, 'reopen the source EXPANDED row definition after Cancel');
+    await openRowDefinition(report, page, browser, 'reopen the source EXPANDED row definition after Cancel');
     const afterCancelShape = await readSavedExpandedShape('Cancel retains the same source row choice and PRESERVE_PARENT policy', 'PRESERVE_PARENT');
     requireCheck(report, 'persistence', 'Cancel keeps the exact same expanded source row choice',
       afterCancelShape.shapeValue === savedPreserveShape.shapeValue && afterCancelShape.policyValue === savedPreserveShape.policyValue,
       { before: savedPreserveShape, after: afterCancelShape });
     await chooseRowPolicy('EXCLUDE', 'preview EXCLUDE again from the same saved source-row definition', 2, 2, 2);
-    await recordBrowserTiming(report, cdp, {
+    await recordPlaywrightTiming(report, page, browser, {
       name: 'apply EXCLUDE to the saved source EXPANDED row definition',
-      action: () => click(cdp, '[aria-label="Row definition settings"] button', { name: 'Apply row definition' }),
+      action: () => click(page, '[aria-label="Row definition settings"] button', { name: 'Apply row definition' }),
       after: mainReadyExpression(2),
       timeout: 30000,
       budget: 5000,
     });
-    await requirePairs(report, cdp, {
+    await requirePairs(report, page, {
       name: 'EXCLUDE source rows retain the two exact populated component items',
       expected: excludePairs,
     });
 
-    await reload(cdp, mainReadyExpression(2));
-    await requirePairs(report, cdp, {
+    await reload(page, mainReadyExpression(2));
+    await requirePairs(report, page, {
       name: 'EXCLUDE source EXPANDED rows and component items survive Builder reload',
       expected: excludePairs,
     });
     await assertScope('EXCLUDE reload keeps the same authorized fixture project, generation, and Explorer');
-    await openRowDefinition(report, cdp, 'open EXCLUDE source row definition after reload');
+    await openRowDefinition(report, page, browser, 'open EXCLUDE source row definition after reload');
     await readSavedExpandedShape('reloaded Rows controls restore component[] and EXCLUDE without authored history', 'EXCLUDE');
 
-    const recordsOption = await evaluate(cdp, `(()=>{const select=document.querySelector('[aria-label="Row definition settings"] select[aria-label="What should each row represent?"]');const option=[...(select?.options||[])].find(candidate=>candidate.value==='records');return option?{value:option.value,label:(option.textContent||'').trim()}:undefined})()`);
+    const recordsOption = await evaluate(page, `(()=>{const select=document.querySelector('[aria-label="Row definition settings"] select[aria-label="What should each row represent?"]');const option=[...(select?.options||[])].find(candidate=>candidate.value==='records');return option?{value:option.value,label:(option.textContent||'').trim()}:undefined})()`);
     requireCheck(report, 'correctness', 'Rows settings offers the original one-row-per-source-record shape for removal',
       Boolean(recordsOption), recordsOption ?? {});
     if (!recordsOption) throw new Error('The source row shape cannot be restored to records from the native Rows controls');
-    await recordBrowserTiming(report, cdp, {
+    await recordPlaywrightTiming(report, page, browser, {
       name: 'preview removing source expansion by restoring one row per source record',
-      action: () => fill(cdp, '[aria-label="Row definition settings"] select[aria-label="What should each row represent?"]', recordsOption.value),
+      action: () => fill(page, '[aria-label="Row definition settings"] select[aria-label="What should each row represent?"]', recordsOption.value),
       after: rowDefinitionComparisonReadyExpression(2, 3),
       timeout: 30000,
       budget: 5000,
     });
-    await requireRowDefinitionComparison(report, cdp, {
+    await requireRowDefinitionComparison(report, page, {
       name: 'removing source EXPANDED previews a two-to-three row comparison',
       baseRows: 2,
       candidateRows: 3,
     });
-    await recordBrowserTiming(report, cdp, {
+    await recordPlaywrightTiming(report, page, browser, {
       name: 'apply source-row removal and restore all three fixture Observation IDs',
-      action: () => click(cdp, '[aria-label="Row definition settings"] button', { name: 'Apply row definition' }),
+      action: () => click(page, '[aria-label="Row definition settings"] button', { name: 'Apply row definition' }),
       after: mainReadyExpression(3),
       timeout: 30000,
       budget: 5000,
     });
-    await requirePairs(report, cdp, {
+    await requirePairs(report, page, {
       name: 'source RECORDS restoration retains exact Observation/component first-value pairs after Apply',
       expected: restoredSourcePairs,
     });
 
-    await reload(cdp, mainReadyExpression(3));
-    await requirePairs(report, cdp, {
+    await reload(page, mainReadyExpression(3));
+    await requirePairs(report, page, {
       name: 'source Observation/component first-value pairs survive Builder reload after row restoration',
       expected: restoredSourcePairs,
     });
     await assertScope('final reload keeps the exact fixture project, generation, and Explorer');
-    await openRowDefinition(report, cdp, 'verify the restored source row definition after reload');
-    const restoredShape = await evaluate(cdp, `(()=>{const shape=document.querySelector('[aria-label="Row definition settings"] select[aria-label="What should each row represent?"]');return {value:shape?.value,label:shape?.selectedOptions[0]?.textContent?.trim(),history:Boolean(document.querySelector('[aria-label="Row definition settings"] section[aria-label="Applied row changes"]'))}})()`);
+    await openRowDefinition(report, page, browser, 'verify the restored source row definition after reload');
+    const restoredShape = await evaluate(page, `(()=>{const shape=document.querySelector('[aria-label="Row definition settings"] select[aria-label="What should each row represent?"]');return {value:shape?.value,label:shape?.selectedOptions[0]?.textContent?.trim(),history:Boolean(document.querySelector('[aria-label="Row definition settings"] section[aria-label="Applied row changes"]'))}})()`);
     requireCheck(report, 'persistence', 'removal persists the source RECORDS row definition without an authored EXPAND step',
       restoredShape.value === 'records' && !restoredShape.history, restoredShape);
     report.target.explorer = explorer;
