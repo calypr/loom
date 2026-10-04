@@ -4,20 +4,26 @@ import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { browserEval, click, launchBrowser, navigate, waitForBrowser } from './lib/browser.mjs';
+import { browserEval, click, launchCdaBrowser, navigate, waitForBrowser } from './lib/playwright-cda-actions.mjs';
 import { captureSourceFreeze } from './lib/source-freeze.mjs';
-import { ApiBuildFreezeError, captureApiBuildFreeze, checkContainerApiBuildStamp, localCDAApiContainer } from './lib/api-build-freeze.mjs';
+import { assertOwnedCdaTarget } from './lib/owned-cda-target.mjs';
+import { captureCDARequests } from './lib/cda-playwright-requests.mjs';
+import { ApiBuildFreezeError, captureApiBuildFreeze, checkContainerApiBuildStamp } from './lib/api-build-freeze.mjs';
 
-const project = 'loom_dev_cda_fhir';
+const project = process.env.LOOM_CDA_PROJECT;
 const generation = 'cda-fhir-v1';
 const protectedExplorer = 'cda-builder-full-qa-1790440983382';
 const explorer = `mixed-sibling-count-${Date.now()}-${randomUUID().slice(0, 8)}`;
 const evidence = process.argv[2] ?? `/tmp/loom-${explorer}`;
-const apiOrigin = process.env.LOOM_CDA_API_ORIGIN ?? 'http://127.0.0.1:8188';
-const uiOrigin = process.env.LOOM_CDA_UI_ORIGIN ?? 'http://127.0.0.1:30008';
-const arangoContainer = process.env.LOOM_ARANGO_CONTAINER ?? 'loom-dev-6d7df93d6a37-arangodb-1';
+const apiOrigin = process.env.LOOM_CDA_API_ORIGIN;
+const uiOrigin = process.env.LOOM_CDA_UI_ORIGIN;
+const arangoContainer = process.env.LOOM_ARANGO_CONTAINER;
+const apiContainer = process.env.LOOM_CDA_API_CONTAINER;
+const composeProject = process.env.LOOM_CDA_COMPOSE_PROJECT;
 const apiBuildTarget = 'local-cda-api';
 const sourceRoot = process.env.LOOM_SOURCE_ROOT ?? fileURLToPath(new URL('..', import.meta.url));
+assert.equal(project, 'loom_dev_cda_fhir', 'This verifier is bound to the CDA-FHIR project');
+await assertOwnedCdaTarget({ project, apiOrigin, uiOrigin, apiContainer, composeProject, sourceRoot, arangoContainer });
 const patientType = 'Patient';
 const targetTypes = ['Condition', 'Observation', 'Specimen'];
 const seedLimit = 2000;
@@ -27,8 +33,6 @@ const root = `/api/v1/projects/${project}/explorers`;
 const base = `${root}/${explorer}/authoring/v2`;
 const selections = `${root}/${explorer}/selections`;
 
-assert.equal(apiOrigin, 'http://127.0.0.1:8188', 'This verifier is scoped to the explicitly configured local no-auth API');
-assert.equal(uiOrigin, 'http://127.0.0.1:30008', 'This verifier is scoped to the explicitly configured local Builder UI');
 assert.notEqual(explorer, protectedExplorer, 'The verifier must own a fresh QA Explorer');
 
 const report = {
@@ -61,13 +65,12 @@ let frozenSource;
 let frozenApiBuild;
 let originalWorkspace;
 let originalDocument;
-const nativeByID = new Map();
-const pendingNativeReads = new Set();
+let nativeCapture;
 const pause = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
 const pathOf = entry => entry.path.split('?')[0];
 const doc = (state = builder) => state.workspace?.documents?.find(document => document.output.id === outputId);
 const columnID = column => column?.column ?? column?.id;
-const readApiBuildStamp = () => checkContainerApiBuildStamp(localCDAApiContainer());
+const readApiBuildStamp = () => checkContainerApiBuildStamp(apiContainer);
 
 class BoundedAbsenceError extends Error {
   constructor(message) { super(message); this.name = 'BoundedAbsenceError'; }
@@ -215,68 +218,23 @@ FOR patient IN Patient
 `;
 
 const trackBrowser = () => {
-  browser.cdp.on('Network.requestWillBeSent', ({ requestId, request, wallTime }) => {
-    const url = new URL(request.url);
+  nativeCapture = captureCDARequests(browser.page, { apiOrigin: uiOrigin, appOrigins: [apiOrigin, uiOrigin],
+    ownedPathPrefix: base, report, responsePaths: /builder|commands|preview|construction-proposals|population-routes|selections/ });
+  browser.page.on('request', request => {
+    const url = new URL(request.url());
     if (url.pathname.includes(protectedExplorer)) {
       report.protectedExplorerUntouched = false;
       report.errors.push({ kind: 'protected-explorer-request', path: url.pathname });
-      return;
     }
-    if (!url.pathname.startsWith(`${base}/`)) return;
-    const headers = request.headers ?? {};
-    const authHeader = Object.keys(headers).find(name => name.toLowerCase() === 'authorization');
-    let body;
-    try { body = request.postData ? JSON.parse(request.postData) : undefined; } catch { body = request.postData?.slice(0, 32768); }
-    const entry = {
-      requestId, path: url.pathname + url.search, method: request.method,
-      startedAt: wallTime ? Math.round(wallTime * 1000) : Date.now(), body,
-      authorizationHeaderObserved: Boolean(authHeader), complete: false,
-    };
-    if (authHeader) report.errors.push({ kind: 'unexpected-auth-header', path: entry.path });
-    nativeByID.set(requestId, entry);
-    report.nativeRequests.push(entry);
-  });
-  browser.cdp.on('Network.responseReceived', ({ requestId, response }) => {
-    const entry = nativeByID.get(requestId);
-    if (entry) {
-      entry.status = response.status;
-      entry.serverRequestId = Object.entries(response.headers ?? {}).find(([name]) => name.toLowerCase() === 'x-request-id')?.[1];
-    }
-    if (response.status >= 400 && !response.url.endsWith('/favicon.ico') &&
-      (response.url.startsWith(apiOrigin) || response.url.startsWith(uiOrigin))) {
-      report.errors.push({ kind: 'http', path: entry?.path ?? new URL(response.url).pathname, status: response.status });
-    }
-  });
-  browser.cdp.on('Network.loadingFinished', ({ requestId }) => {
-    const entry = nativeByID.get(requestId);
-    if (!entry) return;
-    const read = browser.cdp.send('Network.getResponseBody', { requestId }).then(result => {
-      const raw = result.base64Encoded ? Buffer.from(result.body, 'base64').toString('utf8') : result.body;
-      try { entry.response = raw ? JSON.parse(raw) : undefined; } catch { entry.response = raw; }
-      entry.complete = true;
-    }).catch(error => {
-      entry.complete = true;
-      entry.responseReadError = String(error);
-    }).finally(() => pendingNativeReads.delete(read));
-    pendingNativeReads.add(read);
-  });
-  browser.cdp.on('Network.loadingFailed', ({ requestId, errorText, type }) => {
-    const entry = nativeByID.get(requestId);
-    if (entry) { entry.complete = true; entry.failure = errorText; }
-    if (type === 'Script' && errorText !== 'net::ERR_ABORTED') report.errors.push({ kind: 'module', error: errorText });
-  });
-  browser.cdp.on('Runtime.exceptionThrown', ({ exceptionDetails }) => report.errors.push({
-    kind: 'runtime', message: exceptionDetails.exception?.description ?? exceptionDetails.text,
-  }));
-  browser.cdp.on('Runtime.consoleAPICalled', ({ type, args }) => {
-    if (type === 'error') report.errors.push({ kind: 'console', message: args.map(arg => arg.value ?? arg.description ?? '').join(' ').slice(0, 500) });
+    const entry = nativeCapture.byRequest.get(request);
+    if (entry?.authorizationHeaderPresent) report.errors.push({ kind: 'unexpected-auth-header', path: entry.path });
   });
 };
 
 const waitNative = async (predicate, fromIndex, timeoutMs = 5000) => {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    const entry = report.nativeRequests.slice(fromIndex).find(candidate => candidate.complete && !candidate.failure && predicate(candidate));
+    const entry = report.nativeRequests.slice(fromIndex).find(candidate => candidate.completedAt && !candidate.failure && predicate(candidate));
     if (entry) {
       assert.equal(entry.status, 200, `Native ${entry.path} returned ${entry.status}: ${JSON.stringify(entry.response).slice(0, 1500)}`);
       return entry;
@@ -309,13 +267,13 @@ const assertPreviewValues = (preview, expectedTypes, phase) => {
 
 const renderTable = async (expectedTypes, phase) => {
   const expectedColumns = 1 + expectedTypes.length;
-  await waitForBrowser(browser.cdp, `(() => {
+  await waitForBrowser(browser.page, `(() => {
     const table=document.querySelector('[data-testid="preview-table-scroll"] [role="table"]');
     return Boolean(table && table.getAttribute('aria-rowcount')==='2' &&
       table.getAttribute('aria-colcount')===${JSON.stringify(String(expectedColumns))} &&
       !document.body.innerText.includes('Loading your table…') && !document.body.innerText.includes('Preview failed:'));
   })()`);
-  const view = await browserEval(browser.cdp, `const table=document.querySelector('[data-testid="preview-table-scroll"] [role="table"]');return {
+  const view = await browserEval(browser.page, `const table=document.querySelector('[data-testid="preview-table-scroll"] [role="table"]');return {
     rowCount:table?.getAttribute('aria-rowcount'),columnCount:table?.getAttribute('aria-colcount'),
     headers:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].map(cell=>cell.innerText.trim()),
     rows:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]')].slice(1).map(row=>[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText.trim())).filter(row=>row.length)
@@ -338,10 +296,10 @@ const renderTable = async (expectedTypes, phase) => {
 const openTable = async (expectedTypes, phase) => {
   const startedAt = Date.now();
   const fromIndex = nativeIndex();
-  await navigate(browser.cdp, `${uiOrigin}/?project=${encodeURIComponent(project)}&explorer=${encodeURIComponent(explorer)}&mode=builder`);
-  await waitForBrowser(browser.cdp, `Boolean(document.querySelector(${JSON.stringify(`[data-testid="construction-table-${outputId}"]`)}))`);
-  await click(browser.cdp, `[data-testid="construction-table-${outputId}"]`);
-  await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-rows-settings-trigger"]')?.disabled===false`);
+  await navigate(browser.page, `${uiOrigin}/?project=${encodeURIComponent(project)}&explorer=${encodeURIComponent(explorer)}&mode=builder`);
+  await waitForBrowser(browser.page, `Boolean(document.querySelector(${JSON.stringify(`[data-testid="construction-table-${outputId}"]`)}))`);
+  await click(browser.page, `[data-testid="construction-table-${outputId}"]`);
+  await waitForBrowser(browser.page, `document.querySelector('[data-testid="construction-rows-settings-trigger"]')?.disabled===false`);
   const view = await renderTable(expectedTypes, phase);
   const request = await waitNative(entry => pathOf(entry).endsWith('/preview') && entry.body?.outputId === outputId, fromIndex);
   const preview = previewBody(request.response);
@@ -353,46 +311,46 @@ const openTable = async (expectedTypes, phase) => {
 const selectRelatedCount = async targetType => {
   const start = Date.now();
   const fromIndex = nativeIndex();
-  await click(browser.cdp, '[data-testid="construction-action-add-columns"]');
-  await click(browser.cdp, '[aria-label="Column types"] button', { includes: 'Fields and related data' });
-  await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid="construction-add-columns-source"]'))`);
-  const resourcesOpen = await browserEval(browser.cdp, `return document.querySelector('[aria-label="Related resources"]')?.open===true;`);
-  if (!resourcesOpen) await click(browser.cdp, '[aria-label="Related resources"] summary');
+  await click(browser.page, '[data-testid="construction-action-add-columns"]');
+  await click(browser.page, '[aria-label="Column types"] button', { includes: 'Fields and related data' });
+  await waitForBrowser(browser.page, `Boolean(document.querySelector('[data-testid="construction-add-columns-source"]'))`);
+  const resourcesOpen = await browserEval(browser.page, `return document.querySelector('[aria-label="Related resources"]')?.open===true;`);
+  if (!resourcesOpen) await click(browser.page, '[aria-label="Related resources"] summary');
   const sourceOption = `[data-testid="construction-add-columns-source-option"][aria-label=${JSON.stringify(`${targetType}, Related resource`)}]`;
-  await click(browser.cdp, sourceOption);
-  const rawFieldsOpen = await browserEval(browser.cdp, `return document.querySelector('[data-testid="feature-catalog-raw-fields"]')?.open===true;`);
-  if (!rawFieldsOpen) await click(browser.cdp, '[data-testid="feature-catalog-raw-fields"] summary');
+  await click(browser.page, sourceOption);
+  const rawFieldsOpen = await browserEval(browser.page, `return document.querySelector('[data-testid="feature-catalog-raw-fields"]')?.open===true;`);
+  if (!rawFieldsOpen) await click(browser.page, '[data-testid="feature-catalog-raw-fields"] summary');
   const fieldSelector = `input[aria-label=${JSON.stringify(`Select ${targetType}.id`)}]`;
-  await waitForBrowser(browser.cdp, `Boolean(document.querySelector(${JSON.stringify(fieldSelector + ':not(:disabled)')}))`);
-  await click(browser.cdp, fieldSelector);
-  await click(browser.cdp, '[aria-label="Add columns editor"] button', { includes: 'Add 1 selected feature' });
-  await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[role="dialog"]'))`);
+  await waitForBrowser(browser.page, `Boolean(document.querySelector(${JSON.stringify(fieldSelector + ':not(:disabled)')}))`);
+  await click(browser.page, fieldSelector);
+  await click(browser.page, '[aria-label="Add columns editor"] button', { includes: 'Add 1 selected feature' });
+  await waitForBrowser(browser.page, `Boolean(document.querySelector('[role="dialog"]'))`);
 
   const routeLabel = `${targetType} ID: Patient <-[subject]- ${targetType}`;
   const routeSelector = `[role="dialog"] input[aria-label=${JSON.stringify(routeLabel)}]`;
-  let routePresent = await browserEval(browser.cdp, `return Boolean(document.querySelector(${JSON.stringify(routeSelector)}));`);
+  let routePresent = await browserEval(browser.page, `return Boolean(document.querySelector(${JSON.stringify(routeSelector)}));`);
   if (!routePresent) {
-    const alternativesOpen = await browserEval(browser.cdp, `return [...document.querySelectorAll('[role="dialog"] summary')].find(summary=>summary.innerText.includes('Other relationship paths'))?.parentElement.open===true;`);
-    if (!alternativesOpen) await click(browser.cdp, '[role="dialog"] summary', { includes: 'Other relationship paths' });
-    await waitForBrowser(browser.cdp, `Boolean(document.querySelector(${JSON.stringify(routeSelector)}))`);
+    const alternativesOpen = await browserEval(browser.page, `return [...document.querySelectorAll('[role="dialog"] summary')].find(summary=>summary.innerText.includes('Other relationship paths'))?.parentElement.open===true;`);
+    if (!alternativesOpen) await click(browser.page, '[role="dialog"] summary', { includes: 'Other relationship paths' });
+    await waitForBrowser(browser.page, `Boolean(document.querySelector(${JSON.stringify(routeSelector)}))`);
     routePresent = true;
   }
   assert(routePresent, `Native chooser omitted one-hop Patient-to-${targetType} path`);
-  await click(browser.cdp, routeSelector);
+  await click(browser.page, routeSelector);
   const formLabel = `${targetType} ID: Count matching records`;
   const formSelector = `[role="dialog"] input[aria-label=${JSON.stringify(formLabel)}]`;
-  await waitForBrowser(browser.cdp, `Boolean(document.querySelector(${JSON.stringify(formSelector)}))`);
-  const formChoice = await browserEval(browser.cdp, `const input=document.querySelector(${JSON.stringify(formSelector)});return input?{disabled:input.disabled,checked:input.checked}:null;`);
+  await waitForBrowser(browser.page, `Boolean(document.querySelector(${JSON.stringify(formSelector)}))`);
+  const formChoice = await browserEval(browser.page, `const input=document.querySelector(${JSON.stringify(formSelector)});return input?{disabled:input.disabled,checked:input.checked}:null;`);
   assert(formChoice && !formChoice.disabled, `Native chooser cannot author a ${targetType} related COUNT: ${JSON.stringify(formChoice)}`);
-  await click(browser.cdp, formSelector);
-  const chosen = await browserEval(browser.cdp, `return {
+  await click(browser.page, formSelector);
+  const chosen = await browserEval(browser.page, `return {
     route:document.querySelector(${JSON.stringify(routeSelector)})?.checked,
     form:document.querySelector(${JSON.stringify(formSelector)})?.checked
   };`);
   assert.deepEqual(chosen, { route: true, form: true }, `Chooser must retain the selected ${targetType} route and COUNT form`);
-  await click(browser.cdp, '[role="dialog"] button', { name: 'Add 1 column' });
-  await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalStatus==='ready'`);
-  const adoptedProposal = await browserEval(browser.cdp, `const panel=document.querySelector('[data-testid="construction-proposal-panel"]');return {proposalId:panel?.dataset.proposalId,status:panel?.dataset.proposalStatus};`);
+  await click(browser.page, '[role="dialog"] button', { name: 'Add 1 column' });
+  await waitForBrowser(browser.page, `document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalStatus==='ready'`);
+  const adoptedProposal = await browserEval(browser.page, `const panel=document.querySelector('[data-testid="construction-proposal-panel"]');return {proposalId:panel?.dataset.proposalId,status:panel?.dataset.proposalStatus};`);
   assert(adoptedProposal.proposalId, `The native ${targetType} proposal preview has no proposal identity`);
   const proposalRequest = await waitNative(entry => pathOf(entry).endsWith('/construction-proposals') &&
     entry.body?.candidateConstruction?.steps?.some(step => step.operation?.kind === 'RELATED_SOURCE' &&
@@ -421,7 +379,7 @@ const selectRelatedCount = async targetType => {
     from: edge.fromResourceType, to: edge.toResourceType,
     relationship: edge.relationship, direction: edge.storageDirection,
   })), [{ from: patientType, to: targetType, relationship: 'subject_Patient', direction: 'INBOUND' }]);
-  const proposalPanel = await browserEval(browser.cdp, `return document.querySelector('[data-testid="construction-proposal-panel"]')?.innerText;`);
+  const proposalPanel = await browserEval(browser.page, `return document.querySelector('[data-testid="construction-proposal-panel"]')?.innerText;`);
   assert(proposalPanel, `The native ${targetType} count proposal is not visible in the Builder`);
   record(`add-${targetType}-count-chooser-to-preview`, start, {
     candidateColumnId: candidateColumn,
@@ -437,13 +395,13 @@ const selectRelatedCount = async targetType => {
 const applyRelatedCount = async (targetType, candidate) => {
   const start = Date.now();
   const fromIndex = nativeIndex();
-  await click(browser.cdp, '[data-testid="construction-apply-proposal"]');
+  await click(browser.page, '[data-testid="construction-apply-proposal"]');
   const savedCommand = await waitNative(entry => pathOf(entry).endsWith('/commands') &&
     entry.body?.commands?.some(item => item.type === 'APPLY_CONSTRUCTION_PROPOSAL'), fromIndex);
   const appliedProposal = savedCommand.body.commands.find(item => item.type === 'APPLY_CONSTRUCTION_PROPOSAL');
   assert.equal(appliedProposal.outputId, outputId);
   assert.equal(appliedProposal.proposalId, candidate.proposal.proposalId, 'Apply must consume the exact native preview proposal');
-  await waitForBrowser(browser.cdp, `!document.querySelector('[data-testid="construction-proposal-panel"]')`);
+  await waitForBrowser(browser.page, `!document.querySelector('[data-testid="construction-proposal-panel"]')`);
   builder = await api(`${base}/builder`);
   const savedStep = doc().construction.steps.find(step => step.operation?.relatedSource?.outputColumnId === candidate.candidateColumn);
   assert(savedStep, `Saved Builder omitted ${targetType} related COUNT step`);
@@ -482,15 +440,15 @@ const removeRelatedCount = async targetType => {
   const remainingTypes = currentTypes.filter(type => type !== targetType);
   const start = Date.now();
   const fromIndex = nativeIndex();
-  await click(browser.cdp, `[data-testid="construction-history-step-${saved.stepId}"]`);
-  await waitForBrowser(browser.cdp, `Boolean(document.querySelector(${JSON.stringify(`[data-testid="construction-remove-step-${saved.stepId}"]:not(:disabled)`)}))`);
-  await click(browser.cdp, `[data-testid="construction-remove-step-${saved.stepId}"]`);
+  await click(browser.page, `[data-testid="construction-history-step-${saved.stepId}"]`);
+  await waitForBrowser(browser.page, `Boolean(document.querySelector(${JSON.stringify(`[data-testid="construction-remove-step-${saved.stepId}"]:not(:disabled)`)}))`);
+  await click(browser.page, `[data-testid="construction-remove-step-${saved.stepId}"]`);
   const removalProposal = await waitNative(entry => pathOf(entry).endsWith('/construction-proposals') &&
     entry.body?.removeStepIds?.includes(saved.stepId) && entry.response?.previewStatus === 'READY', fromIndex);
   assert(!removalProposal.response.candidateConstruction.steps.some(step => step.id === saved.stepId),
     `The native ${targetType} removal proposal retained the authored source step`);
   assertPreviewValues(removalProposal.response.preview, remainingTypes, `remove-${targetType}-count-proposal`);
-  await click(browser.cdp, '[data-testid="construction-apply-proposal"]');
+  await click(browser.page, '[data-testid="construction-apply-proposal"]');
   const removal = await waitNative(entry => pathOf(entry).endsWith('/commands') &&
     entry.body?.commands?.some(item => item.type === 'APPLY_CONSTRUCTION_PROPOSAL' && item.proposalId === removalProposal.response.proposalId), fromIndex);
   delete report.savedColumns[targetType];
@@ -610,7 +568,7 @@ try {
   report.savedColumns = {};
   assert.deepEqual(report.oracle.patient, { id: exact.patient.id, _id: exact.patient._id, resourceType: patientType, project, generation });
 
-  browser = await launchBrowser(evidence);
+  browser = await launchCdaBrowser(evidence, apiOrigin, uiOrigin);
   trackBrowser();
   const initial = await openTable([], 'load-base-Patient-table');
   assertPreviewValues(initial.preview, [], 'base Patient table');
@@ -628,8 +586,8 @@ try {
   assert.equal(beforeCancel.draftDigest, baselineDraftDigest,
     'A ready, unapplied related COUNT proposal must not change the saved draft digest');
   const cancelStart = Date.now();
-  await click(browser.cdp, '[data-testid="construction-cancel-proposal"]');
-  await waitForBrowser(browser.cdp, `!document.querySelector('[data-testid="construction-proposal-panel"]')`);
+  await click(browser.page, '[data-testid="construction-cancel-proposal"]');
+  await waitForBrowser(browser.page, `!document.querySelector('[data-testid="construction-proposal-panel"]')`);
   builder = await api(`${base}/builder`);
   assert.deepEqual(builder.workspace, originalWorkspace,
     'Cancel must leave the complete source-only Patient workspace unchanged');
@@ -724,14 +682,15 @@ try {
     report.sourceFreeze = { ...report.sourceFreeze, unchanged: false, changedPaths: error.changedPaths ?? [], invalidatesRun: true };
   }
   if (!(error instanceof BoundedAbsenceError) && !invalidated) process.exitCode = 1;
-  if (browser) report.failureUI = await browserEval(browser.cdp, `return {
+  if (browser) await browser.captureFailure(error, { action: browser.activeAction ?? browser.lastAction, explorer, phase: 'CDA sibling COUNT lifecycle', draftVersion: builder?.draftVersion, draftDigest: builder?.draftDigest });
+  if (browser) report.failureUI = await browserEval(browser.page, `return {
     tail:document.body.innerText.slice(-8000),
     headers:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].map(cell=>cell.innerText.trim()),
     proposal:(()=>{const p=document.querySelector('[data-testid="construction-proposal-panel"]');return p?{proposalId:p.dataset.proposalId,status:p.dataset.proposalStatus,text:p.innerText}:null})(),
     dialog:(()=>{const d=document.querySelector('[role="dialog"]');return d?{text:d.innerText,radios:[...d.querySelectorAll('input[type="radio"]')].map(input=>({label:input.getAttribute('aria-label'),checked:input.checked,disabled:input.disabled}))}:null})()
   };`).catch(String);
 } finally {
-  await Promise.allSettled([...pendingNativeReads]);
+  await nativeCapture?.flush();
   if (frozenApiBuild) {
     try {
       report.apiBuildFreeze = { ...report.apiBuildFreeze, ...(await frozenApiBuild.assertUnchanged()), finishedAt: new Date().toISOString() };
