@@ -2,14 +2,8 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { executeScenario, runBrowserCase, runPlaywrightCase, browserURL } from './common.mjs';
-import { click, evaluate, fill, recordBrowserTiming, reload, waitFor, waitForCDPEvent } from './browser.mjs';
+import { executeScenario, runPlaywrightCase, browserURL } from './common.mjs';
 import { recordCheck } from './report.mjs';
-import { addPatientTableRoot, configurePatientColumns, createBlankExplorer, previewPatientRows } from './workflows.mjs';
-
-const ready = "document.body.innerText.includes('DATASET WORKSPACE')";
-const tableCount = "document.querySelectorAll('[data-testid^=\"construction-table-\"]').length";
-const successfulResponse = (cdp, path) => waitForCDPEvent(cdp, 'Network.responseReceived', (event) => new URL(event.response.url).pathname.endsWith(path) && event.response.status >= 200 && event.response.status < 300, 30000);
 
 const patientOracle = target => {
   const path = join(target.fixtureDir, 'Patient.ndjson');
@@ -164,14 +158,6 @@ const configurePatientGenderWithUI = async ({ page, action }) => {
   });
 };
 
-const prepare = async (cdp, context, report, label) => {
-  const created = await createBlankExplorer(cdp, context.target, context.runID, label, report);
-  report.target.explorer = created.explorer;
-  await addPatientTableRoot(cdp, report);
-  await configurePatientColumns(cdp, report);
-  return created;
-};
-
 const recompile = context => runPlaywrightCase(context, 'builder-controls', 'recompile', async ({ page, report, action, fault, check }) => {
   const oracle = patientOracle(context.target);
   report.target.fixtureOracle = { path: oracle.path, sha256: oracle.sha256, patientIDs: oracle.ids };
@@ -297,72 +283,159 @@ const firstTable = context => runPlaywrightCase(context, 'builder-controls', 'fi
     { before: oracle.sha256, after: sourceAfter, path: oracle.path });
 });
 
-const tables = (context) => runBrowserCase(context, 'builder-controls', 'tables', async ({ cdp, report }) => {
-  await prepare(cdp, context, report, 'controls');
-  const originalTableTestId = await evaluate(cdp, "document.querySelector('[data-testid^=\"construction-table-\"][aria-current=\"page\"]')?.getAttribute('data-testid') || ''");
-  if (!originalTableTestId) throw new Error('The prepared Explorer has no selected table tab.');
-  await recordBrowserTiming(report, cdp, {
-    name: 'duplicate configured table',
-    action: () => click(cdp, 'button', { name: 'Duplicate table' }),
-    after: "[...document.querySelectorAll('[data-testid^=\"construction-table-\"]')].some((button)=>button.innerText.includes('Patients copy')) && Number(" + tableCount + ")===2",
-  });
-  const selectedAfterDuplicate = await evaluate(cdp, "[...document.querySelectorAll('[data-testid^=\"construction-table-\"][aria-current=\"page\"]')].map((button)=>button.innerText.trim()).join(' | ')");
-  recordCheck(report, 'persistence', 'newly duplicated table is selected immediately', selectedAfterDuplicate.includes('Patients copy'), { selectedAfterDuplicate });
-  const renamed = successfulResponse(cdp, '/commands');
-  await recordBrowserTiming(report, cdp, {
-    name: 'rename duplicated table',
-    action: () => {
-      cdp.nextDialogResponse = { accept: true, promptText: 'Renamed Patients' };
-      return click(cdp, 'button', { name: 'Rename Patients copy' });
+const tables = context => runPlaywrightCase(context, 'builder-controls', 'tables', async ({ page, report, action, check }) => {
+  const oracle = patientOracle(context.target);
+  report.target.fixtureOracle = { path: oracle.path, sha256: oracle.sha256, patientIDs: oracle.ids };
+  const created = await createBlankExplorerWithUI({ page, action, target: context.target, context, check }, 'controls');
+  report.target.explorer = created.explorer;
+  await createPatientTableWithUI({ page, action }, oracle.ids);
+  await checkPreviewPatients(page, report, oracle.ids, check);
+  await configurePatientGenderWithUI({ page, action });
+  await checkPreviewPatients(page, report, oracle.ids, check);
+  const selectedTable = page.locator('[data-testid^="construction-table-"][aria-current="page"]');
+  assert.equal(await selectedTable.count(), 1, 'Prepared Explorer must have exactly one selected table');
+  const originalTableTestId = await selectedTable.getAttribute('data-testid');
+  assert(originalTableTestId, 'Prepared Explorer selected table must expose its identity');
+  report.target.originalTableTestId = originalTableTestId;
+
+  const duplicate = page.getByTestId('construction-duplicate-table');
+  await action('duplicate configured table', duplicate, () => duplicate.click(), {
+    after: async () => {
+      await page.getByTestId('construction-table-patients-copy').waitFor({ state: 'visible' });
+      await page.waitForFunction(() => document.querySelectorAll('[data-testid^="construction-table-"]').length === 2);
     },
-    after: "[...document.querySelectorAll('[data-testid^=\"construction-table-\"]')].some((button)=>button.innerText.includes('Renamed Patients'))",
-    settle: () => renamed,
   });
-  await reload(cdp, ready + ' && ' + tableCount + '===2');
-  recordCheck(report, 'persistence', 'duplicated and renamed tables survive reload', await evaluate(cdp, "[...document.querySelectorAll('[data-testid^=\"construction-table-\"]')].some((button)=>button.innerText.includes('Renamed Patients'))"));
-  const selectedAfterReload = await evaluate(cdp, "[...document.querySelectorAll('[data-testid^=\"construction-table-\"][aria-current=\"page\"]')].map((button)=>button.innerText.trim()).join(' | ')");
-  recordCheck(report, 'persistence', 'newly duplicated table selection survives reload', selectedAfterReload.includes('Renamed Patients'), { selectedAfterReload });
-  await click(cdp, `[data-testid=${JSON.stringify(originalTableTestId)}]`);
-  await reload(cdp, ready + ' && ' + tableCount + '===2');
-  const selectedAfterManualReload = await evaluate(cdp, `Boolean([...document.querySelectorAll('[data-testid^="construction-table-"][aria-current="page"]')].find((button)=>button.getAttribute('data-testid')===${JSON.stringify(originalTableTestId)}))`);
-  recordCheck(report, 'persistence', 'manual table selection survives reload', selectedAfterManualReload);
-  await click(cdp, 'button', { includes: 'Renamed Patients' });
-  await recordBrowserTiming(report, cdp, {
-    name: 'delete duplicated table',
-    action: () => click(cdp, 'button', { name: 'Delete table' }),
-    after: tableCount + "===1 && ![...document.querySelectorAll('[data-testid^=\"construction-table-\"]')].some((button)=>button.innerText.includes('Renamed Patients'))",
+  const selectedAfterDuplicate = page.locator('[data-testid^="construction-table-"][aria-current="page"]');
+  check('persistence', 'newly duplicated table is selected immediately',
+    await selectedAfterDuplicate.getAttribute('data-testid') === 'construction-table-patients-copy',
+    { selectedTableTestId: await selectedAfterDuplicate.getAttribute('data-testid') });
+
+  const project = context.target.fixtureProject;
+  const commandsPath = `/api/v1/projects/${encodeURIComponent(project)}/explorers/${encodeURIComponent(created.explorer)}/authoring/v2/commands`;
+  const renameResponse = page.waitForResponse(response => response.request().method() === 'POST' &&
+    new URL(response.url()).origin === new URL(context.target.uiUrl).origin && new URL(response.url()).pathname === commandsPath, { timeout: 5000 });
+  page.once('dialog', async dialog => {
+    report.target.renameDialogType = dialog.type();
+    await dialog.accept('Renamed Patients');
   });
-  const selectedImmediatelyAfterRemoval = await evaluate(cdp, `Boolean([...document.querySelectorAll('[data-testid^="construction-table-"][aria-current="page"]')].find((button)=>button.getAttribute('data-testid')===${JSON.stringify(originalTableTestId)}))`);
-  recordCheck(report, 'persistence', 'selected-table deletion immediately falls back to the remaining table', selectedImmediatelyAfterRemoval);
-  await reload(cdp, ready + ' && ' + tableCount + '===1');
-  recordCheck(report, 'persistence', 'deleted table stays absent after reload', await evaluate(cdp, "![...document.querySelectorAll('[data-testid^=\"construction-table-\"]')].some((button)=>button.innerText.includes('Renamed Patients'))"));
-  const selectionAfterRemoval = await evaluate(cdp, `Boolean([...document.querySelectorAll('[data-testid^="construction-table-"][aria-current="page"]')].find((button)=>button.getAttribute('data-testid')===${JSON.stringify(originalTableTestId)}))`);
-  recordCheck(report, 'persistence', 'selected-table removal falls back to the remaining table after reload', selectionAfterRemoval);
-  await previewPatientRows(cdp, report);
-  await click(cdp, 'summary', { name: 'New explorer' });
-  const title = 'Copy ' + context.runID;
-  await fill(cdp, '#new-explorer-name', title);
-  await click(cdp, 'label', { includes: 'Start with a copy of the current explorer' });
-  await recordBrowserTiming(report, cdp, {
-    name: 'copy configured Explorer',
-    action: () => click(cdp, 'button', { name: 'Create copy' }),
-    after: "document.querySelector('select[aria-label=\"Explorer\"] option:checked')?.textContent.trim()===" + JSON.stringify(title) + " && document.querySelector('button[aria-label^=\"Select Patient ID\"]')",
+  const rename = page.getByTestId('construction-rename-table-patients-copy');
+  await action('rename duplicated table', rename, () => rename.click(), {
+    after: async () => {
+      await renameResponse;
+      await page.getByTestId('construction-table-patients-copy').filter({ hasText: 'Renamed Patients' }).waitFor({ state: 'visible' });
+    },
   });
-  report.target.sourceExplorer = report.target.explorer;
-  report.target.explorer = await evaluate(cdp, "document.querySelector('select[aria-label=\"Explorer\"]')?.value");
-  await previewPatientRows(cdp, report);
-  await reload(cdp, ready + " && document.querySelector('button[aria-label^=\"Select Patient ID\"]')");
-  recordCheck(report, 'persistence', 'copied Explorer retains configured fields after reload', await evaluate(cdp, "document.querySelector('select[aria-label=\"Explorer\"] option:checked')?.textContent.trim()===" + JSON.stringify(title)));
-  await recordBrowserTiming(report, cdp, {
-    name: 'delete the last configured table',
-    action: () => click(cdp, 'button', { name: 'Delete table' }),
-    after: "document.body.innerText.includes('Build your first table') && " + tableCount + '===0',
+  const renameResult = await renameResponse;
+  check('correctness', 'rename request returned success', renameResult.status() >= 200 && renameResult.status() < 300,
+    { status: renameResult.status(), path: commandsPath, dialogType: report.target.renameDialogType });
+
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await page.waitForFunction(({ explorer, count }) =>
+    document.querySelector('select[aria-label="Explorer"]')?.value === explorer &&
+    document.querySelectorAll('[data-testid^="construction-table-"]').length === count &&
+    document.body.innerText.includes('DATASET WORKSPACE'),
+  { explorer: created.explorer, count: 2 }, { timeout: 30000 });
+  const renamedTable = page.getByTestId('construction-table-patients-copy');
+  check('persistence', 'duplicated and renamed tables survive reload', await renamedTable.innerText().then(text => text.includes('Renamed Patients')));
+  let selectedAfterReload = await page.locator('[data-testid^="construction-table-"][aria-current="page"]').getAttribute('data-testid');
+  check('persistence', 'newly duplicated table selection survives reload', selectedAfterReload === 'construction-table-patients-copy',
+    { selectedTableTestId: selectedAfterReload });
+
+  const originalTable = page.getByTestId(originalTableTestId);
+  await action('select original table manually', originalTable, () => originalTable.click(), {
+    after: () => page.waitForFunction(testId => document.querySelector(`[data-testid="${CSS.escape(testId)}"]`)?.getAttribute('aria-current') === 'page', originalTableTestId),
   });
-  await reload(cdp, "document.body.innerText.includes('Build your first table')");
-  recordCheck(report, 'persistence', 'deleting the last table persists an empty workspace', await evaluate(cdp, tableCount + '===0'));
-  await addPatientTableRoot(cdp, report);
-  await configurePatientColumns(cdp, report);
-  await previewPatientRows(cdp, report);
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await page.waitForFunction(({ explorer, testId }) => document.querySelector('select[aria-label="Explorer"]')?.value === explorer &&
+    document.querySelector(`[data-testid="${CSS.escape(testId)}"]`)?.getAttribute('aria-current') === 'page',
+  { explorer: created.explorer, testId: originalTableTestId }, { timeout: 30000 });
+  selectedAfterReload = await page.locator('[data-testid^="construction-table-"][aria-current="page"]').getAttribute('data-testid');
+  check('persistence', 'manual table selection survives reload', selectedAfterReload === originalTableTestId,
+    { expectedTableTestId: originalTableTestId, selectedTableTestId: selectedAfterReload });
+
+  const renamedCopy = page.getByTestId('construction-table-patients-copy');
+  await action('select renamed table before deletion', renamedCopy, () => renamedCopy.click(), {
+    after: () => page.waitForFunction(() => document.querySelector('[data-testid="construction-table-patients-copy"]')?.getAttribute('aria-current') === 'page'),
+  });
+  page.once('dialog', async dialog => {
+    report.target.deleteDialogType = dialog.type();
+    await dialog.accept();
+  });
+  const deleteButton = page.getByTestId('construction-delete-table');
+  await action('delete duplicated table', deleteButton, () => deleteButton.click(), {
+    after: async () => {
+      await page.getByTestId('construction-table-patients').waitFor({ state: 'visible' });
+      await page.waitForFunction(() => document.querySelectorAll('[data-testid^="construction-table-"]').length === 1 &&
+        document.querySelector('[data-testid="construction-table-patients"]')?.getAttribute('aria-current') === 'page');
+    },
+  });
+  check('persistence', 'selected-table deletion immediately falls back to the remaining table',
+    await page.getByTestId('construction-table-patients').getAttribute('aria-current') === 'page',
+    { selectedTableTestId: await page.locator('[data-testid^="construction-table-"][aria-current="page"]').getAttribute('data-testid'), dialogType: report.target.deleteDialogType });
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await page.waitForFunction(({ explorer, count }) => document.querySelector('select[aria-label="Explorer"]')?.value === explorer &&
+    document.querySelectorAll('[data-testid^="construction-table-"]').length === count &&
+    document.body.innerText.includes('DATASET WORKSPACE'), { explorer: created.explorer, count: 1 }, { timeout: 30000 });
+  const renamedStillPresent = await page.getByTestId('construction-table-patients-copy').count();
+  check('persistence', 'deleted table stays absent after reload', renamedStillPresent === 0, { count: renamedStillPresent });
+  selectedAfterReload = await page.locator('[data-testid^="construction-table-"][aria-current="page"]').getAttribute('data-testid');
+  check('persistence', 'selected-table removal falls back to the remaining table after reload', selectedAfterReload === originalTableTestId,
+    { expectedTableTestId: originalTableTestId, selectedTableTestId: selectedAfterReload });
+  await checkPreviewPatients(page, report, oracle.ids, check);
+
+  const newExplorer = page.getByText('New explorer', { exact: true });
+  await action('open Explorer copy creation', newExplorer, () => newExplorer.click(), {
+    after: () => page.locator('#new-explorer-name').waitFor({ state: 'visible' }),
+  });
+  const copyTitle = `Copy ${context.runID}`;
+  const explorerName = page.locator('#new-explorer-name');
+  await action('name copied Explorer', explorerName, () => explorerName.fill(copyTitle), { editable: true });
+  const copyOption = page.getByRole('checkbox', { name: 'Start with a copy of the current explorer', exact: true });
+  await action('select copy current Explorer option', copyOption, () => copyOption.check());
+  const copyButton = page.getByRole('button', { name: 'Create copy', exact: true });
+  await action('copy configured Explorer', copyButton, () => copyButton.click(), {
+    timeout: 30000,
+    budget: 5000,
+    after: () => page.waitForFunction(expected => document.querySelector('select[aria-label="Explorer"]')?.selectedOptions[0]?.textContent?.trim() === expected &&
+      Boolean(document.querySelector('button[aria-label^="Select Patient ID"]')) && Boolean(document.querySelector('button[aria-label^="Select Gender"]')), copyTitle, { timeout: 30000 }),
+  });
+  report.target.sourceExplorer = created.explorer;
+  const copyExplorer = await page.getByRole('combobox', { name: 'Explorer' }).inputValue();
+  report.target.explorer = copyExplorer;
+  check('correctness', 'copied Explorer is distinct from its source', Boolean(copyExplorer && copyExplorer !== created.explorer),
+    { sourceExplorer: created.explorer, copiedExplorer: copyExplorer, title: copyTitle });
+  await checkPreviewPatients(page, report, oracle.ids, check);
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await page.waitForFunction(({ explorer, title }) => document.querySelector('select[aria-label="Explorer"]')?.value === explorer &&
+    document.querySelector('select[aria-label="Explorer"]')?.selectedOptions[0]?.textContent?.trim() === title &&
+    Boolean(document.querySelector('button[aria-label^="Select Patient ID"]')) &&
+    Boolean(document.querySelector('button[aria-label^="Select Gender"]')), { explorer: copyExplorer, title: copyTitle }, { timeout: 30000 });
+  check('persistence', 'copied Explorer retains configured fields after reload', true,
+    { sourceExplorer: created.explorer, copiedExplorer: copyExplorer, title: copyTitle });
+  await checkPreviewPatients(page, report, oracle.ids, check);
+
+  page.once('dialog', async dialog => {
+    report.target.emptyWorkspaceDeleteDialogType = dialog.type();
+    await dialog.accept();
+  });
+  const deleteLastTable = page.getByTestId('construction-delete-table');
+  await action('delete the last configured table', deleteLastTable, () => deleteLastTable.click(), {
+    after: async () => {
+      await page.getByText('Build your first table', { exact: true }).waitFor({ state: 'visible' });
+      await page.waitForFunction(() => document.querySelectorAll('[data-testid^="construction-table-"]').length === 0);
+    },
+  });
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await page.getByText('Build your first table', { exact: true }).waitFor({ state: 'visible', timeout: 30000 });
+  check('persistence', 'deleting the last table persists an empty workspace', await page.locator('[data-testid^="construction-table-"]').count() === 0,
+    { explorer: copyExplorer, title: copyTitle });
+  await createPatientTableWithUI({ page, action }, oracle.ids);
+  await checkPreviewPatients(page, report, oracle.ids, check);
+  await configurePatientGenderWithUI({ page, action });
+  await checkPreviewPatients(page, report, oracle.ids, check);
+  const sourceAfter = createHash('sha256').update(readFileSync(oracle.path)).digest('hex');
+  check('correctness', 'independent Patient source stayed unchanged during Builder verification', sourceAfter === oracle.sha256,
+    { before: oracle.sha256, after: sourceAfter, path: oracle.path });
 });
 
 export const runBuilderControls = async (context, cases) => {
