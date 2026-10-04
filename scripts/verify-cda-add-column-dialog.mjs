@@ -53,7 +53,7 @@ try {
   report.activeAction = { label: 'navigate to Builder', locator: url, startedAt: Date.now() };
   await page.goto(url, { waitUntil: 'domcontentloaded' });
   report.activeAction = undefined;
-  await page.getByText('DATASET WORKSPACE', { exact: true }).waitFor({ state: 'visible', timeout: 30000 });
+  await page.getByText('Dataset workspace', { exact: true }).waitFor({ state: 'visible', timeout: 5000 });
   const suggestions = page.locator('[data-testid^="paired-column-suggestion-"]');
   await page.waitForFunction(() => document.querySelectorAll('[data-testid^="paired-column-suggestion-"]').length >= 3, null, { timeout: 30000 });
   const suggestionIdentities = await suggestions.evaluateAll(buttons => buttons.map(button => ({ testId: button.dataset.testid, label: button.getAttribute('aria-label'), text: button.innerText.trim() })));
