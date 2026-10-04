@@ -63,6 +63,7 @@ func CompileRecipeOutputWithPolicy(output lower.CompiledRecipeOutput, bindings r
 	if err != nil {
 		return CompiledQuery{}, fmt.Errorf("apply canonical recipe execution window: %w", err)
 	}
+	physical = withoutUnusedTerminalPivotPresenceCompanions(physical)
 	if bindings.IncludeAuthResourcePath && !groupRows {
 		if err := appendAuthResourcePathProjection(&physical); err != nil {
 			return CompiledQuery{}, err
@@ -130,6 +131,86 @@ func CompileRecipeOutputWithPolicy(output lower.CompiledRecipeOutput, bindings r
 		PreviewGroupScan:     previewGroupScan,
 		PlanDiagnostics:      physicalPlanDiagnostics(physical),
 	}, nil
+}
+
+// withoutUnusedTerminalPivotPresenceCompanions keeps category-presence
+// sidecars out of ordinary terminal Pivot previews. Lowering retains them in
+// the canonical plan so a later category-discovery scan can distinguish an
+// absent source property from explicit NULL. A frozen Pivot only consumes
+// that proof when one of its categories is MISSING; otherwise carrying the
+// hidden boolean through the preview would disable the bounded two-scan path.
+func withoutUnusedTerminalPivotPresenceCompanions(plan ir.PhysicalPlan) ir.PhysicalPlan {
+	sequence := plan.StageSequence
+	if sequence == nil || len(sequence.Stages) != 1 || sequence.PreviewLimitBindKey == "" ||
+		sequence.PreviewSourceWindowByRootID || !sequence.PreviewTerminalPivotWindow ||
+		sequence.CellTraceReturn != nil || sequence.RowLineageReturn != nil || sequence.PopulationMappingReturn != nil {
+		return plan
+	}
+	stage := &sequence.Stages[0]
+	if stage.Kind != ir.PhysicalStagePivotOp || stage.GroupedPivot == nil ||
+		stage.InputStageID != sequence.SourceStageID || sequence.FinalStageID != stage.ID ||
+		sequence.FinalRowIdentity != stage.RowIdentityColumn ||
+		stage.GroupedPivot.CategoryPresenceColumn != "" || stage.GroupedPivot.CategoryPresence != nil ||
+		stage.GroupedPivot.CategoryPresenceFromInput {
+		return plan
+	}
+
+	presenceNames := make(map[string]struct{})
+	for _, operation := range plan.Operations {
+		if operation.Kind != ir.PhysicalReturnOp || operation.Return == nil {
+			continue
+		}
+		for _, projection := range operation.Return.Projections {
+			if projection.PresenceOutput {
+				presenceNames[projection.Name] = struct{}{}
+			}
+		}
+	}
+	if len(presenceNames) == 0 {
+		return plan
+	}
+
+	for operationIndex := range plan.Operations {
+		operation := &plan.Operations[operationIndex]
+		if operation.Kind != ir.PhysicalReturnOp || operation.Return == nil {
+			continue
+		}
+		projections := operation.Return.Projections[:0]
+		for _, projection := range operation.Return.Projections {
+			if _, unused := presenceNames[projection.Name]; unused && projection.PresenceOutput {
+				continue
+			}
+			projections = append(projections, projection)
+		}
+		operation.Return.Projections = projections
+	}
+
+	filterColumns := func(columns []ir.PhysicalStageColumn) []ir.PhysicalStageColumn {
+		filtered := columns[:0]
+		for _, column := range columns {
+			if _, unused := presenceNames[column.Name]; unused {
+				continue
+			}
+			filtered = append(filtered, column)
+		}
+		return filtered
+	}
+	sequence.SourceColumns = filterColumns(sequence.SourceColumns)
+	stage.InputColumns = filterColumns(stage.InputColumns)
+	stage.InputProjections = filterPresenceProjections(stage.InputProjections, presenceNames)
+	stage.GroupedPivot.InputProjections = filterPresenceProjections(stage.GroupedPivot.InputProjections, presenceNames)
+	return plan
+}
+
+func filterPresenceProjections(projections []ir.PhysicalProjection, presenceNames map[string]struct{}) []ir.PhysicalProjection {
+	filtered := projections[:0]
+	for _, projection := range projections {
+		if _, unused := presenceNames[projection.Name]; unused {
+			continue
+		}
+		filtered = append(filtered, projection)
+	}
+	return filtered
 }
 
 func withPreviewSourceResourceID(output lower.CompiledRecipeOutput, plan ir.PhysicalPlan) (ir.PhysicalPlan, bool, error) {

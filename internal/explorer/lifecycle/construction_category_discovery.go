@@ -417,7 +417,7 @@ func (s *Service) DiscoverConstructionCategories(ctx context.Context, request Co
 		proof.Kind != category.Type || proof.Cardinality != string(category.Cardinality) ||
 		strings.TrimSpace(proof.OutputSchemaDigest) == "" || strings.TrimSpace(proof.PlanFingerprint) == "" ||
 		strings.TrimSpace(proof.QueryFingerprint) == "" || strings.TrimSpace(proof.Fingerprint) == "" ||
-		(scan.ConclusiveMissing && strings.TrimSpace(proof.OverflowWitnessFingerprint) == "") {
+		(scan.ConclusiveMissing && (strings.TrimSpace(proof.OverflowWitnessFingerprint) == "" || proof.PresenceTracked)) {
 		return ConstructionCategoryDiscoveryResponse{}, unprocessable("construction-category-discovery", "CATEGORY_SCAN_INCOMPLETE", "pivot categories require a complete stage-bound scan within the supported limit", nil)
 	}
 	if overflow {
@@ -429,15 +429,11 @@ func (s *Service) DiscoverConstructionCategories(ctx context.Context, request Co
 			Message: "This field has more than 256 category values in the current rows. Choose another category field or filter rows before pivoting.",
 		}, nil
 	}
-	// Construction pivot stages project their inputs through materialized stage
-	// rows. Those projections currently preserve values but not source property
-	// presence, so returning MISSING as a selectable category would produce a
-	// candidate that the compiler cannot execute without conflating it with NULL.
 	missing := scan.ConclusiveMissing
 	for _, item := range scan.Values {
 		missing = missing || !item.Present
 	}
-	if missing {
+	if missing && !proof.PresenceTracked {
 		return ConstructionCategoryDiscoveryResponse{
 			SnapshotToken: request.SnapshotToken, DraftVersion: base.owner.DraftVersion, DraftDigest: base.owner.DraftDigest,
 			OutputID: request.OutputID, StageID: responseStageID, CategoryColumnID: request.CategoryColumnID,

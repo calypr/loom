@@ -1389,13 +1389,20 @@ func validatePhysicalDerivedLet(derived PhysicalDerivedLet, defined map[string]b
 func validatePhysicalProjection(projection PhysicalProjection, defined map[string]bool, bindVars map[string]any) error {
 	hasValue := projection.Value.Variable != "" || projection.Value.BindKey != "" || len(projection.Value.Path) != 0
 	hasExpression := projection.Expression != nil
-	if hasValue == hasExpression {
+	if projection.PresenceOutput {
+		if projection.Presence == nil || hasValue || hasExpression {
+			return fmt.Errorf("presence output requires only a typed presence proof")
+		}
+	} else if hasValue == hasExpression {
 		return fmt.Errorf("projection requires exactly one value or expression")
 	}
 	if projection.Presence != nil {
 		if err := validatePhysicalProjectionPresence(*projection.Presence, defined, bindVars); err != nil {
 			return fmt.Errorf("projection presence: %w", err)
 		}
+	}
+	if projection.PresenceOutput {
+		return nil
 	}
 	if hasExpression {
 		return validatePhysicalExpression(*projection.Expression, defined, bindVars)

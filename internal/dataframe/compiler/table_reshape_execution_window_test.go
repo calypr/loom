@@ -194,6 +194,82 @@ func TestTableReshapeExecutionWindowBindsExpectedLimit(t *testing.T) {
 	}
 }
 
+func TestWithoutUnusedTerminalPivotPresenceCompanionsOnlyPrunesClonedPreviewPlan(t *testing.T) {
+	original := terminalPivotPresencePreviewPlan()
+	windowed := withoutUnusedTerminalPivotPresenceCompanions(clonePhysicalPlan(original))
+
+	if !hasPresenceOutput(original.Operations) || !hasStageColumn(original.StageSequence.SourceColumns, "category_present") {
+		t.Fatal("pruning mutated the source plan and lost its category-presence companion")
+	}
+	if hasPresenceOutput(windowed.Operations) || hasStageColumn(windowed.StageSequence.SourceColumns, "category_present") ||
+		hasStageColumn(windowed.StageSequence.Stages[0].InputColumns, "category_present") ||
+		hasProjection(windowed.StageSequence.Stages[0].GroupedPivot.InputProjections, "category_present") {
+		t.Fatal("ordinary terminal Pivot preview retained an unused category-presence companion")
+	}
+
+	missingCategory := clonePhysicalPlan(original)
+	missingCategory.StageSequence.Stages[0].GroupedPivot.CategoryPresenceColumn = "category_present"
+	missingCategory = withoutUnusedTerminalPivotPresenceCompanions(missingCategory)
+	if !hasPresenceOutput(missingCategory.Operations) || !hasStageColumn(missingCategory.StageSequence.SourceColumns, "category_present") {
+		t.Fatal("a Pivot consuming the MISSING-category presence contract was pruned")
+	}
+}
+
+func terminalPivotPresencePreviewPlan() ir.PhysicalPlan {
+	columns := []ir.PhysicalStageColumn{{Name: "group"}, {Name: "category"}, {Name: "category_present"}}
+	projections := []ir.PhysicalProjection{
+		{Name: "group"},
+		{Name: "category"},
+		{Name: "category_present", Hidden: true, PresenceOutput: true},
+	}
+	pivot := &ir.PhysicalGroupedPivot{InputProjections: append([]ir.PhysicalProjection(nil), projections...)}
+	stage := ir.PhysicalConstructionStage{
+		ID: "pivot", InputStageID: "source", Kind: ir.PhysicalStagePivotOp, RowIdentityColumn: "row_id",
+		InputColumns: append([]ir.PhysicalStageColumn(nil), columns...),
+		GroupedPivot: pivot,
+	}
+	return ir.PhysicalPlan{
+		Operations: []ir.PhysicalOperation{{Kind: ir.PhysicalReturnOp, Return: &ir.PhysicalReturn{Projections: append([]ir.PhysicalProjection(nil), projections...)}}},
+		StageSequence: &ir.PhysicalStageSequence{
+			SourceStageID: "source", SourceColumns: append([]ir.PhysicalStageColumn(nil), columns...),
+			Stages: []ir.PhysicalConstructionStage{stage}, FinalStageID: "pivot", FinalRowIdentity: "row_id",
+			PreviewLimitBindKey: "preview_limit", PreviewTerminalPivotWindow: true,
+		},
+	}
+}
+
+func hasPresenceOutput(operations []ir.PhysicalOperation) bool {
+	for _, operation := range operations {
+		if operation.Return == nil {
+			continue
+		}
+		for _, projection := range operation.Return.Projections {
+			if projection.Name == "category_present" && projection.PresenceOutput {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func hasStageColumn(columns []ir.PhysicalStageColumn, name string) bool {
+	for _, column := range columns {
+		if column.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+func hasProjection(projections []ir.PhysicalProjection, name string) bool {
+	for _, projection := range projections {
+		if projection.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
 func TestPhysicalValidationRejectsSourceLimitBeforeReshape(t *testing.T) {
 	plan := compileTableReshapePhysicalPlan(t, &recipe.TableReshape{
 		Kind: recipe.TableReshapeUnpivot,

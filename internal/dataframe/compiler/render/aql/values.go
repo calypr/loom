@@ -89,6 +89,18 @@ func (r *physicalPlanRenderer) renderRelatedField(expression ir.PhysicalExpressi
 	}
 	resourceTypeBind := r.newInternalBindKey("related_field_resource_type")
 	r.bindVars[resourceTypeBind] = expression.RelatedField.ResourceType
+	if expression.RelatedField.PresenceOnly {
+		present, err := r.renderPropertyPathPresence(document+".payload", expression.RelatedField.Path[1:])
+		if err != nil {
+			return "", fmt.Errorf("related field presence: %w", err)
+		}
+		// The value projection returns null when there is no visible terminal
+		// document. Keep that row present in the category domain; only an
+		// existing, exactly scoped terminal can contribute MISSING.
+		rows := fmt.Sprintf("(FOR %s IN %s FILTER %s != null AND %s.project == @project AND %s.dataset_generation == @dataset_generation AND %s.resourceType == @%s AND (@auth_resource_paths_unrestricted == true OR %s.auth_resource_path IN @auth_resource_paths) RETURN %s)",
+			document, collection, document, document, document, document, resourceTypeBind, document, present)
+		return "FIRST(APPEND(" + rows + ", [true]))", nil
+	}
 	return fmt.Sprintf("FIRST(FOR %s IN %s FILTER %s != null AND %s.project == @project AND %s.dataset_generation == @dataset_generation AND %s.resourceType == @%s AND (@auth_resource_paths_unrestricted == true OR %s.auth_resource_path IN @auth_resource_paths) RETURN %s)",
 		document, collection, document, document, document, document, resourceTypeBind, document, field), nil
 }

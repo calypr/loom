@@ -377,7 +377,9 @@ func (r *physicalPlanRenderer) renderReturn(returnOp ir.PhysicalReturn) (string,
 		r.bindVars[nameBindKey] = projection.Name
 		var value string
 		var err error
-		if projection.Expression != nil {
+		if projection.PresenceOutput {
+			value, err = r.renderProjectionPresence(*projection.Presence)
+		} else if projection.Expression != nil {
 			value, err = r.renderExpression(*projection.Expression)
 		} else {
 			value, err = r.renderValue(projection.Value)

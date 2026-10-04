@@ -108,7 +108,11 @@ func validatePhysicalGroupedPivot(pivot PhysicalGroupedPivot, defined map[string
 	if !sameProjectionPresence(categoryProjectionPresence, pivot.CategoryPresence) {
 		return fmt.Errorf("grouped pivot category presence does not match its input projection")
 	}
-	if pivot.CategoryPresence != nil {
+	if pivot.CategoryPresenceFromInput {
+		if pivot.CategoryPresence != nil || !physicalPathPartPattern.MatchString(pivot.CategoryPresenceColumn) || !projectionNames[pivot.CategoryPresenceColumn] {
+			return fmt.Errorf("grouped pivot input presence column is missing or invalid")
+		}
+	} else if pivot.CategoryPresence != nil {
 		if !physicalPathPartPattern.MatchString(pivot.CategoryPresenceColumn) || projectionNames[pivot.CategoryPresenceColumn] {
 			return fmt.Errorf("grouped pivot category presence column is unsafe or collides with an input projection")
 		}
@@ -177,7 +181,7 @@ func validatePhysicalGroupedPivot(pivot PhysicalGroupedPivot, defined map[string
 			if category.ValueBindKey != "" || category.ValueKind != "" {
 				return fmt.Errorf("category %q sentinel match cannot carry a value bind or value kind", category.Output)
 			}
-			if category.MatchKind == PhysicalPivotCategoryMissingMatch && pivot.CategoryPresence == nil {
+			if category.MatchKind == PhysicalPivotCategoryMissingMatch && pivot.CategoryPresence == nil && !pivot.CategoryPresenceFromInput {
 				return fmt.Errorf("category %q MISSING match requires a preserved category presence contract", category.Output)
 			}
 		default:

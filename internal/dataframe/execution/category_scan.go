@@ -118,7 +118,7 @@ func (e *Engine) ScanCategoriesCompiled(ctx context.Context, compiled compiler.C
 		if witnessCount > compiled.Proof.MaxValues {
 			return CategoryScanResult{Overflow: true, Proof: compiled.Proof}, nil
 		}
-		if missing {
+		if missing && !compiled.Proof.PresenceTracked {
 			return CategoryScanResult{ConclusiveMissing: true, Proof: compiled.Proof}, nil
 		}
 	}

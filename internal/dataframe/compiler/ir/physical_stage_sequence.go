@@ -89,6 +89,7 @@ type PhysicalStageColumn struct {
 	// deduplicated set of root identities retained through a reshape.
 	RootContributorResourceType string
 	NormalizedUnit              *unit.UnitIdentity
+	PresenceCompanionName       string
 }
 
 type PhysicalStageRelatedRecordAnchor struct {

@@ -52,10 +52,12 @@ func TestDiscoverConstructionCategoriesBindsCompleteScanToExactStageAndPair(t *t
 
 	calls := 0
 	includeMissing := false
+	includeNull := false
 	conclusiveMissing := false
 	incomplete := false
 	overflow := false
 	invalidProof := false
+	presenceTracked := true
 	service.config.ScanCategories = func(_ context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, scan dataframeexecution.CategoryScanRequest) (dataframeexecution.CategoryScanResult, error) {
 		calls++
 		if receipt == nil || bindings.Project != request.Project || len(bindings.OutputNames) != 1 || bindings.OutputNames[0] != request.OutputID {
@@ -79,6 +81,7 @@ func TestDiscoverConstructionCategoriesBindsCompleteScanToExactStageAndPair(t *t
 			t.Fatalf("requested category column %q was absent from the stage receipt", request.CategoryColumnID)
 		}
 		proof := compilerCategoryScanProof(request, category)
+		proof.PresenceTracked = presenceTracked
 		if conclusiveMissing {
 			proof.OverflowWitnessFingerprint = "witness"
 		}
@@ -86,15 +89,18 @@ func TestDiscoverConstructionCategoriesBindsCompleteScanToExactStageAndPair(t *t
 			proof.Fingerprint = ""
 		}
 		values := []dataframeexecution.CategoryValue{{Present: true, Value: "final"}}
+		if includeNull {
+			values = append(values, dataframeexecution.CategoryValue{Present: true, Value: nil})
+		}
 		if includeMissing {
 			values = append(values, dataframeexecution.CategoryValue{Present: false})
 		}
 		return dataframeexecution.CategoryScanResult{
-			Values: values,
-			Complete: !incomplete && !overflow && !conclusiveMissing,
-			Overflow: overflow,
+			Values:            values,
+			Complete:          !incomplete && !overflow && !conclusiveMissing,
+			Overflow:          overflow,
 			ConclusiveMissing: conclusiveMissing,
-			Proof: proof,
+			Proof:             proof,
 		}, nil
 	}
 
@@ -124,16 +130,25 @@ func TestDiscoverConstructionCategoriesBindsCompleteScanToExactStageAndPair(t *t
 	}
 
 	includeMissing = true
+	includeNull = true
+	withMissing, err := service.DiscoverConstructionCategories(context.Background(), request)
+	if err != nil || withMissing.Outcome != constructionCategoryDiscoveryComplete || !withMissing.Complete ||
+		len(withMissing.Categories) != 3 || withMissing.Categories[1].Key.Kind != authoringv2.TableScalarNull ||
+		withMissing.Categories[2].Key.Kind != authoringv2.TableScalarMissing {
+		t.Fatalf("presence-tracked missing-category discovery = %#v, error = %v", withMissing, err)
+	}
+	presenceTracked = false
 	unsupported, err := service.DiscoverConstructionCategories(context.Background(), request)
 	if err != nil || unsupported.Outcome != constructionCategoryDiscoveryMissingUnsupported || unsupported.Complete ||
 		len(unsupported.Categories) != 0 || !strings.Contains(unsupported.Message, "Filter rows where the category field is missing") {
-		t.Fatalf("missing-category discovery = %#v, error = %v; want empty unsupported result with guidance", unsupported, err)
+		t.Fatalf("untracked missing-category discovery = %#v, error = %v; want the conservative refusal", unsupported, err)
 	}
+	presenceTracked = true
 	includeMissing = false
+	includeNull = false
 	conclusiveMissing = true
-	unsupported, err = service.DiscoverConstructionCategories(context.Background(), request)
-	if err != nil || unsupported.Outcome != constructionCategoryDiscoveryMissingUnsupported || unsupported.Complete || len(unsupported.Categories) != 0 {
-		t.Fatalf("missing-category witness result = %#v, error = %v", unsupported, err)
+	if _, err = service.DiscoverConstructionCategories(context.Background(), request); lifecycleErrorCode(err) != "CATEGORY_SCAN_INCOMPLETE" {
+		t.Fatalf("presence-tracked witness without the complete category scan error = %v", err)
 	}
 	conclusiveMissing = false
 

@@ -3,6 +3,7 @@ package compiler
 import (
 	"fmt"
 	"reflect"
+	"strconv"
 	"strings"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
@@ -444,6 +445,8 @@ func renderRelatedCategoryScan(plan ir.PhysicalPlan, shape relatedCategoryPlan, 
 	}
 	targetType := hops[len(hops)-1].traversal.TargetTypeBindKey
 	hint := fmt.Sprintf(" OPTIONS { indexHint: %q, forceIndexHint: false }", shape.index.Name)
+	categoryPathPresence := categoryRelatedPathPresenceExpression("candidate", shape.category.Path)
+	terminalPathPresence := categoryRelatedPathPresenceExpression("terminal", shape.category.Path)
 	scope := func(v string) string {
 		return fmt.Sprintf("%s.project == @project AND %s.dataset_generation == @dataset_generation AND (@auth_resource_paths_unrestricted == true OR %s.auth_resource_path IN @auth_resource_paths)", v, v, v)
 	}
@@ -452,15 +455,17 @@ func renderRelatedCategoryScan(plan ir.PhysicalPlan, shape relatedCategoryPlan, 
 		fmt.Sprintf(" FOR candidate IN @@%s%s", targetBind, hint),
 		" FILTER " + scope("candidate"),
 		fmt.Sprintf(" FILTER candidate.resourceType == @%s", targetType),
-		" COLLECT value = candidate." + path,
-		" RETURN value", ")",
+		" LET candidate_present = " + categoryPathPresence,
+		" COLLECT present = candidate_present, value = candidate." + path,
+		" RETURN { present, value }", ")",
 		"LET __loom_related_category_values = (",
-		" FOR value IN __loom_related_category_candidates",
+		" FOR category IN __loom_related_category_candidates",
 		" LET membership = (",
 		fmt.Sprintf("  FOR terminal IN @@%s%s", targetBind, hint),
 		"  FILTER " + scope("terminal"),
 		fmt.Sprintf("  FILTER terminal.resourceType == @%s", targetType),
-		"  FILTER terminal." + path + " == value",
+		"  FILTER (" + terminalPathPresence + ") == category.present",
+		"  FILTER terminal." + path + " == category.value",
 	}
 	current := "terminal"
 	for i := len(hops) - 1; i >= 0; i-- {
@@ -486,14 +491,16 @@ func renderRelatedCategoryScan(plan ir.PhysicalPlan, shape relatedCategoryPlan, 
 		}
 		current = previous
 	}
-	lines = append(lines, "  LIMIT 1", "  RETURN true", " )", " FILTER LENGTH(membership) > 0", " RETURN value", ")")
+	lines = append(lines, "  LIMIT 1", "  RETURN true", " )", " FILTER LENGTH(membership) > 0", " RETURN category", ")")
 	emptyNames := []string{}
 	prefix := []relatedCategoryHop{}
 	for i, stageHops := range shape.hopsByStage {
 		name := fmt.Sprintf("__loom_related_category_empty_stage_%d", i+1)
 		emptyNames = append(emptyNames, name)
 		rootVar := fmt.Sprintf("empty_root_%d", i)
-		lines = append(lines, "LET "+name+" = null IN __loom_related_category_values ? [] : (", fmt.Sprintf(" FOR %s IN @@%s", rootVar, shape.root.CollectionBindKey), " FILTER "+scope(rootVar))
+		lines = append(lines,
+			"LET "+name+" = (LENGTH((FOR existing_category IN __loom_related_category_values FILTER existing_category.present == true AND existing_category.value == null LIMIT 1 RETURN true)) > 0) ? [] : (",
+			fmt.Sprintf(" FOR %s IN @@%s", rootVar, shape.root.CollectionBindKey), " FILTER "+scope(rootVar))
 		parent := rootVar
 		for j, hop := range prefix {
 			edge := fmt.Sprintf("parent_edge_%d_%d", i, j)
@@ -509,11 +516,15 @@ func renderRelatedCategoryScan(plan ir.PhysicalPlan, shape relatedCategoryPlan, 
 			lines = append(lines, relatedCategoryForwardInline(hop, child, edge, target, "  ", scope)...)
 			child = target
 		}
-		lines = append(lines, "  LIMIT 1", "  RETURN true", " )", " FILTER LENGTH(children) == 0", " LIMIT 1", " RETURN null", ")")
+		lines = append(lines, "  LIMIT 1", "  RETURN true", " )", " FILTER LENGTH(children) == 0", " LIMIT 1", " RETURN { present: true, value: null }", ")")
 		prefix = append(prefix, stageHops...)
 	}
 	union := append([]string{"__loom_related_category_values"}, emptyNames...)
-	lines = append(lines, "FOR value IN UNION_DISTINCT("+strings.Join(union, ", ")+")", " SORT TYPENAME(value), value", " LIMIT @"+categoryLimitBind, " RETURN { present: true, value }")
+	lines = append(lines,
+		"FOR category IN UNION_DISTINCT("+strings.Join(union, ", ")+")",
+		" SORT category.present ASC, TYPENAME(category.value), category.value",
+		" LIMIT @"+categoryLimitBind,
+		" RETURN { present: category.present, value: category.value }")
 	query := strings.Join(lines, "\n") + "\n"
 	binds["@"+shape.root.CollectionBindKey] = plan.BindVars[shape.root.CollectionBindKey]
 	delete(binds, shape.root.CollectionBindKey)
@@ -522,6 +533,16 @@ func renderRelatedCategoryScan(plan ir.PhysicalPlan, shape relatedCategoryPlan, 
 		delete(binds, hop.traversal.EdgeCollectionBindKey)
 	}
 	return query, categoryScanPruneBindVars(binds, query), nil
+}
+
+func categoryRelatedPathPresenceExpression(variable string, path []string) string {
+	current := variable
+	checks := make([]string, 0, len(path))
+	for _, segment := range path {
+		checks = append(checks, "(IS_OBJECT("+current+") AND HAS("+current+", "+strconv.Quote(segment)+"))")
+		current += "." + segment
+	}
+	return strings.Join(checks, " AND ")
 }
 
 func relatedCategoryForwardInline(hop relatedCategoryHop, source, edge, target, indent string, scope func(string) string) []string {

@@ -50,6 +50,10 @@ func (r *physicalPlanRenderer) renderGroupedTablePivot(pivot ir.PhysicalGroupedP
 		r.bindVars[presenceNameBind] = pivot.CategoryPresenceColumn
 		categoryPresenceBind = presenceNameBind
 		input = fmt.Sprintf("MERGE(%s, {[@%s]: %s})", input, presenceNameBind, presence)
+	} else if pivot.CategoryPresenceFromInput {
+		presenceNameBind := r.newInternalBindKey("reshape_category_presence_column")
+		r.bindVars[presenceNameBind] = pivot.CategoryPresenceColumn
+		categoryPresenceBind = presenceNameBind
 	}
 	lines := []string{fmt.Sprintf("  LET %s = %s", pivot.InputRowVariable, input)}
 	collect := make([]string, 0, len(pivot.GroupKeys))

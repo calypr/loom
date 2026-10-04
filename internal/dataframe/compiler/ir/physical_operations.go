@@ -527,6 +527,9 @@ type PhysicalProjection struct {
 	// It is metadata for row operations such as grouped pivot and is not itself
 	// emitted in the ordinary public projection.
 	Presence *PhysicalProjectionPresence
+	// PresenceOutput emits the exact Presence proof as this projection's boolean
+	// value. Construction stages use it only for compiler-owned hidden sidecars.
+	PresenceOutput bool
 }
 
 // PhysicalProjectionPresence is a closed property-presence proof for one or
@@ -553,12 +556,16 @@ type PhysicalGroupedPivot struct {
 	// OneInputRowPerGroup is set only when lowering proves that a direct root
 	// resource ID is among the group keys and the source plan cannot multiply
 	// root rows. Renderers can then emit one pivot row per input without COLLECT.
-	OneInputRowPerGroup         bool
-	InputProjections            []PhysicalProjection
-	GroupKeys                   []PhysicalGroupedPivotKey
-	CategoryColumn              string
-	CategoryPresenceColumn      string
-	CategoryPresence            *PhysicalProjectionPresence
+	OneInputRowPerGroup    bool
+	InputProjections       []PhysicalProjection
+	GroupKeys              []PhysicalGroupedPivotKey
+	CategoryColumn         string
+	CategoryPresenceColumn string
+	CategoryPresence       *PhysicalProjectionPresence
+	// CategoryPresenceFromInput marks CategoryPresenceColumn as an already
+	// materialized boolean sidecar in InputProjections instead of a name for a
+	// renderer-generated presence projection.
+	CategoryPresenceFromInput   bool
 	CategoryType                string
 	ValueColumn                 string
 	ValueType                   string

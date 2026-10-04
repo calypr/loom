@@ -130,6 +130,13 @@ func lowerRecipeGroupedPivot(plan *ir.PhysicalPlan, pivot semantic.SemanticGroup
 	constructionBind := nextTableReshapeBindKey(plan.BindVars, "reshape_construction")
 	plan.BindVars[constructionBind] = pivot.ConstructionID
 	categoryProjection := projections[pivot.CategoryColumn]
+	categoryNeedsPresence := false
+	for _, category := range pivot.Categories {
+		if category.Key.Kind == recipe.TableScalarMissing || category.Key.Kind == recipe.TableScalarNull {
+			categoryNeedsPresence = true
+			break
+		}
+	}
 	physical := ir.PhysicalGroupedPivot{
 		ConstructionID: pivot.ConstructionID, InputRowVariable: allocateRecipeReshapeVariable(usedVariables, "pivot_input"),
 		GroupRowsVariable: allocateRecipeReshapeVariable(usedVariables, "pivot_group_rows"), OutputRowVariable: allocateRecipeReshapeVariable(usedVariables, "pivot_output"),
@@ -138,9 +145,25 @@ func lowerRecipeGroupedPivot(plan *ir.PhysicalPlan, pivot semantic.SemanticGroup
 		ConstructionIDBindKey: constructionBind, DuplicatePolicy: string(pivot.DuplicatePolicy),
 		MissingCellPolicy: string(pivot.MissingCellPolicy), UnlistedCategoryPolicy: string(pivot.UnlistedCategoryPolicy),
 	}
-	if categoryProjection.Presence != nil {
-		physical.CategoryPresenceColumn = "__loom_reshape_category_present"
-		physical.CategoryPresence = categoryProjection.Presence
+	if !categoryNeedsPresence {
+		// The row's property presence is consumed by sentinel category matching
+		// only for authored NULL/MISSING keys. Keep the root-stage proof available
+		// to a category-discovery prefix, but avoid attaching it to ordinary
+		// string/value Pivot inputs where it would disable bounded preview planning.
+		for index := range physical.InputProjections {
+			if physical.InputProjections[index].Name == pivot.CategoryColumn {
+				physical.InputProjections[index].Presence = nil
+			}
+		}
+	}
+	if categoryNeedsPresence {
+		if categoryColumn.PresenceCompanionName != "" {
+			physical.CategoryPresenceColumn = categoryColumn.PresenceCompanionName
+			physical.CategoryPresenceFromInput = true
+		} else if categoryProjection.Presence != nil {
+			physical.CategoryPresenceColumn = "__loom_reshape_category_present"
+			physical.CategoryPresence = categoryProjection.Presence
+		}
 	}
 	for _, name := range pivot.GroupKeys {
 		column, err := requireTableScalarColumn(name, schema, projections)
@@ -162,7 +185,7 @@ func lowerRecipeGroupedPivot(plan *ir.PhysicalPlan, pivot semantic.SemanticGroup
 			if err := category.Key.ValidatePivotCategoryKey(); err != nil {
 				return ir.PhysicalGroupedPivot{}, nil, nil, fmt.Errorf("category key %d: %w", index, err)
 			}
-			if physical.CategoryPresence == nil {
+			if physical.CategoryPresence == nil && !physical.CategoryPresenceFromInput {
 				return ir.PhysicalGroupedPivot{}, nil, nil, fmt.Errorf("category key %d MISSING requires a simple scalar selector with preserved property presence", index)
 			}
 			physicalCategory.MatchKind = ir.PhysicalPivotCategoryMissingMatch

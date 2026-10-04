@@ -132,6 +132,35 @@ func TestScanCategoriesCompiledPreservesOrderedMissingNullAndFalseyValues(t *tes
 	}
 }
 
+func TestScanCategoriesCompiledContinuesAfterMissingWitnessWhenPresenceIsTracked(t *testing.T) {
+	compiled := compiledCategoryScan(4)
+	compiled.Proof.PresenceTracked = true
+	compiled.OverflowWitness = &compiler.CategoryOverflowWitness{Query: "witness"}
+	mainScanned := false
+	engine := &Engine{queryRows: func(_ context.Context, query string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+		switch query {
+		case "witness":
+			return visit(map[string]any{"present": false, "value": nil})
+		case "scan":
+			mainScanned = true
+			if err := visit(map[string]any{"present": false, "value": nil}); err != nil {
+				return err
+			}
+			return visit(map[string]any{"present": true, "value": "d"})
+		default:
+			t.Fatalf("unexpected query %q", query)
+			return nil
+		}
+	}}
+	result, err := engine.ScanCategoriesCompiled(context.Background(), compiled)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !mainScanned || !result.Complete || result.ConclusiveMissing || len(result.Values) != 2 || result.Values[0].Present || result.Values[0].Value != nil || !result.Values[1].Present || result.Values[1].Value != "d" {
+		t.Fatalf("tracked missing witness did not complete the exact category scan: main=%v result=%#v", mainScanned, result)
+	}
+}
+
 func TestScanCategoriesCompiledHonorsContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	engine := &Engine{queryRows: func(ctx context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {

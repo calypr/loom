@@ -83,6 +83,9 @@ func TestCompileCategoryScanReversesExactRelatedRouteWithScopeAndStageWitnesses(
 	if scanned.BindVars[categoryLimitBind] != MaxCategoryScanValues+1 {
 		t.Fatalf("category limit = %#v, want complete-category sentinel %d", scanned.BindVars[categoryLimitBind], MaxCategoryScanValues+1)
 	}
+	if !scanned.Proof.PresenceTracked || !strings.Contains(query, "candidate_present") || !strings.Contains(query, "present: category.present") {
+		t.Fatalf("exact related-field presence is not bound into the category proof/query: proof=%#v\n%s", scanned.Proof, query)
+	}
 }
 
 func TestRelatedCategoryScanRetainsLegacyGenerationRejectionAndFalseScopeFallback(t *testing.T) {

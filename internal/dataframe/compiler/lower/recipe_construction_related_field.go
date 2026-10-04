@@ -17,6 +17,7 @@ func lowerConstructionRelatedField(
 	outputByID map[string]recipe.StageColumn,
 	inputSchema []CompiledOutputColumn,
 	inputRow string,
+	trackPresence bool,
 ) (ir.PhysicalStageRelatedField, []ir.PhysicalProjection, []CompiledOutputColumn, error) {
 	anchor, found := activeRelatedRecordColumn(inputSchema)
 	if !found || anchor.RelatedRecordAnchor == nil {
@@ -70,6 +71,10 @@ func lowerConstructionRelatedField(
 			SemanticPath: "related_field:" + source.CandidateID, Kind: source.LogicalType,
 			Cardinality: string(expression.OptionalOne), Nullable: true,
 		})
+		if trackPresence {
+			companionName := constructionPresenceCompanionName("related", output.ID)
+			compiled[len(compiled)-1].PresenceCompanionName = companionName
+		}
 		projections = append(projections, ir.PhysicalProjection{
 			Name: output.Name, Expression: &ir.PhysicalExpression{
 				Kind: ir.PhysicalRelatedFieldExpression, Cardinality: ir.PhysicalScalarCardinality,
@@ -80,6 +85,20 @@ func lowerConstructionRelatedField(
 				},
 			},
 		})
+		if trackPresence {
+			companionName := constructionPresenceCompanionName("related", output.ID)
+			projections = append(projections, ir.PhysicalProjection{
+				Name: companionName, Hidden: true,
+				Expression: &ir.PhysicalExpression{
+					Kind: ir.PhysicalRelatedFieldExpression, Cardinality: ir.PhysicalScalarCardinality,
+					NullBehavior: ir.PhysicalPreserveNull,
+					RelatedField: &ir.PhysicalRelatedField{
+						DocumentID:   ir.PhysicalValue{Variable: inputRow, Path: []string{anchor.Name}},
+						ResourceType: source.ResourceType, Path: append([]string(nil), path...), PresenceOnly: true,
+					},
+				},
+			})
+		}
 	}
 	physical := ir.PhysicalStageRelatedField{
 		ActiveRecordColumn: anchor.Name, CandidateID: source.CandidateID,

@@ -86,7 +86,7 @@ func TestConstructionExpandThenGroupUsesTypedIntermediateColumns(t *testing.T) {
 	}
 }
 
-func TestConstructionPivotRejectsMissingAfterDirectNestedSourceProjection(t *testing.T) {
+func TestConstructionPivotTracksMissingAfterDirectNestedSourceProjection(t *testing.T) {
 	categoryValue := "BodyStructure/2f9db8e2-82b9-4f75-8c33-a5327192dfc8"
 	output := recipe.Output{
 		Name: "specimen_missing_category", RootResourceType: "Specimen", RowGrain: "specimen",
@@ -154,9 +154,118 @@ func TestConstructionPivotRejectsMissingAfterDirectNestedSourceProjection(t *tes
 	step.Operation.Pivot = &pivot
 	construction.Steps[0] = step
 	missing.Construction = &construction
-	_, err := compileDerivedTestBundle(t, missing)
-	if err == nil || !strings.Contains(err.Error(), "MISSING requires a simple scalar selector with preserved property presence") {
-		t.Fatalf("MISSING construction pivot error = %v", err)
+	missingBundle, err := compileDerivedTestBundle(t, missing)
+	if err != nil {
+		t.Fatalf("compile construction Pivot with an exact missing category: %v", err)
+	}
+	missingStage := missingBundle.Plan.StageSequence.Stages[0]
+	if missingStage.GroupedPivot == nil || !missingStage.GroupedPivot.CategoryPresenceFromInput ||
+		missingStage.GroupedPivot.CategoryPresenceColumn == "" {
+		t.Fatalf("missing category has no materialized source-presence companion: %#v", missingStage.GroupedPivot)
+	}
+	var companionProjection bool
+	for _, projection := range missingStage.GroupedPivot.InputProjections {
+		if projection.Name == missingStage.GroupedPivot.CategoryPresenceColumn && projection.Hidden {
+			companionProjection = true
+		}
+	}
+	if !companionProjection {
+		t.Fatalf("missing category companion %q is not a hidden Pivot input projection: %#v", missingStage.GroupedPivot.CategoryPresenceColumn, missingStage.GroupedPivot.InputProjections)
+	}
+
+	null := output
+	nullConstruction := *output.Construction
+	nullConstruction.Steps = append([]recipe.ConstructionStep(nil), output.Construction.Steps...)
+	nullStep := nullConstruction.Steps[0]
+	nullPivot := *nullStep.Operation.Pivot
+	nullPivot.Categories = append([]recipe.ConstructionPivotCategory(nil), nullStep.Operation.Pivot.Categories...)
+	nullPivot.Categories[0].Key = recipe.TableScalar{Kind: recipe.TableScalarNull}
+	nullStep.Operation.Pivot = &nullPivot
+	nullConstruction.Steps[0] = nullStep
+	null.Construction = &nullConstruction
+	nullCompiled, err := compileDerivedTestBundle(t, null)
+	if err != nil {
+		t.Fatalf("compile construction Pivot with an exact NULL category: %v", err)
+	}
+	nullStage := nullCompiled.Plan.StageSequence.Stages[0]
+	if nullStage.GroupedPivot == nil || !nullStage.GroupedPivot.CategoryPresenceFromInput || nullStage.GroupedPivot.CategoryPresenceColumn == "" {
+		t.Fatalf("NULL-only category has no materialized source-presence companion: %#v", nullStage.GroupedPivot)
+	}
+	nullRendered, err := aql.RenderPhysicalPlan(nullCompiled.Plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(nullRendered.Query, " == true AND ") || !strings.Contains(nullRendered.Query, " == null)") {
+		t.Fatalf("NULL category match does not require source presence:\n%s", nullRendered.Query)
+	}
+}
+
+func TestConstructionPivotTracksPresenceForExactRelatedField(t *testing.T) {
+	output := constructionTestOutput()
+	construction := relatedFieldTestConstruction([]string{"RELATED_EXPAND", "RELATED_FIELD"})
+	construction.Steps = append(construction.Steps, recipe.ConstructionStep{
+		ID: "pivot_related_status", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionStepOutputInput, StepID: "related_step_2"}},
+		Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionPivotOp, Pivot: &recipe.ConstructionPivot{
+			ConstructionID: "pivot_missing_related_status", GroupKeyIDs: []string{"group_id"},
+			CategoryColumnID: "observation_status", ValueColumnID: "amount_id",
+			Categories:      []recipe.ConstructionPivotCategory{{Key: recipe.TableScalar{Kind: recipe.TableScalarMissing}, OutputColumnID: "missing_status_id"}},
+			DuplicatePolicy: recipe.PivotDuplicateError, MissingCellPolicy: recipe.PivotMissingCellNull,
+			UnlistedCategoryPolicy: recipe.PivotUnlistedCategoryError,
+		}},
+		Outputs: []recipe.StageColumn{{ID: "group_id", Name: "group"}, {ID: "missing_status_id", Name: "missing_status"}},
+	})
+	output.Construction = construction
+
+	compiled, err := compileDerivedTestBundle(t, output)
+	if err != nil {
+		t.Fatalf("compile Pivot over an exact related-field MISSING category: %v", err)
+	}
+	fieldStage := compiled.Plan.StageSequence.Stages[1]
+	var presenceOnly bool
+	for _, projection := range fieldStage.OutputProjections {
+		if projection.Hidden && projection.Expression != nil && projection.Expression.RelatedField != nil && projection.Expression.RelatedField.PresenceOnly {
+			presenceOnly = true
+		}
+	}
+	if !presenceOnly {
+		t.Fatalf("related-field stage has no exact scoped presence projection: %#v", fieldStage.OutputProjections)
+	}
+	pivot := compiled.Plan.StageSequence.Stages[2].GroupedPivot
+	if pivot == nil || !pivot.CategoryPresenceFromInput || pivot.CategoryPresenceColumn == "" {
+		t.Fatalf("related-field Pivot lost its materialized presence input: %#v", pivot)
+	}
+	rendered, err := aql.RenderPhysicalPlan(compiled.Plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(rendered.Query, "FIRST(APPEND(") || !strings.Contains(rendered.Query, "HAS(related_field_document.payload") {
+		t.Fatalf("related-field presence query does not distinguish missing from null:\n%s", rendered.Query)
+	}
+
+	nullConstruction := *construction
+	nullConstruction.Steps = append([]recipe.ConstructionStep(nil), construction.Steps...)
+	nullStepIndex := len(nullConstruction.Steps) - 1
+	nullStep := nullConstruction.Steps[nullStepIndex]
+	nullPivot := *nullStep.Operation.Pivot
+	nullPivot.Categories = append([]recipe.ConstructionPivotCategory(nil), nullStep.Operation.Pivot.Categories...)
+	nullPivot.Categories[0].Key = recipe.TableScalar{Kind: recipe.TableScalarNull}
+	nullStep.Operation.Pivot = &nullPivot
+	nullConstruction.Steps[nullStepIndex] = nullStep
+	output.Construction = &nullConstruction
+	nullCompiled, err := compileDerivedTestBundle(t, output)
+	if err != nil {
+		t.Fatalf("compile NULL-only Pivot over an exact related-field category: %v", err)
+	}
+	nullPivotStage := nullCompiled.Plan.StageSequence.Stages[2].GroupedPivot
+	if nullPivotStage == nil || !nullPivotStage.CategoryPresenceFromInput || nullPivotStage.CategoryPresenceColumn == "" {
+		t.Fatalf("related-field NULL category lost its materialized presence input: %#v", nullPivotStage)
+	}
+	nullRendered, err := aql.RenderPhysicalPlan(nullCompiled.Plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(nullRendered.Query, " == true AND ") || !strings.Contains(nullRendered.Query, " == null)") {
+		t.Fatalf("related-field NULL category match does not require target presence:\n%s", nullRendered.Query)
 	}
 }
 

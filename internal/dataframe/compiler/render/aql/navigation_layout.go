@@ -373,7 +373,7 @@ func sameRenderPhysicalValue(left, right ir.PhysicalValue) bool {
 
 func validateNavigationReturnScope(returnOp ir.PhysicalReturn, rootVariable, rootScopeVariable string, unnestVariables, reductionVariables map[string]struct{}) error {
 	for _, projection := range returnOp.Projections {
-		if projection.Expression != nil {
+		if projection.Expression != nil || projection.PresenceOutput {
 			continue
 		}
 		if projection.Value.BindKey != "" {

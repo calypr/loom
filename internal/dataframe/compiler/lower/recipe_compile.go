@@ -86,6 +86,9 @@ type CompiledOutputColumn struct {
 	Identity       bool
 	Discovered     bool
 	SourceChild    *lineage.SourceChild
+	// PresenceCompanionName identifies a compiler-owned hidden boolean column
+	// that preserves whether this scalar existed before stage materialization.
+	PresenceCompanionName string
 	// RelatedRecordAnchor marks the hidden exact terminal document identity
 	// emitted by RELATED_EXPAND. It is copied only by row-preserving stages.
 	RelatedRecordAnchor *CompiledRelatedRecordAnchor

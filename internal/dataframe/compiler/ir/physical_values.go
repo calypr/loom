@@ -119,6 +119,10 @@ type PhysicalRelatedField struct {
 	DocumentID   PhysicalValue
 	ResourceType string
 	Path         []string
+	// PresenceOnly asks the exact related-field lookup to return whether the
+	// selector path exists. An absent or out-of-scope terminal remains present
+	// for compatibility with RELATED_FIELD's existing null result.
+	PresenceOnly bool
 }
 
 // PhysicalExtract obtains one FHIR selector from a variable or prior set

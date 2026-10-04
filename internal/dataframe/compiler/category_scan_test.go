@@ -160,6 +160,46 @@ func TestCompileCategoryScanUsesExactConstructionStagePrefixAndBindsPivotPair(t 
 	}
 }
 
+func TestCompileCategoryScanTracksPresenceThroughFilterForOrdinaryDiscoveryProbe(t *testing.T) {
+	output := categoryScanConstructionRecipeOutput()
+	output.Fields = append(output.Fields, recipe.Field{Name: "group", ColumnID: "group_id", Expr: recipe.Expression{Select: "root.id"}})
+	construction := *output.Construction
+	construction.Steps = append([]recipe.ConstructionStep(nil), output.Construction.Steps...)
+	construction.SourceColumns = append(append([]recipe.StageColumn(nil), construction.SourceColumns...), recipe.StageColumn{ID: "group_id", Name: "group"})
+	for index := range construction.Steps {
+		construction.Steps[index].Outputs = append(construction.Steps[index].Outputs, recipe.StageColumn{ID: "group_id", Name: "group"})
+	}
+	probeCategory := "active"
+	construction.Steps = append(construction.Steps, recipe.ConstructionStep{
+		ID: "temporary_probe_pivot", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionStepOutputInput, StepID: "keep_positive"}},
+		Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionPivotOp, Pivot: &recipe.ConstructionPivot{
+			ConstructionID: "temporary_probe_pivot", GroupKeyIDs: []string{"group_id"}, CategoryColumnID: "status_id", ValueColumnID: "amount_id",
+			Categories: []recipe.ConstructionPivotCategory{{
+				Key: recipe.TableScalar{Kind: recipe.TableScalarString, String: &probeCategory}, OutputColumnID: "probe_value_id",
+			}},
+			DuplicatePolicy: recipe.PivotDuplicateError, MissingCellPolicy: recipe.PivotMissingCellNull,
+			UnlistedCategoryPolicy: recipe.PivotUnlistedCategoryError,
+		}},
+		Outputs: []recipe.StageColumn{{ID: "group_id", Name: "group"}, {ID: "probe_value_id", Name: "probe_value"}},
+	})
+	output.Construction = &construction
+	compiled := compilePopulationMappingOutput(t, output)
+
+	scanned, err := CompileCategoryScanStageWithPolicy(compiled, "keep_positive", "status_id", "amount_id", 256, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	companion, ok := scanned.BindVars["__loom_category_presence_column"].(string)
+	if !ok || companion == "" || !scanned.Proof.PresenceTracked {
+		t.Fatalf("ordinary temporary Pivot probe lost source presence across its filtered prefix: proof=%#v binds=%#v\n%s", scanned.Proof, scanned.BindVars, scanned.Query)
+	}
+	for _, marker := range []string{"__loom_construction_stage_", "FILTER __loom_construction_input_2.total", companion, "__loom_category_presence_column"} {
+		if !strings.Contains(scanned.Query, marker) {
+			t.Fatalf("filtered source-presence category query omitted %q:\n%s", marker, scanned.Query)
+		}
+	}
+}
+
 func TestCompileCategoryScanCollapsesParentPreservingRelatedPrefixToRootCategories(t *testing.T) {
 	output := compilePopulationMappingOutput(t, categoryScanRelatedRecipeOutput(recipe.ExpansionPreserveParent, false, false))
 	scanned, err := CompileCategoryScanStageWithPolicy(output, "add_status", "category_id", "value_id", 256, ir.DefaultPhysicalOptimizationPolicy())
@@ -556,6 +596,9 @@ func TestCompileSourceProjectionCategoryScanOffersCoveringIndexForExplicitPivotP
 		scanned.Proof.ValueColumnID != "amount_id" || scanned.Proof.PlanFingerprint == "" ||
 		scanned.Proof.QueryFingerprint == "" || scanned.Proof.Fingerprint == "" {
 		t.Fatalf("narrowed source scan lost its complete stage/pair proof: %#v", scanned.Proof)
+	}
+	if !scanned.Proof.PresenceTracked || !strings.Contains(scanned.Query, "present") {
+		t.Fatalf("exact root selector presence is not bound into the category proof/query: proof=%#v\n%s", scanned.Proof, scanned.Query)
 	}
 	if !strings.Contains(scanned.Query, "root_scope_allowed") || !strings.Contains(scanned.Query, "auth_resource_paths") {
 		t.Fatalf("narrowed source scan lost root authorization scope:\n%s", scanned.Query)

@@ -1,6 +1,8 @@
 package lower
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"sort"
 	"strings"
@@ -136,6 +138,12 @@ func appendRecipeConstructionStages(plan *ir.PhysicalPlan, outputName, rootResou
 	if len(construction.SourceColumns) == 0 && (len(construction.Steps) == 0 || construction.Steps[0].Operation.Kind != recipe.ConstructionCodedPivotOp) {
 		return nil, nil, "", fmt.Errorf("construction source schema must be supplied by the resolved source compiler")
 	}
+	presenceCategoryIDs := constructionPivotCategoryColumnIDs(construction)
+	var err error
+	sourceSchema, err = attachConstructionSourcePresenceCompanions(plan, sourceSchema, presenceCategoryIDs)
+	if err != nil {
+		return nil, nil, "", err
+	}
 	resolvedSource, err := resolveConstructionSourceSchema(plan, construction.SourceColumns, sourceSchema, outputName)
 	if err != nil {
 		return nil, nil, "", err
@@ -241,7 +249,7 @@ func appendRecipeConstructionStages(plan *ir.PhysicalPlan, outputName, rootResou
 				return nil, nil, "", err
 			}
 		}
-		result, stageErr := lowerConstructionStep(plan, step, priorStageID, priorSchema, priorIdentity, rootResourceType, policy, usedVariables, index, rootContributorProvenance, rootContributorSourceAvailable, retainRootContributors)
+		result, stageErr := lowerConstructionStep(plan, step, priorStageID, priorSchema, priorIdentity, rootResourceType, policy, usedVariables, index, rootContributorProvenance, rootContributorSourceAvailable, retainRootContributors, presenceCategoryIDs)
 		if stageErr != nil {
 			return nil, nil, "", fmt.Errorf("construction step %q: %w", step.ID, stageErr)
 		}
@@ -639,6 +647,16 @@ func resolveConstructionSourceSchema(plan *ir.PhysicalPlan, declarations []recip
 			resolved = append(resolved, rootKey)
 		}
 	}
+	for _, column := range resolved {
+		if column.Internal || column.PresenceCompanionName == "" {
+			continue
+		}
+		if companion, found := sourcePresenceCompanionColumn(schema, column.PresenceCompanionName); found {
+			resolved = append(resolved, companion)
+		} else {
+			return nil, fmt.Errorf("construction source column %q has no compiled presence companion", column.ID)
+		}
+	}
 	return resolved, nil
 }
 
@@ -651,6 +669,140 @@ func constructionSourceIdentity(schema []CompiledOutputColumn) string {
 	return ""
 }
 
+func constructionPivotCategoryColumnIDs(construction recipe.Construction) map[string]bool {
+	ids := make(map[string]bool)
+	for _, step := range construction.Steps {
+		if step.Operation.Kind == recipe.ConstructionPivotOp && step.Operation.Pivot != nil {
+			// Discovery compiles a temporary single-string Pivot before the user
+			// has selected category keys. Preserve exact source presence for every
+			// future Pivot category so that this probe can safely offer MISSING.
+			ids[step.Operation.Pivot.CategoryColumnID] = true
+		}
+	}
+	return ids
+}
+
+func constructionPresenceCompanionName(outputName, columnID string) string {
+	digest := sha256.Sum256([]byte(outputName + ":" + columnID))
+	return "__loom_presence_" + hex.EncodeToString(digest[:8])
+}
+
+func attachConstructionSourcePresenceCompanions(plan *ir.PhysicalPlan, schema []CompiledOutputColumn, categoryIDs map[string]bool) ([]CompiledOutputColumn, error) {
+	if plan == nil || len(categoryIDs) == 0 {
+		return schema, nil
+	}
+	projections := map[string]ir.PhysicalProjection{}
+	returnIndex := -1
+	for index, operation := range plan.Operations {
+		if operation.Kind != ir.PhysicalReturnOp || operation.Return == nil {
+			continue
+		}
+		returnIndex = index
+		for _, projection := range operation.Return.Projections {
+			if !projection.Hidden {
+				projections[projection.Name] = projection
+			}
+		}
+	}
+	if returnIndex < 0 {
+		return schema, nil
+	}
+	result := append([]CompiledOutputColumn(nil), schema...)
+	for index := range result {
+		column := &result[index]
+		if column.Internal || !categoryIDs[column.ID] {
+			continue
+		}
+		projection, found := projections[column.Name]
+		if !found || projection.Presence == nil {
+			continue
+		}
+		companion := constructionPresenceCompanionName("source", column.ID)
+		column.PresenceCompanionName = companion
+		companionID := "presence:" + column.ID
+		result = append(result, CompiledOutputColumn{
+			ID: companionID, Name: companion, Label: companion, SemanticPath: "construction_presence:" + column.ID,
+			Kind: string(expression.KindBoolean), Cardinality: string(expression.RequiredOne), Internal: true,
+		})
+		presence := *projection.Presence
+		presence.Paths = cloneConstructionPresencePaths(projection.Presence.Paths)
+		plan.Operations[returnIndex].Return.Projections = append(plan.Operations[returnIndex].Return.Projections, ir.PhysicalProjection{
+			Name: companion, Hidden: true, Presence: &presence, PresenceOutput: true,
+		})
+	}
+	return result, nil
+}
+
+func cloneConstructionPresencePaths(paths [][]string) [][]string {
+	cloned := make([][]string, len(paths))
+	for index := range paths {
+		cloned[index] = append([]string(nil), paths[index]...)
+	}
+	return cloned
+}
+
+func carryConstructionPresenceCompanions(input, output []CompiledOutputColumn, projections []ir.PhysicalProjection, inputRow string) ([]CompiledOutputColumn, []ir.PhysicalProjection) {
+	inputByID := compiledSchemaByID(input)
+	output = append([]CompiledOutputColumn(nil), output...)
+	projections = append([]ir.PhysicalProjection(nil), projections...)
+	for _, column := range output {
+		if column.Internal || column.PresenceCompanionName == "" {
+			continue
+		}
+		companionName := column.PresenceCompanionName
+		if _, exists := schemaColumn(output, companionName); !exists {
+			if companion, found := schemaColumn(input, companionName); found {
+				output = append(output, companion)
+			} else {
+				output = append(output, CompiledOutputColumn{
+					ID: "presence:" + column.ID, Name: companionName, Label: companionName,
+					SemanticPath: "construction_presence:" + column.ID,
+					Kind:         string(expression.KindBoolean), Cardinality: string(expression.RequiredOne), Internal: true,
+				})
+			}
+		}
+		if hasPhysicalProjectionName(projections, companionName) {
+			continue
+		}
+		prior, found := inputByID[column.ID]
+		if !found || prior.PresenceCompanionName != companionName {
+			continue
+		}
+		projections = append(projections, ir.PhysicalProjection{
+			Name: companionName, Hidden: true,
+			Value: ir.PhysicalValue{Variable: inputRow, Path: []string{companionName}},
+		})
+	}
+	return output, projections
+}
+
+func constructionPreservesPresenceCompanions(kind ir.PhysicalStageOperationKind) bool {
+	switch kind {
+	case ir.PhysicalStageDeriveOp, ir.PhysicalStageFilterOp, ir.PhysicalStageExpandOp,
+		ir.PhysicalStageRelatedExpandOp, ir.PhysicalStageRelatedEligibilityOp, ir.PhysicalStageRelatedFieldOp:
+		return true
+	default:
+		return false
+	}
+}
+
+func withoutConstructionPresenceCompanions(schema []CompiledOutputColumn) []CompiledOutputColumn {
+	result := append([]CompiledOutputColumn(nil), schema...)
+	for index := range result {
+		result[index].PresenceCompanionName = ""
+	}
+	return result
+}
+
+func hasPhysicalProjectionName(projections []ir.PhysicalProjection, name string) bool {
+	for _, projection := range projections {
+		if projection.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
 func schemaColumn(schema []CompiledOutputColumn, name string) (CompiledOutputColumn, bool) {
 	for _, column := range schema {
 		if column.Name == name {
@@ -660,7 +812,17 @@ func schemaColumn(schema []CompiledOutputColumn, name string) (CompiledOutputCol
 	return CompiledOutputColumn{}, false
 }
 
-func lowerConstructionStep(plan *ir.PhysicalPlan, step recipe.ConstructionStep, inputStageID string, inputSchema []CompiledOutputColumn, inputIdentity, rootResourceType string, policy ir.PhysicalOptimizationPolicy, usedVariables map[string]bool, index int, rootContributorProvenance, rootContributorSourceAvailable, retainRootContributors bool) (constructionStageResult, error) {
+func sourcePresenceCompanionColumn(schema []CompiledOutputColumn, name string) (CompiledOutputColumn, bool) {
+	for _, column := range schema {
+		if column.Name == name && column.Internal && column.Kind == string(expression.KindBoolean) &&
+			column.Cardinality == string(expression.RequiredOne) {
+			return column, true
+		}
+	}
+	return CompiledOutputColumn{}, false
+}
+
+func lowerConstructionStep(plan *ir.PhysicalPlan, step recipe.ConstructionStep, inputStageID string, inputSchema []CompiledOutputColumn, inputIdentity, rootResourceType string, policy ir.PhysicalOptimizationPolicy, usedVariables map[string]bool, index int, rootContributorProvenance, rootContributorSourceAvailable, retainRootContributors bool, presenceCategoryIDs map[string]bool) (constructionStageResult, error) {
 	inputByID := compiledSchemaByID(inputSchema)
 	outputByID := make(map[string]recipe.StageColumn, len(step.Outputs))
 	for _, column := range step.Outputs {
@@ -967,7 +1129,7 @@ func lowerConstructionStep(plan *ir.PhysicalPlan, step recipe.ConstructionStep, 
 		if related == nil {
 			return constructionStageResult{}, fmt.Errorf("related field payload is required")
 		}
-		physicalRelatedField, projections, compiled, err := lowerConstructionRelatedField(step, *related, inputByID, outputByID, inputSchema, inputRow)
+		physicalRelatedField, projections, compiled, err := lowerConstructionRelatedField(step, *related, inputByID, outputByID, inputSchema, inputRow, presenceCategoryIDs[related.OutputColumnID])
 		if err != nil {
 			return constructionStageResult{}, err
 		}
@@ -975,6 +1137,11 @@ func lowerConstructionStep(plan *ir.PhysicalPlan, step recipe.ConstructionStep, 
 		outputSchema, outputIdentity = compiled, inputIdentity
 	default:
 		return constructionStageResult{}, fmt.Errorf("unsupported operation kind %q", step.Operation.Kind)
+	}
+	if constructionPreservesPresenceCompanions(base.Kind) {
+		outputSchema, base.OutputProjections = carryConstructionPresenceCompanions(inputSchema, outputSchema, base.OutputProjections, inputRow)
+	} else {
+		outputSchema = withoutConstructionPresenceCompanions(outputSchema)
 	}
 	if outputIdentity == "" {
 		return constructionStageResult{}, fmt.Errorf("operation did not produce a row identity")
@@ -1888,6 +2055,7 @@ func toPhysicalStageColumns(schema []CompiledOutputColumn) []ir.PhysicalStageCol
 			RelatedRecordAnchor:         relatedAnchor,
 			RootContributorResourceType: column.RootContributorResourceType,
 			NormalizedUnit:              cloneUnitIdentity(column.NormalizedUnit),
+			PresenceCompanionName:       column.PresenceCompanionName,
 		})
 	}
 	return result
