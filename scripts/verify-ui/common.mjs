@@ -5,6 +5,8 @@ import { requiredChecksFor } from './registry.mjs';
 import { sourceFingerprintChangedPaths, sourceFingerprintWithManifest } from './source-fingerprint.mjs';
 import { resolve } from 'node:path';
 
+export { runPlaywrightCase } from './playwright-case.mjs';
+
 const safeTarget = (target) => {
   let url;
   try { url = new URL(target.uiUrl ?? 'http://127.0.0.1'); } catch { url = new URL('http://127.0.0.1'); }
