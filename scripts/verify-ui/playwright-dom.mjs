@@ -145,7 +145,7 @@ export const goto = async (page, url, waitForExpression) => {
 export const recordPlaywrightTiming = async (report, page, browser, { name, action, after, timeout = 30000, budget = 5000, dimension = 'usability' }) => {
   const started = Date.now();
   timingDepth += 1;
-  activeTimingName = name;
+  activeTimingName = `${name} control action`;
   actionRoutedForTiming = false;
   try {
     await action();
