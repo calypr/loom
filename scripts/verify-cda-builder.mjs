@@ -5,14 +5,15 @@ import { join } from 'node:path';
 import { browserEval, launchBrowser, navigate, waitForBrowser } from './loom-dev.mjs';
 import { runRelatedSourceChooser } from './verify-cda-builder-related-source-chooser.mjs';
 import { runPatientRelatedInspection } from './verify-cda-builder-related-patient-inspection.mjs';
-import { runPatientRelatedApplyReload } from './verify-cda-builder-patient-related.mjs';
+import { runPatientRelatedApplyReload, runPatientRelatedEditRemove } from './verify-cda-builder-patient-related.mjs';
 import { runPreviewLimits } from './verify-cda-builder-preview-limits.mjs';
 
 const action = process.argv[2] ?? 'Keep rows';
 const patientRelatedInspectionActions = new Set(['Inspect Patient field choice', 'Inspect selected Patient route', 'Inspect Patient proposal']);
 const patientRelatedApplyReloadAction = action === 'Verify Patient related column';
+const patientRelatedEditRemoveAction = action === 'Edit and remove Patient related column';
 const previewLimitsAction = action === 'Preview limits';
-const playwrightOnlyAction = action === 'Verify related source chooser' || patientRelatedInspectionActions.has(action) || patientRelatedApplyReloadAction || previewLimitsAction;
+const playwrightOnlyAction = action === 'Verify related source chooser' || patientRelatedInspectionActions.has(action) || patientRelatedApplyReloadAction || patientRelatedEditRemoveAction || previewLimitsAction;
 const explorerId = process.argv[3] ?? (playwrightOnlyAction ? undefined : 'cda-builder-full-qa-1790439585678');
 const uiOrigin = (process.env.LOOM_CDA_UI_ORIGIN ?? (playwrightOnlyAction ? '' : 'http://127.0.0.1:30002')).replace(/\/$/, '');
 const pageURL = playwrightOnlyAction ? undefined : `${uiOrigin}/?project=loom_dev_cda_fhir&explorer=${explorerId}&mode=builder`;
@@ -58,6 +59,8 @@ try {
       ? await runRelatedSourceChooser({ explorerId: process.argv[3] })
       : patientRelatedApplyReloadAction
         ? await runPatientRelatedApplyReload({ explorerId: process.argv[3] })
+        : patientRelatedEditRemoveAction
+          ? await runPatientRelatedEditRemove({ explorerId: process.argv[3] })
         : previewLimitsAction
           ? await runPreviewLimits({ explorerId: process.argv[3] })
         : await runPatientRelatedInspection({ action, explorerId: process.argv[3] });
@@ -214,42 +217,6 @@ try {
     console.log(JSON.stringify({evidenceDirectory,before,after,published,responses:responses.filter(response=>response.path.endsWith('/publish')||response.path.endsWith('/preview'))},null,2));
     assert(published,'Publish did not return');
     assert.equal(published.status,200);
-  } else if (action === 'Edit and remove Patient related column') {
-    await waitForBrowser(browser.cdp, `document.querySelectorAll('[data-testid^="construction-history-step-"]').length===1`, 30000);
-    await browserEval(browser.cdp, `document.querySelector('[data-testid^="construction-history-step-"]').click();return true;`);
-    await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid^="construction-edit-step-"]'))`, 30000);
-    await browserEval(browser.cdp, `document.querySelector('[data-testid^="construction-edit-step-"]').click();return true;`);
-    await waitForBrowser(browser.cdp, `Boolean(document.querySelector('input[aria-label="Output column label"]:not(:disabled)'))`, 30000);
-    const originalLabel=await browserEval(browser.cdp, `return document.querySelector('input[aria-label="Output column label"]').value;`);
-    await browserEval(browser.cdp, `const input=document.querySelector('input[aria-label="Output column label"]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'Patient ID QA');input.dispatchEvent(new Event('input',{bubbles:true}));return true;`);
-    await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status')==='ready'`, 60000);
-    const editedProposal=await browserEval(browser.cdp, `return {text:document.querySelector('[data-testid="construction-proposal-panel"]')?.innerText,preview:document.querySelector('[data-testid="construction-proposal-preview"]')?.innerText.slice(0,600),disabled:document.querySelector('[data-testid="construction-apply-proposal"]')?.disabled};`);
-    assert.equal(editedProposal.disabled,false);
-    await browserEval(browser.cdp, `document.querySelector('[data-testid="construction-apply-proposal"]').click();return true;`);
-    await navigate(browser.cdp,pageURL);
-    await waitForBrowser(browser.cdp, `document.querySelectorAll('[data-testid^="construction-history-step-"]').length===1`, 30000);
-    await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.textContent?.trim()==='Preview').click();return true;`);
-    await waitForBrowser(browser.cdp, `[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].some(cell=>cell.innerText==='PATIENT ID QA')`, 30000);
-    const edited=await browserEval(browser.cdp, `return {columns:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].map(cell=>cell.innerText),rows:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]')].slice(1,4).map(row=>[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText))};`);
-    for (const row of edited.rows) assert.equal(row.at(-1),row[1]?.replace(/^Patient\//,''));
-    await browserEval(browser.cdp, `document.querySelector('[data-testid^="construction-history-step-"]').click();return true;`);
-    await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid^="construction-remove-step-"]'))`, 30000);
-    await browserEval(browser.cdp, `document.querySelector('[data-testid^="construction-remove-step-"]').click();return true;`);
-    await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status')==='ready'`, 60000);
-    const removalProposal=await browserEval(browser.cdp, `return {text:document.querySelector('[data-testid="construction-proposal-panel"]')?.innerText,preview:document.querySelector('[data-testid="construction-proposal-preview"]')?.innerText.slice(0,600),disabled:document.querySelector('[data-testid="construction-apply-proposal"]')?.disabled};`);
-    assert.equal(removalProposal.disabled,false);
-    await browserEval(browser.cdp, `document.querySelector('[data-testid="construction-apply-proposal"]').click();return true;`);
-    await waitForBrowser(browser.cdp, `document.querySelectorAll('[data-testid^="construction-history-step-"]').length===0`, 30000);
-    await navigate(browser.cdp,pageURL);
-    await waitForBrowser(browser.cdp, `document.body.innerText.includes('DATASET WORKSPACE') && document.querySelectorAll('[data-testid^="construction-history-step-"]').length===0 && [...document.querySelectorAll('button')].some(button=>button.textContent?.trim()==='Preview')`, 30000);
-    await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.textContent?.trim()==='Preview').click();return true;`);
-    await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-colcount')==='3'`, 30000);
-    const restored=await browserEval(browser.cdp, `return {columns:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].map(cell=>cell.innerText),rows:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]')].slice(1,4).map(row=>[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText))};`);
-    assert.equal(restored.rows.length,3);
-    assert.equal(restored.rows[0]?.[0],edited.rows[0]?.[0]);
-    await mkdir(evidenceDirectory,{recursive:true});
-    await writeFile(join(evidenceDirectory,'patient-related-edited-removed.json'),JSON.stringify({pageURL,originalLabel,editedProposal,edited,removalProposal,restored,responses},null,2));
-    console.log(JSON.stringify({evidenceDirectory,originalLabel,editedProposal,edited,removalProposal,restored,responses:responses.filter(response=>response.status>=400)},null,2));
   } else if (action === 'Inspect saved related step' || action === 'Inspect related edit') {
     await waitForBrowser(browser.cdp, `document.querySelectorAll('[data-testid^="construction-history-step-"]').length===1`, 30000);
     await browserEval(browser.cdp, `document.querySelector('[data-testid^="construction-history-step-"]').click();return true;`);

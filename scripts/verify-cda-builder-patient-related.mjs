@@ -82,8 +82,8 @@ export function assertPreviewOracle({ rows, expected, ariaRowCount, headers, app
   })), 'Visible Preview rows differ from the independent raw CDA oracle');
 }
 
-export function assertProposalOracle({ rows, expected, headers }) {
-  assert.deepEqual(headers, [...BASE_HEADERS, 'PATIENT ID']);
+export function assertProposalOracle({ rows, expected, headers, patientColumnHeader = 'PATIENT ID' }) {
+  assert.deepEqual(headers, [...BASE_HEADERS, patientColumnHeader]);
   assert(rows.length > 0 && rows.length <= expected.length, 'Proposal must expose a non-empty subset of the independent preview window');
   assert.deepEqual(rows, expected.slice(0, rows.length).map(row => [
     display(row.id), display(row.subject), display(row.bodySite), display(row.patientId),
@@ -100,6 +100,7 @@ const visiblePreview = async page => page.getByTestId('preview-table-scroll').ge
 export async function collectPreviewRows(page, { expectedCount, expectedHeaders }) {
   const scroll = page.getByTestId('preview-table-scroll');
   const table = scroll.getByRole('table');
+  await table.waitFor({ state: 'visible', timeout: 5000 });
   await requireUnique(table, 'Preview table');
   const headers = await table.getByRole('columnheader').allTextContents();
   assert.deepEqual(headers.map(value => value.trim()), expectedHeaders);
@@ -141,6 +142,7 @@ export async function collectPreviewRows(page, { expectedCount, expectedHeaders 
 
 export async function collectProposalRows(page) {
   const proposalTable = page.getByTestId('construction-proposal-preview').getByRole('table');
+  await proposalTable.waitFor({ state: 'visible', timeout: 5000 });
   await requireUnique(proposalTable, 'Patient related proposal preview table');
   const headers = (await proposalTable.getByRole('columnheader').allTextContents()).map(value => value.trim());
   const rows = await proposalTable.getByRole('row').evaluateAll(elements => elements.slice(1).map(row =>
@@ -339,6 +341,197 @@ export async function runPatientRelatedApplyReload({ explorerId, env = process.e
     if (Object.keys(lifecycleEvidence).length) await writeFile(`${evidenceDirectory}/lifecycle.json`, JSON.stringify(lifecycleEvidence, null, 2) + '\n', { mode: 0o600 });
     report.evidence ??= [];
     if (Object.keys(lifecycleEvidence).length) report.evidence.push('lifecycle.json');
+    report.status = failure || report.assertions.some(assertion => assertion.status === 'failed') ? 'failed' : 'passed';
+    report.finishedAt = new Date().toISOString();
+    await writeFile(`${evidenceDirectory}/report.json`, JSON.stringify(report, null, 2) + '\n', { mode: 0o600 });
+  }
+  if (failure) throw failure;
+  return report;
+}
+
+export async function runPatientRelatedEditRemove({ explorerId, env = process.env } = {}) {
+  assert(String(explorerId ?? '').trim(), 'Pass an explicit Builder Explorer ID');
+  const target = await targetFromEnvironment(env);
+  const oracle = await readPatientRelatedOracle({ datasetDir: target.fixtureDir, project: target.fixtureProject, generation: target.fixtureGeneration });
+  const evidenceDirectory = resolve(target.artifacts, `playwright-patient-related-edit-remove-${new Date().toISOString().replaceAll(':', '-')}`);
+  await mkdir(evidenceDirectory, { recursive: true, mode: 0o700 });
+  const sourceAtStart = sourceFingerprintWithManifest(target.sourceRoot);
+  const buildAtStart = apiBuildIdentity(target);
+  const report = {
+    schemaVersion: 1, scenario: 'cda-builder-patient-related-edit-remove', case: 'Edit and remove Patient related column',
+    status: 'running', target: { sourceRoot: target.sourceRoot, sourceFingerprint: sourceAtStart.fingerprint,
+      apiBuildIdentity: buildAtStart, composeProject: target.composeProject, apiContainer: env.LOOM_CDA_API_CONTAINER,
+      uiOrigin: target.uiUrl, apiOrigin: target.apiUrl, project: target.fixtureProject,
+      generation: target.fixtureGeneration, explorerId },
+    sourceOracle: { files: { Specimen: oracle.specimenPath, Patient: oracle.patientPath }, hashes: oracle.sourceHashes,
+      specimenCount: oracle.specimenCount, patientCount: oracle.patientCount, rows: oracle.rows,
+      ordering: 'Raw CDA rows ordered by exact project/generation Arango vertex storage key; Patient reference membership from raw Patient records' },
+    path: 'Open saved Patient related step > edit output label > Apply > reload > remove saved step > Apply > reload',
+    expectedVisibleResult: 'Editing persists the renamed Patient ID values; removing the related step and reloading restores the exact raw Specimen columns, nulls, order, and row count.',
+    lifecycle: { edit: 'untested', apply: 'untested', reload: 'untested', removal: 'untested', restoration: 'untested' },
+    evidenceDirectory, assertions: [], actions: [], timings: [],
+  };
+  const tracker = { actions: [], timings: [] };
+  let browser;
+  let failure;
+  let activeAction = { label: 'launch Playwright browser', locator: 'Chromium launch' };
+  const expectedAddedHeaders = [...BASE_HEADERS, 'PATIENT ID'];
+  const readPreview = async (headers, applied) => {
+    const result = await collectPreviewRows(page, { expectedCount: oracle.rows.length, expectedHeaders: headers });
+    assertPreviewOracle({ ...result, expected: oracle.rows, headers, applied });
+    return result;
+  };
+  const waitProposalReady = () => page.waitForFunction(
+    () => document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status') === 'ready',
+    undefined, { timeout: 5000 });
+  try {
+    browser = await launchBrowser({ evidence: evidenceDirectory, appOrigins: [target.uiUrl, target.apiUrl], noAuth: true });
+    const { page, diagnostics } = browser;
+    const builderURL = new URL(target.uiUrl);
+    builderURL.searchParams.set('project', target.fixtureProject);
+    builderURL.searchParams.set('explorer', explorerId);
+    builderURL.searchParams.set('mode', 'builder');
+    activeAction = { label: 'open Builder', locator: builderURL.toString() };
+    await page.goto(builderURL.toString(), { waitUntil: 'domcontentloaded', timeout: 15000 });
+    await page.getByText('DATASET WORKSPACE', { exact: true }).waitFor({ state: 'visible', timeout: 15000 });
+    const explorer = page.getByRole('combobox', { name: 'Explorer', exact: true });
+    await requireUnique(explorer, 'Explorer');
+    record(report, 'Builder is scoped to requested Explorer', await explorer.inputValue() === explorerId,
+      { expected: explorerId, actual: await explorer.inputValue() });
+    const selectedTable = page.locator('button[data-testid^="construction-table-"][aria-pressed="true"]');
+    await requireUnique(selectedTable, 'Selected Builder table');
+    const outputId = (await selectedTable.getAttribute('data-testid')).slice('construction-table-'.length);
+    const response = await browser.context.request.get(`${target.apiUrl}/api/v1/projects/${encodeURIComponent(target.fixtureProject)}/explorers/${encodeURIComponent(explorerId)}/authoring/v2/builder`);
+    assert.equal(response.status(), 200, 'Scoped Builder document identity query must succeed');
+    const builder = await response.json();
+    assert.equal(builder.catalog?.generation, target.fixtureGeneration, 'Builder catalog generation must match the independent CDA source');
+    const document = builder.workspace?.documents?.find(item => item.output?.id === outputId);
+    assert(document, 'Selected output must exist in the scoped Builder response');
+    assert.equal(document.rowResourceType ?? document.rootResourceType ?? document.document?.rootResourceType, 'Specimen');
+    const steps = page.locator('[data-testid^="construction-history-step-"]');
+    assert.equal(await steps.count(), 1, 'Edit/remove case requires exactly one saved Patient related step');
+    let added = await readPreview(expectedAddedHeaders, true);
+    report.initialAppliedRows = added.rows;
+    record(report, 'Initial saved Patient related result matches independent raw sources', true,
+      { headers: expectedAddedHeaders, rows: added.rows });
+
+    const step = steps.first();
+    await measuredAction(tracker, 'select saved Patient related step', step, button => button.click({ timeout: 5000 }),
+      () => page.locator('[data-testid^="construction-edit-step-"]').waitFor({ state: 'visible', timeout: 5000 }));
+    const edit = page.locator('[data-testid^="construction-edit-step-"]');
+    await requireUnique(edit, 'Edit saved Patient related step');
+    await measuredAction(tracker, 'open saved Patient related editor', edit, button => button.click({ timeout: 5000 }),
+      () => page.getByRole('textbox', { name: 'Output column label', exact: true }).waitFor({ state: 'visible', timeout: 5000 }));
+    const label = page.getByRole('textbox', { name: 'Output column label', exact: true });
+    await requireUnique(label, 'Patient related output label');
+    const originalLabel = await label.inputValue();
+    assert.equal(originalLabel, 'Patient ID', 'Saved Patient related label must match the named source feature');
+    await measuredAction(tracker, 'rename Patient related output', label,
+      input => input.fill('Patient ID QA', { timeout: 5000 }), waitProposalReady, { editable: true });
+    const proposal = page.getByTestId('construction-proposal-panel');
+    assert.equal(await proposal.getAttribute('data-proposal-status'), 'ready');
+    const editedProposalRows = await collectProposalRows(page);
+    assertProposalOracle({ ...editedProposalRows, expected: oracle.rows, patientColumnHeader: 'PATIENT ID QA' });
+    const applyEdit = page.getByTestId('construction-apply-proposal');
+    await requireUnique(applyEdit, 'Apply renamed Patient ID step');
+    assert.equal(await applyEdit.isEnabled(), true);
+    const renamedStep = page.locator('[data-testid^="construction-history-step-"]');
+    await measuredAction(tracker, 'Apply Patient ID label edit', applyEdit, button => button.click({ timeout: 5000 }),
+      () => page.waitForFunction(() => document.querySelector('[data-testid^="construction-history-step-"]')?.innerText.includes('Patient ID QA') === true, undefined, { timeout: 5000 }));
+    const renamedHistory = await renamedStep.first().innerText();
+    report.lifecycle.edit = 'passed';
+    report.lifecycle.apply = 'passed';
+    record(report, 'Rename proposal applies and updates saved step label', true,
+      { originalLabel, renamedHistory, proposalRows: editedProposalRows.rows });
+
+    activeAction = { label: 'reload edited Patient related result', locator: builderURL.toString() };
+    const reloadStart = Date.now();
+    await page.reload({ waitUntil: 'domcontentloaded', timeout: 15000 });
+    await page.getByText('DATASET WORKSPACE', { exact: true }).waitFor({ state: 'visible', timeout: 15000 });
+    const historyAfterReload = page.locator('[data-testid^="construction-history-step-"]');
+    await historyAfterReload.waitFor({ state: 'visible', timeout: 5000 });
+    const restoredEditHistory = await historyAfterReload.first().innerText();
+    assert.equal(restoredEditHistory, renamedHistory, 'Reload must restore renamed Patient step');
+    added = await readPreview([...BASE_HEADERS, 'PATIENT ID QA'], true);
+    const editReloadMs = Date.now() - reloadStart;
+    tracker.timings.push({ name: 'reload renamed Patient related result', elapsedMs: editReloadMs });
+    assert(editReloadMs <= 5000, `Reload after edit took ${editReloadMs} ms; maximum is 5000 ms`);
+    report.lifecycle.reload = 'passed';
+    report.editedReloadRows = added.rows;
+    record(report, 'Reload preserves renamed step and exact raw result', true, { history: restoredEditHistory, elapsedMs: editReloadMs, rows: added.rows });
+
+    const restoredStep = historyAfterReload.first();
+    await measuredAction(tracker, 'select renamed step for removal', restoredStep, button => button.click({ timeout: 5000 }),
+      () => page.locator('[data-testid^="construction-remove-step-"]').waitFor({ state: 'visible', timeout: 5000 }));
+    const remove = page.locator('[data-testid^="construction-remove-step-"]');
+    await requireUnique(remove, 'Remove renamed Patient related step');
+    await measuredAction(tracker, 'propose Patient related step removal', remove, button => button.click({ timeout: 5000 }), waitProposalReady);
+    const removalPreview = await collectProposalRows(page);
+    assert.deepEqual(removalPreview.headers, BASE_HEADERS, 'Removal proposal must restore the exact base columns');
+    assert.deepEqual(removalPreview.rows, oracle.rows.slice(0, removalPreview.rows.length).map(row => [
+      display(row.id), display(row.subject), display(row.bodySite),
+    ]), 'Removal proposal differs from independent raw Specimen rows');
+    const applyRemoval = page.getByTestId('construction-apply-proposal');
+    await requireUnique(applyRemoval, 'Apply Patient related step removal');
+    const previewTable = page.getByTestId('preview-table-scroll').getByRole('table');
+    await measuredAction(tracker, 'Apply Patient related step removal', applyRemoval,
+      button => button.click({ timeout: 5000 }), async () => {
+        await page.waitForFunction(() => document.querySelectorAll('[data-testid^="construction-history-step-"]').length === 0, undefined, { timeout: 5000 });
+        await previewTable.waitFor({ state: 'visible', timeout: 5000 });
+      });
+    report.lifecycle.removal = 'passed';
+    const restored = await readPreview(BASE_HEADERS, false);
+    report.restoredRows = restored.rows;
+    record(report, 'Removal restores raw Specimen preview values and multiplicity', true, { rows: restored.rows, historyStepCount: 0 });
+
+    activeAction = { label: 'reload restored Specimen result', locator: builderURL.toString() };
+    const restoreReloadStart = Date.now();
+    await page.reload({ waitUntil: 'domcontentloaded', timeout: 15000 });
+    await page.getByText('DATASET WORKSPACE', { exact: true }).waitFor({ state: 'visible', timeout: 15000 });
+    assert.equal(await page.locator('[data-testid^="construction-history-step-"]').count(), 0,
+      'Reload after removal must retain an empty construction history');
+    const afterReload = await readPreview(BASE_HEADERS, false);
+    const restoreReloadMs = Date.now() - restoreReloadStart;
+    tracker.timings.push({ name: 'reload after removal and restore source result', elapsedMs: restoreReloadMs });
+    assert(restoreReloadMs <= 5000, `Reload after removal took ${restoreReloadMs} ms; maximum is 5000 ms`);
+    assert.deepEqual(afterReload.rows, restored.rows, 'Reload after removal must preserve the exact original source window');
+    report.lifecycle.restoration = 'passed';
+    record(report, 'Reload after removal restores the exact original result', true, { elapsedMs: restoreReloadMs, rows: afterReload.rows });
+    report.timings = tracker.timings;
+    await page.screenshot({ path: `${evidenceDirectory}/patient-related-restored.png`, fullPage: true });
+    report.evidence = ['patient-related-restored.png'];
+    record(report, 'No unexpected console, page, or API failures', diagnostics.console.length === 0
+      && diagnostics.pageErrors.length === 0 && diagnostics.networkFailures.length === 0 && diagnostics.httpFailures.length === 0, diagnostics);
+  } catch (error) {
+    failure = error;
+    report.failure = { action: activeAction.label, locator: activeAction.locator,
+      elapsedMs: tracker.actionStartedAt ? Date.now() - tracker.actionStartedAt : undefined,
+      message: sanitizeText(error.message ?? error) };
+    if (browser) report.failureTrace = await browser.captureFailure(error,
+      { action: { ...activeAction, startedAt: tracker.activeAction?.startedAt }, elapsedMs: report.failure.elapsedMs, target: report.target });
+  } finally {
+    report.actions.push(...tracker.actions);
+    report.timings = tracker.timings;
+    if (browser) await browser.close().catch(error => { report.closeError = sanitizeText(error.message); });
+    try {
+      const sourceHashesAtEnd = { Specimen: await hashFile(oracle.specimenPath), Patient: await hashFile(oracle.patientPath) };
+      const rawDataUnchanged = JSON.stringify(sourceHashesAtEnd) === JSON.stringify(oracle.sourceHashes);
+      report.assertions.push({ name: 'Raw CDA source files stayed unchanged', status: rawDataUnchanged ? 'passed' : 'failed', evidence: { before: oracle.sourceHashes, after: sourceHashesAtEnd } });
+      if (!rawDataUnchanged) failure ??= new Error('Raw CDA source files changed during the browser run');
+      const sourceAtEnd = sourceFingerprintWithManifest(target.sourceRoot);
+      const changedPaths = sourceFingerprintChangedPaths(sourceAtStart.manifest, sourceAtEnd.manifest);
+      const sourceUnchanged = sourceAtStart.fingerprint.sha256 === sourceAtEnd.fingerprint.sha256;
+      report.assertions.push({ name: 'Watched source stayed unchanged', status: sourceUnchanged ? 'passed' : 'failed', evidence: { before: sourceAtStart.fingerprint, after: sourceAtEnd.fingerprint, changedPaths } });
+      if (!sourceUnchanged) failure ??= new Error('Watched source changed during the browser run');
+      const buildAtEnd = apiBuildIdentity(target);
+      const buildUnchanged = buildAtStart === buildAtEnd;
+      report.assertions.push({ name: 'API build identity stayed unchanged', status: buildUnchanged ? 'passed' : 'failed', evidence: { before: buildAtStart, after: buildAtEnd } });
+      if (!buildUnchanged) failure ??= new Error('API build identity changed during the browser run');
+    } catch (error) {
+      report.freezeError = sanitizeText(error.message ?? error);
+      report.assertions.push({ name: 'Raw source, watched source, and API build stayed unchanged', status: 'failed', evidence: { message: report.freezeError } });
+      failure ??= error;
+    }
     report.status = failure || report.assertions.some(assertion => assertion.status === 'failed') ? 'failed' : 'passed';
     report.finishedAt = new Date().toISOString();
     await writeFile(`${evidenceDirectory}/report.json`, JSON.stringify(report, null, 2) + '\n', { mode: 0o600 });
