@@ -3,7 +3,7 @@ import { performAction } from './playwright-actions.mjs';
 
 const escapeRegExp = value => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-export function createCDAPlaywrightControls({ browser, browserApiOrigin, ownedPathPrefix, report, shouldReportHttpError }) {
+export function createCDAPlaywrightControls({ browser, browserApiOrigin, ownedPathPrefix, report }) {
   if (!browser?.page || !report?.errors || !report?.nativeRequests) {
     throw new TypeError('CDA Playwright controls require a browser page and error/request report arrays');
   }
@@ -14,7 +14,6 @@ export function createCDAPlaywrightControls({ browser, browserApiOrigin, ownedPa
     appOrigins: [browserApiOrigin],
     ownedPathPrefix,
     report,
-    ...(shouldReportHttpError ? { shouldReportHttpError } : {}),
   });
   const remember = (label, locator, startedAt, elapsedMs) => {
     lastAction = { label, locator: locator.toString(), targetLocator: locator, startedAt, elapsedMs };
@@ -74,18 +73,37 @@ export function createCDAPlaywrightControls({ browser, browserApiOrigin, ownedPa
       report.errors.push({ kind: 'console', details: item.text, url: item.location });
     }
     cursor.console = diagnostics.console.length;
+    const trackedHttp = new Map();
+    for (const request of report.nativeRequests) {
+      if (request.status < 400) continue;
+      const key = JSON.stringify([request.origin, request.path, request.method, request.status]);
+      trackedHttp.set(key, (trackedHttp.get(key) ?? 0) + 1);
+    }
     for (const item of diagnostics.httpFailures.slice(cursor.httpFailures)) {
       const pathname = new URL(item.url).pathname;
-      if (pathname.startsWith(ownedPathPrefix)) continue;
-      report.errors.push({ kind: 'http', url: pathname, status: item.status, body: item.body });
+      const origin = new URL(item.url).origin;
+      const key = JSON.stringify([origin, pathname, item.method, item.status]);
+      const count = trackedHttp.get(key) ?? 0;
+      if (count > 0) {
+        trackedHttp.set(key, count - 1);
+        continue;
+      }
+      report.errors.push({ kind: 'http', url: pathname, method: item.method, status: item.status, body: item.body });
     }
     cursor.httpFailures = diagnostics.httpFailures.length;
+    const trackedNetwork = new Map();
+    for (const request of report.nativeRequests) {
+      if (!request.failure) continue;
+      const key = JSON.stringify([request.origin, request.path, request.method, request.failure]);
+      trackedNetwork.set(key, (trackedNetwork.get(key) ?? 0) + 1);
+    }
     for (const item of diagnostics.networkFailures.slice(cursor.networkFailures)) {
       const pathname = new URL(item.url).pathname;
-      if (pathname.startsWith(ownedPathPrefix)) continue;
-      if (item.method === 'GET' && item.failure === 'net::ERR_ABORTED' && ['/frame-source-options', '/semantic-inventory'].includes(pathname)) {
-        report.expectedCancellations ??= [];
-        report.expectedCancellations.push({ method: item.method, url: pathname, reason: 'Superseded catalog read was aborted by the UI' });
+      const origin = new URL(item.url).origin;
+      const key = JSON.stringify([origin, pathname, item.method, item.failure]);
+      const count = trackedNetwork.get(key) ?? 0;
+      if (count > 0) {
+        trackedNetwork.set(key, count - 1);
         continue;
       }
       report.errors.push({ kind: 'network', url: pathname, method: item.method, details: item.failure });

@@ -44,6 +44,10 @@ test('owned requests correlate sanitized responses and reject sibling explorer p
   assert.equal(report.errors.length, 1);
   assert.equal(report.errors[0].kind, 'http');
   assert.equal(report.errors[0].status, 503);
+  assert.equal(report.errors[0].requestId, 'owned-request-1');
+  assert.equal(report.errors[0].browserRequestId, report.nativeRequests[0].browserRequestId);
+  assert.equal(report.errors[0].method, 'POST');
+  assert.equal(report.errors[0].path, report.nativeRequests[0].path);
   assert.deepEqual(report.errors[0].response, report.nativeRequests[0].response);
 });
 

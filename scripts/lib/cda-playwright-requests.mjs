@@ -12,7 +12,7 @@ const parseBody = body => {
   }
 };
 
-export function captureCDARequests(page, { apiOrigin, appOrigins = [apiOrigin], ownedPathPrefix, report, responsePaths = /commands|selections|explicit-groups|row-definition-proposals|construction-choice-proposals|construction-proposals|construction-capabilities|row-lineage|population-mapping|preview/, shouldReportHttpError = () => true } = {}) {
+export function captureCDARequests(page, { apiOrigin, appOrigins = [apiOrigin], ownedPathPrefix, report, responsePaths = /commands|selections|explicit-groups|row-definition-proposals|construction-choice-proposals|construction-proposals|construction-capabilities|row-lineage|population-mapping|preview/ } = {}) {
   if (!apiOrigin || !ownedPathPrefix || !report || !Array.isArray(report.nativeRequests)) {
     throw new TypeError('CDA request capture needs an API origin, owned path prefix, and nativeRequests report array');
   }
@@ -71,8 +71,8 @@ export function captureCDARequests(page, { apiOrigin, appOrigins = [apiOrigin], 
       }
     })();
     pendingReads.add(read);
-    if (response.status() >= 400 && shouldReportHttpError(entry.path, response.status())) {
-      const errorEntry = { kind: 'http', url: `${entry.origin}${entry.path}`, status: response.status() };
+    if (response.status() >= 400) {
+      const errorEntry = { kind: 'http', requestId: entry.requestId, browserRequestId: entry.browserRequestId, method: entry.method, path: entry.path, url: `${entry.origin}${entry.path}`, status: response.status() };
       const diagnostic = read.then(() => {
         if (entry.response !== undefined) errorEntry.response = entry.response;
         report.errors.push(errorEntry);
@@ -88,7 +88,7 @@ export function captureCDARequests(page, { apiOrigin, appOrigins = [apiOrigin], 
     if (!entry) return;
     entry.completedAt = Date.now();
     entry.failure = sanitizeText(request.failure()?.errorText);
-    report.errors.push({ kind: 'network', url: `${entry.origin}${entry.path}`, error: entry.failure });
+    report.errors.push({ kind: 'network', requestId: entry.requestId, browserRequestId: entry.browserRequestId, method: entry.method, path: entry.path, url: `${entry.origin}${entry.path}`, error: entry.failure });
   });
   page.on('pageerror', error => report.errors.push({ kind: 'runtime', message: sanitizeText(error.message) }));
   page.on('console', message => {

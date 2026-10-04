@@ -123,7 +123,7 @@ try {
   assert(direct);
   await command([{ type: 'SET_TABLE_POPULATION', outputId, selectionRevisionId: selection.id, routeChoiceId: direct.routeChoiceId }]);
   browser = await launchBrowser({ evidence, appOrigins: [apiOrigin, uiOrigin], noAuth: true });
-  controls = createCDAPlaywrightControls({ browser, browserApiOrigin: uiOrigin, ownedPathPrefix: `${root}/${explorer}`, report, shouldReportHttpError: (path, status) => !(path.endsWith('/construction-choice-proposals') && status >= 400 && status < 500) });
+  controls = createCDAPlaywrightControls({ browser, browserApiOrigin: uiOrigin, ownedPathPrefix: `${root}/${explorer}`, report });
   const rawQuery = query => {
     const r=spawnSync('rtk',['proxy','docker','exec',arangoContainer,'arangosh','--server.database','loom_dev','--javascript.execute-string',`print(JSON.stringify(db._query(${JSON.stringify(query)}).toArray()));`],{encoding:'utf8',timeout:30000});
     assert.equal(r.status,0,r.stderr);return JSON.parse(r.stdout.slice(r.stdout.indexOf('[')));
@@ -205,9 +205,18 @@ try {
   assert.deepEqual((await api(base+'/builder')).workspace,beforeField.workspace);
   recordRender('one-disagreement-diagnostic',start);
   await controls?.flush();
-  const disagreement = report.nativeRequests.filter(request => request.path.endsWith('/construction-choice-proposals') && request.status >= 400 && request.status < 500);
+  const expectedPath = `${base}/construction-choice-proposals`;
+  const disagreement = report.nativeRequests.filter(request => request.method === 'POST' && request.path === expectedPath && request.status >= 400);
   assert.equal(disagreement.length, 1, JSON.stringify(report.nativeRequests));
-  assert.equal(disagreement[0].response.error.code, 'CONSTRUCTION_ROW_VALUE_MULTIPLE_VALUES');
+  const [expectedFailure] = disagreement;
+  assert(expectedFailure.requestId && expectedFailure.browserRequestId, 'Expected choice failure must have an exact browser request identity');
+  assert.equal(expectedFailure.status, 422);
+  assert.equal(expectedFailure.response.error.code, 'CONSTRUCTION_ROW_VALUE_MULTIPLE_VALUES');
+  const failureIndex = report.errors.findIndex(error => error.kind === 'http' && error.requestId === expectedFailure.requestId && error.browserRequestId === expectedFailure.browserRequestId && error.method === expectedFailure.method && error.path === expectedFailure.path && error.status === expectedFailure.status);
+  assert.notEqual(failureIndex, -1, 'The expected 422 must first be recorded as an unexpected HTTP failure');
+  report.expectedFailures ??= [];
+  report.expectedFailures.push({ requestId: expectedFailure.requestId, browserRequestId: expectedFailure.browserRequestId, method: expectedFailure.method, path: expectedFailure.path, status: expectedFailure.status, code: expectedFailure.response.error.code, reason: 'The ONE grouping mode must reject multiple contributor IDs.' });
+  report.errors.splice(failureIndex, 1);
   const contributorIDs=source.sources.map(member=>member.id).sort();
   const withField=[[...grouped[0],contributorIDs.join('; ')]];
   // Repair the existing selection instead of forcing the user to select it again.
