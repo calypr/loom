@@ -157,7 +157,7 @@ export async function scrollIntoView(page, selector, identity = {}, timeout = 50
 }
 
 export async function navigate(page, url) {
-  await page.goto(url, { waitUntil: 'load', timeout: 30000 });
+  await page.goto(url, { waitUntil: 'load', timeout: 5000 });
 }
 
 export function captureRequests(browser, report, ownedPathPrefix, options = {}) {
