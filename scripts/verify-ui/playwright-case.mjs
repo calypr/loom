@@ -27,6 +27,12 @@ const pathAndMethod = request => {
   return { method: request.method(), origin: url.origin, pathname: url.pathname };
 };
 
+export const ownedBrowserRequestTarget = (target, { method, path }) => ({
+  origin: new URL(target.uiUrl).origin,
+  path,
+  method,
+});
+
 const isLoopback = origin => {
   try { return ['127.0.0.1', 'localhost', '::1'].includes(new URL(origin).hostname); }
   catch { return false; }
@@ -130,12 +136,12 @@ export const runPlaywrightCase = async (context, scenarioID, caseName, work) => 
     };
 
     const fault = async ({ method, path }) => {
-      const apiOrigin = new URL(target.apiUrl).origin;
-      injectedTarget = { origin: apiOrigin, path, method };
+      injectedTarget = ownedBrowserRequestTarget(target, { method, path });
+      const browserRequestOrigin = injectedTarget.origin;
       let count = 0;
       await page.route('**/*', async route => {
         const parts = pathAndMethod(route.request());
-        if (count === 0 && parts.origin === apiOrigin && parts.method === method && parts.pathname === path) {
+        if (count === 0 && parts.origin === browserRequestOrigin && parts.method === method && parts.pathname === path) {
           count += 1;
           await route.abort();
         } else {
