@@ -6559,8 +6559,6 @@ const verifyCurrentBuilderDOM = async (target, report, explorerId, builderState)
 
 const verifyJ03BrowserScenario = async (target, report, entryTarget = target) => {
   const evidenceDirectory = join(target.artifacts, `${Date.now().toString(36)}-${randomUUID().slice(0, 8)}`);
-  const downloadDirectory = join(evidenceDirectory, 'downloads');
-  mkdirSync(downloadDirectory, { recursive: true, mode: 0o700 });
   report.target.evidenceDirectory = evidenceDirectory;
   report.target.ports = { api: target.apiPort, ui: target.uiPort };
   recordEvidence(report, evidenceDirectory);
@@ -6568,115 +6566,121 @@ const verifyJ03BrowserScenario = async (target, report, entryTarget = target) =>
   if (!explorerId) throw new Error('J03 bootstrap Explorer identity is missing');
   report.target.explorerId = explorerId;
   const authoring = bootstrapAuthoringURL(target, explorerId);
+  const authoringOrigin = new URL(target.uiUrl).origin;
+  const authoringPath = new URL(authoring).pathname;
+  const selectionPath = `/api/v1/projects/${encodeURIComponent(target.fixtureProject)}/explorers/${encodeURIComponent(explorerId)}/selections/${encodeURIComponent(report.target.explicitGroupFixture?.selection?.id ?? '')}`;
   const network = [];
-  const pendingBodies = new Set();
-  const browser = await launchBrowser(downloadDirectory);
-  const cdp = browser.cdp;
-  cdp.on('Network.requestWillBeSent', (event) => {
-    const pathname = new URL(event.request.url).pathname;
-    if (!pathname.includes('/authoring/v2/') && !pathname.includes('/selections/')) return;
-    network.push({ requestId: event.requestId, url: new URL(event.request.url).pathname, method: event.request.method, postData: event.request.postData });
+  const requestItems = new Map();
+  const networkWaiters = new Set();
+  const notifyNetwork = () => {
+    for (const resolveWaiter of networkWaiters) resolveWaiter();
+    networkWaiters.clear();
+  };
+  const browser = await launchPlaywrightEvidenceBrowser({
+    evidence: evidenceDirectory,
+    appOrigins: [target.uiUrl, target.apiUrl, entryTarget.uiUrl],
+    noAuth: true,
   });
-  cdp.on('Network.responseReceived', (event) => {
-    const item = network.find((candidate) => candidate.requestId === event.requestId);
-    if (item) item.response = { status: event.response.status, mimeType: event.response.mimeType };
+  const { page } = browser;
+  const ownedPath = (pathname) => pathname.startsWith(`${authoringPath}/`)
+    || pathname === selectionPath
+    || pathname === `${selectionPath}/explicit-groups`;
+  page.on('request', (request) => {
+    const url = new URL(request.url());
+    if (url.origin !== authoringOrigin || !ownedPath(url.pathname)) return;
+    let resolveResponse;
+    const responsePromise = new Promise((resolvePromise) => { resolveResponse = resolvePromise; });
+    const item = {
+      origin: url.origin,
+      url: url.pathname,
+      method: request.method(),
+      requestId: request.headers()['x-request-id'] ?? '',
+      postData: request.postData(),
+      startedAtMs: Date.now(),
+      responsePromise,
+      resolveResponse,
+    };
+    network.push(item);
+    requestItems.set(request, item);
+    notifyNetwork();
   });
-  cdp.on('Network.loadingFinished', (event) => {
-    const item = network.find((candidate) => candidate.requestId === event.requestId);
-    if (!item || !item.response?.mimeType?.includes('json')) return;
-    const capture = (async () => {
-      try {
-        const body = await cdp.send('Network.getResponseBody', { requestId: item.requestId });
-        item.responseBody = JSON.parse(body.base64Encoded ? Buffer.from(body.body, 'base64').toString('utf8') : body.body);
-      } catch (error) {
-        item.responseBodyError = String(error);
+  page.on('response', (response) => {
+    const item = requestItems.get(response.request());
+    if (!item || new URL(response.url()).origin !== authoringOrigin) return;
+    item.response = { status: response.status(), mimeType: response.headers()['content-type'] ?? '' };
+    const finish = async () => {
+      if (item.response.mimeType.includes('json')) {
+        try { item.responseBody = await response.json(); } catch (error) { item.responseBodyError = String(error); }
       }
-    })().finally(() => pendingBodies.delete(capture));
-    pendingBodies.add(capture);
+      item.finishedAtMs = Date.now();
+      item.resolveResponse(item);
+      notifyNetwork();
+    };
+    void finish();
   });
 
   const readState = () => fetchBuilderState(target, explorerId);
+  const clickButton = (name, scope = page) => performAction(browser, `click ${name}`, scope.getByRole('button', { name, exact: true }),
+    (locator, { timeout }) => locator.click({ timeout }), { timeout: 5000 });
+  const fillInput = (label, value, scope = page) => performAction(browser, `fill ${label}`, scope.getByLabel(label, { exact: true }),
+    (locator, { timeout }) => locator.fill(value, { timeout }), { timeout: 5000, editable: true });
+  const navigate = async (nextURL) => {
+    await page.goto(nextURL, { waitUntil: 'domcontentloaded', timeout: 60000 });
+    await page.waitForURL(nextURL, { waitUntil: 'domcontentloaded', timeout: 60000 });
+  };
   const captureDOM = async (name) => {
     const path = join(evidenceDirectory, `${name}.html`);
-    await snapshot(cdp, path);
+    writeFileSync(path, await page.content(), { mode: 0o600 });
     recordEvidence(report, path);
   };
-  const waitForBuilderDOM = () => waitForBrowser(cdp, `Boolean([...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Configure rows'))`, 60000);
-  const reloadBuilder = async (readyPredicate) => {
-    const { frameTree } = await cdp.send('Page.getFrameTree');
-    const currentLoaderId = frameTree.frame.loaderId;
-    let timeout;
-    let onNavigation;
-    let onLoad;
-    const navigation = new Promise((resolvePromise, reject) => {
-      timeout = setTimeout(() => {
-        cdp.off('Page.frameNavigated', onNavigation);
-        cdp.off('Page.loadEventFired', onLoad);
-        reject(new Error('timed out waiting for Builder reload navigation and load event'));
-      }, 60000);
-      let navigated = false;
-      let loaded = false;
-      const finish = () => {
-        if (!navigated || !loaded) return;
-        clearTimeout(timeout);
-        cdp.off('Page.frameNavigated', onNavigation);
-        cdp.off('Page.loadEventFired', onLoad);
-        resolvePromise();
-      };
-      onNavigation = ({ frame }) => {
-        if (frame.parentId || !frame.loaderId || frame.loaderId === currentLoaderId) return;
-        navigated = true;
-        finish();
-      };
-      onLoad = () => {
-        if (!navigated) return;
-        loaded = true;
-        finish();
-      };
-      cdp.on('Page.frameNavigated', onNavigation);
-      cdp.on('Page.loadEventFired', onLoad);
-    });
-    try {
-      await cdp.send('Page.reload', { ignoreCache: true });
-      await navigation;
-    } catch (error) {
-      clearTimeout(timeout);
-      cdp.off('Page.frameNavigated', onNavigation);
-      cdp.off('Page.loadEventFired', onLoad);
-      throw error;
-    }
-    await waitForBrowser(cdp, `document.readyState === 'complete' && (${readyPredicate})`, 60000);
+  const waitForBuilderDOM = () => page.getByRole('button', { name: 'Configure rows', exact: true }).waitFor({ state: 'visible', timeout: 60000 });
+  const reloadBuilder = async (readyLocator) => {
+    await page.reload({ waitUntil: 'domcontentloaded', timeout: 60000 });
+    await readyLocator.waitFor({ state: 'visible', timeout: 60000 });
   };
   const waitForResponse = async (path, afterIndex, timeout = 60000) => {
-    const started = Date.now();
-    while (Date.now() - started < timeout) {
-      const match = network.find((item, index) => index > afterIndex && item.url.endsWith(path) && item.responseBody !== undefined);
-      if (match) return match;
-      await sleep(50);
+    const expectedPath = path.startsWith('/selections/') ? selectionPath : `${authoringPath}${path}`;
+    const deadline = Date.now() + timeout;
+    let item;
+    while (!item) {
+      item = network.find((candidate, index) => index > afterIndex && candidate.origin === authoringOrigin && candidate.url === expectedPath);
+      if (item) break;
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) throw new Error(`timed out waiting for J03 ${path}: ${JSON.stringify(network.filter((candidate) => candidate.url === expectedPath).map((candidate) => ({ status: candidate.response?.status, error: candidate.responseBodyError })))}`);
+      await new Promise((resolvePromise, reject) => {
+        const timer = setTimeout(() => { networkWaiters.delete(onNetwork); reject(new Error(`timed out waiting for J03 ${path}`)); }, remaining);
+        const onNetwork = () => { clearTimeout(timer); resolvePromise(); };
+        networkWaiters.add(onNetwork);
+      });
     }
-    throw new Error(`timed out waiting for J03 ${path}: ${JSON.stringify(network.filter((item) => item.url.endsWith(path)).map((item) => ({ status: item.response?.status, error: item.responseBodyError })))}`);
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) throw new Error(`timed out waiting for J03 ${path} response`);
+    let responseTimer;
+    await Promise.race([item.responsePromise, new Promise((_, reject) => {
+      responseTimer = setTimeout(() => reject(new Error(`timed out waiting for J03 ${path} response`)), remaining);
+    })]).finally(() => clearTimeout(responseTimer));
+    if (item.responseBodyError) throw new Error(`J03 ${path} response body could not be read: ${item.responseBodyError}`);
+    return item;
   };
   const selectExpandedPolicy = async (policy) => {
-    await waitForBrowser(cdp, `Boolean([...document.querySelectorAll('select[aria-label="New row definition"] option')].some((option) => option.textContent.includes('EXPANDED') && option.textContent.includes(${JSON.stringify(policy)})))`, 30000);
-    return browserEval(cdp, `(() => {
-    const select = document.querySelector('select[aria-label="New row definition"]');
-    const option = [...(select?.options || [])].find((candidate) => candidate.textContent.includes('EXPANDED') && candidate.textContent.includes(${JSON.stringify(policy)}));
-    if (!select || !option) throw new Error('server offered no EXPANDED row choice with policy ' + ${JSON.stringify(policy)});
-    Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set?.call(select, option.value);
-    select.dispatchEvent(new Event('change', { bubbles: true }));
-    return option.textContent.trim();
-    })()`);
+    const select = page.getByLabel('What should each row represent?', { exact: true });
+    await select.waitFor({ state: 'visible', timeout: 30000 });
+    const choices = await select.locator('option').evaluateAll((options) => options.map((option) => ({ value: option.value, text: option.textContent ?? '' })));
+    const option = choices.find((candidate) => candidate.text.includes('EXPANDED') && candidate.text.includes(policy));
+    if (!option) throw new Error(`server offered no EXPANDED row choice with policy ${policy}`);
+    await performAction(browser, `select EXPANDED row policy ${policy}`, select,
+      (locator, { timeout }) => locator.selectOption(option.value, { timeout }), { timeout: 5000 });
+    return option.text.trim();
   };
   const selectExplicitGroupPolicy = async (policy, revisionId) => {
-    await waitForBrowser(cdp, `Boolean([...document.querySelectorAll('select[aria-label="New row definition"] option')].some((option) => option.textContent.includes('Explicit group') && option.textContent.includes(${JSON.stringify(revisionId.slice(0, 12))}) && option.textContent.includes(${JSON.stringify(policy)})))`, 30000);
-    return browserEval(cdp, `(() => {
-    const select = document.querySelector('select[aria-label="New row definition"]');
-    const option = [...(select?.options || [])].find((candidate) => candidate.textContent.includes('Explicit group') && candidate.textContent.includes(${JSON.stringify(revisionId.slice(0, 12))}) && candidate.textContent.includes(${JSON.stringify(policy)}));
-    if (!select || !option) throw new Error('server offered no explicit group row choice with policy ' + ${JSON.stringify(policy)});
-    Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set?.call(select, option.value);
-    select.dispatchEvent(new Event('change', { bubbles: true }));
-    return option.textContent.trim();
-    })()`);
+    const select = page.getByLabel('What should each row represent?', { exact: true });
+    await select.waitFor({ state: 'visible', timeout: 30000 });
+    const choices = await select.locator('option').evaluateAll((options) => options.map((option) => ({ value: option.value, text: option.textContent ?? '' })));
+    const option = choices.find((candidate) => candidate.text.includes('Explicit group') && candidate.text.includes(revisionId.slice(0, 12)) && candidate.text.includes(policy));
+    if (!option) throw new Error(`server offered no explicit group row choice with policy ${policy}`);
+    await performAction(browser, `select explicit group policy ${policy}`, select,
+      (locator, { timeout }) => locator.selectOption(option.value, { timeout }), { timeout: 5000 });
+    return option.text.trim();
   };
   const readExpandedSelection = async (state, policy) => {
     const query = new URLSearchParams({ outputId: report.target.outputId, snapshotToken: state.catalog.snapshotToken });
@@ -6710,18 +6714,23 @@ const verifyJ03BrowserScenario = async (target, report, entryTarget = target) =>
     }),
   });
   const captureBrowserProposal = async (selectChoice) => {
-    await browserEval(cdp, `if (!document.querySelector('[role="dialog"][aria-labelledby="row-definition-dialog-title"]')) clickButton('Configure rows')`);
-    await waitForBrowser(cdp, `Boolean(document.querySelector('[role="dialog"][aria-labelledby="row-definition-dialog-title"]'))`);
+    const dialog = page.getByRole('dialog', { name: 'Row definition settings', exact: true });
+    if (!(await dialog.count())) await performAction(browser, 'open row settings', page.getByRole('button', { name: 'Configure rows', exact: true }),
+      (locator, { timeout }) => locator.click({ timeout }), { timeout: 5000 });
+    await dialog.waitFor({ state: 'visible', timeout: 30000 });
     const label = await selectChoice();
     const afterIndex = network.length - 1;
-    await browserEval(cdp, `clickButton('Preview row change')`);
-    await waitForBrowser(cdp, `Boolean(document.querySelector('[aria-label="Row definition preview"]')) && Boolean([...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Apply row definition'))`, 60000);
+    await performAction(browser, 'preview row change', page.getByRole('button', { name: 'Preview row change', exact: true }),
+      (locator, { timeout }) => locator.click({ timeout }), { timeout: 5000 });
+    await page.getByLabel('Row definition preview', { exact: true }).waitFor({ state: 'visible', timeout: 60000 });
+    await dialog.getByRole('button', { name: 'Apply row definition', exact: true }).waitFor({ state: 'visible', timeout: 60000 });
     const response = await waitForResponse('/row-definition-proposals', afterIndex);
     return { proposal: response.responseBody, label };
   };
   const capturePreview = async () => {
     const afterIndex = network.length - 1;
-    await browserEval(cdp, `clickButton('Preview')`);
+    await performAction(browser, 'open preview', page.getByRole('button', { name: 'Preview', exact: true }),
+      (locator, { timeout }) => locator.click({ timeout }), { timeout: 5000 });
     const response = await waitForResponse('/preview', afterIndex);
     if (response.response?.status !== 200 || !Array.isArray(response.responseBody?.rows)) {
       throw new Error(`J03 Preview did not return rows: HTTP ${response.response?.status} ${JSON.stringify(response.responseBody).slice(0, 400)}`);
@@ -6739,8 +6748,8 @@ const verifyJ03BrowserScenario = async (target, report, entryTarget = target) =>
     const sourceSelection = report.target.explicitGroupFixture?.selection;
     if (!sourceSelection?.id || sourceSelection.memberCount !== 3) throw new Error('J03 existing Explorer selection identity is missing');
     const url = `${target.uiUrl}/?project=${encodeURIComponent(target.fixtureProject)}&explorer=${encodeURIComponent(explorerId)}&selection=${encodeURIComponent(sourceSelection.id)}&mode=builder`;
-    await navigate(cdp, entryTarget.uiUrl);
-    await navigate(cdp, url);
+    await navigate(entryTarget.uiUrl);
+    await navigate(url);
     await waitForBuilderDOM();
     await captureDOM('j03-builder-row-settings-closed');
 
@@ -6754,14 +6763,16 @@ const verifyJ03BrowserScenario = async (target, report, entryTarget = target) =>
     const examples = proposal.comparison.examples ?? [];
     const membershipChanges = examples.filter((item) => item.basePresent !== item.candidatePresent);
     if (membershipChanges.length === 0) throw new Error(`J03 proposal has no row membership changes: ${JSON.stringify(proposal.comparison)}`);
-    const dialogText = String(await evaluate(cdp, `document.querySelector('[role="dialog"][aria-labelledby="row-definition-dialog-title"]')?.innerText || ''`));
+    const rowDialog = page.getByRole('dialog', { name: 'Row definition settings', exact: true });
+    const dialogText = await rowDialog.innerText();
     recordAssertion(report, 'j03-preview-shows-base-and-candidate-counts', true,
       Number.isInteger(proposal.comparison.base?.rowCount) && Number.isInteger(proposal.comparison.candidate?.rowCount) &&
       dialogText.includes(`Base rows: ${proposal.comparison.base.rowCount}`) && dialogText.includes(`Candidate rows: ${proposal.comparison.candidate.rowCount}`));
-    const renderedChanges = await evaluate(cdp, `JSON.stringify([...document.querySelectorAll('ul[aria-label="Membership changes"] li')].map((item) => item.innerText.trim()).filter((item) => !item.startsWith('Unchanged · ')))`);
+    const renderedChanges = await page.getByLabel('Membership changes', { exact: true }).getByRole('listitem').allTextContents();
     const expectedChanges = membershipChanges.map((item) => `${item.candidatePresent ? 'Added' : 'Removed'} · ${item.rowIdentity}`);
-    recordAssertion(report, 'j03-preview-shows-literal-membership-changes', expectedChanges, JSON.parse(renderedChanges));
-    const explicitOptionCount = await evaluate(cdp, `document.querySelector('[role="dialog"] select[aria-label="New row definition"]') ? [...document.querySelector('[role="dialog"] select[aria-label="New row definition"]').options].filter((option) => option.textContent.includes('Explicit group')).length : -1`);
+    recordAssertion(report, 'j03-preview-shows-literal-membership-changes', expectedChanges, renderedChanges.map((text) => text.trim()).filter((text) => !text.startsWith('Unchanged · ')));
+    const rowChoice = rowDialog.getByLabel('What should each row represent?', { exact: true });
+    const explicitOptionCount = await rowChoice.locator('option').evaluateAll((options) => options.filter((option) => option.textContent.includes('Explicit group')).length);
     recordAssertion(report, 'j03-explicit-group-choice-is-server-provided', {
       serverReason: true, explicitGroupOptions: 0,
     }, {
@@ -6770,14 +6781,8 @@ const verifyJ03BrowserScenario = async (target, report, entryTarget = target) =>
     });
     report.target.rowDefinitionComparison = { base: proposal.comparison.base, candidate: proposal.comparison.candidate, examples, membershipChanges };
     await captureDOM('j03-row-proposal-preview');
-    await browserEval(cdp, `(() => {
-      const dialog = document.querySelector('[role="dialog"][aria-labelledby="row-definition-dialog-title"]');
-      const button = [...(dialog?.querySelectorAll('button') || [])].find((candidate) => norm(candidate.textContent) === 'Cancel');
-      if (!button) throw new Error('row-definition dialog has no Cancel button');
-      button.click();
-      return true;
-    })()`);
-    await waitForBrowser(cdp, `!document.querySelector('[role="dialog"][aria-labelledby="row-definition-dialog-title"]')`);
+    await clickButton('Cancel', rowDialog);
+    await rowDialog.waitFor({ state: 'hidden', timeout: 30000 });
     recordAssertion(report, 'j03-cancel-does-not-mutate-draft', initialFingerprint, draftFingerprint(await readState()));
 
     const alternateState = await readState();
@@ -6790,24 +6795,27 @@ const verifyJ03BrowserScenario = async (target, report, entryTarget = target) =>
     recordAssertion(report, 'j03-stale-server-proposal-is-rejected', 409, rejectedStale.response.status);
     recordAssertion(report, 'j03-rejected-stale-proposal-does-not-mutate-draft', draftFingerprint(state), draftFingerprint(await readState()));
 
-    await reloadBuilder(`Boolean([...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Configure rows'))`);
+    await reloadBuilder(page.getByRole('button', { name: 'Configure rows', exact: true }));
     const sourceMemberIDs = report.target.explicitGroupFixture.sourceMemberIDs;
-    await browserEval(cdp, `clickButton('Configure rows')`);
-    await waitForBrowser(cdp, `Boolean(document.querySelector('[role="dialog"][aria-labelledby="row-definition-dialog-title"] button') && [...document.querySelectorAll('button')].some((button) => button.textContent.trim() === 'Create groups from this selection'))`, 30000);
+    await clickButton('Configure rows');
+    await rowDialog.waitFor({ state: 'visible', timeout: 30000 });
+    await rowDialog.getByRole('button', { name: 'Create groups from this selection', exact: true }).waitFor({ state: 'visible', timeout: 30000 });
     const beforeGroupSetup = draftFingerprint(await readState());
     const explicitGroupPostCountBeforeCancel = network.filter((item) => item.method === 'POST' && item.url.endsWith('/explicit-groups')).length;
-    await browserEval(cdp, `clickButton('Create groups from this selection')`);
-    await waitForBrowser(cdp, `document.querySelectorAll('input[aria-label^="Assign Record "]').length === 6`, 30000);
+    await clickButton('Create groups from this selection', rowDialog);
+    await page.getByLabel(/^Assign Record /).first().waitFor({ state: 'visible', timeout: 30000 });
+    if (await page.getByLabel(/^Assign Record /).count() !== 6) throw new Error('J03 group editor did not render six exact assignment controls');
     await captureDOM('j03-group-authoring-preview-before-cancel');
-    await browserEval(cdp, `clickButton('Cancel group setup')`);
-    await waitForBrowser(cdp, `!document.querySelector('[aria-label="Create explicit groups"]')`);
+    await clickButton('Cancel group setup');
+    await page.getByLabel('Create explicit groups', { exact: true }).waitFor({ state: 'hidden', timeout: 30000 });
     recordAssertion(report, 'j03-cancel-group-setup-does-not-mutate-draft', beforeGroupSetup, draftFingerprint(await readState()));
     recordAssertion(report, 'j03-cancel-group-setup-does-not-create-a-revision', explicitGroupPostCountBeforeCancel,
       network.filter((item) => item.method === 'POST' && item.url.endsWith('/explicit-groups')).length);
 
     const selectionReadIndex = network.length - 1;
-    await browserEval(cdp, `clickButton('Create groups from this selection')`);
-    await waitForBrowser(cdp, `document.querySelectorAll('input[aria-label^="Assign Record "]').length === 6`, 30000);
+    await clickButton('Create groups from this selection', rowDialog);
+    await page.getByLabel(/^Assign Record /).first().waitFor({ state: 'visible', timeout: 30000 });
+    if (await page.getByLabel(/^Assign Record /).count() !== 6) throw new Error('J03 group editor did not render six exact assignment controls');
     const sourcePage = await waitForResponse(`/selections/${sourceSelection.id}`, selectionReadIndex);
     if (sourcePage.response?.status !== 200 || sourcePage.responseBody?.revision?.id !== sourceSelection.id || sourcePage.responseBody.members?.length !== 3) {
       throw new Error(`J03 group editor did not load the exact three-member source selection: ${JSON.stringify(sourcePage.responseBody).slice(0, 700)}`);
@@ -6821,14 +6829,17 @@ const verifyJ03BrowserScenario = async (target, report, entryTarget = target) =>
     }
     const groupAName = 'J03 Alpha';
     const groupBName = 'J03 Beta';
-    await browserEval(cdp, `setInput('Group 1 name', ${JSON.stringify(groupAName)})`);
-    await browserEval(cdp, `setInput('Group 2 name', ${JSON.stringify(groupBName)})`);
+    await fillInput('Group 1 name', groupAName);
+    await fillInput('Group 2 name', groupBName);
     for (const [memberIndex, groupName] of [[0, groupAName], [1, groupAName], [1, groupBName], [2, groupBName]]) {
       const checkboxLabel = `Assign Record ${memberIndex + 1} · ${selectedIDs[memberIndex]} to ${groupName}`;
-      await waitForBrowser(cdp, `Boolean(document.querySelector('input[aria-label=' + JSON.stringify(${JSON.stringify(checkboxLabel)}) + ']'))`, 30000);
-      await browserEval(cdp, `(() => { const input = document.querySelector('input[aria-label=' + JSON.stringify(${JSON.stringify(checkboxLabel)}) + ']'); if (!input || input.checked) throw new Error('J03 group membership checkbox is unavailable or already selected: ' + ${JSON.stringify(checkboxLabel)}); input.click(); })()`);
+      const checkbox = page.getByLabel(checkboxLabel, { exact: true });
+      await checkbox.waitFor({ state: 'visible', timeout: 30000 });
+      if (await checkbox.isChecked()) throw new Error(`J03 group membership checkbox is already selected: ${checkboxLabel}`);
+      await performAction(browser, `assign record ${memberIndex + 1} to ${groupName}`, checkbox,
+        (locator, { timeout }) => locator.check({ timeout }), { timeout: 5000 });
     }
-    const exactMembershipRows = JSON.parse(await evaluate(cdp, `JSON.stringify([...document.querySelectorAll('[aria-label="Exact group memberships"] li')].map((item) => item.innerText.replace(/\\s+/g, ' ').trim()))`));
+    const exactMembershipRows = (await page.getByLabel('Exact group memberships', { exact: true }).getByRole('listitem').allTextContents()).map((text) => text.replace(/\s+/g, ' ').trim());
     const expectedMembershipPreview = [
       `${groupAName}: Record 1 · ${selectedIDs[0]}, Record 2 · ${selectedIDs[1]}`,
       `${groupBName}: Record 2 · ${selectedIDs[1]}, Record 3 · ${selectedIDs[2]}`,
@@ -6836,7 +6847,7 @@ const verifyJ03BrowserScenario = async (target, report, entryTarget = target) =>
     recordAssertion(report, 'j03-group-editor-previews-exact-overlapping-memberships', expectedMembershipPreview, exactMembershipRows);
     await captureDOM('j03-group-authoring-exact-memberships');
     const createGroupsAfter = network.length - 1;
-    await browserEval(cdp, `clickButton('Create group revision')`);
+    await clickButton('Create group revision');
     const createGroupsResponse = await waitForResponse('/explicit-groups', createGroupsAfter);
     if (createGroupsResponse.method !== 'POST' || createGroupsResponse.response?.status !== 201 || !createGroupsResponse.postData) {
       throw new Error(`J03 explicit-group API transaction failed: ${JSON.stringify({ method: createGroupsResponse.method, status: createGroupsResponse.response?.status, response: createGroupsResponse.responseBody }).slice(0, 1000)}`);
@@ -6879,7 +6890,7 @@ const verifyJ03BrowserScenario = async (target, report, entryTarget = target) =>
       memberCount: explicitGroup.memberCount,
       unassignedMemberIds: [],
     };
-    await waitForBrowser(cdp, `!document.querySelector('[aria-label="Create explicit groups"]')`);
+    await page.getByLabel('Create explicit groups', { exact: true }).waitFor({ state: 'hidden', timeout: 30000 });
     const freshBaseFingerprint = draftFingerprint(await readState());
     const fresh = await captureBrowserProposal(() => selectExplicitGroupPolicy('ERROR', explicitGroup.revisionId));
     if (!fresh.proposal.proposalId || fresh.proposal.comparison?.status !== 'AVAILABLE') throw new Error(`J03 fresh proposal was unavailable: ${JSON.stringify(fresh.proposal).slice(0, 1000)}`);
@@ -6890,17 +6901,18 @@ const verifyJ03BrowserScenario = async (target, report, entryTarget = target) =>
     }
     state = await readState();
     recordAssertion(report, 'j03-explicit-preview-does-not-mutate-draft', freshBaseFingerprint, draftFingerprint(state));
-    const explicitDialogText = String(await evaluate(cdp, `document.querySelector('[role="dialog"][aria-labelledby="row-definition-dialog-title"]')?.innerText || ''`));
+    const explicitDialogText = await rowDialog.innerText();
     recordAssertion(report, 'j03-explicit-preview-shows-base-and-candidate-counts', true,
       explicitDialogText.includes(`Base rows: ${fresh.proposal.comparison.base.rowCount}`) &&
       explicitDialogText.includes(`Candidate rows: ${fresh.proposal.comparison.candidate.rowCount}`));
-    const explicitRenderedChanges = await evaluate(cdp, `JSON.stringify([...document.querySelectorAll('ul[aria-label="Membership changes"] li')].map((item) => item.innerText.trim()).filter((item) => !item.startsWith('Unchanged · ')))`);
+    const explicitRenderedChanges = (await page.getByLabel('Membership changes', { exact: true }).getByRole('listitem').allTextContents())
+      .map((text) => text.trim()).filter((text) => !text.startsWith('Unchanged · '));
     const expectedExplicitChanges = freshMembershipChanges.map((item) => `${item.candidatePresent ? 'Added' : 'Removed'} · ${item.rowIdentity}`);
-    recordAssertion(report, 'j03-explicit-preview-shows-fresh-membership-changes', expectedExplicitChanges, JSON.parse(explicitRenderedChanges));
+    recordAssertion(report, 'j03-explicit-preview-shows-fresh-membership-changes', expectedExplicitChanges, explicitRenderedChanges);
     report.target.selectedExplicitGroupChoice = fresh.label;
     await captureDOM('j03-row-proposal-fresh');
-    await browserEval(cdp, `clickButton('Apply row definition')`);
-    await waitForBrowser(cdp, `!document.querySelector('[role="dialog"][aria-labelledby="row-definition-dialog-title"]')`, 60000);
+    await clickButton('Apply row definition', rowDialog);
+    await rowDialog.waitFor({ state: 'hidden', timeout: 60000 });
     state = await readState();
     const appliedDocument = state.workspace?.documents?.find((candidate) => candidate.output?.id === outputId);
     const appliedGroup = appliedDocument?.rows?.kind === 'GROUPS' && appliedDocument.rows.groups?.source?.kind === 'EXPLICIT'
@@ -6960,12 +6972,12 @@ const verifyJ03BrowserScenario = async (target, report, entryTarget = target) =>
     const savedRows = structuredClone(appliedDocument.rows);
     const savedVersion = state.draftVersion;
     const savedDigest = state.draftDigest;
-    await reloadBuilder(`document.body.innerText.includes(${JSON.stringify(`Current rows: EXPLICIT_GROUP · ${explicitGroup.revisionId} · ERROR`)})`);
+    await reloadBuilder(page.getByText(`Current rows: EXPLICIT_GROUP · ${explicitGroup.revisionId} · ERROR`, { exact: true }));
     const reloaded = await readState();
     const reloadedDocument = reloaded.workspace?.documents?.find((candidate) => candidate.output?.id === outputId);
     recordAssertion(report, 'j03-reload-persists-row-definition', savedRows, reloadedDocument?.rows);
     recordAssertion(report, 'j03-reload-persists-draft-identity', { draftVersion: savedVersion, draftDigest: savedDigest }, { draftVersion: reloaded.draftVersion, draftDigest: reloaded.draftDigest });
-    const currentRowsText = String(await evaluate(cdp, 'document.body.innerText'));
+    const currentRowsText = await page.locator('body').innerText();
     recordAssertion(report, 'j03-reloaded-builder-inspects-explicit-group-current-rows', true,
       currentRowsText.includes(`Current rows: EXPLICIT_GROUP · ${explicitGroup.revisionId} · ERROR`));
     const reloadedPreview = await capturePreview();
@@ -7071,17 +7083,30 @@ const verifyJ03BrowserScenario = async (target, report, entryTarget = target) =>
       groupedRows: expectedGroupedRows,
     };
     await captureDOM('j03-reloaded-explicit-group-preview');
-    await Promise.allSettled([...pendingBodies]);
+    const diagnosticsPath = join(evidenceDirectory, 'browser-diagnostics.json');
+    writeJSON(diagnosticsPath, browser.diagnostics);
+    recordEvidence(report, diagnosticsPath);
+    recordAssertion(report, 'j03-browser-has-no-unexpected-errors-or-api-failures', true,
+      browser.diagnostics.console.length === 0
+      && browser.diagnostics.pageErrors.length === 0
+      && browser.diagnostics.networkFailures.length === 0
+      && browser.diagnostics.httpFailures.length === 0);
     const networkPath = join(evidenceDirectory, 'network-identities.json');
-    writeJSON(networkPath, network);
+    writeJSON(networkPath, network.map(({ responsePromise, resolveResponse, ...item }) => item));
     recordEvidence(report, networkPath);
     writeJSON(join(evidenceDirectory, 'report.json'), { status: 'passed', scenario: 'J03-row-definition-settings', target: report.target, assertions: report.assertions, evidencePaths: report.evidencePaths });
     console.log(`DEV_J03_BROWSER_PASSED explorer=${explorerId} output=${outputId} evidence=${evidenceDirectory}`);
   } catch (error) {
-    await captureDOM('failure');
+    await browser.captureFailure(error, {
+      phase: 'J03 row definition, explicit groups, preview, export, and persistence lifecycle',
+      explorerId,
+      outputId: report.target.outputId,
+      requests: network.map(({ responsePromise, resolveResponse, ...item }) => item),
+    });
     const networkPath = join(evidenceDirectory, 'network-failure.json');
-    writeJSON(networkPath, network.map(({ requestId, url, method, postData, response, responseBody, responseBodyError }) => ({
-      requestId, url, method, postData, response,
+    writeJSON(networkPath, network.map(({ responsePromise, resolveResponse, responseBody, responseBodyError, response, ...item }) => ({
+      ...item,
+      response,
       responseBodyError,
       responseBody: response?.status >= 400 ? responseBody : undefined,
       responseKeys: responseBody && typeof responseBody === 'object' ? Object.keys(responseBody) : [],
@@ -7090,7 +7115,6 @@ const verifyJ03BrowserScenario = async (target, report, entryTarget = target) =>
     throw error;
   } finally {
     await browser.close();
-    rmSync(downloadDirectory, { recursive: true, force: true });
   }
 };
 
