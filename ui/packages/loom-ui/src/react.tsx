@@ -118,7 +118,7 @@ export const resourceFor = <T,>(
   return resource;
 };
 
-const useQuery = <T,>(
+export const useQuery = <T,>(
   loader: (signal: AbortSignal, options?: QueryRefetchOptions) => Promise<T>,
   dependencies: ReadonlyArray<unknown>,
   enabled = true,
@@ -137,6 +137,12 @@ const useQuery = <T,>(
     refetch: resource.refresh,
   };
 };
+
+export const useKeyedQuery = <T,>(
+  key: string | undefined,
+  loader: (signal: AbortSignal, options?: QueryRefetchOptions) => Promise<T>,
+  enabled = true,
+): QueryResult<T> => useQuery(loader, [key], Boolean(key) && enabled);
 
 interface MutationState {
   readonly isLoading: boolean;

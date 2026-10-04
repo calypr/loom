@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { useAutomaticPreview } from './useAutomaticPreview';
+import { useAutomaticPreview, type AutomaticPreviewIdentity, type AutomaticPreviewRun } from './useAutomaticPreview';
 import { constructionAppendStageFor, constructionInputStageFor } from './constructionWorkspace/constructionStages';
 import {
   useApplyExplorerBuilderCommandsV2Mutation,
@@ -183,6 +183,7 @@ const emptyBuilderState = (project: string): BuilderAuthoringState => ({
   workspace: null,
   draftVersion: 0,
   draftDigest: '',
+  previewRequestVersion: 0,
   tables: [],
   selectedOccurrenceId: 'base',
   diagnostics: [],
@@ -274,6 +275,14 @@ type PreviewRequest = {
   readonly outputId: string;
   readonly limit: PreviewLimit;
   readonly receiptRefreshes: number;
+};
+
+type AutomaticPreviewExecution = {
+  cancelled: boolean;
+  compileGeneration?: number;
+  compileRequest?: { readonly abort: () => void };
+  previewGeneration?: number;
+  previewRequest?: { readonly abort: () => void };
 };
 
 type RowChangeResolution = {
@@ -521,6 +530,12 @@ const BuilderWorkspaceContent = ({
   const previewGeneration = useRef(0);
   const activeCompile = useRef<{ abort: () => void } | undefined>(undefined);
   const activePreview = useRef<{ abort: () => void } | undefined>(undefined);
+  const automaticPreviewGeneration = useRef(0);
+  const activeAutomaticPreview = useRef<{ readonly generation: number; readonly execution: AutomaticPreviewExecution; readonly cancel: () => void } | undefined>(undefined);
+  const automaticPreviewRequest = useRef<AutomaticPreviewIdentity | undefined>(undefined);
+  const cancelAutomaticPreview = useCallback(() => {
+    activeAutomaticPreview.current?.cancel();
+  }, []);
   const commandQueue = useRef<Promise<void>>(Promise.resolve());
   const firstTableActionPending = useRef(false);
   const serverDraft = useRef({ version: 0, digest: '' });
@@ -585,6 +600,7 @@ const BuilderWorkspaceContent = ({
     : undefined;
 
   const selectExplorer = (nextExplorerId: string) => {
+    cancelAutomaticPreview();
     compileGeneration.current += 1;
     previewGeneration.current += 1;
     activeCompile.current?.abort();
@@ -634,6 +650,7 @@ const BuilderWorkspaceContent = ({
 
   const applyCommandsWithResult = useCallback(
     (commands: ReadonlyArray<ExplorerBuilderCommand>, proposedCommandId?: string) => {
+      cancelAutomaticPreview();
       compileGeneration.current += 1;
       previewGeneration.current += 1;
       activeCompile.current?.abort();
@@ -707,6 +724,7 @@ const BuilderWorkspaceContent = ({
       applyBuilderCommands,
       authResourcePath,
       builderDataKey,
+      cancelAutomaticPreview,
       dispatch,
       projectId,
       refetchBuilder,
@@ -722,18 +740,6 @@ const BuilderWorkspaceContent = ({
   useDirtyBeforeUnload(state.dirty || pendingCommands > 0);
 
   const table = selectedTable(state);
-  useEffect(() => {
-    const candidate = appliedChoicePreview.current;
-    if (
-      candidate &&
-      (candidate.ownerKey !== ownerKey ||
-        candidate.outputId !== table?.outputId ||
-        candidate.limit !== previewLimit ||
-        candidate.snapshotToken !== state.catalog.snapshotToken)
-    ) {
-      appliedChoicePreview.current = undefined;
-    }
-  }, [ownerKey, table?.outputId, previewLimit, state.catalog.snapshotToken]);
   useEffect(() => {
     rowChangePreviewRequest.current?.abort();
     setPendingRowChangePreview(undefined);
@@ -1634,15 +1640,6 @@ const BuilderWorkspaceContent = ({
     [ensureSuggestions],
   );
   const suggestionIdentity = `${state.explorerId}:${state.catalog.snapshotToken}:${state.selectedOccurrenceId}`;
-  const busy =
-    pendingCommands > 0 ||
-    reconcileStatus.isLoading ||
-    previewStatus.isLoading ||
-    firstTableProgress.kind === 'running' ||
-    constructionProposalBusy ||
-    publishing ||
-    createStatus.isLoading ||
-    deleteStatus.isLoading;
   const blockingDiagnostics = state.diagnostics.some(
     (diagnostic) => diagnostic.severity === 'error',
   );
@@ -1801,9 +1798,9 @@ const BuilderWorkspaceContent = ({
       setMessage(`Explorer deletion failed: ${apiError.message}${suffix}`);
     }
   };
-  const reconcileCurrent = useCallback(async (): Promise<
-    ExplorerBuilderCompileResult | undefined
-  > => {
+  const reconcileCurrent = useCallback(async (
+    owner?: AutomaticPreviewExecution,
+  ): Promise<ExplorerBuilderCompileResult | undefined> => {
     const submitted = latestState.current;
     if (
       !submitted.catalog.snapshotToken ||
@@ -1819,8 +1816,9 @@ const BuilderWorkspaceContent = ({
     let draftVersion = submitted.draftVersion;
     let draftDigest = submitted.draftDigest;
     let attempt = 1;
-    dispatch({ type: 'compiling' });
+    if (!owner) dispatch({ type: 'compiling' });
     for (;;) {
+      if (owner?.cancelled) return undefined;
       const request = reconcileBuilder({
         project: projectId,
         explorerId: submitted.explorerId,
@@ -1831,9 +1829,13 @@ const BuilderWorkspaceContent = ({
         requestId: `builder-${generation}-${attempt}`,
       });
       activeCompile.current = request;
+      if (owner) {
+        owner.compileGeneration = generation;
+        owner.compileRequest = request;
+      }
       try {
         const value = await request.unwrap();
-        if (generation !== compileGeneration.current) return undefined;
+        if (owner?.cancelled || generation !== compileGeneration.current) return undefined;
         const current = latestState.current;
         if (
           current.explorerId !== submitted.explorerId ||
@@ -1850,12 +1852,14 @@ const BuilderWorkspaceContent = ({
       } catch (error) {
         const apiError = error as ExplorerAuthoringApiError;
         if (
+          owner?.cancelled ||
           generation !== compileGeneration.current ||
           apiError.code === 'CLIENT_CANCELLED'
         )
           return undefined;
         if (isDraftDesynchronized(apiError.code)) {
           const refreshed = await refetchBuilder({ reload: true });
+          if (owner?.cancelled) return undefined;
           if (refreshed.data) {
             syncBuilderData(refreshed.data, 'hydrate');
             setMessage(undefined);
@@ -1869,7 +1873,7 @@ const BuilderWorkspaceContent = ({
         }
         if (isStaleSnapshot(apiError.code)) {
           const refreshed = await refetchBuilder({ reload: true });
-          if (!refreshed.data) return undefined;
+          if (owner?.cancelled || !refreshed.data) return undefined;
           syncBuilderData(refreshed.data, 'catalog');
           snapshotToken = refreshed.data.catalog.snapshotToken;
           draftVersion = refreshed.data.draftVersion;
@@ -1888,8 +1892,8 @@ const BuilderWorkspaceContent = ({
         });
         return undefined;
       } finally {
-        if (generation === compileGeneration.current)
-          activeCompile.current = undefined;
+        if (activeCompile.current === request) activeCompile.current = undefined;
+        if (owner?.compileRequest === request) owner.compileRequest = undefined;
       }
     }
   }, [
@@ -1901,41 +1905,50 @@ const BuilderWorkspaceContent = ({
     syncBuilderData,
   ]);
   const executePreview = useCallback(
-    async (request: PreviewRequest, receiptId: string) => {
+    async (
+      request: PreviewRequest,
+      receipt: ExplorerBuilderCompileResult,
+      owner?: AutomaticPreviewExecution,
+    ): Promise<{ readonly receipt: ExplorerBuilderCompileResult; readonly preview: ExplorerBuilderPreviewResult } | undefined> => {
       const generation = ++previewGeneration.current;
-      activePreview.current?.abort();
       let activeRequest = request;
-      let activeReceiptId = receiptId;
+      let activeReceipt = receipt;
       const limit = request.limit;
       let transientRetries = 0;
       for (;;) {
-        if (generation !== previewGeneration.current) return;
+        if (owner?.cancelled || generation !== previewGeneration.current) return undefined;
         const previewRequest = previewBuilder({
           project: projectId,
           explorerId: latestState.current.explorerId,
           authResourcePath,
-          receiptId: activeReceiptId,
+          receiptId: activeReceipt.receiptId,
           outputId: activeRequest.outputId,
           limit,
         });
         activePreview.current = previewRequest;
+        if (owner) {
+          owner.previewGeneration = generation;
+          owner.previewRequest = previewRequest;
+        }
         try {
           const value = await previewRequest.unwrap();
           if (
+            owner?.cancelled ||
             generation !== previewGeneration.current ||
-            value.receiptId !== activeReceiptId
+            value.receiptId !== activeReceipt.receiptId ||
+            value.outputId !== activeRequest.outputId
           )
-            return;
-          dispatch({ type: 'preview', value });
+            return undefined;
           setMessage(undefined);
-          return;
+          return { receipt: activeReceipt, preview: value };
         } catch (error) {
           const apiError = error as ExplorerAuthoringApiError;
           if (
+            owner?.cancelled ||
             generation !== previewGeneration.current ||
             apiError.code === 'CLIENT_CANCELLED'
           )
-            return;
+            return undefined;
           const recovery = previewRecoveryAction(apiError, {
             receiptRefreshes: activeRequest.receiptRefreshes,
             transientRetries,
@@ -1951,10 +1964,10 @@ const BuilderWorkspaceContent = ({
               limit,
               receiptRefreshes: activeRequest.receiptRefreshes + 1,
             };
-            const receipt = await reconcileCurrent();
-            if (generation !== previewGeneration.current) return;
-            if (!receipt) return;
-            activeReceiptId = receipt.receiptId;
+            const refreshedReceipt = await reconcileCurrent(owner);
+            if (owner?.cancelled || generation !== previewGeneration.current) return undefined;
+            if (!refreshedReceipt) return undefined;
+            activeReceipt = refreshedReceipt;
             setMessage(undefined);
             continue;
           }
@@ -1965,17 +1978,17 @@ const BuilderWorkspaceContent = ({
               receiptRefreshes: activeRequest.receiptRefreshes + 1,
             };
             const refreshed = await refetchBuilder({ reload: true });
-            if (generation !== previewGeneration.current) return;
-            if (!refreshed.data) return;
+            if (owner?.cancelled || generation !== previewGeneration.current) return undefined;
+            if (!refreshed.data) return undefined;
             latestState.current = builderAuthoringReducer(latestState.current, {
               type: 'catalogRefreshed',
               catalog: refreshed.data.catalog,
             });
             syncBuilderData(refreshed.data, 'catalog');
-            const receipt = await reconcileCurrent();
-            if (generation !== previewGeneration.current) return;
-            if (!receipt) return;
-            activeReceiptId = receipt.receiptId;
+            const refreshedReceipt = await reconcileCurrent(owner);
+            if (owner?.cancelled || generation !== previewGeneration.current) return undefined;
+            if (!refreshedReceipt) return undefined;
+            activeReceipt = refreshedReceipt;
             setMessage(undefined);
             continue;
           }
@@ -1995,16 +2008,15 @@ const BuilderWorkspaceContent = ({
             const suffix = apiError.code ? ` (${apiError.code})` : '';
             setMessage(`Preview failed: ${apiError.message}${suffix}`);
           }
-          return;
+          return undefined;
         } finally {
-          if (activePreview.current === previewRequest)
-            activePreview.current = undefined;
+          if (activePreview.current === previewRequest) activePreview.current = undefined;
+          if (owner?.previewRequest === previewRequest) owner.previewRequest = undefined;
         }
       }
     },
     [
       authResourcePath,
-      dispatch,
       previewBuilder,
       projectId,
       reconcileCurrent,
@@ -2115,39 +2127,136 @@ const BuilderWorkspaceContent = ({
     }
   };
 
-  useAutomaticPreview({
-    requestKey: table ? JSON.stringify([ownerKey, state.draftVersion, state.draftDigest, table.outputId, previewLimit]) : undefined,
+  const automaticPreviewIdentity: AutomaticPreviewIdentity | undefined =
+    table && state.catalog.snapshotToken && state.draftVersion > 0 && state.draftDigest
+      ? {
+          key: JSON.stringify([
+            ownerKey,
+            state.catalog.snapshotToken,
+            state.draftVersion,
+            state.draftDigest,
+            state.previewRequestVersion,
+            table.outputId,
+            previewLimit,
+          ]),
+          ownerKey,
+          snapshotToken: state.catalog.snapshotToken,
+          draftVersion: state.draftVersion,
+          draftDigest: state.draftDigest,
+          previewRequestVersion: state.previewRequestVersion,
+          outputId: table.outputId,
+          limit: previewLimit,
+        }
+      : undefined;
+  automaticPreviewRequest.current = automaticPreviewIdentity;
+  const automaticPreviewQuery = useAutomaticPreview({
+    request: automaticPreviewIdentity,
     enabled: !previewDisabled && pendingCommands === 0 && firstTableProgress.kind === 'idle',
-    cancel: () => {
-      previewGeneration.current += 1;
-      activePreview.current?.abort();
-    },
-    refresh: async () => {
-      const generation = previewGeneration.current;
-      const current = latestState.current;
-      const outputId = table?.outputId;
-      if (!outputId) return;
-      const receipt = current.receipt && current.reconciliation === 'resolved'
-        ? current.receipt : await reconcileCurrent();
-      if (generation !== previewGeneration.current) return;
-      const candidate = appliedChoicePreview.current;
-      appliedChoicePreview.current = undefined;
-      if (!receipt) return;
-      const acceptedOutputId = selectedTable(latestState.current)?.outputId;
-      if (acceptedOutputId === outputId && matchesAcceptedChoicePreview(candidate, {
-        ownerKey,
-        outputId,
-        limit: previewLimit,
-        snapshotToken: latestState.current.catalog.snapshotToken,
-        receipt,
-      })) {
-        dispatch({ type: 'preview', value: candidate.preview });
+    refresh: async (identity, signal, options): Promise<AutomaticPreviewRun | undefined> => {
+      activeAutomaticPreview.current?.cancel();
+      const generation = ++automaticPreviewGeneration.current;
+      const execution: AutomaticPreviewExecution = { cancelled: false };
+      const cancel = () => {
+        if (automaticPreviewGeneration.current !== generation) return;
+        automaticPreviewGeneration.current += 1;
+        execution.cancelled = true;
+        if (activeAutomaticPreview.current?.generation === generation) {
+          activeAutomaticPreview.current = undefined;
+        }
+        if (execution.compileRequest && execution.compileGeneration === compileGeneration.current) {
+          compileGeneration.current += 1;
+        }
+        if (execution.previewRequest && execution.previewGeneration === previewGeneration.current) {
+          previewGeneration.current += 1;
+        }
+        execution.compileRequest?.abort();
+        execution.previewRequest?.abort();
+      };
+      activeAutomaticPreview.current = { generation, execution, cancel };
+      signal.addEventListener('abort', cancel, { once: true });
+      const identityIsCurrent = () => {
+        const current = latestState.current;
+        return !signal.aborted &&
+          automaticPreviewRequest.current?.key === identity.key &&
+          current.catalog.snapshotToken === identity.snapshotToken &&
+          current.draftVersion === identity.draftVersion &&
+          current.draftDigest === identity.draftDigest &&
+          current.previewRequestVersion === identity.previewRequestVersion &&
+          selectedTable(current)?.outputId === identity.outputId;
+      };
+      const accept = (receipt: ExplorerBuilderCompileResult, preview: ExplorerBuilderPreviewResult) => {
+        if (!identityIsCurrent() ||
+          receipt.snapshotToken !== identity.snapshotToken ||
+          !receipt.outputs.some((output) => output.outputId === identity.outputId) ||
+          preview.receiptId !== receipt.receiptId ||
+          preview.outputId !== identity.outputId) return undefined;
+        dispatch({
+          type: 'previewAccepted',
+          identity: {
+            project: projectId,
+            explorerId: latestState.current.explorerId,
+            snapshotToken: identity.snapshotToken,
+            draftVersion: identity.draftVersion,
+            draftDigest: identity.draftDigest,
+            previewRequestVersion: identity.previewRequestVersion,
+            outputId: identity.outputId,
+          },
+          receipt,
+          preview,
+        });
         setMessage(undefined);
-        return;
+        return { identity, receipt, preview };
+      };
+      try {
+        if (!identityIsCurrent()) return undefined;
+        const current = latestState.current;
+        const receipt = !options?.reload && current.receipt && current.reconciliation === 'resolved' &&
+          current.receipt.snapshotToken === identity.snapshotToken
+          ? current.receipt
+          : await reconcileCurrent(execution);
+        if (execution.cancelled || !receipt || !identityIsCurrent()) return undefined;
+        const candidate = appliedChoicePreview.current;
+        appliedChoicePreview.current = undefined;
+        if (matchesAcceptedChoicePreview(candidate, {
+          ownerKey: identity.ownerKey,
+          outputId: identity.outputId,
+          limit: identity.limit,
+          snapshotToken: identity.snapshotToken,
+          receipt,
+        })) return accept(receipt, candidate.preview);
+        const completed = await executePreview({
+          outputId: identity.outputId,
+          limit: identity.limit,
+          receiptRefreshes: 0,
+        }, receipt, execution);
+        if (execution.cancelled || !completed || !identityIsCurrent()) return undefined;
+        return accept(completed.receipt, completed.preview);
+      } catch (error) {
+        if (identityIsCurrent()) {
+          const apiError = error as ExplorerAuthoringApiError;
+          const suffix = apiError.code ? ` (${apiError.code})` : '';
+          setMessage(`Preview failed: ${apiError.message}${suffix}`);
+        }
+        return undefined;
+      } finally {
+        signal.removeEventListener('abort', cancel);
+        if (activeAutomaticPreview.current?.generation === generation) {
+          activeAutomaticPreview.current = undefined;
+        }
       }
-      await executePreview({ outputId, limit: previewLimit, receiptRefreshes: 0 }, receipt.receiptId);
     },
   });
+  const addColumnsPreviewPending = automaticPreviewQuery.isLoading &&
+    Boolean(table?.document.columns.length);
+  const busy =
+    pendingCommands > 0 ||
+    reconcileStatus.isLoading ||
+    previewStatus.isLoading ||
+    firstTableProgress.kind === 'running' ||
+    constructionProposalBusy ||
+    publishing ||
+    createStatus.isLoading ||
+    deleteStatus.isLoading;
   const applyPresentationChanges = (changes: ReadonlyArray<PreviewTablePresentationChange>) => {
     if (!table || changes.length === 0) return;
     void applyCommandsWithResult(changes.map((change) =>
@@ -3339,6 +3448,7 @@ const BuilderWorkspaceContent = ({
                   Boolean(pendingRowChangePreview) ||
                   constructionLifecycle.proposal.status === 'applying'
                 }
+                addColumnsDisabled={addColumnsPreviewPending}
                 activeFamily={activeConstructionFamily}
                 onSelectFamily={selectConstructionFamily}
                 preview={
@@ -3484,7 +3594,7 @@ const BuilderWorkspaceContent = ({
                   relatedSourceAvailability={relatedSourceAvailability}
                   suppressUnavailableNotices={hasUnsupportedSavedSourceColumns}
                   disabledReason={sourceSelectionDisabledReason}
-                  disabled={pendingCommands > 0 || state.reconciliation === 'pending'}
+                  disabled={pendingCommands > 0 || state.reconciliation === 'pending' || addColumnsPreviewPending}
                   pairedColumnSuggestion={pairedColumnSuggestion}
                   onPairedColumnSuggestionHandled={(requestId) =>
                     setPairedColumnSuggestion((current) =>
@@ -3515,6 +3625,7 @@ const BuilderWorkspaceContent = ({
                 selectedOccurrenceId={state.selectedOccurrenceId}
                 disabled={
                   rowChangeStatus.isLoading ||
+                  addColumnsPreviewPending ||
                   (state.reconciliation === 'pending' &&
                     Boolean(table?.document.rootResourceType))
                 }

@@ -20,28 +20,39 @@ import BuilderWorkspace from './BuilderWorkspace';
 
 const mockLoomClient = vi.hoisted(() => ({ getSelection: vi.fn(), createSelection: vi.fn() }));
 
-vi.mock('../../react', () => ({
-  useLoomClient: () => mockLoomClient,
-  useApplyExplorerBuilderCommandsV2Mutation: vi.fn(),
-  useAssessExplorerRowChangeMutation: vi.fn(),
-  useCreateExplorerAuthoringMutation: vi.fn(),
-  useDeleteExplorerAuthoringMutation: vi.fn(),
-  useGetExplorerAuthoringCapabilityV2Query: vi.fn(),
-  useGetExplorerAuthoringExplorersQuery: vi.fn(),
-  useGetExplorerBuilderStateV2Query: vi.fn(),
-  useResolveConfiguredColumnContextsQuery: vi.fn(() => ({
-    data: undefined,
-    error: undefined,
-    isLoading: false,
-    isFetching: false,
-    refetch: vi.fn(),
-  })),
-  useGetExplorerCandidateSuggestionsV2Mutation: vi.fn(),
-  usePreviewExplorerAuthoringV2Mutation: vi.fn(),
-  usePopulationMappingMutation: vi.fn(),
-  usePublishExplorerAuthoringV2Mutation: vi.fn(),
-  useReconcileExplorerBuilderV2Mutation: vi.fn(),
-}));
+vi.mock('../../react', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../react')>();
+  return {
+    ...actual,
+    useLoomClient: () => mockLoomClient,
+    useApplyExplorerBuilderCommandsV2Mutation: vi.fn(),
+    useAssessExplorerRowChangeMutation: vi.fn(),
+    useCreateExplorerAuthoringMutation: vi.fn(),
+    useDeleteExplorerAuthoringMutation: vi.fn(),
+    useGetExplorerAuthoringCapabilityV2Query: vi.fn(),
+    useGetExplorerAuthoringExplorersQuery: vi.fn(),
+    useGetExplorerBuilderStateV2Query: vi.fn(),
+    useResolveConfiguredColumnContextsQuery: vi.fn(() => ({
+      data: undefined,
+      error: undefined,
+      isLoading: false,
+      isFetching: false,
+      refetch: vi.fn(),
+    })),
+    useResolvePopulationSelectionQuery: vi.fn(() => ({
+      data: undefined,
+      error: undefined,
+      isLoading: false,
+      isFetching: false,
+      refetch: vi.fn(),
+    })),
+    useGetExplorerCandidateSuggestionsV2Mutation: vi.fn(),
+    usePreviewExplorerAuthoringV2Mutation: vi.fn(),
+    usePopulationMappingMutation: vi.fn(),
+    usePublishExplorerAuthoringV2Mutation: vi.fn(),
+    useReconcileExplorerBuilderV2Mutation: vi.fn(),
+  };
+});
 
 const mutationResult = () => [vi.fn(), { isLoading: false }];
 const newBuilderState = () => ({

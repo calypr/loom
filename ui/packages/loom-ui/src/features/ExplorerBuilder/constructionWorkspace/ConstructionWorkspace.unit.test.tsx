@@ -90,6 +90,18 @@ describe('ConstructionWorkspace', () => {
     expect(screen.queryByTestId('construction-action-reshape')).not.toBeInTheDocument();
   });
 
+  it('blocks Add columns during preview loading without blocking row filters', () => {
+    const onSelect = vi.fn<(family: ConstructionOperationFamily) => void>();
+    render(<ConstructionActionBar onSelect={onSelect} addColumnsDisabled />);
+
+    const addColumns = screen.getByTestId('construction-action-add-columns');
+    const filterRows = screen.getByTestId('construction-action-keep-rows');
+    expect(addColumns).toBeDisabled();
+    expect(filterRows).toBeEnabled();
+    fireEvent.click(filterRows);
+    expect(onSelect).toHaveBeenCalledWith('KEEP_ROWS');
+  });
+
   it('navigates named tables and keeps a history panel absent when there are no authored steps', () => {
     const onSelectTable = vi.fn();
     const onNewTable = vi.fn();

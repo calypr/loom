@@ -44,22 +44,33 @@ const mockLoomClient = vi.hoisted(() => ({
   searchConstructionChoices: vi.fn(),
 }));
 
-vi.mock('../../react', () => ({
-  useLoomClient: () => mockLoomClient,
-  useApplyExplorerBuilderCommandsV2Mutation: vi.fn(),
-  useAssessExplorerRowChangeMutation: vi.fn(),
-  useCreateExplorerAuthoringMutation: vi.fn(),
-  useDeleteExplorerAuthoringMutation: vi.fn(),
-  useGetExplorerAuthoringCapabilityV2Query: vi.fn(),
-  useGetExplorerAuthoringExplorersQuery: vi.fn(),
-  useGetExplorerBuilderStateV2Query: vi.fn(),
-  useGetExplorerCandidateSuggestionsV2Mutation: vi.fn(),
-  usePreviewExplorerAuthoringV2Mutation: vi.fn(),
-  usePopulationMappingMutation: vi.fn(),
-  usePublishExplorerAuthoringV2Mutation: vi.fn(),
-  useReconcileExplorerBuilderV2Mutation: vi.fn(),
-  useResolveConfiguredColumnContextsQuery: mockLoomClient.configuredColumnContextsQuery,
-}));
+vi.mock('../../react', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../react')>();
+  return {
+    ...actual,
+    useLoomClient: () => mockLoomClient,
+    useApplyExplorerBuilderCommandsV2Mutation: vi.fn(),
+    useAssessExplorerRowChangeMutation: vi.fn(),
+    useCreateExplorerAuthoringMutation: vi.fn(),
+    useDeleteExplorerAuthoringMutation: vi.fn(),
+    useGetExplorerAuthoringCapabilityV2Query: vi.fn(),
+    useGetExplorerAuthoringExplorersQuery: vi.fn(),
+    useGetExplorerBuilderStateV2Query: vi.fn(),
+    useGetExplorerCandidateSuggestionsV2Mutation: vi.fn(),
+    usePreviewExplorerAuthoringV2Mutation: vi.fn(),
+    usePopulationMappingMutation: vi.fn(),
+    usePublishExplorerAuthoringV2Mutation: vi.fn(),
+    useReconcileExplorerBuilderV2Mutation: vi.fn(),
+    useResolveConfiguredColumnContextsQuery: mockLoomClient.configuredColumnContextsQuery,
+    useResolvePopulationSelectionQuery: vi.fn(() => ({
+      data: undefined,
+      error: undefined,
+      isLoading: false,
+      isFetching: false,
+      refetch: vi.fn(),
+    })),
+  };
+});
 
 vi.mock('./components/BuilderToolbar', () => ({
   BuilderToolbar: ({ onPreview }: { readonly onPreview: () => void }) => (
@@ -566,6 +577,54 @@ describe('BuilderWorkspace Add columns source selection', () => {
       isLoading: false,
       refetch: vi.fn(),
     });
+    const initialReceipt: ExplorerBuilderCompileResult = {
+      apiVersion,
+      kind: 'ExplorerBuilderReceipt',
+      receiptId: 'named-group-receipt',
+      snapshotToken: 'snapshot-1',
+      builder: initialWorkspace,
+      outputs: [{
+        outputId: 'patients',
+        columns: [{
+          column: 'member_status',
+          label: 'Member status',
+          logicalType: 'string',
+          filterable: true,
+          chartable: false,
+        }],
+      }],
+      diagnostics: [],
+    };
+    const savedReceipt: ExplorerBuilderCompileResult = {
+      ...initialReceipt,
+      receiptId: 'named-group-receipt-one',
+      builder: savedWorkspace,
+    };
+    const previewForReceipt = (receiptId: string): ExplorerBuilderPreviewResult => ({
+      apiVersion,
+      kind: 'ExplorerBuilderPreview',
+      rowLineageCapability: { status: 'UNAVAILABLE', reasonCode: 'TEST_FIXTURE' },
+      receiptId,
+      outputId: 'patients',
+      columns: initialReceipt.outputs[0]!.columns,
+      rows: [{ member_status: 'active' }],
+      rowCount: 1,
+      diagnostics: [],
+    });
+    const reconcile = vi.fn()
+      .mockReturnValueOnce({ unwrap: vi.fn().mockResolvedValue(initialReceipt) })
+      .mockReturnValue({ unwrap: vi.fn().mockResolvedValue(savedReceipt) });
+    (useReconcileExplorerBuilderV2Mutation as Mock).mockReturnValue([
+      reconcile,
+      { isLoading: false },
+    ]);
+    const previewBuilder = vi.fn()
+      .mockReturnValueOnce({ unwrap: vi.fn().mockResolvedValue(previewForReceipt(initialReceipt.receiptId)) })
+      .mockReturnValue({ unwrap: vi.fn().mockResolvedValue(previewForReceipt(savedReceipt.receiptId)) });
+    (usePreviewExplorerAuthoringV2Mutation as Mock).mockReturnValue([
+      previewBuilder,
+      { isLoading: false },
+    ]);
     applyExplorerCommands.mockReturnValue({
       unwrap: vi.fn().mockResolvedValue({
         commandId: 'update-member-row-policy',
@@ -600,6 +659,22 @@ describe('BuilderWorkspace Add columns source selection', () => {
     await waitFor(() => expect(screen.getByRole('combobox', {
       name: 'Values per cohort member for Member status (member_status)',
     })).toHaveProperty('value', 'ONE'));
+    await waitFor(() => expect(reconcile).toHaveBeenCalledTimes(2));
+    expect(reconcile.mock.calls[0]?.[0]).toMatchObject({
+      draftVersion: 7,
+      draftDigest: 'sha256:named-group-draft',
+    });
+    expect(reconcile.mock.calls[1]?.[0]).toMatchObject({
+      draftVersion: 8,
+      draftDigest: 'sha256:named-group-draft-one',
+    });
+    await waitFor(() => expect(previewBuilder).toHaveBeenCalledTimes(2));
+    await waitFor(() => {
+      const previewPanel = screen.getByTestId('construction-preview');
+      expect(previewPanel).toHaveAttribute('data-preview-status', 'ready');
+      expect(previewPanel).toHaveAttribute('data-preview-receipt-id', savedReceipt.receiptId);
+      expect(previewPanel).toHaveAttribute('data-preview-output-id', 'patients');
+    });
   });
 
   it('inspects an Observation route without a saved occurrence id and does not apply an unsupported source choice', async () => {
@@ -1452,6 +1527,7 @@ describe('BuilderWorkspace Add columns source selection', () => {
       }],
     }));
     expect(reconcile).toHaveBeenCalledOnce();
+    expect(reconcile.mock.calls[0]?.[0]).toMatchObject({ draftVersion: 2, draftDigest: 'sha256:draft-2' });
     expect(previewBuilder).toHaveBeenCalledWith(expect.objectContaining({
       receiptId: 'receipt-1',
       outputId: 'patients',
@@ -1697,6 +1773,20 @@ describe('BuilderWorkspace Add columns source selection', () => {
       rowCount: 1,
       diagnostics: [],
     };
+    let rejectInitialReconcile: ((reason: unknown) => void) | undefined;
+    const initialReconcilePromise = new Promise<ExplorerBuilderCompileResult>((_resolve, reject) => {
+      rejectInitialReconcile = reject;
+    });
+    const initialReconcileAbort = vi.fn(() => {
+      rejectInitialReconcile?.(Object.assign(
+        new Error('Superseded initial automatic compile.'),
+        { code: 'CLIENT_CANCELLED' },
+      ));
+    });
+    const initialReconcileRequest = {
+      unwrap: vi.fn(() => initialReconcilePromise),
+      abort: initialReconcileAbort,
+    };
     const reconcile = vi.fn().mockReturnValue({
       unwrap: vi.fn().mockResolvedValue({
         apiVersion,
@@ -1707,7 +1797,7 @@ describe('BuilderWorkspace Add columns source selection', () => {
         outputs: [{ outputId: 'specimens', columns: preview.columns }],
         diagnostics: [],
       } satisfies ExplorerBuilderCompileResult),
-    });
+    }).mockReturnValueOnce(initialReconcileRequest);
     (useReconcileExplorerBuilderV2Mutation as Mock).mockReturnValue([
       reconcile,
       { isLoading: false },
@@ -1729,6 +1819,11 @@ describe('BuilderWorkspace Add columns source selection', () => {
       />,
     );
 
+    await waitFor(() => expect(reconcile).toHaveBeenCalledOnce());
+    expect(reconcile.mock.calls[0]?.[0]).toMatchObject({
+      draftVersion: 1,
+      draftDigest: 'sha256:draft-1',
+    });
     fireEvent.click(screen.getByTestId('construction-new-table'));
     fireEvent.click(screen.getByTestId('construction-new-table'));
     expect(screen.getAllByRole('region', { name: 'Choose row type' })).toHaveLength(1);
@@ -1739,6 +1834,7 @@ describe('BuilderWorkspace Add columns source selection', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Choose Specimen rows' }));
 
     await waitFor(() => expect(previewBuilder).toHaveBeenCalledOnce());
+    await waitFor(() => expect(initialReconcileAbort).toHaveBeenCalled());
     expect(browserPrompt).not.toHaveBeenCalled();
     browserPrompt.mockRestore();
     expect(getSuggestions).toHaveBeenCalledWith(expect.objectContaining({
@@ -1762,7 +1858,9 @@ describe('BuilderWorkspace Add columns source selection', () => {
         title: 'Specimen ID',
       }],
     }));
-    expect(reconcile).toHaveBeenCalledOnce();
+    expect(reconcile).toHaveBeenCalledTimes(2);
+    expect(reconcile.mock.calls[0]?.[0]).toMatchObject({ draftVersion: 1, draftDigest: 'sha256:draft-1' });
+    expect(reconcile.mock.calls[1]?.[0]).toMatchObject({ draftVersion: 3, draftDigest: 'sha256:draft-3' });
     expect(previewBuilder).toHaveBeenCalledWith(expect.objectContaining({
       receiptId: 'specimen-receipt',
       outputId: 'specimens',
@@ -1771,5 +1869,9 @@ describe('BuilderWorkspace Add columns source selection', () => {
     expect(screen.getByTestId('construction-table-patients')).toBeInTheDocument();
     expect(screen.getByTestId('construction-table-specimens')).toBeInTheDocument();
     expect(await screen.findByText('specimen-1')).toBeInTheDocument();
+    const previewPanel = screen.getByTestId('construction-preview');
+    expect(previewPanel).toHaveAttribute('data-preview-status', 'ready');
+    expect(previewPanel).toHaveAttribute('data-preview-receipt-id', 'specimen-receipt');
+    expect(previewPanel).toHaveAttribute('data-preview-output-id', 'specimens');
   });
 });

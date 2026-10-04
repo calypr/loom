@@ -38,6 +38,7 @@ export interface BuilderAuthoringState {
   readonly workspace: ExplorerBuilderWorkspace | null;
   readonly draftVersion: number;
   readonly draftDigest: string;
+  readonly previewRequestVersion: number;
   readonly tables: ReadonlyArray<DraftTable>;
   readonly selectedOutputId?: string;
   readonly selectedOccurrenceId: string;
@@ -232,6 +233,7 @@ export const stateFromBuilder = (
     workspace: value.workspace,
     draftVersion: value.draftVersion,
     draftDigest: value.draftDigest,
+    previewRequestVersion: 0,
     tables,
     selectedOutputId: tables.some(table => table.outputId === identity.selectedOutputId)
       ? identity.selectedOutputId : tables[0]?.outputId,
@@ -283,6 +285,7 @@ export const stateFromCommands = (
       : 'base';
   return {
     ...normalized,
+    previewRequestVersion: state.previewRequestVersion,
     selectedOutputId,
     selectedOccurrenceId,
     diagnostics: value.diagnostics,

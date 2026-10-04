@@ -1,31 +1,70 @@
-import { useEffect, useRef } from 'react';
+import { useRef } from 'react';
+import { useKeyedQuery, type QueryRefetchOptions } from '../../react';
+import type { ExplorerBuilderCompileResult, ExplorerBuilderPreviewResult } from '../../types';
+import type { PreviewLimit } from './authoring/previewRecovery';
 
-export const useAutomaticPreview = ({ requestKey, enabled, refresh, cancel }: {
-  readonly requestKey: string | undefined;
+export type AutomaticPreviewIdentity = {
+  readonly key: string;
+  readonly ownerKey: string;
+  readonly snapshotToken: string;
+  readonly draftVersion: number;
+  readonly draftDigest: string;
+  readonly previewRequestVersion: number;
+  readonly outputId: string;
+  readonly limit: PreviewLimit;
+};
+
+export type AutomaticPreviewRun = {
+  readonly identity: AutomaticPreviewIdentity;
+  readonly receipt: ExplorerBuilderCompileResult;
+  readonly preview: ExplorerBuilderPreviewResult;
+};
+
+export const useAutomaticPreview = ({
+  request,
+  enabled,
+  refresh,
+}: {
+  readonly request: AutomaticPreviewIdentity | undefined;
   readonly enabled: boolean;
-  readonly refresh: () => Promise<void>;
-  readonly cancel?: () => void;
+  readonly refresh: (
+    request: AutomaticPreviewIdentity,
+    signal: AbortSignal,
+    options?: QueryRefetchOptions,
+  ) => Promise<AutomaticPreviewRun | undefined>;
 }) => {
   const refreshRef = useRef(refresh);
   refreshRef.current = refresh;
-  const cancelRef = useRef(cancel);
-  cancelRef.current = cancel;
-  const requestedKey = useRef<string | undefined>(undefined);
-  useEffect(() => {
-    if (!requestKey || !enabled || requestedKey.current === requestKey) return;
-    let started = false;
-    let finished = false;
-    const timer = window.setTimeout(() => {
-      requestedKey.current = requestKey;
-      started = true;
-      void refreshRef.current().finally(() => { finished = true; });
-    }, 250);
-    return () => {
-      window.clearTimeout(timer);
-      if (started && !finished) {
-        requestedKey.current = undefined;
-        cancelRef.current?.();
+  const requestRef = useRef(request);
+  requestRef.current = request;
+  const settledRef = useRef<{ readonly key: string; readonly run: AutomaticPreviewRun | undefined } | undefined>(undefined);
+  const query = useKeyedQuery(
+    request?.key,
+    async (signal, options) => {
+      if (!request) throw new Error('Automatic preview started without a saved draft identity.');
+      if (!options?.reload && settledRef.current?.key === request.key) return settledRef.current.run;
+      try {
+        const run = await refreshRef.current(request, signal, options);
+        if (!signal.aborted && requestRef.current?.key === request.key) {
+          settledRef.current = { key: request.key, run };
+        }
+        return run;
+      } catch (error) {
+        if (!signal.aborted && requestRef.current?.key === request.key) {
+          settledRef.current = { key: request.key, run: undefined };
+        }
+        throw error;
       }
-    };
-  }, [requestKey, enabled]);
+    },
+    enabled,
+  );
+  const settled = settledRef.current;
+  return {
+    ...query,
+    data: query.data ?? (settled && settled.key === request?.key ? settled.run : undefined),
+    refetch: (options?: QueryRefetchOptions) => {
+      if (request) settledRef.current = undefined;
+      return query.refetch(options);
+    },
+  };
 };

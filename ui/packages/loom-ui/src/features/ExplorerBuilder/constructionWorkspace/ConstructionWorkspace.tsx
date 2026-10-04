@@ -87,10 +87,12 @@ const actionFamilies = allOperationFamilies.filter(
 export const ConstructionActionBar = ({
   activeFamily,
   disabled = false,
+  addColumnsDisabled = false,
   onSelect,
 }: {
   readonly activeFamily?: ConstructionOperationFamily;
   readonly disabled?: boolean;
+  readonly addColumnsDisabled?: boolean;
   readonly onSelect: (family: ConstructionOperationFamily) => void;
 }) => (
   <nav aria-label="Table actions" className="flex flex-wrap items-center gap-2">
@@ -101,7 +103,7 @@ export const ConstructionActionBar = ({
         aria-label={`${label}: ${description}`}
         aria-pressed={activeFamily === family}
         data-testid={`construction-action-${family.toLowerCase().replace('_', '-')}`}
-        disabled={disabled}
+        disabled={disabled || (family === 'ADD_COLUMNS' && addColumnsDisabled)}
         onClick={() => onSelect(family)}
         title={description}
         className={`min-w-0 rounded-md border px-3 py-2 text-left text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
@@ -312,6 +314,7 @@ export const ConstructionWorkspace = ({
   previewColumnCount,
   actionsDisabled,
   activeFamily,
+  addColumnsDisabled = false,
   onSelectFamily,
   history,
   rowSetup,
@@ -342,6 +345,7 @@ export const ConstructionWorkspace = ({
   readonly previewColumnCount?: number;
   readonly actionsDisabled?: boolean;
   readonly activeFamily?: ConstructionOperationFamily;
+  readonly addColumnsDisabled?: boolean;
   readonly onSelectFamily: (family: ConstructionOperationFamily) => void;
   readonly history?: ConstructionHistoryProps;
   readonly rowSetup?: React.ReactNode;
@@ -412,6 +416,7 @@ export const ConstructionWorkspace = ({
       {!editor ? <ConstructionActionBar
         activeFamily={activeFamily}
         disabled={actionsDisabled}
+        addColumnsDisabled={addColumnsDisabled}
         onSelect={onSelectFamily}
       /> : null}
 
