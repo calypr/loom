@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { addColumnsActionReadinessCondition, AUTHORING_SEMANTICS_VERSION, authoringCommandSemanticsVersion, assertExternalJ01SourcesUnchanged, assertJ05ArtifactIdentity, assertJ05ArtifactRows, bootstrapSeedPlan, bootstrapWorkspaceNeedsSeed, builderDOMReadyCondition, builderDraftMatchesPreviewDOM, builderPreviewIsFreshForDraft, canonicalProjectID, collectJ01SemanticConceptPages, commandEnvironment, compareJ04Evidence, createDevSession, createVerificationReport, expectedFixtureRelatedValue, explicitGroupPreviewRows, externalJ01PatientScalar, fixtureSourceDigest, generatedJ01ConceptNDJSON, generationLoadDisposition, graphQLRowsRequest, inspectJ01ArtifactRows, inspectJ05ArtifactPackage, j01ArtifactDownloadPlan, j01ColumnIdentitySnapshot, j01ConstructionChoiceCommandIdentities, j01JSONValuesEquivalent, j01OwnerLiteralSnapshot, j01SemanticInventoryRequest, j01ViewerValuesAgree, j04BrowserControlPlan, j04DefaultRecordCellTraceRowID, j04ExactEqual, j04FixtureManifest, j04PatientOperatorDOMPlan, j04PatientOperatorSourceIDs, j04PatientSelectionSeedPlan, j05ArtifactIdentityIsCurrent, loadJ04FixtureContract, normalizeJ04Surface, normalizeJ05LogicalValue, readJ05OutputRows, selectExternalJ01Manifest, shapeJ04Evidence, sourceMountMatches, summarizeTimingSamples, takeJavaScriptDialogCommandParams, validateJ04FixtureContract } from './loom-dev.mjs';
+import { addColumnsActionReadinessCondition, AUTHORING_SEMANTICS_VERSION, authoringCommandSemanticsVersion, assertExternalJ01SourcesUnchanged, assertJ05ArtifactIdentity, assertJ05ArtifactRows, bootstrapSeedPlan, bootstrapWorkspaceNeedsSeed, builderDOMReadyCondition, builderDraftMatchesPreviewDOM, builderPreviewFailureMatchesDraft, builderPreviewIsFreshForDraft, canonicalProjectID, collectJ01SemanticConceptPages, commandEnvironment, compareJ04Evidence, createDevSession, createVerificationReport, expectedFixtureRelatedValue, expectedTrainingArtifactMembers, explicitGroupPreviewRows, externalJ01PatientScalar, fixtureSourceDigest, generatedJ01ConceptNDJSON, generationLoadDisposition, graphQLRowsRequest, inspectJ01ArtifactRows, inspectJ05ArtifactPackage, j01ArtifactDownloadPlan, j01ColumnIdentitySnapshot, j01ConstructionChoiceCommandIdentities, j01JSONValuesEquivalent, j01OwnerLiteralSnapshot, j01SemanticInventoryRequest, j01ViewerValuesAgree, j04BrowserControlPlan, j04DefaultRecordCellTraceRowID, j04ExactEqual, j04FixtureManifest, j04PatientOperatorDOMPlan, j04PatientOperatorSourceIDs, j04PatientSelectionSeedPlan, j05ArtifactIdentityIsCurrent, loadJ04FixtureContract, normalizeJ04Surface, normalizeJ05LogicalValue, readJ05OutputRows, selectExternalJ01Manifest, shapeJ04Evidence, sourceMountMatches, summarizeTimingSamples, takeJavaScriptDialogCommandParams, validateJ04FixtureContract } from './loom-dev.mjs';
 
 test('JavaScript dialog response overrides apply once and retain prompt defaults', () => {
   const cdp = { nextDialogResponse: { accept: true, promptText: 'Renamed Patients' } };
@@ -67,6 +67,41 @@ test('automatic preview witness must use a new receipt for the committed Builder
     'a failed preview diagnostic can still be tied to the newly committed draft');
   assert.equal(builderDraftMatchesPreviewDOM(baseline, state, { ...preview, draftVersion: 8 }, baseline.outputId), false,
     'a DOM draft version behind the API must not satisfy the committed-draft witness');
+});
+
+test('automatic preview diagnostic requires a terminal error on the exact changed draft', () => {
+  const baseline = {
+    snapshotToken: 'snapshot-current',
+    draftVersion: 15,
+    draftDigest: 'digest-before',
+    outputId: 'table-patient',
+    text: 'Previous preview was ready',
+  };
+  const state = {
+    lifecycleState: 'READY',
+    draftVersion: 16,
+    draftDigest: 'digest-after',
+    catalog: { snapshotToken: 'snapshot-current' },
+    workspace: { documents: [{ output: { id: 'table-patient' } }] },
+  };
+  const preview = {
+    status: 'error', receiptId: '', outputId: 'table-patient', proposalId: '',
+    draftVersion: 16, draftDigest: 'digest-after',
+    errorText: 'Builder needs attention Preview failed: multiple values (RELATIONSHIP_CARDINALITY_VIOLATION)',
+    terminalText: 'Preview did not complete for this draft: multiple values (RELATIONSHIP_CARDINALITY_VIOLATION). Correct the Builder issue above.',
+  };
+
+  assert.equal(builderPreviewFailureMatchesDraft(baseline, state, preview, baseline.outputId, 'RELATIONSHIP_CARDINALITY_VIOLATION'), true);
+  assert.equal(builderPreviewFailureMatchesDraft(baseline, state, { ...preview, status: 'empty' }, baseline.outputId, 'RELATIONSHIP_CARDINALITY_VIOLATION'), false,
+    'an empty preview state is not a terminal error');
+  assert.equal(builderPreviewFailureMatchesDraft(baseline, state, { ...preview, terminalText: 'Loading your table…' }, baseline.outputId, 'RELATIONSHIP_CARDINALITY_VIOLATION'), false,
+    'the loading placeholder cannot satisfy a terminal diagnostic');
+  assert.equal(builderPreviewFailureMatchesDraft(baseline, state, { ...preview, errorText: '' }, baseline.outputId, 'RELATIONSHIP_CARDINALITY_VIOLATION'), false,
+    'a preview-only string cannot replace the Builder error alert');
+  assert.equal(builderPreviewFailureMatchesDraft(baseline, { ...state, draftDigest: baseline.draftDigest }, preview, baseline.outputId, 'RELATIONSHIP_CARDINALITY_VIOLATION'), false,
+    'the diagnostic must belong to a changed draft');
+  assert.equal(builderPreviewFailureMatchesDraft(baseline, state, { ...preview, outputId: 'another-table' }, baseline.outputId, 'RELATIONSHIP_CARDINALITY_VIOLATION'), false,
+    'the error must belong to the selected table');
 });
 
 test('automatic preview accepts candidate receipt reuse only after exact saved-draft reconciliation', () => {
@@ -301,6 +336,8 @@ test('verify-fast creates its Observation and Patient tables through the current
   assert.match(patientFlow, /waitForFreshBuilderPreview\(target, cdp, explorerId, exactTablePreviewBaseline/);
   assert.match(patientFlow, /waitForFreshBuilderPreview\(target, cdp, explorerId, valueCountPreviewBaseline/);
   assert.match(patientFlow, /waitForFreshBuilderDiagnostic\(target, cdp, explorerId, requireOnePreviewBaseline, 'RELATIONSHIP_CARDINALITY_VIOLATION'/);
+  assert.match(patientFlow, /recordAssertion\(report, 'require-one-terminal-error-is-bound-to-current-draft-and-output'/);
+  assert.match(patientFlow, /recordAssertion\(report, 'count-policy-recovers-preview-for-newer-draft-after-require-one-error'/);
   assert.match(patientFlow, /waitForFreshBuilderDiagnostic\(target, cdp, explorerId, temporalPreviewBaseline, 'TEMPORAL_TIE_AMBIGUOUS'/);
   assert.match(patientFlow, /waitForFreshBuilderPreview\(target, cdp, explorerId, tiePolicyPreviewBaseline/);
   assert.match(patientFlow, /waitForFreshBuilderPreview\(target, cdp, explorerId, maximumPreviewBaseline/);
@@ -1445,6 +1482,16 @@ test('J05 CSV artifact inspection preserves typed values, nulls, empty strings, 
   ]);
   assert.doesNotThrow(() => assertJ05ArtifactRows(artifact, [...artifact.rows].reverse()));
   assertJ05ArtifactIdentity(artifact, j05Identity);
+});
+
+test('training artifact member contract selects the data member from manifest format', () => {
+  assert.deepEqual(expectedTrainingArtifactMembers('CSV'), [
+    'data.csv', 'schema.json', 'provenance.json', 'quality.json', 'README.md', 'manifest.json',
+  ]);
+  assert.deepEqual(expectedTrainingArtifactMembers('JSONL'), [
+    'data.jsonl', 'schema.json', 'provenance.json', 'quality.json', 'README.md', 'manifest.json',
+  ]);
+  assert.throws(() => expectedTrainingArtifactMembers('PARQUET'), /format is unsupported/);
 });
 
 test('J05 JSONL artifact inspection selects data.jsonl and preserves structured row IDs and native arrays', () => {

@@ -2397,6 +2397,12 @@ export const inspectJ05ArtifactPackage = (members) => {
   return { manifest, schema, provenance, rows, dataName };
 };
 
+export const expectedTrainingArtifactMembers = (format) => {
+  const dataName = format === 'CSV' ? 'data.csv' : format === 'JSONL' ? 'data.jsonl' : undefined;
+  if (!dataName) throw new Error(`training artifact format is unsupported: ${format ?? 'missing'}`);
+  return [dataName, 'schema.json', 'provenance.json', 'quality.json', 'README.md', 'manifest.json'];
+};
+
 export const inspectJ01ArtifactRows = (members, idColumnName) => {
   if (typeof idColumnName !== 'string' || idColumnName.length === 0) throw new Error('J01 artifact inspection requires the selected stable id column');
   const artifact = inspectJ05ArtifactPackage(members);
@@ -4565,6 +4571,9 @@ const reconcileSavedBuilderDraft = async (target, explorerId, state) => {
 
 const readBuilderPreviewDOM = async (cdp) => evaluate(cdp, `(() => {
   const preview = document.querySelector('[data-testid="construction-preview"]');
+  const errorText = [...document.querySelectorAll('[role="alert"]')]
+    .map((element) => element.innerText.trim().replace(/\\s+/g, ' '))
+    .find((text) => text.includes('Preview failed:')) ?? '';
   return {
     status: preview?.getAttribute('data-preview-status') ?? '',
     receiptId: preview?.getAttribute('data-preview-receipt-id') ?? '',
@@ -4572,11 +4581,13 @@ const readBuilderPreviewDOM = async (cdp) => evaluate(cdp, `(() => {
     proposalId: preview?.getAttribute('data-preview-proposal-id') ?? '',
     draftVersion: Number(preview?.getAttribute('data-current-draft-version') ?? 0),
     draftDigest: preview?.getAttribute('data-current-draft-digest') ?? '',
+    errorText,
+    terminalText: preview?.querySelector('[role="status"]')?.innerText.trim().replace(/\\s+/g, ' ') ?? '',
     text: document.body.innerText,
   };
 })()`);
 
-export const builderDraftMatchesPreviewDOM = (baseline, state, preview, outputId) => {
+export const builderDraftIsNewerThanBaseline = (baseline, state, outputId) => {
   const selectedDocument = state?.workspace?.documents?.find((document) => document.output?.id === outputId);
   return Boolean(
     selectedDocument &&
@@ -4586,12 +4597,31 @@ export const builderDraftMatchesPreviewDOM = (baseline, state, preview, outputId
     Number.isInteger(state.draftVersion) &&
     state.draftVersion > baseline.draftVersion &&
     state.draftDigest &&
-    state.draftDigest !== baseline.draftDigest &&
-    preview?.outputId === outputId &&
-    preview.draftVersion === state.draftVersion &&
-    preview.draftDigest === state.draftDigest,
+    state.draftDigest !== baseline.draftDigest,
   );
 };
+
+export const builderDraftMatchesPreviewDOM = (baseline, state, preview, outputId) => Boolean(
+  builderDraftIsNewerThanBaseline(baseline, state, outputId) &&
+  preview?.outputId === outputId &&
+  preview.draftVersion === state.draftVersion &&
+  preview.draftDigest === state.draftDigest,
+);
+
+export const builderPreviewFailureMatchesDraft = (baseline, state, preview, outputId, code) => Boolean(
+  builderDraftIsNewerThanBaseline(baseline, state, outputId) &&
+  preview?.status === 'error' &&
+  preview.outputId === outputId &&
+  preview.draftVersion === state.draftVersion &&
+  preview.draftDigest === state.draftDigest &&
+  !preview.receiptId &&
+  !preview.proposalId &&
+  !baseline.text?.includes(code) &&
+  preview.errorText?.includes('Preview failed:') &&
+  preview.errorText.includes(code) &&
+  preview.terminalText?.includes(code) &&
+  !preview.terminalText.includes('Loading your table')
+);
 
 export const builderPreviewIsFreshForDraft = (baseline, state, preview, outputId, savedCompileReceipt) =>
   builderDraftMatchesPreviewDOM(baseline, state, preview, outputId) &&
@@ -4691,13 +4721,7 @@ const waitForFreshBuilderDiagnostic = async (target, cdp, explorerId, baseline, 
       readBuilderPreviewDOM(cdp),
     ]);
     latest = { state, preview };
-    if (
-      builderDraftMatchesPreviewDOM(baseline, state, preview, baseline.outputId) &&
-      preview.status === 'stale' &&
-      !preview.proposalId &&
-      !baseline.text.includes(code) &&
-      preview.text.includes(code)
-    ) return;
+    if (builderPreviewFailureMatchesDraft(baseline, state, preview, baseline.outputId, code)) return { state, preview };
     await sleep(200);
   }
   throw new Error(`automatic preview did not report ${code} for the newly committed Builder draft: ${JSON.stringify({
@@ -4858,13 +4882,15 @@ const rowValue = (row, column) => row[column] ?? null;
 
 const coordinateIndex = (emitted) => emitted?.coordinates?.at(-1)?.index ?? -1;
 
-const verifyInterpretationCandidate = async (target, report, cdp, explorerID, evidenceDir, browserURL) => {
+const verifyInterpretationCandidate = async (target, report, cdp, explorerID, evidenceDir, browserURL, physicalColumnID) => {
   const started = Date.now();
   const sourceDigestBefore = fixtureSourceDigest(target.fixtureDir);
   const initial = await fetchBuilderState(target, explorerID);
   const document = initial.workspace?.documents?.[0];
-  const feature = document?.columns?.find((column) => column.source?.kind === 'field' && column.source.field?.path?.replace(/^root\./, '') === 'id');
-  if (!document?.output?.id || !feature) throw new Error('B06 verification feature for Patient id is missing from the draft');
+  const feature = document?.columns?.find((column) => column.column === physicalColumnID);
+  if (!document?.output?.id || !feature || feature.source?.kind !== 'field' || String(feature.source.field?.path ?? '').replace(/^root\./, '') !== 'id' || feature.source.field?.projectionMode !== 'VALUE') {
+    throw new Error(`B06 verification feature for Patient id column ${physicalColumnID} is missing or changed in the draft`);
+  }
   const libraryID = `b06-map-${Date.now().toString(36)}-${Math.random().toString(16).slice(2, 8)}`;
   const contextRequest = {
     snapshotToken: initial.catalog.snapshotToken,
@@ -4917,11 +4943,20 @@ const verifyInterpretationCandidate = async (target, report, cdp, explorerID, ev
   const afterStaleLibraries = await fetchInterpretationLibraries(target, target.fixtureProject);
   recordAssertion(report, 'stale-create-does-not-create-a-library', false,
     afterStaleLibraries.libraries.some((item) => item.library?.id === staleLibraryID));
+  const sameLabelColumns = document.columns.filter((column) => column.label === feature.label);
+  const sameLabelIndex = sameLabelColumns.findIndex((column) => column.column === feature.column);
+  if (sameLabelIndex < 0) throw new Error(`Patient id column ${feature.column} is missing from its saved label group`);
   const panelExpression = `(() => {
-    const panel = [...document.querySelectorAll('div.col-span-full')].find((element) =>
-      norm(element.innerText).includes('Interpretation') && /\\bid\\b/.test(element.innerText) &&
-      (element.innerText.includes('Current feature meaning is inline') || element.innerText.includes('Pinned revision')));
-    if (!panel) throw new Error('Patient id interpretation panel not found');
+    const expectedLabel = ${JSON.stringify(feature.label)};
+    const matches = [...document.querySelectorAll('div.col-span-full')].filter((element) => {
+      const label = element.querySelector(':scope > div.flex > span.text-slate-500');
+      const text = norm(element.innerText);
+      return norm(label?.textContent) === expectedLabel && text.includes('Interpretation') &&
+        (text.includes('Current feature meaning is inline') || text.includes('Pinned revision'));
+    });
+    if (matches.length !== ${sameLabelColumns.length}) throw new Error('Expected ${sameLabelColumns.length} interpretation panels for saved label ' + expectedLabel + '; found ' + matches.length);
+    const panel = matches[${sameLabelIndex}];
+    if (!panel) throw new Error('Patient id interpretation panel for ' + expectedLabel + ' at saved occurrence ${sameLabelIndex} not found');
     return panel;
   })()`;
   const openMappingPanel = async () => {
@@ -5006,7 +5041,7 @@ const verifyInterpretationCandidate = async (target, report, cdp, explorerID, ev
       const headers = [...candidate.querySelectorAll('thead th')].map((cell) => norm(cell.textContent));
       return headers.join('|') === 'Row|Current|With this mapping|State';
     });
-    const panel = [...document.querySelectorAll('div.col-span-full')].find((element) => norm(element.innerText).includes('Review: Current → With this mapping') && /\\bid\\b/.test(element.innerText));
+    const panel = ${panelExpression};
     const text = norm(panel?.innerText);
     return {
       complete: text.includes('The full output was exhausted for this review.'),
@@ -5346,7 +5381,15 @@ const verifyBrowserScenario = async (target, report, full, entryTarget = target)
     await waitForAddColumnsAction(cdp, `document.body.innerText.includes('Patients with observations') && Boolean(document.querySelector('[data-testid="construction-workspace"]'))`);
     const patientInitialBuilder = await fetchBuilderState(target, explorerId);
     const patientInitialTable = patientInitialBuilder.workspace?.documents?.[0];
+    const patientOutputId = patientInitialTable?.output?.id;
+    if (!patientOutputId) throw new Error('Patient Builder table output identity is missing');
     recordAssertion(report, 'patient-builder-creates-patient-rows', 'Patient', patientInitialTable?.rootResourceType);
+    const patientInitialIDColumns = (patientInitialTable.columns ?? []).filter((column) =>
+      column.source?.kind === 'field' &&
+      String(column.source.field?.path ?? '').replace(/^root\./, '') === 'id' &&
+      column.source.field?.projectionMode === 'VALUE');
+    if (patientInitialIDColumns.length !== 1) throw new Error(`Patient starting table must have one direct id column, found ${patientInitialIDColumns.length}`);
+    const patientInitialIDColumn = patientInitialIDColumns[0];
     await browserEval(cdp, `const button = document.querySelector('[data-testid="construction-action-add-columns"]'); if (!button || button.disabled) throw new Error('Add columns action is unavailable'); button.click();`);
     await waitForBrowser(cdp, `Boolean(document.querySelector('[aria-label="Add columns editor"]'))`);
     await browserEval(cdp, `clickButton('Fields and related data')`);
@@ -5371,49 +5414,128 @@ const verifyBrowserScenario = async (target, report, full, entryTarget = target)
     }
     await waitForBrowser(cdp, `Boolean([...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Apply columns' && !button.disabled))`);
     await browserEval(cdp, `clickButton('Apply columns')`);
-    await waitForBrowser(cdp, `Boolean(document.querySelector('input[aria-label="Display name for configured id"]'))`);
-    const catalogBuilder = await fetchBuilderState(target, explorerId);
-    const catalogIDColumn = catalogBuilder.workspace.documents[0].columns.find((column) => column.label === 'id');
+    await browserEval(cdp, `const button = document.querySelector('[data-testid="construction-close-operation-editor"]'); if (!button) throw new Error('Add columns editor close control is unavailable'); button.click();`);
+    await waitForBrowser(cdp, `!document.querySelector('[aria-label="Add columns editor"]')`);
+    await browserEval(cdp, `const details = document.querySelector('[data-testid="construction-source-setup"]'); if (!details) throw new Error('advanced source setup is unavailable'); if (!details.open) details.querySelector('summary')?.click();`);
+    const initialPatientColumns = new Set(patientInitialTable.columns.map(column => column.column));
+    const waitForRootField = async (fieldPath, newlyAdded = false) => {
+      const deadline = Date.now() + 30000;
+      let latestBuilder;
+      while (Date.now() < deadline) {
+        latestBuilder = await fetchBuilderState(target, explorerId);
+        const document = latestBuilder.workspace?.documents?.find((candidate) => candidate.output?.id === patientOutputId);
+        if (document && document.rootResourceType !== 'Patient') throw new Error(`Patient table ${patientOutputId} changed root to ${document.rootResourceType}`);
+        const matchingColumns = (document?.columns ?? []).filter((column) =>
+          column.source?.kind === 'field' &&
+          String(column.source.field?.path ?? '').replace(/^root\./, '') === fieldPath &&
+          (!newlyAdded || !initialPatientColumns.has(column.column)));
+        if (matchingColumns.length > 1) throw new Error(`Patient ${fieldPath} binding is ambiguous: ${matchingColumns.length} saved columns`);
+        if (document && matchingColumns.length === 1) return { builder: latestBuilder, document, column: matchingColumns[0] };
+        await sleep(200);
+      }
+      throw new Error(`timed out waiting for the saved Patient.${fieldPath} source binding; draft=${latestBuilder?.draftVersion}`);
+    };
+    const waitForConfiguredColumnInput = async (column) => {
+      const inputLabel = `Display name for configured ${column.label}`;
+      await waitForBrowser(cdp, `Boolean([...document.querySelectorAll('input[aria-label^="Display name for configured "]')].some((input) => input.getAttribute('aria-label') === ${JSON.stringify(inputLabel)}))`);
+      return inputLabel;
+    };
+    const catalogID = await waitForRootField('id', true);
+    for (const initialColumn of patientInitialTable.columns) {
+      const retained = catalogID.document.columns.find(column => column.column === initialColumn.column);
+      recordAssertion(report, 'builder-catalog-preserves-initial-' + initialColumn.column, initialColumn, retained);
+    }
+    const catalogBuilder = catalogID.builder;
+    const catalogIDColumn = catalogID.column;
+    if (catalogIDColumn.column === patientInitialIDColumn.column) throw new Error('Patient catalog id reused the existing auto-id physical column');
+    const patientIDColumnsAfterCatalog = catalogID.document.columns.filter((column) =>
+      column.source?.kind === 'field' &&
+      String(column.source.field?.path ?? '').replace(/^root\./, '') === 'id' &&
+      column.source.field?.projectionMode === 'VALUE');
+    recordAssertion(report, 'builder-keeps-auto-id-and-adds-distinct-catalog-id', [
+      { column: patientInitialIDColumn.column, label: 'Patient ID', path: 'id', projectionMode: 'VALUE' },
+      { column: catalogIDColumn.column, label: 'Patient ID', path: 'id', projectionMode: 'VALUE' },
+    ], patientIDColumnsAfterCatalog.map((column) => ({
+      column: column.column,
+      label: column.label,
+      path: String(column.source.field.path).replace(/^root\./, ''),
+      projectionMode: column.source.field.projectionMode,
+    })));
+    const rootFieldCandidate = (builder, fieldPath) => {
+      const root = builder.catalog?.nodes?.find((node) => node.resourceType === 'Patient' && node.rowRootEligible);
+      const matches = (builder.catalog?.candidates ?? []).filter((candidate) => candidate.nodeId === root?.nodeId &&
+        String(candidate.fieldPath ?? '').replace(/^root\./, '') === fieldPath);
+      if (matches.length !== 1 || !matches[0].defaultProjectionMode) {
+        throw new Error(`Patient ${fieldPath} needs one root field candidate with a default projection; found ${matches.length}`);
+      }
+      return matches[0];
+    };
+    const catalogIDCandidate = rootFieldCandidate(catalogBuilder, 'id');
+    if (catalogIDColumn.source.field.projectionMode !== 'VALUE' || catalogIDCandidate.defaultProjectionMode !== 'VALUE') {
+      throw new Error(`Patient.id must be the direct VALUE binding; saved=${catalogIDColumn.source.field.projectionMode}, catalog=${catalogIDCandidate.defaultProjectionMode}`);
+    }
+    const catalogIDInputLabel = await waitForConfiguredColumnInput(catalogIDColumn);
     recordAssertion(report, 'builder-catalog-adds-default-root-field-without-graph', {
       kind: 'field',
       path: 'id',
       projectionMode: 'VALUE',
       graphVisible: false,
     }, {
-      kind: catalogIDColumn?.source?.kind,
-      path: catalogIDColumn?.source?.field?.path,
-      projectionMode: catalogIDColumn?.source?.field?.projectionMode,
+      kind: catalogIDColumn.source.kind,
+      path: String(catalogIDColumn.source.field.path).replace(/^root\./, ''),
+      projectionMode: catalogIDColumn.source.field.projectionMode,
       graphVisible: await evaluate(cdp, `document.body.innerText.includes('Dataset graph')`),
     });
     await snapshot(cdp, join(evidenceDir, 'builder-catalog-column.html'));
     recordEvidence(report, join(evidenceDir, 'builder-catalog-column.html'));
-    await browserEval(cdp, `const button = document.querySelector('[data-testid="construction-close-operation-editor"]'); if (!button) throw new Error('Add columns editor close control is unavailable'); button.click();`);
-    await waitForBrowser(cdp, `!document.querySelector('[aria-label="Add columns editor"]')`);
-    await browserEval(cdp, `const details = document.querySelector('[data-testid="construction-source-setup"]'); if (!details) throw new Error('advanced source setup is unavailable'); if (!details.open) details.querySelector('summary')?.click();`);
     await waitForBrowser(cdp, `Boolean(document.querySelector('[aria-label="Feature authoring view"]'))`);
     await browserEval(cdp, `clickButton('Advanced graph')`);
     await waitForBrowser(cdp, `document.body.innerText.includes('Current query') && document.body.innerText.includes('Patient columns')`);
     await browserEval(cdp, `clickCandidate('name[].family', 'to table')`);
-    await waitForBrowser(cdp, `Boolean(document.querySelector('input[aria-label="Display name for configured name[].family"]'))`);
+    const familyField = await waitForRootField('name[].family');
+    const familyCandidate = rootFieldCandidate(familyField.builder, 'name[].family');
+    if (familyField.column.source.field.projectionMode !== familyCandidate.defaultProjectionMode) {
+      throw new Error(`Patient.name[].family projection differs from its selected root candidate: saved=${familyField.column.source.field.projectionMode}, candidate=${familyCandidate.defaultProjectionMode}`);
+    }
+    const familyInputLabel = await waitForConfiguredColumnInput(familyField.column);
+    await browserEval(cdp, `setInput('Search columns', 'gender')`);
+    await waitForBrowser(cdp, `Boolean(document.querySelector('input[aria-label="Add gender as filter"]'))`);
     await browserEval(cdp, `clickCandidate('gender', 'as filter')`);
-    await waitForBrowser(cdp, `Boolean(document.querySelector('input[aria-label="Display name for configured gender"]'))`);
-    await waitForBrowser(cdp, `Boolean(document.querySelector('input[aria-label="Display name for configured id"]') && document.querySelector('input[aria-label="Display name for configured name[].family"]') && document.querySelector('input[aria-label="Display name for configured gender"]'))`);
-    const configuredFields = await evaluate(cdp, `([...document.querySelectorAll('input[aria-label^="Display name for configured "]')].map((input) => input.getAttribute('aria-label')).sort())`);
-    recordAssertion(report, 'builder-configures-exact-root-fields', true, ['Display name for configured gender', 'Display name for configured id', 'Display name for configured name[].family'].every((label) => configuredFields.includes(label)));
-    await verifyInterpretationCandidate(target, report, cdp, explorerId, evidenceDir, verificationBrowserURL);
+    await browserEval(cdp, `setInput('Search columns', '')`);
+    const genderField = await waitForRootField('gender');
+    const genderCandidate = rootFieldCandidate(genderField.builder, 'gender');
+    if (genderField.column.source.field.projectionMode !== genderCandidate.defaultProjectionMode) {
+      throw new Error(`Patient.gender projection differs from its selected root candidate: saved=${genderField.column.source.field.projectionMode}, candidate=${genderCandidate.defaultProjectionMode}`);
+    }
+    const genderInputLabel = await waitForConfiguredColumnInput(genderField.column);
+    const expectedConfiguredInputLabels = [catalogIDInputLabel, familyInputLabel, genderInputLabel].sort();
+    const configuredInputLabelsExpression = `Array.from(new Set(Array.from(document.querySelectorAll('input[aria-label^="Display name for configured "]'), (input) => input.getAttribute('aria-label')))).sort()`;
+    await waitForBrowser(cdp, `(() => { const expected = ${JSON.stringify(expectedConfiguredInputLabels)}; const actual = ${configuredInputLabelsExpression}; return expected.every((label) => actual.includes(label)); })()`);
+    const configuredFields = await evaluate(cdp, configuredInputLabelsExpression);
+    recordAssertion(report, 'builder-configures-exact-root-fields', expectedConfiguredInputLabels, configuredFields);
+    const configuredSourceBindings = [catalogIDColumn, familyField.column, genderField.column].map((column) => ({
+      path: String(column.source.field.path).replace(/^root\./, ''),
+      projectionMode: column.source.field.projectionMode,
+    }));
+    recordAssertion(report, 'builder-configures-exact-root-field-source-bindings', [
+      { path: 'id', projectionMode: 'VALUE' },
+      { path: 'name[].family', projectionMode: familyCandidate.defaultProjectionMode },
+      { path: 'gender', projectionMode: genderCandidate.defaultProjectionMode },
+    ], configuredSourceBindings);
+    await verifyInterpretationCandidate(target, report, cdp, explorerId, evidenceDir, verificationBrowserURL, catalogIDColumn.column);
 
     await waitForBrowser(cdp, `document.body.innerText.includes('Concept catalog')`);
     await browserEval(cdp, `clickButton('Advanced graph')`);
     await waitForBrowser(cdp, `document.body.innerText.includes('Dataset graph')`);
     await browserEval(cdp, `clickContains('.react-flow__node', 'Observation')`);
     await waitForBrowser(cdp, `document.body.innerText.includes('Observation columns')`);
-    await waitForBrowser(cdp, `Boolean(document.querySelector('[aria-label="Require Observation match"]'))`);
+    await waitForBrowser(cdp, `document.querySelector('[aria-label="Require Observation match"]')?.disabled === false`);
     await browserEval(cdp, `clickButton('Require Observation match');`);
-    await waitForBrowser(cdp, `Boolean(document.querySelector('[aria-label="Keep Observation match"]'))`);
+    await waitForBrowser(cdp, `document.querySelector('[aria-label="Keep Observation match"]')?.disabled === false`);
     const requiredBuilder = await fetchBuilderState(target, explorerId);
     recordAssertion(report, 'builder-required-match-persists-route-intent', 'REQUIRED', requiredBuilder.workspace.documents[0].route.children[0].matchMode);
     await browserEval(cdp, `clickButton('Keep Observation match');`);
-    await waitForBrowser(cdp, `Boolean(document.querySelector('[aria-label="Require Observation match"]'))`);
+    await waitForBrowser(cdp, `document.querySelector('[aria-label="Require Observation match"]')?.disabled === false`);
     const optionalBuilder = await fetchBuilderState(target, explorerId);
     recordAssertion(report, 'builder-optional-match-restores-feature-only-route', 'OPTIONAL', optionalBuilder.workspace.documents[0].route.children[0].matchMode);
     const columnScroll = await browserEval(cdp, `
@@ -5504,10 +5626,10 @@ const verifyBrowserScenario = async (target, report, full, entryTarget = target)
       };
     })()`);
     recordAssertion(report, 'preview-shows-exact-fixture-table', {
-      headers: ['id', 'name[].family [0]', 'name[].family [1]', 'name__count', 'Observation count', 'Has Observation', 'valueQuantity.value'],
+      headers: ['Patient ID', 'Patient ID', 'name[].family [0]', 'name[].family [1]', 'name__count', 'Observation count', 'Has Observation', 'valueQuantity.value'],
       rows: [
-        ['dev-patient-001', 'Example', 'Example-Smith', '2', '1', 'true', String(relatedValue)],
-        ['dev-patient-002', 'Builder', '—', '1', '0', 'true', '68'],
+        ['dev-patient-001', 'dev-patient-001', 'Example', 'Example-Smith', '2', '1', 'true', String(relatedValue)],
+        ['dev-patient-002', 'dev-patient-002', 'Builder', '—', '1', '0', 'true', '68'],
       ],
     }, preview);
 
@@ -5523,21 +5645,86 @@ const verifyBrowserScenario = async (target, report, full, entryTarget = target)
       Boolean(rejectedState.active?.revisionId || rejectedState.runtime?.outputs?.length));
     const requireOnePreviewBaseline = await captureBuilderPreviewBaseline(target, cdp, explorerId);
     await browserEval(cdp, `selectOption('Across related Observation records for valueQuantity.value', 'Require zero or one value')`);
-    await waitForFreshBuilderDiagnostic(target, cdp, explorerId, requireOnePreviewBaseline, 'RELATIONSHIP_CARDINALITY_VIOLATION');
+    const requireOneDiagnostic = await waitForFreshBuilderDiagnostic(target, cdp, explorerId, requireOnePreviewBaseline, 'RELATIONSHIP_CARDINALITY_VIOLATION');
     recordAssertion(report, 'require-one-rejects-ambiguous-related-values', true,
       String(await evaluate(cdp, 'document.body.innerText')).includes('RELATIONSHIP_CARDINALITY_VIOLATION'));
     const ambiguousState = await fetchExplorerState(target, explorerId);
     recordAssertion(report, 'ambiguous-require-one-does-not-publish', false,
       Boolean(ambiguousState.active?.revisionId || ambiguousState.runtime?.outputs?.length));
+    const requireOneErrorWitness = {
+      snapshotToken: requireOneDiagnostic.state.catalog?.snapshotToken ?? '',
+      draftVersion: requireOneDiagnostic.state.draftVersion,
+      draftDigest: requireOneDiagnostic.state.draftDigest,
+      outputId: requireOneDiagnostic.preview.outputId,
+      status: requireOneDiagnostic.preview.status,
+      errorText: requireOneDiagnostic.preview.errorText,
+      terminalText: requireOneDiagnostic.preview.terminalText,
+    };
+    const requireOneErrorActual = {
+      snapshotMatchesBaseline: requireOneErrorWitness.snapshotToken === requireOnePreviewBaseline.snapshotToken,
+      outputMatchesSelected: requireOneErrorWitness.outputId === requireOnePreviewBaseline.outputId,
+      statusIsTerminalError: requireOneErrorWitness.status === 'error',
+      changedSavedDraft: builderDraftIsNewerThanBaseline(requireOnePreviewBaseline, requireOneDiagnostic.state, requireOnePreviewBaseline.outputId),
+      previewMatchesSavedDraft: requireOneDiagnostic.preview.draftVersion === requireOneDiagnostic.state.draftVersion &&
+        requireOneDiagnostic.preview.draftDigest === requireOneDiagnostic.state.draftDigest,
+      errorCodeMatches: requireOneErrorWitness.errorText.includes('RELATIONSHIP_CARDINALITY_VIOLATION') &&
+        requireOneErrorWitness.terminalText.includes('RELATIONSHIP_CARDINALITY_VIOLATION'),
+      noReceiptOrProposal: !requireOneDiagnostic.preview.receiptId && !requireOneDiagnostic.preview.proposalId,
+      loadingPlaceholderCleared: !requireOneErrorWitness.terminalText.includes('Loading your table'),
+    };
+    report.target.automaticPreviewDiagnostic = { assertion: 'require-one-terminal-error-is-bound-to-current-draft-and-output', ...requireOneErrorWitness };
+    recordAssertion(report, 'require-one-terminal-error-is-bound-to-current-draft-and-output', {
+      snapshotMatchesBaseline: true,
+      outputMatchesSelected: true,
+      statusIsTerminalError: true,
+      changedSavedDraft: true,
+      previewMatchesSavedDraft: true,
+      errorCodeMatches: true,
+      noReceiptOrProposal: true,
+      loadingPlaceholderCleared: true,
+    }, requireOneErrorActual);
     const valueCountPreviewBaseline = await captureBuilderPreviewBaseline(target, cdp, explorerId);
     await browserEval(cdp, `selectOption('Across related Observation records for valueQuantity.value', 'Count values or records')`);
-    await waitForFreshBuilderPreview(target, cdp, explorerId, valueCountPreviewBaseline, report,
+    const valueCountRecoveryState = await waitForFreshBuilderPreview(target, cdp, explorerId, valueCountPreviewBaseline, report,
       'value-count-preview-uses-current-aggregate-draft');
+    const valueCountRecoveryPreview = await readBuilderPreviewDOM(cdp);
+    const valueCountRecoveryActual = {
+      outputMatchesSelected: valueCountRecoveryPreview.outputId === valueCountPreviewBaseline.outputId,
+      statusIsReady: valueCountRecoveryPreview.status === 'ready',
+      snapshotMatchesErrorDraft: valueCountRecoveryState.catalog?.snapshotToken === requireOneDiagnostic.state.catalog?.snapshotToken,
+      savedDraftAdvancedAfterError: valueCountRecoveryState.draftVersion > requireOneDiagnostic.state.draftVersion &&
+        valueCountRecoveryState.draftDigest !== requireOneDiagnostic.state.draftDigest,
+      previewMatchesSavedDraft: valueCountRecoveryPreview.draftVersion === valueCountRecoveryState.draftVersion &&
+        valueCountRecoveryPreview.draftDigest === valueCountRecoveryState.draftDigest,
+      freshReceiptPresent: Boolean(valueCountRecoveryPreview.receiptId),
+      proposalCleared: !valueCountRecoveryPreview.proposalId,
+    };
+    report.target.automaticPreviewRecovery = {
+      assertion: 'count-policy-recovers-preview-for-newer-draft-after-require-one-error',
+      afterError: { draftVersion: requireOneDiagnostic.state.draftVersion, draftDigest: requireOneDiagnostic.state.draftDigest, outputId: requireOnePreviewBaseline.outputId },
+      recovered: {
+        snapshotToken: valueCountRecoveryState.catalog?.snapshotToken ?? '',
+        draftVersion: valueCountRecoveryState.draftVersion,
+        draftDigest: valueCountRecoveryState.draftDigest,
+        outputId: valueCountRecoveryPreview.outputId,
+        status: valueCountRecoveryPreview.status,
+        receiptId: valueCountRecoveryPreview.receiptId,
+      },
+    };
+    recordAssertion(report, 'count-policy-recovers-preview-for-newer-draft-after-require-one-error', {
+      outputMatchesSelected: true,
+      statusIsReady: true,
+      snapshotMatchesErrorDraft: true,
+      savedDraftAdvancedAfterError: true,
+      previewMatchesSavedDraft: true,
+      freshReceiptPresent: true,
+      proposalCleared: true,
+    }, valueCountRecoveryActual);
     const valueCounts = await evaluate(cdp, `(() => {
       const table = document.querySelector('[data-testid="preview-table-scroll"] [role="table"]');
       const rows = [...(table?.querySelectorAll('[role="row"]') || [])];
       const headers = [...(rows[0]?.querySelectorAll('[role="columnheader"]') || [])].map((cell) => cell.textContent.trim());
-      const idIndex = headers.indexOf('id');
+      const idIndex = headers.indexOf('Patient ID');
       const valueIndex = headers.indexOf('valueQuantity.value');
       return rows.slice(1).map((row) => {
         const cells = [...row.querySelectorAll('[role="cell"]')].map((cell) => cell.textContent.trim());
@@ -5607,7 +5794,7 @@ const verifyBrowserScenario = async (target, report, full, entryTarget = target)
       const table = document.querySelector('[data-testid="preview-table-scroll"] [role="table"]');
       const rows = [...(table?.querySelectorAll('[role="row"]') || [])];
       const headers = [...(rows[0]?.querySelectorAll('[role="columnheader"]') || [])].map((cell) => cell.textContent.trim());
-      const idIndex = headers.indexOf('id');
+      const idIndex = headers.indexOf('Patient ID');
       const valueIndex = headers.indexOf('valueQuantity.value');
       return rows.slice(1).map((row) => {
         const cells = [...row.querySelectorAll('[role="cell"]')].map((cell) => cell.textContent.trim());
@@ -5677,8 +5864,12 @@ const verifyBrowserScenario = async (target, report, full, entryTarget = target)
     });
     recordAssertion(report, 'published-output-columns-have-generated-lineage', true,
       outputLineage.length === physicalColumns.length && outputLineage.every((column) => column.sourcePath && column.column));
+    const expectedPatientIDColumnIDs = [patientInitialIDColumn.column, catalogIDColumn.column];
+    recordAssertion(report, 'published-output-preserves-exact-auto-and-catalog-id-columns', expectedPatientIDColumnIDs,
+      outputLineage.filter((column) => expectedPatientIDColumnIDs.includes(column.column)).map((column) => column.column));
     recordAssertion(report, 'published-output-has-exact-supported-shape', [
-      { label: 'id', sourcePath: 'id', sourceResourceType: 'Patient', projectionMode: 'VALUE', coordinates: [] },
+      { label: 'Patient ID', sourcePath: 'id', sourceResourceType: 'Patient', projectionMode: 'VALUE', coordinates: [] },
+      { label: 'Patient ID', sourcePath: 'id', sourceResourceType: 'Patient', projectionMode: 'VALUE', coordinates: [] },
       { label: 'name[].family [0]', sourcePath: 'name[].family', sourceResourceType: 'Patient', projectionMode: 'INDEXED', coordinates: [0] },
       { label: 'name[].family [1]', sourcePath: 'name[].family', sourceResourceType: 'Patient', projectionMode: 'INDEXED', coordinates: [1] },
       { label: 'name__count', sourcePath: 'name[]', sourceResourceType: 'Patient', projectionMode: 'COUNT', coordinates: [] },
@@ -5687,7 +5878,8 @@ const verifyBrowserScenario = async (target, report, full, entryTarget = target)
       { label: 'valueQuantity.value', sourcePath: 'valueQuantity.value', sourceResourceType: 'Observation', projectionMode: 'MAX', coordinates: [] },
       { label: 'gender', sourcePath: 'gender', sourceResourceType: 'Patient', projectionMode: 'VALUE', coordinates: [] },
     ], outputLineage.map(({ label, sourcePath, sourceResourceType, projectionMode, coordinates }) => ({ label, sourcePath, sourceResourceType, projectionMode, coordinates })));
-    const idColumn = findPhysicalColumn(state, output, (runtimeColumn, emitted) => emitted.sourcePath === 'id' || emitted.authoredColumns?.includes('id') || /patient\s*id/i.test(runtimeColumn.label));
+    const idColumn = findPhysicalColumn(state, output, (runtimeColumn, emitted) =>
+      runtimeColumn.column === patientInitialIDColumn.column && emitted.sourcePath === 'id');
     const familyColumns = output.columns
       .map((runtimeColumn) => ({ runtime: runtimeColumn, emitted: emittedForPhysicalColumn(state, output.outputId, runtimeColumn.column) }))
       .filter(({ emitted }) => emitted && (emitted.sourcePath?.includes('family') || emitted.authoredColumns?.some((path) => path.includes('family')) || /family/i.test(emitted.label)))
@@ -5717,6 +5909,10 @@ const verifyBrowserScenario = async (target, report, full, entryTarget = target)
     recordAssertion(report, 'materialization-reports-two-total-rows', 2, result.totalCount);
     const rows = normalizeRows(result.rows, result.columns);
     const orderedRows = [...rows].sort((left, right) => String(rowValue(left, idColumn.runtime.column)).localeCompare(String(rowValue(right, idColumn.runtime.column))));
+    recordAssertion(report, 'materialized-preserves-both-literal-patient-id-values', [
+      ['dev-patient-001', 'dev-patient-001'],
+      ['dev-patient-002', 'dev-patient-002'],
+    ], orderedRows.map((row) => expectedPatientIDColumnIDs.map((columnID) => rowValue(row, columnID))));
     const exactRows = orderedRows.map((row) => ({
       id: rowValue(row, idColumn.runtime.column),
       family: familyColumns.map(({ runtime: column }) => rowValue(row, column.column)),
@@ -5776,8 +5972,8 @@ const verifyBrowserScenario = async (target, report, full, entryTarget = target)
       };
     })()`);
     recordAssertion(report, 'viewer-filter-shows-exact-table', {
-      headers: ['id', 'name[].family [0]', 'name[].family [1]', 'name__count', 'Observation count', 'Has Observation', 'valueQuantity.value'],
-      rows: [['dev-patient-001', 'Example', 'Example-Smith', '2', '1', 'true', String(maximumRelatedValue)]],
+      headers: ['Patient ID', 'Patient ID', 'name[].family [0]', 'name[].family [1]', 'name__count', 'Observation count', 'Has Observation', 'valueQuantity.value'],
+      rows: [['dev-patient-001', 'dev-patient-001', 'Example', 'Example-Smith', '2', '1', 'true', String(maximumRelatedValue)]],
     }, filteredViewer);
     recordAssertion(report, 'viewer-mode-is-persisted-in-url', 'viewer', await evaluate(cdp, 'new URL(window.location.href).searchParams.get("mode")'));
 
@@ -5805,11 +6001,11 @@ const verifyBrowserScenario = async (target, report, full, entryTarget = target)
     report.target.trainingArtifactBytes = statSync(archivePath).size;
     recordEvidence(report, archivePath);
     const archive = readStoredZip(archivePath);
-    const requiredMembers = ['data.csv', 'schema.json', 'provenance.json', 'quality.json', 'README.md', 'manifest.json'];
+    const artifact = inspectJ05ArtifactPackage(archive);
+    const { manifest, schema, rows: artifactRows, dataName } = artifact;
+    const requiredMembers = expectedTrainingArtifactMembers(manifest.format);
     recordAssertion(report, 'training-artifact-has-fixed-members', requiredMembers, [...archive.keys()]);
-    const manifest = JSON.parse(archive.get('manifest.json').toString('utf8'));
-    const schema = JSON.parse(archive.get('schema.json').toString('utf8'));
-    const csvRows = parseCSV(archive.get('data.csv').toString('utf8'));
+    recordAssertion(report, 'training-artifact-data-member-matches-manifest-format', manifest.format, dataName === 'data.csv' ? 'CSV' : 'JSONL');
     recordAssertion(report, 'training-artifact-is-bound-to-published-revision', {
       project: canonicalProjectID(target.fixtureProject),
       datasetGeneration: target.fixtureGeneration,
@@ -5823,11 +6019,23 @@ const verifyBrowserScenario = async (target, report, full, entryTarget = target)
       outputId: manifest.identity.outputId,
       revisionId: manifest.identity.revisionId,
     });
-    recordAssertion(report, 'training-artifact-schema-matches-data', schema.columns.map((column) => column.name), csvRows[0] ?? []);
+    const schemaNames = schema.columns.map((column) => column.name);
+    recordAssertion(report, 'training-artifact-schema-matches-data', true,
+      artifactRows.every((row) => JSON.stringify(Object.keys(row.values)) === JSON.stringify(schemaNames)));
     recordAssertion(report, 'training-artifact-has-full-published-row-count', 2, manifest.rows);
-    const artifactIDIndex = (csvRows[0] ?? []).indexOf(idColumn.runtime.column);
-    recordAssertion(report, 'training-artifact-has-row-identity-column', true, artifactIDIndex >= 0);
-    recordAssertion(report, 'training-artifact-has-full-published-membership', ['dev-patient-001', 'dev-patient-002'], csvRows.slice(1).map((row) => row[artifactIDIndex]).sort());
+    recordAssertion(report, 'training-artifact-has-both-exact-patient-id-columns', expectedPatientIDColumnIDs.map((name) => ({ name, label: 'Patient ID' })),
+      schema.columns.filter((column) => expectedPatientIDColumnIDs.includes(column.name)).map((column) => ({ name: column.name, label: column.label })));
+    recordAssertion(report, 'training-artifact-preserves-both-literal-patient-id-values', [
+      ['dev-patient-001', 'dev-patient-001'],
+      ['dev-patient-002', 'dev-patient-002'],
+    ], artifactRows.map((row) => expectedPatientIDColumnIDs.map((name) => row.values[name])).sort((left, right) => String(left[0]).localeCompare(String(right[0]))));
+    const artifactRowIdentityColumn = manifest.descriptor?.rowIdentity?.sourceIdColumn;
+    const artifactRowIdentities = artifactRows.map((row) => row.rowId ?? row.values[artifactRowIdentityColumn]);
+    recordAssertion(report, 'training-artifact-has-row-identity-column', true,
+      artifactRowIdentities.length === manifest.rows && artifactRowIdentities.every((identity) => identity !== undefined && identity !== null) &&
+      new Set(artifactRowIdentities.map((identity) => JSON.stringify(identity))).size === artifactRowIdentities.length);
+    recordAssertion(report, 'training-artifact-has-full-published-membership', ['dev-patient-001', 'dev-patient-002'],
+      artifactRows.map((row) => row.values[idColumn.runtime.column]).sort());
     recordAssertion(report, 'training-artifact-member-checksums-match', true, manifest.members.every((member) => {
       const bytes = archive.get(member.name);
       return Boolean(bytes) && bytes.length === member.bytes && createHash('sha256').update(bytes).digest('hex') === member.sha256;
