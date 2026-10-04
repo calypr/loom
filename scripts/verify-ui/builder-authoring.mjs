@@ -393,14 +393,14 @@ const runCohortRecode = context => runPlaywrightCase(context, 'builder-authoring
     after: async () => assert.equal(await groupedPolicy.inputValue(), 'ALL'),
   });
   const rawFieldDisclosures = page.getByTestId('feature-catalog-raw-fields');
-  assert(await rawFieldDisclosures.count() > 1,
-    'raw FHIR fields must scope the Patient choice among multiple resource disclosures');
+  assert.equal(await rawFieldDisclosures.count(), 1,
+    'the active feature catalog must expose one raw FHIR disclosure');
   const patientIDChoice = page.getByRole('checkbox', { name: 'Select Patient.id', exact: true });
   const rawFields = page.locator(
     '[data-testid="feature-catalog-raw-fields"]:has(input[type="checkbox"][aria-label="Select Patient.id"])');
   assert.equal(await rawFields.count(), 1,
     'exactly one raw FHIR disclosure must contain the Patient.id checkbox');
-  const rawFieldSummary = rawFields.locator('summary');
+  const rawFieldSummary = rawFields.locator(':scope > summary');
   assert.equal(await rawFieldSummary.count(), 1, 'the Patient raw FHIR disclosure must have one unique summary control');
   if (!await rawFields.evaluate(element => element.open)) {
     await action('open Patient raw FHIR fields', rawFieldSummary, () => rawFieldSummary.click(), {
