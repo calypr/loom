@@ -1,14 +1,23 @@
-import { sanitizeBody, sanitizeText } from './playwright-browser.mjs';
+import { sanitizeText } from './playwright-browser.mjs';
 
 const maxBodyLength = 32768;
+const sensitiveName = /authorization|cookie|password|passwd|token|secret|credential|session|api[_-]?key/i;
+const sanitizeValue = (value, key = '') => {
+  if (sensitiveName.test(key)) return '[REDACTED]';
+  if (typeof value === 'string') return sanitizeText(value);
+  if (Array.isArray(value)) return value.map(item => sanitizeValue(item));
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value).map(([childKey, childValue]) => [childKey, sanitizeValue(childValue, childKey)]));
+  }
+  return value;
+};
 const parseBody = body => {
   const text = String(body ?? '');
   if (text.length > maxBodyLength) return { truncated: true, length: text.length };
-  const sanitized = sanitizeBody(text);
   try {
-    return JSON.parse(sanitized);
+    return sanitizeValue(JSON.parse(text));
   } catch {
-    return sanitized;
+    return sanitizeText(text);
   }
 };
 
@@ -118,7 +127,8 @@ export function captureCDARequests(page, { apiOrigin, appOrigins = [apiOrigin], 
   return {
     byRequest,
     pendingReads,
-    waitFor(predicate, { fromIndex = 0, timeoutMs = 5000 } = {}) {
+    waitFor(predicate, { fromIndex = 0, timeoutMs, timeout } = {}) {
+      const deadlineMs = timeoutMs ?? timeout ?? 5000;
       const match = report.nativeRequests.slice(fromIndex).find(entry => entry.completedAt && predicate(entry));
       if (match) return Promise.resolve(match);
       return new Promise((resolve, reject) => {
@@ -127,7 +137,7 @@ export function captureCDARequests(page, { apiOrigin, appOrigins = [apiOrigin], 
           waiters.delete(waiter);
           const observed = report.nativeRequests.slice(fromIndex).map(({ origin, path, method, status, completedAt, failure }) => ({ origin, path, method, status, completed: Boolean(completedAt), failure }));
           reject(new Error(`Timed out waiting for owned CDA request: ${JSON.stringify(observed)}`));
-        }, timeoutMs);
+        }, deadlineMs);
         waiters.add(waiter);
       });
     },

@@ -34,9 +34,12 @@ test('owned requests correlate sanitized responses and reject sibling explorer p
     headers: () => ({ 'x-request-id': 'owned-response-1' }),
     text: async () => '{"error":"stale draft","token":"do-not-retain"}',
   };
+  const waitingForResponse = capture.waitFor(entry => entry.path.endsWith('/commands') && entry.status === 503, { timeout: 1000 });
   page.emit('response', response);
+  const matched = await waitingForResponse;
   await capture.flush();
 
+  assert.equal(matched, report.nativeRequests[0]);
   assert.equal(report.nativeRequests.length, 1);
   assert.equal(report.nativeRequests[0].status, 503);
   assert.equal(report.nativeRequests[0].serverRequestId, 'owned-response-1');
