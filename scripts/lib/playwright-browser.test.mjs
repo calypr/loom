@@ -3,7 +3,18 @@ import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { launchBrowser } from './playwright-browser.mjs';
+import { launchBrowser, matchesPendingCancellation } from './playwright-browser.mjs';
+
+test('catalog cancellation requires exact method, Explorer path, and component request identity', () => {
+  const path = '/api/v1/projects/owned/explorers/current/authoring/v2/semantic-inventory';
+  const expected = { origin: 'http://127.0.0.1:30102', method: 'POST', paths: [path], requestIdPrefixes: ['feature-catalog-'] };
+  const request = (url, method, requestId) => ({ url: () => url, method: () => method, headers: () => ({ 'x-request-id': requestId }) });
+  assert.equal(matchesPendingCancellation(request(`http://127.0.0.1:30102${path}`, 'POST', 'feature-catalog-123'), expected), true);
+  assert.equal(matchesPendingCancellation(request(`http://127.0.0.1:30102${path}`, 'GET', 'feature-catalog-123'), expected), false);
+  assert.equal(matchesPendingCancellation(request(`http://127.0.0.1:8282${path}`, 'POST', 'feature-catalog-123'), expected), false);
+  assert.equal(matchesPendingCancellation(request(`http://127.0.0.1:30102${path.replace('current', 'other')}`, 'POST', 'feature-catalog-123'), expected), false);
+  assert.equal(matchesPendingCancellation(request(`http://127.0.0.1:30102${path}`, 'POST', 'unrelated-123'), expected), false);
+});
 
 test('Playwright helper clicks a native control and records first-failure evidence', async t => {
   const evidence = await mkdtemp(join(tmpdir(), 'loom-playwright-helper-test-'));

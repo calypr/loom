@@ -112,7 +112,8 @@ and source/build freshness separately. Missing API build identity is unknown.
 
 For an already loaded CDA generation on an explicitly named owned development
 stack, use `node scripts/verify-ui/builder-authoring.mjs --case authoring
---reuse-owned-dataset` or `--case suggestions --reuse-owned-dataset`. The
+--reuse-owned-dataset`, `--case suggestions --reuse-owned-dataset`, or
+`--case cohort-recode --reuse-owned-dataset`. The
 flag validates that stack and its bootstrap Builder, then creates a fresh
 Explorer without uploading the large dataset again. The CDA authoring report
 retains a failed Publish timing even when preview values and reload persistence

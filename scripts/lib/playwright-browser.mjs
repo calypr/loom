@@ -62,6 +62,13 @@ function isLoopback(origin) {
   }
 }
 
+export function matchesPendingCancellation(request, { origin, method, paths, requestIdPrefixes }) {
+  const url = new URL(request.url());
+  const requestId = request.headers()['x-request-id'] ?? '';
+  return url.origin === origin && request.method() === method && paths.includes(url.pathname) &&
+    requestIdPrefixes.some(prefix => requestId.startsWith(prefix));
+}
+
 async function inspectLocator(locator) {
   try {
     const count = await locator.count();
@@ -106,6 +113,17 @@ export async function launchBrowser({ evidence, appOrigins = [], noAuth = false 
     });
   }
   const diagnostics = { console: [], pageErrors: [], networkFailures: [], httpFailures: [], assetFailures: [], apiResponses: [] };
+  const pendingRequests = new Set();
+  const expectedCancellations = new WeakMap();
+  let activeCancellation;
+  page.on('request', request => {
+    if (!isLocalAppURL(request.url(), origins)) return;
+    pendingRequests.add(request);
+    if (activeCancellation && matchesPendingCancellation(request, activeCancellation)) {
+      expectedCancellations.set(request, activeCancellation);
+    }
+  });
+  page.on('requestfinished', request => pendingRequests.delete(request));
   const boundedPush = (items, item) => {
     if (items.length < maxEntries) items.push(item);
   };
@@ -130,12 +148,18 @@ export async function launchBrowser({ evidence, appOrigins = [], noAuth = false 
     stack: sanitizeText(error.stack),
   }));
   page.on('requestfailed', request => {
+    pendingRequests.delete(request);
     if (!isLocalAppURL(request.url(), origins)) return;
     boundedPush(diagnostics.networkFailures, {
       url: safeURL(request.url()),
       method: request.method(),
       failure: sanitizeText(request.failure()?.errorText),
       observedAt: Date.now(),
+      ...(request.headers()['x-request-id'] ? { requestId: sanitizeText(request.headers()['x-request-id']) } : {}),
+      ...(currentAction ? { triggerAction: currentAction } : {}),
+      ...(expectedCancellations.get(request)?.actionLabel === currentAction &&
+          request.failure()?.errorText === 'net::ERR_ABORTED'
+        ? { canceled: true, cancellationReason: expectedCancellations.get(request).reason } : {}),
     });
   });
   page.on('response', async response => {
@@ -159,12 +183,31 @@ export async function launchBrowser({ evidence, appOrigins = [], noAuth = false 
 
   let tracingStopped = false;
   let failureCaptured = false;
+  let currentAction;
   const tracePath = join(evidence, 'failure-trace.zip');
   return {
     browser,
     context,
     page,
     diagnostics,
+    setCurrentAction(label) { currentAction = sanitizeText(label); },
+    expectPendingCancellations({ origin, method, paths, requestIdPrefixes, reason, actionLabel }) {
+      let marked = 0;
+      for (const request of pendingRequests) {
+        if (matchesPendingCancellation(request, { origin, method, paths, requestIdPrefixes })) {
+          expectedCancellations.set(request, { origin, method, paths, requestIdPrefixes, reason, actionLabel });
+          marked += 1;
+        }
+      }
+      return marked;
+    },
+    async withExpectedCancellations(specification, work) {
+      if (activeCancellation) throw new Error('expected cancellation scope already active');
+      activeCancellation = specification;
+      this.expectPendingCancellations(specification);
+      try { return await work(); }
+      finally { activeCancellation = undefined; }
+    },
     async captureFailure(error, details = {}) {
       if (failureCaptured) return;
       failureCaptured = true;

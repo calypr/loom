@@ -115,6 +115,7 @@ export const runPlaywrightCase = async (context, scenarioID, caseName, work) => 
 
     const action = async (label, locator, perform, { after, budget = 5000, timeout = 5000, editable = false } = {}) => {
       activeAction = { label, locator: locator.toString() };
+      browser.setCurrentAction(label);
       activeStartedAt = Date.now();
       const started = activeStartedAt;
       try {
@@ -174,6 +175,17 @@ export const runPlaywrightCase = async (context, scenarioID, caseName, work) => 
   } finally {
     if (browser) {
       report.network.push(...diagnosticsToNetwork(browser.diagnostics, injectedTarget));
+      const unexpectedNetwork = report.network.filter(record =>
+        record.kind === 'exception' || record.kind === 'console-error' ||
+        (record.kind === 'network' && !record.injectedFault && !record.canceled));
+      if (unexpectedNetwork.length) {
+        await browser.captureFailure(new Error(`${unexpectedNetwork.length} unexpected browser or network errors`), {
+          action: activeAction,
+          elapsedMs: Date.now() - activeStartedAt,
+          phase: 'final network audit',
+          failures: unexpectedNetwork,
+        }).catch(() => undefined);
+      }
       report.assetFailures.push(...browser.diagnostics.assetFailures.map(item => ({ kind: 'asset-failure', ...item })));
       if (browser.diagnostics.assetFailures.length) {
         recordCheck(report, 'correctness', 'incidental asset failures are explicitly recorded', true,

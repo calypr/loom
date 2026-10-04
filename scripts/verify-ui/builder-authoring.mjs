@@ -38,7 +38,7 @@ const readPatientOracle = async fixtureDir => {
   return { sourcePath, sha256: hash.digest('hex'), patientRecordCount, sourceIDs };
 };
 
-const runCohortRecode = context => runPlaywrightCase(context, 'builder-authoring', 'cohort-recode', async ({ page, report, check, action }) => {
+const runCohortRecode = context => runPlaywrightCase(context, 'builder-authoring', 'cohort-recode', async ({ page, browser, report, check, action }) => {
   const oracleBefore = await readPatientOracle(context.target.fixtureDir);
   const sourceIDs = oracleBefore.sourceIDs;
   const title = `Verify ${context.runID.slice(-10)} cohort recode`;
@@ -106,6 +106,15 @@ const runCohortRecode = context => runPlaywrightCase(context, 'builder-authoring
   const explorer = await explorerControl.inputValue();
   assert(explorer && explorer !== context.target.bootstrapExplorerId, 'cohort recode requires a newly created Explorer');
   report.target.explorer = explorer;
+  const catalogUnmountCancellation = (endpoints, requestIdPrefixes, actionLabel, reason) => ({
+      origin: new URL(context.target.uiUrl).origin,
+      method: 'POST',
+      paths: endpoints.map(endpoint =>
+        `/api/v1/projects/${encodeURIComponent(context.target.fixtureProject)}/explorers/${encodeURIComponent(explorer)}/authoring/v2/${endpoint}`),
+      requestIdPrefixes,
+      actionLabel,
+      reason,
+    });
 
   const tableName = page.locator('#first-table-name');
   await action('name Patient table', tableName, () => tableName.fill('Patients'), { editable: true });
@@ -382,9 +391,12 @@ const runCohortRecode = context => runPlaywrightCase(context, 'builder-authoring
     after: async () => page.locator('[aria-label="Add columns editor"]').waitFor({ state: 'visible' }),
   });
   const fieldsRelated = page.getByRole('button', { name: 'Fields and related data', exact: true });
-  await action('choose Fields and related data', fieldsRelated, () => fieldsRelated.click(), {
+  await browser.withExpectedCancellations(catalogUnmountCancellation(['semantic-inventory', 'frame-source-options'],
+    ['paired-column-inventory-', 'frame-source-options-'], 'choose Fields and related data',
+    'catalog component unmounted when Fields and related data opened'),
+  () => action('choose Fields and related data', fieldsRelated, () => fieldsRelated.click(), {
     after: async () => page.getByTestId('construction-add-columns-source').waitFor({ state: 'visible' }),
-  });
+  }));
   const groupedPolicy = page.getByRole('combobox', { name: 'Values per grouped row', exact: true });
   const groupedPolicyOptions = await groupedPolicy.locator('option').evaluateAll(options => options.map(option => ({ value: option.value, disabled: option.disabled })));
   assert(groupedPolicyOptions.some(option => option.value === 'ALL' && !option.disabled),
@@ -462,9 +474,12 @@ const runCohortRecode = context => runPlaywrightCase(context, 'builder-authoring
     intentDigest: fieldPreview.acceptedByReceipt.intentDigest,
   };
   const closeEditor = page.getByRole('button', { name: 'Close operation editor', exact: true });
-  await action('close operation editor', closeEditor, () => closeEditor.click(), {
+  await browser.withExpectedCancellations(catalogUnmountCancellation(['semantic-inventory'], ['feature-catalog-'],
+    'close operation editor',
+    'feature catalog unmounted when operation editor closed'),
+  () => action('close operation editor', closeEditor, () => closeEditor.click(), {
     after: async () => page.getByTestId('construction-add-columns-source').waitFor({ state: 'hidden' }),
-  });
+  }));
   builder = await readBuilder();
   document = builder.workspace.documents.find(item => item.output.id === outputId);
   const { legacy: preservedLegacyIDColumn, member: firstMemberIDColumn, binding: idBinding } =
