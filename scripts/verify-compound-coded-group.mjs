@@ -3,17 +3,17 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { browserEval, click, launchBrowser, navigate, waitForBrowser } from './lib/browser.mjs';
-import { captureSourceFreeze } from './lib/source-freeze.mjs';
-import { captureApiBuildFreeze, checkContainerApiBuildStamp, localCDAApiContainer } from './lib/api-build-freeze.mjs';
+import { inspectDOM, waitForDOM, clickControl, navigatePage } from './lib/playwright-verification.mjs';
+import { launchBrowser } from './lib/playwright-browser.mjs';
+import { captureCDARequests } from './lib/cda-playwright-requests.mjs';
+import { assertOwnedCdaTarget } from './lib/owned-cda-target.mjs';
+import { startVerificationIdentity } from './lib/cda-verification-identity.mjs';
 
 // Run against the construction checkout's local stack and loaded CDA fixture.
-const origin = process.env.LOOM_UI_ORIGIN ?? 'http://127.0.0.1:30008';
-const apiOrigin = process.env.LOOM_API_ORIGIN ?? 'http://127.0.0.1:8188';
-assert.equal(new URL(origin).origin, 'http://127.0.0.1:30008', 'Use only the local CDA Builder UI');
-assert.equal(new URL(apiOrigin).origin, 'http://127.0.0.1:8188', 'Use only the local unrestricted no-auth CDA API');
+const origin = process.env.LOOM_CDA_UI_ORIGIN;
+const apiOrigin = process.env.LOOM_CDA_API_ORIGIN;
 const basicMode = process.argv[2] === 'basic';
-const project = basicMode ? (process.env.LOOM_DEV_PROJECT ?? 'loom_dev_c89a69d7e137') : 'loom_dev_cda_fhir';
+const project = process.env.LOOM_CDA_PROJECT;
 const observationId = basicMode ? 'dev-observation-001' : '485e2567-b566-56f3-b5bd-5f025f37cd95';
 const differentialMode = process.argv[2] === 'differential';
 let generation = basicMode ? undefined : 'cda-fhir-v1';
@@ -26,15 +26,21 @@ const codedPairs = basicMode ? [
 const explorer = `compound-coded-qa-${Date.now()}`;
 const evidenceDirectory = process.env.LOOM_VERIFY_OUTPUT ?? (basicMode ? '/tmp/loom-basic-coded-pivot-grouping' : '/tmp/loom-compound-coded-verification');
 const base = `/api/v1/projects/${project}/explorers/${explorer}`;
-const state = { explorer, observationId, project, mode: basicMode ? 'devloop-basic-coded-grouping' : differentialMode ? 'differential' : 'single-observation', timingsMs: {}, failures: [], requests: [] };
-const sourceFreeze = await captureSourceFreeze(fileURLToPath(new URL('..', import.meta.url)));
+const state = { explorer, observationId, project, mode: basicMode ? 'devloop-basic-coded-grouping' : differentialMode ? 'differential' : 'single-observation', timingsMs: {}, failures: [], requests: [], nativeRequests: [], errors: [] };
+state.requests = state.nativeRequests;
+const sourceRoot = fileURLToPath(new URL('..', import.meta.url));
+await assertOwnedCdaTarget({ project, apiOrigin, uiOrigin: origin, apiContainer: process.env.LOOM_CDA_API_CONTAINER,
+  composeProject: process.env.LOOM_CDA_COMPOSE_PROJECT, sourceRoot, arangoContainer: process.env.LOOM_ARANGO_CONTAINER });
+const verificationIdentity = await startVerificationIdentity(sourceRoot, process.env.LOOM_CDA_API_CONTAINER);
+state.sourceFingerprint = verificationIdentity.sourceFingerprint;
+state.apiBuildIdentity = verificationIdentity.apiBuildIdentity;
+state.sourceFreeze = { initialFingerprint: verificationIdentity.sourceFingerprint };
 let observationIDs = [observationId];
 let rawSources = [];
 let statusColumn;
 let statusColumnID;
 let statusInputColumnID;
-let apiBuildFreeze;
-const requestsById = new Map();
+let requestCapture;
 
 const api = async (path, method = 'GET', body) => {
   const response = await fetch(apiOrigin + path, {
@@ -47,21 +53,23 @@ const api = async (path, method = 'GET', body) => {
   return value;
 };
 
-const rowsReady = (cdp) => waitForBrowser(cdp,
-  `!document.body.innerText.includes('Loading your table') && document.querySelector('[data-testid="construction-rows-settings-trigger"]')?.disabled === false`);
+const rowsReady = (page) => waitForDOM(page,
+  () => !document.body.innerText.includes('Loading your table') && document.querySelector('[data-testid="construction-rows-settings-trigger"]')?.disabled === false,
+  {}, 30000);
+const readTable = (page) => inspectDOM(page, () => ({
+  headers: [...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].map(cell => cell.innerText.trim()),
+  rows: [...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]')].slice(1)
+    .map(row => [...row.querySelectorAll('[role="cell"]')].map(cell => cell.innerText.trim())),
+}));
 
 const finishTiming = (name, started) => {
   state.timingsMs[name] = Date.now() - started;
   assert(state.timingsMs[name] <= 5000, `${name} took ${state.timingsMs[name]} ms`);
 };
 
-const proposed = async (cdp, started, timing, expectedBuilder, requestStart) => {
+const proposed = async (page, started, timing, expectedBuilder, requestStart) => {
   const deadline = started + 5000;
-  let request;
-  while (!(request = state.requests.slice(requestStart).findLast((entry) => entry.url.endsWith('/construction-proposals') && entry.completedAt))) {
-    assert(Date.now() < deadline, `${timing} did not complete a fresh construction proposal within five seconds`);
-    await new Promise((resolve) => setTimeout(resolve, 25));
-  }
+  const request = await requestCapture.waitFor(entry => entry.path.endsWith('/construction-proposals') && entry.method === 'POST', { fromIndex: requestStart, timeoutMs: Math.max(1, deadline - Date.now()) });
   assert(request.response, `${timing} proposal response could not be captured: ${request.responseBodyError ?? 'unknown response body error'}`);
   assert.equal(request.status, 200, `${timing} proposal request failed: ${JSON.stringify(request.response)}`);
   assert(request.response.proposalId, `${timing} proposal response omitted its receipt`);
@@ -74,8 +82,16 @@ const proposed = async (cdp, started, timing, expectedBuilder, requestStart) => 
   assert.equal(request.response.draftDigest, expectedBuilder.draftDigest);
   const remaining = deadline - Date.now();
   assert(remaining > 0, `${timing} exceeded five seconds before its receipt rendered`);
-  await waitForBrowser(cdp, `(() => {const panel=document.querySelector('[data-testid="construction-proposal-panel"]');return panel?.dataset.proposalId===${JSON.stringify(request.response.proposalId)}&&['ready','error','needs-repair'].includes(panel?.dataset.proposalStatus);})()`, remaining);
-  const result = await browserEval(cdp, `const panel=document.querySelector('[data-testid="construction-proposal-panel"]');return {status:panel?.getAttribute('data-proposal-status'),proposalId:panel?.dataset.proposalId,text:panel?.innerText,headers:[...document.querySelectorAll('[data-testid="construction-proposal-preview"] th')].map(cell=>cell.querySelector('span')?.textContent?.trim()??cell.innerText.trim()),rows:[...document.querySelectorAll('[data-testid="construction-proposal-preview-row"]')].map(row=>[...row.querySelectorAll('td')].map(cell=>cell.innerText.trim()))};`);
+  await waitForDOM(page, ({ proposalId }) => {
+    const panel = document.querySelector('[data-testid="construction-proposal-panel"]');
+    return panel?.dataset.proposalId === proposalId && ['ready', 'error', 'needs-repair'].includes(panel?.dataset.proposalStatus);
+  }, { proposalId: request.response.proposalId }, remaining);
+  const result = await inspectDOM(page, () => {
+    const panel = document.querySelector('[data-testid="construction-proposal-panel"]');
+    return { status: panel?.getAttribute('data-proposal-status'), proposalId: panel?.dataset.proposalId, text: panel?.innerText,
+      headers: [...document.querySelectorAll('[data-testid="construction-proposal-preview"] th')].map(cell => cell.querySelector('span')?.textContent?.trim() ?? cell.innerText.trim()),
+      rows: [...document.querySelectorAll('[data-testid="construction-proposal-preview-row"]')].map(row => [...row.querySelectorAll('td')].map(cell => cell.innerText.trim())) };
+  });
   assert.equal(result.proposalId, request.response.proposalId, `${timing} DOM must show the fresh response receipt`);
   finishTiming(timing, started);
   assert.equal(result.status, 'ready', result.text);
@@ -132,44 +148,12 @@ const applyAuthoringCommands = async (commands) => {
 };
 
 await mkdir(evidenceDirectory, { recursive: true });
-const browser = await launchBrowser(evidenceDirectory);
-browser.cdp.on('Runtime.exceptionThrown', ({ exceptionDetails }) => state.failures.push({ kind: 'exception', text: exceptionDetails.exception?.description ?? exceptionDetails.text }));
-browser.cdp.on('Runtime.consoleAPICalled', ({ type, args }) => {
-  if (type === 'error') state.failures.push({ kind: 'console', text: args.map(arg => arg.value ?? arg.description ?? '').join(' ') });
-});
-browser.cdp.on('Network.responseReceived', ({ requestId, response }) => {
-  if (response.url.includes('/api/') && response.status >= 400) state.failures.push({ kind: 'http', requestId, status: response.status, url: response.url });
-});
-browser.cdp.on('Network.requestWillBeSent', ({ requestId, request }) => {
-  if (request.url.includes('/api/') && request.method !== 'GET') {
-    const entry = { requestId, method: request.method, url: request.url,
-      body: request.postData ? JSON.parse(request.postData) : undefined, startedAt: Date.now() };
-    state.requests.push(entry);
-    requestsById.set(requestId, entry);
-  }
-});
-browser.cdp.on('Network.responseReceived', ({ requestId, response }) => {
-  const entry = requestsById.get(requestId);
-  if (entry) entry.status = response.status;
-});
-browser.cdp.on('Network.loadingFinished', ({ requestId }) => {
-  const entry = requestsById.get(requestId);
-  if (!entry || !entry.url.endsWith('/construction-proposals') && !(entry.status >= 400)) return;
-  void browser.cdp.send('Network.getResponseBody', { requestId }).then(({ body, base64Encoded }) => {
-    const raw = base64Encoded ? Buffer.from(body, 'base64').toString('utf8') : body;
-    entry.response = JSON.parse(raw);
-    const failure = state.failures.find((item) => item.requestId === requestId);
-    if (failure) { failure.request = entry.body; failure.response = entry.response; }
-    entry.completedAt = Date.now();
-  }).catch((error) => {
-    entry.responseBodyError = String(error);
-    entry.completedAt = Date.now();
-  });
-});
+const browser = await launchBrowser({ evidence: evidenceDirectory, appOrigins: [apiOrigin, origin], noAuth: true });
+const page = browser.page;
+const tracker = { activeAction: undefined, actions: [] };
+requestCapture = captureCDARequests(page, { apiOrigin: origin, appOrigins: [apiOrigin, origin], ownedPathPrefix: `/api/v1/projects/${project}/explorers`, report: state, responsePaths: /construction-proposals|commands|builder|preview/ });
 
 try {
-  apiBuildFreeze = await captureApiBuildFreeze(() => checkContainerApiBuildStamp(localCDAApiContainer()));
-  state.apiBuildFreeze = { initial: apiBuildFreeze.initial };
   let initialBuilder;
   if (basicMode) {
     await api(`/api/v1/projects/${project}/explorers`, 'POST', { name: explorer, title: 'Basic coded grouping verification' });
@@ -179,7 +163,7 @@ try {
   }
   const readRawObservations = (query) => {
     const raw = execFileSync('rtk', [
-      'proxy', 'docker', 'exec', process.env.LOOM_ARANGO_CONTAINER ?? 'loom-dev-6d7df93d6a37-arangodb-1',
+      'proxy', 'docker', 'exec', process.env.LOOM_ARANGO_CONTAINER,
       'arangosh', '--server.database', 'loom_dev', '--javascript.execute-string',
       `print(JSON.stringify(db._query(${JSON.stringify(query)}).toArray()));`,
     ], { encoding: 'utf8', timeout: 30000, maxBuffer: 16 * 1024 * 1024 });
@@ -278,15 +262,15 @@ try {
   });
   const url = `${origin}/?project=${project}&explorer=${explorer}&mode=builder&selection=${encodeURIComponent(selection.id)}`;
   state.url = url;
-  await navigate(browser.cdp, url);
-  await waitForBrowser(browser.cdp, `document.querySelector('button[aria-label="Choose Observation rows"]:not(:disabled)')`);
-  await click(browser.cdp, 'button', { name: 'Choose Observation rows' });
-  await rowsReady(browser.cdp);
-  await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-rows-settings-trigger"]')?.innerText.includes('Observation')`);
-  await click(browser.cdp, '[data-testid="construction-rows-settings-trigger"]');
-  await waitForBrowser(browser.cdp, `[...document.querySelectorAll('[aria-label="Starting collection"] button')].some(button => button.innerText === 'Use selected resources' && !button.disabled)`);
-  await click(browser.cdp, '[aria-label="Starting collection"] button', { name: 'Use selected resources' });
-  await waitForBrowser(browser.cdp, `document.querySelector('[aria-label="Starting collection settings"]')?.innerText.includes(${JSON.stringify(`${observationIDs.length} Observation resources attached`)})`);
+  await navigatePage(page, url);
+  await waitForDOM(page, () => Boolean(document.querySelector('button[aria-label="Choose Observation rows"]:not(:disabled)')), {}, 30000);
+  await clickControl(tracker, page, 'button', { name: 'Choose Observation rows' });
+  await rowsReady(page);
+  await waitForDOM(page, () => document.querySelector('[data-testid="construction-rows-settings-trigger"]')?.innerText.includes('Observation'), {}, 30000);
+  await clickControl(tracker, page, '[data-testid="construction-rows-settings-trigger"]');
+  await waitForDOM(page, () => [...document.querySelectorAll('[aria-label="Starting collection"] button')].some(button => button.innerText === 'Use selected resources' && !button.disabled), {}, 30000);
+  await clickControl(tracker, page, '[aria-label="Starting collection"] button', { name: 'Use selected resources' });
+  await waitForDOM(page, ({ expected }) => document.querySelector('[aria-label="Starting collection settings"]')?.innerText.includes(expected), { expected: `${observationIDs.length} Observation resources attached` }, 30000);
   if (differentialMode) {
     const current = await api(base + '/authoring/v2/builder');
     const document = savedDocument(current);
@@ -326,31 +310,31 @@ try {
     assert.equal(savedPopulation.route?.length ?? 0, 0);
     assert.deepEqual(savedDocument(state.baseline).columns.filter((column) => ['id', 'status'].includes(column.source?.field?.path)).map((column) => column.source.field.path), ['id', 'status']);
     const statusReloadAt = Date.now();
-    await navigate(browser.cdp, url);
-    await rowsReady(browser.cdp);
-    await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid="preview-table-scroll"]')) && ${observationIDs.map((id) => `document.querySelector('[data-testid="preview-table-scroll"]')?.innerText.includes(${JSON.stringify(id)})`).join(' && ')}`);
+    await navigatePage(page, url);
+    await rowsReady(page);
+    await waitForDOM(page, ({ ids }) => Boolean(document.querySelector('[data-testid="preview-table-scroll"]')) && ids.every(id => document.querySelector('[data-testid="preview-table-scroll"]')?.innerText.includes(id)), { ids: observationIDs }, 30000);
     finishTiming('reloadStatusBinding', statusReloadAt);
-    state.statusSourceReload = await browserEval(browser.cdp, `return {headers:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].map(cell=>cell.innerText.trim()),rows:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]')].slice(1).map(row=>[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText.trim()))};`);
+    state.statusSourceReload = await readTable(page);
     assert(state.statusSourceReload.headers.some((header) => /status/i.test(header)), 'The ordinary Observation.status grouping field must be visible in the native table');
     assertSourceIdentityRows(state.statusSourceReload, rawSources, savedDocument(state.baseline), 'Reloaded ordinary Observation source table');
   } else {
     state.baseline = await api(base + '/authoring/v2/builder');
   }
-  const rowDefinitionDialogOpen = await browserEval(browser.cdp, `return Boolean(document.querySelector('[role="dialog"][aria-label="Row definition settings"][aria-modal="true"]'));`);
-  if (!rowDefinitionDialogOpen) await click(browser.cdp, '[data-testid="construction-rows-settings-trigger"]');
-  await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-action-group-rows"]')?.disabled===false`);
+  const rowDefinitionDialogOpen = await inspectDOM(page, () => Boolean(document.querySelector('[role="dialog"][aria-label="Row definition settings"][aria-modal="true"]')));
+  if (!rowDefinitionDialogOpen) await clickControl(tracker, page, '[data-testid="construction-rows-settings-trigger"]');
+  await waitForDOM(page, () => document.querySelector('[data-testid="construction-action-group-rows"]')?.disabled === false, {}, 5000);
   const requestStart = state.requests.length;
   const openedAt = Date.now();
-  await click(browser.cdp, '[data-testid="construction-action-group-rows"]');
-  await waitForBrowser(browser.cdp, `document.querySelector('input[aria-label="Group by coded value: ${codedPairs[0].label}"]:not(:disabled)')`);
+  await clickControl(tracker, page, '[data-testid="construction-action-group-rows"]');
+  await waitForDOM(page, ({ label }) => Boolean(document.querySelector(`input[aria-label="Group by coded value: ${CSS.escape(label)}"]:not(:disabled)`)), { label: codedPairs[0].label }, 5000);
   state.timingsMs.openPicker = Date.now() - openedAt;
   assert(state.timingsMs.openPicker <= 5000, `Opening the coded picker took ${state.timingsMs.openPicker} ms`);
-  state.groupChoices = await browserEval(browser.cdp, `return [...document.querySelectorAll('input[aria-label^="Group by"]')].map(input=>({label:input.getAttribute('aria-label'),disabled:input.disabled,checked:input.checked}));`);
-  assert(!await browserEval(browser.cdp, `return document.body.innerText.includes('Need a coded-value column first?');`));
+  state.groupChoices = await inspectDOM(page, () => [...document.querySelectorAll('input[aria-label^="Group by"]')].map(input => ({ label: input.getAttribute('aria-label'), disabled: input.disabled, checked: input.checked })));
+  assert(!await inspectDOM(page, () => document.body.innerText.includes('Need a coded-value column first?')));
   const proposalRequestStart = state.requests.length;
   const selectedAt = Date.now();
-  await click(browser.cdp, `input[aria-label="Group by coded value: ${codedPairs[0].label}"]`);
-  state.proposal = await proposed(browser.cdp, selectedAt, 'selectToPreview', state.baseline, proposalRequestStart);
+  await clickControl(tracker, page, `input[aria-label="Group by coded value: ${codedPairs[0].label}"]`);
+  state.proposal = await proposed(page, selectedAt, 'selectToPreview', state.baseline, proposalRequestStart);
   if (differentialMode) {
     assertNamedPreviewValues(state.proposal, [
       [codedPairs[0].label, state.oracle.values[0]],
@@ -363,13 +347,13 @@ try {
   assert.equal(beforeApply.draftDigest, state.baseline.draftDigest, 'Selecting a code must not save its prerequisite');
   assert.deepEqual(beforeApply.workspace, state.baseline.workspace);
   const proposalRequests = state.requests.slice(requestStart);
-  assert(!proposalRequests.some(request => request.url.includes('construction-choice-proposals') || request.url.endsWith('/commands')), 'The coded selection must not issue a separate saved-column command');
+  assert(!proposalRequests.some(request => request.path.includes('construction-choice-proposals') || request.path.endsWith('/commands')), 'The coded selection must not issue a separate saved-column command');
   const firstApplyAt = Date.now();
-  await click(browser.cdp, '[data-testid="construction-apply-proposal"]');
-  await waitForBrowser(browser.cdp, `!document.querySelector('[data-testid="construction-proposal-panel"]') && document.querySelectorAll('[data-testid^="construction-history-step-"]').length === 1`);
+  await clickControl(tracker, page, '[data-testid="construction-apply-proposal"]');
+  await waitForDOM(page, () => !document.querySelector('[data-testid="construction-proposal-panel"]') && document.querySelectorAll('[data-testid^="construction-history-step-"]').length === 1, {}, 30000);
   finishTiming('applyFirstCodedGroup', firstApplyAt);
   state.saved = await api(base + '/authoring/v2/builder');
-  assert.deepEqual(state.requests.slice(requestStart).filter(request => request.url.endsWith('/commands')).flatMap(request => request.body.commands.map(command => command.type)), ['APPLY_CONSTRUCTION_PROPOSAL'], 'One Apply must save both parts in one command');
+  assert.deepEqual(state.requests.slice(requestStart).filter(request => request.path.endsWith('/commands')).flatMap(request => request.body.commands.map(command => command.type)), ['APPLY_CONSTRUCTION_PROPOSAL'], 'One Apply must save both parts in one command');
   const construction = savedDocument(state.saved).construction;
   assert.equal(construction.steps.length, 2, 'The extraction and grouping must be saved together');
   const [helper, group] = construction.steps;
@@ -382,18 +366,18 @@ try {
   }
   assert.equal(savedDocument(state.saved).columns.length, savedDocument(state.baseline).columns.length, 'The prerequisite must not become a standalone source column');
 
-  await navigate(browser.cdp, url);
-  await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-history-step-${group.id}"]')`);
-  await rowsReady(browser.cdp);
-  await click(browser.cdp, `[data-testid="construction-history-step-${group.id}"]`);
-  await click(browser.cdp, `[data-testid="construction-edit-step-${group.id}"]`);
-  await waitForBrowser(browser.cdp, `document.querySelector('input[aria-label="Group by coded value: ${codedPairs[0].label}"]')?.checked`);
+  await navigatePage(page, url);
+  await waitForDOM(page, ({ id }) => Boolean(document.querySelector(`[data-testid="construction-history-step-${CSS.escape(id)}"]`)), { id: group.id }, 30000);
+  await rowsReady(page);
+  await clickControl(tracker, page, `[data-testid="construction-history-step-${group.id}"]`);
+  await clickControl(tracker, page, `[data-testid="construction-edit-step-${group.id}"]`);
+  await waitForDOM(page, ({ label }) => document.querySelector(`input[aria-label="Group by coded value: ${CSS.escape(label)}"]`)?.checked === true, { label: codedPairs[0].label }, 5000);
   if (!basicMode) {
-    await waitForBrowser(browser.cdp, `document.querySelector('input[aria-label="Group by coded value: Primary disease type"]:not(:disabled)')`);
+    await waitForDOM(page, () => Boolean(document.querySelector('input[aria-label="Group by coded value: Primary disease type"]:not(:disabled)')), {}, 5000);
     const editProposalRequestStart = state.requests.length;
     const editedAt = Date.now();
-    await click(browser.cdp, 'input[aria-label="Group by coded value: Primary disease type"]');
-    state.editedProposal = await proposed(browser.cdp, editedAt, 'editToPreview', state.saved, editProposalRequestStart);
+    await clickControl(tracker, page, 'input[aria-label="Group by coded value: Primary disease type"]');
+    state.editedProposal = await proposed(page, editedAt, 'editToPreview', state.saved, editProposalRequestStart);
     assert.equal(state.editedProposal.rows.length, 1);
     if (differentialMode) {
       assertNamedPreviewValues(state.editedProposal, [
@@ -408,18 +392,21 @@ try {
   }
   let ordinaryKeySelector = 'input[aria-label="Group by Observation ID"]';
   if (differentialMode) {
-    const ordinaryKeyLabel = await browserEval(browser.cdp, `const inputs=[...document.querySelectorAll('input[type="checkbox"][aria-label^="Group by"]')];return inputs.find(item=>/status/i.test(item.getAttribute('aria-label')??''))?.getAttribute('aria-label')??'';`);
+    const ordinaryKeyLabel = await inspectDOM(page, () => {
+      const inputs = [...document.querySelectorAll('input[type="checkbox"][aria-label^="Group by"]')];
+      return inputs.find(item => /status/i.test(item.getAttribute('aria-label') ?? ''))?.getAttribute('aria-label') ?? '';
+    });
     assert(ordinaryKeyLabel, 'The Group editor did not offer the direct Observation.status binding as an ordinary grouping key');
     ordinaryKeySelector = `input[type="checkbox"][aria-label=${JSON.stringify(ordinaryKeyLabel)}]`;
   }
-  await waitForBrowser(browser.cdp, `Boolean(document.querySelector(${JSON.stringify(ordinaryKeySelector)}))`);
+  await waitForDOM(page, ({ selector }) => Boolean(document.querySelector(selector)), { selector: ordinaryKeySelector }, 5000);
   const ordinaryKeyAt = Date.now();
-  const ordinaryKeyState = await browserEval(browser.cdp, `const input=document.querySelector(${JSON.stringify(ordinaryKeySelector)});return {disabled:input?.disabled,checked:input?.checked};`);
+  const ordinaryKeyState = await inspectDOM(page, ({ selector }) => { const input = document.querySelector(selector); return { disabled: input?.disabled, checked: input?.checked }; }, { selector: ordinaryKeySelector });
   assert.equal(ordinaryKeyState.disabled, false);
   assert.equal(ordinaryKeyState.checked, false, 'The direct ordinary source key must start unselected before this edit');
   const ordinaryProposalRequestStart = state.requests.length;
-  await click(browser.cdp, ordinaryKeySelector);
-  state.mixedKeyProposal = await proposed(browser.cdp, ordinaryKeyAt, 'ordinaryKeyToPreview', state.saved, ordinaryProposalRequestStart);
+  await clickControl(tracker, page, ordinaryKeySelector);
+  state.mixedKeyProposal = await proposed(page, ordinaryKeyAt, 'ordinaryKeyToPreview', state.saved, ordinaryProposalRequestStart);
   assert.equal(state.mixedKeyProposal.rows.length, 1);
   if (differentialMode) {
     assertNamedPreviewValues(state.mixedKeyProposal, [
@@ -441,8 +428,8 @@ try {
     }
   }
   const editedApplyAt = Date.now();
-  await click(browser.cdp, '[data-testid="construction-apply-proposal"]');
-  await waitForBrowser(browser.cdp, `!document.querySelector('[data-testid="construction-proposal-panel"]')`);
+  await clickControl(tracker, page, '[data-testid="construction-apply-proposal"]');
+  await waitForDOM(page, () => !document.querySelector('[data-testid="construction-proposal-panel"]'), {}, 30000);
   finishTiming('applyEditedCodedGroup', editedApplyAt);
   state.edited = await api(base + '/authoring/v2/builder');
   const editedDocument = savedDocument(state.edited);
@@ -475,16 +462,16 @@ try {
   }
 
   const groupedReloadAt = Date.now();
-  await navigate(browser.cdp, url);
-  await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-history-step-${group.id}"]')`);
-  await rowsReady(browser.cdp);
+  await navigatePage(page, url);
+  await waitForDOM(page, ({ id }) => Boolean(document.querySelector(`[data-testid="construction-history-step-${CSS.escape(id)}"]`)), { id: group.id }, 30000);
+  await rowsReady(page);
   if (basicMode) {
     state.reloadedBuilder = await api(base + '/authoring/v2/builder');
     assert.equal(state.reloadedBuilder.draftDigest, state.edited.draftDigest, 'The edited coded grouping must survive a fresh Builder reload');
     assert.deepEqual(state.reloadedBuilder.workspace, state.edited.workspace);
   }
   finishTiming('reloadEditedCodedGroup', groupedReloadAt);
-  state.groupedReload = await browserEval(browser.cdp, `return {headers:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].map(cell=>cell.innerText.trim()),rows:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]')].slice(1).map(row=>[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText.trim()))};`);
+  state.groupedReload = await readTable(page);
   assert.equal(state.groupedReload.rows.length, 1);
   if (differentialMode) assertNamedPreviewValues(state.groupedReload, [
     ...codedPairs.map((pair, index) => [pair.label, state.oracle.values[index]]),
@@ -495,73 +482,76 @@ try {
     [codedPairs[0].label, state.oracle.values[0]], ['Observation ID', observationId], ['Row count', '1'],
   ], 'Reloaded coded group with source identity key');
 
-  await click(browser.cdp, `[data-testid="construction-history-step-${group.id}"]`);
+  await clickControl(tracker, page, `[data-testid="construction-history-step-${group.id}"]`);
   const removedAt = Date.now();
   const removalProposalRequestStart = state.requests.length;
-  await click(browser.cdp, `[data-testid="construction-remove-step-${group.id}"]`);
-  state.removalProposal = await proposed(browser.cdp, removedAt, 'removeToPreview', state.edited, removalProposalRequestStart);
+  await clickControl(tracker, page, `[data-testid="construction-remove-step-${group.id}"]`);
+  state.removalProposal = await proposed(page, removedAt, 'removeToPreview', state.edited, removalProposalRequestStart);
   if (differentialMode) {
     assertSourceIdentityRows(state.removalProposal, rawSources, savedDocument(state.baseline), 'Coded group removal proposal');
   } else {
     assert.deepEqual(state.removalProposal.rows, [[observationId]], 'Removing the compound group must restore its original source table');
   }
-  await click(browser.cdp, '[data-testid="construction-cancel-proposal"]');
-  await waitForBrowser(browser.cdp, `!document.querySelector('[data-testid="construction-proposal-panel"]')`);
+  await clickControl(tracker, page, '[data-testid="construction-cancel-proposal"]');
+  await waitForDOM(page, () => !document.querySelector('[data-testid="construction-proposal-panel"]'), {}, 30000);
   state.afterRemovalCancel = await api(base + '/authoring/v2/builder');
   assert.equal(state.afterRemovalCancel.draftDigest, state.edited.draftDigest, 'Cancel must preserve the grouped draft');
   assert.deepEqual(state.afterRemovalCancel.workspace, state.edited.workspace);
-  await click(browser.cdp, `[data-testid="construction-history-step-${group.id}"]`);
+  await clickControl(tracker, page, `[data-testid="construction-history-step-${group.id}"]`);
   const confirmedRemovalAt = Date.now();
   const confirmedRemovalRequestStart = state.requests.length;
-  await click(browser.cdp, `[data-testid="construction-remove-step-${group.id}"]`);
-  state.confirmedRemovalProposal = await proposed(browser.cdp, confirmedRemovalAt, 'confirmedRemovalToPreview', state.edited, confirmedRemovalRequestStart);
+  await clickControl(tracker, page, `[data-testid="construction-remove-step-${group.id}"]`);
+  state.confirmedRemovalProposal = await proposed(page, confirmedRemovalAt, 'confirmedRemovalToPreview', state.edited, confirmedRemovalRequestStart);
   if (differentialMode) {
     assertSourceIdentityRows(state.confirmedRemovalProposal, rawSources, savedDocument(state.baseline), 'Confirmed coded group removal proposal');
   } else {
     assert.deepEqual(state.confirmedRemovalProposal.rows, [[observationId]]);
   }
   const finalApplyAt = Date.now();
-  await click(browser.cdp, '[data-testid="construction-apply-proposal"]');
-  await waitForBrowser(browser.cdp, `!document.querySelector('[data-testid="construction-proposal-panel"]') && document.querySelectorAll('[data-testid^="construction-history-step-"]').length === 0`);
+  await clickControl(tracker, page, '[data-testid="construction-apply-proposal"]');
+  await waitForDOM(page, () => !document.querySelector('[data-testid="construction-proposal-panel"]') && document.querySelectorAll('[data-testid^="construction-history-step-"]').length === 0, {}, 30000);
   finishTiming('applyGroupRemoval', finalApplyAt);
   state.restored = await api(base + '/authoring/v2/builder');
   assert.equal(savedDocument(state.restored).construction?.steps?.length ?? 0, 0, 'Removing GROUP must remove its owned extraction');
   const sourceColumnSemantics = (columns) => columns.map(({ columnId: generatedStageId, ...column }) => column);
   assert.deepEqual(sourceColumnSemantics(savedDocument(state.restored).columns), sourceColumnSemantics(savedDocument(state.baseline).columns));
   const restoredReloadAt = Date.now();
-  await navigate(browser.cdp, url);
-  await rowsReady(browser.cdp);
-  await waitForBrowser(browser.cdp, `document.querySelectorAll('[data-testid^="construction-history-step-"]').length === 0 && ${observationIDs.map((id) => `document.body.innerText.includes(${JSON.stringify(id)})`).join(' && ')}`);
+  await navigatePage(page, url);
+  await rowsReady(page);
+  await waitForDOM(page, ({ ids }) => document.querySelectorAll('[data-testid^="construction-history-step-"]').length === 0 && ids.every(id => document.body.innerText.includes(id)), { ids: observationIDs }, 30000);
   finishTiming('reloadRestoredSource', restoredReloadAt);
   state.restoredAfterReload = await api(base + '/authoring/v2/builder');
   assert.deepEqual(state.restoredAfterReload.workspace, state.restored.workspace, 'The restored table must persist after fresh reload');
   if (differentialMode) {
-    const restoredRows = await browserEval(browser.cdp, `return {headers:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].map(cell=>cell.innerText.trim()),rows:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]')].slice(1).map(row=>[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText.trim()))};`);
+    const restoredRows = await readTable(page);
     assert(restoredRows.headers.some((header) => /status/i.test(header)));
     assertSourceIdentityRows(restoredRows, rawSources, savedDocument(state.restoredAfterReload), 'Restored source table after reload');
   }
+  await requestCapture.flush();
+  state.failures.push(...browser.diagnostics.console.map(entry => ({ kind: 'console', ...entry })));
+  state.failures.push(...browser.diagnostics.pageErrors.map(entry => ({ kind: 'page-error', ...entry })));
+  state.failures.push(...browser.diagnostics.networkFailures.map(entry => ({ kind: 'network', ...entry })));
+  state.failures.push(...browser.diagnostics.httpFailures.map(entry => ({ kind: 'http', ...entry })));
+  state.failures.push(...state.errors.map(entry => ({ kind: 'api', ...entry })));
   assert.deepEqual(state.failures, [], 'The browser lifecycle must not hide HTTP or runtime failures');
 } catch (error) {
   state.failures.push({ kind: 'assertion', text: String(error.stack ?? error) });
+  await browser.captureFailure(error, { phase: 'compound-coded-group-lifecycle', action: tracker.activeAction,
+    elapsedMs: tracker.activeAction ? Date.now() - tracker.activeAction.startedAt : undefined,
+    state: { explorer, observationIDs, timingsMs: state.timingsMs, requests: state.requests } });
   if (error.invalidatesRun) state.status = 'invalidated';
   process.exitCode = 1;
 } finally {
-  if (apiBuildFreeze) {
-    try { state.apiBuildFreeze = { ...state.apiBuildFreeze, ...(await apiBuildFreeze.assertUnchanged()) }; }
-    catch (error) {
-      state.status = 'invalidated';
-      state.apiBuildFreeze = { unchanged: false, invalidatesRun: true, productFailure: false, error: String(error) };
-      state.failures.push({ kind: 'api-build-freeze', invalidatesRun: true, text: String(error) });
-      process.exitCode = 1;
-    }
-  }
-  try { state.sourceFreeze = await sourceFreeze.assertUnchanged(); } catch (error) {
+  try { state.verificationIdentity = await verificationIdentity.finish(); }
+  catch (error) {
     state.status = 'invalidated';
-    state.sourceFreeze = { unchanged: false, changedPaths: error.changedPaths ?? [], invalidatesRun: true, productFailure: false, error: String(error) };
-    state.failures.push({ kind: 'source-freeze', invalidatesRun: true, text: String(error) });
+    state.verificationIdentity = { unchanged: false, invalidatesRun: true, productFailure: false, error: String(error) };
+    state.failures.push({ kind: 'source-build-identity', invalidatesRun: true, text: String(error) });
     process.exitCode = 1;
   }
-  state.body = await browserEval(browser.cdp, 'return document.body.innerText;').catch(String);
+  await requestCapture.flush();
+  state.body = await page.locator('body').innerText().catch(String);
+  state.diagnostics = browser.diagnostics;
   await writeFile(join(evidenceDirectory, `${explorer}.json`), JSON.stringify(state, null, 2));
   await browser.close();
 }
