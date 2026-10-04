@@ -135,7 +135,7 @@ try {
     assert(byKind.keep.accessibleName?.includes('Choose which rows appear in the table output'), 'Filter rows must explain its effect');
     assert(byKind.pivot.text.includes('Turn categories into columns'));
     assert(byKind.pivot.text.includes('Make a column for each category'));
-    assert(byKind.table-pivot.text.includes('Choose category and value fields'));
+    assert(byKind['table-pivot'].text.includes('Choose category and value fields'));
     assert(byKind.unpivot.text.includes('Turn columns into rows'));
     assert(byKind.unpivot.text.includes('Other columns repeat on each new row'));
     const relatedCard = cards.find(card => card.kind === 'related');
