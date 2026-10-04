@@ -335,6 +335,7 @@ type ResolvedClickHouseTable struct {
 // artifact can become a ClickHouse input.
 type ClickHouseArtifactIdentity struct {
 	ExecutionID       string
+	OutputID          string
 	StageID           string
 	Project           string
 	DatasetGeneration string

@@ -93,6 +93,11 @@ func TestArtifactRejectsScopeSchemaAndPreviewMismatches(t *testing.T) {
 		t.Fatal("Begin accepted an incorrect scope digest")
 	}
 	identity = testIdentity()
+	identity.OutputID = ""
+	if _, err := manager.Begin(context.Background(), identity, columns); err == nil {
+		t.Fatal("Begin accepted an artifact without an exact output ID")
+	}
+	identity = testIdentity()
 	identity.SchemaDigest = strings.Repeat("0", 64)
 	if _, err := manager.Begin(context.Background(), identity, columns); err == nil {
 		t.Fatal("Begin accepted an incorrect schema digest")
@@ -233,7 +238,7 @@ func TestReconcileClaimsExpiredCreatingArtifact(t *testing.T) {
 
 func testIdentity() Identity {
 	return Identity{
-		ExecutionID: "execution-1", StageID: "source_projection", Project: "project-a", DatasetGeneration: "generation-4",
+		ExecutionID: "execution-1", OutputID: "patients", StageID: "source_projection", Project: "project-a", DatasetGeneration: "generation-4",
 		RecipeDigest: strings.Repeat("a", 64), PlanDigest: strings.Repeat("b", 64),
 		AuthScopeMode: authscope.ReadScopeRestricted, AuthResourcePaths: []string{"/programs/a", "/programs/b"},
 	}

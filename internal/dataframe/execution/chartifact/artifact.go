@@ -49,6 +49,7 @@ var (
 // by Begin; supplied values, when present, must match.
 type Identity struct {
 	ExecutionID       string
+	OutputID          string
 	StageID           string
 	Project           string
 	DatasetGeneration string
@@ -437,7 +438,7 @@ func (m *Manager) Begin(ctx context.Context, identity Identity, columns []Column
 
 func validateIdentity(identity Identity) error {
 	for name, value := range map[string]string{
-		"execution ID": identity.ExecutionID, "stage ID": identity.StageID, "project": identity.Project,
+		"execution ID": identity.ExecutionID, "output ID": identity.OutputID, "stage ID": identity.StageID, "project": identity.Project,
 		"dataset generation": identity.DatasetGeneration, "recipe digest": identity.RecipeDigest, "plan digest": identity.PlanDigest,
 	} {
 		if strings.TrimSpace(value) == "" || value != strings.TrimSpace(value) {

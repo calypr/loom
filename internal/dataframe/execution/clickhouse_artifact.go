@@ -29,6 +29,9 @@ func (s OutputStream) MaterializeClickHouseArtifact(ctx context.Context, manager
 	if strings.TrimSpace(s.stageID) == "" || stageID != s.stageID {
 		return nil, fmt.Errorf("private AQL artifact stage ID does not match the compiled final stage")
 	}
+	if strings.TrimSpace(s.Name) == "" || s.Name != strings.TrimSpace(s.Name) {
+		return nil, fmt.Errorf("private AQL artifact requires an exact output ID")
+	}
 	if len(s.outputSchema) == 0 {
 		return nil, fmt.Errorf("private AQL artifact requires a compiler-resolved output schema")
 	}
@@ -62,7 +65,7 @@ func (s OutputStream) MaterializeClickHouseArtifact(ctx context.Context, manager
 		return nil, err
 	}
 	identity := chartifact.Identity{
-		ExecutionID: executionID, StageID: stageID,
+		ExecutionID: executionID, OutputID: s.Name, StageID: stageID,
 		Project: s.bindings.Project, DatasetGeneration: s.bindings.DatasetGeneration,
 		RecipeDigest: s.recipeDigest, PlanDigest: s.planFingerprint,
 		AuthScopeMode: s.bindings.AuthScopeMode, AuthResourcePaths: append([]string(nil), s.bindings.AuthResourcePaths...),
@@ -90,31 +93,163 @@ func (s OutputStream) MaterializeClickHouseArtifact(ctx context.Context, manager
 	return artifact, nil
 }
 
-// WithPrivateClickHouseArtifact materializes an AQL prefix while exact
-// published inputs are pinned, invokes consume with both protections active,
-// then releases the private table before releasing the published pins.
-// consume must resolve exact published inputs inside its callback before it
-// renders or executes the terminal ClickHouse operation.
-func (s OutputStream) WithPrivateClickHouseArtifact(ctx context.Context, manager *chartifact.Manager, executionID, stageID string, columns []chartifact.Column, publishedRevisions []string, withPins WithExecutionReadPins, consume func(context.Context, *chartifact.Artifact) error) error {
-	if ctx == nil || manager == nil || withPins == nil || consume == nil {
-		return fmt.Errorf("private artifact execution requires context, manager, read pins, and consumer")
+// PrivateClickHouseArtifactSource identifies one exact resolved workspace
+// output to capture before a terminal ClickHouse operation.
+type PrivateClickHouseArtifactSource struct {
+	OutputID string
+	Stream   OutputStream
+	Columns  []chartifact.Column
+}
+
+// PrivateClickHouseArtifactInput preserves the caller's source order when the
+// completed private captures are handed to the ClickHouse consumer.
+type PrivateClickHouseArtifactInput struct {
+	OutputID string
+	Artifact *chartifact.Artifact
+}
+
+// WithPrivateClickHouseArtifacts pins any published inputs, captures each
+// workspace output in order, invokes consume while every capture lease and
+// published pin is live, then releases every capture before returning. A
+// zero-length publishedRevisions list is valid for an all-workspace Combine.
+func WithPrivateClickHouseArtifacts(
+	ctx context.Context,
+	manager *chartifact.Manager,
+	executionID string,
+	sources []PrivateClickHouseArtifactSource,
+	publishedRevisions []string,
+	withPins WithExecutionReadPins,
+	consume func(context.Context, []PrivateClickHouseArtifactInput) error,
+) error {
+	if ctx == nil || manager == nil || consume == nil {
+		return fmt.Errorf("private artifact execution requires context, manager, and consumer")
 	}
-	if len(publishedRevisions) == 0 {
-		return fmt.Errorf("private artifact combine requires exact published input revisions")
+	if len(sources) == 0 {
+		return fmt.Errorf("private artifact execution requires at least one workspace output source")
 	}
-	return withPins(ctx, append([]string(nil), publishedRevisions...), func(pinnedCtx context.Context) (consumeErr error) {
-		artifact, err := s.MaterializeClickHouseArtifact(pinnedCtx, manager, executionID, stageID, columns)
-		if err != nil {
-			return err
+	seenOutputs := make(map[string]bool, len(sources))
+	var firstSource *PrivateClickHouseArtifactSource
+	for index, source := range sources {
+		if strings.TrimSpace(source.OutputID) == "" || source.OutputID != strings.TrimSpace(source.OutputID) || seenOutputs[source.OutputID] {
+			return fmt.Errorf("private artifact source %d requires a unique exact output ID", index)
 		}
+		if source.Stream.Name != source.OutputID {
+			return fmt.Errorf("private artifact source %d output ID does not match its resolved stream", index)
+		}
+		if firstSource == nil {
+			copy := source
+			firstSource = &copy
+		} else if !samePrivateArtifactSourceContext(firstSource.Stream, source.Stream) {
+			return fmt.Errorf("private artifact source %q differs from the first source's recipe, project, generation, or authorization scope", source.OutputID)
+		}
+		seenOutputs[source.OutputID] = true
+	}
+	if len(publishedRevisions) > 0 && withPins == nil {
+		return fmt.Errorf("published Combine inputs require exact execution read pins")
+	}
+
+	visit := func(pinnedCtx context.Context) (visitErr error) {
+		if pinnedCtx == nil {
+			return fmt.Errorf("private artifact pin callback returned a nil context")
+		}
+		artifactCtx, cancelArtifacts := context.WithCancelCause(pinnedCtx)
+		artifacts := make([]PrivateClickHouseArtifactInput, 0, len(sources))
+		stopLeaseCallbacks := make([]func() bool, 0, len(sources))
+		cancelLeaseContexts := make([]context.CancelFunc, 0, len(sources))
 		defer func() {
-			releaseErr := artifact.Release(context.WithoutCancel(pinnedCtx))
-			consumeErr = errors.Join(consumeErr, releaseErr)
+			cancelArtifacts(nil)
+			for index := len(stopLeaseCallbacks) - 1; index >= 0; index-- {
+				stopLeaseCallbacks[index]()
+			}
+			for index := len(cancelLeaseContexts) - 1; index >= 0; index-- {
+				cancelLeaseContexts[index]()
+			}
+			for index := len(artifacts) - 1; index >= 0; index-- {
+				releaseErr := artifacts[index].Artifact.Release(context.WithoutCancel(pinnedCtx))
+				if releaseErr != nil {
+					visitErr = errors.Join(visitErr, fmt.Errorf("release private artifact for workspace output %q: %w", artifacts[index].OutputID, releaseErr))
+				}
+			}
 		}()
-		artifactCtx, cancel := artifact.LeaseContext(pinnedCtx)
-		defer cancel()
-		return consume(artifactCtx, artifact)
-	})
+
+		for _, source := range sources {
+			if err := artifactCtx.Err(); err != nil {
+				return context.Cause(artifactCtx)
+			}
+			artifact, err := source.Stream.MaterializeClickHouseArtifact(artifactCtx, manager, executionID, source.Stream.stageID, source.Columns)
+			if err != nil {
+				if cause := context.Cause(artifactCtx); cause != nil {
+					return cause
+				}
+				return fmt.Errorf("materialize workspace output %q: %w", source.OutputID, err)
+			}
+			artifacts = append(artifacts, PrivateClickHouseArtifactInput{OutputID: source.OutputID, Artifact: artifact})
+
+			leaseCtx, cancelLeaseCtx := artifact.LeaseContext(artifactCtx)
+			cancelLeaseContexts = append(cancelLeaseContexts, cancelLeaseCtx)
+			capturedArtifact := artifact
+			capturedOutputID := source.OutputID
+			stopLeaseCallbacks = append(stopLeaseCallbacks, context.AfterFunc(leaseCtx, func() {
+				if artifactCtx.Err() != nil {
+					return
+				}
+				if leaseErr := capturedArtifact.CheckLease(); leaseErr != nil {
+					cancelArtifacts(fmt.Errorf("private artifact lease for workspace output %q: %w", capturedOutputID, leaseErr))
+					return
+				}
+				cancelArtifacts(leaseCtx.Err())
+			}))
+			if err := artifact.CheckLease(); err != nil {
+				leaseErr := fmt.Errorf("private artifact lease for workspace output %q: %w", source.OutputID, err)
+				cancelArtifacts(leaseErr)
+				return leaseErr
+			}
+		}
+
+		for _, input := range artifacts {
+			if err := artifactCtx.Err(); err != nil {
+				return context.Cause(artifactCtx)
+			}
+			if err := input.Artifact.CheckLease(); err != nil {
+				return fmt.Errorf("private artifact lease for workspace output %q: %w", input.OutputID, err)
+			}
+		}
+		consumeErr := consume(artifactCtx, artifacts)
+		if cause := context.Cause(artifactCtx); cause != nil {
+			return cause
+		}
+		if consumeErr != nil {
+			return consumeErr
+		}
+		for _, input := range artifacts {
+			if err := input.Artifact.CheckLease(); err != nil {
+				return fmt.Errorf("private artifact lease for workspace output %q: %w", input.OutputID, err)
+			}
+		}
+		if cause := context.Cause(artifactCtx); cause != nil {
+			return cause
+		}
+		return nil
+	}
+
+	if len(publishedRevisions) == 0 {
+		return visit(ctx)
+	}
+	return withPins(ctx, append([]string(nil), publishedRevisions...), visit)
+}
+
+func samePrivateArtifactSourceContext(left, right OutputStream) bool {
+	if left.recipeDigest != right.recipeDigest || left.bindings.Project != right.bindings.Project ||
+		left.bindings.DatasetGeneration != right.bindings.DatasetGeneration || left.bindings.AuthScopeMode != right.bindings.AuthScopeMode ||
+		len(left.bindings.AuthResourcePaths) != len(right.bindings.AuthResourcePaths) {
+		return false
+	}
+	for index, path := range left.bindings.AuthResourcePaths {
+		if path != right.bindings.AuthResourcePaths[index] {
+			return false
+		}
+	}
+	return true
 }
 
 func validateStreamSchema(streamColumns []string, artifactColumns []chartifact.Column) error {

@@ -204,6 +204,7 @@ func validateResolvedInputs(plan ir.PhysicalClickHouseCombine, inputs []ir.Resol
 func validateArtifactIdentity(expected, actual ir.ClickHouseArtifactIdentity) error {
 	for _, field := range []struct{ name, value string }{
 		{name: "execution", value: expected.ExecutionID},
+		{name: "output", value: expected.OutputID},
 		{name: "stage", value: expected.StageID},
 		{name: "project", value: expected.Project},
 		{name: "dataset generation", value: expected.DatasetGeneration},
@@ -228,7 +229,7 @@ func validateArtifactIdentity(expected, actual ir.ClickHouseArtifactIdentity) er
 	default:
 		return fmt.Errorf("private ClickHouse artifact has an unsupported authorization scope mode")
 	}
-	if actual.ExecutionID != expected.ExecutionID || actual.StageID != expected.StageID || actual.Project != expected.Project ||
+	if actual.ExecutionID != expected.ExecutionID || actual.OutputID != expected.OutputID || actual.StageID != expected.StageID || actual.Project != expected.Project ||
 		actual.DatasetGeneration != expected.DatasetGeneration || actual.RecipeDigest != expected.RecipeDigest ||
 		actual.PlanDigest != expected.PlanDigest || actual.SchemaDigest != expected.SchemaDigest ||
 		actual.ScopeDigest != expected.ScopeDigest || actual.AuthScopeMode != expected.AuthScopeMode ||

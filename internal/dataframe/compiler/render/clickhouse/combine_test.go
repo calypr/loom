@@ -205,7 +205,7 @@ func TestRenderCompositeCombineConsumesExactPrivatePrefixArtifact(t *testing.T) 
 		IncludeAuthResourcePath: true, AuthResourcePathBindKey: "construction_private_auth_resource_path",
 	}
 	expected := ir.ClickHouseArtifactIdentity{
-		ExecutionID: "execution-1", StageID: "derive_status", Project: "project-a", DatasetGeneration: "generation-a",
+		ExecutionID: "execution-1", OutputID: "patients", StageID: "derive_status", Project: "project-a", DatasetGeneration: "generation-a",
 		RecipeDigest: "recipe-digest", PlanDigest: "prefix-plan-digest", SchemaDigest: "prefix-schema-digest",
 		ScopeDigest: "scope-a", AuthScopeMode: "restricted", AuthResourcePaths: []string{"/programs/p1"},
 	}
@@ -249,6 +249,11 @@ func TestRenderCompositeCombineConsumesExactPrivatePrefixArtifact(t *testing.T) 
 	badArtifact.Identity.ScopeDigest = "different-scope"
 	if _, err := RenderCompositeClickHouseCombine(combine, prefix, []ir.ResolvedClickHouseTable{right}, badArtifact, expected, "project-a", 0); err == nil || !strings.Contains(err.Error(), "exact compiled prefix identity") {
 		t.Fatalf("mismatched artifact scope identity error = %v", err)
+	}
+	badArtifact = artifact
+	badArtifact.Identity.OutputID = "observations"
+	if _, err := RenderCompositeClickHouseCombine(combine, prefix, []ir.ResolvedClickHouseTable{right}, badArtifact, expected, "project-a", 0); err == nil || !strings.Contains(err.Error(), "exact compiled prefix identity") {
+		t.Fatalf("renderer accepted a same-stage artifact from a different output: %v", err)
 	}
 	if _, err := RenderCombine(combine, []ir.ResolvedClickHouseTable{right}, "project-a"); err == nil || !strings.Contains(err.Error(), "private stage outside a composite plan") {
 		t.Fatalf("standalone Combine accepted private input: %v", err)
