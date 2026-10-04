@@ -7,13 +7,16 @@ import { runRelatedSourceChooser } from './verify-cda-builder-related-source-cho
 import { runPatientRelatedInspection } from './verify-cda-builder-related-patient-inspection.mjs';
 import { runPatientRelatedApplyReload, runPatientRelatedEditRemove } from './verify-cda-builder-patient-related.mjs';
 import { runPreviewLimits } from './verify-cda-builder-preview-limits.mjs';
+import { runBuilderTableManagement } from './verify-cda-builder-table-management.mjs';
+import { tableManagementActions } from './verify-cda-builder-table-management-contract.mjs';
 
 const action = process.argv[2] ?? 'Keep rows';
 const patientRelatedInspectionActions = new Set(['Inspect Patient field choice', 'Inspect selected Patient route', 'Inspect Patient proposal']);
 const patientRelatedApplyReloadAction = action === 'Verify Patient related column';
 const patientRelatedEditRemoveAction = action === 'Edit and remove Patient related column';
 const previewLimitsAction = action === 'Preview limits';
-const playwrightOnlyAction = action === 'Verify related source chooser' || patientRelatedInspectionActions.has(action) || patientRelatedApplyReloadAction || patientRelatedEditRemoveAction || previewLimitsAction;
+const tableManagementAction = tableManagementActions.has(action);
+const playwrightOnlyAction = action === 'Verify related source chooser' || patientRelatedInspectionActions.has(action) || patientRelatedApplyReloadAction || patientRelatedEditRemoveAction || previewLimitsAction || tableManagementAction;
 const explorerId = process.argv[3] ?? (playwrightOnlyAction ? undefined : 'cda-builder-full-qa-1790439585678');
 const uiOrigin = (process.env.LOOM_CDA_UI_ORIGIN ?? (playwrightOnlyAction ? '' : 'http://127.0.0.1:30002')).replace(/\/$/, '');
 const pageURL = playwrightOnlyAction ? undefined : `${uiOrigin}/?project=loom_dev_cda_fhir&explorer=${explorerId}&mode=builder`;
@@ -63,6 +66,8 @@ try {
           ? await runPatientRelatedEditRemove({ explorerId: process.argv[3] })
         : previewLimitsAction
           ? await runPreviewLimits({ explorerId: process.argv[3] })
+          : tableManagementAction
+            ? await runBuilderTableManagement({ action, explorerId: process.argv[3], secondExplorerId: process.argv[4], expectedSecondExplorerTable: process.argv[5] })
         : await runPatientRelatedInspection({ action, explorerId: process.argv[3] });
     console.log(JSON.stringify({
       action,
@@ -254,20 +259,6 @@ try {
     assert.equal(download?.status,200);
     assert.deepEqual(download?.signature,[80,75,3,4]);
     if(explorerId==='cda-bounded-publish-qa-1790471259754') assert(csv.includes('9a651f6b-6b9b-54a5-8294-31a42a6df35f'),`Export lacks bounded CDA source ID: ${csv}`);
-  } else if (action === 'Switch explorers') {
-    const first=await browserEval(browser.cdp, `return {selected:document.querySelector('select[aria-label="Explorer"]')?.value,tables:[...document.querySelectorAll('button')].filter(button=>button.innerText.trim().startsWith('▤')).map(button=>button.innerText.trim())};`);
-    const target=explorerId==='cda-builder-full-qa-1790439585678'?'cda-builder-full-qa-1790440983382':'cda-builder-full-qa-1790439585678';
-    await browserEval(browser.cdp, `const select=document.querySelector('select[aria-label="Explorer"]');select.value=${JSON.stringify(target)};select.dispatchEvent(new Event('change',{bubbles:true}));return true;`);
-    await waitForBrowser(browser.cdp, `document.querySelector('select[aria-label="Explorer"]')?.value===${JSON.stringify(target)} && ${target==='cda-builder-full-qa-1790440983382' ? "Boolean(document.querySelector('button[aria-label=\"Rename Body structures QA\"]'))" : "document.querySelectorAll('button[aria-label^=\"Rename Body structures QA\"]').length===0 && document.body.innerText.includes('HOW THIS TABLE IS MADE')"}`, 30000);
-    const switched=await browserEval(browser.cdp, `return {selected:document.querySelector('select[aria-label="Explorer"]')?.value,tables:[...document.querySelectorAll('button')].filter(button=>button.innerText.trim().startsWith('▤')).map(button=>button.innerText.trim())};`);
-    assert.notEqual(first.selected,switched.selected);
-    await navigate(browser.cdp,pageURL);
-    await waitForBrowser(browser.cdp, `document.querySelector('select[aria-label="Explorer"]')?.value===${JSON.stringify(explorerId)}`, 30000);
-    const restored=await browserEval(browser.cdp, `return {selected:document.querySelector('select[aria-label="Explorer"]')?.value,tables:[...document.querySelectorAll('button')].filter(button=>button.innerText.trim().startsWith('▤')).map(button=>button.innerText.trim())};`);
-    assert.deepEqual(restored,first);
-    await mkdir(evidenceDirectory,{recursive:true});
-    await writeFile(join(evidenceDirectory,'switch-explorers.json'),JSON.stringify({pageURL,first,switched,restored,responses},null,2));
-    console.log(JSON.stringify({evidenceDirectory,first,switched,restored,responses:responses.filter(response=>response.path.endsWith('/builder'))},null,2));
   } else if (action === 'Review dataset after preview' || action === 'Review dataset') {
     if (action === 'Review dataset after preview') {
       await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.textContent?.trim()==='Preview')?.click();return true;`);
@@ -1944,23 +1935,6 @@ try {
     await mkdir(evidenceDirectory,{recursive:true});
     await writeFile(join(evidenceDirectory,'new-table.json'),JSON.stringify({pageURL,before,state,responses},null,2));
     console.log(JSON.stringify({evidenceDirectory,before,state,responses:responses.filter(response=>response.path.endsWith('/commands')||response.path.endsWith('/preview'))},null,2));
-  } else if (action === 'Rename reorder undo table') {
-    await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.innerText.trim()==='▤\\nBodyStructure').click();window.prompt=()=> 'Body structures QA';return true;`);
-    await browserEval(browser.cdp, `document.querySelector('button[aria-label="Rename BodyStructure"]').click();return true;`);
-    await waitForBrowser(browser.cdp, `Boolean(document.querySelector('button[aria-label="Rename Body structures QA"]'))`, 30000);
-    await browserEval(browser.cdp, `document.querySelector('button[aria-label="Move Body structures QA up"]').click();return true;`);
-    await waitForBrowser(browser.cdp, `[...document.querySelectorAll('button')].filter(button=>button.innerText.trim().startsWith('▤')).map(button=>button.innerText.trim())[0]?.endsWith('Body structures QA')`, 30000);
-    const moved=await browserEval(browser.cdp, `return [...document.querySelectorAll('button')].filter(button=>button.innerText.trim().startsWith('▤')).map(button=>button.innerText.trim());`);
-    await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.textContent?.trim()==='Undo').click();return true;`);
-    await waitForBrowser(browser.cdp, `[...document.querySelectorAll('button')].filter(button=>button.innerText.trim().startsWith('▤')).map(button=>button.innerText.trim())[1]?.endsWith('Body structures QA')`, 30000);
-    const undone=await browserEval(browser.cdp, `return [...document.querySelectorAll('button')].filter(button=>button.innerText.trim().startsWith('▤')).map(button=>button.innerText.trim());`);
-    await navigate(browser.cdp,pageURL);
-    await waitForBrowser(browser.cdp, `Boolean(document.querySelector('button[aria-label="Rename Body structures QA"]'))`, 30000);
-    const reloaded=await browserEval(browser.cdp, `return [...document.querySelectorAll('button')].filter(button=>button.innerText.trim().startsWith('▤')).map(button=>button.innerText.trim());`);
-    assert.deepEqual(reloaded,undone);
-    await mkdir(evidenceDirectory,{recursive:true});
-    await writeFile(join(evidenceDirectory,'table-rename-reorder-undo.json'),JSON.stringify({pageURL,moved,undone,reloaded,responses},null,2));
-    console.log(JSON.stringify({evidenceDirectory,moved,undone,reloaded,responses:responses.filter(response=>response.path.endsWith('/commands'))},null,2));
   } else if (action === 'Apply missing') {
     await browserEval(browser.cdp, `document.querySelector('button[aria-label^="Filter rows:"]').click();return true;`);
     await waitForBrowser(browser.cdp, `Boolean(document.querySelector('select[aria-label="Column"]:not(:disabled)'))`, 30000);
@@ -3567,56 +3541,6 @@ try {
     await mkdir(evidenceDirectory,{recursive:true});
     await writeFile(join(evidenceDirectory,'observation-concept-selection.json'),JSON.stringify({pageURL,source,state,responses},null,2));
     console.log(JSON.stringify({evidenceDirectory,source,state,responses:responses.filter(response=>response.path.endsWith('/semantic-inventory')||response.path.endsWith('/construction-choices'))},null,2));
-  } else if (action === 'Verify duplicate and delete') {
-    await waitForBrowser(browser.cdp, `[...document.querySelectorAll('button')].some(button=>button.innerText.trim().endsWith('Specimen copy'))`, 30000);
-    await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.innerText.trim().endsWith('Specimen copy')).click();return true;`);
-    await waitForBrowser(browser.cdp, `document.body.innerText.includes('DATASET WORKSPACE\\n\\nSpecimen copy')`, 30000);
-    await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(element=>element.textContent?.trim()==='Preview')?.click();return true;`);
-    await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-colcount') === '5'`, 30000);
-    const copied = await browserEval(browser.cdp, `return {count:document.querySelector('[data-testid="preview-table-scroll"] [role="table"]').getAttribute('aria-colcount'),headers:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].map(element=>element.innerText)};`);
-    await browserEval(browser.cdp, `document.querySelector('button[aria-label="Delete table"]').click();return true;`);
-    await waitForBrowser(browser.cdp, `![...document.querySelectorAll('button')].some(button=>button.innerText.trim().endsWith('Specimen copy'))`, 30000);
-    await navigate(browser.cdp,pageURL);
-    await waitForBrowser(browser.cdp, `[...document.querySelectorAll('button')].some(button=>button.innerText.trim().endsWith('Specimen'))`, 30000);
-    const remaining = await browserEval(browser.cdp, `return [...document.querySelectorAll('button')].filter(button=>button.innerText.trim().startsWith('▤')).map(button=>button.innerText.trim());`);
-    assert.deepEqual(remaining,['▤\nSpecimen']);
-    await mkdir(evidenceDirectory,{recursive:true});
-    await writeFile(join(evidenceDirectory,'duplicate-delete.json'),JSON.stringify({pageURL,copied,remaining,responses},null,2));
-    console.log(JSON.stringify({evidenceDirectory,copied,remaining,responses:responses.filter(response=>response.path.endsWith('/commands'))},null,2));
-  } else if (action === 'Inspect tables') {
-    const state=await browserEval(browser.cdp, `return {inputs:[...document.querySelectorAll('input')].map(input=>({label:input.getAttribute('aria-label'),value:input.value})),buttons:[...document.querySelectorAll('button')].map(button=>({label:button.getAttribute('aria-label'),text:button.innerText.slice(0,50)})).filter(item=>item.text.includes('Specimen')||item.text.includes('copy')||item.text.includes('Delete')||item.label?.includes('table')),alerts:[...document.querySelectorAll('[role="alert"]')].map(element=>element.innerText),text:document.body.innerText.slice(0,1200)};`);
-    const tableNames=state.buttons.filter(button=>button.text.trim().startsWith('▤')).map(button=>button.text.trim().split('\n').at(-1));
-    await mkdir(evidenceDirectory,{recursive:true});
-    await writeFile(join(evidenceDirectory,'table-inspection.json'),JSON.stringify({pageURL,tableNames,state,responses},null,2));
-    console.log(JSON.stringify({evidenceDirectory,tableNames,state,responses},null,2));
-  } else if (action === 'Cleanup orphan Patient table') {
-    await waitForBrowser(browser.cdp, `[...document.querySelectorAll('button')].some(button=>button.innerText.trim().endsWith('Patient'))`, 30000);
-    const before = await browserEval(browser.cdp, `return [...document.querySelectorAll('button')].filter(button=>button.innerText.trim().startsWith('▤')).map(button=>button.innerText.trim().replace(/\s+/g,' '));`);
-    const patientTables = before.filter(text => text.endsWith('Patient'));
-    assert.equal(patientTables.length, 1, `Expected one orphan Patient table, found ${patientTables.length}`);
-    await browserEval(browser.cdp, `const button=[...document.querySelectorAll('button')].find(button=>button.innerText.trim().endsWith('Patient'));if(!button)throw new Error('Orphan Patient table button is missing');button.click();return true;`);
-    await waitForBrowser(browser.cdp, `Boolean(document.querySelector('button[aria-label="Delete table"]'))`, 30000);
-    await browserEval(browser.cdp, `window.confirm=()=>true;document.querySelector('button[aria-label="Delete table"]').click();return true;`);
-    await waitForBrowser(browser.cdp, `![...document.querySelectorAll('button')].some(button=>button.innerText.trim().endsWith('Patient'))`, 60000);
-    await navigate(browser.cdp, pageURL);
-    await waitForBrowser(browser.cdp, `document.body.innerText.includes('DATASET WORKSPACE') && ![...document.querySelectorAll('button')].some(button=>button.innerText.trim().endsWith('Patient'))`, 60000);
-    const after = await browserEval(browser.cdp, `return [...document.querySelectorAll('button')].filter(button=>button.innerText.trim().startsWith('▤')).map(button=>button.innerText.trim().replace(/\s+/g,' '));`);
-    assert(!after.some(text => text.endsWith('Patient')), 'Orphan Patient table remains after reload');
-    await mkdir(evidenceDirectory,{recursive:true});
-    await writeFile(join(evidenceDirectory,'orphan-patient-cleanup.json'),JSON.stringify({pageURL,before,after,responses},null,2));
-    console.log(JSON.stringify({evidenceDirectory,before,after,deleteResponses:responses.filter(response=>response.path.endsWith('/commands'))},null,2));
-  } else if (action === 'Duplicate table') {
-    assert(!await browserEval(browser.cdp, `return Boolean(document.querySelector('input[aria-label="Table name for Specimen copy"]'));`));
-    await browserEval(browser.cdp, `document.querySelector('button[aria-label="Duplicate table"]').click();return true;`);
-    await waitForBrowser(browser.cdp, `Boolean(document.querySelector('input[aria-label="Table name for Specimen copy"]'))`, 30000);
-    await navigate(browser.cdp, pageURL);
-    await waitForBrowser(browser.cdp, `Boolean(document.querySelector('input[aria-label="Table name for Specimen copy"]'))`, 30000);
-    const duplicate = await browserEval(browser.cdp, `return [...document.querySelectorAll('input[aria-label^="Table name for"]')].map(input=>input.value);`);
-    assert.deepEqual(duplicate,['Specimen','Specimen copy']);
-    assert.equal(responses.filter(response=>response.path.endsWith('/commands') && response.status===200).length,1);
-    await mkdir(evidenceDirectory,{recursive:true});
-    await writeFile(join(evidenceDirectory,'duplicate-table.json'),JSON.stringify({pageURL,duplicate,responses},null,2));
-    console.log(JSON.stringify({evidenceDirectory,duplicate,responses:responses.filter(response=>response.path.endsWith('/commands'))},null,2));
   } else if (action === 'Toggle filter flag') {
     await browserEval(browser.cdp, `document.querySelector('[data-testid="construction-source-setup"]').open=true;return true;`);
     await waitForBrowser(browser.cdp, `Boolean(document.querySelector('input[aria-label="Use Specimen ID as filter"]:not(:disabled)'))`, 30000);
