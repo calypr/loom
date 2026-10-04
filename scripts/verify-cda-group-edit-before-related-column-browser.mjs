@@ -7,6 +7,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { assertExactMultiset } from './group-related-multiset.mjs';
 import { classifyNativeBrowserApiRequest, isSameUiProxyResponse } from './lib/native-browser-api-scope.mjs';
 import { assertOwnedCdaTarget } from './lib/owned-cda-target.mjs';
+import { sanitizePayload } from './lib/playwright-browser.mjs';
 import { browserEval, click, launchCdaBrowser, navigate, selectOption, waitForBrowser, waitForControl } from './lib/playwright-cda-actions.mjs';
 import { assertReopenedProposalAfterCancel } from './lib/proposal-reopen-binding.mjs';
 
@@ -262,7 +263,13 @@ let nextBrowserRequestId = 1;
 const installBrowserCapture = () => {
   browser.page.on('pageerror', error => report.errors.push({ kind: 'runtime', text: error.message }));
   browser.page.on('console', message => {
-    if (message.type() === 'error') report.errors.push({ kind: 'console', text: message.text() });
+    if (message.type() !== 'error') return;
+    const location = message.location().url;
+    if (location === `${uiOrigin}/favicon.ico` && /404 \(Not Found\)/.test(message.text())) {
+      (report.assetFailures ??= []).push({ url: location, status: 404, kind: 'console' });
+      return;
+    }
+    report.errors.push({ kind: 'console', text: message.text() });
   });
   browser.page.on('request', request => {
     const transport = classifyNativeBrowserApiRequest(request.url(), browserTransportScope);
@@ -945,7 +952,7 @@ FOR s IN (
     }
   }
   report.finished = new Date().toISOString();
-  await writeFile(join(evidence, 'report.json'), JSON.stringify(report, null, 2));
+  await writeFile(join(evidence, 'report.json'), JSON.stringify(sanitizePayload(report), null, 2));
   await browser?.close();
 }
 console.log(JSON.stringify({ status: report.status, evidence, explorer, cases: report.cases.map(({ name, durationMs }) => ({ name, durationMs })), error: report.error }, null, 2));
