@@ -2,8 +2,60 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { registry, requiredChecksFor } from './registry.mjs';
+import { sourceFingerprint } from './source-fingerprint.mjs';
 
 const dimensions = ['usability', 'correctness', 'persistence', 'performance'];
+const sourceFreezeCheck = 'watched source stayed unchanged during browser run';
+const apiBuildIdentityPattern = /^[a-f0-9]{64}(?::[a-f0-9]{64}){2}$/i;
+
+const isFingerprint = (value) =>
+  typeof value?.sha256 === 'string'
+  && /^[a-f0-9]{64}$/i.test(value.sha256)
+  && Number.isInteger(value.files)
+  && value.files > 0;
+
+const sameFingerprint = (left, right) =>
+  isFingerprint(left)
+  && isFingerprint(right)
+  && left.sha256.toLowerCase() === right.sha256.toLowerCase()
+  && left.files === right.files;
+
+const sourceFreshness = (report, expected) => {
+  if (!isFingerprint(expected)) return 'unknown';
+  const captured = report?.target?.sourceFingerprint;
+  if (!isFingerprint(captured)) return 'unknown';
+  if (!sameFingerprint(captured, expected)) return 'historical';
+
+  const assertion = report.assertions?.find((item) => item.name === sourceFreezeCheck);
+  const before = assertion?.evidence?.before;
+  const after = assertion?.evidence?.after;
+  if (!isFingerprint(before) || !isFingerprint(after)) return 'unknown';
+  if (!sameFingerprint(before, captured) || !sameFingerprint(after, captured)) return 'historical';
+  if (assertion.status !== 'passed') return 'historical';
+  return 'current';
+};
+
+const normalizeApiBuildIdentity = (value) =>
+  typeof value === 'string' && apiBuildIdentityPattern.test(value.trim())
+    ? value.trim().toLowerCase()
+    : null;
+
+const buildFreshness = (report, expected) => {
+  const expectedIdentity = normalizeApiBuildIdentity(expected);
+  if (!expectedIdentity) return 'unknown';
+  const capturedIdentity = normalizeApiBuildIdentity(report?.apiBuildIdentity ?? report?.target?.apiBuildIdentity);
+  if (!capturedIdentity) return 'unknown';
+  return capturedIdentity === expectedIdentity ? 'current' : 'historical';
+};
+
+export const classifyFreshness = (report, baseline = {}) => {
+  const source = sourceFreshness(report, baseline.sourceFingerprint);
+  const build = buildFreshness(report, baseline.apiBuildIdentity);
+  const status = source === 'historical' || build === 'historical'
+    ? 'historical'
+    : source === 'current' && build === 'current' ? 'current' : 'unknown';
+  return { status, source, build };
+};
 
 const registeredChecksFor = (scenario, caseName, report) => {
   try {
@@ -28,7 +80,7 @@ export const classifyEvidence = (report, requiredChecks) => {
     : 'partial';
 };
 
-export const summarizeCoverage = (scenarios, reports) => {
+export const summarizeCoverage = (scenarios, reports, baseline = {}) => {
   const latest = new Map();
   for (const { path, report } of reports) {
     if (!report?.scenario || !report?.case || !report?.finishedAt) continue;
@@ -42,10 +94,23 @@ export const summarizeCoverage = (scenarios, reports) => {
     return {
       path: `${scenario.id}/${caseName}`,
       status: evidence ? classifyEvidence(evidence.report, requiredChecks) : 'untested',
+      freshness: evidence ? classifyFreshness(evidence.report, baseline) : { status: 'unknown', source: 'unknown', build: 'unknown' },
       finishedAt: evidence?.report.finishedAt ?? null,
       report: evidence?.path ?? null,
     };
   }));
+};
+
+export const currentCoverageBaseline = ({ cwd = process.cwd(), env = process.env } = {}) => {
+  let currentSourceFingerprint = null;
+  try { currentSourceFingerprint = sourceFingerprint(cwd); } catch {}
+  return {
+    sourceFingerprint: currentSourceFingerprint,
+    // The running API identity is intentionally opt-in. Reports need the exact
+    // three-part digest emitted by loom-dev-build-stamp.sh --check; an absent
+    // value leaves build freshness unknown instead of guessing from a freeze.
+    apiBuildIdentity: normalizeApiBuildIdentity(env.LOOM_VERIFY_UI_API_BUILD_IDENTITY),
+  };
 };
 
 const readReports = (directory) => {
@@ -61,9 +126,13 @@ const readReports = (directory) => {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   const directory = resolve(process.argv[2] ?? '.artifacts/loom-dev/verify-ui');
-  const rows = summarizeCoverage(registry, readReports(directory));
-  for (const row of rows) console.log(`${row.status}\t${row.path}\t${row.report ?? '-'}`);
-  console.log(`${rows.filter((row) => row.status === 'passed').length}/${rows.length} registered browser cases have passing report evidence (historical reports use four dimensions; new reports use case requirements)`);
+  const rows = summarizeCoverage(registry, readReports(directory), currentCoverageBaseline());
+  for (const row of rows) console.log(`${row.status}\t${row.freshness.status}\t${row.path}\t${row.report ?? '-'}`);
+  const currentPasses = rows.filter((row) => row.status === 'passed' && row.freshness.status === 'current').length;
+  const historicalPasses = rows.filter((row) => row.status === 'passed' && row.freshness.status === 'historical').length;
+  const unknownFreshnessPasses = rows.filter((row) => row.status === 'passed' && row.freshness.status === 'unknown').length;
+  console.log(`${currentPasses}/${rows.length} registered browser cases have passing report evidence for the current source and API build`);
+  console.log(`${historicalPasses} historical passing reports preserved; ${unknownFreshnessPasses} passing reports have unknown freshness`);
   const gaps = registry.flatMap((scenario) => scenario.coverage
     .filter((feature) => feature.status !== 'implemented')
     .map((feature) => `${scenario.id}\t${feature.feature}`));

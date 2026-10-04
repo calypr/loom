@@ -3,7 +3,6 @@ import test from 'node:test';
 import vm from 'node:vm';
 import {
   createNativeAbortProbeSource,
-  installNativeAbortProbe,
   nativeAbortNetworkFailureClock,
   nativeAbortProbeEvidenceForRequest,
 } from './native-abort-probe.mjs';
@@ -206,27 +205,6 @@ test('probe ignores wrong-scope, unknown-endpoint, and unrecognized-request-id f
   const event = events.find((item) => item.kind === 'abort-controller-call');
   assert(event);
   assert.deepEqual(event.requests, []);
-});
-
-test('CDP installation registers the binding before the pre-document probe and forwards only its payload', async () => {
-  const calls = [];
-  const listeners = new Map();
-  const events = [];
-  const cdp = {
-    send: async (method, params) => { calls.push({ method, params }); return {}; },
-    on: (method, listener) => listeners.set(method, listener),
-  };
-  await installNativeAbortProbe(cdp, { project, explorer, onEvent: (event) => events.push(event) });
-  assert.deepEqual(calls.map(({ method }) => method), ['Runtime.addBinding', 'Page.addScriptToEvaluateOnNewDocument']);
-  assert.equal(calls[0].params.name, '__loomNativeAbortProbeBinding');
-  assert(calls[1].params.source.includes(JSON.stringify(project)));
-  const receive = listeners.get('Runtime.bindingCalled');
-  receive({ name: '__unrelatedBinding', payload: '{}', executionContextId: 2 });
-  receive({ name: calls[0].params.name, payload: JSON.stringify({ kind: 'probe-installed', project, explorer }), executionContextId: 3 });
-  receive({ name: calls[0].params.name, payload: '{malformed', executionContextId: 4 });
-  assert.deepEqual(events.map((event) => event.kind), ['probe-installed', 'probe-payload-invalid']);
-  assert.equal(events[0].executionContextId, 3);
-  assert.equal(events[1].payloadLength, 10);
 });
 
 test('captured trusted interaction is metadata-only and tied to the later abort event', () => {

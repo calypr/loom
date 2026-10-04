@@ -4,16 +4,31 @@ import { spawnSync } from 'node:child_process';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { parseArgs } from 'node:util';
-import { browserEval, click, launchBrowser, navigate, selectOption, waitForBrowser } from './lib/browser.mjs';
+import { launchBrowser, sanitizeBody, sanitizeText } from './lib/playwright-browser.mjs';
+import { performAction, requireUnique } from './lib/playwright-actions.mjs';
+import { captureCDARequests } from './lib/cda-playwright-requests.mjs';
+import { assertOwnedCdaTarget } from './lib/owned-cda-target.mjs';
+import { fileURLToPath } from 'node:url';
+import { captureSourceFreeze } from './lib/source-freeze.mjs';
+import { ApiBuildFreezeError, captureApiBuildFreeze, checkContainerApiBuildStamp } from './lib/api-build-freeze.mjs';
+import { sourceFingerprint } from './verify-ui/source-fingerprint.mjs';
+import { waitForCondition } from './lib/playwright-observations.mjs';
 
 const { values } = parseArgs({ options: {
-  'api-origin': { type: 'string', default: 'http://127.0.0.1:8188' },
-  'ui-origin': { type: 'string', default: 'http://127.0.0.1:30008' },
-  project: { type: 'string', default: 'loom_dev_cda_fhir' },
+  'api-origin': { type: 'string', default: process.env.LOOM_CDA_API_ORIGIN },
+  'ui-origin': { type: 'string', default: process.env.LOOM_CDA_UI_ORIGIN },
+  'api-container': { type: 'string', default: process.env.LOOM_CDA_API_CONTAINER },
+  'compose-project': { type: 'string', default: process.env.LOOM_CDA_COMPOSE_PROJECT },
+  project: { type: 'string', default: process.env.LOOM_CDA_PROJECT },
   evidence: { type: 'string', default: `/tmp/loom-cda-expanded-publication-${Date.now()}` },
-  'arango-container': { type: 'string', default: 'loom-dev-6d7df93d6a37-arangodb-1' },
-  'clickhouse-container': { type: 'string', default: 'loom-dev-6d7df93d6a37-clickhouse-1' },
+  'arango-container': { type: 'string', default: process.env.LOOM_ARANGO_CONTAINER },
+  'clickhouse-container': { type: 'string', default: process.env.LOOM_CLICKHOUSE_CONTAINER },
 } });
+
+const sourceFreezeRoot = process.env.LOOM_SOURCE_FREEZE_ROOT ?? fileURLToPath(new URL('..', import.meta.url));
+await assertOwnedCdaTarget({ project: values.project, apiOrigin: values['api-origin'], uiOrigin: values['ui-origin'],
+  apiContainer: values['api-container'], composeProject: values['compose-project'], sourceRoot: sourceFreezeRoot,
+  arangoContainer: values['arango-container'], clickhouseContainer: values['clickhouse-container'] });
 
 const protectedExplorer = 'cda-builder-full-qa-1790440983382';
 const explorer = `cda-expanded-publication-${Date.now()}-${randomUUID().slice(0, 8)}`;
@@ -27,6 +42,7 @@ const explorerPath = `${root}/${encodeURIComponent(explorer)}`;
 const base = `${explorerPath}/authoring/v2`;
 const pageURL = `${uiOrigin}/?project=${encodeURIComponent(values.project)}&explorer=${encodeURIComponent(explorer)}&mode=builder`;
 const report = {
+  errors: [],
   started: new Date().toISOString(),
   invocation: process.argv,
   target: { apiOrigin, uiOrigin, project: values.project, protectedExplorer },
@@ -41,6 +57,12 @@ const report = {
   browserErrors: { exceptions: [], console: [], modules: [], http: [], network: [], incidental: [] },
   evidencePaths: [],
 };
+const sourceFreeze = await captureSourceFreeze(sourceFreezeRoot);
+const sourceBefore = sourceFingerprint(sourceFreezeRoot);
+const frozenApiBuild = await captureApiBuildFreeze(() => checkContainerApiBuildStamp(values['api-container']));
+report.sourceFreeze = { root: sourceFreezeRoot, watchedFileCount: sourceFreeze.watchedFileCount, invalidatesRun: false };
+report.sourceFingerprint = { root: sourceFreezeRoot, before: sourceBefore, checked: true, invalidatesRun: false };
+report.apiBuildFreeze = { container: values['api-container'], initial: frozenApiBuild.initial, invalidatesRun: false };
 const protocol = [];
 const protocolById = new Map();
 const networkById = new Map();
@@ -51,6 +73,39 @@ let outputId;
 let componentChoice;
 let oracleRows = [];
 let browser;
+let requestMonitor;
+const inspectPage = (page, body) => page.evaluate(`(()=>{${body}})()`);
+const waitForBrowser = (page, condition, timeout = 30000) => waitForCondition(page, condition, timeout);
+const resolveActionLocator = async (page, selector, identity = {}) => {
+  const candidates = page.locator(selector);
+  const { name, includes } = identity;
+  if (name === undefined && includes === undefined) return requireUnique(candidates, selector);
+  const matches = await candidates.evaluateAll((nodes, wanted) => nodes.flatMap((node, index) => {
+    const label = String(node.getAttribute('aria-label') || node.innerText || node.textContent || '')
+      .replace(/\\s+/g, ' ').trim();
+    const matched = wanted.name !== undefined ? label === wanted.name
+      : label.toLocaleLowerCase().includes(wanted.includes.toLocaleLowerCase());
+    return matched ? [index] : [];
+  }), { name, includes });
+  assert.equal(matches.length, 1, `${selector}: expected one matching control, found ${matches.length}`);
+  return requireUnique(candidates.nth(matches[0]), `${selector} ${name ?? includes}`);
+};
+const click = async (page, selector, identity = {}, timeout = 5000) => {
+  const locator = await resolveActionLocator(page, selector, identity);
+  return performAction(report, `Click ${selector} ${identity.name ?? identity.includes ?? ''}`.trim(), locator,
+    (target, options) => target.click(options), { timeout });
+};
+const fill = async (page, selector, value, timeout = 5000) => {
+  const locator = await resolveActionLocator(page, selector);
+  return performAction(report, `Fill ${selector}`, locator,
+    (target, options) => target.fill(value, options), { timeout, editable: true });
+};
+const selectOption = async (page, selector, value, timeout = 5000) => {
+  const locator = await resolveActionLocator(page, selector);
+  return performAction(report, `Select ${value} in ${selector}`, locator,
+    (target, options) => target.selectOption(value, options), { timeout });
+};
+const navigate = (page, url) => page.goto(url, { waitUntil: 'load', timeout: 30000 });
 let browserPending = new Set();
 let fatal;
 
@@ -134,8 +189,8 @@ const command = async (commands) => {
 
 const document = () => builder.workspace.documents.find(doc => doc.output.id === outputId);
 const previewTableSelector = '[data-testid="preview-table-scroll"] [role="table"]';
-const rowsReady = count => `${JSON.stringify(String(count + 1))} === document.querySelector(${JSON.stringify(previewTableSelector)})?.getAttribute('aria-rowcount') && !document.body.innerText.includes('Loading your table')`;
-const domText = () => browserEval(browser.cdp, 'return document.body.innerText;');
+const rowsReady = count => ({ kind: 'rows', selector: previewTableSelector, count });
+const domText = () => inspectPage(browser.page, 'return document.body.innerText;');
 const scalarCell = cell => {
   let value = cell?.raw;
   if (value) {
@@ -152,7 +207,7 @@ const sortedPairs = pairs => pairs.map(pair => [String(pair[0]), String(pair[1])
   .sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)));
 const expectedPairs = () => report.oracle.expectedRows.map(({ id, value }) => [id, value]);
 
-const fieldPreviewRows = async () => browserEval(browser.cdp, `const proposalRow=document.querySelector('[data-testid="construction-proposal-preview-row"]');const root=proposalRow?.closest('table')??document.querySelector('[data-testid="preview-table-scroll"] [role="table"]');if(!root)return null;const proposal=Boolean(proposalRow);const headers=[...root.querySelectorAll(proposal?'thead th':'[role="columnheader"]')].map(cell=>cell.innerText.trim());const rows=[...root.querySelectorAll(proposal?'[data-testid="construction-proposal-preview-row"]':'[role="row"]')].slice(proposal?0:1).map(row=>[...row.querySelectorAll(proposal?'td':'[role="cell"]')].map(cell=>({text:cell.innerText.trim(),raw:cell.title}))).filter(row=>row.length);return {headers,rows,rowCount:root.getAttribute('aria-rowcount')};`);
+const fieldPreviewRows = async () => inspectPage(browser.page, `const proposalRow=document.querySelector('[data-testid="construction-proposal-preview-row"]');const root=proposalRow?.closest('table')??document.querySelector('[data-testid="preview-table-scroll"] [role="table"]');if(!root)return null;const proposal=Boolean(proposalRow);const headers=[...root.querySelectorAll(proposal?'thead th':'[role="columnheader"]')].map(cell=>cell.innerText.trim());const rows=[...root.querySelectorAll(proposal?'[data-testid="construction-proposal-preview-row"]':'[role="row"]')].slice(proposal?0:1).map(row=>[...row.querySelectorAll(proposal?'td':'[role="cell"]')].map(cell=>({text:cell.innerText.trim(),raw:cell.title}))).filter(row=>row.length);return {headers,rows,rowCount:root.getAttribute('aria-rowcount')};`);
 
 const verifyRenderedPairs = async (label) => {
   const preview = await fieldPreviewRows();
@@ -166,10 +221,7 @@ const verifyRenderedPairs = async (label) => {
   return { headers: preview.headers, rowCount: preview.rows.length, pairs: actual };
 };
 
-const renderedPairsExpression = () => {
-  const expected = JSON.stringify(sortedPairs(expectedPairs()));
-  return `(()=>{const table=document.querySelector(${JSON.stringify(previewTableSelector)});if(!table||table.getAttribute('aria-rowcount')!==${JSON.stringify(String(expectedPairs().length + 1))})return false;const headers=[...table.querySelectorAll('[role="columnheader"]')].map(cell=>cell.innerText.trim());const idIndex=headers.findIndex(header=>header.split(String.fromCharCode(10))[0].toUpperCase()==='OBSERVATION ID');const valueIndex=headers.findIndex(header=>/component.*value.?string/i.test(header));if(idIndex<0||valueIndex<0)return false;const cells=[...table.querySelectorAll('[role="row"]')].slice(1).map(row=>[...row.querySelectorAll('[role="cell"]')]);const parse=cell=>{let value;try{value=JSON.parse(cell.title)}catch{value=cell.innerText.trim()}if(Array.isArray(value)){if(value.length!==1)return null;value=value[0]}return typeof value==='string'?value:null};const pairs=cells.map(row=>[parse(row[idIndex]),parse(row[valueIndex])]);if(pairs.some(pair=>pair.some(value=>value===null)))return false;pairs.sort((a,b)=>JSON.stringify(a).localeCompare(JSON.stringify(b)));return JSON.stringify(pairs)===${JSON.stringify(expected)}})()`;
-};
+const renderedPairsCondition = () => ({ kind: 'viewer-pairs', selector: previewTableSelector, pairs: expectedPairs() });
 
 const recordBrowserError = (event) => {
   if (event.type === 'Script') report.browserErrors.modules.push({ error: event.errorText, url: networkById.get(event.requestId)?.url });
@@ -177,51 +229,50 @@ const recordBrowserError = (event) => {
 };
 
 const monitorBrowser = () => {
-  browser.cdp.on('Runtime.exceptionThrown', event => report.browserErrors.exceptions.push(event.exceptionDetails));
-  browser.cdp.on('Runtime.consoleAPICalled', event => {
-    if (event.type === 'error') report.browserErrors.console.push(event.args.map(arg => arg.value ?? arg.description ?? '').join(' '));
+  requestMonitor = captureCDARequests(browser.page, {
+    apiOrigin: uiOrigin,
+    appOrigins: [apiOrigin, uiOrigin],
+    ownedPathPrefix: `${explorerPath}`,
+    responsePaths: /publish|commands|selections|explicit-groups|row-definition-proposals|construction-choice-proposals|construction-proposals|construction-capabilities|row-lineage|population-mapping|preview/,
+    report: { nativeRequests: report.browserRequests, errors: report.errors },
+    shouldReportRequestFailure: (entry, request) => {
+      const index = report.browserRequests.indexOf(entry);
+      const replacement = report.browserRequests.slice(index + 1).find(candidate =>
+        candidate.path === entry.path && candidate.method === entry.method);
+      return request.failure()?.errorText === 'net::ERR_ABORTED'
+        && ['/row-definition-proposals', '/preview'].some(path => entry.path.endsWith(path)) && replacement
+        ? { expected: true, reason: `A later same-path owned preview request (${replacement.requestId}) superseded this request.` } : true;
+    },
   });
-  browser.cdp.on('Network.requestWillBeSent', ({ requestId, request }) => {
-    let url;
-    try { url = new URL(request.url); } catch { return; }
-    const entry = { path: url.pathname, url: request.url, owned: url.pathname.startsWith(`${explorerPath}/`) };
-    networkById.set(requestId, entry);
-    if (!entry.owned) return;
-    const item = { path: url.pathname, method: request.method, body: undefined };
-    if (request.postData) {
-      try { item.body = JSON.parse(request.postData); } catch { item.body = request.postData; }
-    }
-    protocolById.set(requestId, item);
-    protocol.push(item);
-    report.browserRequests.push(item);
+  browserPending = requestMonitor.pendingReads;
+  browser.page.on('request', request => {
+    const captured = requestMonitor.byRequest.get(request);
+    if (!captured || !captured.path.includes('/authoring/v2/')) return;
+    networkById.set(request, { path: captured.path, url: `${captured.origin}${captured.path}` });
+    protocolById.set(request, captured);
+    protocol.push(captured);
   });
-  browser.cdp.on('Network.responseReceived', ({ requestId, response, type }) => {
-    const entry = protocolById.get(requestId);
-    if (entry) { entry.status = response.status; entry.responseURL = response.url; }
-    if (response.status < 400) return;
-    const failure = { url: response.url, status: response.status, resourceType: type };
-    if (new URL(response.url).pathname.endsWith('/favicon.ico') && response.status === 404) report.browserErrors.incidental.push(failure);
+  browser.page.on('response', response => {
+    const url = new URL(response.url());
+    if (url.origin !== new URL(uiOrigin).origin || response.status() < 400) return;
+    const failure = { url: sanitizeText(response.url()), status: response.status(), resourceType: response.request().resourceType() };
+    if (url.pathname.endsWith('/favicon.ico') && response.status() === 404) report.browserErrors.incidental.push(failure);
     else report.browserErrors.http.push(failure);
   });
-  browser.cdp.on('Network.loadingFinished', ({ requestId }) => {
-    const entry = protocolById.get(requestId);
-    if (!entry) return;
-    const read = browser.cdp.send('Network.getResponseBody', { requestId }).then(({ body, base64Encoded }) => {
-      const text = base64Encoded ? Buffer.from(body, 'base64').toString('utf8') : body;
-      try { entry.response = JSON.parse(text); } catch { entry.response = text; }
-    }).catch(error => { entry.responseBodyError = String(error); }).finally(() => browserPending.delete(read));
-    browserPending.add(read);
+  browser.page.on('requestfailed', request => {
+    const url = new URL(request.url());
+    if (url.origin !== new URL(uiOrigin).origin || request.failure()?.errorText === 'net::ERR_ABORTED') return;
+    const failure = { url: sanitizeText(request.url()), type: request.resourceType(), error: sanitizeText(request.failure()?.errorText) };
+    if (url.pathname.endsWith('/favicon.ico')) report.browserErrors.incidental.push(failure);
+    else if (request.resourceType() === 'script') report.browserErrors.modules.push(failure);
+    else report.browserErrors.network.push(failure);
   });
-  browser.cdp.on('Network.loadingFailed', event => {
-    const path = networkById.get(event.requestId)?.path;
-    if (path?.endsWith('/favicon.ico') && event.errorText === 'net::ERR_ABORTED') return;
-    recordBrowserError(event);
-  });
+  return monitor;
 };
 
 const remaining = startedAt => Math.max(100, 5000 - (Date.now() - startedAt));
-const fastWait = async (startedAt, expression, message) => {
-  try { await waitForBrowser(browser.cdp, expression, remaining(startedAt)); }
+const fastWait = async (startedAt, condition, message) => {
+  try { await waitForBrowser(browser.page, condition, remaining(startedAt)); }
   catch (error) { throw new Error(`${message} within the five-second action budget: ${String(error)}`); }
 };
 const measure = async (name, action) => {
@@ -234,17 +285,18 @@ const measure = async (name, action) => {
 };
 
 const waitForNativeResponse = async (suffix, priorCount, timeoutMs = 5000) => {
-  const startedAt = Date.now();
-  while (Date.now() - startedAt < timeoutMs) {
-    const entries = protocol.filter(entry => entry.path.endsWith(suffix) && entry.status !== undefined);
-    if (entries.length > priorCount) {
-      const entry = entries.at(-1);
-      await Promise.all([...browserPending]);
-      if (entry.response !== undefined) return entry;
-    }
-    await new Promise(resolve => setTimeout(resolve, 40));
+  const existing = protocol.filter(entry => entry.path.endsWith(suffix) && entry.status !== undefined);
+  let entry = existing.length > priorCount ? existing.at(-1) : undefined;
+  if (!entry) {
+    const response = await browser.page.waitForResponse(candidate => {
+      const candidateEntry = requestMonitor.byRequest.get(candidate.request());
+      return candidateEntry?.path.endsWith(suffix) && candidateEntry.status !== undefined;
+    }, { timeout: timeoutMs });
+    entry = requestMonitor.byRequest.get(response.request());
   }
-  throw new Error(`Timed out waiting for native ${suffix} response`);
+  await requestMonitor.flush();
+  assert(entry?.response !== undefined, `Timed out waiting for native ${suffix} response body`);
+  return entry;
 };
 
 const previewEntries = () => protocol.filter(entry => entry.path.endsWith('/preview') && entry.status === 200 && entry.response);
@@ -288,32 +340,37 @@ const saveDOM = async name => {
 };
 
 const openTable = async (expectedCount, name, exactTuples = false) => measure(name, async startedAt => {
-  await navigate(browser.cdp, pageURL);
-  await fastWait(startedAt, `Boolean(document.querySelector('[data-testid="construction-workspace"]'))`, 'Explorer workspace load');
-  await fastWait(startedAt, `Boolean(document.querySelector(${JSON.stringify(`[data-testid="construction-table-${outputId}"]`)}))`, 'Explorer table discovery');
-  await click(browser.cdp, `[data-testid="construction-table-${outputId}"]`);
-  await fastWait(startedAt, exactTuples ? renderedPairsExpression() : rowsReady(expectedCount), 'CDA table render');
+  await navigate(browser.page, pageURL);
+  await fastWait(startedAt, { kind: 'present', selector: '[data-testid="construction-workspace"]' }, 'Explorer workspace load');
+  await fastWait(startedAt, { kind: 'present', selector: `[data-testid="construction-table-${outputId}"]` }, 'Explorer table discovery');
+  await click(browser.page, `[data-testid="construction-table-${outputId}"]`);
+  await fastWait(startedAt, exactTuples ? renderedPairsCondition() : rowsReady(expectedCount), 'CDA table render');
   if (exactTuples) await verifyRenderedPairs(name);
 });
 
 const openRowSettings = async () => measure('row-definition-choice-discovery', async startedAt => {
-  await click(browser.cdp, '[data-testid="construction-rows-settings-trigger"]');
-  await fastWait(startedAt, `document.querySelector('select[aria-label="What should each row represent?"]')?.disabled === false`, 'Row definition choice discovery');
+  await click(browser.page, '[data-testid="construction-rows-settings-trigger"]');
+  await fastWait(startedAt, { kind: 'enabled', selector: 'select[aria-label="What should each row represent?"]' }, 'Row definition choice discovery');
 });
 
 const selectExpandedAndPreview = async () => measure('native-component-row-preview', async startedAt => {
   const priorProposalCount = protocol.filter(entry => entry.path.endsWith('/row-definition-proposals') && entry.status !== undefined).length;
   const shapeSelect = 'select[aria-label="What should each row represent?"]';
-  await selectOption(browser.cdp, shapeSelect, `expanded:${componentChoice.choiceId}`);
+  await selectOption(browser.page, shapeSelect, `expanded:${componentChoice.choiceId}`);
   const policySelect = 'select[aria-label="Unmatched record policy"]';
-  await fastWait(startedAt, `document.querySelector(${JSON.stringify(policySelect)})?.disabled === false`, 'Expansion policy discovery');
+  await fastWait(startedAt, { kind: 'enabled', selector: policySelect }, 'Expansion policy discovery');
   const wanted = `expanded:${componentChoice.choiceId}:PRESERVE_PARENT`;
-  const selected = await browserEval(browser.cdp, `return document.querySelector(${JSON.stringify(policySelect)})?.value;`);
-  if (selected !== wanted) await selectOption(browser.cdp, policySelect, wanted);
+  const selected = await inspectPage(browser.page, `return document.querySelector(${JSON.stringify(policySelect)})?.value;`);
+  if (selected !== wanted) await selectOption(browser.page, policySelect, wanted);
   const expectedCount = report.oracle.expectedRows.length;
-  const proposalSummary = `document.querySelector('[aria-label="Row definition preview"]')?.innerText.includes(${JSON.stringify(`→ ${expectedCount} rows`)})`;
-  await fastWait(startedAt, `(${proposalSummary} && !document.body.innerText.includes('Compiling and comparing row membership')) || Boolean(document.querySelector('[aria-label="Row definition settings"] [role="alert"]'))`, 'Automatic row definition proposal');
-  const proposalError = await browserEval(browser.cdp, `return document.querySelector('[aria-label="Row definition settings"] [role="alert"]')?.innerText;`);
+  await fastWait(startedAt, { kind: 'any', conditions: [
+    { kind: 'all', conditions: [
+      { kind: 'text-includes', selector: '[aria-label="Row definition preview"]', text: `→ ${expectedCount} rows` },
+      { kind: 'body-text-excludes', text: 'Compiling and comparing row membership' },
+    ] },
+    { kind: 'present', selector: '[aria-label="Row definition settings"] [role="alert"]' },
+  ] }, 'Automatic row definition proposal');
+  const proposalError = await inspectPage(browser.page, `return document.querySelector('[aria-label="Row definition settings"] [role="alert"]')?.innerText;`);
   assert(!proposalError, `Row definition proposal failed: ${proposalError}`);
   const proposal = await waitForNativeResponse('/row-definition-proposals', priorProposalCount, remaining(startedAt));
   assert.equal(proposal.status, 200, `Native row proposal failed: ${JSON.stringify(proposal.response)}`);
@@ -324,7 +381,7 @@ const selectExpandedAndPreview = async () => measure('native-component-row-previ
   report.rowProposal = proposal;
 });
 
-const viewerSnapshot = async () => browserEval(browser.cdp, `const normalize=value=>String(value??'').replace(/\\s+/g,' ').trim();const tables=[...document.querySelectorAll('[role="table"],table')];const readTable=table=>{const headerNodes=[...table.querySelectorAll('[role="columnheader"],thead th')];const headers=headerNodes.map(cell=>normalize(cell.innerText||cell.textContent));const rows=[...table.querySelectorAll('[role="row"],tbody tr')].filter(row=>!row.querySelector('[role="columnheader"],th'));const cells=rows.map(row=>[...row.querySelectorAll('[role="cell"],td')].map(cell=>({text:normalize(cell.innerText||cell.textContent),raw:cell.title})));return {headers,cells,ariaRowCount:table.getAttribute('aria-rowcount')};};return {url:location.href,body:document.body.innerText.slice(0,1800),tables:tables.map(readTable)};`);
+const viewerSnapshot = async () => inspectPage(browser.page, `const normalize=value=>String(value??'').replace(/\\s+/g,' ').trim();const tables=[...document.querySelectorAll('[role="table"],table')];const readTable=table=>{const headerNodes=[...table.querySelectorAll('[role="columnheader"],thead th')];const headers=headerNodes.map(cell=>normalize(cell.innerText||cell.textContent));const rows=[...table.querySelectorAll('[role="row"],tbody tr')].filter(row=>!row.querySelector('[role="columnheader"],th'));const cells=rows.map(row=>[...row.querySelectorAll('[role="cell"],td')].map(cell=>({text:normalize(cell.innerText||cell.textContent),raw:cell.title})));return {headers,cells,ariaRowCount:table.getAttribute('aria-rowcount')};};return {url:location.href,body:document.body.innerText.slice(0,1800),tables:tables.map(readTable)};`);
 
 const verifyViewerPairs = (snapshot, label) => {
   const table = snapshot.tables.find(candidate => candidate.headers.some(header => header.toUpperCase() === 'OBSERVATION ID') && candidate.headers.some(header => /component.*value.?string/i.test(header)));
@@ -340,24 +397,20 @@ const verifyViewerPairs = (snapshot, label) => {
 const verifyViewerAndReload = async () => {
   let viewerURL;
   await measure('native-viewer-open-and-data-render', async startedAt => {
-    const control = await browserEval(browser.cdp, `const button=[...document.querySelectorAll('button')].find(candidate=>candidate.textContent?.trim()==='Viewer');return {visible:Boolean(button&&button.offsetParent!==null),disabled:button?.disabled};`);
+    const control = await inspectPage(browser.page, `const button=[...document.querySelectorAll('button')].find(candidate=>candidate.textContent?.trim()==='Viewer');return {visible:Boolean(button&&button.offsetParent!==null),disabled:button?.disabled};`);
     assert(control.visible && !control.disabled, 'Native Viewer control is missing or disabled after publication');
-    await click(browser.cdp, 'button', { name: 'Viewer' }, 1500);
-    await fastWait(startedAt, `new URL(location.href).searchParams.get('mode')==='viewer'&&new URL(location.href).searchParams.get('project')===${JSON.stringify(values.project)}&&new URL(location.href).searchParams.get('explorer')===${JSON.stringify(explorer)}`, 'Native Viewer navigation');
-    const expected = JSON.stringify(sortedPairs(expectedPairs()));
-    const expression = `(()=>{const tables=[...document.querySelectorAll('[role="table"],table')];for(const table of tables){const headers=[...table.querySelectorAll('[role="columnheader"],thead th')].map(cell=>(cell.innerText||cell.textContent||'').trim());const idIndex=headers.findIndex(header=>header.toUpperCase()==='OBSERVATION ID');const valueIndex=headers.findIndex(header=>/component.*value.?string/i.test(header));if(idIndex<0||valueIndex<0)continue;const rows=[...table.querySelectorAll('[role="row"],tbody tr')].filter(row=>!row.querySelector('[role="columnheader"],th'));const parse=cell=>{let value;try{value=JSON.parse(cell.title)}catch{value=(cell.innerText||cell.textContent||'').trim()}if(Array.isArray(value)){if(value.length!==1)return null;value=value[0]}return typeof value==='string'?value:null};const pairs=rows.map(row=>{const cells=[...row.querySelectorAll('[role="cell"],td')];return [parse(cells[idIndex]),parse(cells[valueIndex])]});if(pairs.length!==${expectedPairs().length}||pairs.some(pair=>pair.some(value=>value===null)))return false;pairs.sort((a,b)=>JSON.stringify(a).localeCompare(JSON.stringify(b)));return JSON.stringify(pairs)===${JSON.stringify(expected)}}return false})()`;
-    await fastWait(startedAt, expression, 'Viewer rendered exact published rows');
-    viewerURL = await browserEval(browser.cdp, 'return location.href;');
+    await click(browser.page, 'button', { name: 'Viewer' }, 1500);
+    await fastWait(startedAt, { kind: 'query', values: { mode: 'viewer', project: values.project, explorer } }, 'Native Viewer navigation');
+    await fastWait(startedAt, { kind: 'viewer-pairs', pairs: expectedPairs() }, 'Viewer rendered exact published rows');
+    viewerURL = await inspectPage(browser.page, 'return location.href;');
     report.viewer = verifyViewerPairs(await viewerSnapshot(), 'Viewer');
   });
   report.viewerURL = viewerURL;
 
   await measure('native-viewer-reload-and-data-render', async startedAt => {
-    await navigate(browser.cdp, viewerURL);
-    await fastWait(startedAt, `new URL(location.href).searchParams.get('mode')==='viewer'`, 'Reloaded Viewer navigation');
-    const expected = JSON.stringify(sortedPairs(expectedPairs()));
-    const expression = `(()=>{const tables=[...document.querySelectorAll('[role="table"],table')];for(const table of tables){const headers=[...table.querySelectorAll('[role="columnheader"],thead th')].map(cell=>(cell.innerText||cell.textContent||'').trim());const idIndex=headers.findIndex(header=>header.toUpperCase()==='OBSERVATION ID');const valueIndex=headers.findIndex(header=>/component.*value.?string/i.test(header));if(idIndex<0||valueIndex<0)continue;const rows=[...table.querySelectorAll('[role="row"],tbody tr')].filter(row=>!row.querySelector('[role="columnheader"],th'));const parse=cell=>{let value;try{value=JSON.parse(cell.title)}catch{value=(cell.innerText||cell.textContent||'').trim()}if(Array.isArray(value)){if(value.length!==1)return null;value=value[0]}return typeof value==='string'?value:null};const pairs=rows.map(row=>{const cells=[...row.querySelectorAll('[role="cell"],td')];return [parse(cells[idIndex]),parse(cells[valueIndex])]});if(pairs.length!==${expectedPairs().length}||pairs.some(pair=>pair.some(value=>value===null)))return false;pairs.sort((a,b)=>JSON.stringify(a).localeCompare(JSON.stringify(b)));return JSON.stringify(pairs)===${JSON.stringify(expected)}}return false})()`;
-    await fastWait(startedAt, expression, 'Reloaded Viewer rendered exact published rows');
+    await navigate(browser.page, viewerURL);
+    await fastWait(startedAt, { kind: 'query', values: { mode: 'viewer' } }, 'Reloaded Viewer navigation');
+    await fastWait(startedAt, { kind: 'viewer-pairs', pairs: expectedPairs() }, 'Reloaded Viewer rendered exact published rows');
     report.viewerReload = verifyViewerPairs(await viewerSnapshot(), 'Reloaded Viewer');
   });
 };
@@ -489,10 +542,14 @@ const main = async () => {
 
   const rootCount = oracleRows.length;
   const expandedCount = report.oracle.expectedRows.length;
-  browser = await launchBrowser(values.evidence);
-  await navigate(browser.cdp, 'about:blank');
+  browser = await launchBrowser({ evidence: values.evidence, appOrigins: [values['api-origin'], values['ui-origin']], noAuth: !apiToken && process.env.LOOM_CDA_NO_AUTH === '1' });
+  await navigate(browser.page, 'about:blank');
   monitorBrowser();
-  if (apiToken) await browser.cdp.send('Network.setExtraHTTPHeaders', { headers: { Authorization: `Bearer ${apiToken}` } });
+  if (apiToken) {
+    await browser.page.route(url => new URL(url).origin === apiOrigin, route => route.continue({
+      headers: { ...route.request().headers(), authorization: `Bearer ${apiToken}` },
+    }));
+  }
 
   await openTable(rootCount, 'fresh-explorer-load-to-render');
   await saveDOM('source-record-table');
@@ -505,8 +562,8 @@ const main = async () => {
   const beforeCancel = await readBuilder();
   const savedDigest = beforeCancel.draftDigest;
   await measure('native-row-definition-cancel', async startedAt => {
-    await click(browser.cdp, '[aria-label="Row definition settings"] button', { name: 'Cancel' });
-    await fastWait(startedAt, `!document.querySelector('[aria-label="Row definition settings"]') && ${rowsReady(rootCount)}`, 'Canceled row-definition preview restoration');
+    await click(browser.page, '[aria-label="Row definition settings"] button', { name: 'Cancel' });
+    await fastWait(startedAt, { kind: 'all', conditions: [{ kind: 'hidden', selector: '[aria-label="Row definition settings"]' }, rowsReady(rootCount)] }, 'Canceled row-definition preview restoration');
   });
   builder = await readBuilder();
   assert.equal(builder.draftDigest, savedDigest, 'Cancel must leave the saved row definition unchanged');
@@ -522,8 +579,10 @@ const main = async () => {
   const previousPreviewCount = previewEntries().length;
   let appliedPreviewEntry;
   await measure('native-row-definition-apply-and-render', async startedAt => {
-    await click(browser.cdp, '[aria-label="Row definition settings"] button', { name: 'Apply row definition' });
-    await fastWait(startedAt, `!document.querySelector('[aria-label="Row definition settings"]') && ${renderedPairsExpression()}`, 'Applied component rows and exact tuples');
+    await click(browser.page, '[aria-label="Row definition settings"] button', { name: 'Apply row definition' });
+    await fastWait(startedAt, { kind: 'all', conditions: [
+      { kind: 'hidden', selector: '[aria-label="Row definition settings"]' }, renderedPairsCondition(),
+    ] }, 'Applied component rows and exact tuples');
     appliedPreviewEntry = await waitForNativeResponse('/preview', previousPreviewCount, remaining(startedAt));
     const verified = verifyNativePairs(appliedPreviewEntry, 'Applied expanded preview');
     report.appliedIdentityMapping = nativeIdentityMapping(verified, 'Applied expanded preview');
@@ -556,7 +615,7 @@ const main = async () => {
   } else {
     report.gaps.push({ assertion: 'stable expanded row identity', status: 'untested', reason: 'The native preview did not expose __loom_row_id for every expanded row.' });
   }
-  const previewPanel = await browserEval(browser.cdp, `const panel=document.querySelector('[data-testid="construction-preview"]');return {status:panel?.dataset.previewStatus,outputId:panel?.dataset.previewOutputId,receiptId:panel?.dataset.previewReceiptId,currentDraftDigest:panel?.dataset.currentDraftDigest};`);
+  const previewPanel = await inspectPage(browser.page, `const panel=document.querySelector('[data-testid="construction-preview"]');return {status:panel?.dataset.previewStatus,outputId:panel?.dataset.previewOutputId,receiptId:panel?.dataset.previewReceiptId,currentDraftDigest:panel?.dataset.currentDraftDigest};`);
   report.preview = { ...nativePreview(reloadedPreviewEntry), ...previewPanel };
   assert.equal(previewPanel.outputId, outputId, 'Automatic preview targets a different output');
   assert.equal(previewPanel.status, 'ready', 'Automatic native preview is not ready');
@@ -565,17 +624,17 @@ const main = async () => {
   recordAssertion('saved reload renders exact raw component tuples in the native preview', { rowCount: expandedCount, pairs: report.reloadedPreview.pairs });
   await saveDOM('component-rows-reloaded');
 
-  const publishControl = await browserEval(browser.cdp, `const button=[...document.querySelectorAll('button')].find(candidate=>candidate.textContent?.trim()==='Publish');return {disabled:button?.disabled,visible:Boolean(button)};`);
+  const publishControl = await inspectPage(browser.page, `const button=[...document.querySelectorAll('button')].find(candidate=>candidate.textContent?.trim()==='Publish');return {disabled:button?.disabled,visible:Boolean(button)};`);
   assert(publishControl.visible && !publishControl.disabled, 'Publish is not enabled after the ready expanded preview');
   const priorPublishCount = protocol.filter(entry => entry.path.endsWith('/publish') && entry.status !== undefined).length;
   let publication;
   await measure('native-publish-and-render', async startedAt => {
-    await click(browser.cdp, 'button', { name: 'Publish' }, 1500);
+    await click(browser.page, 'button', { name: 'Publish' }, 1500);
     const publish = await waitForNativeResponse('/publish', priorPublishCount, remaining(startedAt));
     assert.equal(publish.status, 200, `Native Publish request failed: ${JSON.stringify(publish.response)}`);
     publication = publish.response;
     assert(publication && typeof publication === 'object', 'Native Publish response body is missing');
-    await fastWait(startedAt, `(()=>{const button=[...document.querySelectorAll('button')].find(candidate=>candidate.textContent?.trim()==='Publish');return Boolean(button&&button.getAttribute('aria-busy')!=='true'&&button.disabled);})()`, 'Native publication completion');
+    await fastWait(startedAt, { kind: 'publish-complete' }, 'Native publication completion');
   });
   report.publication = publication;
   const publishedPreview = previewEntries().at(-1);
@@ -592,6 +651,7 @@ const main = async () => {
   await verifyViewerAndReload();
   await Promise.all([...browserPending]);
   assert.equal(browser.dialogErrors.length, 0, `Unexpected browser dialogs: ${JSON.stringify(browser.dialogErrors)}`);
+  assert.deepEqual(report.errors, [], 'CDA request capture reported an owned API, runtime, or console failure');
   for (const kind of ['exceptions', 'console', 'modules', 'http', 'network']) {
     assert.deepEqual(report.browserErrors[kind], [], `Unexpected browser ${kind} errors: ${JSON.stringify(report.browserErrors[kind])}`);
   }
@@ -608,11 +668,36 @@ try {
   fatal = error;
   report.status = 'failed';
   report.failures.push({ error: String(error.stack ?? error), phase: report.assertions.length });
+  if (browser) report.failureTrace = await browser.captureFailure(error, {
+    phase: report.assertions.length, action: report.activeAction ?? report.lastAction,
+    elapsedMs: report.activeAction?.startedAt ? Date.now() - report.activeAction.startedAt : report.lastAction?.elapsedMs,
+    requestIdentity: report.browserRequests.at(-1) && (({ requestId, path, method }) => ({ requestId, path, method }))(report.browserRequests.at(-1)),
+  }).catch(String);
 } finally {
   if (browser) {
     await Promise.all([...browserPending]);
     report.dialogs = browser.dialogErrors;
     await browser.close().catch(error => report.failures.push({ error: `Browser close: ${String(error)}` }));
+  }
+  try {
+    report.sourceFreeze = { ...report.sourceFreeze, ...(await sourceFreeze.assertUnchanged()) };
+    const after = sourceFingerprint(sourceFreezeRoot);
+    const unchanged = sourceBefore.sha256 === after.sha256 && sourceBefore.files === after.files;
+    report.sourceFingerprint = { ...report.sourceFingerprint, after, unchanged, invalidatesRun: !unchanged };
+    assert(unchanged, 'Watched source fingerprint changed during the run');
+  } catch (error) {
+    report.priorStatus = report.status;
+    report.status = 'invalidated';
+    report.invalidations = [...(report.invalidations ?? []), { kind: 'source-freeze', reason: String(error) }];
+    process.exitCode = 1;
+  }
+  try {
+    report.apiBuildFreeze = { ...report.apiBuildFreeze, ...(await frozenApiBuild.assertUnchanged()) };
+  } catch (error) {
+    report.priorStatus = report.status;
+    report.status = 'invalidated';
+    report.invalidations = [...(report.invalidations ?? []), { kind: 'api-build-freeze', reason: error.reason ?? String(error) }];
+    process.exitCode = 1;
   }
   report.finished = new Date().toISOString();
   report.cleanup = {

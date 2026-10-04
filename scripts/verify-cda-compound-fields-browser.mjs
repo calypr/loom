@@ -3,14 +3,19 @@ import { randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { browserEval, click, launchBrowser, navigate, selectOption, waitForBrowser } from './lib/browser.mjs';
+import { fileURLToPath } from 'node:url';
+import { inspectDOM, waitForDOM, clickControl, navigatePage, selectControl, fillControl } from './lib/playwright-verification.mjs';
+import { launchBrowser } from './lib/playwright-browser.mjs';
+import { captureCDARequests } from './lib/cda-playwright-requests.mjs';
+import { assertOwnedCdaTarget } from './lib/owned-cda-target.mjs';
+import { startVerificationIdentity } from './lib/cda-verification-identity.mjs';
 
-const project = 'loom_dev_cda_fhir';
+const project = process.env.LOOM_CDA_PROJECT;
 const generation = 'cda-fhir-v1';
 const explorer = `compound-fields-browser-${Date.now()}`;
 const evidence = process.argv[2] ?? `/tmp/loom-compound-fields-browser-${Date.now()}`;
-const apiOrigin = process.env.LOOM_CDA_API_ORIGIN ?? 'http://127.0.0.1:8188';
-const uiOrigin = process.env.LOOM_CDA_UI_ORIGIN ?? 'http://127.0.0.1:30008';
+const apiOrigin = process.env.LOOM_CDA_API_ORIGIN;
+const uiOrigin = process.env.LOOM_CDA_UI_ORIGIN;
 const root = `/api/v1/projects/${project}/explorers`;
 const base = `${root}/${explorer}/authoring/v2`;
 const originalExplorer = 'cda-builder-full-qa-1790440983382';
@@ -25,8 +30,10 @@ let outputId;
 let rootColumnId;
 const nativeRequests = [];
 report.nativeRequests = nativeRequests;
-const nativeByRequestId = new Map();
-const pendingBodyReads = new Set();
+let requestCapture;
+let verificationIdentity;
+const apiContainer = process.env.LOOM_CDA_API_CONTAINER;
+const composeProject = process.env.LOOM_CDA_COMPOSE_PROJECT;
 
 const api = async (path, body) => {
   const response = await fetch(apiOrigin + path, {
@@ -63,7 +70,7 @@ const command = async (commands) => {
 const rawQuery = (query) => {
   const script = `print(JSON.stringify(db._query(${JSON.stringify(query)}).toArray()));`;
   const result = spawnSync('rtk', [
-    'proxy', 'docker', 'exec', process.env.LOOM_ARANGO_CONTAINER ?? 'loom-dev-6d7df93d6a37-arangodb-1',
+    'proxy', 'docker', 'exec', process.env.LOOM_ARANGO_CONTAINER,
     'arangosh', '--server.database', 'loom_dev', '--javascript.execute-string', script,
   ], { encoding: 'utf8', timeout: 20000, maxBuffer: 2_000_000 });
   assert.equal(result.status, 0, result.stderr || result.stdout);
@@ -73,22 +80,11 @@ const rawQuery = (query) => {
 };
 
 const waitNative = async (predicate, fromIndex, timeoutMs = 5000) => {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    const match = nativeRequests.slice(fromIndex).find((entry) => !entry.failed && entry.completed && predicate(entry));
-    if (match) {
-      assert.equal(match.status, 200, `${match.path} returned ${match.status}: ${JSON.stringify(match.response).slice(0, 1200)}`);
-      return match;
-    }
-    await new Promise((resolve) => setTimeout(resolve, 25));
-  }
-  const observed = nativeRequests.slice(fromIndex).map((entry) => ({ path: entry.path, status: entry.status, completed: entry.completed, failed: entry.failed }));
-  throw new Error(`Timed out waiting for native Builder request; observed ${JSON.stringify(observed)}`);
+  const match = await requestCapture.waitFor(predicate, { fromIndex, timeoutMs });
+  assert.equal(match.status, 200, `${match.path} returned ${match.status}: ${JSON.stringify(match.response).slice(0, 1200)}`);
+  return match;
 };
-
-const flushNetworkReads = async () => {
-  if (pendingBodyReads.size) await Promise.all([...pendingBodyReads]);
-};
+const flushNetworkReads = async () => requestCapture?.flush();
 
 const requestIndex = () => nativeRequests.length;
 
@@ -124,9 +120,8 @@ const assertWorkspaceTable = (state, expectedFrameCount, expectedCodedColumns) =
 };
 
 const rendered = async (expectedColumns, timeoutMs = 5000) => {
-  const expression = `(() => { const table=document.querySelector('[data-testid="preview-table-scroll"] [role="table"]'); return Boolean(table && table.getAttribute('aria-rowcount')==='2' && table.getAttribute('aria-colcount')===${JSON.stringify(String(expectedColumns))} && !document.body.innerText.includes('Loading your table…') && !document.body.innerText.includes('Preview failed:')); })()`;
-  await waitForBrowser(browser.cdp, expression, timeoutMs);
-  const value = await browserEval(browser.cdp, `const table=document.querySelector('[data-testid="preview-table-scroll"] [role="table"]');return {rowCount:table?.getAttribute('aria-rowcount'),columnCount:table?.getAttribute('aria-colcount'),headers:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].map(cell=>cell.innerText.trim()),cells:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="cell"]')].map(cell=>cell.innerText.trim())};`);
+  await waitForDOM(browser.page, args => { const table=document.querySelector('[data-testid="preview-table-scroll"] [role="table"]'); return Boolean(table && table.getAttribute('aria-rowcount')==='2' && table.getAttribute('aria-colcount')===String(args.expectedColumns) && !document.body.innerText.includes('Loading your table…') && !document.body.innerText.includes('Preview failed:')); }, { expectedColumns }, timeoutMs);
+  const value = await inspectDOM(browser.page, async args => { const table=document.querySelector('[data-testid="preview-table-scroll"] [role="table"]');return {rowCount:table?.getAttribute('aria-rowcount'),columnCount:table?.getAttribute('aria-colcount'),headers:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].map(cell=>cell.innerText.trim()),cells:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="cell"]')].map(cell=>cell.innerText.trim())}; });
   assert.equal(value.rowCount, '2');
   assert.equal(value.columnCount, String(expectedColumns));
   return value;
@@ -141,9 +136,9 @@ const record = (name, started, details = {}) => {
 const openTable = async (expectedColumns, name, expectedText = []) => {
   const started = Date.now();
   const fromIndex = requestIndex();
-  await navigate(browser.cdp, `${uiOrigin}/?project=${project}&explorer=${explorer}&mode=builder`);
-  await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid="construction-table-${outputId}"]'))`, 5000);
-  await click(browser.cdp, `[data-testid="construction-table-${outputId}"]`);
+  await navigatePage(browser.page, `${uiOrigin}/?project=${project}&explorer=${explorer}&mode=builder`);
+  await waitForDOM(browser.page, args => Boolean(Boolean(document.querySelector('[data-testid="construction-table-'+args.__template0+'"]'))), { __template0: (outputId) }, 5000);
+  await clickControl(browser, browser.page, `[data-testid="construction-table-${outputId}"]`);
   const visible = await rendered(expectedColumns);
   for (const value of expectedText) assert(visible.cells.some((cell) => cell.includes(value)), `Rendered table omitted CDA value ${value}`);
   const { preview } = await nativePreview(fromIndex, expectedColumns);
@@ -152,23 +147,22 @@ const openTable = async (expectedColumns, name, expectedText = []) => {
 };
 
 const openAddColumns = async () => {
-  await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-action-add-columns"]')?.disabled===false`);
-  await click(browser.cdp, '[data-testid="construction-action-add-columns"]');
-  await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid="frame-source-panel"]'))`);
+  await waitForDOM(browser.page, args => Boolean(document.querySelector('[data-testid="construction-action-add-columns"]')?.disabled===false));
+  await clickControl(browser, browser.page, '[data-testid="construction-action-add-columns"]');
+  await waitForDOM(browser.page, args => Boolean(Boolean(document.querySelector('[data-testid="frame-source-panel"]'))));
 };
 
 const setSearchInput = async (selector, value) => {
-  await browserEval(browser.cdp, `const input=document.querySelector(${JSON.stringify(selector)});if(!input)throw new Error('Search input not found');input.focus();input.select();`);
-  await browser.cdp.send('Input.insertText', { text: value });
+  await fillControl(browser, browser.page, selector, value);
 };
 
 const openFrameValues = async (frame) => {
   const panel = `[data-testid=${JSON.stringify(`frame-categories-${frame.id}`)}]`;
-  const visible = await browserEval(browser.cdp, `return Boolean(document.querySelector(${JSON.stringify(panel)}));`);
+  const visible = await inspectDOM(browser.page, async args => { return Boolean(document.querySelector(args.__template0)); }, { __template0: (panel) });
   if (!visible) {
-    await click(browser.cdp, `[data-testid=${JSON.stringify(`saved-frame-${frame.id}`)}] button`, { name: 'Choose values' });
+    await clickControl(browser, browser.page, `[data-testid=${JSON.stringify(`saved-frame-${frame.id}`)}] button`, { name: 'Choose values' });
   }
-  await waitForBrowser(browser.cdp, `Boolean(document.querySelector(${JSON.stringify(panel)}))`);
+  await waitForDOM(browser.page, args => Boolean(Boolean(document.querySelector(args.__template0))), { __template0: (panel) });
 };
 
 const matchingDirectChoice = (source) => source.resourceType === 'Observation' &&
@@ -180,20 +174,20 @@ const matchingDirectChoice = (source) => source.resourceType === 'Observation' &
 
 const chooseDirectFrame = async () => {
   const picker = '[data-testid="frame-source-panel"]';
-  const toggle = await browserEval(browser.cdp, `return [...document.querySelectorAll(${JSON.stringify(`${picker} button`)})].find(button=>['Browse sources','Add coded source'].some(label=>button.innerText.trim().startsWith(label)))?.innerText.replace(/\\s+/g,' ').trim();`);
-  if (toggle) await click(browser.cdp, `${picker} button`, { name: toggle });
-  await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[aria-label="Search framing sources"]'))`);
+  const toggle = await inspectDOM(browser.page, async args => { return [...document.querySelectorAll(args.__template0)].find(button=>['Browse sources','Add coded source'].some(label=>button.innerText.trim().startsWith(label)))?.innerText.replace(/\\s+/g,' ').trim(); }, { __template0: (`${picker} button`) });
+  if (toggle) await clickControl(browser, browser.page, `${picker} button`, { name: toggle });
+  await waitForDOM(browser.page, args => Boolean(Boolean(document.querySelector('[aria-label="Search framing sources"]'))));
   const search = '[aria-label="Search framing sources"]';
   const searchStarted = Date.now();
   await setSearchInput(search, 'Observation');
   const fromIndex = requestIndex();
-  await click(browser.cdp, `${picker} form button`, { name: 'Search' });
+  await clickControl(browser, browser.page, `${picker} form button`, { name: 'Search' });
   let response = await waitNative((entry) => entry.path.endsWith('/frame-source-options') && entry.body?.query === 'Observation', fromIndex);
   let matches = response.response.sources.filter(matchingDirectChoice);
   let pageCount = 1;
   while (!matches.length && response.response.nextCursor && pageCount < 8) {
     const moreIndex = requestIndex();
-    await click(browser.cdp, `${picker} button`, { name: 'More sources and paths' });
+    await clickControl(browser, browser.page, `${picker} button`, { name: 'More sources and paths' });
     response = await waitNative((entry) => entry.path.endsWith('/frame-source-options') && Boolean(entry.body?.cursor), moreIndex);
     matches = response.response.sources.filter(matchingDirectChoice);
     pageCount += 1;
@@ -202,31 +196,31 @@ const chooseDirectFrame = async () => {
   assert.equal(matches.length, 1, `Direct component source is ambiguous: ${JSON.stringify(matches.map((item) => ({ title: item.title, path: item.sourcePath, route: item.route })))}`);
   const source = matches[0];
   const sourceSelector = `[data-testid=${JSON.stringify(`frame-source-choice-${source.choiceId}`)}]`;
-  let visibleChoice = await browserEval(browser.cdp, `return Boolean(document.querySelector(${JSON.stringify(sourceSelector)}));`);
+  let visibleChoice = await inspectDOM(browser.page, async args => { return Boolean(document.querySelector(args.__template0)); }, { __template0: (sourceSelector) });
   if (!visibleChoice) {
-    const moreFamilies = await browserEval(browser.cdp, `return [...document.querySelectorAll(${JSON.stringify(`${picker} button`)})].find(button=>/^Show \\d+ more families$/.test(button.innerText.trim()))?.innerText.trim();`);
-    if (moreFamilies) await click(browser.cdp, `${picker} button`, { name: moreFamilies });
-    visibleChoice = await browserEval(browser.cdp, `return Boolean(document.querySelector(${JSON.stringify(sourceSelector)}));`);
+    const moreFamilies = await inspectDOM(browser.page, async args => { return [...document.querySelectorAll(args.__template0)].find(button=>/^Show \\d+ more families$/.test(button.innerText.trim()))?.innerText.trim(); }, { __template0: (`${picker} button`) });
+    if (moreFamilies) await clickControl(browser, browser.page, `${picker} button`, { name: moreFamilies });
+    visibleChoice = await inspectDOM(browser.page, async args => { return Boolean(document.querySelector(args.__template0)); }, { __template0: (sourceSelector) });
   }
   assert(visibleChoice, `Native direct source choice ${source.choiceId} is not visible after source browse`);
   record('browse-direct-component-source', searchStarted, { pageCount });
   const routeSelect = `select[aria-label=${JSON.stringify(`Relationship path for ${source.title}`)}]`;
-  const routeOptions = await browserEval(browser.cdp, `const select=document.querySelector(${JSON.stringify(routeSelect)});return select?[...select.options].map(option=>option.value):[];`);
+  const routeOptions = await inspectDOM(browser.page, async args => { const select=document.querySelector(args.__template0);return select?[...select.options].map(option=>option.value):[]; }, { __template0: (routeSelect) });
   if (routeOptions.length) {
     assert(routeOptions.includes(source.choiceId), 'The exact direct signed route is not offered by the native route selector');
-    await selectOption(browser.cdp, routeSelect, source.choiceId);
+    await selectControl(browser, browser.page, routeSelect, source.choiceId);
   }
   const formSelect = `select[aria-label=${JSON.stringify(`Multiple values for ${source.title}`)}]`;
-  const formOptions = await browserEval(browser.cdp, `const select=document.querySelector(${JSON.stringify(formSelect)});return select?[...select.options].map(option=>option.value):[];`);
+  const formOptions = await inspectDOM(browser.page, async args => { const select=document.querySelector(args.__template0);return select?[...select.options].map(option=>option.value):[]; }, { __template0: (formSelect) });
   if (formOptions.length) {
     assert(formOptions.includes('ALL'), 'The native source selector does not offer ALL');
     const formSummary = `${picker} div.px-3.py-2:has(> ${sourceSelector}) details > summary`;
-    await click(browser.cdp, formSummary, { name: 'When a row has several values' });
-    await selectOption(browser.cdp, formSelect, 'ALL');
+    await clickControl(browser, browser.page, formSummary, { name: 'When a row has several values' });
+    await selectControl(browser, browser.page, formSelect, 'ALL');
   } else assert.equal(source.defaultForm, 'ALL', 'ALL was not selected and is not the source default');
   const saveIndex = requestIndex();
   const saveStarted = Date.now();
-  await click(browser.cdp, sourceSelector);
+  await clickControl(browser, browser.page, sourceSelector);
   const save = await waitNative((entry) => entry.path.endsWith('/commands') && entry.body?.commands?.some((item) => item.type === 'SET_FRAME_SOURCE'), saveIndex);
   builder = await api(`${base}/builder`);
   const frameDoc = assertWorkspaceTable(builder, 1, 0);
@@ -240,7 +234,7 @@ const chooseDirectFrame = async () => {
   ]);
   report.frames ??= [];
   report.frames.push({ frameId: frame.id, form: frame.form, title: frame.title, sourcePath: frame.source.sourcePath, route: frame.route.map(({ fromResourceType, toResourceType, relationship, storageDirection }) => ({ fromResourceType, toResourceType, relationship, storageDirection })), choicePages: pageCount, saveStatus: save.status });
-  await waitForBrowser(browser.cdp, `Boolean(document.querySelector(${JSON.stringify(`[data-testid="frame-categories-${frame.id}"]`)}))`);
+  await waitForDOM(browser.page, args => Boolean(Boolean(document.querySelector(args.__template0))), { __template0: (`[data-testid="frame-categories-${frame.id}"]`) });
   record('save-direct-component-frame', saveStarted, { frameId: frame.id });
   return frame;
 };
@@ -250,7 +244,7 @@ const freshCategory = async (frame, code, fromIndex) => {
   const panel = `[data-testid=${JSON.stringify(`frame-categories-${frame.id}`)}]`;
   const search = `${panel} input[aria-label^="Search coded values in "]`;
   await setSearchInput(search, code);
-  await click(browser.cdp, `${panel} form button`, { name: 'Search' });
+  await clickControl(browser, browser.page, `${panel} form button`, { name: 'Search' });
   const entry = await waitNative((candidate) => candidate.path.endsWith('/semantic-inventory') && candidate.body?.frameId === frame.id && candidate.body?.query === code, fromIndex);
   assert.equal(entry.response.frameId, frame.id);
   assert.equal(entry.response.state, 'complete', `Inventory for ${code} is ${entry.response.state}`);
@@ -264,15 +258,21 @@ const freshCategory = async (frame, code, fromIndex) => {
   assert(item.readiness.status === 'READY' || item.readiness.status === 'READY_WITH_WARNING', `${code} is not ready: ${item.readiness.status}`);
   const label = item.display || item.code;
   const checkbox = `${panel} input[aria-label=${JSON.stringify(`Select ${label}`)}]`;
-  await waitForBrowser(browser.cdp, `Boolean(document.querySelector(${JSON.stringify(checkbox)}))`);
-  const enabled = await browserEval(browser.cdp, `return Boolean(document.querySelector(${JSON.stringify(checkbox)})&&!document.querySelector(${JSON.stringify(checkbox)}).disabled);`);
+  await waitForDOM(browser.page, args => Boolean(Boolean(document.querySelector(args.__template0))), { __template0: (checkbox) });
+  const enabled = await inspectDOM(browser.page, async args => { return Boolean(document.querySelector(args.__template0)&&!document.querySelector(args.__template1).disabled); }, { __template0: (checkbox), __template1: (checkbox) });
   assert(enabled, `Fresh semantic result ${code} is not an enabled native category choice`);
-  await click(browser.cdp, checkbox);
+  await clickControl(browser, browser.page, checkbox);
   record(`native-category-choice-${code}`, started, { frameId: frame.id });
   return { code, label, choiceId: item.constructionChoice.choiceId, frameId: frame.id, valueType: item.valueType, inventoryRequest: entry.requestId };
 };
 
 try {
+  const sourceRoot = fileURLToPath(new URL('..', import.meta.url));
+  const ownedTarget = await assertOwnedCdaTarget({ project, apiOrigin, uiOrigin, apiContainer, composeProject, sourceRoot, arangoContainer: process.env.LOOM_ARANGO_CONTAINER });
+  report.ownedTarget = ownedTarget;
+  verificationIdentity = await startVerificationIdentity(sourceRoot, apiContainer);
+  report.sourceFingerprint = { before: verificationIdentity.sourceFingerprint };
+  report.apiBuildIdentity = verificationIdentity.apiBuildIdentity;
   assert.notEqual(explorer, originalExplorer);
   const oracleQuery = `
 FOR o IN Observation
@@ -343,64 +343,24 @@ FOR o IN Observation
   assert(directPopulation, 'The explicit Specimen selection has no direct starting collection route');
   await command([{ type: 'SET_TABLE_POPULATION', outputId, selectionRevisionId: selection.id, routeChoiceId: directPopulation.routeChoiceId }]);
   const initialWorkspace = structuredClone(builder.workspace);
-  browser = await launchBrowser(evidence);
-  browser.cdp.on('Network.requestWillBeSent', ({ requestId, request, wallTime }) => {
-    const url = new URL(request.url);
-    if (url.pathname.includes(originalExplorer)) {
-      report.errors.push({ kind: 'protected-explorer-request', path: url.pathname });
-      return;
-    }
-    if (!url.pathname.startsWith(`${base}/`)) return;
-    if (!['/frame-source-options', '/semantic-inventory', '/construction-choice-proposals', '/commands', '/preview'].some((suffix) => url.pathname.endsWith(suffix))) return;
-    const entry = {
-      requestId,
-      path: url.pathname,
-      method: request.method,
-      body: request.postData ? JSON.parse(request.postData) : undefined,
-      startedAt: wallTime ? Math.round(wallTime * 1000) : Date.now(),
-      status: undefined,
-      response: undefined,
-      completed: false,
-      failed: false,
-    };
-    nativeRequests.push(entry);
-    nativeByRequestId.set(requestId, entry);
+  browser = await launchBrowser({ evidence, appOrigins: [apiOrigin, uiOrigin], noAuth: true });
+  browser.page.on('request', request => {
+    const url = new URL(request.url());
+    if (url.pathname.includes(originalExplorer)) report.errors.push({ kind: 'protected-explorer-request', path: url.pathname });
   });
-  browser.cdp.on('Network.responseReceived', ({ requestId, response }) => {
-    const entry = nativeByRequestId.get(requestId);
-    if (entry) entry.status = response.status;
-    if (response.status >= 400 && !response.url.endsWith('/favicon.ico') && (entry || response.url.startsWith(uiOrigin) || response.url.startsWith(apiOrigin))) {
-      report.errors.push({ kind: 'http', path: entry?.path ?? new URL(response.url).pathname, status: response.status });
-    }
-  });
-  browser.cdp.on('Network.loadingFinished', ({ requestId }) => {
-    const entry = nativeByRequestId.get(requestId);
-    if (!entry) return;
-    const read = browser.cdp.send('Network.getResponseBody', { requestId }).then((body) => {
-      const text = body.base64Encoded ? Buffer.from(body.body, 'base64').toString('utf8') : body.body;
-      entry.response = text ? JSON.parse(text) : undefined;
-      entry.completed = true;
-    }).catch((error) => {
-      entry.failed = true;
-      entry.bodyError = String(error);
-    }).finally(() => pendingBodyReads.delete(read));
-    pendingBodyReads.add(read);
-  });
-  browser.cdp.on('Network.loadingFailed', ({ requestId, errorText, type }) => {
-    const entry = nativeByRequestId.get(requestId);
-    if (entry) { entry.failed = true; entry.failure = errorText; }
-    if (type === 'Script' && errorText !== 'net::ERR_ABORTED') report.errors.push({ kind: 'module', error: errorText });
-  });
-  browser.cdp.on('Runtime.exceptionThrown', ({ exceptionDetails }) => report.errors.push({ kind: 'runtime', message: exceptionDetails.exception?.description ?? exceptionDetails.text }));
-  browser.cdp.on('Runtime.consoleAPICalled', ({ type, args }) => {
-    if (type === 'error') report.errors.push({ kind: 'console', message: args.map((arg) => arg.value ?? arg.description ?? '').join(' ').slice(0, 400) });
+  requestCapture = captureCDARequests(browser.page, {
+    apiOrigin: uiOrigin,
+    appOrigins: [apiOrigin, uiOrigin],
+    ownedPathPrefix: `${root}/${explorer}`,
+    report,
+    responsePaths: /frame-source-options|semantic-inventory|construction-choice-proposals|commands|preview/,
   });
 
   const startInitial = Date.now();
   const basePreviewIndex = requestIndex();
-  await navigate(browser.cdp, `${uiOrigin}/?project=${project}&explorer=${explorer}&mode=builder`);
-  await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid="construction-table-${outputId}"]'))`, 5000);
-  await click(browser.cdp, `[data-testid="construction-table-${outputId}"]`);
+  await navigatePage(browser.page, `${uiOrigin}/?project=${project}&explorer=${explorer}&mode=builder`);
+  await waitForDOM(browser.page, args => Boolean(Boolean(document.querySelector('[data-testid="construction-table-'+args.__template0+'"]'))), { __template0: (outputId) }, 5000);
+  await clickControl(browser, browser.page, `[data-testid="construction-table-${outputId}"]`);
   const initialVisible = await rendered(1);
   assert(initialVisible.cells.some((cell) => cell.includes(source.specimen.id)), 'Rendered starting collection omitted the raw Specimen ID');
   const initialPreview = await nativePreview(basePreviewIndex, 1);
@@ -414,14 +374,14 @@ FOR o IN Observation
   assertWorkspaceTable(framedBaseline, 1, 0);
   const frameOnlyWorkspace = structuredClone(framedBaseline.workspace);
   const categoriesPanel = `[data-testid=${JSON.stringify(`frame-categories-${frame.id}`)}]`;
-  await waitForBrowser(browser.cdp, `Boolean(document.querySelector(${JSON.stringify(categoriesPanel)}))`);
+  await waitForDOM(browser.page, args => Boolean(Boolean(document.querySelector(args.__template0))), { __template0: (categoriesPanel) });
 
   const cancelNativeStart = requestIndex();
   const disease = await freshCategory(frame, 'primary_disease_type', requestIndex());
   const specimenType = await freshCategory(frame, 'specimen_type', requestIndex());
   const cancelStarted = Date.now();
-  await click(browser.cdp, '[data-testid="construction-close-operation-editor"]');
-  await waitForBrowser(browser.cdp, `!document.querySelector('[data-testid="construction-operation-editor"]')`);
+  await clickControl(browser, browser.page, '[data-testid="construction-close-operation-editor"]');
+  await waitForDOM(browser.page, args => Boolean(!document.querySelector('[data-testid="construction-operation-editor"]')));
   builder = await api(`${base}/builder`);
   assert.deepEqual(builder.workspace, frameOnlyWorkspace, 'Canceling the coded-value chooser must preserve the saved frame and original table');
   assert.equal(nativeRequests.slice(cancelNativeStart).filter((entry) => entry.path.endsWith('/commands')).length, 0, 'Cancel must not send a mutation command');
@@ -433,12 +393,12 @@ FOR o IN Observation
   for (const code of wantedCodes) selected.push(await freshCategory(frame, code, requestIndex()));
   assert.deepEqual(selected.map((choice) => choice.code), wantedCodes);
   // Leave the fresh selection in the native category picker; the atomic Add click below owns the only save.
-  const countButton = await browserEval(browser.cdp, `return [...document.querySelectorAll(${JSON.stringify(`${categoriesPanel} button`)})].find(button=>button.innerText.trim()==='Add 2 columns')?.innerText.trim();`);
+  const countButton = await inspectDOM(browser.page, async args => { return [...document.querySelectorAll(args.__template0)].find(button=>button.innerText.trim()==='Add 2 columns')?.innerText.trim(); }, { __template0: (`${categoriesPanel} button`) });
   assert.equal(countButton, 'Add 2 columns');
   // Reuse the already checked selections in the direct two-column Add flow.
   const addStart = Date.now();
   const proposalStart = requestIndex();
-  await click(browser.cdp, `${categoriesPanel} button`, { name: 'Add 2 columns' });
+  await clickControl(browser, browser.page, `${categoriesPanel} button`, { name: 'Add 2 columns' });
   const proposal = await waitNative((entry) => entry.path.endsWith('/construction-choice-proposals') && entry.body?.constructionChoices?.length === 2, proposalStart);
   assert.equal(proposal.response.previewStatus, 'READY');
   assert(proposal.response.previewDurationMs <= 5000, `Fresh preflight receipt took ${proposal.response.previewDurationMs} ms`);
@@ -480,7 +440,7 @@ FOR o IN Observation
   for (const column of savedDocument.columns.filter((candidate) => candidate.frameId === frame.id)) {
     const removeStart = Date.now();
     const removeIndex = requestIndex();
-    await click(browser.cdp, `${framePanel} button`, { name: `Remove ${column.label} column` });
+    await clickControl(browser, browser.page, `${framePanel} button`, { name: `Remove ${column.label} column` });
     await waitNative((entry) => entry.path.endsWith('/commands') && entry.body?.commands?.some((item) => item.type === 'REMOVE_COLUMN' && item.column === column.column), removeIndex);
     builder = await api(`${base}/builder`);
     remainingCodedColumns -= 1;
@@ -490,7 +450,7 @@ FOR o IN Observation
   }
   const removeFrameStart = Date.now();
   const removeFrameIndex = requestIndex();
-  await click(browser.cdp, `${framePanel} button`, { name: 'Remove' });
+  await clickControl(browser, browser.page, `${framePanel} button`, { name: 'Remove' });
   await waitNative((entry) => entry.path.endsWith('/commands') && entry.body?.commands?.some((item) => item.type === 'REMOVE_FRAME_SOURCE'), removeFrameIndex);
   builder = await api(`${base}/builder`);
   assertWorkspaceTable(builder, 0, 0);
@@ -512,7 +472,7 @@ FOR o IN Observation
   for (const code of wantedCodes) restoredSelected.push(await freshCategory(restoredFrame, code, requestIndex()));
   const restoreAddStart = Date.now();
   const restoreProposalStart = requestIndex();
-  await click(browser.cdp, `${restoredPanel} button`, { name: 'Add 2 columns' });
+  await clickControl(browser, browser.page, `${restoredPanel} button`, { name: 'Add 2 columns' });
   const restoreProposal = await waitNative((entry) => entry.path.endsWith('/construction-choice-proposals') && entry.body?.constructionChoices?.length === 2, restoreProposalStart);
   assert.equal(restoreProposal.response.previewStatus, 'READY');
   assert(restoreProposal.response.previewDurationMs <= 5000, `Restored fresh preflight receipt took ${restoreProposal.response.previewDurationMs} ms`);
@@ -532,7 +492,12 @@ FOR o IN Observation
   record('restore-two-compound-ALL-columns', restoreAddStart, { previewDurationMs: restoreProposal.response.previewDurationMs, atomicCommandCount: restoreCommand.body.commands.length });
   const restoredReload = await openTable(3, 'reload-restored-compound-ALL-columns', [...source.diseaseValues, ...source.specimenValues]);
   assertPreviewValues(restoredReload, { ...restoreValues, [rootColumnId]: source.specimen.id });
+  await flushNetworkReads();
   assert.deepEqual(report.errors, []);
+  assert.deepEqual(browser.diagnostics.pageErrors, [], 'Unexpected page errors were reported');
+  assert.deepEqual(browser.diagnostics.console, [], 'Unexpected console errors were reported');
+  assert.deepEqual(browser.diagnostics.networkFailures, [], 'Unexpected network failures were reported');
+  assert.deepEqual(browser.diagnostics.httpFailures, [], 'Unexpected HTTP failures were reported');
   assert(nativeRequests.every((entry) => !entry.path.includes(originalExplorer)));
   report.final = {
     status: 'passed',
@@ -546,12 +511,17 @@ FOR o IN Observation
 } catch (error) {
   report.final = { status: 'failed', error: String(error.stack ?? error) };
   process.exitCode = 1;
+  report.firstFailureTrace = await browser?.captureFailure(error, { phase: 'compound-coded-fields', ...(browser.activeAction ? { action: browser.activeAction, elapsedMs: Date.now() - browser.activeAction.startedAt } : {}), explorer, outputId }).catch(String);
   if (builder) {
     report.failureBuilder = await api(`${base}/builder`).then((state) => ({ draftVersion: state.draftVersion, draftDigest: state.draftDigest, workspace: state.workspace })).catch((readError) => ({ readError: String(readError) }));
   }
-  report.failureUI = browser ? await browserEval(browser.cdp, 'return {editor:document.querySelector("[data-testid=construction-operation-editor]")?.innerText,frame:document.querySelector("[data-testid=frame-source-panel]")?.innerText,tail:document.body.innerText.slice(-12000)};').catch(String) : undefined;
+  report.failureUI = browser ? await inspectDOM(browser.page, () => ({ editor: document.querySelector('[data-testid=construction-operation-editor]')?.innerText, frame: document.querySelector('[data-testid=frame-source-panel]')?.innerText, tail: document.body.innerText.slice(-12000) })).catch(String) : undefined;
 } finally {
   await flushNetworkReads().catch(() => undefined);
+  if (verificationIdentity) {
+    try { Object.assign(report, await verificationIdentity.finish()); }
+    catch (error) { report.final = { status: 'invalidated', error: String(error) }; process.exitCode = 1; }
+  }
   report.finished = new Date().toISOString();
   await writeFile(join(evidence, 'report.json'), JSON.stringify(report, null, 2));
   await browser?.close();

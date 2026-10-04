@@ -97,11 +97,19 @@ Install local UI tooling before running the inventory and verifier tests:
 
 ```bash
 npm ci --prefix ui
-make verify-ui-test
+npm ci --prefix scripts
+node --test scripts/verify-ui/tests/*.test.mjs
 ```
 
 The inventory check fails when the recorded source locations or expressions
 are stale. Regenerate it after reviewing the new hooks and interaction gates.
+
+`node scripts/verify-ui/coverage-status.mjs` prints report outcome and evidence
+freshness separately. It fingerprints the current checkout. For an isolated
+running API, set `LOOM_VERIFY_UI_API_BUILD_IDENTITY` to the exact three-part
+SHA-256 stamp returned by that stack's `loom-dev-build-stamp.sh --check`.
+Without that baseline or a matching identity in the report, freshness is
+`unknown`; older passes remain available as historical evidence.
 
 ```bash
 node scripts/verify-ui/inventory.mjs

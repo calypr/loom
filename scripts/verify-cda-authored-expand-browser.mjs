@@ -4,22 +4,37 @@ import { spawnSync } from 'node:child_process';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { parseArgs } from 'node:util';
-import { browserEval, click, launchBrowser, navigate, selectOption, waitForBrowser } from './lib/browser.mjs';
+import { launchBrowser, sanitizeBody, sanitizeText } from './lib/playwright-browser.mjs';
+import { performAction, requireUnique } from './lib/playwright-actions.mjs';
+import { captureCDARequests } from './lib/cda-playwright-requests.mjs';
+import { assertOwnedCdaTarget } from './lib/owned-cda-target.mjs';
+import { fileURLToPath } from 'node:url';
+import { captureSourceFreeze } from './lib/source-freeze.mjs';
+import { ApiBuildFreezeError, captureApiBuildFreeze, checkContainerApiBuildStamp } from './lib/api-build-freeze.mjs';
+import { sourceFingerprint } from './verify-ui/source-fingerprint.mjs';
+import { waitForCondition } from './lib/playwright-observations.mjs';
 
 const { values } = parseArgs({ options: {
-  'api-origin': { type: 'string', default: 'http://127.0.0.1:8188' },
-  'ui-origin': { type: 'string', default: 'http://127.0.0.1:30008' },
-  project: { type: 'string', default: 'loom_dev_cda_fhir' },
+  'api-origin': { type: 'string', default: process.env.LOOM_CDA_API_ORIGIN },
+  'ui-origin': { type: 'string', default: process.env.LOOM_CDA_UI_ORIGIN },
+  'api-container': { type: 'string', default: process.env.LOOM_CDA_API_CONTAINER },
+  'compose-project': { type: 'string', default: process.env.LOOM_CDA_COMPOSE_PROJECT },
+  project: { type: 'string', default: process.env.LOOM_CDA_PROJECT },
   generation: { type: 'string', default: 'cda-fhir-v1' },
   evidence: { type: 'string', default: `/tmp/loom-cda-authored-expand-${Date.now()}` },
-  'arango-container': { type: 'string', default: 'loom-dev-6d7df93d6a37-arangodb-1' },
+  'arango-container': { type: 'string', default: process.env.LOOM_ARANGO_CONTAINER },
 } });
 
 const protectedExplorer = 'cda-builder-full-qa-1790440983382';
 const explorer = `cda-authored-expand-${Date.now()}`;
 assert.notEqual(explorer, protectedExplorer, 'The run must own a fresh Explorer');
+const sourceFreezeRoot = process.env.LOOM_SOURCE_FREEZE_ROOT ?? fileURLToPath(new URL('..', import.meta.url));
+await assertOwnedCdaTarget({ project: values.project, apiOrigin: values['api-origin'], uiOrigin: values['ui-origin'],
+  apiContainer: values['api-container'], composeProject: values['compose-project'], sourceRoot: sourceFreezeRoot,
+  arangoContainer: values['arango-container'] });
 
 const report = {
+  errors: [],
   started: new Date().toISOString(),
   invocation: process.argv,
   target: {
@@ -36,6 +51,12 @@ const report = {
   browserErrors: { protocol: [], exceptions: [], console: [], modules: [], http: [], incidental: [] },
   evidencePaths: [],
 };
+const sourceFreeze = await captureSourceFreeze(sourceFreezeRoot);
+const sourceBefore = sourceFingerprint(sourceFreezeRoot);
+const frozenApiBuild = await captureApiBuildFreeze(() => checkContainerApiBuildStamp(values['api-container']));
+report.sourceFreeze = { root: sourceFreezeRoot, watchedFileCount: sourceFreeze.watchedFileCount, invalidatesRun: false };
+report.sourceFingerprint = { root: sourceFreezeRoot, before: sourceBefore, checked: true, invalidatesRun: false };
+report.apiBuildFreeze = { container: values['api-container'], initial: frozenApiBuild.initial, invalidatesRun: false };
 
 const projectRoot = `/api/v1/projects/${encodeURIComponent(values.project)}/explorers`;
 const root = `${projectRoot}/${encodeURIComponent(explorer)}`;
@@ -43,6 +64,54 @@ const base = `${root}/authoring/v2`;
 let builder;
 let outputId;
 let browser;
+let requestMonitor;
+const inspectPage = (page, body) => page.evaluate(`(()=>{${body}})()`);
+const waitForBrowser = (page, condition, timeout = 30000) => waitForCondition(page, condition, timeout);
+const resolveActionLocator = async (page, selector, identity = {}) => {
+  const candidates = page.locator(selector);
+  const { name, includes } = identity;
+  if (name === undefined && includes === undefined) return requireUnique(candidates, selector);
+  const matches = await candidates.evaluateAll((nodes, wanted) => nodes.flatMap((node, index) => {
+    const label = String(node.getAttribute('aria-label') || node.innerText || node.textContent || '')
+      .replace(/\\s+/g, ' ').trim();
+    const matched = wanted.name !== undefined ? label === wanted.name
+      : label.toLocaleLowerCase().includes(wanted.includes.toLocaleLowerCase());
+    return matched ? [index] : [];
+  }), { name, includes });
+  assert.equal(matches.length, 1, `${selector}: expected one matching control, found ${matches.length}`);
+  return requireUnique(candidates.nth(matches[0]), `${selector} ${name ?? includes}`);
+};
+const click = async (page, selector, identity = {}, timeout = 5000) => {
+  const label = `Click ${selector} ${identity.name ?? identity.includes ?? ''}`.trim();
+  report.activeAction = { label, locator: selector, targetLocator: page.locator(selector), startedAt: Date.now() };
+  const locator = await resolveActionLocator(page, selector, identity);
+  report.activeAction.targetLocator = locator;
+  report.activeAction.locator = locator.toString();
+  const elapsedMs = await performAction(report, label, locator, (target, options) => target.click(options), { timeout });
+  report.lastAction = { label, locator: locator.toString(), targetLocator: locator, elapsedMs, startedAt: Date.now() - elapsedMs };
+  return elapsedMs;
+};
+const fill = async (page, selector, value, timeout = 5000) => {
+  const label = `Fill ${selector}`;
+  report.activeAction = { label, locator: selector, targetLocator: page.locator(selector), startedAt: Date.now() };
+  const locator = await resolveActionLocator(page, selector);
+  report.activeAction.targetLocator = locator;
+  report.activeAction.locator = locator.toString();
+  const elapsedMs = await performAction(report, label, locator, (target, options) => target.fill(value, options), { timeout, editable: true });
+  report.lastAction = { label, locator: locator.toString(), targetLocator: locator, elapsedMs, startedAt: Date.now() - elapsedMs };
+  return elapsedMs;
+};
+const selectOption = async (page, selector, value, timeout = 5000) => {
+  const label = `Select ${value} in ${selector}`;
+  report.activeAction = { label, locator: selector, targetLocator: page.locator(selector), startedAt: Date.now() };
+  const locator = await resolveActionLocator(page, selector);
+  report.activeAction.targetLocator = locator;
+  report.activeAction.locator = locator.toString();
+  const elapsedMs = await performAction(report, label, locator, (target, options) => target.selectOption(value, options), { timeout });
+  report.lastAction = { label, locator: locator.toString(), targetLocator: locator, elapsedMs, startedAt: Date.now() - elapsedMs };
+  return elapsedMs;
+};
+const navigate = (page, url) => page.goto(url, { waitUntil: 'load', timeout: 30000 });
 let browserPending = new Set();
 let sourceRecords = [];
 let idColumn;
@@ -90,9 +159,8 @@ const command = async (commands) => {
 
 const document = (value = builder) => value.workspace.documents.find((doc) => doc.output.id === outputId);
 const previewTableSelector = '[data-testid="preview-table-scroll"] [role="table"]';
-const rowsReady = (count) => `${JSON.stringify(String(count + 1))} === document.querySelector(${JSON.stringify(previewTableSelector)})?.getAttribute('aria-rowcount') && !document.body.innerText.includes('Loading your table')`;
-const domText = () => browserEval(browser.cdp, 'return document.body.innerText;');
-const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const rowsReady = count => ({ kind: 'rows', selector: previewTableSelector, count });
+const domText = () => inspectPage(browser.page, 'return document.body.innerText;');
 
 const boundedRawOracle = () => {
   const query = `FOR r IN Observation FILTER r.project == ${JSON.stringify(values.project)} AND r.dataset_generation == ${JSON.stringify(values.generation)} FILTER IS_ARRAY(r.payload.component) SORT r.id LIMIT 1000 RETURN {id:r.id,generation:r.dataset_generation,resourceType:r.payload.resourceType,components:r.payload.component}`;
@@ -135,9 +203,9 @@ const boundedRawOracle = () => {
   return selected;
 };
 
-const fastWait = async (startedAt, expression, message) => {
+const fastWait = async (startedAt, condition, message) => {
   const remainingMs = Math.max(100, 5000 - (Date.now() - startedAt));
-  try { await waitForBrowser(browser.cdp, expression, remainingMs); }
+  try { await waitForBrowser(browser.page, condition, remainingMs); }
   catch (error) { throw new Error(`${message} within the five-second action budget: ${String(error)}`); }
 };
 
@@ -152,9 +220,9 @@ const measure = async (name, action) => {
 
 const openTable = async (expectedRows, name) => measure(name, async (startedAt) => {
   const url = `${values['ui-origin']}/?project=${encodeURIComponent(values.project)}&explorer=${encodeURIComponent(explorer)}&mode=builder`;
-  await navigate(browser.cdp, url);
-  await fastWait(startedAt, `document.querySelector(${JSON.stringify(`[data-testid="construction-table-${outputId}"]`)})`, 'Explorer table discovery');
-  await click(browser.cdp, `[data-testid="construction-table-${outputId}"]`);
+  await navigate(browser.page, url);
+  await fastWait(startedAt, { kind: 'present', selector: `[data-testid="construction-table-${outputId}"]` }, 'Explorer table discovery');
+  await click(browser.page, `[data-testid="construction-table-${outputId}"]`);
   await fastWait(startedAt, rowsReady(expectedRows), 'CDA table render');
 });
 
@@ -164,7 +232,7 @@ const saveDOM = async (name) => {
   report.evidencePaths.push(path);
 };
 
-const previewRows = async () => browserEval(browser.cdp, `
+const previewRows = async () => inspectPage(browser.page, `
   const proposalRow=document.querySelector('[data-testid="construction-proposal-preview-row"]');
   const root=proposalRow?.closest('table')??document.querySelector(${JSON.stringify(previewTableSelector)});
   if(!root)return null;
@@ -292,13 +360,7 @@ const verifyProtocolExpandIdentities = (response, outputLabel, phase) => {
 };
 
 const nativePreviewAfter = async (requestIndex, phase) => {
-  const deadline = Date.now() + 5000;
-  let entry;
-  while (Date.now() < deadline) {
-    entry = report.browserRequests.findLast((candidate, index) => index >= requestIndex && candidate.path.endsWith('/preview'));
-    if (entry?.response !== undefined || entry?.responseReadError) break;
-    await delay(25);
-  }
+  const entry = report.browserRequests.findLast((candidate, index) => index >= requestIndex && candidate.path.endsWith('/preview'));
   assert(entry, `${phase} did not trigger a native /preview protocol request`);
   const response = await waitForCapturedResponse(entry);
   assert(protocolPreview(response)?.rows, `${phase} native /preview response omitted rows`);
@@ -306,65 +368,46 @@ const nativePreviewAfter = async (requestIndex, phase) => {
 };
 
 const monitorBrowser = () => {
-  const byId = new Map();
-  const requestURLs = new Map();
-  browser.cdp.on('Network.requestWillBeSent', ({ requestId, request, wallTime }) => {
-    let url;
-    try { url = new URL(request.url); } catch { return; }
-    requestURLs.set(requestId, request.url);
-    if (!url.pathname.includes('/authoring/v2/')) return;
-    const entry = {
-      requestId, method: request.method, path: url.pathname, url: request.url,
-      startedAt: wallTime ? Math.round(wallTime * 1000) : Date.now(),
-      body: responseEvidence(request.postData),
-    };
-    byId.set(requestId, entry);
-    report.browserRequests.push(entry);
+  requestMonitor = captureCDARequests(browser.page, {
+    apiOrigin: values['ui-origin'],
+    appOrigins: [values['api-origin'], values['ui-origin']],
+    ownedPathPrefix: `${root}/${encodeURIComponent(explorer)}`,
+    report: { nativeRequests: report.browserRequests, errors: report.errors },
+    shouldReportRequestFailure: (entry, request) => {
+      const index = report.browserRequests.indexOf(entry);
+      const replacement = report.browserRequests.slice(index + 1).find(candidate =>
+        candidate.path === entry.path && candidate.method === entry.method);
+      return request.failure()?.errorText === 'net::ERR_ABORTED'
+        && ['/construction-proposals', '/construction-choice-proposals'].some(path => entry.path.endsWith(path))
+        && replacement
+        ? { expected: true, reason: `A later same-path EXPAND editor request (${replacement.requestId}) superseded this proposal.` } : true;
+    },
   });
-  browser.cdp.on('Network.responseReceived', ({ requestId, response }) => {
-    const entry = byId.get(requestId);
-    if (entry) {
-      entry.status = response.status;
-      entry.responseAt = Date.now();
-      entry.durationMs = entry.responseAt - entry.startedAt;
-    }
-    if (response.status < 400) return;
-    const incident = { url: response.url, status: response.status };
-    if (response.url.endsWith('/favicon.ico')) report.browserErrors.incidental.push(incident);
+  browserPending = requestMonitor.pendingReads;
+  browser.page.on('response', response => {
+    const url = new URL(response.url());
+    if (url.origin !== new URL(values['ui-origin']).origin || response.status() < 400) return;
+    const incident = { url: sanitizeText(response.url()), status: response.status() };
+    if (url.pathname.endsWith('/favicon.ico')) report.browserErrors.incidental.push(incident);
     else report.browserErrors.http.push(incident);
   });
-  browser.cdp.on('Network.loadingFinished', ({ requestId }) => {
-    const entry = byId.get(requestId);
-    if (!entry) return;
-    const read = browser.cdp.send('Network.getResponseBody', { requestId })
-      .then((result) => {
-        const text = result.base64Encoded ? Buffer.from(result.body, 'base64').toString('utf8') : result.body;
-        entry.response = responseEvidence(text);
-      })
-      .catch((error) => { entry.responseReadError = String(error); })
-      .finally(() => browserPending.delete(read));
-    browserPending.add(read);
+  browser.page.on('requestfailed', request => {
+    const url = new URL(request.url());
+    if (url.origin !== new URL(values['ui-origin']).origin || request.failure()?.errorText === 'net::ERR_ABORTED') return;
+    const failure = { url: sanitizeText(request.url()), type: request.resourceType(), error: sanitizeText(request.failure()?.errorText) };
+    if (url.pathname.endsWith('/favicon.ico')) report.browserErrors.incidental.push(failure);
+    else if (request.resourceType() === 'script') report.browserErrors.modules.push(failure);
+    else report.browserErrors.protocol.push(failure);
   });
-  browser.cdp.on('Runtime.exceptionThrown', (event) => report.browserErrors.exceptions.push(event.exceptionDetails));
-  browser.cdp.on('Runtime.consoleAPICalled', (event) => {
-    if (event.type !== 'error') return;
-    const messages = event.args.map((arg) => arg.value ?? arg.description ?? '');
-    if (messages.some((message) => String(message).includes('favicon.ico'))) report.browserErrors.incidental.push({ console: messages });
-    else report.browserErrors.console.push(messages);
-  });
-  browser.cdp.on('Network.loadingFailed', (event) => {
-    if (event.errorText === 'net::ERR_ABORTED') return;
-    const url = requestURLs.get(event.requestId);
-    if (url?.endsWith('/favicon.ico')) report.browserErrors.incidental.push({ url, error: event.errorText });
-    else if (event.type === 'Script') report.browserErrors.modules.push({ url, error: event.errorText });
-    else report.browserErrors.protocol.push({ url, type: event.type, error: event.errorText });
-  });
+  return monitor;
 };
 
 const waitForCapturedResponse = async (entry) => {
-  const deadline = Date.now() + 5000;
-  while (Date.now() < deadline && entry?.response === undefined && !entry?.responseReadError) await delay(25);
   assert(entry, 'Expected browser protocol request was not captured');
+  if (entry.status === undefined) {
+    await browser.page.waitForResponse(response => requestMonitor.byRequest.get(response.request()) === entry, { timeout: 5000 });
+  }
+  await requestMonitor.flush();
   assert.equal(entry.status, 200, `Browser request failed: ${entry.path} ${JSON.stringify(entry.response)}`);
   assert.equal(entry.responseReadError, undefined, `Could not read the browser response body: ${entry.responseReadError}`);
   return entry.response;
@@ -380,60 +423,51 @@ const latestCommand = (type) => report.browserRequests.findLast((entry) =>
 
 const waitForProposal = async (startedAt, outputLabel) => {
   const selector = '[data-testid="construction-proposal-panel"]';
-  await fastWait(startedAt,
-    `document.querySelector(${JSON.stringify(selector)})?.dataset.proposalStatus==='ready' && document.querySelector('[data-testid="construction-proposal-preview"]')?.innerText.includes(${JSON.stringify(outputLabel)})`,
-    'Native EXPAND proposal preview');
+  await fastWait(startedAt, { kind: 'all', conditions: [
+    { kind: 'status-in', selector, statuses: ['ready'] },
+    { kind: 'text-includes', selector: '[data-testid="construction-proposal-preview"]', text: outputLabel },
+  ] }, 'Native EXPAND proposal preview');
   const preview = await previewRows();
   assert(preview?.proposal, 'EXPAND must render a proposal table before Apply');
   return preview;
 };
 
 const openExpandChoice = async () => measure('native-EXPAND-editor-discovery', async (startedAt) => {
-  const editorAlreadyOpen = await browserEval(browser.cdp, `return Boolean(document.querySelector('[data-testid="construction-reshape-editor"]'));`);
+  const editorAlreadyOpen = await inspectPage(browser.page, `return Boolean(document.querySelector('[data-testid="construction-reshape-editor"]'));`);
   if (!editorAlreadyOpen) {
-    await click(browser.cdp, '[data-testid="construction-rows-settings-trigger"]');
-    await fastWait(startedAt, `Boolean(document.querySelector('[role="dialog"][aria-label="Row definition settings"]'))`, 'Row settings discovery');
-    const unpivot = await browserEval(browser.cdp, `const button=document.querySelector('[data-testid="construction-action-unpivot-rows"]');return {found:Boolean(button),disabled:button?.disabled};`);
+    await click(browser.page, '[data-testid="construction-rows-settings-trigger"]');
+    await fastWait(startedAt, { kind: 'present', selector: '[role="dialog"][aria-label="Row definition settings"]' }, 'Row settings discovery');
+    const unpivot = await inspectPage(browser.page, `const button=document.querySelector('[data-testid="construction-action-unpivot-rows"]');return {found:Boolean(button),disabled:button?.disabled};`);
     assert.equal(unpivot.found, true, 'The native reshape entry is missing from row settings');
     assert.equal(unpivot.disabled, false, 'The native reshape entry must be enabled');
-    await click(browser.cdp, '[data-testid="construction-action-unpivot-rows"]');
-    await fastWait(startedAt, `Boolean(document.querySelector('[data-testid="construction-reshape-editor"]'))`, 'Reshape editor discovery');
+    await click(browser.page, '[data-testid="construction-action-unpivot-rows"]');
+    await fastWait(startedAt, { kind: 'present', selector: '[data-testid="construction-reshape-editor"]' }, 'Reshape editor discovery');
   }
-  const changeOperation = await browserEval(browser.cdp, `return Boolean([...document.querySelectorAll('button')].find(button=>button.textContent?.trim()==='Change row operation'));`);
-  if (changeOperation) await click(browser.cdp, 'button', { name: 'Change row operation' });
-  await fastWait(startedAt, `Boolean(document.querySelector('[data-testid="construction-reshape-choice-expand"]:not(:disabled)'))`, 'EXPAND choice discovery');
+  const changeOperation = await inspectPage(browser.page, `return Boolean([...document.querySelectorAll('button')].find(button=>button.textContent?.trim()==='Change row operation'));`);
+  if (changeOperation) await click(browser.page, 'button', { name: 'Change row operation' });
+  await fastWait(startedAt, { kind: 'enabled', selector: '[data-testid="construction-reshape-choice-expand"]' }, 'EXPAND choice discovery');
 });
 
-const setInput = async (label, value) => browserEval(browser.cdp, `
-  const selector=${JSON.stringify(`input[aria-label=${JSON.stringify(label)}]`)};
-  const input=document.querySelector(selector);
-  if(!input)throw new Error('Missing input '+selector);
-  const setter=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value')?.set;
-  if(!setter)throw new Error('Input value setter is unavailable');
-  setter.call(input,${JSON.stringify(value)});
-  input.dispatchEvent(new Event('input',{bubbles:true}));
-  input.dispatchEvent(new Event('change',{bubbles:true}));
-  return input.value;
-`);
+const setInput = (label, value) => fill(browser.page, `input[aria-label=${JSON.stringify(label)}]`, value);
 
 const configureExpand = async (expectedLabel) => {
   await openExpandChoice();
   const startedAt = Date.now();
-  await click(browser.cdp, '[data-testid="construction-reshape-choice-expand"]');
-  await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid="construction-reshape-expand"] select[aria-label="Repeated field"]'))`, 5000);
-  const choices = await browserEval(browser.cdp, `return [...document.querySelector('[data-testid="construction-reshape-expand"] select[aria-label="Repeated field"]').options].map(option=>({value:option.value,label:option.text,disabled:option.disabled}));`);
+  await click(browser.page, '[data-testid="construction-reshape-choice-expand"]');
+  await waitForBrowser(browser.page, { kind: 'present', selector: '[data-testid="construction-reshape-expand"] select[aria-label="Repeated field"]' }, 5000);
+  const choices = await inspectPage(browser.page, `return [...document.querySelector('[data-testid="construction-reshape-expand"] select[aria-label="Repeated field"]').options].map(option=>({value:option.value,label:option.text,disabled:option.disabled}));`);
   const matching = choices.filter((option) => option.label.startsWith('Component Value String') && !option.disabled);
   assert.equal(matching.length, 1, `EXPAND must offer exactly the projected component list: ${JSON.stringify(choices)}`);
-  await selectOption(browser.cdp, '[data-testid="construction-reshape-expand"] select[aria-label="Repeated field"]', matching[0].value);
+  await selectOption(browser.page, '[data-testid="construction-reshape-expand"] select[aria-label="Repeated field"]', matching[0].value);
   const advanced = '[data-testid="construction-reshape-expand-advanced"]';
-  await click(browser.cdp, `${advanced} summary`);
+  await click(browser.page, `${advanced} summary`);
   await setInput('Expanded item name', 'component_value_item');
   await setInput('Expanded item label', expectedLabel);
-  const checked = await browserEval(browser.cdp, `return document.querySelector('input[aria-label="Include item position"]')?.checked;`);
-  if (!checked) await click(browser.cdp, 'input[aria-label="Include item position"]');
+  const checked = await inspectPage(browser.page, `return document.querySelector('input[aria-label="Include item position"]')?.checked;`);
+  if (!checked) await click(browser.page, 'input[aria-label="Include item position"]');
   await setInput('Position column name', 'component_value_position');
   await setInput('Position column label', 'Component position');
-  await selectOption(browser.cdp, '[data-testid="construction-reshape-expand"] select[aria-label="Empty list policy"]', 'PRESERVE_PARENT');
+  await selectOption(browser.page, '[data-testid="construction-reshape-expand"] select[aria-label="Empty list policy"]', 'PRESERVE_PARENT');
   const preview = await waitForProposal(startedAt, expectedLabel);
   const durationMs = Date.now() - startedAt;
   report.timings.push({ name: 'native-EXPAND-configure-to-preview', durationMs, limitMs: 5000 });
@@ -461,10 +495,12 @@ const assertExpandRequest = async (expectedLabel, expectedInputColumnId, expecte
 
 const finish = async () => {
   report.finished = new Date().toISOString();
-  report.status = report.failures.length ? 'failed'
-    : report.gaps.length ? 'partial'
-      : report.assertions.length && report.assertions.every((assertion) => assertion.status === 'passed') ? 'passed'
-        : 'untested';
+  if (report.status !== 'invalidated') {
+    report.status = report.failures.length ? 'failed'
+      : report.gaps.length ? 'partial'
+        : report.assertions.length && report.assertions.every((assertion) => assertion.status === 'passed') ? 'passed'
+          : 'untested';
+  }
   const path = join(values.evidence, 'report.json');
   await writeFile(path, JSON.stringify(report, null, 2));
   report.evidencePaths.push(path);
@@ -541,7 +577,7 @@ try {
     assert.equal(saved.construction?.steps?.length ?? 0, 0, 'QA table must start without construction operations');
     recordAssertion('fresh QA document binds a scalar Observation ID and a base-occurrence ALL list while rows remain RECORDS', report.seed);
 
-    browser = await launchBrowser(values.evidence);
+    browser = await launchBrowser({ evidence: values.evidence, appOrigins: [values['api-origin'], values['ui-origin']], noAuth: process.env.LOOM_CDA_NO_AUTH === '1' });
     monitorBrowser();
     await openTable(sourceRecords.length, 'fresh-owned-explorer-load-to-render');
     const initialPreview = await previewRows();
@@ -551,21 +587,21 @@ try {
 
     await openExpandChoice();
     const defaultExpandReadyAt = Date.now();
-    await click(browser.cdp, '[data-testid="construction-reshape-choice-expand"]');
-    await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid="construction-reshape-expand"] select[aria-label="Repeated field"]'))`, 5000);
-    const initialFieldOptions = await browserEval(browser.cdp, `return [...document.querySelector('[data-testid="construction-reshape-expand"] select[aria-label="Repeated field"]').options].map(option=>({value:option.value,label:option.text,disabled:option.disabled}));`);
+    await click(browser.page, '[data-testid="construction-reshape-choice-expand"]');
+    await waitForBrowser(browser.page, { kind: 'present', selector: '[data-testid="construction-reshape-expand"] select[aria-label="Repeated field"]' }, 5000);
+    const initialFieldOptions = await inspectPage(browser.page, `return [...document.querySelector('[data-testid="construction-reshape-expand"] select[aria-label="Repeated field"]').options].map(option=>({value:option.value,label:option.text,disabled:option.disabled}));`);
     const initialListOption = initialFieldOptions.find((option) => option.label.startsWith('Component Value String') && !option.disabled);
     assert(initialListOption, `Native EXPAND did not offer the projected component list: ${JSON.stringify(initialFieldOptions)}`);
     // The editor binds the compiler-owned source projection, not the authored UI column ID.
     listColumnId = initialListOption.value;
-    await selectOption(browser.cdp, '[data-testid="construction-reshape-expand"] select[aria-label="Repeated field"]', initialListOption.value);
-    await click(browser.cdp, '[data-testid="construction-reshape-expand-advanced"] summary');
+    await selectOption(browser.page, '[data-testid="construction-reshape-expand"] select[aria-label="Repeated field"]', initialListOption.value);
+    await click(browser.page, '[data-testid="construction-reshape-expand-advanced"] summary');
     await setInput('Expanded item name', 'component_value_item');
     await setInput('Expanded item label', 'Expanded component value');
-    await click(browser.cdp, 'input[aria-label="Include item position"]');
+    await click(browser.page, 'input[aria-label="Include item position"]');
     await setInput('Position column name', 'component_value_position');
     await setInput('Position column label', 'Component position');
-    await selectOption(browser.cdp, '[data-testid="construction-reshape-expand"] select[aria-label="Empty list policy"]', 'PRESERVE_PARENT');
+    await selectOption(browser.page, '[data-testid="construction-reshape-expand"] select[aria-label="Empty list policy"]', 'PRESERVE_PARENT');
     const initialProposalPreview = await waitForProposal(defaultExpandReadyAt, 'Expanded component value');
     const initialDurationMs = Date.now() - defaultExpandReadyAt;
     report.timings.push({ name: 'native-EXPAND-configure-to-preview', durationMs: initialDurationMs, limitMs: 5000 });
@@ -580,10 +616,10 @@ try {
 
     const beforeCancel = (await api(`${base}/builder`)).body;
     await measure('native-EXPAND-cancel-restoration', async (startedAt) => {
-      await click(browser.cdp, '[data-testid="construction-cancel-proposal"]');
-      await fastWait(startedAt,
-        `!document.querySelector('[data-testid="construction-proposal-panel"]') && ${rowsReady(sourceRecords.length)}`,
-        'Canceled EXPAND source-row restoration');
+      await click(browser.page, '[data-testid="construction-cancel-proposal"]');
+      await fastWait(startedAt, { kind: 'all', conditions: [
+        { kind: 'hidden', selector: '[data-testid="construction-proposal-panel"]' }, rowsReady(sourceRecords.length),
+      ] }, 'Canceled EXPAND source-row restoration');
     });
     builder = (await api(`${base}/builder`)).body;
     assert.equal(builder.draftDigest, beforeCancel.draftDigest, 'Cancel must leave the saved construction unchanged');
@@ -607,10 +643,12 @@ try {
     await saveDOM('expand-confirmed-preview');
     const applyPreviewRequestIndex = report.browserRequests.length;
     await measure('native-EXPAND-apply', async (startedAt) => {
-      await click(browser.cdp, '[data-testid="construction-apply-proposal"]');
-      await fastWait(startedAt,
-        `!document.querySelector('[data-testid="construction-proposal-panel"]') && ${rowsReady(report.oracle.expectedRows.length)} && document.querySelectorAll('[data-testid^="construction-history-step-"]').length===1`,
-        'Applied native EXPAND result');
+      await click(browser.page, '[data-testid="construction-apply-proposal"]');
+      await fastWait(startedAt, { kind: 'all', conditions: [
+        { kind: 'hidden', selector: '[data-testid="construction-proposal-panel"]' },
+        rowsReady(report.oracle.expectedRows.length),
+        { kind: 'count', selector: '[data-testid^="construction-history-step-"]', count: 1 },
+      ] }, 'Applied native EXPAND result');
     });
     builder = (await api(`${base}/builder`)).body;
     appliedStep = document().construction.steps.find((step) => step.operation.kind === 'EXPAND');
@@ -660,14 +698,14 @@ try {
     await saveDOM('expand-reloaded');
     recordAssertion('Reload preserves native EXPAND output and unchanged RECORDS row definition', { preview: report.reloadPreview, stepId: appliedStep.id });
 
-    await click(browser.cdp, `[data-testid="construction-history-step-${appliedStep.id}"]`);
-    await waitForBrowser(browser.cdp, `Boolean(document.querySelector(${JSON.stringify(`[data-testid="construction-edit-step-${appliedStep.id}"]:not(:disabled)`)}))`, 5000);
-    await click(browser.cdp, `[data-testid="construction-edit-step-${appliedStep.id}"]`);
-    await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid="construction-reshape-expand"] select[aria-label="Repeated field"]'))`, 5000);
+    await click(browser.page, `[data-testid="construction-history-step-${appliedStep.id}"]`);
+    await waitForBrowser(browser.page, { kind: 'enabled', selector: `[data-testid="construction-edit-step-${appliedStep.id}"]` }, 5000);
+    await click(browser.page, `[data-testid="construction-edit-step-${appliedStep.id}"]`);
+    await waitForBrowser(browser.page, { kind: 'present', selector: '[data-testid="construction-reshape-expand"] select[aria-label="Repeated field"]' }, 5000);
     const advanced = '[data-testid="construction-reshape-expand-advanced"]';
-    const advancedOpen = await browserEval(browser.cdp, `return document.querySelector(${JSON.stringify(advanced)})?.open;`);
-    if (!advancedOpen) await click(browser.cdp, `${advanced} summary`);
-    const reopened = await browserEval(browser.cdp, `return {
+    const advancedOpen = await inspectPage(browser.page, `return document.querySelector(${JSON.stringify(advanced)})?.open;`);
+    if (!advancedOpen) await click(browser.page, `${advanced} summary`);
+    const reopened = await inspectPage(browser.page, `return {
       field:document.querySelector('select[aria-label="Repeated field"]')?.value,
       name:document.querySelector('input[aria-label="Expanded item name"]')?.value,
       label:document.querySelector('input[aria-label="Expanded item label"]')?.value,
@@ -703,10 +741,12 @@ try {
     await saveDOM('expand-edit-preview');
     const editApplyPreviewRequestIndex = report.browserRequests.length;
     await measure('native-EXPAND-edit-apply', async (startedAt) => {
-      await click(browser.cdp, '[data-testid="construction-apply-proposal"]');
-      await fastWait(startedAt,
-        `!document.querySelector('[data-testid="construction-proposal-panel"]') && ${rowsReady(report.oracle.expectedRows.length)} && document.querySelectorAll('[data-testid^="construction-history-step-"]').length===1`,
-        'Applied native EXPAND edit');
+      await click(browser.page, '[data-testid="construction-apply-proposal"]');
+      await fastWait(startedAt, { kind: 'all', conditions: [
+        { kind: 'hidden', selector: '[data-testid="construction-proposal-panel"]' },
+        rowsReady(report.oracle.expectedRows.length),
+        { kind: 'count', selector: '[data-testid^="construction-history-step-"]', count: 1 },
+      ] }, 'Applied native EXPAND edit');
     });
     builder = (await api(`${base}/builder`)).body;
     appliedStep = document().construction.steps.find((step) => step.id === appliedStep.id);
@@ -742,11 +782,11 @@ try {
     await saveDOM('expand-edit-reloaded');
     recordAssertion('Edited EXPAND output and unchanged RECORDS definition persist after reload', { preview: report.editReloadPreview });
 
-    await click(browser.cdp, `[data-testid="construction-history-step-${appliedStep.id}"]`);
-    await waitForBrowser(browser.cdp, `Boolean(document.querySelector(${JSON.stringify(`[data-testid="construction-remove-step-${appliedStep.id}"]:not(:disabled)`)}))`, 5000);
+    await click(browser.page, `[data-testid="construction-history-step-${appliedStep.id}"]`);
+    await waitForBrowser(browser.page, { kind: 'enabled', selector: `[data-testid="construction-remove-step-${appliedStep.id}"]` }, 5000);
     const removeStartedAt = Date.now();
-    await click(browser.cdp, `[data-testid="construction-remove-step-${appliedStep.id}"]`);
-    await fastWait(removeStartedAt, `document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalStatus==='ready'`, 'EXPAND removal proposal');
+    await click(browser.page, `[data-testid="construction-remove-step-${appliedStep.id}"]`);
+    await fastWait(removeStartedAt, { kind: 'status-in', selector: '[data-testid="construction-proposal-panel"]', statuses: ['ready'] }, 'EXPAND removal proposal');
     const removalDurationMs = Date.now() - removeStartedAt;
     report.timings.push({ name: 'native-EXPAND-remove-to-preview', durationMs: removalDurationMs, limitMs: 5000 });
     assert(removalDurationMs <= 5000, `EXPAND removal-to-preview took ${removalDurationMs}ms`);
@@ -761,10 +801,12 @@ try {
     assert(removeRequest, 'The applied and edited EXPAND proposal evidence should remain available');
     await saveDOM('expand-remove-preview-restored-records');
     await measure('native-EXPAND-remove-apply-restoration', async (startedAt) => {
-      await click(browser.cdp, '[data-testid="construction-apply-proposal"]');
-      await fastWait(startedAt,
-        `!document.querySelector('[data-testid="construction-proposal-panel"]') && ${rowsReady(sourceRecords.length)} && document.querySelectorAll('[data-testid^="construction-history-step-"]').length===0`,
-        'Applied EXPAND removal restoration');
+      await click(browser.page, '[data-testid="construction-apply-proposal"]');
+      await fastWait(startedAt, { kind: 'all', conditions: [
+        { kind: 'hidden', selector: '[data-testid="construction-proposal-panel"]' },
+        rowsReady(sourceRecords.length),
+        { kind: 'count', selector: '[data-testid^="construction-history-step-"]', count: 0 },
+      ] }, 'Applied EXPAND removal restoration');
     });
     builder = (await api(`${base}/builder`)).body;
     assert.equal(document().rows.kind, 'RECORDS');
@@ -797,6 +839,7 @@ try {
     assert.deepEqual(report.browserErrors.console, [], 'Browser logged console errors');
     assert.deepEqual(report.browserErrors.modules, [], 'Browser failed to load a module');
     assert.deepEqual(report.browserErrors.http, [], 'Browser received unexpected HTTP errors');
+  assert.deepEqual(report.errors, [], 'Playwright request capture reported an owned API, runtime, or console failure');
     assert(!report.browserRequests.some((entry) => entry.url.includes(protectedExplorer)), 'Browser must not select or mutate the protected Explorer');
     assert(!report.requests.some((entry) => entry.path.includes(protectedExplorer)), 'API setup must not select or mutate the protected Explorer');
     assert(!report.browserRequests.some((entry) => entry.path.endsWith('/row-definition-proposals')),
@@ -806,10 +849,35 @@ try {
 } catch (error) {
   report.status = 'failed';
   report.failures.push({ error: String(error.stack ?? error), phase: report.assertions.length });
+  if (browser) report.failureTrace = await browser.captureFailure(error, {
+    phase: report.assertions.length, action: report.activeAction ?? report.lastAction,
+    elapsedMs: report.activeAction?.startedAt ? Date.now() - report.activeAction.startedAt : report.lastAction?.elapsedMs,
+    requestIdentity: report.browserRequests.at(-1) && (({ requestId, path, method }) => ({ requestId, path, method }))(report.browserRequests.at(-1)),
+  }).catch(String);
   try { report.failureDOM = await domText(); } catch { /* Browser may not have opened. */ }
   try { report.failureBuilder = (await api(`${base}/builder`)).body; } catch (readError) { report.builderReadError = String(readError); }
 } finally {
   try { await Promise.all([...browserPending]); } catch { /* Response reads are also recorded above. */ }
   if (browser) await browser.close().catch((error) => { report.browserCloseError = String(error); });
+  try {
+    report.sourceFreeze = { ...report.sourceFreeze, ...(await sourceFreeze.assertUnchanged()) };
+    const after = sourceFingerprint(sourceFreezeRoot);
+    const unchanged = sourceBefore.sha256 === after.sha256 && sourceBefore.files === after.files;
+    report.sourceFingerprint = { ...report.sourceFingerprint, after, unchanged, invalidatesRun: !unchanged };
+    assert(unchanged, 'Watched source fingerprint changed during the run');
+  } catch (error) {
+    report.priorStatus = report.status;
+    report.status = 'invalidated';
+    report.invalidations = [...(report.invalidations ?? []), { kind: 'source-freeze', reason: String(error) }];
+    process.exitCode = 1;
+  }
+  try {
+    report.apiBuildFreeze = { ...report.apiBuildFreeze, ...(await frozenApiBuild.assertUnchanged()) };
+  } catch (error) {
+    report.priorStatus = report.status;
+    report.status = 'invalidated';
+    report.invalidations = [...(report.invalidations ?? []), { kind: 'api-build-freeze', reason: error.reason ?? String(error) }];
+    process.exitCode = 1;
+  }
   await finish();
 }

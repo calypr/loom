@@ -1,8 +1,7 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { browserEval, launchBrowser, navigate, snapshot, waitForBrowser } from './loom-dev.mjs';
+import { browserEval, click, launchCdaBrowser, navigate, selectOption, waitForBrowser } from './lib/playwright-cda-actions.mjs';
 
 assert.equal(process.argv.length, 3, 'usage: node scripts/verify-row-definition-ui.mjs SELECTION_EVIDENCE');
 const source = JSON.parse(readFileSync(process.argv[2], 'utf8'));
@@ -73,27 +72,44 @@ const artifactRoot = join(process.cwd(), '.artifacts/loom-dev', `row-definition-
 const htmlPath = `${artifactRoot}.html`;
 const reportPath = `${artifactRoot}.json`;
 mkdirSync(dirname(htmlPath), { recursive: true });
-const downloads = mkdtempSync(join(tmpdir(), 'loom-row-definition-ui-'));
-const browser = await launchBrowser(downloads);
+const browser = await launchCdaBrowser(artifactRoot, apiURL.origin, uiURL.origin);
 const browserFailures = [];
 const authoringResponses = [];
-browser.cdp.on('Runtime.exceptionThrown', ({ exceptionDetails }) => browserFailures.push(exceptionDetails.exception?.description ?? exceptionDetails.text ?? 'browser exception'));
-browser.cdp.on('Network.responseReceived', ({ response }) => {
-  const responseURL = new URL(response.url);
-  if (response.url.includes('/authoring/v2/')) authoringResponses.push(`${response.status} ${responseURL.pathname}`);
-  if (response.status >= 400 && responseURL.pathname !== '/favicon.ico') browserFailures.push(`${response.status} ${response.url}`);
+const rowDefinitionSelector = 'select[aria-label="One row per"]';
+const selectObservationRows = async () => {
+  await waitForBrowser(browser.page, () => [...document.querySelectorAll('select[aria-label="One row per"] option')]
+    .some(option => option.textContent.includes('Observation')));
+  const options = await browserEval(browser.page, () => [...document.querySelectorAll('select[aria-label="One row per"] option')]
+    .filter(option => option.textContent.includes('Observation'))
+    .map(option => ({ value: option.value, text: option.textContent.trim(), disabled: option.disabled })));
+  assert.equal(options.length, 1, `expected one Observation row option, found ${options.length}`);
+  assert.equal(options[0].disabled, false, 'Observation row option is disabled');
+  const startedAt = Date.now();
+  await selectOption(browser.page, rowDefinitionSelector, options[0].value);
+  await waitForObservationRows(Math.max(1, startedAt + 5000 - Date.now()));
+  assert(Date.now() <= startedAt + 5000, 'row definition selection exceeded its five-second action-to-render budget');
+};
+const waitForObservationRows = async (timeout = 5000) => {
+  await waitForBrowser(browser.page, () =>
+    document.querySelector('select[aria-label="One row per"] option:checked')?.textContent.trim() === 'Observation', timeout);
+};
+const previewAndWait = async () => {
+  const startedAt = Date.now();
+  await click(browser.page, 'button', { name: 'Preview' });
+  await waitForBrowser(browser.page, () => document.body.innerText.includes('dev-pair-001'), Math.max(1, startedAt + 5000 - Date.now()));
+  assert(Date.now() <= startedAt + 5000, 'Preview exceeded its five-second action-to-render budget');
+};
+browser.page.on('pageerror', error => browserFailures.push(error.message));
+browser.page.on('console', message => { if (message.type() === 'error') browserFailures.push(message.text()); });
+browser.page.on('response', response => {
+  const responseURL = new URL(response.url());
+  if (response.url().includes('/authoring/v2/')) authoringResponses.push(`${response.status()} ${responseURL.pathname}`);
+  if (response.status() >= 400 && responseURL.pathname !== '/favicon.ico') browserFailures.push(`${response.status()} ${response.url()}`);
 });
 
 try {
-  await navigate(browser.cdp, `${target.uiUrl}/?${query}`);
-  await waitForBrowser(browser.cdp, `Boolean([...document.querySelectorAll('select[aria-label="One row per"] option')].find((option) => option.textContent.includes('Observation')))`, 60_000);
-  await browserEval(browser.cdp, `
-    const select = document.querySelector('select[aria-label="One row per"]');
-    const option = [...select.options].find((candidate) => candidate.textContent.includes('Observation'));
-    select.value = option.value;
-    select.dispatchEvent(new Event('change', { bubbles: true }));
-  `);
-  await waitForBrowser(browser.cdp, `document.querySelector('select[aria-label="One row per"] option:checked')?.textContent.trim() === 'Observation'`, 60_000);
+  await navigate(browser.page, `${target.uiUrl}/?${query}`);
+  await selectObservationRows();
 
   const after = await json(`${authoring}/builder`);
   const rebased = after.workspace.documents.find((document) => document.output.id === outputId);
@@ -104,11 +120,9 @@ try {
   assert.deepEqual(rebased.columns.map((column) => column.column), featureKeys, 'row change replaced stable feature keys');
   assert.equal(after.draftVersion, before.draftVersion + 1, 'row definition must create exactly one draft version');
 
-  await waitForBrowser(browser.cdp, `Boolean([...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Preview' && !button.disabled))`);
-  await browserEval(browser.cdp, `clickButton('Preview');`);
-  await waitForBrowser(browser.cdp, `document.body.innerText.includes('dev-pair-001')`, 60_000);
-  await browser.cdp.send('Page.reload', { ignoreCache: true });
-  await waitForBrowser(browser.cdp, `document.querySelector('select[aria-label="One row per"] option:checked')?.textContent.trim() === 'Observation'`, 60_000);
+  await previewAndWait();
+  await browser.page.reload({ waitUntil: 'domcontentloaded', timeout: 5000 });
+  await waitForObservationRows();
 
   builder = await json(`${authoring}/builder`);
   await command([{ type: 'DELETE_TABLE', outputId }]);
@@ -138,15 +152,8 @@ try {
   assert.equal(deepOriginal.population?.selectionRevisionId, source.selections.explicit.id, 'deep journey did not attach the file selection');
   const deepFeatureKeys = deepOriginal.columns.map((column) => column.column);
 
-  await browser.cdp.send('Page.reload', { ignoreCache: true });
-  await waitForBrowser(browser.cdp, `Boolean([...document.querySelectorAll('select[aria-label="One row per"] option')].find((option) => option.textContent.includes('Observation')))`, 60_000);
-  await browserEval(browser.cdp, `
-    const select = document.querySelector('select[aria-label="One row per"]');
-    const option = [...select.options].find((candidate) => candidate.textContent.includes('Observation'));
-    select.value = option.value;
-    select.dispatchEvent(new Event('change', { bubbles: true }));
-  `);
-  await waitForBrowser(browser.cdp, `document.querySelector('select[aria-label="One row per"] option:checked')?.textContent.trim() === 'Observation'`, 60_000);
+  await browser.page.reload({ waitUntil: 'domcontentloaded', timeout: 5000 });
+  await selectObservationRows();
   const deepAfter = await json(`${authoring}/builder`);
   const deepRebased = deepAfter.workspace.documents.find((document) => document.output.id === deepOutputId);
   assert.ok(deepRebased, 'deep row-defined table disappeared');
@@ -157,13 +164,11 @@ try {
   assert.deepEqual(deepRebased.population?.route.map((step) => step.resourceType), ['Specimen', 'DocumentReference'], 'deep row change did not extend the population route through both former ancestors');
   assert.deepEqual(deepRebased.columns.map((column) => column.column), deepFeatureKeys, 'deep row change replaced stable feature keys');
   assert.equal(deepAfter.draftVersion, deepBefore.draftVersion + 1, 'deep row definition must create exactly one draft version');
-  await waitForBrowser(browser.cdp, `Boolean([...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Preview' && !button.disabled))`);
-  await browserEval(browser.cdp, `clickButton('Preview');`);
-  await waitForBrowser(browser.cdp, `document.body.innerText.includes('dev-pair-001')`, 60_000);
-  await browser.cdp.send('Page.reload', { ignoreCache: true });
-  await waitForBrowser(browser.cdp, `document.querySelector('select[aria-label="One row per"] option:checked')?.textContent.trim() === 'Observation'`, 60_000);
+  await previewAndWait();
+  await browser.page.reload({ waitUntil: 'domcontentloaded', timeout: 5000 });
+  await waitForObservationRows();
   assert.equal(browserFailures.length, 0, `browser failures: ${browserFailures.join(' | ')}`);
-  await snapshot(browser.cdp, htmlPath);
+  writeFileSync(htmlPath, await browser.page.content(), { mode: 0o600 });
 
   const evidence = {
     status: 'passed', scenario: 'explicit-shallow-and-deep-row-definition',
@@ -190,10 +195,10 @@ try {
   writeFileSync(reportPath, JSON.stringify(evidence, null, 2), { mode: 0o600 });
   console.log(JSON.stringify({ evidence: reportPath, assertions: evidence.assertions }, null, 2));
 } catch (error) {
-  await snapshot(browser.cdp, htmlPath);
+  await browser.captureFailure(error, { action: browser.activeAction ?? browser.lastAction, explorer: target.explorerId, phase: 'shallow and deep row-definition lifecycle' });
+  writeFileSync(htmlPath, await browser.page.content(), { mode: 0o600 });
   const reason = error instanceof Error ? error.message : String(error);
   throw new Error(`${reason}; authoring responses: ${authoringResponses.slice(-12).join(' | ') || 'none'}; browser failures: ${browserFailures.slice(-5).join(' | ') || 'none'}`);
 } finally {
   await browser.close();
-  rmSync(downloads, { recursive: true, force: true });
 }

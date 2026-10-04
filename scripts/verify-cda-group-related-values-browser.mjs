@@ -3,28 +3,46 @@ import { randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { browserEval, click, launchBrowser, navigate, selectOption, waitForBrowser } from './lib/browser.mjs';
+import { fileURLToPath } from 'node:url';
+import { captureSourceFreeze } from './lib/source-freeze.mjs';
+import { captureApiBuildFreeze, checkContainerApiBuildStamp } from './lib/api-build-freeze.mjs';
+import { sourceFingerprint } from './verify-ui/source-fingerprint.mjs';
+import { launchBrowser, sanitizePayload } from './lib/playwright-browser.mjs';
+import { createCDAPlaywrightControls } from './lib/cda-playwright-controls.mjs';
+import { assertVisibleRowsMatchOracle } from './lib/cda-row-oracle.mjs';
+import { assertOwnedCdaTarget } from './lib/owned-cda-target.mjs';
 
-const project = 'loom_dev_cda_fhir';
+const project = process.env.LOOM_CDA_PROJECT;
+assert(project, 'Set LOOM_CDA_PROJECT to the isolated CDA project');
 const explorer = `group-related-values-browser-${Date.now()}`;
 const evidence = process.argv[2] ?? `/tmp/loom-group-related-values-browser-${Date.now()}`;
-const apiOrigin = process.env.LOOM_CDA_API_ORIGIN ?? 'http://127.0.0.1:8188';
-const uiOrigin = process.env.LOOM_CDA_UI_ORIGIN ?? 'http://127.0.0.1:30008';
+const apiOrigin = process.env.LOOM_CDA_API_ORIGIN;
+const uiOrigin = process.env.LOOM_CDA_UI_ORIGIN;
+const apiContainer = process.env.LOOM_CDA_API_CONTAINER;
+const arangoContainer = process.env.LOOM_ARANGO_CONTAINER;
+const composeProject = process.env.LOOM_CDA_COMPOSE_PROJECT;
+const sourceRoot = fileURLToPath(new URL('..', import.meta.url));
+const sourceFreezeStartedAt = new Date().toISOString();
 const root = `/api/v1/projects/${project}/explorers`;
 const base = `${root}/${explorer}/authoring/v2`;
-const report = { explorer, cases: [], errors: [], requests: [], started: new Date().toISOString() };
+const report = { explorer, cases: [], errors: [], requests: [], nativeRequests: [], sourceFreeze: { startedAt: sourceFreezeStartedAt }, started: new Date().toISOString() };
 await mkdir(evidence, { recursive: true });
 let browser, builder, outputId;
-const failedResponses=[];
-const networkRequests=new Map();
-const failedRequests=new Map();
+let sourceFreeze, frozenApiBuild, controls, ownedTarget;
+const click = (...args) => controls.click(...args);
+const selectOption = (...args) => controls.selectOption(...args);
+const fill = (...args) => controls.fill(...args);
+const browserEval = (...args) => controls.evaluate(...args);
+const waitForBrowser = (...args) => controls.wait(...args);
+const navigate = (...args) => controls.navigate(...args);
+const sanitizeReportValue = sanitizePayload;
 const api = async (path, body) => {
   const response = await fetch(apiOrigin + path, {
     method: body ? 'POST' : 'GET', headers: { 'Content-Type': 'application/json', 'X-Request-ID': `group-related-values-browser-${randomUUID()}` },
     ...(body ? { body: JSON.stringify(body) } : {}), signal: AbortSignal.timeout(30000),
   });
   const value = await response.json();
-  report.requests.push({ path, body, status: response.status, response: value });
+  report.requests.push({ path, ...(body ? { body: sanitizeReportValue(body) } : {}), status: response.status, response: sanitizeReportValue(value) });
   assert(response.ok, JSON.stringify(value));
   return value;
 };
@@ -35,48 +53,57 @@ const command = async commands => {
 };
 const doc = state => state.workspace.documents.find(d => d.output.id === outputId);
 const proposal = async (name, start, expectedRows) => {
-  await waitForBrowser(browser.cdp, `['ready','error','needs-repair'].includes(document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalStatus)`);
-  const result = await browserEval(browser.cdp, `const p=document.querySelector('[data-testid="construction-proposal-panel"]');return {status:p?.dataset.proposalStatus,proposalId:p?.dataset.proposalId,text:p?.innerText,rows:[...document.querySelectorAll('[data-testid="construction-proposal-preview-row"]')].map(r=>[...r.querySelectorAll('td')].map(c=>c.innerText))};`);
+  await waitForBrowser(() => (['ready','error','needs-repair'].includes(document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalStatus)));
+  const result = await browserEval(() => { const p=document.querySelector('[data-testid="construction-proposal-panel"]');return {status:p?.dataset.proposalStatus,proposalId:p?.dataset.proposalId,text:p?.innerText,rows:[...document.querySelectorAll('[data-testid="construction-proposal-preview-row"]')].map(r=>[...r.querySelectorAll('td')].map(c=>c.innerText))}; });
   assert.equal(result.status, 'ready', result.text);
-  assert.equal(result.rows.length, Math.min(25, expectedRows.length));
-  const permitted = new Set(expectedRows.map(row=>JSON.stringify(row)));
-  for (const row of result.rows) assert(permitted.has(JSON.stringify(row)), 'Preview row must match an independent CDA relationship witness: '+JSON.stringify(row));
+  assertVisibleRowsMatchOracle(result.rows, expectedRows, { label: `${name} preview` });
   const durationMs = Date.now() - start;
+  if (browser) browser.lastElapsedMs = durationMs;
   assert(durationMs <= 5000, `${name} took ${durationMs}ms`);
   report.cases.push({ name, durationMs, result });
 };
 const recordRender = (name, start) => {
   const durationMs = Date.now() - start;
+  if (browser) browser.lastElapsedMs = durationMs;
   assert(durationMs <= 5000, `${name} took ${durationMs}ms`);
   report.cases.push({ name, durationMs });
 };
 const apply = async expectedRows => {
   const start = Date.now();
-  await click(browser.cdp, '[data-testid="construction-apply-proposal"]');
-  await waitForBrowser(browser.cdp, `!document.querySelector('[data-testid="construction-proposal-panel"]')`);
+  await click( '[data-testid="construction-apply-proposal"]');
+  await waitForBrowser(() => (!document.querySelector('[data-testid="construction-proposal-panel"]')));
   await rendered(expectedRows);
   recordRender('apply-to-render', start);
   builder = await api(base + '/builder');
 };
 const open = async expectedRows => {
   const start = Date.now();
-  await navigate(browser.cdp, `${uiOrigin}/?project=${project}&explorer=${explorer}&mode=builder`);
-  await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-table-${outputId}"]')`);
-  await click(browser.cdp, `[data-testid="construction-table-${outputId}"]`);
-  await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-rows-settings-trigger"]')?.disabled === false`);
+  await navigate( `${uiOrigin}/?project=${project}&explorer=${explorer}&mode=builder`);
+  await waitForBrowser(selector => Boolean(document.querySelector(selector)), `[data-testid="construction-table-${outputId}"]`);
+  await click( `[data-testid="construction-table-${outputId}"]`);
+  await waitForBrowser(() => (document.querySelector('[data-testid="construction-rows-settings-trigger"]')?.disabled === false));
   await rendered(expectedRows);
   recordRender('load-to-render', start);
 };
 const rendered = async expectedRows => {
-  await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount') === ${JSON.stringify(String(Math.min(25, expectedRows.length) + 1))} && document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-colcount') === ${JSON.stringify(String(expectedRows[0]?.length ?? 2))} && !document.body.innerText.includes('Loading your table…')`);
-  const rows = await browserEval(browser.cdp, `return [...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]')].slice(1).map(r=>[...r.querySelectorAll('[role="cell"]')].map(c=>c.innerText.trim())).filter(r=>r.length);`);
-  assert(rows.length > 0 || expectedRows.length === 0);
+  await waitForBrowser(({ rowCount, columnCount }) => {
+    const table = document.querySelector('[data-testid="preview-table-scroll"] [role="table"]');
+    return table?.getAttribute('aria-rowcount') === String(Math.min(25, rowCount) + 1) && table?.getAttribute('aria-colcount') === String(columnCount) && !document.body.innerText.includes('Loading your table…');
+  }, { rowCount: expectedRows.length, columnCount: expectedRows[0]?.length ?? 2 });
+  const rows = await browserEval(() => { return [...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]')].slice(1).map(r=>[...r.querySelectorAll('[role="cell"]')].map(c=>c.innerText.trim())).filter(r=>r.length); });
   const savedRows = expectedRows;
-  for (const row of rows) assert(savedRows.some(expected=>row.every((cell,i)=>cell===expected[i])), 'Visible saved cells must match a CDA witness: '+JSON.stringify(row));
+  assertVisibleRowsMatchOracle(rows, savedRows, { label: 'saved table' });
 };
 try {
+  ownedTarget = await assertOwnedCdaTarget({ project, apiOrigin, uiOrigin, apiContainer, composeProject, sourceRoot, arangoContainer });
+  report.target = ownedTarget;
+  report.sourceFingerprint = { root: sourceRoot, before: sourceFingerprint(sourceRoot) };
+  sourceFreeze = await captureSourceFreeze(sourceRoot);
+  report.sourceFreeze.watchedFileCount = sourceFreeze.watchedFileCount;
+  frozenApiBuild = await captureApiBuildFreeze(() => checkContainerApiBuildStamp(apiContainer));
+  report.apiBuildFreeze = { target: 'running isolated CDA API build stamp', container: apiContainer, initial: frozenApiBuild.initial, invalidatesRun: true, productFailure: false };
   const query = `FOR s IN Specimen FILTER s.project == "${project}" AND s.dataset_generation == "cda-fhir-v1" LIMIT 1 RETURN {id:s.id,_id:s._id,generation:s.dataset_generation,resourceType:s.resourceType}`;
-  const raw = spawnSync('rtk', ['proxy', 'docker', 'exec', process.env.LOOM_ARANGO_CONTAINER ?? 'loom-dev-6d7df93d6a37-arangodb-1', 'arangosh', '--server.database', 'loom_dev', '--javascript.execute-string', `print(JSON.stringify(db._query(${JSON.stringify(query)}).toArray()));`], { encoding: 'utf8', timeout: 30000 });
+  const raw = spawnSync('rtk', ['proxy', 'docker', 'exec', arangoContainer, 'arangosh', '--server.database', 'loom_dev', '--javascript.execute-string', `print(JSON.stringify(db._query(${JSON.stringify(query)}).toArray()));`], { encoding: 'utf8', timeout: 30000 });
   assert.equal(raw.status, 0, raw.stderr);
   const [source] = JSON.parse(raw.stdout.slice(raw.stdout.indexOf('[')));
   assert(source?.id);
@@ -95,26 +122,10 @@ try {
   const direct = routes.choices.find(c => c.route.length === 0);
   assert(direct);
   await command([{ type: 'SET_TABLE_POPULATION', outputId, selectionRevisionId: selection.id, routeChoiceId: direct.routeChoiceId }]);
-  browser = await launchBrowser(evidence);
-  browser.cdp.on('Runtime.exceptionThrown', e => report.errors.push({kind:'runtime',details:e.exceptionDetails}));
-  browser.cdp.on('Runtime.consoleAPICalled', e => {if(e.type==='error')report.errors.push({kind:'console',args:e.args});});
-  browser.cdp.on('Network.requestWillBeSent',({requestId,request})=>{
-    if(request.url.includes('/related-expand-choices') || request.url.includes('/construction-choice-proposals') || request.url.includes('/construction-proposals'))networkRequests.set(requestId,request.postData);
-  });
-  browser.cdp.on('Network.loadingFinished',({requestId})=>{
-    const error=failedRequests.get(requestId);
-    if(error)failedResponses.push(browser.cdp.send('Network.getResponseBody',{requestId}).then(body=>{error.body=body.body;}).catch(e=>{error.bodyError=String(e);}));
-  });
-  browser.cdp.on('Network.responseReceived', ({response,requestId})=>{
-    if(response.status>=400&&!response.url.endsWith('/favicon.ico')){
-      const error={kind:'http',url:response.url,status:response.status,observedAfter:report.cases.at(-1)?.name,request:networkRequests.get(requestId)};
-      report.errors.push(error);
-      failedRequests.set(requestId,error);
-    }
-  });
-  browser.cdp.on('Network.loadingFailed', e=>{if(e.type==='Script'&&e.errorText!=='net::ERR_ABORTED')report.errors.push({kind:'module',error:e.errorText});});
+  browser = await launchBrowser({ evidence, appOrigins: [apiOrigin, uiOrigin], noAuth: true });
+  controls = createCDAPlaywrightControls({ browser, browserApiOrigin: uiOrigin, ownedPathPrefix: `${root}/${explorer}`, report });
   const rawQuery = query => {
-    const r=spawnSync('rtk',['proxy','docker','exec',process.env.LOOM_ARANGO_CONTAINER??'loom-dev-6d7df93d6a37-arangodb-1','arangosh','--server.database','loom_dev','--javascript.execute-string',`print(JSON.stringify(db._query(${JSON.stringify(query)}).toArray()));`],{encoding:'utf8',timeout:30000});
+    const r=spawnSync('rtk',['proxy','docker','exec',arangoContainer,'arangosh','--server.database','loom_dev','--javascript.execute-string',`print(JSON.stringify(db._query(${JSON.stringify(query)}).toArray()));`],{encoding:'utf8',timeout:30000});
     assert.equal(r.status,0,r.stderr);return JSON.parse(r.stdout.slice(r.stdout.indexOf('[')));
   };
   let witnesses=[{anchor:source._id,values:[source.id]}];
@@ -137,16 +148,16 @@ try {
     assert(next.length<=1000,'Use a bounded CDA chain fixture');
     witnesses=next;expected=witnesses.map(w=>w.values);
     report.oracle.chain??=[];report.oracle.chain.push({hop,witnesses});
-    await click(browser.cdp,'[data-testid="construction-rows-settings-trigger"]');
-    await waitForBrowser(browser.cdp,`document.querySelector('[data-testid="construction-action-related-rows"]')?.disabled===false`);
-    await click(browser.cdp,'[data-testid="construction-action-related-rows"]');
+    await click('[data-testid="construction-rows-settings-trigger"]');
+    await waitForBrowser(() => (document.querySelector('[data-testid="construction-action-related-rows"]')?.disabled===false));
+    await click('[data-testid="construction-action-related-rows"]');
     const panel='[data-testid="construction-related-expand-editor"]';
-    await waitForBrowser(browser.cdp,`document.querySelector('${panel} select[aria-label="Related record type"]')?.disabled===false`);
+    await waitForBrowser(selector => { const control = document.querySelector(selector); return Boolean(control) && !control.disabled; }, `${panel} select[aria-label="Related record type"]`);
     let start=Date.now();
-    await selectOption(browser.cdp,panel+' select[aria-label="Related record type"]',hop.to);
+    await selectOption(panel+' select[aria-label="Related record type"]',hop.to);
     const label=hop.from+(hop.direction==='INBOUND'?` <-[${hop.field}]- `:` -[${hop.field}]-> `)+hop.to;
-    await waitForBrowser(browser.cdp,`document.querySelector(${JSON.stringify(panel+' input[aria-label="'+label+'"]')})`,5000);
-    await click(browser.cdp,panel+' input[aria-label="'+label+'"]');
+    await waitForBrowser(selector => Boolean(document.querySelector(selector)), `${panel} input[aria-label="${label}"]`, 5000);
+    await click(panel+' input[aria-label="'+label+'"]');
     await proposal('expand-'+hop.from+'-'+hop.to,start,expected);
     await apply(expected);
   }
@@ -155,46 +166,46 @@ try {
   const grouped=[[source.id,String(expected.length)]];
   await open(expected);
   const configureGroup=async()=>{
-    await click(browser.cdp,'[data-testid="construction-rows-settings-trigger"]');
-    await click(browser.cdp,'[data-testid="construction-action-group-rows"]');
-    await waitForBrowser(browser.cdp,`document.querySelector('input[aria-label="Group by Specimen ID"]:not(:disabled)')`);
+    await click('[data-testid="construction-rows-settings-trigger"]');
+    await click('[data-testid="construction-action-group-rows"]');
+    await waitForBrowser(() => (document.querySelector('input[aria-label="Group by Specimen ID"]:not(:disabled)')));
     start=Date.now();
-    await click(browser.cdp,'input[aria-label="Group by Specimen ID"]');
+    await click('input[aria-label="Group by Specimen ID"]');
   };
   let start;
   await configureGroup();
   await proposal('related-many-group-preview',start,grouped);
-  await click(browser.cdp,'[data-testid="construction-cancel-proposal"]');
-  await waitForBrowser(browser.cdp,`!document.querySelector('[data-testid="construction-proposal-panel"]')`);
+  await click('[data-testid="construction-cancel-proposal"]');
+  await waitForBrowser(() => (!document.querySelector('[data-testid="construction-proposal-panel"]')));
   assert.deepEqual((await api(base+'/builder')).workspace,expanded.workspace);
   await configureGroup();
   await proposal('confirmed-related-many-group-preview',start,grouped);
   await apply(grouped);
   await open(grouped);
-  await click(browser.cdp,'[data-testid="construction-action-add-columns"]');
-  await click(browser.cdp,'[aria-label="Column types"] button',{includes:'Fields and related data'});
-  await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-add-columns-source"]')`);
-  report.addFieldsUI=await browserEval(browser.cdp, `return {text:document.querySelector('[aria-label="Add columns editor"]').innerText,controls:[...document.querySelectorAll('[aria-label="Add columns editor"] input,[aria-label="Add columns editor"] select,[aria-label="Add columns editor"] button')].map(e=>({tag:e.tagName,label:e.getAttribute('aria-label'),testId:e.dataset.testid,text:e.innerText,disabled:e.disabled}))};`);
-  await click(browser.cdp,'[aria-label="Related resources"] summary');
-  await click(browser.cdp,'[data-testid="construction-add-columns-source-option"][aria-label="Observation, Related resource"]');
-  await click(browser.cdp,'[data-testid="feature-catalog-raw-fields"] summary');
-  await waitForBrowser(browser.cdp,`document.querySelector('input[aria-label="Select Observation.id"]:not(:disabled)')`);
+  await click('[data-testid="construction-action-add-columns"]');
+  await click('[aria-label="Column types"] button',{includes:'Fields and related data'});
+  await waitForBrowser(() => (document.querySelector('[data-testid="construction-add-columns-source"]')));
+  report.addFieldsUI=await browserEval(() => { return {text:document.querySelector('[aria-label="Add columns editor"]').innerText,controls:[...document.querySelectorAll('[aria-label="Add columns editor"] input,[aria-label="Add columns editor"] select,[aria-label="Add columns editor"] button')].map(e=>({tag:e.tagName,label:e.getAttribute('aria-label'),testId:e.dataset.testid,text:e.innerText,disabled:e.disabled}))}; });
+  await click('[aria-label="Related resources"] summary');
+  await click('[data-testid="construction-add-columns-source-option"][aria-label="Observation, Related resource"]');
+  await click('[data-testid="feature-catalog-raw-fields"] summary');
+  await waitForBrowser(() => (document.querySelector('input[aria-label="Select Observation.id"]:not(:disabled)')));
   const beforeField=builder;
   const contributorIDs=[...new Set(witnesses.map(witness=>witness.values.at(-1)))].sort();
   const withField=[[...grouped[0],contributorIDs.join('; ')]];
   const configureRelatedField=async()=>{
-    await click(browser.cdp,'input[aria-label="Select Observation.id"]');
-    await click(browser.cdp,'[aria-label="Add columns editor"] button',{includes:'Add 1 selected feature'});
-    await waitForBrowser(browser.cdp,`document.querySelector('[role="dialog"]')`);
-    await click(browser.cdp,'[role="dialog"] summary',{includes:'Other relationship paths'});
-    await click(browser.cdp,'[role="dialog"] input[aria-label="Observation ID: Specimen -[subject]-> Patient <-[subject]- Observation"]');
+    await click('input[aria-label="Select Observation.id"]');
+    await click('[aria-label="Add columns editor"] button',{includes:'Add 1 selected feature'});
+    await waitForBrowser(() => (document.querySelector('[role="dialog"]')));
+    await click('[role="dialog"] summary',{includes:'Other relationship paths'});
+    await click('[role="dialog"] input[aria-label="Observation ID: Specimen -[subject]-> Patient <-[subject]- Observation"]');
     start=Date.now();
-    await click(browser.cdp,'[role="dialog"] input[aria-label="Observation ID: Keep all matching values"]');
-    await click(browser.cdp,'[role="dialog"] button',{name:'Add 1 column'});
-    await waitForBrowser(browser.cdp,`['ready','error','needs-repair'].includes(document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalStatus) || ['ready','error'].includes(document.querySelector('[data-testid="construction-choice-proposal-panel"]')?.dataset.proposalStatus)`);
-    report.relatedProposal=await browserEval(browser.cdp,`const p=document.querySelector('[data-testid="construction-proposal-panel"]')??document.querySelector('[data-testid="construction-choice-proposal-panel"]');return {status:p.dataset.proposalStatus,text:p.innerText};`);
+    await click('[role="dialog"] input[aria-label="Observation ID: Keep all matching values"]');
+    await click('[role="dialog"] button',{name:'Add 1 column'});
+    await waitForBrowser(() => (['ready','error','needs-repair'].includes(document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalStatus) || ['ready','error'].includes(document.querySelector('[data-testid="construction-choice-proposal-panel"]')?.dataset.proposalStatus)));
+    report.relatedProposal=await browserEval(() => { const p=document.querySelector('[data-testid="construction-proposal-panel"]')??document.querySelector('[data-testid="construction-choice-proposal-panel"]');return {status:p.dataset.proposalStatus,text:p.innerText}; });
     assert.equal(report.relatedProposal.status,'ready',report.relatedProposal.text);
-    const cells=await browserEval(browser.cdp,`return [...document.querySelector('[data-testid="construction-proposal-preview-row"]').querySelectorAll('td')].map(cell=>({text:cell.innerText,raw:cell.title}));`);
+    const cells=await browserEval(() => { return [...document.querySelector('[data-testid="construction-proposal-preview-row"]').querySelectorAll('td')].map(cell=>({text:cell.innerText,raw:cell.title})); });
     assert.equal(cells.length,3);
     assert.deepEqual(cells.slice(0,2).map(cell=>cell.text),grouped[0]);
     const values=JSON.parse(cells[2].raw);
@@ -203,13 +214,13 @@ try {
     recordRender('group-related-all-values-preview',start);
   };
   await configureRelatedField();
-  await click(browser.cdp,'[data-testid="construction-choice-proposal-panel"] button',{name:'Cancel'});
+  await click('[data-testid="construction-choice-proposal-panel"] button',{name:'Cancel'});
   await rendered(grouped);
   assert.deepEqual((await api(base+'/builder')).workspace,beforeField.workspace);
   await configureRelatedField();
   start=Date.now();
-  await click(browser.cdp,'[data-testid="construction-choice-proposal-panel"] button',{name:'Apply columns'});
-  await waitForBrowser(browser.cdp,`!document.querySelector('[data-testid="construction-choice-proposal-panel"]')`);
+  await click('[data-testid="construction-choice-proposal-panel"] button',{name:'Apply columns'});
+  await waitForBrowser(() => (!document.querySelector('[data-testid="construction-choice-proposal-panel"]')));
   await rendered(withField);
   recordRender('group-related-all-values-apply',start);
   builder=await api(base+'/builder');
@@ -219,22 +230,26 @@ try {
   const savedGroup = doc(builder).construction.steps.find(step => step.operation.kind === 'GROUP');
   assert(savedGroup);
   const configureDistinctGroup = async () => {
-    await click(browser.cdp, `[data-testid="construction-history-step-${savedGroup.id}"]`);
-    await click(browser.cdp, `[data-testid="construction-edit-step-${savedGroup.id}"]`);
-    await waitForBrowser(browser.cdp, `document.querySelector('select[aria-label="Summary 1"]:not(:disabled)')`);
-    const priorId = await browserEval(browser.cdp, `return document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalId;`);
+    await click( `[data-testid="construction-history-step-${savedGroup.id}"]`);
+    await click( `[data-testid="construction-edit-step-${savedGroup.id}"]`);
+    await waitForBrowser(() => (document.querySelector('select[aria-label="Summary 1"]:not(:disabled)')));
+    const priorId = await browserEval(() => { return document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalId; });
     start = Date.now();
-    await selectOption(browser.cdp, 'select[aria-label="Summary 1"]', 'COUNT_DISTINCT');
-    await waitForBrowser(browser.cdp, `document.querySelector('select[aria-label="Summary field 1"]:not(:disabled)')`);
-    const fields = await browserEval(browser.cdp, `return [...document.querySelector('select[aria-label="Summary field 1"]').options].map(option=>({value:option.value,label:option.textContent}));`);
+    await selectOption( 'select[aria-label="Summary 1"]', 'COUNT_DISTINCT');
+    await waitForBrowser(() => (document.querySelector('select[aria-label="Summary field 1"]:not(:disabled)')));
+    const fields = await browserEval(() => { return [...document.querySelector('select[aria-label="Summary field 1"]').options].map(option=>({value:option.value,label:option.textContent})); });
     const observation = fields.find(field => field.label.startsWith('Observation FHIR resource ID'));
     assert(observation, JSON.stringify(fields));
-    await selectOption(browser.cdp, 'select[aria-label="Summary field 1"]', observation.value);
-    await waitForBrowser(browser.cdp, `(() => {const panel=document.querySelector('[data-testid="construction-proposal-panel"]');return panel?.dataset.proposalStatus==='ready'&&panel.dataset.proposalId!==${JSON.stringify(priorId)}&&JSON.stringify([...document.querySelectorAll('[data-testid="construction-proposal-preview-row"]')].map(row=>[...row.querySelectorAll('td')].map(cell=>cell.innerText)))===${JSON.stringify(JSON.stringify(withField))};})()`, 5000);
+    await selectOption( 'select[aria-label="Summary field 1"]', observation.value);
+    await waitForBrowser(({ priorId, rows }) => {
+      const panel = document.querySelector('[data-testid="construction-proposal-panel"]');
+      const actual = [...document.querySelectorAll('[data-testid="construction-proposal-preview-row"]')].map(row => [...row.querySelectorAll('td')].map(cell => cell.innerText));
+      return panel?.dataset.proposalStatus === 'ready' && panel.dataset.proposalId !== priorId && JSON.stringify(actual) === JSON.stringify(rows);
+    }, { priorId, rows: withField }, 5000);
     await proposal('edit-group-with-retained-related-field-preview', start, withField);
   };
   await configureDistinctGroup();
-  await click(browser.cdp, '[data-testid="construction-cancel-proposal"]');
+  await click( '[data-testid="construction-cancel-proposal"]');
   await rendered(withField);
   assert.deepEqual((await api(base + '/builder')).workspace, fieldBaseline, 'Cancel must preserve the group and related field binding');
   await configureDistinctGroup();
@@ -242,18 +257,18 @@ try {
   assert.equal(doc(builder).construction.steps.find(step => step.id === savedGroup.id).operation.group.aggregates[0].operation, 'COUNT_DISTINCT');
   assert.deepEqual(doc(builder).columns, report.savedFieldDocument.columns, 'Editing the group aggregate must preserve authored column bindings');
   await open(withField);
-  await click(browser.cdp, `[data-testid="construction-history-step-${savedGroup.id}"]`);
-  await click(browser.cdp, `[data-testid="construction-edit-step-${savedGroup.id}"]`);
-  await waitForBrowser(browser.cdp, `document.querySelector('select[aria-label="Summary 1"]:not(:disabled)')`);
+  await click( `[data-testid="construction-history-step-${savedGroup.id}"]`);
+  await click( `[data-testid="construction-edit-step-${savedGroup.id}"]`);
+  await waitForBrowser(() => (document.querySelector('select[aria-label="Summary 1"]:not(:disabled)')));
   start = Date.now();
-  await selectOption(browser.cdp, 'select[aria-label="Summary 1"]', 'COUNT_ROWS');
+  await selectOption( 'select[aria-label="Summary 1"]', 'COUNT_ROWS');
   await proposal('restore-group-count-with-related-field-preview', start, withField);
   await apply(withField);
   await open(withField);
   assert.deepEqual(doc(builder).construction, report.savedFieldDocument.construction, 'Aggregate round trip must preserve the grouped related projection');
-  await click(browser.cdp,'button',{name:'Columns'});
+  await click('button',{name:'Columns'});
   start=Date.now();
-  await click(browser.cdp,'button[aria-label="Remove Observation ID column"]');
+  await click('button[aria-label="Remove Observation ID column"]');
   await rendered(grouped);
   recordRender('remove-group-related-field',start);
   builder=await api(base+'/builder');
@@ -263,13 +278,43 @@ try {
   report.status='passed';
 } catch (error) {
   report.status = 'failed'; report.error = String(error.stack ?? error); process.exitCode = 1;
+  if (browser) {
+    const action = browser.activeAction ?? controls?.lastAction;
+    await browser.captureFailure(error, { scenario: explorer, ...(action ? { action, elapsedMs: browser.activeAction ? Date.now() - browser.activeAction.startedAt : browser.lastElapsedMs ?? action.elapsedMs } : {}), draft: builder ? { draftVersion: builder.draftVersion, draftDigest: builder.draftDigest } : undefined, latestDiagnostic: report.errors.at(-1) });
+  }
   report.savedBuilderAtFailure=await api(base+'/builder').catch(error=>({readError:String(error)}));
-  report.failureProposal = browser ? await browserEval(browser.cdp, `const panel=document.querySelector('[data-testid="construction-proposal-panel"]');return {id:panel?.dataset.proposalId,status:panel?.dataset.proposalStatus,rows:[...document.querySelectorAll('[data-testid="construction-proposal-preview-row"]')].map(row=>[...row.querySelectorAll('td')].map(cell=>({text:cell.innerText,title:cell.title}))) };`).catch(String) : undefined;
-  report.failureUI = browser ? await browserEval(browser.cdp, 'return document.body.innerText;').catch(String) : undefined;
+  report.failureProposal = browser ? await browserEval(() => { const panel=document.querySelector('[data-testid="construction-proposal-panel"]');return {id:panel?.dataset.proposalId,status:panel?.dataset.proposalStatus,rows:[...document.querySelectorAll('[data-testid="construction-proposal-preview-row"]')].map(row=>[...row.querySelectorAll('td')].map(cell=>({text:cell.innerText,title:cell.title}))) }; }).catch(String) : undefined;
+  report.failureUI = browser ? await browserEval(() => document.body.innerText).catch(String) : undefined;
 } finally {
-  await Promise.all(failedResponses);
+  await controls?.flush();
+  if (frozenApiBuild) {
+    try { report.apiBuildFreeze = { ...report.apiBuildFreeze, ...await frozenApiBuild.assertUnchanged() }; }
+    catch (error) { report.priorStatus = report.status; report.status = 'invalidated'; report.apiBuildFreeze = { ...report.apiBuildFreeze, unchanged: false, invalidatesRun: true, productFailure: false, error: String(error), reason: error.reason, before: error.before, after: error.after }; process.exitCode = 1; }
+  }
+  if (sourceFreeze) {
+    try { report.sourceFreeze = { ...report.sourceFreeze, ...await sourceFreeze.assertUnchanged(), finishedAt: new Date().toISOString() }; }
+    catch (error) { report.priorStatus = report.status; report.status = 'invalidated'; report.sourceFreeze = { ...report.sourceFreeze, unchanged: false, changedPaths: error.changedPaths ?? [], invalidatesRun: true, productFailure: false, error: String(error), finishedAt: new Date().toISOString() }; process.exitCode = 1; }
+  }
+  if (report.sourceFingerprint) {
+    report.sourceFingerprint.after = sourceFingerprint(sourceRoot);
+    report.sourceFingerprint.unchanged = report.sourceFingerprint.after.sha256 === report.sourceFingerprint.before.sha256 && report.sourceFingerprint.after.files === report.sourceFingerprint.before.files;
+    report.sourceFingerprint.invalidatesRun = !report.sourceFingerprint.unchanged;
+    if (!report.sourceFingerprint.unchanged) { report.priorStatus = report.status; report.status = 'invalidated'; process.exitCode = 1; }
+  }
+  await controls?.flush();
+  if (report.status === 'passed' && report.errors.length) {
+    const error = new Error(`Unexpected browser diagnostics: ${JSON.stringify(report.errors)}`);
+    report.status = 'failed';
+    report.error = String(error.stack);
+    process.exitCode = 1;
+    const action = browser?.activeAction ?? controls?.lastAction;
+    if (browser) await browser.captureFailure(error, { scenario: explorer, ...(action ? { action, elapsedMs: browser.lastElapsedMs ?? action.elapsedMs } : {}), draft: builder ? { draftVersion: builder.draftVersion, draftDigest: builder.draftDigest } : undefined, latestDiagnostic: report.errors.at(-1) });
+  }
+  report.browserDiagnostics = browser?.diagnostics;
+  report.incidentalAssetFailures = browser?.diagnostics.assetFailures ?? [];
+  report.actions = browser?.actions ?? [];
   report.finished = new Date().toISOString();
   await writeFile(join(evidence, 'report.json'), JSON.stringify(report, null, 2));
-  await browser?.close();
+  await browser?.browser.close();
 }
 console.log(JSON.stringify({ status: report.status, evidence, cases: report.cases.map(c => ({ name: c.name, durationMs: c.durationMs })), error: report.error }));

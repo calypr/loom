@@ -1,17 +1,18 @@
 import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
 import { captureSourceFreeze } from './lib/source-freeze.mjs';
-import { captureApiBuildFreeze, checkContainerApiBuildStamp, localCDAApiContainer } from './lib/api-build-freeze.mjs';
+import { captureApiBuildFreeze, checkContainerApiBuildStamp } from './lib/api-build-freeze.mjs';
 import { randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { mkdir, writeFile } from 'node:fs/promises';
-import { browserEval, click, launchBrowser, navigate, selectOption, waitForBrowser } from './lib/browser.mjs';
+import { launchBrowser, sanitizeText } from './lib/playwright-browser.mjs';
+import { performAction, requireUnique } from './lib/playwright-actions.mjs';
+import { captureCDARequests } from './lib/cda-playwright-requests.mjs';
+import { assertOwnedCdaTarget } from './lib/owned-cda-target.mjs';
 
-// Standalone verifier for a leaf row after three authored RELATED_EXPAND steps.
-// Copy beside scripts/lib/browser.mjs only after the composed-lineage compiler
-// work is integrated. This script is restricted to the local no-auth fixture.
-const project = 'loom_dev_cda_fhir';
-const generation = 'cda-fhir-v1';
+// Standalone verifier for composed row lineage on an explicitly owned local CDA stack.
+const project = process.env.LOOM_CDA_PROJECT;
+const generation = process.env.LOOM_CDA_GENERATION;
 const lineageMode = process.env.LOOM_COMPOSED_LINEAGE_MODE ?? 'COMPOSED_RELATED';
 assert(['COMPOSED_RELATED', 'DIRECT_PIVOT', 'DIRECT_PIVOT_SHARED_CONTRIBUTOR', 'DIRECT_GROUP_COUNT_PIVOT'].includes(lineageMode), `Unsupported LOOM_COMPOSED_LINEAGE_MODE: ${lineageMode}`);
 const directPivot = lineageMode.startsWith('DIRECT_PIVOT') || lineageMode === 'DIRECT_GROUP_COUNT_PIVOT';
@@ -22,21 +23,24 @@ const explorer = `${directPivot ? pivotName : 'composed-row-lineage'}-${Date.now
 const evidence = process.argv[2] ?? `/tmp/loom-${directPivot ? pivotName : 'composed-row-lineage'}-${Date.now()}`;
 const rootDiscoveryLimit = 2000;
 const witnessPathsLimit = 2;
-const apiOrigin = process.env.LOOM_CDA_API_ORIGIN ?? 'http://127.0.0.1:8188';
-const uiOrigin = process.env.LOOM_CDA_UI_ORIGIN ?? 'http://127.0.0.1:30008';
+const apiOrigin = process.env.LOOM_CDA_API_ORIGIN;
+const uiOrigin = process.env.LOOM_CDA_UI_ORIGIN;
+const apiContainer = process.env.LOOM_CDA_API_CONTAINER;
+const composeProject = process.env.LOOM_CDA_COMPOSE_PROJECT;
+const arangoContainer = process.env.LOOM_ARANGO_CONTAINER;
+assert(apiOrigin && uiOrigin, 'Set LOOM_CDA_API_ORIGIN and LOOM_CDA_UI_ORIGIN to the isolated CDA stack.');
 const localAPI = new URL(apiOrigin);
 const localUI = new URL(uiOrigin);
-assert.equal(localAPI.origin, 'http://127.0.0.1:8188', 'Use only the local unrestricted no-auth CDA API');
-assert.equal(localUI.origin, 'http://127.0.0.1:30008', 'Use only the local CDA Builder UI');
 const localOrigins = new Set([localAPI.origin, localUI.origin]);
-assert.equal(project, 'loom_dev_cda_fhir');
-assert.equal(generation, 'cda-fhir-v1');
+assert.equal(generation, 'cda-fhir-v1', 'Set LOOM_CDA_GENERATION to the loaded CDA FHIR generation.');
 assert(!explorer.startsWith('cda-builder-full-qa-'), 'Never use the protected shared QA explorer');
-const arangoContainer = process.env.LOOM_ARANGO_CONTAINER ?? 'loom-dev-6d7df93d6a37-arangodb-1';
+const sourceRoot = fileURLToPath(new URL('..', import.meta.url));
+const ownedTarget = await assertOwnedCdaTarget({ project, apiOrigin, uiOrigin, apiContainer, composeProject, sourceRoot, arangoContainer });
 const base = `/api/v1/projects/${project}/explorers/${explorer}/authoring/v2`;
 const explorersPath = `/api/v1/projects/${project}/explorers`;
 const report = {
   explorer, project, generation, lineageMode, scope: {
+    ownedTarget,
     apiOrigin: localAPI.origin, uiOrigin: localUI.origin,
     authorization: 'local no-auth unrestricted API',
     oracleScope: 'project + dataset generation + explicit member root IDs',
@@ -52,11 +56,92 @@ const report = {
   cases: [], errors: [], requests: [], nativeRequests: [], started: new Date().toISOString(),
 };
 await mkdir(evidence, { recursive: true });
-const sourceFreeze = await captureSourceFreeze(fileURLToPath(new URL('..', import.meta.url)));
-let browser, builder, outputId, apiBuildFreeze;
-const nativeById = new Map();
-const pendingNetworkReads = new Set();
+const sourceFreeze = await captureSourceFreeze(sourceRoot);
+let browser, builder, outputId, apiBuildFreeze, requestCapture;
 const oracleQueries = [];
+const page = () => browser.page;
+const waitUI = (condition, timeout = 30000) => page().waitForFunction(condition, undefined, { timeout });
+const navigateUI = url => page().goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+const actionTarget = (selector, identity = {}) => {
+  let locator = page().locator(selector);
+  if (identity.name !== undefined) locator = locator.and(page().getByRole('button', { name: identity.name, exact: true }));
+  if (identity.includes !== undefined) {
+    const escaped = identity.includes.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    locator = locator.and(page().getByRole('button', { name: new RegExp(escaped, 'i') }));
+  }
+  return locator;
+};
+const clickUI = (selector, identity = {}) => {
+  const locator = actionTarget(selector, identity);
+  return performAction(report, identity.name ?? identity.includes ?? selector, locator, target => target.click({ timeout: 5000 }));
+};
+const fillUI = (selector, value, label = selector) => {
+  const locator = page().locator(selector);
+  return performAction(report, label, locator, (target, { timeout }) => target.fill(value, { timeout }), { editable: true });
+};
+const selectUI = async (selector, value, { settledWhen, dismissSelector } = {}) => {
+  const locator = page().locator(selector);
+  await performAction(report, `Select ${value}`, locator, (target, { timeout }) => target.selectOption(value, { timeout }));
+  if (settledWhen) await waitUI(settledWhen, 5000);
+  else await waitUI(`document.querySelector(${JSON.stringify(selector)})?.value === ${JSON.stringify(value)}`, 5000);
+  if (dismissSelector) await clickUI(dismissSelector);
+};
+const openBrowser = async () => {
+  browser = await launchBrowser({ evidence, appOrigins: [apiOrigin, uiOrigin], noAuth: true });
+  requestCapture = captureCDARequests(browser.page, {
+    apiOrigin,
+    browserRequestOrigin: uiOrigin,
+    appOrigins: [apiOrigin, uiOrigin],
+    ownedPathPrefix: base,
+    report,
+  });
+};
+const evidenceSafe = (value, key = '') => {
+  if (/authorization|cookie|password|passwd|token|secret|credential|session|api[_-]?key/i.test(key)) return '[REDACTED]';
+  if (Array.isArray(value)) return value.map(item => evidenceSafe(item));
+  if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([childKey, childValue]) => [childKey, evidenceSafe(childValue, childKey)]));
+  return value;
+};
+const requestBody = entry => requestCapture.rawRequestBody(entry) ?? entry.body;
+const responseBody = entry => requestCapture.rawResponseBody(entry) ?? entry.response;
+const inspectPreviewRows = async () => page().locator('[data-testid="preview-table-scroll"] [role="row"]')
+  .evaluateAll(rows => rows.slice(1).map(row => {
+    const label = row.querySelector('button[aria-label^="Inspect row "]')?.getAttribute('aria-label') ?? '';
+    const rowNumber = Number(label.match(/^Inspect row (\d+) identity$/)?.[1]);
+    return { rowNumber, cells: [...row.querySelectorAll('[role="cell"]')].map(cell => cell.innerText.trim()) };
+  }).filter(row => Number.isInteger(row.rowNumber)));
+const collectPreviewRows = async () => {
+  const scroll = page().getByTestId('preview-table-scroll');
+  await requireUnique(scroll, 'Preview scroll area');
+  await scroll.waitFor({ state: 'visible', timeout: 5000 });
+  for (let pageIndex = 0; pageIndex < 100; pageIndex++) {
+    const top = await scroll.evaluate(element => element.scrollTop);
+    if (top <= 0) break;
+    await performAction(report, 'Return preview to first row', scroll, async target => {
+      await target.hover({ timeout: 5000 });
+      await page().mouse.wheel(0, -Math.max(1, await target.evaluate(element => element.clientHeight)));
+    });
+    await page().waitForFunction(({ previousTop, selector }) => {
+      const element = document.querySelector(selector);
+      return element && element.scrollTop < previousTop;
+    }, { previousTop: top, selector: '[data-testid="preview-table-scroll"]' }, { timeout: 5000 });
+  }
+  const rows = new Map();
+  for (let pageIndex = 0; pageIndex < 100; pageIndex++) {
+    for (const row of await inspectPreviewRows()) rows.set(row.rowNumber, row.cells);
+    const position = await scroll.evaluate(element => ({ top: element.scrollTop, height: element.clientHeight, total: element.scrollHeight }));
+    if (position.top + position.height >= position.total) break;
+    await performAction(report, 'Scroll preview rows', scroll, async target => {
+      await target.hover({ timeout: 5000 });
+      await page().mouse.wheel(0, Math.max(1, Math.floor(position.height / 2)));
+    });
+    await page().waitForFunction(({ previousTop, selector }) => {
+      const element = document.querySelector(selector);
+      return element && element.scrollTop > previousTop;
+    }, { previousTop: position.top, selector: '[data-testid="preview-table-scroll"]' }, { timeout: 5000 });
+  }
+  return [...rows.entries()].sort(([left], [right]) => left - right).map(([, cells]) => cells);
+};
 
 const api = async (path, body) => {
   const response = await fetch(apiOrigin + path, {
@@ -66,7 +151,7 @@ const api = async (path, body) => {
     signal: AbortSignal.timeout(30000),
   });
   const value = await response.json();
-  report.requests.push({ path, body, status: response.status, response: value });
+  report.requests.push({ path, body: evidenceSafe(body), status: response.status, response: evidenceSafe(value) });
   assert(response.ok, JSON.stringify(value));
   return value;
 };
@@ -197,65 +282,34 @@ FOR prior IN ${payload}
     RETURN {parentPath: prior.pathKey, terminal: ${resourceProjection('p')}}`;
 
 const proposal = async (name, started, expectedRows) => {
-  const deadline = started + 5000;
-  let response;
-  while (!(response = report.nativeRequests.findLast(request => request.path === base + '/construction-proposals' &&
-    request.startedAt >= started && request.completedAt && request.response))) {
-    assert(Date.now() < deadline, `${name} did not complete a fresh proposal within five seconds`);
-    await new Promise(resolve => setTimeout(resolve, 50));
-  }
-  if (response.status === 200 && response.response.proposalId) {
-    while (true) {
-      const currentID = await browserEval(browser.cdp, `return document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalId;`);
-      response = report.nativeRequests.findLast(request => request.path === base + '/construction-proposals' &&
-        request.startedAt >= started && request.completedAt && request.response?.proposalId === currentID);
-      if (response) break;
-      assert(Date.now() < deadline, `${name} current proposal did not render within five seconds`);
-      await new Promise(resolve => setTimeout(resolve, 50));
-    }
-  }
-  await waitForBrowser(browser.cdp, `['ready','error','needs-repair'].includes(document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalStatus)`);
-  const result = await browserEval(browser.cdp, `const p=document.querySelector('[data-testid="construction-proposal-panel"]');return {status:p?.dataset.proposalStatus,text:p?.innerText,rows:[...document.querySelectorAll('[data-testid="construction-proposal-preview-row"]')].map(r=>[...r.querySelectorAll('td')].map(c=>c.innerText))};`);
+  const response = await requestCapture.waitFor(request => request.path === base + '/construction-proposals'
+    && request.startedAt >= started && request.status !== undefined, { timeout: Math.max(1, started + 5000 - Date.now()) });
+  const rawResponse = requestCapture.rawResponseBody(response);
+  await waitUI(`['ready','error','needs-repair'].includes(document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalStatus)`);
+  const panel = page().getByTestId('construction-proposal-panel');
+  assert.equal(await panel.getAttribute('data-proposal-id'), rawResponse?.proposalId,
+    `${name} rendered proposal must match its exact owned API response`);
+  const result = await panel.evaluate(element => ({
+    status: element.dataset.proposalStatus,
+    text: element.innerText,
+    rows: [...element.querySelectorAll('[data-testid="construction-proposal-preview-row"]')].map(row => [...row.querySelectorAll('td')].map(cell => cell.innerText)),
+  }));
   assert.equal(result.status, 'ready', result.text);
   assert.equal(result.rows.length, Math.min(25, expectedRows.length));
   const witnesses = new Set(expectedRows.map(row => JSON.stringify(row)));
   for (const row of result.rows) assert(witnesses.has(JSON.stringify(row)), `${name} proposal row lacks a raw source witness: ${JSON.stringify(row)}`);
   assert(Date.now() - started <= 5000, `${name} exceeded the five-second proposal bound`);
   report.cases.push({ name, elapsedMs: Date.now() - started, previewRows: result.rows.length });
-  return response.response;
+  return rawResponse;
 };
 const apply = async expectedRows => {
   const started = Date.now();
-  await click(browser.cdp, '[data-testid="construction-apply-proposal"]');
-  await waitForBrowser(browser.cdp, `!document.querySelector('[data-testid="construction-proposal-panel"]')`);
-  const deadline = started + 5000;
-  while (!report.nativeRequests.some(request => request.path === base + '/preview' && request.startedAt >= started && request.completedAt && request.status === 200)) {
-    assert(Date.now() < deadline, 'Apply did not complete a fresh saved preview within five seconds');
-    await new Promise(resolve => setTimeout(resolve, 50));
-  }
-  await waitForBrowser(browser.cdp, `!document.body.innerText.includes('Loading your table…')`);
-  const mounted = await browserEval(browser.cdp, `return (async () => {
-    const root = document.querySelector('[data-testid="preview-table-scroll"]');
-    const table = root.querySelector('[role="table"]');
-    const total = Number(table.getAttribute('aria-rowcount')) - 1;
-    const rows = new Map();
-    root.scrollTop = 0;
-    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-    for (let page = 0; page < 100 && rows.size < total; page++) {
-      for (const row of table.querySelectorAll('[role="row"]')) {
-        const ordinal = Number(row.firstElementChild?.textContent?.trim());
-        if (!Number.isInteger(ordinal) || ordinal < 1) continue;
-        rows.set(ordinal, [...row.querySelectorAll('[role="cell"]')].map(cell => cell.innerText.trim()));
-      }
-      const next = Math.min(root.scrollTop + Math.max(1, root.clientHeight / 2), root.scrollHeight - root.clientHeight);
-      if (rows.size >= total || next === root.scrollTop) break;
-      root.scrollTop = next;
-      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-    }
-    root.scrollTop = 0;
-    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-    return [...rows.entries()].sort((a,b) => a[0]-b[0]).map(([,row]) => row);
-  })();`);
+  await clickUI('[data-testid="construction-apply-proposal"]');
+  await waitUI(`!document.querySelector('[data-testid="construction-proposal-panel"]')`);
+  await requestCapture.waitFor(request => request.path === base + '/preview' && request.startedAt >= started && request.status === 200,
+    { timeout: Math.max(1, started + 5000 - Date.now()) });
+  await waitUI(`!document.body.innerText.includes('Loading your table…')`);
+  const mounted = await collectPreviewRows();
   const witnessRows = new Set(expectedRows.map(row => JSON.stringify(row)));
   for (const row of mounted) assert(witnessRows.has(JSON.stringify(row)), `Mounted row is absent from the scoped raw oracle: ${JSON.stringify(row)}`);
   assert(Date.now() - started <= 5000, 'Apply-to-render exceeded five seconds');
@@ -264,38 +318,17 @@ const apply = async expectedRows => {
 };
 const open = async () => {
   const started = Date.now();
-  await navigate(browser.cdp, `${uiOrigin}/?project=${project}&explorer=${explorer}&mode=builder`);
-  await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-table-${outputId}"]')`);
-  await click(browser.cdp, `[data-testid="construction-table-${outputId}"]`);
-  await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-rows-settings-trigger"]')?.disabled === false`);
-  await waitForBrowser(browser.cdp, `!document.body.innerText.includes('Loading your table…') && document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')`);
+  await navigateUI(`${uiOrigin}/?project=${project}&explorer=${explorer}&mode=builder`);
+  await waitUI(`document.querySelector('[data-testid="construction-table-${outputId}"]')`);
+  await clickUI(`[data-testid="construction-table-${outputId}"]`);
+  await waitUI(`document.querySelector('[data-testid="construction-rows-settings-trigger"]')?.disabled === false`);
+  await waitUI(`!document.body.innerText.includes('Loading your table…') && document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')`);
   assert(Date.now() - started <= 5000, 'Reload-to-render exceeded five seconds');
   report.cases.push({ name: 'reload-saved-table', elapsedMs: Date.now() - started });
 };
 const assertMountedRows = async (expectedRows, label) => {
-  await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount') === ${JSON.stringify(String(Math.min(25, expectedRows.length) + 1))}`);
-  const mounted = await browserEval(browser.cdp, `return (async () => {
-    const root = document.querySelector('[data-testid="preview-table-scroll"]');
-    const table = root.querySelector('[role="table"]');
-    const total = Number(table.getAttribute('aria-rowcount')) - 1;
-    const rows = new Map();
-    root.scrollTop = 0;
-    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-    for (let page = 0; page < 100 && rows.size < total; page++) {
-      for (const row of table.querySelectorAll('[role="row"]')) {
-        const ordinal = Number(row.firstElementChild?.textContent?.trim());
-        if (!Number.isInteger(ordinal) || ordinal < 1) continue;
-        rows.set(ordinal, [...row.querySelectorAll('[role="cell"]')].map(cell => cell.innerText.trim()));
-      }
-      const next = Math.min(root.scrollTop + Math.max(1, root.clientHeight / 2), root.scrollHeight - root.clientHeight);
-      if (rows.size >= total || next === root.scrollTop) break;
-      root.scrollTop = next;
-      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-    }
-    root.scrollTop = 0;
-    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-    return [...rows.entries()].sort((a,b) => a[0]-b[0]).map(([,row]) => row);
-  })();`);
+  await waitUI(`document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount') === ${JSON.stringify(String(Math.min(25, expectedRows.length) + 1))}`);
+  const mounted = await collectPreviewRows();
   assert.equal(mounted.length, Math.min(25, expectedRows.length), `${label} must render the complete bounded preview`);
   if (expectedRows.length <= 25) assert.deepEqual(mounted.map(row => JSON.stringify(row)).sort(), expectedRows.map(row => JSON.stringify(row)).sort(), `${label} exact rendered rows`);
   const witnesses = new Set(expectedRows.map(row => JSON.stringify(row)));
@@ -303,15 +336,15 @@ const assertMountedRows = async (expectedRows, label) => {
 };
 const proposeRemoval = async (stepID, name, expectedRows) => {
   const started = Date.now();
-  await click(browser.cdp, `[data-testid="construction-history-step-${stepID}"]`);
-  await waitForBrowser(browser.cdp, `document.querySelector('[data-testid=${JSON.stringify(`construction-remove-step-${stepID}`)}]')?.disabled === false`);
-  await click(browser.cdp, `[data-testid="construction-remove-step-${stepID}"]`);
+  await clickUI(`[data-testid="construction-history-step-${stepID}"]`);
+  await waitUI(`document.querySelector('[data-testid=${JSON.stringify(`construction-remove-step-${stepID}`)}]')?.disabled === false`);
+  await clickUI(`[data-testid="construction-remove-step-${stepID}"]`);
   return proposal(name, started, expectedRows);
 };
 const cancelRemoval = async (baseline, name, expectedRows) => {
   const started = Date.now();
-  await click(browser.cdp, '[data-testid="construction-cancel-proposal"]');
-  await waitForBrowser(browser.cdp, `!document.querySelector('[data-testid="construction-proposal-panel"]')`);
+  await clickUI('[data-testid="construction-cancel-proposal"]');
+  await waitUI(`!document.querySelector('[data-testid="construction-proposal-panel"]')`);
   const after = await api(base + '/builder');
   assert.deepEqual(after.workspace, baseline.workspace, `${name} cancellation must preserve the authored workspace`);
   assert.equal(after.draftVersion, baseline.draftVersion, `${name} cancellation must preserve the draft version`);
@@ -322,21 +355,21 @@ const cancelRemoval = async (baseline, name, expectedRows) => {
   report.cases.push({ name: `${name} cancel-to-render`, elapsedMs: Date.now() - started });
 };
 const chooseRoute = async (targetType, label) => {
-  await click(browser.cdp, '[data-testid="construction-rows-settings-trigger"]');
-  await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-action-related-rows"]')?.disabled === false`);
-  await click(browser.cdp, '[data-testid="construction-action-related-rows"]');
+  await clickUI('[data-testid="construction-rows-settings-trigger"]');
+  await waitUI(`document.querySelector('[data-testid="construction-action-related-rows"]')?.disabled === false`);
+  await clickUI('[data-testid="construction-action-related-rows"]');
   const panel = '[data-testid="construction-related-expand-editor"]';
-  await waitForBrowser(browser.cdp, `document.querySelector(${JSON.stringify(`${panel} select[aria-label="Related record type"]`)})?.disabled === false`);
-  await selectOption(browser.cdp, `${panel} select[aria-label="Related record type"]`, targetType);
+  await waitUI(`document.querySelector(${JSON.stringify(`${panel} select[aria-label="Related record type"]`)})?.disabled === false`);
+  await selectUI(`${panel} select[aria-label="Related record type"]`, targetType);
   const selector = `input[aria-label=${JSON.stringify(label)}]`;
-  await waitForBrowser(browser.cdp, `Boolean(document.querySelector(${JSON.stringify(selector)}))`);
-  const visible = await browserEval(browser.cdp, `const item=document.querySelector(${JSON.stringify(selector)});return Boolean(item&&!item.closest('details:not([open])')&&item.getBoundingClientRect().height>0);`);
+  await waitUI(`Boolean(document.querySelector(${JSON.stringify(selector)}))`);
+  const visible = await page().locator(selector).evaluate(item => Boolean(!item.closest('details:not([open])') && item.getBoundingClientRect().height > 0));
   if (!visible) {
-    await click(browser.cdp, `${panel} [data-testid="construction-related-expand-other-routes"] summary`);
+    await clickUI(`${panel} [data-testid="construction-related-expand-other-routes"] summary`);
   }
-  await waitForBrowser(browser.cdp, `document.querySelector(${JSON.stringify(selector)})?.disabled === false`, 5000);
-  await click(browser.cdp, selector);
-  await selectOption(browser.cdp, `${panel} select[aria-label="If a current row has no matches"]`, 'EXCLUDE');
+  await waitUI(`document.querySelector(${JSON.stringify(selector)})?.disabled === false`, 5000);
+  await clickUI(selector);
+  await selectUI(`${panel} select[aria-label="If a current row has no matches"]`, 'EXCLUDE');
 };
 const expand = async ({ name, targetType, routeLabel, expectedRows }) => {
   const started = Date.now();
@@ -427,55 +460,29 @@ const runDirectGroupCountPivot = async () => {
   const rootDraftVersion = builder.draftVersion;
   const rootDraftDigest = builder.draftDigest;
 
-  browser = await launchBrowser(evidence);
-  browser.cdp.on('Runtime.consoleAPICalled', event => { if (event.type === 'error') report.errors.push({ kind: 'console', args: event.args }); });
-  browser.cdp.on('Runtime.exceptionThrown', event => report.errors.push({ kind: 'runtime', details: event.exceptionDetails }));
-  browser.cdp.on('Network.loadingFailed', event => { if (event.type === 'Script' && event.errorText !== 'net::ERR_ABORTED') report.errors.push({ kind: 'module', error: event.errorText }); });
-  browser.cdp.on('Network.requestWillBeSent', ({ requestId, request, wallTime }) => {
-    const url = new URL(request.url);
-    if (!url.pathname.startsWith(base + '/')) return;
-    const authorizationHeaderPresent = Object.keys(request.headers ?? {}).some(header => header.toLowerCase() === 'authorization');
-    const entry = { requestId, path: url.pathname, origin: url.origin, authorizationHeaderPresent, method: request.method, startedAt: Math.round(wallTime * 1000) };
-    if (request.postData) entry.body = JSON.parse(request.postData);
-    nativeById.set(requestId, entry);
-    report.nativeRequests.push(entry);
-  });
-  browser.cdp.on('Network.responseReceived', ({ requestId, response }) => {
-    const entry = nativeById.get(requestId);
-    if (entry) entry.status = response.status;
-    if (response.status >= 400 && !response.url.endsWith('/favicon.ico')) report.errors.push({ kind: 'http', status: response.status, url: response.url });
-  });
-  browser.cdp.on('Network.loadingFinished', ({ requestId }) => {
-    const entry = nativeById.get(requestId);
-    if (!entry) return;
-    entry.completedAt = Date.now();
-    const read = browser.cdp.send('Network.getResponseBody', { requestId }).then(result => {
-      const body = result.base64Encoded ? Buffer.from(result.body, 'base64').toString('utf8') : result.body;
-      try { entry.response = JSON.parse(body); } catch { entry.response = body.slice(0, 32768); }
-    }).catch(error => { entry.responseReadError = String(error); }).finally(() => pendingNetworkReads.delete(read));
-    pendingNetworkReads.add(read);
-  });
+  await openBrowser();
+
 
   const currentRenderedPreview = async (started, expectedPreview, label) => {
     assert(builder?.draftVersion && builder?.draftDigest, `${label} requires the saved Builder draft identity`);
     const deadline = started + 5000;
     const ready = `(() => {const p=document.querySelector('[data-testid="construction-preview"]');return p?.dataset.previewStatus==='ready'&&p?.dataset.previewOutputId===${JSON.stringify(outputId)}&&p?.dataset.currentDraftVersion===${JSON.stringify(String(builder.draftVersion))}&&p?.dataset.currentDraftDigest===${JSON.stringify(builder.draftDigest)}&&Boolean(p?.dataset.previewReceiptId);})()`;
-    await waitForBrowser(browser.cdp, ready, 5000);
-    const active = await browserEval(browser.cdp, `const p=document.querySelector('[data-testid="construction-preview"]');return {status:p?.dataset.previewStatus,receiptId:p?.dataset.previewReceiptId,outputId:p?.dataset.previewOutputId,draftVersion:p?.dataset.currentDraftVersion,draftDigest:p?.dataset.currentDraftDigest};`);
+    await waitUI(ready, 5000);
+    const active = await page().getByTestId('construction-preview').evaluate(p => ({ status: p.dataset.previewStatus, receiptId: p.dataset.previewReceiptId, outputId: p.dataset.previewOutputId, draftVersion: p.dataset.currentDraftVersion, draftDigest: p.dataset.currentDraftDigest }));
     const findActiveRequest = () => report.nativeRequests.findLast(entry => entry.path === base + '/preview'
       && entry.startedAt >= started && (entry.body?.receiptId === active.receiptId || entry.response?.receiptId === active.receiptId));
     let request = findActiveRequest();
-    while (request && (!request.completedAt || !request.response)) {
-      assert(Date.now() < deadline, `${label} Preview transport did not settle within five seconds`);
-      await new Promise(resolve => setTimeout(resolve, 25));
-      request = findActiveRequest();
+    if (request && (!request.completedAt || !request.response)) {
+      request = await requestCapture.waitFor(entry => entry.path === base + '/preview' && entry.startedAt >= started
+        && (requestBody(entry)?.receiptId === active.receiptId || responseBody(entry)?.receiptId === active.receiptId),
+      { timeout: Math.max(1, deadline - Date.now()) });
     }
-    await Promise.all([...pendingNetworkReads]);
+    await requestCapture.flush();
     let preview;
     let source;
     if (request) {
       assert.equal(request.status, 200, `${label} active Preview request failed`);
-      preview = request.response;
+      preview = responseBody(request);
       source = 'native-browser-preview';
     } else if (expectedPreview?.receiptId === active.receiptId) {
       preview = expectedPreview;
@@ -491,14 +498,10 @@ const runDirectGroupCountPivot = async () => {
     return preview;
   };
   const capabilitiesFor = async (stageLabels, label) => {
-    const deadline = Date.now() + 5000;
-    while (true) {
-      const request = report.nativeRequests.findLast(entry => entry.path === base + '/construction-capabilities'
-        && entry.completedAt && entry.status === 200 && entry.response?.selectedStage?.columns);
-      if (request && stageLabels.every(wanted => request.response.selectedStage.columns.some(column => column.label === wanted))) return request.response;
-      assert(Date.now() < deadline, `${label} did not return matching selected-stage columns within five seconds`);
-      await new Promise(resolve => setTimeout(resolve, 50));
-    }
+    const request = await requestCapture.waitFor(entry => entry.path === base + '/construction-capabilities'
+      && entry.status === 200 && stageLabels.every(wanted => responseBody(entry)?.selectedStage?.columns?.some(column => column.label === wanted)),
+    { timeout: 5000 });
+    return responseBody(request);
   };
   const assertPreviewByOutputs = (preview, step, expected, labels, label) => {
     assert(preview, `${label} requires protocol preview`);
@@ -521,16 +524,11 @@ const runDirectGroupCountPivot = async () => {
     assert.equal(proposalResponse.outputId, outputId, `${label} proposal belongs to a different output`);
     assert(proposalResponse.proposalId && proposalResponse.preview?.receiptId, `${label} requires an exact accepted proposal preview`);
     assert.equal(proposalResponse.preview.receiptId, proposalResponse.proposalId, `${label} proposal preview receipt must match its proposal`);
-    await click(browser.cdp, '[data-testid="construction-apply-proposal"]');
-    await waitForBrowser(browser.cdp, `!document.querySelector('[data-testid="construction-proposal-panel"]')`, 5000);
-    const deadline = started + 5000;
-    while (true) {
-      builder = await api(base + '/builder');
-      if (builder.draftDigest === proposalResponse.candidateWorkspaceDigest
-        && builder.draftVersion > proposalResponse.draftVersion) break;
-      assert(Date.now() < deadline, `${label} did not save the exact proposal workspace within five seconds`);
-      await new Promise(resolve => setTimeout(resolve, 50));
-    }
+    await clickUI('[data-testid="construction-apply-proposal"]');
+    await waitUI(`!document.querySelector('[data-testid="construction-proposal-panel"]')`, 5000);
+    await requestCapture.waitFor(entry => entry.path === base + '/commands' && entry.startedAt >= started && entry.status === 200,
+      { timeout: Math.max(1, started + 5000 - Date.now()) });
+    builder = await api(base + '/builder');
     assert.equal(builder.draftVersion, proposalResponse.draftVersion + 1, `${label} must advance the saved draft exactly once`);
     assert.equal(builder.draftDigest, proposalResponse.candidateWorkspaceDigest, `${label} saved workspace differs from the accepted candidate digest`);
     const accepted = await api(base + '/reconcile', {
@@ -542,25 +540,26 @@ const runDirectGroupCountPivot = async () => {
     assert.equal(accepted.intentDigest, builder.draftDigest);
     assert(accepted.outputs?.some(output => output.outputId === outputId), `${label} accepted receipt omitted its output`);
     assert(accepted.receiptId, `${label} saved draft must return its accepted receipt`);
-    await waitForBrowser(browser.cdp, `(() => {const p=document.querySelector('[data-testid="construction-preview"]');return p?.dataset.previewStatus==='ready'&&p?.dataset.previewReceiptId===${JSON.stringify(accepted.receiptId)}&&p?.dataset.previewOutputId===${JSON.stringify(outputId)}&&p?.dataset.currentDraftVersion===${JSON.stringify(String(builder.draftVersion))}&&p?.dataset.currentDraftDigest===${JSON.stringify(builder.draftDigest)};})()`, 5000);
-    const active = await browserEval(browser.cdp, `const p=document.querySelector('[data-testid="construction-preview"]');return {status:p?.dataset.previewStatus,receiptId:p?.dataset.previewReceiptId,outputId:p?.dataset.previewOutputId,draftVersion:p?.dataset.currentDraftVersion,draftDigest:p?.dataset.currentDraftDigest};`);
+    await waitUI(`(() => {const p=document.querySelector('[data-testid="construction-preview"]');return p?.dataset.previewStatus==='ready'&&p?.dataset.previewReceiptId===${JSON.stringify(accepted.receiptId)}&&p?.dataset.previewOutputId===${JSON.stringify(outputId)}&&p?.dataset.currentDraftVersion===${JSON.stringify(String(builder.draftVersion))}&&p?.dataset.currentDraftDigest===${JSON.stringify(builder.draftDigest)};})()`, 5000);
+    const active = await page().getByTestId('construction-preview').evaluate(p => ({ status: p.dataset.previewStatus, receiptId: p.dataset.previewReceiptId, outputId: p.dataset.previewOutputId, draftVersion: p.dataset.currentDraftVersion, draftDigest: p.dataset.currentDraftDigest }));
     assert.deepEqual(active, { status: 'ready', receiptId: accepted.receiptId, outputId, draftVersion: String(builder.draftVersion), draftDigest: builder.draftDigest }, `${label} rendered preview must belong to the saved draft`);
     const rowCount = Math.min(25, expectedRows.length) + 1;
-    await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount') === ${JSON.stringify(String(rowCount))} && !document.body.innerText.includes('Loading your table…')`, 5000);
+    await waitUI(`document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount') === ${JSON.stringify(String(rowCount))} && !document.body.innerText.includes('Loading your table…')`, 5000);
     const networkDeadline = started + 5000;
     const postApplyRequests = report.nativeRequests.filter(entry => entry.path === base + '/preview' && entry.startedAt >= started);
-    while (postApplyRequests.some(entry => !entry.completedAt)) {
-      assert(Date.now() < networkDeadline, `${label} post-Apply preview transport did not settle within five seconds`);
-      await new Promise(resolve => setTimeout(resolve, 25));
+    if (postApplyRequests.some(entry => !entry.completedAt)) {
+      await requestCapture.waitFor(entry => entry.path === base + '/preview' && entry.startedAt >= started && entry.completedAt,
+        { timeout: Math.max(1, networkDeadline - Date.now()) });
     }
-    await Promise.all([...pendingNetworkReads]);
+    await requestCapture.flush();
     for (const entry of postApplyRequests) {
       assert.equal(entry.status, 200, `${label} post-Apply Preview request failed`);
-      assert.equal(entry.response?.receiptId, accepted.receiptId, `${label} post-Apply Preview used another receipt`);
-      assert.equal(entry.response?.outputId, outputId);
-      assert.equal(entry.response?.rowCount, expectedRows.length, `${label} post-Apply Preview row count differs from the independent oracle`);
+      const previewResponse = responseBody(entry);
+      assert.equal(previewResponse?.receiptId, accepted.receiptId, `${label} post-Apply Preview used another receipt`);
+      assert.equal(previewResponse?.outputId, outputId);
+      assert.equal(previewResponse?.rowCount, expectedRows.length, `${label} post-Apply Preview row count differs from the independent oracle`);
     }
-    const savedPreview = postApplyRequests.at(-1)?.response
+    const savedPreview = (postApplyRequests.length ? responseBody(postApplyRequests.at(-1)) : undefined)
       ?? (proposalResponse.preview.receiptId === accepted.receiptId
         ? proposalResponse.preview
         : await api(base + '/preview', { receiptId: accepted.receiptId, outputId, limit: 25 }));
@@ -576,19 +575,19 @@ const runDirectGroupCountPivot = async () => {
     return { builder, accepted, preview: savedPreview, active };
   };
   const chooseGroupKeys = async (labels, expectedInputIDs) => {
-    await click(browser.cdp, '[data-testid="construction-rows-settings-trigger"]');
-    await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-action-group-rows"]')?.disabled === false`, 5000);
-    await click(browser.cdp, '[data-testid="construction-action-group-rows"]');
-    await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid="construction-reshape-group"]'))`, 5000);
+    await clickUI('[data-testid="construction-rows-settings-trigger"]');
+    await waitUI(`document.querySelector('[data-testid="construction-action-group-rows"]')?.disabled === false`, 5000);
+    await clickUI('[data-testid="construction-action-group-rows"]');
+    await waitUI(`Boolean(document.querySelector('[data-testid="construction-reshape-group"]'))`, 5000);
     const selectors = labels.map(label => `input[aria-label=${JSON.stringify(`Group by ${label}`)}]`);
     const enabledExpression = selectors.map(selector => `document.querySelector(${JSON.stringify(selector)})?.disabled === false`).join(' && ');
-    await waitForBrowser(browser.cdp, enabledExpression, 5000);
-    const initial = await browserEval(browser.cdp, `return [...document.querySelectorAll('[data-testid="construction-reshape-group"] input[type="checkbox"][aria-label^="Group by "]')].map(input=>({label:input.getAttribute('aria-label'),checked:input.checked,disabled:input.disabled}));`);
-    for (const control of initial.filter(item => item.checked)) await click(browser.cdp, `input[aria-label=${JSON.stringify(control.label)}]`);
-    for (const label of labels) await click(browser.cdp, `input[aria-label=${JSON.stringify(`Group by ${label}`)}]`);
+    await waitUI(enabledExpression, 5000);
+    const initial = await page().locator('[data-testid="construction-reshape-group"] input[type="checkbox"][aria-label^="Group by "]').evaluateAll(inputs => inputs.map(input => ({ label: input.getAttribute('aria-label'), checked: input.checked, disabled: input.disabled })));
+    for (const control of initial.filter(item => item.checked)) await clickUI(`input[aria-label=${JSON.stringify(control.label)}]`);
+    for (const label of labels) await clickUI(`input[aria-label=${JSON.stringify(`Group by ${label}`)}]`);
     const checkedExpression = selectors.map(selector => `document.querySelector(${JSON.stringify(selector)})?.checked === true`).join(' && ');
-    await waitForBrowser(browser.cdp, checkedExpression, 5000);
-    const final = await browserEval(browser.cdp, `return [...document.querySelectorAll('[data-testid="construction-reshape-group"] input[type="checkbox"][aria-label^="Group by "]:checked')].map(input=>input.getAttribute('aria-label').replace(/^Group by /,''));`);
+    await waitUI(checkedExpression, 5000);
+    const final = await page().locator('[data-testid="construction-reshape-group"] input[type="checkbox"][aria-label^="Group by "]:checked').evaluateAll(inputs => inputs.map(input => input.getAttribute('aria-label').replace(/^Group by /, '')));
     assert.deepEqual(final.sort(), [...labels].sort(), 'GROUP must use exactly the two oracle-matched source columns');
     const caps = await capabilitiesFor(labels, 'Direct root Group');
     const actualIDs = labels.map(label => caps.selectedStage.columns.find(column => column.label === label)?.id);
@@ -641,8 +640,8 @@ const runDirectGroupCountPivot = async () => {
   const groupCancelCountOutput = groupCancelStep.outputs.find(column => column.id === groupCancelCount.outputColumnId);
   assert(groupCancelCountOutput, 'Group proposal must preserve its COUNT_ROWS output binding');
   assertPreviewByOutputs(groupCancelProposal.preview, groupCancelStep, groupedRows, [...groupCancelOutputLabels, groupCancelCountOutput.label], 'Group COUNT_ROWS proposal');
-  await click(browser.cdp, '[data-testid="construction-cancel-proposal"]');
-  await waitForBrowser(browser.cdp, `!document.querySelector('[data-testid="construction-proposal-panel"]')`, 5000);
+  await clickUI('[data-testid="construction-cancel-proposal"]');
+  await waitUI(`!document.querySelector('[data-testid="construction-proposal-panel"]')`, 5000);
   builder = await api(base + '/builder');
   assert.deepEqual(builder.workspace, initialGroupWorkspace, 'Canceling Group must retain the exact source-only workspace');
   assert.equal(builder.draftVersion, initialGroupVersion, 'Canceling Group must not advance draft version');
@@ -703,33 +702,35 @@ const runDirectGroupCountPivot = async () => {
   }
   const choosePivotField = async (ariaLabel, expectedLabel, expectedColumnID) => {
     const selector = `select[aria-label=${JSON.stringify(ariaLabel)}]`;
-    const options = await browserEval(browser.cdp, `return [...document.querySelector(${JSON.stringify(selector)}).options].map(option=>({value:option.value,label:option.textContent.trim()}));`);
+    const locator = page().locator(selector);
+    await requireUnique(locator, `${ariaLabel} select`);
+    const options = await locator.evaluate(select => [...select.options].map(option => ({ value: option.value, label: option.textContent.trim() })));
     const matches = options.filter(option => option.value === expectedColumnID && (option.label === expectedLabel || option.label.startsWith(expectedLabel + ' (')));
     assert.equal(matches.length, 1, `${ariaLabel} must contain one exact current Group output ${expectedLabel}: ${JSON.stringify(options)}`);
-    await selectOption(browser.cdp, selector, matches[0].value, { settledWhen: `document.querySelector(${JSON.stringify(selector)})?.selectedOptions[0]?.textContent.trim() === ${JSON.stringify(matches[0].label)}` });
+    await selectUI(selector, matches[0].value, { settledWhen: `document.querySelector(${JSON.stringify(selector)})?.selectedOptions[0]?.textContent.trim() === ${JSON.stringify(matches[0].label)}` });
   };
   const configurePivot = async () => {
-    await click(browser.cdp, '[data-testid="construction-rows-settings-trigger"]');
-    await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-action-pivot-rows"]')?.disabled === false`, 5000);
+    await clickUI('[data-testid="construction-rows-settings-trigger"]');
+    await waitUI(`document.querySelector('[data-testid="construction-action-pivot-rows"]')?.disabled === false`, 5000);
     const started = Date.now();
-    await click(browser.cdp, '[data-testid="construction-action-pivot-rows"]');
-    await waitForBrowser(browser.cdp, `document.querySelector('select[aria-label="Pivot category field"]') || document.body.innerText.includes('Coded values as columns')`, 5000);
-    if (!await browserEval(browser.cdp, `return Boolean(document.querySelector('select[aria-label="Pivot category field"]'));`)) {
-      await click(browser.cdp, 'button', { name: 'Change row operation' });
-      await click(browser.cdp, '[data-testid="construction-reshape-choice-pivot"]');
+    await clickUI('[data-testid="construction-action-pivot-rows"]');
+    await waitUI(`document.querySelector('select[aria-label="Pivot category field"]') || document.body.innerText.includes('Coded values as columns')`, 5000);
+    if (!await page().locator('select[aria-label="Pivot category field"]').count()) {
+      await clickUI('button', { name: 'Change row operation' });
+      await clickUI('[data-testid="construction-reshape-choice-pivot"]');
     }
     const categorySelector = 'select[aria-label="Pivot category field"]';
-    await waitForBrowser(browser.cdp, `document.querySelector(${JSON.stringify(categorySelector)})?.disabled === false`, 5000);
-    const groupControls = await browserEval(browser.cdp, `return [...document.querySelectorAll('input[aria-label^="Pivot group "]')].map(input=>({label:input.getAttribute('aria-label'),checked:input.checked,disabled:input.disabled}));`);
+    await waitUI(`document.querySelector(${JSON.stringify(categorySelector)})?.disabled === false`, 5000);
+    const groupControls = await page().locator('input[aria-label^="Pivot group "]').evaluateAll(inputs => inputs.map(input => ({ label: input.getAttribute('aria-label'), checked: input.checked, disabled: input.disabled })));
     const targetLabel = `Pivot group ${groupOutputs.unit.label}`;
     assert(groupControls.some(control => control.label === targetLabel && !control.disabled), `Pivot editor must expose the saved Group unit output: ${JSON.stringify(groupControls)}`);
     for (const control of groupControls) {
       const shouldBeChecked = control.label === targetLabel;
-      if (control.checked !== shouldBeChecked) await click(browser.cdp, `input[aria-label=${JSON.stringify(control.label)}]`);
+      if (control.checked !== shouldBeChecked) await clickUI(`input[aria-label=${JSON.stringify(control.label)}]`);
     }
     await choosePivotField('Pivot category field', groupOutputs.status.label, groupOutputs.status.id);
     await choosePivotField('Pivot values field', groupOutputs.count.label, groupOutputs.count.id);
-    await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid="construction-reshape-pivot"]'))`, 5000);
+    await waitUI(`Boolean(document.querySelector('[data-testid="construction-reshape-pivot"]'))`, 5000);
     const currentCapabilities = await capabilitiesFor(Object.values(groupKeyLabelByOutput), 'Current Group outputs for Pivot');
     assert(currentCapabilities.selectedStage.columns.some(column => column.id === groupOutputs.status.id));
     assert(currentCapabilities.selectedStage.columns.some(column => column.id === groupOutputs.unit.id));
@@ -768,8 +769,8 @@ const runDirectGroupCountPivot = async () => {
   await configurePivot();
   const pivotCancelResponse = await waitProposalResponse(pivotCancelStarted, pivotRows, 'direct-group-count-pivot-cancel-preview');
   const pivotCancelIdentity = pivotFromResponse(pivotCancelResponse);
-  await click(browser.cdp, '[data-testid="construction-cancel-proposal"]');
-  await waitForBrowser(browser.cdp, `!document.querySelector('[data-testid="construction-proposal-panel"]')`, 5000);
+  await clickUI('[data-testid="construction-cancel-proposal"]');
+  await waitUI(`!document.querySelector('[data-testid="construction-proposal-panel"]')`, 5000);
   builder = await api(base + '/builder');
   assert.deepEqual(builder.workspace, groupWorkspace, 'Canceling Pivot must preserve the exact saved Group workspace');
   assert.equal(builder.draftVersion, groupDraftVersion);
@@ -809,44 +810,42 @@ const runDirectGroupCountPivot = async () => {
   assert.equal(reloadPreview.rows[0].__loom_row_id, pivotIdentity.rowID, 'Reload must retain typed Pivot row identity');
   assert.deepEqual((await api(base + '/builder')).workspace, pivotWorkspace, 'Reload must preserve exact Group → Pivot workspace');
 
-  const visibleRows = await browserEval(browser.cdp, `return [...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]')].slice(1).map(row=>({rowNumber:Number(row.querySelector('button[aria-label^="Inspect row "]')?.getAttribute('aria-label')?.match(/^Inspect row (\\d+) identity$/)?.[1]),cells:[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText.trim())})).filter(row=>Number.isInteger(row.rowNumber));`);
+  const visibleRows = await inspectPreviewRows();
   const inspectable = visibleRows.find(row => row.cells.includes(unitValue));
   assert(inspectable && inspectable.rowNumber > 0 && inspectable.rowNumber <= 25, 'Reloaded Pivot unit row must expose its native inspector control');
   const inspectStarted = Date.now();
   const requestStart = report.nativeRequests.length;
-  await click(browser.cdp, `button[aria-label="Inspect row ${inspectable.rowNumber} identity"]`);
+  await clickUI(`button[aria-label="Inspect row ${inspectable.rowNumber} identity"]`);
   const dialog = `[role="dialog"][aria-label="Row ${inspectable.rowNumber} identity"]`;
-  await waitForBrowser(browser.cdp, `document.querySelector(${JSON.stringify(dialog)})`, 5000);
-  await waitForBrowser(browser.cdp, `document.querySelector(${JSON.stringify(dialog + ' ul li')})`, 5000);
+  await waitUI(`document.querySelector(${JSON.stringify(dialog)})`, 5000);
+  await waitUI(`document.querySelector(${JSON.stringify(dialog + ' ul li')})`, 5000);
   const lineageRequests = () => report.nativeRequests.slice(requestStart).filter(request => request.path === base + '/row-lineage');
-  const lineageDeadline = inspectStarted + 5000;
-  while (!lineageRequests().some(request => request.completedAt && request.response)) {
-    assert(Date.now() < lineageDeadline, 'Group → Pivot native row inspector did not finish within five seconds');
-    await new Promise(resolve => setTimeout(resolve, 50));
-  }
-  await Promise.all([...pendingNetworkReads]);
+  if (!lineageRequests().length) await requestCapture.waitFor(request => request.path === base + '/row-lineage' && request.startedAt >= inspectStarted,
+    { timeout: Math.max(1, inspectStarted + 5000 - Date.now()) });
+  await requestCapture.flush();
   const request = lineageRequests()[0];
   assert.equal(lineageRequests().length, 1, 'A single grouped Pivot row must use one bounded lineage request');
   assert.equal(request.status, 200);
-  assert.equal(request.body.outputId, outputId);
-  assert.equal(request.body.rowId, pivotIdentity.rowID);
-  assert.equal(request.body.receiptId, reloadPreview.receiptId);
-  assert.equal(request.body.limit, 25);
-  assert.equal(request.response.rowId, pivotIdentity.rowID);
-  assert.equal(request.response.receiptId, reloadPreview.receiptId);
-  assert.equal(request.response.hasMore, false);
-  const actualContributors = request.response.contributors.map(item => [item.resourceType, item.resourceId, item.occurrenceKey]);
+  const body = requestBody(request);
+  const response = responseBody(request);
+  assert.equal(body.outputId, outputId);
+  assert.equal(body.rowId, pivotIdentity.rowID);
+  assert.equal(body.receiptId, reloadPreview.receiptId);
+  assert.equal(body.limit, 25);
+  assert.equal(response.rowId, pivotIdentity.rowID);
+  assert.equal(response.receiptId, reloadPreview.receiptId);
+  assert.equal(response.hasMore, false);
+  const actualContributors = response.contributors.map(item => [item.resourceType, item.resourceId, item.occurrenceKey]);
   const expectedContributors = members.map(member => ['Observation', member.id, member._key]);
   const contributorKey = tuple => tuple.join('\\u0000');
   assert.deepEqual(actualContributors.map(contributorKey).sort(), expectedContributors.map(contributorKey).sort(), 'Group → Pivot inspector must return exactly the two raw Observation roots contributing to COUNT_ROWS');
-  const visibleContributors = await browserEval(browser.cdp, `return [...document.querySelectorAll(${JSON.stringify(dialog + ' ul li')})].map(item=>item.innerText.trim());`);
+  const visibleContributors = await page().locator(`${dialog} ul li`).allInnerTexts();
   assert.equal(visibleContributors.length, 2);
   for (const member of members) assert(visibleContributors.some(line => line.includes(`Observation/${member.id}`)), `Inspector omitted scoped Observation/${member.id}`);
   assert(Date.now() - inspectStarted <= 5000, 'Group → Pivot inspection exceeded its five-second UI bound');
   report.cases.push({ name: 'direct-group-count-pivot-inspect-two-root-contributors', elapsedMs: Date.now() - inspectStarted, rowID: pivotIdentity.rowID, receiptId: reloadPreview.receiptId, contributors: actualContributors });
-  await browserEval(browser.cdp, `const button=[...document.querySelectorAll(${JSON.stringify(dialog + ' button')})].find(item=>item.innerText==='Close');button.dataset.qaGroupCountPivotClose='inspect';return true;`);
-  await click(browser.cdp, '[data-qa-group-count-pivot-close="inspect"]');
-  await waitForBrowser(browser.cdp, `!document.querySelector(${JSON.stringify(dialog)})`, 5000);
+  await clickUI(`${dialog} button`, { name: 'Close' });
+  await waitUI(`!document.querySelector(${JSON.stringify(dialog)})`, 5000);
   assert.deepEqual((await api(base + '/builder')).workspace, pivotWorkspace, 'Inspection must not mutate the saved Group → Pivot');
 
   const removePivotProposal = await proposeRemoval(savedPivot.id, 'direct-group-count-remove-pivot-preview', groupedRows);
@@ -994,88 +993,62 @@ const runDirectPivot = async () => {
   const sourceDraftVersion = builder.draftVersion;
   const sourceDraftDigest = builder.draftDigest;
 
-  browser = await launchBrowser(evidence);
-  browser.cdp.on('Runtime.consoleAPICalled', event => { if (event.type === 'error') report.errors.push({ kind: 'console', args: event.args }); });
-  browser.cdp.on('Runtime.exceptionThrown', event => report.errors.push({ kind: 'runtime', details: event.exceptionDetails }));
-  browser.cdp.on('Network.loadingFailed', event => { if (event.type === 'Script' && event.errorText !== 'net::ERR_ABORTED') report.errors.push({ kind: 'module', error: event.errorText }); });
-  browser.cdp.on('Network.requestWillBeSent', ({ requestId, request, wallTime }) => {
-    const url = new URL(request.url);
-    if (!url.pathname.startsWith(base + '/')) return;
-    const authorizationHeaderPresent = Object.keys(request.headers ?? {}).some(header => header.toLowerCase() === 'authorization');
-    const entry = { requestId, path: url.pathname, origin: url.origin, authorizationHeaderPresent, method: request.method, startedAt: Math.round(wallTime * 1000) };
-    if (request.postData) entry.body = JSON.parse(request.postData);
-    nativeById.set(requestId, entry);
-    report.nativeRequests.push(entry);
-  });
-  browser.cdp.on('Network.responseReceived', ({ requestId, response }) => {
-    const entry = nativeById.get(requestId);
-    if (entry) entry.status = response.status;
-    if (response.status >= 400 && !response.url.endsWith('/favicon.ico')) report.errors.push({ kind: 'http', status: response.status, url: response.url });
-  });
-  browser.cdp.on('Network.loadingFinished', ({ requestId }) => {
-    const entry = nativeById.get(requestId);
-    if (!entry) return;
-    entry.completedAt = Date.now();
-    const read = browser.cdp.send('Network.getResponseBody', { requestId }).then(result => {
-      const body = result.base64Encoded ? Buffer.from(result.body, 'base64').toString('utf8') : result.body;
-      try { entry.response = JSON.parse(body); } catch { entry.response = body.slice(0, 32768); }
-    }).catch(error => { entry.responseReadError = String(error); }).finally(() => pendingNetworkReads.delete(read));
-    pendingNetworkReads.add(read);
-  });
+  await openBrowser();
+
 
   const chooseField = async (label, prefix) => {
     const selector = `select[aria-label=${JSON.stringify(label)}]`;
-    const options = await browserEval(browser.cdp, `return [...document.querySelector(${JSON.stringify(selector)}).options].map(option=>({value:option.value,label:option.textContent.trim()}));`);
+    const locator = page().locator(selector);
+    await requireUnique(locator, `${label} select`);
+    const options = await locator.evaluate(select => [...select.options].map(option => ({ value: option.value, label: option.textContent.trim() })));
     const field = options.find(option => option.label.startsWith(prefix));
     assert(field, `${label} lacks ${prefix}: ${JSON.stringify(options)}`);
-    await selectOption(browser.cdp, selector, field.value, field.value.startsWith('source:') ? {
+    await selectUI(selector, field.value, field.value.startsWith('source:') ? {
       settledWhen: `document.querySelector(${JSON.stringify(selector)})?.selectedOptions[0]?.textContent.startsWith(${JSON.stringify(prefix)}) || Boolean(document.querySelector('[data-testid="construction-proposal-ready"]'))`,
     } : {});
   };
   const typePivotOutputName = async name => {
     const advanced = '[data-testid="construction-reshape-pivot-advanced"]';
-    if (!await browserEval(browser.cdp, `return document.querySelector(${JSON.stringify(advanced)})?.open;`)) {
-      await click(browser.cdp, `${advanced} summary`);
+    if (!await page().locator(advanced).evaluate(element => element.open)) {
+      await clickUI(`${advanced} summary`);
     }
-    await waitForBrowser(browser.cdp, `document.querySelectorAll('input[aria-label^="Pivot output name "]').length === 1`);
-    const inputs = await browserEval(browser.cdp, `return [...document.querySelectorAll('input[aria-label^="Pivot output name "]')].map(input=>({label:input.getAttribute('aria-label'),value:input.value,disabled:input.disabled}));`);
+    await waitUI(`document.querySelectorAll('input[aria-label^="Pivot output name "]').length === 1`);
+    const inputs = await page().locator('input[aria-label^="Pivot output name "]').evaluateAll(elements => elements.map(input => ({ label: input.getAttribute('aria-label'), value: input.value, disabled: input.disabled })));
     assert.equal(inputs.length, 1, `The direct status Pivot must expose one category output name: ${JSON.stringify(inputs)}`);
     assert.equal(inputs[0].disabled, false, 'Native Pivot output name must be editable');
     const selector = `input[aria-label=${JSON.stringify(inputs[0].label)}]`;
-    await click(browser.cdp, selector);
-    await browserEval(browser.cdp, `document.activeElement.select();return true;`);
-    await browser.cdp.send('Input.insertText', { text: name });
-    assert.equal(await browserEval(browser.cdp, `return document.activeElement.value;`), name, 'Native typing must set the exact Pivot physical output name');
+    await fillUI(selector, name, 'Set Pivot physical output name');
+    assert.equal(await page().locator(selector).inputValue(), name, 'Native typing must set the exact Pivot physical output name');
   };
   const configurePivot = async () => {
-    await click(browser.cdp, '[data-testid="construction-rows-settings-trigger"]');
-    await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-action-pivot-rows"]')?.disabled === false`);
-    await click(browser.cdp, '[data-testid="construction-action-pivot-rows"]');
-    await waitForBrowser(browser.cdp, `document.querySelector('select[aria-label="Pivot category field"]') || document.body.innerText.includes('Coded values as columns')`);
-    const ordinaryPivotOpen = await browserEval(browser.cdp, `return Boolean(document.querySelector('select[aria-label="Pivot category field"]'));`);
+    await clickUI('[data-testid="construction-rows-settings-trigger"]');
+    await waitUI(`document.querySelector('[data-testid="construction-action-pivot-rows"]')?.disabled === false`);
+    await clickUI('[data-testid="construction-action-pivot-rows"]');
+    await waitUI(`document.querySelector('select[aria-label="Pivot category field"]') || document.body.innerText.includes('Coded values as columns')`);
+    const ordinaryPivotOpen = (await page().locator('select[aria-label="Pivot category field"]').count()) === 1;
     if (!ordinaryPivotOpen) {
-      await click(browser.cdp, 'button', { name: 'Change row operation' });
-      await click(browser.cdp, '[data-testid="construction-reshape-choice-pivot"]');
+      await clickUI('button', { name: 'Change row operation' });
+      await clickUI('[data-testid="construction-reshape-choice-pivot"]');
     }
-    await waitForBrowser(browser.cdp, `document.querySelector('select[aria-label="Pivot category field"]:not(:disabled)')`);
-    const groupLabels = await browserEval(browser.cdp, `return [...document.querySelectorAll('input[aria-label^="Pivot group "]')].map(input=>({label:input.getAttribute('aria-label'),checked:input.checked,disabled:input.disabled}));`);
+    await waitUI(`document.querySelector('select[aria-label="Pivot category field"]:not(:disabled)')`);
+    const groupLabels = await page().locator('input[aria-label^="Pivot group "]').evaluateAll(inputs => inputs.map(input => ({ label: input.getAttribute('aria-label'), checked: input.checked, disabled: input.disabled })));
     const expectedGroupLabel = sharedContributorPivot ? 'Pivot group Observation.status' : 'Pivot group Observation FHIR resource ID';
     assert(groupLabels.some(group => group.label === expectedGroupLabel), `Pivot editor lacks the expected Observation group key: ${JSON.stringify(groupLabels)}`);
     for (const group of groupLabels) {
       const selector = `input[aria-label=${JSON.stringify(group.label)}]`;
       assert(!group.disabled, `Pivot group key is disabled: ${group.label}`);
       const shouldBeChecked = group.label === expectedGroupLabel;
-      if (group.checked !== shouldBeChecked) await click(browser.cdp, selector);
+      if (group.checked !== shouldBeChecked) await clickUI(selector);
     }
     const started = Date.now();
     await chooseField('Pivot category field', sharedContributorPivot ? 'Observation.valueQuantity.unit' : 'Observation.status');
     await chooseField('Pivot values field', sharedContributorPivot ? 'Observation.valueQuantity.value' : 'Observation.id');
     if (sharedContributorPivot) {
       const advanced = '[data-testid="construction-reshape-pivot-advanced"]';
-      if (!await browserEval(browser.cdp, `return document.querySelector(${JSON.stringify(advanced)})?.open;`)) {
-        await click(browser.cdp, `${advanced} summary`);
+      if (!await page().locator(advanced).evaluate(element => element.open)) {
+        await clickUI(`${advanced} summary`);
       }
-      await selectOption(browser.cdp, 'select[aria-label="Pivot duplicate policy"]', 'SUM');
+      await selectUI('select[aria-label="Pivot duplicate policy"]', 'SUM');
     }
     return started;
   };
@@ -1161,15 +1134,11 @@ const runDirectPivot = async () => {
   };
   const waitForPreview = async (started, label) => {
     const deadline = started + 5000;
-    while (true) {
-      await Promise.all([...pendingNetworkReads]);
-      const request = report.nativeRequests.findLast(entry => entry.path === base + '/preview' && entry.startedAt >= started && entry.completedAt && entry.status === 200 && entry.response);
-      if (request) return request.response;
-      assert(Date.now() < deadline, `${label} did not receive a fresh saved Preview within five seconds`);
-      await new Promise(resolve => setTimeout(resolve, 50));
-    }
+    const request = await requestCapture.waitFor(entry => entry.path === base + '/preview' && entry.startedAt >= started && entry.status === 200,
+      { timeout: Math.max(1, deadline - Date.now()) });
+    return responseBody(request);
   };
-  const rowsWithInspectorNumbers = async () => browserEval(browser.cdp, `return [...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]')].slice(1).map(row=>({rowNumber:Number(row.querySelector('button[aria-label^="Inspect row "]')?.getAttribute('aria-label')?.match(/^Inspect row (\\d+) identity$/)?.[1]),cells:[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText.trim())})).filter(row=>Number.isInteger(row.rowNumber));`);
+  const rowsWithInspectorNumbers = inspectPreviewRows;
   const inspect = async (id, expectedRowID, savedPreview, label) => {
     const rows = await rowsWithInspectorNumbers();
     const visible = rows.find(row => row.cells[0] === id);
@@ -1177,42 +1146,41 @@ const runDirectPivot = async () => {
     assert(visible.rowNumber > 0 && visible.rowNumber <= 25);
     const started = Date.now();
     const before = report.nativeRequests.length;
-    await click(browser.cdp, `button[aria-label="Inspect row ${visible.rowNumber} identity"]`);
+    await clickUI(`button[aria-label="Inspect row ${visible.rowNumber} identity"]`);
     const dialog = `[role="dialog"][aria-label="Row ${visible.rowNumber} identity"]`;
-    await waitForBrowser(browser.cdp, `document.querySelector(${JSON.stringify(dialog)})`);
-    await waitForBrowser(browser.cdp, `document.querySelector(${JSON.stringify(dialog + ' ul li')})`);
-    const deadline = started + 5000;
+    await waitUI(`document.querySelector(${JSON.stringify(dialog)})`);
+    await waitUI(`document.querySelector(${JSON.stringify(dialog + ' ul li')})`);
     const lineageRequests = () => report.nativeRequests.slice(before).filter(request => request.path === base + '/row-lineage');
-    while (!lineageRequests().some(request => request.completedAt && request.response)) {
-      assert(Date.now() < deadline, `${label} did not complete native row-lineage within five seconds`);
-      await new Promise(resolve => setTimeout(resolve, 50));
-    }
-    await Promise.all([...pendingNetworkReads]);
+    if (!lineageRequests().length) await requestCapture.waitFor(request => request.path === base + '/row-lineage' && request.startedAt >= started,
+      { timeout: Math.max(1, started + 5000 - Date.now()) });
+    await requestCapture.flush();
     assert(Date.now() - started <= 5000, `${label} inspector action exceeded five seconds`);
     const requests = lineageRequests();
     assert.equal(requests.length, 1, 'One direct Pivot row must use one bounded native lineage page');
     const request = requests[0];
-    const selectedRowIdentity = await browserEval(browser.cdp, `return document.querySelector(${JSON.stringify(dialog + ' p.font-mono')})?.textContent;`);
+    const selectedRowIdentity = await page().locator(`${dialog} p.font-mono`).textContent();
     assert.equal(selectedRowIdentity, expectedRowID, `${label} inspector must use the independently computed typed Pivot identity`);
     assert.equal(request.status, 200);
-    assert.equal(request.body.outputId, outputId);
-    assert.equal(request.body.rowId, expectedRowID);
-    assert.equal(request.body.receiptId, savedPreview.receiptId, 'Native source inspection must bind to the current saved Preview receipt');
-    assert.equal(request.body.offset ?? 0, 0);
-    assert.equal(request.body.limit, 25);
-    assert.equal(request.response.receiptId, savedPreview.receiptId);
-    assert.equal(request.response.outputId, outputId);
-    assert.equal(request.response.rowId, expectedRowID);
-    assert.equal(request.response.hasMore, false);
-    assert.equal(request.response.nextOffset ?? null, null);
-    const contributors = request.response.contributors.map(item => [item.resourceType, item.resourceId, item.occurrenceKey]);
+    const body = requestBody(request);
+    const response = responseBody(request);
+    assert.equal(body.outputId, outputId);
+    assert.equal(body.rowId, expectedRowID);
+    assert.equal(body.receiptId, savedPreview.receiptId, 'Native source inspection must bind to the current saved Preview receipt');
+    assert.equal(body.offset ?? 0, 0);
+    assert.equal(body.limit, 25);
+    assert.equal(response.receiptId, savedPreview.receiptId);
+    assert.equal(response.outputId, outputId);
+    assert.equal(response.rowId, expectedRowID);
+    assert.equal(response.hasMore, false);
+    assert.equal(response.nextOffset ?? null, null);
+    const contributors = response.contributors.map(item => [item.resourceType, item.resourceId, item.occurrenceKey]);
     const expectedContributors = sharedContributorPivot
       ? members.map(member => ['Observation', member.id, member._key])
       : [expectedContributorByID.get(id)];
     const tupleKey = tuple => tuple.join('\u0000');
     assert.deepEqual(contributors.map(tupleKey).sort(), expectedContributors.map(tupleKey).sort(),
       `${label} source tuples must exactly match the independent raw CDA member witness`);
-    const visibleContributors = await browserEval(browser.cdp, `return [...document.querySelectorAll(${JSON.stringify(dialog + ' ul li')})].map(item=>item.innerText.trim());`);
+    const visibleContributors = await page().locator(`${dialog} ul li`).allInnerTexts();
     assert.equal(visibleContributors.length, expectedContributors.length);
     assert.equal(new Set(visibleContributors).size, expectedContributors.length, `${label} must display every contributor once`);
     for (const contributor of expectedContributors) {
@@ -1220,9 +1188,8 @@ const runDirectPivot = async () => {
         `${label} does not display ${contributor[0]}/${contributor[1]}: ${JSON.stringify(visibleContributors)}`);
     }
     report.cases.push({ name: label, elapsedMs: Date.now() - started, rowID: expectedRowID, receiptId: savedPreview.receiptId, contributors });
-    await browserEval(browser.cdp, `const button=[...document.querySelectorAll(${JSON.stringify(dialog + ' button')})].find(item=>item.innerText==='Close');button.dataset.qaDirectPivotClose=${JSON.stringify(label)};return true;`);
-    await click(browser.cdp, `[data-qa-direct-pivot-close=${JSON.stringify(label)}]`);
-    await waitForBrowser(browser.cdp, `!document.querySelector(${JSON.stringify(dialog)})`);
+    await clickUI(`${dialog} button`, { name: 'Close' });
+    await waitUI(`!document.querySelector(${JSON.stringify(dialog)})`);
   };
 
   await open();
@@ -1231,8 +1198,8 @@ const runDirectPivot = async () => {
   await typePivotOutputName('null');
   const proposalResponse = await proposal('direct-pivot-source-preview', configureStarted, expectedRows);
   pivotFromResponse(proposalResponse, 'null');
-  await click(browser.cdp, '[data-testid="construction-cancel-proposal"]');
-  await waitForBrowser(browser.cdp, `!document.querySelector('[data-testid="construction-proposal-panel"]')`);
+  await clickUI('[data-testid="construction-cancel-proposal"]');
+  await waitUI(`!document.querySelector('[data-testid="construction-proposal-panel"]')`);
   const cancelState = await api(base + '/builder');
   assert.deepEqual(cancelState.workspace, sourceWorkspace, 'Cancel must preserve the exact saved source workspace');
   assert.equal(cancelState.draftVersion, sourceDraftVersion, 'Cancel must preserve the source draft version');
@@ -1283,17 +1250,17 @@ const runDirectPivot = async () => {
   assert.deepEqual((await api(base + '/builder')).workspace, authoredWorkspace, 'Reloaded source inspection must leave the saved Pivot unchanged');
 
   const editCancelStarted = Date.now();
-  await click(browser.cdp, `[data-testid="construction-history-step-${identity.stepID}"]`);
-  await waitForBrowser(browser.cdp, `document.querySelector('[data-testid=${JSON.stringify(`construction-edit-step-${identity.stepID}`)}]')?.disabled === false`);
-  await click(browser.cdp, `[data-testid="construction-edit-step-${identity.stepID}"]`);
-  await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid="construction-reshape-pivot"] input[aria-label^="Pivot output name "]'))`);
+  await clickUI(`[data-testid="construction-history-step-${identity.stepID}"]`);
+  await waitUI(`document.querySelector('[data-testid=${JSON.stringify(`construction-edit-step-${identity.stepID}`)}]')?.disabled === false`);
+  await clickUI(`[data-testid="construction-edit-step-${identity.stepID}"]`);
+  await waitUI(`Boolean(document.querySelector('[data-testid="construction-reshape-pivot"] input[aria-label^="Pivot output name "]'))`);
   await typePivotOutputName('direct_status');
   const editCancelProposal = await proposal('direct-pivot-output-name-cancel-preview', editCancelStarted, expectedRows);
   const editCancelIdentity = pivotFromResponse(editCancelProposal, 'direct_status');
   assert.equal(editCancelIdentity.constructionId, identity.constructionId, 'Editing the physical column name must preserve the Pivot row identity construction');
   assert.deepEqual(editCancelIdentity.rowIDs, identity.rowIDs, 'Previewed name edits must preserve the independently typed Pivot row IDs');
-  await click(browser.cdp, '[data-testid="construction-cancel-proposal"]');
-  await waitForBrowser(browser.cdp, `!document.querySelector('[data-testid="construction-proposal-panel"]')`);
+  await clickUI('[data-testid="construction-cancel-proposal"]');
+  await waitUI(`!document.querySelector('[data-testid="construction-proposal-panel"]')`);
   const afterEditCancel = await api(base + '/builder');
   assert.deepEqual(afterEditCancel.workspace, authoredWorkspace, 'Canceling a Pivot name edit must preserve the exact saved null-name workspace');
   assert.equal(afterEditCancel.draftVersion, authoredDraftVersion, 'Canceling a Pivot name edit must preserve draft version');
@@ -1304,10 +1271,10 @@ const runDirectPivot = async () => {
   await assertMountedRows(expectedRows, 'direct-pivot-name-edit-cancel-preserves-null-output');
 
   const editApplyStarted = Date.now();
-  await click(browser.cdp, `[data-testid="construction-history-step-${identity.stepID}"]`);
-  await waitForBrowser(browser.cdp, `document.querySelector('[data-testid=${JSON.stringify(`construction-edit-step-${identity.stepID}`)}]')?.disabled === false`);
-  await click(browser.cdp, `[data-testid="construction-edit-step-${identity.stepID}"]`);
-  await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid="construction-reshape-pivot"] input[aria-label^="Pivot output name "]'))`);
+  await clickUI(`[data-testid="construction-history-step-${identity.stepID}"]`);
+  await waitUI(`document.querySelector('[data-testid=${JSON.stringify(`construction-edit-step-${identity.stepID}`)}]')?.disabled === false`);
+  await clickUI(`[data-testid="construction-edit-step-${identity.stepID}"]`);
+  await waitUI(`Boolean(document.querySelector('[data-testid="construction-reshape-pivot"] input[aria-label^="Pivot output name "]'))`);
   await typePivotOutputName('direct_status');
   const editApplyProposal = await proposal('direct-pivot-output-name-apply-preview', editApplyStarted, expectedRows);
   const editedIdentity = pivotFromResponse(editApplyProposal, 'direct_status');
@@ -1374,7 +1341,7 @@ const runDirectPivot = async () => {
 };
 
 try {
-  apiBuildFreeze = await captureApiBuildFreeze(() => checkContainerApiBuildStamp(localCDAApiContainer()));
+  apiBuildFreeze = await captureApiBuildFreeze(() => checkContainerApiBuildStamp(apiContainer));
   report.apiBuildFreeze = { initial: apiBuildFreeze.initial };
   if (groupCountPivot) {
     await runDirectGroupCountPivot();
@@ -1456,33 +1423,8 @@ try {
   const sourceDraftVersion = builder.draftVersion;
   const sourceDraftDigest = builder.draftDigest;
 
-  browser = await launchBrowser(evidence);
-  browser.cdp.on('Runtime.consoleAPICalled', event => { if (event.type === 'error') report.errors.push({ kind: 'console', args: event.args }); });
-  browser.cdp.on('Runtime.exceptionThrown', event => report.errors.push({ kind: 'runtime', details: event.exceptionDetails }));
-  browser.cdp.on('Network.requestWillBeSent', ({ requestId, request, wallTime }) => {
-    const requestURL = new URL(request.url);
-    const path = requestURL.pathname;
-    if (!path.startsWith(base + '/')) return;
-    const authorizationHeaderPresent = Object.keys(request.headers ?? {}).some(header => header.toLowerCase() === 'authorization');
-    const entry = { requestId, path, method: request.method, origin: requestURL.origin, authorizationHeaderPresent, startedAt: Math.round(wallTime * 1000) };
-    if (request.postData) entry.body = JSON.parse(request.postData);
-    nativeById.set(requestId, entry); report.nativeRequests.push(entry);
-  });
-  browser.cdp.on('Network.responseReceived', ({ requestId, response }) => {
-    const entry = nativeById.get(requestId);
-    if (entry) entry.status = response.status;
-    if (response.status >= 400 && !response.url.endsWith('/favicon.ico')) report.errors.push({ kind: 'http', status: response.status, url: response.url });
-  });
-  browser.cdp.on('Network.loadingFinished', ({ requestId }) => {
-    const entry = nativeById.get(requestId);
-    if (!entry) return;
-    entry.completedAt = Date.now();
-    const read = browser.cdp.send('Network.getResponseBody', { requestId }).then(result => {
-      const body = result.base64Encoded ? Buffer.from(result.body, 'base64').toString('utf8') : result.body;
-      try { entry.response = JSON.parse(body); } catch { entry.response = body.slice(0, 32768); }
-    }).catch(error => { entry.responseReadError = String(error); }).finally(() => pendingNetworkReads.delete(read));
-    pendingNetworkReads.add(read);
-  });
+  await openBrowser();
+
 
   await open();
   await expand({ name: 'related-stage-1-specimen-patient', targetType: 'Patient', routeLabel: 'Specimen -[subject]-> Patient', expectedRows: stage1PreviewRows });
@@ -1503,38 +1445,36 @@ try {
   const inspect = async (label, rowNumber, expectedContributors = expectedTuples) => {
     const started = Date.now();
     const before = report.nativeRequests.length;
-    await click(browser.cdp, `button[aria-label="Inspect row ${rowNumber} identity"]`);
+    await clickUI(`button[aria-label="Inspect row ${rowNumber} identity"]`);
     const dialog = `[role="dialog"][aria-label="Row ${rowNumber} identity"]`;
-    await waitForBrowser(browser.cdp, `document.querySelector(${JSON.stringify(dialog)})`);
-    await waitForBrowser(browser.cdp, `document.querySelector(${JSON.stringify(dialog + ' ul li')})`);
-    const deadline = Date.now() + 5000;
+    await waitUI(`document.querySelector(${JSON.stringify(dialog)})`);
+    await waitUI(`document.querySelector(${JSON.stringify(dialog + ' ul li')})`);
     const lineageRequests = () => report.nativeRequests.slice(before).filter(request => request.path === base + '/row-lineage');
-    while (!lineageRequests().some(request => request.completedAt && request.response)) {
-      assert(Date.now() < deadline, `${label} native row-lineage request did not complete within five seconds`);
-      await new Promise(resolve => setTimeout(resolve, 50));
-    }
+    if (!lineageRequests().length) await requestCapture.waitFor(request => request.path === base + '/row-lineage' && request.startedAt >= started,
+      { timeout: Math.max(1, started + 5000 - Date.now()) });
     assert(Date.now() - started <= 5000, `${label} native row-lineage action exceeded five seconds`);
-    const initialDialogText = await browserEval(browser.cdp, `return document.querySelector(${JSON.stringify(dialog)}).innerText;`);
+    const initialDialogText = await page().locator(dialog).innerText();
     assert(!/cannot be listed|unavailable|could not be fully listed|Could not load/i.test(initialDialogText), initialDialogText);
-    await Promise.all([...pendingNetworkReads]);
+    await requestCapture.flush();
     const requests = lineageRequests();
     assert.equal(requests.length, 1, `${expectedContributors.length} contributors must fit on one native inspector page`);
-    assert.equal(await browserEval(browser.cdp, `return [...document.querySelectorAll(${JSON.stringify(dialog + ' button')})].some(button=>button.innerText==='Show more source records');`), false);
-    const selectedRowIdentity = await browserEval(browser.cdp, `return document.querySelector(${JSON.stringify(dialog + ' p.font-mono')})?.textContent;`);
+    assert.equal(await page().locator(`${dialog} button`).filter({ hasText: 'Show more source records' }).count(), 0);
+    const selectedRowIdentity = await page().locator(`${dialog} p.font-mono`).textContent();
     assert(selectedRowIdentity, 'Native inspector must show the exact canonical row identity');
     const allTuples = [];
     for (let index = 0; index < requests.length; index += 1) {
       const request = requests[index];
-      const response = request.response;
+      const body = requestBody(request);
+      const response = responseBody(request);
       assert.equal(request.status, 200);
-      assert.equal(request.body.outputId, outputId);
-      assert.equal(request.body.rowId, selectedRowIdentity);
-      assert(request.body.receiptId, 'Native row-lineage call must be receipt bound');
-      assert.equal(request.body.limit, 25, 'Native inspector must use the existing bounded page size');
-      assert.equal(response.receiptId, request.body.receiptId);
+      assert.equal(body.outputId, outputId);
+      assert.equal(body.rowId, selectedRowIdentity);
+      assert(body.receiptId, 'Native row-lineage call must be receipt bound');
+      assert.equal(body.limit, 25, 'Native inspector must use the existing bounded page size');
+      assert.equal(response.receiptId, body.receiptId);
       assert.equal(response.outputId, outputId);
       assert.equal(response.rowId, selectedRowIdentity);
-      const offset = request.body.offset ?? 0;
+      const offset = body.offset ?? 0;
       const page = response.contributors.map(item => [item.resourceType, item.resourceId, item.occurrenceKey]);
       assert.equal(offset, 0, 'The first native inspector page must start at offset zero');
       assert.equal(page.length, expectedContributors.length);
@@ -1543,7 +1483,7 @@ try {
       allTuples.push(...page);
     }
     assert.deepEqual(allTuples, expectedContributors, 'Native response must exactly match the independent scoped oracle, including repeated authored occurrences');
-    const visible = await browserEval(browser.cdp, `return [...document.querySelectorAll(${JSON.stringify(dialog + ' ul li')})].map(item=>item.innerText.trim());`);
+    const visible = await page().locator(`${dialog} ul li`).allInnerTexts();
     assert.equal(visible.length, expectedContributors.length);
     const expectedDisplayCounts = new Map();
     for (const [resourceType, resourceId] of expectedContributors) {
@@ -1554,16 +1494,15 @@ try {
       assert.equal(visible.filter(line => line.includes(record)).length, count, `Inspector must display each source occurrence for ${record}`);
     }
     assert(!visible.some(line => line.includes('Observation/')), 'The multihop Observation bridge must stay out of the inspector');
-    const captured = requests.map(request => ({ request: request.body, response: request.response }));
+    const captured = requests.map(request => ({ request: evidenceSafe(requestBody(request)), response: evidenceSafe(responseBody(request)) }));
     report.cases.push({ name: label, rowNumber, elapsedMs: Date.now() - started, pageCount: requests.length, rowId: selectedRowIdentity, calls: captured });
-    await browserEval(browser.cdp, `const button=[...document.querySelectorAll(${JSON.stringify(dialog + ' button')})].find(item=>item.innerText==='Close');button.dataset.qaComposedClose=${JSON.stringify(label)};return true;`);
-    await click(browser.cdp, `[data-qa-composed-close=${JSON.stringify(label)}]`);
-    await waitForBrowser(browser.cdp, `!document.querySelector(${JSON.stringify(dialog)})`);
+    await clickUI(`${dialog} button`, { name: 'Close' });
+    await waitUI(`!document.querySelector(${JSON.stringify(dialog)})`);
     return selectedRowIdentity;
   };
 
   const rowNumberFor = async (rowMap, label) => {
-    const visibleRows = await browserEval(browser.cdp, `return [...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]')].slice(1).map(row=>({rowNumber:Number(row.querySelector('button[aria-label^="Inspect row "]')?.getAttribute('aria-label')?.match(/^Inspect row (\\d+) identity$/)?.[1]),cells:[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText.trim())}));`);
+    const visibleRows = await inspectPreviewRows();
     const match = visibleRows.find(row => rowMap.has(JSON.stringify(row.cells)));
     assert(match, `${label} raw-oracle row must be visible in the saved preview`);
     assert(Number.isInteger(match.rowNumber) && match.rowNumber > 0 && match.rowNumber <= 25, 'The selected native inspector row must be within the bounded first preview page');
@@ -1656,17 +1595,16 @@ try {
   const baseTarget = await rowNumberFor(baseMap, 'Starting-record row');
   const startingInspectorStarted = Date.now();
   const beforeStartingInspector = report.nativeRequests.length;
-  await click(browser.cdp, `button[aria-label="Inspect row ${baseTarget.rowNumber} identity"]`);
+  await clickUI(`button[aria-label="Inspect row ${baseTarget.rowNumber} identity"]`);
   const baseDialog = `[role="dialog"][aria-label="Row ${baseTarget.rowNumber} identity"]`;
-  await waitForBrowser(browser.cdp, `document.querySelector(${JSON.stringify(baseDialog)})?.innerText.includes('Starting FHIR record')`);
-  const baseDialogText = await browserEval(browser.cdp, `return document.querySelector(${JSON.stringify(baseDialog)}).innerText;`);
+  await waitUI(`document.querySelector(${JSON.stringify(baseDialog)})?.innerText.includes('Starting FHIR record')`);
+  const baseDialogText = await page().locator(baseDialog).innerText();
   assert(baseDialogText.includes(`Specimen/${rootDoc.id}`), 'Zero-step row inspector must identify the exact starting Specimen record');
-  const baseRowIdentity = await browserEval(browser.cdp, `return document.querySelector(${JSON.stringify(baseDialog + ' p.font-mono')})?.textContent;`);
+  const baseRowIdentity = await page().locator(`${baseDialog} p.font-mono`).textContent();
   assert(baseRowIdentity, 'Starting-record inspector must show the stable row identity');
   assert.equal(report.nativeRequests.slice(beforeStartingInspector).filter(request => request.path === base + '/row-lineage').length, 0, 'A single starting record must not request composed row lineage');
-  await browserEval(browser.cdp, `const button=[...document.querySelectorAll(${JSON.stringify(baseDialog + ' button')})].find(item=>item.innerText==='Close');button.dataset.qaComposedClose='starting-record';return true;`);
-  await click(browser.cdp, '[data-qa-composed-close="starting-record"]');
-  await waitForBrowser(browser.cdp, `!document.querySelector(${JSON.stringify(baseDialog)})`);
+  await clickUI(`${baseDialog} button`, { name: 'Close' });
+  await waitUI(`!document.querySelector(${JSON.stringify(baseDialog)})`);
   assert(Date.now() - startingInspectorStarted <= 5000, 'Starting-record inspection exceeded five seconds');
   report.cases.push({ name: 'zero-step-starting-record-inspector', elapsedMs: Date.now() - startingInspectorStarted, rowNumber: baseTarget.rowNumber, rowIdentity: baseRowIdentity });
   assert.deepEqual((await api(base + '/builder')).workspace, builder.workspace, 'Starting-record inspection must not mutate the zero-step workspace');
@@ -1676,8 +1614,14 @@ try {
   report.status = 'passed';
   }
 } catch (error) {
-  report.status = error.invalidatesRun ? 'invalidated' : 'failed'; report.error = String(error.stack ?? error); process.exitCode = 1;
-  report.failureUI = browser ? await browserEval(browser.cdp, 'return document.body.innerText;').catch(String) : undefined;
+  report.status = error.invalidatesRun ? 'invalidated' : 'failed'; report.error = sanitizeText(error.stack ?? error); process.exitCode = 1;
+  if (browser) {
+    const action = report.activeAction;
+    if (action) report.failedAction = { label: action.label, locator: action.locator, elapsedMs: Date.now() - action.startedAt };
+    await browser.captureFailure(error, { phase: 'composed-row-lineage', elapsedMs: Date.now() - Date.parse(report.started), action });
+    report.activeAction = undefined;
+  }
+  report.failureUI = browser ? await page().locator('body').innerText().catch(String) : undefined;
 } finally {
   if (apiBuildFreeze) {
     try { report.apiBuildFreeze = { ...report.apiBuildFreeze, ...(await apiBuildFreeze.assertUnchanged()) }; }
@@ -1694,7 +1638,7 @@ try {
     report.sourceFreeze = { unchanged: false, changedPaths: error.changedPaths ?? [], invalidatesRun: true, productFailure: false, error: String(error) };
     process.exitCode = 1;
   }
-  await Promise.all([...pendingNetworkReads]);
+  if (requestCapture) await requestCapture.flush();
   report.finished = new Date().toISOString();
   await writeFile(`${evidence}/report.json`, JSON.stringify(report, null, 2));
   if (browser) await browser.close().catch(() => {});

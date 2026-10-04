@@ -1,14 +1,13 @@
 #!/usr/bin/env node
 
 import { createHash } from 'node:crypto';
-import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
-import { spawn } from 'node:child_process';
-import { tmpdir } from 'node:os';
+import { chmod, mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { performAction, requireUnique } from './lib/playwright-actions.mjs';
+import { launchBrowser } from './lib/playwright-browser.mjs';
 
 const DEFAULT_CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
-const AUTH_HEADERS = new Set(['authorization', 'cookie', 'set-cookie']);
 const SAFE_TIMING_KEYS = new Set([
   'cachehit', 'cachereused', 'cachemiss', 'compilationms', 'compilems', 'contextresolutionms',
   'queryms', 'querydurationms', 'queryrowsread', 'rowsread', 'rowsscanned', 'bytesread',
@@ -215,10 +214,11 @@ function requireString(value, label) {
 
 function validateStep(step, label) {
   if (!step || typeof step !== 'object' || Array.isArray(step)) throw new UsageError(`${label} must be an action object`);
-  if (!['click', 'clickUnlessVisible', 'setChecked', 'fill', 'select', 'wait', 'waitFor'].includes(step.type)) {
-    throw new UsageError(`${label}.type must be click, clickUnlessVisible, setChecked, fill, select, wait, or waitFor`);
+  if (step.type === 'wait') throw new UsageError(`${label}: fixed sleeps are unsupported; use waitFor with an observable control state`);
+  if (!['click', 'clickUnlessVisible', 'setChecked', 'fill', 'select', 'waitFor'].includes(step.type)) {
+    throw new UsageError(`${label}.type must be click, clickUnlessVisible, setChecked, fill, select, or waitFor`);
   }
-  if (step.type !== 'wait') requireString(step.selector, `${label}.selector`);
+  requireString(step.selector, `${label}.selector`);
   if (step.type === 'clickUnlessVisible') requireString(step.visibleSelector, `${label}.visibleSelector`);
   if (step.type === 'setChecked' && typeof step.checked !== 'boolean') {
     throw new UsageError(`${label}.checked must be a boolean`);
@@ -228,9 +228,6 @@ function validateStep(step, label) {
   }
   if (step.type === 'select' && typeof step.value !== 'string' && typeof step.optionText !== 'string') {
     throw new UsageError(`${label} select needs value or optionText`);
-  }
-  if (step.type === 'wait' && (!Number.isFinite(step.ms) || step.ms < 0 || step.ms > 30000)) {
-    throw new UsageError(`${label}.ms must be between 0 and 30000`);
   }
 }
 
@@ -383,108 +380,30 @@ async function requestBuilderIdentity(apiUrl, authorization) {
   };
 }
 
-class CDPClient {
-  constructor(socket) {
-    this.socket = socket;
-    this.nextId = 1;
-    this.pending = new Map();
-    this.listeners = new Map();
-    socket.addEventListener('message', (event) => this.receive(event.data));
-  }
-
-  static async connect(url) {
-    const socket = new WebSocket(url);
-    await new Promise((resolve, reject) => {
-      socket.addEventListener('open', resolve, { once: true });
-      socket.addEventListener('error', reject, { once: true });
-    });
-    return new CDPClient(socket);
-  }
-
-  receive(raw) {
-    const message = JSON.parse(raw);
-    if (message.id) {
-      const pending = this.pending.get(message.id);
-      if (!pending) return;
-      this.pending.delete(message.id);
-      if (message.error) pending.reject(new Error(`${pending.method}: ${message.error.message}`));
-      else pending.resolve(message.result ?? {});
-      return;
-    }
-    for (const listener of this.listeners.get(message.method) ?? []) listener(message.params ?? {});
-  }
-
-  send(method, params = {}) {
-    const id = this.nextId++;
-    return new Promise((resolve, reject) => {
-      this.pending.set(id, { method, resolve, reject });
-      this.socket.send(JSON.stringify({ id, method, params }));
-    });
-  }
-
-  on(method, listener) {
-    const listeners = this.listeners.get(method) ?? [];
-    listeners.push(listener);
-    this.listeners.set(method, listeners);
-  }
-
-  once(method, listener) {
-    const wrapped = (parameters) => {
-      const listeners = this.listeners.get(method) ?? [];
-      this.listeners.set(method, listeners.filter((current) => current !== wrapped));
-      listener(parameters);
-    };
-    this.on(method, wrapped);
-  }
-
-  close() { this.socket.close(); }
-}
-
-async function waitForFile(file, child, timeoutMs = 10000) {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    if (child.exitCode != null) throw new Error(`Chrome exited before DevTools was ready (${child.exitCode})`);
-    try { return await readFile(file, 'utf8'); } catch (error) {
-      if (error.code !== 'ENOENT') throw error;
-    }
-    await new Promise((resolve) => setTimeout(resolve, 75));
-  }
-  throw new Error('Chrome did not publish its DevTools port within 10 seconds');
-}
-
 class BrowserSession {
   static async start(options, authorization) {
-    const profile = await mkdtemp(path.join(tmpdir(), 'construction-preview-bench-'));
-    const chrome = spawn(options.chrome, [
-      '--headless=new', '--remote-debugging-port=0', `--user-data-dir=${profile}`,
-      '--no-first-run', '--no-default-browser-check', '--disable-background-networking',
-      '--disable-component-update', '--disable-sync', '--ignore-certificate-errors', 'about:blank',
-    ], { stdio: 'ignore' });
-    let client;
+    const origins = [new URL(options.pageUrl).origin, new URL(options.apiUrl).origin];
+    const harness = await launchBrowser({ evidence: path.join(options.artifactDir, `browser-${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}`),
+      appOrigins: origins, noAuth: !authorization && origins.every(isLoopback), executablePath: options.chrome });
+    const session = new BrowserSession(options, authorization, harness);
     try {
-      const activePort = await waitForFile(path.join(profile, 'DevToolsActivePort'), chrome);
-      const port = activePort.split(/\r?\n/, 1)[0];
-      const target = await fetch(`http://127.0.0.1:${port}/json/new?about:blank`, { method: 'PUT' }).then((res) => res.json());
-      client = await CDPClient.connect(target.webSocketDebuggerUrl);
-      const session = new BrowserSession(options, authorization, profile, chrome, client);
       await session.initialize();
       return session;
     } catch (error) {
-      client?.close();
-      chrome.kill('SIGTERM');
-      await rm(profile, { recursive: true, force: true });
+      await session.close();
       throw error;
     }
   }
 
-  constructor(options, authorization, profile, chrome, client) {
+  constructor(options, authorization, harness) {
     this.options = options;
     this.authorization = authorization;
-    this.profile = profile;
-    this.chrome = chrome;
-    this.client = client;
+    this.harness = harness;
+    this.browser = harness.browser;
+    this.context = harness.context;
+    this.page = harness.page;
     this.requests = [];
-    this.requestById = new Map();
+    this.requestById = new WeakMap();
     this.bodyTasks = new Set();
     this.allowedOrigins = [...new Set([new URL(options.pageUrl).origin, new URL(options.apiUrl).origin])];
     this.pageOrigin = new URL(options.pageUrl).origin;
@@ -492,357 +411,204 @@ class BrowserSession {
   }
 
   async initialize() {
-    this.client.on('Network.requestWillBeSent', ({ requestId, request, type, timestamp }) => {
-      const apiRequest = isApiRequestUrl(request.url, this.pageOrigin, this.apiOrigin);
-      const item = { requestId, url: request.url, route: safeRoute(request.url), category: routeCategory(request.url), apiRequest, type, startTimestamp: timestamp, response: null, failed: null, metrics: null, identities: null };
+    await this.page.route('**/*', async (route) => {
+      const request = route.request();
+      const headers = { ...request.headers() };
+      delete headers.authorization;
+      delete headers.cookie;
+      if (this.authorization && this.allowedOrigins.includes(new URL(request.url()).origin)) headers.authorization = this.authorization;
+      await route.continue({ headers });
+    });
+    this.page.on('request', (request) => {
+      const url = request.url();
+      const apiRequest = isApiRequestUrl(url, this.pageOrigin, this.apiOrigin);
+      const item = { url, route: safeRoute(url), category: routeCategory(url), apiRequest,
+        type: request.resourceType(), startTimestamp: Date.now(), response: null, failed: null, metrics: null, identities: null };
       this.requests.push(item);
-      this.requestById.set(requestId, item);
+      this.requestById.set(request, item);
     });
-    this.client.on('Network.responseReceived', ({ requestId, response }) => {
-      const item = this.requestById.get(requestId);
+    this.page.on('response', (response) => {
+      const item = this.requestById.get(response.request());
       if (!item) return;
-      const headers = Object.fromEntries(Object.entries(response.headers ?? {}).map(([key, value]) => [key.toLowerCase(), String(value)]));
-      item.response = {
-        status: response.status,
-        mimeType: response.mimeType,
-        serverTiming: parseServerTiming(headers['server-timing']),
-        headers: Object.fromEntries([...SAFE_TIMING_HEADERS].filter((key) => headers[key] !== undefined).map((key) => [key, redactAuth(headers[key], this.authorization)])),
-        timestamp: response.responseTime,
-      };
+      const headers = response.headers();
+      item.response = { status: response.status(), mimeType: headers['content-type'] ?? '',
+        serverTiming: parseServerTiming(headers['server-timing'] ?? ''),
+        headers: Object.fromEntries([...SAFE_TIMING_HEADERS].filter(key => headers[key] !== undefined)
+          .map(key => [key, redactAuth(headers[key], this.authorization)])), timestamp: Date.now() };
     });
-    this.client.on('Network.loadingFailed', ({ requestId, errorText, canceled }) => {
-      const item = this.requestById.get(requestId);
-      if (item) item.failed = { errorText: redactAuth(errorText, this.authorization), canceled: Boolean(canceled) };
+    this.page.on('requestfailed', (request) => {
+      const item = this.requestById.get(request);
+      if (item) item.failed = { errorText: redactAuth(request.failure()?.errorText ?? '', this.authorization),
+        canceled: /cancel|abort/i.test(request.failure()?.errorText ?? '') };
     });
-    this.client.on('Network.loadingFinished', ({ requestId, timestamp, encodedDataLength }) => {
-      const item = this.requestById.get(requestId);
+    this.page.on('requestfinished', (request) => {
+      const item = this.requestById.get(request);
       if (!item) return;
-      item.finishedTimestamp = timestamp;
-      item.encodedDataLength = encodedDataLength;
+      item.finishedTimestamp = Date.now();
       if (item.apiRequest && item.response?.status >= 200 && shouldCaptureSafeResponse(item.url)) {
-        const task = this.captureSafeBodyMetrics(requestId, item).finally(() => this.bodyTasks.delete(task));
+        const task = (async () => {
+          try {
+            const raw = await request.response().then(response => response.body());
+            const value = JSON.parse(raw.toString('utf8'));
+            item.metrics = extractSafeMetrics(value);
+            item.identities = extractSafeIdentities(value);
+          } catch { item.metrics = null; }
+        })().finally(() => this.bodyTasks.delete(task));
         this.bodyTasks.add(task);
       }
     });
-    await Promise.all([
-      this.client.send('Page.enable'),
-      this.client.send('Runtime.enable'),
-      this.client.send('Network.enable'),
-      this.client.send('Fetch.enable', { patterns: this.allowedOrigins.map((origin) => ({ urlPattern: `${origin}/*` })) }),
-    ]);
-    this.client.on('Fetch.requestPaused', ({ requestId, request }) => {
-      const headers = Object.entries(request.headers)
-        .filter(([name]) => !AUTH_HEADERS.has(name.toLowerCase()))
-        .map(([name, value]) => ({ name, value: String(value) }));
-      if (this.authorization && this.allowedOrigins.includes(new URL(request.url).origin)) {
-        headers.push({ name: 'Authorization', value: this.authorization });
-      }
-      this.client.send('Fetch.continueRequest', { requestId, headers }).catch(() => {});
-    });
-    this.startedAt = Date.now();
-    await this.client.send('Page.navigate', { url: this.options.pageUrl });
-    await this.waitForDocument();
-    this.browserVersion = await this.client.send('Browser.getVersion');
+    await this.page.goto(this.options.pageUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    this.browserVersion = { product: `Playwright Chromium ${this.browser.version()}`, userAgent: await this.page.evaluate(() => navigator.userAgent), protocolVersion: 'Playwright' };
   }
 
-  async captureSafeBodyMetrics(requestId, item) {
-    try {
-      const result = await this.client.send('Network.getResponseBody', { requestId });
-      const raw = result.base64Encoded ? Buffer.from(result.body, 'base64').toString('utf8') : result.body;
-      const value = JSON.parse(raw);
-      item.metrics = extractSafeMetrics(value);
-      item.identities = extractSafeIdentities(value);
-    } catch {
-      item.metrics = null;
-    }
-  }
-
-  async evaluate(expression, awaitPromise = false) {
-    const result = await this.client.send('Runtime.evaluate', {
-      expression,
-      returnByValue: true,
-      awaitPromise,
-      userGesture: true,
-    });
-    if (result.exceptionDetails) {
-      const detail = result.exceptionDetails.exception?.description
-        ?? result.exceptionDetails.text
-        ?? 'unknown exception';
-      throw new Error(`browser evaluation failed: ${detail.split('\n')[0]}`);
-    }
-    return result.result?.value;
-  }
-
-  async waitForDocument(timeoutMs = 30000) {
-    const deadline = Date.now() + timeoutMs;
-    while (Date.now() < deadline) {
-      const ready = await this.evaluate('document.readyState === "complete"');
-      if (ready) return;
-      await new Promise((resolve) => setTimeout(resolve, 50));
-    }
-    throw new Error('page load timed out after 30 seconds');
-  }
-
-  async reload() {
-    const loaded = new Promise((resolve) => this.client.once('Page.loadEventFired', resolve));
-    await this.client.send('Page.navigate', { url: this.options.pageUrl });
-    let timeout;
-    try {
-      await Promise.race([
-        loaded,
-        new Promise((_, reject) => { timeout = setTimeout(() => reject(new Error('page reload timed out after 30 seconds')), 30000); }),
-      ]);
-    } finally {
-      if (timeout) clearTimeout(timeout);
-    }
-    await this.waitForDocument();
-  }
+  async reload() { await this.page.reload({ waitUntil: 'domcontentloaded', timeout: 30000 }); }
 
   async action(step) {
-    if (step.type === 'wait') {
-      await new Promise((resolve) => setTimeout(resolve, step.ms));
+    if (step.type === 'wait') throw new Error('fixed browser waits are not supported; use an observable waitFor condition');
+    const locator = this.page.locator(step.selector);
+    if (step.type === 'clickUnlessVisible') {
+      const visible = this.page.locator(step.visibleSelector);
+      const visibleCount = await visible.count();
+      if (visibleCount > 1) throw new Error(`ambiguous visible-state control ${step.visibleSelector}: ${visibleCount}`);
+      if (visibleCount === 1 && await visible.isVisible()) return;
+    }
+    await requireUnique(locator, `${step.type} ${step.selector}`);
+    if (step.type === 'waitFor') {
+      await locator.waitFor({ state: 'visible', timeout: step.timeoutMs ?? 15000 });
+      if (step.enabled === true && !(await locator.isEnabled())) throw new Error(`control is disabled: ${step.selector}`);
       return;
     }
-    const selector = JSON.stringify(step.selector);
-    if (step.type === 'waitFor') {
-      const deadline = Date.now() + (step.timeoutMs ?? 15000);
-      while (Date.now() < deadline) {
-        const found = await this.evaluate(`(() => { const el = document.querySelector(${selector}); return Boolean(el && el.getClientRects().length && (${step.enabled === true} ? (!el.disabled && el.getAttribute('aria-disabled') !== 'true') : true)); })()`);
-        if (found) return;
-        await new Promise((resolve) => setTimeout(resolve, 25));
-      }
-      const state = await this.evaluate(`(() => {
-        const el = document.querySelector(${selector});
-        const controls = [...document.querySelectorAll('[data-testid]')]
-          .filter((item) => item.getClientRects().length && /^(construction-|ui04-)/.test(item.getAttribute('data-testid') || ''))
-          .map((item) => ({ testId: item.getAttribute('data-testid'), tagName: item.tagName, disabled: Boolean(item.disabled || item.getAttribute('aria-disabled') === 'true') }));
-        const shapeError = document.querySelector('[data-testid="ui04-table-shape-error"]');
-        const shapeErrorText = shapeError?.innerText?.trim().replace(/https?:\\/\\/[^\\s]+/g, '[url]').slice(0, 500) || null;
-        return { present: Boolean(el), visible: Boolean(el?.getClientRects().length), disabled: el ? Boolean(el.disabled || el.getAttribute('aria-disabled') === 'true') : null, tagName: el?.tagName ?? null, options: el instanceof HTMLSelectElement ? [...el.options].map((option) => option.textContent.trim()) : undefined, visibleControls: controls, shapeErrorText };
-      })()`);
-      throw new Error(`timed out waiting for browser control ${step.selector}; requireEnabled=${step.enabled === true}; state=${JSON.stringify(state)}`);
-    }
-    let operation;
-    if (step.type === 'click' || step.type === 'clickUnlessVisible') {
-      const visibleSelector = JSON.stringify(step.visibleSelector ?? '');
-      const skipIfVisible = step.type === 'clickUnlessVisible';
-      operation = `(() => {
-        const visible = ${skipIfVisible ? `document.querySelector(${visibleSelector})` : 'null'};
-        if (visible?.getClientRects().length) return true;
-        const el = document.querySelector(${selector});
-        if (!el) throw new Error('selector not found');
-        if (el.disabled || el.getAttribute('aria-disabled') === 'true') throw new Error('control is disabled');
-        el.click();
-        return true;
-      })()`;
-    } else if (step.type === 'setChecked') {
-      const checked = JSON.stringify(step.checked);
-      operation = `(() => {
-        const el = document.querySelector(${selector});
-        if (!(el instanceof HTMLInputElement) || el.type !== 'checkbox') throw new Error('target is not a checkbox');
-        if (el.disabled) throw new Error('control is disabled');
-        if (el.checked !== ${checked}) el.click();
-        if (el.checked !== ${checked}) throw new Error('checkbox did not reach requested state');
-        return true;
-      })()`;
-    } else if (step.type === 'click') {
-      operation = `(() => { const el = document.querySelector(${selector}); if (!el) throw new Error('selector not found'); if (el.disabled || el.getAttribute('aria-disabled') === 'true') throw new Error('control is disabled'); el.click(); return true; })()`;
-    } else if (step.type === 'fill') {
-      const value = JSON.stringify(step.value);
-      operation = `(() => { const el = document.querySelector(${selector}); if (!el) throw new Error('selector not found'); if (el.disabled) throw new Error('control is disabled'); const proto = Object.getPrototypeOf(el); const descriptor = Object.getOwnPropertyDescriptor(proto, 'value'); if (!descriptor?.set) throw new Error('control has no value setter'); descriptor.set.call(el, ${value}); el.dispatchEvent(new InputEvent('input', {bubbles:true, inputType:'insertText', data:${value}})); el.dispatchEvent(new Event('change', {bubbles:true})); return true; })()`;
-    } else {
-      const value = JSON.stringify(step.value ?? '');
-      const optionText = JSON.stringify(step.optionText ?? '');
-      operation = `(() => { const el = document.querySelector(${selector}); if (!(el instanceof HTMLSelectElement)) throw new Error('select target is not a native select'); if (el.disabled) throw new Error('control is disabled'); const option = ${optionText} ? [...el.options].find((item) => item.textContent.trim() === ${optionText}) : null; if (${optionText} && !option) throw new Error('select option text not found'); const next = option ? option.value : ${value}; if (![...el.options].some((item) => item.value === next && !item.disabled)) throw new Error('select option not found or disabled'); el.value = next; el.dispatchEvent(new Event('input', {bubbles:true})); el.dispatchEvent(new Event('change', {bubbles:true})); return true; })()`;
-    }
-    let result;
-    try {
-      result = await this.evaluate(operation);
-    } catch (error) {
-      throw new Error(`${step.type} failed for ${step.selector}: ${error.message}`);
-    }
-    if (!result) throw new Error(`${step.type} action did not complete`);
+    const label = `${step.type} ${step.selector}`;
+    const action = async (target, { timeout }) => {
+      if (step.type === 'click' || step.type === 'clickUnlessVisible') await target.click({ timeout });
+      else if (step.type === 'setChecked') {
+        if (await target.isChecked() !== step.checked) {
+          if (step.checked) await target.check({ timeout }); else await target.uncheck({ timeout });
+        }
+      } else if (step.type === 'fill') await target.fill(step.value, { timeout });
+      else if (step.type === 'select') {
+        if (step.optionText) {
+          const options = await target.locator('option').allTextContents();
+          const matches = options.map((text, index) => ({ text: text.trim(), index })).filter(option => option.text === step.optionText);
+          if (matches.length !== 1) throw new Error(`expected one option labelled ${step.optionText}, found ${matches.length}`);
+          await target.selectOption({ index: matches[0].index }, { timeout });
+        } else await target.selectOption(step.value, { timeout });
+      } else throw new Error(`unsupported browser action ${step.type}`);
+    };
+    await performAction(this, label, locator, action, { editable: step.type === 'fill' || step.type === 'select' });
   }
 
   async actions(steps = []) {
     for (const [index, step] of steps.entries()) {
-      try {
-        await this.action(step);
-      } catch (error) {
-        throw new Error(`action ${index + 1}/${steps.length} (${step.type} ${step.selector ?? ''}) failed: ${error.message}`);
-      }
+      try { await this.action(step); }
+      catch (error) { throw new Error(`action ${index + 1}/${steps.length} (${step.type} ${step.selector ?? ''}) failed: ${error.message}`); }
     }
   }
 
   async captureAssertionDom(config, workloadId, reason) {
     if (!this.options.captureAssertionDom) return null;
-    const configValue = JSON.stringify(config);
-    const snapshot = await this.evaluate(`(() => {
-      const config = ${configValue};
+    const snapshot = await this.page.evaluate((config) => {
       const root = document.querySelector(config.rootSelector);
-      const text = (element) => element?.innerText?.trim() ?? '';
+      const text = element => element?.innerText?.trim() ?? '';
       const selector = config.captureTablesSelector || config.tablesSelector || config.tableSelector;
       const tables = root && (config.captureTablesSelector || config.tablesSelector)
-        ? [...root.querySelectorAll(selector)]
-        : [root?.querySelector(selector) || document.querySelector(selector)].filter(Boolean);
-      return {
-        page: location.origin + location.pathname,
-        title: document.title,
-        rootPresent: Boolean(root),
+        ? [...root.querySelectorAll(selector)] : [root?.querySelector(selector) || document.querySelector(selector)].filter(Boolean);
+      return { page: location.origin + location.pathname, title: document.title, rootPresent: Boolean(root),
         rootTestId: root?.getAttribute('data-testid') ?? null,
         applyEnabled: Boolean((() => { const apply = document.querySelector(config.applySelector); return apply && !apply.disabled && apply.getAttribute('aria-disabled') !== 'true'; })()),
-        checkedChoices: config.checkedChoiceSelector
-          ? [...document.querySelectorAll(config.checkedChoiceSelector)]
-            .filter((input) => input.checked && input.getClientRects().length)
-            .map((input) => input.getAttribute('aria-label'))
-          : null,
+        checkedChoices: config.checkedChoiceSelector ? [...document.querySelectorAll(config.checkedChoiceSelector)].filter(input => input.checked && input.getClientRects().length).map(input => input.getAttribute('aria-label')) : null,
         visibleMetrics: Object.fromEntries(Object.entries(config.metricSelectors ?? {}).map(([name, selector]) => [name, text(root?.querySelector(selector)) || null])),
-        tables: tables.map((table) => {
-          const group = config.rowGroupSelector ? table.closest(config.rowGroupSelector) : null;
-          return {
-            rowIdentity: config.rowIdentitySelector ? text(group?.querySelector(config.rowIdentitySelector)) : null,
-            headers: [...table.querySelectorAll(config.headerSelector || 'thead th')].filter((el) => el.getClientRects().length).map(text),
-            rows: [...table.querySelectorAll(config.rowSelector || 'tbody tr')].filter((row) => row.getClientRects().length).map((row) => [...row.querySelectorAll(config.cellSelector || 'th, td')].filter((cell) => cell.getClientRects().length).map(text)),
-          };
-        }),
+        tables: tables.map(table => { const group = config.rowGroupSelector ? table.closest(config.rowGroupSelector) : null; return {
+          rowIdentity: config.rowIdentitySelector ? text(group?.querySelector(config.rowIdentitySelector)) : null,
+          headers: [...table.querySelectorAll(config.headerSelector || 'thead th')].filter(el => el.getClientRects().length).map(text),
+          rows: [...table.querySelectorAll(config.rowSelector || 'tbody tr')].filter(row => row.getClientRects().length).map(row => [...row.querySelectorAll(config.cellSelector || 'th, td')].filter(cell => cell.getClientRects().length).map(text)),
+        }; }),
       };
-    })()`);
+    }, config);
     if (!this.options.artifactDir) return { ...snapshot, reason };
     const filename = `assertion-failure-${hash(workloadId).slice(0, 12)}-${Date.now()}.json`;
     const output = path.join(this.options.artifactDir, filename);
-    const safeServerEvidence = this.requests
-      .filter((request) => request.apiRequest && request.response && (request.metrics || request.identities))
-      .map((request) => ({
-        category: request.category,
-        status: request.response.status,
-        canceled: Boolean(request.failed?.canceled),
-        metrics: request.metrics,
-        identitySha256: request.identities
-          ? Object.fromEntries(Object.entries(request.identities).map(([key, value]) => [key, hash(value)]))
-          : null,
-      }));
-    await writeFile(output, `${JSON.stringify({
-      schemaVersion: 2,
-      workloadId,
-      reason,
-      capturedAt: new Date().toISOString(),
-      ...snapshot,
-      checkedChoicesBeforeProposal: this.checkedChoicesBeforeProposal,
-      safeServerEvidence,
-    }, null, 2)}\n`, { mode: 0o600 });
+    const safeServerEvidence = this.requests.filter(request => request.apiRequest && request.response && (request.metrics || request.identities)).map(request => ({
+      category: request.category, status: request.response.status, canceled: Boolean(request.failed?.canceled), metrics: request.metrics,
+      identitySha256: request.identities ? Object.fromEntries(Object.entries(request.identities).map(([key, value]) => [key, hash(value)])) : null,
+    }));
+    await writeFile(output, `${JSON.stringify({ schemaVersion: 2, workloadId, reason, capturedAt: new Date().toISOString(), ...snapshot,
+      checkedChoicesBeforeProposal: this.checkedChoicesBeforeProposal, safeServerEvidence }, null, 2)}\n`, { mode: 0o600 });
     return output;
   }
 
-  async close() {
-    this.client.close();
-    if (this.chrome.exitCode == null) this.chrome.kill('SIGTERM');
-    await new Promise((resolve) => {
-      if (this.chrome.exitCode != null) resolve();
-      else {
-        this.chrome.once('exit', resolve);
-        setTimeout(() => {
-          if (this.chrome.exitCode == null) this.chrome.kill('SIGKILL');
-          resolve();
-        }, 3000).unref();
-      }
-    });
-    await rm(this.profile, { recursive: true, force: true });
+  assertHealthy(requestOffset = 0) {
+    const requestFailures = this.requests.slice(requestOffset).filter(request => request.apiRequest &&
+      (request.response?.status >= 400 || (request.failed && !request.failed.canceled)))
+      .map(request => ({ route: request.route, status: request.response?.status ?? null, failure: request.failed?.errorText ?? null }));
+    const diagnostics = this.harness.diagnostics;
+    const browserErrors = [...diagnostics.pageErrors, ...diagnostics.console].map(item => item.message ?? item.text);
+    if (requestFailures.length || browserErrors.length) {
+      throw new Error(`unexpected browser/API failures; requests=${JSON.stringify(requestFailures)} browserErrors=${JSON.stringify(browserErrors.slice(0, 20))}`);
+    }
   }
+
+  async close() { await this.harness.close(); }
+  async captureFailure(error, details) { await this.harness.captureFailure(error, details); }
 }
 
-function completionExpression(config, expected, previousIdentity, requireIdentityChange) {
-  const encoded = JSON.stringify({ config, expected, previousIdentity, requireIdentityChange });
-  return `(() => {
-    const args = ${encoded};
-    const root = document.querySelector(args.config.rootSelector);
-    if (!root || !root.getClientRects().length) return null;
-    const status = args.config.statusAttribute ? root.getAttribute(args.config.statusAttribute) : null;
-    const identity = args.config.identityAttribute ? (root.getAttribute(args.config.identityAttribute) || '') : '';
-    const apply = document.querySelector(args.config.applySelector);
-    const selector = args.config.tablesSelector || args.config.tableSelector;
-    const tables = args.config.tablesSelector
-      ? [...root.querySelectorAll(selector)]
-      : [root.querySelector(selector) || document.querySelector(selector)].filter(Boolean);
-    if (tables.length === 0 || tables.some((table) => !table.getClientRects().length)) return null;
-    const readTable = (table) => {
-      const headers = [...table.querySelectorAll(args.config.headerSelector || 'thead th')]
-        .filter((el) => el.getClientRects().length).map((el) => el.innerText.trim());
-      const rows = [...table.querySelectorAll(args.config.rowSelector || 'tbody tr')]
-        .filter((row) => row.getClientRects().length)
-        .map((row) => [...row.querySelectorAll(args.config.cellSelector || 'th, td')]
-          .filter((cell) => cell.getClientRects().length).map((cell) => cell.innerText.trim()));
-      const group = args.config.rowGroupSelector ? table.closest(args.config.rowGroupSelector) : null;
-      const rowIdentity = args.config.rowIdentitySelector ? group?.querySelector(args.config.rowIdentitySelector)?.innerText.trim() : null;
-      if (rowIdentity !== null && rowIdentity !== undefined) {
-        headers.unshift(args.config.rowIdentityHeader || 'Row');
-        for (const row of rows) row.unshift(rowIdentity);
-      }
-      return { headers, rows };
-    };
-    const renderedTables = tables.map(readTable);
-    const readMetric = (selector) => {
-      if (!selector) return null;
-      const value = root.querySelector(selector)?.innerText.trim() ?? '';
-      const number = Number(value);
-      return value !== '' && Number.isFinite(number) ? number : null;
-    };
-    const metrics = Object.fromEntries(Object.entries(args.config.metricSelectors ?? {})
-      .map(([name, selector]) => [name, readMetric(selector)]));
-    const contextConfig = args.config.identityContext;
-    const contextRoot = contextConfig ? document.querySelector(contextConfig.selector) : null;
-    const identityContext = contextConfig
-      ? Object.fromEntries(Object.entries(contextConfig.fields).map(([name, attribute]) => [name, contextRoot?.getAttribute(attribute) ?? '']))
-      : null;
-    const checkedChoices = args.config.checkedChoiceSelector
-      ? [...document.querySelectorAll(args.config.checkedChoiceSelector)]
-        .filter((input) => input.checked && input.getClientRects().length)
-        .map((input) => input.getAttribute('aria-label'))
-      : null;
-    const expectedTables = args.expected.tables || [{ columns: args.expected.columns, rows: args.expected.rows }];
-    const cellMatches = (actual, expected) => expected === '$any'
-      ? typeof actual === 'string' && actual.length > 0
-      : actual === expected;
-    const rowMatches = (actual, expected) => actual.length === expected.length
-      && actual.every((value, index) => cellMatches(value, expected[index]));
-    const tablesMatch = renderedTables.length === expectedTables.length && renderedTables.every((table, index) =>
-      table.headers.length === expectedTables[index].columns.length
-      && table.headers.every((value, headerIndex) => cellMatches(value, expectedTables[index].columns[headerIndex]))
-      && table.rows.length === expectedTables[index].rows.length
-      && table.rows.every((row, rowIndex) => rowMatches(row, expectedTables[index].rows[rowIndex])));
-    const statusReady = !args.config.statusAttribute || status === (args.config.readyValue || 'ready');
-    const identityReady = !args.config.identityAttribute || (identity.length > 0
-      && (!args.requireIdentityChange || identity !== args.previousIdentity));
-    const candidateRowsReady = !args.config.metricSelectors?.candidateRowCount
-      || (Number.isInteger(metrics.candidateRowCount) && metrics.candidateRowCount > 0);
-    const ready = statusReady && identityReady
-      && apply && !apply.disabled && apply.getAttribute('aria-disabled') !== 'true'
-      && renderedTables.length > 0 && candidateRowsReady;
-    return ready ? { identity, tables: renderedTables, matchesExpected: tablesMatch, metrics, checkedChoices, identityContext, completedAt: performance.now() } : null;
-  })()`;
+function completionPredicate(args) {
+  const { config, expected, previousIdentity, requireIdentityChange } = args;
+  const root = document.querySelector(config.rootSelector);
+  if (!root || !root.getClientRects().length) return null;
+  const status = config.statusAttribute ? root.getAttribute(config.statusAttribute) : null;
+  const identity = config.identityAttribute ? (root.getAttribute(config.identityAttribute) || '') : '';
+  const apply = document.querySelector(config.applySelector);
+  const selector = config.tablesSelector || config.tableSelector;
+  const tables = config.tablesSelector ? [...root.querySelectorAll(selector)] : [root.querySelector(selector) || document.querySelector(selector)].filter(Boolean);
+  if (!tables.length || tables.some(table => !table.getClientRects().length)) return null;
+  const readTable = table => {
+    const headers = [...table.querySelectorAll(config.headerSelector || 'thead th')].filter(el => el.getClientRects().length).map(el => el.innerText.trim());
+    const rows = [...table.querySelectorAll(config.rowSelector || 'tbody tr')].filter(row => row.getClientRects().length)
+      .map(row => [...row.querySelectorAll(config.cellSelector || 'th, td')].filter(cell => cell.getClientRects().length).map(cell => cell.innerText.trim()));
+    const group = config.rowGroupSelector ? table.closest(config.rowGroupSelector) : null;
+    const rowIdentity = config.rowIdentitySelector ? group?.querySelector(config.rowIdentitySelector)?.innerText.trim() : null;
+    if (rowIdentity !== null && rowIdentity !== undefined) { headers.unshift(config.rowIdentityHeader || 'Row'); for (const row of rows) row.unshift(rowIdentity); }
+    return { headers, rows };
+  };
+  const renderedTables = tables.map(readTable);
+  const readMetric = selector => { if (!selector) return null; const value = root.querySelector(selector)?.innerText.trim() ?? ''; const number = Number(value); return value !== '' && Number.isFinite(number) ? number : null; };
+  const metrics = Object.fromEntries(Object.entries(config.metricSelectors ?? {}).map(([name, metricSelector]) => [name, readMetric(metricSelector)]));
+  const contextConfig = config.identityContext;
+  const contextRoot = contextConfig ? document.querySelector(contextConfig.selector) : null;
+  const identityContext = contextConfig ? Object.fromEntries(Object.entries(contextConfig.fields).map(([name, attribute]) => [name, contextRoot?.getAttribute(attribute) ?? ''])) : null;
+  const checkedChoices = config.checkedChoiceSelector ? [...document.querySelectorAll(config.checkedChoiceSelector)].filter(input => input.checked && input.getClientRects().length).map(input => input.getAttribute('aria-label')) : null;
+  const expectedTables = expected.tables || [{ columns: expected.columns, rows: expected.rows }];
+  const cellMatches = (actual, wanted) => wanted === '$any' ? typeof actual === 'string' && actual.length > 0 : actual === wanted;
+  const rowMatches = (actual, wanted) => actual.length === wanted.length && actual.every((value, index) => cellMatches(value, wanted[index]));
+  const tablesMatch = renderedTables.length === expectedTables.length && renderedTables.every((table, index) => table.headers.length === expectedTables[index].columns.length
+    && table.headers.every((value, headerIndex) => cellMatches(value, expectedTables[index].columns[headerIndex]))
+    && table.rows.length === expectedTables[index].rows.length && table.rows.every((row, rowIndex) => rowMatches(row, expectedTables[index].rows[rowIndex])));
+  const statusReady = !config.statusAttribute || status === (config.readyValue || 'ready');
+  const identityReady = !config.identityAttribute || (identity.length > 0 && (!requireIdentityChange || identity !== previousIdentity));
+  const candidateRowsReady = !config.metricSelectors?.candidateRowCount || (Number.isInteger(metrics.candidateRowCount) && metrics.candidateRowCount > 0);
+  const ready = statusReady && identityReady && apply && !apply.disabled && apply.getAttribute('aria-disabled') !== 'true' && renderedTables.length > 0 && candidateRowsReady;
+  return ready ? { identity, tables: renderedTables, matchesExpected: tablesMatch, metrics, checkedChoices, identityContext, completedAt: performance.now() } : null;
 }
 
 async function waitForCompletion(session, config, expected, previousIdentity, timeoutMs = 30000, requireIdentityChange = true) {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    const result = await session.evaluate(completionExpression(config, expected, previousIdentity, requireIdentityChange));
-    if (result) return result;
-    await new Promise((resolve) => setTimeout(resolve, 20));
+  try {
+    const handle = await session.page.waitForFunction(completionPredicate,
+      { config, expected, previousIdentity, requireIdentityChange }, { timeout: timeoutMs });
+    return await handle.jsonValue();
+  } catch (error) {
+    const failure = await session.page.evaluate(({ config }) => {
+      const root = document.querySelector(config.rootSelector);
+      const apply = document.querySelector(config.applySelector);
+      const selector = config.tablesSelector || config.tableSelector || '';
+      const table = root?.querySelector(selector) || document.querySelector(selector);
+      return { rootVisible: Boolean(root?.getClientRects().length), status: config.statusAttribute ? root?.getAttribute(config.statusAttribute) ?? null : null,
+        identityPresent: config.identityAttribute ? Boolean(root?.getAttribute(config.identityAttribute)) : false,
+        applyEnabled: Boolean(apply && !apply.disabled && apply.getAttribute('aria-disabled') !== 'true'), tableVisible: Boolean(table?.getClientRects().length) };
+    }, { config });
+    const evidence = await session.captureAssertionDom(config, 'timeout', 'preview did not reach a rendered, applicable comparison');
+    throw new Error(`preview did not reach a rendered, applicable comparison before timeout; checks=${JSON.stringify(failure)}; cause=${error.message}${evidence ? `; assertionDom=${typeof evidence === 'string' ? evidence : 'captured'}` : ''}`);
   }
-  const failure = await session.evaluate(`(() => {
-    const root = document.querySelector(${JSON.stringify(config.rootSelector)});
-    const apply = document.querySelector(${JSON.stringify(config.applySelector)});
-    const tableSelector = ${JSON.stringify(config.tablesSelector || config.tableSelector || '')};
-    const table = root?.querySelector(tableSelector) || document.querySelector(tableSelector);
-    return {
-      rootVisible: Boolean(root?.getClientRects().length),
-      status: ${config.statusAttribute ? `root?.getAttribute(${JSON.stringify(config.statusAttribute)}) ?? null` : 'null'},
-      identityPresent: ${config.identityAttribute ? `Boolean(root?.getAttribute(${JSON.stringify(config.identityAttribute)}))` : 'false'},
-      applyEnabled: Boolean(apply && !apply.disabled && apply.getAttribute('aria-disabled') !== 'true'),
-      tableVisible: Boolean(table?.getClientRects().length),
-    };
-  })()`);
-  const evidence = await session.captureAssertionDom(config, 'timeout', 'preview did not reach a rendered, applicable comparison');
-  throw new Error(`preview did not reach a rendered, applicable comparison before timeout; checks=${JSON.stringify(failure)}${evidence ? `; assertionDom=${typeof evidence === 'string' ? evidence : 'captured'}` : ''}`);
 }
 
 async function measureOne(session, workload, sample, lane, sampleIndex, builderApiUrl, authorization) {
@@ -852,18 +618,18 @@ async function measureOne(session, workload, sample, lane, sampleIndex, builderA
   const readyStep = sample.setup?.find((step) => step.type === 'waitFor');
   if (readyStep) await session.action(readyStep);
   const previousIdentity = completion.identityAttribute
-    ? await session.evaluate(`document.querySelector(${JSON.stringify(completion.rootSelector)})?.getAttribute(${JSON.stringify(completion.identityAttribute)}) || ''`)
+    ? await session.page.evaluate(({ rootSelector, identityAttribute }) => document.querySelector(rootSelector)?.getAttribute(identityAttribute) || '', completion)
     : '';
   const builderState = completion.builderStateIdentityFields?.length
     ? await requestBuilderIdentity(builderApiUrl, authorization)
     : null;
   const requestOffset = session.requests.length;
-  const startAt = await session.evaluate('performance.now()');
+  const startAt = await session.page.evaluate(() => performance.now());
   await session.actions(sample.setup);
   const checkedChoicesBeforeProposal = completion.checkedChoiceSelector
-    ? await session.evaluate(`[...document.querySelectorAll(${JSON.stringify(completion.checkedChoiceSelector)})]
-      .filter((input) => input.checked && input.getClientRects().length)
-      .map((input) => input.getAttribute('aria-label'))`)
+    ? await session.page.evaluate(({ selector }) => [...document.querySelectorAll(selector)]
+      .filter(input => input.checked && input.getClientRects().length).map(input => input.getAttribute('aria-label')),
+    { selector: completion.checkedChoiceSelector })
     : null;
   session.checkedChoicesBeforeProposal = checkedChoicesBeforeProposal;
   await session.actions(sample.request);
@@ -885,7 +651,7 @@ async function measureOne(session, workload, sample, lane, sampleIndex, builderA
     }
   }
   const endToEndMs = rendered.completedAt - startAt;
-  const resources = await session.evaluate(`performance.getEntriesByType('resource').filter((entry) => entry.startTime >= ${startAt}).map((entry) => {
+  const resources = await session.page.evaluate(({ startAt, apiOrigin, pageOrigin }) => performance.getEntriesByType('resource').filter(entry => entry.startTime >= startAt).map((entry) => {
     let url; try { url = new URL(entry.name); } catch { return null; }
     const path = url.pathname.toLowerCase();
     const apiPath = path.startsWith('/api/') || path.startsWith('/graphql/') || path === '/readyz' || path === '/healthz';
@@ -900,7 +666,8 @@ async function measureOne(session, workload, sample, lane, sampleIndex, builderA
             ? 'context-resolution'
             : 'other-api';
     return { origin: url.origin, apiPath, route: path.split('/').filter(Boolean).at(-1) || 'root', category, initiatorType: entry.initiatorType, startMs: entry.startTime, durationMs: entry.duration, responseEndMs: entry.responseEnd, transferBytes: entry.transferSize, encodedBytes: entry.encodedBodySize, decodedBytes: entry.decodedBodySize };
-  }).filter((entry) => entry && ['fetch', 'xmlhttprequest'].includes(entry.initiatorType.toLowerCase()) && (entry.origin === ${JSON.stringify(session.apiOrigin)} || (entry.origin === ${JSON.stringify(session.pageOrigin)} && entry.apiPath)))`);
+  }).filter(entry => entry && ['fetch', 'xmlhttprequest'].includes(entry.initiatorType.toLowerCase()) && (entry.origin === apiOrigin || (entry.origin === pageOrigin && entry.apiPath))),
+  { startAt, apiOrigin: session.apiOrigin, pageOrigin: session.pageOrigin });
   const requests = session.requests.slice(requestOffset).filter((request) => request.apiRequest).map((request) => ({
     route: request.route,
     category: request.category,
@@ -996,6 +763,7 @@ async function measureOne(session, workload, sample, lane, sampleIndex, builderA
   }
   const previewIdentity = rendered.identity || backendIdentity || '';
   await session.actions(workload.cleanup);
+  session.assertHealthy(requestOffset);
   return {
     workloadId: workload.id,
     sampleId: sample.id,
@@ -1033,10 +801,10 @@ async function runSupersessionProbe(session, workload) {
   if (!probe) return null;
   await session.actions(workload.prepare);
   const previousIdentity = workload.completion.identityAttribute
-    ? await session.evaluate(`document.querySelector(${JSON.stringify(workload.completion.rootSelector)})?.getAttribute(${JSON.stringify(workload.completion.identityAttribute)}) || ''`)
+    ? await session.page.evaluate(({ rootSelector, identityAttribute }) => document.querySelector(rootSelector)?.getAttribute(identityAttribute) || '', workload.completion)
     : '';
   const requestOffset = session.requests.length;
-  const startAt = await session.evaluate('performance.now()');
+  const startAt = await session.page.evaluate(() => performance.now());
   await session.actions(probe.setup ?? []);
   for (const [index, burst] of probe.actions.entries()) {
     await session.actions(burst);
@@ -1056,6 +824,7 @@ async function runSupersessionProbe(session, workload) {
     requests: requests.map((request) => ({ route: request.route, category: request.category, status: request.response?.status ?? null, canceled: Boolean(request.failed?.canceled) })),
   };
   await session.actions(workload.cleanup);
+  session.assertHealthy(requestOffset);
   if (!result.correctLatestRows) throw new Error(`supersession probe rendered incorrect latest rows for ${workload.id}`);
   return result;
 }
@@ -1136,6 +905,13 @@ async function run(options, authorization, scenario) {
           const probe = await runSupersessionProbe(sessions[0], workload);
           probes.push({ ...probe, concurrency });
         }
+      } catch (error) {
+        await sessions[0]?.captureFailure(error, { phase: 'construction preview benchmark', workloadId: workload.id, concurrency });
+        const failurePath = path.join(artifactDir, 'failure-report.json');
+        await writeFile(failurePath, `${JSON.stringify({ schemaVersion: 1, result: 'BENCHMARK_FAILED', startedAt,
+          failedAt: new Date().toISOString(), target: { pageOrigin: new URL(scenario.pageUrl).origin, apiOrigin: new URL(scenario.apiUrl).origin },
+          workloadId: workload.id, concurrency, error: redactAuth(error.stack ?? error.message, authorization) }, null, 2)}\n`, { mode: 0o600 });
+        throw new Error(`${error.message}; failure evidence: ${failurePath}`, { cause: error });
       } finally {
         await Promise.all(sessions.map((session) => session.close()));
       }

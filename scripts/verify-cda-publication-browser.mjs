@@ -3,11 +3,11 @@ import { randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { browserEval, click, launchBrowser, navigate, waitForBrowser } from './lib/browser.mjs';
+import { assertOwnedTarget, browserEval, click, launchBrowser, navigate, waitForBrowser, captureRequests, waitForCapturedResponse, includeBrowserDiagnostics } from './lib/cda-playwright.mjs';
 
-const project = 'loom_dev_cda_fhir';
-const apiOrigin = (process.env.LOOM_CDA_API_ORIGIN ?? 'http://127.0.0.1:8188').replace(/\/$/, '');
-const uiOrigin = (process.env.LOOM_CDA_UI_ORIGIN ?? 'http://127.0.0.1:30008').replace(/\/$/, '');
+const project = process.env.LOOM_CDA_PROJECT;
+const apiOrigin = process.env.LOOM_CDA_API_ORIGIN?.replace(/\/$/, '');
+const uiOrigin = process.env.LOOM_CDA_UI_ORIGIN?.replace(/\/$/, '');
 const explorerId = `cda-publication-browser-${Date.now()}-${randomUUID().slice(0, 8)}`;
 const explorerRoot = `/api/v1/projects/${encodeURIComponent(project)}/explorers`;
 const explorerPath = `${explorerRoot}/${encodeURIComponent(explorerId)}`;
@@ -16,7 +16,7 @@ const pageURL = `${uiOrigin}/?project=${encodeURIComponent(project)}&explorer=${
 const viewerURL = `${uiOrigin}/?project=${encodeURIComponent(project)}&explorer=${encodeURIComponent(explorerId)}&mode=viewer`;
 const evidenceDirectory = process.argv[2] ?? join('.artifacts', 'cda-publication-browser', explorerId);
 const apiToken = process.env.LOOM_CDA_API_TOKEN;
-const clickhouseContainer = process.env.LOOM_CLICKHOUSE_CONTAINER ?? 'loom-dev-6d7df93d6a37-clickhouse-1';
+const clickhouseContainer = process.env.LOOM_CLICKHOUSE_CONTAINER;
 const report = {
   explorerId,
   project,
@@ -27,15 +27,14 @@ const report = {
   protocol: [],
   errors: [],
   incidentalErrors: [],
+  nativeRequests: [],
   timingsMs: {},
   limitations: [
     'The run-owned Explorer and its materialization are retained because this local API has no Explorer or publication delete operation.',
     'The publication contract covers one direct Specimen ID output with at most three source records; it does not exercise broader CDA transformations.',
   ],
 };
-const protocolRequests = new Map();
-const allNetworkRequests = new Map();
-const responseTasks = [];
+let browserEvents;
 let browser;
 let builder;
 let sourceIds = [];
@@ -66,7 +65,7 @@ const api = async (path, body) => {
 const rawCdaOracle = (query, bindVars) => {
   const javascript = `const rows = db._query(${JSON.stringify(query)}, ${JSON.stringify(bindVars)}).toArray(); print(JSON.stringify(rows));`;
   const result = spawnSync('rtk', [
-    'proxy', 'docker', 'exec', process.env.LOOM_ARANGO_CONTAINER ?? 'loom-dev-6d7df93d6a37-arangodb-1',
+    'proxy', 'docker', 'exec', process.env.LOOM_ARANGO_CONTAINER,
     'arangosh', '--server.database', 'loom_dev', '--javascript.execute-string', javascript,
   ], { encoding: 'utf8', timeout: 30000, maxBuffer: 2_000_000 });
   assert.equal(result.status, 0, result.stderr || result.stdout);
@@ -179,80 +178,21 @@ const seedOwnedExplorer = async () => {
   };
 };
 
-const captureNativeProtocol = (cdp) => {
-  cdp.on('Runtime.exceptionThrown', ({ exceptionDetails }) => {
-    report.errors.push({ kind: 'runtime', message: exceptionDetails?.exception?.description ?? exceptionDetails?.text ?? 'Browser exception' });
-  });
-  cdp.on('Runtime.consoleAPICalled', ({ type, args }) => {
-    if (type === 'error') report.errors.push({ kind: 'console', message: args.map((arg) => arg.value ?? arg.description ?? '').join(' ') });
-  });
-  cdp.on('Network.requestWillBeSent', ({ requestId, request }) => {
-    const url = new URL(request.url);
-    const isOwnedRequest = url.pathname.includes(`/explorers/${explorerId}/`);
-    allNetworkRequests.set(requestId, { path: url.pathname, url: request.url, owned: isOwnedRequest });
-    if (!isOwnedRequest) return;
-    const entry = {
-      path: url.pathname,
-      method: request.method,
-      request: undefined,
-    };
-    if (request.postData) {
-      try { entry.request = JSON.parse(request.postData); }
-      catch { entry.request = request.postData; }
-    }
-    protocolRequests.set(requestId, entry);
-    report.protocol.push(entry);
-  });
-  cdp.on('Network.responseReceived', ({ requestId, response, type }) => {
-    const entry = protocolRequests.get(requestId);
-    if (entry) {
-      entry.status = response.status;
-      entry.responseURL = response.url;
-    }
-    if (response.status < 400) return;
-    const request = allNetworkRequests.get(requestId);
-    const error = { kind: 'http', path: request?.path ?? new URL(response.url).pathname, status: response.status, resourceType: type, owned: request?.owned ?? false };
-    if (error.path.endsWith('/favicon.ico') && response.status === 404) report.incidentalErrors.push({ ...error, reason: 'The local app has no favicon asset.' });
-    else report.errors.push(error);
-  });
-  cdp.on('Network.loadingFinished', ({ requestId }) => {
-    const entry = protocolRequests.get(requestId);
-    if (!entry) return;
-    responseTasks.push(cdp.send('Network.getResponseBody', { requestId }).then(({ body, base64Encoded }) => {
-      const text = base64Encoded ? Buffer.from(body, 'base64').toString('utf8') : body;
-      try { entry.response = JSON.parse(text); }
-      catch { entry.response = text; }
-    }).catch((error) => { entry.responseBodyError = String(error); }));
-  });
-  cdp.on('Network.loadingFailed', ({ requestId, errorText, type }) => {
-    const entry = protocolRequests.get(requestId);
-    if (entry) entry.loadingError = errorText;
-    const request = allNetworkRequests.get(requestId);
-    if (request?.url && new URL(request.url).hostname === 'www.google.com' && request.path === '/one-google-bar' && errorText === 'net::ERR_ABORTED' && type === 'Document') {
-      report.incidentalErrors.push({ kind: 'network', path: request.path, origin: new URL(request.url).origin, error: errorText, reason: 'Chrome new-tab document aborted when navigating to the local application.' });
-      return;
-    }
-    report.errors.push({ kind: 'network', path: request?.path, resourceType: type, owned: request?.owned ?? false, error: errorText });
-  });
+const captureNativeProtocol = () => {
+  report.nativeRequests = [];
+  browserEvents = captureRequests(browser, report, explorerPath, { apiOrigin, uiOrigin, responsePaths: /preview|publish/ });
+  report.protocol = report.nativeRequests;
 };
 
 const waitForProtocolResponse = async (pathSuffix, timeoutMs) => {
-  const started = Date.now();
-  while (Date.now() - started < timeoutMs) {
-    const entry = report.protocol.find((candidate) => candidate.path.endsWith(pathSuffix) && candidate.status !== undefined);
-    if (entry) {
-      await Promise.all(responseTasks);
-      if (entry.response === undefined) await new Promise((resolve) => setTimeout(resolve, 50));
-      if (entry.response !== undefined) return entry;
-    }
-    await new Promise((resolve) => setTimeout(resolve, 50));
-  }
-  throw new Error(`Timed out waiting for native protocol response ${pathSuffix}`);
+  const predicate = entry => entry.path.endsWith(pathSuffix) && entry.response !== undefined;
+  const existing = report.protocol.findLast(predicate);
+  return existing ?? waitForCapturedResponse(browser.page, browserEvents, predicate, timeoutMs);
 };
 
-const previewSnapshot = async () => browserEval(browser.cdp, `const panel=document.querySelector('[data-testid="construction-preview"]');const table=document.querySelector('[data-testid="preview-table-scroll"] [role="table"]');const headers=table?[...table.querySelectorAll('[role="columnheader"]')].map(cell=>cell.innerText.trim()):[];const rows=table?[...table.querySelectorAll('[role="row"]')].slice(1).map(row=>[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText.trim())):[];const idIndex=headers.findIndex(header=>header.toUpperCase()==='SPECIMEN ID');return {status:panel?.dataset.previewStatus,outputId:panel?.dataset.previewOutputId,currentDraftVersion:panel?.dataset.currentDraftVersion,currentDraftDigest:panel?.dataset.currentDraftDigest,receiptId:panel?.dataset.previewReceiptId,headers,rows,specimenIds:idIndex<0?[]:rows.map(row=>row[idIndex]).filter(Boolean),ariaRowCount:table?.getAttribute('aria-rowcount')};`);
+const previewSnapshot = async () => browserEval(browser.page, () => { const panel=document.querySelector('[data-testid="construction-preview"]');const table=document.querySelector('[data-testid="preview-table-scroll"] [role="table"]');const headers=table?[...table.querySelectorAll('[role="columnheader"]')].map(cell=>cell.innerText.trim()):[];const rows=table?[...table.querySelectorAll('[role="row"]')].slice(1).map(row=>[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText.trim())):[];const idIndex=headers.findIndex(header=>header.toUpperCase()==='SPECIMEN ID');return {status:panel?.dataset.previewStatus,outputId:panel?.dataset.previewOutputId,currentDraftVersion:panel?.dataset.currentDraftVersion,currentDraftDigest:panel?.dataset.currentDraftDigest,receiptId:panel?.dataset.previewReceiptId,headers,rows,specimenIds:idIndex<0?[]:rows.map(row=>row[idIndex]).filter(Boolean),ariaRowCount:table?.getAttribute('aria-rowcount')}; });
 
-const viewerSnapshot = async () => browserEval(browser.cdp, `const normalize=value=>String(value??'').replace(/\\s+/g,' ').trim();const tables=[...document.querySelectorAll('[role="table"],table')];const readTable=table=>{const headerNodes=[...table.querySelectorAll('[role="columnheader"],thead th')];const headers=headerNodes.map(cell=>normalize(cell.innerText||cell.textContent));const idIndex=headers.findIndex(header=>header.toUpperCase()==='SPECIMEN ID');const rowNodes=[...table.querySelectorAll('[role="row"],tbody tr')].filter(row=>!row.querySelector('[role="columnheader"],th'));const rows=rowNodes.map(row=>[...row.querySelectorAll('[role="cell"],td')].map(cell=>normalize(cell.innerText||cell.textContent)));return {headers,idIndex,rows,specimenIds:idIndex<0?[]:rows.map(row=>row[idIndex]).filter(Boolean),ariaRowCount:table.getAttribute('aria-rowcount')};};return {url:location.href,body:document.body.innerText.slice(0,1800),tables:tables.map(readTable)};`);
+const viewerSnapshot = async () => browserEval(browser.page, () => { const normalize=value=>String(value??'').replace(/\s+/g,' ').trim();const tables=[...document.querySelectorAll('[role="table"],table')];const readTable=table=>{const headerNodes=[...table.querySelectorAll('[role="columnheader"],thead th')];const headers=headerNodes.map(cell=>normalize(cell.innerText||cell.textContent));const idIndex=headers.findIndex(header=>header.toUpperCase()==='SPECIMEN ID');const rowNodes=[...table.querySelectorAll('[role="row"],tbody tr')].filter(row=>!row.querySelector('[role="columnheader"],th'));const rows=rowNodes.map(row=>[...row.querySelectorAll('[role="cell"],td')].map(cell=>normalize(cell.innerText||cell.textContent)));return {headers,idIndex,rows,specimenIds:idIndex<0?[]:rows.map(row=>row[idIndex]).filter(Boolean),ariaRowCount:table.getAttribute('aria-rowcount')};};return {url:location.href,body:document.body.innerText.slice(0,1800),tables:tables.map(readTable)}; });
 
 const assertExactIds = (actualIds, expectedIds, label) => {
   assert(actualIds.length > 0, `${label} rendered no source IDs`);
@@ -300,14 +240,21 @@ const readPublishedMaterialization = (publication) => {
 };
 
 const verifyViewerAndReload = async () => {
-  const viewerRowsReady = `([...document.querySelectorAll('[role="table"],table')].some(table=>{const headers=[...table.querySelectorAll('[role="columnheader"],thead th')];const index=headers.findIndex(cell=>cell.innerText.trim().toUpperCase()==='SPECIMEN ID');if(index<0)return false;const rows=[...table.querySelectorAll('[role="row"],tbody tr')].filter(row=>!row.querySelector('[role="columnheader"],th'));const ids=rows.map(row=>[...row.querySelectorAll('[role="cell"],td')][index]?.innerText.trim()).filter(Boolean);return JSON.stringify(ids.sort())===${JSON.stringify(JSON.stringify([...sourceIds].sort()))};}))`;
+  const viewerRowsReady = ([expectedIds]) => [...document.querySelectorAll('[role="table"],table')].some(table => {
+    const headers = [...table.querySelectorAll('[role="columnheader"],thead th')];
+    const index = headers.findIndex(cell => cell.innerText.trim().toUpperCase() === 'SPECIMEN ID');
+    if (index < 0) return false;
+    const rows = [...table.querySelectorAll('[role="row"],tbody tr')].filter(row => !row.querySelector('[role="columnheader"],th'));
+    const ids = rows.map(row => [...row.querySelectorAll('[role="cell"],td')][index]?.innerText.trim()).filter(Boolean);
+    return JSON.stringify(ids.sort()) === JSON.stringify([...expectedIds].sort());
+  });
   const openedAt = Date.now();
-  const viewerControl = await browserEval(browser.cdp, `const button=[...document.querySelectorAll('button')].find(candidate=>candidate.textContent?.trim()==='Viewer');return {visible:Boolean(button&&button.offsetParent!==null),disabled:button?.disabled};`);
+  const viewerControl = await browserEval(browser.page, () => { const button=[...document.querySelectorAll('button')].find(candidate=>candidate.textContent?.trim()==='Viewer');return {visible:Boolean(button&&button.offsetParent!==null),disabled:button?.disabled}; });
   assert(viewerControl.visible && !viewerControl.disabled, 'Native Viewer control is missing or disabled after publication');
-  report.viewerControl = await click(browser.cdp, 'button', { name: 'Viewer' }, 1500);
-  await waitForBrowser(browser.cdp, `new URL(location.href).searchParams.get('mode')==='viewer'&&new URL(location.href).searchParams.get('project')===${JSON.stringify(project)}&&new URL(location.href).searchParams.get('explorer')===${JSON.stringify(explorerId)}`, 5000);
-  const currentViewerURL = await browserEval(browser.cdp, 'return location.href;');
-  await waitForBrowser(browser.cdp, viewerRowsReady, 5000);
+  report.viewerControl = await click(browser.page, 'button', { name: 'Viewer' }, 1500);
+  await waitForBrowser(browser.page, ([__arg0, __arg1]) => Boolean(new URL(location.href).searchParams.get('mode')==='viewer'&&new URL(location.href).searchParams.get('project')===__arg0&&new URL(location.href).searchParams.get('explorer')===__arg1), [project, explorerId], 5000);
+  const currentViewerURL = await browserEval(browser.page, () => { return location.href; });
+  await waitForBrowser(browser.page, viewerRowsReady, [sourceIds], 5000);
   const first = await viewerSnapshot();
   const table = first.tables.find((candidate) => candidate.idIndex >= 0);
   assert(table, 'Viewer has no published Specimen ID output table');
@@ -320,8 +267,8 @@ const verifyViewerAndReload = async () => {
   assert(report.timingsMs.viewerOpen <= 5000, `Native Viewer open and exact membership exceeded 5000 ms (${report.timingsMs.viewerOpen} ms)`);
 
   const reloadStarted = Date.now();
-  await navigate(browser.cdp, currentViewerURL);
-  await waitForBrowser(browser.cdp, viewerRowsReady, 5000);
+  await navigate(browser.page, currentViewerURL);
+  await waitForBrowser(browser.page, viewerRowsReady, [sourceIds], 5000);
   const reloaded = await viewerSnapshot();
   const reloadedTable = reloaded.tables.find((candidate) => candidate.idIndex >= 0);
   assert(reloadedTable, 'Reloaded Viewer has no published Specimen ID output table');
@@ -336,15 +283,14 @@ const verifyViewerAndReload = async () => {
 const main = async () => {
   await mkdir(evidenceDirectory, { recursive: true });
   await seedOwnedExplorer();
-  browser = await launchBrowser(evidenceDirectory);
-  await navigate(browser.cdp, 'about:blank');
-  captureNativeProtocol(browser.cdp);
-  if (apiToken) await browser.cdp.send('Network.setExtraHTTPHeaders', { headers: { Authorization: `Bearer ${apiToken}` } });
+  browser = await launchBrowser(evidenceDirectory, undefined, { noAuth: !apiToken });
+  captureNativeProtocol();
+  if (apiToken) await browser.context.setExtraHTTPHeaders({ Authorization: `Bearer ${apiToken}` });
 
   const previewStarted = Date.now();
-  await navigate(browser.cdp, pageURL);
-  await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid="construction-workspace"]'))`, 30000);
-  await waitForBrowser(browser.cdp, `(()=>{const p=document.querySelector('[data-testid="construction-preview"]');return Boolean(p&&p.dataset.previewStatus==='ready'&&p.dataset.previewReceiptId&&p.dataset.previewOutputId===${JSON.stringify(outputId)}&&p.dataset.currentDraftVersion&&p.dataset.currentDraftDigest);})()`, 30000);
+  await navigate(browser.page, pageURL);
+  await waitForBrowser(browser.page, () => Boolean(Boolean(document.querySelector('[data-testid="construction-workspace"]'))), [], 30000);
+  await waitForBrowser(browser.page, ([__arg0]) => Boolean((()=>{const p=document.querySelector('[data-testid="construction-preview"]');return Boolean(p&&p.dataset.previewStatus==='ready'&&p.dataset.previewReceiptId&&p.dataset.previewOutputId===__arg0&&p.dataset.currentDraftVersion&&p.dataset.currentDraftDigest);})()), [outputId], 30000);
   report.preview = await previewSnapshot();
   report.timingsMs.automaticPreviewRender = Date.now() - previewStarted;
   assert(report.timingsMs.automaticPreviewRender <= 5000, `Automatic preview render exceeded 5000 ms (${report.timingsMs.automaticPreviewRender} ms)`);
@@ -359,16 +305,16 @@ const main = async () => {
   assert.equal(previewProtocol.status, 200, `Native automatic preview request failed: ${JSON.stringify(previewProtocol)}`);
   report.nativePreviewProtocol = previewProtocol;
 
-  const publishButton = await browserEval(browser.cdp, `const button=[...document.querySelectorAll('button')].find(candidate=>candidate.textContent?.trim()==='Publish');return {disabled:button?.disabled,visible:Boolean(button)};`);
+  const publishButton = await browserEval(browser.page, () => { const button=[...document.querySelectorAll('button')].find(candidate=>candidate.textContent?.trim()==='Publish');return {disabled:button?.disabled,visible:Boolean(button)}; });
   assert(publishButton.visible && !publishButton.disabled, 'Publish is not enabled after the ready native preview');
   const publicationStarted = Date.now();
-  report.publishClick = await click(browser.cdp, 'button', { name: 'Publish' }, 1500);
+  report.publishClick = await click(browser.page, 'button', { name: 'Publish' }, 1500);
   const publishProtocol = await waitForProtocolResponse('/publish', 5000);
   assert.equal(publishProtocol.status, 200, `Native Publish request failed: ${JSON.stringify(publishProtocol)}`);
   const publication = publishProtocol.response;
   assert(publication && typeof publication === 'object', 'Native Publish response body is missing');
   report.publication = publication;
-  await waitForBrowser(browser.cdp, `(()=>{const button=[...document.querySelectorAll('button')].find(candidate=>candidate.textContent?.trim()==='Publish');return Boolean(button&&button.getAttribute('aria-busy')!=='true'&&button.disabled);})()`, 5000);
+  await waitForBrowser(browser.page, () => Boolean((()=>{const button=[...document.querySelectorAll('button')].find(candidate=>candidate.textContent?.trim()==='Publish');return Boolean(button&&button.getAttribute('aria-busy')!=='true'&&button.disabled);})()), [], 5000);
   report.timingsMs.publicationFullAction = Date.now() - publicationStarted;
   assert(report.timingsMs.publicationFullAction <= 5000, `Publication full action exceeded 5000 ms (${report.timingsMs.publicationFullAction} ms)`);
   const materializationStarted = Date.now();
@@ -377,7 +323,8 @@ const main = async () => {
   assert(report.timingsMs.independentClickHouseRead <= 5000, `Independent ClickHouse proof exceeded 5000 ms (${report.timingsMs.independentClickHouseRead} ms)`);
 
   await verifyViewerAndReload();
-  await Promise.all(responseTasks);
+  await browserEvents?.flush();
+  includeBrowserDiagnostics(browser, report);
   assert.equal(browser.dialogErrors.length, 0, `Unexpected browser dialogs: ${JSON.stringify(browser.dialogErrors)}`);
   assert.equal(report.errors.length, 0, `Unexpected browser protocol or runtime errors: ${JSON.stringify(report.errors)}`);
   report.dialogs = browser.dialogErrors;
@@ -385,15 +332,17 @@ const main = async () => {
 };
 
 try {
+  report.target = await assertOwnedTarget({ project, apiOrigin, uiOrigin, clickhouseContainer, requireClickhouse: true });
   await main();
 } catch (error) {
+  await browser?.captureFailure(error, { phase: 'publication', action: browser?.activeAction });
   fatal = error;
   report.status = 'fail';
   report.failure = { message: error instanceof Error ? error.message : String(error), stack: error instanceof Error ? error.stack : undefined };
   report.errors.push({ kind: 'fatal', message: report.failure.message });
 } finally {
   if (browser) {
-    await Promise.all(responseTasks);
+    await browserEvents?.flush();
     report.dialogs = browser.dialogErrors;
     await browser.close().catch((error) => report.errors.push({ kind: 'browser-close', message: String(error) }));
   }

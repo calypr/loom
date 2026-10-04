@@ -11,6 +11,31 @@ Local report paths are retained artifacts, not portable fixtures. Re-run the
 listed command after relevant changes; a historical pass does not verify a new
 binary. The inventory remains open as additional visible controls are found.
 
+## Migrated Playwright cases
+
+`builder-authoring/authoring` uses the visible Builder controls to create a
+Patient table, add Gender, inspect the automatic Preview, Publish, and reload.
+It compares the visible Patient IDs with the independent
+`testdata/devloop-fixture/Patient.ndjson` records and checks both configured
+fields after reload. Run it against an isolated `loom-dev` session with
+`node scripts/verify-ui/builder-authoring.mjs --case authoring`; the exact
+session variables and retained passing report are recorded in
+`docs/PLAYWRIGHT_MIGRATION.md`. That pass predates the CDA extension and is
+historical for its recorded source snapshot.
+
+The same Playwright authoring case can reuse the separately loaded CDA
+generation with `--reuse-owned-dataset`. It selects Patient identifier values
+with ALL, compares the first 25 visible rows and their duplicate-preserving
+value lists with the raw 159,047-Patient file, then checks Publish and reload.
+The retained CDA report passes those correctness and persistence assertions
+but fails the five-second Publish render gate at 14,690 ms. The migrated
+`builder-authoring/suggestions` case passes on that CDA generation for exact
+Patient ID candidate actionability; it does not Apply or reload. See
+`docs/PLAYWRIGHT_MIGRATION.md` for both commands and report paths. The
+registered `verify-ui` cases now use Playwright; their registry status and
+current-source evidence are reported by
+`node scripts/verify-ui/coverage-status.mjs`.
+
 ## Current Builder requirements
 
 Inventory visible actions, including starting records and selections, named
@@ -57,10 +82,10 @@ errors, cleanup, and evidence path. Untested or skipped cases are not passes.
 
 ## Compound coded grouping
 
-Run `node scripts/verify-compound-coded-group.mjs` against the construction
-development stack (UI 30008, API 8188) with the loaded CDA fixture. Override
-`LOOM_UI_ORIGIN`, `LOOM_API_ORIGIN`, or `LOOM_ARANGO_CONTAINER` for another local
-stack. The case uses one Observation and coded values from its component string
+Run `node scripts/verify-compound-coded-group.mjs` with explicit
+`LOOM_CDA_PROJECT`, `LOOM_CDA_UI_ORIGIN`, `LOOM_CDA_API_ORIGIN`,
+`LOOM_CDA_API_CONTAINER`, `LOOM_CDA_COMPOSE_PROJECT`, and
+`LOOM_ARANGO_CONTAINER` for an isolated CDA stack. The case uses one Observation and coded values from its component string
 field, with a raw Arango record as the independent oracle.
 
 Native clicks verify direct selection in Group records, an unchanged draft
@@ -68,7 +93,8 @@ before Apply, one atomic save, reload/edit, an ordinary field alongside coded
 keys, and removal restoring the source table. Picker entry and each preview
 must finish within five seconds. HTTP, console, runtime, DOM, and timing evidence
 is retained under `/tmp/loom-compound-coded-verification` (override with
-`LOOM_VERIFY_OUTPUT`). Each run retains its own QA Explorer for review.
+`LOOM_VERIFY_OUTPUT`). This migrated case has static verification only; run it
+before claiming a browser pass for the current source and build.
 
 ## Construction transition debugging
 
@@ -273,14 +299,17 @@ Removing the edited Pivot must restore the exact related construction.
 Reports default to `/tmp/loom-pivot-category-edit-browser-*`. Record performance
 outliers separately; a later passing run does not erase an earlier failure.
 
-`node scripts/verify-cda-pivot-reload-browser.mjs` profiles five read-only page
-reloads of an owned wide-Pivot QA Explorer. Set `LOOM_PIVOT_RELOAD_SEED` to its
-creation report, defaulting to `/tmp/loom-pivot-category-edit-final-2/report.json`.
-The driver checks the saved category set against the retained CDA oracle,
-verifies visible cells and unchanged draft state, and records request durations
-and response sizes. Missing seed data is a fixture gap. Both quiet and concurrent
-indexing runs must preserve the same five-second bound; retain any earlier
-outlier as unresolved until evidence establishes its cause.
+`node scripts/verify-cda-pivot-reload-browser.mjs <evidence-dir>` uses Playwright
+to open an owned wide-Pivot QA Explorer, sweep its virtualized columns, and
+check five read-only reloads. Set `LOOM_PIVOT_RELOAD_SEED` to that Explorer's
+creation report and set `LOOM_CDA_API_ORIGIN`, `LOOM_CDA_UI_ORIGIN`, and
+`LOOM_CDA_API_CONTAINER` to an isolated CDA stack. The driver checks the saved
+category set against the retained raw CDA witnesses, verifies exact visible
+cell identities and an unchanged draft, enforces five seconds per reload, and
+records source/build identity and first-failure evidence. This migration has
+passed syntax and isolation-guard checks; it has no live CDA pass from this
+branch because the loaded isolated CDA generation has no owned 31-category
+Pivot seed report yet.
 
 `node scripts/verify-cda-pivot-category-cycle-browser.mjs` changes an edited
 Pivot field pair and returns to the original pair before saving. Both previews

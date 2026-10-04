@@ -5,6 +5,7 @@ import { join } from 'node:path';
 const watchedPaths = [
   'cmd', 'internal', 'generated', 'schemas', 'openapi',
   'ui/packages/loom-ui/src', 'ui/apps/demo/src',
+  'scripts', 'testdata/devloop-fixture', '.codex/skills/verify',
   'go.mod', 'go.sum', 'compose.dev.yaml', '.air.dev.toml',
   'ui/apps/demo/index.html', 'ui/apps/demo/vite.config.ts',
 ];
@@ -18,7 +19,10 @@ export const sourceFingerprintWithManifest = (root) => {
     const stat = lstatSync(absolute, { throwIfNoEntry: false });
     if (!stat) return;
     if (stat.isDirectory()) {
-      for (const name of readdirSync(absolute).sort()) visit(join(relative, name));
+      for (const name of readdirSync(absolute).sort()) {
+        if (name === 'node_modules' || name === '.artifacts') continue;
+        visit(join(relative, name));
+      }
       return;
     }
     if (!stat.isFile()) return;
