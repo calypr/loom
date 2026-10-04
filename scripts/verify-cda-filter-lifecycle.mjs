@@ -41,7 +41,7 @@ const builder = async () => {
   return response.json();
 };
 const apiCreate = async () => {
-  const response = await fetch(root, { method: 'POST', headers: { 'content-type': 'application/json' },
+  const response = await fetch(`${apiOrigin}${root}`, { method: 'POST', headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ name: explorerId, title: 'CDA filter lifecycle verification' }), signal: AbortSignal.timeout(30000) });
   const body = await response.json();
   state.responses.push({ path: root, status: response.status });
