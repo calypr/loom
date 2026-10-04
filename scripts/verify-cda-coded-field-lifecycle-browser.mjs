@@ -3,15 +3,21 @@ import { randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { browserEval, click, launchBrowser, navigate, selectOption, waitForBrowser } from './lib/browser.mjs';
+import { fileURLToPath } from 'node:url';
+import { inspectDOM, waitForDOM, clickControl, navigatePage, selectControl, fillControl } from './lib/playwright-verification.mjs';
+import { launchBrowser } from './lib/playwright-browser.mjs';
+import { captureCDARequests } from './lib/cda-playwright-requests.mjs';
+import { assertOwnedCdaTarget } from './lib/owned-cda-target.mjs';
+import { startVerificationIdentity } from './lib/cda-verification-identity.mjs';
+import { performAction } from './lib/playwright-actions.mjs';
 
-const project = 'loom_dev_cda_fhir';
+const project = process.env.LOOM_CDA_PROJECT;
 const generation = 'cda-fhir-v1';
 const protectedExplorer = 'cda-builder-full-qa-1790440983382';
 const explorer = `coded-field-lifecycle-${Date.now()}`;
 const evidence = process.argv[2] ?? `/tmp/loom-coded-field-lifecycle-${Date.now()}`;
-const apiOrigin = process.env.LOOM_CDA_API_ORIGIN ?? 'http://127.0.0.1:8188';
-const uiOrigin = process.env.LOOM_CDA_UI_ORIGIN ?? 'http://127.0.0.1:30008';
+const apiOrigin = process.env.LOOM_CDA_API_ORIGIN;
+const uiOrigin = process.env.LOOM_CDA_UI_ORIGIN;
 const root = `/api/v1/projects/${project}/explorers`;
 const base = `${root}/${explorer}/authoring/v2`;
 const relationship = 'specimen_Specimen';
@@ -29,7 +35,11 @@ let browser;
 let builder;
 let outputId;
 const nativeRequests = [];
-const nativeByRequestId = new Map();
+report.nativeRequests = nativeRequests;
+let requestCapture;
+let verificationIdentity;
+const apiContainer = process.env.LOOM_CDA_API_CONTAINER;
+const composeProject = process.env.LOOM_CDA_COMPOSE_PROJECT;
 const api = async (path, body) => {
   const response = await fetch(apiOrigin + path, {
     method: body === undefined ? 'GET' : 'POST',
@@ -44,7 +54,7 @@ const api = async (path, body) => {
 };
 const rawQuery = (query) => {
   const result = spawnSync('rtk', [
-    'proxy', 'docker', 'exec', process.env.LOOM_ARANGO_CONTAINER ?? 'loom-dev-6d7df93d6a37-arangodb-1',
+    'proxy', 'docker', 'exec', process.env.LOOM_ARANGO_CONTAINER,
     'arangosh', '--server.database', 'loom_dev', '--javascript.execute-string',
     `print(JSON.stringify(db._query(${JSON.stringify(query)}).toArray()));`,
   ], { encoding: 'utf8', timeout: 30000 });
@@ -64,57 +74,16 @@ const command = async (commands) => {
 };
 const doc = (state = builder) => state.workspace.documents.find((document) => document.output.id === outputId);
 const startNativeCapture = () => {
-  browser.cdp.on('Network.requestWillBeSent', ({ requestId, request }) => {
-    const url = new URL(request.url);
-    if (!url.pathname.includes(`/explorers/${explorer}/authoring/v2/`)) {
-      if (url.pathname.includes(`/explorers/${protectedExplorer}/`)) report.protectedExplorerUntouched = false;
-      return;
-    }
-    let body;
-    try { body = request.postData ? JSON.parse(request.postData) : undefined; } catch { body = request.postData; }
-    const entry = { requestId, path: url.pathname, request: body, status: undefined, response: undefined, complete: false };
-    nativeByRequestId.set(requestId, entry);
-    nativeRequests.push(entry);
+  browser.page.on('request', request => {
+    const path = new URL(request.url()).pathname;
+    if (path.includes(`/explorers/${protectedExplorer}/`)) report.protectedExplorerUntouched = false;
   });
-  browser.cdp.on('Network.responseReceived', ({ requestId, response }) => {
-    const entry = nativeByRequestId.get(requestId);
-    if (!entry) return;
-    entry.status = response.status;
-    if (response.status >= 400 && !response.url.endsWith('/favicon.ico')) {
-      const error = { kind: 'http', path: entry.path, status: response.status, request: entry.request };
-      report.errors.push(error);
-      entry.error = error;
-    }
-  });
-  browser.cdp.on('Network.loadingFinished', ({ requestId }) => {
-    const entry = nativeByRequestId.get(requestId);
-    if (!entry) return;
-    void browser.cdp.send('Network.getResponseBody', { requestId }).then((body) => {
-      const raw = body.base64Encoded ? Buffer.from(body.body, 'base64').toString('utf8') : body.body;
-      try { entry.response = JSON.parse(raw); } catch { entry.response = raw; }
-      if (entry.error) entry.error.response = entry.response;
-    }).catch((error) => { entry.bodyError = String(error); }).finally(() => { entry.complete = true; });
-  });
-  browser.cdp.on('Runtime.exceptionThrown', ({ exceptionDetails }) => {
-    report.errors.push({ kind: 'runtime', message: exceptionDetails.exception?.description ?? exceptionDetails.text });
-  });
-  browser.cdp.on('Runtime.consoleAPICalled', ({ type, args }) => {
-    if (type === 'error') report.errors.push({ kind: 'console', message: args.map((arg) => arg.value ?? arg.description ?? '').join(' ').slice(0, 400) });
-  });
-  browser.cdp.on('Network.loadingFailed', ({ type, errorText }) => {
-    if (type === 'Script' && errorText !== 'net::ERR_ABORTED') report.errors.push({ kind: 'module', message: errorText });
+  requestCapture = captureCDARequests(browser.page, {
+    apiOrigin: uiOrigin, appOrigins: [apiOrigin, uiOrigin], ownedPathPrefix: `${root}/${explorer}`,
+    report, responsePaths: /frame-source-options|semantic-inventory|construction-choice-proposals|construction-proposals|commands|preview/,
   });
 };
-const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-const waitNative = async (predicate, fromIndex = 0, timeoutMs = 5000) => {
-  const started = Date.now();
-  while (Date.now() - started < timeoutMs) {
-    const match = nativeRequests.slice(fromIndex).find((entry) => entry.complete && predicate(entry));
-    if (match) return match;
-    await pause(50);
-  }
-  throw new Error(`Timed out waiting for native request; observed ${JSON.stringify(nativeRequests.slice(fromIndex).map(({ path, status, request }) => ({ path, status, request })))}`);
-};
+const waitNative = async (predicate, fromIndex = 0, timeoutMs = 5000) => requestCapture.waitFor(predicate, { fromIndex, timeoutMs });
 const record = (name, started, details = {}) => {
   const durationMs = Date.now() - started;
   assert(durationMs <= 5000, `${name} took ${durationMs} ms`);
@@ -123,11 +92,43 @@ const record = (name, started, details = {}) => {
 const openTable = async (expectedColumnCount, name, expectedTexts = [], expectedRows) => {
   const started = Date.now();
   const fromIndex = nativeRequests.length;
-  await navigate(browser.cdp, `${uiOrigin}/?project=${project}&explorer=${explorer}&mode=builder`);
-  await waitForBrowser(browser.cdp, `Boolean(document.querySelector(${JSON.stringify(`[data-testid="construction-table-${outputId}"]`)}))`, 5000);
-  await click(browser.cdp, `[data-testid="construction-table-${outputId}"]`);
-  await waitForBrowser(browser.cdp, `(() => {const table=document.querySelector('[data-testid="preview-table-scroll"] [role="table"]');return Boolean(table&&!document.body.innerText.includes('Loading your table…')&&!document.body.innerText.includes('Preview failed:'));})()`, 5000);
-  const dom = await browserEval(browser.cdp, `const preview=document.querySelector('[data-testid="preview-table-scroll"]');const table=preview?.querySelector('[role="table"]');if(!preview||!table)throw new Error('Native preview table disappeared');const totalRows=Math.max(0,Number(table.getAttribute('aria-rowcount'))-1);const rowsByAriaRowIndex=new Map();for(let page=0;page<100&&rowsByAriaRowIndex.size<totalRows;page++){for(const row of table.querySelectorAll('[role="row"]')){const rawIndex=Number(row.getAttribute('aria-rowindex'));const labelIndex=Number(row.querySelector('button[aria-label^="Inspect row "]')?.getAttribute('aria-label')?.match(/^Inspect row (\\d+) identity$/)?.[1]);const gutterIndex=Number(row.firstElementChild?.textContent?.trim());const ariaRowIndex=Number.isInteger(rawIndex)&&rawIndex>0?rawIndex:Number.isInteger(labelIndex)&&labelIndex>0?labelIndex+1:Number.isInteger(gutterIndex)&&gutterIndex>0?gutterIndex+1:NaN;if(!Number.isInteger(ariaRowIndex)||ariaRowIndex<=1)continue;const cells=[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText.trim());if(cells.length)rowsByAriaRowIndex.set(ariaRowIndex,cells);}if(rowsByAriaRowIndex.size>=totalRows)break;const maxTop=Math.max(0,preview.scrollHeight-preview.clientHeight);const nextTop=Math.min(preview.scrollTop+Math.max(1,preview.clientHeight/2),maxTop);if(nextTop===preview.scrollTop)break;preview.scrollTop=nextTop;await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));}const indexedRows=[...rowsByAriaRowIndex.entries()].sort((left,right)=>left[0]-right[0]);preview.scrollTop=0;await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));return {rowCount:table.getAttribute('aria-rowcount'),dataRowCount:totalRows,columnCount:table.getAttribute('aria-colcount'),headers:[...preview.querySelectorAll('[role="columnheader"]')].map(cell=>cell.innerText.trim()),rowIndexes:indexedRows.map(([index])=>index),rows:indexedRows.map(([,cells])=>cells)};`);
+  await navigatePage(browser.page, `${uiOrigin}/?project=${project}&explorer=${explorer}&mode=builder`);
+  await waitForDOM(browser.page, args => Boolean(Boolean(document.querySelector(args.__template0))), { __template0: (`[data-testid="construction-table-${outputId}"]`) }, 5000);
+  await clickControl(browser, browser.page, `[data-testid="construction-table-${outputId}"]`);
+  await waitForDOM(browser.page, args => Boolean((() => {const table=document.querySelector('[data-testid="preview-table-scroll"] [role="table"]');return Boolean(table&&!document.body.innerText.includes('Loading your table…')&&!document.body.innerText.includes('Preview failed:'));})()), {}, 5000);
+  const previewSelector = '[data-testid="preview-table-scroll"]';
+  const previewLocator = browser.page.locator(previewSelector);
+  const readMountedRows = () => inspectDOM(browser.page, () => {
+    const preview=document.querySelector('[data-testid="preview-table-scroll"]');
+    const table=preview?.querySelector('[role="table"]');
+    if(!preview||!table) throw new Error('Native preview table disappeared');
+    const rows=[...table.querySelectorAll('[role="row"]')].map(row=>{
+      const rawIndex=Number(row.getAttribute('aria-rowindex'));
+      const labelIndex=Number(row.querySelector('button[aria-label^="Inspect row "]')?.getAttribute('aria-label')?.match(/^Inspect row (\d+) identity$/)?.[1]);
+      const gutterIndex=Number(row.firstElementChild?.textContent?.trim());
+      const index=Number.isInteger(rawIndex)&&rawIndex>0?rawIndex:Number.isInteger(labelIndex)&&labelIndex>0?labelIndex+1:Number.isInteger(gutterIndex)&&gutterIndex>0?gutterIndex+1:NaN;
+      const cells=[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText.trim());
+      return { index, cells };
+    }).filter(row=>row.index>1&&row.cells.length);
+    return { rowCount:Number(table.getAttribute('aria-rowcount')), columnCount:table.getAttribute('aria-colcount'), headers:[...preview.querySelectorAll('[role="columnheader"]')].map(cell=>cell.innerText.trim()), scrollTop:preview.scrollTop, clientHeight:preview.clientHeight, scrollHeight:preview.scrollHeight, rows };
+  });
+  const layout = await readMountedRows();
+  const rowsByAriaRowIndex = new Map(layout.rows.map(({ index, cells }) => [index, cells]));
+  for (let pageIndex=0; pageIndex<100 && rowsByAriaRowIndex.size<layout.rowCount-1; pageIndex++) {
+    const previousTop = layout.scrollTop;
+    if (previousTop + layout.clientHeight >= layout.scrollHeight) break;
+    await performAction(browser, 'Scroll native preview rows', previewLocator, async (target) => { await target.hover(); await browser.page.mouse.wheel(0, Math.max(100, Math.floor(layout.clientHeight / 2))); });
+    await waitForDOM(browser.page, ({ previousTop }) => { const preview=document.querySelector('[data-testid="preview-table-scroll"]'); return Boolean(preview && (preview.scrollTop > previousTop || preview.scrollTop + preview.clientHeight >= preview.scrollHeight)); }, { previousTop }, 5000);
+    Object.assign(layout, await readMountedRows());
+    for (const { index, cells } of layout.rows) rowsByAriaRowIndex.set(index, cells);
+  }
+  if (layout.scrollTop > 0) {
+    const previousTop = layout.scrollTop;
+    await performAction(browser, 'Return native preview to first row', previewLocator, async (target) => { await target.hover(); await browser.page.mouse.wheel(0, -100000); });
+    await waitForDOM(browser.page, ({ previousTop }) => { const preview=document.querySelector('[data-testid="preview-table-scroll"]'); return Boolean(preview && preview.scrollTop < previousTop); }, { previousTop }, 5000);
+  }
+  const indexedRows=[...rowsByAriaRowIndex.entries()].sort((left,right)=>left[0]-right[0]);
+  const dom={ rowCount:String(layout.rowCount), dataRowCount:layout.rowCount-1, columnCount:layout.columnCount, headers:layout.headers, rowIndexes:indexedRows.map(([index])=>index), rows:indexedRows.map(([,cells])=>cells) };
   assert.equal(dom.columnCount, String(expectedColumnCount), `${name} rendered the wrong column count: ${JSON.stringify(dom)}`);
   assert.equal(dom.rows.length, dom.dataRowCount, `${name} did not collect every row from the virtualized native preview`);
   assert.deepEqual(dom.rowIndexes, Array.from({ length: dom.dataRowCount }, (_, index) => index + 2), `${name} has a gap in native aria row indexes`);
@@ -138,14 +139,14 @@ const openTable = async (expectedColumnCount, name, expectedTexts = [], expected
     const expected = expectedRows.map((row) => JSON.stringify(row)).sort();
     assert.deepEqual(actual, expected, `${name} native rows differ from the independent expected rows`);
   }
-  const preview = await waitNative((entry) => entry.path.endsWith('/preview') && entry.request?.outputId === outputId, fromIndex);
+  const preview = await waitNative((entry) => entry.path.endsWith('/preview') && entry.body?.outputId === outputId, fromIndex);
   assert(preview.response?.receiptId, `${name} saved preview has no current receipt`);
   record(name, started, { headers: dom.headers, receiptId: preview.response.receiptId, rowCount: preview.response.rowCount, nativeRowCount: dom.rows.length });
   return { dom, preview: preview.response };
 };
 const proposal = async (name, started, expectedRows) => {
-  await waitForBrowser(browser.cdp, `['ready','error','needs-repair'].includes(document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalStatus)`, 5000);
-  const value = await browserEval(browser.cdp, `const panel=document.querySelector('[data-testid="construction-proposal-panel"]');return {status:panel?.dataset.proposalStatus,text:panel?.innerText,rows:[...document.querySelectorAll('[data-testid="construction-proposal-preview-row"]')].map(row=>[...row.querySelectorAll('td')].map(cell=>cell.innerText.trim()))};`);
+  await waitForDOM(browser.page, args => Boolean(['ready','error','needs-repair'].includes(document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalStatus)), {}, 5000);
+  const value = await inspectDOM(browser.page, async args => { const panel=document.querySelector('[data-testid="construction-proposal-panel"]');return {status:panel?.dataset.proposalStatus,text:panel?.innerText,rows:[...document.querySelectorAll('[data-testid="construction-proposal-preview-row"]')].map(row=>[...row.querySelectorAll('td')].map(cell=>cell.innerText.trim()))}; });
   assert.equal(value.status, 'ready', `${name}: ${value.text}`);
   assert.equal(value.rows.length, expectedRows.length, `${name}: ${JSON.stringify(value.rows)}`);
   for (const row of value.rows) assert(expectedRows.some((expected) => JSON.stringify(expected) === JSON.stringify(row)), `${name} differs from raw CDA witness: ${JSON.stringify(row)}`);
@@ -153,43 +154,40 @@ const proposal = async (name, started, expectedRows) => {
   return value;
 };
 const clickGroupKey = async () => {
-  await click(browser.cdp, '[data-testid="construction-rows-settings-trigger"]');
-  await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-action-group-rows"]')?.disabled===false`, 5000);
-  await click(browser.cdp, '[data-testid="construction-action-group-rows"]');
-  await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid="construction-reshape-group"] input[aria-label="Group by Patient reference"]:not(:disabled)'))`, 5000);
+  await clickControl(browser, browser.page, '[data-testid="construction-rows-settings-trigger"]');
+  await waitForDOM(browser.page, args => Boolean(document.querySelector('[data-testid="construction-action-group-rows"]')?.disabled===false), {}, 5000);
+  await clickControl(browser, browser.page, '[data-testid="construction-action-group-rows"]');
+  await waitForDOM(browser.page, args => Boolean(Boolean(document.querySelector('[data-testid="construction-reshape-group"] input[aria-label="Group by Patient reference"]:not(:disabled)'))), {}, 5000);
   const started = Date.now();
-  await click(browser.cdp, '[data-testid="construction-reshape-group"] input[aria-label="Group by Patient reference"]');
+  await clickControl(browser, browser.page, '[data-testid="construction-reshape-group"] input[aria-label="Group by Patient reference"]');
   return started;
 };
 const applyGroupProposal = async (started, expectedRows, label) => {
   await proposal(`${label}-preview`, started, expectedRows);
   const applyStarted = Date.now();
-  await click(browser.cdp, '[data-testid="construction-apply-proposal"]');
-  await waitForBrowser(browser.cdp, `!document.querySelector('[data-testid="construction-proposal-panel"]')`, 5000);
-  await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-workspace"] header')?.innerText.includes(${JSON.stringify('Coded field lifecycle QA')})`, 5000);
+  await clickControl(browser, browser.page, '[data-testid="construction-apply-proposal"]');
+  await waitForDOM(browser.page, args => Boolean(!document.querySelector('[data-testid="construction-proposal-panel"]')), {}, 5000);
+  await waitForDOM(browser.page, args => Boolean(document.querySelector('[data-testid="construction-workspace"] header')?.innerText.includes(args.__template0)), { __template0: ('Coded field lifecycle QA') }, 5000);
   record(`${label}-apply`, applyStarted);
   builder = await api(`${base}/builder`);
 };
 const openAddColumns = async () => {
-  await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-action-add-columns"]')?.disabled===false`, 5000);
-  await click(browser.cdp, '[data-testid="construction-action-add-columns"]');
-  await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid="frame-source-panel"]'))`, 5000);
-  await click(browser.cdp, '[aria-label="Column types"] button', { name: 'Coded values' });
+  await waitForDOM(browser.page, args => Boolean(document.querySelector('[data-testid="construction-action-add-columns"]')?.disabled===false), {}, 5000);
+  await clickControl(browser, browser.page, '[data-testid="construction-action-add-columns"]');
+  await waitForDOM(browser.page, args => Boolean(Boolean(document.querySelector('[data-testid="frame-source-panel"]'))), {}, 5000);
+  await clickControl(browser, browser.page, '[aria-label="Column types"] button', { name: 'Coded values' });
 };
-const setSearchInput = async (selector, value) => {
-  await browserEval(browser.cdp, `const input=document.querySelector(${JSON.stringify(selector)});if(!input)throw new Error('Search input missing: '+${JSON.stringify(selector)});input.focus();input.select();`);
-  await browser.cdp.send('Input.insertText', { text: value });
-};
+const setSearchInput = async (selector, value) => fillControl(browser, browser.page, selector, value);
 const chooseComponentFrame = async () => {
   const panel = '[data-testid="frame-source-panel"]';
-  const toggle = await browserEval(browser.cdp, `return [...document.querySelectorAll(${JSON.stringify(`${panel} button`)})].find(button=>['Browse sources','Add coded source'].some(label=>button.innerText.trim().startsWith(label)))?.innerText.replace(/\\s+/g,' ').trim();`);
-  if (toggle) await click(browser.cdp, `${panel} button`, { name: toggle });
-  await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[aria-label="Search framing sources"]'))`, 5000);
+  const toggle = await inspectDOM(browser.page, async args => { return [...document.querySelectorAll(args.__template0)].find(button=>['Browse sources','Add coded source'].some(label=>button.innerText.trim().startsWith(label)))?.innerText.replace(/\\s+/g,' ').trim(); }, { __template0: (`${panel} button`) });
+  if (toggle) await clickControl(browser, browser.page, `${panel} button`, { name: toggle });
+  await waitForDOM(browser.page, args => Boolean(Boolean(document.querySelector('[aria-label="Search framing sources"]'))), {}, 5000);
   const searchStarted = Date.now();
   await setSearchInput('[aria-label="Search framing sources"]', 'Observation');
   const fromIndex = nativeRequests.length;
-  await click(browser.cdp, `${panel} form button`, { name: 'Search' });
-  let result = await waitNative((entry) => entry.path.endsWith('/frame-source-options') && entry.request?.query === 'Observation', fromIndex);
+  await clickControl(browser, browser.page, `${panel} form button`, { name: 'Search' });
+  let result = await waitNative((entry) => entry.path.endsWith('/frame-source-options') && entry.body?.query === 'Observation', fromIndex);
   const matchesFor = (response) => response.sources.filter((source) => source.resourceType === 'Observation' &&
     source.sourcePath.toLowerCase().includes('component') && source.route.length === 1 &&
     source.route[0].fromResourceType === 'Specimen' && source.route[0].toResourceType === 'Observation' &&
@@ -200,25 +198,25 @@ const chooseComponentFrame = async () => {
   let pageCount = 1;
   while (!matches.length && result.response.nextCursor && pageCount < 8) {
     const next = nativeRequests.length;
-    await click(browser.cdp, `${panel} button`, { name: 'More sources and paths' });
-    result = await waitNative((entry) => entry.path.endsWith('/frame-source-options') && Boolean(entry.request?.cursor), next);
+    await clickControl(browser, browser.page, `${panel} button`, { name: 'More sources and paths' });
+    result = await waitNative((entry) => entry.path.endsWith('/frame-source-options') && Boolean(entry.body?.cursor), next);
     matches = matchesFor(result.response);
     pageCount += 1;
   }
   assert.equal(matches.length, 1, `Direct component source is missing or ambiguous after ${pageCount} pages: ${JSON.stringify(matches.map((source) => ({ title: source.title, path: source.sourcePath, route: source.route })))}`);
   const source = matches[0];
   const choiceSelector = `[data-testid=${JSON.stringify(`frame-source-choice-${source.choiceId}`)}]`;
-  await waitForBrowser(browser.cdp, `Boolean(document.querySelector(${JSON.stringify(choiceSelector)}))`, 5000);
+  await waitForDOM(browser.page, args => Boolean(Boolean(document.querySelector(args.__template0))), { __template0: (choiceSelector) }, 5000);
   const formSelector = `select[aria-label=${JSON.stringify(`Multiple values for ${source.title}`)}]`;
-  const formOptions = await browserEval(browser.cdp, `const select=document.querySelector(${JSON.stringify(formSelector)});return select?[...select.options].map(option=>option.value):[];`);
+  const formOptions = await inspectDOM(browser.page, async args => { const select=document.querySelector(args.__template0);return select?[...select.options].map(option=>option.value):[]; }, { __template0: (formSelector) });
   if (formOptions.length) {
     assert(formOptions.includes('ALL'));
-    await click(browser.cdp, `${panel} div.px-3.py-2:has(> ${choiceSelector}) details > summary`, { name: 'When a row has several values' });
-    await selectOption(browser.cdp, formSelector, 'ALL');
+    await clickControl(browser, browser.page, `${panel} div.px-3.py-2:has(> ${choiceSelector}) details > summary`, { name: 'When a row has several values' });
+    await selectControl(browser, browser.page, formSelector, 'ALL');
   } else assert.equal(source.defaultForm, 'ALL');
   const saveIndex = nativeRequests.length;
-  await click(browser.cdp, choiceSelector);
-  const save = await waitNative((entry) => entry.path.endsWith('/commands') && entry.request?.commands?.some((item) => item.type === 'SET_FRAME_SOURCE'), saveIndex);
+  await clickControl(browser, browser.page, choiceSelector);
+  const save = await waitNative((entry) => entry.path.endsWith('/commands') && entry.body?.commands?.some((item) => item.type === 'SET_FRAME_SOURCE'), saveIndex);
   builder = await api(`${base}/builder`);
   const frame = doc().frames?.[0];
   assert(frame, 'The component frame was not saved');
@@ -239,9 +237,9 @@ const chooseFreshFamily = async (frame) => {
   const started = Date.now();
   await setSearchInput(input, familyCode);
   const fromIndex = nativeRequests.length;
-  await click(browser.cdp, `${panel} form button`, { name: 'Search' });
+  await clickControl(browser, browser.page, `${panel} form button`, { name: 'Search' });
   const entry = await waitNative((candidate) => candidate.path.endsWith('/semantic-inventory') &&
-    candidate.request?.frameId === frame.id && candidate.request?.query === familyCode, fromIndex);
+    candidate.body?.frameId === frame.id && candidate.body?.query === familyCode, fromIndex);
   assert.equal(entry.response.state, 'complete');
   assert.equal(entry.response.frameSource?.id, frame.id);
   const matches = entry.response.entries.filter((item) => item.code === familyCode && item.resourceType === 'Observation');
@@ -254,27 +252,33 @@ const chooseFreshFamily = async (frame) => {
   assert(['READY', 'READY_WITH_WARNING'].includes(item.readiness.status), `Coded binding is not ready: ${item.readiness.status}`);
   const label = item.display || item.code;
   const checkbox = `${panel} input[aria-label=${JSON.stringify(`Select ${label}`)}]`;
-  await waitForBrowser(browser.cdp, `Boolean(document.querySelector(${JSON.stringify(checkbox)})&&!document.querySelector(${JSON.stringify(checkbox)}).disabled)`, 5000);
-  await click(browser.cdp, checkbox);
+  await waitForDOM(browser.page, args => Boolean(Boolean(document.querySelector(args.__template0)&&!document.querySelector(args.__template1).disabled)), { __template0: (checkbox), __template1: (checkbox) }, 5000);
+  await clickControl(browser, browser.page, checkbox);
   record(`fresh-signed-${familyCode}-choice`, started, { frameId: frame.id, choiceId: item.constructionChoice.choiceId, valueType: item.valueType });
   return { code: item.code, label, choiceId: item.constructionChoice.choiceId, frameId: frame.id };
 };
 const beginAddFamily = async (policy) => {
-  await selectOption(browser.cdp, 'select[aria-label="Values per grouped row"]', policy);
+  await selectControl(browser, browser.page, 'select[aria-label="Values per grouped row"]', policy);
   const started = Date.now();
   const fromIndex = nativeRequests.length;
   const frame = doc().frames[0];
-  await click(browser.cdp, `[data-testid=${JSON.stringify(`frame-categories-${frame.id}`)}] button`, { name: 'Add 1 column' });
+  await clickControl(browser, browser.page, `[data-testid=${JSON.stringify(`frame-categories-${frame.id}`)}] button`, { name: 'Add 1 column' });
   return { started, fromIndex };
 };
 const checkUiRender = async (columnCount, expectedText = []) => {
-  await waitForBrowser(browser.cdp, `(() => {const table=document.querySelector('[data-testid="preview-table-scroll"] [role="table"]');return Boolean(table&&table.getAttribute('aria-colcount')===${JSON.stringify(String(columnCount))}&&!document.body.innerText.includes('Loading your table…')&&!document.body.innerText.includes('Preview failed:'));})()`, 5000);
-  const value = await browserEval(browser.cdp, `return {headers:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].map(cell=>cell.innerText.trim()),cells:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="cell"]')].map(cell=>cell.innerText.trim())};`);
+  await waitForDOM(browser.page, args => Boolean((() => {const table=document.querySelector('[data-testid="preview-table-scroll"] [role="table"]');return Boolean(table&&table.getAttribute('aria-colcount')===args.__template0&&!document.body.innerText.includes('Loading your table…')&&!document.body.innerText.includes('Preview failed:'));})()), { __template0: (String(columnCount)) }, 5000);
+  const value = await inspectDOM(browser.page, async args => { return {headers:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].map(cell=>cell.innerText.trim()),cells:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="cell"]')].map(cell=>cell.innerText.trim())}; });
   for (const item of expectedText) assert(value.cells.some((cell) => cell.includes(item)), `Rendered coded result omitted ${item}: ${JSON.stringify(value)}`);
   return value;
 };
 
 try {
+  const sourceRoot = fileURLToPath(new URL('..', import.meta.url));
+  assert(process.env.LOOM_ARANGO_CONTAINER, 'Set LOOM_ARANGO_CONTAINER to the isolated CDA source container.');
+  report.ownedTarget = await assertOwnedCdaTarget({ project, apiOrigin, uiOrigin, apiContainer, composeProject, sourceRoot, arangoContainer: process.env.LOOM_ARANGO_CONTAINER });
+  verificationIdentity = await startVerificationIdentity(sourceRoot, apiContainer);
+  report.sourceFingerprint = { before: verificationIdentity.sourceFingerprint };
+  report.apiBuildIdentity = verificationIdentity.apiBuildIdentity;
   assert.notEqual(explorer, protectedExplorer, 'Only a fresh owned Explorer may be used');
   const witnessFinderQuery = `
 FOR p IN (
@@ -403,7 +407,7 @@ RETURN {
   await command([{ type: 'SET_TABLE_POPULATION', outputId, selectionRevisionId: selection.id, routeChoiceId: direct.routeChoiceId }]);
   report.ownedWorkspace = { explorer, outputId, selectionRevisionId: selection.id, memberCount: selection.memberCount };
 
-  browser = await launchBrowser(evidence);
+  browser = await launchBrowser({ evidence, appOrigins: [apiOrigin, uiOrigin], noAuth: true });
   startNativeCapture();
   const sourceRows = source.members.map((member) => [member.id, member.patientReference]);
   await openTable(2, 'reload-selected-specimen-source', sourceRows.flat(), sourceRows);
@@ -417,8 +421,8 @@ RETURN {
   await proposal('patient-reference-group-preview-cancel-target', started, groupedExpected);
   const beforeGroupCancel = await api(`${base}/builder`);
   const cancelGroupStarted = Date.now();
-  await click(browser.cdp, '[data-testid="construction-cancel-proposal"]');
-  await waitForBrowser(browser.cdp, `!document.querySelector('[data-testid="construction-proposal-panel"]')`, 5000);
+  await clickControl(browser, browser.page, '[data-testid="construction-cancel-proposal"]');
+  await waitForDOM(browser.page, args => Boolean(!document.querySelector('[data-testid="construction-proposal-panel"]')), {}, 5000);
   const afterGroupCancel = await api(`${base}/builder`);
   assert.deepEqual(afterGroupCancel.workspace, beforeGroupCancel.workspace, 'Cancel must preserve the exact saved source table');
   record('cancel-group-preview-preserves-source', cancelGroupStarted);
@@ -437,32 +441,32 @@ RETURN {
   assert.deepEqual(doc(frameBaseline).construction, groupedWorkspace.documents.find((document) => document.output.id === outputId).construction, 'Adding a source frame must not change the Group operation');
   assert.deepEqual(doc(frameBaseline).population, groupedWorkspace.documents.find((document) => document.output.id === outputId).population, 'Adding a source frame must preserve the exact bounded population');
   const codePanel = `[data-testid=${JSON.stringify(`frame-categories-${frame.id}`)}]`;
-  await waitForBrowser(browser.cdp, `Boolean(document.querySelector(${JSON.stringify(codePanel)}))`, 5000);
+  await waitForDOM(browser.page, args => Boolean(Boolean(document.querySelector(args.__template0))), { __template0: (codePanel) }, 5000);
   const beforeCategoryCancel = structuredClone(builder.workspace);
   await chooseFreshFamily(frame);
   const categoryCancelStart = Date.now();
   const cancelNativeIndex = nativeRequests.length;
-  await click(browser.cdp, '[data-testid="construction-close-operation-editor"]');
-  await waitForBrowser(browser.cdp, `!document.querySelector('[data-testid="construction-operation-editor"]')`, 5000);
+  await clickControl(browser, browser.page, '[data-testid="construction-close-operation-editor"]');
+  await waitForDOM(browser.page, args => Boolean(!document.querySelector('[data-testid="construction-operation-editor"]')), {}, 5000);
   builder = await api(`${base}/builder`);
   assert.deepEqual(builder.workspace, beforeCategoryCancel, 'Closing the coded-value chooser must not add the selected column');
   assert.equal(nativeRequests.slice(cancelNativeIndex).filter((entry) => entry.path.endsWith('/commands')).length, 0, 'Canceling an unsubmitted coded category must not mutate the workspace');
   record('cancel-coded-category-selection', categoryCancelStart, { retainedFrameId: frame.id });
   await openAddColumns();
   const savedFramePanel = `[data-testid=${JSON.stringify(`saved-frame-${frame.id}`)}]`;
-  await waitForBrowser(browser.cdp, `Boolean(document.querySelector(${JSON.stringify(savedFramePanel)}))`, 5000);
-  await click(browser.cdp, `${savedFramePanel} button`, { name: 'Choose values' });
-  await waitForBrowser(browser.cdp, `Boolean(document.querySelector(${JSON.stringify(codePanel)}))`, 5000);
+  await waitForDOM(browser.page, args => Boolean(Boolean(document.querySelector(args.__template0))), { __template0: (savedFramePanel) }, 5000);
+  await clickControl(browser, browser.page, `${savedFramePanel} button`, { name: 'Choose values' });
+  await waitForDOM(browser.page, args => Boolean(Boolean(document.querySelector(args.__template0))), { __template0: (codePanel) }, 5000);
   await chooseFreshFamily(frame);
-  const rowValueControl = await browserEval(browser.cdp, `return {found:Boolean(document.querySelector('select[aria-label="Values per grouped row"]')),value:document.querySelector('select[aria-label="Values per grouped row"]')?.value};`);
+  const rowValueControl = await inspectDOM(browser.page, async args => { return {found:Boolean(document.querySelector('select[aria-label="Values per grouped row"]')),value:document.querySelector('select[aria-label="Values per grouped row"]')?.value}; });
   assert.equal(rowValueControl.found, true, 'Grouping must expose the distinct row-contributor ONE/ALL control');
 
   const oneAttempt = await beginAddFamily('ONE');
-  const oneFailure = await waitNative((entry) => entry.path.endsWith('/construction-choice-proposals') && entry.request?.constructionChoices?.length === 1, oneAttempt.fromIndex);
+  const oneFailure = await waitNative((entry) => entry.path.endsWith('/construction-choice-proposals') && entry.body?.constructionChoices?.length === 1, oneAttempt.fromIndex);
   const oneElapsed = Date.now() - oneAttempt.started;
-  assert.equal(oneFailure.request.constructionChoices[0].form, 'ALL', 'Per-record repeated component values must be preserved before contributor reduction');
-  assert.equal(oneFailure.request.constructionChoices[0].rowValuePolicy, 'ONE', 'The failing policy must be grouped-row ONE, separate from source form ALL');
-  assert.equal(oneFailure.request.constructionChoices[0].frameId, frame.id);
+  assert.equal(oneFailure.body.constructionChoices[0].form, 'ALL', 'Per-record repeated component values must be preserved before contributor reduction');
+  assert.equal(oneFailure.body.constructionChoices[0].rowValuePolicy, 'ONE', 'The failing policy must be grouped-row ONE, separate from source form ALL');
+  assert.equal(oneFailure.body.constructionChoices[0].frameId, frame.id);
   assert.equal(oneFailure.status, 422, JSON.stringify(oneFailure));
   const oneError = oneFailure.response?.error?.code ?? oneFailure.response?.code;
   assert.equal(oneError, 'CONSTRUCTION_ROW_VALUE_MULTIPLE_VALUES', JSON.stringify(oneFailure.response));
@@ -475,9 +479,9 @@ RETURN {
   });
 
   const beforeAllSelection = nativeRequests.length;
-  const repairState = await browserEval(browser.cdp, `
+  const repairState = await inspectDOM(browser.page, async args => {
     const editor = document.querySelector('[data-testid="construction-operation-editor"]');
-    const panel = document.querySelector(${JSON.stringify(codePanel)});
+    const panel = document.querySelector(args.__template0);
     const policy = document.querySelector('select[aria-label="Values per grouped row"]');
     const add = [...(panel?.querySelectorAll('button') ?? [])]
       .find((button) => button.textContent.trim() === 'Add 1 column');
@@ -487,30 +491,30 @@ RETURN {
       policy: policy?.value,
       addDisabled: add?.disabled,
     };
-  `);
+   }, { __template0: (codePanel) });
   assert.equal(repairState.editorOpen, true, 'ONE rejection must keep the Add Columns editor open');
   assert.equal(repairState.selectionCount, 1, 'The coded choice must remain selected after ONE rejection');
   assert.equal(repairState.policy, 'ONE', 'The retained chooser should still show the rejected ONE policy');
   assert.equal(repairState.addDisabled, false, 'The retained coded choice should remain available for repair');
   const allAttempt = await beginAddFamily('ALL');
-  const allProposal = await waitNative((entry) => entry.path.endsWith('/construction-choice-proposals') && entry.request?.constructionChoices?.length === 1, allAttempt.fromIndex);
+  const allProposal = await waitNative((entry) => entry.path.endsWith('/construction-choice-proposals') && entry.body?.constructionChoices?.length === 1, allAttempt.fromIndex);
   record('coded-all-preflight', allAttempt.started, { previewDurationMs: allProposal.response?.previewDurationMs });
   assert.equal(allProposal.status, 200, JSON.stringify(allProposal.response));
   assert.equal(allProposal.response.previewStatus, 'READY', JSON.stringify(allProposal.response));
   assert(allProposal.response.previewDurationMs <= 5000, `ALL preflight receipt took ${allProposal.response.previewDurationMs} ms`);
-  assert.equal(allProposal.request.constructionChoices[0].form, 'ALL');
-  assert.equal(allProposal.request.constructionChoices[0].rowValuePolicy, 'ALL');
-  assert.equal(allProposal.request.constructionChoices[0].frameId, frame.id);
+  assert.equal(allProposal.body.constructionChoices[0].form, 'ALL');
+  assert.equal(allProposal.body.constructionChoices[0].rowValuePolicy, 'ALL');
+  assert.equal(allProposal.body.constructionChoices[0].frameId, frame.id);
   assert.equal(allProposal.response.candidateColumnIds.length, 1);
   const codedColumnId = allProposal.response.candidateColumnIds[0];
   assert.deepEqual(allProposal.response.preview.rows[0]?.[codedColumnId], source.distinctValues, 'ALL coded column must equal the independent sorted unique CDA component values');
   assert.equal(nativeRequests.slice(beforeAllSelection).filter((entry) => entry.path.endsWith('/semantic-inventory')).length, 0, 'Inline ONE-to-ALL repair must reuse the retained choice without another semantic search');
-  const allCommand = await waitNative((entry) => entry.path.endsWith('/commands') && entry.request?.commands?.some((item) => item.type === 'APPLY_CONSTRUCTION_CHOICE'), allAttempt.fromIndex);
+  const allCommand = await waitNative((entry) => entry.path.endsWith('/commands') && entry.body?.commands?.some((item) => item.type === 'APPLY_CONSTRUCTION_CHOICE'), allAttempt.fromIndex);
   assert.equal(allCommand.status, 200, JSON.stringify(allCommand.response));
-  assert.equal(allCommand.request.commands.length, 1);
-  assert.equal(allCommand.request.commands[0].constructionChoice.form, 'ALL');
-  assert.equal(allCommand.request.commands[0].constructionChoice.rowValuePolicy, 'ALL');
-  assert.equal(allCommand.request.commands[0].constructionChoice.frameId, frame.id);
+  assert.equal(allCommand.body.commands.length, 1);
+  assert.equal(allCommand.body.commands[0].constructionChoice.form, 'ALL');
+  assert.equal(allCommand.body.commands[0].constructionChoice.rowValuePolicy, 'ALL');
+  assert.equal(allCommand.body.commands[0].constructionChoice.frameId, frame.id);
   const allApplyStarted = Date.now();
   await checkUiRender(3, source.distinctValues);
   record('coded-all-apply-to-native-render', allApplyStarted, { commandStatus: allCommand.status });
@@ -530,7 +534,7 @@ RETURN {
   assert.equal(groupedOutput.label, codedColumn.label);
   const groupStepId = savedGroup.id;
   const commandIndex = nativeRequests.indexOf(allCommand);
-  const appliedPreview = await waitNative((entry) => entry.path.endsWith('/preview') && entry.request?.outputId === outputId, commandIndex, 5000);
+  const appliedPreview = await waitNative((entry) => entry.path.endsWith('/preview') && entry.body?.outputId === outputId, commandIndex, 5000);
   assert.deepEqual(appliedPreview.response.rows[0]?.[codedColumn.column], source.distinctValues);
   assert.equal(appliedPreview.response.rowCount, 1);
   record('coded-all-saved-preview-matches-independent-cda', savedPreviewStarted, {
@@ -544,29 +548,26 @@ RETURN {
   const newLabel = `CDA ${familyTitle} values`;
   const editStart = Date.now();
   const editFrom = nativeRequests.length;
-  await click(browser.cdp, 'button', { name: 'Columns' });
+  await clickControl(browser, browser.page, 'button', { name: 'Columns' });
   const labelSelector = `[aria-label=${JSON.stringify(`Column name for ${codedColumn.label}`)}]`;
-  await waitForBrowser(browser.cdp, `Boolean(document.querySelector(${JSON.stringify(labelSelector)}))`, 5000);
-  report.renameControlBefore = await browserEval(browser.cdp, `const i=document.querySelector(${JSON.stringify(labelSelector)});return {value:i?.value,disabled:i?.disabled,readOnly:i?.readOnly,label:i?.getAttribute('aria-label')};`);
+  await waitForDOM(browser.page, args => Boolean(Boolean(document.querySelector(args.__template0))), { __template0: (labelSelector) }, 5000);
+  report.renameControlBefore = await inspectDOM(browser.page, async args => { const i=document.querySelector(args.__template0);return {value:i?.value,disabled:i?.disabled,readOnly:i?.readOnly,label:i?.getAttribute('aria-label')}; }, { __template0: (labelSelector) });
   assert.equal(report.renameControlBefore.disabled, false, 'Configured coded column rename must be enabled');
-  await browserEval(browser.cdp, `document.querySelector(${JSON.stringify(labelSelector)}).scrollIntoView({block:'center',inline:'nearest'});await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));`);
-  await click(browser.cdp, labelSelector);
-  await browserEval(browser.cdp, `document.activeElement.select();`);
-  await browser.cdp.send('Input.insertText', { text: newLabel });
-  report.renameControlAfterInput = await browserEval(browser.cdp, `const i=document.activeElement;return {value:i?.value,label:i?.getAttribute('aria-label')};`);
+  const labelLocator = browser.page.locator(labelSelector);
+  await performAction(browser, 'Rename configured coded output', labelLocator, (target, options) => target.fill(newLabel, options), { editable: true });
+  report.renameControlAfterInput = await inspectDOM(browser.page, async args => { const i=document.activeElement;return {value:i?.value,label:i?.getAttribute('aria-label')}; });
   assert.equal(report.renameControlAfterInput.value, newLabel, 'Native typing must update the focused rename input');
-  await browser.cdp.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 });
-  await browser.cdp.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 });
+  await performAction(browser, 'Save renamed coded output', labelLocator, (target, options) => target.press('Enter', options));
   const rename = await waitNative((entry) => entry.path.endsWith('/commands') &&
-    entry.request?.commands?.some((item) => item.type === 'UPDATE_CONSTRUCTION_OUTPUT' &&
+    entry.body?.commands?.some((item) => item.type === 'UPDATE_CONSTRUCTION_OUTPUT' &&
       item.constructionOutput?.stepId === groupStepId &&
       item.constructionOutput?.columnId === rowValueOutputId), editFrom);
   assert.equal(rename.status, 200, JSON.stringify(rename.response));
-  assert.equal(rename.request.commands.length, 1);
-  assert.equal(rename.request.commands[0].type, 'UPDATE_CONSTRUCTION_OUTPUT');
-  assert.equal(rename.request.commands[0].constructionOutput.stepId, groupStepId);
-  assert.equal(rename.request.commands[0].constructionOutput.columnId, rowValueOutputId);
-  assert.equal(rename.request.commands[0].constructionOutput.label, newLabel);
+  assert.equal(rename.body.commands.length, 1);
+  assert.equal(rename.body.commands[0].type, 'UPDATE_CONSTRUCTION_OUTPUT');
+  assert.equal(rename.body.commands[0].constructionOutput.stepId, groupStepId);
+  assert.equal(rename.body.commands[0].constructionOutput.columnId, rowValueOutputId);
+  assert.equal(rename.body.commands[0].constructionOutput.label, newLabel);
   builder = await api(`${base}/builder`);
   const renamedColumn = doc().columns.find((column) => column.column === codedColumn.column);
   assert.equal(renamedColumn?.label, codedColumn.label, 'Renaming the visible grouped output must preserve the authored source label');
@@ -580,7 +581,7 @@ RETURN {
   const renamedGroupOutput = renamedGroup?.outputs.find((output) => output.id === rowValueOutputId);
   assert.equal(renamedGroupOutput?.name, codedColumn.column);
   assert.equal(renamedGroupOutput?.label, newLabel);
-  await click(browser.cdp, 'button', { name: 'Columns' });
+  await clickControl(browser, browser.page, 'button', { name: 'Columns' });
   record('edit-coded-column-label', editStart, { priorLabel: codedColumn.label, newLabel });
   const afterEdit = await openTable(3, 'reload-edited-coded-column-label', source.distinctValues);
   assert.deepEqual(afterEdit.preview.rows[0]?.[codedColumn.column], source.distinctValues, 'Renaming the grouped output must preserve its values');
@@ -588,21 +589,21 @@ RETURN {
 
   const visibilitySelector = `input[type="checkbox"][aria-label=${JSON.stringify(newLabel)}]`;
   for (const visible of [false, true]) {
-    await click(browser.cdp, 'button', { name: 'Columns' });
-    await waitForBrowser(browser.cdp, `Boolean(document.querySelector(${JSON.stringify(visibilitySelector)}))`, 5000);
-    assert.equal(await browserEval(browser.cdp, `return document.querySelector(${JSON.stringify(visibilitySelector)}).checked;`), !visible, 'Visibility checkbox must reflect the saved output');
+    await clickControl(browser, browser.page, 'button', { name: 'Columns' });
+    await waitForDOM(browser.page, args => Boolean(Boolean(document.querySelector(args.__template0))), { __template0: (visibilitySelector) }, 5000);
+    assert.equal(await inspectDOM(browser.page, async args => { return document.querySelector(args.__template0).checked; }, { __template0: (visibilitySelector) }), !visible, 'Visibility checkbox must reflect the saved output');
     const visibilityStarted = Date.now();
     const visibilityFrom = nativeRequests.length;
-    await click(browser.cdp, visibilitySelector);
-    const visibilityCommand = await waitNative((entry) => entry.path.endsWith('/commands') && entry.request?.commands?.some((item) => item.type === 'UPDATE_CONSTRUCTION_OUTPUT' && item.constructionOutput?.columnId === rowValueOutputId), visibilityFrom);
+    await clickControl(browser, browser.page, visibilitySelector);
+    const visibilityCommand = await waitNative((entry) => entry.path.endsWith('/commands') && entry.body?.commands?.some((item) => item.type === 'UPDATE_CONSTRUCTION_OUTPUT' && item.constructionOutput?.columnId === rowValueOutputId), visibilityFrom);
     assert.equal(visibilityCommand.status, 200);
-    assert.equal(visibilityCommand.request.commands[0].constructionOutput.table.visible, visible);
+    assert.equal(visibilityCommand.body.commands[0].constructionOutput.table.visible, visible);
     builder = await api(`${base}/builder`);
     const currentGroup = doc().construction.steps.find((step) => step.id === groupStepId);
     assert.equal(currentGroup.outputs.find((output) => output.id === rowValueOutputId).table.visible, visible);
     assert.deepEqual(doc().columns.find((column) => column.columnId === codedColumn.columnId), renamedColumn, 'Output visibility must preserve the authored source');
     await checkUiRender(visible ? 3 : 2, visible ? source.distinctValues : [source.patient.reference]);
-    await click(browser.cdp, 'button', { name: 'Columns' });
+    await clickControl(browser, browser.page, 'button', { name: 'Columns' });
     record(visible ? 'show-renamed-grouped-output' : 'hide-renamed-grouped-output', visibilityStarted);
     const visibilityReload = await openTable(visible ? 3 : 2, visible ? 'reload-visible-grouped-output' : 'reload-hidden-grouped-output', visible ? source.distinctValues : [source.patient.reference]);
     assert.deepEqual(visibilityReload.preview.rows[0]?.[codedColumn.column], source.distinctValues, 'Hiding presentation must retain exact values');
@@ -617,9 +618,9 @@ RETURN {
   // removal action from Document.Columns even though PreviewTable displays
   // the renamed terminal Group output.
   const sourceRemoveLabel = `Remove ${codedColumn.label} column`;
-  await waitForBrowser(browser.cdp, `Boolean(document.querySelector(${JSON.stringify(`${framePanel} button[aria-label=${JSON.stringify(sourceRemoveLabel)}]`)}))`, 5000);
-  await click(browser.cdp, `${framePanel} button`, { name: sourceRemoveLabel });
-  const removeColumn = await waitNative((entry) => entry.path.endsWith('/commands') && entry.request?.commands?.some((item) => item.type === 'REMOVE_COLUMN' && item.column === codedColumn.column), removeFrom);
+  await waitForDOM(browser.page, args => Boolean(Boolean(document.querySelector(args.__template0))), { __template0: (`${framePanel} button[aria-label=${JSON.stringify(sourceRemoveLabel)}]`) }, 5000);
+  await clickControl(browser, browser.page, `${framePanel} button`, { name: sourceRemoveLabel });
+  const removeColumn = await waitNative((entry) => entry.path.endsWith('/commands') && entry.body?.commands?.some((item) => item.type === 'REMOVE_COLUMN' && item.column === codedColumn.column), removeFrom);
   assert.equal(removeColumn.status, 200, JSON.stringify(removeColumn.response));
   builder = await api(`${base}/builder`);
   assert(!doc().columns.some((column) => column.column === codedColumn.column), 'Removed physical column name remains in the authored schema');
@@ -636,8 +637,8 @@ RETURN {
   await openAddColumns();
   const removeFrameStart = Date.now();
   const removeFrameFrom = nativeRequests.length;
-  await click(browser.cdp, `${framePanel} button`, { name: 'Remove' });
-  const removeFrame = await waitNative((entry) => entry.path.endsWith('/commands') && entry.request?.commands?.some((item) => item.type === 'REMOVE_FRAME_SOURCE'), removeFrameFrom);
+  await clickControl(browser, browser.page, `${framePanel} button`, { name: 'Remove' });
+  const removeFrame = await waitNative((entry) => entry.path.endsWith('/commands') && entry.body?.commands?.some((item) => item.type === 'REMOVE_FRAME_SOURCE'), removeFrameFrom);
   assert.equal(removeFrame.status, 200, JSON.stringify(removeFrame.response));
   builder = await api(`${base}/builder`);
   assert.equal(doc().frames?.length ?? 0, 0);
@@ -647,20 +648,30 @@ RETURN {
   record('remove-empty-component-frame', removeFrameStart, { frameId: frame.id });
 
   assert(report.protectedExplorerUntouched, `A request unexpectedly targeted protected Explorer ${protectedExplorer}`);
+  await requestCapture.flush();
   const expectedFailures = report.errors.filter((error) => error.kind === 'http' && error.path.endsWith('/construction-choice-proposals') && error.status === 422 && error.response?.error?.code === 'CONSTRUCTION_ROW_VALUE_MULTIPLE_VALUES');
+  const expectedHttpDiagnostics = browser.diagnostics.httpFailures.filter(error => error.status === 422 && error.url.endsWith(`${base}/construction-choice-proposals`));
+  assert.equal(expectedHttpDiagnostics.length, 1, 'The expected ONE-policy proposal rejection must be captured by Playwright HTTP diagnostics');
   const unexpectedErrors = report.errors.filter((error) => !expectedFailures.includes(error));
   assert.equal(expectedFailures.length, 1, 'Exactly one independently predicted ONE disagreement is expected');
   assert.deepEqual(unexpectedErrors, [], 'No unexpected browser or HTTP errors are allowed');
+  assert.deepEqual(browser.diagnostics.pageErrors, [], 'Unexpected page errors were reported');
+  assert.deepEqual(browser.diagnostics.console, [], 'Unexpected console errors were reported');
+  assert.deepEqual(browser.diagnostics.networkFailures, [], 'Unexpected network failures were reported');
+  assert.deepEqual(browser.diagnostics.httpFailures.filter(error => !expectedHttpDiagnostics.includes(error)), [], 'Unexpected HTTP failures were reported');
   report.expectedOneError = { code: oneError, requestId: oneFailure.requestId, independentDistinctValueCount: source.distinctValues.length };
   report.status = 'passed';
 } catch (error) {
   report.status = 'failed';
   report.error = String(error.stack ?? error);
+  report.firstFailureTrace = await browser?.captureFailure(error, { phase: 'coded-field-lifecycle', ...(browser.activeAction ? { action: browser.activeAction, elapsedMs: Date.now() - browser.activeAction.startedAt } : {}), explorer, outputId }).catch(String);
   report.savedBuilderAtFailure = builder ? await api(`${base}/builder`).catch((readError) => ({ readError: String(readError) })) : undefined;
   const frameId = [...report.cases].reverse().find((item) => item.frameId)?.frameId;
-  report.failureDOM = browser ? await browserEval(browser.cdp, `const frameId=${JSON.stringify(frameId ?? '')};const editor=document.querySelector('[data-testid="construction-operation-editor"]');const sourcePanel=document.querySelector('[data-testid="frame-source-panel"]');const savedFrame=frameId?document.querySelector('[data-testid="saved-frame-'+frameId+'"]'):null;const categories=frameId?document.querySelector('[data-testid="frame-categories-'+frameId+'"]'):null;const brief=element=>element?element.innerText.slice(0,1200):undefined;return {editor:{exists:Boolean(editor),text:brief(editor),buttons:[...(editor?.querySelectorAll('button')??[])].map(button=>({text:button.innerText.trim().slice(0,100),disabled:button.disabled})).slice(0,20),selects:[...(editor?.querySelectorAll('select')??[])].map(select=>({label:select.getAttribute('aria-label'),value:select.value,disabled:select.disabled,options:[...select.options].map(option=>option.value)})).slice(0,20)},sourcePanel:{exists:Boolean(sourcePanel),text:brief(sourcePanel)},savedFrame:{exists:Boolean(savedFrame),text:brief(savedFrame),buttons:[...(savedFrame?.querySelectorAll('button')??[])].map(button=>({text:button.innerText.trim(),disabled:button.disabled}))},categoryPanel:{exists:Boolean(categories),text:brief(categories),checkboxes:[...(categories?.querySelectorAll('input[type="checkbox"]')??[])].map(input=>({label:input.getAttribute('aria-label'),checked:input.checked,disabled:input.disabled})).slice(0,20)},alerts:[...document.querySelectorAll('[role="alert"]')].map(element=>element.innerText.slice(0,500)).slice(0,10)};`).catch(String) : undefined;
+  report.failureDOM = browser ? await inspectDOM(browser.page, async args => { const frameId=args.__template0;const editor=document.querySelector('[data-testid="construction-operation-editor"]');const sourcePanel=document.querySelector('[data-testid="frame-source-panel"]');const savedFrame=frameId?document.querySelector('[data-testid="saved-frame-'+frameId+'"]'):null;const categories=frameId?document.querySelector('[data-testid="frame-categories-'+frameId+'"]'):null;const brief=element=>element?element.innerText.slice(0,1200):undefined;return {editor:{exists:Boolean(editor),text:brief(editor),buttons:[...(editor?.querySelectorAll('button')??[])].map(button=>({text:button.innerText.trim().slice(0,100),disabled:button.disabled})).slice(0,20),selects:[...(editor?.querySelectorAll('select')??[])].map(select=>({label:select.getAttribute('aria-label'),value:select.value,disabled:select.disabled,options:[...select.options].map(option=>option.value)})).slice(0,20)},sourcePanel:{exists:Boolean(sourcePanel),text:brief(sourcePanel)},savedFrame:{exists:Boolean(savedFrame),text:brief(savedFrame),buttons:[...(savedFrame?.querySelectorAll('button')??[])].map(button=>({text:button.innerText.trim(),disabled:button.disabled}))},categoryPanel:{exists:Boolean(categories),text:brief(categories),checkboxes:[...(categories?.querySelectorAll('input[type="checkbox"]')??[])].map(input=>({label:input.getAttribute('aria-label'),checked:input.checked,disabled:input.disabled})).slice(0,20)},alerts:[...document.querySelectorAll('[role="alert"]')].map(element=>element.innerText.slice(0,500)).slice(0,10)}; }, { __template0: (frameId ?? '') }).catch(String) : undefined;
   process.exitCode = 1;
 } finally {
+  await requestCapture?.flush().catch(() => undefined);
+  if (verificationIdentity) { try { Object.assign(report, await verificationIdentity.finish()); } catch (error) { report.status = 'invalidated'; report.error = String(error); process.exitCode = 1; } }
   report.finished = new Date().toISOString();
   await writeFile(join(evidence, 'report.json'), JSON.stringify(report, null, 2));
   await browser?.close();
