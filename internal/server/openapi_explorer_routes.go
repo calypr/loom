@@ -137,6 +137,37 @@ func (r *HTTPRoutes) SearchExplorerCandidates(ctx context.Context, request looma
 	}
 }
 
+func (r *HTTPRoutes) SearchExplorerSchemaFields(ctx context.Context, request loomapi.SearchExplorerSchemaFieldsRequestObject) (loomapi.SearchExplorerSchemaFieldsResponseObject, error) {
+	if r == nil || r.explorer == nil {
+		status, failure := authoringErrorForOpenAPI(ctx, "searchExplorerSchemaFields", explorerUnavailable("schema-fields", "AUTHORING_UNAVAILABLE", "Explorer authoring is not configured"))
+		if status == http.StatusServiceUnavailable {
+			return loomapi.SearchExplorerSchemaFields503JSONResponse{AuthoringUnavailableJSONResponse: loomapi.AuthoringUnavailableJSONResponse(failure)}, nil
+		}
+		return nil, unexpectedResponseStatus("searchExplorerSchemaFields", status)
+	}
+	value, err := r.explorer.searchAuthoringSchemaFieldsDirect(ctx, string(request.Project), string(request.ExplorerId), request.Body)
+	if err == nil {
+		return loomapi.SearchExplorerSchemaFields200JSONResponse(value), nil
+	}
+	status, failure := authoringErrorForOpenAPI(ctx, "searchExplorerSchemaFields", err)
+	switch status {
+	case http.StatusBadRequest:
+		return loomapi.SearchExplorerSchemaFields400JSONResponse{AuthoringBadRequestJSONResponse: loomapi.AuthoringBadRequestJSONResponse(failure)}, nil
+	case http.StatusForbidden:
+		return loomapi.SearchExplorerSchemaFields403JSONResponse{AuthoringForbiddenJSONResponse: loomapi.AuthoringForbiddenJSONResponse(failure)}, nil
+	case http.StatusConflict:
+		return loomapi.SearchExplorerSchemaFields409JSONResponse{AuthoringConflictJSONResponse: loomapi.AuthoringConflictJSONResponse(failure)}, nil
+	case http.StatusUnprocessableEntity:
+		return loomapi.SearchExplorerSchemaFields422JSONResponse{AuthoringUnprocessableJSONResponse: loomapi.AuthoringUnprocessableJSONResponse(failure)}, nil
+	case http.StatusInternalServerError:
+		return loomapi.SearchExplorerSchemaFields500JSONResponse{AuthoringInternalErrorJSONResponse: loomapi.AuthoringInternalErrorJSONResponse(failure)}, nil
+	case http.StatusServiceUnavailable:
+		return loomapi.SearchExplorerSchemaFields503JSONResponse{AuthoringUnavailableJSONResponse: loomapi.AuthoringUnavailableJSONResponse(failure)}, nil
+	default:
+		return nil, unexpectedResponseStatus("searchExplorerSchemaFields", status)
+	}
+}
+
 func (r *HTTPRoutes) GetExplorerBuilder(ctx context.Context, request loomapi.GetExplorerBuilderRequestObject) (loomapi.GetExplorerBuilderResponseObject, error) {
 	if r == nil || r.explorer == nil {
 		status, failure := authoringErrorForOpenAPI(ctx, "getExplorerBuilder", explorerUnavailable("builder", "AUTHORING_UNAVAILABLE", "Explorer authoring is not configured"))

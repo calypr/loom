@@ -227,7 +227,13 @@ export const CatalogSelectionDialog = ({
       const condition = conditions.get(choice.choiceId);
       return [
         {
-          constructionChoice: { choiceId: choice.choiceId, form },
+          constructionChoice: {
+            choiceId: choice.choiceId,
+            form,
+            ...(form === 'ALL' && groupedRowValuePolicy?.value === 'ONE'
+              ? { rowValuePolicy: groupedRowValuePolicy.value }
+              : {}),
+          },
           title: catalogItemLabel(group.item),
           ...(choice.source.kind === 'FIELD' && option?.contributorPredicateOperators?.includes('EXISTS') && condition?.mode === 'EXISTS'
             ? { contributorPredicate: { candidateId: choice.source.candidateId, operator: 'EXISTS' as const } }

@@ -7,6 +7,7 @@ import type {
   FieldChoiceSource,
   SemanticInventoryBrowseResponse,
   SemanticInventoryItem,
+  SchemaFieldOption,
 } from '../../../types';
 import {
   catalogChoiceIntent,
@@ -16,6 +17,7 @@ import {
   catalogItemConstructionChoice,
   catalogItemDefaultForm,
   fieldCatalogItems,
+  schemaFieldCatalogItems,
   isRelatedFieldCatalogItem,
   semanticCatalogItems,
   type CatalogChoiceGroup,
@@ -453,6 +455,7 @@ const ConceptCatalogContent = ({
   rowRoot,
   resourceType,
   sourceNodeId,
+  schemaDiscoveryEnabled = true,
   routeContext,
   layout = 'workspace',
   catalog,
@@ -477,6 +480,7 @@ const ConceptCatalogContent = ({
   readonly rowRoot: string;
   readonly resourceType?: string;
   readonly sourceNodeId?: string;
+  readonly schemaDiscoveryEnabled?: boolean;
   readonly routeContext?: CatalogRouteContext;
   readonly layout?: 'workspace' | 'panel';
   readonly catalog: ExplorerBuilderCatalog;
@@ -685,13 +689,45 @@ const ConceptCatalogContent = ({
   const pageIndex = currentPageNavigation.index;
   const warning = response ? availabilityMessage(response) : undefined;
   const canBrowseConcepts = response?.state === 'complete';
+  const schemaNodeId = sourceNodeId ?? catalog.nodes.find((node) => node.resourceType === (resourceType ?? rowRoot) && node.rowRootEligible)?.nodeId;
+  const schemaScopeKey = JSON.stringify([project, explorerId, authResourcePath ?? '', snapshotToken, schemaNodeId, query]);
+  const [schemaProgress, setSchemaProgress] = useState<{
+    readonly key: string; readonly client: typeof client; readonly fields: ReadonlyArray<SchemaFieldOption>;
+  }>();
+  const schemaFields = useQuery(async (signal) => {
+    if (!client.searchSchemaFields || !schemaNodeId) return [];
+    const fields: SchemaFieldOption[] = [];
+    const seen = new Set<string>();
+    let nextCursor: string | undefined;
+    do {
+      if (signal.aborted) return [];
+      const page = await client.searchSchemaFields({
+        project, explorerId, authResourcePath, snapshotToken, nodeId: schemaNodeId,
+        query, cursor: nextCursor, limit: 50,
+        requestId: `schema-fields-${window.crypto.randomUUID()}`,
+      });
+      if (signal.aborted) return [];
+      if (page.snapshotToken !== snapshotToken || page.nodeId !== schemaNodeId) {
+        throw new Error('Loom returned generated fields for another source.');
+      }
+      fields.push(...page.fields);
+      setSchemaProgress({ key: schemaScopeKey, client, fields: [...fields] });
+      nextCursor = page.nextCursor;
+      if (nextCursor && seen.has(nextCursor)) throw new Error('Generated field pagination repeated a page.');
+      if (nextCursor) seen.add(nextCursor);
+      if (!nextCursor && !page.complete) throw new Error('Generated field discovery did not finish.');
+    } while (nextCursor);
+    return fields;
+  }, [client, project, explorerId, authResourcePath, snapshotToken, schemaNodeId, query], Boolean(schemaDiscoveryEnabled && schemaNodeId && client.searchSchemaFields));
+  const generatedFields = schemaProgress?.key === schemaScopeKey && schemaProgress.client === client
+    ? schemaProgress.fields : schemaFields.data ?? [];
   const fieldItems = useMemo(
-    () => fieldCatalogItems(catalog, rowRoot, resourceType, query, sourceNodeId).filter(
+    () => [...fieldCatalogItems(catalog, rowRoot, resourceType, query, sourceNodeId), ...schemaFieldCatalogItems(generatedFields)].filter(
       (item) =>
         item.kind === 'FIELD' &&
         (!routeContext || item.candidate.nodeId === routeContext.nodeId),
     ),
-    [catalog, query, resourceType, routeContext, rowRoot, sourceNodeId],
+    [catalog, query, resourceType, routeContext, rowRoot, sourceNodeId, generatedFields],
   );
   const appliedInitialSelection = useRef(false);
   useEffect(() => {
@@ -1183,6 +1219,11 @@ const ConceptCatalogContent = ({
               <span className="text-xs text-slate-500">{fieldItems.length} available</span>
             </div>
             <div className="mt-3 divide-y divide-slate-200">
+              {schemaFields.error ? (
+                <p role="alert" className="text-red-700">{schemaFields.error instanceof Error ? schemaFields.error.message : 'Generated field discovery failed.'}</p>
+              ) : schemaFields.isLoading ? (
+                <p role="status" className="text-slate-600">Loading fields from the FHIR definitions…</p>
+              ) : null}
               {fieldItems.length === 0 ? (
                 <p className="rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center text-sm text-slate-600">
                   No fields match this search.

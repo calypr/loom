@@ -263,7 +263,7 @@ func resolveFieldConstructionChoice(ctx context.Context, authorized AuthorizedCa
 		return authoringv2.ResolvedConstructionChoice{}, "", invalidConstructionChoice("field construction route is unavailable or changed")
 	}
 	provenCandidate := candidate
-	if len(route) > 0 {
+	if len(route) > 0 || strings.HasPrefix(candidate.ID, "schema_field.") {
 		provenCandidate, err = proveConstructionCandidate(ctx, authorized, rootResourceType, candidate, route)
 		if err != nil {
 			return authoringv2.ResolvedConstructionChoice{}, "", invalidConstructionChoice("the complete field route and source no longer compile")
@@ -277,7 +277,7 @@ func resolveFieldConstructionChoice(ctx context.Context, authorized AuthorizedCa
 		return authoringv2.ResolvedConstructionChoice{}, "", invalidConstructionChoice("field choice identity does not match the current candidate")
 	}
 	_, found = uniqueCatalogCandidate(catalogSnapshot, candidate.ID)
-	if !found {
+	if !found && !strings.HasPrefix(candidate.ID, "schema_field.") {
 		return authoringv2.ResolvedConstructionChoice{}, "", invalidConstructionChoice("field choice options do not match the current catalog")
 	}
 	if !constructionChoiceSupports(choice, selection.Form) {
@@ -304,7 +304,10 @@ func uniqueCapabilityCandidate(snapshot capability.Snapshot, candidateID string)
 		}
 		match, found = candidate, true
 	}
-	return match, found
+	if found {
+		return match, true
+	}
+	return resolveSchemaFieldCandidate(snapshot, candidateID)
 }
 
 func capabilityCandidateBelongsToRoot(snapshot capability.Snapshot, candidate capability.Candidate, rootResourceType string) bool {

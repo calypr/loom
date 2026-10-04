@@ -1,23 +1,26 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { classifyNullableSourceScalar, expectedNullableRelatedAll } from './lib/nullable-related-all.mjs';
 import { captureSourceFreeze } from './lib/source-freeze.mjs';
 import { browserEval, click, launchBrowser, navigate, selectOption, waitForBrowser } from './lib/browser.mjs';
 
 const project = 'loom_dev_cda_fhir';
 const generation = 'cda-fhir-v1';
 const afterUnpivotCase = process.env.LOOM_RELATED_AFTER_UNPIVOT_CASE ?? 'gender-all';
-assert(['gender-all', 'resource-type-all', 'id-count'].includes(afterUnpivotCase), `Unsupported LOOM_RELATED_AFTER_UNPIVOT_CASE: ${afterUnpivotCase}`);
+assert(['gender-all', 'gender-null-all', 'resource-type-all', 'id-count'].includes(afterUnpivotCase), `Unsupported LOOM_RELATED_AFTER_UNPIVOT_CASE: ${afterUnpivotCase}`);
+const nullableGenderCase = afterUnpivotCase === 'gender-null-all';
+const knownGenderWitnessReport = process.env.LOOM_CDA_GENDER_NULL_WITNESS_REPORT ?? '/tmp/loom-related-resource-type-after-unpivot-native-complete/report.json';
 const afterUnpivotFieldPath = afterUnpivotCase === 'id-count'
   ? 'id'
   : afterUnpivotCase === 'resource-type-all' ? 'resourceType' : 'gender';
 const afterUnpivotForm = afterUnpivotCase === 'id-count' ? 'COUNT' : 'ALL';
-const requireFieldWitness = afterUnpivotCase !== 'id-count';
+const requireFieldWitness = afterUnpivotCase === 'gender-all' || afterUnpivotCase === 'resource-type-all';
 const protectedExplorer = 'cda-builder-full-qa-1790440983382';
 const explorer = `related-field-after-unpivot-${randomUUID()}`;
 assert.notEqual(explorer, protectedExplorer);
@@ -33,10 +36,12 @@ const report = {
   generation,
   scenario: afterUnpivotCase === 'id-count'
     ? 'Patient.id RELATED_SOURCE ALL before UNPIVOT; unpivot Specimen ID while retaining the Patient.id array; add Patient.id COUNT after UNPIVOT on the same exact Specimen.subject->Patient route.'
-    : `Patient.id RELATED_SOURCE ALL before UNPIVOT; unpivot Specimen ID while retaining the Patient.id array; add Patient.${afterUnpivotFieldPath} ALL after UNPIVOT on the same exact Specimen.subject->Patient route.`,
-  coverageLimitations: afterUnpivotCase === 'id-count'
-    ? ['This case proves retained Patient.id ALL values across UNPIVOT and same-route Patient.id COUNT after UNPIVOT. It does not prove non-id Patient field-value access after UNPIVOT.', 'The bounded first-2,000-Specimen inventory found project_id and resourceType as populated Patient payload scalars besides id; this is not a project-wide absence claim.']
-    : [`The ${afterUnpivotFieldPath} case requires a populated Patient.${afterUnpivotFieldPath} witness in the bounded candidate scan. A missing witness does not establish project-wide absence.`, 'This verifier does not claim restricted-auth coverage.'],
+    : `Patient.id RELATED_SOURCE ALL before UNPIVOT; unpivot Specimen ID while retaining the Patient.id array; add Patient.${afterUnpivotFieldPath} ALL after UNPIVOT on the same exact Specimen.subject->Patient route${nullableGenderCase ? ' using the pinned scoped witness with a missing or explicit-null gender' : ''}.`,
+  coverageLimitations: nullableGenderCase
+    ? ['This separate mode uses the exact scoped Specimen/Patient identity from the passed resourceType-after-Unpivot raw-oracle report, then rereads that source and records whether gender is absent or explicitly null. It does not require or claim a populated gender witness.', 'One linked Patient with a missing or explicit-null gender must project as ALL [null]; an empty related population has ALL []. The pinned CDA witness has one direct Patient, so the empty-population policy is checked only by the offline helper test.', 'Basic-fixture Builder behavior, populated Patient.gender, restricted-auth, and Pivot remain untested.']
+    : afterUnpivotCase === 'id-count'
+      ? ['This case proves retained Patient.id ALL values across UNPIVOT and same-route Patient.id COUNT after UNPIVOT. It does not prove non-id Patient field-value access after UNPIVOT.', 'The bounded first-2,000-Specimen inventory found project_id and resourceType as populated Patient payload scalars besides id; this is not a project-wide absence claim.']
+      : [`The ${afterUnpivotFieldPath} case requires a populated Patient.${afterUnpivotFieldPath} witness in the bounded candidate scan. A missing witness does not establish project-wide absence.`, 'This verifier does not claim restricted-auth coverage.'],
   authorizationClaim: 'Exact selected resource membership is checked. The local project-scoped CDA oracle does not claim restricted-auth coverage.',
   started: new Date().toISOString(),
   protectedExplorerUntouched: true,
@@ -188,6 +193,14 @@ const scopedSpecimenCandidatesQuery = `FOR s IN Specimen
   LIMIT 2000
   RETURN { id: s.id, _id: s._id, project: s.project, generation: s.dataset_generation }`;
 
+const pinnedSpecimenCandidateQuery = `FOR s IN Specimen
+  FILTER s.id == @specimenID
+    AND s.project == @project
+    AND s.dataset_generation == @generation
+  SORT s._key
+  LIMIT 2
+  RETURN { id: s.id, _id: s._id, project: s.project, generation: s.dataset_generation }`;
+
 const linkedPatientWitnessQuery = `FOR specimenKey IN @specimenKeys
   LET specimen = DOCUMENT(specimenKey)
   FILTER specimen != null
@@ -204,17 +217,18 @@ const linkedPatientWitnessQuery = `FOR specimenKey IN @specimenKeys
       FILTER patient != null
         AND patient.project == @project
         AND patient.dataset_generation == @generation
-      RETURN DISTINCT { id: patient.payload.id, _id: patient._id, gender: patient.payload.gender, resourceType: patient.payload.resourceType }
+      RETURN DISTINCT { id: patient.payload.id, _id: patient._id, gender: patient.payload.gender, genderOwnProperty: HAS(patient.payload, "gender"), genderIsNull: IS_NULL(patient.payload.gender), genderValue: (HAS(patient.payload, "gender") ? patient.payload.gender : null), resourceType: patient.payload.resourceType }
   )
   FILTER LENGTH(patients) == 1
   FILTER IS_STRING(patients[0].id) AND LENGTH(patients[0].id) > 0
   FILTER @requiredField == "" OR (IS_STRING(patients[0][@requiredField]) AND LENGTH(patients[0][@requiredField]) > 0)
+  FILTER @nullableGenderOnly == false OR (patients[0].genderOwnProperty == false OR patients[0].genderIsNull == true)
   SORT specimen._key
   LIMIT 1
   LET patient = patients[0]
   RETURN {
     specimen: { id: specimen.id, _id: specimen._id },
-    patient: { id: patient.id, _id: patient._id, gender: patient.gender, resourceType: patient.resourceType },
+    patient: { id: patient.id, _id: patient._id, gender: patient.gender, genderOwnProperty: patient.genderOwnProperty, genderIsNull: patient.genderIsNull, genderValue: patient.genderValue, resourceType: patient.resourceType },
     patientCount: LENGTH(patients),
     route: "Specimen -[subject]-> Patient",
     project: specimen.project,
@@ -237,15 +251,16 @@ const exactLinkedPatientQuery = `LET specimen = DOCUMENT(@specimenKey)
       FILTER patient != null
         AND patient.project == @project
         AND patient.dataset_generation == @generation
-      RETURN DISTINCT { id: patient.payload.id, _id: patient._id, gender: patient.payload.gender, resourceType: patient.payload.resourceType }
+      RETURN DISTINCT { id: patient.payload.id, _id: patient._id, gender: patient.payload.gender, genderOwnProperty: HAS(patient.payload, "gender"), genderIsNull: IS_NULL(patient.payload.gender), genderValue: (HAS(patient.payload, "gender") ? patient.payload.gender : null), resourceType: patient.payload.resourceType }
   )
   FILTER LENGTH(patients) == 1
   FILTER IS_STRING(patients[0].id) AND LENGTH(patients[0].id) > 0
   FILTER @requiredField == "" OR (IS_STRING(patients[0][@requiredField]) AND LENGTH(patients[0][@requiredField]) > 0)
+  FILTER @nullableGenderOnly == false OR (patients[0].genderOwnProperty == false OR patients[0].genderIsNull == true)
   LET patient = patients[0]
   RETURN {
     specimen: { id: specimen.id, _id: specimen._id },
-    patient: { id: patient.id, _id: patient._id, gender: patient.gender, resourceType: patient.resourceType },
+    patient: { id: patient.id, _id: patient._id, gender: patient.gender, genderOwnProperty: patient.genderOwnProperty, genderIsNull: patient.genderIsNull, genderValue: patient.genderValue, resourceType: patient.resourceType },
     patientCount: LENGTH(patients),
     route: "Specimen -[subject]-> Patient",
     project: specimen.project,
@@ -258,7 +273,7 @@ const beginNativeCapture = () => {
     if (url.pathname.includes(`/${protectedExplorer}/`)) report.protectedExplorerUntouched = false;
     if (!url.pathname.startsWith(base + '/')) return;
     const endpoint = url.pathname.slice(base.length);
-    if (!['/commands', '/construction-proposals', '/construction-choice-proposals', '/preview'].includes(endpoint)) return;
+
     let body;
     try { body = request.postData ? JSON.parse(request.postData) : undefined; } catch { body = undefined; }
     const entry = {
@@ -468,13 +483,23 @@ const applyProposal = async (expectedRows, name) => {
   await waitForBrowser(browser.cdp,
     `!document.querySelector('[data-testid="construction-proposal-panel"]') && !document.querySelector('[data-testid="construction-choice-proposal-panel"]')`,
     5000);
-  const applied = await waitNative('/preview', startedAt, (entry) => entry.outputId === outputId);
-  assert.equal(applied.status, 200, `${name}: saved preview returned HTTP ${applied.status}`);
-  assert.equal(applied.response?.rowCount, expectedRows.length, `${name}: saved row count`);
-  assertPreviewRows({ status: applied.status, response: { proposalId: applied.response?.receiptId, previewStatus: 'READY', preview: applied.response } }, expectedRows, name);
+  const command = await waitNative('/commands', startedAt);
+  assert.equal(command.status, 200, `${name}: Apply command failed`);
   builder = await api(base + '/builder');
-  await visibleTable(expectedRows, applied.response, name, startedAt);
-  return applied.response;
+  await waitForBrowser(browser.cdp, `(() => {
+    const p=document.querySelector('[data-testid="construction-preview"]');
+    return p?.dataset.previewStatus==='ready' && p.dataset.previewOutputId===${JSON.stringify(outputId)}
+      && p.dataset.currentDraftDigest===${JSON.stringify(builder.draftDigest)}
+      && p.dataset.currentDraftVersion===${JSON.stringify(String(builder.draftVersion))};
+  })()`, 5000);
+  const receiptId = await browserEval(browser.cdp, `return document.querySelector('[data-testid="construction-preview"]')?.dataset.previewReceiptId;`);
+  assert(receiptId, `${name}: visible saved preview receipt missing`);
+  const preview = await api(base + '/preview', { receiptId, outputId, limit: 100 });
+  assert.equal(preview.receiptId, receiptId);
+  assert.equal(preview.outputId, outputId);
+  assertPreviewRows({ status: 200, response: { proposalId: receiptId, previewStatus: 'READY', preview } }, expectedRows, name);
+  await visibleTable(expectedRows, preview, name, startedAt);
+  return preview;
 };
 
 const cancelProposal = async (expectedWorkspace, name) => {
@@ -527,6 +552,7 @@ const assertDirectPatientRoute = (step, path, expectedForm = 'ALL') => {
 };
 
 const openRelatedField = async (fieldPath, desiredForm = 'ALL') => {
+  const startedAt = Date.now();
   await click(browser.cdp, '[data-testid="construction-action-add-columns"]');
   await click(browser.cdp, '[aria-label="Column types"] button', { includes: 'Fields and related data' });
   await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid="construction-add-columns-source"]'))`, 5000);
@@ -547,7 +573,6 @@ const openRelatedField = async (fieldPath, desiredForm = 'ALL') => {
   }
   const candidateSelector = `input[aria-label=${JSON.stringify(`Select Patient.${fieldPath}`)}]`;
   await waitForBrowser(browser.cdp, `Boolean(document.querySelector(${JSON.stringify(candidateSelector + ':not(:disabled)')}))`, 5000);
-  const startedAt = Date.now();
   await click(browser.cdp, candidateSelector);
   await click(browser.cdp, '[aria-label="Add columns editor"] button', { includes: 'Add 1 selected feature' });
   await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[role="dialog"]'))`, 5000);
@@ -617,22 +642,66 @@ const removeStep = async (step, name, expectedRows, expectedPreviousConstruction
 
 try {
   const oracleScope = { project, generation };
-  const candidates = rawQuery(scopedSpecimenCandidatesQuery, oracleScope);
-  assert(candidates.length <= 2000, 'Scoped raw-source candidate scan exceeded 2000 Specimens');
+  const oracleCandidateLimit = nullableGenderCase ? 2 : 2000;
+  let pinnedGenderWitness;
+  if (nullableGenderCase) {
+    let pinnedReport;
+    try {
+      pinnedReport = JSON.parse(await readFile(knownGenderWitnessReport, 'utf8'));
+    } catch (error) {
+      const unavailable = new Error(`Could not read the existing scoped Patient witness report: ${knownGenderWitnessReport}`);
+      unavailable.name = 'RawOracleUnavailableError';
+      unavailable.rawOracleFailure = true;
+      unavailable.unverifiedKind = 'pinned-witness-report-unavailable';
+      unavailable.productFailure = false;
+      unavailable.diagnostics = { reportPath: knownGenderWitnessReport, cause: String(error) };
+      throw unavailable;
+    }
+    pinnedGenderWitness = pinnedReport.oracle?.source;
+    if (pinnedReport.status !== 'passed' || pinnedReport.oracle?.project !== project ||
+        pinnedReport.oracle?.generation !== generation || pinnedReport.oracle?.route !== 'Specimen -[subject]-> Patient' ||
+        pinnedGenderWitness?.project !== project || pinnedGenderWitness?.generation !== generation ||
+        pinnedGenderWitness?.directPatientCount !== 1 || !pinnedGenderWitness?.specimenID || !pinnedGenderWitness?.patientID) {
+      const unavailable = new Error('The pinned witness report is not a passed, exact-project/generation, one-Patient Specimen source.');
+      unavailable.name = 'RawOracleUnavailableError';
+      unavailable.rawOracleFailure = true;
+      unavailable.unverifiedKind = 'pinned-witness-report-invalid';
+      unavailable.productFailure = false;
+      unavailable.diagnostics = { reportPath: knownGenderWitnessReport, status: pinnedReport.status, project: pinnedReport.oracle?.project, generation: pinnedReport.oracle?.generation, source: pinnedGenderWitness };
+      throw unavailable;
+    }
+  }
+  const candidateQuery = nullableGenderCase ? pinnedSpecimenCandidateQuery : scopedSpecimenCandidatesQuery;
+  const candidates = rawQuery(candidateQuery, {
+    ...oracleScope,
+    ...(nullableGenderCase ? { specimenID: pinnedGenderWitness.specimenID } : {}),
+  });
+  assert(candidates.length <= oracleCandidateLimit, `Raw-source candidate query exceeded its bounded limit of ${oracleCandidateLimit}`);
+  if (nullableGenderCase && candidates.length !== 1) {
+    const unavailable = new Error(`The pinned Specimen resource ID resolved to ${candidates.length} scoped source documents; exactly one is required.`);
+    unavailable.name = 'RawOracleUnavailableError';
+    unavailable.rawOracleFailure = true;
+    unavailable.unverifiedKind = 'pinned-specimen-resolution-mismatch';
+    unavailable.productFailure = false;
+    unavailable.diagnostics = { reportPath: knownGenderWitnessReport, candidateLimit: oracleCandidateLimit, candidateCount: candidates.length };
+    throw unavailable;
+  }
   assert(candidates.every(candidate => candidate.project === project && candidate.generation === generation && candidate._id?.startsWith('Specimen/')),
     'Scoped raw-source candidate scan returned a resource outside the requested CDA slice');
   if (candidates.length === 0) {
     report.oracle = {
       oracleSource: 'ArangoDB raw Specimen documents plus fhir_edge links',
-      project, generation, candidateLimit: 2000, candidateCount: 0,
+      project, generation, candidateLimit: oracleCandidateLimit, candidateCount: 0,
       result: 'no-candidates-within-bounded-scan',
     };
-    const unavailable = new Error('The bounded scoped Specimen candidate query returned no resources; no Builder behavior was tested.');
+    const unavailable = new Error(nullableGenderCase
+      ? 'The exact pinned Specimen resource ID no longer resolves inside the scoped CDA generation; no Builder behavior was tested.'
+      : 'The bounded scoped Specimen candidate query returned no resources; no Builder behavior was tested.');
     unavailable.name = 'RawOracleUnavailableError';
     unavailable.rawOracleFailure = true;
     unavailable.unverifiedKind = 'bounded-candidate-scan-empty';
     unavailable.productFailure = false;
-    unavailable.diagnostics = { candidateLimit: 2000, candidateCount: 0 };
+    unavailable.diagnostics = { candidateLimit: oracleCandidateLimit, candidateCount: 0 };
     throw unavailable;
   }
 
@@ -642,12 +711,13 @@ try {
       ...oracleScope,
       specimenKeys: candidates.map(candidate => candidate._id),
       requiredField: requireFieldWitness ? afterUnpivotFieldPath : '',
+      nullableGenderOnly: nullableGenderCase,
     });
   } catch (error) {
     if (!error.rawOracleFailure) throw error;
     report.oracle = {
       oracleSource: 'ArangoDB raw Specimen documents plus fhir_edge links',
-      project, generation, candidateLimit: 2000, candidateCount: candidates.length,
+      project, generation, candidateLimit: oracleCandidateLimit, candidateCount: candidates.length,
     };
     throw error;
   }
@@ -655,16 +725,18 @@ try {
   if (!candidateWitness) {
     report.oracle = {
       oracleSource: 'ArangoDB raw Specimen documents plus fhir_edge links',
-      project, generation, candidateLimit: 2000, candidateCount: candidates.length,
+      project, generation, candidateLimit: oracleCandidateLimit, candidateCount: candidates.length,
       linkedPatientWitnesses: 0,
       result: 'no-witness-within-bounded-candidate-scan',
     };
-    const unavailable = new Error('No direct Patient witness matching the selected mode was found among the first 2000 scoped Specimens by _key; this does not establish absence from the full project generation.');
+    const unavailable = new Error(nullableGenderCase
+      ? 'The exact pinned CDA Specimen no longer has exactly one linked Patient with absent or explicit-null gender.'
+      : 'No direct Patient witness matching the selected mode was found among the first 2000 scoped Specimens by _key; this does not establish absence from the full project generation.');
     unavailable.name = 'RawOracleUnavailableError';
     unavailable.rawOracleFailure = true;
     unavailable.unverifiedKind = 'bounded-linked-patient-witness-not-found';
     unavailable.productFailure = false;
-    unavailable.diagnostics = { candidateLimit: 2000, candidateCount: candidates.length, linkedPatientWitnesses: 0 };
+    unavailable.diagnostics = { candidateLimit: oracleCandidateLimit, candidateCount: candidates.length, linkedPatientWitnesses: 0 };
     throw unavailable;
   }
 
@@ -675,12 +747,13 @@ try {
       specimenKey: candidateWitness.specimen._id,
       specimenID: candidateWitness.specimen.id,
       requiredField: requireFieldWitness ? afterUnpivotFieldPath : '',
+      nullableGenderOnly: nullableGenderCase,
     });
   } catch (error) {
     if (!error.rawOracleFailure) throw error;
     report.oracle = {
       oracleSource: 'ArangoDB raw Specimen documents plus fhir_edge links',
-      project, generation, candidateLimit: 2000, candidateCount: candidates.length,
+      project, generation, candidateLimit: oracleCandidateLimit, candidateCount: candidates.length,
       candidateWitness: candidateWitness.specimen.id,
     };
     error.unverifiedKind = 'exact-record-reread-command';
@@ -692,6 +765,9 @@ try {
     exactRows[0].patient.id === candidateWitness.patient.id &&
     exactRows[0].patient._id === candidateWitness.patient._id &&
     exactRows[0].patient.gender === candidateWitness.patient.gender &&
+    exactRows[0].patient.genderOwnProperty === candidateWitness.patient.genderOwnProperty &&
+    exactRows[0].patient.genderIsNull === candidateWitness.patient.genderIsNull &&
+    exactRows[0].patient.genderValue === candidateWitness.patient.genderValue &&
     exactRows[0].patient.resourceType === candidateWitness.patient.resourceType &&
     exactRows[0].patientCount === candidateWitness.patientCount &&
     exactRows[0].project === candidateWitness.project &&
@@ -699,20 +775,57 @@ try {
   if (!exactRereadMatches) {
     report.oracle = {
       oracleSource: 'ArangoDB raw Specimen documents plus fhir_edge links',
-      project, generation, candidateLimit: 2000, candidateCount: candidates.length,
+      project, generation, candidateLimit: oracleCandidateLimit, candidateCount: candidates.length,
       candidateWitness: candidateWitness.specimen.id,
       exactRereadCount: exactRows.length,
       result: 'exact-record-reread-did-not-confirm-witness',
     };
-    const unavailable = new Error('The independently queried exact selected Specimen no longer matches the bounded witness; no Builder behavior was tested.');
+    const unavailable = new Error('The independently queried exact selected Specimen no longer matches the pinned/bounded source witness; no Builder behavior was tested.');
     unavailable.name = 'RawOracleUnavailableError';
     unavailable.rawOracleFailure = true;
     unavailable.unverifiedKind = 'exact-record-reread-mismatch';
     unavailable.productFailure = false;
-    unavailable.diagnostics = { candidateLimit: 2000, candidateWitness: candidateWitness.specimen.id, exactRereadCount: exactRows.length };
+    unavailable.diagnostics = { candidateLimit: oracleCandidateLimit, candidateWitness: candidateWitness.specimen.id, exactRereadCount: exactRows.length };
     throw unavailable;
   }
   const source = exactRows[0];
+  let sourceGenderState;
+  if (nullableGenderCase) {
+    const identityMismatch = source?.specimen?.id !== pinnedGenderWitness.specimenID || source?.patient?.id !== pinnedGenderWitness.patientID;
+    if (identityMismatch) {
+      const unavailable = new Error('The exact raw-source reread no longer matches the previously selected Specimen and Patient IDs.');
+      unavailable.name = 'RawOracleUnavailableError';
+      unavailable.rawOracleFailure = true;
+      unavailable.unverifiedKind = 'pinned-witness-identity-changed';
+      unavailable.productFailure = false;
+      unavailable.diagnostics = { expected: { specimenID: pinnedGenderWitness.specimenID, patientID: pinnedGenderWitness.patientID }, actual: { specimenID: source?.specimen?.id, patientID: source?.patient?.id } };
+      throw unavailable;
+    }
+    try {
+      sourceGenderState = classifyNullableSourceScalar({
+        ownProperty: source.patient.genderOwnProperty,
+        isNull: source.patient.genderIsNull,
+        value: source.patient.genderValue,
+      });
+    } catch (cause) {
+      const unavailable = new Error('The exact raw-source reread did not preserve consistent gender own-property/null evidence.');
+      unavailable.name = 'RawOracleUnavailableError';
+      unavailable.rawOracleFailure = true;
+      unavailable.unverifiedKind = 'raw-gender-state-evidence-invalid';
+      unavailable.productFailure = false;
+      unavailable.diagnostics = { specimenID: source.specimen.id, patientID: source.patient.id, patient: source.patient, cause: String(cause) };
+      throw unavailable;
+    }
+    if (sourceGenderState.state !== 'missing' && sourceGenderState.state !== 'explicit-null') {
+      const unavailable = new Error('The fresh raw source reread no longer has a missing or explicit-null Patient.gender witness.');
+      unavailable.name = 'RawOracleUnavailableError';
+      unavailable.rawOracleFailure = true;
+      unavailable.unverifiedKind = 'pinned-gender-state-changed';
+      unavailable.productFailure = false;
+      unavailable.diagnostics = { specimenID: source.specimen.id, patientID: source.patient.id, patientGenderSource: sourceGenderState };
+      throw unavailable;
+    }
+  }
   assert(source?.specimen?.id && source?.patient?.id && source?.patientCount === 1,
     'The scoped CDA oracle needs one Specimen with exactly one direct linked Patient and populated Patient.id.');
   if (requireFieldWitness) assert(typeof source.patient[afterUnpivotFieldPath] === 'string' && source.patient[afterUnpivotFieldPath].length > 0,
@@ -721,18 +834,20 @@ try {
   assert.equal(source.generation, generation);
   report.oracle = {
     oracleSource: 'ArangoDB raw Specimen documents plus fhir_edge links',
-    candidateQuery: scopedSpecimenCandidatesQuery,
+    witnessBasis: nullableGenderCase ? `Pinned exact witness from ${knownGenderWitnessReport}; the raw source is reread by the bounded resource-ID query.` : undefined,
+    candidateQuery,
     witnessQuery: linkedPatientWitnessQuery,
     exactRereadQuery: exactLinkedPatientQuery,
     route: source.route,
-    project, generation, candidateLimit: 2000, candidateCount: candidates.length,
+    project, generation, candidateLimit: oracleCandidateLimit, candidateCount: candidates.length,
     selectedCandidateWitnessCount: 1,
     exactRereadCount: exactRows.length,
     source: {
       specimenID: source.specimen.id,
       patientID: source.patient.id,
-      ...(source.patient.gender == null ? {} : { patientGender: source.patient.gender }),
+      ...(nullableGenderCase ? { patientGenderSource: { state: sourceGenderState.state, ownProperty: sourceGenderState.ownProperty, isNull: sourceGenderState.isNull, value: source.patient.genderValue } } : source.patient.gender == null ? {} : { patientGender: source.patient.gender }),
       ...(source.patient.resourceType == null ? {} : { patientResourceType: source.patient.resourceType }),
+      ...(nullableGenderCase ? { postUnpivotFieldPath: 'gender', postUnpivotExpectedAll: expectedNullableRelatedAll({ relatedCount: source.patientCount, sourceState: sourceGenderState.state }) } : {}),
       ...(requireFieldWitness ? { postUnpivotFieldPath: afterUnpivotFieldPath, postUnpivotFieldWitness: source.patient[afterUnpivotFieldPath] } : {}),
       directPatientCount: source.patientCount,
       project: source.project,
@@ -741,7 +856,7 @@ try {
     patientMatches: 1,
   };
 
-  await api(apiRoot, { name: explorer, title: afterUnpivotCase === 'id-count' ? 'Related ID count after Unpivot QA' : 'Related field after Unpivot QA' });
+  await api(apiRoot, { name: explorer, title: afterUnpivotCase === 'id-count' ? 'Related ID count after Unpivot QA' : nullableGenderCase ? 'Related nullable Patient gender after Unpivot QA' : 'Related field after Unpivot QA' });
   builder = await api(base + '/builder');
   assert.equal(builder.catalog.generation, generation);
   const rootNode = builder.catalog.nodes.find((node) => node.resourceType === 'Specimen');
@@ -917,7 +1032,9 @@ try {
   assert.equal(savedPatientIDOutput.label, patientIDLabel);
 
   const reshapedRetainedPatientRow = structuredClone(previewRows[0]);
-  const postUnpivotValue = afterUnpivotCase === 'id-count' ? source.patientCount : [source.patient[afterUnpivotFieldPath]];
+  const postUnpivotValue = nullableGenderCase
+    ? expectedNullableRelatedAll({ relatedCount: source.patientCount, sourceState: sourceGenderState.state })
+    : afterUnpivotCase === 'id-count' ? source.patientCount : [source.patient[afterUnpivotFieldPath]];
   const postUnpivotValueForRow = (label) => ({ ...reshapedRetainedPatientRow, [label]: postUnpivotValue });
   const beforePostUnpivotField = structuredClone(builder);
   start = await openRelatedField(afterUnpivotFieldPath, afterUnpivotForm);
@@ -1048,6 +1165,16 @@ try {
     report.unverified = { kind: error.unverifiedKind ?? 'raw-source-command', message: error.message, diagnostics: error.diagnostics };
   }
   report.error = String(error.stack ?? error);
+  if (browser) {
+    report.failureDOM = await browserEval(browser.cdp, `return {
+      text: document.body.innerText.slice(-16000),
+      preview: (() => {const p=document.querySelector('[data-testid="construction-preview"]');return p?{...p.dataset}:null;})(),
+      controls: [...document.querySelectorAll('button,input,select,[data-testid]')].map(el=>({
+        tag:el.tagName, testId:el.getAttribute('data-testid'), label:el.getAttribute('aria-label'),
+        text:el.tagName==='BUTTON'?el.textContent.trim():undefined, disabled:el.disabled,
+      })).slice(0,150),
+    };`).catch(captureError => ({ error: String(captureError) }));
+  }
   if (builder) {
     const state = await api(base + '/builder').catch((readError) => ({ error: String(readError) }));
     const savedDocument = state.workspace?.documents?.find((document) => document.output.id === outputId);
@@ -1068,6 +1195,7 @@ try {
     status,
     proposalId: response?.proposalId,
     previewRowCount: response?.preview?.rowCount ?? response?.rowCount,
+    diagnostic: status >= 400 ? response?.error ?? response?.diagnostics : undefined,
   }));
   const sourceFreezeFinishedAt = new Date().toISOString();
   try {

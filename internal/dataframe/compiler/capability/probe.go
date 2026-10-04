@@ -235,6 +235,30 @@ func ProbeTraversal(ctx context.Context, request TraversalRequest, options ...Op
 	return Result{Traversal: &capability, Rendered: rendered}, nil
 }
 
+// ProbeProjection proves the requested projection without probing unrelated
+// filter and chart operations during field discovery.
+func ProbeProjection(ctx context.Context, request CandidateRequest, options ...Options) (Result, error) {
+	prepared, err := prepareCandidate(request)
+	if err != nil {
+		return Result{}, err
+	}
+	mode := request.Projection
+	if mode == "" {
+		mode = defaultProjection(prepared.repeated)
+	}
+	_, rendered, err := compileCandidate(ctx, prepared, mode, nil, nil, optionsFor(options))
+	if err != nil {
+		return Result{}, err
+	}
+	metadata := CandidateCapability{
+		ResourceType: prepared.resourceType, FieldRef: prepared.fieldRef,
+		Selector: prepared.selector.CanonicalPath(), FieldKind: prepared.fieldKind,
+		Primitive: prepared.primitive, Cardinality: prepared.cardinality, Repeated: prepared.repeated,
+		ProjectionModes: []spec.ProjectionMode{mode}, Rendered: rendered,
+	}
+	return Result{Candidate: &metadata, Rendered: rendered}, nil
+}
+
 // ProbeCandidate compiles a candidate projection, filter, or chart operation.
 // It also probes every operation supported by the shared compiler so the
 // returned metadata can be used directly by a capability builder.

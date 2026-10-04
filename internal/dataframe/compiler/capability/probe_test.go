@@ -15,6 +15,22 @@ func testScope() Scope {
 	return Scope{Project: "project-1", DatasetGeneration: "generation-7", AuthScopeMode: authscope.ReadScopeRestricted, AuthResourcePaths: []string{"/programs/p1"}}
 }
 
+func TestProbeProjectionProvesOnlyScopedGenderProjection(t *testing.T) {
+	result, err := ProbeProjection(context.Background(), CandidateRequest{
+		Scope: testScope(), RootResourceType: "Patient", ResourceType: "Patient",
+		FieldRef: "Patient.gender", Selector: "gender",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Candidate == nil || len(result.Candidate.ProjectionModes) != 1 ||
+		result.Candidate.ProjectionModes[0] != spec.ProjectionScalar ||
+		len(result.Candidate.FilterOperators) != 0 || len(result.Candidate.ChartOperations) != 0 {
+		t.Fatalf("projection proof advertised unrelated operations: %#v", result.Candidate)
+	}
+	assertScopedQuery(t, result.Rendered)
+}
+
 func TestProbeRootRejectsBackboneAndCustomButAcceptsGenericResource(t *testing.T) {
 	if _, err := ProbeRoot(context.Background(), RootRequest{Scope: testScope(), ResourceType: "PractitionerQualification"}); err == nil {
 		t.Fatal("backbone definition was accepted as a row root")

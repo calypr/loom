@@ -152,6 +152,30 @@ paths:
         '422': {$ref: '#/components/responses/AuthoringUnprocessable'}
         '500': {$ref: '#/components/responses/AuthoringInternalError'}
         '503': {$ref: '#/components/responses/AuthoringUnavailable'}
+  /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/schema-fields:
+    parameters:
+      - $ref: '#/components/parameters/Project'
+      - $ref: '#/components/parameters/ExplorerId'
+    post:
+      operationId: searchExplorerSchemaFields
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/SchemaFieldSearchRequest'}
+      responses:
+        '200':
+          description: A bounded page of generated primitive paths for one populated node in the authorized capability snapshot.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/SchemaFieldSearchResponse'}
+        '400': {$ref: '#/components/responses/AuthoringBadRequest'}
+        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '403': {$ref: '#/components/responses/AuthoringForbidden'}
+        '409': {$ref: '#/components/responses/AuthoringConflict'}
+        '422': {$ref: '#/components/responses/AuthoringUnprocessable'}
+        '500': {$ref: '#/components/responses/AuthoringInternalError'}
+        '503': {$ref: '#/components/responses/AuthoringUnavailable'}
   /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/capability:
     parameters:
       - $ref: '#/components/parameters/Project'
@@ -5540,6 +5564,50 @@ components:
         diagnostics:
           type: array
           items: {$ref: '#/components/schemas/Diagnostic'}
+    SchemaFieldSearchRequest:
+      type: object
+      additionalProperties: false
+      required: [snapshotToken, nodeId]
+      properties:
+        snapshotToken: {type: string, minLength: 1, maxLength: 4096}
+        nodeId: {type: string, minLength: 1, maxLength: 256}
+        query: {type: string, maxLength: 256}
+        limit: {type: integer, minimum: 1, maximum: 50}
+        cursor: {type: string, maxLength: 4096}
+    SchemaFieldSearchResponse:
+      type: object
+      additionalProperties: false
+      required: [apiVersion, kind, snapshotToken, schemaDigest, nodeId, resourceType, query, fields, complete, truncated]
+      properties:
+        apiVersion: {$ref: '#/components/schemas/APIVersion'}
+        kind: {type: string, enum: [ExplorerBuilderGeneratedSchemaFields]}
+        snapshotToken: {type: string, minLength: 1}
+        schemaDigest: {type: string, minLength: 64, maxLength: 64, pattern: '^[a-f0-9]{64}$'}
+        nodeId: {type: string, minLength: 1}
+        resourceType: {type: string, minLength: 1}
+        query: {type: string, maxLength: 256}
+        fields:
+          type: array
+          maxItems: 50
+          items: {$ref: '#/components/schemas/SchemaFieldOption'}
+        complete: {type: boolean}
+        truncated: {type: boolean}
+        nextCursor: {type: string, minLength: 1, maxLength: 4096}
+    SchemaFieldOption:
+      type: object
+      additionalProperties: false
+      required: [origin, nodeId, resourceType, path, primitiveType, cardinality]
+      properties:
+        constructionChoice: {$ref: '#/components/schemas/ConstructionChoice'}
+        origin: {type: string, pattern: '^GENERATED_SCHEMA$'}
+        nodeId: {type: string, minLength: 1}
+        resourceType: {type: string, minLength: 1}
+        path: {type: string, minLength: 1}
+        primitiveType: {type: string, pattern: '^(string|boolean|integer|decimal|date|date_time)$'}
+        cardinality: {type: string, enum: [optional_one, many]}
+        repeatedPaths:
+          type: array
+          items: {type: string, minLength: 1}
     ContractColumn:
       type: object
       additionalProperties: false

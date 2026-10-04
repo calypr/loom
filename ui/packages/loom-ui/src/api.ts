@@ -8,6 +8,8 @@ import {
   explorerAuthoringCapabilitiesSchema,
   explorerBuilderCommandsResultSchema,
   explorerBuilderSuggestionsResultSchema,
+  explorerBuilderSchemaFieldsResultSchema,
+  type ExplorerBuilderSchemaFieldsResult,
   explorerColumnSourceDescriptorSchema,
   constructionChoiceSearchResponseSchema,
   relatedExpandChoiceSearchResponseSchema,
@@ -306,6 +308,11 @@ export interface ExplorerCandidateSuggestionsArgs extends ExplorerAuthoringState
   readonly nodeId: string;
   readonly query?: string;
   readonly requestId?: string;
+}
+
+export interface SearchSchemaFieldsArgs extends ExplorerCandidateSuggestionsArgs {
+  readonly cursor?: string;
+  readonly limit?: number;
 }
 
 export interface BrowseSemanticInventoryArgs extends ExplorerAuthoringStateArgs {
@@ -628,6 +635,10 @@ export interface LoomClient {
     args: ExplorerCandidateSuggestionsArgs,
     signal?: AbortSignal,
   ) => Promise<ExplorerBuilderSuggestionsResult>;
+  readonly searchSchemaFields?: (
+    args: SearchSchemaFieldsArgs,
+    signal?: AbortSignal,
+  ) => Promise<ExplorerBuilderSchemaFieldsResult>;
   readonly browseSemanticInventory: (
     args: BrowseSemanticInventoryArgs,
     signal?: AbortSignal,
@@ -1232,6 +1243,13 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
     request(durableAuthoringPath(args, '/reconcile'), withJson({ snapshotToken: args.snapshotToken, draftVersion: args.draftVersion, draftDigest: args.draftDigest }, signal, args.requestId)).then(assertExplorerBuilderCompileResult);
   const suggestions = (args: ExplorerCandidateSuggestionsArgs, signal?: AbortSignal) =>
     request(authoringPath(args, '/suggestions'), withJson({ snapshotToken: args.snapshotToken, nodeId: args.nodeId, ...(args.query ? { query: args.query } : {}) }, signal, args.requestId)).then((value) => explorerBuilderSuggestionsResultSchema.parse(value));
+  const searchSchemaFields = (args: SearchSchemaFieldsArgs, signal?: AbortSignal) =>
+    request(authoringPath(args, '/schema-fields'), withJson({
+      snapshotToken: args.snapshotToken, nodeId: args.nodeId,
+      ...(args.query ? { query: args.query } : {}),
+      ...(args.cursor ? { cursor: args.cursor } : {}),
+      ...(args.limit === undefined ? {} : { limit: args.limit }),
+    }, signal, args.requestId)).then((value) => explorerBuilderSchemaFieldsResultSchema.parse(value));
   const browseSemanticInventory = (args: BrowseSemanticInventoryArgs, signal?: AbortSignal) =>
     request(authoringPath(args, '/semantic-inventory'), withJson({
       snapshotToken: args.snapshotToken,
@@ -1638,6 +1656,7 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
     reconcile,
     suggestions,
     browseSemanticInventory,
+    searchSchemaFields,
     browseFrameSourceOptions,
     inspectColumnSource,
     searchConstructionChoices,

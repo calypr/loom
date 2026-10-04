@@ -303,6 +303,36 @@ func (h *explorerHTTPHandlers) searchAuthoringSuggestionsDirect(ctx context.Cont
 	return loomapi.CandidateSearchResponse{ApiVersion: loomapi.LoomCalyprOrgexplorerAuthoringv2, Kind: loomapi.ExplorerBuilderCandidateSuggestions, SnapshotToken: value.SnapshotToken, NodeId: value.NodeID, Candidates: candidates, Diagnostics: []loomapi.Diagnostic{}}, nil
 }
 
+func (h *explorerHTTPHandlers) searchAuthoringSchemaFieldsDirect(ctx context.Context, project, explorerID string, body *loomapi.SchemaFieldSearchRequest) (loomapi.SchemaFieldSearchResponse, error) {
+	var result loomapi.SchemaFieldSearchResponse
+	if err := h.authoringReadDirect(ctx, project); err != nil {
+		return result, err
+	}
+	if body == nil {
+		return result, malformedRouteError("schema-fields", errors.New("request body is required"))
+	}
+	request := lifecycle.SearchSchemaFieldsRequest{
+		Project: project, ExplorerID: explorerID, SnapshotToken: body.SnapshotToken, NodeID: body.NodeId,
+	}
+	if body.Query != nil {
+		request.Query = *body.Query
+	}
+	if body.Limit != nil {
+		request.Limit = *body.Limit
+	}
+	if body.Cursor != nil {
+		request.Cursor = *body.Cursor
+	}
+	value, err := h.application.SearchSchemaFields(ctx, request)
+	if err != nil {
+		return result, err
+	}
+	wire, err := directAuthoringJSON[loomapi.SchemaFieldSearchResponse](value)
+	wire.ApiVersion = loomapi.LoomCalyprOrgexplorerAuthoringv2
+	wire.Kind = loomapi.ExplorerBuilderGeneratedSchemaFields
+	return wire, err
+}
+
 func (h *explorerHTTPHandlers) getAuthoringBuilderDirect(ctx context.Context, project, explorerID string) (loomapi.BuilderState, error) {
 	var result loomapi.BuilderState
 	if err := h.authoringReadDirect(ctx, project); err != nil {

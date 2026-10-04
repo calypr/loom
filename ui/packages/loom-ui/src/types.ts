@@ -2854,6 +2854,50 @@ export type ExplorerBuilderSuggestionsResult = z.infer<
   typeof explorerBuilderSuggestionsResultSchema
 >;
 
+export const schemaFieldSearchRequestSchema = z
+  .object({
+    snapshotToken: opaqueIdSchema,
+    nodeId: opaqueIdSchema,
+    query: z.string().max(256).optional(),
+    limit: z.number().int().min(1).max(50).optional(),
+    cursor: z.string().max(4096).optional(),
+  })
+  .strict();
+export type SchemaFieldSearchRequest = z.infer<typeof schemaFieldSearchRequestSchema>;
+
+export const schemaFieldOptionSchema = z
+  .object({
+    origin: z.literal('GENERATED_SCHEMA'),
+    constructionChoice: constructionChoiceSchema.optional(),
+    nodeId: opaqueIdSchema,
+    resourceType: z.string().min(1),
+    path: z.string().min(1),
+    primitiveType: z.enum(['string', 'boolean', 'integer', 'decimal', 'date', 'date_time']),
+    cardinality: z.enum(['optional_one', 'many']),
+    repeatedPaths: z.array(z.string().min(1)).optional(),
+  })
+  .strict();
+export type SchemaFieldOption = z.infer<typeof schemaFieldOptionSchema>;
+
+export const explorerBuilderSchemaFieldsResultSchema = z
+  .object({
+    apiVersion: z.literal(EXPLORER_AUTHORING_API_VERSION),
+    kind: z.literal('ExplorerBuilderGeneratedSchemaFields'),
+    snapshotToken: opaqueIdSchema,
+    schemaDigest: z.string().regex(/^[a-f0-9]{64}$/),
+    nodeId: opaqueIdSchema,
+    resourceType: z.string().min(1),
+    query: z.string().max(256),
+    fields: z.array(schemaFieldOptionSchema).max(50),
+    complete: z.boolean(),
+    truncated: z.boolean(),
+    nextCursor: z.string().min(1).max(4096).optional(),
+  })
+  .strict();
+export type ExplorerBuilderSchemaFieldsResult = z.infer<
+  typeof explorerBuilderSchemaFieldsResultSchema
+>;
+
 export const semanticSelectionReadinessSchema = z
   .object({
     status: z.enum(['READY', 'READY_WITH_WARNING', 'NEEDS_MAPPING', 'UNSUPPORTED']),

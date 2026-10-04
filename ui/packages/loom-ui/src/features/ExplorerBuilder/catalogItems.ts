@@ -7,6 +7,7 @@ import type {
   ExplorerBuilderCandidate,
   FieldChoiceSource,
   SemanticInventoryItem,
+  SchemaFieldOption,
 } from '../../types';
 
 export type CatalogItem =
@@ -213,11 +214,13 @@ export const catalogChoiceIntent = ({
   choice,
   form,
   rowRoot,
+  rowValuePolicy,
 }: {
   readonly item: CatalogItem;
   readonly choice: ConstructionChoice;
   readonly form: ConstructionChoiceForm;
   readonly rowRoot?: string;
+  readonly rowValuePolicy?: ConstructionChoiceSelection['rowValuePolicy'];
 }): CatalogChoiceIntent => {
   const relatedSource = item.kind === 'FIELD' &&
     rowRoot !== undefined &&
@@ -235,7 +238,11 @@ export const catalogChoiceIntent = ({
       : undefined;
 
   return {
-    constructionChoice: { choiceId: choice.choiceId, form },
+    constructionChoice: {
+      choiceId: choice.choiceId,
+      form,
+      ...(rowValuePolicy === 'ONE' ? { rowValuePolicy } : {}),
+    },
     title: catalogItemLabel(item),
     ...(relatedSource ? { relatedSource } : {}),
   };
@@ -410,3 +417,31 @@ export const semanticCatalogItems = (
     item,
     constructionChoice: item.constructionChoice,
   }));
+
+export const schemaFieldCatalogItems = (fields: ReadonlyArray<SchemaFieldOption>): ReadonlyArray<CatalogItem> =>
+  fields.flatMap((field): CatalogItem[] => {
+    const choice = field.constructionChoice;
+    if (!choice || choice.source.kind !== 'FIELD') return [];
+    const source = choice.source;
+    const modes = choice.options.flatMap(({ form }) =>
+      form === 'VALUE' || form === 'FIRST' || form === 'ALL' || form === 'DISTINCT' ? [form] : []);
+    const defaultMode = modes[0];
+    if (!defaultMode) return [];
+    return [{
+      kind: 'FIELD', constructionChoice: { ...choice, source },
+      candidate: {
+        candidateId: source.candidateId, nodeId: field.nodeId, fieldPath: field.path,
+        label: `${field.resourceType}.${field.path}`, logicalType: field.primitiveType,
+        cardinality: field.cardinality, repeated: field.cardinality === 'many',
+        filterable: false, chartable: false, projectionModes: modes,
+        defaultProjectionMode: defaultMode, constructionChoice: choice, aggregateOperations: [],
+        transformations: {
+          temporalReduction: { available: false, timestampFields: [], anchorFields: [] },
+          unitNormalization: { available: false, presets: [] },
+        },
+        valueTransformations: {
+          exactCategoryRecode: { available: false }, codedValueRecoding: { available: false },
+        },
+      },
+    }];
+  });

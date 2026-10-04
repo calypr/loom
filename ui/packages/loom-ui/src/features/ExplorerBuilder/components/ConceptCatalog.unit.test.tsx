@@ -2,7 +2,13 @@
 import React from 'react';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { createLoomClient } from '../../../api';
+import { createLoomClient as createFullLoomClient } from '../../../api';
+
+// These existing fixtures contain observed inventory only. Generated-field
+// requests have their own route-aware fixture below.
+const createLoomClient = (options: Parameters<typeof createFullLoomClient>[0]) => ({
+  ...createFullLoomClient(options), searchSchemaFields: undefined,
+});
 import { LoomProvider } from '../../../react';
 import type {
   AggregateTransformationCapability,
@@ -1539,4 +1545,51 @@ it.each(['COUNT', 'PRESENCE'] as const)('keeps signed related %s ownership when 
     constructionChoice: { choiceId: choice.choiceId, form }, title: candidate.label,
     relatedSource: { choice, candidate },
   }]));
+});
+
+
+it('offers a compiler-issued missing schema field in the existing related-field chooser', async () => {
+  const choice = fieldChoice('generated-gender-choice', 'generated-gender', 'patient-node', 'Patient', 'gender');
+  const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(async (url, init) => {
+    if (String(url).endsWith('/schema-fields') && JSON.parse(String(init?.body)).cursor) return new Promise<Response>(() => {});
+    if (String(url).endsWith('/schema-fields')) return new Response(JSON.stringify({
+      apiVersion: 'loom.calypr.org/explorer-authoring/v2', kind: 'ExplorerBuilderGeneratedSchemaFields',
+      snapshotToken: 'snapshot-a', schemaDigest: 'a'.repeat(64), nodeId: 'patient-node',
+      resourceType: 'Patient', query: '', complete: false, truncated: true, nextCursor: 'later-fields',
+      fields: [{ origin: 'GENERATED_SCHEMA', nodeId: 'patient-node', resourceType: 'Patient',
+        path: 'gender', primitiveType: 'string', cardinality: 'optional_one', constructionChoice: choice }],
+    }), { status: 200, headers: { 'content-type': 'application/json' } });
+    return new Response(JSON.stringify(page([])), { status: 200, headers: { 'content-type': 'application/json' } });
+  });
+  render(<LoomProvider client={createFullLoomClient({ fetch })}><ConceptCatalog
+    project="project-a" explorerId="explorer-a" snapshotToken="snapshot-a" outputId="patients"
+    rowRoot="Patient" resourceType="Patient" sourceNodeId="patient-node" catalog={catalog}
+    onAddSelected={vi.fn().mockResolvedValue(undefined)}
+  /></LoomProvider>);
+  const control = await screen.findByRole('checkbox', { name: 'Select Patient.gender' });
+  expect(control).not.toBeDisabled();
+  fireEvent.click(control);
+  expect(control instanceof HTMLInputElement && control.checked).toBe(true);
+  const request = fetch.mock.calls.find(([url]) => String(url).endsWith('/schema-fields'));
+  expect(JSON.parse(String(request?.[1]?.body))).toMatchObject({ snapshotToken: 'snapshot-a', nodeId: 'patient-node' });
+});
+
+it('starts generated-field discovery only when its containing panel is opened', async () => {
+  const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(async (url) =>
+    new Response(JSON.stringify(String(url).endsWith('/schema-fields') ? {
+      apiVersion: 'loom.calypr.org/explorer-authoring/v2', kind: 'ExplorerBuilderGeneratedSchemaFields',
+      snapshotToken: 'snapshot-a', schemaDigest: 'a'.repeat(64), nodeId: 'patient-node',
+      resourceType: 'Patient', query: '', fields: [], complete: true, truncated: false,
+    } : page([])), { status: 200, headers: { 'content-type': 'application/json' } }));
+  const client = createFullLoomClient({ fetch });
+  const view = (enabled: boolean) => <LoomProvider client={client}><ConceptCatalog
+    project="project-a" explorerId="explorer-a" snapshotToken="snapshot-a" outputId="patients"
+    rowRoot="Patient" sourceNodeId="patient-node" resourceType="Patient" catalog={catalog}
+    schemaDiscoveryEnabled={enabled} onAddSelected={vi.fn()}
+  /></LoomProvider>;
+  const { rerender } = render(view(false));
+  await waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+  expect(fetch.mock.calls.some(([url]) => String(url).endsWith('/schema-fields'))).toBe(false);
+  rerender(view(true));
+  await waitFor(() => expect(fetch.mock.calls.filter(([url]) => String(url).endsWith('/schema-fields'))).toHaveLength(1));
 });

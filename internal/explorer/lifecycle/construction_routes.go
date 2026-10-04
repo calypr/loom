@@ -1107,7 +1107,7 @@ func (s *Service) SearchConstructionChoices(ctx context.Context, request Constru
 			continue
 		}
 		provenCandidate := candidate
-		if len(resolvedRoute) > 0 {
+		if len(resolvedRoute) > 0 || strings.HasPrefix(candidate.ID, "schema_field.") {
 			provenCandidate, err = proveConstructionCandidate(ctx, authorized, document.RootResourceType, candidate, resolvedRoute)
 			if err != nil {
 				if strings.TrimSpace(request.OccurrenceID) != "" {

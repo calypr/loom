@@ -500,6 +500,7 @@ const BuilderWorkspaceContent = ({
   const choiceProposalRequest = useRef<AbortController | undefined>(undefined);
   const appliedChoicePreview = useRef<AppliedChoicePreview | undefined>(undefined);
   const [featureMode, setFeatureMode] = useState<'catalog' | 'graph'>('catalog');
+  const [sourceSetupOpen, setSourceSetupOpen] = useState(false);
   const [pairedColumnSuggestion, setPairedColumnSuggestion] =
     useState<PairedColumnSuggestion>();
   const [activeConstructionFamily, setActiveConstructionFamily] =
@@ -3687,7 +3688,8 @@ const BuilderWorkspaceContent = ({
             ) : null}
             {!activeOperation && !workspaceEditor ? <details
               className="w-fit max-w-full rounded-md border border-slate-200 bg-white shadow-sm open:w-full"
-              open={!table?.document.rootResourceType}
+              open={sourceSetupOpen || !table?.document.rootResourceType}
+              onToggle={(event) => setSourceSetupOpen(event.currentTarget.open)}
               data-testid="construction-source-setup"
             >
               <summary className="cursor-pointer list-none px-3 py-2 text-xs font-semibold text-blue-800 marker:hidden">
@@ -3736,6 +3738,7 @@ const BuilderWorkspaceContent = ({
                   snapshotToken={state.catalog.snapshotToken}
                   outputId={table.outputId}
                   rowRoot={table.document.rootResourceType}
+                  schemaDiscoveryEnabled={sourceSetupOpen || !table?.document.rootResourceType}
                   catalog={state.catalog}
                   sourceProjectionAvailability={sourceAvailability}
                   relatedSourceAvailability={relatedSourceAvailability}
