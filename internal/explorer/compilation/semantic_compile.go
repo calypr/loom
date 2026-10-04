@@ -30,7 +30,7 @@ type semanticRecipeNode struct {
 	aggregates   []recipe.Aggregate
 }
 
-func compileSemanticDocument(ctx context.Context, project, explorerID string, document authoringv2.Document, snapshot capability.Snapshot) (Result, error) {
+func compileSemanticDocument(ctx context.Context, project, explorerID string, document authoringv2.Document, snapshot capability.Snapshot, workspaceOutputIDs []string) (Result, error) {
 	if err := contextErr(ctx); err != nil {
 		return Result{}, err
 	}
@@ -60,7 +60,7 @@ func compileSemanticDocument(ctx context.Context, project, explorerID string, do
 		groupRows = &recipe.GroupRows{
 			RevisionID: explicit.RevisionID, UnassignedMemberPolicy: string(explicit.UnassignedMemberPolicy),
 			AfterStepID: document.Rows.Groups.AfterStepID,
-			RowValues: make([]recipe.GroupRowValuePolicy, 0, len(document.Rows.Groups.RowValues)),
+			RowValues:   make([]recipe.GroupRowValuePolicy, 0, len(document.Rows.Groups.RowValues)),
 		}
 		for _, value := range document.Rows.Groups.RowValues {
 			groupRows.RowValues = append(groupRows.RowValues, recipe.GroupRowValuePolicy{
@@ -545,10 +545,10 @@ func compileSemanticDocument(ctx context.Context, project, explorerID string, do
 	}
 	output.Traversals = semanticTraversals(document.Route, occurrences, nodes)
 	bundle := recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "explorer_" + safeName(project) + "_" + safeName(explorerID), TranslationVersion: TranslationVersion, Outputs: []recipe.Output{output}}
-	if err := bundle.Validate(); err != nil {
+	if err := bundle.ValidateWithWorkspaceOutputs(workspaceOutputIDs); err != nil {
 		return Result{}, fail("lower", "INVALID_RECIPE", "$.recipe", err.Error(), nil, err)
 	}
-	digest, err := bundle.Digest()
+	digest, err := bundle.DigestWithWorkspaceOutputs(workspaceOutputIDs)
 	if err != nil {
 		return Result{}, fail("lower", "RECIPE_DIGEST_FAILED", "$.recipe", "recipe digest could not be calculated", nil, err)
 	}

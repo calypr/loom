@@ -103,6 +103,9 @@ func (w Workspace) Validate() error {
 			return fmt.Errorf("INVALID_TAB_ORDER: orders must be contiguous from zero")
 		}
 	}
+	if _, err := w.OutputDependencyOrder(); err != nil {
+		return err
+	}
 	if err := w.validateSemanticBindings(); err != nil {
 		return err
 	}

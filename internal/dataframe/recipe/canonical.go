@@ -9,6 +9,26 @@ import (
 	"encoding/json"
 )
 
+// CanonicalJSONWithWorkspaceOutputs is limited to compiler fragments whose
+// sibling IDs are validated by the enclosing authoring workspace.
+func (b Bundle) CanonicalJSONWithWorkspaceOutputs(allowed []string) ([]byte, error) {
+	if err := b.ValidateWithWorkspaceOutputs(allowed); err != nil {
+		return nil, err
+	}
+	return json.Marshal(b)
+}
+
+// DigestWithWorkspaceOutputs includes exact sibling IDs while validating the
+// fragment against its enclosing workspace context.
+func (b Bundle) DigestWithWorkspaceOutputs(allowed []string) (string, error) {
+	canonical, err := b.CanonicalJSONWithWorkspaceOutputs(allowed)
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(canonical)
+	return hex.EncodeToString(sum[:]), nil
+}
+
 func (b Bundle) CanonicalJSON() ([]byte, error) {
 	if err := b.Validate(); err != nil {
 		return nil, err

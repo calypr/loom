@@ -62,11 +62,12 @@ const (
 	ConstructionSourceProjectionInput ConstructionInputKind = "SOURCE_PROJECTION"
 	ConstructionStepOutputInput       ConstructionInputKind = "STEP_OUTPUT"
 	ConstructionTableRevisionInput    ConstructionInputKind = "TABLE_REVISION"
+	ConstructionWorkspaceOutputInput  ConstructionInputKind = "WORKSPACE_OUTPUT"
 )
 
-// ConstructionInputRef is a closed reference to an input row set. Table
-// revision references are legal only for a standalone terminal Combine step;
-// they always identify an exact immutable publication.
+// ConstructionInputRef is a closed reference to an input row set. Workspace
+// output references name a sibling in the same immutable bundle; table
+// revision references identify an exact immutable publication.
 type ConstructionInputRef struct {
 	Kind       ConstructionInputKind `json:"kind"`
 	StepID     string                `json:"stepId,omitempty"`
@@ -629,22 +630,30 @@ func (construction Construction) validateTerminalCombine(sourceFields []Field) e
 		return fmt.Errorf("steps[0].id is reserved")
 	}
 	if len(step.Inputs) < 2 {
-		return fmt.Errorf("steps[0].inputs must contain at least two exact table revision references")
+		return fmt.Errorf("steps[0].inputs must contain at least two exact inputs")
 	}
 	seenRefs := make(map[string]bool, len(step.Inputs))
 	for index, input := range step.Inputs {
 		path := fmt.Sprintf("steps[0].inputs[%d]", index)
-		if input.Kind != ConstructionTableRevisionInput || input.StepID != "" {
-			return fmt.Errorf("%s must be an exact TABLE_REVISION reference", path)
+		var key string
+		switch input.Kind {
+		case ConstructionTableRevisionInput:
+			if input.StepID != "" || strings.TrimSpace(input.TableID) == "" || input.TableID != strings.TrimSpace(input.TableID) ||
+				strings.TrimSpace(input.RevisionID) == "" || input.RevisionID != strings.TrimSpace(input.RevisionID) ||
+				strings.TrimSpace(input.OutputID) == "" || input.OutputID != strings.TrimSpace(input.OutputID) {
+				return fmt.Errorf("%s requires trimmed tableId, revisionId, and outputId", path)
+			}
+			key = "table\x00" + input.TableID + "\x00" + input.RevisionID + "\x00" + input.OutputID
+		case ConstructionWorkspaceOutputInput:
+			if input.StepID != "" || input.TableID != "" || input.RevisionID != "" || strings.TrimSpace(input.OutputID) == "" || input.OutputID != strings.TrimSpace(input.OutputID) {
+				return fmt.Errorf("%s requires only a trimmed outputId for WORKSPACE_OUTPUT", path)
+			}
+			key = "workspace\x00" + input.OutputID
+		default:
+			return fmt.Errorf("%s must be a TABLE_REVISION or WORKSPACE_OUTPUT reference", path)
 		}
-		if strings.TrimSpace(input.TableID) == "" || input.TableID != strings.TrimSpace(input.TableID) ||
-			strings.TrimSpace(input.RevisionID) == "" || input.RevisionID != strings.TrimSpace(input.RevisionID) ||
-			strings.TrimSpace(input.OutputID) == "" || input.OutputID != strings.TrimSpace(input.OutputID) {
-			return fmt.Errorf("%s requires trimmed tableId, revisionId, and outputId", path)
-		}
-		key := input.TableID + "\x00" + input.RevisionID + "\x00" + input.OutputID
 		if seenRefs[key] {
-			return fmt.Errorf("%s duplicates an exact table revision reference", path)
+			return fmt.Errorf("%s duplicates an exact input reference", path)
 		}
 		seenRefs[key] = true
 	}

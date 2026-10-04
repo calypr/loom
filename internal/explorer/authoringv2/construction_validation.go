@@ -439,19 +439,24 @@ func validateConstructionCombineStep(step ConstructionStep) error {
 		return fmt.Errorf("combine step id is required and must not be reserved")
 	}
 	if len(step.Inputs) < 2 {
-		return fmt.Errorf("combine requires at least two exact table revision inputs")
+		return fmt.Errorf("combine requires at least two exact inputs")
 	}
 	seenInputs := make(map[string]bool, len(step.Inputs))
 	for index, input := range step.Inputs {
 		if err := input.Validate(); err != nil {
 			return fmt.Errorf("inputs[%d]: %w", index, err)
 		}
-		if input.Kind != ConstructionInputTableRevision {
-			return fmt.Errorf("inputs[%d] must be a TABLE_REVISION reference", index)
+		var identity string
+		switch input.Kind {
+		case ConstructionInputTableRevision:
+			identity = "table\x00" + input.TableID + "\x00" + input.RevisionID + "\x00" + input.OutputID
+		case ConstructionInputWorkspaceOutput:
+			identity = "workspace\x00" + input.OutputID
+		default:
+			return fmt.Errorf("inputs[%d] must reference a TABLE_REVISION or WORKSPACE_OUTPUT", index)
 		}
-		identity := input.TableID + "\x00" + input.RevisionID + "\x00" + input.OutputID
 		if seenInputs[identity] {
-			return fmt.Errorf("inputs[%d] duplicates an exact table revision reference", index)
+			return fmt.Errorf("inputs[%d] duplicates an exact input reference", index)
 		}
 		seenInputs[identity] = true
 	}

@@ -21,10 +21,11 @@ const (
 )
 
 type PhysicalCombineInputRef struct {
-	TableID        string
-	RevisionID     string
-	OutputID       string
-	PrivateStageID string
+	TableID           string
+	RevisionID        string
+	OutputID          string
+	WorkspaceOutputID string
+	PrivateStageID    string
 }
 
 type PhysicalCombineKey struct {
@@ -63,27 +64,48 @@ type PhysicalClickHouseCombine struct {
 }
 
 func (combine PhysicalClickHouseCombine) Validate() error {
-	return combine.validate(false)
+	return combine.validate(false, false)
 }
 
 // ValidateWithPrivateStage is used only by a typed composite physical plan.
 // Standalone combines continue to require exact published table revisions.
 func (combine PhysicalClickHouseCombine) ValidateWithPrivateStage() error {
-	return combine.validate(true)
+	return combine.validate(true, false)
 }
 
-func (combine PhysicalClickHouseCombine) validate(allowPrivateStage bool) error {
+// ValidateForWorkspaceCompilation accepts typed sibling-output refs after the
+// workspace resolver has supplied their schemas. It does not authorize
+// execution; ordinary Validate deliberately rejects those unresolved refs.
+func (combine PhysicalClickHouseCombine) ValidateForWorkspaceCompilation() error {
+	return combine.validate(false, true)
+}
+
+func (combine PhysicalClickHouseCombine) validate(allowPrivateStage, allowWorkspaceOutputs bool) error {
 	if len(combine.Inputs) < 2 {
 		return fmt.Errorf("ClickHouse combine requires at least two exact inputs")
 	}
 	seenRefs := make(map[string]bool, len(combine.Inputs))
 	privateStages := 0
 	for index, input := range combine.Inputs {
+		if input.WorkspaceOutputID != "" {
+			if !allowWorkspaceOutputs {
+				return fmt.Errorf("ClickHouse combine input %d requires a server-owned workspace capture before execution", index)
+			}
+			if strings.TrimSpace(input.WorkspaceOutputID) != input.WorkspaceOutputID || strings.TrimSpace(input.TableID) != "" || strings.TrimSpace(input.RevisionID) != "" || strings.TrimSpace(input.OutputID) != "" || strings.TrimSpace(input.PrivateStageID) != "" {
+				return fmt.Errorf("ClickHouse combine input %d must reference only one exact workspace output ID", index)
+			}
+			key := "workspace\x00" + input.WorkspaceOutputID
+			if seenRefs[key] {
+				return fmt.Errorf("ClickHouse combine input %d duplicates a workspace output reference", index)
+			}
+			seenRefs[key] = true
+			continue
+		}
 		if input.PrivateStageID != "" {
 			if !allowPrivateStage {
 				return fmt.Errorf("ClickHouse combine input %d cannot reference a private stage outside a composite plan", index)
 			}
-			if strings.TrimSpace(input.PrivateStageID) != input.PrivateStageID || strings.TrimSpace(input.TableID) != "" || strings.TrimSpace(input.RevisionID) != "" || strings.TrimSpace(input.OutputID) != "" {
+			if strings.TrimSpace(input.PrivateStageID) != input.PrivateStageID || strings.TrimSpace(input.TableID) != "" || strings.TrimSpace(input.RevisionID) != "" || strings.TrimSpace(input.OutputID) != "" || strings.TrimSpace(input.WorkspaceOutputID) != "" {
 				return fmt.Errorf("ClickHouse combine input %d must reference either one private stage or one exact table revision", index)
 			}
 			privateStages++

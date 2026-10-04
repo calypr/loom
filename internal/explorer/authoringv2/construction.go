@@ -16,6 +16,7 @@ const (
 	ConstructionInputSourceProjection ConstructionInputKind = "SOURCE_PROJECTION"
 	ConstructionInputStepOutput       ConstructionInputKind = "STEP_OUTPUT"
 	ConstructionInputTableRevision    ConstructionInputKind = "TABLE_REVISION"
+	ConstructionInputWorkspaceOutput  ConstructionInputKind = "WORKSPACE_OUTPUT"
 )
 
 type ConstructionOperationKind string
@@ -98,9 +99,10 @@ type ConstructionRowValue struct {
 	Policy         ConstructionRowValuePolicy `json:"policy"`
 }
 
-// ConstructionInputRef is a closed source-stage, prior-stage, or immutable
-// table-revision reference. A table input always names a concrete revision;
-// floating references to a table's current head are not supported.
+// ConstructionInputRef is a closed source-stage, prior-stage, sibling-output,
+// or immutable table-revision reference. A table input always names a
+// concrete revision; floating references to a table's current head are not
+// supported.
 type ConstructionInputRef struct {
 	Kind       ConstructionInputKind `json:"kind"`
 	StepID     string                `json:"stepId,omitempty"`
@@ -135,6 +137,10 @@ func (r ConstructionInputRef) Validate() error {
 	case ConstructionInputTableRevision:
 		if !requiredID(r.TableID) || !requiredID(r.RevisionID) || !requiredID(r.OutputID) || r.StepID != "" {
 			return fmt.Errorf("TABLE_REVISION input requires tableId, revisionId, and outputId")
+		}
+	case ConstructionInputWorkspaceOutput:
+		if !requiredID(r.OutputID) || r.StepID != "" || r.TableID != "" || r.RevisionID != "" {
+			return fmt.Errorf("WORKSPACE_OUTPUT input requires only outputId")
 		}
 	default:
 		return fmt.Errorf("unsupported input kind %q", r.Kind)

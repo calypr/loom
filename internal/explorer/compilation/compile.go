@@ -161,6 +161,10 @@ func CompileWorkspace(ctx context.Context, project, explorerID string, workspace
 		Presentations:    []PresentationConfig{},
 		OutputContracts:  []explorer.PublicOutputContract{},
 	}
+	workspaceOutputIDs := make([]string, 0, len(effectiveWorkspace.Documents))
+	for _, document := range effectiveWorkspace.Documents {
+		workspaceOutputIDs = append(workspaceOutputIDs, document.Output.ID)
+	}
 	for i, document := range effectiveWorkspace.Documents {
 		population, hasResolvedPopulation := resolvedInputs.PopulationFor(document.Output.ID)
 		if document.Population == nil {
@@ -175,7 +179,7 @@ func CompileWorkspace(ctx context.Context, project, explorerID string, workspace
 				return WorkspaceResult{}, fail("intent", "POPULATION_INPUT_MISMATCH", fmt.Sprintf("$.workspace.documents[%d].population", i), err.Error(), nil, err)
 			}
 		}
-		compiled, err := Compile(ctx, project, explorerID, document, snapshot)
+		compiled, err := compileWithWorkspaceOutputs(ctx, project, explorerID, document, snapshot, workspaceOutputIDs)
 		if err != nil {
 			return WorkspaceResult{}, fail("compile", "DOCUMENT_COMPILE_FAILED", fmt.Sprintf("$.workspace.documents[%d]", i), err.Error(), nil, err)
 		}
@@ -592,6 +596,10 @@ func (r ResolvedInputs) Canonical() ResolvedInputs {
 // Compile translates one semantic V2 document against the exact capability
 // snapshot. It performs no discovery, profiling, or recipe execution.
 func Compile(ctx context.Context, project, explorerID string, document authoringv2.Document, snapshot capability.Snapshot) (Result, error) {
+	return compileWithWorkspaceOutputs(ctx, project, explorerID, document, snapshot, nil)
+}
+
+func compileWithWorkspaceOutputs(ctx context.Context, project, explorerID string, document authoringv2.Document, snapshot capability.Snapshot, workspaceOutputIDs []string) (Result, error) {
 	if err := contextErr(ctx); err != nil {
 		return Result{}, err
 	}
@@ -615,7 +623,7 @@ func Compile(ctx context.Context, project, explorerID string, document authoring
 	if err := validateSnapshot(snapshot); err != nil {
 		return Result{}, err
 	}
-	return compileSemanticDocument(ctx, project, explorerID, document, snapshot)
+	return compileSemanticDocument(ctx, project, explorerID, document, snapshot, workspaceOutputIDs)
 }
 
 func catalogFromCapability(snapshot capability.Snapshot, explorerID string) authoringv2.CatalogSnapshot {

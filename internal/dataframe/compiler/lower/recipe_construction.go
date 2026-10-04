@@ -125,7 +125,7 @@ type cohortGroupCompileInput struct {
 	AfterStepID string
 }
 
-func appendRecipeConstructionStages(plan *ir.PhysicalPlan, outputName, rootResourceType string, construction recipe.Construction, sourceSchema []CompiledOutputColumn, policy ir.PhysicalOptimizationPolicy, cohort *cohortGroupCompileInput) ([]CompiledOutputColumn, []CompiledStageDescriptor, string, error) {
+func appendRecipeConstructionStages(plan *ir.PhysicalPlan, outputName, rootResourceType string, construction recipe.Construction, sourceSchema []CompiledOutputColumn, policy ir.PhysicalOptimizationPolicy, cohort *cohortGroupCompileInput, workspaceOutputSchemas map[string][]CompiledOutputColumn) ([]CompiledOutputColumn, []CompiledStageDescriptor, string, error) {
 	if plan == nil {
 		return nil, nil, "", fmt.Errorf("physical plan is required")
 	}
@@ -133,7 +133,7 @@ func appendRecipeConstructionStages(plan *ir.PhysicalPlan, outputName, rootResou
 		if cohort != nil {
 			return nil, nil, "", fmt.Errorf("terminal Combine cannot be combined with an explicit cohort")
 		}
-		return appendRecipeTerminalCombine(plan, step)
+		return appendRecipeTerminalCombine(plan, step, workspaceOutputSchemas)
 	}
 	if len(construction.SourceColumns) == 0 && (len(construction.Steps) == 0 || construction.Steps[0].Operation.Kind != recipe.ConstructionCodedPivotOp) {
 		return nil, nil, "", fmt.Errorf("construction source schema must be supplied by the resolved source compiler")

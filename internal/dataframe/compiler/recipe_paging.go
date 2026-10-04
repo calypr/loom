@@ -31,6 +31,9 @@ type CompiledOutputPage struct {
 // root templates. Page binds are compiler-owned and callers may only replace
 // their values between executions.
 func CompileRecipeOutputPageWithPolicy(output lower.CompiledRecipeOutput, bindings recipe.RuntimeBindings, pageSize int, policy ir.PhysicalOptimizationPolicy) (CompiledOutputPage, error) {
+	if workspaceOutputCaptureRequired(output) {
+		return CompiledOutputPage{}, fmt.Errorf("output %q references same-workspace outputs; server-owned workspace capture is not available", output.Name)
+	}
 	if pageSize < 1 {
 		return CompiledOutputPage{}, fmt.Errorf("root page size must be positive")
 	}

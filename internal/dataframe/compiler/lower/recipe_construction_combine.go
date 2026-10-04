@@ -9,7 +9,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipe"
 )
 
-func appendRecipeTerminalCombine(plan *ir.PhysicalPlan, step recipe.ConstructionStep) ([]CompiledOutputColumn, []CompiledStageDescriptor, string, error) {
+func appendRecipeTerminalCombine(plan *ir.PhysicalPlan, step recipe.ConstructionStep, workspaceOutputSchemas map[string][]CompiledOutputColumn) ([]CompiledOutputColumn, []CompiledStageDescriptor, string, error) {
 	if plan == nil {
 		return nil, nil, "", fmt.Errorf("physical plan is required")
 	}
@@ -34,7 +34,18 @@ func appendRecipeTerminalCombine(plan *ir.PhysicalPlan, step recipe.Construction
 	default:
 		return nil, nil, "", fmt.Errorf("unsupported combine kind %q", combine.Kind)
 	}
-	for _, input := range step.Inputs {
+	for inputIndex, input := range step.Inputs {
+		if input.Kind == recipe.ConstructionWorkspaceOutputInput {
+			inputSchema, exists := workspaceOutputSchemas[input.OutputID]
+			if !exists || len(inputSchema) == 0 {
+				return nil, nil, "", fmt.Errorf("workspace output input %q has no compiler-resolved sibling schema", input.OutputID)
+			}
+			physical.Inputs = append(physical.Inputs, ir.PhysicalCombineInputRef{WorkspaceOutputID: input.OutputID})
+			if err := validateWorkspaceCombineInputSchema(inputIndex, input.OutputID, inputSchema, step.Outputs, combine); err != nil {
+				return nil, nil, "", err
+			}
+			continue
+		}
 		physical.Inputs = append(physical.Inputs, ir.PhysicalCombineInputRef{TableID: input.TableID, RevisionID: input.RevisionID, OutputID: input.OutputID})
 	}
 	for _, key := range combine.Keys {
@@ -73,7 +84,11 @@ func appendRecipeTerminalCombine(plan *ir.PhysicalPlan, step recipe.Construction
 			Kind: logicalType, Cardinality: string(cardinality), Nullable: output.Nullable,
 		})
 	}
-	if err := physical.Validate(); err != nil {
+	if hasWorkspaceCombineInput(step.Inputs) {
+		if err := physical.ValidateForWorkspaceCompilation(); err != nil {
+			return nil, nil, "", fmt.Errorf("validate terminal workspace-output combine: %w", err)
+		}
+	} else if err := physical.Validate(); err != nil {
 		return nil, nil, "", fmt.Errorf("validate terminal ClickHouse combine: %w", err)
 	}
 	version := plan.Version
@@ -86,6 +101,72 @@ func appendRecipeTerminalCombine(plan *ir.PhysicalPlan, step recipe.Construction
 		RowIdentityColumn: constructionRowID, Capabilities: stageCapabilities(schema, false),
 	}
 	return schema, []CompiledStageDescriptor{descriptor}, constructionRowID, nil
+}
+
+func hasWorkspaceCombineInput(inputs []recipe.ConstructionInputRef) bool {
+	for _, input := range inputs {
+		if input.Kind == recipe.ConstructionWorkspaceOutputInput {
+			return true
+		}
+	}
+	return false
+}
+
+func validateWorkspaceCombineInputSchema(inputIndex int, outputID string, schema []CompiledOutputColumn, outputs []recipe.StageColumn, combine *recipe.ConstructionCombine) error {
+	columns := make(map[string]CompiledOutputColumn, len(schema))
+	for _, column := range schema {
+		if column.ID != "" {
+			columns[column.ID] = column
+		}
+	}
+	for keyIndex, key := range combine.Keys {
+		columnID := key.LeftColumnID
+		if inputIndex == 1 {
+			columnID = key.RightColumnID
+		}
+		if inputIndex > 1 {
+			continue
+		}
+		if _, ok := columns[columnID]; !ok {
+			return fmt.Errorf("combine key %d references missing compiler-owned column %q on workspace output %q", keyIndex, columnID, outputID)
+		}
+	}
+	for projectionIndex, projection := range combine.Projections {
+		if projection.InputIndex != inputIndex {
+			continue
+		}
+		inputColumn, ok := columns[projection.InputColumnID]
+		if !ok {
+			return fmt.Errorf("combine projection %d references missing compiler-owned column %q on workspace output input %d", projectionIndex, projection.InputColumnID, inputIndex)
+		}
+		outputColumn, ok := stageColumnByID(outputs, projection.OutputColumnID)
+		if !ok {
+			return fmt.Errorf("combine projection %d references missing output column %q", projectionIndex, projection.OutputColumnID)
+		}
+		logicalType, _, err := constructionCombineColumnType(outputColumn)
+		if err != nil {
+			return err
+		}
+		if !strings.EqualFold(inputColumn.Kind, logicalType) {
+			return fmt.Errorf("combine output %q declares type %q but workspace output %q column %q has compiler-owned type %q", outputColumn.ID, logicalType, outputID, inputColumn.ID, inputColumn.Kind)
+		}
+		if inputColumn.Cardinality == string(expression.Many) {
+			return fmt.Errorf("combine projection %d cannot consume repeated workspace output column %q", projectionIndex, inputColumn.ID)
+		}
+		if (inputColumn.Nullable || inputColumn.Cardinality == string(expression.OptionalOne)) && !outputColumn.Nullable {
+			return fmt.Errorf("combine output %q must be nullable to preserve workspace input column %q", outputColumn.ID, inputColumn.ID)
+		}
+	}
+	return nil
+}
+
+func stageColumnByID(columns []recipe.StageColumn, id string) (recipe.StageColumn, bool) {
+	for _, column := range columns {
+		if column.ID == id {
+			return column, true
+		}
+	}
+	return recipe.StageColumn{}, false
 }
 
 func constructionCombineColumnType(column recipe.StageColumn) (string, string, error) {

@@ -12,6 +12,24 @@ import (
 )
 
 func (b Bundle) Validate() error {
+	return b.validate(nil)
+}
+
+// ValidateWithWorkspaceOutputs validates a one-output compiler fragment while
+// allowing WORKSPACE_OUTPUT references to sibling outputs supplied by the
+// enclosing authoring workspace. The completed workspace bundle must still
+// pass Validate, which resolves every edge and rejects cycles.
+func (b Bundle) ValidateWithWorkspaceOutputs(allowed []string) error {
+	external := make(map[string]struct{}, len(allowed))
+	for _, outputID := range allowed {
+		if strings.TrimSpace(outputID) != "" {
+			external[outputID] = struct{}{}
+		}
+	}
+	return b.validate(external)
+}
+
+func (b Bundle) validate(allowedWorkspaceOutputs map[string]struct{}) error {
 	if b.RecipeSchemaVersion != CurrentSchemaVersion {
 		return validationError("unsupported_schema_version", "$.recipeSchemaVersion", fmt.Sprintf("must be %d", CurrentSchemaVersion))
 	}
@@ -201,7 +219,8 @@ func (b Bundle) Validate() error {
 			}
 		}
 	}
-	return nil
+	_, err := b.outputDependencyOrder(allowedWorkspaceOutputs)
+	return err
 }
 
 func validateGroupRowValuePolicies(output Output, path string) error {

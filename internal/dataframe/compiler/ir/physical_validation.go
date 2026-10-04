@@ -363,6 +363,23 @@ func (p PhysicalPlan) Validate() error {
 	return nil
 }
 
+// ValidateForWorkspaceCompilation validates the closed typed shape of a
+// terminal workspace-output Combine. It is a resolver-only boundary: normal
+// physical validation and all execution/render entry points still reject the
+// unresolved sibling references until server-owned capture is implemented.
+func (p PhysicalPlan) ValidateForWorkspaceCompilation() error {
+	if p.Engine != PhysicalEngineClickHouse || p.ClickHouseCombine == nil || p.ClickHousePrefix != nil {
+		return p.Validate()
+	}
+	if p.Version <= 0 || len(p.Operations) != 0 || p.StageSequence != nil || len(p.DeferredExpressionLets) != 0 {
+		return fmt.Errorf("workspace-output ClickHouse combine must be a standalone typed plan")
+	}
+	if len(p.BindVars) != 0 {
+		return fmt.Errorf("workspace-output ClickHouse combine cannot carry execution bind variables")
+	}
+	return p.ClickHouseCombine.ValidateForWorkspaceCompilation()
+}
+
 func validateCohortRootSourceProof(plan PhysicalPlan) error {
 	var source *PhysicalCohortRootSource
 	for _, operation := range plan.Operations {

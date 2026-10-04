@@ -47,6 +47,10 @@ type CompiledRecipeOutput struct {
 	// Internal projections remain present here so execution and diagnostics can
 	// distinguish them from the public dataframe contract.
 	OutputSchema []CompiledOutputColumn
+	// WorkspaceOutputSources records compiler-resolved sibling schemas for a
+	// terminal Combine. These refs are structural only; execution requires a
+	// server-owned workspace capture before an artifact can be read.
+	WorkspaceOutputSources []WorkspaceOutputSource
 	// RowIdentity describes the stable semantic identity used by publication
 	// targets. It is metadata only; the physical plan remains authoritative for
 	// the returned values.
@@ -63,6 +67,15 @@ type CompiledRecipeOutput struct {
 	// have been lowered. Keeping it separate from Plan lets preview windows be
 	// rendered repeatedly without re-running the optimizer or lowering stage.
 	OptimizedPlan *ir.PhysicalPlan
+}
+
+// WorkspaceOutputSource binds an exact same-bundle output ID to its
+// compiler-owned finalized schema. It contains no client-declared schema or
+// receipt/head identity.
+type WorkspaceOutputSource struct {
+	InputIndex int
+	OutputID   string
+	Schema     []CompiledOutputColumn
 }
 
 // CompiledOutputColumn describes one finalized physical projection. Kind and
@@ -181,20 +194,69 @@ func CompileResolvedRecipePlan(resolved semantic.ResolvedRecipePlan, policy ir.P
 			}
 		}
 	}
+	dependencyOrder, err := workspaceOutputDependencyOrder(semanticPlan.Outputs)
+	if err != nil {
+		return CompiledRecipe{}, err
+	}
+	needed := map[string]bool{}
+	if len(selected) > 0 {
+		byName := make(map[string]semantic.OutputPlan, len(semanticPlan.Outputs))
+		for _, output := range semanticPlan.Outputs {
+			byName[output.Name] = output
+		}
+		var include func(string) error
+		include = func(name string) error {
+			if needed[name] {
+				return nil
+			}
+			output, ok := byName[name]
+			if !ok {
+				return fmt.Errorf("workspace output input %q is unavailable in the resolved recipe bundle", name)
+			}
+			needed[name] = true
+			for _, dependency := range workspaceOutputIDs(output) {
+				if err := include(dependency); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+		for name := range selected {
+			if err := include(name); err != nil {
+				return CompiledRecipe{}, err
+			}
+		}
+	}
+	compiledByName := make(map[string]CompiledRecipeOutput, len(dependencyOrder))
+	resolvedSchemas := make(map[string][]CompiledOutputColumn, len(dependencyOrder))
+	for _, index := range dependencyOrder {
+		output := semanticPlan.Outputs[index]
+		if len(selected) > 0 && !needed[output.Name] {
+			continue
+		}
+		compiled, err := compileRecipeOutput(output, semanticPlan.Bindings, resolved.ResolvedColumns, policy, resolvedSchemas)
+		if err != nil {
+			return CompiledRecipe{}, fmt.Errorf("output %q: %w", output.Name, err)
+		}
+		compiledByName[output.Name] = compiled
+		resolvedSchemas[output.Name] = CloneCompiledOutputSchema(compiled.OutputSchema)
+	}
+	// Public output order remains authored order even when the compiler had to
+	// resolve forward references first.
 	for _, output := range semanticPlan.Outputs {
 		if len(selected) > 0 && !selected[output.Name] {
 			continue
 		}
-		compiled, err := compileRecipeOutput(output, semanticPlan.Bindings, resolved.ResolvedColumns, policy)
-		if err != nil {
-			return CompiledRecipe{}, fmt.Errorf("output %q: %w", output.Name, err)
+		compiled, ok := compiledByName[output.Name]
+		if !ok {
+			return CompiledRecipe{}, fmt.Errorf("output %q was not compiled after workspace dependency resolution", output.Name)
 		}
 		result.Outputs = append(result.Outputs, compiled)
 	}
 	return result, nil
 }
 
-func compileRecipeOutput(output semantic.OutputPlan, bindings recipe.RuntimeBindings, resolvedColumns map[string][]semantic.ResolvedColumn, policy ir.PhysicalOptimizationPolicy) (CompiledRecipeOutput, error) {
+func compileRecipeOutput(output semantic.OutputPlan, bindings recipe.RuntimeBindings, resolvedColumns map[string][]semantic.ResolvedColumn, policy ir.PhysicalOptimizationPolicy, workspaceOutputSchemas map[string][]CompiledOutputColumn) (CompiledRecipeOutput, error) {
 	composedCohort := output.GroupRows != nil && output.Construction != nil && len(output.Construction.Steps) > 0
 	identity, ok := spec.DefaultRowIdentity(spec.RowGrain(output.RowGrain))
 	if !ok {
@@ -290,7 +352,7 @@ func compileRecipeOutput(output semantic.OutputPlan, bindings recipe.RuntimeBind
 			return CompiledRecipeOutput{}, err
 		}
 	} else if output.Construction != nil {
-		reshapeSchema, stageDescriptors, finalStageIdentity, err = appendRecipeConstructionStages(&physical, output.Name, output.RootResourceType, *output.Construction, baseOutputSchema, policy, cohort)
+		reshapeSchema, stageDescriptors, finalStageIdentity, err = appendRecipeConstructionStages(&physical, output.Name, output.RootResourceType, *output.Construction, baseOutputSchema, policy, cohort, workspaceOutputSchemas)
 		if err != nil {
 			return CompiledRecipeOutput{}, err
 		}
@@ -310,7 +372,13 @@ func compileRecipeOutput(output semantic.OutputPlan, bindings recipe.RuntimeBind
 	if err := validatePublicProjectionNames(physical, output.Name); err != nil {
 		return CompiledRecipeOutput{}, err
 	}
-	if err := physical.Validate(); err != nil {
+	workspaceOutputSources := compiledWorkspaceOutputSources(output, workspaceOutputSchemas)
+	if len(workspaceOutputSources) > 0 {
+		err = physical.ValidateForWorkspaceCompilation()
+	} else {
+		err = physical.Validate()
+	}
+	if err != nil {
 		return CompiledRecipeOutput{}, fmt.Errorf("validate canonical physical plan: %w", err)
 	}
 	var outputSchema []CompiledOutputColumn
@@ -340,6 +408,7 @@ func compileRecipeOutput(output semantic.OutputPlan, bindings recipe.RuntimeBind
 		Name: output.Name, RootResourceType: output.RootResourceType,
 		RowGrain: output.RowGrain, RootColumnNaming: output.RootColumnNaming, Columns: physicalOutputColumns(outputSchema), OutputSchema: outputSchema,
 		RowIdentity: (&identity).Clone(), DynamicColumns: dynamicMetadata, Stages: stageDescriptors, Plan: physical,
+		WorkspaceOutputSources: workspaceOutputSources,
 	}, nil
 }
 

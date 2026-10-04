@@ -34,6 +34,53 @@ func TestCompileWorkspaceProducesOneArtifactWithFiveOutputs(t *testing.T) {
 	}
 }
 
+func TestCompileWorkspacePreservesForwardWorkspaceOutputReference(t *testing.T) {
+	visible := true
+	combined := authoringv2.Document{
+		Kind: authoringv2.Kind, Rows: authoringv2.RecordsRowDefinition(),
+		Output: authoringv2.Output{ID: "combined", Title: "Combined"}, RootResourceType: "Patient",
+		Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient"},
+		Construction: &authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{{
+			ID: "append", Inputs: []authoringv2.ConstructionInputRef{
+				{Kind: authoringv2.ConstructionInputWorkspaceOutput, OutputID: "base"},
+				{Kind: authoringv2.ConstructionInputTableRevision, TableID: "project:1:archive", RevisionID: "archive-r1", OutputID: "archive"},
+			},
+			Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationCombine, Combine: &authoringv2.ConstructionCombine{
+				Kind: authoringv2.ConstructionCombineAppend,
+				Projections: []authoringv2.ConstructionCombineProjection{
+					{OutputColumnID: "person", InputIndex: 0, InputColumnID: "person_id"},
+					{OutputColumnID: "person", InputIndex: 1, InputColumnID: "archive_person_id"},
+				},
+			}},
+			Outputs: []authoringv2.StageColumn{{ID: "person", Name: "person_id", Label: "Person", Type: "string"}},
+		}}},
+	}
+	base := authoringv2.Document{
+		Kind: authoringv2.Kind, Rows: authoringv2.RecordsRowDefinition(),
+		Output: authoringv2.Output{ID: "base", Title: "Base"}, RootResourceType: "Patient",
+		Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient"},
+		Columns: []authoringv2.Column{{Column: "patient_id", Label: "Patient ID", OccurrenceID: authoringv2.RootOccurrenceID,
+			Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "id", ProjectionMode: "VALUE"}},
+			Table:  &authoringv2.TablePresentation{Visible: &visible}}},
+	}
+	workspace := authoringv2.Workspace{
+		APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind,
+		Explorer: authoringv2.ExplorerMetadata{Title: "Sibling output"}, Documents: []authoringv2.Document{combined, base},
+		Tabs: []authoringv2.Tab{{ID: "combined", Title: "Combined", OutputID: "combined", Order: 0, Visible: true}, {ID: "base", Title: "Base", OutputID: "base", Order: 1, Visible: true}},
+	}
+	result, err := CompileWorkspace(context.Background(), "project-a", "explorer-a", workspace, fixtureSnapshot(), ResolvedInputs{})
+	if err != nil {
+		t.Fatalf("CompileWorkspace: %v", err)
+	}
+	if len(result.Bundle.Outputs) != 2 || result.Bundle.Outputs[0].Name != "combined" || result.Bundle.Outputs[1].Name != "base" {
+		t.Fatalf("recipe output order changed: %#v", result.Bundle.Outputs)
+	}
+	inputs := result.Bundle.Outputs[0].Construction.Steps[0].Inputs
+	if inputs[0].Kind != "WORKSPACE_OUTPUT" || inputs[0].OutputID != "base" || inputs[1].Kind != "TABLE_REVISION" {
+		t.Fatalf("compiled recipe input refs = %#v", inputs)
+	}
+}
+
 func TestCompileWorkspaceCanonicalizesEquivalentProjectIdentities(t *testing.T) {
 	visible := true
 	workspace := authoringv2.Workspace{

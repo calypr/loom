@@ -11,6 +11,21 @@ import (
 	"github.com/calypr/loom/internal/dataframe/semantic"
 )
 
+func workspaceOutputCaptureRequired(output lower.CompiledRecipeOutput) bool {
+	if len(output.WorkspaceOutputSources) != 0 {
+		return true
+	}
+	if output.Plan.ClickHouseCombine == nil {
+		return false
+	}
+	for _, input := range output.Plan.ClickHouseCombine.Inputs {
+		if input.WorkspaceOutputID != "" {
+			return true
+		}
+	}
+	return false
+}
+
 // CompileResolvedRecipePlanWithPolicy is the common execution boundary for a
 // resolved recipe bundle. Lowering produces canonical physical plans; this
 // function applies the generic optimizer, inserts the typed execution window,
@@ -35,6 +50,9 @@ func CompileResolvedRecipePlanWithPolicy(resolved semantic.ResolvedRecipePlan, l
 // CompileRecipeOutputWithPolicy applies the common optimizer, execution
 // window, and canonical renderer to one already-lowered recipe output.
 func CompileRecipeOutputWithPolicy(output lower.CompiledRecipeOutput, bindings recipe.RuntimeBindings, limit int, policy ir.PhysicalOptimizationPolicy) (CompiledQuery, error) {
+	if workspaceOutputCaptureRequired(output) {
+		return CompiledQuery{}, fmt.Errorf("output %q references same-workspace outputs; server-owned workspace capture is not available", output.Name)
+	}
 	var physical ir.PhysicalPlan
 	groupRows := len(output.Plan.Operations) == 1 && output.Plan.Operations[0].Kind == ir.PhysicalGroupRowsOp
 	if groupRows {
