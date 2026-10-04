@@ -1,10 +1,14 @@
 import assert from 'node:assert/strict';
 
-export function assertVisibleRowsMatchOracle(actualRows, oracleRows, { limit = 25, label = 'visible rows' } = {}) {
+export function assertVisibleRowsMatchOracle(actualRows, oracleRows, { limit = 25, label = 'visible rows', exactWindow = false } = {}) {
   assert(Array.isArray(actualRows), `${label}: browser result must be an array`);
   assert(Array.isArray(oracleRows), `${label}: independent oracle must be an array`);
   const expectedCount = Math.min(limit, oracleRows.length);
   assert.equal(actualRows.length, expectedCount, `${label}: visible row count must match the bounded preview`);
+  if (exactWindow) {
+    assert.deepEqual(actualRows, oracleRows.slice(0, limit), `${label}: visible rows must match the source-ordered oracle window`);
+    return;
+  }
 
   const remaining = new Map();
   for (const row of oracleRows) {

@@ -49,7 +49,10 @@ export function createCDAPlaywrightControls({ browser, browserApiOrigin, ownedPa
     if (typeof read !== 'function') throw new TypeError('Browser evaluation must be a read-only function');
     return browser.page.evaluate(read, argument);
   };
-  const wait = (expression, timeout = 30000) => browser.page.waitForFunction(expression, undefined, { timeout });
+  const wait = (predicate, argument, timeout = 5000) => {
+    if (typeof predicate !== 'function') throw new TypeError('Browser waits must use a Playwright predicate callback');
+    return browser.page.waitForFunction(predicate, argument, { timeout });
+  };
   const navigate = async url => {
     const startedAt = Date.now();
     const label = 'Navigate to Builder';

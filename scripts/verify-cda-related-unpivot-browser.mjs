@@ -32,7 +32,7 @@ let sourceFreeze, frozenApiBuild, controls, ownedTarget;
 const click = (...args) => controls.click(...args);
 const selectOption = (...args) => controls.selectOption(...args);
 const fill = (...args) => controls.fill(...args);
-const browserEval = body => controls.evaluate(body);
+const browserEval = (...args) => controls.evaluate(...args);
 const waitForBrowser = (...args) => controls.wait(...args);
 const navigate = (...args) => controls.navigate(...args);
 const sanitizeReportValue = value => JSON.parse(sanitizeBody(JSON.stringify(value)));
@@ -53,14 +53,14 @@ const command = async commands => {
 };
 const doc = state => state.workspace.documents.find(d => d.output.id === outputId);
 const proposal = async (name, start, expectedRows) => {
-  await waitForBrowser( `['ready','error','needs-repair'].includes(document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalStatus)`);
+  await waitForBrowser(() => (['ready','error','needs-repair'].includes(document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalStatus)));
   const result = await browserEval(() => {
     const panel = document.querySelector('[data-testid="construction-proposal-panel"]');
     return { status: panel?.dataset.proposalStatus, proposalId: panel?.dataset.proposalId, text: panel?.innerText,
       rows: [...document.querySelectorAll('[data-testid="construction-proposal-preview-row"]')].map(row => [...row.querySelectorAll('td')].map(cell => cell.innerText)) };
   });
   assert.equal(result.status, 'ready', result.text);
-  assertVisibleRowsMatchOracle(result.rows, expectedRows, { label: `${name} preview` });
+  assertVisibleRowsMatchOracle(result.rows, expectedRows, { label: `${name} preview`, exactWindow: true });
   const durationMs = Date.now() - start;
   if (browser) browser.lastElapsedMs = durationMs;
   assert(durationMs <= 5000, `${name} took ${durationMs}ms`);
@@ -75,7 +75,7 @@ const recordRender = (name, start) => {
 const apply = async expectedRows => {
   const start = Date.now();
   await click( '[data-testid="construction-apply-proposal"]');
-  await waitForBrowser( `!document.querySelector('[data-testid="construction-proposal-panel"]')`);
+  await waitForBrowser(() => (!document.querySelector('[data-testid="construction-proposal-panel"]')));
   await rendered(expectedRows);
   recordRender('apply-to-render', start);
   builder = await api(base + '/builder');
@@ -83,18 +83,21 @@ const apply = async expectedRows => {
 const open = async expectedRows => {
   const start = Date.now();
   await navigate( `${uiOrigin}/?project=${project}&explorer=${explorer}&mode=builder`);
-  await waitForBrowser( `document.querySelector('[data-testid="construction-table-${outputId}"]')`);
+  await waitForBrowser(selector => Boolean(document.querySelector(selector)), `[data-testid="construction-table-${outputId}"]`);
   await click( `[data-testid="construction-table-${outputId}"]`);
-  await waitForBrowser( `document.querySelector('[data-testid="construction-rows-settings-trigger"]')?.disabled === false`);
+  await waitForBrowser(() => (document.querySelector('[data-testid="construction-rows-settings-trigger"]')?.disabled === false));
   await rendered(expectedRows);
   recordRender('load-to-render', start);
 };
 const rendered = async expectedRows => {
-  await waitForBrowser( `document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount') === ${JSON.stringify(String(Math.min(25, expectedRows.length) + 1))} && !document.body.innerText.includes('Loading your table…')`);
+  await waitForBrowser(({ rowCount }) => {
+    const table = document.querySelector('[data-testid="preview-table-scroll"] [role="table"]');
+    return table?.getAttribute('aria-rowcount') === String(Math.min(25, rowCount) + 1) && !document.body.innerText.includes('Loading your table…');
+  }, { rowCount: expectedRows.length });
   const rows = await browserEval(() => [...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]')].slice(1).map(row => [...row.querySelectorAll('[role="cell"]')].map(cell => cell.innerText.trim())).filter(row => row.length));
   // Saved presentation puts the new Unpivot key/value columns first; proposal order follows stage outputs.
   const savedRows = expectedRows.map(row=>row.at(-2)==='Specimen ID'?[...row.slice(-2),...row.slice(0,-2)]:row);
-  assertVisibleRowsMatchOracle(rows, savedRows, { label: 'saved table' });
+  assertVisibleRowsMatchOracle(rows, savedRows, { label: 'saved table', exactWindow: true });
 };
 try {
   ownedTarget = await assertOwnedCdaTarget({ project, apiOrigin, uiOrigin, apiContainer, composeProject, sourceRoot, arangoContainer });
@@ -104,7 +107,7 @@ try {
   report.sourceFreeze.watchedFileCount = sourceFreeze.watchedFileCount;
   frozenApiBuild = await captureApiBuildFreeze(() => checkContainerApiBuildStamp(apiContainer));
   report.apiBuildFreeze = { target: 'running isolated CDA API build stamp', container: apiContainer, initial: frozenApiBuild.initial, invalidatesRun: true, productFailure: false };
-  const query = `FOR s IN Specimen FILTER s.project == "${project}" AND s.dataset_generation == "cda-fhir-v1" LIMIT 1 RETURN {id:s.id,_id:s._id,generation:s.dataset_generation}`;
+  const query = `FOR s IN Specimen FILTER s.project == "${project}" AND s.dataset_generation == "cda-fhir-v1" SORT s.id LIMIT 1 RETURN {id:s.id,_id:s._id,generation:s.dataset_generation}`;
   const raw = spawnSync('rtk', ['proxy', 'docker', 'exec', arangoContainer, 'arangosh', '--server.database', 'loom_dev', '--javascript.execute-string', `print(JSON.stringify(db._query(${JSON.stringify(query)}).toArray()));`], { encoding: 'utf8', timeout: 30000 });
   assert.equal(raw.status, 0, raw.stderr);
   const [source] = JSON.parse(raw.stdout.slice(raw.stdout.indexOf('[')));
@@ -144,7 +147,7 @@ try {
     for(const witness of witnesses){
       const endpoint=hop.direction==='OUTBOUND'?'_from':'_to';
       const target=hop.direction==='OUTBOUND'?'_to':'_from';
-      const query=`FOR e IN fhir_edge FILTER e.${endpoint} == ${JSON.stringify(witness.anchor)} AND e.label == ${JSON.stringify(hop.label)} AND e.project == "${project}" AND e.dataset_generation == "cda-fhir-v1" FILTER STARTS_WITH(e.${target}, ${JSON.stringify(hop.to+'/')}) LET d=DOCUMENT(e.${target}) FILTER d.project=="${project}" AND d.dataset_generation=="cda-fhir-v1" RETURN DISTINCT {id:d.id,_id:d._id}`;
+      const query=`FOR e IN fhir_edge FILTER e.${endpoint} == ${JSON.stringify(witness.anchor)} AND e.label == ${JSON.stringify(hop.label)} AND e.project == "${project}" AND e.dataset_generation == "cda-fhir-v1" FILTER STARTS_WITH(e.${target}, ${JSON.stringify(hop.to+'/')}) LET d=DOCUMENT(e.${target}) FILTER d.project=="${project}" AND d.dataset_generation=="cda-fhir-v1" SORT d.id RETURN DISTINCT {id:d.id,_id:d._id}`;
       const matches=witness.anchor?rawQuery(query):[];
       if(matches.length)for(const match of matches)next.push({anchor:match._id,values:[...witness.values,match.id]});
       else next.push({anchor:null,values:[...witness.values,'—']});
@@ -153,14 +156,14 @@ try {
     witnesses=next;expected=witnesses.map(w=>w.values);
     report.oracle.chain??=[];report.oracle.chain.push({hop,witnesses});
     await click('[data-testid="construction-rows-settings-trigger"]');
-    await waitForBrowser(`document.querySelector('[data-testid="construction-action-related-rows"]')?.disabled===false`);
+    await waitForBrowser(() => (document.querySelector('[data-testid="construction-action-related-rows"]')?.disabled===false));
     await click('[data-testid="construction-action-related-rows"]');
     const panel='[data-testid="construction-related-expand-editor"]';
-    await waitForBrowser(`document.querySelector('${panel} select[aria-label="Related record type"]')?.disabled===false`);
+    await waitForBrowser(selector => { const control = document.querySelector(selector); return Boolean(control) && !control.disabled; }, `${panel} select[aria-label="Related record type"]`);
     let start=Date.now();
     await selectOption(panel+' select[aria-label="Related record type"]',hop.to);
     const label=hop.from+(hop.direction==='INBOUND'?` <-[${hop.field}]- `:` -[${hop.field}]-> `)+hop.to;
-    await waitForBrowser(`document.querySelector(${JSON.stringify(panel+' input[aria-label="'+label+'"]')})`,5000);
+    await waitForBrowser(selector => Boolean(document.querySelector(selector)), `${panel} input[aria-label="${label}"]`, 5000);
     await click(panel+' input[aria-label="'+label+'"]');
     await proposal('expand-'+hop.from+'-'+hop.to,start,expected);
     await apply(expected);
@@ -168,20 +171,20 @@ try {
   const expanded=builder;
   await open(expected);
   await click('[data-testid="construction-rows-settings-trigger"]');
-  await waitForBrowser(`[...document.querySelectorAll('button')].some(b=>b.innerText==='Turn columns into rows'&&!b.disabled)`);
+  await waitForBrowser(() => ([...document.querySelectorAll('button')].some(b=>b.innerText==='Turn columns into rows'&&!b.disabled)));
   await click('button',{name:'Turn columns into rows'});
-  await waitForBrowser(`document.querySelector('input[aria-label="Unpivot Specimen ID"]')?.disabled===false`);
+  await waitForBrowser(() => (document.querySelector('input[aria-label="Unpivot Specimen ID"]')?.disabled===false));
   let start=Date.now();
   await click('input[aria-label="Unpivot Specimen ID"]');
   const unpivotExpected=expected.map(row=>[...row.slice(1),'Specimen ID',row[0]]);
   await proposal('related-chain-unpivot-preview',start,unpivotExpected);
   assert.equal((await api(base+'/builder')).draftDigest,expanded.draftDigest);
   await click('[data-testid="construction-cancel-proposal"]');
-  await waitForBrowser(`!document.querySelector('[data-testid="construction-proposal-panel"]')`);
+  await waitForBrowser(() => (!document.querySelector('[data-testid="construction-proposal-panel"]')));
   assert.deepEqual((await api(base+'/builder')).workspace,expanded.workspace);
   await click('[data-testid="construction-rows-settings-trigger"]');
   await click('button',{name:'Turn columns into rows'});
-  await waitForBrowser(`document.querySelector('input[aria-label="Unpivot Specimen ID"]')?.disabled===false`);
+  await waitForBrowser(() => (document.querySelector('input[aria-label="Unpivot Specimen ID"]')?.disabled===false));
   start=Date.now();
   await click('input[aria-label="Unpivot Specimen ID"]');
   await proposal('confirmed-related-chain-unpivot-preview',start,unpivotExpected);
@@ -191,7 +194,7 @@ try {
   assert(unpivot);
   await click(`[data-testid="construction-history-step-${unpivot.id}"]`);
   await click(`[data-testid="construction-edit-step-${unpivot.id}"]`);
-  await waitForBrowser(`document.querySelector('input[aria-label="Unpivot Specimen ID"]')?.checked`);
+  await waitForBrowser(() => (document.querySelector('input[aria-label="Unpivot Specimen ID"]')?.checked));
   await click('[data-testid="construction-unpivot-advanced"] summary');
   start=Date.now();
   await selectOption('select[aria-label="Unpivot null row policy"]','DROP');
@@ -203,7 +206,7 @@ try {
   const filterPanel='[data-testid="construction-filter-editor"]';
   const configureMissing=async()=>{
     await click('[data-testid="construction-action-keep-rows"]');
-    await waitForBrowser(`document.querySelector('${filterPanel} select[aria-label="Condition"]:not(:disabled)')`);
+    await waitForBrowser(selector => { const control = document.querySelector(selector); return Boolean(control) && !control.disabled; }, `${filterPanel} select[aria-label="Condition"]`);
     const options=await browserEval(selector => [...document.querySelector(`${selector} select[aria-label="Column"]`).options].map(option => ({ value: option.value, label: option.textContent })), filterPanel);
     report.filterColumns=options;
     const value=options.find(o=>/^Value(?: \(|$)/.test(o.label));
@@ -216,7 +219,7 @@ try {
   await configureMissing();
   await proposal('unpivot-value-missing-preview',start,[]);
   await click('[data-testid="construction-cancel-proposal"]');
-  await waitForBrowser(`!document.querySelector('[data-testid="construction-proposal-panel"]')`);
+  await waitForBrowser(() => (!document.querySelector('[data-testid="construction-proposal-panel"]')));
   assert.deepEqual((await api(base+'/builder')).workspace,beforeFilter.workspace);
   await configureMissing();
   await proposal('confirmed-unpivot-value-missing-preview',start,[]);
@@ -226,7 +229,7 @@ try {
   assert(filter);
   await click(`[data-testid="construction-history-step-${filter.id}"]`);
   await click(`[data-testid="construction-edit-step-${filter.id}"]`);
-  await waitForBrowser(`document.querySelector('${filterPanel} select[aria-label="Condition"]:not(:disabled)')`);
+  await waitForBrowser(selector => { const control = document.querySelector(selector); return Boolean(control) && !control.disabled; }, `${filterPanel} select[aria-label="Condition"]`);
   await selectOption(filterPanel+' select[aria-label="Condition"]','EQUALS');
   await click(filterPanel+' input[aria-label="Value"]');
   start=Date.now();
@@ -246,7 +249,7 @@ try {
   };
   await removeUnpivot();
   await click('[data-testid="construction-cancel-proposal"]');
-  await waitForBrowser(`!document.querySelector('[data-testid="construction-proposal-panel"]')`);
+  await waitForBrowser(() => (!document.querySelector('[data-testid="construction-proposal-panel"]')));
   assert.deepEqual((await api(base+'/builder')).workspace,beforeRemoval.workspace);
   await removeUnpivot();
   await apply(expected);
