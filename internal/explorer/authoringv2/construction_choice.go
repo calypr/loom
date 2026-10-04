@@ -46,7 +46,7 @@ func applyColumnSource(workspace *Workspace, catalog CatalogSnapshot, commandID 
 		logicalType = inferredSourceLogicalType(workspace.Documents[documentPos], catalog, command.OccurrenceID, source, "string")
 	}
 	column := Column{Column: columnID, Label: label, LogicalType: logicalType, OccurrenceID: command.OccurrenceID, Source: source, Contributor: contributor}
-	column.ColumnID = stagedSourceColumnID(workspace.Documents[documentPos], commandID, index, command.Type, column.Column)
+	column.ColumnID = stagedSourceColumnID(workspace.Documents[documentPos].Output.ID, commandID, index, command.Type, column.Column)
 	applyInitialPresentation(&column, presentation, nextTableOrder(workspace.Documents[documentPos]))
 	workspace.Documents[documentPos].Columns = append(workspace.Documents[documentPos].Columns, column)
 	var policy ConstructionRowValuePolicy

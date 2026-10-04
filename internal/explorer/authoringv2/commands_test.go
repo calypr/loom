@@ -52,6 +52,36 @@ func TestApplyCommandsCreatesRecipeSafeBackendIdentities(t *testing.T) {
 	}
 }
 
+func TestApplyAddColumnAssignsStableIDBeforeConstruction(t *testing.T) {
+	catalog := commandCatalog()
+	workspace, created, err := ApplyCommands(emptyCommandWorkspace(), catalog, "create", []Command{{
+		Type: CommandCreateTable, Title: "Patients", RootNodeID: "patient",
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if workspace.Documents[0].Construction != nil || workspace.Documents[0].Rows.Kind == RowDefinitionGroups {
+		t.Fatalf("fixture is not a plain table before its first source column: %#v", workspace.Documents[0])
+	}
+	command := Command{Type: CommandAddColumn, OutputID: created[0].OutputID, OccurrenceID: RootOccurrenceID, CandidateID: "patient-id"}
+
+	added, _, err := ApplyCommands(workspace, catalog, "add-patient-id", []Command{command})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(added.Documents[0].Columns) != 1 || added.Documents[0].Columns[0].ColumnID == "" {
+		t.Fatalf("plain-table authored source did not receive a stable ID: %#v", added.Documents[0].Columns)
+	}
+
+	replayed, _, err := ApplyCommands(workspace, catalog, "add-patient-id", []Command{command})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := replayed.Documents[0].Columns[0].ColumnID, added.Documents[0].Columns[0].ColumnID; got != want {
+		t.Fatalf("replaying the same authored command changed its column ID: got %q, want %q", got, want)
+	}
+}
+
 func TestDeletingOnlyTableKeepsCommandResponseCollectionsAsArrays(t *testing.T) {
 	workspace, created, err := ApplyCommands(emptyCommandWorkspace(), commandCatalog(), "create-only-table", []Command{{Type: CommandCreateTable, Title: "Patients", RootNodeID: "patient"}})
 	if err != nil {

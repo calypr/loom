@@ -890,12 +890,11 @@ func cloneTablePresentation(presentation *TablePresentation) *TablePresentation 
 	return &cloned
 }
 
-func stagedSourceColumnID(document Document, commandID string, commandIndex int, commandType string, identity ...any) string {
-	if document.Construction == nil && document.Rows.Kind != RowDefinitionGroups {
-		return ""
-	}
+// stagedSourceColumnID assigns the immutable identity when a source column is
+// authored, before the table has a construction or a published revision.
+func stagedSourceColumnID(outputID, commandID string, commandIndex int, commandType string, identity ...any) string {
 	values := make([]any, 0, len(identity)+5)
-	values = append(values, "staged-source-column/v1", document.Output.ID, commandID, commandIndex, commandType)
+	values = append(values, "staged-source-column/v1", outputID, commandID, commandIndex, commandType)
 	values = append(values, identity...)
 	return commandGeneratedID("source_", values...)
 }
