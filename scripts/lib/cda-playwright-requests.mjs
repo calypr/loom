@@ -20,7 +20,17 @@ export function captureCDARequests(page, { apiOrigin, appOrigins = [apiOrigin], 
   const appOriginSet = new Set(appOrigins.map(origin => new URL(origin).origin));
   const byRequest = new Map();
   const pendingReads = new Set();
+  const waiters = new Set();
   let nextBrowserRequestId = 1;
+  const notify = () => {
+    for (const waiter of [...waiters]) {
+      const match = report.nativeRequests.slice(waiter.fromIndex).find(entry => entry.completedAt && waiter.predicate(entry));
+      if (!match) continue;
+      waiters.delete(waiter);
+      clearTimeout(waiter.timer);
+      waiter.resolve(match);
+    }
+  };
   const owns = rawURL => {
     try {
       const url = new URL(rawURL);
@@ -69,11 +79,12 @@ export function captureCDARequests(page, { apiOrigin, appOrigins = [apiOrigin], 
       } finally {
         entry.completedAt = Date.now();
         pendingReads.delete(read);
+        notify();
       }
     });
     pendingReads.add(read);
     if (response.status() >= 400) {
-      const errorEntry = { kind: 'http', requestId: entry.requestId, browserRequestId: entry.browserRequestId, method: entry.method, path: entry.path, url: `${entry.origin}${entry.path}`, status: response.status() };
+      const errorEntry = { kind: 'http', origin: entry.origin, path: entry.path, url: `${entry.origin}${entry.path}`, status: response.status(), requestId: entry.requestId, browserRequestId: entry.browserRequestId, method: entry.method, startedAt: entry.startedAt, request: entry.body };
       const diagnostic = read.then(() => {
         if (entry.response !== undefined) errorEntry.response = entry.response;
         report.errors.push(errorEntry);
@@ -89,7 +100,8 @@ export function captureCDARequests(page, { apiOrigin, appOrigins = [apiOrigin], 
     if (!entry) return;
     entry.completedAt = Date.now();
     entry.failure = sanitizeText(request.failure()?.errorText);
-    report.errors.push({ kind: 'network', requestId: entry.requestId, browserRequestId: entry.browserRequestId, method: entry.method, path: entry.path, url: `${entry.origin}${entry.path}`, error: entry.failure });
+    report.errors.push({ kind: 'network', origin: entry.origin, path: entry.path, url: `${entry.origin}${entry.path}`, requestId: entry.requestId, browserRequestId: entry.browserRequestId, method: entry.method, startedAt: entry.startedAt, error: entry.failure });
+    notify();
   });
   page.on('pageerror', error => report.errors.push({ kind: 'runtime', message: sanitizeText(error.message) }));
   page.on('console', message => {
@@ -106,6 +118,19 @@ export function captureCDARequests(page, { apiOrigin, appOrigins = [apiOrigin], 
   return {
     byRequest,
     pendingReads,
+    waitFor(predicate, { fromIndex = 0, timeoutMs = 5000 } = {}) {
+      const match = report.nativeRequests.slice(fromIndex).find(entry => entry.completedAt && predicate(entry));
+      if (match) return Promise.resolve(match);
+      return new Promise((resolve, reject) => {
+        const waiter = { predicate, fromIndex, resolve, timer: undefined };
+        waiter.timer = setTimeout(() => {
+          waiters.delete(waiter);
+          const observed = report.nativeRequests.slice(fromIndex).map(({ origin, path, method, status, completedAt, failure }) => ({ origin, path, method, status, completed: Boolean(completedAt), failure }));
+          reject(new Error(`Timed out waiting for owned CDA request: ${JSON.stringify(observed)}`));
+        }, timeoutMs);
+        waiters.add(waiter);
+      });
+    },
     async flush() {
       while (pendingReads.size) await Promise.allSettled([...pendingReads]);
     },

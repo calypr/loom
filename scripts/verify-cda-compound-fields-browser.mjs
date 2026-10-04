@@ -80,19 +80,10 @@ const rawQuery = (query) => {
 };
 
 const waitNative = async (predicate, fromIndex, timeoutMs = 5000) => {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    const match = nativeRequests.slice(fromIndex).find((entry) => !entry.failure && entry.completedAt && predicate(entry));
-    if (match) {
-      assert.equal(match.status, 200, `${match.path} returned ${match.status}: ${JSON.stringify(match.response).slice(0, 1200)}`);
-      return match;
-    }
-    await new Promise((resolve) => setTimeout(resolve, 25));
-  }
-  const observed = nativeRequests.slice(fromIndex).map((entry) => ({ path: entry.path, status: entry.status, completed: Boolean(entry.completedAt), failed: Boolean(entry.failure) }));
-  throw new Error(`Timed out waiting for native Builder request; observed ${JSON.stringify(observed)}`);
+  const match = await requestCapture.waitFor(predicate, { fromIndex, timeoutMs });
+  assert.equal(match.status, 200, `${match.path} returned ${match.status}: ${JSON.stringify(match.response).slice(0, 1200)}`);
+  return match;
 };
-
 const flushNetworkReads = async () => requestCapture?.flush();
 
 const requestIndex = () => nativeRequests.length;
@@ -167,11 +158,11 @@ const setSearchInput = async (selector, value) => {
 
 const openFrameValues = async (frame) => {
   const panel = `[data-testid=${JSON.stringify(`frame-categories-${frame.id}`)}]`;
-  const visible = await inspectDOM(browser.page, async args => { return Boolean(document.querySelector(args.__template0)); }, { __template0: (JSON.stringify(panel)) });
+  const visible = await inspectDOM(browser.page, async args => { return Boolean(document.querySelector(args.__template0)); }, { __template0: (panel) });
   if (!visible) {
     await clickControl(browser, browser.page, `[data-testid=${JSON.stringify(`saved-frame-${frame.id}`)}] button`, { name: 'Choose values' });
   }
-  await waitForDOM(browser.page, args => Boolean(Boolean(document.querySelector(args.__template0))), { __template0: (JSON.stringify(panel)) });
+  await waitForDOM(browser.page, args => Boolean(Boolean(document.querySelector(args.__template0))), { __template0: (panel) });
 };
 
 const matchingDirectChoice = (source) => source.resourceType === 'Observation' &&
@@ -183,7 +174,7 @@ const matchingDirectChoice = (source) => source.resourceType === 'Observation' &
 
 const chooseDirectFrame = async () => {
   const picker = '[data-testid="frame-source-panel"]';
-  const toggle = await inspectDOM(browser.page, async args => { return [...document.querySelectorAll(args.__template0)].find(button=>['Browse sources','Add coded source'].some(label=>button.innerText.trim().startsWith(label)))?.innerText.replace(/\\s+/g,' ').trim(); }, { __template0: (JSON.stringify(`${picker} button`)) });
+  const toggle = await inspectDOM(browser.page, async args => { return [...document.querySelectorAll(args.__template0)].find(button=>['Browse sources','Add coded source'].some(label=>button.innerText.trim().startsWith(label)))?.innerText.replace(/\\s+/g,' ').trim(); }, { __template0: (`${picker} button`) });
   if (toggle) await clickControl(browser, browser.page, `${picker} button`, { name: toggle });
   await waitForDOM(browser.page, args => Boolean(Boolean(document.querySelector('[aria-label="Search framing sources"]'))));
   const search = '[aria-label="Search framing sources"]';
@@ -205,22 +196,22 @@ const chooseDirectFrame = async () => {
   assert.equal(matches.length, 1, `Direct component source is ambiguous: ${JSON.stringify(matches.map((item) => ({ title: item.title, path: item.sourcePath, route: item.route })))}`);
   const source = matches[0];
   const sourceSelector = `[data-testid=${JSON.stringify(`frame-source-choice-${source.choiceId}`)}]`;
-  let visibleChoice = await inspectDOM(browser.page, async args => { return Boolean(document.querySelector(args.__template0)); }, { __template0: (JSON.stringify(sourceSelector)) });
+  let visibleChoice = await inspectDOM(browser.page, async args => { return Boolean(document.querySelector(args.__template0)); }, { __template0: (sourceSelector) });
   if (!visibleChoice) {
-    const moreFamilies = await inspectDOM(browser.page, async args => { return [...document.querySelectorAll(args.__template0)].find(button=>/^Show \\d+ more families$/.test(button.innerText.trim()))?.innerText.trim(); }, { __template0: (JSON.stringify(`${picker} button`)) });
+    const moreFamilies = await inspectDOM(browser.page, async args => { return [...document.querySelectorAll(args.__template0)].find(button=>/^Show \\d+ more families$/.test(button.innerText.trim()))?.innerText.trim(); }, { __template0: (`${picker} button`) });
     if (moreFamilies) await clickControl(browser, browser.page, `${picker} button`, { name: moreFamilies });
-    visibleChoice = await inspectDOM(browser.page, async args => { return Boolean(document.querySelector(args.__template0)); }, { __template0: (JSON.stringify(sourceSelector)) });
+    visibleChoice = await inspectDOM(browser.page, async args => { return Boolean(document.querySelector(args.__template0)); }, { __template0: (sourceSelector) });
   }
   assert(visibleChoice, `Native direct source choice ${source.choiceId} is not visible after source browse`);
   record('browse-direct-component-source', searchStarted, { pageCount });
   const routeSelect = `select[aria-label=${JSON.stringify(`Relationship path for ${source.title}`)}]`;
-  const routeOptions = await inspectDOM(browser.page, async args => { const select=document.querySelector(args.__template0);return select?[...select.options].map(option=>option.value):[]; }, { __template0: (JSON.stringify(routeSelect)) });
+  const routeOptions = await inspectDOM(browser.page, async args => { const select=document.querySelector(args.__template0);return select?[...select.options].map(option=>option.value):[]; }, { __template0: (routeSelect) });
   if (routeOptions.length) {
     assert(routeOptions.includes(source.choiceId), 'The exact direct signed route is not offered by the native route selector');
     await selectControl(browser, browser.page, routeSelect, source.choiceId);
   }
   const formSelect = `select[aria-label=${JSON.stringify(`Multiple values for ${source.title}`)}]`;
-  const formOptions = await inspectDOM(browser.page, async args => { const select=document.querySelector(args.__template0);return select?[...select.options].map(option=>option.value):[]; }, { __template0: (JSON.stringify(formSelect)) });
+  const formOptions = await inspectDOM(browser.page, async args => { const select=document.querySelector(args.__template0);return select?[...select.options].map(option=>option.value):[]; }, { __template0: (formSelect) });
   if (formOptions.length) {
     assert(formOptions.includes('ALL'), 'The native source selector does not offer ALL');
     const formSummary = `${picker} div.px-3.py-2:has(> ${sourceSelector}) details > summary`;
@@ -243,7 +234,7 @@ const chooseDirectFrame = async () => {
   ]);
   report.frames ??= [];
   report.frames.push({ frameId: frame.id, form: frame.form, title: frame.title, sourcePath: frame.source.sourcePath, route: frame.route.map(({ fromResourceType, toResourceType, relationship, storageDirection }) => ({ fromResourceType, toResourceType, relationship, storageDirection })), choicePages: pageCount, saveStatus: save.status });
-  await waitForDOM(browser.page, args => Boolean(Boolean(document.querySelector(args.__template0))), { __template0: (JSON.stringify(`[data-testid="frame-categories-${frame.id}"]`)) });
+  await waitForDOM(browser.page, args => Boolean(Boolean(document.querySelector(args.__template0))), { __template0: (`[data-testid="frame-categories-${frame.id}"]`) });
   record('save-direct-component-frame', saveStarted, { frameId: frame.id });
   return frame;
 };
@@ -267,8 +258,8 @@ const freshCategory = async (frame, code, fromIndex) => {
   assert(item.readiness.status === 'READY' || item.readiness.status === 'READY_WITH_WARNING', `${code} is not ready: ${item.readiness.status}`);
   const label = item.display || item.code;
   const checkbox = `${panel} input[aria-label=${JSON.stringify(`Select ${label}`)}]`;
-  await waitForDOM(browser.page, args => Boolean(Boolean(document.querySelector(args.__template0))), { __template0: (JSON.stringify(checkbox)) });
-  const enabled = await inspectDOM(browser.page, async args => { return Boolean(document.querySelector(args.__template0)&&!document.querySelector(args.__template1).disabled); }, { __template0: (JSON.stringify(checkbox)), __template1: (JSON.stringify(checkbox)) });
+  await waitForDOM(browser.page, args => Boolean(Boolean(document.querySelector(args.__template0))), { __template0: (checkbox) });
+  const enabled = await inspectDOM(browser.page, async args => { return Boolean(document.querySelector(args.__template0)&&!document.querySelector(args.__template1).disabled); }, { __template0: (checkbox), __template1: (checkbox) });
   assert(enabled, `Fresh semantic result ${code} is not an enabled native category choice`);
   await clickControl(browser, browser.page, checkbox);
   record(`native-category-choice-${code}`, started, { frameId: frame.id });
@@ -383,7 +374,7 @@ FOR o IN Observation
   assertWorkspaceTable(framedBaseline, 1, 0);
   const frameOnlyWorkspace = structuredClone(framedBaseline.workspace);
   const categoriesPanel = `[data-testid=${JSON.stringify(`frame-categories-${frame.id}`)}]`;
-  await waitForDOM(browser.page, args => Boolean(Boolean(document.querySelector(args.__template0))), { __template0: (JSON.stringify(categoriesPanel)) });
+  await waitForDOM(browser.page, args => Boolean(Boolean(document.querySelector(args.__template0))), { __template0: (categoriesPanel) });
 
   const cancelNativeStart = requestIndex();
   const disease = await freshCategory(frame, 'primary_disease_type', requestIndex());
@@ -402,7 +393,7 @@ FOR o IN Observation
   for (const code of wantedCodes) selected.push(await freshCategory(frame, code, requestIndex()));
   assert.deepEqual(selected.map((choice) => choice.code), wantedCodes);
   // Leave the fresh selection in the native category picker; the atomic Add click below owns the only save.
-  const countButton = await inspectDOM(browser.page, async args => { return [...document.querySelectorAll(args.__template0)].find(button=>button.innerText.trim()==='Add 2 columns')?.innerText.trim(); }, { __template0: (JSON.stringify(`${categoriesPanel} button`)) });
+  const countButton = await inspectDOM(browser.page, async args => { return [...document.querySelectorAll(args.__template0)].find(button=>button.innerText.trim()==='Add 2 columns')?.innerText.trim(); }, { __template0: (`${categoriesPanel} button`) });
   assert.equal(countButton, 'Add 2 columns');
   // Reuse the already checked selections in the direct two-column Add flow.
   const addStart = Date.now();
@@ -501,7 +492,12 @@ FOR o IN Observation
   record('restore-two-compound-ALL-columns', restoreAddStart, { previewDurationMs: restoreProposal.response.previewDurationMs, atomicCommandCount: restoreCommand.body.commands.length });
   const restoredReload = await openTable(3, 'reload-restored-compound-ALL-columns', [...source.diseaseValues, ...source.specimenValues]);
   assertPreviewValues(restoredReload, { ...restoreValues, [rootColumnId]: source.specimen.id });
+  await flushNetworkReads();
   assert.deepEqual(report.errors, []);
+  assert.deepEqual(browser.diagnostics.pageErrors, [], 'Unexpected page errors were reported');
+  assert.deepEqual(browser.diagnostics.console, [], 'Unexpected console errors were reported');
+  assert.deepEqual(browser.diagnostics.networkFailures, [], 'Unexpected network failures were reported');
+  assert.deepEqual(browser.diagnostics.httpFailures, [], 'Unexpected HTTP failures were reported');
   assert(nativeRequests.every((entry) => !entry.path.includes(originalExplorer)));
   report.final = {
     status: 'passed',
