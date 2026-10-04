@@ -1,30 +1,32 @@
 import assert from 'node:assert/strict';
-import { mkdir } from 'node:fs/promises';
-import { browserEval, click, inspectAction, launchBrowser } from './lib/browser.mjs';
+import { resolve } from 'node:path';
+import { launchBrowser } from './lib/playwright-browser.mjs';
 
-const evidence = process.argv[2] ?? '/tmp/loom-browser-disclosure';
-await mkdir(evidence, { recursive: true });
-const browser = await launchBrowser(evidence);
+const evidence = resolve(process.argv[2] ?? '/tmp/loom-browser-disclosure');
+const browser = await launchBrowser({ evidence });
 try {
-  const { frameTree } = await browser.cdp.send('Page.getFrameTree');
-  await browser.cdp.send('Page.setDocumentContent', {
-    frameId: frameTree.frame.id,
-    html: '<!doctype html><details id="advanced" open><summary>Advanced</summary><fieldset><input aria-label="Column name" value="Original"></fieldset></details>',
+  const { page } = browser;
+  await page.setContent('<!doctype html><details id="advanced" open><summary>Advanced</summary><fieldset><input aria-label="Column name" value="Original"></fieldset></details>');
+  const input = page.locator('input[aria-label="Column name"]');
+  const summary = page.getByText('Advanced', { exact: true });
+
+  await page.locator('#advanced').evaluate(details => { details.open = false; });
+  assert.equal(await input.count(), 1, 'The collapsed control target must be unique');
+  assert.equal(await input.isVisible(), false, 'A control inside collapsed details must be hidden');
+  await assert.rejects(input.fill('Ignored', { timeout: 1000 }), /not visible|Timeout/i,
+    'Playwright must refuse to type into the collapsed control');
+
+  await summary.click();
+  await assert.doesNotReject(input.waitFor({ state: 'visible', timeout: 1000 }));
+  await input.fill('Renamed');
+  assert.equal(await input.inputValue(), 'Renamed', 'Native typing must update the open control');
+  process.stdout.write(`${JSON.stringify({ status: 'passed', evidence, checks: ['collapsed control hidden', 'hidden fill rejected', 'summary actionable', 'opened control native typing'] })}\n`);
+} catch (error) {
+  await browser.captureFailure(error, {
+    phase: 'disclosure-actionability',
+    action: { label: 'verify disclosure control actionability', locator: 'input[aria-label="Column name"]', targetLocator: browser.page.locator('input[aria-label="Column name"]') },
   });
-  await browserEval(browser.cdp, `await new Promise(resolve=>requestAnimationFrame(resolve));document.querySelector('#advanced').open=false;`);
-  const hidden = await inspectAction(browser.cdp, 'input');
-  assert.equal(hidden.visible, false, 'A control inside collapsed details must be identified as hidden');
-  assert.equal(hidden.closedDisclosure?.summary, 'Advanced');
-  await assert.rejects(click(browser.cdp, 'input'), /closedDisclosure/);
-  await click(browser.cdp, 'summary', { name: 'Advanced' });
-  const visible = await inspectAction(browser.cdp, 'input');
-  assert.equal(visible.visible, true);
-  assert.equal(visible.closedDisclosure, null);
-  await click(browser.cdp, 'input');
-  await browserEval(browser.cdp, 'document.activeElement.select();');
-  await browser.cdp.send('Input.insertText', { text: 'Renamed' });
-  assert.equal(await browserEval(browser.cdp, 'return document.querySelector("input").value;'), 'Renamed');
-  console.log(JSON.stringify({ status: 'passed', evidence, checks: ['collapsed control hidden', 'hidden click rejected', 'summary actionable', 'opened control native typing'] }));
+  throw error;
 } finally {
   await browser.close();
 }
