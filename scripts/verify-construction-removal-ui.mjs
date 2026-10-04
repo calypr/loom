@@ -23,6 +23,8 @@ assert(args.project && args.explorer && args.output && args.step && args.origin 
   'Set explicit owned project/explorer/output/step and isolated UI/API origins, API container, and Compose project');
 const sourceRoot = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const apiBase = `${args['api-origin']}/api/v1/projects/${encodeURIComponent(args.project)}/explorers/${encodeURIComponent(args.explorer)}/authoring/v2`;
+const proposalPath = new URL(`${apiBase}/construction-proposals`).pathname;
+const appOrigins = new Set([args.origin, args['api-origin']].map(origin => new URL(origin).origin));
 const builderURL = `${args.origin}/?project=${encodeURIComponent(args.project)}&explorer=${encodeURIComponent(args.explorer)}&mode=builder`;
 const ids = { table: `construction-table-${args.output}`, step: `construction-history-step-${args.step}`, remove: `construction-remove-step-${args.step}` };
 const report = { status: 'running', target: args, builderURL, applyRequested: args.apply, evidence: args.evidence, transitions: [], apiReads: [], proposalResponses: [] };
@@ -30,12 +32,24 @@ await mkdir(args.evidence, { recursive: true });
 let browser; let sourceFreeze; let apiBuildFreeze;
 const locator = id => browser.page.getByTestId(id);
 async function click(label, control) { return performAction(report, label, control, target => target.click()); }
+function recordTransition(name, startedAt) {
+  const elapsedMs = Date.now() - startedAt;
+  report.transitions.push({ name, elapsedMs, limitMs: 5000, passed: elapsedMs <= 5000 });
+  assert(elapsedMs <= 5000, `${name} took ${elapsedMs} ms to render`);
+  report.activeAction = undefined;
+}
 async function readBuilder() {
   const response = await fetch(`${apiBase}/builder`, { signal: AbortSignal.timeout(30000) });
   const text = await response.text();
   report.apiReads.push({ path: '/builder', status: response.status, ...(response.ok ? {} : { body: sanitizeBody(text) }) });
   assert(response.ok, `Builder read returned ${response.status}: ${sanitizeBody(text)}`);
   return JSON.parse(text);
+}
+function waitForProposalResponse() {
+  return browser.page.waitForResponse(response => {
+    const responseURL = new URL(response.url());
+    return appOrigins.has(responseURL.origin) && responseURL.pathname === proposalPath && response.request().method() === 'POST';
+  }, { timeout: 5000 });
 }
 async function observeProposal(label, startedAt, responsePromise) {
   report.activeAction = { label, locator: '[data-testid="construction-proposal-panel"]', startedAt };
@@ -45,12 +59,10 @@ async function observeProposal(label, startedAt, responsePromise) {
   assert(response.ok(), `Removal proposal returned ${response.status()}: ${sanitizeBody(body)}`);
   const proposal = JSON.parse(body);
   const panel = locator('construction-proposal-panel');
-  await panel.waitFor({ state: 'visible', timeout: 30000 });
-  await browser.page.waitForFunction(() => document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status') === 'ready', null, { timeout: 30000 });
+  await panel.waitFor({ state: 'visible', timeout: 5000 });
+  await browser.page.waitForFunction(() => document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status') === 'ready', null, { timeout: 5000 });
   const view = await panel.evaluate(node => ({ status: node.getAttribute('data-proposal-status'), text: node.innerText, hasApply: Boolean(document.querySelector('[data-testid="construction-apply-proposal"]')) }));
-  const elapsedMs = Date.now() - startedAt;
-  report.transitions.push({ name: label, elapsedMs, limitMs: 5000, passed: elapsedMs <= 5000 });
-  assert(elapsedMs <= 5000, `${label} took ${elapsedMs} ms`);
+  recordTransition(label, startedAt);
   assert.equal(view.status, 'ready', view.text);
   assert.equal(view.hasApply, true, 'Complete removal must be applicable');
   assert(view.text.includes('Nothing is saved until you apply this removal'));
@@ -86,40 +98,53 @@ try {
   await table.waitFor({ state: 'visible', timeout: 30000 });
   await click('select output table', table);
   const step = locator(ids.step);
-  await step.waitFor({ state: 'visible', timeout: 30000 });
+  await step.waitFor({ state: 'visible', timeout: 5000 });
   assert.equal(await step.isEnabled(), true, 'Requested history step must be enabled');
   await click('select construction step', step);
-  const responsePromise = page.waitForResponse(response => response.url().startsWith(`${apiBase}/construction-proposals`) && response.request().method() === 'POST', { timeout: 30000 });
+  const responsePromise = waitForProposalResponse();
   const startedAt = Date.now();
   await click('request removal proposal', locator(ids.remove));
   const proposal = await observeProposal('remove-to-result', startedAt, responsePromise);
   report.preview = { candidateConstruction: proposal.candidateConstruction, removedStepIds: proposal.dependencyImpact.removedStepIds };
+  const cancelStartedAt = Date.now();
   await click('cancel removal proposal', locator('construction-cancel-proposal'));
-  await locator('construction-proposal-panel').waitFor({ state: 'hidden', timeout: 30000 });
+  report.activeAction = { label: 'cancel removal and confirm unchanged workspace', locator: 'construction-proposal-panel', startedAt: cancelStartedAt };
+  await locator('construction-proposal-panel').waitFor({ state: 'hidden', timeout: 5000 });
   const afterCancel = await readBuilder();
   assert.deepEqual(afterCancel.workspace, report.baseline.workspace, 'Cancel must leave workspace unchanged');
   assert.equal(afterCancel.draftVersion, report.baseline.draftVersion, 'Cancel must not advance draft version');
   assert.equal(afterCancel.draftDigest, report.baseline.draftDigest, 'Cancel must not change draft digest');
+  recordTransition('cancel-to-hidden-and-unchanged-workspace', cancelStartedAt);
   report.cancelCheck = { unchanged: true, draftVersion: afterCancel.draftVersion, draftDigest: afterCancel.draftDigest };
   if (args.apply) {
     await click('reselect construction step', step);
-    const applyResponse = page.waitForResponse(response => response.url().startsWith(`${apiBase}/construction-proposals`) && response.request().method() === 'POST', { timeout: 30000 });
-    const applyStartedAt = Date.now();
+    const applyResponse = waitForProposalResponse();
+    const proposalStartedAt = Date.now();
     await click('reopen removal proposal', locator(ids.remove));
-    const applyProposal = await observeProposal('apply-proposal-ready', applyStartedAt, applyResponse);
+    const applyProposal = await observeProposal('apply-proposal-ready', proposalStartedAt, applyResponse);
     assert.deepEqual(applyProposal.candidateConstruction, proposal.candidateConstruction, 'Reopened proposal must match preview');
+    const applyStartedAt = Date.now();
     await click('apply exact preview', locator('construction-apply-proposal'));
-    await locator('construction-proposal-panel').waitFor({ state: 'hidden', timeout: 30000 });
+    report.activeAction = { label: 'apply removal and confirm saved state', locator: 'construction-apply-proposal', startedAt: applyStartedAt };
+    await locator('construction-proposal-panel').waitFor({ state: 'hidden', timeout: 5000 });
     report.applied = await readBuilder();
     assert(report.applied.draftVersion > report.baseline.draftVersion, 'Apply must advance the draft');
     const appliedDocument = report.applied.workspace.documents.find(document => document.output.id === args.output);
     assert.deepEqual(appliedDocument.construction, proposal.candidateConstruction, 'Apply must save the exact previewed construction');
-    await page.reload({ waitUntil: 'domcontentloaded' });
-    await table.waitFor({ state: 'visible', timeout: 30000 });
+    await locator(ids.step).waitFor({ state: 'detached', timeout: 5000 });
+    recordTransition('apply-to-saved-construction-visible-in-history', applyStartedAt);
+    const reloadStartedAt = Date.now();
+    report.activeAction = { label: 'reload and confirm restored removal history', locator: builderURL, startedAt: reloadStartedAt };
+    await page.reload({ waitUntil: 'domcontentloaded', timeout: 5000 });
+    await table.waitFor({ state: 'visible', timeout: 5000 });
     await click('reopen output after reload', table);
-    for (const id of proposal.dependencyImpact.removedStepIds) await locator(`construction-history-step-${id}`).waitFor({ state: 'detached', timeout: 30000 });
+    report.activeAction = { label: 'reload and confirm restored removal history', locator: builderURL, startedAt: reloadStartedAt };
+    for (const id of proposal.dependencyImpact.removedStepIds) await locator(`construction-history-step-${id}`).waitFor({ state: 'detached', timeout: 5000 });
     report.reloaded = await readBuilder();
     assert.equal(report.reloaded.draftDigest, report.applied.draftDigest, 'Saved removal must persist after reload');
+    const reloadedDocument = report.reloaded.workspace.documents.find(document => document.output.id === args.output);
+    assert.deepEqual(reloadedDocument.construction, proposal.candidateConstruction, 'Reload must restore the exact applied construction');
+    recordTransition('reload-to-restored-removal-history', reloadStartedAt);
   }
   report.diagnostics = browser.diagnostics;
   assert.deepEqual(browser.diagnostics.console, [], 'Unexpected browser console error');
