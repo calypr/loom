@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { launchBrowser, sanitizeText } from '../lib/playwright-browser.mjs';
 import { makeReportLocation, scenarioFor } from './cli.mjs';
-import { createReport, finishReport, recordCheck, writeReport } from './report.mjs';
+import { createReport, finishReport, recordCheck, recordUntested, writeReport } from './report.mjs';
 import { requiredChecksFor } from './registry.mjs';
 import { sourceFingerprintChangedPaths, sourceFingerprintWithManifest } from './source-fingerprint.mjs';
 
@@ -32,6 +32,13 @@ export const ownedBrowserRequestTarget = (target, { method, path }) => ({
   path,
   method,
 });
+
+export const matchesViewerRequestBody = (body, { project, selector }) => {
+  const input = body?.variables?.input;
+  return input?.projectId === project && input.selector?.recipe === selector?.recipe &&
+    input.selector?.translationVersion === selector?.translationVersion &&
+    input.selector?.output === selector?.output;
+};
 
 const isLoopback = origin => {
   try { return ['127.0.0.1', 'localhost', '::1'].includes(new URL(origin).hostname); }
@@ -95,11 +102,25 @@ export const runPlaywrightCase = async (context, scenarioID, caseName, work) => 
   let activeAction;
   let activeStartedAt = Date.now();
   try {
-    sourceAtStart = sourceFingerprintWithManifest(target.sourceRoot);
-    report.target.sourceFingerprint = sourceAtStart.fingerprint;
-    report.sourceFingerprintManifest = { before: sourceAtStart.manifest };
-    initialBuild = apiBuildIdentity(target);
-    report.target.apiBuildIdentity = initialBuild;
+    if (target.sourceRoot) {
+      sourceAtStart = sourceFingerprintWithManifest(target.sourceRoot);
+      report.target.sourceFingerprint = sourceAtStart.fingerprint;
+      report.sourceFingerprintManifest = { before: sourceAtStart.manifest };
+    } else {
+      report.target.sourceFingerprint = null;
+      report.target.sourceFingerprintStatus = 'unknown: custom target has no local source root';
+      recordUntested(report, 'correctness', 'local source fingerprint stayed unchanged during browser run',
+        'Custom read-only targets do not have a local source checkout.');
+    }
+    if (target.composeProject) {
+      initialBuild = apiBuildIdentity(target);
+      report.target.apiBuildIdentity = initialBuild;
+    } else {
+      report.target.apiBuildIdentity = null;
+      report.target.apiBuildIdentityStatus = 'unknown: custom target has no owned API container';
+      recordUntested(report, 'correctness', 'local API build identity stayed unchanged during browser run',
+        'Custom read-only targets do not have an owned API build container.');
+    }
     browser = await launchBrowser({
       evidence: location.evidenceDirectory,
       appOrigins: [target.uiUrl, target.apiUrl],
@@ -146,13 +167,20 @@ export const runPlaywrightCase = async (context, scenarioID, caseName, work) => 
       }
     };
 
-    const fault = async ({ method, path }) => {
+    const fault = async ({ method, path, matchesRequest }) => {
       injectedTarget = ownedBrowserRequestTarget(target, { method, path });
       const browserRequestOrigin = injectedTarget.origin;
       let count = 0;
       await page.route('**/*', async route => {
         const parts = pathAndMethod(route.request());
-        if (count === 0 && parts.origin === browserRequestOrigin && parts.method === method && parts.pathname === path) {
+        const exactRequest = count === 0 && parts.origin === browserRequestOrigin &&
+          parts.method === method && parts.pathname === path;
+        let bodyMatches = !matchesRequest;
+        if (exactRequest && matchesRequest) {
+          try { bodyMatches = matchesRequest(route.request().postDataJSON()); }
+          catch { bodyMatches = false; }
+        }
+        if (exactRequest && bodyMatches) {
           count += 1;
           await route.abort();
         } else {
