@@ -4,8 +4,11 @@ import { spawnSync } from 'node:child_process';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { browserEval, click, launchBrowser, navigate, selectOption, waitForBrowser } from './lib/browser.mjs';
-import { ApiBuildFreezeError, captureApiBuildFreeze, checkContainerApiBuildStamp, localCDAApiContainer } from './lib/api-build-freeze.mjs';
+import { launchBrowser, sanitizeText } from './lib/playwright-browser.mjs';
+import { performAction, requireUnique } from './lib/playwright-actions.mjs';
+import { captureCDARequests } from './lib/cda-playwright-requests.mjs';
+import { assertOwnedCdaTarget } from './lib/owned-cda-target.mjs';
+import { ApiBuildFreezeError, captureApiBuildFreeze, checkContainerApiBuildStamp } from './lib/api-build-freeze.mjs';
 import { captureSourceFreeze } from './lib/source-freeze.mjs';
 import { sourceFingerprint } from './verify-ui/source-fingerprint.mjs';
 
@@ -22,21 +25,52 @@ const authoredExpand=process.env.LOOM_COHORT_AUTHORED_EXPAND==='1';
 assert(!filterOneMember || authoredFilter, 'LOOM_COHORT_FILTER_ONE requires LOOM_COHORT_COMPOSITION=1');
 assert(!removeCohortAnchor || (authoredFilter&&!filterOneMember), 'Anchor removal requires the source EXISTS composition case');
 assert(!authoredExpand || (memberField==='id' && !authoredFilter && !filterOneMember && !editCohortPolicy && !postCohortFilter && !collectionRoundTrip && !removeCohortAnchor), 'Authored cohort EXPAND requires the isolated Specimen.id ALL-member lifecycle mode');
-const project = 'loom_dev_cda_fhir';
+const project = process.env.LOOM_CDA_PROJECT;
 const explorer = `cohort-add-fields-browser-${Date.now()}`;
 const evidence = process.argv[2] ?? `/tmp/loom-cohort-add-fields-browser-${Date.now()}`;
-const apiOrigin = process.env.LOOM_CDA_API_ORIGIN ?? 'http://127.0.0.1:8188';
-const uiOrigin = process.env.LOOM_CDA_UI_ORIGIN ?? 'http://127.0.0.1:30008';
+const apiOrigin = process.env.LOOM_CDA_API_ORIGIN;
+const uiOrigin = process.env.LOOM_CDA_UI_ORIGIN;
+const apiContainer = process.env.LOOM_CDA_API_CONTAINER;
+const composeProject = process.env.LOOM_CDA_COMPOSE_PROJECT;
+const arangoContainer = process.env.LOOM_ARANGO_CONTAINER;
+assert(apiOrigin && uiOrigin, 'Set LOOM_CDA_API_ORIGIN and LOOM_CDA_UI_ORIGIN to the isolated CDA stack.');
+assert.equal(process.env.LOOM_CDA_GENERATION, 'cda-fhir-v1', 'Set LOOM_CDA_GENERATION to the loaded CDA FHIR generation.');
+const localAPI = new URL(apiOrigin);
+const localUI = new URL(uiOrigin);
+const sourceRoot=fileURLToPath(new URL('..',import.meta.url));
+const ownedTarget = await assertOwnedCdaTarget({ project, apiOrigin, uiOrigin, apiContainer, composeProject, sourceRoot, arangoContainer });
 const root = `/api/v1/projects/${project}/explorers`;
 const base = `${root}/${explorer}/authoring/v2`;
-const sourceRoot=fileURLToPath(new URL('..',import.meta.url));
 const apiBuildTarget='local-cda-api';
-const readApiBuildStamp=()=>checkContainerApiBuildStamp(localCDAApiContainer());
+const readApiBuildStamp=()=>checkContainerApiBuildStamp(apiContainer);
 const report = { authoredFilter, filterOneMember, editCohortPolicy, postCohortFilter, collectionRoundTrip, removeCohortAnchor, authoredExpand, memberField, explorer, cases: [], errors: [], requests: [], nativeRequests: [], started: new Date().toISOString() };
+report.ownedTarget = ownedTarget;
 await mkdir(evidence, { recursive: true });
 let browser, builder, outputId;
 let frozenApiBuild, frozenSource;
-const pendingNetworkReads=new Set();
+let requestCapture;
+const page = () => browser.page;
+const inspect = callback => page().evaluate(callback);
+const waitUI = (condition, timeout = 30000) => page().waitForFunction(condition, undefined, { timeout });
+const navigateUI = url => page().goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+const clickUI = (selector, options = {}) => {
+  let locator = page().locator(selector);
+  if (options.name) locator = locator.and(page().getByRole('button', { name: options.name, exact: true }));
+  if (options.includes) locator = locator.and(page().getByRole('button', { name: new RegExp(options.includes.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i') }));
+  return performAction(report, options.name ?? options.includes ?? selector, locator, target => target.click({ timeout: 5000 }));
+};
+const selectUI = (selector, value) => {
+  const locator = page().locator(selector);
+  return performAction(report, `Select ${value}`, locator, (target, { timeout }) => target.selectOption(value, { timeout }));
+};
+const requestBody = entry => requestCapture.rawRequestBody(entry) ?? entry.body;
+const evidenceSafe = (value, key = '') => {
+  if (/authorization|cookie|password|passwd|token|secret|credential|session|api[_-]?key/i.test(key)) return '[REDACTED]';
+  if (Array.isArray(value)) return value.map(item => evidenceSafe(item));
+  if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([childKey, child]) => [childKey, evidenceSafe(child, childKey)]));
+  return value;
+};
+const sensitiveName = /authorization|cookie|password|passwd|token|secret|credential|session|api[_-]?key/i;
 const builderEvidence = value => {
   if (!value.catalog) return value;
   const { catalog, ...state } = value;
@@ -77,7 +111,7 @@ const api = async (path, body) => {
     ...(body ? { body: JSON.stringify(body) } : {}), signal: AbortSignal.timeout(30000),
   });
   const value = await response.json();
-  report.requests.push({ path, body, startedAt, completedAt:Date.now(), status: response.status, response: path.endsWith('/builder') ? structuredClone(builderEvidence(value)) : value });
+  report.requests.push({ path, body: evidenceSafe(body), startedAt, completedAt:Date.now(), status: response.status, response: evidenceSafe(path.endsWith('/builder') ? structuredClone(builderEvidence(value)) : value) });
   assert(response.ok, JSON.stringify(value));
   return value;
 };
@@ -92,26 +126,22 @@ const recordRender = (name, start) => {
   assert(durationMs <= 5000, `${name} took ${durationMs}ms`);
   report.cases.push({ name, durationMs });
 };
-const waitForSavedPreview = async (startedAt, action) => {
-  while (Date.now() - startedAt <= 5000) {
-    const preview = report.nativeRequests.find(request => request.path === base + '/preview' && request.startedAt >= startedAt && request.completedAt && request.status === 200);
-    if (preview) return;
-    await new Promise(resolve => setTimeout(resolve, 50));
-  }
-  assert.fail(`${action} did not complete a fresh saved preview within five seconds`);
-};
+const waitForSavedPreview = async (startedAt, action) => requestCapture.waitFor(
+  entry => entry.path === base + '/preview' && entry.startedAt >= startedAt && entry.status === 200,
+  { timeout: Math.max(1, startedAt + 5000 - Date.now()), label: action },
+);
 const open = async expectedRows => {
   const start = Date.now();
-  await navigate(browser.cdp, `${uiOrigin}/?project=${project}&explorer=${explorer}&mode=builder`);
-  await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-table-${outputId}"]')`);
-  await click(browser.cdp, `[data-testid="construction-table-${outputId}"]`);
-  await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-rows-settings-trigger"]')?.disabled === false`);
+  await navigateUI(`${uiOrigin}/?project=${project}&explorer=${explorer}&mode=builder`);
+  await page().getByTestId(`construction-table-${outputId}`).waitFor({ state: 'visible', timeout: 5000 });
+  await clickUI(`[data-testid="construction-table-${outputId}"]`);
+  await page().getByTestId('construction-rows-settings-trigger').waitFor({ state: 'visible', timeout: 5000 });
   await rendered(expectedRows);
   recordRender('load-to-render', start);
 };
 const rendered = async expectedRows => {
-  await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount') === ${JSON.stringify(String(Math.min(25, expectedRows.length) + 1))} && document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-colcount') === ${JSON.stringify(String(expectedRows[0]?.length ?? 2))} && !document.body.innerText.includes('Loading your table…')`);
-  const rows = await browserEval(browser.cdp, `return [...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]')].slice(1).map(r=>[...r.querySelectorAll('[role="cell"]')].map(c=>c.innerText.trim())).filter(r=>r.length);`);
+  await waitUI(`document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount') === ${JSON.stringify(String(Math.min(25, expectedRows.length) + 1))} && document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-colcount') === ${JSON.stringify(String(expectedRows[0]?.length ?? 2))} && !document.body.innerText.includes('Loading your table…')`);
+  const rows = await page().locator('[data-testid="preview-table-scroll"] [role="row"]').evaluateAll(items => items.slice(1).map(row => [...row.querySelectorAll('[role="cell"]')].map(cell => cell.innerText.trim())).filter(row => row.length));
   assert(rows.length > 0 || expectedRows.length === 0);
   const savedRows = expectedRows;
   for (const row of rows) assert(savedRows.some(expected=>row.every((cell,i)=>cell===expected[i])), 'Visible saved cells must match a CDA witness: '+JSON.stringify(row));
@@ -136,7 +166,7 @@ try {
   frozenApiBuild=await captureApiBuildFreeze(readApiBuildStamp);
   report.apiBuildFreeze={...report.apiBuildFreeze,initial:frozenApiBuild.initial};
   const query=`FOR s IN Specimen FILTER s.project=="${project}" AND s.dataset_generation=="cda-fhir-v1" SORT s.id LIMIT 2 RETURN {id:s.id,resourceType:s.resourceType,generation:s.dataset_generation,project:s.project}`;
-  const raw=spawnSync('rtk',['proxy','docker','exec',process.env.LOOM_ARANGO_CONTAINER??'loom-dev-6d7df93d6a37-arangodb-1','arangosh','--server.database','loom_dev','--javascript.execute-string',`print(JSON.stringify(db._query(${JSON.stringify(query)}).toArray()));`],{encoding:'utf8',timeout:30000});
+  const raw=spawnSync('rtk',['proxy','docker','exec',arangoContainer,'arangosh','--server.database','loom_dev','--javascript.execute-string',`print(JSON.stringify(db._query(${JSON.stringify(query)}).toArray()));`],{encoding:'utf8',timeout:30000});
   assert.equal(raw.status,0,raw.stderr);
   const sources=JSON.parse(raw.stdout.slice(raw.stdout.indexOf('[')));
   assert.equal(sources.length,2);
@@ -192,89 +222,56 @@ try {
     assert.equal(proposal.previewStatus,'READY');
     await command([{type:'APPLY_CONSTRUCTION_PROPOSAL',outputId,proposalId:proposal.proposalId}]);
   }
-  browser=await launchBrowser(evidence);
-  const nativeById=new Map();
-  const evidenceBody=text=>{
-    if(!text) return undefined;
-    if(text.length>32768) return {truncated:true,length:text.length,text:text.slice(0,32768)};
-    try { return JSON.parse(text); } catch { return text; }
-  };
-  browser.cdp.on('Network.requestWillBeSent',({requestId,request,wallTime,timestamp})=>{
-    const url=new URL(request.url);
-    if(!url.pathname.startsWith(root+'/'+explorer+'/')) return;
-    const entry={requestId,path:url.pathname+url.search,method:request.method,startedAt:wallTime?Math.round(wallTime*1000):Date.now(),monotonicTimestamp:timestamp,body:evidenceBody(request.postData)};
-    nativeById.set(requestId,entry);
-    report.nativeRequests.push(entry);
-  });
-  browser.cdp.on('Network.responseReceived',({requestId,response})=>{
-    const entry=nativeById.get(requestId);
-    if(!entry) return;
-    entry.status=response.status;
-    entry.responseReceivedAt=Date.now();
-    entry.serverRequestId=Object.entries(response.headers).find(([name])=>name.toLowerCase()==='x-request-id')?.[1];
-  });
-  browser.cdp.on('Network.loadingFinished',({requestId})=>{
-    const entry=nativeById.get(requestId);
-    if(entry) entry.completedAt=Date.now();
-    if(!entry || !(entry.status>=400 || /proposal|preview|commands|construction-capabilities/.test(entry.path))) return;
-    const read=browser.cdp.send('Network.getResponseBody',{requestId})
-      .then(result=>{ entry.response=evidenceBody(result.base64Encoded?Buffer.from(result.body,'base64').toString('utf8'):result.body); })
-      .catch(error=>{ entry.responseReadError=String(error); })
-      .finally(()=>pendingNetworkReads.delete(read));
-    pendingNetworkReads.add(read);
-  });
-  browser.cdp.on('Runtime.exceptionThrown',e=>report.errors.push({kind:'runtime',details:e.exceptionDetails}));
-  browser.cdp.on('Runtime.consoleAPICalled',e=>{if(e.type==='error')report.errors.push({kind:'console',args:e.args});});
-  browser.cdp.on('Network.loadingFailed',e=>{if(e.type==='Script'&&e.errorText!=='net::ERR_ABORTED')report.errors.push({kind:'module',error:e.errorText});});
-  browser.cdp.on('Network.responseReceived',({response})=>{if(response.status>=400&&!response.url.endsWith('/favicon.ico'))report.errors.push({kind:'http',url:response.url,status:response.status});});
+  browser=await launchBrowser({ evidence, appOrigins: [apiOrigin, uiOrigin], noAuth: true });
+  requestCapture = captureCDARequests(page(), { apiOrigin, browserRequestOrigin: uiOrigin, appOrigins: [apiOrigin, uiOrigin], ownedPathPrefix: base, report });
   await open(expectedMembers.map(s=>[s.id]));
-  await click(browser.cdp,'[data-testid="construction-rows-settings-trigger"]');
-  await waitForBrowser(browser.cdp,`document.querySelector('select[aria-label="What should each row represent?"]')?.disabled===false`);
-  const cohortOptions=await browserEval(browser.cdp,`return [...document.querySelector('select[aria-label="What should each row represent?"]').options].map(option=>({value:option.value,disabled:option.disabled,text:option.text}));`);
+  await clickUI('[data-testid="construction-rows-settings-trigger"]');
+  await waitUI(`document.querySelector('select[aria-label="What should each row represent?"]')?.disabled===false`);
+  const cohortOptions=await inspect(() => [...document.querySelector('select[aria-label="What should each row represent?"]').options].map(option=>({value:option.value,disabled:option.disabled,text:option.text})));
   report.cohortOptions=cohortOptions;
   assert(cohortOptions.some(option=>option.value==='explicit:'+cohort.revisionId&&!option.disabled),'A saved cohort must remain usable with a source filter: '+JSON.stringify(cohortOptions));
   let start=Date.now();
-  await selectOption(browser.cdp,'select[aria-label="What should each row represent?"]','explicit:'+cohort.revisionId);
-  await waitForBrowser(browser.cdp,`[...document.querySelectorAll('[aria-label="Row definition settings"] button')].some(b=>b.innerText==='Apply row definition'&&!b.disabled)`);
+  await selectUI('select[aria-label="What should each row represent?"]','explicit:'+cohort.revisionId);
+  await waitUI(`[...document.querySelectorAll('[aria-label="Row definition settings"] button')].some(b=>b.innerText==='Apply row definition'&&!b.disabled)`);
   recordRender('cohort-preview',start);
   start=Date.now();
-  await click(browser.cdp,'[aria-label="Row definition settings"] button',{name:'Cancel'});
-  await waitForBrowser(browser.cdp,`!document.querySelector('[aria-label="Row definition settings"]')`);
+  await clickUI('[aria-label="Row definition settings"] button',{name:'Cancel'});
+  await waitUI(`!document.querySelector('[aria-label="Row definition settings"]')`);
   await rendered(expectedMembers.map(source=>[source.id]));
   recordRender('cohort-cancel',start);
   assert.deepEqual((await api(base+'/builder')).workspace,builder.workspace);
-  await click(browser.cdp,'[data-testid="construction-rows-settings-trigger"]');
-  await waitForBrowser(browser.cdp,`document.querySelector('select[aria-label="What should each row represent?"]')?.disabled===false`);
+  await clickUI('[data-testid="construction-rows-settings-trigger"]');
+  await waitUI(`document.querySelector('select[aria-label="What should each row represent?"]')?.disabled===false`);
   start=Date.now();
-  await selectOption(browser.cdp,'select[aria-label="What should each row represent?"]','explicit:'+cohort.revisionId);
-  await waitForBrowser(browser.cdp,`[...document.querySelectorAll('[aria-label="Row definition settings"] button')].some(b=>b.innerText==='Apply row definition'&&!b.disabled)`);
+  await selectUI('select[aria-label="What should each row represent?"]','explicit:'+cohort.revisionId);
+  await waitUI(`[...document.querySelectorAll('[aria-label="Row definition settings"] button')].some(b=>b.innerText==='Apply row definition'&&!b.disabled)`);
   recordRender('confirmed-cohort-preview',start);
   start=Date.now();
-  await click(browser.cdp,'[aria-label="Row definition settings"] button',{name:'Apply row definition'});
-  await waitForBrowser(browser.cdp,`document.body.innerText.includes('Preview failed:')||(document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount')==='2'&&document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-colcount')==='3'&&document.querySelectorAll('[data-testid="preview-table-scroll"] [role="cell"]').length===3&&!document.body.innerText.includes('Loading your table…'))`);
-  const cohortApplyError=await browserEval(browser.cdp,`return document.body.innerText.split(String.fromCharCode(10)).find(line=>line.startsWith('Preview failed:'));`);
+  await clickUI('[aria-label="Row definition settings"] button',{name:'Apply row definition'});
+  await waitUI(`document.body.innerText.includes('Preview failed:')||(document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount')==='2'&&document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-colcount')==='3'&&document.querySelectorAll('[data-testid="preview-table-scroll"] [role="cell"]').length===3&&!document.body.innerText.includes('Loading your table…'))`);
+  const cohortApplyError=await inspect(() => document.body.innerText.split(String.fromCharCode(10)).find(line=>line.startsWith('Preview failed:')));
   assert.equal(cohortApplyError,undefined,'Saved cohort preview must execute the accepted receipt: '+cohortApplyError);
   recordRender('cohort-apply',start);
   builder=await api(base+'/builder');
   assert.equal(doc(builder).rows.groups.source.explicit.revisionId,cohort.revisionId);
   if(authoredFilter) assert.deepEqual(doc(builder).construction.steps.find(step=>step.id==='qa-source-filter').operation.filter,report.sourceFilter);
-  const memberCells=await browserEval(browser.cdp,`return [...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="cell"]')].map(cell=>cell.innerText.trim());`);
+  const memberCells=await page().locator('[data-testid="preview-table-scroll"] [role="cell"]').evaluateAll(cells => cells.map(cell=>cell.innerText.trim()));
   assert.equal(memberCells.length,3,'Saved cohort must render its three declared columns');
   assert(expectedMembers.every(source=>memberCells.at(-1).includes(source.id)),'Cohort members must include every retained source ID');
   if(filterOneMember) assert(!memberCells.at(-1).includes(sources[1].id),'Source filter must remove the excluded member before cohort materialization');
   report.cohortMemberCells=memberCells;
   let beforeField=builder;
-  await click(browser.cdp,'[data-testid="construction-action-add-columns"]');
-  await click(browser.cdp,'[aria-label="Column types"] button',{includes:'Fields and related data'});
-  await waitForBrowser(browser.cdp,`document.querySelector('[data-testid="construction-add-columns-source"]')`);
+  await clickUI('[data-testid="construction-action-add-columns"]');
+  await clickUI('[aria-label="Column types"] button',{includes:'Fields and related data'});
+  await waitUI(`document.querySelector('[data-testid="construction-add-columns-source"]')`);
   const chooseField=async()=>{
-    await click(browser.cdp,'[data-testid="feature-catalog-raw-fields"] summary');
-    await waitForBrowser(browser.cdp,`document.querySelector('input[aria-label="Select Specimen.${memberField}"]:not(:disabled)')`);
+    await clickUI('[data-testid="feature-catalog-raw-fields"] summary');
+    await waitUI(`document.querySelector('input[aria-label="Select Specimen.${memberField}"]:not(:disabled)')`);
     start=Date.now();
-    await click(browser.cdp,'input[aria-label="Select Specimen.'+memberField+'"]');
-    await click(browser.cdp,'[aria-label="Add columns editor"] button',{includes:'Add 1 selected feature'});
-    await waitForBrowser(browser.cdp,`['ready','error'].includes(document.querySelector('[data-testid="construction-choice-proposal-panel"]')?.dataset.proposalStatus)`);
-    const result=await browserEval(browser.cdp,`const p=document.querySelector('[data-testid="construction-choice-proposal-panel"]');return {status:p.dataset.proposalStatus,text:p.innerText,rows:[...document.querySelectorAll('[data-testid="construction-proposal-preview-row"]')].map(r=>[...r.querySelectorAll('td')].map(c=>c.innerText))};`);
+    await clickUI('input[aria-label="Select Specimen.'+memberField+'"]');
+    await clickUI('[aria-label="Add columns editor"] button',{includes:'Add 1 selected feature'});
+    await waitUI(`['ready','error'].includes(document.querySelector('[data-testid="construction-choice-proposal-panel"]')?.dataset.proposalStatus)`);
+    const result=await inspect(() => { const p=document.querySelector('[data-testid="construction-choice-proposal-panel"]');return {status:p.dataset.proposalStatus,text:p.innerText,rows:[...document.querySelectorAll('[data-testid="construction-proposal-preview-row"]')].map(r=>[...r.querySelectorAll('td')].map(c=>c.innerText))}; });
     report.fieldProposal=result;
     assert.equal(result.status,'ready',result.text);
     assert.equal(result.rows.length,1);
@@ -287,13 +284,13 @@ try {
     recordRender('cohort-member-field-preview',start);
   };
   await chooseField();
-  await click(browser.cdp,'[data-testid="construction-choice-proposal-panel"] button',{name:'Cancel'});
+  await clickUI('[data-testid="construction-choice-proposal-panel"] button',{name:'Cancel'});
   assert.deepEqual((await api(base+'/builder')).workspace,beforeField.workspace);
-  await click(browser.cdp,'[data-testid="feature-catalog-raw-fields"] summary');
+  await clickUI('[data-testid="feature-catalog-raw-fields"] summary');
   await chooseField();
   start=Date.now();
-  await click(browser.cdp,'[data-testid="construction-choice-proposal-panel"] button',{name:'Apply columns'});
-  await waitForBrowser(browser.cdp,`!document.querySelector('[data-testid="construction-choice-proposal-panel"]')&&!document.body.innerText.includes('Loading your table…')&&document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-colcount')==='4'`);
+  await clickUI('[data-testid="construction-choice-proposal-panel"] button',{name:'Apply columns'});
+  await waitUI(`!document.querySelector('[data-testid="construction-choice-proposal-panel"]')&&!document.body.innerText.includes('Loading your table…')&&document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-colcount')==='4'`);
   recordRender('cohort-member-field-apply',start);
   builder=await api(base+'/builder');
   report.savedFieldDocument=doc(builder);
@@ -314,12 +311,12 @@ try {
   }
   const verifyReload=async(withField)=>{
     start=Date.now();
-    await navigate(browser.cdp,`${uiOrigin}/?project=${project}&explorer=${explorer}&mode=builder`);
-    await waitForBrowser(browser.cdp,`document.querySelector('[data-testid="construction-table-${outputId}"]')`);
-    await click(browser.cdp,`[data-testid="construction-table-${outputId}"]`);
-    await waitForBrowser(browser.cdp,`document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount')==='2'&&!document.body.innerText.includes('Loading your table…')`);
-    const values=await browserEval(browser.cdp,`return [...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="cell"]')].map(c=>c.innerText.trim());`);
-    const headers=await browserEval(browser.cdp,`return [...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].map(cell=>cell.innerText.trim());`);
+    await navigateUI(`${uiOrigin}/?project=${project}&explorer=${explorer}&mode=builder`);
+    await waitUI(`document.querySelector('[data-testid="construction-table-${outputId}"]')`);
+    await clickUI(`[data-testid="construction-table-${outputId}"]`);
+    await waitUI(`document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount')==='2'&&!document.body.innerText.includes('Loading your table…')`);
+    const values=await page().locator('[data-testid="preview-table-scroll"] [role="cell"]').evaluateAll(cells => cells.map(cell=>cell.innerText.trim()));
+    const headers=await page().locator('[data-testid="preview-table-scroll"] [role="columnheader"]').evaluateAll(cells => cells.map(cell=>cell.innerText.trim()));
     assert.equal(values.length,withField?4:3,JSON.stringify(values));
     if(withField){
       assert(headers.at(-1).toLowerCase().startsWith(memberLabel.toLowerCase()),'Saved column order must match the proposal: '+JSON.stringify(headers));
@@ -336,7 +333,7 @@ try {
   };
   await verifyReload(true);
   if(authoredExpand){
-    const readGrid=async()=>browserEval(browser.cdp,`return (()=>{
+    const readGrid=async()=>inspect(()=>{
       const proposal=document.querySelector('[data-testid="construction-proposal-preview"]');
       const proposalTable=proposal?.querySelector('table');
       const saved=document.querySelector('[data-testid="preview-table-scroll"] [role="table"]');
@@ -348,7 +345,7 @@ try {
         ? [...proposalTable.querySelectorAll('tbody tr[data-testid="construction-proposal-preview-row"]')].map(row=>[...row.querySelectorAll('td')].map(cell=>normalize(cell.innerText)))
         : [...(saved?.querySelectorAll('[role="row"]')??[])].slice(1).map(row=>[...row.querySelectorAll('[role="cell"]')].map(cell=>normalize(cell.innerText)));
       return {headers,rows,proposal:Boolean(proposalTable)};
-    })()`);
+    });
     const sortedPairs=pairs=>pairs.sort((left,right)=>JSON.stringify(left).localeCompare(JSON.stringify(right)));
     const expectedPairs=sources.map(source=>['Two Specimens',source.id]);
     const assertExpanded=async(label,phase)=>{
@@ -380,27 +377,22 @@ try {
       return {grid,document:saved,draftVersion:current.draftVersion,draftDigest:current.draftDigest};
     };
     const openRowsDialog=async()=>{
-      if(await browserEval(browser.cdp,`return Boolean(document.querySelector('[aria-label="Row definition settings"]'))`)) return;
-      if(!await browserEval(browser.cdp,`return Boolean(document.querySelector('[data-testid="construction-rows-settings-trigger"]'))`)){
-        const back=await browserEval(browser.cdp,`return Boolean(document.querySelector('[data-testid="construction-close-operation-editor"]'))`);
+      if(await inspect(() => Boolean(document.querySelector('[aria-label="Row definition settings"]')))) return;
+      if(!await inspect(() => Boolean(document.querySelector('[data-testid="construction-rows-settings-trigger"]')))){
+        const back=await inspect(() => Boolean(document.querySelector('[data-testid="construction-close-operation-editor"]')));
         assert(back,'Rows settings trigger and operation-editor return control are both unavailable');
-        await click(browser.cdp,'[data-testid="construction-close-operation-editor"]');
+        await clickUI('[data-testid="construction-close-operation-editor"]');
       }
-      await waitForBrowser(browser.cdp,`document.querySelector('[data-testid="construction-rows-settings-trigger"]')?.disabled===false`);
-      await click(browser.cdp,'[data-testid="construction-rows-settings-trigger"]');
-      await waitForBrowser(browser.cdp,`Boolean(document.querySelector('[aria-label="Row definition settings"]'))`);
+      await waitUI(`document.querySelector('[data-testid="construction-rows-settings-trigger"]')?.disabled===false`);
+      await clickUI('[data-testid="construction-rows-settings-trigger"]');
+      await waitUI(`Boolean(document.querySelector('[aria-label="Row definition settings"]'))`);
     };
-    const nativeExpandProposals=fromIndex=>report.nativeRequests.slice(fromIndex).filter(request=>
-      request.path.split('?')[0]===base+'/construction-proposals'&&request.method==='POST'&&
-      request.body?.candidateConstruction?.steps?.some(step=>step.operation?.kind==='EXPAND'));
     const waitNativeExpandProposal=async(fromIndex,phase)=>{
       const started=Date.now();
-      let request;
-      while(Date.now()-started<=5000){
-        request=nativeExpandProposals(fromIndex).at(-1);
-        if(request?.completedAt&&request.response) break;
-        await new Promise(resolve=>setTimeout(resolve,40));
-      }
+      const request=await requestCapture.waitFor(entry => report.nativeRequests.indexOf(entry)>=fromIndex
+        && entry.path.split('?')[0]===base+'/construction-proposals'&&entry.method==='POST'
+        && requestBody(entry)?.candidateConstruction?.steps?.some(step=>step.operation?.kind==='EXPAND')
+        && entry.completedAt&&entry.response, { timeout: Math.max(1, started+5000-Date.now()) });
       assert(request?.response,`${phase} must be driven by a completed native construction-proposal request`);
       assert.equal(request.status,200,`${phase} native proposal must succeed: ${JSON.stringify(request.response)}`);
       const step=request.body.candidateConstruction.steps.findLast(candidate=>candidate.operation?.kind==='EXPAND');
@@ -410,14 +402,14 @@ try {
     };
     const enterExpand=async(phase)=>{
       await openRowsDialog();
-      const action=await browserEval(browser.cdp,`return (()=>{const button=document.querySelector('[data-testid="construction-action-expand-rows"]');return {found:Boolean(button),disabled:button?.disabled,text:button?.innerText?.trim()}})()`);
+      const action=await inspect(() => {const button=document.querySelector('[data-testid="construction-action-expand-rows"]');return {found:Boolean(button),disabled:button?.disabled,text:button?.innerText?.trim()};});
       assert.equal(action.found,true,`${phase}: native Rows EXPAND action is missing`);
       assert.equal(action.disabled,false,`${phase}: native Rows EXPAND action is disabled: ${JSON.stringify(action)}`);
       const fromIndex=report.nativeRequests.length;
       start=Date.now();
-      await click(browser.cdp,'[data-testid="construction-action-expand-rows"]');
-      await waitForBrowser(browser.cdp,`Boolean(document.querySelector('[aria-label="Expand repeated values"]'))&&document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalStatus==='ready'&&document.querySelectorAll('[data-testid="construction-proposal-preview-row"]').length===2`);
-      const selectionState=await browserEval(browser.cdp,`return (()=>{const select=document.querySelector('[data-testid="construction-reshape-expand"] select[aria-label="Repeated field"]');return {value:select?.value,label:select?.selectedOptions?.[0]?.textContent?.trim(),disabled:select?.disabled,options:[...(select?.options??[])].map(option=>({value:option.value,label:option.textContent?.trim(),disabled:option.disabled}))}})()`);
+      await clickUI('[data-testid="construction-action-expand-rows"]');
+      await waitUI(`Boolean(document.querySelector('[aria-label="Expand repeated values"]'))&&document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalStatus==='ready'&&document.querySelectorAll('[data-testid="construction-proposal-preview-row"]').length===2`);
+      const selectionState=await inspect(() => {const select=document.querySelector('[data-testid="construction-reshape-expand"] select[aria-label="Repeated field"]');return {value:select?.value,label:select?.selectedOptions?.[0]?.textContent?.trim(),disabled:select?.disabled,options:[...(select?.options??[])].map(option=>({value:option.value,label:option.textContent?.trim(),disabled:option.disabled}))};});
       assert(selectionState.value&&selectionState.label?.toLowerCase().includes('specimen id'),`${phase}: default EXPAND source must be the saved Specimen.id ALL list: ${JSON.stringify(selectionState)}`);
       assert.equal(selectionState.disabled,false);
       const preview=await assertExpanded(undefined,phase+' automatic Preview');
@@ -434,8 +426,8 @@ try {
     assert.equal(first.native.step.operation.expand.inputColumnId,cohortExpandMemberColumn.columnId);
     assert.equal(first.native.step.outputs.find(column=>column.id===first.native.step.operation.expand.outputColumnId)?.label,firstOutputLabel);
     const cancelStart=Date.now();
-    await click(browser.cdp,'[data-testid="construction-cancel-proposal"]');
-    await waitForBrowser(browser.cdp,`!document.querySelector('[data-testid="construction-proposal-panel"]')&&document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount')==='2'&&!document.body.innerText.includes('Loading your table…')`);
+    await clickUI('[data-testid="construction-cancel-proposal"]');
+    await waitUI(`!document.querySelector('[data-testid="construction-proposal-panel"]')&&document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount')==='2'&&!document.body.innerText.includes('Loading your table…')`);
     const canceled=await assertCohortList('EXPAND Cancel');
     assert.equal(canceled.draftVersion,baselineBuilder.draftVersion);
     assert.equal(canceled.draftDigest,baselineBuilder.draftDigest);
@@ -445,8 +437,8 @@ try {
     const appliedProposal=await enterExpand('cohort-expand-auto-preview-apply');
     assert.deepEqual(appliedProposal.selectionState,first.selectionState,'Cancel and re-entry must preserve the same member-list source selection');
     const applyStart=Date.now();
-    await click(browser.cdp,'[data-testid="construction-apply-proposal"]');
-    await waitForBrowser(browser.cdp,`!document.querySelector('[data-testid="construction-proposal-panel"]')&&document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount')==='3'&&!document.body.innerText.includes('Loading your table…')`);
+    await clickUI('[data-testid="construction-apply-proposal"]');
+    await waitUI(`!document.querySelector('[data-testid="construction-proposal-panel"]')&&document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount')==='3'&&!document.body.innerText.includes('Loading your table…')`);
     recordRender('cohort-expand-apply',applyStart);
     builder=await api(base+'/builder');
     let expandedDoc=doc(builder);
@@ -483,10 +475,10 @@ try {
 
     const reloadExpanded=async(label,caseName)=>{
       start=Date.now();
-      await navigate(browser.cdp,`${uiOrigin}/?project=${project}&explorer=${explorer}&mode=builder`);
-      await waitForBrowser(browser.cdp,`document.querySelector('[data-testid="construction-table-${outputId}"]')`);
-      await click(browser.cdp,`[data-testid="construction-table-${outputId}"]`);
-      await waitForBrowser(browser.cdp,`document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount')==='3'&&!document.body.innerText.includes('Loading your table…')`);
+      await navigateUI(`${uiOrigin}/?project=${project}&explorer=${explorer}&mode=builder`);
+      await waitUI(`document.querySelector('[data-testid="construction-table-${outputId}"]')`);
+      await clickUI(`[data-testid="construction-table-${outputId}"]`);
+      await waitUI(`document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount')==='3'&&!document.body.innerText.includes('Loading your table…')`);
       appliedPreview=await assertExpanded(label,caseName);
       builder=await api(base+'/builder');
       expandedDoc=doc(builder);
@@ -504,21 +496,21 @@ try {
     await reloadExpanded(initialOutput.label,'cohort-expand-reload');
 
     await openRowsDialog();
-    await waitForBrowser(browser.cdp,`Boolean(document.querySelector('[data-testid="construction-row-edit-${expandStep.id}"]:not(:disabled)'))`);
-    await click(browser.cdp,`[data-testid="construction-row-edit-${expandStep.id}"]`);
-    await waitForBrowser(browser.cdp,`Boolean(document.querySelector('[aria-label="Expand repeated values"]'))`);
+    await waitUI(`Boolean(document.querySelector('[data-testid="construction-row-edit-${expandStep.id}"]:not(:disabled)'))`);
+    await clickUI(`[data-testid="construction-row-edit-${expandStep.id}"]`);
+    await waitUI(`Boolean(document.querySelector('[aria-label="Expand repeated values"]'))`);
     const advanced='[data-testid="construction-reshape-expand-advanced"]';
-    const advancedOpen=await browserEval(browser.cdp,`return document.querySelector(${JSON.stringify(advanced)})?.open===true`);
-    if(!advancedOpen) await click(browser.cdp,`${advanced} summary`);
-    const reopened=await browserEval(browser.cdp,`return (()=>({field:document.querySelector('select[aria-label="Repeated field"]')?.value,label:document.querySelector('input[aria-label="Expanded item label"]')?.value,emptyPolicy:document.querySelector('select[aria-label="Empty list policy"]')?.value}))()`);
+    const advancedOpen=await page().locator(advanced).evaluate(element => element.open === true);
+    if(!advancedOpen) await clickUI(`${advanced} summary`);
+    const reopened=await inspect(() => ({field:document.querySelector('select[aria-label="Repeated field"]')?.value,label:document.querySelector('input[aria-label="Expanded item label"]')?.value,emptyPolicy:document.querySelector('select[aria-label="Empty list policy"]')?.value}));
     assert.equal(reopened.field,cohortExpandMemberColumn.columnId,'Saved Edit must reopen the exact ALL-list source column');
     assert.equal(reopened.label,initialOutput.label);
     assert.equal(reopened.emptyPolicy,'PRESERVE_PARENT');
     const editedLabel='Expanded Specimen ID';
     const editFrom=report.nativeRequests.length;
     start=Date.now();
-    await browserEval(browser.cdp,`return (()=>{const input=document.querySelector('input[aria-label="Expanded item label"]');if(!input)throw Error('Expanded item label input is missing');const setter=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value')?.set;setter.call(input,${JSON.stringify(editedLabel)});input.dispatchEvent(new Event('input',{bubbles:true}));input.dispatchEvent(new Event('change',{bubbles:true}));return input.value})()`);
-    await waitForBrowser(browser.cdp,`document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalStatus==='ready'&&document.querySelectorAll('[data-testid="construction-proposal-preview-row"]').length===2&&[...document.querySelectorAll('[data-testid="construction-proposal-preview"] thead th')].some(header=>(header.querySelector('span')?.innerText??header.innerText).trim().toLowerCase()===${JSON.stringify(editedLabel.toLowerCase())})`);
+    await performAction(report, 'Edit expanded item label', page().getByRole('textbox', { name: 'Expanded item label' }), (target, { timeout }) => target.fill(editedLabel, { timeout }), { editable: true });
+    await waitUI(`document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalStatus==='ready'&&document.querySelectorAll('[data-testid="construction-proposal-preview-row"]').length===2&&[...document.querySelectorAll('[data-testid="construction-proposal-preview"] thead th')].some(header=>(header.querySelector('span')?.innerText??header.innerText).trim().toLowerCase()===${JSON.stringify(editedLabel.toLowerCase())})`);
     const editedNative=await waitNativeExpandProposal(editFrom,'Saved cohort EXPAND edit');
     const editedPreview=await assertExpanded(editedLabel,'Edited cohort EXPAND automatic Preview');
     recordRender('cohort-expand-edit-preview',start);
@@ -527,8 +519,8 @@ try {
     assert.equal(editedNative.step.operation.expand.outputColumnId,expandStep.operation.expand.outputColumnId);
     assert.equal(editedNative.step.outputs.find(column=>column.id===expandStep.operation.expand.outputColumnId)?.label,editedLabel);
     const editApply=Date.now();
-    await click(browser.cdp,'[data-testid="construction-apply-proposal"]');
-    await waitForBrowser(browser.cdp,`!document.querySelector('[data-testid="construction-proposal-panel"]')&&document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount')==='3'&&!document.body.innerText.includes('Loading your table…')`);
+    await clickUI('[data-testid="construction-apply-proposal"]');
+    await waitUI(`!document.querySelector('[data-testid="construction-proposal-panel"]')&&document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount')==='3'&&!document.body.innerText.includes('Loading your table…')`);
     recordRender('cohort-expand-edit-apply',editApply);
     builder=await api(base+'/builder');
     expandedDoc=doc(builder);
@@ -548,25 +540,25 @@ try {
     await reloadExpanded(editedLabel,'cohort-expand-edited-reload');
 
     await openRowsDialog();
-    await waitForBrowser(browser.cdp,`Boolean(document.querySelector('[data-testid="construction-row-remove-${expandStep.id}"]:not(:disabled)'))`);
+    await waitUI(`Boolean(document.querySelector('[data-testid="construction-row-remove-${expandStep.id}"]:not(:disabled)'))`);
     start=Date.now();
-    await click(browser.cdp,`[data-testid="construction-row-remove-${expandStep.id}"]`);
-    await waitForBrowser(browser.cdp,`document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalStatus==='ready'&&document.querySelectorAll('[data-testid="construction-proposal-preview-row"]').length===1`);
+    await clickUI(`[data-testid="construction-row-remove-${expandStep.id}"]`);
+    await waitUI(`document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalStatus==='ready'&&document.querySelectorAll('[data-testid="construction-proposal-preview-row"]').length===1`);
     const removePreview=await assertCohortList('Cohort EXPAND removal proposal',1);
     recordRender('cohort-expand-remove-preview',start);
     const removeApply=Date.now();
-    await click(browser.cdp,'[data-testid="construction-apply-proposal"]');
-    await waitForBrowser(browser.cdp,`!document.querySelector('[data-testid="construction-proposal-panel"]')&&document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount')==='2'&&!document.body.innerText.includes('Loading your table…')`);
+    await clickUI('[data-testid="construction-apply-proposal"]');
+    await waitUI(`!document.querySelector('[data-testid="construction-proposal-panel"]')&&document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount')==='2'&&!document.body.innerText.includes('Loading your table…')`);
     const restored=await assertCohortList('Cohort EXPAND removal Apply');
     assert.deepEqual(restored.document,cohortExpandBaseline,'Removing EXPAND must restore the exact saved cohort and ALL-list document');
     recordRender('cohort-expand-remove-apply',removeApply);
     report.cohortExpandRemoved={preview:removePreview.grid,document:restored.document,draftVersion:restored.draftVersion,draftDigest:restored.draftDigest};
 
     start=Date.now();
-    await navigate(browser.cdp,`${uiOrigin}/?project=${project}&explorer=${explorer}&mode=builder`);
-    await waitForBrowser(browser.cdp,`document.querySelector('[data-testid="construction-table-${outputId}"]')`);
-    await click(browser.cdp,`[data-testid="construction-table-${outputId}"]`);
-    await waitForBrowser(browser.cdp,`document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount')==='2'&&!document.body.innerText.includes('Loading your table…')`);
+    await navigateUI(`${uiOrigin}/?project=${project}&explorer=${explorer}&mode=builder`);
+    await waitUI(`document.querySelector('[data-testid="construction-table-${outputId}"]')`);
+    await clickUI(`[data-testid="construction-table-${outputId}"]`);
+    await waitUI(`document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount')==='2'&&!document.body.innerText.includes('Loading your table…')`);
     const finalRestored=await assertCohortList('Final cohort EXPAND restoration reload');
     assert.deepEqual(finalRestored.document,cohortExpandBaseline);
     recordRender('cohort-expand-removal-reload',start);
@@ -576,20 +568,20 @@ try {
     const beforePolicy=await api(base+'/builder');
     const policyChoice='explicit:'+cohort.revisionId+':EXCLUDE';
     const proposePolicy=async()=>{
-      await click(browser.cdp,'[data-testid="construction-rows-settings-trigger"]');
-      await waitForBrowser(browser.cdp,`document.querySelector('select[aria-label="Unmatched record policy"]')?.disabled===false`);
+      await clickUI('[data-testid="construction-rows-settings-trigger"]');
+      await waitUI(`document.querySelector('select[aria-label="Unmatched record policy"]')?.disabled===false`);
       start=Date.now();
-      await selectOption(browser.cdp,'select[aria-label="Unmatched record policy"]',policyChoice);
-      await waitForBrowser(browser.cdp,`[...document.querySelectorAll('[aria-label="Row definition settings"] button')].some(button=>button.innerText==='Apply row definition'&&!button.disabled)`);
+      await selectUI('select[aria-label="Unmatched record policy"]',policyChoice);
+      await waitUI(`[...document.querySelectorAll('[aria-label="Row definition settings"] button')].some(button=>button.innerText==='Apply row definition'&&!button.disabled)`);
       recordRender('cohort-policy-preview',start);
     };
     await proposePolicy();
-    await click(browser.cdp,'[aria-label="Row definition settings"] button',{name:'Cancel'});
+    await clickUI('[aria-label="Row definition settings"] button',{name:'Cancel'});
     assert.deepEqual((await api(base+'/builder')).workspace,beforePolicy.workspace,'Policy Cancel must retain fields, filter and anchor');
     await proposePolicy();
     start=Date.now();
-    await click(browser.cdp,'[aria-label="Row definition settings"] button',{name:'Apply row definition'});
-    await waitForBrowser(browser.cdp,`!document.querySelector('[aria-label="Row definition settings"]')&&!document.body.innerText.includes('Loading your table…')`);
+    await clickUI('[aria-label="Row definition settings"] button',{name:'Apply row definition'});
+    await waitUI(`!document.querySelector('[aria-label="Row definition settings"]')&&!document.body.innerText.includes('Loading your table…')`);
     await waitForSavedPreview(start,'Applying the cohort policy');
     builder=await api(base+'/builder');
     const expectedDocument=structuredClone(doc(beforePolicy));
@@ -603,18 +595,18 @@ try {
   }
   if(collectionRoundTrip){
     const beforeCollection=await api(base+'/builder');
-    const fullRow=await browserEval(browser.cdp,`return [...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="cell"]')].map(cell=>cell.innerText.trim());`);
+    const fullRow=await page().locator('[data-testid="preview-table-scroll"] [role="cell"]').evaluateAll(cells => cells.map(cell=>cell.innerText.trim()));
     start=Date.now();
-    await click(browser.cdp,'[data-testid="construction-rows-settings-trigger"]');
-    await waitForBrowser(browser.cdp,`[...document.querySelectorAll('section[aria-label="Starting collection"] button')].some(button=>button.innerText==='Use all authorized rows'&&!button.disabled)`);
+    await clickUI('[data-testid="construction-rows-settings-trigger"]');
+    await waitUI(`[...document.querySelectorAll('section[aria-label="Starting collection"] button')].some(button=>button.innerText==='Use all authorized rows'&&!button.disabled)`);
     recordRender('cohort-collection-controls-ready',start);
     start=Date.now();
-    await click(browser.cdp,'section[aria-label="Starting collection"] button',{name:'Use all authorized rows'});
-    await waitForBrowser(browser.cdp,`[...document.querySelectorAll('section[aria-label="Starting collection"] button')].some(button=>button.innerText==='Use selected resources'&&!button.disabled)&&document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount')==='2'&&!document.body.innerText.includes('Loading your table…')||document.body.innerText.includes('Preview failed:')`);
-    const collectionError=await browserEval(browser.cdp,`return document.body.innerText.split(String.fromCharCode(10)).find(line=>line.startsWith('Preview failed:'));`);
+    await clickUI('section[aria-label="Starting collection"] button',{name:'Use all authorized rows'});
+    await waitUI(`[...document.querySelectorAll('section[aria-label="Starting collection"] button')].some(button=>button.innerText==='Use selected resources'&&!button.disabled)&&document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount')==='2'&&!document.body.innerText.includes('Loading your table…')||document.body.innerText.includes('Preview failed:')`);
+    const collectionError=await inspect(() => document.body.innerText.split(String.fromCharCode(10)).find(line=>line.startsWith('Preview failed:')));
     assert.equal(collectionError,undefined,'Clearing the collection must render the pinned cohort: '+collectionError);
     await waitForSavedPreview(start,'Clearing the collection');
-    const clearedRow=await browserEval(browser.cdp,`return [...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="cell"]')].map(cell=>cell.innerText.trim());`);
+    const clearedRow=await page().locator('[data-testid="preview-table-scroll"] [role="cell"]').evaluateAll(cells => cells.map(cell=>cell.innerText.trim()));
     assert.deepEqual(clearedRow,fullRow,'Pinned cohort membership and retained filters must survive the full CDA starting collection');
     recordRender('cohort-clear-collection',start);
     builder=await api(base+'/builder');
@@ -622,13 +614,13 @@ try {
     delete expectedCleared.population;
     assert.deepEqual(doc(builder),expectedCleared,'Only the starting collection may change');
     await verifyReload(true);
-    await click(browser.cdp,'[data-testid="construction-rows-settings-trigger"]');
-    await waitForBrowser(browser.cdp,`[...document.querySelectorAll('section[aria-label="Starting collection"] button')].some(button=>button.innerText==='Use selected resources'&&!button.disabled)`);
+    await clickUI('[data-testid="construction-rows-settings-trigger"]');
+    await waitUI(`[...document.querySelectorAll('section[aria-label="Starting collection"] button')].some(button=>button.innerText==='Use selected resources'&&!button.disabled)`);
     start=Date.now();
-    await click(browser.cdp,'section[aria-label="Starting collection"] button',{name:'Use selected resources'});
-    await waitForBrowser(browser.cdp,`[...document.querySelectorAll('section[aria-label="Starting collection"] button')].some(button=>button.innerText==='Use all authorized rows'&&!button.disabled)&&!document.body.innerText.includes('Loading your table…')`);
+    await clickUI('section[aria-label="Starting collection"] button',{name:'Use selected resources'});
+    await waitUI(`[...document.querySelectorAll('section[aria-label="Starting collection"] button')].some(button=>button.innerText==='Use all authorized rows'&&!button.disabled)&&!document.body.innerText.includes('Loading your table…')`);
     await waitForSavedPreview(start,'Restoring the collection');
-    const attachedRow=await browserEval(browser.cdp,`return [...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="cell"]')].map(cell=>cell.innerText.trim());`);
+    const attachedRow=await page().locator('[data-testid="preview-table-scroll"] [role="cell"]').evaluateAll(cells => cells.map(cell=>cell.innerText.trim()));
     assert.deepEqual(attachedRow,fullRow);
     recordRender('cohort-reattach-collection',start);
     builder=await api(base+'/builder');
@@ -638,43 +630,43 @@ try {
   }
   if(postCohortFilter){
     const beforePostFilter=structuredClone(await api(base+'/builder'));
-    const fullRow=await browserEval(browser.cdp,`return [...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="cell"]')].map(cell=>cell.innerText.trim());`);
+    const fullRow=await page().locator('[data-testid="preview-table-scroll"] [role="cell"]').evaluateAll(cells => cells.map(cell=>cell.innerText.trim()));
     const filterProposal=async(name,expectedRows)=>{
-      await waitForBrowser(browser.cdp,`['ready','error','needs-repair'].includes(document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalStatus)`);
-      const result=await browserEval(browser.cdp,`const panel=document.querySelector('[data-testid="construction-proposal-panel"]');return {status:panel.dataset.proposalStatus,text:panel.innerText,rows:[...document.querySelectorAll('[data-testid="construction-proposal-preview-row"]')].map(row=>[...row.querySelectorAll('td')].map(cell=>cell.innerText.trim()))};`);
+      await waitUI(`['ready','error','needs-repair'].includes(document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalStatus)`);
+      const result=await inspect(() => {const panel=document.querySelector('[data-testid="construction-proposal-panel"]');return {status:panel.dataset.proposalStatus,text:panel.innerText,rows:[...document.querySelectorAll('[data-testid="construction-proposal-preview-row"]')].map(row=>[...row.querySelectorAll('td')].map(cell=>cell.innerText.trim()))};});
       assert.equal(result.status,'ready',result.text);
       assert.deepEqual(result.rows,expectedRows,'Post-cohort filter must use cohort rows and preserve exact values');
       recordRender(name,start);
     };
     const filterTable=async(count)=>{
-      await waitForBrowser(browser.cdp,`document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount')===${JSON.stringify(String(count+1))}&&!document.body.innerText.includes('Loading your table…')`);
-      const rows=await browserEval(browser.cdp,`return [...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]')].slice(1).map(row=>[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText.trim())).filter(row=>row.length);`);
+      await waitUI(`document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount')===${JSON.stringify(String(count+1))}&&!document.body.innerText.includes('Loading your table…')`);
+      const rows=await page().locator('[data-testid="preview-table-scroll"] [role="row"]').evaluateAll(items => items.slice(1).map(row=>[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText.trim())).filter(row=>row.length));
       assert.deepEqual(rows,count?[fullRow]:[]);
     };
     const openFilter=async()=>{
       start=Date.now();
-      await click(browser.cdp,'[data-testid="construction-action-keep-rows"]');
-      await waitForBrowser(browser.cdp,`document.querySelector('[data-testid="construction-filter-editor"] select[aria-label="Condition"]:not(:disabled)')`);
-      const labelOption=await browserEval(browser.cdp,`return [...document.querySelector('[data-testid="construction-filter-editor"] select[aria-label="Column"]').options].find(option=>option.textContent.trim().startsWith('Group label ('))?.value;`);
+      await clickUI('[data-testid="construction-action-keep-rows"]');
+      await waitUI(`document.querySelector('[data-testid="construction-filter-editor"] select[aria-label="Condition"]:not(:disabled)')`);
+      const labelOption=await page().locator('[data-testid="construction-filter-editor"] select[aria-label="Column"]').evaluate(select => [...select.options].find(option=>option.textContent.trim().startsWith('Group label ('))?.value);
       assert(labelOption,'The cohort label must be available to a downstream filter');
       recordRender('post-cohort-filter-open',start);
-      await selectOption(browser.cdp,'[data-testid="construction-filter-editor"] select[aria-label="Column"]',labelOption);
-      await selectOption(browser.cdp,'[data-testid="construction-filter-editor"] select[aria-label="Condition"]','EQUALS');
+      await selectUI('[data-testid="construction-filter-editor"] select[aria-label="Column"]',labelOption);
+      await selectUI('[data-testid="construction-filter-editor"] select[aria-label="Condition"]','EQUALS');
       start=Date.now();
-      await selectOption(browser.cdp,'[data-testid="construction-filter-editor"] select[aria-label="Condition"]','MISSING');
+      await selectUI('[data-testid="construction-filter-editor"] select[aria-label="Condition"]','MISSING');
       await filterProposal('post-cohort-filter-preview',[]);
     };
     await openFilter();
     start=Date.now();
-    await click(browser.cdp,'[data-testid="construction-cancel-proposal"]');
-    await waitForBrowser(browser.cdp,`!document.querySelector('[data-testid="construction-proposal-panel"]')`);
+    await clickUI('[data-testid="construction-cancel-proposal"]');
+    await waitUI(`!document.querySelector('[data-testid="construction-proposal-panel"]')`);
     await filterTable(1);
     recordRender('post-cohort-filter-cancel',start);
     assert.deepEqual((await api(base+'/builder')).workspace,beforePostFilter.workspace);
     await openFilter();
     start=Date.now();
-    await click(browser.cdp,'[data-testid="construction-apply-proposal"]');
-    await waitForBrowser(browser.cdp,`!document.querySelector('[data-testid="construction-proposal-panel"]')`);
+    await clickUI('[data-testid="construction-apply-proposal"]');
+    await waitUI(`!document.querySelector('[data-testid="construction-proposal-panel"]')`);
     await filterTable(0);
     recordRender('post-cohort-filter-apply',start);
     builder=await api(base+'/builder');
@@ -698,30 +690,30 @@ try {
     const savedFilter=doc(builder).construction.steps.find(step=>step.operation.kind==='FILTER'&&step.id!=='qa-source-filter');
     assert(savedFilter);
     start=Date.now();
-    await navigate(browser.cdp,`${uiOrigin}/?project=${project}&explorer=${explorer}&mode=builder`);
-    await waitForBrowser(browser.cdp,`document.querySelector('[data-testid="construction-table-${outputId}"]')`);
-    await click(browser.cdp,`[data-testid="construction-table-${outputId}"]`);
+    await navigateUI(`${uiOrigin}/?project=${project}&explorer=${explorer}&mode=builder`);
+    await waitUI(`document.querySelector('[data-testid="construction-table-${outputId}"]')`);
+    await clickUI(`[data-testid="construction-table-${outputId}"]`);
     await filterTable(0);
     recordRender('post-cohort-filter-empty-reload',start);
-    await click(browser.cdp,`[data-testid="construction-history-step-${savedFilter.id}"]`);
-    await click(browser.cdp,`[data-testid="construction-edit-step-${savedFilter.id}"]`);
-    await waitForBrowser(browser.cdp,`document.querySelector('[data-testid="construction-filter-editor"] select[aria-label="Condition"]:not(:disabled)')`);
+    await clickUI(`[data-testid="construction-history-step-${savedFilter.id}"]`);
+    await clickUI(`[data-testid="construction-edit-step-${savedFilter.id}"]`);
+    await waitUI(`document.querySelector('[data-testid="construction-filter-editor"] select[aria-label="Condition"]:not(:disabled)')`);
     start=Date.now();
-    await selectOption(browser.cdp,'[data-testid="construction-filter-editor"] select[aria-label="Condition"]','EXISTS');
+    await selectUI('[data-testid="construction-filter-editor"] select[aria-label="Condition"]','EXISTS');
     await filterProposal('post-cohort-filter-edit-preview',[fullRow]);
     start=Date.now();
-    await click(browser.cdp,'[data-testid="construction-apply-proposal"]');
-    await waitForBrowser(browser.cdp,`!document.querySelector('[data-testid="construction-proposal-panel"]')`);
+    await clickUI('[data-testid="construction-apply-proposal"]');
+    await waitUI(`!document.querySelector('[data-testid="construction-proposal-panel"]')`);
     await filterTable(1);
     recordRender('post-cohort-filter-edit-apply',start);
     await verifyReload(true);
-    await click(browser.cdp,`[data-testid="construction-history-step-${savedFilter.id}"]`);
+    await clickUI(`[data-testid="construction-history-step-${savedFilter.id}"]`);
     start=Date.now();
-    await click(browser.cdp,`[data-testid="construction-remove-step-${savedFilter.id}"]`);
+    await clickUI(`[data-testid="construction-remove-step-${savedFilter.id}"]`);
     await filterProposal('post-cohort-filter-remove-preview',[fullRow]);
     start=Date.now();
-    await click(browser.cdp,'[data-testid="construction-apply-proposal"]');
-    await waitForBrowser(browser.cdp,`!document.querySelector('[data-testid="construction-proposal-panel"]')`);
+    await clickUI('[data-testid="construction-apply-proposal"]');
+    await waitUI(`!document.querySelector('[data-testid="construction-proposal-panel"]')`);
     await filterTable(1);
     recordRender('post-cohort-filter-remove-apply',start);
     builder=await api(base+'/builder');
@@ -732,31 +724,31 @@ try {
   if(removeCohortAnchor){
     const beforeRemoval=await api(base+'/builder');
     assert.equal(doc(beforeRemoval).rows.groups.afterStepId,'qa-source-filter');
-    const fullRow=await browserEval(browser.cdp,`return [...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="cell"]')].map(cell=>cell.innerText.trim());`);
+    const fullRow=await page().locator('[data-testid="preview-table-scroll"] [role="cell"]').evaluateAll(cells => cells.map(cell=>cell.innerText.trim()));
     const previewRemoval=async()=>{
-      await click(browser.cdp,'[data-testid="construction-history-step-qa-source-filter"]');
+      await clickUI('[data-testid="construction-history-step-qa-source-filter"]');
       start=Date.now();
-      await click(browser.cdp,'[data-testid="construction-remove-step-qa-source-filter"]');
-      await waitForBrowser(browser.cdp,`['ready','error','needs-repair'].includes(document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalStatus)`);
-      const result=await browserEval(browser.cdp,`const panel=document.querySelector('[data-testid="construction-proposal-panel"]');return {status:panel.dataset.proposalStatus,text:panel.innerText,rows:[...document.querySelectorAll('[data-testid="construction-proposal-preview-row"]')].map(row=>[...row.querySelectorAll('td')].map(cell=>cell.innerText.trim()))};`);
+      await clickUI('[data-testid="construction-remove-step-qa-source-filter"]');
+      await waitUI(`['ready','error','needs-repair'].includes(document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalStatus)`);
+      const result=await inspect(() => {const panel=document.querySelector('[data-testid="construction-proposal-panel"]');return {status:panel.dataset.proposalStatus,text:panel.innerText,rows:[...document.querySelectorAll('[data-testid="construction-proposal-preview-row"]')].map(row=>[...row.querySelectorAll('td')].map(cell=>cell.innerText.trim()))};});
       assert.equal(result.status,'ready',result.text);
       assert.deepEqual(result.rows,[fullRow],'Removing the insertion anchor must preserve the cohort and member fields');
       recordRender('cohort-anchor-remove-preview',start);
     };
     await previewRemoval();
     start=Date.now();
-    await click(browser.cdp,'[data-testid="construction-cancel-proposal"]');
-    await waitForBrowser(browser.cdp,`!document.querySelector('[data-testid="construction-proposal-panel"]')`);
+    await clickUI('[data-testid="construction-cancel-proposal"]');
+    await waitUI(`!document.querySelector('[data-testid="construction-proposal-panel"]')`);
     assert.deepEqual((await api(base+'/builder')).workspace,beforeRemoval.workspace);
     recordRender('cohort-anchor-remove-cancel',start);
     await previewRemoval();
     start=Date.now();
-    await click(browser.cdp,'[data-testid="construction-apply-proposal"]');
-    await waitForBrowser(browser.cdp,`(!document.querySelector('[data-testid="construction-proposal-panel"]')&&!document.body.innerText.includes('Loading your table…'))||document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalStatus==='error'`);
-    const anchorApplyError=await browserEval(browser.cdp,`return document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalStatus==='error' ? document.body.innerText.slice(-6000) : undefined;`);
+    await clickUI('[data-testid="construction-apply-proposal"]');
+    await waitUI(`(!document.querySelector('[data-testid="construction-proposal-panel"]')&&!document.body.innerText.includes('Loading your table…'))||document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalStatus==='error'`);
+    const anchorApplyError=await inspect(() => document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalStatus==='error' ? document.body.innerText.slice(-6000) : undefined);
     assert.equal(anchorApplyError,undefined,'Removing the cohort insertion anchor must save the accepted preview: '+anchorApplyError);
     await waitForSavedPreview(start,'Removing the cohort insertion anchor');
-    const cells=await browserEval(browser.cdp,`return [...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="cell"]')].map(cell=>cell.innerText.trim());`);
+    const cells=await page().locator('[data-testid="preview-table-scroll"] [role="cell"]').evaluateAll(cells => cells.map(cell=>cell.innerText.trim()));
     assert.deepEqual(cells,fullRow);
     recordRender('cohort-anchor-remove-apply',start);
     builder=await api(base+'/builder');
@@ -770,21 +762,24 @@ try {
     await verifyReload(true);
     report.anchorRemovalDocument=doc(builder);
   }
-  const columnsControl=await browserEval(browser.cdp,`return (()=>{const button=[...document.querySelectorAll('button')].find(item=>item.textContent?.trim()==='Columns');return {found:Boolean(button),disabled:button?.disabled}})()`);
+  const columnsControl=await page().getByRole('button', { name: 'Columns', exact: true }).evaluate(button => ({found:true,disabled:button.disabled})).catch(() => ({found:false,disabled:true}));
   if(!columnsControl.found||columnsControl.disabled){
-    const closeEditor=await browserEval(browser.cdp,`return Boolean(document.querySelector('[data-testid="construction-close-operation-editor"]'))`);
-    if(closeEditor) await click(browser.cdp,'[data-testid="construction-close-operation-editor"]');
+    const closeEditor=await page().getByTestId('construction-close-operation-editor').count().then(count => count > 0);
+    if(closeEditor) await clickUI('[data-testid="construction-close-operation-editor"]');
   }
-  await waitForBrowser(browser.cdp,`[...document.querySelectorAll('button')].some(button=>button.textContent?.trim()==='Columns'&&!button.disabled)`);
-  await click(browser.cdp,'button',{name:'Columns'});
-  await waitForBrowser(browser.cdp,`Boolean(document.querySelector('[aria-label="Table columns"]'))`);
+  await waitUI(`[...document.querySelectorAll('button')].some(button=>button.textContent?.trim()==='Columns'&&!button.disabled)`);
+  await clickUI('button',{name:'Columns'});
+  await waitUI(`Boolean(document.querySelector('[aria-label="Table columns"]'))`);
   start=Date.now();
-  await click(browser.cdp,'button[aria-label="Remove '+memberLabel+' column"]');
-  await waitForBrowser(browser.cdp,`!document.body.innerText.includes('Loading your table…')&&document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-colcount')==='3'`);
+  await clickUI('button[aria-label="Remove '+memberLabel+' column"]');
+  await waitUI(`!document.body.innerText.includes('Loading your table…')&&document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-colcount')==='3'`);
   recordRender('cohort-member-field-remove',start);
   builder=await api(base+'/builder');
   assert.deepEqual(doc(builder),doc(beforeField));
   await verifyReload(false);
+  await requestCapture.flush();
+  for (const failure of browser.diagnostics.networkFailures) report.errors.push({ kind: 'browser-network', ...failure });
+  for (const failure of browser.diagnostics.httpFailures) report.errors.push({ kind: 'browser-http', ...failure });
   assert.deepEqual(report.errors,[]);
   report.status='passed';
 } catch (error) {
@@ -804,22 +799,29 @@ try {
     report.productFailure=false;
     report.invalidations=[{kind:'sourceFreeze',reason:error.message}];
   }
+  const failedAction = report.activeAction;
+  if (browser) await browser.captureFailure(error, {
+    phase: 'cohort-fields',
+    elapsedMs: Date.now() - new Date(report.started).getTime(),
+    action: failedAction ? { label: failedAction.label, locator: failedAction.locator, targetLocator: failedAction.targetLocator } : undefined,
+  });
+  report.failedAction = failedAction ? { label: failedAction.label, locator: failedAction.locator } : undefined;
   report.savedBuilderAtFailure=builderEvidence(await api(base+'/builder').catch(error=>({readError:String(error)})));
-  report.failureUI = browser ? await browserEval(browser.cdp, 'return document.body.innerText;').catch(String) : undefined;
-  report.failureBuilderPanels = browser ? await browserEval(browser.cdp, `return [...document.querySelectorAll('[data-testid="construction-filter-editor"], section[aria-label="Starting collection"], [data-testid="construction-proposal-panel"]')].map(panel => ({
+  report.failureUI = browser ? sanitizeText(await page().locator('body').innerText().catch(String)) : undefined;
+  report.failureBuilderPanels = browser ? await page().locator('[data-testid="construction-filter-editor"], section[aria-label="Starting collection"], [data-testid="construction-proposal-panel"]').evaluateAll(panels => panels.map(panel => ({
     name: panel.getAttribute('aria-label') ?? panel.getAttribute('data-testid'),
-    text: panel.innerText,
-  }));`).catch(String) : undefined;
-  report.failureControls = browser ? await browserEval(browser.cdp, `return [...document.querySelectorAll('section[aria-label="Starting collection"] button, [data-testid="construction-filter-editor"] select')].map(control => ({
+    text: sanitizeText(panel.innerText),
+  }))).catch(String) : undefined;
+  report.failureControls = browser ? await page().locator('section[aria-label="Starting collection"] button, [data-testid="construction-filter-editor"] select').evaluateAll(controls => controls.map(control => ({
     tag: control.tagName,
     label: control.getAttribute('aria-label'),
     text: control.innerText,
     disabled: control.disabled,
-    value: control.value,
+    value: sensitiveName.test([control.getAttribute('aria-label'), control.getAttribute('name'), control.id].join(' ')) ? '[REDACTED]' : sanitizeText(control.value),
     options: control.tagName === 'SELECT' ? [...control.options].map(option => ({value: option.value, text: option.text, disabled: option.disabled})) : undefined,
-  }));`).catch(String) : undefined;
+  }))).catch(String) : undefined;
 } finally {
-  await Promise.allSettled([...pendingNetworkReads]);
+  await requestCapture?.flush().catch(() => undefined);
   if(frozenSource) await finalizeFreeze('sourceFreeze',()=>frozenSource.assertUnchanged(),error=>({unchanged:false,changedPaths:error.changedPaths??[],invalidatesRun:true,productFailure:false,error:String(error)}));
   await finalizeFreeze('apiBuildFreeze',async()=>{
     if(frozenApiBuild) return frozenApiBuild.assertUnchanged();
