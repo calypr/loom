@@ -53,7 +53,17 @@ export const diagnosticsToNetwork = (diagnostics, injectedTarget) => {
     return matches;
   };
   const entries = [];
-  for (const item of diagnostics.console) entries.push({ kind: 'console-error', ...item });
+  const injectedNetworkFailure = diagnostics.networkFailures.find(item =>
+    item.method === injectedTarget?.method && matchesInjectedPath(item.url));
+  let injectedConsoleConsumed = false;
+  for (const item of diagnostics.console) {
+    const matchesInjectedConsole = !injectedConsoleConsumed && injectedNetworkFailure &&
+      item.location === injectedNetworkFailure.url && item.text === 'Failed to load resource: net::ERR_FAILED';
+    if (matchesInjectedConsole) injectedConsoleConsumed = true;
+    entries.push(matchesInjectedConsole
+      ? { kind: 'network', observedAs: 'console-error', ...item, errorText: 'net::ERR_FAILED', injectedFault: true }
+      : { kind: 'console-error', ...item });
+  }
   for (const item of diagnostics.pageErrors) entries.push({ kind: 'exception', ...item });
   for (const item of diagnostics.networkFailures) {
     const fault = markInjected(item);

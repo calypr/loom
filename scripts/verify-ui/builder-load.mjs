@@ -3,6 +3,11 @@ import { runPlaywrightCase } from './playwright-case.mjs';
 import { recordCheck } from './report.mjs';
 
 const retryLabel = /^(?:Try again|Retry(?:\s+(?:Builder|Explorer|capabilit)[\w ]*)?|Reload capabilities)$/i;
+
+export const isLoadedBuilderSnapshot = (snapshot, expectedExplorer) => Boolean(
+  snapshot && snapshot.selectedExplorerId === expectedExplorer &&
+  (snapshot.emptyWorkspaceVisible || (snapshot.tableCount > 0 && snapshot.previewStatus === 'ready')),
+);
 const ownedRead = (target, caseName) => {
   const explorers = `/api/v1/projects/${encodeURIComponent(target.fixtureProject)}/explorers`;
   return {
@@ -23,6 +28,34 @@ const runCase = (context, caseName) => runPlaywrightCase(context, 'builder-load'
   async ({ page, browser, report, action, fault }) => {
     const target = context.target;
     const read = ownedRead(target, caseName);
+    const loadedBuilder = async () => {
+      const handle = await page.waitForFunction(expectedExplorerId => {
+        const visible = element => Boolean(element && element.getClientRects().length &&
+          getComputedStyle(element).visibility !== 'hidden' && getComputedStyle(element).display !== 'none');
+        const explorer = document.querySelector('select[aria-label="Explorer"]');
+        const emptyHeading = [...document.querySelectorAll('h1,h2,h3')]
+          .find(element => element.textContent.trim() === 'Build your first table');
+        const tables = [...document.querySelectorAll('button[data-testid^="construction-table-"]')]
+          .filter(visible);
+        const previewStatus = document.querySelector('[data-testid="construction-preview"]')?.getAttribute('data-preview-status') ?? null;
+        const snapshot = {
+          selectedExplorerId: explorer?.value ?? null,
+          emptyWorkspaceVisible: visible(emptyHeading),
+          tableCount: tables.length,
+          previewStatus,
+        };
+        return snapshot.selectedExplorerId === expectedExplorerId &&
+          (snapshot.emptyWorkspaceVisible || (snapshot.tableCount > 0 && snapshot.previewStatus === 'ready'))
+          ? snapshot
+          : false;
+      }, target.bootstrapExplorerId, { timeout: 10000 });
+      const snapshot = await handle.jsonValue();
+      if (!isLoadedBuilderSnapshot(snapshot, target.bootstrapExplorerId)) {
+        throw new Error(`Builder did not load the selected Explorer workspace: ${JSON.stringify(snapshot)}`);
+      }
+      report.target.loadedBuilder = snapshot;
+      return snapshot;
+    };
     const injection = await fault(read);
     await page.goto(browserURL(target, target.fixtureProject, target.bootstrapExplorerId, 'builder'), {
       waitUntil: 'domcontentloaded',
@@ -51,7 +84,7 @@ const runCase = (context, caseName) => runPlaywrightCase(context, 'builder-load'
         after: async () => {
           await Promise.all([
             recoveredResponse,
-            page.getByText(/Build your first table|Dataset graph/).first().waitFor({ state: 'visible', timeout: 10000 }),
+            loadedBuilder(),
             errorAlert.waitFor({ state: 'hidden', timeout: 10000 }),
           ]);
         },
@@ -72,7 +105,7 @@ const runCase = (context, caseName) => runPlaywrightCase(context, 'builder-load'
     }, { timeout: 10000 });
     await page.reload({ waitUntil: 'domcontentloaded' });
     const recovery = await response;
-    await page.getByText(/Build your first table|Dataset graph/).first().waitFor({ state: 'visible', timeout: 10000 });
+    await loadedBuilder();
     await errorAlert.waitFor({ state: 'hidden', timeout: 10000 });
     recordCheck(report, 'persistence', 'reload separately restored the one-shot failed read',
       recovery.status() >= 200 && recovery.status() < 300,
