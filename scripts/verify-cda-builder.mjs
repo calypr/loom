@@ -6,11 +6,13 @@ import { browserEval, launchBrowser, navigate, waitForBrowser } from './loom-dev
 import { runRelatedSourceChooser } from './verify-cda-builder-related-source-chooser.mjs';
 import { runPatientRelatedInspection } from './verify-cda-builder-related-patient-inspection.mjs';
 import { runPatientRelatedApplyReload } from './verify-cda-builder-patient-related.mjs';
+import { runPreviewLimits } from './verify-cda-builder-preview-limits.mjs';
 
 const action = process.argv[2] ?? 'Keep rows';
 const patientRelatedInspectionActions = new Set(['Inspect Patient field choice', 'Inspect selected Patient route', 'Inspect Patient proposal']);
 const patientRelatedApplyReloadAction = action === 'Verify Patient related column';
-const playwrightOnlyAction = action === 'Verify related source chooser' || patientRelatedInspectionActions.has(action) || patientRelatedApplyReloadAction;
+const previewLimitsAction = action === 'Preview limits';
+const playwrightOnlyAction = action === 'Verify related source chooser' || patientRelatedInspectionActions.has(action) || patientRelatedApplyReloadAction || previewLimitsAction;
 const explorerId = process.argv[3] ?? (playwrightOnlyAction ? undefined : 'cda-builder-full-qa-1790439585678');
 const uiOrigin = (process.env.LOOM_CDA_UI_ORIGIN ?? (playwrightOnlyAction ? '' : 'http://127.0.0.1:30002')).replace(/\/$/, '');
 const pageURL = playwrightOnlyAction ? undefined : `${uiOrigin}/?project=loom_dev_cda_fhir&explorer=${explorerId}&mode=builder`;
@@ -56,6 +58,8 @@ try {
       ? await runRelatedSourceChooser({ explorerId: process.argv[3] })
       : patientRelatedApplyReloadAction
         ? await runPatientRelatedApplyReload({ explorerId: process.argv[3] })
+        : previewLimitsAction
+          ? await runPreviewLimits({ explorerId: process.argv[3] })
         : await runPatientRelatedInspection({ action, explorerId: process.argv[3] });
     console.log(JSON.stringify({
       action,
@@ -3646,20 +3650,6 @@ try {
     await mkdir(evidenceDirectory,{recursive:true});
     await writeFile(join(evidenceDirectory,'duplicate-table.json'),JSON.stringify({pageURL,duplicate,responses},null,2));
     console.log(JSON.stringify({evidenceDirectory,duplicate,responses:responses.filter(response=>response.path.endsWith('/commands'))},null,2));
-  } else if (action === 'Preview limits') {
-    await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(element => element.textContent?.trim() === 'Preview')?.click();return true;`);
-    await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount') === '26'`, 30000);
-    const limits = [];
-    for (const limit of [50, 100, 500, 1000]) {
-      const started = Date.now();
-      await browserEval(browser.cdp, `const select=document.querySelector('select[aria-label="Preview row limit"]');select.value=${JSON.stringify(String(limit))};select.dispatchEvent(new Event('change',{bubbles:true}));return true;`);
-      await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount') === ${JSON.stringify(String(limit+1))}`, 120000);
-      limits.push({limit,durationMs:Date.now()-started});
-    }
-    assert(responses.filter(response=>response.path.endsWith('/preview') && response.status===200).length >= 5);
-    await mkdir(evidenceDirectory,{recursive:true});
-    await writeFile(join(evidenceDirectory,'preview-limits.json'),JSON.stringify({pageURL,limits,responses},null,2));
-    console.log(JSON.stringify({evidenceDirectory,limits,responses:responses.filter(response=>response.path.endsWith('/preview'))},null,2));
   } else if (action === 'Toggle filter flag') {
     await browserEval(browser.cdp, `document.querySelector('[data-testid="construction-source-setup"]').open=true;return true;`);
     await waitForBrowser(browser.cdp, `Boolean(document.querySelector('input[aria-label="Use Specimen ID as filter"]:not(:disabled)'))`, 30000);
