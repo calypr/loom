@@ -85,15 +85,19 @@ test('construction capability diagnostics bind exact owned origin, project, expl
 
 test('APPEND capability diagnostics use the seeded project and always release listeners after the full lifecycle', () => {
   const source = readFileSync(new URL('../builder-combine.mjs', import.meta.url), 'utf8');
-  const runAppend = source.indexOf('const runAppend =');
-  const capture = source.indexOf('const capabilitiesFailures = captureConstructionCapabilitiesFailures', runAppend);
+  const runAppend = source.indexOf('const runAppend = context => runPlaywrightCase');
+  const capture = source.indexOf('captureConstructionCapabilitiesFailuresWithPlaywright(page, report', runAppend);
   const lifecycle = source.indexOf('try {\n    const builderAtTarget', capture);
-  const completedLifecycle = source.indexOf('report.target.combineTarget = target;', lifecycle);
+  const completedLifecycle = source.lastIndexOf('report.target.combineTarget = target;');
   const finalizer = source.indexOf('await capabilitiesFailures.stop();', lifecycle);
   assert.ok(runAppend >= 0 && capture > runAppend && lifecycle > capture && completedLifecycle > lifecycle && finalizer > completedLifecycle);
   assert.match(source.slice(capture, lifecycle), /project: context\.target\.fixtureProject/);
   assert.match(source.slice(lifecycle, finalizer), /const builderAtTarget = await readBuilder/);
   assert.match(source.slice(completedLifecycle, finalizer + 40), /finally/);
+  const diagnosticsHelper = source.slice(source.indexOf('const captureConstructionCapabilitiesFailuresWithPlaywright'),
+    source.indexOf('const captureOwnedConstructionProposals'));
+  assert.match(diagnosticsHelper, /page\.off\('request'/);
+  assert.match(diagnosticsHelper, /sanitizeBody/);
   assert.doesNotMatch(source.slice(0, source.indexOf('const expectedPatients')), /isDeepStrictEqual/);
 });
 
@@ -193,31 +197,28 @@ test('every Combine check call has a valid dimension and a separate assertion na
   ]) {
     assert.ok(source.includes("'" + name + "'"), `required Combine assertion must retain its literal name: ${name}`);
   }
-  assert.ok(source.includes("map(cell=>tidy(cell.textContent))"),
+  assert.match(source, /map\(cell\s*=>\s*tidy\(cell\.textContent\)\)/,
     'saved preview headers must use semantic textContent, not CSS-uppercased innerText');
-  assert.ok(source.includes("click(cdp, 'button', { name: 'Add another table' })"),
-    'APPEND inputs beyond the initial two must use the native Add another table control');
-  assert.ok(source.includes('const initialInputs = inputs.slice(0, 2)'),
-    'operation selection must wait only for the two slots the editor initially renders');
-  assert.ok(source.includes("name: 'add APPEND input table ' + (index + 1)"),
+  assert.ok(source.includes("page.getByRole('button', { name: 'Add another table', exact: true })"),
+    'APPEND inputs beyond the initial two must use the unique native Add another table control');
+  assert.ok(source.includes("page.locator('select[aria-label=\"Input table 1\"]')") &&
+    source.includes("page.locator('select[aria-label=\"Input table 2\"]')"),
+    'operation selection must wait for the two exact slots the editor initially renders');
+  assert.ok(source.includes('`add APPEND input table ${index + 1}`'),
     'every added APPEND input slot must have its own registered render timing');
 });
 
 test('saved Combine edit timing waits for controls outside inherited disabled fieldsets', () => {
   const source = readFileSync(new URL('../builder-combine.mjs', import.meta.url), 'utf8');
-  const readiness = source.slice(source.indexOf('const editSavedStep ='), source.indexOf('\nconst applyProposal', source.indexOf('const editSavedStep =')));
-  assert.ok(readiness.includes("name: 'open saved Combine editor and load pinned sources'"));
-  assert.match(readiness, /select\[aria-label=\\?"Input table 1\\?"\]\:not\(:disabled\)/);
-  assert.match(readiness, /input\[aria-label=\\?"Output field 1 label\\?"\]\:not\(:disabled\)/);
-  assert.match(readiness, /timeout: 5000,[\s\S]*budget: 5000/,
-    'saved editor readiness must fail within the five-second interaction budget');
-
-  const browserTest = readFileSync(new URL('./verify-ui.test.mjs', import.meta.url), 'utf8');
-  const browserSource = readFileSync(new URL('../browser.mjs', import.meta.url), 'utf8');
-  assert.match(browserTest, /const inheritedDisabled = await inspectAction/,
-    'the browser helper case must exercise a control disabled by its ancestor fieldset');
-  assert.match(browserSource, /element\.closest\('fieldset:disabled'\)/,
-    'actionability must recognize disabled fieldset inheritance');
+  const start = source.indexOf('const editSavedStepWithPlaywright =');
+  const readiness = source.slice(start, source.indexOf('\nconst createAndPublishSourcesWithPlaywright', start));
+  assert.ok(readiness.includes("'open saved Combine editor and load pinned sources'"));
+  assert.match(readiness, /select\[aria-label="Input table 1"\]/);
+  assert.match(readiness, /input\[aria-label="Output field 1 label"\]/);
+  assert.match(readiness, /waitForFunction\(\(\) => !document\.querySelector\('select\[aria-label="Input table 1"\]'\)\?\.disabled/,
+    'saved editor readiness must wait until inherited disabled state clears');
+  assert.match(source.slice(source.indexOf('const runJoin ='), source.indexOf('const assertAppendNullPaddingStep')),
+    /budget: 5000/, 'Playwright user actions must retain the five-second render budget');
 });
 
 test('published column matcher prefers the exact semantic field and rejects ambiguity', () => {
@@ -510,14 +511,14 @@ test('source immutability comparison detects changes to semantic fields omitted 
 });
 test('three-input APPEND configures its retained rows and verifies the exact mapping matrix before preview', () => {
   const source = readFileSync(new URL('../builder-combine.mjs', import.meta.url), 'utf8');
-  const removal = source.indexOf("await click(cdp, 'button[aria-label=\"Remove output field 3\"]')");
-  const preview = source.indexOf("name: 'automatically preview three-input APPEND with explicit absent-field mappings'");
+  const removal = source.indexOf("const removeNumeric = page.getByRole('button', { name: 'Remove output field 3'");
+  const preview = source.indexOf("'automatically preview three-input APPEND with explicit absent-field mappings'");
   assert.ok(removal >= 0 && preview > removal, 'the numeric-field removal must precede the APPEND preview');
   const setup = source.slice(removal, preview);
-  assert.match(setup, /await configureOutput\(cdp, 1, 'record_id'/);
-  assert.match(setup, /await configureOutput\(cdp, 2, 'status'/);
-  assert.match(setup, /await addOutput\(cdp, 3, 'patient_gender'/);
-  assert.doesNotMatch(setup, /await addOutput\(cdp, [12],/,
+  assert.match(setup, /await configureOutputWithPlaywright\(page, action, 1, 'record_id'/);
+  assert.match(setup, /await configureOutputWithPlaywright\(page, action, 2, 'status'/);
+  assert.match(setup, /await addOutputWithPlaywright\(page, action, 3, 'patient_gender'/);
+  assert.doesNotMatch(setup, /await addOutputWithPlaywright\(page, action, [12],/,
     'retained output rows must be configured without appending duplicate blank rows');
   assert.match(setup, /APPEND editor has exactly three named output rows with the intended mappings before preview/);
 });
@@ -538,12 +539,13 @@ test('APPEND output configuration evidence rejects duplicate blank rows and inco
 
 test('native Combine verifier captures returned target identity instead of relying on a visible table tab or title', () => {
   const source = readFileSync(new URL('../builder-combine.mjs', import.meta.url), 'utf8');
-  assert.match(source, /Network\.requestWillBeSent/);
-  assert.match(source, /Network\.getResponseBody/);
+  assert.match(source, /page\.waitForResponse\(response => createRequest\(response\.request\(\)\)/);
+  assert.match(source, /request\.postDataJSON\(\)/);
   assert.match(source, /nativeCombineTargetBindingEvidence\(\{/);
   assert.match(source, /data-operation-family="COMBINE"/);
   assert.doesNotMatch(source, /const selectedTarget = async/);
   assert.doesNotMatch(source, /target\.title\.toLowerCase\(\)/);
+  assert.doesNotMatch(source, /Network\.requestWillBeSent|Network\.getResponseBody/);
 });
 
 test('native Combine target identity binds its CREATE_TABLE command, returned workspace, and mounted editor', () => {
