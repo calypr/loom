@@ -1,0 +1,4 @@
+{"resourceType":"Observation","id":"combine-observation-final-1","status":"final","subject":{"reference":"Patient/combine-null-key-match"},"code":{"coding":[{"system":"urn:loom:verify-combine","code":"one","display":"One"}]},"valueInteger":10}
+{"resourceType":"Observation","id":"combine-observation-final-2","status":"final","code":{"coding":[{"system":"urn:loom:verify-combine","code":"two","display":"Two"}]},"valueInteger":20}
+{"resourceType":"Observation","id":"combine-observation-preliminary","status":"preliminary","subject":{"reference":"Patient/combine-null-key-preliminary"},"code":{"coding":[{"system":"urn:loom:verify-combine","code":"three","display":"Three"}]},"valueInteger":30}
+{"resourceType":"Observation","id":"combine-observation-unmatched","status":"unknown","subject":{"reference":"Patient/combine-null-key-unmatched"},"code":{"coding":[{"system":"urn:loom:verify-combine","code":"four","display":"Four"}]},"valueInteger":40}
