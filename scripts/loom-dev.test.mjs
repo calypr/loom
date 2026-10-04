@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { AUTHORING_SEMANTICS_VERSION, authoringCommandSemanticsVersion, assertExternalJ01SourcesUnchanged, assertJ05ArtifactIdentity, assertJ05ArtifactRows, bootstrapSeedPlan, bootstrapWorkspaceNeedsSeed, builderDOMReadyCondition, builderDraftMatchesPreviewDOM, builderPreviewIsFreshForDraft, canonicalProjectID, collectJ01SemanticConceptPages, commandEnvironment, compareJ04Evidence, createDevSession, createVerificationReport, expectedFixtureRelatedValue, explicitGroupPreviewRows, externalJ01PatientScalar, fixtureSourceDigest, generatedJ01ConceptNDJSON, generationLoadDisposition, graphQLRowsRequest, inspectJ01ArtifactRows, inspectJ05ArtifactPackage, j01ArtifactDownloadPlan, j01ColumnIdentitySnapshot, j01ConstructionChoiceCommandIdentities, j01JSONValuesEquivalent, j01OwnerLiteralSnapshot, j01SemanticInventoryRequest, j01ViewerValuesAgree, j04BrowserControlPlan, j04DefaultRecordCellTraceRowID, j04ExactEqual, j04FixtureManifest, j04PatientOperatorDOMPlan, j04PatientOperatorSourceIDs, j04PatientSelectionSeedPlan, j05ArtifactIdentityIsCurrent, loadJ04FixtureContract, normalizeJ04Surface, normalizeJ05LogicalValue, readJ05OutputRows, selectExternalJ01Manifest, shapeJ04Evidence, sourceMountMatches, summarizeTimingSamples, validateJ04FixtureContract } from './loom-dev.mjs';
+import { addColumnsActionReadinessCondition, AUTHORING_SEMANTICS_VERSION, authoringCommandSemanticsVersion, assertExternalJ01SourcesUnchanged, assertJ05ArtifactIdentity, assertJ05ArtifactRows, bootstrapSeedPlan, bootstrapWorkspaceNeedsSeed, builderDOMReadyCondition, builderDraftMatchesPreviewDOM, builderPreviewIsFreshForDraft, canonicalProjectID, collectJ01SemanticConceptPages, commandEnvironment, compareJ04Evidence, createDevSession, createVerificationReport, expectedFixtureRelatedValue, explicitGroupPreviewRows, externalJ01PatientScalar, fixtureSourceDigest, generatedJ01ConceptNDJSON, generationLoadDisposition, graphQLRowsRequest, inspectJ01ArtifactRows, inspectJ05ArtifactPackage, j01ArtifactDownloadPlan, j01ColumnIdentitySnapshot, j01ConstructionChoiceCommandIdentities, j01JSONValuesEquivalent, j01OwnerLiteralSnapshot, j01SemanticInventoryRequest, j01ViewerValuesAgree, j04BrowserControlPlan, j04DefaultRecordCellTraceRowID, j04ExactEqual, j04FixtureManifest, j04PatientOperatorDOMPlan, j04PatientOperatorSourceIDs, j04PatientSelectionSeedPlan, j05ArtifactIdentityIsCurrent, loadJ04FixtureContract, normalizeJ04Surface, normalizeJ05LogicalValue, readJ05OutputRows, selectExternalJ01Manifest, shapeJ04Evidence, sourceMountMatches, summarizeTimingSamples, validateJ04FixtureContract } from './loom-dev.mjs';
 
 test('automatic preview witness must use a new receipt for the committed Builder draft and snapshot', () => {
   const baseline = {
@@ -53,6 +53,57 @@ test('automatic preview witness must use a new receipt for the committed Builder
     'a DOM draft version behind the API must not satisfy the committed-draft witness');
 });
 
+test('automatic preview accepts candidate receipt reuse only after exact saved-draft reconciliation', () => {
+  const baseline = {
+    snapshotToken: 'snapshot-current',
+    draftVersion: 8,
+    draftDigest: 'digest-before',
+    previewReceiptId: 'receipt-candidate',
+    previewProposalId: 'receipt-candidate',
+    outputId: 'table-patient',
+  };
+  const state = {
+    lifecycleState: 'READY',
+    draftVersion: 9,
+    draftDigest: 'digest-after',
+    catalog: { snapshotToken: 'snapshot-current' },
+    workspace: { documents: [{ output: { id: 'table-patient' } }] },
+  };
+  const preview = {
+    status: 'ready',
+    receiptId: 'receipt-candidate',
+    outputId: 'table-patient',
+    proposalId: '',
+    draftVersion: 9,
+    draftDigest: 'digest-after',
+  };
+  const savedCompile = {
+    receiptId: 'receipt-candidate',
+    intentDigest: 'digest-after',
+    snapshotToken: 'snapshot-current',
+    outputs: [{ outputId: 'table-patient' }],
+  };
+
+  assert.equal(builderPreviewIsFreshForDraft(baseline, state, preview, baseline.outputId, savedCompile), true,
+    'the settled saved preview may reuse the exact candidate receipt after reconciliation proves the saved digest and output');
+  assert.equal(builderPreviewIsFreshForDraft({ ...baseline, previewProposalId: '' }, state, preview, baseline.outputId, savedCompile), false,
+    'an unchanged receipt from a non-proposal baseline remains stale');
+  assert.equal(builderPreviewIsFreshForDraft(baseline, state, preview, baseline.outputId), false,
+    'the proposal flag alone cannot prove the saved compile reused the candidate receipt');
+  assert.equal(builderPreviewIsFreshForDraft(baseline, state, preview, baseline.outputId, {
+    ...savedCompile,
+    intentDigest: 'digest-before',
+  }), false, 'the reconciled receipt must compile the newly saved draft');
+  assert.equal(builderPreviewIsFreshForDraft(baseline, state, preview, baseline.outputId, {
+    ...savedCompile,
+    outputs: [{ outputId: 'another-table' }],
+  }), false, 'the reconciled receipt must contain the selected output');
+  assert.equal(builderPreviewIsFreshForDraft(baseline, state, { ...preview, outputId: 'another-table' }, baseline.outputId, savedCompile), false,
+    'the visible preview must remain tied to the selected output');
+  assert.equal(builderPreviewIsFreshForDraft(baseline, state, { ...preview, proposalId: 'receipt-candidate' }, baseline.outputId, savedCompile), false,
+    'a candidate proposal still visible in the DOM is not a saved-preview transition');
+});
+
 test('Builder browser readiness requires a loaded workspace or the current empty-editor controls', () => {
   const editor = readFileSync(join(process.cwd(), 'ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx'), 'utf8');
   const rowPicker = readFileSync(join(process.cwd(), 'ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowRootPicker.tsx'), 'utf8');
@@ -68,6 +119,43 @@ test('Builder browser readiness requires a loaded workspace or the current empty
   assert.equal(isReady(new Set(['#first-table-name'])), false, 'the table-name field alone is not enough');
   assert.equal(isReady(new Set(['#first-table-name', '[aria-label="Choose row type"]'])), true);
   assert.equal(isReady(new Set(['[data-testid="construction-workspace"]'])), true);
+});
+
+test('Add columns readiness requires the selected table preview for the current saved draft', () => {
+  const condition = addColumnsActionReadinessCondition('true');
+  const evaluate = (document) => Function('document', `return (${condition});`)(document);
+  const workspace = { dataset: { draftVersion: '2', draftDigest: 'digest-current' } };
+  const preview = {
+    dataset: {
+      previewStatus: 'ready',
+      previewReceiptId: 'receipt-current',
+      previewOutputId: 'out-current',
+      currentDraftVersion: '2',
+      currentDraftDigest: 'digest-current',
+    },
+  };
+  const selectedTable = { getAttribute: () => 'construction-table-out-current' };
+  const addColumns = { disabled: false };
+  const makeDocument = ({ currentPreview = preview, button = addColumns, statuses = [] } = {}) => ({
+    querySelector: (selector) => ({
+      '[data-testid="construction-workspace"]': workspace,
+      '[data-testid="construction-preview"]': currentPreview,
+      '[data-testid^="construction-table-"][aria-current="page"]': selectedTable,
+      '[data-testid="construction-action-add-columns"]:not(:disabled)': button.disabled ? null : button,
+      '[data-testid="construction-action-add-columns"]': button,
+    })[selector] ?? null,
+    querySelectorAll: (selector) => selector === '[role=status]' ? statuses : [],
+  });
+
+  assert.equal(evaluate(makeDocument()), true);
+  assert.equal(evaluate(makeDocument({ currentPreview: { dataset: { ...preview.dataset, previewStatus: 'empty' } } })), false,
+    'the transient enabled button before automatic reconciliation is not readiness');
+  assert.equal(evaluate(makeDocument({ currentPreview: { dataset: { ...preview.dataset, currentDraftDigest: 'digest-old' } } })), false,
+    'a preview receipt for an older draft cannot satisfy readiness');
+  assert.equal(evaluate(makeDocument({ statuses: [{ innerText: 'Loom is refreshing the current table draft. Field selection will return when the refresh completes.' }] })), false,
+    'refresh status blocks readiness even if a stale enabled button is present');
+  assert.equal(evaluate(makeDocument({ button: { disabled: true } })), false,
+    'an enabled Add columns control remains required');
 });
 
 test('J04 creates its initial table through the visible row-type control', () => {
@@ -101,6 +189,13 @@ test('verify-fast creates its Observation and Patient tables through the current
   assert.ok(ownerStart >= 0 && patientStart > ownerStart, 'both fixture table setup flows must remain in order');
   const ownerFlow = scenario.slice(ownerStart, patientStart);
   const patientFlow = scenario.slice(patientStart);
+  const addColumnsReadyStart = driver.indexOf('export const addColumnsActionReadinessCondition =');
+  const addColumnsReadyEnd = driver.indexOf('\n};', addColumnsReadyStart);
+  assert.ok(addColumnsReadyStart >= 0 && addColumnsReadyEnd > addColumnsReadyStart, 'Add columns readiness wait must be identifiable');
+  const addColumnsWaitStart = driver.indexOf('const waitForAddColumnsAction =', addColumnsReadyEnd);
+  const addColumnsWaitEnd = driver.indexOf('\n};', addColumnsWaitStart);
+  assert.ok(addColumnsWaitStart > addColumnsReadyEnd && addColumnsWaitEnd > addColumnsWaitStart, 'Add columns browser wait must use the ready condition');
+  const addColumnsReady = `${driver.slice(addColumnsReadyStart, addColumnsReadyEnd)}\n${driver.slice(addColumnsWaitStart, addColumnsWaitEnd)}`;
 
   assert.match(rowPicker, /aria-label=\{`Choose \$\{node\.resourceType\} rows`\}/);
   assert.match(builder, /id="first-table-name"/);
@@ -119,24 +214,67 @@ test('verify-fast creates its Observation and Patient tables through the current
 
   assert.doesNotMatch(scenario, /clickButton\('Create table'\)|clickButton\('Preview'\)|textContent\.trim\(\) === 'Preview'|One row per|Source and column setup|Search fields and concepts|Choose output forms/);
   assert.match(ownerFlow, /button\[aria-label="Choose Observation rows"\]/);
+  assert.match(ownerFlow, /await waitForAddColumnsAction\(cdp,/);
   assert.match(ownerFlow, /construction-action-add-columns/);
+  assert.match(ownerFlow, /Add columns action is unavailable/);
   assert.match(ownerFlow, /clickButton\('Fields and related data'\)/);
   assert.match(ownerFlow, /shared: Keep each matching record/);
   assert.match(ownerFlow, /candidate\.textContent\.trim\(\) === 'Add 1 column'/);
   assert.match(ownerFlow, /clickButton\('Apply columns'\)/);
   assert.match(ownerFlow, /builder-persists-owner-record-construction/);
+  assert.match(ownerFlow, /const ownerRecordsStateIsApplied = \(builder\) =>/);
+  assert.match(ownerFlow, /source\?\.kind === 'ownerRecords'/);
+  assert.match(ownerFlow, /source\.ownerRecords\?\.binding\?\.valuePath === 'valueQuantity\.value'/);
+  assert.match(ownerFlow, /builder\?\.draftVersion > ownerPreviewBaseline\.draftVersion/);
+  assert.match(ownerFlow, /builder\?\.draftDigest && builder\.draftDigest !== ownerPreviewBaseline\.draftDigest/);
+  assert.match(ownerFlow, /source\.ownerRecords\?\.key\?\.system === 'urn:study:A'/);
+  assert.match(ownerFlow, /source\.ownerRecords\?\.key\?\.code === 'shared'/);
+  assert.match(ownerFlow, /ownerRecordsStateIsApplied\(ownerRecordsBuilder\)/);
+  assert.match(ownerFlow, /const ownerRecordsColumn = ownerRecordsTable\.columns\.find\(\(column\) => column\.label === 'shared'\)/);
+  assert.match(ownerFlow, /kind: 'ownerRecords'/);
+  assert.match(ownerFlow, /system: 'urn:study:A'/);
+  assert.match(ownerFlow, /code: 'shared'/);
   assert.match(ownerFlow, /ownerPath: 'component\[\]'/);
   assert.match(ownerFlow, /valuePath: 'valueQuantity\.value'/);
+  const applyOwnerRecords = ownerFlow.indexOf("clickButton('Apply columns')");
+  const savedOwnerRecordsWait = ownerFlow.indexOf('ownerApplyDeadline = Date.now() + 30000');
+  const exactSavedOwnerRecordsPoll = ownerFlow.indexOf('if (ownerRecordsStateIsApplied(ownerRecordsBuilder)) break;');
+  const exactSavedOwnerRecordsAssertion = ownerFlow.indexOf("recordAssertion(report, 'builder-persists-owner-record-construction'");
+  const closeOwnerEditor = ownerFlow.indexOf("data-testid=\"construction-close-operation-editor\"");
+  const closedOwnerEditor = ownerFlow.indexOf("!document.querySelector('[aria-label=\"Add columns editor\"]')");
+  const configuredOwnerInput = ownerFlow.indexOf('Display name for configured ${ownerRecordsColumn.label}');
+  assert.ok(applyOwnerRecords >= 0 && savedOwnerRecordsWait > applyOwnerRecords && exactSavedOwnerRecordsPoll > savedOwnerRecordsWait && exactSavedOwnerRecordsAssertion > exactSavedOwnerRecordsPoll && closeOwnerEditor > exactSavedOwnerRecordsAssertion && closedOwnerEditor > closeOwnerEditor && configuredOwnerInput > closedOwnerEditor,
+    'the exact saved ownerRecords binding and new draft are observed before closing the editor that hides configured-column controls');
+  assert.match(ownerFlow, /const ownerApplyDeadline = Date\.now\(\) \+ 30000/);
+  assert.match(ownerFlow, /while \(Date\.now\(\) < ownerApplyDeadline\)/);
+  assert.match(ownerFlow, /input\.getAttribute\('aria-label'\) === \$\{JSON\.stringify\(configuredOwnerLabel\)\} && !input\.disabled/);
+  assert.match(builder, /!activeOperation && !workspaceEditor \? <details/);
   assert.match(ownerFlow, /captureBuilderPreviewBaseline\(target, cdp, ownerRecordsExplorerId\)/);
   assert.match(ownerFlow, /waitForFreshBuilderPreview\(/);
   assert.match(ownerFlow, /readBuilderPreviewDOM\(cdp\)\)\.receiptId/);
+  assert.match(driver, /previewProposalId: preview\.proposalId/);
+  assert.match(driver, /reconcileSavedBuilderDraft\(target, explorerId, state\)/);
+  assert.match(driver, /savedCompileReceipt\.intentDigest === state\.draftDigest/);
   assert.match(ownerFlow, /preview-owner-record-inspector-preserves-value-unit-code-and-source/);
 
   assert.match(patientFlow, /button\[aria-label="Choose Patient rows"\]/);
+  assert.match(patientFlow, /await waitForAddColumnsAction\(cdp,/);
   assert.match(patientFlow, /construction-action-add-columns/);
   assert.match(patientFlow, /feature-catalog-raw-fields/);
   assert.match(patientFlow, /Select Patient\.id/);
   assert.match(patientFlow, /clickButton\('Apply columns'\)/);
+  assert.match(addColumnsReady, /const selector = '\[data-testid="construction-action-add-columns"\]'/);
+  assert.match(addColumnsReady, /\$\{selector\}:not\(:disabled\)/);
+  assert.equal((addColumnsReady.match(/await waitForBrowser/g) || []).length, 1,
+    'the original browser-ready deadline must cover the entire first-table provisioning wait');
+  assert.match(addColumnsReady, /preview\.dataset\.previewStatus === 'ready'/);
+  assert.match(addColumnsReady, /preview\.dataset\.previewReceiptId/);
+  assert.match(addColumnsReady, /preview\.dataset\.previewOutputId === selectedOutputId/);
+  assert.match(addColumnsReady, /preview\.dataset\.currentDraftVersion === workspace\.dataset\.draftVersion/);
+  assert.match(addColumnsReady, /preview\.dataset\.currentDraftDigest === workspace\.dataset\.draftDigest/);
+  assert.match(addColumnsReady, /Loom is \(\?:refreshing the current table draft\|finishing the previous table update\)/);
+  assert.match(addColumnsReady, /document\.querySelectorAll\('\[role=status\]'\)/);
+  assert.match(addColumnsReady, /pending status|no pending Builder status/);
   assert.match(patientFlow, /advanced source setup is unavailable/);
   assert.match(patientFlow, /Feature authoring view/);
   assert.match(patientFlow, /builder-catalog-adds-default-root-field-without-graph/);

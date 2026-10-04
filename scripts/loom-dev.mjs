@@ -795,6 +795,8 @@ const inspectOwnedResources = async (target, { requirePorts = false } = {}) => {
   return { ids, volumes };
 };
 
+export const assertOwnedDevSession = async (target) => inspectOwnedResources(target, { requirePorts: true });
+
 const request = async (url, options = {}) => {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), options.timeout ?? 5000);
@@ -1046,6 +1048,14 @@ const seedFixture = async (target, { requireFresh = false, populateBootstrap = t
   if (!bootstrap?.explorerId) throw new Error('fixture bootstrap Explorer has no stable identity');
   const bootstrapWorkspace = populateBootstrap ? await seedBootstrapWorkspace(target, bootstrap.explorerId) : undefined;
   return { reused, fresh: requireFresh, bootstrapExplorerId: bootstrap.explorerId, bootstrapWorkspace, fixtureManifest: reused ? undefined : fixtureManifest?.summary };
+};
+
+export const createFreshVerificationFixture = async (session, runID) => {
+  if (!/^[a-z0-9][a-z0-9-]{0,24}$/.test(runID)) throw new Error('verification run id must be a short lowercase slug');
+  const target = createVerificationTarget(session, runID);
+  const seed = await seedFixture(target, { requireFresh: true, populateBootstrap: false });
+  if (seed.reused || !seed.fresh) throw new Error(`verification fixture was unexpectedly reused: ${target.fixtureProject}`);
+  return Object.freeze({ target, seed });
 };
 
 const seedJ03ExplicitGroupRevision = async (target, explorerId) => {
@@ -1394,6 +1404,117 @@ const waitForBrowser = async (cdp, predicate, timeout = 30000) => {
     await sleep(200);
   }
   throw new Error(`timed out waiting for browser condition ${predicate.slice(0, 240)}: ${lastError}`);
+};
+
+export const addColumnsActionReadinessCondition = (tableReadyCondition) => {
+  const selector = '[data-testid="construction-action-add-columns"]';
+  return `(() => {
+    const workspace = document.querySelector('[data-testid="construction-workspace"]');
+    const preview = document.querySelector('[data-testid="construction-preview"]');
+    const selectedTable = document.querySelector('[data-testid^="construction-table-"][aria-current="page"]');
+    const selectedOutputId = selectedTable?.getAttribute('data-testid')?.slice('construction-table-'.length);
+    const pendingStatus = [...document.querySelectorAll('[role=status]')].some((element) =>
+      /^(Checking .* fields|Creating .* table|Adding the ID column|Loading the preview|Loom is (?:refreshing the current table draft|finishing the previous table update))/.test(element.innerText?.trim() || '')
+    );
+    const currentPreview = Boolean(
+      workspace && preview && selectedOutputId &&
+      preview.dataset.previewStatus === 'ready' &&
+      preview.dataset.previewReceiptId &&
+      preview.dataset.previewOutputId === selectedOutputId &&
+      preview.dataset.currentDraftVersion === workspace.dataset.draftVersion &&
+      preview.dataset.currentDraftDigest === workspace.dataset.draftDigest
+    );
+    return (${tableReadyCondition}) && !pendingStatus && currentPreview &&
+      Boolean(document.querySelector('${selector}:not(:disabled)'));
+  })()`;
+};
+
+const firstTableAddColumnsObserverKey = '__loomFirstTableAddColumnsObserver';
+
+export const installFirstTableAddColumnsObserver = async (cdp, tableReadyCondition) => {
+  await browserEval(cdp, `(() => {
+    const key = ${JSON.stringify(firstTableAddColumnsObserverKey)};
+    window[key]?.observer?.disconnect?.();
+    const events = [];
+    const sample = (source) => {
+      const workspace = document.querySelector('[data-testid="construction-workspace"]');
+      const preview = document.querySelector('[data-testid="construction-preview"]');
+      const selectedTable = document.querySelector('[data-testid^="construction-table-"][aria-current="page"]');
+      const selectedOutputId = selectedTable?.getAttribute('data-testid')?.slice('construction-table-'.length);
+      const button = document.querySelector('[data-testid="construction-action-add-columns"]');
+      const pendingStatus = [...document.querySelectorAll('[role=status]')].some((element) =>
+        /^(Checking .* fields|Creating .* table|Adding the ID column|Loading the preview|Loom is (?:refreshing the current table draft|finishing the previous table update))/.test(element.innerText?.trim() || '')
+      );
+      const scoped = (${tableReadyCondition});
+      if (!scoped || !button || button.disabled) return;
+      const acceptedCurrentPreview = Boolean(
+        workspace && preview && selectedOutputId && !pendingStatus &&
+        preview.dataset.previewStatus === 'ready' &&
+        preview.dataset.previewReceiptId &&
+        preview.dataset.previewOutputId === selectedOutputId &&
+        preview.dataset.currentDraftVersion === workspace.dataset.draftVersion &&
+        preview.dataset.currentDraftDigest === workspace.dataset.draftDigest
+      );
+      events.push({
+        source,
+        enabled: true,
+        acceptedCurrentPreview,
+        selectedOutputId: selectedOutputId || '',
+        draftVersion: workspace?.dataset.draftVersion || '',
+        previewDraftVersion: preview?.dataset.currentDraftVersion || '',
+        at: Math.round(performance.now()),
+      });
+    };
+    const observer = new MutationObserver(() => sample('mutation'));
+    observer.observe(document.body, {
+      subtree: true,
+      childList: true,
+      attributes: true,
+      attributeFilter: [
+        'disabled', 'aria-current', 'data-preview-status', 'data-preview-receipt-id',
+        'data-preview-output-id', 'data-current-draft-version', 'data-current-draft-digest',
+        'data-draft-version', 'data-draft-digest',
+      ],
+    });
+    window[key] = { events, observer, sample };
+    sample('installed');
+  })()`);
+};
+
+export const finishFirstTableAddColumnsObserver = async (cdp) => browserEval(cdp, `
+  const key = ${JSON.stringify(firstTableAddColumnsObserverKey)};
+  const probe = window[key];
+  if (!probe) throw new Error('first-table Add columns observer was not installed');
+  probe.sample('final');
+  probe.observer.disconnect();
+  const events = [...probe.events];
+  delete window[key];
+  return events;
+`);
+
+export const waitForAddColumnsAction = async (cdp, tableReadyCondition) => {
+  const selector = '[data-testid="construction-action-add-columns"]';
+  try {
+    await waitForBrowser(cdp, addColumnsActionReadinessCondition(tableReadyCondition));
+  } catch (error) {
+    let state;
+    try {
+      state = await evaluate(cdp, `(() => {
+        const button = document.querySelector('${selector}');
+        const pendingStatus = [...document.querySelectorAll('[role=status]')]
+          .map((element) => element.innerText?.trim()).filter(Boolean);
+        return { button: !button ? 'missing' : button.disabled ? 'disabled' : 'enabled', pendingStatus };
+      })()`);
+    } catch (diagnosticError) {
+      state = { button: 'unavailable', diagnosticError: diagnosticError instanceof Error ? diagnosticError.message : String(diagnosticError) };
+    }
+    const detail = state.button === 'disabled'
+      ? state.pendingStatus?.length
+        ? `button stayed disabled while Builder reported pending status: ${state.pendingStatus.join(' | ')}`
+        : 'button stayed disabled with no pending Builder status visible'
+      : `button was ${state.button}${state.diagnosticError ? `; diagnostic failed: ${state.diagnosticError}` : ''}`;
+    throw new Error(`Add columns readiness failed: ${detail}`, { cause: error });
+  }
 };
 
 const snapshot = async (cdp, path) => {
@@ -4412,6 +4533,23 @@ const fetchBuilderState = async (target, explorerId) => {
   return value;
 };
 
+const reconcileSavedBuilderDraft = async (target, explorerId, state) => {
+  const { response, value } = await requestJSON(`${bootstrapAuthoringURL(target, explorerId)}/reconcile`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      snapshotToken: state.catalog?.snapshotToken,
+      draftVersion: state.draftVersion,
+      draftDigest: state.draftDigest,
+    }),
+    timeout: 60000,
+  });
+  if (!response.ok || !value?.receiptId || !value?.intentDigest) {
+    throw new Error(`saved Builder draft did not reconcile to a receipt: HTTP ${response.status} ${JSON.stringify(value).slice(0, 500)}`);
+  }
+  return value;
+};
+
 const readBuilderPreviewDOM = async (cdp) => evaluate(cdp, `(() => {
   const preview = document.querySelector('[data-testid="construction-preview"]');
   return {
@@ -4442,12 +4580,20 @@ export const builderDraftMatchesPreviewDOM = (baseline, state, preview, outputId
   );
 };
 
-export const builderPreviewIsFreshForDraft = (baseline, state, preview, outputId) =>
+export const builderPreviewIsFreshForDraft = (baseline, state, preview, outputId, savedCompileReceipt) =>
   builderDraftMatchesPreviewDOM(baseline, state, preview, outputId) &&
   preview.status === 'ready' &&
   !preview.proposalId &&
   Boolean(preview.receiptId) &&
-  preview.receiptId !== baseline.previewReceiptId;
+  (preview.receiptId !== baseline.previewReceiptId || Boolean(
+    baseline.previewProposalId &&
+    baseline.previewProposalId === baseline.previewReceiptId &&
+    preview.receiptId === baseline.previewProposalId &&
+    savedCompileReceipt?.receiptId === preview.receiptId &&
+    savedCompileReceipt.intentDigest === state.draftDigest &&
+    savedCompileReceipt.snapshotToken === baseline.snapshotToken &&
+    savedCompileReceipt.outputs?.some((output) => output.outputId === outputId),
+  ));
 
 const captureBuilderPreviewBaseline = async (target, cdp, explorerId) => {
   const [state, preview] = await Promise.all([
@@ -4461,6 +4607,7 @@ const captureBuilderPreviewBaseline = async (target, cdp, explorerId) => {
     draftVersion: state.draftVersion,
     draftDigest: state.draftDigest,
     previewReceiptId: preview.receiptId,
+    previewProposalId: preview.proposalId,
     outputId,
     text: preview.text,
   };
@@ -4469,13 +4616,31 @@ const captureBuilderPreviewBaseline = async (target, cdp, explorerId) => {
 const waitForFreshBuilderPreview = async (target, cdp, explorerId, baseline, report, assertionName) => {
   const deadline = Date.now() + 60000;
   let latest;
+  let candidateReceiptKey = '';
+  let candidateSavedCompileReceipt;
   while (Date.now() < deadline) {
     const [state, preview] = await Promise.all([
       fetchBuilderState(target, explorerId),
       readBuilderPreviewDOM(cdp),
     ]);
     latest = { state, preview };
-    if (builderPreviewIsFreshForDraft(baseline, state, preview, baseline.outputId)) {
+    const isCandidateReceiptReuse = Boolean(
+      baseline.previewProposalId &&
+      baseline.previewProposalId === baseline.previewReceiptId &&
+      preview.status === 'ready' &&
+      !preview.proposalId &&
+      preview.receiptId === baseline.previewProposalId &&
+      builderDraftMatchesPreviewDOM(baseline, state, preview, baseline.outputId),
+    );
+    if (isCandidateReceiptReuse) {
+      const currentCandidateReceiptKey = `${state.draftVersion}:${state.draftDigest}:${baseline.outputId}`;
+      if (currentCandidateReceiptKey !== candidateReceiptKey) {
+        candidateReceiptKey = currentCandidateReceiptKey;
+        candidateSavedCompileReceipt = await reconcileSavedBuilderDraft(target, explorerId, state);
+      }
+    }
+    const savedCompileReceipt = isCandidateReceiptReuse ? candidateSavedCompileReceipt : undefined;
+    if (builderPreviewIsFreshForDraft(baseline, state, preview, baseline.outputId, savedCompileReceipt)) {
       report.target.previewFreshness ??= [];
       report.target.previewFreshness.push({
         assertion: assertionName,
@@ -4485,6 +4650,13 @@ const waitForFreshBuilderPreview = async (target, cdp, explorerId, baseline, rep
         outputId: baseline.outputId,
         previousReceiptId: baseline.previewReceiptId,
         receiptId: preview.receiptId,
+        ...(isCandidateReceiptReuse ? {
+          previousProposalId: baseline.previewProposalId,
+          savedCompileReceiptId: savedCompileReceipt.receiptId,
+          savedCompileIntentDigest: savedCompileReceipt.intentDigest,
+          savedCompileSnapshotToken: savedCompileReceipt.snapshotToken,
+          savedCompileOutputIds: (savedCompileReceipt.outputs ?? []).map((output) => output.outputId),
+        } : {}),
       });
       return state;
     }
@@ -4492,7 +4664,7 @@ const waitForFreshBuilderPreview = async (target, cdp, explorerId, baseline, rep
   }
   throw new Error(`automatic preview did not produce a fresh receipt for the committed Builder draft: ${JSON.stringify({
     outputId: baseline.outputId,
-    baseline: { snapshotToken: baseline.snapshotToken, draftVersion: baseline.draftVersion, draftDigest: baseline.draftDigest, receiptId: baseline.previewReceiptId },
+    baseline: { snapshotToken: baseline.snapshotToken, draftVersion: baseline.draftVersion, draftDigest: baseline.draftDigest, receiptId: baseline.previewReceiptId, proposalId: baseline.previewProposalId },
     current: latest && { snapshotToken: latest.state.catalog?.snapshotToken, draftVersion: latest.state.draftVersion, draftDigest: latest.state.draftDigest, ...latest.preview },
   })}`);
 };
@@ -5002,11 +5174,25 @@ const verifyBrowserScenario = async (target, report, full, entryTarget = target)
 
     await browserEval(cdp, `setInput('first-table-name', 'Observation owner records')`);
     await waitForBrowser(cdp, `Boolean(document.querySelector('button[aria-label="Choose Observation rows"]:not(:disabled)'))`);
+    const ownerRecordsTableReadyCondition = `document.body.innerText.includes('Observation owner records') && Boolean(document.querySelector('[data-testid="construction-workspace"]'))`;
+    await installFirstTableAddColumnsObserver(cdp, ownerRecordsTableReadyCondition);
     await browserEval(cdp, `const button = document.querySelector('button[aria-label="Choose Observation rows"]'); if (!button || button.disabled) throw new Error('Observation row choice is unavailable'); button.click();`);
-    await waitForBrowser(cdp, `document.body.innerText.includes('Observation owner records') && Boolean(document.querySelector('[data-testid="construction-workspace"]')) && Boolean(document.querySelector('[data-testid="construction-action-add-columns"]'))`);
+    await waitForAddColumnsAction(cdp, ownerRecordsTableReadyCondition);
+    const ownerRecordsAvailabilityEvents = await finishFirstTableAddColumnsObserver(cdp);
+    const ownerRecordsPrematureEnabledEvents = ownerRecordsAvailabilityEvents.filter((event) => !event.acceptedCurrentPreview);
+    report.target.ownerRecordsAddColumnsAvailability = ownerRecordsAvailabilityEvents;
+    recordAssertion(report, 'verified-id-first-table-never-enables-add-columns-before-current-preview', 0, ownerRecordsPrematureEnabledEvents.length);
+    recordAssertion(report, 'verified-id-first-table-observer-sees-enabled-action-after-current-preview', true,
+      ownerRecordsAvailabilityEvents.some((event) => event.source === 'mutation' && event.acceptedCurrentPreview));
+    recordAssertion(report, 'verified-id-first-table-final-action-has-current-preview', true,
+      ownerRecordsAvailabilityEvents.some((event) => event.source === 'final' && event.acceptedCurrentPreview));
     const ownerRecordsInitialBuilder = await fetchBuilderState(target, ownerRecordsExplorerId);
     const ownerRecordsInitialTable = ownerRecordsInitialBuilder.workspace?.documents?.[0];
     recordAssertion(report, 'owner-records-builder-creates-observation-rows', 'Observation', ownerRecordsInitialTable?.rootResourceType);
+    const ownerRecordsInitialIDColumn = ownerRecordsInitialTable?.columns?.find((column) =>
+      column.source?.kind === 'field' && column.source.field?.path?.replace(/^root\./, '') === 'id'
+    );
+    recordAssertion(report, 'owner-records-first-table-uses-verified-root-id-field', true, Boolean(ownerRecordsInitialIDColumn));
     await browserEval(cdp, `const button = document.querySelector('[data-testid="construction-action-add-columns"]'); if (!button || button.disabled) throw new Error('Add columns action is unavailable'); button.click();`);
     await waitForBrowser(cdp, `Boolean(document.querySelector('[aria-label="Add columns editor"]'))`);
     await browserEval(cdp, `clickButton('Fields and related data')`);
@@ -5032,9 +5218,40 @@ const verifyBrowserScenario = async (target, report, full, entryTarget = target)
     await waitForBrowser(cdp, `Boolean([...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Apply columns' && !button.disabled))`);
     const ownerPreviewBaseline = await captureBuilderPreviewBaseline(target, cdp, ownerRecordsExplorerId);
     await browserEval(cdp, `clickButton('Apply columns')`);
-    await waitForBrowser(cdp, `Boolean(document.querySelector('input[aria-label="Display name for configured shared"]'))`);
-    const ownerRecordsBuilder = await fetchBuilderState(target, ownerRecordsExplorerId);
-    const ownerRecordsColumn = ownerRecordsBuilder.workspace.documents[0].columns.find((column) => column.label === 'shared');
+    const ownerRecordsStateIsApplied = (builder) => {
+      const table = builder?.workspace?.documents?.find((document) => document.output?.id === ownerPreviewBaseline.outputId);
+      const column = table?.columns?.find((candidate) => candidate.label === 'shared');
+      const source = column?.source;
+      return Boolean(
+        builder?.draftVersion > ownerPreviewBaseline.draftVersion &&
+        builder?.draftDigest && builder.draftDigest !== ownerPreviewBaseline.draftDigest &&
+        source?.kind === 'ownerRecords' &&
+        source.ownerRecords?.key?.system === 'urn:study:A' &&
+        source.ownerRecords?.key?.code === 'shared' &&
+        source.ownerRecords?.binding?.ownerPath === 'component[]' &&
+        source.ownerRecords?.binding?.valuePath === 'valueQuantity.value'
+      );
+    };
+    const ownerApplyDeadline = Date.now() + 30000;
+    let ownerRecordsBuilder;
+    while (Date.now() < ownerApplyDeadline) {
+      ownerRecordsBuilder = await fetchBuilderState(target, ownerRecordsExplorerId);
+      if (ownerRecordsStateIsApplied(ownerRecordsBuilder)) break;
+      await sleep(200);
+    }
+    if (!ownerRecordsStateIsApplied(ownerRecordsBuilder)) {
+      const latestTable = ownerRecordsBuilder?.workspace?.documents?.find((document) => document.output?.id === ownerPreviewBaseline.outputId);
+      const latestColumn = latestTable?.columns?.find((candidate) => candidate.label === 'shared');
+      throw new Error(`timed out waiting for the exact saved OWNER_RECORDS column and an advanced Builder draft: ${JSON.stringify({
+        baselineDraftVersion: ownerPreviewBaseline.draftVersion,
+        currentDraftVersion: ownerRecordsBuilder?.draftVersion,
+        draftAdvanced: Boolean(ownerRecordsBuilder?.draftDigest && ownerRecordsBuilder.draftDigest !== ownerPreviewBaseline.draftDigest),
+        columnLabel: latestColumn?.label,
+        sourceKind: latestColumn?.source?.kind,
+      })}`);
+    }
+    const ownerRecordsTable = ownerRecordsBuilder.workspace.documents.find((document) => document.output?.id === ownerPreviewBaseline.outputId);
+    const ownerRecordsColumn = ownerRecordsTable.columns.find((column) => column.label === 'shared');
     recordAssertion(report, 'builder-persists-owner-record-construction', {
       kind: 'ownerRecords',
       system: 'urn:study:A',
@@ -5050,6 +5267,8 @@ const verifyBrowserScenario = async (target, report, full, entryTarget = target)
     });
     await browserEval(cdp, `const button = document.querySelector('[data-testid="construction-close-operation-editor"]'); if (!button) throw new Error('Add columns editor close control is unavailable'); button.click();`);
     await waitForBrowser(cdp, `!document.querySelector('[aria-label="Add columns editor"]')`);
+    const configuredOwnerLabel = `Display name for configured ${ownerRecordsColumn.label}`;
+    await waitForBrowser(cdp, `Boolean([...document.querySelectorAll('input')].find((input) => input.getAttribute('aria-label') === ${JSON.stringify(configuredOwnerLabel)} && !input.disabled))`);
     const ownerPreviewReadyBuilder = await waitForFreshBuilderPreview(
       target, cdp, ownerRecordsExplorerId, ownerPreviewBaseline, report,
       'owner-records-preview-uses-current-saved-column-draft',
@@ -5111,7 +5330,7 @@ const verifyBrowserScenario = async (target, report, full, entryTarget = target)
     await browserEval(cdp, `setInput('first-table-name', 'Patients with observations')`);
     await waitForBrowser(cdp, `Boolean(document.querySelector('button[aria-label="Choose Patient rows"]:not(:disabled)'))`);
     await browserEval(cdp, `const button = document.querySelector('button[aria-label="Choose Patient rows"]'); if (!button || button.disabled) throw new Error('Patient row choice is unavailable'); button.click();`);
-    await waitForBrowser(cdp, `document.body.innerText.includes('Patients with observations') && Boolean(document.querySelector('[data-testid="construction-workspace"]')) && Boolean(document.querySelector('[data-testid="construction-action-add-columns"]'))`);
+    await waitForAddColumnsAction(cdp, `document.body.innerText.includes('Patients with observations') && Boolean(document.querySelector('[data-testid="construction-workspace"]'))`);
     const patientInitialBuilder = await fetchBuilderState(target, explorerId);
     const patientInitialTable = patientInitialBuilder.workspace?.documents?.[0];
     recordAssertion(report, 'patient-builder-creates-patient-rows', 'Patient', patientInitialTable?.rootResourceType);
@@ -8797,6 +9016,6 @@ const main = async (argv) => {
   }
 };
 
-export { browserEval, launchBrowser, navigate, snapshot, waitForBrowser };
+export { browserEval, evaluate, launchBrowser, navigate, snapshot, waitForBrowser };
 
 if (!process.env.NODE_TEST_CONTEXT && import.meta.url === pathToFileURL(process.argv[1] ?? '').href) await main(process.argv.slice(2));
