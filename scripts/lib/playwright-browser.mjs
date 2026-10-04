@@ -276,7 +276,8 @@ export async function launchBrowser({ evidence, appOrigins = [], noAuth = false,
       if (failureCaptured) return;
       failureCaptured = true;
       while (pendingTraceScans.size) await Promise.allSettled([...pendingTraceScans]);
-      const { action, ...safeDetails } = details;
+      const { action: suppliedAction, ...safeDetails } = details;
+      const action = suppliedAction ?? this.lastAction;
       const contextualEvidence = typeof this.failureContext === 'function'
         ? sanitizePayload(await this.failureContext())
         : {};

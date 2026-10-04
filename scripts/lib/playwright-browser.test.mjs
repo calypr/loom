@@ -135,6 +135,24 @@ test('Playwright helper clicks a native control and records first-failure eviden
   }
 });
 
+test('first failure uses the last observed action when the caller omits it', async () => {
+  const evidence = await mkdtemp(join(tmpdir(), 'loom-playwright-last-action-test-'));
+  const browser = await launchBrowser({ evidence, appOrigins: ['https://loom.local'] });
+  try {
+    await browser.page.setContent('<button>Open</button>');
+    const target = browser.page.getByRole('button', { name: 'Open' });
+    browser.lastAction = { label: 'Open', locator: target.toString(), targetLocator: target, startedAt: Date.now() };
+    await browser.captureFailure(new Error('visible result missing'));
+    const failure = JSON.parse(await readFile(join(evidence, 'first-failure.json'), 'utf8'));
+    assert.equal(failure.action.label, 'Open');
+    assert.equal(failure.action.target.count, 1);
+    assert.equal(failure.action.target.visible, true);
+  } finally {
+    await browser.close();
+    await rm(evidence, { recursive: true });
+  }
+});
+
 test('fresh loopback no-auth failure retains a Playwright trace zip', async t => {
   const evidence = await mkdtemp(join(tmpdir(), 'loom-playwright-trace-test-'));
   let browser;
