@@ -636,7 +636,7 @@ func TestCompileExplorerReceiptReconcilesTypedConstructionOutputs(t *testing.T) 
 	}
 }
 
-func TestReconcileFinalOutputMetadataUsesCompilerSchemaOrderAndTypes(t *testing.T) {
+func TestReconcileFinalOutputMetadataUsesCompilerSchemaTypes(t *testing.T) {
 	translated, resolved := reconciliationFixture()
 	reconciled, err := reconcileFinalOutputMetadata(translated, resolved)
 	if err != nil {
@@ -691,6 +691,40 @@ func TestReconcileFinalOutputMetadataUsesCompilerSchemaOrderAndTypes(t *testing.
 	}
 	if err := (explorer.PublicOutputContracts{Outputs: reconciled.OutputContracts}).ValidateAgainst(reconciled.Bundle, reconciled.EmittedColumns); err != nil {
 		t.Fatalf("validate reconciled output contract: %v", err)
+	}
+}
+
+func TestReconcileFinalOutputMetadataPreservesAuthoredOrderWithoutChangingExecutionOrder(t *testing.T) {
+	translated, resolved := reconciliationFixture()
+	for index := range translated.Presentations[0].Columns {
+		switch translated.Presentations[0].Columns[index].PublicColumn {
+		case "patient_id":
+			translated.Presentations[0].Columns[index].Order = 1
+		case "score":
+			translated.Presentations[0].Columns[index].Order = 0
+		}
+	}
+
+	reconciled, err := reconcileFinalOutputMetadata(translated, resolved)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantPresentation := []string{"score", "patient_id", "scaled_score"}
+	if got := emittedPublicColumnNames(reconciled.EmittedColumns); !reflect.DeepEqual(got, wantPresentation) {
+		t.Fatalf("receipt emitted columns = %#v, want authored order %#v", got, wantPresentation)
+	}
+	if got := publicContractColumnNames(reconciled.OutputContracts[0].Columns); !reflect.DeepEqual(got, wantPresentation) {
+		t.Fatalf("public output contract columns = %#v, want authored order %#v", got, wantPresentation)
+	}
+	if err := (explorer.PublicOutputContracts{Outputs: reconciled.OutputContracts}).ValidateAgainst(reconciled.Bundle, reconciled.EmittedColumns); err != nil {
+		t.Fatalf("validate ordered receipt contract: %v", err)
+	}
+	if got := []string{
+		resolved.Compiled.Outputs[0].OutputSchema[0].Name,
+		resolved.Compiled.Outputs[0].OutputSchema[1].Name,
+		resolved.Compiled.Outputs[0].OutputSchema[2].Name,
+	}; !reflect.DeepEqual(got, []string{"patient_id", "score", "scaled_score"}) {
+		t.Fatalf("compiler execution schema order changed: %#v", got)
 	}
 }
 

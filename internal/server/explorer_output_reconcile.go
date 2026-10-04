@@ -147,6 +147,7 @@ func reconcileFinalOutputMetadata(translated explorercompilation.WorkspaceResult
 		contract.StructuralSuitability = ""
 		contract.LossReasons = nil
 		finalPresentation := explorercompilation.PresentationConfig{OutputID: recipeOutput.Name, Title: presentation.Title, Columns: make([]explorercompilation.PresentationColumn, 0, len(compiledOutput.OutputSchema))}
+		emittedStart := len(reconciled.EmittedColumns)
 		maxOrder := -1
 		for _, schemaColumn := range compiledOutput.OutputSchema {
 			if schemaColumn.Internal || schemaColumn.Identity {
@@ -294,6 +295,7 @@ func reconcileFinalOutputMetadata(translated explorercompilation.WorkspaceResult
 				return explorercompilation.WorkspaceResult{}, fmt.Errorf("authored table-shape output %q column %q is absent from the final compiler schema", recipeOutput.Name, name)
 			}
 		}
+		orderReconciledOutputColumns(&contract, finalPresentation.Columns, reconciled.EmittedColumns[emittedStart:])
 		reconciled.OutputContracts = append(reconciled.OutputContracts, contract)
 		reconciled.Presentations = append(reconciled.Presentations, finalPresentation)
 	}
@@ -306,6 +308,42 @@ func reconcileFinalOutputMetadata(translated explorercompilation.WorkspaceResult
 		return explorercompilation.WorkspaceResult{}, fmt.Errorf("reconciled output contract is inconsistent: %w", err)
 	}
 	return reconciled, nil
+}
+
+// orderReconciledOutputColumns keeps physical execution order in the resolved
+// compiler schema while making the durable receipt's public columns follow the
+// authored table presentation order. The presentation records the original
+// physical position as a deterministic tie breaker for legacy duplicate
+// orders and synthesized outputs.
+func orderReconciledOutputColumns(contract *explorer.PublicOutputContract, presentation []explorercompilation.PresentationColumn, emitted []explorer.EmittedColumn) {
+	tableOrder := make(map[string]int, len(presentation))
+	physicalOrder := make(map[string]int, len(presentation))
+	for _, column := range presentation {
+		tableOrder[column.PublicColumn] = column.Order
+		physicalOrder[column.PublicColumn] = column.PhysicalOrder
+	}
+	less := func(left, right string) bool {
+		if tableOrder[left] != tableOrder[right] {
+			return tableOrder[left] < tableOrder[right]
+		}
+		if physicalOrder[left] != physicalOrder[right] {
+			return physicalOrder[left] < physicalOrder[right]
+		}
+		return left < right
+	}
+	sort.SliceStable(contract.Columns, func(i, j int) bool {
+		return less(contract.Columns[i].Column, contract.Columns[j].Column)
+	})
+	sort.SliceStable(emitted, func(i, j int) bool {
+		return less(emitted[i].PublicColumn, emitted[j].PublicColumn)
+	})
+	contract.Lossless = true
+	contract.MLReady = true
+	contract.StructuralSuitability = ""
+	contract.LossReasons = nil
+	for _, column := range emitted {
+		mergeReconciledContractQuality(contract, column)
+	}
 }
 
 func explicitGroupOutputEmission(document authoringv2.Document, outputID string, column lower.CompiledOutputColumn) (explorer.EmittedColumn, bool, error) {

@@ -164,12 +164,15 @@ func sharePhysicalSetGroup(plan *ir.PhysicalPlan, indices []int, types map[strin
 			t.EndpointIndexFields = append([]string(nil), fields...)
 		}
 	}
-	base.Subplan.Operations[0].Traversal = &t
 	decomposition, ok := decompositions[first]
 	if !ok || len(decomposition.PrefixOperations) == 0 {
 		return fmt.Errorf("missing traversal prefix decomposition for set %d", first)
 	}
 	base.Subplan.Operations = ir.ClonePhysicalOperations(decomposition.PrefixOperations)
+	// Prefix decomposition preserves the original consumer's scalar type
+	// binding. Restore the broadened discriminator after cloning it so the
+	// shared traversal can collect every candidate type in this group.
+	base.Subplan.Operations[0].Traversal = &t
 	base.Variable = baseName
 	base.SourceSetVariable, base.ItemVariable = "", ""
 	// The broad source must remain a full node because sibling consumers may

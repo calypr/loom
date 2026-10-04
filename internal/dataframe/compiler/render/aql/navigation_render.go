@@ -256,7 +256,10 @@ func (r *physicalPlanRenderer) renderSet(set ir.PhysicalSet, index int) ([]strin
 		)
 		if t.TargetTypeBindKey != "" {
 			if _, ok := r.bindVars[t.TargetTypeBindKey].([]string); ok {
-				lines = append(lines, fmt.Sprintf("%s  FILTER POSITION(@%s, %s.resourceType)", indent, t.TargetTypeBindKey, t.TargetVariable))
+				lines = append(lines,
+					fmt.Sprintf("%s  FILTER POSITION(@%s, %s.resourceType)", indent, t.TargetTypeBindKey, t.TargetVariable),
+					fmt.Sprintf("%s  FILTER %s.%s == %s.resourceType", indent, t.EdgeVariable, t.EdgeTargetTypeField, t.TargetVariable),
+				)
 			} else {
 				lines = append(lines, fmt.Sprintf("%s  FILTER %s.resourceType == @%s", indent, t.TargetVariable, t.TargetTypeBindKey))
 			}
@@ -421,6 +424,7 @@ func (r *physicalPlanRenderer) renderTraversalTypeFilters(t *ir.PhysicalTraversa
 		return []string{
 			fmt.Sprintf("%s  FILTER POSITION(@%s, %s.%s)", indent, t.TargetTypeBindKey, t.EdgeVariable, t.EdgeTargetTypeField),
 			fmt.Sprintf("%s  FILTER POSITION(@%s, %s.resourceType)", indent, t.TargetTypeBindKey, t.TargetVariable),
+			fmt.Sprintf("%s  FILTER %s.%s == %s.resourceType", indent, t.EdgeVariable, t.EdgeTargetTypeField, t.TargetVariable),
 		}
 	}
 	return []string{fmt.Sprintf("%s  FILTER %s.%s == @%s", indent, t.EdgeVariable, t.EdgeTargetTypeField, t.TargetTypeBindKey), fmt.Sprintf("%s  FILTER %s.resourceType == @%s", indent, t.TargetVariable, t.TargetTypeBindKey)}
