@@ -31,8 +31,10 @@ The retained CDA report passes those correctness and persistence assertions
 but fails the five-second Publish render gate at 14,690 ms. The migrated
 `builder-authoring/suggestions` case passes on that CDA generation for exact
 Patient ID candidate actionability; it does not Apply or reload. See
-`docs/PLAYWRIGHT_MIGRATION.md` for both commands and report paths. Eleven
-other registered Builder cases still use the older browser driver.
+`docs/PLAYWRIGHT_MIGRATION.md` for both commands and report paths. The
+registered `verify-ui` cases now use Playwright; their registry status and
+current-source evidence are reported by
+`node scripts/verify-ui/coverage-status.mjs`.
 
 ## Current Builder requirements
 
@@ -80,10 +82,10 @@ errors, cleanup, and evidence path. Untested or skipped cases are not passes.
 
 ## Compound coded grouping
 
-Run `node scripts/verify-compound-coded-group.mjs` against the construction
-development stack (UI 30008, API 8188) with the loaded CDA fixture. Override
-`LOOM_UI_ORIGIN`, `LOOM_API_ORIGIN`, or `LOOM_ARANGO_CONTAINER` for another local
-stack. The case uses one Observation and coded values from its component string
+Run `node scripts/verify-compound-coded-group.mjs` with explicit
+`LOOM_CDA_PROJECT`, `LOOM_CDA_UI_ORIGIN`, `LOOM_CDA_API_ORIGIN`,
+`LOOM_CDA_API_CONTAINER`, `LOOM_CDA_COMPOSE_PROJECT`, and
+`LOOM_ARANGO_CONTAINER` for an isolated CDA stack. The case uses one Observation and coded values from its component string
 field, with a raw Arango record as the independent oracle.
 
 Native clicks verify direct selection in Group records, an unchanged draft
@@ -91,7 +93,8 @@ before Apply, one atomic save, reload/edit, an ordinary field alongside coded
 keys, and removal restoring the source table. Picker entry and each preview
 must finish within five seconds. HTTP, console, runtime, DOM, and timing evidence
 is retained under `/tmp/loom-compound-coded-verification` (override with
-`LOOM_VERIFY_OUTPUT`). Each run retains its own QA Explorer for review.
+`LOOM_VERIFY_OUTPUT`). This migrated case has static verification only; run it
+before claiming a browser pass for the current source and build.
 
 ## Construction transition debugging
 
