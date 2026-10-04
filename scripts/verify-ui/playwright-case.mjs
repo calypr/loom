@@ -32,7 +32,8 @@ const isLoopback = origin => {
   catch { return false; }
 };
 
-const diagnosticsToNetwork = (diagnostics, injectedTarget) => {
+export const diagnosticsToNetwork = (diagnostics, injectedTarget) => {
+  let injectedFailureConsumed = false;
   const matchesInjectedPath = value => {
     try {
       const url = new URL(value);
@@ -40,15 +41,20 @@ const diagnosticsToNetwork = (diagnostics, injectedTarget) => {
     }
     catch { return false; }
   };
+  const markInjected = item => {
+    const matches = !injectedFailureConsumed && item.method === injectedTarget?.method && matchesInjectedPath(item.url);
+    if (matches) injectedFailureConsumed = true;
+    return matches;
+  };
   const entries = [];
   for (const item of diagnostics.console) entries.push({ kind: 'console-error', ...item });
   for (const item of diagnostics.pageErrors) entries.push({ kind: 'exception', ...item });
   for (const item of diagnostics.networkFailures) {
-    const fault = matchesInjectedPath(item.url);
+    const fault = markInjected(item);
     entries.push({ kind: 'network', ...item, errorText: item.failure, ...(fault ? { injectedFault: true } : {}) });
   }
   for (const item of diagnostics.httpFailures) {
-    const fault = matchesInjectedPath(item.url);
+    const fault = markInjected(item);
     entries.push({ kind: 'network', ...item, ...(fault ? { injectedFault: true, injectedStatus: item.status } : {}) });
   }
   return entries;
@@ -125,7 +131,7 @@ export const runPlaywrightCase = async (context, scenarioID, caseName, work) => 
 
     const fault = async ({ method, path }) => {
       const apiOrigin = new URL(target.apiUrl).origin;
-      injectedTarget = { origin: apiOrigin, path };
+      injectedTarget = { origin: apiOrigin, path, method };
       let count = 0;
       await page.route('**/*', async route => {
         const parts = pathAndMethod(route.request());
