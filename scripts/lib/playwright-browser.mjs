@@ -157,7 +157,7 @@ export async function launchBrowser({ evidence, appOrigins = [], noAuth = false 
       observedAt: Date.now(),
       ...(request.headers()['x-request-id'] ? { requestId: sanitizeText(request.headers()['x-request-id']) } : {}),
       ...(currentAction ? { triggerAction: currentAction } : {}),
-      ...(expectedCancellations.get(request)?.actionLabel === currentAction &&
+      ...(expectedCancellations.has(request) && expectedCancellations.get(request).actionLabel === currentAction &&
           request.failure()?.errorText === 'net::ERR_ABORTED'
         ? { canceled: true, cancellationReason: expectedCancellations.get(request).reason } : {}),
     });

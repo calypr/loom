@@ -16,6 +16,20 @@ test('catalog cancellation requires exact method, Explorer path, and component r
   assert.equal(matchesPendingCancellation(request(`http://127.0.0.1:30102${path}`, 'POST', 'unrelated-123'), expected), false);
 });
 
+test('unexpected browser request abort remains recorded and does not crash diagnostics', async () => {
+  const evidence = await mkdtemp(join(tmpdir(), 'loom-playwright-abort-test-'));
+  const browser = await launchBrowser({ evidence, appOrigins: ['https://loom.local'] });
+  try {
+    await browser.page.route('https://loom.local/**', route => route.abort());
+    await assert.rejects(browser.page.goto('https://loom.local/check', { waitUntil: 'domcontentloaded' }));
+    assert.equal(browser.diagnostics.networkFailures.length, 1);
+    assert.equal(browser.diagnostics.networkFailures[0].canceled, undefined);
+  } finally {
+    await browser.close();
+    await rm(evidence, { recursive: true, force: true });
+  }
+});
+
 test('Playwright helper clicks a native control and records first-failure evidence', async t => {
   const evidence = await mkdtemp(join(tmpdir(), 'loom-playwright-helper-test-'));
   const origin = 'https://loom.local';
