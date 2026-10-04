@@ -89,6 +89,27 @@ before running them. Adapt manual Preview paths to automatic rendering for V2.
 Missing scripts and stale selectors are harness gaps, never passes. Extend the
 real browser driver for required features and maintain honest coverage status.
 
+## Playwright migration
+
+Read [the driver and caller inventory](../../../docs/PLAYWRIGHT_MIGRATION.md)
+before changing a browser script. `scripts/verify-ui/browser.mjs`,
+`scripts/lib/browser.mjs`, and the browser code in `scripts/loom-dev.mjs` are
+distinct CDP drivers. Migrate one registered case or standalone CDA lifecycle
+at a time, compare its retained assertions with the original, and keep its
+independent fixture or CDA oracle. Install `scripts/package-lock.json` with
+`npm ci --prefix scripts` before running a migrated case.
+
+Use Playwright locators and native actions for navigation, clicks, fills,
+selection, and waits. Require a unique visible, enabled, pointer-receiving
+target. A read-only page inspection can collect rows or transient state; it
+must not invoke application handlers or set application control values.
+Retain the first failed action, locator state, DOM, screenshot, console and
+owned request diagnostics, elapsed time, and a failure trace. Run on a
+physically separate source checkout and its own Compose project, with one
+browser session at a time. A passed historical report remains useful but is
+not current proof: `node scripts/verify-ui/coverage-status.mjs` shows status
+and source/build freshness separately. Missing API build identity is unknown.
+
 ## Launch
 
 Start or attach to the isolated stack:

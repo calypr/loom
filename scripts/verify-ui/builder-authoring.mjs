@@ -4,7 +4,8 @@ import { executeScenario, runBrowserCase } from './common.mjs';
 import { randomUUID } from 'node:crypto';
 import { click, evaluate, fill, reload, inspectAction, captureDOM, waitFor, recordBrowserTiming } from './browser.mjs';
 import { isActionable, recordCheck, recordUntested } from './report.mjs';
-import { addPatientTableRoot, configurePatientColumns, createBlankExplorer, previewPatientRows, publishPatientExplorer } from './workflows.mjs';
+import { addPatientTableRoot, configurePatientColumns, createBlankExplorer, previewPatientRows } from './workflows.mjs';
+import { runPlaywrightAuthoring } from './playwright-authoring.mjs';
 
 const setSelectValue = async (cdp, selector, value) => {
   const action = await inspectAction(cdp, selector);
@@ -473,24 +474,11 @@ const runSuggestions = (context) => runBrowserCase(context, 'builder-authoring',
   report.target.explorer = explorer;
 });
 
-const runAuthoring = (context) => runBrowserCase(context, 'builder-authoring', 'authoring', async ({ cdp, report }) => {
-  const { explorer, title } = await createBlankExplorer(cdp, context.target, context.runID, 'authoring', report);
-  await addPatientTableRoot(cdp, report);
-  await configurePatientColumns(cdp, report);
-  await previewPatientRows(cdp, report);
-  await publishPatientExplorer(cdp, report);
-  await reload(cdp, "document.body.innerText.includes('DATASET WORKSPACE') && document.querySelector('button[aria-label^=\"Select Patient ID\"]') && document.querySelector('button[aria-label^=\"Select Gender\"]')");
-  const restored = await evaluate(cdp, "({explorer:document.querySelector('select[aria-label=\"Explorer\"]')?.value,title:document.querySelector('select[aria-label=\"Explorer\"] option:checked')?.textContent.trim(),id:Boolean(document.querySelector('button[aria-label^=\"Select Patient ID\"]')),gender:Boolean(document.querySelector('button[aria-label^=\"Select Gender\"]'))})");
-  recordCheck(report, 'persistence', 'published Builder table and configured fields survive reload', restored.explorer === explorer && restored.title === title && Boolean(restored.id && restored.gender), restored);
-  report.target.explorer = explorer;
-  report.target.table = 'Patients';
-});
-
 export const runBuilderAuthoring = async (context, caseNames) => {
   const reports = [];
   for (const caseName of caseNames) {
     if (caseName === 'suggestions') reports.push(await runSuggestions(context));
-    else if (caseName === 'authoring') reports.push(await runAuthoring(context));
+    else if (caseName === 'authoring') reports.push(await runPlaywrightAuthoring(context));
     else if (caseName === 'repeated-empty') reports.push(await runRepeatedEmpty(context));
     else if (caseName === 'cohort-expand') reports.push(await runCohortExpand(context));
     else if (caseName === 'cohort-recode') reports.push(await runCohortRecode(context));

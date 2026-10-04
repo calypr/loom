@@ -21,5 +21,6 @@ META/
 /arango-fhir-server
 /ui/node_modules/
 /ui/**/node_modules/
+/scripts/node_modules/
 /ui/apps/*/dist/
 /ui/packages/*/dist/
