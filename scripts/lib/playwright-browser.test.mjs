@@ -1,9 +1,13 @@
 import assert from 'node:assert/strict';
+import { createWriteStream } from 'node:fs';
 import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { launchBrowser, matchesPendingCancellation, sanitizePayload } from './playwright-browser.mjs';
+import { pipeline } from 'node:stream/promises';
+import { yauzl, yazl } from 'playwright-core/lib/utilsBundle';
+import { launchBrowser, matchesPendingCancellation, sanitizePayload, traceUnsafeReasonForRequest, traceUnsafeReasonForResponse } from './playwright-browser.mjs';
+import { sanitizePlaywrightTrace } from './playwright-trace-redact.mjs';
 
 test('large CDA report payloads remain complete while credential fields are redacted', () => {
   const rows = Array.from({ length: 1000 }, (_, index) => ({ id: `patient-${index}`, value: index % 2 ? null : 'repeat' }));
@@ -155,4 +159,60 @@ test('fresh loopback no-auth failure retains a Playwright trace zip', async t =>
     await browser?.close();
     await rm(evidence, { recursive: true, force: true });
   }
+});
+
+test('trace policy rejects credentials, snapshot tokens, and unrelated traffic', () => {
+  const origins = new Set(['http://127.0.0.1:38889']);
+  const local = { url: 'http://127.0.0.1:38889/api/v1/projects/loom/explorers/x', headers: {} };
+  assert.equal(traceUnsafeReasonForRequest({ ...local, postData: '{"snapshotToken":"must-not-be-retained"}' }, origins),
+    undefined);
+  assert.equal(traceUnsafeReasonForRequest({ ...local, headers: { authorization: 'Bearer private' } }, origins),
+    'A request contained credential-like headers.');
+  assert.equal(traceUnsafeReasonForResponse({ url: local.url }, origins, '{"credential":"must-not-be-retained"}'),
+    'A response body contained credentials beyond a redactable snapshot token.');
+  assert.equal(traceUnsafeReasonForResponse({ url: local.url }, origins, '{"snapshotToken":"must-not-be-retained"}'), undefined);
+  assert.equal(traceUnsafeReasonForResponse({ url: local.url }, origins, '{"diagnostic":"safe detail"}'), undefined);
+  assert.equal(traceUnsafeReasonForRequest({ ...local, url: 'https://unrelated.example/api' }, origins),
+    'The browser contacted unrelated traffic.');
+});
+
+test('Playwright traces redact snapshot tokens and credential headers while preserving actions and DOM without binary payloads', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'loom-playwright-trace-redaction-'));
+  const source = join(directory, 'source.zip');
+  const target = join(directory, 'redacted.zip');
+  const originalSecret = 'snapshot-secret-must-not-survive';
+  const screenshot = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0x61]);
+  const archive = new yazl.ZipFile();
+  archive.addBuffer(Buffer.from(`${JSON.stringify({ type: 'action', name: 'Click Apply', snapshot: `<input name="snapshotToken" value="${originalSecret}">` })}\n`), 'trace.trace');
+  archive.addBuffer(Buffer.from(`${JSON.stringify({ type: 'request', request: { postData: { text: JSON.stringify({ snapshotToken: originalSecret }) }, headers: [{ name: 'Authorization', value: 'Bearer trace-credential' }] } })}\n`), 'trace.network');
+  archive.addBuffer(Buffer.from(JSON.stringify({ snapshotToken: originalSecret, visible: 'source row' })), 'resources/response-body');
+  archive.addBuffer(screenshot, 'resources/failure.png');
+  archive.end();
+  await pipeline(archive.outputStream, createWriteStream(source));
+  await sanitizePlaywrightTrace(source, target);
+
+  const entries = await new Promise((resolve, reject) => {
+    const output = [];
+    yauzl.open(target, { lazyEntries: true }, (error, zip) => {
+      if (error) return reject(error);
+      zip.on('error', reject);
+      zip.on('end', () => resolve(output));
+      zip.on('entry', entry => zip.openReadStream(entry, (streamError, stream) => {
+        if (streamError) return reject(streamError);
+        const chunks = [];
+        stream.on('data', chunk => chunks.push(chunk));
+        stream.on('error', reject);
+        stream.on('end', () => { output.push([entry.fileName, Buffer.concat(chunks)]); zip.readEntry(); });
+      }));
+      zip.readEntry();
+    });
+  });
+  assert.deepEqual(entries.map(([name]) => name).sort(), ['resources/response-body', 'trace.network', 'trace.trace']);
+  const retainedText = entries.map(([, body]) => body.toString('utf8')).join('\n');
+  assert.equal(entries.some(([, body]) => body.includes(Buffer.from(originalSecret))), false);
+  assert.equal(retainedText.includes(originalSecret), false, retainedText);
+  assert.equal(retainedText.includes('trace-credential'), false);
+  assert.equal(retainedText.includes('Click Apply'), true);
+  assert.equal(retainedText.includes('[REDACTED]'), true);
+  await rm(directory, { recursive: true, force: true });
 });

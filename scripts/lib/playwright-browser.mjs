@@ -1,11 +1,13 @@
 import { existsSync } from 'node:fs';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { chromium } from 'playwright';
+import { sanitizePlaywrightTrace } from './playwright-trace-redact.mjs';
 
 const maxEntries = 100;
 const maxBodyLength = 12000;
 const sensitiveName = /authorization|cookie|password|passwd|token|secret|credential|session|api[_-]?key/i;
+const sensitiveCredentialName = /authorization|cookie|password|passwd|secret|credential|session|api[_-]?key|token/i;
 
 export function sanitizeText(value) {
   return String(value ?? '')
@@ -13,7 +15,10 @@ export function sanitizeText(value) {
     .replace(/(?:file:\/\/)?\/(?:private\/)?tmp\/[^\s)]+/g, '$TMP/<path>')
     .replace(/\/Users\/[^/\s]+/g, '$HOME')
     .replace(/\bBearer\s+[A-Za-z0-9._~+/-]+=*/gi, 'Bearer [REDACTED]')
-    .replace(/\b(access[_-]?token|refresh[_-]?token|id[_-]?token|authorization|set-cookie|cookie|password|passwd|secret|credential|session(?:[_-]?id)?|api[_-]?key)(\s*[=:]\s*)(?:"[^"]*"|'[^']*'|[^,;\s}\]]+)/gi, '$1$2[REDACTED]')
+    .replace(/["']?[\w-]*(?:token|authorization|set-cookie|cookie|password|passwd|secret|credential|session(?:[_-]?id)?|api[_-]?key)[\w-]*["']?\s*[=:]\s*(?:"[^"]*"|'[^']*'|[^,;\s}\]]+)/gi, '[REDACTED]')
+    .replace(/<input\b[^>]*>/gi, tag => sensitiveName.test(tag)
+      ? tag.replace(/(\bvalue\s*=\s*)(["'])(.*?)\2/gi, '$1$2[REDACTED]$2')
+      : tag)
     .replace(/\beyJ[A-Za-z0-9_-]{12,}\.[A-Za-z0-9_-]{12,}\.[A-Za-z0-9_-]{12,}\b/g, '[REDACTED_TOKEN]')
     .replace(/\bsk-[A-Za-z0-9]{16,}\b/g, '[REDACTED_TOKEN]');
 }
@@ -52,6 +57,37 @@ function isLocalAppURL(rawURL, origins) {
   } catch {
     return false;
   }
+}
+
+const snapshotTokenField = /^snapshotToken$/i;
+const hasCredentialKey = (value, parentKey = '') => {
+  if (snapshotTokenField.test(parentKey)) return false;
+  if (sensitiveCredentialName.test(parentKey)) return true;
+  if (Array.isArray(value)) return value.some(item => hasCredentialKey(item));
+  if (value && typeof value === 'object') return Object.entries(value).some(([key, child]) => hasCredentialKey(child, key));
+  return false;
+};
+const containsSensitiveTraceContent = value => {
+  const text = String(value ?? '');
+  let parsed;
+  try { parsed = JSON.parse(text); } catch { parsed = undefined; }
+  const checkText = text.replace(/["']?[\w-]*snapshot[_-]?token["']?\s*[:=]\s*(?:"[^"]*"|'[^']*'|[^,;}\s]+)/gi, '');
+  return (parsed !== undefined && hasCredentialKey(parsed))
+    || sensitiveCredentialName.test(checkText)
+    || /\bBearer\s+[A-Za-z0-9._~+/-]+=*/i.test(text)
+    || /\beyJ[A-Za-z0-9_-]{12,}\.[A-Za-z0-9_-]{12,}\.[A-Za-z0-9_-]{12,}\b/.test(text)
+    || /\bsk-[A-Za-z0-9]{16,}\b/.test(text);
+};
+
+export function traceUnsafeReasonForRequest({ url, headers = {}, postData = '' }, origins) {
+  if (!isLocalAppURL(url, origins)) return 'The browser contacted unrelated traffic.';
+  if (Object.keys(headers).some(name => sensitiveName.test(name))) return 'A request contained credential-like headers.';
+  if (containsSensitiveTraceContent(postData)) return 'A request body contained credentials beyond a redactable snapshot token.';
+}
+
+export function traceUnsafeReasonForResponse({ url }, origins, body) {
+  if (!isLocalAppURL(url, origins)) return 'The browser received unrelated traffic.';
+  if (containsSensitiveTraceContent(body)) return 'A response body contained credentials beyond a redactable snapshot token.';
 }
 
 function isLoopback(origin) {
@@ -99,15 +135,32 @@ export async function launchBrowser({ evidence, appOrigins = [], noAuth = false,
   const origins = new Set(appOrigins.map(value => new URL(value).origin));
   const traceAllowed = noAuth && appOrigins.length > 0 && appOrigins.every(isLoopback);
   let traceSafe = traceAllowed;
+  let traceSafetyReason = traceAllowed ? undefined : 'Trace retention requires a fresh unauthenticated context and loopback application origins.';
+  const pendingTraceScans = new Set();
+  const rejectTrace = reason => {
+    traceSafe = false;
+    traceSafetyReason ??= reason;
+  };
   page.on('request', request => {
-    if (!isLocalAppURL(request.url(), origins)) traceSafe = false;
     const headers = request.headers();
-    if (Object.keys(headers).some(name => sensitiveName.test(name))) traceSafe = false;
+    const unsafeReason = traceUnsafeReasonForRequest({ url: request.url(), headers, postData: request.postData() }, origins);
+    if (unsafeReason) rejectTrace(unsafeReason);
+  });
+  page.on('response', response => {
+    if (!traceAllowed || !isLocalAppURL(response.url(), origins)) return;
+    let scan;
+    scan = response.text().then(body => {
+      const unsafeReason = traceUnsafeReasonForResponse({ url: response.url() }, origins, body);
+      if (unsafeReason) rejectTrace(unsafeReason);
+    }).catch(() => {
+      rejectTrace('A response body could not be checked for credentials.');
+    }).finally(() => pendingTraceScans.delete(scan));
+    pendingTraceScans.add(scan);
   });
   if (traceAllowed) {
     await context.tracing.start({
-      title: 'Loom browser verification; loopback origins and fresh unauthenticated context only',
-      screenshots: true,
+      title: 'Loom browser verification; sanitized loopback trace and fresh unauthenticated context only',
+      screenshots: false,
       snapshots: true,
       sources: false,
     });
@@ -221,6 +274,7 @@ export async function launchBrowser({ evidence, appOrigins = [], noAuth = false,
     async captureFailure(error, details = {}) {
       if (failureCaptured) return;
       failureCaptured = true;
+      while (pendingTraceScans.size) await Promise.allSettled([...pendingTraceScans]);
       const { action, ...safeDetails } = details;
       const contextualEvidence = typeof this.failureContext === 'function'
         ? sanitizePayload(await this.failureContext())
@@ -231,6 +285,7 @@ export async function launchBrowser({ evidence, appOrigins = [], noAuth = false,
         ...contextualEvidence,
         ...sanitizePayload(safeDetails),
         tracePolicy: 'A Playwright zip trace is retained only when the caller confirms no authentication, all origins are loopback, and the context is fresh; other targets receive a sanitized JSON failure trace.',
+        ...(!traceAllowed || !traceSafe ? { traceUnavailable: traceSafetyReason } : {}),
         diagnostics,
       };
       try {
@@ -286,26 +341,35 @@ export async function launchBrowser({ evidence, appOrigins = [], noAuth = false,
       } catch {
         // Preserve the originating browser assertion if the evidence volume is unavailable.
       }
+      let traceRetained = false;
       if (traceAllowed && traceSafe) {
+        const rawTracePath = `${tracePath}.raw`;
         try {
-          await context.tracing.stop({ path: tracePath });
+          await context.tracing.stop({ path: rawTracePath });
           tracingStopped = true;
-          return 'failure-trace.zip';
+          await sanitizePlaywrightTrace(rawTracePath, tracePath);
+          await rm(rawTracePath, { force: true });
+          traceRetained = true;
         } catch (captureError) {
           diagnostics.traceError = sanitizeText(captureError.message);
+          failure.traceUnavailable = 'Playwright trace redaction could not complete safely.';
+          await rm(rawTracePath, { force: true }).catch(() => undefined);
         }
       }
-      await writeFile(join(evidence, 'failure-trace.json'), JSON.stringify(sanitizePayload({
-        message: failure.message,
-        phase: failure.phase,
-        cycle: failure.cycle,
-        action: failure.action,
-        ...contextualEvidence,
-        diagnostics,
-      }), null, 2)).catch(() => undefined);
-      if (traceAllowed) await context.tracing.stop().catch(() => undefined);
-      tracingStopped = true;
-      return 'failure-trace.json';
+      if (!traceRetained) {
+        await writeFile(join(evidence, 'failure-trace.json'), JSON.stringify(sanitizePayload({
+          message: failure.message,
+          phase: failure.phase,
+          cycle: failure.cycle,
+          action: failure.action,
+          ...contextualEvidence,
+          diagnostics,
+        }), null, 2)).catch(() => undefined);
+        if (traceAllowed && !tracingStopped) await context.tracing.stop().catch(() => undefined);
+        tracingStopped = true;
+      }
+      await writeFile(join(evidence, 'first-failure.json'), JSON.stringify(failure, null, 2)).catch(() => undefined);
+      return traceRetained ? 'failure-trace.zip' : 'failure-trace.json';
     },
     async close() {
       if (!tracingStopped) {
