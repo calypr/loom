@@ -4,12 +4,6 @@ import { resolve } from 'node:path';
 
 export { runPlaywrightCase } from './playwright-case.mjs';
 
-const safeTarget = (target) => {
-  let url;
-  try { url = new URL(target.uiUrl ?? 'http://127.0.0.1'); } catch { url = new URL('http://127.0.0.1'); }
-  return { kind: target.kind ?? 'owned-dev-fixture', uiUrl: url.origin + url.pathname, sourceRoot: target.sourceRoot ?? null, project: target.fixtureProject ?? null, explorer: target.bootstrapExplorerId ?? null };
-};
-
 export const browserURL = (target, project, explorer, mode) => {
   const url = new URL(target.uiUrl);
   url.searchParams.set('project', project);
