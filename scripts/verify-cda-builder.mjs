@@ -9,6 +9,7 @@ import { runPatientRelatedApplyReload, runPatientRelatedEditRemove } from './ver
 import { runPreviewLimits } from './verify-cda-builder-preview-limits.mjs';
 import { runBuilderTableManagement } from './verify-cda-builder-table-management.mjs';
 import { tableManagementActions } from './verify-cda-builder-table-management-contract.mjs';
+import { rowChoiceCases, runRowChoiceInspection } from './verify-cda-builder-row-choice-inspection.mjs';
 
 const action = process.argv[2] ?? 'Keep rows';
 const patientRelatedInspectionActions = new Set(['Inspect Patient field choice', 'Inspect selected Patient route', 'Inspect Patient proposal']);
@@ -16,7 +17,9 @@ const patientRelatedApplyReloadAction = action === 'Verify Patient related colum
 const patientRelatedEditRemoveAction = action === 'Edit and remove Patient related column';
 const previewLimitsAction = action === 'Preview limits';
 const tableManagementAction = tableManagementActions.has(action);
-const playwrightOnlyAction = action === 'Verify related source chooser' || patientRelatedInspectionActions.has(action) || patientRelatedApplyReloadAction || patientRelatedEditRemoveAction || previewLimitsAction || tableManagementAction;
+const rowChoiceActions = new Set(Object.keys(rowChoiceCases));
+const rowChoiceAction = rowChoiceActions.has(action);
+const playwrightOnlyAction = action === 'Verify related source chooser' || patientRelatedInspectionActions.has(action) || patientRelatedApplyReloadAction || patientRelatedEditRemoveAction || previewLimitsAction || tableManagementAction || rowChoiceAction;
 const explorerId = process.argv[3] ?? (playwrightOnlyAction ? undefined : 'cda-builder-full-qa-1790439585678');
 const uiOrigin = (process.env.LOOM_CDA_UI_ORIGIN ?? (playwrightOnlyAction ? '' : 'http://127.0.0.1:30002')).replace(/\/$/, '');
 const pageURL = playwrightOnlyAction ? undefined : `${uiOrigin}/?project=loom_dev_cda_fhir&explorer=${explorerId}&mode=builder`;
@@ -66,8 +69,10 @@ try {
           ? await runPatientRelatedEditRemove({ explorerId: process.argv[3] })
         : previewLimitsAction
           ? await runPreviewLimits({ explorerId: process.argv[3] })
-          : tableManagementAction
+        : tableManagementAction
             ? await runBuilderTableManagement({ action, explorerId: process.argv[3], secondExplorerId: process.argv[4], expectedSecondExplorerTable: process.argv[5] })
+            : rowChoiceAction
+              ? await runRowChoiceInspection({ action, explorerId: process.argv[3] })
         : await runPatientRelatedInspection({ action, explorerId: process.argv[3] });
     console.log(JSON.stringify({
       action,
