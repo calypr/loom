@@ -35,9 +35,10 @@ watched product checkout and its deployment were not edited or driven.
   within that run.
 - The current integrated Builder module suite passed 20/20 focused tests:
   `node --test scripts/verify-cda-builder-{patient-related,preview-limits,table-management,row-choice-inspection,column-presentation,filters,related-source-chooser}.test.mjs`.
-  The registered `verify-ui` suite passed 58/58; `loom-dev` tests passed 79/79
-  before the newest Builder units. `find scripts -name '*.mjs' -print0 | xargs
-  -0 -n1 node --check` passed before the newest units; rerun it before merge.
+  The registered `verify-ui` suite passed 58/58; the combined `loom-dev` and
+  Builder module suite passed 96/96 at this checkpoint. `find scripts -name
+  '*.mjs' -print0 | xargs -0 -n1 node --check` also passed. Rerun these before
+  merge after any further integration.
 - The five-second CDA Builder Publish render failed at 14,690 ms:
   `.artifacts/loom-dev/c52d4223d857/verify-ui/builder-authoring-authoring-muu325aa-18d89e9.json`.
   Group-edit saved Preview and post-Unpivot ID-count render also failed the
