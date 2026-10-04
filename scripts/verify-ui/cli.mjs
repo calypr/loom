@@ -30,11 +30,11 @@ export const parseArgs = (argv) => {
 export const usage = (id) =>
   'Usage: node scripts/verify-ui/' + getScenario(id).script + ' [--help] [--list] [--case NAME] [--reuse-owned-dataset] [--url URL --project PROJECT --explorer EXPLORER] [--report PATH]\n'
   + 'Without --url, the script validates the owned loopback Loom dev stack and seeds a fresh disposable fixture.\n'
-  + '--reuse-owned-dataset is limited to Builder authoring/suggestions and read-only Builder load checks; it uses an already loaded, named, owned development generation.\n'
+  + '--reuse-owned-dataset is limited to migrated Builder authoring and read-only Builder load checks; it uses an already loaded, named, owned development generation.\n'
   + 'A custom URL requires project and explorer and runs read-only browser workflows.\n';
 
 export const supportsOwnedDatasetReuse = (scenarioID, caseName) =>
-  (scenarioID === 'builder-authoring' && ['authoring', 'suggestions'].includes(caseName)) ||
+  (scenarioID === 'builder-authoring' && ['authoring', 'suggestions', 'cohort-recode'].includes(caseName)) ||
   (scenarioID === 'builder-load' && ['list', 'state'].includes(caseName));
 
 const runID = () => Date.now().toString(36) + '-' + Math.random().toString(16).slice(2, 9);
@@ -75,7 +75,7 @@ export const createRunContext = async (args, scenario, { mutating = false } = {}
   await assertOwnedDevSession(session);
   if (args.reuseOwnedDataset) {
     if (!supportsOwnedDatasetReuse(scenario.id, args.caseName)) {
-      throw new Error('--reuse-owned-dataset is limited to builder-authoring --case authoring or suggestions, and read-only builder-load --case list or state');
+      throw new Error('--reuse-owned-dataset is limited to builder-authoring --case authoring, suggestions, or cohort-recode, and read-only builder-load --case list or state');
     }
     const health = await doctor(session);
     if (health.api !== 200 || health.ui !== 200 || health.generation !== 200 ||
