@@ -220,8 +220,19 @@ const runCohortRecode = context => runPlaywrightCase(context, 'builder-authoring
     });
   const groupPreview = page.locator('[aria-label="Row definition preview"]');
   const groupPreviewText = await groupPreview.innerText();
-  assert(groupPreviewText.includes('2 rows → 1 rows'),
-    `fixture named cohort must collapse exactly its two Patient records: ${groupPreviewText}`);
+  const groupPreviewCounts = groupPreviewText.match(/(\d+)\s+rows\s*→\s*(\d+)\s+rows/);
+  assert(groupPreviewCounts, `named cohort preview must expose its input and output row counts: ${groupPreviewText}`);
+  const displayedInputRows = Number(groupPreviewCounts[1]);
+  const namedCohortOutputRows = Number(groupPreviewCounts[2]);
+  assert(displayedInputRows > 0 && namedCohortOutputRows === 1,
+    `the exact two-member named cohort must preview as one output row; the input count may describe a bounded sample: ${groupPreviewText}`);
+  report.target.namedCohortRowDefinitionPreview = {
+    displayedInputRows,
+    displayedInputIsSampled: /\bsampled\b/i.test(groupPreviewText),
+    outputRows: namedCohortOutputRows,
+    exactSelectedMemberCount: cohort.memberCount,
+    sourceIDs,
+  };
   const applyRows = page.getByRole('button', { name: 'Apply row definition', exact: true });
   await action('apply named cohort row definition', applyRows, () => applyRows.click(), {
     after: async () => page.waitForFunction(() => {
