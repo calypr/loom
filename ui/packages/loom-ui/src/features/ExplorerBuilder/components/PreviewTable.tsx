@@ -5,6 +5,7 @@ import type {
   ExplorerBuilderPreviewResult,
   ExplorerBuilderPreviewRowSource,
   ExplorerBuilderRowLineageResponse,
+  ExplorerRowDefinition,
   ConstructionStageColumn,
   ConstructionStep,
 } from '../../../types';
@@ -49,6 +50,8 @@ type PreviewPresentationColumn = {
   readonly visibleByDefault: boolean;
   readonly change: PreviewTablePresentationChange;
 };
+
+type ExplicitGroupRowValue = NonNullable<Extract<ExplorerRowDefinition, { kind: 'GROUPS' }>['groups']['rowValues']>[number];
 
 const withPresentationTable = (
   entry: PreviewPresentationColumn,
@@ -122,6 +125,7 @@ export const PreviewTable = ({
   onLimitChange,
   onColumnChange,
   onColumnsChange,
+  onRowValuePolicyChange,
   onRowLineage,
   onRemoveColumn,
   disabled = false,
@@ -133,6 +137,10 @@ export const PreviewTable = ({
   readonly onColumnChange: (change: PreviewTablePresentationChange) => void;
   readonly onColumnsChange: (
     changes: ReadonlyArray<PreviewTablePresentationChange>,
+  ) => void;
+  readonly onRowValuePolicyChange?: (
+    physicalColumn: string,
+    policy: ExplicitGroupRowValue['policy'],
   ) => void;
   readonly onRemoveColumn?: (column: string) => void;
   readonly disabled?: boolean;
@@ -460,10 +468,25 @@ export const PreviewTable = ({
                 {configuredColumns.map((column, index) => {
                   const visible = column.table?.visible ?? column.visibleByDefault;
                   const removeTarget = removableColumnName(column);
+                  const authoredColumn = column.change.kind === 'AUTHORED_COLUMN'
+                    ? column.change.column
+                    : undefined;
+                  const rowValueBinding = authoredColumn?.columnId &&
+                    authoredColumn.occurrenceId === 'base' &&
+                    authoredColumn.source.kind === 'field' &&
+                    authoredColumn.source.field &&
+                    authoredColumn.valueTransformation === undefined &&
+                    table?.document.rows.kind === 'GROUPS' &&
+                    table.document.rows.groups.source.kind === 'EXPLICIT'
+                    ? table.document.rows.groups.rowValues?.find(
+                        (binding) => binding.columnId === authoredColumn.columnId,
+                      )
+                    : undefined;
                   return (
                     <div
                       key={column.name}
                       role="listitem"
+                      data-column-name={column.name}
                       onDragOver={(event) => {
                         if (disabled || !draggedColumnRef.current) return;
                         event.preventDefault();
@@ -517,57 +540,79 @@ export const PreviewTable = ({
                       >
                         ⋮⋮
                       </span>
-                      <div className="flex min-w-0 flex-1 items-center gap-2 leading-5">
-                        <input
-                          type="checkbox"
-                          className="mt-0.5 shrink-0"
-                          aria-label={column.label}
-                          disabled={disabled}
-                          checked={visible}
-                          onChange={(event) =>
-                            onColumnChange(
-                              withPresentationTable(column, {
-                                ...(column.table ?? {}),
-                                visible: event.currentTarget.checked,
-                                order: column.table?.order ?? index,
-                              }),
-                            )
-                          }
-                        />
-                        <input
-                          key={column.label}
-                          aria-label={`Column name for ${column.label}`}
-                          defaultValue={column.label}
-                          disabled={disabled}
-                          className="min-w-0 flex-1 rounded border border-transparent bg-transparent px-1.5 py-1 text-xs text-slate-800 hover:border-slate-300 focus:border-blue-500 focus:bg-white focus:outline-none disabled:opacity-50"
-                          onBlur={(event) => {
-                            const label = event.currentTarget.value.trim();
-                            if (!label) {
-                              event.currentTarget.value = column.label;
-                              return;
+                      <div className="flex min-w-0 flex-1 flex-col gap-1 leading-5">
+                        <div className="flex min-w-0 items-center gap-2">
+                          <input
+                            type="checkbox"
+                            className="mt-0.5 shrink-0"
+                            aria-label={column.label}
+                            disabled={disabled}
+                            checked={visible}
+                            onChange={(event) =>
+                              onColumnChange(
+                                withPresentationTable(column, {
+                                  ...(column.table ?? {}),
+                                  visible: event.currentTarget.checked,
+                                  order: column.table?.order ?? index,
+                                }),
+                              )
                             }
-                            if (label === column.label) return;
-                            if (column.change.kind === 'AUTHORED_COLUMN') {
-                              onColumnChange({
-                                kind: 'AUTHORED_COLUMN',
-                                column: { ...column.change.column, label },
-                              });
-                            } else {
-                              onColumnChange({
-                                ...column.change,
-                                column: { ...column.change.column, label },
-                              });
-                            }
-                          }}
-                          onKeyDown={(event) => {
-                            if (event.key === 'Escape') {
-                              event.currentTarget.value = column.label;
-                            }
-                            if (event.key === 'Enter' || event.key === 'Escape') {
-                              event.currentTarget.blur();
-                            }
-                          }}
-                        />
+                          />
+                          <input
+                            key={column.label}
+                            aria-label={`Column name for ${column.label}`}
+                            defaultValue={column.label}
+                            disabled={disabled}
+                            className="min-w-0 flex-1 rounded border border-transparent bg-transparent px-1.5 py-1 text-xs text-slate-800 hover:border-slate-300 focus:border-blue-500 focus:bg-white focus:outline-none disabled:opacity-50"
+                            onBlur={(event) => {
+                              const label = event.currentTarget.value.trim();
+                              if (!label) {
+                                event.currentTarget.value = column.label;
+                                return;
+                              }
+                              if (label === column.label) return;
+                              if (column.change.kind === 'AUTHORED_COLUMN') {
+                                onColumnChange({
+                                  kind: 'AUTHORED_COLUMN',
+                                  column: { ...column.change.column, label },
+                                });
+                              } else {
+                                onColumnChange({
+                                  ...column.change,
+                                  column: { ...column.change.column, label },
+                                });
+                              }
+                            }}
+                            onKeyDown={(event) => {
+                              if (event.key === 'Escape') {
+                                event.currentTarget.value = column.label;
+                              }
+                              if (event.key === 'Enter' || event.key === 'Escape') {
+                                event.currentTarget.blur();
+                              }
+                            }}
+                          />
+                        </div>
+                        {rowValueBinding && onRowValuePolicyChange ? (
+                          <label className="ml-6 flex min-w-0 items-center gap-2 text-[10px] text-slate-600">
+                            <span className="shrink-0">Cohort member values</span>
+                            <select
+                              aria-label={`Values per cohort member for ${column.label} (${column.name})`}
+                              className="min-w-0 flex-1 rounded border border-slate-300 bg-white px-1.5 py-1 text-[10px]"
+                              value={rowValueBinding.policy}
+                              disabled={disabled}
+                              onChange={(event) => {
+                                const policy = event.currentTarget.value;
+                                if ((policy === 'ALL' || policy === 'ONE') && authoredColumn) {
+                                  onRowValuePolicyChange(authoredColumn.column, policy);
+                                }
+                              }}
+                            >
+                              <option value="ONE">One unique value</option>
+                              <option value="ALL">All unique values</option>
+                            </select>
+                          </label>
+                        ) : null}
                       </div>
                       {onRemoveColumn && removeTarget ? (
                         <button

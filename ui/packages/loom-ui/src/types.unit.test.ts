@@ -1171,6 +1171,19 @@ describe('column value transformation boundary schemas', () => {
 });
 
 describe('explorerBuilderCommandSchema', () => {
+  it('accepts only a typed update for an existing grouped-row value policy', () => {
+    const command = {
+      type: 'UPDATE_COLUMN_ROW_VALUE_POLICY',
+      outputId: 'patients',
+      column: 'patient_active',
+      rowValuePolicy: 'ONE',
+    } as const;
+    expect(explorerBuilderCommandSchema.parse(command)).toEqual(command);
+    expect(explorerBuilderCommandSchema.safeParse({ ...command, rowValuePolicy: 'SOME' }).success).toBe(false);
+    expect(explorerBuilderCommandSchema.safeParse({ ...command, rowValuePolicy: undefined }).success).toBe(false);
+    expect(explorerBuilderCommandSchema.safeParse({ ...command, title: 'New field' }).success).toBe(false);
+  });
+
   it('accepts compiler-issued FIELD and SEMANTIC construction choices and rejects unknown variants', () => {
     const option = {
       form: 'VALUE',

@@ -509,6 +509,13 @@ func run(ctx context.Context, serverConfig Config) error {
 			}
 			return recipeEngine.PreviewOutput(ctx, resolved, dataframeexecution.PreviewRequest{Output: output, Limit: bindings.PreviewLimit, IncludeRowIdentity: bindings.IncludeRowIdentity}, visit)
 		},
+		ValidateReceiptStream: func(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings) error {
+			err := validateReceiptFullStream(ctx, recipeEngine, receipt, bindings)
+			if err != nil {
+				logger.Error("Explorer row-value policy full-stream validation failed", "receipt_id", receipt.ID, "error", err)
+			}
+			return err
+		},
 		PopulationMapping: func(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, output string, memberIDs []string, after string, limit int) (dataframeexecution.PopulationMappingResult, error) {
 			if receipt == nil {
 				return dataframeexecution.PopulationMappingResult{}, fmt.Errorf("compilation receipt is required")

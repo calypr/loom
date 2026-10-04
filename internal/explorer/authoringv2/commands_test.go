@@ -607,6 +607,116 @@ func TestApplyCommandsOwnsNestedRouteAndColumnIdentities(t *testing.T) {
 	}
 }
 
+func TestUpdateColumnRowValuePolicyEditsOnlyAnExistingExplicitGroupBinding(t *testing.T) {
+	document := workspaceDocument("patients")
+	column := Column{
+		ColumnID: "patient-active-stable", Column: "patient_active", Label: "Patient active", LogicalType: "boolean",
+		OccurrenceID: RootOccurrenceID,
+		Source:       ColumnSource{Kind: SourceField, Field: &FieldSource{Path: "active", ProjectionMode: "VALUE"}},
+	}
+	document.Columns = []Column{column}
+	document.Rows = RowDefinition{Kind: RowDefinitionGroups, Groups: &GroupedRows{
+		Source: GroupSource{Kind: GroupSourceExplicit, Explicit: &ExplicitGroupSource{
+			RevisionID: "cohort_revision", UnassignedMemberPolicy: UnassignedMemberExclude,
+		}},
+		RowValues: []ExplicitGroupRowValue{{ColumnID: column.ColumnID, Policy: ConstructionRowValueAll}},
+	}}
+	workspace := constructionWorkspace(document)
+	command := Command{
+		Type: CommandUpdateColumnRowValuePolicy, OutputID: document.Output.ID,
+		Column: column.Column, RowValuePolicy: ConstructionRowValueOne,
+	}
+	updated, results, err := ApplyCommands(workspace, commandCatalog(), "row-value-policy", []Command{command})
+	if err != nil {
+		t.Fatalf("update existing row-value policy: %v", err)
+	}
+	if len(results) != 1 || results[0].Type != CommandResultTableChanged || results[0].OutputID != document.Output.ID || results[0].Column != column.Column {
+		t.Fatalf("command result = %#v", results)
+	}
+	got := updated.Documents[0]
+	if !reflect.DeepEqual(got.Columns[0], column) || got.Output != document.Output {
+		t.Fatalf("policy update changed the authored column or output: column=%#v output=%#v", got.Columns[0], got.Output)
+	}
+	if got.Rows.Groups.Source.Explicit.RevisionID != "cohort_revision" || len(got.Rows.Groups.RowValues) != 1 ||
+		got.Rows.Groups.RowValues[0].ColumnID != column.ColumnID || got.Rows.Groups.RowValues[0].Policy != ConstructionRowValueOne {
+		t.Fatalf("policy update changed the group revision or stable binding: %#v", got.Rows.Groups)
+	}
+	if workspace.Documents[0].Rows.Groups.RowValues[0].Policy != ConstructionRowValueAll {
+		t.Fatal("command mutated the caller's workspace")
+	}
+}
+
+func TestUpdateColumnRowValuePolicyRejectsMissingOrUnsupportedBindings(t *testing.T) {
+	newDocument := func() Document {
+		document := workspaceDocument("patients")
+		column := Column{
+			ColumnID: "patient-active-stable", Column: "patient_active", Label: "Patient active", LogicalType: "boolean",
+			OccurrenceID: RootOccurrenceID,
+			Source:       ColumnSource{Kind: SourceField, Field: &FieldSource{Path: "active", ProjectionMode: "VALUE"}},
+		}
+		document.Columns = []Column{column}
+		document.Rows = RowDefinition{Kind: RowDefinitionGroups, Groups: &GroupedRows{
+			Source: GroupSource{Kind: GroupSourceExplicit, Explicit: &ExplicitGroupSource{
+				RevisionID: "cohort_revision", UnassignedMemberPolicy: UnassignedMemberExclude,
+			}},
+			RowValues: []ExplicitGroupRowValue{{ColumnID: column.ColumnID, Policy: ConstructionRowValueAll}},
+		}}
+		return document
+	}
+
+	t.Run("missing binding is not created", func(t *testing.T) {
+		document := newDocument()
+		document.Rows.Groups.RowValues = nil
+		workspace := constructionWorkspace(document)
+		_, _, err := ApplyCommands(workspace, commandCatalog(), "missing-row-value-binding", []Command{{
+			Type: CommandUpdateColumnRowValuePolicy, OutputID: document.Output.ID,
+			Column: document.Columns[0].Column, RowValuePolicy: ConstructionRowValueOne,
+		}})
+		if err == nil || !strings.Contains(err.Error(), "row value binding") {
+			t.Fatalf("missing binding error = %v", err)
+		}
+		if len(workspace.Documents[0].Rows.Groups.RowValues) != 0 {
+			t.Fatal("rejected update created a row-value binding")
+		}
+	})
+
+	t.Run("unsupported policy is rejected", func(t *testing.T) {
+		command := Command{
+			Type: CommandUpdateColumnRowValuePolicy, OutputID: "patients", Column: "patient_active",
+			RowValuePolicy: ConstructionRowValuePolicy("SOME"),
+		}
+		if err := command.validate(); err == nil || !strings.Contains(err.Error(), "ALL or ONE") {
+			t.Fatalf("unsupported policy validation error = %v", err)
+		}
+	})
+
+	t.Run("records rows are not eligible", func(t *testing.T) {
+		document := newDocument()
+		document.Rows = RecordsRowDefinition()
+		workspace := constructionWorkspace(document)
+		_, _, err := ApplyCommands(workspace, commandCatalog(), "not-grouped", []Command{{
+			Type: CommandUpdateColumnRowValuePolicy, OutputID: document.Output.ID,
+			Column: document.Columns[0].Column, RowValuePolicy: ConstructionRowValueOne,
+		}})
+		if err == nil || !strings.Contains(err.Error(), "explicit grouped rows") {
+			t.Fatalf("non-grouped rows error = %v", err)
+		}
+	})
+
+	t.Run("non-root fields are not eligible", func(t *testing.T) {
+		document := newDocument()
+		document.Columns[0].OccurrenceID = "related_patient"
+		workspace := constructionWorkspace(document)
+		_, _, err := ApplyCommands(workspace, commandCatalog(), "related-field", []Command{{
+			Type: CommandUpdateColumnRowValuePolicy, OutputID: document.Output.ID,
+			Column: document.Columns[0].Column, RowValuePolicy: ConstructionRowValueOne,
+		}})
+		if err == nil || !strings.Contains(err.Error(), "untransformed root FHIR field") {
+			t.Fatalf("non-root field error = %v", err)
+		}
+	})
+}
+
 func TestApplyCommandsUpdatesRouteEdgeWithoutReplacingOccurrenceState(t *testing.T) {
 	catalog := commandCatalog()
 	catalog.Edges = append(catalog.Edges, CatalogEdge{ID: "patient-encounter-secondary", FromNodeID: "patient", ToNodeID: "encounter", Label: "researchEncounters"})

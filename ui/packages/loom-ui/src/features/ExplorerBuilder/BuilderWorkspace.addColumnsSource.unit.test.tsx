@@ -27,6 +27,7 @@ import type {
   ExplorerBuilderPreviewResult,
   ExplorerBuilderState,
   ExplorerBuilderWorkspace,
+  ExplorerRowDefinition,
 } from '../../types';
 import BuilderWorkspace from './BuilderWorkspace';
 
@@ -35,6 +36,7 @@ const mockLoomClient = vi.hoisted(() => ({
   browseSemanticInventory: vi.fn(),
   getConstructionCapabilities: vi.fn(),
   getSelection: vi.fn(),
+  listRowDefinitionChoices: vi.fn(),
   preview: vi.fn(),
   proposeConstruction: vi.fn(),
   proposeConstructionChoices: vi.fn(),
@@ -208,6 +210,32 @@ const builderState: ExplorerBuilderState = {
   draftDigest: 'sha256:draft-1',
   workspace,
   catalog,
+};
+
+const namedGroupMemberColumnId = 'named-cohort-status-column-id';
+const namedGroupMemberColumn: ExplorerBuilderWorkspace['documents'][number]['columns'][number] = {
+  columnId: namedGroupMemberColumnId,
+  column: 'member_status',
+  label: 'Member status',
+  occurrenceId: 'base',
+  source: { kind: 'field', field: { path: 'status', projectionMode: 'VALUE' } },
+  table: { visible: true, order: 0 },
+};
+
+const namedGroupWorkspace = (policy: 'ALL' | 'ONE'): ExplorerBuilderWorkspace => {
+  const baseDocument = workspace.documents[0];
+  if (!baseDocument) throw new Error('Test workspace is missing its base document.');
+  const rows: Extract<ExplorerRowDefinition, { kind: 'GROUPS' }> = {
+    kind: 'GROUPS',
+    groups: {
+      source: {
+        kind: 'EXPLICIT',
+        explicit: { revisionId: 'named-cohort-revision', unassignedMemberPolicy: 'ERROR' },
+      },
+      rowValues: [{ columnId: namedGroupMemberColumnId, policy }],
+    },
+  };
+  return { ...workspace, documents: [{ ...baseDocument, rows, columns: [namedGroupMemberColumn] }] };
 };
 
 const observationRouteChoice: ConstructionChoice = {
@@ -455,6 +483,19 @@ describe('BuilderWorkspace Add columns source selection', () => {
       };
     });
     mockLoomClient.getSelection.mockReset();
+    mockLoomClient.listRowDefinitionChoices.mockReset().mockResolvedValue({
+      snapshotToken: 'snapshot-1',
+      outputId: 'patients',
+      choices: [],
+      explicitGroups: [{
+        revisionId: 'named-cohort-revision',
+        sourceSelectionRevisionId: 'named-cohort-source-selection',
+        groupCount: 1,
+        memberCount: 2,
+        createdAt: '2026-09-21T00:00:00Z',
+        unassignedMemberPolicies: ['ERROR'],
+      }],
+    });
     mockLoomClient.preview.mockReset();
     mockLoomClient.proposeConstruction.mockReset();
     mockLoomClient.proposeConstructionChoices.mockReset();
@@ -508,6 +549,57 @@ describe('BuilderWorkspace Add columns source selection', () => {
     (useCreateExplorerAuthoringMutation as Mock).mockReturnValue(mutationResult());
     (useDeleteExplorerAuthoringMutation as Mock).mockReturnValue(mutationResult());
     (useGetExplorerCandidateSuggestionsV2Mutation as Mock).mockReturnValue(mutationResult());
+  });
+
+  it('saves the primary Columns-menu policy edit as one versioned command using the physical field name', async () => {
+    const initialWorkspace = namedGroupWorkspace('ALL');
+    const savedWorkspace = namedGroupWorkspace('ONE');
+    const savedDocument = savedWorkspace.documents[0];
+    expect(savedDocument?.columns.map(column => column.columnId)).toEqual([namedGroupMemberColumnId]);
+    if (!savedDocument || savedDocument.rows.kind !== 'GROUPS' || savedDocument.rows.groups.source.kind !== 'EXPLICIT') {
+      throw new Error('Saved test workspace must retain explicit named groups.');
+    }
+    expect(savedDocument.rows.groups.source.explicit?.revisionId).toBe('named-cohort-revision');
+    expect(savedDocument.rows.groups.rowValues).toEqual([{ columnId: namedGroupMemberColumnId, policy: 'ONE' }]);
+    (useGetExplorerBuilderStateV2Query as Mock).mockReturnValue({
+      data: { ...builderState, draftVersion: 7, draftDigest: 'sha256:named-group-draft', workspace: initialWorkspace },
+      isLoading: false,
+      refetch: vi.fn(),
+    });
+    applyExplorerCommands.mockReturnValue({
+      unwrap: vi.fn().mockResolvedValue({
+        commandId: 'update-member-row-policy',
+        workspace: savedWorkspace,
+        draftVersion: 8,
+        draftDigest: 'sha256:named-group-draft-one',
+        results: [{ type: 'TABLE_CHANGED', outputId: 'patients' }],
+        diagnostics: [],
+      }),
+    });
+
+    render(<BuilderWorkspace organization="HTAN_INT" project="BForePC" explorerId="test" />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Columns' }));
+    const policy = await screen.findByRole('combobox', {
+      name: 'Values per cohort member for Member status (member_status)',
+    });
+    expect(policy).toHaveProperty('value', 'ALL');
+    fireEvent.change(policy, { target: { value: 'ONE' } });
+
+    await waitFor(() => expect(applyExplorerCommands).toHaveBeenCalledOnce());
+    expect(applyExplorerCommands).toHaveBeenCalledWith(expect.objectContaining({
+      snapshotToken: 'snapshot-1',
+      expectedDraftVersion: 7,
+      expectedDraftDigest: 'sha256:named-group-draft',
+      commands: [{
+        type: 'UPDATE_COLUMN_ROW_VALUE_POLICY',
+        outputId: 'patients',
+        column: namedGroupMemberColumn.column,
+        rowValuePolicy: 'ONE',
+      }],
+    }));
+    await waitFor(() => expect(screen.getByRole('combobox', {
+      name: 'Values per cohort member for Member status (member_status)',
+    })).toHaveProperty('value', 'ONE'));
   });
 
   it('inspects an Observation route without a saved occurrence id and does not apply an unsupported source choice', async () => {

@@ -31,6 +31,12 @@ func (s *Service) ApplyCommands(ctx context.Context, project, explorerID string,
 	var tableShapeCandidate *explorer.CompilationReceipt
 	constructionProposalCommand := request.Commands[0].Type == authoringv2.CommandApplyConstructionProposal
 	restoreDraftRevisionCommand := request.Commands[0].Type == authoringv2.CommandRestoreDraftRevision
+	rowValuePolicyCommand := request.Commands[0].Type == authoringv2.CommandUpdateColumnRowValuePolicy
+	for _, command := range request.Commands {
+		if command.Type == authoringv2.CommandUpdateColumnRowValuePolicy && len(request.Commands) != 1 {
+			return nil, malformed("commands", "UPDATE_COLUMN_ROW_VALUE_POLICY must be the only command in its atomic request", nil)
+		}
+	}
 	var constructionCandidate *explorer.CompilationReceipt
 	constructionIdentities := make([]capability.ConstructionChoiceIdentity, len(request.Commands))
 	var frameSourceIdentity capability.ConstructionChoiceIdentity
@@ -89,7 +95,7 @@ func (s *Service) ApplyCommands(ctx context.Context, project, explorerID string,
 	var snapshot capability.Snapshot
 	var authorized AuthorizedCapability
 	var err error
-	if semanticCommand || constructionChoiceCommand || populationRouteCommand || constructionProposalCommand || restoreDraftRevisionCommand || frameSourceCommand {
+	if semanticCommand || constructionChoiceCommand || populationRouteCommand || constructionProposalCommand || restoreDraftRevisionCommand || frameSourceCommand || rowValuePolicyCommand {
 		if s.config.Capability.ForCompilation == nil {
 			return nil, unavailable("commands", "CAPABILITY_UNAVAILABLE", "authorized capability resolution is not configured", nil)
 		}
@@ -184,6 +190,9 @@ func (s *Service) ApplyCommands(ctx context.Context, project, explorerID string,
 		}
 		if constructionProposalCommand {
 			return checkConstructionProposalResult(workspace, constructionCandidate)
+		}
+		if rowValuePolicyCommand {
+			return s.validateRowValuePolicyCandidate(ctx, project, explorerID, request, workspace, snapshot, authorized, request.Commands[0])
 		}
 		return nil
 	})

@@ -6,6 +6,7 @@ import type {
   Construction,
   ExplorerBuilderPreviewResult,
   ExplorerBuilderColumn,
+  ExplorerRowDefinition,
 } from '../../../types';
 import type { DraftTable } from '../authoring/model';
 import {
@@ -284,6 +285,168 @@ describe('PreviewTable construction output order', () => {
 });
 
 describe('PreviewTable column controls', () => {
+  it('edits only saved explicit-group member policies by their stable column binding', () => {
+    const firstColumn = { ...column('resource_type_all', 'Resource Type', 0), columnId: 'resource-type-all-id' };
+    const secondColumn = { ...column('resource_type_one', 'Resource Type', 1), columnId: 'resource-type-one-id' };
+    const rows: Extract<ExplorerRowDefinition, { kind: 'GROUPS' }> = {
+      kind: 'GROUPS',
+      groups: {
+        source: {
+          kind: 'EXPLICIT',
+          explicit: { revisionId: 'named-cohort-revision', unassignedMemberPolicy: 'ERROR' },
+        },
+        rowValues: [
+          { columnId: firstColumn.columnId, policy: 'ALL' },
+          { columnId: secondColumn.columnId, policy: 'ONE' },
+        ],
+      },
+    };
+    const namedGroupTable: DraftTable = {
+      ...table,
+      document: { ...table.document, rows, columns: [firstColumn, secondColumn] },
+    };
+    const onRowValuePolicyChange = vi.fn();
+    const renderNamedGroup = (value: DraftTable) => React.createElement(PreviewTable, {
+      preview: {
+        ...preview,
+        columns: [firstColumn, secondColumn].map((value) => ({
+          column: value.column,
+          label: value.label,
+          logicalType: 'string',
+          filterable: true,
+          chartable: false,
+        })),
+        rows: [{ resource_type_all: ['Specimen'], resource_type_one: 'Specimen' }],
+      },
+      table: value,
+      limit: 25,
+      onLimitChange: vi.fn(),
+      onColumnChange: vi.fn(),
+      onColumnsChange: vi.fn(),
+      onRowValuePolicyChange,
+    });
+    const rendered = render(renderNamedGroup(namedGroupTable));
+    fireEvent.click(screen.getByRole('button', { name: 'Columns' }));
+
+    const columnsMenu = screen.getByRole('list', { name: 'Table columns' });
+    const allRow = within(columnsMenu).getAllByRole('listitem')
+      .find((item) => item.getAttribute('data-column-name') === firstColumn.column);
+    const oneRow = within(columnsMenu).getAllByRole('listitem')
+      .find((item) => item.getAttribute('data-column-name') === secondColumn.column);
+    expect(allRow).toBeDefined();
+    expect(oneRow).toBeDefined();
+    const allPolicy = within(allRow!).getByRole('combobox', {
+      name: `Values per cohort member for ${firstColumn.label} (${firstColumn.column})`,
+    });
+    const onePolicy = within(oneRow!).getByRole('combobox', {
+      name: `Values per cohort member for ${secondColumn.label} (${secondColumn.column})`,
+    });
+    expect(allPolicy).toHaveProperty('value', 'ALL');
+    expect(onePolicy).toHaveProperty('value', 'ONE');
+    expect(within(allPolicy).getByRole('option', { name: 'One unique value' })).toBeInTheDocument();
+    expect(within(allPolicy).getByRole('option', { name: 'All unique values' })).toBeInTheDocument();
+
+    fireEvent.change(allPolicy, { target: { value: 'ONE' } });
+    expect(onRowValuePolicyChange).toHaveBeenCalledExactlyOnceWith(firstColumn.column, 'ONE');
+    expect(allPolicy).toHaveProperty('value', 'ALL');
+
+    const savedRows: Extract<ExplorerRowDefinition, { kind: 'GROUPS' }> = {
+      ...rows,
+      groups: {
+        ...rows.groups,
+        rowValues: [
+          { columnId: firstColumn.columnId, policy: 'ONE' },
+          { columnId: secondColumn.columnId, policy: 'ONE' },
+        ],
+      },
+    };
+    rendered.rerender(renderNamedGroup({
+      ...namedGroupTable,
+      document: { ...namedGroupTable.document, rows: savedRows },
+    }));
+    expect(within(screen.getByRole('list', { name: 'Table columns' }).querySelector(`[data-column-name="${firstColumn.column}"]`)!)
+      .getByRole('combobox', { name: `Values per cohort member for ${firstColumn.label} (${firstColumn.column})` }))
+      .toHaveProperty('value', 'ONE');
+    expect(savedRows.groups.rowValues).toEqual([
+      { columnId: firstColumn.columnId, policy: 'ONE' },
+      { columnId: secondColumn.columnId, policy: 'ONE' },
+    ]);
+  });
+
+  it('does not show a member policy selector for field-grouped rows or missing saved bindings', () => {
+    const memberColumn = { ...column('member_status', 'Member status', 0), columnId: 'member-status-id' };
+    const explicitRows: Extract<ExplorerRowDefinition, { kind: 'GROUPS' }> = {
+      kind: 'GROUPS',
+      groups: {
+        source: { kind: 'EXPLICIT', explicit: { revisionId: 'named-cohort-revision', unassignedMemberPolicy: 'ERROR' } },
+        rowValues: [{ columnId: 'other-column-id', policy: 'ALL' }],
+      },
+    };
+    const unboundTable: DraftTable = { ...table, document: { ...table.document, rows: explicitRows, columns: [memberColumn] } };
+    const onRowValuePolicyChange = vi.fn();
+    const props = (value: DraftTable, previewValue = preview) => React.createElement(PreviewTable, {
+      preview: previewValue, table: value, limit: 25, onLimitChange: vi.fn(), onColumnChange: vi.fn(),
+      onColumnsChange: vi.fn(), onRowValuePolicyChange,
+    });
+    const rendered = render(props(unboundTable));
+    fireEvent.click(screen.getByRole('button', { name: 'Columns' }));
+    expect(screen.queryByRole('combobox', { name: /Values per cohort member/ })).not.toBeInTheDocument();
+
+    const fieldRows: Extract<ExplorerRowDefinition, { kind: 'GROUPS' }> = {
+      kind: 'GROUPS',
+      groups: {
+        source: { kind: 'FIELD', field: { occurrenceId: 'base', fieldPath: 'status', missingKeyPolicy: 'GROUP_AS_MISSING' } },
+        rowValues: [{ columnId: memberColumn.columnId, policy: 'ALL' }],
+      },
+    };
+    rendered.rerender(props({ ...unboundTable, document: { ...unboundTable.document, rows: fieldRows } }));
+    expect(screen.queryByRole('combobox', { name: /Values per cohort member/ })).not.toBeInTheDocument();
+
+    const transformedColumn = {
+      ...memberColumn,
+      valueTransformation: {
+        kind: 'EXACT_CATEGORY_RECODE',
+        exactCategoryRecode: {
+          mappings: [{ from: 'active', to: 'Active' }],
+          unknownPolicy: 'KEEP_ORIGINAL',
+        },
+      } satisfies NonNullable<ExplorerBuilderColumn['valueTransformation']>,
+    };
+    const relatedColumn = {
+      ...memberColumn,
+      columnId: 'related-member-status-id',
+      column: 'related_member_status',
+      occurrenceId: 'related-patient',
+    };
+    const unsupportedRows: Extract<ExplorerRowDefinition, { kind: 'GROUPS' }> = {
+      kind: 'GROUPS',
+      groups: {
+        ...explicitRows.groups,
+        rowValues: [
+          { columnId: transformedColumn.columnId, policy: 'ALL' },
+          { columnId: relatedColumn.columnId, policy: 'ONE' },
+        ],
+      },
+    };
+    const unsupportedPreview: ExplorerBuilderPreviewResult = {
+      ...preview,
+      columns: [transformedColumn, relatedColumn].map((value) => ({
+        column: value.column,
+        label: value.label,
+        logicalType: 'string',
+        filterable: true,
+        chartable: false,
+      })),
+      rows: [{ member_status: 'Active', related_member_status: 'Active' }],
+    };
+    const unsupportedTable: DraftTable = {
+      ...unboundTable,
+      document: { ...unboundTable.document, rows: unsupportedRows, columns: [transformedColumn, relatedColumn] },
+    };
+    rendered.rerender(props(unsupportedTable, unsupportedPreview));
+    expect(screen.queryByRole('combobox', { name: /Values per cohort member/ })).not.toBeInTheDocument();
+  });
+
   it('renders compiler-generated cohort columns without authored column entries', () => {
     render(React.createElement(PreviewTable, {
       preview: {

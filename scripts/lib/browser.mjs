@@ -251,10 +251,11 @@ export const selectOption = async (cdp, selector, value, { settledWhen } = {}) =
   const index = await browserEval(cdp, `return [...document.querySelector(${JSON.stringify(selector)}).options].findIndex(option => option.value === ${JSON.stringify(value)} && !option.disabled);`);
   if (index < 0) throw new Error(`Select does not offer ${value}`);
   await click(cdp, selector);
-  // macOS select popups are outside the CDP page keyboard target. Select an
-  // enabled option with standard automation events after checking actionability.
-  for (const type of ['mousePressed', 'mouseReleased']) await cdp.send('Input.dispatchMouseEvent', { type, x: 1, y: 1, button: 'left', clickCount: 1 });
-  await browserEval(cdp, `const select=document.querySelector(${JSON.stringify(selector)}); const option=select.options[${index}]; if(select.disabled || option.disabled) throw new Error('Select option is disabled'); option.selected=true; select.dispatchEvent(new Event('input',{bubbles:true})); select.dispatchEvent(new Event('change',{bubbles:true}));`);
+  // macOS select popups are outside the CDP page keyboard target. Dispatch
+  // selection events while the actioned control and its popover remain mounted.
+  await browserEval(cdp, `const select=document.querySelector(${JSON.stringify(selector)}); const option=select?.options[${index}]; if(!select || select.disabled || !option || option.disabled) throw new Error('Select option is disabled'); option.selected=true; select.dispatchEvent(new Event('input',{bubbles:true})); select.dispatchEvent(new Event('change',{bubbles:true}));`);
   await waitForBrowser(cdp, settledWhen ?? `document.querySelector(${JSON.stringify(selector)})?.value === ${JSON.stringify(value)}`);
+  // Dismiss the native popup only after the application has handled the change.
+  for (const type of ['mousePressed', 'mouseReleased']) await cdp.send('Input.dispatchMouseEvent', { type, x: 1, y: 1, button: 'left', clickCount: 1 });
 };
 export { launchBrowser, navigate, evaluate, waitForBrowser };

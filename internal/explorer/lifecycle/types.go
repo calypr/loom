@@ -62,6 +62,7 @@ type CompileReceiptRequest struct {
 type ReceiptCompiler func(context.Context, CompileReceiptRequest) (*explorer.CompilationReceipt, error)
 type ReceiptReader func(context.Context, string, string, string) (*explorer.CompilationReceipt, error)
 type ReceiptPreviewer func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings, func(map[string]any) error) (dataframeexecution.PreviewSummary, error)
+type ReceiptStreamValidator func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings) error
 
 // ConstructionSourceStageCompiler describes a compiler-resolved source
 // projection for capability discovery. Its result is metadata only; callers
@@ -163,6 +164,7 @@ type Config struct {
 	CompileReceipt               ReceiptCompiler
 	ConstructionSourceStage      ConstructionSourceStageCompiler
 	PreviewReceipt               ReceiptPreviewer
+	ValidateReceiptStream        ReceiptStreamValidator
 	TableShapeCapabilities       tableshapecap.Repository
 	ScanCategories               CategoryScanner
 	PopulationMapping            PopulationMappingExecutor

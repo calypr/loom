@@ -3397,6 +3397,15 @@ const BuilderWorkspaceContent = ({
                         }}
                         onColumnChange={(change) => applyPresentationChanges([change])}
                         onColumnsChange={applyPresentationChanges}
+                        onRowValuePolicyChange={(physicalColumn, rowValuePolicy) =>
+                          table &&
+                          void applyCommands([{
+                            type: 'UPDATE_COLUMN_ROW_VALUE_POLICY',
+                            outputId: table.outputId,
+                            column: physicalColumn,
+                            rowValuePolicy,
+                          }])
+                        }
                         disabled={pendingCommands > 0 || state.reconciliation === 'pending' || publishing}
                         onRemoveColumn={(column) => void applyCommands([{ type: 'REMOVE_COLUMN', outputId: table.outputId, column }])}
                         onRowLineage={tablePreview ? (rowId, offset, signal) => loomClient.rowLineage({

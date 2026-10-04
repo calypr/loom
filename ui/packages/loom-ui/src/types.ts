@@ -2514,6 +2514,7 @@ export const explorerBuilderCommandSchema = z
       'ADD_COLUMN',
       'ADD_COLUMN_SOURCE',
       'UPDATE_COLUMN_SOURCE',
+      'UPDATE_COLUMN_ROW_VALUE_POLICY',
       'UPDATE_COLUMN',
       'UPDATE_CONSTRUCTION_OUTPUT',
       'UPDATE_COLUMN_TRANSFORMATION',
@@ -2549,6 +2550,7 @@ export const explorerBuilderCommandSchema = z
     projectionMode: projectionModeSchema.optional(),
     initialPresentation: z.enum(['TABLE', 'FILTER', 'CHART']).optional(),
     column: opaqueIdSchema.optional(),
+    rowValuePolicy: constructionRowValuePolicySchema.optional(),
     columnValue: explorerBuilderColumnSchema.optional(),
     constructionOutput: z.object({
       stepId: opaqueIdSchema,
@@ -2576,6 +2578,39 @@ export const explorerBuilderCommandSchema = z
   })
   .strict()
   .superRefine((command, context) => {
+    if (command.type === 'UPDATE_COLUMN_ROW_VALUE_POLICY') {
+      if (!command.outputId) {
+        context.addIssue({
+          code: 'custom',
+          path: ['outputId'],
+          message: 'UPDATE_COLUMN_ROW_VALUE_POLICY requires an output ID.',
+        });
+      }
+      if (!command.column) {
+        context.addIssue({
+          code: 'custom',
+          path: ['column'],
+          message: 'UPDATE_COLUMN_ROW_VALUE_POLICY requires a column.',
+        });
+      }
+      if (!command.rowValuePolicy) {
+        context.addIssue({
+          code: 'custom',
+          path: ['rowValuePolicy'],
+          message: 'UPDATE_COLUMN_ROW_VALUE_POLICY requires ALL or ONE.',
+        });
+      }
+      for (const [key, value] of Object.entries(command)) {
+        if (!['type', 'outputId', 'column', 'rowValuePolicy'].includes(key) && value !== undefined) {
+          context.addIssue({
+            code: 'custom',
+            path: [key],
+            message: 'UPDATE_COLUMN_ROW_VALUE_POLICY accepts only outputId, column, and rowValuePolicy.',
+          });
+        }
+      }
+      return;
+    }
     if (command.type !== 'RESTORE_DRAFT_REVISION') return;
     if (!command.draftRevisionId) {
       context.addIssue({

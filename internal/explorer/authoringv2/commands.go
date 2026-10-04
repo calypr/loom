@@ -31,6 +31,7 @@ const (
 	CommandAddColumn                     = "ADD_COLUMN"
 	CommandAddColumnSource               = "ADD_COLUMN_SOURCE"
 	CommandUpdateColumn                  = "UPDATE_COLUMN"
+	CommandUpdateColumnRowValuePolicy    = "UPDATE_COLUMN_ROW_VALUE_POLICY"
 	CommandUpdateConstructionOutput      = "UPDATE_CONSTRUCTION_OUTPUT"
 	CommandUpdateColumnTransformation    = "UPDATE_COLUMN_TRANSFORMATION"
 	CommandSetColumnContributor          = "SET_COLUMN_CONTRIBUTOR"
@@ -127,6 +128,7 @@ type Command struct {
 	ProjectionMode           string                            `json:"projectionMode,omitempty"`
 	InitialPresentation      string                            `json:"initialPresentation,omitempty"`
 	Column                   string                            `json:"column,omitempty"`
+	RowValuePolicy           ConstructionRowValuePolicy        `json:"rowValuePolicy,omitempty"`
 	ColumnValue              *Column                           `json:"columnValue,omitempty"`
 	ConstructionOutput       *ConstructionOutputPresentation   `json:"constructionOutput,omitempty"`
 	TransformationChange     *ColumnTransformationChange       `json:"transformationChange,omitempty"`
@@ -321,6 +323,18 @@ func (c *Command) UnmarshalJSON(raw []byte) error {
 		for name := range fields {
 			if !allowed[name] {
 				return fmt.Errorf("APPLY_CONSTRUCTION_CHOICE does not accept field %q", name)
+			}
+		}
+	}
+	if decoded.Type == CommandUpdateColumnRowValuePolicy {
+		var fields map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &fields); err != nil {
+			return err
+		}
+		allowed := map[string]bool{"type": true, "outputId": true, "column": true, "rowValuePolicy": true}
+		for name := range fields {
+			if !allowed[name] {
+				return fmt.Errorf("%s does not accept field %q", decoded.Type, name)
 			}
 		}
 	}
@@ -574,6 +588,9 @@ func (c Command) validate() error {
 		}
 		return true
 	}
+	if c.Type != CommandUpdateColumnRowValuePolicy && c.RowValuePolicy != "" {
+		return fmt.Errorf("rowValuePolicy is only accepted by UPDATE_COLUMN_ROW_VALUE_POLICY")
+	}
 	switch c.Type {
 	case CommandCreateTable:
 		if !required(c.Title, c.RootNodeID) {
@@ -649,6 +666,20 @@ func (c Command) validate() error {
 	case CommandUpdateColumn:
 		if !required(c.OutputID, c.Column) || c.ColumnValue == nil {
 			return fmt.Errorf("UPDATE_COLUMN requires outputId, column, and columnValue")
+		}
+	case CommandUpdateColumnRowValuePolicy:
+		if !required(c.OutputID, c.Column) {
+			return fmt.Errorf("UPDATE_COLUMN_ROW_VALUE_POLICY requires outputId and column")
+		}
+		if c.RowValuePolicy != ConstructionRowValueAll && c.RowValuePolicy != ConstructionRowValueOne {
+			return fmt.Errorf("UPDATE_COLUMN_ROW_VALUE_POLICY rowValuePolicy must be ALL or ONE")
+		}
+		if c.SourceOutputID != "" || c.Title != "" || c.RootNodeID != "" || c.SelectionRevisionID != "" ||
+			len(c.EdgeIDs) != 0 || c.RouteChoiceID != "" || c.ParentOccurrenceID != "" || c.OccurrenceID != "" || c.EdgeID != "" || c.MatchMode != "" ||
+			c.CandidateID != "" || c.ProjectionMode != "" || c.InitialPresentation != "" || c.ColumnValue != nil || c.ConstructionOutput != nil || c.TransformationChange != nil || c.Contributor != nil ||
+			c.Source != nil || c.RowChange != nil || c.InterpretationCandidate != nil || c.ProposalID != "" || c.DraftRevisionID != "" || c.ContextToken != "" || len(c.SemanticSelections) != 0 ||
+			c.ConstructionChoice != nil || c.FrameChoiceID != "" || c.FrameID != "" || c.FrameForm != "" || c.ResolvedChoice != nil || len(c.ResolvedPopulationRoute) != 0 || len(c.OutputIDs) != 0 {
+			return fmt.Errorf("UPDATE_COLUMN_ROW_VALUE_POLICY accepts only outputId, column, and rowValuePolicy")
 		}
 	case CommandUpdateConstructionOutput:
 		if !required(c.OutputID) || c.ConstructionOutput == nil {
@@ -814,6 +845,9 @@ func ApplyCommands(workspace Workspace, catalog CatalogSnapshot, commandID strin
 
 func applyCommand(workspace *Workspace, catalog CatalogSnapshot, commandID string, index int, command Command) (CommandResult, error) {
 	result := CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID}
+	if command.Type != CommandUpdateColumnRowValuePolicy && command.RowValuePolicy != "" {
+		return result, fmt.Errorf("rowValuePolicy is only accepted by UPDATE_COLUMN_ROW_VALUE_POLICY")
+	}
 	switch command.Type {
 	case CommandSetFrameSource, CommandReplaceFrameSource, CommandRemoveFrameSource:
 		return applyFrameSourceCommand(workspace, command)
@@ -1409,6 +1443,51 @@ func applyCommand(workspace *Workspace, catalog CatalogSnapshot, commandID strin
 			return CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID, Column: current.Column}, nil
 		}
 		return result, fmt.Errorf("column %q was not found", command.Column)
+	case CommandUpdateColumnRowValuePolicy:
+		if err := command.validate(); err != nil {
+			return result, err
+		}
+		documentPos := documentIndex(workspace, command.OutputID)
+		if documentPos < 0 {
+			return result, fmt.Errorf("output %q was not found", command.OutputID)
+		}
+		document := &workspace.Documents[documentPos]
+		if document.Rows.Kind != RowDefinitionGroups || document.Rows.Groups == nil ||
+			document.Rows.Groups.Source.Kind != GroupSourceExplicit || document.Rows.Groups.Source.Explicit == nil {
+			return result, fmt.Errorf("UPDATE_COLUMN_ROW_VALUE_POLICY requires explicit grouped rows")
+		}
+		columnIndex := -1
+		for index := range document.Columns {
+			if document.Columns[index].Column != command.Column {
+				continue
+			}
+			if columnIndex >= 0 {
+				return result, fmt.Errorf("column %q is ambiguous", command.Column)
+			}
+			columnIndex = index
+		}
+		if columnIndex < 0 {
+			return result, fmt.Errorf("column %q was not found", command.Column)
+		}
+		column := document.Columns[columnIndex]
+		if column.ColumnID == "" || column.OccurrenceID != RootOccurrenceID || column.Source.Kind != SourceField || column.Source.Field == nil || column.ValueTransformation != nil {
+			return result, fmt.Errorf("column %q must be an untransformed root FHIR field with a stable columnId", command.Column)
+		}
+		matchingBinding := -1
+		for index := range document.Rows.Groups.RowValues {
+			if document.Rows.Groups.RowValues[index].ColumnID != column.ColumnID {
+				continue
+			}
+			if matchingBinding >= 0 {
+				return result, fmt.Errorf("row value binding for columnId %q is ambiguous", column.ColumnID)
+			}
+			matchingBinding = index
+		}
+		if matchingBinding < 0 {
+			return result, fmt.Errorf("row value binding for columnId %q was not found", column.ColumnID)
+		}
+		document.Rows.Groups.RowValues[matchingBinding].Policy = command.RowValuePolicy
+		return CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID, Column: column.Column}, nil
 	case CommandRemoveColumn:
 		document := documentIndex(workspace, command.OutputID)
 		if document < 0 {
