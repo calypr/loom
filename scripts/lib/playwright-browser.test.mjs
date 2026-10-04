@@ -186,6 +186,7 @@ test('Playwright traces redact snapshot tokens and credential headers while pres
   archive.addBuffer(Buffer.from(`${JSON.stringify({ type: 'action', name: 'Click Apply', snapshot: `<input name="snapshotToken" value="${originalSecret}">` })}\n`), 'trace.trace');
   archive.addBuffer(Buffer.from(`${JSON.stringify({ type: 'request', request: { postData: { text: JSON.stringify({ snapshotToken: originalSecret }) }, headers: [{ name: 'Authorization', value: 'Bearer trace-credential' }] } })}\n`), 'trace.network');
   archive.addBuffer(Buffer.from(JSON.stringify({ snapshotToken: originalSecret, visible: 'source row' })), 'resources/response-body');
+  archive.addBuffer(Buffer.from([0xc3, 0x28, 0x80]), 'resources/malformed-text');
   archive.addBuffer(screenshot, 'resources/failure.png');
   archive.end();
   await pipeline(archive.outputStream, createWriteStream(source));

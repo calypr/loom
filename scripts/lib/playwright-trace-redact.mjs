@@ -30,9 +30,9 @@ function redactTraceValue(value, key = '') {
 }
 
 function sanitizeTraceEntry(name, body) {
-  if (binaryExtensions.test(name) || body.includes(0)) return body;
+  if (binaryExtensions.test(name) || body.includes(0)) return undefined;
   const text = body.toString('utf8');
-  if (!Buffer.from(text, 'utf8').equals(body)) return body;
+  if (!Buffer.from(text, 'utf8').equals(body)) return undefined;
   const lines = text.split('\n');
   const structured = lines.map(line => {
     if (!line) return '';
@@ -42,6 +42,21 @@ function sanitizeTraceEntry(name, body) {
   if (structured.every(line => line !== undefined)) return Buffer.from(structured.join('\n'), 'utf8');
   try { return Buffer.from(JSON.stringify(redactTraceValue(JSON.parse(text))), 'utf8'); }
   catch { return Buffer.from(sanitizeText(text), 'utf8'); }
+}
+
+function snapshotTokenValues(value, key = '', values = new Set()) {
+  if (/^snapshotToken$/i.test(key) && typeof value === 'string' && value) values.add(value);
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value);
+      if (parsed && typeof parsed === 'object') snapshotTokenValues(parsed, '', values);
+    } catch {}
+  } else if (Array.isArray(value)) {
+    for (const item of value) snapshotTokenValues(item, '', values);
+  } else if (value && typeof value === 'object') {
+    for (const [childKey, child] of Object.entries(value)) snapshotTokenValues(child, childKey, values);
+  }
+  return values;
 }
 
 function readEntries(path) {
@@ -62,7 +77,7 @@ function readEntries(path) {
           stream.on('data', chunk => chunks.push(chunk));
           stream.on('error', reject);
           stream.on('end', () => {
-            entries.push({ name: entry.fileName, body: sanitizeTraceEntry(entry.fileName, Buffer.concat(chunks)) });
+            entries.push({ name: entry.fileName, body: Buffer.concat(chunks) });
             archive.readEntry();
           });
         });
@@ -74,10 +89,32 @@ function readEntries(path) {
 
 /** Repack Playwright's trace after redacting sensitive JSON fields and text resources. */
 export async function sanitizePlaywrightTrace(sourcePath, targetPath) {
+  const rawEntries = await readEntries(sourcePath);
+  const rawTokens = new Set();
+  for (const entry of rawEntries) {
+    if (binaryExtensions.test(entry.name) || entry.body.includes(0)) continue;
+    const text = entry.body.toString('utf8');
+    if (!Buffer.from(text, 'utf8').equals(entry.body)) continue;
+    const values = new Set();
+    for (const line of text.split('\n')) {
+      let value;
+      try { value = JSON.parse(line); } catch { value = line; }
+      snapshotTokenValues(value, '', values);
+    }
+    for (const token of values) rawTokens.add(token);
+  }
   // Binary payloads cannot be reliably scrubbed for arbitrary embedded credentials.
   // They are unnecessary for the retained action/DOM trace, and first-failure.png is
   // captured separately with form controls masked.
-  const entries = (await readEntries(sourcePath)).filter(entry => !binaryExtensions.test(entry.name) && !entry.body.includes(0));
+  const entries = rawEntries.map(entry => ({ ...entry, body: sanitizeTraceEntry(entry.name, entry.body) }))
+    .filter(entry => entry.body !== undefined);
+  for (const entry of entries) {
+    for (const token of rawTokens) {
+      if (entry.body.includes(Buffer.from(token, 'utf8'))) {
+        throw new Error(`A snapshot token remained in redacted trace entry ${entry.name}.`);
+      }
+    }
+  }
   const temporaryPath = `${targetPath}.redacted.tmp`;
   const archive = new yazl.ZipFile();
   for (const entry of entries) archive.addBuffer(entry.body, entry.name);
