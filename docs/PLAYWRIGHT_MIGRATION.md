@@ -1,21 +1,23 @@
 # Browser verifier migration inventory
 
-This inventory describes the verifier source at checkpoint `07573db4`. A passing historical report is evidence for its recorded source and build only. Use the current report fingerprint and API build identity before claiming verification of another checkout.
+This inventory tracks the isolated `infra/playwright-verification` branch based on `af1e706183dcd813c30276b3ee89e2f08cae463a`. A passing historical report is evidence for its recorded source and build only. Use the current report fingerprint and API build identity before claiming verification of another checkout.
 
 | Driver family | Current callers | Browser machinery | Migration status |
 | --- | --- | --- | --- |
-| `scripts/verify-ui/browser.mjs` | Nine runtime modules under `scripts/verify-ui`, including `common.mjs` and `workflows.mjs`; five registered entrypoints and 13 named cases | Wraps the Chrome/CDP launcher in `scripts/loom-dev.mjs`; implements click, fill, waits, network monitoring, and DOM capture | `builder-authoring/authoring`, `builder-authoring/suggestions`, and both `builder-load` cases use Playwright. Nine registered cases still use CDP. Migrate those before deleting this module. |
-| `scripts/lib/browser.mjs` | Remaining `scripts/verify-cda-*-browser.mjs`, standalone browser scripts, and its tests | Separate Chrome/CDP launcher, custom actions, selection, evaluation, and request listeners | Pivot reload, disclosure actionability, and last-table now use Playwright. Migrate remaining callers before deleting this module. The migration gate reports all remaining direct CDP users. |
-| `scripts/loom-dev.mjs` | `make verify-fast`, `make verify-full`, and the `verify-ui` adapter | Integrated legacy Chrome/CDP driver | Its own browser actions still need migration. The Playwright authoring cases reuse its owned-stack validation and fixture setup without calling its browser driver. |
+| `scripts/verify-ui/browser.mjs` | No remaining runtime callers | Former Chrome/CDP launcher and custom actions | Removed after migrating all registered `verify-ui` cases. `common.mjs` remains for CLI/report dispatch and `browserURL`. |
+| `scripts/lib/browser.mjs` | Remaining standalone CDA and utility cases | Separate Chrome/CDP launcher and custom actions | Migration in progress. The gate lists exact remaining callers; remove this module after its callers migrate. |
+| `scripts/loom-dev.mjs` | `make verify-fast`, `make verify-full`, and fixture/session setup | Integrated legacy Chrome/CDP driver | J02, J03, J04, J05, external J01, and current Builder paths use Playwright. Local J01 and the default verification path still contain CDP. |
 
 The two adapter modules have different APIs. `verify-ui` owns assertion/report integration, injected faults, and action timing. CDA scripts retain independent raw fixture or CDA queries and source/build freezes. Playwright replaces their interaction, navigation, waiting, and browser event plumbing; it does not replace those oracles.
 
 Run `node scripts/check-playwright-migration.mjs` for the current per-file
 inventory. `node scripts/check-playwright-migration.mjs --check` fails until
 all Chrome/CDP callers and replaced drivers are removed. At this checkpoint,
-71 `.mjs` files remain. A zero count is a migration gate, not proof of browser
+22 `.mjs` files remain as of commit `c8f89222`; rerun the gate after every integration. A zero count is a migration gate, not proof of browser
 correctness; each case still needs its required assertions and owned runtime
 evidence.
+
+The related-unpivot case passed its complete live lifecycle on the isolated `loom-dev-c52d4223d857` CDA stack at `/private/tmp/loom-playwright-related-unpivot-evidence-rerun4/report.json`: 28 measured transitions, exact raw source rows through preview, Apply, edit, filter, removal, and reload, with source and API build freezes unchanged and zero unexpected errors. The missing favicon was retained as an incidental asset failure. Earlier failed reruns retain first-failure DOM, screenshot, and trace evidence. The quantity root Pivot Playwright case retains the original 11 full-population and nine fixture assertions, including raw MISSING/NULL/value categories and duplicate SUM/MAX witnesses. Its first isolated full-population run was interrupted after several minutes without a report; it remains unverified on this branch.
 
 ## Evidence contract for each migrated case
 
