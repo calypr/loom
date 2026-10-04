@@ -129,11 +129,72 @@ try {
     ordinal: Number(row.firstElementChild?.innerText.trim()),
     cells: [...row.querySelectorAll('[role="cell"]')].map(cell => cell.innerText.trim()),
   })).filter(row => row.cells.length));
+  const captureFullPreviewWindow = async phase => {
+    const scroll = page.getByTestId('preview-table-scroll');
+    const grid = scroll.getByRole('table');
+    const metrics = await scroll.evaluate(element => ({
+      initialScrollTop: element.scrollTop,
+      clientHeight: element.clientHeight,
+      scrollHeight: element.scrollHeight,
+      maxScrollTop: Math.max(0, element.scrollHeight - element.clientHeight),
+    }));
+    const visible = new Map();
+    const collect = async () => {
+      for (const row of await renderedRows()) {
+        const previous = visible.get(row.ordinal);
+        if (previous) assert.deepEqual(row, previous, `${phase}: a virtual row identity changed while scrolling`);
+        visible.set(row.ordinal, row);
+      }
+    };
+    await collect();
+    const step = Math.max(1, Math.floor(metrics.clientHeight * 0.65));
+    let scrollTop = metrics.initialScrollTop;
+    let windows = 0;
+    while (visible.size < 25 && scrollTop < metrics.maxScrollTop - 1) {
+      assert(++windows <= 30, `${phase}: vertical preview sweep exceeded 30 native scroll inputs`);
+      const previous = scrollTop;
+      await scroll.hover({ timeout: 5000 });
+      await page.mouse.wheel(0, Math.min(step, metrics.maxScrollTop - previous));
+      await page.waitForFunction(({ prior, max }) => {
+        const element = document.querySelector('[data-testid="preview-table-scroll"]');
+        return Boolean(element && (element.scrollTop > prior + 0.5 || element.scrollTop >= max - 1));
+      }, { prior: previous, max: metrics.maxScrollTop }, { timeout: 2000 });
+      scrollTop = await scroll.evaluate(element => element.scrollTop);
+      assert(scrollTop > previous + 0.5 || scrollTop >= metrics.maxScrollTop - 1,
+        `${phase}: native wheel did not advance the virtualized preview`);
+      await collect();
+    }
+    const rows = [...visible.values()].sort((left, right) => left.ordinal - right.ordinal);
+    assert.equal(rows.length, 25, `${phase}: the full preview window must expose 25 exact visible row identities`);
+    assert.deepEqual(rows.map(row => row.ordinal), Array.from({ length: 25 }, (_, index) => index + 1),
+      `${phase}: the preview must expose every ordinal from 1 through 25`);
+
+    // Restore the visible top with ordinary wheel input so each lifecycle comparison uses the same viewport.
+    let current = scrollTop;
+    while (current > metrics.initialScrollTop + 0.5) {
+      const previous = current;
+      await scroll.hover({ timeout: 5000 });
+      await page.mouse.wheel(0, -Math.min(step, previous - metrics.initialScrollTop));
+      await page.waitForFunction(({ prior, initial }) => {
+        const element = document.querySelector('[data-testid="preview-table-scroll"]');
+        return Boolean(element && (element.scrollTop < prior - 0.5 || element.scrollTop <= initial + 0.5));
+      }, { prior: previous, initial: metrics.initialScrollTop }, { timeout: 2000 });
+      current = await scroll.evaluate(element => element.scrollTop);
+      assert(current < previous - 0.5 || current <= metrics.initialScrollTop + 0.5,
+        `${phase}: native wheel did not restore the preview scroll position`);
+    }
+    assert.equal(await grid.getAttribute('aria-rowcount'), '26', `${phase}: virtualized preview must retain 25 data rows plus a header`);
+    return rows;
+  };
   const originalRows = await renderedRows();
   assert(originalRows.length > 0, 'The source table must render real data before deletion');
   const previewRowCount = await page.locator('[data-testid="preview-table-scroll"] [role="table"]').getAttribute('aria-rowcount');
   const oracleRows = assertVisibleRowsMatchOracle({ rows: originalRows, sourceIds: specimenOracle.ids, ariaRowCount: previewRowCount });
-  report.oracle.visibleRows = oracleRows;
+  const fullInitialRows = await captureFullPreviewWindow('initial-preview');
+  assert.deepEqual(assertVisibleRowsMatchOracle({ rows: fullInitialRows, sourceIds: specimenOracle.ids, ariaRowCount: previewRowCount }),
+    Array.from({ length: 25 }, (_, index) => ({ ordinal: index + 1, cells: [specimenOracle.ids[index]] })),
+    'All 25 initial data rows must match the independent CDA source window');
+  report.oracle.visibleRows = fullInitialRows;
   report.oracle.previewRowCount = Number(previewRowCount) - 1;
 
   const started = Date.now();
@@ -162,8 +223,11 @@ try {
   assert.deepEqual(assertVisibleRowsMatchOracle({ rows: restoredRows, sourceIds: specimenOracle.ids, ariaRowCount: restoredRowCount }), oracleRows,
     'Undo must restore the same independent source window');
   const restoreDurationMs = Date.now() - restoreStart;
-  assert(restoreDurationMs <= 5000, `Undo and render took ${restoreDurationMs} ms`);
+  assert(restoreDurationMs <= 5000, `Undo and initial render took ${restoreDurationMs} ms`);
   report.nativeChecks.push({ name: 'undo-last-table-deletion', durationMs: restoreDurationMs });
+  const fullRestoredRows = await captureFullPreviewWindow('undo-preview');
+  assert.deepEqual(assertVisibleRowsMatchOracle({ rows: fullRestoredRows, sourceIds: specimenOracle.ids, ariaRowCount: restoredRowCount }), fullInitialRows,
+    'Undo must restore all 25 independent source identities');
 
   await page.reload({ waitUntil: 'domcontentloaded' });
   await table.waitFor({ state: 'visible', timeout: 30000 });
@@ -173,6 +237,9 @@ try {
   const reloadedRowCount = await page.locator('[data-testid="preview-table-scroll"] [role="table"]').getAttribute('aria-rowcount');
   assert.deepEqual(assertVisibleRowsMatchOracle({ rows: reloadedRows, sourceIds: specimenOracle.ids, ariaRowCount: reloadedRowCount }), oracleRows,
     'Reload must retain the same independent source window');
+  const fullReloadedRows = await captureFullPreviewWindow('reload-preview');
+  assert.deepEqual(assertVisibleRowsMatchOracle({ rows: fullReloadedRows, sourceIds: specimenOracle.ids, ariaRowCount: reloadedRowCount }), fullInitialRows,
+    'Reload must retain all 25 independent source identities');
   report.incidentalAssets = browser.diagnostics.assetFailures;
   report.errors = [...browser.diagnostics.console, ...browser.diagnostics.pageErrors, ...browser.diagnostics.httpFailures, ...browser.diagnostics.networkFailures];
   assert.deepEqual(report.errors, []);
