@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { captureSourceFreeze } from './lib/source-freeze.mjs';
 import { captureApiBuildFreeze, checkContainerApiBuildStamp } from './lib/api-build-freeze.mjs';
 import { sourceFingerprint } from './verify-ui/source-fingerprint.mjs';
-import { launchBrowser, sanitizeBody } from './lib/playwright-browser.mjs';
+import { launchBrowser, sanitizePayload } from './lib/playwright-browser.mjs';
 import { createCDAPlaywrightControls } from './lib/cda-playwright-controls.mjs';
 import { assertVisibleRowsMatchOracle } from './lib/cda-row-oracle.mjs';
 import { assertOwnedCdaTarget } from './lib/owned-cda-target.mjs';
@@ -35,7 +35,7 @@ const fill = (...args) => controls.fill(...args);
 const browserEval = (...args) => controls.evaluate(...args);
 const waitForBrowser = (...args) => controls.wait(...args);
 const navigate = (...args) => controls.navigate(...args);
-const sanitizeReportValue = value => JSON.parse(sanitizeBody(JSON.stringify(value)));
+const sanitizeReportValue = sanitizePayload;
 const api = async (path, body) => {
   const response = await fetch(apiOrigin + path, {
     method: body ? 'POST' : 'GET', headers: { 'Content-Type': 'application/json', 'X-Request-ID': `related-unpivot-browser-${randomUUID()}` },
@@ -95,9 +95,7 @@ const rendered = async expectedRows => {
     return table?.getAttribute('aria-rowcount') === String(Math.min(25, rowCount) + 1) && !document.body.innerText.includes('Loading your table…');
   }, { rowCount: expectedRows.length });
   const rows = await browserEval(() => [...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]')].slice(1).map(row => [...row.querySelectorAll('[role="cell"]')].map(cell => cell.innerText.trim())).filter(row => row.length));
-  // Saved presentation puts the new Unpivot key/value columns first; proposal order follows stage outputs.
-  const savedRows = expectedRows.map(row=>row.at(-2)==='Specimen ID'?[...row.slice(-2),...row.slice(0,-2)]:row);
-  assertVisibleRowsMatchOracle(rows, savedRows, { label: 'saved table', exactWindow: true });
+  assertVisibleRowsMatchOracle(rows, expectedRows, { label: 'saved table', exactWindow: true });
 };
 try {
   ownedTarget = await assertOwnedCdaTarget({ project, apiOrigin, uiOrigin, apiContainer, composeProject, sourceRoot, arangoContainer });
@@ -171,8 +169,10 @@ try {
   const expanded=builder;
   await open(expected);
   await click('[data-testid="construction-rows-settings-trigger"]');
-  await waitForBrowser(() => ([...document.querySelectorAll('button')].some(b=>b.innerText==='Turn columns into rows'&&!b.disabled)));
-  await click('button',{name:'Turn columns into rows'});
+  const unpivotTile = browser.page.getByTestId('construction-action-unpivot-rows');
+  await unpivotTile.waitFor({ state: 'visible', timeout: 5000 });
+  assert(await unpivotTile.isEnabled(), 'Turn columns into rows must be enabled');
+  await click('[data-testid="construction-action-unpivot-rows"]');
   await waitForBrowser(() => (document.querySelector('input[aria-label="Unpivot Specimen ID"]')?.disabled===false));
   let start=Date.now();
   await click('input[aria-label="Unpivot Specimen ID"]');
@@ -183,7 +183,7 @@ try {
   await waitForBrowser(() => (!document.querySelector('[data-testid="construction-proposal-panel"]')));
   assert.deepEqual((await api(base+'/builder')).workspace,expanded.workspace);
   await click('[data-testid="construction-rows-settings-trigger"]');
-  await click('button',{name:'Turn columns into rows'});
+  await click('[data-testid="construction-action-unpivot-rows"]');
   await waitForBrowser(() => (document.querySelector('input[aria-label="Unpivot Specimen ID"]')?.disabled===false));
   start=Date.now();
   await click('input[aria-label="Unpivot Specimen ID"]');

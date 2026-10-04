@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { captureSourceFreeze } from './lib/source-freeze.mjs';
 import { captureApiBuildFreeze, checkContainerApiBuildStamp } from './lib/api-build-freeze.mjs';
 import { sourceFingerprint } from './verify-ui/source-fingerprint.mjs';
-import { launchBrowser, sanitizeBody } from './lib/playwright-browser.mjs';
+import { launchBrowser, sanitizePayload } from './lib/playwright-browser.mjs';
 import { createCDAPlaywrightControls } from './lib/cda-playwright-controls.mjs';
 import { assertVisibleRowsMatchOracle } from './lib/cda-row-oracle.mjs';
 import { assertOwnedCdaTarget } from './lib/owned-cda-target.mjs';
@@ -35,7 +35,7 @@ const fill = (...args) => controls.fill(...args);
 const browserEval = (...args) => controls.evaluate(...args);
 const waitForBrowser = (...args) => controls.wait(...args);
 const navigate = (...args) => controls.navigate(...args);
-const sanitizeReportValue = value => JSON.parse(sanitizeBody(JSON.stringify(value)));
+const sanitizeReportValue = sanitizePayload;
 const api = async (path, body) => {
   const response = await fetch(apiOrigin + path, {
     method: body ? 'POST' : 'GET', headers: { 'Content-Type': 'application/json', 'X-Request-ID': `related-pivot-browser-${randomUUID()}` },

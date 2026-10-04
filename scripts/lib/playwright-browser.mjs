@@ -18,7 +18,7 @@ export function sanitizeText(value) {
     .replace(/\bsk-[A-Za-z0-9]{16,}\b/g, '[REDACTED_TOKEN]');
 }
 
-function sanitizePayload(value, key = '') {
+export function sanitizePayload(value, key = '') {
   if (sensitiveName.test(key)) return '[REDACTED]';
   if (typeof value === 'string') return sanitizeText(value);
   if (Array.isArray(value)) return value.map(item => sanitizePayload(item));

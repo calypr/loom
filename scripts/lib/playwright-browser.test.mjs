@@ -3,7 +3,16 @@ import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { launchBrowser, matchesPendingCancellation } from './playwright-browser.mjs';
+import { launchBrowser, matchesPendingCancellation, sanitizePayload } from './playwright-browser.mjs';
+
+test('large CDA report payloads remain complete while credential fields are redacted', () => {
+  const rows = Array.from({ length: 1000 }, (_, index) => ({ id: `patient-${index}`, value: index % 2 ? null : 'repeat' }));
+  const sanitized = sanitizePayload({ rows, authorization: 'Bearer secret', nested: { access_token: 'secret' } });
+  assert.equal(sanitized.rows.length, 1000);
+  assert.deepEqual(sanitized.rows[999], { id: 'patient-999', value: null });
+  assert.equal(sanitized.authorization, '[REDACTED]');
+  assert.equal(sanitized.nested.access_token, '[REDACTED]');
+});
 
 test('catalog cancellation requires exact method, Explorer path, and component request identity', () => {
   const path = '/api/v1/projects/owned/explorers/current/authoring/v2/semantic-inventory';

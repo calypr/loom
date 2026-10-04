@@ -59,7 +59,7 @@ export function captureCDARequests(page, { apiOrigin, appOrigins = [apiOrigin], 
     entry.responseReceivedAt = Date.now();
     entry.serverRequestId = headers['x-request-id'];
     const readResponse = responsePaths.test(entry.path) || /related-expand-choices/.test(entry.path);
-    const read = (async () => {
+    const read = Promise.resolve().then(async () => {
       try {
         if (readResponse) entry.response = parseBody(await response.text());
         else entry.response = { bodyNotRead: true };
@@ -69,7 +69,7 @@ export function captureCDARequests(page, { apiOrigin, appOrigins = [apiOrigin], 
         entry.completedAt = Date.now();
         pendingReads.delete(read);
       }
-    })();
+    });
     pendingReads.add(read);
     if (response.status() >= 400) {
       const errorEntry = { kind: 'http', requestId: entry.requestId, browserRequestId: entry.browserRequestId, method: entry.method, path: entry.path, url: `${entry.origin}${entry.path}`, status: response.status() };
@@ -95,6 +95,10 @@ export function captureCDARequests(page, { apiOrigin, appOrigins = [apiOrigin], 
     if (message.type() !== 'error') return;
     const location = message.location().url;
     if (location && !appOriginSet.has(new URL(location).origin)) return;
+    if (location && new URL(location).pathname === '/favicon.ico' && /404 \(Not Found\)/.test(message.text())) {
+      (report.assetFailures ??= []).push({ kind: 'console', url: location, status: 404 });
+      return;
+    }
     report.errors.push({ kind: 'console', message: sanitizeText(message.text()) });
   });
 

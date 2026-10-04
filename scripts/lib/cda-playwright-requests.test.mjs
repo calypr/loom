@@ -77,3 +77,37 @@ test('related expand choice responses are retained as sanitized diagnostics', as
   assert.deepEqual(report.nativeRequests[0].response, { error: 'selection is stale', authorization: '[REDACTED]' });
   assert.deepEqual(report.errors[0].response, report.nativeRequests[0].response);
 });
+
+test('successful owned responses without diagnostic bodies flush without a request-tracker crash', async () => {
+  const page = new EventEmitter();
+  const report = { nativeRequests: [], errors: [] };
+  const capture = captureCDARequests(page, {
+    apiOrigin: 'http://127.0.0.1:30102',
+    ownedPathPrefix: '/api/v1/projects/isolated/explorers/owned',
+    report,
+  });
+  const request = {
+    url: () => 'http://127.0.0.1:30102/api/v1/projects/isolated/explorers/owned/authoring/v2/builder',
+    method: () => 'POST', headers: () => ({}), postData: () => '{}',
+  };
+  page.emit('request', request);
+  page.emit('response', {
+    request: () => request, status: () => 200, headers: () => ({}),
+    text: () => { throw new Error('successful command body should not be read'); },
+  });
+  await capture.flush();
+  assert.deepEqual(report.errors, []);
+  assert.deepEqual(report.nativeRequests[0].response, { bodyNotRead: true });
+});
+
+test('only the known missing favicon is recorded as an incidental asset failure', () => {
+  const page = new EventEmitter();
+  const report = { nativeRequests: [], errors: [] };
+  captureCDARequests(page, { apiOrigin: 'http://127.0.0.1:30102', ownedPathPrefix: '/api/v1/projects/isolated/explorers/owned', report });
+  const emit = (url, value) => page.emit('console', { type: () => 'error', location: () => ({ url }), text: () => value });
+  emit('http://127.0.0.1:30102/favicon.ico', 'Failed to load resource: the server responded with a status of 404 (Not Found)');
+  emit('http://127.0.0.1:30102/api/v1/projects/isolated/explorers/owned', 'Failed to load resource: the server responded with a status of 404 (Not Found)');
+  assert.deepEqual(report.assetFailures, [{ kind: 'console', url: 'http://127.0.0.1:30102/favicon.ico', status: 404 }]);
+  assert.equal(report.errors.length, 1);
+  assert.equal(report.errors[0].kind, 'console');
+});
