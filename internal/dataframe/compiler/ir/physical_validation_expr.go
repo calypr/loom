@@ -299,19 +299,20 @@ func validatePhysicalCall(call PhysicalCall, defined map[string]bool, bindVars m
 	return nil
 }
 
-// validatePhysicalExpressionObjectCycles protects the recursive expression
-// validator from a malformed in-memory plan containing a cycle of
-// PhysicalObject pointers. JSON decoding cannot produce such a cycle, but
-// plans are also assembled by compiler stages and tests, where pointers can
-// be wired directly. The active/visited split permits shared (DAG) objects
+// validatePhysicalExpressionObjectCycles protects recursive expression and
+// subplan validation from malformed in-memory plans containing pointer cycles.
+// JSON decoding cannot produce such cycles, but compiler stages and tests can
+// wire pointers directly. The active/visited split permits shared DAG nodes
 // while rejecting only true recursion.
 func validatePhysicalExpressionObjectCycles(expression PhysicalExpression) error {
 	active := map[*PhysicalObject]bool{}
 	visited := map[*PhysicalObject]bool{}
+	activeSubplans := map[*PhysicalSubplan]bool{}
+	visitedSubplans := map[*PhysicalSubplan]bool{}
 	var visitExpression func(PhysicalExpression) error
 	var visitObject func(*PhysicalObject) error
 	var visitPredicate func(*PhysicalPredicateExpression) error
-	var visitSubplan func(PhysicalSubplan) error
+	var visitSubplan func(*PhysicalSubplan) error
 	visitExpression = func(current PhysicalExpression) error {
 		if current.Object != nil {
 			if err := visitObject(current.Object); err != nil {
@@ -369,7 +370,7 @@ func validatePhysicalExpressionObjectCycles(expression PhysicalExpression) error
 			}
 		}
 		if current.Subplan != nil {
-			if err := visitSubplan(*current.Subplan); err != nil {
+			if err := visitSubplan(current.Subplan); err != nil {
 				return err
 			}
 		}
@@ -390,12 +391,24 @@ func validatePhysicalExpressionObjectCycles(expression PhysicalExpression) error
 			}
 		}
 		if predicate.Exists != nil {
-			return visitSubplan(*predicate.Exists)
+			return visitSubplan(predicate.Exists)
 		}
 		return nil
 	}
-	visitSubplan = func(subplan PhysicalSubplan) error {
-		for _, operation := range subplan.Operations {
+	visitSubplan = func(subplan *PhysicalSubplan) error {
+		if subplan == nil {
+			return nil
+		}
+		if activeSubplans[subplan] {
+			return fmt.Errorf("physical subplan expression contains a recursive cycle")
+		}
+		if visitedSubplans[subplan] {
+			return nil
+		}
+		activeSubplans[subplan] = true
+		defer delete(activeSubplans, subplan)
+		for index := range subplan.Operations {
+			operation := &subplan.Operations[index]
 			switch operation.Kind {
 			case PhysicalFilterOp:
 				if operation.Filter != nil && operation.Filter.Expression != nil {
@@ -411,7 +424,7 @@ func validatePhysicalExpressionObjectCycles(expression PhysicalExpression) error
 				}
 			case PhysicalSetOp:
 				if operation.Set != nil {
-					if err := visitSubplan(operation.Set.Subplan); err != nil {
+					if err := visitSubplan(&operation.Set.Subplan); err != nil {
 						return err
 					}
 				}
@@ -421,14 +434,26 @@ func validatePhysicalExpressionObjectCycles(expression PhysicalExpression) error
 						return err
 					}
 					for _, step := range operation.Unnest.Owner.Route {
-						if err := visitSubplan(PhysicalSubplan{Operations: step.Scope}); err != nil {
+						routeScope := PhysicalSubplan{Operations: step.Scope}
+						if err := visitSubplan(&routeScope); err != nil {
 							return err
 						}
 					}
 				}
+			case PhysicalPathExtendOp:
+				if operation.PathExtend != nil {
+					routeScope := PhysicalSubplan{Operations: operation.PathExtend.Scope}
+					if err := visitSubplan(&routeScope); err != nil {
+						return err
+					}
+				}
 			}
 		}
-		return visitExpression(subplan.Return)
+		if err := visitExpression(subplan.Return); err != nil {
+			return err
+		}
+		visitedSubplans[subplan] = true
+		return nil
 	}
 	visitObject = func(object *PhysicalObject) error {
 		if active[object] {

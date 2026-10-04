@@ -28,46 +28,328 @@ func ValidateGenericPhysicalPlanScope(plan PhysicalPlan) error {
 	if err := plan.Validate(); err != nil {
 		return fmt.Errorf("validate physical plan before verifying generic scope: %w", err)
 	}
-
-	for operationIndex, operation := range plan.Operations {
-		if operation.Kind == PhysicalRootScanOp && operation.RootScan.Population != nil {
-			if err := validatePhysicalPopulationRootScope(*operation.RootScan.Population); err != nil {
-				return fmt.Errorf("population root source: %w", err)
+	walker := physicalScopeWalker{
+		activeSubplans:  make(map[*PhysicalSubplan]bool),
+		visitedSubplans: make(map[*PhysicalSubplan]bool),
+	}
+	if err := walker.operations(plan.Operations, "physical plan"); err != nil {
+		return err
+	}
+	if plan.StageSequence != nil {
+		for index := range plan.StageSequence.Stages {
+			if err := walker.stage(&plan.StageSequence.Stages[index], index); err != nil {
+				return err
 			}
 		}
-		resource, ok := physicalScopeResourceForOperation(operation)
-		if !ok {
-			continue
+	}
+	return nil
+}
+
+type physicalScopeWalker struct {
+	activeSubplans  map[*PhysicalSubplan]bool
+	visitedSubplans map[*PhysicalSubplan]bool
+}
+
+func (walker *physicalScopeWalker) operations(operations []PhysicalOperation, owner string) error {
+	for index := range operations {
+		operation := &operations[index]
+		resource, ok := physicalScopeResourceForOperation(*operation)
+		if ok {
+			windowEnd := physicalScopeWindowEnd(operations, index+1)
+			if err := validatePhysicalScopeWindow(operations, index, windowEnd, resource); err != nil {
+				return fmt.Errorf("%s: %w", owner, err)
+			}
 		}
-		windowEnd := physicalScopeWindowEnd(plan.Operations, operationIndex+1)
-		if err := validatePhysicalScopeWindow(plan.Operations, operationIndex, windowEnd, resource); err != nil {
+		if operation.Kind == PhysicalRootScanOp && operation.RootScan != nil && operation.RootScan.Population != nil {
+			if err := walker.operations(operation.RootScan.Population.ResourceOperations, owner+" population source"); err != nil {
+				return err
+			}
+		}
+		if err := walker.operationChildren(operation, fmt.Sprintf("%s operation %d (%s)", owner, index, operation.Kind)); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func validatePhysicalPopulationRootScope(source PhysicalPopulationRootSource) error {
-	for operationIndex, operation := range source.ResourceOperations {
-		var resource physicalScopeResource
-		switch operation.Kind {
-		case PhysicalCollectionScanOp:
-			resource = physicalScopeResource{
-				description:         fmt.Sprintf("population source scan %q", operation.CollectionScan.Variable),
-				projectVariables:    []string{operation.CollectionScan.Variable},
-				datasetGenVariables: []string{operation.CollectionScan.Variable},
-				authPaths:           []PhysicalValue{{Variable: operation.CollectionScan.Variable, Path: []string{physicalScopeAuthPathField}}},
-			}
-		case PhysicalTraversalOp:
-			resource, _ = physicalScopeResourceForOperation(operation)
-		default:
-			continue
+func (walker *physicalScopeWalker) operationChildren(operation *PhysicalOperation, owner string) error {
+	if operation == nil {
+		return nil
+	}
+	if operation.Filter != nil {
+		if err := walker.predicate(operation.Filter.Expression, owner+" filter"); err != nil {
+			return err
 		}
-		windowEnd := physicalScopeWindowEnd(source.ResourceOperations, operationIndex+1)
-		if err := validatePhysicalScopeWindow(source.ResourceOperations, operationIndex, windowEnd, resource); err != nil {
+		if operation.Filter.Predicate.LeftExpression != nil {
+			if err := walker.expression(*operation.Filter.Predicate.LeftExpression, owner+" predicate"); err != nil {
+				return err
+			}
+		}
+	}
+	if operation.ExpressionLet != nil {
+		if err := walker.expression(operation.ExpressionLet.Expression, owner+" expression LET"); err != nil {
 			return err
 		}
 	}
+	if operation.Set != nil {
+		if err := walker.subplan(&operation.Set.Subplan, owner+" set subplan"); err != nil {
+			return err
+		}
+	}
+	if operation.Unnest != nil {
+		if err := walker.expression(operation.Unnest.Expression, owner+" unnest"); err != nil {
+			return err
+		}
+		for index := range operation.Unnest.Owner.Route {
+			route := operation.Unnest.Owner.Route[index]
+			routeOwner := fmt.Sprintf("%s unnest route %d", owner, index)
+			if err := validateEmbeddedTraversalScope(route.Traversal, route.Scope); err != nil {
+				return fmt.Errorf("%s: %w", routeOwner, err)
+			}
+			if err := walker.operations(route.Scope, routeOwner); err != nil {
+				return err
+			}
+		}
+	}
+	if operation.PathExtend != nil {
+		if err := validateEmbeddedTraversalScope(operation.PathExtend.Traversal, operation.PathExtend.Scope); err != nil {
+			return fmt.Errorf("%s path extension: %w", owner, err)
+		}
+		if err := walker.operations(operation.PathExtend.Scope, owner+" path extension scope"); err != nil {
+			return err
+		}
+	}
+	if operation.Return != nil {
+		if err := walker.projections(operation.Return.Projections, owner+" return"); err != nil {
+			return err
+		}
+	}
+	if operation.CellTraceReturn != nil {
+		if err := walker.expression(operation.CellTraceReturn.Value, owner+" cell trace"); err != nil {
+			return err
+		}
+		for index := range operation.CellTraceReturn.IdentityParts {
+			if err := walker.expression(operation.CellTraceReturn.IdentityParts[index].Expression, fmt.Sprintf("%s cell trace identity %d", owner, index)); err != nil {
+				return err
+			}
+		}
+		if operation.CellTraceReturn.ExplicitIdentity != nil {
+			if err := walker.expression(*operation.CellTraceReturn.ExplicitIdentity, owner+" cell trace explicit identity"); err != nil {
+				return err
+			}
+		}
+		if trace := operation.CellTraceReturn.Construction; trace != nil && trace.RelatedSource != nil {
+			if err := walker.subplan(&trace.RelatedSource.Subplan, owner+" cell trace related source"); err != nil {
+				return err
+			}
+		}
+	}
+	if operation.PopulationMappingReturn != nil {
+		if err := walker.expression(operation.PopulationMappingReturn.Members, owner+" population mapping members"); err != nil {
+			return err
+		}
+		for index := range operation.PopulationMappingReturn.IdentityParts {
+			if err := walker.expression(operation.PopulationMappingReturn.IdentityParts[index].Expression, fmt.Sprintf("%s population mapping identity %d", owner, index)); err != nil {
+				return err
+			}
+		}
+		if operation.PopulationMappingReturn.ExplicitIdentity != nil {
+			if err := walker.expression(*operation.PopulationMappingReturn.ExplicitIdentity, owner+" population mapping explicit identity"); err != nil {
+				return err
+			}
+		}
+	}
+	if operation.TableShapeExclusionReturn != nil {
+		if err := walker.projections(operation.TableShapeExclusionReturn.Pivot.InputProjections, owner+" table-shape Pivot input projections"); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateEmbeddedTraversalScope(traversal PhysicalTraversal, operations []PhysicalOperation) error {
+	operation := PhysicalOperation{Kind: PhysicalTraversalOp, Traversal: &traversal}
+	resource, ok := physicalScopeResourceForOperation(operation)
+	if !ok {
+		return fmt.Errorf("embedded traversal has no resource scope contract")
+	}
+	return validatePhysicalScopeWindow(operations, -1, len(operations), resource)
+}
+
+func (walker *physicalScopeWalker) stage(stage *PhysicalConstructionStage, index int) error {
+	if stage == nil {
+		return nil
+	}
+	owner := fmt.Sprintf("construction stage %d %q", index, stage.ID)
+	if err := walker.operations(stage.DerivedLets, owner+" derived operations"); err != nil {
+		return err
+	}
+	if stage.Filter != nil {
+		if err := walker.predicate(stage.Filter.Expression, owner+" filter"); err != nil {
+			return err
+		}
+		if stage.Filter.Predicate.LeftExpression != nil {
+			if err := walker.expression(*stage.Filter.Predicate.LeftExpression, owner+" filter predicate"); err != nil {
+				return err
+			}
+		}
+	}
+	if err := walker.projections(stage.InputProjections, owner+" input projections"); err != nil {
+		return err
+	}
+	if err := walker.projections(stage.OutputProjections, owner+" output projections"); err != nil {
+		return err
+	}
+	if stage.GroupedPivot != nil {
+		if err := walker.projections(stage.GroupedPivot.InputProjections, owner+" Pivot input projections"); err != nil {
+			return err
+		}
+	}
+	if stage.Unpivot != nil {
+		if err := walker.projections(stage.Unpivot.InputProjections, owner+" Unpivot input projections"); err != nil {
+			return err
+		}
+	}
+	if stage.CodedGroup != nil {
+		if err := walker.projections(stage.CodedGroup.RowValueProjections, owner+" coded-group input projections"); err != nil {
+			return err
+		}
+	}
+	if stage.CohortGroup != nil {
+		for valueIndex := range stage.CohortGroup.Rows.MemberValues {
+			if err := walker.expression(stage.CohortGroup.Rows.MemberValues[valueIndex].Expression, fmt.Sprintf("%s cohort member value %d", owner, valueIndex)); err != nil {
+				return err
+			}
+		}
+	}
+	if stage.RelatedExpand != nil {
+		if err := walker.subplan(&stage.RelatedExpand.RelatedRecords, owner+" related expansion"); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (walker *physicalScopeWalker) projections(projections []PhysicalProjection, owner string) error {
+	for index := range projections {
+		if projections[index].Expression != nil {
+			if err := walker.expression(*projections[index].Expression, fmt.Sprintf("%s projection %d", owner, index)); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func (walker *physicalScopeWalker) predicate(predicate *PhysicalPredicateExpression, owner string) error {
+	if predicate == nil {
+		return nil
+	}
+	if predicate.Comparison != nil && predicate.Comparison.LeftExpression != nil {
+		if err := walker.expression(*predicate.Comparison.LeftExpression, owner+" comparison"); err != nil {
+			return err
+		}
+	}
+	for index := range predicate.Children {
+		if err := walker.predicate(&predicate.Children[index], fmt.Sprintf("%s child %d", owner, index)); err != nil {
+			return err
+		}
+	}
+	if predicate.Exists != nil {
+		return walker.subplan(predicate.Exists, owner+" EXISTS subplan")
+	}
+	return nil
+}
+
+func (walker *physicalScopeWalker) expression(expression PhysicalExpression, owner string) error {
+	if expression.Aggregate != nil {
+		if expression.Aggregate.Value != nil {
+			if err := walker.expression(*expression.Aggregate.Value, owner+" aggregate value"); err != nil {
+				return err
+			}
+		}
+		if err := walker.predicate(expression.Aggregate.Predicate, owner+" aggregate predicate"); err != nil {
+			return err
+		}
+	}
+	if expression.Slice != nil {
+		if err := walker.predicate(expression.Slice.Predicate, owner+" slice predicate"); err != nil {
+			return err
+		}
+		if expression.Slice.Sort != nil {
+			if err := walker.expression(*expression.Slice.Sort, owner+" slice sort"); err != nil {
+				return err
+			}
+		}
+		for index := range expression.Slice.Projections {
+			if err := walker.expression(expression.Slice.Projections[index].Expression, fmt.Sprintf("%s slice projection %d", owner, index)); err != nil {
+				return err
+			}
+		}
+	}
+	if expression.KeyedMap != nil {
+		for _, child := range []struct {
+			name string
+			expr PhysicalExpression
+		}{{"source", expression.KeyedMap.Source}, {"item key", expression.KeyedMap.ItemKey}, {"item value", expression.KeyedMap.ItemValue}} {
+			if err := walker.expression(child.expr, owner+" keyed map "+child.name); err != nil {
+				return err
+			}
+		}
+		for index := range expression.KeyedMap.ValueFallbacks {
+			if err := walker.expression(expression.KeyedMap.ValueFallbacks[index], fmt.Sprintf("%s keyed map fallback %d", owner, index)); err != nil {
+				return err
+			}
+		}
+	}
+	if expression.KeySet != nil {
+		if err := walker.expression(expression.KeySet.Source, owner+" key set source"); err != nil {
+			return err
+		}
+		if err := walker.expression(expression.KeySet.ItemKey, owner+" key set item"); err != nil {
+			return err
+		}
+	}
+	if expression.Object != nil {
+		for index := range expression.Object.Fields {
+			if err := walker.expression(expression.Object.Fields[index].Expression, fmt.Sprintf("%s object field %d", owner, index)); err != nil {
+				return err
+			}
+		}
+	}
+	if expression.Subplan != nil {
+		return walker.subplan(expression.Subplan, owner+" expression subplan")
+	}
+	if expression.Call != nil {
+		for index := range expression.Call.Args {
+			if err := walker.expression(expression.Call.Args[index], fmt.Sprintf("%s call argument %d", owner, index)); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func (walker *physicalScopeWalker) subplan(subplan *PhysicalSubplan, owner string) error {
+	if subplan == nil {
+		return nil
+	}
+	if walker.activeSubplans[subplan] {
+		return fmt.Errorf("%s contains a recursive physical subplan", owner)
+	}
+	if walker.visitedSubplans[subplan] {
+		return nil
+	}
+	walker.activeSubplans[subplan] = true
+	err := walker.operations(subplan.Operations, owner)
+	if err == nil {
+		err = walker.expression(subplan.Return, owner+" return")
+	}
+	delete(walker.activeSubplans, subplan)
+	if err != nil {
+		return err
+	}
+	walker.visitedSubplans[subplan] = true
 	return nil
 }
 
@@ -100,8 +382,32 @@ func physicalScopeResourceForOperation(operation PhysicalOperation) (physicalSco
 				{Variable: operation.Traversal.TargetVariable, Path: []string{physicalScopeAuthPathField}},
 			},
 		}, true
+	case PhysicalCollectionScanOp:
+		if operation.CollectionScan == nil {
+			return physicalScopeResource{}, false
+		}
+		return physicalScopeLookupResource("collection scan", operation.CollectionScan.Variable), true
+	case PhysicalKeySetLookupOp:
+		if operation.KeySetLookup == nil {
+			return physicalScopeResource{}, false
+		}
+		return physicalScopeLookupResource("key-set lookup", operation.KeySetLookup.Variable), true
+	case PhysicalDocumentLookupOp:
+		if operation.DocumentLookup == nil {
+			return physicalScopeResource{}, false
+		}
+		return physicalScopeLookupResource("document lookup", operation.DocumentLookup.Variable), true
 	default:
 		return physicalScopeResource{}, false
+	}
+}
+
+func physicalScopeLookupResource(description, variable string) physicalScopeResource {
+	return physicalScopeResource{
+		description:         fmt.Sprintf("%s %q", description, variable),
+		projectVariables:    []string{variable},
+		datasetGenVariables: []string{variable},
+		authPaths:           []PhysicalValue{{Variable: variable, Path: []string{physicalScopeAuthPathField}}},
 	}
 }
 
@@ -111,7 +417,8 @@ func physicalScopeResourceForOperation(operation PhysicalOperation) (physicalSco
 func physicalScopeWindowEnd(operations []PhysicalOperation, start int) int {
 	for index := start; index < len(operations); index++ {
 		switch operations[index].Kind {
-		case PhysicalRootScanOp, PhysicalTraversalOp, PhysicalSetOp, PhysicalReturnOp, PhysicalPopulationMappingReturnOp, PhysicalCellTraceReturnOp, PhysicalTableShapeExclusionReturnOp:
+		case PhysicalRootScanOp, PhysicalTraversalOp, PhysicalCollectionScanOp, PhysicalKeySetLookupOp, PhysicalDocumentLookupOp,
+			PhysicalSetOp, PhysicalUnnestOp, PhysicalReturnOp, PhysicalPopulationMappingReturnOp, PhysicalCellTraceReturnOp, PhysicalTableShapeExclusionReturnOp:
 			return index
 		}
 	}

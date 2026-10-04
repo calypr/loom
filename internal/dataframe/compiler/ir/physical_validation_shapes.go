@@ -54,6 +54,19 @@ func validatePhysicalExpressionProjections(projections []PhysicalExpressionProje
 }
 
 func validatePhysicalPredicateExpression(predicate PhysicalPredicateExpression, defined map[string]bool, bindVars map[string]any) error {
+	// Filter predicates can contain EXISTS subplans without being wrapped in a
+	// PhysicalExpression. Run the shared pointer-cycle preflight here as well as
+	// from validatePhysicalExpression so malformed in-memory plans are rejected
+	// before recursive structural validation.
+	if err := validatePhysicalExpressionObjectCycles(PhysicalExpression{
+		Aggregate: &PhysicalAggregate{Predicate: &predicate},
+	}); err != nil {
+		return err
+	}
+	return validatePhysicalPredicateExpressionValidated(predicate, defined, bindVars)
+}
+
+func validatePhysicalPredicateExpressionValidated(predicate PhysicalPredicateExpression, defined map[string]bool, bindVars map[string]any) error {
 	switch predicate.Kind {
 	case PhysicalComparisonPredicate:
 		if predicate.Comparison == nil || len(predicate.Children) != 0 || predicate.Exists != nil {
@@ -65,7 +78,7 @@ func validatePhysicalPredicateExpression(predicate PhysicalPredicateExpression, 
 			return fmt.Errorf("%s predicate requires one or more child predicates", predicate.Kind)
 		}
 		for index, child := range predicate.Children {
-			if err := validatePhysicalPredicateExpression(child, defined, bindVars); err != nil {
+			if err := validatePhysicalPredicateExpressionValidated(child, defined, bindVars); err != nil {
 				return fmt.Errorf("predicate child %d: %w", index, err)
 			}
 		}
@@ -74,7 +87,7 @@ func validatePhysicalPredicateExpression(predicate PhysicalPredicateExpression, 
 		if predicate.Comparison != nil || predicate.Exists != nil || len(predicate.Children) != 1 {
 			return fmt.Errorf("NOT predicate requires exactly one child predicate")
 		}
-		return validatePhysicalPredicateExpression(predicate.Children[0], defined, bindVars)
+		return validatePhysicalPredicateExpressionValidated(predicate.Children[0], defined, bindVars)
 	case PhysicalExistsPredicate:
 		if predicate.Comparison != nil || len(predicate.Children) != 0 || predicate.Exists == nil {
 			return fmt.Errorf("EXISTS predicate requires exactly one subplan")
