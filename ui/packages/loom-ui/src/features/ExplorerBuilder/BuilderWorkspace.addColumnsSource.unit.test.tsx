@@ -38,7 +38,7 @@ const mockLoomClient = vi.hoisted(() => ({
   preview: vi.fn(),
   proposeConstruction: vi.fn(),
   proposeConstructionChoices: vi.fn(),
-  resolveConfiguredColumnContexts: vi.fn(),
+  configuredColumnContextsQuery: vi.fn(),
   searchConstructionChoices: vi.fn(),
 }));
 
@@ -56,6 +56,7 @@ vi.mock('../../react', () => ({
   usePopulationMappingMutation: vi.fn(),
   usePublishExplorerAuthoringV2Mutation: vi.fn(),
   useReconcileExplorerBuilderV2Mutation: vi.fn(),
+  useResolveConfiguredColumnContextsQuery: mockLoomClient.configuredColumnContextsQuery,
 }));
 
 vi.mock('./components/BuilderToolbar', () => ({
@@ -457,13 +458,12 @@ describe('BuilderWorkspace Add columns source selection', () => {
     mockLoomClient.preview.mockReset();
     mockLoomClient.proposeConstruction.mockReset();
     mockLoomClient.proposeConstructionChoices.mockReset();
-    mockLoomClient.resolveConfiguredColumnContexts.mockReset().mockResolvedValue({
-      snapshotToken: 'snapshot-1',
-      draftVersion: 1,
-      draftDigest: 'sha256:draft-1',
-      libraries: [],
-      pinnedRevisions: [],
-      columns: [],
+    mockLoomClient.configuredColumnContextsQuery.mockReset().mockReturnValue({
+      data: undefined,
+      error: undefined,
+      isLoading: true,
+      isFetching: true,
+      refetch: vi.fn(),
     });
     mockLoomClient.searchConstructionChoices.mockReset().mockResolvedValue({
       snapshotToken: 'snapshot-1',
@@ -1407,18 +1407,7 @@ describe('BuilderWorkspace Add columns source selection', () => {
         };
       }),
     }));
-    mockLoomClient.resolveConfiguredColumnContexts.mockReset().mockImplementation(async (args: {
-      readonly snapshotToken: string;
-      readonly expectedDraftVersion: number;
-      readonly expectedDraftDigest: string;
-    }) => ({
-      snapshotToken: args.snapshotToken,
-      draftVersion: args.expectedDraftVersion,
-      draftDigest: args.expectedDraftDigest,
-      libraries: [],
-      pinnedRevisions: [],
-      columns: [],
-    }));
+    mockLoomClient.configuredColumnContextsQuery.mockClear();
 
     render(
       <BuilderWorkspace
@@ -1435,16 +1424,29 @@ describe('BuilderWorkspace Add columns source selection', () => {
     });
     // The second command is deliberately unresolved, so this is the intermediate
     // draftVersion 1 window between CREATE_TABLE and default-ID provisioning.
-    expect(mockLoomClient.resolveConfiguredColumnContexts).not.toHaveBeenCalled();
+    expect(mockLoomClient.configuredColumnContextsQuery.mock.calls.every(([args]) => args === undefined)).toBe(true);
 
     const release = releaseAddColumn;
     await act(async () => release?.());
-    await waitFor(() => expect(mockLoomClient.resolveConfiguredColumnContexts.mock.calls[0]?.[0]).toEqual(expect.objectContaining({
+    await waitFor(() => expect(mockLoomClient.configuredColumnContextsQuery.mock.calls.some(([args]) =>
+      args?.expectedDraftVersion === 2 && args.expectedDraftDigest === 'sha256:draft-2')).toBe(true));
+    const configuredContextCall = mockLoomClient.configuredColumnContextsQuery.mock.calls.find((call) => call[0] !== undefined);
+    expect(configuredContextCall?.[0]).toEqual(expect.objectContaining({
+      project: 'HTAN_INT/BForePC',
+      explorerId: 'test',
+      authResourcePath: '/programs/HTAN_INT/projects/BForePC',
       snapshotToken: 'snapshot-1',
       expectedDraftVersion: 2,
       expectedDraftDigest: 'sha256:draft-2',
-    })));
-    expect(mockLoomClient.resolveConfiguredColumnContexts).toHaveBeenCalledTimes(1);
+    }));
+    expect(configuredContextCall?.[1]).toBe(JSON.stringify([
+      JSON.stringify(['HTAN_INT/BForePC', '/programs/HTAN_INT/projects/BForePC', 'test']),
+      'snapshot-1',
+      2,
+      'sha256:draft-2',
+      0,
+    ]));
+    expect(configuredContextCall).toBeDefined();
     await waitFor(() => expect(previewBuilder).toHaveBeenCalledOnce());
   });
 

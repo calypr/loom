@@ -14,6 +14,7 @@ import type {
   PopulationMappingArgs,
   PublishExplorerBuilderArgs,
   ReconcileExplorerBuilderArgs,
+  ResolveConfiguredColumnContextsArgs,
 } from './api';
 
 const LoomClientContext = createContext<LoomClient | null>(null);
@@ -60,14 +61,18 @@ interface Resource<T> {
   readonly refresh: (options?: QueryRefetchOptions) => Promise<{ readonly data?: T; readonly error?: unknown }>;
 }
 
-export const resourceFor = <T,>(loader: (signal: AbortSignal, options?: QueryRefetchOptions) => Promise<T>): Resource<T> => {
-  let snapshot: ResourceSnapshot<T> = { loading: true };
+export const resourceFor = <T,>(
+  loader: (signal: AbortSignal, options?: QueryRefetchOptions) => Promise<T>,
+  enabled = true,
+): Resource<T> => {
+  let snapshot: ResourceSnapshot<T> = { loading: enabled };
   let controller: AbortController | undefined;
   const listeners = new Set<() => void>();
   let started = false;
   let epoch = 0;
   const notify = () => listeners.forEach((listener) => listener());
   const refresh = async (options?: QueryRefetchOptions) => {
+    if (!enabled) return {};
     controller?.abort();
     const requestController = new AbortController();
     controller = requestController;
@@ -94,7 +99,7 @@ export const resourceFor = <T,>(loader: (signal: AbortSignal, options?: QueryRef
     getSnapshot: () => snapshot,
     subscribe: (listener) => {
       listeners.add(listener);
-      if (!started) void refresh();
+      if (!started && enabled) void refresh();
       return () => {
         listeners.delete(listener);
         queueMicrotask(() => {
@@ -103,7 +108,7 @@ export const resourceFor = <T,>(loader: (signal: AbortSignal, options?: QueryRef
           controller = undefined;
           epoch += 1;
           started = false;
-          snapshot = { loading: true };
+          snapshot = { loading: enabled };
         });
       };
     },
@@ -115,18 +120,19 @@ export const resourceFor = <T,>(loader: (signal: AbortSignal, options?: QueryRef
 const useQuery = <T,>(
   loader: (signal: AbortSignal, options?: QueryRefetchOptions) => Promise<T>,
   dependencies: ReadonlyArray<unknown>,
+  enabled = true,
 ): QueryResult<T> => {
   const loaderRef = useRef(loader);
   loaderRef.current = loader;
   const resource = useMemo(
-    () => resourceFor((signal, options) => loaderRef.current(signal, options)),
-    dependencies,
+    () => resourceFor((signal, options) => loaderRef.current(signal, options), enabled),
+    [...dependencies, enabled],
   );
   const snapshot = useSyncExternalStore(resource.subscribe, resource.getSnapshot, resource.getSnapshot);
   return {
     ...snapshot,
-    isLoading: snapshot.loading,
-    isFetching: snapshot.loading,
+    isLoading: enabled && snapshot.loading,
+    isFetching: enabled && snapshot.loading,
     refetch: resource.refresh,
   };
 };
@@ -165,6 +171,30 @@ export const useGetExplorerAuthoringExplorersQuery = (args: ExplorerAuthoringPro
 export const useGetExplorerBuilderStateV2Query = (args: ExplorerAuthoringStateArgs): QueryResult<Awaited<ReturnType<LoomClient['getBuilder']>>> => {
   const client = useLoomClient();
   return useQuery((signal, options) => client.getBuilder(args, { signal, reload: options?.reload }), [client, args.project, args.explorerId, args.authResourcePath]);
+};
+
+export const useResolveConfiguredColumnContextsQuery = (
+  args: ResolveConfiguredColumnContextsArgs | undefined,
+  key: string,
+): QueryResult<Awaited<ReturnType<LoomClient['resolveConfiguredColumnContexts']>>> => {
+  const client = useLoomClient();
+  return useQuery(
+    (signal) => {
+      if (!args) throw new Error('Configured column context query started without a saved draft identity.');
+      return client.resolveConfiguredColumnContexts(args, signal);
+    },
+    [
+      client,
+      key,
+      args?.project,
+      args?.explorerId,
+      args?.authResourcePath,
+      args?.snapshotToken,
+      args?.expectedDraftVersion,
+      args?.expectedDraftDigest,
+    ],
+    args !== undefined,
+  );
 };
 
 export const useGetExplorerAuthoringCapabilityV2Query = (args: ExplorerAuthoringStateArgs): QueryResult<Awaited<ReturnType<LoomClient['getCapability']>>> => {

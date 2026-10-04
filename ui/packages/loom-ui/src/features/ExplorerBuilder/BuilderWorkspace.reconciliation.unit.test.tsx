@@ -36,7 +36,7 @@ const mockLoomClient = vi.hoisted(() => ({
   listRowDefinitionChoices: vi.fn(),
   searchPopulationRoutes: vi.fn(),
   createSelection: vi.fn(),
-  resolveConfiguredColumnContexts: vi.fn(),
+  configuredColumnContextsQuery: vi.fn(),
   getTableShapeCapabilities: vi.fn(),
   discoverTableShapeCategories: vi.fn(),
   resolveTableShape: vi.fn(),
@@ -63,6 +63,7 @@ vi.mock('../../react', () => ({
   usePopulationMappingMutation: vi.fn(),
   usePublishExplorerAuthoringV2Mutation: vi.fn(),
   useReconcileExplorerBuilderV2Mutation: vi.fn(),
+  useResolveConfiguredColumnContextsQuery: mockLoomClient.configuredColumnContextsQuery,
 }));
 
 vi.mock('./components/BuilderToolbar', () => ({
@@ -420,7 +421,6 @@ const abortableRequest = <T,>() => {
 
 describe('BuilderWorkspace on-demand reconciliation', () => {
   let applyCommands: Mock;
-  let resolveContext: Mock;
   let assessRowChange: Mock;
   let reconcile: Mock;
   let preview: Mock;
@@ -475,20 +475,13 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
       diagnostics: [],
     });
     mockLoomClient.browseSemanticInventory.mockResolvedValue({ state: 'complete', entries: [] });
-    resolveContext = vi.fn(async (args: { snapshotToken: string; expectedDraftVersion: number; expectedDraftDigest: string }) => ({
-      snapshotToken: args.snapshotToken,
-      draftVersion: args.expectedDraftVersion,
-      draftDigest: args.expectedDraftDigest,
-      libraries: [],
-      pinnedRevisions: [],
-      columns: [{
-        outputId: 'specimens',
-        column: 'specimen_identifier',
-        occurrenceId: 'base',
-        resolution: { state: 'READY' as const, capabilityCandidateIds: ['specimen-id'], applicableRevisionIds: [] },
-      }],
-    }));
-    mockLoomClient.resolveConfiguredColumnContexts = resolveContext;
+    mockLoomClient.configuredColumnContextsQuery.mockReset().mockReturnValue({
+      data: undefined,
+      error: undefined,
+      isLoading: true,
+      isFetching: true,
+      refetch: vi.fn(),
+    });
     mockLoomClient.getTableShapeCapabilities.mockResolvedValue(tableShapeCapabilities);
     mockLoomClient.discoverTableShapeCategories.mockResolvedValue({});
     mockLoomClient.resolveTableShape.mockResolvedValue({
@@ -1307,15 +1300,24 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
       name: 'Review dataset',
     });
     await waitFor(() => expect(reviewButton).toBeEnabled());
-    await waitFor(() => expect(resolveContext).toHaveBeenCalledTimes(1));
-    expect(resolveContext).toHaveBeenCalledWith({
+    await waitFor(() => expect(mockLoomClient.configuredColumnContextsQuery.mock.calls.some(([args]) => args !== undefined)).toBe(true));
+    const configuredContextCall = mockLoomClient.configuredColumnContextsQuery.mock.calls.find((call) => call[0] !== undefined);
+    expect(configuredContextCall?.[0]).toEqual({
       project: 'HTAN_INT/BForePC',
       explorerId: 'test',
       authResourcePath: '/programs/HTAN_INT/projects/BForePC',
       snapshotToken: 'snapshot-1',
       expectedDraftVersion: 1,
       expectedDraftDigest: 'sha256:draft-1',
-    }, expect.any(AbortSignal));
+    });
+    expect(configuredContextCall?.[1]).toBe(JSON.stringify([
+      JSON.stringify(['HTAN_INT/BForePC', '/programs/HTAN_INT/projects/BForePC', 'test']),
+      'snapshot-1',
+      1,
+      'sha256:draft-1',
+      0,
+    ]));
+    expect(configuredContextCall).toBeDefined();
     await waitFor(() => expect(reconcile).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(preview).toHaveBeenCalledTimes(1));
     fireEvent.click(reviewButton);
@@ -1877,31 +1879,6 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
       isLoading: false,
       refetch,
     });
-    resolveContext.mockImplementation(async (args: {
-      readonly snapshotToken: string;
-      readonly expectedDraftVersion: number;
-      readonly expectedDraftDigest: string;
-    }) => ({
-      snapshotToken: args.snapshotToken,
-      draftVersion: args.expectedDraftVersion,
-      draftDigest: args.expectedDraftDigest,
-      libraries: [],
-      pinnedRevisions: [],
-      columns: [
-        {
-          outputId: 'specimens',
-          column: 'specimen_identifier',
-          occurrenceId: 'base',
-          resolution: { state: 'READY' as const, capabilityCandidateIds: ['specimen-id'], applicableRevisionIds: [] },
-        },
-        {
-          outputId: 'patients',
-          column: 'patient_identifier',
-          occurrenceId: 'base',
-          resolution: { state: 'READY' as const, capabilityCandidateIds: ['patient-id'], applicableRevisionIds: [] },
-        },
-      ],
-    }));
     reconcile.mockReturnValue(resolvedRequest({
       ...receipt,
       builder: multiTableWorkspace,

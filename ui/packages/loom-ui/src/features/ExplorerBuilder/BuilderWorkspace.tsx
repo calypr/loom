@@ -10,6 +10,7 @@ import {
   useGetExplorerAuthoringCapabilityV2Query,
   useGetExplorerAuthoringExplorersQuery,
   useGetExplorerBuilderStateV2Query,
+  useResolveConfiguredColumnContextsQuery,
   useGetExplorerCandidateSuggestionsV2Mutation,
   usePreviewExplorerAuthoringV2Mutation,
   usePublishExplorerAuthoringV2Mutation,
@@ -17,7 +18,7 @@ import {
   useLoomClient,
 } from '../../react';
 import type { ResourceRef, SelectionRevision } from '../../selection';
-import { canonicalProject, type ConfiguredColumnContextResponse, type ExplorerAuthoringApiError } from '../../api';
+import { canonicalProject, type ExplorerAuthoringApiError } from '../../api';
 import type {
   ExplorerAuthoringDiagnostic,
   ExplorerBuilderCatalog,
@@ -301,11 +302,6 @@ type PendingRowChangePreview =
   | (RowChangePreviewContext & { readonly status: 'ready'; readonly preview: ExplorerBuilderPreviewResult })
   | (RowChangePreviewContext & { readonly status: 'error'; readonly error: string });
 
-type InterpretationContextLoad =
-  | { readonly key: string; readonly status: 'loading' }
-  | { readonly key: string; readonly status: 'ready'; readonly response: ConfiguredColumnContextResponse }
-  | { readonly key: string; readonly status: 'error'; readonly message: string };
-
 type FirstTableProgress =
   | { readonly kind: 'idle' }
   | {
@@ -525,7 +521,6 @@ const BuilderWorkspaceContent = ({
   const latestState = useRef(state);
   latestState.current = state;
   const [interpretationContextRefreshVersion, setInterpretationContextRefreshVersion] = useState(0);
-  const [interpretationContextLoad, setInterpretationContextLoad] = useState<InterpretationContextLoad>();
 
   const serverDraftKey = useRef('');
   if (builder.data && serverDraftKey.current !== builderDataKey) {
@@ -549,49 +544,35 @@ const BuilderWorkspaceContent = ({
         interpretationContextRefreshVersion,
       ])
     : '';
-  useEffect(() => {
-    if (!interpretationContextKey) {
-      setInterpretationContextLoad(undefined);
-      return;
-    }
-    const controller = new AbortController();
-    let active = true;
-    setInterpretationContextLoad({ key: interpretationContextKey, status: 'loading' });
-    void loomClient.resolveConfiguredColumnContexts({
+  const interpretationContextArgs = interpretationContextKey
+    ? {
       project: projectId,
       explorerId: selectedExplorerId,
       authResourcePath,
       snapshotToken: state.catalog.snapshotToken,
       expectedDraftVersion: state.draftVersion,
       expectedDraftDigest: state.draftDigest,
-    }, controller.signal).then(
-      (response) => {
-        if (!active) return;
-        setInterpretationContextLoad({ key: interpretationContextKey, status: 'ready', response });
-      },
-    ).catch((error: unknown) => {
-      if (!active || controller.signal.aborted) return;
-      setInterpretationContextLoad({
-        key: interpretationContextKey,
-        status: 'error',
-        message: error instanceof Error ? error.message : 'Loom could not load interpretation context.',
-      });
-    });
-    return () => {
-      active = false;
-      controller.abort();
-    };
-  }, [authResourcePath, interpretationContextKey, loomClient, projectId, selectedExplorerId, state.catalog.snapshotToken, state.draftDigest, state.draftVersion]);
+    }
+    : undefined;
+  const interpretationContextQuery = useResolveConfiguredColumnContextsQuery(
+    interpretationContextArgs,
+    interpretationContextKey,
+  );
 
   const interpretationPanelContextState: InterpretationContextState = deferInterpretationContext
     ? { status: 'loading' }
     : !interpretationContextKey
       ? { status: 'error', message: 'The saved draft identity is not available.' }
-      : interpretationContextLoad?.key !== interpretationContextKey || interpretationContextLoad.status === 'loading'
+      : interpretationContextQuery.isLoading
         ? { status: 'loading' }
-        : interpretationContextLoad.status === 'ready'
-          ? { status: 'ready', response: interpretationContextLoad.response }
-          : { status: 'error', message: interpretationContextLoad.message };
+        : interpretationContextQuery.data
+          ? { status: 'ready', response: interpretationContextQuery.data }
+          : {
+            status: 'error',
+            message: interpretationContextQuery.error instanceof Error
+              ? interpretationContextQuery.error.message
+              : 'Loom could not load interpretation context.',
+          };
   const interpretationContext = interpretationPanelContextState.status === 'ready'
     ? interpretationPanelContextState.response
     : undefined;

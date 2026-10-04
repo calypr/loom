@@ -29,6 +29,13 @@ vi.mock('../../react', () => ({
   useGetExplorerAuthoringCapabilityV2Query: vi.fn(),
   useGetExplorerAuthoringExplorersQuery: vi.fn(),
   useGetExplorerBuilderStateV2Query: vi.fn(),
+  useResolveConfiguredColumnContextsQuery: vi.fn(() => ({
+    data: undefined,
+    error: undefined,
+    isLoading: false,
+    isFetching: false,
+    refetch: vi.fn(),
+  })),
   useGetExplorerCandidateSuggestionsV2Mutation: vi.fn(),
   usePreviewExplorerAuthoringV2Mutation: vi.fn(),
   usePopulationMappingMutation: vi.fn(),

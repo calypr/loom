@@ -3,12 +3,14 @@
 import React, { StrictMode } from 'react';
 import { act, render, renderHook, screen, waitFor } from '@testing-library/react';
 import { createLoomClient } from './api';
+import type { ResolveConfiguredColumnContextsArgs } from './api';
 import {
   LoomProvider,
   resourceFor,
   useGetExplorerBuilderStateV2Query,
   useGetExplorerAuthoringExplorersQuery,
   usePreviewExplorerAuthoringV2Mutation,
+  useResolveConfiguredColumnContextsQuery,
 } from './react';
 
 const ExplorerStatus = () => {
@@ -26,6 +28,133 @@ const BuilderStatus = () => {
 };
 
 describe('Loom React queries', () => {
+  it('keeps configured-context queries disabled until their saved draft identity is ready', async () => {
+    const requests: Array<{
+      readonly url: string;
+      readonly body: string;
+      readonly resolve: (response: Response) => void;
+    }> = [];
+    const fetch = vi.fn<typeof globalThis.fetch>((input, init) => new Promise<Response>((resolve) => {
+      requests.push({ url: String(input), body: String(init?.body), resolve });
+    }));
+    const client = createLoomClient({ fetch });
+    const wrapper = ({ children }: { readonly children: React.ReactNode }) => (
+      <LoomProvider client={client}>{children}</LoomProvider>
+    );
+    const args: ResolveConfiguredColumnContextsArgs = {
+      project: 'HTAN_INT/BForePC',
+      explorerId: 'cda-explorer',
+      authResourcePath: '/programs/HTAN_INT/projects/BForePC',
+      snapshotToken: 'snapshot-ready',
+      expectedDraftVersion: 2,
+      expectedDraftDigest: 'sha256:ready-draft',
+    };
+    type Props = { readonly args: ResolveConfiguredColumnContextsArgs | undefined; readonly key: string };
+    const { result, rerender } = renderHook<ReturnType<typeof useResolveConfiguredColumnContextsQuery>, Props>(
+      ({ args: requestArgs, key }: Props) => useResolveConfiguredColumnContextsQuery(requestArgs, key),
+      { initialProps: { args: undefined, key: '' }, wrapper },
+    );
+
+    expect(result.current.isLoading).toBe(false);
+    expect(requests).toHaveLength(0);
+
+    rerender({ args, key: JSON.stringify(['owner-a', 'snapshot-ready', 2, 'sha256:ready-draft', 0]) });
+    await waitFor(() => expect(requests).toHaveLength(1));
+    expect(result.current.isLoading).toBe(true);
+    const request = requests[0];
+    if (!request) throw new Error('Configured context request did not start.');
+    const requestURL = new URL(request.url, 'http://loom.test');
+    expect(requestURL.pathname).toBe('/api/v1/projects/HTAN_INT%252FBForePC/explorers/cda-explorer/authoring/v2/configured-column-context');
+    expect(requestURL.search).toBe('');
+    expect(JSON.parse(request.body)).toEqual({
+      snapshotToken: 'snapshot-ready',
+      expectedDraftVersion: 2,
+      expectedDraftDigest: 'sha256:ready-draft',
+    });
+
+    await act(async () => request.resolve(new Response(JSON.stringify({
+      snapshotToken: args.snapshotToken,
+      draftVersion: args.expectedDraftVersion,
+      draftDigest: args.expectedDraftDigest,
+      libraries: [],
+      pinnedRevisions: [],
+      columns: [],
+    }), { status: 200 })));
+    await waitFor(() => expect(result.current.data?.draftDigest).toBe(args.expectedDraftDigest));
+  });
+
+  it('aborts prior configured-context owners and ignores stale navigation and refresh results', async () => {
+    const requests: Array<{
+      readonly url: string;
+      readonly signal?: AbortSignal;
+      readonly resolve: (response: Response) => void;
+    }> = [];
+    const fetch = vi.fn<typeof globalThis.fetch>((input, init) => new Promise<Response>((resolve) => {
+      requests.push({ url: String(input), signal: init?.signal ?? undefined, resolve });
+    }));
+    const client = createLoomClient({ fetch });
+    const wrapper = ({ children }: { readonly children: React.ReactNode }) => (
+      <LoomProvider client={client}>{children}</LoomProvider>
+    );
+    const firstArgs: ResolveConfiguredColumnContextsArgs = {
+      project: 'project-a', explorerId: 'explorer-a', authResourcePath: '/auth/a',
+      snapshotToken: 'snapshot-a', expectedDraftVersion: 1, expectedDraftDigest: 'sha256:draft-a',
+    };
+    const nextArgs: ResolveConfiguredColumnContextsArgs = {
+      project: 'project-b', explorerId: 'explorer-b', authResourcePath: '/auth/b',
+      snapshotToken: 'snapshot-b', expectedDraftVersion: 3, expectedDraftDigest: 'sha256:draft-b',
+    };
+    const response = (args: ResolveConfiguredColumnContextsArgs, libraryId: string) => new Response(JSON.stringify({
+      snapshotToken: args.snapshotToken,
+      draftVersion: args.expectedDraftVersion,
+      draftDigest: args.expectedDraftDigest,
+      libraries: [{ id: libraryId, updatedAt: '2026-10-03T00:00:00Z' }],
+      pinnedRevisions: [],
+      columns: [],
+    }), { status: 200 });
+    type Props = { readonly args: ResolveConfiguredColumnContextsArgs; readonly key: string };
+    const { result, rerender } = renderHook(
+      ({ args, key }: Props) => useResolveConfiguredColumnContextsQuery(args, key),
+      { initialProps: { args: firstArgs, key: 'owner-a:snapshot-a:1:draft-a:refresh-0' }, wrapper },
+    );
+
+    await waitFor(() => expect(requests).toHaveLength(1));
+    rerender({ args: nextArgs, key: 'owner-b:snapshot-b:3:draft-b:refresh-0' });
+    await waitFor(() => expect(requests).toHaveLength(2));
+    const firstRequest = requests[0];
+    const ownerRequest = requests[1];
+    if (!firstRequest || !ownerRequest) throw new Error('Expected the first two configured context requests.');
+    await waitFor(() => expect(firstRequest.signal?.aborted).toBe(true));
+    rerender({ args: nextArgs, key: 'owner-b:snapshot-b:3:draft-b:refresh-1' });
+    await waitFor(() => expect(requests).toHaveLength(3));
+    const refreshedRequest = requests[2];
+    if (!refreshedRequest) throw new Error('Expected the refreshed configured context request.');
+    await waitFor(() => expect(ownerRequest.signal?.aborted).toBe(true));
+
+    await act(async () => {
+      firstRequest.resolve(response(firstArgs, 'stale-owner'));
+      ownerRequest.resolve(response(nextArgs, 'stale-refresh'));
+    });
+    expect(result.current.isLoading).toBe(true);
+    expect(result.current.data).toBeUndefined();
+
+    await act(async () => refreshedRequest.resolve(response(nextArgs, 'current-refresh')));
+    await waitFor(() => expect(result.current.data?.libraries[0]?.id).toBe('current-refresh'));
+    const changedAuthArgs = { ...nextArgs, authResourcePath: '/auth/b-updated' };
+    rerender({ args: changedAuthArgs, key: 'owner-b:snapshot-b:3:draft-b:refresh-1' });
+    await waitFor(() => expect(requests).toHaveLength(4));
+    const changedAuthRequest = requests[3];
+    if (!changedAuthRequest) throw new Error('Auth-scope change did not replace the configured context owner.');
+    await act(async () => changedAuthRequest.resolve(response(changedAuthArgs, 'current-auth-owner')));
+    await waitFor(() => expect(result.current.data?.libraries[0]?.id).toBe('current-auth-owner'));
+    expect(requests.map((request) => new URL(request.url, 'http://loom.test').pathname)).toEqual([
+      '/api/v1/projects/project-a/explorers/explorer-a/authoring/v2/configured-column-context',
+      '/api/v1/projects/project-b/explorers/explorer-b/authoring/v2/configured-column-context',
+      '/api/v1/projects/project-b/explorers/explorer-b/authoring/v2/configured-column-context',
+      '/api/v1/projects/project-b/explorers/explorer-b/authoring/v2/configured-column-context',
+    ]);
+  });
+
   it('reloads a resolved Builder cache entry when explicitly requested', async () => {
     const builder = (digest: string) => ({
       apiVersion: 'loom.calypr.org/explorer-authoring/v2',

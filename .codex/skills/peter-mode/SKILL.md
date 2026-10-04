@@ -76,6 +76,15 @@ for destructive changes, migrations, shared contracts, security boundaries,
 concurrency, deployment, or failures that focused checks cannot explain. State
 anything important that remains untested.
 
+## Commit cadence
+
+Batch commits around meaningful logical work completions, usually touching
+5–10 files. Accumulate small related changes until the unit is complete and
+verified; do not commit each minor edit or instruction update separately.
+Smaller commits are appropriate for important standalone fixes. Do not pad a
+commit with unrelated work to reach a file count, or hold a ready substantial
+fix merely because it changes fewer files.
+
 ## Frontend: no useEffect
 
 Do not use `useEffect` in frontend code. This includes imported, aliased,
