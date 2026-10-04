@@ -6,6 +6,7 @@ import { createReadStream } from 'node:fs';
 import { createInterface } from 'node:readline';
 import { join } from 'node:path';
 import assert from 'node:assert/strict';
+import { assertCohortPatientIDColumns } from './cohort-identities.mjs';
 import { runPlaywrightCase } from './playwright-case.mjs';
 import { runPlaywrightAuthoring } from './playwright-authoring.mjs';
 import { runPlaywrightSuggestions } from './playwright-suggestions.mjs';
@@ -247,9 +248,12 @@ const runCohortRecode = context => runPlaywrightCase(context, 'builder-authoring
   let document = builder.workspace.documents.find(item => item.output.id === outputId);
   assert.equal(document?.rows?.groups?.source?.explicit?.revisionId, cohort.revisionId,
     'applying the named cohort must save its exact explicit-group revision');
-  const legacyIDColumn = document.columns.find(column => column.source?.kind === 'field' && column.source.field?.path === 'id');
-  assert(legacyIDColumn?.column && !legacyIDColumn.columnId,
-    `first-table legacy ID must remain a non-member identity column: ${JSON.stringify(legacyIDColumn)}`);
+  const legacyIDColumns = document.columns.filter(column => column.source?.kind === 'field' && column.source.field?.path === 'id');
+  assert.equal(legacyIDColumns.length, 1, 'first-table Patient ID source must be a unique legacy identity column');
+  const legacyIDColumn = legacyIDColumns[0];
+  assert(legacyIDColumn.column,
+    `first-table Patient ID must retain its physical column identity: ${JSON.stringify(legacyIDColumn)}`);
+  const legacyIdentity = { column: legacyIDColumn.column, columnId: legacyIDColumn.columnId, source: legacyIDColumn.source };
 
   const previewEntries = [];
   const previewByRequest = new Map();
@@ -454,16 +458,16 @@ const runCohortRecode = context => runPlaywrightCase(context, 'builder-authoring
   });
   builder = await readBuilder();
   document = builder.workspace.documents.find(item => item.output.id === outputId);
-  const idFields = document.columns.filter(column => column.source?.kind === 'field' && column.source.field?.path === 'id');
-  let idColumn = idFields.find(column => column.columnId && document.rows.groups.rowValues?.some(binding => binding.columnId === column.columnId));
-  assert(idFields.some(column => column.column === legacyIDColumn.column && !column.columnId),
-    'adding the member Patient.id field must preserve the first-table legacy ID column');
-  assert(idColumn?.columnId && idColumn.column && idColumn.logicalType?.toLowerCase() === 'string',
-    `native Add columns must produce a stable scalar Patient.id member column: ${JSON.stringify(idFields)}`);
-  const idBinding = document.rows.groups.rowValues.find(binding => binding.columnId === idColumn.columnId);
+  const { legacy: preservedLegacyIDColumn, member: firstMemberIDColumn, binding: idBinding } =
+    assertCohortPatientIDColumns(document, legacyIdentity);
+  let idColumn = firstMemberIDColumn;
   assert.equal(idBinding?.policy, 'ALL', 'native Patient.id member field must save its explicit ALL policy');
   assert.deepEqual(fieldPreview.response.rows[0]?.[idColumn.column], rawIDs,
     'native ALL preview must retain both literal Patient IDs on the member field');
+  report.target.patientIdColumnIdentities = {
+    legacyIdentity: { column: preservedLegacyIDColumn.column, columnId: preservedLegacyIDColumn.columnId, source: preservedLegacyIDColumn.source, memberBinding: false },
+    memberIdentity: { column: idColumn.column, columnId: idColumn.columnId, source: idColumn.source, policy: idBinding.policy, expectedValues: rawIDs },
+  };
 
   let renderedTypedPreview = fieldPreview.response;
   const assertRenderedMemberCell = async (expectedText, label) => {
@@ -685,6 +689,9 @@ const runCohortRecode = context => runPlaywrightCase(context, 'builder-authoring
   document = builder.workspace.documents.find(item => item.output.id === outputId);
   idColumn = document.columns.find(column => column.columnId === idColumn.columnId);
   const finalIDBinding = document.rows.groups.rowValues.find(binding => binding.columnId === idColumn.columnId);
+  const finalIDColumns = assertCohortPatientIDColumns(document, legacyIdentity);
+  assert.equal(finalIDColumns.member.columnId, idColumn.columnId,
+    'reload must preserve the same distinct Patient.id member column identity');
   assert(!idColumn.valueTransformation && finalIDBinding?.policy === 'ALL',
     'final reload must retain raw untransformed ALL state on the same cohort and column identity');
   check('persistence', 'raw ALL restoration survives reload on the same cohort and column identity', true,
