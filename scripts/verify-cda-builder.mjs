@@ -5,10 +5,12 @@ import { join } from 'node:path';
 import { browserEval, launchBrowser, navigate, waitForBrowser } from './loom-dev.mjs';
 import { runRelatedSourceChooser } from './verify-cda-builder-related-source-chooser.mjs';
 import { runPatientRelatedInspection } from './verify-cda-builder-related-patient-inspection.mjs';
+import { runPatientRelatedApplyReload } from './verify-cda-builder-patient-related.mjs';
 
 const action = process.argv[2] ?? 'Keep rows';
 const patientRelatedInspectionActions = new Set(['Inspect Patient field choice', 'Inspect selected Patient route', 'Inspect Patient proposal']);
-const playwrightOnlyAction = action === 'Verify related source chooser' || patientRelatedInspectionActions.has(action);
+const patientRelatedApplyReloadAction = action === 'Verify Patient related column';
+const playwrightOnlyAction = action === 'Verify related source chooser' || patientRelatedInspectionActions.has(action) || patientRelatedApplyReloadAction;
 const explorerId = process.argv[3] ?? (playwrightOnlyAction ? undefined : 'cda-builder-full-qa-1790439585678');
 const uiOrigin = (process.env.LOOM_CDA_UI_ORIGIN ?? (playwrightOnlyAction ? '' : 'http://127.0.0.1:30002')).replace(/\/$/, '');
 const pageURL = playwrightOnlyAction ? undefined : `${uiOrigin}/?project=loom_dev_cda_fhir&explorer=${explorerId}&mode=builder`;
@@ -52,7 +54,9 @@ try {
   if (playwrightOnlyAction) {
     const report = action === 'Verify related source chooser'
       ? await runRelatedSourceChooser({ explorerId: process.argv[3] })
-      : await runPatientRelatedInspection({ action, explorerId: process.argv[3] });
+      : patientRelatedApplyReloadAction
+        ? await runPatientRelatedApplyReload({ explorerId: process.argv[3] })
+        : await runPatientRelatedInspection({ action, explorerId: process.argv[3] });
     console.log(JSON.stringify({
       action,
       status: report.status,
@@ -2524,51 +2528,6 @@ try {
     await mkdir(evidenceDirectory,{recursive:true});
     await writeFile(join(evidenceDirectory,'group-editor.json'),JSON.stringify({pageURL,groupOption,state,responses},null,2));
     console.log(JSON.stringify({evidenceDirectory,groupOption,state,responses},null,2));
-  } else if (action === 'Inspect Patient field choice' || action === 'Inspect selected Patient route' || action === 'Inspect Patient proposal' || action === 'Verify Patient related column') {
-    let baseline;
-    if (action === 'Verify Patient related column') {
-      await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.textContent?.trim()==='Preview').click();return true;`);
-      await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid="preview-table-scroll"] [role="table"]'))`, 30000);
-      baseline = await browserEval(browser.cdp, `return {columns:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].map(cell=>cell.innerText),rows:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]')].slice(1,4).map(row=>[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText))};`);
-    }
-    await browserEval(browser.cdp, `document.querySelector('button[aria-label^="Add columns:"]').click();return true;`);
-    const { source } = await chooseRelatedSource('Patient');
-    await waitForBrowser(browser.cdp, `Boolean(document.querySelector('input[aria-label="Select Patient.id"]:not(:disabled)'))`, 30000);
-    await browserEval(browser.cdp, `document.querySelector('input[aria-label="Select Patient.id"]').click();return true;`);
-    await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.textContent?.trim()==='Add 1 selected feature').click();return true;`);
-    await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[role="dialog"]'))`, 30000);
-    if (action !== 'Inspect Patient field choice') {
-      await browserEval(browser.cdp, `document.querySelector('[role="dialog"] input[type="radio"]').click();return true;`);
-      await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[role="dialog"] input[aria-label="id: Keep all matching values"]'))`, 30000);
-    }
-    if (action === 'Inspect Patient proposal' || action === 'Verify Patient related column') {
-      await browserEval(browser.cdp, `document.querySelector('[role="dialog"] input[aria-label="id: Keep all matching values"]').click();return true;`);
-      await waitForBrowser(browser.cdp, `document.querySelector('[role="dialog"] button:last-child')?.disabled===false`, 30000);
-      await browserEval(browser.cdp, `document.querySelector('[role="dialog"] button:last-child').click();return true;`);
-      await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status')==='ready'`, 60000);
-    }
-    const dialog = await browserEval(browser.cdp, `const dialog=document.querySelector('[role="dialog"]');return dialog ? {text:dialog.innerText,controls:[...dialog.querySelectorAll('input,button')].map(element=>({tag:element.tagName,label:element.getAttribute('aria-label')??element.innerText,disabled:element.disabled,checked:element.checked,value:element.value}))} : null;`);
-    const proposal = action === 'Inspect Patient proposal' || action === 'Verify Patient related column' ? await browserEval(browser.cdp, `return {panel:document.querySelector('[data-testid="construction-proposal-panel"]')?.innerText,preview:document.querySelector('[data-testid="construction-proposal-preview"]')?.innerText,rows:[...document.querySelectorAll('[data-testid="construction-proposal-preview"] [role="row"]')].slice(1,4).map(row=>[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText)),applyDisabled:document.querySelector('[data-testid="construction-apply-proposal"]')?.disabled};`) : undefined;
-    let saved;
-    if (action === 'Verify Patient related column') {
-      assert.equal(proposal?.applyDisabled,false);
-      await browserEval(browser.cdp, `document.querySelector('[data-testid="construction-apply-proposal"]').click();return true;`);
-      await waitForBrowser(browser.cdp, `document.querySelectorAll('[data-testid^="construction-history-step-"]').length===1`, 30000);
-      await navigate(browser.cdp,pageURL);
-      await waitForBrowser(browser.cdp, `document.querySelectorAll('[data-testid^="construction-history-step-"]').length===1`, 30000);
-      await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.textContent?.trim()==='Preview').click();return true;`);
-      await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-colcount')==='4'`, 30000);
-      saved = await browserEval(browser.cdp, `return {history:document.querySelector('[data-testid^="construction-history-step-"]')?.innerText,columns:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].map(cell=>cell.innerText),rows:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]')].slice(1,4).map(row=>[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText))};`);
-      assert.equal(saved.rows.length,3);
-      for (const row of saved.rows) assert.equal(row.at(-1),row[1]?.replace(/^Patient\//,''));
-    }
-    await mkdir(evidenceDirectory,{recursive:true});
-    if (action === 'Inspect selected Patient route') {
-      const screenshot = await browser.cdp.send('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});
-      await writeFile(join(evidenceDirectory,'patient-selected-route.png'),Buffer.from(screenshot.data,'base64'));
-    }
-    await writeFile(join(evidenceDirectory,action === 'Verify Patient related column' ? 'patient-related-applied.json' : action === 'Inspect Patient proposal' ? 'patient-proposal.json' : action === 'Inspect selected Patient route' ? 'patient-selected-route.json' : 'patient-field-choice.json'),JSON.stringify({pageURL,source,baseline,dialog,proposal,saved,responses},null,2));
-    console.log(JSON.stringify({evidenceDirectory,source,baseline,dialog,proposal,saved,responses:responses.filter(response=>response.status>=400)},null,2));
   } else if (action === 'Verify direct Observation COUNT many and zero' || action === 'Verify direct Observation forms many and zero' || action === 'Verify saved Observation result form' || action === 'Verify saved Observation route edit' || action === 'Verify related eligibility via presence filter') {
     const changeSavedForm = action === 'Verify saved Observation result form';
     const changeSavedRoute = action === 'Verify saved Observation route edit';
