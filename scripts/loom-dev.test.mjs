@@ -248,8 +248,8 @@ test('verify-fast creates its Observation and Patient tables through the current
   const end = driver.indexOf('\nconst measureHotReload =', start);
   assert.ok(start >= 0 && end > start, 'generic verify-fast scenario must remain identifiable');
   const scenario = driver.slice(start, end);
-  const ownerStart = scenario.indexOf("setInput('first-table-name', 'Observation owner records')");
-  const patientStart = scenario.indexOf("setInput('first-table-name', 'Patients with observations')");
+  const ownerStart = scenario.indexOf("fill('first-table-name', 'Observation owner records'");
+  const patientStart = scenario.indexOf("fill('first-table-name', 'Patients with observations'");
   assert.ok(ownerStart >= 0 && patientStart > ownerStart, 'both fixture table setup flows must remain in order');
   const ownerFlow = scenario.slice(ownerStart, patientStart);
   const patientFlow = scenario.slice(patientStart);
@@ -277,13 +277,13 @@ test('verify-fast creates its Observation and Patient tables through the current
   assert.match(choiceDialog, /`Add \$\{groups\.length\} \$\{groups\.length === 1 \? 'column' : 'columns'\}`/);
 
   assert.doesNotMatch(scenario, /clickButton\('Create table'\)|clickButton\('Preview'\)|textContent\.trim\(\) === 'Preview'|One row per|Source and column setup|Search fields and concepts|Choose output forms/);
-  assert.match(ownerFlow, /button\[aria-label="Choose Observation rows"\]/);
-  assert.match(ownerFlow, /await waitForAddColumnsAction\(cdp,/);
+  assert.match(ownerFlow, /getByRole\('button', \{ name: 'Choose Observation rows', exact: true \}\)/);
+  assert.match(ownerFlow, /await waitForAddColumnsAction\(page, 'Observation owner records'\)/);
   assert.match(ownerFlow, /construction-action-add-columns/);
-  assert.match(ownerFlow, /Add columns action is unavailable/);
+  assert.match(ownerFlow, /getByTestId\('construction-action-add-columns'\)/);
   assert.match(ownerFlow, /clickButton\('Fields and related data'\)/);
   assert.match(ownerFlow, /shared: Keep each matching record/);
-  assert.match(ownerFlow, /candidate\.textContent\.trim\(\) === 'Add 1 column'/);
+  assert.match(ownerFlow, /clickButton\('Add 1 column', ownerChoiceDialog\)/);
   assert.match(ownerFlow, /clickButton\('Apply columns'\)/);
   assert.match(ownerFlow, /builder-persists-owner-record-construction/);
   assert.match(ownerFlow, /const ownerRecordsStateIsApplied = \(builder\) =>/);
@@ -304,7 +304,7 @@ test('verify-fast creates its Observation and Patient tables through the current
   const savedOwnerRecordsWait = ownerFlow.indexOf('ownerApplyDeadline = Date.now() + 30000');
   const exactSavedOwnerRecordsPoll = ownerFlow.indexOf('if (ownerRecordsStateIsApplied(ownerRecordsBuilder)) break;');
   const exactSavedOwnerRecordsAssertion = ownerFlow.indexOf("recordAssertion(report, 'builder-persists-owner-record-construction'");
-  const closeOwnerEditor = ownerFlow.indexOf("data-testid=\"construction-close-operation-editor\"");
+  const closeOwnerEditor = ownerFlow.indexOf("getByTestId('construction-close-operation-editor')");
   const closedOwnerEditor = ownerFlow.indexOf("!document.querySelector('[aria-label=\"Add columns editor\"]')");
   const configuredOwnerInput = ownerFlow.indexOf('Display name for configured ${ownerRecordsColumn.label}');
   assert.ok(applyOwnerRecords >= 0 && savedOwnerRecordsWait > applyOwnerRecords && exactSavedOwnerRecordsPoll > savedOwnerRecordsWait && exactSavedOwnerRecordsAssertion > exactSavedOwnerRecordsPoll && closeOwnerEditor > exactSavedOwnerRecordsAssertion && closedOwnerEditor > closeOwnerEditor && configuredOwnerInput > closedOwnerEditor,
@@ -313,24 +313,22 @@ test('verify-fast creates its Observation and Patient tables through the current
   assert.match(ownerFlow, /while \(Date\.now\(\) < ownerApplyDeadline\)/);
   assert.match(ownerFlow, /input\.getAttribute\('aria-label'\) === \$\{JSON\.stringify\(configuredOwnerLabel\)\} && !input\.disabled/);
   assert.match(builder, /!activeOperation && !workspaceEditor \? <details/);
-  assert.match(ownerFlow, /captureBuilderPreviewBaseline\(target, cdp, ownerRecordsExplorerId\)/);
+  assert.match(ownerFlow, /captureBuilderPreviewBaseline\(target, page, ownerRecordsExplorerId\)/);
   assert.match(ownerFlow, /waitForFreshBuilderPreview\(/);
-  assert.match(ownerFlow, /readBuilderPreviewDOM\(cdp\)\)\.receiptId/);
+  assert.match(ownerFlow, /readBuilderPreviewDOM\(page\)\)\.receiptId/);
   assert.match(driver, /previewProposalId: preview\.proposalId/);
   assert.match(driver, /reconcileSavedBuilderDraft\(target, explorerId, state\)/);
   assert.match(driver, /savedCompileReceipt\.intentDigest === state\.draftDigest/);
   assert.match(ownerFlow, /preview-owner-record-inspector-preserves-value-unit-code-and-source/);
 
-  assert.match(patientFlow, /button\[aria-label="Choose Patient rows"\]/);
-  assert.match(patientFlow, /await waitForAddColumnsAction\(cdp,/);
+  assert.match(patientFlow, /getByRole\('button', \{ name: 'Choose Patient rows', exact: true \}\)/);
+  assert.match(patientFlow, /await waitForAddColumnsAction\(page, 'Patients with observations'\)/);
   assert.match(patientFlow, /construction-action-add-columns/);
   assert.match(patientFlow, /feature-catalog-raw-fields/);
   assert.match(patientFlow, /Select Patient\.id/);
   assert.match(patientFlow, /clickButton\('Apply columns'\)/);
-  assert.match(addColumnsReady, /const selector = '\[data-testid="construction-action-add-columns"\]'/);
-  assert.match(addColumnsReady, /\$\{selector\}:not\(:disabled\)/);
-  assert.equal((addColumnsReady.match(/await waitForBrowser/g) || []).length, 1,
-    'the original browser-ready deadline must cover the entire first-table provisioning wait');
+  assert.match(addColumnsReady, /page\.waitForFunction/);
+  assert.match(addColumnsReady, /document\.querySelector\(\`\$\{selector\}:not\(:disabled\)\`\)/);
   assert.match(addColumnsReady, /preview\.dataset\.previewStatus === 'ready'/);
   assert.match(addColumnsReady, /preview\.dataset\.previewReceiptId/);
   assert.match(addColumnsReady, /preview\.dataset\.previewOutputId === selectedOutputId/);
@@ -338,26 +336,49 @@ test('verify-fast creates its Observation and Patient tables through the current
   assert.match(addColumnsReady, /preview\.dataset\.currentDraftDigest === workspace\.dataset\.draftDigest/);
   assert.match(addColumnsReady, /Loom is \(\?:refreshing the current table draft\|finishing the previous table update\)/);
   assert.match(addColumnsReady, /document\.querySelectorAll\('\[role=status\]'\)/);
-  assert.match(addColumnsReady, /pending status|no pending Builder status/);
-  assert.match(patientFlow, /advanced source setup is unavailable/);
+  assert.match(addColumnsReady, /pendingStatus/);
+  assert.match(patientFlow, /getByTestId\('construction-source-setup'\)/);
   assert.match(patientFlow, /Feature authoring view/);
   assert.match(patientFlow, /builder-catalog-adds-default-root-field-without-graph/);
   assert.match(patientFlow, /builder-configures-exact-root-fields/);
   assert.match(patientFlow, /RELATIONSHIP_CARDINALITY_VIOLATION/);
   assert.match(patientFlow, /TEMPORAL_TIE_AMBIGUOUS/);
   assert.match(patientFlow, /preview-shows-exact-fixture-table/);
-  assert.match(patientFlow, /waitForFreshBuilderPreview\(target, cdp, explorerId, exactTablePreviewBaseline/);
-  assert.match(patientFlow, /waitForFreshBuilderPreview\(target, cdp, explorerId, valueCountPreviewBaseline/);
-  assert.match(patientFlow, /waitForFreshBuilderDiagnostic\(target, cdp, explorerId, requireOnePreviewBaseline, 'RELATIONSHIP_CARDINALITY_VIOLATION'/);
+  assert.match(patientFlow, /waitForFreshBuilderPreview\(target, page, explorerId, exactTablePreviewBaseline/);
+  assert.match(patientFlow, /waitForFreshBuilderPreview\(target, page, explorerId, valueCountPreviewBaseline/);
+  assert.match(patientFlow, /waitForFreshBuilderDiagnostic\(target, page, explorerId, requireOnePreviewBaseline, 'RELATIONSHIP_CARDINALITY_VIOLATION'/);
   assert.match(patientFlow, /recordAssertion\(report, 'require-one-terminal-error-is-bound-to-current-draft-and-output'/);
   assert.match(patientFlow, /recordAssertion\(report, 'count-policy-recovers-preview-for-newer-draft-after-require-one-error'/);
-  assert.match(patientFlow, /waitForFreshBuilderDiagnostic\(target, cdp, explorerId, temporalPreviewBaseline, 'TEMPORAL_TIE_AMBIGUOUS'/);
-  assert.match(patientFlow, /waitForFreshBuilderPreview\(target, cdp, explorerId, tiePolicyPreviewBaseline/);
-  assert.match(patientFlow, /waitForFreshBuilderPreview\(target, cdp, explorerId, maximumPreviewBaseline/);
+  assert.match(patientFlow, /waitForFreshBuilderDiagnostic\(target, page, explorerId, temporalPreviewBaseline, 'TEMPORAL_TIE_AMBIGUOUS'/);
+  assert.match(patientFlow, /waitForFreshBuilderPreview\(target, page, explorerId, tiePolicyPreviewBaseline/);
+  assert.match(patientFlow, /waitForFreshBuilderPreview\(target, page, explorerId, maximumPreviewBaseline/);
   assert.match(patientFlow, /clickButton\('Publish'\)/);
   assert.match(patientFlow, /clickButton\('Viewer'\)/);
   assert.match(patientFlow, /clickButton\('Download dataset'\)/);
   assert.match(scenario, /demo-controls span.*target\.fixtureProject.*bootstrapExplorerId/s);
+});
+
+test('generic Builder and interpretation browser paths use only Playwright browser actions', () => {
+  const driver = readFileSync(join(process.cwd(), 'scripts/loom-dev.mjs'), 'utf8');
+  const interpretationStart = driver.indexOf('const verifyInterpretationCandidate =');
+  const interpretationEnd = driver.indexOf('\nconst verifyBrowserScenario =', interpretationStart);
+  const scenarioStart = interpretationEnd;
+  const scenarioEnd = driver.indexOf('\nconst measureHotReload =', scenarioStart);
+  assert.ok(interpretationStart >= 0 && interpretationEnd > interpretationStart && scenarioEnd > scenarioStart,
+    'interpretation and generic Builder scenario must remain identifiable');
+  const browserCode = `${driver.slice(interpretationStart, interpretationEnd)}\n${driver.slice(scenarioStart, scenarioEnd)}`;
+
+  assert.match(browserCode, /performAction\(browser/);
+  assert.match(browserCode, /\.getByRole\(/);
+  assert.match(browserCode, /\.getByLabel\(/);
+  assert.match(browserCode, /\.selectOption\(/);
+  assert.match(browserCode, /page\.goto\(/);
+  assert.match(browserCode, /page\.reload\(/);
+  assert.match(browserCode, /captureFailure\(/);
+  assert.doesNotMatch(browserCode, /\b(?:cdp|browserEval|waitForBrowser|snapshot)\b|\.send\(['"](?:Runtime|Page|Input)\./,
+    'migrated generic paths must not call the legacy CDP driver');
+  assert.doesNotMatch(browserCode, /Object\.getOwnPropertyDescriptor|\.dispatchEvent\(|\.click\(\s*\)/,
+    'migrated generic paths must not set DOM values or invoke handlers directly');
 });
 
 test('local J01 browser lifecycle uses Playwright actions and retains its exact request and failure evidence', () => {
