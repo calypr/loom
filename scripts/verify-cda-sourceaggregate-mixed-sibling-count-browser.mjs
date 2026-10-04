@@ -263,34 +263,30 @@ const assertPreviewValues = (preview, expectedTypes, phase) => {
 
 const prepareAdvancedSourceSetup = async () => {
   const setupSelector = '[data-testid="construction-source-setup"]';
-  await waitForBrowser(browser.page, `Boolean(document.querySelector(${JSON.stringify(setupSelector)}))`);
-  const sourceSetupOpen = await browserEval(browser.page,
-    `return document.querySelector(${JSON.stringify(setupSelector)})?.open===true;`);
+  await waitForBrowser(browser.page, (args) => { return Boolean((Boolean(document.querySelector(args[0])))); }, [setupSelector]);
+  const sourceSetupOpen = await browserEval(browser.page, (args) => { return document.querySelector(args[0])?.open===true; }, [setupSelector]);
   if (!sourceSetupOpen) await click(browser.page, `${setupSelector} > summary`);
-  await waitForBrowser(browser.page,
-    `document.querySelector(${JSON.stringify(setupSelector)})?.open===true`);
+  await waitForBrowser(browser.page, (args) => { return Boolean((document.querySelector(args[0])?.open===true)); }, [setupSelector]);
 
   const graphButtonSelector = '[aria-label="Feature authoring view"] button';
-  const graphSelected = await browserEval(browser.page,
-    `return [...document.querySelectorAll(${JSON.stringify(graphButtonSelector)})].some(button=>button.innerText.trim()==='Advanced graph'&&button.getAttribute('aria-pressed')==='true');`);
+  const graphSelected = await browserEval(browser.page, (args) => { return [...document.querySelectorAll(args[0])].some(button=>button.innerText.trim()==='Advanced graph'&&button.getAttribute('aria-pressed')==='true'); }, [graphButtonSelector]);
   if (!graphSelected) await click(browser.page, graphButtonSelector, { name: 'Advanced graph' });
-  await waitForBrowser(browser.page,
-    `Boolean(document.querySelector('[aria-label="Current traversal"] button[data-occurrence-id]')) && [...document.querySelectorAll(${JSON.stringify(graphButtonSelector)})].some(button=>button.innerText.trim()==='Advanced graph'&&button.getAttribute('aria-pressed')==='true')`);
+  await waitForBrowser(browser.page, (args) => { return Boolean((Boolean(document.querySelector('[aria-label="Current traversal"] button[data-occurrence-id]')) && [...document.querySelectorAll(args[0])].some(button=>button.innerText.trim()==='Advanced graph'&&button.getAttribute('aria-pressed')==='true'))); }, [graphButtonSelector]);
 };
 
 const renderTable = async (expectedTypes, phase) => {
   const expectedColumns = 1 + expectedTypes.length;
-  await waitForBrowser(browser.page, `(() => {
+  await waitForBrowser(browser.page, (args) => { return Boolean(((() => {
     const table=document.querySelector('[data-testid="preview-table-scroll"] [role="table"]');
     return Boolean(table && table.getAttribute('aria-rowcount')==='2' &&
-      table.getAttribute('aria-colcount')===${JSON.stringify(String(expectedColumns))} &&
+      table.getAttribute('aria-colcount')===args[0] &&
       !document.body.innerText.includes('Loading your table…') && !document.body.innerText.includes('Preview failed:'));
-  })()`);
-  const view = await browserEval(browser.page, `const table=document.querySelector('[data-testid="preview-table-scroll"] [role="table"]');return {
+  })())); }, [String(expectedColumns)]);
+  const view = await browserEval(browser.page, (args) => { const table=document.querySelector('[data-testid="preview-table-scroll"] [role="table"]');return {
     rowCount:table?.getAttribute('aria-rowcount'),columnCount:table?.getAttribute('aria-colcount'),
     headers:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].map(cell=>cell.innerText.trim()),
     rows:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]')].slice(1).map(row=>[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText.trim())).filter(row=>row.length)
-  };`);
+  }; });
   assert.equal(view.rowCount, '2', `${phase} rendered the wrong data row count`);
   assert.equal(view.columnCount, String(expectedColumns), `${phase} rendered the wrong column count`);
   assert.equal(view.rows.length, 1, `${phase} must render the one selected Patient row`);
@@ -310,9 +306,9 @@ const openTable = async (expectedTypes, phase) => {
   const startedAt = Date.now();
   const fromIndex = nativeIndex();
   await navigate(browser.page, `${uiOrigin}/?project=${encodeURIComponent(project)}&explorer=${encodeURIComponent(explorer)}&mode=builder`);
-  await waitForBrowser(browser.page, `Boolean(document.querySelector(${JSON.stringify(`[data-testid="construction-table-${outputId}"]`)}))`);
+  await waitForBrowser(browser.page, (args) => { return Boolean((Boolean(document.querySelector(args[0])))); }, [`[data-testid="construction-table-${outputId}"]`]);
   await click(browser.page, `[data-testid="construction-table-${outputId}"]`);
-  await waitForBrowser(browser.page, `document.querySelector('[data-testid="construction-rows-settings-trigger"]')?.disabled===false`);
+  await waitForBrowser(browser.page, (args) => { return Boolean((document.querySelector('[data-testid="construction-rows-settings-trigger"]')?.disabled===false)); });
   await prepareAdvancedSourceSetup();
   const view = await renderTable(expectedTypes, phase);
   const request = await waitNative(entry => pathOf(entry).endsWith('/preview') && entry.body?.outputId === outputId, fromIndex);
@@ -329,10 +325,8 @@ const addRelatedSourceAggregateCount = async targetType => {
   assert(occurrenceId, `Patient-to-${targetType} route occurrence is missing`);
   await prepareAdvancedSourceSetup();
   await click(browser.page, '[aria-label="Current traversal"] button[data-occurrence-id]', { name: targetType });
-  await waitForBrowser(browser.page,
-    `document.querySelector('[aria-label="Current traversal"] [data-traversal-label]')?.innerText.includes(${JSON.stringify(`Selected parent: ${targetType}`)})`);
-  await waitForBrowser(browser.page,
-    `[...document.querySelectorAll('aside > div:first-child > div:nth-child(2) button')].some(button=>button.innerText.trim()==='Count'&&!button.disabled)`);
+  await waitForBrowser(browser.page, (args) => { return Boolean((document.querySelector('[aria-label="Current traversal"] [data-traversal-label]')?.innerText.includes(args[0]))); }, [`Selected parent: ${targetType}`]);
+  await waitForBrowser(browser.page, (args) => { return Boolean(([...document.querySelectorAll('aside > div:first-child > div:nth-child(2) button')].some(button=>button.innerText.trim()==='Count'&&!button.disabled))); });
   await click(browser.page, 'aside > div:first-child > div:nth-child(2) button', { name: 'Count' });
 
   const add = await waitNative(entry => pathOf(entry).endsWith('/commands') &&
@@ -392,11 +386,9 @@ const removeRelatedCount = async targetType => {
   const columnsListSelector = '[role="list"][aria-label="Table columns"]';
   const columnItemSelector = `[role="listitem"][data-column-name=${JSON.stringify(saved.column)}]`;
   const removeButtonSelector = `${columnItemSelector} button[aria-label=${JSON.stringify(`Remove ${saved.label} column`)}]`;
-  const columnsMenuOpen = await browserEval(browser.page,
-    `return Boolean(document.querySelector(${JSON.stringify(columnsListSelector)}));`);
+  const columnsMenuOpen = await browserEval(browser.page, (args) => { return Boolean(document.querySelector(args[0])); }, [columnsListSelector]);
   if (!columnsMenuOpen) await click(browser.page, 'button', { name: 'Columns' });
-  await waitForBrowser(browser.page,
-    `Boolean(document.querySelector(${JSON.stringify(removeButtonSelector)}))`);
+  await waitForBrowser(browser.page, (args) => { return Boolean((Boolean(document.querySelector(args[0])))); }, [removeButtonSelector]);
   await click(browser.page, removeButtonSelector, { name: `Remove ${saved.label} column` });
   const removal = await waitNative(entry => pathOf(entry).endsWith('/commands') &&
     entry.body?.commands?.some(item => item.type === 'REMOVE_COLUMN' && item.outputId === outputId && item.column === saved.column), fromIndex);
@@ -592,12 +584,12 @@ try {
   }
   if (!(error instanceof BoundedAbsenceError) && !invalidated) process.exitCode = 1;
   if (browser) await browser.captureFailure(error, { action: browser.activeAction ?? browser.lastAction, explorer, phase: 'CDA sibling COUNT lifecycle', draftVersion: builder?.draftVersion, draftDigest: builder?.draftDigest });
-  if (browser) report.failureUI = await browserEval(browser.page, `return {
+  if (browser) report.failureUI = await browserEval(browser.page, (args) => { return {
     tail:document.body.innerText.slice(-8000),
     headers:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].map(cell=>cell.innerText.trim()),
     proposal:(()=>{const p=document.querySelector('[data-testid="construction-proposal-panel"]');return p?{proposalId:p.dataset.proposalId,status:p.dataset.proposalStatus,text:p.innerText}:null})(),
     dialog:(()=>{const d=document.querySelector('[role="dialog"]');return d?{text:d.innerText,radios:[...d.querySelectorAll('input[type="radio"]')].map(input=>({label:input.getAttribute('aria-label'),checked:input.checked,disabled:input.disabled}))}:null})()
-  };`).catch(String);
+  }; }).catch(String);
 } finally {
   await nativeCapture?.flush();
   if (frozenApiBuild) {

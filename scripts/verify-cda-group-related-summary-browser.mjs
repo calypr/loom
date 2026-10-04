@@ -82,10 +82,10 @@ const proposal = async (name, start, expectedRows) => {
     await new Promise(resolve => setTimeout(resolve, 50));
   }
   if (response.status === 200 && response.response.proposalId) {
-    await waitForBrowser(browser.page, `document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalId === ${JSON.stringify(response.response.proposalId)}`);
+    await waitForBrowser(browser.page, (args) => { return Boolean((document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalId === args[0])); }, [response.response.proposalId]);
   }
-  await waitForBrowser(browser.page, `['ready','error','needs-repair'].includes(document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalStatus)`);
-  const result = await browserEval(browser.page, `const p=document.querySelector('[data-testid="construction-proposal-panel"]');return {status:p?.dataset.proposalStatus,proposalId:p?.dataset.proposalId,text:p?.innerText,rows:[...document.querySelectorAll('[data-testid="construction-proposal-preview-row"]')].map(r=>[...r.querySelectorAll('td')].map(c=>c.innerText))};`);
+  await waitForBrowser(browser.page, (args) => { return Boolean((['ready','error','needs-repair'].includes(document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalStatus))); });
+  const result = await browserEval(browser.page, (args) => { const p=document.querySelector('[data-testid="construction-proposal-panel"]');return {status:p?.dataset.proposalStatus,proposalId:p?.dataset.proposalId,text:p?.innerText,rows:[...document.querySelectorAll('[data-testid="construction-proposal-preview-row"]')].map(r=>[...r.querySelectorAll('td')].map(c=>c.innerText))}; });
   assert.equal(result.status, 'ready', result.text);
   assert.equal(result.rows.length, Math.min(25, expectedRows.length));
   const permitted = new Set(expectedRows.map(row=>JSON.stringify(row)));
@@ -103,8 +103,8 @@ const recordRender = (name, start) => {
 const apply = async (expectedRows, columnCount) => {
   const start = Date.now();
   await click(browser.page, '[data-testid="construction-apply-proposal"]');
-  await waitForBrowser(browser.page, `!document.querySelector('[data-testid="construction-proposal-panel"]')`);
-  await waitForBrowser(browser.page,`!document.body.innerText.includes('Loading your table…')`);
+  await waitForBrowser(browser.page, (args) => { return Boolean((!document.querySelector('[data-testid="construction-proposal-panel"]'))); });
+  await waitForBrowser(browser.page, (args) => { return Boolean((!document.body.innerText.includes('Loading your table…'))); });
   const deadline=start+5000;
   while(!report.nativeRequests.some(request=>request.path===base+'/preview'&&request.startedAt>=start&&request.completedAt&&request.status===200)) {
     assert(Date.now()<deadline,'Apply did not complete a fresh saved preview within five seconds');
@@ -117,15 +117,15 @@ const apply = async (expectedRows, columnCount) => {
 const open = async (expectedRows, columnCount) => {
   const start = Date.now();
   await navigate(browser.page, `${uiOrigin}/?project=${project}&explorer=${explorer}&mode=builder`);
-  await waitForBrowser(browser.page, `document.querySelector('[data-testid="construction-table-${outputId}"]')`);
+  await waitForBrowser(browser.page, (args) => { return Boolean((document.querySelector('[data-testid="construction-table-' + args[0] + '"]'))); }, [outputId]);
   await click(browser.page, `[data-testid="construction-table-${outputId}"]`);
-  await waitForBrowser(browser.page, `document.querySelector('[data-testid="construction-rows-settings-trigger"]')?.disabled === false`);
+  await waitForBrowser(browser.page, (args) => { return Boolean((document.querySelector('[data-testid="construction-rows-settings-trigger"]')?.disabled === false)); });
   await rendered(expectedRows, columnCount);
   recordRender('load-to-render', start);
 };
 const rendered = async (expectedRows, columnCount = expectedRows[0]?.length ?? 2) => {
-  await waitForBrowser(browser.page, `document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount') === ${JSON.stringify(String(Math.min(25, expectedRows.length) + 1))} && document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-colcount') === ${JSON.stringify(String(columnCount))} && !document.body.innerText.includes('Loading your table…')`);
-  const rows = await browserEval(browser.page, `return [...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]')].slice(1).map(r=>[...r.querySelectorAll('[role="cell"]')].map(c=>c.innerText.trim())).filter(r=>r.length);`);
+  await waitForBrowser(browser.page, (args) => { return Boolean((document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount') === args[0] && document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-colcount') === args[1] && !document.body.innerText.includes('Loading your table…'))); }, [String(Math.min(25, expectedRows.length) + 1), String(columnCount)]);
+  const rows = await browserEval(browser.page, (args) => { return [...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]')].slice(1).map(r=>[...r.querySelectorAll('[role="cell"]')].map(c=>c.innerText.trim())).filter(r=>r.length); });
   if(expectedRows.length<=5) assert.equal(rows.length,expectedRows.length);
   else assert(rows.length>0&&rows.length<=Math.min(25,expectedRows.length),'Visible virtualized rows must fit the preview page');
   if(expandAfterGroup) assert.equal(new Set(rows.map(row=>JSON.stringify(row))).size,rows.length,'Grouped-source terminal union must not duplicate rows');
@@ -143,7 +143,7 @@ const assertSavedPreviewRows = async (expectedRows, { requestStart, expectedBuil
   const deadline=Date.now()+5000;
   let activePreview;
   while(true){
-    activePreview=await browserEval(browser.page, `const p=document.querySelector('[data-testid="construction-preview"]');return {status:p?.dataset.previewStatus,receiptId:p?.dataset.previewReceiptId,outputId:p?.dataset.previewOutputId,draftVersion:p?.dataset.currentDraftVersion,draftDigest:p?.dataset.currentDraftDigest};`);
+    activePreview=await browserEval(browser.page, (args) => { const p=document.querySelector('[data-testid="construction-preview"]');return {status:p?.dataset.previewStatus,receiptId:p?.dataset.previewReceiptId,outputId:p?.dataset.previewOutputId,draftVersion:p?.dataset.currentDraftVersion,draftDigest:p?.dataset.currentDraftDigest}; });
     if(activePreview.status==='ready'&&activePreview.receiptId&&activePreview.outputId===outputId&&activePreview.draftVersion===String(expectedBuilder.draftVersion)&&activePreview.draftDigest===expectedBuilder.draftDigest)break;
     assert(Date.now()<deadline,`${phase} did not render a preview for the current Builder draft within five seconds`);
     await new Promise(resolve=>setTimeout(resolve,50));
@@ -193,15 +193,15 @@ const runUnmappedMemberRepair = async () => {
   await open(expectedBase,1);
   const configureGroup=async()=>{
     const started=Date.now();
-    const waitWithinActionBudget=async predicate=>{
+    const waitWithinActionBudget=async selector=>{
       const remaining=5000-(Date.now()-started);
       assert(remaining>0,'Rows-to-Group discovery exceeded the five-second action-to-render budget');
-      await waitForBrowser(browser.page,predicate,remaining);
+      await browser.page.locator(selector).waitFor({ state: 'visible', timeout: remaining });
     };
     await click(browser.page,'[data-testid="construction-rows-settings-trigger"]');
-    await waitWithinActionBudget(`document.querySelector('[data-testid="construction-action-group-rows"]:not(:disabled)')`);
+    await waitWithinActionBudget('[data-testid="construction-action-group-rows"]:not(:disabled)');
     await click(browser.page,'[data-testid="construction-action-group-rows"]');
-    await waitWithinActionBudget(`document.querySelector('input[aria-label="Group by Observation ID"]:not(:disabled)')`);
+    await waitWithinActionBudget('input[aria-label="Group by Observation ID"]:not(:disabled)');
     await click(browser.page,'input[aria-label="Group by Observation ID"]');
     return started;
   };
@@ -223,39 +223,39 @@ const runUnmappedMemberRepair = async () => {
   const openRelatedFieldChooser=async()=>{
     await click(browser.page,'[data-testid="construction-action-add-columns"]');
     await click(browser.page,'[aria-label="Column types"] button',{includes:'Fields and related data'});
-    await waitForBrowser(browser.page,`document.querySelector('[data-testid="construction-add-columns-source"]')`);
-    if(!await browserEval(browser.page,`return document.querySelector('[aria-label="Related resources"] summary')?.parentElement.open===true;`)){
+    await waitForBrowser(browser.page, (args) => { return Boolean((document.querySelector('[data-testid="construction-add-columns-source"]'))); });
+    if(!await browserEval(browser.page, (args) => { return document.querySelector('[aria-label="Related resources"] summary')?.parentElement.open===true; })){
       await click(browser.page,'[aria-label="Related resources"] summary');
     }
     await click(browser.page,'[data-testid="construction-add-columns-source-option"][aria-label="Specimen, Related resource"]');
-    if(!await browserEval(browser.page,`return document.querySelector('[data-testid="feature-catalog-raw-fields"] summary')?.parentElement.open===true;`)){
+    if(!await browserEval(browser.page, (args) => { return document.querySelector('[data-testid="feature-catalog-raw-fields"] summary')?.parentElement.open===true; })){
       await click(browser.page,'[data-testid="feature-catalog-raw-fields"] summary');
     }
-    await waitForBrowser(browser.page,`document.querySelector('input[aria-label="Select Specimen.id"]:not(:disabled)')`);
+    await waitForBrowser(browser.page, (args) => { return Boolean((document.querySelector('input[aria-label="Select Specimen.id"]:not(:disabled)'))); });
   };
   const configureRelatedField=async name=>{
     const discoveryStart=Date.now();
     await openRelatedFieldChooser();
     await click(browser.page,'input[aria-label="Select Specimen.id"]');
     await click(browser.page,'[aria-label="Add columns editor"] button',{includes:'Add 1 selected feature'});
-    await waitForBrowser(browser.page,`document.querySelector('[role="dialog"]')`);
-    if(!await browserEval(browser.page,`return [...document.querySelectorAll('[role="dialog"] summary')].find(summary=>summary.innerText.includes('Other relationship paths'))?.parentElement.open===true;`)){
+    await waitForBrowser(browser.page, (args) => { return Boolean((document.querySelector('[role="dialog"]'))); });
+    if(!await browserEval(browser.page, (args) => { return [...document.querySelectorAll('[role="dialog"] summary')].find(summary=>summary.innerText.includes('Other relationship paths'))?.parentElement.open===true; })){
       await click(browser.page,'[role="dialog"] summary',{includes:'Other relationship paths'});
     }
     const relationship='Observation -[specimen]-> Specimen';
     const pathSelector=`[role="dialog"] input[aria-label=${JSON.stringify(`Specimen ID: ${relationship}`)}]`;
-    await waitForBrowser(browser.page,`document.querySelector(${JSON.stringify(pathSelector)})`);
+    await waitForBrowser(browser.page, (args) => { return Boolean((document.querySelector(args[0]))); }, [pathSelector]);
     await click(browser.page,pathSelector);
     const started=Date.now();
     await click(browser.page,'[role="dialog"] input[aria-label="Specimen ID: Count matching records"]');
     await click(browser.page,'[role="dialog"] button',{name:'Add 1 column'});
-    await waitForBrowser(browser.page,`['ready','error','needs-repair'].includes(document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalStatus) || ['ready','error'].includes(document.querySelector('[data-testid="construction-choice-proposal-panel"]')?.dataset.proposalStatus)`);
-    const proposalState=await browserEval(browser.page,`const p=document.querySelector('[data-testid="construction-proposal-panel"]')??document.querySelector('[data-testid="construction-choice-proposal-panel"]');return {status:p?.dataset.proposalStatus,text:p?.innerText,rows:[...document.querySelectorAll('[data-testid="construction-proposal-preview-row"]')].map(row=>[...row.querySelectorAll('td')].map(cell=>cell.innerText.trim()))};`);
+    await waitForBrowser(browser.page, (args) => { return Boolean((['ready','error','needs-repair'].includes(document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalStatus) || ['ready','error'].includes(document.querySelector('[data-testid="construction-choice-proposal-panel"]')?.dataset.proposalStatus))); });
+    const proposalState=await browserEval(browser.page, (args) => { const p=document.querySelector('[data-testid="construction-proposal-panel"]')??document.querySelector('[data-testid="construction-choice-proposal-panel"]');return {status:p?.dataset.proposalStatus,text:p?.innerText,rows:[...document.querySelectorAll('[data-testid="construction-proposal-preview-row"]')].map(row=>[...row.querySelectorAll('td')].map(cell=>cell.innerText.trim()))}; });
     assert.equal(proposalState.status,'ready',proposalState.text);
     assert.deepEqual(proposalState.rows,expectedRelated,`${name} preview must match each exact scoped Observation→Specimen raw count`);
     recordRender(name+'-field-discovery-to-preview',discoveryStart);
     recordRender(name+'-choice-to-preview',started);
-    return await browserEval(browser.page,`return document.querySelector('[data-testid="construction-choice-proposal-panel"]')?'construction-choice-proposal-panel':'construction-proposal-panel';`);
+    return await browserEval(browser.page, (args) => { return document.querySelector('[data-testid="construction-choice-proposal-panel"]')?'construction-choice-proposal-panel':'construction-proposal-panel'; });
   };
   const beforeRelated=builder;
   let panel=await configureRelatedField('unmapped-repair');
@@ -266,7 +266,7 @@ const runUnmappedMemberRepair = async () => {
   const applyStarted=Date.now();
   if(panel==='construction-choice-proposal-panel') await click(browser.page,'[data-testid="construction-choice-proposal-panel"] button',{name:'Apply columns'});
   else await click(browser.page,'[data-testid="construction-apply-proposal"]');
-  await waitForBrowser(browser.page,`!document.querySelector('[data-testid="${panel}"]')`);
+  await waitForBrowser(browser.page, (args) => { return Boolean((!document.querySelector('[data-testid="' + args[0] + '"]'))); }, [panel]);
   await rendered(expectedRelated,3);
   recordRender('unmapped-repair-group-related-save-to-render',applyStarted);
   builder=await api(base+'/builder');
@@ -291,23 +291,23 @@ const runUnmappedMemberRepair = async () => {
   builder=await api(base+'/builder');
   const baselineReceiptPreview=await assertSavedPreviewRows(expectedRelated,{requestStart:baselinePreviewRequestStart,expectedBuilder:builder,phase:'before-unmapped-repair'});
   await click(browser.page,'[data-testid="construction-rows-settings-trigger"]');
-  await waitForBrowser(browser.page,`document.querySelector('section[aria-label="Starting collection"] button')?.innerText`);
-  await waitForBrowser(browser.page,`[...document.querySelectorAll('section[aria-label="Starting collection"] button')].some(button=>button.innerText==='Check selected-resource coverage'&&!button.disabled)`);
+  await waitForBrowser(browser.page, (args) => { return Boolean((document.querySelector('section[aria-label="Starting collection"] button')?.innerText)); });
+  await waitForBrowser(browser.page, (args) => { return Boolean(([...document.querySelectorAll('section[aria-label="Starting collection"] button')].some(button=>button.innerText==='Check selected-resource coverage'&&!button.disabled))); });
   const coverageStarted=Date.now();
   await click(browser.page,'section[aria-label="Starting collection"] button',{name:'Check selected-resource coverage'});
-  await waitForBrowser(browser.page,`document.querySelector('[data-testid="population-coverage-report"]')`);
-  const coverage=await browserEval(browser.page,`return document.querySelector('[data-testid="population-coverage-report"]')?.innerText??'';`);
+  await waitForBrowser(browser.page, (args) => { return Boolean((document.querySelector('[data-testid="population-coverage-report"]'))); });
+  const coverage=await browserEval(browser.page, (args) => { return document.querySelector('[data-testid="population-coverage-report"]')?.innerText??''; });
   assert(coverage.includes('2 selected · 1 produce rows · 1 needs attention'),coverage);
   assert(coverage.includes(unmappedRef.id),`Coverage must surface exact raw orphan ${source.sources[1].id}: ${coverage}`);
-  await waitForBrowser(browser.page,`[...document.querySelectorAll('[data-testid="population-coverage-report"] button')].some(button=>button.innerText==='Remove from collection'&&!button.disabled)`);
+  await waitForBrowser(browser.page, (args) => { return Boolean(([...document.querySelectorAll('[data-testid="population-coverage-report"] button')].some(button=>button.innerText==='Remove from collection'&&!button.disabled))); });
   recordRender('unmapped-repair-coverage-render',coverageStarted);
   const targetLabel=`Specimen/${unmappedRef.id}`;
-  const coverageRows=await browserEval(browser.page,`return [...document.querySelectorAll('[data-testid="population-coverage-report"] li')].map(item=>({member:item.querySelector('span')?.innerText.trim(),action:item.querySelector('button')?.innerText.trim()}));`);
+  const coverageRows=await browserEval(browser.page, (args) => { return [...document.querySelectorAll('[data-testid="population-coverage-report"] li')].map(item=>({member:item.querySelector('span')?.innerText.trim(),action:item.querySelector('button')?.innerText.trim()})); });
   assert.deepEqual(coverageRows,[{member:targetLabel,action:'Remove from collection'}],'Native repair must offer removal only for the independently proven unmapped Specimen');
   const removeStarted=Date.now();
   await click(browser.page,'[data-testid="population-coverage-report"] button',{name:'Remove from collection'});
-  await waitForBrowser(browser.page,`(()=>{const section=document.querySelector('section[aria-label="Starting collection"]');const revision=section?.dataset.attachedSelectionRevisionId;return Boolean(section&&revision&&revision!==${JSON.stringify(beforeRevision)}&&!document.body.innerText.includes('Loading your table…'));})()`);
-  const attachedRevisionID=await browserEval(browser.page,`return document.querySelector('section[aria-label="Starting collection"]')?.dataset.attachedSelectionRevisionId??'';`);
+  await waitForBrowser(browser.page, (args) => { return Boolean(((()=>{const section=document.querySelector('section[aria-label="Starting collection"]');const revision=section?.dataset.attachedSelectionRevisionId;return Boolean(section&&revision&&revision!==args[0]&&!document.body.innerText.includes('Loading your table…'));})())); }, [beforeRevision]);
+  const attachedRevisionID=await browserEval(browser.page, (args) => { return document.querySelector('section[aria-label="Starting collection"]')?.dataset.attachedSelectionRevisionId??''; });
   assert(typeof attachedRevisionID==='string'&&attachedRevisionID.length>0&&attachedRevisionID!==beforeRevision,'Native removal must leave an existing Starting collection section attached to a new nonempty immutable revision');
   await rendered(expectedRelated,3);
   recordRender('unmapped-repair-selection-change-to-render',removeStarted);
@@ -468,14 +468,14 @@ try {
     witnesses=next;expected=witnesses.map(w=>w.values);
     report.oracle.chain??=[];report.oracle.chain.push({hop,witnesses});
     await click(browser.page,'[data-testid="construction-rows-settings-trigger"]');
-    await waitForBrowser(browser.page,`document.querySelector('[data-testid="construction-action-related-rows"]')?.disabled===false`);
+    await waitForBrowser(browser.page, (args) => { return Boolean((document.querySelector('[data-testid="construction-action-related-rows"]')?.disabled===false)); });
     await click(browser.page,'[data-testid="construction-action-related-rows"]');
     const panel='[data-testid="construction-related-expand-editor"]';
-    await waitForBrowser(browser.page,`document.querySelector('${panel} select[aria-label="Related record type"]')?.disabled===false`);
+    await waitForBrowser(browser.page, (args) => { return Boolean((document.querySelector('' + args[0] + ' select[aria-label="Related record type"]')?.disabled===false)); }, [panel]);
     let start=Date.now();
     await selectOption(browser.page,panel+' select[aria-label="Related record type"]',hop.to);
     const label=hop.from+(hop.direction==='INBOUND'?` <-[${hop.field}]- `:` -[${hop.field}]-> `)+hop.to;
-    await waitForBrowser(browser.page,`document.querySelector(${JSON.stringify(panel+' input[aria-label="'+label+'"]')})`,5000);
+    await waitForBrowser(browser.page, (args) => { return Boolean((document.querySelector(args[0]))); }, 5000, [panel+' input[aria-label="'+label+'"]']);
     await click(browser.page,panel+' input[aria-label="'+label+'"]');
     await proposal('expand-'+hop.from+'-'+hop.to,start,expected);
     await apply(expected);
@@ -489,7 +489,7 @@ try {
   const configureGroup=async()=>{
     await click(browser.page,'[data-testid="construction-rows-settings-trigger"]');
     await click(browser.page,'[data-testid="construction-action-group-rows"]');
-    await waitForBrowser(browser.page,`document.querySelector('input[aria-label="Group by Patient FHIR resource ID"]:not(:disabled)')`);
+    await waitForBrowser(browser.page, (args) => { return Boolean((document.querySelector('input[aria-label="Group by Patient FHIR resource ID"]:not(:disabled)'))); });
     start=Date.now();
     await click(browser.page,'input[aria-label="Group by Patient FHIR resource ID"]');
     if(summaryShape==='PIVOT') await click(browser.page,'input[aria-label="Group by Specimen resource type"]');
@@ -498,7 +498,7 @@ try {
   await configureGroup();
   await proposal('related-many-group-preview',start,grouped);
   await click(browser.page,'[data-testid="construction-cancel-proposal"]');
-  await waitForBrowser(browser.page,`!document.querySelector('[data-testid="construction-proposal-panel"]')`);
+  await waitForBrowser(browser.page, (args) => { return Boolean((!document.querySelector('[data-testid="construction-proposal-panel"]'))); });
   assert.deepEqual((await api(base+'/builder')).workspace,expanded.workspace);
   await configureGroup();
   await proposal('confirmed-related-many-group-preview',start,grouped);
@@ -518,17 +518,17 @@ try {
       const configureRelatedFilter=async()=>{
         const started=Date.now();
         await click(browser.page,'[data-testid="construction-action-keep-rows"]');
-        await waitForBrowser(browser.page,`[...document.querySelectorAll('button')].some(button=>button.innerText==='Related records'&&!button.disabled)`);
+        await waitForBrowser(browser.page, (args) => { return Boolean(([...document.querySelectorAll('button')].some(button=>button.innerText==='Related records'&&!button.disabled))); });
         await click(browser.page,'button',{name:'Related records'});
-        await waitForBrowser(browser.page,`document.querySelector('select[aria-label="Related eligibility record type"]:not(:disabled)')`);
-        const anchorSelector=await browserEval(browser.page,`return Boolean(document.querySelector('select[aria-label="Related eligibility anchor"]'));`);
+        await waitForBrowser(browser.page, (args) => { return Boolean((document.querySelector('select[aria-label="Related eligibility record type"]:not(:disabled)'))); });
+        const anchorSelector=await browserEval(browser.page, (args) => { return Boolean(document.querySelector('select[aria-label="Related eligibility anchor"]')); });
         if(anchorSelector) await selectOption(browser.page,'select[aria-label="Related eligibility anchor"]','__loom_root_contributor_keys');
-        const startingRecords=await browserEval(browser.page,`const editor=document.querySelector('[data-testid="construction-related-eligibility-editor"]');return {text:editor.innerText,anchor:editor.querySelector('select[aria-label="Related eligibility anchor"]')?.value};`);
+        const startingRecords=await browserEval(browser.page, (args) => { const editor=document.querySelector('[data-testid="construction-related-eligibility-editor"]');return {text:editor.innerText,anchor:editor.querySelector('select[aria-label="Related eligibility anchor"]')?.value}; });
         assert(startingRecords.text.includes('Start from')&&startingRecords.text.includes('Specimen'),'Related filtering must show its contributing source records without an extra click');
         if(anchorSelector) assert.equal(startingRecords.anchor,'__loom_root_contributor_keys');
         report.relatedFilterStartingRecords=startingRecords;
         await selectOption(browser.page,'select[aria-label="Related eligibility record type"]','Patient');
-        await waitForBrowser(browser.page,`document.querySelector('input[aria-label="Specimen -[subject]-> Patient"]:not(:disabled)')`,5000);
+        await waitForBrowser(browser.page, (args) => { return Boolean((document.querySelector('input[aria-label="Specimen -[subject]-> Patient"]:not(:disabled)'))); }, 5000);
         await click(browser.page,'input[aria-label="Specimen -[subject]-> Patient"]');
         await proposal('grouped-contributors-related-filter-exists',started,filterRows);
         start=Date.now();
@@ -539,13 +539,13 @@ try {
         await proposal('grouped-contributors-related-filter-exists-restored',start,filterRows);
         start=Date.now();
         await selectOption(browser.page,'select[aria-label="Related eligibility rule"]','COUNT_AT_LEAST');
-        const countExplanation=await browserEval(browser.page,`return document.querySelector('[data-testid="construction-related-eligibility-editor"]').innerText;`);
+        const countExplanation=await browserEval(browser.page, (args) => { return document.querySelector('[data-testid="construction-related-eligibility-editor"]').innerText; });
         assert(countExplanation.includes('Each matching related record is counted once per current row, even if several starting records link to it.'),'Distinct-match counting must be explained in the editor');
         await proposal('grouped-contributors-related-filter-count-distinct-two',start,[]);
       };
       await configureRelatedFilter();
       await click(browser.page,'[data-testid="construction-cancel-proposal"]');
-      await waitForBrowser(browser.page,`!document.querySelector('[data-testid="construction-proposal-panel"]')`);
+      await waitForBrowser(browser.page, (args) => { return Boolean((!document.querySelector('[data-testid="construction-proposal-panel"]'))); });
       await rendered(filterRows);
       assert.deepEqual((await api(base+'/builder')).workspace,beforeRelatedFilter.workspace);
       await configureRelatedFilter();
@@ -556,7 +556,7 @@ try {
       assert.equal(relatedFilter.operation.relatedEligibility.anchorColumnId,'__loom_root_contributor_keys');
       await click(browser.page,`[data-testid="construction-history-step-${relatedFilter.id}"]`);
       await click(browser.page,`[data-testid="construction-edit-step-${relatedFilter.id}"]`);
-      await waitForBrowser(browser.page,`document.querySelector('input[aria-label="Minimum matching records"]:not(:disabled)')`);
+      await waitForBrowser(browser.page, (args) => { return Boolean((document.querySelector('input[aria-label="Minimum matching records"]:not(:disabled)'))); });
       start=Date.now();
       await fill(browser.page, 'input[aria-label="Minimum matching records"]', '1');
       await proposal('edit-grouped-related-filter-count-one',start,filterRows);
@@ -574,22 +574,22 @@ try {
     const configureRelated = async () => {
       const started = Date.now();
       await click(browser.page,'[data-testid="construction-rows-settings-trigger"]');
-      await waitForBrowser(browser.page,`document.querySelector('[data-testid="construction-action-related-rows"]')`);
-      const action=await browserEval(browser.page,`const button=document.querySelector('[data-testid="construction-action-related-rows"]');return {disabled:button.disabled,text:button.innerText};`);
+      await waitForBrowser(browser.page, (args) => { return Boolean((document.querySelector('[data-testid="construction-action-related-rows"]'))); });
+      const action=await browserEval(browser.page, (args) => { const button=document.querySelector('[data-testid="construction-action-related-rows"]');return {disabled:button.disabled,text:button.innerText}; });
       assert(!action.disabled, 'Grouped rows retain source members but related expansion is disabled: '+action.text);
       await click(browser.page,'[data-testid="construction-action-related-rows"]');
-      await waitForBrowser(browser.page,`document.querySelector('[data-testid="construction-related-expand-editor"] select[aria-label="Related record type"]')?.disabled===false`);
-      const explanation=await browserEval(browser.page,`return document.querySelector('[data-testid="construction-related-expand-editor"]').innerText;`);
+      await waitForBrowser(browser.page, (args) => { return Boolean((document.querySelector('[data-testid="construction-related-expand-editor"] select[aria-label="Related record type"]')?.disabled===false)); });
+      const explanation=await browserEval(browser.page, (args) => { return document.querySelector('[data-testid="construction-related-expand-editor"]').innerText; });
       assert(explanation.includes('Start from')&&explanation.includes('Specimen'),'Grouped expansion must clearly identify the contributing source record type');
       report.groupedStartingRecords=explanation;
       await selectOption(browser.page,'[data-testid="construction-related-expand-editor"] select[aria-label="Related record type"]','Patient');
-      await waitForBrowser(browser.page,`document.querySelector('input[aria-label="Specimen -[subject]-> Patient"]:not(:disabled)')`,5000);
+      await waitForBrowser(browser.page, (args) => { return Boolean((document.querySelector('input[aria-label="Specimen -[subject]-> Patient"]:not(:disabled)'))); }, 5000);
       await click(browser.page,'input[aria-label="Specimen -[subject]-> Patient"]');
       await proposal('grouped-source-union-related-preview',started,patientRows);
     };
     await configureRelated();
     await click(browser.page,'[data-testid="construction-cancel-proposal"]');
-    await waitForBrowser(browser.page,`!document.querySelector('[data-testid="construction-proposal-panel"]')`);
+    await waitForBrowser(browser.page, (args) => { return Boolean((!document.querySelector('[data-testid="construction-proposal-panel"]'))); });
     await rendered(grouped);
     assert.deepEqual((await api(base+'/builder')).workspace,groupedBuilder.workspace,'Cancel must retain grouped membership and construction');
     await configureRelated();
@@ -607,10 +607,10 @@ try {
     report.oracle.groupedExpansion.onward={matches:onwardMatches,rows:onwardRows};
     await click(browser.page,'[data-testid="construction-rows-settings-trigger"]');
     await click(browser.page,'[data-testid="construction-action-related-rows"]');
-    await waitForBrowser(browser.page,`document.querySelector('select[aria-label="Related record type"]')?.disabled===false`);
+    await waitForBrowser(browser.page, (args) => { return Boolean((document.querySelector('select[aria-label="Related record type"]')?.disabled===false)); });
     start=Date.now();
     await selectOption(browser.page,'select[aria-label="Related record type"]','Observation');
-    await waitForBrowser(browser.page,`document.querySelector('input[aria-label="Patient <-[subject]- Observation"]:not(:disabled)')`,5000);
+    await waitForBrowser(browser.page, (args) => { return Boolean((document.querySelector('input[aria-label="Patient <-[subject]- Observation"]:not(:disabled)'))); }, 5000);
     await click(browser.page,'input[aria-label="Patient <-[subject]- Observation"]');
     await proposal('onward-from-grouped-related-identity',start,onwardRows);
     await apply(onwardRows);
@@ -642,7 +642,7 @@ try {
     assert.deepEqual(doc(builder).construction,doc(patientBuilder).construction,'Onward removal must restore exact prior grouped expansion');
     await click(browser.page,`[data-testid="construction-history-step-${groupedExpansion.id}"]`);
     await click(browser.page,`[data-testid="construction-edit-step-${groupedExpansion.id}"]`);
-    await waitForBrowser(browser.page,`document.querySelector('select[aria-label="If a current row has no matches"]')`);
+    await waitForBrowser(browser.page, (args) => { return Boolean((document.querySelector('select[aria-label="If a current row has no matches"]'))); });
     start=Date.now();
     await selectOption(browser.page,'select[aria-label="If a current row has no matches"]','EXCLUDE');
     await proposal('edit-grouped-related-empty-policy',start,patientRows);
@@ -666,10 +666,10 @@ try {
       await click(browser.page,'[data-testid="construction-rows-settings-trigger"]');
       if(summaryShape==='PIVOT'){
         await click(browser.page,'[data-testid="construction-action-pivot-rows"]');
-        await waitForBrowser(browser.page,`document.querySelector('select[aria-label="Pivot category field"]:not(:disabled)')`);
+        await waitForBrowser(browser.page, (args) => { return Boolean((document.querySelector('select[aria-label="Pivot category field"]:not(:disabled)'))); });
         await click(browser.page,'input[aria-label="Pivot group Specimen resource type"]');
         const chooseField=async(label,prefix)=>{
-          const options=await browserEval(browser.page,`return [...document.querySelector('select[aria-label="${label}"]').options].map(option=>({value:option.value,label:option.textContent}));`);
+          const options=await browserEval(browser.page, (args) => { return [...document.querySelector('select[aria-label="' + args[0] + '"]').options].map(option=>({value:option.value,label:option.textContent})); }, [label]);
           const field=options.find(option=>option.label.startsWith(prefix));assert(field,JSON.stringify(options));
           await selectOption(browser.page,`select[aria-label="${label}"]`,field.value);
         };
@@ -678,7 +678,7 @@ try {
         await chooseField('Pivot values field','Row count');
       }else{
         await click(browser.page,'button',{name:'Turn columns into rows'});
-        await waitForBrowser(browser.page,`document.querySelector('input[aria-label="Unpivot Row count"]:not(:disabled)')`);
+        await waitForBrowser(browser.page, (args) => { return Boolean((document.querySelector('input[aria-label="Unpivot Row count"]:not(:disabled)'))); });
         start=Date.now();
         await click(browser.page,'input[aria-label="Unpivot Row count"]');
       }
@@ -696,16 +696,16 @@ try {
   const openRelatedFields=async()=>{
   await click(browser.page,'[data-testid="construction-action-add-columns"]');
   await click(browser.page,'[aria-label="Column types"] button',{includes:'Fields and related data'});
-  await waitForBrowser(browser.page, `document.querySelector('[data-testid="construction-add-columns-source"]')`);
-  report.addFieldsUI=await browserEval(browser.page, `return {text:document.querySelector('[aria-label="Add columns editor"]').innerText,controls:[...document.querySelectorAll('[aria-label="Add columns editor"] input,[aria-label="Add columns editor"] select,[aria-label="Add columns editor"] button')].map(e=>({tag:e.tagName,label:e.getAttribute('aria-label'),testId:e.dataset.testid,text:e.innerText,disabled:e.disabled}))};`);
-  if(!await browserEval(browser.page,`return document.querySelector('[aria-label="Related resources"] summary')?.parentElement.open;`)){
+  await waitForBrowser(browser.page, (args) => { return Boolean((document.querySelector('[data-testid="construction-add-columns-source"]'))); });
+  report.addFieldsUI=await browserEval(browser.page, (args) => { return {text:document.querySelector('[aria-label="Add columns editor"]').innerText,controls:[...document.querySelectorAll('[aria-label="Add columns editor"] input,[aria-label="Add columns editor"] select,[aria-label="Add columns editor"] button')].map(e=>({tag:e.tagName,label:e.getAttribute('aria-label'),testId:e.dataset.testid,text:e.innerText,disabled:e.disabled}))}; });
+  if(!await browserEval(browser.page, (args) => { return document.querySelector('[aria-label="Related resources"] summary')?.parentElement.open; })){
     await click(browser.page,'[aria-label="Related resources"] summary');
   }
   await click(browser.page,'[data-testid="construction-add-columns-source-option"][aria-label="Observation, Related resource"]');
-  if(!await browserEval(browser.page,`return document.querySelector('[data-testid="feature-catalog-raw-fields"] summary')?.parentElement.open;`)){
+  if(!await browserEval(browser.page, (args) => { return document.querySelector('[data-testid="feature-catalog-raw-fields"] summary')?.parentElement.open; })){
     await click(browser.page,'[data-testid="feature-catalog-raw-fields"] summary');
   }
-  await waitForBrowser(browser.page,`document.querySelector('input[aria-label="Select Observation.id"]:not(:disabled)')`);
+  await waitForBrowser(browser.page, (args) => { return Boolean((document.querySelector('input[aria-label="Select Observation.id"]:not(:disabled)'))); });
   };
   await openRelatedFields();
   const beforeField=builder;
@@ -719,32 +719,32 @@ try {
     const selectionStart=Date.now();
     await click(browser.page,'input[aria-label="Select Observation.id"]');
     await click(browser.page,'[aria-label="Add columns editor"] button',{includes:'Add 1 selected feature'});
-    await waitForBrowser(browser.page,`document.querySelector('[role="dialog"]')`);
-    if(!await browserEval(browser.page,`return [...document.querySelectorAll('[role="dialog"] summary')].find(summary=>summary.innerText.includes('Other relationship paths'))?.parentElement.open;`)){
+    await waitForBrowser(browser.page, (args) => { return Boolean((document.querySelector('[role="dialog"]'))); });
+    if(!await browserEval(browser.page, (args) => { return [...document.querySelectorAll('[role="dialog"] summary')].find(summary=>summary.innerText.includes('Other relationship paths'))?.parentElement.open; })){
       await click(browser.page,'[role="dialog"] summary',{includes:'Other relationship paths'});
     }
     await click(browser.page,'[role="dialog"] input[aria-label="Observation ID: Specimen -[subject]-> Patient <-[subject]- Observation"]');
     start=Date.now();
     await click(browser.page,`[role="dialog"] input[aria-label="Observation ID: ${resultForm==='COUNT'?'Count matching records':'Show whether a match exists'}"]`);
     if(zeroMatches){
-      if(!await browserEval(browser.page,`return [...document.querySelectorAll('[role="dialog"] summary')].find(summary=>summary.innerText.includes('Matching records:'))?.parentElement.open;`)){
+      if(!await browserEval(browser.page, (args) => { return [...document.querySelectorAll('[role="dialog"] summary')].find(summary=>summary.innerText.includes('Matching records:'))?.parentElement.open; })){
         await click(browser.page,'[role="dialog"] summary',{includes:'Matching records:'});
       }
       await click(browser.page,'[role="dialog"] label',{includes:'Only records where Observation ID equals'});
       await fill(browser.page, 'input[aria-label="Observation ID exact value"]', absentID);
     }
     await click(browser.page,'[role="dialog"] button',{name:'Add 1 column'});
-    await waitForBrowser(browser.page,`['ready','error','needs-repair'].includes(document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalStatus) || ['ready','error'].includes(document.querySelector('[data-testid="construction-choice-proposal-panel"]')?.dataset.proposalStatus) || document.querySelector('[role="dialog"]')?.innerText.includes('root document identity')`);
-    report.relatedProposal=await browserEval(browser.page,`const p=document.querySelector('[data-testid="construction-proposal-panel"]')??document.querySelector('[data-testid="construction-choice-proposal-panel"]');return {status:p?.dataset.proposalStatus,text:p?.innerText??document.querySelector('[role="dialog"]')?.innerText};`);
+    await waitForBrowser(browser.page, (args) => { return Boolean((['ready','error','needs-repair'].includes(document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalStatus) || ['ready','error'].includes(document.querySelector('[data-testid="construction-choice-proposal-panel"]')?.dataset.proposalStatus) || document.querySelector('[role="dialog"]')?.innerText.includes('root document identity'))); });
+    report.relatedProposal=await browserEval(browser.page, (args) => { const p=document.querySelector('[data-testid="construction-proposal-panel"]')??document.querySelector('[data-testid="construction-choice-proposal-panel"]');return {status:p?.dataset.proposalStatus,text:p?.innerText??document.querySelector('[role="dialog"]')?.innerText}; });
     assert.equal(report.relatedProposal.status,'ready',report.relatedProposal.text);
-    const cells=await browserEval(browser.page,`return [...document.querySelector('[data-testid="construction-proposal-preview-row"]').querySelectorAll('td')].map(cell=>({text:cell.innerText,raw:cell.title}));`);
+    const cells=await browserEval(browser.page, (args) => { return [...document.querySelector('[data-testid="construction-proposal-preview-row"]').querySelectorAll('td')].map(cell=>({text:cell.innerText,raw:cell.title})); });
     assert.equal(cells.length,shaped[0].length+1);
     assert.deepEqual(cells.slice(0,-1).map(cell=>cell.text),shaped[0]);
     assert.equal(cells.at(-1).text,String(expectedSummary));
     recordRender(summaryShape.toLowerCase()+'-related-'+resultForm.toLowerCase()+'-preview',start);
     recordRender('related-field-discovery-to-preview',selectionStart);
   };
-  const proposalPanel=async()=>await browserEval(browser.page,`return document.querySelector('[data-testid="construction-choice-proposal-panel"]')?'construction-choice-proposal-panel':'construction-proposal-panel';`);
+  const proposalPanel=async()=>await browserEval(browser.page, (args) => { return document.querySelector('[data-testid="construction-choice-proposal-panel"]')?'construction-choice-proposal-panel':'construction-proposal-panel'; });
   await configureRelatedField();
   await click(browser.page,`[data-testid="${await proposalPanel()}"] button`,{name:'Cancel'});
   await rendered(shaped);
@@ -755,7 +755,7 @@ try {
   const panel=await proposalPanel();
   if(panel==='construction-choice-proposal-panel') await click(browser.page,'[data-testid="construction-choice-proposal-panel"] button',{name:'Apply columns'});
   else await click(browser.page,'[data-testid="construction-apply-proposal"]');
-  await waitForBrowser(browser.page,`!document.querySelector('[data-testid="${panel}"]')`);
+  await waitForBrowser(browser.page, (args) => { return Boolean((!document.querySelector('[data-testid="' + args[0] + '"]'))); }, [panel]);
   await rendered(withField);
   recordRender('group-related-summary-apply',start);
   builder=await api(base+'/builder');
@@ -768,29 +768,34 @@ try {
     const beforeCollection=builder;
     const collectionSettingsStart=Date.now();
     await click(browser.page,'[data-testid="construction-rows-settings-trigger"]');
-    await waitForBrowser(browser.page,`[...document.querySelectorAll('section[aria-label="Starting collection"] button')].some(button=>button.innerText==='Use all authorized rows'&&!button.disabled)`);
+    await waitForBrowser(browser.page, (args) => { return Boolean(([...document.querySelectorAll('section[aria-label="Starting collection"] button')].some(button=>button.innerText==='Use all authorized rows'&&!button.disabled))); });
     recordRender('starting-collection-controls-ready',collectionSettingsStart);
     const clearStart=Date.now();
     await click(browser.page,'section[aria-label="Starting collection"] button',{name:'Use all authorized rows'});
-    await waitForBrowser(browser.page,`[...document.querySelectorAll('section[aria-label="Starting collection"] button')].some(button=>button.innerText==='Use selected resources'&&!button.disabled) && document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount')==='26' && !document.body.innerText.includes('Loading your table…') || document.body.innerText.includes('Preview failed:')`);
-    const collectionError=await browserEval(browser.page,`return document.body.innerText.split(String.fromCharCode(10)).find(line=>line.startsWith('Preview failed:'));`);
+    await waitForBrowser(browser.page, (args) => { return Boolean(([...document.querySelectorAll('section[aria-label="Starting collection"] button')].some(button=>button.innerText==='Use selected resources'&&!button.disabled) && document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount')==='26' && !document.body.innerText.includes('Loading your table…') || document.body.innerText.includes('Preview failed:'))); });
+    const collectionError=await browserEval(browser.page, (args) => { return document.body.innerText.split(String.fromCharCode(10)).find(line=>line.startsWith('Preview failed:')); });
     assert.equal(collectionError,undefined,'Changing the starting collection must render the authored dataframe: '+collectionError);
     recordRender('clear-collection-under-group-related-summary',clearStart);
-    const visible=await browserEval(browser.page,`const scroll=document.querySelector('[data-testid="preview-table-scroll"]');
-      const rows=new Map();
-      for(let page=0;page<25;page++){
-        for(const row of scroll.querySelectorAll('[role="row"]')){
-          const cells=[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText.trim());
-          if(cells.length) rows.set(cells[0],cells);
-        }
-        if(rows.size===25) break;
-        const next=Math.min(scroll.scrollTop+Math.max(1,scroll.clientHeight/2),scroll.scrollHeight-scroll.clientHeight);
-        if(next===scroll.scrollTop) break;
-        scroll.scrollTop=next;
-        await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
-      }
-      scroll.scrollTop=0;
-      return [...rows.values()];`);
+    const scroll=browser.page.locator('[data-testid="preview-table-scroll"]');
+    const visibleRows=new Map();
+    for(let pageNumber=0;pageNumber<25;pageNumber++){
+      const pageRows=await scroll.locator('[role="row"]').evaluateAll(rows=>rows.slice(1).map(row=>[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText.trim())).filter(row=>row.length));
+      for(const row of pageRows) visibleRows.set(row[0],row);
+      if(visibleRows.size===25) break;
+      const position=await scroll.evaluate(element=>({top:element.scrollTop,height:element.clientHeight,max:element.scrollHeight-element.clientHeight}));
+      if(position.top>=position.max) break;
+      await scroll.hover();
+      await browser.page.mouse.wheel(0,Math.max(1,position.height/2));
+      await browser.page.waitForFunction(previous=>document.querySelector('[data-testid="preview-table-scroll"]')?.scrollTop>previous,position.top,{timeout:1000});
+    }
+    for(let pageNumber=0;pageNumber<25;pageNumber++){
+      const position=await scroll.evaluate(element=>({top:element.scrollTop,height:element.clientHeight}));
+      if(position.top===0) break;
+      await scroll.hover();
+      await browser.page.mouse.wheel(0,-Math.max(1,position.height/2));
+      await browser.page.waitForFunction(previous=>document.querySelector('[data-testid="preview-table-scroll"]')?.scrollTop<previous,position.top,{timeout:1000});
+    }
+    const visible=[...visibleRows.values()];
     assert.equal(visible.length,25,'Independent source checks must cover every virtualized preview row');
     assert(visible.every(row=>row.length===3&&row[0]!=='—'),'This oracle requires rendered Patient groups');
     const patientIDs=visible.map(row=>row[0]);
@@ -826,7 +831,7 @@ try {
     const attachStart=Date.now();
     await click(browser.page,'section[aria-label="Starting collection"] button',{name:'Use selected resources'});
     await rendered(withField);
-    await waitForBrowser(browser.page,`[...document.querySelectorAll('section[aria-label="Starting collection"] button')].some(button=>button.innerText==='Use all authorized rows'&&!button.disabled)`);
+    await waitForBrowser(browser.page, (args) => { return Boolean(([...document.querySelectorAll('section[aria-label="Starting collection"] button')].some(button=>button.innerText==='Use all authorized rows'&&!button.disabled))); });
     recordRender('reattach-collection-under-group-related-summary',attachStart);
     builder=await api(base+'/builder');
     assert.deepEqual(doc(builder).population,doc(beforeCollection).population);
@@ -843,12 +848,12 @@ try {
     const editGroup=async()=>{
       await click(browser.page,`[data-testid="construction-history-step-${groupStep.id}"]`);
       await click(browser.page,`[data-testid="construction-edit-step-${groupStep.id}"]`);
-      await waitForBrowser(browser.page,`document.querySelector('input[aria-label="Group by Patient FHIR resource ID"]:not(:disabled)')`);
-      assert(await browserEval(browser.page,`return document.querySelector('input[aria-label="Group by Patient FHIR resource ID"]').checked;`));
+      await waitForBrowser(browser.page, (args) => { return Boolean((document.querySelector('input[aria-label="Group by Patient FHIR resource ID"]:not(:disabled)'))); });
+      assert(await browserEval(browser.page, (args) => { return document.querySelector('input[aria-label="Group by Patient FHIR resource ID"]').checked; }));
       start=Date.now();
       await click(browser.page,'input[aria-label="Group by Patient FHIR resource ID"]');
       await proposal('upstream-group-key-removal-retains-summary',start,editedWithField);
-      assert.equal(await browserEval(browser.page,`return document.querySelectorAll('[data-testid^="construction-removal-step-"]').length;`),0,'Removing a visible key must retain a summary anchored to contributing records');
+      assert.equal(await browserEval(browser.page, (args) => { return document.querySelectorAll('[data-testid^="construction-removal-step-"]').length; }),0,'Removing a visible key must retain a summary anchored to contributing records');
     };
     await editGroup();
     await click(browser.page,'[data-testid="construction-cancel-proposal"]');
@@ -870,7 +875,7 @@ try {
   if(addedStep){
     await click(browser.page,`[data-testid="construction-history-step-${addedStep.id}"]`);
     await click(browser.page,`[data-testid="construction-edit-step-${addedStep.id}"]`);
-    await waitForBrowser(browser.page,`document.querySelector('[data-testid="related-source-step-editor"] input[aria-label="Output column label"]:not(:disabled)')`);
+    await waitForBrowser(browser.page, (args) => { return Boolean((document.querySelector('[data-testid="related-source-step-editor"] input[aria-label="Output column label"]:not(:disabled)'))); });
     const columnID=addedStep.operation.relatedSource.outputColumnId;
     const originalLabel=addedStep.outputs.find(column=>column.id===columnID).label;
     start=Date.now();
@@ -881,10 +886,10 @@ try {
     assert.deepEqual((await api(base+'/builder')).workspace,builder.workspace,'Cancel edit must preserve the saved summary');
     await click(browser.page,`[data-testid="construction-history-step-${addedStep.id}"]`);
     await click(browser.page,`[data-testid="construction-edit-step-${addedStep.id}"]`);
-    await waitForBrowser(browser.page,`document.querySelector('[data-testid="related-source-step-editor"] input[aria-label="Output column label"]:not(:disabled)')`);
+    await waitForBrowser(browser.page, (args) => { return Boolean((document.querySelector('[data-testid="related-source-step-editor"] input[aria-label="Output column label"]:not(:disabled)'))); });
     start=Date.now();
     await fill(browser.page, '[data-testid="related-source-step-editor"] input[aria-label="Output column label"]', `${originalLabel} QA`);
-    const editedLabel=await browserEval(browser.page,`return document.querySelector('[data-testid="related-source-step-editor"] input[aria-label="Output column label"]').value;`);
+    const editedLabel=await browserEval(browser.page, (args) => { return document.querySelector('[data-testid="related-source-step-editor"] input[aria-label="Output column label"]').value; });
     assert.notEqual(editedLabel,originalLabel);
     assert.equal(editedLabel.replace(' QA',''),originalLabel,'Native typing must preserve the original label around the inserted text');
     await proposal('confirmed-edit-related-summary-label-preview',start,withField);
@@ -918,7 +923,7 @@ try {
   }
   if (browser) await browser.captureFailure(error, { action: browser.activeAction ?? browser.lastAction, explorer, phase: 'CDA grouped related summary lifecycle', draftVersion: builder?.draftVersion, draftDigest: builder?.draftDigest });
   report.savedBuilderAtFailure=await api(base+'/builder').catch(error=>({readError:String(error)}));
-  report.failureUI = browser ? await browserEval(browser.page, 'return document.body.innerText;').catch(String) : undefined;
+  report.failureUI = browser ? await browserEval(browser.page, () => { return document.body.innerText; }).catch(String) : undefined;
 } finally {
   if(apiBuildCheckStarted&&frozenApiBuild){
     try { report.apiBuildFreeze={...report.apiBuildFreeze,...await frozenApiBuild.assertUnchanged()}; }

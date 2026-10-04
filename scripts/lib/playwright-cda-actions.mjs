@@ -56,18 +56,22 @@ export async function navigate(page, url) {
   const body = page.locator('body');
   browser.lastAction = { label: 'Navigate to Builder page', locator: body.toString(), targetLocator: body, startedAt: Date.now() };
   await performAction(browser, 'Navigate to Builder page', body,
-    async () => { await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 }); });
+    async () => { await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 5000 }); });
 }
 
-export async function browserEval(page, body) {
-  return page.evaluate(source => new Function(`return (async () => { ${source}\n })()`)(), body);
+export async function browserEval(page, inspect, args) {
+  assert.equal(typeof inspect, 'function', 'Browser inspection must be a callback');
+  return page.evaluate(inspect, args);
 }
 
-export async function waitForBrowser(page, expression, timeout = 30000) {
-  await page.waitForFunction(source => new Function(`return Boolean((${source}))`)(), expression, { timeout });
+export async function waitForBrowser(page, predicate, timeoutOrArgs = 5000, args) {
+  assert.equal(typeof predicate, 'function', 'Browser waits must use a callback');
+  const timeout = Array.isArray(timeoutOrArgs) ? 5000 : timeoutOrArgs;
+  const waitArgs = Array.isArray(timeoutOrArgs) ? timeoutOrArgs : args;
+  await page.waitForFunction(predicate, waitArgs, { timeout });
 }
 
-export async function selectOption(page, selector, value, { settledWhen, dismissSelector } = {}) {
+export async function selectOption(page, selector, value, { dismissSelector } = {}) {
   const browser = browserForPage.get(page);
   browser.activeAction = { label: `Select ${value}`, locator: selector, startedAt: Date.now() };
   const select = await targetFor(page, selector);
@@ -77,8 +81,9 @@ export async function selectOption(page, selector, value, { settledWhen, dismiss
   browser.lastAction = { label: `Select ${value}`, locator: select.toString(), targetLocator: select, startedAt: Date.now() };
   await performAction(browser, `Select ${value}`, select,
     (locator, { timeout }) => locator.selectOption(value, { timeout }));
-  await waitForBrowser(page,
-    settledWhen ?? `document.querySelector(${JSON.stringify(selector)})?.value === ${JSON.stringify(value)}`);
+  await page.waitForFunction(({ selector: targetSelector, expectedValue }) =>
+    document.querySelector(targetSelector)?.value === expectedValue,
+  { selector, expectedValue: value }, { timeout: 5000 });
   if (dismissSelector) await click(page, dismissSelector);
 }
 

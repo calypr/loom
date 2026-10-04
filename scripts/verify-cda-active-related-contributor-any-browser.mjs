@@ -402,9 +402,8 @@ const assertUniqueTerminalRows = (rows, name) => {
     `${name}: a repeated primitive occurrence duplicated its terminal Observation record`);
 };
 
-const displayedRows = async () => browserEval(browser.page,
-  `return [...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]')].slice(1)
-    .map(row=>[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText.trim())).filter(row=>row.length);`);
+const displayedRows = async () => browserEval(browser.page, (args) => { return [...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]')].slice(1)
+    .map(row=>[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText.trim())).filter(row=>row.length); });
 
 const revealControl = async (selector, includes) => {
   const locator = browser.page.locator(selector);
@@ -437,21 +436,18 @@ const recordAction = (name, startedAt, details = {}) => {
 };
 
 const rendered = async (expectedRows, name) => {
-  await waitForBrowser(browser.page,
-    `document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount') === ${JSON.stringify(String(Math.min(25, expectedRows.length) + 1))} && !document.body.innerText.includes('Loading your table…')`);
+  await waitForBrowser(browser.page, (args) => { return Boolean((document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount') === args[0] && !document.body.innerText.includes('Loading your table…'))); }, [String(Math.min(25, expectedRows.length) + 1)]);
   const rows = await displayedRows();
   assertRows(rows, expectedRows, name);
   return rows;
 };
 
 const proposal = async (name, startedAt, expectedRows) => {
-  await waitForBrowser(browser.page,
-    `['ready','error','needs-repair'].includes(document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalStatus)`);
-  const result = await browserEval(browser.page,
-    `const panel=document.querySelector('[data-testid="construction-proposal-panel"]');return {
+  await waitForBrowser(browser.page, (args) => { return Boolean((['ready','error','needs-repair'].includes(document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalStatus))); });
+  const result = await browserEval(browser.page, (args) => { const panel=document.querySelector('[data-testid="construction-proposal-panel"]');return {
       status:panel?.dataset.proposalStatus,text:panel?.innerText,
       rows:[...document.querySelectorAll('[data-testid="construction-proposal-preview-row"]')]
-        .map(row=>[...row.querySelectorAll('td')].map(cell=>cell.innerText.trim()))};`);
+        .map(row=>[...row.querySelectorAll('td')].map(cell=>cell.innerText.trim()))}; });
   assert.equal(result.status, 'ready', `${name}: ${result.text}`);
   assertRows(result.rows, expectedRows, name);
   const durationMs = Date.now() - startedAt;
@@ -463,9 +459,9 @@ const proposal = async (name, startedAt, expectedRows) => {
 const open = async (expectedRows, name) => {
   const startedAt = Date.now();
   await navigate(browser.page, pageURL);
-  await waitForBrowser(browser.page, `document.querySelector('[data-testid="construction-table-${outputId}"]')`);
+  await waitForBrowser(browser.page, (args) => { return Boolean((document.querySelector('[data-testid="construction-table-' + args[0] + '"]'))); }, [outputId]);
   await click(browser.page, `[data-testid="construction-table-${outputId}"]`);
-  await waitForBrowser(browser.page, `document.querySelector('[data-testid="construction-rows-settings-trigger"]')?.disabled === false`);
+  await waitForBrowser(browser.page, (args) => { return Boolean((document.querySelector('[data-testid="construction-rows-settings-trigger"]')?.disabled === false)); });
   const rows = await rendered(expectedRows, name);
   recordAction(name, startedAt, { rowCount: rows.length });
 };
@@ -473,15 +469,14 @@ const open = async (expectedRows, name) => {
 const startRelatedExpand = async ({ targetResourceType, route, activeAnchorLabel } = {}) => {
   const startedAt = Date.now();
   await click(browser.page, '[data-testid="construction-rows-settings-trigger"]');
-  await waitForBrowser(browser.page, `document.querySelector('[data-testid="construction-action-related-rows"]')?.disabled === false`);
+  await waitForBrowser(browser.page, (args) => { return Boolean((document.querySelector('[data-testid="construction-action-related-rows"]')?.disabled === false)); });
   await click(browser.page, '[data-testid="construction-action-related-rows"]');
   const panel = '[data-testid="construction-related-expand-editor"]';
-  await waitForBrowser(browser.page, `document.querySelector('${panel} select[aria-label="Related record type"]')?.disabled === false`);
+  await waitForBrowser(browser.page, (args) => { return Boolean((document.querySelector('' + args[0] + ' select[aria-label="Related record type"]')?.disabled === false)); }, [panel]);
   if (activeAnchorLabel) {
     const anchorSelector = `${panel} select[aria-label="Start from"]`;
-    await waitForBrowser(browser.page, `document.querySelector(${JSON.stringify(anchorSelector)})`);
-    const options = await browserEval(browser.page,
-      `return [...document.querySelector(${JSON.stringify(anchorSelector)}).options].map(option=>({value:option.value,label:option.textContent.trim()}));`);
+    await waitForBrowser(browser.page, (args) => { return Boolean((document.querySelector(args[0]))); }, [anchorSelector]);
+    const options = await browserEval(browser.page, (args) => { return [...document.querySelector(args[0]).options].map(option=>({value:option.value,label:option.textContent.trim()})); }, [anchorSelector]);
     const anchor = options.find((option) => option.label === activeAnchorLabel);
     assert(anchor, `The current stage did not offer the expected active anchor ${activeAnchorLabel}: ${JSON.stringify(options)}`);
     await selectOption(browser.page, anchorSelector, anchor.value);
@@ -491,9 +486,9 @@ const startRelatedExpand = async ({ targetResourceType, route, activeAnchorLabel
     report.activeRelatedAnchor = { label: anchor.label, columnId: anchor.value };
   }
   await selectOption(browser.page, `${panel} select[aria-label="Related record type"]`, targetResourceType);
-  await waitForBrowser(browser.page, `document.querySelector(${JSON.stringify(`${panel} input[aria-label="${route}"]`)})`);
+  await waitForBrowser(browser.page, (args) => { return Boolean((document.querySelector(args[0]))); }, [`${panel} input[aria-label="${route}"]`]);
   await click(browser.page, `${panel} input[aria-label="${route}"]`);
-  await waitForBrowser(browser.page, `document.querySelector('${panel} [data-testid="construction-related-expand-contributor-options"]')`);
+  await waitForBrowser(browser.page, (args) => { return Boolean((document.querySelector('' + args[0] + ' [data-testid="construction-related-expand-contributor-options"]'))); }, [panel]);
   recordAction(activeAnchorLabel ? 'open-active-related-expand-editor' : 'open-root-related-expand-editor', startedAt,
     { targetResourceType, route, activeAnchorLabel });
   return panel;
@@ -517,29 +512,26 @@ const chooseRepeatedContributorCondition = async (panel, oracle, actionName, con
   const options = `${panel} [data-testid="construction-related-expand-contributors"]`;
   await selectOption(browser.page, `${panel} select[aria-label="If a current row has no matches"]`, 'PRESERVE_PARENT');
   const disclosure = `${panel} [data-testid="construction-related-expand-contributor-options"]`;
-  await waitForBrowser(browser.page, `document.querySelector(${JSON.stringify(disclosure+' summary')})`);
-  const disclosureState = await browserEval(browser.page,
-    `return document.querySelector(${JSON.stringify(disclosure)})?.open ?? false;`);
+  await waitForBrowser(browser.page, (args) => { return Boolean((document.querySelector(args[0]))); }, [disclosure+' summary']);
+  const disclosureState = await browserEval(browser.page, (args) => { return document.querySelector(args[0])?.open ?? false; }, [disclosure]);
   if (!disclosureState) {
     await revealControl(`${disclosure} summary`);
     await click(browser.page, `${disclosure} summary`);
-    await waitForBrowser(browser.page, `document.querySelector(${JSON.stringify(disclosure)})?.open === true`);
+    await waitForBrowser(browser.page, (args) => { return Boolean((document.querySelector(args[0])?.open === true)); }, [disclosure]);
   }
   const onlyRecords = `${options} label`;
   await revealControl(onlyRecords, 'Only records meeting a condition');
   await click(browser.page, onlyRecords, { includes: 'Only records meeting a condition' });
-  await waitForBrowser(browser.page, `document.querySelector('${options} input[placeholder="Search field name or path"]')`);
+  await waitForBrowser(browser.page, (args) => { return Boolean((document.querySelector('' + args[0] + ' input[placeholder="Search field name or path"]'))); }, [options]);
   const search = `${options} input[placeholder="Search field name or path"]`;
   await revealControl(search);
   const searchStartedAt = Date.now();
   await fill(browser.page, search, nestedCodePath);
-  await waitForBrowser(browser.page,
-    `[...document.querySelectorAll('${options} [role="group"][aria-label="Fields for related-record condition"] button')]
-      .some(button=>button.innerText.replace(/\\s+/g,' ').includes(${JSON.stringify(nestedCodePath)}))`);
+  await waitForBrowser(browser.page, (args) => { return Boolean(([...document.querySelectorAll('' + args[0] + ' [role="group"][aria-label="Fields for related-record condition"] button')]
+      .some(button=>button.innerText.replace(/\\s+/g,' ').includes(args[1])))); }, [options, nestedCodePath]);
   const choiceResponse = await waitForContributorSearch(searchStartedAt);
-  const visibleChoices = await browserEval(browser.page,
-    `return [...document.querySelectorAll('${options} [role="group"][aria-label="Fields for related-record condition"] button')]
-      .map(button=>({text:button.innerText.trim(),pressed:button.getAttribute('aria-pressed')}));`);
+  const visibleChoices = await browserEval(browser.page, (args) => { return [...document.querySelectorAll('' + args[0] + ' [role="group"][aria-label="Fields for related-record condition"] button')]
+      .map(button=>({text:button.innerText.trim(),pressed:button.getAttribute('aria-pressed')})); }, [options]);
   const rawObservations = oracle.witnesses.flatMap((item) => item.observations);
   const choice = choiceResponse.choices.find((candidate) => candidate.source.path === nestedCodePath
     && candidate.source.resourceType === 'Observation'
@@ -631,33 +623,29 @@ const chooseRepeatedContributorCondition = async (panel, oracle, actionName, con
   const fieldIdentity = `${choice.source.path} · ${choice.source.logicalType}`;
   await revealControl(contributorFieldButtons, fieldIdentity);
   await click(browser.page, contributorFieldButtons, { includes: fieldIdentity });
-  await waitForBrowser(browser.page, `document.querySelector('${options} select')?.value === 'EXISTS'`);
+  await waitForBrowser(browser.page, (args) => { return Boolean((document.querySelector('' + args[0] + ' select')?.value === 'EXISTS')); }, [options]);
   await revealControl(`${options} select`);
   if (condition === 'EQUALS') await selectOption(browser.page, `${options} select`, 'EQUALS');
-  const helpText = await browserEval(browser.page,
-    `return document.querySelector('${options} [role="note"]')?.innerText ?? '';`);
+  const helpText = await browserEval(browser.page, (args) => { return document.querySelector('' + args[0] + ' [role="note"]')?.innerText ?? ''; }, [options]);
   assert(helpText.includes('any value')
     && (condition === 'EXISTS' || (choice.source.logicalType === 'code'
       ? helpText.includes('code alone') : helpText.includes('exact value below'))),
     `Repeated code condition did not explain its ANY/code-only match: ${helpText}`);
   const valueLabel = choice.source.logicalType === 'code' ? 'Code' : 'Exact value';
   if (condition === 'EQUALS') {
-    await waitForBrowser(browser.page,
-      `Boolean([...document.querySelectorAll('${options} label')].find(label=>label.innerText.trim().startsWith(${JSON.stringify(valueLabel)}))?.querySelector('input'))`);
+    await waitForBrowser(browser.page, (args) => { return Boolean((Boolean([...document.querySelectorAll('' + args[0] + ' label')].find(label=>label.innerText.trim().startsWith(args[1]))?.querySelector('input')))); }, [options, valueLabel]);
     await revealControl(`${options} label`, valueLabel);
     const suggestions = `${options} [aria-label="Catalog value suggestions"] button`;
-    await waitForBrowser(browser.page, `Boolean([...document.querySelectorAll(${JSON.stringify(suggestions)})]
-      .find(button=>button.innerText.trim()===${JSON.stringify(targetValue)}))`);
+    await waitForBrowser(browser.page, (args) => { return Boolean((Boolean([...document.querySelectorAll(args[0])]
+      .find(button=>button.innerText.trim()===args[1])))); }, [suggestions, targetValue]);
     await revealControl(suggestions, targetValue);
     await click(browser.page, suggestions, { name: targetValue });
-    await waitForBrowser(browser.page,
-      `([...document.querySelectorAll('${options} label')].find(label=>label.innerText.trim().startsWith(${JSON.stringify(valueLabel)}))?.querySelector('input')?.value === ${JSON.stringify(targetValue)})`);
+    await waitForBrowser(browser.page, (args) => { return Boolean((([...document.querySelectorAll('' + args[0] + ' label')].find(label=>label.innerText.trim().startsWith(args[1]))?.querySelector('input')?.value === args[2]))); }, [options, valueLabel, targetValue]);
   }
-  const selected = await browserEval(browser.page,
-    `const label=[...document.querySelectorAll('${options} label')].find(item=>item.innerText.trim().startsWith(${JSON.stringify(valueLabel)}));
-      return {condition:document.querySelector('${options} select')?.value,
-        field:document.querySelector('${options} [aria-pressed="true"]')?.innerText.trim(),
-        value:label?.querySelector('input')?.value};`);
+  const selected = await browserEval(browser.page, (args) => { const label=[...document.querySelectorAll('' + args[0] + ' label')].find(item=>item.innerText.trim().startsWith(args[1]));
+      return {condition:document.querySelector('' + args[2] + ' select')?.value,
+        field:document.querySelector('' + args[3] + ' [aria-pressed="true"]')?.innerText.trim(),
+        value:label?.querySelector('input')?.value}; }, [options, valueLabel, options, options]);
   assert.equal(selected.condition, condition);
   assert(selected.field?.includes(nestedCodePath) && selected.field?.includes(choice.source.logicalType), JSON.stringify(selected));
   if (condition === 'EQUALS') assert.equal(selected.value, targetValue);
@@ -676,7 +664,7 @@ const beginEdit = async (stepId) => {
   await click(browser.page, `[data-testid="construction-history-step-${stepId}"]`);
   await click(browser.page, `[data-testid="construction-edit-step-${stepId}"]`);
   const policy = '[data-testid="construction-related-expand-editor"] select[aria-label="If a current row has no matches"]';
-  await waitForBrowser(browser.page, `document.querySelector(${JSON.stringify(policy+':not(:disabled)')})`);
+  await waitForBrowser(browser.page, (args) => { return Boolean((document.querySelector(args[0]))); }, [policy+':not(:disabled)']);
   await revealControl(policy);
   recordAction('edit-saved-step-to-policy-control', startedAt);
 };
@@ -684,7 +672,7 @@ const beginEdit = async (stepId) => {
 const applyProposal = async (expectedRows, name) => {
   const startedAt = Date.now();
   await click(browser.page, '[data-testid="construction-apply-proposal"]');
-  await waitForBrowser(browser.page, `!document.querySelector('[data-testid="construction-proposal-panel"]')`);
+  await waitForBrowser(browser.page, (args) => { return Boolean((!document.querySelector('[data-testid="construction-proposal-panel"]'))); });
   await rendered(expectedRows, name);
   recordAction(name, startedAt, { rowCount: expectedRows.length });
   builder = await api(base + '/builder');
@@ -880,7 +868,7 @@ try {
   const beforeExistsCancel = await api(base + '/builder');
   startedAt = Date.now();
   await click(browser.page, '[data-testid="construction-cancel-proposal"]');
-  await waitForBrowser(browser.page, `!document.querySelector('[data-testid="construction-proposal-panel"]')`);
+  await waitForBrowser(browser.page, (args) => { return Boolean((!document.querySelector('[data-testid="construction-proposal-panel"]'))); });
   await rendered(patientRows, 'cancel-repeated-nested-code-exists-preview');
   recordAction('cancel-repeated-nested-code-exists-preview', startedAt, { rowCount: patientRows.length });
   builder = await api(base + '/builder');
@@ -904,7 +892,7 @@ try {
   const beforeCancel = await api(base + '/builder');
   startedAt = Date.now();
   await click(browser.page, '[data-testid="construction-cancel-proposal"]');
-  await waitForBrowser(browser.page, `!document.querySelector('[data-testid="construction-proposal-panel"]')`);
+  await waitForBrowser(browser.page, (args) => { return Boolean((!document.querySelector('[data-testid="construction-proposal-panel"]'))); });
   await rendered(patientRows, 'cancel-contributor-preview');
   recordAction('cancel-contributor-preview', startedAt, { rowCount: patientRows.length });
   builder = await api(base + '/builder');
@@ -969,7 +957,7 @@ try {
     'reload after initial Contributor category[].coding[].code Apply');
   await beginEdit(relatedStep.id);
   const policySelector = '[data-testid="construction-related-expand-editor"] select[aria-label="If a current row has no matches"]';
-  assert.equal(await browserEval(browser.page, `return document.querySelector(${JSON.stringify(policySelector)})?.value;`), 'PRESERVE_PARENT');
+  assert.equal(await browserEval(browser.page, (args) => { return document.querySelector(args[0])?.value; }, [policySelector]), 'PRESERVE_PARENT');
   startedAt = Date.now();
   await selectOption(browser.page, policySelector, 'EXCLUDE');
   await proposal('edit-policy-exclude-preview', startedAt, excludedRows);
@@ -998,7 +986,7 @@ try {
   await remove();
   startedAt = Date.now();
   await click(browser.page, '[data-testid="construction-cancel-proposal"]');
-  await waitForBrowser(browser.page, `!document.querySelector('[data-testid="construction-proposal-panel"]')`);
+  await waitForBrowser(browser.page, (args) => { return Boolean((!document.querySelector('[data-testid="construction-proposal-panel"]'))); });
   await rendered(excludedRows, 'cancel-remove-to-render');
   recordAction('cancel-remove-to-render', startedAt, { rowCount: excludedRows.length });
   builder = await api(base + '/builder');
@@ -1036,8 +1024,7 @@ try {
     report.unverifiedReason = error.message;
   }
   if (browser) await browser.captureFailure(error, { action: browser.activeAction ?? browser.lastAction, explorer, phase: 'CDA active-related Contributor lifecycle', draftVersion: builder?.draftVersion, draftDigest: builder?.draftDigest });
-  report.failureUI = browser ? await browserEval(browser.page,
-    `const body=document.body.innerText;return {
+  report.failureUI = browser ? await browserEval(browser.page, (args) => { const body=document.body.innerText;return {
       body:body.slice(0,6000),bodyTail:body.slice(-12000),
       alerts:[...document.querySelectorAll('[role="alert"]')].map(item=>item.innerText),
       selects:[...document.querySelectorAll('select')].map(select=>({
@@ -1047,7 +1034,7 @@ try {
       relatedRoutes:[...document.querySelectorAll('input[name^="related-expand-route-"]')].map(input=>({
         label:input.getAttribute('aria-label'),checked:input.checked,disabled:input.disabled,
         visible:!input.closest('details:not([open])')
-      }))};`).catch(String) : undefined;
+      }))}; }).catch(String) : undefined;
   if (report.status === 'failed') process.exitCode = 1;
 } finally {
   const sourceFreezeFinishedAt = new Date().toISOString();
