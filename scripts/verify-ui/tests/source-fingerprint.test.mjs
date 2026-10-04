@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { sourceFingerprint, sourceFingerprintChangedPaths, sourceFingerprintWithManifest } from '../source-fingerprint.mjs';
@@ -20,6 +20,31 @@ test('fingerprint changes when watched source changes', () => {
       { path: 'go.mod', change: 'modified' },
     ]);
     assert.deepEqual(sourceFingerprint(root), after.fingerprint, 'the legacy aggregate fingerprint shape remains unchanged');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('fingerprint includes verifier source and fixture inputs but excludes installed dependencies', () => {
+  const root = mkdtempSync(join(tmpdir(), 'loom-verifier-fingerprint-'));
+  try {
+    mkdirSync(join(root, 'scripts', 'node_modules'), { recursive: true });
+    mkdirSync(join(root, 'testdata', 'devloop-fixture'), { recursive: true });
+    writeFileSync(join(root, 'scripts', 'verify.mjs'), 'original verifier');
+    writeFileSync(join(root, 'scripts', 'node_modules', 'dependency.mjs'), 'original dependency');
+    writeFileSync(join(root, 'testdata', 'devloop-fixture', 'Patient.ndjson'), '{"id":"one"}\n');
+    const before = sourceFingerprintWithManifest(root);
+    writeFileSync(join(root, 'scripts', 'verify.mjs'), 'changed verifier');
+    const changedVerifier = sourceFingerprintWithManifest(root);
+    assert.notEqual(changedVerifier.fingerprint.sha256, before.fingerprint.sha256);
+    assert.deepEqual(sourceFingerprintChangedPaths(before.manifest, changedVerifier.manifest), [
+      { path: 'scripts/verify.mjs', change: 'modified' },
+    ]);
+    writeFileSync(join(root, 'testdata', 'devloop-fixture', 'Patient.ndjson'), '{"id":"two"}\n');
+    const changedFixture = sourceFingerprintWithManifest(root);
+    assert.notEqual(changedFixture.fingerprint.sha256, changedVerifier.fingerprint.sha256);
+    writeFileSync(join(root, 'scripts', 'node_modules', 'dependency.mjs'), 'changed dependency');
+    assert.deepEqual(sourceFingerprintWithManifest(root).fingerprint, changedFixture.fingerprint);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
