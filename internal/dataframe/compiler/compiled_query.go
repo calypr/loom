@@ -13,6 +13,9 @@ type PreviewCoveringIndexSpec struct {
 	Collection string
 	Name       string
 	Fields     []string
+	// Supersedes identifies the exact legacy category index that may be
+	// replaced if the collection has reached its bounded preview-index cap.
+	Supersedes *PreviewCoveringIndexReplacement
 	// PrepareAfterPreview keeps Group index creation out of the query's critical
 	// path. The query uses a non-forcing hint and remains valid without it.
 	PrepareAfterPreview bool
@@ -20,6 +23,13 @@ type PreviewCoveringIndexSpec struct {
 	// pivotGroupKeyPaths enables the Pivot-only two-scan renderer. Other
 	// preview covering indexes use a single hinted root scan.
 	pivotGroupKeyPaths [][]string
+}
+
+// PreviewCoveringIndexReplacement is an exact compiler-owned index identity
+// eligible for replacement by a more useful index on the same category path.
+type PreviewCoveringIndexReplacement struct {
+	Name   string
+	Fields []string
 }
 
 // PreviewGroupScanSpec contains compiler-rendered alternatives for a narrow

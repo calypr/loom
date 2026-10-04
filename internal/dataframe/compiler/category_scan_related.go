@@ -178,9 +178,16 @@ func relatedCategoryScanShape(
 	shape.value = *valueStage.RelatedField
 	collection := categoryStage.RelatedField.TargetResourceType
 	path := strings.Join(categoryStage.RelatedField.Path, ".")
-	fields := []string{"project", "dataset_generation", path, "auth_resource_path"}
+	fields := []string{"project", "dataset_generation", "resourceType", path, "auth_resource_path"}
+	legacyFields := []string{"project", "dataset_generation", path, "auth_resource_path"}
 	shape.index = &PreviewCoveringIndexSpec{
-		Collection: collection, Name: previewCoveringIndexName(collection, fields), Fields: fields,
+		Collection: collection,
+		Name:       previewCoveringIndexName(collection, fields),
+		Fields:     fields,
+		Supersedes: &PreviewCoveringIndexReplacement{
+			Name:   previewCoveringIndexName(collection, legacyFields),
+			Fields: legacyFields,
+		},
 	}
 	return shape, true
 }

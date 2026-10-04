@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/recipe"
@@ -56,8 +57,12 @@ func TestCompileCategoryScanReversesExactRelatedRouteWithScopeAndStageWitnesses(
 			t.Errorf("related-category query is missing stage or candidate marker %q:\n%s", marker, query)
 		}
 	}
-	if scanned.CategoryIndex == nil || scanned.CategoryIndex.Collection != "Observation" || !reflect.DeepEqual(scanned.CategoryIndex.Fields, []string{"project", "dataset_generation", "payload.valueQuantity.code", "auth_resource_path"}) {
-		t.Fatalf("related category index = %+v, want the four-field Observation code index", scanned.CategoryIndex)
+	if scanned.CategoryIndex == nil || scanned.CategoryIndex.Collection != "Observation" || !reflect.DeepEqual(scanned.CategoryIndex.Fields, []string{"project", "dataset_generation", "resourceType", "payload.valueQuantity.code", "auth_resource_path"}) {
+		t.Fatalf("related category index = %+v, want the five-field Observation code index", scanned.CategoryIndex)
+	}
+	legacyFields := []string{"project", "dataset_generation", "payload.valueQuantity.code", "auth_resource_path"}
+	if scanned.CategoryIndex.Supersedes == nil || scanned.CategoryIndex.Supersedes.Name != previewCoveringIndexName("Observation", legacyFields) || !reflect.DeepEqual(scanned.CategoryIndex.Supersedes.Fields, legacyFields) {
+		t.Fatalf("related category index supersession = %+v, want only its deterministic four-field legacy index", scanned.CategoryIndex.Supersedes)
 	}
 	if !containsCollectionBindValue(scanned.BindVars, "Observation") {
 		t.Fatalf("reverse scan is not rooted at terminal Observation candidates: %#v", scanned.BindVars)
@@ -173,11 +178,14 @@ func TestRelatedCategoryScanMatchesPreservedRowsAndCapsAfterEmptyWitnessAgainstA
 		o := insertResource(project, "Observation", id, map[string]any{"valueQuantity": quantity})
 		insertEdge(project, id+"-patient", "Observation", o, "Patient", p1)
 	}
+	duplicate := insertResource(project, "Observation", "o-duplicate", map[string]any{"valueQuantity": map[string]any{"code": "native-string"}})
+	insertEdge(project, "o-duplicate-patient", "Observation", duplicate, "Patient", p1)
+	insertResource(project, "Observation", "o-orphan", map[string]any{"valueQuantity": map[string]any{"code": "orphan-terminal"}})
 
 	_, full, scanned := compileRelatedCategoryRuntimeScans(t, relatedCategoryScanOutput(relatedCategoryScanOptions{}), project, generation, MaxCategoryScanValues)
 	fullRows := executeReshapeOracleQuery(t, ctx, client, full)
-	if len(fullRows) != 5 {
-		t.Fatalf("native related rows = %d, want three Observation rows plus two per-boundary preserved NULL rows: %#v", len(fullRows), fullRows)
+	if len(fullRows) != 6 {
+		t.Fatalf("native related rows = %d, want four linked Observation rows plus two per-boundary preserved NULL rows: %#v", len(fullRows), fullRows)
 	}
 	var sawSecondStageEmpty, sawFirstStageEmpty bool
 	for _, row := range fullRows {
@@ -205,8 +213,14 @@ func TestRelatedCategoryScanMatchesPreservedRowsAndCapsAfterEmptyWitnessAgainstA
 		}
 		got[relatedCategoryValueKey(present, row[scanned.ValueColumn])] = struct{}{}
 	}
+	if len(actualRows) != len(got) {
+		t.Fatalf("optimized category scan returned duplicate category rows: rows=%#v distinct=%v", actualRows, got)
+	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("optimized categories = %v, native distinct categories = %v; query:\n%s", got, want, scanned.Query)
+	}
+	if _, found := got[relatedCategoryValueKey(true, "orphan-terminal")]; found {
+		t.Fatalf("orphan terminal leaked into related categories: %v", got)
 	}
 	if _, ok := want[relatedCategoryValueKey(true, nil)]; !ok {
 		t.Fatalf("native recipe did not expose its expected preserved/explicit NULL category: %v", want)
@@ -274,15 +288,148 @@ func TestRelatedCategoryScanMatchesPreservedRowsAndCapsAfterEmptyWitnessAgainstA
 	}
 }
 
+func TestRelatedCategoryScanMatchesRestrictedRootEdgeAndTargetScopeAgainstArango(t *testing.T) {
+	ctx, client := openConstructionReshapeArango(t)
+	if err := client.Bootstrap(ctx, store.BootstrapSpec{Collections: []store.CollectionSpec{
+		{Name: "Specimen"}, {Name: "Patient"}, {Name: "Observation"}, {Name: "fhir_edge", Edge: true},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	project := "loom_related_category_auth_" + strings.ReplaceAll(uuid.NewString(), "-", "")
+	generation := "generation-related-category-auth"
+	defer func() {
+		for _, collection := range []string{"Specimen", "Patient", "Observation", "fhir_edge"} {
+			query := fmt.Sprintf("FOR document IN %s FILTER document.project == @project REMOVE document IN %s", collection, collection)
+			if err := client.ExecuteAQL(ctx, query, map[string]any{"project": project}); err != nil {
+				t.Errorf("remove restricted related-category fixture from %s: %v", collection, err)
+			}
+		}
+	}()
+
+	insertResource := func(resourceType, id, authPath string, payload map[string]any) string {
+		t.Helper()
+		key := strings.ReplaceAll(project, "-", "") + "_" + id
+		if payload == nil {
+			payload = map[string]any{}
+		}
+		payload["id"], payload["resourceType"] = id, resourceType
+		encoded, err := json.Marshal(map[string]any{
+			"_key": key, "id": id, "project": project, "project_id": project,
+			"dataset_generation": generation, "resourceType": resourceType,
+			"auth_resource_path": authPath,
+			"payload":            payload,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := client.InsertBatchRaw(ctx, resourceType, []json.RawMessage{encoded}, false, "document"); err != nil {
+			t.Fatalf("insert scoped related-category %s %s: %v", resourceType, id, err)
+		}
+		return key
+	}
+	insertEdge := func(id, fromType, fromKey, toType, toKey, authPath string) {
+		t.Helper()
+		key := strings.ReplaceAll(project, "-", "") + "_edge_" + id
+		encoded, err := json.Marshal(map[string]any{
+			"_key": key, "_from": fromType + "/" + fromKey, "_to": toType + "/" + toKey,
+			"project": project, "project_id": project, "dataset_generation": generation,
+			"label": "subject_Patient", "from_type": fromType, "to_type": toType,
+			"auth_resource_path": authPath,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := client.InsertBatchRaw(ctx, "fhir_edge", []json.RawMessage{encoded}, false, "document"); err != nil {
+			t.Fatalf("insert scoped related-category edge %s: %v", id, err)
+		}
+	}
+	const allowed, blocked = "/allowed", "/blocked"
+	allowedSpecimen := insertResource("Specimen", "allowed-root", allowed, nil)
+	blockedSpecimen := insertResource("Specimen", "blocked-root", blocked, nil)
+	allowedPatient := insertResource("Patient", "allowed-patient", allowed, nil)
+	blockedPatient := insertResource("Patient", "blocked-patient", blocked, nil)
+	firstEdgeBlockedPatient := insertResource("Patient", "first-edge-patient", allowed, nil)
+	rootOnlyPatient := insertResource("Patient", "root-only-patient", allowed, nil)
+	insertEdge("allowed-root-patient", "Specimen", allowedSpecimen, "Patient", allowedPatient, allowed)
+	insertEdge("first-edge-blocked", "Specimen", allowedSpecimen, "Patient", firstEdgeBlockedPatient, blocked)
+	insertEdge("patient-target-blocked", "Specimen", allowedSpecimen, "Patient", blockedPatient, allowed)
+	insertEdge("blocked-root-patient", "Specimen", blockedSpecimen, "Patient", rootOnlyPatient, allowed)
+
+	addObservation := func(id, patientKey, code, edgePath, targetPath string) {
+		t.Helper()
+		observation := insertResource("Observation", id, targetPath, map[string]any{"valueQuantity": map[string]any{"code": code}})
+		insertEdge(id+"-patient", "Observation", observation, "Patient", patientKey, edgePath)
+	}
+	addObservation("included", allowedPatient, "included", allowed, allowed)
+	addObservation("first-edge-denied", firstEdgeBlockedPatient, "first-edge-denied", allowed, allowed)
+	addObservation("patient-denied", blockedPatient, "patient-denied", allowed, allowed)
+	addObservation("root-denied", rootOnlyPatient, "root-denied", allowed, allowed)
+	addObservation("second-edge-denied", allowedPatient, "second-edge-denied", blocked, allowed)
+	addObservation("terminal-denied", allowedPatient, "terminal-denied", allowed, blocked)
+	insertResource("Observation", "orphan", allowed, map[string]any{"valueQuantity": map[string]any{"code": "orphan"}})
+	// The orphan is intentionally not connected to any Patient by subject_Patient.
+
+	bindings := recipe.RuntimeBindings{
+		Project: project, SelectionProject: project, DatasetGeneration: generation,
+		AuthScopeMode: authscope.ReadScopeRestricted, AuthResourcePaths: []string{allowed},
+	}
+	_, full, scanned := compileRelatedCategoryRuntimeScansWithBindings(t, relatedCategoryScanOutput(relatedCategoryScanOptions{}), bindings, MaxCategoryScanValues)
+	for _, path := range []string{
+		"terminal.auth_resource_path IN @auth_resource_paths",
+		"reverse_edge_0.auth_resource_path IN @auth_resource_paths",
+		"reverse_edge_1.auth_resource_path IN @auth_resource_paths",
+		"reverse_document_0.auth_resource_path IN @auth_resource_paths",
+		"reverse_document_1.auth_resource_path IN @auth_resource_paths",
+	} {
+		if !strings.Contains(scanned.Query, path) {
+			t.Errorf("related-category query omitted scoped route component %q:\n%s", path, scanned.Query)
+		}
+	}
+	want := map[string]struct{}{}
+	fullRows := executeReshapeOracleQuery(t, ctx, client, full)
+	for _, row := range fullRows {
+		value, present := row["category"]
+		want[relatedCategoryValueKey(present, value)] = struct{}{}
+	}
+	actualRows := executeReshapeOracleQuery(t, ctx, client, CompiledQuery{Query: scanned.Query, BindVars: scanned.BindVars})
+	got := map[string]struct{}{}
+	for _, row := range actualRows {
+		present, ok := row[scanned.PresentColumn].(bool)
+		if !ok {
+			t.Fatalf("restricted category presence = %#v, want bool", row[scanned.PresentColumn])
+		}
+		got[relatedCategoryValueKey(present, row[scanned.ValueColumn])] = struct{}{}
+	}
+	if len(actualRows) != len(got) {
+		t.Fatalf("restricted optimized scan returned duplicate category rows: rows=%#v distinct=%v", actualRows, got)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("restricted optimized categories = %v, native categories = %v", got, want)
+	}
+	for _, denied := range []string{"first-edge-denied", "patient-denied", "root-denied", "second-edge-denied", "terminal-denied", "orphan"} {
+		if _, found := got[relatedCategoryValueKey(true, denied)]; found {
+			t.Errorf("restricted category scan exposed %q", denied)
+		}
+	}
+	if _, found := got[relatedCategoryValueKey(true, "included")]; !found {
+		t.Fatalf("restricted category scan omitted the fully scoped route: %v", got)
+	}
+}
+
 func compileRelatedCategoryRuntimeScans(t *testing.T, definition recipe.Output, project, generation string, maxValues int) (lower.CompiledRecipeOutput, CompiledQuery, CompiledCategoryScanQuery) {
 	t.Helper()
 	bindings := recipe.RuntimeBindings{Project: project, DatasetGeneration: generation}
+	return compileRelatedCategoryRuntimeScansWithBindings(t, definition, bindings, maxValues)
+}
+
+func compileRelatedCategoryRuntimeScansWithBindings(t *testing.T, definition recipe.Output, bindings recipe.RuntimeBindings, maxValues int) (lower.CompiledRecipeOutput, CompiledQuery, CompiledCategoryScanQuery) {
+	t.Helper()
 	bundle := recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: definition.Name, TranslationVersion: "related-category-test", Outputs: []recipe.Output{definition}}
 	plan, err := semantic.BuildRecipePlan(bundle, bindings)
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolved, err := semantic.ResolveRecipePlan(plan, project, generation)
+	resolved, err := semantic.ResolveRecipePlan(plan, bindings.Project, bindings.DatasetGeneration)
 	if err != nil {
 		t.Fatal(err)
 	}

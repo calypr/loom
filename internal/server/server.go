@@ -244,7 +244,12 @@ func run(ctx context.Context, serverConfig Config) error {
 		Revisions:     recipeRevisions,
 		ResolveBundle: recipeSchemaResolver(catalogStore.DiscoverFields, discoveryCache),
 		PreparePreviewIndex: func(ctx context.Context, spec compiler.PreviewCoveringIndexSpec) error {
-			err := lifecycleClient.EnsurePreviewCoveringIndex(ctx, spec.Collection, spec.Name, spec.Fields)
+			var err error
+			if spec.Supersedes != nil {
+				err = lifecycleClient.EnsurePreviewCoveringIndexReplacing(ctx, spec.Collection, spec.Name, spec.Fields, spec.Supersedes.Name, spec.Supersedes.Fields)
+			} else {
+				err = lifecycleClient.EnsurePreviewCoveringIndex(ctx, spec.Collection, spec.Name, spec.Fields)
+			}
 			if err != nil {
 				logger.Warn("preview covering index unavailable", "collection", spec.Collection, "error", err)
 			}
