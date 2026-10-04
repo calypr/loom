@@ -3,21 +3,37 @@ import { randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { sourceFingerprint } from './verify-ui/source-fingerprint.mjs';
-import { browserEval, click, launchBrowser, navigate, selectOption, waitForBrowser } from './lib/browser.mjs';
+import { launchBrowser, sanitizeText } from './lib/playwright-browser.mjs';
+import { performAction, requireUnique } from './lib/playwright-actions.mjs';
+import { captureCDARequests } from './lib/cda-playwright-requests.mjs';
+import { assertOwnedCdaTarget } from './lib/owned-cda-target.mjs';
+import { waitForCondition } from './lib/playwright-observations.mjs';
+import { captureSourceFreeze } from './lib/source-freeze.mjs';
+import { captureApiBuildFreeze, checkContainerApiBuildStamp } from './lib/api-build-freeze.mjs';
 
-const apiOrigin = process.env.LOOM_CDA_API_ORIGIN ?? 'http://127.0.0.1:8188';
-const uiOrigin = process.env.LOOM_CDA_UI_ORIGIN ?? 'http://127.0.0.1:30008';
+const apiOrigin = process.env.LOOM_CDA_API_ORIGIN;
+const uiOrigin = process.env.LOOM_CDA_UI_ORIGIN;
 const partialLongRoute=process.env.LOOM_COLLECTION_PARTIAL_LONG_ROUTE==='1';
 const longRoute=process.env.LOOM_COLLECTION_LONG_ROUTE==='1'||partialLongRoute;
-const project = 'loom_dev_cda_fhir';
+const project = process.env.LOOM_CDA_PROJECT;
+const apiContainer = process.env.LOOM_CDA_API_CONTAINER;
+const arangoContainer = process.env.LOOM_ARANGO_CONTAINER;
+const composeProject = process.env.LOOM_CDA_COMPOSE_PROJECT;
 const evidence = process.argv[2] ?? `/tmp/loom-collection-repair-${Date.now()}`;
 const explorer = `collection-repair-${Date.now()}`;
+const sourceRoot = process.env.LOOM_SOURCE_FREEZE_ROOT ?? fileURLToPath(new URL('..', import.meta.url));
+await assertOwnedCdaTarget({ project, apiOrigin, uiOrigin, apiContainer, composeProject, sourceRoot, arangoContainer });
 const root = `/api/v1/projects/${project}/explorers`;
 const base = `${root}/${explorer}/authoring/v2`;
 const selections = base.replace('/authoring/v2','/selections');
-const report = { longRoute, partialLongRoute, explorer, cases: [], requests: [], exceptions: [], http: [], incidental: [], responses: [], responseCaptureErrors: [], started: new Date().toISOString() };
-report.sourceBefore = sourceFingerprint(process.cwd());
+const report = { longRoute, partialLongRoute, explorer, cases: [], requests: [], browserRequests: [], errors: [], exceptions: [], http: [], incidental: [], responses: [], responseCaptureErrors: [], started: new Date().toISOString() };
+const sourceFreeze = await captureSourceFreeze(sourceRoot);
+const frozenApiBuild = await captureApiBuildFreeze(() => checkContainerApiBuildStamp(apiContainer));
+report.sourceFreeze = { root: sourceRoot, watchedFileCount: sourceFreeze.watchedFileCount };
+report.sourceBefore = sourceFingerprint(sourceRoot);
+report.apiBuildFreeze = { container: apiContainer, initial: frozenApiBuild.initial };
 await mkdir(evidence, { recursive: true });
 const recordCase = result => {
   report.cases.push(result);
@@ -36,15 +52,44 @@ const api = async (path, body) => {
 };
 let builder;
 let browser;
+let actionTracker = {};
 let outputId;
 let expectedObservationIDs=[];
-const pendingResponses = new Set();
+const inspectPage = (page, inspect, argument) => page.evaluate(inspect, argument);
+const waitForBrowser = (page, condition, timeout = 30000) => waitForCondition(page, condition, timeout);
+const resolveActionLocator = async (page, selector, identity = {}) => {
+  const candidates = page.locator(selector);
+  if (identity.name === undefined) return requireUnique(candidates, selector);
+  const matches = await candidates.evaluateAll((nodes, name) => nodes.flatMap((node, index) =>
+    String(node.getAttribute('aria-label') || node.innerText || node.textContent || '').replace(/\s+/g, ' ').trim() === name ? [index] : []), identity.name);
+  assert.equal(matches.length, 1, `${selector}: expected one target named ${identity.name}, found ${matches.length}`);
+  return requireUnique(candidates.nth(matches[0]), `${selector} ${identity.name}`);
+};
+const click = async (page, selector, identity = {}, timeout = 5000) => {
+  const label = `Click ${identity.name ?? selector}`;
+  actionTracker.activeAction = { label, locator: selector, targetLocator: page.locator(selector), startedAt: Date.now() };
+  const locator = await resolveActionLocator(page, selector, identity);
+  actionTracker.activeAction.targetLocator = locator;
+  const elapsedMs = await performAction(actionTracker, label, locator, (target, options) => target.click(options), { timeout });
+  actionTracker.lastAction = { label, locator: locator.toString(), targetLocator: locator, elapsedMs };
+  return elapsedMs;
+};
+const selectOption = async (page, selector, value, timeout = 5000) => {
+  const label = `Select ${value} in ${selector}`;
+  actionTracker.activeAction = { label, locator: selector, targetLocator: page.locator(selector), startedAt: Date.now() };
+  const locator = await resolveActionLocator(page, selector);
+  actionTracker.activeAction.targetLocator = locator;
+  const elapsedMs = await performAction(actionTracker, label, locator, (target, options) => target.selectOption(value, options), { timeout });
+  actionTracker.lastAction = { label, locator: locator.toString(), targetLocator: locator, elapsedMs };
+  return elapsedMs;
+};
+const navigate = (page, url) => page.goto(url, { waitUntil: 'load', timeout: 30000 });
 const command = async commands => {
   await api(base + '/commands', { commandId: randomUUID(), semanticsVersion: builder.workspace?.semanticsVersion ?? 10, snapshotToken: builder.catalog.snapshotToken, expectedDraftVersion: builder.draftVersion, expectedDraftDigest: builder.draftDigest, commands });
   builder = await api(base + '/builder');
 };
 const rawQuery = query => {
-  const result = spawnSync('rtk', ['proxy', 'docker', 'exec', 'loom-dev-6d7df93d6a37-arangodb-1', 'arangosh', '--server.database', 'loom_dev', '--javascript.execute-string', `print(JSON.stringify(db._query(${JSON.stringify(query)}).toArray()));`], { encoding: 'utf8', timeout: 30000 });
+  const result = spawnSync('rtk', ['proxy', 'docker', 'exec', arangoContainer, 'arangosh', '--server.database', 'loom_dev', '--javascript.execute-string', `print(JSON.stringify(db._query(${JSON.stringify(query)}).toArray()));`], { encoding: 'utf8', timeout: 30000 });
   assert.equal(result.status, 0, result.stderr || result.stdout);
   return JSON.parse(result.stdout.slice(result.stdout.indexOf('[')));
 };
@@ -58,33 +103,78 @@ const assertPreviewIDs = async name => {
   if(!partialLongRoute)return;
   const started=Date.now();
   const expectedCount=expectedObservationIDs.length;
-  await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount')===${JSON.stringify(String(expectedCount+1))} && document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-colcount')==='1' && !document.body.innerText.includes('Loading your table…') && !document.body.innerText.includes('Preview failed:')`, 10000);
-  const rendered=await browserEval(browser.cdp, `const preview=document.querySelector('[data-testid="preview-table-scroll"]');const table=preview?.querySelector('[role="table"]');if(!preview||!table)throw new Error('Native preview table disappeared');const totalRows=Math.max(0,Number(table.getAttribute('aria-rowcount'))-1);const rowsByIndex=new Map();for(let page=0;page<100&&rowsByIndex.size<totalRows;page++){for(const row of table.querySelectorAll('[role="row"]')){const rawIndex=Number(row.getAttribute('aria-rowindex'));const labelIndex=Number(row.querySelector('button[aria-label^="Inspect row "]')?.getAttribute('aria-label')?.match(/^Inspect row (\\d+) identity$/)?.[1]);const gutterIndex=Number(row.firstElementChild?.textContent?.trim());const index=Number.isInteger(rawIndex)&&rawIndex>0?rawIndex:Number.isInteger(labelIndex)&&labelIndex>0?labelIndex+1:Number.isInteger(gutterIndex)&&gutterIndex>0?gutterIndex+1:NaN;if(!Number.isInteger(index)||index<=1)continue;const cells=[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText.trim());if(cells.length)rowsByIndex.set(index,cells);}if(rowsByIndex.size>=totalRows)break;const maxTop=Math.max(0,preview.scrollHeight-preview.clientHeight);const nextTop=Math.min(preview.scrollTop+Math.max(1,preview.clientHeight/2),maxTop);if(nextTop===preview.scrollTop)break;preview.scrollTop=nextTop;await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));}const rows=[...rowsByIndex.entries()].sort((a,b)=>a[0]-b[0]).map(([,cells])=>cells);preview.scrollTop=0;await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));return {rowCount:table.getAttribute('aria-rowcount'),columnCount:table.getAttribute('aria-colcount'),rows};`);
+  await browser.page.waitForFunction(({ expectedCount }) => {
+    const table = document.querySelector('[data-testid="preview-table-scroll"] [role="table"]');
+    return table?.getAttribute('aria-rowcount') === String(expectedCount + 1)
+      && table.getAttribute('aria-colcount') === '1'
+      && !document.body.innerText.includes('Loading your table…')
+      && !document.body.innerText.includes('Preview failed:');
+  }, { expectedCount }, { timeout: 10000 });
+  const preview = browser.page.locator('[data-testid="preview-table-scroll"]');
+  const table = preview.locator('[role="table"]');
+  const rowsByIndex = new Map();
+  const collectVisibleRows = async () => {
+    const rows = await table.locator('[role="row"]').evaluateAll(nodes => nodes.map(row => {
+      const rawIndex = Number(row.getAttribute('aria-rowindex'));
+      const labelIndex = Number(row.querySelector('button[aria-label^="Inspect row "]')?.getAttribute('aria-label')?.match(/^Inspect row (\d+) identity$/)?.[1]);
+      const gutterIndex = Number(row.firstElementChild?.textContent?.trim());
+      const index = Number.isInteger(rawIndex) && rawIndex > 0 ? rawIndex
+        : Number.isInteger(labelIndex) && labelIndex > 0 ? labelIndex + 1
+          : Number.isInteger(gutterIndex) && gutterIndex > 0 ? gutterIndex + 1 : NaN;
+      return { index, cells: [...row.querySelectorAll('[role="cell"]')].map(cell => cell.innerText.trim()) };
+    }));
+    for (const row of rows) if (Number.isInteger(row.index) && row.index > 1 && row.cells.length) rowsByIndex.set(row.index, row.cells);
+  };
+  for (let pageDown = 0; pageDown < expectedCount && rowsByIndex.size < expectedCount; pageDown++) {
+    await collectVisibleRows();
+    if (rowsByIndex.size >= expectedCount) break;
+    const box = await preview.boundingBox();
+    assert(box, `${name}: preview scroll container is not visible`);
+    await browser.page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    const beforeTop = await preview.evaluate(node => node.scrollTop);
+    await browser.page.mouse.wheel(0, Math.max(240, Math.floor(box.height * 0.8)));
+    await browser.page.waitForFunction(({ beforeTop }) => {
+      const node = document.querySelector('[data-testid="preview-table-scroll"]');
+      return node && (node.scrollTop > beforeTop || node.scrollTop + node.clientHeight >= node.scrollHeight);
+    }, { beforeTop }, { timeout: 1000 });
+  }
+  await collectVisibleRows();
+  const rendered = {
+    rowCount: await table.getAttribute('aria-rowcount'),
+    columnCount: await table.getAttribute('aria-colcount'),
+    rows: [...rowsByIndex.entries()].sort(([left], [right]) => left - right).map(([, cells]) => cells),
+  };
   assert.equal(Number(rendered.rowCount)-1,expectedCount,`${name}: preview row count must match the scoped raw route oracle`);
   assert.deepEqual(rendered.rows.map(row=>row[0]).sort(),[...expectedObservationIDs].sort(),`${name}: rendered Observation IDs and multiplicity must match the scoped edge oracle`);
   recordCase({name,durationMs:Date.now()-started,rowCount:expectedCount,observationIDs:rendered.rows.map(row=>row[0])});
 };
 const open = async () => {
   const loadStart=Date.now();
-  await Promise.all([...pendingResponses]);
-  await navigate(browser.cdp, `${uiOrigin}/?project=${project}&explorer=${explorer}&mode=builder`);
-  await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-table-${outputId}"]')`);
-  await click(browser.cdp, `[data-testid="construction-table-${outputId}"]`);
-  await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-rows-settings-trigger"]')?.disabled === false`);
+  await navigate(browser.page, `${uiOrigin}/?project=${project}&explorer=${explorer}&mode=builder`);
+  await waitForBrowser(browser.page, { kind: 'present', selector: `[data-testid="construction-table-${outputId}"]` });
+  await click(browser.page, `[data-testid="construction-table-${outputId}"]`);
+  await waitForBrowser(browser.page, { kind: 'enabled', selector: '[data-testid="construction-rows-settings-trigger"]' });
   if(partialLongRoute)await assertPreviewIDs('partial-long-route-preview');
   else {
-    await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount')==='1' && document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-colcount')==='1' && !document.body.innerText.includes('Loading your table…')`);
-    assert.equal(await browserEval(browser.cdp, `return document.querySelectorAll('[data-testid="preview-table-scroll"] [role="cell"]').length;`),0,'The independently unmapped selection must produce no table rows');
+    await browser.page.waitForFunction(() => {
+      const table = document.querySelector('[data-testid="preview-table-scroll"] [role="table"]');
+      return table?.getAttribute('aria-rowcount') === '1' && table.getAttribute('aria-colcount') === '1'
+        && !document.body.innerText.includes('Loading your table…');
+    });
+    assert.equal(await browser.page.locator('[data-testid="preview-table-scroll"] [role="cell"]').count(),0,'The independently unmapped selection must produce no table rows');
   }
-  await click(browser.cdp, '[data-testid="construction-rows-settings-trigger"]');
-  await waitForBrowser(browser.cdp, `document.querySelector('section[aria-label="Starting collection"]')`);
+  await click(browser.page, '[data-testid="construction-rows-settings-trigger"]');
+  await waitForBrowser(browser.page, { kind: 'present', selector: 'section[aria-label="Starting collection"]' });
   const durationMs=Date.now()-loadStart;assert(durationMs<=5000,'The native table and settings must render within five seconds');recordCase({name:partialLongRoute?'partial-long-route-table-load-to-settings':'empty-table-load-to-settings',durationMs});
 };
 const checkCoverage = async (name, counts) => {
   const start = Date.now();
-  await click(browser.cdp, 'section[aria-label="Starting collection"] button', {name:'Check selected-resource coverage'});
-  await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="population-coverage-report"]') || document.querySelector('section[aria-label="Starting collection"] [role="alert"]')`);
-  const text = await browserEval(browser.cdp, `return document.querySelector('[data-testid="population-coverage-report"]')?.innerText;`);
+  await click(browser.page, 'section[aria-label="Starting collection"] button', {name:'Check selected-resource coverage'});
+  await waitForBrowser(browser.page, { kind: 'any', conditions: [
+    { kind: 'present', selector: '[data-testid="population-coverage-report"]' },
+    { kind: 'present', selector: 'section[aria-label="Starting collection"] [role="alert"]' },
+  ] });
+  const text = await inspectPage(browser.page, () => document.querySelector('[data-testid="population-coverage-report"]')?.innerText);
   assert((text ?? '').includes(counts), `Coverage must match independent CDA records: ${text}`);
   assert(Date.now()-start <= 5000, 'Coverage must render within five seconds');
   recordCase({name,durationMs:Date.now()-start,text});
@@ -142,36 +232,49 @@ try {
   await command([{type:'SET_TABLE_POPULATION',outputId,selectionRevisionId:selection.id,routeChoiceId:parent.routeChoiceId}]);
   const original = builder.workspace.documents[0];
   if(partialLongRoute)assert.deepEqual(original.population.route,report.savedConnection,'The saved route must match the exact catalog route before collection repair');
-  browser = await launchBrowser(evidence);
-  const responseInfo = new Map();
-  browser.cdp.on('Runtime.exceptionThrown', e => report.exceptions.push(e.exceptionDetails));
-  browser.cdp.on('Runtime.consoleAPICalled', e => { if (e.type === 'error') report.exceptions.push(e.args); });
-  browser.cdp.on('Network.loadingFailed', e => { if (e.type === 'Script' && e.errorText !== 'net::ERR_ABORTED') report.exceptions.push(e); });
-  browser.cdp.on('Network.responseReceived', ({ requestId, response }) => {
-    if (response.status >= 400) (response.url.endsWith('/favicon.ico') ? report.incidental : report.http).push({ url: response.url, status: response.status });
-    if (response.url.includes('/authoring/v2/')) responseInfo.set(requestId, { path: new URL(response.url).pathname, status: response.status });
+  browser = await launchBrowser({ evidence, appOrigins: [apiOrigin, uiOrigin], noAuth: process.env.LOOM_CDA_NO_AUTH === '1' });
+  const requestMonitor = captureCDARequests(browser.page, {
+    apiOrigin: uiOrigin,
+    appOrigins: [apiOrigin, uiOrigin],
+    ownedPathPrefix: `${root}/${explorer}`,
+    responsePaths: /./,
+    report: { nativeRequests: report.browserRequests, errors: report.errors },
+    shouldReportRequestFailure: (entry, request) => {
+      const index = report.browserRequests.indexOf(entry);
+      const replacement = report.browserRequests.slice(index + 1).find(candidate =>
+        candidate.path === entry.path && candidate.method === entry.method);
+      return request.failure()?.errorText === 'net::ERR_ABORTED'
+        && entry.path.endsWith('/construction-proposals') && replacement
+        ? { expected: true, reason: `A later owned proposal request (${replacement.requestId}) superseded the prior request.` } : true;
+    },
   });
-  browser.cdp.on('Network.loadingFinished', ({ requestId }) => {
-    const info = responseInfo.get(requestId);
-    if (info) {
-      const pending = browser.cdp.send('Network.getResponseBody', { requestId }).then(r => report.responses.push({ ...info, body: JSON.parse(r.body) })).catch(e => report.responseCaptureErrors.push({ ...info, error: String(e) }));
-      pendingResponses.add(pending);
-      void pending.finally(() => pendingResponses.delete(pending));
-    }
+  browser.page.on('response', response => {
+    if (response.status() < 400) return;
+    const url = new URL(response.url());
+    if (![new URL(apiOrigin).origin, new URL(uiOrigin).origin].includes(url.origin)) return;
+    const incident = { path: url.pathname, status: response.status() };
+    if (url.pathname.endsWith('/favicon.ico')) report.incidental.push(incident);
+    else report.http.push(incident);
+  });
+  browser.page.on('requestfailed', request => {
+    const url = new URL(request.url());
+    if (![new URL(apiOrigin).origin, new URL(uiOrigin).origin].includes(url.origin)) return;
+    if (request.resourceType() === 'script') report.errors.push({ kind: 'module', path: url.pathname, error: sanitizeText(request.failure()?.errorText) });
   });
   await open();
   await checkCoverage(partialLongRoute?'partial-mapped-unmapped-coverage':'unmapped-parent-coverage',partialLongRoute?'2 selected · 1 produce rows · 1 needs attention':'1 selected · 0 produce rows · 1 needs attention');
   if(partialLongRoute){
-    const coverageText=await browserEval(browser.cdp,`return document.querySelector('[data-testid="population-coverage-report"]')?.innerText??'';`);
+    const coverageText=await inspectPage(browser.page, () => document.querySelector('[data-testid="population-coverage-report"]')?.innerText ?? '');
     assert(coverageText.includes(report.oracle.unmapped.id),`Coverage must identify the independently unmapped Specimen ${report.oracle.unmapped.id}: ${coverageText}`);
   }
-  await waitForBrowser(browser.cdp, `[...document.querySelectorAll('[data-testid="population-coverage-report"] button')].some(b=>b.innerText==='Remove from collection'&&!b.disabled)`, 5000);
+  const remove = browser.page.getByRole('button', { name: 'Remove from collection', exact: true });
+  await remove.waitFor({ state: 'visible', timeout: 5000 });
+  assert.equal(await remove.count(), 1, 'The saved parent connection must expose one removal control');
+  assert.equal(await remove.isEnabled(), true, 'The saved parent connection must make an unmapped record removable');
   const before = builder.draftDigest;
-  const remove = await browserEval(browser.cdp, `return [...document.querySelectorAll('[data-testid="population-coverage-report"] button')].map(b=>({label:b.innerText,disabled:b.disabled}));`);
-  assert(remove.some(b=>b.label==='Remove from collection'&&!b.disabled), 'The saved parent connection must make an unmapped record removable');
   const start = Date.now();
-  await click(browser.cdp, '[data-testid="population-coverage-report"] button', {name:'Remove from collection'});
-  await waitForBrowser(browser.cdp, `document.querySelector('section[aria-label="Starting collection"]')?.dataset.attachedSelectionRevisionId !== ${JSON.stringify(selection.id)}`);
+  await click(browser.page, '[data-testid="population-coverage-report"] button', {name:'Remove from collection'});
+  await browser.page.waitForFunction(selectionId => document.querySelector('section[aria-label="Starting collection"]')?.dataset.attachedSelectionRevisionId !== selectionId, selection.id, { timeout: 5000 });
   builder = await api(base+'/builder');
   const revised = builder.workspace.documents[0];
   assert.notEqual(builder.draftDigest,before);
@@ -216,22 +319,24 @@ try {
   }else await checkCoverage('empty-collection-reload','0 selected · 0 produce rows · 0 needs attention');
   if(longRoute&&!partialLongRoute){
     const clearStart=Date.now();
-    await click(browser.cdp,'section[aria-label="Starting collection"] button',{name:'Use all authorized rows'});
-    await waitForBrowser(browser.cdp,`document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount')==='26' && [...document.querySelectorAll('section[aria-label="Starting collection"] button')].some(button=>button.innerText==='Use selected resources'&&!button.disabled)`);
+    await click(browser.page,'section[aria-label="Starting collection"] button',{name:'Use all authorized rows'});
+    await browser.page.waitForFunction(() => document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount')==='26'
+      && [...document.querySelectorAll('section[aria-label="Starting collection"] button')].some(button=>button.innerText==='Use selected resources'&&!button.disabled), null, { timeout: 5000 });
     const clearDuration=Date.now()-clearStart;
     assert(clearDuration<=5000,'Clearing the collection must render authorized records within five seconds');
-    const visibleIDs=await browserEval(browser.cdp,`return [...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="cell"]')].map(cell=>cell.innerText.trim());`);
+    const visibleIDs=await browser.page.locator('[data-testid="preview-table-scroll"] [role="cell"]').allInnerTexts();
     assert(visibleIDs.length>0,'Authorized table must show records after clearing its collection');
     const verifiedIDs=rawQuery(`FOR d IN Observation FILTER d.id IN ${JSON.stringify(visibleIDs)} AND d.project=="${project}" AND d.dataset_generation=="cda-fhir-v1" RETURN d.id`);
     assert.deepEqual([...new Set(visibleIDs)].sort(),verifiedIDs.sort(),'Visible rows must belong to the scoped CDA source');
     recordCase({name:'clear-long-collection-to-authorized-rows',durationMs:clearDuration,visibleIDs});
-    const options=await browserEval(browser.cdp,`return [...document.querySelector('select[aria-label="Population connection"]').options].map(option=>({value:option.value,label:option.text}));`);
+    const options=await browser.page.locator('select[aria-label="Population connection"] option').evaluateAll(nodes=>nodes.map(option=>({value:option.value,label:option.text})));
     const exact=options.find(option=>option.label.includes('via specimen_Specimen (outgoing,')&&option.label.includes('via parent (incoming,'));
     assert(exact,'The native dropdown must offer the exact previous connection: '+JSON.stringify(options));
-    await selectOption(browser.cdp,'select[aria-label="Population connection"]',exact.value);
+    await selectOption(browser.page,'select[aria-label="Population connection"]',exact.value);
     const attachStart=Date.now();
-    await click(browser.cdp,'section[aria-label="Starting collection"] button',{name:'Use selected resources'});
-    await waitForBrowser(browser.cdp,`document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount')==='1' && [...document.querySelectorAll('section[aria-label="Starting collection"] button')].some(button=>button.innerText==='Use all authorized rows'&&!button.disabled)`);
+    await click(browser.page,'section[aria-label="Starting collection"] button',{name:'Use selected resources'});
+    await browser.page.waitForFunction(() => document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount')==='1'
+      && [...document.querySelectorAll('section[aria-label="Starting collection"] button')].some(button=>button.innerText==='Use all authorized rows'&&!button.disabled), null, { timeout: 5000 });
     const attachDuration=Date.now()-attachStart;
     assert(attachDuration<=5000,'Reattaching the empty collection must render within five seconds');
     builder=await api(base+'/builder');
@@ -242,19 +347,30 @@ try {
     await open();
     await checkCoverage('reattached-long-collection-reload','0 selected · 0 produce rows · 0 needs attention');
   }
-  await Promise.all([...pendingResponses]);
+  await requestMonitor.flush();
+  report.responses = report.browserRequests.filter(entry => entry.status !== undefined).map(({ path, status, response, requestId, method }) => ({ path, status, response, requestId, method }));
+  report.exceptions = report.errors;
   assert.equal(report.http.length,0,JSON.stringify(report.http));
   assert.equal(report.exceptions.length,0,JSON.stringify(report.exceptions));
   report.status='passed';
 } catch (error) {
   report.status = 'failed';
   report.error = String(error.stack ?? error);
-  report.failureUI = browser ? await browserEval(browser.cdp, 'return document.body.innerText;').catch(()=>undefined) : undefined;
+  report.failureUI = browser ? await inspectPage(browser.page, () => document.body.innerText).catch(()=>undefined) : undefined;
+  if (browser) report.failureTrace = await browser.captureFailure(error, { phase: report.cases.length,
+    action: actionTracker.activeAction ?? actionTracker.lastAction,
+    elapsedMs: actionTracker.activeAction?.startedAt ? Date.now() - actionTracker.activeAction.startedAt : actionTracker.lastAction?.elapsedMs,
+    requestIdentity: report.browserRequests.at(-1) && (({ requestId, path, method }) => ({ requestId, path, method }))(report.browserRequests.at(-1)),
+  }).catch(String);
   process.exitCode = 1;
 } finally {
-  report.sourceAfter = sourceFingerprint(process.cwd());
+  report.sourceAfter = sourceFingerprint(sourceRoot);
   report.sourceUnchanged = JSON.stringify(report.sourceBefore) === JSON.stringify(report.sourceAfter);
   if (!report.sourceUnchanged) { report.status = 'failed'; report.error = [report.error, 'Watched source changed during verification'].filter(Boolean).join('; '); process.exitCode = 1; }
+  try { report.sourceFreeze = { ...report.sourceFreeze, ...(await sourceFreeze.assertUnchanged()) }; }
+  catch (error) { report.status = 'invalidated'; report.invalidations = [{ kind: 'source-freeze', reason: sanitizeText(error) }]; process.exitCode = 1; }
+  try { report.apiBuildFreeze = { ...report.apiBuildFreeze, ...(await frozenApiBuild.assertUnchanged()) }; }
+  catch (error) { report.status = 'invalidated'; report.invalidations = [...(report.invalidations ?? []), { kind: 'api-build', reason: sanitizeText(error) }]; process.exitCode = 1; }
   report.finished = new Date().toISOString();
   await writeFile(join(evidence, 'report.json'), JSON.stringify(report, null, 2));
   await browser?.close();
