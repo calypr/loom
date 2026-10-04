@@ -114,10 +114,30 @@ try {
     const cards = await page.locator('[data-testid^="construction-action-"][data-testid$="-rows"]').evaluateAll(buttons => buttons.map(button => {
       const kind = button.getAttribute('data-testid').replace(/^construction-action-/, '').replace(/-rows$/, '');
       const bounds = button.getBoundingClientRect();
-      return { kind, text: button.innerText, visible: bounds.width > 0 && bounds.left >= 0 && bounds.right <= innerWidth };
+      return {
+        kind, text: button.innerText, accessibleName: button.getAttribute('aria-label'), disabled: button.disabled,
+        visible: bounds.width > 0 && bounds.left >= 0 && bounds.right <= innerWidth,
+      };
     }));
-    assert.deepEqual(cards.map(card => card.kind).sort(), ['group', 'pivot', 'related', 'unpivot'], 'All four row-action controls must be rendered');
+    const expectedKinds = ['expand', 'group', 'keep', 'pivot', 'related', 'table-pivot', 'unpivot'];
+    assert.deepEqual(cards.map(card => card.kind).sort(), expectedKinds, 'All seven row/action controls must be rendered');
     assert(cards.every(card => card.visible), JSON.stringify(cards));
+    const byKind = Object.fromEntries(cards.map(card => [card.kind, card]));
+    for (const kind of ['group', 'keep', 'pivot', 'related', 'table-pivot', 'unpivot']) {
+      assert.equal(byKind[kind].disabled, false, `${kind} action should be enabled`);
+    }
+    assert.equal(byKind.expand.disabled, true, 'Expand must remain unavailable without a supported array column');
+    assert(byKind.expand.text.includes('Make one row per list value'));
+    assert(byKind.expand.text.includes('public array-valued column'), 'Disabled Expand must explain why it is unavailable');
+    assert(byKind.group.text.includes('Combine rows into groups'));
+    assert(byKind.group.text.includes('matching values in the fields you choose'));
+    assert(byKind.keep.text.includes('Filter rows'));
+    assert(byKind.keep.accessibleName?.includes('Choose which rows appear in the table output'), 'Filter rows must explain its effect');
+    assert(byKind.pivot.text.includes('Turn categories into columns'));
+    assert(byKind.pivot.text.includes('Make a column for each category'));
+    assert(byKind.table-pivot.text.includes('Choose category and value fields'));
+    assert(byKind.unpivot.text.includes('Turn columns into rows'));
+    assert(byKind.unpivot.text.includes('Other columns repeat on each new row'));
     const relatedCard = cards.find(card => card.kind === 'related');
     assert(relatedCard?.text.includes('Make a row for each related record'));
     assert(relatedCard.text.toLowerCase().includes('existing values') || relatedCard.text.toLowerCase().includes('original values'));
@@ -136,7 +156,7 @@ try {
       }));
     });
     await page.screenshot({ path: join(evidence, `${name}.png`), fullPage: true });
-    report.cases.push({ name, cards });
+    report.cases.push({ name, actionInventory: cards, cards });
   };
 
   await inspectCards('desktop-actions');
