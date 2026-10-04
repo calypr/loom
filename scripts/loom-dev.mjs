@@ -8167,21 +8167,20 @@ const verifyJ04BrowserScenario = async (target, report, entryTarget, fixture) =>
   };
   recordLimitation(report, 'j04-proposal-evidence-is-not-carried-into-typed-artifact', report.target.proposalEvidenceCrossSurfaceGap.detail);
   const network = [];
-  const pendingNetworkBodies = new Set();
   let browser;
-  let cdp;
+  let page;
+  let requests = new Map();
   let failure;
   const started = Date.now();
   const captureDOM = async (name) => {
     const path = join(evidenceDirectory, `${name}.html`);
-    await snapshot(cdp, path);
+    writeFileSync(path, await page.content(), { mode: 0o600 });
     recordEvidence(report, path);
     return path;
   };
   const captureScreenshot = async (name) => {
-    const shot = await cdp.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true });
     const path = join(evidenceDirectory, `${name}.png`);
-    writeFileSync(path, Buffer.from(shot.data, 'base64'), { mode: 0o600 });
+    await page.screenshot({ path, fullPage: true });
     recordEvidence(report, path);
     return path;
   };
@@ -8205,6 +8204,27 @@ const verifyJ04BrowserScenario = async (target, report, entryTarget, fixture) =>
     writeJSON(path, snapshotValue);
     recordEvidence(report, path);
     return state;
+  };
+  const click = (label, locator) => performAction(browser, label, locator,
+    (targetLocator, { timeout }) => targetLocator.click({ timeout }), { timeout: 5000 });
+  const clickButton = (name, scope = page) => click(`click ${name}`, scope.getByRole('button', { name, exact: true }));
+  const fill = (label, value, locator = page.getByLabel(label, { exact: true })) => performAction(browser, `fill ${label}`, locator,
+    (targetLocator, { timeout }) => targetLocator.fill(String(value), { timeout }), { timeout: 5000, editable: true });
+  const navigate = async (nextURL) => {
+    await page.goto(nextURL, { waitUntil: 'domcontentloaded', timeout: 60000 });
+    await page.waitForURL(nextURL, { waitUntil: 'domcontentloaded', timeout: 60000 });
+  };
+  const waitForOwnedResponse = async (path, method = 'POST', timeout = 60000) => {
+    const response = await page.waitForResponse((candidate) => {
+      const url = new URL(candidate.url());
+      return url.origin === new URL(target.uiUrl).origin
+        && url.pathname === `${new URL(bootstrapAuthoringURL(target, report.target.bootstrapExplorerId)).pathname}${path}`
+        && candidate.request().method() === method;
+    }, { timeout });
+    const item = requests.get(response.request());
+    if (!item) throw new Error(`J04 ${path} response had no exact owned request evidence`);
+    await item.bodyPromise;
+    return item;
   };
   const waitForColumnCount = async (explorerId, outputId, count) => {
     const startedWaiting = Date.now();
@@ -8231,129 +8251,84 @@ const verifyJ04BrowserScenario = async (target, report, entryTarget, fixture) =>
   const authorCatalogFields = async (explorerId, outputId, resourceType, fields, initialColumnCount) => {
     for (let index = 0; index < fields.length; index += 1) {
       const field = fields[index];
-      await browserEval(cdp, `setInput('Search features by field name, concept, or code', ${JSON.stringify(field.path)})`);
-      await sleep(100);
-      await waitForBrowser(cdp, `(() => {
-        const input = document.querySelector('input[aria-label="Search features by field name, concept, or code"]');
-        const submit = input?.closest('form')?.querySelector('button[type="submit"]');
-        return input?.value === ${JSON.stringify(field.path)} && Boolean(submit && !submit.disabled);
-      })()`, 60000);
-      await browserEval(cdp, `clickButton('Search')`);
-      await waitForBrowser(cdp, `Boolean(document.querySelector(${JSON.stringify(`input[aria-label="Select ${resourceType}.${field.path}"]:not(:disabled)`)}))`, 60000);
-      await browserEval(cdp, `const input = inputByLabel(${JSON.stringify(`Select ${resourceType}.${field.path}`)}); if (!input || input.disabled) throw new Error('J04 visible field choice is unavailable: ' + ${JSON.stringify(field.path)}); input.click();`);
-      await browserEval(cdp, `clickButton('Add 1 selected feature')`);
+      await fill('Search features by field name, concept, or code', field.path);
+      await clickButton('Search');
+      const choice = page.getByLabel(`Select ${resourceType}.${field.path}`, { exact: true });
+      await choice.waitFor({ state: 'visible', timeout: 60000 });
+      await performAction(browser, `select ${resourceType}.${field.path}`, choice,
+        (targetLocator, { timeout }) => targetLocator.check({ timeout }), { timeout: 5000 });
+      await clickButton('Add 1 selected feature');
       const expectedCount = initialColumnCount + index + 1;
-      let outputFormDialog = false;
-      const startedResolvingForm = Date.now();
-      while (Date.now() - startedResolvingForm < 5000) {
-        outputFormDialog = await evaluate(cdp, `Boolean(document.querySelector('[role="dialog"][aria-labelledby="catalog-selection-dialog-title"]'))`);
-        if (outputFormDialog) break;
-        const current = await fetchBuilderState(target, explorerId);
-        const currentDocument = current.workspace?.documents?.find((candidate) => candidate.output?.id === outputId);
-        if (currentDocument?.columns?.length === expectedCount) break;
-        await sleep(50);
-      }
+      const formDialog = page.getByRole('dialog', { name: 'Choose how to add these fields', exact: true });
+      const outputFormDialog = await formDialog.waitFor({ state: 'visible', timeout: 5000 }).then(() => true, () => false);
       if (outputFormDialog) {
-        await browserEval(cdp, `(() => {
-          const dialog = document.querySelector('[role="dialog"][aria-labelledby="catalog-selection-dialog-title"]');
-          const suffix = ' · ' + ${JSON.stringify(field.selection.form)};
-          const choice = [...(dialog?.querySelectorAll('input[type="radio"][aria-label]') || [])]
-            .find((input) => input.getAttribute('aria-label')?.endsWith(suffix));
-          if (!choice || choice.disabled) throw new Error('J04 output form is unavailable: ' + suffix);
-          if (!choice.checked) choice.click();
-          const confirm = [...dialog.querySelectorAll('button')].find((button) => norm(button.textContent) === 'Add 1 selected feature');
-          if (!confirm || confirm.disabled) throw new Error('J04 output-form confirmation is unavailable');
-          confirm.click();
-        })()`);
+        const form = formDialog.locator(`input[type="radio"][aria-label$=${JSON.stringify(` · ${field.selection.form}`)}]`);
+        await performAction(browser, `select output form ${field.selection.form}`, form,
+          (targetLocator, { timeout }) => targetLocator.check({ timeout }), { timeout: 5000 });
+        await clickButton('Add 1 selected feature', formDialog);
       }
       await waitForColumnCount(explorerId, outputId, expectedCount);
-      await waitForBrowser(cdp, `[...document.querySelectorAll('span')].some((element) => element.textContent?.trim() === ${JSON.stringify(`${expectedCount} configured`)})`, 60000);
+      await page.getByText(`${expectedCount} configured`, { exact: true }).waitFor({ state: 'visible', timeout: 60000 });
     }
     return fetchBuilderState(target, explorerId);
   };
-  const clickTestID = async (testId) => browserEval(cdp, `(() => {
-    const element = document.querySelector('[data-testid="' + ${JSON.stringify(testId)} + '"]');
-    if (!element || !visible(element)) throw new Error('J04 visible test selector is missing: ' + ${JSON.stringify(testId)});
-    if (element.disabled || element.getAttribute('aria-disabled') === 'true') throw new Error('J04 test selector is disabled: ' + ${JSON.stringify(testId)});
-    element.scrollIntoView({ block: 'center' });
-    element.click();
-    return ${JSON.stringify(testId)};
-  })()`);
-  const setTestInput = async (testId, value) => browserEval(cdp, `(() => {
-    const element = document.querySelector('[data-testid="' + ${JSON.stringify(testId)} + '"]');
-    if (!element || !visible(element)) throw new Error('J04 visible test input is missing: ' + ${JSON.stringify(testId)});
-    if (element.disabled) throw new Error('J04 test input is disabled: ' + ${JSON.stringify(testId)});
-    const descriptor = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(element), 'value');
-    descriptor?.set?.call(element, ${JSON.stringify(String(value))});
-    element.dispatchEvent(new Event('input', { bubbles: true }));
-    element.dispatchEvent(new Event('change', { bubbles: true }));
-    return element.value;
-  })()`);
-  const selectTestOption = async (testId, textNeedle) => browserEval(cdp, `(() => {
-    const select = document.querySelector('[data-testid="' + ${JSON.stringify(testId)} + '"]');
-    const wanted = String(${JSON.stringify(textNeedle)}).toLocaleLowerCase();
-    const option = [...(select?.options || [])].find((item) => norm(item.textContent).toLocaleLowerCase().includes(wanted));
-    if (!select || !visible(select)) throw new Error('J04 visible test select is missing: ' + ${JSON.stringify(testId)});
-    if (!option || option.disabled) throw new Error('J04 test option is unavailable: ' + ${JSON.stringify(textNeedle)} + '; choices=' + [...select.options].map((item) => norm(item.textContent)).join(' | '));
-    Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set?.call(select, option.value);
-    select.dispatchEvent(new Event('input', { bubbles: true }));
-    select.dispatchEvent(new Event('change', { bubbles: true }));
-    return { value: option.value, label: norm(option.textContent) };
-  })()`);
-  const checkTestID = async (testId, checked = true) => browserEval(cdp, `(() => {
-    const input = document.querySelector('[data-testid="' + ${JSON.stringify(testId)} + '"]');
-    if (!input || !visible(input)) throw new Error('J04 visible test checkbox is missing: ' + ${JSON.stringify(testId)});
-    if (input.disabled) throw new Error('J04 test checkbox is disabled: ' + ${JSON.stringify(testId)});
-    if (input.checked !== ${JSON.stringify(checked)}) input.click();
-    return input.checked;
-  })()`);
-  const setAccessibleSelect = async (label, value) => browserEval(cdp, `(() => {
-    const select = [...document.querySelectorAll('select[aria-label]')].find((item) => item.getAttribute('aria-label') === ${JSON.stringify(label)} && visible(item));
-    if (!select) throw new Error('J04 visible select is missing: ' + ${JSON.stringify(label)});
-    const option = [...select.options].find((item) => item.value === ${JSON.stringify(value)});
-    if (!option || option.disabled) throw new Error('J04 accessible option is unavailable: ' + ${JSON.stringify(value)} + ' for ' + ${JSON.stringify(label)});
-    Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set?.call(select, option.value);
-    select.dispatchEvent(new Event('input', { bubbles: true }));
-    select.dispatchEvent(new Event('change', { bubbles: true }));
-    return option.textContent.trim();
-  })()`);
-  const checkChoiceByLabel = async (testIdPrefix, labelNeedle) => browserEval(cdp, `(() => {
-    const needle = norm(${JSON.stringify(labelNeedle)}).toLocaleLowerCase();
-    const input = [...document.querySelectorAll('input[type="checkbox"][data-testid^="' + ${JSON.stringify(testIdPrefix)} + '"]')]
-      .find((item) => norm(item.closest('label')?.innerText).toLocaleLowerCase().includes(needle));
-    if (!input || !visible(input)) throw new Error('J04 visible choice is missing: ' + ${JSON.stringify(testIdPrefix)} + ' / ' + ${JSON.stringify(labelNeedle)});
-    if (input.disabled) throw new Error('J04 visible choice is disabled: ' + ${JSON.stringify(labelNeedle)});
-    if (!input.checked) input.click();
-    return { testId: input.dataset.testid, label: norm(input.closest('label')?.innerText) };
-  })()`);
+  const clickTestID = (testId) => click(`click ${testId}`, page.getByTestId(testId));
+  const setTestInput = (testId, value) => fill(testId, value, page.getByTestId(testId));
+  const selectTestOption = async (testId, textNeedle) => {
+    const select = page.getByTestId(testId);
+    const options = await select.locator('option').evaluateAll((items) => items.map((item) => ({ value: item.value, label: item.textContent?.trim() ?? '', disabled: item.disabled })));
+    const option = options.find((item) => item.label.toLocaleLowerCase().includes(textNeedle.toLocaleLowerCase()));
+    if (!option || option.disabled) throw new Error(`J04 test option is unavailable: ${textNeedle}; choices=${options.map((item) => item.label).join(' | ')}`);
+    await performAction(browser, `select ${testId}`, select, (targetLocator, { timeout }) => targetLocator.selectOption(option.value, { timeout }), { timeout: 5000 });
+    return { value: option.value, label: option.label };
+  };
+  const checkTestID = async (testId, checked = true) => {
+    const input = page.getByTestId(testId);
+    await performAction(browser, `${checked ? 'check' : 'uncheck'} ${testId}`, input,
+      (targetLocator, { timeout }) => checked ? targetLocator.check({ timeout }) : targetLocator.uncheck({ timeout }), { timeout: 5000 });
+    return input.isChecked();
+  };
+  const setAccessibleSelect = async (label, value) => {
+    const select = page.getByLabel(label, { exact: true });
+    const option = select.locator(`option[value=${JSON.stringify(value)}]`);
+    if (await option.count() !== 1 || await option.isDisabled()) throw new Error(`J04 accessible option is unavailable: ${value} for ${label}`);
+    await performAction(browser, `select ${label}`, select, (targetLocator, { timeout }) => targetLocator.selectOption(value, { timeout }), { timeout: 5000 });
+    return option.textContent();
+  };
+  const checkChoiceByLabel = async (testIdPrefix, labelNeedle) => {
+    const matchingLabel = page.locator('label').filter({ has: page.locator(`input[type="checkbox"][data-testid^=${JSON.stringify(testIdPrefix)}]`), hasText: labelNeedle });
+    const checkbox = matchingLabel.getByRole('checkbox');
+    await performAction(browser, `select ${labelNeedle}`, checkbox,
+      (targetLocator, { timeout }) => targetLocator.check({ timeout }), { timeout: 5000 });
+    return { testId: await checkbox.getAttribute('data-testid'), label: (await matchingLabel.innerText()).replace(/\s+/g, ' ').trim() };
+  };
 
   try {
-    browser = await launchBrowser(downloadDirectory);
-    cdp = browser.cdp;
-    cdp.on('Network.requestWillBeSent', (event) => {
-      if (!event.request.url.includes('/authoring/v2/')) return;
-      const path = new URL(event.request.url).pathname;
-      network.push({ requestId: event.requestId, path, method: event.request.method,
-        requestJSON: event.request.postData ? (() => { try { return JSON.parse(event.request.postData); } catch { return undefined; } })() : undefined });
+    browser = await launchPlaywrightEvidenceBrowser({
+      evidence: evidenceDirectory,
+      appOrigins: [target.uiUrl, target.apiUrl, entryTarget.uiUrl],
+      noAuth: true,
     });
-    cdp.on('Network.responseReceived', (event) => {
-      const item = network.find((candidate) => candidate.requestId === event.requestId);
-      if (item) {
-        item.status = event.response.status;
-        item.mimeType = event.response.mimeType;
-      }
+    page = browser.page;
+    const uiOrigin = new URL(target.uiUrl).origin;
+    const authoringPath = new URL(bootstrapAuthoringURL(target, report.target.bootstrapExplorerId)).pathname;
+    requests = new Map();
+    page.on('request', (request) => {
+      const url = new URL(request.url());
+      if (url.origin !== uiOrigin || !url.pathname.startsWith(`${authoringPath}/`)) return;
+      let requestJSON;
+      try { requestJSON = request.postDataJSON(); } catch {}
+      const item = { origin: url.origin, path: url.pathname, method: request.method(), requestId: request.headers()['x-request-id'] ?? '', requestJSON };
+      network.push(item);
+      requests.set(request, item);
     });
-    cdp.on('Network.loadingFinished', (event) => {
-      const item = network.find((candidate) => candidate.requestId === event.requestId);
-      if (!item || !/table-shape|preview/i.test(item.path) || item.responseJSON !== undefined) return;
-      const capture = (async () => {
-        try {
-          const body = await cdp.send('Network.getResponseBody', { requestId: item.requestId });
-          const raw = body.base64Encoded ? Buffer.from(body.body, 'base64').toString('utf8') : body.body;
-          item.responseJSON = JSON.parse(raw);
-        } catch (error) { item.responseBodyError = String(error); }
-      })().finally(() => pendingNetworkBodies.delete(capture));
-      pendingNetworkBodies.add(capture);
+    page.on('response', (response) => {
+      const item = requests.get(response.request());
+      if (!item) return;
+      item.status = response.status();
+      item.mimeType = response.headers()['content-type'] ?? '';
+      if (!/table-shape|preview/i.test(item.path)) return;
+      item.bodyPromise = response.json().then((value) => { item.responseJSON = value; }, (error) => { item.responseBodyError = String(error); });
     });
     const explorerId = report.target.bootstrapExplorerId;
     if (!explorerId) throw new Error('J04 fixture seed has no empty bootstrap Explorer identity');
@@ -8361,19 +8336,18 @@ const verifyJ04BrowserScenario = async (target, report, entryTarget, fixture) =>
     const before = await saveWorkspaceSnapshot('before', explorerId);
     recordAssertion(report, 'j04-fixture-starts-with-an-empty-editor-workspace', 0, before.workspace?.documents?.length ?? 0);
     const builderURL = `${target.uiUrl}/?project=${encodeURIComponent(target.fixtureProject)}&explorer=${encodeURIComponent(explorerId)}&mode=builder`;
-    await navigate(cdp, entryTarget.uiUrl);
-    await navigate(cdp, builderURL);
-    await waitForBrowser(cdp, `document.querySelector('.demo-controls span')?.textContent.trim() === ${JSON.stringify(`${target.fixtureProject} / ${explorerId}`)} && (${builderDOMReadyCondition})`, 60000);
+    await navigate(entryTarget.uiUrl);
+    await navigate(builderURL);
+    await page.waitForFunction((projectExplorer) => document.querySelector('.demo-controls span')?.textContent.trim() === projectExplorer
+      && (Boolean(document.querySelector('[data-testid="construction-workspace"]')) || Boolean(document.querySelector('#first-table-name') && document.querySelector('[aria-label="Choose row type"]'))),
+    `${target.fixtureProject} / ${explorerId}`, { timeout: 60000 });
     await captureDOM('j04-builder-before');
 
     await action('create-observation-table-in-builder', async () => {
-      await browserEval(cdp, `setInput('first-table-name', 'J04 measurements')`);
-      await waitForBrowser(cdp, `(() => {
-        const button = document.querySelector('button[aria-label="Choose Observation rows"]');
-        return Boolean(button && !button.disabled && button.getClientRects().length > 0);
-      })()`, 60000);
-      await browserEval(cdp, `clickButton('Choose Observation rows')`);
-      await waitForBrowser(cdp, `Boolean(document.querySelector('input[aria-label="Search features by field name, concept, or code"]'))`, 60000);
+      await fill('first-table-name', 'J04 measurements', page.locator('#first-table-name'));
+      await page.getByRole('button', { name: 'Choose Observation rows', exact: true }).waitFor({ state: 'visible', timeout: 60000 });
+      await clickButton('Choose Observation rows');
+      await page.getByLabel('Search features by field name, concept, or code', { exact: true }).waitFor({ state: 'visible', timeout: 60000 });
     });
 
     let state = await fetchBuilderState(target, explorerId);
@@ -8480,21 +8454,23 @@ const verifyJ04BrowserScenario = async (target, report, entryTarget, fixture) =>
         });
     }
     await action('recode-exact-category-values-through-values-controls', async () => {
-      await browserEval(cdp, `setInput('Search columns', ${JSON.stringify(recoding.sourcePath)})`);
-      await waitForBrowser(cdp, `Boolean(document.querySelector(${JSON.stringify(`input[aria-label="Display name for configured ${recodingColumn.label}"]`)}))`, 60000);
-      const summary = await browserEval(cdp, `return Boolean([...document.querySelectorAll('summary')].find((item) => visible(item) && norm(item.textContent) === 'Recode exact category values'))`);
-      if (!summary) failAtMissingDOMAction('open-exact-category-recoding', `details summary "Recode exact category values" for ${recodingColumn.label}`,
+      await fill('Search columns', recoding.sourcePath);
+      const displayName = page.getByLabel(`Display name for configured ${recodingColumn.label}`, { exact: true });
+      await displayName.waitFor({ state: 'visible', timeout: 60000 });
+      const summary = page.locator('summary').filter({ hasText: 'Recode exact category values' });
+      const summaryCount = await summary.count();
+      if (summaryCount !== 1 || !(await summary.isVisible())) failAtMissingDOMAction('open-exact-category-recoding', `details summary "Recode exact category values" for ${recodingColumn.label}`,
         'the Values section did not render the saved catalog recoding capability');
-      await browserEval(cdp, `clickText('summary', 'Recode exact category values')`);
+      await click('open exact category recoding', summary);
       const recodeMappings = Object.entries(recoding.mapping);
       for (let index = 0; index < recodeMappings.length; index += 1) {
-        await browserEval(cdp, `clickButton('Add mapping')`);
+        await clickButton('Add mapping');
         const [targetFrom, targetTo] = recodeMappings[index];
-        await browserEval(cdp, `setInput(${JSON.stringify(`Recorded category ${index + 1} for ${recodingColumn.label}`)}, ${JSON.stringify(targetFrom)})`);
-        await browserEval(cdp, `setInput(${JSON.stringify(`Replacement value ${index + 1} for ${recodingColumn.label}`)}, ${JSON.stringify(targetTo)})`);
+        await fill(`Recorded category ${index + 1} for ${recodingColumn.label}`, targetFrom);
+        await fill(`Replacement value ${index + 1} for ${recodingColumn.label}`, targetTo);
       }
       await setAccessibleSelect(`Unmapped value policy for ${recodingColumn.label}`, recoding.unknownPolicy);
-      await browserEval(cdp, `clickButton('Save recoding')`);
+      await clickButton('Save recoding');
       const startedSaving = Date.now();
       while (Date.now() - startedSaving < 30000) {
         state = await fetchBuilderState(target, explorerId);
@@ -8513,7 +8489,7 @@ const verifyJ04BrowserScenario = async (target, report, entryTarget, fixture) =>
         { mapping: savedMapping, unknownPolicy: saved?.exactCategoryRecode?.unknownPolicy })) {
         throw new Error(`J04 browser-authored recoding differs from its literal plan: ${JSON.stringify(saved)}`);
       }
-      await browserEval(cdp, `setInput('Search columns', '')`);
+      await fill('Search columns', '');
       report.target.recoding = { column: recodingColumn.column, sourcePath: recoding.sourcePath, saved: saved.exactCategoryRecode };
     });
     const presenceAndAbsencePaths = [...new Set([...scalarFields.map((item) => item.path), ...absenceFields.map((item) => item.path)])];
@@ -8526,19 +8502,14 @@ const verifyJ04BrowserScenario = async (target, report, entryTarget, fixture) =>
       return { sourceRecordId: item.sourceRecordId, fieldPath: item.fieldPath, presence: item.presence, column: column?.column, label: column?.label };
     });
     await action('preview-observation-source-scalar-presence-before-grouping', async () => {
-      const startIndex = network.length;
-      await browserEval(cdp, `clickButton('Preview')`);
-      await waitForBrowser(cdp, `Boolean(document.querySelector('[data-testid="preview-table-scroll"] [role="table"]'))`, 60000);
-      const previewDeadline = Date.now() + 30000;
-      let response;
-      while (Date.now() < previewDeadline) {
-        await Promise.allSettled([...pendingNetworkBodies]);
-        response = network.slice(startIndex).find((item) => item.path.endsWith('/preview') && item.responseJSON !== undefined);
-        if (response) break;
-        await sleep(50);
-      }
-      if (!response || response.status !== 200 || !Array.isArray(response.responseJSON?.rows)) {
-        throw new Error(`J04 pre-grouping Observation Preview was unavailable: ${JSON.stringify(network.slice(startIndex).filter((item) => item.path.endsWith('/preview')).map(({ status, responseJSON, responseBodyError }) => ({ status, responseJSON, responseBodyError }))).slice(0, 1000)}`);
+      const responsePromise = waitForOwnedResponse('/preview').then((item) => ({ item }), (error) => ({ error }));
+      await clickButton('Preview');
+      await page.getByTestId('preview-table-scroll').getByRole('table').waitFor({ state: 'visible', timeout: 60000 });
+      const responseOutcome = await responsePromise;
+      if (responseOutcome.error) throw responseOutcome.error;
+      const response = responseOutcome.item;
+      if (response.status !== 200 || !Array.isArray(response.responseJSON?.rows)) {
+        throw new Error(`J04 pre-grouping Observation Preview was unavailable: ${JSON.stringify({ status: response.status, body: response.responseJSON, error: response.responseBodyError }).slice(0, 1000)}`);
       }
       const preview = response.responseJSON;
       const columns = preview.columns ?? [];
@@ -8657,8 +8628,9 @@ const verifyJ04BrowserScenario = async (target, report, entryTarget, fixture) =>
       report.target.fixtureMissingValueCellTrace = 'NO_MATCH; exact source row is independently confirmed by its id-column VALUE trace';
       report.target.sourcePresenceEvidence = { previewReceiptId: preview.receiptId, previewOutputId, previewValues: actual, cellTraces };
       await captureDOM('j04-observation-source-preview-presence');
-      await navigate(cdp, builderURL);
-      await waitForBrowser(cdp, `document.body.innerText.includes('J04 measurements') && Boolean(document.querySelector('[data-testid="ui04-open-table-shape-settings"]'))`, 60000);
+      await navigate(builderURL);
+      await page.getByText('J04 measurements', { exact: true }).waitFor({ state: 'visible', timeout: 60000 });
+      await page.getByTestId('ui04-open-table-shape-settings').waitFor({ state: 'visible', timeout: 60000 });
     });
     report.target.recordedAbsenceColumns = absenceFields.map((field) => {
       const column = authoredObservation.columns.find((candidate) => sourcePathFor(candidate) === field.path);
@@ -8666,19 +8638,19 @@ const verifyJ04BrowserScenario = async (target, report, entryTarget, fixture) =>
     });
     const policyRegionColumns = [];
     for (const column of authoredObservation.columns) {
-      await browserEval(cdp, `setInput('Search columns', ${JSON.stringify(column.column)})`);
-      await waitForBrowser(cdp, `Boolean(document.querySelector(${JSON.stringify(`input[aria-label="Display name for configured ${column.label}"]`)}))`, 10000);
-      const regions = await evaluate(cdp, `(() => {
-        const input = document.querySelector(${JSON.stringify(`input[aria-label="Display name for configured ${column.label}"]`)});
+      await fill('Search columns', column.column);
+      const displayInput = page.getByLabel(`Display name for configured ${column.label}`, { exact: true });
+      await displayInput.waitFor({ state: 'visible', timeout: 10000 });
+      const regions = await displayInput.evaluate((input) => {
         const row = input?.closest('div.grid');
         return {
           values: row?.querySelectorAll('[data-testid="feature-policy-values"]').length ?? 0,
           timeUnits: row?.querySelectorAll('[data-testid="feature-policy-time-units"]').length ?? 0,
         };
-      })()`);
+      });
       if (regions.values === 1 && regions.timeUnits === 1) policyRegionColumns.push(column.column);
     }
-    await browserEval(cdp, `setInput('Search columns', '')`);
+    await fill('Search columns', '');
     const policyRegions = { authored: authoredObservation.columns.length, verifiedColumns: policyRegionColumns };
     recordAssertion(report, 'j04-values-and-time-unit-policy-regions-render-for-authored-observation-columns',
       authoredObservation.columns.map((column) => column.column).sort(), [...policyRegionColumns].sort());
@@ -8687,19 +8659,14 @@ const verifyJ04BrowserScenario = async (target, report, entryTarget, fixture) =>
     await captureDOM('j04-builder-pivot-and-values-authored');
 
     await action('preview-recorded-fhir-absence-before-reshape', async () => {
-      const requestStart = network.length;
-      await waitForBrowser(cdp, `Boolean([...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Preview' && !button.disabled))`, 60000);
-      await browserEval(cdp, `clickButton('Preview')`);
-      await waitForBrowser(cdp, `Boolean(document.querySelector('[data-testid="preview-table-scroll"] [role="table"]'))`, 60000);
-      let previewResponse;
-      const deadline = Date.now() + 60000;
-      while (Date.now() < deadline) {
-        await Promise.allSettled([...pendingNetworkBodies]);
-        previewResponse = network.slice(requestStart).reverse().find((item) => item.path.endsWith('/preview') && item.responseJSON?.rows);
-        if (previewResponse) break;
-        await sleep(150);
-      }
-      if (!previewResponse) throw new Error('J04 recorded-absence Preview returned no receipt-backed row response');
+      const responsePromise = waitForOwnedResponse('/preview').then((item) => ({ item }), (error) => ({ error }));
+      await clickButton('Preview');
+      const scroll = page.getByTestId('preview-table-scroll');
+      await scroll.getByRole('table').waitFor({ state: 'visible', timeout: 60000 });
+      const responseOutcome = await responsePromise;
+      if (responseOutcome.error) throw responseOutcome.error;
+      const previewResponse = responseOutcome.item;
+      if (previewResponse.status !== 200 || !Array.isArray(previewResponse.responseJSON?.rows)) throw new Error('J04 recorded-absence Preview returned no receipt-backed row response');
       const idColumn = authoredObservation.columns.find((column) => sourcePathFor(column) === 'id');
       const valueColumn = authoredObservation.columns.find((column) => sourcePathFor(column) === controlPlan.observation.recordedAbsence.valuePath);
       const codeColumn = authoredObservation.columns.find((column) => sourcePathFor(column) === controlPlan.observation.recordedAbsence.codingPath);
@@ -8718,24 +8685,19 @@ const verifyJ04BrowserScenario = async (target, report, entryTarget, fixture) =>
         absenceSystem: getCell(systemColumn),
         absenceDisplay: getCell(displayColumn),
       };
-      await browserEval(cdp, `scrollVirtualTableToRow('preview-table-scroll', ${rowIndex})`);
+      await scroll.hover();
+      await page.mouse.wheel(0, rowIndex * 44);
       const codePreviewColumnIndex = previewResponse.responseJSON.columns.findIndex((column) =>
         column.column === codeColumn.column || column.authoredColumns?.includes(codeColumn.column));
       if (codePreviewColumnIndex < 0) throw new Error('J04 recorded-absence code has no emitted Preview column');
-      await browserEval(cdp, `(() => {
-        const scroll = document.querySelector('[data-testid="preview-table-scroll"]');
-        if (!scroll) throw new Error('J04 Preview scroll viewport is unavailable');
-        scroll.scrollLeft = ${codePreviewColumnIndex} * 180;
-        scroll.dispatchEvent(new Event('scroll'));
-      })()`);
-      await waitForBrowser(cdp, `[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].some((cell) => cell.textContent.trim() === ${JSON.stringify(codeColumn.label)})`, 10000);
-      const visibleRow = await evaluate(cdp, `(() => {
-        const table = document.querySelector('[data-testid="preview-table-scroll"] [role="table"]');
+      await page.mouse.wheel(codePreviewColumnIndex * 180, 0);
+      await scroll.getByRole('columnheader', { name: codeColumn.label, exact: true }).waitFor({ state: 'visible', timeout: 10000 });
+      const visibleRow = await scroll.getByRole('table').evaluate((table, desiredRowIndex) => {
         const rows = [...(table?.querySelectorAll('[role="row"]') || [])];
         const headers = [...(rows[0]?.querySelectorAll('[role="columnheader"]') || [])].map((cell) => cell.textContent.trim());
-        const found = rows.slice(1).find((candidate) => Number.parseFloat(candidate.style.top) === 42 + ${rowIndex} * 44);
+        const found = rows.slice(1).find((candidate) => Number.parseFloat(candidate.style.top) === 42 + desiredRowIndex * 44);
         return found ? Object.fromEntries([...found.querySelectorAll('[role="cell"]')].map((cell, index) => [headers[index], cell.textContent.trim()])) : null;
-      })()`);
+      }, rowIndex);
       const cellTraceURL = `${target.apiUrl}/api/v1/projects/${encodeURIComponent(target.fixtureProject)}/explorers/${encodeURIComponent(explorerId)}/authoring/v2/cell-trace`;
       const traceRowIDs = [
         j04DefaultRecordCellTraceRowID(target.fixtureProject, target.fixtureGeneration, 'Observation', sourceRecordID),
@@ -8816,9 +8778,9 @@ const verifyJ04BrowserScenario = async (target, report, entryTarget, fixture) =>
     });
 
     const openShapeSelector = '[data-testid="ui04-open-table-shape-settings"]';
-    const openShapeVisible = await browserEval(cdp, `return Boolean([...document.querySelectorAll(${JSON.stringify(openShapeSelector)})].find(visible))`);
+    const openShapeVisible = await page.getByTestId('ui04-open-table-shape-settings').isVisible().catch(() => false);
     if (!openShapeVisible) {
-      const visibleShapeActions = await evaluate(cdp, `([...document.querySelectorAll('button')].map((button) => button.textContent.trim()).filter((label) => /shape|reshape|pivot|transform/i.test(label)))`);
+      const visibleShapeActions = await page.getByRole('button').allTextContents().then((labels) => labels.map((label) => label.trim()).filter((label) => /shape|reshape|pivot|transform/i.test(label)));
       failAtMissingDOMAction('open-ui04-table-shape-settings', openShapeSelector,
         'The saved-table Builder route does not expose the UI04 Table shape settings action.', {
           visibleShapeActions,
@@ -8828,13 +8790,13 @@ const verifyJ04BrowserScenario = async (target, report, entryTarget, fixture) =>
     }
     await action('open-table-shape-settings-through-builder', async () => {
       await clickTestID('ui04-open-table-shape-settings');
-      await waitForBrowser(cdp, `Boolean(document.querySelector('[data-testid="ui04-table-shape-dialog"] [data-testid="ui04-table-shape-editor"]'))`, 30000);
+      await page.getByTestId('ui04-table-shape-dialog').getByTestId('ui04-table-shape-editor').waitFor({ state: 'visible', timeout: 30000 });
       await captureDOM('j04-table-shape-editor-open');
     });
 
     const sourceColumn = (path) => authoredObservation.columns.find((column) => sourcePathFor(column) === path);
     const requiredEditor = async (testId, actionName, reason) => {
-      const visibleControl = await browserEval(cdp, `return Boolean([...document.querySelectorAll('[data-testid="${testId}"]')].find(visible))`);
+      const visibleControl = await page.getByTestId(testId).isVisible().catch(() => false);
       if (!visibleControl) failAtMissingDOMAction(actionName, `[data-testid="${testId}"]`, reason, { outputId });
     };
     const configureObservationPivot = async () => {
@@ -8844,7 +8806,7 @@ const verifyJ04BrowserScenario = async (target, report, entryTarget, fixture) =>
       const groups = controlPlan.observation.pivot.groupColumns.map((group) => sourceColumn(group.path));
       if (groups.some((column) => !column)) throw new Error(`J04 grouped pivot is missing a browser-authored group column: ${JSON.stringify(controlPlan.observation.pivot.groupColumns)}`);
       for (const group of groups) {
-        const found = await browserEval(cdp, `return Boolean([...document.querySelectorAll('input[type="checkbox"][data-testid^="ui04-pivot-group-columns-choice-"]')].find((input) => norm(input.closest('label')?.innerText).includes(${JSON.stringify(group.label)})))`);
+        const found = await page.locator('label').filter({ has: page.locator('input[type="checkbox"][data-testid^="ui04-pivot-group-columns-choice-"]'), hasText: group.label }).count() > 0;
         if (!found) failAtMissingDOMAction('select-pivot-group-column', `[data-testid^="ui04-pivot-group-columns-choice-"]`, `The visible group-column choices do not contain authored column ${group.label}.`, { sourcePath: sourcePathFor(group) });
         await checkChoiceByLabel('ui04-pivot-group-columns-choice-', group.label);
       }
@@ -8855,8 +8817,9 @@ const verifyJ04BrowserScenario = async (target, report, entryTarget, fixture) =>
       await selectTestOption('ui04-pivot-value-column', valueColumn.label);
       await requiredEditor('ui04-pivot-discover-categories', 'discover-pivot-categories', 'The server-backed category discovery action is absent.');
       await clickTestID('ui04-pivot-discover-categories');
-      await waitForBrowser(cdp, `document.querySelector('[data-testid="ui04-pivot-category-discovery-state"]')?.innerText.includes('Discovered')`, 60000);
-      const discovered = await browserEval(cdp, `return ([...document.querySelectorAll('[data-testid="ui04-pivot-frozen-categories"] > li')]).map((row, index) => ({ index: index + 1, testId: row.querySelector('input[type="checkbox"]')?.dataset.testid, text: norm(row.innerText) }))`);
+      const discoveryState = page.getByTestId('ui04-pivot-category-discovery-state');
+      await discoveryState.getByText('Discovered', { exact: false }).waitFor({ state: 'visible', timeout: 60000 });
+      const discovered = await page.getByTestId('ui04-pivot-frozen-categories').locator(':scope > li').evaluateAll((rows) => rows.map((row, index) => ({ index: index + 1, testId: row.querySelector('input[type="checkbox"]')?.dataset.testid, text: row.innerText.replace(/\s+/g, ' ').trim() })));
       for (const category of controlPlan.observation.pivot.categories) {
         const found = discovered.find((item) => item.testId && item.text.split(/[\s(]/).includes(category.code));
         if (!found) failAtMissingDOMAction('select-discovered-pivot-category', '[data-testid="ui04-pivot-frozen-categories"] input[type="checkbox"]', `The server did not visibly discover fixture category ${category.code}.`, { discovered });
@@ -8880,7 +8843,7 @@ const verifyJ04BrowserScenario = async (target, report, entryTarget, fixture) =>
       await captureDOM('j04-grouped-pivot-proposal-form');
     };
     const summarizeShapeNetwork = async (stage) => {
-      await Promise.allSettled([...pendingNetworkBodies]);
+      await Promise.allSettled(network.filter((item) => /table-shape|preview/i.test(item.path)).map((item) => item.bodyPromise).filter(Boolean));
       const recent = network.filter((item) => /table-shape|preview/i.test(item.path));
       const pickIdentity = (value) => {
         if (!value || typeof value !== 'object') return undefined;
@@ -8897,8 +8860,7 @@ const verifyJ04BrowserScenario = async (target, report, entryTarget, fixture) =>
       return latestComparison?.responseJSON;
     };
     const requestProposal = async (stage) => {
-      const visibleProposalError = async () => String(await evaluate(cdp,
-        `document.querySelector('[data-testid="ui04-table-shape-error"]')?.innerText?.trim() ?? ''`));
+      const visibleProposalError = async () => (await page.getByTestId('ui04-table-shape-error').innerText().catch(() => '')).trim();
       const beforeRequestError = await visibleProposalError();
       if (beforeRequestError) {
         report.target.tableShapeProposalFailure = { stage, source: 'ui04-table-shape-error', message: beforeRequestError };
@@ -8906,6 +8868,8 @@ const verifyJ04BrowserScenario = async (target, report, entryTarget, fixture) =>
         throw new Error(`J04 table-shape editor is already showing a proposal failure: ${beforeRequestError}`);
       }
       await requiredEditor('ui04-preview-table-shape', 'request-table-shape-proposal', 'The editor does not expose its proposal preview action.');
+      const responsePromise = waitForOwnedResponse('/table-shape-proposals')
+        .then((item) => ({ item }), (error) => ({ error }));
       try {
         await clickTestID('ui04-preview-table-shape');
       } catch (error) {
@@ -8915,17 +8879,10 @@ const verifyJ04BrowserScenario = async (target, report, entryTarget, fixture) =>
         recordAssertion(report, `j04-${stage}-table-shape-proposal-has-no-visible-error`, '', currentError);
         throw new Error(`J04 table-shape proposal failed visibly: ${currentError}`);
       }
-      const proposalDeadline = Date.now() + 60000;
-      let comparisonVisible = false;
-      let proposalError = '';
-      while (Date.now() < proposalDeadline) {
-        proposalError = await visibleProposalError();
-        if (proposalError) break;
-        comparisonVisible = await evaluate(cdp,
-          `Boolean(document.querySelector('[data-testid="ui04-table-shape-comparison"]'))`);
-        if (comparisonVisible) break;
-        await sleep(100);
-      }
+      await page.waitForFunction(() => Boolean(document.querySelector('[data-testid="ui04-table-shape-error"]')?.innerText.trim())
+        || Boolean(document.querySelector('[data-testid="ui04-table-shape-comparison"]')), undefined, { timeout: 60000 });
+      const proposalError = await visibleProposalError();
+      const comparisonVisible = await page.getByTestId('ui04-table-shape-comparison').isVisible().catch(() => false);
       if (proposalError) {
         await captureDOM(`j04-${stage}-proposal-error`);
         await summarizeShapeNetwork(`${stage}-proposal-error`);
@@ -8937,16 +8894,18 @@ const verifyJ04BrowserScenario = async (target, report, entryTarget, fixture) =>
         const currentError = await visibleProposalError();
         throw new Error(`J04 table-shape proposal produced neither a comparison nor a visible error before timeout${currentError ? `: ${currentError}` : ''}`);
       }
+      const ownedResponse = await responsePromise;
+      if (ownedResponse.error) throw ownedResponse.error;
       await captureDOM(`j04-${stage}-comparison`);
-      const text = await evaluate(cdp, `document.querySelector('[data-testid="ui04-table-shape-comparison"]')?.innerText ?? ''`);
+      const text = await page.getByTestId('ui04-table-shape-comparison').innerText();
       const details = await summarizeShapeNetwork(stage);
       const comparison = {
         text,
-        baseRows: await evaluate(cdp, `document.querySelector('[data-testid="ui04-comparison-base-rows"]')?.innerText ?? ''`),
-        candidateRows: await evaluate(cdp, `document.querySelector('[data-testid="ui04-comparison-candidate-rows"]')?.innerText ?? ''`),
-        contributors: await evaluate(cdp, `document.querySelector('[data-testid="ui04-comparison-contributors"]')?.innerText ?? ''`),
-        exclusions: await evaluate(cdp, `document.querySelector('[data-testid="ui04-comparison-exclusions"]')?.innerText ?? ''`),
-        informationLoss: await evaluate(cdp, `document.querySelector('[data-testid="ui04-comparison-information-loss"]')?.innerText ?? ''`),
+        baseRows: await page.getByTestId('ui04-comparison-base-rows').innerText().catch(() => ''),
+        candidateRows: await page.getByTestId('ui04-comparison-candidate-rows').innerText().catch(() => ''),
+        contributors: await page.getByTestId('ui04-comparison-contributors').innerText().catch(() => ''),
+        exclusions: await page.getByTestId('ui04-comparison-exclusions').innerText().catch(() => ''),
+        informationLoss: await page.getByTestId('ui04-comparison-information-loss').innerText().catch(() => ''),
         response: details ?? null,
       };
       report.target[`${stage}Comparison`] = comparison;
@@ -9014,12 +8973,12 @@ const verifyJ04BrowserScenario = async (target, report, entryTarget, fixture) =>
       };
       await requiredEditor('ui04-cancel-table-shape-proposal', 'cancel-reviewed-table-shape-proposal', 'The receipt-backed comparison does not expose the explicit proposal-cancel action.');
       await clickTestID('ui04-cancel-table-shape-proposal');
-      await waitForBrowser(cdp, `!document.querySelector('[data-testid="ui04-table-shape-comparison"]')`, 30000);
+      await page.getByTestId('ui04-table-shape-comparison').waitFor({ state: 'hidden', timeout: 30000 });
       const afterCancel = await saveWorkspaceSnapshot('after-cancelled-proposal', explorerId);
       recordAssertion(report, 'j04-cancelling-reviewed-proposal-preserves-saved-definition', beforeDefinition, j04WorkspaceSnapshot(afterCancel));
-      if (!await evaluate(cdp, `Boolean(document.querySelector('[data-testid="ui04-table-shape-editor"]'))`)) {
+      if (!(await page.getByTestId('ui04-table-shape-editor').isVisible().catch(() => false))) {
         await clickTestID('ui04-open-table-shape-settings');
-        await waitForBrowser(cdp, `Boolean(document.querySelector('[data-testid="ui04-table-shape-dialog"] [data-testid="ui04-table-shape-editor"]'))`, 30000);
+        await page.getByTestId('ui04-table-shape-dialog').getByTestId('ui04-table-shape-editor').waitFor({ state: 'visible', timeout: 30000 });
       }
       await configureObservationPivot();
       const applyComparison = await requestProposal('applied');
@@ -9027,7 +8986,7 @@ const verifyJ04BrowserScenario = async (target, report, entryTarget, fixture) =>
       report.target.appliedComparisonScreenshot = applyComparisonPath;
       await requiredEditor('ui04-confirm-table-shape', 'confirm-receipt-backed-table-shape', 'The comparison does not expose the receipt-backed confirmation action.');
       await clickTestID('ui04-confirm-table-shape');
-      await waitForBrowser(cdp, `!document.querySelector('[data-testid="ui04-table-shape-comparison"]')`, 60000);
+      await page.getByTestId('ui04-table-shape-comparison').waitFor({ state: 'hidden', timeout: 60000 });
       const appliedStarted = Date.now();
       let appliedState;
       let savedShape;
@@ -9079,8 +9038,10 @@ const verifyJ04BrowserScenario = async (target, report, entryTarget, fixture) =>
       if (applyComparison) report.target.appliedProposalResponse = applyComparison.response ?? null;
 
       await action('reload-builder-and-prove-table-shape-persisted', async () => {
-        await navigate(cdp, builderURL);
-        await waitForBrowser(cdp, `document.body.innerText.includes('J04 measurements') && Boolean(document.querySelector('[data-testid="ui04-open-table-shape-settings"]')) && !document.body.innerText.includes('EXPLORER_AUTHORING_FAILED')`, 60000);
+        await navigate(builderURL);
+        await page.getByText('J04 measurements', { exact: true }).waitFor({ state: 'visible', timeout: 60000 });
+        await page.getByTestId('ui04-open-table-shape-settings').waitFor({ state: 'visible', timeout: 60000 });
+        if ((await page.locator('body').innerText()).includes('EXPLORER_AUTHORING_FAILED')) throw new Error('J04 reload showed EXPLORER_AUTHORING_FAILED');
         const reloadedState = await fetchBuilderState(target, explorerId);
         const reloadedDocument = reloadedState.workspace?.documents?.find((document) => document.output?.id === outputId);
         if (!reloadedDocument) throw new Error('J04 Builder reload did not preserve the Observation output identity');
@@ -9098,16 +9059,12 @@ const verifyJ04BrowserScenario = async (target, report, entryTarget, fixture) =>
       const previewStart = network.length;
       await action('preview-applied-grouped-observation-table', async () => {
         await requiredEditor('ui04-open-table-shape-settings', 'reload-saved-shape-boundary', 'The Builder route did not render after loading the saved tableShape document.');
-        await browserEval(cdp, `clickButton('Preview')`);
-        await waitForBrowser(cdp, `Boolean(document.querySelector('[data-testid="preview-table-scroll"] [role="table"]'))`, 60000);
-        const previewDeadline = Date.now() + 30000;
-        let previewRequest;
-        while (Date.now() < previewDeadline) {
-          await Promise.allSettled([...pendingNetworkBodies]);
-          previewRequest = network.slice(previewStart).find((item) => item.path.endsWith('/preview') && item.status === 200 && item.responseJSON?.rows);
-          if (previewRequest) break;
-          await sleep(50);
-        }
+        const previewResponsePromise = waitForOwnedResponse('/preview').then((item) => ({ item }), (error) => ({ error }));
+        await clickButton('Preview');
+        await page.getByTestId('preview-table-scroll').getByRole('table').waitFor({ state: 'visible', timeout: 60000 });
+        const previewOutcome = await previewResponsePromise;
+        if (previewOutcome.error) throw previewOutcome.error;
+        const previewRequest = previewOutcome.item;
         if (!previewRequest) throw new Error(`J04 grouped Observation Preview response was unavailable: ${JSON.stringify(network.slice(previewStart).filter((item) => item.path.endsWith('/preview')).map(({ status, responseJSON, responseBodyError }) => ({ status, responseJSON, responseBodyError }))).slice(0, 1000)}`);
 
         const reloadedDocument = (await fetchBuilderState(target, explorerId)).workspace?.documents?.find((document) => document.output?.id === outputId);
@@ -9162,21 +9119,23 @@ const verifyJ04BrowserScenario = async (target, report, entryTarget, fixture) =>
 
       const publishStart = network.length;
       await action('publish-observation-table-through-visible-builder', async () => {
-        await waitForBrowser(cdp, `Boolean([...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Publish' && !button.disabled))`, 60000);
-        await browserEval(cdp, `clickButton('Publish')`);
+        await page.getByRole('button', { name: 'Publish', exact: true }).waitFor({ state: 'visible', timeout: 60000 });
+        const publishResponsePromise = waitForOwnedResponse('/publish').then((item) => ({ item }), (error) => ({ error }));
+        await clickButton('Publish');
         const publishDeadline = Date.now() + 90000;
         let publishedState;
         let runtime;
         while (Date.now() < publishDeadline) {
-          await Promise.allSettled([...pendingNetworkBodies]);
           try {
             publishedState = await fetchExplorerState(target, explorerId);
             runtime = publishedState.runtime ?? publishedState;
             if (runtime?.outputs?.some((output) => output.outputId === outputId) && (runtime.publication?.revisionId || publishedState.active?.revisionId)) break;
           } catch { /* Publish may still be materializing. */ }
-          await sleep(300);
+          await page.waitForTimeout(300);
         }
-        const publishResponse = network.slice(publishStart).find((item) => item.path.endsWith('/publish'));
+        const publishOutcome = await publishResponsePromise;
+        if (publishOutcome.error) throw publishOutcome.error;
+        const publishResponse = publishOutcome.item;
         if (!publishResponse || publishResponse.status !== 200) throw new Error(`J04 visible Publish did not return HTTP 200: ${JSON.stringify(publishResponse ?? network.slice(publishStart).map(({ path, status }) => ({ path, status })))}`);
         if (!runtime?.outputs?.some((output) => output.outputId === outputId)) throw new Error('J04 published Observation output did not become readable in runtime state');
         const output = runtime.outputs.find((candidate) => candidate.outputId === outputId);
@@ -9193,15 +9152,15 @@ const verifyJ04BrowserScenario = async (target, report, entryTarget, fixture) =>
       });
 
       await action('open-observation-output-in-visible-viewer', async () => {
-        await browserEval(cdp, `clickButton('Viewer')`);
-        await waitForBrowser(cdp, `new URL(window.location.href).searchParams.get('mode') === 'viewer' && document.querySelector('table[aria-label="J04 measurements results"] tbody')?.querySelectorAll('tr').length === 2`, 60000);
-        const viewer = await evaluate(cdp, `(() => {
-          const table = document.querySelector('table[aria-label="J04 measurements results"]');
-          return {
-            headers: [...(table?.querySelectorAll('thead th') || [])].map((cell) => cell.textContent.trim()),
-            rows: [...(table?.querySelectorAll('tbody tr') || [])].map((row) => [...row.querySelectorAll('td')].map((cell) => cell.textContent.trim())),
-          };
-        })()`);
+        await clickButton('Viewer');
+        await page.waitForFunction(() => new URL(window.location.href).searchParams.get('mode') === 'viewer', undefined, { timeout: 60000 });
+        const viewerTable = page.getByRole('table', { name: 'J04 measurements results', exact: true });
+        await viewerTable.waitFor({ state: 'visible', timeout: 60000 });
+        const viewer = await viewerTable.evaluate((table) => ({
+          headers: [...table.querySelectorAll('thead th')].map((cell) => cell.textContent.trim()),
+          rows: [...table.querySelectorAll('tbody tr')].map((row) => [...row.querySelectorAll('td')].map((cell) => cell.textContent.trim())),
+        }));
+        if (viewer.rows.length !== 2) throw new Error(`J04 Viewer rendered ${viewer.rows.length} rows; expected 2`);
         const runtimeColumns = report.target.runtimeOutput.columns;
         const expectedHeaders = runtimeColumns.map((column) => `${column.label}${column.resultUnit?.code ? ` (${column.resultUnit.code})` : ''}`);
         recordAssertion(report, 'j04-viewer-renders-stable-typed-grouped-schema', expectedHeaders, viewer.headers);
@@ -9211,21 +9170,26 @@ const verifyJ04BrowserScenario = async (target, report, entryTarget, fixture) =>
         }));
         recordAssertion(report, 'j04-viewer-renders-literal-preview-grouped-rows', expectedRows, viewer.rows);
         report.target.viewerRows = viewer;
-        report.target.viewerMode = await evaluate(cdp, `new URL(window.location.href).searchParams.get('mode')`);
+        report.target.viewerMode = await page.evaluate(() => new URL(window.location.href).searchParams.get('mode'));
         await captureDOM('j04-observation-viewer');
       });
 
       await action('download-and-compare-typed-observation-artifact', async () => {
-        await browserEval(cdp, `clickButton('Download dataset')`);
-        await waitForBrowser(cdp, `Boolean([...document.querySelectorAll('[role="dialog"]')].find((dialog) => dialog.innerText.includes('Download dataset') && dialog.querySelector('[aria-label="Declared output types"]')))`, 60000);
-        const modal = await evaluate(cdp, `(() => {
-          const dialog = [...document.querySelectorAll('[role="dialog"]')].find((candidate) => candidate.innerText.includes('Download dataset') && candidate.querySelector('[aria-label="Declared output types"]'));
-          const value = (label) => [...(dialog?.querySelectorAll('dt') || [])].find((term) => term.textContent.trim() === label)?.nextElementSibling?.textContent.trim() ?? '';
-          return { text: dialog?.innerText ?? '', representation: value('Representation'), schemaDigest: value('Schema digest'), types: dialog?.querySelector('[aria-label="Declared output types"]')?.innerText ?? '' };
-        })()`);
+        await clickButton('Download dataset');
+        const downloadDialog = page.getByRole('dialog').filter({ hasText: 'Download dataset' });
+        await downloadDialog.getByLabel('Declared output types', { exact: true }).waitFor({ state: 'visible', timeout: 60000 });
+        const modal = await downloadDialog.evaluate((dialog) => {
+          const value = (label) => [...dialog.querySelectorAll('dt')].find((term) => term.textContent.trim() === label)?.nextElementSibling?.textContent.trim() ?? '';
+          return { text: dialog.innerText, representation: value('Representation'), schemaDigest: value('Schema digest'), types: dialog.querySelector('[aria-label="Declared output types"]')?.innerText ?? '' };
+        });
         await captureDOM('j04-observation-artifact-download-modal');
-        await browserEval(cdp, `const link = [...document.querySelectorAll('a[download]')].find((candidate) => norm(candidate.textContent) === 'Download ZIP'); if (!link) throw new Error('J04 typed artifact modal has no Download ZIP link'); link.click();`);
-        const archivePath = await findDownloadedArchive(downloadDirectory, 60000);
+        const downloadPromise = page.waitForEvent('download', { timeout: 60000 });
+        const downloadLink = downloadDialog.getByRole('link', { name: 'Download ZIP', exact: true });
+        await performAction(browser, 'download typed artifact ZIP', downloadLink,
+          (targetLocator, { timeout }) => targetLocator.click({ timeout }), { timeout: 5000 });
+        const download = await downloadPromise;
+        const archivePath = join(downloadDirectory, download.suggestedFilename());
+        await download.saveAs(archivePath);
         recordEvidence(report, archivePath);
         const artifact = inspectJ05ArtifactPackage(readStoredZip(archivePath));
         const expectedIdentity = {
@@ -9266,15 +9230,32 @@ const verifyJ04BrowserScenario = async (target, report, entryTarget, fixture) =>
           expectedIdentity,
         };
       });
+      const diagnosticsPath = join(evidenceDirectory, 'browser-diagnostics.json');
+      writeJSON(diagnosticsPath, browser.diagnostics);
+      recordEvidence(report, diagnosticsPath);
+      recordAssertion(report, 'j04-browser-has-no-unexpected-errors-or-api-failures', true,
+        browser.diagnostics.console.length === 0
+        && browser.diagnostics.pageErrors.length === 0
+        && browser.diagnostics.networkFailures.length === 0
+        && browser.diagnostics.httpFailures.length === 0);
     });
   } catch (error) {
     failure = error;
     report.status = 'failed';
     report.error = error instanceof Error ? error.message : String(error);
     if (report.target.firstMissingDOMAction) markJ04DownstreamUnproven(report);
+    await browser?.captureFailure(error, {
+      phase: 'J04 Builder, table-shape, preview, publication, Viewer, and artifact lifecycle',
+      explorerId: report.target.explorerId,
+      outputId: report.target.outputId,
+      draft: report.target.explorerId
+        ? await fetchBuilderState(target, report.target.explorerId).then((state) => ({ version: state.draftVersion, digest: state.draftDigest })).catch(() => undefined)
+        : undefined,
+      requests: network,
+    });
     throw error;
   } finally {
-    if (cdp) {
+    if (browser && page) {
       try { await captureDOM('j04-failure-dom'); } catch {}
       try { report.target.failureScreenshot = await captureScreenshot('j04-failure'); } catch {}
       try {
