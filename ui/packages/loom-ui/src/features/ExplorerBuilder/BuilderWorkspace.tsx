@@ -2052,7 +2052,7 @@ const BuilderWorkspaceContent = ({
             const suffix = apiError.code ? ` (${apiError.code})` : '';
             setMessage(`Preview failed: ${apiError.message}${suffix}`);
           }
-          return undefined;
+          throw error;
         } finally {
           if (activePreview.current === previewRequest) activePreview.current = undefined;
           if (owner?.previewRequest === previewRequest) owner.previewRequest = undefined;
@@ -2276,12 +2276,11 @@ const BuilderWorkspaceContent = ({
         if (execution.cancelled || !completed || !identityIsCurrent()) return undefined;
         return accept(completed.receipt, completed.preview);
       } catch (error) {
-        if (identityIsCurrent()) {
-          const apiError = error as ExplorerAuthoringApiError;
-          const suffix = apiError.code ? ` (${apiError.code})` : '';
-          setMessage(`Preview failed: ${apiError.message}${suffix}`);
-        }
-        return undefined;
+        if (!identityIsCurrent()) return undefined;
+        const apiError = error as ExplorerAuthoringApiError;
+        const suffix = apiError.code ? ` (${apiError.code})` : '';
+        setMessage(`Preview failed: ${apiError.message}${suffix}`);
+        throw error;
       } finally {
         signal.removeEventListener('abort', cancel);
         if (activeAutomaticPreview.current?.generation === generation) {
@@ -2290,6 +2289,12 @@ const BuilderWorkspaceContent = ({
       }
     },
   });
+  const automaticPreviewFailure = automaticPreviewQuery.error as Partial<ExplorerAuthoringApiError> | undefined;
+  const automaticPreviewFailureMessage = automaticPreviewQuery.error === undefined
+    ? undefined
+    : automaticPreviewFailure?.message
+      ? `${automaticPreviewFailure.message}${automaticPreviewFailure.code ? ` (${automaticPreviewFailure.code})` : ''}`
+      : 'The automatic preview request failed.';
   const addColumnsPreviewPending = automaticPreviewQuery.isLoading &&
     Boolean(table?.document.columns.length);
   const busy =
@@ -3222,7 +3227,9 @@ const BuilderWorkspaceContent = ({
   const workspacePreviewIsCurrent = Boolean(candidatePreview) || previewIsCurrent;
   const workspacePreviewStatus = candidatePreview
     ? 'ready'
-    : choiceProposal.status === 'previewing' || constructionLifecycle.proposal.status === 'previewing'
+    : automaticPreviewQuery.error
+      ? 'error'
+      : choiceProposal.status === 'previewing' || constructionLifecycle.proposal.status === 'previewing'
       ? 'previewing'
       : constructionLifecycle.proposal.status === 'needs-repair'
         ? 'needs-repair'
@@ -3625,6 +3632,7 @@ const BuilderWorkspaceContent = ({
                     ) : (
                       <PreviewTable
                         preview={tablePreview}
+                        previewErrorMessage={automaticPreviewFailureMessage}
                         table={table}
                         limit={previewLimit}
                         onLimitChange={(limit) => {
@@ -3670,7 +3678,7 @@ const BuilderWorkspaceContent = ({
                 editor={workspaceEditor}
                 previewStatus={workspacePreviewStatus}
                 previewReceiptId={workspacePreview?.receiptId}
-                previewOutputId={workspacePreview?.outputId}
+                previewOutputId={workspacePreview?.outputId ?? table?.outputId}
                 proposalId={workspacePreviewProposalId}
                 draftVersion={state.draftVersion}
                 draftDigest={state.draftDigest}

@@ -123,6 +123,7 @@ export const previewCellTitle = (value: unknown): string => {
 
 export const PreviewTable = ({
   preview,
+  previewErrorMessage,
   table,
   limit,
   onLimitChange,
@@ -136,6 +137,7 @@ export const PreviewTable = ({
   disabled = false,
 }: {
   readonly preview?: ExplorerBuilderPreviewResult;
+  readonly previewErrorMessage?: string;
   readonly table?: DraftTable;
   readonly limit: number;
   readonly onLimitChange: (value: 25 | 50 | 100 | 500 | 1000) => void;
@@ -701,7 +703,11 @@ export const PreviewTable = ({
         data-testid="preview-table-scroll"
         className="max-h-[min(65dvh,40rem)] max-w-full overflow-auto overscroll-contain"
       >
-        {!preview ? (
+        {previewErrorMessage ? (
+          <p role="status" className="px-4 py-8 text-sm text-red-800">
+            Preview did not complete for this draft: {previewErrorMessage}. Correct the Builder issue above; Preview will run again after the draft changes.
+          </p>
+        ) : !preview ? (
           <p className="px-4 py-8 text-sm text-slate-500">
             {!table?.document.rootResourceType
               ? 'Choose starting records to preview this table.'

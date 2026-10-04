@@ -37,12 +37,19 @@ export const useAutomaticPreview = ({
   refreshRef.current = refresh;
   const requestRef = useRef(request);
   requestRef.current = request;
-  const settledRef = useRef<{ readonly key: string; readonly run: AutomaticPreviewRun | undefined } | undefined>(undefined);
+  const settledRef = useRef<
+    | { readonly key: string; readonly run: AutomaticPreviewRun | undefined }
+    | { readonly key: string; readonly error: unknown }
+    | undefined
+  >(undefined);
   const query = useKeyedQuery(
     request?.key,
     async (signal, options) => {
       if (!request) throw new Error('Automatic preview started without a saved draft identity.');
-      if (!options?.reload && settledRef.current?.key === request.key) return settledRef.current.run;
+      if (!options?.reload && settledRef.current?.key === request.key) {
+        if ('error' in settledRef.current) throw settledRef.current.error;
+        return settledRef.current.run;
+      }
       try {
         const run = await refreshRef.current(request, signal, options);
         if (!signal.aborted && requestRef.current?.key === request.key) {
@@ -51,7 +58,7 @@ export const useAutomaticPreview = ({
         return run;
       } catch (error) {
         if (!signal.aborted && requestRef.current?.key === request.key) {
-          settledRef.current = { key: request.key, run: undefined };
+          settledRef.current = { key: request.key, error };
         }
         throw error;
       }
@@ -61,7 +68,9 @@ export const useAutomaticPreview = ({
   const settled = settledRef.current;
   return {
     ...query,
-    data: query.data ?? (settled && settled.key === request?.key ? settled.run : undefined),
+    data: query.data ?? (
+      settled && settled.key === request?.key && 'run' in settled ? settled.run : undefined
+    ),
     refetch: (options?: QueryRefetchOptions) => {
       if (request) settledRef.current = undefined;
       return query.refetch(options);

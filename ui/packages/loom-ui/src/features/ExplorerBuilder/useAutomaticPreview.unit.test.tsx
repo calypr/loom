@@ -87,3 +87,40 @@ it('lets an explicit reload bypass a settled result on the same key', async () =
   expect(refresh).toHaveBeenCalledTimes(2);
   expect(reloadOptions).toEqual([undefined, true]);
 });
+
+it('clears a previous key result and retains a new key error across disable and re-enable', async () => {
+  const failure = new Error('RELATIONSHIP_CARDINALITY_VIOLATION');
+  const failedKey = 'table-a:snapshot-a:2:draft-b:0:25';
+  const refresh = vi.fn(async (identity: AutomaticPreviewIdentity) => {
+    if (identity.key === failedKey) throw failure;
+    return {
+      ...completedRun(identity),
+      receipt: { receiptId: identity.key } as AutomaticPreviewRun['receipt'],
+    };
+  });
+  const hook = renderHook(
+    ({ identity, enabled }: { identity: AutomaticPreviewIdentity; enabled: boolean }) =>
+      useAutomaticPreview({ request: identity, enabled, refresh }),
+    { initialProps: { identity: request('table-a:snapshot-a:1:draft-a:0:25'), enabled: true } },
+  );
+
+  await waitFor(() => expect(hook.result.current.data?.receipt.receiptId).toBe('table-a:snapshot-a:1:draft-a:0:25'));
+  expect(hook.result.current.error).toBeUndefined();
+
+  hook.rerender({ identity: request(failedKey), enabled: true });
+  await waitFor(() => expect(hook.result.current.error).toBe(failure));
+  expect(hook.result.current.isLoading).toBe(false);
+  expect(hook.result.current.data).toBeUndefined();
+  expect(refresh).toHaveBeenCalledTimes(2);
+
+  hook.rerender({ identity: request(failedKey), enabled: false });
+  hook.rerender({ identity: request(failedKey), enabled: true });
+  await waitFor(() => expect(hook.result.current.error).toBe(failure));
+  expect(hook.result.current.data).toBeUndefined();
+  expect(refresh).toHaveBeenCalledTimes(2);
+
+  hook.rerender({ identity: request('table-a:snapshot-a:3:draft-c:0:25'), enabled: true });
+  await waitFor(() => expect(hook.result.current.data?.receipt.receiptId).toBe('table-a:snapshot-a:3:draft-c:0:25'));
+  expect(hook.result.current.error).toBeUndefined();
+  expect(refresh).toHaveBeenCalledTimes(3);
+});

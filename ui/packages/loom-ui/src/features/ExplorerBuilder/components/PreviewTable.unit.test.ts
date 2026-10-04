@@ -1704,3 +1704,19 @@ it('configures only selected member fields when the cohort is the terminal stage
     'Group label', 'Group ordinal', 'Members', 'Resource Type',
   ]);
 });
+
+
+test('shows a terminal preview failure with a repair action instead of a loading placeholder', () => {
+  render(React.createElement(PreviewTable, {
+    table,
+    previewErrorMessage: 'more than one value matched (RELATIONSHIP_CARDINALITY_VIOLATION)',
+    limit: 25,
+    onLimitChange: vi.fn(),
+    onColumnChange: vi.fn(),
+    onColumnsChange: vi.fn(),
+  }));
+
+  expect(screen.getByRole('status')).toHaveTextContent('RELATIONSHIP_CARDINALITY_VIOLATION');
+  expect(screen.getByRole('status')).toHaveTextContent('Preview will run again after the draft changes.');
+  expect(screen.queryByText('Loading your table…')).not.toBeInTheDocument();
+});
