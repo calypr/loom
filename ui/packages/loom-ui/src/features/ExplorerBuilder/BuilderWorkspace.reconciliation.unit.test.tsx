@@ -89,6 +89,8 @@ vi.mock('./components/BuilderToolbar', () => ({
     onReview,
     onPublish,
     onSelectTable,
+    onDuplicateTable,
+    onDeleteTable,
     tables,
     publishDisabled,
     publishing,
@@ -96,6 +98,8 @@ vi.mock('./components/BuilderToolbar', () => ({
     readonly onReview: () => void;
     readonly onPublish: () => void;
     readonly onSelectTable: (outputId: string) => void;
+    readonly onDuplicateTable: () => void;
+    readonly onDeleteTable: () => void;
     readonly tables: ReadonlyArray<{ readonly outputId: string }>;
     readonly publishDisabled: boolean;
     readonly publishing: boolean;
@@ -116,6 +120,12 @@ vi.mock('./components/BuilderToolbar', () => ({
         <button type="button" onClick={() => onSelectTable(tables[1].outputId)}>
           Select second table
         </button>
+      ) : null}
+      {tables.length > 1 ? (
+        <>
+          <button type="button" onClick={onDuplicateTable}>Duplicate selected table</button>
+          <button type="button" onClick={onDeleteTable}>Delete selected table</button>
+        </>
       ) : null}
     </div>
   ),
@@ -1954,6 +1964,12 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
   });
 
   it('preserves the selected table when automatic preview refreshes builder state', async () => {
+    window.sessionStorage.clear();
+    const selectedTableStorageKey = `loom.builder.selected-table:${JSON.stringify([
+      'HTAN_INT/BForePC',
+      '/programs/HTAN_INT/projects/BForePC',
+      'test',
+    ])}`;
     const patientColumn = {
       ...column,
       column: 'patient_identifier',
@@ -1976,6 +1992,26 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
           title: 'Patients',
           outputId: 'patients',
           order: 1,
+          visible: true,
+        },
+      ],
+    };
+    const duplicatedWorkspace = {
+      ...multiTableWorkspace,
+      documents: [
+        ...multiTableWorkspace.documents,
+        {
+          ...patientDocument,
+          output: { id: 'patients-copy', title: 'Patients copy' },
+        },
+      ],
+      tabs: [
+        ...multiTableWorkspace.tabs,
+        {
+          id: 'patients-copy-tab',
+          title: 'Patients copy',
+          outputId: 'patients-copy',
+          order: 2,
           visible: true,
         },
       ],
@@ -2005,14 +2041,38 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
       isLoading: false,
       refetch,
     });
-    reconcile.mockReturnValue(resolvedRequest({
+    let commandWorkspace = multiTableWorkspace;
+    reconcile.mockImplementation(() => resolvedRequest({
       ...receipt,
-      builder: multiTableWorkspace,
+      builder: commandWorkspace,
       outputs: [
         ...receipt.outputs,
         { outputId: 'patients', columns: patientPreviewColumns },
+        ...(commandWorkspace === duplicatedWorkspace
+          ? [{ outputId: 'patients-copy', columns: patientPreviewColumns }]
+          : []),
       ],
     }));
+    applyCommands.mockImplementation((request: {
+      readonly commands: ReadonlyArray<{ readonly type: string }>;
+    }) => {
+      const command = request.commands[0];
+      commandWorkspace = command?.type === 'DUPLICATE_TABLE'
+        ? duplicatedWorkspace
+        : multiTableWorkspace;
+      return resolvedRequest({
+        commandId: 'table-command',
+        workspace: commandWorkspace,
+        draftVersion: command?.type === 'DUPLICATE_TABLE' ? 2 : 3,
+        draftDigest: command?.type === 'DUPLICATE_TABLE'
+          ? 'sha256:duplicate'
+          : 'sha256:delete',
+        results: command?.type === 'DUPLICATE_TABLE'
+          ? [{ type: 'TABLE_CREATED', outputId: 'patients-copy', tabId: 'patients-copy-tab', occurrenceId: 'base' }]
+          : [],
+        diagnostics: [],
+      });
+    });
 
     render(
       <BuilderWorkspace
@@ -2030,6 +2090,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
         'ready',
       ),
     );
+    expect(window.sessionStorage.getItem(selectedTableStorageKey)).toBeNull();
     preview
       .mockReturnValueOnce(
         rejectedRequest({
@@ -2040,6 +2101,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
       )
       .mockReturnValueOnce(resolvedRequest(patientPreview));
     fireEvent.click(screen.getByRole('button', { name: 'Select second table' }));
+    expect(window.sessionStorage.getItem(selectedTableStorageKey)).toBe('patients');
     await waitFor(() =>
       expect(screen.getByTestId('construction-table-patients')).toHaveAttribute(
         'aria-current',
@@ -2068,6 +2130,27 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
       'page',
     );
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Duplicate selected table' }));
+    await waitFor(() => expect(applyCommands).toHaveBeenCalledWith(expect.objectContaining({
+      commands: [{ type: 'DUPLICATE_TABLE', sourceOutputId: 'patients', title: 'Patients copy' }],
+    })));
+    await waitFor(() => expect(screen.getByTestId('construction-table-patients-copy')).toHaveAttribute(
+      'aria-current',
+      'page',
+    ));
+    expect(window.sessionStorage.getItem(selectedTableStorageKey)).toBe('patients-copy');
+
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    fireEvent.click(screen.getByRole('button', { name: 'Delete selected table' }));
+    await waitFor(() => expect(applyCommands).toHaveBeenCalledWith(expect.objectContaining({
+      commands: [{ type: 'DELETE_TABLE', outputId: 'patients-copy' }],
+    })));
+    await waitFor(() => expect(screen.getByTestId('construction-table-specimens')).toHaveAttribute(
+      'aria-current',
+      'page',
+    ));
+    expect(window.sessionStorage.getItem(selectedTableStorageKey)).toBe('specimens');
   });
 
   it('publishes a server-persisted draft after the Builder is reloaded', async () => {

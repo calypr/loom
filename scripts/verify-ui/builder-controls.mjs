@@ -115,11 +115,15 @@ const firstTable = (context) => runBrowserCase(context, 'builder-controls', 'fir
 
 const tables = (context) => runBrowserCase(context, 'builder-controls', 'tables', async ({ cdp, report }) => {
   await prepare(cdp, context, report, 'controls');
+  const originalTableTestId = await evaluate(cdp, "document.querySelector('[data-testid^=\"construction-table-\"][aria-current=\"page\"]')?.getAttribute('data-testid') || ''");
+  if (!originalTableTestId) throw new Error('The prepared Explorer has no selected table tab.');
   await recordBrowserTiming(report, cdp, {
     name: 'duplicate configured table',
     action: () => click(cdp, 'button', { name: 'Duplicate table' }),
     after: "[...document.querySelectorAll('[data-testid^=\"construction-table-\"]')].some((button)=>button.innerText.includes('Patients copy')) && Number(" + tableCount + ")===2",
   });
+  const selectedAfterDuplicate = await evaluate(cdp, "[...document.querySelectorAll('[data-testid^=\"construction-table-\"][aria-current=\"page\"]')].map((button)=>button.innerText.trim()).join(' | ')");
+  recordCheck(report, 'persistence', 'newly duplicated table is selected immediately', selectedAfterDuplicate.includes('Patients copy'), { selectedAfterDuplicate });
   const renamed = successfulResponse(cdp, '/commands');
   await recordBrowserTiming(report, cdp, {
     name: 'rename duplicated table',
@@ -132,14 +136,24 @@ const tables = (context) => runBrowserCase(context, 'builder-controls', 'tables'
   });
   await reload(cdp, ready + ' && ' + tableCount + '===2');
   recordCheck(report, 'persistence', 'duplicated and renamed tables survive reload', await evaluate(cdp, "[...document.querySelectorAll('[data-testid^=\"construction-table-\"]')].some((button)=>button.innerText.includes('Renamed Patients'))"));
+  const selectedAfterReload = await evaluate(cdp, "[...document.querySelectorAll('[data-testid^=\"construction-table-\"][aria-current=\"page\"]')].map((button)=>button.innerText.trim()).join(' | ')");
+  recordCheck(report, 'persistence', 'newly duplicated table selection survives reload', selectedAfterReload.includes('Renamed Patients'), { selectedAfterReload });
+  await click(cdp, `[data-testid=${JSON.stringify(originalTableTestId)}]`);
+  await reload(cdp, ready + ' && ' + tableCount + '===2');
+  const selectedAfterManualReload = await evaluate(cdp, `Boolean([...document.querySelectorAll('[data-testid^="construction-table-"][aria-current="page"]')].find((button)=>button.getAttribute('data-testid')===${JSON.stringify(originalTableTestId)}))`);
+  recordCheck(report, 'persistence', 'manual table selection survives reload', selectedAfterManualReload);
   await click(cdp, 'button', { includes: 'Renamed Patients' });
   await recordBrowserTiming(report, cdp, {
     name: 'delete duplicated table',
     action: () => click(cdp, 'button', { name: 'Delete table' }),
     after: tableCount + "===1 && ![...document.querySelectorAll('[data-testid^=\"construction-table-\"]')].some((button)=>button.innerText.includes('Renamed Patients'))",
   });
+  const selectedImmediatelyAfterRemoval = await evaluate(cdp, `Boolean([...document.querySelectorAll('[data-testid^="construction-table-"][aria-current="page"]')].find((button)=>button.getAttribute('data-testid')===${JSON.stringify(originalTableTestId)}))`);
+  recordCheck(report, 'persistence', 'selected-table deletion immediately falls back to the remaining table', selectedImmediatelyAfterRemoval);
   await reload(cdp, ready + ' && ' + tableCount + '===1');
   recordCheck(report, 'persistence', 'deleted table stays absent after reload', await evaluate(cdp, "![...document.querySelectorAll('[data-testid^=\"construction-table-\"]')].some((button)=>button.innerText.includes('Renamed Patients'))"));
+  const selectionAfterRemoval = await evaluate(cdp, `Boolean([...document.querySelectorAll('[data-testid^="construction-table-"][aria-current="page"]')].find((button)=>button.getAttribute('data-testid')===${JSON.stringify(originalTableTestId)}))`);
+  recordCheck(report, 'persistence', 'selected-table removal falls back to the remaining table after reload', selectionAfterRemoval);
   await previewPatientRows(cdp, report);
   await click(cdp, 'summary', { name: 'New explorer' });
   const title = 'Copy ' + context.runID;

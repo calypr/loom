@@ -1523,6 +1523,20 @@ const snapshot = async (cdp, path) => {
   writeFileSync(path, String(html ?? ''), { mode: 0o600 });
 };
 
+export const takeJavaScriptDialogCommandParams = (cdp, event, promptText) => {
+  const response = cdp.nextDialogResponse;
+  if (response !== undefined) delete cdp.nextDialogResponse;
+  const responsePromptText = response?.promptText;
+  return {
+    accept: response?.accept ?? true,
+    ...(event.type === 'prompt' && responsePromptText !== undefined
+      ? { promptText: responsePromptText }
+      : event.type === 'prompt' && promptText !== undefined
+        ? { promptText }
+        : {}),
+  };
+};
+
 const launchBrowser = async (downloadDir, { promptText } = {}) => {
   const chrome = findChrome();
   const port = await freePort();
@@ -1559,8 +1573,7 @@ const launchBrowser = async (downloadDir, { promptText } = {}) => {
   await cdp.send('Browser.setDownloadBehavior', { behavior: 'allow', downloadPath: downloadDir });
   const dialogHandler = (event) => {
     void cdp.send('Page.handleJavaScriptDialog', {
-      accept: true,
-      ...(event.type === 'prompt' && promptText !== undefined ? { promptText } : {}),
+      ...takeJavaScriptDialogCommandParams(cdp, event, promptText),
     });
   };
   cdp.on('Page.javascriptDialogOpening', dialogHandler);

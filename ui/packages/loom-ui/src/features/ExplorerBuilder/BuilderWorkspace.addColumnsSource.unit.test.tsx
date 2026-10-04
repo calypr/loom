@@ -1487,6 +1487,12 @@ describe('BuilderWorkspace Add columns source selection', () => {
   });
 
   it('creates a populated row type with its direct ID and renders the first preview', async () => {
+    window.sessionStorage.clear();
+    const selectedTableStorageKey = `loom.builder.selected-table:${JSON.stringify([
+      'HTAN_INT/BForePC',
+      '/programs/HTAN_INT/projects/BForePC',
+      'test',
+    ])}`;
     const { getSuggestions, reconcile, previewBuilder } = configureInitialTableFlow(
       applyExplorerCommands,
       [fieldCandidate('patient-id', 'patient-node', 'Patient', 'id')],
@@ -1505,6 +1511,7 @@ describe('BuilderWorkspace Add columns source selection', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Choose Patient rows' }));
 
     await waitFor(() => expect(previewBuilder).toHaveBeenCalledOnce());
+    expect(window.sessionStorage.getItem(selectedTableStorageKey)).toBe('patients');
     expect(getSuggestions).toHaveBeenCalledWith(expect.objectContaining({
       snapshotToken: 'snapshot-1',
       nodeId: 'patient-node',

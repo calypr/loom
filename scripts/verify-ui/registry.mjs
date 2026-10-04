@@ -4,12 +4,12 @@ export const registry = Object.freeze([
     workflow: 'supported-builder-controls',
     hooks: ['useCreateExplorerAuthoringMutation', 'useApplyExplorerBuilderCommandsV2Mutation', 'useReconcileExplorerBuilderV2Mutation', 'usePreviewExplorerAuthoringV2Mutation', 'useGetExplorerAuthoringCapabilityV2Query', 'useDeleteExplorerAuthoringMutation', 'useKeyedQuery'],
     endpoints: ['POST /api/v1/projects/{project}/explorers', 'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/commands', 'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/reconcile'],
-    requiredTransitions: ['duplicate, rename, delete table and reload', 'copy Explorer and retain fixture rows', 'Recompile calls the backend and restores preview', 'create a verified-ID Patient table and wait for its current-draft preview before Add columns is enabled'],
+    requiredTransitions: ['duplicate, rename, select, delete table and reload', 'copy Explorer and retain fixture rows', 'Recompile calls the backend and restores preview', 'create a verified-ID Patient table and wait for its current-draft preview before Add columns is enabled'],
     gateReasons: ['Delete table needs a selected table', 'Recompile must obtain a new backend receipt after a failed automatic compile', 'the first-table readiness case observes only the verified-ID Patient flow'],
     script: 'builder-controls.mjs',
     cases: ['tables', 'recompile', 'first-table'],
     requiredChecks: {
-      tables: ['duplicated and renamed tables survive reload', 'deleted table stays absent after reload', 'copied Explorer retains configured fields after reload', 'deleting the last table persists an empty workspace'],
+      tables: ['duplicated and renamed tables survive reload', 'newly duplicated table is selected immediately', 'newly duplicated table selection survives reload', 'manual table selection survives reload', 'deleted table stays absent after reload', 'selected-table deletion immediately falls back to the remaining table', 'selected-table removal falls back to the remaining table after reload', 'copied Explorer retains configured fields after reload', 'deleting the last table persists an empty workspace'],
       recompile: ['Recompile invokes the backend compiler completed', 'Recompile returned a successful compilation response', 'Preview renders both independent fixture Patients'],
       'first-table': [
         'Add columns stays disabled until a current-draft preview is accepted',
@@ -22,6 +22,7 @@ export const registry = Object.freeze([
     },
     coverage: [
       { feature: 'table duplicate/rename/delete and Explorer copy', status: 'implemented' },
+      { feature: 'selected table restore and deletion fallback', status: 'implemented', reason: 'The registered tables case verifies immediate auto-selection and reload restoration after duplication, manual selection restoration, and fallback persistence after deleting the selected table.' },
       { feature: 'Recompile after failed compilation', status: 'implemented', reason: 'The registered recovery case passes after the automatic-preview ownership fix; save/reload remains outside this case.' },
       { feature: 'Explorer deletion and capability controls', status: 'untested', reason: 'The Builder capability query feeds this feature gate, but registered cases exercise table controls and do not test the capability response or Explorer deletion path.' },
     ],

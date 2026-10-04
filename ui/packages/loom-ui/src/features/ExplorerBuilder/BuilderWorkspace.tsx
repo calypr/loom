@@ -433,14 +433,6 @@ const BuilderWorkspaceContent = ({
             selectedOutputId: localState?.key.startsWith(`${ownerKey}:`) ? localState.value.selectedOutputId : rememberedOutputId,
           })
         : emptyBuilderState(projectId);
-  useEffect(() => {
-    if (!state.selectedOutputId) return;
-    try {
-      window.sessionStorage.setItem(selectedTableStorageKey, state.selectedOutputId);
-    } catch {
-      // Browser storage can be unavailable; table editing remains usable.
-    }
-  }, [selectedTableStorageKey, state.selectedOutputId]);
   const dispatch = useCallback(
     (action: Parameters<typeof builderAuthoringReducer>[1]) => {
       setLocalState((current) => {
@@ -462,6 +454,17 @@ const BuilderWorkspaceContent = ({
     },
     [authResourcePath, builderDataKey, ownerKey, projectId, rememberedOutputId, selectedExplorerId],
   );
+  const rememberSelectedTable = useCallback((outputId: string) => {
+    try {
+      window.sessionStorage.setItem(selectedTableStorageKey, outputId);
+    } catch {
+      // Browser storage can be unavailable; table editing remains usable.
+    }
+  }, [selectedTableStorageKey]);
+  const selectTableFromUser = useCallback((outputId: string) => {
+    rememberSelectedTable(outputId);
+    dispatch({ type: 'selectTable', outputId });
+  }, [dispatch, rememberSelectedTable]);
   const [message, setMessage] = useState<string>();
   const [pendingRowChange, setPendingRowChange] =
     useState<PendingRowChange>();
@@ -684,6 +687,14 @@ const BuilderWorkspaceContent = ({
             type: 'commandsApplied',
             value,
           });
+          const selectsTableThroughCommand = commands.some((command) =>
+            command.type === 'CREATE_TABLE' ||
+            command.type === 'DUPLICATE_TABLE' ||
+            (command.type === 'DELETE_TABLE' && command.outputId === current.selectedOutputId),
+          );
+          if (selectsTableThroughCommand && next.selectedOutputId) {
+            rememberSelectedTable(next.selectedOutputId);
+          }
           latestState.current = next;
           setLocalState({ key: builderDataKey, value: next });
           setMessage(undefined);
@@ -728,6 +739,7 @@ const BuilderWorkspaceContent = ({
       dispatch,
       projectId,
       refetchBuilder,
+      rememberSelectedTable,
       syncBuilderData,
     ],
   );
@@ -857,7 +869,7 @@ const BuilderWorkspaceContent = ({
       window.setTimeout(() => document.getElementById('first-table-name')?.focus(), 0);
       return;
     }
-    dispatch({ type: 'selectTable', outputId: target.outputId });
+    selectTableFromUser(target.outputId);
     setReviewOpen(false);
     setReviewFocusTarget(target);
     if (target.kind === 'column') {
@@ -870,7 +882,7 @@ const BuilderWorkspaceContent = ({
     if (target.kind === 'table' || (target.kind === 'row' && target.control === 'row-type')) {
       setFeatureMode('catalog');
     }
-  }, [dispatch]);
+  }, [dispatch, selectTableFromUser]);
   useEffect(() => {
     if (!reviewFocusTarget || state.selectedOutputId !== reviewFocusTarget.outputId) return;
     const focusTarget = reviewFocusTarget;
@@ -1691,6 +1703,7 @@ const BuilderWorkspaceContent = ({
           },
         },
       });
+      rememberSelectedTable(outputId);
       return;
     }
     void applyCommands([
@@ -1726,7 +1739,11 @@ const BuilderWorkspaceContent = ({
       ]);
       return;
     }
+    const fallbackOutputId = state.tables.find(
+      (candidate) => candidate.outputId !== table.outputId,
+    )?.outputId;
     dispatch({ type: 'removeTable', outputId: table.outputId });
+    if (fallbackOutputId) rememberSelectedTable(fallbackOutputId);
   };
   const reorderTable = (outputId: string, before?: string) => {
     const moving = state.tables.find((candidate) => candidate.outputId === outputId);
@@ -2386,7 +2403,7 @@ const BuilderWorkspaceContent = ({
       onDeleteExplorer={() => void deleteCurrentExplorer()}
       tables={state.tables}
       selectedOutputId={state.selectedOutputId}
-      onSelectTable={(outputId) => dispatch({ type: 'selectTable', outputId })}
+      onSelectTable={selectTableFromUser}
       onRenameTable={renameTable}
       onNewTable={addTable}
       onDuplicateTable={duplicateTable}
@@ -3256,7 +3273,7 @@ const BuilderWorkspaceContent = ({
                       className="rounded border border-slate-300 bg-white px-2.5 py-1 font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-50"
                       aria-label={`Open ${column.tableTitle} table to review ${column.label}`}
                       disabled={pendingCommands > 0 || state.reconciliation === 'pending'}
-                      onClick={() => dispatch({ type: 'selectTable', outputId: column.outputId })}
+                      onClick={() => selectTableFromUser(column.outputId)}
                     >
                       Open {column.tableTitle}
                     </button>
@@ -3353,7 +3370,7 @@ const BuilderWorkspaceContent = ({
                 }
                 onSelectTable={(outputId) => {
                   selectConstructionHistory({ kind: 'source' });
-                  dispatch({ type: 'selectTable', outputId });
+                  selectTableFromUser(outputId);
                 }}
                 onNewTable={addTable}
                 onDuplicateTable={duplicateTable}
