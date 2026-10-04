@@ -1157,9 +1157,7 @@ try {
       columnLabels: savedDocument?.columns?.map((column) => column.label),
     } : state;
   }
-  if (!error.rawOracleFailure || error.unverifiedKind === 'raw-source-command' || error.unverifiedKind === 'exact-record-reread-command') {
-    process.exitCode = 1;
-  }
+  process.exitCode = 1;
 } finally {
   await requestCapture?.flush().catch(() => undefined);
   report.nativeRequests = report.nativeRequests.map(entry => {
