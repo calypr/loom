@@ -4,7 +4,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { readNDJSONResourceIdentityOracle } from './ndjson-resource-oracle.mjs';
+import { assertVisibleRowsMatchOracle, readNDJSONResourceIdentityOracle } from './ndjson-resource-oracle.mjs';
 
 test('raw resource oracle retains its file identity and orders ids by storage key', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'loom-ndjson-oracle-'));
@@ -37,4 +37,21 @@ test('raw resource oracle rejects duplicate identities and wrong resource types'
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
+});
+
+test('visible preview rows must be a contiguous oracle window with the exact independent preview count', () => {
+  const sourceIds = ['one', 'two', 'three'];
+  const rows = [
+    { ordinal: 1, cells: ['one'] },
+    { ordinal: 2, cells: ['two'] },
+  ];
+  assert.deepEqual(assertVisibleRowsMatchOracle({ rows, sourceIds, ariaRowCount: '4', previewLimit: 25 }), rows);
+  assert.throws(() => assertVisibleRowsMatchOracle({ rows: rows.slice(1), sourceIds, ariaRowCount: '4' }), /contiguous from the start/,
+    'An omitted leading visible row must fail');
+  assert.throws(() => assertVisibleRowsMatchOracle({ rows: [rows[0], { ordinal: 3, cells: ['three'] }], sourceIds, ariaRowCount: '4' }), /independent source preview window/,
+    'A missing visible row ordinal must fail');
+  assert.throws(() => assertVisibleRowsMatchOracle({ rows: [{ ordinal: 1, cells: ['incorrect'] }], sourceIds, ariaRowCount: '4' }), /independent source preview window/,
+    'An incorrect visible value must fail');
+  assert.throws(() => assertVisibleRowsMatchOracle({ rows, sourceIds, ariaRowCount: '3' }), /must report 3 data rows/,
+    'A preview that claims fewer rows must fail');
 });

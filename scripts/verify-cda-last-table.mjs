@@ -4,7 +4,7 @@ import { mkdir, realpath, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { captureApiBuildFreeze, checkContainerApiBuildStamp } from './lib/api-build-freeze.mjs';
-import { readNDJSONResourceIdentityOracle } from './lib/ndjson-resource-oracle.mjs';
+import { assertVisibleRowsMatchOracle, readNDJSONResourceIdentityOracle } from './lib/ndjson-resource-oracle.mjs';
 import { assertOwnedCdaTarget } from './lib/owned-cda-target.mjs';
 import { launchBrowser } from './lib/playwright-browser.mjs';
 import { performAction } from './lib/playwright-actions.mjs';
@@ -131,13 +131,10 @@ try {
   })).filter(row => row.cells.length));
   const originalRows = await renderedRows();
   assert(originalRows.length > 0, 'The source table must render real data before deletion');
-  const oracleRows = originalRows.map(row => {
-    assert(Number.isInteger(row.ordinal) && row.ordinal > 0, `Invalid visible row ordinal: ${row.ordinal}`);
-    return { ordinal: row.ordinal, cells: [specimenOracle.ids[row.ordinal - 1]] };
-  });
-  assert(oracleRows.every(row => typeof row.cells[0] === 'string'), 'Every visible row ordinal must map to an independent CDA Specimen identity');
-  assert.deepEqual(originalRows, oracleRows, 'Initial visible rows must exactly match the independent CDA Specimen identity window');
+  const previewRowCount = await page.locator('[data-testid="preview-table-scroll"] [role="table"]').getAttribute('aria-rowcount');
+  const oracleRows = assertVisibleRowsMatchOracle({ rows: originalRows, sourceIds: specimenOracle.ids, ariaRowCount: previewRowCount });
   report.oracle.visibleRows = oracleRows;
+  report.oracle.previewRowCount = Number(previewRowCount) - 1;
 
   const started = Date.now();
   await performAction(report, 'delete last table', page.locator('[data-testid="construction-delete-table"]'), target => target.click());
@@ -161,8 +158,9 @@ try {
       && element.dataset.currentDraftDigest === expected.digest;
   }, { version: state.draftVersion, digest: state.draftDigest }, { timeout: 5000 });
   const restoredRows = await renderedRows();
-  assert(restoredRows.length > 0);
-  assert.deepEqual(restoredRows, oracleRows, 'Undo must restore every independent source row in the same order');
+  const restoredRowCount = await page.locator('[data-testid="preview-table-scroll"] [role="table"]').getAttribute('aria-rowcount');
+  assert.deepEqual(assertVisibleRowsMatchOracle({ rows: restoredRows, sourceIds: specimenOracle.ids, ariaRowCount: restoredRowCount }), oracleRows,
+    'Undo must restore the same independent source window');
   const restoreDurationMs = Date.now() - restoreStart;
   assert(restoreDurationMs <= 5000, `Undo and render took ${restoreDurationMs} ms`);
   report.nativeChecks.push({ name: 'undo-last-table-deletion', durationMs: restoreDurationMs });
@@ -172,7 +170,9 @@ try {
   await page.waitForFunction(() => document.querySelector('[data-testid="construction-preview"]')?.dataset.previewStatus === 'ready', null, { timeout: 30000 });
   assert.deepEqual((await api(`${base}/builder`)).workspace, nativeBaseline);
   const reloadedRows = await renderedRows();
-  assert.deepEqual(reloadedRows, oracleRows, 'Reload must retain every independent source row in the same order');
+  const reloadedRowCount = await page.locator('[data-testid="preview-table-scroll"] [role="table"]').getAttribute('aria-rowcount');
+  assert.deepEqual(assertVisibleRowsMatchOracle({ rows: reloadedRows, sourceIds: specimenOracle.ids, ariaRowCount: reloadedRowCount }), oracleRows,
+    'Reload must retain the same independent source window');
   report.incidentalAssets = browser.diagnostics.assetFailures;
   report.errors = [...browser.diagnostics.console, ...browser.diagnostics.pageErrors, ...browser.diagnostics.httpFailures, ...browser.diagnostics.networkFailures];
   assert.deepEqual(report.errors, []);
