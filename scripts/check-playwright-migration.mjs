@@ -9,6 +9,7 @@ const legacyDrivers = new Set([
 ]);
 const patterns = [
   ['legacy browser import', /\bfrom\s*['"][^'"]*\/browser\.mjs['"]/],
+  ['legacy loom-dev browser import', /\bimport\s*\{[^}]*\b(?:browserEval|launchBrowser|navigate|waitForBrowser|snapshot)\b[^}]*\}\s*from\s*['"][^'"]*loom-dev\.mjs['"]/s],
   ['CDP command', /\bcdp\.send\s*\(/],
   ['CDP protocol command', /['"](?:Runtime\.evaluate|Page\.navigate|Page\.captureScreenshot|Input\.dispatch\w+|Network\.getResponseBody|Browser\.setDownloadBehavior)['"]/],
   ['Chrome DevTools transport', /chrome-remote-interface|remote-debugging-port/],
