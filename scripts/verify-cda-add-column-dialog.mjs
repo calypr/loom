@@ -34,6 +34,16 @@ async function readBuilder() {
   assert(response.ok, `Builder read returned ${response.status}: ${sanitizeBody(body)}`);
   return JSON.parse(body);
 }
+const timedAction = async (name, locator, method, settled) => {
+  const startedAt = Date.now();
+  await performAction(report, name, locator, target => method(target));
+  report.activeAction = { label: name, locator: locator.toString(), startedAt };
+  await browser.page.waitForFunction(settled, null, { timeout: 5000 });
+  const elapsedMs = Date.now() - startedAt;
+  report.transitions.push({ name, elapsedMs, limitMs: 5000, passed: elapsedMs <= 5000 });
+  assert(elapsedMs <= 5000, `${name} took ${elapsedMs} ms to render`);
+  report.activeAction = undefined;
+};
 
 try {
   report.target.ownership = await assertOwnedCdaTarget({ project, apiOrigin, uiOrigin, apiContainer, composeProject, sourceRoot });
@@ -54,8 +64,15 @@ try {
   await page.goto(url, { waitUntil: 'domcontentloaded' });
   report.activeAction = undefined;
   await page.getByText('Dataset workspace', { exact: true }).waitFor({ state: 'visible', timeout: 5000 });
+  await timedAction('open Add columns editor', page.getByTestId('construction-action-add-columns'), target => target.click(),
+    () => document.querySelector('[data-testid="construction-operation-editor"]')?.getAttribute('data-operation-family') === 'ADD_COLUMNS');
+  const fieldsTab = page.getByRole('button', { name: 'Fields and related data', exact: true });
+  await timedAction('open Fields and related data', fieldsTab, target => target.click(),
+    () => document.querySelector('[data-testid="construction-add-columns-source"]') !== null);
+  const codedTab = page.getByRole('button', { name: 'Coded values', exact: true });
+  await timedAction('open Coded values suggestions', codedTab, target => target.click(),
+    () => document.querySelectorAll('[data-testid^="paired-column-suggestion-"]').length >= 3);
   const suggestions = page.locator('[data-testid^="paired-column-suggestion-"]');
-  await page.waitForFunction(() => document.querySelectorAll('[data-testid^="paired-column-suggestion-"]').length >= 3, null, { timeout: 30000 });
   const suggestionIdentities = await suggestions.evaluateAll(buttons => buttons.map(button => ({ testId: button.dataset.testid, label: button.getAttribute('aria-label'), text: button.innerText.trim() })));
   const suggestionCount = suggestionIdentities.length;
   assert(suggestionCount >= 3, `The current CDA table has ${suggestionCount} ready coded-value suggestions; expected at least three`);
