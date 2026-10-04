@@ -57,12 +57,12 @@ const rawPatients = (ids, generation) => {
   return JSON.parse(output.slice(start));
 };
 const selectTable = async () => {
-  await waitForDOM(page, ({ name }) => [...document.querySelectorAll('[data-testid^="construction-table-"]')].some(button => button.innerText.trim().endsWith(name)), { name: tableName }, 30000);
+  await waitForDOM(page, ({ name }) => [...document.querySelectorAll('[data-testid^="construction-table-"]')].some(button => button.innerText.trim().endsWith(name)), { name: tableName }, 5000);
   await clickControl(tracker, page, '[data-testid^="construction-table-"]', { includes: tableName });
 };
 const preview = async (stage, expectedID) => {
   const started = Date.now();
-  await waitForDOM(page, () => Boolean(document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount')) && !document.body.innerText.includes('Loading the preview…'), {}, 30000);
+  await waitForDOM(page, () => Boolean(document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount')) && !document.body.innerText.includes('Loading the preview…'), {}, 5000);
   const result = await inspectDOM(page, () => {
     const scroll = document.querySelector('[data-testid="preview-table-scroll"]');
     return { rowCount: scroll.querySelector('[role="table"]')?.getAttribute('aria-rowcount'), headers: [...scroll.querySelectorAll('[role="columnheader"]')].map(cell => cell.innerText.trim()), rows: [...scroll.querySelectorAll('[role="row"]')].slice(1).map(row => [...row.querySelectorAll('[role="cell"]')].map(cell => cell.innerText.trim())).filter(row => row.length) };
@@ -77,7 +77,7 @@ const preview = async (stage, expectedID) => {
   return result;
 };
 const filterEditor = async () => {
-  await waitForDOM(page, () => Boolean(document.querySelector('[data-testid="construction-filter-editor"] select[aria-label="Column"]:not(:disabled)')), {}, 30000);
+  await waitForDOM(page, () => Boolean(document.querySelector('[data-testid="construction-filter-editor"] select[aria-label="Column"]:not(:disabled)')), {}, 5000);
   const choices = await inspectDOM(page, () => {
     const panel = document.querySelector('[data-testid="construction-filter-editor"]');
     return { columns: [...panel.querySelector('select[aria-label="Column"]').options].map(option => ({ label: option.textContent.trim(), value: option.value, disabled: option.disabled })), conditions: [...panel.querySelector('select[aria-label="Condition"]').options].map(option => ({ label: option.textContent.trim(), value: option.value, disabled: option.disabled })) };
@@ -93,7 +93,7 @@ const setEquals = async (id, value, label) => {
   state.clicks.push('Choose Patient ID column');
   await selectControl(tracker, page, '[data-testid="construction-filter-editor"] select[aria-label="Condition"]', 'EQUALS');
   state.clicks.push('Choose equals condition');
-  await waitForDOM(page, () => Boolean(document.querySelector('[data-testid="construction-filter-editor"] input[aria-label="Value"]:not(:disabled)')), {}, 30000);
+  await waitForDOM(page, () => Boolean(document.querySelector('[data-testid="construction-filter-editor"] input[aria-label="Value"]:not(:disabled)')), {}, 5000);
   const started = Date.now();
   const requestStart = state.nativeRequests.length;
   await fillControl(tracker, page, '[data-testid="construction-filter-editor"] input[aria-label="Value"]', value);
@@ -121,10 +121,10 @@ try {
   page = browser.page;
   requestCapture = captureCDARequests(page, { apiOrigin: uiOrigin, appOrigins: [apiOrigin, uiOrigin], ownedPathPrefix: root, report: state, responsePaths: /commands|builder|construction-proposals|preview|explorers/ });
   await navigatePage(page, pageURL);
-  await waitForDOM(page, () => document.body.innerText.includes('DATASET WORKSPACE'), {}, 30000);
+  await waitForDOM(page, () => document.body.innerText.includes('DATASET WORKSPACE'), {}, 5000);
   await clickControl(tracker, page, 'button', { name: 'New table' });
   state.clicks.push('New table');
-  await waitForDOM(page, () => Boolean(document.querySelector('button[aria-label="Choose Patient rows"]:not(:disabled)')), {}, 30000);
+  await waitForDOM(page, () => Boolean(document.querySelector('button[aria-label="Choose Patient rows"]:not(:disabled)')), {}, 5000);
   await fillControl(tracker, page, '#first-table-name', tableName);
   await clickControl(tracker, page, 'button[aria-label="Choose Patient rows"]');
   state.clicks.push('Choose Patient rows');
@@ -149,7 +149,7 @@ try {
   state.firstProposal = await setEquals(id, ids[0], 'Enter Patient ID value');
   await clickControl(tracker, page, '[data-testid="construction-apply-proposal"]');
   state.clicks.push('Apply Patient ID filter');
-  await waitForDOM(page, () => document.querySelectorAll('[data-testid^="construction-history-step-"]').length === 1, {}, 30000);
+  await waitForDOM(page, () => document.querySelectorAll('[data-testid^="construction-history-step-"]').length === 1, {}, 5000);
   const firstSaved = await builder();
   assert.deepEqual(firstSaved.workspace.documents.find(document => document.output.id === outputId)?.construction, state.firstProposal.request.response.candidateConstruction, 'Applied filter must persist the proposed construction');
   await navigatePage(page, pageURL);
@@ -158,7 +158,7 @@ try {
 
   await clickControl(tracker, page, '[data-testid^="construction-history-step-"]');
   state.clicks.push('Select saved Filter rows step');
-  await waitForDOM(page, () => Boolean(document.querySelector('[data-testid^="construction-edit-step-"]')), {}, 30000);
+  await waitForDOM(page, () => Boolean(document.querySelector('[data-testid^="construction-edit-step-"]')), {}, 5000);
   await clickControl(tracker, page, '[data-testid^="construction-edit-step-"]');
   state.clicks.push('Edit Filter rows step');
   await filterEditor();
@@ -167,7 +167,7 @@ try {
   state.editedProposal = await setEquals(id, ids[1], 'Change Patient ID value');
   await clickControl(tracker, page, '[data-testid="construction-apply-proposal"]');
   state.clicks.push('Apply edited Filter rows step');
-  await waitForDOM(page, () => document.querySelectorAll('[data-testid^="construction-history-step-"]').length === 1, {}, 30000);
+  await waitForDOM(page, () => document.querySelectorAll('[data-testid^="construction-history-step-"]').length === 1, {}, 5000);
   const editedSaved = await builder();
   assert.deepEqual(editedSaved.workspace.documents.find(document => document.output.id === outputId)?.construction, state.editedProposal.request.response.candidateConstruction, 'Edited filter must persist its proposed construction');
   await navigatePage(page, pageURL);
@@ -176,15 +176,15 @@ try {
 
   await clickControl(tracker, page, '[data-testid^="construction-history-step-"]');
   state.clicks.push('Select edited Filter rows step');
-  await waitForDOM(page, () => Boolean(document.querySelector('[data-testid^="construction-remove-step-"]')), {}, 30000);
+  await waitForDOM(page, () => Boolean(document.querySelector('[data-testid^="construction-remove-step-"]')), {}, 5000);
   const removeStart = state.nativeRequests.length;
   await clickControl(tracker, page, '[data-testid^="construction-remove-step-"]');
   state.clicks.push('Remove Filter rows step');
   await requestCapture.waitFor(entry => entry.method === 'POST' && entry.path.endsWith('/construction-proposals'), { fromIndex: removeStart, timeoutMs: 5000 });
-  await waitForDOM(page, () => document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status') === 'ready', {}, 30000);
+  await waitForDOM(page, () => document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status') === 'ready', {}, 5000);
   await clickControl(tracker, page, '[data-testid="construction-apply-proposal"]');
   state.clicks.push('Apply step removal');
-  await waitForDOM(page, () => document.querySelectorAll('[data-testid^="construction-history-step-"]').length === 0, {}, 30000);
+  await waitForDOM(page, () => document.querySelectorAll('[data-testid^="construction-history-step-"]').length === 0, {}, 5000);
   await navigatePage(page, pageURL);
   await selectTable();
   const restored = await preview('restored');
