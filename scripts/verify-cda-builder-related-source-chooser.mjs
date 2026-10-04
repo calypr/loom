@@ -8,14 +8,14 @@ import { launchBrowser, sanitizeText } from './lib/playwright-browser.mjs';
 import { performAction, requireUnique } from './lib/playwright-actions.mjs';
 import { sourceFingerprintChangedPaths, sourceFingerprintWithManifest } from './verify-ui/source-fingerprint.mjs';
 
-const requiredEnvironment = [
+export const requiredEnvironment = [
   'LOOM_CDA_SOURCE_ROOT', 'LOOM_CDA_DATASET_DIR', 'LOOM_CDA_COMPOSE_PROJECT',
   'LOOM_CDA_API_PORT', 'LOOM_CDA_UI_PORT', 'LOOM_CDA_API_ORIGIN',
   'LOOM_CDA_UI_ORIGIN', 'LOOM_CDA_API_CONTAINER',
   'LOOM_CDA_PROJECT', 'LOOM_CDA_GENERATION',
 ];
 
-const targetFromEnvironment = async env => {
+export const targetFromEnvironment = async (env = process.env) => {
   const missing = requiredEnvironment.filter(name => !String(env[name] ?? '').trim());
   assert.equal(missing.length, 0, `Set an explicit isolated CDA target: ${missing.join(', ')}`);
   const sourceRoot = realpathSync(resolve(env.LOOM_CDA_SOURCE_ROOT));
@@ -43,7 +43,7 @@ const targetFromEnvironment = async env => {
   return target;
 };
 
-const apiBuildIdentity = target => {
+export const apiBuildIdentity = target => {
   const output = execFileSync('docker', [
     'exec', `${target.composeProject}-loom-api-1`, '/workspace/loom-dev-build-stamp.sh', '--check',
   ], { encoding: 'utf8', timeout: 10000 }).trim();
@@ -52,12 +52,12 @@ const apiBuildIdentity = target => {
   return output.split(/\s+/).join(':').toLowerCase();
 };
 
-const record = (report, name, passed, evidence = {}) => {
+export const record = (report, name, passed, evidence = {}) => {
   report.assertions.push({ name, status: passed ? 'passed' : 'failed', evidence });
   assert(passed, name);
 };
 
-const measuredAction = async (tracker, name, locator, action, rendered, { editable = false } = {}) => {
+export const measuredAction = async (tracker, name, locator, action, rendered, { editable = false } = {}) => {
   const started = Date.now();
   tracker.actionStartedAt = started;
   const actionMs = await performAction(tracker, name, locator, action, { timeout: 5000, editable });

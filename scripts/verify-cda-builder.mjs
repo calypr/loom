@@ -4,9 +4,11 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { browserEval, launchBrowser, navigate, waitForBrowser } from './loom-dev.mjs';
 import { runRelatedSourceChooser } from './verify-cda-builder-related-source-chooser.mjs';
+import { runPatientRelatedInspection } from './verify-cda-builder-related-patient-inspection.mjs';
 
 const action = process.argv[2] ?? 'Keep rows';
-const playwrightOnlyAction = action === 'Verify related source chooser';
+const patientRelatedInspectionActions = new Set(['Inspect Patient field choice', 'Inspect selected Patient route', 'Inspect Patient proposal']);
+const playwrightOnlyAction = action === 'Verify related source chooser' || patientRelatedInspectionActions.has(action);
 const explorerId = process.argv[3] ?? (playwrightOnlyAction ? undefined : 'cda-builder-full-qa-1790439585678');
 const uiOrigin = (process.env.LOOM_CDA_UI_ORIGIN ?? (playwrightOnlyAction ? '' : 'http://127.0.0.1:30002')).replace(/\/$/, '');
 const pageURL = playwrightOnlyAction ? undefined : `${uiOrigin}/?project=loom_dev_cda_fhir&explorer=${explorerId}&mode=builder`;
@@ -48,7 +50,9 @@ browser?.cdp.on('Network.responseReceived', (event) => {
 
 try {
   if (playwrightOnlyAction) {
-    const report = await runRelatedSourceChooser({ explorerId: process.argv[3] });
+    const report = action === 'Verify related source chooser'
+      ? await runRelatedSourceChooser({ explorerId: process.argv[3] })
+      : await runPatientRelatedInspection({ action, explorerId: process.argv[3] });
     console.log(JSON.stringify({
       action,
       status: report.status,
