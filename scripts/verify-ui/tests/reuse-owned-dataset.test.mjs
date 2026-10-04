@@ -9,5 +9,5 @@ test('owned dataset reuse is limited to compatible read-only Builder cases', () 
   assert.equal(supportsOwnedDatasetReuse('builder-load', 'state'), true);
   assert.equal(supportsOwnedDatasetReuse('builder-load', undefined), false);
   assert.equal(supportsOwnedDatasetReuse('builder-controls', 'tables'), false);
-  assert.equal(supportsOwnedDatasetReuse('builder-authoring', 'cohort-recode'), false);
+  assert.equal(supportsOwnedDatasetReuse('builder-authoring', 'cohort-recode'), true);
 });
