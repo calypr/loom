@@ -609,6 +609,16 @@ func categoryScanCategoryIndexSpec(plan ir.PhysicalPlan, category lower.Compiled
 		return nil
 	}
 	fields := []string{"project", "dataset_generation", path, "auth_resource_path"}
+	var supersedes *PreviewCoveringIndexReplacement
+	rootType := strings.TrimSpace(plan.Source.ResourceType)
+	if rootType != "" && collection == rootType {
+		legacyFields := append([]string(nil), fields...)
+		fields = []string{"project", "dataset_generation", "resourceType", path, "auth_resource_path"}
+		supersedes = &PreviewCoveringIndexReplacement{
+			Name:   previewCoveringIndexName(collection, legacyFields),
+			Fields: legacyFields,
+		}
+	}
 	seen := make(map[string]struct{}, len(fields))
 	for _, field := range fields {
 		if _, duplicate := seen[field]; duplicate {
@@ -616,7 +626,10 @@ func categoryScanCategoryIndexSpec(plan ir.PhysicalPlan, category lower.Compiled
 		}
 		seen[field] = struct{}{}
 	}
-	return &PreviewCoveringIndexSpec{Collection: collection, Name: previewCoveringIndexName(collection, fields), Fields: fields}
+	return &PreviewCoveringIndexSpec{
+		Collection: collection, Name: previewCoveringIndexName(collection, fields), Fields: fields,
+		Supersedes: supersedes,
+	}
 }
 
 func categoryScanIndexedRootQueries(plan ir.PhysicalPlan, category lower.CompiledOutputColumn, index *PreviewCoveringIndexSpec, maxValues int) (string, map[string]any, *CategoryOverflowWitness, error) {
@@ -657,6 +670,9 @@ func categoryScanIndexedRootQueries(plan ir.PhysicalPlan, category lower.Compile
 	}
 	valueExpression := root.Variable + "." + strings.Join(value.Path, ".")
 	bindVars := cloneCategoryScanBinds(rendered.BindVars)
+	if err := categoryScanAddRootResourceTypeGuard(plan, root, value.Path, index, &prefix, bindVars); err != nil {
+		return "", nil, nil, err
+	}
 	presenceExpression, err := categoryScanRootPresenceExpression(*projection.Presence, root.Variable, bindVars)
 	if err != nil {
 		return "", nil, nil, err
@@ -687,6 +703,42 @@ func categoryScanIndexedRootQueries(plan ir.PhysicalPlan, category lower.Compile
 	bindVars = categoryScanPruneBindVars(bindVars, query)
 	witnessBinds = categoryScanPruneBindVars(witnessBinds, witnessQuery)
 	return query, bindVars, &CategoryOverflowWitness{Query: witnessQuery, BindVars: witnessBinds}, nil
+}
+
+func categoryScanAddRootResourceTypeGuard(plan ir.PhysicalPlan, root *ir.PhysicalRootScan, path []string, index *PreviewCoveringIndexSpec, prefix *string, bindVars map[string]any) error {
+	collection, ok := plan.BindVars[root.CollectionBindKey].(string)
+	if !ok || collection == "" || index.Collection != collection {
+		return fmt.Errorf("category index collection does not match the direct root scan")
+	}
+	categoryPath := strings.Join(path, ".")
+	legacyFields := []string{"project", "dataset_generation", categoryPath, "auth_resource_path"}
+	if sameCategoryIndexFields(index.Fields, legacyFields) {
+		return nil
+	}
+	sharedFields := []string{"project", "dataset_generation", "resourceType", categoryPath, "auth_resource_path"}
+	rootType := strings.TrimSpace(plan.Source.ResourceType)
+	if !sameCategoryIndexFields(index.Fields, sharedFields) || rootType == "" || collection != rootType {
+		return fmt.Errorf("category index does not match the exact source collection type and path")
+	}
+	const typeBindKey = "__loom_category_resource_type"
+	if _, exists := bindVars[typeBindKey]; exists {
+		return fmt.Errorf("category scan bind %q is already defined", typeBindKey)
+	}
+	*prefix += "\nFILTER " + root.Variable + ".resourceType == @" + typeBindKey
+	bindVars[typeBindKey] = rootType
+	return nil
+}
+
+func sameCategoryIndexFields(got, want []string) bool {
+	if len(got) != len(want) {
+		return false
+	}
+	for index := range want {
+		if got[index] != want[index] {
+			return false
+		}
+	}
+	return true
 }
 
 func categoryScanPruneBindVars(bindVars map[string]any, query string) map[string]any {

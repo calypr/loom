@@ -213,17 +213,40 @@ func TestCompileCategoryScanCollapsesParentPreservingRelatedPrefixToRootCategori
 	if strings.Contains(scanned.Query, "LET __loom_category_rows =") {
 		t.Fatalf("direct root category scan should stream its terminal source projection:\n%s", scanned.Query)
 	}
-	if scanned.CategoryIndex == nil || !reflect.DeepEqual(scanned.CategoryIndex.Fields, []string{"project", "dataset_generation", "payload.gender", "auth_resource_path"}) {
-		t.Fatalf("direct root category index = %+v, want the exact category path after generation", scanned.CategoryIndex)
+	wantFields := []string{"project", "dataset_generation", "resourceType", "payload.gender", "auth_resource_path"}
+	wantLegacyFields := []string{"project", "dataset_generation", "payload.gender", "auth_resource_path"}
+	if scanned.CategoryIndex == nil || !reflect.DeepEqual(scanned.CategoryIndex.Fields, wantFields) {
+		t.Fatalf("direct root category index = %+v, want the shared exact category index", scanned.CategoryIndex)
 	}
-	if !strings.Contains(scanned.Query, "forceIndexHint: false") || !strings.Contains(scanned.Query, scanned.CategoryIndex.Name) {
-		t.Fatalf("direct root category query omitted its non-forcing category index hint:\n%s", scanned.Query)
+	if scanned.CategoryIndex.Supersedes == nil || scanned.CategoryIndex.Supersedes.Name != previewCoveringIndexName("Patient", wantLegacyFields) ||
+		!reflect.DeepEqual(scanned.CategoryIndex.Supersedes.Fields, wantLegacyFields) {
+		t.Fatalf("direct root category index replacement = %+v, want only its exact legacy category index", scanned.CategoryIndex.Supersedes)
+	}
+	if !strings.Contains(scanned.Query, "forceIndexHint: false") || !strings.Contains(scanned.Query, scanned.CategoryIndex.Name) ||
+		!strings.Contains(scanned.Query, "root.resourceType == @__loom_category_resource_type") || scanned.BindVars["__loom_category_resource_type"] != "Patient" {
+		t.Fatalf("direct root category query omitted its non-forcing shared index hint or exact root type guard:\n%s\n%#v", scanned.Query, scanned.BindVars)
+	}
+	if scanned.OverflowWitness == nil {
+		t.Fatal("direct root category scan omitted its exact missing-value witness")
+	}
+	for _, guard := range []string{
+		"FILTER root.project == @project",
+		"FILTER root.dataset_generation == @dataset_generation",
+		"FILTER root_scope_allowed == @scope_allowed",
+		"FILTER root.resourceType == @__loom_category_resource_type",
+	} {
+		if !strings.Contains(scanned.Query, guard) || !strings.Contains(scanned.OverflowWitness.Query, guard) {
+			t.Errorf("root category query or missing witness lost the exact scope/type guard %q:\nquery:\n%s\nwitness:\n%s", guard, scanned.Query, scanned.OverflowWitness.Query)
+		}
+	}
+	if scanned.BindVars["@root_collection"] != "Patient" || scanned.BindVars["auth_resource_paths_unrestricted"] != true {
+		t.Fatalf("root category query changed its typed collection or auth-scope bindings: %#v", scanned.BindVars)
 	}
 	if !strings.Contains(scanned.Query, "LET __loom_category_nonnull = (") || !strings.Contains(scanned.Query, "LET __loom_category_null = (") {
 		t.Fatalf("direct root category query omitted its indexed null/non-null branches:\n%s", scanned.Query)
 	}
 	assertCategoryScanBindVarsMatchQuery(t, scanned.Query, scanned.BindVars)
-	if scanned.OverflowWitness == nil || !strings.Contains(scanned.OverflowWitness.Query, "FILTER NOT (") {
+	if !strings.Contains(scanned.OverflowWitness.Query, "FILTER NOT (") {
 		t.Fatalf("direct root category scan omitted its exact missing-value witness: %+v", scanned.OverflowWitness)
 	}
 	assertCategoryScanBindVarsMatchQuery(t, scanned.OverflowWitness.Query, scanned.OverflowWitness.BindVars)
@@ -239,6 +262,36 @@ func TestCompileCategoryScanCollapsesParentPreservingRelatedPrefixToRootCategori
 		scanned.Proof.ValueColumnID != "value_id" || scanned.Proof.OutputSchemaDigest != wantSchemaDigest ||
 		scanned.Proof.PlanFingerprint == "" || scanned.Proof.QueryFingerprint == "" || scanned.Proof.Fingerprint == "" {
 		t.Fatalf("root-category optimization lost exact stage and pivot-pair proof identity: %#v", scanned.Proof)
+	}
+}
+
+func TestCompileCategoryScanUsesLegacyIndexFallbackWhenRootCollectionTypeIsUnproven(t *testing.T) {
+	output := compilePopulationMappingOutput(t, categoryScanConstructionRecipeOutput())
+	output.Plan = ir.ClonePhysicalPlan(output.Plan)
+	output.OptimizedPlan = nil
+	root, _, ok := categoryScanRootProjectionSource(output.Plan)
+	if !ok {
+		t.Fatal("compiled fixture has no direct root projection")
+	}
+	output.Plan.BindVars[root.CollectionBindKey] = "ObservationShadow"
+
+	scanned, err := CompileCategoryScanStageWithPolicy(
+		output, recipe.ConstructionSourceProjectionID, "status_id", "amount_id", 256,
+		ir.DefaultPhysicalOptimizationPolicy(),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantFields := []string{"project", "dataset_generation", "payload.status", "auth_resource_path"}
+	if scanned.CategoryIndex == nil || scanned.CategoryIndex.Collection != "ObservationShadow" ||
+		!reflect.DeepEqual(scanned.CategoryIndex.Fields, wantFields) || scanned.CategoryIndex.Supersedes != nil {
+		t.Fatalf("unproven collection/type pair should retain the legacy non-replacement index: %+v", scanned.CategoryIndex)
+	}
+	if strings.Contains(scanned.Query, "root.resourceType == @__loom_category_resource_type") {
+		t.Fatalf("unproven collection/type pair received a narrowing type predicate:\n%s", scanned.Query)
+	}
+	if _, exists := scanned.BindVars["__loom_category_resource_type"]; exists {
+		t.Fatalf("unproven collection/type pair received a resourceType bind: %#v", scanned.BindVars)
 	}
 }
 

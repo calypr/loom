@@ -253,12 +253,12 @@ unchanged API build. Cohort Apply/Cancel/revision replacement, collection repair
 under the field/filter, reload, downstream removal and restoration pass. This is
 the concrete shared-preview CDA risk check; unrelated feature gaps remain open.
 
-Coverage ledger after preview-owner integration: the current matrix has 125
-case rows: 115 overall `passed`, 7 `untested`, 2 `partial`, 1 `failed`, and 0
+Coverage ledger after preview-owner integration: the current matrix has 126
+case rows: 116 overall `passed`, 7 `untested`, 3 `partial`, 0 `failed`, and 0
 `unsupported`. These are matrix cases rather than unique feature families. All
-four dimensions are `passed` for 109 rows; 16 retain a dimension gap. Fifteen
+four dimensions are `passed` for 110 rows; 16 retain a dimension gap. Fifteen
 have at least one `untested` dimension, and the remaining row has an `unproven`
-dimension; the single failed dimension is among those fifteen. Do not infer
+dimension. Do not infer
 whole-feature closure from an overall `passed` row. The real CDA recoded-cohort
 lifecycle is now recorded as passed in matrix row 121, while Join and Append
 restoration remain untested in rows 102–103 and other declared variants remain
@@ -353,3 +353,13 @@ Review of the pending presence implementation found that retaining presence only
 Presence backend checkpoint: real Arango `TestRelatedConstructionPivotTracksMissingNullAndStringAgainstArango` passed (0.05s) after integration. Its independent scoped fixture proves separate STRING, explicit NULL, and MISSING categories and typed Pivot execution, with foreign-project, stale-generation and denied authorization negatives. This is database correctness evidence; CDA native discovery and lifecycle remain open.
 
 CDA root quantity category checkpoint: `/tmp/loom-root-quantity-category-presence-integrated/report.json` now returns COMPLETE with exactly Missing and string d, matching the independent full-population815261-row oracle (778185missing,37076d,0explicitNULL). Native discovery-to-render8047ms and discovery7425ms fail the5second budget. The unavailable-category correctness defect is repaired, but this browser case remains failed for performance; full Pivot Apply/edit/remove lifecycle still needs coverage. Source/API freeze evidence is retained in the report.
+
+Root-category performance diagnosis (2026-10-04): the exact compiler query and uncached Arango profile are retained in `/private/tmp/loom-category-current-compiler-query.json` and `/private/tmp/loom-category-current-profile.json`. The read-only query returns Missing and d, takes 8.458 seconds, and performs 1,630,522 document lookups across two scans of the scoped 815,261 records. Both branches select the unrelated value covering index instead of the requested four-field category index. The current index inventory contains the replacement five-field related-category index but no four-field root-category index; all four preview-index slots are occupied. API logs confirm `preview covering index unavailable` / `preview covering index limit reached`. Root and related discovery need a compatible index strategy; increasing the cap or deleting unrelated indexes is not an established fix. This query profile diagnoses the performance failure and does not close native browser lifecycle coverage.
+
+Shared-index hypothesis check: `/private/tmp/loom-category-shared-index-profile.json` retains a read-only diagnostic with the existing five-field category index hint and an exact bound Observation resource-type predicate. Both branches select that index, the full scoped result remains Missing and d, and the single uncached profiled execution takes 1.772 seconds with 778,185 document lookups. This is a diagnostic observation, not a repeated benchmark or native action-to-render pass. Compiler integration must gate the optimization on the resource-specific ingestion contract, retain project/generation/authorization checks, and then rerun the native regression without reducing its population.
+
+CDA authored cohort EXPAND follow-up: `LOOM_COHORT_FIELD=id LOOM_COHORT_AUTHORED_EXPAND=1 node scripts/verify-cda-cohort-fields-browser.mjs /tmp/loom-cda-cohort-authored-expand-native` reaches saved cohort creation, native member-field Apply, and reload with exact independently scoped Specimen IDs. The run then stops before EXPAND because new value-consuming `browserEval` calls omit an outer `return`; `browserEval` wraps its body in an async function, so those calls report undefined despite the visible Rows control. Source/API freeze and aggregate fingerprint are unchanged. This is a verifier defect, not a demonstrated unavailable EXPAND control. Correct the reads and rerun the full lifecycle before closing CDA coverage.
+
+CDA authored cohort EXPAND lifecycle GREEN: `/tmp/loom-cda-cohort-authored-expand-normalized-document/report.json` passes all22 actions (max1838ms), exact independent Specimen IDs and cohort membership, automatic preview/Cancel/Apply, reload, saved-label edit, removal and source/member-field restoration. Source/API/fingerprint unchanged; errors[]. Earlier return/regex/header/document-normalization harness failures are superseded. This closes the equivalent CDA direct-entry lifecycle, not arbitrary expansion compositions or empty-list policies.
+
+Root quantity category discovery GREEN: `/tmp/loom-root-quantity-category-shared-index-native/report.json` verifies full815261-row source scope, exact Missing+d, COMPLETE discovery, native render2448ms and endpoint1889.771ms. Source1064/API unchanged. The integrated compiler shares the existing type-ordered category index with related discovery, with exact collection/type guards and legacy replacement metadata. Scoped real Arango test `TestRootCategoryScanUsesSharedTypedIndexContractAgainstArango` passes (0.194s), including missing/NULL/string and foreign project/generation/auth/wrong-type exclusions. Matrix entry remains partial because full Pivot lifecycle and persistence are still untested.

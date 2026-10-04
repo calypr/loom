@@ -237,7 +237,7 @@ func TestSourceOnlyGroupRowsCellTraceMatchesPreviewObjectAndReturnsMemberField(t
 		},
 	}
 	bundle := recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "grouped cell trace", TranslationVersion: "test", Outputs: []recipe.Output{output}}
-	bindings := recipe.RuntimeBindings{Project: "trace-project", SelectionProject: "selection-project", DatasetGeneration: "generation-a"}
+	bindings := recipe.RuntimeBindings{Project: "trace-project", SelectionProject: "trace-project", DatasetGeneration: "generation-a"}
 	plan, err := semantic.BuildRecipePlan(bundle, bindings)
 	if err != nil {
 		t.Fatal(err)
