@@ -6,17 +6,23 @@ import { join } from 'node:path';
 import { parseArgs } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { captureSourceFreeze } from './lib/source-freeze.mjs';
-import { ApiBuildFreezeError, captureApiBuildFreeze, checkContainerApiBuildStamp, localCDAApiContainer } from './lib/api-build-freeze.mjs';
+import { ApiBuildFreezeError, captureApiBuildFreeze, checkContainerApiBuildStamp } from './lib/api-build-freeze.mjs';
 import { sourceFingerprint } from './verify-ui/source-fingerprint.mjs';
-import { browserEval, click, launchBrowser, navigate, selectOption, waitForBrowser } from './lib/browser.mjs';
+import { launchBrowser, sanitizeBody, sanitizeText } from './lib/playwright-browser.mjs';
+import { performAction, requireUnique } from './lib/playwright-actions.mjs';
+import { captureCDARequests } from './lib/cda-playwright-requests.mjs';
+import { assertOwnedCdaTarget } from './lib/owned-cda-target.mjs';
+import { waitForCondition } from './lib/playwright-observations.mjs';
 
 const { values } = parseArgs({ options: {
-  'api-origin': { type: 'string', default: 'http://127.0.0.1:8188' },
-  'ui-origin': { type: 'string', default: 'http://127.0.0.1:30008' },
-  project: { type: 'string', default: 'loom_dev_cda_fhir' },
+  'api-origin': { type: 'string', default: process.env.LOOM_CDA_API_ORIGIN },
+  'ui-origin': { type: 'string', default: process.env.LOOM_CDA_UI_ORIGIN },
+  'api-container': { type: 'string', default: process.env.LOOM_CDA_API_CONTAINER },
+  'compose-project': { type: 'string', default: process.env.LOOM_CDA_COMPOSE_PROJECT },
+  project: { type: 'string', default: process.env.LOOM_CDA_PROJECT },
   generation: { type: 'string', default: 'cda-fhir-v1' },
   evidence: { type: 'string', default: '/tmp/loom-cda-repeated-empty-' + Date.now() },
-  'arango-container': { type: 'string', default: 'loom-dev-6d7df93d6a37-arangodb-1' },
+  'arango-container': { type: 'string', default: process.env.LOOM_ARANGO_CONTAINER },
 } });
 
 const protectedExplorer = 'cda-builder-full-qa-1790440983382';
@@ -24,9 +30,12 @@ const explorer = 'cda-repeated-empty-' + Date.now();
 assert.notEqual(explorer, protectedExplorer);
 const sourceFreezeRoot = process.env.LOOM_SOURCE_FREEZE_ROOT ?? fileURLToPath(new URL('..', import.meta.url));
 const apiBuildTarget = 'local-cda-api';
-const apiContainer = localCDAApiContainer();
+const apiContainer = values['api-container'];
+await assertOwnedCdaTarget({ project: values.project, apiOrigin: values['api-origin'], uiOrigin: values['ui-origin'],
+  apiContainer, composeProject: values['compose-project'], sourceRoot: sourceFreezeRoot, arangoContainer: values['arango-container'] });
 const readApiBuildStamp = () => checkContainerApiBuildStamp(apiContainer);
 const report = {
+  errors: [],
   started: new Date().toISOString(), invocation: process.argv,
   target: { apiOrigin: values['api-origin'], uiOrigin: values['ui-origin'], project: values.project, generation: values.generation, protectedExplorer },
   explorer, scenario: 'Owned CDA Observation.component[] source EXPANDED composed with authored GROUP COUNT_ROWS, with raw-value, preview, cancel, apply, reload, and removal restoration checks.',
@@ -43,6 +52,54 @@ let outputId;
 let sourceFreeze;
 let frozenApiBuild;
 let browser;
+let requestMonitor;
+const inspectPage = (page, body) => page.evaluate(`(()=>{${body}})()`);
+const waitForBrowser = (page, condition, timeout = 30000) => waitForCondition(page, condition, timeout);
+const resolveActionLocator = async (page, selector, identity = {}) => {
+  const candidates = page.locator(selector);
+  const { name, includes } = identity;
+  if (name === undefined && includes === undefined) return requireUnique(candidates, selector);
+  const matches = await candidates.evaluateAll((nodes, wanted) => nodes.flatMap((node, index) => {
+    const label = String(node.getAttribute('aria-label') || node.innerText || node.textContent || '')
+      .replace(/\\s+/g, ' ').trim();
+    const matched = wanted.name !== undefined ? label === wanted.name
+      : label.toLocaleLowerCase().includes(wanted.includes.toLocaleLowerCase());
+    return matched ? [index] : [];
+  }), { name, includes });
+  assert.equal(matches.length, 1, `${selector}: expected one matching control, found ${matches.length}`);
+  return requireUnique(candidates.nth(matches[0]), `${selector} ${name ?? includes}`);
+};
+const click = async (page, selector, identity = {}, timeout = 5000) => {
+  const label = `Click ${selector} ${identity.name ?? identity.includes ?? ''}`.trim();
+  report.activeAction = { label, locator: selector, targetLocator: page.locator(selector), startedAt: Date.now() };
+  const locator = await resolveActionLocator(page, selector, identity);
+  report.activeAction.targetLocator = locator;
+  report.activeAction.locator = locator.toString();
+  const elapsedMs = await performAction(report, label, locator, (target, options) => target.click(options), { timeout });
+  report.lastAction = { label, locator: locator.toString(), targetLocator: locator, elapsedMs, startedAt: Date.now() - elapsedMs };
+  return elapsedMs;
+};
+const fill = async (page, selector, value, timeout = 5000) => {
+  const label = `Fill ${selector}`;
+  report.activeAction = { label, locator: selector, targetLocator: page.locator(selector), startedAt: Date.now() };
+  const locator = await resolveActionLocator(page, selector);
+  report.activeAction.targetLocator = locator;
+  report.activeAction.locator = locator.toString();
+  const elapsedMs = await performAction(report, label, locator, (target, options) => target.fill(value, options), { timeout, editable: true });
+  report.lastAction = { label, locator: locator.toString(), targetLocator: locator, elapsedMs, startedAt: Date.now() - elapsedMs };
+  return elapsedMs;
+};
+const selectOption = async (page, selector, value, timeout = 5000) => {
+  const label = `Select ${value} in ${selector}`;
+  report.activeAction = { label, locator: selector, targetLocator: page.locator(selector), startedAt: Date.now() };
+  const locator = await resolveActionLocator(page, selector);
+  report.activeAction.targetLocator = locator;
+  report.activeAction.locator = locator.toString();
+  const elapsedMs = await performAction(report, label, locator, (target, options) => target.selectOption(value, options), { timeout });
+  report.lastAction = { label, locator: locator.toString(), targetLocator: locator, elapsedMs, startedAt: Date.now() - elapsedMs };
+  return elapsedMs;
+};
+const navigate = (page, url) => page.goto(url, { waitUntil: 'load', timeout: 30000 });
 let browserPending = new Set();
 let expectedEmptyErrorMode = false;
 
@@ -74,11 +131,13 @@ const command = async commands => {
 };
 const document = () => builder.workspace.documents.find(doc => doc.output.id === outputId);
 const rowsReady = count => {
-  const countCondition = count === 0 ? 'rowCount <= 1' : 'rowCount === ' + (count + 1);
-  return '(()=>{const table=document.querySelector(' + q(tableSelector) + ');const rowCount=Number(table?.getAttribute("aria-rowcount"));return Boolean(table)&&' +
-    countCondition + '&&!document.body.innerText.includes("Loading your table")})()';
+  return { kind: 'rows', selector: tableSelector, count, allowEmptyParent: true };
 };
-const domText = () => browserEval(browser.cdp, 'return document.body.innerText;');
+const domText = () => inspectPage(browser.page, 'return document.body.innerText;');
+const laterSamePathRequest = entry => {
+  const index = report.browserRequests.indexOf(entry);
+  return report.browserRequests.slice(index + 1).find(candidate => candidate.path === entry.path && candidate.method === entry.method);
+};
 const responseEvidence = value => {
   if (value === undefined) return undefined;
   const source = typeof value === 'string' ? value : String(value);
@@ -138,55 +197,46 @@ const boundedRawOracle = () => {
 };
 
 const monitorBrowser = () => {
-  const byId = new Map();
-  const interested = /\/authoring\/v2\/(?:row-definition-proposals|construction-proposals|commands|preview|builder)(?:\/|\?|$)/;
-  browser.cdp.on('Network.requestWillBeSent', ({ requestId, request, wallTime }) => {
-    let url;
-    try { url = new URL(request.url); } catch { return; }
-    if (!url.pathname.startsWith(root + '/' + encodeURIComponent(explorer) + '/') || !interested.test(url.pathname + url.search)) return;
-    const entry = {
-      requestId, method: request.method, path: url.pathname + url.search,
-      startedAt: wallTime ? Math.round(wallTime * 1000) : Date.now(), body: responseEvidence(request.postData),
-    };
-    byId.set(requestId, entry);
-    report.browserRequests.push(entry);
+  requestMonitor = captureCDARequests(browser.page, {
+    apiOrigin: values['ui-origin'],
+    appOrigins: [values['api-origin'], values['ui-origin']],
+    ownedPathPrefix: `${root}/${encodeURIComponent(explorer)}`,
+    report: { nativeRequests: report.browserRequests, errors: report.errors },
+    shouldReportHttpError: (path, status) => !(path.endsWith('/row-definition-proposals') && expectedEmptyErrorMode && [400, 422].includes(status)),
+    shouldReportRequestFailure: (entry, request) => {
+      const replacement = laterSamePathRequest(entry);
+      return request.failure()?.errorText === 'net::ERR_ABORTED'
+        && ['/row-definition-proposals', '/construction-proposals'].some(path => entry.path.endsWith(path))
+        && replacement
+        ? { expected: true, reason: `A later same-path owned draft request (${replacement.requestId}) superseded this proposal.` } : true;
+    },
   });
-  browser.cdp.on('Network.responseReceived', ({ requestId, response }) => {
-    const entry = byId.get(requestId);
-    if (entry) {
-      entry.status = response.status;
-      entry.responseAt = Date.now();
-      entry.durationMs = entry.responseAt - entry.startedAt;
+  browserPending = requestMonitor.pendingReads;
+  browser.page.on('response', response => {
+    const url = new URL(response.url());
+    if (url.origin !== new URL(values['ui-origin']).origin || response.status() < 400) return;
+    const incident = { url: sanitizeText(response.url()), status: response.status() };
+    if (url.pathname === `${root}/${encodeURIComponent(explorer)}/authoring/v2/row-definition-proposals`
+      && expectedEmptyErrorMode && [400, 422].includes(response.status())) {
+      const request = report.browserRequests.findLast(entry => entry.path === url.pathname && entry.status === response.status());
+      report.expectedEmptyValidationResponses ??= [];
+      report.expectedEmptyValidationResponses.push({ status: response.status(), requestId: request?.requestId, path: url.pathname,
+        response: request?.response, reason: 'The current ERROR-policy preview intentionally validates an empty collection.' });
+      return;
     }
-    if (response.status < 400) return;
-    const error = { url: response.url, status: response.status };
-    if (response.url.endsWith('/favicon.ico')) report.browserErrors.incidental.push(error);
-    else if (entry?.path.endsWith('/row-definition-proposals') && expectedEmptyErrorMode && [400, 422].includes(response.status)) {
-      report.expectedPolicyErrors ??= [];
-      report.expectedPolicyErrors.push(error);
-    } else report.browserErrors.http.push(error);
+    if (url.pathname.endsWith('/favicon.ico')) report.browserErrors.incidental.push(incident);
+    else report.browserErrors.http.push(incident);
   });
-  browser.cdp.on('Network.loadingFinished', ({ requestId }) => {
-    const entry = byId.get(requestId);
-    if (!entry) return;
-    entry.completedAt = Date.now();
-    const read = browser.cdp.send('Network.getResponseBody', { requestId })
-      .then(result => { entry.response = responseEvidence(result.base64Encoded ? Buffer.from(result.body, 'base64').toString('utf8') : result.body); })
-      .catch(error => { entry.responseReadError = String(error); })
-      .finally(() => browserPending.delete(read));
-    browserPending.add(read);
+  browser.page.on('requestfailed', request => {
+    const url = new URL(request.url());
+    if (url.origin !== new URL(values['ui-origin']).origin || request.failure()?.errorText === 'net::ERR_ABORTED') return;
+    if (request.resourceType() === 'script') report.browserErrors.modules.push({ url: sanitizeText(request.url()), error: sanitizeText(request.failure()?.errorText) });
   });
-  browser.cdp.on('Runtime.exceptionThrown', event => report.browserErrors.exceptions.push(event.exceptionDetails));
-  browser.cdp.on('Runtime.consoleAPICalled', event => {
-    if (event.type === 'error') report.browserErrors.console.push(event.args.map(arg => arg.value ?? arg.description));
-  });
-  browser.cdp.on('Network.loadingFailed', event => {
-    if (event.type === 'Script' && event.errorText !== 'net::ERR_ABORTED') report.browserErrors.modules.push(event.errorText);
-  });
+  return monitor;
 };
 const remaining = startedAt => Math.max(100, 5000 - (Date.now() - startedAt));
-const fastWait = async (startedAt, expression, message) => {
-  try { await waitForBrowser(browser.cdp, expression, remaining(startedAt)); }
+const fastWait = async (startedAt, condition, message) => {
+  try { await waitForBrowser(browser.page, condition, remaining(startedAt)); }
   catch (error) { throw new Error(message + ' within the five-second action budget: ' + String(error)); }
 };
 const measure = async (name, action) => {
@@ -199,38 +249,44 @@ const measure = async (name, action) => {
 };
 const tableURL = () => values['ui-origin'] + '/?project=' + encodeURIComponent(values.project) + '&explorer=' + encodeURIComponent(explorer) + '&mode=builder';
 const openTable = async (expectedRows, name) => measure(name, async startedAt => {
-  await navigate(browser.cdp, tableURL());
+  await navigate(browser.page, tableURL());
   const table = '[data-testid="construction-table-' + outputId + '"]';
-  await fastWait(startedAt, 'document.querySelector(' + q(table) + ')', 'Explorer table discovery');
-  await click(browser.cdp, table);
+  await fastWait(startedAt, { kind: 'present', selector: table }, 'Explorer table discovery');
+  await click(browser.page, table);
   await fastWait(startedAt, rowsReady(expectedRows), 'CDA table render');
 });
 const openRowSettings = async () => measure('row-definition-choice-discovery', async startedAt => {
-  await click(browser.cdp, '[data-testid="construction-rows-settings-trigger"]');
-  await fastWait(startedAt, 'document.querySelector(' + q(shapeSelect) + ')?.disabled === false', 'Row definition choice discovery');
+  await click(browser.page, '[data-testid="construction-rows-settings-trigger"]');
+  await fastWait(startedAt, { kind: 'enabled', selector: shapeSelect }, 'Row definition choice discovery');
 });
 const rowProposalRequest = selection => report.browserRequests.findLast(entry =>
   entry.path.endsWith('/row-definition-proposals') && entry.body?.selection?.kind === selection.kind &&
   (selection.kind !== 'EXPANDED' || (entry.body.selection.expanded?.rowChoiceId === selection.expanded.rowChoiceId &&
     entry.body.selection.expanded?.emptyCollectionPolicy === selection.expanded.emptyCollectionPolicy)));
 const awaitRequestBody = async (entry, startedAt) => {
-  while (entry && !Object.hasOwn(entry, 'response') && !entry.responseReadError && Date.now() - startedAt < 5000) {
-    await new Promise(resolve => setTimeout(resolve, 30));
+  assert(entry, 'Native row proposal request was not captured');
+  if (entry.status === undefined) {
+    await browser.page.waitForResponse(response => requestMonitor.byRequest.get(response.request()) === entry,
+      { timeout: Math.max(1, 5000 - (Date.now() - startedAt)) });
   }
+  await requestMonitor.flush();
   assert(entry && Object.hasOwn(entry, 'response'), 'Native row proposal response was not captured: ' + JSON.stringify(entry));
 };
 const selectAndPreview = async (policy, expectedRows, emptyError = false) => measure('row-definition-preview-' + policy, async startedAt => {
   expectedEmptyErrorMode = emptyError;
-  const selectedShape = await browserEval(browser.cdp, 'return document.querySelector(' + q(shapeSelect) + ')?.value;');
+  const selectedShape = await inspectPage(browser.page, 'return document.querySelector(' + q(shapeSelect) + ')?.value;');
   if (selectedShape !== 'expanded:' + report.choice.choiceId) {
-    await selectOption(browser.cdp, shapeSelect, 'expanded:' + report.choice.choiceId);
+    await selectOption(browser.page, shapeSelect, 'expanded:' + report.choice.choiceId);
   }
   const wanted = 'expanded:' + report.choice.choiceId + ':' + policy;
-  const selectedPolicy = await browserEval(browser.cdp, 'return document.querySelector(' + q(policySelect) + ')?.value;');
-  if (selectedPolicy !== wanted) await selectOption(browser.cdp, policySelect, wanted);
+  const selectedPolicy = await inspectPage(browser.page, 'return document.querySelector(' + q(policySelect) + ')?.value;');
+  if (selectedPolicy !== wanted) await selectOption(browser.page, policySelect, wanted);
   const terminal = emptyError
-    ? 'Boolean(document.querySelector(\'[aria-label="Row definition settings"] [role="alert"]\')) || Boolean(document.querySelector(\'[aria-label="Row definition preview"]\'))'
-    : 'document.querySelector(\'[aria-label="Row definition preview"]\')?.innerText.includes(' + q('→ ' + expectedRows + ' rows') + ')';
+    ? { kind: 'any', conditions: [
+      { kind: 'present', selector: '[aria-label="Row definition settings"] [role="alert"]' },
+      { kind: 'present', selector: '[aria-label="Row definition preview"]' },
+    ] }
+    : { kind: 'text-includes', selector: '[aria-label="Row definition preview"]', text: '→ ' + expectedRows + ' rows' };
   await fastWait(startedAt, terminal, emptyError ? 'Expected empty-collection validation' : 'Automatic row definition preview');
   await Promise.all([...browserPending]);
   const selection = { kind: 'EXPANDED', expanded: { rowChoiceId: report.choice.choiceId, emptyCollectionPolicy: policy } };
@@ -245,8 +301,8 @@ const selectAndPreview = async (policy, expectedRows, emptyError = false) => mea
   return request;
 });
 const selectRecordsPreview = expectedRows => measure('row-definition-preview-records', async startedAt => {
-  await selectOption(browser.cdp, shapeSelect, 'records');
-  await fastWait(startedAt, 'document.querySelector(\'[aria-label="Row definition preview"]\')?.innerText.includes(' + q('→ ' + expectedRows + ' rows') + ')', 'Source-record row preview');
+  await selectOption(browser.page, shapeSelect, 'records');
+  await fastWait(startedAt, { kind: 'text-includes', selector: '[aria-label="Row definition preview"]', text: '→ ' + expectedRows + ' rows' }, 'Source-record row preview');
   await Promise.all([...browserPending]);
   const request = rowProposalRequest({ kind: 'RECORDS' });
   await awaitRequestBody(request, startedAt);
@@ -255,14 +311,14 @@ const selectRecordsPreview = expectedRows => measure('row-definition-preview-rec
   report.latestProposal = request;
 });
 const applyRowDefinition = expectedRows => measure('row-definition-apply', async startedAt => {
-  await click(browser.cdp, '[aria-label="Row definition settings"] button', { name: 'Apply row definition' });
-  await fastWait(startedAt, '!document.querySelector(\'[aria-label="Row definition settings"]\') && ' + rowsReady(expectedRows), 'Applied row definition render');
+  await click(browser.page, '[aria-label="Row definition settings"] button', { name: 'Apply row definition' });
+  await fastWait(startedAt, { kind: 'all', conditions: [{ kind: 'hidden', selector: '[aria-label="Row definition settings"]' }, rowsReady(expectedRows)] }, 'Applied row definition render');
 });
 const cancelRowDefinition = expectedRows => measure('row-definition-cancel', async startedAt => {
-  await click(browser.cdp, '[aria-label="Row definition settings"] button', { name: 'Cancel' });
-  await fastWait(startedAt, '!document.querySelector(\'[aria-label="Row definition settings"]\') && ' + rowsReady(expectedRows), 'Canceled row definition restoration');
+  await click(browser.page, '[aria-label="Row definition settings"] button', { name: 'Cancel' });
+  await fastWait(startedAt, { kind: 'all', conditions: [{ kind: 'hidden', selector: '[aria-label="Row definition settings"]' }, rowsReady(expectedRows)] }, 'Canceled row definition restoration');
 });
-const fieldPreviewRows = () => browserEval(browser.cdp,
+const fieldPreviewRows = () => inspectPage(browser.page,
   'const proposalRow=document.querySelector(\'[data-testid="construction-proposal-preview-row"]\');' +
   'const root=proposalRow?.closest("table")??document.querySelector(\'[data-testid="preview-table-scroll"] [role="table"]\');' +
   'if(!root)return null;const proposal=Boolean(proposalRow);' +
@@ -332,27 +388,25 @@ const expectedGroupRows = () => sortedRows([
   ...report.oracle.expectedPreservedEmptyIDs.map(id => [id, 1]),
 ]);
 const constructionProposalFor = async (name, startedAt) => {
-  const deadline = startedAt + 5000;
-  while (Date.now() < deadline) {
-    const panel = await browserEval(browser.cdp, `const value=document.querySelector('[data-testid="construction-proposal-panel"]');const preview=document.querySelector('[data-testid="construction-proposal-preview"]');return {id:value?.dataset.proposalId,status:value?.dataset.proposalStatus,text:value?.innerText,receiptId:preview?.dataset.previewReceiptId};`);
-    const request = panel.id && report.browserRequests.findLast(entry => entry.startedAt >= startedAt &&
-      entry.path.endsWith('/construction-proposals') && entry.response?.proposalId === panel.id);
-    if (request && ['ready', 'error', 'needs-repair'].includes(panel.status)) {
-      assert.equal(panel.status, 'ready', `${name} proposal is not ready: ${panel.text}`);
-      assert.equal(request.status, 200, `${name} proposal request failed: ${JSON.stringify(request.response)}`);
-      assert.equal(request.response?.previewStatus, 'READY', `${name} response preview is not ready: ${JSON.stringify(request.response)}`);
-      assert(request.response?.preview?.receiptId, `${name} proposal is missing a preview receipt`);
-      assert(request.durationMs <= 5000, `${name} native proposal request took ${request.durationMs} ms`);
-      assert(request.response.previewDurationMs <= 5000, `${name} preview took ${request.response.previewDurationMs} ms`);
-      assert.equal(panel.receiptId, request.response.preview.receiptId, `${name} UI did not adopt the exact automatic-preview receipt`);
-      const durationMs = Date.now() - startedAt;
-      report.timings.push({ name, durationMs, limitMs: 5000 });
-      assert(durationMs <= 5000, `${name} took ${durationMs} ms`);
-      return request;
-    }
-    await new Promise(resolve => setTimeout(resolve, 30));
-  }
-  throw new Error(`${name} did not adopt a ready native construction proposal within five seconds`);
+  await browser.page.waitForFunction(() => {
+    const panel = document.querySelector('[data-testid="construction-proposal-panel"]');
+    return panel && ['ready', 'error', 'needs-repair'].includes(panel.dataset.proposalStatus);
+  }, undefined, { timeout: Math.max(1, 5000 - (Date.now() - startedAt)) });
+  const panel = await inspectPage(browser.page, `const value=document.querySelector('[data-testid="construction-proposal-panel"]');const preview=document.querySelector('[data-testid="construction-proposal-preview"]');return {id:value?.dataset.proposalId,status:value?.dataset.proposalStatus,text:value?.innerText,receiptId:preview?.dataset.previewReceiptId};`);
+  const request = report.browserRequests.findLast(entry => entry.startedAt >= startedAt && entry.path.endsWith('/construction-proposals'));
+  assert(request, `${name} native construction request was not captured`);
+  await awaitRequestBody(request, startedAt);
+  assert.equal(panel.status, 'ready', `${name} proposal is not ready: ${panel.text}`);
+  assert.equal(request.status, 200, `${name} proposal request failed: ${JSON.stringify(request.response)}`);
+  assert.equal(request.response?.previewStatus, 'READY', `${name} response preview is not ready: ${JSON.stringify(request.response)}`);
+  assert(request.response?.preview?.receiptId, `${name} proposal is missing a preview receipt`);
+  assert(request.durationMs <= 5000, `${name} native proposal request took ${request.durationMs} ms`);
+  assert(request.response.previewDurationMs <= 5000, `${name} preview took ${request.response.previewDurationMs} ms`);
+  assert.equal(panel.receiptId, request.response.preview.receiptId, `${name} UI did not adopt the exact automatic-preview receipt`);
+  const durationMs = Date.now() - startedAt;
+  report.timings.push({ name, durationMs, limitMs: 5000 });
+  assert(durationMs <= 5000, `${name} took ${durationMs} ms`);
+  return request;
 };
 const resolveGroupInputColumn = async () => {
   builder = (await api(base + '/builder')).body;
@@ -467,27 +521,27 @@ const assertExpandedProposal = (request, expectedRows) => {
 };
 const groupKeyControl = 'input[aria-label="Group by Observation ID"]';
 const chooseOnlyObservationIDGroupKey = async (startedAt) => {
-  const controls = await browserEval(browser.cdp, `return [...document.querySelectorAll('[data-testid="construction-reshape-group"] input[type="checkbox"][aria-label^="Group by "]')].map(input=>({label:input.getAttribute('aria-label'),checked:input.checked,disabled:input.disabled}));`);
+  const controls = await inspectPage(browser.page, `return [...document.querySelectorAll('[data-testid="construction-reshape-group"] input[type="checkbox"][aria-label^="Group by "]')].map(input=>({label:input.getAttribute('aria-label'),checked:input.checked,disabled:input.disabled}));`);
   const target = controls.find(control => control.label === 'Group by Observation ID');
   assert(target && !target.disabled, `GROUP editor did not expose an enabled Observation ID key: ${JSON.stringify(controls)}`);
   for (const control of controls) {
     if (control.checked && control.label !== 'Group by Observation ID') {
-      await click(browser.cdp, `input[aria-label=${q(control.label)}]`);
+      await click(browser.page, `input[aria-label=${q(control.label)}]`);
     }
   }
-  let current = await browserEval(browser.cdp, `return document.querySelector(${q(groupKeyControl)})?.checked === true;`);
+  let current = await inspectPage(browser.page, `return document.querySelector(${q(groupKeyControl)})?.checked === true;`);
   if (current) {
-    await click(browser.cdp, groupKeyControl);
+    await click(browser.page, groupKeyControl);
     current = false;
   }
-  if (!current) await click(browser.cdp, groupKeyControl);
-  await fastWait(startedAt, `document.querySelector(${q(groupKeyControl)})?.checked === true`, 'Exact Observation ID group key selection');
+  if (!current) await click(browser.page, groupKeyControl);
+  await fastWait(startedAt, { kind: 'checked', selector: groupKeyControl, value: true }, 'Exact Observation ID group key selection');
 };
 const configureGroup = async () => measure('source-expanded-group-editor-to-key', async startedAt => {
-  await click(browser.cdp, '[data-testid="construction-rows-settings-trigger"]');
-  await fastWait(startedAt, `document.querySelector('[data-testid="construction-action-group-rows"]')?.disabled === false`, 'Group operation discovery');
-  await click(browser.cdp, '[data-testid="construction-action-group-rows"]');
-  await fastWait(startedAt, `Boolean(document.querySelector('[data-testid="construction-reshape-group"]'))`, 'Native GROUP editor');
+  await click(browser.page, '[data-testid="construction-rows-settings-trigger"]');
+  await fastWait(startedAt, { kind: 'enabled', selector: '[data-testid="construction-action-group-rows"]' }, 'Group operation discovery');
+  await click(browser.page, '[data-testid="construction-action-group-rows"]');
+  await fastWait(startedAt, { kind: 'present', selector: '[data-testid="construction-reshape-group"]' }, 'Native GROUP editor');
   await chooseOnlyObservationIDGroupKey(startedAt);
 });
 const verifyGroupedTable = async (expected, name) => {
@@ -514,8 +568,8 @@ const verifyGroupedTable = async (expected, name) => {
   return { headers: preview.headers, rowCount: preview.rows.length, rows: protocolRows };
 };
 const applyConstructionProposal = async (expectedRows, name) => measure(name, async startedAt => {
-  await click(browser.cdp, '[data-testid="construction-apply-proposal"]');
-  await fastWait(startedAt, '!document.querySelector(\'[data-testid="construction-proposal-panel"]\') && ' + rowsReady(expectedRows), 'Applied authored row operation render');
+  await click(browser.page, '[data-testid="construction-apply-proposal"]');
+  await fastWait(startedAt, { kind: 'all', conditions: [{ kind: 'hidden', selector: '[data-testid="construction-proposal-panel"]' }, rowsReady(expectedRows)] }, 'Applied authored row operation render');
 });
 const createSelection = async (refs, idempotencyKey) => {
   const selectionsPath = base.replace('/authoring/v2', '/selections');
@@ -544,12 +598,12 @@ const saveDOM = async name => {
 const verifyEmptyError = async request => {
   assert(request, 'No native ERROR-policy row proposal was captured');
   assert([400, 422].includes(request.status), 'Empty-only ERROR must return 400/422, got ' + request.status + ': ' + JSON.stringify(request.response));
-  const alertText = await browserEval(browser.cdp, 'return document.querySelector(\'[aria-label="Row definition settings"] [role="alert"]\')?.innerText ?? "";');
+  const alertText = await inspectPage(browser.page, 'return document.querySelector(\'[aria-label="Row definition settings"] [role="alert"]\')?.innerText ?? "";');
   const responseText = JSON.stringify(request.response) + ' ' + alertText;
   const code = request.response?.error?.code ?? request.response?.code ?? request.response?.errorCode ?? request.response?.error?.errorCode;
   assert.notEqual(code, 'INTERNAL_ERROR', 'Empty-only ERROR returned INTERNAL_ERROR: ' + responseText);
   assert(/empty|no values|at least one|collection/i.test(responseText), 'Validation did not explain the empty collection: ' + responseText);
-  const policy = await browserEval(browser.cdp,
+  const policy = await inspectPage(browser.page,
     'const select=document.querySelector(' + q(policySelect) + ');return {disabled:select?.disabled,options:[...(select?.options??[])].map(option=>({value:option.value,label:option.text,disabled:option.disabled}))};');
   assert.equal(policy.disabled, false, 'Policy repair control must remain enabled after ERROR validation');
   assert(policy.options.some(option => option.value.endsWith(':PRESERVE_PARENT') && !option.disabled), 'PRESERVE_PARENT repair choice must remain enabled');
@@ -639,7 +693,7 @@ const main = async () => {
   }
   report.choice = { choiceId: choice.choiceId, fieldPath: choice.fieldPath, occurrenceId: choice.occurrenceId };
 
-  browser = await launchBrowser(values.evidence);
+  browser = await launchBrowser({ evidence: values.evidence, appOrigins: [values['api-origin'], values['ui-origin']], noAuth: process.env.LOOM_CDA_NO_AUTH === '1' });
   monitorBrowser();
   const rootsCount = selected.length;
   const preserveCount = report.oracle.expectedComponentRows.length + emptyResources.length;
@@ -688,8 +742,8 @@ const main = async () => {
   recordAssertion('automatic Group COUNT_ROWS proposal matches raw expanded-item cardinalities', report.groupCancelPreview);
   const beforeGroupCancel = structuredClone((await api(base + '/builder')).body.workspace);
   await measure('source-expanded Group preview Cancel', async startedAt => {
-    await click(browser.cdp, '[data-testid="construction-cancel-proposal"]');
-    await fastWait(startedAt, '!document.querySelector(\'[data-testid="construction-proposal-panel"]\')', 'Canceled authored GROUP preview');
+    await click(browser.page, '[data-testid="construction-cancel-proposal"]');
+    await fastWait(startedAt, { kind: 'hidden', selector: '[data-testid="construction-proposal-panel"]' }, 'Canceled authored GROUP preview');
   });
   builder = (await api(base + '/builder')).body;
   assert.deepEqual(builder.workspace, beforeGroupCancel, 'Canceling Group preview must not mutate saved authoring state');
@@ -727,11 +781,11 @@ const main = async () => {
   recordAssertion('reloaded GROUP output matches exact raw Observation component counts', report.groupApplyReload);
 
   await measure('open saved GROUP removal control', async startedAt => {
-    await click(browser.cdp, '[data-testid="construction-rows-settings-trigger"]');
-    await fastWait(startedAt, `Boolean(document.querySelector(${q('[data-testid="construction-row-remove-' + groupStepId + '"]')}))`, 'Saved GROUP removal control');
+    await click(browser.page, '[data-testid="construction-rows-settings-trigger"]');
+    await fastWait(startedAt, { kind: 'present', selector: `[data-testid="construction-row-remove-${groupStepId}"]` }, 'Saved GROUP removal control');
   });
   const removeStarted = Date.now();
-  await click(browser.cdp, '[data-testid="construction-row-remove-' + groupStepId + '"]');
+  await click(browser.page, '[data-testid="construction-row-remove-' + groupStepId + '"]');
   const removeProposal = await constructionProposalFor('remove source-expanded GROUP', removeStarted);
   assert.deepEqual(removeProposal.body?.candidateConstruction?.steps ?? [], [], 'Removing the only GROUP must restore the source projection construction');
   report.groupRemovalPreview = assertExpandedProposal(removeProposal, preserveCount);
@@ -766,9 +820,8 @@ const main = async () => {
   await verifyEmptyError(errorProposal);
   expectedEmptyErrorMode = false;
   await measure('repair-policy-after-error', async startedAt => {
-    await selectOption(browser.cdp, policySelect, 'expanded:' + report.choice.choiceId + ':PRESERVE_PARENT');
-    await fastWait(startedAt, 'document.querySelector(\'[aria-label="Row definition preview"]\')?.innerText.includes(' +
-      q('→ ' + emptyResources.length + ' rows') + ')', 'Actionable empty-collection policy repair');
+    await selectOption(browser.page, policySelect, 'expanded:' + report.choice.choiceId + ':PRESERVE_PARENT');
+    await fastWait(startedAt, { kind: 'text-includes', selector: '[aria-label="Row definition preview"]', text: '→ ' + emptyResources.length + ' rows' }, 'Actionable empty-collection policy repair');
     await Promise.all([...browserPending]);
   });
   const repair = rowProposalRequest({ kind: 'EXPANDED', expanded: { rowChoiceId: report.choice.choiceId, emptyCollectionPolicy: 'PRESERVE_PARENT' } });
@@ -809,6 +862,7 @@ const main = async () => {
   assert.deepEqual(report.browserErrors.console, [], 'Browser logged console errors');
   assert.deepEqual(report.browserErrors.modules, [], 'Browser failed to load a module');
   assert.deepEqual(report.browserErrors.http, [], 'Browser received unexpected 4xx/5xx responses');
+  assert.deepEqual(report.errors, [], 'Playwright request capture reported an owned API, runtime, or console failure');
   recordAssertion('native row-policy lifecycle had no browser, module, console, or unexpected HTTP errors', report.browserErrors);
 };
 
@@ -837,7 +891,12 @@ try {
     }
     process.exitCode = 1;
   } else {
-    report.failures.push({ error: String(error.stack ?? error), phase: report.assertions.length });
+  report.failures.push({ error: String(error.stack ?? error), phase: report.assertions.length });
+  if (browser) report.failureTrace = await browser.captureFailure(error, {
+    phase: report.assertions.length, action: report.activeAction ?? report.lastAction,
+    elapsedMs: report.activeAction?.startedAt ? Date.now() - report.activeAction.startedAt : report.lastAction?.elapsedMs,
+    requestIdentity: report.browserRequests.at(-1) && (({ requestId, path, method }) => ({ requestId, path, method }))(report.browserRequests.at(-1)),
+  }).catch(String);
   }
   try { if (browser) report.failureDOM = await domText(); } catch { /* Browser may not have opened. */ }
   try { if (outputId) report.failureBuilder = (await api(base + '/builder')).body; } catch (readError) { report.builderReadError = String(readError); }
