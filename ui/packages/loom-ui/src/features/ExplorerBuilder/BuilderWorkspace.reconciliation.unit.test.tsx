@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import React from 'react';
 import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render as renderUI, screen, waitFor, within } from '@testing-library/react';
 import {
   useApplyExplorerBuilderCommandsV2Mutation,
   useAssessExplorerRowChangeMutation,
@@ -15,6 +15,7 @@ import {
   usePopulationMappingMutation,
   usePublishExplorerAuthoringV2Mutation,
   useReconcileExplorerBuilderV2Mutation,
+  LoomProvider,
 } from '../../react';
 import BuilderWorkspace from './BuilderWorkspace';
 import type { SelectionRevision } from '../../selection';
@@ -26,6 +27,7 @@ import type {
   ExplorerBuilderWorkspace,
 } from '../../types';
 import type { ConstructionCandidateIntent } from './constructionWorkspace/useConstructionLifecycle';
+import type { LoomClient } from '../../api';
 import type {
   ProposeConstructionArgs,
   ProposeConstructionChoicesArgs,
@@ -49,22 +51,37 @@ const mockLoomClient = vi.hoisted(() => ({
   browseSemanticInventory: vi.fn(),
 }));
 
-vi.mock('../../react', () => ({
-  useLoomClient: () => mockLoomClient,
-  useApplyExplorerBuilderCommandsV2Mutation: vi.fn(),
-  useAssessExplorerRowChangeMutation: vi.fn(),
-  useCreateExplorerAuthoringMutation: vi.fn(),
-  useDeleteExplorerAuthoringMutation: vi.fn(),
-  useGetExplorerAuthoringCapabilityV2Query: vi.fn(),
-  useGetExplorerAuthoringExplorersQuery: vi.fn(),
-  useGetExplorerBuilderStateV2Query: vi.fn(),
-  useGetExplorerCandidateSuggestionsV2Mutation: vi.fn(),
-  usePreviewExplorerAuthoringV2Mutation: vi.fn(),
-  usePopulationMappingMutation: vi.fn(),
-  usePublishExplorerAuthoringV2Mutation: vi.fn(),
-  useReconcileExplorerBuilderV2Mutation: vi.fn(),
-  useResolveConfiguredColumnContextsQuery: mockLoomClient.configuredColumnContextsQuery,
-}));
+vi.mock('../../react', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../react')>();
+  return {
+    ...actual,
+    useLoomClient: () => mockLoomClient,
+    useApplyExplorerBuilderCommandsV2Mutation: vi.fn(),
+    useAssessExplorerRowChangeMutation: vi.fn(),
+    useCreateExplorerAuthoringMutation: vi.fn(),
+    useDeleteExplorerAuthoringMutation: vi.fn(),
+    useGetExplorerAuthoringCapabilityV2Query: vi.fn(),
+    useGetExplorerAuthoringExplorersQuery: vi.fn(),
+    useGetExplorerBuilderStateV2Query: vi.fn(),
+    useGetExplorerCandidateSuggestionsV2Mutation: vi.fn(),
+    usePreviewExplorerAuthoringV2Mutation: vi.fn(),
+    usePopulationMappingMutation: vi.fn(),
+    usePublishExplorerAuthoringV2Mutation: vi.fn(),
+    useReconcileExplorerBuilderV2Mutation: vi.fn(),
+    useResolveConfiguredColumnContextsQuery: mockLoomClient.configuredColumnContextsQuery,
+  };
+});
+
+
+const render = (
+  ui: React.ReactNode,
+  options?: Parameters<typeof renderUI>[1],
+) => renderUI(ui, {
+  ...options,
+  wrapper: ({ children }) => (
+    <LoomProvider client={mockLoomClient as unknown as LoomClient}>{children}</LoomProvider>
+  ),
+});
 
 vi.mock('./components/BuilderToolbar', () => ({
   BuilderToolbar: ({

@@ -11,6 +11,7 @@ import {
   useGetExplorerAuthoringExplorersQuery,
   useGetExplorerBuilderStateV2Query,
   useResolveConfiguredColumnContextsQuery,
+  useResolvePopulationSelectionQuery,
   useGetExplorerCandidateSuggestionsV2Mutation,
   usePreviewExplorerAuthoringV2Mutation,
   usePublishExplorerAuthoringV2Mutation,
@@ -463,9 +464,15 @@ const BuilderWorkspaceContent = ({
     readonly draftDigest: string;
   }>();
   const [pendingCommands, setPendingCommands] = useState(0);
-  const [activePopulationSelection, setActivePopulationSelection] = useState(populationSelection);
-  const [activePopulationSelectionLoading, setActivePopulationSelectionLoading] = useState(false);
-  const [populationVariantError, setPopulationVariantError] = useState<string>();
+  const [populationSelectionOverride, setPopulationSelectionOverride] = useState<{
+    readonly contextKey: string;
+    readonly baseSelectionID: string;
+    readonly selection: SelectionRevision;
+  }>();
+  const [populationVariantError, setPopulationVariantError] = useState<{
+    readonly contextKey: string;
+    readonly message: string;
+  }>();
   const [populationVariantPending, setPopulationVariantPending] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [firstTableName, setFirstTableName] = useState('');
@@ -888,76 +895,59 @@ const BuilderWorkspaceContent = ({
     return () => window.clearTimeout(timer);
   }, [reviewFocusTarget, state.selectedOutputId, state.tables]);
   const handedOffPopulationSelectionID = populationSelection?.id;
-  useEffect(() => {
-    setActivePopulationSelection(populationSelection);
-    setPopulationVariantError(undefined);
-  }, [handedOffPopulationSelectionID]);
   const cohortRevisionID = table && table.document.rows.kind === 'GROUPS' &&
     table.document.rows.groups.source.kind === 'EXPLICIT'
     ? table.document.rows.groups.source.explicit.revisionId
     : undefined;
-  useEffect(() => {
-    const attachedSelectionID = table?.document.population?.selectionRevisionId;
-    if (
-      handedOffPopulationSelectionID ||
-      (!attachedSelectionID && !cohortRevisionID)
-    ) {
-      setActivePopulationSelectionLoading(false);
-      return;
-    }
-    const activeTable = table;
-    if (!activeTable) {
-      setActivePopulationSelectionLoading(false);
-      return;
-    }
-    const controller = new AbortController();
-    setActivePopulationSelection(undefined);
-    setActivePopulationSelectionLoading(true);
-    setPopulationVariantError(undefined);
-    const selectionRevision = attachedSelectionID
-      ? Promise.resolve(attachedSelectionID)
-      : loomClient.listRowDefinitionChoices({
-          project: projectId,
-          explorerId: state.explorerId,
-          authResourcePath,
-          snapshotToken: state.catalog.snapshotToken,
-          outputId: activeTable.outputId,
-        }, controller.signal).then((choices) => {
-          if (choices.outputId !== activeTable.outputId || choices.snapshotToken !== state.catalog.snapshotToken) {
-            throw new Error('Loom returned cohort choices for a different table or catalog snapshot.');
-          }
-          const cohortChoice = choices.explicitGroups.find((candidate) => candidate.revisionId === cohortRevisionID);
-          if (!cohortChoice?.sourceSelectionRevisionId) {
-            throw new Error('The saved cohort does not expose its source selection in this authorized catalog snapshot.');
-          }
-          return cohortChoice.sourceSelectionRevisionId;
-        });
-    void selectionRevision.then((selectionRevisionID) => loomClient.getSelection({
+  const attachedSelectionID = table?.document.population?.selectionRevisionId;
+  const populationSelectionContextKey = JSON.stringify([
+    projectId,
+    state.explorerId,
+    authResourcePath ?? '',
+    state.catalog.snapshotToken,
+    state.catalog.generation,
+    table?.outputId ?? '',
+    table?.document.rootResourceType ?? '',
+    cohortRevisionID ?? '',
+    handedOffPopulationSelectionID ?? '',
+  ]);
+  const populationSelectionQueryArgs = !handedOffPopulationSelectionID && table &&
+    (attachedSelectionID || cohortRevisionID)
+    ? {
       project: projectId,
       explorerId: state.explorerId,
       authResourcePath,
-      selectionRevision: selectionRevisionID,
-      limit: 1,
-    }, controller.signal).then((page) => {
-      if (controller.signal.aborted) return;
-      if (page.revision.id !== selectionRevisionID || page.revision.project !== projectId ||
-        page.revision.generation !== state.catalog.generation ||
-        (!attachedSelectionID && page.revision.resourceType !== activeTable.document.rootResourceType)) {
-        throw new Error('The saved cohort source selection does not match this table and catalog snapshot.');
-      }
-      setActivePopulationSelection(page.revision);
-    })).catch(
-      (error: unknown) => {
-        if (!controller.signal.aborted) {
-          setActivePopulationSelection(undefined);
-          setPopulationVariantError(error instanceof Error ? error.message : 'Loom could not load the saved collection.');
-        }
-      },
-    ).finally(() => {
-      if (!controller.signal.aborted) setActivePopulationSelectionLoading(false);
-    });
-    return () => controller.abort();
-  }, [authResourcePath, cohortRevisionID, handedOffPopulationSelectionID, loomClient, projectId, state.catalog.generation, state.catalog.snapshotToken, state.explorerId, table?.document.population?.selectionRevisionId, table?.document.rootResourceType, table?.outputId]);
+      snapshotToken: state.catalog.snapshotToken,
+      generation: state.catalog.generation,
+      outputId: table.outputId,
+      resourceType: table.document.rootResourceType ?? '',
+      ...(attachedSelectionID ? { attachedSelectionId: attachedSelectionID } : {}),
+      ...(cohortRevisionID ? { cohortRevisionId: cohortRevisionID } : {}),
+    }
+    : undefined;
+  const populationSelectionQuery = useResolvePopulationSelectionQuery(
+    populationSelectionQueryArgs,
+    JSON.stringify([populationSelectionContextKey, attachedSelectionID ?? '']),
+  );
+  const populationSelectionOverrideIsCurrent = populationSelectionOverride?.contextKey === populationSelectionContextKey && (
+    populationSelection?.id === populationSelectionOverride.baseSelectionID ||
+    attachedSelectionID === populationSelectionOverride.baseSelectionID ||
+    attachedSelectionID === populationSelectionOverride.selection.id ||
+    populationSelectionQuery.data?.id === populationSelectionOverride.baseSelectionID
+  );
+  const activePopulationSelection = populationSelectionOverrideIsCurrent
+    ? populationSelectionOverride.selection
+    : populationSelection ?? populationSelectionQuery.data;
+  const activePopulationSelectionLoading = populationSelectionLoading || (
+    !populationSelection && populationSelectionQuery.isLoading
+  );
+  const activePopulationSelectionError = populationVariantError?.contextKey === populationSelectionContextKey
+    ? populationVariantError.message
+    : populationSelectionQuery.error instanceof Error
+      ? populationSelectionQuery.error.message
+      : populationSelectionQuery.error
+        ? 'Loom could not load the saved collection.'
+        : populationSelectionError;
   const occurrences = useMemo(
     () => derivedOccurrences(table, state.catalog),
     [state.catalog, table],
@@ -1425,13 +1415,20 @@ const BuilderWorkspaceContent = ({
         routeChoiceId,
       }]);
       if (!attached) throw new Error('Loom created the revised collection but could not attach it to this table.');
-      setActivePopulationSelection(variant);
+      setPopulationSelectionOverride({
+        contextKey: populationSelectionContextKey,
+        baseSelectionID: baseSelection.id,
+        selection: variant,
+      });
     } catch (error) {
-      setPopulationVariantError(error instanceof Error ? error.message : 'Loom could not create the revised collection.');
+      setPopulationVariantError({
+        contextKey: populationSelectionContextKey,
+        message: error instanceof Error ? error.message : 'Loom could not create the revised collection.',
+      });
     } finally {
       setPopulationVariantPending(false);
     }
-  }, [activePopulationSelection, applyCommands, authResourcePath, loomClient, projectId]);
+  }, [activePopulationSelection, applyCommands, authResourcePath, loomClient, populationSelectionContextKey, projectId]);
 
   const changeTableRoot = useCallback(
     async (nodeId: string, resolution: RowChangeResolution = {}) => {
@@ -3280,14 +3277,14 @@ const BuilderWorkspaceContent = ({
                       <PopulationPanel
                         table={table}
                         selection={activePopulationSelection}
-                        loading={populationSelectionLoading || activePopulationSelectionLoading}
-                        error={populationVariantError ?? populationSelectionError}
+                        loading={activePopulationSelectionLoading}
+                        error={activePopulationSelectionError}
                         project={projectId}
                         explorerId={state.explorerId}
                         authResourcePath={authResourcePath}
                         snapshotToken={state.catalog.snapshotToken}
                         receiptId={state.receipt?.receiptId}
-                        disabled={populationSelectionLoading || activePopulationSelectionLoading || populationVariantPending || pendingCommands > 0 || state.reconciliation === 'pending'}
+                        disabled={activePopulationSelectionLoading || populationVariantPending || pendingCommands > 0 || state.reconciliation === 'pending'}
                         onAttach={(routeChoiceId) => void applyCommands([{
                           type: 'SET_TABLE_POPULATION',
                           outputId: table.outputId,

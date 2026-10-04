@@ -12,10 +12,12 @@ import { browserEval, click, launchBrowser, navigate, selectOption, waitForBrows
 const project = 'loom_dev_cda_fhir';
 const generation = 'cda-fhir-v1';
 const afterUnpivotCase = process.env.LOOM_RELATED_AFTER_UNPIVOT_CASE ?? 'gender-all';
-assert(['gender-all', 'id-count'].includes(afterUnpivotCase), `Unsupported LOOM_RELATED_AFTER_UNPIVOT_CASE: ${afterUnpivotCase}`);
-const afterUnpivotFieldPath = afterUnpivotCase === 'id-count' ? 'id' : 'gender';
+assert(['gender-all', 'resource-type-all', 'id-count'].includes(afterUnpivotCase), `Unsupported LOOM_RELATED_AFTER_UNPIVOT_CASE: ${afterUnpivotCase}`);
+const afterUnpivotFieldPath = afterUnpivotCase === 'id-count'
+  ? 'id'
+  : afterUnpivotCase === 'resource-type-all' ? 'resourceType' : 'gender';
 const afterUnpivotForm = afterUnpivotCase === 'id-count' ? 'COUNT' : 'ALL';
-const requireGenderWitness = afterUnpivotCase === 'gender-all';
+const requireFieldWitness = afterUnpivotCase !== 'id-count';
 const protectedExplorer = 'cda-builder-full-qa-1790440983382';
 const explorer = `related-field-after-unpivot-${randomUUID()}`;
 assert.notEqual(explorer, protectedExplorer);
@@ -31,10 +33,10 @@ const report = {
   generation,
   scenario: afterUnpivotCase === 'id-count'
     ? 'Patient.id RELATED_SOURCE ALL before UNPIVOT; unpivot Specimen ID while retaining the Patient.id array; add Patient.id COUNT after UNPIVOT on the same exact Specimen.subject->Patient route.'
-    : 'Patient.id RELATED_SOURCE ALL before UNPIVOT; unpivot Specimen ID while retaining the Patient.id array; add Patient.gender ALL after UNPIVOT on the same exact Specimen.subject->Patient route.',
+    : `Patient.id RELATED_SOURCE ALL before UNPIVOT; unpivot Specimen ID while retaining the Patient.id array; add Patient.${afterUnpivotFieldPath} ALL after UNPIVOT on the same exact Specimen.subject->Patient route.`,
   coverageLimitations: afterUnpivotCase === 'id-count'
     ? ['This case proves retained Patient.id ALL values across UNPIVOT and same-route Patient.id COUNT after UNPIVOT. It does not prove non-id Patient field-value access after UNPIVOT.', 'The bounded first-2,000-Specimen inventory found project_id and resourceType as populated Patient payload scalars besides id; this is not a project-wide absence claim.']
-    : ['The gender case requires a populated Patient.gender witness in the bounded candidate scan. A missing witness does not establish project-wide absence.', 'This verifier does not claim restricted-auth coverage.'],
+    : [`The ${afterUnpivotFieldPath} case requires a populated Patient.${afterUnpivotFieldPath} witness in the bounded candidate scan. A missing witness does not establish project-wide absence.`, 'This verifier does not claim restricted-auth coverage.'],
   authorizationClaim: 'Exact selected resource membership is checked. The local project-scoped CDA oracle does not claim restricted-auth coverage.',
   started: new Date().toISOString(),
   protectedExplorerUntouched: true,
@@ -202,17 +204,17 @@ const linkedPatientWitnessQuery = `FOR specimenKey IN @specimenKeys
       FILTER patient != null
         AND patient.project == @project
         AND patient.dataset_generation == @generation
-      RETURN DISTINCT { id: patient.payload.id, _id: patient._id, gender: patient.payload.gender }
+      RETURN DISTINCT { id: patient.payload.id, _id: patient._id, gender: patient.payload.gender, resourceType: patient.payload.resourceType }
   )
   FILTER LENGTH(patients) == 1
   FILTER IS_STRING(patients[0].id) AND LENGTH(patients[0].id) > 0
-  FILTER @requireGender == false OR (IS_STRING(patients[0].gender) AND LENGTH(patients[0].gender) > 0)
+  FILTER @requiredField == "" OR (IS_STRING(patients[0][@requiredField]) AND LENGTH(patients[0][@requiredField]) > 0)
   SORT specimen._key
   LIMIT 1
   LET patient = patients[0]
   RETURN {
     specimen: { id: specimen.id, _id: specimen._id },
-    patient: { id: patient.id, _id: patient._id, gender: patient.gender },
+    patient: { id: patient.id, _id: patient._id, gender: patient.gender, resourceType: patient.resourceType },
     patientCount: LENGTH(patients),
     route: "Specimen -[subject]-> Patient",
     project: specimen.project,
@@ -235,15 +237,15 @@ const exactLinkedPatientQuery = `LET specimen = DOCUMENT(@specimenKey)
       FILTER patient != null
         AND patient.project == @project
         AND patient.dataset_generation == @generation
-      RETURN DISTINCT { id: patient.payload.id, _id: patient._id, gender: patient.payload.gender }
+      RETURN DISTINCT { id: patient.payload.id, _id: patient._id, gender: patient.payload.gender, resourceType: patient.payload.resourceType }
   )
   FILTER LENGTH(patients) == 1
   FILTER IS_STRING(patients[0].id) AND LENGTH(patients[0].id) > 0
-  FILTER @requireGender == false OR (IS_STRING(patients[0].gender) AND LENGTH(patients[0].gender) > 0)
+  FILTER @requiredField == "" OR (IS_STRING(patients[0][@requiredField]) AND LENGTH(patients[0][@requiredField]) > 0)
   LET patient = patients[0]
   RETURN {
     specimen: { id: specimen.id, _id: specimen._id },
-    patient: { id: patient.id, _id: patient._id, gender: patient.gender },
+    patient: { id: patient.id, _id: patient._id, gender: patient.gender, resourceType: patient.resourceType },
     patientCount: LENGTH(patients),
     route: "Specimen -[subject]-> Patient",
     project: specimen.project,
@@ -639,7 +641,7 @@ try {
     witnesses = rawQuery(linkedPatientWitnessQuery, {
       ...oracleScope,
       specimenKeys: candidates.map(candidate => candidate._id),
-      requireGender: requireGenderWitness,
+      requiredField: requireFieldWitness ? afterUnpivotFieldPath : '',
     });
   } catch (error) {
     if (!error.rawOracleFailure) throw error;
@@ -672,7 +674,7 @@ try {
       ...oracleScope,
       specimenKey: candidateWitness.specimen._id,
       specimenID: candidateWitness.specimen.id,
-      requireGender: requireGenderWitness,
+      requiredField: requireFieldWitness ? afterUnpivotFieldPath : '',
     });
   } catch (error) {
     if (!error.rawOracleFailure) throw error;
@@ -690,6 +692,7 @@ try {
     exactRows[0].patient.id === candidateWitness.patient.id &&
     exactRows[0].patient._id === candidateWitness.patient._id &&
     exactRows[0].patient.gender === candidateWitness.patient.gender &&
+    exactRows[0].patient.resourceType === candidateWitness.patient.resourceType &&
     exactRows[0].patientCount === candidateWitness.patientCount &&
     exactRows[0].project === candidateWitness.project &&
     exactRows[0].generation === candidateWitness.generation;
@@ -712,8 +715,8 @@ try {
   const source = exactRows[0];
   assert(source?.specimen?.id && source?.patient?.id && source?.patientCount === 1,
     'The scoped CDA oracle needs one Specimen with exactly one direct linked Patient and populated Patient.id.');
-  if (requireGenderWitness) assert(typeof source.patient.gender === 'string' && source.patient.gender.length > 0,
-    'The gender mode requires a populated Patient.gender witness.');
+  if (requireFieldWitness) assert(typeof source.patient[afterUnpivotFieldPath] === 'string' && source.patient[afterUnpivotFieldPath].length > 0,
+    `The selected mode requires a populated Patient.${afterUnpivotFieldPath} witness.`);
   assert.equal(source.project, project);
   assert.equal(source.generation, generation);
   report.oracle = {
@@ -729,6 +732,8 @@ try {
       specimenID: source.specimen.id,
       patientID: source.patient.id,
       ...(source.patient.gender == null ? {} : { patientGender: source.patient.gender }),
+      ...(source.patient.resourceType == null ? {} : { patientResourceType: source.patient.resourceType }),
+      ...(requireFieldWitness ? { postUnpivotFieldPath: afterUnpivotFieldPath, postUnpivotFieldWitness: source.patient[afterUnpivotFieldPath] } : {}),
       directPatientCount: source.patientCount,
       project: source.project,
       generation: source.generation,
@@ -912,7 +917,7 @@ try {
   assert.equal(savedPatientIDOutput.label, patientIDLabel);
 
   const reshapedRetainedPatientRow = structuredClone(previewRows[0]);
-  const postUnpivotValue = afterUnpivotCase === 'id-count' ? source.patientCount : [source.patient.gender];
+  const postUnpivotValue = afterUnpivotCase === 'id-count' ? source.patientCount : [source.patient[afterUnpivotFieldPath]];
   const postUnpivotValueForRow = (label) => ({ ...reshapedRetainedPatientRow, [label]: postUnpivotValue });
   const beforePostUnpivotField = structuredClone(builder);
   start = await openRelatedField(afterUnpivotFieldPath, afterUnpivotForm);
@@ -965,8 +970,8 @@ try {
     'The COUNT/ALL output label must not collide with retained output labels.');
   assert.deepEqual(savedPostUnpivotStep.operation.relatedSource.route, savedPatientID.operation.relatedSource.route,
     'Post-Unpivot field selection changed the exact Patient source route.');
-  assert.deepEqual(savedPostUnpivotStep.operation.relatedSource.source, savedPatientID.operation.relatedSource.source,
-    'Post-Unpivot field selection changed the exact Patient source candidate.');
+  assert.deepEqual(savedPostUnpivotStep.operation.relatedSource.source, postUnpivotStepProposal.operation.relatedSource.source,
+    'Applying the post-Unpivot field changed the exact proposed Patient source candidate.');
   assert.deepEqual(steps(postUnpivotBaseline).find((step) => step.id === savedUnpivot.id), savedUnpivot,
     'Adding the related source changed the saved Unpivot operation.');
   previewRows = [postUnpivotValueForRow(postUnpivotLabel)];
