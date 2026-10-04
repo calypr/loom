@@ -1,18 +1,22 @@
 #!/usr/bin/env node
 
 import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import {
-  browserEval,
-  launchBrowser,
-  navigate,
-  waitForBrowser,
-} from './loom-dev.mjs';
+import { fileURLToPath } from 'node:url';
+import { launchBrowser, sanitizeBody, sanitizeText } from './lib/playwright-browser.mjs';
+import { performAction } from './lib/playwright-actions.mjs';
+import { captureCDARequests } from './lib/cda-playwright-requests.mjs';
+import { assertOwnedCdaTarget } from './lib/owned-cda-target.mjs';
+import { waitForCondition } from './lib/playwright-observations.mjs';
+import { captureSourceFreeze } from './lib/source-freeze.mjs';
+import { sourceFingerprint } from './verify-ui/source-fingerprint.mjs';
+import { captureApiBuildFreeze, checkContainerApiBuildStamp } from './lib/api-build-freeze.mjs';
 
-const project = 'loom_dev_cda_fhir';
-const explorerId = process.argv[2] ?? 'cda-builder-full-qa-1790440983382';
+const project = process.env.LOOM_CDA_PROJECT;
+const explorerId = process.env.LOOM_CDA_EXPLORER;
 const mode = process.argv[3] ?? 'values';
 assert(['values', 'count'].includes(mode), `Unknown indirect route mode: ${mode}`);
 const countMode = mode === 'count';
@@ -20,11 +24,20 @@ const specimenId = 'b7cad184-db67-5542-a975-10fffa3e89e7';
 const knownObservationId = '35cfec85-56e8-5257-af99-2e9345be2011';
 const knownPatientId = 'afcfb15e-7617-5691-ae2c-ab675322fb33';
 const generation = 'cda-fhir-v1';
+const explorerRoot = `/api/v1/projects/${encodeURIComponent(project ?? '')}/explorers`;
 const expectedRoute = '2-relationship path: Specimen to Observation to Patient via Specimen then Subject';
-const uiOrigin = (process.env.LOOM_CDA_UI_ORIGIN ?? 'http://127.0.0.1:30008').replace(/\/$/, '');
+const apiOrigin = process.env.LOOM_CDA_API_ORIGIN?.replace(/\/$/, '');
+const uiOrigin = process.env.LOOM_CDA_UI_ORIGIN?.replace(/\/$/, '');
+const apiContainer = process.env.LOOM_CDA_API_CONTAINER;
+const arangoContainer = process.env.LOOM_ARANGO_CONTAINER;
+const composeProject = process.env.LOOM_CDA_COMPOSE_PROJECT;
+const sourceRoot = process.env.LOOM_SOURCE_FREEZE_ROOT ?? fileURLToPath(new URL('..', import.meta.url));
+await assertOwnedCdaTarget({ project, apiOrigin, uiOrigin, apiContainer, composeProject, sourceRoot, arangoContainer });
+assert(explorerId && /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(explorerId), 'Set LOOM_CDA_EXPLORER to an explicitly owned Explorer on the isolated CDA stack');
+assert.notEqual(explorerId, 'cda-builder-full-qa-1790440983382', 'The shared protected CDA Explorer is not an owned test target');
 const pageURL = `${uiOrigin}/?project=${project}&explorer=${explorerId}&mode=builder`;
 const startedAt = Date.now();
-const evidenceDirectory = join('.artifacts', 'cda-builder', new Date().toISOString().replaceAll(':', '-'));
+const evidenceDirectory = process.env.LOOM_CDA_EVIDENCE_DIR ?? `/tmp/loom-cda-indirect-specimen-patient-${Date.now()}`;
 const tableName = `CDA indirect route QA ${Date.now()}`;
 const report = {
   scenario: `CDA Specimen → Observation → Patient.id ${mode} journey`,
@@ -38,6 +51,9 @@ const report = {
   requests: [],
   responses: [],
   browserErrors: [],
+  incidentalErrors: [],
+  nativeRequests: [],
+  errors: [],
   renderedPreviews: [],
   assertions: [],
   cleanup: { attempted: false, complete: false },
@@ -47,20 +63,41 @@ let browser;
 let tableCreated = false;
 let scenarioError;
 let cleanupError;
-const requestStarts = new Map();
+let verificationInvalidation;
+const sourceFreeze = await captureSourceFreeze(sourceRoot);
+const sourceBefore = sourceFingerprint(sourceRoot);
+const frozenApiBuild = await captureApiBuildFreeze(() => checkContainerApiBuildStamp(apiContainer));
+report.sourceFreeze = { root: sourceRoot, watchedFileCount: sourceFreeze.watchedFileCount };
+report.sourceFingerprint = { root: sourceRoot, before: sourceBefore };
+report.apiBuildFreeze = { container: apiContainer, initial: frozenApiBuild.initial };
+const waitForBrowser = (page, condition, timeout = 30000) => waitForCondition(page, condition, timeout);
+const inspectPage = (page, inspect, argument) => page.evaluate(inspect, argument);
+let actionTracker = {};
 
 const addAssertion = (name, passed, detail) => {
   report.assertions.push({ name, passed, detail });
   assert(passed, `${name}${detail === undefined ? '' : `: ${JSON.stringify(detail)}`}`);
 };
 
+const ownedApiRequest = async (path, { method = 'GET', body } = {}) => {
+  const requestId = randomUUID();
+  const entry = { requestId, method, path, origin: new URL(apiOrigin).origin, startedAt: Date.now(), ...(body ? { body } : {}) };
+  report.requests.push(entry);
+  const response = await fetch(`${apiOrigin}${path}`, {
+    method,
+    headers: { 'Content-Type': 'application/json', 'X-Request-ID': requestId },
+    ...(body ? { body: JSON.stringify(body) } : {}),
+    signal: AbortSignal.timeout(30000),
+  });
+  entry.status = response.status;
+  entry.completedAt = Date.now();
+  entry.response = JSON.parse(sanitizeBody(await response.text()));
+  return { response, entry };
+};
+
 const shellQuote = (value) => `'${value.replaceAll("'", "'\\''")}'`;
 
 function queryCdaFhirEdgeOracle() {
-  const names = execFileSync('docker', ['ps', '--format', '{{.Names}}'], { encoding: 'utf8' })
-    .trim().split(/\r?\n/).filter((name) => /^loom-dev-.+-arangodb-1$/.test(name));
-  assert.equal(names.length, 1, `Expected one running Loom dev Arango container; found ${names.length}`);
-  const container = names[0];
   const aql = `
     LET specimen = FIRST(
       FOR r IN Specimen
@@ -107,7 +144,7 @@ function queryCdaFhirEdgeOracle() {
   `;
   const js = `db._useDatabase("loom_dev"); const aql = ${JSON.stringify(aql)}; print(JSON.stringify(db._query(aql).toArray()));`;
   const command = `arangosh --server.endpoint tcp://127.0.0.1:8529 --server.username root --server.password "$ARANGO_ROOT_PASSWORD" --javascript.execute-string ${shellQuote(js)}`;
-  const stdout = execFileSync('docker', ['exec', container, 'sh', '-lc', command], { encoding: 'utf8' });
+  const stdout = execFileSync('docker', ['exec', arangoContainer, 'sh', '-lc', command], { encoding: 'utf8' });
   const result = JSON.parse(stdout.trim().split(/\r?\n/).at(-1));
   assert.equal(result.length, 1, 'Arango oracle did not find the requested Specimen');
   const oracle = result[0];
@@ -115,21 +152,47 @@ function queryCdaFhirEdgeOracle() {
   assert(oracle.chain.some((item) => item.observationId === knownObservationId && item.patientId === knownPatientId),
     'Arango oracle did not confirm the known Specimen → Observation → Patient chain');
   assert(oracle.chain.length > 0, 'Arango oracle returned no two-hop matches');
-  return { container, database: 'loom_dev', project, generation, specimenId, aql, ...oracle };
+  return { container: arangoContainer, database: 'loom_dev', project, generation, specimenId, aql, ...oracle };
 }
 
-const recordClick = async (label, selector, clickExpression) => {
+const actionLocator = async (selector, label) => {
+  const page = browser.page;
+  if (selector.startsWith('button text: ')) return page.getByRole('button', { name: selector.slice('button text: '.length), exact: true });
+  if (selector === 'Other relationship paths details') return page.getByRole('dialog').locator('summary').filter({ hasText: 'Other relationship paths' });
+  if (selector === 'Rows settings / Starting collection summary') return page.getByRole('dialog', { name: 'Row definition settings' }).locator('summary').filter({ hasText: 'Starting collection:' });
+  if (selector === 'Rows settings / Starting collection / Use selected resources') return page.getByRole('dialog', { name: 'Row definition settings' }).getByRole('button', { name: 'Use selected resources', exact: true });
+  if (selector === 'Rows settings / Back to table') return page.getByRole('dialog', { name: 'Row definition settings' }).getByRole('button', { name: 'Back to table', exact: true });
+  if (selector.startsWith('button ending in ')) {
+    const suffix = selector.slice('button ending in '.length);
+    const candidates = page.locator('button');
+    const matches = await candidates.evaluateAll((nodes, value) => nodes.flatMap((node, index) => node.innerText.trim().endsWith(value) ? [index] : []), suffix);
+    assert.equal(matches.length, 1, `${label}: expected one temporary table button, found ${matches.length}`);
+    return candidates.nth(matches[0]);
+  }
+  if (selector.startsWith('button in ')) return page.getByTestId(selector.slice('button in '.length)).getByRole('button', { name: /Check matching rows|Retry coverage check|Retry match check/i });
+  if (label === 'Choose Patient related source') return page.getByRole('button', { name: selector, exact: true });
+  if (label.startsWith('Select Specimen → Observation → Patient route')) return page.getByRole('radio', { name: selector, exact: true });
+  if (label.startsWith('Choose ')) return page.getByRole('radio', { name: selector, exact: true });
+  return page.locator(selector);
+};
+
+const recordClick = async (label, selector) => {
   const click = {
     sequence: report.clicks.length + 1,
     label,
     selector,
-    method: 'Browser DOM click()',
+  method: 'Playwright locator click',
     startedAt: new Date().toISOString(),
   };
   report.clicks.push(click);
   const started = Date.now();
   try {
-    await browserEval(browser.cdp, `${clickExpression}return true;`);
+    actionTracker.activeAction = { label, locator: selector, targetLocator: browser.page.locator('body'), startedAt: started };
+    const locator = await actionLocator(selector, label);
+    actionTracker.activeAction.targetLocator = locator;
+    actionTracker.activeAction.locator = locator.toString();
+    await performAction(actionTracker, label, locator, (target, options) => target.click(options));
+    actionTracker.lastAction = { label, locator: locator.toString(), targetLocator: locator, elapsedMs: Date.now() - started };
     click.durationMs = Date.now() - started;
     click.completedAt = new Date().toISOString();
   } catch (error) {
@@ -139,36 +202,26 @@ const recordClick = async (label, selector, clickExpression) => {
   }
 };
 
-const clickSelector = (selector, label) => recordClick(
-  label,
-  selector,
-  `const target=document.querySelector(${JSON.stringify(selector)});if(!target)throw new Error(${JSON.stringify(`Missing selector ${selector}`)});target.click();`,
-);
-
-const clickButton = (text, label) => recordClick(
-  label,
-  `button text: ${text}`,
-  `const target=[...document.querySelectorAll('button')].find(button=>button.textContent?.trim()===${JSON.stringify(text)});if(!target)throw new Error(${JSON.stringify(`Missing button ${text}`)});target.click();`,
-);
+const clickButton = (text, label) => recordClick(label, `button text: ${text}`);
 
 const setInput = async (selector, value, label) => {
   const item = {
     sequence: report.clicks.length + 1,
     label,
     selector,
-    method: 'Browser input/change events',
+    method: 'Playwright locator fill',
     value,
     startedAt: new Date().toISOString(),
   };
   report.clicks.push(item);
   const started = Date.now();
   try {
-    await browserEval(browser.cdp,
-      `const input=document.querySelector(${JSON.stringify(selector)});` +
-      `if(!input)throw new Error(${JSON.stringify(`Missing input ${selector}`)});` +
-      `Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,${JSON.stringify(value)});` +
-      `input.dispatchEvent(new Event('input',{bubbles:true}));input.dispatchEvent(new Event('change',{bubbles:true}));return true;`,
-    );
+    actionTracker.activeAction = { label, locator: selector, targetLocator: browser.page.locator('body'), startedAt: started };
+    const locator = browser.page.locator(selector);
+    actionTracker.activeAction.targetLocator = locator;
+    actionTracker.activeAction.locator = locator.toString();
+    await performAction(actionTracker, label, locator, (target, options) => target.fill(value, options), { editable: true });
+    actionTracker.lastAction = { label, locator: locator.toString(), targetLocator: locator, elapsedMs: Date.now() - started };
     item.durationMs = Date.now() - started;
     item.completedAt = new Date().toISOString();
   } catch (error) {
@@ -178,28 +231,24 @@ const setInput = async (selector, value, label) => {
   }
 };
 
-const waitForResponse = async (suffix, previousCount, timeoutMs = 60000) => {
-  const started = Date.now();
-  while (Date.now() - started < timeoutMs) {
-    const matches = report.responses.filter((response) => response.path.endsWith(suffix));
-    if (matches.length > previousCount) return matches.at(-1);
-    await new Promise((resolve) => setTimeout(resolve, 50));
-  }
-  throw new Error(`Timed out waiting for ${suffix} response`);
+let requestMonitor;
+const refreshResponses = async () => {
+  await requestMonitor.flush();
+  report.responses = report.nativeRequests.filter(response => response.status !== undefined).map(entry => ({
+    requestId: entry.requestId, path: entry.path, status: entry.status,
+    elapsedMs: (entry.responseReceivedAt ?? entry.completedAt ?? entry.startedAt) - entry.startedAt,
+    timestamp: new Date(entry.responseReceivedAt ?? entry.completedAt ?? entry.startedAt).toISOString(),
+    body: entry.response,
+  }));
 };
-
 const screenshot = async (label) => {
-  const result = await browser.cdp.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true });
-  await writeFile(join(evidenceDirectory, `${label}.png`), Buffer.from(result.data, 'base64'));
+  await browser.page.screenshot({ path: join(evidenceDirectory, `${label}.png`), fullPage: true });
 };
 
-const decodeResponseBody = async (response) => {
-  const body = await browser.cdp.send('Network.getResponseBody', { requestId: response.requestId });
-  return JSON.parse(body.base64Encoded ? Buffer.from(body.body, 'base64').toString('utf8') : body.body);
-};
+const decodeResponseBody = async (response) => response.body;
 
-const domPreview = async (selector = '[data-testid="preview-table-scroll"]') => browserEval(browser.cdp, `
-  const root=document.querySelector(${JSON.stringify(selector)});
+const domPreview = async (selector = '[data-testid="preview-table-scroll"]') => inspectPage(browser.page, selector => {
+  const root=document.querySelector(selector);
   const table=root?.querySelector('[role="table"]');
   return {
     text:root?.innerText ?? '',
@@ -208,21 +257,25 @@ const domPreview = async (selector = '[data-testid="preview-table-scroll"]') => 
     rows:[...root?.querySelectorAll('[role="row"]') ?? []].slice(1).map(row=>[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText.trim())),
     busy:root?.getAttribute('aria-busy') ?? null,
   };
-`);
+}, selector);
 
 const recordPreview = async (name, startAt, responseCountBefore, expectedId, selector = '[data-testid="preview-table-scroll"]') => {
-  const response = await waitForResponse('/preview', responseCountBefore);
-  await waitForBrowser(browser.cdp,
-    `Boolean(document.querySelector(${JSON.stringify(`${selector} [role="table"]`)})) && ` +
-    `[...document.querySelectorAll(${JSON.stringify(`${selector} button`)})].every(button=>!button.disabled) && ` +
-    `document.querySelector(${JSON.stringify(selector)})?.innerText.includes(${JSON.stringify(expectedId)})`,
-    60000,
-  );
+  await browser.page.waitForFunction(({ selector, expectedId }) => {
+    const root = document.querySelector(selector);
+    return Boolean(root?.querySelector('[role="table"]'))
+      && [...root.querySelectorAll('button')].every(button => !button.disabled)
+      && root.innerText.includes(expectedId);
+  }, { selector, expectedId }, { timeout: 60000 });
+  const renderedAt = Date.now();
+  await refreshResponses();
+  const previewResponses = report.responses.filter(response => response.path.endsWith('/preview'));
+  assert(previewResponses.length > responseCountBefore, `${name}: preview UI rendered without a captured native /preview response`);
+  const response = previewResponses.at(-1);
   const rendered = await domPreview(selector);
   const payload = await decodeResponseBody(response);
   const item = {
     name,
-    elapsedMs: Date.now() - startAt,
+    elapsedMs: renderedAt - startAt,
     startedAt: new Date(startAt).toISOString(),
     completedAt: new Date().toISOString(),
     response: { path: response.path, status: response.status, elapsedMs: response.elapsedMs },
@@ -239,13 +292,14 @@ const recordPreview = async (name, startAt, responseCountBefore, expectedId, sel
 };
 
 const waitForProposal = async (label, startedAt, responseCountBefore) => {
-  const response = await waitForResponse('/construction-proposals', responseCountBefore);
-  await waitForBrowser(browser.cdp,
-    `document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status')==='ready' && ` +
-    `Boolean(document.querySelector('[data-testid="construction-proposal-preview"]'))`,
-    60000,
-  );
-  const state = await browserEval(browser.cdp, `
+  await browser.page.waitForFunction(() => document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status') === 'ready'
+    && Boolean(document.querySelector('[data-testid="construction-proposal-preview"]')), null, { timeout: 60000 });
+  const renderedAt = Date.now();
+  await refreshResponses();
+  const proposalResponses = report.responses.filter(response => response.path.endsWith('/construction-proposals'));
+  assert(proposalResponses.length > responseCountBefore, `${label}: ready proposal omitted its native construction-proposals response`);
+  const response = proposalResponses.at(-1);
+  const state = await inspectPage(browser.page, () => {
     const panel=document.querySelector('[data-testid="construction-proposal-panel"]');
     const root=document.querySelector('[data-testid="construction-proposal-preview"]');
     const table=root?.querySelector('[role="table"]');
@@ -258,10 +312,10 @@ const waitForProposal = async (label, startedAt, responseCountBefore) => {
       headers:[...root?.querySelectorAll('[role="columnheader"]') ?? []].map(cell=>cell.innerText.trim()),
       rows:[...root?.querySelectorAll('[role="row"]') ?? []].slice(1).map(row=>[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText.trim())),
     };
-  `);
+  });
   const item = {
     name: label,
-    elapsedMs: Date.now() - startedAt,
+    elapsedMs: renderedAt - startedAt,
     startedAt: new Date(startedAt).toISOString(),
     completedAt: new Date().toISOString(),
     response: { path: response.path, status: response.status, elapsedMs: response.elapsedMs },
@@ -274,23 +328,16 @@ const waitForProposal = async (label, startedAt, responseCountBefore) => {
 };
 
 const selectTemporaryTable = async () => {
-  await waitForBrowser(browser.cdp,
-    `[...document.querySelectorAll('button')].some(button=>button.innerText.trim().endsWith(${JSON.stringify(tableName)}))`,
-    60000,
-  );
-  await recordClick('Select temporary table', `button ending in ${tableName}`,
-    `const target=[...document.querySelectorAll('button')].find(button=>button.innerText.trim().endsWith(${JSON.stringify(tableName)}));if(!target)throw new Error('Temporary table button missing');target.click();`);
-  await waitForBrowser(browser.cdp,
-    `document.body.innerText.includes(${JSON.stringify(`DATASET WORKSPACE\n\n${tableName}`)})`,
-    30000,
-  );
+  await browser.page.waitForFunction(name => [...document.querySelectorAll('button')].some(button=>button.innerText.trim().endsWith(name)), tableName, { timeout: 60000 });
+  await recordClick('Select temporary table', `button ending in ${tableName}`);
+  await browser.page.waitForFunction(name => document.body.innerText.includes(`DATASET WORKSPACE\n\n${name}`), tableName, { timeout: 30000 });
 };
 
-const captureErrorState = async () => browserEval(browser.cdp, `return {
+const captureErrorState = async () => inspectPage(browser.page, () => ({
   alerts:[...document.querySelectorAll('[role="alert"]')].map(element=>element.innerText.trim()).filter(Boolean),
   status:[...document.querySelectorAll('[role="status"]')].map(element=>element.innerText.trim()).filter(Boolean),
   body:document.body.innerText.slice(0,3000),
-};`);
+}));
 
 try {
   report.oracle = queryCdaFhirEdgeOracle();
@@ -302,128 +349,63 @@ try {
   );
 
   await mkdir(evidenceDirectory, { recursive: true });
-  browser = await launchBrowser('/private/tmp');
-  browser.cdp.on('Network.requestWillBeSent', (event) => {
-    const url = new URL(event.request.url);
-    if (!url.pathname.startsWith('/api/v1/')) return;
-    requestStarts.set(event.requestId, Date.now());
-    report.requests.push({
-      requestId: event.requestId,
-      method: event.request.method,
-      path: url.pathname,
-      timestamp: new Date().toISOString(),
-    });
+  browser = await launchBrowser({ evidence: evidenceDirectory, appOrigins: [apiOrigin, uiOrigin], noAuth: process.env.LOOM_CDA_NO_AUTH === '1' });
+  requestMonitor = captureCDARequests(browser.page, {
+    apiOrigin: uiOrigin,
+    appOrigins: [apiOrigin, uiOrigin],
+    ownedPathPrefix: `${explorerRoot}/${explorerId}`,
+    responsePaths: /./,
+    report: { nativeRequests: report.nativeRequests, errors: report.browserErrors },
   });
-  browser.cdp.on('Network.responseReceived', (event) => {
-    const url = new URL(event.response.url);
-    if (!url.pathname.startsWith('/api/v1/')) return;
-    report.responses.push({
-      requestId: event.requestId,
-      path: url.pathname,
-      status: event.response.status,
-      elapsedMs: Date.now() - (requestStarts.get(event.requestId) ?? Date.now()),
-      timestamp: new Date().toISOString(),
-    });
+  browser.page.on('response', response => {
+    if (response.status() < 400 && !response.url().endsWith('/favicon.ico')) return;
+    const url = new URL(response.url());
+    if (![new URL(apiOrigin).origin, new URL(uiOrigin).origin].includes(url.origin)) return;
+    if (url.pathname.endsWith('/favicon.ico')) report.incidentalErrors.push({ path: url.pathname, status: response.status() });
+    else report.browserErrors.push({ kind: 'http', path: url.pathname, status: response.status() });
   });
-  browser.cdp.on('Network.loadingFailed', (event) => {
-    const request = report.requests.find((item) => item.requestId === event.requestId);
-    report.browserErrors.push({ kind: 'network-loading-failed', path: request?.path, error: event.errorText, canceled: event.canceled });
-  });
-  browser.cdp.on('Runtime.consoleAPICalled', (event) => {
-    if (event.type !== 'error' && event.type !== 'assert') return;
-    report.browserErrors.push({
-      kind: `console-${event.type}`,
-      text: event.args.map((arg) => arg.value ?? arg.description ?? '').join(' ').slice(0, 600),
-      timestamp: new Date().toISOString(),
-    });
-  });
-  browser.cdp.on('Runtime.exceptionThrown', (event) => {
-    report.browserErrors.push({
-      kind: 'javascript-exception',
-      text: event.exceptionDetails?.text ?? 'JavaScript exception',
-      url: event.exceptionDetails?.url,
-      lineNumber: event.exceptionDetails?.lineNumber,
-      timestamp: new Date().toISOString(),
-    });
+  browser.page.on('requestfailed', request => {
+    const url = new URL(request.url());
+    if ([new URL(apiOrigin).origin, new URL(uiOrigin).origin].includes(url.origin) && request.resourceType() === 'script') {
+      report.browserErrors.push({ kind: 'module', path: url.pathname, error: sanitizeText(request.failure()?.errorText) });
+    }
   });
 
-  await navigate(browser.cdp, pageURL);
-  await waitForBrowser(browser.cdp, `document.body.innerText.includes('DATASET WORKSPACE')`, 30000);
+  await browser.page.goto(pageURL);
+  await waitForBrowser(browser.page, { kind: 'text-includes', selector: 'body', text: 'DATASET WORKSPACE' }, 30000);
   await screenshot('00-builder-start');
 
-  const selection = await browserEval(browser.cdp, `
-    const base='/api/v1/projects/${project}/explorers/${explorerId}';
-    const builderResponse=await fetch(base+'/authoring/v2/builder');
-    const builder=await builderResponse.json();
-    const response=await fetch(base+'/selections',{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({
-        snapshotToken:builder.catalog.snapshotToken,
-        idempotencyKey:'cda-indirect-route-${Date.now()}',
-        source:{kind:'resources',resources:{refs:[{
-          project:'${project}',
-          generation:builder.catalog.generation,
-          resourceType:'Specimen',
-          id:'${specimenId}',
-        }]}}
-      })
-    });
-    return {
-      builderStatus:builderResponse.status,
-      generation:builder.catalog.generation,
-      snapshotPresent:Boolean(builder.catalog.snapshotToken),
-      status:response.status,
-      body:await response.json(),
-    };
-  `);
+  const builderCall = await ownedApiRequest(`${explorerRoot}/${explorerId}/authoring/v2/builder`);
+  const builder = builderCall.entry.response;
+  const selectionCall = await ownedApiRequest(`${explorerRoot}/${explorerId}/selections`, { method: 'POST',
+    body: { snapshotToken: builder.catalog.snapshotToken, idempotencyKey: `cda-indirect-route-${Date.now()}`,
+      source: { kind: 'resources', resources: { refs: [{ project, generation: builder.catalog.generation, resourceType: 'Specimen', id: specimenId }] } } },
+  });
+  const selection = { builderStatus: builderCall.entry.status, generation: builder.catalog.generation,
+    snapshotPresent: Boolean(builder.catalog.snapshotToken), status: selectionCall.entry.status, body: selectionCall.entry.response };
   report.selection = selection;
   addAssertion('CDA selection uses the active dataset generation', selection.builderStatus === 200 && selection.generation === generation, selection);
   addAssertion('Specimen selection was created', selection.status === 201 && Boolean(selection.body.id), selection);
 
-  await navigate(browser.cdp, `${pageURL}&selection=${encodeURIComponent(selection.body.id)}`);
-  await waitForBrowser(browser.cdp, `document.body.innerText.includes('DATASET WORKSPACE')`, 30000);
-  await recordClick('Start temporary table', 'button text: New table',
-    `const target=[...document.querySelectorAll('button')].find(button=>button.innerText.trim()==='New table');if(!target)throw new Error('New table button missing');target.click();`);
-  await waitForBrowser(browser.cdp,
-    `Boolean(document.querySelector('button[aria-label="Choose Specimen rows"]:not(:disabled)'))`,
-    30000,
-  );
+  await browser.page.goto(`${pageURL}&selection=${encodeURIComponent(selection.body.id)}`);
+  await waitForBrowser(browser.page, { kind: 'text-includes', selector: 'body', text: 'DATASET WORKSPACE' }, 30000);
+  await recordClick('Start temporary table', 'button text: New table');
+  await waitForBrowser(browser.page, { kind: 'enabled', selector: 'button[aria-label="Choose Specimen rows"]' }, 30000);
   await setInput('#first-table-name', tableName, 'Name temporary Specimen table');
-  await recordClick('Create Specimen table', 'button[aria-label="Choose Specimen rows"]',
-    `const target=document.querySelector('button[aria-label="Choose Specimen rows"]');if(!target)throw new Error('Choose Specimen rows missing');target.click();`);
+  await recordClick('Create Specimen table', 'button[aria-label="Choose Specimen rows"]');
   tableCreated = true;
-  await waitForBrowser(browser.cdp,
-    `document.querySelector('[data-testid="construction-workspace"] header')?.innerText.includes(${JSON.stringify(tableName)})`,
-    30000,
-  );
-  await waitForBrowser(browser.cdp,
-    `document.querySelector('[data-testid="construction-rows-settings-trigger"]')?.disabled===false`,
-    30000,
-  );
-  await recordClick('Open Rows settings', 'button[data-testid="construction-rows-settings-trigger"]',
-    `const target=document.querySelector('button[data-testid="construction-rows-settings-trigger"]');if(!target||target.disabled)throw new Error('Rows settings trigger missing or disabled');target.click();`);
-  await waitForBrowser(browser.cdp,
-    `Boolean(document.querySelector('[role="dialog"][aria-label="Row definition settings"] [aria-label="Starting collection"]'))`,
-    30000,
-  );
-  await recordClick('Open starting collection choices', 'Rows settings / Starting collection summary',
-    `const summary=[...document.querySelectorAll('[role="dialog"][aria-label="Row definition settings"] summary')].find(node=>node.innerText.startsWith('Starting collection:'));if(!summary)throw new Error('Starting collection summary missing');summary.click();`);
-  await waitForBrowser(browser.cdp,
-    `Boolean([...document.querySelectorAll('[role="dialog"][aria-label="Row definition settings"] [aria-label="Starting collection"] button')].find(button=>button.innerText==='Use selected resources'&&!button.disabled))`,
-    30000,
-  );
-  const startingCollection = await browserEval(browser.cdp, `return document.querySelector('[role="dialog"][aria-label="Row definition settings"] [aria-label="Starting collection"]')?.innerText;`);
+  await browser.page.waitForFunction(name => document.querySelector('[data-testid="construction-workspace"] header')?.innerText.includes(name), tableName, { timeout: 30000 });
+  await waitForBrowser(browser.page, { kind: 'enabled', selector: '[data-testid="construction-rows-settings-trigger"]' }, 30000);
+  await recordClick('Open Rows settings', 'button[data-testid="construction-rows-settings-trigger"]');
+  await waitForBrowser(browser.page, { kind: 'present', selector: '[role="dialog"][aria-label="Row definition settings"] [aria-label="Starting collection"]' }, 30000);
+  await recordClick('Open starting collection choices', 'Rows settings / Starting collection summary');
+  await browser.page.getByRole('dialog', { name: 'Row definition settings' }).getByRole('button', { name: 'Use selected resources', exact: true }).waitFor({ state: 'visible', timeout: 30000 });
+  const startingCollection = await inspectPage(browser.page, () => document.querySelector('[role="dialog"][aria-label="Row definition settings"] [aria-label="Starting collection"]')?.innerText);
   addAssertion('Starting collection is bounded to the selected Specimen', startingCollection?.includes('Specimen') && /selected/i.test(startingCollection), startingCollection);
-  await recordClick('Use the selected Specimen', 'Rows settings / Starting collection / Use selected resources',
-    `const panel=document.querySelector('[role="dialog"][aria-label="Row definition settings"] [aria-label="Starting collection"]');const target=[...panel?.querySelectorAll('button') ?? []].find(button=>button.innerText==='Use selected resources');if(!target)throw new Error('Use selected resources missing');target.click();`);
-  await waitForBrowser(browser.cdp,
-    `document.querySelector('[role="dialog"][aria-label="Row definition settings"] [aria-label="Starting collection"]')?.innerText.includes('constrain one row per Specimen')`,
-    30000,
-  );
-  await recordClick('Return from Rows to the table', 'Rows settings / Back to table',
-    `const dialog=document.querySelector('[role="dialog"][aria-label="Row definition settings"]');const target=[...dialog?.querySelectorAll('button') ?? []].find(button=>button.textContent?.trim()==='Back to table');if(!target)throw new Error('Rows settings Back to table button missing');target.click();`);
-  await waitForBrowser(browser.cdp, `!document.querySelector('[role="dialog"][aria-label="Row definition settings"]')`, 30000);
+  await recordClick('Use the selected Specimen', 'Rows settings / Starting collection / Use selected resources');
+  await browser.page.waitForFunction(() => document.querySelector('[role="dialog"][aria-label="Row definition settings"] [aria-label="Starting collection"]')?.innerText.includes('constrain one row per Specimen'), null, { timeout: 30000 });
+  await recordClick('Return from Rows to the table', 'Rows settings / Back to table');
+  await browser.page.getByRole('dialog', { name: 'Row definition settings' }).waitFor({ state: 'hidden', timeout: 30000 });
   await selectTemporaryTable();
 
   let previewResponseCount = report.responses.filter((response) => response.path.endsWith('/preview')).length;
@@ -434,30 +416,20 @@ try {
   addAssertion('Initial preview contains one selected Specimen row', baselineResult.payload.rowCount === 1, baselineResult.payload.rowCount);
   await screenshot('01-specimen-baseline-preview');
 
-  await recordClick('Open Add columns', 'button[aria-label^="Add columns:"]',
-    `const target=document.querySelector('button[aria-label^="Add columns:"]');if(!target)throw new Error('Add columns action missing');target.click();`);
+  await recordClick('Open Add columns', 'button[aria-label^="Add columns:"]');
   await clickButton('Fields and related data', 'Browse fields and related data');
-  await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid="construction-add-columns-source"]'))`, 30000);
-  const availableSources = await browserEval(browser.cdp, `return [...document.querySelectorAll('[data-testid="construction-add-columns-source-option"]')].map(button=>({label:button.getAttribute('aria-label'),kind:button.dataset.sourceKind,key:button.dataset.sourceKey,selected:button.getAttribute('aria-pressed')==='true'}));`);
+  await waitForBrowser(browser.page, { kind: 'present', selector: '[data-testid="construction-add-columns-source"]' }, 30000);
+  const availableSources = await browser.page.locator('[data-testid="construction-add-columns-source-option"]').evaluateAll(nodes => nodes.map(button=>({label:button.getAttribute('aria-label'),kind:button.dataset.sourceKind,key:button.dataset.sourceKey,selected:button.getAttribute('aria-pressed')==='true'})));
   report.availableSources = availableSources;
   const patientSource = availableSources.find((source) => source.kind === 'RELATED' && source.label?.startsWith('Patient,'));
   addAssertion('Related Patient source is offered for the Specimen table', Boolean(patientSource), availableSources);
-  await recordClick('Choose Patient related source', patientSource.label,
-    `const target=document.querySelector('[data-source-key=${JSON.stringify(patientSource.key)}]');if(!target)throw new Error('Patient source option missing');target.click();`);
-  await waitForBrowser(browser.cdp,
-    `Boolean(document.querySelector('input[aria-label="Select Patient.id"]:not(:disabled)'))`,
-    60000,
-  );
+  await recordClick('Choose Patient related source', patientSource.label);
+  await waitForBrowser(browser.page, { kind: 'enabled', selector: 'input[aria-label="Select Patient.id"]' }, 60000);
   await screenshot('02-patient-field-catalog');
-  await recordClick('Select Patient.id field', 'input[aria-label="Select Patient.id"]',
-    `const target=document.querySelector('input[aria-label="Select Patient.id"]');if(!target)throw new Error('Patient.id field missing');target.click();`);
-  await recordClick('Add selected Patient.id field', 'button text: Add 1 selected feature',
-    `const target=[...document.querySelectorAll('button')].find(button=>button.textContent?.trim()==='Add 1 selected feature');if(!target)throw new Error('Add 1 selected feature missing');target.click();`);
-  await waitForBrowser(browser.cdp,
-    `Boolean(document.querySelector('[role="dialog"]')) || document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status')==='ready'`,
-    60000,
-  );
-  const dialogSnapshot = await browserEval(browser.cdp, `
+  await recordClick('Select Patient.id field', 'input[aria-label="Select Patient.id"]');
+  await recordClick('Add selected Patient.id field', 'button text: Add 1 selected feature');
+  await browser.page.waitForFunction(() => Boolean(document.querySelector('[role="dialog"]')) || document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status')==='ready', null, { timeout: 60000 });
+  const dialogSnapshot = await inspectPage(browser.page, () => {
     const dialog=document.querySelector('[role="dialog"]');
     return dialog ? {
       title:dialog.querySelector('h2')?.innerText,
@@ -467,40 +439,34 @@ try {
       summaries:[...dialog.querySelectorAll('summary')].map(item=>item.innerText),
       buttons:[...dialog.querySelectorAll('button')].map(button=>({text:button.innerText.trim(),disabled:button.disabled})),
     } : null;
-  `);
+  });
   report.routeDialog = dialogSnapshot;
   addAssertion('Patient.id route chooser opened for an explicit path', Boolean(dialogSnapshot), dialogSnapshot);
   if (dialogSnapshot.summaries.some((text) => text.startsWith('Other relationship paths'))) {
-    await recordClick('Expand other relationship paths', 'Other relationship paths details',
-      `const target=[...document.querySelectorAll('[role="dialog"] summary')].find(item=>item.innerText.trim().startsWith('Other relationship paths'));if(!target)throw new Error('Other relationship paths section missing');target.click();`);
+    await recordClick('Expand other relationship paths', 'Other relationship paths details');
   }
-  let wantedRadio = await browserEval(browser.cdp,
-    `return [...document.querySelectorAll('[role="dialog"] input[type="radio"][name^="construction-route-"]')].find(input=>input.getAttribute('aria-label')?.includes(${JSON.stringify(expectedRoute)}))?.getAttribute('aria-label') ?? null;`,
-  );
+  let wantedRadio = await inspectPage(browser.page, route => [...document.querySelectorAll('[role="dialog"] input[type="radio"][name^="construction-route-"]')].find(input=>input.getAttribute('aria-label')?.includes(route))?.getAttribute('aria-label') ?? null, expectedRoute);
   while (!wantedRadio) {
-    const hasMore = await browserEval(browser.cdp,
-      `const button=[...document.querySelectorAll('[role="dialog"] button')].find(item=>item.textContent?.trim()==='Load more routes');return Boolean(button&&!button.disabled);`,
-    );
+    const moreRoutes = browser.page.getByRole('dialog').getByRole('button', { name: 'Load more routes', exact: true });
+    const hasMore = await moreRoutes.count() === 1 && await moreRoutes.isEnabled();
     if (!hasMore) break;
-    await recordClick('Load more Patient.id routes', 'button text: Load more routes',
-      `const target=[...document.querySelectorAll('[role="dialog"] button')].find(button=>button.textContent?.trim()==='Load more routes');if(!target)throw new Error('Load more routes missing');target.click();`);
-    await waitForBrowser(browser.cdp,
-      `!([...document.querySelectorAll('[role="dialog"] button')].some(button=>button.textContent?.trim()==='Checking for more paths…'))`,
-      60000,
-    );
-    await browserEval(browser.cdp,
-      `const summary=[...document.querySelectorAll('[role="dialog"] summary')].find(item=>item.innerText.trim().startsWith('Other relationship paths'));if(summary&&!summary.parentElement.open)summary.click();return true;`,
-    );
-    wantedRadio = await browserEval(browser.cdp,
-      `return [...document.querySelectorAll('[role="dialog"] input[type="radio"][name^="construction-route-"]')].find(input=>input.getAttribute('aria-label')?.includes(${JSON.stringify(expectedRoute)}))?.getAttribute('aria-label') ?? null;`,
-    );
+    const routeCountBefore = await browser.page.getByRole('dialog').locator('input[type="radio"][name^="construction-route-"]').count();
+    await recordClick('Load more Patient.id routes', 'button text: Load more routes');
+    await browser.page.waitForFunction(previousCount => {
+      const count = document.querySelectorAll('[role="dialog"] input[type="radio"][name^="construction-route-"]').length;
+      const loading = [...document.querySelectorAll('[role="dialog"] button')].some(button => button.textContent?.trim() === 'Checking for more paths…');
+      return count > previousCount || !loading;
+    }, routeCountBefore, { timeout: 60000 });
+    const otherPaths = browser.page.getByRole('dialog').locator('summary').filter({ hasText: 'Other relationship paths' });
+    if (await otherPaths.count() === 1 && !(await otherPaths.locator('..').getAttribute('open'))) await performAction(actionTracker, 'Expand other relationship paths after loading more', otherPaths, (target, options) => target.click(options));
+    wantedRadio = await inspectPage(browser.page, route => [...document.querySelectorAll('[role="dialog"] input[type="radio"][name^="construction-route-"]')].find(input=>input.getAttribute('aria-label')?.includes(route))?.getAttribute('aria-label') ?? null, expectedRoute);
   }
   addAssertion('The exact two-hop Specimen → Observation → Patient route is available', Boolean(wantedRadio), dialogSnapshot);
   const expectedMatchCount = report.oracle.chain.length;
   const routeCoverageBefore = report.responses.filter((response) => response.path.endsWith('/construction-proposals')).length;
   const routeCoverageStartedAt = Date.now();
-  const routeCoverageCard = await browserEval(browser.cdp, `
-    const radio=[...document.querySelectorAll('[role="dialog"] input[type="radio"][name^="construction-route-"]')].find(input=>input.getAttribute('aria-label')?.includes(${JSON.stringify(expectedRoute)}));
+  const routeCoverageCard = await inspectPage(browser.page, route => {
+    const radio=[...document.querySelectorAll('[role="dialog"] input[type="radio"][name^="construction-route-"]')].find(input=>input.getAttribute('aria-label')?.includes(route));
     const coverage=radio?.closest('label')?.parentElement?.querySelector('[data-testid^="catalog-route-coverage-"]');
     return {
       radioLabel:radio?.getAttribute('aria-label') ?? null,
@@ -510,23 +476,32 @@ try {
       loading:coverage?.querySelector('[role="status"]')?.innerText?.includes('Checking') ?? false,
       action:[...coverage?.querySelectorAll('button') ?? []].find(button=>/Check matching rows|Retry coverage check|Retry match check/i.test(button.textContent?.trim() ?? ''))?.textContent?.trim() ?? null,
     };
-  `);
+  }, expectedRoute);
   addAssertion('The two-hop route has a preselection coverage card',
     !routeCoverageCard.selected && Boolean(routeCoverageCard.testId), routeCoverageCard);
   let routeCoverageResponse = null;
   if (routeCoverageCard.action) {
     await recordClick('Check Specimen → Observation → Patient matches before route selection',
-      `button in ${routeCoverageCard.testId}`,
-      `const radio=[...document.querySelectorAll('[role="dialog"] input[type="radio"][name^="construction-route-"]')].find(input=>input.getAttribute('aria-label')?.includes(${JSON.stringify(expectedRoute)}));const coverage=radio?.closest('label')?.parentElement?.querySelector('[data-testid^="catalog-route-coverage-"]');const target=[...coverage?.querySelectorAll('button') ?? []].find(button=>/Check matching rows|Retry coverage check|Retry match check/i.test(button.textContent?.trim() ?? ''));if(!target)throw new Error('Indirect route coverage action missing');target.click();`);
-    routeCoverageResponse = await waitForResponse('/construction-proposals', routeCoverageBefore, 60000);
-  } else if (routeCoverageCard.loading) {
-    routeCoverageResponse = await waitForResponse('/construction-proposals', routeCoverageBefore, 60000);
+      `button in ${routeCoverageCard.testId}`);
   }
-  await waitForBrowser(browser.cdp,
-    `(() => { const radio=[...document.querySelectorAll('[role="dialog"] input[type="radio"][name^="construction-route-"]')].find(input=>input.getAttribute('aria-label')?.includes(${JSON.stringify(expectedRoute)}));const coverage=radio?.closest('label')?.parentElement?.querySelector('[data-testid^="catalog-route-coverage-"]');const text=coverage?.innerText ?? '';return /In 1 displayed row:|Retry coverage check|Retry match check|could not measure|unavailable/i.test(text) && !text.includes('Checking matching records'); })()`,
-    60000,
-  );
-  const routeCoverageText = await browserEval(browser.cdp, `const radio=[...document.querySelectorAll('[role="dialog"] input[type="radio"][name^="construction-route-"]')].find(input=>input.getAttribute('aria-label')?.includes(${JSON.stringify(expectedRoute)}));const coverage=radio?.closest('label')?.parentElement?.querySelector('[data-testid^="catalog-route-coverage-"]');return {selected:Boolean(radio?.checked),text:coverage?.innerText?.trim() ?? ''};`);
+  await browser.page.waitForFunction(route => {
+    const radio=[...document.querySelectorAll('[role="dialog"] input[type="radio"][name^="construction-route-"]')].find(input=>input.getAttribute('aria-label')?.includes(route));
+    const coverage=radio?.closest('label')?.parentElement?.querySelector('[data-testid^="catalog-route-coverage-"]');
+    const text=coverage?.innerText ?? '';
+    return /In 1 displayed row:|Retry coverage check|Retry match check|could not measure|unavailable/i.test(text) && !text.includes('Checking matching records');
+  }, expectedRoute, { timeout: 60000 });
+  const routeCoverageRenderedAt = Date.now();
+  await refreshResponses();
+  const routeCoverageResponses = report.responses.filter(response => response.path.endsWith('/construction-proposals'));
+  if (routeCoverageCard.action || routeCoverageCard.loading) {
+    assert(routeCoverageResponses.length > routeCoverageBefore, 'Visible route coverage completed without its owned construction-proposals response');
+    routeCoverageResponse = routeCoverageResponses.at(-1);
+  } else if (routeCoverageResponses.length > routeCoverageBefore) routeCoverageResponse = routeCoverageResponses.at(-1);
+  const routeCoverageText = await inspectPage(browser.page, route => {
+    const radio=[...document.querySelectorAll('[role="dialog"] input[type="radio"][name^="construction-route-"]')].find(input=>input.getAttribute('aria-label')?.includes(route));
+    const coverage=radio?.closest('label')?.parentElement?.querySelector('[data-testid^="catalog-route-coverage-"]');
+    return {selected:Boolean(radio?.checked),text:coverage?.innerText?.trim() ?? ''};
+  }, expectedRoute);
   const coverageBins = routeCoverageText.text.match(/In (\d+) displayed row: (\d+) with no match, (\d+) with one, (\d+) with two or more/);
   const expectedCoverageBand = expectedMatchCount === 0 ? 'zero' : expectedMatchCount === 1 ? 'one' : 'many';
   const observedCoverageBins = coverageBins ? {
@@ -540,7 +515,7 @@ try {
     expectedMatchCount,
     expectedCoverageBand,
     observedCoverageBins,
-    elapsedMs: Date.now() - routeCoverageStartedAt,
+    elapsedMs: routeCoverageRenderedAt - routeCoverageStartedAt,
     response: routeCoverageResponse ? { path: routeCoverageResponse.path, status: routeCoverageResponse.status, elapsedMs: routeCoverageResponse.elapsedMs } : null,
   };
   addAssertion('Indirect route shows oracle-aligned zero/one/many counts while unselected',
@@ -555,19 +530,15 @@ try {
     routeCoverageResponse.status >= 200 && routeCoverageResponse.status < 300,
     report.preselectionRouteCoverage.response);
   await screenshot('02b-indirect-route-coverage-before-selection');
-  await recordClick('Select Specimen → Observation → Patient route', wantedRadio,
-    `const target=[...document.querySelectorAll('[role="dialog"] input[type="radio"][name^="construction-route-"]')].find(input=>input.getAttribute('aria-label')===${JSON.stringify(wantedRadio)});if(!target)throw new Error('Specified two-hop route radio missing');target.click();`);
-  await waitForBrowser(browser.cdp,
-    `[...document.querySelectorAll('[role="dialog"] input[type="radio"][name^="construction-route-"]')].some(input=>input.checked && input.getAttribute('aria-label')===${JSON.stringify(wantedRadio)})`,
-    30000,
-  );
-  const choiceForm = await browserEval(browser.cdp,
-    `return [...document.querySelectorAll('[role="dialog"] input[type="radio"][name^="construction-choice-"]')].find(input=>${countMode ? '/Count matching records/i' : '/Keep all matching values/i'}.test((input.getAttribute('aria-label') ?? '') + ' ' + (input.closest('label')?.innerText ?? '')))?.getAttribute('aria-label') ?? null;`,
-  );
+  await recordClick('Select Specimen → Observation → Patient route', wantedRadio);
+  await browser.page.getByRole('radio', { name: wantedRadio, exact: true }).waitFor({ state: 'visible', timeout: 30000 });
+  await browser.page.waitForFunction(label => [...document.querySelectorAll('[role="dialog"] input[type="radio"][name^="construction-route-"]')].some(input=>input.checked && input.getAttribute('aria-label')===label), wantedRadio, { timeout: 30000 });
+  const choiceForm = await inspectPage(browser.page, isCountMode => [...document.querySelectorAll('[role="dialog"] input[type="radio"][name^="construction-choice-"]')]
+    .find(input => (isCountMode ? /Count matching records/i : /Keep all matching values/i).test((input.getAttribute('aria-label') ?? '') + ' ' + (input.closest('label')?.innerText ?? '')))
+    ?.getAttribute('aria-label') ?? null, countMode);
   const choiceFormLabel = countMode ? 'Count matching records' : 'Keep all matching Patient.id values';
   addAssertion(`A ${choiceFormLabel} form is available`, Boolean(choiceForm), dialogSnapshot);
-  await recordClick(`Choose ${choiceFormLabel}`, choiceForm,
-    `const target=[...document.querySelectorAll('[role="dialog"] input[type="radio"][name^="construction-choice-"]')].find(input=>input.getAttribute('aria-label')===${JSON.stringify(choiceForm)});if(!target)throw new Error(${JSON.stringify(`${choiceFormLabel} option missing`)});target.click();`);
+  await recordClick(`Choose ${choiceFormLabel}`, choiceForm);
   const addResponseCount = report.responses.filter((response) => response.path.endsWith('/construction-proposals')).length;
   previewStartedAt = Date.now();
   await clickButton('Add 1 column', 'Confirm Patient.id route and Add column');
@@ -590,15 +561,11 @@ try {
     );
   }
   await screenshot('03-two-hop-route-add-proposal');
-  await recordClick('Apply Patient.id related field', '[data-testid="construction-apply-proposal"]',
-    `const target=document.querySelector('[data-testid="construction-apply-proposal"]');if(!target||target.disabled)throw new Error('Apply proposal is not enabled');target.click();`);
-  await waitForBrowser(browser.cdp,
-    `document.querySelectorAll('[data-testid^="construction-history-step-"]').length===1`,
-    60000,
-  );
-  report.appliedHistory = await browserEval(browser.cdp, `return document.querySelector('[data-testid^="construction-history-step-"]')?.innerText;`);
+  await recordClick('Apply Patient.id related field', '[data-testid="construction-apply-proposal"]');
+  await browser.page.waitForFunction(() => document.querySelectorAll('[data-testid^="construction-history-step-"]').length === 1, null, { timeout: 60000 });
+  report.appliedHistory = await inspectPage(browser.page, () => document.querySelector('[data-testid^="construction-history-step-"]')?.innerText);
 
-  await navigate(browser.cdp, pageURL);
+  await browser.page.goto(pageURL);
   await selectTemporaryTable();
   previewResponseCount = report.responses.filter((response) => response.path.endsWith('/preview')).length;
   previewStartedAt = Date.now();
@@ -633,13 +600,11 @@ try {
 
   let activeOutputLabel;
   if (!countMode) {
-    await recordClick('Select saved related field step for edit', '[data-testid^="construction-history-step-"]',
-      `const target=document.querySelector('[data-testid^="construction-history-step-"]');if(!target)throw new Error('Saved history step missing');target.click();`);
-    await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid^="construction-edit-step-"]'))`, 30000);
-    await recordClick('Edit saved Patient.id step', '[data-testid^="construction-edit-step-"]',
-      `const target=document.querySelector('[data-testid^="construction-edit-step-"]');if(!target)throw new Error('Edit step button missing');target.click();`);
-    await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid="related-source-step-editor"]'))`, 30000);
-    const savedRouteEditor = await browserEval(browser.cdp, `return document.querySelector('[data-testid="related-source-step-editor"]')?.innerText;`);
+    await recordClick('Select saved related field step for edit', '[data-testid^="construction-history-step-"]');
+    await waitForBrowser(browser.page, { kind: 'present', selector: '[data-testid^="construction-edit-step-"]' }, 30000);
+    await recordClick('Edit saved Patient.id step', '[data-testid^="construction-edit-step-"]');
+    await waitForBrowser(browser.page, { kind: 'present', selector: '[data-testid="related-source-step-editor"]' }, 30000);
+    const savedRouteEditor = await inspectPage(browser.page, () => document.querySelector('[data-testid="related-source-step-editor"]')?.innerText);
     report.savedRouteEditor = savedRouteEditor;
     addAssertion('Saved editor retained the exact two-hop route',
       savedRouteEditor?.includes('Current route: Specimen → Observation via Specimen · Observation → Patient via Subject'),
@@ -652,13 +617,9 @@ try {
     const editProposal = await waitForProposal('Edited Patient.id proposal preview', previewStartedAt, editProposalCount);
     report.editProposal = editProposal;
     await screenshot('05-edit-proposal-preview');
-    await recordClick('Apply Patient.id label edit', '[data-testid="construction-apply-proposal"]',
-      `const target=document.querySelector('[data-testid="construction-apply-proposal"]');if(!target||target.disabled)throw new Error('Apply edit proposal is not enabled');target.click();`);
-    await waitForBrowser(browser.cdp,
-      `Boolean(document.querySelector('[data-testid^="construction-history-step-"]')) && !document.querySelector('[data-testid="related-source-step-editor"]')`,
-      60000,
-    );
-    await navigate(browser.cdp, pageURL);
+    await recordClick('Apply Patient.id label edit', '[data-testid="construction-apply-proposal"]');
+    await browser.page.waitForFunction(() => Boolean(document.querySelector('[data-testid^="construction-history-step-"]')) && !document.querySelector('[data-testid="related-source-step-editor"]'), null, { timeout: 60000 });
+    await browser.page.goto(pageURL);
     await selectTemporaryTable();
     previewResponseCount = report.responses.filter((response) => response.path.endsWith('/preview')).length;
     previewStartedAt = Date.now();
@@ -673,23 +634,17 @@ try {
     await screenshot('06-edited-preview-after-reload');
   }
 
-  await recordClick(`Select saved ${countMode ? 'Count' : 'edited'} related field step`, '[data-testid^="construction-history-step-"]',
-    `const target=document.querySelector('[data-testid^="construction-history-step-"]');if(!target)throw new Error('Saved history step missing');target.click();`);
-  await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid^="construction-remove-step-"]'))`, 30000);
+  await recordClick(`Select saved ${countMode ? 'Count' : 'edited'} related field step`, '[data-testid^="construction-history-step-"]');
+  await waitForBrowser(browser.page, { kind: 'present', selector: '[data-testid^="construction-remove-step-"]' }, 30000);
   const removeProposalCount = report.responses.filter((response) => response.path.endsWith('/construction-proposals')).length;
   previewStartedAt = Date.now();
-  await recordClick(`Remove temporary ${countMode ? 'Count' : 'edited Patient.id'} step`, '[data-testid^="construction-remove-step-"]',
-    `const target=document.querySelector('[data-testid^="construction-remove-step-"]');if(!target||target.disabled)throw new Error('Remove step button missing or disabled');target.click();`);
+  await recordClick(`Remove temporary ${countMode ? 'Count' : 'edited Patient.id'} step`, '[data-testid^="construction-remove-step-"]');
   const removeProposal = await waitForProposal('Remove Patient.id proposal preview', previewStartedAt, removeProposalCount);
   report.removeProposal = removeProposal;
   await screenshot('07-remove-proposal-preview');
-  await recordClick('Apply removal of Patient.id step', '[data-testid="construction-apply-proposal"]',
-    `const target=document.querySelector('[data-testid="construction-apply-proposal"]');if(!target||target.disabled)throw new Error('Apply removal proposal is not enabled');target.click();`);
-  await waitForBrowser(browser.cdp,
-    `document.querySelectorAll('[data-testid^="construction-history-step-"]').length===0`,
-    60000,
-  );
-  await navigate(browser.cdp, pageURL);
+  await recordClick('Apply removal of Patient.id step', '[data-testid="construction-apply-proposal"]');
+  await browser.page.waitForFunction(() => document.querySelectorAll('[data-testid^="construction-history-step-"]').length === 0, null, { timeout: 60000 });
+  await browser.page.goto(pageURL);
   await selectTemporaryTable();
   previewResponseCount = report.responses.filter((response) => response.path.endsWith('/preview')).length;
   previewStartedAt = Date.now();
@@ -705,7 +660,7 @@ try {
     { baseline: report.baseline.rendered.rows, restored: restoredResult.item.rendered.rows },
   );
   addAssertion('No construction step remains after restore',
-    await browserEval(browser.cdp, `return document.querySelectorAll('[data-testid^="construction-history-step-"]').length===0;`),
+    await browser.page.locator('[data-testid^="construction-history-step-"]').count() === 0,
   );
   await screenshot('08-restored-preview-before-cleanup');
   report.finalUIState = await captureErrorState();
@@ -715,27 +670,27 @@ try {
   if (browser) {
     try { report.failureUIState = await captureErrorState(); } catch { /* keep primary failure */ }
     try { await screenshot('failure-state'); } catch { /* best-effort evidence */ }
+    report.failureTrace = await browser.captureFailure(error, {
+      phase: report.assertions.length,
+      action: actionTracker.activeAction ?? actionTracker.lastAction,
+      elapsedMs: actionTracker.activeAction?.startedAt ? Date.now() - actionTracker.activeAction.startedAt : actionTracker.lastAction?.elapsedMs,
+      requestIdentity: report.nativeRequests.at(-1) && (({ requestId, path, method }) => ({ requestId, path, method }))(report.nativeRequests.at(-1)),
+    }).catch(sanitizeText);
   }
 } finally {
   if (browser && tableCreated) {
     report.cleanup.attempted = true;
     try {
-      await navigate(browser.cdp, pageURL);
+      await browser.page.goto(pageURL);
       await selectTemporaryTable();
-      await browserEval(browser.cdp, `window.confirm=()=>true;return true;`);
-      await recordClick('Delete temporary table', 'button[aria-label="Delete table"]',
-        `const target=document.querySelector('button[aria-label="Delete table"]');if(!target)throw new Error('Delete table control missing');target.click();`);
-      await waitForBrowser(browser.cdp,
-        `![...document.querySelectorAll('button')].some(button=>button.innerText.trim().endsWith(${JSON.stringify(tableName)}))`,
-        60000,
-      );
+      browser.page.once('dialog', dialog => dialog.accept());
+      await recordClick('Delete temporary table', 'button[aria-label="Delete table"]');
+      await browser.page.waitForFunction(name => ![...document.querySelectorAll('button')].some(button=>button.innerText.trim().endsWith(name)), tableName, { timeout: 60000 });
       report.cleanup.complete = true;
       report.cleanup.responses = report.responses.filter((response) => response.path.endsWith('/commands')).slice(-1);
-      await navigate(browser.cdp, pageURL);
-      await waitForBrowser(browser.cdp,
-        `document.body.innerText.includes('DATASET WORKSPACE') && ![...document.querySelectorAll('button')].some(button=>button.innerText.trim().endsWith(${JSON.stringify(tableName)}))`,
-        60000,
-      );
+      await browser.page.goto(pageURL);
+      await browser.page.waitForFunction(name => document.body.innerText.includes('DATASET WORKSPACE')
+        && ![...document.querySelectorAll('button')].some(button=>button.innerText.trim().endsWith(name)), tableName, { timeout: 60000 });
       report.cleanup.reloadedWithoutTemporaryTable = true;
       await screenshot('09-cleanup-confirmed');
     } catch (error) {
@@ -745,17 +700,39 @@ try {
     }
   }
   if (browser) {
+    try { await refreshResponses(); } catch (error) { report.responseCaptureError = sanitizeText(error); }
+    report.responses.push(...report.requests.map(({ requestId, path, method, status, response, startedAt, completedAt }) => ({
+      requestId, path, method, status, body: response, elapsedMs: completedAt - startedAt,
+    })));
+    report.requests.push(...report.nativeRequests);
     report.responsesWithErrors = report.responses.filter((response) => response.status >= 400);
+    if (!report.responsesWithErrors.length && report.browserErrors.length) report.responsesWithErrors = report.browserErrors;
     report.browserErrorCount = report.browserErrors.length;
     try { await browser.close(); } catch (error) {
       report.browserCloseError = error instanceof Error ? error.message : String(error);
     }
+  }
+  try {
+    const after = sourceFingerprint(sourceRoot);
+    const unchanged = sourceBefore.sha256 === after.sha256 && sourceBefore.files === after.files;
+    report.sourceFingerprint = { ...report.sourceFingerprint, after, unchanged, invalidatesRun: !unchanged };
+    assert(unchanged, 'Watched source fingerprint changed during the browser workflow');
+    report.sourceFreeze = { ...report.sourceFreeze, ...(await sourceFreeze.assertUnchanged()) };
+    report.apiBuildFreeze = { ...report.apiBuildFreeze, ...(await frozenApiBuild.assertUnchanged()) };
+  } catch (error) {
+    verificationInvalidation = error;
   }
   report.elapsedMs = Date.now() - startedAt;
   report.clickCount = report.clicks.length;
   report.completedAt = new Date().toISOString();
   report.performanceFailures = report.assertions.filter((item) => !item.passed);
   report.outcome = scenarioError || cleanupError || report.performanceFailures.length > 0 || report.responsesWithErrors.length > 0 ? 'failed' : 'passed';
+  if (verificationInvalidation) {
+    report.priorOutcome = report.outcome;
+    report.outcome = 'invalidated';
+    report.invalidations = [{ kind: 'source-or-build-freeze', reason: sanitizeText(verificationInvalidation) }];
+    process.exitCode = 1;
+  }
   try {
     await mkdir(evidenceDirectory, { recursive: true });
     await writeFile(join(evidenceDirectory, 'indirect-specimen-patient-journey.json'), JSON.stringify(report, null, 2));
