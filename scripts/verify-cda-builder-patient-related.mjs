@@ -11,6 +11,7 @@ import { sourceFingerprintChangedPaths, sourceFingerprintWithManifest } from './
 
 const PREVIEW_LIMIT = 25;
 const BASE_HEADERS = ['SPECIMEN ID', 'SUBJECT.REFERENCE', 'COLLECTION.BODYSITE.REFERENCE.REFERENCE'];
+export const patientRelatedStepInspectionCases = Object.freeze(['Inspect saved related step', 'Inspect related edit']);
 const sha256 = value => createHash('sha256').update(value).digest('hex');
 const hashFile = async path => {
   const hash = createHash('sha256');
@@ -533,6 +534,114 @@ export async function runPatientRelatedEditRemove({ explorerId, env = process.en
       failure ??= error;
     }
     report.status = failure || report.assertions.some(assertion => assertion.status === 'failed') ? 'failed' : 'passed';
+    report.finishedAt = new Date().toISOString();
+    await writeFile(`${evidenceDirectory}/report.json`, JSON.stringify(report, null, 2) + '\n', { mode: 0o600 });
+  }
+  if (failure) throw failure;
+  return report;
+}
+
+export async function runPatientRelatedStepInspection({ action, explorerId, env = process.env } = {}) {
+  assert(patientRelatedStepInspectionCases.includes(action), `Unsupported saved Patient related inspection: ${action}`);
+  assert(String(explorerId ?? '').trim(), 'Pass an explicit Builder Explorer ID');
+  const target = await targetFromEnvironment(env);
+  const evidenceDirectory = resolve(target.artifacts, `playwright-patient-related-step-${action.toLowerCase().replaceAll(' ', '-')}-${new Date().toISOString().replaceAll(':', '-')}`);
+  await mkdir(evidenceDirectory, { recursive: true, mode: 0o700 });
+  const sourceAtStart = sourceFingerprintWithManifest(target.sourceRoot);
+  const buildAtStart = apiBuildIdentity(target);
+  const report = {
+    schemaVersion: 1, scenario: 'cda-builder-patient-related-saved-step-inspection', case: action, status: 'running',
+    target: { sourceRoot: target.sourceRoot, sourceFingerprint: sourceAtStart.fingerprint, apiBuildIdentity: buildAtStart,
+      composeProject: target.composeProject, apiContainer: env.LOOM_CDA_API_CONTAINER, uiOrigin: target.uiUrl, apiOrigin: target.apiUrl,
+      project: target.fixtureProject, generation: target.fixtureGeneration, explorerId },
+    path: 'Builder > select saved Patient related step > inspect available controls' + (action === 'Inspect related edit' ? ' > Edit' : ''),
+    expectedVisibleResult: action === 'Inspect related edit'
+      ? 'Saved Patient ID label is editable in a visible enabled editor.'
+      : 'One saved Patient related step exposes visible enabled Edit and Remove controls.',
+    independentOracle: 'This is a persisted-control inspection only; it makes no computed-row or persistence claim.',
+    lifecycle: { savedStep: 'untested', edit: action === 'Inspect related edit' ? 'untested' : 'not applicable', apply: 'not applicable', reload: 'not applicable', removal: 'not applicable' },
+    evidenceDirectory, assertions: [], actions: [], timings: [],
+  };
+  const tracker = { actions: [], timings: [] };
+  let browser;
+  let activeAction = { label: 'launch Playwright browser', locator: 'Chromium launch' };
+  let failure;
+  try {
+    browser = await launchBrowser({ evidence: evidenceDirectory, appOrigins: [target.uiUrl, target.apiUrl], noAuth: true });
+    const { page, diagnostics } = browser;
+    const url = new URL(target.uiUrl);
+    url.searchParams.set('project', target.fixtureProject);
+    url.searchParams.set('explorer', explorerId);
+    url.searchParams.set('mode', 'builder');
+    activeAction = { label: 'open Builder', locator: url.toString() };
+    await page.goto(url.toString(), { waitUntil: 'domcontentloaded', timeout: 15000 });
+    await page.getByText('DATASET WORKSPACE', { exact: true }).waitFor({ state: 'visible', timeout: 15000 });
+    const explorer = page.getByRole('combobox', { name: 'Explorer', exact: true });
+    await requireUnique(explorer, 'Explorer');
+    record(report, 'Builder is scoped to requested Explorer', await explorer.inputValue() === explorerId,
+      { expected: explorerId, actual: await explorer.inputValue() });
+    const steps = page.locator('[data-testid^="construction-history-step-"]');
+    await requireUnique(steps, 'Saved Patient related step');
+    const step = steps.first();
+    await measuredAction(tracker, 'select saved Patient related step', step, button => button.click({ timeout: 5000 }),
+      () => page.locator('[data-testid^="construction-edit-step-"]').waitFor({ state: 'visible', timeout: 5000 }));
+    const edit = page.locator('[data-testid^="construction-edit-step-"]');
+    const remove = page.locator('[data-testid^="construction-remove-step-"]');
+    await requireUnique(edit, 'Edit saved Patient related step');
+    await requireUnique(remove, 'Remove saved Patient related step');
+    assert(await edit.isVisible() && await edit.isEnabled(), 'Saved Patient related step Edit control must be visible and enabled');
+    assert(await remove.isVisible() && await remove.isEnabled(), 'Saved Patient related step Remove control must be visible and enabled');
+    const controls = await page.locator('[data-testid^="construction-edit-step-"], [data-testid^="construction-remove-step-"]').evaluateAll(elements => elements.map(element => ({
+      testId: element.getAttribute('data-testid'), label: element.getAttribute('aria-label'), text: element.innerText.trim(), disabled: element.disabled,
+    })));
+    report.lifecycle.savedStep = 'passed';
+    record(report, 'Saved Patient related step exposes actionable edit and remove controls', true, { controls });
+    let editor;
+    if (action === 'Inspect related edit') {
+      activeAction = { label: 'open saved Patient related editor', locator: edit.toString(), targetLocator: edit };
+      const label = page.getByRole('textbox', { name: 'Output column label', exact: true });
+      await measuredAction(tracker, 'open saved Patient related editor', edit, button => button.click({ timeout: 5000 }),
+        () => label.waitFor({ state: 'visible', timeout: 5000 }));
+      await requireUnique(label, 'Patient related output label');
+      assert.equal(await label.isEditable(), true, 'Saved Patient ID output label must be editable');
+      editor = { value: await label.inputValue(), enabled: await label.isEnabled() };
+      assert.equal(editor.value, 'Patient ID', 'Saved Patient related editor must identify Patient ID');
+      report.lifecycle.edit = 'passed';
+      record(report, 'Patient ID output label is editable with its saved value', true, editor);
+    }
+    report.timings = tracker.timings;
+    await page.screenshot({ path: `${evidenceDirectory}/saved-related-step.png`, fullPage: true });
+    await writeFile(`${evidenceDirectory}/state.json`, JSON.stringify({ action, controls, editor, timings: tracker.timings }, null, 2) + '\n', { mode: 0o600 });
+    report.evidence = ['saved-related-step.png', 'state.json'];
+    record(report, 'No unexpected console, page, or API failures', diagnostics.console.length === 0
+      && diagnostics.pageErrors.length === 0 && diagnostics.networkFailures.length === 0 && diagnostics.httpFailures.length === 0, diagnostics);
+  } catch (error) {
+    failure = error;
+    report.failure = { action: activeAction.label, locator: activeAction.locator,
+      elapsedMs: tracker.actionStartedAt ? Date.now() - tracker.actionStartedAt : undefined,
+      message: sanitizeText(error.message ?? error) };
+    if (browser) report.failureTrace = await browser.captureFailure(error,
+      { action: { ...activeAction, startedAt: tracker.activeAction?.startedAt }, elapsedMs: report.failure.elapsedMs, target: report.target });
+  } finally {
+    report.actions.push(...tracker.actions);
+    report.timings = tracker.timings;
+    if (browser) await browser.close().catch(error => { report.closeError = sanitizeText(error.message); });
+    try {
+      const sourceAtEnd = sourceFingerprintWithManifest(target.sourceRoot);
+      const changedPaths = sourceFingerprintChangedPaths(sourceAtStart.manifest, sourceAtEnd.manifest);
+      const sourceUnchanged = sourceAtStart.fingerprint.sha256 === sourceAtEnd.fingerprint.sha256;
+      report.assertions.push({ name: 'Watched source stayed unchanged', status: sourceUnchanged ? 'passed' : 'failed', evidence: { before: sourceAtStart.fingerprint, after: sourceAtEnd.fingerprint, changedPaths } });
+      if (!sourceUnchanged) failure ??= new Error('Watched source changed during the browser run');
+      const buildAtEnd = apiBuildIdentity(target);
+      const buildUnchanged = buildAtStart === buildAtEnd;
+      report.assertions.push({ name: 'API build identity stayed unchanged', status: buildUnchanged ? 'passed' : 'failed', evidence: { before: buildAtStart, after: buildAtEnd } });
+      if (!buildUnchanged) failure ??= new Error('API build identity changed during the browser run');
+    } catch (error) {
+      report.freezeError = sanitizeText(error.message ?? error);
+      report.assertions.push({ name: 'Source and build identities stayed unchanged', status: 'failed', evidence: { message: report.freezeError } });
+      failure ??= error;
+    }
+    report.status = failure || report.assertions.some(assertion => assertion.status === 'failed') ? 'failed' : 'partial';
     report.finishedAt = new Date().toISOString();
     await writeFile(`${evidenceDirectory}/report.json`, JSON.stringify(report, null, 2) + '\n', { mode: 0o600 });
   }

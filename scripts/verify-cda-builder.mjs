@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { browserEval, launchBrowser, navigate, waitForBrowser } from './loom-dev.mjs';
 import { runRelatedSourceChooser } from './verify-cda-builder-related-source-chooser.mjs';
 import { runPatientRelatedInspection } from './verify-cda-builder-related-patient-inspection.mjs';
-import { runPatientRelatedApplyReload, runPatientRelatedEditRemove } from './verify-cda-builder-patient-related.mjs';
+import { patientRelatedStepInspectionCases, runPatientRelatedApplyReload, runPatientRelatedEditRemove, runPatientRelatedStepInspection } from './verify-cda-builder-patient-related.mjs';
 import { runPreviewLimits } from './verify-cda-builder-preview-limits.mjs';
 import { runBuilderTableManagement } from './verify-cda-builder-table-management.mjs';
 import { tableManagementActions } from './verify-cda-builder-table-management-contract.mjs';
@@ -19,7 +19,7 @@ const previewLimitsAction = action === 'Preview limits';
 const tableManagementAction = tableManagementActions.has(action);
 const rowChoiceActions = new Set(Object.keys(rowChoiceCases));
 const rowChoiceAction = rowChoiceActions.has(action);
-const playwrightOnlyAction = action === 'Verify related source chooser' || patientRelatedInspectionActions.has(action) || patientRelatedApplyReloadAction || patientRelatedEditRemoveAction || previewLimitsAction || tableManagementAction || rowChoiceAction;
+const playwrightOnlyAction = action === 'Verify related source chooser' || patientRelatedInspectionActions.has(action) || patientRelatedApplyReloadAction || patientRelatedEditRemoveAction || patientRelatedStepInspectionCases.includes(action) || previewLimitsAction || tableManagementAction || rowChoiceAction;
 const explorerId = process.argv[3] ?? (playwrightOnlyAction ? undefined : 'cda-builder-full-qa-1790439585678');
 const uiOrigin = (process.env.LOOM_CDA_UI_ORIGIN ?? (playwrightOnlyAction ? '' : 'http://127.0.0.1:30002')).replace(/\/$/, '');
 const pageURL = playwrightOnlyAction ? undefined : `${uiOrigin}/?project=loom_dev_cda_fhir&explorer=${explorerId}&mode=builder`;
@@ -67,6 +67,8 @@ try {
         ? await runPatientRelatedApplyReload({ explorerId: process.argv[3] })
         : patientRelatedEditRemoveAction
           ? await runPatientRelatedEditRemove({ explorerId: process.argv[3] })
+          : patientRelatedStepInspectionCases.includes(action)
+            ? await runPatientRelatedStepInspection({ action, explorerId: process.argv[3] })
         : previewLimitsAction
           ? await runPreviewLimits({ explorerId: process.argv[3] })
         : tableManagementAction
@@ -227,17 +229,6 @@ try {
     console.log(JSON.stringify({evidenceDirectory,before,after,published,responses:responses.filter(response=>response.path.endsWith('/publish')||response.path.endsWith('/preview'))},null,2));
     assert(published,'Publish did not return');
     assert.equal(published.status,200);
-  } else if (action === 'Inspect saved related step' || action === 'Inspect related edit') {
-    await waitForBrowser(browser.cdp, `document.querySelectorAll('[data-testid^="construction-history-step-"]').length===1`, 30000);
-    await browserEval(browser.cdp, `document.querySelector('[data-testid^="construction-history-step-"]').click();return true;`);
-    if (action === 'Inspect related edit') {
-      await browserEval(browser.cdp, `document.querySelector('[data-testid^="construction-edit-step-"]').click();return true;`);
-      await new Promise(resolve=>setTimeout(resolve,1000));
-    }
-    const state=await browserEval(browser.cdp, `return {text:document.body.innerText.slice(0,4500),controls:[...document.querySelectorAll('[data-testid^="construction-edit-step-"],[data-testid^="construction-remove-step-"],button[aria-label^="Edit"],button[aria-label^="Remove"]')].filter(button=>button.offsetParent!==null).map(button=>({testId:button.getAttribute('data-testid'),label:button.getAttribute('aria-label'),text:button.innerText,disabled:button.disabled}))};`);
-    await mkdir(evidenceDirectory,{recursive:true});
-    await writeFile(join(evidenceDirectory,action === 'Inspect related edit' ? 'related-edit.json' : 'saved-related-step.json'),JSON.stringify({pageURL,state,responses},null,2));
-    console.log(JSON.stringify({evidenceDirectory,state,responses:responses.filter(response=>response.status>=400)},null,2));
   } else if (action === 'Inspect published Viewer') {
     await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.textContent?.trim()==='Viewer')?.click();return true;`);
     await new Promise(resolve=>setTimeout(resolve,2500));

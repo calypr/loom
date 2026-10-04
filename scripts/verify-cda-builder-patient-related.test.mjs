@@ -3,7 +3,12 @@ import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import { assertPersistedPatientRelated, assertPreviewOracle, assertProposalOracle, readPatientRelatedOracle } from './verify-cda-builder-patient-related.mjs';
+import { assertPersistedPatientRelated, assertPreviewOracle, assertProposalOracle, patientRelatedStepInspectionCases, readPatientRelatedOracle, runPatientRelatedStepInspection } from './verify-cda-builder-patient-related.mjs';
+
+test('saved related-step inspection only exposes its two declared cases', async () => {
+  assert.deepEqual(patientRelatedStepInspectionCases, ['Inspect saved related step', 'Inspect related edit']);
+  await assert.rejects(() => runPatientRelatedStepInspection({ action: 'unexpected', explorerId: '', env: {} }), /Unsupported saved Patient related inspection/);
+});
 
 test('Patient related oracle keeps nulls and independently checks source membership', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'loom-patient-oracle-'));
