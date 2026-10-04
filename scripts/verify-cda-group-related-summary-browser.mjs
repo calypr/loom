@@ -3,6 +3,11 @@ import { randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { captureSourceFreeze } from './lib/source-freeze.mjs';
+import { sourceFingerprint } from './verify-ui/source-fingerprint.mjs';
+import { ApiBuildFreezeError, captureApiBuildFreeze, checkContainerApiBuildStamp, localCDAApiContainer } from './lib/api-build-freeze.mjs';
+import { selectSavedPreviewRequest } from './lib/saved-preview-binding.mjs';
 import { browserEval, click, launchBrowser, navigate, selectOption, waitForBrowser } from './lib/browser.mjs';
 
 const groupedRelatedFilter = process.env.LOOM_GROUPED_RELATED_FILTER === '1';
@@ -15,9 +20,11 @@ const absentID = `loom-summary-no-match-${randomUUID()}`;
 const resultForm = process.env.LOOM_RELATED_FORM ?? 'COUNT';
 assert(['COUNT','PRESENCE'].includes(resultForm), 'LOOM_RELATED_FORM must be COUNT or PRESENCE');
 const collectionRoundTrip=process.env.LOOM_COLLECTION_ROUND_TRIP==='1';
+const unmappedMemberRepair=process.env.LOOM_UNMAPPED_MEMBER_REPAIR==='1';
 const upstreamGroupEdit=process.env.LOOM_UPSTREAM_GROUP_EDIT==='1';
 const summaryShape=process.env.LOOM_SUMMARY_SHAPE??'GROUP';
 assert(['GROUP','PIVOT','UNPIVOT'].includes(summaryShape),'LOOM_SUMMARY_SHAPE must be GROUP, PIVOT, or UNPIVOT');
+assert(!unmappedMemberRepair || (!groupedRelatedFilter && !groupedFilterDirect && !expandAfterGroup && !collectionRoundTrip && !upstreamGroupEdit && summaryShape==='GROUP' && resultForm==='COUNT' && !zeroMatches), 'Unmapped-member repair is a standalone GROUP→related COUNT lifecycle');
 assert(!collectionRoundTrip||(summaryShape==='GROUP'&&!upstreamGroupEdit&&!zeroMatches&&resultForm==='COUNT'),'Collection round trip requires unchanged Group and positive COUNT');
 assert(!upstreamGroupEdit||summaryShape==='GROUP','Upstream Group edit requires GROUP shape');
 const project = 'loom_dev_cda_fhir';
@@ -25,11 +32,15 @@ const explorer = `group-related-summary-browser-${Date.now()}`;
 const evidence = process.argv[2] ?? `/tmp/loom-group-related-summary-browser-${Date.now()}`;
 const apiOrigin = process.env.LOOM_CDA_API_ORIGIN ?? 'http://127.0.0.1:8188';
 const uiOrigin = process.env.LOOM_CDA_UI_ORIGIN ?? 'http://127.0.0.1:30008';
+const sourceRoot = process.env.LOOM_SOURCE_FREEZE_ROOT ?? fileURLToPath(new URL('..', import.meta.url));
+const apiBuildContainer = localCDAApiContainer();
 const root = `/api/v1/projects/${project}/explorers`;
 const base = `${root}/${explorer}/authoring/v2`;
-const report = { groupedFilterDirect, groupedRelatedFilter, expandAfterGroup, collectionRoundTrip, upstreamGroupEdit, summaryShape, resultForm, zeroMatches, explorer, cases: [], errors: [], requests: [], nativeRequests: [], started: new Date().toISOString() };
+const selections = base.replace('/authoring/v2','/selections');
+const report = { groupedFilterDirect, groupedRelatedFilter, expandAfterGroup, collectionRoundTrip, unmappedMemberRepair, upstreamGroupEdit, summaryShape, resultForm, zeroMatches, explorer, cases: [], errors: [], requests: [], nativeRequests: [], started: new Date().toISOString() };
 await mkdir(evidence, { recursive: true });
-let browser, builder, outputId;
+let browser, builder, outputId, source, initialSelection;
+let sourceFreeze, frozenApiBuild, apiBuildCheckStarted = false;
 const failedResponses=[];
 const networkRequests=new Map();
 const nativeById=new Map();
@@ -49,6 +60,11 @@ const command = async commands => {
   await api(base + '/commands', { commandId: randomUUID(), semanticsVersion: builder.workspace?.semanticsVersion ?? 10,
     snapshotToken: builder.catalog.snapshotToken, expectedDraftVersion: builder.draftVersion, expectedDraftDigest: builder.draftDigest, commands });
   builder = await api(base + '/builder');
+};
+const rawQuery = query => {
+  const result = spawnSync('rtk', ['proxy', 'docker', 'exec', process.env.LOOM_ARANGO_CONTAINER ?? 'loom-dev-6d7df93d6a37-arangodb-1', 'arangosh', '--server.database', 'loom_dev', '--javascript.execute-string', `print(JSON.stringify(db._query(${JSON.stringify(query)}).toArray()));`], { encoding: 'utf8', timeout: 30000 });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  return JSON.parse(result.stdout.slice(result.stdout.indexOf('[')));
 };
 const doc = state => state.workspace.documents.find(d => d.output.id === outputId);
 const proposal = async (name, start, expectedRows) => {
@@ -111,11 +127,270 @@ const rendered = async (expectedRows, columnCount = expectedRows[0]?.length ?? 2
   const savedRows = expectedRows;
   for (const row of rows) assert(savedRows.some(expected=>row.length===expected.length&&row.every((cell,i)=>cell===expected[i])), 'Visible saved cells must match a CDA witness: '+JSON.stringify(row));
 };
+const assertSavedPreviewRows = async (expectedRows, { requestStart, expectedBuilder, phase }) => {
+  assert(Number.isInteger(requestStart) && requestStart >= 0, `${phase} needs an explicit native-request start offset`);
+  assert(expectedBuilder?.catalog?.snapshotToken, `${phase} needs the current Builder snapshot`);
+  assert.equal(expectedBuilder.catalog.generation, source.generation);
+  assert.equal(expectedBuilder.catalog.authorizationScopeDigest,initialSelection.scopeDigest,`${phase} must stay in the initially authorized scope`);
+  const currentDocument=doc(expectedBuilder);
+  assert.equal(currentDocument?.output?.id,outputId,`${phase} needs the current output document`);
+  assert(currentDocument?.population?.selectionRevisionId,`${phase} needs a pinned source membership revision`);
+  const deadline=Date.now()+5000;
+  let activePreview;
+  while(true){
+    activePreview=await browserEval(browser.cdp, `const p=document.querySelector('[data-testid="construction-preview"]');return {status:p?.dataset.previewStatus,receiptId:p?.dataset.previewReceiptId,outputId:p?.dataset.previewOutputId,draftVersion:p?.dataset.currentDraftVersion,draftDigest:p?.dataset.currentDraftDigest};`);
+    if(activePreview.status==='ready'&&activePreview.receiptId&&activePreview.outputId===outputId&&activePreview.draftVersion===String(expectedBuilder.draftVersion)&&activePreview.draftDigest===expectedBuilder.draftDigest)break;
+    assert(Date.now()<deadline,`${phase} did not render a preview for the current Builder draft within five seconds`);
+    await new Promise(resolve=>setTimeout(resolve,50));
+  }
+  assert.equal(activePreview.status,'ready',`${phase} must show a ready saved preview`);
+  assert(activePreview.receiptId,`${phase} must expose its currently displayed native receipt`);
+  assert.equal(activePreview.outputId,outputId,`${phase} preview must be bound to the current output`);
+  assert.equal(activePreview.draftVersion,String(expectedBuilder.draftVersion),`${phase} preview version must match the current Builder draft`);
+  assert.equal(activePreview.draftDigest,expectedBuilder.draftDigest,`${phase} preview digest must match the current Builder draft`);
+  let request;
+  while(!(request=selectSavedPreviewRequest(report.nativeRequests,{startIndex:requestStart,path:base+'/preview',receiptId:activePreview.receiptId,outputId}))){
+    assert(Date.now()<deadline,`${phase} did not complete a current-draft native saved preview within five seconds`);
+    await new Promise(resolve=>setTimeout(resolve,50));
+  }
+  assert.equal(request.response.receiptId,activePreview.receiptId,`${phase} native response must be the receipt visible in the current preview`);
+  assert.equal(request.response.outputId,outputId,`${phase} native response must be bound to the current output`);
+  const preview=await api(base+'/preview',{receiptId:activePreview.receiptId,outputId,limit:100});
+  assert.equal(preview.receiptId,activePreview.receiptId,`${phase} receipt-bound reread must use the current native receipt`);
+  assert.equal(preview.outputId,outputId,`${phase} receipt-bound reread must use the current output`);
+  assert.equal(preview.rowCount,expectedRows.length,'Receipt-bound saved preview row count must match the independent raw oracle');
+  assert.equal(preview.rows.length,expectedRows.length,'Receipt-bound preview must return every expected group');
+  const values=preview.rows.map(row=>preview.columns.map(column=>row[column.column]==null?'—':String(row[column.column])));
+  assert.deepEqual(values.map(row=>JSON.stringify(row)).sort(),expectedRows.map(row=>JSON.stringify(row)).sort(),'Every receipt-bound saved row must match the independent project/generation raw oracle');
+  report.unmappedRepairPreviewBindings??=[];
+  report.unmappedRepairPreviewBindings.push({phase,requestStart,receiptId:activePreview.receiptId,outputId,selectionRevisionId:currentDocument.population.selectionRevisionId,snapshotToken:expectedBuilder.catalog.snapshotToken,generation:expectedBuilder.catalog.generation,authorizationScopeDigest:expectedBuilder.catalog.authorizationScopeDigest,draftVersion:expectedBuilder.draftVersion,draftDigest:expectedBuilder.draftDigest,nativeRequestIndex:report.nativeRequests.indexOf(request)});
+  return preview;
+};
+const runUnmappedMemberRepair = async () => {
+  report.gaps=['Native starting-collection replacement of arbitrary mapped membership is unavailable; this case only removes one independently proven unmapped member and expects the dataframe output to remain unchanged.'];
+  const expectedBase=source.rootRows.map(row=>[row.id]);
+  const expectedGrouped=report.oracle.expectedGroupedRows;
+  const expectedRelated=report.oracle.expectedRelatedRows;
+  const mappedRef={project,generation:source.generation,resourceType:'Specimen',id:source.sources[0].id};
+  const unmappedRef={project,generation:source.generation,resourceType:'Specimen',id:source.sources[1].id};
+  const sourceMembers=[mappedRef,unmappedRef].sort((a,b)=>a.id.localeCompare(b.id));
+  const selectionPage=await api(`${selections}/${initialSelection.id}?limit=100`);
+  assert.equal(initialSelection.scopeDigest,selectionPage.revision.scopeDigest,'Creation response and independently reread membership header must agree on authorization scope');
+  assert.equal(selectionPage.revision.project,project);
+  assert.equal(selectionPage.revision.generation,source.generation);
+  assert.equal(selectionPage.revision.scopeDigest,builder.catalog.authorizationScopeDigest);
+  assert.equal(selectionPage.revision.resourceType,'Specimen');
+  assert.deepEqual(selectionPage.members.map(member=>member.ref).sort((a,b)=>a.id.localeCompare(b.id)),sourceMembers,'Initial selection must match the two independently scoped raw Specimen witnesses');
+  const initialRawMembership=rawQuery(`FOR member IN loom_explorer_selection_members FILTER member.selectionId==${JSON.stringify(initialSelection.id)} AND member.project==${JSON.stringify(project)} AND member.generation==${JSON.stringify(source.generation)} AND member.resourceType=="Specimen" SORT member.id RETURN {project:member.project,generation:member.generation,resourceType:member.resourceType,id:member.id}`);
+  assert.deepEqual(initialRawMembership,sourceMembers,'Independent raw membership must contain the mapped Specimen and the orphan');
+  report.oracle.initialSelectionMembership=initialRawMembership;
+
+  await open(expectedBase,1);
+  const configureGroup=async()=>{
+    const started=Date.now();
+    const waitWithinActionBudget=async predicate=>{
+      const remaining=5000-(Date.now()-started);
+      assert(remaining>0,'Rows-to-Group discovery exceeded the five-second action-to-render budget');
+      await waitForBrowser(browser.cdp,predicate,remaining);
+    };
+    await click(browser.cdp,'[data-testid="construction-rows-settings-trigger"]');
+    await waitWithinActionBudget(`document.querySelector('[data-testid="construction-action-group-rows"]:not(:disabled)')`);
+    await click(browser.cdp,'[data-testid="construction-action-group-rows"]');
+    await waitWithinActionBudget(`document.querySelector('input[aria-label="Group by Observation ID"]:not(:disabled)')`);
+    await click(browser.cdp,'input[aria-label="Group by Observation ID"]');
+    return started;
+  };
+  let started=await configureGroup();
+  await proposal('unmapped-repair-group-cancel-preview',started,expectedGrouped);
+  await click(browser.cdp,'[data-testid="construction-cancel-proposal"]');
+  await rendered(expectedBase,1);
+  assert.deepEqual((await api(base+'/builder')).workspace,builder.workspace,'Cancel must leave the source population and original Observation rows unchanged');
+  started=await configureGroup();
+  await proposal('unmapped-repair-group-preview',started,expectedGrouped);
+  await apply(expectedGrouped,2);
+  await open(expectedGrouped,2);
+  builder=await api(base+'/builder');
+  const groupedDocument=doc(builder);
+  const groupStep=groupedDocument.construction.steps.find(step=>step.operation.kind==='GROUP');
+  assert(groupStep,'Native grouping must be saved before adding the related field');
+  report.unmappedRepairGroupStep=groupStep;
+
+  const openRelatedFieldChooser=async()=>{
+    await click(browser.cdp,'[data-testid="construction-action-add-columns"]');
+    await click(browser.cdp,'[aria-label="Column types"] button',{includes:'Fields and related data'});
+    await waitForBrowser(browser.cdp,`document.querySelector('[data-testid="construction-add-columns-source"]')`);
+    if(!await browserEval(browser.cdp,`return document.querySelector('[aria-label="Related resources"] summary')?.parentElement.open===true;`)){
+      await click(browser.cdp,'[aria-label="Related resources"] summary');
+    }
+    await click(browser.cdp,'[data-testid="construction-add-columns-source-option"][aria-label="Specimen, Related resource"]');
+    if(!await browserEval(browser.cdp,`return document.querySelector('[data-testid="feature-catalog-raw-fields"] summary')?.parentElement.open===true;`)){
+      await click(browser.cdp,'[data-testid="feature-catalog-raw-fields"] summary');
+    }
+    await waitForBrowser(browser.cdp,`document.querySelector('input[aria-label="Select Specimen.id"]:not(:disabled)')`);
+  };
+  const configureRelatedField=async name=>{
+    const discoveryStart=Date.now();
+    await openRelatedFieldChooser();
+    await click(browser.cdp,'input[aria-label="Select Specimen.id"]');
+    await click(browser.cdp,'[aria-label="Add columns editor"] button',{includes:'Add 1 selected feature'});
+    await waitForBrowser(browser.cdp,`document.querySelector('[role="dialog"]')`);
+    if(!await browserEval(browser.cdp,`return [...document.querySelectorAll('[role="dialog"] summary')].find(summary=>summary.innerText.includes('Other relationship paths'))?.parentElement.open===true;`)){
+      await click(browser.cdp,'[role="dialog"] summary',{includes:'Other relationship paths'});
+    }
+    const relationship='Observation -[specimen]-> Specimen';
+    const pathSelector=`[role="dialog"] input[aria-label=${JSON.stringify(`Specimen ID: ${relationship}`)}]`;
+    await waitForBrowser(browser.cdp,`document.querySelector(${JSON.stringify(pathSelector)})`);
+    await click(browser.cdp,pathSelector);
+    const started=Date.now();
+    await click(browser.cdp,'[role="dialog"] input[aria-label="Specimen ID: Count matching records"]');
+    await click(browser.cdp,'[role="dialog"] button',{name:'Add 1 column'});
+    await waitForBrowser(browser.cdp,`['ready','error','needs-repair'].includes(document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalStatus) || ['ready','error'].includes(document.querySelector('[data-testid="construction-choice-proposal-panel"]')?.dataset.proposalStatus)`);
+    const proposalState=await browserEval(browser.cdp,`const p=document.querySelector('[data-testid="construction-proposal-panel"]')??document.querySelector('[data-testid="construction-choice-proposal-panel"]');return {status:p?.dataset.proposalStatus,text:p?.innerText,rows:[...document.querySelectorAll('[data-testid="construction-proposal-preview-row"]')].map(row=>[...row.querySelectorAll('td')].map(cell=>cell.innerText.trim()))};`);
+    assert.equal(proposalState.status,'ready',proposalState.text);
+    assert.deepEqual(proposalState.rows,expectedRelated,`${name} preview must match each exact scoped Observation→Specimen raw count`);
+    recordRender(name+'-field-discovery-to-preview',discoveryStart);
+    recordRender(name+'-choice-to-preview',started);
+    return await browserEval(browser.cdp,`return document.querySelector('[data-testid="construction-choice-proposal-panel"]')?'construction-choice-proposal-panel':'construction-proposal-panel';`);
+  };
+  const beforeRelated=builder;
+  let panel=await configureRelatedField('unmapped-repair');
+  await click(browser.cdp,`[data-testid="${panel}"] button`,{name:panel==='construction-choice-proposal-panel'?'Cancel':'Cancel'});
+  await rendered(expectedGrouped,2);
+  assert.deepEqual((await api(base+'/builder')).workspace,beforeRelated.workspace,'Canceling the related source proposal must preserve the saved Group');
+  panel=await configureRelatedField('unmapped-repair-confirmed');
+  const applyStarted=Date.now();
+  if(panel==='construction-choice-proposal-panel') await click(browser.cdp,'[data-testid="construction-choice-proposal-panel"] button',{name:'Apply columns'});
+  else await click(browser.cdp,'[data-testid="construction-apply-proposal"]');
+  await waitForBrowser(browser.cdp,`!document.querySelector('[data-testid="${panel}"]')`);
+  await rendered(expectedRelated,3);
+  recordRender('unmapped-repair-group-related-save-to-render',applyStarted);
+  builder=await api(base+'/builder');
+  const beforeRepair=doc(builder);
+  const groupBefore=beforeRepair.construction.steps.find(step=>step.id===groupStep.id);
+  const relatedStep=beforeRepair.construction.steps.find(step=>step.operation.kind==='RELATED_SOURCE');
+  assert(groupBefore&&relatedStep,'The saved document must contain GROUP followed by RELATED_SOURCE');
+  assert.equal(beforeRepair.construction.steps.indexOf(groupBefore)<beforeRepair.construction.steps.indexOf(relatedStep),true);
+  assert.equal(relatedStep.operation.relatedSource.form,'COUNT');
+  assert.equal(relatedStep.operation.relatedSource.source.resourceType,'Specimen');
+  assert.equal(relatedStep.operation.relatedSource.source.path,'id');
+  assert.equal(relatedStep.operation.relatedSource.route.length,1);
+  assert.equal(relatedStep.operation.relatedSource.route[0].fromResourceType,'Observation');
+  assert.equal(relatedStep.operation.relatedSource.route[0].toResourceType,'Specimen');
+  const savedConstruction=beforeRepair.construction;
+  const savedColumns=beforeRepair.columns;
+  const savedPopulation=beforeRepair.population;
+  const beforeRepairBuilder=builder;
+  const beforeRevision=initialSelection.id;
+  const baselinePreviewRequestStart=report.nativeRequests.length;
+  await open(expectedRelated,3);
+  builder=await api(base+'/builder');
+  const baselineReceiptPreview=await assertSavedPreviewRows(expectedRelated,{requestStart:baselinePreviewRequestStart,expectedBuilder:builder,phase:'before-unmapped-repair'});
+  await click(browser.cdp,'[data-testid="construction-rows-settings-trigger"]');
+  await waitForBrowser(browser.cdp,`document.querySelector('section[aria-label="Starting collection"] button')?.innerText`);
+  await waitForBrowser(browser.cdp,`[...document.querySelectorAll('section[aria-label="Starting collection"] button')].some(button=>button.innerText==='Check selected-resource coverage'&&!button.disabled)`);
+  const coverageStarted=Date.now();
+  await click(browser.cdp,'section[aria-label="Starting collection"] button',{name:'Check selected-resource coverage'});
+  await waitForBrowser(browser.cdp,`document.querySelector('[data-testid="population-coverage-report"]')`);
+  const coverage=await browserEval(browser.cdp,`return document.querySelector('[data-testid="population-coverage-report"]')?.innerText??'';`);
+  assert(coverage.includes('2 selected · 1 produce rows · 1 needs attention'),coverage);
+  assert(coverage.includes(unmappedRef.id),`Coverage must surface exact raw orphan ${source.sources[1].id}: ${coverage}`);
+  await waitForBrowser(browser.cdp,`[...document.querySelectorAll('[data-testid="population-coverage-report"] button')].some(button=>button.innerText==='Remove from collection'&&!button.disabled)`);
+  recordRender('unmapped-repair-coverage-render',coverageStarted);
+  const targetLabel=`Specimen/${unmappedRef.id}`;
+  const coverageRows=await browserEval(browser.cdp,`return [...document.querySelectorAll('[data-testid="population-coverage-report"] li')].map(item=>({member:item.querySelector('span')?.innerText.trim(),action:item.querySelector('button')?.innerText.trim()}));`);
+  assert.deepEqual(coverageRows,[{member:targetLabel,action:'Remove from collection'}],'Native repair must offer removal only for the independently proven unmapped Specimen');
+  const removeStarted=Date.now();
+  await click(browser.cdp,'[data-testid="population-coverage-report"] button',{name:'Remove from collection'});
+  await waitForBrowser(browser.cdp,`(()=>{const section=document.querySelector('section[aria-label="Starting collection"]');const revision=section?.dataset.attachedSelectionRevisionId;return Boolean(section&&revision&&revision!==${JSON.stringify(beforeRevision)}&&!document.body.innerText.includes('Loading your table…'));})()`);
+  const attachedRevisionID=await browserEval(browser.cdp,`return document.querySelector('section[aria-label="Starting collection"]')?.dataset.attachedSelectionRevisionId??'';`);
+  assert(typeof attachedRevisionID==='string'&&attachedRevisionID.length>0&&attachedRevisionID!==beforeRevision,'Native removal must leave an existing Starting collection section attached to a new nonempty immutable revision');
+  await rendered(expectedRelated,3);
+  recordRender('unmapped-repair-selection-change-to-render',removeStarted);
+  builder=await api(base+'/builder');
+  const revised=doc(builder);
+  const revisedSelectionID=revised.population.selectionRevisionId;
+  assert.notEqual(revisedSelectionID,beforeRevision,'Native removal must create and attach a new immutable selection revision');
+  assert.equal(revisedSelectionID,attachedRevisionID,'The saved Builder must attach the exact immutable revision shown by the native Starting collection control');
+  assert(builder.draftVersion>beforeRepairBuilder.draftVersion,'Native membership repair must advance the Builder draft version');
+  assert.notEqual(builder.draftDigest,beforeRepairBuilder.draftDigest,'Native membership repair must change the Builder draft digest');
+  assert.equal(builder.catalog.generation,source.generation);
+  assert.deepEqual(revised.population.route,savedPopulation.route,'The exact source route must survive revision replacement');
+  assert.deepEqual(revised.construction,savedConstruction,'Excluding the unmapped resource must preserve the complete GROUP and RELATED_SOURCE operations');
+  assert.deepEqual(revised.columns,savedColumns,'Physical output labels and stable column IDs must remain unchanged');
+  const revisedPage=await api(`${selections}/${revisedSelectionID}?limit=100`);
+  assert.equal(revisedPage.revision.id,revisedSelectionID);
+  assert.equal(revisedPage.revision.project,project);
+  assert.equal(revisedPage.revision.generation,source.generation);
+  assert.equal(revisedPage.revision.scopeDigest,builder.catalog.authorizationScopeDigest);
+  assert.equal(revisedPage.revision.resourceType,'Specimen');
+  assert.equal(revisedPage.revision.source.kind,'SELECTION_REVISION');
+  assert.equal(revisedPage.revision.source.revisionId,beforeRevision);
+  assert.equal(revisedPage.revision.source.membershipDigest,initialSelection.membershipDigest);
+  assert.equal(revisedPage.revision.memberCount,1);
+  assert.deepEqual(revisedPage.revision.exclusions,[unmappedRef]);
+  assert.deepEqual(revisedPage.members.map(member=>member.ref),[mappedRef],'The new revision must retain exactly the mapped raw source member');
+  const revisedRawMembership=rawQuery(`FOR member IN loom_explorer_selection_members FILTER member.selectionId==${JSON.stringify(revisedSelectionID)} AND member.project==${JSON.stringify(project)} AND member.generation==${JSON.stringify(source.generation)} AND member.resourceType=="Specimen" SORT member.id RETURN {project:member.project,generation:member.generation,resourceType:member.resourceType,id:member.id}`);
+  assert.deepEqual(revisedRawMembership,[mappedRef],'Independent Arango membership must contain only the selected mapped Specimen');
+  report.unmappedRepair={initialSelectionRevisionId:beforeRevision,selectionRevisionId:revisedSelectionID,sourceMembershipBefore:initialRawMembership,sourceMembershipAfter:revisedRawMembership,coverage,constructionPreserved:true,columnsPreserved:true,routePreserved:true,expectedRows:expectedRelated,baselineReceiptPreview,changedContributingMembershipTested:false};
+  const reloadedPreviewRequestStart=report.nativeRequests.length;
+  await open(expectedRelated,3);
+  builder=await api(base+'/builder');
+  const reloaded=doc(builder);
+  assert.equal(reloaded.population.selectionRevisionId,revisedSelectionID,'Reload must retain the new selection revision');
+  assert.deepEqual(reloaded.population.route,savedPopulation.route);
+  assert.deepEqual(reloaded.construction,savedConstruction);
+  assert.deepEqual(reloaded.columns,savedColumns);
+  assert.equal(builder.catalog.generation,source.generation);
+  report.unmappedRepair.reloadedRows=expectedRelated;
+  const reloadedPage=await api(`${selections}/${revisedSelectionID}?limit=100`);
+  assert.deepEqual(reloadedPage.members.map(member=>member.ref),[mappedRef]);
+  assert.deepEqual(rawQuery(`FOR member IN loom_explorer_selection_members FILTER member.selectionId==${JSON.stringify(revisedSelectionID)} AND member.project==${JSON.stringify(project)} AND member.generation==${JSON.stringify(source.generation)} AND member.resourceType=="Specimen" SORT member.id RETURN {project:member.project,generation:member.generation,resourceType:member.resourceType,id:member.id}`),[mappedRef]);
+  report.unmappedRepair.fullReceiptPreview=await assertSavedPreviewRows(expectedRelated,{requestStart:reloadedPreviewRequestStart,expectedBuilder:builder,phase:'after-unmapped-repair-reload'});
+};
 try {
+  report.sourceFingerprint={root:sourceRoot,before:sourceFingerprint(sourceRoot)};
+  const sourceFreezeStartedAt=new Date().toISOString();
+  sourceFreeze=await captureSourceFreeze(sourceRoot);
+  report.sourceFreeze={startedAt:sourceFreezeStartedAt,watchedFileCount:sourceFreeze.watchedFileCount};
+  apiBuildCheckStarted=true;
+  report.apiBuildFreeze={target:'running local CDA API build stamp',container:apiBuildContainer,invalidatesRun:true,productFailure:false};
+  frozenApiBuild=await captureApiBuildFreeze(()=>checkContainerApiBuildStamp(apiBuildContainer));
+  report.apiBuildFreeze.initial=frozenApiBuild.initial;
+  if(unmappedMemberRepair){
+
+    const query=`LET seeds=(FOR s IN Specimen FILTER s.resourceType=="Specimen" AND s.project=="${project}" AND s.dataset_generation=="cda-fhir-v1" SORT s.id LIMIT 2000 RETURN s) FOR s IN seeds LET parents=(FOR e IN fhir_edge FILTER e._from==s._id AND e.label=="parent" AND e.from_type=="Specimen" AND e.to_type=="Specimen" AND e.project=="${project}" AND e.dataset_generation=="cda-fhir-v1" LET parent=DOCUMENT(e._to) FILTER parent!=null AND parent.resourceType=="Specimen" AND parent.project=="${project}" AND parent.dataset_generation=="cda-fhir-v1" RETURN parent._id) LET children=(FOR e IN fhir_edge FILTER e._to==s._id AND e.label=="parent" AND e.from_type=="Specimen" AND e.to_type=="Specimen" AND e.project=="${project}" AND e.dataset_generation=="cda-fhir-v1" LET child=DOCUMENT(e._from) FILTER child!=null AND child.resourceType=="Specimen" AND child.project=="${project}" AND child.dataset_generation=="cda-fhir-v1" RETURN child.id) LET routeRows=(FOR parentEdge IN fhir_edge FILTER parentEdge._from==s._id AND parentEdge.label=="parent" AND parentEdge.from_type=="Specimen" AND parentEdge.to_type=="Specimen" AND parentEdge.project=="${project}" AND parentEdge.dataset_generation=="cda-fhir-v1" LET parent=DOCUMENT(parentEdge._to) FILTER parent!=null AND parent.resourceType=="Specimen" AND parent.project=="${project}" AND parent.dataset_generation=="cda-fhir-v1" FOR specimenEdge IN fhir_edge FILTER specimenEdge._to==parent._id AND specimenEdge.label=="specimen_Specimen" AND specimenEdge.from_type=="Observation" AND specimenEdge.to_type=="Specimen" AND specimenEdge.project=="${project}" AND specimenEdge.dataset_generation=="cda-fhir-v1" LET observation=DOCUMENT(specimenEdge._from) FILTER observation!=null AND observation.resourceType=="Observation" AND observation.project=="${project}" AND observation.dataset_generation=="cda-fhir-v1" RETURN observation.id) RETURN {id:s.id,_id:s._id,parents,children,routeRows}`;
+    const candidates=rawQuery(query);
+    const mapped=candidates.find(candidate=>candidate.parents.length>0&&candidate.routeRows.length>=1&&candidate.routeRows.length<=24&&new Set(candidate.routeRows).size===candidate.routeRows.length);
+    const unmapped=candidates.find(candidate=>candidate.id!==mapped?.id&&candidate.parents.length===0&&candidate.children.length>0&&candidate.routeRows.length===0);
+    const witnessCandidates=candidates.slice(0,12).map(({id,parents,children,routeRows})=>({id,parentCount:parents.length,childCount:children.length,routeRows:routeRows.length}));
+    report.oracle={query,seedLimit:2000,candidateCount:candidates.length,witnessStatus:mapped&&unmapped?'found':'not-found',witnessCandidates};
+    if(!mapped||!unmapped) throw Object.assign(new Error(`CDA_UNMAPPED_REPAIR_WITNESS_NOT_FOUND: bounded project/generation query found no mapped+unmapped Specimen pair; ${JSON.stringify(witnessCandidates)}`),{code:'CDA_UNMAPPED_REPAIR_WITNESS_NOT_FOUND'});
+    const rows=rawQuery(`FOR o IN Observation FILTER o.id IN ${JSON.stringify(mapped.routeRows)} AND o.resourceType=="Observation" AND o.project=="${project}" AND o.dataset_generation=="cda-fhir-v1" SORT o.id LET targets=(FOR e IN fhir_edge FILTER e._from==o._id AND e.label=="specimen_Specimen" AND e.from_type=="Observation" AND e.to_type=="Specimen" AND e.project==o.project AND e.dataset_generation==o.dataset_generation LET specimen=DOCUMENT(e._to) FILTER specimen!=null AND specimen.resourceType=="Specimen" AND specimen.project==o.project AND specimen.dataset_generation==o.dataset_generation RETURN DISTINCT specimen.id) RETURN {id:o.id,_id:o._id,specimenIDs:SORTED_UNIQUE(targets)}`);
+    assert.deepEqual(rows.map(row=>row.id).sort(),[...mapped.routeRows].sort(),'The raw root Observation oracle must exactly recover the mapped route rows');
+    assert(rows.every(row=>row.specimenIDs.length>0),'Every grouped Observation witness must have at least one scoped related Specimen');
+    source={generation:'cda-fhir-v1',sources:[mapped,unmapped],rootRows:rows};
+    report.oracle={...report.oracle,mapped:{id:mapped.id,parentIDs:mapped.parents,rootObservationIDs:mapped.routeRows},unmapped:{id:unmapped.id,parentIDs:unmapped.parents,childIDs:unmapped.children},rootRows:rows,expectedGroupedRows:rows.map(row=>[row.id,'1']),expectedRelatedRows:rows.map(row=>[row.id,'1',String(row.specimenIDs.length)])};
+    await api(root,{name:explorer,title:'Unmapped collection repair under Group QA'});
+    builder=await api(base+'/builder');
+    assert.equal(builder.catalog.generation,source.generation);
+    const node=builder.catalog.nodes.find(item=>item.resourceType==='Observation');
+    assert(node,'CDA catalog must expose Observation roots');
+    await command([{type:'CREATE_TABLE',title:'Group related unmapped repair QA',rootNodeId:node.nodeId}]);
+    outputId=builder.workspace.documents[0].output.id;
+    const field=builder.catalog.candidates.find(candidate=>candidate.nodeId===node.nodeId&&candidate.fieldPath==='id');
+    assert(field,'Observation ID must be available for exact base-row identity');
+    await command([{type:'ADD_COLUMN',outputId,occurrenceId:'base',candidateId:field.candidateId,projectionMode:'VALUE',initialPresentation:'TABLE',title:'Observation ID'}]);
+    initialSelection=await api(selections,{snapshotToken:builder.catalog.snapshotToken,idempotencyKey:explorer,source:{kind:'resources',resources:{refs:source.sources.map(member=>({project,generation:source.generation,resourceType:'Specimen',id:member.id}))}}});
+    const routes=await api(base+'/population-routes',{snapshotToken:builder.catalog.snapshotToken,outputId,selectionRevisionId:initialSelection.id,limit:50});
+    const route=routes.choices.find(choice=>choice.route.length===2&&choice.route[0].fromResourceType==='Observation'&&choice.route[0].toResourceType==='Specimen'&&choice.route[0].relationship==='specimen_Specimen'&&choice.route[0].storageDirection==='OUTBOUND'&&choice.route[1].relationship==='parent'&&choice.route[1].storageDirection==='INBOUND');
+    assert(route,'The CDA mapped/unmapped pair must use the exact native Observation → Specimen → parent route: '+JSON.stringify(routes.choices.map(choice=>choice.route)));
+    await command([{type:'SET_TABLE_POPULATION',outputId,selectionRevisionId:initialSelection.id,routeChoiceId:route.routeChoiceId}]);
+    report.unmappedRepairFixture={selectionRevisionId:initialSelection.id,route:builder.workspace.documents[0].population.route,rootRows:source.rootRows.length};
+  } else {
   const query = `FOR s IN Specimen FILTER s.project == "${project}" AND s.dataset_generation == "cda-fhir-v1" LIMIT 1 FOR e IN fhir_edge FILTER e._from == s._id AND e.label == "subject_Patient" AND e.project == s.project AND e.dataset_generation == s.dataset_generation FILTER STARTS_WITH(e._to,"Patient/") LET members=(FOR se IN fhir_edge FILTER se._to == e._to AND se.label == "subject_Patient" AND se.project == s.project AND se.dataset_generation == s.dataset_generation FILTER STARTS_WITH(se._from,"Specimen/") LIMIT 2 LET d=DOCUMENT(se._from) FILTER d.project == s.project AND d.dataset_generation == s.dataset_generation RETURN {id:d.id,_id:d._id}) FILTER LENGTH(members)==2 RETURN {id:members[0].id,_id:members[0]._id,resourceType:"Specimen",generation:s.dataset_generation,sources:members}`;
   const raw = spawnSync('rtk', ['proxy', 'docker', 'exec', process.env.LOOM_ARANGO_CONTAINER ?? 'loom-dev-6d7df93d6a37-arangodb-1', 'arangosh', '--server.database', 'loom_dev', '--javascript.execute-string', `print(JSON.stringify(db._query(${JSON.stringify(query)}).toArray()));`], { encoding: 'utf8', timeout: 30000 });
   assert.equal(raw.status, 0, raw.stderr);
-  const [source] = JSON.parse(raw.stdout.slice(raw.stdout.indexOf('[')));
+  source = JSON.parse(raw.stdout.slice(raw.stdout.indexOf('[')))[0];
   assert(source?.id);
   report.oracle = { query, source };
   await api(root, { name: explorer, title: 'Group Add fields QA' });
@@ -131,12 +406,13 @@ try {
     assert(kindField,'Pivot fixture needs an independent source grouping field');
     await command([{type:'ADD_COLUMN',outputId,occurrenceId:'base',candidateId:kindField.candidateId,projectionMode:'VALUE',initialPresentation:'TABLE',title:'Specimen resource type'}]);
   }
-  const selection = await api(base.replace('/authoring/v2', '/selections'), { snapshotToken: builder.catalog.snapshotToken, idempotencyKey: explorer,
+  initialSelection = await api(selections, { snapshotToken: builder.catalog.snapshotToken, idempotencyKey: explorer,
     source: { kind: 'resources', resources: { refs: source.sources.map(member=>({ project, generation: source.generation, resourceType: 'Specimen', id: member.id })) } } });
-  const routes = await api(base + '/population-routes', { snapshotToken: builder.catalog.snapshotToken, outputId, selectionRevisionId: selection.id, limit: 50 });
+  const routes = await api(base + '/population-routes', { snapshotToken: builder.catalog.snapshotToken, outputId, selectionRevisionId: initialSelection.id, limit: 50 });
   const direct = routes.choices.find(c => c.route.length === 0);
   assert(direct);
-  await command([{ type: 'SET_TABLE_POPULATION', outputId, selectionRevisionId: selection.id, routeChoiceId: direct.routeChoiceId }]);
+  await command([{ type: 'SET_TABLE_POPULATION', outputId, selectionRevisionId: initialSelection.id, routeChoiceId: direct.routeChoiceId }]);
+  }
   browser = await launchBrowser(evidence);
   browser.cdp.on('Runtime.exceptionThrown', e => report.errors.push({kind:'runtime',details:e.exceptionDetails}));
   browser.cdp.on('Runtime.consoleAPICalled', e => {if(e.type==='error')report.errors.push({kind:'console',args:e.args});});
@@ -173,10 +449,9 @@ try {
     }
   });
   browser.cdp.on('Network.loadingFailed', e=>{if(e.type==='Script'&&e.errorText!=='net::ERR_ABORTED')report.errors.push({kind:'module',error:e.errorText});});
-  const rawQuery = query => {
-    const r=spawnSync('rtk',['proxy','docker','exec',process.env.LOOM_ARANGO_CONTAINER??'loom-dev-6d7df93d6a37-arangodb-1','arangosh','--server.database','loom_dev','--javascript.execute-string',`print(JSON.stringify(db._query(${JSON.stringify(query)}).toArray()));`],{encoding:'utf8',timeout:30000});
-    assert.equal(r.status,0,r.stderr);return JSON.parse(r.stdout.slice(r.stdout.indexOf('[')));
-  };
+  if(unmappedMemberRepair){
+    await runUnmappedMemberRepair();
+  } else {
   assert.equal(source.sources.length,2);
   let witnesses=source.sources.map(member=>({anchor:member._id,values:summaryShape==='PIVOT'?[member.id,'Specimen']:[member.id]}));
   let expected=witnesses.map(w=>w.values);
@@ -641,14 +916,44 @@ try {
   await open(shaped);
   assert.deepEqual(doc(builder).construction,restoredConstruction);
   }
+  }
   assert.deepEqual(report.errors,[]);
   report.status='passed';
 } catch (error) {
-  report.status = 'failed'; report.error = String(error.stack ?? error); process.exitCode = 1;
+  report.status = error?.code==='CDA_UNMAPPED_REPAIR_WITNESS_NOT_FOUND'?'witness-not-found':'failed'; report.error = String(error.stack ?? error); process.exitCode = 1;
+  if(error instanceof ApiBuildFreezeError){
+    report.status='invalidated';
+    report.apiBuildFreeze={...report.apiBuildFreeze,invalidatesRun:true,productFailure:false,error:String(error),reason:error.reason,before:error.before,after:error.after};
+  }
   report.savedBuilderAtFailure=await api(base+'/builder').catch(error=>({readError:String(error)}));
   report.failureUI = browser ? await browserEval(browser.cdp, 'return document.body.innerText;').catch(String) : undefined;
 } finally {
+  if(apiBuildCheckStarted&&frozenApiBuild){
+    try { report.apiBuildFreeze={...report.apiBuildFreeze,...await frozenApiBuild.assertUnchanged()}; }
+    catch(error){
+      report.priorStatus=report.status;report.status='invalidated';
+      report.apiBuildFreeze={...report.apiBuildFreeze,unchanged:false,invalidatesRun:true,productFailure:false,error:String(error),reason:error.reason,before:error.before,after:error.after};
+      process.exitCode=1;
+    }
+  }
   await Promise.all([...failedResponses,...pendingNetworkReads]);
+  if(sourceFreeze){
+    const sourceFreezeFinishedAt=new Date().toISOString();
+    try { report.sourceFreeze={...report.sourceFreeze,...await sourceFreeze.assertUnchanged(),finishedAt:sourceFreezeFinishedAt}; }
+    catch(error){
+      report.priorStatus=report.status;report.status='invalidated';
+      report.sourceFreeze={...report.sourceFreeze,unchanged:false,changedPaths:error.changedPaths??[],invalidatesRun:true,productFailure:false,error:String(error),finishedAt:sourceFreezeFinishedAt};
+      process.exitCode=1;
+    }
+  }
+  if(report.sourceFingerprint){
+    const after=sourceFingerprint(sourceRoot);
+    report.sourceFingerprint.after=after;
+    report.sourceFingerprint.unchanged=report.sourceFingerprint.before.sha256===after.sha256&&report.sourceFingerprint.before.files===after.files;
+    report.sourceFingerprint.invalidatesRun=!report.sourceFingerprint.unchanged;
+    report.sourceFingerprint.productFailure=false;
+    if(!report.sourceFingerprint.unchanged){report.priorStatus=report.status;report.status='invalidated';process.exitCode=1;}
+  }
   report.finished = new Date().toISOString();
   await writeFile(join(evidence, 'report.json'), JSON.stringify(report, null, 2));
   await browser?.close();

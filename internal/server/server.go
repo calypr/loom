@@ -512,7 +512,11 @@ func run(ctx context.Context, serverConfig Config) error {
 			if len(bindings.OutputNames) > 0 {
 				output = bindings.OutputNames[0]
 			}
-			return recipeEngine.PreviewOutput(ctx, resolved, dataframeexecution.PreviewRequest{Output: output, Limit: bindings.PreviewLimit, IncludeRowIdentity: bindings.IncludeRowIdentity}, visit)
+			summary, previewErr := recipeEngine.PreviewOutput(ctx, resolved, dataframeexecution.PreviewRequest{Output: output, Limit: bindings.PreviewLimit, IncludeRowIdentity: bindings.IncludeRowIdentity}, visit)
+			if previewErr != nil {
+				logReceiptPreviewContractFailure(logger, requestIDFromContext(ctx), receipt.ID, output, previewErr)
+			}
+			return summary, previewErr
 		},
 		ValidateReceiptStream: func(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings) error {
 			err := validateReceiptFullStream(ctx, recipeEngine, receipt, bindings)

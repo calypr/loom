@@ -42,6 +42,14 @@ func CompilePopulationMappingOutputWithPolicy(output lower.CompiledRecipeOutput,
 	if err != nil {
 		return CompiledPopulationMappingQuery{}, fmt.Errorf("apply population mapping execution window: %w", err)
 	}
+	rowIdentity := output.RowIdentity.Clone()
+	if physical.StageSequence != nil {
+		_, effectiveIdentity, identityErr := finalConstructionPopulationMappingIdentity(physical, output)
+		if identityErr != nil {
+			return CompiledPopulationMappingQuery{}, identityErr
+		}
+		rowIdentity = effectiveIdentity
+	}
 	rendered, err := aql.RenderPhysicalPlan(physical)
 	if err != nil {
 		return CompiledPopulationMappingQuery{}, fmt.Errorf("render population mapping physical plan: %w", err)
@@ -51,7 +59,7 @@ func CompilePopulationMappingOutputWithPolicy(output lower.CompiledRecipeOutput,
 		MemberColumn:           ir.PhysicalPopulationMappingMemberField,
 		IdentityPartsColumn:    mappingIdentityPartsColumn(physical),
 		ExplicitIdentityColumn: mappingExplicitIdentityColumn(physical),
-		RowIdentity:            output.RowIdentity.Clone(),
+		RowIdentity:            rowIdentity,
 		Diagnostics:            physicalPlanDiagnostics(physical),
 	}, nil
 }
@@ -75,7 +83,7 @@ func mappingPhysicalPlan(output lower.CompiledRecipeOutput, policy ir.PhysicalOp
 		if err != nil {
 			return ir.PhysicalPlan{}, err
 		}
-		terminal, err := finalConstructionPopulationMappingIdentity(physical, output)
+		terminal, _, err := finalConstructionPopulationMappingIdentity(physical, output)
 		if err != nil {
 			return ir.PhysicalPlan{}, err
 		}
@@ -152,20 +160,33 @@ func addConstructionPopulationMembersSourceProjection(plan *ir.PhysicalPlan) (st
 	return "", fmt.Errorf("construction population mapping source has no terminal source RETURN")
 }
 
-func finalConstructionPopulationMappingIdentity(plan ir.PhysicalPlan, output lower.CompiledRecipeOutput) (*ir.PhysicalStagePopulationMappingReturn, error) {
+func finalConstructionPopulationMappingIdentity(plan ir.PhysicalPlan, output lower.CompiledRecipeOutput) (*ir.PhysicalStagePopulationMappingReturn, *spec.RowIdentity, error) {
 	sequence := plan.StageSequence
-	if sequence == nil || output.RowIdentity == nil || len(output.RowIdentity.Fields) != 1 || output.RowIdentity.Fields[0] != sequence.FinalRowIdentity {
-		return nil, fmt.Errorf("construction population mapping requires the exact final row identity")
+	if sequence == nil || output.RowIdentity == nil || output.RowIdentity.Validate() != nil || output.RowIdentity.Grain != output.RowGrain {
+		return nil, nil, fmt.Errorf("construction population mapping requires a valid row identity")
+	}
+	effectiveIdentity := output.RowIdentity.Clone()
+	if len(effectiveIdentity.Fields) != 1 || effectiveIdentity.Fields[0] != sequence.FinalRowIdentity {
+		defaultIdentity, ok := spec.DefaultRowIdentity(output.RowGrain)
+		canonicalDefault := ok && len(effectiveIdentity.Fields) == len(defaultIdentity.Fields)
+		for index := range effectiveIdentity.Fields {
+			canonicalDefault = canonicalDefault && effectiveIdentity.Fields[index] == defaultIdentity.Fields[index]
+		}
+		if !canonicalDefault || sequence.FinalRowIdentity != "__loom_row_id" {
+			return nil, nil, fmt.Errorf("construction population mapping requires the exact final row identity")
+		}
+		effectiveIdentity.Fields = []string{sequence.FinalRowIdentity}
 	}
 	identityFound := false
 	for _, column := range sequence.FinalColumns {
-		if column.Name == sequence.FinalRowIdentity && column.Internal && column.Identity {
+		if column.Name == sequence.FinalRowIdentity && column.Internal && column.Identity &&
+			column.Kind == "string" && column.Cardinality == "required_one" {
 			identityFound = true
 			break
 		}
 	}
 	if !identityFound {
-		return nil, fmt.Errorf("construction identity field %q is not present in the final typed stage", sequence.FinalRowIdentity)
+		return nil, nil, fmt.Errorf("construction identity field %q is not a required scalar string in the final typed stage", sequence.FinalRowIdentity)
 	}
 	for _, name := range []string{"__loom_root_contributor_keys", "_key"} {
 		for _, column := range sequence.FinalColumns {
@@ -179,10 +200,10 @@ func finalConstructionPopulationMappingIdentity(plan ir.PhysicalPlan, output low
 			return &ir.PhysicalStagePopulationMappingReturn{
 				FinalRootContributorColumn: column.Name, FinalRootContributorsMany: many,
 				RowIdentityColumn: sequence.FinalRowIdentity,
-			}, nil
+			}, effectiveIdentity, nil
 		}
 	}
-	return nil, fmt.Errorf("construction population mapping requires compiler-proven root contributor identities in its final stage")
+	return nil, nil, fmt.Errorf("construction population mapping requires compiler-proven root contributor identities in its final stage")
 }
 
 func finalPopulationMappingIdentity(plan ir.PhysicalPlan, identity *spec.RowIdentity) (int, []ir.PhysicalPopulationMappingIdentityPart, *ir.PhysicalExpression, error) {
