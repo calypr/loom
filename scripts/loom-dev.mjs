@@ -3639,7 +3639,7 @@ const verifyJ05BrowserScenario = async (target, report, entryTarget = target) =>
       await click('Download ZIP', 'j05-download-zip-action-to-render-within-five-seconds',
         async () => { await downloadPromise; }, downloadLink);
       const download = await downloadPromise;
-      const archivePath = join(downloadDir, download.suggestedFilename());
+      const archivePath = join(downloadDir, basename(download.suggestedFilename()));
       await download.saveAs(archivePath);
       recordEvidence(report, archivePath);
       report.target.artifact = { path: archivePath, bytes: statSync(archivePath).size };
@@ -4338,41 +4338,55 @@ const verifyJ01BrowserScenario = async (target, report, entryTarget = target, ex
   report.actions = [];
   let previewRowsForArtifact = [];
 
-  const browser = await launchBrowser(downloadDir);
-  const cdp = browser.cdp;
+  const browser = await launchPlaywrightEvidenceBrowser({
+    evidence: evidenceDir,
+    appOrigins: [target.uiUrl, target.apiUrl, entryTarget.uiUrl],
+    noAuth: true,
+  });
+  const { page } = browser;
   const network = [];
   const pendingBodies = new Set();
+  const requestItems = new WeakMap();
+  const ownedExplorerIDs = new Set([report.target.bootstrapExplorerId].filter(Boolean));
   const parseJSON = (raw) => {
     try { return JSON.parse(raw ?? ''); } catch { return undefined; }
   };
+  const sanitizeDiagnosticValue = (value, key = '') => {
+    if (/authorization|cookie|password|passwd|token|secret|credential|session|api[_-]?key/i.test(key)) return '[REDACTED]';
+    if (typeof value === 'string') return sanitizeBody(value);
+    if (Array.isArray(value)) return value.map((item) => sanitizeDiagnosticValue(item));
+    if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([childKey, childValue]) => [childKey, sanitizeDiagnosticValue(childValue, childKey)]));
+    return value;
+  };
   const bodyForPath = (path) => network.filter((item) => item.url.endsWith(path));
-  cdp.on('Network.requestWillBeSent', (event) => {
-    if (!event.request.url.includes('/authoring/v2/')) return;
+  page.on('request', (request) => {
+    const url = new URL(request.url());
+    const match = url.pathname.match(/^\/api\/v1\/projects\/([^/]+)\/explorers\/([^/]+)\/authoring\/v2\/(.+)$/);
+    if (url.origin !== new URL(target.uiUrl).origin || !match
+      || decodeURIComponent(match[1]) !== target.fixtureProject
+      || !ownedExplorerIDs.has(decodeURIComponent(match[2]))) return;
     const item = {
-      requestId: event.requestId,
-      url: new URL(event.request.url).pathname,
-      method: event.request.method,
-      xRequestId: event.request.headers?.['X-Request-ID'] ?? event.request.headers?.['x-request-id'],
-      postData: event.request.postData,
-      startedAtMs: event.wallTime ? Math.round(event.wallTime * 1000) : undefined,
+      requestId: request.headers()['x-request-id'] ?? '',
+      url: url.pathname,
+      method: request.method(),
+      postData: request.postData() ?? '',
+      startedAtMs: Date.now(),
     };
     network.push(item);
+    requestItems.set(request, item);
   });
-  cdp.on('Network.responseReceived', (event) => {
-    const item = network.find((candidate) => candidate.requestId === event.requestId);
-    if (item) item.response = { status: event.response.status, mimeType: event.response.mimeType };
-  });
-  cdp.on('Network.loadingFinished', (event) => {
-    const item = network.find((candidate) => candidate.requestId === event.requestId);
-    if (!item || !item.response?.mimeType?.includes('json')) return;
+  page.on('response', (response) => {
+    const item = requestItems.get(response.request());
+    if (!item) return;
+    item.response = { status: response.status(), mimeType: response.headers()['content-type'] ?? '' };
     const capture = (async () => {
       try {
-        const response = await cdp.send('Network.getResponseBody', { requestId: item.requestId });
-        item.responseBody = parseJSON(response.base64Encoded ? Buffer.from(response.body, 'base64').toString('utf8') : response.body);
+        item.responseBody = await response.json();
       } catch (error) {
-        item.responseBodyError = String(error);
+        item.responseBodyError = String(error.message ?? error);
       }
     })().finally(() => pendingBodies.delete(capture));
+    item.bodyPromise = capture;
     pendingBodies.add(capture);
   });
 
@@ -4383,6 +4397,15 @@ const verifyJ01BrowserScenario = async (target, report, entryTarget = target, ex
     report.actions.push({ name, elapsedMs });
     report.timings[`j01_${name}_ms`] = elapsedMs;
   };
+  const click = (label, locator) => performAction(browser, label, locator,
+    (targetLocator, { timeout }) => targetLocator.click({ timeout }), { timeout: 5000 });
+  const clickButton = (name, scope = page) => click(`click button ${name}`, scope.getByRole('button', { name, exact: true }));
+  const fill = (label, value, locator = page.getByLabel(label, { exact: true })) => performAction(browser, `fill ${label}`, locator,
+    (locator, { timeout }) => locator.fill(String(value), { timeout }), { timeout: 5000, editable: true });
+  const select = (label, value, scope = page) => performAction(browser, `select ${label}`, scope.getByLabel(label, { exact: true }),
+    (locator, { timeout }) => locator.selectOption({ label: value }, { timeout }), { timeout });
+  const waitForDOMCondition = async (condition, timeout = 30000) => page.waitForFunction(condition, undefined, { timeout });
+  const navigatePage = async (url) => page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
   const readState = async () => fetchBuilderState(target, report.target.explorerId);
   const waitForState = async (predicate, label, timeout = 30000) => {
     const started = Date.now();
@@ -4395,55 +4418,69 @@ const verifyJ01BrowserScenario = async (target, report, entryTarget = target, ex
     throw new Error(`timed out waiting for J01 Builder state: ${label}; draft=${state?.draftVersion}`);
   };
   const waitForNetworkResponse = async (path, afterIndex = -1, timeout = 30000, predicate = () => true) => {
-    const started = Date.now();
-    while (Date.now() - started < timeout) {
-      const match = network.find((item, index) => index > afterIndex && item.url.endsWith(path) && item.responseBody !== undefined && predicate(item));
-      if (match) return match;
-      await sleep(50);
+    const existing = network.find((item, index) => index > afterIndex && item.url.endsWith(path) && item.response && predicate(item));
+    if (existing) {
+      await existing.bodyPromise;
+      return existing;
     }
-    throw new Error(`timed out waiting for J01 ${path} response; observed=${JSON.stringify(bodyForPath(path).map((item) => ({ request: parseJSON(item.postData), response: item.response?.status, body: item.responseBodyError })))}`);
+    let response;
+    try {
+      response = await page.waitForResponse((candidate) => {
+        const item = requestItems.get(candidate.request());
+        return Boolean(item && network.indexOf(item) > afterIndex && item.url.endsWith(path) && predicate(item));
+      }, { timeout });
+    } catch (error) {
+      throw new Error(`timed out waiting for J01 ${path} response; observed=${JSON.stringify(bodyForPath(path).map((item) => ({ request: parseJSON(item.postData), response: item.response?.status, body: item.responseBodyError })))}`, { cause: error });
+    }
+    const item = requestItems.get(response.request());
+    if (item.bodyPromise) await item.bodyPromise;
+    if (item.responseBody === undefined) {
+      try { item.responseBody = await response.json(); }
+      catch (error) { item.responseBodyError = String(error.message ?? error); }
+    }
+    return item;
   };
   const captureDOM = async (name) => {
     const path = join(evidenceDir, `${name}.html`);
-    await snapshot(cdp, path);
+    writeFileSync(path, await page.content(), { mode: 0o600 });
     recordEvidence(report, path);
   };
   const saveScreenshot = async (name) => {
-    const image = await cdp.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true });
     const path = join(evidenceDir, `${name}.png`);
-    writeFileSync(path, Buffer.from(image.data, 'base64'), { mode: 0o600 });
+    await page.screenshot({ path, fullPage: true, mask: [page.locator('input'), page.locator('textarea')] });
     recordEvidence(report, path);
   };
   const saveNetworkEvidence = async () => {
     await Promise.allSettled([...pendingBodies]);
     const path = join(evidenceDir, 'network-identities.json');
-    writeJSON(path, network);
+    writeJSON(path, sanitizeDiagnosticValue(network));
     recordEvidence(report, path);
   };
+  let primaryFailure;
 
   try {
     const bootstrapExplorerId = report.target.bootstrapExplorerId;
     if (!bootstrapExplorerId) throw new Error('J01 fresh fixture bootstrap Explorer identity is missing');
     const baseURL = `${target.uiUrl}/?project=${encodeURIComponent(target.fixtureProject)}&explorer=${encodeURIComponent(bootstrapExplorerId)}&mode=builder`;
-    await navigate(cdp, entryTarget.uiUrl);
-    await navigate(cdp, baseURL);
-    await waitForBrowser(cdp, `document.body.innerText.includes('Build your features') || document.body.innerText.includes('Create your first table')`, 60000);
+    await navigatePage(entryTarget.uiUrl);
+    await navigatePage(baseURL);
+    await waitForDOMCondition(`document.body.innerText.includes('Build your features') || document.body.innerText.includes('Create your first table')`, 60000);
     await captureDOM('j01-builder-start');
 
     await action('blank_explorer_and_observation_table', async () => {
       const title = `J01 ${target.fixtureProject.slice(-18)}`;
-      await browserEval(cdp, `clickText('summary', 'New explorer')`);
-      await browserEval(cdp, `setInput('new-explorer-name', ${JSON.stringify(title)})`);
-      await browserEval(cdp, `clickButton('Create blank')`);
-      await waitForBrowser(cdp, `document.querySelector('select[aria-label="Explorer"] option:checked')?.textContent.trim() === ${JSON.stringify(title)} && document.body.innerText.includes('Create your first table')`);
-      const explorerId = await evaluate(cdp, `document.querySelector('select[aria-label="Explorer"]')?.value || ''`);
+      await click('open New explorer', page.locator('summary').filter({ hasText: /^New explorer$/ }));
+      await fill('new-explorer-name', title, page.locator('#new-explorer-name'));
+      await clickButton('Create blank');
+      await waitForDOMCondition(`document.querySelector('select[aria-label="Explorer"] option:checked')?.textContent.trim() === ${JSON.stringify(title)} && document.body.innerText.includes('Create your first table')`);
+      const explorerId = await page.evaluate(`document.querySelector('select[aria-label="Explorer"]')?.value || ''`);
       if (!explorerId) throw new Error('J01 blank Explorer was not selected');
       report.target.explorerId = explorerId;
-      await browserEval(cdp, `setInput('first-table-name', 'J01 Observation values')`);
-      await browserEval(cdp, `clickButton('Create table')`);
-      await waitForBrowser(cdp, `document.body.innerText.includes('What should one row represent?') && Boolean(document.querySelector('button[aria-label="Choose Observation rows"]'))`);
-      await browserEval(cdp, `clickButton('Choose Observation rows')`);
-      await waitForBrowser(cdp, `Boolean(document.querySelector('[aria-label="Search features by field name, concept, or code"]')) && Boolean([...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Search' && !button.disabled))`, 60000);
+      ownedExplorerIDs.add(explorerId);
+      await fill('first-table-name', 'J01 Observation values', page.locator('#first-table-name'));
+      await page.getByRole('button', { name: 'Choose Observation rows', exact: true }).waitFor({ state: 'visible', timeout: 60000 });
+      await clickButton('Choose Observation rows');
+      await waitForDOMCondition(`Boolean(document.querySelector('[aria-label="Search features by field name, concept, or code"]')) && Boolean([...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Search' && !button.disabled))`, 60000);
     });
 
     let state = await readState();
@@ -4457,13 +4494,13 @@ const verifyJ01BrowserScenario = async (target, report, entryTarget = target, ex
     if (!rootNode) throw new Error('J01 Observation root is missing from the authorized Builder catalog');
     recordAssertion(report, 'j01-starts-with-empty-observation-table', [], document.columns.map((column) => column.column));
     recordAssertion(report, 'j01-begins-in-catalog-without-advanced-graph', true,
-      await evaluate(cdp, `!document.querySelector('.react-flow__node')`));
+      await page.evaluate(`!document.querySelector('.react-flow__node')`));
     await captureDOM('j01-catalog-empty-table');
 
     const fixture = JSON.parse(readFileSync(join(target.fixtureDir, 'j01-concepts.fixture.json'), 'utf8'));
     const catalogSearchStarted = Date.now();
-    await browserEval(cdp, `setInput('Search features by field name, concept, or code', ${JSON.stringify(fixture.displayPrefix)})`);
-    await browserEval(cdp, `clickButton('Search')`);
+    await fill('Search features by field name, concept, or code', fixture.displayPrefix);
+    await clickButton('Search');
     const pageCodes = [];
     const expectedPageCount = Math.ceil(fixture.count / 50);
     let semanticPageCursor = -1;
@@ -4478,16 +4515,16 @@ const verifyJ01BrowserScenario = async (target, report, entryTarget = target, ex
       if (Object.keys(pageResponse.responseBody ?? {}).some((key) => /example|total.?count/i.test(key))) {
         throw new Error(`J01 semantic inventory page ${pageNumber} returned an example or global count field`);
       }
-      await waitForBrowser(cdp, `document.body.innerText.includes('Page ${pageNumber}') && (document.querySelector('section[aria-labelledby="feature-catalog-concepts-title"]')?.querySelectorAll('article').length || 0) > 0`, 60000);
-      const visibleCodes = await evaluate(cdp, `(() => {
+      await waitForDOMCondition(`document.body.innerText.includes('Page ${pageNumber}') && (document.querySelector('section[aria-labelledby="feature-catalog-concepts-title"]')?.querySelectorAll('article').length || 0) > 0`, 60000);
+      const visibleCodes = await page.evaluate(`(() => {
         const section = document.querySelector('section[aria-labelledby="feature-catalog-concepts-title"]');
         return [...(section?.querySelectorAll('article') || [])].map((article) => article.innerText.match(/\\bconcept-\\d{4}\\b/)?.[0]).filter(Boolean);
       })()`);
       recordAssertion(report, `j01-catalog-page-${pageNumber}-has-exactly-fifty-identities`, 50, visibleCodes.length);
       pageCodes.push(...visibleCodes);
       if (pageNumber < expectedPageCount) {
-        await browserEval(cdp, `clickButton('Next')`);
-        await waitForBrowser(cdp, `document.body.innerText.includes('Page ${pageNumber + 1}')`, 60000);
+        await clickButton('Next');
+        await waitForDOMCondition(`document.body.innerText.includes('Page ${pageNumber + 1}')`, 60000);
       }
     }
     const expectedCodes = Array.from({ length: fixture.count }, (_, index) => `${fixture.codePrefix}${String(index).padStart(4, '0')}`);
@@ -4550,22 +4587,22 @@ const verifyJ01BrowserScenario = async (target, report, entryTarget = target, ex
     await action('add_ordinary_fields_from_catalog', async () => {
       for (const field of [idField, integerField]) {
         const path = field.candidate.fieldPath.replace(/^root\./, '');
-        await browserEval(cdp, `setInput('Search features by field name, concept, or code', ${JSON.stringify(path)})`);
-        await browserEval(cdp, `clickButton('Search')`);
-        await waitForBrowser(cdp, `Boolean(document.querySelector('input[aria-label="Select Observation.${path}"]:not(:disabled)'))`);
-        await browserEval(cdp, `const input = inputByLabel(${JSON.stringify(`Select Observation.${path}`)}); if (!input || input.disabled) throw new Error('compiler-proved Observation.${path} choice is unavailable'); input.click();`);
-        await browserEval(cdp, `clickButton('Add 1 selected feature')`);
+        await fill('Search features by field name, concept, or code', path);
+        await clickButton('Search');
+        await waitForDOMCondition(`Boolean(document.querySelector('input[aria-label="Select Observation.${path}"]:not(:disabled)'))`);
+        await click(`select Observation.${path}`, page.getByRole('checkbox', { name: `Select Observation.${path}`, exact: true }));
+        await clickButton('Add 1 selected feature');
         state = await waitForState((value) => value.workspace?.documents?.find((candidate) => candidate.output?.id === outputId)?.columns.length === (path === 'id' ? 1 : 2), `Observation.${path} compiler choice application`);
       }
     });
 
     await action('add_preserving_semantic_owner_records', async () => {
-      await browserEval(cdp, `setInput('Search features by field name, concept, or code', 'shared')`);
-      await browserEval(cdp, `clickButton('Search')`);
+      await fill('Search features by field name, concept, or code', 'shared');
+      await clickButton('Search');
       const sharedRequest = await waitForNetworkResponse('/semantic-inventory', semanticPageCursor, 60000,
         (item) => parseJSON(item.postData)?.query === 'shared');
       semanticPageCursor = network.indexOf(sharedRequest);
-      await waitForBrowser(cdp, `Boolean([...document.querySelectorAll('article')].find((article) => article.textContent.includes('urn:study:A · shared') && article.textContent.includes('valueQuantity.value') && article.querySelector('input[type="checkbox"]:not(:disabled)')))`, 60000);
+      await waitForDOMCondition(`Boolean([...document.querySelectorAll('article')].find((article) => article.textContent.includes('urn:study:A · shared') && article.textContent.includes('valueQuantity.value') && article.querySelector('input[type="checkbox"]:not(:disabled)')))`, 60000);
       const sharedBody = parseJSON(sharedRequest.postData);
       if (sharedBody?.query !== 'shared') throw new Error(`J01 semantic owner search used an unexpected query: ${JSON.stringify(sharedBody)}`);
       const sharedEntry = (sharedRequest.responseBody?.entries ?? []).find((entry) =>
@@ -4589,12 +4626,13 @@ const verifyJ01BrowserScenario = async (target, report, entryTarget = target, ex
         ownerPath: semanticChoice.source.owningScope,
         valuePath: semanticChoice.source.fieldPath,
       };
-      await browserEval(cdp, `const item = [...document.querySelectorAll('article')].find((article) => article.textContent.includes('urn:study:A · shared') && article.textContent.includes('valueQuantity.value')); const input = item?.querySelector('input[type="checkbox"]'); if (!input || input.disabled) throw new Error('Observation semantic owner choice is unavailable'); input.click();`);
-      await browserEval(cdp, `clickButton('Add 1 selected feature')`);
-      await waitForBrowser(cdp, `Boolean(document.querySelector('[role="dialog"]') && document.body.innerText.includes('Choose output forms'))`);
+      const sharedArticle = page.locator('article').filter({ hasText: 'urn:study:A · shared' }).filter({ hasText: 'valueQuantity.value' });
+      await click('select Study A shared semantic feature', sharedArticle.getByRole('checkbox'));
+      await clickButton('Add 1 selected feature');
+      await waitForDOMCondition(`Boolean(document.querySelector('[role="dialog"]') && document.body.innerText.includes('Choose output forms'))`);
       await captureDOM('j01-owner-record-choice');
-      await browserEval(cdp, `const input = inputByLabel('shared: Keep each matching record'); if (!input) throw new Error('compiler-proved OWNER_RECORDS choice is unavailable'); input.click();`);
-      await browserEval(cdp, `clickButton('Add 1 selected feature')`);
+      await click('select shared owner-record output form', page.getByLabel('shared: Keep each matching record', { exact: true }));
+      await clickButton('Add 1 selected feature');
       state = await waitForState((value) => value.workspace?.documents?.find((candidate) => candidate.output?.id === outputId)?.columns.length === 3, 'three compiler choices applied to one table');
     });
 
@@ -4613,7 +4651,7 @@ const verifyJ01BrowserScenario = async (target, report, entryTarget = target, ex
     recordAssertion(report, 'j01-browser-adds-exactly-three-distinct-compiler-issued-choices', expectedChoices, constructionRequests);
     report.target.selectedChoices = constructionRequests;
     recordAssertion(report, 'j01-no-graph-or-fhir-path-entry-was-used', true,
-      await evaluate(cdp, `!document.querySelector('.react-flow__node') && ![...document.querySelectorAll('input,textarea')].some((input) => /FHIR.?Path/i.test(input.getAttribute('aria-label') || input.placeholder || ''))`));
+      await page.evaluate(`!document.querySelector('.react-flow__node') && ![...document.querySelectorAll('input,textarea')].some((input) => /FHIR.?Path/i.test(input.getAttribute('aria-label') || input.placeholder || ''))`));
 
     const baseColumns = state.workspace.documents.find((candidate) => candidate.output?.id === outputId).columns;
     const idColumn = baseColumns.find((column) => column.source.kind === 'field' && column.source.field.path.replace(/^root\./, '') === 'id');
@@ -4623,12 +4661,10 @@ const verifyJ01BrowserScenario = async (target, report, entryTarget = target, ex
     report.target.columnIds = { id: idColumn.column, valueInteger: valueColumn.column, ownerRecords: ownerColumn.column };
 
     await action('rename_and_reorder_stable_column', async () => {
-      await browserEval(cdp, `setInput('Display name for configured id', 'Observation identifier')`);
-      await browserEval(cdp, `inputByLabel('Display name for configured id').focus()`);
-      await cdp.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', code: 'Enter' });
-      await cdp.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter' });
+      await fill('Display name for configured id', 'Observation identifier');
+      await page.getByLabel('Display name for configured id', { exact: true }).press('Enter', { timeout: 5000 });
       await waitForState((value) => value.workspace?.documents?.find((candidate) => candidate.output?.id === outputId)?.columns.some((column) => column.column === idColumn.column && column.label === 'Observation identifier'), 'renamed stable id column');
-      await browserEval(cdp, `clickButton('Move Observation identifier to end')`);
+      await clickButton('Move Observation identifier to end');
       state = await waitForState((value) => value.workspace?.documents?.find((candidate) => candidate.output?.id === outputId)?.columns.find((column) => column.column === idColumn.column)?.table?.order === 2, 'id column moved to end');
     });
     const savedIdentity = j01ColumnIdentitySnapshot(state, outputId);
@@ -4642,8 +4678,8 @@ const verifyJ01BrowserScenario = async (target, report, entryTarget = target, ex
 
     await action('reload_preserves_three_stable_columns', async () => {
       const browserURL = `${target.uiUrl}/?project=${encodeURIComponent(target.fixtureProject)}&explorer=${encodeURIComponent(report.target.explorerId)}&mode=builder`;
-      await navigate(cdp, browserURL);
-      await waitForBrowser(cdp, `document.body.innerText.includes('Build your features') && Boolean(document.querySelector('[aria-label="Display name for configured Observation identifier"]'))`, 60000);
+      await navigatePage(browserURL);
+      await waitForDOMCondition(`document.body.innerText.includes('Build your features') && Boolean(document.querySelector('[aria-label="Display name for configured Observation identifier"]'))`, 60000);
       const reloaded = await waitForState((value) => value.workspace?.documents?.some((candidate) => candidate.output?.id === outputId && candidate.columns.length === 3), 'reloaded J01 saved workspace');
       const reloadedIdentity = j01ColumnIdentitySnapshot(reloaded, outputId);
       recordAssertion(report, 'j01-reload-preserves-exact-column-identities-names-order-and-sources', savedIdentity, reloadedIdentity);
@@ -4652,11 +4688,11 @@ const verifyJ01BrowserScenario = async (target, report, entryTarget = target, ex
 
     await action('preview_literal_scalar_and_owner_evidence', async () => {
       let previewStartIndex = network.length - 1;
-      await browserEval(cdp, `clickButton('Preview')`);
-      await waitForBrowser(cdp, `document.body.innerText.includes('Preview and configure') && Boolean(document.querySelector('button[aria-label^="Inspect shared for row "]'))`, 60000);
+      await clickButton('Preview');
+      await waitForDOMCondition(`document.body.innerText.includes('Preview and configure') && Boolean(document.querySelector('button[aria-label^="Inspect shared for row "]'))`, 60000);
       await waitForNetworkResponse('/preview', previewStartIndex, 60000);
       previewStartIndex = network.length - 1;
-      await browserEval(cdp, `selectOption('Preview row limit', '1,000')`);
+      await select('Preview row limit', '1,000');
       const previewResponse = await waitForNetworkResponse('/preview', previewStartIndex, 60000);
       if (previewResponse.response.status !== 200 || !Array.isArray(previewResponse.responseBody?.rows)) {
         throw new Error(`J01 preview API did not return a live row preview: HTTP ${previewResponse.response?.status} ${JSON.stringify(previewResponse.responseBody).slice(0, 300)}`);
@@ -4676,9 +4712,15 @@ const verifyJ01BrowserScenario = async (target, report, entryTarget = target, ex
       const ownerRowIndex = previewRows.findIndex((row) => row[previewIdColumn.column] === 'dev-pair-001');
       if (ownerRowIndex < 0) throw new Error('J01 1,000-row preview omitted the Study A owner-record fixture');
       const ownerButtonLabel = `Inspect shared for row ${ownerRowIndex + 1}`;
-      await browserEval(cdp, `scrollVirtualTableToRow('preview-table-scroll', ${ownerRowIndex})`);
-      await waitForBrowser(cdp, `Boolean([...document.querySelectorAll('button[aria-label^="Inspect shared for row "]')].find((button) => button.getAttribute('aria-label') === ${JSON.stringify(ownerButtonLabel)}))`, 60000);
-      const previewTable = await evaluate(cdp, `(() => {
+      const previewScroll = page.getByTestId('preview-table-scroll');
+      const scrollBox = await previewScroll.boundingBox();
+      if (!scrollBox) throw new Error('J01 preview table scroll region is not visible');
+      await page.mouse.move(scrollBox.x + scrollBox.width / 2, scrollBox.y + scrollBox.height / 2);
+      for (let attempt = 0; attempt < 80 && await page.getByRole('button', { name: ownerButtonLabel, exact: true }).count() === 0; attempt += 1) {
+        await page.mouse.wheel(0, 900);
+      }
+      await waitForDOMCondition(`Boolean([...document.querySelectorAll('button[aria-label^="Inspect shared for row "]')].find((button) => button.getAttribute('aria-label') === ${JSON.stringify(ownerButtonLabel)}))`, 60000);
+      const previewTable = await page.evaluate(`(() => {
         const table = document.querySelector('[data-testid="preview-table-scroll"] [role="table"]');
         const rows = [...(table?.querySelectorAll('[role="row"]') || [])];
         return {
@@ -4693,17 +4735,16 @@ const verifyJ01BrowserScenario = async (target, report, entryTarget = target, ex
       report.target.preview = { rowSample: previewRows.length, countBasis: 'sampled-preview-limit', literalZero: 0, headers: previewTable.headers };
       await captureDOM('j01-preview-table');
       await saveScreenshot('j01-preview-table');
-      const ownerButton = await evaluate(cdp, `(() => { const button = [...document.querySelectorAll('button[aria-label^="Inspect shared for row "]')].find((candidate) => candidate.getAttribute('aria-label') === ${JSON.stringify(ownerButtonLabel)}); return button ? { label: button.getAttribute('aria-label'), title: button.title } : undefined; })()`);
+      const ownerButton = await page.evaluate(`(() => { const button = [...document.querySelectorAll('button[aria-label^="Inspect shared for row "]')].find((candidate) => candidate.getAttribute('aria-label') === ${JSON.stringify(ownerButtonLabel)}); return button ? { label: button.getAttribute('aria-label'), title: button.title } : undefined; })()`);
       if (!ownerButton) throw new Error('J01 Preview has no inspectable Study A owner-record cell for dev-pair-001');
-      await browserEval(cdp, `inputByLabel(${JSON.stringify(ownerButtonLabel)}).click()`);
-      await waitForBrowser(cdp, `Boolean(document.querySelector('[role="dialog"][aria-label="shared record evidence"]')) && document.body.innerText.includes('Repeated FHIR records preserved in this cell')`, 30000);
-      await browserEval(cdp, `(() => {
-        const dialog = document.querySelector('[role="dialog"][aria-label="shared record evidence"]');
-        const owners = [...(dialog?.querySelectorAll('summary') || [])].filter((summary) => summary.textContent.trim() === 'Raw FHIR owner');
-        if (owners.length !== 2) throw new Error('J01 repeated-cell inspector did not expose two matching owner records');
-        owners.forEach((summary) => summary.click());
-      })()`);
-      const ownerEvidence = String(await evaluate(cdp, `document.querySelector('[role="dialog"][aria-label="shared record evidence"]')?.innerText || ''`));
+      await click(`inspect shared for row ${ownerRowIndex + 1}`, page.getByRole('button', { name: ownerButtonLabel, exact: true }));
+      await waitForDOMCondition(`Boolean(document.querySelector('[role="dialog"][aria-label="shared record evidence"]')) && document.body.innerText.includes('Repeated FHIR records preserved in this cell')`, 30000);
+      const ownerDialog = page.getByRole('dialog', { name: 'shared record evidence', exact: true });
+      const rawOwnerDetails = ownerDialog.locator('summary').filter({ hasText: /^Raw FHIR owner$/ });
+      if (await rawOwnerDetails.count() !== 2) throw new Error('J01 repeated-cell inspector did not expose two matching owner records');
+      await click('expand first raw FHIR owner', rawOwnerDetails.nth(0));
+      await click('expand second raw FHIR owner', rawOwnerDetails.nth(1));
+      const ownerEvidence = String(await page.evaluate(`document.querySelector('[role="dialog"][aria-label="shared record evidence"]')?.innerText || ''`));
       recordAssertion(report, 'j01-preview-preserves-owner-value-unit-absence-choice-arm-and-source', true,
         ownerEvidence.includes('111') && ownerEvidence.includes('cm') && ownerEvidence.includes('VALUE') && ownerEvidence.includes('ABSENT') && ownerEvidence.includes('urn:study:A') && ownerEvidence.includes('shared') && ownerEvidence.includes('dev-pair-001') && ownerEvidence.includes('ownerOrdinal: 0') && ownerEvidence.includes('ownerPath: component[]'));
       const ownerEntries = Array.isArray(previewRows[ownerRowIndex][ownerColumn.column]) ? previewRows[ownerRowIndex][ownerColumn.column] : [];
@@ -4725,8 +4766,8 @@ const verifyJ01BrowserScenario = async (target, report, entryTarget = target, ex
         includesAbsentPrimitiveMetadata: ownerEvidence.includes('_valueString') && ownerEvidence.includes('urn:j01:missing-primitive'),
       };
       await captureDOM('j01-owner-record-evidence');
-      await browserEval(cdp, `clickButton('Close')`);
-      const acknowledgementSamples = await measureJ01InspectorAcknowledgements(cdp, 'shared', ownerRowIndex);
+      await clickButton('Close');
+      const acknowledgementSamples = await measureJ01InspectorAcknowledgements(browser, page, 'shared', ownerRowIndex);
       report.timings.uiAcknowledgements = summarizeTimingSamples(acknowledgementSamples);
       report.target.uiAcknowledgementSamples = acknowledgementSamples;
       recordAssertion(report, 'j01-captures-thirty-ui-acknowledgements', 30, acknowledgementSamples.length);
@@ -4742,7 +4783,7 @@ const verifyJ01BrowserScenario = async (target, report, entryTarget = target, ex
     recordEvidence(report, timingPath);
 
     await action('publish_exact_selected_output', async () => {
-      await browserEval(cdp, `clickButton('Publish')`);
+      await clickButton('Publish');
       const publishRequest = await waitForNetworkResponse('/publish', -1, 60000);
       if (publishRequest.response.status !== 200) throw new Error(`J01 publish returned HTTP ${publishRequest.response.status}: ${JSON.stringify(publishRequest.responseBody)}`);
       let explorerState;
@@ -4782,13 +4823,13 @@ const verifyJ01BrowserScenario = async (target, report, entryTarget = target, ex
     });
 
     await action('download_and_verify_published_artifact', async () => {
-      await browserEval(cdp, `clickButton('Viewer')`);
-      await waitForBrowser(cdp, `document.body.innerText.includes('Published') && [...document.querySelectorAll('button')].some((button) => ['Download training artifact', 'Download dataset'].includes(button.textContent.trim()))`, 60000);
-      const artifactDownloadPlan = j01ArtifactDownloadPlan(await evaluate(cdp, `[...document.querySelectorAll('button')].map((button) => button.textContent.trim())`));
+      await clickButton('Viewer');
+      await waitForDOMCondition(`document.body.innerText.includes('Published') && [...document.querySelectorAll('button')].some((button) => ['Download training artifact', 'Download dataset'].includes(button.textContent.trim()))`, 60000);
+      const artifactDownloadPlan = j01ArtifactDownloadPlan(await page.evaluate(`[...document.querySelectorAll('button')].map((button) => button.textContent.trim())`));
       recordAssertion(report, 'j01-viewer-exposes-artifact-download', true,
         ['Download training artifact', 'Download dataset'].includes(artifactDownloadPlan.triggerLabel));
-      await waitForBrowser(cdp, `Boolean(document.querySelector('table[aria-label$=" results"]')) && Boolean(document.querySelector('table[aria-label$=" results"] tbody tr'))`, 60000);
-      const viewerTable = await evaluate(cdp, `(() => {
+      await waitForDOMCondition(`Boolean(document.querySelector('table[aria-label$=" results"]')) && Boolean(document.querySelector('table[aria-label$=" results"] tbody tr'))`, 60000);
+      const viewerTable = await page.evaluate(`(() => {
         const table = document.querySelector('table[aria-label$=" results"]');
         return {
           headers: [...(table?.querySelectorAll('thead th') || [])].map((cell) => cell.textContent.trim()),
@@ -4798,10 +4839,11 @@ const verifyJ01BrowserScenario = async (target, report, entryTarget = target, ex
       recordAssertion(report, 'j01-viewer-renders-the-selected-published-columns', report.target.publication.outputs[0].columns.map((column) => column.label), viewerTable.headers);
       const exportStarted = Date.now();
       let modalSchemaDigest;
+      const downloadPromise = page.waitForEvent('download', { timeout: 60000 });
       if (artifactDownloadPlan.confirmationLabel) {
-        await browserEval(cdp, `clickButton(${JSON.stringify(artifactDownloadPlan.triggerLabel)})`);
-        await waitForBrowser(cdp, `Boolean([...document.querySelectorAll('[role="dialog"]')].find((dialog) => dialog.innerText.includes('Download dataset') && dialog.querySelector('[aria-label="Declared output types"]')))`, 60000);
-        const modal = await evaluate(cdp, `(() => {
+        await clickButton(artifactDownloadPlan.triggerLabel);
+        await waitForDOMCondition(`Boolean([...document.querySelectorAll('[role="dialog"]')].find((dialog) => dialog.innerText.includes('Download dataset') && dialog.querySelector('[aria-label="Declared output types"]')))`, 60000);
+        const modal = await page.evaluate(`(() => {
           const dialog = [...document.querySelectorAll('[role="dialog"]')].find((candidate) => candidate.innerText.includes('Download dataset') && candidate.querySelector('[aria-label="Declared output types"]'));
           const value = (label) => [...(dialog?.querySelectorAll('dt') || [])].find((term) => term.textContent.trim() === label)?.nextElementSibling?.textContent.trim() ?? '';
           return { text: dialog?.innerText ?? '', sourceGeneration: value('Source generation'), schemaDigest: value('Schema digest'), types: dialog?.querySelector('[aria-label="Declared output types"]')?.innerText ?? '' };
@@ -4815,15 +4857,13 @@ const verifyJ01BrowserScenario = async (target, report, entryTarget = target, ex
         modalSchemaDigest = modal.schemaDigest;
         report.target.artifactModal = { sourceGeneration: modal.sourceGeneration, schemaDigest: modal.schemaDigest, columns };
         await captureDOM('j01-artifact-download-modal');
-        await browserEval(cdp, `(() => {
-          const link = [...document.querySelectorAll('a[download]')].find((candidate) => candidate.textContent.trim() === ${JSON.stringify(artifactDownloadPlan.confirmationLabel)});
-          if (!link) throw new Error('J01 artifact modal has no Download ZIP link');
-          link.click();
-        })()`);
+        await click(`download ${artifactDownloadPlan.confirmationLabel}`, page.getByRole('link', { name: artifactDownloadPlan.confirmationLabel, exact: true }));
       } else {
-        await browserEval(cdp, `clickButton(${JSON.stringify(artifactDownloadPlan.triggerLabel)})`);
+        await clickButton(artifactDownloadPlan.triggerLabel);
       }
-      const archivePath = await findDownloadedArchive(downloadDir, 60000);
+      const download = await downloadPromise;
+      const archivePath = join(downloadDir, download.suggestedFilename());
+      await download.saveAs(archivePath);
       report.timings.j01_export_download_ms = Date.now() - exportStarted;
       recordEvidence(report, archivePath);
       const archive = readStoredZip(archivePath);
@@ -4890,14 +4930,35 @@ const verifyJ01BrowserScenario = async (target, report, entryTarget = target, ex
       absence: 'verified as ABSENT in dev-pair-001 owner-record evidence',
     };
     recordAssertion(report, 'j01-run-never-rendered-advanced-graph', true,
-      await evaluate(cdp, `!document.querySelector('.react-flow__node')`));
+      await page.evaluate(`!document.querySelector('.react-flow__node')`));
     await saveNetworkEvidence();
+  } catch (error) {
+    primaryFailure = error;
+    await browser.captureFailure(error, {
+      phase: 'j01-local-browser-scenario',
+      explorerID: report.target.explorerId,
+      outputID: report.target.outputId,
+      action: browser.activeAction,
+      elapsedMs: browser.activeAction?.startedAt ? Date.now() - browser.activeAction.startedAt : undefined,
+    });
+    throw error;
   } finally {
     try {
       await saveNetworkEvidence();
       await captureDOM('j01-final');
-    } catch { /* keep the main failure */ }
-    await browser.close();
+      const diagnosticsPath = join(evidenceDir, 'browser-diagnostics.json');
+      writeJSON(diagnosticsPath, browser.diagnostics);
+      recordEvidence(report, diagnosticsPath);
+      if (!primaryFailure) recordAssertion(report, 'j01-browser-has-no-unexpected-errors-or-api-failures', true,
+        browser.diagnostics.console.length === 0
+        && browser.diagnostics.pageErrors.length === 0
+        && browser.diagnostics.networkFailures.length === 0
+        && browser.diagnostics.httpFailures.length === 0);
+    } catch (error) {
+      if (!primaryFailure) throw error;
+    } finally {
+      try { await browser.close(); } catch (error) { if (!primaryFailure) throw error; }
+    }
   }
 };
 
@@ -5190,25 +5251,25 @@ const measureJ01CatalogRequests = async (target, report, { explorerId, snapshotT
   return { summary, requests };
 };
 
-const measureJ01InspectorAcknowledgements = async (cdp, label, rowIndex) => evaluate(cdp, `(async () => {
-  const selector = ${JSON.stringify(`button[aria-label="Inspect ${label} for row ${rowIndex + 1}"]`)};
-  const dialogSelector = ${JSON.stringify(`[role="dialog"][aria-label="${label} record evidence"]`)};
+const measureJ01InspectorAcknowledgements = async (browser, page, label, rowIndex) => {
+  const button = page.getByRole('button', { name: `Inspect ${label} for row ${rowIndex + 1}`, exact: true });
+  const dialog = page.getByRole('dialog', { name: `${label} record evidence`, exact: true });
   const samples = [];
-  const nextFrame = () => new Promise((resolve) => requestAnimationFrame(resolve));
   for (let index = 0; index < 30; index += 1) {
-    const button = document.querySelector(selector);
-    if (!button) throw new Error('J01 repeated-cell inspector button is not rendered: ' + selector);
-    const started = performance.now();
-    button.click();
-    while (!document.querySelector(dialogSelector)) await nextFrame();
-    samples.push(performance.now() - started);
-    const close = [...document.querySelectorAll(dialogSelector + ' button')].find((candidate) => candidate.textContent.trim() === 'Close');
-    if (!close) throw new Error('J01 repeated-cell dialog has no Close acknowledgement');
-    close.click();
-    while (document.querySelector(dialogSelector)) await nextFrame();
+    const started = Date.now();
+    await performAction(browser, `inspect ${label} for row ${rowIndex + 1}`, button,
+      (locator, { timeout }) => locator.click({ timeout }), { timeout: 5000 });
+    await dialog.waitFor({ state: 'visible', timeout: 5000 });
+    const elapsed = Date.now() - started;
+    if (elapsed > 5000) throw new Error(`J01 ${label} action-to-render took ${elapsed}ms; required <= 5000ms`);
+    samples.push(elapsed);
+    const close = dialog.getByRole('button', { name: 'Close', exact: true });
+    await performAction(browser, `close ${label} evidence`, close,
+      (locator, { timeout }) => locator.click({ timeout }), { timeout: 5000 });
+    await dialog.waitFor({ state: 'hidden', timeout: 5000 });
   }
   return samples;
-})()`);
+};
 const interpretationLibrariesURL = (target, project) =>
   `${target.apiUrl}/api/v1/projects/${encodeURIComponent(project)}/interpretation-libraries`;
 

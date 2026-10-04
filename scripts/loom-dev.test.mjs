@@ -231,9 +231,9 @@ test('J04 creates its initial table through the visible row-type control', () =>
   const createAction = driver.slice(start, end);
   assert.match(rowPicker, /aria-label=\{`Choose \$\{node\.resourceType\} rows`\}/);
   assert.doesNotMatch(createAction, /clickButton\('Create table'\)/);
-  assert.match(createAction, /button\[aria-label="Choose Observation rows"\]/);
+  assert.match(createAction, /getByRole\('button', \{ name: 'Choose Observation rows', exact: true \}\)/);
   assert.match(createAction, /clickButton\('Choose Observation rows'\)/);
-  assert.match(createAction, /input\[aria-label="Search features by field name, concept, or code"\]/);
+  assert.match(createAction, /getByLabel\('Search features by field name, concept, or code', \{ exact: true \}\)/);
   assert.match(driver.slice(driver.lastIndexOf('const builderURL =', start), start), /demo-controls span.*target\.fixtureProject.*explorerId/s);
 });
 
@@ -358,6 +358,35 @@ test('verify-fast creates its Observation and Patient tables through the current
   assert.match(patientFlow, /clickButton\('Viewer'\)/);
   assert.match(patientFlow, /clickButton\('Download dataset'\)/);
   assert.match(scenario, /demo-controls span.*target\.fixtureProject.*bootstrapExplorerId/s);
+});
+
+test('local J01 browser lifecycle uses Playwright actions and retains its exact request and failure evidence', () => {
+  const driver = readFileSync(join(process.cwd(), 'scripts/loom-dev.mjs'), 'utf8');
+  const start = driver.indexOf('const verifyJ01BrowserScenario =');
+  const end = driver.indexOf('\nexport const readStoredZip', start);
+  assert.ok(start >= 0 && end > start, 'local J01 scenario must remain identifiable');
+  const scenario = driver.slice(start, end);
+  assert.match(scenario, /launchPlaywrightEvidenceBrowser/);
+  assert.doesNotMatch(scenario, /\bcdp\b|browserEval\(|waitForBrowser\(|Input\.dispatchKeyEvent|\.click\(\)/,
+    'J01 browser controls must be driven through Playwright locator actions');
+  assert.match(scenario, /performAction\(browser/);
+  assert.match(scenario, /editable: true/);
+  assert.match(scenario, /waitForResponse\(/);
+  assert.match(scenario, /new URL\(target\.uiUrl\)\.origin/);
+  assert.match(scenario, /decodeURIComponent\(match\[1\]\) !== target\.fixtureProject/);
+  assert.match(scenario, /ownedExplorerIDs\.has\(decodeURIComponent\(match\[2\]\)\)/);
+  assert.match(scenario, /waitForEvent\('download'/);
+  assert.match(scenario, /browser\.captureFailure\(error/);
+  assert.match(scenario, /j01-browser-has-no-unexpected-errors-or-api-failures/);
+  assert.match(driver, /J01 \$\{label\} action-to-render took \$\{elapsed\}ms; required <= 5000ms/);
+  for (const assertion of [
+    'j01-browser-discovers-every-generated-code-once-across-pages',
+    'j01-save-has-exact-three-renamed-reordered-source-identities',
+    'j01-reload-preserves-exact-column-identities-names-order-and-sources',
+    'j01-preview-preserves-literal-zero-not-missing',
+    'j01-same-owner-output-has-exact-value-and-absence-literals',
+    'j01-export-preserves-exact-observation-row-membership',
+  ]) assert.ok(scenario.includes(assertion), `J01 contract is missing ${assertion}`);
 });
 
 test('J04 fixture keeps valid Observation values, recorded absence, Patient aggregates, and pivot types in separate row scopes', () => {
