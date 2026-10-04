@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import React from 'react';
+import type { ReactNode } from 'react';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { RowDefinitionChoicesResponse, RowDefinitionProposal } from '../../../types';
@@ -142,6 +143,7 @@ const renderSettings = (overrides: {
   choicesValue?: RowDefinitionChoicesResponse;
   relatedRowsSupported?: boolean;
   pivotSupported?: boolean;
+  pivotPending?: boolean;
   codedPivotDefault?: boolean;
   tablePivotAlternative?: boolean;
   codedGroupDefault?: boolean;
@@ -151,6 +153,7 @@ const renderSettings = (overrides: {
   constructionHistory?: ReadonlyArray<ConstructionHistoryStep>;
   onEditConstructionStep?: (stepId: string) => void;
   onRemoveConstructionStep?: (stepId: string) => void;
+  sourceCollectionAction?: ReactNode;
 } = {}) => {
   const listRowDefinitionChoices = vi.fn().mockResolvedValue(overrides.choicesValue ?? choices);
   const proposeRowDefinition = vi.fn().mockResolvedValue(overrides.proposalValue ?? proposal);
@@ -172,9 +175,10 @@ const renderSettings = (overrides: {
         pivotEntry: overrides.codedPivotDefault ? 'coded-pivot' : 'pivot', pivot: {
         supported: overrides.pivotSupported ?? true,
         reason: 'No executable category-to-column operation',
-      }, ...(overrides.tablePivotAlternative ? { pivotAlternative: 'pivot' as const } : {}) }}
+      }, pivotPending: overrides.pivotPending ?? false, ...(overrides.tablePivotAlternative ? { pivotAlternative: 'pivot' as const } : {}) }}
       onChooseRelatedRows={onChooseRelatedRows}
       onChooseReshape={onChooseReshape}
+      sourceCollectionAction={overrides.sourceCollectionAction}
       client={{ listRowDefinitionChoices, proposeRowDefinition, getSelection, createExplicitGroupRevision }}
       project="project-a"
       explorerId="explorer-a"
@@ -195,6 +199,24 @@ const renderSettings = (overrides: {
 afterEach(cleanup);
 
 describe('RowDefinitionSettingsPanel', () => {
+  it('offers source collection expansion directly in the row change menu', async () => {
+    const { onChooseReshape } = renderSettings({
+      sourceCollectionAction: (
+        <button type="button" data-testid="construction-reshape-expand-source">
+          Expand a repeated source field
+        </button>
+      ),
+    });
+    expect(table.document.columns).toHaveLength(0);
+
+    fireEvent.click(screen.getByTestId('construction-rows-settings-trigger'));
+    const rowChangeMenu = await screen.findByRole('region', { name: 'Choose a row change' });
+    expect(rowChangeMenu.contains(
+      await screen.findByTestId('construction-reshape-expand-source'),
+    )).toBe(true);
+    expect(onChooseReshape).not.toHaveBeenCalled();
+  });
+
   it('shows one compact Rows card and opens its row and starting-collection settings', async () => {
     renderSettings();
 
@@ -311,13 +333,14 @@ describe('RowDefinitionSettingsPanel', () => {
     expect(onChooseReshape).toHaveBeenCalledWith('categories');
   });
 
-  it('opens the neutral category entry before direct source availability is checked', async () => {
-    const { onChooseReshape } = renderSettings({ codedPivotDefault: true });
+  it('disables category entry while matching Pivot capabilities are pending', async () => {
+    const { onChooseReshape } = renderSettings({ pivotSupported: false, pivotPending: true });
     fireEvent.click(screen.getByTestId('construction-rows-settings-trigger'));
     const pivot = await screen.findByTestId('construction-action-pivot-rows');
-    expect(pivot).toBeEnabled();
+    expect(pivot).toBeDisabled();
     fireEvent.click(pivot);
-    expect(onChooseReshape).toHaveBeenCalledWith('categories');
+    expect(onChooseReshape).not.toHaveBeenCalled();
+    expect(screen.getByRole('dialog', { name: 'Row definition settings' })).toBeInTheDocument();
   });
 
   it('uses table columns when coded values are absent but table Pivot is available', async () => {
@@ -331,8 +354,8 @@ describe('RowDefinitionSettingsPanel', () => {
     expect(onChooseReshape).toHaveBeenCalledWith('pivot');
   });
 
-  it('opens category-to-column editor when the backend has not declared support', async () => {
-    const { onChooseReshape } = renderSettings({ pivotSupported: false });
+  it('keeps the neutral category entry available after settled unsupported capabilities', async () => {
+    const { onChooseReshape } = renderSettings({ pivotSupported: false, pivotPending: false });
     fireEvent.click(screen.getByTestId('construction-rows-settings-trigger'));
     const pivot = await screen.findByTestId('construction-action-pivot-rows');
     expect(pivot).toBeEnabled();

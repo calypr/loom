@@ -811,17 +811,26 @@ describe('ConstructionReshapeEditor', () => {
     expect(editedExpand?.outputs).toContainEqual(expect.objectContaining({ id: firstExpandOutputId, label: 'Observed tag' }));
   });
 
-  it('does not offer expansion when the stage has no many-cardinality columns', () => {
+  it('does not offer expansion when the stage has no scalar list columns', () => {
     const scalarOnlyStage = {
       ...sourceStage,
       columns: sourceColumns.filter((column) => column.cardinality !== 'many'),
     } satisfies ConstructionReshapeEditorProps['capabilities']['selectedStage'];
-    renderEditor({
-      capabilities: capabilitiesFor([scalarOnlyStage], scalarOnlyStage),
-    });
+    renderEditor({ capabilities: capabilitiesFor([scalarOnlyStage], scalarOnlyStage) });
 
     expect(screen.getByTestId('construction-reshape-choice-expand')).toBeDisabled();
-    expect(screen.getByText('Add a column with multiple values before expanding it.')).toBeInTheDocument();
+    expect(screen.getByText('No list column is available in this table.')).toBeInTheDocument();
+  });
+
+  it('excludes object-valued lists from current-stage expansion', () => {
+    const objectListStage = {
+      ...sourceStage,
+      columns: [{ id: 'component-list', name: 'component', label: 'Component', type: 'object', cardinality: 'many' }],
+    } satisfies ConstructionReshapeEditorProps['capabilities']['selectedStage'];
+    renderEditor({ capabilities: capabilitiesFor([objectListStage], objectListStage) });
+
+    expect(screen.getByTestId('construction-reshape-choice-expand')).toBeDisabled();
+    expect(screen.getByText('No list column is available in this table.')).toBeInTheDocument();
   });
 
   it('reopens an existing expand with its stable IDs, names, policy, and history edit action', () => {

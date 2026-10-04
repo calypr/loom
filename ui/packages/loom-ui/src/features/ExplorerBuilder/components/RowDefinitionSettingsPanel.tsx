@@ -188,6 +188,7 @@ export const RowDefinitionSettingsPanel = ({
   reshapeRows,
   onChooseRelatedRows,
   onChooseReshape,
+  sourceCollectionAction,
   onChangeRootOccurrence,
   onEditConstructionStep,
   onRemoveConstructionStep,
@@ -210,6 +211,7 @@ export const RowDefinitionSettingsPanel = ({
   readonly onApply: (proposalId: string) => Promise<boolean>;
   readonly relatedRows: { readonly supported: boolean; readonly reason?: string };
   readonly reshapeRows: Record<'group' | 'pivot', { readonly supported: boolean; readonly reason?: string }> & {
+    readonly pivotPending?: boolean;
     readonly groupEntry: 'group' | 'source-group' | 'coded-group';
     readonly groupAlternatives: ReadonlyArray<{
       readonly kind: 'group' | 'source-group' | 'coded-group';
@@ -220,6 +222,7 @@ export const RowDefinitionSettingsPanel = ({
   };
   readonly onChooseRelatedRows: () => void;
   readonly onChooseReshape: (kind: 'group' | 'source-group' | 'coded-group' | 'pivot' | 'coded-pivot' | 'categories' | 'unpivot') => void;
+  readonly sourceCollectionAction?: ReactNode;
   readonly onChangeRootOccurrence: (nodeId: string, occurrenceId: string) => void;
   readonly onEditConstructionStep?: (stepId: string) => void;
   readonly onRemoveConstructionStep?: (stepId: string) => void;
@@ -474,7 +477,7 @@ export const RowDefinitionSettingsPanel = ({
                   ) : null}
                 </div>
                 <div className="rounded-lg border border-slate-200">
-                  <button type="button" data-testid="construction-action-pivot-rows" disabled={disabled}
+                  <button type="button" data-testid="construction-action-pivot-rows" disabled={disabled || reshapeRows.pivotPending === true}
                     onClick={() => chooseReshape('categories')}
                     className="w-full p-3 text-left hover:bg-blue-50 disabled:opacity-50">
                     <span className="block text-sm font-semibold text-slate-900">Turn categories into columns</span>
@@ -506,6 +509,11 @@ export const RowDefinitionSettingsPanel = ({
                   <span className="mt-1 block text-xs text-slate-600">Move selected columns into a field-name column and a value column. Other columns repeat on each new row.</span>
                   <span className="mt-3 block text-xs font-medium text-slate-700">Example: Height and Weight columns → 2 rows, one for each measurement</span>
                 </button>
+                {sourceCollectionAction ? (
+                  <div className="sm:col-span-2 rounded-lg border border-slate-200">
+                    {sourceCollectionAction}
+                  </div>
+                ) : null}
               </section>
               {appliedRowSteps.length > 0 ? (
                 <section aria-label="Applied row changes" data-testid="construction-row-operation-history" className="grid gap-2 border-t border-slate-200 pt-3">

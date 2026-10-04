@@ -1,3 +1,4 @@
+import { runRepeatedEmpty } from './builder-repeated.mjs';
 import { executeScenario, runBrowserCase } from './common.mjs';
 import { randomUUID } from 'node:crypto';
 import { click, evaluate, fill, reload, inspectAction, captureDOM, waitFor, recordBrowserTiming } from './browser.mjs';
@@ -489,6 +490,7 @@ export const runBuilderAuthoring = async (context, caseNames) => {
   for (const caseName of caseNames) {
     if (caseName === 'suggestions') reports.push(await runSuggestions(context));
     else if (caseName === 'authoring') reports.push(await runAuthoring(context));
+    else if (caseName === 'repeated-empty') reports.push(await runRepeatedEmpty(context));
     else reports.push(await runCohortRecode(context));
   }
   return reports;

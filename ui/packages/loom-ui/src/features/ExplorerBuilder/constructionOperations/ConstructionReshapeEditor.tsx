@@ -302,11 +302,16 @@ const reshapeKindLabel = (kind: ReshapeOperationKind): string => {
   }
 };
 
+const reshapeScalarTypes = new Set(['string', 'date', 'datetime', 'code', 'uuid', 'integer', 'decimal', 'boolean']);
+
+const isScalarValueType = (type: string | undefined): boolean => reshapeScalarTypes.has((type ?? '').trim().toLowerCase());
+
 const isScalarColumn = (column: ReshapeColumn): boolean =>
   (column.cardinality === 'required_one' || column.cardinality === 'optional_one')
-  && ['string', 'date', 'datetime', 'code', 'uuid', 'integer', 'decimal', 'boolean'].includes((column.type ?? '').trim().toLowerCase());
+  && isScalarValueType(column.type);
 
-const isListColumn = (column: ReshapeColumn): boolean => column.cardinality === 'many';
+const isListColumn = (column: ReshapeColumn): boolean => column.cardinality === 'many'
+  && isScalarValueType(column.type);
 
 const isNumericColumn = (column: ReshapeColumn): boolean => {
   const type = (column.type ?? '').trim().toLowerCase();
@@ -1472,7 +1477,7 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
   const unpivotSupport = capabilityFor(stage, 'UNPIVOT');
   const expandColumns = listColumnsFor(stage);
   const expandReason = expandColumns.length === 0
-    ? 'Add a column with multiple values before expanding it.'
+    ? 'No list column is available in this table.'
     : expandSupport.supported ? '' : expandSupport.reason;
   const newPivotSupport = props.onDiscoverCategories
     ? pivotSupport
@@ -1687,8 +1692,8 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
           <ReshapeChoice
             testId="construction-reshape-choice-expand"
             title="Expand a repeated value"
-            rows="Make one row for each value in a list."
-            columns="Replace the list with its item; optionally add the item's position."
+            rows="Make one row for each value in a list column."
+            columns="Replace the list with each item; optionally add the item's position."
             supported={expandSupport.supported}
             reason={expandReason}
             disabled={disabled || expandColumns.length === 0}

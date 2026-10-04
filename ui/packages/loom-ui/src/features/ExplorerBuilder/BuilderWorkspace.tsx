@@ -58,6 +58,7 @@ import { RowChangePreviewPanel } from './components/RowChangePreviewPanel';
 import { RowDefinitionPanel } from './components/RowDefinitionPanel';
 import { RowDefinitionSettingsPanel, rowScopeLabel } from './components/RowDefinitionSettingsPanel';
 import { FrameSourcePanel } from './constructionWorkspace/FrameSourcePanel';
+import { SourceCollectionExpandEditor } from './constructionOperations/SourceCollectionExpandEditor';
 import { TableShapeSettingsPanel } from './components/TableShapeSettingsPanel';
 import { InterpretationPanel, type InterpretationContextState } from './components/InterpretationPanel';
 import {
@@ -2619,6 +2620,7 @@ const BuilderWorkspaceContent = ({
     groupEntry: groupEntries[0]?.kind ?? 'group' as const,
     groupAlternatives: groupEntries.slice(1),
     pivot: codedPivotAvailability.supported ? codedPivotAvailability : tablePivotAvailability,
+    pivotPending: Boolean(capabilitiesRequest) && constructionLifecycle.capabilities.status === 'loading',
     pivotEntry: codedPivotAvailability.supported ? 'coded-pivot' as const : 'pivot' as const,
     pivotAlternative: codedPivotAvailability.supported && tablePivotAvailability.supported ? 'pivot' as const : undefined,
   };
@@ -2964,7 +2966,7 @@ const BuilderWorkspaceContent = ({
             </p>
           ) : constructionLifecycle.capabilities.status === 'ready' ? (
             <ConstructionReshapeEditor
-              key={`${table.outputId}:${reshapeEntry}:${reshapeEntryKind}`}
+              key={`${ownerKey}:${state.catalog.snapshotToken}:${state.draftVersion}:${state.draftDigest}:${table.outputId}:${reshapeEntry}:${reshapeEntryKind}`}
               construction={construction ?? constructionLifecycle.capabilities.response.baseConstruction}
               capabilities={constructionLifecycle.capabilities.response}
               editingStep={editingConstructionStep}
@@ -3453,6 +3455,36 @@ const BuilderWorkspaceContent = ({
                     reshapeRows={reshapeRowsAvailability}
                     onChooseRelatedRows={chooseRelatedRows}
                     onChooseReshape={chooseReshapeRows}
+                    sourceCollectionAction={table.document.rootResourceType ? (
+                      <SourceCollectionExpandEditor
+                        key={JSON.stringify([
+                          projectId,
+                          state.explorerId,
+                          authResourcePath ?? '',
+                          state.catalog.snapshotToken,
+                          state.draftVersion,
+                          state.draftDigest,
+                          table.outputId,
+                        ])}
+                        context={{
+                          client: loomClient,
+                          project: projectId,
+                          explorerId: state.explorerId,
+                          authResourcePath,
+                          snapshotToken: state.catalog.snapshotToken,
+                          draftVersion: state.draftVersion,
+                          draftDigest: state.draftDigest,
+                          outputId: table.outputId,
+                          rowsKind: table.document.rows.kind,
+                          onApply: (proposalId) => applyCommands([{
+                            type: 'APPLY_ROW_DEFINITION_PROPOSAL',
+                            outputId: table.outputId,
+                            proposalId,
+                          }]),
+                        }}
+                        disabled={pendingCommands > 0 || state.reconciliation === 'pending' || publishing}
+                      />
+                    ) : undefined}
                     onChangeRootOccurrence={(nodeId, occurrenceId) => void changeTableRoot(nodeId, { rootOccurrenceId: occurrenceId })}
                     onEditConstructionStep={editConstructionStep}
                     onRemoveConstructionStep={removeConstructionStep}

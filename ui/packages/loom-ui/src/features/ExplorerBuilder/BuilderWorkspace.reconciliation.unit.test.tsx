@@ -234,6 +234,7 @@ vi.mock('./components/PreviewTable', () => ({
 vi.mock('./constructionOperations/ConstructionReshapeEditor', () => ({
   ConstructionReshapeEditor: ({
     editingStep,
+    initialKind,
     construction,
     capabilities,
     pivotDiscovery,
@@ -241,6 +242,7 @@ vi.mock('./constructionOperations/ConstructionReshapeEditor', () => ({
     onCandidateChange,
   }: {
     readonly editingStep?: { readonly id: string; readonly operation: { readonly kind: string } };
+    readonly initialKind?: string;
     readonly construction: { readonly steps: ReadonlyArray<unknown> };
     readonly capabilities: { readonly selectedStage: { readonly id: string } };
     readonly pivotDiscovery?: { readonly status: string };
@@ -251,6 +253,7 @@ vi.mock('./constructionOperations/ConstructionReshapeEditor', () => ({
       data-testid="construction-reshape-editor"
       data-editing-step-id={editingStep?.id ?? ''}
       data-editing-operation={editingStep?.operation.kind ?? ''}
+      data-initial-kind={initialKind ?? ''}
       data-construction-step-count={construction.steps.length}
       data-discovery-status={pivotDiscovery?.status ?? 'none'}
     >
@@ -867,6 +870,65 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
       expect.objectContaining({ outputId: 'specimens', stageId: 'source_projection' }),
       expect.any(AbortSignal),
     );
+  });
+
+  it('waits for capability support before offering generic source Pivot with one materialized column', async () => {
+    let resolveCapabilities: ((value: unknown) => void) | undefined;
+    mockLoomClient.getConstructionCapabilities.mockReturnValue(new Promise((resolve) => {
+      resolveCapabilities = resolve;
+    }));
+
+    render(
+      <BuilderWorkspace
+        organization="HTAN_INT"
+        project="BForePC"
+        explorerId="test"
+      />,
+    );
+    await waitFor(() => expect(mockLoomClient.getConstructionCapabilities).toHaveBeenCalled());
+    fireEvent.click(await screen.findByRole('button', { name: 'Configure rows' }));
+    const rowSettings = await screen.findByRole('dialog', { name: 'Row definition settings' });
+    const categoryEntry = within(rowSettings).getByTestId('construction-action-pivot-rows');
+    expect(categoryEntry).toBeDisabled();
+    expect(within(rowSettings).queryByTestId('construction-action-table-pivot-rows')).toBeNull();
+
+    const sourceStage = {
+      id: 'source_projection',
+      inputStageId: '',
+      rowIdentityColumn: 'source-row-id',
+      columns: [{ id: 'specimen-id', name: 'specimen_identifier', label: 'Specimen identifier', type: 'string' }],
+      capabilities: [
+        { kind: 'PIVOT' as const, supported: false, reasonCode: 'INSUFFICIENT_SCALAR_COLUMNS', reason: 'Pivot needs three table columns.' },
+        { kind: 'CODED_PIVOT' as const, supported: true },
+        { kind: 'FILTER' as const, supported: true },
+      ],
+    };
+    const pivotSourceChoices = [
+      { choiceId: 'source-observation-id', columnId: 'source-observation-id', occurrenceId: 'base', fieldPath: 'id', label: 'Observation.id', fhirType: 'id', logicalType: 'string', valueType: 'STRING', isIdentifier: true, isReference: false, isPopulated: true },
+      { choiceId: 'source-quantity-code', columnId: 'source-quantity-code', occurrenceId: 'base', fieldPath: 'valueQuantity.code', label: 'Observation.valueQuantity.code', fhirType: 'string', logicalType: 'string', valueType: 'STRING', isIdentifier: false, isReference: false, isPopulated: true },
+      { choiceId: 'source-quantity-value', columnId: 'source-quantity-value', occurrenceId: 'base', fieldPath: 'valueQuantity.value', label: 'Observation.valueQuantity.value', fhirType: 'decimal', logicalType: 'decimal', valueType: 'NUMBER', isIdentifier: false, isReference: false, isPopulated: true },
+    ];
+    await act(async () => {
+      resolveCapabilities?.({
+        snapshotToken: 'snapshot-1',
+        draftVersion: 1,
+        draftDigest: 'sha256:draft-1',
+        outputId: 'specimens',
+        stageId: 'source_projection',
+        baseConstruction: { version: 1, steps: [] },
+        stages: [sourceStage],
+        selectedStage: sourceStage,
+        sourceInput: { supported: true, stageId: 'source_projection', choices: pivotSourceChoices },
+        pivotSourceInput: { supported: true, stageId: 'source_projection', choices: pivotSourceChoices },
+      });
+    });
+
+    const genericPivot = await within(rowSettings).findByTestId('construction-action-table-pivot-rows');
+    expect(genericPivot).toBeEnabled();
+    expect(categoryEntry).toBeEnabled();
+    fireEvent.click(genericPivot);
+    const editor = await screen.findByTestId('construction-reshape-editor');
+    expect(editor).toHaveAttribute('data-initial-kind', 'pivot');
   });
 
   it('opens stage-scoped pivot discovery from a source-only Reshape editor', async () => {
