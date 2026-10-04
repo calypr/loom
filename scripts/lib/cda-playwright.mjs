@@ -182,15 +182,8 @@ export function captureRequests(browser, report, ownedPathPrefix, options = {}) 
   return tracker;
 }
 
-export async function waitForCapturedResponse(page, tracker, predicate, timeout = 10000) {
-  const response = await page.waitForResponse(candidate => {
-    const entry = tracker.byRequest.get(candidate.request());
-    return Boolean(entry && predicate(entry));
-  }, { timeout });
-  await tracker.flush();
-  const entry = tracker.byRequest.get(response.request());
-  if (!entry) throw new Error(`Playwright response was outside the owned request prefix: ${response.url()}`);
-  return entry;
+export async function waitForCapturedResponse(_page, tracker, predicate, timeout = 5000) {
+  return tracker.waitFor(predicate, { timeoutMs: timeout });
 }
 
 export function includeBrowserDiagnostics(browser, report) {

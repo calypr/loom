@@ -1,6 +1,18 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { browserEval, waitForBrowser } from './cda-playwright.mjs';
+import { browserEval, waitForBrowser, waitForCapturedResponse } from './cda-playwright.mjs';
+
+test('captured response wait accepts a response completed before the visible UI result', async () => {
+  const completed = { path: '/owned/preview', status: 200, response: { rows: [['patient-1']] }, completedAt: 1 };
+  const tracker = {
+    waitFor(predicate, { timeoutMs }) {
+      assert.equal(timeoutMs, 5000);
+      assert(predicate(completed));
+      return Promise.resolve(completed);
+    },
+  };
+  assert.equal(await waitForCapturedResponse(null, tracker, entry => entry.path.endsWith('/preview')), completed);
+});
 
 test('browser inspection and waits require callbacks with explicit serializable arguments', async () => {
   const calls = [];
