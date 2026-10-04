@@ -1,5 +1,5 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { useLoomClient } from '../../../react';
+import React, { useState } from 'react';
+import { useLoomClient, useQuery } from '../../../react';
 import type {
   Construction,
   ConstructionCapabilitiesResponse,
@@ -178,6 +178,7 @@ export const RelatedExpandEditor = ({
     targetResourceType: saved.targetResourceType,
     route: saved.route,
   } : undefined);
+  const [emptyPolicy, setEmptyPolicy] = useState<EmptyPolicy>(saved?.emptyPolicy ?? 'PRESERVE_PARENT');
   const [condition, setCondition] = useState<ContributorCondition>(() => {
     const predicate = saved?.contributorRule.predicate;
     const source = saved?.contributorSource;
@@ -195,11 +196,15 @@ export const RelatedExpandEditor = ({
     return { kind: 'ALL' };
   });
   const [contributorOptionsOpen, setContributorOptionsOpen] = useState(condition.kind !== 'ALL');
-  const [choices, setChoices] = useState<ReadonlyArray<RouteChoice>>([]);
-  const requestVersion = useRef(0);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-  const [emptyPolicy, setEmptyPolicy] = useState<EmptyPolicy>(saved?.emptyPolicy ?? 'PRESERVE_PARENT');
+  const routeQueryKey = JSON.stringify([
+    project, explorerId, authResourcePath ?? '', snapshotToken,
+    capabilities.draftVersion, capabilities.draftDigest, outputId, stage.id, anchorColumnId, targetResourceType,
+  ]);
+  const [loadedChoices, setLoadedChoices] = useState<{
+    readonly queryKey: string;
+    readonly choices: ReadonlyArray<RouteChoice>;
+  }>();
+  const choices = loadedChoices?.queryKey === routeQueryKey ? loadedChoices.choices : [];
   const savedOutput = step?.outputs.find((column) => column.id === outputColumnId);
   const [outputName, setOutputName] = useState(savedOutput?.name ?? '');
   const [outputLabel, setOutputLabel] = useState(savedOutput?.label ?? '');
@@ -218,44 +223,47 @@ export const RelatedExpandEditor = ({
       ? `Choose which ${targetResourceType} records count in the condition below. ${noMatchDescription}${emptyMatchEffect[emptyPolicy]}`
       : `${matchingRowEffect} Existing values on the current row repeat on each new row. After Apply, choose fields from the matched records in Add columns. ${noMatchDescription}${emptyMatchEffect[emptyPolicy]}`;
 
-  useEffect(() => {
-    if (disabled || !targetResourceType || !anchorColumnId) return;
-    const controller = new AbortController();
-    const version = ++requestVersion.current;
-    setLoading(true);
-    setError('');
-    setChoices([]);
-    void (async () => {
-      let cursor: string | undefined;
-      const seenCursors = new Set<string>();
-      const paths: RouteChoice[] = [];
-      do {
-        const result = await client.searchRelatedExpandChoices({
-          project, explorerId, authResourcePath, snapshotToken, outputId,
-          expectedDraftVersion: capabilities.draftVersion,
-          expectedDraftDigest: capabilities.draftDigest,
-          stageId: stage.id, anchorColumnId, targetResourceType, limit: 50,
-          ...(cursor ? { cursor } : {}),
-        }, controller.signal);
-        if (controller.signal.aborted || version !== requestVersion.current) return;
-        if (!choicesMatchRequest(result, snapshotToken, capabilities.draftVersion, capabilities.draftDigest, outputId, stage.id, anchorColumnId, targetResourceType)) {
-          throw new Error('The available paths changed. Reload this table before expanding records.');
-        }
-        paths.push(...result.choices);
-        setChoices([...paths]);
-        cursor = result.nextCursor;
-        if (cursor && seenCursors.has(cursor)) throw new Error('Could not finish loading relationship paths. Reopen this editor to retry.');
-        if (cursor) seenCursors.add(cursor);
-      } while (cursor);
-    })().catch((cause: unknown) => {
-      if (!controller.signal.aborted && version === requestVersion.current) {
-        setError(cause instanceof Error ? cause.message : 'Could not load related paths.');
+  const routeQuery = useQuery(async (signal) => {
+    let cursor: string | undefined;
+    const seenCursors = new Set<string>();
+    const paths: RouteChoice[] = [];
+    let complete = false;
+    do {
+      if (signal.aborted) return paths;
+      const result = await client.searchRelatedExpandChoices({
+        project, explorerId, authResourcePath, snapshotToken, outputId,
+        expectedDraftVersion: capabilities.draftVersion,
+        expectedDraftDigest: capabilities.draftDigest,
+        stageId: stage.id, anchorColumnId, targetResourceType, limit: 50,
+        requestId: `related-expand-choices-${window.crypto.randomUUID()}`,
+        ...(cursor ? { cursor } : {}),
+      });
+      if (signal.aborted) return paths;
+      if (!choicesMatchRequest(result, snapshotToken, capabilities.draftVersion, capabilities.draftDigest, outputId, stage.id, anchorColumnId, targetResourceType)) {
+        throw new Error('The available paths changed. Reload this table before expanding records.');
       }
-    }).finally(() => {
-      if (!controller.signal.aborted && version === requestVersion.current) setLoading(false);
-    });
-    return () => controller.abort();
-  }, [client, project, explorerId, authResourcePath, snapshotToken, outputId, capabilities.draftVersion, capabilities.draftDigest, stage.id, anchorColumnId, targetResourceType, disabled]);
+      paths.push(...result.choices);
+      setLoadedChoices({ queryKey: routeQueryKey, choices: [...paths] });
+      complete = result.complete;
+      cursor = result.nextCursor;
+      if (result.truncated && !cursor) {
+        throw new Error('Could not finish loading relationship paths. Reopen this editor to retry.');
+      }
+      if (cursor && seenCursors.has(cursor)) {
+        throw new Error('Could not finish loading relationship paths. Reopen this editor to retry.');
+      }
+      if (cursor) seenCursors.add(cursor);
+    } while (cursor);
+    if (!complete) throw new Error('Could not finish loading relationship paths. Reopen this editor to retry.');
+    return paths;
+  }, [client, authResourcePath, explorerId, project, snapshotToken, capabilities.draftVersion,
+    capabilities.draftDigest, outputId, stage.id, anchorColumnId, targetResourceType],
+  Boolean(targetResourceType && anchorColumnId));
+  const loading = routeQuery.isFetching;
+  const error = routeQuery.error instanceof Error
+    ? routeQuery.error.message
+    : routeQuery.error ? 'Could not load related paths.' : '';
+
 
   const emit = (
     nextChoice = choice,
@@ -283,7 +291,7 @@ export const RelatedExpandEditor = ({
   );
 
   return (
-    <div className="scroll-mt-20 grid gap-4 rounded-lg border border-slate-200 bg-slate-50 p-4" data-testid="construction-related-expand-editor">
+    <div className="scroll-mt-20 grid gap-4 rounded-lg border border-slate-200 bg-slate-50 p-4" data-testid="construction-related-expand-editor" data-related-stage-id={stage.id} data-related-output-id={outputId}>
       <div>
         <h4 className="font-semibold text-slate-900">Make a row for each related record</h4>
         <p className="mt-1 text-sm text-slate-600">Choose the records you want each row to describe. Follow a relationship from a record already in the row, then make a separate row for each matching record.</p>
@@ -314,11 +322,10 @@ export const RelatedExpandEditor = ({
         <label className="grid gap-1 text-sm font-medium text-slate-800">
           Start from
           <select aria-label="Start from" value={anchorColumnId} disabled={disabled} onChange={(event) => {
-            requestVersion.current += 1;
             setAnchorColumnId(event.target.value);
             setChoice(undefined);
             setCondition({ kind: 'ALL' });
-            setChoices([]);
+            setLoadedChoices({ queryKey: routeQueryKey, choices: [] });
             onCandidateChange(undefined);
           }} className="rounded border border-slate-300 bg-white px-3 py-2">
             {anchors.map((anchor) => <option key={anchor.anchorColumnId} value={anchor.anchorColumnId}>{anchor.label}</option>)}
@@ -336,11 +343,10 @@ export const RelatedExpandEditor = ({
         Related record type
         <select aria-label="Related record type" value={targetResourceType} disabled={disabled || anchors.length === 0} onChange={(event) => {
           const target = event.target.value;
-          requestVersion.current += 1;
           setTargetResourceType(target);
           setChoice(undefined);
           setCondition({ kind: 'ALL' });
-          setChoices([]);
+          setLoadedChoices({ queryKey: routeQueryKey, choices: [] });
           const suggested = availableColumnName(`related_${target.toLowerCase()}_id`, stage.columns);
           setOutputName(suggested);
           setOutputLabel(`${target} FHIR resource ID`);

@@ -1,0 +1,456 @@
+const bindingName = '__loomNativeAbortProbeBinding';
+
+/** Page anchors and user actions that can prove a same-document owner retirement. */
+export const nativeAbortDomOwnerRules = [
+  {
+    endpoint: 'semantic-inventory',
+    requestIdPrefix: 'feature-catalog-',
+    owner: 'feature-catalog',
+    selector: '#feature-catalog-search',
+  },
+  {
+    endpoint: 'semantic-inventory',
+    requestIdPrefix: 'frame-categories-',
+    owner: 'frame-category-catalog',
+    selector: '[data-testid^="frame-categories-"]',
+    retirementAction: 'coded-to-fields-tab',
+  },
+  {
+    endpoint: 'semantic-inventory',
+    requestIdPrefix: 'paired-column-inventory-',
+    owner: 'paired-column-inventory',
+    selector: '[data-testid="paired-column-suggestions"]',
+    retirementAction: 'coded-to-fields-tab',
+  },
+  {
+    endpoint: 'population-routes',
+    requestIdPrefix: 'population-routes-',
+    owner: 'population-route-options',
+    selector: '[aria-label="Starting collection"]',
+    retirementAction: 'row-settings-dialog-exit',
+  },
+  {
+    endpoint: 'frame-source-options',
+    requestIdPrefix: 'frame-source-options-',
+    owner: 'frame-source-options',
+    selector: '[data-testid="frame-source-panel"]',
+    retirementAction: 'coded-to-fields-tab',
+  },
+  {
+    endpoint: 'construction-choices',
+    requestIdPrefix: 'paired-column-choices-',
+    owner: 'paired-column-choice-suggestions',
+    selector: '[data-testid="paired-column-suggestions"]',
+    retirementAction: 'coded-to-fields-tab',
+  },
+  {
+    endpoint: 'construction-choices',
+    requestIdPrefix: 'construction-choices-',
+    owner: 'catalog-choice-search',
+    selector: '#feature-catalog-search',
+  },
+];
+
+const requestPrefixes = {
+  'semantic-inventory': ['feature-catalog-', 'frame-categories-', 'paired-column-inventory-'],
+  'population-routes': ['population-routes-'],
+  'frame-source-options': ['frame-source-options-'],
+  'construction-choices': ['paired-column-choices-', 'construction-choices-'],
+};
+
+/** Build a page-only probe. It records exact signal-to-fetch ownership without request bodies or credentials. */
+export const createNativeAbortProbeSource = ({ project, explorer }) => `(() => {
+  const marker = '__loomNativeAbortProbeInstalled';
+  if (globalThis[marker]) return;
+  Object.defineProperty(globalThis, marker, { value: true, configurable: false });
+  const scope = { project: ${JSON.stringify(project)}, explorer: ${JSON.stringify(explorer)} };
+  const prefixes = ${JSON.stringify(requestPrefixes)};
+  const ownerRules = ${JSON.stringify(nativeAbortDomOwnerRules)};
+  const controllersBySignal = new WeakMap();
+  const domIds = new WeakMap();
+  const domOwnersByRequest = new WeakMap();
+  const observedDomOwners = new Set();
+  const trustedInteractions = [];
+  let nextController = 1;
+  let nextDomId = 1;
+  let lastTrustedInteraction;
+  const wallNow = () => Date.now();
+  const safeStack = (stack) => String(stack ?? '').split('\\n').slice(2, 10).flatMap((line) => {
+    const match = line.match(/((?:https?:\\/\\/)?[^()\\s]+):(\\d+):(\\d+)\\)?$/);
+    if (!match) return [];
+    let path = match[1];
+    try { if (/^https?:\\/\\//.test(path)) path = new URL(path).pathname; } catch { return []; }
+    return [{ path: path.slice(0, 300), line: Number(match[2]), column: Number(match[3]) }];
+  }).slice(0, 6);
+  const send = (event) => {
+    try {
+      if (typeof globalThis.${bindingName} === 'function') globalThis.${bindingName}(JSON.stringify(event));
+    } catch { /* Probe evidence must never affect the application request. */ }
+  };
+  const readHeader = (headers, name) => {
+    try {
+      if (typeof headers?.get === 'function') return headers.get(name);
+      for (const [key, value] of Object.entries(headers ?? {})) if (key.toLowerCase() === name.toLowerCase()) return String(value);
+    } catch { /* Ignore unsupported header containers. */ }
+    return undefined;
+  };
+  const domId = (node) => {
+    if (!node || typeof node !== 'object') return undefined;
+    let id = domIds.get(node);
+    if (!id) { id = 'dom-node-' + nextDomId++; domIds.set(node, id); }
+    return id;
+  };
+  const cleanLabel = (value) => String(value ?? '').replace(/\\s+/g, ' ').trim().slice(0, 100);
+  const buttonLabel = (button) => cleanLabel(
+    button?.getAttribute?.('aria-label') || button?.textContent || button?.innerText || '',
+  );
+  const selectedTab = (group) => {
+    if (!group) return undefined;
+    const selected = [...(group.querySelectorAll?.('button[aria-pressed="true"]') ?? [])];
+    return selected.length === 1 ? buttonLabel(selected[0]) : undefined;
+  };
+  const exactElements = (selector) => {
+    try { return [...(globalThis.document?.querySelectorAll?.(selector) ?? [])]; } catch { return []; }
+  };
+  const findOwnerRule = (metadata) => ownerRules.find((rule) => rule.endpoint === metadata.endpoint &&
+    metadata.requestId.startsWith(rule.requestIdPrefix));
+  const captureOwnerDom = (rule) => {
+    if (!rule) return undefined;
+    const matches = exactElements(rule.selector);
+    if (matches.length !== 1) {
+      return {
+        status: matches.length === 0 ? 'missing' : 'ambiguous',
+        selector: rule.selector,
+        matchCount: matches.length,
+        capturedAt: wallNow(),
+        connectedAtFetch: false,
+        ruleOwner: rule.owner,
+        retirementAction: rule.retirementAction,
+      };
+    }
+    const element = matches[0];
+    const tabGroups = rule.retirementAction === 'coded-to-fields-tab'
+      ? exactElements('[aria-label="Column types"]')
+      : [];
+    const tabGroup = tabGroups.length === 1 ? tabGroups[0] : undefined;
+    const dialog = rule.retirementAction === 'row-settings-dialog-exit'
+      ? element.closest?.('[role="dialog"][aria-label="Row definition settings"]')
+      : undefined;
+    const panel = rule.owner === 'frame-category-catalog'
+      ? element.closest?.('[data-testid="frame-source-panel"]')
+      : undefined;
+    const connected = element.isConnected === true;
+    const connectedDialog = dialog?.isConnected === true;
+    const connectedPanel = rule.owner === 'frame-category-catalog' && panel?.isConnected === true;
+    const contextConnected = rule.owner === 'frame-category-catalog' ? connectedPanel
+      : rule.retirementAction === 'row-settings-dialog-exit' ? connectedDialog
+        : rule.retirementAction === 'coded-to-fields-tab' ? tabGroup?.isConnected === true : true;
+    const record = {
+      status: connected && contextConnected ? 'unique' : 'disconnected',
+      selector: rule.selector,
+      matchCount: 1,
+      capturedAt: wallNow(),
+      anchorId: domId(element),
+      connectedAtFetch: connected,
+      ruleOwner: rule.owner,
+      retirementAction: rule.retirementAction,
+      tabGroupId: domId(tabGroup),
+      selectedTabAtFetch: selectedTab(tabGroup),
+      dialogId: domId(dialog),
+      dialogConnectedAtFetch: dialog ? connectedDialog : undefined,
+      parentPanelId: domId(panel),
+      parentPanelConnectedAtFetch: panel ? connectedPanel : undefined,
+    };
+    const refs = { element, tabGroup, dialog, panel, observedDetachedAt: undefined };
+    observedDomOwners.add(refs);
+    return { record, refs };
+  };
+  const recordOwnerAtAbort = (refs, abortedAt) => {
+    if (!refs) return undefined;
+    return {
+      anchorId: domId(refs.element),
+      connectedAtAbort: refs.element?.isConnected === true,
+      detachedAtAbort: refs.element?.isConnected === false,
+      detachedObservedAt: refs.observedDetachedAt,
+      tabGroupId: domId(refs.tabGroup),
+      selectedTabAtAbort: selectedTab(refs.tabGroup),
+      tabGroupConnectedAtAbort: refs.tabGroup ? refs.tabGroup.isConnected === true : undefined,
+      dialogId: domId(refs.dialog),
+      dialogConnectedAtAbort: refs.dialog ? refs.dialog.isConnected === true : undefined,
+      parentPanelId: domId(refs.panel),
+      parentPanelConnectedAtAbort: refs.panel ? refs.panel.isConnected === true : undefined,
+      observedAtAbort: abortedAt,
+    };
+  };
+  const requestMetadata = (input, init) => {
+    let url;
+    try { url = new URL(typeof input === 'string' ? input : input.url, globalThis.location.href); } catch { return undefined; }
+    const prefix = '/api/v1/projects/' + encodeURIComponent(scope.project) + '/explorers/' + encodeURIComponent(scope.explorer) + '/authoring/v2/';
+    if (!url.pathname.startsWith(prefix)) return undefined;
+    const endpoint = url.pathname.slice(prefix.length);
+    if (!Object.hasOwn(prefixes, endpoint)) return undefined;
+    const method = String(init?.method ?? input?.method ?? 'GET').toUpperCase();
+    if (method !== 'POST') return undefined;
+    const headers = init?.headers ?? input?.headers;
+    const requestId = readHeader(headers, 'X-Request-ID');
+    if (typeof requestId !== 'string' || !prefixes[endpoint].some((item) => requestId.startsWith(item))) return undefined;
+    if (!/^[a-z0-9-]{3,80}-[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(requestId)) return undefined;
+    return { requestId, path: url.pathname, method, endpoint };
+  };
+  const observer = typeof globalThis.MutationObserver === 'function' && globalThis.document
+    ? new globalThis.MutationObserver(() => {
+        for (const refs of observedDomOwners) {
+          if (refs.observedDetachedAt === undefined && refs.element?.isConnected === false) refs.observedDetachedAt = wallNow();
+        }
+      })
+    : undefined;
+  try { observer?.observe(globalThis.document, { childList: true, subtree: true }); } catch { /* Synchronous isConnected sampling remains authoritative. */ }
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = function(...args) {
+    const metadata = requestMetadata(args[0], args[1]);
+    const signal = args[1]?.signal ?? args[0]?.signal;
+    const owner = signal && controllersBySignal.get(signal);
+    let record;
+    if (metadata && owner) {
+      const rule = findOwnerRule(metadata);
+      const captured = captureOwnerDom(rule);
+      record = {
+        ...metadata,
+        startedAt: wallNow(),
+        fetchStateAtAbort: 'pending',
+        ownerDomAtFetch: captured?.record ?? captured,
+      };
+      owner.requests.set(metadata.requestId, record);
+      if (captured?.refs) domOwnersByRequest.set(record, captured.refs);
+    }
+    const result = Reflect.apply(originalFetch, this, args);
+    if (record && result && typeof result.then === 'function') {
+      result.then(
+        () => { record.fetchStateAtAbort = 'fulfilled'; record.settledAt = wallNow(); },
+        () => { record.fetchStateAtAbort = 'rejected'; record.settledAt = wallNow(); },
+      );
+    }
+    return result;
+  };
+  const NativeAbortController = globalThis.AbortController;
+  globalThis.AbortController = class LoomObservedAbortController extends NativeAbortController {
+    constructor(...args) {
+      super(...args);
+      const owner = {
+        id: 'abort-controller-' + nextController++,
+        createdAt: wallNow(),
+        createdStack: safeStack(new Error('abort-controller-created').stack),
+        requests: new Map(),
+        abortCount: 0,
+      };
+      controllersBySignal.set(this.signal, owner);
+    }
+    abort(...args) {
+      const owner = controllersBySignal.get(this.signal);
+      if (owner) {
+        owner.abortCount += 1;
+        const abortedAt = wallNow();
+        const requests = [...owner.requests.values()].map((request) => ({
+          ...request,
+          ownerDomAtAbort: recordOwnerAtAbort(domOwnersByRequest.get(request), abortedAt),
+        }));
+        send({
+          kind: 'abort-controller-call',
+          controllerId: owner.id,
+          createdAt: owner.createdAt,
+          abortedAt,
+          abortCount: owner.abortCount,
+          signalWasAlreadyAborted: this.signal.aborted,
+          createdStack: owner.createdStack,
+          abortStack: safeStack(new Error('abort-controller-abort').stack),
+          requests,
+          trustedInteractions: trustedInteractions.slice(-20),
+          lastTrustedInteraction: lastTrustedInteraction ? { ...lastTrustedInteraction } : undefined,
+          actionEnvelope: globalThis.__loomNativeAbortAction && typeof globalThis.__loomNativeAbortAction === 'object'
+            ? {
+                id: String(globalThis.__loomNativeAbortAction.id ?? '').slice(0, 100) || undefined,
+                name: String(globalThis.__loomNativeAbortAction.name ?? '').slice(0, 100) || undefined,
+                selector: String(globalThis.__loomNativeAbortAction.selector ?? '').slice(0, 200) || undefined,
+                startedAt: Number.isFinite(globalThis.__loomNativeAbortAction.startedAt) ? globalThis.__loomNativeAbortAction.startedAt : undefined,
+                endedAt: Number.isFinite(globalThis.__loomNativeAbortAction.endedAt) ? globalThis.__loomNativeAbortAction.endedAt : undefined,
+              }
+            : undefined,
+        });
+        for (const request of owner.requests.values()) {
+          const refs = domOwnersByRequest.get(request);
+          if (refs) observedDomOwners.delete(refs);
+        }
+      }
+      return super.abort(...args);
+    }
+  };
+  const targetSummary = (target) => {
+    if (!target || typeof target !== 'object') return undefined;
+    return {
+      tag: String(target.tagName ?? '').slice(0, 24),
+      role: String(target.getAttribute?.('role') ?? '').slice(0, 40) || undefined,
+      testId: String(target.getAttribute?.('data-testid') ?? '').slice(0, 100) || undefined,
+      ariaLabel: cleanLabel(target.getAttribute?.('aria-label')) || undefined,
+    };
+  };
+  const trustedButtonSummary = (target) => {
+    const button = target?.closest?.('button');
+    if (!button) return undefined;
+    const tabGroup = button.closest?.('[aria-label="Column types"]');
+    const dialog = button.closest?.('[role="dialog"][aria-label="Row definition settings"]');
+    return {
+      id: domId(button),
+      accessibleLabel: buttonLabel(button) || undefined,
+      testId: String(button.getAttribute?.('data-testid') ?? '').slice(0, 100) || undefined,
+      ariaPressed: button.getAttribute?.('aria-pressed') === 'true' ? true
+        : button.getAttribute?.('aria-pressed') === 'false' ? false : undefined,
+      tabGroupId: domId(tabGroup),
+      dialogId: domId(dialog),
+    };
+  };
+  for (const eventType of ['click', 'change', 'input', 'keydown', 'submit']) {
+    globalThis.document?.addEventListener?.(eventType, (event) => {
+      if (!event.isTrusted) return;
+      const interaction = {
+        type: eventType,
+        at: wallNow(),
+        isTrusted: true,
+        target: targetSummary(event.target),
+        closestButton: trustedButtonSummary(event.target),
+        actionId: globalThis.__loomNativeAbortAction?.id,
+      };
+      trustedInteractions.push(interaction);
+      if (trustedInteractions.length > 40) trustedInteractions.shift();
+      lastTrustedInteraction = interaction;
+    }, true);
+  }
+  send({ kind: 'probe-installed', at: wallNow(), project: scope.project, explorer: scope.explorer });
+})();`;
+
+/** Install before navigation so the page probe runs before the application modules. */
+export const installNativeAbortProbe = async (cdp, { project, explorer, onEvent }) => {
+  await cdp.send('Runtime.addBinding', { name: bindingName });
+  cdp.on('Runtime.bindingCalled', ({ name, payload, executionContextId }) => {
+    if (name !== bindingName) return;
+    let event;
+    try { event = JSON.parse(payload); } catch { onEvent({ kind: 'probe-payload-invalid', payloadLength: String(payload).length, executionContextId }); return; }
+    onEvent({ ...event, executionContextId });
+  });
+  await cdp.send('Page.addScriptToEvaluateOnNewDocument', {
+    source: createNativeAbortProbeSource({ project, explorer }),
+  });
+};
+
+const ownerRetirementActionForRule = (owner) =>
+  nativeAbortDomOwnerRules.find((rule) => rule.owner === owner)?.retirementAction;
+
+/** Convert a Network.loadingFailed monotonic timestamp with this request's own CDP wall/monotonic pair. */
+export const nativeAbortNetworkFailureClock = (entry) => {
+  const failedTimestamp = entry.loadingFailed?.timestamp;
+  const requestTimestamp = entry.requestTimestamp;
+  const requestWallTime = entry.requestWallTime;
+  if (typeof entry.requestId === 'string' && entry.requestId.length > 0 &&
+      [failedTimestamp, requestTimestamp, requestWallTime].every(Number.isFinite) &&
+      requestTimestamp > 0 && requestWallTime > 0 && failedTimestamp >= requestTimestamp) {
+    return {
+      at: (requestWallTime + (failedTimestamp - requestTimestamp)) * 1000,
+      basis: 'request-wall-time-calibrated-cdp-monotonic',
+    };
+  }
+  return Number.isFinite(entry.loadingFailed?.at)
+    ? { at: entry.loadingFailed.at, basis: 'host-wall-clock-at-cdp-callback' }
+    : { at: undefined, basis: undefined };
+};
+
+const interactionProvesOwnerRetirementAction = (request, ownerDomAtAbort, interaction, abortedAt) => {
+  const rule = nativeAbortDomOwnerRules.find((candidate) => candidate.owner === request.ownerDomAtFetch?.ruleOwner);
+  if (!rule?.retirementAction || !interaction || interaction.isTrusted !== true ||
+      !['native-event-isTrusted-true', 'trusted-interaction-list-membership'].includes(interaction.trustEvidence) ||
+      interaction.type !== 'click' ||
+      !Number.isFinite(interaction.at) || interaction.at < request.startedAt || interaction.at > abortedAt ||
+      !ownerDomAtAbort?.detachedAtAbort || ownerDomAtAbort.connectedAtAbort !== false ||
+      request.ownerDomAtFetch?.status !== 'unique' || request.ownerDomAtFetch?.connectedAtFetch !== true ||
+      request.ownerDomAtFetch.anchorId !== ownerDomAtAbort.anchorId) return false;
+
+  if (rule.retirementAction === 'coded-to-fields-tab') {
+    return request.ownerDomAtFetch.selectedTabAtFetch === 'Coded values' &&
+      request.ownerDomAtFetch.tabGroupId &&
+      request.ownerDomAtFetch.tabGroupId === ownerDomAtAbort.tabGroupId &&
+      ownerDomAtAbort.tabGroupConnectedAtAbort === true &&
+      ownerDomAtAbort.selectedTabAtAbort === 'Fields and related data' &&
+      interaction.closestButton?.tabGroupId === request.ownerDomAtFetch.tabGroupId &&
+      interaction.closestButton?.accessibleLabel === 'Fields and related data';
+  }
+
+  if (rule.retirementAction === 'row-settings-dialog-exit') {
+    return request.ownerDomAtFetch.dialogId && request.ownerDomAtFetch.dialogConnectedAtFetch === true &&
+      request.ownerDomAtFetch.dialogId === ownerDomAtAbort.dialogId &&
+      ownerDomAtAbort.dialogConnectedAtAbort === false &&
+      interaction.closestButton?.dialogId === request.ownerDomAtFetch.dialogId &&
+      (interaction.closestButton?.accessibleLabel === 'Back to table' ||
+        interaction.closestButton?.testId === 'construction-action-group-rows' ||
+        interaction.closestButton?.testId === 'construction-action-related-rows');
+  }
+
+  return false;
+};
+
+/** Link a CDP failure to the exact signal and page-side owner/action evidence. */
+export const nativeAbortProbeEvidenceForRequest = (entry, events) => {
+  const failureClock = nativeAbortNetworkFailureClock(entry);
+  const failedAt = failureClock.at;
+  if (typeof entry.requestCorrelationId !== 'string' || typeof entry.path !== 'string' || !Number.isFinite(failedAt)) return [];
+  return events.flatMap((event) => {
+    if (event.kind !== 'abort-controller-call' || event.signalWasAlreadyAborted !== false ||
+        !Number.isFinite(event.abortedAt) || event.abortedAt > failedAt) return [];
+    return (event.requests ?? []).filter((request) =>
+      request.requestId === entry.requestCorrelationId && request.path === entry.path &&
+      request.method === entry.method && Number.isFinite(request.startedAt) && request.startedAt <= event.abortedAt,
+    ).map((request) => {
+      const hasTrustedInteractionList = Array.isArray(event.trustedInteractions);
+      const interactions = (event.trustedInteractions ?? (event.lastTrustedInteraction ? [event.lastTrustedInteraction] : []))
+        .filter((interaction) => (interaction?.isTrusted === true ||
+          (interaction?.isTrusted === undefined && hasTrustedInteractionList && event.trustedInteractions.includes(interaction))) &&
+          interaction?.type === 'click' &&
+          interaction.at >= request.startedAt && interaction.at <= event.abortedAt)
+        .map((interaction) => ({
+          ...interaction,
+          isTrusted: true,
+          trustEvidence: interaction.isTrusted === true
+            ? 'native-event-isTrusted-true'
+            : 'trusted-interaction-list-membership',
+        }));
+      const ownerRetirementAction = interactions.find((interaction) => interactionProvesOwnerRetirementAction(
+        request, request.ownerDomAtAbort, interaction, event.abortedAt,
+      ));
+      return {
+        networkRequestId: entry.requestId,
+        controllerId: event.controllerId,
+        controllerCreatedAt: event.createdAt,
+        controllerAbortedAt: event.abortedAt,
+        request,
+        abortToNetworkFailureMs: failedAt - event.abortedAt,
+        networkFailureObservedAt: failedAt,
+        networkFailureClockBasis: failureClock.basis,
+        trustedInteractionToAbortMs: Number.isFinite(event.lastTrustedInteraction?.at)
+          ? event.abortedAt - event.lastTrustedInteraction.at
+          : undefined,
+        createdStack: event.createdStack,
+        abortStack: event.abortStack,
+        lastTrustedInteraction: event.lastTrustedInteraction,
+        ownerRetirementAction,
+        ownerDomAtFetch: request.ownerDomAtFetch,
+        ownerDomAtAbort: request.ownerDomAtAbort,
+        exactRequestSignalCorrelation: true,
+        networkFailureObservedSeparately: true,
+        signalWasAlreadyAborted: event.signalWasAlreadyAborted,
+        sameDocumentOwnerRetirement: Boolean(ownerRetirementAction) &&
+          typeof entry.requestId === 'string' &&
+          failureClock.basis === 'request-wall-time-calibrated-cdp-monotonic' &&
+          Number.isFinite(failedAt) && event.abortedAt <= failedAt,
+      };
+    });
+  });
+};
+
+export const nativeAbortOwnerRetirementActionFor = ownerRetirementActionForRule;

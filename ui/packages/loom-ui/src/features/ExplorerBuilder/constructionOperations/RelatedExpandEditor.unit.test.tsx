@@ -13,9 +13,10 @@ const searchRelatedExpandContributors = vi.fn(async (args: { snapshotToken: stri
   complete: true, truncated: false, choices: [],
 }));
 const client = { searchRelatedExpandChoices, searchRelatedExpandContributors };
-vi.mock('../../../react', () => ({
-  useLoomClient: () => client,
-}));
+vi.mock('../../../react', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../react')>();
+  return { ...actual, useLoomClient: () => client };
+});
 
 const route = [{
   edgeId: 'patient-encounter',
@@ -178,7 +179,6 @@ describe('RelatedExpandEditor', () => {
     fireEvent.change(screen.getByLabelText('Related record type'), { target: { value: 'Encounter' } });
     await waitFor(() => expect(searchRelatedExpandChoices).toHaveBeenCalledWith(
       expect.objectContaining({ stageId: 'source_projection', targetResourceType: 'Encounter' }),
-      expect.any(AbortSignal),
     ));
     expect(screen.getByTestId('construction-related-expand-advanced')).not.toHaveAttribute('open');
     expect(screen.getByText('Start from')).toBeInTheDocument();
@@ -656,12 +656,9 @@ describe('RelatedExpandEditor', () => {
     });
   });
 
-  it('stops discovering routes while Apply is changing the draft', async () => {
-    let requestSignal: AbortSignal | undefined;
-    searchRelatedExpandChoices.mockReset().mockImplementation((_args, signal: AbortSignal) => {
-      requestSignal = signal;
-      return new Promise(() => undefined);
-    });
+  it('keeps route discovery source-scoped and does not restart it when Apply disables editing', async () => {
+    let resolveRoute: ((value: unknown) => void) | undefined;
+    searchRelatedExpandChoices.mockReset().mockImplementation(() => new Promise((resolve) => { resolveRoute = resolve; }));
     const props = {
       project: 'project', explorerId: 'explorer', snapshotToken: 'snapshot-1', outputId: 'patients',
       catalog, construction: capabilities.baseConstruction, capabilities, onCandidateChange: vi.fn(),
@@ -669,20 +666,100 @@ describe('RelatedExpandEditor', () => {
     const view = render(<RelatedExpandEditor {...props} disabled={false} />);
     fireEvent.change(screen.getByLabelText('Related record type'), { target: { value: 'Encounter' } });
     await waitFor(() => expect(searchRelatedExpandChoices).toHaveBeenCalledTimes(1));
+    expect(screen.getByTestId('construction-related-expand-editor')).toHaveAttribute('data-related-stage-id', 'source_projection');
+    expect(screen.getByTestId('construction-related-expand-editor')).toHaveAttribute('data-related-output-id', 'patients');
     view.rerender(<RelatedExpandEditor {...props} disabled />);
-    expect(requestSignal?.aborted).toBe(true);
     expect(searchRelatedExpandChoices).toHaveBeenCalledTimes(1);
+    await act(async () => resolveRoute?.({
+      snapshotToken: 'snapshot-1', draftVersion: 1, draftDigest: 'draft-1', outputId: 'patients',
+      stageId: 'source_projection', anchorColumnId: '_key', complete: true, truncated: false,
+      choices: [{ ...rootAnchor, choiceId: 'while-disabled-choice', targetNodeId: 'encounter-node', targetResourceType: 'Encounter', route }],
+    }));
+    expect(await screen.findByRole('radio', { name: 'Patient <-[subject]- Encounter' })).toBeDisabled();
+    expect(searchRelatedExpandChoices).toHaveBeenCalledTimes(1);
+    view.unmount();
   });
 
-  it('automatically loads supported routes from later pages', async () => {
-    searchRelatedExpandChoices.mockReset().mockImplementation(async (args: { cursor?: string }) => ({
+  it('retires stale route requests when the pinned draft changes', async () => {
+    const pending: Array<{
+      readonly args: { readonly expectedDraftVersion: number; readonly expectedDraftDigest: string; readonly requestId: string };
+      readonly resolve: (value: unknown) => void;
+    }> = [];
+    searchRelatedExpandChoices.mockReset().mockImplementation((args, ...rest) => new Promise((resolve) => {
+      pending.push({ args, resolve });
+      expect(rest).toHaveLength(0);
+    }));
+    const onCandidateChange = vi.fn();
+    const props = {
+      project: 'project', explorerId: 'explorer', snapshotToken: 'snapshot-1', outputId: 'patients',
+      catalog, construction: capabilities.baseConstruction, capabilities, disabled: false, onCandidateChange,
+    };
+    const view = render(<RelatedExpandEditor {...props} />);
+    fireEvent.change(screen.getByLabelText('Related record type'), { target: { value: 'Encounter' } });
+    await waitFor(() => expect(pending).toHaveLength(1));
+
+    const nextCapabilities = { ...capabilities, draftVersion: 2, draftDigest: 'draft-2' };
+    view.rerender(<RelatedExpandEditor {...props} capabilities={nextCapabilities} />);
+    await waitFor(() => expect(pending).toHaveLength(2));
+    expect(pending[0].args.expectedDraftVersion).toBe(1);
+    expect(pending[1].args.expectedDraftVersion).toBe(2);
+    expect(pending[0].args.requestId).not.toBe(pending[1].args.requestId);
+
+    await act(async () => pending[0].resolve({
+      snapshotToken: 'snapshot-1', draftVersion: 1, draftDigest: 'draft-1', outputId: 'patients',
+      stageId: 'source_projection', anchorColumnId: '_key', complete: false, truncated: true, nextCursor: 'stale-next-page',
+      choices: [{ ...rootAnchor, choiceId: 'stale-choice', targetNodeId: 'encounter-node', targetResourceType: 'Encounter', route }],
+    }));
+    expect(searchRelatedExpandChoices).toHaveBeenCalledTimes(2);
+    expect(screen.queryByRole('radio', { name: 'Patient <-[subject]- Encounter' })).not.toBeInTheDocument();
+
+    await act(async () => pending[1].resolve({
+      snapshotToken: 'snapshot-1', draftVersion: 2, draftDigest: 'draft-2', outputId: 'patients',
+      stageId: 'source_projection', anchorColumnId: '_key', complete: true, truncated: false,
+      choices: [{ ...rootAnchor, choiceId: 'current-choice', targetNodeId: 'encounter-node', targetResourceType: 'Encounter', route }],
+    }));
+    expect(await screen.findByRole('radio', { name: 'Patient <-[subject]- Encounter' })).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: 'Patient <-[subject]- Encounter' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('radio', { name: 'Patient <-[subject]- Encounter' }));
+    expect(onCandidateChange.mock.lastCall?.[0]?.candidateConstruction.steps[0].operation.relatedExpand.choiceId)
+      .toBe('current-choice');
+  });
+
+  it('does not request the next route page when the editor unmounts during a pending page', async () => {
+    let resolveFirstPage: ((value: unknown) => void) | undefined;
+    searchRelatedExpandChoices.mockReset().mockImplementation(() => new Promise((resolve) => { resolveFirstPage = resolve; }));
+    const onCandidateChange = vi.fn();
+    const view = render(<RelatedExpandEditor
+      project="project" explorerId="explorer" snapshotToken="snapshot-1" outputId="patients"
+      catalog={catalog} construction={capabilities.baseConstruction} capabilities={capabilities}
+      disabled={false} onCandidateChange={onCandidateChange}
+    />);
+    fireEvent.change(screen.getByLabelText('Related record type'), { target: { value: 'Encounter' } });
+    await waitFor(() => expect(searchRelatedExpandChoices).toHaveBeenCalledTimes(1));
+    const changesBeforeRetirement = onCandidateChange.mock.calls.length;
+    view.unmount();
+    await act(async () => resolveFirstPage?.({
+      snapshotToken: 'snapshot-1', draftVersion: 1, draftDigest: 'draft-1', outputId: 'patients',
+      stageId: 'source_projection', anchorColumnId: '_key', complete: false, truncated: true, nextCursor: 'must-not-request',
+      choices: [{ ...rootAnchor, choiceId: 'retired-choice', targetNodeId: 'encounter-node', targetResourceType: 'Encounter', route }],
+    }));
+    expect(searchRelatedExpandChoices).toHaveBeenCalledTimes(1);
+    expect(onCandidateChange).toHaveBeenCalledTimes(changesBeforeRetirement);
+  });
+
+  it('automatically loads supported routes from later pages with a distinct request owner per page', async () => {
+    const requestIds: string[] = [];
+    searchRelatedExpandChoices.mockReset().mockImplementation(async (args: { cursor?: string; requestId: string }) => {
+      requestIds.push(args.requestId);
+      return {
       snapshotToken: 'snapshot-1', draftVersion: 1, draftDigest: 'draft-1', outputId: 'patients', stageId: 'source_projection', anchorColumnId: '_key',
       complete: Boolean(args.cursor), truncated: !args.cursor,
       ...(args.cursor ? {} : { nextCursor: 'next-route-page' }),
       choices: args.cursor
         ? [{ ...rootAnchor, choiceId: 'second-page-choice', targetNodeId: 'encounter-node', targetResourceType: 'Encounter', route }]
         : [],
-    }));
+      };
+    });
     const onCandidateChange = vi.fn();
     render(<RelatedExpandEditor
       project="project" explorerId="explorer" snapshotToken="snapshot-1" outputId="patients"
@@ -691,9 +768,12 @@ describe('RelatedExpandEditor', () => {
     />);
     fireEvent.change(screen.getByLabelText('Related record type'), { target: { value: 'Encounter' } });
     await waitFor(() => expect(searchRelatedExpandChoices).toHaveBeenLastCalledWith(
-      expect.objectContaining({ cursor: 'next-route-page' }), expect.any(AbortSignal),
+      expect.objectContaining({ cursor: 'next-route-page' }),
     ));
     expect(screen.queryByRole('button', { name: 'Load more paths' })).toBeNull();
+    expect(requestIds).toHaveLength(2);
+    expect(new Set(requestIds).size).toBe(2);
+    expect(requestIds.every((requestId) => requestId.startsWith('related-expand-choices-'))).toBe(true);
     fireEvent.click(await screen.findByRole('radio', { name: 'Patient <-[subject]- Encounter' }));
     expect(onCandidateChange.mock.lastCall?.[0]?.candidateConstruction.steps[0].operation.relatedExpand)
       .toMatchObject({ choiceId: 'second-page-choice', emptyPolicy: 'PRESERVE_PARENT' });
@@ -723,7 +803,7 @@ describe('RelatedExpandEditor', () => {
     />);
     fireEvent.change(screen.getByLabelText('Related record type'), { target: { value: 'Encounter' } });
     await waitFor(() => expect(searchRelatedExpandChoices).toHaveBeenCalledWith(
-      expect.objectContaining({ stageId: 'keep-patients' }), expect.any(AbortSignal),
+      expect.objectContaining({ stageId: 'keep-patients' }),
     ));
     fireEvent.click(await screen.findByRole('radio', { name: 'Patient <-[subject]- Encounter' }));
     const steps = onCandidateChange.mock.lastCall?.[0]?.candidateConstruction.steps;
@@ -781,7 +861,7 @@ describe('RelatedExpandEditor', () => {
     fireEvent.change(screen.getByLabelText('Start from'), { target: { value: '_key' } });
     expect(onCandidateChange).toHaveBeenLastCalledWith(undefined);
     await waitFor(() => expect(searchRelatedExpandChoices).toHaveBeenLastCalledWith(
-      expect.objectContaining({ anchorColumnId: '_key', targetResourceType: 'Observation' }), expect.any(AbortSignal),
+      expect.objectContaining({ anchorColumnId: '_key', targetResourceType: 'Observation' }),
     ));
   });
 
