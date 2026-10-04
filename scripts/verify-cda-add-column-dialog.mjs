@@ -34,11 +34,11 @@ async function readBuilder() {
   assert(response.ok, `Builder read returned ${response.status}: ${sanitizeBody(body)}`);
   return JSON.parse(body);
 }
-const timedAction = async (name, locator, method, settled) => {
+const timedAction = async (name, locator, method, settled, arg = null) => {
   const startedAt = Date.now();
   await performAction(report, name, locator, target => method(target));
   report.activeAction = { label: name, locator: locator.toString(), startedAt };
-  await browser.page.waitForFunction(settled, null, { timeout: 5000 });
+  await browser.page.waitForFunction(settled, arg, { timeout: 5000 });
   const elapsedMs = Date.now() - startedAt;
   report.transitions.push({ name, elapsedMs, limitMs: 5000, passed: elapsedMs <= 5000 });
   assert(elapsedMs <= 5000, `${name} took ${elapsedMs} ms to render`);
@@ -64,36 +64,39 @@ try {
   await page.goto(url, { waitUntil: 'domcontentloaded' });
   report.activeAction = undefined;
   await page.getByText('Dataset workspace', { exact: true }).waitFor({ state: 'visible', timeout: 5000 });
-  await timedAction('open Add columns editor', page.getByTestId('construction-action-add-columns'), target => target.click(),
-    () => document.querySelector('[data-testid="construction-operation-editor"]')?.getAttribute('data-operation-family') === 'ADD_COLUMNS');
-  const fieldsTab = page.getByRole('button', { name: 'Fields and related data', exact: true });
-  await timedAction('open Fields and related data', fieldsTab, target => target.click(),
-    () => document.querySelector('[data-testid="construction-add-columns-source"]') !== null);
-  const codedTab = page.getByRole('button', { name: 'Coded values', exact: true });
-  await timedAction('open Coded values suggestions', codedTab, target => target.click(),
-    () => document.querySelectorAll('[data-testid^="paired-column-suggestion-"]').length >= 3);
+  const openSuggestions = async phase => {
+    await timedAction(`${phase}: open Add columns editor`, page.getByTestId('construction-action-add-columns'), target => target.click(),
+      () => document.querySelector('[data-testid="construction-operation-editor"]')?.getAttribute('data-operation-family') === 'ADD_COLUMNS');
+    const fieldsTab = page.getByRole('button', { name: 'Fields and related data', exact: true });
+    await timedAction(`${phase}: open Fields and related data`, fieldsTab, target => target.click(),
+      () => document.querySelector('[data-testid="construction-add-columns-source"]') !== null);
+    const codedTab = page.getByRole('button', { name: 'Coded values', exact: true });
+    await timedAction(`${phase}: show coded suggestions`, codedTab, target => target.click(),
+      count => document.querySelectorAll('[data-testid^="paired-column-suggestion-"]').length >= count, report.suggestionCount ?? 3);
+  };
+  await openSuggestions('initial');
   const suggestions = page.locator('[data-testid^="paired-column-suggestion-"]');
-  const suggestionIdentities = await suggestions.evaluateAll(buttons => buttons.map(button => ({ testId: button.dataset.testid, label: button.getAttribute('aria-label'), text: button.innerText.trim() })));
+  const suggestionIdentities = await suggestions.evaluateAll(buttons => buttons.map(button => ({ accessibleName: button.getAttribute('aria-label'), text: button.innerText.trim() })));
   const suggestionCount = suggestionIdentities.length;
   assert(suggestionCount >= 3, `The current CDA table has ${suggestionCount} ready coded-value suggestions; expected at least three`);
-  assert.equal(new Set(suggestionIdentities.map(item => item.testId)).size, suggestionCount, 'Coded-value suggestion identities must be unique');
+  assert.equal(new Set(suggestionIdentities.map(item => item.accessibleName)).size, suggestionCount, 'Semantic coded-value suggestion names must be unique');
   report.suggestionCount = suggestionCount;
 
   for (let index = 0; index < suggestionIdentities.length; index += 1) {
     const suggestionIdentity = suggestionIdentities[index];
-    const suggestion = page.getByTestId(suggestionIdentity.testId);
-    await requireUnique(suggestion, `coded-value suggestion ${suggestionIdentity.testId}`);
-    assert.equal(await suggestion.isVisible(), true, `Coded-value suggestion ${suggestionIdentity.testId} must be visible`);
-    assert.equal(await suggestion.isEnabled(), true, `Coded-value suggestion ${suggestionIdentity.testId} must be enabled`);
+    const suggestion = page.getByRole('button', { name: suggestionIdentity.accessibleName, exact: true });
+    await requireUnique(suggestion, `coded-value suggestion ${suggestionIdentity.accessibleName}`);
+    assert.equal(await suggestion.isVisible(), true, `Coded-value suggestion ${suggestionIdentity.accessibleName} must be visible`);
+    assert.equal(await suggestion.isEnabled(), true, `Coded-value suggestion ${suggestionIdentity.accessibleName} must be enabled`);
     const startedAt = Date.now();
-    await performAction(report, `open ${suggestionIdentity.testId}`, suggestion, target => target.click());
-    report.activeAction = { label: `open ${suggestionIdentity.testId} dialog`, locator: 'role=dialog', startedAt };
+    await performAction(report, `open ${suggestionIdentity.accessibleName}`, suggestion, target => target.click());
+    report.activeAction = { label: `open ${suggestionIdentity.accessibleName} dialog`, locator: 'role=dialog', startedAt };
     const dialog = page.getByRole('dialog');
     await dialog.waitFor({ state: 'visible', timeout: 5000 });
-    await requireUnique(dialog, `dialog for ${suggestionIdentity.testId}`);
+    await requireUnique(dialog, `dialog for ${suggestionIdentity.accessibleName}`);
     const openElapsedMs = Date.now() - startedAt;
-    report.transitions.push({ name: `dialog-open-${suggestionIdentity.testId}`, elapsedMs: openElapsedMs, limitMs: 5000, passed: openElapsedMs <= 5000 });
-    assert(openElapsedMs <= 5000, `Dialog for ${suggestionIdentity.testId} rendered in ${openElapsedMs} ms`);
+    report.transitions.push({ name: `dialog-open-${suggestionIdentity.accessibleName}`, elapsedMs: openElapsedMs, limitMs: 5000, passed: openElapsedMs <= 5000 });
+    assert(openElapsedMs <= 5000, `Dialog for ${suggestionIdentity.accessibleName} rendered in ${openElapsedMs} ms`);
     const details = await dialog.evaluate(element => {
       const rect = element.getBoundingClientRect();
       return {
@@ -104,25 +107,34 @@ try {
         routeChoices: element.querySelectorAll('input[type="radio"]').length,
       };
     });
-    assert(details.text.includes('Choose how to add these fields'), `${suggestionIdentity.label ?? suggestionIdentity.testId} opened an unexpected dialog`);
-    assert.equal(details.parent, 'BODY', `${suggestionIdentity.label ?? suggestionIdentity.testId} dialog must be portaled outside a disclosure`);
+    assert(details.text.includes('Choose how to add these fields'), `${suggestionIdentity.accessibleName} opened an unexpected dialog`);
+    assert.equal(details.parent, 'BODY', `${suggestionIdentity.accessibleName} dialog must be portaled outside a disclosure`);
     assert(details.rect.width > 0 && details.rect.height > 0 && details.rect.y >= 0 && details.rect.y < details.viewport.height, 'Dialog must be visible within the viewport');
-    assert(details.routeChoices > 0, `${suggestionIdentity.label ?? suggestionIdentity.testId} has no route choice`);
+    assert(details.routeChoices > 0, `${suggestionIdentity.accessibleName} has no route choice`);
     await page.screenshot({ path: join(evidence, `dialog-${index + 1}.png`), fullPage: true });
     const cancel = dialog.getByRole('button', { name: 'Cancel', exact: true });
     const closeStartedAt = Date.now();
-    await performAction(report, `cancel ${suggestionIdentity.testId} dialog`, cancel, target => target.click());
-    report.activeAction = { label: `close ${suggestionIdentity.testId} dialog`, locator: 'role=dialog', startedAt: closeStartedAt };
+    await performAction(report, `cancel ${suggestionIdentity.accessibleName} dialog`, cancel, target => target.click());
+    report.activeAction = { label: `close ${suggestionIdentity.accessibleName} dialog`, locator: 'role=dialog', startedAt: closeStartedAt };
     await dialog.waitFor({ state: 'hidden', timeout: 5000 });
     const closeElapsedMs = Date.now() - closeStartedAt;
-    report.transitions.push({ name: `dialog-close-${suggestionIdentity.testId}`, elapsedMs: closeElapsedMs, limitMs: 5000, passed: closeElapsedMs <= 5000 });
-    assert(closeElapsedMs <= 5000, `Dialog for ${suggestionIdentity.testId} closed in ${closeElapsedMs} ms`);
+    report.transitions.push({ name: `dialog-close-${suggestionIdentity.accessibleName}`, elapsedMs: closeElapsedMs, limitMs: 5000, passed: closeElapsedMs <= 5000 });
+    assert(closeElapsedMs <= 5000, `Dialog for ${suggestionIdentity.accessibleName} closed in ${closeElapsedMs} ms`);
     const current = await readBuilder();
     assert.deepEqual(current.workspace, report.before.workspace, 'Cancel must leave the Builder workspace unchanged');
     assert.equal(current.draftVersion, report.before.draftVersion, 'Cancel must not advance the draft version');
     assert.equal(current.draftDigest, report.before.draftDigest, 'Cancel must not change the draft digest');
     report.dialogs.push({ suggestion: suggestionIdentity, ...details, cancelled: true, workspaceUnchanged: true });
     report.activeAction = undefined;
+    await timedAction(`after cancel ${index + 1}: return to Builder table`, page.getByTestId('construction-close-operation-editor'), target => target.click(),
+      () => document.querySelector('[data-testid="construction-operation-editor"]') === null);
+    await openSuggestions(`after cancel ${index + 1}`);
+    for (const initialIdentity of suggestionIdentities) {
+      const currentSuggestion = page.getByRole('button', { name: initialIdentity.accessibleName, exact: true });
+      await currentSuggestion.waitFor({ state: 'visible', timeout: 5000 });
+      await requireUnique(currentSuggestion, `restored coded suggestion ${initialIdentity.accessibleName}`);
+    }
+    report.cancelledInventoryChecks = (report.cancelledInventoryChecks ?? 0) + 1;
   }
   assert.deepEqual(browser.diagnostics.console, [], 'Unexpected browser console errors');
   assert.deepEqual(browser.diagnostics.pageErrors, [], 'Unexpected browser exceptions');
