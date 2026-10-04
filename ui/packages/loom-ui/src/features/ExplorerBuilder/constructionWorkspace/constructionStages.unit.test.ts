@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { Construction, ExplorerBuilderDocument } from '../../../types';
+import type { Construction, ConstructionStageDescriptor, ExplorerBuilderDocument } from '../../../types';
 import { constructionAppendStageFor, constructionInputStageFor } from './constructionStages';
 
 const prefix: Construction = { version: 1, steps: [{
@@ -32,5 +32,30 @@ describe('construction operation stages', () => {
   it('keeps the ordinary final stage for record rows', () => {
     expect(constructionAppendStageFor(prefix, undefined)).toBe('source_filter');
     expect(constructionAppendStageFor(undefined, undefined)).toBe('source_projection');
+  });
+
+  it('selects the compiled terminal stage when editing a Combine with published inputs', () => {
+    const combine: Construction = { version: 1, steps: [{
+      id: 'append_sources',
+      inputs: [
+        { kind: 'TABLE_REVISION', tableId: 'table-a', revisionId: 'revision-a', outputId: 'observations' },
+        { kind: 'TABLE_REVISION', tableId: 'table-b', revisionId: 'revision-b', outputId: 'reports' },
+      ],
+      operation: { kind: 'COMBINE', combine: {
+        kind: 'APPEND',
+        projections: [{ outputColumnId: 'subject', inputIndex: 0, inputColumnId: 'subject' }],
+      } },
+      outputs: [{ id: 'subject', name: 'subject', label: 'Subject', type: 'string' }],
+    }] };
+    const compiledStages: ConstructionStageDescriptor[] = [{
+      id: 'append_sources', inputStageId: '', operation: 'APPEND', rowIdentityColumn: 'row_id',
+      columns: [{ id: 'subject', name: 'subject', label: 'Subject', type: 'string' }],
+      capabilities: [],
+    }];
+
+    const selectedStageId = constructionInputStageFor(combine, 'append_sources');
+    expect(selectedStageId).toBe('append_sources');
+    expect(compiledStages.map((stage) => stage.id)).toContain(selectedStageId);
+    expect(compiledStages.map((stage) => stage.id)).not.toContain('source_projection');
   });
 });

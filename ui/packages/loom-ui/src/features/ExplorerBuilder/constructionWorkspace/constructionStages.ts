@@ -5,6 +5,10 @@ export const constructionInputStageFor = (
   stepId: string,
 ): string => {
   const step = construction?.steps.find((candidate) => candidate.id === stepId);
+  // A terminal Combine is compiled as its own receipt stage. Its inputs are
+  // published/workspace outputs, so there is no source_projection stage in
+  // that output to use as the predecessor for its saved editor capabilities.
+  if (step?.operation.kind === 'COMBINE') return step.id;
   const input = step?.inputs[0];
   return input?.kind === 'STEP_OUTPUT' ? input.stepId : 'source_projection';
 };
