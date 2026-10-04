@@ -25,6 +25,8 @@ import type {
   ExplorerBuilderCatalog,
   ExplorerBuilderCommand,
   ExplorerBuilderCompileResult,
+  ExplorerBuilderCandidate,
+  ExplorerBuilderColumn,
   ExplorerBuilderPreviewResult,
   ExplorerBuilderState,
   ConstructionRouteStep,
@@ -752,6 +754,26 @@ const BuilderWorkspaceContent = ({
   useDirtyBeforeUnload(state.dirty || pendingCommands > 0);
 
   const table = selectedTable(state);
+  const candidateForPreviewColumn = (column: ExplorerBuilderColumn): ExplorerBuilderCandidate | undefined => {
+    const context = interpretationContext;
+    if (
+      !table ||
+      !context ||
+      context.snapshotToken !== state.catalog.snapshotToken ||
+      context.draftVersion !== state.draftVersion ||
+      context.draftDigest !== state.draftDigest
+    ) return undefined;
+    const configuredColumn = context.columns.find((candidate) =>
+      candidate.outputId === table.outputId &&
+      candidate.column === column.column &&
+      candidate.occurrenceId === column.occurrenceId,
+    );
+    if (configuredColumn?.resolution.state !== 'READY') return undefined;
+    const candidateIds = new Set(configuredColumn.resolution.capabilityCandidateIds);
+    if (candidateIds.size !== 1) return undefined;
+    const [candidateId] = candidateIds;
+    return state.catalog.candidates?.find((candidate) => candidate.candidateId === candidateId);
+  };
   useEffect(() => {
     rowChangePreviewRequest.current?.abort();
     setPendingRowChangePreview(undefined);
@@ -3521,6 +3543,16 @@ const BuilderWorkspaceContent = ({
                         }}
                         onColumnChange={(change) => applyPresentationChanges([change])}
                         onColumnsChange={applyPresentationChanges}
+                        candidateForColumn={candidateForPreviewColumn}
+                        onTransformationChange={(column, transformationChange) =>
+                          table &&
+                          void applyCommands([{
+                            type: 'UPDATE_COLUMN_TRANSFORMATION',
+                            outputId: table.outputId,
+                            column,
+                            transformationChange,
+                          }])
+                        }
                         onRowValuePolicyChange={(physicalColumn, rowValuePolicy) =>
                           table &&
                           void applyCommands([{

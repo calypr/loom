@@ -26,7 +26,7 @@ type DraftCategoryMapping = ExactCategoryRecode['mappings'][number] & {
   readonly draftId: number;
 };
 
-const ExactCategoryRecodeEditor = ({
+export const ExactCategoryRecodeEditor = ({
   column,
   candidate,
   disabled,
@@ -40,6 +40,39 @@ const ExactCategoryRecodeEditor = ({
   const current = column.valueTransformation?.kind === 'EXACT_CATEGORY_RECODE'
     ? column.valueTransformation.exactCategoryRecode
     : undefined;
+
+  const savedTransformationKey = current === undefined
+    ? 'none'
+    : JSON.stringify({
+      mappings: current.mappings.map(({ from, to }) => [from, to]),
+      unknownPolicy: current.unknownPolicy,
+    });
+
+  return (
+    <ExactCategoryRecodeDraftEditor
+      key={JSON.stringify([column.columnId ?? column.column, savedTransformationKey])}
+      column={column}
+      candidate={candidate}
+      current={current}
+      disabled={disabled}
+      onChange={onChange}
+    />
+  );
+};
+
+const ExactCategoryRecodeDraftEditor = ({
+  column,
+  candidate,
+  current,
+  disabled,
+  onChange,
+}: {
+  readonly column: ExplorerBuilderColumn;
+  readonly candidate?: ExplorerBuilderCandidate;
+  readonly current?: ExactCategoryRecode;
+  readonly disabled: boolean;
+  readonly onChange: (change: ColumnTransformationChange) => void;
+}) => {
   const capability = column.source.kind === 'codedValue'
     ? candidate?.valueTransformations?.codedValueRecoding
     : candidate?.valueTransformations?.exactCategoryRecode;
@@ -52,11 +85,6 @@ const ExactCategoryRecodeEditor = ({
   const [unknownPolicy, setUnknownPolicy] = useState<ExactCategoryRecode['unknownPolicy']>(
     () => current?.unknownPolicy ?? 'ERROR',
   );
-
-  useEffect(() => {
-    setMappings(toDraftMappings(current?.mappings));
-    setUnknownPolicy(current?.unknownPolicy ?? 'ERROR');
-  }, [column.column, current]);
 
   if (!capability?.available) {
     return (

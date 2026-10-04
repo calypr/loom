@@ -152,6 +152,56 @@ const relatedFieldColumn = (columnId: string, label: string) => ({
   },
 }) satisfies ExplorerBuilderColumn;
 
+const categoryRecodeCandidate = {
+  ...temporalCandidate,
+  candidateId: 'c_gender',
+  nodeId: 'patient',
+  fieldPath: 'gender',
+  label: 'Patient gender',
+  logicalType: 'string',
+  cardinality: 'required_one',
+  valueTransformations: {
+    exactCategoryRecode: { available: true },
+    codedValueRecoding: { available: false },
+  },
+} satisfies ExplorerBuilderCandidate;
+
+const exactRecode = (
+  from: string,
+  to: string,
+  unknownPolicy: 'ERROR' | 'KEEP_ORIGINAL' = 'ERROR',
+) => ({
+  kind: 'EXACT_CATEGORY_RECODE' as const,
+  exactCategoryRecode: { mappings: [{ from, to }], unknownPolicy },
+}) satisfies NonNullable<ExplorerBuilderColumn['valueTransformation']>;
+
+const categoryColumn = (
+  column: string,
+  label: string,
+  valueTransformation?: ExplorerBuilderColumn['valueTransformation'],
+) => ({
+  column,
+  label,
+  logicalType: 'string',
+  occurrenceId: 'root',
+  source: { kind: 'field' as const, field: { path: 'gender' } },
+  ...(valueTransformation ? { valueTransformation } : {}),
+}) satisfies ExplorerBuilderColumn;
+
+const renderCategoryPolicyEditor = (column: ExplorerBuilderColumn, candidate = categoryRecodeCandidate) => (
+  <FeaturePolicyEditor
+    column={column}
+    candidate={candidate}
+    candidates={[]}
+    related={false}
+    resourceLabel="Patient"
+    disabled={false}
+    onSourceChange={vi.fn()}
+    onTransformationChange={vi.fn()}
+    onContributorChange={vi.fn()}
+  />
+);
+
 describe('FeaturePolicyEditor', () => {
   it('groups value settings separately from server-resolved time and unit settings', () => {
     render(
@@ -174,6 +224,68 @@ describe('FeaturePolicyEditor', () => {
       .toContain('Category recoding is unavailable until the server resolves this column capability.');
     expect(screen.getByRole('group', { name: 'Time and units' }).textContent)
       .toContain('Choose a date-aware value selection to configure its time window here.');
+  });
+
+  it('preserves unsaved category edits across unrelated rerenders', () => {
+    const savedColumn = categoryColumn('patient_gender', 'Patient gender', exactRecode('female', 'F'));
+    const view = render(renderCategoryPolicyEditor(savedColumn));
+    fireEvent.click(screen.getByText('Edit exact category recoding'));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Recorded category 1 for Patient gender' }), {
+      target: { value: 'draft female' },
+    });
+    fireEvent.change(screen.getByRole('combobox', { name: 'Unmapped value policy for Patient gender' }), {
+      target: { value: 'KEEP_ORIGINAL' },
+    });
+
+    view.rerender(renderCategoryPolicyEditor(
+      categoryColumn('patient_gender', 'Patient gender', exactRecode('female', 'F')),
+      { ...categoryRecodeCandidate, label: 'Refreshed candidate metadata' },
+    ));
+
+    expect(screen.getByRole('textbox', { name: 'Recorded category 1 for Patient gender' }))
+      .toHaveProperty('value', 'draft female');
+    expect(screen.getByRole('combobox', { name: 'Unmapped value policy for Patient gender' }))
+      .toHaveProperty('value', 'KEEP_ORIGINAL');
+  });
+
+  it('resets category drafts when the saved recode changes, the column switches, or recoding is removed', () => {
+    const view = render(renderCategoryPolicyEditor(
+      categoryColumn('patient_gender', 'Patient gender', exactRecode('female', 'F')),
+    ));
+    fireEvent.click(screen.getByText('Edit exact category recoding'));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Recorded category 1 for Patient gender' }), {
+      target: { value: 'unsaved edit' },
+    });
+
+    view.rerender(renderCategoryPolicyEditor(
+      categoryColumn('patient_gender', 'Patient gender', exactRecode('male', 'M', 'KEEP_ORIGINAL')),
+    ));
+    fireEvent.click(screen.getByText('Edit exact category recoding'));
+    expect(screen.getByRole('textbox', { name: 'Recorded category 1 for Patient gender' }))
+      .toHaveProperty('value', 'male');
+    expect(screen.getByRole('textbox', { name: 'Replacement value 1 for Patient gender' }))
+      .toHaveProperty('value', 'M');
+    expect(screen.getByRole('combobox', { name: 'Unmapped value policy for Patient gender' }))
+      .toHaveProperty('value', 'KEEP_ORIGINAL');
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'Recorded category 1 for Patient gender' }), {
+      target: { value: 'unsaved before switch' },
+    });
+    view.rerender(renderCategoryPolicyEditor(
+      categoryColumn('patient_active', 'Patient active', exactRecode('true', 'yes')),
+    ));
+    fireEvent.click(screen.getByText('Edit exact category recoding'));
+    expect(screen.getByRole('textbox', { name: 'Recorded category 1 for Patient active' }))
+      .toHaveProperty('value', 'true');
+
+    view.rerender(renderCategoryPolicyEditor(categoryColumn('patient_active', 'Patient active')));
+    fireEvent.click(screen.getByText('Recode exact category values'));
+    expect(screen.queryByRole('textbox', { name: 'Recorded category 1 for Patient active' })).toBeNull();
+    expect(screen.getByRole('combobox', { name: 'Unmapped value policy for Patient active' }))
+      .toHaveProperty('value', 'ERROR');
+    fireEvent.click(screen.getByRole('button', { name: 'Add mapping' }));
+    expect(screen.getByRole('textbox', { name: 'Recorded category 1 for Patient active' }))
+      .toHaveProperty('value', '');
   });
 
   it('reloads a saved exclusive end boundary and reapplies the saved temporal values', () => {

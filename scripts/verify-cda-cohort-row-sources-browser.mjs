@@ -13,6 +13,7 @@ const generation = 'cda-fhir-v1';
 const resourceType = 'Specimen';
 const explorer = `cohort-row-sources-browser-${Date.now()}`;
 const evidence = process.argv[2] ?? `/tmp/loom-cohort-row-sources-${Date.now()}`;
+const cohortRowValueCase = process.env.LOOM_COHORT_ROW_VALUE_CASE ?? 'default';
 const apiOrigin = process.env.LOOM_CDA_API_ORIGIN ?? 'http://127.0.0.1:8188';
 const uiOrigin = process.env.LOOM_CDA_UI_ORIGIN ?? 'http://127.0.0.1:30008';
 const arangoContainer = process.env.LOOM_ARANGO_CONTAINER ?? 'loom-dev-6d7df93d6a37-arangodb-1';
@@ -22,7 +23,7 @@ const selections = base.replace('/authoring/v2', '/selections');
 const sourceRoot = fileURLToPath(new URL('..', import.meta.url));
 const apiBuildTarget = 'local-cda-api';
 const readApiBuildStamp = () => checkContainerApiBuildStamp(localCDAApiContainer());
-const report = { project, generation, resourceType, explorer, cases: [], errors: [], requests: [], nativeRequests: [], started: new Date().toISOString() };
+const report = { project, generation, resourceType, explorer, cohortRowValueCase, cases: [], errors: [], requests: [], nativeRequests: [], started: new Date().toISOString() };
 await mkdir(evidence, { recursive: true });
 
 let browser;
@@ -115,6 +116,19 @@ const waitForNativeRequest = async (fromIndex, predicate, label) => {
     await new Promise(resolve => setTimeout(resolve, 25));
   }
   assert.fail(`${label} did not complete within five seconds`);
+};
+const waitForNativePreview = async (fromIndex, label) => {
+  const preview = await waitForNativeRequest(fromIndex,
+    entry => entry.path.endsWith('/preview') && entry.body?.outputId === outputId,
+    label);
+  const deadline = Date.now() + 5000;
+  while (Date.now() < deadline && !preview.response && !preview.responseReadError) {
+    await new Promise(resolve => setTimeout(resolve, 25));
+  }
+  assert.equal(preview.status, 200, JSON.stringify(preview));
+  assert(preview.response, `${label} response body was unavailable: ${preview.responseReadError ?? JSON.stringify(preview)}`);
+  assert(Array.isArray(preview.response.rows), `${label} response has no rows: ${JSON.stringify(preview.response).slice(0, 1000)}`);
+  return preview;
 };
 const inspectCohortRow = async name => {
   const started = Date.now();
@@ -287,7 +301,7 @@ const chooseRootFieldWithPolicy = async (policy, fieldPath = 'resourceType') => 
   return browserEval(browser.cdp, `const panel=document.querySelector('[data-testid="construction-choice-proposal-panel"]');return {status:panel.dataset.proposalStatus,text:panel.innerText,rows:[...document.querySelectorAll('[data-testid="construction-proposal-preview-row"]')].map(row=>[...row.querySelectorAll('td')].map(cell=>cell.innerText.trim()))};`);
 };
 
-const changeSavedMemberPolicy = async (columnId, expectedPolicy, nextPolicy, { expectRejected = false } = {}) => {
+const changeSavedMemberPolicy = async (columnId, expectedPolicy, nextPolicy, { expectRejected = false, allowTransformed = false } = {}) => {
   const currentDocument = doc(builder);
   assert.equal(currentDocument.rows.kind, 'GROUPS');
   assert.equal(currentDocument.rows.groups.source.kind, 'EXPLICIT');
@@ -298,8 +312,13 @@ const changeSavedMemberPolicy = async (columnId, expectedPolicy, nextPolicy, { e
   assert(column, `Saved member policy columnId ${columnId} must resolve to a configured column`);
   assert.equal(column.occurrenceId, 'base', 'The policy-edit target must remain a root FHIR field');
   assert.equal(column.source.kind, 'field');
-  assert(column.source.field && !column.valueTransformation,
-    'The policy-edit target must remain an untransformed source field');
+  assert(column.source.field, 'The policy-edit target must remain a source field');
+  if (allowTransformed) {
+    assert.equal(column.valueTransformation?.kind, 'EXACT_CATEGORY_RECODE');
+    assert.equal(column.logicalType?.toLowerCase(), 'string');
+  } else {
+    assert(!column.valueTransformation, 'Untransformed policy-edit cases must remain untransformed');
+  }
   const previewAriaRowCount = await browserEval(browser.cdp, `return document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount');`);
   assert(previewAriaRowCount, 'The saved cohort preview must expose its existing row count');
   const snapshot = {
@@ -599,7 +618,8 @@ try {
     entry.completedAt = Date.now();
     const policyValidation = entry.path.endsWith('/commands') && entry.status >= 400 &&
       entry.body?.commands?.some(item => item.type === 'UPDATE_COLUMN_ROW_VALUE_POLICY');
-    if (!entry.path.endsWith('/row-lineage') && !policyValidation) return;
+    const previewResponse = entry.path.endsWith('/preview');
+    if (!entry.path.endsWith('/row-lineage') && !policyValidation && !previewResponse) return;
     const read = browser.cdp.send('Network.getResponseBody', { requestId }).then(result => {
       const text = result.base64Encoded ? Buffer.from(result.body, 'base64').toString('utf8') : result.body;
       const response = JSON.parse(text);
@@ -932,8 +952,8 @@ try {
   record('add-distinct-value-member-field-with-all-for-rejection-case', ambiguousSetupStarted);
   builder = await api(base + '/builder');
   const ambiguousSetupDocument = doc(builder);
-  const ambiguousSetupDraftVersion = builder.draftVersion;
-  const ambiguousSetupDraftDigest = builder.draftDigest;
+  let ambiguousSetupDraftVersion = builder.draftVersion;
+  let ambiguousSetupDraftDigest = builder.draftDigest;
   assert.equal(ambiguousSetupDocument.rows.groups.source.explicit.revisionId, cohort.revisionId);
   assert.equal(ambiguousSetupDocument.population.selectionRevisionId, selection.id);
   const ambiguousFieldPath = ambiguousFieldOracle.fieldPath.replace(/^root\./, '');
@@ -956,6 +976,143 @@ try {
   );
   assert.deepEqual(ambiguousAllTrace.contributorTuples, ambiguousFieldOracle.contributors,
     'Saved ALL values must preserve each pinned source ID beside its exact independently queried distinct value');
+
+  if (cohortRowValueCase === 'transformed-category') {
+    assert.equal(ambiguousColumn.logicalType?.toLowerCase(), 'string',
+      'The transformed case requires a scalar string source column');
+    const recodedCategory = 'Shared cohort category';
+    const recodingTransformation = {
+      kind: 'EXACT_CATEGORY_RECODE',
+      exactCategoryRecode: {
+        mappings: ambiguousExpectedValues.map(from => ({ from, to: recodedCategory })),
+        unknownPolicy: 'KEEP_ORIGINAL',
+      },
+    };
+    assert.equal(recodingTransformation.exactCategoryRecode.mappings.length, sources.length,
+      'The raw oracle must show a separate exact input for each selected cohort member');
+    const ensurePreviewColumnsRecoder = async () => {
+      const operationEditor = await browserEval(browser.cdp, `return Boolean(document.querySelector('[data-testid="construction-operation-editor"]'));`);
+      if (operationEditor) {
+        const backToTable = 'button[data-testid="construction-close-operation-editor"]';
+        const backToTableState = await browserEval(browser.cdp, `const button=document.querySelector(${JSON.stringify(backToTable)});return {found:Boolean(button),label:button?.getAttribute('aria-label'),text:button?.innerText.trim()};`);
+        assert(backToTableState.found && backToTableState.label === 'Close operation editor' && backToTableState.text === 'Back to table',
+          `The verifier-opened operation editor must expose its native Back to table action: ${JSON.stringify(backToTableState)}`);
+        await click(browser.cdp, backToTable, { name: 'Close operation editor' });
+        await waitForBrowser(browser.cdp, `!document.querySelector('[data-testid="construction-operation-editor"]')&&Boolean(document.querySelector('[data-testid="preview-table-scroll"] [role="table"]'))`, 5000);
+      }
+      const columnsOpen = await browserEval(browser.cdp, `return Boolean(document.querySelector('[aria-label="Table columns"]'));`);
+      if (!columnsOpen) await click(browser.cdp, 'button', { name: 'Columns' });
+      await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[aria-label="Table columns"]'))`, 5000);
+      const sourceSetup = await browserEval(browser.cdp, `const section=document.querySelector('details[data-testid="construction-source-setup"]');return {found:Boolean(section),open:Boolean(section?.open)};`);
+      assert(sourceSetup.found && !sourceSetup.open,
+        `Ordinary PreviewTable recoding must work while Advanced source setup remains closed: ${JSON.stringify(sourceSetup)}`);
+      const selector = `[aria-label="Table columns"] [role="listitem"][data-column-name=${JSON.stringify(ambiguousColumn.column)}]`;
+      const row = await browserEval(browser.cdp, `const rows=[...document.querySelectorAll(${JSON.stringify(selector)})];return {count:rows.length,names:rows.map(item=>item.getAttribute('data-column-name')),text:rows[0]?.innerText.trim()};`);
+      assert(row.count === 1 && row.names[0] === ambiguousColumn.column,
+        `The ordinary Columns menu must contain exactly one stable physical source row ${ambiguousColumn.column}: ${JSON.stringify(row)}`);
+      report.memberFieldRecodeAccess ??= {
+        path: 'Preview and configure → Columns → grouped member field → Recode exact category values',
+        sourceColumn: ambiguousColumn.column,
+        advancedSourceSetupOpened: false,
+        advancedSourceSetupRemainedClosed: true,
+        operationEditorClosedByVerifier: false,
+        ordinaryMenuRowCount: row.count,
+      };
+      report.memberFieldRecodeAccess.operationEditorClosedByVerifier ||= operationEditor;
+      return selector;
+    };
+    const configuredFieldRowSelector = ensurePreviewColumnsRecoder;
+    const configuredFieldControl = async suffix => `${await configuredFieldRowSelector()} ${suffix}`;
+    const clickConfiguredFieldControl = async (suffix, name) => click(browser.cdp, await configuredFieldControl(suffix), { name });
+    const openConfiguredFieldEditor = async summaryText => {
+      const selector = await configuredFieldControl('summary');
+      const state = await browserEval(browser.cdp, `const summary=document.querySelector(${JSON.stringify(selector)});return {found:Boolean(summary),text:summary?.innerText.trim(),open:Boolean(summary?.closest('details')?.open)};`);
+      assert(state.found && state.text === summaryText, `Native FeaturePolicyEditor did not expose ${summaryText} for ${ambiguousColumn.column}: ${JSON.stringify(state)}`);
+      if (!state.open) await click(browser.cdp, selector, { name: summaryText });
+    };
+    const setConfiguredFieldInput = async (ariaLabel, value) => {
+      const selector = await configuredFieldControl(`input[aria-label=${JSON.stringify(ariaLabel)}]`);
+      await click(browser.cdp, selector);
+      const result = await browserEval(browser.cdp, `const input=document.querySelector(${JSON.stringify(selector)});if(!input||input.disabled)throw new Error('Native configured feature input is unavailable: '+${JSON.stringify(ariaLabel)});const setter=Object.getOwnPropertyDescriptor(Object.getPrototypeOf(input),'value')?.set;if(!setter)throw new Error('Configured feature input has no native value setter');setter.call(input,${JSON.stringify(value)});input.dispatchEvent(new Event('input',{bubbles:true}));input.dispatchEvent(new Event('change',{bubbles:true}));return input.value;`);
+      assert.equal(result, value, `The native configured editor must retain ${ariaLabel}`);
+    };
+    await openConfiguredFieldEditor('Recode exact category values');
+    for (let index = 0; index < recodingTransformation.exactCategoryRecode.mappings.length; index += 1) {
+      const mapping = recodingTransformation.exactCategoryRecode.mappings[index];
+      await clickConfiguredFieldControl('button', 'Add mapping');
+      await waitForBrowser(browser.cdp, `Boolean(document.querySelector(${JSON.stringify(await configuredFieldControl(`input[aria-label=${JSON.stringify(`Recorded category ${index + 1} for ${ambiguousColumn.label}`)}]`))}))`, 5000);
+      await setConfiguredFieldInput(`Recorded category ${index + 1} for ${ambiguousColumn.label}`, mapping.from);
+      await setConfiguredFieldInput(`Replacement value ${index + 1} for ${ambiguousColumn.label}`, mapping.to);
+    }
+    await selectOption(browser.cdp,
+      await configuredFieldControl(`select[aria-label=${JSON.stringify(`Unmapped value policy for ${ambiguousColumn.label}`)}]`),
+      'KEEP_ORIGINAL', {
+        dismissSelector: 'div:has(> [aria-label="Table columns"]) > p',
+      });
+    const recodingRequestFrom = report.nativeRequests.length;
+    const recodingStarted = Date.now();
+    await clickConfiguredFieldControl('button', 'Save recoding');
+    const recodingRequest = await waitForNativeRequest(recodingRequestFrom,
+      entry => entry.path.endsWith('/commands') && entry.body?.commands?.some(item =>
+        item.type === 'UPDATE_COLUMN_TRANSFORMATION' && item.outputId === outputId && item.column === ambiguousColumn.column),
+      `Native exact recoding for grouped member field ${ambiguousFieldPath}`);
+    assert.equal(recodingRequest.status, 200, JSON.stringify(recodingRequest));
+    assert.deepEqual(recodingRequest.body.commands, [{
+      type: 'UPDATE_COLUMN_TRANSFORMATION', outputId, column: ambiguousColumn.column,
+      transformationChange: { kind: 'SET', transformation: recodingTransformation },
+    }]);
+    const recodedAllPreview = await waitForNativePreview(recodingRequestFrom,
+      'Automatic preview after recoding explicit-group members');
+    assert.deepEqual(recodedAllPreview.response.rows[0]?.[ambiguousColumn.column], [recodedCategory],
+      'ALL must recode each member before returning the sorted unique categories');
+    builder = await api(base + '/builder');
+    assert.deepEqual(doc(builder).columns.find(value => value.columnId === ambiguousColumn.columnId)?.valueTransformation, recodingTransformation);
+    assert.equal(doc(builder).rows.groups.rowValues.find(value => value.columnId === ambiguousColumn.columnId)?.policy, 'ALL');
+    record('recode-distinct-cohort-member-values-before-all', recodingStarted);
+
+    const recodedOneStarted = Date.now();
+    const recodedOneEdit = await changeSavedMemberPolicy(
+      ambiguousColumn.columnId, 'ALL', 'ONE', { allowTransformed: true },
+    );
+    assert.equal(recodedOneEdit.previewRequest.response.rows[0]?.[ambiguousColumn.column], recodedCategory,
+      'ONE must compare recoded unique values and accept different raw values mapped to the same category');
+    record('saved-one-accepts-member-values-recoded-to-the-same-category', recodedOneStarted);
+    await openTable(ambiguousProposal.rows.length + 1, ambiguousRenderedColumnCount);
+    builder = await api(base + '/builder');
+    assert.deepEqual(doc(builder).columns.find(value => value.columnId === ambiguousColumn.columnId)?.valueTransformation, recodingTransformation);
+    assert.equal(doc(builder).rows.groups.rowValues.find(value => value.columnId === ambiguousColumn.columnId)?.policy, 'ONE');
+
+    const recodedAllAgain = await changeSavedMemberPolicy(
+      ambiguousColumn.columnId, 'ONE', 'ALL', { allowTransformed: true },
+    );
+    assert.deepEqual(recodedAllAgain.previewRequest.response.rows[0]?.[ambiguousColumn.column], [recodedCategory]);
+    await openConfiguredFieldEditor('Edit exact category recoding');
+    const removeRecodingFrom = report.nativeRequests.length;
+    const removeRecodingStarted = Date.now();
+    await clickConfiguredFieldControl('button', 'Remove recoding');
+    const removeRecodingRequest = await waitForNativeRequest(removeRecodingFrom,
+      entry => entry.path.endsWith('/commands') && entry.body?.commands?.some(item =>
+        item.type === 'UPDATE_COLUMN_TRANSFORMATION' && item.column === ambiguousColumn.column && item.transformationChange?.kind === 'REMOVE'),
+      'Native removal of the temporary explicit-group member recoding');
+    assert.equal(removeRecodingRequest.status, 200, JSON.stringify(removeRecodingRequest));
+    const rawAllPreview = await waitForNativePreview(removeRecodingFrom,
+      'Automatic preview after removing explicit-group member recoding');
+    assert.deepEqual(rawAllPreview.response.rows[0]?.[ambiguousColumn.column], ambiguousExpectedValues,
+      'Removing recoding must restore each independently observed raw member value under ALL');
+    builder = await api(base + '/builder');
+    assert.deepEqual(doc(builder).columns, ambiguousSetupDocument.columns,
+      'The temporary recode cycle must preserve source columns and stable IDs');
+    assert.deepEqual(doc(builder).rows.groups.rowValues, ambiguousSetupDocument.rows.groups.rowValues,
+      'The temporary recode cycle must restore ALL on the same stable binding');
+    ambiguousSetupDraftVersion = builder.draftVersion;
+    ambiguousSetupDraftDigest = builder.draftDigest;
+    const menuOpen = await browserEval(browser.cdp, `return Boolean(document.querySelector('[aria-label="Table columns"]'));`);
+    if (menuOpen) await click(browser.cdp, 'button', { name: 'Columns' });
+    record('restore-untransformed-all-after-category-row-policy-cycle', removeRecodingStarted);
+  } else {
+    assert.equal(cohortRowValueCase, 'default',
+      `Unsupported LOOM_COHORT_ROW_VALUE_CASE=${cohortRowValueCase}`);
+  }
 
   const ambiguousEditStarted = Date.now();
   const ambiguousAllToOneAttempt = await changeSavedMemberPolicy(

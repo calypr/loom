@@ -247,7 +247,7 @@ export const click = async (cdp, selector, identity = {}, actionabilityTimeout =
 };
 
 export const browserEval = (cdp, body) => evaluate(cdp, '(async()=>{' + body + '})()');
-export const selectOption = async (cdp, selector, value, { settledWhen } = {}) => {
+export const selectOption = async (cdp, selector, value, { settledWhen, dismissSelector } = {}) => {
   const index = await browserEval(cdp, `return [...document.querySelector(${JSON.stringify(selector)}).options].findIndex(option => option.value === ${JSON.stringify(value)} && !option.disabled);`);
   if (index < 0) throw new Error(`Select does not offer ${value}`);
   await click(cdp, selector);
@@ -256,6 +256,14 @@ export const selectOption = async (cdp, selector, value, { settledWhen } = {}) =
   await browserEval(cdp, `const select=document.querySelector(${JSON.stringify(selector)}); const option=select?.options[${index}]; if(!select || select.disabled || !option || option.disabled) throw new Error('Select option is disabled'); option.selected=true; select.dispatchEvent(new Event('input',{bubbles:true})); select.dispatchEvent(new Event('change',{bubbles:true}));`);
   await waitForBrowser(cdp, settledWhen ?? `document.querySelector(${JSON.stringify(selector)})?.value === ${JSON.stringify(value)}`);
   // Dismiss the native popup only after the application has handled the change.
-  for (const type of ['mousePressed', 'mouseReleased']) await cdp.send('Input.dispatchMouseEvent', { type, x: 1, y: 1, button: 'left', clickCount: 1 });
+  // Popovers can own the select and draft state, so callers may target a safe
+  // in-popover surface instead of the legacy page-corner dismissal.
+  if (dismissSelector) {
+    await click(cdp, dismissSelector);
+    await waitForBrowser(cdp,
+      `Boolean(document.querySelector(${JSON.stringify(selector)}))&&Boolean(document.querySelector(${JSON.stringify(dismissSelector)}))`);
+  } else {
+    for (const type of ['mousePressed', 'mouseReleased']) await cdp.send('Input.dispatchMouseEvent', { type, x: 1, y: 1, button: 'left', clickCount: 1 });
+  }
 };
 export { launchBrowser, navigate, evaluate, waitForBrowser };

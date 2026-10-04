@@ -1,6 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import type {
+  ColumnTransformationChange,
   ExplorerBuilderColumn,
+  ExplorerBuilderCandidate,
   ExplorerBuilderEmission,
   ExplorerBuilderPreviewResult,
   ExplorerBuilderPreviewRowSource,
@@ -13,6 +15,7 @@ import type { DraftTable } from '../authoring/model';
 import { displayValue, losslessText } from '../../../valueDisplay';
 import { resultUnitTitle } from '../../../resultUnitDisplay';
 import { useDismissibleLayer } from './useDismissibleLayer';
+import { ExactCategoryRecodeEditor } from './FeaturePolicyEditor';
 import { BoundedCache, useVirtualViewport, virtualRange } from './virtualization';
 
 const PREVIEW_ROW_HEIGHT = 44;
@@ -125,6 +128,8 @@ export const PreviewTable = ({
   onLimitChange,
   onColumnChange,
   onColumnsChange,
+  candidateForColumn,
+  onTransformationChange,
   onRowValuePolicyChange,
   onRowLineage,
   onRemoveColumn,
@@ -137,6 +142,13 @@ export const PreviewTable = ({
   readonly onColumnChange: (change: PreviewTablePresentationChange) => void;
   readonly onColumnsChange: (
     changes: ReadonlyArray<PreviewTablePresentationChange>,
+  ) => void;
+  readonly candidateForColumn?: (
+    column: ExplorerBuilderColumn,
+  ) => ExplorerBuilderCandidate | undefined;
+  readonly onTransformationChange?: (
+    column: string,
+    change: ColumnTransformationChange,
   ) => void;
   readonly onRowValuePolicyChange?: (
     physicalColumn: string,
@@ -458,7 +470,7 @@ export const PreviewTable = ({
           {columnsOpen && (
             <div className="absolute right-0 z-20 mt-1 w-[min(32rem,calc(100vw-2rem))] rounded-lg border border-slate-200 bg-white p-2 shadow-lg">
               <p className="border-b border-slate-100 px-2 pb-2 text-[11px] text-slate-500">
-                Edit names here. Uncheck to hide a column; drag to change its order.
+                Rename or recode column values here. Uncheck to hide a column; drag to change its order.
               </p>
               <div
                 role="list"
@@ -471,11 +483,32 @@ export const PreviewTable = ({
                   const authoredColumn = column.change.kind === 'AUTHORED_COLUMN'
                     ? column.change.column
                     : undefined;
+                  const transformation = authoredColumn?.valueTransformation;
+                  const recodeCandidate = authoredColumn
+                    ? candidateForColumn?.(authoredColumn)
+                    : undefined;
+                  const recodeCapability = authoredColumn?.source.kind === 'codedValue'
+                    ? recodeCandidate?.valueTransformations.codedValueRecoding
+                    : recodeCandidate?.valueTransformations.exactCategoryRecode;
+                  const canEditCategoryRecode = Boolean(
+                    authoredColumn && onTransformationChange && (
+                      transformation?.kind === 'EXACT_CATEGORY_RECODE' ||
+                      recodeCapability?.available
+                    ),
+                  );
+                  const sourceProjectionMode = authoredColumn?.source.kind === 'field'
+                    ? authoredColumn.source.field?.projectionMode?.toUpperCase()
+                    : undefined;
+                  const rowValueTransformationSupported = transformation === undefined || (
+                    transformation.kind === 'EXACT_CATEGORY_RECODE' &&
+                    authoredColumn?.logicalType?.toLowerCase() === 'string' &&
+                    (sourceProjectionMode === undefined || sourceProjectionMode === 'VALUE' || sourceProjectionMode === 'FIRST')
+                  );
                   const rowValueBinding = authoredColumn?.columnId &&
                     authoredColumn.occurrenceId === 'base' &&
                     authoredColumn.source.kind === 'field' &&
                     authoredColumn.source.field &&
-                    authoredColumn.valueTransformation === undefined &&
+                    rowValueTransformationSupported &&
                     table?.document.rows.kind === 'GROUPS' &&
                     table.document.rows.groups.source.kind === 'EXPLICIT'
                     ? table.document.rows.groups.rowValues?.find(
@@ -612,6 +645,14 @@ export const PreviewTable = ({
                               <option value="ALL">All unique values</option>
                             </select>
                           </label>
+                        ) : null}
+                        {canEditCategoryRecode && authoredColumn ? (
+                          <ExactCategoryRecodeEditor
+                            column={authoredColumn}
+                            candidate={recodeCandidate}
+                            disabled={disabled}
+                            onChange={(change) => onTransformationChange?.(authoredColumn.column, change)}
+                          />
                         ) : null}
                       </div>
                       {onRemoveColumn && removeTarget ? (

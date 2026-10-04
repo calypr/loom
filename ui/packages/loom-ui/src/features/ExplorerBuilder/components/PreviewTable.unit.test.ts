@@ -5,6 +5,7 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import type {
   Construction,
   ExplorerBuilderPreviewResult,
+  ExplorerBuilderCandidate,
   ExplorerBuilderColumn,
   ExplorerRowDefinition,
 } from '../../../types';
@@ -285,6 +286,84 @@ describe('PreviewTable construction output order', () => {
 });
 
 describe('PreviewTable column controls', () => {
+  it('edits exact category recoding from the ordinary Columns menu', () => {
+    const recodeColumn: ExplorerBuilderColumn = {
+      ...column('patient_gender', 'Patient gender', 0),
+      logicalType: 'string',
+    };
+    const recodeTable: DraftTable = {
+      ...table,
+      document: { ...table.document, columns: [recodeColumn] },
+    };
+    const candidate: ExplorerBuilderCandidate = {
+      candidateId: 'patient-gender-candidate',
+      nodeId: 'patient-node',
+      fieldPath: 'patient_gender',
+      label: 'Patient gender',
+      logicalType: 'string',
+      cardinality: 'optional_one',
+      filterable: true,
+      chartable: false,
+      projectionModes: ['FIRST'],
+      defaultProjectionMode: 'FIRST',
+      aggregateOperations: [],
+      transformations: {
+        temporalReduction: { available: false, timestampFields: [], anchorFields: [] },
+        unitNormalization: { available: false, presets: [] },
+      },
+      valueTransformations: {
+        exactCategoryRecode: { available: true },
+        codedValueRecoding: { available: false },
+      },
+    };
+    const onTransformationChange = vi.fn();
+    const props = (value: DraftTable) => React.createElement(PreviewTable, {
+      preview: {
+        ...preview,
+        columns: [{ column: recodeColumn.column, label: recodeColumn.label, logicalType: 'string', filterable: true, chartable: false }],
+        rows: [{ [recodeColumn.column]: 'female' }],
+      },
+      table: value,
+      limit: 25,
+      onLimitChange: vi.fn(),
+      onColumnChange: vi.fn(),
+      onColumnsChange: vi.fn(),
+      candidateForColumn: (columnValue) => columnValue.column === recodeColumn.column ? candidate : undefined,
+      onTransformationChange,
+    });
+
+    const rendered = render(props(recodeTable));
+    fireEvent.click(screen.getByRole('button', { name: 'Columns' }));
+    fireEvent.click(screen.getByText('Recode exact category values'));
+    fireEvent.click(screen.getByRole('button', { name: 'Add mapping' }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Recorded category 1 for Patient gender' }), {
+      target: { value: 'female' },
+    });
+    fireEvent.change(screen.getByRole('textbox', { name: 'Replacement value 1 for Patient gender' }), {
+      target: { value: 'F' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save recoding' }));
+    expect(onTransformationChange).toHaveBeenCalledExactlyOnceWith('patient_gender', {
+      kind: 'SET',
+      transformation: {
+        kind: 'EXACT_CATEGORY_RECODE',
+        exactCategoryRecode: { mappings: [{ from: 'female', to: 'F' }], unknownPolicy: 'ERROR' },
+      },
+    });
+
+    const savedColumn: ExplorerBuilderColumn = {
+      ...recodeColumn,
+      valueTransformation: {
+        kind: 'EXACT_CATEGORY_RECODE',
+        exactCategoryRecode: { mappings: [{ from: 'female', to: 'F' }], unknownPolicy: 'ERROR' },
+      },
+    };
+    rendered.rerender(props({ ...recodeTable, document: { ...recodeTable.document, columns: [savedColumn] } }));
+    fireEvent.click(screen.getByText('Edit exact category recoding'));
+    fireEvent.click(screen.getByRole('button', { name: 'Remove recoding' }));
+    expect(onTransformationChange).toHaveBeenLastCalledWith('patient_gender', { kind: 'REMOVE' });
+  });
+
   it('edits only saved explicit-group member policies by their stable column binding', () => {
     const firstColumn = { ...column('resource_type_all', 'Resource Type', 0), columnId: 'resource-type-all-id' };
     const secondColumn = { ...column('resource_type_one', 'Resource Type', 1), columnId: 'resource-type-one-id' };
@@ -404,6 +483,7 @@ describe('PreviewTable column controls', () => {
 
     const transformedColumn = {
       ...memberColumn,
+      logicalType: 'string',
       valueTransformation: {
         kind: 'EXACT_CATEGORY_RECODE',
         exactCategoryRecode: {
@@ -418,32 +498,51 @@ describe('PreviewTable column controls', () => {
       column: 'related_member_status',
       occurrenceId: 'related-patient',
     };
-    const unsupportedRows: Extract<ExplorerRowDefinition, { kind: 'GROUPS' }> = {
+    const transformedRows: Extract<ExplorerRowDefinition, { kind: 'GROUPS' }> = {
       kind: 'GROUPS',
       groups: {
         ...explicitRows.groups,
-        rowValues: [
-          { columnId: transformedColumn.columnId, policy: 'ALL' },
-          { columnId: relatedColumn.columnId, policy: 'ONE' },
-        ],
+        rowValues: [{ columnId: transformedColumn.columnId, policy: 'ALL' }],
       },
     };
-    const unsupportedPreview: ExplorerBuilderPreviewResult = {
+    const transformedPreview: ExplorerBuilderPreviewResult = {
       ...preview,
-      columns: [transformedColumn, relatedColumn].map((value) => ({
+      columns: [transformedColumn].map((value) => ({
         column: value.column,
         label: value.label,
         logicalType: 'string',
         filterable: true,
         chartable: false,
       })),
-      rows: [{ member_status: 'Active', related_member_status: 'Active' }],
+      rows: [{ member_status: 'Active' }],
     };
+    const transformedTable: DraftTable = {
+      ...unboundTable, document: { ...unboundTable.document, rows: transformedRows, columns: [transformedColumn] },
+    };
+    rendered.rerender(props(transformedTable, transformedPreview));
+    expect(screen.getByRole('combobox', {
+      name: `Values per cohort member for ${transformedColumn.label} (${transformedColumn.column})`,
+    })).toHaveProperty('value', 'ALL');
+
     const unsupportedTable: DraftTable = {
       ...unboundTable,
-      document: { ...unboundTable.document, rows: unsupportedRows, columns: [transformedColumn, relatedColumn] },
+      document: { ...unboundTable.document, rows: transformedRows, columns: [relatedColumn] },
     };
-    rendered.rerender(props(unsupportedTable, unsupportedPreview));
+    rendered.rerender(props(unsupportedTable, {
+      ...transformedPreview,
+      columns: [{ column: relatedColumn.column, label: relatedColumn.label, logicalType: 'string', filterable: true, chartable: false }],
+      rows: [{ [relatedColumn.column]: 'Active' }],
+    }));
+    expect(screen.queryByRole('combobox', { name: /Values per cohort member/ })).not.toBeInTheDocument();
+
+    const nonScalarTransformedColumn = {
+      ...transformedColumn,
+      source: { kind: 'field' as const, field: { path: 'status[]', projectionMode: 'ALL' as const } },
+    };
+    rendered.rerender(props({
+      ...unboundTable,
+      document: { ...unboundTable.document, rows: transformedRows, columns: [nonScalarTransformedColumn] },
+    }, transformedPreview));
     expect(screen.queryByRole('combobox', { name: /Values per cohort member/ })).not.toBeInTheDocument();
   });
 
