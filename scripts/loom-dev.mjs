@@ -6454,7 +6454,9 @@ const verifyBrowserScenario = async (target, report, full, entryTarget = target)
 
     if (full) {
       report.timings.browser_scenario_ms = Date.now() - scenarioStarted;
-      await measureHotReload(target, report, cdp);
+      await measureHotReload(target, report,
+        (expected) => waitForBrowser(cdp, `getComputedStyle(document.querySelector('.loom-ui-root')).getPropertyValue('--loom-dev-hotreload-probe').trim() === ${JSON.stringify(expected)}`, 15000),
+        () => evaluate(cdp, "getComputedStyle(document.querySelector('.loom-ui-root')).getPropertyValue('--loom-dev-hotreload-probe').trim()"));
     } else {
       report.timings.browser_scenario_ms = Date.now() - scenarioStarted;
     }
@@ -6466,7 +6468,7 @@ const verifyBrowserScenario = async (target, report, full, entryTarget = target)
   }
 };
 
-const measureHotReload = async (target, report, cdp) => {
+const measureHotReload = async (target, report, waitForProbeValue, readProbeValue) => {
   // This file is the package source imported through the development-only
   // @calypr/loom-ui alias. The wrapper stylesheet is intentionally not the
   // probe: a wrapper-only HMR check could pass while the package alias is stale.
@@ -6477,15 +6479,15 @@ const measureHotReload = async (target, report, cdp) => {
   const started = Date.now();
   try {
     writeFileSync(probePath, edited);
-    await waitForBrowser(cdp, `getComputedStyle(document.querySelector('.loom-ui-root')).getPropertyValue('--loom-dev-hotreload-probe').trim() === ${JSON.stringify(target.fixtureGeneration)}`, 15000);
+    await waitForProbeValue(target.fixtureGeneration);
     report.timings.vite_hotreload_ms = Date.now() - started;
   } finally {
     const current = readFileSync(probePath);
     if (!current.equals(edited)) throw new Error(`refusing to overwrite a concurrent edit in ${probePath}`);
     writeFileSync(probePath, original);
   }
-  await waitForBrowser(cdp, `getComputedStyle(document.querySelector('.loom-ui-root')).getPropertyValue('--loom-dev-hotreload-probe').trim() === ''`, 15000);
-  recordAssertion(report, 'vite-restores-aliased-package-css', '', await evaluate(cdp, "getComputedStyle(document.querySelector('.loom-ui-root')).getPropertyValue('--loom-dev-hotreload-probe').trim()"));
+  await waitForProbeValue('');
+  recordAssertion(report, 'vite-restores-aliased-package-css', '', await readProbeValue());
 
   const probeID = target.fixtureProject.replace(/[^A-Za-z0-9_]/g, '_');
   const successName = `devloop_hotreload_success_${probeID}.go`;
@@ -6590,34 +6592,35 @@ const verifyCurrentBuilderDOM = async (target, report, explorerId, builderState)
   if (!explorerId) throw new Error('current development target has no bootstrap Explorer');
   const evidenceDirectory = join(target.artifacts, `current-${Date.now().toString(36)}`);
   mkdirSync(evidenceDirectory, { recursive: true, mode: 0o700 });
-  const browser = await launchBrowser(evidenceDirectory);
+  const browser = await launchPlaywrightEvidenceBrowser({
+    evidence: evidenceDirectory,
+    appOrigins: [target.uiUrl, target.apiUrl],
+    noAuth: true,
+  });
+  const { page } = browser;
   const url = `${target.uiUrl}/?project=${encodeURIComponent(target.fixtureProject)}&explorer=${encodeURIComponent(explorerId)}&mode=builder`;
   try {
-    await navigate(browser.cdp, url);
-    await waitForBrowser(browser.cdp, `
-      document.querySelector('#root')?.childElementCount > 0 &&
-      document.body.innerText.trim().length > 0 &&
-      !document.body.innerText.includes('Loading Explorer') &&
-      !document.body.innerText.includes('Loading the selected Explorer configuration')
-    `, 120000);
-    const state = await browserEval(browser.cdp, `
-      const text = norm(document.body.innerText);
-      return {
-        title: document.title,
-        text,
-        hasLoadFailure: text.includes('Builder state could not be loaded') || text.includes('no V1 fallback'),
-        renderedValues: [
-          ...document.querySelectorAll('input, textarea, select'),
-        ].map((element) => norm(element.value)).filter(Boolean),
-        visibleButtons: [...document.querySelectorAll('button')].filter(visible).map((button) => norm(button.getAttribute('aria-label') || button.textContent)).filter(Boolean),
-      };
-    `);
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
+    await page.waitForURL(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
+    await page.locator('#root > *').first().waitFor({ state: 'visible', timeout: 120000 });
+    await page.waitForFunction(() => {
+      const text = document.body.innerText.trim();
+      return text.length > 0 && !text.includes('Loading Explorer')
+        && !text.includes('Loading the selected Explorer configuration');
+    }, undefined, { timeout: 120000 });
+    const text = (await page.locator('body').innerText()).replace(/\s+/g, ' ').trim();
+    const state = {
+      title: await page.title(),
+      text,
+      hasLoadFailure: text.includes('Builder state could not be loaded') || text.includes('no V1 fallback'),
+      renderedValues: await page.locator('input, textarea, select').evaluateAll((elements) => elements.map((element) => String(element.value ?? '').replace(/\s+/g, ' ').trim()).filter(Boolean)),
+      visibleButtons: await page.locator('button:visible').evaluateAll((buttons) => buttons.map((button) => String(button.getAttribute('aria-label') || button.textContent || '').replace(/\s+/g, ' ').trim()).filter(Boolean)),
+    };
     const domPath = join(evidenceDirectory, 'builder.html');
-    await snapshot(browser.cdp, domPath);
+    writeFileSync(domPath, await page.content(), { mode: 0o600 });
     recordEvidence(report, domPath);
-    const screenshot = await browser.cdp.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true });
     const screenshotPath = join(evidenceDirectory, 'builder.png');
-    writeFileSync(screenshotPath, Buffer.from(screenshot.data, 'base64'), { mode: 0o600 });
+    await page.screenshot({ path: screenshotPath, fullPage: true });
     recordEvidence(report, screenshotPath);
     report.target.browserUrl = url;
     report.target.visibleButtons = state.visibleButtons;
@@ -6630,7 +6633,23 @@ const verifyCurrentBuilderDOM = async (target, report, explorerId, builderState)
     recordAssertion(report, 'current-builder-shows-current-workspace', true,
       expectedTableTitles.length > 0 && expectedTableTitles.every((title) => renderedText.includes(title)));
     report.target.workspaceTables = expectedTableTitles;
-    await measureHotReload(target, report, browser.cdp);
+    await measureHotReload(target, report,
+      (expected) => page.waitForFunction((value) => getComputedStyle(document.querySelector('.loom-ui-root')).getPropertyValue('--loom-dev-hotreload-probe').trim() === value,
+        expected, { timeout: 15000 }),
+      () => page.evaluate(() => getComputedStyle(document.querySelector('.loom-ui-root')).getPropertyValue('--loom-dev-hotreload-probe').trim()));
+    const diagnosticsPath = join(evidenceDirectory, 'browser-diagnostics.json');
+    writeJSON(diagnosticsPath, browser.diagnostics);
+    recordEvidence(report, diagnosticsPath);
+    recordAssertion(report, 'current-builder-has-no-unexpected-browser-or-api-errors', true,
+      browser.diagnostics.console.length === 0
+      && browser.diagnostics.pageErrors.length === 0
+      && browser.diagnostics.networkFailures.length === 0
+      && browser.diagnostics.httpFailures.length === 0);
+  } catch (error) {
+    report.status = 'failed';
+    report.error = error instanceof Error ? error.message : String(error);
+    await browser.captureFailure(error, { phase: 'current Builder browser render and hot-reload check', explorerId });
+    throw error;
   } finally {
     await browser.close();
   }
