@@ -3,7 +3,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { captureApiBuildFreeze, checkContainerApiBuildStamp } from './lib/api-build-freeze.mjs';
-import { matchesOwnedCatalogRequest } from './lib/action-scoped-cancellations.mjs';
+import { actionScopeContains, cancellationScope, matchesOwnedCatalogRequest } from './lib/action-scoped-cancellations.mjs';
 import { assertOwnedCdaTarget } from './lib/owned-cda-target.mjs';
 import { launchBrowser, sanitizeBody } from './lib/playwright-browser.mjs';
 import { performAction, requireUnique } from './lib/playwright-actions.mjs';
@@ -38,6 +38,7 @@ async function readBuilder() {
 const expectedAbortEndpoints = new Set(['frame-source-options', 'semantic-inventory', 'construction-choice-proposals']);
 const pendingActionRequests = new Map();
 const armedCancellationScopes = [];
+let currentCancellationAction;
 function requestPayload(request) {
   try { return request.postDataJSON(); } catch { return undefined; }
 }
@@ -50,17 +51,17 @@ function matchesExpectedRequest(request, endpoint) {
 }
 function armExpectedCancellations(action, endpoints) {
   const candidates = [...pendingActionRequests.keys()].filter(request => endpoints.some(endpoint => matchesExpectedRequest(request, endpoint)));
-  const scope = { action, armedAt: Date.now(), requests: new Set(candidates) };
+  const scope = cancellationScope(action, endpoints, candidates);
   armedCancellationScopes.push(scope);
+  currentCancellationAction = action;
   report.cancellationArms ??= [];
   report.cancellationArms.push({ action, pendingMatched: candidates.length, endpoints: [...endpoints], expiryMs: 5000 });
 }
 function classifyExpectedRequestFailure(request) {
   if (request.failure()?.errorText !== 'net::ERR_ABORTED') return undefined;
   for (const scope of armedCancellationScopes) {
-    if (Date.now() - scope.armedAt > 5000) continue;
-    if (report.activeAction?.label !== scope.action) continue;
-    if (!scope.requests.delete(request)) continue;
+    if (!actionScopeContains(scope, request, currentCancellationAction)) continue;
+    scope.requests.delete(request);
     const entry = pendingActionRequests.get(request);
     pendingActionRequests.delete(request);
     if (!entry) return undefined;
@@ -71,14 +72,14 @@ function classifyExpectedRequestFailure(request) {
 
 const timedAction = async (name, locator, method, settled, arg = null, cancellationEndpoints = []) => {
   const startedAt = Date.now();
+  currentCancellationAction = name;
   if (cancellationEndpoints.length) armExpectedCancellations(name, cancellationEndpoints);
-  report.activeAction = { label: name, locator: locator.toString(), startedAt };
   await performAction(report, name, locator, target => method(target));
+  report.activeAction = { label: name, locator: locator.toString(), startedAt };
   await browser.page.waitForFunction(settled, arg, { timeout: 5000 });
   const elapsedMs = Date.now() - startedAt;
   report.transitions.push({ name, elapsedMs, limitMs: 5000, passed: elapsedMs <= 5000 });
   assert(elapsedMs <= 5000, `${name} took ${elapsedMs} ms to render`);
-  report.activeAction = undefined;
 };
 
 try {
@@ -103,10 +104,30 @@ try {
     const endpoint = requestURL.pathname.slice(prefix.length);
     if (!expectedAbortEndpoints.has(endpoint)) return;
     const payload = requestPayload(request);
-    if (payload) pendingActionRequests.set(request, { endpoint, payload });
+    if (!payload) return;
+    pendingActionRequests.set(request, { endpoint, payload });
+    for (const scope of armedCancellationScopes) {
+      if (report.activeAction?.label === scope.action && Date.now() - scope.armedAt <= 5000 &&
+          matchesExpectedRequest(request, endpoint) && scope.endpoints.includes(endpoint)) {
+        scope.requests.add(request);
+      }
+    }
   });
   page.on('requestfinished', request => pendingActionRequests.delete(request));
-  page.on('requestfailed', request => pendingActionRequests.delete(request));
+  page.on('requestfailed', request => {
+    const entry = pendingActionRequests.get(request);
+    if (entry) {
+      report.requestFailureAudit ??= [];
+      report.requestFailureAudit.push({
+        endpoint: entry.endpoint,
+        requestId: request.headers()['x-request-id'] ?? null,
+        action: currentCancellationAction ?? null,
+        matchedScopes: armedCancellationScopes.filter(scope => scope.requests.has(request))
+          .map(scope => ({ action: scope.action, ageMs: Date.now() - scope.armedAt })),
+      });
+    }
+    pendingActionRequests.delete(request);
+  });
   await page.setViewportSize({ width: 1280, height: 900 });
   report.activeAction = { label: 'navigate to Builder', locator: url, startedAt: Date.now() };
   await page.goto(url, { waitUntil: 'domcontentloaded' });
@@ -114,14 +135,16 @@ try {
   await page.getByText('Dataset workspace', { exact: true }).waitFor({ state: 'visible', timeout: 5000 });
   const openSuggestions = async phase => {
     await timedAction(`${phase}: open Add columns editor`, page.getByTestId('construction-action-add-columns'), target => target.click(),
-      () => document.querySelector('[data-testid="construction-operation-editor"]')?.getAttribute('data-operation-family') === 'ADD_COLUMNS');
+      () => document.querySelector('[data-testid="construction-operation-editor"]')?.getAttribute('data-operation-family') === 'ADD_COLUMNS', null,
+      ['frame-source-options', 'semantic-inventory']);
     const fieldsTab = page.getByRole('button', { name: 'Fields and related data', exact: true });
     await timedAction(`${phase}: open Fields and related data`, fieldsTab, target => target.click(),
-      () => document.querySelector('[data-testid="construction-add-columns-source"]') !== null);
+      () => document.querySelector('[data-testid="construction-add-columns-source"]') !== null, null,
+      ['semantic-inventory', 'frame-source-options']);
     const codedTab = page.getByRole('button', { name: 'Coded values', exact: true });
     await timedAction(`${phase}: show coded suggestions`, codedTab, target => target.click(),
       count => document.querySelectorAll('[data-testid^="paired-column-suggestion-"]').length >= count, report.suggestionCount ?? 3,
-      ['frame-source-options', 'semantic-inventory']);
+      ['semantic-inventory']);
   };
   await openSuggestions('initial');
   const suggestions = page.locator('[data-testid^="paired-column-suggestion-"]');
@@ -140,8 +163,8 @@ try {
     const startedAt = Date.now();
     const openLabel = `open suggestion ${suggestionIdentity.accessibleName}`;
     armExpectedCancellations(openLabel, ['semantic-inventory']);
-    report.activeAction = { label: openLabel, locator: suggestion.toString(), startedAt };
     await performAction(report, `open ${suggestionIdentity.accessibleName}`, suggestion, target => target.click());
+    report.activeAction = { label: openLabel, locator: suggestion.toString(), startedAt };
     const dialog = page.getByRole('dialog');
     await dialog.waitFor({ state: 'visible', timeout: 5000 });
     await requireUnique(dialog, `dialog for ${suggestionIdentity.accessibleName}`);
@@ -167,8 +190,8 @@ try {
     const closeStartedAt = Date.now();
     const cancelLabel = `cancel ${suggestionIdentity.accessibleName} dialog`;
     armExpectedCancellations(cancelLabel, ['construction-choice-proposals']);
-    report.activeAction = { label: cancelLabel, locator: cancel.toString(), startedAt: closeStartedAt };
     await performAction(report, `cancel ${suggestionIdentity.accessibleName} dialog`, cancel, target => target.click());
+    report.activeAction = { label: cancelLabel, locator: cancel.toString(), startedAt: closeStartedAt };
     await dialog.waitFor({ state: 'hidden', timeout: 5000 });
     const closeElapsedMs = Date.now() - closeStartedAt;
     report.transitions.push({ name: `dialog-close-${suggestionIdentity.accessibleName}`, elapsedMs: closeElapsedMs, limitMs: 5000, passed: closeElapsedMs <= 5000 });
@@ -178,7 +201,6 @@ try {
     assert.equal(current.draftVersion, report.before.draftVersion, 'Cancel must not advance the draft version');
     assert.equal(current.draftDigest, report.before.draftDigest, 'Cancel must not change the draft digest');
     report.dialogs.push({ suggestion: suggestionIdentity, ...details, cancelled: true, workspaceUnchanged: true });
-    report.activeAction = undefined;
     await timedAction(`after cancel ${index + 1}: return to Builder table`, page.getByTestId('construction-close-operation-editor'), target => target.click(),
       () => document.querySelector('[data-testid="construction-operation-editor"]') === null, null,
       ['frame-source-options', 'semantic-inventory', 'construction-choice-proposals']);

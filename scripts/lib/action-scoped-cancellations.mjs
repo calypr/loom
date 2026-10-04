@@ -2,9 +2,6 @@ export function matchesOwnedCatalogRequest(request, endpoint, target) {
   const url = new URL(request.url());
   if (request.method() !== 'POST' || url.origin !== target.uiOrigin ||
       url.pathname !== `${target.pathPrefix}/${endpoint}`) return false;
-  try {
-    if (new URL(request.frame().url()).origin !== target.uiOrigin) return false;
-  } catch { return false; }
   let payload;
   try { payload = request.postDataJSON(); } catch { return false; }
   if (!payload || payload.snapshotToken !== target.snapshotToken) return false;
@@ -22,4 +19,12 @@ export function matchesOwnedCatalogRequest(request, endpoint, target) {
       Array.isArray(payload.constructionChoices) && payload.constructionChoices.length > 0;
   }
   return false;
+}
+
+export function cancellationScope(action, endpoints, requests, armedAt = Date.now()) {
+  return { action, endpoints: [...endpoints], armedAt, requests: new Set(requests) };
+}
+
+export function actionScopeContains(scope, request, actionLabel, now = Date.now()) {
+  return scope.action === actionLabel && now - scope.armedAt <= 5000 && scope.requests.has(request);
 }
