@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { execFileSync } from 'node:child_process';
 import { mkdir, realpath, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { captureApiBuildFreeze, checkContainerApiBuildStamp } from './lib/api-build-freeze.mjs';
+import { readNDJSONResourceIdentityOracle } from './lib/ndjson-resource-oracle.mjs';
+import { assertOwnedCdaTarget } from './lib/owned-cda-target.mjs';
 import { launchBrowser } from './lib/playwright-browser.mjs';
 import { performAction } from './lib/playwright-actions.mjs';
 import { captureSourceFreeze } from './lib/source-freeze.mjs';
@@ -16,7 +17,9 @@ const apiOrigin = process.env.LOOM_CDA_API_ORIGIN;
 const uiOrigin = process.env.LOOM_CDA_UI_ORIGIN;
 const apiContainer = process.env.LOOM_CDA_API_CONTAINER;
 const composeProject = process.env.LOOM_CDA_COMPOSE_PROJECT;
+const fixtureDir = process.env.LOOM_CDA_FIXTURE_DIR;
 const sourceRoot = resolve(fileURLToPath(new URL('..', import.meta.url)));
+const generation = 'cda-fhir-v1';
 const evidence = process.argv[2] ?? `/tmp/loom-last-table-command-${Date.now()}`;
 const root = project ? `/api/v1/projects/${encodeURIComponent(project)}/explorers` : '';
 const base = `${root}/${encodeURIComponent(explorer)}/authoring/v2`;
@@ -27,66 +30,6 @@ let browser;
 let sourceFreeze;
 let apiBuildFreeze;
 let apiBuildBefore;
-
-function validateOrigin(name, raw, forbiddenPort) {
-  assert(raw, `Set ${name} to the owned isolated CDA stack.`);
-  const url = new URL(raw);
-  assert(['http:', 'https:'].includes(url.protocol), `${name} must use HTTP or HTTPS`);
-  assert(!url.username && !url.password, `${name} must not embed credentials`);
-  assert(['127.0.0.1', 'localhost', '::1'].includes(url.hostname), `${name} must target a local isolated stack`);
-  assert(url.port !== forbiddenPort, `${name} must not use the shared CDA port ${forbiddenPort}`);
-  assert(url.pathname === '/' && !url.search && !url.hash, `${name} must be an origin without path, query, or fragment`);
-  return url;
-}
-
-function mappedLoopbackPort(container, port, expectedPort, service) {
-  assert.equal(container.Config.Labels['com.docker.compose.service'], service);
-  const bindings = container.NetworkSettings.Ports?.[`${port}/tcp`] ?? [];
-  assert(bindings.some(binding => binding.HostIp === '127.0.0.1' && binding.HostPort === expectedPort),
-    `${service} must publish ${port}/tcp on 127.0.0.1:${expectedPort}`);
-}
-
-function containerRecords(names) {
-  if (!names.length) return [];
-  return JSON.parse(execFileSync('docker', ['inspect', ...names], { encoding: 'utf8', timeout: 15000 }));
-}
-
-async function validateOwnedTarget() {
-  assert(project, 'Set LOOM_CDA_PROJECT explicitly to the project that contains the loaded CDA dataset.');
-  assert.match(project, /^[A-Za-z0-9_-]+$/, 'LOOM_CDA_PROJECT contains unsupported characters');
-  assert(composeProject, 'Set LOOM_CDA_COMPOSE_PROJECT to the isolated Compose project.');
-  assert.match(composeProject, /^[A-Za-z0-9_.-]+$/, 'LOOM_CDA_COMPOSE_PROJECT contains unsupported characters');
-  assert(apiContainer, 'Set LOOM_CDA_API_CONTAINER to the isolated Loom API container.');
-  assert.match(apiContainer, /^[A-Za-z0-9_.-]+$/, 'LOOM_CDA_API_CONTAINER contains unsupported characters');
-  assert(!apiContainer.startsWith('loom-dev-6d7df93d6a37'), 'Do not use the shared CDA API container');
-  assert.notEqual(composeProject, 'loom-dev-6d7df93d6a37', 'Do not use the shared CDA Compose project');
-  const apiURL = validateOrigin('LOOM_CDA_API_ORIGIN', apiOrigin, '8188');
-  const uiURL = validateOrigin('LOOM_CDA_UI_ORIGIN', uiOrigin, '30008');
-  const names = execFileSync('docker', ['ps', '--filter', `label=com.docker.compose.project=${composeProject}`, '--format', '{{.Names}}'], { encoding: 'utf8', timeout: 10000 }).trim().split('\n').filter(Boolean);
-  assert(names.includes(apiContainer), `The named API container is not running in Compose project ${composeProject}`);
-  const containers = containerRecords(names);
-  const api = containers.find(container => container.Name === `/${apiContainer}`);
-  const ui = containers.find(container => container.Config.Labels['com.docker.compose.service'] === 'loom-ui');
-  assert(api, 'The named API container is missing from the isolated Compose project');
-  assert(ui, 'The isolated Compose project must have a running Loom UI container');
-  for (const container of [api, ui]) {
-    const labels = container.Config.Labels ?? {};
-    assert.equal(labels['com.docker.compose.project'], composeProject, 'Container Compose ownership changed');
-    assert.equal(container.State.Running, true, `${container.Name} must already be running`);
-  }
-  mappedLoopbackPort(api, 8080, apiURL.port, 'loom-api');
-  mappedLoopbackPort(ui, 8080, uiURL.port, 'loom-ui');
-  const apiSource = api.Mounts?.find(mount => mount.Destination === '/workspace/cmd')?.Source;
-  const uiSource = ui.Mounts?.find(mount => mount.Destination === '/workspace/packages/loom-ui/src')?.Source;
-  const hostSource = async value => {
-    assert(value, 'Owned service source mount is missing');
-    const hostPath = value.startsWith('/host_mnt/') ? value.slice('/host_mnt'.length) : value;
-    return realpath(hostPath);
-  };
-  assert.equal(await hostSource(apiSource), await realpath(join(sourceRoot, 'cmd')), 'API container must be mounted from this isolated source checkout');
-  assert.equal(await hostSource(uiSource), await realpath(join(sourceRoot, 'ui/packages/loom-ui/src')), 'UI container must be mounted from this isolated source checkout');
-  return { composeProject, apiContainer, uiContainer: ui.Name.replace(/^\//, ''), apiPort: apiURL.port, uiPort: uiURL.port, sourceRoot };
-}
 
 function extractBuildIdentity(observation) {
   assert.equal(observation.status, 0, 'API build stamp check must succeed');
@@ -120,7 +63,14 @@ const command = async commands => {
   return result;
 };
 try {
-  report.target.ownership = await validateOwnedTarget();
+  assert(fixtureDir, 'Set LOOM_CDA_FIXTURE_DIR to the independently loaded CDA-FHIR/META source directory.');
+  const fixtureRoot = await realpath(fixtureDir);
+  const specimenPath = await realpath(join(fixtureRoot, 'Specimen.ndjson'));
+  report.target.fixtureDirectory = fixtureRoot;
+  report.target.ownership = await assertOwnedCdaTarget({
+    project, apiOrigin, uiOrigin, apiContainer, composeProject, sourceRoot,
+    arangoContainer: process.env.LOOM_ARANGO_CONTAINER,
+  });
   sourceFreeze = await captureSourceFreeze(sourceRoot);
   report.sourceFreeze = { watchedFileCount: sourceFreeze.watchedFileCount, before: sourceFingerprint(sourceRoot) };
   let firstBuildObservation;
@@ -130,9 +80,16 @@ try {
   });
   apiBuildBefore = extractBuildIdentity(firstBuildObservation);
   report.apiBuildIdentity = { before: apiBuildBefore };
+  const specimenOracle = await readNDJSONResourceIdentityOracle({ path: specimenPath, project, generation, resourceType: 'Specimen' });
+  report.oracle = {
+    path: specimenOracle.path,
+    sha256: specimenOracle.sha256,
+    sourceCount: specimenOracle.count,
+    ordering: specimenOracle.ordering,
+  };
   await api(root, { name: explorer, title: 'Last table command QA' });
   state = await api(`${base}/builder`);
-  assert.equal(state.catalog.generation, 'cda-fhir-v1');
+  assert.equal(state.catalog.generation, generation);
   assert.equal(state.workspace?.documents.length ?? 0, 0);
   const node = state.catalog.nodes.find(candidate => candidate.resourceType === 'Specimen');
   assert(node, 'The CDA generation must expose Specimen');
@@ -168,9 +125,19 @@ try {
   await rename.waitFor({ state: 'visible', timeout: 30000 });
   assert.equal(await rename.isEnabled(), true, 'The selected table rename action must be enabled');
   await page.waitForFunction(() => document.querySelector('[data-testid="construction-preview"]')?.dataset.previewStatus === 'ready', null, { timeout: 30000 });
-  const renderedRows = async () => page.locator('[data-testid="preview-table-scroll"] [role="row"]').evaluateAll(rows => rows.slice(1).map(row => [...row.querySelectorAll('[role="cell"]')].map(cell => cell.innerText.trim())).filter(row => row.length));
+  const renderedRows = async () => page.locator('[data-testid="preview-table-scroll"] [role="row"]').evaluateAll(rows => rows.slice(1).map(row => ({
+    ordinal: Number(row.firstElementChild?.innerText.trim()),
+    cells: [...row.querySelectorAll('[role="cell"]')].map(cell => cell.innerText.trim()),
+  })).filter(row => row.cells.length));
   const originalRows = await renderedRows();
   assert(originalRows.length > 0, 'The source table must render real data before deletion');
+  const oracleRows = originalRows.map(row => {
+    assert(Number.isInteger(row.ordinal) && row.ordinal > 0, `Invalid visible row ordinal: ${row.ordinal}`);
+    return { ordinal: row.ordinal, cells: [specimenOracle.ids[row.ordinal - 1]] };
+  });
+  assert(oracleRows.every(row => typeof row.cells[0] === 'string'), 'Every visible row ordinal must map to an independent CDA Specimen identity');
+  assert.deepEqual(originalRows, oracleRows, 'Initial visible rows must exactly match the independent CDA Specimen identity window');
+  report.oracle.visibleRows = oracleRows;
 
   const started = Date.now();
   await performAction(report, 'delete last table', page.locator('[data-testid="construction-delete-table"]'), target => target.click());
@@ -195,7 +162,7 @@ try {
   }, { version: state.draftVersion, digest: state.draftDigest }, { timeout: 5000 });
   const restoredRows = await renderedRows();
   assert(restoredRows.length > 0);
-  assert.deepEqual(restoredRows, originalRows, 'Undo must restore every original visible source row in the same order');
+  assert.deepEqual(restoredRows, oracleRows, 'Undo must restore every independent source row in the same order');
   const restoreDurationMs = Date.now() - restoreStart;
   assert(restoreDurationMs <= 5000, `Undo and render took ${restoreDurationMs} ms`);
   report.nativeChecks.push({ name: 'undo-last-table-deletion', durationMs: restoreDurationMs });
@@ -205,7 +172,7 @@ try {
   await page.waitForFunction(() => document.querySelector('[data-testid="construction-preview"]')?.dataset.previewStatus === 'ready', null, { timeout: 30000 });
   assert.deepEqual((await api(`${base}/builder`)).workspace, nativeBaseline);
   const reloadedRows = await renderedRows();
-  assert.deepEqual(reloadedRows, originalRows, 'Reload must retain every original visible source row in the same order');
+  assert.deepEqual(reloadedRows, oracleRows, 'Reload must retain every independent source row in the same order');
   report.incidentalAssets = browser.diagnostics.assetFailures;
   report.errors = [...browser.diagnostics.console, ...browser.diagnostics.pageErrors, ...browser.diagnostics.httpFailures, ...browser.diagnostics.networkFailures];
   assert.deepEqual(report.errors, []);
