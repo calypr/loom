@@ -766,6 +766,63 @@ describe('Loom project paths', () => {
     expect(String(fetch.mock.calls[0]?.[1]?.body)).not.toContain('edgeId');
   });
 
+  it('keeps the authorized resource path on paged selection reads and validates the automatic member-removal preview', async () => {
+    const selectionRevision = {
+      id: 'selection-1', project: 'project-a', generation: 'generation-1', resourceType: 'DocumentReference',
+      rule: { kind: 'EXPLICIT' }, source: { kind: 'EXPLICIT_REFS' }, scopeDigest: 'scope-1', ruleDigest: 'rule-1',
+      membershipDigest: 'members-1', memberCount: 1, memberBytes: 12, complete: true,
+      createdAt: '2026-10-04T00:00:00.000Z',
+    } as const;
+    const removedMember = {
+      project: 'project-a', generation: 'generation-1', resourceType: 'DocumentReference', id: 'doc-1',
+    } as const;
+    const response = {
+      proposalId: 'proposal-1', outputId: 'patients', snapshotToken: 'snapshot-1',
+      draftVersion: 4, draftDigest: 'draft-4', baseDocumentDigest: 'document-4',
+      candidateWorkspaceDigest: 'candidate-5', baseSelection: selectionRevision,
+      candidateSelection: {
+        ...selectionRevision, id: 'selection-2', membershipDigest: 'members-2', memberCount: 0, memberBytes: 0,
+      },
+      removedMember, previewStatus: 'READY', previewDurationMs: 12,
+      preview: {
+        apiVersion: 'loom.calypr.org/explorer-authoring/v2', kind: 'ExplorerBuilderPreview',
+        receiptId: 'proposal-1', outputId: 'patients', columns: [], rows: [], rowCount: 0,
+        rowLineageCapability: { status: 'UNAVAILABLE', reasonCode: 'TEST_FIXTURE' }, diagnostics: [],
+      },
+    } as const;
+    const fetch = vi.fn<typeof globalThis.fetch>()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ revision: selectionRevision, members: [] }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(response), { status: 200 }));
+    const client = createLoomClient({ fetch });
+
+    await client.getSelection({
+      project: 'project-a', explorerId: 'patients', authResourcePath: '/programs/alpha',
+      selectionRevision: 'selection-1', limit: 100,
+    });
+    expect(fetch).toHaveBeenNthCalledWith(1,
+      '/api/v1/projects/project-a/explorers/patients/selections/selection-1?limit=100&auth_resource_path=%2Fprograms%2Falpha',
+      expect.objectContaining({ signal: undefined }),
+    );
+
+    await expect(client.proposePopulationMemberRemoval({
+      project: 'project-a', explorerId: 'patients', authResourcePath: '/programs/alpha',
+      snapshotToken: 'snapshot-1', expectedDraftVersion: 4, expectedDraftDigest: 'draft-4',
+      outputId: 'patients', baseSelectionRevisionId: 'selection-1', removedMember,
+      limit: 25, requestId: 'population-member-removal-1',
+    })).resolves.toEqual(response);
+    expect(fetch).toHaveBeenNthCalledWith(2,
+      '/api/v1/projects/project-a/explorers/patients/authoring/v2/population-member-proposals?auth_resource_path=%2Fprograms%2Falpha',
+      expect.objectContaining({
+        method: 'POST',
+        headers: expect.objectContaining({ 'X-Request-ID': 'population-member-removal-1' }),
+        body: JSON.stringify({
+          snapshotToken: 'snapshot-1', expectedDraftVersion: 4, expectedDraftDigest: 'draft-4',
+          outputId: 'patients', baseSelectionRevisionId: 'selection-1', removedMember, limit: 25,
+        }),
+      }),
+    );
+  });
+
   it('rejects invalid semantic occurrence counts at the client boundary', async () => {
     const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
       new Response(JSON.stringify({

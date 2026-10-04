@@ -101,7 +101,12 @@ const waitForBrowser = async (cdp, expression, timeout = 30000) => {
   throw new Error('timed out waiting for browser condition: ' + lastError);
 };
 
-const launchBrowser = async (downloadDir, onDialog) => {
+export const findPageTarget = (pages, initialUrl) => {
+  if (initialUrl !== undefined) return pages.find((candidate) => candidate.type === 'page' && candidate.url === initialUrl);
+  return pages.find((candidate) => candidate.type === 'page');
+};
+
+const launchBrowser = async (downloadDir, onDialog, options = {}) => {
   const chrome = findChrome();
   const port = await freePort();
   const profile = mkdtempSync(join(tmpdir(), 'loom-dev-chrome-'));
@@ -110,6 +115,7 @@ const launchBrowser = async (downloadDir, onDialog) => {
     '--disable-component-update', '--no-first-run', '--no-default-browser-check',
     '--remote-allow-origins=*', `--remote-debugging-port=${port}`, `--user-data-dir=${profile}`,
     `--download.default_directory=${downloadDir}`,
+    ...(options.initialUrl ? [options.initialUrl] : []),
   ], { stdio: ['ignore', 'ignore', 'pipe'] });
   const started = Date.now();
   let browserError = '';
@@ -119,7 +125,7 @@ const launchBrowser = async (downloadDir, onDialog) => {
     try {
       const response = await request(`http://127.0.0.1:${port}/json/list`, { timeout: 1000 });
       const pages = await response.json();
-      page = pages.find((candidate) => candidate.type === 'page');
+      page = findPageTarget(pages, options.initialUrl);
       if (page) break;
     } catch {
       await sleep(100);
@@ -168,6 +174,7 @@ const launchBrowser = async (downloadDir, onDialog) => {
     cdp,
     child,
     profile,
+    target: { id: page.id, type: page.type, url: page.url },
     dialogErrors,
     close: async () => {
       await cdp.send('Browser.close').catch(() => undefined);

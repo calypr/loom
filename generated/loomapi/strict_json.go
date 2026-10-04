@@ -46,6 +46,26 @@ func (value *AuthoringCommand) UnmarshalJSON(raw []byte) error {
 	return nil
 }
 
+func (value *PopulationMemberRemovalProposalRequest) UnmarshalJSON(raw []byte) error {
+	type wire PopulationMemberRemovalProposalRequest
+	var decoded wire
+	if err := strictDecodeGenerated(raw, &decoded); err != nil {
+		return err
+	}
+	*value = PopulationMemberRemovalProposalRequest(decoded)
+	return nil
+}
+
+func (value *SelectionResourceRef) UnmarshalJSON(raw []byte) error {
+	type wire SelectionResourceRef
+	var decoded wire
+	if err := strictDecodeGenerated(raw, &decoded); err != nil {
+		return err
+	}
+	*value = SelectionResourceRef(decoded)
+	return nil
+}
+
 func (value *Column) UnmarshalJSON(raw []byte) error {
 	type wire Column
 	var decoded wire

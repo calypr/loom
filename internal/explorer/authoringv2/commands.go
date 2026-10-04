@@ -40,6 +40,7 @@ const (
 	CommandApplyRowDefinitionProposal    = "APPLY_ROW_DEFINITION_PROPOSAL"
 	CommandApplyTableShapeProposal       = "APPLY_TABLE_SHAPE_PROPOSAL"
 	CommandApplyConstructionProposal     = "APPLY_CONSTRUCTION_PROPOSAL"
+	CommandApplyPopulationMemberProposal = "APPLY_POPULATION_MEMBER_PROPOSAL"
 	CommandRestoreDraftRevision          = "RESTORE_DRAFT_REVISION"
 	CommandUpdateColumnSource            = "UPDATE_COLUMN_SOURCE"
 	CommandRemoveColumn                  = "REMOVE_COLUMN"
@@ -154,6 +155,8 @@ type Command struct {
 	resolvedConstruction     *Construction
 	resolvedConstructionSet  bool
 	resolvedConstructionRows *RowDefinition
+	resolvedPopulation       *Population
+	resolvedPopulationSet    bool
 	resolvedDraftRevision    *Workspace
 }
 
@@ -355,7 +358,7 @@ func (c *Command) UnmarshalJSON(raw []byte) error {
 			}
 		}
 	}
-	if decoded.Type == CommandApplyRowDefinitionProposal || decoded.Type == CommandApplyTableShapeProposal || decoded.Type == CommandApplyConstructionProposal {
+	if decoded.Type == CommandApplyRowDefinitionProposal || decoded.Type == CommandApplyTableShapeProposal || decoded.Type == CommandApplyConstructionProposal || decoded.Type == CommandApplyPopulationMemberProposal {
 		if err := rejectUnknownProposalCommandFields(raw, decoded.Type); err != nil {
 			return err
 		}
@@ -472,6 +475,25 @@ func (c *Command) ResolveConstructionProposal(candidate *Document) error {
 	return nil
 }
 
+// ResolvePopulationMemberProposal attaches the server-revalidated candidate
+// population to a closed proposal apply command. The browser can submit only
+// outputId and proposalId; selection and route data are never caller supplied.
+func (c *Command) ResolvePopulationMemberProposal(selectionRevisionID string, route []PopulationRouteStep) error {
+	if c == nil || c.Type != CommandApplyPopulationMemberProposal {
+		return fmt.Errorf("population can only be resolved for APPLY_POPULATION_MEMBER_PROPOSAL")
+	}
+	if strings.TrimSpace(c.OutputID) == "" || c.OutputID != strings.TrimSpace(c.OutputID) || strings.TrimSpace(c.ProposalID) == "" || c.ProposalID != strings.TrimSpace(c.ProposalID) {
+		return fmt.Errorf("APPLY_POPULATION_MEMBER_PROPOSAL requires outputId and proposalId")
+	}
+	population := Population{SelectionRevisionID: strings.TrimSpace(selectionRevisionID), Route: clonePopulationRouteSteps(route)}
+	if err := population.Validate(); err != nil {
+		return fmt.Errorf("resolved population is invalid: %w", err)
+	}
+	c.resolvedPopulation = &population
+	c.resolvedPopulationSet = true
+	return nil
+}
+
 type CommandResult struct {
 	Type               string                    `json:"type"`
 	OutputID           string                    `json:"outputId,omitempty"`
@@ -528,7 +550,7 @@ func (r ApplyCommandsRequest) Validate() error {
 		if command.Type == CommandSetFrameSource || command.Type == CommandReplaceFrameSource || command.Type == CommandRemoveFrameSource {
 			frameSourceCommandCount++
 		}
-		if command.Type == CommandApplyRowDefinitionProposal || command.Type == CommandApplyTableShapeProposal || command.Type == CommandApplyConstructionProposal {
+		if command.Type == CommandApplyRowDefinitionProposal || command.Type == CommandApplyTableShapeProposal || command.Type == CommandApplyConstructionProposal || command.Type == CommandApplyPopulationMemberProposal {
 			proposalCommandCount++
 		}
 		if command.Type == CommandRestoreDraftRevision {
@@ -715,7 +737,7 @@ func (c Command) validate() error {
 			c.InterpretationCandidate.RevisionID != strings.TrimSpace(c.InterpretationCandidate.RevisionID) {
 			return fmt.Errorf("APPLY_INTERPRETATION_CANDIDATE requires exact candidateReceiptId and revisionId")
 		}
-	case CommandApplyRowDefinitionProposal, CommandApplyTableShapeProposal, CommandApplyConstructionProposal:
+	case CommandApplyRowDefinitionProposal, CommandApplyTableShapeProposal, CommandApplyConstructionProposal, CommandApplyPopulationMemberProposal:
 		if !required(c.OutputID, c.ProposalID) || c.OutputID != strings.TrimSpace(c.OutputID) || c.ProposalID != strings.TrimSpace(c.ProposalID) {
 			return fmt.Errorf("%s requires exact outputId and proposalId", c.Type)
 		}
@@ -1381,6 +1403,21 @@ func applyCommand(workspace *Workspace, catalog CatalogSnapshot, commandID strin
 		}
 		workspace.Documents[document].TableShape = shape
 		return CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID}, nil
+	case CommandApplyPopulationMemberProposal:
+		if !command.resolvedPopulationSet || command.resolvedPopulation == nil {
+			return result, fmt.Errorf("APPLY_POPULATION_MEMBER_PROPOSAL has no lifecycle-resolved population")
+		}
+		documentPos := documentIndex(workspace, command.OutputID)
+		if documentPos < 0 {
+			return result, fmt.Errorf("output %q was not found", command.OutputID)
+		}
+		population := *command.resolvedPopulation
+		population.Route = clonePopulationRouteSteps(command.resolvedPopulation.Route)
+		if err := population.Validate(); err != nil {
+			return result, fmt.Errorf("resolved population is invalid: %w", err)
+		}
+		workspace.Documents[documentPos].Population = &population
+		return CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID}, nil
 	case CommandApplyConstructionProposal:
 		if !command.resolvedConstructionSet || command.resolvedConstruction == nil || command.resolvedConstructionRows == nil {
 			return result, fmt.Errorf("APPLY_CONSTRUCTION_PROPOSAL has no lifecycle-resolved construction")
@@ -1530,6 +1567,15 @@ func initializeEmptyConstructionBeforeSourceAdd(workspace *Workspace, outputID s
 	}
 	workspace.Documents[documentPos] = upgraded
 	return nil
+}
+
+func clonePopulationRouteSteps(route []PopulationRouteStep) []PopulationRouteStep {
+	if route == nil {
+		return nil
+	}
+	cloned := make([]PopulationRouteStep, len(route))
+	copy(cloned, route)
+	return cloned
 }
 
 func setPopulationRoute(document *Document, selectionRevisionID string, route []PopulationRouteStep) {

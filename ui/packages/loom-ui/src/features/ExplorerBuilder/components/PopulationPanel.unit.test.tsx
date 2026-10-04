@@ -10,7 +10,8 @@ import { PopulationPanel } from './PopulationPanel';
 const triggerPopulation = vi.hoisted(() => vi.fn());
 const loomClient = vi.hoisted(() => ({ searchPopulationRoutes: vi.fn() }));
 const searchPopulationRoutes = loomClient.searchPopulationRoutes;
-vi.mock('../../../react', () => ({
+vi.mock('../../../react', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../../../react')>(),
   useLoomClient: () => loomClient,
   usePopulationMappingMutation: () => [triggerPopulation, { isLoading: false }],
 }));
@@ -90,7 +91,8 @@ it('attaches a selected file collection through a server-issued route choice', a
     snapshotToken: 'snapshot',
     outputId: 'specimens',
     selectionRevisionId: 'selection-1',
-  }), expect.any(AbortSignal));
+  }));
+  expect(searchPopulationRoutes.mock.calls[0]).toHaveLength(1);
 });
 
 it('prioritizes a direct same-resource route and distinguishes meaningful alternatives', async () => {
@@ -235,6 +237,104 @@ it('exposes active and attached revision identities at the collection boundary',
   const panel = screen.getByRole('region', { name: 'Starting collection' });
   expect(panel).toHaveAttribute('data-selection-revision-id', 'selection-1');
   expect(panel).toHaveAttribute('data-attached-selection-revision-id', 'selection-1');
+});
+
+it('keeps the new scope when an old route body finishes after the owner changes', async () => {
+  let resolveOld: (value: unknown) => void = () => undefined;
+  const oldResult = new Promise((resolve) => { resolveOld = resolve; });
+  searchPopulationRoutes
+    .mockReturnValueOnce(oldResult)
+    .mockImplementationOnce(async (request: { selectionRevisionId: string; outputId: string }) => ({
+      snapshotToken: 'snapshot', outputId: request.outputId,
+      selectionRevisionId: request.selectionRevisionId, complete: true, truncated: false,
+      choices: [{ ...populationChoice, routeChoiceId: 'new-scope-route' }],
+    }));
+  const onAttach = vi.fn();
+  const { rerender } = render(
+    <PopulationPanel table={table} selection={selection} loading={false} disabled={false} project="project" explorerId="patients" snapshotToken="snapshot" onAttach={onAttach} onClear={vi.fn()} />,
+  );
+  await waitFor(() => expect(searchPopulationRoutes).toHaveBeenCalledTimes(1));
+  expect(searchPopulationRoutes.mock.calls[0]).toHaveLength(1);
+  const changedSelection = { ...selection, id: 'selection-2', membershipDigest: 'members-2' };
+  rerender(
+    <PopulationPanel table={table} selection={changedSelection} loading={false} disabled={false} project="project" explorerId="patients" snapshotToken="snapshot" onAttach={onAttach} onClear={vi.fn()} />,
+  );
+  await screen.findByText(/Specimen → DocumentReference via subject_Specimen/);
+  await waitFor(() => expect(searchPopulationRoutes).toHaveBeenCalledTimes(2));
+  expect(searchPopulationRoutes.mock.calls[1]).toHaveLength(1);
+  await act(async () => {
+    resolveOld({ snapshotToken: 'snapshot', outputId: 'specimens', selectionRevisionId: 'selection-1', complete: true, truncated: false,
+      choices: [{ ...populationChoice, routeChoiceId: 'stale-old-route' }] });
+    await oldResult;
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Use selected resources' }));
+  expect(onAttach).toHaveBeenCalledWith('new-scope-route');
+  expect(searchPopulationRoutes.mock.calls[1]?.[0]).toEqual(expect.objectContaining({
+    outputId: 'specimens',
+    selectionRevisionId: 'selection-2',
+  }));
+});
+
+it('finishes an unchanged route-search body across a UI-only disabled change without restarting it', async () => {
+  let resolveRoutes: (value: unknown) => void = () => undefined;
+  const pending = new Promise((resolve) => { resolveRoutes = resolve; });
+  searchPopulationRoutes.mockReturnValueOnce(pending);
+  const props = {
+    table,
+    selection,
+    loading: false,
+    project: 'project',
+    explorerId: 'patients',
+    snapshotToken: 'snapshot',
+    onAttach: vi.fn(),
+    onClear: vi.fn(),
+  };
+  const { rerender } = render(<PopulationPanel {...props} disabled={false} />);
+  await waitFor(() => expect(searchPopulationRoutes).toHaveBeenCalledTimes(1));
+  expect(searchPopulationRoutes.mock.calls[0]).toHaveLength(1);
+
+  rerender(<PopulationPanel {...props} disabled />);
+  expect(searchPopulationRoutes).toHaveBeenCalledTimes(1);
+
+  await act(async () => {
+    resolveRoutes({
+      snapshotToken: 'snapshot',
+      outputId: 'specimens',
+      selectionRevisionId: 'selection-1',
+      complete: true,
+      truncated: false,
+      choices: [populationChoice],
+    });
+    await pending;
+  });
+  expect(await screen.findByText(/Specimen → DocumentReference via subject_Specimen/)).toBeTruthy();
+  expect(searchPopulationRoutes).toHaveBeenCalledTimes(1);
+});
+
+it('safely discards a route-search body that finishes after its panel unmounts', async () => {
+  let resolveRoutes: (value: unknown) => void = () => undefined;
+  const pending = new Promise((resolve) => { resolveRoutes = resolve; });
+  searchPopulationRoutes.mockReturnValueOnce(pending);
+  const { unmount } = render(
+    <PopulationPanel table={table} selection={selection} loading={false} disabled={false} project="project" explorerId="patients" snapshotToken="snapshot" onAttach={vi.fn()} onClear={vi.fn()} />,
+  );
+  await waitFor(() => expect(searchPopulationRoutes).toHaveBeenCalledTimes(1));
+  expect(searchPopulationRoutes.mock.calls[0]).toHaveLength(1);
+
+  unmount();
+  await act(async () => {
+    await Promise.resolve();
+    resolveRoutes({
+      snapshotToken: 'snapshot',
+      outputId: 'specimens',
+      selectionRevisionId: 'selection-1',
+      complete: true,
+      truncated: false,
+      choices: [populationChoice],
+    });
+    await pending;
+  });
+  expect(searchPopulationRoutes).toHaveBeenCalledTimes(1);
 });
 
 it('ignores a deferred report after the receipt and selection change', async () => {

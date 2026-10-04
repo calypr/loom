@@ -2507,6 +2507,7 @@ export const explorerBuilderCommandSchema = z
       'APPLY_TABLE_ROOT_REBASE',
       'SET_TABLE_POPULATION',
       'CLEAR_TABLE_POPULATION',
+      'APPLY_POPULATION_MEMBER_PROPOSAL',
       'ADD_ROUTE',
       'UPDATE_ROUTE_EDGE',
       'SET_ROUTE_MATCH_MODE',
@@ -2578,6 +2579,20 @@ export const explorerBuilderCommandSchema = z
   })
   .strict()
   .superRefine((command, context) => {
+    if (command.type === 'APPLY_POPULATION_MEMBER_PROPOSAL') {
+      if (!command.outputId) {
+        context.addIssue({ code: 'custom', path: ['outputId'], message: 'APPLY_POPULATION_MEMBER_PROPOSAL requires an output ID.' });
+      }
+      if (!command.proposalId) {
+        context.addIssue({ code: 'custom', path: ['proposalId'], message: 'APPLY_POPULATION_MEMBER_PROPOSAL requires a proposal ID.' });
+      }
+      for (const [key, value] of Object.entries(command)) {
+        if (!['type', 'outputId', 'proposalId'].includes(key) && value !== undefined) {
+          context.addIssue({ code: 'custom', path: [key], message: 'APPLY_POPULATION_MEMBER_PROPOSAL accepts only outputId and proposalId.' });
+        }
+      }
+      return;
+    }
     if (command.type === 'UPDATE_COLUMN_ROW_VALUE_POLICY') {
       if (!command.outputId) {
         context.addIssue({

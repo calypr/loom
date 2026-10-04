@@ -37,6 +37,7 @@ import {
   tableShapeResolutionSchema,
   explicitGroupCreateRequestSchema,
   explicitGroupRevisionSummarySchema,
+  explorerBuilderPreviewResultSchema,
   rowChangeAssessmentSchema,
   semanticInventoryBrowseResponseSchema,
   frameSourceOptionsResponseSchema,
@@ -510,6 +511,42 @@ export interface GetSelectionArgs extends ExplorerAuthoringStateArgs {
   readonly limit?: number;
 }
 
+export interface ProposePopulationMemberRemovalArgs extends ExplorerAuthoringStateArgs {
+  readonly snapshotToken: string;
+  readonly expectedDraftVersion: number;
+  readonly expectedDraftDigest: string;
+  readonly outputId: string;
+  readonly baseSelectionRevisionId: string;
+  readonly removedMember: ResourceRef;
+  readonly limit?: number;
+  readonly requestId?: string;
+}
+
+export const populationMemberRemovalProposalResponseSchema = z.object({
+  proposalId: z.string().min(1),
+  outputId: z.string().min(1),
+  snapshotToken: z.string().min(1),
+  draftVersion: z.number().int().positive(),
+  draftDigest: z.string().min(1),
+  baseDocumentDigest: z.string().min(1),
+  candidateWorkspaceDigest: z.string().min(1),
+  baseSelection: selectionRevisionSchema,
+  candidateSelection: selectionRevisionSchema,
+  removedMember: resourceRefSchema,
+  previewStatus: z.literal('READY'),
+  previewDurationMs: z.number().int().nonnegative(),
+  preview: explorerBuilderPreviewResultSchema,
+}).strict().superRefine((response, context) => {
+  if (response.preview.receiptId !== response.proposalId || response.preview.outputId !== response.outputId) {
+    context.addIssue({
+      code: 'custom',
+      path: ['preview'],
+      message: 'Population member preview must belong to its exact proposal and output.',
+    });
+  }
+});
+export type PopulationMemberRemovalProposalResponse = z.infer<typeof populationMemberRemovalProposalResponseSchema>;
+
 export interface LoomClientOptions {
   /** URL prefix for the Loom service. `/` is the standalone no-auth default. */
   readonly baseUrl?: string;
@@ -599,6 +636,11 @@ export interface LoomOutputResult {
 export interface LoomClient {
   readonly createSelection: (args: CreateSelectionArgs, signal?: AbortSignal) => Promise<SelectionRevision>;
   readonly getSelection: (args: GetSelectionArgs, signal?: AbortSignal) => Promise<SelectionPage>;
+
+  readonly proposePopulationMemberRemoval: (
+    args: ProposePopulationMemberRemovalArgs,
+    signal?: AbortSignal,
+  ) => Promise<PopulationMemberRemovalProposalResponse>;
   readonly createExplicitGroupRevision: (
     args: CreateExplicitGroupRevisionArgs,
     signal?: AbortSignal,
@@ -1538,10 +1580,22 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
     const params = new URLSearchParams();
     if (args.cursor !== undefined) params.set('cursor', args.cursor);
     if (args.limit !== undefined) params.set('limit', String(args.limit));
+    const authResourcePath = args.authResourcePath?.trim();
+    if (authResourcePath) params.set('auth_resource_path', authResourcePath);
     const query = params.size > 0 ? `?${params}` : '';
     return request(`${projectPath(args)}/${encodeURIComponent(args.explorerId)}/selections/${encodeURIComponent(args.selectionRevision)}${query}`, { signal })
       .then((value) => selectionPageSchema.parse(value));
   };
+  const proposePopulationMemberRemoval = (args: ProposePopulationMemberRemovalArgs, signal?: AbortSignal) =>
+    request(durableAuthoringPath(args, '/population-member-proposals'), withJson({
+      snapshotToken: args.snapshotToken,
+      expectedDraftVersion: args.expectedDraftVersion,
+      expectedDraftDigest: args.expectedDraftDigest,
+      outputId: args.outputId,
+      baseSelectionRevisionId: args.baseSelectionRevisionId,
+      removedMember: args.removedMember,
+      ...(args.limit === undefined ? {} : { limit: args.limit }),
+    }, signal, args.requestId)).then((value) => populationMemberRemovalProposalResponseSchema.parse(value));
   const createExplicitGroupRevision = (args: CreateExplicitGroupRevisionArgs, signal?: AbortSignal) => {
     const requestBody = explicitGroupCreateRequestSchema.parse({
       snapshotToken: args.snapshotToken,
@@ -1647,6 +1701,7 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
     listExplorers,
     createSelection,
     getSelection,
+    proposePopulationMemberRemoval,
     createExplicitGroupRevision,
     getBuilder,
     getCapability,

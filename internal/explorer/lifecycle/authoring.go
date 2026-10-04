@@ -30,6 +30,7 @@ func (s *Service) ApplyCommands(ctx context.Context, project, explorerID string,
 	tableShapeProposalCommand := request.Commands[0].Type == authoringv2.CommandApplyTableShapeProposal
 	var tableShapeCandidate *explorer.CompilationReceipt
 	constructionProposalCommand := request.Commands[0].Type == authoringv2.CommandApplyConstructionProposal
+	populationMemberProposalCommand := request.Commands[0].Type == authoringv2.CommandApplyPopulationMemberProposal
 	restoreDraftRevisionCommand := request.Commands[0].Type == authoringv2.CommandRestoreDraftRevision
 	rowValuePolicyCommand := request.Commands[0].Type == authoringv2.CommandUpdateColumnRowValuePolicy
 	for _, command := range request.Commands {
@@ -38,6 +39,7 @@ func (s *Service) ApplyCommands(ctx context.Context, project, explorerID string,
 		}
 	}
 	var constructionCandidate *explorer.CompilationReceipt
+	var populationMemberCandidate *explorer.CompilationReceipt
 	constructionIdentities := make([]capability.ConstructionChoiceIdentity, len(request.Commands))
 	var frameSourceIdentity capability.ConstructionChoiceIdentity
 	if frameSourceCommand {
@@ -95,7 +97,7 @@ func (s *Service) ApplyCommands(ctx context.Context, project, explorerID string,
 	var snapshot capability.Snapshot
 	var authorized AuthorizedCapability
 	var err error
-	if semanticCommand || constructionChoiceCommand || populationRouteCommand || constructionProposalCommand || restoreDraftRevisionCommand || frameSourceCommand || rowValuePolicyCommand {
+	if semanticCommand || constructionChoiceCommand || populationRouteCommand || constructionProposalCommand || populationMemberProposalCommand || restoreDraftRevisionCommand || frameSourceCommand || rowValuePolicyCommand {
 		if s.config.Capability.ForCompilation == nil {
 			return nil, unavailable("commands", "CAPABILITY_UNAVAILABLE", "authorized capability resolution is not configured", nil)
 		}
@@ -160,6 +162,12 @@ func (s *Service) ApplyCommands(ctx context.Context, project, explorerID string,
 			constructionCandidate = receipt
 			return prepared, prepareErr
 		}
+	} else if populationMemberProposalCommand {
+		prepare = func(ctx context.Context, workspace authoringv2.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, error) {
+			prepared, receipt, prepareErr := s.preparePopulationMemberRemovalProposal(ctx, project, explorerID, request, authorized, workspace, commands)
+			populationMemberCandidate = receipt
+			return prepared, prepareErr
+		}
 	} else if restoreDraftRevisionCommand {
 		prepare = func(ctx context.Context, _ authoringv2.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, error) {
 			return s.prepareDraftRevisionRestore(ctx, project, explorerID, request, snapshot, commands)
@@ -190,6 +198,12 @@ func (s *Service) ApplyCommands(ctx context.Context, project, explorerID string,
 		}
 		if constructionProposalCommand {
 			return checkConstructionProposalResult(workspace, constructionCandidate)
+		}
+		if populationMemberProposalCommand {
+			if err := checkPopulationMemberRemovalProposalResult(workspace, populationMemberCandidate); err != nil {
+				return err
+			}
+			return previewPopulationMemberRemovalProposal(ctx, s, project, explorerID, populationMemberCandidate)
 		}
 		if rowValuePolicyCommand {
 			return s.validateRowValuePolicyCandidate(ctx, project, explorerID, request, workspace, snapshot, authorized, request.Commands[0])
@@ -318,7 +332,7 @@ func (s *Service) compile(ctx context.Context, request compileRequest) (*explore
 		return nil, unprocessable("interpretation", "INVALID_INTERPRETATION", err.Error(), err)
 	}
 	resolvedInputs.Interpretations = resolvedInterpretations.Interpretations
-	receipt, err := s.config.CompileReceipt(ctx, CompileReceiptRequest{Project: request.Project, ExplorerID: request.ExplorerID, Workspace: workspace, SnapshotToken: snapshot.Token, RequestID: request.RequestID, Authorized: authorized, ResolvedInputs: resolvedInputs, SelectionMembersCollection: s.config.SelectionMembersCollection, RowDefinitionProposal: cloneRowDefinitionProposalBinding(request.RowDefinitionProposal), TableShapeProposal: cloneTableShapeProposalBinding(request.TableShapeProposal), ConstructionProposal: cloneConstructionProposalBinding(request.ConstructionProposal)})
+	receipt, err := s.config.CompileReceipt(ctx, CompileReceiptRequest{Project: request.Project, ExplorerID: request.ExplorerID, Workspace: workspace, SnapshotToken: snapshot.Token, RequestID: request.RequestID, Authorized: authorized, ResolvedInputs: resolvedInputs, SelectionMembersCollection: s.config.SelectionMembersCollection, RowDefinitionProposal: cloneRowDefinitionProposalBinding(request.RowDefinitionProposal), TableShapeProposal: cloneTableShapeProposalBinding(request.TableShapeProposal), ConstructionProposal: cloneConstructionProposalBinding(request.ConstructionProposal), PopulationMemberRemovalProposal: clonePopulationMemberRemovalProposalBinding(request.PopulationMemberRemovalProposal)})
 	if err != nil {
 		var compileErr *explorercompilation.Error
 		if errors.As(err, &compileErr) {
@@ -366,6 +380,9 @@ func (s *Service) validateCompiledReceipt(ctx context.Context, request compileRe
 	}
 	if !sameConstructionProposalBinding(request.ConstructionProposal, receipt.ConstructionProposal) {
 		return failureDetails(ClassUnprocessable, "compile", "INVALID_COMPILATION_RECEIPT", "compiled authoring receipt construction proposal binding does not match the request", nil, nil)
+	}
+	if !samePopulationMemberRemovalProposalBinding(request.PopulationMemberRemovalProposal, receipt.PopulationMemberRemovalProposal) {
+		return failureDetails(ClassUnprocessable, "compile", "INVALID_COMPILATION_RECEIPT", "compiled authoring receipt population member proposal binding does not match the request", nil, nil)
 	}
 	if authorized.Scope.Mode != "" {
 		if err := validateAuthorizedReadScope(authorized.Scope, snapshot.Identity.AuthorizationScopeDigest); err != nil {
@@ -416,6 +433,18 @@ func cloneTableShapeProposalBinding(binding *explorer.TableShapeProposalBinding)
 	}
 	cloned := *binding
 	return &cloned
+}
+
+func clonePopulationMemberRemovalProposalBinding(binding *explorer.PopulationMemberRemovalProposalBinding) *explorer.PopulationMemberRemovalProposalBinding {
+	if binding == nil {
+		return nil
+	}
+	cloned := *binding
+	return &cloned
+}
+
+func samePopulationMemberRemovalProposalBinding(left, right *explorer.PopulationMemberRemovalProposalBinding) bool {
+	return reflect.DeepEqual(clonePopulationMemberRemovalProposalBinding(left), clonePopulationMemberRemovalProposalBinding(right))
 }
 
 func cloneConstructionProposalBinding(binding *explorer.ConstructionProposalBinding) *explorer.ConstructionProposalBinding {

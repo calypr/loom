@@ -194,6 +194,9 @@ func (s *Service) preparePopulationRouteChoices(ctx context.Context, project str
 		return nil, malformed("commands", "population route choices must resolve one-to-one with commands", nil)
 	}
 	snapshot := authorized.Snapshot
+	if err := validateAuthorizedReadScope(authorized.Scope, snapshot.Identity.AuthorizationScopeDigest); err != nil {
+		return nil, conflict("commands", "STALE_AUTHORIZATION_SCOPE", "the authorized population route scope changed", nil, err)
+	}
 	for index := range commands {
 		command := &commands[index]
 		if command.Type != authoringv2.CommandSetTablePopulation || command.RouteChoiceID == "" || len(command.EdgeIDs) != 0 {

@@ -3499,6 +3499,8 @@ const BuilderWorkspaceContent = ({
                         explorerId={state.explorerId}
                         authResourcePath={authResourcePath}
                         snapshotToken={state.catalog.snapshotToken}
+                        draftVersion={state.draftVersion}
+                        draftDigest={state.draftDigest}
                         receiptId={state.receipt?.receiptId}
                         disabled={activePopulationSelectionLoading || populationVariantPending || pendingCommands > 0 || state.reconciliation === 'pending'}
                         onAttach={(routeChoiceId) => void applyCommands([{
@@ -3512,6 +3514,11 @@ const BuilderWorkspaceContent = ({
                           outputId: table.outputId,
                         }])}
                         onExclude={(ref, route) => void excludePopulationMember(ref, route)}
+                        onApplyMemberRemoval={(proposalId) => applyCommands([{
+                          type: 'APPLY_POPULATION_MEMBER_PROPOSAL',
+                          outputId: table.outputId,
+                          proposalId,
+                        }])}
                       />
                     )}
                     selection={activePopulationSelection}

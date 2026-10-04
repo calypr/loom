@@ -46,17 +46,18 @@ func (a AuthorizedCapability) Clone() AuthorizedCapability {
 }
 
 type CompileReceiptRequest struct {
-	Project                    string
-	ExplorerID                 string
-	Workspace                  authoringv2.Workspace
-	SnapshotToken              string
-	RequestID                  string
-	Authorized                 AuthorizedCapability
-	ResolvedInputs             explorercompilation.ResolvedInputs
-	SelectionMembersCollection string
-	RowDefinitionProposal      *explorer.RowDefinitionProposalBinding
-	TableShapeProposal         *explorer.TableShapeProposalBinding
-	ConstructionProposal       *explorer.ConstructionProposalBinding
+	Project                         string
+	ExplorerID                      string
+	Workspace                       authoringv2.Workspace
+	SnapshotToken                   string
+	RequestID                       string
+	Authorized                      AuthorizedCapability
+	ResolvedInputs                  explorercompilation.ResolvedInputs
+	SelectionMembersCollection      string
+	RowDefinitionProposal           *explorer.RowDefinitionProposalBinding
+	TableShapeProposal              *explorer.TableShapeProposalBinding
+	ConstructionProposal            *explorer.ConstructionProposalBinding
+	PopulationMemberRemovalProposal *explorer.PopulationMemberRemovalProposalBinding
 }
 
 type ReceiptCompiler func(context.Context, CompileReceiptRequest) (*explorer.CompilationReceipt, error)
@@ -222,14 +223,15 @@ type BuilderRequest struct {
 }
 
 type compileRequest struct {
-	Project               string
-	ExplorerID            string
-	Workspace             authoringv2.Workspace
-	SnapshotToken         string
-	RequestID             string
-	RowDefinitionProposal *explorer.RowDefinitionProposalBinding
-	TableShapeProposal    *explorer.TableShapeProposalBinding
-	ConstructionProposal  *explorer.ConstructionProposalBinding
+	Project                         string
+	ExplorerID                      string
+	Workspace                       authoringv2.Workspace
+	SnapshotToken                   string
+	RequestID                       string
+	RowDefinitionProposal           *explorer.RowDefinitionProposalBinding
+	TableShapeProposal              *explorer.TableShapeProposalBinding
+	ConstructionProposal            *explorer.ConstructionProposalBinding
+	PopulationMemberRemovalProposal *explorer.PopulationMemberRemovalProposalBinding
 }
 
 type ReconcileRequest struct {

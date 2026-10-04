@@ -593,3 +593,60 @@ func TestCompilationReceiptJSONRoundTripKeepsIdentity(t *testing.T) {
 		t.Fatalf("JSON round trip changed receipt ID: %q != %q", first, second)
 	}
 }
+func TestPopulationMemberRemovalBindingIsContentAddressedAndScopeBound(t *testing.T) {
+	base := testReceipt()
+	base.IntentDigest = "sha256:candidate"
+	base.PopulationMemberRemovalProposal = &PopulationMemberRemovalProposalBinding{
+		DraftVersion: 4, DraftDigest: "sha256:draft", OutputID: "out", BaseDocumentDigest: "sha256:document",
+		BaseSelectionRevisionID: "selection-base", BaseMembershipDigest: "sha256:base-members", BaseMemberCount: 2,
+		CandidateSelectionRevisionID: "selection-candidate", CandidateMembershipDigest: "sha256:candidate-members", CandidateMemberCount: 1,
+		RemovedMember: ResourceRef{Project: "project-a", Generation: "generation-a", ResourceType: "Patient", ID: "patient-2"},
+		RouteChoiceID: "route-choice", CandidateWorkspaceDigest: base.IntentDigest, SnapshotToken: base.SnapshotToken, PreviewLimit: 25,
+	}
+	if err := base.PopulationMemberRemovalProposal.Validate(base.IntentDigest, base.SnapshotToken, base.Project, base.SourceGeneration); err != nil {
+		t.Fatal(err)
+	}
+	base.CompilationKey, _ = CompilationKey(base)
+	first, err := ReceiptID(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	changed := base
+	binding := *base.PopulationMemberRemovalProposal
+	binding.CandidateSelectionRevisionID = "selection-other"
+	changed.PopulationMemberRemovalProposal = &binding
+	changed.CompilationKey, err = CompilationKey(changed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := ReceiptID(changed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first == second {
+		t.Fatal("population proposal binding was omitted from the receipt identity")
+	}
+
+	invalid := []struct {
+		name   string
+		change func(*PopulationMemberRemovalProposalBinding)
+	}{
+		{"candidate count", func(b *PopulationMemberRemovalProposalBinding) { b.CandidateMemberCount = 0 }},
+		{"candidate selection", func(b *PopulationMemberRemovalProposalBinding) {
+			b.CandidateSelectionRevisionID = b.BaseSelectionRevisionID
+		}},
+		{"wrong project", func(b *PopulationMemberRemovalProposalBinding) { b.RemovedMember.Project = "other-project" }},
+		{"wrong generation", func(b *PopulationMemberRemovalProposalBinding) { b.RemovedMember.Generation = "old-generation" }},
+		{"stale snapshot", func(b *PopulationMemberRemovalProposalBinding) { b.SnapshotToken = "other-snapshot" }},
+		{"wrong candidate workspace", func(b *PopulationMemberRemovalProposalBinding) { b.CandidateWorkspaceDigest = "sha256:other" }},
+	}
+	for _, test := range invalid {
+		t.Run(test.name, func(t *testing.T) {
+			value := *base.PopulationMemberRemovalProposal
+			test.change(&value)
+			if err := value.Validate(base.IntentDigest, base.SnapshotToken, base.Project, base.SourceGeneration); err == nil {
+				t.Fatal("invalid binding passed validation")
+			}
+		})
+	}
+}

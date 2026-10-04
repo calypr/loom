@@ -20,7 +20,8 @@ const mockClient = vi.hoisted(() => ({
   searchConstructionChoices: vi.fn(),
 }));
 
-vi.mock('../../../react', () => ({
+vi.mock('../../../react', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../../../react')>(),
   useLoomClient: () => mockClient,
 }));
 
@@ -167,6 +168,15 @@ describe('PairedColumnSuggestions', () => {
     expect(screen.getAllByTestId(/^paired-column-suggestion-/)).toHaveLength(
       MAX_VISIBLE_PAIRED_COLUMN_SUGGESTIONS,
     );
+    expect(mockClient.browseSemanticInventory).toHaveBeenCalledWith(
+      expect.objectContaining({
+        project: 'project-a',
+        explorerId: 'explorer-a',
+        snapshotToken: 'snapshot-a',
+        rowRoot: 'Specimen',
+        limit: 50,
+      }),
+    );
     expect(mockClient.searchConstructionChoices).toHaveBeenCalledWith(
       expect.objectContaining({
         outputId: 'specimens',
@@ -177,7 +187,6 @@ describe('PairedColumnSuggestions', () => {
           bindingId: 'binding-days_to_collection',
         }),
       }),
-      expect.any(AbortSignal),
     );
 
     fireEvent.click(suggestion);
@@ -224,6 +233,50 @@ describe('PairedColumnSuggestions', () => {
     expect(screen.getByTestId('paired-column-suggestion-new-output-only')).toBeInTheDocument();
   });
 
+  it('retires in-flight choices without aborting transport or showing stale output', async () => {
+    let resolveOldChoices!: (value: ConstructionChoiceSearchResponse) => void;
+    const oldChoices = new Promise<ConstructionChoiceSearchResponse>((resolve) => {
+      resolveOldChoices = resolve;
+    });
+    const oldItem = item('old-output-only', 'Old output concept');
+    const newItem = item('new-output-only', 'New output concept');
+    mockClient.browseSemanticInventory
+      .mockResolvedValueOnce(inventory([oldItem], 'context-old'))
+      .mockResolvedValueOnce(inventory([newItem], 'context-new'));
+    mockClient.searchConstructionChoices.mockImplementation(({ outputId }: { outputId: string }) =>
+      outputId === 'old-output' ? oldChoices : Promise.resolve(choicesFor(newItem, outputId)),
+    );
+
+    const { rerender } = renderSuggestions('old-output');
+    await waitFor(() => expect(mockClient.searchConstructionChoices).toHaveBeenCalledTimes(1));
+    expect(mockClient.browseSemanticInventory.mock.calls[0]).toHaveLength(1);
+    expect(mockClient.searchConstructionChoices.mock.calls[0]).toHaveLength(1);
+
+    rerender(
+      <PairedColumnSuggestions
+        project="project-a"
+        explorerId="explorer-a"
+        snapshotToken="snapshot-a"
+        outputId="new-output"
+        rowRoot="Specimen"
+        columns={[]}
+        onSelectSuggestion={vi.fn()}
+        onBrowseAll={vi.fn()}
+      />,
+    );
+    expect(await screen.findByTestId('paired-column-suggestion-new-output-only')).toBeInTheDocument();
+
+    await act(async () => {
+      resolveOldChoices(choicesFor(oldItem, 'old-output'));
+      await oldChoices;
+    });
+    expect(screen.queryByTestId('paired-column-suggestion-old-output-only')).not.toBeInTheDocument();
+    expect(screen.getByTestId('paired-column-suggestion-new-output-only')).toBeInTheDocument();
+    expect(mockClient.browseSemanticInventory.mock.calls[1]).toHaveLength(1);
+    expect(mockClient.searchConstructionChoices).toHaveBeenCalledTimes(2);
+    expect(mockClient.searchConstructionChoices.mock.calls.every((call) => call.length === 1)).toBe(true);
+  });
+
   it('does not repeat an authored paired concept by its displayed label', async () => {
     const authored = item('authored-pair', 'days_to_collection');
     mockClient.browseSemanticInventory.mockResolvedValue(inventory([authored]));
@@ -242,5 +295,59 @@ describe('PairedColumnSuggestions', () => {
     );
     expect(await screen.findByText(/No coded pairings with a supported route/)).toBeInTheDocument();
     expect(mockClient.searchConstructionChoices).not.toHaveBeenCalled();
+  });
+
+  it('shows a construction-choice failure instead of silently dropping that candidate', async () => {
+    const candidate = item('needs-route', 'Needs route');
+    mockClient.browseSemanticInventory.mockResolvedValue(inventory([candidate]));
+    mockClient.searchConstructionChoices.mockRejectedValue(new Error('Choice service unavailable'));
+
+    renderSuggestions();
+
+    expect(await screen.findByText('Choice service unavailable')).toHaveAttribute('role', 'status');
+    expect(screen.queryByText(/No coded pairings with a supported route/)).not.toBeInTheDocument();
+  });
+
+  it('surfaces choices returned for a different output or snapshot', async () => {
+    const candidate = item('wrong-scope', 'Wrong scope');
+    mockClient.browseSemanticInventory.mockResolvedValue(inventory([candidate]));
+    mockClient.searchConstructionChoices.mockResolvedValue(choicesFor(candidate, 'another-output'));
+
+    renderSuggestions('specimens');
+
+    expect(await screen.findByText('Loom returned paired construction choices for another table or catalog snapshot.'))
+      .toHaveAttribute('role', 'status');
+  });
+
+  it('ignores a late inventory result after its query is retired and does not fan out', async () => {
+    let resolveInventory!: (value: SemanticInventoryBrowseResponse) => void;
+    const deferredInventory = new Promise<SemanticInventoryBrowseResponse>((resolve) => { resolveInventory = resolve; });
+    mockClient.browseSemanticInventory.mockReturnValueOnce(deferredInventory);
+    const candidate = item('stale-tab-candidate', 'Stale tab candidate');
+    const onSelectSuggestion = vi.fn();
+    const TabbedColumns = () => {
+      const [tab, setTab] = React.useState<'coded' | 'fields'>('coded');
+      return (
+        <>
+          <button type="button" onClick={() => setTab('fields')}>Fields and related data</button>
+          {tab === 'coded' ? <PairedColumnSuggestions
+            project="project-a" explorerId="explorer-a" snapshotToken="snapshot-a" outputId="specimens"
+            rowRoot="Specimen" columns={[]} onSelectSuggestion={onSelectSuggestion} onBrowseAll={vi.fn()}
+          /> : <p>Related field chooser</p>}
+        </>
+      );
+    };
+    render(<TabbedColumns />);
+    await waitFor(() => expect(mockClient.browseSemanticInventory).toHaveBeenCalledTimes(1));
+    expect(mockClient.browseSemanticInventory.mock.calls[0]).toHaveLength(1);
+    fireEvent.click(screen.getByRole('button', { name: 'Fields and related data' }));
+    expect(screen.getByText('Related field chooser')).toBeInTheDocument();
+
+    await act(async () => {
+      resolveInventory(inventory([candidate], 'old-tab-context'));
+      await deferredInventory;
+    });
+    expect(mockClient.searchConstructionChoices).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('paired-column-suggestion-stale-tab-candidate')).not.toBeInTheDocument();
   });
 });

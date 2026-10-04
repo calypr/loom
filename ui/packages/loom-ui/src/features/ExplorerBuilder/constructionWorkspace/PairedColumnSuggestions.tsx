@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import { useLoomClient } from '../../../react';
+import React from 'react';
+import { useLoomClient, useQuery } from '../../../react';
 import type {
   ConstructionChoice,
   ConstructionChoiceSearchResponse,
@@ -70,19 +70,11 @@ export const PairedColumnSuggestions = ({
   readonly onBrowseAll: () => void;
 }) => {
   const client = useLoomClient();
-  const [state, setState] = useState<PairedColumnSuggestionsState>({ status: 'idle' });
   const authoredLabels = columns.map((column) => column.label);
-
-  useEffect(() => {
-    if (!snapshotToken || !outputId || !rowRoot) {
-      setState({ status: 'idle' });
-      return;
-    }
-
-    const controller = new AbortController();
-    setState({ status: 'loading' });
-
-    void client.browseSemanticInventory({
+  const enabled = Boolean(snapshotToken && outputId && rowRoot);
+  const pairedQuery = useQuery(async (signal) => {
+    if (signal.aborted) return { suggestions: [] as ReadonlyArray<PairedColumnSuggestion> };
+    const inventory = await client.browseSemanticInventory({
       project,
       explorerId,
       ...(authResourcePath ? { authResourcePath } : {}),
@@ -90,82 +82,80 @@ export const PairedColumnSuggestions = ({
       rowRoot,
       limit: INVENTORY_LIMIT,
       requestId: `paired-column-inventory-${window.crypto.randomUUID()}`,
-    }, controller.signal)
-      .then(async (inventory) => {
-        if (controller.signal.aborted) return;
-        if (inventory.state !== 'complete') {
-          setState({ status: 'ready', suggestions: [] });
-          return;
-        }
+    });
+    if (signal.aborted) return { suggestions: [] as ReadonlyArray<PairedColumnSuggestion> };
+    if (inventory.state !== 'complete') return { suggestions: [] as ReadonlyArray<PairedColumnSuggestion> };
 
-        const candidates = inventory.entries
-          .filter(isSuggestionCandidate)
-          .filter((item, index, items) =>
-            items.findIndex((candidate) =>
-              candidate.conceptId === item.conceptId && candidate.bindingId === item.bindingId,
-            ) === index,
-          )
-          .filter((item) => !authoredLabels.some((label) => sameLabel(label, semanticConceptLabel(item))))
-          .slice(0, MAX_ROUTE_SEARCHES);
+    const candidates = inventory.entries
+      .filter(isSuggestionCandidate)
+      .filter((item, index, items) =>
+        items.findIndex((candidate) =>
+          candidate.conceptId === item.conceptId && candidate.bindingId === item.bindingId,
+        ) === index,
+      )
+      .filter((item) => !authoredLabels.some((label) => sameLabel(label, semanticConceptLabel(item))))
+      .slice(0, MAX_ROUTE_SEARCHES);
 
-        const resolved = await Promise.all(candidates.map(async (item) => {
-          try {
-            const choices = await client.searchConstructionChoices({
-              project,
-              explorerId,
-              ...(authResourcePath ? { authResourcePath } : {}),
-              snapshotToken,
-              outputId,
-              source: {
-                kind: 'SEMANTIC',
-                contextToken: inventory.contextToken,
-                buildId: inventory.buildId,
-                conceptId: item.conceptId,
-                bindingId: item.bindingId,
-              },
-              limit: 10,
-              requestId: `paired-column-choices-${window.crypto.randomUUID()}`,
-            }, controller.signal);
-            if (controller.signal.aborted) return undefined;
-            if (choices.snapshotToken !== snapshotToken || choices.outputId !== outputId) return undefined;
-            if (!choices.choices.some((choice) => choiceMatchesItem(choice, item))) return undefined;
-            return {
-              requestId: `paired-column-selection-${window.crypto.randomUUID()}`,
-              snapshotToken,
-              outputId,
-              contextToken: inventory.contextToken,
-              buildId: inventory.buildId,
-              item,
-              choices,
-            } satisfies PairedColumnSuggestion;
-          } catch {
-            return undefined;
-          }
-        }));
-
-        if (controller.signal.aborted) return;
-        const suggestions = resolved
-          .filter((suggestion): suggestion is PairedColumnSuggestion => suggestion !== undefined)
-          .slice(0, MAX_VISIBLE_PAIRED_COLUMN_SUGGESTIONS);
-        setState({ status: 'ready', suggestions });
-
-      })
-      .catch((error: unknown) => {
-        if (controller.signal.aborted) return;
-        setState({ status: 'error', message: errorMessage(error) });
+    const resolved = await Promise.all(candidates.map(async (item) => {
+      if (signal.aborted) return undefined;
+      const choices = await client.searchConstructionChoices({
+        project,
+        explorerId,
+        ...(authResourcePath ? { authResourcePath } : {}),
+        snapshotToken,
+        outputId,
+        source: {
+          kind: 'SEMANTIC',
+          contextToken: inventory.contextToken,
+          buildId: inventory.buildId,
+          conceptId: item.conceptId,
+          bindingId: item.bindingId,
+        },
+        limit: 10,
+        requestId: `paired-column-choices-${window.crypto.randomUUID()}`,
       });
+      if (signal.aborted) return undefined;
+      if (choices.snapshotToken !== snapshotToken || choices.outputId !== outputId) {
+        throw new Error('Loom returned paired construction choices for another table or catalog snapshot.');
+      }
+      if (!choices.choices.some((choice) => choiceMatchesItem(choice, item))) return undefined;
+      return {
+        requestId: `paired-column-selection-${window.crypto.randomUUID()}`,
+        snapshotToken,
+        outputId,
+        contextToken: inventory.contextToken,
+        buildId: inventory.buildId,
+        item,
+        choices,
+      } satisfies PairedColumnSuggestion;
+    }));
+    if (signal.aborted) return { suggestions: [] as ReadonlyArray<PairedColumnSuggestion> };
 
-    return () => controller.abort();
+    return {
+      suggestions: resolved
+        .filter((suggestion): suggestion is PairedColumnSuggestion => suggestion !== undefined)
+        .slice(0, MAX_VISIBLE_PAIRED_COLUMN_SUGGESTIONS),
+    };
   }, [
+    client,
     authResourcePath,
     authoredLabels.join('\u0000'),
-    client,
     explorerId,
     outputId,
     project,
     rowRoot,
     snapshotToken,
-  ]);
+  ], enabled);
+
+  const state: PairedColumnSuggestionsState = !enabled
+    ? { status: 'idle' }
+    : pairedQuery.isLoading
+      ? { status: 'loading' }
+      : pairedQuery.error
+        ? { status: 'error', message: errorMessage(pairedQuery.error) }
+        : pairedQuery.data
+          ? { status: 'ready', suggestions: pairedQuery.data.suggestions }
+          : { status: 'loading' };
 
   if (!rowRoot) return null;
 

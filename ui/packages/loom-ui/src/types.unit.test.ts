@@ -650,6 +650,17 @@ describe('staged construction contract', () => {
 });
 
 describe('explorerBuilderCommandSchema', () => {
+  it('accepts population-member application only with its exact output and proposal receipt', () => {
+    const command = {
+      type: 'APPLY_POPULATION_MEMBER_PROPOSAL',
+      outputId: 'patients',
+      proposalId: 'proposal-1',
+    } as const;
+    expect(explorerBuilderCommandSchema.parse(command)).toEqual(command);
+    expect(explorerBuilderCommandSchema.safeParse({ ...command, selectionRevisionId: 'forged' }).success).toBe(false);
+    expect(explorerBuilderCommandSchema.safeParse({ type: command.type, outputId: command.outputId }).success).toBe(false);
+  });
+
   it('accepts only the server-issued revision ID for Undo', () => {
     expect(
       explorerBuilderCommandSchema.parse({
