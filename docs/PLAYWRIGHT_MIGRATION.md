@@ -5,15 +5,15 @@ This inventory tracks the isolated `infra/playwright-verification` branch based 
 | Driver family | Current callers | Browser machinery | Migration status |
 | --- | --- | --- | --- |
 | `scripts/verify-ui/browser.mjs` | No remaining runtime callers | Former Chrome/CDP launcher and custom actions | Removed after migrating all registered `verify-ui` cases. `common.mjs` remains for CLI/report dispatch and `browserURL`. |
-| `scripts/lib/browser.mjs` | Remaining standalone CDA and utility cases | Separate Chrome/CDP launcher and custom actions | Migration in progress. The gate lists exact remaining callers; remove this module after its callers migrate. |
-| `scripts/loom-dev.mjs` | `make verify-fast`, `make verify-full`, and fixture/session setup | Integrated legacy Chrome/CDP driver | J02, J03, J04, J05, external J01, and current Builder paths use Playwright. Local J01 and the default verification path still contain CDP. |
+| `scripts/lib/browser.mjs` | No remaining callers | Former separate Chrome/CDP launcher and custom actions | Removed with its legacy tests after the standalone cases migrated. Playwright actionability and trace tests cover the replacement. |
+| `scripts/loom-dev.mjs` | Fixture/session setup and the remaining `verify-cda-builder.mjs` branches | Integrated legacy Chrome/CDP driver | Generic verify-fast/full and J01–J05 use Playwright. Its CDP exports will be removed after the Builder harness migrates. |
 
 The two adapter modules have different APIs. `verify-ui` owns assertion/report integration, injected faults, and action timing. CDA scripts retain independent raw fixture or CDA queries and source/build freezes. Playwright replaces their interaction, navigation, waiting, and browser event plumbing; it does not replace those oracles.
 
 Run `node scripts/check-playwright-migration.mjs` for the current per-file
 inventory. `node scripts/check-playwright-migration.mjs --check` fails until
 all Chrome/CDP callers and replaced drivers are removed. At this checkpoint,
-22 `.mjs` files remain as of commit `c8f89222`; rerun the gate after every integration. A zero count is a migration gate, not proof of browser
+two `.mjs` files remain as of commit `4e7c46ab`; rerun the gate after every integration. A zero count is a migration gate, not proof of browser
 correctness; each case still needs its required assertions and owned runtime
 evidence.
 
@@ -65,6 +65,8 @@ generation, create fresh Explorers, and keep reports under this checkout's
 - A registered case proves only its declared assertions. Compare assertions with the original case and inspect actual result predicates before marking its migration complete.
 - CDA replay scripts that require owned seed reports remain untested until their corresponding 31-category Explorers are built in this isolated project. The loaded CDA generation alone does not establish a Pivot lifecycle pass.
 - `verify-cda-builder.mjs` still contains legacy CDP interactions for its other action branches. `Verify related source chooser`, the three Patient field-choice inspection actions, and `Verify Patient related column` dispatch to Playwright; the migrated Patient Apply/reload lifecycle reads the independent raw CDA files. The three inspection reports remain deliberately `partial`; they do not assert preview values or persistence. The Apply/reload case has not had a live run in this staging checkout.
+- `verify-cda-filter-lifecycle.mjs` is statically migrated, but its first isolated runtime attempt was interrupted after several minutes without a report. That attempt is **unverified**. Its relative API URL was corrected before the attempt, and source/build identity setup was independently measured at under one second; the later blocking stage remains to be diagnosed.
+- The migrated group-edit CDA case reached a saved Preview render delay beyond the five-second gate. Its report is `/private/tmp/loom-playwright-group-edit-evidence-rerun/report.json`; first-failure screenshot, DOM, sanitized requests, and trace fallback are in the same directory. The post-Unpivot `id-count` case failed its five-second render gate at `/private/tmp/loom-playwright-after-unpivot-id-count-evidence/report.json`. These are product performance failures for the other instance to triage, not migration passes.
 
 ## Primary references
 
