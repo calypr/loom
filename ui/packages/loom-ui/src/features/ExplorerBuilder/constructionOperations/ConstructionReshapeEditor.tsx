@@ -16,7 +16,7 @@ import { RelatedExpandEditor } from './RelatedExpandEditor';
 import { CodedPivotEditor } from './CodedPivotEditor';
 import { semanticConceptLabel } from '../catalogItems';
 
-type CandidateIntent = Pick<
+export type CandidateIntent = Pick<
   ConstructionProposalRequest,
   'candidateConstruction' | 'changedStepId' | 'removeStepIds' | 'groupSource' | 'groupSources' | 'pivotSources'
 >;
@@ -201,7 +201,7 @@ type ExpandForm = {
   readonly savedOutputs?: ConstructionStep['outputs'];
 };
 
-type ReshapeForm =
+export type ReshapeForm =
   | { readonly kind: 'choose' }
   | { readonly kind: 'related-expand' }
   | { readonly kind: 'coded-pivot' }
@@ -213,7 +213,12 @@ type ReshapeForm =
   | UnpivotForm
   | { readonly kind: 'unsupported'; readonly message: string };
 
-export type ReshapeEntryKind = 'choose' | 'group' | 'source-group' | 'coded-group' | 'pivot' | 'coded-pivot' | 'categories' | 'related-expand' | 'unpivot';
+export interface ConstructionReshapeEditorEntry {
+  readonly form: ReshapeForm;
+  readonly candidateIntent: CandidateIntent;
+}
+
+export type ReshapeEntryKind = 'choose' | 'group' | 'source-group' | 'coded-group' | 'expand' | 'pivot' | 'coded-pivot' | 'categories' | 'related-expand' | 'unpivot';
 
 const reshapeFormLabels = {
   group: 'Combine matching rows',
@@ -231,6 +236,7 @@ export interface ConstructionReshapeEditorProps {
   readonly capabilities: ReshapeCapabilities;
   readonly editingStep?: ConstructionReshapeStep;
   readonly initialKind?: ReshapeEntryKind;
+  readonly initialEntry?: ConstructionReshapeEditorEntry;
   readonly selectedColumns?: ReadonlyArray<string>;
   readonly pivotDiscovery?: ConstructionReshapePivotDiscovery;
   readonly onDiscoverCategories?: (request: ConstructionReshapePivotDiscoveryRequest) => void;
@@ -326,6 +332,9 @@ const numericColumnsFor = (stage: ReshapeStage): ReadonlyArray<ReshapeColumn> =>
 
 const listColumnsFor = (stage: ReshapeStage): ReadonlyArray<ReshapeColumn> =>
   stage.columns.filter(isListColumn);
+
+export const hasPublicScalarListColumn = (stage: ConstructionStageDescriptor | undefined): boolean =>
+  Boolean(stage && listColumnsFor(stage).length > 0);
 
 const codingPathLabel = (path: string): string => path.split('.').map((segment) => {
   const words = segment.replaceAll('[]', '').replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/^_+/, '').trim();
@@ -1278,6 +1287,7 @@ const formForStep = (
     if (initialKind === 'source-group') return initialSourceGroupForm(construction, capabilities.sourceInput?.choices ?? [])
       ?? { kind: 'unsupported', message: 'No source field can group these rows.' };
     if (initialKind === 'coded-group') return initialCodedGroupForm(stage);
+    if (initialKind === 'expand') return initialExpandForm(stage);
     if (initialKind === 'pivot') return initialPivotForm(stage, []);
     if (initialKind === 'coded-pivot') return { kind: 'coded-pivot' };
     if (initialKind === 'unpivot') return initialUnpivotForm(stage, selectedColumns);
@@ -1447,6 +1457,25 @@ const candidateFor = (args: {
   return { kind: 'incomplete' };
 };
 
+export const createReshapeEditorEntry = (args: {
+  readonly construction: Construction;
+  readonly capabilities: ReshapeCapabilities;
+}): ConstructionReshapeEditorEntry | undefined => {
+  const stage = args.capabilities.selectedStage;
+  if (!capabilityFor(stage, 'EXPAND').supported || !hasPublicScalarListColumn(stage)) return undefined;
+  const form = initialExpandForm(stage);
+  const evaluation = candidateFor({
+    form,
+    construction: args.construction,
+    capabilities: args.capabilities,
+    stage,
+    pivotCategoriesKnown: false,
+  });
+  return evaluation.kind === 'ready'
+    ? { form, candidateIntent: evaluation.intent }
+    : undefined;
+};
+
 export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps) => {
   const id = useId();
   const { construction, capabilities, editingStep, disabled, onCandidateChange } = props;
@@ -1461,7 +1490,8 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
   const groupCodedPivotCapability = capabilityFor(groupStage, 'CODED_PIVOT');
   const groupCodedValuesSupported = Boolean(savedOwnedCodedInput || groupCodedPivotCapability.supported) && !groupStage.operation;
   const contextKey = editorContextKey(capabilities, editingStep);
-  const [form, setForm] = useState<ReshapeForm>(() => formForStep(construction, capabilities, editingStep, groupStage, props.selectedColumns ?? [], props.initialKind));
+  const [form, setForm] = useState<ReshapeForm>(() => props.initialEntry?.form
+    ?? formForStep(construction, capabilities, editingStep, groupStage, props.selectedColumns ?? [], props.initialKind));
   const [formContextKey, setFormContextKey] = useState(contextKey);
   const [contractUnavailable, setContractUnavailable] = useState(false);
   const automaticallySelectedPivotPairs = useRef(new Set<string>());
@@ -1485,6 +1515,7 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
   const pivotDiscovery = props.pivotDiscovery;
 
   useLayoutEffect(() => {
+    if (props.initialEntry?.form.kind === 'expand') return;
     const initialForm = formForStep(construction, capabilities, editingStep, groupStage, props.selectedColumns ?? [], props.initialKind);
     setForm(initialForm);
     setFormContextKey(contextKey);
@@ -1504,7 +1535,7 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
         })
       : undefined;
     onCandidateChange(initialCandidate?.kind === 'ready' ? initialCandidate.intent : undefined);
-  }, [contextKey]);
+  }, [contextKey, props.initialEntry]);
 
   const capabilityForForm = (next: ReshapeForm) => {
     switch (next.kind) {

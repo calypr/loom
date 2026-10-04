@@ -210,7 +210,7 @@ export const RowDefinitionSettingsPanel = ({
   readonly disabled: boolean;
   readonly onApply: (proposalId: string) => Promise<boolean>;
   readonly relatedRows: { readonly supported: boolean; readonly reason?: string };
-  readonly reshapeRows: Record<'group' | 'pivot', { readonly supported: boolean; readonly reason?: string }> & {
+  readonly reshapeRows: Record<'group' | 'pivot' | 'expand', { readonly supported: boolean; readonly reason?: string }> & {
     readonly pivotPending?: boolean;
     readonly groupEntry: 'group' | 'source-group' | 'coded-group';
     readonly groupAlternatives: ReadonlyArray<{
@@ -221,7 +221,7 @@ export const RowDefinitionSettingsPanel = ({
     readonly pivotAlternative?: 'pivot';
   };
   readonly onChooseRelatedRows: () => void;
-  readonly onChooseReshape: (kind: 'group' | 'source-group' | 'coded-group' | 'pivot' | 'coded-pivot' | 'categories' | 'unpivot') => void;
+  readonly onChooseReshape: (kind: 'group' | 'source-group' | 'coded-group' | 'expand' | 'pivot' | 'coded-pivot' | 'categories' | 'unpivot') => void;
   readonly sourceCollectionAction?: ReactNode;
   readonly onChangeRootOccurrence: (nodeId: string, occurrenceId: string) => void;
   readonly onEditConstructionStep?: (stepId: string) => void;
@@ -377,7 +377,7 @@ export const RowDefinitionSettingsPanel = ({
     cancel();
     onChooseRelatedRows();
   };
-  const chooseReshape = (kind: 'group' | 'source-group' | 'coded-group' | 'pivot' | 'coded-pivot' | 'categories' | 'unpivot') => {
+  const chooseReshape = (kind: 'group' | 'source-group' | 'coded-group' | 'expand' | 'pivot' | 'coded-pivot' | 'categories' | 'unpivot') => {
     cancel();
     onChooseReshape(kind);
   };
@@ -508,6 +508,16 @@ export const RowDefinitionSettingsPanel = ({
                   <span className="block text-sm font-semibold text-slate-900">Turn columns into rows</span>
                   <span className="mt-1 block text-xs text-slate-600">Move selected columns into a field-name column and a value column. Other columns repeat on each new row.</span>
                   <span className="mt-3 block text-xs font-medium text-slate-700">Example: Height and Weight columns → 2 rows, one for each measurement</span>
+                </button>
+                <button type="button" data-testid="construction-action-expand-rows"
+                  disabled={disabled || !reshapeRows.expand.supported}
+                  onClick={() => chooseReshape('expand')}
+                  className="rounded-lg border border-slate-200 p-3 text-left hover:border-blue-400 hover:bg-blue-50 disabled:opacity-50">
+                  <span className="block text-sm font-semibold text-slate-900">Make one row per list value</span>
+                  <span className="mt-1 block text-xs text-slate-600">Take each item from an existing list column as a new row. Other columns repeat on each new row.</span>
+                  {!reshapeRows.expand.supported && reshapeRows.expand.reason ? (
+                    <span className="mt-2 block text-xs text-slate-600">{reshapeRows.expand.reason}</span>
+                  ) : null}
                 </button>
                 {sourceCollectionAction ? (
                   <div className="sm:col-span-2 rounded-lg border border-slate-200">

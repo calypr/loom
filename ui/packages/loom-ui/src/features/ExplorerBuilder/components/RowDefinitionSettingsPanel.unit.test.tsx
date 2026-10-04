@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import React from 'react';
 import type { ReactNode } from 'react';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { RowDefinitionChoicesResponse, RowDefinitionProposal } from '../../../types';
 import type { SelectionRevision } from '../../../selection';
@@ -121,7 +121,7 @@ const relatedRowProps = {
   ),
   startingCollectionSettings: <section aria-label="Starting collection">Collection controls</section>,
   relatedRows: { supported: false, reason: 'No executable route' },
-  reshapeRows: { group: { supported: true }, groupEntry: 'group' as const, groupAlternatives: [], pivot: { supported: true } },
+  reshapeRows: { group: { supported: true }, groupEntry: 'group' as const, groupAlternatives: [], pivot: { supported: true }, expand: { supported: true } },
   onChooseRelatedRows: vi.fn(),
   onChooseReshape: vi.fn(),
   onChangeRootOccurrence: vi.fn(),
@@ -144,6 +144,7 @@ const renderSettings = (overrides: {
   relatedRowsSupported?: boolean;
   pivotSupported?: boolean;
   pivotPending?: boolean;
+  expandSupported?: boolean;
   codedPivotDefault?: boolean;
   tablePivotAlternative?: boolean;
   codedGroupDefault?: boolean;
@@ -175,7 +176,8 @@ const renderSettings = (overrides: {
         pivotEntry: overrides.codedPivotDefault ? 'coded-pivot' : 'pivot', pivot: {
         supported: overrides.pivotSupported ?? true,
         reason: 'No executable category-to-column operation',
-      }, pivotPending: overrides.pivotPending ?? false, ...(overrides.tablePivotAlternative ? { pivotAlternative: 'pivot' as const } : {}) }}
+      }, expand: { supported: overrides.expandSupported ?? true, reason: 'No list column is available in this table.' },
+      pivotPending: overrides.pivotPending ?? false, ...(overrides.tablePivotAlternative ? { pivotAlternative: 'pivot' as const } : {}) }}
       onChooseRelatedRows={onChooseRelatedRows}
       onChooseReshape={onChooseReshape}
       sourceCollectionAction={overrides.sourceCollectionAction}
@@ -215,6 +217,32 @@ describe('RowDefinitionSettingsPanel', () => {
       await screen.findByTestId('construction-reshape-expand-source'),
     )).toBe(true);
     expect(onChooseReshape).not.toHaveBeenCalled();
+  });
+
+  it('opens authored list expansion separately from source collection expansion', async () => {
+    const { onChooseReshape } = renderSettings({
+      sourceCollectionAction: (
+        <button type="button" data-testid="construction-reshape-expand-source">
+          Expand a repeated source field
+        </button>
+      ),
+    });
+    fireEvent.click(screen.getByTestId('construction-rows-settings-trigger'));
+    const rowChangeMenu = await screen.findByRole('region', { name: 'Choose a row change' });
+    expect(within(rowChangeMenu).getByTestId('construction-action-expand-rows')).toHaveTextContent('Make one row per list value');
+    expect(within(rowChangeMenu).getByTestId('construction-reshape-expand-source')).toHaveTextContent('Expand a repeated source field');
+
+    fireEvent.click(within(rowChangeMenu).getByTestId('construction-action-expand-rows'));
+    expect(onChooseReshape).toHaveBeenCalledWith('expand');
+  });
+
+  it('disables authored list expansion when the current stage has no expansion support', async () => {
+    renderSettings({ expandSupported: false });
+    fireEvent.click(screen.getByTestId('construction-rows-settings-trigger'));
+    const expand = await screen.findByTestId('construction-action-expand-rows');
+
+    expect(expand).toBeDisabled();
+    expect(expand).toHaveTextContent('No list column is available in this table.');
   });
 
   it('shows one compact Rows card and opens its row and starting-collection settings', async () => {

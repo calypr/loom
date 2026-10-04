@@ -231,12 +231,14 @@ vi.mock('./components/PreviewTable', () => ({
     .map(({ value }) => value),
 }));
 
-vi.mock('./constructionOperations/ConstructionReshapeEditor', () => ({
+vi.mock('./constructionOperations/ConstructionReshapeEditor', async (importOriginal) => ({
+  ...await importOriginal<typeof import('./constructionOperations/ConstructionReshapeEditor')>(),
   ConstructionReshapeEditor: ({
     editingStep,
     initialKind,
     construction,
     capabilities,
+    initialEntry,
     pivotDiscovery,
     onDiscoverCategories,
     onCandidateChange,
@@ -245,6 +247,10 @@ vi.mock('./constructionOperations/ConstructionReshapeEditor', () => ({
     readonly initialKind?: string;
     readonly construction: { readonly steps: ReadonlyArray<unknown> };
     readonly capabilities: { readonly selectedStage: { readonly id: string } };
+    readonly initialEntry?: {
+      readonly form: { readonly kind: string; readonly stepId?: string };
+      readonly candidateIntent: ConstructionCandidateIntent;
+    };
     readonly pivotDiscovery?: { readonly status: string };
     readonly onDiscoverCategories?: (request: { readonly stageId: string; readonly categoryColumnId: string; readonly valueColumnId: string }) => void;
     readonly onCandidateChange?: (intent: ConstructionCandidateIntent | undefined) => void;
@@ -254,6 +260,8 @@ vi.mock('./constructionOperations/ConstructionReshapeEditor', () => ({
       data-editing-step-id={editingStep?.id ?? ''}
       data-editing-operation={editingStep?.operation.kind ?? ''}
       data-initial-kind={initialKind ?? ''}
+      data-initial-entry-step-id={initialEntry?.form.stepId ?? ''}
+      data-initial-candidate-step-id={initialEntry?.candidateIntent.changedStepId ?? ''}
       data-construction-step-count={construction.steps.length}
       data-discovery-status={pivotDiscovery?.status ?? 'none'}
     >
@@ -929,6 +937,167 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     fireEvent.click(genericPivot);
     const editor = await screen.findByTestId('construction-reshape-editor');
     expect(editor).toHaveAttribute('data-initial-kind', 'pivot');
+  });
+
+  it('opens authored list expansion directly for the selected append stage and previews once', async () => {
+    const sourceStage = {
+      id: 'source_projection',
+      inputStageId: '',
+      rowIdentityColumn: 'cohort-row-id',
+      columns: [
+        { id: 'cohort-member-ids', name: 'id', label: 'Cohort member IDs', type: 'string', cardinality: 'many' as const },
+        { id: 'cohort-name', name: 'cohort_name', label: 'Cohort name', type: 'string' },
+      ],
+      capabilities: [
+        { kind: 'EXPAND' as const, supported: true },
+        { kind: 'FILTER' as const, supported: true },
+      ],
+    };
+    mockLoomClient.getConstructionCapabilities.mockImplementation(async (args: {
+      readonly snapshotToken: string;
+      readonly expectedDraftVersion: number;
+      readonly expectedDraftDigest: string;
+      readonly outputId: string;
+      readonly stageId: string;
+    }) => ({
+      snapshotToken: args.snapshotToken,
+      draftVersion: args.expectedDraftVersion,
+      draftDigest: args.expectedDraftDigest,
+      outputId: args.outputId,
+      stageId: args.stageId,
+      baseConstruction: { version: 1, steps: [] },
+      stages: [sourceStage],
+      selectedStage: sourceStage,
+    }));
+    mockLoomClient.proposeConstruction.mockClear();
+    mockLoomClient.proposeConstruction.mockImplementation(async (args: ProposeConstructionArgs): Promise<ConstructionProposalResponse> => ({
+      proposalId: 'expand-entry-proposal',
+      outputId: args.outputId,
+      snapshotToken: args.snapshotToken,
+      draftVersion: args.expectedDraftVersion,
+      draftDigest: args.expectedDraftDigest,
+      baseDocumentDigest: 'document-1',
+      candidateWorkspaceDigest: 'expand-candidate-1',
+      changedStepId: args.changedStepId ?? '',
+      candidateConstruction: args.candidateConstruction,
+      dependencyImpact: { affectedStepIds: [] },
+      stages: [sourceStage],
+      previewStatus: 'READY',
+      previewDurationMs: 2,
+      preview: {
+        apiVersion,
+        kind: 'ExplorerBuilderPreview',
+        rowLineageCapability: { status: 'UNAVAILABLE', reasonCode: 'TEST_FIXTURE' },
+        receiptId: 'expand-entry-proposal',
+        outputId: args.outputId,
+        columns: [],
+        rows: [],
+        rowCount: 0,
+        diagnostics: [],
+      },
+    }));
+
+    render(
+      <BuilderWorkspace
+        organization="HTAN_INT"
+        project="BForePC"
+        explorerId="test"
+      />,
+    );
+    fireEvent.click(await screen.findByRole('button', { name: 'Configure rows' }));
+    const rowSettings = await screen.findByRole('dialog', { name: 'Row definition settings' });
+    const expandAction = await within(rowSettings).findByTestId('construction-action-expand-rows');
+    expect(expandAction).toBeEnabled();
+    fireEvent.click(expandAction);
+
+    const editor = await screen.findByTestId('construction-reshape-editor');
+    expect(editor).toHaveAttribute('data-initial-kind', 'expand');
+    await waitFor(() => expect(mockLoomClient.proposeConstruction).toHaveBeenCalledOnce());
+    const proposalArgs = mockLoomClient.proposeConstruction.mock.calls[0]?.[0] as ProposeConstructionArgs | undefined;
+    const expandStep = proposalArgs?.candidateConstruction.steps.at(-1);
+    expect(expandStep?.operation.kind).toBe('EXPAND');
+    expect(expandStep?.id).toBe(editor.getAttribute('data-initial-entry-step-id'));
+    expect(editor.getAttribute('data-initial-candidate-step-id')).toBe(expandStep?.id);
+    fireEvent.click(screen.getByRole('button', { name: 'Review dataset' }));
+    expect(await screen.findByRole('region', { name: 'Dataset review' })).toBeInTheDocument();
+    await new Promise((resolve) => setTimeout(resolve, 350));
+    expect(mockLoomClient.proposeConstruction).toHaveBeenCalledOnce();
+    expect(mockLoomClient.getConstructionCapabilities).toHaveBeenCalledWith(
+      expect.objectContaining({ outputId: 'specimens', stageId: 'source_projection' }),
+      expect.any(AbortSignal),
+    );
+  });
+
+  it('aborts an authored expansion preview when its Builder owner changes', async () => {
+    const sourceStage = {
+      id: 'source_projection',
+      inputStageId: '',
+      rowIdentityColumn: 'cohort-row-id',
+      columns: [
+        { id: 'cohort-member-ids', name: 'id', label: 'Cohort member IDs', type: 'string', cardinality: 'many' as const },
+        { id: 'cohort-name', name: 'cohort_name', label: 'Cohort name', type: 'string' },
+      ],
+      capabilities: [
+        { kind: 'EXPAND' as const, supported: true },
+        { kind: 'FILTER' as const, supported: true },
+      ],
+    };
+    mockLoomClient.getConstructionCapabilities.mockImplementation(async (args: {
+      readonly snapshotToken: string;
+      readonly expectedDraftVersion: number;
+      readonly expectedDraftDigest: string;
+      readonly outputId: string;
+      readonly stageId: string;
+    }) => ({
+      snapshotToken: args.snapshotToken,
+      draftVersion: args.expectedDraftVersion,
+      draftDigest: args.expectedDraftDigest,
+      outputId: args.outputId,
+      stageId: args.stageId,
+      baseConstruction: { version: 1, steps: [] },
+      stages: [sourceStage],
+      selectedStage: sourceStage,
+    }));
+    const pendingProposal = deferredRequest<ConstructionProposalResponse>();
+    let proposalSignal: AbortSignal | undefined;
+    mockLoomClient.proposeConstruction.mockClear();
+    mockLoomClient.proposeConstruction.mockImplementation((_args: ProposeConstructionArgs, signal?: AbortSignal) => {
+      proposalSignal = signal;
+      return pendingProposal.request.unwrap();
+    });
+    mockLoomClient.preview.mockClear();
+
+    const view = render(
+      <BuilderWorkspace organization="HTAN_INT" project="BForePC" explorerId="test" />,
+    );
+    fireEvent.click(await screen.findByRole('button', { name: 'Configure rows' }));
+    const rowSettings = await screen.findByRole('dialog', { name: 'Row definition settings' });
+    fireEvent.click(await within(rowSettings).findByTestId('construction-action-expand-rows'));
+    await waitFor(() => expect(mockLoomClient.proposeConstruction).toHaveBeenCalledOnce());
+    expect(proposalSignal).toBeDefined();
+
+    view.rerender(
+      <BuilderWorkspace organization="HTAN_INT" project="DifferentProject" explorerId="test" />,
+    );
+    await waitFor(() => expect(proposalSignal?.aborted).toBe(true));
+    const staleArgs = mockLoomClient.proposeConstruction.mock.calls[0]?.[0] as ProposeConstructionArgs;
+    pendingProposal.resolve({
+      proposalId: 'stale-expand-proposal',
+      outputId: staleArgs.outputId,
+      snapshotToken: staleArgs.snapshotToken,
+      draftVersion: staleArgs.expectedDraftVersion,
+      draftDigest: staleArgs.expectedDraftDigest,
+      baseDocumentDigest: 'document-1',
+      candidateWorkspaceDigest: 'stale-candidate',
+      changedStepId: staleArgs.changedStepId ?? '',
+      candidateConstruction: staleArgs.candidateConstruction,
+      dependencyImpact: { affectedStepIds: [] },
+      stages: [sourceStage],
+      previewStatus: 'READY',
+      previewDurationMs: 1,
+    });
+    await act(async () => Promise.resolve());
+    expect(mockLoomClient.preview).not.toHaveBeenCalled();
   });
 
   it('opens stage-scoped pivot discovery from a source-only Reshape editor', async () => {

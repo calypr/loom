@@ -7,7 +7,7 @@ import {
   type ConstructionReshapeStep,
 } from './ConstructionReshapeEditor';
 import { constructionSchema } from '../../../types';
-import { ConstructionReshapeEditor } from './ConstructionReshapeEditor';
+import { ConstructionReshapeEditor, createReshapeEditorEntry } from './ConstructionReshapeEditor';
 
 const sourceColumns: ConstructionReshapeEditorProps['capabilities']['selectedStage']['columns'] = [
   { id: 'site-id', name: 'site', label: 'Site', type: 'string', cardinality: 'required_one' },
@@ -48,6 +48,7 @@ const renderEditor = (args: {
   readonly capabilities?: ConstructionReshapeEditorProps['capabilities'];
   readonly editingStep?: ConstructionReshapeStep;
   readonly initialKind?: ConstructionReshapeEditorProps['initialKind'];
+  readonly initialEntry?: ConstructionReshapeEditorProps['initialEntry'];
   readonly selectedColumns?: ReadonlyArray<string>;
   readonly onCandidateChange?: ConstructionReshapeEditorProps['onCandidateChange'];
   readonly onDiscoverCategories?: ConstructionReshapeEditorProps['onDiscoverCategories'];
@@ -63,6 +64,7 @@ const renderEditor = (args: {
       capabilities={args.capabilities ?? capabilitiesFor()}
       editingStep={args.editingStep}
       initialKind={args.initialKind}
+      initialEntry={args.initialEntry}
       selectedColumns={args.selectedColumns}
       onDiscoverCategories={args.onDiscoverCategories}
       codedPivotContext={args.codedPivotContext}
@@ -98,6 +100,45 @@ const assertCandidateMatchesSchemaAnd = (
 afterEach(cleanup);
 
 describe('ConstructionReshapeEditor', () => {
+  it('uses the same event-owned EXPAND form for its first render and later field previews', async () => {
+    const capabilities = capabilitiesFor();
+    const entry = createReshapeEditorEntry({
+      construction: capabilities.baseConstruction,
+      capabilities,
+    });
+    expect(entry).toBeDefined();
+    if (!entry || entry.form.kind !== 'expand') throw new Error('Expected a supported public scalar list column');
+    expect(entry.candidateIntent.candidateConstruction.steps.at(-1)?.id).toBe(entry.form.stepId);
+
+    const onCandidateChange = vi.fn();
+    const { view } = renderEditor({
+      capabilities,
+      initialKind: 'expand',
+      initialEntry: entry,
+      onCandidateChange,
+    });
+    expect(controlValue('Empty list policy')).toBe('PRESERVE_PARENT');
+    expect(onCandidateChange).not.toHaveBeenCalled();
+
+    view.rerender(
+      <ConstructionReshapeEditor
+        construction={capabilities.baseConstruction}
+        capabilities={capabilities}
+        initialKind="expand"
+        initialEntry={entry}
+        disabled={false}
+        onCandidateChange={onCandidateChange}
+        onEditStep={vi.fn()}
+      />,
+    );
+    expect(onCandidateChange).not.toHaveBeenCalled();
+
+    fireEvent.change(screen.getByLabelText('Empty list policy'), { target: { value: 'EXCLUDE' } });
+    expect(onCandidateChange).toHaveBeenCalledOnce();
+    expect(onCandidateChange.mock.lastCall?.[0]?.candidateConstruction.steps.at(-1)?.id).toBe(entry.form.stepId);
+    expect(onCandidateChange.mock.lastCall?.[0]?.candidateConstruction.steps.at(-1)?.operation.kind).toBe('EXPAND');
+  });
+
   it('offers only compiler-supported scalar fields as pivot inputs', () => {
     const stage = {
       ...sourceStage,
@@ -728,6 +769,43 @@ describe('ConstructionReshapeEditor', () => {
     expect(screen.getByLabelText('Group output label 1')).toBeDisabled();
     expect(screen.getByLabelText('Summary output name 1')).toBeDisabled();
     expect(screen.getByLabelText('Summary output label 1')).toBeDisabled();
+  });
+
+  it('renders the event-owned expansion form for the current cohort member ID list', () => {
+    const cohortStage = {
+      ...sourceStage,
+      columns: [
+        { id: 'cohort-member-ids', name: 'id', label: 'Cohort member IDs', type: 'string', cardinality: 'many' },
+        { id: 'cohort-name', name: 'cohort_name', label: 'Cohort name', type: 'string', cardinality: 'required_one' },
+      ],
+    } satisfies ConstructionReshapeEditorProps['capabilities']['selectedStage'];
+    const capabilities = capabilitiesFor([cohortStage], cohortStage);
+    const entry = createReshapeEditorEntry({
+      construction: capabilities.baseConstruction,
+      capabilities,
+    });
+    expect(entry).toBeDefined();
+    if (!entry || entry.form.kind !== 'expand') throw new Error('Expected the initial expansion entry');
+    const onCandidateChange = vi.fn<ConstructionReshapeEditorProps['onCandidateChange']>();
+    renderEditor({
+      initialKind: 'expand',
+      initialEntry: entry,
+      capabilities,
+      onCandidateChange,
+    });
+
+    expect(screen.getByRole('region', { name: 'Expand repeated values' })).toBeInTheDocument();
+    expect(controlValue('Repeated field')).toBe('cohort-member-ids');
+    expect(onCandidateChange).not.toHaveBeenCalled();
+
+    const step = entry.candidateIntent.candidateConstruction.steps.at(-1);
+    expect(step?.inputs).toEqual([{ kind: 'SOURCE_PROJECTION' }]);
+    expect(step?.operation).toMatchObject({
+      kind: 'EXPAND',
+      expand: { inputColumnId: 'cohort-member-ids', emptyPolicy: 'PRESERVE_PARENT' },
+    });
+    expect(step?.outputs).toContainEqual(expect.objectContaining({ id: 'cohort-name', name: 'cohort_name' }));
+    expect(step?.outputs).not.toContainEqual(expect.objectContaining({ id: 'cohort-member-ids' }));
   });
 
   it('keeps empty-list parent rows by default and offers a zero-based position column in Advanced options', () => {

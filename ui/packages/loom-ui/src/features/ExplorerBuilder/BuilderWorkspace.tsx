@@ -125,7 +125,7 @@ import {
 } from './constructionWorkspace/appliedChoicePreview';
 import { ConstructionOperationEditor } from './constructionOperations/ConstructionOperationEditor';
 import { FilterRowsEditor } from './constructionOperations/FilterRowsEditor';
-import { ConstructionReshapeEditor, type ReshapeEntryKind } from './constructionOperations/ConstructionReshapeEditor';
+import { ConstructionReshapeEditor, createReshapeEditorEntry, hasPublicScalarListColumn, type ConstructionReshapeEditorEntry, type ReshapeEntryKind } from './constructionOperations/ConstructionReshapeEditor';
 import {
   RelatedSourceStepEditor,
   type RelatedSourceStep,
@@ -507,6 +507,10 @@ const BuilderWorkspaceContent = ({
   const [rowValuePolicy, setRowValuePolicy] = useState<NonNullable<ConstructionChoiceSelection['rowValuePolicy']>>('ALL');
   const [reshapeEntry, setReshapeEntry] = useState(0);
   const [reshapeEntryKind, setReshapeEntryKind] = useState<ReshapeEntryKind>('choose');
+  const [reshapeInitialEntry, setReshapeInitialEntry] = useState<{
+    readonly editorKey: string;
+    readonly entry: ConstructionReshapeEditorEntry;
+  }>();
   const [addColumnsSource, setAddColumnsSource] = useState<{
     readonly context: string;
     readonly key: string;
@@ -2446,6 +2450,8 @@ const BuilderWorkspaceContent = ({
     />
   );
 
+  const reshapeEditorKeyFor = (entry: number, kind: ReshapeEntryKind, stageId: string) =>
+    `${ownerKey}:${state.catalog.snapshotToken}:${state.draftVersion}:${state.draftDigest}:${table?.outputId ?? ''}:${stageId}:${entry}:${kind}`;
   const selectConstructionFamily = (family: ConstructionOperationFamily) => {
     constructionLifecycle.cancel();
     setConstructionHistorySelection({ kind: 'source' });
@@ -2461,12 +2467,37 @@ const BuilderWorkspaceContent = ({
     setReshapeEntry((current) => current + 1);
     setActiveConstructionFamily('RESHAPE');
   };
-  const chooseReshapeRows = (kind: 'group' | 'source-group' | 'coded-group' | 'categories' | 'pivot' | 'coded-pivot' | 'unpivot') => {
+  const chooseReshapeRows = (kind: 'group' | 'source-group' | 'coded-group' | 'expand' | 'categories' | 'pivot' | 'coded-pivot' | 'unpivot') => {
     constructionLifecycle.cancel();
     setConstructionHistorySelection({ kind: 'source' });
     setEditingConstructionStepId(undefined);
     setReshapeEntryKind(kind);
-    setReshapeEntry((current) => current + 1);
+    const nextEntry = reshapeEntry + 1;
+    if (kind === 'expand' && table && constructionLifecycle.capabilities.status === 'ready') {
+      const response = constructionLifecycle.capabilities.response;
+      const appendStageId = constructionAppendStageFor(response.baseConstruction, table.document.rows);
+      const supported = response.selectedStage.id === appendStageId
+        && response.selectedStage.capabilities.some((candidate) => candidate.kind === 'EXPAND' && candidate.supported)
+        && hasPublicScalarListColumn(response.selectedStage);
+      const entry = supported
+        ? createReshapeEditorEntry({
+            construction: construction ?? response.baseConstruction,
+            capabilities: response,
+          })
+        : undefined;
+      if (entry) {
+        constructionLifecycle.onCandidateChange(entry.candidateIntent);
+        setReshapeInitialEntry({
+          editorKey: reshapeEditorKeyFor(nextEntry, kind, response.selectedStage.id),
+          entry,
+        });
+      } else {
+        setReshapeInitialEntry(undefined);
+      }
+    } else {
+      setReshapeInitialEntry(undefined);
+    }
+    setReshapeEntry(nextEntry);
     setActiveConstructionFamily('RESHAPE');
   };
   const openCodedValueCatalog = () => {
@@ -2551,6 +2582,19 @@ const BuilderWorkspaceContent = ({
   const activeOperation = constructionOperationFamilies.find(
     (candidate) => candidate.family === activeConstructionFamily,
   );
+  const activeReshapeEditorKey = table && constructionLifecycle.capabilities.status === 'ready'
+    ? reshapeEditorKeyFor(
+        reshapeEntry,
+        reshapeEntryKind,
+        constructionLifecycle.capabilities.response.selectedStage.id,
+      )
+    : undefined;
+  const activeReshapeInitialEntry = reshapeInitialEntry && reshapeInitialEntry.editorKey === activeReshapeEditorKey
+    ? reshapeInitialEntry.entry
+    : undefined;
+  const activeReshapeInitialKind = reshapeEntryKind === 'expand' && !activeReshapeInitialEntry
+    ? 'choose'
+    : reshapeEntryKind;
   const editingRelatedSourceStep: RelatedSourceStep | undefined = editingConstructionStep?.operation.kind === 'RELATED_SOURCE'
     ? editingConstructionStep as RelatedSourceStep
     : undefined;
@@ -2610,6 +2654,17 @@ const BuilderWorkspaceContent = ({
   const codedPivotAvailability = reshapeAvailabilityFor('CODED_PIVOT');
   const tablePivotAvailability = constructionLifecycle.capabilities.status === 'ready' && constructionLifecycle.capabilities.response.pivotSourceInput?.supported
     ? { supported: true } : reshapeAvailabilityFor('PIVOT');
+  const expandCapability = capabilityStage?.capabilities.find((candidate) => candidate.kind === 'EXPAND');
+  const expandRowsAvailability = capabilityIsForAppendStage && expandCapability?.supported && hasPublicScalarListColumn(capabilityStage)
+    ? { supported: true }
+    : {
+        supported: false,
+        reason: constructionLifecycle.capabilities.status === 'error'
+          ? constructionLifecycle.capabilities.message
+          : constructionLifecycle.capabilities.status !== 'ready' || !capabilityIsForAppendStage
+            ? 'Checking this table’s available row operations…'
+            : expandCapability?.reason ?? 'No list column is available in this table.',
+      };
   const groupEntries = [
     ...(stageGroupingAvailability.supported || codedPivotAvailability.supported ? [{ kind: 'group' as const, label: 'By table column' }] : []),
     ...(sourceGroupingAvailable ? [{ kind: 'source-group' as const, label: 'By source fields' }] : []),
@@ -2620,6 +2675,7 @@ const BuilderWorkspaceContent = ({
     groupEntry: groupEntries[0]?.kind ?? 'group' as const,
     groupAlternatives: groupEntries.slice(1),
     pivot: codedPivotAvailability.supported ? codedPivotAvailability : tablePivotAvailability,
+    expand: expandRowsAvailability,
     pivotPending: Boolean(capabilitiesRequest) && constructionLifecycle.capabilities.status === 'loading',
     pivotEntry: codedPivotAvailability.supported ? 'coded-pivot' as const : 'pivot' as const,
     pivotAlternative: codedPivotAvailability.supported && tablePivotAvailability.supported ? 'pivot' as const : undefined,
@@ -2966,11 +3022,12 @@ const BuilderWorkspaceContent = ({
             </p>
           ) : constructionLifecycle.capabilities.status === 'ready' ? (
             <ConstructionReshapeEditor
-              key={`${ownerKey}:${state.catalog.snapshotToken}:${state.draftVersion}:${state.draftDigest}:${table.outputId}:${reshapeEntry}:${reshapeEntryKind}`}
+              key={activeReshapeEditorKey}
               construction={construction ?? constructionLifecycle.capabilities.response.baseConstruction}
               capabilities={constructionLifecycle.capabilities.response}
               editingStep={editingConstructionStep}
-              initialKind={reshapeEntryKind}
+              initialKind={activeReshapeInitialKind}
+              initialEntry={activeReshapeInitialEntry}
               selectedColumns={selectedColumnIds}
               pivotDiscovery={constructionLifecycle.pivotDiscovery}
               onDiscoverCategories={constructionLifecycle.onDiscoverCategories}
