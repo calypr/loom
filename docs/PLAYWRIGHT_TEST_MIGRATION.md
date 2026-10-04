@@ -33,7 +33,7 @@ Append is the first full lifecycle: source setup, exact eight-row oracle with
 duplicate identities and null padding, Preview, Apply, reload, edit, Cancel,
 edit Apply, removal/restoration, and reload. Discovery is not a browser pass.
 Until a current report proves every required assertion, this workflow remains
-unverified. Other library-based scripts remain explicitly unmigrated.
+unverified. Other runner-based scripts remain explicitly unmigrated.
 
 Run the focused native case from the repository root after installing scripts
 dependencies and setting the five owned development environment variables:
@@ -65,8 +65,9 @@ held constant. A transport microbenchmark alone is insufficient.
 
 On 2026-10-04 the native Append case passed against the owned development stack
 and its frozen working tree, including existing uncommitted product changes.
-This is one of 22 registered cases migrated and verified; standalone scripts
-remain a separate conversion/consolidation inventory.
+Append and Join have passed native runs at their respective checkpoints: two
+of 22 registered cases. Standalone scripts remain a separate conversion and
+consolidation inventory.
 
 - 80 native actions; every required lifecycle assertion passed.
 - Playwright command: 19.2 seconds; browser lifecycle: 15.1 seconds.
@@ -82,3 +83,12 @@ Sanitized domain report: `/private/tmp/loom-native-append-v4-domain.json`.
 Earlier diagnostic-audit failure: `/private/tmp/loom-native-append-v2-evidence`.
 The run proves this working-tree checkpoint, not a clean product checkout or CDA
 coverage. Do not infer other cases passed from this result.
+
+The native INNER/LEFT Join lifecycle passed next: 60 actions, every required
+check, no unexpected errors, and unchanged source/API identities. The command
+took 17.6 seconds; its browser phase took 13.2 seconds, with a slowest action of
+870 milliseconds. Source fingerprint:
+`5355d0136956cf8740e24a8fcddc39b690e1451897b55b07dc613d51f95d20f4`.
+Evidence: `/private/tmp/loom-native-join-v1-evidence/results.json` and
+`/private/tmp/loom-native-join-v1-domain.json`. Both Combine workflows now use
+native specs; their old runner and executable module tail have been removed.

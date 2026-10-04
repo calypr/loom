@@ -2,8 +2,7 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { executeScenario, runPlaywrightCase, browserURL } from './common.mjs';
-import { parseArgs } from './cli.mjs';
+import { browserURL } from './common.mjs';
 import { sanitizeBody } from '../lib/playwright-browser.mjs';
 import { recordCheck } from './report.mjs';
 import { appendNullPaddingRows, builderRequestURL, builderResponseIdentity, constructionProposalPreviewEvidence, currentPublishedRevisionForOutput, displayAppendNullPaddingRows, findColumn, isCombineInputIDColumn, isNumericClickHouseType, isScalarStringColumn, joinOracleRows, appendEditorConfigurationEvidence, nativeCombineTargetBindingEvidence, sameSourceDocuments, snapshotSourceDocument, isOwnedConstructionCapabilitiesRequest, rootedEmptyTargetRestorationEvidence } from './builder-combine-helpers.mjs';
@@ -687,7 +686,7 @@ const removeCombineAndRestoreEmptyRootWithPlaywright = async (context, page, act
   });
 };
 
-const runJoin = context => runPlaywrightCase(context, 'builder-combine', 'join', async ({ page, report, action }) => {
+export const joinWorkflow = async ({ page, report, action }, context) => {
   assert.equal(context.custom, false, 'Combine authoring requires an owned isolated fixture.');
   assert.equal(context.seed?.fresh, true, 'Combine authoring requires a fresh verification project.');
   const fixture = exactFixture(context.target.fixtureDir);
@@ -799,7 +798,7 @@ const runJoin = context => runPlaywrightCase(context, 'builder-combine', 'join',
   await assertSourceImmutability(context, explorer, docs, api, report);
   report.target.explorer = explorer;
   report.target.combineTarget = target;
-});
+};
 
 const assertAppendNullPaddingStep = (report, name, step, api) => {
   const expectedProjections = [
@@ -1102,31 +1101,3 @@ export const appendWorkflow = async ({ page, report, action }, context) => {
     capabilitiesFailures.stop();
   }
 };
-
-const appendRunnerGuidance = 'APPEND browser workflow runs through the official Playwright test at scripts/playwright/append.spec.mjs.';
-
-export const runBuilderCombine = async (context, caseNames) => {
-  if (caseNames.includes('append')) throw new Error(appendRunnerGuidance);
-  const reports = [];
-  for (const caseName of caseNames) {
-    if (caseName !== 'join') throw new Error('unsupported Builder Combine case: ' + caseName);
-    reports.push(await runJoin(context));
-  }
-  return reports;
-};
-
-if (import.meta.url === new URL(process.argv[1] ?? '', 'file:').href) {
-  const argv = process.argv.slice(2);
-  let args;
-  try { args = parseArgs(argv); } catch {
-    await executeScenario({ id: 'builder-combine', argv, runner: runBuilderCombine, mutating: true });
-  }
-  if (args) {
-    if (!args.help && !args.list && (!args.caseName || args.caseName === 'append')) {
-      console.error(appendRunnerGuidance);
-      process.exitCode = 2;
-    } else {
-      await executeScenario({ id: 'builder-combine', argv, runner: runBuilderCombine, mutating: true });
-    }
-  }
-}

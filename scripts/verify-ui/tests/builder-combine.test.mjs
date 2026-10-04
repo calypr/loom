@@ -92,9 +92,8 @@ test('APPEND capability diagnostics use the seeded project and always release li
   const finalizer = source.indexOf('capabilitiesFailures.stop();', lifecycle);
   assert.ok(appendWorkflow >= 0 && capture > appendWorkflow && lifecycle > capture && completedLifecycle > lifecycle && finalizer > completedLifecycle);
   assert.doesNotMatch(source, /const runAppend\s*=/, 'APPEND must not remain an executable legacy runner path');
-  assert.match(source, /caseNames\.includes\('append'\)[\s\S]*?appendRunnerGuidance/);
-  assert.match(source, /const argv = process\.argv\.slice\(2\);[\s\S]*?parseArgs\(argv\)[\s\S]*?!args\.caseName \|\| args\.caseName === 'append'[\s\S]*?console\.error\(appendRunnerGuidance\)/,
-    'legacy CLI must direct default and APPEND invocations before creating an owned fixture');
+  assert.doesNotMatch(source, /runBuilderCombine|runJoin|runPlaywrightCase|executeScenario|parseArgs/,
+    'Combine lifecycles must be driven through their native Playwright specifications');
   const officialSpec = readFileSync(new URL('../../playwright/append.spec.mjs', import.meta.url), 'utf8');
   assert.match(officialSpec, /import \{ test \} from '\.\/fixtures\.mjs'/);
   assert.match(officialSpec, /test\.use\(\{ scenarioID: 'builder-combine', caseName: 'append' \}\)/);
@@ -107,6 +106,26 @@ test('APPEND capability diagnostics use the seeded project and always release li
   assert.match(diagnosticsHelper, /page\.off\('request'/);
   assert.match(diagnosticsHelper, /sanitizeBody/);
   assert.doesNotMatch(source.slice(0, source.indexOf('const expectedPatients')), /isDeepStrictEqual/);
+});
+
+test('KEY_JOIN lifecycle is exported for the native Playwright spec', () => {
+  const source = readFileSync(new URL('../builder-combine.mjs', import.meta.url), 'utf8');
+  const joinWorkflow = source.indexOf('export const joinWorkflow = async ({ page, report, action }, context) =>');
+  const appendWorkflow = source.indexOf('export const appendWorkflow = async ({ page, report, action }, context) =>');
+  assert.ok(joinWorkflow >= 0 && appendWorkflow > joinWorkflow, 'Join lifecycle must be available before the APPEND workflow');
+  const body = source.slice(joinWorkflow, appendWorkflow);
+  for (const name of [
+    'fixture contains one bootstrap Patient, four Observations, and three DiagnosticReports',
+    'INNER preview returns the three exact rows matched on shared required IDs',
+    'Canceling the LEFT edit leaves the saved INNER operation unchanged',
+    'LEFT preview before Apply includes null projections for the unmatched row',
+    "await removeCombineAndRestoreEmptyRootWithPlaywright(context, page, action, report, explorer, target, emptyTargetBaseline, step.id, 'KEY_JOIN');",
+    'await assertSourceImmutability(context, explorer, docs, api, report);',
+  ]) assert.ok(body.includes(name), `Join workflow must retain its literal lifecycle evidence: ${name}`);
+  const officialSpec = readFileSync(new URL('../../playwright/join.spec.mjs', import.meta.url), 'utf8');
+  assert.match(officialSpec, /import \{ test \} from '\.\/fixtures\.mjs'/);
+  assert.match(officialSpec, /test\.use\(\{ scenarioID: 'builder-combine', caseName: 'join' \}\)/);
+  assert.match(officialSpec, /joinWorkflow\(\{ page, report: workflow\.report, action: workflow\.action \}, loomContext\)/);
 });
 
 test('last-step removal waits for the exact selected empty target instead of nonexistent history', () => {
@@ -225,7 +244,7 @@ test('saved Combine edit timing waits for controls outside inherited disabled fi
   assert.match(readiness, /input\[aria-label="Output field 1 label"\]/);
   assert.match(readiness, /waitForFunction\(\(\) => !document\.querySelector\('select\[aria-label="Input table 1"\]'\)\?\.disabled/,
     'saved editor readiness must wait until inherited disabled state clears');
-  assert.match(source.slice(source.indexOf('const runJoin ='), source.indexOf('const assertAppendNullPaddingStep')),
+  assert.match(source.slice(source.indexOf('export const joinWorkflow ='), source.indexOf('const assertAppendNullPaddingStep')),
     /budget: 5000/, 'Playwright user actions must retain the five-second render budget');
 });
 
