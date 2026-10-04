@@ -51,6 +51,11 @@ type CompiledRecipeOutput struct {
 	// terminal Combine. These refs are structural only; execution requires a
 	// server-owned workspace capture before an artifact can be read.
 	WorkspaceOutputSources []WorkspaceOutputSource
+	// ScopeEvidence is present only for a compiler-validated complete, unbounded
+	// output relation. ScopeEvidenceIdentity is the exact output, scope, and
+	// finalized schema identity used when issuing it.
+	ScopeEvidence         *ir.WholeRelationScopeEvidence
+	ScopeEvidenceIdentity *ir.WholeRelationScopeIdentity
 	// RowIdentity describes the stable semantic identity used by publication
 	// targets. It is metadata only; the physical plan remains authoritative for
 	// the returned values.
@@ -404,11 +409,15 @@ func compileRecipeOutput(output semantic.OutputPlan, bindings recipe.RuntimeBind
 			})
 		}
 	}
+	scopeEvidence, scopeEvidenceIdentity, err := issueWholeRelationScopeEvidence(output.Name, physical, outputSchema)
+	if err != nil {
+		return CompiledRecipeOutput{}, err
+	}
 	return CompiledRecipeOutput{
 		Name: output.Name, RootResourceType: output.RootResourceType,
 		RowGrain: output.RowGrain, RootColumnNaming: output.RootColumnNaming, Columns: physicalOutputColumns(outputSchema), OutputSchema: outputSchema,
 		RowIdentity: (&identity).Clone(), DynamicColumns: dynamicMetadata, Stages: stageDescriptors, Plan: physical,
-		WorkspaceOutputSources: workspaceOutputSources,
+		WorkspaceOutputSources: workspaceOutputSources, ScopeEvidence: scopeEvidence, ScopeEvidenceIdentity: scopeEvidenceIdentity,
 	}, nil
 }
 
