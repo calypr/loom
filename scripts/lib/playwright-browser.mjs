@@ -6,6 +6,7 @@ import { sanitizePlaywrightTrace } from './playwright-trace-redact.mjs';
 
 const maxEntries = 100;
 const maxBodyLength = 12000;
+const defaultTraceScanTimeoutMs = 2000;
 const sensitiveName = /authorization|cookie|password|passwd|token|secret|credential|session|api[_-]?key/i;
 const sensitiveCredentialName = /authorization|cookie|password|passwd|secret|credential|session|api[_-]?key|token/i;
 
@@ -123,7 +124,23 @@ async function inspectLocator(locator) {
   }
 }
 
-export async function launchBrowser({ evidence, appOrigins = [], noAuth = false, classifyExpectedRequestFailure, executablePath }) {
+async function waitForPendingTraceScans(scans, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  while (scans.size > 0) {
+    const remainingMs = deadline - Date.now();
+    if (remainingMs <= 0) return false;
+    let timeout;
+    const drained = await Promise.race([
+      Promise.allSettled([...scans]).then(() => true),
+      new Promise(resolve => { timeout = setTimeout(() => resolve(false), remainingMs); }),
+    ]);
+    clearTimeout(timeout);
+    if (!drained) return false;
+  }
+  return true;
+}
+
+export async function launchBrowser({ evidence, appOrigins = [], noAuth = false, classifyExpectedRequestFailure, executablePath, traceScanTimeoutMs = defaultTraceScanTimeoutMs, captureScreenshots = false }) {
   await mkdir(evidence, { recursive: true });
   const systemChrome = [
     process.env.CHROME_BIN,
@@ -275,7 +292,9 @@ export async function launchBrowser({ evidence, appOrigins = [], noAuth = false,
     async captureFailure(error, details = {}) {
       if (failureCaptured) return;
       failureCaptured = true;
-      while (pendingTraceScans.size) await Promise.allSettled([...pendingTraceScans]);
+      if (!(await waitForPendingTraceScans(pendingTraceScans, traceScanTimeoutMs))) {
+        rejectTrace('A response body could not be checked for credentials before the trace retention deadline.');
+      }
       const { action: suppliedAction, ...safeDetails } = details;
       const action = suppliedAction ?? this.lastAction;
       const contextualEvidence = typeof this.failureContext === 'function'
@@ -290,16 +309,18 @@ export async function launchBrowser({ evidence, appOrigins = [], noAuth = false,
         ...(!traceAllowed || !traceSafe ? { traceUnavailable: traceSafetyReason } : {}),
         diagnostics,
       };
-      try {
-        const masks = [
-          page.locator('input'),
-          page.locator('textarea'),
-          page.locator('[contenteditable="true"]'),
-        ];
-        await page.screenshot({ path: join(evidence, 'first-failure.png'), fullPage: true, mask: masks, maskColor: '#000000' });
-        failure.screenshot = 'first-failure.png';
-      } catch (captureError) {
-        failure.screenshotError = sanitizeText(captureError.message);
+      if (captureScreenshots) {
+        try {
+          const masks = [
+            page.locator('input'),
+            page.locator('textarea'),
+            page.locator('[contenteditable="true"]'),
+          ];
+          await page.screenshot({ path: join(evidence, 'first-failure.png'), fullPage: true, mask: masks, maskColor: '#000000' });
+          failure.screenshot = 'first-failure.png';
+        } catch (captureError) {
+          failure.screenshotError = sanitizeText(captureError.message);
+        }
       }
       try {
         const domText = await page.locator('body').innerText().catch(() => '');

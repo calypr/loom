@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { createWriteStream } from 'node:fs';
+import { createServer } from 'node:http';
 import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -51,7 +52,7 @@ test('Playwright helper clicks a native control and records first-failure eviden
 
   try {
     try {
-      browser = await launchBrowser({ evidence, appOrigins: [origin] });
+      browser = await launchBrowser({ evidence, appOrigins: [origin], captureScreenshots: true });
     } catch (error) {
       if (/Executable doesn't exist|browserType\.launch:.*(?:not found|failed to launch)/i.test(String(error))) {
         t.skip(`Chromium is unavailable in this checkout: ${error.message}`);
@@ -147,6 +148,8 @@ test('first failure uses the last observed action when the caller omits it', asy
     assert.equal(failure.action.label, 'Open');
     assert.equal(failure.action.target.count, 1);
     assert.equal(failure.action.target.visible, true);
+    assert.equal(failure.screenshot, undefined);
+    await assert.rejects(stat(join(evidence, 'first-failure.png')), { code: 'ENOENT' });
   } finally {
     await browser.close();
     await rm(evidence, { recursive: true });
@@ -175,6 +178,69 @@ test('fresh loopback no-auth failure retains a Playwright trace zip', async t =>
     assert((await stat(join(evidence, 'failure-trace.zip'))).size > 0);
   } finally {
     await browser?.close();
+    await rm(evidence, { recursive: true, force: true });
+  }
+});
+
+test('failure capture bounds unresolved trace response scans and keeps sanitized JSON diagnostics', async t => {
+  const evidence = await mkdtemp(join(tmpdir(), 'loom-playwright-stalled-trace-test-'));
+  let stalledResponse;
+  const server = createServer((request, response) => {
+    if (request.url === '/stalled') {
+      response.writeHead(200, { 'content-type': 'application/json' });
+      response.flushHeaders();
+      response.write('{"access_token":"must-not-be-retained');
+      stalledResponse = response;
+      return;
+    }
+    response.writeHead(200, { 'content-type': 'text/html' });
+    response.end('<script>fetch("/stalled")</script><main>Failure evidence</main>');
+  });
+  await new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', resolve);
+  });
+  const origin = `http://127.0.0.1:${server.address().port}`;
+  let browser;
+
+  try {
+    try {
+      browser = await launchBrowser({ evidence, appOrigins: [origin], noAuth: true, traceScanTimeoutMs: 40 });
+    } catch (error) {
+      if (/Executable doesn't exist|browserType\.launch:.*(?:not found|failed to launch)/i.test(String(error))) {
+        t.skip(`Chromium is unavailable in this checkout: ${error.message}`);
+        return;
+      }
+      throw error;
+    }
+    const responseStarted = browser.page.waitForResponse(response => response.url() === `${origin}/stalled`, { timeout: 5000 });
+    await browser.page.goto(origin, { waitUntil: 'domcontentloaded' });
+    await responseStarted;
+    await browser.page.evaluate(() => console.error("password: must-not-be-retained"));
+
+    const capture = browser.captureFailure(new Error('stalled response failure'));
+    let deadline;
+    const result = await Promise.race([
+      capture.then(trace => ({ trace }), error => ({ error })),
+      new Promise(resolve => { deadline = setTimeout(() => resolve({ timedOut: true }), 1500); }),
+    ]);
+    clearTimeout(deadline);
+    stalledResponse?.destroy();
+    if (result.timedOut) await capture.catch(() => undefined);
+    if (result.error) throw result.error;
+    assert.equal(result.timedOut, undefined, 'failure capture should finish while the response body remains unresolved');
+    assert.equal(result.trace, 'failure-trace.json');
+
+    const failure = JSON.parse(await readFile(join(evidence, 'first-failure.json'), 'utf8'));
+    assert.match(failure.traceUnavailable, /could not be checked for credentials before the trace retention deadline/);
+    const traceEvidence = JSON.parse(await readFile(join(evidence, 'failure-trace.json'), 'utf8'));
+    assert.equal(traceEvidence.diagnostics.console.length, 1);
+    assert.equal(traceEvidence.diagnostics.console[0].text.includes('must-not-be-retained'), false);
+    assert.equal(JSON.stringify(traceEvidence).includes('must-not-be-retained'), false);
+  } finally {
+    stalledResponse?.destroy();
+    await browser?.close();
+    await new Promise(resolve => server.close(resolve));
     await rm(evidence, { recursive: true, force: true });
   }
 });

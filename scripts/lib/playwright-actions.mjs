@@ -6,6 +6,13 @@ export async function requireUnique(locator, label) {
   return locator;
 }
 
+export async function prepareNativeAction(locator, label, { timeout = 5000, editable = false } = {}) {
+  await requireUnique(locator, label);
+  await locator.click({ trial: true, timeout });
+  if (editable) assert.equal(await locator.isEditable(), true, `${label}: control is not editable`);
+  return locator;
+}
+
 export async function performAction(tracker, label, locator, action, { timeout = 5000, editable = false } = {}) {
   const startedAt = Date.now();
   if (tracker) {

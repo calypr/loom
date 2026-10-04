@@ -116,15 +116,25 @@ const syncAuthoringRequests = () => {
   const endpoints = new Set(['construction-capabilities', 'construction-category-discoveries', 'construction-proposals', 'commands', 'reconcile', 'preview']);
   report.authoringRequests.splice(0, report.authoringRequests.length, ...report.nativeRequests
     .filter(request => endpoints.has(request.path.split('/').at(-1)))
-    .map(request => ({ ...request, pathname: request.path, url: `${request.origin}${request.path}`, requestStartedAtMs: request.startedAt,
-      responseFinishedAtMs: request.completedAt, durationMs: request.completedAt - request.startedAt,
-      requestDraftVersion: request.body?.expectedDraftVersion ?? request.body?.draftVersion, requestDraftDigest: request.body?.expectedDraftDigest ?? request.body?.draftDigest,
-      requestOutputId: request.body?.outputId, requestReceiptId: request.body?.receiptId,
-      responseDraftVersion: request.response?.draftVersion, responseDraftDigest: request.response?.draftDigest,
-      responseReceiptId: request.response?.receiptId, responseOutputId: request.response?.outputId,
-      responseRowCount: request.response?.rowCount ?? request.response?.preview?.rowCount ?? request.response?.rows?.length,
-      ...(request.failure ? { loadingFailure: { errorText: request.failure, canceled: request.failure === 'net::ERR_ABORTED' } } : {}),
-    })));
+    .map(request => {
+      const authoringRequest = { ...request, pathname: request.path, url: `${request.origin}${request.path}`, requestStartedAtMs: request.startedAt,
+        responseFinishedAtMs: request.completedAt, durationMs: request.completedAt - request.startedAt,
+        requestDraftVersion: request.body?.expectedDraftVersion ?? request.body?.draftVersion, requestDraftDigest: request.body?.expectedDraftDigest ?? request.body?.draftDigest,
+        requestOutputId: request.body?.outputId, requestReceiptId: request.body?.receiptId,
+        responseDraftVersion: request.response?.draftVersion, responseDraftDigest: request.response?.draftDigest,
+        responseReceiptId: request.response?.receiptId, responseOutputId: request.response?.outputId,
+        responseRowCount: request.response?.rowCount ?? request.response?.preview?.rowCount ?? request.response?.rows?.length,
+        ...(request.failure ? { loadingFailure: { errorText: request.failure, canceled: request.failure === 'net::ERR_ABORTED' } } : {}),
+      };
+      const rawBody = browserRequestCapture.rawRequestBody(request);
+      const rawResponse = browserRequestCapture.rawResponseBody(request);
+      if (rawBody !== undefined) Object.defineProperty(authoringRequest, 'body', { value: rawBody });
+      if (rawResponse !== undefined) Object.defineProperty(authoringRequest, 'response', { value: rawResponse });
+      Object.defineProperty(authoringRequest, 'toJSON', {
+        value() { return { ...this, body: request.body, response: request.response }; },
+      });
+      return authoringRequest;
+    }));
   report.browserErrors.runtime = report.errors.filter(error => error.kind === 'runtime');
   report.browserErrors.console = report.errors.filter(error => error.kind === 'console');
   const ownedFailures = report.nativeRequests.filter(request => request.failure).map(request => ({ pathname: request.path, errorText: request.failure, canceled: request.failure === 'net::ERR_ABORTED' }));

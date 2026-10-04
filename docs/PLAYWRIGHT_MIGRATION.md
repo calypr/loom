@@ -1,3 +1,27 @@
+## Integrated working-tree checkpoint
+
+The migration checkpoint was merged into `feature/construction-workspace` at
+`16c019042`. Follow-up integration ports the three newer local Group/Join/Append
+cases and removes the remaining legacy Builder branches and custom browser
+exports. `node scripts/check-playwright-migration.mjs --check` now reports zero
+Chrome/CDP verifier files. Removed legacy verifier commands report the available
+modern cases; their removal does not establish replacement runtime coverage.
+
+The integrated verifier, Loom dev, Builder, and browser-backed readiness/reporting
+tests pass 195/195 (zero skipped). Native actions wait for transient disabled
+controls; failure-body scans have a two-second deadline and fall back to sanitized
+JSON. Screenshots are opt-in. Microsoft’s official agent CLI is available through
+`./scripts/node_modules/.bin/playwright cli`; interactive diagnostics use
+text snapshots and JSON output. Repeatable cases remain Node scripts using native
+Playwright locators and independent fixture/source assertions.
+
+The first staged Append run stopped at an immediate disabled-control assertion
+before reaching Append (`/private/tmp/loom-append-playwright-integration-v1.json.append`).
+The wrapper is corrected and its transient-disabled regression passes. The full
+Append lifecycle still requires a passing rerun on the integrated source.
+Historical evidence and earlier migration gaps below describe their recorded
+checkpoints, not current runtime passes.
+
 # Browser verifier migration inventory
 
 This inventory tracks the isolated `infra/playwright-verification` branch based on `af1e706183dcd813c30276b3ee89e2f08cae463a`. A passing historical report is evidence for its recorded source and build only. Use the current report fingerprint and API build identity before claiming verification of another checkout.

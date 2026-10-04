@@ -1,5 +1,6 @@
 import { runRepeatedEmpty } from './builder-repeated.mjs';
 import { runCohortExpand } from './builder-cohort-expand.mjs';
+import { runGroupEntry } from './builder-group-entry.mjs';
 import { browserURL, executeScenario } from './common.mjs';
 import { createHash, randomUUID } from 'node:crypto';
 import { createReadStream } from 'node:fs';
@@ -736,6 +737,7 @@ export const runBuilderAuthoring = async (context, caseNames) => {
     else if (caseName === 'repeated-empty') reports.push(await runRepeatedEmpty(context));
     else if (caseName === 'cohort-expand') reports.push(await runCohortExpand(context));
     else if (caseName === 'cohort-recode') reports.push(await runCohortRecode(context));
+    else if (caseName === 'group-entry') reports.push(await runGroupEntry(context));
     else throw new Error(`unsupported Builder authoring case: ${caseName}`);
   }
   return reports;

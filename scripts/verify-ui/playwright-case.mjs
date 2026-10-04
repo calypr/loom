@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
+import { prepareNativeAction } from '../lib/playwright-actions.mjs';
 import { launchBrowser, sanitizeText } from '../lib/playwright-browser.mjs';
 import { makeReportLocation, scenarioFor } from './cli.mjs';
 import { createReport, finishReport, recordCheck, recordUntested, writeReport } from './report.mjs';
@@ -141,11 +142,7 @@ export const runPlaywrightCase = async (context, scenarioID, caseName, work) => 
       const started = activeStartedAt;
       try {
         page.setDefaultTimeout(timeout);
-        const count = await locator.count();
-        assert.equal(count, 1, `${label}: expected one locator target, found ${count}`);
-        assert(await locator.isVisible(), `${label}: target is not visible`);
-        assert(await locator.isEnabled(), `${label}: target is disabled`);
-        if (editable) assert(await locator.isEditable(), `${label}: target is read-only`);
+        await prepareNativeAction(locator, label, { timeout, editable });
         await perform();
         if (after) await after();
         const elapsedMs = Date.now() - started;

@@ -11,7 +11,8 @@ import { sanitizePayload } from './lib/playwright-browser.mjs';
 import { browserEval, click, launchCdaBrowser, navigate, selectOption, waitForBrowser, waitForControl } from './lib/playwright-cda-actions.mjs';
 import { assertReopenedProposalAfterCancel } from './lib/proposal-reopen-binding.mjs';
 
-const sourceRoot = resolve(fileURLToPath(new URL('..', import.meta.url)));
+// Select the owned source checkout explicitly when invoking from a staging tree.
+const sourceRoot = resolve(process.env.LOOM_DEV_SOURCE_ROOT ?? fileURLToPath(new URL('..', import.meta.url)));
 const load = (path) => import(pathToFileURL(join(sourceRoot, path)).href);
 const [{ captureSourceFreeze },
   { captureApiBuildFreeze, checkContainerApiBuildStamp },

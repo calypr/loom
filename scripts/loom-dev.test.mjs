@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { addColumnsActionReadinessCondition, AUTHORING_SEMANTICS_VERSION, authoringCommandSemanticsVersion, assertExternalJ01SourcesUnchanged, assertJ05ArtifactIdentity, assertJ05ArtifactRows, bootstrapSeedPlan, bootstrapWorkspaceNeedsSeed, builderDOMReadyCondition, builderDraftMatchesPreviewDOM, builderPreviewFailureMatchesDraft, builderPreviewIsFreshForDraft, canonicalProjectID, collectJ01SemanticConceptPages, commandEnvironment, compareJ04Evidence, createDevSession, createVerificationReport, expectedFixtureRelatedValue, expectedTrainingArtifactMembers, explicitGroupPreviewRows, externalJ01PatientScalar, fixtureSourceDigest, generatedJ01ConceptNDJSON, generationLoadDisposition, graphQLRowsRequest, inspectJ01ArtifactRows, inspectJ05ArtifactPackage, j01ArtifactDownloadPlan, j01ColumnIdentitySnapshot, j01ConstructionChoiceCommandIdentities, j01JSONValuesEquivalent, j01OwnerLiteralSnapshot, j01SemanticInventoryRequest, j01ViewerValuesAgree, j04BrowserControlPlan, j04DefaultRecordCellTraceRowID, j04ExactEqual, j04FixtureManifest, j04PatientOperatorDOMPlan, j04PatientOperatorSourceIDs, j04PatientSelectionSeedPlan, J05_REQUIRED_ASSERTIONS, j05AssertionCompletion, j05ArtifactIdentityIsCurrent, loadJ04FixtureContract, normalizeJ04Surface, normalizeJ05LogicalValue, readJ05OutputRows, selectExternalJ01Manifest, shapeJ04Evidence, sourceMountMatches, summarizeTimingSamples, takeJavaScriptDialogCommandParams, validateJ04FixtureContract } from './loom-dev.mjs';
+import { addColumnsActionReadinessCondition, AUTHORING_SEMANTICS_VERSION, authoringCommandSemanticsVersion, assertExternalJ01SourcesUnchanged, assertJ05ArtifactIdentity, assertJ05ArtifactRows, bootstrapSeedPlan, bootstrapWorkspaceNeedsSeed, builderDOMReadyCondition, builderDraftMatchesPreviewDOM, builderPreviewFailureMatchesDraft, builderPreviewIsFreshForDraft, canonicalProjectID, collectJ01SemanticConceptPages, commandEnvironment, compareJ04Evidence, createDevSession, createVerificationReport, expectedFixtureRelatedValue, expectedTrainingArtifactMembers, explicitGroupPreviewRows, externalJ01PatientScalar, fixtureSourceDigest, generatedJ01ConceptNDJSON, generationLoadDisposition, graphQLRowsRequest, inspectJ01ArtifactRows, inspectJ05ArtifactPackage, j01ArtifactDownloadPlan, j01ColumnIdentitySnapshot, j01ConstructionChoiceCommandIdentities, j01JSONValuesEquivalent, j01OwnerLiteralSnapshot, j01SemanticInventoryRequest, j01ViewerValuesAgree, j04BrowserControlPlan, j04DefaultRecordCellTraceRowID, j04ExactEqual, j04FixtureManifest, j04PatientOperatorDOMPlan, j04PatientOperatorSourceIDs, j04PatientSelectionSeedPlan, J05_REQUIRED_ASSERTIONS, j05AssertionCompletion, j05ArtifactIdentityIsCurrent, loadJ04FixtureContract, normalizeJ04Surface, normalizeJ05LogicalValue, readJ05OutputRows, selectExternalJ01Manifest, shapeJ04Evidence, sourceMountMatches, summarizeTimingSamples, validateJ04FixtureContract } from './loom-dev.mjs';
 
 test('J05 cannot pass with missing, failed, or unproven assertions', () => {
   const passed = J05_REQUIRED_ASSERTIONS.map((name) => ({ name, status: 'passed' }));
@@ -17,22 +17,6 @@ test('J05 cannot pass with missing, failed, or unproven assertions', () => {
   assert.deepEqual(j05AssertionCompletion(passed.slice(1)).missing, [J05_REQUIRED_ASSERTIONS[0]]);
   const unproven = passed.map((assertion, index) => index === 0 ? { ...assertion, status: 'not-proven' } : assertion);
   assert.deepEqual(j05AssertionCompletion(unproven).failed, [{ name: J05_REQUIRED_ASSERTIONS[0], status: 'not-proven' }]);
-});
-
-test('JavaScript dialog response overrides apply once and retain prompt defaults', () => {
-  const cdp = { nextDialogResponse: { accept: true, promptText: 'Renamed Patients' } };
-  assert.deepEqual(takeJavaScriptDialogCommandParams(cdp, { type: 'prompt' }, 'Default name'), {
-    accept: true,
-    promptText: 'Renamed Patients',
-  });
-  assert.equal(Object.hasOwn(cdp, 'nextDialogResponse'), false);
-  assert.deepEqual(takeJavaScriptDialogCommandParams(cdp, { type: 'prompt' }, 'Default name'), {
-    accept: true,
-    promptText: 'Default name',
-  });
-  assert.deepEqual(takeJavaScriptDialogCommandParams(cdp, { type: 'confirm' }, 'Default name'), {
-    accept: true,
-  });
 });
 
 test('automatic preview witness must use a new receipt for the committed Builder draft and snapshot', () => {
@@ -379,6 +363,12 @@ test('generic Builder and interpretation browser paths use only Playwright brows
     'migrated generic paths must not call the legacy CDP driver');
   assert.doesNotMatch(browserCode, /Object\.getOwnPropertyDescriptor|\.dispatchEvent\(|\.click\(\s*\)/,
     'migrated generic paths must not set DOM values or invoke handlers directly');
+});
+
+test('loom-dev uses the shared Playwright browser launcher', () => {
+  const driver = readFileSync(join(process.cwd(), 'scripts/loom-dev.mjs'), 'utf8');
+  assert.match(driver, /launchPlaywrightEvidenceBrowser/);
+  assert.doesNotMatch(driver, /new\s+WebSocket\s*\(/, 'browser sessions must use the shared launcher');
 });
 
 test('local J01 browser lifecycle uses Playwright actions and retains its exact request and failure evidence', () => {

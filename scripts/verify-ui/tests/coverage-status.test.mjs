@@ -35,31 +35,37 @@ test('latest case result controls coverage and missing cases remain untested', (
   assert.deepEqual(summarizeCoverage(scenarios, reports).map(({ status, report }) => [status, report]), [['failed', 'new.json'], ['untested', null]]);
 });
 
-const pivotScenario = registry.find((scenario) => scenario.id === 'root-quantity-pivot');
-if (!pivotScenario) throw new Error('Expected the registered standalone root quantity Pivot scenario.');
-const pivotCase = 'full-population-lifecycle';
-const pivotChecks = requiredChecksFor(pivotScenario, pivotCase);
-const summarizePivot = (assertions) => summarizeCoverage([pivotScenario], [{
-  path: 'root-quantity-pivot-full-population-lifecycle.json',
+const groupScenario = registry.find((scenario) => scenario.id === 'builder-authoring');
+assert(groupScenario?.cases.includes('group-entry'), 'Expected the registered direct Group entry case.');
+const groupEntryChecks = requiredChecksFor(groupScenario, 'group-entry');
+
+const summarizeGroupEntry = (assertions) => summarizeCoverage([groupScenario], [{
+  path: 'builder-authoring-group-entry.json',
   report: {
     schemaVersion: 2,
-    scenario: 'root-quantity-pivot',
-    case: pivotCase,
+    scenario: 'builder-authoring',
+    case: 'group-entry',
     finishedAt: '2026-10-04T00:00:00.000Z',
     status: 'passed',
-    target: { kind: 'local-cda' },
+    target: { kind: 'owned-dev-fixture' },
+    requiredChecks: groupEntryChecks,
     assertions,
   },
-}]).find((entry) => entry.path === 'root-quantity-pivot/full-population-lifecycle');
+}]).find((entry) => entry.path === 'builder-authoring/group-entry');
 
-test('standalone root Pivot reports use the registered named lifecycle requirements', () => {
-  const assertions = pivotChecks.map((name) => ({ name, status: 'passed' }));
-  assert.equal(summarizePivot(assertions)?.status, 'passed');
+test('the real group-entry report shape passes only with every registered named assertion', () => {
+  const assertions = groupEntryChecks.map((name) => ({ name, status: 'passed' }));
+  assert.equal(summarizeGroupEntry(assertions)?.status, 'passed');
 });
 
-test('standalone root Pivot reports stay partial when a registered requirement is absent', () => {
-  const assertions = pivotChecks.slice(0, -1).map((name) => ({ name, status: 'passed' }));
-  assert.equal(summarizePivot(assertions)?.status, 'partial');
+test('a current report missing a registered named assertion is partial despite its passed summary', () => {
+  const assertions = groupEntryChecks.slice(0, -1).map((name) => ({ name, status: 'passed' }));
+  assert.equal(summarizeGroupEntry(assertions)?.status, 'partial');
+});
+
+test('a current report with a failed registered named assertion cannot be classified as passed', () => {
+  const assertions = groupEntryChecks.map((name, index) => ({ name, status: index === 0 ? 'failed' : 'passed' }));
+  assert.equal(summarizeGroupEntry(assertions)?.status, 'failed');
 });
 
 test('currentness requires exact source and API build identities while preserving report status', () => {
