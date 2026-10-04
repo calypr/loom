@@ -275,7 +275,77 @@ func TestRelatedConstructionPivotTracksMissingNullAndStringAgainstArango(t *test
 			t.Errorf("compiled category scan leaked forged contributor %q", value)
 		}
 	}
+
+	// A NULL-only authored heading accepts both explicit NULL and the
+	// PRESERVE_PARENT no-target value without requiring a MISSING category.
+	nullOnlyOutput := relatedPresenceNullOnlyPivotOutput(recipe.PivotUnlistedCategoryError,
+		"root-null", "root-no-observation")
+	nullOnlyCompiled, _, _ := compileRelatedCategoryRuntimeScansWithBindings(t, nullOnlyOutput, bindings, MaxCategoryScanValues)
+	nullOnlyQuery, err := CompileRecipeOutputWithPolicy(nullOnlyCompiled, bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatalf("compile NULL-only related Pivot: %v", err)
+	}
+	nullOnlyRows := executeReshapeOracleQuery(t, ctx, client, nullOnlyQuery)
+	wantNullOnly := map[string]any{
+		"root-null":           float64(20),
+		"root-no-observation": nil,
+	}
+	if len(nullOnlyRows) != len(wantNullOnly) {
+		t.Fatalf("NULL-only Pivot returned %d rows, want exactly the explicit-NULL and preserved no-target roots: %#v", len(nullOnlyRows), nullOnlyRows)
+	}
+	gotNullOnly := make(map[string]any, len(nullOnlyRows))
+	for _, row := range nullOnlyRows {
+		rootID, ok := row["specimen_id"].(string)
+		if !ok {
+			t.Fatalf("NULL-only Pivot row has invalid specimen_id: %#v", row)
+		}
+		if _, duplicate := gotNullOnly[rootID]; duplicate {
+			t.Fatalf("NULL-only Pivot duplicated preserved root %q: %#v", rootID, nullOnlyRows)
+		}
+		gotNullOnly[rootID] = row["category_null"]
+	}
+	if !reflect.DeepEqual(gotNullOnly, wantNullOnly) {
+		t.Fatalf("NULL-only Pivot cells = %#v, want %#v", gotNullOnly, wantNullOnly)
+	}
+
+	// Isolate a MISSING category beside valid NULL rows so ERROR can only be
+	// justified by the absent code, not by the fixture's STRING d category.
+	nullOnlyErrorOutput := relatedPresenceNullOnlyPivotOutput(recipe.PivotUnlistedCategoryError,
+		"root-null", "root-absent-code", "root-no-observation")
+	nullOnlyErrorCompiled, _, _ := compileRelatedCategoryRuntimeScansWithBindings(t, nullOnlyErrorOutput, bindings, MaxCategoryScanValues)
+	nullOnlyErrorQuery, err := CompileRecipeOutputWithPolicy(nullOnlyErrorCompiled, bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatalf("compile NULL-only related Pivot with unlisted error: %v", err)
+	}
+	err = client.QueryRows(ctx, nullOnlyErrorQuery.Query, 100, nullOnlyErrorQuery.BindVars, func(map[string]any) error { return nil })
+	if err == nil || !strings.Contains(err.Error(), "TABLE_PIVOT_UNLISTED_CATEGORY") {
+		t.Fatalf("NULL-only Pivot with an absent category returned error %v, want TABLE_PIVOT_UNLISTED_CATEGORY", err)
+	}
 }
+
+func relatedPresenceNullOnlyPivotOutput(unlistedPolicy recipe.PivotUnlistedCategoryPolicy, rootIDs ...string) recipe.Output {
+	output := relatedPresencePivotOutput()
+	steps := output.Construction.Steps
+	pivotStep := &steps[len(steps)-1]
+	pivotStep.Operation.Pivot.Categories = []recipe.ConstructionPivotCategory{{
+		Key: recipe.TableScalar{Kind: recipe.TableScalarNull}, OutputColumnID: "category_null",
+	}}
+	pivotStep.Operation.Pivot.UnlistedCategoryPolicy = unlistedPolicy
+	pivotStep.Outputs = []recipe.StageColumn{
+		{ID: "specimen_id", Name: "specimen_id"},
+		{ID: "category_null", Name: "category_null", Type: "decimal", Nullable: true},
+	}
+	output.Construction.Steps = steps
+	if len(rootIDs) > 0 {
+		values := make([]recipe.FilterValue, 0, len(rootIDs))
+		for _, rootID := range rootIDs {
+			values = append(values, reshapeOracleStringFilter(rootID))
+		}
+		output.Filters = []recipe.Filter{{Select: "root.id", Operator: recipe.FilterIn, Values: values}}
+	}
+	return output
+}
+
 func TestRelatedConstructionPivotPresencePlanCompiles(t *testing.T) {
 	bindings := recipe.RuntimeBindings{
 		Project: "related-presence-compile-project", SelectionProject: "related-presence-compile-project",

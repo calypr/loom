@@ -12,18 +12,21 @@ const origin = process.env.LOOM_UI_ORIGIN ?? 'http://127.0.0.1:30008';
 const apiOrigin = process.env.LOOM_API_ORIGIN ?? 'http://127.0.0.1:8188';
 assert.equal(new URL(origin).origin, 'http://127.0.0.1:30008', 'Use only the local CDA Builder UI');
 assert.equal(new URL(apiOrigin).origin, 'http://127.0.0.1:8188', 'Use only the local unrestricted no-auth CDA API');
-const project = 'loom_dev_cda_fhir';
-const observationId = '485e2567-b566-56f3-b5bd-5f025f37cd95';
+const basicMode = process.argv[2] === 'basic';
+const project = basicMode ? (process.env.LOOM_DEV_PROJECT ?? 'loom_dev_c89a69d7e137') : 'loom_dev_cda_fhir';
+const observationId = basicMode ? 'dev-observation-001' : '485e2567-b566-56f3-b5bd-5f025f37cd95';
 const differentialMode = process.argv[2] === 'differential';
-const generation = 'cda-fhir-v1';
-const codedPairs = [
+let generation = basicMode ? undefined : 'cda-fhir-v1';
+const codedPairs = basicMode ? [
+  { system: 'https://example.test/codes', code: 'height', label: 'Height' },
+] : [
   { system: 'https://cda.readthedocs.io', code: 'specimen_type', label: 'Specimen type' },
   { system: 'https://cda.readthedocs.io', code: 'primary_disease_type', label: 'Primary disease type' },
 ];
 const explorer = `compound-coded-qa-${Date.now()}`;
-const evidenceDirectory = process.env.LOOM_VERIFY_OUTPUT ?? '/tmp/loom-compound-coded-verification';
+const evidenceDirectory = process.env.LOOM_VERIFY_OUTPUT ?? (basicMode ? '/tmp/loom-basic-coded-pivot-grouping' : '/tmp/loom-compound-coded-verification');
 const base = `/api/v1/projects/${project}/explorers/${explorer}`;
-const state = { explorer, observationId, mode: differentialMode ? 'differential' : 'single-observation', timingsMs: {}, failures: [], requests: [] };
+const state = { explorer, observationId, project, mode: basicMode ? 'devloop-basic-coded-grouping' : differentialMode ? 'differential' : 'single-observation', timingsMs: {}, failures: [], requests: [] };
 const sourceFreeze = await captureSourceFreeze(fileURLToPath(new URL('..', import.meta.url)));
 let observationIDs = [observationId];
 let rawSources = [];
@@ -167,6 +170,13 @@ browser.cdp.on('Network.loadingFinished', ({ requestId }) => {
 try {
   apiBuildFreeze = await captureApiBuildFreeze(() => checkContainerApiBuildStamp(localCDAApiContainer()));
   state.apiBuildFreeze = { initial: apiBuildFreeze.initial };
+  let initialBuilder;
+  if (basicMode) {
+    await api(`/api/v1/projects/${project}/explorers`, 'POST', { name: explorer, title: 'Basic coded grouping verification' });
+    initialBuilder = await api(base + '/authoring/v2/builder');
+    generation = initialBuilder.catalog.generation;
+    state.generation = generation;
+  }
   const readRawObservations = (query) => {
     const raw = execFileSync('rtk', [
       'proxy', 'docker', 'exec', process.env.LOOM_ARANGO_CONTAINER ?? 'loom-dev-6d7df93d6a37-arangodb-1',
@@ -178,6 +188,12 @@ try {
     return JSON.parse(raw.slice(start));
   };
   const pairValues = (source) => codedPairs.map((pair) => {
+    if (basicMode) {
+      const matches = (source.code?.coding ?? [])
+        .filter((coding) => coding.system === pair.system && coding.code === pair.code)
+        .map(() => source.valueQuantity?.value);
+      return matches.length === 1 && typeof matches[0] === 'number' && Number.isFinite(matches[0]) ? String(matches[0]) : undefined;
+    }
     const matches = (source.component ?? []).flatMap((component) =>
       (component?.code?.coding ?? [])
         .filter((coding) => coding.system === pair.system && coding.code === pair.code)
@@ -221,8 +237,22 @@ try {
       expectedRows: [[...bucket.values, bucket.status, String(rawSources.length)]],
       groupingPairs: codedPairs.map((pair, index) => ({ system: pair.system, code: pair.code, value: bucket.values[index] })),
     };
+  } else if (basicMode) {
+    const query = `FOR d IN Observation FILTER d.id == ${JSON.stringify(observationId)} AND d.project == ${JSON.stringify(project)} AND d.dataset_generation == ${JSON.stringify(generation)} LIMIT 2 RETURN {id:d.id,project:d.project,generation:d.dataset_generation,resourceType:d.payload.resourceType,status:d.payload.status,code:d.payload.code,valueQuantity:d.payload.valueQuantity}`;
+    rawSources = readRawObservations(query);
+    const [source] = rawSources;
+    assert.equal(rawSources.length, 1, 'The bounded project/generation/id oracle must resolve exactly one resource');
+    assert.equal(source?.project, project, 'The registered basic fixture source record is required');
+    assert.equal(source?.generation, generation);
+    assert.equal(source?.resourceType, 'Observation');
+    assert.equal(source?.id, observationId);
+    assert.equal(source?.status, 'final');
+    const values = pairValues(source);
+    assert.deepEqual(values, ['172.5'], 'Pair the exact height Coding with valueQuantity.value 172.5');
+    state.oracle = { generation: source.generation, status: source.status, values, specimenType: values[0], count: 1,
+      codingPairs: codedPairs.map(({ system, code }) => ({ system, code })) };
   } else {
-    const query = `FOR d IN Observation FILTER d.id == ${JSON.stringify(observationId)} RETURN {id:d.id,project:d.project,generation:d.dataset_generation,resourceType:d.payload.resourceType,status:d.payload.status,component:d.payload.component}`;
+    const query = `FOR d IN Observation FILTER d.id == ${JSON.stringify(observationId)} AND d.project == ${JSON.stringify(project)} AND d.dataset_generation == ${JSON.stringify(generation)} LIMIT 2 RETURN {id:d.id,project:d.project,generation:d.dataset_generation,resourceType:d.payload.resourceType,status:d.payload.status,component:d.payload.component}`;
     rawSources = readRawObservations(query);
     const [source] = rawSources;
     assert.equal(source?.project, project, 'The real CDA source record is required');
@@ -238,8 +268,8 @@ try {
   }
   state.observationIDs = observationIDs;
   state.oracleSources = rawSources.map((source) => ({ id: source.id, status: source.status, component: source.component }));
-  await api(`/api/v1/projects/${project}/explorers`, 'POST', { name: explorer, title: 'Compound coded grouping verification' });
-  const initial = await api(base + '/authoring/v2/builder');
+  if (!basicMode) await api(`/api/v1/projects/${project}/explorers`, 'POST', { name: explorer, title: 'Compound coded grouping verification' });
+  const initial = initialBuilder ?? await api(base + '/authoring/v2/builder');
   assert.equal(initial.catalog.generation, state.oracle.generation);
   const selection = await api(base + '/selections', 'POST', {
     snapshotToken: initial.catalog.snapshotToken,
@@ -306,19 +336,20 @@ try {
   } else {
     state.baseline = await api(base + '/authoring/v2/builder');
   }
-  await click(browser.cdp, '[data-testid="construction-rows-settings-trigger"]');
+  const rowDefinitionDialogOpen = await browserEval(browser.cdp, `return Boolean(document.querySelector('[role="dialog"][aria-label="Row definition settings"][aria-modal="true"]'));`);
+  if (!rowDefinitionDialogOpen) await click(browser.cdp, '[data-testid="construction-rows-settings-trigger"]');
   await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-action-group-rows"]')?.disabled===false`);
   const requestStart = state.requests.length;
   const openedAt = Date.now();
   await click(browser.cdp, '[data-testid="construction-action-group-rows"]');
-  await waitForBrowser(browser.cdp, `document.querySelector('input[aria-label="Group by coded value: Specimen type"]:not(:disabled)')`);
+  await waitForBrowser(browser.cdp, `document.querySelector('input[aria-label="Group by coded value: ${codedPairs[0].label}"]:not(:disabled)')`);
   state.timingsMs.openPicker = Date.now() - openedAt;
   assert(state.timingsMs.openPicker <= 5000, `Opening the coded picker took ${state.timingsMs.openPicker} ms`);
   state.groupChoices = await browserEval(browser.cdp, `return [...document.querySelectorAll('input[aria-label^="Group by"]')].map(input=>({label:input.getAttribute('aria-label'),disabled:input.disabled,checked:input.checked}));`);
   assert(!await browserEval(browser.cdp, `return document.body.innerText.includes('Need a coded-value column first?');`));
   const proposalRequestStart = state.requests.length;
   const selectedAt = Date.now();
-  await click(browser.cdp, 'input[aria-label="Group by coded value: Specimen type"]');
+  await click(browser.cdp, `input[aria-label="Group by coded value: ${codedPairs[0].label}"]`);
   state.proposal = await proposed(browser.cdp, selectedAt, 'selectToPreview', state.baseline, proposalRequestStart);
   if (differentialMode) {
     assertNamedPreviewValues(state.proposal, [
@@ -326,7 +357,7 @@ try {
       ['Row count', String(state.oracle.expectedGroupCount)],
     ], 'First coded group preview');
   } else {
-    assert.deepEqual(state.proposal.rows, [[state.oracle.specimenType, '1']], 'The grouped preview must match the raw CDA value and record count');
+    assert.deepEqual(state.proposal.rows, [[state.oracle.specimenType, '1']], 'The grouped preview must match the independent source value and record count');
   }
   const beforeApply = await api(base + '/authoring/v2/builder');
   assert.equal(beforeApply.draftDigest, state.baseline.draftDigest, 'Selecting a code must not save its prerequisite');
@@ -356,22 +387,24 @@ try {
   await rowsReady(browser.cdp);
   await click(browser.cdp, `[data-testid="construction-history-step-${group.id}"]`);
   await click(browser.cdp, `[data-testid="construction-edit-step-${group.id}"]`);
-  await waitForBrowser(browser.cdp, `document.querySelector('input[aria-label="Group by coded value: Specimen type"]')?.checked`);
-  await waitForBrowser(browser.cdp, `document.querySelector('input[aria-label="Group by coded value: Primary disease type"]:not(:disabled)')`);
-  const editProposalRequestStart = state.requests.length;
-  const editedAt = Date.now();
-  await click(browser.cdp, 'input[aria-label="Group by coded value: Primary disease type"]');
-  state.editedProposal = await proposed(browser.cdp, editedAt, 'editToPreview', state.saved, editProposalRequestStart);
-  assert.equal(state.editedProposal.rows.length, 1);
-  if (differentialMode) {
-    assertNamedPreviewValues(state.editedProposal, [
-      ...codedPairs.map((pair, index) => [pair.label, state.oracle.values[index]]),
-      ['Row count', String(state.oracle.expectedGroupCount)],
-    ], 'Two-coded-field preview');
-  } else {
-    assert(state.editedProposal.rows[0].includes(state.oracle.specimenType));
-    assert(state.editedProposal.rows[0].includes(state.oracle.primaryDiseaseType));
-    assert(state.editedProposal.rows[0].includes('1'));
+  await waitForBrowser(browser.cdp, `document.querySelector('input[aria-label="Group by coded value: ${codedPairs[0].label}"]')?.checked`);
+  if (!basicMode) {
+    await waitForBrowser(browser.cdp, `document.querySelector('input[aria-label="Group by coded value: Primary disease type"]:not(:disabled)')`);
+    const editProposalRequestStart = state.requests.length;
+    const editedAt = Date.now();
+    await click(browser.cdp, 'input[aria-label="Group by coded value: Primary disease type"]');
+    state.editedProposal = await proposed(browser.cdp, editedAt, 'editToPreview', state.saved, editProposalRequestStart);
+    assert.equal(state.editedProposal.rows.length, 1);
+    if (differentialMode) {
+      assertNamedPreviewValues(state.editedProposal, [
+        ...codedPairs.map((pair, index) => [pair.label, state.oracle.values[index]]),
+        ['Row count', String(state.oracle.expectedGroupCount)],
+      ], 'Two-coded-field preview');
+    } else {
+      assert(state.editedProposal.rows[0].includes(state.oracle.specimenType));
+      assert(state.editedProposal.rows[0].includes(state.oracle.primaryDiseaseType));
+      assert(state.editedProposal.rows[0].includes('1'));
+    }
   }
   let ordinaryKeySelector = 'input[aria-label="Group by Observation ID"]';
   if (differentialMode) {
@@ -395,9 +428,17 @@ try {
       ['Row count', String(state.oracle.expectedGroupCount)],
     ], 'Coded fields plus ordinary Observation.status group preview');
   } else {
-    assert(state.mixedKeyProposal.rows[0].includes(observationId), 'An existing source field must survive the coded prerequisite');
-    assert(state.mixedKeyProposal.rows[0].includes(state.oracle.specimenType));
-    assert(state.mixedKeyProposal.rows[0].includes(state.oracle.primaryDiseaseType));
+    if (basicMode) {
+      assertNamedPreviewValues(state.mixedKeyProposal, [
+        [codedPairs[0].label, state.oracle.values[0]],
+        ['Observation ID', observationId],
+        ['Row count', '1'],
+      ], 'Coded value plus exact Observation ID grouping field');
+    } else {
+      assert(state.mixedKeyProposal.rows[0].includes(observationId), 'An existing source field must survive the coded prerequisite');
+      assert(state.mixedKeyProposal.rows[0].includes(state.oracle.specimenType));
+      assert(state.mixedKeyProposal.rows[0].includes(state.oracle.primaryDiseaseType));
+    }
   }
   const editedApplyAt = Date.now();
   await click(browser.cdp, '[data-testid="construction-apply-proposal"]');
@@ -409,9 +450,16 @@ try {
   assert.equal(editedSteps.length, 2);
   assert.deepEqual(editedDocument.population, savedDocument(state.baseline).population, 'Coded grouping must preserve the exact selected Observation population');
   assert.equal(editedSteps[0].id, helper.id, 'Editing must reuse the owned prerequisite');
-  assert.equal(editedSteps[0].operation.codedPivot.categories.length, 2);
+  assert.equal(editedSteps[0].operation.codedPivot.categories.length, codedPairs.length);
   assert.equal(editedSteps[0].rowValues.length, 1);
   assert.equal(editedSteps[0].rowValues[0].policy, 'ONE');
+  if (basicMode) {
+    const groupStep = editedSteps[1];
+    const idPassthrough = editedSteps[0].rowValues[0];
+    assert.equal(groupStep.operation.kind, 'GROUP');
+    assert(groupStep.operation.group.keys.some((key) => key.inputColumnId === idPassthrough.outputColumnId),
+      'The ordinary Observation ID grouping key must bind through the CODED_PIVOT-owned row-value output');
+  }
   if (differentialMode) {
     const durablePairs = editedSteps[0].operation.codedPivot.categories
       .map(({ system, code }) => JSON.stringify([system, code])).sort();
@@ -430,6 +478,11 @@ try {
   await navigate(browser.cdp, url);
   await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-history-step-${group.id}"]')`);
   await rowsReady(browser.cdp);
+  if (basicMode) {
+    state.reloadedBuilder = await api(base + '/authoring/v2/builder');
+    assert.equal(state.reloadedBuilder.draftDigest, state.edited.draftDigest, 'The edited coded grouping must survive a fresh Builder reload');
+    assert.deepEqual(state.reloadedBuilder.workspace, state.edited.workspace);
+  }
   finishTiming('reloadEditedCodedGroup', groupedReloadAt);
   state.groupedReload = await browserEval(browser.cdp, `return {headers:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].map(cell=>cell.innerText.trim()),rows:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]')].slice(1).map(row=>[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText.trim()))};`);
   assert.equal(state.groupedReload.rows.length, 1);
@@ -438,6 +491,9 @@ try {
     ['Observation status', state.oracle.status],
     ['Row count', String(state.oracle.expectedGroupCount)],
   ], 'Reloaded coded group');
+  else if (basicMode) assertNamedPreviewValues(state.groupedReload, [
+    [codedPairs[0].label, state.oracle.values[0]], ['Observation ID', observationId], ['Row count', '1'],
+  ], 'Reloaded coded group with source identity key');
 
   await click(browser.cdp, `[data-testid="construction-history-step-${group.id}"]`);
   const removedAt = Date.now();

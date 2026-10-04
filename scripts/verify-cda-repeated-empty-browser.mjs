@@ -4,6 +4,10 @@ import { spawnSync } from 'node:child_process';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { parseArgs } from 'node:util';
+import { fileURLToPath } from 'node:url';
+import { captureSourceFreeze } from './lib/source-freeze.mjs';
+import { ApiBuildFreezeError, captureApiBuildFreeze, checkContainerApiBuildStamp, localCDAApiContainer } from './lib/api-build-freeze.mjs';
+import { sourceFingerprint } from './verify-ui/source-fingerprint.mjs';
 import { browserEval, click, launchBrowser, navigate, selectOption, waitForBrowser } from './lib/browser.mjs';
 
 const { values } = parseArgs({ options: {
@@ -18,10 +22,15 @@ const { values } = parseArgs({ options: {
 const protectedExplorer = 'cda-builder-full-qa-1790440983382';
 const explorer = 'cda-repeated-empty-' + Date.now();
 assert.notEqual(explorer, protectedExplorer);
+const sourceFreezeRoot = process.env.LOOM_SOURCE_FREEZE_ROOT ?? fileURLToPath(new URL('..', import.meta.url));
+const apiBuildTarget = 'local-cda-api';
+const apiContainer = localCDAApiContainer();
+const readApiBuildStamp = () => checkContainerApiBuildStamp(apiContainer);
 const report = {
   started: new Date().toISOString(), invocation: process.argv,
   target: { apiOrigin: values['api-origin'], uiOrigin: values['ui-origin'], project: values.project, generation: values.generation, protectedExplorer },
-  explorer, assertions: [], gaps: [], failures: [], timings: [], requests: [], browserRequests: [],
+  explorer, scenario: 'Owned CDA Observation.component[] source EXPANDED composed with authored GROUP COUNT_ROWS, with raw-value, preview, cancel, apply, reload, and removal restoration checks.',
+  assertions: [], gaps: [], failures: [], timings: [], requests: [], browserRequests: [],
   browserErrors: { exceptions: [], console: [], modules: [], http: [], incidental: [] }, evidencePaths: [],
 };
 const root = '/api/v1/projects/' + encodeURIComponent(values.project) + '/explorers';
@@ -31,6 +40,8 @@ const policySelect = 'select[aria-label="Unmatched record policy"]';
 const tableSelector = '[data-testid="preview-table-scroll"] [role="table"]';
 let builder;
 let outputId;
+let sourceFreeze;
+let frozenApiBuild;
 let browser;
 let browserPending = new Set();
 let expectedEmptyErrorMode = false;
@@ -128,7 +139,7 @@ const boundedRawOracle = () => {
 
 const monitorBrowser = () => {
   const byId = new Map();
-  const interested = /\/authoring\/v2\/(?:row-definition-proposals|commands|preview|builder)(?:\/|\?|$)/;
+  const interested = /\/authoring\/v2\/(?:row-definition-proposals|construction-proposals|commands|preview|builder)(?:\/|\?|$)/;
   browser.cdp.on('Network.requestWillBeSent', ({ requestId, request, wallTime }) => {
     let url;
     try { url = new URL(request.url); } catch { return; }
@@ -310,6 +321,202 @@ const verifyPreview = async (policy, expectedPairs, emptyIDs = []) => {
   }
   return { headers: preview.headers, rowCount: preview.rows.length, positivePairs: sortPairs(actualPairs), preservedEmptyIDs };
 };
+const sortedRows = rows => rows.slice().sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)));
+const expectedGroupRows = () => sortedRows([
+  ...report.oracle.expectedComponentRows.reduce((groups, item) => {
+    const existing = groups.find(group => group[0] === item.id);
+    if (existing) existing[1] += 1;
+    else groups.push([item.id, 1]);
+    return groups;
+  }, []),
+  ...report.oracle.expectedPreservedEmptyIDs.map(id => [id, 1]),
+]);
+const constructionProposalFor = async (name, startedAt) => {
+  const deadline = startedAt + 5000;
+  while (Date.now() < deadline) {
+    const panel = await browserEval(browser.cdp, `const value=document.querySelector('[data-testid="construction-proposal-panel"]');const preview=document.querySelector('[data-testid="construction-proposal-preview"]');return {id:value?.dataset.proposalId,status:value?.dataset.proposalStatus,text:value?.innerText,receiptId:preview?.dataset.previewReceiptId};`);
+    const request = panel.id && report.browserRequests.findLast(entry => entry.startedAt >= startedAt &&
+      entry.path.endsWith('/construction-proposals') && entry.response?.proposalId === panel.id);
+    if (request && ['ready', 'error', 'needs-repair'].includes(panel.status)) {
+      assert.equal(panel.status, 'ready', `${name} proposal is not ready: ${panel.text}`);
+      assert.equal(request.status, 200, `${name} proposal request failed: ${JSON.stringify(request.response)}`);
+      assert.equal(request.response?.previewStatus, 'READY', `${name} response preview is not ready: ${JSON.stringify(request.response)}`);
+      assert(request.response?.preview?.receiptId, `${name} proposal is missing a preview receipt`);
+      assert(request.durationMs <= 5000, `${name} native proposal request took ${request.durationMs} ms`);
+      assert(request.response.previewDurationMs <= 5000, `${name} preview took ${request.response.previewDurationMs} ms`);
+      assert.equal(panel.receiptId, request.response.preview.receiptId, `${name} UI did not adopt the exact automatic-preview receipt`);
+      const durationMs = Date.now() - startedAt;
+      report.timings.push({ name, durationMs, limitMs: 5000 });
+      assert(durationMs <= 5000, `${name} took ${durationMs} ms`);
+      return request;
+    }
+    await new Promise(resolve => setTimeout(resolve, 30));
+  }
+  throw new Error(`${name} did not adopt a ready native construction proposal within five seconds`);
+};
+const resolveGroupInputColumn = async () => {
+  builder = (await api(base + '/builder')).body;
+  const authoredColumns = document().columns.filter(column => column.label === 'Observation ID');
+  assert.equal(authoredColumns.length, 1, 'The saved source must contain one Observation ID field');
+  const authoredColumn = authoredColumns[0];
+  assert(authoredColumn.column, 'Saved Observation ID field is missing its physical source column name');
+  const owner = {
+    snapshotToken: builder.catalog.snapshotToken,
+    expectedDraftVersion: builder.draftVersion,
+    expectedDraftDigest: builder.draftDigest,
+    outputId,
+    stageId: 'source_projection',
+  };
+  const capabilities = (await api(base + '/construction-capabilities', owner)).body;
+  assert.equal(capabilities.snapshotToken, owner.snapshotToken, 'Construction capabilities belong to a different catalog snapshot');
+  assert.equal(capabilities.draftVersion, owner.expectedDraftVersion, 'Construction capabilities belong to a different draft version');
+  assert.equal(capabilities.draftDigest, owner.expectedDraftDigest, 'Construction capabilities belong to a different draft digest');
+  assert.equal(capabilities.outputId, owner.outputId, 'Construction capabilities belong to a different output');
+  assert.equal(capabilities.stageId, owner.stageId, 'Construction capabilities belong to a different requested stage');
+  assert.equal(capabilities.selectedStage?.id, owner.stageId, 'Construction capabilities selected a different stage');
+  const sourceColumns = document().columns.map(sourceColumn => {
+    assert(sourceColumn.column, 'Saved source field is missing its physical column name');
+    const matches = capabilities.selectedStage.columns.filter(column => !column.internal && column.name === sourceColumn.column);
+    assert.equal(matches.length, 1, 'The current source-stage receipt must identify saved field ' + sourceColumn.label + ' by its exact physical name');
+    const capabilityColumn = matches[0];
+    assert.equal(capabilityColumn.label, sourceColumn.label, 'Source-stage field label differs from saved field ' + sourceColumn.label);
+    return { authoredName: sourceColumn.column, label: sourceColumn.label, capabilityColumn };
+  });
+  const idSourceColumn = sourceColumns.find(column => column.label === authoredColumn.label);
+  assert(idSourceColumn, 'The current source-stage receipt omitted the saved Observation ID field');
+  return { owner, authoredName: authoredColumn.column, capabilityColumn: idSourceColumn.capabilityColumn, sourceColumns };
+};
+const assertSourceColumnBindings = (actualColumns, expectedColumns, sourceReceipt, name, requireReceiptIDs) => {
+  const withoutColumnIDs = columns => columns.map(({ columnId, ...column }) => column);
+  assert.deepEqual(withoutColumnIDs(actualColumns), withoutColumnIDs(expectedColumns), name + ' changed saved source field bindings');
+  assert.equal(actualColumns.length, expectedColumns.length, name + ' changed the saved source field count');
+  for (let index = 0; index < expectedColumns.length; index += 1) {
+    const expected = expectedColumns[index];
+    const actual = actualColumns[index];
+    if (expected.columnId) {
+      assert.equal(actual.columnId, expected.columnId, name + ' changed previously assigned source identity for ' + expected.label);
+      continue;
+    }
+    if (!requireReceiptIDs) {
+      assert.equal(actual.columnId, undefined, name + ' assigned a source identity before Group Apply for ' + expected.label);
+      continue;
+    }
+    const matches = sourceReceipt.sourceColumns.filter(column => column.authoredName === expected.column);
+    assert.equal(matches.length, 1, name + ' has no unique owner-bound source identity for ' + expected.label);
+    assert.equal(actual.columnId, matches[0].capabilityColumn.id, name + ' did not retain the owner-bound source identity for ' + expected.label);
+  }
+};
+const assertGroupProposal = (request, expected, inputColumn) => {
+  const step = request.body?.candidateConstruction?.steps?.find(item => item.operation?.kind === 'GROUP');
+  assert(step, 'Native proposal did not author a GROUP step');
+  assert.equal(step.operation.group.keys.length, 1, 'Source-expanded regression must group only by Observation ID');
+  assert.equal(inputColumn.capabilityColumn.name, inputColumn.authoredName, 'GROUP input capability is not bound to the exact authored source field');
+  assert.equal(step.operation.group.keys[0].inputColumnId, inputColumn.capabilityColumn.id, 'GROUP must use the exact receipt-bound source Observation ID column');
+  const count = step.operation.group.aggregates.find(item => item.operation === 'COUNT_ROWS');
+  assert(count, 'GROUP must count expanded rows');
+  const keyOutput = step.outputs.find(column => column.id === step.operation.group.keys[0].outputColumnId);
+  const countOutput = step.outputs.find(column => column.id === count.outputColumnId);
+  assert(keyOutput?.name && countOutput?.name, 'GROUP key/count outputs are missing stable names');
+  const preview = request.response.preview;
+  assert.equal(preview.rowCount, expected.length, 'GROUP preview row count differs from raw Observation witnesses');
+  const key = preview.columns.find(column => column.column === keyOutput.name);
+  const rows = preview.columns.find(column => column.column === countOutput.name);
+  assert(key && rows, `GROUP preview omitted authored output columns ${keyOutput.name}/${countOutput.name}`);
+  const actual = sortedRows(preview.rows.map(row => [String(row[key.column]), Number(row[rows.column])]));
+  assert.deepEqual(actual, expected, 'GROUP proposal counts differ from the independent raw component[] oracle');
+  return {
+    step, keyOutput, countOutput, previewRows: actual, receiptId: preview.receiptId,
+    sourceInput: {
+      sourceColumn: inputColumn.authoredName, capabilityColumnId: inputColumn.capabilityColumn.id,
+      stageId: inputColumn.owner.stageId, snapshotToken: inputColumn.owner.snapshotToken,
+      draftVersion: inputColumn.owner.expectedDraftVersion, draftDigest: inputColumn.owner.expectedDraftDigest,
+      outputId: inputColumn.owner.outputId,
+      columns: inputColumn.sourceColumns.map(sourceColumn => ({
+        sourceColumn: sourceColumn.authoredName, capabilityColumnId: sourceColumn.capabilityColumn.id,
+        label: sourceColumn.label,
+      })),
+    },
+  };
+};
+const assertExpandedProposal = (request, expectedRows) => {
+  const preview = request.response?.preview;
+  assert(preview?.rows && preview?.columns, 'Removing GROUP did not return an expanded-source preview');
+  assert.equal(preview.rowCount, expectedRows, 'Removing GROUP preview did not restore exact expanded-source cardinality');
+  const idColumn = preview.columns.find(column => column.label === 'Observation ID')?.column;
+  const valueColumn = preview.columns.find(column => /component.*value.?string/i.test(column.label))?.column;
+  assert(idColumn && valueColumn, 'Removing GROUP preview omitted source field bindings');
+  const emptyIDs = new Set(report.oracle.expectedPreservedEmptyIDs);
+  const actualPairs = [];
+  const preservedEmptyIDs = [];
+  for (const row of preview.rows) {
+    const id = String(row[idColumn]);
+    const value = row[valueColumn];
+    if (emptyIDs.has(id)) {
+      preservedEmptyIDs.push(id);
+      assert.deepEqual(value, [], `Removing GROUP preview must preserve an empty component list for ${id}`);
+    } else {
+      const items = Array.isArray(value) ? value : [value];
+      assert.equal(items.length, 1, `Removing GROUP must restore one source component item per row for ${id}`);
+      actualPairs.push([id, items[0]]);
+    }
+  }
+  const expectedPairs = report.oracle.expectedComponentRows.map(item => [item.id, item.value]);
+  assert.deepEqual(sortedRows(actualPairs), sortedRows(expectedPairs), 'Removing GROUP preview differs from raw component[] values');
+  assert.deepEqual(preservedEmptyIDs.sort(), [...emptyIDs].sort(), 'Removing GROUP preview lost preserved empty owners');
+  return { rowCount: preview.rowCount, positivePairs: sortedRows(actualPairs), preservedEmptyIDs };
+};
+const groupKeyControl = 'input[aria-label="Group by Observation ID"]';
+const chooseOnlyObservationIDGroupKey = async (startedAt) => {
+  const controls = await browserEval(browser.cdp, `return [...document.querySelectorAll('[data-testid="construction-reshape-group"] input[type="checkbox"][aria-label^="Group by "]')].map(input=>({label:input.getAttribute('aria-label'),checked:input.checked,disabled:input.disabled}));`);
+  const target = controls.find(control => control.label === 'Group by Observation ID');
+  assert(target && !target.disabled, `GROUP editor did not expose an enabled Observation ID key: ${JSON.stringify(controls)}`);
+  for (const control of controls) {
+    if (control.checked && control.label !== 'Group by Observation ID') {
+      await click(browser.cdp, `input[aria-label=${q(control.label)}]`);
+    }
+  }
+  let current = await browserEval(browser.cdp, `return document.querySelector(${q(groupKeyControl)})?.checked === true;`);
+  if (current) {
+    await click(browser.cdp, groupKeyControl);
+    current = false;
+  }
+  if (!current) await click(browser.cdp, groupKeyControl);
+  await fastWait(startedAt, `document.querySelector(${q(groupKeyControl)})?.checked === true`, 'Exact Observation ID group key selection');
+};
+const configureGroup = async () => measure('source-expanded-group-editor-to-key', async startedAt => {
+  await click(browser.cdp, '[data-testid="construction-rows-settings-trigger"]');
+  await fastWait(startedAt, `document.querySelector('[data-testid="construction-action-group-rows"]')?.disabled === false`, 'Group operation discovery');
+  await click(browser.cdp, '[data-testid="construction-action-group-rows"]');
+  await fastWait(startedAt, `Boolean(document.querySelector('[data-testid="construction-reshape-group"]'))`, 'Native GROUP editor');
+  await chooseOnlyObservationIDGroupKey(startedAt);
+});
+const verifyGroupedTable = async (expected, name) => {
+  const preview = await fieldPreviewRows();
+  const group = document().construction?.steps?.find(step => step.operation?.kind === 'GROUP');
+  assert(group, `${name}: saved GROUP step is missing`);
+  const keyOutput = group.outputs.find(column => column.id === group.operation.group.keys[0].outputColumnId);
+  const countOutput = group.outputs.find(column => column.id === group.operation.group.aggregates.find(item => item.operation === 'COUNT_ROWS')?.outputColumnId);
+  assert(keyOutput?.label && countOutput?.label, `${name}: saved GROUP output labels are missing`);
+  const headerLabel = header => header.split(String.fromCharCode(10))[0].trim().toUpperCase();
+  const keyIndex = preview.headers.findIndex(header => headerLabel(header) === keyOutput.label.trim().toUpperCase());
+  const countIndex = preview.headers.findIndex(header => headerLabel(header) === countOutput.label.trim().toUpperCase());
+  assert(keyIndex >= 0 && countIndex >= 0, `${name}: GROUP output columns are missing from table headers ${JSON.stringify(preview.headers)}`);
+  const visibleRows = sortedRows(preview.rows.map(row => [String(parseCell(row[keyIndex])), Number(parseCell(row[countIndex]))]));
+  assert.deepEqual(visibleRows, expected, `${name}: rendered GROUP rows differ from raw component cardinalities`);
+  assert.equal(preview.rows.length, expected.length);
+  const response = report.browserRequests.findLast(request => request.path.endsWith('/preview') && request.status === 200)?.response;
+  assert(response?.rows && response?.columns, `${name}: saved preview protocol is missing`);
+  const keyColumn = response.columns.find(column => column.label === keyOutput.label)?.column;
+  const countColumn = response.columns.find(column => column.label === countOutput.label)?.column;
+  assert(keyColumn && countColumn, `${name}: protocol omitted saved GROUP output metadata`);
+  const protocolRows = sortedRows(response.rows.map(row => [String(row[keyColumn]), Number(row[countColumn])]));
+  assert.deepEqual(protocolRows, expected, `${name}: protocol rows differ from raw component cardinalities`);
+  return { headers: preview.headers, rowCount: preview.rows.length, rows: protocolRows };
+};
+const applyConstructionProposal = async (expectedRows, name) => measure(name, async startedAt => {
+  await click(browser.cdp, '[data-testid="construction-apply-proposal"]');
+  await fastWait(startedAt, '!document.querySelector(\'[data-testid="construction-proposal-panel"]\') && ' + rowsReady(expectedRows), 'Applied authored row operation render');
+});
 const createSelection = async (refs, idempotencyKey) => {
   const selectionsPath = base.replace('/authoring/v2', '/selections');
   const selection = (await api(selectionsPath, {
@@ -365,6 +572,24 @@ const finish = async () => {
 
 const main = async () => {
   await mkdir(values.evidence, { recursive: true });
+  const sourceFreezeStartedAt = new Date().toISOString();
+  report.sourceFreeze = { root: sourceFreezeRoot, startedAt: sourceFreezeStartedAt, available: false, invalidatesRun: false, productFailure: false };
+  report.sourceFingerprint = { root: sourceFreezeRoot, startedAt: sourceFreezeStartedAt, checked: false, invalidatesRun: false, productFailure: false };
+  try {
+    report.sourceFingerprint.before = sourceFingerprint(sourceFreezeRoot);
+    report.sourceFingerprint.checked = true;
+    sourceFreeze = await captureSourceFreeze(sourceFreezeRoot);
+  } catch (error) {
+    report.sourceFingerprint = { ...report.sourceFingerprint, checked: Boolean(report.sourceFingerprint.before), error: String(error) };
+    error.initialSourceFreezeFailure = true;
+    error.invalidatesRun = true;
+    throw error;
+  }
+  report.sourceFreeze = { ...report.sourceFreeze, available: true, watchedFileCount: sourceFreeze.watchedFileCount };
+  const apiBuildStartedAt = new Date().toISOString();
+  report.apiBuildFreeze = { target: apiBuildTarget, container: apiContainer, startedAt: apiBuildStartedAt, invalidatesRun: false, productFailure: false };
+  frozenApiBuild = await captureApiBuildFreeze(readApiBuildStamp);
+  report.apiBuildFreeze = { ...report.apiBuildFreeze, initial: frozenApiBuild.initial };
   const selected = boundedRawOracle();
   const positive = selected.find(resource => resource.componentValues);
   const emptyResources = selected.filter(resource => resource.emptyComponentKind);
@@ -386,12 +611,12 @@ const main = async () => {
     expectedPreservedRows: report.oracle.expectedComponentRows.length + emptyResources.length,
   });
 
-  await api(root, { name: explorer, title: 'CDA empty component row policy QA' });
+  await api(root, { name: explorer, title: 'CDA expanded component group composition QA' });
   builder = (await api(base + '/builder')).body;
   assert.equal(builder.catalog.generation, values.generation, 'Fresh QA Explorer must use the requested CDA generation');
   const observationNode = builder.catalog.nodes.find(node => node.resourceType === 'Observation');
   assert(observationNode, 'CDA catalog has no Observation root');
-  await command([{ type: 'CREATE_TABLE', title: 'Empty component policies', rootNodeId: observationNode.nodeId }]);
+  await command([{ type: 'CREATE_TABLE', title: 'Expanded component group composition', rootNodeId: observationNode.nodeId }]);
   outputId = builder.workspace.documents[0].output.id;
   const idCandidate = builder.catalog.candidates.find(candidate => candidate.nodeId === observationNode.nodeId && candidate.fieldPath === 'id');
   const valueCandidate = builder.catalog.candidates.find(candidate => candidate.nodeId === observationNode.nodeId && candidate.fieldPath === 'component[].valueString');
@@ -449,6 +674,79 @@ const main = async () => {
   report.preserveParentReload = await verifyPreview('PRESERVE_PARENT', report.oracle.expectedComponentRows, emptyResources.map(resource => resource.id));
   recordAssertion('PRESERVE_PARENT preserves positive item values and one empty row per owner across reload', report.preserveParentReload);
 
+  const expandedSourceState = {
+    rows: structuredClone(document().rows), population: structuredClone(document().population),
+    columns: structuredClone(document().columns), construction: structuredClone(document().construction ?? null),
+  };
+  const expectedGroupedRows = expectedGroupRows();
+  report.expectedGroupedRows = expectedGroupedRows.map(([id, count]) => ({ id, count }));
+  const cancelGroupInput = await resolveGroupInputColumn();
+  const firstGroupStarted = Date.now();
+  await configureGroup();
+  const firstGroupProposal = await constructionProposalFor('source-expanded Group COUNT_ROWS Cancel preview', firstGroupStarted);
+  report.groupCancelPreview = assertGroupProposal(firstGroupProposal, expectedGroupedRows, cancelGroupInput);
+  recordAssertion('automatic Group COUNT_ROWS proposal matches raw expanded-item cardinalities', report.groupCancelPreview);
+  const beforeGroupCancel = structuredClone((await api(base + '/builder')).body.workspace);
+  await measure('source-expanded Group preview Cancel', async startedAt => {
+    await click(browser.cdp, '[data-testid="construction-cancel-proposal"]');
+    await fastWait(startedAt, '!document.querySelector(\'[data-testid="construction-proposal-panel"]\')', 'Canceled authored GROUP preview');
+  });
+  builder = (await api(base + '/builder')).body;
+  assert.deepEqual(builder.workspace, beforeGroupCancel, 'Canceling Group preview must not mutate saved authoring state');
+  assert.deepEqual(document().rows, expandedSourceState.rows, 'Group Cancel changed the source EXPANDED definition');
+  assert.deepEqual(document().population, expandedSourceState.population, 'Group Cancel changed exact selected source membership');
+  assertSourceColumnBindings(document().columns, expandedSourceState.columns, cancelGroupInput, 'Group Cancel', false);
+  assert.deepEqual(document().construction ?? null, expandedSourceState.construction, 'Group Cancel persisted an authored operation');
+  await openTable(preserveCount, 'reload-expanded-source-after-group-cancel');
+  report.groupCancelRestoration = await verifyPreview('PRESERVE_PARENT', report.oracle.expectedComponentRows, emptyResources.map(resource => resource.id));
+  recordAssertion('Cancel restores exact source EXPANDED component rows before Apply', report.groupCancelRestoration);
+
+  const applyGroupInput = await resolveGroupInputColumn();
+  const finalGroupStarted = Date.now();
+  await configureGroup();
+  const finalGroupProposal = await constructionProposalFor('source-expanded Group COUNT_ROWS Apply preview', finalGroupStarted);
+  report.groupApplyPreview = assertGroupProposal(finalGroupProposal, expectedGroupedRows, applyGroupInput);
+  const groupStepId = report.groupApplyPreview.step.id;
+  await applyConstructionProposal(expectedGroupedRows.length, 'source-expanded Group Apply');
+  builder = (await api(base + '/builder')).body;
+  assert.deepEqual(document().rows, expandedSourceState.rows, 'Applying GROUP changed source EXPANDED selection or empty policy');
+  assert.deepEqual(document().population, expandedSourceState.population, 'Applying GROUP changed exact selected source membership');
+  assertSourceColumnBindings(document().columns, expandedSourceState.columns, applyGroupInput, 'Applying GROUP', true);
+  const groupAppliedSourceColumns = structuredClone(document().columns);
+  const savedGroup = document().construction?.steps?.find(step => step.id === groupStepId && step.operation?.kind === 'GROUP');
+  assert(savedGroup, 'Apply did not persist the authored GROUP operation');
+  assert.equal(savedGroup.operation.group.aggregates.filter(item => item.operation === 'COUNT_ROWS').length, 1);
+  recordAssertion('authored GROUP is composed after source EXPANDED without changing source bindings', {
+    sourceRows: document().rows, population: document().population, groupStepId,
+    operation: savedGroup.operation, expectedRows: report.expectedGroupedRows,
+  });
+  await openTable(expectedGroupedRows.length, 'reload-source-expanded-group');
+  builder = (await api(base + '/builder')).body;
+  assertSourceColumnBindings(document().columns, groupAppliedSourceColumns, applyGroupInput, 'GROUP reload', true);
+  report.groupApplyReload = await verifyGroupedTable(expectedGroupedRows, 'source-expanded GROUP reload');
+  recordAssertion('reloaded GROUP output matches exact raw Observation component counts', report.groupApplyReload);
+
+  await measure('open saved GROUP removal control', async startedAt => {
+    await click(browser.cdp, '[data-testid="construction-rows-settings-trigger"]');
+    await fastWait(startedAt, `Boolean(document.querySelector(${q('[data-testid="construction-row-remove-' + groupStepId + '"]')}))`, 'Saved GROUP removal control');
+  });
+  const removeStarted = Date.now();
+  await click(browser.cdp, '[data-testid="construction-row-remove-' + groupStepId + '"]');
+  const removeProposal = await constructionProposalFor('remove source-expanded GROUP', removeStarted);
+  assert.deepEqual(removeProposal.body?.candidateConstruction?.steps ?? [], [], 'Removing the only GROUP must restore the source projection construction');
+  report.groupRemovalPreview = assertExpandedProposal(removeProposal, preserveCount);
+  await applyConstructionProposal(preserveCount, 'remove source-expanded GROUP Apply');
+  builder = (await api(base + '/builder')).body;
+  assert.deepEqual(document().rows, expandedSourceState.rows, 'Removing GROUP changed source EXPANDED definition');
+  assert.deepEqual(document().population, expandedSourceState.population, 'Removing GROUP changed selected source membership');
+  assertSourceColumnBindings(document().columns, groupAppliedSourceColumns, applyGroupInput, 'Removing GROUP', true);
+  assert.equal(document().construction?.steps?.length ?? 0, 0, 'Removing GROUP did not remove the authored operation');
+  await openTable(preserveCount, 'reload-expanded-source-after-group-removal');
+  builder = (await api(base + '/builder')).body;
+  assertSourceColumnBindings(document().columns, groupAppliedSourceColumns, applyGroupInput, 'GROUP removal reload', true);
+  report.groupRemovalReload = await verifyPreview('PRESERVE_PARENT', report.oracle.expectedComponentRows, emptyResources.map(resource => resource.id));
+  recordAssertion('removing GROUP restores exact raw component[] rows and preserved empty owners after reload', report.groupRemovalReload);
+
   await openRowSettings();
   await selectAndPreview('EXCLUDE', excludeCount);
   await applyRowDefinition(excludeCount);
@@ -491,7 +789,7 @@ const main = async () => {
   builder = (await api(base + '/builder')).body;
   assert.equal(document().rows.kind, 'RECORDS');
   assert.deepEqual(document().population, report.baselineDocument.population, 'Final restore must preserve the exact original selection and route');
-  assert.deepEqual(document().columns, report.baselineDocument.columns, 'Final restore must preserve ID and ALL-value field bindings');
+  assertSourceColumnBindings(document().columns, report.baselineDocument.columns, applyGroupInput, 'Final RECORDS restore', true);
   await saveDOM('source-records-restored');
   await openTable(rootsCount, 'reload-final-source-records');
   const finalPreview = await fieldPreviewRows();
@@ -499,9 +797,10 @@ const main = async () => {
   assert.deepEqual(finalPreview.rows.map(row => String(parseCell(row[finalIndexes.idIndex]))).sort(), report.oracle.expectedRecordIDs.slice().sort(),
     'Final RECORDS reload must restore exact selected Observation IDs');
   builder = (await api(base + '/builder')).body;
-  for (const key of ['output', 'rootResourceType', 'route', 'population', 'columns']) {
+  for (const key of ['output', 'rootResourceType', 'route', 'population']) {
     assert.deepEqual(document()[key], report.baselineDocument[key], 'Final restoration changed original ' + key);
   }
+  assertSourceColumnBindings(document().columns, report.baselineDocument.columns, applyGroupInput, 'Final RECORDS reload', true);
   report.restoration = { rowKind: document().rows.kind, population: document().population, ids: report.oracle.expectedRecordIDs };
   recordAssertion('edit and reload restore RECORDS with exact selection and source field bindings', report.restoration);
 
@@ -516,14 +815,100 @@ const main = async () => {
 try {
   await main();
 } catch (error) {
-  report.failures.push({ error: String(error.stack ?? error), phase: report.assertions.length });
+  const sourceFreezeInvalidated = Boolean(error.initialSourceFreezeFailure);
+  const apiBuildInvalidated = error instanceof ApiBuildFreezeError;
+  if (sourceFreezeInvalidated || apiBuildInvalidated || error.invalidatesRun) {
+    report.priorStatus = report.status ?? 'not-started';
+    report.status = 'invalidated';
+    report.productFailure = false;
+    report.invalidations = [{ kind: apiBuildInvalidated ? 'apiBuildFreeze' : 'sourceFreeze', reason: error.reason ?? error.message ?? String(error) }];
+    report.error = String(error.stack ?? error);
+    if (apiBuildInvalidated) {
+      report.apiBuildFreeze = {
+        ...report.apiBuildFreeze, initial: error.before,
+        ...(error.after?.checked ? { after: error.after } : {}),
+        unchanged: false, invalidatesRun: true, productFailure: false, reason: error.reason,
+      };
+    } else if (sourceFreezeInvalidated) {
+      report.sourceFreeze = {
+        ...report.sourceFreeze, unchanged: false, changedPaths: error.changedPaths ?? [],
+        invalidatesRun: true, productFailure: false, error: String(error),
+      };
+    }
+    process.exitCode = 1;
+  } else {
+    report.failures.push({ error: String(error.stack ?? error), phase: report.assertions.length });
+  }
   try { if (browser) report.failureDOM = await domText(); } catch { /* Browser may not have opened. */ }
   try { if (outputId) report.failureBuilder = (await api(base + '/builder')).body; } catch (readError) { report.builderReadError = String(readError); }
 } finally {
   try { await Promise.all([...browserPending]); } catch { /* Network response reads remain in the report. */ }
   if (browser) await browser.close().catch(error => { report.browserCloseError = String(error); });
+  const sourceFreezeFinishedAt = new Date().toISOString();
+  try {
+    const after = sourceFingerprint(sourceFreezeRoot);
+    const before = report.sourceFingerprint?.before;
+    assert(before, 'Initial source fingerprint was not captured');
+    const unchanged = before.sha256 === after.sha256 && before.files === after.files;
+    report.sourceFingerprint = {
+      ...report.sourceFingerprint, after, unchanged, invalidatesRun: !unchanged,
+      productFailure: false, finishedAt: sourceFreezeFinishedAt,
+    };
+    assert(unchanged, 'Watched source fingerprint changed during the run');
+  } catch (error) {
+    report.priorStatus = report.status ?? (report.failures.length ? 'failed' : report.gaps.length ? 'partial' : report.assertions.length ? 'passed' : 'not-started');
+    if (report.error) report.priorError = report.error;
+    report.status = 'invalidated';
+    report.productFailure = false;
+    report.invalidations = [...(report.invalidations ?? []), { kind: 'sourceFingerprint', reason: String(error) }];
+    report.sourceFingerprint = {
+      ...report.sourceFingerprint, unchanged: false, invalidatesRun: true,
+      productFailure: false, error: String(error), finishedAt: sourceFreezeFinishedAt,
+    };
+    process.exitCode = 1;
+  }
+  if (sourceFreeze) {
+    try {
+      report.sourceFreeze = { ...report.sourceFreeze, ...(await sourceFreeze.assertUnchanged()), finishedAt: sourceFreezeFinishedAt };
+    } catch (error) {
+      report.priorStatus = report.status ?? (report.failures.length ? 'failed' : report.gaps.length ? 'partial' : report.assertions.length ? 'passed' : 'not-started');
+      if (report.error) report.priorError = report.error;
+      report.status = 'invalidated';
+      report.productFailure = false;
+      report.invalidations = [...(report.invalidations ?? []), { kind: 'sourceFreeze', reason: error.message }];
+      report.sourceFreeze = {
+        ...report.sourceFreeze, unchanged: false, changedPaths: error.changedPaths ?? [],
+        invalidatesRun: true, productFailure: false, error: String(error), finishedAt: sourceFreezeFinishedAt,
+      };
+      process.exitCode = 1;
+    }
+  } else if (!report.sourceFreeze?.available) {
+    report.sourceFreeze = { ...report.sourceFreeze, unchanged: false, invalidatesRun: true, productFailure: false, finishedAt: sourceFreezeFinishedAt };
+  }
+  const apiBuildFinishedAt = new Date().toISOString();
+  if (frozenApiBuild) {
+    try {
+      report.apiBuildFreeze = { ...report.apiBuildFreeze, ...(await frozenApiBuild.assertUnchanged()), finishedAt: apiBuildFinishedAt };
+    } catch (error) {
+      report.priorStatus = report.status ?? (report.failures.length ? 'failed' : report.gaps.length ? 'partial' : report.assertions.length ? 'passed' : 'not-started');
+      if (report.error) report.priorError = report.error;
+      report.status = 'invalidated';
+      report.productFailure = false;
+      report.invalidations = [...(report.invalidations ?? []), { kind: 'apiBuildFreeze', reason: error.reason ?? String(error) }];
+      report.apiBuildFreeze = {
+        ...report.apiBuildFreeze, ...(error.before ? { initial: error.before } : {}),
+        ...(error.after ? { after: error.after } : {}), unchanged: false,
+        invalidatesRun: true, productFailure: false, reason: error.reason ?? String(error), finishedAt: apiBuildFinishedAt,
+      };
+      process.exitCode = 1;
+    }
+  } else if (!report.apiBuildFreeze?.initial) {
+    report.apiBuildFreeze = { ...report.apiBuildFreeze, unchanged: false, invalidatesRun: true, productFailure: false, finishedAt: apiBuildFinishedAt };
+  }
   report.finished = new Date().toISOString();
-  report.status = report.failures.length ? 'failed' : report.gaps.length ? 'partial' : report.assertions.length ? 'passed' : 'untested';
+  if (report.status !== 'invalidated') {
+    report.status = report.failures.length ? 'failed' : report.gaps.length ? 'partial' : report.assertions.length ? 'passed' : 'untested';
+  }
   const path = join(values.evidence, 'report.json');
   await writeFile(path, JSON.stringify(report, null, 2));
   report.evidencePaths.push(path);

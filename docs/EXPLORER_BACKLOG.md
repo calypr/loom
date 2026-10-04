@@ -83,10 +83,12 @@ go test ./internal/dataframe/compiler \
 -run '^TestExplicitCohortMemberValuesAgainstArango$' -count=1 -v
 ```
 
-The native CDA lifecycle remains unverified. Its pending case is
-`LOOM_COHORT_ROW_VALUE_CASE=transformed-category` in the existing cohort member
-verifier; do not mark browser correctness, persistence, or CDA performance
-passed from these compiler/runtime tests.
+The native CDA transformed-category lifecycle now passes in
+`/tmp/loom-cda-cohort-recode-native-accessible-close/report.json`:45 timed checks,
+maximum2259ms, errors[], unchanged1059-file source and fresh API build. Native
+Save/Remove, ALL→ONE→ALL, reload, independent member values, and raw ONE
+disagreement preservation pass. The Advanced source setup navigation detour
+remains open; ordinary column access is a separate improvement.
 
 ### First-table Add columns availability fails before current Preview
 
@@ -251,12 +253,16 @@ unchanged API build. Cohort Apply/Cancel/revision replacement, collection repair
 under the field/filter, reload, downstream removal and restoration pass. This is
 the concrete shared-preview CDA risk check; unrelated feature gaps remain open.
 
-Coverage ledger after preview-owner integration: the current matrix has 114
-cases, 104 overall `passed` and10 `untested`. Only96 cases have every recorded
-dimension passed;18 retain a gap, including17 with an untested dimension.
-These are matrix cases rather than a complete feature count. The goal remains
-active: Join/Append, recoded-cohort native proof, and other declared transitions
-still need work. Do not infer whole-feature closure from the104 overall labels.
+Coverage ledger after preview-owner integration: the current matrix has 125
+case rows: 115 overall `passed`, 7 `untested`, 2 `partial`, 1 `failed`, and 0
+`unsupported`. These are matrix cases rather than unique feature families. All
+four dimensions are `passed` for 109 rows; 16 retain a dimension gap. Fifteen
+have at least one `untested` dimension, and the remaining row has an `unproven`
+dimension; the single failed dimension is among those fifteen. Do not infer
+whole-feature closure from an overall `passed` row. The real CDA recoded-cohort
+lifecycle is now recorded as passed in matrix row 121, while Join and Append
+restoration remain untested in rows 102–103 and other declared variants remain
+open.
 
 Join/Append backend restoration source follow-up: existing private ClickHouse
 capture is not a production draft-input path. `execution/clickhouse_artifact.go`
@@ -321,3 +327,29 @@ Repeated-value source expansion design: expose signed source repeated scopes alo
 Partial mapped collection repair now passes: `LOOM_COLLECTION_PARTIAL_LONG_ROUTE=1 node scripts/verify-cda-collection-repair.mjs /tmp/loom-partial-long-route-normalized`. Independent scoped CDA oracle, native exact exclusion, surviving membership/Observation row, unchanged exact saved route and reload all pass; max2525ms, no errors, unchanged source. The bounded CDA prefix supplies one output Observation; multi-result and restricted-auth evidence remain separate.
 
 Related category discovery native GREEN: `/tmp/loom-quantity-fullpop-type-index/report.json` passes fullpopulation discovery in2066ms and the complete independent raw scoped NULL+d oracle (815261Observations). Sourcefreeze unchanged1057files, pre-run APIbuildstamp matchescurrent. Root queried index inventory afterward: exact old fourfield quantity-code index replaced by `loom_pivot_preview_601548896a95cbf8`, remaining three preview indexes preserved/cap4. This closes discovery timeout, not Pivot lifecycle or generic root-category performance follow-up.
+
+Recoding navigation rough edge reproduced: `/tmp/loom-cohort-recode-native-feature-editor.json.cohort-recode` reaches correct raw ALL values, but the configured-field recode editor is under collapsed `[data-testid=construction-source-setup]` (Advanced source setup). PreviewTable Columns exposes member-value policies but no recoding control. First finish the real existing native lifecycle; then expose recoding from ordinary table/column controls without forcing a source-setup detour. Do not treat this navigation gap as backend unsupported behavior.
+
+Effect-free recoding editor follow-up: `/tmp/loom-cohort-recode-effect-free.json.cohort-recode` passes the registered basic fixture lifecycle with all required checks, no page errors, automatic preview, ALL→ONE→ALL, reload, and removal restoring both literal Patient IDs. Timed actions peak at 873ms. Exact-category drafts now preserve unsaved input across unrelated rerenders and reset on saved transformation or column identity changes without an effect. Real CDA follow-up `/tmp/loom-cda-cohort-recode-effect-free/report.json` passed 37 preceding membership/policy/inspection actions (maximum 2181ms) but failed locating Advanced source setup before recoding. This remains a harness/navigation investigation, not a CDA recode pass. Ordinary column access is being implemented separately.
+
+Root Observation quantity category gap: the full scoped CDA oracle in `/tmp/loom-root-quantity-category-post-migration-fixed-oracle/report.json` contains absent `valueQuantity.code` fields. The initial verifier incorrectly required every source record to contain the field and stopped before browser discovery. Source inspection finds an actual declared backend gap in `internal/explorer/lifecycle/construction_category_discovery.go`: materialized Pivot inputs preserve values but lose property presence, so discovery returns MISSING_UNSUPPORTED to avoid conflating absent fields with explicit NULL. Preserve independent missing/NULL counts in the regression, drive the actual browser outcome, and implement presence-aware Pivot categories; filtering to a lucky populated subset does not close this feature. Root-category index migration performance remains unverified until its native query is driven.
+
+Ordinary Columns recoding now passes the registered basic fixture lifecycle in `/tmp/loom-cohort-recode-ordinary-columns.json.cohort-recode`: all required checks, errors[], maximum timed action690ms. Advanced source setup stays closed throughout; Save/Remove, ALL→ONE→ALL, reload and exact raw ID restoration use the same command ownership. CDA follow-up through these shorter controls remains pending; the prior configured-field CDA lifecycle already passes separately.
+
+Root Observation Pivot entry fails natively in `/tmp/loom-root-quantity-category-native-generic-pivot/report.json`: the ID-only table offers an enabled category-to-columns action while other row capabilities are still checking. After clicking, no field editor renders; the eventual capabilities response declares ordinary PIVOT unsupported for insufficient existing scalar columns and CODED_PIVOT supported. The generic alternative is absent at click time. Source-backed Pivot should choose its group/category/value fields within the operation, without a prerequisite Add columns sequence. Investigate both readiness and that availability boundary; category query performance remains untested because no discovery request was made.
+
+Recoding navigation rough edge closed: `/tmp/loom-cda-cohort-recode-menu-contained-select/report.json` passes all45 timed checks through ordinary Columns with Advanced source setup closed, max2287ms/errors[], unchanged1059-file source and fresh APIbuild. The basic counterpart passes at690ms maximum. Commit `f5f39b210` is pushed to the PR branch with the effect-free editor, scoped capability wiring, registered regression, native select dismissal fix and durable evidence in `docs/BUILDER_RECODE_VERIFICATION.md`. Other Builder failures remain open.
+
+Pivot entry diagnosis corrected by the complete capability response: `pivotSourceInput.supported=true` already exposes ten root source choices, including ID and quantity code/value. `BuilderWorkspace` uses that capability correctly for ordinary Pivot. `RowDefinitionSettingsPanel` nevertheless leaves the main Pivot button enabled while its capabilities are loading, allowing an early action before the generic alternative is rendered. Fix that readiness boundary and retain the existing source-backed field workflow; no prerequisite columns or new availability contract are needed.
+
+Direct source expansion browser checkpoint: `/tmp/loom-repeated-source-direct-rows.json.repeated-empty` verifies Configure rows opens the signed repeated-field chooser directly; selecting component[] automatically previews 3→4 rows, Cancel preserves the original three IDs, and Apply preserves both item occurrences plus literal-empty and missing parents. These actions take at most 645 ms, with 1122 watched files unchanged. The full lifecycle is still failed: the driver waited for a construction preview while the native “Choose how to add these fields” route/form dialog was open. Correct the native dialog path and verify actual item values, policy edits, reload and restoration before claiming completion. No manual Preview control was introduced.
+
+Group→Pivot source-inspection database proof: `docker exec -e LOOM_TEST_ARANGO_URL=http://loom-dev-6d7df93d6a37-arangodb-1:8529 -e LOOM_TEST_ARANGO_DATABASE=loom_dev -w /workspace loom-dev-6d7df93d6a37-loom-api-1 go test ./internal/dataframe/compiler -run '^TestConstructionCountRowsGroupPivotRowLineageMatchesScopedSourcePreimageAgainstArango$' -count=1 -v` passed (test0.05s/package0.059s). Exact scoped source contributors page2/2/1 without duplicates, missing/explicitNULL Group bucket, denied auth/foreign project/stale generation exclusions, forged owner and past-end pages, and full-scope unlisted category outside requestedpage all checked. Native CDA lifecycle remains untested; this first slice supports direct scalar COUNT_ROWS Group→ordinary Pivot only.
+
+### Pivot NULL-only category preserves missing distinction
+
+Review of the pending presence implementation found that retaining presence only when a MISSING heading is selected would conflate absent source properties with explicit null after MISSING is deselected. `groupedPivotCategoryMatchPredicate` uses `HAS` on materialized rows without the presence companion; materialized selectors emit the column key for both states. Keep this case open until a NULL-only regression proves that absent values follow the unlisted-category policy rather than entering the NULL cell. Preserve bounded preview planning for ordinary string categories. This is source evidence; no live pass is claimed.
+
+Presence backend checkpoint: real Arango `TestRelatedConstructionPivotTracksMissingNullAndStringAgainstArango` passed (0.05s) after integration. Its independent scoped fixture proves separate STRING, explicit NULL, and MISSING categories and typed Pivot execution, with foreign-project, stale-generation and denied authorization negatives. This is database correctness evidence; CDA native discovery and lifecycle remain open.
+
+CDA root quantity category checkpoint: `/tmp/loom-root-quantity-category-presence-integrated/report.json` now returns COMPLETE with exactly Missing and string d, matching the independent full-population815261-row oracle (778185missing,37076d,0explicitNULL). Native discovery-to-render8047ms and discovery7425ms fail the5second budget. The unavailable-category correctness defect is repaired, but this browser case remains failed for performance; full Pivot Apply/edit/remove lifecycle still needs coverage. Source/API freeze evidence is retained in the report.
