@@ -72,6 +72,9 @@ func RowLineageCapabilityForOutput(output lower.CompiledRecipeOutput) RowLineage
 	if rowLineageCohortGroupFilterSuffix(output) {
 		return RowLineageCapability{Available: true}
 	}
+	if rowLineageConstructionGroupPivotPreimage(output) {
+		return RowLineageCapability{Available: true}
+	}
 	stage := sequence.Stages[0]
 	if stage.InputStageID != sequence.SourceStageID {
 		return RowLineageCapability{ReasonCode: "ROW_LINEAGE_OPERATION_UNSUPPORTED", Operation: string(stage.Kind)}
@@ -132,6 +135,64 @@ func rowLineageConstructionPivotPreimage(output lower.CompiledRecipeOutput) bool
 		(pivot.MissingCellPolicy == "ERROR" || pivot.MissingCellPolicy == "NULL") && stage.RowIdentityColumn != "" &&
 		stage.RowIdentityColumn == sequence.FinalRowIdentity && sequence.FinalStageID == stage.ID &&
 		output.RootResourceType != "" && rowLineageHasPhysicalIdentity(output, stage, sequence)
+}
+
+// rowLineageConstructionGroupPivotPreimage admits the bounded first composed
+// construction shape: a direct-source scalar GROUP with COUNT_ROWS only,
+// followed by an ordinary Pivot over every Group dimension. The Group is a
+// fan-in owner set; the final Pivot's typed key tuple selects the relevant
+// Group tuples, whose source preimage is streamed from the original root rows.
+func rowLineageConstructionGroupPivotPreimage(output lower.CompiledRecipeOutput) bool {
+	sequence := output.Plan.StageSequence
+	if sequence == nil || sequence.SourceRowIdentity != "_key" || len(sequence.Stages) != 2 ||
+		!rowLineageHasDirectRootSource(output.Plan.Operations) || output.RowIdentity == nil || output.RootResourceType == "" {
+		return false
+	}
+
+	groupStage, pivotStage := sequence.Stages[0], sequence.Stages[1]
+	group, pivot := groupStage.Group, pivotStage.GroupedPivot
+	if groupStage.Kind != ir.PhysicalStageGroupOp || group == nil || groupStage.InputStageID != sequence.SourceStageID ||
+		pivotStage.Kind != ir.PhysicalStagePivotOp || pivot == nil || pivotStage.InputStageID != groupStage.ID ||
+		pivotStage.ID != sequence.FinalStageID || pivotStage.RowIdentityColumn != sequence.FinalRowIdentity ||
+		!rowLineageHasPhysicalIdentity(output, pivotStage, sequence) ||
+		pivot.CodedCorrelation != nil || pivot.CategoryPresence != nil || len(pivot.GroupKeys) == 0 || len(pivot.Categories) == 0 ||
+		pivot.UnlistedCategoryPolicy != "ERROR" ||
+		(pivot.DuplicatePolicy != "ERROR" && pivot.DuplicatePolicy != "SUM" && pivot.DuplicatePolicy != "MIN" && pivot.DuplicatePolicy != "MAX") ||
+		(pivot.MissingCellPolicy != "ERROR" && pivot.MissingCellPolicy != "NULL") ||
+		pivot.UnlistedEvidenceColumn != "" || len(pivot.RowValues) != 0 ||
+		len(group.Aggregates) != 1 || group.Aggregates[0].Operation != "COUNT_ROWS" ||
+		group.Aggregates[0].InputColumn != "" || group.Aggregates[0].InputKind != "" ||
+		group.Aggregates[0].OutputKind != "integer" || len(group.RowValues) != 0 || len(group.Keys) != len(pivot.GroupKeys)+1 ||
+		pivot.ValueColumn != group.Aggregates[0].Output || pivot.ValueType != "INTEGER" {
+		return false
+	}
+	if group.MissingKeyPolicy != ir.PhysicalStageGroupMissingKeyGroup &&
+		group.MissingKeyPolicy != ir.PhysicalStageGroupMissingKeyExclude &&
+		group.MissingKeyPolicy != ir.PhysicalStageGroupMissingKeyError {
+		return false
+	}
+
+	groupKeys := make(map[string]ir.PhysicalStageGroupKey, len(group.Keys))
+	for _, key := range group.Keys {
+		if key.OutputColumn == "" || key.InputColumn == "" || groupKeys[key.OutputColumn].OutputColumn != "" {
+			return false
+		}
+		groupKeys[key.OutputColumn] = key
+	}
+	categoryKey, ok := groupKeys[pivot.CategoryColumn]
+	if !ok || categoryKey.Kind != pivot.CategoryType {
+		return false
+	}
+	delete(groupKeys, pivot.CategoryColumn)
+	for _, key := range pivot.GroupKeys {
+		groupOutput := key.Column
+		groupKey, exists := groupKeys[groupOutput]
+		if !exists || groupKey.Kind != key.Kind {
+			return false
+		}
+		delete(groupKeys, groupOutput)
+	}
+	return len(groupKeys) == 0
 }
 
 func rowLineageHasRelatedExpand(sequence *ir.PhysicalStageSequence) bool {
@@ -471,6 +532,23 @@ func CompileRowLineageOutput(output lower.CompiledRecipeOutput, rowID string, of
 			return CompiledRowLineageQuery{}, fmt.Errorf("row lineage source has no validated root scope before its projection")
 		}
 		physical.Operations = append(physical.Operations[:anchorIndex], append([]ir.PhysicalOperation{rootFilter}, physical.Operations[anchorIndex:]...)...)
+	} else if rowLineageConstructionGroupPivotPreimage(output) {
+		stage := physical.StageSequence.Stages[1]
+		match := ir.PhysicalRowLineageStageMatch{
+			StageID: stage.ID, Kind: ir.PhysicalStagePivotOp, StageRowIDBindKey: rowLineageRowIDBind,
+			IdentityKeyBindKeys: make([]string, len(stage.GroupedPivot.GroupKeys)),
+		}
+		for index := range stage.GroupedPivot.GroupKeys {
+			bindKey := fmt.Sprintf("row_lineage_pivot_group_key_%d", index)
+			physical.BindVars[bindKey] = nil
+			match.IdentityKeyBindKeys[index] = bindKey
+		}
+		if decoded, ok := decodeConstructionPivotLineageIdentity(rowID, *stage.GroupedPivot); ok {
+			for index, bindKey := range match.IdentityKeyBindKeys {
+				physical.BindVars[bindKey] = decoded[index]
+			}
+		}
+		lineageTrace = &ir.PhysicalRowLineageTrace{Stages: []ir.PhysicalRowLineageStageMatch{match}}
 	} else if rowLineageConstructionPivotPreimage(output) {
 		stage := physical.StageSequence.Stages[0]
 		match := ir.PhysicalRowLineageStageMatch{

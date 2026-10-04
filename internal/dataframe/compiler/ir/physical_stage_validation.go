@@ -472,14 +472,29 @@ func validatePhysicalConstructionPivotLineageTrace(
 	sourceOperations []PhysicalOperation,
 	bindVars map[string]any,
 ) error {
-	if sequence.SourceRowIdentity != "_key" || len(sequence.Stages) != 1 || len(trace.Stages) != 1 {
+	if sequence.SourceRowIdentity != "_key" || len(trace.Stages) != 1 {
 		return fmt.Errorf("construction Pivot lineage requires one terminal typed owner over direct root identity")
 	}
-	stage := sequence.Stages[0]
+	var stage PhysicalConstructionStage
+	switch len(sequence.Stages) {
+	case 1:
+		stage = sequence.Stages[0]
+		if stage.InputStageID != sequence.SourceStageID {
+			return fmt.Errorf("construction Pivot lineage requires a terminal direct-source Pivot")
+		}
+	case 2:
+		groupStage := sequence.Stages[0]
+		stage = sequence.Stages[1]
+		if err := validatePhysicalCountRowsGroupPivotLineageStages(sequence, groupStage, stage); err != nil {
+			return err
+		}
+	default:
+		return fmt.Errorf("construction Pivot lineage supports only a direct Pivot or COUNT_ROWS Group followed by Pivot")
+	}
 	match := trace.Stages[0]
 	pivot := stage.GroupedPivot
 	if stage.Kind != PhysicalStagePivotOp || pivot == nil || pivot.CodedCorrelation != nil ||
-		stage.InputStageID != sequence.SourceStageID || stage.ID != sequence.FinalStageID ||
+		stage.ID != sequence.FinalStageID ||
 		match.StageID != stage.ID || match.Kind != PhysicalStagePivotOp ||
 		match.StageRowIDBindKey != terminal.RowIDBindKey || match.RelatedTerminalIDBindKey != "" ||
 		match.RelatedRowKind != "" || len(match.IdentityKeyBindKeys) != len(pivot.GroupKeys) {
@@ -530,6 +545,55 @@ func validatePhysicalConstructionPivotLineageTrace(
 		if !valid {
 			return fmt.Errorf("construction Pivot key bind %q has the wrong type for %q", bindKey, key.Kind)
 		}
+	}
+	return nil
+}
+
+func validatePhysicalCountRowsGroupPivotLineageStages(
+	sequence PhysicalStageSequence,
+	groupStage PhysicalConstructionStage,
+	pivotStage PhysicalConstructionStage,
+) error {
+	group, pivot := groupStage.Group, pivotStage.GroupedPivot
+	if groupStage.Kind != PhysicalStageGroupOp || group == nil || groupStage.InputStageID != sequence.SourceStageID ||
+		pivotStage.Kind != PhysicalStagePivotOp || pivot == nil || pivotStage.InputStageID != groupStage.ID ||
+		pivotStage.ID != sequence.FinalStageID || len(group.Aggregates) != 1 ||
+		group.Aggregates[0].Operation != "COUNT_ROWS" || group.Aggregates[0].InputColumn != "" ||
+		group.Aggregates[0].InputKind != "" || group.Aggregates[0].OutputKind != "integer" ||
+		len(group.RowValues) != 0 || len(group.Keys) != len(pivot.GroupKeys)+1 ||
+		pivot.ValueColumn != group.Aggregates[0].Output || pivot.ValueType != "INTEGER" ||
+		pivot.CategoryPresence != nil || pivot.CodedCorrelation != nil || len(pivot.GroupKeys) == 0 ||
+		len(pivot.Categories) == 0 || len(pivot.RowValues) != 0 || pivot.UnlistedEvidenceColumn != "" || pivot.UnlistedCategoryPolicy != "ERROR" ||
+		(pivot.DuplicatePolicy != "ERROR" && pivot.DuplicatePolicy != "SUM" && pivot.DuplicatePolicy != "MIN" && pivot.DuplicatePolicy != "MAX") ||
+		(pivot.MissingCellPolicy != "ERROR" && pivot.MissingCellPolicy != "NULL") {
+		return fmt.Errorf("composed construction Pivot lineage requires direct-source scalar COUNT_ROWS Group followed by an ordinary Pivot")
+	}
+	if group.MissingKeyPolicy != PhysicalStageGroupMissingKeyGroup &&
+		group.MissingKeyPolicy != PhysicalStageGroupMissingKeyExclude &&
+		group.MissingKeyPolicy != PhysicalStageGroupMissingKeyError {
+		return fmt.Errorf("COUNT_ROWS Group lineage has unsupported missing-key policy %q", group.MissingKeyPolicy)
+	}
+	groupKeys := make(map[string]PhysicalStageGroupKey, len(group.Keys))
+	for _, key := range group.Keys {
+		if key.InputColumn == "" || key.OutputColumn == "" || key.Variable == "" || groupKeys[key.OutputColumn].OutputColumn != "" {
+			return fmt.Errorf("COUNT_ROWS Group lineage has an empty or duplicate typed key")
+		}
+		groupKeys[key.OutputColumn] = key
+	}
+	category, ok := groupKeys[pivot.CategoryColumn]
+	if !ok || category.Kind != pivot.CategoryType {
+		return fmt.Errorf("COUNT_ROWS Group category %q does not match the Pivot category type", pivot.CategoryColumn)
+	}
+	delete(groupKeys, pivot.CategoryColumn)
+	for _, key := range pivot.GroupKeys {
+		groupKey, exists := groupKeys[key.Column]
+		if !exists || groupKey.Kind != key.Kind {
+			return fmt.Errorf("Pivot group key %q does not match a remaining COUNT_ROWS Group key", key.Column)
+		}
+		delete(groupKeys, key.Column)
+	}
+	if len(groupKeys) != 0 {
+		return fmt.Errorf("COUNT_ROWS Group lineage requires every Group key to be the Pivot category or a Pivot row key")
 	}
 	return nil
 }

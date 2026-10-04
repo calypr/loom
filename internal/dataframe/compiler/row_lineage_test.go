@@ -504,6 +504,170 @@ func TestCompileConstructionPivotRowLineageUsesTypedScopedPreimageAndPagination(
 	}
 }
 
+func TestCompileConstructionCountRowsGroupPivotLineageStreamsScopedRootPreimage(t *testing.T) {
+	output := constructionCountRowsGroupPivotLineageOutput()
+	output.Population = &recipe.PopulationConstraint{
+		SelectionRevisionID: "selection-group-pivot-revision", MembershipDigest: "sha256:group-pivot-members",
+		MemberCount: 2, ResourceType: "Observation",
+	}
+	bindings := recipe.RuntimeBindings{
+		Project: "group-pivot-project", SelectionProject: "group-pivot-selection-project",
+		SelectionMembersCollection: "loom_explorer_selection_members", DatasetGeneration: "group-pivot-generation",
+		AuthScopeMode: authscope.ReadScopeRestricted, AuthResourcePaths: []string{"/programs/group-pivot"},
+	}
+	compiledOutput := lowerConstructionOutput(t, output, bindings)
+	if capability := RowLineageCapabilityForOutput(compiledOutput); !capability.Available {
+		t.Fatalf("COUNT_ROWS Group followed by Pivot lineage capability = %#v", capability)
+	}
+	sequence := compiledOutput.Plan.StageSequence
+	if sequence == nil || len(sequence.Stages) != 2 || sequence.Stages[0].Kind != ir.PhysicalStageGroupOp || sequence.Stages[1].Kind != ir.PhysicalStagePivotOp {
+		t.Fatalf("compiled Group/Pivot stages = %#v", sequence)
+	}
+	rowID, err := json.Marshal([]any{"GROUPED_PIVOT", "row_lineage_group_pivot", []any{"STRING", "patient-7"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	compiled, err := CompileRowLineageOutput(compiledOutput, string(rowID), 6, 9, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"population_member.selectionId == @population_selection_id",
+		"population_member.project == @population_project",
+		"population_member.generation == @dataset_generation",
+		"auth_resource_path IN @auth_resource_paths",
+		"CONSTRUCTION_GROUP_KEY_TYPE_MISMATCH",
+		"TABLE_PIVOT_UNLISTED_CATEGORY", "TABLE_PIVOT_CELL_CARDINALITY",
+		"GROUPED_PIVOT", "row_lineage_group_pivot_group_key_type",
+		"row_lineage_group_pivot_source", "root.payload.id", "root._key",
+		"row_lineage_group_pivot_category_projection[@__loom_physical_construction_row_lineage_group_pivot_category_column] == null",
+		"SORT __loom_physical_construction_row_lineage_group_pivot_source",
+		"LIMIT @row_lineage_offset, @row_lineage_fetch_limit", "contributors: SLICE(", "hasMore:",
+	} {
+		if !strings.Contains(compiled.Query, want) {
+			t.Errorf("Group/Pivot lineage query is missing %q:\n%s", want, compiled.Query)
+		}
+	}
+	if strings.Contains(compiled.Query, "COLLECT INTO") || strings.Contains(compiled.Query, "SORTED_UNIQUE") || strings.Contains(compiled.Query, "__loom_root_contributor_keys") {
+		t.Fatalf("Group/Pivot row lineage used a row array or RootContributor sidecar:\n%s", compiled.Query)
+	}
+	pageAt := strings.Index(compiled.Query, "LET __loom_physical_construction_row_lineage_group_pivot_page = (")
+	if pageAt < 0 {
+		t.Fatalf("Group/Pivot source preimage page is missing:\n%s", compiled.Query)
+	}
+	validation := compiled.Query[:pageAt]
+	if !strings.Contains(validation, "TABLE_PIVOT_UNLISTED_CATEGORY") ||
+		!strings.Contains(validation, "TABLE_PIVOT_CELL_CARDINALITY") ||
+		!strings.Contains(validation, "== @row_lineage_row_id ? 1 : 0") {
+		t.Fatalf("Group/Pivot policies were not checked across the full scoped grouped input before paging:\n%s", validation)
+	}
+	for _, key := range []string{"row_lineage_pivot_group_key_0", "row_lineage_row_id", "row_lineage_offset", "row_lineage_limit", "row_lineage_fetch_limit"} {
+		if _, ok := compiled.BindVars[key]; !ok {
+			t.Errorf("Group/Pivot lineage omitted typed/page bind %q: %#v", key, compiled.BindVars)
+		}
+	}
+	if compiled.BindVars["row_lineage_pivot_group_key_0"] != "patient-7" || compiled.BindVars[rowLineageRowIDBind] != string(rowID) ||
+		compiled.BindVars[rowLineageOffsetBind] != 6 || compiled.BindVars[rowLineageLimitBind] != 9 || compiled.BindVars[rowLineageFetchLimitBind] != 10 {
+		t.Errorf("Group/Pivot typed identity/page bindings = %#v", compiled.BindVars)
+	}
+	if compiled.BindVars["population_selection_id"] != "selection-group-pivot-revision" ||
+		compiled.BindVars["population_project"] != "group-pivot-selection-project" ||
+		compiled.BindVars["project"] != "group-pivot-project" ||
+		compiled.BindVars["dataset_generation"] != "group-pivot-generation" ||
+		!reflect.DeepEqual(compiled.BindVars["auth_resource_paths"], []string{"/programs/group-pivot"}) {
+		t.Fatalf("Group/Pivot lineage lost source scope bindings: %#v", compiled.BindVars)
+	}
+	for policy, want := range map[ir.PhysicalStageGroupMissingKeyPolicy]string{
+		ir.PhysicalStageGroupMissingKeyExclude: "FILTER __loom_physical_construction_row_lineage_group_pivot_group_value_0 != null",
+		ir.PhysicalStageGroupMissingKeyError:   "CONSTRUCTION_GROUP_MISSING_KEY",
+	} {
+		policyOutput := compiledOutput
+		policyOutput.Plan = ir.ClonePhysicalPlan(compiledOutput.Plan)
+		policyOutput.Plan.StageSequence.Stages[0].Group.MissingKeyPolicy = policy
+		policyCompiled, policyErr := CompileRowLineageOutput(policyOutput, string(rowID), 0, 9, ir.DefaultPhysicalOptimizationPolicy())
+		if policyErr != nil {
+			t.Fatalf("compile Group/Pivot lineage with Group missing policy %q: %v", policy, policyErr)
+		}
+		if !strings.Contains(policyCompiled.Query, want) {
+			t.Errorf("Group/Pivot lineage did not preserve Group missing policy %q (%q):\n%s", policy, want, policyCompiled.Query)
+		}
+	}
+
+	for name, mutate := range map[string]func(*ir.PhysicalStageSequence){
+		"row values": func(sequence *ir.PhysicalStageSequence) {
+			sequence.Stages[0].Group.RowValues = []ir.PhysicalStageRowValue{{InputColumn: "status", InputKind: "STRING", Output: "statuses", Policy: "ALL"}}
+		},
+		"unmapped group key": func(sequence *ir.PhysicalStageSequence) {
+			sequence.Stages[0].Group.Keys = append(sequence.Stages[0].Group.Keys, ir.PhysicalStageGroupKey{InputColumn: "other", OutputColumn: "other", Variable: "other_key", Kind: "STRING"})
+		},
+		"nonterminal pivot policy": func(sequence *ir.PhysicalStageSequence) {
+			sequence.Stages[1].GroupedPivot.UnlistedCategoryPolicy = "EXCLUDE_WITH_EVIDENCE"
+		},
+	} {
+		mutated := compiledOutput
+		mutated.Plan = ir.ClonePhysicalPlan(compiledOutput.Plan)
+		mutate(mutated.Plan.StageSequence)
+		capability := RowLineageCapabilityForOutput(mutated)
+		if capability.Available || capability.ReasonCode == "" {
+			t.Errorf("unsupported composed Group/Pivot %s capability = %#v", name, capability)
+		}
+	}
+}
+
+func constructionCountRowsGroupPivotLineageOutput() recipe.Output {
+	active := "active"
+	return recipe.Output{
+		Name: "construction_count_rows_group_pivot_lineage", RootResourceType: "Observation", RowGrain: "observation",
+		Fields: []recipe.Field{
+			{Name: "patient_ref", ColumnID: "patient_ref_id", Expr: recipe.Expression{Select: "root.subject.reference"}},
+			{Name: "status", ColumnID: "status_id", Expr: recipe.Expression{Select: "root.status"}},
+		},
+		Construction: &recipe.Construction{
+			Version: 1,
+			SourceColumns: []recipe.StageColumn{
+				{ID: "patient_ref_id", Name: "patient_ref", Type: "string"},
+				{ID: "status_id", Name: "status", Type: "string"},
+			},
+			Steps: []recipe.ConstructionStep{
+				{
+					ID: "group", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
+					Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionGroupOp, Group: &recipe.ConstructionGroup{
+						ConstructionID: "group", MissingKeyPolicy: recipe.ConstructionGroupMissingKeyGroup,
+						Keys: []recipe.ConstructionGroupKey{
+							{InputColumnID: "patient_ref_id", OutputColumnID: "patient_ref_group_id"},
+							{InputColumnID: "status_id", OutputColumnID: "status_group_id"},
+						},
+						Aggregates: []recipe.ConstructionGroupAggregate{{Operation: recipe.ConstructionGroupCountRows, OutputColumnID: "rows_id"}},
+					}},
+					Outputs: []recipe.StageColumn{
+						{ID: "patient_ref_group_id", Name: "patient_ref", Type: "string"},
+						{ID: "status_group_id", Name: "status", Type: "string"},
+						{ID: "rows_id", Name: "rows", Type: "integer"},
+					},
+				},
+				{
+					ID: "pivot", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionStepOutputInput, StepID: "group"}},
+					Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionPivotOp, Pivot: &recipe.ConstructionPivot{
+						ConstructionID: "row_lineage_group_pivot", GroupKeyIDs: []string{"patient_ref_group_id"},
+						CategoryColumnID: "status_group_id", ValueColumnID: "rows_id",
+						Categories: []recipe.ConstructionPivotCategory{
+							{Key: recipe.TableScalar{Kind: recipe.TableScalarString, String: &active}, OutputColumnID: "active_rows_id"},
+							{Key: recipe.TableScalar{Kind: recipe.TableScalarNull}, OutputColumnID: "null_status_rows_id"},
+						},
+						DuplicatePolicy: recipe.PivotDuplicateError, MissingCellPolicy: recipe.PivotMissingCellNull,
+						UnlistedCategoryPolicy: recipe.PivotUnlistedCategoryError,
+					}},
+					Outputs: []recipe.StageColumn{
+						{ID: "patient_ref_group_id", Name: "patient_ref", Type: "string"},
+						{ID: "active_rows_id", Name: "active_rows", Type: "integer"},
+						{ID: "null_status_rows_id", Name: "null_status_rows", Type: "integer"},
+					},
+				},
+			},
+		},
+	}
+}
+
 func TestRowLineagePivotCapabilityRejectsUnsupportedPolicies(t *testing.T) {
 	bindings := recipe.RuntimeBindings{Project: "lineage-project", DatasetGeneration: "lineage-generation"}
 	compiled := lowerConstructionOutput(t, constructionPivotLineageOutput(), bindings)

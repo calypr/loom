@@ -16,6 +16,10 @@ func (r *physicalPlanRenderer) renderConstructionRowLineage(sourceQuery string, 
 			len(terminal.Trace.Stages) == 1 && terminal.Trace.Stages[0].Kind == ir.PhysicalStagePivotOp {
 			return r.renderConstructionPivotRowLineage(sourceQuery, stages[0], terminal.Trace.Stages[0], terminal)
 		}
+		if len(stages) == 2 && stages[0].Kind == ir.PhysicalStageGroupOp && stages[1].Kind == ir.PhysicalStagePivotOp &&
+			len(terminal.Trace.Stages) == 1 && terminal.Trace.Stages[0].Kind == ir.PhysicalStagePivotOp {
+			return r.renderConstructionCountRowsGroupPivotRowLineage(sourceQuery, stages[0], stages[1], terminal.Trace.Stages[0], terminal)
+		}
 		return r.renderComposedRelatedRowLineage(sourceQuery, stages, terminal)
 	}
 	stage := stages[0]
