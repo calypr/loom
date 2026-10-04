@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
 import { captureSourceFreeze } from './lib/source-freeze.mjs';
-import { ApiBuildFreezeError, captureApiBuildFreeze, checkContainerApiBuildStamp, localCDAApiContainer } from './lib/api-build-freeze.mjs';
+import { ApiBuildFreezeError, captureApiBuildFreeze, checkContainerApiBuildStamp } from './lib/api-build-freeze.mjs';
 import { randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { mkdir, writeFile } from 'node:fs/promises';
@@ -9,29 +9,36 @@ import { join } from 'node:path';
 import { launchBrowser } from './lib/playwright-browser.mjs';
 import { performAction } from './lib/playwright-actions.mjs';
 import { captureCDARequests } from './lib/cda-playwright-requests.mjs';
+import { assertOwnedCdaTarget } from './lib/owned-cda-target.mjs';
 
-const project = 'loom_dev_cda_fhir';
-const generation = 'cda-fhir-v1';
+const project = process.env.LOOM_CDA_PROJECT;
+const generation = process.env.LOOM_CDA_GENERATION;
 const resourceType = 'Specimen';
 const groupLabel = 'Cohort';
 const memberFieldLabel = 'Specimen ID';
 const changeSourceCollection = process.env.LOOM_COHORT_SOURCE_COLLECTION_CHANGE === '1';
 const explorer = `cohort-membership-revision-browser-${Date.now()}`;
 const evidence = process.argv[2] ?? `/tmp/${explorer}`;
-const apiOrigin = process.env.LOOM_CDA_API_ORIGIN ?? 'http://127.0.0.1:8188';
-const uiOrigin = process.env.LOOM_CDA_UI_ORIGIN ?? 'http://127.0.0.1:30008';
-const arangoContainer = process.env.LOOM_ARANGO_CONTAINER ?? 'loom-dev-6d7df93d6a37-arangodb-1';
+const apiOrigin = process.env.LOOM_CDA_API_ORIGIN;
+const uiOrigin = process.env.LOOM_CDA_UI_ORIGIN;
+const apiContainer = process.env.LOOM_CDA_API_CONTAINER;
+const composeProject = process.env.LOOM_CDA_COMPOSE_PROJECT;
+const arangoContainer = process.env.LOOM_ARANGO_CONTAINER;
 const root = `/api/v1/projects/${project}/explorers`;
 const base = `${root}/${explorer}/authoring/v2`;
 const selections = base.replace('/authoring/v2', '/selections');
+const sourceRoot = fileURLToPath(new URL('..', import.meta.url));
+const ownedTarget = await assertOwnedCdaTarget({ project, apiOrigin, uiOrigin, apiContainer, composeProject, sourceRoot, arangoContainer });
+assert.equal(generation, 'cda-fhir-v1', 'Set LOOM_CDA_GENERATION to the loaded CDA FHIR generation.');
 const report = {
   project, generation, resourceType, explorer, groupLabel, memberFieldLabel, changeSourceCollection,
+  ownedTarget,
   cases: [], errors: [], requests: [], nativeRequests: [], revisions: [], started: new Date().toISOString(),
 };
 await mkdir(evidence, { recursive: true });
-const sourceFreeze = await captureSourceFreeze(fileURLToPath(new URL('..', import.meta.url)));
+const sourceFreeze = await captureSourceFreeze(sourceRoot);
 const apiBuildTarget = 'local-cda-api';
-const readApiBuildStamp = () => checkContainerApiBuildStamp(localCDAApiContainer());
+const readApiBuildStamp = () => checkContainerApiBuildStamp(apiContainer);
 let frozenApiBuild;
 
 let browser;
@@ -362,6 +369,7 @@ try {
   browser = await launchBrowser({ evidence, appOrigins: [apiOrigin, uiOrigin], noAuth: process.env.LOOM_CDA_NO_AUTH === '1' });
   requestCapture = captureCDARequests(browser.page, {
     apiOrigin,
+    browserRequestOrigin: uiOrigin,
     appOrigins: [apiOrigin, uiOrigin],
     ownedPathPrefix: `${root}/${explorer}`,
     report,
