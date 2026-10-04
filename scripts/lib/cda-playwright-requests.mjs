@@ -24,7 +24,7 @@ export function captureCDARequests(page, { apiOrigin, appOrigins = [apiOrigin], 
   const owns = rawURL => {
     try {
       const url = new URL(rawURL);
-      return url.origin === apiURL.origin && url.pathname.startsWith(ownedPathPrefix);
+      return url.origin === apiURL.origin && (url.pathname === ownedPathPrefix || url.pathname.startsWith(`${ownedPathPrefix}/`));
     } catch {
       return false;
     }
