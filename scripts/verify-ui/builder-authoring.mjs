@@ -1,18 +1,94 @@
 import { runRepeatedEmpty } from './builder-repeated.mjs';
 import { runCohortExpand } from './builder-cohort-expand.mjs';
 import { browserURL, executeScenario } from './common.mjs';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
+import { createReadStream } from 'node:fs';
+import { createInterface } from 'node:readline';
+import { join } from 'node:path';
 import assert from 'node:assert/strict';
 import { runPlaywrightCase } from './playwright-case.mjs';
 import { runPlaywrightAuthoring } from './playwright-authoring.mjs';
 import { runPlaywrightSuggestions } from './playwright-suggestions.mjs';
 
+const readPatientOracle = async fixtureDir => {
+  const sourcePath = join(fixtureDir, 'Patient.ndjson');
+  const source = createReadStream(sourcePath);
+  const hash = createHash('sha256');
+  source.on('data', chunk => hash.update(chunk));
+  const lines = createInterface({ input: source, crlfDelay: Infinity });
+  const sourceIDs = [];
+  const seenIDs = new Set();
+  let patientRecordCount = 0;
+  let lineNumber = 0;
+  for await (const line of lines) {
+    lineNumber += 1;
+    if (!line.trim()) continue;
+    patientRecordCount += 1;
+    if (sourceIDs.length >= 2) continue;
+    let patient;
+    try { patient = JSON.parse(line); }
+    catch (error) { throw new Error(`Invalid Patient.ndjson JSON at line ${lineNumber}: ${error.message}`); }
+    if (typeof patient.id !== 'string' || !patient.id || patient.resourceType && patient.resourceType !== 'Patient') continue;
+    if (seenIDs.has(patient.id)) continue;
+    seenIDs.add(patient.id);
+    sourceIDs.push(patient.id);
+  }
+  if (sourceIDs.length !== 2) throw new Error(`Independent Patient source must contain two distinct IDs; found ${sourceIDs.length}`);
+  return { sourcePath, sha256: hash.digest('hex'), patientRecordCount, sourceIDs };
+};
+
 const runCohortRecode = context => runPlaywrightCase(context, 'builder-authoring', 'cohort-recode', async ({ page, report, check, action }) => {
+  const oracleBefore = await readPatientOracle(context.target.fixtureDir);
+  const sourceIDs = oracleBefore.sourceIDs;
   const title = `Verify ${context.runID.slice(-10)} cohort recode`;
+  const bootstrapPath = `/api/v1/projects/${encodeURIComponent(context.target.fixtureProject)}/explorers/${encodeURIComponent(context.target.bootstrapExplorerId)}/authoring/v2/construction-capabilities`;
+  const bootstrapRequests = new Map();
+  const bootstrapRequestEvidence = [];
+  report.target.bootstrapCapabilitiesRequests = bootstrapRequestEvidence;
+  let requestSequence = 0;
+  let explorerCreationStarted = false;
+  page.on('request', request => {
+    const url = new URL(request.url());
+    if (url.origin !== new URL(context.target.uiUrl).origin || url.pathname !== bootstrapPath || request.method() !== 'POST') return;
+    const observed = {
+      identity: `bootstrap-capabilities-${++requestSequence}`,
+      requestObjectIdentity: `playwright-request-${requestSequence}`,
+      origin: url.origin, path: url.pathname, method: request.method(),
+      beganBeforeExplorerCreation: !explorerCreationStarted, phase: explorerCreationStarted ? 'after-explorer-creation-started' : 'bootstrap-builder-before-explorer-creation',
+      requestId: request.headers()['x-request-id'] ?? null, failure: null, status: null,
+    };
+    bootstrapRequests.set(request, observed);
+    bootstrapRequestEvidence.push(observed);
+  });
+  page.on('response', response => {
+    const observed = bootstrapRequests.get(response.request());
+    if (!observed) return;
+    observed.status = response.status();
+    observed.requestId ??= response.headers()['x-request-id'] ?? null;
+  });
+  page.on('requestfailed', request => {
+    const observed = bootstrapRequests.get(request);
+    if (observed) observed.failure = request.failure()?.errorText ?? 'unknown request failure';
+  });
+  const bootstrapResponsePromise = page.waitForResponse(response => {
+    const url = new URL(response.url());
+    return url.origin === new URL(context.target.uiUrl).origin
+      && url.pathname === bootstrapPath && response.request().method() === 'POST';
+  });
   await page.goto(browserURL(context.target, context.target.fixtureProject, context.target.bootstrapExplorerId, 'builder'),
     { waitUntil: 'domcontentloaded' });
+  const bootstrapResponse = await bootstrapResponsePromise;
+  const bootstrapResponseBody = await bootstrapResponse.json();
+  const bootstrapRequest = bootstrapRequests.get(bootstrapResponse.request());
+  assert(bootstrapRequest, 'bootstrap construction-capabilities response must match its exact observed Playwright Request');
+  assert.equal(bootstrapResponse.status(), 200, 'bootstrap construction-capabilities request must complete successfully before Explorer creation');
+  report.target.bootstrapCapabilitiesRequest = {
+    ...bootstrapRequest,
+    responseBodyReadable: Boolean(bootstrapResponseBody),
+  };
   const newExplorer = page.getByText('New explorer', { exact: true });
   await newExplorer.waitFor({ state: 'visible' });
+  explorerCreationStarted = true;
   await action('open Explorer creation', newExplorer, () => newExplorer.click(), {
     after: async () => page.locator('#new-explorer-name').waitFor({ state: 'visible' }),
   });
@@ -65,9 +141,9 @@ const runCohortRecode = context => runPlaywrightCase(context, 'builder-authoring
   assert(builder.catalog?.snapshotToken && builder.catalog?.authorizationScopeDigest,
     'fixture Builder must expose its current snapshot and authorization scope');
   assert(builder.workspace?.documents?.length, 'new Explorer Builder must return the Patient document');
-  const sourceIDs = ['dev-patient-001', 'dev-patient-002'];
   const refs = sourceIDs.map(id => ({ project: selectionProject, generation, resourceType: 'Patient', id }));
   report.target.fixtureRawOracle = {
+    path: oracleBefore.sourcePath, sha256: oracleBefore.sha256, sourcePatientCount: oracleBefore.patientRecordCount,
     project: selectionProject, storageProject: project, generation, resourceType: 'Patient', sourceIDs,
     rawMemberValues: sourceIDs,
     sharedCategory: 'Shared fixture category',
@@ -170,7 +246,6 @@ const runCohortRecode = context => runPlaywrightCase(context, 'builder-authoring
   const commandEntries = [];
   const reconciliationEntries = [];
   const lifecycleByRequest = new Map();
-  let requestSequence = 0;
   const networkWaiters = new Set();
   const signalNetworkChange = () => {
     for (const wake of networkWaiters) wake();
@@ -183,8 +258,11 @@ const runCohortRecode = context => runPlaywrightCase(context, 'builder-authoring
     const path = url.pathname;
     let body;
     try { body = request.postDataJSON(); } catch { body = undefined; }
+    const requestObjectIdentity = `playwright-request-${++requestSequence}`;
+    const requestId = request.headers()['x-request-id'] ?? null;
+    const requestOrigin = url.origin;
     if (path.endsWith('/preview')) {
-      const entry = { identity: `preview-${++requestSequence}`, method: request.method(), path, outputId: body?.outputId, request, status: undefined, response: undefined };
+      const entry = { identity: `preview-${requestSequence}`, requestObjectIdentity, requestId, origin: requestOrigin, method: request.method(), path, outputId: body?.outputId, request, status: undefined, response: undefined };
       previewByRequest.set(request, entry);
       previewEntries.push(entry);
       return entry;
@@ -194,7 +272,7 @@ const runCohortRecode = context => runPlaywrightCase(context, 'builder-authoring
         : path.endsWith('/reconcile') ? reconciliationEntries
           : undefined;
     if (!collection) return undefined;
-    const entry = { identity: `${collection === choiceProposalEntries ? 'proposal' : collection === commandEntries ? 'command' : 'reconcile'}-${++requestSequence}`, method: request.method(), path, body, request, startedAt: Date.now(), status: undefined, response: undefined };
+    const entry = { identity: `${collection === choiceProposalEntries ? 'proposal' : collection === commandEntries ? 'command' : 'reconcile'}-${requestSequence}`, requestObjectIdentity, requestId, origin: requestOrigin, method: request.method(), path, body, request, startedAt: Date.now(), status: undefined, response: undefined };
     lifecycleByRequest.set(request, entry);
     collection.push(entry);
     return entry;
@@ -600,8 +678,11 @@ const runCohortRecode = context => runPlaywrightCase(context, 'builder-authoring
     'final reload must retain raw untransformed ALL state on the same cohort and column identity');
   check('persistence', 'raw ALL restoration survives reload on the same cohort and column identity', true,
     { columnId: idColumn.columnId, revisionId: cohort.revisionId, rendered: finalRawCell });
-  report.target.browserRequestEvidence = [...previewEntries, ...choiceProposalEntries, ...commandEntries, ...reconciliationEntries]
-    .map(entry => ({ identity: entry.identity, method: entry.method, path: entry.path, status: entry.status, outputId: entry.outputId }));
+  const oracleAfter = await readPatientOracle(context.target.fixtureDir);
+  check('correctness', 'independent Patient source stayed unchanged during browser run', oracleAfter.sha256 === oracleBefore.sha256,
+    { path: oracleBefore.sourcePath, before: oracleBefore.sha256, after: oracleAfter.sha256, sourcePatientCount: oracleBefore.patientRecordCount });
+  report.target.browserRequestEvidence = [...bootstrapRequestEvidence, ...previewEntries, ...choiceProposalEntries, ...commandEntries, ...reconciliationEntries]
+    .map(entry => ({ identity: entry.identity, requestObjectIdentity: entry.requestObjectIdentity, requestId: entry.requestId, method: entry.method, path: entry.path, origin: entry.origin, status: entry.status, failure: entry.failure, outputId: entry.outputId }));
   report.target.uncoveredAdjacentBehavior = 'Raw ALL→ONE rejection for distinct Patient IDs is not exercised in this basic fixture cycle; the CDA transformed-category driver retains its raw disagreement rejection assertion.';
 });
 
