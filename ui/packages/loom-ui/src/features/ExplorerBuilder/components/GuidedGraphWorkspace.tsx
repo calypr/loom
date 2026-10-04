@@ -474,7 +474,20 @@ export const GuidedGraphWorkspace = ({
               </span>
             </h2>
           </div>
-          <div className="flex flex-wrap items-center gap-1.5">
+          <div
+            data-testid="graph-header-controls"
+            className="flex flex-wrap items-center gap-1.5"
+          >
+            <label className="flex shrink-0 cursor-pointer items-center gap-1.5 rounded border border-slate-300 bg-white/95 px-2 py-1 text-[11px] font-semibold text-slate-700 shadow-sm">
+              <input
+                type="checkbox"
+                className="h-3.5 w-3.5 rounded border-slate-400 text-blue-600 focus:ring-blue-500"
+                checked={showOrphans}
+                onChange={(event) => setShowOrphans(event.target.checked)}
+                aria-label="Show orphans"
+              />
+              Show orphans
+            </label>
             <div
               ref={onTableToolbarHostChange}
               id="explorer-builder-table-toolbar-host"
@@ -493,6 +506,7 @@ export const GuidedGraphWorkspace = ({
         </div>
         <div
           ref={graphHostRef}
+          data-testid="graph-viewport"
           className={`relative mt-2 min-h-0 flex-1 overflow-hidden rounded-lg bg-slate-100/70 ${isExpanded ? '' : 'min-h-[32rem]'}`}
         >
           <ReactFlow
@@ -685,16 +699,6 @@ export const GuidedGraphWorkspace = ({
               </div>
             )}
           </nav>
-          <label className="absolute right-3 top-3 z-10 flex cursor-pointer items-center gap-1.5 rounded border border-slate-300 bg-white/95 px-2 py-1 text-[11px] font-semibold text-slate-700 shadow-sm">
-            <input
-              type="checkbox"
-              className="h-3.5 w-3.5 rounded border-slate-400 text-blue-600 focus:ring-blue-500"
-              checked={showOrphans}
-              onChange={(event) => setShowOrphans(event.target.checked)}
-              aria-label="Show orphans"
-            />
-            Show orphans
-          </label>
         </div>
       </section>
     </>
