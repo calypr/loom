@@ -2630,48 +2630,58 @@ const verifyJ02BrowserScenario = async (target, report, entryTarget = target) =>
   report.actions = [];
   report.sourceTuples = {};
   report.literalValues = {};
-  const browser = await launchBrowser(downloadDir);
-  const cdp = browser.cdp;
+  const browser = await launchPlaywrightEvidenceBrowser({
+    evidence: evidenceDir,
+    appOrigins: [target.uiUrl, target.apiUrl, entryTarget.uiUrl],
+    noAuth: true,
+  });
+  const { page } = browser;
+  const uiOrigin = new URL(target.uiUrl).origin;
+  let explorerId = '';
   const network = new Map();
   const pendingNetworkBodies = new Set();
-  const captureCommandResult = async (item) => {
-    try {
-      const responseBody = await cdp.send('Network.getResponseBody', { requestId: item.requestId });
-      const parsed = JSON.parse(responseBody.base64Encoded ? Buffer.from(responseBody.body, 'base64').toString('utf8') : responseBody.body);
-      item.resultIdentity = {
-        commandId: parsed.commandId,
-        draftVersion: parsed.draftVersion,
-        draftDigest: parsed.draftDigest,
-        results: parsed.results,
-      };
-    } catch (error) {
-      item.resultIdentity = { unavailable: true, reason: String(error) };
-    }
-  };
-  cdp.on('Network.requestWillBeSent', (event) => {
-    if (!event.request.url.includes('/authoring/v2/')) return;
-    network.set(event.requestId, {
-      requestId: event.requestId,
-      url: new URL(event.request.url).pathname,
-      method: event.request.method,
-      xRequestId: event.request.headers?.['X-Request-ID'] ?? event.request.headers?.['x-request-id'],
-      postData: event.request.postData,
-      startedAtMs: event.wallTime ? Math.round(event.wallTime * 1000) : undefined,
-    });
+  const ownedPathPrefix = () => explorerId
+    ? `${new URL(bootstrapAuthoringURL(target, explorerId)).pathname}/`
+    : '';
+  page.on('request', (request) => {
+    const url = new URL(request.url());
+    const prefix = ownedPathPrefix();
+    if (url.origin !== uiOrigin || !prefix || !url.pathname.startsWith(prefix)) return;
+    let requestBody;
+    try { requestBody = request.postDataJSON(); } catch {}
+    const headers = request.headers();
+    const item = {
+      origin: url.origin,
+      url: url.pathname,
+      method: request.method(),
+      xRequestId: headers['x-request-id'] ?? '',
+      requestBody,
+      startedAtMs: Date.now(),
+    };
+    network.set(request, item);
   });
-  cdp.on('Network.responseReceived', (event) => {
-    const item = network.get(event.requestId);
-    if (item) item.response = { status: event.response.status, mimeType: event.response.mimeType };
-  });
-  cdp.on('Network.loadingFinished', (event) => {
-    const item = network.get(event.requestId);
+  page.on('response', (response) => {
+    const request = response.request();
+    const item = network.get(request);
     if (!item) return;
-    item.finishedAt = Date.now();
-    if (!item.url.endsWith('/commands') || item.response?.status !== 200) return;
-    const capture = captureCommandResult(item).finally(() => pendingNetworkBodies.delete(capture));
+    item.response = { status: response.status(), mimeType: response.headers()['content-type'] ?? '' };
+    if (!item.url.endsWith('/commands') || !response.ok()) return;
+    const capture = (async () => {
+      try {
+        const parsed = await response.json();
+        item.resultIdentity = {
+          commandId: parsed.commandId,
+          draftVersion: parsed.draftVersion,
+          draftDigest: parsed.draftDigest,
+          results: parsed.results,
+        };
+      } catch (error) {
+        item.resultIdentity = { unavailable: true, reason: String(error) };
+      }
+      item.finishedAt = Date.now();
+    })().finally(() => pendingNetworkBodies.delete(capture));
     pendingNetworkBodies.add(capture);
   });
-  let explorerId = '';
   let outputId = '';
   let candidate = undefined;
   const action = async (name, operation) => {
@@ -2693,62 +2703,65 @@ const verifyJ02BrowserScenario = async (target, report, entryTarget = target) =>
   };
   const captureDOM = async (name) => {
     const path = join(evidenceDir, `${name}.html`);
-    await snapshot(cdp, path);
+    writeFileSync(path, await page.content(), { mode: 0o600 });
     recordEvidence(report, path);
   };
-  const clickGraphNode = async (nodeId) => browserEval(cdp, `
-    const node = [...document.querySelectorAll('.react-flow__node')].find((candidate) => candidate.dataset.id === ${JSON.stringify(nodeId)});
-    if (!node) throw new Error('graph node not found: ' + ${JSON.stringify(nodeId)});
-    node.scrollIntoView({ block: 'center' });
-    node.click();
-  `);
+  const clickButton = (name, locator = page.getByRole('button', { name, exact: true })) =>
+    performAction(browser, `click ${name}`, locator, (targetLocator, { timeout }) => targetLocator.click({ timeout }), { timeout: 5000 });
+  const fillInput = (label, value, locator = page.getByLabel(label, { exact: true })) =>
+    performAction(browser, `fill ${label}`, locator, (targetLocator, { timeout }) => targetLocator.fill(value, { timeout }), { timeout: 5000, editable: true });
+  const clickGraphNode = async (nodeId) => {
+    const node = page.locator(`.react-flow__node[data-id=${JSON.stringify(nodeId)}]`);
+    await performAction(browser, `select graph node ${nodeId}`, node,
+      (targetLocator, { timeout }) => targetLocator.click({ timeout }), { timeout: 5000 });
+  };
   const selectTraversalOccurrence = async (document, occurrenceId) => {
     if (!routeOccurrences(document.route).some((occurrence) => occurrence.occurrenceId === occurrenceId)) {
       throw new Error(`J02 route occurrence is missing from the traversal: ${occurrenceId}`);
     }
-    const encodedOccurrenceId = JSON.stringify(occurrenceId);
-    await waitForBrowser(cdp, `[...document.querySelectorAll('nav[aria-label="Current traversal"] button[data-occurrence-id]')].some((button) => button.dataset.occurrenceId === ${encodedOccurrenceId})`);
-    await browserEval(cdp, `
-      const nav = document.querySelector('nav[aria-label="Current traversal"]');
-      const button = [...(nav?.querySelectorAll('button[data-occurrence-id]') || [])]
-        .find((candidate) => candidate.dataset.occurrenceId === ${encodedOccurrenceId});
-      if (!button) throw new Error('traversal occurrence is missing: ' + ${encodedOccurrenceId});
-      if (!button.parentElement?.className.includes('bg-blue-600')) button.click();
-    `);
-    await waitForBrowser(cdp, `[...document.querySelectorAll('nav[aria-label="Current traversal"] button[data-occurrence-id]')].some((button) => button.dataset.occurrenceId === ${encodedOccurrenceId} && button.parentElement?.className.includes('bg-blue-600'))`);
+    const button = page.locator(`nav[aria-label="Current traversal"] button[data-occurrence-id=${JSON.stringify(occurrenceId)}]`);
+    await button.waitFor({ state: 'visible', timeout: 5000 });
+    const selected = await button.evaluate((element) => element.parentElement?.className.includes('bg-blue-600') ?? false);
+    if (!selected) await clickButton(`traversal occurrence ${occurrenceId}`, button);
+    await page.waitForFunction((id) => [...document.querySelectorAll('nav[aria-label="Current traversal"] button[data-occurrence-id]')]
+      .some((candidate) => candidate.dataset.occurrenceId === id && candidate.parentElement?.className.includes('bg-blue-600')),
+    occurrenceId, { timeout: 5000 });
   };
   const waitForRoutePrefix = async (state, edgeIDs, label) => waitForState((next) => {
     const document = next.workspace?.documents?.find((item) => item.output?.id === outputId);
     return Boolean(routePathForEdgeIDs(document?.route, edgeIDs));
   }, label);
   const saveScreenshot = async (name) => {
-    const image = await cdp.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true });
     const path = join(evidenceDir, `${name}.png`);
-    writeFileSync(path, Buffer.from(image.data, 'base64'), { mode: 0o600 });
+    await page.screenshot({ path, fullPage: true });
     recordEvidence(report, path);
+  };
+  const navigate = async (url) => {
+    await page.goto(url, { waitUntil: 'domcontentloaded' });
+    await page.waitForURL(url, { waitUntil: 'domcontentloaded' });
   };
 
   try {
     const browserURL = `${target.uiUrl}/?project=${encodeURIComponent(target.fixtureProject)}&explorer=${encodeURIComponent(report.target.bootstrapExplorerId)}&mode=builder`;
-    await navigate(cdp, entryTarget.uiUrl);
-    await navigate(cdp, browserURL);
-    await waitForBrowser(cdp, `document.body.innerText.includes('Build your features') || document.body.innerText.includes('Create your first table')`, 60000);
+    await navigate(entryTarget.uiUrl);
+    await navigate(browserURL);
+    await page.waitForFunction(() => document.body.innerText.includes('Build your features') || document.body.innerText.includes('Create your first table'), undefined, { timeout: 60000 });
     await action('create_editor_identity_through_dom', async () => {
       const title = `J02 ${target.fixtureProject.slice(-18)}`;
-      await browserEval(cdp, `clickText('summary', 'New explorer')`);
-      await browserEval(cdp, `setInput('new-explorer-name', ${JSON.stringify(title)})`);
-      await browserEval(cdp, `clickButton('Create blank')`);
-      await waitForBrowser(cdp, `document.querySelector('select[aria-label="Explorer"] option:checked')?.textContent.trim() === ${JSON.stringify(title)} && document.body.innerText.includes('Create your first table')`);
-      explorerId = await evaluate(cdp, `document.querySelector('select[aria-label="Explorer"]')?.value || ''`);
+      await clickButton('New explorer', page.getByText('New explorer', { exact: true }));
+      await fillInput('new-explorer-name', title);
+      await clickButton('Create blank');
+      await page.waitForFunction((expected) => document.querySelector('select[aria-label="Explorer"] option:checked')?.textContent.trim() === expected && document.body.innerText.includes('Create your first table'), title, { timeout: 30000 });
+      explorerId = await page.getByLabel('Explorer', { exact: true }).inputValue();
       if (!explorerId) throw new Error('J02 blank Explorer was not selected in the Builder');
       report.target.j02ExplorerId = explorerId;
     });
     await action('create_patient_table_through_dom', async () => {
-      await browserEval(cdp, `setInput('first-table-name', 'J02 patient routes')`);
-      await browserEval(cdp, `clickButton('Create table')`);
-      await waitForBrowser(cdp, `document.querySelector('button[aria-label="Choose Patient rows"]') && document.body.innerText.includes('What should one row represent?')`);
-      await browserEval(cdp, `clickButton('Choose Patient rows')`);
-      await waitForBrowser(cdp, `Boolean(document.querySelector('[aria-label="Search features by field name, concept, or code"]'))`);
+      await fillInput('first-table-name', 'J02 patient routes');
+      await clickButton('Create table');
+      await page.getByRole('button', { name: 'Choose Patient rows', exact: true }).waitFor({ state: 'visible', timeout: 30000 });
+      await clickButton('Choose Patient rows');
+      await page.getByLabel('Search features by field name, concept, or code', { exact: true }).waitFor({ state: 'visible', timeout: 30000 });
       const state = await waitForState((value) => value.workspace?.documents?.length === 1 && value.workspace.documents[0].rootResourceType === 'Patient', 'Patient row root');
       outputId = state.workspace.documents[0].output.id;
       report.target.outputId = outputId;
@@ -2789,22 +2802,18 @@ const verifyJ02BrowserScenario = async (target, report, entryTarget = target) =>
     }));
 
     await action('cancel_catalog_route_choice_without_draft_mutation', async () => {
-      await browserEval(cdp, `setInput('Search features by field name, concept, or code', 'status')`);
-      await browserEval(cdp, `clickButton('Search')`);
-      await waitForBrowser(cdp, `Boolean(document.querySelector('input[aria-label="Select DiagnosticReport.status"]:not(:disabled)'))`);
-      await browserEval(cdp, `const input = inputByLabel('Select DiagnosticReport.status'); if (!input) throw new Error('DiagnosticReport.status is unavailable in Concept catalog'); input.click();`);
+      await fillInput('Search features by field name, concept, or code', 'status');
+      await clickButton('Search');
+      const statusChoice = page.getByLabel('Select DiagnosticReport.status', { exact: true });
+      await statusChoice.waitFor({ state: 'visible', timeout: 30000 });
+      await performAction(browser, 'select DiagnosticReport.status', statusChoice, (locator, { timeout }) => locator.check({ timeout }), { timeout: 5000 });
       const beforeCancel = await readState();
       const beforeBytes = draftFingerprint(beforeCancel);
-      await browserEval(cdp, `clickButton('Add 1 selected feature')`);
-      await waitForBrowser(cdp, `Boolean(document.querySelector('[role="dialog"]') && document.body.innerText.includes('Choose output forms'))`);
+      await clickButton('Add 1 selected feature');
+      await page.getByRole('dialog').waitFor({ state: 'visible', timeout: 30000 });
       await captureDOM('j02-catalog-route-choice-before-cancel');
-      await browserEval(cdp, `
-        const dialog = document.querySelector('[role="dialog"][aria-labelledby="catalog-selection-dialog-title"]');
-        const button = [...(dialog?.querySelectorAll('button') || [])].find((candidate) => norm(candidate.textContent) === 'Cancel');
-        if (!button) throw new Error('catalog route-choice cancel control is missing');
-        button.click();
-      `);
-      await waitForBrowser(cdp, `!document.querySelector('[role="dialog"][aria-labelledby="catalog-selection-dialog-title"]')`);
+      await clickButton('Cancel', page.getByRole('dialog').getByRole('button', { name: 'Cancel', exact: true }));
+      await page.getByRole('dialog').waitFor({ state: 'hidden', timeout: 30000 });
       const afterCancel = await readState();
       recordAssertion(report, 'j02-catalog-choice-cancel-is-byte-identical-draft', beforeBytes, draftFingerprint(afterCancel));
       report.target.cancelDraftBytes = Buffer.byteLength(beforeBytes, 'utf8');
@@ -2853,15 +2862,17 @@ const verifyJ02BrowserScenario = async (target, report, entryTarget = target) =>
     });
 
     await action('apply_related_column_from_catalog', async () => {
-      await browserEval(cdp, `clickButton('Add 1 selected feature')`);
-      await waitForBrowser(cdp, `Boolean(document.querySelector('[role="dialog"]') && document.body.innerText.includes('Choose output forms'))`);
+      await clickButton('Add 1 selected feature');
+      await page.getByRole('dialog').waitFor({ state: 'visible', timeout: 30000 });
       const currentChoices = await j02RouteAlternatives(target, explorerId, await readState(), outputId, candidate.candidateId, 50, report);
       const selectedIndex = currentChoices.choices.findIndex((choice) => choice.choiceId === directChoice.choiceId);
       if (selectedIndex < 0) throw new Error('J02 direct route choice identity changed between catalog review and apply');
       if (selectedIndex >= 50) throw new Error('J02 direct route choice is beyond the Concept catalog route-choice page');
       if (currentChoices.choices.length > 1) {
         const label = `${candidate.label.trim() || candidate.fieldPath} route ${selectedIndex + 1}: ${directChoice.presentation.summary}`;
-        await browserEval(cdp, `const radio = [...document.querySelectorAll('input[type="radio"][aria-label]')].find((input) => input.getAttribute('aria-label').endsWith(${JSON.stringify(label)})); if (!radio) throw new Error('direct related route radio is missing'); radio.click();`);
+        const routeRadio = page.locator(`input[type="radio"][aria-label$=${JSON.stringify(label)}]`);
+        await performAction(browser, 'select direct related route', routeRadio,
+          (locator, { timeout }) => locator.check({ timeout }), { timeout: 5000 });
       } else if (routeChoiceSignature(currentChoices.choices[0]) !== routeChoiceSignature(directChoice)) {
         throw new Error('J02 single catalog choice is not the expected direct source route');
       }
@@ -2870,8 +2881,10 @@ const verifyJ02BrowserScenario = async (target, report, entryTarget = target) =>
         ? 'Keep each matching record'
         : `${formOption.shape} · ${formOption.preservation} · ${validForm}`;
       const formRadio = `${candidate.label.trim() || candidate.fieldPath}: ${formLabel}`;
-      await browserEval(cdp, `const form = [...document.querySelectorAll('input[type="radio"][aria-label]')].find((input) => input.getAttribute('aria-label') === ${JSON.stringify(formRadio)}); if (form && !form.checked) form.click();`);
-      await browserEval(cdp, `clickButton('Add 1 selected feature')`);
+      const formRadioControl = page.getByRole('radio', { name: formRadio, exact: true });
+      await performAction(browser, 'select related column output form', formRadioControl,
+        (locator, { timeout }) => locator.check({ timeout }), { timeout: 5000 });
+      await clickButton('Add 1 selected feature');
       state = await waitForState((value) => value.workspace?.documents?.[0]?.columns?.some((column) => column.source?.kind === 'field' && column.source.field.path.replace(/^root\./, '') === 'status'), 'catalog related column');
       const doc = state.workspace.documents.find((value) => value.output?.id === outputId);
       const column = doc.columns.find((value) => value.source?.kind === 'field' && value.source.field.path.replace(/^root\./, '') === 'status');
@@ -2887,7 +2900,7 @@ const verifyJ02BrowserScenario = async (target, report, entryTarget = target) =>
         pinnedPage.choices[0]?.choiceId);
       report.target.relatedColumnId = column.column;
       recordAssertion(report, 'j02-concept-catalog-adds-related-column-without-graph', true,
-        column.occurrenceId !== 'base' && !(await evaluate(cdp, `Boolean(document.querySelector('.react-flow__node'))`)));
+        column.occurrenceId !== 'base' && (await page.locator('.react-flow__node').count()) === 0);
       await captureDOM('j02-related-column-catalog');
     });
 
@@ -2917,16 +2930,19 @@ const verifyJ02BrowserScenario = async (target, report, entryTarget = target) =>
       source: columnSource.value,
       route: columnSource.value.route,
     };
-    await browserEval(cdp, `clickButton('Column details')`);
-    await waitForBrowser(cdp, `Boolean(document.querySelector('[aria-label="Source for status"]'))`);
-    const visibleSource = await evaluate(cdp, `document.querySelector('[aria-label="Source for status"]')?.innerText || ''`);
+    await clickButton('Column details');
+    const sourceDetails = page.getByLabel('Source for status', { exact: true });
+    await sourceDetails.waitFor({ state: 'visible', timeout: 30000 });
+    const visibleSource = await sourceDetails.innerText();
     if (!visibleSource.includes('subject_Patient') || !visibleSource.includes('inbound')) throw new Error('J02 source inspector DOM omitted the exact relationship or stored direction');
     await captureDOM('j02-source-inspector');
     await action('edit_saved_occurrence_in_graph', async () => {
-      await browserEval(cdp, `clickButton('Edit in graph')`);
-      await waitForBrowser(cdp, `Boolean(document.querySelector('.react-flow__node')) && Boolean(document.querySelector('input[aria-label="Display name for configured status"]')) && Boolean([...document.querySelectorAll('nav[aria-label="Current traversal"] [data-traversal-label]')].find((label) => label.parentElement?.className.includes('bg-blue-600') && label.textContent.includes('DiagnosticReport'))) `);
+      await clickButton('Edit in graph');
+      await page.getByLabel('Display name for configured status', { exact: true }).waitFor({ state: 'visible', timeout: 30000 });
+      await page.locator('nav[aria-label="Current traversal"] [data-traversal-label]').filter({ hasText: 'DiagnosticReport' }).waitFor({ state: 'visible', timeout: 30000 });
       recordAssertion(report, 'j02-edit-in-graph-focuses-saved-column-occurrence', true,
-        await evaluate(cdp, `Boolean(document.querySelector('input[aria-label="Display name for configured status"]')) && [...document.querySelectorAll('nav[aria-label="Current traversal"] [data-traversal-label]')].some((label) => label.parentElement?.className.includes('bg-blue-600') && label.textContent.includes('DiagnosticReport'))`));
+        await page.getByLabel('Display name for configured status', { exact: true }).isVisible()
+        && await page.locator('nav[aria-label="Current traversal"] [data-traversal-label]').filter({ hasText: 'DiagnosticReport' }).first().evaluate((label) => label.parentElement?.className.includes('bg-blue-600') ?? false));
       await captureDOM('j02-edit-in-graph-focus');
     });
 
@@ -2966,24 +2982,24 @@ const verifyJ02BrowserScenario = async (target, report, entryTarget = target) =>
           const currentDocument = stateAfterClick.workspace?.documents?.find((item) => item.output?.id === outputId);
           routeAdded = Boolean(routePathForEdgeIDs(currentDocument?.route, prefix));
           if (routeAdded) break;
-          panelReady = await evaluate(cdp, `Boolean(document.querySelector('select[aria-label="Relationship to add"]') || document.querySelector('button') && [...document.querySelectorAll('button')].some((button) => ['Add branch', 'Add traversal'].includes(button.textContent.trim())))`);
+          panelReady = (await page.getByLabel('Relationship to add', { exact: true }).count()) > 0
+            || (await page.getByRole('button', { name: 'Add branch', exact: true }).count()) > 0
+            || (await page.getByRole('button', { name: 'Add traversal', exact: true }).count()) > 0;
           if (panelReady) break;
           await sleep(200);
         }
         if (!routeAdded) {
           if (!panelReady) throw new Error(`graph did not offer ${edge.fromResourceType} --${edge.relationship}--> ${edge.toResourceType}`);
-          await browserEval(cdp, `
-            const select = document.querySelector('select[aria-label="Relationship to add"]');
-            if (select) {
-              const option = [...select.options].find((candidate) => candidate.value === ${JSON.stringify(edge.edgeId)});
-              if (!option) throw new Error('expected relationship edge is not offered: ' + ${JSON.stringify(edge.edgeId)});
-              select.value = option.value;
-              select.dispatchEvent(new Event('change', { bubbles: true }));
-            }
-            const button = [...document.querySelectorAll('button')].find((candidate) => ['Add branch', 'Add traversal'].includes(norm(candidate.textContent)));
-            if (!button || button.disabled) throw new Error('graph add traversal control is unavailable');
-            button.click();
-          `);
+          const relationship = page.getByLabel('Relationship to add', { exact: true });
+          if (await relationship.count()) {
+            const options = await relationship.locator('option').evaluateAll((items) => items.map((item) => item.value));
+            if (!options.includes(edge.edgeId)) throw new Error(`expected relationship edge is not offered: ${edge.edgeId}`);
+            await performAction(browser, `select graph relationship ${edge.edgeId}`, relationship,
+              (locator, { timeout }) => locator.selectOption(edge.edgeId, { timeout }), { timeout: 5000 });
+          }
+          const addButton = page.getByRole('button', { name: 'Add branch', exact: true }).or(page.getByRole('button', { name: 'Add traversal', exact: true }));
+          await performAction(browser, `add graph traversal ${edge.edgeId}`, addButton,
+            (locator, { timeout }) => locator.click({ timeout }), { timeout: 5000 });
           stateAfterClick = await waitForRoutePrefix(stateAfterClick, prefix, `${edge.relationship} route edge`);
         }
         const currentDocument = stateAfterClick.workspace.documents.find((item) => item.output?.id === outputId);
@@ -3012,21 +3028,25 @@ const verifyJ02BrowserScenario = async (target, report, entryTarget = target) =>
     const studyPath = routePathForEdgeIDs(graphDocument.route, exactEdges.map((edge) => edge.edgeId));
     if (!studyPath?.length) throw new Error('J02 five-edge route does not resolve to its ResearchStudy occurrence');
     await selectTraversalOccurrence(graphDocument, studyPath.at(-1).occurrenceId);
-    await waitForBrowser(cdp, `Boolean(document.querySelector('[aria-label="Search features by field name, concept, or code"]')) && Boolean(document.querySelector('input[aria-label="Select ResearchStudy.title"]'))`);
+    await page.getByLabel('Search features by field name, concept, or code', { exact: true }).waitFor({ state: 'visible', timeout: 30000 });
+    await page.getByLabel('Select ResearchStudy.title', { exact: true }).waitFor({ state: 'visible', timeout: 30000 });
     const studyNodeID = exactEdges.at(-1).toNodeId;
     const studyCandidate = graphState.catalog.candidates.find((item) =>
       item.nodeId === studyNodeID && item.fieldPath.replace(/^root\./, '') === 'title');
     if (!studyCandidate?.candidateId) throw new Error('J02 node-local catalog has no ResearchStudy.title field candidate');
     await action('select_node_local_field_at_reached_research_study', async () => {
-      await browserEval(cdp, `setInput('Search features by field name, concept, or code', 'title')`);
-      await browserEval(cdp, `clickButton('Search')`);
-      await waitForBrowser(cdp, `Boolean(document.querySelector('input[aria-label="Select ResearchStudy.title"]:not(:disabled)'))`);
-      await browserEval(cdp, `const input = inputByLabel('Select ResearchStudy.title'); if (!input) throw new Error('ResearchStudy.title is unavailable in the node-local catalog'); input.click();`);
-      await browserEval(cdp, `clickButton('Add 1 selected feature')`);
-      const hasDialog = await waitForBrowser(cdp, `Boolean(document.querySelector('[role="dialog"]') || document.querySelector('input[aria-label="Display name for configured title"]'))`).then(() => evaluate(cdp, `Boolean(document.querySelector('[role="dialog"]'))`));
+      await fillInput('Search features by field name, concept, or code', 'title');
+      await clickButton('Search');
+      const titleChoice = page.getByLabel('Select ResearchStudy.title', { exact: true });
+      await titleChoice.waitFor({ state: 'visible', timeout: 30000 });
+      await performAction(browser, 'select ResearchStudy.title', titleChoice,
+        (locator, { timeout }) => locator.check({ timeout }), { timeout: 5000 });
+      await clickButton('Add 1 selected feature');
+      await page.locator('[role="dialog"], input[aria-label="Display name for configured title"]').first().waitFor({ state: 'visible', timeout: 30000 });
+      const hasDialog = await page.getByRole('dialog').count() > 0;
       if (hasDialog) {
         await captureDOM('j02-node-local-output-form');
-        await browserEval(cdp, `clickButton('Add 1 selected feature')`);
+        await clickButton('Add 1 selected feature');
       }
       graphState = await waitForState((value) => value.workspace?.documents?.find((doc) => doc.output?.id === outputId)?.columns?.some((column) => column.source?.kind === 'field' && column.source.field.path.replace(/^root\./, '') === 'title'), 'node-local ResearchStudy.title column');
       graphDocument = graphState.workspace.documents.find((item) => item.output?.id === outputId);
@@ -3064,11 +3084,13 @@ const verifyJ02BrowserScenario = async (target, report, entryTarget = target) =>
 
     const beforeViewSwitch = draftFingerprint(graphState);
     await action('switch_catalog_and_graph_views_without_mutation', async () => {
-      await browserEval(cdp, `clickButton('Concept catalog')`);
-      await waitForBrowser(cdp, `!document.querySelector('.react-flow__node') && Boolean(document.querySelector('[aria-label="Search features by field name, concept, or code"]'))`);
+      await clickButton('Concept catalog');
+      await page.getByLabel('Search features by field name, concept, or code', { exact: true }).waitFor({ state: 'visible', timeout: 30000 });
+      await page.locator('.react-flow__node').first().waitFor({ state: 'detached', timeout: 30000 });
       await captureDOM('j02-catalog-view');
-      await browserEval(cdp, `clickButton('Advanced graph')`);
-      await waitForBrowser(cdp, `Boolean(document.querySelector('.react-flow__node')) && document.body.innerText.includes('Dataset graph')`);
+      await clickButton('Advanced graph');
+      await page.locator('.react-flow__node').first().waitFor({ state: 'visible', timeout: 30000 });
+      await page.getByText('Dataset graph', { exact: true }).waitFor({ state: 'visible', timeout: 30000 });
       await captureDOM('j02-graph-view');
       const afterViewSwitch = await readState();
       recordAssertion(report, 'j02-catalog-graph-view-switch-preserves-draft-bytes', beforeViewSwitch, draftFingerprint(afterViewSwitch));
@@ -3076,9 +3098,9 @@ const verifyJ02BrowserScenario = async (target, report, entryTarget = target) =>
 
     const reloadURL = `${target.uiUrl}/?project=${encodeURIComponent(target.fixtureProject)}&explorer=${encodeURIComponent(explorerId)}&mode=builder`;
     await action('reload_and_confirm_saved_route', async () => {
-      await navigate(cdp, reloadURL);
-      await cdp.send('Page.reload', { ignoreCache: false });
-      await waitForBrowser(cdp, `document.readyState === 'complete' && document.body.innerText.includes('J02 patient routes')`, 60000);
+      await navigate(reloadURL);
+      await page.reload({ waitUntil: 'domcontentloaded', timeout: 60000 });
+      await page.getByText('J02 patient routes', { exact: true }).waitFor({ state: 'visible', timeout: 60000 });
       await waitForState((value) => value.workspace?.documents?.some((doc) => doc.output?.id === outputId), 'reloaded J02 Builder workspace');
       const reloaded = await readState();
       const reloadedDoc = reloaded.workspace.documents.find((item) => item.output?.id === outputId);
@@ -3100,9 +3122,10 @@ const verifyJ02BrowserScenario = async (target, report, entryTarget = target) =>
       recordAssertion(report, 'j02-reload-preserves-source-tuple-identities', expectedChainIDs, reloadedSourceIDs);
       report.sourceTuples.reloadedTitle = { route: reloadedSource.value.route, facts: reloadedSource.value.facts, summary: reloadedSource.value.summary };
       await captureDOM('j02-builder-after-reload');
-      await browserEval(cdp, `clickButton('Preview')`);
-      await waitForBrowser(cdp, `document.body.innerText.includes('Preview and configure') && document.body.innerText.includes('J02 route study')`, 60000);
-      const previewCells = await evaluate(cdp, `([...document.querySelectorAll('[role="table"] [role="cell"]')].map((cell) => ({ display: cell.innerText.trim(), literal: cell.querySelector('[title]')?.getAttribute('title') ?? '' })))`);
+      await clickButton('Preview');
+      await page.getByText('Preview and configure', { exact: true }).waitFor({ state: 'visible', timeout: 60000 });
+      await page.getByText('J02 route study', { exact: true }).waitFor({ state: 'visible', timeout: 60000 });
+      const previewCells = await page.getByRole('table').getByRole('cell').evaluateAll((cells) => cells.map((cell) => ({ display: cell.innerText.trim(), literal: cell.querySelector('[title]')?.getAttribute('title') ?? '' })));
       recordAssertion(report, 'j02-reload-preview-retains-literal-research-study-title', true,
         previewCells.some((cell) => cell.display === 'J02 route study' || cell.literal === 'J02 route study'));
       report.literalValues.afterReloadPreview = previewCells;
@@ -3110,7 +3133,6 @@ const verifyJ02BrowserScenario = async (target, report, entryTarget = target) =>
       await saveScreenshot('j02-preview-after-reload');
     });
 
-    await sleep(300);
     await Promise.allSettled([...pendingNetworkBodies]);
     const networkEvidence = [];
     for (const item of network.values()) {
@@ -3126,6 +3148,23 @@ const verifyJ02BrowserScenario = async (target, report, entryTarget = target) =>
     recordAssertion(report, 'j02-ui-route-and-column-commands-have-request-result-identities', true,
       commandTransactions.length >= 6 && commandTransactions.every((item) => item.xRequestId && item.resultIdentity?.commandId && item.resultIdentity?.draftVersion));
     report.target.successfulCommandTransactions = commandTransactions.length;
+    const diagnosticsPath = join(evidenceDir, 'browser-diagnostics.json');
+    writeJSON(diagnosticsPath, browser.diagnostics);
+    recordEvidence(report, diagnosticsPath);
+    recordAssertion(report, 'j02-browser-has-no-unexpected-errors-or-api-failures', true,
+      browser.diagnostics.console.length === 0
+      && browser.diagnostics.pageErrors.length === 0
+      && browser.diagnostics.networkFailures.length === 0
+      && browser.diagnostics.httpFailures.length === 0);
+  } catch (error) {
+    await browser.captureFailure(error, {
+      phase: 'J02 related-column route, edit, and persistence lifecycle',
+      explorerId,
+      outputId,
+      draft: explorerId ? await readState().then((state) => ({ version: state.draftVersion, digest: state.draftDigest })).catch(() => undefined) : undefined,
+      requests: [...network.values()],
+    });
+    throw error;
   } finally {
     try {
       const path = join(evidenceDir, 'network-identities.json');
