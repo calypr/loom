@@ -121,9 +121,7 @@ try {
   page = browser.page;
   requestCapture = captureCDARequests(page, { apiOrigin: uiOrigin, appOrigins: [apiOrigin, uiOrigin], ownedPathPrefix: root, report: state, responsePaths: /commands|builder|construction-proposals|preview|explorers/ });
   await navigatePage(page, pageURL);
-  await waitForDOM(page, () => document.body.innerText.includes('DATASET WORKSPACE'), {}, 5000);
-  await clickControl(tracker, page, 'button', { name: 'New table' });
-  state.clicks.push('New table');
+  await waitForDOM(page, () => document.body.innerText.includes('Build your first table'), {}, 5000);
   await waitForDOM(page, () => Boolean(document.querySelector('button[aria-label="Choose Patient rows"]:not(:disabled)')), {}, 5000);
   await fillControl(tracker, page, '#first-table-name', tableName);
   await clickControl(tracker, page, 'button[aria-label="Choose Patient rows"]');
