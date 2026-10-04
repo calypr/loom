@@ -107,16 +107,23 @@ report.ownedTarget = ownedTarget;
 let requestCapture;
 const page = () => browser.page;
 const inspect = callback => page().evaluate(callback);
-const waitUI = (condition, timeout = 30000) => page().waitForFunction(condition, undefined, { timeout });
-const navigateUI = url => page().goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+const waitUI = (condition, argument, timeout = 5000) => page().waitForFunction(condition, argument, { timeout });
+const navigateUI = url => {
+  const targetLocator = page().locator('body');
+  browser.lastAction = { label: 'Navigate to Builder', locator: targetLocator.toString(), targetLocator, startedAt: Date.now() };
+  return page().goto(url, { waitUntil: 'commit', timeout: 5000 });
+};
 const clickUI = (selector, options = {}) => {
   let locator = page().locator(selector);
   if (options.name) locator = locator.and(page().getByRole('button', { name: options.name, exact: true }));
   if (options.includes) locator = locator.and(page().getByRole('button', { name: new RegExp(options.includes.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i') }));
-  return performAction(report, options.name ?? options.includes ?? selector, locator, target => target.click({ timeout: 5000 }));
+  const label = options.name ?? options.includes ?? selector;
+  browser.lastAction = { label, locator: locator.toString(), targetLocator: locator, startedAt: Date.now() };
+  return performAction(report, label, locator, target => target.click({ timeout: 5000 }));
 };
 const selectUI = (selector, value) => {
   const locator = page().locator(selector);
+  browser.lastAction = { label: `Select ${value}`, locator: locator.toString(), targetLocator: locator, startedAt: Date.now() };
   return performAction(report, `Select ${value}`, locator, (target, { timeout }) => target.selectOption(value, { timeout }));
 };
 const requestBody = entry => requestCapture.rawRequestBody(entry) ?? entry.body;
@@ -378,8 +385,11 @@ const assertPreviewRows = (response, expectedRows, name) => {
 };
 
 const proposal = async (name, startedAt, expectedRowsOrFactory) => {
-  await waitUI(`Boolean(document.querySelector('[data-testid="construction-proposal-panel"]') || document.querySelector('[data-testid="construction-choice-proposal-panel"]')) && ['ready','error','needs-repair'].includes((document.querySelector('[data-testid="construction-proposal-panel"]') ?? document.querySelector('[data-testid="construction-choice-proposal-panel"]'))?.dataset.proposalStatus)`,
-    5000);
+  await waitUI(() => {
+    const panel = document.querySelector('[data-testid="construction-proposal-panel"]')
+      ?? document.querySelector('[data-testid="construction-choice-proposal-panel"]');
+    return ['ready', 'error', 'needs-repair'].includes(panel?.dataset.proposalStatus);
+  });
   const panel = await panelInfo();
   assert(panel, `${name}: no proposal panel`);
   assert.equal(panel.status, 'ready', `${name}: ${panel.text}`);
@@ -398,18 +408,16 @@ const visibleTable = async (expectedRows, preview, name, startedAt) => {
   const labels = preview.columns.map((column) => column.label);
   const rowCount = expectedRows.length;
   const columnCount = labels.length;
-  await waitUI(`
-    (() => {
+  await waitUI(({ rowCount, columnCount }) => {
       const table = document.querySelector('[data-testid="preview-table-scroll"] [role="table"]');
       const dataRows = [...(table?.querySelectorAll('[role="row"]') ?? [])]
         .filter((row) => row.querySelector('[role="cell"]'));
-      return table?.getAttribute('aria-rowcount') === ${JSON.stringify(String(Math.min(25, rowCount) + 1))}
-        && table?.getAttribute('aria-colcount') === ${JSON.stringify(String(columnCount))}
-        && dataRows.length === ${JSON.stringify(rowCount)}
+      return table?.getAttribute('aria-rowcount') === String(Math.min(25, rowCount) + 1)
+        && table?.getAttribute('aria-colcount') === String(columnCount)
+        && dataRows.length === rowCount
         && !document.body.innerText.includes('Loading your table…')
         && !document.body.innerText.includes('Preview failed:');
-    })()
-  `, 5000);
+  }, { rowCount, columnCount });
   const rendered = await inspect(() => {
     const table = document.querySelector('[data-testid="preview-table-scroll"] [role="table"]');
     return {
@@ -431,8 +439,7 @@ const visibleTable = async (expectedRows, preview, name, startedAt) => {
 const reloadTable = async (expectedRows, name) => {
   const startedAt = Date.now();
   await navigateUI(`${uiOrigin}/?project=${project}&explorer=${explorer}&mode=builder`);
-  await waitUI(`Boolean(document.querySelector(${JSON.stringify(`[data-testid="construction-table-${outputId}"]`)}))`,
-    5000);
+  await waitUI(id => Boolean(document.querySelector(`[data-testid="construction-table-${id}"]`)), outputId);
   await clickUI(`[data-testid="construction-table-${outputId}"]`);
   const state = await api(base + '/builder');
   builder = state;
@@ -453,8 +460,8 @@ const applyProposal = async (expectedRows, name) => {
   } else {
     await clickUI('[data-testid="construction-apply-proposal"]');
   }
-  await waitUI(`!document.querySelector('[data-testid="construction-proposal-panel"]') && !document.querySelector('[data-testid="construction-choice-proposal-panel"]')`,
-    5000);
+  await waitUI(() => !document.querySelector('[data-testid="construction-proposal-panel"]')
+    && !document.querySelector('[data-testid="construction-choice-proposal-panel"]'));
   const command = await waitNative('/commands', startedAt);
   assert.equal(command.status, 200, `${name}: Apply command failed`);
   builder = await api(base + '/builder');
@@ -484,8 +491,8 @@ const cancelProposal = async (expectedWorkspace, name) => {
   } else {
     await clickUI('[data-testid="construction-cancel-proposal"]');
   }
-  await waitUI(`!document.querySelector('[data-testid="construction-proposal-panel"]') && !document.querySelector('[data-testid="construction-choice-proposal-panel"]')`,
-    5000);
+  await waitUI(() => !document.querySelector('[data-testid="construction-proposal-panel"]')
+    && !document.querySelector('[data-testid="construction-choice-proposal-panel"]'));
   builder = await api(base + '/builder');
   assert.deepEqual(builder.workspace, expectedWorkspace, `${name}: Cancel changed the saved workspace`);
   record(name, startedAt);
@@ -526,7 +533,7 @@ const assertDirectPatientRoute = (step, path, expectedForm = 'ALL') => {
 const openRelatedField = async (fieldPath, desiredForm = 'ALL') => {
   await clickUI('[data-testid="construction-action-add-columns"]');
   await clickUI('[aria-label="Column types"] button', { includes: 'Fields and related data' });
-  await waitUI(`Boolean(document.querySelector('[data-testid="construction-add-columns-source"]'))`, 5000);
+  await waitUI(() => Boolean(document.querySelector('[data-testid="construction-add-columns-source"]')));
   if (!await page().locator('[aria-label="Related resources"] summary').evaluate(summary => summary.parentElement.open)) {
     await clickUI('[aria-label="Related resources"] summary');
   }
@@ -541,11 +548,11 @@ const openRelatedField = async (fieldPath, desiredForm = 'ALL') => {
     await clickUI('[data-testid="feature-catalog-raw-fields"] summary');
   }
   const candidateSelector = `input[aria-label=${JSON.stringify(`Select Patient.${fieldPath}`)}]`;
-  await waitUI(`Boolean(document.querySelector(${JSON.stringify(candidateSelector + ':not(:disabled)')}))`, 5000);
+  await waitUI(selector => Boolean(document.querySelector(selector + ':not(:disabled)')), candidateSelector);
   const startedAt = Date.now();
   await clickUI(candidateSelector);
   await clickUI('[aria-label="Add columns editor"] button', { includes: 'Add 1 selected feature' });
-  await waitUI(`Boolean(document.querySelector('[role="dialog"]'))`, 5000);
+  await waitUI(() => Boolean(document.querySelector('[role="dialog"]')));
   const controls = await page().getByRole('dialog').evaluate(dialog => {
     const radios = [...(dialog?.querySelectorAll('input[type="radio"]') ?? [])]
       .map((input) => ({ aria: input.getAttribute('aria-label') ?? '', checked: input.checked }));
@@ -556,7 +563,8 @@ const openRelatedField = async (fieldPath, desiredForm = 'ALL') => {
   const formLabel = desiredForm === 'COUNT' ? 'Count matching records' : 'Keep all matching values';
   assert(route, `No exact Specimen.subject -> Patient choice: ${JSON.stringify(controls.radios)}`);
   await clickUI(`[role="dialog"] input[aria-label=${JSON.stringify(route.aria)}]`);
-  await waitUI(`Boolean([...document.querySelectorAll('[role="dialog"] input[type="radio"]')].find(input=>(input.getAttribute('aria-label')??'').includes(${JSON.stringify(formLabel)})))`, 5000);
+  await waitUI(label => [...document.querySelectorAll('[role="dialog"] input[type="radio"]')]
+    .some(input => (input.getAttribute('aria-label') ?? '').includes(label)), formLabel);
   const formChoices = await page().getByRole('dialog').locator('input[type="radio"]').evaluateAll(radios => radios.map(input=>input.getAttribute('aria-label')??''));
   const formChoice = formChoices.find(label=>label.includes(formLabel));
   assert(formChoice, `No ${desiredForm} choice for Patient.${fieldPath}: ${JSON.stringify(formChoices)}`);
@@ -570,11 +578,10 @@ const openRelatedField = async (fieldPath, desiredForm = 'ALL') => {
 
 const beginUnpivot = async (sourceLabel) => {
   await clickUI('[data-testid="construction-rows-settings-trigger"]');
-  await waitUI(`Boolean(document.querySelector('[data-testid="construction-action-unpivot-rows"]:not(:disabled)'))`,
-    5000);
+  await waitUI(() => Boolean(document.querySelector('[data-testid="construction-action-unpivot-rows"]:not(:disabled)')));
   await clickUI('[data-testid="construction-action-unpivot-rows"]');
   const selector = `input[aria-label=${JSON.stringify(`Unpivot ${sourceLabel}`)}]`;
-  await waitUI(`Boolean(document.querySelector(${JSON.stringify(selector + ':not(:disabled)')}))`, 5000);
+  await waitUI(target => Boolean(document.querySelector(target + ':not(:disabled)')), selector);
   const startedAt = Date.now();
   await clickUI(selector);
   return startedAt;
@@ -584,7 +591,7 @@ const editRelatedLabel = async (step, nextLabel) => {
   await clickUI(`[data-testid="construction-history-step-${step.id}"]`);
   await clickUI(`[data-testid="construction-edit-step-${step.id}"]`);
   const selector = '[data-testid="related-source-step-editor"] input[aria-label="Output column label"]';
-  await waitUI(`Boolean(document.querySelector(${JSON.stringify(selector + ':not(:disabled)')}))`, 5000);
+  await waitUI(target => Boolean(document.querySelector(target + ':not(:disabled)')), selector);
   const locator = page().locator(selector);
   const startedAt = Date.now();
   await performAction(report, `Edit related field label to ${nextLabel}`, locator, (target, { timeout }) => target.fill(nextLabel, { timeout }), { editable: true });
