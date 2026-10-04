@@ -87,7 +87,7 @@ async function inspectLocator(locator) {
   }
 }
 
-export async function launchBrowser({ evidence, appOrigins = [], noAuth = false }) {
+export async function launchBrowser({ evidence, appOrigins = [], noAuth = false, classifyExpectedRequestFailure }) {
   await mkdir(evidence, { recursive: true });
   const systemChrome = [
     process.env.CHROME_BIN,
@@ -112,7 +112,7 @@ export async function launchBrowser({ evidence, appOrigins = [], noAuth = false 
       sources: false,
     });
   }
-  const diagnostics = { console: [], pageErrors: [], networkFailures: [], httpFailures: [], assetFailures: [], apiResponses: [] };
+  const diagnostics = { console: [], pageErrors: [], networkFailures: [], expectedCancellations: [], httpFailures: [], assetFailures: [], apiResponses: [] };
   const pendingRequests = new Set();
   const expectedCancellations = new WeakMap();
   let activeCancellation;
@@ -150,6 +150,16 @@ export async function launchBrowser({ evidence, appOrigins = [], noAuth = false 
   page.on('requestfailed', request => {
     pendingRequests.delete(request);
     if (!isLocalAppURL(request.url(), origins)) return;
+    const classification = classifyExpectedRequestFailure?.(request);
+    if (classification) {
+      boundedPush(diagnostics.expectedCancellations, {
+        url: safeURL(request.url()),
+        method: request.method(),
+        failure: sanitizeText(request.failure()?.errorText),
+        classification: sanitizeText(classification),
+      });
+      return;
+    }
     boundedPush(diagnostics.networkFailures, {
       url: safeURL(request.url()),
       method: request.method(),
