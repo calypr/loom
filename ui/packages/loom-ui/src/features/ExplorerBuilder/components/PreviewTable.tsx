@@ -12,6 +12,7 @@ import type {
   ConstructionStep,
 } from '../../../types';
 import type { DraftTable } from '../authoring/model';
+import { effectiveOutputAvailability } from '../constructionWorkspace/outputEligibility';
 import { displayValue, losslessText } from '../../../valueDisplay';
 import { resultUnitTitle } from '../../../resultUnitDisplay';
 import { useDismissibleLayer } from './useDismissibleLayer';
@@ -230,6 +231,9 @@ export const PreviewTable = ({
     table?.document.columns.map((column) => [column.column, column]) ?? [],
   );
   const authoredConstructionStep = table?.document.construction?.steps.at(-1);
+  const outputAvailability = table
+    ? effectiveOutputAvailability(table.document)
+    : { hasAnyOutputColumn: false, hasVisibleOutputColumn: false };
   const rowDefinition = table?.document.rows;
   const explicitGroups = rowDefinition?.kind === 'GROUPS' && rowDefinition.groups.source.kind === 'EXPLICIT'
     ? rowDefinition.groups
@@ -711,7 +715,7 @@ export const PreviewTable = ({
           <p className="px-4 py-8 text-sm text-slate-500">
             {!table?.document.rootResourceType
               ? 'Choose starting records to preview this table.'
-              : table.document.columns.length === 0
+              : !outputAvailability.hasAnyOutputColumn
                 ? 'Add a column to see your table.'
                 : 'Loading your table…'}
           </p>

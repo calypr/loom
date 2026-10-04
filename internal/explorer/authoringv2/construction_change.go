@@ -916,7 +916,11 @@ func cloneConstruction(construction *Construction) (*Construction, error) {
 
 func cloneDocumentForConstructionChange(document Document) Document {
 	candidate := document
-	candidate.Columns = append([]Column(nil), document.Columns...)
+	if document.Columns == nil {
+		candidate.Columns = nil
+	} else {
+		candidate.Columns = append([]Column{}, document.Columns...)
+	}
 	if document.Rows.Groups != nil {
 		groups := *document.Rows.Groups
 		groups.RowValues = append([]ExplicitGroupRowValue(nil), document.Rows.Groups.RowValues...)

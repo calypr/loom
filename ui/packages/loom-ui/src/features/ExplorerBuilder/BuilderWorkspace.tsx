@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom';
 import { useAutomaticPreview, type AutomaticPreviewIdentity, type AutomaticPreviewRun } from './useAutomaticPreview';
 import { constructionAppendStageFor, constructionInputStageFor } from './constructionWorkspace/constructionStages';
+import { effectiveOutputAvailability } from './constructionWorkspace/outputEligibility';
 import {
   useApplyExplorerBuilderCommandsV2Mutation,
   useAssessExplorerRowChangeMutation,
@@ -1686,14 +1687,12 @@ const BuilderWorkspaceContent = ({
     isUnsupportedUnknownSourceProjectionDiagnostic,
   );
   const primaryDiagnostic = state.diagnostics[0];
-  const hasVisibleSelectedColumn = Boolean(
-    table?.document.columns.some(
-      (column) => column.table?.visible ?? Boolean(column.table),
-    ),
-  );
+  const outputAvailability = table
+    ? effectiveOutputAvailability(table.document)
+    : { hasAnyOutputColumn: false, hasVisibleOutputColumn: false };
   const previewDisabled =
     !table?.document.rootResourceType ||
-    !hasVisibleSelectedColumn ||
+    !outputAvailability.hasVisibleOutputColumn ||
     blockingDiagnostics ||
     constructionLifecycle.proposal.status !== 'idle';
   const publishDisabled =
@@ -1702,7 +1701,9 @@ const BuilderWorkspaceContent = ({
     incomplete ||
     blockingDiagnostics ||
     constructionLifecycle.proposal.status !== 'idle' ||
-    state.tables.some((candidate) => candidate.document.columns.length === 0);
+    state.tables.some((candidate) =>
+      !effectiveOutputAvailability(candidate.document).hasAnyOutputColumn,
+    );
 
   const addTable = () => {
     if (
@@ -2296,7 +2297,7 @@ const BuilderWorkspaceContent = ({
       ? `${automaticPreviewFailure.message}${automaticPreviewFailure.code ? ` (${automaticPreviewFailure.code})` : ''}`
       : 'The automatic preview request failed.';
   const addColumnsPreviewPending = automaticPreviewQuery.isLoading &&
-    Boolean(table?.document.columns.length);
+    outputAvailability.hasAnyOutputColumn;
   const busy =
     pendingCommands > 0 ||
     reconcileStatus.isLoading ||

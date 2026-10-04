@@ -12,7 +12,11 @@ import (
 // has been represented and the staged document validates.
 func UpgradeDocumentToConstruction(document Document) (Document, error) {
 	upgraded := document
-	upgraded.Columns = append([]Column(nil), document.Columns...)
+	if document.Columns == nil {
+		upgraded.Columns = nil
+	} else {
+		upgraded.Columns = append([]Column{}, document.Columns...)
+	}
 	if document.Construction != nil {
 		if document.TableShape != nil {
 			return document, fmt.Errorf("construction and tableShape cannot both define post-source operations")

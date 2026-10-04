@@ -148,7 +148,7 @@ func TestConstructionCombineStepEditKeepsExactInputPinsWithoutStageDependencies(
 
 func TestConstructionCombineCandidateCanAppendEditAndRemoveStandaloneStage(t *testing.T) {
 	base := workspaceDocument("training")
-	base.Columns = nil
+	base.Columns = []Column{}
 	base.Construction = &Construction{Version: ConstructionVersion}
 	candidateConstruction := *terminalCombineDocument().Construction
 
@@ -158,6 +158,18 @@ func TestConstructionCombineCandidateCanAppendEditAndRemoveStandaloneStage(t *te
 	}
 	if len(impact.MissingInputs) != 0 || len(added.Construction.Steps) != 1 {
 		t.Fatalf("appended Combine proposal = %#v, impact=%#v", added.Construction, impact)
+	}
+	if added.Columns == nil {
+		t.Fatal("appending a construction step collapsed an explicitly empty source column list to nil")
+	}
+	legacyBase := workspaceDocument("training")
+	legacyBase.Columns = []Column{}
+	legacyAdded, _, err := legacyBase.AnalyzeConstructionCandidate(candidateConstruction, "join_labs", nil)
+	if err != nil {
+		t.Fatalf("append Combine from an empty legacy table: %v", err)
+	}
+	if legacyAdded.Columns == nil {
+		t.Fatal("upgrading and appending to an explicitly empty source column list collapsed it to nil")
 	}
 
 	edited := *added.Construction
