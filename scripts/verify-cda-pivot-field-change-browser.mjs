@@ -3,29 +3,81 @@ import { randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { browserEval, click, launchBrowser, navigate, selectOption, waitForBrowser } from './lib/browser.mjs';
+import { fileURLToPath } from 'node:url';
+import { launchBrowser } from './lib/playwright-browser.mjs';
+import { performAction } from './lib/playwright-actions.mjs';
+import { captureCDARequests } from './lib/cda-playwright-requests.mjs';
+import { collectPreviewRows } from './lib/playwright-preview-rows.mjs';
+import { assertOwnedCdaTarget } from './lib/owned-cda-target.mjs';
+import { captureSourceFreeze } from './lib/source-freeze.mjs';
+import { sourceFingerprint } from './verify-ui/source-fingerprint.mjs';
+import { captureApiBuildFreeze, checkContainerApiBuildStamp } from './lib/api-build-freeze.mjs';
 
 // Bounded UI regression for changing a Pivot's category source from quantity
 // code to Observation.status. The raw oracle contains every Observation on one
 // selected Specimen -> Patient -> Observation route; it never samples categories.
-const project = 'loom_dev_cda_fhir';
+const project = process.env.LOOM_CDA_PROJECT;
 const explorer = `pivot-field-change-browser-${Date.now()}`;
 const evidence = process.argv[2] ?? `/tmp/loom-pivot-field-change-browser-${Date.now()}`;
-const apiOrigin = process.env.LOOM_CDA_API_ORIGIN ?? 'http://127.0.0.1:8188';
-const uiOrigin = process.env.LOOM_CDA_UI_ORIGIN ?? 'http://127.0.0.1:30008';
+const apiOrigin = process.env.LOOM_CDA_API_ORIGIN;
+const uiOrigin = process.env.LOOM_CDA_UI_ORIGIN;
+const sourceRoot = fileURLToPath(new URL('..', import.meta.url));
 const root = `/api/v1/projects/${project}/explorers`;
 const base = `${root}/${explorer}/authoring/v2`;
+assert(process.env.LOOM_ARANGO_DATABASE, 'Set LOOM_ARANGO_DATABASE for the isolated CDA source database.');
+await assertOwnedCdaTarget({ project, apiOrigin, uiOrigin, apiContainer: process.env.LOOM_CDA_API_CONTAINER,
+  composeProject: process.env.LOOM_CDA_COMPOSE_PROJECT, sourceRoot, arangoContainer: process.env.LOOM_ARANGO_CONTAINER,
+  clickhouseContainer: process.env.LOOM_CLICKHOUSE_CONTAINER });
+const sourceFreeze = await captureSourceFreeze(sourceRoot);
+const apiBuildFreeze = await captureApiBuildFreeze(() => checkContainerApiBuildStamp(process.env.LOOM_CDA_API_CONTAINER));
 const categoryA = 'Observation.valueQuantity.code';
 const categoryB = 'Observation.status';
 const valuePath = 'Observation.valueQuantity.value';
 const groupLabels = ['Specimen ID', 'Patient FHIR resource ID', 'Observation FHIR resource ID'];
-const report = { explorer, categories: { A: categoryA, B: categoryB }, cases: [], errors: [], authoringRequests: [], started: new Date().toISOString() };
+const report = { explorer, categories: { A: categoryA, B: categoryB }, cases: [], errors: [], authoringRequests: [], nativeRequests: [],
+  sourceFingerprint: { before: sourceFingerprint(sourceRoot) }, apiBuildIdentity: apiBuildFreeze.initial, started: new Date().toISOString() };
 await mkdir(evidence, { recursive: true });
 let browser, builder, outputId;
-const pendingResponseReads = new Set();
-const requestById = new Map();
-const failedRequests = new Map();
-const parseJSON = value => { try { return JSON.parse(value); } catch { return value; } };
+const inspectPage = (page, inspect, argument) => page.evaluate(inspect, argument);
+const waitForObservable = (page, predicate, argumentOrTimeout, timeoutArgument = 30000) => {
+  const argument = typeof argumentOrTimeout === 'number' ? undefined : argumentOrTimeout;
+  const timeout = typeof argumentOrTimeout === 'number' ? argumentOrTimeout : timeoutArgument;
+  return page.waitForFunction(predicate, argument, { timeout }).then(() => undefined);
+};
+const waitForVisible = (page, selector, timeout = 30000) => page.locator(selector).waitFor({ state: 'visible', timeout });
+const waitForHidden = (page, selector, timeout = 30000) => page.locator(selector).waitFor({ state: 'hidden', timeout });
+const waitForEnabled = async (page, selector, timeout = 30000) => {
+  const locator = page.locator(selector);
+  await locator.waitFor({ state: 'visible', timeout });
+  await page.waitForFunction(value => { const element = document.querySelector(value); return Boolean(element && !element.disabled); }, selector, { timeout });
+};
+const gotoPage = (page, url) => page.goto(url, { waitUntil: 'domcontentloaded' });
+const clickNative = (page, selector, identity = {}) => {
+  const locator = selector === 'button' && identity.name
+    ? page.getByRole('button', { name: identity.name, exact: true })
+    : page.locator(selector);
+  return performAction(report, `click ${identity.name ?? selector}`, locator, target => target.click({ timeout: 5000 }));
+};
+const selectNative = async (page, selector, value) => {
+  const locator = page.locator(selector);
+  await performAction(report, `select ${selector}`, locator, target => target.selectOption(value, { timeout: 5000 }));
+  assert.equal(await locator.inputValue(), String(value), `Selected value must be applied to ${selector}`);
+};
+let browserRequestCapture;
+const syncAuthoringRequests = () => {
+  const endpoints = new Set(['commands', 'reconcile', 'preview', 'construction-proposals', 'construction-category-discoveries']);
+  report.authoringRequests.splice(0, report.authoringRequests.length, ...report.nativeRequests
+    .filter(request => endpoints.has(request.path.split('/').at(-1)))
+    .map(request => ({ ...request, endpoint: request.path.split('/').at(-1), url: `${request.origin}${request.path}`, startedAtMs: request.startedAt,
+      finishedAtMs: request.completedAt, responseFinishedAtMs: request.completedAt, durationMs: request.completedAt - request.startedAt,
+      requestDraftVersion: request.body?.expectedDraftVersion ?? request.body?.draftVersion, requestDraftDigest: request.body?.expectedDraftDigest ?? request.body?.draftDigest,
+      requestOutputId: request.body?.outputId, requestReceiptId: request.body?.receiptId,
+      responseDraftVersion: request.response?.draftVersion, responseDraftDigest: request.response?.draftDigest,
+      responseReceiptId: request.response?.receiptId, responseOutputId: request.response?.outputId,
+      responseRowCount: request.response?.rowCount ?? request.response?.preview?.rowCount ?? request.response?.rows?.length,
+      ...(request.failure ? { loadingFailure: { errorText: request.failure, canceled: request.failure === 'net::ERR_ABORTED' } } : {}),
+    })));
+};
 const api = async (path, body) => {
   const response = await fetch(apiOrigin + path, {
     method: body ? 'POST' : 'GET',
@@ -46,13 +98,14 @@ const command = async commands => {
   builder = await api(base + '/builder');
 };
 const doc = state => state.workspace.documents.find(document => document.output.id === outputId);
-const drainResponses = async () => { while (pendingResponseReads.size) await Promise.all([...pendingResponseReads]); };
+const drainResponses = async () => { await browserRequestCapture?.flush(); syncAuthoringRequests(); };
 const newestRequest = (endpoint, from = 0) => report.authoringRequests.slice(from).findLast(request => request.endpoint === endpoint);
 const browserCommandCount = () => report.authoringRequests.filter(request => request.endpoint === 'commands').length;
 const readyProposal = async (oldId, timeout = 10000) => {
-  await waitForBrowser(browser.cdp,
-    `document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalStatus==='ready' && Boolean(document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalId) && document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalId!==${JSON.stringify(oldId ?? '')}`,
-    timeout);
+  await waitForObservable(browser.page, ({ oldId }) => {
+    const panel = document.querySelector('[data-testid="construction-proposal-panel"]');
+    return panel?.dataset.proposalStatus === 'ready' && Boolean(panel.dataset.proposalId) && panel.dataset.proposalId !== oldId;
+  }, { oldId: oldId ?? '' }, timeout);
   await drainResponses();
 };
 const typedKey = value => value == null ? { kind: 'NULL' } : { kind: 'STRING', string: value };
@@ -136,18 +189,19 @@ const proposalToReady = async (name, start, requestIndex, oldProposalId, path) =
   report.cases.push({ name, durationMs, category: path, rowCount: checked.preview.rowCount, domain: expectedDomain(report.oracle.observations, path) });
   return checked;
 };
-const sourceOptions = async label => browserEval(browser.cdp,
-  `return [...document.querySelector('select[aria-label=${JSON.stringify(label)}]').options].map(option=>({value:option.value,label:option.textContent.trim()}));`);
+const sourceOptions = async label => inspectPage(browser.page,
+  label => [...document.querySelector(`select[aria-label="${label}"]`).options].map(option=>({value:option.value,label:option.textContent.trim()})), label);
 const chooseSource = async (label, path) => {
   const options = await sourceOptions(label);
   const matching = options.filter(option => option.value.startsWith('source:') && option.label.includes(path));
   assert.equal(matching.length, 1, `Require one native source choice for ${path}: ${JSON.stringify(options)}`);
-  const selected = `document.querySelector('select[aria-label=${JSON.stringify(label)}]')?.selectedOptions[0]?.textContent.includes(${JSON.stringify(path)})`;
-  await selectOption(browser.cdp, `select[aria-label="${label}"]`, matching[0].value, { settledWhen: selected });
+  await selectNative(browser.page, `select[aria-label="${label}"]`, matching[0].value);
 };
 const setPivotGroups = async () => {
-  await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid="construction-reshape-pivot"] input[aria-label^="Pivot group "]'))`);
-  const current = await browserEval(browser.cdp, `return [...document.querySelectorAll('[data-testid="construction-reshape-pivot"] input[aria-label^="Pivot group "]')].map(input=>({label:input.getAttribute('aria-label'),checked:input.checked,disabled:input.disabled}));`);
+  await waitForObservable(browser.page, () => Boolean(Boolean(document.querySelector('[data-testid="construction-reshape-pivot"] input[aria-label^="Pivot group "]'))));
+  const current = await inspectPage(browser.page, () => {
+return [...document.querySelectorAll('[data-testid="construction-reshape-pivot"] input[aria-label^="Pivot group "]')].map(input=>({label:input.getAttribute('aria-label'),checked:input.checked,disabled:input.disabled}));
+});
   for (const label of groupLabels) {
     const state = current.find(item => item.label === `Pivot group ${label}`);
     assert(state && !state.disabled, `Native Pivot group ${label} must be available`);
@@ -155,42 +209,30 @@ const setPivotGroups = async () => {
   for (const item of current) {
     const wanted = groupLabels.includes(item.label.replace(/^Pivot group /, ''));
     assert(!item.disabled || item.checked === wanted, `Native Pivot group ${item.label} is disabled in the wrong state`);
-    if (!item.disabled && item.checked !== wanted) await click(browser.cdp, `input[aria-label=${JSON.stringify(item.label)}]`);
+    if (!item.disabled && item.checked !== wanted) await clickNative(browser.page, `input[aria-label=${JSON.stringify(item.label)}]`);
   }
-  const selected = new Set(await browserEval(browser.cdp, `return [...document.querySelectorAll('[data-testid="construction-reshape-pivot"] input[aria-label^="Pivot group "]:checked')].map(input=>input.getAttribute('aria-label'));`));
+  const selected = new Set(await inspectPage(browser.page, () => {
+return [...document.querySelectorAll('[data-testid="construction-reshape-pivot"] input[aria-label^="Pivot group "]:checked')].map(input=>input.getAttribute('aria-label'));
+}));
   assert.deepEqual(selected, new Set(groupLabels.map(label => `Pivot group ${label}`)));
 };
 const enterPivot = async () => {
-  await click(browser.cdp, '[data-testid="construction-rows-settings-trigger"]');
-  await click(browser.cdp, '[data-testid="construction-action-pivot-rows"]');
-  await waitForBrowser(browser.cdp, `document.querySelector('select[aria-label="Pivot category field"]:not(:disabled)')`);
+  await clickNative(browser.page, '[data-testid="construction-rows-settings-trigger"]');
+  await clickNative(browser.page, '[data-testid="construction-action-pivot-rows"]');
+  await waitForObservable(browser.page, () => Boolean(document.querySelector('select[aria-label="Pivot category field"]:not(:disabled)')));
   await setPivotGroups();
 };
-const snapshotPreview = async () => browserEval(browser.cdp, `return (async()=>{
-  const root=document.querySelector('[data-testid="preview-table-scroll"]');
-  const table=root?.querySelector('[role="table"]');
-  if(!root||!table) return undefined;
-  const total=Math.max(0,Number(table.getAttribute('aria-rowcount'))-1), rows=new Map();
-  for(let page=0;page<100&&rows.size<total;page++){
-    for(const row of table.querySelectorAll('[role="row"]')){
-      const rowNumber=Number(row.firstElementChild?.textContent?.trim());
-      if(!Number.isInteger(rowNumber)||rowNumber<1) continue;
-      const cells=[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText.trim());
-      rows.set(rowNumber,cells);
-    }
-    if(rows.size>=total) break;
-    const next=Math.min(root.scrollTop+Math.max(1,root.clientHeight/2),root.scrollHeight-root.clientHeight);
-    if(next===root.scrollTop) break;
-    root.scrollTop=next; await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
-  }
-  root.scrollTop=0; await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
-  const rowOrdinals=[...rows.keys()].sort((left,right)=>left-right);
-  return {rowCount:total,rowOrdinals,headers:[...root.querySelectorAll('[role="columnheader"]')].map(cell=>cell.innerText.trim().split('\\n')[0]),rows:rowOrdinals.map(number=>rows.get(number))};
-})();`);
+const snapshotPreview = async () => {
+  const collected = await collectPreviewRows(browser.page);
+  return { rowCount: collected.rowCount, rowOrdinals: collected.rowOrdinals,
+    headers: collected.headers, rows: collected.rows.map(row => row.values) };
+};
 const assertSavedPreview = async (expected, name) => {
-  await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')) && !document.body.innerText.includes('Loading your table…')`, 10000);
-  const limit = await browserEval(browser.cdp, `return document.querySelector('select[aria-label="Preview row limit"]')?.value;`);
-  if (limit !== '100') await selectOption(browser.cdp, 'select[aria-label="Preview row limit"]', '100', { settledWhen: `document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount')===${JSON.stringify(String(expected.rowCount + 1))}` });
+  await waitForObservable(browser.page, () => Boolean(Boolean(document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')) && !document.body.innerText.includes('Loading your table…')), 10000);
+  const limit = await inspectPage(browser.page, () => {
+return document.querySelector('select[aria-label="Preview row limit"]')?.value;
+});
+  if (limit !== '100') await selectNative(browser.page, 'select[aria-label="Preview row limit"]', '100');
   const actual = await snapshotPreview();
   assert(actual, `${name}: saved preview must render`);
   assert.equal(actual.rowCount, expected.rowCount, `${name}: saved Pivot row count`);
@@ -199,28 +241,27 @@ const assertSavedPreview = async (expected, name) => {
   assert.deepEqual(actual.rows.map(JSON.stringify).sort(), expected.rows.map(JSON.stringify).sort(), `${name}: saved Pivot cells`);
 };
 const openTable = async () => {
-  await navigate(browser.cdp, `${uiOrigin}/?project=${project}&explorer=${explorer}&mode=builder`);
-  await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-table-${outputId}"]')`, 10000);
-  await click(browser.cdp, `[data-testid="construction-table-${outputId}"]`);
-  await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-rows-settings-trigger"]')?.disabled===false`, 10000);
+  await gotoPage(browser.page, `${uiOrigin}/?project=${project}&explorer=${explorer}&mode=builder`);
+  await waitForVisible(browser.page, `[data-testid="construction-table-${outputId}"]`, 10000);
+  await clickNative(browser.page, `[data-testid="construction-table-${outputId}"]`);
+  await waitForObservable(browser.page, () => Boolean(document.querySelector('[data-testid="construction-rows-settings-trigger"]')?.disabled===false), 10000);
 };
 const applyAndWait = async (timeout = 10000) => {
-  await click(browser.cdp, '[data-testid="construction-apply-proposal"]');
-  await waitForBrowser(browser.cdp, `!document.querySelector('[data-testid="construction-proposal-panel"]')`, timeout);
+  await clickNative(browser.page, '[data-testid="construction-apply-proposal"]');
+  await waitForObservable(browser.page, () => Boolean(!document.querySelector('[data-testid="construction-proposal-panel"]')), timeout);
 };
-const waitForRenderedRows = async (rowCount, timeout = 5000) => waitForBrowser(browser.cdp,
-  `document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount')===${JSON.stringify(String(rowCount + 1))} && !document.body.innerText.includes('Loading your table…')`, timeout);
+const waitForRenderedRows = async (rowCount, timeout = 5000) => waitForObservable(browser.page,
+  ({ rowCount }) => document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount') === String(rowCount + 1)
+    && !document.body.innerText.includes('Loading your table…'), { rowCount }, timeout);
 const historyPivot = async () => {
-  const items = await browserEval(browser.cdp, `return [...document.querySelectorAll('[data-testid^="construction-history-step-"]')].map(button=>({testId:button.getAttribute('data-testid'),text:button.innerText}));`);
+  const items = await inspectPage(browser.page, () => {
+return [...document.querySelectorAll('[data-testid^="construction-history-step-"]')].map(button=>({testId:button.getAttribute('data-testid'),text:button.innerText}));
+});
   const item = items.findLast(value => /pivot|categories into columns/i.test(value.text));
   assert(item, `Saved history must include the Pivot step: ${JSON.stringify(items)}`);
   return item;
 };
 try {
-  assert.equal(new URL(apiOrigin).hostname, '127.0.0.1', 'Raw CDA oracle is restricted to the local no-auth Compose API');
-  assert.equal(new URL(apiOrigin).port, '8188', 'Raw CDA oracle is restricted to the retained local no-auth Compose API');
-  assert.equal(new URL(uiOrigin).hostname, '127.0.0.1', 'The browser verifier must use the retained local Builder UI');
-  assert.equal(new URL(uiOrigin).port, '30008', 'The browser verifier must use the retained local Builder UI');
   const rawQuery = `FOR s IN Specimen
     FILTER s.project == ${JSON.stringify(project)} AND s.dataset_generation == "cda-fhir-v1"
     LET patients = (FOR e IN fhir_edge
@@ -234,7 +275,7 @@ try {
     FILTER LENGTH(observations) > 0
     LIMIT 1
     RETURN {source:{id:s.id,_id:s._id,generation:s.dataset_generation},patientCount:LENGTH(patients),observations}`;
-  const rawResult = spawnSync('rtk', ['proxy', 'docker', 'exec', process.env.LOOM_ARANGO_CONTAINER ?? 'loom-dev-6d7df93d6a37-arangodb-1', 'arangosh', '--server.database', process.env.LOOM_ARANGO_DATABASE ?? 'loom_dev', '--javascript.execute-string', `print(JSON.stringify(db._query(${JSON.stringify(rawQuery)}).toArray()));`], { encoding: 'utf8', timeout: 30000, maxBuffer: 8 * 1024 * 1024 });
+  const rawResult = spawnSync('rtk', ['proxy', 'docker', 'exec', process.env.LOOM_ARANGO_CONTAINER, 'arangosh', '--server.database', process.env.LOOM_ARANGO_DATABASE, '--javascript.execute-string', `print(JSON.stringify(db._query(${JSON.stringify(rawQuery)}).toArray()));`], { encoding: 'utf8', timeout: 30000, maxBuffer: 8 * 1024 * 1024 });
   assert.equal(rawResult.status, 0, rawResult.stderr);
   const fixtures = JSON.parse(rawResult.stdout.slice(rawResult.stdout.indexOf('[')));
   const fixture = fixtures[0];
@@ -270,33 +311,12 @@ try {
   assert(direct, 'Population route must include the selected Specimen directly');
   await command([{ type: 'SET_TABLE_POPULATION', outputId, selectionRevisionId: selection.id, routeChoiceId: direct.routeChoiceId }]);
 
-  browser = await launchBrowser(evidence);
-  browser.cdp.on('Runtime.exceptionThrown', details => report.errors.push({ kind: 'runtime', details }));
-  browser.cdp.on('Runtime.consoleAPICalled', event => { if (event.type === 'error') report.errors.push({ kind: 'console', args: event.args }); });
-  browser.cdp.on('Network.requestWillBeSent', ({ requestId, request, timestamp }) => {
-    const endpoint = ['commands', 'reconcile', 'preview', 'construction-proposals', 'construction-category-discoveries'].find(path => new URL(request.url).pathname.endsWith(`/authoring/v2/${path}`));
-    if (!endpoint) return;
-    const body = request.postData ? parseJSON(request.postData) : undefined;
-    const captured = { endpoint, requestId, method: request.method, url: request.url, startedAtMs: timestamp * 1000, body };
-    report.authoringRequests.push(captured);
-    requestById.set(requestId, captured);
+  browser = await launchBrowser({ evidence, appOrigins: [apiOrigin, uiOrigin], noAuth: true });
+  browserRequestCapture = captureCDARequests(browser.page, { apiOrigin: uiOrigin, appOrigins: [apiOrigin, uiOrigin], ownedPathPrefix: base, report, responsePaths: /\/(?:commands|reconcile|preview|construction-proposals|construction-category-discoveries)$/ });
+  browser.page.on('request', request => {
+    const captured = browserRequestCapture.byRequest.get(request);
+    if (captured) captured.observedAfter = report.cases.at(-1)?.name;
   });
-  browser.cdp.on('Network.responseReceived', ({ requestId, response, timestamp }) => {
-    const captured = requestById.get(requestId);
-    if (captured) { captured.status = response.status; captured.responseStartedAtMs = timestamp * 1000; }
-    if (response.status >= 400 && !response.url.endsWith('/favicon.ico')) failedRequests.set(requestId, { requestId, status: response.status, url: response.url });
-  });
-  browser.cdp.on('Network.loadingFinished', ({ requestId, timestamp }) => {
-    const captured = requestById.get(requestId);
-    if (!captured && !failedRequests.has(requestId)) return;
-    const read = browser.cdp.send('Network.getResponseBody', { requestId }).then(value => {
-      const text = value.isBase64Encoded ? Buffer.from(value.body, 'base64').toString('utf8') : value.body;
-      if (captured) { captured.response = parseJSON(text); captured.finishedAtMs = timestamp * 1000; captured.durationMs = captured.finishedAtMs - captured.startedAtMs; }
-      if (failedRequests.has(requestId)) report.errors.push({ kind: 'http', ...failedRequests.get(requestId), body: text });
-    }).catch(error => { if (captured) captured.responseReadError = String(error); }).finally(() => pendingResponseReads.delete(read));
-    pendingResponseReads.add(read);
-  });
-  browser.cdp.on('Network.loadingFailed', event => { if (event.type === 'Script' && event.errorText !== 'net::ERR_ABORTED') report.errors.push({ kind: 'module', error: event.errorText }); });
 
   await openTable();
   const hops = [
@@ -304,32 +324,36 @@ try {
     { from: 'Patient', to: 'Observation', label: 'Patient <-[subject]- Observation', field: 'subject', direction: 'INBOUND', edge: 'subject_Patient' },
   ];
   for (const hop of hops) {
-    await click(browser.cdp, '[data-testid="construction-rows-settings-trigger"]');
-    await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-action-related-rows"]')?.disabled===false`);
-    await click(browser.cdp, '[data-testid="construction-action-related-rows"]');
+    await clickNative(browser.page, '[data-testid="construction-rows-settings-trigger"]');
+    await waitForObservable(browser.page, () => Boolean(document.querySelector('[data-testid="construction-action-related-rows"]')?.disabled===false));
+    await clickNative(browser.page, '[data-testid="construction-action-related-rows"]');
     const panel = '[data-testid="construction-related-expand-editor"]';
-    await waitForBrowser(browser.cdp, `document.querySelector(${JSON.stringify(panel)}+' select[aria-label="Related record type"]')?.disabled===false`);
-    await selectOption(browser.cdp, panel + ' select[aria-label="Related record type"]', hop.to);
+    await waitForEnabled(browser.page, `${panel} select[aria-label="Related record type"]`);
+    await selectNative(browser.page, panel + ' select[aria-label="Related record type"]', hop.to);
     const inputLabel = hop.label;
-    await waitForBrowser(browser.cdp, `Boolean(document.querySelector(${JSON.stringify(panel + ' input[aria-label="' + inputLabel + '"]')}))`);
-    await click(browser.cdp, panel + ' input[aria-label=' + JSON.stringify(inputLabel) + ']');
-    await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalStatus==='ready'`, 10000);
-    await click(browser.cdp, '[data-testid="construction-apply-proposal"]');
-    await waitForBrowser(browser.cdp, `!document.querySelector('[data-testid="construction-proposal-panel"]')`, 10000);
+    await waitForVisible(browser.page, `${panel} input[aria-label="${inputLabel}"]`);
+    await clickNative(browser.page, panel + ' input[aria-label=' + JSON.stringify(inputLabel) + ']');
+    await waitForObservable(browser.page, () => Boolean(document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalStatus==='ready'), 10000);
+    await clickNative(browser.page, '[data-testid="construction-apply-proposal"]');
+    await waitForObservable(browser.page, () => Boolean(!document.querySelector('[data-testid="construction-proposal-panel"]')), 10000);
     builder = await api(base + '/builder');
   }
   await openTable();
   const expandedWorkspace = (await api(base + '/builder')).workspace;
-  const baselineLimit = await browserEval(browser.cdp, `return document.querySelector('select[aria-label="Preview row limit"]')?.value;`);
-  if (baselineLimit !== '100') await selectOption(browser.cdp, 'select[aria-label="Preview row limit"]', '100', { settledWhen: `document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount')===${JSON.stringify(String(fixture.observations.length + 1))}` });
-  await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount')===${JSON.stringify(String(fixture.observations.length + 1))}`, 10000);
+  const baselineLimit = await inspectPage(browser.page, () => {
+return document.querySelector('select[aria-label="Preview row limit"]')?.value;
+});
+  if (baselineLimit !== '100') await selectNative(browser.page, 'select[aria-label="Preview row limit"]', '100');
+  await waitForObservable(browser.page, ({ rowCount }) => document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount') === String(rowCount + 1), { rowCount: fixture.observations.length }, 10000);
   const fullBaseline = await snapshotPreview();
   assert.equal(fullBaseline.rowCount, fixture.observations.length);
   report.baseline = { headers: fullBaseline.headers, rowCount: fullBaseline.rowCount, rows: fullBaseline.rows };
 
   await enterPivot();
   let requestIndex = report.authoringRequests.length;
-  const oldIdA = await browserEval(browser.cdp, `return document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalId??'';`);
+  const oldIdA = await inspectPage(browser.page, () => {
+return document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalId??'';
+});
   let start = Date.now();
   await chooseSource('Pivot category field', categoryA);
   await chooseSource('Pivot values field', valuePath);
@@ -363,8 +387,8 @@ try {
 
   const commandsBeforeCancel = report.authoringRequests.filter(request => request.endpoint === 'commands').length;
   const cancelStartedAt = Date.now();
-  await click(browser.cdp, '[data-testid="construction-cancel-proposal"]');
-  await waitForBrowser(browser.cdp, `!document.querySelector('[data-testid="construction-proposal-panel"]')`, 5000);
+  await clickNative(browser.page, '[data-testid="construction-cancel-proposal"]');
+  await waitForObservable(browser.page, () => Boolean(!document.querySelector('[data-testid="construction-proposal-panel"]')), 5000);
   builder = await api(base + '/builder');
   assert.deepEqual(builder.workspace, expandedWorkspace, 'Cancel must not mutate the saved pre-Pivot construction');
   assert.equal(report.authoringRequests.filter(request => request.endpoint === 'commands').length, commandsBeforeCancel, 'Cancel must not send a draft command');
@@ -373,7 +397,9 @@ try {
 
   requestIndex = report.authoringRequests.length;
   await enterPivot();
-  const oldIdConfirm = await browserEval(browser.cdp, `return document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalId??'';`);
+  const oldIdConfirm = await inspectPage(browser.page, () => {
+return document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalId??'';
+});
   start = Date.now();
   await chooseSource('Pivot category field', categoryB);
   await chooseSource('Pivot values field', valuePath);
@@ -397,31 +423,35 @@ try {
   report.cases.push({ name: 'category-B-apply-reload', durationMs: Date.now() - reloadStart, rowCount: fixture.observations.length });
 
   const pivotHistory = await historyPivot();
-  await click(browser.cdp, `[data-testid=${JSON.stringify(pivotHistory.testId)}]`);
-  await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid^="construction-edit-step-"]'))`);
+  await clickNative(browser.page, `[data-testid=${JSON.stringify(pivotHistory.testId)}]`);
+  await waitForObservable(browser.page, () => Boolean(Boolean(document.querySelector('[data-testid^="construction-edit-step-"]'))));
   const pivotStep = doc(builder).construction.steps.find(step => step.operation.kind === 'PIVOT');
-  await click(browser.cdp, `[data-testid="construction-edit-step-${pivotStep.id}"]`);
-  await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid="construction-reshape-pivot"] select[aria-label="Pivot category field"]'))`);
-  const restoredEditor = await browserEval(browser.cdp, `const panel=document.querySelector('[data-testid="construction-reshape-pivot"]');return {category:panel.querySelector('select[aria-label="Pivot category field"]')?.selectedOptions[0]?.textContent,value:panel.querySelector('select[aria-label="Pivot values field"]')?.selectedOptions[0]?.textContent};`);
+  await clickNative(browser.page, `[data-testid="construction-edit-step-${pivotStep.id}"]`);
+  await waitForObservable(browser.page, () => Boolean(Boolean(document.querySelector('[data-testid="construction-reshape-pivot"] select[aria-label="Pivot category field"]'))));
+  const restoredEditor = await inspectPage(browser.page, () => {
+const panel=document.querySelector('[data-testid="construction-reshape-pivot"]');return {category:panel.querySelector('select[aria-label="Pivot category field"]')?.selectedOptions[0]?.textContent,value:panel.querySelector('select[aria-label="Pivot values field"]')?.selectedOptions[0]?.textContent};
+});
   assert(restoredEditor.category.includes(categoryB), `Edit must restore category B, got ${restoredEditor.category}`);
   assert(restoredEditor.value.includes(valuePath), `Edit must preserve numeric values field ${valuePath}, got ${restoredEditor.value}`);
   const advancedSelector = '[data-testid="construction-reshape-pivot-advanced"]';
-  if (!await browserEval(browser.cdp, `return document.querySelector(${JSON.stringify(advancedSelector)})?.open;`)) {
-    await click(browser.cdp, `${advancedSelector} summary`);
+  if (!await inspectPage(browser.page, selector => document.querySelector(selector)?.open, advancedSelector)) {
+    await clickNative(browser.page, `${advancedSelector} summary`);
   }
-  const editLabels = await browserEval(browser.cdp, `return [...document.querySelectorAll('input[aria-label^="Pivot output label"]')].map(input=>({label:input.getAttribute('aria-label'),value:input.value}));`);
+  const editLabels = await inspectPage(browser.page, () => {
+return [...document.querySelectorAll('input[aria-label^="Pivot output label"]')].map(input=>({label:input.getAttribute('aria-label'),value:input.value}));
+});
   assert(editLabels.length > 0, 'Edit must restore category output labels');
   const editTarget = editLabels[0];
   const nextLabel = `${editTarget.value} Verified`;
-  const previousProposalId = await browserEval(browser.cdp, `return document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalId??'';`);
+  const previousProposalId = await inspectPage(browser.page, () => {
+return document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalId??'';
+});
   requestIndex = report.authoringRequests.length;
   start = Date.now();
   const editSelector = `input[aria-label=${JSON.stringify(editTarget.label)}]`;
-  await browserEval(browser.cdp, `document.querySelector(${JSON.stringify(editSelector)}).scrollIntoView({block:'center',inline:'nearest'});await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));`);
-  await click(browser.cdp, editSelector);
-  await browserEval(browser.cdp, `document.activeElement.select();`);
-  await browser.cdp.send('Input.insertText', { text: nextLabel });
-  assert.equal(await browserEval(browser.cdp, `return document.activeElement.value;`), nextLabel, 'Native typing must update the Pivot label');
+  const labelInput = browser.page.locator(editSelector);
+  await performAction(report, 'fill Pivot output label', labelInput, locator => locator.fill(nextLabel, { timeout: 5000 }), { editable: true });
+  assert.equal(await labelInput.inputValue(), nextLabel, 'Native typing must update the Pivot label');
   const editPreviewCommandCount = browserCommandCount();
   const edited = await proposalToReady('category-B-edit-preview', start, requestIndex, previousProposalId, categoryB);
   const editPreviewDurationMs = Date.now() - start;
@@ -456,13 +486,13 @@ try {
   report.cases.push({ name: 'edit-category-B-preserves-values-and-reloads', durationMs: editReloadDurationMs, timingMs: { labelChangeToPreview: editPreviewDurationMs, applyToRender: editApplyDurationMs, reloadToRender: editReloadDurationMs }, categoryCount: domainB.length, valuePath, editedLabel: nextLabel });
 
   const removeHistory = await historyPivot();
-  await click(browser.cdp, `[data-testid=${JSON.stringify(removeHistory.testId)}]`);
-  await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid^="construction-remove-step-"]'))`);
+  await clickNative(browser.page, `[data-testid=${JSON.stringify(removeHistory.testId)}]`);
+  await waitForObservable(browser.page, () => Boolean(Boolean(document.querySelector('[data-testid^="construction-remove-step-"]'))));
   requestIndex = report.authoringRequests.length;
   const removePreviewCommandCount = browserCommandCount();
   const removePreviewStartedAt = Date.now();
-  await click(browser.cdp, '[data-testid^="construction-remove-step-"]');
-  await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalStatus==='ready'`, 5000);
+  await clickNative(browser.page, '[data-testid^="construction-remove-step-"]');
+  await waitForObservable(browser.page, () => Boolean(document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalStatus==='ready'), 5000);
   await drainResponses();
   const removePreviewDurationMs = Date.now() - removePreviewStartedAt;
   assert(removePreviewDurationMs <= 5000, `Pivot removal action-to-preview took ${removePreviewDurationMs}ms`);
@@ -503,10 +533,34 @@ try {
   report.status = 'failed';
   report.error = String(error.stack ?? error);
   process.exitCode = 1;
+  await browser?.captureFailure(error, { phase: report.activeAction?.label ?? report.cases.at(-1)?.name,
+    elapsedMs: report.activeAction ? Date.now() - report.activeAction.startedAt : undefined,
+    action: report.activeAction, requestEvidence: report.nativeRequests.slice(-20), latestCase: report.cases.at(-1) });
   await drainResponses();
-  if (browser) report.failureDOM = await browserEval(browser.cdp, `return (()=>{const p=document.querySelector('[data-testid="construction-reshape-pivot"]');const describe=selector=>{const select=document.querySelector(selector);return {selector,selected:select?.selectedOptions[0]?.textContent?.trim(),options:[...(select?.options??[])].map(option=>({label:option.textContent.trim(),value:option.value,disabled:option.disabled}))};};return {pivotVisible:Boolean(p),groupCheckboxes:[...(p?.querySelectorAll('input[aria-label^="Pivot group "]')??[])].map(input=>({selector:'input[aria-label='+JSON.stringify(input.getAttribute('aria-label'))+']',label:input.getAttribute('aria-label'),checked:input.checked,disabled:input.disabled})),groupSource:describe('select[aria-label="Add pivot group field"]'),category:describe('select[aria-label="Pivot category field"]'),value:describe('select[aria-label="Pivot values field"]'),proposal:document.querySelector('[data-testid="construction-proposal-panel"]')?.innerText};})()`).catch(captureError => ({ captureError: String(captureError) }));
+  if (browser) report.failureDOM = await inspectPage(browser.page, () => {
+return (()=>{const p=document.querySelector('[data-testid="construction-reshape-pivot"]');const describe=selector=>{const select=document.querySelector(selector);return {selector,selected:select?.selectedOptions[0]?.textContent?.trim(),options:[...(select?.options??[])].map(option=>({label:option.textContent.trim(),value:option.value,disabled:option.disabled}))};};return {pivotVisible:Boolean(p),groupCheckboxes:[...(p?.querySelectorAll('input[aria-label^="Pivot group "]')??[])].map(input=>({selector:'input[aria-label='+JSON.stringify(input.getAttribute('aria-label'))+']',label:input.getAttribute('aria-label'),checked:input.checked,disabled:input.disabled})),groupSource:describe('select[aria-label="Add pivot group field"]'),category:describe('select[aria-label="Pivot category field"]'),value:describe('select[aria-label="Pivot values field"]'),proposal:document.querySelector('[data-testid="construction-proposal-panel"]')?.innerText};})()
+}).catch(captureError => ({ captureError: String(captureError) }));
 } finally {
   await drainResponses();
+  try {
+    report.sourceFreeze = await sourceFreeze.assertUnchanged();
+    report.sourceFingerprint.after = sourceFingerprint(sourceRoot);
+    report.sourceFingerprint.unchanged = report.sourceFingerprint.before.sha256 === report.sourceFingerprint.after.sha256
+      && report.sourceFingerprint.before.files === report.sourceFingerprint.after.files;
+    if (!report.sourceFingerprint.unchanged) throw Object.assign(new Error('Source fingerprint changed during verification.'), { invalidatesRun: true });
+  } catch (error) {
+    report.priorStatus = report.status;
+    report.status = 'invalidated';
+    report.sourceFreeze = { unchanged: false, changedPaths: error.changedPaths ?? [], invalidatesRun: true, productFailure: false };
+    process.exitCode = 1;
+  }
+  try { report.apiBuildFreeze = await apiBuildFreeze.assertUnchanged(); }
+  catch (error) {
+    report.priorStatus = report.status;
+    report.status = 'invalidated';
+    report.apiBuildFreeze = { checked: true, unchanged: false, invalidatesRun: true, productFailure: false, reason: error.reason };
+    process.exitCode = 1;
+  }
   report.finished = new Date().toISOString();
   await writeFile(join(evidence, 'report.json'), JSON.stringify(report, null, 2));
   await browser?.close();
