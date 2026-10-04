@@ -56,21 +56,27 @@ try {
   await page.getByText('DATASET WORKSPACE', { exact: true }).waitFor({ state: 'visible', timeout: 30000 });
   const suggestions = page.locator('[data-testid^="paired-column-suggestion-"]');
   await page.waitForFunction(() => document.querySelectorAll('[data-testid^="paired-column-suggestion-"]').length >= 3, null, { timeout: 30000 });
-  const suggestionCount = await suggestions.count();
+  const suggestionIdentities = await suggestions.evaluateAll(buttons => buttons.map(button => ({ testId: button.dataset.testid, label: button.getAttribute('aria-label'), text: button.innerText.trim() })));
+  const suggestionCount = suggestionIdentities.length;
   assert(suggestionCount >= 3, `The current CDA table has ${suggestionCount} ready coded-value suggestions; expected at least three`);
+  assert.equal(new Set(suggestionIdentities.map(item => item.testId)).size, suggestionCount, 'Coded-value suggestion identities must be unique');
   report.suggestionCount = suggestionCount;
 
-  for (let index = 0; index < suggestionCount; index += 1) {
-    const suggestion = suggestions.nth(index);
-    await requireUnique(suggestion, `coded-value suggestion ${index + 1}`);
-    assert.equal(await suggestion.isVisible(), true, `Coded-value suggestion ${index + 1} must be visible`);
-    assert.equal(await suggestion.isEnabled(), true, `Coded-value suggestion ${index + 1} must be enabled`);
-    const suggestionIdentity = await suggestion.evaluate(button => ({ testId: button.dataset.testid, label: button.getAttribute('aria-label'), text: button.innerText.trim() }));
+  for (let index = 0; index < suggestionIdentities.length; index += 1) {
+    const suggestionIdentity = suggestionIdentities[index];
+    const suggestion = page.getByTestId(suggestionIdentity.testId);
+    await requireUnique(suggestion, `coded-value suggestion ${suggestionIdentity.testId}`);
+    assert.equal(await suggestion.isVisible(), true, `Coded-value suggestion ${suggestionIdentity.testId} must be visible`);
+    assert.equal(await suggestion.isEnabled(), true, `Coded-value suggestion ${suggestionIdentity.testId} must be enabled`);
+    const startedAt = Date.now();
     await performAction(report, `open ${suggestionIdentity.testId}`, suggestion, target => target.click());
-    report.activeAction = { label: `wait for ${suggestionIdentity.testId} dialog`, locator: 'role=dialog', startedAt: Date.now() };
+    report.activeAction = { label: `open ${suggestionIdentity.testId} dialog`, locator: 'role=dialog', startedAt };
     const dialog = page.getByRole('dialog');
-    await dialog.waitFor({ state: 'visible', timeout: 10000 });
+    await dialog.waitFor({ state: 'visible', timeout: 5000 });
     await requireUnique(dialog, `dialog for ${suggestionIdentity.testId}`);
+    const openElapsedMs = Date.now() - startedAt;
+    report.transitions.push({ name: `dialog-open-${suggestionIdentity.testId}`, elapsedMs: openElapsedMs, limitMs: 5000, passed: openElapsedMs <= 5000 });
+    assert(openElapsedMs <= 5000, `Dialog for ${suggestionIdentity.testId} rendered in ${openElapsedMs} ms`);
     const details = await dialog.evaluate(element => {
       const rect = element.getBoundingClientRect();
       return {
@@ -87,9 +93,13 @@ try {
     assert(details.routeChoices > 0, `${suggestionIdentity.label ?? suggestionIdentity.testId} has no route choice`);
     await page.screenshot({ path: join(evidence, `dialog-${index + 1}.png`), fullPage: true });
     const cancel = dialog.getByRole('button', { name: 'Cancel', exact: true });
+    const closeStartedAt = Date.now();
     await performAction(report, `cancel ${suggestionIdentity.testId} dialog`, cancel, target => target.click());
-    report.activeAction = { label: `wait for ${suggestionIdentity.testId} dialog to close`, locator: 'role=dialog', startedAt: Date.now() };
-    await dialog.waitFor({ state: 'hidden', timeout: 10000 });
+    report.activeAction = { label: `close ${suggestionIdentity.testId} dialog`, locator: 'role=dialog', startedAt: closeStartedAt };
+    await dialog.waitFor({ state: 'hidden', timeout: 5000 });
+    const closeElapsedMs = Date.now() - closeStartedAt;
+    report.transitions.push({ name: `dialog-close-${suggestionIdentity.testId}`, elapsedMs: closeElapsedMs, limitMs: 5000, passed: closeElapsedMs <= 5000 });
+    assert(closeElapsedMs <= 5000, `Dialog for ${suggestionIdentity.testId} closed in ${closeElapsedMs} ms`);
     const current = await readBuilder();
     assert.deepEqual(current.workspace, report.before.workspace, 'Cancel must leave the Builder workspace unchanged');
     assert.equal(current.draftVersion, report.before.draftVersion, 'Cancel must not advance the draft version');
