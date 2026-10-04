@@ -198,7 +198,16 @@ try {
   report.oracle.previewRowCount = Number(previewRowCount) - 1;
 
   const started = Date.now();
+  let deleteDialog;
+  page.once('dialog', async dialog => {
+    deleteDialog = { type: dialog.type(), message: dialog.message() };
+    if (dialog.type() === 'confirm' && dialog.message() === 'Delete Only table?') await dialog.accept();
+    else await dialog.dismiss();
+  });
   await performAction(report, 'delete last table', page.locator('[data-testid="construction-delete-table"]'), target => target.click());
+  assert.deepEqual(deleteDialog, { type: 'confirm', message: 'Delete Only table?' },
+    'Delete must show the native confirmation for the selected table');
+  report.nativeChecks.push({ name: 'delete-last-table-confirmation', ...deleteDialog });
   await page.getByText('Build your first table', { exact: false }).waitFor({ state: 'visible', timeout: 5000 });
   state = await api(`${base}/builder`);
   assert.equal(state.workspace.documents.length, 0);
@@ -229,7 +238,8 @@ try {
   assert.deepEqual(assertVisibleRowsMatchOracle({ rows: fullRestoredRows, sourceIds: specimenOracle.ids, ariaRowCount: restoredRowCount }), fullInitialRows,
     'Undo must restore all 25 independent source identities');
 
-  await page.reload({ waitUntil: 'domcontentloaded' });
+  const reloadStartedAt = Date.now();
+  await page.reload({ waitUntil: 'domcontentloaded', timeout: 5000 });
   await table.waitFor({ state: 'visible', timeout: 30000 });
   await page.waitForFunction(() => document.querySelector('[data-testid="construction-preview"]')?.dataset.previewStatus === 'ready', null, { timeout: 30000 });
   assert.deepEqual((await api(`${base}/builder`)).workspace, nativeBaseline);
@@ -237,11 +247,22 @@ try {
   const reloadedRowCount = await page.locator('[data-testid="preview-table-scroll"] [role="table"]').getAttribute('aria-rowcount');
   assert.deepEqual(assertVisibleRowsMatchOracle({ rows: reloadedRows, sourceIds: specimenOracle.ids, ariaRowCount: reloadedRowCount }), oracleRows,
     'Reload must retain the same independent source window');
+  const reloadDurationMs = Date.now() - reloadStartedAt;
+  assert(reloadDurationMs <= 5000, `Reload to rendered source rows took ${reloadDurationMs} ms`);
+  report.nativeChecks.push({ name: 'reload-to-source-rows', durationMs: reloadDurationMs });
   const fullReloadedRows = await captureFullPreviewWindow('reload-preview');
   assert.deepEqual(assertVisibleRowsMatchOracle({ rows: fullReloadedRows, sourceIds: specimenOracle.ids, ariaRowCount: reloadedRowCount }), fullInitialRows,
     'Reload must retain all 25 independent source identities');
+  const recoveredInventoryCancellation = browser.diagnostics.networkFailures
+    .filter(failure => failure.url === `${uiOrigin}${base}/semantic-inventory`
+      && failure.method === 'POST' && failure.failure === 'net::ERR_ABORTED'
+      && browser.diagnostics.apiResponses.some(response => response.url === failure.url
+        && response.method === 'POST' && response.status === 200 && response.observedAt > failure.observedAt));
+  assert(recoveredInventoryCancellation.length <= 1, 'More than one semantic inventory request was canceled');
+  report.recoveredInventoryCancellation = recoveredInventoryCancellation;
   report.incidentalAssets = browser.diagnostics.assetFailures;
-  report.errors = [...browser.diagnostics.console, ...browser.diagnostics.pageErrors, ...browser.diagnostics.httpFailures, ...browser.diagnostics.networkFailures];
+  report.errors = [...browser.diagnostics.console, ...browser.diagnostics.pageErrors, ...browser.diagnostics.httpFailures,
+    ...browser.diagnostics.networkFailures.filter(failure => !recoveredInventoryCancellation.includes(failure))];
   assert.deepEqual(report.errors, []);
   report.scope = 'API deletion/revision restore plus native last-table deletion, Undo, and reload';
   report.status = 'passed';
@@ -268,7 +289,8 @@ try {
 } finally {
   if (browser && report.status !== 'failed') {
     report.incidentalAssets = browser.diagnostics.assetFailures;
-    report.errors = [...browser.diagnostics.console, ...browser.diagnostics.pageErrors, ...browser.diagnostics.httpFailures, ...browser.diagnostics.networkFailures];
+    report.errors = [...browser.diagnostics.console, ...browser.diagnostics.pageErrors, ...browser.diagnostics.httpFailures,
+      ...browser.diagnostics.networkFailures.filter(failure => !report.recoveredInventoryCancellation?.includes(failure))];
     if (report.errors.length) {
       report.status = 'failed';
       report.error = `Unexpected browser diagnostics: ${JSON.stringify(report.errors)}`;

@@ -114,6 +114,10 @@ export async function launchBrowser({ evidence, appOrigins = [], noAuth = false 
     if (message.type() !== 'error') return;
     const location = message.location().url;
     if (location && !isLocalAppURL(location, origins)) return;
+    if (location && new URL(location).pathname === '/favicon.ico' && message.text().includes('404')) {
+      boundedPush(diagnostics.assetFailures, { url: safeURL(location), status: 404, kind: 'console' });
+      return;
+    }
     boundedPush(diagnostics.console, {
       type: message.type(),
       text: sanitizeText(message.text()),
@@ -131,11 +135,12 @@ export async function launchBrowser({ evidence, appOrigins = [], noAuth = false 
       url: safeURL(request.url()),
       method: request.method(),
       failure: sanitizeText(request.failure()?.errorText),
+      observedAt: Date.now(),
     });
   });
   page.on('response', async response => {
     if (!isLocalAppURL(response.url(), origins)) return;
-    const entry = { url: safeURL(response.url()), status: response.status(), method: response.request().method() };
+    const entry = { url: safeURL(response.url()), status: response.status(), method: response.request().method(), observedAt: Date.now() };
     if (response.url().includes('/api/')) boundedPush(diagnostics.apiResponses, entry);
     const pathname = new URL(response.url()).pathname;
     if (pathname.endsWith('/favicon.ico') && response.status() === 404) {
