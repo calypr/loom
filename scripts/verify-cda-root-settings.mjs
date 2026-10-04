@@ -3,16 +3,18 @@ import { randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { browserEval, click, launchBrowser, navigate, selectOption, waitForBrowser } from './lib/browser.mjs';
+import { assertOwnedTarget, browserEval, click, launchBrowser, navigate, selectOption, waitForBrowser, captureRequests, includeBrowserDiagnostics } from './lib/cda-playwright.mjs';
 
-const apiOrigin = process.env.LOOM_CDA_API_ORIGIN ?? 'http://127.0.0.1:8188';
-const uiOrigin = process.env.LOOM_CDA_UI_ORIGIN ?? 'http://127.0.0.1:30008';
-const project = 'loom_dev_cda_fhir';
+const apiOrigin = process.env.LOOM_CDA_API_ORIGIN?.replace(/\/$/, '');
+const uiOrigin = process.env.LOOM_CDA_UI_ORIGIN?.replace(/\/$/, '');
+const project = process.env.LOOM_CDA_PROJECT;
+const arangoContainer = process.env.LOOM_ARANGO_CONTAINER;
+const arangoDatabase = process.env.LOOM_ARANGO_DATABASE ?? 'loom_dev';
 const evidence = process.argv[2] ?? `/tmp/loom-root-settings-${Date.now()}`;
 const explorer = `root-settings-${Date.now()}`;
 const root = `/api/v1/projects/${project}/explorers`;
 const base = `${root}/${explorer}/authoring/v2`;
-const report = { explorer, cases: [], requests: [], exceptions: [], http: [], incidental: [], responses: [], responseCaptureErrors: [], started: new Date().toISOString() };
+const report = { project, explorer, cases: [], requests: [], nativeRequests: [], errors: [], responses: [], started: new Date().toISOString() };
 await mkdir(evidence, { recursive: true });
 const recordCase = result => {
   report.cases.push(result);
@@ -32,45 +34,47 @@ const api = async (path, body) => {
 let builder;
 let browser;
 let outputId;
-const pendingResponses = new Set();
+let browserEvents;
 const command = async commands => {
   await api(base + '/commands', { commandId: randomUUID(), semanticsVersion: builder.workspace?.semanticsVersion ?? 10, snapshotToken: builder.catalog.snapshotToken, expectedDraftVersion: builder.draftVersion, expectedDraftDigest: builder.draftDigest, commands });
   builder = await api(base + '/builder');
 };
 const rawQuery = query => {
-  const result = spawnSync('rtk', ['proxy', 'docker', 'exec', 'loom-dev-6d7df93d6a37-arangodb-1', 'arangosh', '--server.database', 'loom_dev', '--javascript.execute-string', `print(JSON.stringify(db._query(${JSON.stringify(query)}).toArray()));`], { encoding: 'utf8', timeout: 30000 });
+  const result = spawnSync('rtk', ['proxy', 'docker', 'exec', arangoContainer, 'arangosh', '--server.database', arangoDatabase, '--javascript.execute-string', `print(JSON.stringify(db._query(${JSON.stringify(query)}).toArray()));`], { encoding: 'utf8', timeout: 30000 });
   assert.equal(result.status, 0, result.stderr || result.stdout);
   return JSON.parse(result.stdout.slice(result.stdout.indexOf('[')));
 };
 const open = async () => {
-  await Promise.all([...pendingResponses]);
-  await navigate(browser.cdp, `${uiOrigin}/?project=${project}&explorer=${explorer}&mode=builder`);
-  await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-table-${outputId}"]')`);
-  await click(browser.cdp, `[data-testid="construction-table-${outputId}"]`);
-  await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-rows-settings-trigger"]')?.disabled === false`);
-  await click(browser.cdp, '[data-testid="construction-rows-settings-trigger"]');
-  await waitForBrowser(browser.cdp, `document.querySelector('select[aria-label="Record type"]')?.disabled === false`);
+  await navigate(browser.page, `${uiOrigin}/?project=${encodeURIComponent(project)}&explorer=${encodeURIComponent(explorer)}&mode=builder`);
+  const table = `[data-testid="construction-table-${outputId}"]`;
+  await waitForBrowser(browser.page, ([selector]) => Boolean(document.querySelector(selector)), [table]);
+  await click(browser.page, table);
+  await waitForBrowser(browser.page, () => document.querySelector('[data-testid="construction-rows-settings-trigger"]')?.disabled === false);
+  await click(browser.page, '[data-testid="construction-rows-settings-trigger"]');
+  await waitForBrowser(browser.page, () => document.querySelector('select[aria-label="Record type"]')?.disabled === false);
 };
 const proposeRoot = async resourceType => {
   await open();
   const selector = 'select[aria-label="Record type"]';
-  const options = await browserEval(browser.cdp, `return [...document.querySelector(${JSON.stringify(selector)}).options].map(o=>({value:o.value,label:o.text,disabled:o.disabled}));`);
+  const options = await browser.page.locator(selector).locator('option').evaluateAll(items => items.map(option => ({ value: option.value, label: option.text, disabled: option.disabled })));
   const target = options.find(o => o.value !== 'base' && o.label.startsWith(resourceType));
   assert(target && !target.disabled, `${resourceType} must be selectable`);
-  const responseStart = report.responses.length;
+  const responseStart = report.nativeRequests.length;
   const start = Date.now();
   const before = builder.draftDigest;
-  await selectOption(browser.cdp, selector, target.value, { settledWhen: `!document.querySelector('[aria-label="Row definition settings"]')` });
-  await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="row-change-preview-panel"]') || document.getElementById('row-change-repair-title') || document.querySelector('[data-testid="row-change-preview-panel"] [role="alert"]')`);
-  report.lastUI = await browserEval(browser.cdp, 'return document.body.innerText;');
-  assert.equal(await browserEval(browser.cdp, `return Boolean(document.getElementById('row-change-repair-title'));`), false, 'A defined Subject route must not require another relationship choice');
-  await waitForBrowser(browser.cdp, `[...document.querySelectorAll('[data-testid="row-change-preview-panel"] button')].some(b=>b.innerText==='Apply row change'&&!b.disabled) || document.querySelector('[data-testid="row-change-preview-panel"] [role="alert"]')`);
-  const previewError = await browserEval(browser.cdp, `return document.querySelector('[data-testid="row-change-preview-panel"] [role="alert"]')?.innerText;`);
+  await selectOption(browser.page, selector, target.value, { settledWhen: () => !document.querySelector('[aria-label="Row definition settings"]') });
+  await waitForBrowser(browser.page, () => Boolean(document.querySelector('[data-testid="row-change-preview-panel"]') || document.getElementById('row-change-repair-title') || document.querySelector('[data-testid="row-change-preview-panel"] [role="alert"]')));
+  report.lastUI = await browserEval(browser.page, () => document.body.innerText);
+  assert.equal(await browserEval(browser.page, () => Boolean(document.getElementById('row-change-repair-title'))), false, 'A defined Subject route must not require another relationship choice');
+  await waitForBrowser(browser.page, () => [...document.querySelectorAll('[data-testid="row-change-preview-panel"] button')].some(button => button.innerText === 'Apply row change' && !button.disabled) || document.querySelector('[data-testid="row-change-preview-panel"] [role="alert"]'));
+  const previewError = await browserEval(browser.page, () => document.querySelector('[data-testid="row-change-preview-panel"] [role="alert"]')?.innerText);
   assert.equal(previewError, undefined, `Root change must produce a usable preview: ${previewError}`);
   const durationMs = Date.now() - start;
   assert(durationMs <= 5000, `Root preview took ${durationMs}ms`);
-  await Promise.all([...pendingResponses]);
-  const assessment = report.responses.slice(responseStart).find(r => r.path.endsWith('/row-change'))?.body;
+  await browserEvents.flush();
+  const responseWindow = capturedResponses(report.nativeRequests.slice(responseStart));
+  report.responses = capturedResponses();
+  const assessment = responseWindow.find(r => r.path.endsWith('/row-change'))?.body;
   assert.equal(assessment?.status, 'READY');
   const preview = report.responses.find(r => r.path.endsWith('/preview') && r.body.receiptId === assessment.candidateReceiptId)?.body;
   assert(Array.isArray(preview?.rows), 'Root change must render a real preview response');
@@ -79,12 +83,16 @@ const proposeRoot = async resourceType => {
   return preview;
 };
 const applyRoot = async resourceType => {
-  await click(browser.cdp, '[data-testid="row-change-preview-panel"] button', { name: 'Apply row change' });
-  await waitForBrowser(browser.cdp, `!document.querySelector('[data-testid="row-change-preview-panel"]')`);
+  await click(browser.page, '[data-testid="row-change-preview-panel"] button', { name: 'Apply row change' });
+  await waitForBrowser(browser.page, () => !document.querySelector('[data-testid="row-change-preview-panel"]'));
   builder = await api(base + '/builder');
   assert.equal(builder.workspace.documents[0].rootResourceType, resourceType);
 };
+const capturedResponses = (requests = report.nativeRequests) => requests
+  .filter(request => request.response && request.path.startsWith(base))
+  .map(request => ({ path: request.path, status: request.status, body: request.response }));
 try {
+  report.target = await assertOwnedTarget({ project, apiOrigin, uiOrigin, arangoContainer });
   const [anchor] = rawQuery(`FOR o IN Observation FILTER o.project == "${project}" AND o.dataset_generation == "cda-fhir-v1" AND o.id == "485e2567-b566-56f3-b5bd-5f025f37cd95" RETURN {id:o.id, subject:o.payload.subject.reference}`);
   assert(anchor?.subject?.startsWith('Patient/'));
   const patientId = anchor.subject.slice('Patient/'.length);
@@ -107,44 +115,29 @@ try {
   assert(mapping, 'The selected Observation must map to its Patient through Subject');
   await command([{ type: 'SET_TABLE_POPULATION', outputId, selectionRevisionId: selection.id, routeChoiceId: mapping.routeChoiceId }]);
   const original = builder.workspace.documents[0];
-  browser = await launchBrowser(evidence);
-  const responseInfo = new Map();
-  browser.cdp.on('Runtime.exceptionThrown', e => report.exceptions.push(e.exceptionDetails));
-  browser.cdp.on('Runtime.consoleAPICalled', e => { if (e.type === 'error') report.exceptions.push(e.args); });
-  browser.cdp.on('Network.loadingFailed', e => { if (e.type === 'Script' && e.errorText !== 'net::ERR_ABORTED') report.exceptions.push(e); });
-  browser.cdp.on('Network.responseReceived', ({ requestId, response }) => {
-    if (response.status >= 400) (response.url.endsWith('/favicon.ico') ? report.incidental : report.http).push({ url: response.url, status: response.status });
-    if (response.url.includes('/authoring/v2/')) responseInfo.set(requestId, { path: new URL(response.url).pathname, status: response.status });
-  });
-  browser.cdp.on('Network.loadingFinished', ({ requestId }) => {
-    const info = responseInfo.get(requestId);
-    if (info) {
-      const pending = browser.cdp.send('Network.getResponseBody', { requestId }).then(r => report.responses.push({ ...info, body: JSON.parse(r.body) })).catch(e => report.responseCaptureErrors.push({ ...info, error: String(e) }));
-      pendingResponses.add(pending);
-      void pending.finally(() => pendingResponses.delete(pending));
-    }
-  });
+  browser = await launchBrowser(evidence, undefined, { noAuth: true, apiOrigin, uiOrigin });
+  browserEvents = captureRequests(browser, report, `${root}/${explorer}`, { apiOrigin, uiOrigin, responsePaths: /row-change|preview|population-coverage|commands/ });
   const candidate = await proposeRoot('Observation');
   assert.equal(candidate.rowCount, Math.min(25, report.oracle.observations.length));
   for (const source of candidate.rowSources) assert(report.oracle.observations.some(o => o.id === source.id), 'Preview observation must belong to the selected Patient cohort');
   const patientColumn = candidate.columns.find(c => c.label === 'Patient ID');
   assert(patientColumn);
   for (const row of candidate.rows) assert.equal(row[patientColumn.column], patientId);
-  await click(browser.cdp, '[data-testid="row-change-preview-panel"] button', { name: 'Keep current rows' });
+  await click(browser.page, '[data-testid="row-change-preview-panel"] button', { name: 'Keep current rows' });
   assert.equal((await api(base + '/builder')).draftDigest, builder.draftDigest);
   await proposeRoot('Observation');
   await applyRoot('Observation');
   assert.deepEqual(builder.workspace.documents[0].columns.map(c=>c.column), original.columns.map(c=>c.column));
   assert.equal(builder.workspace.documents[0].population.selectionRevisionId, selection.id);
   await open();
-  assert.match(await browserEval(browser.cdp, `return document.querySelector('select[aria-label="Record type"]').selectedOptions[0].text;`), /^Observation/);
-  await click(browser.cdp, '[aria-label="Row definition settings"] button', { name: 'Back to table' });
+  assert.match(await browserEval(browser.page, () => document.querySelector('select[aria-label="Record type"]').selectedOptions[0].text), /^Observation/);
+  await click(browser.page, '[aria-label="Row definition settings"] button', { name: 'Back to table' });
   const restoredPreview = await proposeRoot('Patient');
   assert.equal(restoredPreview.rowCount, 1);
   await applyRoot('Patient');
   assert.equal(builder.workspace.documents[0].population.selectionRevisionId, selection.id);
   await open();
-  assert.match(await browserEval(browser.cdp, `return document.querySelector('select[aria-label="Record type"]').selectedOptions[0].text;`), /^Patient/);
+  assert.match(await browserEval(browser.page, () => document.querySelector('select[aria-label="Record type"]').selectedOptions[0].text), /^Patient/);
   for (let cycle = 0; cycle < Number(process.env.LOOM_ROOT_REPEAT_CYCLES ?? 0); cycle++) {
     const expanded = await proposeRoot('Observation');
     assert.equal(expanded.rowCount, Math.min(25, report.oracle.observations.length));
@@ -159,9 +152,9 @@ try {
   const collectionSelector = 'section[aria-label="Starting collection"]';
   const checkCoverage = async name => {
     const started = Date.now();
-    await click(browser.cdp, `${collectionSelector} button`, { name: 'Check selected-resource coverage' });
-    await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="population-coverage-report"]') || document.querySelector(${JSON.stringify(collectionSelector)}).querySelector('[role="alert"]')`);
-    const text = await browserEval(browser.cdp, `return document.querySelector('[data-testid="population-coverage-report"]')?.innerText;`);
+    await click(browser.page, `${collectionSelector} button`, { name: 'Check selected-resource coverage' });
+    await waitForBrowser(browser.page, () => document.querySelector('[data-testid="population-coverage-report"]') || document.querySelector('section[aria-label="Starting collection"] [role="alert"]'));
+    const text = await browserEval(browser.page, () => document.querySelector('[data-testid="population-coverage-report"]')?.innerText);
     assert.match(text ?? '', /1 selected · 1 produce rows · 0 needs attention/);
     const durationMs = Date.now() - started;
     assert(durationMs <= 5000, `Coverage took ${durationMs}ms`);
@@ -169,22 +162,22 @@ try {
   };
   await checkCoverage('restored-root-coverage');
   const clearStart = Date.now();
-  await click(browser.cdp, `${collectionSelector} button`, { name: 'Use all authorized rows' });
-  await waitForBrowser(browser.cdp, `[...document.querySelectorAll(${JSON.stringify(collectionSelector + ' button')})].some(b => b.innerText === 'Use selected resources' && !b.disabled)`);
+  await click(browser.page, `${collectionSelector} button`, { name: 'Use all authorized rows' });
+  await waitForBrowser(browser.page, () => [...document.querySelectorAll('section[aria-label="Starting collection"] button')].some(button => button.innerText === 'Use selected resources' && !button.disabled));
   builder = await api(base + '/builder');
   assert.equal(builder.workspace.documents[0].population, undefined);
   assert(Date.now() - clearStart <= 5000, 'Clearing the collection must finish within five seconds');
   recordCase({ name: 'clear-starting-collection', durationMs: Date.now() - clearStart });
   const attachStart = Date.now();
   const connection = 'select[aria-label="Population connection"]';
-  const connectionGeometry = await browserEval(browser.cdp, `const e=document.querySelector(${JSON.stringify(connection)}); const r=e?.getBoundingClientRect(); return r?{left:r.left,right:r.right,width:r.width,viewportWidth:innerWidth}:undefined;`);
+  const connectionGeometry = await browserEval(browser.page, () => { const element = document.querySelector('select[aria-label="Population connection"]'); const rect = element?.getBoundingClientRect(); return rect ? { left: rect.left, right: rect.right, width: rect.width, viewportWidth: innerWidth } : undefined; });
   report.connectionGeometry = connectionGeometry;
   if (connectionGeometry) assert(connectionGeometry.width <= connectionGeometry.viewportWidth, 'Long route names must not make the population dropdown wider than the viewport');
-  const choices = await browserEval(browser.cdp, `return [...(document.querySelector(${JSON.stringify(connection)})?.options ?? [])].map(o => ({value:o.value,label:o.text}));`);
+  const choices = await browser.page.locator(connection).locator('option').evaluateAll(options => options.map(option => ({ value: option.value, label: option.text })));
   const subject = choices.find(o => /Subject/i.test(o.label) && !/Focus/i.test(o.label));
-  if (subject) await selectOption(browser.cdp, connection, subject.value);
-  await click(browser.cdp, `${collectionSelector} button`, { name: 'Use selected resources' });
-  await waitForBrowser(browser.cdp, `[...document.querySelectorAll(${JSON.stringify(collectionSelector + ' button')})].some(b => b.innerText === 'Use all authorized rows' && !b.disabled)`);
+  if (subject) await selectOption(browser.page, connection, subject.value);
+  await click(browser.page, `${collectionSelector} button`, { name: 'Use selected resources' });
+  await waitForBrowser(browser.page, () => [...document.querySelectorAll('section[aria-label="Starting collection"] button')].some(button => button.innerText === 'Use all authorized rows' && !button.disabled));
   builder = await api(base + '/builder');
   assert.equal(builder.workspace.documents[0].population.selectionRevisionId, selection.id);
   assert.equal(builder.workspace.documents[0].population.route.length, 1);
@@ -192,17 +185,21 @@ try {
   recordCase({ name: 'reattach-starting-collection', durationMs: Date.now() - attachStart });
   await open();
   await checkCoverage('reattached-collection-reload-coverage');
-  report.finalUI = await browserEval(browser.cdp, 'return document.body.innerText;');
+  report.finalUI = await browserEval(browser.page, () => document.body.innerText);
   assert(report.finalUI.includes(patientId), 'Reloaded table must render the original CDA Patient ID');
-  await Promise.all([...pendingResponses]);
-  assert.equal(report.http.length, 0, JSON.stringify(report.http));
-  assert.equal(report.exceptions.length, 0, JSON.stringify(report.exceptions));
+  await browserEvents.flush();
+  report.responses = capturedResponses();
+  includeBrowserDiagnostics(browser, report);
+  assert.equal(report.errors.length, 0, JSON.stringify(report.errors));
   report.status = 'passed';
 } catch (error) {
   report.status = 'failed';
   report.error = String(error.stack ?? error);
-  report.failureGeometry = browser ? await browserEval(browser.cdp, `const e=[...document.querySelectorAll('button')].find(b=>b.innerText==='Check selected-resource coverage');return {viewport:{width:innerWidth,height:innerHeight,scrollX,scrollY},ancestors:e?[e,...(function*(){let p=e.parentElement;while(p){yield p;p=p.parentElement}})()].map(p=>({tag:p.tagName,role:p.getAttribute('role'),className:p.className,rect:p.getBoundingClientRect().toJSON(),position:getComputedStyle(p).position,overflow:getComputedStyle(p).overflow,transform:getComputedStyle(p).transform})):[]};`).catch(()=>undefined) : undefined;
-  report.failureUI = browser ? await browserEval(browser.cdp, 'return document.body.innerText;').catch(()=>undefined) : undefined;
+  if (browserEvents) await browserEvents.flush().catch(() => undefined);
+  if (browser) includeBrowserDiagnostics(browser, report);
+  report.responses = capturedResponses();
+  report.failureUI = browser ? await browserEval(browser.page, () => document.body.innerText).catch(() => undefined) : undefined;
+  if (browser) await browser.captureFailure(error, { phase: 'root-settings-lifecycle', project, explorer, draftVersion: builder?.draftVersion, draftDigest: builder?.draftDigest });
   process.exitCode = 1;
 } finally {
   report.finished = new Date().toISOString();
