@@ -38,7 +38,7 @@ await assertOwnedCdaTarget({ project, apiOrigin, uiOrigin, apiContainer: process
   clickhouseContainer: process.env.LOOM_CLICKHOUSE_CONTAINER });
 const report = { mode, project, expectedGeneration, resourceType, explorer, cases: [], requests: [], authoringRequests: [], nativeRequests: [], errors: [], browserErrors: { runtime: [], console: [], network: [] }, started: new Date().toISOString() };
 const inspectPage = (page, inspect, argument) => page.evaluate(inspect, argument);
-const waitForObservable = (page, predicate, argumentOrTimeout, timeoutArgument = 30000) => {
+const waitForObservable = (page, predicate, argumentOrTimeout, timeoutArgument = 5000) => {
   const argument = typeof argumentOrTimeout === 'number' ? undefined : argumentOrTimeout;
   const timeout = typeof argumentOrTimeout === 'number' ? argumentOrTimeout : timeoutArgument;
   return page.waitForFunction(predicate, argument, { timeout }).then(() => undefined);
@@ -364,7 +364,7 @@ const expectedPivot = (request, oracle, duplicatePolicy, labelOverrides = {}) =>
 const assertRendered = async (columns, rows, label) => {
   await waitForObservable(browser.page, ({ rowCount }) =>
     document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount')===String(rowCount + 1)&&!document.body.innerText.includes('Loading your table…'),
-    { rowCount: rows.length }, 10000);
+    { rowCount: rows.length }, 5000);
   const actual = await inspectPage(browser.page, () => {
 const root=document.querySelector('[data-testid="preview-table-scroll"]');return {headers:[...root.querySelectorAll('[role="columnheader"]')].map(cell=>cell.innerText.trim().split('\\n')[0]),rows:[...root.querySelectorAll('[role="row"]')].slice(1).map(row=>[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText.trim()))};
 });
@@ -375,7 +375,7 @@ const root=document.querySelector('[data-testid="preview-table-scroll"]');return
 };
 
 const assertProposalPanel = async (pivot, label) => {
-  await waitForObservable(browser.page, ({ rowCount }) => document.querySelectorAll('[data-testid="construction-proposal-preview-row"]').length===rowCount, { rowCount: pivot.expectedRows.length }, 10000);
+  await waitForObservable(browser.page, ({ rowCount }) => document.querySelectorAll('[data-testid="construction-proposal-preview-row"]').length===rowCount, { rowCount: pivot.expectedRows.length }, 5000);
   const actual = await inspectPage(browser.page, () => {
 return {headers:[...document.querySelectorAll('[data-testid="construction-proposal-preview"] th')].map(cell=>cell.innerText.trim().split('\\n')[0]),rows:[...document.querySelectorAll('[data-testid="construction-proposal-preview-row"]')].map(row=>[...row.querySelectorAll('td')].map(cell=>cell.innerText.trim()))};
 });
@@ -516,13 +516,13 @@ const runFixtureLifecycle = async (discovery, oracle, prePivotWorkspace, prePivo
   await selectPivotSource('Pivot category field', 'Observation.valueQuantity.code');
   const requestOffset = report.authoringRequests.length;
   await selectPivotSource('Pivot values field', 'Observation.valueQuantity.value');
-  await waitForObservable(browser.page, () => Boolean(Boolean(document.querySelector('[data-testid="construction-reshape-pivot-category-summary"]'))&&!document.querySelector('[data-testid="construction-reshape-pivot"]')?.innerText.includes('Finding categories')), 10000);
+  await waitForObservable(browser.page, () => Boolean(Boolean(document.querySelector('[data-testid="construction-reshape-pivot-category-summary"]'))&&!document.querySelector('[data-testid="construction-reshape-pivot"]')?.innerText.includes('Finding categories')), 5000);
   const applyPreview = await setPivotDuplicatePolicy('SUM', requestOffset, 'Reopened bounded Pivot preview');
   const applyPivot = expectedPivot(applyPreview.request, oracle, 'SUM');
   await assertProposalPanel(applyPivot, 'Reopened bounded Pivot preview');
   const applyStarted = Date.now();
   await clickNative(browser.page, '[data-testid="construction-apply-proposal"]');
-  await waitForObservable(browser.page, () => Boolean(!document.querySelector('[data-testid="construction-proposal-panel"]')&&document.querySelectorAll('[data-testid^="construction-history-step-"]').length===1), 10000);
+  await waitForObservable(browser.page, () => Boolean(!document.querySelector('[data-testid="construction-proposal-panel"]')&&document.querySelectorAll('[data-testid^="construction-history-step-"]').length===1), 5000);
   await assertRendered(applyPivot.columns, applyPivot.expectedRows, 'Applied quantity Pivot');
   measure('quantity Pivot Apply to render', applyStarted);
   builder = await api(base + '/builder');
@@ -557,9 +557,9 @@ const runFixtureLifecycle = async (discovery, oracle, prePivotWorkspace, prePivo
 
   const reloadStarted = Date.now();
   await gotoPage(browser.page, `${uiOrigin}/?project=${encodeURIComponent(project)}&explorer=${encodeURIComponent(explorer)}&mode=builder`);
-  await waitForObservable(browser.page, outputId => Boolean(document.querySelector(`[data-testid="construction-table-${outputId}"]`)), outputId, 10000);
+  await waitForObservable(browser.page, outputId => Boolean(document.querySelector(`[data-testid="construction-table-${outputId}"]`)), outputId, 5000);
   await clickNative(browser.page, `[data-testid="construction-table-${outputId}"]`);
-  await waitForObservable(browser.page, () => Boolean(document.querySelector('[data-testid="construction-rows-settings-trigger"]')?.disabled===false), 10000);
+  await waitForObservable(browser.page, () => Boolean(document.querySelector('[data-testid="construction-rows-settings-trigger"]')?.disabled===false), 5000);
   await assertRendered(applyPivot.columns, applyPivot.expectedRows, 'Reloaded quantity Pivot');
   builder = await api(base + '/builder');
   document = assertSavedPivotScope(builder, 'SUM', undefined, 'After quantity Pivot reload');
@@ -607,7 +607,7 @@ return document.querySelector('[data-testid="construction-proposal-panel"]')?.da
   measure('quantity Pivot edit preview', editStarted);
   const editApplyStarted = Date.now();
   await clickNative(browser.page, '[data-testid="construction-apply-proposal"]');
-  await waitForObservable(browser.page, () => Boolean(!document.querySelector('[data-testid="construction-proposal-panel"]')&&document.querySelectorAll('[data-testid^="construction-history-step-"]').length===1), 10000);
+  await waitForObservable(browser.page, () => Boolean(!document.querySelector('[data-testid="construction-proposal-panel"]')&&document.querySelectorAll('[data-testid^="construction-history-step-"]').length===1), 5000);
   await assertRendered(editPivot.columns, editPivot.expectedRows, 'Edited quantity Pivot');
   measure('quantity Pivot edit Apply to render', editApplyStarted);
   builder = await api(base + '/builder');
@@ -623,9 +623,9 @@ return document.querySelector('[data-testid="construction-proposal-panel"]')?.da
 
   const editReloadStarted = Date.now();
   await gotoPage(browser.page, `${uiOrigin}/?project=${encodeURIComponent(project)}&explorer=${encodeURIComponent(explorer)}&mode=builder`);
-  await waitForObservable(browser.page, outputId => Boolean(document.querySelector(`[data-testid="construction-table-${outputId}"]`)), outputId, 10000);
+  await waitForObservable(browser.page, outputId => Boolean(document.querySelector(`[data-testid="construction-table-${outputId}"]`)), outputId, 5000);
   await clickNative(browser.page, `[data-testid="construction-table-${outputId}"]`);
-  await waitForObservable(browser.page, () => Boolean(document.querySelector('[data-testid="construction-rows-settings-trigger"]')?.disabled===false), 10000);
+  await waitForObservable(browser.page, () => Boolean(document.querySelector('[data-testid="construction-rows-settings-trigger"]')?.disabled===false), 5000);
   await assertRendered(editPivot.columns, editPivot.expectedRows, 'Reloaded edited quantity Pivot');
   builder = await api(base + '/builder');
   document = assertSavedPivotScope(builder, 'MAX', {
@@ -644,7 +644,7 @@ return [...document.querySelectorAll('[data-testid^="construction-history-step-"
   const removeRequestOffset = report.authoringRequests.length;
   const removeStarted = Date.now();
   await clickNative(browser.page, '[data-testid^="construction-remove-step-"]');
-  await waitForObservable(browser.page, () => Boolean(document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalStatus==='ready'), 10000);
+  await waitForObservable(browser.page, () => Boolean(document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalStatus==='ready'), 5000);
   await drainResponseReads();
   const removeRequest = report.authoringRequests.slice(removeRequestOffset).findLast(entry => entry.endpoint === 'construction-proposals');
   assert.equal(removeRequest?.status, 200, 'Removing the saved quantity Pivot must produce a native proposal');
@@ -669,7 +669,7 @@ return [...document.querySelectorAll('[data-testid^="construction-history-step-"
   measure('quantity Pivot removal preview', removeStarted);
   const removeApplyStarted = Date.now();
   await clickNative(browser.page, '[data-testid="construction-apply-proposal"]');
-  await waitForObservable(browser.page, () => Boolean(!document.querySelector('[data-testid="construction-proposal-panel"]')&&document.querySelectorAll('[data-testid^="construction-history-step-"]').length===0), 10000);
+  await waitForObservable(browser.page, () => Boolean(!document.querySelector('[data-testid="construction-proposal-panel"]')&&document.querySelectorAll('[data-testid^="construction-history-step-"]').length===0), 5000);
   await assertRendered(sourceColumns, expectedSourceRows, 'Restored raw quantity source rows');
   measure('quantity Pivot removal Apply to render', removeApplyStarted);
   builder = await api(base + '/builder');
@@ -679,9 +679,9 @@ return [...document.querySelectorAll('[data-testid^="construction-history-step-"
   const restoredColumnIDs = assertSourceBindingsRestored(prePivotDocument.columns, document.columns, 'Pivot removal');
   const finalReloadStarted = Date.now();
   await gotoPage(browser.page, `${uiOrigin}/?project=${encodeURIComponent(project)}&explorer=${encodeURIComponent(explorer)}&mode=builder`);
-  await waitForObservable(browser.page, outputId => Boolean(document.querySelector(`[data-testid="construction-table-${outputId}"]`)), outputId, 10000);
+  await waitForObservable(browser.page, outputId => Boolean(document.querySelector(`[data-testid="construction-table-${outputId}"]`)), outputId, 5000);
   await clickNative(browser.page, `[data-testid="construction-table-${outputId}"]`);
-  await waitForObservable(browser.page, () => Boolean(document.querySelector('[data-testid="construction-rows-settings-trigger"]')?.disabled===false), 10000);
+  await waitForObservable(browser.page, () => Boolean(document.querySelector('[data-testid="construction-rows-settings-trigger"]')?.disabled===false), 5000);
   await assertRendered(sourceColumns, expectedSourceRows, 'Reloaded restored raw quantity source rows');
   measure('quantity Pivot restoration reload to render', finalReloadStarted);
   builder = await api(base + '/builder');
