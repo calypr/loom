@@ -10,6 +10,7 @@ import { runPreviewLimits } from './verify-cda-builder-preview-limits.mjs';
 import { runBuilderTableManagement } from './verify-cda-builder-table-management.mjs';
 import { tableManagementActions } from './verify-cda-builder-table-management-contract.mjs';
 import { rowChoiceCases, runRowChoiceInspection } from './verify-cda-builder-row-choice-inspection.mjs';
+import { runBuilderColumnPresentation } from './verify-cda-builder-column-presentation.mjs';
 
 const action = process.argv[2] ?? 'Keep rows';
 const patientRelatedInspectionActions = new Set(['Inspect Patient field choice', 'Inspect selected Patient route', 'Inspect Patient proposal']);
@@ -19,7 +20,9 @@ const previewLimitsAction = action === 'Preview limits';
 const tableManagementAction = tableManagementActions.has(action);
 const rowChoiceActions = new Set(Object.keys(rowChoiceCases));
 const rowChoiceAction = rowChoiceActions.has(action);
-const playwrightOnlyAction = action === 'Verify related source chooser' || patientRelatedInspectionActions.has(action) || patientRelatedApplyReloadAction || patientRelatedEditRemoveAction || patientRelatedStepInspectionCases.includes(action) || previewLimitsAction || tableManagementAction || rowChoiceAction;
+const columnPresentationActions = new Set(['Toggle source visibility', 'Verify constructed column rename', 'Verify constructed column presentation', 'Inspect columns', 'Inspect source column controls', 'Verify source column reorder']);
+const columnPresentationAction = columnPresentationActions.has(action);
+const playwrightOnlyAction = action === 'Verify related source chooser' || patientRelatedInspectionActions.has(action) || patientRelatedApplyReloadAction || patientRelatedEditRemoveAction || patientRelatedStepInspectionCases.includes(action) || previewLimitsAction || tableManagementAction || rowChoiceAction || columnPresentationAction;
 const explorerId = process.argv[3] ?? (playwrightOnlyAction ? undefined : 'cda-builder-full-qa-1790439585678');
 const uiOrigin = (process.env.LOOM_CDA_UI_ORIGIN ?? (playwrightOnlyAction ? '' : 'http://127.0.0.1:30002')).replace(/\/$/, '');
 const pageURL = playwrightOnlyAction ? undefined : `${uiOrigin}/?project=loom_dev_cda_fhir&explorer=${explorerId}&mode=builder`;
@@ -75,6 +78,8 @@ try {
             ? await runBuilderTableManagement({ action, explorerId: process.argv[3], secondExplorerId: process.argv[4], expectedSecondExplorerTable: process.argv[5] })
             : rowChoiceAction
               ? await runRowChoiceInspection({ action, explorerId: process.argv[3] })
+              : columnPresentationAction
+                ? await runBuilderColumnPresentation({ action, explorerId: process.argv[3] })
         : await runPatientRelatedInspection({ action, explorerId: process.argv[3] });
     console.log(JSON.stringify({
       action,
@@ -3564,168 +3569,6 @@ try {
     await mkdir(evidenceDirectory, { recursive: true });
     await writeFile(join(evidenceDirectory, 'filters.json'), JSON.stringify({pageURL,state,responses},null,2));
     console.log(JSON.stringify({evidenceDirectory,state,responses},null,2));
-  } else if (action === 'Toggle source visibility') {
-    await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(element => element.textContent?.trim() === 'Preview')?.click(); return true;`);
-    await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid="preview-table-scroll"] [role="table"]'))`, 120000);
-    await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(element => element.textContent?.trim() === 'Columns')?.click();return true;`);
-    await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[role="list"][aria-label="Table columns"]'))`, 30000);
-    const wasVisible = await browserEval(browser.cdp, `return [...document.querySelectorAll('[role="list"][aria-label="Table columns"] [role="listitem"]')].find(element=>element.innerText.includes('subject.reference')).querySelector('input[type="checkbox"]').checked;`);
-    if (!wasVisible) {
-      await browserEval(browser.cdp, `const item=[...document.querySelectorAll('[role="list"][aria-label="Table columns"] [role="listitem"]')].find(element=>element.innerText.includes('subject.reference'));item.querySelector('input[type="checkbox"]').click();return true;`);
-      await waitForBrowser(browser.cdp, `document.body.innerText.includes('Choose a row resource and at least one visible column, then preview.')`, 30000);
-      await navigate(browser.cdp, pageURL);
-      await waitForBrowser(browser.cdp, `Boolean(document.querySelector('button[aria-label^="Filter rows:"]'))`, 30000);
-      await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(element => element.textContent?.trim() === 'Preview')?.click();return true;`);
-      await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid="preview-table-scroll"] [role="table"]'))`, 30000);
-      await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(element => element.textContent?.trim() === 'Columns')?.click();return true;`);
-      await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[role="list"][aria-label="Table columns"]'))`, 30000);
-    }
-    await browserEval(browser.cdp, `const item=[...document.querySelectorAll('[role="list"][aria-label="Table columns"] [role="listitem"]')].find(element=>element.innerText.includes('subject.reference'));item.querySelector('input[type="checkbox"]').click();return true;`);
-    await waitForBrowser(browser.cdp, `document.body.innerText.includes('Choose a row resource and at least one visible column, then preview.')`, 30000);
-    assert(responses.some(response => response.path.endsWith('/commands') && response.status === 200));
-    await navigate(browser.cdp, pageURL);
-    await waitForBrowser(browser.cdp, `Boolean(document.querySelector('button[aria-label^="Filter rows:"]'))`, 30000);
-    await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(element => element.textContent?.trim() === 'Preview')?.click(); return true;`);
-    await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-colcount') === '4'`, 30000);
-    const hidden = await browserEval(browser.cdp, `return {headers:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].map(element=>element.innerText),count:document.querySelector('[data-testid="preview-table-scroll"] [role="table"]').getAttribute('aria-colcount')};`);
-    await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(element => element.textContent?.trim() === 'Columns')?.click();return true;`);
-    await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[role="list"][aria-label="Table columns"]'))`, 30000);
-    await browserEval(browser.cdp, `const item=[...document.querySelectorAll('[role="list"][aria-label="Table columns"] [role="listitem"]')].find(element=>element.innerText.includes('subject.reference'));item.querySelector('input[type="checkbox"]').click();return true;`);
-    await waitForBrowser(browser.cdp, `document.body.innerText.includes('Choose a row resource and at least one visible column, then preview.')`, 30000);
-    await navigate(browser.cdp, pageURL);
-    await waitForBrowser(browser.cdp, `Boolean(document.querySelector('button[aria-label^="Filter rows:"]'))`, 30000);
-    await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(element => element.textContent?.trim() === 'Preview')?.click(); return true;`);
-    await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-colcount') === '5'`, 30000);
-    const restored = await browserEval(browser.cdp, `return {headers:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].map(element=>element.innerText),count:document.querySelector('[data-testid="preview-table-scroll"] [role="table"]').getAttribute('aria-colcount')};`);
-    assert(!hidden.headers.includes('SUBJECT.REFERENCE'));
-    assert(restored.headers.includes('SUBJECT.REFERENCE'));
-    await mkdir(evidenceDirectory, { recursive: true });
-    await writeFile(join(evidenceDirectory, 'source-visibility.json'), JSON.stringify({pageURL,hidden,restored,responses},null,2));
-    console.log(JSON.stringify({evidenceDirectory,hidden,restored,responses},null,2));
-  } else if (action === 'Verify constructed column rename') {
-    await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(element=>element.textContent?.trim()==='Preview')?.click();return true;`);
-    await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid="preview-table-scroll"] [role="table"]'))`, 30000);
-    const original=await browserEval(browser.cdp, `return [...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].at(-1)?.innerText;`);
-    assert(original);
-    const originalLabel=original==='ID'?'id':original==='PATIENT ID QA'?'Patient ID QA':original;
-    const nextLabel=original==='ID'?'Patient ID QA':'Patient ID QA 2';
-    const restoredLabel=original==='PATIENT ID QA'?'id':originalLabel;
-    await browserEval(browser.cdp, `document.querySelector('[data-testid="construction-source-setup"] summary').click();return true;`);
-    await waitForBrowser(browser.cdp, `Boolean(document.querySelector(${JSON.stringify(`input[aria-label="Display name for construction output ${originalLabel}"]`)}))`, 30000);
-    await browserEval(browser.cdp, `setInput(${JSON.stringify(`Display name for construction output ${originalLabel}`)},${JSON.stringify(nextLabel)});inputByLabel(${JSON.stringify(`Display name for construction output ${originalLabel}`)}).focus();return true;`);
-    await browser.cdp.send('Input.dispatchKeyEvent',{type:'keyDown',key:'Enter',code:'Enter'});
-    await browser.cdp.send('Input.dispatchKeyEvent',{type:'keyUp',key:'Enter',code:'Enter'});
-    await waitForBrowser(browser.cdp, `[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].some(element=>element.innerText===${JSON.stringify(nextLabel.toUpperCase())})`, 30000);
-    await navigate(browser.cdp,pageURL);
-    await waitForBrowser(browser.cdp, `document.body.innerText.includes('DATASET WORKSPACE')`, 30000);
-    await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(element=>element.textContent?.trim()==='Preview')?.click();return true;`);
-    await waitForBrowser(browser.cdp, `[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].some(element=>element.innerText===${JSON.stringify(nextLabel.toUpperCase())})`, 30000);
-    const renamed=await browserEval(browser.cdp, `return [...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].map(element=>element.innerText);`);
-    await browserEval(browser.cdp, `document.querySelector('[data-testid="construction-source-setup"] summary').click();return true;`);
-    await waitForBrowser(browser.cdp, `Boolean(document.querySelector(${JSON.stringify(`input[aria-label="Display name for construction output ${nextLabel}"]`)}))`, 30000);
-    await browserEval(browser.cdp, `setInput(${JSON.stringify(`Display name for construction output ${nextLabel}`)},${JSON.stringify(restoredLabel)});inputByLabel(${JSON.stringify(`Display name for construction output ${nextLabel}`)}).focus();return true;`);
-    await browser.cdp.send('Input.dispatchKeyEvent',{type:'keyDown',key:'Enter',code:'Enter'});
-    await browser.cdp.send('Input.dispatchKeyEvent',{type:'keyUp',key:'Enter',code:'Enter'});
-    await waitForBrowser(browser.cdp, `[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].some(element=>element.innerText===${JSON.stringify(restoredLabel.toUpperCase())})`, 30000);
-    await mkdir(evidenceDirectory,{recursive:true});
-    await writeFile(join(evidenceDirectory,'constructed-column-rename.json'),JSON.stringify({pageURL,renamed,requests,responses},null,2));
-    console.log(JSON.stringify({evidenceDirectory,renamed,responses:responses.filter(response=>response.path.endsWith('/commands')||response.path.endsWith('/preview'))},null,2));
-  } else if (action === 'Verify constructed column presentation') {
-    const commandCount = () => responses.filter(response=>response.path.endsWith('/commands')).length;
-    const waitForCommand = async (previousCount) => {
-      const deadline = Date.now()+30000;
-      while (commandCount()<=previousCount && Date.now()<deadline) await new Promise(resolve=>setTimeout(resolve,50));
-      assert(commandCount()>previousCount,'presentation command did not complete');
-      assert.equal(responses.filter(response=>response.path.endsWith('/commands')).at(-1).status,200);
-    };
-    const preview = async () => {
-      await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(element => element.textContent?.trim() === 'Preview')?.click(); return true;`);
-      await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid="preview-table-scroll"] [role="table"]'))`, 30000);
-    };
-    const headers = () => browserEval(browser.cdp, `return [...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].map(element=>element.innerText);`);
-    await preview();
-    const before = await headers();
-    assert(before.includes('ID'));
-    const beforeHideCommands = commandCount();
-    await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(element => element.textContent?.trim() === 'Columns')?.click();return true;`);
-    await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[role="list"][aria-label="Table columns"]'))`, 30000);
-    await browserEval(browser.cdp, `const item=[...document.querySelectorAll('[role="list"][aria-label="Table columns"] [role="listitem"]')].find(element=>element.innerText.trim().endsWith('id'));item.querySelector('input[type="checkbox"]').click();return true;`);
-    await waitForCommand(beforeHideCommands);
-    await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-colcount')===${JSON.stringify(String(before.length-1))}`, 30000);
-    const hiddenBeforeRefresh = await headers();
-    await navigate(browser.cdp, pageURL);
-    await waitForBrowser(browser.cdp, `document.body.innerText.includes('DATASET WORKSPACE')`, 30000);
-    await preview();
-    const hiddenAfterReload = await headers();
-    assert(!hiddenAfterReload.includes('ID'));
-    const beforeRestoreCommands = commandCount();
-    await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(element => element.textContent?.trim() === 'Columns')?.click();return true;`);
-    await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[role="list"][aria-label="Table columns"]'))`, 30000);
-    await browserEval(browser.cdp, `const item=[...document.querySelectorAll('[role="list"][aria-label="Table columns"] [role="listitem"]')].find(element=>element.innerText.trim().endsWith('id'));item.querySelector('input[type="checkbox"]').click();return true;`);
-    await waitForCommand(beforeRestoreCommands);
-    await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-colcount')===${JSON.stringify(String(before.length))}`, 30000);
-    const restoredBeforeRefresh = await headers();
-    await navigate(browser.cdp,pageURL);
-    await waitForBrowser(browser.cdp, `document.body.innerText.includes('DATASET WORKSPACE')`, 30000);
-    await preview();
-    const restored = await headers();
-    assert.deepEqual(restored, before);
-    await mkdir(evidenceDirectory, {recursive:true});
-    await writeFile(join(evidenceDirectory,'constructed-column-presentation.json'),JSON.stringify({pageURL,before,hiddenBeforeRefresh,hiddenAfterReload,restoredBeforeRefresh,restored,requests,responses},null,2));
-    console.log(JSON.stringify({evidenceDirectory,before,hiddenBeforeRefresh,hiddenAfterReload,restoredBeforeRefresh,restored,responses:responses.filter(response=>response.path.endsWith('/commands')||response.path.endsWith('/preview'))},null,2));
-  } else if (action === 'Inspect columns') {
-    await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(element => element.textContent?.trim() === 'Preview')?.click(); return true;`);
-    await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid="preview-table-scroll"] [role="table"]'))`, 120000);
-    await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(element => element.textContent?.trim() === 'Columns')?.click(); return true;`);
-    const state = await browserEval(browser.cdp, `const list=document.querySelector('[role="list"][aria-label="Table columns"]'); return {items:[...list.querySelectorAll('[role="listitem"]')].map(item=>({text:item.innerText,checkbox:item.querySelector('input[type="checkbox"]')?.checked,disabled:item.querySelector('input[type="checkbox"]')?.disabled})),visibleHeaders:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].map(element=>element.innerText)};`);
-    await mkdir(evidenceDirectory, { recursive: true });
-    await writeFile(join(evidenceDirectory, 'columns.json'), JSON.stringify({pageURL,state,responses},null,2));
-    console.log(JSON.stringify({evidenceDirectory,state,responses},null,2));
-  } else if (action === 'Inspect source column controls') {
-    await browserEval(browser.cdp, `document.querySelector('[data-testid="construction-source-setup"] summary').click();return true;`);
-    await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-source-setup"]')?.open===true`,30000);
-    await browserEval(browser.cdp, `[...document.querySelectorAll('[data-testid="construction-source-setup"] button')].find(button=>button.innerText==='Advanced graph')?.click();return true;`);
-    await waitForBrowser(browser.cdp, `Boolean(document.querySelector('button[aria-label="Move Specimen ID to end"]'))`,30000);
-    const state=await browserEval(browser.cdp, `return {text:document.querySelector('[data-testid="construction-source-setup"]')?.innerText.slice(0,5000),controls:[...document.querySelectorAll('[data-testid="construction-source-setup"] button,[data-testid="construction-source-setup"] input')].filter(element=>element.offsetParent!==null).map(element=>({tag:element.tagName,label:element.getAttribute('aria-label'),text:element.innerText?.slice(0,70),disabled:element.disabled,value:element.value})).filter(element=>element.label||element.text)};`);
-    await mkdir(evidenceDirectory,{recursive:true});
-    await writeFile(join(evidenceDirectory,'source-column-controls.json'),JSON.stringify({pageURL,state,responses},null,2));
-    console.log(JSON.stringify({evidenceDirectory,state},null,2));
-  } else if (action === 'Verify source column reorder') {
-    const original=['SPECIMEN ID','SUBJECT.REFERENCE','COLLECTION.BODYSITE.REFERENCE.REFERENCE'];
-    const headers=()=>browserEval(browser.cdp, `return [...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].map(cell=>cell.innerText);`);
-    const preview=async()=>{
-      const started=Date.now();
-      await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.textContent?.trim()==='Preview').click();return true;`);
-      await waitForBrowser(browser.cdp, `document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]').length>1`,30000);
-      return {elapsedMs:Date.now()-started,headers:await headers()};
-    };
-    const move=async(label)=>{
-      await browserEval(browser.cdp, `if(!document.querySelector('[data-testid="construction-source-setup"]').open)document.querySelector('[data-testid="construction-source-setup"] summary').click();return true;`);
-      await browserEval(browser.cdp, `[...document.querySelectorAll('[data-testid="construction-source-setup"] button')].find(button=>button.innerText==='Advanced graph')?.click();return true;`);
-      await waitForBrowser(browser.cdp, `Boolean(document.querySelector(${JSON.stringify(`button[aria-label="Move ${label} to end"]:not(:disabled)`)}))`,30000);
-      const before=responses.filter(response=>response.path.endsWith('/commands')).length;
-      await browserEval(browser.cdp, `document.querySelector(${JSON.stringify(`button[aria-label="Move ${label} to end"]`)}).click();return true;`);
-      const deadline=Date.now()+30000;
-      while(responses.filter(response=>response.path.endsWith('/commands')).length===before&&Date.now()<deadline)await new Promise(resolve=>setTimeout(resolve,100));
-      assert.equal(responses.filter(response=>response.path.endsWith('/commands')).at(-1)?.status,200,`Move ${label} did not save`);
-    };
-    const state={before:await preview()};
-    assert.deepEqual(state.before.headers,original);
-    await move('Specimen ID');
-    await navigate(browser.cdp,pageURL);
-    await waitForBrowser(browser.cdp, `document.body.innerText.includes('DATASET WORKSPACE')`,30000);
-    state.reordered=await preview();
-    assert.deepEqual(state.reordered.headers,[original[1],original[2],original[0]]);
-    await move('subject.reference');
-    await move('collection.bodySite.reference.reference');
-    await navigate(browser.cdp,pageURL);
-    await waitForBrowser(browser.cdp, `document.body.innerText.includes('DATASET WORKSPACE')`,30000);
-    state.restored=await preview();
-    assert.deepEqual(state.restored.headers,original);
-    await mkdir(evidenceDirectory,{recursive:true});
-    await writeFile(join(evidenceDirectory,'source-column-reorder.json'),JSON.stringify({pageURL,state,responses},null,2));
-    console.log(JSON.stringify({evidenceDirectory,state,responses:responses.filter(response=>response.path.endsWith('/commands')||response.path.endsWith('/preview'))},null,2));
-    assert(Math.max(state.before.elapsedMs,state.reordered.elapsedMs,state.restored.elapsedMs)<=5000,'A CDA reorder preview exceeded 5 seconds');
   } else if (action === 'Verify direct scalar lifecycle' || action === 'Verify source identity without ID column') {
     const withoutID=action==='Verify source identity without ID column';
     const tableName=`CDA direct scalar QA ${Date.now()}`;
