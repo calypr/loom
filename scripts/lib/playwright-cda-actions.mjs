@@ -56,7 +56,7 @@ export async function navigate(page, url) {
   const body = page.locator('body');
   browser.lastAction = { label: 'Navigate to Builder page', locator: body.toString(), targetLocator: body, startedAt: Date.now() };
   await performAction(browser, 'Navigate to Builder page', body,
-    async () => { await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 5000 }); });
+    async () => { await page.goto(url, { waitUntil: 'commit', timeout: 5000 }); });
 }
 
 export async function browserEval(page, inspect, args) {
