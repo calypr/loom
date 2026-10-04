@@ -167,7 +167,7 @@ export const runPlaywrightCase = async (context, scenarioID, caseName, work) => 
       }
     };
 
-    const fault = async ({ method, path, matchesRequest }) => {
+    const fault = async ({ method, path, matchesRequest, response }) => {
       injectedTarget = ownedBrowserRequestTarget(target, { method, path });
       const browserRequestOrigin = injectedTarget.origin;
       let count = 0;
@@ -182,7 +182,8 @@ export const runPlaywrightCase = async (context, scenarioID, caseName, work) => 
         }
         if (exactRequest && bodyMatches) {
           count += 1;
-          await route.abort();
+          if (response) await route.fulfill(response);
+          else await route.abort();
         } else {
           await route.continue();
         }

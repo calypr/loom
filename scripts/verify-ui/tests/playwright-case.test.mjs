@@ -56,6 +56,26 @@ test('one exact owned proxied method and path failure is attributed to injected 
   assert.deepEqual(records.map(classifyNetworkRecord), ['expected-injected', 'unexpected-error']);
 });
 
+test('one injected API rejection is expected and a subsequent same-path HTTP failure stays unexpected', () => {
+  const injected = {
+    url: 'http://127.0.0.1:30102/api/v1/projects/project-a/explorers/explorer-a/authoring/v2/reconcile',
+    method: 'POST',
+    status: 422,
+    body: '{"code":"VERIFY_COMPILE_REJECTED"}',
+  };
+  const records = diagnosticsToNetwork({
+    console: [],
+    pageErrors: [],
+    networkFailures: [],
+    httpFailures: [injected, { ...injected, status: 503, body: '{"code":"UNEXPECTED"}' }],
+  }, {
+    origin: 'http://127.0.0.1:30102',
+    path: '/api/v1/projects/project-a/explorers/explorer-a/authoring/v2/reconcile',
+    method: 'POST',
+  });
+  assert.deepEqual(records.map(classifyNetworkRecord), ['expected-injected', 'unexpected-error']);
+});
+
 test('one exact resource console error may accompany the injected request failure', () => {
   const requestURL = failedRead.url;
   const records = diagnosticsToNetwork({
