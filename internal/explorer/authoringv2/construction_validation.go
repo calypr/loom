@@ -196,8 +196,8 @@ func explicitGroupStageColumns(sourceColumns []Column, groups *GroupedRows) ([]S
 	}
 	for _, selected := range groups.RowValues {
 		column, ok := byID[selected.ColumnID]
-		if !ok || column.OccurrenceID != RootOccurrenceID || column.Source.Kind != SourceField || column.Source.Field == nil || column.ValueTransformation != nil {
-			return nil, fmt.Errorf("row value columnId %q is not an untransformed root field projection", selected.ColumnID)
+		if !ok || !supportsExplicitGroupRowValueColumn(column) {
+			return nil, fmt.Errorf("row value columnId %q is not a supported root field projection", selected.ColumnID)
 		}
 		if seen[column.ColumnID] || seen[column.Column] {
 			return nil, fmt.Errorf("row value column %q collides with a cohort stage column", selected.ColumnID)

@@ -71,6 +71,55 @@ func TestCohortGroupAcceptsRetainedRootKeyDistinctFromExpandedRowIdentity(t *tes
 	}
 }
 
+func TestCohortMemberRecodeValidationKeepsExactPayloadScope(t *testing.T) {
+	selector := PhysicalExpression{
+		Kind: PhysicalExtractExpression, Cardinality: PhysicalScalarCardinality, NullBehavior: PhysicalPreserveNull,
+		Extract: &PhysicalExtract{Source: PhysicalValue{Variable: "cohort_member", Path: []string{"payload"}}},
+	}
+	literal := func(key string) PhysicalExpression {
+		return PhysicalExpression{Kind: PhysicalLiteralExpression, Cardinality: PhysicalScalarCardinality, Literal: &PhysicalLiteral{BindKey: key}}
+	}
+	equality := func(left, right PhysicalExpression) PhysicalExpression {
+		return PhysicalExpression{Kind: PhysicalCallExpression, Cardinality: PhysicalScalarCardinality, Call: &PhysicalCall{Name: "eq", Args: []PhysicalExpression{left, right}}}
+	}
+	binds := map[string]any{"null": nil, "from": "recorded", "to": "shared", "false": false, "unknown": "CATEGORY_RECODE_UNKNOWN_VALUE"}
+	keepOriginal := PhysicalExpression{
+		Kind: PhysicalCallExpression, Cardinality: PhysicalScalarCardinality, NullBehavior: PhysicalPreserveNull,
+		Call: &PhysicalCall{Name: "case", Args: []PhysicalExpression{
+			equality(selector, literal("null")), literal("null"),
+			equality(selector, literal("from")), literal("to"), selector,
+		}},
+	}
+	if !validCohortMemberValueExpression(keepOriginal, binds) {
+		t.Fatal("exact-category KEEP_ORIGINAL expression over the member payload did not validate")
+	}
+	errorOnUnknown := keepOriginal
+	errorOnUnknown.Call = &PhysicalCall{Name: "case", Args: append([]PhysicalExpression(nil), keepOriginal.Call.Args...)}
+	errorOnUnknown.Call.Args[len(errorOnUnknown.Call.Args)-1] = PhysicalExpression{
+		Kind: PhysicalCallExpression, Cardinality: PhysicalScalarCardinality,
+		Call: &PhysicalCall{Name: "assert", Args: []PhysicalExpression{literal("false"), literal("unknown")}},
+	}
+	if !validCohortMemberValueExpression(errorOnUnknown, binds) {
+		t.Fatal("exact-category ERROR expression over the member payload did not validate")
+	}
+	wrongSelector := selector
+	wrongSelector.Extract = &PhysicalExtract{Source: PhysicalValue{Variable: "cohort_member", Path: []string{"resourceType"}}}
+	forged := keepOriginal
+	forged.Call = &PhysicalCall{Name: "case", Args: append([]PhysicalExpression(nil), keepOriginal.Call.Args...)}
+	forged.Call.Args[2] = equality(wrongSelector, literal("from"))
+	forged.Call.Args[4] = wrongSelector
+	if validCohortMemberValueExpression(forged, binds) {
+		t.Fatal("recode expression over a non-payload member field unexpectedly validated")
+	}
+	arbitrary := PhysicalExpression{
+		Kind: PhysicalCallExpression, Cardinality: PhysicalScalarCardinality,
+		Call: &PhysicalCall{Name: "concat", Args: []PhysicalExpression{selector}},
+	}
+	if validCohortMemberValueExpression(arbitrary, binds) {
+		t.Fatal("arbitrary call over a cohort member unexpectedly validated as a row value")
+	}
+}
+
 func TestCohortGroupRejectsForgedRetainedRootKeyProof(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -94,6 +143,14 @@ func TestCohortGroupRejectsForgedRetainedRootKeyProof(t *testing.T) {
 	}
 }
 
+func TestPhysicalStageCohortGroupRejectsCrossProjectResourceBinding(t *testing.T) {
+	stage, cohort, bindVars := cohortGroupRetainedRootKeyFixture()
+	bindVars["resource_project"] = "another_program-project-1"
+	if err := validatePhysicalStageCohortGroup(stage, cohort, bindVars); err == nil {
+		t.Fatal("cohort member source accepted a storage project outside the canonical selection project")
+	}
+}
+
 func cohortGroupRetainedRootKeyFixture() (PhysicalConstructionStage, PhysicalStageCohortGroup, map[string]any) {
 	rows := PhysicalGroupRows{
 		RevisionCollectionBindKey:         "revision_collection",
@@ -104,6 +161,7 @@ func cohortGroupRetainedRootKeyFixture() (PhysicalConstructionStage, PhysicalSta
 		ResourceCollectionBindKey:         "resource_collection",
 		RevisionIDBindKey:                 "revision_id",
 		ProjectBindKey:                    "project",
+		ResourceProjectBindKey:            "resource_project",
 		DatasetGenerationBindKey:          "dataset_generation",
 		ResourceTypeBindKey:               "resource_type",
 		PolicyBindKey:                     "policy",
@@ -137,7 +195,7 @@ func cohortGroupRetainedRootKeyFixture() (PhysicalConstructionStage, PhysicalSta
 		"memberships_collection":       "loom_explorer_explicit_group_memberships",
 		"selection_members_collection": "loom_explorer_selection_members",
 		"resource_collection":          "Patient",
-		"revision_id":                  "revision-1", "project": "project-1", "dataset_generation": "generation-1",
+		"revision_id":                  "revision-1", "project": "fixture_program/project-1", "resource_project": "fixture_program-project-1", "dataset_generation": "generation-1",
 		"resource_type": "Patient", "policy": "EXCLUDE", "auth_resource_paths": []string{"/allowed"},
 		"auth_unrestricted": false,
 	}

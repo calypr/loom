@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/calypr/loom/internal/authscope"
+	"github.com/calypr/loom/internal/dataframe/columntransform"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
 	"github.com/calypr/loom/internal/dataframe/recipe"
@@ -215,6 +216,134 @@ func TestCohortRootCandidateScanKeepsFullInputAfterAggregatePrefix(t *testing.T)
 	}
 	if !sawGroup || !sawFilter || !sawCohort {
 		t.Fatalf("expected typed GROUP→FILTER→COHORT_GROUP stages, saw group=%t filter=%t cohort=%t", sawGroup, sawFilter, sawCohort)
+	}
+}
+
+func TestComposedCohortGroupRowsNamespacePerMemberRecodeBinds(t *testing.T) {
+	recode := func(mappings ...columntransform.CategoryMapping) columntransform.ValueTransformation {
+		return columntransform.ValueTransformation{
+			Kind: columntransform.KindExactCategoryRecode,
+			ExactCategoryRecode: &columntransform.ExactCategoryRecode{
+				Mappings: mappings, UnknownPolicy: columntransform.UnknownKeepOriginal,
+			},
+		}
+	}
+	output := recipe.Output{
+		Name: "cohort_after_group", RootResourceType: "Patient", RowGrain: "groups",
+		Fields: []recipe.Field{
+			{Name: "patient_identifier", ColumnID: "patient-id", Expr: recipe.Expression{Select: "id"}},
+			{Name: "gender", ColumnID: "gender-id", Expr: recipe.Expression{Select: "gender"}},
+		},
+		ColumnTransformations: []recipe.ColumnTransformation{
+			{Column: "patient_identifier", Transformation: recode(columntransform.CategoryMapping{From: "identifier-old", To: "identifier-new"})},
+			{Column: "gender", Transformation: recode(
+				columntransform.CategoryMapping{From: "recorded-A", To: "shared"},
+				columntransform.CategoryMapping{From: "recorded-B", To: "shared"},
+			)},
+		},
+		Construction: &recipe.Construction{
+			Version:       1,
+			SourceColumns: []recipe.StageColumn{{ID: "patient-id", Name: "patient_identifier", Type: "string"}, {ID: "gender-id", Name: "gender", Type: "string"}},
+			Steps: []recipe.ConstructionStep{{
+				ID: "group_by_gender", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
+				Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionGroupOp, Group: &recipe.ConstructionGroup{
+					ConstructionID: "group_by_gender",
+					Keys:           []recipe.ConstructionGroupKey{{InputColumnID: "gender-id", OutputColumnID: "grouped-gender-id"}},
+				}},
+				Outputs: []recipe.StageColumn{{ID: "grouped-gender-id", Name: "grouped_gender", Type: "string"}},
+			}},
+		},
+		GroupRows: &recipe.GroupRows{
+			RevisionID: "grouprev_cohort", UnassignedMemberPolicy: "EXCLUDE", AfterStepID: "group_by_gender",
+			RowValues: []recipe.GroupRowValuePolicy{{ColumnID: "gender-id", Policy: recipe.ConstructionRowValueOne}},
+		},
+	}
+	bindings := recipe.RuntimeBindings{
+		Project: "project", SelectionProject: "project", DatasetGeneration: "generation",
+		AuthScopeMode: authscope.ReadScopeUnrestricted, SelectionMembersCollection: "loom_explorer_selection_members",
+	}
+	compiled := compileCompositePrefixTestOutput(t, output, bindings)
+
+	var cohort *ir.PhysicalConstructionStage
+	for index := range compiled.Plan.StageSequence.Stages {
+		stage := &compiled.Plan.StageSequence.Stages[index]
+		if stage.Kind == ir.PhysicalStageCohortGroupOp {
+			cohort = stage
+			break
+		}
+	}
+	if cohort == nil || cohort.CohortGroup == nil {
+		t.Fatalf("compiled stages have no COHORT_GROUP payload: %#v", compiled.Plan.StageSequence.Stages)
+	}
+	values := cohort.CohortGroup.Rows.MemberValues
+	if len(values) != 1 || values[0].Policy != string(recipe.ConstructionRowValueOne) ||
+		values[0].Expression.Kind != ir.PhysicalCallExpression || values[0].Expression.Call == nil || values[0].Expression.Call.Name != "case" {
+		t.Fatalf("composed cohort member value = %#v, want per-member recode before ONE", values)
+	}
+
+	var literalKeys []string
+	var collectLiterals func(ir.PhysicalExpression)
+	collectLiterals = func(expression ir.PhysicalExpression) {
+		if expression.Literal != nil {
+			literalKeys = append(literalKeys, expression.Literal.BindKey)
+		}
+		if expression.Call != nil {
+			for _, argument := range expression.Call.Args {
+				collectLiterals(argument)
+			}
+		}
+	}
+	collectLiterals(values[0].Expression)
+	if len(literalKeys) == 0 {
+		t.Fatal("composed cohort recode expression has no bind-backed categories")
+	}
+	for _, key := range literalKeys {
+		if !strings.HasPrefix(key, "cohort_") {
+			t.Errorf("cohort member expression bind %q was not namespaced", key)
+		}
+		if _, ok := compiled.Plan.BindVars[key]; !ok {
+			t.Errorf("cohort member expression bind %q is missing from the compiled plan", key)
+		}
+	}
+	if got := compiled.Plan.BindVars["category_recode_value_2"]; got != "identifier-old" {
+		t.Fatalf("source-plan category bind = %#v, want preceding identifier transform value", got)
+	}
+	if got := compiled.Plan.BindVars["cohort_category_recode_value_2"]; got != "recorded-A" {
+		t.Fatalf("cohort member category bind = %#v, want its independent member mapping", got)
+	}
+	var sourceExpression *ir.PhysicalExpression
+	for _, operation := range compiled.Plan.Operations {
+		if operation.Return == nil {
+			continue
+		}
+		for _, projection := range operation.Return.Projections {
+			if projection.Name == "gender" {
+				sourceExpression = projection.Expression
+				break
+			}
+		}
+	}
+	if sourceExpression == nil {
+		t.Fatal("source output lost its independently lowered gender recode")
+	}
+	literalKeys = nil
+	sourceLiteralKeys := []string{}
+	collectLiterals(*sourceExpression)
+	for _, key := range literalKeys {
+		if !strings.HasPrefix(key, "cohort_category_recode_value_") {
+			sourceLiteralKeys = append(sourceLiteralKeys, key)
+		}
+	}
+	if len(sourceLiteralKeys) == 0 {
+		t.Fatal("namespacing cohort literals mutated the source-plan transformation expression")
+	}
+
+	rendered, err := aql.RenderPhysicalPlan(compiled.Plan)
+	if err != nil {
+		t.Fatalf("RenderPhysicalPlan() error = %v", err)
+	}
+	if !strings.Contains(rendered.Query, "cohort_member.payload.gender == @cohort_category_recode_value_2") {
+		t.Fatalf("composed cohort query does not use the namespaced per-member mapping: %s", rendered.Query)
 	}
 }
 

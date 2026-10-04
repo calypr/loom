@@ -217,6 +217,7 @@ func appendRecipeConstructionStages(plan *ir.PhysicalPlan, outputName, rootResou
 				SelectionMembersCollectionBindKey: cohort.Rows.SelectionMembersCollectionBindKey,
 				MembershipsCollectionBindKey:      cohort.Rows.MembershipsCollectionBindKey,
 				RevisionIDBindKey:                 cohort.Rows.RevisionIDBindKey, ProjectBindKey: cohort.Rows.ProjectBindKey,
+				ResourceProjectBindKey:   cohort.Rows.ResourceProjectBindKey,
 				DatasetGenerationBindKey: cohort.Rows.DatasetGenerationBindKey, ResourceTypeBindKey: cohort.Rows.ResourceTypeBindKey,
 				PolicyBindKey: cohort.Rows.PolicyBindKey,
 			}

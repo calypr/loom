@@ -48,7 +48,7 @@ func TestCompileStandaloneExplicitGroupRowLineageUsesPinnedBoundedMembers(t *tes
 	output := lowerConstructionOutput(t, recipe.Output{
 		Name: "NamedCohort", RootResourceType: "Observation", RowGrain: "groups",
 		GroupRows: &recipe.GroupRows{RevisionID: "grouprev_row_lineage", UnassignedMemberPolicy: "GROUP_AS_UNASSIGNED"},
-	}, recipe.RuntimeBindings{Project: "row-lineage-project", SelectionProject: "row-lineage-selection-project", DatasetGeneration: "row-lineage-generation"})
+	}, recipe.RuntimeBindings{Project: "row-lineage-project", SelectionProject: "row-lineage-project", DatasetGeneration: "row-lineage-generation"})
 	if capability := RowLineageCapabilityForOutput(output); !capability.Available {
 		t.Fatalf("standalone explicit GROUP_ROWS lineage capability = %#v", capability)
 	}
@@ -128,7 +128,7 @@ func TestCompileCohortGroupLineageAppliesFilterBeforePaging(t *testing.T) {
 		},
 	}
 	bindings := recipe.RuntimeBindings{
-		Project: "row-lineage-project", SelectionProject: "row-lineage-selection-project", DatasetGeneration: "row-lineage-generation",
+		Project: "row-lineage-project", SelectionProject: "row-lineage-project", DatasetGeneration: "row-lineage-generation",
 		AuthScopeMode: authscope.ReadScopeRestricted, AuthResourcePaths: []string{"/programs/p1"},
 	}
 	compiledOutput := lowerConstructionOutput(t, output, bindings)

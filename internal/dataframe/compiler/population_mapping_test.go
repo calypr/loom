@@ -242,7 +242,7 @@ func TestCompilePopulationMappingPreservesInnerAndOuterFinalRowSemantics(t *test
 					t.Fatal("compiled expansion has no UNNEST operation")
 				}
 			}
-			compiled, err := CompilePopulationMappingOutputWithPolicy(output, recipe.RuntimeBindings{Project: "project-a", SelectionProject: "project/a", DatasetGeneration: "generation-a", SelectionMembersCollection: "loom_explorer_selection_members"}, ir.DefaultPhysicalOptimizationPolicy())
+			compiled, err := CompilePopulationMappingOutputWithPolicy(output, recipe.RuntimeBindings{Project: "fixture_program-project-a", SelectionProject: "fixture_program/project-a", DatasetGeneration: "generation-a", SelectionMembersCollection: "loom_explorer_selection_members"}, ir.DefaultPhysicalOptimizationPolicy())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -332,7 +332,7 @@ func TestCompilePopulationMappingConstructionUsesFinalObjectIdentityAndRootMembe
 func compilePopulationMappingRecipe(t *testing.T, output recipe.Output) CompiledPopulationMappingQuery {
 	t.Helper()
 	compiled := compilePopulationMappingOutput(t, output)
-	mapping, err := CompilePopulationMappingOutputWithPolicy(compiled, recipe.RuntimeBindings{Project: "project-a", SelectionProject: "project/a", DatasetGeneration: "generation-a", SelectionMembersCollection: "loom_explorer_selection_members"}, ir.DefaultPhysicalOptimizationPolicy())
+	mapping, err := CompilePopulationMappingOutputWithPolicy(compiled, recipe.RuntimeBindings{Project: "fixture_program-project-a", SelectionProject: "fixture_program/project-a", DatasetGeneration: "generation-a", SelectionMembersCollection: "loom_explorer_selection_members"}, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -347,7 +347,7 @@ func compilePopulationMappingOutput(t *testing.T, output recipe.Output) lower.Co
 		TranslationVersion:  "population-mapping-test",
 		Outputs:             []recipe.Output{output},
 	}
-	bindings := recipe.RuntimeBindings{Project: "project-a", SelectionProject: "project/a", DatasetGeneration: "generation-a", SelectionMembersCollection: "loom_explorer_selection_members"}
+	bindings := recipe.RuntimeBindings{Project: "fixture_program-project-a", SelectionProject: "fixture_program/project-a", DatasetGeneration: "generation-a", SelectionMembersCollection: "loom_explorer_selection_members"}
 	plan, err := semantic.BuildRecipePlan(bundle, bindings)
 	if err != nil {
 		t.Fatal(err)

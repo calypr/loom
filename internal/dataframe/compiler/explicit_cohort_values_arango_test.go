@@ -10,8 +10,10 @@ import (
 	"time"
 
 	"github.com/calypr/loom/internal/authscope"
+	"github.com/calypr/loom/internal/dataframe/columntransform"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/recipe"
+	"github.com/calypr/loom/internal/projectid"
 	store "github.com/calypr/loom/internal/store/arango"
 	"github.com/google/uuid"
 )
@@ -27,8 +29,14 @@ func TestRelatedCountAppendPreservesExplicitCohortMembersAgainstArango(t *testin
 	if err := client.Bootstrap(ctx, store.BootstrapSpec{Collections: collections}); err != nil {
 		t.Fatal(err)
 	}
-	project, generation := "loom_cohort_related_append_"+uuid.NewString(), "cohort-related-generation-"+uuid.NewString()
-	revision, selection := project+"_revision", project+"_selection"
+	project := "LOOM_COHORT/related-append-" + uuid.NewString()
+	resourceProject := projectid.Legacy(project)
+	if got := projectid.Canonical(resourceProject); got != project {
+		t.Fatalf("related-cohort project alias is not reversible: storage=%q canonical=%q want=%q", resourceProject, got, project)
+	}
+	keyPrefix := strings.ReplaceAll(project, "/", "_")
+	generation := "cohort-related-generation-" + uuid.NewString()
+	revision, selection := keyPrefix+"_revision", keyPrefix+"_selection"
 	owned := map[string][]string{}
 	t.Cleanup(func() {
 		cleanupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -72,7 +80,7 @@ func TestRelatedCountAppendPreservesExplicitCohortMembersAgainstArango(t *testin
 	})
 	for ordinal, group := range []string{"many", "one", "no_matches", "zero"} {
 		insert("loom_explorer_explicit_group_definitions", map[string]any{
-			"_key": project + "_definition_" + group, "revisionId": revision, "project": project,
+			"_key": keyPrefix + "_definition_" + group, "revisionId": revision, "project": project,
 			"groupId": group, "label": group, "ordinal": ordinal,
 		})
 	}
@@ -81,44 +89,44 @@ func TestRelatedCountAppendPreservesExplicitCohortMembersAgainstArango(t *testin
 	selectionMembers := make([]map[string]any, 0, len(assigned))
 	for _, id := range assigned {
 		selectionMembers = append(selectionMembers, map[string]any{
-			"_key": project + "_selected_" + id, "selectionId": selection, "project": project,
+			"_key": keyPrefix + "_selected_" + id, "selectionId": selection, "project": project,
 			"generation": generation, "resourceType": "Patient", "id": id,
 		})
 	}
 	insert("loom_explorer_selection_members", selectionMembers...)
 	for _, id := range []string{"a", "b", filteredID, deniedID, missingID, wrongProjectID, wrongGenerationID} {
 		insert("loom_explorer_explicit_group_memberships", map[string]any{
-			"_key": project + "_membership_many_" + id, "revisionId": revision, "project": project,
+			"_key": keyPrefix + "_membership_many_" + id, "revisionId": revision, "project": project,
 			"generation": generation, "resourceType": "Patient", "id": id, "groupId": "many",
 			"ref": map[string]any{"project": project, "generation": generation, "resourceType": "Patient", "id": id},
 		})
 	}
 	insert("loom_explorer_explicit_group_memberships", map[string]any{
-		"_key": project + "_membership_one_c", "revisionId": revision, "project": project,
+		"_key": keyPrefix + "_membership_one_c", "revisionId": revision, "project": project,
 		"generation": generation, "resourceType": "Patient", "id": "c", "groupId": "one",
 		"ref": map[string]any{"project": project, "generation": generation, "resourceType": "Patient", "id": "c"},
 	}, map[string]any{
-		"_key": project + "_membership_no_matches", "revisionId": revision, "project": project,
+		"_key": keyPrefix + "_membership_no_matches", "revisionId": revision, "project": project,
 		"generation": generation, "resourceType": "Patient", "id": "no_observation", "groupId": "no_matches",
 		"ref": map[string]any{"project": project, "generation": generation, "resourceType": "Patient", "id": "no_observation"},
 	})
 	patient := func(id, resourceProject, resourceGeneration, authPath string) map[string]any {
 		return map[string]any{
-			"_key": project + "_patient_" + id + "_" + resourceProject + "_" + resourceGeneration,
+			"_key": keyPrefix + "_patient_" + id + "_" + resourceProject + "_" + resourceGeneration,
 			"id":   id, "project": resourceProject, "project_id": resourceProject, "dataset_generation": resourceGeneration,
 			"resourceType": "Patient", "auth_resource_path": authPath, "payload": map[string]any{"id": id, "resourceType": "Patient"},
 		}
 	}
 	for _, id := range []string{"a", "b", filteredID, "c", "no_observation", "unassigned"} {
-		insert("Patient", patient(id, project, generation, "/allowed"))
+		insert("Patient", patient(id, resourceProject, generation, "/allowed"))
 	}
-	insert("Patient", patient(deniedID, project, generation, "/denied"),
-		patient(wrongProjectID, project+"_foreign", generation, "/allowed"),
-		patient(wrongGenerationID, project, generation+"_old", "/allowed"))
+	insert("Patient", patient(deniedID, resourceProject, generation, "/denied"),
+		patient(wrongProjectID, resourceProject+"_foreign", generation, "/allowed"),
+		patient(wrongGenerationID, resourceProject, generation+"_old", "/allowed"))
 
 	observation := func(id, resourceProject, resourceGeneration, authPath string) map[string]any {
 		return map[string]any{
-			"_key": project + "_observation_" + id, "id": id, "project": resourceProject, "project_id": resourceProject,
+			"_key": keyPrefix + "_observation_" + id, "id": id, "project": resourceProject, "project_id": resourceProject,
 			"dataset_generation": resourceGeneration, "resourceType": "Observation", "auth_resource_path": authPath,
 			"payload": map[string]any{"id": id, "resourceType": "Observation"},
 		}
@@ -128,14 +136,14 @@ func TestRelatedCountAppendPreservesExplicitCohortMembersAgainstArango(t *testin
 		if id == "denied_target" {
 			auth = "/denied"
 		}
-		insert("Observation", observation(id, project, generation, auth))
+		insert("Observation", observation(id, resourceProject, generation, auth))
 	}
-	insert("Observation", observation("wrong_generation_target", project, generation+"_old", "/allowed"),
-		observation("wrong_project_target", project+"_foreign", generation, "/allowed"))
+	insert("Observation", observation("wrong_generation_target", resourceProject, generation+"_old", "/allowed"),
+		observation("wrong_project_target", resourceProject+"_foreign", generation, "/allowed"))
 	edge := func(key, observationID, patientID, edgeAuth string) map[string]any {
-		return relatedCountEdge(project, generation, key,
-			"Observation/"+project+"_observation_"+observationID,
-			"Patient/"+project+"_patient_"+patientID+"_"+project+"_"+generation,
+		return relatedCountEdge(resourceProject, generation, keyPrefix+"_"+key,
+			"Observation/"+keyPrefix+"_observation_"+observationID,
+			"Patient/"+keyPrefix+"_patient_"+patientID+"_"+resourceProject+"_"+generation,
 			"subject_Patient", "Observation", "Patient", edgeAuth)
 	}
 	edges := []map[string]any{
@@ -152,7 +160,7 @@ func TestRelatedCountAppendPreservesExplicitCohortMembersAgainstArango(t *testin
 	insert("fhir_edge", edges...)
 
 	bindings := recipe.RuntimeBindings{
-		Project: project, SelectionProject: project, DatasetGeneration: generation,
+		Project: resourceProject, SelectionProject: project, DatasetGeneration: generation,
 		AuthScopeMode: authscope.ReadScopeRestricted, AuthResourcePaths: []string{"/allowed"}, IncludeRowIdentity: true,
 	}
 	groupRows := func(after string) *recipe.GroupRows {
@@ -283,6 +291,9 @@ func TestRelatedCountAppendPreservesExplicitCohortMembersAgainstArango(t *testin
 			for _, raw := range members {
 				member := raw.(map[string]any)
 				identity := member["source_identity"].(map[string]any)
+				if identity["project"] != project || identity["generation"] != generation || identity["resource_type"] != "Patient" {
+					t.Fatalf("group %q source identity = %#v, want canonical project %q, generation %q, resource type Patient", groupID, identity, project, generation)
+				}
 				id := identity["id"].(string)
 				ids[groupID] = append(ids[groupID], id)
 				if id == missingID || id == wrongProjectID || id == wrongGenerationID {
@@ -357,9 +368,14 @@ func TestExplicitCohortMemberValuesAgainstArango(t *testing.T) {
 	if err := client.Bootstrap(ctx, store.BootstrapSpec{Collections: specs}); err != nil {
 		t.Fatal(err)
 	}
-	project := "loom_cohort_values_" + uuid.NewString()
+	project := "LOOM_COHORT/member-values-" + uuid.NewString()
+	resourceProject := projectid.Legacy(project)
+	if got := projectid.Canonical(resourceProject); got != project {
+		t.Fatalf("member-values project alias is not reversible: storage=%q canonical=%q want=%q", resourceProject, got, project)
+	}
+	keyPrefix := strings.ReplaceAll(project, "/", "_")
 	generation := "cohort-generation"
-	revision, selection := project+"_revision", project+"_selection"
+	revision, selection := keyPrefix+"_revision", keyPrefix+"_selection"
 	owned := map[string][]string{}
 	t.Cleanup(func() {
 		cleanupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -388,26 +404,26 @@ func TestExplicitCohortMemberValuesAgainstArango(t *testing.T) {
 	insert(collections[1], map[string]any{"_key": revision, "state": "COMPLETE", "project": project, "generation": generation, "resourceType": "Patient", "sourceSelectionRevisionId": selection, "scopeDigest": "scope", "sourceMembershipDigest": "members"})
 	insert(collections[2], map[string]any{"_key": selection, "complete": true, "project": project, "generation": generation, "resourceType": "Patient", "scopeDigest": "scope", "membershipDigest": "members"})
 	for index, group := range []string{"pair", "empty"} {
-		insert(collections[3], map[string]any{"_key": project + "_" + group, "revisionId": revision, "project": project, "groupId": group, "label": group, "ordinal": index})
+		insert(collections[3], map[string]any{"_key": keyPrefix + "_" + group, "revisionId": revision, "project": project, "groupId": group, "label": group, "ordinal": index})
 	}
 	for index, id := range []string{"a", "b", "missing", "denied", "unassigned"} {
-		member := map[string]any{"_key": project + "_selected_" + id, "selectionId": selection, "project": project, "generation": generation, "resourceType": "Patient", "id": id}
+		member := map[string]any{"_key": keyPrefix + "_selected_" + id, "selectionId": selection, "project": project, "generation": generation, "resourceType": "Patient", "id": id}
 		insert(collections[5], member)
 		if id != "unassigned" {
-			insert(collections[4], map[string]any{"_key": project + "_membership_" + id, "revisionId": revision, "project": project, "generation": generation, "resourceType": "Patient", "id": id, "groupId": "pair", "ref": map[string]any{"project": project, "generation": generation, "resourceType": "Patient", "id": id}})
+			insert(collections[4], map[string]any{"_key": keyPrefix + "_membership_" + id, "revisionId": revision, "project": project, "generation": generation, "resourceType": "Patient", "id": id, "groupId": "pair", "ref": map[string]any{"project": project, "generation": generation, "resourceType": "Patient", "id": id}})
 		}
 		auth := "/allowed"
 		if id == "denied" {
 			auth = "/denied"
 		}
 		if id != "missing" {
-			insert("Patient", map[string]any{"_key": project + "_hashed_" + id, "id": id, "project": project, "dataset_generation": generation, "resourceType": "Patient", "auth_resource_path": auth,
+			insert("Patient", map[string]any{"_key": keyPrefix + "_hashed_" + id, "id": id, "project": resourceProject, "project_id": resourceProject, "dataset_generation": generation, "resourceType": "Patient", "auth_resource_path": auth,
 				"payload": map[string]any{"id": id, "gender": "female", "identifier": []any{map[string]any{"value": "shared"}, map[string]any{"value": fmt.Sprintf("value-%d", index)}}}})
 		}
 	}
 	// Same FHIR ID outside either dataset boundary must never supply member values.
-	for index, scope := range []map[string]any{{"project": "another-project", "dataset_generation": generation}, {"project": project, "dataset_generation": "another-generation"}} {
-		scope["_key"], scope["id"], scope["resourceType"], scope["auth_resource_path"] = project+fmt.Sprintf("_outside_%d", index), "a", "Patient", "/allowed"
+	for index, scope := range []map[string]any{{"project": "another-project", "dataset_generation": generation}, {"project": resourceProject, "dataset_generation": "another-generation"}} {
+		scope["_key"], scope["id"], scope["resourceType"], scope["auth_resource_path"] = keyPrefix+fmt.Sprintf("_outside_%d", index), "a", "Patient", "/allowed"
 		scope["payload"] = map[string]any{"id": "leaked", "gender": "male"}
 		insert("Patient", scope)
 	}
@@ -415,7 +431,7 @@ func TestExplicitCohortMemberValuesAgainstArango(t *testing.T) {
 		RowValues: []recipe.GroupRowValuePolicy{{ColumnID: "ids", Policy: recipe.ConstructionRowValueAll}, {ColumnID: "gender", Policy: recipe.ConstructionRowValueOne}, {ColumnID: "identifiers", Policy: recipe.ConstructionRowValueAll}}},
 		Fields: []recipe.Field{{Name: "ids", ColumnID: "ids", Expr: recipe.Expression{Select: "root.id"}}, {Name: "gender", ColumnID: "gender", Expr: recipe.Expression{Select: "root.gender"}}, {Name: "identifiers", ColumnID: "identifiers", Expr: recipe.Expression{Select: "root.identifier[].value"}}},
 	}
-	bindings := recipe.RuntimeBindings{Project: project, SelectionProject: project, DatasetGeneration: generation, AuthScopeMode: authscope.ReadScopeRestricted, AuthResourcePaths: []string{"/allowed"}, IncludeRowIdentity: true}
+	bindings := recipe.RuntimeBindings{Project: resourceProject, SelectionProject: project, DatasetGeneration: generation, AuthScopeMode: authscope.ReadScopeRestricted, AuthResourcePaths: []string{"/allowed"}, IncludeRowIdentity: true}
 	compiled := lowerConstructionOutput(t, output, bindings)
 	query, err := CompileRecipeOutputWithPolicy(compiled, bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
@@ -559,6 +575,85 @@ func TestExplicitCohortMemberValuesAgainstArango(t *testing.T) {
 		err = client.ExecuteAQL(ctx, query.Query, query.BindVars)
 		if err == nil || !strings.Contains(err.Error(), "CONSTRUCTION_ROW_VALUE_MULTIPLE_VALUES") {
 			t.Fatalf("ONE disagreement must preserve its typed repair error: %v", err)
+		}
+	})
+	t.Run("recode_before_member_reduction", func(t *testing.T) {
+		transformation := columntransform.ValueTransformation{
+			Kind: columntransform.KindExactCategoryRecode,
+			ExactCategoryRecode: &columntransform.ExactCategoryRecode{
+				Mappings:      []columntransform.CategoryMapping{{From: "a", To: "shared-category"}, {From: "b", To: "shared-category"}},
+				UnknownPolicy: columntransform.UnknownKeepOriginal,
+			},
+		}
+		for _, test := range []struct {
+			policy recipe.ConstructionRowValuePolicy
+			want   any
+		}{
+			{policy: recipe.ConstructionRowValueAll, want: []any{"shared-category"}},
+			{policy: recipe.ConstructionRowValueOne, want: "shared-category"},
+		} {
+			t.Run(string(test.policy), func(t *testing.T) {
+				recoded := output
+				groups := *output.GroupRows
+				groups.RowValues = []recipe.GroupRowValuePolicy{{ColumnID: "ids", Policy: test.policy}}
+				recoded.GroupRows = &groups
+				recoded.ColumnTransformations = []recipe.ColumnTransformation{{Column: "ids", Transformation: transformation}}
+				compiled := lowerConstructionOutput(t, recoded, bindings)
+				query, err := CompileRecipeOutputWithPolicy(compiled, bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
+				if err != nil {
+					t.Fatalf("compile transformed cohort member values: %v", err)
+				}
+				rows := executeReshapeOracleQuery(t, ctx, client, query)
+				var pairValue, emptyValue, unassignedValue any
+				for _, row := range rows {
+					switch row["group_id"] {
+					case "pair":
+						pairValue = row["ids"]
+					case "empty":
+						emptyValue = row["ids"]
+					case "__loom_unassigned__":
+						unassignedValue = row["ids"]
+					}
+				}
+				if !reflect.DeepEqual(pairValue, test.want) {
+					t.Fatalf("%s must reduce after per-member recoding: pair=%#v want=%#v", test.policy, pairValue, test.want)
+				}
+				wantEmpty := any(nil)
+				if test.policy == recipe.ConstructionRowValueAll {
+					wantEmpty = []any{}
+				}
+				if !reflect.DeepEqual(emptyValue, wantEmpty) {
+					t.Fatalf("empty cohort's %s member value = %#v, want %#v", test.policy, emptyValue, wantEmpty)
+				}
+				wantUnassigned := any("unassigned")
+				if test.policy == recipe.ConstructionRowValueAll {
+					wantUnassigned = []any{"unassigned"}
+				}
+				if !reflect.DeepEqual(unassignedValue, wantUnassigned) {
+					t.Fatalf("KEEP_ORIGINAL unassigned value = %#v, want %#v", unassignedValue, wantUnassigned)
+				}
+			})
+		}
+	})
+	t.Run("unknown_error_still_fails_per_member", func(t *testing.T) {
+		recoded := output
+		groups := *output.GroupRows
+		groups.RowValues = []recipe.GroupRowValuePolicy{{ColumnID: "ids", Policy: recipe.ConstructionRowValueOne}}
+		recoded.GroupRows = &groups
+		recoded.ColumnTransformations = []recipe.ColumnTransformation{{Column: "ids", Transformation: columntransform.ValueTransformation{
+			Kind: columntransform.KindExactCategoryRecode,
+			ExactCategoryRecode: &columntransform.ExactCategoryRecode{
+				Mappings:      []columntransform.CategoryMapping{{From: "a", To: "shared-category"}, {From: "b", To: "shared-category"}},
+				UnknownPolicy: columntransform.UnknownError,
+			},
+		}}}
+		compiled := lowerConstructionOutput(t, recoded, bindings)
+		query, err := CompileRecipeOutputWithPolicy(compiled, bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := client.ExecuteAQL(ctx, query.Query, query.BindVars); err == nil || !strings.Contains(err.Error(), "CATEGORY_RECODE_UNKNOWN_VALUE") {
+			t.Fatalf("unknown non-null cohort member must retain the transformation error: %v", err)
 		}
 	})
 	t.Run("restricted_empty_scope", func(t *testing.T) {

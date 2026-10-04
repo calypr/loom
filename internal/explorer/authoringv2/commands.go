@@ -1470,8 +1470,8 @@ func applyCommand(workspace *Workspace, catalog CatalogSnapshot, commandID strin
 			return result, fmt.Errorf("column %q was not found", command.Column)
 		}
 		column := document.Columns[columnIndex]
-		if column.ColumnID == "" || column.OccurrenceID != RootOccurrenceID || column.Source.Kind != SourceField || column.Source.Field == nil || column.ValueTransformation != nil {
-			return result, fmt.Errorf("column %q must be an untransformed root FHIR field with a stable columnId", command.Column)
+		if column.ColumnID == "" || !supportsExplicitGroupRowValueColumn(column) {
+			return result, fmt.Errorf("column %q must be a supported root FHIR field with a stable columnId", command.Column)
 		}
 		matchingBinding := -1
 		for index := range document.Rows.Groups.RowValues {

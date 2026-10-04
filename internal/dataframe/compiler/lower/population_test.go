@@ -37,7 +37,7 @@ func TestPopulationRootSourceStartsFromMembersWithoutProvenance(t *testing.T) {
 	if got := rendered.BindVars["@population_members_collection"]; got != "loom_explorer_selection_members" {
 		t.Fatalf("population member collection bind = %#v", got)
 	}
-	if got := rendered.BindVars["population_project"]; got != "project/a" {
+	if got := rendered.BindVars["population_project"]; got != "fixture_program/project-a" {
 		t.Fatalf("population project bind = %#v", got)
 	}
 	if strings.Contains(rendered.Query, "FOR root IN @@root_collection") || strings.Contains(rendered.Query, "SORTED_UNIQUE") || strings.Contains(rendered.Query, "__loom_population_members") {
@@ -298,7 +298,7 @@ func compilePopulationRecipe(t *testing.T, output recipe.Output) (aql.RenderedPh
 		Outputs:             []recipe.Output{output},
 	}
 	plan, err := semantic.BuildRecipePlan(bundle, recipe.RuntimeBindings{
-		Project: "project-a", SelectionProject: "project/a", DatasetGeneration: "generation-a", SelectionMembersCollection: "loom_explorer_selection_members",
+		Project: "fixture_program-project-a", SelectionProject: "fixture_program/project-a", DatasetGeneration: "generation-a", SelectionMembersCollection: "loom_explorer_selection_members",
 	})
 	if err != nil {
 		t.Fatal(err)

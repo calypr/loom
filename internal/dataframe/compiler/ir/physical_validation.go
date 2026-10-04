@@ -2,7 +2,10 @@ package ir
 
 import (
 	"fmt"
+	"reflect"
 	"strings"
+
+	"github.com/calypr/loom/internal/projectid"
 )
 
 func (p PhysicalPlan) Validate() error {
@@ -374,6 +377,14 @@ func validateCohortRootSourceProof(plan PhysicalPlan) error {
 	if source.CohortStageID != "group_rows" || source.CohortInputStageID == "" || source.RootIdentityColumn != "_key" || source.RootResourceType == "" || source.RootResourceType != plan.Source.ResourceType {
 		return fmt.Errorf("cohort root source has invalid typed identity proof")
 	}
+	resourceProject, ok := plan.BindVars[source.ResourceProjectBindKey].(string)
+	if !ok || strings.TrimSpace(resourceProject) == "" {
+		return fmt.Errorf("cohort root source requires its resource-storage project binding")
+	}
+	authorizedProject, ok := plan.BindVars[physicalScopeProjectBind].(string)
+	if !ok || strings.TrimSpace(authorizedProject) == "" || resourceProject != authorizedProject {
+		return fmt.Errorf("cohort root source resource-storage project must match the authorized source project")
+	}
 	if plan.StageSequence == nil {
 		return nil
 	}
@@ -391,6 +402,7 @@ func validateCohortRootSourceProof(plan PhysicalPlan) error {
 			source.MembershipsCollectionBindKey != rows.MembershipsCollectionBindKey ||
 			source.RevisionIDBindKey != rows.RevisionIDBindKey ||
 			source.ProjectBindKey != rows.ProjectBindKey ||
+			source.ResourceProjectBindKey != rows.ResourceProjectBindKey ||
 			source.DatasetGenerationBindKey != rows.DatasetGenerationBindKey ||
 			source.ResourceTypeBindKey != rows.ResourceTypeBindKey ||
 			source.PolicyBindKey != rows.PolicyBindKey {
@@ -421,6 +433,7 @@ func validatePhysicalCohortRootSource(source PhysicalCohortRootSource, bindVars 
 	for _, key := range []string{
 		source.RevisionIDBindKey,
 		source.ProjectBindKey,
+		source.ResourceProjectBindKey,
 		source.DatasetGenerationBindKey,
 		source.ResourceTypeBindKey,
 		source.PolicyBindKey,
@@ -428,6 +441,14 @@ func validatePhysicalCohortRootSource(source PhysicalCohortRootSource, bindVars 
 		if err := requireBind(bindVars, key); err != nil {
 			return err
 		}
+	}
+	selectionProject, ok := bindVars[source.ProjectBindKey].(string)
+	if !ok || strings.TrimSpace(selectionProject) == "" {
+		return fmt.Errorf("cohort selection project bind must be a non-empty string")
+	}
+	resourceProject, ok := bindVars[source.ResourceProjectBindKey].(string)
+	if !ok || strings.TrimSpace(resourceProject) == "" || projectid.Canonical(resourceProject) != projectid.Canonical(selectionProject) {
+		return fmt.Errorf("cohort resource-storage project must match the canonical selection project")
 	}
 	return nil
 }
@@ -445,7 +466,7 @@ func validatePhysicalGroupRows(rows PhysicalGroupRows, bindVars map[string]any) 
 		if value.Policy != "ALL" && value.Policy != "ONE" {
 			return fmt.Errorf("cohort member value %q has invalid policy %q", value.Output, value.Policy)
 		}
-		if value.Expression.Kind != PhysicalExtractExpression || value.Expression.Extract == nil || value.Expression.Extract.Source.Variable != "cohort_member" || len(value.Expression.Extract.Source.Path) != 1 || value.Expression.Extract.Source.Path[0] != "payload" {
+		if !validCohortMemberValueExpression(value.Expression, bindVars) {
 			return fmt.Errorf("cohort member value %q must select the exact member payload", value.Output)
 		}
 		if err := validatePhysicalExpression(value.Expression, map[string]bool{"cohort_member": true}, bindVars); err != nil {
@@ -497,13 +518,21 @@ func validatePhysicalGroupRows(rows PhysicalGroupRows, bindVars map[string]any) 
 		}
 	}
 	for _, key := range []string{
-		rows.RevisionIDBindKey, rows.ProjectBindKey, rows.DatasetGenerationBindKey,
+		rows.RevisionIDBindKey, rows.ProjectBindKey, rows.ResourceProjectBindKey, rows.DatasetGenerationBindKey,
 		rows.ResourceTypeBindKey, rows.PolicyBindKey, rows.AuthResourcePathsBindKey,
 		rows.AuthUnrestrictedBindKey,
 	} {
 		if err := requireBind(bindVars, key); err != nil {
 			return err
 		}
+	}
+	selectionProject, ok := bindVars[rows.ProjectBindKey].(string)
+	if !ok || strings.TrimSpace(selectionProject) == "" {
+		return fmt.Errorf("group selection project bind must be a non-empty string")
+	}
+	resourceProject, ok := bindVars[rows.ResourceProjectBindKey].(string)
+	if !ok || strings.TrimSpace(resourceProject) == "" || projectid.Canonical(resourceProject) != projectid.Canonical(selectionProject) {
+		return fmt.Errorf("group resource-storage project must match the canonical selection project")
 	}
 	if id, ok := bindVars[rows.RevisionIDBindKey].(string); !ok || strings.TrimSpace(id) == "" {
 		return fmt.Errorf("group revision ID bind must be a non-empty string")
@@ -521,6 +550,87 @@ func validatePhysicalGroupRows(rows PhysicalGroupRows, bindVars map[string]any) 
 		}
 	}
 	return nil
+}
+
+func validCohortMemberValueExpression(expression PhysicalExpression, bindVars map[string]any) bool {
+	if isCohortMemberPayloadSelector(expression) {
+		return true
+	}
+	if expression.Kind != PhysicalCallExpression || expression.Call == nil || expression.Call.Name != "case" {
+		return false
+	}
+	args := expression.Call.Args
+	if len(args) < 5 || (len(args)-3)%2 != 0 {
+		return false
+	}
+	selector, nullInput, ok := cohortMemberValueEquality(args[0], nil, bindVars)
+	if !ok || nullInput != nil || !isCohortMemberLiteral(args[1], nil, bindVars) {
+		return false
+	}
+	for index := 2; index < len(args)-1; index += 2 {
+		_, value, ok := cohortMemberValueEquality(args[index], &selector, bindVars)
+		if !ok {
+			return false
+		}
+		if _, ok := value.(string); !ok {
+			return false
+		}
+		output, ok := cohortMemberLiteral(args[index+1], bindVars)
+		if !ok {
+			return false
+		}
+		if _, ok := output.(string); !ok {
+			return false
+		}
+	}
+	defaultValue := args[len(args)-1]
+	if isCohortMemberPayloadSelector(defaultValue) {
+		return true
+	}
+	return isCohortMemberUnknownValueAssertion(defaultValue, bindVars)
+}
+
+func isCohortMemberPayloadSelector(expression PhysicalExpression) bool {
+	return expression.Kind == PhysicalExtractExpression && expression.Extract != nil &&
+		expression.Extract.Source.Variable == "cohort_member" &&
+		len(expression.Extract.Source.Path) == 1 && expression.Extract.Source.Path[0] == "payload"
+}
+
+func cohortMemberValueEquality(expression PhysicalExpression, expectedSelector *PhysicalExpression, bindVars map[string]any) (PhysicalExpression, any, bool) {
+	if expression.Kind != PhysicalCallExpression || expression.Call == nil || expression.Call.Name != "eq" || len(expression.Call.Args) != 2 {
+		return PhysicalExpression{}, nil, false
+	}
+	left := expression.Call.Args[0]
+	if !isCohortMemberPayloadSelector(left) {
+		return PhysicalExpression{}, nil, false
+	}
+	if expectedSelector != nil && (left.Extract.Source.Variable != expectedSelector.Extract.Source.Variable ||
+		left.Extract.Source.Path[0] != expectedSelector.Extract.Source.Path[0]) {
+		return PhysicalExpression{}, nil, false
+	}
+	value, ok := cohortMemberLiteral(expression.Call.Args[1], bindVars)
+	return left, value, ok
+}
+
+func isCohortMemberLiteral(expression PhysicalExpression, want any, bindVars map[string]any) bool {
+	value, ok := cohortMemberLiteral(expression, bindVars)
+	return ok && reflect.DeepEqual(value, want)
+}
+
+func cohortMemberLiteral(expression PhysicalExpression, bindVars map[string]any) (any, bool) {
+	if expression.Kind != PhysicalLiteralExpression || expression.Literal == nil {
+		return nil, false
+	}
+	value, ok := bindVars[expression.Literal.BindKey]
+	return value, ok
+}
+
+func isCohortMemberUnknownValueAssertion(expression PhysicalExpression, bindVars map[string]any) bool {
+	if expression.Kind != PhysicalCallExpression || expression.Call == nil || expression.Call.Name != "assert" || len(expression.Call.Args) != 2 {
+		return false
+	}
+	return isCohortMemberLiteral(expression.Call.Args[0], false, bindVars) &&
+		isCohortMemberLiteral(expression.Call.Args[1], "CATEGORY_RECODE_UNKNOWN_VALUE", bindVars)
 }
 
 func validatePhysicalPopulationRootSource(source PhysicalPopulationRootSource, bindVars map[string]any) error {

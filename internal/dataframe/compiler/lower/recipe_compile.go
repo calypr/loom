@@ -236,7 +236,11 @@ func compileRecipeOutput(output semantic.OutputPlan, bindings recipe.RuntimeBind
 	if err != nil {
 		return CompiledRecipeOutput{}, err
 	}
-	if err := appendRecipeColumnTransformations(&physical, output.ColumnTransformations); err != nil {
+	columnTransformations := output.ColumnTransformations
+	if output.GroupRows != nil && !composedCohort {
+		columnTransformations = groupRowValueColumnTransformations(output)
+	}
+	if err := appendRecipeColumnTransformations(&physical, columnTransformations); err != nil {
 		return CompiledRecipeOutput{}, err
 	}
 	cohort := (*cohortGroupCompileInput)(nil)
@@ -334,6 +338,29 @@ func compileRecipeOutput(output semantic.OutputPlan, bindings recipe.RuntimeBind
 		RowGrain: output.RowGrain, RootColumnNaming: output.RootColumnNaming, Columns: physicalOutputColumns(outputSchema), OutputSchema: outputSchema,
 		RowIdentity: (&identity).Clone(), DynamicColumns: dynamicMetadata, Stages: stageDescriptors, Plan: physical,
 	}, nil
+}
+
+func groupRowValueColumnTransformations(output semantic.OutputPlan) []recipe.ColumnTransformation {
+	if output.GroupRows == nil || len(output.GroupRows.RowValues) == 0 {
+		return output.ColumnTransformations
+	}
+	fields := make(map[string]string, len(output.Root.Fields))
+	for _, field := range output.Root.Fields {
+		fields[field.ColumnID] = field.Name
+	}
+	memberColumns := make(map[string]bool, len(output.GroupRows.RowValues))
+	for _, selected := range output.GroupRows.RowValues {
+		if name := fields[selected.ColumnID]; name != "" {
+			memberColumns[name] = true
+		}
+	}
+	remaining := make([]recipe.ColumnTransformation, 0, len(output.ColumnTransformations))
+	for _, transformation := range output.ColumnTransformations {
+		if !memberColumns[transformation.Column] {
+			remaining = append(remaining, transformation)
+		}
+	}
+	return remaining
 }
 
 func describeGroupRowsStages(output semantic.OutputPlan, outputSchema []CompiledOutputColumn) ([]CompiledStageDescriptor, string, error) {

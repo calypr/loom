@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/calypr/loom/internal/catalog"
+	"github.com/calypr/loom/internal/dataframe/columntransform"
 	"github.com/calypr/loom/internal/explorer/capability"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
@@ -646,6 +647,45 @@ func TestUpdateColumnRowValuePolicyEditsOnlyAnExistingExplicitGroupBinding(t *te
 	}
 }
 
+func TestUpdateColumnRowValuePolicyPreservesExactCategoryRecode(t *testing.T) {
+	document := workspaceDocument("patients")
+	transformation := columntransform.ValueTransformation{
+		Kind: columntransform.KindExactCategoryRecode,
+		ExactCategoryRecode: &columntransform.ExactCategoryRecode{
+			Mappings:      []columntransform.CategoryMapping{{From: "recorded-A", To: "shared"}},
+			UnknownPolicy: columntransform.UnknownKeepOriginal,
+		},
+	}
+	column := Column{
+		ColumnID: "patient-status-stable", Column: "patient_status", Label: "Patient status", LogicalType: "string",
+		OccurrenceID:        RootOccurrenceID,
+		Source:              ColumnSource{Kind: SourceField, Field: &FieldSource{Path: "status", ProjectionMode: "VALUE"}},
+		ValueTransformation: &transformation,
+	}
+	document.Columns = []Column{column}
+	document.Rows = RowDefinition{Kind: RowDefinitionGroups, Groups: &GroupedRows{
+		Source: GroupSource{Kind: GroupSourceExplicit, Explicit: &ExplicitGroupSource{
+			RevisionID: "cohort_revision", UnassignedMemberPolicy: UnassignedMemberExclude,
+		}},
+		RowValues: []ExplicitGroupRowValue{{ColumnID: column.ColumnID, Policy: ConstructionRowValueAll}},
+	}}
+	workspace := constructionWorkspace(document)
+	updated, _, err := ApplyCommands(workspace, commandCatalog(), "transformed-row-value-policy", []Command{{
+		Type: CommandUpdateColumnRowValuePolicy, OutputID: document.Output.ID,
+		Column: column.Column, RowValuePolicy: ConstructionRowValueOne,
+	}})
+	if err != nil {
+		t.Fatalf("update policy on recoded scalar field: %v", err)
+	}
+	got := updated.Documents[0]
+	if !reflect.DeepEqual(got.Columns[0], column) {
+		t.Fatalf("policy edit changed the source or recoding: %#v", got.Columns[0])
+	}
+	if len(got.Rows.Groups.RowValues) != 1 || got.Rows.Groups.RowValues[0] != (ExplicitGroupRowValue{ColumnID: column.ColumnID, Policy: ConstructionRowValueOne}) {
+		t.Fatalf("saved recoded-field binding = %#v", got.Rows.Groups.RowValues)
+	}
+}
+
 func TestUpdateColumnRowValuePolicyRejectsMissingOrUnsupportedBindings(t *testing.T) {
 	newDocument := func() Document {
 		document := workspaceDocument("patients")
@@ -711,7 +751,7 @@ func TestUpdateColumnRowValuePolicyRejectsMissingOrUnsupportedBindings(t *testin
 			Type: CommandUpdateColumnRowValuePolicy, OutputID: document.Output.ID,
 			Column: document.Columns[0].Column, RowValuePolicy: ConstructionRowValueOne,
 		}})
-		if err == nil || !strings.Contains(err.Error(), "untransformed root FHIR field") {
+		if err == nil || !strings.Contains(err.Error(), "root FHIR field") {
 			t.Fatalf("non-root field error = %v", err)
 		}
 	})

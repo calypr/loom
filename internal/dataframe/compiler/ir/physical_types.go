@@ -151,6 +151,7 @@ type PhysicalGroupRows struct {
 	ResourceCollectionBindKey         string
 	RevisionIDBindKey                 string
 	ProjectBindKey                    string
+	ResourceProjectBindKey            string
 	DatasetGenerationBindKey          string
 	ResourceTypeBindKey               string
 	PolicyBindKey                     string
@@ -208,6 +209,7 @@ type PhysicalCohortRootSource struct {
 	MembershipsCollectionBindKey      string
 	RevisionIDBindKey                 string
 	ProjectBindKey                    string
+	ResourceProjectBindKey            string
 	DatasetGenerationBindKey          string
 	ResourceTypeBindKey               string
 	PolicyBindKey                     string

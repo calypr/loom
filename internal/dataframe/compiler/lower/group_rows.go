@@ -4,8 +4,11 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/calypr/loom/internal/dataframe/columntransform"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
+	dataframeexpr "github.com/calypr/loom/internal/dataframe/expression"
 	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/projectid"
 )
 
 func buildGroupRowsPhysicalPlan(output semantic.OutputPlan, context semantic.ExecutionContext) (ir.PhysicalPlan, error) {
@@ -16,9 +19,13 @@ func buildGroupRowsPhysicalPlan(output semantic.OutputPlan, context semantic.Exe
 	if strings.TrimSpace(groups.RevisionID) == "" || strings.TrimSpace(context.DatasetGeneration) == "" {
 		return ir.PhysicalPlan{}, fmt.Errorf("grouped physical plan requires revision and dataset generation identities")
 	}
-	selectionProject := strings.TrimSpace(context.SelectionProject)
+	selectionProject := projectid.Canonical(context.SelectionProject)
 	if selectionProject == "" {
 		return ir.PhysicalPlan{}, fmt.Errorf("grouped physical plan requires the canonical selection project identity")
+	}
+	resourceProject := strings.TrimSpace(context.Project)
+	if resourceProject == "" || projectid.Canonical(resourceProject) != selectionProject {
+		return ir.PhysicalPlan{}, fmt.Errorf("grouped physical plan requires matching authorized selection and resource-storage project identities")
 	}
 	policy := groups.UnassignedMemberPolicy
 	if policy != "ERROR" && policy != "EXCLUDE" && policy != "GROUP_AS_UNASSIGNED" {
@@ -40,6 +47,7 @@ func buildGroupRowsPhysicalPlan(output semantic.OutputPlan, context semantic.Exe
 		"group_rows_resource_collection":          output.RootResourceType,
 		"group_rows_revision_id":                  groups.RevisionID,
 		"project":                                 selectionProject,
+		"group_rows_resource_project":             resourceProject,
 		"dataset_generation":                      context.DatasetGeneration,
 		"resource_type":                           output.RootResourceType,
 		"group_rows_unassigned_policy":            policy,
@@ -50,13 +58,17 @@ func buildGroupRowsPhysicalPlan(output semantic.OutputPlan, context semantic.Exe
 		RevisionCollectionBindKey: "group_rows_revision_collection", SelectionCollectionBindKey: "group_rows_selection_collection",
 		DefinitionsCollectionBindKey: "group_rows_definition_collection", MembershipsCollectionBindKey: "group_rows_membership_collection",
 		SelectionMembersCollectionBindKey: "group_rows_selection_members_collection", ResourceCollectionBindKey: "group_rows_resource_collection",
-		RevisionIDBindKey: "group_rows_revision_id", ProjectBindKey: "project", DatasetGenerationBindKey: "dataset_generation",
+		RevisionIDBindKey: "group_rows_revision_id", ProjectBindKey: "project", ResourceProjectBindKey: "group_rows_resource_project", DatasetGenerationBindKey: "dataset_generation",
 		ResourceTypeBindKey: "resource_type", PolicyBindKey: "group_rows_unassigned_policy",
 		AuthResourcePathsBindKey: "auth_resource_paths", AuthUnrestrictedBindKey: "auth_resource_paths_unrestricted",
 	}
 	fields := make(map[string]semantic.SemanticField, len(output.Root.Fields))
 	for _, field := range output.Root.Fields {
 		fields[field.ColumnID] = field
+	}
+	transformations := make(map[string]columntransform.ValueTransformation, len(output.ColumnTransformations))
+	for _, transformation := range output.ColumnTransformations {
+		transformations[transformation.Column] = transformation.Transformation
 	}
 	for _, selected := range groups.RowValues {
 		field, found := fields[selected.ColumnID]
@@ -68,6 +80,18 @@ func buildGroupRowsPhysicalPlan(output semantic.OutputPlan, context semantic.Exe
 			return ir.PhysicalPlan{}, fmt.Errorf("cohort member column %q: %w", selected.ColumnID, err)
 		}
 		expression.Extract.Source.Variable = "cohort_member"
+		if transformation, found := transformations[field.Name]; found {
+			if field.Expr.Type.Kind != dataframeexpr.KindString || field.Expr.Type.Cardinality == dataframeexpr.Many {
+				return ir.PhysicalPlan{}, fmt.Errorf("cohort member column %q can only recode a scalar string field", selected.ColumnID)
+			}
+			if transformation.Kind != columntransform.KindExactCategoryRecode {
+				return ir.PhysicalPlan{}, fmt.Errorf("cohort member column %q has unsupported transformation %q", selected.ColumnID, transformation.Kind)
+			}
+			expression, err = lowerValueTransformation(expression, transformation, binds)
+			if err != nil {
+				return ir.PhysicalPlan{}, fmt.Errorf("cohort member column %q transformation: %w", selected.ColumnID, err)
+			}
+		}
 		rows.MemberValues = append(rows.MemberValues, ir.PhysicalGroupMemberValue{
 			Output: field.Name, Kind: strings.ToUpper(string(field.Expr.Type.Kind)), Policy: string(selected.Policy), Expression: expression,
 		})
@@ -112,10 +136,30 @@ func buildCohortGroupRows(output semantic.OutputPlan, context semantic.Execution
 	rows.ResourceCollectionBindKey = namespace(rows.ResourceCollectionBindKey)
 	rows.RevisionIDBindKey = namespace(rows.RevisionIDBindKey)
 	rows.ProjectBindKey = namespace(rows.ProjectBindKey)
+	rows.ResourceProjectBindKey = namespace(rows.ResourceProjectBindKey)
 	rows.DatasetGenerationBindKey = namespace(rows.DatasetGenerationBindKey)
 	rows.ResourceTypeBindKey = namespace(rows.ResourceTypeBindKey)
 	rows.PolicyBindKey = namespace(rows.PolicyBindKey)
 	rows.AuthResourcePathsBindKey = namespace(rows.AuthResourcePathsBindKey)
 	rows.AuthUnrestrictedBindKey = namespace(rows.AuthUnrestrictedBindKey)
+	rows.MemberValues = append([]ir.PhysicalGroupMemberValue(nil), rows.MemberValues...)
+	for index := range rows.MemberValues {
+		rows.MemberValues[index].Expression = ir.ClonePhysicalExpression(rows.MemberValues[index].Expression)
+		namespaceCohortMemberExpressionLiterals(&rows.MemberValues[index].Expression, namespace)
+	}
 	return rows, binds, nil
+}
+
+func namespaceCohortMemberExpressionLiterals(expression *ir.PhysicalExpression, namespace func(string) string) {
+	if expression == nil {
+		return
+	}
+	if expression.Literal != nil {
+		expression.Literal.BindKey = namespace(expression.Literal.BindKey)
+	}
+	if expression.Call != nil {
+		for index := range expression.Call.Args {
+			namespaceCohortMemberExpressionLiterals(&expression.Call.Args[index], namespace)
+		}
+	}
 }

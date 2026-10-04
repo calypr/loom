@@ -3,6 +3,8 @@ package authoringv2
 import (
 	"reflect"
 	"testing"
+
+	"github.com/calypr/loom/internal/dataframe/columntransform"
 )
 
 func rowValueGroupedDocument() Document {
@@ -179,6 +181,31 @@ func TestNormalizeConstructionOutputsUsesAnchoredCohortSchema(t *testing.T) {
 	}
 	if err := document.Validate(); err != nil {
 		t.Fatalf("anchored virtual cohort schema should remain valid after normalization: %v", err)
+	}
+}
+
+func TestExplicitGroupStageAcceptsExactRecodedRootStringRowValue(t *testing.T) {
+	transformation := columntransform.ValueTransformation{
+		Kind: columntransform.KindExactCategoryRecode,
+		ExactCategoryRecode: &columntransform.ExactCategoryRecode{
+			Mappings:      []columntransform.CategoryMapping{{From: "recorded", To: "shared"}},
+			UnknownPolicy: columntransform.UnknownKeepOriginal,
+		},
+	}
+	column := constructionSourceColumn("status-id", "status", "Status", "string")
+	column.Source = ColumnSource{Kind: SourceField, Field: &FieldSource{Path: "status", ProjectionMode: "VALUE"}}
+	column.ValueTransformation = &transformation
+	document := workspaceDocument("patients")
+	document.Columns = []Column{column}
+	document.Rows = RowDefinition{Kind: RowDefinitionGroups, Groups: &GroupedRows{
+		Source: GroupSource{Kind: GroupSourceExplicit, Explicit: &ExplicitGroupSource{
+			RevisionID: "group-revision", UnassignedMemberPolicy: UnassignedMemberExclude,
+		}},
+		RowValues: []ExplicitGroupRowValue{{ColumnID: column.ColumnID, Policy: ConstructionRowValueOne}},
+	}}
+	document.Construction = &Construction{Version: ConstructionVersion}
+	if err := document.Validate(); err != nil {
+		t.Fatalf("validate transformed exact-category group row value: %v", err)
 	}
 }
 

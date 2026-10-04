@@ -148,7 +148,7 @@ LET assigned_page = (FOR member IN @@%s
   FILTER member.groupId == definition.groupId
   SORT member.project ASC, member.generation ASC, member.resourceType ASC, member.id ASC
   LET source = FIRST(FOR resource IN @@%s
-    FILTER resource.id == member.ref.id AND resource.project == member.ref.project AND resource.dataset_generation == member.ref.generation AND resource.resourceType == member.ref.resourceType
+    FILTER resource.id == member.ref.id AND resource.project == @%s AND resource.dataset_generation == member.ref.generation AND resource.resourceType == member.ref.resourceType
     RETURN resource)
   FILTER source == null OR @%s == true OR source.auth_resource_path IN @%s
   LIMIT @%s, @%s
@@ -162,7 +162,7 @@ LET unassigned_page = (FOR selected IN @@%s
     RETURN true) == null
   SORT selected.project ASC, selected.generation ASC, selected.resourceType ASC, selected.id ASC
   LET source = FIRST(FOR resource IN @@%s
-    FILTER resource.id == selected.id AND resource.project == selected.project AND resource.dataset_generation == selected.generation AND resource.resourceType == selected.resourceType
+    FILTER resource.id == selected.id AND resource.project == @%s AND resource.dataset_generation == selected.generation AND resource.resourceType == selected.resourceType
     RETURN resource)
   FILTER source == null OR @%s == true OR source.auth_resource_path IN @%s
   LIMIT @%s, @%s
@@ -175,10 +175,10 @@ RETURN {found: found, contributors: SLICE(page, 0, @%s), hasMore: LENGTH(page) >
 		rows.MembershipsCollectionBindKey, rows.PolicyBindKey, rows.DefinitionsCollectionBindKey, rows.ProjectBindKey, requestedGroupBind,
 		candidateLines, foundExpression,
 		rows.MembershipsCollectionBindKey, requestedRevisionBind, rows.ProjectBindKey, rows.DatasetGenerationBindKey, rows.ResourceTypeBindKey,
-		rows.ResourceCollectionBindKey, rows.AuthUnrestrictedBindKey, rows.AuthResourcePathsBindKey, offsetBind, fetchLimitBind, rows.ResourceTypeBindKey,
+		rows.ResourceCollectionBindKey, rows.ResourceProjectBindKey, rows.AuthUnrestrictedBindKey, rows.AuthResourcePathsBindKey, offsetBind, fetchLimitBind, rows.ResourceTypeBindKey,
 		rows.SelectionMembersCollectionBindKey, requestedRevisionBind, requestedGroupBind, rows.PolicyBindKey,
 		rows.ProjectBindKey, rows.DatasetGenerationBindKey, rows.ResourceTypeBindKey, rows.MembershipsCollectionBindKey,
-		rows.ResourceCollectionBindKey, rows.AuthUnrestrictedBindKey, rows.AuthResourcePathsBindKey, offsetBind, fetchLimitBind, rows.ResourceTypeBindKey,
+		rows.ResourceCollectionBindKey, rows.ResourceProjectBindKey, rows.AuthUnrestrictedBindKey, rows.AuthResourcePathsBindKey, offsetBind, fetchLimitBind, rows.ResourceTypeBindKey,
 		limitBind, limitBind)
 	if err := validateGroupRowsBindReferences(rows, binds, query); err != nil {
 		return RenderedPhysicalPlan{}, err

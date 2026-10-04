@@ -44,7 +44,7 @@ LET explicit_rows = (FOR definition IN definitions
     FILTER member.groupId == definition.groupId
     SORT member.project ASC, member.generation ASC, member.resourceType ASC, member.id ASC
     LET source = FIRST(FOR resource IN @@%s
-      FILTER resource.id == member.ref.id AND resource.project == member.ref.project AND resource.dataset_generation == member.ref.generation AND resource.resourceType == member.ref.resourceType
+      FILTER resource.id == member.ref.id AND resource.project == @%s AND resource.dataset_generation == member.ref.generation AND resource.resourceType == member.ref.resourceType
       RETURN resource)
     FILTER source == null OR @%s == true OR source.auth_resource_path IN @%s
     RETURN {source_identity: {project: member.ref.project, generation: member.ref.generation, resource_type: member.ref.resourceType, id: member.ref.id}, payload: source == null ? null : source.payload, __loom_storage_key: source == null ? null : source._key})
@@ -52,7 +52,7 @@ LET explicit_rows = (FOR definition IN definitions
   RETURN {group_revision_id: revision._key, group_id: definition.groupId, group_label: definition.label, group_ordinal: definition.ordinal, __loom_row_id: {group_revision_id: revision._key, group_id: definition.groupId}, members: (FOR member_record IN member_records RETURN KEEP(member_record, "source_identity", "payload")), __loom_root_contributor_keys: contributor_keys})
 LET unassigned_records = (FOR selected IN unassigned
 	LET source = FIRST(FOR resource IN @@%s
-	    FILTER resource.id == selected.id AND resource.project == selected.project AND resource.dataset_generation == selected.generation AND resource.resourceType == selected.resourceType
+	    FILTER resource.id == selected.id AND resource.project == @%s AND resource.dataset_generation == selected.generation AND resource.resourceType == selected.resourceType
 	    RETURN resource)
 	  FILTER source == null OR @%s == true OR source.auth_resource_path IN @%s
 	  RETURN {source_identity: {project: selected.project, generation: selected.generation, resource_type: selected.resourceType, id: selected.id}, payload: source == null ? null : source.payload, __loom_storage_key: source == null ? null : source._key})
@@ -65,8 +65,8 @@ SORT row.group_ordinal ASC, row.group_id ASC
 		rows.SelectionCollectionBindKey, rows.ProjectBindKey, rows.DatasetGenerationBindKey, rows.ResourceTypeBindKey,
 		rows.MembershipsCollectionBindKey, rows.ProjectBindKey, rows.DatasetGenerationBindKey, rows.ResourceTypeBindKey,
 		rows.SelectionMembersCollectionBindKey, rows.ProjectBindKey, rows.DatasetGenerationBindKey, rows.ResourceTypeBindKey,
-		rows.PolicyBindKey, rows.DefinitionsCollectionBindKey, rows.ProjectBindKey, rows.ResourceCollectionBindKey, rows.AuthUnrestrictedBindKey, rows.AuthResourcePathsBindKey,
-		rows.ResourceCollectionBindKey, rows.AuthUnrestrictedBindKey, rows.AuthResourcePathsBindKey, rows.PolicyBindKey)
+		rows.PolicyBindKey, rows.DefinitionsCollectionBindKey, rows.ProjectBindKey, rows.ResourceCollectionBindKey, rows.ResourceProjectBindKey, rows.AuthUnrestrictedBindKey, rows.AuthResourcePathsBindKey,
+		rows.ResourceCollectionBindKey, rows.ResourceProjectBindKey, rows.AuthUnrestrictedBindKey, rows.AuthResourcePathsBindKey, rows.PolicyBindKey)
 	if rows.LimitBindKey != "" {
 		query += "LIMIT @" + rows.LimitBindKey + "\n"
 	}
@@ -265,7 +265,7 @@ func (r *physicalPlanRenderer) renderCohortRootScan(root ir.PhysicalRootScan) ([
 		")",
 		fmt.Sprintf("FOR %s IN %s", candidateID, candidateIDs),
 		fmt.Sprintf("  FOR %s IN @@%s", root.Variable, root.CollectionBindKey),
-		fmt.Sprintf("    FILTER %s.id == %s AND %s.project == @%s AND %s.dataset_generation == @%s AND %s.resourceType == @%s", root.Variable, candidateID, root.Variable, source.ProjectBindKey, root.Variable, source.DatasetGenerationBindKey, root.Variable, source.ResourceTypeBindKey),
+		fmt.Sprintf("    FILTER %s.id == %s AND %s.project == @%s AND %s.dataset_generation == @%s AND %s.resourceType == @%s", root.Variable, candidateID, root.Variable, source.ResourceProjectBindKey, root.Variable, source.DatasetGenerationBindKey, root.Variable, source.ResourceTypeBindKey),
 	}
 	return lines, nil
 }
@@ -313,7 +313,7 @@ func (r *physicalPlanRenderer) renderConstructionCohortGroupStage(stage ir.Physi
 		fmt.Sprintf("    LET %s = (FOR member IN all_memberships", memberRecords),
 		fmt.Sprintf("      FILTER member.groupId == %s.groupId", definition),
 		fmt.Sprintf("      LET %s = FIRST(FOR resource IN @@%s", source, rows.ResourceCollectionBindKey),
-		"        FILTER resource.id == member.ref.id AND resource.project == member.ref.project AND resource.dataset_generation == member.ref.generation AND resource.resourceType == member.ref.resourceType",
+		fmt.Sprintf("        FILTER resource.id == member.ref.id AND resource.project == @%s AND resource.dataset_generation == member.ref.generation AND resource.resourceType == member.ref.resourceType", rows.ResourceProjectBindKey),
 		"        RETURN resource)",
 		fmt.Sprintf("      FILTER %s", cohortMemberInputPredicate(source, contributors, cohort.PreserveMissingMembers)),
 		fmt.Sprintf("      FILTER %s", cohortMemberAuthorizationPredicate(source, rows, cohort.PreserveMissingMembers)),
@@ -325,7 +325,7 @@ func (r *physicalPlanRenderer) renderConstructionCohortGroupStage(stage ir.Physi
 	lines = append(lines,
 		"  LET unassigned_records = (FOR selected IN unassigned",
 		"    LET source = FIRST(FOR resource IN @@"+rows.ResourceCollectionBindKey,
-		"      FILTER resource.id == selected.id AND resource.project == selected.project AND resource.dataset_generation == selected.generation AND resource.resourceType == selected.resourceType",
+		fmt.Sprintf("      FILTER resource.id == selected.id AND resource.project == @%s AND resource.dataset_generation == selected.generation AND resource.resourceType == selected.resourceType", rows.ResourceProjectBindKey),
 		"      RETURN resource)",
 		fmt.Sprintf("    FILTER %s", cohortMemberInputPredicate("source", contributors, cohort.PreserveMissingMembers)),
 		fmt.Sprintf("    FILTER %s", cohortMemberAuthorizationPredicate("source", rows, cohort.PreserveMissingMembers)),
@@ -380,7 +380,7 @@ func cohortMemberAuthorizationPredicate(source string, rows ir.PhysicalGroupRows
 }
 
 func validateGroupRowsBindReferences(rows ir.PhysicalGroupRows, binds map[string]any, query string) error {
-	for _, key := range []string{rows.RevisionIDBindKey, rows.ProjectBindKey, rows.DatasetGenerationBindKey, rows.ResourceTypeBindKey, rows.PolicyBindKey, rows.AuthResourcePathsBindKey, rows.AuthUnrestrictedBindKey} {
+	for _, key := range []string{rows.RevisionIDBindKey, rows.ProjectBindKey, rows.ResourceProjectBindKey, rows.DatasetGenerationBindKey, rows.ResourceTypeBindKey, rows.PolicyBindKey, rows.AuthResourcePathsBindKey, rows.AuthUnrestrictedBindKey} {
 		if !strings.Contains(query, "@"+key) {
 			return fmt.Errorf("group rows query does not reference bind %q", key)
 		}

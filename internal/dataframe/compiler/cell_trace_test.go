@@ -523,7 +523,7 @@ func TestConstructionRelatedSourceCellTraceReplaysScopedRoutePerOccurrence(t *te
 		t.Fatalf("related-source trace must preserve path occurrences and null values without deduplication/filtering:\n%s", compiled.Query)
 	}
 	for _, want := range []string{
-		"project-a", "generation-a", "subject_Patient", "Patient", "Observation",
+		"fixture_program-project-a", "generation-a", "subject_Patient", "Patient", "Observation",
 		"resourceType", "resourceId", "value", "outputStageId", "outputColumnId", "observation_status", "add_observation_status", "finalStageId", "RELATED_SOURCE",
 	} {
 		if !containsBindValue(compiled.BindVars, want) {
@@ -578,7 +578,7 @@ func assertConstructionTraceUsesPreviewIdentity(t *testing.T, output lower.Compi
 	if compiled.RowIdentity == nil || !reflect.DeepEqual(compiled.RowIdentity.Fields, output.RowIdentity.Fields) {
 		t.Fatalf("cell trace identity = %#v, want Preview identity %#v", compiled.RowIdentity, output.RowIdentity)
 	}
-	if compiled.BindVars["project"] != "project-a" {
+	if compiled.BindVars["project"] != "fixture_program-project-a" {
 		t.Fatalf("cell trace project identity bind = %#v, want the same pinned project as Preview", compiled.BindVars["project"])
 	}
 	if !strings.Contains(compiled.Query, "[@project, __loom_construction_final_row._key]") {
