@@ -3,24 +3,36 @@ import { runPlaywrightCase } from './playwright-case.mjs';
 import { recordCheck } from './report.mjs';
 
 const retryLabel = /^(?:Try again|Retry(?:\s+(?:Builder|Explorer|capabilit)[\w ]*)?|Reload capabilities)$/i;
-const faultCases = {
-  list: { method: 'GET', pathEndsWith: '/explorers' },
-  state: { method: 'GET', pathEndsWith: '/authoring/v2/builder' },
+const ownedRead = (target, caseName) => {
+  const explorers = `/api/v1/projects/${encodeURIComponent(target.fixtureProject)}/explorers`;
+  return {
+    method: 'GET',
+    path: caseName === 'list'
+      ? explorers
+      : `${explorers}/${encodeURIComponent(target.bootstrapExplorerId)}/authoring/v2/builder`,
+  };
+};
+
+const isExpectedResponse = (response, target, read) => {
+  const url = new URL(response.url());
+  return url.origin === new URL(target.apiUrl).origin && url.pathname === read.path &&
+    response.request().method() === read.method;
 };
 
 const runCase = (context, caseName) => runPlaywrightCase(context, 'builder-load', caseName,
   async ({ page, browser, report, action, fault }) => {
     const target = context.target;
-    const injection = await fault(faultCases[caseName]);
+    const read = ownedRead(target, caseName);
+    const injection = await fault(read);
     await page.goto(browserURL(target, target.fixtureProject, target.bootstrapExplorerId, 'builder'), {
       waitUntil: 'domcontentloaded',
     });
     const errorAlert = page.getByRole('alert').filter({ hasText: 'Couldn’t load this dataset.' });
     await errorAlert.waitFor({ state: 'visible', timeout: 30000 });
     recordCheck(report, 'correctness', 'builder failure is exposed in an alert', true,
-      { alert: await errorAlert.innerText(), failedRead: faultCases[caseName] });
+      { alert: await errorAlert.innerText(), failedRead: read, project: target.fixtureProject, explorer: target.bootstrapExplorerId });
     recordCheck(report, 'correctness', 'specific builder read fault was injected', injection.count() === 1,
-      { method: faultCases[caseName].method, pathEndsWith: faultCases[caseName].pathEndsWith, count: injection.count() });
+      { ...read, apiOrigin: new URL(target.apiUrl).origin, project: target.fixtureProject, explorer: target.bootstrapExplorerId, count: injection.count() });
 
     const retry = page.getByRole('button', { name: retryLabel });
     const count = await retry.count();
@@ -31,8 +43,7 @@ const runCase = (context, caseName) => runPlaywrightCase(context, 'builder-load'
       const recoveredResponse = page.waitForResponse(response => {
         const request = response.request();
         const url = new URL(response.url());
-        return request.method() === faultCases[caseName].method &&
-          url.pathname.endsWith(faultCases[caseName].pathEndsWith);
+        return request.method() === read.method && url.origin === new URL(target.apiUrl).origin && url.pathname === read.path;
       }, { timeout: 10000 });
       await action('builder in-app Retry', retry, () => retry.click(), {
         timeout: 5000,
@@ -47,19 +58,17 @@ const runCase = (context, caseName) => runPlaywrightCase(context, 'builder-load'
       });
       const response = await recoveredResponse;
       recordCheck(report, 'persistence', 'builder recovered through in-app Retry', response.status() >= 200 && response.status() < 300,
-        { method: response.request().method(), path: new URL(response.url()).pathname, status: response.status() });
+        { method: response.request().method(), apiOrigin: new URL(response.url()).origin, path: new URL(response.url()).pathname, status: response.status(), project: target.fixtureProject, explorer: target.bootstrapExplorerId });
       return;
     }
 
     await browser.captureFailure(new Error('Builder error did not expose a unique actionable Retry button'), {
       action: { label: 'inspect Builder Retry', locator: retry.toString(), targetLocator: retry },
       phase: 'retry-unavailable',
-      failedRead: faultCases[caseName],
+      failedRead: read,
     });
     const response = page.waitForResponse(candidate => {
-      const request = candidate.request();
-      return request.method() === faultCases[caseName].method &&
-        new URL(candidate.url()).pathname.endsWith(faultCases[caseName].pathEndsWith);
+      return isExpectedResponse(candidate, target, read);
     }, { timeout: 10000 });
     await page.reload({ waitUntil: 'domcontentloaded' });
     const recovery = await response;
@@ -67,7 +76,7 @@ const runCase = (context, caseName) => runPlaywrightCase(context, 'builder-load'
     await errorAlert.waitFor({ state: 'hidden', timeout: 10000 });
     recordCheck(report, 'persistence', 'reload separately restored the one-shot failed read',
       recovery.status() >= 200 && recovery.status() < 300,
-      { method: recovery.request().method(), path: new URL(recovery.url()).pathname, status: recovery.status() });
+      { method: recovery.request().method(), apiOrigin: new URL(recovery.url()).origin, path: new URL(recovery.url()).pathname, status: recovery.status(), project: target.fixtureProject, explorer: target.bootstrapExplorerId });
   });
 
 export const runBuilderLoad = async (context, caseNames) => {

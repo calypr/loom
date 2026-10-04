@@ -27,16 +27,28 @@ const pathAndMethod = request => {
   return { method: request.method(), origin: url.origin, pathname: url.pathname };
 };
 
-const diagnosticsToNetwork = (diagnostics, injectedPath) => {
+const isLoopback = origin => {
+  try { return ['127.0.0.1', 'localhost', '::1'].includes(new URL(origin).hostname); }
+  catch { return false; }
+};
+
+const diagnosticsToNetwork = (diagnostics, injectedTarget) => {
+  const matchesInjectedPath = value => {
+    try {
+      const url = new URL(value);
+      return url.origin === injectedTarget?.origin && url.pathname === injectedTarget?.path;
+    }
+    catch { return false; }
+  };
   const entries = [];
   for (const item of diagnostics.console) entries.push({ kind: 'console-error', ...item });
   for (const item of diagnostics.pageErrors) entries.push({ kind: 'exception', ...item });
   for (const item of diagnostics.networkFailures) {
-    const fault = item.url.endsWith(injectedPath);
+    const fault = matchesInjectedPath(item.url);
     entries.push({ kind: 'network', ...item, errorText: item.failure, ...(fault ? { injectedFault: true } : {}) });
   }
   for (const item of diagnostics.httpFailures) {
-    const fault = item.url.endsWith(injectedPath);
+    const fault = matchesInjectedPath(item.url);
     entries.push({ kind: 'network', ...item, ...(fault ? { injectedFault: true, injectedStatus: item.status } : {}) });
   }
   return entries;
@@ -57,7 +69,7 @@ export const runPlaywrightCase = async (context, scenarioID, caseName, work) => 
   let sourceAtStart;
   let initialBuild;
   let browser;
-  let injectedPath = '';
+  let injectedTarget;
   let activeAction;
   let activeStartedAt = Date.now();
   try {
@@ -69,7 +81,8 @@ export const runPlaywrightCase = async (context, scenarioID, caseName, work) => 
     browser = await launchBrowser({
       evidence: location.evidenceDirectory,
       appOrigins: [target.uiUrl, target.apiUrl],
-      noAuth: true,
+      noAuth: context.custom === false && target.kind === 'isolated' && Boolean(target.composeProject) &&
+        isLoopback(target.uiUrl) && isLoopback(target.apiUrl),
     });
     const { page, diagnostics } = browser;
 
@@ -110,20 +123,20 @@ export const runPlaywrightCase = async (context, scenarioID, caseName, work) => 
       }
     };
 
-    const fault = async ({ method, pathEndsWith }) => {
-      injectedPath = pathEndsWith;
+    const fault = async ({ method, path }) => {
       const apiOrigin = new URL(target.apiUrl).origin;
+      injectedTarget = { origin: apiOrigin, path };
       let count = 0;
       await page.route('**/*', async route => {
         const parts = pathAndMethod(route.request());
-        if (count === 0 && parts.origin === apiOrigin && parts.method === method && parts.pathname.endsWith(pathEndsWith)) {
+        if (count === 0 && parts.origin === apiOrigin && parts.method === method && parts.pathname === path) {
           count += 1;
           await route.abort();
         } else {
           await route.continue();
         }
       });
-      return { count: () => count, path: pathEndsWith };
+      return { count: () => count, path };
     };
 
     await work({ page, browser, report, check, action, fault });
@@ -138,7 +151,7 @@ export const runPlaywrightCase = async (context, scenarioID, caseName, work) => 
     }).catch(() => undefined);
   } finally {
     if (browser) {
-      report.network.push(...diagnosticsToNetwork(browser.diagnostics, injectedPath));
+      report.network.push(...diagnosticsToNetwork(browser.diagnostics, injectedTarget));
       report.assetFailures.push(...browser.diagnostics.assetFailures.map(item => ({ kind: 'asset-failure', ...item })));
       if (browser.diagnostics.assetFailures.length) {
         recordCheck(report, 'correctness', 'incidental asset failures are explicitly recorded', true,
