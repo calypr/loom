@@ -3,14 +3,16 @@ import { execFileSync } from 'node:child_process';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { browserEval, launchBrowser, navigate, waitForBrowser } from './loom-dev.mjs';
+import { runRelatedSourceChooser } from './verify-cda-builder-related-source-chooser.mjs';
 
 const action = process.argv[2] ?? 'Keep rows';
-const explorerId = process.argv[3] ?? 'cda-builder-full-qa-1790439585678';
-const uiOrigin = (process.env.LOOM_CDA_UI_ORIGIN ?? 'http://127.0.0.1:30002').replace(/\/$/, '');
-const pageURL = `${uiOrigin}/?project=loom_dev_cda_fhir&explorer=${explorerId}&mode=builder`;
+const playwrightOnlyAction = action === 'Verify related source chooser';
+const explorerId = process.argv[3] ?? (playwrightOnlyAction ? undefined : 'cda-builder-full-qa-1790439585678');
+const uiOrigin = (process.env.LOOM_CDA_UI_ORIGIN ?? (playwrightOnlyAction ? '' : 'http://127.0.0.1:30002')).replace(/\/$/, '');
+const pageURL = playwrightOnlyAction ? undefined : `${uiOrigin}/?project=loom_dev_cda_fhir&explorer=${explorerId}&mode=builder`;
 const evidenceDirectory = join('.artifacts', 'cda-builder', new Date().toISOString().replaceAll(':', '-'));
-const browser = action === 'Verify bounded indirect related route' ? null : await launchBrowser('/private/tmp');
-if (browser && (action === 'Verify related source chooser' || action === 'Inspect selected Patient route' || action === 'Inspect compact Rows' || action === 'Inspect reshape options')) {
+const browser = action === 'Verify bounded indirect related route' || playwrightOnlyAction ? null : await launchBrowser('/private/tmp');
+if (browser && (action === 'Inspect selected Patient route' || action === 'Inspect compact Rows' || action === 'Inspect reshape options')) {
   await browser.cdp.send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
 }
 const responses = [];
@@ -45,7 +47,17 @@ browser?.cdp.on('Network.responseReceived', (event) => {
 });
 
 try {
-  if (action === 'Verify bounded indirect related route') {
+  if (playwrightOnlyAction) {
+    const report = await runRelatedSourceChooser({ explorerId: process.argv[3] });
+    console.log(JSON.stringify({
+      action,
+      status: report.status,
+      report: join(report.evidenceDirectory, 'report.json'),
+      evidenceDirectory: report.evidenceDirectory,
+      assertions: report.assertions,
+      lifecycle: report.lifecycle,
+    }, null, 2));
+  } else if (action === 'Verify bounded indirect related route') {
     const targetExplorer = process.argv[3] ?? 'cda-builder-full-qa-1790440983382';
     const journeyOrigin = process.env.LOOM_CDA_UI_ORIGIN ?? uiOrigin;
     const stdout = execFileSync(process.execPath, ['scripts/verify-cda-indirect-specimen-patient.mjs', targetExplorer, 'count'], {
@@ -2508,25 +2520,6 @@ try {
     await mkdir(evidenceDirectory,{recursive:true});
     await writeFile(join(evidenceDirectory,'group-editor.json'),JSON.stringify({pageURL,groupOption,state,responses},null,2));
     console.log(JSON.stringify({evidenceDirectory,groupOption,state,responses},null,2));
-  } else if (action === 'Verify related source chooser') {
-    await browserEval(browser.cdp, `document.querySelector('button[aria-label^="Add columns:"]').click();return true;`);
-    await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid="construction-add-columns-source"]'))`, 30000);
-    const before = await browserEval(browser.cdp, `const panel=document.querySelector('[data-testid="construction-add-columns-source"]');return {text:panel.innerText,buttons:[...panel.querySelectorAll('button')].map(button=>({label:button.getAttribute('aria-label'),key:button.dataset.sourceKey,kind:button.dataset.sourceKind,selected:button.getAttribute('aria-pressed')==='true',disabled:button.disabled,visible:button.offsetParent!==null})),search:panel.querySelector('input[type="search"]')?.getAttribute('aria-label')};`);
-    assert(before.buttons.some(button=>button.kind==='ALL' && button.selected));
-    assert(before.buttons.some(button=>button.kind==='ROOT' && !button.selected));
-    assert.deepEqual(new Set(before.buttons.filter(button=>button.kind==='RELATED').map(button=>button.label.split(',')[0])), new Set(['Patient','ResearchStudy','Medication','ResearchSubject','Condition','BodyStructure','MedicationAdministration','Observation']));
-    await browserEval(browser.cdp, `const search=document.querySelector('input[aria-label="Search related resources"]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(search,'Obser');search.dispatchEvent(new Event('input',{bubbles:true}));return true;`);
-    await waitForBrowser(browser.cdp, `[...document.querySelectorAll('[data-source-kind="RELATED"]')].filter(button=>button.offsetParent!==null).length===1`, 30000);
-    const filtered = await browserEval(browser.cdp, `return [...document.querySelectorAll('[data-testid="construction-add-columns-source-option"]')].filter(button=>button.offsetParent!==null).map(button=>button.getAttribute('aria-label'));`);
-    const { source } = await chooseRelatedSource('Observation');
-    const after = await browserEval(browser.cdp, `const panel=document.querySelector('[data-testid="construction-add-columns-source"]');return {selected:[...panel.querySelectorAll('button[aria-pressed="true"]')].map(button=>button.getAttribute('aria-label')),search:panel.querySelector('input[type="search"]')?.value,content:document.querySelector('[aria-label="Add columns editor"]')?.innerText.slice(0,1800)};`);
-    assert.equal(after.search,'');
-    assert(after.selected.some(label=>label.startsWith('Observation,')));
-    await mkdir(evidenceDirectory,{recursive:true});
-    const screenshot = await browser.cdp.send('Page.captureScreenshot',{format:'png',captureBeyondViewport:true});
-    await writeFile(join(evidenceDirectory,'related-source-chooser.png'),Buffer.from(screenshot.data,'base64'));
-    await writeFile(join(evidenceDirectory,'related-source-chooser.json'),JSON.stringify({pageURL,before,filtered,source,after,responses},null,2));
-    console.log(JSON.stringify({evidenceDirectory,before,filtered,source,after,responses:responses.filter(response=>response.status>=400)},null,2));
   } else if (action === 'Inspect Patient field choice' || action === 'Inspect selected Patient route' || action === 'Inspect Patient proposal' || action === 'Verify Patient related column') {
     let baseline;
     if (action === 'Verify Patient related column') {
