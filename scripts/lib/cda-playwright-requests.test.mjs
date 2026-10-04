@@ -46,3 +46,30 @@ test('owned requests correlate sanitized responses and reject sibling explorer p
   assert.equal(report.errors[0].status, 503);
   assert.deepEqual(report.errors[0].response, report.nativeRequests[0].response);
 });
+
+test('related expand choice responses are retained as sanitized diagnostics', async () => {
+  const page = new EventEmitter();
+  const report = { nativeRequests: [], errors: [] };
+  const capture = captureCDARequests(page, {
+    apiOrigin: 'http://127.0.0.1:30102',
+    ownedPathPrefix: '/api/v1/projects/isolated/explorers/owned',
+    report,
+  });
+  const request = {
+    url: () => 'http://127.0.0.1:30102/api/v1/projects/isolated/explorers/owned/authoring/v2/related-expand-choices',
+    method: () => 'POST',
+    headers: () => ({}),
+    postData: () => '{"selectionToken":"secret"}',
+  };
+  page.emit('request', request);
+  page.emit('response', {
+    request: () => request,
+    status: () => 422,
+    headers: () => ({}),
+    text: async () => '{"error":"selection is stale","authorization":"secret"}',
+  });
+  await capture.flush();
+  assert.deepEqual(report.nativeRequests[0].body, { selectionToken: '[REDACTED]' });
+  assert.deepEqual(report.nativeRequests[0].response, { error: 'selection is stale', authorization: '[REDACTED]' });
+  assert.deepEqual(report.errors[0].response, report.nativeRequests[0].response);
+});

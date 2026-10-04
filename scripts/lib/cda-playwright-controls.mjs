@@ -45,7 +45,10 @@ export function createCDAPlaywrightControls({ browser, browserApiOrigin, ownedPa
     const startedAt = Date.now();
     return remember(label, locator, startedAt, await performAction(browser, label, locator, target => target.fill(value), { editable: true }));
   };
-  const evaluate = body => browser.page.evaluate(`async () => { ${body} }`);
+  const evaluate = (read, argument) => {
+    if (typeof read !== 'function') throw new TypeError('Browser evaluation must be a read-only function');
+    return browser.page.evaluate(read, argument);
+  };
   const wait = (expression, timeout = 30000) => browser.page.waitForFunction(expression, undefined, { timeout });
   const navigate = async url => {
     const startedAt = Date.now();

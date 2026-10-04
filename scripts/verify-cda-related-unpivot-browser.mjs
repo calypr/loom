@@ -9,6 +9,7 @@ import { captureApiBuildFreeze, checkContainerApiBuildStamp } from './lib/api-bu
 import { sourceFingerprint } from './verify-ui/source-fingerprint.mjs';
 import { launchBrowser, sanitizeBody } from './lib/playwright-browser.mjs';
 import { createCDAPlaywrightControls } from './lib/cda-playwright-controls.mjs';
+import { assertVisibleRowsMatchOracle } from './lib/cda-row-oracle.mjs';
 import { assertOwnedCdaTarget } from './lib/owned-cda-target.mjs';
 
 const project = process.env.LOOM_CDA_PROJECT;
@@ -53,11 +54,13 @@ const command = async commands => {
 const doc = state => state.workspace.documents.find(d => d.output.id === outputId);
 const proposal = async (name, start, expectedRows) => {
   await waitForBrowser( `['ready','error','needs-repair'].includes(document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalStatus)`);
-  const result = await browserEval( `const p=document.querySelector('[data-testid="construction-proposal-panel"]');return {status:p?.dataset.proposalStatus,proposalId:p?.dataset.proposalId,text:p?.innerText,rows:[...document.querySelectorAll('[data-testid="construction-proposal-preview-row"]')].map(r=>[...r.querySelectorAll('td')].map(c=>c.innerText))};`);
+  const result = await browserEval(() => {
+    const panel = document.querySelector('[data-testid="construction-proposal-panel"]');
+    return { status: panel?.dataset.proposalStatus, proposalId: panel?.dataset.proposalId, text: panel?.innerText,
+      rows: [...document.querySelectorAll('[data-testid="construction-proposal-preview-row"]')].map(row => [...row.querySelectorAll('td')].map(cell => cell.innerText)) };
+  });
   assert.equal(result.status, 'ready', result.text);
-  assert.equal(result.rows.length, Math.min(25, expectedRows.length));
-  const permitted = new Set(expectedRows.map(row=>JSON.stringify(row)));
-  for (const row of result.rows) assert(permitted.has(JSON.stringify(row)), 'Preview row must match an independent CDA relationship witness: '+JSON.stringify(row));
+  assertVisibleRowsMatchOracle(result.rows, expectedRows, { label: `${name} preview` });
   const durationMs = Date.now() - start;
   if (browser) browser.lastElapsedMs = durationMs;
   assert(durationMs <= 5000, `${name} took ${durationMs}ms`);
@@ -88,11 +91,10 @@ const open = async expectedRows => {
 };
 const rendered = async expectedRows => {
   await waitForBrowser( `document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount') === ${JSON.stringify(String(Math.min(25, expectedRows.length) + 1))} && !document.body.innerText.includes('Loading your table…')`);
-  const rows = await browserEval( `return [...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]')].slice(1).map(r=>[...r.querySelectorAll('[role="cell"]')].map(c=>c.innerText.trim())).filter(r=>r.length);`);
-  assert(rows.length > 0 || expectedRows.length === 0);
+  const rows = await browserEval(() => [...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]')].slice(1).map(row => [...row.querySelectorAll('[role="cell"]')].map(cell => cell.innerText.trim())).filter(row => row.length));
   // Saved presentation puts the new Unpivot key/value columns first; proposal order follows stage outputs.
   const savedRows = expectedRows.map(row=>row.at(-2)==='Specimen ID'?[...row.slice(-2),...row.slice(0,-2)]:row);
-  for (const row of rows) assert(savedRows.some(expected=>row.every((cell,i)=>cell===expected[i])), 'Visible saved cells must match a CDA witness: '+JSON.stringify(row));
+  assertVisibleRowsMatchOracle(rows, savedRows, { label: 'saved table' });
 };
 try {
   ownedTarget = await assertOwnedCdaTarget({ project, apiOrigin, uiOrigin, apiContainer, composeProject, sourceRoot, arangoContainer });
@@ -202,7 +204,7 @@ try {
   const configureMissing=async()=>{
     await click('[data-testid="construction-action-keep-rows"]');
     await waitForBrowser(`document.querySelector('${filterPanel} select[aria-label="Condition"]:not(:disabled)')`);
-    const options=await browserEval(`return [...document.querySelector('${filterPanel} select[aria-label="Column"]').options].map(o=>({value:o.value,label:o.textContent}));`);
+    const options=await browserEval(selector => [...document.querySelector(`${selector} select[aria-label="Column"]`).options].map(option => ({ value: option.value, label: option.textContent })), filterPanel);
     report.filterColumns=options;
     const value=options.find(o=>/^Value(?: \(|$)/.test(o.label));
     assert(value,'Unpivot Value must be available to Filter: '+JSON.stringify(options));
@@ -238,7 +240,7 @@ try {
     start=Date.now();
     await click(`[data-testid="construction-remove-step-${unpivot.id}"]`);
     await proposal('remove-unpivot-and-dependent-filter-preview',start,expected);
-    const removed=await browserEval(`return [...document.querySelectorAll('[data-testid^="construction-removal-step-"]')].map(e=>e.dataset.testid);`);
+    const removed=await browserEval(() => [...document.querySelectorAll('[data-testid^="construction-removal-step-"]')].map(element => element.dataset.testid));
     assert(removed.includes('construction-removal-step-'+unpivot.id),JSON.stringify(removed));
     assert(removed.includes('construction-removal-step-'+filter.id),'Removal warning must name the dependent filter: '+JSON.stringify(removed));
   };
@@ -259,7 +261,7 @@ try {
     const action = browser.activeAction ?? controls?.lastAction;
     await browser.captureFailure(error, { scenario: explorer, ...(action ? { action, elapsedMs: browser.activeAction ? Date.now() - browser.activeAction.startedAt : browser.lastElapsedMs ?? action.elapsedMs } : {}), draft: builder ? { draftVersion: builder.draftVersion, draftDigest: builder.draftDigest } : undefined, latestDiagnostic: report.errors.at(-1) });
   }
-  report.failureUI = browser ? await browserEval( 'return document.body.innerText;').catch(String) : undefined;
+  report.failureUI = browser ? await browserEval(() => document.body.innerText).catch(String) : undefined;
 } finally {
   if (frozenApiBuild) {
     try { report.apiBuildFreeze = { ...report.apiBuildFreeze, ...await frozenApiBuild.assertUnchanged() }; }

@@ -58,7 +58,7 @@ export function captureCDARequests(page, { apiOrigin, appOrigins = [apiOrigin], 
     entry.status = response.status();
     entry.responseReceivedAt = Date.now();
     entry.serverRequestId = headers['x-request-id'];
-    const readResponse = responsePaths.test(entry.path);
+    const readResponse = responsePaths.test(entry.path) || /related-expand-choices/.test(entry.path);
     const read = (async () => {
       try {
         if (readResponse) entry.response = parseBody(await response.text());
