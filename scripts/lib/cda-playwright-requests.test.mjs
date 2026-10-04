@@ -103,6 +103,27 @@ test('successful owned responses without diagnostic bodies flush without a reque
   assert.deepEqual(report.nativeRequests[0].response, { bodyNotRead: true });
 });
 
+test('UI proxy requests retain private exact bodies while reports stay redacted', async () => {
+  const page = new EventEmitter();
+  const report = { nativeRequests: [], errors: [] };
+  const capture = captureCDARequests(page, {
+    apiOrigin: 'http://127.0.0.1:8282', browserRequestOrigin: 'http://127.0.0.1:30102',
+    appOrigins: ['http://127.0.0.1:30102', 'http://127.0.0.1:8282'],
+    ownedPathPrefix: '/api/v1/projects/isolated/explorers/owned', report,
+  });
+  const request = {
+    url: () => 'http://127.0.0.1:30102/api/v1/projects/isolated/explorers/owned/authoring/v2/preview',
+    method: () => 'POST', headers: () => ({}), postData: () => '{"snapshotToken":"exact-private-token"}',
+  };
+  page.emit('request', request);
+  page.emit('response', { request: () => request, status: () => 200, headers: () => ({}), text: async () => '{"draftToken":"exact-private-response"}' });
+  await capture.flush();
+  const entry = report.nativeRequests[0];
+  assert.deepEqual(capture.rawRequestBody(entry), { snapshotToken: 'exact-private-token' });
+  assert.deepEqual(capture.rawResponseBody(entry), { draftToken: 'exact-private-response' });
+  assert(!JSON.stringify(report).includes('exact-private-'));
+});
+
 test('only the known missing favicon is recorded as an incidental asset failure', () => {
   const page = new EventEmitter();
   const report = { nativeRequests: [], errors: [] };

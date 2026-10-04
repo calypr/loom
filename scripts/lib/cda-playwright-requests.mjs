@@ -20,14 +20,19 @@ const parseBody = body => {
     return sanitizeText(text);
   }
 };
+const parseRawBody = body => {
+  try { return JSON.parse(String(body ?? '')); }
+  catch { return String(body ?? ''); }
+};
 
-export function captureCDARequests(page, { apiOrigin, appOrigins = [apiOrigin], ownedPathPrefix, report, responsePaths = /commands|selections|explicit-groups|row-definition-proposals|construction-choice-proposals|construction-proposals|construction-capabilities|row-lineage|population-mapping|preview/ } = {}) {
+export function captureCDARequests(page, { apiOrigin, browserRequestOrigin = apiOrigin, appOrigins = [apiOrigin], ownedPathPrefix, report, responsePaths = /commands|selections|explicit-groups|row-definition-proposals|construction-choice-proposals|construction-proposals|construction-capabilities|row-lineage|population-mapping|preview/ } = {}) {
   if (!apiOrigin || !ownedPathPrefix || !report || !Array.isArray(report.nativeRequests)) {
     throw new TypeError('CDA request capture needs an API origin, owned path prefix, and nativeRequests report array');
   }
-  const apiURL = new URL(apiOrigin);
+  const apiURL = new URL(browserRequestOrigin);
   const appOriginSet = new Set(appOrigins.map(origin => new URL(origin).origin));
   const byRequest = new Map();
+  const rawBodies = new WeakMap();
   const pendingReads = new Set();
   const waiters = new Set();
   let nextBrowserRequestId = 1;
@@ -68,6 +73,7 @@ export function captureCDARequests(page, { apiOrigin, appOrigins = [apiOrigin], 
       ...(body !== undefined ? { body } : {}),
     };
     byRequest.set(request, entry);
+    rawBodies.set(entry, { request: request.postData() === null ? undefined : parseRawBody(request.postData()) });
     report.nativeRequests.push(entry);
   });
 
@@ -81,7 +87,11 @@ export function captureCDARequests(page, { apiOrigin, appOrigins = [apiOrigin], 
     const readResponse = responsePaths.test(entry.path) || /related-expand-choices/.test(entry.path);
     const read = Promise.resolve().then(async () => {
       try {
-        if (readResponse) entry.response = parseBody(await response.text());
+        if (readResponse) {
+          const body = await response.text();
+          rawBodies.get(entry).response = parseRawBody(body);
+          entry.response = parseBody(body);
+        }
         else entry.response = { bodyNotRead: true };
       } catch (error) {
         entry.responseReadError = sanitizeText(error?.message ?? error);
@@ -127,6 +137,8 @@ export function captureCDARequests(page, { apiOrigin, appOrigins = [apiOrigin], 
   return {
     byRequest,
     pendingReads,
+    rawRequestBody: entry => rawBodies.get(entry)?.request,
+    rawResponseBody: entry => rawBodies.get(entry)?.response,
     waitFor(predicate, { fromIndex = 0, timeoutMs, timeout } = {}) {
       const deadlineMs = timeoutMs ?? timeout ?? 5000;
       const match = report.nativeRequests.slice(fromIndex).find(entry => entry.completedAt && predicate(entry));
