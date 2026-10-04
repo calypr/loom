@@ -4,16 +4,18 @@ import { spawnSync } from 'node:child_process';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { parseArgs } from 'node:util';
-import { browserEval, click, launchBrowser, navigate, selectOption, waitForBrowser } from './lib/browser.mjs';
+import { assertOwnedTarget, browserEval, click, launchBrowser, navigate, selectOption, waitForBrowser, captureRequests, waitForCapturedResponse, includeBrowserDiagnostics } from './lib/cda-playwright.mjs';
 
 const { values } = parseArgs({ options: {
-  'api-origin': { type: 'string', default: 'http://127.0.0.1:8188' },
-  'ui-origin': { type: 'string', default: 'http://127.0.0.1:30008' },
-  project: { type: 'string', default: 'loom_dev_cda_fhir' },
+  'api-origin': { type: 'string' },
+  'ui-origin': { type: 'string' },
+  project: { type: 'string' },
   generation: { type: 'string', default: 'cda-fhir-v1' },
   evidence: { type: 'string', default: `/tmp/loom-cda-repeated-rows-${Date.now()}` },
-  'arango-container': { type: 'string', default: 'loom-dev-6d7df93d6a37-arangodb-1' },
+  'arango-container': { type: 'string' },
 } });
+values['api-origin'] = values['api-origin']?.replace(/\/$/, '');
+values['ui-origin'] = values['ui-origin']?.replace(/\/$/, '');
 
 const protectedExplorer = 'cda-builder-full-qa-1790440983382';
 const explorer = `cda-repeated-rows-${Date.now()}`;
@@ -33,6 +35,7 @@ const report = {
   timings: [],
   requests: [],
   browserRequests: [],
+  nativeRequests: [],
   browserErrors: { exceptions: [], console: [], modules: [], http: [], incidental: [] },
   evidencePaths: [],
 };
@@ -42,7 +45,7 @@ const base = `${root}/${encodeURIComponent(explorer)}/authoring/v2`;
 let builder;
 let outputId;
 let browser;
-let browserPending = new Set();
+let browserEvents;
 
 const recordAssertion = (name, evidence) => report.assertions.push({ name, status: 'passed', evidence });
 const api = async (path, body, allowFailure = false) => {
@@ -80,7 +83,7 @@ const command = async (commands) => {
 const document = () => builder.workspace.documents.find(doc => doc.output.id === outputId);
 const previewTableSelector = '[data-testid="preview-table-scroll"] [role="table"]';
 const rowsReady = count => `${JSON.stringify(String(count + 1))} === document.querySelector(${JSON.stringify(previewTableSelector)})?.getAttribute('aria-rowcount') && !document.body.innerText.includes('Loading your table')`;
-const domText = () => browserEval(browser.cdp, 'return document.body.innerText;');
+const domText = () => browserEval(browser.page, 'return document.body.innerText;');
 
 const boundedRawOracle = () => {
   const query = `FOR r IN Observation FILTER r.project == ${JSON.stringify(values.project)} AND r.dataset_generation == ${JSON.stringify(values.generation)} FILTER IS_ARRAY(r.payload.component) SORT r.id LIMIT 1000 RETURN {id:r.id, generation:r.dataset_generation, payload:r.payload}`;
@@ -124,54 +127,17 @@ const responseEvidence = text => {
 };
 
 const monitorBrowser = () => {
-  const byId = new Map();
-  const interested = /\/authoring\/v2\/(?:row-definition-proposals|construction-proposals|construction-choice-proposals|commands|preview|builder)(?:\/|\?|$)/;
-  browser.cdp.on('Network.requestWillBeSent', ({ requestId, request, wallTime }) => {
-    let url;
-    try { url = new URL(request.url); } catch { return; }
-    if (!url.pathname.startsWith(`${root}/${encodeURIComponent(explorer)}/`) || !interested.test(url.pathname + url.search)) return;
-    const entry = {
-      requestId, method: request.method, path: url.pathname + url.search,
-      startedAt: wallTime ? Math.round(wallTime * 1000) : Date.now(),
-      body: responseEvidence(request.postData),
-    };
-    byId.set(requestId, entry);
-    report.browserRequests.push(entry);
+  report.nativeRequests = [];
+  report.errors = [];
+  browserEvents = captureRequests(browser, report, `${root}/${encodeURIComponent(explorer)}`, {
+    apiOrigin: values['api-origin'], uiOrigin: values['ui-origin'],
   });
-  browser.cdp.on('Network.responseReceived', ({ requestId, response }) => {
-    const entry = byId.get(requestId);
-    if (entry) {
-      entry.status = response.status;
-      entry.responseAt = Date.now();
-      entry.durationMs = entry.responseAt - (entry.startedAt || entry.responseAt);
-    }
-    if (response.status < 400) return;
-    const item = { url: response.url, status: response.status };
-    if (response.url.endsWith('/favicon.ico')) report.browserErrors.incidental.push(item);
-    else report.browserErrors.http.push(item);
-  });
-  browser.cdp.on('Network.loadingFinished', ({ requestId }) => {
-    const entry = byId.get(requestId);
-    if (!entry) return;
-    entry.completedAt = Date.now();
-    const read = browser.cdp.send('Network.getResponseBody', { requestId })
-      .then(result => { entry.response = responseEvidence(result.base64Encoded ? Buffer.from(result.body, 'base64').toString('utf8') : result.body); })
-      .catch(error => { entry.responseReadError = String(error); })
-      .finally(() => browserPending.delete(read));
-    browserPending.add(read);
-  });
-  browser.cdp.on('Runtime.exceptionThrown', event => report.browserErrors.exceptions.push(event.exceptionDetails));
-  browser.cdp.on('Runtime.consoleAPICalled', event => {
-    if (event.type === 'error') report.browserErrors.console.push(event.args.map(arg => arg.value ?? arg.description));
-  });
-  browser.cdp.on('Network.loadingFailed', event => {
-    if (event.type === 'Script' && event.errorText !== 'net::ERR_ABORTED') report.browserErrors.modules.push(event.errorText);
-  });
+  report.browserRequests = report.nativeRequests;
 };
 
 const remaining = startedAt => Math.max(100, 5000 - (Date.now() - startedAt));
 const fastWait = async (startedAt, expression, message) => {
-  try { await waitForBrowser(browser.cdp, expression, remaining(startedAt)); }
+  try { await waitForBrowser(browser.page, expression, remaining(startedAt)); }
   catch (error) { throw new Error(`${message} within the five-second action budget: ${String(error)}`); }
 };
 const measure = async (name, action) => {
@@ -185,33 +151,33 @@ const measure = async (name, action) => {
 
 const openTable = async (expectedRows, name) => measure(name, async startedAt => {
   const url = `${values['ui-origin']}/?project=${encodeURIComponent(values.project)}&explorer=${encodeURIComponent(explorer)}&mode=builder`;
-  await navigate(browser.cdp, url);
+  await navigate(browser.page, url);
   await fastWait(startedAt, `document.querySelector(${JSON.stringify(`[data-testid="construction-table-${outputId}"]`)})`, 'Explorer table discovery');
-  await click(browser.cdp, `[data-testid="construction-table-${outputId}"]`);
+  await click(browser.page, `[data-testid="construction-table-${outputId}"]`);
   await fastWait(startedAt, rowsReady(expectedRows), 'CDA table render');
 });
 
 const openRowSettings = async () => measure('row-definition-choice-discovery', async startedAt => {
-  await click(browser.cdp, '[data-testid="construction-rows-settings-trigger"]');
+  await click(browser.page, '[data-testid="construction-rows-settings-trigger"]');
   await fastWait(startedAt, `document.querySelector('select[aria-label="What should each row represent?"]')?.disabled === false`, 'Row definition choice discovery');
 });
 
 const selectAndPreview = async ({ kind, policy, expectedRows }) => measure(`row-definition-${kind.toLowerCase()}-preview`, async startedAt => {
   const shapeSelect = 'select[aria-label="What should each row represent?"]';
-  await selectOption(browser.cdp, shapeSelect, kind === 'RECORDS' ? 'records' : `expanded:${report.choice.choiceId}`);
+  await selectOption(browser.page, shapeSelect, kind === 'RECORDS' ? 'records' : `expanded:${report.choice.choiceId}`);
   if (policy) {
     const policySelect = 'select[aria-label="Unmatched record policy"]';
     await fastWait(startedAt, `document.querySelector(${JSON.stringify(policySelect)})?.disabled === false`, 'Expansion policy discovery');
-    const selected = await browserEval(browser.cdp, `return document.querySelector(${JSON.stringify(policySelect)})?.value;`);
+    const selected = await browserEval(browser.page, `return document.querySelector(${JSON.stringify(policySelect)})?.value;`);
     const wanted = `expanded:${report.choice.choiceId}:${policy}`;
-    if (selected !== wanted) await selectOption(browser.cdp, policySelect, wanted);
+    if (selected !== wanted) await selectOption(browser.page, policySelect, wanted);
   }
   await fastWait(startedAt,
     `document.querySelector('[aria-label="Row definition preview"]')?.innerText.includes(${JSON.stringify(`→ ${expectedRows} rows`)}) && !document.body.innerText.includes('Compiling and comparing row membership') || Boolean(document.querySelector('[aria-label="Row definition settings"] [role="alert"]'))`,
     'Automatic row definition preview');
-  const proposalError = await browserEval(browser.cdp, `return document.querySelector('[aria-label="Row definition settings"] [role="alert"]')?.innerText;`);
+  const proposalError = await browserEval(browser.page, `return document.querySelector('[aria-label="Row definition settings"] [role="alert"]')?.innerText;`);
   assert(!proposalError, `Row-definition preview failed: ${proposalError}`);
-  await Promise.all([...browserPending]);
+  await browserEvents.flush();
   const request = report.browserRequests.findLast(entry => entry.path.endsWith('/row-definition-proposals') &&
     entry.body?.selection?.kind === kind && (kind !== 'EXPANDED' || entry.body.selection.expanded?.rowChoiceId === report.choice.choiceId));
   assert(request, `Native ${kind} row selection did not send the expected proposal request`);
@@ -224,14 +190,14 @@ const selectAndPreview = async ({ kind, policy, expectedRows }) => measure(`row-
   report.latestRowProposal = request;
 });
 
-const rowTable = async () => browserEval(browser.cdp, `return {rowCount:document.querySelector(${JSON.stringify(previewTableSelector)})?.getAttribute('aria-rowcount'),text:document.body.innerText.slice(0,12000)};`);
+const rowTable = async () => browserEval(browser.page, `return {rowCount:document.querySelector(${JSON.stringify(previewTableSelector)})?.getAttribute('aria-rowcount'),text:document.body.innerText.slice(0,12000)};`);
 const saveDOM = async name => {
   const path = join(values.evidence, `${name}.dom.txt`);
   await writeFile(path, await domText());
   report.evidencePaths.push(path);
 };
 
-const fieldPreviewRows = async () => browserEval(browser.cdp, `const proposalRow=document.querySelector('[data-testid="construction-proposal-preview-row"]');const root=proposalRow?.closest('table')??document.querySelector('[data-testid="preview-table-scroll"] [role="table"]');if(!root)return null;const proposal=Boolean(proposalRow);const headers=[...root.querySelectorAll(proposal?'thead th':'[role="columnheader"]')].map(cell=>cell.innerText.trim());const rows=[...root.querySelectorAll(proposal?'[data-testid="construction-proposal-preview-row"]':'[role="row"]')].slice(proposal?0:1).map(row=>[...row.querySelectorAll(proposal?'td':'[role="cell"]')].map(cell=>({text:cell.innerText.trim(),raw:cell.title}))).filter(row=>row.length);return {headers,rows,rowCount:root.getAttribute('aria-rowcount')};`);
+const fieldPreviewRows = async () => browserEval(browser.page, `const proposalRow=document.querySelector('[data-testid="construction-proposal-preview-row"]');const root=proposalRow?.closest('table')??document.querySelector('[data-testid="preview-table-scroll"] [role="table"]');if(!root)return null;const proposal=Boolean(proposalRow);const headers=[...root.querySelectorAll(proposal?'thead th':'[role="columnheader"]')].map(cell=>cell.innerText.trim());const rows=[...root.querySelectorAll(proposal?'[data-testid="construction-proposal-preview-row"]':'[role="row"]')].slice(proposal?0:1).map(row=>[...row.querySelectorAll(proposal?'td':'[role="cell"]')].map(cell=>({text:cell.innerText.trim(),raw:cell.title}))).filter(row=>row.length);return {headers,rows,rowCount:root.getAttribute('aria-rowcount')};`);
 
 const verifyPairs = preview => {
   assert(preview, 'Native field proposal omitted its rendered row preview');
@@ -261,26 +227,26 @@ const verifyPairs = preview => {
 };
 
 const addFieldAndPreview = async () => {
-  await click(browser.cdp, '[data-testid="construction-action-add-columns"]');
-  await click(browser.cdp, '[aria-label="Column types"] button', { includes: 'Fields and related data' });
-  await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-add-columns-source"]')`, 5000);
-  await click(browser.cdp, '[data-testid="feature-catalog-raw-fields"] summary');
+  await click(browser.page, '[data-testid="construction-action-add-columns"]');
+  await click(browser.page, '[aria-label="Column types"] button', { includes: 'Fields and related data' });
+  await waitForBrowser(browser.page, `document.querySelector('[data-testid="construction-add-columns-source"]')`, 5000);
+  await click(browser.page, '[data-testid="feature-catalog-raw-fields"] summary');
   const checkbox = 'input[aria-label="Select Observation.component[].valueString"]';
-  await waitForBrowser(browser.cdp, `document.querySelector(${JSON.stringify(checkbox)})`, 5000);
-  const offered = await browserEval(browser.cdp, `const input=document.querySelector(${JSON.stringify(checkbox)});return {disabled:input?.disabled,checked:input?.checked,label:input?.getAttribute('aria-label')};`);
+  await waitForBrowser(browser.page, `document.querySelector(${JSON.stringify(checkbox)})`, 5000);
+  const offered = await browserEval(browser.page, `const input=document.querySelector(${JSON.stringify(checkbox)});return {disabled:input?.disabled,checked:input?.checked,label:input?.getAttribute('aria-label')};`);
   assert.equal(offered?.disabled, false, 'The sibling component[].valueString field must be natively addable after expansion');
 
   const propose = async actionName => measure(actionName, async startedAt => {
-    const checked = await browserEval(browser.cdp, `return document.querySelector(${JSON.stringify(checkbox)})?.checked;`);
-    if (!checked) await click(browser.cdp, checkbox);
-    await click(browser.cdp, '[aria-label="Add columns editor"] button', { includes: 'Add 1 selected feature' });
+    const checked = await browserEval(browser.page, `return document.querySelector(${JSON.stringify(checkbox)})?.checked;`);
+    if (!checked) await click(browser.page, checkbox);
+    await click(browser.page, '[aria-label="Add columns editor"] button', { includes: 'Add 1 selected feature' });
     await fastWait(startedAt, `Boolean(document.querySelector('[role="dialog"] input[aria-label="Component Value String: Keep all matching values"]'))`, 'Field form choice discovery');
-    await click(browser.cdp, '[role="dialog"] input[aria-label="Component Value String: Keep all matching values"]');
-    await click(browser.cdp, '[role="dialog"] button', { name: 'Add 1 column' });
+    await click(browser.page, '[role="dialog"] input[aria-label="Component Value String: Keep all matching values"]');
+    await click(browser.page, '[role="dialog"] button', { name: 'Add 1 column' });
     await fastWait(startedAt, `['ready','error'].includes(document.querySelector('[data-testid="construction-choice-proposal-panel"]')?.dataset.proposalStatus)`, 'Native component field preview');
-    const status = await browserEval(browser.cdp, `return document.querySelector('[data-testid="construction-choice-proposal-panel"]')?.dataset.proposalStatus;`);
-    assert.equal(status, 'ready', await browserEval(browser.cdp, `return document.querySelector('[data-testid="construction-choice-proposal-panel"]')?.innerText;`));
-    await Promise.all([...browserPending]);
+    const status = await browserEval(browser.page, `return document.querySelector('[data-testid="construction-choice-proposal-panel"]')?.dataset.proposalStatus;`);
+    assert.equal(status, 'ready', await browserEval(browser.page, `return document.querySelector('[data-testid="construction-choice-proposal-panel"]')?.innerText;`));
+    await browserEvents.flush();
     const preview = await fieldPreviewRows();
     const pairEvidence = verifyPairs(preview);
     report.fieldProposalPreview = { ...pairEvidence, proposal: report.browserRequests.findLast(entry => /construction.*proposals/.test(entry.path) && entry.status === 200)?.response };
@@ -290,7 +256,7 @@ const addFieldAndPreview = async () => {
   const beforeCancel = (await api(`${base}/builder`)).body;
   const beforeCancelDigest = beforeCancel.draftDigest;
   await measure('native-component-field-cancel', async startedAt => {
-    await click(browser.cdp, '[data-testid="construction-choice-proposal-panel"] button', { name: 'Cancel' });
+    await click(browser.page, '[data-testid="construction-choice-proposal-panel"] button', { name: 'Cancel' });
     await fastWait(startedAt, `!document.querySelector('[data-testid="construction-choice-proposal-panel"]') && ${rowsReady(report.oracle.expectedRows.length)}`, 'Canceled field preview restoration');
   });
   assert.equal((await api(`${base}/builder`)).body.draftDigest, beforeCancelDigest, 'Cancel must leave the saved workspace unchanged');
@@ -298,7 +264,7 @@ const addFieldAndPreview = async () => {
 
   await propose('native-component-field-confirmed-preview');
   await measure('native-component-field-apply', async startedAt => {
-    await click(browser.cdp, '[data-testid="construction-choice-proposal-panel"] button', { name: 'Apply columns' });
+    await click(browser.page, '[data-testid="construction-choice-proposal-panel"] button', { name: 'Apply columns' });
     await fastWait(startedAt, `!document.querySelector('[data-testid="construction-choice-proposal-panel"]') && ${rowsReady(report.oracle.expectedRows.length)} && [...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].some(cell=>/component.*value.?string/i.test(cell.innerText))`, 'Applied component field preview');
     report.appliedPairs = verifyPairs(await fieldPreviewRows());
   });
@@ -318,10 +284,10 @@ const addFieldAndPreview = async () => {
 const removeFieldAndRestoreRows = async fieldColumn => {
   const label = fieldColumn.label;
   assert(label, 'Applied sibling field must have a user-visible label');
-  await click(browser.cdp, 'button', { name: 'Columns' });
-  await waitForBrowser(browser.cdp, `document.querySelector(${JSON.stringify(`button[aria-label=${JSON.stringify(`Remove ${label} column`)}]`)})`, 5000);
+  await click(browser.page, 'button', { name: 'Columns' });
+  await waitForBrowser(browser.page, `document.querySelector(${JSON.stringify(`button[aria-label=${JSON.stringify(`Remove ${label} column`)}]`)})`, 5000);
   await measure('native-component-field-remove', async startedAt => {
-    await click(browser.cdp, `button[aria-label=${JSON.stringify(`Remove ${label} column`)}]`);
+    await click(browser.page, `button[aria-label=${JSON.stringify(`Remove ${label} column`)}]`);
     await fastWait(startedAt, `${rowsReady(report.oracle.expectedRows.length)} && ![...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].some(cell=>/component.*value.?string/i.test(cell.innerText))`, 'Removed field row restoration');
   });
   builder = (await api(`${base}/builder`)).body;
@@ -339,7 +305,7 @@ const removeFieldAndRestoreRows = async fieldColumn => {
   await openRowSettings();
   await selectAndPreview({ kind: 'RECORDS', expectedRows: report.oracle.selected.length });
   await measure('edit-cancel-preserves-expanded-row-definition', async startedAt => {
-    await click(browser.cdp, '[aria-label="Row definition settings"] button', { name: 'Cancel' });
+    await click(browser.page, '[aria-label="Row definition settings"] button', { name: 'Cancel' });
     await fastWait(startedAt, `!document.querySelector('[aria-label="Row definition settings"]') && ${rowsReady(report.oracle.expectedRows.length)}`, 'Canceled row-definition edit restoration');
   });
   builder = (await api(`${base}/builder`)).body;
@@ -348,7 +314,7 @@ const removeFieldAndRestoreRows = async fieldColumn => {
   await openRowSettings();
   await selectAndPreview({ kind: 'RECORDS', expectedRows: report.oracle.selected.length });
   await measure('edit-row-definition-to-source-records', async startedAt => {
-    await click(browser.cdp, '[aria-label="Row definition settings"] button', { name: 'Apply row definition' });
+    await click(browser.page, '[aria-label="Row definition settings"] button', { name: 'Apply row definition' });
     await fastWait(startedAt, `!document.querySelector('[aria-label="Row definition settings"]') && ${rowsReady(report.oracle.selected.length)}`, 'Restored source-record rows');
   });
   builder = (await api(`${base}/builder`)).body;
@@ -421,6 +387,12 @@ const finish = async () => {
 };
 
 try {
+  report.target = await assertOwnedTarget({
+    project: values.project,
+    apiOrigin: values['api-origin'],
+    uiOrigin: values['ui-origin'],
+    arangoContainer: values['arango-container'],
+  });
   await mkdir(values.evidence, { recursive: true });
   const sourceRecords = boundedRawOracle();
   if (sourceRecords.length === 0) {
@@ -474,14 +446,16 @@ try {
 
     const initialRowCount = sourceRecords.length;
     const expandedRowCount = report.oracle.expectedRows.length;
-    browser = await launchBrowser(values.evidence);
+    browser = await launchBrowser(values.evidence, undefined, {
+      apiOrigin: values['api-origin'], uiOrigin: values['ui-origin'], noAuth: true,
+    });
     monitorBrowser();
     await openTable(initialRowCount, 'fresh-explorer-load-to-render');
     await saveDOM('initial-source-record-rows');
 
     await openRowSettings();
     const shapeSelect = 'select[aria-label="What should each row represent?"]';
-    const nativeOptions = await browserEval(browser.cdp, `return [...document.querySelector(${JSON.stringify(shapeSelect)}).options].map(option=>({value:option.value,label:option.text,disabled:option.disabled}));`);
+    const nativeOptions = await browserEval(browser.page, `return [...document.querySelector(${JSON.stringify(shapeSelect)}).options].map(option=>({value:option.value,label:option.text,disabled:option.disabled}));`);
     const nativeOption = nativeOptions.find(option => option.value === `expanded:${componentChoice.choiceId}` && option.label.startsWith('One row per value in Component'));
     assert(nativeOption, `Modern row selector did not offer the component[] option: ${JSON.stringify(nativeOptions)}`);
     report.nativeComponentOption = nativeOption;
@@ -489,7 +463,7 @@ try {
     await selectAndPreview({ kind: 'EXPANDED', policy: 'PRESERVE_PARENT', expectedRows: expandedRowCount });
     const unchangedBeforeCancel = (await api(`${base}/builder`)).body;
     await measure('native-row-definition-cancel', async startedAt => {
-      await click(browser.cdp, '[aria-label="Row definition settings"] button', { name: 'Cancel' });
+      await click(browser.page, '[aria-label="Row definition settings"] button', { name: 'Cancel' });
       await fastWait(startedAt, `!document.querySelector('[aria-label="Row definition settings"]') && ${rowsReady(initialRowCount)}`, 'Canceled row-definition preview restoration');
     });
     builder = (await api(`${base}/builder`)).body;
@@ -502,7 +476,7 @@ try {
     await selectAndPreview({ kind: 'EXPANDED', policy: 'PRESERVE_PARENT', expectedRows: expandedRowCount });
     await saveDOM('component-expansion-preview');
     await measure('native-row-definition-apply', async startedAt => {
-      await click(browser.cdp, '[aria-label="Row definition settings"] button', { name: 'Apply row definition' });
+      await click(browser.page, '[aria-label="Row definition settings"] button', { name: 'Apply row definition' });
       await fastWait(startedAt, `!document.querySelector('[aria-label="Row definition settings"]') && ${rowsReady(expandedRowCount)}`, 'Applied repeated component rows');
     });
     builder = (await api(`${base}/builder`)).body;
@@ -535,7 +509,15 @@ try {
     });
 
     await removeFieldAndRestoreRows(fieldColumn);
-    await Promise.all([...browserPending]);
+    await browserEvents.flush();
+    includeBrowserDiagnostics(browser, report);
+    for (const error of report.errors) {
+      if (error.kind === 'runtime') report.browserErrors.exceptions.push(error);
+      else if (error.kind === 'console') report.browserErrors.console.push(error.message);
+      else if (error.kind === 'module') report.browserErrors.modules.push(error.error);
+      else if (error.kind === 'http') report.browserErrors.http.push(error);
+    }
+    report.browserErrors.incidental.push(...(browser.diagnostics.assetFailures ?? []));
     verifyStableItemIdentities();
     verifySourceRestoration();
     assert.deepEqual(report.browserErrors.exceptions, [], 'Browser raised JavaScript exceptions');
@@ -545,12 +527,13 @@ try {
     recordAssertion('browser lifecycle had no runtime, module, console, or HTTP errors', report.browserErrors);
   }
 } catch (error) {
+  await browser?.captureFailure(error, { phase: 'repeated-rows', action: browser?.activeAction });
   report.status = 'failed';
   report.failures.push({ error: String(error.stack ?? error), phase: report.assertions.length });
   try { report.failureDOM = await domText(); } catch { /* Browser may not have opened. */ }
   try { report.failureBuilder = (await api(`${base}/builder`)).body; } catch (readError) { report.builderReadError = String(readError); }
 } finally {
-  try { await Promise.all([...browserPending]); } catch { /* Response reads are also captured above. */ }
+  try { await browserEvents.flush(); } catch { /* Response reads are also captured above. */ }
   if (browser) await browser.close().catch(error => { report.browserCloseError = String(error); });
   await finish();
 }

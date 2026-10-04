@@ -222,9 +222,13 @@ export async function launchBrowser({ evidence, appOrigins = [], noAuth = false,
       if (failureCaptured) return;
       failureCaptured = true;
       const { action, ...safeDetails } = details;
+      const contextualEvidence = typeof this.failureContext === 'function'
+        ? sanitizePayload(await this.failureContext())
+        : {};
       const failure = {
         message: sanitizeText(error?.message ?? error),
         stack: sanitizeText(error?.stack),
+        ...contextualEvidence,
         ...sanitizePayload(safeDetails),
         tracePolicy: 'A Playwright zip trace is retained only when the caller confirms no authentication, all origins are loopback, and the context is fresh; other targets receive a sanitized JSON failure trace.',
         diagnostics,
@@ -273,6 +277,7 @@ export async function launchBrowser({ evidence, appOrigins = [], noAuth = false,
         failure.action = {
           label: sanitizeText(action.label),
           locator: sanitizeText(action.locator),
+          elapsedMs: Number.isFinite(action.startedAt) ? Math.max(0, Date.now() - action.startedAt) : undefined,
           target: await inspectLocator(action.targetLocator),
         };
       }
@@ -295,6 +300,7 @@ export async function launchBrowser({ evidence, appOrigins = [], noAuth = false,
         phase: failure.phase,
         cycle: failure.cycle,
         action: failure.action,
+        ...contextualEvidence,
         diagnostics,
       }), null, 2)).catch(() => undefined);
       if (traceAllowed) await context.tracing.stop().catch(() => undefined);
