@@ -179,7 +179,7 @@ const runCohortRecode = context => runPlaywrightCase(context, 'builder-authoring
   const entryFor = request => {
     let url;
     try { url = new URL(request.url()); } catch { return undefined; }
-    if (url.origin !== new URL(context.target.apiUrl).origin || !url.pathname.startsWith(`${apiRoot}/`)) return undefined;
+    if (url.origin !== new URL(context.target.uiUrl).origin || !url.pathname.startsWith(`${apiRoot}/`)) return undefined;
     const path = url.pathname;
     let body;
     try { body = request.postDataJSON(); } catch { body = undefined; }
