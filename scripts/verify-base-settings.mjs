@@ -4,17 +4,24 @@ import { spawnSync } from 'node:child_process';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { parseArgs } from 'node:util';
-import { browserEval, click, launchBrowser, navigate, selectOption, waitForBrowser } from './lib/browser.mjs';
+import { fileURLToPath } from 'node:url';
+import { inspectDOM, waitForDOM, clickControl, navigatePage, selectControl } from './lib/playwright-verification.mjs';
+import { launchBrowser } from './lib/playwright-browser.mjs';
+import { captureCDARequests } from './lib/cda-playwright-requests.mjs';
+import { assertOwnedCdaTarget } from './lib/owned-cda-target.mjs';
+import { startVerificationIdentity } from './lib/cda-verification-identity.mjs';
 
 const { values } = parseArgs({ options: {
-  origin: { type: 'string', default: 'http://127.0.0.1:8188' },
-  'ui-origin': { type: 'string', default: 'http://127.0.0.1:30008' },
-  project: { type: 'string', default: 'loom_dev_cda_fhir' },
+  origin: { type: 'string', default: process.env.LOOM_CDA_API_ORIGIN },
+  'ui-origin': { type: 'string', default: process.env.LOOM_CDA_UI_ORIGIN },
+  project: { type: 'string', default: process.env.LOOM_CDA_PROJECT },
   'related-seed': { type: 'string', default: 'upstream-related-empty-policy-1790867613516' },
   evidence: { type: 'string', default: `/tmp/loom-base-settings-${Date.now()}` },
   browser: { type: 'boolean', default: false },
   'browser-cases': { type: 'string' },
-  'arango-container': { type: 'string', default: 'loom-dev-6d7df93d6a37-arangodb-1' },
+  'arango-container': { type: 'string', default: process.env.LOOM_ARANGO_CONTAINER },
+  'api-container': { type: 'string', default: process.env.LOOM_CDA_API_CONTAINER },
+  'compose-project': { type: 'string', default: process.env.LOOM_CDA_COMPOSE_PROJECT },
 } });
 const report = { started: new Date().toISOString(), cases: [], failures: [], requests: [], coverage: [] };
 const browserCases = [];
@@ -23,6 +30,13 @@ report.environment = {
   commit: spawnSync('rtk', ['proxy', 'git', 'rev-parse', 'HEAD'], { encoding: 'utf8' }).stdout.trim(),
 };
 const root = `/api/v1/projects/${encodeURIComponent(values.project)}/explorers`;
+const sourceRoot = fileURLToPath(new URL('..', import.meta.url));
+await assertOwnedCdaTarget({ project: values.project, apiOrigin: values.origin, uiOrigin: values['ui-origin'],
+  apiContainer: values['api-container'], composeProject: values['compose-project'], sourceRoot,
+  arangoContainer: values['arango-container'] });
+const verificationIdentity = await startVerificationIdentity(sourceRoot, values['api-container']);
+report.environment.sourceFingerprint = verificationIdentity.sourceFingerprint;
+report.environment.apiBuildIdentity = verificationIdentity.apiBuildIdentity;
 const sourceID = '485e2567-b566-56f3-b5bd-5f025f37cd95';
 await mkdir(values.evidence, { recursive: true });
 const api = async (path, body, allowFailure = false) => {
@@ -130,76 +144,66 @@ const selections = (discovery, group) => [
 const verifyBrowser = async (ctx, item, record) => {
   const directory = join(values.evidence, record.id);
   await mkdir(directory, { recursive: true });
-  const browser = await launchBrowser(directory);
-  const state = { exceptions: [], http: [], incidental: [], responses: [], previews: [] };
-  const pending = [];
-  const responseIDs = new Set();
-  const responseStatuses = new Map();
-  const requestSelections = new Map();
-  browser.cdp.on('Network.requestWillBeSent', ({ requestId, request }) => {
-    if (request.url.endsWith('/row-definition-proposals') && request.postData) requestSelections.set(requestId, JSON.parse(request.postData).selection);
+  const browser = await launchBrowser({ evidence: directory, appOrigins: [values.origin, values['ui-origin']], noAuth: true });
+  const state = { exceptions: [], http: [], incidental: [], responses: [], previews: [], errors: [], nativeRequests: [] };
+  const tracker = { activeAction: undefined, actions: [] };
+  const requests = captureCDARequests(browser.page, {
+    apiOrigin: values['ui-origin'], appOrigins: [values.origin, values['ui-origin']], ownedPathPrefix: root,
+    report: state, responsePaths: /row-definition-proposals|builder|preview/,
+    shouldReportHttpError: (path, status) => !(path.endsWith('/row-definition-proposals') && status === 422),
   });
-  browser.cdp.on('Runtime.exceptionThrown', e => state.exceptions.push(e.exceptionDetails));
-  browser.cdp.on('Runtime.consoleAPICalled', e => { if (e.type === 'error') state.exceptions.push(e.args.map(a => a.value ?? a.description)); });
-  browser.cdp.on('Network.loadingFailed', e => { if (e.type === 'Script' && e.errorText !== 'net::ERR_ABORTED') state.exceptions.push({ module: e.errorText }); });
-  browser.cdp.on('Network.responseReceived', ({ requestId, response }) => {
-    if (response.status >= 400 && !response.url.endsWith('/row-definition-proposals')) (response.url.endsWith('/favicon.ico') ? state.incidental : state.http).push({ url: response.url, status: response.status });
-    if (response.url.endsWith('/row-definition-proposals')) {
-      responseIDs.add(requestId);
-      responseStatuses.set(requestId, response.status);
-    }
-  });
-  browser.cdp.on('Network.loadingFinished', ({ requestId }) => {
-    if (responseIDs.has(requestId)) pending.push(browser.cdp.send('Network.getResponseBody', { requestId }).then(r => {
-      const proposal = JSON.parse(r.body);
-      const status = responseStatuses.get(requestId);
-      state.responses.push({ selection: requestSelections.get(requestId), proposal, status });
-      const selection = requestSelections.get(requestId);
-      const expectedPolicyError = record.expectedValidation && status === 422 && proposal.error?.code === record.expectedErrorCode &&
-        (selection?.expanded?.emptyCollectionPolicy === 'ERROR' || selection?.explicitGroup?.unassignedMemberPolicy === 'ERROR');
-      if (status >= 400 && !expectedPolicyError) state.http.push({ status, proposal });
-    }));
-  });
+  const page = browser.page;
+  const inspect = (fn, args) => inspectDOM(page, fn, args);
+  const assertBrowserClean = () => {
+    assert.deepEqual(browser.diagnostics.console, [], 'Unexpected browser console errors');
+    assert.deepEqual(browser.diagnostics.pageErrors, [], 'Unexpected page errors');
+    assert.deepEqual(browser.diagnostics.networkFailures, [], 'Unexpected app network failures');
+    const unexpectedHTTP = browser.diagnostics.httpFailures.filter(failure => {
+      const expectedValidation = record.expectedValidation && failure.status === 422 && failure.url.endsWith('/row-definition-proposals');
+      return !expectedValidation;
+    });
+    assert.deepEqual(unexpectedHTTP, [], 'Unexpected app HTTP failures');
+    assert.deepEqual(state.errors, [], 'Unexpected API request failures');
+  };
   const table = `[data-testid="construction-table-${ctx.builder.workspace.documents[0].output.id}"]`;
   const url = `${values['ui-origin']}/?project=${encodeURIComponent(values.project)}&explorer=${ctx.explorer}&mode=builder`;
   const open = async () => {
-    await navigate(browser.cdp, url);
-    await waitForBrowser(browser.cdp, `document.querySelector(${JSON.stringify(table)})`);
-    await click(browser.cdp, table);
-    await waitForBrowser(browser.cdp, `!document.body.innerText.includes('Loading your table') && document.querySelector('[data-testid="construction-rows-settings-trigger"]')?.disabled === false`);
-    await click(browser.cdp, '[data-testid="construction-rows-settings-trigger"]');
-    await waitForBrowser(browser.cdp, `document.querySelector('select[aria-label="What should each row represent?"]')?.disabled === false`);
+    await navigatePage(page, url);
+    await waitForDOM(page, ({ selector }) => Boolean(document.querySelector(selector)), { selector: table }, 30000);
+    await clickControl(tracker, page, table);
+    await waitForDOM(page, () => !document.body.innerText.includes('Loading your table') && document.querySelector('[data-testid="construction-rows-settings-trigger"]')?.disabled === false, {}, 30000);
+    await clickControl(tracker, page, '[data-testid="construction-rows-settings-trigger"]');
+    await waitForDOM(page, () => document.querySelector('select[aria-label="What should each row represent?"]')?.disabled === false, {}, 5000);
   };
   try {
-    state.browserVersion = await browser.cdp.send('Browser.getVersion');
+    state.browserVersion = browser.browser.version();
     await open();
     const shapeSelect = 'select[aria-label="What should each row represent?"]';
-    state.options = await browserEval(browser.cdp, `return [...document.querySelector(${JSON.stringify(shapeSelect)}).options].map(o=>({value:o.value,label:o.text,disabled:o.disabled}));`);
+    state.options = await inspect(({ selector }) => [...document.querySelector(selector).options].map(option => ({ value: option.value, label: option.text, disabled: option.disabled })), { selector: shapeSelect });
     if (ctx.builder.workspace.documents[0].construction?.steps.length) {
-      assert(!state.options.some(o => o.value.startsWith('explicit:')), 'Saved cohorts must not be offered with authored steps');
-      assert.equal(await browserEval(browser.cdp, `return [...document.querySelectorAll('button')].some(b=>b.innerText==='Create groups from this selection');`), false);
+      assert(!state.options.some(option => option.value.startsWith('explicit:')), 'Saved cohorts must not be offered with authored steps');
+      assert.equal(await inspect(() => [...document.querySelectorAll('button')].some(button => button.innerText === 'Create groups from this selection')), false);
     }
     const configure = async (target = item) => {
-      const responseStart = state.responses.length;
+      const requestStart = state.nativeRequests.length;
       const started = Date.now();
-      await selectOption(browser.cdp, shapeSelect, target.shape);
+      await selectControl(tracker, page, shapeSelect, target.shape);
       if (target.policy) {
-        await waitForBrowser(browser.cdp, `document.querySelector('select[aria-label="Unmatched record policy"]')?.disabled === false`);
-        await selectOption(browser.cdp, 'select[aria-label="Unmatched record policy"]', target.policy);
+        await waitForDOM(page, () => document.querySelector('select[aria-label="Unmatched record policy"]')?.disabled === false, {}, 5000);
+        await selectControl(tracker, page, 'select[aria-label="Unmatched record policy"]', target.policy);
       }
-      await waitForBrowser(browser.cdp, `!document.body.innerText.includes('Compiling and comparing row membership') && (document.querySelector('[aria-label="Row definition preview"]') || document.querySelector('[role="alert"]'))`);
-      while (!state.responses.slice(responseStart).some(r => JSON.stringify(r.selection) === JSON.stringify(target.selection))) {
-        assert(Date.now() - started < 5000, 'The selected policy did not produce a proposal within five seconds');
-        await new Promise(resolve => setTimeout(resolve, 50));
-      }
-      await Promise.all(pending);
-      await waitForBrowser(browser.cdp, `!document.body.innerText.includes('Compiling and comparing row membership')`);
+      const [request] = await Promise.all([
+        requests.waitFor(entry => entry.path.endsWith('/row-definition-proposals') && entry.method === 'POST' && JSON.stringify(entry.body?.selection) === JSON.stringify(target.selection), { fromIndex: requestStart, timeoutMs: 5000 }),
+        waitForDOM(page, () => !document.body.innerText.includes('Compiling and comparing row membership') && (document.querySelector('[aria-label="Row definition preview"]') || document.querySelector('[role="alert"]')), {}, 5000),
+      ]);
+      await requests.flush();
       state.durationMs = Date.now() - started;
       state.previews.push({ selection: target.selection, durationMs: state.durationMs });
-      assert(state.durationMs <= 5000);
-      assert.equal(state.exceptions.length, 0);
-      assert.equal(state.http.length, 0, JSON.stringify(state.http));
-      state.response = state.responses.filter(r => JSON.stringify(r.selection) === JSON.stringify(target.selection)).at(-1);
+      assert(state.durationMs <= 5000, `The selected policy did not render a proposal within five seconds: ${state.durationMs} ms`);
+      assert.equal(request.status, target.selection.expanded?.emptyCollectionPolicy === 'ERROR' || target.selection.explicitGroup?.unassignedMemberPolicy === 'ERROR' ? 422 : 200);
+      assert.equal(state.errors.length, 0, JSON.stringify(state.errors));
+      state.response = { selection: request.body.selection, proposal: request.response, status: request.status };
+      state.responses.push(state.response);
       state.proposal = state.response.proposal;
     };
     await configure();
@@ -207,10 +211,10 @@ const verifyBrowser = async (ctx, item, record) => {
       assert.equal(state.response.status, 422);
       assert.equal(state.proposal.error?.code, record.expectedErrorCode);
       assert.equal(state.proposal.proposalId, undefined);
-      assert.equal(await browserEval(browser.cdp, `return [...document.querySelectorAll('button')].some(b=>b.innerText==='Apply row definition');`), false);
+      assert.equal(await inspect(() => [...document.querySelectorAll('button')].some(button => button.innerText === 'Apply row definition')), false);
       assert.equal((await api(ctx.base + '/builder')).body.draftDigest, ctx.builder.draftDigest);
-      assert.equal(await browserEval(browser.cdp, `return document.querySelector('select[aria-label="Unmatched record policy"]').disabled;`), false);
-      assert.match(await browserEval(browser.cdp, `return document.querySelector('[role="alert"]').innerText;`), /Some records/);
+      assert.equal(await inspect(() => document.querySelector('select[aria-label="Unmatched record policy"]').disabled), false);
+      assert.match(await inspect(() => document.querySelector('[role="alert"]').innerText), /Some records/);
       const repair = { ...item, policy: item.policy.replace(/ERROR$/, 'EXCLUDE'), selection: item.selection.kind === 'EXPANDED'
         ? { kind: 'EXPANDED', expanded: { ...item.selection.expanded, emptyCollectionPolicy: 'EXCLUDE' } }
         : { kind: 'EXPLICIT_GROUP', explicitGroup: { ...item.selection.explicitGroup, unassignedMemberPolicy: 'EXCLUDE' } } };
@@ -218,17 +222,16 @@ const verifyBrowser = async (ctx, item, record) => {
       assert.equal(state.proposal.comparison.status, 'AVAILABLE');
       assert.equal(state.proposal.comparison.candidate.rowCount, record.repairRows);
       const beforeSteps = ctx.builder.workspace.documents[0].construction?.steps ?? [];
-      await click(browser.cdp, '[aria-label="Row definition settings"] button', { name: 'Apply row definition' });
-      await waitForBrowser(browser.cdp, `!document.querySelector('[aria-label="Row definition settings"]')`);
+      await clickControl(tracker, page, '[aria-label="Row definition settings"] button', { name: 'Apply row definition' });
+      await waitForDOM(page, () => !document.querySelector('[aria-label="Row definition settings"]'), {}, 5000);
       ctx.builder = (await api(ctx.base + '/builder')).body;
       verifySaved(ctx, repair, beforeSteps);
       await open();
-      assert.equal(await browserEval(browser.cdp, `return document.querySelector('select[aria-label="Unmatched record policy"]').value;`), repair.policy);
-      state.rendered = await browserEval(browser.cdp, 'return document.body.innerText;');
+      assert.equal(await inspect(() => document.querySelector('select[aria-label="Unmatched record policy"]').value), repair.policy);
+      state.rendered = await inspect(() => document.body.innerText);
       assert.equal(Number(state.rendered.match(/Total rows\n([^\n]+)/)?.[1]), record.repairRows);
-      assert.equal(state.exceptions.length, 0);
-      assert.equal(state.http.length, 0, JSON.stringify(state.http));
       state.repair = 'EXCLUDE applied and persisted';
+      assertBrowserClean();
       record.browser = { status: 'validation-and-repair-passed', durationMs: state.durationMs };
       return;
     }
@@ -236,32 +239,38 @@ const verifyBrowser = async (ctx, item, record) => {
     assert.equal(state.proposal.comparison.candidate.rowCount, record.expectedRows);
     assert.equal((await api(ctx.base + '/builder')).body.draftDigest, ctx.builder.draftDigest);
     if (item.name === 'records' || item.name === 'cohort-ERROR') {
-      await click(browser.cdp, '[aria-label="Row definition settings"] button', { name: 'Cancel' });
-      await waitForBrowser(browser.cdp, `!document.querySelector('[aria-label="Row definition settings"]')`);
+      await clickControl(tracker, page, '[aria-label="Row definition settings"] button', { name: 'Cancel' });
+      await waitForDOM(page, () => !document.querySelector('[aria-label="Row definition settings"]'), {}, 5000);
       assert.equal((await api(ctx.base + '/builder')).body.draftDigest, ctx.builder.draftDigest);
       state.cancel = 'unchanged draft';
       await open();
       await configure();
     }
-    await click(browser.cdp, '[aria-label="Row definition settings"] button', { name: 'Apply row definition' });
-    await waitForBrowser(browser.cdp, `!document.querySelector('[aria-label="Row definition settings"]')`);
+    await clickControl(tracker, page, '[aria-label="Row definition settings"] button', { name: 'Apply row definition' });
+    await waitForDOM(page, () => !document.querySelector('[aria-label="Row definition settings"]'), {}, 5000);
     ctx.builder = (await api(ctx.base + '/builder')).body;
     const digest = ctx.builder.draftDigest;
     await open();
-    assert.equal(await browserEval(browser.cdp, `return document.querySelector(${JSON.stringify(shapeSelect)}).value;`), item.shape);
-    if (item.policy) assert.equal(await browserEval(browser.cdp, `return document.querySelector('select[aria-label="Unmatched record policy"]')?.value;`), item.policy);
+    assert.equal(await inspect(({ selector }) => document.querySelector(selector).value, { selector: shapeSelect }), item.shape);
+    if (item.policy) assert.equal(await inspect(() => document.querySelector('select[aria-label="Unmatched record policy"]')?.value), item.policy);
     assert.equal((await api(ctx.base + '/builder')).body.draftDigest, digest);
-    state.rendered = await browserEval(browser.cdp, 'return document.body.innerText;');
+    state.rendered = await inspect(() => document.body.innerText);
     assert.equal(Number(state.rendered.match(/Total rows\n([^\n]+)/)?.[1]), record.expectedRows, 'The reloaded table must render the raw-source row count');
-    assert.equal(state.exceptions.length, 0);
-    assert.equal(state.http.length, 0, JSON.stringify(state.http));
+    assertBrowserClean();
     record.browser = { status: 'passed', durationMs: state.durationMs };
+  } catch (error) {
+    await browser.captureFailure(error, { phase: 'base-settings-lifecycle', action: tracker.activeAction, elapsedMs: tracker.activeAction ? Date.now() - tracker.activeAction.startedAt : undefined, state: { case: record.id, selection: item.selection, responses: state.responses } });
+    throw error;
   } finally {
-    state.body = await browserEval(browser.cdp, 'return document.body.innerText;').catch(() => undefined);
-    await writeFile(join(directory, 'browser.json'), JSON.stringify(state, null, 2));
+    await requests.flush();
+    state.body = await page.locator('body').innerText().catch(() => undefined);
+    state.exceptions = [...browser.diagnostics.console, ...browser.diagnostics.pageErrors];
+    state.http = [...browser.diagnostics.httpFailures, ...browser.diagnostics.networkFailures, ...state.errors];
+    await writeFile(join(directory, 'browser.json'), JSON.stringify({ ...state, diagnostics: browser.diagnostics }, null, 2));
     await browser.close();
   }
 };
+
 try {
   const source = await fixture();
   const filtered = await create('filter', source.explorer);
@@ -352,12 +361,13 @@ try {
   }
 } catch (error) { report.failures.push({ error: String(error.stack ?? error) }); }
 report.finished = new Date().toISOString();
-const logs = spawnSync('rtk', ['proxy', 'docker', 'logs', '--since', report.started, 'loom-dev-6d7df93d6a37-loom-api-1'], { encoding: 'utf8', timeout: 30000, maxBuffer: 8 * 1024 * 1024 });
+const logs = spawnSync('rtk', ['proxy', 'docker', 'logs', '--since', report.started, values['api-container']], { encoding: 'utf8', timeout: 30000, maxBuffer: 8 * 1024 * 1024 });
 if (logs.status === 0) {
   const requestIds = new Set(report.requests.map(r => r.requestId));
   const lines = `${logs.stdout}\n${logs.stderr}`.split('\n').filter(line => [...requestIds].some(id => line.includes(id)));
   await writeFile(join(values.evidence, 'server.log'), lines.join('\n'));
 } else report.logCaptureError = logs.error?.message ?? logs.stderr;
+report.verificationIdentity = await verificationIdentity.finish();
 await writeFile(join(values.evidence, 'report.json'), JSON.stringify(report, null, 2));
 console.log(JSON.stringify({ evidence: values.evidence, passed: report.cases.filter(c => c.status === 'passed').length, untested: report.cases.filter(c => c.status === 'untested').length, failures: report.failures }, null, 2));
 process.exitCode = report.failures.length ? 1 : 0;
