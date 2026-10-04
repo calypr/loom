@@ -123,13 +123,14 @@ async function inspectLocator(locator) {
   }
 }
 
-export async function launchBrowser({ evidence, appOrigins = [], noAuth = false, classifyExpectedRequestFailure }) {
+export async function launchBrowser({ evidence, appOrigins = [], noAuth = false, classifyExpectedRequestFailure, executablePath }) {
   await mkdir(evidence, { recursive: true });
   const systemChrome = [
     process.env.CHROME_BIN,
     '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
   ].find(candidate => candidate && existsSync(candidate));
-  const browser = await chromium.launch({ headless: true, ...(systemChrome ? { executablePath: systemChrome } : {}) });
+  const selectedExecutable = executablePath && existsSync(executablePath) ? executablePath : systemChrome;
+  const browser = await chromium.launch({ headless: true, ...(selectedExecutable ? { executablePath: selectedExecutable } : {}) });
   const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
   const page = await context.newPage();
   const origins = new Set(appOrigins.map(value => new URL(value).origin));

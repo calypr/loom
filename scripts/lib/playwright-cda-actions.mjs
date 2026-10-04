@@ -71,6 +71,16 @@ export async function waitForBrowser(page, predicate, timeoutOrArgs = 5000, args
   await page.waitForFunction(predicate, waitArgs, { timeout });
 }
 
+export async function waitForControl(page, selector, { timeout = 5000, enabled = false, hidden = false } = {}) {
+  const control = page.locator(selector);
+  const count = await control.count();
+  if (hidden && count === 0) return control;
+  await requireUnique(control, `Wait for ${selector}`);
+  await control.waitFor({ state: hidden ? 'hidden' : 'visible', timeout });
+  if (!hidden && enabled) assert(await control.isEnabled(), `Playwright control is disabled: ${selector}`);
+  return control;
+}
+
 export async function selectOption(page, selector, value, { dismissSelector } = {}) {
   const browser = browserForPage.get(page);
   browser.activeAction = { label: `Select ${value}`, locator: selector, startedAt: Date.now() };
