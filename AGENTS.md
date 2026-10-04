@@ -42,6 +42,36 @@ outsourcing that understanding or final judgment.
   work, or when the next action requires its current context or judgment.
   Otherwise, prefer giving the work to Luna and reviewing the result.
 
+## Close workflows before expanding work
+
+Sol owns the integration queue: prioritize reviewing and closing ready units over
+starting more implementation threads. Workers return integration-ready patches
+with preserved preimages from physically separate staging directories. Follow
+the verifier skill's failure-loop discipline for isolation checks, first-failure
+diagnostics, lifecycle evidence, and repeated harness-failure checkpoints.
+Report reliable workflows and remaining failures separately from testing overhead.
+
+- Measure progress by closed user-visible failures and fully verified lifecycles,
+  with elapsed time. Commits, scripts, worker activity, and partial assertions
+  do not establish completion.
+- Sol chooses one failing user workflow as the current integration priority.
+  Carry it through diagnosis, root-cause fix, and a passing rerun of the same
+  browser case before integrating another substantial thread. Keep the full
+  goal and coverage inventory intact; this is sequencing, not reduced scope.
+- Continue useful parallel Luna work on independent investigations and staged
+  patches. Delegate aggressively, but prioritize integration-ready work and
+  review completed submissions before creating more implementation backlog.
+  Workers must not mutate shared runtime or watched source during browser runs.
+- Follow `.codex/skills/verify/SKILL.md` for browser preparation, source
+  freezing, failure evidence, and reruns. Keep testing procedures in that skill
+  rather than duplicating them here.
+- Distinguish harness corrections from product fixes and selected assertions
+  from a complete lifecycle pass. Commit a verified coherent unit before
+  integrating the next substantial unit; do not bulk-stage unrelated backlog.
+- A live process is a reason to poll its handle, not to end work with a status
+  update. Continue through the result and next safe action unless the user
+  interrupts, a real dependency prevents progress, or the unit is complete.
+
 ## Verification skills
 
 - For the local Compose Builder, load `.codex/skills/verify/SKILL.md` and run

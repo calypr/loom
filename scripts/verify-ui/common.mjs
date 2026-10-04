@@ -2,7 +2,7 @@ import { createReport, finishReport, recordCheck, writeReport } from './report.m
 import { startBrowser, startNetworkMonitor, markNetwork, markFaultRecords, collectPageDiagnostics, captureDOM } from './browser.mjs';
 import { parseArgs, createRunContext, makeReportLocation, printList, scenarioFor, validateScenarioCase, usage } from './cli.mjs';
 import { requiredChecksFor } from './registry.mjs';
-import { sourceFingerprint } from './source-fingerprint.mjs';
+import { sourceFingerprintChangedPaths, sourceFingerprintWithManifest } from './source-fingerprint.mjs';
 import { resolve } from 'node:path';
 
 const safeTarget = (target) => {
@@ -24,8 +24,11 @@ export const runBrowserCase = async (context, scenarioID, caseName, work) => {
   const registration = scenarioFor(scenarioID);
   const report = createReport({ scenario: scenarioID, caseName, target: safeTarget(context.target), evidenceDirectory: location.evidenceDirectory, requiredChecks: requiredChecksFor(registration, caseName, context.custom) });
   report.registryCoverage = registration.coverage;
-  const sourceAtStart = context.target.sourceRoot ? sourceFingerprint(context.target.sourceRoot) : null;
-  if (sourceAtStart) report.target.sourceFingerprint = sourceAtStart;
+  const sourceAtStart = context.target.sourceRoot ? sourceFingerprintWithManifest(context.target.sourceRoot) : null;
+  if (sourceAtStart) {
+    report.target.sourceFingerprint = sourceAtStart.fingerprint;
+    report.sourceFingerprintManifest = { before: sourceAtStart.manifest };
+  }
   let browser;
   let monitor;
   const faults = [];
@@ -70,10 +73,14 @@ export const runBrowserCase = async (context, scenarioID, caseName, work) => {
   }
   if (sourceAtStart) {
     try {
-      const sourceAtEnd = sourceFingerprint(context.target.sourceRoot);
-      recordCheck(report, 'correctness', 'watched source stayed unchanged during browser run', sourceAtStart.sha256 === sourceAtEnd.sha256, { before: sourceAtStart, after: sourceAtEnd });
+      const sourceAtEnd = sourceFingerprintWithManifest(context.target.sourceRoot);
+      const changedPaths = sourceFingerprintChangedPaths(sourceAtStart.manifest, sourceAtEnd.manifest);
+      report.sourceFingerprintManifest.changedPaths = changedPaths;
+      recordCheck(report, 'correctness', 'watched source stayed unchanged during browser run', sourceAtStart.fingerprint.sha256 === sourceAtEnd.fingerprint.sha256, {
+        before: sourceAtStart.fingerprint, after: sourceAtEnd.fingerprint, changedPaths,
+      });
     } catch (error) {
-      recordCheck(report, 'correctness', 'watched source stayed unchanged during browser run', false, { before: sourceAtStart, error: String(error) });
+      recordCheck(report, 'correctness', 'watched source stayed unchanged during browser run', false, { before: sourceAtStart.fingerprint, error: String(error) });
     }
   }
   finishReport(report);

@@ -8,6 +8,40 @@ description: Verify Loom Builder features in the real local browser, including b
 Use this skill for frontend and backend iterations against the development
 Compose project. It does not drive the canonical `loom-demo` deployment.
 
+## Failure-loop discipline
+
+Before workers edit, resolve staging and deployed checkout with `realpath`.
+Require physically distinct source files and preserve preimages for patch review.
+A deployed checkout under `/tmp` is not an isolated stage. Sol owns integration.
+
+Retain per-file hashes, aggregate fingerprint, and API build identity before a
+browser run. Compare afterward and identify changed paths. Source mutation
+invalidates the run; its apparent UI failures are not reproduced product bugs.
+
+Capture diagnostics on the first failing action: elapsed time, control values,
+DOM, console exception, exact owned request scope and draft/stage identity,
+HTTP status, and response diagnostic body. Exclude credentials and unrelated
+traffic. Unexpected network failures remain fatal.
+
+For each workflow, record preview correctness against independent source data,
+native controls, Apply/Cancel where applicable, edit, removal/restoration, reload,
+and latency. Mark each passed, failed, untested, or not applicable with a reason.
+Partial assertions cannot close a lifecycle; Basic proof does not close CDA.
+
+Account separately for product fixes, harness repair, environment repair, and
+invalidated runs. Record run durations and available repair time; label unmeasured
+time unknown. Use existing reports and the coverage matrix. Selector and fixture
+repairs do not count as closed product failures.
+
+After two consecutive harness failures on the same path, stop browser reruns.
+Validate selectors, fixture shape, event ordering, request ownership, and saved
+state against source and retained DOM, then run a focused check. Resume the same
+case after correcting the demonstrated assumption; do not weaken assertions.
+
+Keep routine verification near the agreed 20% time budget; broaden for concrete
+shared risks or unresolved failures. Long-run updates report newly reliable
+workflows, remaining product failures, and harness-repair time separately.
+
 ## Required Builder coverage
 
 Inventory every visible dataframe-building feature. Read the bounded coverage

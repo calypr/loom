@@ -9,8 +9,9 @@ const watchedPaths = [
   'ui/apps/demo/index.html', 'ui/apps/demo/vite.config.ts',
 ];
 
-export const sourceFingerprint = (root) => {
+export const sourceFingerprintWithManifest = (root) => {
   const hash = createHash('sha256');
+  const manifest = {};
   let files = 0;
   const visit = (relative) => {
     const absolute = join(root, relative);
@@ -21,12 +22,27 @@ export const sourceFingerprint = (root) => {
       return;
     }
     if (!stat.isFile()) return;
+    const content = readFileSync(absolute);
     hash.update(relative);
     hash.update('\0');
-    hash.update(readFileSync(absolute));
+    hash.update(content);
+    manifest[relative] = createHash('sha256').update(content).digest('hex');
     files += 1;
   };
   for (const path of watchedPaths) visit(path);
   if (files === 0) throw new Error(`no watched source files found at ${root}`);
-  return { sha256: hash.digest('hex'), files };
+  return { fingerprint: { sha256: hash.digest('hex'), files }, manifest };
 };
+
+export const sourceFingerprintChangedPaths = (before, after) => {
+  const changedPaths = [];
+  const paths = [...new Set([...Object.keys(before), ...Object.keys(after)])].sort();
+  for (const path of paths) {
+    if (!Object.hasOwn(before, path)) changedPaths.push({ path, change: 'added' });
+    else if (!Object.hasOwn(after, path)) changedPaths.push({ path, change: 'removed' });
+    else if (before[path] !== after[path]) changedPaths.push({ path, change: 'modified' });
+  }
+  return changedPaths;
+};
+
+export const sourceFingerprint = (root) => sourceFingerprintWithManifest(root).fingerprint;
