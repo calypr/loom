@@ -4,11 +4,13 @@ import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { browserEval, click, launchBrowser, navigate, selectOption, waitForBrowser } from './lib/browser.mjs';
+import { browserEval, click, launchCdaBrowser, navigate, selectOption, waitForBrowser, fill } from './lib/playwright-cda-actions.mjs';
 import { captureSourceFreeze } from './lib/source-freeze.mjs';
-import { ApiBuildFreezeError, captureApiBuildFreeze, checkContainerApiBuildStamp, localCDAApiContainer } from './lib/api-build-freeze.mjs';
+import { assertOwnedCdaTarget } from './lib/owned-cda-target.mjs';
+import { captureCDARequests } from './lib/cda-playwright-requests.mjs';
+import { ApiBuildFreezeError, captureApiBuildFreeze, checkContainerApiBuildStamp } from './lib/api-build-freeze.mjs';
 
-const project = 'loom_dev_cda_fhir';
+const project = process.env.LOOM_CDA_PROJECT;
 const generation = 'cda-fhir-v1';
 const protectedExplorer = 'cda-builder-full-qa-1790440983382';
 const resourceType = 'Specimen';
@@ -19,9 +21,11 @@ assert(['COUNT', 'ALL'].includes(relatedForm), 'LOOM_CDA_NAMED_COHORT_FORM must 
 const relatedFormName = relatedForm.toLowerCase();
 const explorer = `named-cohort-related-${relatedFormName}-${Date.now()}`;
 const evidence = process.argv[2] ?? `/tmp/${explorer}`;
-const apiOrigin = process.env.LOOM_CDA_API_ORIGIN ?? 'http://127.0.0.1:8188';
-const uiOrigin = process.env.LOOM_CDA_UI_ORIGIN ?? 'http://127.0.0.1:30008';
-const arangoContainer = process.env.LOOM_ARANGO_CONTAINER ?? 'loom-dev-6d7df93d6a37-arangodb-1';
+const apiOrigin = process.env.LOOM_CDA_API_ORIGIN;
+const uiOrigin = process.env.LOOM_CDA_UI_ORIGIN;
+const arangoContainer = process.env.LOOM_ARANGO_CONTAINER;
+const apiContainer = process.env.LOOM_CDA_API_CONTAINER;
+const composeProject = process.env.LOOM_CDA_COMPOSE_PROJECT;
 const witnessPatientLimit = 2000;
 const observationDocumentCap = 11;
 const maxExactObservations = observationDocumentCap - 1;
@@ -42,19 +46,21 @@ const report = {
 await mkdir(evidence, { recursive: true });
 
 let browser;
+let nativeCapture;
 let builder;
 let outputId;
 let frozenSource;
 let frozenApiBuild;
-const nativeById = new Map();
-const pendingNetworkReads = new Set();
+
 const pause = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
 const pathOf = entry => entry.path.split('?')[0];
 const doc = state => state.workspace.documents.find(document => document.output.id === outputId);
 const sorted = values => [...values].sort();
 const sourceRoot = fileURLToPath(new URL('..', import.meta.url));
+assert.equal(project, 'loom_dev_cda_fhir', 'This verifier is bound to the CDA-FHIR project');
+await assertOwnedCdaTarget({ project, apiOrigin, uiOrigin, apiContainer, composeProject, sourceRoot, arangoContainer });
 const apiBuildTarget = 'local-cda-api';
-const readApiBuildStamp = () => checkContainerApiBuildStamp(localCDAApiContainer());
+const readApiBuildStamp = () => checkContainerApiBuildStamp(apiContainer);
 
 class UnsupportedCapabilityError extends Error {
   constructor(message, evidenceValue) {
@@ -419,24 +425,24 @@ const waitNative = async (suffix, startedAt, predicate = () => true) => {
   assert.fail(`Native ${suffix} request did not complete with a readable response within five seconds`);
 };
 
-const captureTable = async () => browserEval(browser.cdp, `return {
+const captureTable = async () => browserEval(browser.page, `return {
   rowCount: Number(document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount') ?? 0) - 1,
   headers: [...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].map(header => header.innerText.trim()),
   rows: [...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]')].slice(1).map(row => [...row.querySelectorAll('[role="cell"]')].map(cell => cell.innerText.trim())).filter(row => row.length),
 };`);
 
 const waitTable = async expectedRows => {
-  await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount') === ${JSON.stringify(String(expectedRows + 1))} && !document.body.innerText.includes('Loading your table…') && !document.body.innerText.includes('Preview failed:')`);
+  await waitForBrowser(browser.page, `document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount') === ${JSON.stringify(String(expectedRows + 1))} && !document.body.innerText.includes('Loading your table…') && !document.body.innerText.includes('Preview failed:')`);
   return captureTable();
 };
 
 const openTable = async (expectedGroupCounts, relatedColumnName) => {
   const startedAt = Date.now();
-  await navigate(browser.cdp, `${uiOrigin}/?project=${project}&explorer=${explorer}&mode=builder`);
-  await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-table-${outputId}"]')`);
+  await navigate(browser.page, `${uiOrigin}/?project=${project}&explorer=${explorer}&mode=builder`);
+  await waitForBrowser(browser.page, `document.querySelector('[data-testid="construction-table-${outputId}"]')`);
   const tablePreviewStartedAt = Date.now();
-  await click(browser.cdp, `[data-testid="construction-table-${outputId}"]`);
-  await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-rows-settings-trigger"]')?.disabled === false`);
+  await click(browser.page, `[data-testid="construction-table-${outputId}"]`);
+  await waitForBrowser(browser.page, `document.querySelector('[data-testid="construction-rows-settings-trigger"]')?.disabled === false`);
   const table = await waitTable(expectedGroupCounts.length);
   const nativePreview = await waitNative('/preview', tablePreviewStartedAt, entry =>
     entry.status === 200 && entry.response?.rows?.length === expectedGroupCounts.length);
@@ -449,8 +455,8 @@ const proposalPreview = async (startedAt, expectedGroupCounts) => {
   const request = await waitNative('/construction-proposals', startedAt, entry => entry.status === 200);
   assert.equal(request.status, 200, JSON.stringify(request.response));
   assert.equal(request.response.previewStatus, 'READY', JSON.stringify(request.response));
-  await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalId === ${JSON.stringify(request.response.proposalId)} && document.querySelector('[data-testid="construction-proposal-ready"]')`);
-  const view = await browserEval(browser.cdp, `const preview=document.querySelector('[data-testid="construction-proposal-preview"]');return {
+  await waitForBrowser(browser.page, `document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalId === ${JSON.stringify(request.response.proposalId)} && document.querySelector('[data-testid="construction-proposal-ready"]')`);
+  const view = await browserEval(browser.page, `const preview=document.querySelector('[data-testid="construction-proposal-preview"]');return {
     headers:[...preview.querySelectorAll('th')].map(header=>header.firstElementChild?.textContent?.trim()??header.innerText.trim()),
     rows:[...preview.querySelectorAll('[data-testid="construction-proposal-preview-row"]')].map(row=>[...row.querySelectorAll('td')].map(cell=>({text:cell.innerText.trim(),raw:cell.title}))),
   };`);
@@ -477,50 +483,50 @@ const proposalPreview = async (startedAt, expectedGroupCounts) => {
 };
 
 const addRelatedObservation = async expectedGroupCounts => {
-  await click(browser.cdp, '[data-testid="construction-action-add-columns"]');
-  await click(browser.cdp, '[aria-label="Column types"] button', { includes: 'Fields and related data' });
-  await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-add-columns-source"]')`);
-  if (!await browserEval(browser.cdp, `return document.querySelector('[aria-label="Related resources"] summary')?.parentElement.open;`)) {
-    await click(browser.cdp, '[aria-label="Related resources"] summary');
+  await click(browser.page, '[data-testid="construction-action-add-columns"]');
+  await click(browser.page, '[aria-label="Column types"] button', { includes: 'Fields and related data' });
+  await waitForBrowser(browser.page, `document.querySelector('[data-testid="construction-add-columns-source"]')`);
+  if (!await browserEval(browser.page, `return document.querySelector('[aria-label="Related resources"] summary')?.parentElement.open;`)) {
+    await click(browser.page, '[aria-label="Related resources"] summary');
   }
-  await click(browser.cdp, '[data-testid="construction-add-columns-source-option"][aria-label="Observation, Related resource"]');
-  if (!await browserEval(browser.cdp, `return document.querySelector('[data-testid="feature-catalog-raw-fields"] summary')?.parentElement.open;`)) {
-    await click(browser.cdp, '[data-testid="feature-catalog-raw-fields"] summary');
+  await click(browser.page, '[data-testid="construction-add-columns-source-option"][aria-label="Observation, Related resource"]');
+  if (!await browserEval(browser.page, `return document.querySelector('[data-testid="feature-catalog-raw-fields"] summary')?.parentElement.open;`)) {
+    await click(browser.page, '[data-testid="feature-catalog-raw-fields"] summary');
   }
-  await waitForBrowser(browser.cdp, `document.querySelector('input[aria-label="Select Observation.id"]:not(:disabled)')`);
-  await click(browser.cdp, 'input[aria-label="Select Observation.id"]');
-  await click(browser.cdp, '[aria-label="Add columns editor"] button', { includes: 'Add 1 selected feature' });
-  await waitForBrowser(browser.cdp, `document.querySelector('[role="dialog"]')`);
-  if (!await browserEval(browser.cdp, `return [...document.querySelectorAll('[role="dialog"] summary')].find(summary=>summary.innerText.includes('Other relationship paths'))?.parentElement.open;`)) {
-    await click(browser.cdp, '[role="dialog"] summary', { includes: 'Other relationship paths' });
+  await waitForBrowser(browser.page, `document.querySelector('input[aria-label="Select Observation.id"]:not(:disabled)')`);
+  await click(browser.page, 'input[aria-label="Select Observation.id"]');
+  await click(browser.page, '[aria-label="Add columns editor"] button', { includes: 'Add 1 selected feature' });
+  await waitForBrowser(browser.page, `document.querySelector('[role="dialog"]')`);
+  if (!await browserEval(browser.page, `return [...document.querySelectorAll('[role="dialog"] summary')].find(summary=>summary.innerText.includes('Other relationship paths'))?.parentElement.open;`)) {
+    await click(browser.page, '[role="dialog"] summary', { includes: 'Other relationship paths' });
   }
   const routeSelector = `[role="dialog"] input[aria-label=${JSON.stringify(routeLabel)}]`;
-  await waitForBrowser(browser.cdp, `document.querySelector(${JSON.stringify(routeSelector)})`);
-  const routeOptions = await browserEval(browser.cdp, `return [...document.querySelectorAll(${JSON.stringify(routeSelector)})].map(input=>({disabled:input.disabled,label:input.getAttribute('aria-label')}));`);
+  await waitForBrowser(browser.page, `document.querySelector(${JSON.stringify(routeSelector)})`);
+  const routeOptions = await browserEval(browser.page, `return [...document.querySelectorAll(${JSON.stringify(routeSelector)})].map(input=>({disabled:input.disabled,label:input.getAttribute('aria-label')}));`);
   if (!routeOptions.some(option => !option.disabled)) {
     throw new UnsupportedCapabilityError('The native related-source chooser cannot select Observation.id on the Specimen → Patient ← Observation route after the named cohort.', { routeOptions });
   }
-  await click(browser.cdp, routeSelector);
+  await click(browser.page, routeSelector);
   const formLabel = relatedForm === 'COUNT' ? 'Observation ID: Count matching records' : 'Observation ID: Keep all matching values';
   const formSelector = `[role="dialog"] input[aria-label=${JSON.stringify(formLabel)}]`;
-  await waitForBrowser(browser.cdp, `document.querySelector(${JSON.stringify(formSelector)})`);
-  const formOptions = await browserEval(browser.cdp, `return [...document.querySelectorAll(${JSON.stringify(formSelector)})].map(input=>({disabled:input.disabled,label:input.getAttribute('aria-label')}));`);
+  await waitForBrowser(browser.page, `document.querySelector(${JSON.stringify(formSelector)})`);
+  const formOptions = await browserEval(browser.page, `return [...document.querySelectorAll(${JSON.stringify(formSelector)})].map(input=>({disabled:input.disabled,label:input.getAttribute('aria-label')}));`);
   if (!formOptions.some(option => !option.disabled)) {
     throw new UnsupportedCapabilityError(`The native related-source chooser cannot express the ${relatedForm} form after the named cohort.`, { formOptions });
   }
   const startedAt = Date.now();
-  await click(browser.cdp, formSelector);
-  const selectedChoice = await browserEval(browser.cdp, `const dialog=document.querySelector('[role="dialog"]');return {route:dialog?.querySelector('input[aria-label=${JSON.stringify(routeLabel)}]')?.checked,form:dialog?.querySelector('input[aria-label=${JSON.stringify(formLabel)}]')?.checked};`);
+  await click(browser.page, formSelector);
+  const selectedChoice = await browserEval(browser.page, `const dialog=document.querySelector('[role="dialog"]');return {route:dialog?.querySelector('input[aria-label=${JSON.stringify(routeLabel)}]')?.checked,form:dialog?.querySelector('input[aria-label=${JSON.stringify(formLabel)}]')?.checked};`);
   assert.deepEqual(selectedChoice, { route: true, form: true }, `Native chooser must retain the exact route and ${relatedForm} source form`);
-  await click(browser.cdp, '[role="dialog"] button', { name: 'Add 1 column' });
+  await click(browser.page, '[role="dialog"] button', { name: 'Add 1 column' });
   return proposalPreview(startedAt, expectedGroupCounts);
 };
 
 const applyConstructionProposal = async (expectedGroupCounts, relatedColumnName) => {
   const startedAt = Date.now();
   const nativeStartIndex = report.nativeRequests.length;
-  await click(browser.cdp, '[data-testid="construction-apply-proposal"]');
-  await waitForBrowser(browser.cdp, `!document.querySelector('[data-testid="construction-proposal-panel"]')`);
+  await click(browser.page, '[data-testid="construction-apply-proposal"]');
+  await waitForBrowser(browser.page, `!document.querySelector('[data-testid="construction-proposal-panel"]')`);
   const table = await waitTable(expectedGroupCounts.length);
   const savedCommand = await waitNative('/commands', startedAt, entry => entry.status === 200);
   const previewRequest = await waitNative('/preview', startedAt, entry => entry.status === 200);
@@ -698,64 +704,41 @@ try {
   report.oracle.groupRoster = rawGroupRoster;
   report.cohort = { ...cohort, scopeDigest, selectionRevisionId: selection.id, rawMemberIDs: memberIDs, rawGroupRoster };
 
-  browser = await launchBrowser(evidence);
-  browser.cdp.on('Runtime.exceptionThrown', event => report.errors.push({ kind: 'runtime', details: event.exceptionDetails }));
-  browser.cdp.on('Runtime.consoleAPICalled', event => { if (event.type === 'error') report.errors.push({ kind: 'console', args: event.args }); });
-  browser.cdp.on('Network.loadingFailed', event => { if (event.type === 'Script' && event.errorText !== 'net::ERR_ABORTED') report.errors.push({ kind: 'module', error: event.errorText }); });
-  browser.cdp.on('Network.requestWillBeSent', ({ requestId, request, wallTime }) => {
-    const url = new URL(request.url);
-    if (url.pathname.includes(`/explorers/${protectedExplorer}/`)) report.protectedExplorerUntouched = false;
-    if (!url.pathname.startsWith(base + '/')) return;
-    let body;
-    try { body = request.postData ? JSON.parse(request.postData) : undefined; } catch { body = request.postData?.slice(0, 32768); }
-    const entry = { requestId, path: url.pathname + url.search, method: request.method, startedAt: wallTime ? Math.round(wallTime * 1000) : Date.now(), body };
-    nativeById.set(requestId, entry);
-    report.nativeRequests.push(entry);
+  browser = await launchCdaBrowser(evidence, apiOrigin, uiOrigin);
+  nativeCapture = captureCDARequests(browser.page, {
+    apiOrigin: uiOrigin, appOrigins: [apiOrigin, uiOrigin], ownedPathPrefix: base, report,
+    responsePaths: /builder|commands|preview|construction-proposals|population-routes|selections/,
   });
-  browser.cdp.on('Network.responseReceived', ({ requestId, response }) => {
-    const entry = nativeById.get(requestId);
-    if (entry) {
-      entry.status = response.status;
-      entry.serverRequestId = Object.entries(response.headers).find(([name]) => name.toLowerCase() === 'x-request-id')?.[1];
-    }
-    if (response.status >= 400 && !response.url.endsWith('/favicon.ico')) report.errors.push({ kind: 'http', status: response.status, url: response.url });
-  });
-  browser.cdp.on('Network.loadingFinished', ({ requestId }) => {
-    const entry = nativeById.get(requestId);
-    if (!entry) return;
-    entry.completedAt = Date.now();
-    if (!(/proposal|preview|commands|construction-capabilities|row-definition/.test(entry.path) || entry.status >= 400)) return;
-    const read = browser.cdp.send('Network.getResponseBody', { requestId }).then(result => {
-      const text = result.base64Encoded ? Buffer.from(result.body, 'base64').toString('utf8') : result.body;
-      if (text.length > 65536) entry.response = { truncated: true, length: text.length, text: text.slice(0, 65536) };
-      else { try { entry.response = JSON.parse(text); } catch { entry.response = text; } }
-    }).catch(error => { entry.responseReadError = String(error); }).finally(() => pendingNetworkReads.delete(read));
-    pendingNetworkReads.add(read);
+  browser.page.on('request', request => {
+    const url=new URL(request.url());
+    if(url.pathname.includes(`/explorers/${protectedExplorer}/`)) report.protectedExplorerUntouched=false;
+    const entry=nativeCapture.byRequest.get(request);
+    if(entry?.authorizationHeaderPresent) report.errors.push({kind:'unexpected-auth-header',path:entry.path});
   });
 
   const startedLoad = Date.now();
-  await navigate(browser.cdp, `${uiOrigin}/?project=${project}&explorer=${explorer}&mode=builder`);
-  await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-table-${outputId}"]')`);
-  await click(browser.cdp, `[data-testid="construction-table-${outputId}"]`);
-  await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-rows-settings-trigger"]')?.disabled === false`);
+  await navigate(browser.page, `${uiOrigin}/?project=${project}&explorer=${explorer}&mode=builder`);
+  await waitForBrowser(browser.page, `document.querySelector('[data-testid="construction-table-${outputId}"]')`);
+  await click(browser.page, `[data-testid="construction-table-${outputId}"]`);
+  await waitForBrowser(browser.page, `document.querySelector('[data-testid="construction-rows-settings-trigger"]')?.disabled === false`);
   await waitTable(memberIDs.length);
   record('open-exact-selected-source-table', startedLoad);
 
   const rowSettingsStart = Date.now();
-  await click(browser.cdp, '[data-testid="construction-rows-settings-trigger"]');
+  await click(browser.page, '[data-testid="construction-rows-settings-trigger"]');
   const rowShapeSelector = 'select[aria-label="What should each row represent?"]';
-  await waitForBrowser(browser.cdp, `document.querySelector(${JSON.stringify(rowShapeSelector)})?.disabled === false`);
+  await waitForBrowser(browser.page, `document.querySelector(${JSON.stringify(rowShapeSelector)})?.disabled === false`);
   const cohortValue = `explicit:${cohort.revisionId}`;
-  await selectOption(browser.cdp, rowShapeSelector, cohortValue);
+  await selectOption(browser.page, rowShapeSelector, cohortValue);
   const policySelector = 'select[aria-label="Unmatched record policy"]';
-  await waitForBrowser(browser.cdp, `document.querySelector(${JSON.stringify(policySelector)})?.disabled === false`);
-  await selectOption(browser.cdp, policySelector, `${cohortValue}:ERROR`);
-  await waitForBrowser(browser.cdp, `[...document.querySelectorAll('[aria-label="Row definition settings"] button')].some(button=>button.innerText==='Apply row definition'&&!button.disabled)`);
-  const rowPreview = await browserEval(browser.cdp, `return document.querySelector('[aria-label="Row definition preview"]')?.innerText;`);
+  await waitForBrowser(browser.page, `document.querySelector(${JSON.stringify(policySelector)})?.disabled === false`);
+  await selectOption(browser.page, policySelector, `${cohortValue}:ERROR`);
+  await waitForBrowser(browser.page, `[...document.querySelectorAll('[aria-label="Row definition settings"] button')].some(button=>button.innerText==='Apply row definition'&&!button.disabled)`);
+  const rowPreview = await browserEval(browser.page, `return document.querySelector('[aria-label="Row definition preview"]')?.innerText;`);
   assert(rowPreview?.includes(`${memberIDs.length} rows → ${groupDefinitions.length} rows`), rowPreview ?? 'Named cohort preview did not materialize every declared group');
   const groupApplyStart = Date.now();
-  await click(browser.cdp, '[aria-label="Row definition settings"] button', { name: 'Apply row definition' });
-  await waitForBrowser(browser.cdp, `[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].some(header=>header.innerText.trim().toLowerCase()==='members')`);
+  await click(browser.page, '[aria-label="Row definition settings"] button', { name: 'Apply row definition' });
+  await waitForBrowser(browser.page, `[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].some(header=>header.innerText.trim().toLowerCase()==='members')`);
   const groupedTable = await waitTable(groupDefinitions.length);
   const groupedNativePreview = await waitNative('/preview', groupApplyStart, entry =>
     entry.status === 200 && entry.response?.rows?.length === groupDefinitions.length);
@@ -788,8 +771,8 @@ try {
 
   const first = await addRelatedObservation(expectedGroupCounts);
   const cancelStart = Date.now();
-  await click(browser.cdp, '[data-testid="construction-cancel-proposal"]');
-  await waitForBrowser(browser.cdp, `!document.querySelector('[data-testid="construction-proposal-panel"]')`);
+  await click(browser.page, '[data-testid="construction-cancel-proposal"]');
+  await waitForBrowser(browser.page, `!document.querySelector('[data-testid="construction-proposal-panel"]')`);
   assert.deepEqual((await api(base + '/builder')).workspace, groupedBaselineWorkspace, 'Cancel must keep named-cohort membership and authored schema unchanged');
   record(`cancel-related-${relatedFormName}-proposal`, cancelStart);
 
@@ -830,48 +813,44 @@ try {
   assertNamedGroupRows(savedTable, expectedGroupCounts, relatedLabel);
 
   const beforeEditWorkspace = structuredClone(builder.workspace);
-  await click(browser.cdp, `[data-testid="construction-history-step-${savedStep.id}"]`);
-  await click(browser.cdp, `[data-testid="construction-edit-step-${savedStep.id}"]`);
+  await click(browser.page, `[data-testid="construction-history-step-${savedStep.id}"]`);
+  await click(browser.page, `[data-testid="construction-edit-step-${savedStep.id}"]`);
   const labelSelector = '[data-testid="related-source-step-editor"] input[aria-label="Output column label"]';
-  await waitForBrowser(browser.cdp, `document.querySelector(${JSON.stringify(labelSelector)})?.matches(":not(:disabled)")`);
-  await click(browser.cdp, labelSelector);
-  await browserEval(browser.cdp, `const input=document.querySelector(${JSON.stringify(labelSelector)});input.focus();input.select();return true;`);
+  await waitForBrowser(browser.page, `document.querySelector(${JSON.stringify(labelSelector)})?.matches(":not(:disabled)")`);
   const editedLabel = `${relatedLabel} reviewed`;
   const editStart = Date.now();
-  await browser.cdp.send('Input.insertText', { text: editedLabel });
+  await fill(browser.page, labelSelector, editedLabel);
   const editedProposal = await waitNative('/construction-proposals', editStart, entry => entry.status === 200);
   assert.equal(editedProposal.response.previewStatus, 'READY', JSON.stringify(editedProposal.response));
-  await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalId === ${JSON.stringify(editedProposal.response.proposalId)} && document.querySelector('[data-testid="construction-proposal-ready"]')`);
+  await waitForBrowser(browser.page, `document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalId === ${JSON.stringify(editedProposal.response.proposalId)} && document.querySelector('[data-testid="construction-proposal-ready"]')`);
   const editedStep = editedProposal.response.candidateConstruction.steps.find(step => step.id === savedStep.id);
   assert(editedStep);
   assert.deepEqual(editedStep.operation, savedStep.operation, 'Editing the output label must preserve the exact route, source ID and cohort anchor');
   const editedOutput = editedStep.outputs.find(column => column.id === savedStep.operation.relatedSource.outputColumnId);
   assert.equal(editedOutput.label, editedLabel);
   const editedProtocolRows = assertTypedNamedGroupRows(editedProposal.response.preview?.rows, expectedGroupCounts, cohort.revisionId, editedOutput.name);
-  const editedView = await browserEval(browser.cdp, `const preview=document.querySelector('[data-testid="construction-proposal-preview"]');return {
+  const editedView = await browserEval(browser.page, `const preview=document.querySelector('[data-testid="construction-proposal-preview"]');return {
     headers:[...preview.querySelectorAll('th')].map(header=>header.firstElementChild?.textContent?.trim()??header.innerText.trim()),
     rows:[...preview.querySelectorAll('[data-testid="construction-proposal-preview-row"]')].map(row=>[...row.querySelectorAll('td')].map(cell=>({text:cell.innerText.trim(),raw:cell.title}))),
   };`);
   assertNamedGroupRows(editedView, expectedGroupCounts, editedLabel);
   record(`edit-related-${relatedFormName}-preview`, editStart, { editedLabel, rows: editedView.rows.map(row => row.map(cell => cell.text)), protocolRows: editedProtocolRows });
   const cancelEditStart = Date.now();
-  await click(browser.cdp, '[data-testid="construction-cancel-proposal"]');
-  await waitForBrowser(browser.cdp, `!document.querySelector('[data-testid="construction-proposal-panel"]')`);
+  await click(browser.page, '[data-testid="construction-cancel-proposal"]');
+  await waitForBrowser(browser.page, `!document.querySelector('[data-testid="construction-proposal-panel"]')`);
   assert.deepEqual((await api(base + '/builder')).workspace, beforeEditWorkspace, `Cancel edit must retain the saved related ${relatedForm} operation`);
   record(`cancel-related-${relatedFormName}-label-edit`, cancelEditStart);
 
-  await click(browser.cdp, `[data-testid="construction-history-step-${savedStep.id}"]`);
-  await click(browser.cdp, `[data-testid="construction-edit-step-${savedStep.id}"]`);
-  await waitForBrowser(browser.cdp, `document.querySelector(${JSON.stringify(labelSelector)})?.matches(":not(:disabled)")`);
-  await click(browser.cdp, labelSelector);
-  await browserEval(browser.cdp, `const input=document.querySelector(${JSON.stringify(labelSelector)});input.focus();input.select();return true;`);
+  await click(browser.page, `[data-testid="construction-history-step-${savedStep.id}"]`);
+  await click(browser.page, `[data-testid="construction-edit-step-${savedStep.id}"]`);
+  await waitForBrowser(browser.page, `document.querySelector(${JSON.stringify(labelSelector)})?.matches(":not(:disabled)")`);
   const confirmedEditStart = Date.now();
-  await browser.cdp.send('Input.insertText', { text: editedLabel });
+  await fill(browser.page, labelSelector, editedLabel);
   const confirmedEditProposal = await waitNative('/construction-proposals', confirmedEditStart, entry => entry.status === 200);
   const confirmedEditStep = confirmedEditProposal.response.candidateConstruction.steps.find(step => step.id === savedStep.id);
   const confirmedEditOutput = confirmedEditStep.outputs.find(column => column.id === savedStep.operation.relatedSource.outputColumnId);
   assertTypedNamedGroupRows(confirmedEditProposal.response.preview?.rows, expectedGroupCounts, cohort.revisionId, confirmedEditOutput.name);
-  await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-proposal-ready"]')`);
+  await waitForBrowser(browser.page, `document.querySelector('[data-testid="construction-proposal-ready"]')`);
   await applyConstructionProposal(expectedGroupCounts, confirmedEditOutput.name);
   record(`apply-related-${relatedFormName}-label-edit`, confirmedEditStart);
   builder = await api(base + '/builder');
@@ -883,29 +862,29 @@ try {
   assertNamedGroupRows(savedTable, expectedGroupCounts, editedLabel);
 
   const editedWorkspace = structuredClone(builder.workspace);
-  await click(browser.cdp, `[data-testid="construction-history-step-${savedStep.id}"]`);
+  await click(browser.page, `[data-testid="construction-history-step-${savedStep.id}"]`);
   const removeStart = Date.now();
-  await click(browser.cdp, `[data-testid="construction-remove-step-${savedStep.id}"]`);
+  await click(browser.page, `[data-testid="construction-remove-step-${savedStep.id}"]`);
   const removeProposal = await waitNative('/construction-proposals', removeStart, entry => entry.status === 200);
   assert.equal(removeProposal.response.previewStatus, 'READY', JSON.stringify(removeProposal.response));
   const removeProtocolRows = assertTypedNamedGroupRows(removeProposal.response.preview?.rows, expectedGroupCounts, cohort.revisionId);
-  await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-proposal-ready"]')`);
-  const removeView = await browserEval(browser.cdp, `const preview=document.querySelector('[data-testid="construction-proposal-preview"]');return {headers:[...preview.querySelectorAll('th')].map(header=>header.firstElementChild?.textContent?.trim()??header.innerText.trim()),rows:[...preview.querySelectorAll('[data-testid="construction-proposal-preview-row"]')].map(row=>[...row.querySelectorAll('td')].map(cell=>cell.innerText.trim()))};`);
+  await waitForBrowser(browser.page, `document.querySelector('[data-testid="construction-proposal-ready"]')`);
+  const removeView = await browserEval(browser.page, `const preview=document.querySelector('[data-testid="construction-proposal-preview"]');return {headers:[...preview.querySelectorAll('th')].map(header=>header.firstElementChild?.textContent?.trim()??header.innerText.trim()),rows:[...preview.querySelectorAll('[data-testid="construction-proposal-preview-row"]')].map(row=>[...row.querySelectorAll('td')].map(cell=>cell.innerText.trim()))};`);
   assert.equal(removeProposal.response.candidateConstruction.steps.length, 0, 'Removing the authored Add column must restore the construction-free cohort');
   assertNamedGroupRows(removeView, expectedGroupCounts);
   record(`remove-related-${relatedFormName}-preview`, removeStart, { headers: removeView.headers, rows: removeView.rows, protocolRows: removeProtocolRows });
   const cancelRemoveStart = Date.now();
-  await click(browser.cdp, '[data-testid="construction-cancel-proposal"]');
-  await waitForBrowser(browser.cdp, `!document.querySelector('[data-testid="construction-proposal-panel"]')`);
+  await click(browser.page, '[data-testid="construction-cancel-proposal"]');
+  await waitForBrowser(browser.page, `!document.querySelector('[data-testid="construction-proposal-panel"]')`);
   assert.deepEqual((await api(base + '/builder')).workspace, editedWorkspace, `Cancel removal must retain the renamed related ${relatedForm} output`);
   record(`cancel-related-${relatedFormName}-removal`, cancelRemoveStart);
 
-  await click(browser.cdp, `[data-testid="construction-history-step-${savedStep.id}"]`);
+  await click(browser.page, `[data-testid="construction-history-step-${savedStep.id}"]`);
   const confirmedRemoveStart = Date.now();
-  await click(browser.cdp, `[data-testid="construction-remove-step-${savedStep.id}"]`);
+  await click(browser.page, `[data-testid="construction-remove-step-${savedStep.id}"]`);
   const confirmedRemoveProposal = await waitNative('/construction-proposals', confirmedRemoveStart, entry => entry.status === 200);
   assertTypedNamedGroupRows(confirmedRemoveProposal.response.preview?.rows, expectedGroupCounts, cohort.revisionId);
-  await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-proposal-ready"]')`);
+  await waitForBrowser(browser.page, `document.querySelector('[data-testid="construction-proposal-ready"]')`);
   await applyConstructionProposal(expectedGroupCounts);
   record(`apply-related-${relatedFormName}-removal`, confirmedRemoveStart);
   builder = await api(base + '/builder');
@@ -948,9 +927,10 @@ try {
   if (error instanceof UnsupportedCapabilityError) report.unsupportedEvidence = error.evidence;
   else if (error instanceof BoundedAbsenceError) report.boundedAbsence = error.evidence;
   if (invalidated || (!(error instanceof UnsupportedCapabilityError) && !(error instanceof BoundedAbsenceError))) process.exitCode = 1;
-  if (browser) report.failureUI = await browserEval(browser.cdp, 'return document.body.innerText;').catch(String);
+  if (browser) await browser.captureFailure(error, { action: browser.activeAction ?? browser.lastAction, explorer, phase: 'CDA named cohort related COUNT lifecycle', draftVersion: builder?.draftVersion, draftDigest: builder?.draftDigest });
+  if (browser) report.failureUI = await browserEval(browser.page, 'return document.body.innerText;').catch(String);
 } finally {
-  await Promise.allSettled([...pendingNetworkReads]);
+  await nativeCapture?.flush();
   const apiBuildFinishedAt = new Date().toISOString();
   if (frozenApiBuild) {
     try {
