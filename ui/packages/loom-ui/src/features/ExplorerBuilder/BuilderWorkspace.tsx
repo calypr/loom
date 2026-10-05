@@ -486,6 +486,11 @@ const BuilderWorkspaceContent = ({
     readonly baseSelectionID: string;
     readonly selection: SelectionRevision;
   }>();
+  const [clearedPopulationSelection, setClearedPopulationSelection] = useState<{
+    readonly contextKey: string;
+    readonly client: typeof loomClient;
+    readonly selectionID: string;
+  }>();
   const [populationVariantError, setPopulationVariantError] = useState<{
     readonly contextKey: string;
     readonly message: string;
@@ -971,8 +976,14 @@ const BuilderWorkspaceContent = ({
     cohortRevisionID ?? '',
     handedOffPopulationSelectionID ?? '',
   ]);
+  const detachedSelectionID = !attachedSelectionID && !cohortRevisionID && !handedOffPopulationSelectionID &&
+    clearedPopulationSelection?.contextKey === populationSelectionContextKey &&
+    clearedPopulationSelection.client === loomClient
+    ? clearedPopulationSelection.selectionID
+    : undefined;
+  const resolvedSelectionID = attachedSelectionID ?? detachedSelectionID;
   const populationSelectionQueryArgs = !populationSelectionLoading && !handedOffPopulationSelectionID && table &&
-    (attachedSelectionID || cohortRevisionID)
+    (resolvedSelectionID || cohortRevisionID)
     ? {
       project: projectId,
       explorerId: state.explorerId,
@@ -981,13 +992,13 @@ const BuilderWorkspaceContent = ({
       generation: state.catalog.generation,
       outputId: table.outputId,
       resourceType: table.document.rootResourceType ?? '',
-      ...(attachedSelectionID ? { attachedSelectionId: attachedSelectionID } : {}),
+      ...(resolvedSelectionID ? { attachedSelectionId: resolvedSelectionID } : {}),
       ...(cohortRevisionID ? { cohortRevisionId: cohortRevisionID } : {}),
     }
     : undefined;
   const populationSelectionQuery = useResolvePopulationSelectionQuery(
     populationSelectionQueryArgs,
-    JSON.stringify([populationSelectionContextKey, attachedSelectionID ?? '']),
+    JSON.stringify([populationSelectionContextKey, resolvedSelectionID ?? '']),
   );
   const populationSelectionOverrideIsCurrent = populationSelectionOverride?.contextKey === populationSelectionContextKey && (
     populationSelection?.id === populationSelectionOverride.baseSelectionID ||
@@ -3523,10 +3534,17 @@ const BuilderWorkspaceContent = ({
                           selectionRevisionId: activePopulationSelection?.id,
                           routeChoiceId,
                         }])}
-                        onClear={() => void applyCommands([{
-                          type: 'CLEAR_TABLE_POPULATION',
-                          outputId: table.outputId,
-                        }])}
+                        onClear={() => {
+                          if (activePopulationSelection) setClearedPopulationSelection({
+                            contextKey: populationSelectionContextKey,
+                            client: loomClient,
+                            selectionID: activePopulationSelection.id,
+                          });
+                          void applyCommands([{
+                            type: 'CLEAR_TABLE_POPULATION',
+                            outputId: table.outputId,
+                          }]);
+                        }}
                         onExclude={(ref, route) => void excludePopulationMember(ref, route)}
                         onApplyMemberRemoval={(proposalId) => applyCommands([{
                           type: 'APPLY_POPULATION_MEMBER_PROPOSAL',

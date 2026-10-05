@@ -9527,7 +9527,7 @@
     {
       "sourcePath": "scripts/verify-cda-collection-repair.mjs",
       "preimageSha256": "973e0b48331b1c8f5f88dfbd3d15d2dcde803394b294c715022a906797e9eed7",
-      "currentSha256": "3511ae06ebc79d0b13f6f87bd78fff64a99c355687868701384623405e6a2a9f",
+      "currentSha256": "0d108dc3226d068df1a82a6752514a45802b08066561c69bbb08f1bef22d80d3",
       "sourceStillPresent": true,
       "ownerPartition": "native-standalone-cda-other",
       "kind": "standalone-browser-entrypoint",
@@ -9564,7 +9564,7 @@
       "workflowArtifacts": [
         {
           "path": "scripts/verify-cda-collection-repair.mjs",
-          "sha256": "3511ae06ebc79d0b13f6f87bd78fff64a99c355687868701384623405e6a2a9f",
+          "sha256": "0d108dc3226d068df1a82a6752514a45802b08066561c69bbb08f1bef22d80d3",
           "artifactSource": "canonical-source-root"
         }
       ],

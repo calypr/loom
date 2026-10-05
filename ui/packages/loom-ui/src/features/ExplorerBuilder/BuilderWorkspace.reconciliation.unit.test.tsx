@@ -52,6 +52,7 @@ const mockLoomClient = vi.hoisted(() => ({
   preview: vi.fn(),
   browseSemanticInventory: vi.fn(),
 }));
+const mockLoomClientReference = vi.hoisted(() => ({ current: undefined as unknown }));
 const mockRelatedExpandOwnerState = vi.hoisted(() => ({ enabled: false }));
 const mockRelatedExpandQueryOwner = vi.hoisted(() => ({
   draftVersion: 1,
@@ -64,7 +65,7 @@ vi.mock('../../react', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../react')>();
   return {
     ...actual,
-    useLoomClient: () => mockLoomClient,
+    useLoomClient: () => (mockLoomClientReference.current as typeof mockLoomClient | undefined) ?? mockLoomClient,
     useApplyExplorerBuilderCommandsV2Mutation: vi.fn(),
     useAssessExplorerRowChangeMutation: vi.fn(),
     useCreateExplorerAuthoringMutation: vi.fn(),
@@ -566,6 +567,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
   let publish: Mock;
 
   beforeEach(() => {
+    mockLoomClientReference.current = undefined;
     mockRelatedExpandOwnerState.enabled = false;
     mockRelatedExpandQueryOwner.pauseAndDrain.mockReset().mockResolvedValue(undefined);
     mockRelatedExpandQueryOwner.resume.mockReset();
@@ -1759,6 +1761,261 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
         recoveredReceipt.receiptId,
       );
     });
+  });
+
+  it('retains a validated source selection after clearing it and lets a different attachment take precedence', async () => {
+    const selection = (id: string): SelectionRevision => ({
+      id,
+      project: 'HTAN_INT/BForePC',
+      generation: 'generation-1',
+      resourceType: 'Specimen',
+      rule: { kind: 'EXPLICIT' },
+      source: { kind: 'EXPLICIT_REFS', generation: 'generation-1' },
+      scopeDigest: `scope-${id}`,
+      ruleDigest: `rule-${id}`,
+      membershipDigest: `membership-${id}`,
+      memberCount: 1,
+      memberBytes: 32,
+      complete: true,
+      createdAt: '2026-09-21T00:00:00Z',
+    });
+    const selectionA = selection('selection-clear-a');
+    const selectionB = selection('selection-clear-b');
+    const attachedWorkspace: ExplorerBuilderWorkspace = {
+      ...workspace,
+      documents: [{
+        ...workspace.documents[0],
+        population: { selectionRevisionId: selectionA.id, route: [] },
+      }],
+    };
+    const detachedWorkspace: ExplorerBuilderWorkspace = {
+      ...workspace,
+      documents: [{ ...workspace.documents[0] }],
+    };
+    const workspaceAttachedToB: ExplorerBuilderWorkspace = {
+      ...workspace,
+      documents: [{
+        ...workspace.documents[0],
+        population: { selectionRevisionId: selectionB.id, route: [] },
+      }],
+    };
+    let currentServerWorkspace: ExplorerBuilderWorkspace = attachedWorkspace;
+    (useGetExplorerBuilderStateV2Query as Mock).mockReturnValue({
+      data: { ...builderState, workspace: attachedWorkspace },
+      isLoading: false,
+      refetch: vi.fn(),
+    });
+    reconcile.mockImplementation(() => resolvedRequest({ ...receipt, builder: currentServerWorkspace }));
+    mockLoomClient.getSelection.mockImplementation(async (args: { readonly selectionRevision: string }) => ({
+      revision: args.selectionRevision === selectionA.id ? selectionA : selectionB,
+      members: [],
+    }));
+    mockLoomClient.searchPopulationRoutes.mockImplementation(async (args: { readonly selectionRevisionId: string }) => ({
+      snapshotToken: 'snapshot-1',
+      outputId: 'specimens',
+      selectionRevisionId: args.selectionRevisionId,
+      complete: true,
+      truncated: false,
+      choices: [{
+        routeChoiceId: `route-${args.selectionRevisionId}`,
+        route: [],
+        presentation: { summary: 'Use selected Specimen records', facts: [] },
+      }],
+    }));
+    applyCommands.mockImplementation((args: { readonly commands: ReadonlyArray<{ readonly type: string }> }) => {
+      const command = args.commands[0];
+      const nextWorkspace = command?.type === 'SET_TABLE_POPULATION'
+        ? workspaceAttachedToB
+        : detachedWorkspace;
+      currentServerWorkspace = nextWorkspace;
+      return resolvedRequest({
+        commandId: 'population-command',
+        workspace: nextWorkspace,
+        draftVersion: 2,
+        draftDigest: 'sha256:draft-2',
+        results: [{ type: 'TABLE_CHANGED', outputId: 'specimens' }],
+        diagnostics: [],
+      });
+    });
+
+    render(<BuilderWorkspace organization="HTAN_INT" project="BForePC" explorerId="test" />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Configure rows' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Row definition settings' });
+    const panel = await within(dialog).findByRole('region', { name: 'Starting collection' });
+    await waitFor(() => expect(panel).toHaveAttribute('data-selection-revision-id', selectionA.id));
+    expect(panel).toHaveAttribute('data-attached-selection-revision-id', selectionA.id);
+
+    fireEvent.click(within(panel).getByRole('button', { name: 'Use all authorized rows' }));
+    await waitFor(() => expect(applyCommands).toHaveBeenCalledWith(expect.objectContaining({
+      commands: [{ type: 'CLEAR_TABLE_POPULATION', outputId: 'specimens' }],
+    })));
+    await waitFor(() => expect(
+      within(screen.getByRole('dialog', { name: 'Row definition settings' }))
+        .getByRole('region', { name: 'Starting collection' }),
+    ).not.toHaveAttribute('data-attached-selection-revision-id'));
+    const detachedPanel = within(screen.getByRole('dialog', { name: 'Row definition settings' }))
+      .getByRole('region', { name: 'Starting collection' });
+    expect(detachedPanel).toHaveAttribute('data-selection-revision-id', selectionA.id);
+    fireEvent.click(within(detachedPanel).getByRole('button', { name: 'Use selected resources' }));
+
+    await waitFor(() => expect(
+      within(screen.getByRole('dialog', { name: 'Row definition settings' }))
+        .getByRole('region', { name: 'Starting collection' }),
+    ).toHaveAttribute('data-selection-revision-id', selectionB.id));
+    const attachedBPanel = within(screen.getByRole('dialog', { name: 'Row definition settings' }))
+      .getByRole('region', { name: 'Starting collection' });
+    expect(attachedBPanel).toHaveAttribute('data-attached-selection-revision-id', selectionB.id);
+    expect(mockLoomClient.getSelection).toHaveBeenCalledWith(expect.objectContaining({
+      selectionRevision: selectionB.id,
+    }), expect.any(AbortSignal));
+  });
+
+  it('does not carry a cleared selection into another table context', async () => {
+    const selection: SelectionRevision = {
+      id: 'selection-context-a',
+      project: 'HTAN_INT/BForePC',
+      generation: 'generation-1',
+      resourceType: 'Specimen',
+      rule: { kind: 'EXPLICIT' },
+      source: { kind: 'EXPLICIT_REFS', generation: 'generation-1' },
+      scopeDigest: 'scope-context-a',
+      ruleDigest: 'rule-context-a',
+      membershipDigest: 'membership-context-a',
+      memberCount: 1,
+      memberBytes: 32,
+      complete: true,
+      createdAt: '2026-09-21T00:00:00Z',
+    };
+    const secondDocument: ExplorerBuilderWorkspace['documents'][number] = {
+      ...workspace.documents[0],
+      output: { id: 'patients', title: 'Patients' },
+      rootResourceType: 'Patient',
+      route: { occurrenceId: 'base', resourceType: 'Patient' },
+      columns: [],
+    };
+    const multiTableWorkspace: ExplorerBuilderWorkspace = {
+      ...workspace,
+      documents: [
+        { ...workspace.documents[0], population: { selectionRevisionId: selection.id, route: [] } },
+        secondDocument,
+      ],
+      tabs: [
+        ...workspace.tabs,
+        { id: 'patients-tab', title: 'Patients', outputId: 'patients', order: 1, visible: true },
+      ],
+    };
+    const clearedMultiTableWorkspace: ExplorerBuilderWorkspace = {
+      ...multiTableWorkspace,
+      documents: [{ ...workspace.documents[0] }, secondDocument],
+    };
+    let currentServerWorkspace: ExplorerBuilderWorkspace = multiTableWorkspace;
+    (useGetExplorerBuilderStateV2Query as Mock).mockReturnValue({
+      data: { ...builderState, workspace: multiTableWorkspace },
+      isLoading: false,
+      refetch: vi.fn(),
+    });
+    reconcile.mockImplementation(() => resolvedRequest({ ...receipt, builder: currentServerWorkspace }));
+    mockLoomClient.getSelection.mockResolvedValue({ revision: selection, members: [] });
+    applyCommands.mockImplementation(() => {
+      currentServerWorkspace = clearedMultiTableWorkspace;
+      return resolvedRequest({
+      commandId: 'clear-selection-command',
+      workspace: clearedMultiTableWorkspace,
+      draftVersion: 2,
+      draftDigest: 'sha256:draft-2',
+      results: [{ type: 'TABLE_CHANGED', outputId: 'specimens' }],
+      diagnostics: [],
+      });
+    });
+
+    render(<BuilderWorkspace organization="HTAN_INT" project="BForePC" explorerId="test" />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Configure rows' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Row definition settings' });
+    const specimenPanel = await within(dialog).findByRole('region', { name: 'Starting collection' });
+    await waitFor(() => expect(specimenPanel).toHaveAttribute('data-selection-revision-id', selection.id));
+    fireEvent.click(within(specimenPanel).getByRole('button', { name: 'Use all authorized rows' }));
+    await waitFor(() => expect(specimenPanel).not.toHaveAttribute('data-attached-selection-revision-id'));
+    const selectionCallsBeforeTableSwitch = mockLoomClient.getSelection.mock.calls.length;
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Back to table' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Select second table' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Configure rows' }));
+    const patientDialog = await screen.findByRole('dialog', { name: 'Row definition settings' });
+    const patientPanel = await within(patientDialog).findByRole('region', { name: 'Starting collection' });
+    expect(patientPanel).not.toHaveAttribute('data-selection-revision-id');
+    expect(within(patientDialog).queryByText(/selected, not attached/)).not.toBeInTheDocument();
+    expect(mockLoomClient.getSelection).toHaveBeenCalledTimes(selectionCallsBeforeTableSwitch);
+  });
+
+  it('does not retain a cleared selection when the Loom client identity changes', async () => {
+    const selection: SelectionRevision = {
+      id: 'selection-client-a',
+      project: 'HTAN_INT/BForePC',
+      generation: 'generation-1',
+      resourceType: 'Specimen',
+      rule: { kind: 'EXPLICIT' },
+      source: { kind: 'EXPLICIT_REFS', generation: 'generation-1' },
+      scopeDigest: 'scope-client-a',
+      ruleDigest: 'rule-client-a',
+      membershipDigest: 'membership-client-a',
+      memberCount: 1,
+      memberBytes: 32,
+      complete: true,
+      createdAt: '2026-09-21T00:00:00Z',
+    };
+    const attachedWorkspace: ExplorerBuilderWorkspace = {
+      ...workspace,
+      documents: [{
+        ...workspace.documents[0],
+        population: { selectionRevisionId: selection.id, route: [] },
+      }],
+    };
+    const detachedWorkspace: ExplorerBuilderWorkspace = {
+      ...workspace,
+      documents: [{ ...workspace.documents[0] }],
+    };
+    let currentServerWorkspace: ExplorerBuilderWorkspace = attachedWorkspace;
+    (useGetExplorerBuilderStateV2Query as Mock).mockReturnValue({
+      data: { ...builderState, workspace: attachedWorkspace },
+      isLoading: false,
+      refetch: vi.fn(),
+    });
+    reconcile.mockImplementation(() => resolvedRequest({ ...receipt, builder: currentServerWorkspace }));
+    mockLoomClient.getSelection.mockResolvedValue({ revision: selection, members: [] });
+    applyCommands.mockImplementation(() => {
+      currentServerWorkspace = detachedWorkspace;
+      return resolvedRequest({
+      commandId: 'clear-selection-command',
+      workspace: detachedWorkspace,
+      draftVersion: 2,
+      draftDigest: 'sha256:draft-2',
+      results: [{ type: 'TABLE_CHANGED', outputId: 'specimens' }],
+      diagnostics: [],
+      });
+    });
+
+    const view = render(<BuilderWorkspace organization="HTAN_INT" project="BForePC" explorerId="test" />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Configure rows' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Row definition settings' });
+    const panel = await within(dialog).findByRole('region', { name: 'Starting collection' });
+    await waitFor(() => expect(panel).toHaveAttribute('data-selection-revision-id', selection.id));
+    fireEvent.click(within(panel).getByRole('button', { name: 'Use all authorized rows' }));
+    await waitFor(() => expect(
+      within(screen.getByRole('dialog', { name: 'Row definition settings' }))
+        .getByRole('region', { name: 'Starting collection' }),
+    ).not.toHaveAttribute('data-attached-selection-revision-id'));
+    const detachedPanel = within(screen.getByRole('dialog', { name: 'Row definition settings' }))
+      .getByRole('region', { name: 'Starting collection' });
+    expect(detachedPanel).toHaveAttribute('data-selection-revision-id', selection.id);
+    const selectionCallsBeforeClientSwap = mockLoomClient.getSelection.mock.calls.length;
+
+    mockLoomClientReference.current = { ...mockLoomClient };
+    view.rerender(<BuilderWorkspace organization="HTAN_INT" project="BForePC" explorerId="test" />);
+    await waitFor(() => expect(
+      within(screen.getByRole('dialog', { name: 'Row definition settings' }))
+        .getByRole('region', { name: 'Starting collection' }),
+    ).not.toHaveAttribute('data-selection-revision-id'));
+    expect(mockLoomClient.getSelection).toHaveBeenCalledTimes(selectionCallsBeforeClientSwap);
   });
 
   it('clears an interrupted attached-selection load when switching tables', async () => {

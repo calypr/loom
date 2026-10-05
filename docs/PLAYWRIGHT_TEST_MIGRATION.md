@@ -61,6 +61,22 @@ code occurrences within one Observation remain unexercised by the bounded CDA
 witnesses. Evidence:
 `docs/verification/playwright/runtime/contributor-any-epoch11.json`.
 
+Epoch 14 `CDA collection repair` passed the same native partial-long-route
+case 1/1. The lifecycle removes the unmapped member from the three-member
+selection, preserves the exact Observation → Specimen → parent route, reloads
+the two mapped Observation IDs, clears to authorized rows, reselects and
+reattaches the repaired collection, then reloads and verifies the same two IDs.
+The clear preview returned 25 authorized rows (`aria-rowcount=26`, including the
+header); the virtualized table exposed 20 visible ID cells, all matched against
+the scoped raw Observation membership oracle. The final collection coverage was
+2 selected, 2 producing rows, 0 needing attention. The maximum critical workflow
+step was 2,982 ms, provisional because this case overlapped the independent
+related ONE/ALL case. Source, docs, and API identities remained unchanged. The
+generic report has an empty `requiredChecks` list and leaves aggregate
+correctness, persistence, and performance untested; the native case's specific
+raw-membership, route, reattachment, and reload assertions passed. Evidence:
+`docs/verification/playwright/runtime/collection-repair-epoch14.json`.
+
 The epoch 9 `CDA contributor ANY` and `CDA contributor rules` runs passed the
 previous stable-table locator and advanced into diagnostic accounting, but
 their official tests ended failed. ANY reported `Only an exact observed stale

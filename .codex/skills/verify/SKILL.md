@@ -42,6 +42,14 @@ Retain per-file hashes, aggregate fingerprint, and API build identity before a
 browser run. Compare afterward and identify changed paths. Source mutation
 invalidates the run; its apparent UI failures are not reproduced product bugs.
 
+Use `node scripts/capture-owned-verification.mjs` after loading the validated
+`LOOM_CDA_*` environment. Set `--phase before|after` and four distinct output
+paths with `--source-output`, `--docs-output`, `--api-output`, and
+`--mount-output`. It reuses the canonical owned-target and source/API helpers
+and records a stable per-file docs manifest. Compare before/after manifests and
+API identity before accepting a run. Keep health checks alongside the capture;
+do not recreate Docker mount validation in inline scripts.
+
 Capture diagnostics on the first failing action: elapsed time, control values,
 DOM, console exception, exact owned request scope and draft/stage identity,
 HTTP status, and response diagnostic body. Exclude credentials and unrelated
@@ -123,14 +131,12 @@ diagnostics, source/API identity, and lifecycle assertions in native fixtures
 and tests; a test must not invoke an old browser script as a subprocess or
 launch a second browser.
 
-The current `verify-ui` registry declares 24 cases. A separate static discovery
-snapshot at 2026-10-05 02:02 UTC lists 152 cases across 19 Playwright spec files;
-discovery is separate from registry coverage and does not mean those cases are
-registered or verified. The development journeys and miscellaneous workflows
-are included in that snapshot. After benchmark porting and launcher cleanup,
-discovery lists 155 main-suite cases and one dedicated benchmark case. The
-ownership gate passes; exact inventory reconciliation and runtime verification
-remain open. Run the static migration gate from the repository root after installing
+Use `scripts/verify-ui/registry.mjs` for current registered-case mappings and
+`docs/verification/playwright/discovery.snapshot.json` for static discovery.
+Neither establishes runtime coverage. The conversion ledger and durable runtime
+reports in `docs/verification/playwright/` record their separate evidence;
+`docs/PLAYWRIGHT_TEST_MIGRATION.md` describes selected checkpoints and gaps.
+Run the static migration gate from the repository root after installing
 both existing workspaces:
 
 ```bash

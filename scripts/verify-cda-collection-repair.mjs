@@ -46,10 +46,8 @@ const waitForBrowser = (_page, condition, timeout = 30000) => waitForCondition(p
 const resolveActionLocator = async (page, selector, identity = {}) => {
   const candidates = page.locator(selector);
   if (identity.name === undefined) return requireUnique(candidates, selector);
-  const matches = await candidates.evaluateAll((nodes, name) => nodes.flatMap((node, index) =>
-    String(node.getAttribute('aria-label') || node.innerText || node.textContent || '').replace(/\s+/g, ' ').trim() === name ? [index] : []), identity.name);
-  assert.equal(matches.length, 1, `${selector}: expected one target named ${identity.name}, found ${matches.length}`);
-  return requireUnique(candidates.nth(matches[0]), `${selector} ${identity.name}`);
+  const target = candidates.and(page.getByRole('button', { name: identity.name, exact: true }));
+  return requireUnique(target, `${selector} ${identity.name}`);
 };
 const performAction = async (_tracker, label, locator, action, options = {}) => cda.action(
   label, locator, target => action(target, { timeout: options.timeout ?? 5000 }), options);
@@ -92,12 +90,15 @@ const assertPreviewIDs = async name => {
   const started=Date.now();
   const expectedCount=expectedObservationIDs.length;
   await page.waitForFunction(({ expectedCount }) => {
-    const table = document.querySelector('[data-testid="preview-table-scroll"] [role="table"]');
-    return table?.getAttribute('aria-rowcount') === String(expectedCount + 1)
+    const preview = document.querySelector('[data-testid="preview-table-scroll"]');
+    const table = preview?.querySelector('[role="table"]');
+    const visible = element => Boolean(element && element.getClientRects().length && getComputedStyle(element).visibility !== 'hidden');
+    return visible(preview) && visible(table)
+      && table.getAttribute('aria-rowcount') === String(expectedCount + 1)
       && table.getAttribute('aria-colcount') === '1'
       && !document.body.innerText.includes('Loading your table…')
       && !document.body.innerText.includes('Preview failed:');
-  }, { expectedCount }, { timeout: 10000 });
+  }, { expectedCount }, { timeout: 5000 });
   const preview = page.locator('[data-testid="preview-table-scroll"]');
   const table = preview.locator('[role="table"]');
   const rowsByIndex = new Map();
@@ -136,49 +137,86 @@ const assertPreviewIDs = async name => {
   assert.deepEqual(rendered.rows.map(row=>row[0]).sort(),[...expectedObservationIDs].sort(),`${name}: rendered Observation IDs and multiplicity must match the scoped edge oracle`);
   recordCase({name,durationMs:Date.now()-started,rowCount:expectedCount,observationIDs:rendered.rows.map(row=>row[0])});
 };
-const open = async () => {
+const rowSettingsDialog = () => page.getByRole('dialog', { name: 'Row definition settings', exact: true });
+const openRowSettings = async () => {
+  await click(page, '[data-testid="construction-rows-settings-trigger"]', {name:'Configure rows'});
+  const dialog = rowSettingsDialog();
+  await dialog.waitFor({ state: 'visible', timeout: 5000 });
+  await dialog.getByRole('region', { name: 'Starting collection', exact: true }).waitFor({ state: 'visible', timeout: 5000 });
+  return dialog;
+};
+const returnToTable = async () => {
+  const dialog = rowSettingsDialog();
+  await click(page, '[role="dialog"][aria-label="Row definition settings"] button', {name:'Back to table'});
+  await dialog.waitFor({ state: 'hidden', timeout: 5000 });
+};
+const open = async (previewName='partial-long-route-preview') => {
   const loadStart=Date.now();
   await navigate(page, `${uiOrigin}/?project=${project}&explorer=${explorer}&mode=builder`);
   await waitForBrowser(page, { kind: 'present', selector: `[data-testid="construction-table-${outputId}"]` });
   await click(page, `[data-testid="construction-table-${outputId}"]`);
   await waitForBrowser(page, { kind: 'enabled', selector: '[data-testid="construction-rows-settings-trigger"]' });
-  if(partialLongRoute)await assertPreviewIDs('partial-long-route-preview');
+  if(partialLongRoute)await assertPreviewIDs(previewName);
   else {
     await page.waitForFunction(() => {
       const table = document.querySelector('[data-testid="preview-table-scroll"] [role="table"]');
-      return table?.getAttribute('aria-rowcount') === '1' && table.getAttribute('aria-colcount') === '1'
+      const preview = document.querySelector('[data-testid="preview-table-scroll"]');
+      return Boolean(preview && preview.getClientRects().length && table && table.getClientRects().length)
+        && table.getAttribute('aria-rowcount') === '1' && table.getAttribute('aria-colcount') === '1'
         && !document.body.innerText.includes('Loading your table…');
-    });
+    }, null, { timeout: 5000 });
     assert.equal(await page.locator('[data-testid="preview-table-scroll"] [role="cell"]').count(),0,'The independently unmapped selection must produce no table rows');
   }
-  await click(page, '[data-testid="construction-rows-settings-trigger"]');
-  await waitForBrowser(page, { kind: 'present', selector: 'section[aria-label="Starting collection"]' });
+  await openRowSettings();
   const durationMs=Date.now()-loadStart;assert(durationMs<=5000,'The native table and settings must render within five seconds');recordCase({name:partialLongRoute?'partial-long-route-table-load-to-settings':'empty-table-load-to-settings',durationMs});
 };
 const checkCoverage = async (name, counts) => {
   const start = Date.now();
-  await click(page, 'section[aria-label="Starting collection"] button', {name:'Check selected-resource coverage'});
-  await waitForBrowser(page, { kind: 'any', conditions: [
-    { kind: 'present', selector: '[data-testid="population-coverage-report"]' },
-    { kind: 'present', selector: 'section[aria-label="Starting collection"] [role="alert"]' },
-  ] });
-  const text = await inspectPage(page, () => document.querySelector('[data-testid="population-coverage-report"]')?.innerText);
-  assert((text ?? '').includes(counts), `Coverage must match independent CDA records: ${text}`);
+  await click(page, '[role="dialog"][aria-label="Row definition settings"] section[aria-label="Starting collection"] button', {name:'Check selected-resource coverage'});
+  await page.waitForFunction(() => {
+    const dialog = document.querySelector('[role="dialog"][aria-label="Row definition settings"]');
+    const visible = element => Boolean(element && element.getClientRects().length && getComputedStyle(element).visibility !== 'hidden');
+    return visible(dialog?.querySelector('[data-testid="population-coverage-report"]'))
+      || [...(dialog?.querySelectorAll('[role="alert"]') ?? [])].some(visible);
+  }, null, { timeout: 5000 });
+  const text = await inspectPage(page, () => {
+    const dialog = document.querySelector('[role="dialog"][aria-label="Row definition settings"]');
+    const report = dialog?.querySelector('[data-testid="population-coverage-report"]');
+    return report && report.getClientRects().length && getComputedStyle(report).visibility !== 'hidden' ? report.innerText : null;
+  });
+  const alert = await inspectPage(page, () => {
+    const dialog = document.querySelector('[role="dialog"][aria-label="Row definition settings"]');
+    return [...(dialog?.querySelectorAll('[role="alert"]') ?? [])]
+      .filter(element => element.getClientRects().length && getComputedStyle(element).visibility !== 'hidden')
+      .map(element => element.innerText).join(' | ');
+  });
+  assert((text ?? '').includes(counts), `Coverage must match independent CDA records: report=${text}; alerts=${alert}`);
   assert(Date.now()-start <= 5000, 'Coverage must render within five seconds');
   recordCase({name,durationMs:Date.now()-start,text});
 };
 try {
   let selected;
   let selectedResources;
+  let mappedResources=[];
+  let expectedMappedRefs=[];
   if(partialLongRoute){
-    const routeOracleQuery=`LET seeds=(FOR s IN Specimen FILTER s.resourceType=="Specimen" AND s.project=="${project}" AND s.dataset_generation=="cda-fhir-v1" SORT s.id LIMIT 2000 RETURN s) FOR s IN seeds LET parents=(FOR e IN fhir_edge FILTER e._from==s._id AND e.label=="parent" AND e.from_type=="Specimen" AND e.to_type=="Specimen" AND e.project=="${project}" AND e.dataset_generation=="cda-fhir-v1" LET parent=DOCUMENT(e._to) FILTER parent!=null AND parent.resourceType=="Specimen" AND parent.project=="${project}" AND parent.dataset_generation=="cda-fhir-v1" RETURN parent._id) LET children=(FOR e IN fhir_edge FILTER e._to==s._id AND e.label=="parent" AND e.from_type=="Specimen" AND e.to_type=="Specimen" AND e.project=="${project}" AND e.dataset_generation=="cda-fhir-v1" LET child=DOCUMENT(e._from) FILTER child!=null AND child.resourceType=="Specimen" AND child.project=="${project}" AND child.dataset_generation=="cda-fhir-v1" RETURN child.id) LET routeRows=(FOR parentEdge IN fhir_edge FILTER parentEdge._from==s._id AND parentEdge.label=="parent" AND parentEdge.from_type=="Specimen" AND parentEdge.to_type=="Specimen" AND parentEdge.project=="${project}" AND parentEdge.dataset_generation=="cda-fhir-v1" LET parent=DOCUMENT(parentEdge._to) FILTER parent!=null AND parent.resourceType=="Specimen" AND parent.project=="${project}" AND parent.dataset_generation=="cda-fhir-v1" FOR specimenEdge IN fhir_edge FILTER specimenEdge._to==parent._id AND specimenEdge.label=="specimen_Specimen" AND specimenEdge.from_type=="Observation" AND specimenEdge.to_type=="Specimen" AND specimenEdge.project=="${project}" AND specimenEdge.dataset_generation=="cda-fhir-v1" LET observation=DOCUMENT(specimenEdge._from) FILTER observation!=null AND observation.resourceType=="Observation" AND observation.project=="${project}" AND observation.dataset_generation=="cda-fhir-v1" RETURN observation.id) RETURN {id:s.id,parents,children,routeRows}`;
+    const routeOracleQuery=`LET seeds=(FOR s IN Specimen FILTER s.resourceType=="Specimen" AND s.project=="${project}" AND s.dataset_generation=="cda-fhir-v1" SORT s.id LIMIT 4000 RETURN s) FOR s IN seeds LET parents=(FOR e IN fhir_edge FILTER e._from==s._id AND e.label=="parent" AND e.from_type=="Specimen" AND e.to_type=="Specimen" AND e.project=="${project}" AND e.dataset_generation=="cda-fhir-v1" LET parent=DOCUMENT(e._to) FILTER parent!=null AND parent.resourceType=="Specimen" AND parent.project=="${project}" AND parent.dataset_generation=="cda-fhir-v1" RETURN parent._id) LET children=(FOR e IN fhir_edge FILTER e._to==s._id AND e.label=="parent" AND e.from_type=="Specimen" AND e.to_type=="Specimen" AND e.project=="${project}" AND e.dataset_generation=="cda-fhir-v1" LET child=DOCUMENT(e._from) FILTER child!=null AND child.resourceType=="Specimen" AND child.project=="${project}" AND child.dataset_generation=="cda-fhir-v1" RETURN child.id) LET routeRows=(FOR parentEdge IN fhir_edge FILTER parentEdge._from==s._id AND parentEdge.label=="parent" AND parentEdge.from_type=="Specimen" AND parentEdge.to_type=="Specimen" AND parentEdge.project=="${project}" AND parentEdge.dataset_generation=="cda-fhir-v1" LET parent=DOCUMENT(parentEdge._to) FILTER parent!=null AND parent.resourceType=="Specimen" AND parent.project=="${project}" AND parent.dataset_generation=="cda-fhir-v1" FOR specimenEdge IN fhir_edge FILTER specimenEdge._to==parent._id AND specimenEdge.label=="specimen_Specimen" AND specimenEdge.from_type=="Observation" AND specimenEdge.to_type=="Specimen" AND specimenEdge.project=="${project}" AND specimenEdge.dataset_generation=="cda-fhir-v1" LET observation=DOCUMENT(specimenEdge._from) FILTER observation!=null AND observation.resourceType=="Observation" AND observation.project=="${project}" AND observation.dataset_generation=="cda-fhir-v1" RETURN observation.id) RETURN {id:s.id,parents,children,routeRows}`;
     const candidates=rawQuery(routeOracleQuery);
-    const mapped=candidates.find(candidate=>candidate.parents.length>0&&candidate.routeRows.length>=1&&candidate.routeRows.length<=24&&new Set(candidate.routeRows).size===candidate.routeRows.length);
-    const unmapped=candidates.find(candidate=>candidate.id!==mapped?.id&&candidate.parents.length===0&&candidate.children.length>0&&candidate.routeRows.length===0);
-    assert(mapped&&unmapped,`The bounded scoped CDA prefix must contain one mapped Specimen with 1–24 distinct Observation roots and one unmapped childless-parent Specimen; candidates=${JSON.stringify(candidates.slice(0,12).map(({id,parents,children,routeRows})=>({id,parentCount:parents.length,childCount:children.length,routeRows:routeRows.length})))}`);
-    expectedObservationIDs=[...mapped.routeRows].sort();
-    selectedResources=[mapped,unmapped];
-    report.oracle={query:routeOracleQuery,seedLimit:2000,mapped:{id:mapped.id,parentIDs:mapped.parents,rawObservationIDs:mapped.routeRows},unmapped:{id:unmapped.id,parentIDs:unmapped.parents,childIDs:unmapped.children}};
+    const mappedCandidates=candidates.filter(candidate=>candidate.parents.length>0&&candidate.routeRows.length>=1&&candidate.routeRows.length<=25&&new Set(candidate.routeRows).size===candidate.routeRows.length);
+    for(let left=0;left<mappedCandidates.length&&!mappedResources.length;left++){
+      for(let right=left+1;right<mappedCandidates.length;right++){
+        const pair=[mappedCandidates[left],mappedCandidates[right]];
+        const observationIDs=pair.flatMap(candidate=>candidate.routeRows);
+        if(observationIDs.length<=25&&new Set(observationIDs).size===observationIDs.length){mappedResources=pair;break;}
+      }
+    }
+    const unmapped=candidates.find(candidate=>!mappedResources.some(mapped=>candidate.id===mapped.id)&&candidate.parents.length===0&&candidate.children.length>0&&candidate.routeRows.length===0);
+    assert.equal(mappedResources.length,2,`The bounded scoped CDA prefix must contain two mapped Specimens with distinct Observation roots; mapped=${JSON.stringify(mappedCandidates.slice(0,12).map(({id,routeRows})=>({id,routeRows})))}`);
+    assert(unmapped,`The bounded scoped CDA prefix must also contain one unmapped childless-parent Specimen; candidates=${JSON.stringify(candidates.slice(0,12).map(({id,parents,children,routeRows})=>({id,parentCount:parents.length,childCount:children.length,routeRows:routeRows.length})))}`);
+    expectedObservationIDs=mappedResources.flatMap(mapped=>mapped.routeRows).sort();
+    assert(expectedObservationIDs.length<=25,'Mapped Observation roots must fit the complete 25-row native preview limit');
+    selectedResources=[...mappedResources,unmapped];
+    report.oracle={query:routeOracleQuery,seedLimit:4000,mapped:mappedResources.map(mapped=>({id:mapped.id,parentIDs:mapped.parents,rawObservationIDs:mapped.routeRows})),unmapped:{id:unmapped.id,parentIDs:unmapped.parents,childIDs:unmapped.children}};
   }else{
     const specimens = rawQuery(`FOR s IN Specimen FILTER s.project == "${project}" AND s.dataset_generation == "cda-fhir-v1" LIMIT 10 LET parents = (FOR e IN fhir_edge FILTER e._from == s._id AND e.label == "parent" AND e.project == "${project}" AND e.dataset_generation == "cda-fhir-v1" RETURN e._to) LET children = (FOR e IN fhir_edge FILTER e._to == s._id AND e.label == "parent" AND e.project == "${project}" AND e.dataset_generation == "cda-fhir-v1" LET child = DOCUMENT(e._from) FILTER child.project == "${project}" AND child.dataset_generation == "cda-fhir-v1" RETURN child.id) RETURN {id:s.id, parents, children}`);
     selected = specimens.find(s=>s.parents.length===0 && s.children.length>0);
@@ -196,6 +234,7 @@ try {
   const selection = await api(selections, {snapshotToken:builder.catalog.snapshotToken,idempotencyKey:explorer,source:{kind:'resources',resources:{refs:selectedResources.map(resource=>({project,generation:builder.catalog.generation,resourceType:'Specimen',id:resource.id}))}}});
   const generation=builder.catalog.generation;
   const scopeDigest=builder.catalog.authorizationScopeDigest;
+  if(partialLongRoute)expectedMappedRefs=mappedResources.map(mapped=>({project,generation,resourceType:'Specimen',id:mapped.id})).sort((a,b)=>a.id.localeCompare(b.id));
   assert.equal(selection.project,project);
   assert.equal(selection.generation,generation);
   assert.equal(selection.resourceType,'Specimen');
@@ -249,7 +288,7 @@ try {
     if (request.resourceType() === 'script') report.errors.push({ kind: 'module', path: url.pathname, error: sanitizeText(request.failure()?.errorText) });
   });
   await open();
-  await checkCoverage(partialLongRoute?'partial-mapped-unmapped-coverage':'unmapped-parent-coverage',partialLongRoute?'2 selected · 1 produce rows · 1 needs attention':'1 selected · 0 produce rows · 1 needs attention');
+  await checkCoverage(partialLongRoute?'partial-mapped-unmapped-coverage':'unmapped-parent-coverage',partialLongRoute?'3 selected · 2 produce rows · 1 needs attention':'1 selected · 0 produce rows · 1 needs attention');
   if(partialLongRoute){
     const coverageText=await inspectPage(page, () => document.querySelector('[data-testid="population-coverage-report"]')?.innerText ?? '');
     assert(coverageText.includes(report.oracle.unmapped.id),`Coverage must identify the independently unmapped Specimen ${report.oracle.unmapped.id}: ${coverageText}`);
@@ -260,8 +299,12 @@ try {
   assert.equal(await remove.isEnabled(), true, 'The saved parent connection must make an unmapped record removable');
   const before = builder.draftDigest;
   const start = Date.now();
-  await click(page, '[data-testid="population-coverage-report"] button', {name:'Remove from collection'});
-  await page.waitForFunction(selectionId => document.querySelector('section[aria-label="Starting collection"]')?.dataset.attachedSelectionRevisionId !== selectionId, selection.id, { timeout: 5000 });
+  await click(page, '[role="dialog"][aria-label="Row definition settings"] [data-testid="population-coverage-report"] button', {name:'Remove from collection'});
+  await page.waitForFunction(selectionId => {
+    const panel = document.querySelector('[role="dialog"][aria-label="Row definition settings"] section[aria-label="Starting collection"]');
+    const nextSelectionId = panel?.dataset.attachedSelectionRevisionId;
+    return Boolean(nextSelectionId && nextSelectionId !== selectionId);
+  }, selection.id, { timeout: 5000 });
   builder = await api(base+'/builder');
   const revised = builder.workspace.documents[0];
   assert.notEqual(builder.draftDigest,before);
@@ -281,16 +324,16 @@ try {
     assert.equal(derived.revision.scopeDigest,scopeDigest);
     assert.equal(derived.revision.generation,generation);
     assert.equal(derived.revision.resourceType,'Specimen');
-    assert.equal(derived.revision.memberCount,1);
+    assert.equal(derived.revision.memberCount,mappedResources.length);
     assert.deepEqual(derived.revision.exclusions,[{project,generation,resourceType:'Specimen',id:report.oracle.unmapped.id}]);
-    assert.deepEqual(derived.members.map(member=>member.ref),[{project,generation,resourceType:'Specimen',id:report.oracle.mapped.id}],'The native removal must leave exactly the independently mapped Specimen');
+    assert.deepEqual(derived.members.map(member=>member.ref).sort((a,b)=>a.id.localeCompare(b.id)),expectedMappedRefs,'The native removal must leave exactly both independently mapped Specimens');
     const rawMembership=rawQuery(`FOR member IN loom_explorer_selection_members FILTER member.selectionId==${JSON.stringify(variantID)} AND member.project==${JSON.stringify(project)} AND member.generation==${JSON.stringify(generation)} AND member.resourceType=="Specimen" SORT member.id RETURN {id:member.id,project:member.project,generation:member.generation,resourceType:member.resourceType}`);
-    assert.deepEqual(rawMembership,[{id:report.oracle.mapped.id,project,generation,resourceType:'Specimen'}],'Raw Arango membership must retain only the mapped CDA Specimen');
-    report.partialRepair={selectionRevisionId:variantID,membershipDigest:derived.revision.membershipDigest,retainedSpecimenID:report.oracle.mapped.id,excludedSpecimenID:report.oracle.unmapped.id,expectedObservationIDs};
+    assert.deepEqual(rawMembership,expectedMappedRefs,'Raw Arango membership must retain both mapped CDA Specimens');
+    report.partialRepair={selectionRevisionId:variantID,membershipDigest:derived.revision.membershipDigest,retainedSpecimenIDs:mappedResources.map(mapped=>mapped.id),excludedSpecimenID:report.oracle.unmapped.id,expectedObservationIDs};
   }
   assert(Date.now()-start<=5000,'Collection repair must finish within five seconds');
   recordCase({name:'remove-unmapped-record',durationMs:Date.now()-start});
-  await open();
+  await open(partialLongRoute?'partial-long-route-reload-raw-oracle':undefined);
   if(partialLongRoute){
     builder=await api(base+'/builder');
     const reloaded=builder.workspace.documents[0];
@@ -300,39 +343,100 @@ try {
     const reloadedSelection=await api(`${selections}/${reloaded.population.selectionRevisionId}?limit=100`);
     assert.equal(reloadedSelection.revision.generation,generation);
     assert.equal(reloadedSelection.revision.resourceType,'Specimen');
-    assert.deepEqual(reloadedSelection.members.map(member=>member.ref),[{project,generation,resourceType:'Specimen',id:report.oracle.mapped.id}]);
-    await assertPreviewIDs('partial-long-route-reload-raw-oracle');
-    await checkCoverage('partial-collection-reload','1 selected · 1 produce rows · 0 needs attention');
+    assert.deepEqual(reloadedSelection.members.map(member=>member.ref).sort((a,b)=>a.id.localeCompare(b.id)),expectedMappedRefs);
+    await checkCoverage('partial-collection-reload','2 selected · 2 produce rows · 0 needs attention');
   }else await checkCoverage('empty-collection-reload','0 selected · 0 produce rows · 0 needs attention');
-  if(longRoute&&!partialLongRoute){
+  if(longRoute){
     const clearStart=Date.now();
-    await click(page,'section[aria-label="Starting collection"] button',{name:'Use all authorized rows'});
-    await page.waitForFunction(() => document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount')==='26'
-      && [...document.querySelectorAll('section[aria-label="Starting collection"] button')].some(button=>button.innerText==='Use selected resources'&&!button.disabled), null, { timeout: 5000 });
-    const clearDuration=Date.now()-clearStart;
-    assert(clearDuration<=5000,'Clearing the collection must render authorized records within five seconds');
+    await click(page,'[role="dialog"][aria-label="Row definition settings"] section[aria-label="Starting collection"] button',{name:'Use all authorized rows'});
+    await returnToTable();
+    const clearedTable = page.locator('[data-testid="preview-table-scroll"] [role="table"]');
+    await page.waitForFunction(() => {
+      const preview = document.querySelector('[data-testid="preview-table-scroll"]');
+      const table = preview?.querySelector('[role="table"]');
+      return Boolean(preview && preview.getClientRects().length && table && table.getClientRects().length)
+        && table.getAttribute('aria-rowcount') === '26';
+    }, null, { timeout: 5000 });
+    await clearedTable.waitFor({state:'visible',timeout:5000});
     const visibleIDs=await page.locator('[data-testid="preview-table-scroll"] [role="cell"]').allInnerTexts();
     assert(visibleIDs.length>0,'Authorized table must show records after clearing its collection');
+    const clearDuration=Date.now()-clearStart;
+    assert(clearDuration<=5000,'Clearing the collection must render visible authorized records within five seconds');
     const verifiedIDs=rawQuery(`FOR d IN Observation FILTER d.id IN ${JSON.stringify(visibleIDs)} AND d.project=="${project}" AND d.dataset_generation=="cda-fhir-v1" RETURN d.id`);
     assert.deepEqual([...new Set(visibleIDs)].sort(),verifiedIDs.sort(),'Visible rows must belong to the scoped CDA source');
     recordCase({name:'clear-long-collection-to-authorized-rows',durationMs:clearDuration,visibleIDs});
-    const options=await page.locator('select[aria-label="Population connection"] option').evaluateAll(nodes=>nodes.map(option=>({value:option.value,label:option.text})));
-    const exact=options.find(option=>option.label.includes('via specimen_Specimen (outgoing,')&&option.label.includes('via parent (incoming,'));
-    assert(exact,'The native dropdown must offer the exact previous connection: '+JSON.stringify(options));
-    await selectOption(page,'select[aria-label="Population connection"]',exact.value);
+    const routeWaitStart=Date.now();
+    await openRowSettings();
+    const reattachPanel = page.locator('[role="dialog"][aria-label="Row definition settings"] section[aria-label="Starting collection"]');
+    const connection = page.locator('[role="dialog"][aria-label="Row definition settings"] select[aria-label="Population connection"]');
+    await page.waitForFunction(() => {
+      const dialog = document.querySelector('[role="dialog"][aria-label="Row definition settings"]');
+      const panel = dialog?.querySelector('section[aria-label="Starting collection"]');
+      const visible = element => Boolean(element && element.getClientRects().length && getComputedStyle(element).visibility !== 'hidden');
+      const attach = [...(panel?.querySelectorAll('button') ?? [])].find(button => button.innerText.trim() === 'Use selected resources');
+      const routeControl = panel?.querySelector('select[aria-label="Population connection"]');
+      const otherConnections = [...(panel?.querySelectorAll('button') ?? [])].find(button => button.innerText.trim() === 'Other connections');
+      const routeFact = [...(panel?.querySelectorAll('dd') ?? [])].some(visible);
+      return visible(dialog) && visible(panel) && visible(attach) && !attach.disabled
+        && (visible(routeControl) || visible(otherConnections) || routeFact);
+    }, null, { timeout: 5000 });
+    const routeWaitDuration=Date.now()-routeWaitStart;
+    assert(routeWaitDuration<=5000,'The saved collection route must become selectable within five seconds');
+    if(await connection.isVisible().catch(()=>false)){
+      const options=await connection.locator('option').evaluateAll(nodes=>nodes.map(option=>({value:option.value,label:option.text})));
+      const exact=options.find(option=>option.label.includes('via specimen_Specimen (outgoing,')&&option.label.includes('via parent (incoming,'));
+      assert(exact,'The native dropdown must offer the exact previous connection: '+JSON.stringify(options));
+      await selectOption(page,'[role="dialog"][aria-label="Row definition settings"] select[aria-label="Population connection"]',exact.value);
+    }else{
+      const routeFact=await reattachPanel.locator('dd').allInnerTexts();
+      const expectedRouteText=report.connection.map(step=>`${step.fromResourceType} → ${step.relationship} → ${step.toResourceType}`).join(' / ');
+      assert(routeFact.some(text=>text.includes(expectedRouteText)),`The sole visible native connection must show the exact saved path ${expectedRouteText}: ${JSON.stringify(routeFact)}`);
+    }
     const attachStart=Date.now();
-    await click(page,'section[aria-label="Starting collection"] button',{name:'Use selected resources'});
-    await page.waitForFunction(() => document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount')==='1'
-      && [...document.querySelectorAll('section[aria-label="Starting collection"] button')].some(button=>button.innerText==='Use all authorized rows'&&!button.disabled), null, { timeout: 5000 });
+    await click(page,'[role="dialog"][aria-label="Row definition settings"] section[aria-label="Starting collection"] button',{name:'Use selected resources'});
+    await page.waitForFunction(() => {
+      const dialog = document.querySelector('[role="dialog"][aria-label="Row definition settings"]');
+      const panel = dialog?.querySelector('section[aria-label="Starting collection"]');
+      const action = [...(panel?.querySelectorAll('button') ?? [])].find(button => button.innerText.trim() === 'Use all authorized rows');
+      const visible = element => Boolean(element && element.getClientRects().length && getComputedStyle(element).visibility !== 'hidden');
+      return visible(dialog) && visible(panel) && visible(action) && !action.disabled;
+    }, null, { timeout: 5000 });
+    await returnToTable();
+    if(partialLongRoute) await assertPreviewIDs('reattached-partial-long-route-visible-preview');
+    else {
+      await page.waitForFunction(() => {
+        const preview = document.querySelector('[data-testid="preview-table-scroll"]');
+        const table = preview?.querySelector('[role="table"]');
+        return Boolean(preview && preview.getClientRects().length && table && table.getClientRects().length)
+          && table.getAttribute('aria-rowcount') === '1' && table.getAttribute('aria-colcount') === '1'
+          && !document.body.innerText.includes('Loading your table…');
+      }, null, { timeout: 5000 });
+      assert.equal(await page.locator('[data-testid="preview-table-scroll"] [role="cell"]').count(),0,'The reattached empty long-route selection must show a visible header-only preview');
+    }
     const attachDuration=Date.now()-attachStart;
-    assert(attachDuration<=5000,'Reattaching the empty collection must render within five seconds');
+    assert(attachDuration<=5000,'Reattaching the saved collection must render its exact visible rows within five seconds');
     builder=await api(base+'/builder');
     const attached=builder.workspace.documents[0];
     assert.deepEqual(attached.population,revised.population,'Native reattachment must preserve the revised selection and exact route direction');
     assert.deepEqual(attached.columns,original.columns);
-    recordCase({name:'reattach-long-collection',durationMs:attachDuration});
-    await open();
-    await checkCoverage('reattached-long-collection-reload','0 selected · 0 produce rows · 0 needs attention');
+    if(partialLongRoute){
+      assert.equal(attached.population.selectionRevisionId,report.partialRepair.selectionRevisionId);
+      assert.deepEqual(attached.population.route,report.savedConnection);
+      const attachedSelection=await api(`${selections}/${attached.population.selectionRevisionId}?limit=100`);
+      assert.equal(attachedSelection.revision.generation,generation);
+      assert.deepEqual(attachedSelection.members.map(member=>member.ref).sort((a,b)=>a.id.localeCompare(b.id)),expectedMappedRefs);
+    }
+    recordCase({name:partialLongRoute?'reattach-repaired-multi-member-long-collection':'reattach-long-collection',durationMs:attachDuration,routeWaitDurationMs:routeWaitDuration});
+    await open(partialLongRoute?'reattached-partial-long-route-reload-raw-oracle':undefined);
+    if(partialLongRoute){
+      builder=await api(base+'/builder');
+      const reattachedReload=builder.workspace.documents[0];
+      assert.deepEqual(reattachedReload.population,revised.population,'Reload after reattachment must preserve the exact two-member selection and route');
+      const reloadedSelection=await api(`${selections}/${reattachedReload.population.selectionRevisionId}?limit=100`);
+      assert.equal(reloadedSelection.revision.generation,generation);
+      assert.deepEqual(reloadedSelection.members.map(member=>member.ref).sort((a,b)=>a.id.localeCompare(b.id)),expectedMappedRefs);
+      await checkCoverage('reattached-partial-long-collection-reload','2 selected · 2 produce rows · 0 needs attention');
+    }else await checkCoverage('reattached-long-collection-reload','0 selected · 0 produce rows · 0 needs attention');
   }
   await requestMonitor.flush();
   report.responses = report.browserRequests.filter(entry => entry.status !== undefined).map(({ path, status, response, requestId, method }) => ({ path, status, response, requestId, method }));

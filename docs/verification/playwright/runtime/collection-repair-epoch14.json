@@ -1,0 +1,374 @@
+{
+  "artifacts": {
+    "apiIdentity": {
+      "path": "/private/tmp/loom-native-parallel-wave14/api-identity.json",
+      "sha256": "1433385a9a749e959af4e2a68cea4ac12508ee0bfbd04e5537765aa0405b6d2a"
+    },
+    "cdaDomainReport": {
+      "path": "/private/tmp/loom-native-parallel-wave14/collection-repair/results/standalone-cda-other-CDA-c-9e9e2--the-saved-route-and-reload/attachments/cda-domain-report-json-8495906ed0738123a7adba870985e97aba26fe51.json",
+      "sha256": "1e1c028ae21ee843577e264223d0f8989a5ca854a5075acdd0efef913037c479"
+    },
+    "docsFreeze": {
+      "path": "/private/tmp/loom-native-parallel-wave14/docs-before.json",
+      "sha256": "cdccc81640c1bfa331b26d0cda0921ca8f183ba0e9cb6be1c6495fcfd02f4292"
+    },
+    "domainReport": {
+      "path": "/private/tmp/loom-native-parallel-wave14/collection-repair/results/standalone-cda-other-CDA-c-9e9e2--the-saved-route-and-reload/attachments/collection-repair-domain-report.json",
+      "sha256": "6d46bda2c2fda24779c3b374694535143518b596f62b5ce6159b15648f0c2f17"
+    },
+    "epochRelease": {
+      "path": "/private/tmp/loom-native-parallel-wave14/release.json",
+      "sha256": "9936d5f6208629f4040b5a1260c92d6874c636422926d85647e6b0cd22ed49ec"
+    },
+    "health": {
+      "path": "/private/tmp/loom-native-parallel-wave14/health.json",
+      "sha256": "f70ad0cc1b7f2d627feb8d6e8ac5eb7c1ca52fbe9089e004644e076034c23dbe"
+    },
+    "officialRunnerLog": {
+      "path": "/private/tmp/loom-native-parallel-wave14/collection-repair/runner.log",
+      "sha256": "3eecfc225cc41b3ee028818714a56ce721b3a14e5ec404d743e0e00cf57fd83e"
+    },
+    "ownedMounts": {
+      "path": "/private/tmp/loom-native-parallel-wave14/owned-mounts.json",
+      "sha256": "32bc70302f1f992f32b5f5098c2eaf9beb796adf8d17b93d4471367667cd3e80"
+    },
+    "playwrightJson": {
+      "path": "/private/tmp/loom-native-parallel-wave14/collection-repair/results.json",
+      "sha256": "ef37f0454ee72bfcdc9fe393c3611c6b71e9ff286db7ac4027cb69448ad49335"
+    },
+    "sourceFreeze": {
+      "path": "/private/tmp/loom-native-parallel-wave14/source-before.json",
+      "sha256": "d0d4c2ae16984efc920717126f8cb676961d3a145a2d713bec8a429d992e7432"
+    },
+    "epochClosure": {
+      "path": "/private/tmp/loom-native-parallel-wave14/closure.json",
+      "sha256": "df87a45d675ed915c7c87f280c66a6fcc6ea2f5eb49f6a5485cbeef7223a3a64"
+    }
+  },
+  "case": "partial-long-route-repair-and-reload",
+  "evidenceKind": "native-playwright-runtime",
+  "genericReportClassification": {
+    "caveat": "The native Playwright test passed and its specific lifecycle/oracle assertions are recorded above. The generic domain report declared no requiredChecks and labels correctness, persistence, and performance untested; this candidate does not promote those generic dimension statuses. Timing observations remain provisional under parallel execution.",
+    "dimensions": {
+      "correctness": "untested",
+      "performance": "untested",
+      "persistence": "untested",
+      "usability": "passed"
+    },
+    "missingRequiredChecks": [],
+    "requiredChecks": []
+  },
+  "identity": {
+    "apiBuildIdentity": "9e0e53a002c2cde544c54a34905fcea04f51a00d5247909f6204e73ccc85fc3c:9e0e53a002c2cde544c54a34905fcea04f51a00d5247909f6204e73ccc85fc3c:1480cbf92c206363ef5f24926e95396d0a25634ff9b9c99a08df3a26db41d114",
+    "apiUnchangedAfterRun": true,
+    "changedPaths": [],
+    "docsFingerprint": {
+      "files": 105,
+      "sha256": "54432cc5239717f94062a719b4dc2878ac39d8362543d595135897ad838d59f7"
+    },
+    "releaseFingerprint": {
+      "files": 1488,
+      "sha256": "d0099b8be5300dc6796311be371a7b5c70dd9ec02b21eac68fb1f6c3f7d6b251"
+    },
+    "sourceFingerprint": {
+      "files": 1488,
+      "sha256": "d0099b8be5300dc6796311be371a7b5c70dd9ec02b21eac68fb1f6c3f7d6b251"
+    },
+    "sourceUnchangedAfterRun": true,
+    "watchedFileCount": 1114
+  },
+  "lifecycle": {
+    "actionTimingsMs": {
+      "Click Back to table": 93,
+      "Click Check selected-resource coverage": 70,
+      "Click Configure rows": 70,
+      "Click Remove from collection": 158,
+      "Click Use all authorized rows": 178,
+      "Click Use selected resources": 256,
+      "Click [data-testid=\"construction-table-out_bf1e35b52a5bae85b227eddc\"]": 158,
+      "Select 4 in [role=\"dialog\"][aria-label=\"Row definition settings\"] select[aria-label=\"Population connection\"]": 33
+    },
+    "cases": [
+      {
+        "durationMs": 21,
+        "name": "partial-long-route-preview",
+        "observationIDs": [
+          "5a45e52f-8360-5a41-a507-aaf206380adc",
+          "8a7da417-3a07-5982-817d-91a1dcf5ff9e"
+        ],
+        "rowCount": 2
+      },
+      {
+        "durationMs": 1975,
+        "name": "partial-long-route-table-load-to-settings"
+      },
+      {
+        "durationMs": 363,
+        "name": "partial-mapped-unmapped-coverage",
+        "text": "3 selected \u00b7 2 produce rows \u00b7 1 needs attention\n\nSpecimen/0000f0c1-b945-5f22-900d-1c25c88cdc30"
+      },
+      {
+        "durationMs": 2982,
+        "name": "remove-unmapped-record"
+      },
+      {
+        "durationMs": 19,
+        "name": "partial-long-route-reload-raw-oracle",
+        "observationIDs": [
+          "5a45e52f-8360-5a41-a507-aaf206380adc",
+          "8a7da417-3a07-5982-817d-91a1dcf5ff9e"
+        ],
+        "rowCount": 2
+      },
+      {
+        "durationMs": 1460,
+        "name": "partial-long-route-table-load-to-settings"
+      },
+      {
+        "durationMs": 125,
+        "name": "partial-collection-reload",
+        "text": "2 selected \u00b7 2 produce rows \u00b7 0 needs attention\n\nAll selected resources produce rows."
+      },
+      {
+        "durationMs": 496,
+        "name": "clear-long-collection-to-authorized-rows",
+        "visibleIDs": [
+          "52f5e622-0181-5feb-936c-e9992ab26616",
+          "485e2567-b566-56f3-b5bd-5f025f37cd95",
+          "2cad1748-5e1e-5018-b5b4-f87ac1d8aef8",
+          "5577788c-1255-5439-85bb-8651f6f597a4",
+          "671ad22b-87be-586b-9e35-e1a7082dfb76",
+          "202756f9-3d68-5bb4-8aa7-c40353e6714b",
+          "f5f60d35-443a-59a7-8957-59c4b630e5bb",
+          "c8782672-b8d1-5c05-9060-905b6a4498bc",
+          "86f418a4-4b32-500c-86ab-c79f1751ab9d",
+          "29141156-8d4c-5ef9-af43-8ebd6ed8d514",
+          "f56be6b4-a036-548c-afa5-4aef487f3ad2",
+          "e1b4dc5a-de6e-5888-a5d9-3428c771681a",
+          "03d0499b-d516-58e4-a134-aaf61a10b415",
+          "3ea21633-23e1-599b-91fc-b7666953ea26",
+          "5b01aaf9-cbb7-5641-aca0-4506af29e996",
+          "bbe89242-e9d2-5927-bbb2-2f3157d76f9f",
+          "212acce3-1b4f-5eb5-8edd-e2bb93afc56b",
+          "51918d25-30b0-517e-ad06-088f1d889b24",
+          "5a6d5e4d-b78c-522d-95da-533452ba53e6",
+          "faca12ec-b153-5301-9879-ceb028690bc9"
+        ]
+      },
+      {
+        "durationMs": 59,
+        "name": "reattached-partial-long-route-visible-preview",
+        "observationIDs": [
+          "5a45e52f-8360-5a41-a507-aaf206380adc",
+          "8a7da417-3a07-5982-817d-91a1dcf5ff9e"
+        ],
+        "rowCount": 2
+      },
+      {
+        "durationMs": 435,
+        "name": "reattach-repaired-multi-member-long-collection",
+        "routeWaitDurationMs": 807
+      },
+      {
+        "durationMs": 18,
+        "name": "reattached-partial-long-route-reload-raw-oracle",
+        "observationIDs": [
+          "5a45e52f-8360-5a41-a507-aaf206380adc",
+          "8a7da417-3a07-5982-817d-91a1dcf5ff9e"
+        ],
+        "rowCount": 2
+      },
+      {
+        "durationMs": 1438,
+        "name": "partial-long-route-table-load-to-settings"
+      },
+      {
+        "durationMs": 127,
+        "name": "reattached-partial-long-collection-reload",
+        "text": "2 selected \u00b7 2 produce rows \u00b7 0 needs attention\n\nAll selected resources produce rows."
+      }
+    ],
+    "coverageReports": {
+      "partial-collection-reload": "2 selected \u00b7 2 produce rows \u00b7 0 needs attention\n\nAll selected resources produce rows.",
+      "partial-mapped-unmapped-coverage": "3 selected \u00b7 2 produce rows \u00b7 1 needs attention\n\nSpecimen/0000f0c1-b945-5f22-900d-1c25c88cdc30",
+      "reattached-partial-long-collection-reload": "2 selected \u00b7 2 produce rows \u00b7 0 needs attention\n\nAll selected resources produce rows."
+    },
+    "functionalPersistenceAssertions": "passed in official native browser test",
+    "maxCriticalWorkflowStepMs": 2982,
+    "previewIdentityAssertions": "passed; two raw Observation IDs matched before repair, after repair, and after reattach/reload",
+    "savedRoutePreservedAcrossRepairClearReattachAndReload": "passed",
+    "timingClassification": "provisional; this epoch ran concurrently with the independent related ONE/ALL case"
+  },
+  "officialTest": {
+    "durationMs": 27176,
+    "freshExplorerId": "collection-repair-1791225897948",
+    "outputId": "out_bf1e35b52a5bae85b227eddc",
+    "status": "passed",
+    "suiteStats": {
+      "duration": 29117.423,
+      "expected": 1,
+      "flaky": 0,
+      "skipped": 0,
+      "startTime": "2026-10-05T18:44:53.965Z",
+      "unexpected": 0
+    },
+    "title": "standalone-cda-other.spec.mjs/CDA collection repair/remove an unmapped selected resource, verify the saved route, and reload"
+  },
+  "rawCdaOracle": {
+    "clearAuthorizedPreview": {
+      "authorizedResultRows": 25,
+      "previewAriaRowCount": 26,
+      "scopedRawObservationMembershipAssertion": "passed",
+      "virtualizedVisibleCellCount": 20,
+      "visibleIDs": [
+        "52f5e622-0181-5feb-936c-e9992ab26616",
+        "485e2567-b566-56f3-b5bd-5f025f37cd95",
+        "2cad1748-5e1e-5018-b5b4-f87ac1d8aef8",
+        "5577788c-1255-5439-85bb-8651f6f597a4",
+        "671ad22b-87be-586b-9e35-e1a7082dfb76",
+        "202756f9-3d68-5bb4-8aa7-c40353e6714b",
+        "f5f60d35-443a-59a7-8957-59c4b630e5bb",
+        "c8782672-b8d1-5c05-9060-905b6a4498bc",
+        "86f418a4-4b32-500c-86ab-c79f1751ab9d",
+        "29141156-8d4c-5ef9-af43-8ebd6ed8d514",
+        "f56be6b4-a036-548c-afa5-4aef487f3ad2",
+        "e1b4dc5a-de6e-5888-a5d9-3428c771681a",
+        "03d0499b-d516-58e4-a134-aaf61a10b415",
+        "3ea21633-23e1-599b-91fc-b7666953ea26",
+        "5b01aaf9-cbb7-5641-aca0-4506af29e996",
+        "bbe89242-e9d2-5927-bbb2-2f3157d76f9f",
+        "212acce3-1b4f-5eb5-8edd-e2bb93afc56b",
+        "51918d25-30b0-517e-ad06-088f1d889b24",
+        "5a6d5e4d-b78c-522d-95da-533452ba53e6",
+        "faca12ec-b153-5301-9879-ceb028690bc9"
+      ]
+    },
+    "expectedObservationIDs": [
+      "5a45e52f-8360-5a41-a507-aaf206380adc",
+      "8a7da417-3a07-5982-817d-91a1dcf5ff9e"
+    ],
+    "mapped": [
+      {
+        "id": "00001c68-2c20-5003-a144-b2442469d8de",
+        "parentIDs": [
+          "Specimen/g_f2e14547d074d704150f08b1a032a181de64e525a4f609b72177753612115c28"
+        ],
+        "rawObservationIDs": [
+          "5a45e52f-8360-5a41-a507-aaf206380adc"
+        ]
+      },
+      {
+        "id": "0000ae4e-5498-51e8-a091-32b0552093ac",
+        "parentIDs": [
+          "Specimen/g_a78a14cec145a8012128f9edaa4bc4fd579f9039146eabd29515ce0f5b1130bf"
+        ],
+        "rawObservationIDs": [
+          "8a7da417-3a07-5982-817d-91a1dcf5ff9e"
+        ]
+      }
+    ],
+    "query": "LET seeds=(FOR s IN Specimen FILTER s.resourceType==\"Specimen\" AND s.project==\"loom_dev_cda_fhir\" AND s.dataset_generation==\"cda-fhir-v1\" SORT s.id LIMIT 4000 RETURN s) FOR s IN seeds LET parents=(FOR e IN fhir_edge FILTER e._from==s._id AND e.label==\"parent\" AND e.from_type==\"Specimen\" AND e.to_type==\"Specimen\" AND e.project==\"loom_dev_cda_fhir\" AND e.dataset_generation==\"cda-fhir-v1\" LET parent=DOCUMENT(e._to) FILTER parent!=null AND parent.resourceType==\"Specimen\" AND parent.project==\"loom_dev_cda_fhir\" AND parent.dataset_generation==\"cda-fhir-v1\" RETURN parent._id) LET children=(FOR e IN fhir_edge FILTER e._to==s._id AND e.label==\"parent\" AND e.from_type==\"Specimen\" AND e.to_type==\"Specimen\" AND e.project==\"loom_dev_cda_fhir\" AND e.dataset_generation==\"cda-fhir-v1\" LET child=DOCUMENT(e._from) FILTER child!=null AND child.resourceType==\"Specimen\" AND child.project==\"loom_dev_cda_fhir\" AND child.dataset_generation==\"cda-fhir-v1\" RETURN child.id) LET routeRows=(FOR parentEdge IN fhir_edge FILTER parentEdge._from==s._id AND parentEdge.label==\"parent\" AND parentEdge.from_type==\"Specimen\" AND parentEdge.to_type==\"Specimen\" AND parentEdge.project==\"loom_dev_cda_fhir\" AND parentEdge.dataset_generation==\"cda-fhir-v1\" LET parent=DOCUMENT(parentEdge._to) FILTER parent!=null AND parent.resourceType==\"Specimen\" AND parent.project==\"loom_dev_cda_fhir\" AND parent.dataset_generation==\"cda-fhir-v1\" FOR specimenEdge IN fhir_edge FILTER specimenEdge._to==parent._id AND specimenEdge.label==\"specimen_Specimen\" AND specimenEdge.from_type==\"Observation\" AND specimenEdge.to_type==\"Specimen\" AND specimenEdge.project==\"loom_dev_cda_fhir\" AND specimenEdge.dataset_generation==\"cda-fhir-v1\" LET observation=DOCUMENT(specimenEdge._from) FILTER observation!=null AND observation.resourceType==\"Observation\" AND observation.project==\"loom_dev_cda_fhir\" AND observation.dataset_generation==\"cda-fhir-v1\" RETURN observation.id) RETURN {id:s.id,parents,children,routeRows}",
+    "repairedSelection": {
+      "excludedSpecimenID": "0000f0c1-b945-5f22-900d-1c25c88cdc30",
+      "generation": "cda-fhir-v1",
+      "membershipDigest": "506202fd0d29572fcfd182b40b8b3d1099c6d1006125c1a30b0758966b6dba0c",
+      "rawArangoMembershipAssertion": "passed",
+      "retainedSpecimenIDs": [
+        "00001c68-2c20-5003-a144-b2442469d8de",
+        "0000ae4e-5498-51e8-a091-32b0552093ac"
+      ],
+      "revisionId": "selection_da2eead4049cf248fe871695bb83aee265287d36909fa45411d8f7855d25f851"
+    },
+    "savedRoute": [
+      {
+        "edgeId": "e_4f79cbfdf06f50d30f273de4",
+        "fromNodeId": "n_f396c8ca728f4349fa8d2e3c",
+        "fromResourceType": "Observation",
+        "matchMode": "OPTIONAL",
+        "relationship": "specimen_Specimen",
+        "storageDirection": "OUTBOUND",
+        "toNodeId": "n_009cbb084255bda04e9cc5d2",
+        "toResourceType": "Specimen"
+      },
+      {
+        "edgeId": "e_637cc22e0d33b9c1c9177cc8",
+        "fromNodeId": "n_009cbb084255bda04e9cc5d2",
+        "fromResourceType": "Specimen",
+        "matchMode": "OPTIONAL",
+        "relationship": "parent",
+        "storageDirection": "INBOUND",
+        "toNodeId": "n_009cbb084255bda04e9cc5d2",
+        "toResourceType": "Specimen"
+      }
+    ],
+    "seedLimit": 4000,
+    "unmapped": {
+      "childIDs": [
+        "dec14807-ccae-56ec-a5cd-7cc8f26fb803",
+        "475d254c-ebeb-597a-a5ed-ff81431729ce",
+        "438a58f5-f9a4-554d-946c-43002955a7fc",
+        "8397db0c-5d8c-54ee-b9e8-d0c21f06e086"
+      ],
+      "id": "0000f0c1-b945-5f22-900d-1c25c88cdc30",
+      "parentIDs": []
+    }
+  },
+  "requestAndErrorCounts": {
+    "browserRequests": 59,
+    "browserStatusCounts": {
+      "200": 58,
+      "201": 1
+    },
+    "errors": 0,
+    "exceptions": 0,
+    "httpErrors": 0,
+    "incidentalErrors": 0,
+    "setupApiRequests": 19,
+    "setupApiStatusCounts": {
+      "200": 17,
+      "201": 2
+    }
+  },
+  "scenario": "cda-collection-repair",
+  "schemaVersion": 1,
+  "status": "passed",
+  "target": {
+    "apiContainer": "loom-dev-6d7df93d6a37-loom-api-1",
+    "apiUrl": "http://127.0.0.1:8188",
+    "arangoContainer": "loom-dev-6d7df93d6a37-arangodb-1",
+    "clickhouseContainer": "loom-dev-6d7df93d6a37-clickhouse-1",
+    "composeProject": "loom-dev-6d7df93d6a37",
+    "generation": "cda-fhir-v1",
+    "project": "loom_dev_cda_fhir",
+    "uiUrl": "http://127.0.0.1:30008"
+  },
+  "epochClosure": {
+    "capturedAt": "2026-10-05T18:47:54.406009+00:00",
+    "status": "SOURCE_DOCS_API_CLOSED_UNCHANGED",
+    "sourceUnchanged": true,
+    "sourceFingerprint": {
+      "sha256": "d0099b8be5300dc6796311be371a7b5c70dd9ec02b21eac68fb1f6c3f7d6b251",
+      "files": 1488
+    },
+    "changedSourcePaths": [],
+    "docsUnchanged": true,
+    "docsFingerprint": {
+      "sha256": "54432cc5239717f94062a719b4dc2878ac39d8362543d595135897ad838d59f7",
+      "files": 105
+    },
+    "changedDocsPaths": [],
+    "apiUnchanged": true,
+    "apiBuildIdentity": "9e0e53a002c2cde544c54a34905fcea04f51a00d5247909f6204e73ccc85fc3c:9e0e53a002c2cde544c54a34905fcea04f51a00d5247909f6204e73ccc85fc3c:1480cbf92c206363ef5f24926e95396d0a25634ff9b9c99a08df3a26db41d114",
+    "health": {
+      "api": {
+        "status": 200
+      },
+      "ui": {
+        "status": 200
+      }
+    },
+    "ownedMountsStatus": "PASS",
+    "terminalCaseCount": 2,
+    "processLog": "/private/tmp/loom-native-parallel-wave14/actual-processes.json"
+  }
+}
