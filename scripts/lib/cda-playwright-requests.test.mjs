@@ -206,9 +206,18 @@ test('expected HTTP and matching console errors are scoped to the exact owned re
 
   const expectedRequest = makeRequest('expected-error-policy', 'ERROR');
   const expectedDone = emitResponse(expectedRequest, diagnostic);
-  emitConsole();
   const expectedEntry = await expectedDone;
-  assert.equal(expectedEntry.expectedHttpFailure, true);
+  expectedEntry.expectedHttpFailure = {
+    browserRequestId: expectedEntry.browserRequestId,
+    requestId: expectedEntry.requestId,
+    method: expectedEntry.method,
+    path: expectedEntry.path,
+    status: expectedEntry.status,
+    reason: 'The independent source oracle predicts this validation failure.',
+    proof: { oracle: 'empty-only-source-selection' },
+  };
+  emitConsole();
+  assert.notEqual(expectedEntry.expectedHttpFailure, true);
   assert.equal(expectedEntry.expectedHttpConsoleConsumed, true);
   assert.deepEqual(expectedEntry.response, diagnostic);
   assert.deepEqual(report.errors, []);

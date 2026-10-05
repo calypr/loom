@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   applyInjectedFaultPolicy,
   matchesOwnedFaultRequest,
+  matchExpectedHttpConsole,
   ownedFaultTarget,
 } from './network-evidence.mjs';
 
@@ -135,4 +136,67 @@ test('Viewer fault matches only the owned GraphQL project and pinned selector', 
   assert.equal(matchesOwnedFaultRequest(graphRequest('foreign'), graph), false);
   assert.equal(matchesOwnedFaultRequest(request({ url: () => target.uiUrl + '/graphql/graph' }), graph), false);
   assert.equal(matchesOwnedFaultRequest(graphRequest('owned'), graph, () => false), false);
+});
+
+
+test('expected HTTP console handling consumes only one console record for one exact captured response', () => {
+  const path = '/api/v1/projects/owned/explorers/editor/authoring/v2/construction-proposals';
+  const capturedEntry = {
+    origin: target.uiUrl,
+    path,
+    query: {},
+    status: 422,
+    method: 'POST',
+    browserRequestId: 'playwright-expected',
+  };
+  const duplicateRequest = { ...capturedEntry, browserRequestId: 'playwright-duplicate' };
+  const message = 'Failed to load resource: the server responded with a status of 422 (Unprocessable Entity)';
+  const fixtureDiagnostic = {
+    kind: 'console-error',
+    text: message,
+    location: target.uiUrl + path,
+    rawLocation: target.uiUrl + path,
+  };
+  const reportError = {
+    kind: 'console',
+    message,
+    location: target.uiUrl + path,
+  };
+  const nativeRequests = [capturedEntry];
+  const diagnostics = [fixtureDiagnostic];
+  const errors = [reportError];
+
+  const match = matchExpectedHttpConsole({ capturedEntry, nativeRequests, diagnostics, errors });
+  assert.deepEqual(match, {
+    fixtureDiagnostic,
+    reportError,
+    status: 422,
+    message,
+    location: target.uiUrl + path,
+  });
+
+  assert.equal(matchExpectedHttpConsole({
+    capturedEntry,
+    nativeRequests: [capturedEntry, duplicateRequest],
+    diagnostics,
+    errors,
+  }), undefined, 'ambiguous same-route responses must remain unexpected');
+  assert.equal(matchExpectedHttpConsole({
+    capturedEntry,
+    nativeRequests,
+    diagnostics: [{ ...fixtureDiagnostic, text: 'Failed to load resource: status 422' }],
+    errors: [],
+  }), undefined, 'non-Chromium resource messages must remain unexpected');
+  assert.equal(matchExpectedHttpConsole({
+    capturedEntry,
+    nativeRequests,
+    diagnostics: [{ ...fixtureDiagnostic, location: target.uiUrl + path + '?other=1', rawLocation: target.uiUrl + path + '?other=1' }],
+    errors: [],
+  }), undefined, 'a different request URL must remain unexpected');
+  assert.equal(matchExpectedHttpConsole({
+    capturedEntry,
+    nativeRequests,
+    diagnostics: [fixtureDiagnostic, { ...fixtureDiagnostic }],
+    errors: [],
+  }), undefined, 'duplicate console records must remain unexpected');
 });

@@ -828,6 +828,38 @@ export const registry = Object.freeze([
       { feature: 'fresh synthetic Observation coded GROUP lifecycle with exact ID passthrough, edit, Cancel, removal, and reload', status: 'untested', reason: 'The native case and meaningful source/lifecycle gates are registered; no browser lifecycle has run, so it remains unverified.' },
     ],
   }),
+  Object.freeze({
+    id: 'cda-cohort-fields',
+    workflow: 'owned-cda-cohort-fields-lifecycle',
+    hooks: [],
+    endpoints: [],
+    requiredTransitions: [
+      'select exactly two independently enumerated Specimen resources in the pinned CDA project and generation',
+      'create and select a named cohort, Cancel its row-definition draft, then Apply it',
+      'preview, cancel, apply, reload, remove, and reload the cohort member field',
+    ],
+    gateReasons: [
+      'native verification requires the owned CDA Builder and API stack with the pinned cda-fhir-v1 generation',
+      'full performance confirmation remains separate from this concurrent functional browser pass',
+    ],
+    script: 'cohort-fields-workflow.mjs',
+    playwrightTests: { 'cohort-fields': 'scripts/playwright/standalone-cda-fields.spec.mjs' },
+    cases: ['cohort-fields'],
+    requiredChecks: {
+      'cohort-fields': [
+        'raw CDA oracle and immutable selection match the exact two scoped Specimen IDs',
+        'saved cohort and Apply controls are enabled in native Rows settings',
+        'Cancel preserves the exact saved Builder workspace',
+        'applied cohort renders the exact independent Specimen members',
+        'ALL member field and cohort persist exactly after Builder reload',
+        'member-field removal restores the exact saved cohort schema after reload',
+        'CDA watched source and API build stayed unchanged',
+      ],
+    },
+    coverage: [
+      { feature: 'CDA named-cohort member-field Apply, Cancel, reload, removal, and restoration lifecycle', status: 'untested', reason: 'The native functional baseline passed before named report gates were added; keep report coverage unverified until this dedicated mapping runs against the owned stack.' },
+    ],
+  }),
 ]);
 
 export const getScenario = (id) => {

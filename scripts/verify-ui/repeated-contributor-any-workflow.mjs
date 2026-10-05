@@ -381,12 +381,11 @@ const resolveScopedLocator = async (selector, includes) => {
 
 const revealControl = async (selector, includes) => {
   const label = `Scroll ${selector} into view`;
-  report.activeAction = { label, locator: selector, targetLocator: page.locator(selector), startedAt: Date.now() };
+  report.activeAction = { label, locator: page.locator(selector).toString(), startedAt: Date.now() };
   const locator = await resolveScopedLocator(selector, includes);
-  report.activeAction.targetLocator = locator;
   report.activeAction.locator = locator.toString();
   const elapsedMs = await performAction(page, label, locator, (target, options) => target.scrollIntoViewIfNeeded(options));
-  report.lastAction = { label, locator: locator.toString(), targetLocator: locator, elapsedMs, startedAt: Date.now() - elapsedMs };
+  report.lastAction = { label, locator: locator.toString(), elapsedMs, startedAt: Date.now() - elapsedMs };
   const box = await locator.boundingBox();
   const viewport = page.viewportSize();
   assert(box && box.y >= 0 && box.y + box.height <= viewport.height,

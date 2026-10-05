@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
+import { isDeepStrictEqual } from 'node:util';
 import { test, expect } from '../playwright/cda-fixtures.mjs';
 import { createNativeCdaWorkflowTools, validatedArangoContainer } from './native-cda-workflow-tools.mjs';
 
@@ -158,6 +159,10 @@ const selectedRefs=members.map(member=>member.ref).map(ref=>`${ref.project}/${re
 const oracleRefs=sources.map(source=>`${project}/cda-fhir-v1/Specimen/${source.id}`).sort();
 assert.deepEqual(selectedRefs,oracleRefs,'The immutable source selection must exactly match the independent scoped CDA witnesses');
 assert(members.every(member=>member.memberKey),'Every source witness must have an opaque pinned selection member key');
+cda.check('correctness', 'raw CDA oracle and immutable selection match the exact two scoped Specimen IDs',
+  selectedRefs.length === oracleRefs.length && selectedRefs.every((ref, index) => ref === oracleRefs[index])
+    && sources.length === 2 && new Set(sources.map(source => source.id)).size === 2,
+  { project, generation, selectionRevisionId: selection.id, cohortScopeDigest: scopeDigest, memberCount: selectedRefs.length });
 const cohort=await api(selections+'/'+selection.id+'/explicit-groups',{snapshotToken:builder.catalog.snapshotToken,idempotencyKey:randomUUID(),groups:[{id:'qa-cohort',label:'Two Specimens',ordinal:0,memberIds:members.map(m=>m.memberKey)}]});
 assert.equal(cohort.sourceSelectionRevisionId,selection.id);
 assert.equal(cohort.groupCount,1);
@@ -186,13 +191,25 @@ assert(cohortOptions.some(option=>option.value==='explicit:'+cohort.revisionId&&
 let start=Date.now();
 await nativeSelect(page, 'select[aria-label="What should each row represent?"]','explicit:'+cohort.revisionId);
 await waitUI(`[...document.querySelectorAll('[aria-label="Row definition settings"] button')].some(b=>b.innerText==='Apply row definition'&&!b.disabled)`);
+const rowDefinitionControls = await inspect(() => ({
+  selectedCohortEnabled: [...document.querySelector('select[aria-label="What should each row represent?"]').options]
+    .some(option => option.value === document.querySelector('select[aria-label="What should each row represent?"]').value && option.value.startsWith('explicit:') && !option.disabled),
+  applyEnabled: [...document.querySelectorAll('[aria-label="Row definition settings"] button')]
+    .some(button => button.innerText.trim() === 'Apply row definition' && !button.disabled),
+}));
+cda.check('usability', 'saved cohort and Apply controls are enabled in native Rows settings',
+  rowDefinitionControls.selectedCohortEnabled && rowDefinitionControls.applyEnabled, rowDefinitionControls);
 recordRender('cohort-preview',start);
 start=Date.now();
 await nativeClick(page, '[aria-label="Row definition settings"] button',{name:'Cancel'});
 await waitUI(`!document.querySelector('[aria-label="Row definition settings"]')`);
 await rendered(expectedMembers.map(source=>[source.id]));
 recordRender('cohort-cancel',start);
-assert.deepEqual((await api(base+'/builder')).workspace,builder.workspace);
+const workspaceAfterCancel = (await api(base+'/builder')).workspace;
+const cancelPreservedWorkspace = isDeepStrictEqual(workspaceAfterCancel, builder.workspace);
+assert.deepEqual(workspaceAfterCancel,builder.workspace);
+cda.check('persistence', 'Cancel preserves the exact saved Builder workspace', cancelPreservedWorkspace,
+  { outputId, draftVersion: builder.draftVersion, draftDigest: builder.draftDigest });
 await nativeClick(page, '[data-testid="construction-rows-settings-trigger"]');
 await waitUI(`document.querySelector('select[aria-label="What should each row represent?"]')?.disabled===false`);
 start=Date.now();
@@ -213,6 +230,10 @@ assert.equal(memberCells.length,3,'Saved cohort must render its three declared c
 assert(expectedMembers.every(source=>memberCells.at(-1).includes(source.id)),'Cohort members must include every retained source ID');
 if(filterOneMember) assert(!memberCells.at(-1).includes(sources[1].id),'Source filter must remove the excluded member before cohort materialization');
 report.cohortMemberCells=memberCells;
+cda.check('correctness', 'applied cohort renders the exact independent Specimen members',
+  expectedMembers.every(source => memberCells.at(-1).includes(source.id))
+    && (!filterOneMember || !memberCells.at(-1).includes(sources[1].id)),
+  { cohortRevisionId: cohort.revisionId, expectedMemberIds: expectedMembers.map(source => source.id), visibleMemberCell: memberCells.at(-1) });
 let beforeField=builder;
 await nativeClick(page, '[data-testid="construction-action-add-columns"]');
 await nativeClick(page, '[aria-label="Column types"] button',{includes:'Fields and related data'});
@@ -246,7 +267,7 @@ await nativeClick(page, '[data-testid="construction-choice-proposal-panel"] butt
 await waitUI(`!document.querySelector('[data-testid="construction-choice-proposal-panel"]')&&!document.body.innerText.includes('Loading your table…')&&document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-colcount')==='4'`);
 recordRender('cohort-member-field-apply',start);
 builder=await api(base+'/builder');
-report.savedFieldDocument=doc(builder);
+report.savedFieldDocument=structuredClone(doc(builder));
 let cohortExpandBaseline;
 let cohortExpandMemberColumn;
 if(authoredExpand){
@@ -285,6 +306,11 @@ const verifyReload=async(withField)=>{
   recordRender('cohort-reload-'+withField,start);
 };
 await verifyReload(true);
+builder=await api(base+'/builder');
+const memberFieldReloadMatches = isDeepStrictEqual(doc(builder), report.savedFieldDocument);
+assert.deepEqual(doc(builder), report.savedFieldDocument, 'Applied member field and cohort document must survive Builder reload exactly');
+cda.check('persistence', 'ALL member field and cohort persist exactly after Builder reload', memberFieldReloadMatches,
+  { outputId, cohortRevisionId: cohort.revisionId, selectionRevisionId: selection.id, field: memberField });
 if(authoredExpand){
   const readGrid=async()=>inspect(()=>{
     const proposal=document.querySelector('[data-testid="construction-proposal-preview"]');
@@ -728,8 +754,15 @@ await nativeClick(page, 'button[aria-label="Remove '+memberLabel+' column"]');
 await waitUI(`!document.body.innerText.includes('Loading your table…')&&document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-colcount')==='3'`);
 recordRender('cohort-member-field-remove',start);
 builder=await api(base+'/builder');
+const removedFieldRestoresSchema = isDeepStrictEqual(doc(builder),doc(beforeField));
 assert.deepEqual(doc(builder),doc(beforeField));
 await verifyReload(false);
+builder=await api(base+'/builder');
+const removalReloadRestoresSchema = isDeepStrictEqual(doc(builder),doc(beforeField));
+assert.deepEqual(doc(builder),doc(beforeField), 'Removing the member field must restore the exact saved cohort schema after reload');
+cda.check('persistence', 'member-field removal restores the exact saved cohort schema after reload',
+  removedFieldRestoresSchema && removalReloadRestoresSchema,
+  { outputId, cohortRevisionId: cohort.revisionId, selectionRevisionId: selection.id });
 await requestCapture.flush();
 for (const failure of cda.diagnostics.networkFailures) report.errors.push({ kind: 'browser-network', ...failure });
 for (const failure of cda.diagnostics.httpFailures) report.errors.push({ kind: 'browser-http', ...failure });

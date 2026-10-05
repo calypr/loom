@@ -22,7 +22,7 @@ import {
   waitForBrowser,
   waitForCapturedResponse,
 } from '../lib/cda-playwright.mjs';
-import { applyInjectedFaultPolicy, ownedFaultTarget, matchesOwnedFaultRequest } from './network-evidence.mjs';
+import { applyInjectedFaultPolicy, matchExpectedHttpConsole, ownedFaultTarget, matchesOwnedFaultRequest } from './network-evidence.mjs';
 import { registry, requiredChecksFor } from '../verify-ui/registry.mjs';
 import { classifyNetworkRecord, createReport, finishReport, recordCheck, writeReport } from '../verify-ui/report.mjs';
 import { sanitizeBody, sanitizePayload, sanitizeText } from '../lib/playwright-browser.mjs';
@@ -398,6 +398,33 @@ export const test = base.extend({
         return;
       }
       const entry = { kind: 'console-error', text: safeText(message.text()), location: safeURL(location), rawLocation: location };
+      const expectedConsoleMatches = report.nativeRequests
+        .filter(request => request.expectedHttpFailure && typeof request.expectedHttpFailure === 'object' &&
+          !request.fixtureExpectedHttpConsoleConsumed)
+        .map(capturedEntry => ({
+          capturedEntry,
+          match: matchExpectedHttpConsole({
+            capturedEntry,
+            nativeRequests: report.nativeRequests,
+            diagnostics: [entry],
+          }),
+        }))
+        .filter(candidate => candidate.match?.fixtureDiagnostic === entry);
+      if (expectedConsoleMatches.length === 1) {
+        const { capturedEntry, match } = expectedConsoleMatches[0];
+        const evidence = capturedEntry.expectedHttpFailure;
+        if (!evidence.console) {
+          evidence.console = {
+            status: match.status,
+            message: safeText(match.message),
+            location: safeURL(match.location),
+            fixtureDiagnostic: true,
+            requestCaptureError: false,
+          };
+          capturedEntry.fixtureExpectedHttpConsoleConsumed = true;
+          return;
+        }
+      }
       diagnostics.console.push(entry);
       addNetworkDiagnostic(entry);
     };
@@ -666,6 +693,12 @@ export const test = base.extend({
         entry.browserRequestId === capturedEntry.browserRequestId && entry.status === capturedEntry.status &&
         entry.method === capturedEntry.method);
       if (!diagnostic) throw new Error('Expected HTTP failure did not match the exact observed native response diagnostic.');
+      const consoleMatch = matchExpectedHttpConsole({
+        capturedEntry,
+        nativeRequests: report.nativeRequests,
+        diagnostics: diagnostics.console,
+        errors: report.errors,
+      });
       const evidence = sanitizePayload({
         browserRequestId: capturedEntry.browserRequestId,
         requestId: capturedEntry.requestId,
@@ -674,6 +707,13 @@ export const test = base.extend({
         status: capturedEntry.status,
         reason: safeText(reason),
         proof,
+        ...(consoleMatch ? { console: {
+          status: consoleMatch.status,
+          message: safeText(consoleMatch.message),
+          location: safeURL(consoleMatch.location),
+          fixtureDiagnostic: Boolean(consoleMatch.fixtureDiagnostic),
+          requestCaptureError: Boolean(consoleMatch.reportError),
+        } } : {}),
       });
       if (diagnostic.expectedHttpFailure) {
         if (diagnostic.expectedHttpFailure.reason === evidence.reason) return diagnostic.expectedHttpFailure;
@@ -681,6 +721,18 @@ export const test = base.extend({
       }
       diagnostic.expected = true;
       diagnostic.expectedHttpFailure = evidence;
+      if (consoleMatch?.fixtureDiagnostic) {
+        consoleMatch.fixtureDiagnostic.expected = true;
+        consoleMatch.fixtureDiagnostic.expectedHttpFailure = evidence;
+        const index = diagnostics.console.indexOf(consoleMatch.fixtureDiagnostic);
+        if (index < 0) throw new Error('Matched expected HTTP console diagnostic disappeared before classification.');
+        diagnostics.console.splice(index, 1);
+        capturedEntry.fixtureExpectedHttpConsoleConsumed = true;
+      }
+      if (consoleMatch?.reportError) {
+        consoleMatch.reportError.expected = true;
+        consoleMatch.reportError.expectedHttpFailure = evidence;
+      }
       capturedEntry.expected = true;
       capturedEntry.expectedHttpFailure = evidence;
       report.expectedHttpFailures ??= [];

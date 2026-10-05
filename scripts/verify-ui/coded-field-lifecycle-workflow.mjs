@@ -82,7 +82,13 @@ const startNativeCapture = () => {
     report, responsePaths: /frame-source-options|semantic-inventory|construction-choice-proposals|construction-proposals|commands|preview/,
   });
 };
-const waitNative = async (predicate, fromIndex = 0, timeoutMs = 5000) => requestCapture.waitFor(predicate, { fromIndex, timeoutMs });
+const waitNative = async (predicate, fromIndex = 0, timeoutMs = 5000) => {
+  const match = await requestCapture.waitFor(predicate, { fromIndex, timeoutMs });
+  const rawResponse = requestCapture.rawResponseBody(match);
+  assert(rawResponse && typeof rawResponse === 'object' && !Array.isArray(rawResponse),
+    `${match.path} did not provide a captured JSON object response body`);
+  return { ...match, response: rawResponse };
+};
 const record = (name, started, details = {}) => {
   const durationMs = Date.now() - started;
   assert(durationMs <= 5000, `${name} took ${durationMs} ms`);
@@ -180,13 +186,49 @@ const setSearchInput = async (selector, value) => fillControl(page, selector, va
 const chooseComponentFrame = async () => {
   const panel = '[data-testid="frame-source-panel"]';
   const toggle = await inspectDOM(page, async args => { return [...document.querySelectorAll(args.__template0)].find(button=>['Browse sources','Add coded source'].some(label=>button.innerText.trim().startsWith(label)))?.innerText.replace(/\\s+/g,' ').trim(); }, { __template0: (`${panel} button`) });
-  if (toggle) await clickControl(page, `${panel} button`, { name: toggle });
-  await waitForDOM(page, args => Boolean(Boolean(document.querySelector('[aria-label="Search framing sources"]'))), {}, 5000);
+  const cancellationAction = 'search Observation framing sources';
   const searchStarted = Date.now();
-  await setSearchInput('[aria-label="Search framing sources"]', 'Observation');
-  const fromIndex = nativeRequests.length;
-  await clickControl(page, `${panel} form button`, { name: 'Search' });
-  let result = await waitNative((entry) => entry.path.endsWith('/frame-source-options') && entry.body?.query === 'Observation', fromIndex);
+  let result;
+  await cda.withExpectedCancellations({
+    origin: uiOrigin,
+    method: 'POST',
+    paths: [`${base}/frame-source-options`],
+    requestIdPrefixes: ['frame-source-options-'],
+    reason: 'The initial unfiltered framing-source request was superseded by the explicit Observation search.',
+    proof: { priorQuery: null, replacementQuery: 'Observation' },
+    actionLabel: cancellationAction,
+  }, async () => {
+    if (toggle) await clickControl(page, `${panel} button`, { name: toggle });
+    await waitForDOM(page, args => Boolean(Boolean(document.querySelector('[aria-label="Search framing sources"]'))), {}, 5000);
+    await setSearchInput('[aria-label="Search framing sources"]', 'Observation');
+    const fromIndex = nativeRequests.length;
+    await clickControl(page, `${panel} form button`, { name: 'Search' });
+    result = await waitNative((entry) => entry.path.endsWith('/frame-source-options') && entry.body?.query === 'Observation', fromIndex);
+  });
+  const cancellations = cda.report.expectedCancellations?.filter(item => item.proof?.scopeAction === cancellationAction) ?? [];
+  assert(cancellations.length <= 1, 'Observation frame-source search may classify at most one superseded initial browse');
+  const cancellation = cancellations[0];
+  if (cancellation) {
+    const cancelledRequest = nativeRequests.find(request => request.browserRequestId === cancellation.browserRequestId);
+    assert(cancelledRequest, 'Expected frame-source cancellation must point to an exact captured browser request');
+    assert.equal(cancelledRequest.path, `${base}/frame-source-options`);
+    assert.equal(cancelledRequest.method, 'POST');
+    assert([undefined, null, ''].includes(cancelledRequest.body?.query),
+      'The cancelled frame-source request must be the initial unfiltered browse');
+    const cancelledError = report.errors.find(error => error.kind === 'network'
+      && error.browserRequestId === cancellation.browserRequestId);
+    assert(cancelledError, 'Expected frame-source cancellation must remain in browser diagnostics');
+    assert.equal(cancelledError.error, 'net::ERR_ABORTED');
+    assert.equal(cancelledError.expected, true);
+    assert.equal(result.body?.query, 'Observation');
+    assert.equal(result.status, 200);
+    report.frameSourceBrowseCancellation = {
+      request: { browserRequestId: cancelledRequest.browserRequestId, path: cancelledRequest.path,
+        method: cancelledRequest.method, query: cancelledRequest.body?.query ?? null, error: cancelledError.error },
+      replacement: { query: 'Observation', status: result.status },
+      reason: cancellation.reason,
+    };
+  }
   const matchesFor = (response) => response.sources.filter((source) => source.resourceType === 'Observation' &&
     source.sourcePath.toLowerCase().includes('component') && source.route.length === 1 &&
     source.route[0].fromResourceType === 'Specimen' && source.route[0].toResourceType === 'Observation' &&

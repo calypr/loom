@@ -443,7 +443,21 @@ page.on('request', request => {
   const path = new URL(request.url()).pathname;
   if (path.includes('cda-builder-full-qa-1790440983382')) report.errors.push({ kind: 'protected-explorer-request', path });
 });
-requestCapture = cda.captureRequests(`${root}/${explorer}`, { responsePaths: /construction-proposals|related-expand-choices|related-expand-contributors|commands|preview/, });
+requestCapture = cda.captureRequests(`${root}/${explorer}`, {
+  responsePaths: /construction-proposals|related-expand-choices|related-expand-contributors|commands|preview/,
+  shouldReportHttpError: (requestPath, status, entry) => {
+    const relatedExpand = entry.body?.candidateConstruction?.steps
+      ?.find(step => step.operation?.kind === 'RELATED_EXPAND')?.operation?.relatedExpand;
+    const expectedExistsValidation = requestPath === `${base}/construction-proposals` && status === 422 &&
+      entry.method === 'POST' && entry.body?.outputId === outputId &&
+      relatedExpand?.emptyPolicy === 'ERROR' &&
+      relatedExpand?.contributorRule?.policy === 'ALL_MATCHES' &&
+      relatedExpand?.contributorRule?.predicate?.operator === 'EXISTS' &&
+      relatedExpand?.contributorSource?.resourceType === 'Observation' &&
+      relatedExpand?.contributorSource?.path === 'id';
+    return !expectedExistsValidation;
+  },
+});
 
 await open(baselineRows, 'source-selection-zero-one-many');
 let startedAt = Date.now();

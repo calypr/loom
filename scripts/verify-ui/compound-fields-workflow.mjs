@@ -30,6 +30,8 @@ let rootColumnId;
 let nativeRequests = [];
 report.nativeRequests = nativeRequests;
 let requestCapture;
+const supersededSourceBrowseReason = 'The Observation source search superseded a pending empty-query frame-source browse.';
+const expectedSupersededSourceBrowseIDs = new Set();
 
 const api = async (path, body) => {
   const startedAt = Date.now();
@@ -175,6 +177,8 @@ const matchingDirectChoice = (source) => source.resourceType === 'Observation' &
 
 const chooseDirectFrame = async () => {
   const picker = '[data-testid="frame-source-panel"]';
+  const browseRequestStart = requestIndex();
+  const browseRequestPath = `${base}/frame-source-options`;
   const toggle = await inspectDOM(page, async args => { return [...document.querySelectorAll(args.__template0)].find(button=>['Browse sources','Add coded source'].some(label=>button.innerText.trim().startsWith(label)))?.innerText.replace(/\\s+/g,' ').trim(); }, { __template0: (`${picker} button`) });
   if (toggle) await clickControl(page, `${picker} button`, { name: toggle });
   await waitForDOM(page, args => Boolean(Boolean(document.querySelector('[aria-label="Search framing sources"]'))));
@@ -182,8 +186,70 @@ const chooseDirectFrame = async () => {
   const searchStarted = Date.now();
   await setSearchInput(search, 'Observation');
   const fromIndex = requestIndex();
-  await clickControl(page, `${picker} form button`, { name: 'Search' });
-  let response = await waitNative((entry) => entry.path.endsWith('/frame-source-options') && entry.body?.query === 'Observation', fromIndex);
+  const expectedCancellationStart = cda.report.expectedCancellations?.length ?? 0;
+  let response = await cda.withExpectedCancellations({
+    origin: uiOrigin,
+    method: 'POST',
+    paths: [browseRequestPath],
+    requestIdPrefixes: ['frame-source-options-'],
+    actionLabel: 'Search',
+    reason: supersededSourceBrowseReason,
+    proof: { outputId, snapshotToken: builder.catalog.snapshotToken, previousQuery: 'empty', replacementQuery: 'Observation' },
+  }, async () => {
+    await clickControl(page, `${picker} form button`, { name: 'Search' });
+    return waitNative((entry) => entry.path === browseRequestPath && entry.body?.outputId === outputId && entry.body?.query === 'Observation', fromIndex);
+  });
+  const browseRequests = nativeRequests.slice(browseRequestStart).filter((entry) => entry.path === browseRequestPath && entry.method === 'POST');
+  assert(browseRequests.length > 0, 'Native Search issued no owned frame-source request');
+  for (const entry of browseRequests) {
+    assert.equal(entry.body?.outputId, outputId, 'The source browse must stay on this QA table');
+    assert.equal(entry.body?.snapshotToken, builder.catalog.snapshotToken, 'The source browse must stay on this catalog snapshot');
+  }
+  const replacements = browseRequests.filter((entry) => entry.body?.query === 'Observation');
+  assert.equal(replacements.length, 1, 'Search must produce exactly one Observation replacement request');
+  const replacement = replacements[0];
+  assert.equal(replacement.status, 200, 'The replacement Observation source request must succeed');
+  assert.equal(replacement.browserRequestId, response.browserRequestId);
+  assert.equal(response.response.outputId, outputId, 'The successful browse response must belong to this QA table');
+  assert.equal(response.response.snapshotToken, builder.catalog.snapshotToken,
+    'The successful browse response must belong to this catalog snapshot');
+  assert(Array.isArray(response.response.sources), 'The successful browse response must include native sources');
+  const abortedBrowses = browseRequests.filter((entry) => entry.failure === 'net::ERR_ABORTED');
+  assert(abortedBrowses.length <= 1, `Search aborted multiple owned frame-source requests: ${JSON.stringify(abortedBrowses.map((entry) => entry.body))}`);
+  const expectedCancellationRecords = (cda.report.expectedCancellations ?? []).slice(expectedCancellationStart);
+  assert.equal(expectedCancellationRecords.length, abortedBrowses.length,
+    'Only an observed superseded frame-source request may be classified as expected');
+  for (const entry of abortedBrowses) {
+    assert(entry.body?.query === undefined || entry.body.query === null || entry.body.query === '',
+      `Only the empty-query browse may be canceled by Search: ${JSON.stringify(entry.body)}`);
+    assert(entry.body?.cursor === undefined || entry.body.cursor === null || entry.body.cursor === '',
+      'A paginated frame-source request must not be classified as the superseded initial browse');
+    assert(entry.startedAt <= replacement.startedAt, 'The canceled empty browse must precede its successful replacement');
+    const networkFailure = cda.diagnostics.networkFailures.find((failure) => failure.browserRequestId === entry.browserRequestId);
+    assert(networkFailure, 'The exact canceled browse must have a captured native network diagnostic');
+    assert.equal(networkFailure.errorText, 'net::ERR_ABORTED');
+    assert.equal(networkFailure.triggerAction, 'Search');
+    assert(entry.expectedCancellation, 'The fixture must classify the exact native cancellation');
+    assert.equal(entry.expectedCancellation.reason, supersededSourceBrowseReason);
+    assert.equal(entry.expectedCancellation.proof.scopeAction, 'Search');
+    assert.equal(entry.expectedCancellation.proof.outputId, outputId);
+    assert.equal(entry.expectedCancellation.proof.snapshotToken, builder.catalog.snapshotToken);
+    assert.equal(entry.expectedCancellation.proof.replacementQuery, 'Observation');
+    const [classification] = expectedCancellationRecords.filter((record) => record.browserRequestId === entry.browserRequestId);
+    assert(classification, 'Expected cancellation report must identify the same native request');
+    assert.equal(classification.method, 'POST');
+    const classificationURL = new URL(classification.url);
+    assert.equal(classificationURL.origin, new URL(uiOrigin).origin);
+    assert.equal(classificationURL.pathname, browseRequestPath);
+    assert.equal(classification.browserRequestId, entry.browserRequestId);
+    assert.equal(classification.requestId, entry.requestId);
+    assert.equal(classification.proof.scopeAction, 'Search');
+    assert.equal(classification.proof.outputId, outputId);
+    assert.equal(classification.proof.snapshotToken, builder.catalog.snapshotToken);
+    assert.equal(classification.proof.replacementQuery, 'Observation');
+    assert.equal(classification.reason, supersededSourceBrowseReason);
+    expectedSupersededSourceBrowseIDs.add(entry.browserRequestId);
+  }
   let matches = response.response.sources.filter(matchingDirectChoice);
   let pageCount = 1;
   while (!matches.length && response.response.nextCursor && pageCount < 8) {
@@ -491,10 +557,12 @@ record('restore-two-compound-ALL-columns', restoreAddStart, { previewDurationMs:
 const restoredReload = await openTable(3, 'reload-restored-compound-ALL-columns', [...source.diseaseValues, ...source.specimenValues]);
 assertPreviewValues(restoredReload, { ...restoreValues, [rootColumnId]: source.specimen.id });
 await flushNetworkReads();
-assert.deepEqual(report.errors, []);
+assert.deepEqual(report.errors.filter((entry) => !expectedSupersededSourceBrowseIDs.has(entry.browserRequestId)), [],
+  'Unexpected browser, console, or owned request errors were reported');
 assert.deepEqual(cda.diagnostics.pageErrors, [], 'Unexpected page errors were reported');
 assert.deepEqual(cda.diagnostics.console, [], 'Unexpected console errors were reported');
-assert.deepEqual(cda.diagnostics.networkFailures, [], 'Unexpected network failures were reported');
+assert.deepEqual(cda.diagnostics.networkFailures.filter((entry) => !expectedSupersededSourceBrowseIDs.has(entry.browserRequestId)), [],
+  'Unexpected network failures were reported');
 assert.deepEqual(cda.diagnostics.httpFailures, [], 'Unexpected HTTP failures were reported');
 assert(nativeRequests.every((entry) => !entry.path.includes(originalExplorer)));
 report.final = {

@@ -991,4 +991,5 @@ try {
   }
   await finish();
 }
+return report;
 }

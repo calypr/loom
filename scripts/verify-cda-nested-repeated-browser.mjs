@@ -79,32 +79,29 @@ const resolveActionLocator = async (page, selector, identity = {}) => {
 };
 const click = async (page, selector, identity = {}, timeout = 5000) => {
   const label = `Click ${selector} ${identity.name ?? identity.includes ?? ''}`.trim();
-  report.activeAction = { label, locator: selector, targetLocator: page.locator(selector), startedAt: Date.now() };
+  report.activeAction = { label, locator: page.locator(selector).toString(), startedAt: Date.now() };
   const locator = await resolveActionLocator(page, selector, identity);
-  report.activeAction.targetLocator = locator;
   report.activeAction.locator = locator.toString();
   const elapsedMs = await cda.action(label, locator, target => target.click({ timeout }), { timeout });
-  report.lastAction = { label, locator: locator.toString(), targetLocator: locator, elapsedMs, startedAt: Date.now() - elapsedMs };
+  report.lastAction = { label, locator: locator.toString(), elapsedMs, startedAt: Date.now() - elapsedMs };
   return elapsedMs;
 };
 const fill = async (page, selector, value, timeout = 5000) => {
   const label = `Fill ${selector}`;
-  report.activeAction = { label, locator: selector, targetLocator: page.locator(selector), startedAt: Date.now() };
+  report.activeAction = { label, locator: page.locator(selector).toString(), startedAt: Date.now() };
   const locator = await resolveActionLocator(page, selector);
-  report.activeAction.targetLocator = locator;
   report.activeAction.locator = locator.toString();
   const elapsedMs = await cda.action(label, locator, target => target.fill(value, { timeout }), { timeout, editable: true });
-  report.lastAction = { label, locator: locator.toString(), targetLocator: locator, elapsedMs, startedAt: Date.now() - elapsedMs };
+  report.lastAction = { label, locator: locator.toString(), elapsedMs, startedAt: Date.now() - elapsedMs };
   return elapsedMs;
 };
 const selectOption = async (page, selector, value, timeout = 5000) => {
   const label = `Select ${value} in ${selector}`;
-  report.activeAction = { label, locator: selector, targetLocator: page.locator(selector), startedAt: Date.now() };
+  report.activeAction = { label, locator: page.locator(selector).toString(), startedAt: Date.now() };
   const locator = await resolveActionLocator(page, selector);
-  report.activeAction.targetLocator = locator;
   report.activeAction.locator = locator.toString();
   const elapsedMs = await cda.action(label, locator, target => target.selectOption(value, { timeout }), { timeout });
-  report.lastAction = { label, locator: locator.toString(), targetLocator: locator, elapsedMs, startedAt: Date.now() - elapsedMs };
+  report.lastAction = { label, locator: locator.toString(), elapsedMs, startedAt: Date.now() - elapsedMs };
   return elapsedMs;
 };
 const navigate = (_page, url) => cda.navigate(url);
@@ -644,4 +641,5 @@ try {
   }
   await finish();
 }
+return report;
 }

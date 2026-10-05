@@ -694,7 +694,7 @@
         },
         {
           "path": "scripts/playwright/standalone-cda-fields.spec.mjs",
-          "sha256": "eb7fda478eced960f7f5aed1aa98f6e2a5b141db6c4f72a54e93917e417a8a12",
+          "sha256": "0594444e741ea249c64655e055177a6df7956f8780e83a3e51493a708a7f6cb7",
           "cases": [
             {
               "title": "CDA coded field lifecycle",

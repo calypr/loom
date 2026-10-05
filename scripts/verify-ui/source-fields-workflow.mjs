@@ -270,6 +270,7 @@ const selectRawField = async (path) => {
     present = true;
   }
   assert(present, `Native raw field catalog did not expose ${path}`);
+  await waitForBrowser(page, ([__arg0]) => { const input=document.querySelector(__arg0);return Boolean(input && !input.disabled); }, [selector], 5000);
   const state = await browserEval(page, ([__arg0]) => { const input=document.querySelector(__arg0);return input?{disabled:input.disabled,checked:input.checked}:null; }, [selector]);
   assert(state && !state.disabled, `Native raw field selection is unavailable for ${path}: ${JSON.stringify(state)}`);
   if (!state.checked) await click(page, selector);

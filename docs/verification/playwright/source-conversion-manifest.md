@@ -2,7 +2,7 @@
 
 Source conversion status is separate from browser execution status.
 Source set: 85 root inventory rows plus 1 additional package-local source (86 records); 3 root sources intentionally deleted; 74 root verify files and 1 package-local verify file remain (75 current files total).
-Browser inventory: 74 root standalone entrypoints; 1 package-local entrypoint; 23 registered Playwright cases.
+Browser inventory: 74 root standalone entrypoints; 1 package-local entrypoint; 24 registered Playwright cases.
 Mapped sources: 73; retained API/helper sources: 10; pending source mappings/dispositions: 0.
 Native case map: 75 source rows / 154 source-to-case rows (154 distinct source-case keys); 76 source rows record legacy browser ownership removed.
 Native spec accounting: 23 current spec files; 19 mapped to legacy sources or registry cases; 4 explicitly classified harness specs; 0 orphan specs.
@@ -150,3 +150,4 @@ Additional non-verify browser sources: 1; launch sites: 1; mappings open: 0; leg
 - `builder-combine-nullable/lifecycle` → `scripts/playwright/nullable-combine.spec.mjs`; lifecycle unverified
 - `viewer-query/output` → `scripts/playwright/viewer-query.spec.mjs`; lifecycle unverified
 - `standalone-misc/compound-coded-group-basic` → `scripts/playwright/standalone-misc.spec.mjs`; lifecycle unverified
+- `cda-cohort-fields/cohort-fields` → `scripts/playwright/standalone-cda-fields.spec.mjs`; lifecycle unverified

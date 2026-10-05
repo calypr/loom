@@ -18,7 +18,7 @@ test.describe('CDA coded field lifecycle', () => {
 });
 
 test.describe('CDA cohort fields', () => {
-  test.use({ cdaScenarioID: 'cda-native', cdaCaseName: 'cohort-fields', cdaRequireSourceFixture: true });
+  test.use({ cdaScenarioID: 'cda-cohort-fields', cdaCaseName: 'cohort-fields', cdaRequireSourceFixture: true });
   test('CDA cohort fields', async ({ page, cda }) => {
     test.setTimeout(300_000);
     await cohortFieldsWorkflow({ page, cda, caseOptions: { memberField: process.env.LOOM_COHORT_FIELD ?? 'resourceType', authoredFilter: process.env.LOOM_COHORT_COMPOSITION === '1', filterOneMember: process.env.LOOM_COHORT_FILTER_ONE === '1', editCohortPolicy: process.env.LOOM_COHORT_POLICY_EDIT === '1', postCohortFilter: process.env.LOOM_COHORT_POST_FILTER === '1', collectionRoundTrip: process.env.LOOM_COHORT_COLLECTION_ROUND_TRIP === '1', removeCohortAnchor: process.env.LOOM_COHORT_REMOVE_ANCHOR === '1', authoredExpand: process.env.LOOM_COHORT_AUTHORED_EXPAND === '1' } });

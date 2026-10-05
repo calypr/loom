@@ -1,5 +1,33 @@
 # Official Playwright Test migration
 
+## October 5 migration checkpoint
+
+The current registry contains 24 cases. Main Playwright discovery lists 155
+tests in 22 spec files; the dedicated benchmark configuration is separate. The
+static native ownership and binding gate passes all 24 registered cases.
+These checks establish mapping, discovery, and static coverage only.
+
+One current serial native lifecycle has passed: CDA cohort fields, epoch 3.
+Its report, `docs/verification/playwright/runtime/cohort-fields-epoch3.json`,
+records all seven required checks passing, unchanged watched-source and API
+identities, and no unexpected errors or network records. The report leaves
+aggregate performance untested. Its 11 serial transitions took at most 1,645 ms,
+within the five-second transition budget; those timings do not constitute an
+aggregate benchmark. This single case does not establish a suite pass.
+
+Wave 4 runtime attempts remain separate harness failures: coded fields failed
+the expected cancellation-classification assertion; compound fields failed to
+find the expected `Search` value; repeated contributor ANY passed a string to
+the structured browser-inspection API; and contributor-exists failed because
+its workflow required the retained expected HTTP failure to also appear in the
+generic errors ledger. The exact failed response was present in the
+`expectedHttpFailures` ledger. The empty-row case executed and passed 14 of 14
+lifecycle assertions for the missing-component shape, but native Playwright
+skipped it because literal empty-array (`[]`) coverage remained unproven. These
+attempts do not establish full lifecycle passes or product findings. All other
+cases without passing runtime evidence remain unverified; discovery and
+static-gate results do not change that status.
+
 ## Immediate integration priority: public verifier commands
 
 Audit `make verify-fast`, `make verify-full`, all other browser verification

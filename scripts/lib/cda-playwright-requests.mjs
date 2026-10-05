@@ -130,7 +130,19 @@ export function captureCDARequests(page, { apiOrigin, browserRequestOrigin = api
     if (location && resourceFailureStatus) {
       const url = new URL(location);
       const matchingRequests = report.nativeRequests.filter(entry => entry.origin === url.origin && entry.path === url.pathname && entry.status === Number(resourceFailureStatus));
-      if (matchingRequests.length === 1 && matchingRequests[0].expectedHttpFailure === true && !matchingRequests[0].expectedHttpConsoleConsumed) {
+      const expectedHttpFailureMatches = entry => {
+        const evidence = entry.expectedHttpFailure;
+        if (evidence === true) return true;
+        return evidence !== null && typeof evidence === 'object' &&
+          evidence.browserRequestId === entry.browserRequestId &&
+          evidence.requestId === entry.requestId &&
+          evidence.method === entry.method &&
+          evidence.path === entry.path &&
+          evidence.status === entry.status &&
+          typeof evidence.reason === 'string' && evidence.reason.trim().length > 0 &&
+          evidence.proof !== null && typeof evidence.proof === 'object';
+      };
+      if (matchingRequests.length === 1 && expectedHttpFailureMatches(matchingRequests[0]) && !matchingRequests[0].expectedHttpConsoleConsumed) {
         matchingRequests[0].expectedHttpConsoleConsumed = true;
         return;
       }

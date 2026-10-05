@@ -84,6 +84,57 @@ const exactInjectedRequest = (entry, fault) => Boolean(fault.matched && fault.pl
   entry.playwrightRequestId === fault.playwrightRequestId && entry.method === fault.method &&
   entry.rawURL === fault.rawURL);
 
+const chromiumHttpResourceStatus = text => {
+  const match = /^Failed to load resource: the server responded with a status of (\d{3})(?: \([^\r\n)]*\))?$/.exec(text ?? '');
+  return match ? Number(match[1]) : undefined;
+};
+
+const sameURLRequest = (entry, location, status) => {
+  try {
+    const url = new URL(location);
+    const query = Object.fromEntries(url.searchParams.entries());
+    const requestQuery = entry.query ?? {};
+    const sameQuery = JSON.stringify(Object.entries(query).sort(([left], [right]) => left.localeCompare(right))) ===
+      JSON.stringify(Object.entries(requestQuery).sort(([left], [right]) => left.localeCompare(right)));
+    return entry.origin === url.origin && entry.path === url.pathname && entry.status === status && sameQuery;
+  } catch {
+    return false;
+  }
+};
+
+/**
+ * Match fixture and request-capture console records to one exact expected HTTP response.
+ * Ambiguous requests or duplicate records stay unclassified for the verification gate to reject.
+ */
+export function matchExpectedHttpConsole({ capturedEntry, nativeRequests = [], diagnostics = [], errors = [] } = {}) {
+  const status = capturedEntry?.status;
+  if (![400, 422].includes(status) || !nativeRequests.includes(capturedEntry)) return undefined;
+
+  const matches = (entry, kind) => {
+    if (entry?.kind !== kind) return false;
+    const message = kind === 'console-error' ? entry.text : entry.message;
+    const location = entry.rawLocation ?? entry.location;
+    if (chromiumHttpResourceStatus(message) !== status) return false;
+    const matchingRequests = nativeRequests.filter(request => sameURLRequest(request, location, status));
+    return matchingRequests.length === 1 && matchingRequests[0].browserRequestId === capturedEntry.browserRequestId;
+  };
+
+  const fixtureMatches = diagnostics.filter(entry => matches(entry, 'console-error'));
+  const reportMatches = errors.filter(entry => matches(entry, 'console'));
+  const fixtureDiagnostic = fixtureMatches.length === 1 ? fixtureMatches[0] : undefined;
+  const reportError = reportMatches.length === 1 ? reportMatches[0] : undefined;
+  if (!fixtureDiagnostic && !reportError) return undefined;
+
+  const observed = fixtureDiagnostic ?? reportError;
+  return {
+    fixtureDiagnostic,
+    reportError,
+    status,
+    message: observed.text ?? observed.message,
+    location: observed.rawLocation ?? observed.location,
+  };
+}
+
 /** Apply expected-fault labels only to the one request that the fixture routed. */
 export function applyInjectedFaultPolicy(entries, faults) {
   const result = entries.map(entry => ({ ...entry }));

@@ -7,7 +7,7 @@
     "runnerInventoryPath": "docs/verification/playwright/runner-inventory.snapshot.json",
     "runnerInventorySha256": "596ab9f0bace824e8c9a6abde45a9302c9b668ef8ec06d675b95d37d79dac24a",
     "registryPath": "scripts/verify-ui/registry.mjs",
-    "registrySha256": "633a6ad94d5bb92abca9ce0ae6c7fdf8b4efd4e0829e6b92e010031ed3f4cd18",
+    "registrySha256": "809a635ac55eae5b163c43f5f11aea4b59fe929b0318127085e7a3c3d550c511",
     "preimagesCapturedFromStageCopy": true
   },
   "sourceScope": {
@@ -794,7 +794,7 @@
     ],
     "discoverySnapshot": {
       "path": "docs/verification/playwright/discovery.snapshot.json",
-      "sha256": "124a9fa60e87dbced51fb3a131edb14bf431e0aaa2a23cd7a2c93f95b03f7f0e"
+      "sha256": "0049296f3b7d836cd29c4735d6a4a73007c9c7a947101b37b88c81a84ef9c8db"
     },
     "discoveryOverrideInputs": [
       {
@@ -2625,8 +2625,8 @@
     "officialRootBrowserEntrypoints": 74,
     "additionalUiPackageBrowserEntrypoints": 1,
     "registeredBrowserEntrypoints": 2,
-    "registryCases": 23,
-    "registryCaseMappingsPresent": 23,
+    "registryCases": 24,
+    "registryCaseMappingsPresent": 24,
     "additionalBrowserWorkflowSources": 2,
     "additionalEmbeddedBrowserJourneys": 9,
     "mappedEmbeddedBrowserJourneys": 9,
@@ -2738,7 +2738,7 @@
     "dedicatedBenchmarkTestCount": 1,
     "dedicatedBenchmarkSpecFileCount": 1,
     "discoverySnapshotPath": "docs/verification/playwright/discovery.snapshot.json",
-    "discoverySnapshotSha256": "124a9fa60e87dbced51fb3a131edb14bf431e0aaa2a23cd7a2c93f95b03f7f0e",
+    "discoverySnapshotSha256": "0049296f3b7d836cd29c4735d6a4a73007c9c7a947101b37b88c81a84ef9c8db",
     "discoverySnapshotMatchesCurrentSourceTree": true,
     "runtimeLifecycleStatus": "not-run",
     "note": "Official Playwright --list snapshots cover the main suite, the dedicated construction-preview benchmark config, and configured related ONE/ALL variants. They confirm discovery only; no test body or domain lifecycle is represented as run."
@@ -5012,6 +5012,46 @@
         "Cancel preserves the edited grouped draft",
         "Applying GROUP removal restores the source schema without either owned step",
         "Restored source workspace and exact Observation ID survive reload"
+      ],
+      "mappingStatus": "native-spec-mapped; lifecycle-unverified"
+    },
+    {
+      "scenario": "cda-cohort-fields",
+      "case": "cohort-fields",
+      "source": "scripts/verify-ui/cohort-fields-workflow.mjs",
+      "nativeSpecPath": "scripts/playwright/standalone-cda-fields.spec.mjs",
+      "scenarioWorkflow": "owned-cda-cohort-fields-lifecycle",
+      "scenarioCoverage": [
+        {
+          "feature": "CDA named-cohort member-field Apply, Cancel, reload, removal, and restoration lifecycle",
+          "status": "untested",
+          "reason": "The native functional baseline passed before named report gates were added; keep report coverage unverified until this dedicated mapping runs against the owned stack."
+        }
+      ],
+      "domainLifecycleStatus": "unverified",
+      "runtimeEvidence": {
+        "status": "not-run"
+      },
+      "discoveryTestTitles": [
+        "CDA coded field lifecycle",
+        "CDA cohort fields",
+        "CDA compound fields",
+        "CDA contributor code",
+        "CDA contributor exists",
+        "CDA contributor rules",
+        "CDA repeated contributor ANY",
+        "CDA source fields"
+      ],
+      "discoveryTestCount": 8,
+      "discoverySpecSha256": "0594444e741ea249c64655e055177a6df7956f8780e83a3e51493a708a7f6cb7",
+      "preservedAssertions": [
+        "raw CDA oracle and immutable selection match the exact two scoped Specimen IDs",
+        "saved cohort and Apply controls are enabled in native Rows settings",
+        "Cancel preserves the exact saved Builder workspace",
+        "applied cohort renders the exact independent Specimen members",
+        "ALL member field and cohort persist exactly after Builder reload",
+        "member-field removal restores the exact saved cohort schema after reload",
+        "CDA watched source and API build stayed unchanged"
       ],
       "mappingStatus": "native-spec-mapped; lifecycle-unverified"
     }
@@ -8914,7 +8954,7 @@
         "replacementWorkflowArtifacts": [
           {
             "path": "scripts/verify-ui/coded-field-lifecycle-workflow.mjs",
-            "sha256": "ff66ad473793846dd529defcdbbaa6615d197444fe1740d1b1f6bfcdb483559b",
+            "sha256": "55a4c22e6098a423a3d83cc32a13050e9e28d33e3204fcfad5657543288c7972",
             "artifactSource": "canonical-source-root"
           }
         ],
@@ -8942,7 +8982,7 @@
       "nativeSpecArtifacts": [
         {
           "path": "scripts/playwright/standalone-cda-fields.spec.mjs",
-          "sha256": "eb7fda478eced960f7f5aed1aa98f6e2a5b141db6c4f72a54e93917e417a8a12",
+          "sha256": "0594444e741ea249c64655e055177a6df7956f8780e83a3e51493a708a7f6cb7",
           "artifactSource": "canonical-source-root"
         }
       ],
@@ -8952,7 +8992,7 @@
       "workflowArtifacts": [
         {
           "path": "scripts/verify-ui/coded-field-lifecycle-workflow.mjs",
-          "sha256": "ff66ad473793846dd529defcdbbaa6615d197444fe1740d1b1f6bfcdb483559b",
+          "sha256": "55a4c22e6098a423a3d83cc32a13050e9e28d33e3204fcfad5657543288c7972",
           "artifactSource": "canonical-source-root"
         }
       ],
@@ -9124,7 +9164,7 @@
         "replacementWorkflowArtifacts": [
           {
             "path": "scripts/verify-ui/cohort-fields-workflow.mjs",
-            "sha256": "8d9e20b5b0c982785ab64e7f909d2b57c8531bb888abf86254a79fd97bf89553",
+            "sha256": "336c9bf50c5f80d288c698b82da67315a41403b3de56f148ce6fb2ffb5ad3af7",
             "artifactSource": "canonical-source-root"
           }
         ],
@@ -9152,7 +9192,7 @@
       "nativeSpecArtifacts": [
         {
           "path": "scripts/playwright/standalone-cda-fields.spec.mjs",
-          "sha256": "eb7fda478eced960f7f5aed1aa98f6e2a5b141db6c4f72a54e93917e417a8a12",
+          "sha256": "0594444e741ea249c64655e055177a6df7956f8780e83a3e51493a708a7f6cb7",
           "artifactSource": "canonical-source-root"
         }
       ],
@@ -9162,7 +9202,7 @@
       "workflowArtifacts": [
         {
           "path": "scripts/verify-ui/cohort-fields-workflow.mjs",
-          "sha256": "8d9e20b5b0c982785ab64e7f909d2b57c8531bb888abf86254a79fd97bf89553",
+          "sha256": "336c9bf50c5f80d288c698b82da67315a41403b3de56f148ce6fb2ffb5ad3af7",
           "artifactSource": "canonical-source-root"
         }
       ],
@@ -9815,7 +9855,7 @@
         "replacementWorkflowArtifacts": [
           {
             "path": "scripts/verify-ui/compound-fields-workflow.mjs",
-            "sha256": "3dab54d9394cf3b731833e2d0a0a25b7b9ff8f1e9b5edc5f53cebefa1a3f226f",
+            "sha256": "e78f924e0af2a38103489cec3044a125fb9375c5cf3d22e733976a48498e3a47",
             "artifactSource": "canonical-source-root"
           }
         ],
@@ -9842,7 +9882,7 @@
       "nativeSpecArtifacts": [
         {
           "path": "scripts/playwright/standalone-cda-fields.spec.mjs",
-          "sha256": "eb7fda478eced960f7f5aed1aa98f6e2a5b141db6c4f72a54e93917e417a8a12",
+          "sha256": "0594444e741ea249c64655e055177a6df7956f8780e83a3e51493a708a7f6cb7",
           "artifactSource": "canonical-source-root"
         }
       ],
@@ -9852,7 +9892,7 @@
       "workflowArtifacts": [
         {
           "path": "scripts/verify-ui/compound-fields-workflow.mjs",
-          "sha256": "3dab54d9394cf3b731833e2d0a0a25b7b9ff8f1e9b5edc5f53cebefa1a3f226f",
+          "sha256": "e78f924e0af2a38103489cec3044a125fb9375c5cf3d22e733976a48498e3a47",
           "artifactSource": "canonical-source-root"
         }
       ],
@@ -9939,7 +9979,7 @@
       "nativeSpecArtifacts": [
         {
           "path": "scripts/playwright/standalone-cda-fields.spec.mjs",
-          "sha256": "eb7fda478eced960f7f5aed1aa98f6e2a5b141db6c4f72a54e93917e417a8a12",
+          "sha256": "0594444e741ea249c64655e055177a6df7956f8780e83a3e51493a708a7f6cb7",
           "artifactSource": "canonical-source-root"
         }
       ],
@@ -10008,7 +10048,7 @@
         "replacementWorkflowArtifacts": [
           {
             "path": "scripts/verify-ui/contributor-exists-workflow.mjs",
-            "sha256": "09a21c14c1a6f1f7533a6128e2b722115274d71ef034aa2790272eb484bcc62c",
+            "sha256": "d653ad3e53f3e71a0c55f6147033d31aa9f6d03a9f4a641653c5b332d67e40ec",
             "artifactSource": "canonical-source-root"
           }
         ],
@@ -10036,7 +10076,7 @@
       "nativeSpecArtifacts": [
         {
           "path": "scripts/playwright/standalone-cda-fields.spec.mjs",
-          "sha256": "eb7fda478eced960f7f5aed1aa98f6e2a5b141db6c4f72a54e93917e417a8a12",
+          "sha256": "0594444e741ea249c64655e055177a6df7956f8780e83a3e51493a708a7f6cb7",
           "artifactSource": "canonical-source-root"
         }
       ],
@@ -10046,7 +10086,7 @@
       "workflowArtifacts": [
         {
           "path": "scripts/verify-ui/contributor-exists-workflow.mjs",
-          "sha256": "09a21c14c1a6f1f7533a6128e2b722115274d71ef034aa2790272eb484bcc62c",
+          "sha256": "d653ad3e53f3e71a0c55f6147033d31aa9f6d03a9f4a641653c5b332d67e40ec",
           "artifactSource": "canonical-source-root"
         }
       ],
@@ -10128,7 +10168,7 @@
       "nativeSpecArtifacts": [
         {
           "path": "scripts/playwright/standalone-cda-fields.spec.mjs",
-          "sha256": "eb7fda478eced960f7f5aed1aa98f6e2a5b141db6c4f72a54e93917e417a8a12",
+          "sha256": "0594444e741ea249c64655e055177a6df7956f8780e83a3e51493a708a7f6cb7",
           "artifactSource": "canonical-source-root"
         }
       ],
@@ -11649,7 +11689,7 @@
     {
       "sourcePath": "scripts/verify-cda-nested-repeated-browser.mjs",
       "preimageSha256": "419585db4f29522b6f85c957f549a188f08a40c97139c350484e13471297eb70",
-      "currentSha256": "a98ce86ddea4821d11527223253e4e95545f501dd22df9e4ecdbbd80b51eface",
+      "currentSha256": "142c022a04143ad91780d032473e41c0f017398306122eaf0c6475ec13189f7d",
       "sourceStillPresent": true,
       "ownerPartition": "native-standalone-cda-rows",
       "kind": "standalone-browser-entrypoint",
@@ -11686,7 +11726,7 @@
       "workflowArtifacts": [
         {
           "path": "scripts/verify-cda-nested-repeated-browser.mjs",
-          "sha256": "a98ce86ddea4821d11527223253e4e95545f501dd22df9e4ecdbbd80b51eface",
+          "sha256": "142c022a04143ad91780d032473e41c0f017398306122eaf0c6475ec13189f7d",
           "artifactSource": "canonical-source-root"
         }
       ],
@@ -13370,7 +13410,7 @@
         "replacementWorkflowArtifacts": [
           {
             "path": "scripts/verify-ui/repeated-contributor-any-workflow.mjs",
-            "sha256": "ca7e395ccfe67dad9cd3b3e2209d86f5d1096b328aa29b7f6e1bb50691c9c61f",
+            "sha256": "41666b27c71a611fa638b599dcf589de5e629dbcc1b64c915089bd0dad3d7d89",
             "artifactSource": "canonical-source-root"
           }
         ],
@@ -13399,7 +13439,7 @@
       "nativeSpecArtifacts": [
         {
           "path": "scripts/playwright/standalone-cda-fields.spec.mjs",
-          "sha256": "eb7fda478eced960f7f5aed1aa98f6e2a5b141db6c4f72a54e93917e417a8a12",
+          "sha256": "0594444e741ea249c64655e055177a6df7956f8780e83a3e51493a708a7f6cb7",
           "artifactSource": "canonical-source-root"
         }
       ],
@@ -13409,7 +13449,7 @@
       "workflowArtifacts": [
         {
           "path": "scripts/verify-ui/repeated-contributor-any-workflow.mjs",
-          "sha256": "ca7e395ccfe67dad9cd3b3e2209d86f5d1096b328aa29b7f6e1bb50691c9c61f",
+          "sha256": "41666b27c71a611fa638b599dcf589de5e629dbcc1b64c915089bd0dad3d7d89",
           "artifactSource": "canonical-source-root"
         }
       ],
@@ -13451,7 +13491,7 @@
     {
       "sourcePath": "scripts/verify-cda-repeated-empty-browser.mjs",
       "preimageSha256": "c9bddd0691836db2a2470ef7f8cae2b6fbf82dd8e86f310bdd64c45fe10d717d",
-      "currentSha256": "e7f9dfcf716caa742c81fc35b8ef1107ec2575d76d2c4ab2a9f8bd8e6415c99e",
+      "currentSha256": "06585302d1ed8ea5fca311e8694c62a4ae2777507f3857e6620fe63f40a3ad63",
       "sourceStillPresent": true,
       "ownerPartition": "native-standalone-cda-rows",
       "kind": "standalone-browser-entrypoint",
@@ -13488,7 +13528,7 @@
       "workflowArtifacts": [
         {
           "path": "scripts/verify-cda-repeated-empty-browser.mjs",
-          "sha256": "e7f9dfcf716caa742c81fc35b8ef1107ec2575d76d2c4ab2a9f8bd8e6415c99e",
+          "sha256": "06585302d1ed8ea5fca311e8694c62a4ae2777507f3857e6620fe63f40a3ad63",
           "artifactSource": "canonical-source-root"
         }
       ],
@@ -13914,7 +13954,7 @@
         "replacementWorkflowArtifacts": [
           {
             "path": "scripts/verify-ui/source-fields-workflow.mjs",
-            "sha256": "bb8b19df734ac32bd5205e7491c2219056f47df24ac34e4fabdf611748c450d4",
+            "sha256": "08cc92ec2ac7a9773e10afc0f2ccee49b97b1175061b1f3367de6c9a44e196d1",
             "artifactSource": "canonical-source-root"
           }
         ],
@@ -13937,7 +13977,7 @@
       "nativeSpecArtifacts": [
         {
           "path": "scripts/playwright/standalone-cda-fields.spec.mjs",
-          "sha256": "eb7fda478eced960f7f5aed1aa98f6e2a5b141db6c4f72a54e93917e417a8a12",
+          "sha256": "0594444e741ea249c64655e055177a6df7956f8780e83a3e51493a708a7f6cb7",
           "artifactSource": "canonical-source-root"
         }
       ],
@@ -13947,7 +13987,7 @@
       "workflowArtifacts": [
         {
           "path": "scripts/verify-ui/source-fields-workflow.mjs",
-          "sha256": "bb8b19df734ac32bd5205e7491c2219056f47df24ac34e4fabdf611748c450d4",
+          "sha256": "08cc92ec2ac7a9773e10afc0f2ccee49b97b1175061b1f3367de6c9a44e196d1",
           "artifactSource": "canonical-source-root"
         }
       ],
