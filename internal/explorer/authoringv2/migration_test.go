@@ -7,6 +7,37 @@ import (
 	"testing"
 )
 
+func TestDecodeWorkspacePreservesVersion9DraftDigest(t *testing.T) {
+	legacy := Workspace{
+		APIVersion: APIVersion, Kind: WorkspaceKind, SemanticsVersion: tableShapeSemanticsVersion,
+		Explorer:  ExplorerMetadata{Title: "Patients"},
+		Documents: []Document{workspaceDocument("patients")},
+		Tabs:      []Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Order: 0, Visible: true}},
+	}
+	storedDigest, err := legacy.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := legacy.CanonicalJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := DecodeWorkspace(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decoded.SemanticsVersion != tableShapeSemanticsVersion {
+		t.Fatalf("decoded semanticsVersion = %d, want %d", decoded.SemanticsVersion, tableShapeSemanticsVersion)
+	}
+	decodedDigest, err := decoded.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decodedDigest != storedDigest {
+		t.Fatalf("decoded digest = %q, want persisted digest %q", decodedDigest, storedDigest)
+	}
+}
+
 func TestMigrateLosslessDefaultsAdvancesV7WithoutInventingTableShape(t *testing.T) {
 	legacy, err := DecodeWorkspace(persistedWorkspaceWithoutRows(explicitRowsSemanticsVersion - 1))
 	if err != nil {
@@ -33,7 +64,7 @@ func TestMigrateLegacyNestedAggregateWhereEmptyEqualsToExists(t *testing.T) {
 		t.Fatal(err)
 	}
 	column := migrated.Documents[0].Columns[0]
-	if migrated.SemanticsVersion != CurrentSemanticsVersion || column.Source.Aggregate.Where != nil || column.Contributor == nil {
+	if migrated.SemanticsVersion != contributorSemanticsVersion || column.Source.Aggregate.Where != nil || column.Contributor == nil {
 		t.Fatalf("migrated workspace = %#v", migrated)
 	}
 	if column.Contributor.Operator != ContributorExists || column.Contributor.Value != nil {
@@ -48,13 +79,13 @@ func TestMigrateLegacyNestedAggregateWhereEmptyEqualsToExists(t *testing.T) {
 }
 
 func TestDecodeWorkspaceMigratesPersistedFirstOrderedTemporalPolicy(t *testing.T) {
-	raw := `{"apiVersion":"` + APIVersion + `","kind":"` + WorkspaceKind + `","semanticsVersion":` + fmt.Sprint(CurrentSemanticsVersion-1) + `,"explorer":{"title":"Observations"},"documents":[{"kind":"` + Kind + `","output":{"id":"patients","title":"Patients"},"rootResourceType":"Patient","route":{"occurrenceId":"base","resourceType":"Patient","children":[{"occurrenceId":"observations","resourceType":"Observation","relationship":"subject_Patient"}]},"rows":{"kind":"RECORDS","records":{}},"columns":[{"column":"latest","label":"Latest","occurrenceId":"observations","source":{"kind":"aggregate","aggregate":{"operation":"FIRST_ORDERED","path":"valueQuantity.value","temporal":{"timestampPath":"effectiveDateTime","anchorPath":"meta.lastUpdated","lowerOffsetSeconds":-86400,"upperOffsetSeconds":0,"lowerInclusive":true,"upperInclusive":false,"direction":"DESC","precision":"INSTANT","tiePolicy":"RESOURCE_KEY"}}}}]}],"tabs":[{"id":"patients","title":"Patients","outputId":"patients","order":0,"visible":true}]}`
+	raw := `{"apiVersion":"` + APIVersion + `","kind":"` + WorkspaceKind + `","semanticsVersion":` + fmt.Sprint(aggregateTemporalPolicySemanticsVersion-1) + `,"explorer":{"title":"Observations"},"documents":[{"kind":"` + Kind + `","output":{"id":"patients","title":"Patients"},"rootResourceType":"Patient","route":{"occurrenceId":"base","resourceType":"Patient","children":[{"occurrenceId":"observations","resourceType":"Observation","relationship":"subject_Patient"}]},"rows":{"kind":"RECORDS","records":{}},"columns":[{"column":"latest","label":"Latest","occurrenceId":"observations","source":{"kind":"aggregate","aggregate":{"operation":"FIRST_ORDERED","path":"valueQuantity.value","temporal":{"timestampPath":"effectiveDateTime","anchorPath":"meta.lastUpdated","lowerOffsetSeconds":-86400,"upperOffsetSeconds":0,"lowerInclusive":true,"upperInclusive":false,"direction":"DESC","precision":"INSTANT","tiePolicy":"RESOURCE_KEY"}}}}]}],"tabs":[{"id":"patients","title":"Patients","outputId":"patients","order":0,"visible":true}]}`
 	workspace, err := DecodeWorkspace([]byte(raw))
 	if err != nil {
 		t.Fatal(err)
 	}
 	aggregate := workspace.Documents[0].Columns[0].Source.Aggregate
-	if workspace.SemanticsVersion != CurrentSemanticsVersion || aggregate == nil || aggregate.ContributorWindow == nil || aggregate.Ordering == nil {
+	if workspace.SemanticsVersion != aggregateTemporalPolicySemanticsVersion || aggregate == nil || aggregate.ContributorWindow == nil || aggregate.Ordering == nil {
 		t.Fatalf("migrated workspace version=%d aggregate=%#v", workspace.SemanticsVersion, aggregate)
 	}
 	if aggregate.ContributorWindow.TimestampPath != "effectiveDateTime" || aggregate.ContributorWindow.AnchorPath != "meta.lastUpdated" || aggregate.Ordering.TimestampPath != "effectiveDateTime" || aggregate.Ordering.Direction != "DESC" || aggregate.Ordering.TiePolicy != "RESOURCE_KEY" {

@@ -18,6 +18,10 @@ const (
 	CatalogKind             = "ExplorerBuilderCatalog"
 	RootOccurrenceID        = "base"
 	CurrentSemanticsVersion = 10
+
+	contributorSemanticsVersion             = 4
+	aggregateTemporalPolicySemanticsVersion = 9
+	tableShapeSemanticsVersion              = 9
 )
 
 // Document is the complete durable Builder intent. Route occurrences form a

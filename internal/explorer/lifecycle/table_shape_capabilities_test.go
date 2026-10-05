@@ -225,6 +225,43 @@ func tableShapeCatalogRequest(owner *explorer.Explorer, snapshot capability.Snap
 		ExpectedDraftVersion: owner.DraftVersion, ExpectedDraftDigest: owner.DraftDigest, OutputID: "patients"}
 }
 
+func persistV9TableShapeDraft(t *testing.T, store *fakeStore) string {
+	t.Helper()
+	current, err := authoringv2.DecodeWorkspace(store.created.DraftConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	currentCanonical, err := current.CanonicalJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	v9Wire := []byte(strings.Replace(string(currentCanonical), fmt.Sprintf(`"semanticsVersion":%d`, authoringv2.CurrentSemanticsVersion), `"semanticsVersion":9`, 1))
+	if bytes.Equal(v9Wire, currentCanonical) {
+		t.Fatal("fixture did not encode the current semantics version")
+	}
+	v9, err := authoringv2.DecodeWorkspace(v9Wire)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v9.SemanticsVersion != 9 {
+		t.Fatalf("decoded semanticsVersion = %d, want 9", v9.SemanticsVersion)
+	}
+	canonicalV9, err := v9.CanonicalJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(canonicalV9, v9Wire) {
+		t.Fatalf("v9 canonicalization changed the persisted fixture:\n got %s\nwant %s", canonicalV9, v9Wire)
+	}
+	digest, err := v9.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.created.DraftConfig = canonicalV9
+	store.created.DraftDigest = digest
+	return digest
+}
+
 func catalogColumnChoice(t *testing.T, catalog tableshapecap.CatalogReceipt, role tableshapecap.ChoiceRole, key string) string {
 	t.Helper()
 	for _, choice := range catalog.Choices.Columns {
@@ -264,6 +301,54 @@ func lifecycleErrorCode(err error) string {
 		return lifecycleErr.Code
 	}
 	return ""
+}
+
+func TestTableShapeCapabilitiesRejectInconsistentOwnerDigestAndAcceptCanonicalV9(t *testing.T) {
+	shape := &authoringv2.TableShape{Reshape: &authoringv2.TableReshape{Kind: "PIVOT", Pivot: &authoringv2.PivotConstruction{
+		ConstructionID: "pivot_saved", GroupKeys: []string{"patient_id"}, CategoryColumn: "category", ValueColumn: "value",
+		Categories:      []authoringv2.PivotCategory{{Key: authoringv2.TableScalar{Kind: authoringv2.TableScalarString, String: tableShapeTestPtr("")}, Output: authoringv2.ColumnOutput{Column: "empty_bucket", Label: "Empty bucket"}}},
+		DuplicatePolicy: "ERROR", MissingCellPolicy: "NULL", UnlistedCategoryPolicy: "ERROR",
+	}}}
+
+	t.Run("inconsistent stored owner digest conflicts even when request echoes it", func(t *testing.T) {
+		service, store, snapshot, _, _ := lifecycleTableShapeService(t, shape)
+		canonicalDigest := persistV9TableShapeDraft(t, store)
+		inconsistentDigest := "sha256:" + strings.Repeat("0", 64)
+		if inconsistentDigest == canonicalDigest {
+			inconsistentDigest = "sha256:" + strings.Repeat("1", 64)
+		}
+		store.created.DraftDigest = inconsistentDigest
+		request := tableShapeCatalogRequest(store.created, snapshot)
+		if request.ExpectedDraftDigest != store.created.DraftDigest || request.ExpectedDraftDigest == canonicalDigest {
+			t.Fatal("request must echo the inconsistent persisted digest, distinct from the canonical v9 workspace digest")
+		}
+
+		_, err := service.GetTableShapeCatalog(context.Background(), request)
+		if lifecycleErrorCode(err) != "DRAFT_CONFLICT" {
+			t.Fatalf("table-shape capability error code=%q err=%v, want DRAFT_CONFLICT", lifecycleErrorCode(err), err)
+		}
+		repository := service.config.TableShapeCapabilities.(*lifecycleTableShapeRepository)
+		if len(repository.catalogs) != 0 || store.receipt != nil {
+			t.Fatalf("inconsistent persisted digest reached compilation/storage: catalogs=%d receipt=%#v", len(repository.catalogs), store.receipt)
+		}
+	})
+
+	t.Run("canonical v9 table-shape digest reaches capabilities", func(t *testing.T) {
+		service, store, snapshot, _, _ := lifecycleTableShapeService(t, shape)
+		canonicalDigest := persistV9TableShapeDraft(t, store)
+		request := tableShapeCatalogRequest(store.created, snapshot)
+		if request.ExpectedDraftDigest != canonicalDigest {
+			t.Fatalf("request digest=%q, want canonical v9 digest %q", request.ExpectedDraftDigest, canonicalDigest)
+		}
+
+		result, err := service.GetTableShapeCatalog(context.Background(), request)
+		if err != nil {
+			t.Fatalf("valid canonical v9 draft was rejected: %v", err)
+		}
+		if result.CatalogID == "" || result.OutputID != request.OutputID || len(result.Columns) == 0 {
+			t.Fatalf("table-shape catalog omitted capabilities for the saved v9 table: %#v", result)
+		}
+	})
 }
 
 func TestTableShapeCatalogDiscoveryPivotAndDerivedReceipts(t *testing.T) {

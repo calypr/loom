@@ -11,8 +11,8 @@ import (
 // contributor-window and ordering contract. Persisted source conversion runs
 // in DecodeWorkspace before this version boundary is applied.
 func MigrateAggregateTemporalPolicy(workspace Workspace) Workspace {
-	if workspace.SemanticsVersion == CurrentSemanticsVersion-1 {
-		workspace.SemanticsVersion = CurrentSemanticsVersion
+	if workspace.SemanticsVersion == aggregateTemporalPolicySemanticsVersion-1 {
+		workspace.SemanticsVersion = aggregateTemporalPolicySemanticsVersion
 	}
 	return workspace
 }
@@ -76,7 +76,9 @@ func MigrateLegacyContributors(workspace Workspace, catalog CatalogSnapshot) (Wo
 			}
 		}
 	}
-	migrated.SemanticsVersion = CurrentSemanticsVersion
+	if migrated.SemanticsVersion < contributorSemanticsVersion {
+		migrated.SemanticsVersion = contributorSemanticsVersion
+	}
 	return migrated, nil
 }
 

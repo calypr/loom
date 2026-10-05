@@ -1,6 +1,8 @@
 package authoringv2
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"reflect"
@@ -40,21 +42,55 @@ func TestTableShapeRoundTripsCanonicalWorkspace(t *testing.T) {
 	}
 }
 
-func TestTableShapeV8WorkspaceMigratesToCurrentSemantics(t *testing.T) {
+func TestTableShapeV9WorkspacePreservesDigestOnDecode(t *testing.T) {
+	current, err := DecodeWorkspace(tableShapeWorkspaceJSON(validPivotTableShapeJSON()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	currentCanonical, err := current.CanonicalJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy := strings.Replace(string(currentCanonical), fmt.Sprintf(`"semanticsVersion":%d`, CurrentSemanticsVersion), fmt.Sprintf(`"semanticsVersion":%d`, tableShapeSemanticsVersion), 1)
+	legacyBytes := []byte(legacy)
+	legacySum := sha256.Sum256(legacyBytes)
+	legacyDigest := "sha256:" + hex.EncodeToString(legacySum[:])
+	after, err := DecodeWorkspace(legacyBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.SemanticsVersion != tableShapeSemanticsVersion {
+		t.Fatalf("semanticsVersion = %d, want %d", after.SemanticsVersion, tableShapeSemanticsVersion)
+	}
+	afterDigest, err := after.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if afterDigest != legacyDigest {
+		t.Fatalf("decoded v9 digest = %q, want persisted v9 digest %q", afterDigest, legacyDigest)
+	}
+	if !reflect.DeepEqual(after.Documents[0].TableShape, current.Documents[0].TableShape) {
+		t.Fatalf("v9 decode changed tableShape:\ncurrent=%#v\nafter=%#v", current.Documents[0].TableShape, after.Documents[0].TableShape)
+	}
+}
+
+func TestTableShapeV8WorkspaceMigratesToSemantics9(t *testing.T) {
 	raw := tableShapeWorkspaceJSON(validPivotTableShapeJSON())
-	legacy := strings.Replace(string(raw), fmt.Sprintf(`"semanticsVersion":%d`, CurrentSemanticsVersion), fmt.Sprintf(`"semanticsVersion":%d`, CurrentSemanticsVersion-1), 1)
 	before, err := DecodeWorkspace(raw)
 	if err != nil {
 		t.Fatal(err)
 	}
+	legacy := strings.Replace(string(raw), fmt.Sprintf(`"semanticsVersion":%d`, CurrentSemanticsVersion), fmt.Sprintf(`"semanticsVersion":%d`, aggregateTemporalPolicySemanticsVersion-1), 1)
 	after, err := DecodeWorkspace([]byte(legacy))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if after.SemanticsVersion != CurrentSemanticsVersion {
-		t.Fatalf("semanticsVersion = %d, want %d", after.SemanticsVersion, CurrentSemanticsVersion)
+	if after.SemanticsVersion != aggregateTemporalPolicySemanticsVersion {
+		t.Fatalf("semanticsVersion = %d, want %d", after.SemanticsVersion, aggregateTemporalPolicySemanticsVersion)
 	}
-	if !reflect.DeepEqual(after.Documents[0].TableShape, before.Documents[0].TableShape) || !reflect.DeepEqual(after.Documents[0].Rows, before.Documents[0].Rows) || !reflect.DeepEqual(after.Documents[0].Columns, before.Documents[0].Columns) {
+	if !reflect.DeepEqual(after.Documents[0].TableShape, before.Documents[0].TableShape) ||
+		!reflect.DeepEqual(after.Documents[0].Rows, before.Documents[0].Rows) ||
+		!reflect.DeepEqual(after.Documents[0].Columns, before.Documents[0].Columns) {
 		t.Fatalf("v8 migration changed tableShape, rows, or columns:\nbefore=%#v\nafter=%#v", before.Documents[0], after.Documents[0])
 	}
 }
