@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { assertNamedDevSessionEnvironment } from '../cli.mjs';
+import { assertNamedDevSessionEnvironment } from '../fixture-context.mjs';
 import { createFreshVerificationFixture } from '../../loom-dev.mjs';
 
 const namedTarget = {

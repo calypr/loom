@@ -1,23 +1,21 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { mkdir, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
-import { assertOwnedTarget, browserEval, click, launchBrowser, navigate, waitForBrowser, captureRequests, waitForCapturedResponse, includeBrowserDiagnostics } from './lib/cda-playwright.mjs';
 
-const project = process.env.LOOM_CDA_PROJECT;
-const apiOrigin = process.env.LOOM_CDA_API_ORIGIN?.replace(/\/$/, '');
-const uiOrigin = process.env.LOOM_CDA_UI_ORIGIN?.replace(/\/$/, '');
+export async function cdaPublicationWorkflow({ page, cda }) {
+const project = cda.project;
+const apiOrigin = cda.apiOrigin.replace(/\/$/, '');
+const uiOrigin = cda.uiOrigin.replace(/\/$/, '');
 const explorerId = `cda-publication-browser-${Date.now()}-${randomUUID().slice(0, 8)}`;
 const explorerRoot = `/api/v1/projects/${encodeURIComponent(project)}/explorers`;
 const explorerPath = `${explorerRoot}/${encodeURIComponent(explorerId)}`;
 const authoringPath = `${explorerPath}/authoring/v2`;
 const pageURL = `${uiOrigin}/?project=${encodeURIComponent(project)}&explorer=${encodeURIComponent(explorerId)}&mode=builder`;
 const viewerURL = `${uiOrigin}/?project=${encodeURIComponent(project)}&explorer=${encodeURIComponent(explorerId)}&mode=viewer`;
-const evidenceDirectory = process.argv[2] ?? join('.artifacts', 'cda-publication-browser', explorerId);
+const evidenceDirectory = cda.evidence;
 const apiToken = process.env.LOOM_CDA_API_TOKEN;
-const clickhouseContainer = process.env.LOOM_CLICKHOUSE_CONTAINER;
-const report = {
+const clickhouseContainer = cda.target.clickhouseContainer;
+const report = Object.assign(cda.report, {
   explorerId,
   project,
   pageURL,
@@ -25,22 +23,19 @@ const report = {
   protectedOriginalMutations: 0,
   setup: [],
   protocol: [],
-  errors: [],
   incidentalErrors: [],
-  nativeRequests: [],
   timingsMs: {},
   limitations: [
     'The run-owned Explorer and its materialization are retained because this local API has no Explorer or publication delete operation.',
     'The publication contract covers one direct Specimen ID output with at most three source records; it does not exercise broader CDA transformations.',
   ],
-};
+});
+report.dialogs ??= [];
 let browserEvents;
-let browser;
 let builder;
 let sourceIds = [];
 let outputId;
 let datasetGeneration;
-let fatal;
 
 const api = async (path, body) => {
   const method = body === undefined ? 'GET' : 'POST';
@@ -65,7 +60,7 @@ const api = async (path, body) => {
 const rawCdaOracle = (query, bindVars) => {
   const javascript = `const rows = db._query(${JSON.stringify(query)}, ${JSON.stringify(bindVars)}).toArray(); print(JSON.stringify(rows));`;
   const result = spawnSync('rtk', [
-    'proxy', 'docker', 'exec', process.env.LOOM_ARANGO_CONTAINER,
+    'proxy', 'docker', 'exec', cda.target.arangoContainer,
     'arangosh', '--server.database', 'loom_dev', '--javascript.execute-string', javascript,
   ], { encoding: 'utf8', timeout: 30000, maxBuffer: 2_000_000 });
   assert.equal(result.status, 0, result.stderr || result.stdout);
@@ -180,19 +175,19 @@ const seedOwnedExplorer = async () => {
 
 const captureNativeProtocol = () => {
   report.nativeRequests = [];
-  browserEvents = captureRequests(browser, report, explorerPath, { apiOrigin, uiOrigin, responsePaths: /preview|publish/ });
+  browserEvents = cda.captureRequests(explorerPath, { responsePaths: /preview|publish/ });
   report.protocol = report.nativeRequests;
 };
 
 const waitForProtocolResponse = async (pathSuffix, timeoutMs) => {
   const predicate = entry => entry.path.endsWith(pathSuffix) && entry.response !== undefined;
   const existing = report.protocol.findLast(predicate);
-  return existing ?? waitForCapturedResponse(browser.page, browserEvents, predicate, timeoutMs);
+  return existing ?? cda.waitForCapturedResponse(browserEvents, predicate, timeoutMs);
 };
 
-const previewSnapshot = async () => browserEval(browser.page, () => { const panel=document.querySelector('[data-testid="construction-preview"]');const table=document.querySelector('[data-testid="preview-table-scroll"] [role="table"]');const headers=table?[...table.querySelectorAll('[role="columnheader"]')].map(cell=>cell.innerText.trim()):[];const rows=table?[...table.querySelectorAll('[role="row"]')].slice(1).map(row=>[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText.trim())):[];const idIndex=headers.findIndex(header=>header.toUpperCase()==='SPECIMEN ID');return {status:panel?.dataset.previewStatus,outputId:panel?.dataset.previewOutputId,currentDraftVersion:panel?.dataset.currentDraftVersion,currentDraftDigest:panel?.dataset.currentDraftDigest,receiptId:panel?.dataset.previewReceiptId,headers,rows,specimenIds:idIndex<0?[]:rows.map(row=>row[idIndex]).filter(Boolean),ariaRowCount:table?.getAttribute('aria-rowcount')}; });
+const previewSnapshot = async () => cda.inspect(() => { const panel=document.querySelector('[data-testid="construction-preview"]');const table=document.querySelector('[data-testid="preview-table-scroll"] [role="table"]');const headers=table?[...table.querySelectorAll('[role="columnheader"]')].map(cell=>cell.innerText.trim()):[];const rows=table?[...table.querySelectorAll('[role="row"]')].slice(1).map(row=>[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText.trim())):[];const idIndex=headers.findIndex(header=>header.toUpperCase()==='SPECIMEN ID');return {status:panel?.dataset.previewStatus,outputId:panel?.dataset.previewOutputId,currentDraftVersion:panel?.dataset.currentDraftVersion,currentDraftDigest:panel?.dataset.currentDraftDigest,receiptId:panel?.dataset.previewReceiptId,headers,rows,specimenIds:idIndex<0?[]:rows.map(row=>row[idIndex]).filter(Boolean),ariaRowCount:table?.getAttribute('aria-rowcount')}; });
 
-const viewerSnapshot = async () => browserEval(browser.page, () => { const normalize=value=>String(value??'').replace(/\s+/g,' ').trim();const tables=[...document.querySelectorAll('[role="table"],table')];const readTable=table=>{const headerNodes=[...table.querySelectorAll('[role="columnheader"],thead th')];const headers=headerNodes.map(cell=>normalize(cell.innerText||cell.textContent));const idIndex=headers.findIndex(header=>header.toUpperCase()==='SPECIMEN ID');const rowNodes=[...table.querySelectorAll('[role="row"],tbody tr')].filter(row=>!row.querySelector('[role="columnheader"],th'));const rows=rowNodes.map(row=>[...row.querySelectorAll('[role="cell"],td')].map(cell=>normalize(cell.innerText||cell.textContent)));return {headers,idIndex,rows,specimenIds:idIndex<0?[]:rows.map(row=>row[idIndex]).filter(Boolean),ariaRowCount:table.getAttribute('aria-rowcount')};};return {url:location.href,body:document.body.innerText.slice(0,1800),tables:tables.map(readTable)}; });
+const viewerSnapshot = async () => cda.inspect(() => { const normalize=value=>String(value??'').replace(/\s+/g,' ').trim();const tables=[...document.querySelectorAll('[role="table"],table')];const readTable=table=>{const headerNodes=[...table.querySelectorAll('[role="columnheader"],thead th')];const headers=headerNodes.map(cell=>normalize(cell.innerText||cell.textContent));const idIndex=headers.findIndex(header=>header.toUpperCase()==='SPECIMEN ID');const rowNodes=[...table.querySelectorAll('[role="row"],tbody tr')].filter(row=>!row.querySelector('[role="columnheader"],th'));const rows=rowNodes.map(row=>[...row.querySelectorAll('[role="cell"],td')].map(cell=>normalize(cell.innerText||cell.textContent)));return {headers,idIndex,rows,specimenIds:idIndex<0?[]:rows.map(row=>row[idIndex]).filter(Boolean),ariaRowCount:table.getAttribute('aria-rowcount')};};return {url:location.href,body:document.body.innerText.slice(0,1800),tables:tables.map(readTable)}; });
 
 const assertExactIds = (actualIds, expectedIds, label) => {
   assert(actualIds.length > 0, `${label} rendered no source IDs`);
@@ -249,12 +244,12 @@ const verifyViewerAndReload = async () => {
     return JSON.stringify(ids.sort()) === JSON.stringify([...expectedIds].sort());
   });
   const openedAt = Date.now();
-  const viewerControl = await browserEval(browser.page, () => { const button=[...document.querySelectorAll('button')].find(candidate=>candidate.textContent?.trim()==='Viewer');return {visible:Boolean(button&&button.offsetParent!==null),disabled:button?.disabled}; });
+  const viewerControl = await cda.inspect(() => { const button=[...document.querySelectorAll('button')].find(candidate=>candidate.textContent?.trim()==='Viewer');return {visible:Boolean(button&&button.offsetParent!==null),disabled:button?.disabled}; });
   assert(viewerControl.visible && !viewerControl.disabled, 'Native Viewer control is missing or disabled after publication');
-  report.viewerControl = await click(browser.page, 'button', { name: 'Viewer' }, 1500);
-  await waitForBrowser(browser.page, ([__arg0, __arg1]) => Boolean(new URL(location.href).searchParams.get('mode')==='viewer'&&new URL(location.href).searchParams.get('project')===__arg0&&new URL(location.href).searchParams.get('explorer')===__arg1), [project, explorerId], 5000);
-  const currentViewerURL = await browserEval(browser.page, () => { return location.href; });
-  await waitForBrowser(browser.page, viewerRowsReady, [sourceIds], 5000);
+  report.viewerControl = await cda.click('button', { name: 'Viewer' }, 1500);
+  await cda.wait(([__arg0, __arg1]) => Boolean(new URL(location.href).searchParams.get('mode')==='viewer'&&new URL(location.href).searchParams.get('project')===__arg0&&new URL(location.href).searchParams.get('explorer')===__arg1), [project, explorerId], 5000);
+  const currentViewerURL = await cda.inspect(() => { return location.href; });
+  await cda.wait(viewerRowsReady, [sourceIds], 5000);
   const first = await viewerSnapshot();
   const table = first.tables.find((candidate) => candidate.idIndex >= 0);
   assert(table, 'Viewer has no published Specimen ID output table');
@@ -267,8 +262,8 @@ const verifyViewerAndReload = async () => {
   assert(report.timingsMs.viewerOpen <= 5000, `Native Viewer open and exact membership exceeded 5000 ms (${report.timingsMs.viewerOpen} ms)`);
 
   const reloadStarted = Date.now();
-  await navigate(browser.page, currentViewerURL);
-  await waitForBrowser(browser.page, viewerRowsReady, [sourceIds], 5000);
+  await cda.navigate(currentViewerURL);
+  await cda.wait(viewerRowsReady, [sourceIds], 5000);
   const reloaded = await viewerSnapshot();
   const reloadedTable = reloaded.tables.find((candidate) => candidate.idIndex >= 0);
   assert(reloadedTable, 'Reloaded Viewer has no published Specimen ID output table');
@@ -281,16 +276,14 @@ const verifyViewerAndReload = async () => {
 };
 
 const main = async () => {
-  await mkdir(evidenceDirectory, { recursive: true });
   await seedOwnedExplorer();
-  browser = await launchBrowser(evidenceDirectory, undefined, { noAuth: !apiToken });
   captureNativeProtocol();
-  if (apiToken) await browser.context.setExtraHTTPHeaders({ Authorization: `Bearer ${apiToken}` });
+  if (apiToken) await cda.browserContext.setExtraHTTPHeaders({ Authorization: `Bearer ${apiToken}` });
 
   const previewStarted = Date.now();
-  await navigate(browser.page, pageURL);
-  await waitForBrowser(browser.page, () => Boolean(Boolean(document.querySelector('[data-testid="construction-workspace"]'))), [], 30000);
-  await waitForBrowser(browser.page, ([__arg0]) => Boolean((()=>{const p=document.querySelector('[data-testid="construction-preview"]');return Boolean(p&&p.dataset.previewStatus==='ready'&&p.dataset.previewReceiptId&&p.dataset.previewOutputId===__arg0&&p.dataset.currentDraftVersion&&p.dataset.currentDraftDigest);})()), [outputId], 30000);
+  await cda.navigate(pageURL);
+  await cda.wait(() => Boolean(Boolean(document.querySelector('[data-testid="construction-workspace"]'))), [], 5000);
+  await cda.wait(([__arg0]) => Boolean((()=>{const p=document.querySelector('[data-testid="construction-preview"]');return Boolean(p&&p.dataset.previewStatus==='ready'&&p.dataset.previewReceiptId&&p.dataset.previewOutputId===__arg0&&p.dataset.currentDraftVersion&&p.dataset.currentDraftDigest);})()), [outputId], 5000);
   report.preview = await previewSnapshot();
   report.timingsMs.automaticPreviewRender = Date.now() - previewStarted;
   assert(report.timingsMs.automaticPreviewRender <= 5000, `Automatic preview render exceeded 5000 ms (${report.timingsMs.automaticPreviewRender} ms)`);
@@ -305,16 +298,16 @@ const main = async () => {
   assert.equal(previewProtocol.status, 200, `Native automatic preview request failed: ${JSON.stringify(previewProtocol)}`);
   report.nativePreviewProtocol = previewProtocol;
 
-  const publishButton = await browserEval(browser.page, () => { const button=[...document.querySelectorAll('button')].find(candidate=>candidate.textContent?.trim()==='Publish');return {disabled:button?.disabled,visible:Boolean(button)}; });
+  const publishButton = await cda.inspect(() => { const button=[...document.querySelectorAll('button')].find(candidate=>candidate.textContent?.trim()==='Publish');return {disabled:button?.disabled,visible:Boolean(button)}; });
   assert(publishButton.visible && !publishButton.disabled, 'Publish is not enabled after the ready native preview');
   const publicationStarted = Date.now();
-  report.publishClick = await click(browser.page, 'button', { name: 'Publish' }, 1500);
+  report.publishClick = await cda.click('button', { name: 'Publish' }, 1500);
   const publishProtocol = await waitForProtocolResponse('/publish', 5000);
   assert.equal(publishProtocol.status, 200, `Native Publish request failed: ${JSON.stringify(publishProtocol)}`);
   const publication = publishProtocol.response;
   assert(publication && typeof publication === 'object', 'Native Publish response body is missing');
   report.publication = publication;
-  await waitForBrowser(browser.page, () => Boolean((()=>{const button=[...document.querySelectorAll('button')].find(candidate=>candidate.textContent?.trim()==='Publish');return Boolean(button&&button.getAttribute('aria-busy')!=='true'&&button.disabled);})()), [], 5000);
+  await cda.wait(() => Boolean((()=>{const button=[...document.querySelectorAll('button')].find(candidate=>candidate.textContent?.trim()==='Publish');return Boolean(button&&button.getAttribute('aria-busy')!=='true'&&button.disabled);})()), [], 5000);
   report.timingsMs.publicationFullAction = Date.now() - publicationStarted;
   assert(report.timingsMs.publicationFullAction <= 5000, `Publication full action exceeded 5000 ms (${report.timingsMs.publicationFullAction} ms)`);
   const materializationStarted = Date.now();
@@ -324,47 +317,20 @@ const main = async () => {
 
   await verifyViewerAndReload();
   await browserEvents?.flush();
-  includeBrowserDiagnostics(browser, report);
-  assert.equal(browser.dialogErrors.length, 0, `Unexpected browser dialogs: ${JSON.stringify(browser.dialogErrors)}`);
+  cda.includeBrowserDiagnostics();
+  assert.equal(report.dialogs.length, 0, `Unexpected browser dialogs: ${JSON.stringify(report.dialogs)}`);
   assert.equal(report.errors.length, 0, `Unexpected browser protocol or runtime errors: ${JSON.stringify(report.errors)}`);
-  report.dialogs = browser.dialogErrors;
   report.status = 'pass';
 };
 
 try {
-  report.target = await assertOwnedTarget({ project, apiOrigin, uiOrigin, clickhouseContainer, requireClickhouse: true });
   await main();
+  cda.includeBrowserDiagnostics();
+  return report;
 } catch (error) {
-  await browser?.captureFailure(error, { phase: 'publication', action: browser?.activeAction });
-  fatal = error;
   report.status = 'fail';
   report.failure = { message: error instanceof Error ? error.message : String(error), stack: error instanceof Error ? error.stack : undefined };
   report.errors.push({ kind: 'fatal', message: report.failure.message });
-} finally {
-  if (browser) {
-    await browserEvents?.flush();
-    report.dialogs = browser.dialogErrors;
-    await browser.close().catch((error) => report.errors.push({ kind: 'browser-close', message: String(error) }));
-  }
-  report.cleanup = {
-    retainedOwnedExplorer: true,
-    explorerId,
-    originalExplorerTouched: false,
-    reason: 'The verifier creates a unique Explorer and leaves it and its materialization available for evidence; no delete route is used.',
-  };
-  await mkdir(evidenceDirectory, { recursive: true });
-  await writeFile(join(evidenceDirectory, 'cda-publication-browser.json'), JSON.stringify(report, null, 2));
-  console.log(JSON.stringify({
-    status: report.status,
-    evidenceDirectory,
-    explorerId,
-    generation: datasetGeneration,
-    sourceIds,
-    outputId,
-    timingsMs: report.timingsMs,
-    failure: report.failure,
-    originalExplorerTouched: false,
-  }, null, 2));
+  throw error;
 }
-
-if (fatal) process.exitCode = 1;
+}

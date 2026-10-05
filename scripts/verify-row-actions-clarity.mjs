@@ -1,40 +1,24 @@
 import assert from 'node:assert/strict';
-import { fileURLToPath } from 'node:url';
 import { mkdir, writeFile } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
-import { captureApiBuildFreeze, checkContainerApiBuildStamp } from './lib/api-build-freeze.mjs';
-import { assertOwnedCdaTarget } from './lib/owned-cda-target.mjs';
-import { launchBrowser, sanitizeBody } from './lib/playwright-browser.mjs';
-import { performAction } from './lib/playwright-actions.mjs';
-import { captureSourceFreeze } from './lib/source-freeze.mjs';
-import { sourceFingerprint } from './verify-ui/source-fingerprint.mjs';
+import { join } from 'node:path';
+import { sanitizeBody } from './lib/playwright-browser.mjs';
 
-const project = process.env.LOOM_CDA_PROJECT;
-const explorer = process.env.LOOM_QA_EXPLORER;
+export async function verifyRowActionsClarity({ page, cda }) {
+const project = cda.project;
+const explorer = cda.explorer;
 assert(project && explorer && ['group-related-summary-browser-', 'cohort-add-fields-browser-'].some(prefix => explorer.startsWith(prefix)),
-  'Set LOOM_CDA_PROJECT and LOOM_QA_EXPLORER to an owned group-related-summary-browser or cohort-add-fields-browser QA Explorer');
-const apiOrigin = process.env.LOOM_CDA_API_ORIGIN;
-const uiOrigin = process.env.LOOM_CDA_UI_ORIGIN;
-const apiContainer = process.env.LOOM_CDA_API_CONTAINER;
-const composeProject = process.env.LOOM_CDA_COMPOSE_PROJECT;
-const evidence = process.argv[2] ?? `/tmp/loom-row-actions-clarity-${Date.now()}`;
-const sourceRoot = resolve(fileURLToPath(new URL('..', import.meta.url)));
+  'Set the native CDA fixture explorer to an owned group-related-summary-browser or cohort-add-fields-browser QA Explorer');
+const apiOrigin = cda.apiOrigin;
+const uiOrigin = cda.uiOrigin;
+const evidence = cda.evidence;
 const base = `/api/v1/projects/${encodeURIComponent(project)}/explorers/${encodeURIComponent(explorer)}/authoring/v2`;
-const report = {
-  status: 'running', project, explorer, evidence, cases: [], transitions: [], workspaceChecks: [],
-  sourceFingerprint: {}, target: { apiOrigin, uiOrigin, apiContainer, composeProject },
-};
+const report = { status: 'running', project, explorer, evidence, cases: [], transitions: [], workspaceChecks: [], screenshots: [], target: cda.target };
+const screenshotsEnabled = process.env.LOOM_VERIFY_SCREENSHOTS === '1';
+const browserErrors = [];
+page.on('pageerror', error => browserErrors.push({ type: 'pageerror', text: error.message }));
+page.on('console', message => { if (message.type() === 'error') browserErrors.push({ type: 'console', text: message.text() }); });
+page.on('requestfailed', request => browserErrors.push({ type: 'requestfailed', url: request.url(), error: request.failure()?.errorText }));
 await mkdir(evidence, { recursive: true });
-let browser;
-let sourceFreeze;
-let apiBuildFreeze;
-
-function extractBuildIdentity(observation) {
-  assert.equal(observation.status, 0, 'API build stamp check must succeed');
-  const values = observation.stdout.trim().match(/^([a-f0-9]{64})\s+([a-f0-9]{64})\s+([a-f0-9]{64})$/i);
-  assert(values, 'API build stamp must contain three SHA-256 identities');
-  return values.slice(1).join(':').toLowerCase();
-}
 
 const read = async () => {
   const response = await fetch(`${apiOrigin}${base}/builder`, { signal: AbortSignal.timeout(30000) });
@@ -44,9 +28,9 @@ const read = async () => {
   assert(response.ok, `Builder read returned ${response.status}: ${sanitizeBody(text)}`);
   return JSON.parse(text);
 };
-const wait = async condition => browser.page.waitForFunction(condition, null, { timeout: 5000 });
+const wait = async condition => cda.wait(condition, [], 5000);
 const stateOf = (locator, fn) => locator.evaluate(fn);
-const action = async (name, locator, method) => performAction(report, name, locator, target => method(target));
+const action = async (name, locator, method) => cda.action(name, locator, target => method(target));
 const assertWorkspaceUnchanged = async phase => {
   const current = await read();
   assert.deepEqual(current.workspace, report.before.workspace, `${phase}: opening and closing row actions must not save workspace changes`);
@@ -75,31 +59,19 @@ async function timedTransition(name, locator, method, settledWhen) {
 }
 
 try {
-  report.target.ownership = await assertOwnedCdaTarget({ project, apiOrigin, uiOrigin, apiContainer, composeProject, sourceRoot });
-  sourceFreeze = await captureSourceFreeze(sourceRoot);
-  report.sourceFreeze = { watchedFileCount: sourceFreeze.watchedFileCount };
-  report.sourceFingerprint.before = sourceFingerprint(sourceRoot);
-  let firstBuildObservation;
-  apiBuildFreeze = await captureApiBuildFreeze(async () => {
-    firstBuildObservation = await checkContainerApiBuildStamp(apiContainer);
-    return firstBuildObservation;
-  });
-  report.apiBuildIdentity = { before: extractBuildIdentity(firstBuildObservation) };
   report.before = await read();
   const outputId = report.before.workspace.documents[0]?.output.id;
   assert(outputId, 'The owned QA Explorer must contain an output table');
-  browser = await launchBrowser({ evidence, appOrigins: [uiOrigin, apiOrigin], noAuth: true });
-  const { page } = browser;
   await page.setViewportSize({ width: 1280, height: 900 });
   const builderURL = `${uiOrigin}/?project=${encodeURIComponent(project)}&explorer=${encodeURIComponent(explorer)}&mode=builder`;
   report.activeAction = { label: 'navigate to QA Builder', locator: builderURL, startedAt: Date.now() };
   await page.goto(builderURL, { waitUntil: 'domcontentloaded' });
   report.activeAction = undefined;
   const tableCard = page.locator(`[data-testid="construction-table-${outputId}"]`);
-  await tableCard.waitFor({ state: 'visible', timeout: 30000 });
+  await tableCard.waitFor({ state: 'visible', timeout: 5000 });
   await action('open output table', tableCard, target => target.click());
   const rowsTrigger = page.getByTestId('construction-rows-settings-trigger');
-  await rowsTrigger.waitFor({ state: 'visible', timeout: 30000 });
+  await rowsTrigger.waitFor({ state: 'visible', timeout: 5000 });
   assert.equal(await rowsTrigger.isEnabled(), true);
 
   const inspectCards = async name => {
@@ -155,7 +127,11 @@ try {
         overflow: getComputedStyle(element).overflow, top: element.getBoundingClientRect().top,
       }));
     });
-    await page.screenshot({ path: join(evidence, `${name}.png`), fullPage: true });
+    if (screenshotsEnabled) {
+      const screenshotPath = join(evidence, `${name}.png`);
+      await page.screenshot({ path: screenshotPath, fullPage: true });
+      report.screenshots.push(screenshotPath);
+    }
     report.cases.push({ name, actionInventory: cards, cards });
   };
 
@@ -210,49 +186,20 @@ try {
       && document.querySelector('[data-testid="construction-rows-settings-trigger"]')?.disabled === false,
   );
   await assertWorkspaceUnchanged('mobile editor closed');
-  report.errors = [...browser.diagnostics.console, ...browser.diagnostics.pageErrors, ...browser.diagnostics.httpFailures, ...browser.diagnostics.networkFailures];
-  report.incidentalAssets = browser.diagnostics.assetFailures;
+  report.errors = browserErrors;
   assert.deepEqual(report.errors, []);
   report.status = 'passed';
+  cda.check('correctness', 'row action choices and editor explanation are available', true, { cases: report.cases.map(value => value.name) });
 } catch (error) {
   report.status = 'failed';
   report.error = String(error.stack ?? error);
   if (report.activeAction) report.firstFailedAction = { label: report.activeAction.label, locator: report.activeAction.locator, elapsedMs: Date.now() - report.activeAction.startedAt };
-  report.diagnostics = browser?.diagnostics;
-  await browser?.captureFailure(error, { phase: 'row-action-clarity', action: report.activeAction, explorer, draftVersion: report.before?.draftVersion, draftDigest: report.before?.draftDigest });
-  process.exitCode = 1;
+  report.diagnostics = browserErrors;
+  throw error;
 } finally {
-  await browser?.close();
-  if (apiBuildFreeze) {
-    try {
-      report.apiBuildFreeze = await apiBuildFreeze.assertUnchanged();
-      assert.equal(report.apiBuildFreeze.checked, true);
-      assert.equal(report.apiBuildFreeze.unchanged, true);
-      assert.equal(report.apiBuildFreeze.invalidatesRun, false);
-    } catch (error) {
-      report.priorStatus = report.status; report.status = 'invalidated'; report.apiBuildFreezeError = String(error.stack ?? error); process.exitCode = 1;
-    }
-  }
-  if (sourceFreeze) {
-    try {
-      report.sourceFingerprint.after = sourceFingerprint(sourceRoot);
-      report.sourceFreeze.check = await sourceFreeze.assertUnchanged();
-      assert.equal(report.sourceFreeze.check.unchanged, true);
-      assert.equal(report.sourceFreeze.check.invalidatesRun, false);
-    } catch (error) {
-      report.priorStatus = report.status; report.status = 'invalidated'; report.sourceFreezeError = String(error.stack ?? error); process.exitCode = 1;
-    }
-  }
-  if (report.apiBuildIdentity.before) {
-    try {
-      const after = await checkContainerApiBuildStamp(apiContainer);
-      report.apiBuildIdentity.after = extractBuildIdentity(after);
-      assert.equal(report.apiBuildIdentity.after, report.apiBuildIdentity.before, 'Running API build identity changed during verification');
-    } catch (error) {
-      report.priorStatus = report.status; report.status = 'invalidated'; report.apiBuildIdentity.error = String(error.stack ?? error); process.exitCode = 1;
-    }
-  }
   report.finishedAt = new Date().toISOString();
   await writeFile(join(evidence, 'report.json'), JSON.stringify(report, null, 2));
+  await cda.attachReport('row-actions-clarity', report);
 }
-process.stdout.write(`${JSON.stringify({ status: report.status, evidence, cases: report.cases.map(value => value.name), transitions: report.transitions, error: report.error })}\n`);
+return report;
+}

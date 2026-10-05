@@ -2,29 +2,25 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { captureApiBuildFreeze, checkContainerApiBuildStamp } from './lib/api-build-freeze.mjs';
-import { assertOwnedCdaTarget } from './lib/owned-cda-target.mjs';
-import { launchBrowser, sanitizeBody } from './lib/playwright-browser.mjs';
-import { performAction } from './lib/playwright-actions.mjs';
-import { captureSourceFreeze } from './lib/source-freeze.mjs';
-import { sourceFingerprint } from './verify-ui/source-fingerprint.mjs';
+import { sanitizeBody } from './lib/playwright-browser.mjs';
 
-assert.equal(process.argv.length, 3, 'usage: LOOM_CDA_PROJECT=... LOOM_CDA_UI_ORIGIN=... LOOM_CDA_API_ORIGIN=... LOOM_CDA_API_CONTAINER=... LOOM_CDA_ARANGO_CONTAINER=... LOOM_CDA_ARANGO_DATABASE=... LOOM_CDA_COMPOSE_PROJECT=... node scripts/verify-population-row-ui.mjs SELECTION_EVIDENCE.json');
-const selectionEvidencePath = resolve(process.argv[2]);
-const evidenceInput = JSON.parse(await readFile(selectionEvidencePath, 'utf8'));
+export async function verifyPopulationRowUI({ page, cda, selectionEvidencePath }) {
+assert(selectionEvidencePath, 'Set an explicit selection evidence path for the population row lifecycle');
+const selectionEvidencePathResolved = resolve(selectionEvidencePath);
+const evidenceInput = JSON.parse(await readFile(selectionEvidencePathResolved, 'utf8'));
 const selection = evidenceInput.selections?.explicit;
 assert.ok(selection?.id, 'Selection evidence has no explicit revision');
 assert.ok(evidenceInput.target?.uiUrl && evidenceInput.target?.project && evidenceInput.explorerId, 'Selection evidence has no browser target');
-const project = process.env.LOOM_CDA_PROJECT;
+const project = cda.project;
 const explorer = evidenceInput.explorerId;
-const uiOrigin = process.env.LOOM_CDA_UI_ORIGIN;
-const apiOrigin = process.env.LOOM_CDA_API_ORIGIN;
-const apiContainer = process.env.LOOM_CDA_API_CONTAINER;
-const composeProject = process.env.LOOM_CDA_COMPOSE_PROJECT;
-const arangoContainer = process.env.LOOM_CDA_ARANGO_CONTAINER;
+const uiOrigin = cda.uiOrigin;
+const apiOrigin = cda.apiOrigin;
+const arangoContainer = cda.target.arangoContainer ?? process.env.LOOM_CDA_ARANGO_CONTAINER;
 const arangoDatabase = process.env.LOOM_CDA_ARANGO_DATABASE;
 assert(arangoContainer && arangoDatabase, 'Set LOOM_CDA_ARANGO_CONTAINER and LOOM_CDA_ARANGO_DATABASE for the independent raw-source oracle');
+assert.equal(project, evidenceInput.target.project, 'Selection handoff project must match the explicitly owned project');
+assert.equal(new URL(evidenceInput.target.uiUrl).origin, uiOrigin, 'Selection handoff UI origin must match the explicit isolated UI origin');
+assert.equal(explorer, cda.explorer, 'Selection handoff explorer must match the native CDA fixture explorer');
 const expectedFileIds = ['dev-file-001', 'dev-file-002', 'dev-file-004'];
 const selectedRefs = evidenceInput.expectedRefs;
 assert(Array.isArray(selectedRefs), 'Selection evidence must include its independently expected refs');
@@ -33,18 +29,25 @@ assert(selectedRefs.every(ref => ref.resourceType === 'DocumentReference'), 'Sel
 assert(selectedRefs.every(ref => ref.project === selectedRefs[0]?.project && ref.generation === 'cda-fhir-v1'), 'Selection handoff must preserve one exact project and CDA generation');
 assert.equal(project, evidenceInput.target.project, 'Selection handoff project must match the explicitly owned project');
 assert.equal(new URL(evidenceInput.target.uiUrl).origin, uiOrigin, 'Selection handoff UI origin must match the explicit isolated UI origin');
-const sourceRoot = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const apiBase = `${apiOrigin}/api/v1/projects/${encodeURIComponent(project)}/explorers/${encodeURIComponent(explorer)}/authoring/v2`;
 const selectionBase = `${apiOrigin}/api/v1/projects/${encodeURIComponent(project)}/explorers/${encodeURIComponent(explorer)}/selections`;
 const query = new URLSearchParams({ project, explorer, mode: 'builder', selection: selection.id });
 const url = `${uiOrigin}/?${query}`;
-const evidence = `/tmp/loom-population-row-ui-${Date.now()}`;
-const artifact = join(evidence, 'population-row-ui.png');
-const report = { status: 'running', scope: 'selection handoff and visible Builder population lifecycle', selectionEvidencePath, selectionRevisionId: selection.id, project, explorer, url, evidence, assertions: [], apiReads: [], transitions: [] };
+const evidence = cda.evidence;
+const artifact = process.env.LOOM_VERIFY_SCREENSHOTS === '1' ? join(evidence, 'population-row-ui.png') : undefined;
+const report = { status: 'running', scope: 'selection handoff and visible Builder population lifecycle', selectionEvidencePath: selectionEvidencePathResolved, selectionRevisionId: selection.id, project, explorer, url, evidence, assertions: [], apiReads: [], transitions: [] };
 await mkdir(evidence, { recursive: true });
-let browser; let sourceFreeze; let apiBuildFreeze;
-const button = name => browser.page.getByRole('button', { name, exact: true });
-async function click(label, control) { await performAction(report, label, control, target => target.click()); }
+const button = name => page.getByRole('button', { name, exact: true });
+const browserErrors = [];
+page.on('pageerror', error => browserErrors.push({ kind: 'page-error', message: error.message }));
+page.on('console', message => { if (message.type() === 'error') browserErrors.push({ kind: 'console', message: message.text() }); });
+page.on('requestfailed', request => browserErrors.push({ kind: 'network', url: request.url(), error: request.failure()?.errorText }));
+page.on('response', response => {
+  if (response.status() >= 400 && new URL(response.url()).pathname !== '/favicon.ico') {
+    browserErrors.push({ kind: 'http', url: response.url(), status: response.status() });
+  }
+});
+async function click(label, control) { await cda.action(label, control, target => target.click()); }
 async function timedClick(label, control, settled) {
   const startedAt = Date.now();
   await click(label, control);
@@ -63,7 +66,7 @@ async function readBuilder() {
   return JSON.parse(text);
 }
 async function waitText(text, timeout = 5000) {
-  await browser.page.getByText(text, { exact: true }).waitFor({ state: 'visible', timeout });
+  await page.getByText(text, { exact: true }).waitFor({ state: 'visible', timeout });
 }
 function readRawMapping(fileIds) {
   const query = `FOR f IN DocumentReference FILTER f.project == ${JSON.stringify(project)} AND f.dataset_generation == "cda-fhir-v1" AND f.id IN ${JSON.stringify(fileIds)} LET specimenIds = (FOR e IN fhir_edge FILTER e._from == f._id AND e.from_type == "DocumentReference" AND e.to_type == "Specimen" AND e.label == "subject_Specimen" AND e.project == ${JSON.stringify(project)} AND e.dataset_generation == "cda-fhir-v1" LET s = DOCUMENT(e._to) FILTER s != null AND s.resourceType == "Specimen" AND s.project == ${JSON.stringify(project)} AND s.dataset_generation == "cda-fhir-v1" RETURN s.id) RETURN {fileId:f.id,specimenIds:SORTED_UNIQUE(specimenIds)}`;
@@ -105,21 +108,15 @@ const canonicalRefs = refs => refs.map(({ project, generation, resourceType, id 
   .sort((a, b) => `${a.project}/${a.generation}/${a.resourceType}/${a.id}`.localeCompare(`${b.project}/${b.generation}/${b.resourceType}/${b.id}`));
 const populationDocument = value => value.workspace.documents.find(document => document.population?.selectionRevisionId);
 async function visiblePreviewIds(expectedIds) {
-  const table = browser.page.getByTestId('preview-table-scroll').getByRole('table');
+  const table = page.getByTestId('preview-table-scroll').getByRole('table');
   await table.waitFor({ state: 'visible', timeout: 5000 });
-  await browser.page.waitForFunction(() => !document.body.innerText.includes('Loading the preview…'), null, { timeout: 5000 });
+  await page.waitForFunction(() => !document.body.innerText.includes('Loading the preview…'), null, { timeout: 5000 });
   const rows = await table.getByRole('row').evaluateAll(elements => elements.slice(1).map(row => [...row.querySelectorAll('[role="cell"]')].map(cell => cell.innerText.trim())).filter(row => row.length));
   const actualIds = rows.map(row => row[0]);
   assert.deepEqual(actualIds, expectedIds, 'Visible preview identities, order, or multiplicity differ from raw DocumentReference→Specimen source mapping');
   return rows;
 }
 try {
-  report.ownership = await assertOwnedCdaTarget({ project, apiOrigin, uiOrigin, apiContainer, composeProject, sourceRoot, arangoContainer });
-  sourceFreeze = await captureSourceFreeze(sourceRoot);
-  report.sourceFingerprint = { before: sourceFingerprint(sourceRoot) };
-  let initialStamp;
-  apiBuildFreeze = await captureApiBuildFreeze(async () => { initialStamp = await checkContainerApiBuildStamp(apiContainer); return initialStamp; });
-  report.apiBuildIdentity = initialStamp.stdout.trim();
   const rawMapping = readRawMapping(expectedFileIds);
   assert.deepEqual(rawMapping.map(row => row.fileId).sort(), [...expectedFileIds].sort(), 'Raw CDA source is missing a selected DocumentReference');
   const sourceMapping = Object.fromEntries(rawMapping.map(row => [row.fileId, row.specimenIds]));
@@ -130,12 +127,10 @@ try {
   }, 'Raw CDA file-to-Specimen relationships differ from the fixture oracle');
   report.sourceOracle = { generation: 'cda-fhir-v1', resourceType: 'DocumentReference', mapping: sourceMapping, expectedRows: ['dev-specimen-001'] };
   report.before = await readBuilder();
-  browser = await launchBrowser({ evidence, appOrigins: [uiOrigin, apiOrigin], noAuth: true });
-  const { page } = browser;
-  await page.goto(url, { waitUntil: 'domcontentloaded' });
-  await page.screenshot({ path: artifact, fullPage: true });
+  await cda.navigate(url);
+  if (artifact) await page.screenshot({ path: artifact, fullPage: true });
   await page.waitForFunction(() => document.body.innerText.includes('3 selected DocumentReference resources are ready to constrain this table.')
-    || [...document.querySelectorAll('button')].some(control => control.textContent.trim() === 'Use all authorized rows'), null, { timeout: 30000 });
+    || [...document.querySelectorAll('button')].some(control => control.textContent.trim() === 'Use all authorized rows'), null, { timeout: 5000 });
   const useAll = button('Use all authorized rows');
   const useAllCount = await useAll.count();
   assert(useAllCount <= 1, `Expected at most one Use all authorized rows control, found ${useAllCount}`);
@@ -146,13 +141,13 @@ try {
   await timedClick('attach selected resources', button('Use selected resources'),
     () => waitText('3 DocumentReference resources constrain one row per Specimen.'));
   const preview = button('Preview');
-  await preview.waitFor({ state: 'visible', timeout: 30000 });
+  await preview.waitFor({ state: 'visible', timeout: 5000 });
   assert.equal(await preview.isEnabled(), true);
   await timedClick('preview selected-resource population', preview, async () => {
     report.initialVisibleRows = await visiblePreviewIds(['dev-specimen-001']);
   });
   const coverage = button('Check selected-resource coverage');
-  await coverage.waitFor({ state: 'visible', timeout: 30000 });
+  await coverage.waitFor({ state: 'visible', timeout: 5000 });
   await timedClick('check selected-resource coverage', coverage,
     () => waitText('3 selected · 2 produce rows · 1 needs attention'));
   const reportText = await page.locator('body').innerText();
@@ -172,11 +167,11 @@ try {
 
   await timedClick('remove unmatched resource from collection', button('Remove from collection'),
     () => waitText('2 DocumentReference resources constrain one row per Specimen.'));
-  await preview.waitFor({ state: 'visible', timeout: 30000 });
+  await preview.waitFor({ state: 'visible', timeout: 5000 });
   await timedClick('preview revised selection', preview, async () => {
     report.revisedVisibleRows = await visiblePreviewIds(['dev-specimen-001']);
   });
-  await coverage.waitFor({ state: 'visible', timeout: 30000 });
+  await coverage.waitFor({ state: 'visible', timeout: 5000 });
   await timedClick('check revised selection coverage', coverage,
     () => waitText('2 selected · 2 produce rows · 0 needs attention'));
   const reloadStartedAt = Date.now();
@@ -203,23 +198,20 @@ try {
   assert.equal(reloadedDocument?.population?.selectionRevisionId, revisedDocument.population.selectionRevisionId, 'Reload must retain the exact revised immutable selection revision');
   report.assertions.push('removing DocumentReference/dev-file-004 creates and attaches a new two-member selection', 'revised selection survives reload and stale coverage evidence clears');
   report.assertions.push('raw CDA source independently maps files 001/002 to one Specimen and file 004 to none', 'preview rows and immutable selection membership exactly match raw-source expectations before and after removal');
-  report.diagnostics = browser.diagnostics;
-  assert.deepEqual(browser.diagnostics.console, [], 'Unexpected browser console error');
-  assert.deepEqual(browser.diagnostics.pageErrors, [], 'Unexpected browser exception');
-  assert.deepEqual(browser.diagnostics.httpFailures, [], 'Unexpected local HTTP failure');
-  assert.deepEqual(browser.diagnostics.networkFailures, [], 'Unexpected local network failure');
+  report.diagnostics = browserErrors;
+  assert.deepEqual(browserErrors, [], 'Unexpected native Playwright browser failure');
   report.status = 'passed';
 } catch (error) {
   report.status = 'failed'; report.error = String(error.stack ?? error);
   if (report.activeAction) report.firstFailedAction = { label: report.activeAction.label, locator: report.activeAction.locator, elapsedMs: Date.now() - report.activeAction.startedAt };
-  report.diagnostics = browser?.diagnostics;
-  await browser?.captureFailure(error, { phase: 'population-row-ui', action: report.activeAction, project, explorer, selectionRevisionId: selection.id, draftVersion: report.before?.draftVersion, draftDigest: report.before?.draftDigest });
-  process.exitCode = 1;
+  report.diagnostics = browserErrors;
+  throw error;
 } finally {
-  await browser?.close();
-  if (apiBuildFreeze) { try { report.apiBuildFreeze = await apiBuildFreeze.assertUnchanged(); } catch (error) { report.priorStatus = report.status; report.status = 'invalidated'; report.apiBuildFreezeError = String(error.stack ?? error); process.exitCode = 1; } }
-  if (sourceFreeze) { try { report.sourceFingerprint.after = sourceFingerprint(sourceRoot); report.sourceFreeze = await sourceFreeze.assertUnchanged(); } catch (error) { report.priorStatus = report.status; report.status = 'invalidated'; report.sourceFreezeError = String(error.stack ?? error); process.exitCode = 1; } }
   report.finishedAt = new Date().toISOString();
   await writeFile(join(evidence, 'report.json'), JSON.stringify(report, null, 2));
+  await cda.attachReport('population-row-ui', report);
 }
-process.stdout.write(`${JSON.stringify({ status: report.status, evidence, assertions: report.assertions, error: report.error })}\n`);
+cda.check('correctness', 'population handoff rows and immutable membership match raw CDA source', report.status === 'passed',
+  { selectionRevisionId: selection.id, assertions: report.assertions });
+return report;
+}

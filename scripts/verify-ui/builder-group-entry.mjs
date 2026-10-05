@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
 import { readFileSync } from 'node:fs';
-import { browserURL, runPlaywrightCase } from './common.mjs';
+import { browserURL } from './builder-url.mjs';
+import { configureNativePage } from '../lib/playwright-authoring-page.mjs';
 
 const expectedPatientIDs = ['dev-patient-001', 'dev-patient-002'];
 const proposalPanel = '[data-testid="construction-proposal-panel"]';
@@ -12,7 +13,8 @@ const readNDJSON = path => readFileSync(path, 'utf8')
   .filter(Boolean)
   .map(line => JSON.parse(line));
 
-const run = context => runPlaywrightCase(context, 'builder-authoring', 'group-entry', async ({ page, report, check, action }) => {
+export const groupEntryWorkflow = async ({ page, report, check, action }, context) => {
+  configureNativePage(page);
   assert.equal(context.custom, false, 'This case requires a fresh owned fixture project.');
   assert.equal(context.seed?.fresh, true, 'This case must use a fresh verification project.');
   assert(context.target.fixtureDir && context.target.fixtureGeneration, 'Expected an isolated fixture generation.');
@@ -40,7 +42,7 @@ const run = context => runPlaywrightCase(context, 'builder-authoring', 'group-en
     const url = new URL(response.url());
     return url.origin === new URL(context.target.uiUrl).origin
       && url.pathname === bootstrapPath && response.request().method() === 'POST';
-  });
+  }, { timeout: 5000 });
   await page.goto(browserURL(context.target, context.target.fixtureProject, context.target.bootstrapExplorerId, 'builder'),
     { waitUntil: 'domcontentloaded' });
   const bootstrapResponse = await bootstrapResponsePromise;
@@ -53,23 +55,23 @@ const run = context => runPlaywrightCase(context, 'builder-authoring', 'group-en
   await newExplorer.waitFor({ state: 'visible' });
   await action('open Explorer creation', newExplorer, () => newExplorer.click(), {
     after: () => page.locator('#new-explorer-name').waitFor({ state: 'visible' }),
-    timeout: 30000,
-    budget: 30000,
+    timeout: 5000,
+    budget: 5000,
   });
   const explorerNameControl = page.locator('#new-explorer-name');
   await action('name Explorer', explorerNameControl, () => explorerNameControl.fill(explorerName), {
     editable: true,
-    timeout: 30000,
-    budget: 30000,
+    timeout: 5000,
+    budget: 5000,
   });
   const createBlank = page.getByRole('button', { name: 'Create blank', exact: true });
   await action('create blank Explorer', createBlank, () => createBlank.click(), {
     after: () => page.waitForFunction(expectedTitle => {
       const select = document.querySelector('select[aria-label="Explorer"]');
       return select?.selectedOptions[0]?.textContent?.trim() === expectedTitle;
-    }, explorerName, { timeout: 30000 }),
-    timeout: 30000,
-    budget: 30000,
+    }, explorerName, { timeout: 5000 }),
+    timeout: 5000,
+    budget: 5000,
   });
   const explorerControl = page.getByRole('combobox', { name: 'Explorer', exact: true });
   const explorer = await explorerControl.inputValue();
@@ -80,8 +82,8 @@ const run = context => runPlaywrightCase(context, 'builder-authoring', 'group-en
   const tableName = page.locator('#first-table-name');
   await action('name Patient table', tableName, () => tableName.fill('Patients'), {
     editable: true,
-    timeout: 30000,
-    budget: 30000,
+    timeout: 5000,
+    budget: 5000,
   });
   const choosePatients = page.getByRole('button', { name: 'Choose Patient rows', exact: true });
   await action('choose Patient rows', choosePatients, () => choosePatients.click(), {
@@ -89,9 +91,9 @@ const run = context => runPlaywrightCase(context, 'builder-authoring', 'group-en
       const table = document.querySelector('[data-testid="preview-table-scroll"] [role="table"]');
       return table && Number(table.getAttribute('aria-rowcount')) > 1
         && !document.body.innerText.includes('Loading your table…');
-    }, undefined, { timeout: 30000 }),
-    timeout: 30000,
-    budget: 30000,
+    }, undefined, { timeout: 5000 }),
+    timeout: 5000,
+    budget: 5000,
   });
 
   const apiRoot = `/api/v1/projects/${encodeURIComponent(context.target.fixtureProject)}`
@@ -136,31 +138,31 @@ const run = context => runPlaywrightCase(context, 'builder-authoring', 'group-en
     groupRequestsByRequest.set(request, entry);
   });
   const proposalResponsePromise = page.waitForResponse(response =>
-    groupRequestsByRequest.has(response.request()), { timeout: 10000 });
+    groupRequestsByRequest.has(response.request()), { timeout: 5000 });
 
   const patientTable = page.getByTestId(`construction-table-${outputId}`);
   await action('select Patient table', patientTable, () => patientTable.click(), {
     after: () => page.waitForFunction(id =>
       document.querySelector(`[data-testid="construction-table-${CSS.escape(id)}"]`)?.getAttribute('aria-current') === 'page',
-    outputId, { timeout: 10000 }),
-    timeout: 10000,
-    budget: 30000,
+    outputId, { timeout: 5000 }),
+    timeout: 5000,
+    budget: 5000,
   });
   const rowSettings = page.getByTestId('construction-rows-settings-trigger');
   await page.waitForFunction(() => {
     const button = document.querySelector('[data-testid="construction-rows-settings-trigger"]');
     return button && !button.disabled;
-  }, undefined, { timeout: 10000 });
+  }, undefined, { timeout: 5000 });
   await action('open row definition settings', rowSettings, () => rowSettings.click(), {
     after: () => page.getByTestId('construction-action-group-rows').waitFor({ state: 'visible' }),
-    timeout: 10000,
-    budget: 30000,
+    timeout: 5000,
+    budget: 5000,
   });
   const groupAction = page.getByTestId('construction-action-group-rows');
   await page.waitForFunction(() => {
     const button = document.querySelector('[data-testid="construction-action-group-rows"]');
     return button && !button.disabled;
-  }, undefined, { timeout: 10000 });
+  }, undefined, { timeout: 5000 });
   const actionability = {
     count: await groupAction.count(),
     visible: await groupAction.isVisible(),
@@ -203,9 +205,9 @@ const run = context => runPlaywrightCase(context, 'builder-authoring', 'group-en
           panelSelector: proposalPanel,
           previewSelector: proposalPreview,
           expectedCount: String(fixtureIDs.length),
-        }, { timeout: 10000 });
+        }, { timeout: 5000 });
       },
-      timeout: 10000,
+      timeout: 5000,
       budget: 5000,
     });
 
@@ -287,6 +289,4 @@ const run = context => runPlaywrightCase(context, 'builder-authoring', 'group-en
       rows: initialView.rows,
       expectedCount: fixtureIDs.length,
     });
-});
-
-export const runGroupEntry = context => run(context);
+};

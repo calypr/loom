@@ -1,7 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { assertViewerPatientRows } from '../viewer-query.mjs';
-import { matchesViewerRequestBody } from '../playwright-case.mjs';
+import { assertViewerPatientRows, matchesViewerRequestBody } from '../viewer-query.mjs';
 
 const project = 'fixture-project';
 const selector = { recipe: 'recipe-a', translationVersion: 'v3', output: 'patients' };

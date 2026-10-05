@@ -7,6 +7,7 @@ export const registry = Object.freeze([
     requiredTransitions: ['duplicate, rename, select, delete table and reload', 'copy Explorer and retain fixture rows', 'Recompile calls the backend and restores preview', 'create a verified-ID Patient table and wait for its current-draft preview before Add columns is enabled'],
     gateReasons: ['Delete table needs a selected table', 'Recompile must obtain a new backend receipt after a failed automatic compile', 'the first-table readiness case observes only the verified-ID Patient flow'],
     script: 'builder-controls.mjs',
+    playwrightTests: Object.fromEntries(['tables', 'recompile', 'first-table'].map(name => [name, 'scripts/playwright/builder-controls.spec.mjs'])),
     cases: ['tables', 'recompile', 'first-table'],
     requiredChecks: {
       tables: ['duplicated and renamed tables survive reload', 'newly duplicated table is selected immediately', 'newly duplicated table selection survives reload', 'manual table selection survives reload', 'deleted table stays absent after reload', 'selected-table deletion immediately falls back to the remaining table', 'selected-table removal falls back to the remaining table after reload', 'copied Explorer retains configured fields after reload', 'deleting the last table persists an empty workspace'],
@@ -47,6 +48,7 @@ export const registry = Object.freeze([
       'builder load error currently has no retry control',
     ],
     script: 'builder-load.mjs',
+    playwrightTests: { list: 'scripts/playwright/builder-load.spec.mjs', state: 'scripts/playwright/builder-load.spec.mjs' },
     cases: ['list', 'state'],
     requiredChecks: {
       list: ['builder failure is exposed in an alert', 'builder failure exposes an actionable in-app retry', 'builder recovered through in-app Retry'],
@@ -110,6 +112,7 @@ export const registry = Object.freeze([
       'cohort-expand creates only fixture selection/group state through setup requests; all Builder edits and lifecycle operations use native controls',
     ],
     script: 'builder-authoring.mjs',
+    playwrightTests: Object.fromEntries(['suggestions', 'authoring', 'cohort-recode', 'cohort-expand', 'repeated-empty', 'group-entry'].map(name => [name, 'scripts/playwright/builder-authoring.spec.mjs'])),
     cases: ['suggestions', 'authoring', 'cohort-recode', 'cohort-expand', 'repeated-empty', 'group-entry'],
     requiredChecks: {
       suggestions: ['catalog-backed Patient candidates are rendered', 'Patient ID candidate control is visible and actionable'],
@@ -280,6 +283,7 @@ export const registry = Object.freeze([
       'native verification requires the owned CDA Builder and API stack to be available',
     ],
     script: 'verify-cda-population-member-removal-browser.mjs',
+    playwrightTests: { 'mapped-plus-orphan-to-empty': 'scripts/playwright/population-member-removal.spec.mjs' },
     cases: ['mapped-plus-orphan-to-empty'],
     requiredChecks: {
       'mapped-plus-orphan-to-empty': [
@@ -335,6 +339,7 @@ export const registry = Object.freeze([
       'full CDA Apply/edit/removal remains unverified until the full-population-lifecycle mode is run and its required named assertions pass',
     ],
     script: '../verify-cda-quantity-root-category-browser.mjs',
+    playwrightTests: Object.fromEntries(['full-population-discovery', 'fixture-lifecycle', 'full-population-lifecycle'].map(name => [name, 'scripts/playwright/root-quantity-pivot.spec.mjs'])),
     cases: ['full-population-discovery', 'fixture-lifecycle', 'full-population-lifecycle'],
     requiredChecks: {
       'full-population-discovery': [
@@ -411,6 +416,7 @@ export const registry = Object.freeze([
       'the verifier is staged but remains unrun until an authorized native browser run',
     ],
     script: 'builder-combine-draft.mjs',
+    playwrightTests: Object.fromEntries(['join', 'append', 'group-pivot'].map(name => [name, 'scripts/playwright/draft-combine.spec.mjs'])),
     cases: ['join', 'append', 'group-pivot'],
     requiredChecks: {
       join: [
@@ -652,6 +658,7 @@ export const registry = Object.freeze([
       'the nullable subject.reference key columns must resolve as scalar Nullable(String) columns in both current revisions',
     ],
     script: 'builder-combine-nullable.mjs',
+    playwrightTests: { lifecycle: 'scripts/playwright/nullable-combine.spec.mjs' },
     cases: ['lifecycle'],
     requiredChecks: {
       lifecycle: [
@@ -747,6 +754,7 @@ export const registry = Object.freeze([
       'filter selection persistence across a full reload is not claimed',
     ],
     script: 'viewer-query.mjs',
+    playwrightTests: { output: 'scripts/playwright/viewer-query.spec.mjs' },
     cases: ['output'],
     requiredChecks: {
       output: {

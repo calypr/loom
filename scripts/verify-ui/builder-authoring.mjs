@@ -1,16 +1,60 @@
-import { runRepeatedEmpty } from './builder-repeated.mjs';
-import { runCohortExpand } from './builder-cohort-expand.mjs';
-import { runGroupEntry } from './builder-group-entry.mjs';
-import { browserURL, executeScenario } from './common.mjs';
+import { browserURL } from './builder-url.mjs';
 import { createHash, randomUUID } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import { createInterface } from 'node:readline';
 import { join } from 'node:path';
 import assert from 'node:assert/strict';
 import { assertCohortPatientIDColumns } from './cohort-identities.mjs';
-import { runPlaywrightCase } from './playwright-case.mjs';
-import { runPlaywrightAuthoring } from './playwright-authoring.mjs';
-import { runPlaywrightSuggestions } from './playwright-suggestions.mjs';
+import { configureNativePage } from '../lib/playwright-authoring-page.mjs';
+
+
+const withExpectedCancellations = async (page, report, specification, work) => {
+  const pending = new WeakMap();
+  let active = true;
+  const onRequest = request => {
+    try {
+      const url = new URL(request.url());
+      const headers = request.headers();
+      let body;
+      try { body = request.postDataJSON(); } catch { body = undefined; }
+      const input = body?.variables?.input ?? body?.input ?? body;
+      const requestId = headers['x-request-id'] ?? input?.requestId ?? input?.requestID ?? '';
+      if (active && url.origin === specification.origin && request.method() === specification.method
+        && specification.paths.includes(url.pathname)
+        && specification.requestIdPrefixes.some(prefix => requestId.startsWith(prefix))) {
+        pending.set(request, requestId);
+      }
+    } catch { /* unrelated requests stay in the official network report */ }
+  };
+  const onRequestFailed = request => {
+    const requestId = pending.get(request);
+    if (!active || !requestId || request.failure()?.errorText !== 'net::ERR_ABORTED') return;
+    const rawURL = request.url();
+    const entry = report.network.find(item => item.kind === 'network'
+      && item.rawURL === rawURL && item.method === specification.method
+      && item.errorText === 'net::ERR_ABORTED'
+      && item.requestDetails?.requestId === requestId
+      && item.triggerAction === specification.actionLabel);
+    if (!entry) return;
+    entry.canceled = true;
+    entry.cancellationReason = specification.reason;
+    entry.actionLabel = specification.actionLabel;
+    report.target.expectedCancellations ??= [];
+    report.target.expectedCancellations.push({
+      method: specification.method, path: new URL(rawURL).pathname, rawURL, requestId,
+      playwrightRequestId: entry.playwrightRequestId,
+      triggerAction: entry.triggerAction, reason: specification.reason, actionLabel: specification.actionLabel,
+    });
+  };
+  page.on('request', onRequest);
+  page.on('requestfailed', onRequestFailed);
+  try { return await work(); }
+  finally {
+    active = false;
+    page.removeListener('request', onRequest);
+    page.removeListener('requestfailed', onRequestFailed);
+  }
+};
 
 const readPatientOracle = async fixtureDir => {
   const sourcePath = join(fixtureDir, 'Patient.ndjson');
@@ -39,7 +83,8 @@ const readPatientOracle = async fixtureDir => {
   return { sourcePath, sha256: hash.digest('hex'), patientRecordCount, sourceIDs };
 };
 
-const runCohortRecode = context => runPlaywrightCase(context, 'builder-authoring', 'cohort-recode', async ({ page, browser, report, check, action }) => {
+export const cohortRecodeWorkflow = async ({ page, report, check, action }, context) => {
+  configureNativePage(page);
   const oracleBefore = await readPatientOracle(context.target.fixtureDir);
   const sourceIDs = oracleBefore.sourceIDs;
   const title = `Verify ${context.runID.slice(-10)} cohort recode`;
@@ -76,7 +121,7 @@ const runCohortRecode = context => runPlaywrightCase(context, 'builder-authoring
     const url = new URL(response.url());
     return url.origin === new URL(context.target.uiUrl).origin
       && url.pathname === bootstrapPath && response.request().method() === 'POST';
-  });
+  }, { timeout: 5000 });
   await page.goto(browserURL(context.target, context.target.fixtureProject, context.target.bootstrapExplorerId, 'builder'),
     { waitUntil: 'domcontentloaded' });
   const bootstrapResponse = await bootstrapResponsePromise;
@@ -392,7 +437,7 @@ const runCohortRecode = context => runPlaywrightCase(context, 'builder-authoring
     after: async () => page.locator('[aria-label="Add columns editor"]').waitFor({ state: 'visible' }),
   });
   const fieldsRelated = page.getByRole('button', { name: 'Fields and related data', exact: true });
-  await browser.withExpectedCancellations(catalogUnmountCancellation(['semantic-inventory', 'frame-source-options'],
+  await withExpectedCancellations(page, report, catalogUnmountCancellation(['semantic-inventory', 'frame-source-options'],
     ['paired-column-inventory-', 'frame-source-options-'], 'choose Fields and related data',
     'catalog component unmounted when Fields and related data opened'),
   () => action('choose Fields and related data', fieldsRelated, () => fieldsRelated.click(), {
@@ -475,7 +520,7 @@ const runCohortRecode = context => runPlaywrightCase(context, 'builder-authoring
     intentDigest: fieldPreview.acceptedByReceipt.intentDigest,
   };
   const closeEditor = page.getByRole('button', { name: 'Close operation editor', exact: true });
-  await browser.withExpectedCancellations(catalogUnmountCancellation(['semantic-inventory'], ['feature-catalog-'],
+  await withExpectedCancellations(page, report, catalogUnmountCancellation(['semantic-inventory'], ['feature-catalog-'],
     'close operation editor',
     'feature catalog unmounted when operation editor closed'),
   () => action('close operation editor', closeEditor, () => closeEditor.click(), {
@@ -727,22 +772,4 @@ const runCohortRecode = context => runPlaywrightCase(context, 'builder-authoring
   report.target.browserRequestEvidence = [...bootstrapRequestEvidence, ...previewEntries, ...choiceProposalEntries, ...commandEntries, ...reconciliationEntries]
     .map(entry => ({ identity: entry.identity, requestObjectIdentity: entry.requestObjectIdentity, requestId: entry.requestId, method: entry.method, path: entry.path, origin: entry.origin, status: entry.status, failure: entry.failure, outputId: entry.outputId }));
   report.target.uncoveredAdjacentBehavior = 'Raw ALL→ONE rejection for distinct Patient IDs is not exercised in this basic fixture cycle; the CDA transformed-category driver retains its raw disagreement rejection assertion.';
-});
-
-export const runBuilderAuthoring = async (context, caseNames) => {
-  const reports = [];
-  for (const caseName of caseNames) {
-    if (caseName === 'suggestions') reports.push(await runPlaywrightSuggestions(context));
-    else if (caseName === 'authoring') reports.push(await runPlaywrightAuthoring(context));
-    else if (caseName === 'repeated-empty') reports.push(await runRepeatedEmpty(context));
-    else if (caseName === 'cohort-expand') reports.push(await runCohortExpand(context));
-    else if (caseName === 'cohort-recode') reports.push(await runCohortRecode(context));
-    else if (caseName === 'group-entry') reports.push(await runGroupEntry(context));
-    else throw new Error(`unsupported Builder authoring case: ${caseName}`);
-  }
-  return reports;
 };
-
-if (import.meta.url === new URL(process.argv[1] ?? '', 'file:').href) {
-  await executeScenario({ id: 'builder-authoring', argv: process.argv.slice(2), runner: runBuilderAuthoring, mutating: true });
-}

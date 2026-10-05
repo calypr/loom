@@ -25,7 +25,7 @@ const parseRawBody = body => {
   catch { return String(body ?? ''); }
 };
 
-export function captureCDARequests(page, { apiOrigin, browserRequestOrigin = apiOrigin, appOrigins = [apiOrigin], ownedPathPrefix, report, responsePaths = /commands|selections|explicit-groups|row-definition-proposals|construction-choice-proposals|construction-proposals|construction-capabilities|row-lineage|population-mapping|preview/ } = {}) {
+export function captureCDARequests(page, { apiOrigin, browserRequestOrigin = apiOrigin, appOrigins = [apiOrigin], ownedPathPrefix, report, currentAction = () => undefined, responsePaths = /commands|selections|explicit-groups|row-definition-proposals|construction-choice-proposals|construction-proposals|construction-capabilities|row-lineage|population-mapping|preview/ } = {}) {
   if (!apiOrigin || !ownedPathPrefix || !report || !Array.isArray(report.nativeRequests)) {
     throw new TypeError('CDA request capture needs an API origin, owned path prefix, and nativeRequests report array');
   }
@@ -70,6 +70,7 @@ export function captureCDARequests(page, { apiOrigin, browserRequestOrigin = api
       query: parseBody(JSON.stringify(Object.fromEntries(url.searchParams.entries()))),
       authorizationHeaderPresent: Object.keys(headers).some(header => header.toLowerCase() === 'authorization'),
       startedAt: Date.now(),
+      ...(currentAction() ? { triggerAction: sanitizeText(currentAction()) } : {}),
       ...(body !== undefined ? { body } : {}),
     };
     byRequest.set(request, entry);
@@ -85,6 +86,7 @@ export function captureCDARequests(page, { apiOrigin, browserRequestOrigin = api
     entry.responseReceivedAt = Date.now();
     entry.serverRequestId = headers['x-request-id'];
     const readResponse = responsePaths.test(entry.path) || /related-expand-choices/.test(entry.path);
+    const httpFailure = response.status() >= 400;
     const read = Promise.resolve().then(async () => {
       try {
         if (readResponse) {
@@ -96,22 +98,27 @@ export function captureCDARequests(page, { apiOrigin, browserRequestOrigin = api
       } catch (error) {
         entry.responseReadError = sanitizeText(error?.message ?? error);
       } finally {
-        entry.completedAt = Date.now();
-        pendingReads.delete(read);
-        notify();
+        if (!httpFailure) {
+          entry.completedAt = Date.now();
+          pendingReads.delete(read);
+        }
       }
     });
     pendingReads.add(read);
-    if (response.status() >= 400) {
+    if (httpFailure) {
       const errorEntry = { kind: 'http', origin: entry.origin, path: entry.path, url: `${entry.origin}${entry.path}`, status: response.status(), requestId: entry.requestId, browserRequestId: entry.browserRequestId, method: entry.method, startedAt: entry.startedAt, request: entry.body };
-      const diagnostic = read.then(() => {
+      let pendingDiagnostic;
+      pendingDiagnostic = read.then(() => {
         if (entry.response !== undefined) errorEntry.response = entry.response;
         report.errors.push(errorEntry);
+        entry.completedAt = Date.now();
+        pendingReads.delete(read);
+      }).finally(() => {
+        pendingReads.delete(pendingDiagnostic);
+        notify();
       });
-      let pendingDiagnostic;
-      pendingDiagnostic = diagnostic.finally(() => pendingReads.delete(pendingDiagnostic));
       pendingReads.add(pendingDiagnostic);
-    }
+    } else void read.then(notify, notify);
   });
 
   page.on('requestfailed', request => {
@@ -131,7 +138,7 @@ export function captureCDARequests(page, { apiOrigin, browserRequestOrigin = api
       (report.assetFailures ??= []).push({ kind: 'console', url: location, status: 404 });
       return;
     }
-    report.errors.push({ kind: 'console', message: sanitizeText(message.text()) });
+    report.errors.push({ kind: 'console', message: sanitizeText(message.text()), ...(location ? { location: sanitizeText(location) } : {}) });
   });
 
   return {
@@ -154,7 +161,8 @@ export function captureCDARequests(page, { apiOrigin, browserRequestOrigin = api
       });
     },
     async flush() {
-      while (pendingReads.size) await Promise.allSettled([...pendingReads]);
+      await Promise.resolve();
+      return report.nativeRequests;
     },
   };
 }

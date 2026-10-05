@@ -101,10 +101,10 @@ test('reloaded preview uses its own fresh bounded sample and exact reload receip
 });
 
 test('full-population removal timing is locally declared before independent raw queries', async () => {
-  const source = await readFile(new URL('../../verify-cda-quantity-root-category-browser.mjs', import.meta.url), 'utf8');
+  const source = await readFile(new URL('../root-quantity-pivot-workflow.mjs', import.meta.url), 'utf8');
   const start = source.indexOf('const runFullPopulationLifecycle = async');
-  const end = source.indexOf('\ntry {', start);
-  assert(start >= 0 && end > start, 'Full-population lifecycle function must be present in the native verifier');
+  const end = source.indexOf('\n};', start);
+  assert(start >= 0 && end > start, 'Full-population lifecycle function must be present in the native workflow');
   const lifecycle = source.slice(start, end);
   const declaration = lifecycle.indexOf('const removePreviewRenderedAt = Date.now();');
   const measure = lifecycle.indexOf("measure('full CDA quantity Pivot removal preview', removeStarted, removePreviewRenderedAt);");

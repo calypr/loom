@@ -2,8 +2,8 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { browserURL, runPlaywrightCase } from './common.mjs';
-import { click, evaluate, fill, inspectAction, isActionable, recordPlaywrightTiming, reload, waitFor, goto, setActionEvidence } from './playwright-dom.mjs';
+import { browserURL } from './builder-url.mjs';
+import { click, configureNativePage, evaluate, fill, inspectAction, isActionable, recordPlaywrightTiming, reload, waitFor, goto } from '../lib/playwright-authoring-page.mjs';
 import { recordCheck } from './report.mjs';
 
 
@@ -15,35 +15,35 @@ const proposalReady = `Boolean(document.querySelector('[data-testid="constructio
 const proposalTableReady = (count) => `(()=>{const proposal=document.querySelector('[data-testid="construction-proposal-preview"][data-preview-status="ready"]');const table=proposal?.querySelector('table');return Boolean(table&&table.querySelectorAll('tbody tr[data-testid="construction-proposal-preview-row"]').length===${count})})()`;
 const normalize = (value) => String(value ?? '').replace(/\s+/g, ' ').trim();
 
-const createBlankExplorer = async (page, browser, target, runID, label, report) => {
+const createBlankExplorer = async (page, workflow, target, runID, label, report) => {
   await goto(page, browserURL(target, target.fixtureProject, target.bootstrapExplorerId, 'builder'),
     "document.body.innerText.includes('Build your first table') || document.body.innerText.includes('Dataset graph')");
   const title = `Verify ${runID.slice(-10)} ${label}`;
-  await recordPlaywrightTiming(report, page, browser, {
+  await recordPlaywrightTiming(report, page, workflow, {
     name: 'open Explorer creation',
-    action: () => click(page, 'summary', { name: 'New explorer' }),
+    action: () => click(workflow, 'summary', { name: 'New explorer' }),
     after: "Boolean(document.querySelector('#new-explorer-name'))",
     timeout: 5000,
   });
-  await fill(page, '#new-explorer-name', title);
-  await recordPlaywrightTiming(report, page, browser, {
+  await fill(workflow, '#new-explorer-name', title);
+  await recordPlaywrightTiming(report, page, workflow, {
     name: 'create blank Explorer',
-    action: () => click(page, 'button', { name: 'Create blank' }),
+    action: () => click(workflow, 'button', { name: 'Create blank' }),
     after: `document.querySelector('select[aria-label="Explorer"] option:checked')?.textContent.trim() === ${JSON.stringify(title)} && document.body.innerText.includes('Build your first table')`,
-    timeout: 10000,
+    timeout: 5000,
   });
   const explorer = await evaluate(page, "document.querySelector('select[aria-label=\"Explorer\"]')?.value || ''");
   requireCheck(report, 'correctness', 'created a fresh Explorer distinct from the bootstrap', Boolean(explorer && explorer !== target.bootstrapExplorerId), { title, explorer });
   return { explorer, title };
 };
 
-const addPatientTableRoot = async (page, browser, report, tableTitle = 'Patients') => {
-  await fill(page, '#first-table-name', tableTitle);
-  await recordPlaywrightTiming(report, page, browser, {
+const addPatientTableRoot = async (page, workflow, report, tableTitle = 'Patients') => {
+  await fill(workflow, '#first-table-name', tableTitle);
+  await recordPlaywrightTiming(report, page, workflow, {
     name: 'choose Patient row root and create first table',
-    action: () => click(page, 'button', { name: 'Choose Patient rows' }),
+    action: () => click(workflow, 'button', { name: 'Choose Patient rows' }),
     after: `document.body.innerText.includes('DATASET WORKSPACE') && document.body.innerText.includes(${JSON.stringify(tableTitle)}) && !document.body.innerText.includes('Build your first table')`,
-    timeout: 30000,
+    timeout: 5000,
   });
 };
 
@@ -85,8 +85,9 @@ const assertGroupPairs = (grid, expectedIDs, expectedItemLabel, phase) => {
   return { headers: grid.headers, rowCount: grid.rows.length, pairs };
 };
 
-const run = (context) => runPlaywrightCase(context, 'builder-authoring', 'cohort-expand', async ({ page, browser, action, report }) => {
-  setActionEvidence(browser, report, action);
+export const cohortExpandWorkflow = async (workflow, context = workflow) => {
+  const { page, report } = workflow;
+  configureNativePage(page);
   assert.equal(context.custom, false, 'This authoring case requires an owned isolated fixture project.');
   assert.equal(context.seed?.fresh, true, 'This case must use a fresh verification project.');
   assert(context.target.fixtureProject?.startsWith('loom_dev_verify_'), 'Expected a fresh loom_dev_verify project.');
@@ -106,9 +107,9 @@ const run = (context) => runPlaywrightCase(context, 'builder-authoring', 'cohort
   };
   requireCheck(report, 'correctness', 'two fixture Patient rows are read from the independent fixture oracle', true, report.target.fixtureRawOracle);
 
-  const { explorer } = await createBlankExplorer(page, browser, context.target, context.runID, 'cohort-expand', report);
+  const { explorer } = await createBlankExplorer(page, workflow, context.target, context.runID, 'cohort-expand', report);
   report.target.explorer = explorer;
-  await addPatientTableRoot(page, browser, report, 'Patients');
+  await addPatientTableRoot(page, workflow, report, 'Patients');
 
   const project = context.target.fixtureProject;
   const generation = context.target.fixtureGeneration;
@@ -184,33 +185,33 @@ const run = (context) => runPlaywrightCase(context, 'builder-authoring', 'cohort
 
   const outputSelector = `[data-testid="construction-table-${outputId}"]`;
   await reload(page, `Boolean(document.querySelector(${JSON.stringify(outputSelector)}))`);
-  await click(page, outputSelector);
-  await waitFor(page, "document.querySelector('[data-testid=construction-rows-settings-trigger]')?.disabled === false", 10000);
+  await click(workflow, outputSelector);
+  await waitFor(page, "document.querySelector('[data-testid=construction-rows-settings-trigger]')?.disabled === false", 5000);
 
   const rowShapeSelector = 'select[aria-label="What should each row represent?"]';
   const cohortShape = `explicit:${cohort.revisionId}`;
   const unmatchedSelector = 'select[aria-label="Unmatched record policy"]';
-  await recordPlaywrightTiming(report, page, browser, {
+  await recordPlaywrightTiming(report, page, workflow, {
     name: 'select exact named cohort row shape',
     action: async () => {
-      await click(page, '[data-testid="construction-rows-settings-trigger"]');
+      await click(workflow, '[data-testid="construction-rows-settings-trigger"]');
       await waitFor(page, `Boolean(document.querySelector(${JSON.stringify(rowShapeSelector)}))`, 5000);
       const shapeAction = await inspectAction(page, rowShapeSelector);
       if (!isActionable(shapeAction)) throw new Error(`Named cohort row-shape select is not actionable: ${JSON.stringify(shapeAction)}`);
-      await fill(page, rowShapeSelector, cohortShape);
+      await fill(workflow, rowShapeSelector, cohortShape);
       await waitFor(page, `document.querySelector(${JSON.stringify(unmatchedSelector)})?.disabled === false`, 5000);
-      await fill(page, unmatchedSelector, `${cohortShape}:ERROR`);
+      await fill(workflow, unmatchedSelector, `${cohortShape}:ERROR`);
     },
     after: `(()=>{const preview=document.querySelector('[aria-label="Row definition preview"]')?.innerText||'';const apply=[...document.querySelectorAll('[aria-label="Row definition settings"] button')].find(button=>button.innerText.trim()==='Apply row definition');return preview.includes('2 rows → 1 rows')&&Boolean(apply&&!apply.disabled)})()`,
-    timeout: 10000,
+    timeout: 5000,
     budget: 5000,
   });
   requireCheck(report, 'usability', 'native Configure rows exposes and selects the exact saved cohort', true, { revisionId: cohort.revisionId, policy: 'ERROR' });
-  await recordPlaywrightTiming(report, page, browser, {
+  await recordPlaywrightTiming(report, page, workflow, {
     name: 'apply named cohort row definition',
-    action: () => click(page, '[aria-label="Row definition settings"] button', { name: 'Apply row definition' }),
+    action: () => click(workflow, '[aria-label="Row definition settings"] button', { name: 'Apply row definition' }),
     after: rowTableReady(1),
-    timeout: 10000,
+    timeout: 5000,
     budget: 5000,
   });
   let grid = await readGrid(page);
@@ -223,31 +224,31 @@ const run = (context) => runPlaywrightCase(context, 'builder-authoring', 'cohort
   assert.equal(document?.rows?.groups?.source?.explicit?.revisionId, cohort.revisionId);
   requireCheck(report, 'correctness', 'native Configure rows applies the exact cohort and retains its displayed name', true, { grid, revisionId: cohort.revisionId });
 
-  await waitFor(page, "document.querySelector('[data-testid=construction-action-add-columns]')?.disabled === false", 10000);
+  await waitFor(page, "document.querySelector('[data-testid=construction-action-add-columns]')?.disabled === false", 5000);
   const memberPolicySelector = 'select[aria-label="Values per grouped row"]';
   const rawFieldDetails = '[data-testid="feature-catalog-raw-fields"]';
   const patientIDChoice = 'input[aria-label="Select Patient.id"]';
-  await recordPlaywrightTiming(report, page, browser, {
+  await recordPlaywrightTiming(report, page, workflow, {
     name: 'propose Patient.id cohort member field with ALL',
     action: async () => {
-      await click(page, '[data-testid="construction-action-add-columns"]');
+      await click(workflow, '[data-testid="construction-action-add-columns"]');
       await waitFor(page, `Boolean(document.querySelector('[aria-label="Add columns editor"]'))`, 5000);
-      await click(page, '[aria-label="Add columns editor"] button', { includes: 'Fields and related data' });
+      await click(workflow, '[aria-label="Add columns editor"] button', { includes: 'Fields and related data' });
       await waitFor(page, `document.querySelector(${JSON.stringify(memberPolicySelector)})?.disabled === false`, 5000);
       const policyAction = await inspectAction(page, memberPolicySelector);
       if (!isActionable(policyAction)) throw new Error(`Grouped member policy select is not actionable: ${JSON.stringify(policyAction)}`);
-      await fill(page, memberPolicySelector, 'ALL');
+      await fill(workflow, memberPolicySelector, 'ALL');
       await waitFor(page, `Boolean(document.querySelector(${JSON.stringify(rawFieldDetails)}))`, 5000);
       const rawFieldsOpen = await evaluate(page, `Boolean(document.querySelector(${JSON.stringify(rawFieldDetails)})?.open)`);
-      if (!rawFieldsOpen) await click(page, `${rawFieldDetails} summary`);
+      if (!rawFieldsOpen) await click(workflow, `${rawFieldDetails} summary`);
       await waitFor(page, `Boolean(document.querySelector(${JSON.stringify(patientIDChoice)}))`, 5000);
       const candidateAction = await inspectAction(page, patientIDChoice);
       if (!isActionable(candidateAction)) throw new Error(`Patient.id field is not natively selectable: ${JSON.stringify(candidateAction)}`);
-      await click(page, patientIDChoice);
-      await click(page, '[aria-label="Add columns editor"] button', { includes: 'Add 1 selected feature' });
+      await click(workflow, patientIDChoice);
+      await click(workflow, '[aria-label="Add columns editor"] button', { includes: 'Add 1 selected feature' });
     },
     after: `document.querySelector('[data-testid="construction-choice-proposal-panel"]')?.dataset.proposalStatus==='ready'`,
-    timeout: 10000,
+    timeout: 5000,
     budget: 5000,
   });
   const memberProposal = await evaluate(page, `(()=>{const panel=document.querySelector('[data-testid="construction-choice-proposal-panel"]');return {status:panel?.dataset.proposalStatus,rows:[...document.querySelectorAll('[data-testid="construction-proposal-preview-row"]')].map(row=>[...row.querySelectorAll('td')].map(cell=>cell.innerText.trim()))}})()`);
@@ -255,11 +256,11 @@ const run = (context) => runPlaywrightCase(context, 'builder-authoring', 'cohort
   assert.equal(memberProposal.rows.length, 1);
   assert.equal(memberProposal.rows[0].at(-1), sourceIDs.join('; '), `Native ALL member preview must contain both exact source IDs: ${JSON.stringify(memberProposal)}`);
   report.target.memberFieldProposal = memberProposal;
-  await recordPlaywrightTiming(report, page, browser, {
+  await recordPlaywrightTiming(report, page, workflow, {
     name: 'apply Patient.id member field with ALL',
-    action: () => click(page, '[data-testid="construction-choice-proposal-panel"] button', { name: 'Apply columns' }),
+    action: () => click(workflow, '[data-testid="construction-choice-proposal-panel"] button', { name: 'Apply columns' }),
     after: `!document.querySelector('[data-testid="construction-choice-proposal-panel"]')&&${rowTableReady(1)}`,
-    timeout: 10000,
+    timeout: 5000,
     budget: 5000,
   });
   grid = await readGrid(page);
@@ -282,10 +283,10 @@ const run = (context) => runPlaywrightCase(context, 'builder-authoring', 'cohort
   const openRowsDialog = async () => {
     if (!await evaluate(page, `Boolean(document.querySelector('[aria-label="Row definition settings"]'))`)) {
       if (!await evaluate(page, `Boolean(document.querySelector('[data-testid="construction-rows-settings-trigger"]'))`)) {
-        await click(page, '[data-testid="construction-close-operation-editor"]');
+        await click(workflow, '[data-testid="construction-close-operation-editor"]');
       }
       await waitFor(page, `document.querySelector('[data-testid="construction-rows-settings-trigger"]')?.disabled === false`, 5000);
-      await click(page, '[data-testid="construction-rows-settings-trigger"]');
+      await click(workflow, '[data-testid="construction-rows-settings-trigger"]');
       await waitFor(page, `Boolean(document.querySelector('[aria-label="Row definition settings"]'))`, 5000);
     }
   };
@@ -295,11 +296,11 @@ const run = (context) => runPlaywrightCase(context, 'builder-authoring', 'cohort
     report.target.expandRowsControl = action;
     requireCheck(report, 'usability', 'native Configure rows exposes an actionable Make one row per list value control', isActionable(action), action);
     if (!isActionable(action)) throw new Error(`Authored list EXPAND is unavailable for the saved cohort member ALL array: ${JSON.stringify(action)}`);
-    await recordPlaywrightTiming(report, page, browser, {
+    await recordPlaywrightTiming(report, page, workflow, {
       name,
-      action: () => click(page, '[data-testid="construction-action-expand-rows"]'),
+      action: () => click(workflow, '[data-testid="construction-action-expand-rows"]'),
       after: `Boolean(document.querySelector('[aria-label="Expand repeated values"]'))&&${proposalReady}&&${proposalTableReady(2)}`,
-      timeout: 10000,
+      timeout: 5000,
       budget: 5000,
     });
     const selection = await evaluate(page, `(()=>{const select=document.querySelector('select[aria-label="Repeated field"]');return {value:select?.value,label:select?.selectedOptions?.[0]?.textContent?.trim()}})()`);
@@ -335,11 +336,11 @@ const run = (context) => runPlaywrightCase(context, 'builder-authoring', 'cohort
   assert.equal(beforeCancel.draftDigest, cohortBaseline.draftDigest);
   const cancelButton = await inspectAction(page, '[data-testid="construction-cancel-proposal"]');
   requireCheck(report, 'usability', 'native EXPAND proposal exposes an actionable Cancel control', isActionable(cancelButton), cancelButton);
-  await recordPlaywrightTiming(report, page, browser, {
+  await recordPlaywrightTiming(report, page, workflow, {
     name: 'cancel authored list EXPAND proposal',
-    action: () => click(page, '[data-testid="construction-cancel-proposal"]'),
+    action: () => click(workflow, '[data-testid="construction-cancel-proposal"]'),
     after: `!document.querySelector('[data-testid="construction-proposal-panel"]')&&${rowTableReady(1)}`,
-    timeout: 10000,
+    timeout: 5000,
     budget: 5000,
   });
   grid = await readGrid(page);
@@ -353,15 +354,15 @@ const run = (context) => runPlaywrightCase(context, 'builder-authoring', 'cohort
   await enterExpansion('open authored list EXPAND proposal for Apply');
   const actualInput = await evaluate(page, `(()=>{const select=document.querySelector('select[aria-label="Repeated field"]');return {value:select?.value,label:select?.selectedOptions?.[0]?.textContent?.trim()}})()`);
   assert.deepEqual(actualInput, firstExpandSelection, 'Cancel/re-entry must retain the same source list binding.');
-  await click(page, '[data-testid="construction-reshape-expand-advanced"] summary');
+  await click(workflow, '[data-testid="construction-reshape-expand-advanced"] summary');
   const initialOutputLabel = await evaluate(page, `document.querySelector('input[aria-label="Expanded item label"]')?.value||''`);
   assert(initialOutputLabel, 'EXPAND must expose its saved item label for editing.');
   const editedOutputLabel = 'Cohort member ID';
-  await recordPlaywrightTiming(report, page, browser, {
+  await recordPlaywrightTiming(report, page, workflow, {
     name: 'edit authored EXPAND item label before Apply',
-    action: () => fill(page, 'input[aria-label="Expanded item label"]', editedOutputLabel),
+    action: () => fill(workflow, 'input[aria-label="Expanded item label"]', editedOutputLabel),
     after: `Boolean(document.querySelector('[data-testid="construction-proposal-panel"][data-proposal-status="ready"]'))&&${proposalTableReady(2)}&&[...document.querySelectorAll('[data-testid="construction-proposal-preview"] th')].some(header=>(header.querySelector('span')?.innerText ?? header.innerText).trim().toLowerCase()===${JSON.stringify(editedOutputLabel.toLowerCase())})`,
-    timeout: 10000,
+    timeout: 5000,
     budget: 5000,
   });
   const proposedRows = assertGroupPairs(await readGrid(page), sourceIDs, editedOutputLabel, 'Edited automatic EXPAND proposal');
@@ -370,11 +371,11 @@ const run = (context) => runPlaywrightCase(context, 'builder-authoring', 'cohort
   assert.equal(builder.draftDigest, cohortBaseline.draftDigest, 'Proposal preview must not alter the saved Builder digest.');
   const applyProposal = await inspectAction(page, '[data-testid="construction-apply-proposal"]');
   requireCheck(report, 'usability', 'native EXPAND proposal exposes an actionable Apply control after exact preview', isActionable(applyProposal), applyProposal);
-  await recordPlaywrightTiming(report, page, browser, {
+  await recordPlaywrightTiming(report, page, workflow, {
     name: 'apply authored list EXPAND',
-    action: () => click(page, '[data-testid="construction-apply-proposal"]'),
+    action: () => click(workflow, '[data-testid="construction-apply-proposal"]'),
     after: `!document.querySelector('[data-testid="construction-proposal-panel"]')&&${rowTableReady(2)}`,
-    timeout: 10000,
+    timeout: 5000,
     budget: 5000,
   });
   let applied = await assertAppliedCohortRows(editedOutputLabel, 'Applied EXPAND');
@@ -397,17 +398,17 @@ const run = (context) => runPlaywrightCase(context, 'builder-authoring', 'cohort
   requireCheck(report, 'correctness', 'Apply saves EXPAND from the exact member ID list with retained cohort rows', true, { applied: report.target.appliedExpansion, source: applied.document.rows.groups.source.explicit });
 
   const reloadAndCheckExpansion = async (timingName, label) => {
-    await recordPlaywrightTiming(report, page, browser, {
+    await recordPlaywrightTiming(report, page, workflow, {
       name: timingName,
       action: async () => {
         await reload(page, `Boolean(document.querySelector(${JSON.stringify(outputSelector)}))`);
-        if (!await evaluate(page, `Boolean(document.querySelector(${JSON.stringify(tableSelector)}))`)) await click(page, outputSelector);
+        if (!await evaluate(page, `Boolean(document.querySelector(${JSON.stringify(tableSelector)}))`)) await click(workflow, outputSelector);
       },
       after: rowTableReady(2),
-      timeout: 10000,
+      timeout: 5000,
       budget: 5000,
     });
-    await waitFor(page, rowTableReady(2), 10000);
+    await waitFor(page, rowTableReady(2), 5000);
     const value = await assertAppliedCohortRows(label, timingName);
     savedStep = value.document.construction.steps.at(-1);
     assert.equal(savedStep.id, report.target.appliedExpansion.stepId);
@@ -424,14 +425,14 @@ const run = (context) => runPlaywrightCase(context, 'builder-authoring', 'cohort
     const editSelector = `[data-testid="construction-row-edit-${savedStep.id}"]`;
     const action = await inspectAction(page, editSelector);
     if (!isActionable(action)) throw new Error(`Saved EXPAND Edit is not actionable: ${JSON.stringify(action)}`);
-    await click(page, editSelector);
+    await click(workflow, editSelector);
     await waitFor(page, `document.querySelector('input[aria-label="Expanded item label"]')?.value===${JSON.stringify(editedOutputLabel)}`, 5000);
     const advancedSummary = '[data-testid="construction-reshape-expand-advanced"] summary';
     const advancedAction = await inspectAction(page, advancedSummary);
     if (!isActionable(advancedAction)) throw new Error(`Saved EXPAND Advanced options are not actionable: ${JSON.stringify(advancedAction)}`);
-    await recordPlaywrightTiming(report, page, browser, {
+    await recordPlaywrightTiming(report, page, workflow, {
       name: 'open saved EXPAND item-label options',
-      action: () => click(page, advancedSummary),
+      action: () => click(workflow, advancedSummary),
       after: `document.querySelector('[data-testid="construction-reshape-expand-advanced"]')?.open===true&&document.querySelector('input[aria-label="Expanded item label"]')?.value===${JSON.stringify(editedOutputLabel)}`,
       timeout: 5000,
       budget: 5000,
@@ -439,19 +440,19 @@ const run = (context) => runPlaywrightCase(context, 'builder-authoring', 'cohort
   };
   await reopenSavedExpand();
   const savedEditLabel = 'Expanded Patient identifier';
-  await recordPlaywrightTiming(report, page, browser, {
+  await recordPlaywrightTiming(report, page, workflow, {
     name: 'edit saved authored EXPAND item label',
-    action: () => fill(page, 'input[aria-label="Expanded item label"]', savedEditLabel),
+    action: () => fill(workflow, 'input[aria-label="Expanded item label"]', savedEditLabel),
       after: `Boolean(document.querySelector('[data-testid="construction-proposal-panel"][data-proposal-status="ready"]'))&&${proposalTableReady(2)}&&[...document.querySelectorAll('[data-testid="construction-proposal-preview"] th')].some(header=>(header.querySelector('span')?.innerText ?? header.innerText).trim().toLowerCase()===${JSON.stringify(savedEditLabel.toLowerCase())})`,
-    timeout: 10000,
+    timeout: 5000,
     budget: 5000,
   });
   const editGrid = assertGroupPairs(await readGrid(page), sourceIDs, savedEditLabel, 'Saved EXPAND edit Preview');
-  await recordPlaywrightTiming(report, page, browser, {
+  await recordPlaywrightTiming(report, page, workflow, {
     name: 'apply saved authored EXPAND label edit',
-    action: () => click(page, '[data-testid="construction-apply-proposal"]'),
+    action: () => click(workflow, '[data-testid="construction-apply-proposal"]'),
     after: `!document.querySelector('[data-testid="construction-proposal-panel"]')&&${rowTableReady(2)}`,
-    timeout: 10000,
+    timeout: 5000,
     budget: 5000,
   });
   applied = await assertAppliedCohortRows(savedEditLabel, 'Applied saved EXPAND label edit');
@@ -471,11 +472,11 @@ const run = (context) => runPlaywrightCase(context, 'builder-authoring', 'cohort
   const removeSelector = `[data-testid="construction-row-remove-${savedStep.id}"]`;
   const removeAction = await inspectAction(page, removeSelector);
   requireCheck(report, 'usability', 'native Rows history exposes an actionable saved EXPAND removal', isActionable(removeAction), removeAction);
-  await recordPlaywrightTiming(report, page, browser, {
+  await recordPlaywrightTiming(report, page, workflow, {
     name: 'propose removing authored list EXPAND',
-    action: () => click(page, removeSelector),
+    action: () => click(workflow, removeSelector),
     after: `Boolean(document.querySelector('[data-testid="construction-proposal-panel"][data-proposal-status="ready"]'))&&${proposalTableReady(1)}&&Boolean(document.querySelector('[data-testid="construction-removal-summary"]'))`,
-    timeout: 10000,
+    timeout: 5000,
     budget: 5000,
   });
   grid = await readGrid(page);
@@ -484,11 +485,11 @@ const run = (context) => runPlaywrightCase(context, 'builder-authoring', 'cohort
   assert.equal(grid.rows[0][grid.headers.findIndex(header => header.toLowerCase() === 'patient id')], sourceIDs.join('; '));
   const removal = await inspectAction(page, '[data-testid="construction-apply-proposal"]');
   requireCheck(report, 'correctness', 'EXPAND removal proposal previews the restored cohort and exact ALL ID array', isActionable(removal), { action: removal, grid, revisionId: cohort.revisionId });
-  await recordPlaywrightTiming(report, page, browser, {
+  await recordPlaywrightTiming(report, page, workflow, {
     name: 'apply EXPAND removal and restore cohort list',
-    action: () => click(page, '[data-testid="construction-apply-proposal"]'),
+    action: () => click(workflow, '[data-testid="construction-apply-proposal"]'),
     after: `!document.querySelector('[data-testid="construction-proposal-panel"]')&&${rowTableReady(1)}`,
-    timeout: 10000,
+    timeout: 5000,
     budget: 5000,
   });
   const restored = await checkCohortState(undefined, 0, 'Applied EXPAND removal');
@@ -498,17 +499,17 @@ const run = (context) => runPlaywrightCase(context, 'builder-authoring', 'cohort
   assert.equal(grid.rows[0][grid.headers.findIndex(header => header.toLowerCase() === 'patient id')], sourceIDs.join('; '));
   requireCheck(report, 'persistence', 'removing EXPAND restores the original one-row named cohort with its exact ALL array', true, { grid, revisionId: cohort.revisionId, sourceIDs, draftVersion: restored.builder.draftVersion, draftDigest: restored.builder.draftDigest });
 
-  await recordPlaywrightTiming(report, page, browser, {
+  await recordPlaywrightTiming(report, page, workflow, {
     name: 'reload restored named cohort and ALL member list',
     action: async () => {
       await reload(page, `Boolean(document.querySelector(${JSON.stringify(outputSelector)}))`);
-      if (!await evaluate(page, `Boolean(document.querySelector(${JSON.stringify(tableSelector)}))`)) await click(page, outputSelector);
+      if (!await evaluate(page, `Boolean(document.querySelector(${JSON.stringify(tableSelector)}))`)) await click(workflow, outputSelector);
     },
     after: rowTableReady(1),
-    timeout: 10000,
+    timeout: 5000,
     budget: 5000,
   });
-  await waitFor(page, rowTableReady(1), 10000);
+  await waitFor(page, rowTableReady(1), 5000);
   restored.builder = await readBuilder();
   const finalDocument = restored.builder.workspace.documents.find((item) => item.output.id === outputId);
   assert.equal(finalDocument?.rows?.groups?.source?.explicit?.revisionId, cohort.revisionId);
@@ -519,6 +520,4 @@ const run = (context) => runPlaywrightCase(context, 'builder-authoring', 'cohort
   assert.equal(grid.rows[0][grid.headers.findIndex(header => header.toLowerCase() === 'group label')], cohortLabel);
   assert.equal(grid.rows[0][grid.headers.findIndex(header => header.toLowerCase() === 'patient id')], sourceIDs.join('; '));
   requireCheck(report, 'persistence', 'final reload restores the exact cohort source and raw ALL member values', true, { grid, revisionId: cohort.revisionId, sourceIDs, memberColumnId: idColumn.columnId, constructionStepCount: finalDocument.construction?.steps?.length ?? 0 });
-});
-
-export const runCohortExpand = (context) => run(context);
+};

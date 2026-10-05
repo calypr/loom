@@ -92,3 +92,56 @@ took 17.6 seconds; its browser phase took 13.2 seconds, with a slowest action of
 Evidence: `/private/tmp/loom-native-join-v1-evidence/results.json` and
 `/private/tmp/loom-native-join-v1-domain.json`. Both Combine workflows now use
 native specs; their old runner and executable module tail have been removed.
+
+## Batch conversion checkpoint
+
+The operator changed sequencing on 2026-10-04: finish all mechanical conversions
+before running the combined test batch. Preserve the original oracles and
+lifecycle assertions, integrate ready patches in parallel, then freeze source
+and run native cases. Investigate failures against that same checkpoint.
+Syntax and discovery checks may catch broken extraction before the freeze;
+they are not browser evidence. The earlier one-workflow-at-a-time sequence is
+superseded for this migration.
+
+Nullable Join passed its full native lifecycle before this sequencing change:
+26 timed actions, all required checks, no unexpected errors, 16.7 seconds for
+the command and 12.5 seconds for the browser lifecycle. Its source fingerprint
+was `3f9d1f894c4b6cb3bfc882eaf2a2313206d25517a051a1b4b1026cd527ba69da`.
+Evidence is `/private/tmp/loom-native-nullable-v5-evidence/results.json` and
+`/private/tmp/loom-native-nullable-v5-domain.json`.
+
+Four earlier runs repaired harness assumptions: the preview is outside the
+proposal panel, removal restores the original empty target, exact version-1
+empty construction is semantically equivalent to absent construction, and
+Explorer creation checks must actually be recorded. These were harness repair,
+not product fixes. Raw rows, scoped receipts, Cancel state, and source documents
+remain checked. The established strict empty-construction normalization is
+shared with the existing Combine oracle; other document changes remain errors.
+
+Controls (three cases) and load recovery (two cases) are mechanically integrated
+but have not run natively. Shared fixture changes have also landed in the
+working tree. This makes eight converted registered cases and three historical
+browser passes; it does not establish an eight-case suite pass.
+
+Draft Combine (three cases) and Viewer query (one case) are now mechanically
+integrated as well. Twelve registered cases have native source ports; the
+combined browser pass remains pending until the conversion batch is complete.
+
+The first standalone source ports are integrated for Add columns dialogs,
+related-record eligibility, and publication with Viewer reload. These are
+mechanical source ports, not new browser passes. The integrated registered
+workflows now cap inherited browser waits at five seconds; API and fixture
+preparation timeouts remain separate. Viewer action readiness uses native
+retrying assertions instead of immediate disabled-state checks.
+
+The standalone inventory scans 85 root verifier sources plus one UI-package
+source. It records browser consumers, retained API-only tools, pure oracles,
+and obsolete historical prototypes separately. Source-to-native-case mappings
+will be reconciled before the combined checkpoint is frozen.
+
+All 22 registered cases now have native specs and direct workflow functions.
+The old custom runner, DOM action helper, CLI dispatcher, and their test-only
+compatibility exports are retired. The basic fixture context now supports the
+owned fresh-fixture path directly. Historical helper tests were removed; the
+Builder readiness and pure preview/oracle assertions remain. The combined test
+batch is still pending completion of standalone ports and the shared CDA fixture.

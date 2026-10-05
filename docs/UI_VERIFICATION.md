@@ -13,7 +13,7 @@ LOOM_DEV_COMPOSE_PROJECT=loom-dev-6d7df93d6a37 \
 LOOM_DEV_API_PORT=8188 \
 LOOM_DEV_UI_PORT=30008 \
 LOOM_DEV_PROJECT=loom_dev_c89a69d7e137 \
-node scripts/verify-ui/builder-controls.mjs --case recompile
+./scripts/node_modules/.bin/playwright test --config scripts/playwright.config.mjs builder-controls.spec.mjs --grep Recompile
 ```
 
 The baseline and historical sections below describe earlier checkpoints. Consult
@@ -82,14 +82,14 @@ make dev-doctor
 Run the workflows independently:
 
 ```bash
-node scripts/verify-ui/builder-load.mjs
-node scripts/verify-ui/builder-authoring.mjs
-node scripts/verify-ui/viewer-query.mjs
-node scripts/verify-ui/builder-controls.mjs
+./scripts/node_modules/.bin/playwright test --config scripts/playwright.config.mjs builder-load.spec.mjs
+./scripts/node_modules/.bin/playwright test --config scripts/playwright.config.mjs builder-authoring.spec.mjs
+./scripts/node_modules/.bin/playwright test --config scripts/playwright.config.mjs viewer-query.spec.mjs
+./scripts/node_modules/.bin/playwright test --config scripts/playwright.config.mjs builder-controls.spec.mjs
 ```
 
-Use `--help` on a script to inspect its options. Run one browser verifier at a
-time. Keep watched source unchanged during the run. The existing
+Use Playwright `--list` to discover cases and `--grep` to select a workflow.
+Run one browser worker at a time. Keep watched source unchanged during the run. The existing
 `make verify-fast` still checks publication, filtering, and CSV export against
 the synthetic fixture.
 

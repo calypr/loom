@@ -1,3 +1,7 @@
+This document records the historical library/CDP migration checkpoint. Its
+commands and pass counts describe that source checkpoint. Current native runner
+commands and coverage status are in [PLAYWRIGHT_TEST_MIGRATION.md](PLAYWRIGHT_TEST_MIGRATION.md).
+
 ## Integrated working-tree checkpoint
 
 The migration checkpoint was merged into `feature/construction-workspace` at

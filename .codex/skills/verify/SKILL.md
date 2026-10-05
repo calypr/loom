@@ -133,14 +133,20 @@ browser session at a time. A passed historical report remains useful but is
 not current proof: `node scripts/verify-ui/coverage-status.mjs` shows status
 and source/build freshness separately. Missing API build identity is unknown.
 
-For an already loaded CDA generation on an explicitly named owned development
-stack, use `node scripts/verify-ui/builder-authoring.mjs --case authoring
---reuse-owned-dataset`, `--case suggestions --reuse-owned-dataset`, or
-`--case cohort-recode --reuse-owned-dataset`. The
-flag validates that stack and its bootstrap Builder, then creates a fresh
-Explorer without uploading the large dataset again. The CDA authoring report
-retains a failed Publish timing even when preview values and reload persistence
-pass; use the command and exact evidence paths in the migration record.
+Run registered workflows through the official native test runner:
+
+```bash
+./scripts/node_modules/.bin/playwright test --config scripts/playwright.config.mjs builder-authoring.spec.mjs --grep cohort-recode
+```
+
+Use `playwrightTests` in the registry to select the spec, then `--grep` for the
+case. The native basic fixture creates a fresh disposable project with the
+case's declared source files. Real CDA follow-up uses the native CDA specs and
+`LOOM_CDA_*` target options on the already loaded, validated owned stack. It does
+not upload the large dataset again. Retired standalone browser modules are
+workflow libraries; do not invoke them with Node or the old reuse flags.
+See `docs/PLAYWRIGHT_TEST_MIGRATION.md` for checkpoint status. Source conversion
+and test discovery do not establish runtime or lifecycle passes.
 
 ## Launch
 

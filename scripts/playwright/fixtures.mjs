@@ -1,15 +1,23 @@
 import { test as base, expect } from '@playwright/test';
 import { performance } from 'node:perf_hooks';
-import { capabilityBinding, capabilityResponseMatches, isIncidentalFavicon, supersedingCapabilityRequest } from './network-evidence.mjs';
+import {
+  applyInjectedFaultPolicy,
+  capabilityBinding,
+  capabilityResponseMatches,
+  isIncidentalFavicon,
+  matchesOwnedFaultRequest,
+  ownedFaultTarget,
+  supersedingCapabilityRequest,
+} from './network-evidence.mjs';
 import { checkContainerApiBuildStamp } from '../lib/api-build-freeze.mjs';
-import { sanitizePayload, sanitizeText } from '../lib/playwright-browser.mjs';
+import { sanitizeBody, sanitizePayload, sanitizeText } from '../lib/playwright-browser.mjs';
 import {
   createRunContext,
+  environmentForFixtureDir,
   makeReportLocation,
-  parseArgs,
   scenarioFor,
   validateScenarioCase,
-} from '../verify-ui/cli.mjs';
+} from '../verify-ui/fixture-context.mjs';
 import { createReport, finishReport, recordCheck, writeReport } from '../verify-ui/report.mjs';
 import { requiredChecksFor } from '../verify-ui/registry.mjs';
 import { sourceFingerprintChangedPaths, sourceFingerprintWithManifest } from '../verify-ui/source-fingerprint.mjs';
@@ -26,6 +34,20 @@ const safeURL = (raw) => {
   } catch {
     return safeText(raw);
   }
+};
+
+const requestDiagnostic = (request) => {
+  let body;
+  try { body = request.postDataJSON(); } catch { body = undefined; }
+  const input = body?.variables?.input ?? body ?? {};
+  const headers = request.headers();
+  return sanitizePayload({
+    requestId: headers['x-request-id'] ?? body?.requestId ?? body?.requestID ?? null,
+    draftVersion: input.expectedDraftVersion ?? input.draftVersion ?? null,
+    draftDigest: input.expectedDraftDigest ?? input.draftDigest ?? null,
+    outputId: input.outputId ?? null,
+    stageId: input.stageId ?? null,
+  });
 };
 
 const apiIdentity = async (target) => {
@@ -59,15 +81,16 @@ export { expect };
 export const test = base.extend({
   scenarioID: ['builder-combine', { option: true }],
   caseName: ['append', { option: true }],
+  fixtureDir: [undefined, { option: true }],
 
-  loomContext: [async ({ scenarioID, caseName }, use, testInfo) => {
+  loomContext: [async ({ scenarioID, caseName, fixtureDir }, use, testInfo) => {
     const setupStarted = performance.now();
     const scenario = scenarioFor(scenarioID);
     validateScenarioCase(scenario, caseName);
-    const args = parseArgs([]);
-    args.caseName = caseName;
+    const args = { caseName };
     const contextStarted = performance.now();
-    const context = await createRunContext(args, scenario, { mutating: scenarioID === 'builder-combine' });
+    const env = environmentForFixtureDir(process.env, fixtureDir);
+    const context = await createRunContext(args, scenario, { env });
     const contextSetupMs = performance.now() - contextStarted;
     const location = makeReportLocation(context, scenarioID, caseName);
     const report = createReport({
@@ -148,7 +171,8 @@ export const test = base.extend({
     const apiAfterStarted = performance.now();
     try {
       const apiAtEnd = await apiIdentity(context.target);
-      report.apiBuildIdentity = { before: apiAtStart?.identity ?? null, after: apiAtEnd.identity };
+      report.apiBuildFreeze = { before: apiAtStart?.identity ?? null, after: apiAtEnd.identity };
+      report.target.apiBuildIdentityAfter = apiAtEnd.identity;
       recordCheck(report, 'correctness', 'API build identity stayed unchanged during browser run',
         Boolean(apiAtStart?.identity && apiAtEnd.identity && apiAtStart.identity === apiAtEnd.identity),
         { before: apiAtStart?.identity ?? null, after: apiAtEnd.identity, error: apiAtEnd.error });
@@ -175,7 +199,11 @@ export const test = base.extend({
     const lifecycleStarted = performance.now();
     const ownedOrigins = new Set([target.uiUrl, target.apiUrl].filter(Boolean).map((url) => new URL(url).origin));
     const capabilityRequests = new Map();
+    const requestIDs = new WeakMap();
+    const faultAttempts = [];
+    const faultRouteHandlers = [];
     let requestSequence = 0;
+    let requestIDSequence = 0;
     let activeAction;
     let retainedDiagnostics = 0;
     let droppedDiagnostics = 0;
@@ -183,16 +211,27 @@ export const test = base.extend({
       if (retainedDiagnostics < MAX_DIAGNOSTICS) {
         report.network.push(entry);
         retainedDiagnostics += 1;
+        return true;
       } else {
         droppedDiagnostics += 1;
+        return false;
       }
     };
     const belongsToTarget = (request) => {
       try { return ownedOrigins.has(new URL(request.url()).origin); }
       catch { return false; }
     };
+    const playwrightRequestId = (request) => {
+      let id = requestIDs.get(request);
+      if (!id) {
+        id = `request-${++requestIDSequence}`;
+        requestIDs.set(request, id);
+      }
+      return id;
+    };
 
     const onRequest = request => {
+      playwrightRequestId(request);
       const binding = capabilityBinding(request, { ...target, explorer: report.target.explorer ?? target.bootstrapExplorerId });
       if (binding) capabilityRequests.set(request, { binding, sequence: ++requestSequence, status: null, requestAction: activeAction });
     };
@@ -206,6 +245,7 @@ export const test = base.extend({
         kind: 'console-error',
         text: safeText(message.text()),
         location: safeURL(message.location().url),
+        rawLocation: message.location().url,
       });
     };
     const onPageError = (error) => addDiagnostic({
@@ -224,9 +264,23 @@ export const test = base.extend({
         report.assetFailures.push({ kind: 'asset-failure', url: safeURL(response.url()), status: 404 });
         return;
       }
-      addDiagnostic({
+      const request = response.request();
+      const responseBody = { captureState: 'pending' };
+      const entry = {
         kind: 'network', status: response.status(), method: response.request().method(),
         url: safeURL(response.url()), resourceType: response.request().resourceType(),
+        rawURL: response.url(),
+        playwrightRequestId: playwrightRequestId(request),
+        requestDetails: requestDiagnostic(request),
+        responseBody,
+      };
+      if (!addDiagnostic(entry)) return;
+      void response.text().then(body => {
+        responseBody.captureState = 'completed';
+        responseBody.body = sanitizeBody(body);
+      }, error => {
+        responseBody.captureState = 'readfailed';
+        responseBody.error = safeText(error?.message ?? error);
       });
     };
     const onRequestFailed = (request) => {
@@ -237,6 +291,9 @@ export const test = base.extend({
       addDiagnostic({
         kind: 'network', method: request.method(), url: safeURL(request.url()),
         resourceType: request.resourceType(), errorText,
+        rawURL: request.url(),
+        playwrightRequestId: playwrightRequestId(request),
+        requestDetails: requestDiagnostic(request),
         ...capabilityRequests.get(request), triggerAction: activeAction,
       });
     };
@@ -279,7 +336,7 @@ export const test = base.extend({
         await expect(locator, `${label}: expected exactly one control`).toHaveCount(1, { timeout: actionTimeout });
         await locator.click({ trial: true, timeout: actionTimeout });
         if (editable) await expect(locator, `${label}: expected an editable control`).toBeEditable({ timeout: actionTimeout });
-        await perform();
+        await perform(locator);
         performCompleted = true;
         if (after) {
           const afterStarted = performance.now();
@@ -306,15 +363,67 @@ export const test = base.extend({
       }
     }, { timeout: ACTION_TIMEOUT_MS });
 
+    const fault = async ({ method, path, matchesRequest, response }) => {
+      const ownedTarget = ownedFaultTarget(target, { method, path });
+      const responseStatus = response == null ? null :
+        (typeof response.status === 'function' ? response.status() : (response.status ?? 200));
+      const attempt = {
+        id: `injected-${faultAttempts.length + 1}`,
+        ...ownedTarget,
+        matched: false,
+        action: response == null ? 'abort' : 'fulfill',
+        responseStatus,
+      };
+      faultAttempts.push(attempt);
+      report.injectedRequests ??= [];
+      const evidence = {
+        id: attempt.id,
+        matched: false,
+        origin: ownedTarget.origin,
+        path: ownedTarget.path,
+        method: ownedTarget.method,
+        action: attempt.action,
+        configuredResponseStatus: responseStatus,
+      };
+      report.injectedRequests.push(evidence);
+
+      const handler = async (route) => {
+        const request = route.request();
+        if (attempt.matched || !matchesOwnedFaultRequest(request, ownedTarget, matchesRequest)) {
+          await route.fallback();
+          return;
+        }
+        attempt.matched = true;
+        attempt.playwrightRequestId = playwrightRequestId(request);
+        attempt.rawURL = request.url();
+        evidence.matched = true;
+        evidence.playwrightRequestId = attempt.playwrightRequestId;
+        evidence.url = safeURL(attempt.rawURL);
+        evidence.request = requestDiagnostic(request);
+        if (response == null) await route.abort();
+        else await route.fulfill(response);
+      };
+      await page.route('**/*', handler);
+      faultRouteHandlers.push(handler);
+      return {
+        id: attempt.id,
+        path: attempt.path,
+        count: () => Number(attempt.matched),
+        evidence,
+      };
+    };
+
     try {
-      await use({ ...loomContext, page, check, action });
+      await use({ ...loomContext, page, check, action, fault });
     } finally {
+      for (const handler of faultRouteHandlers) await page.unroute('**/*', handler);
       page.removeListener('requestfinished', onRequestFinished);
       page.removeListener('request', onRequest);
       page.removeListener('console', onConsole);
       page.removeListener('pageerror', onPageError);
       page.removeListener('response', onResponse);
       page.removeListener('requestfailed', onRequestFailed);
+      report.network = applyInjectedFaultPolicy(report.network, faultAttempts);
       for (const failure of report.network) {
         const replacement = supersedingCapabilityRequest(failure, [...capabilityRequests.values()]);
         if (!replacement) continue;

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { executeScenario, runPlaywrightCase, browserURL } from './common.mjs';
+import { browserURL } from './builder-url.mjs';
 import { recordCheck } from './report.mjs';
 
 const patientOracle = target => {
@@ -27,7 +27,7 @@ const previewRows = async page => page.getByTestId('preview-table-scroll').getBy
 
 const checkPreviewPatients = async (page, report, expectedIDs, check) => {
   const table = page.getByTestId('preview-table-scroll').getByRole('table');
-  await table.waitFor({ state: 'visible', timeout: 30000 });
+  await table.waitFor({ state: 'visible', timeout: 5000 });
   const rows = await previewRows(page);
   const ids = assertPatientRows(rows.slice(1), expectedIDs);
   check('correctness', 'Preview renders both independent fixture Patients', ids.length === expectedIDs.length,
@@ -109,7 +109,7 @@ const createBlankExplorerWithUI = async ({ page, action, target, context, check 
   await action('name blank Explorer', name, () => name.fill(title), { editable: true });
   const create = page.getByRole('button', { name: 'Create blank', exact: true });
   await action('create blank Explorer', create, () => create.click(), {
-    timeout: 10000,
+    timeout: 5000,
     after: () => page.waitForFunction(expected => document.querySelector('select[aria-label="Explorer"]')?.selectedOptions[0]?.textContent?.trim() === expected && document.body.innerText.includes('Build your first table'), title),
   });
   const explorer = await page.getByRole('combobox', { name: 'Explorer' }).inputValue();
@@ -123,11 +123,11 @@ const createPatientTableWithUI = async ({ page, action }, expectedIDs) => {
   await action('name Patient table', name, () => name.fill('Patients'), { editable: true });
   const choose = page.getByRole('button', { name: 'Choose Patient rows', exact: true });
   await action('create Patient table and render Preview', choose, () => choose.click(), {
-    timeout: 30000,
+    timeout: 5000,
     budget: 5000,
     after: async () => {
-      await page.getByTestId('construction-workspace').waitFor({ state: 'visible', timeout: 30000 });
-      await page.waitForFunction(rowCount => document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount') === String(rowCount), expectedIDs.length + 1, { timeout: 30000 });
+      await page.getByTestId('construction-workspace').waitFor({ state: 'visible', timeout: 5000 });
+      await page.waitForFunction(rowCount => document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount') === String(rowCount), expectedIDs.length + 1, { timeout: 5000 });
     },
   });
 };
@@ -149,16 +149,16 @@ const configurePatientGenderWithUI = async ({ page, action }) => {
   });
   const applyColumns = page.getByRole('button', { name: 'Apply columns', exact: true });
   await action('apply Gender and render Preview', applyColumns, () => applyColumns.click(), {
-    timeout: 30000,
+    timeout: 5000,
     budget: 5000,
     after: async () => {
-      await page.getByRole('button', { name: /^Select Gender/ }).waitFor({ state: 'visible', timeout: 30000 });
-      await page.waitForFunction(rowCount => document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount') === String(rowCount), 3, { timeout: 30000 });
+      await page.getByRole('button', { name: /^Select Gender/ }).waitFor({ state: 'visible', timeout: 5000 });
+      await page.waitForFunction(rowCount => document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount') === String(rowCount), 3, { timeout: 5000 });
     },
   });
 };
 
-const recompile = context => runPlaywrightCase(context, 'builder-controls', 'recompile', async ({ page, report, action, fault, check }) => {
+export const recompileWorkflow = async ({ page, report, action, check, fault }, context) => {
   const oracle = patientOracle(context.target);
   report.target.fixtureOracle = { path: oracle.path, sha256: oracle.sha256, patientIDs: oracle.ids };
   const { explorer } = await createBlankExplorerWithUI({ page, action, target: context.target, context, check }, 'recompile');
@@ -184,14 +184,14 @@ const recompile = context => runPlaywrightCase(context, 'builder-controls', 'rec
   await action('name Patient table for Recompile recovery', name, () => name.fill('Patients'), { editable: true });
   const choose = page.getByRole('button', { name: 'Choose Patient rows', exact: true });
   await action('trigger automatic compilation rejection', choose, () => choose.click(), {
-    timeout: 30000,
+    timeout: 5000,
     budget: 5000,
     after: async () => Promise.all([
-      alert.waitFor({ state: 'visible', timeout: 30000 }),
-      recompileButton.waitFor({ state: 'visible', timeout: 30000 }),
+      alert.waitFor({ state: 'visible', timeout: 5000 }),
+      recompileButton.waitFor({ state: 'visible', timeout: 5000 }),
     ]),
   });
-  await alert.waitFor({ state: 'visible', timeout: 15000 });
+  await alert.waitFor({ state: 'visible', timeout: 5000 });
   check('correctness', 'controlled automatic compilation failure is visible', Boolean((await alert.innerText()).trim()),
     { project, explorer, path, message: await alert.innerText(), injectedCount: injected.count() });
   check('correctness', 'controlled compilation rejection was injected exactly once', injected.count() === 1,
@@ -215,9 +215,9 @@ const recompile = context => runPlaywrightCase(context, 'builder-controls', 'rec
   const after = createHash('sha256').update(readFileSync(oracle.path)).digest('hex');
   check('correctness', 'independent Patient source stayed unchanged during Builder verification', after === oracle.sha256,
     { before: oracle.sha256, after, path: oracle.path });
-});
+};
 
-const firstTable = context => runPlaywrightCase(context, 'builder-controls', 'first-table', async ({ page, report, action, check }) => {
+export const firstTableWorkflow = async ({ page, report, action, check }, context) => {
   const oracle = patientOracle(context.target);
   report.target.fixtureOracle = { path: oracle.path, sha256: oracle.sha256, patientIDs: oracle.ids };
   const { explorer } = await createBlankExplorerWithUI({ page, action, target: context.target, context, check }, 'first-table');
@@ -227,17 +227,17 @@ const firstTable = context => runPlaywrightCase(context, 'builder-controls', 'fi
   await page.waitForFunction(() => {
     const button = document.querySelector('button[aria-label="Choose Patient rows"]');
     return Boolean(button && !button.disabled);
-  }, undefined, { timeout: 30000 });
+  }, undefined, { timeout: 5000 });
   await installFirstTableObserver(page);
   let availabilityEvents;
   let observerInstalled = true;
   try {
     const choose = page.getByRole('button', { name: 'Choose Patient rows', exact: true });
     await action('create verified-ID Patient first table with accepted preview', choose, () => choose.click(), {
-      timeout: 30000,
+      timeout: 5000,
       budget: 5000,
       after: async () => {
-        await page.waitForFunction(currentPreviewReady, undefined, { timeout: 30000 });
+        await page.waitForFunction(currentPreviewReady, undefined, { timeout: 5000 });
         const add = page.getByTestId('construction-action-add-columns');
         await add.waitFor({ state: 'visible', timeout: 5000 });
         assert(await add.isEnabled(), 'Add columns remains disabled after an accepted current-draft preview');
@@ -281,9 +281,9 @@ const firstTable = context => runPlaywrightCase(context, 'builder-controls', 'fi
   const sourceAfter = createHash('sha256').update(readFileSync(oracle.path)).digest('hex');
   check('correctness', 'independent Patient source stayed unchanged during Builder verification', sourceAfter === oracle.sha256,
     { before: oracle.sha256, after: sourceAfter, path: oracle.path });
-});
+};
 
-const tables = context => runPlaywrightCase(context, 'builder-controls', 'tables', async ({ page, report, action, check }) => {
+export const tablesWorkflow = async ({ page, report, action, check }, context) => {
   const oracle = patientOracle(context.target);
   report.target.fixtureOracle = { path: oracle.path, sha256: oracle.sha256, patientIDs: oracle.ids };
   const created = await createBlankExplorerWithUI({ page, action, target: context.target, context, check }, 'controls');
@@ -334,7 +334,7 @@ const tables = context => runPlaywrightCase(context, 'builder-controls', 'tables
     document.querySelector('select[aria-label="Explorer"]')?.value === explorer &&
     document.querySelectorAll('[data-testid^="construction-table-"]').length === count &&
     document.body.innerText.includes('DATASET WORKSPACE'),
-  { explorer: created.explorer, count: 2 }, { timeout: 30000 });
+  { explorer: created.explorer, count: 2 }, { timeout: 5000 });
   const renamedTable = page.getByTestId('construction-table-patients-copy');
   check('persistence', 'duplicated and renamed tables survive reload', await renamedTable.innerText().then(text => text.includes('Renamed Patients')));
   let selectedAfterReload = await page.locator('[data-testid^="construction-table-"][aria-current="page"]').getAttribute('data-testid');
@@ -348,7 +348,7 @@ const tables = context => runPlaywrightCase(context, 'builder-controls', 'tables
   await page.reload({ waitUntil: 'domcontentloaded' });
   await page.waitForFunction(({ explorer, testId }) => document.querySelector('select[aria-label="Explorer"]')?.value === explorer &&
     document.querySelector(`[data-testid="${CSS.escape(testId)}"]`)?.getAttribute('aria-current') === 'page',
-  { explorer: created.explorer, testId: originalTableTestId }, { timeout: 30000 });
+  { explorer: created.explorer, testId: originalTableTestId }, { timeout: 5000 });
   selectedAfterReload = await page.locator('[data-testid^="construction-table-"][aria-current="page"]').getAttribute('data-testid');
   check('persistence', 'manual table selection survives reload', selectedAfterReload === originalTableTestId,
     { expectedTableTestId: originalTableTestId, selectedTableTestId: selectedAfterReload });
@@ -375,7 +375,7 @@ const tables = context => runPlaywrightCase(context, 'builder-controls', 'tables
   await page.reload({ waitUntil: 'domcontentloaded' });
   await page.waitForFunction(({ explorer, count }) => document.querySelector('select[aria-label="Explorer"]')?.value === explorer &&
     document.querySelectorAll('[data-testid^="construction-table-"]').length === count &&
-    document.body.innerText.includes('DATASET WORKSPACE'), { explorer: created.explorer, count: 1 }, { timeout: 30000 });
+    document.body.innerText.includes('DATASET WORKSPACE'), { explorer: created.explorer, count: 1 }, { timeout: 5000 });
   const renamedStillPresent = await page.getByTestId('construction-table-patients-copy').count();
   check('persistence', 'deleted table stays absent after reload', renamedStillPresent === 0, { count: renamedStillPresent });
   selectedAfterReload = await page.locator('[data-testid^="construction-table-"][aria-current="page"]').getAttribute('data-testid');
@@ -394,10 +394,10 @@ const tables = context => runPlaywrightCase(context, 'builder-controls', 'tables
   await action('select copy current Explorer option', copyOption, () => copyOption.check());
   const copyButton = page.getByRole('button', { name: 'Create copy', exact: true });
   await action('copy configured Explorer', copyButton, () => copyButton.click(), {
-    timeout: 30000,
+    timeout: 5000,
     budget: 5000,
     after: () => page.waitForFunction(expected => document.querySelector('select[aria-label="Explorer"]')?.selectedOptions[0]?.textContent?.trim() === expected &&
-      Boolean(document.querySelector('button[aria-label^="Select Patient ID"]')) && Boolean(document.querySelector('button[aria-label^="Select Gender"]')), copyTitle, { timeout: 30000 }),
+      Boolean(document.querySelector('button[aria-label^="Select Patient ID"]')) && Boolean(document.querySelector('button[aria-label^="Select Gender"]')), copyTitle, { timeout: 5000 }),
   });
   report.target.sourceExplorer = created.explorer;
   const copyExplorer = await page.getByRole('combobox', { name: 'Explorer' }).inputValue();
@@ -409,7 +409,7 @@ const tables = context => runPlaywrightCase(context, 'builder-controls', 'tables
   await page.waitForFunction(({ explorer, title }) => document.querySelector('select[aria-label="Explorer"]')?.value === explorer &&
     document.querySelector('select[aria-label="Explorer"]')?.selectedOptions[0]?.textContent?.trim() === title &&
     Boolean(document.querySelector('button[aria-label^="Select Patient ID"]')) &&
-    Boolean(document.querySelector('button[aria-label^="Select Gender"]')), { explorer: copyExplorer, title: copyTitle }, { timeout: 30000 });
+    Boolean(document.querySelector('button[aria-label^="Select Gender"]')), { explorer: copyExplorer, title: copyTitle }, { timeout: 5000 });
   check('persistence', 'copied Explorer retains configured fields after reload', true,
     { sourceExplorer: created.explorer, copiedExplorer: copyExplorer, title: copyTitle });
   await checkPreviewPatients(page, report, oracle.ids, check);
@@ -426,7 +426,7 @@ const tables = context => runPlaywrightCase(context, 'builder-controls', 'tables
     },
   });
   await page.reload({ waitUntil: 'domcontentloaded' });
-  await page.getByText('Build your first table', { exact: true }).waitFor({ state: 'visible', timeout: 30000 });
+  await page.getByText('Build your first table', { exact: true }).waitFor({ state: 'visible', timeout: 5000 });
   check('persistence', 'deleting the last table persists an empty workspace', await page.locator('[data-testid^="construction-table-"]').count() === 0,
     { explorer: copyExplorer, title: copyTitle });
   await createPatientTableWithUI({ page, action }, oracle.ids);
@@ -436,14 +436,4 @@ const tables = context => runPlaywrightCase(context, 'builder-controls', 'tables
   const sourceAfter = createHash('sha256').update(readFileSync(oracle.path)).digest('hex');
   check('correctness', 'independent Patient source stayed unchanged during Builder verification', sourceAfter === oracle.sha256,
     { before: oracle.sha256, after: sourceAfter, path: oracle.path });
-});
-
-export const runBuilderControls = async (context, cases) => {
-  const reports = [];
-  for (const name of cases) reports.push(await (name === 'recompile' ? recompile(context) : name === 'first-table' ? firstTable(context) : tables(context)));
-  return reports;
 };
-
-if (import.meta.url === new URL(process.argv[1] ?? '', 'file:').href) {
-  await executeScenario({ id: 'builder-controls', argv: process.argv.slice(2), runner: runBuilderControls, mutating: true });
-}

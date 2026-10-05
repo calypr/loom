@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { isDeepStrictEqual } from 'node:util';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { executeScenario, runPlaywrightCase, browserURL } from './common.mjs';
+import { browserURL } from './builder-url.mjs';
 import { isActionable, recordCheck, recordUntested } from './report.mjs';
 import { proposalPreviewReadinessExpression } from './proposal-preview-readiness.mjs';
 import {
@@ -93,7 +93,7 @@ const documentByRoot = (builder, rootResourceType) => {
 };
 
 const evaluate = (page, expression) => page.evaluate(expression);
-const waitFor = (page, expression, timeout = 30000) => page.waitForFunction(expression, undefined, { timeout });
+const waitFor = (page, expression, timeout = 5000) => page.waitForFunction(expression, undefined, { timeout });
 const locate = async (page, selector, identity = {}) => {
   const indices = await page.locator(selector).evaluateAll((nodes, wanted) => {
     const normalize = (value) => String(value ?? '').replace(/\s+/g, ' ').trim();
@@ -133,7 +133,7 @@ const setSelectValue = async (page, selector, value) => {
   const selected = await locator.selectOption(value);
   if (!selected.includes(value)) throw new Error('Select rejected requested option ' + value + ': got ' + selected);
 };
-const recordBrowserTiming = async (report, page, { name, action, after, timeout = 30000, budget = 5000 }) => {
+const recordBrowserTiming = async (report, page, { name, action, after, timeout = 5000, budget = 5000 }) => {
   const started = Date.now();
   let actionDispatched = false;
   try {
@@ -207,7 +207,7 @@ const reloadAndSelectSavedTable = async (report, page, outputId, rows, name) => 
       await selectTable(page, outputId);
     },
     after: rows === undefined ? selectedOutputReady(outputId) : savedPreviewOutput(rows, outputId),
-    timeout: 30000,
+    timeout: 5000,
     budget: 5000,
   });
 };
@@ -258,7 +258,7 @@ const addRoot = async (context, page, report, explorer, resourceType, title, exp
     name: 'create current-draft ' + resourceType + ' source table',
     action: () => click(page, 'button', { name: 'Choose ' + resourceType + ' rows' }),
     after: workspaceReady + '&&document.body.innerText.includes(' + JSON.stringify(title) + ')&&' + rootRowsPreview(expectedIDs),
-    timeout: 30000,
+    timeout: 5000,
     budget: 5000,
   });
   const grid = await readGrid(page);
@@ -300,14 +300,14 @@ const addRawField = async (page, report, resourceType, path, expectedRows) => {
     },
     after: "[...document.querySelectorAll('button')].some(b=>b.innerText.trim()==='Apply columns'&&!b.disabled)&&" +
       "document.querySelector('[data-testid=construction-preview]')?.dataset.previewOutputId===" + JSON.stringify(outputId),
-    timeout: 30000,
+    timeout: 5000,
     budget: 5000,
   });
   await recordBrowserTiming(report, page, {
     name: 'apply native raw ' + resourceType + '.' + path + ' field to a current draft',
     action: () => click(page, 'button', { name: 'Apply columns' }),
     after: savedPreviewOutput(expectedRows, outputId),
-    timeout: 30000,
+    timeout: 5000,
     budget: 5000,
   });
   await click(page, 'button', { name: 'Close operation editor' });
@@ -362,7 +362,7 @@ const applyCurrentProposal = async (page, report, name, rows, outputId) => {
     name,
     action: () => click(page, '[data-testid="construction-apply-proposal"]'),
     after: '!document.querySelector(\'[data-testid="construction-proposal-panel"]\')&&' + savedPreviewOutput(rows, outputId),
-    timeout: 30000,
+    timeout: 5000,
     budget: 5000,
   });
 };
@@ -455,7 +455,7 @@ const createGroupSource = async (context, page, report, explorer, {
       name: title + ' native Group→DERIVE auto-preview with exact count-plus-one rows',
       action: () => fill(page, 'input[aria-label="Output column label"]', 'Count plus one'),
       after: proposalRowsReady(expectedDerived.length, document.output.id),
-      timeout: 30000,
+      timeout: 5000,
       budget: 5000,
     });
     const deriveGrid = await readGrid(page, 'proposal');
@@ -586,7 +586,7 @@ const startCombineTarget = async (context, page, report, explorer, sourceOutputI
       name: 'open native Combine and create a separate empty target',
       action: () => click(page, 'button[data-testid="construction-action-combine"]'),
       after: "Boolean(document.querySelector('[data-testid=\"construction-operation-editor\"][data-operation-family=\"COMBINE\"][data-output-id]'))&&Boolean(document.querySelector('[data-testid=\"construction-combine-editor\"]'))",
-      timeout: 30000,
+      timeout: 5000,
       budget: 5000,
     });
     const command = await commands.waitFor((entry) => entry.body?.commands?.some((item) => item.type === 'CREATE_TABLE'));
@@ -699,7 +699,7 @@ const renderFinalMapping = async (page, report, name, mapping, rows, outputId) =
     name,
     action: () => setSelectValue(page, mapping.selector, value),
     after: proposalRowsReady(rows, outputId),
-    timeout: 30000,
+    timeout: 5000,
     budget: 5000,
   });
 };
@@ -805,7 +805,7 @@ const editSavedStep = async (page, report, outputId, stepId, editorSelector) => 
       : 'open saved Group editor after source columns resolve',
     action: () => click(page, '[data-testid="construction-edit-step-' + stepId + '"]'),
     after: savedStepEditorReady(editorSelector),
-    timeout: 30000,
+    timeout: 5000,
     budget: 5000,
   });
 };
@@ -819,14 +819,14 @@ const cancelStepRemovalAndPreserve = async (context, page, report, explorer, tar
     name: 'propose removal of the saved Combine step and render its exact target',
     action: () => click(page, '[data-testid="construction-remove-step-' + stepId + '"]'),
     after: proposalReady(target.outputId) + '&&' + proposalRowsReady(0, target.outputId),
-    timeout: 30000,
+    timeout: 5000,
     budget: 5000,
   });
   await recordBrowserTiming(report, page, {
     name: 'Cancel proposed Combine removal without changing saved workspace',
     action: () => click(page, '[data-testid="construction-cancel-proposal"]'),
     after: "Boolean(document.querySelector('[data-testid=construction-history]'))&&!document.querySelector('[data-testid=construction-proposal-panel]')",
-    timeout: 10000,
+    timeout: 5000,
     budget: 5000,
   });
   await reloadAndSelectSavedTable(report, page, target.outputId, savedRows, 'reload saved Combine after canceling removal');
@@ -846,14 +846,14 @@ const removeStepAndRestoreTarget = async (context, page, report, explorer, targe
     name: 'propose Combine removal and render the exact rooted empty output',
     action: () => click(page, '[data-testid="construction-remove-step-' + stepId + '"]'),
     after: proposalReady(target.outputId) + '&&' + proposalRowsReady(0, target.outputId),
-    timeout: 30000,
+    timeout: 5000,
     budget: 5000,
   });
   await recordBrowserTiming(report, page, {
     name: 'apply Combine removal to restore the empty target',
     action: () => click(page, '[data-testid="construction-apply-proposal"]'),
     after: '!document.querySelector(\'[data-testid="construction-proposal-panel"]\')&&' + selectedOutputReady(target.outputId),
-    timeout: 30000,
+    timeout: 5000,
     budget: 5000,
   });
   await reloadAndSelectSavedTable(report, page, target.outputId, undefined, 'reload removed Combine and select its exact rooted empty output');
@@ -876,7 +876,7 @@ const createBlankExplorer = async (page, target, runID, label, report) => {
   await recordBrowserTiming(report, page, { name: 'open Explorer creation', action: () => click(page, 'summary', { name: 'New explorer' }), after: "Boolean(document.querySelector('#new-explorer-name'))", timeout: 5000 });
   await fill(page, '#new-explorer-name', title);
   await recordBrowserTiming(report, page, { name: 'create blank Explorer', action: () => click(page, 'button', { name: 'Create blank' }),
-    after: "document.querySelector('select[aria-label=\"Explorer\"] option:checked')?.textContent.trim() === " + JSON.stringify(title) + " && document.body.innerText.includes('Build your first table')", timeout: 10000 });
+    after: "document.querySelector('select[aria-label=\"Explorer\"] option:checked')?.textContent.trim() === " + JSON.stringify(title) + " && document.body.innerText.includes('Build your first table')", timeout: 5000 });
   const explorer = await evaluate(page, "document.querySelector('select[aria-label=\"Explorer\"]')?.value || ''");
   check(report, 'correctness', 'created a fresh Explorer distinct from the bootstrap', Boolean(explorer && explorer !== target.bootstrapExplorerId), { title });
   return { explorer, title };
@@ -912,7 +912,7 @@ const beginOwnedWorkspace = async (context, page, report, label) => {
   return { explorer: explorerInfo.explorer, raw, stopPublish: () => page.off('request', onPublishRequest), publishCount: () => publishRequests };
 };
 
-const runDraftJoin = (context) => runPlaywrightCase(context, 'builder-combine-draft', 'join', async ({ page, report }) => {
+export const draftJoinWorkflow = async ({ page, report }, context) => {
   const run = await beginOwnedWorkspace(context, page, report, 'join');
   const sources = [];
   try {
@@ -942,7 +942,7 @@ const runDraftJoin = (context) => runPlaywrightCase(context, 'builder-combine-dr
         name: 'Cancel current-draft Join proposal without saving',
         action: () => click(page, '[data-testid="construction-cancel-proposal"]'),
         after: "!document.querySelector('[data-testid=construction-combine-editor]')&&!document.querySelector('[data-testid=construction-proposal-panel]')&&" + selectedOutputReady(target.outputId),
-        timeout: 10000,
+        timeout: 5000,
         budget: 5000,
       });
   await reloadAndSelectSavedTable(report, page, target.outputId, undefined, 'reload canceled Join proposal and select its unchanged empty target');
@@ -993,7 +993,7 @@ const runDraftJoin = (context) => runPlaywrightCase(context, 'builder-combine-dr
         name: 'edit upstream Observation GROUP aggregate and preview the exact distinct values',
         action: () => fill(page, 'input[aria-label="Summary output label 1"]', distinctLabel),
         after: proposalRowsReady(distinctRows.length, sources[0].outputId),
-        timeout: 30000,
+        timeout: 5000,
         budget: 5000,
       });
       const editedGroupGrid = await readGrid(page, 'proposal');
@@ -1013,7 +1013,7 @@ const runDraftJoin = (context) => runPlaywrightCase(context, 'builder-combine-dr
         name: 'recompile downstream Join after the upstream GROUP aggregate changes',
         action: () => selectTable(page, target.outputId),
         after: savedPreviewOutput(3, target.outputId),
-        timeout: 30000,
+        timeout: 5000,
         budget: 5000,
       });
       const newPreview = await readPreviewIdentity(page);
@@ -1032,7 +1032,7 @@ const runDraftJoin = (context) => runPlaywrightCase(context, 'builder-combine-dr
           name: 'edit saved Join to INNER and render its exact recomputed rows',
           action: () => setSelectValue(page, 'select[aria-label="If a row in the first table has no match"]', 'INNER'),
           after: proposalRowsReady(innerAfterSourceEdit.length, target.outputId),
-          timeout: 30000,
+          timeout: 5000,
           budget: 5000,
         });
         assertRows(report, 'edited saved Join changes to INNER with exact recomputed fixture rows', await readGrid(page, 'proposal'), headers, innerAfterSourceEdit);
@@ -1051,9 +1051,9 @@ const runDraftJoin = (context) => runPlaywrightCase(context, 'builder-combine-dr
       publishRequests: run.publishCount(), inputKinds: after.workspace.documents.flatMap((document) => document.construction?.steps?.flatMap((step) => step.inputs ?? []) ?? []).map((input) => input.kind),
     });
   } finally { run.stopPublish(); }
-});
+};
 
-const runDraftAppend = (context) => runPlaywrightCase(context, 'builder-combine-draft', 'append', async ({ page, report }) => {
+export const draftAppendWorkflow = async ({ page, report }, context) => {
   const run = await beginOwnedWorkspace(context, page, report, 'append');
   const sources = [];
   try {
@@ -1089,7 +1089,7 @@ const runDraftAppend = (context) => runPlaywrightCase(context, 'builder-combine-
         name: 'Cancel current-draft APPEND proposal without saving',
         action: () => click(page, '[data-testid="construction-cancel-proposal"]'),
         after: "!document.querySelector('[data-testid=construction-combine-editor]')&&!document.querySelector('[data-testid=construction-proposal-panel]')&&" + selectedOutputReady(target.outputId),
-        timeout: 10000,
+        timeout: 5000,
         budget: 5000,
       });
       await reloadAndSelectSavedTable(report, page, target.outputId, undefined, 'reload canceled APPEND proposal and select its unchanged empty target');
@@ -1121,7 +1121,7 @@ const runDraftAppend = (context) => runPlaywrightCase(context, 'builder-combine-
         name: 'edit saved APPEND output label and preview all exact composed-source rows',
         action: () => fill(page, 'input[aria-label="Output field 1 label"]', 'Grouped category'),
         after: proposalRowsReady(expected.length, target.outputId),
-        timeout: 30000,
+        timeout: 5000,
         budget: 5000,
       });
       assertRows(report, 'edited APPEND label preserves every independent grouped row', await readGrid(page, 'proposal'), ['Grouped category', 'Row count'], expected);
@@ -1139,9 +1139,9 @@ const runDraftAppend = (context) => runPlaywrightCase(context, 'builder-combine-
     const inputs = final.workspace.documents.flatMap((document) => document.construction?.steps?.flatMap((step) => step.inputs ?? []) ?? []);
     check(report, 'correctness', 'APPEND lifecycle never publishes or pins source revisions', run.publishCount() === 0 && inputs.every((input) => input.kind !== 'TABLE_REVISION'), { publishRequests: run.publishCount(), inputKinds: inputs.map((input) => input.kind) });
   } finally { run.stopPublish(); }
-});
+};
 
-const runGroupPivotJoin = (context) => runPlaywrightCase(context, 'builder-combine-draft', 'group-pivot', async ({ page, report }) => {
+export const groupPivotJoinWorkflow = async ({ page, report }, context) => {
   const run = await beginOwnedWorkspace(context, page, report, 'group-pivot');
   const sources = [];
   try {
@@ -1173,7 +1173,7 @@ const runGroupPivotJoin = (context) => runPlaywrightCase(context, 'builder-combi
         name: 'Cancel mixed Group/Pivot Join proposal without saving',
         action: () => click(page, '[data-testid="construction-cancel-proposal"]'),
         after: "!document.querySelector('[data-testid=construction-combine-editor]')&&!document.querySelector('[data-testid=construction-proposal-panel]')&&" + selectedOutputReady(target.outputId),
-        timeout: 10000,
+        timeout: 5000,
         budget: 5000,
       });
       await reloadAndSelectSavedTable(report, page, target.outputId, undefined, 'reload canceled mixed Join and select its unchanged empty target');
@@ -1210,7 +1210,7 @@ const runGroupPivotJoin = (context) => runPlaywrightCase(context, 'builder-combi
           name: 'edit mixed Group/Pivot Join to INNER and render exact matching identities',
           action: () => setSelectValue(page, 'select[aria-label="If a row in the first table has no match"]', 'INNER'),
           after: proposalRowsReady(expectedInner.length, target.outputId),
-          timeout: 30000,
+          timeout: 5000,
           budget: 5000,
         });
         assertRows(report, 'edited mixed Join INNER values match the independent raw fixture oracle', await readGrid(page, 'proposal'), headers, expectedInner);
@@ -1230,17 +1230,4 @@ const runGroupPivotJoin = (context) => runPlaywrightCase(context, 'builder-combi
         { publishRequests: run.publishCount(), sourceSteps: savedSourceShapes });
     } finally { await capture.stop(); }
   } finally { run.stopPublish(); }
-});
-
-export const runBuilderCombineDraft = async (context, caseNames) => {
-  const reports = [];
-  for (const caseName of caseNames) {
-    const run = caseName === 'join' ? runDraftJoin : caseName === 'append' ? runDraftAppend : runGroupPivotJoin;
-    reports.push(await run(context));
-  }
-  return reports;
 };
-
-if (import.meta.url === new URL(process.argv[1] ?? '', 'file:').href) {
-  await executeScenario({ id: 'builder-combine-draft', argv: process.argv.slice(2), runner: runBuilderCombineDraft, mutating: true });
-}

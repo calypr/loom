@@ -1,101 +1,73 @@
 import assert from 'node:assert/strict';
-import { mkdir, writeFile } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { captureApiBuildFreeze, checkContainerApiBuildStamp } from './lib/api-build-freeze.mjs';
 import { actionScopeContains, cancellationScope, matchesOwnedCatalogRequest } from './lib/action-scoped-cancellations.mjs';
-import { assertOwnedCdaTarget } from './lib/owned-cda-target.mjs';
-import { launchBrowser, sanitizeBody } from './lib/playwright-browser.mjs';
-import { performAction, requireUnique } from './lib/playwright-actions.mjs';
-import { captureSourceFreeze } from './lib/source-freeze.mjs';
-import { sourceFingerprint } from './verify-ui/source-fingerprint.mjs';
+import { sanitizeBody } from './lib/playwright-browser.mjs';
 
-const explorer = process.argv[2] ?? process.env.LOOM_QA_EXPLORER;
-const project = process.env.LOOM_CDA_PROJECT;
-const apiOrigin = process.env.LOOM_CDA_API_ORIGIN;
-const uiOrigin = process.env.LOOM_CDA_UI_ORIGIN;
-const apiContainer = process.env.LOOM_CDA_API_CONTAINER;
-const composeProject = process.env.LOOM_CDA_COMPOSE_PROJECT;
-assert(explorer && project, 'Usage: LOOM_CDA_PROJECT=... LOOM_CDA_UI_ORIGIN=... LOOM_CDA_API_ORIGIN=... LOOM_CDA_API_CONTAINER=... LOOM_CDA_COMPOSE_PROJECT=... node scripts/verify-cda-add-column-dialog.mjs EXPLORER_ID [EVIDENCE_DIR]');
-const evidence = process.argv[3] ?? `/tmp/loom-add-column-dialog-${Date.now()}`;
-const sourceRoot = resolve(fileURLToPath(new URL('..', import.meta.url)));
-const base = `/api/v1/projects/${encodeURIComponent(project)}/explorers/${encodeURIComponent(explorer)}/authoring/v2`;
-const url = `${uiOrigin}/?project=${encodeURIComponent(project)}&explorer=${encodeURIComponent(explorer)}&mode=builder`;
-const report = { status: 'running', project, explorer, evidence, url, dialogs: [], transitions: [], target: { apiOrigin, uiOrigin, apiContainer, composeProject } };
-await mkdir(evidence, { recursive: true });
-let browser;
-let sourceFreeze;
-let apiBuildFreeze;
+export async function addColumnDialogWorkflow({ page, cda, expect }) {
+  const { project, explorer, apiOrigin, uiOrigin } = cda;
+  const evidence = cda.evidence;
+  const base = `/api/v1/projects/${encodeURIComponent(project)}/explorers/${encodeURIComponent(explorer)}/authoring/v2`;
+  const url = `${uiOrigin}/?project=${encodeURIComponent(project)}&explorer=${encodeURIComponent(explorer)}&mode=builder`;
+  const report = Object.assign(cda.report, { project, explorer, evidence, url, dialogs: [], transitions: [] });
 
-async function readBuilder() {
-  const response = await fetch(`${apiOrigin}${base}/builder`, { signal: AbortSignal.timeout(30000) });
-  const body = await response.text();
-  report.apiReads ??= [];
-  report.apiReads.push({ path: `${base}/builder`, status: response.status, ...(response.ok ? {} : { body: sanitizeBody(body) }) });
-  assert(response.ok, `Builder read returned ${response.status}: ${sanitizeBody(body)}`);
-  return JSON.parse(body);
-}
-const expectedAbortEndpoints = new Set(['frame-source-options', 'semantic-inventory', 'construction-choice-proposals']);
-const pendingActionRequests = new Map();
-const armedCancellationScopes = [];
-let currentCancellationAction;
-function requestPayload(request) {
-  try { return request.postDataJSON(); } catch { return undefined; }
-}
-function matchesExpectedRequest(request, endpoint) {
-  return matchesOwnedCatalogRequest(request, endpoint, {
-    uiOrigin, pathPrefix: base, snapshotToken: report.before?.catalog?.snapshotToken,
-    documents: report.before?.workspace?.documents ?? [],
-    draftVersion: report.before?.draftVersion, draftDigest: report.before?.draftDigest,
-  });
-}
-function armExpectedCancellations(action, endpoints) {
-  const candidates = [...pendingActionRequests.keys()].filter(request => endpoints.some(endpoint => matchesExpectedRequest(request, endpoint)));
-  const scope = cancellationScope(action, endpoints, candidates);
-  armedCancellationScopes.push(scope);
-  currentCancellationAction = action;
-  report.cancellationArms ??= [];
-  report.cancellationArms.push({ action, pendingMatched: candidates.length, endpoints: [...endpoints], expiryMs: 5000 });
-}
-function classifyExpectedRequestFailure(request) {
-  if (request.failure()?.errorText !== 'net::ERR_ABORTED') return undefined;
-  for (const scope of armedCancellationScopes) {
-    if (!actionScopeContains(scope, request, currentCancellationAction)) continue;
-    scope.requests.delete(request);
-    const entry = pendingActionRequests.get(request);
-    pendingActionRequests.delete(request);
-    if (!entry) return undefined;
-    return `UI cancellation after ${scope.action}; endpoint=${entry.endpoint}; outputId=${entry.payload.outputId}`;
+  async function readBuilder() {
+    const response = await cda.request.get(`${apiOrigin}${base}/builder`, { timeout: 30000 });
+    const body = await response.text();
+    report.apiReads ??= [];
+    report.apiReads.push({ path: `${base}/builder`, status: response.status(), ...(response.ok() ? {} : { body: sanitizeBody(body) }) });
+    assert(response.ok(), `Builder read returned ${response.status()}: ${sanitizeBody(body)}`);
+    return JSON.parse(body);
   }
-  return undefined;
-}
 
-const timedAction = async (name, locator, method, settled, arg = null, cancellationEndpoints = []) => {
-  const startedAt = Date.now();
-  currentCancellationAction = name;
-  if (cancellationEndpoints.length) armExpectedCancellations(name, cancellationEndpoints);
-  await performAction(report, name, locator, target => method(target));
-  report.activeAction = { label: name, locator: locator.toString(), startedAt };
-  await browser.page.waitForFunction(settled, arg, { timeout: 5000 });
-  const elapsedMs = Date.now() - startedAt;
-  report.transitions.push({ name, elapsedMs, limitMs: 5000, passed: elapsedMs <= 5000 });
-  assert(elapsedMs <= 5000, `${name} took ${elapsedMs} ms to render`);
-};
+  const expectedAbortEndpoints = new Set(['frame-source-options', 'semantic-inventory', 'construction-choice-proposals']);
+  const pendingActionRequests = new Map();
+  const armedCancellationScopes = [];
+  let currentCancellationAction;
+  function requestPayload(request) {
+    try { return request.postDataJSON(); } catch { return undefined; }
+  }
+  function matchesExpectedRequest(request, endpoint) {
+    return matchesOwnedCatalogRequest(request, endpoint, {
+      uiOrigin, pathPrefix: base, snapshotToken: report.before?.catalog?.snapshotToken,
+      documents: report.before?.workspace?.documents ?? [],
+      draftVersion: report.before?.draftVersion, draftDigest: report.before?.draftDigest,
+    });
+  }
+  function armExpectedCancellations(action, endpoints) {
+    const candidates = [...pendingActionRequests.keys()].filter(request => endpoints.some(endpoint => matchesExpectedRequest(request, endpoint)));
+    const scope = cancellationScope(action, endpoints, candidates);
+    armedCancellationScopes.push(scope);
+    currentCancellationAction = action;
+    report.cancellationArms ??= [];
+    report.cancellationArms.push({ action, pendingMatched: candidates.length, endpoints: [...endpoints], expiryMs: 5000 });
+  }
+  function classifyExpectedRequestFailure(request) {
+    if (request.failure()?.errorText !== 'net::ERR_ABORTED') return undefined;
+    for (const scope of armedCancellationScopes) {
+      if (!actionScopeContains(scope, request, currentCancellationAction)) continue;
+      scope.requests.delete(request);
+      const entry = pendingActionRequests.get(request);
+      pendingActionRequests.delete(request);
+      if (!entry) return undefined;
+      return `UI cancellation after ${scope.action}; endpoint=${entry.endpoint}; outputId=${entry.payload.outputId}`;
+    }
+    return undefined;
+  }
 
-try {
-  report.target.ownership = await assertOwnedCdaTarget({ project, apiOrigin, uiOrigin, apiContainer, composeProject, sourceRoot });
-  sourceFreeze = await captureSourceFreeze(sourceRoot);
-  report.sourceFingerprint = { before: sourceFingerprint(sourceRoot) };
-  let initialBuild;
-  apiBuildFreeze = await captureApiBuildFreeze(async () => {
-    initialBuild = await checkContainerApiBuildStamp(apiContainer);
-    return initialBuild;
-  });
-  report.apiBuildIdentity = initialBuild.stdout.trim();
-  report.before = await readBuilder();
+  const timedAction = async (name, locator, method, settled, arg = null, cancellationEndpoints = []) => {
+    const startedAt = Date.now();
+    currentCancellationAction = name;
+    report.activeAction = { label: name, locator: locator.toString(), startedAt };
+    if (cancellationEndpoints.length) armExpectedCancellations(name, cancellationEndpoints);
+    await cda.action(name, locator, () => method(locator), {
+      timeout: 5000,
+      after: () => page.waitForFunction(settled, arg, { timeout: 5000 }),
+    });
+    const elapsedMs = Date.now() - startedAt;
+    report.transitions.push({ name, elapsedMs, limitMs: 5000, passed: elapsedMs <= 5000 });
+    assert(elapsedMs <= 5000, `${name} took ${elapsedMs} ms to render`);
+  };
 
-  browser = await launchBrowser({ evidence, appOrigins: [apiOrigin, uiOrigin], noAuth: true, classifyExpectedRequestFailure });
-  const { page } = browser;
+  const requestCapture = cda.captureRequests(base, { responsePaths: /frame-source-options|semantic-inventory|construction-choice-proposals|builder/ });
   page.on('request', request => {
     if (request.method() !== 'POST') return;
     const requestURL = new URL(request.url());
@@ -126,12 +98,23 @@ try {
           .map(scope => ({ action: scope.action, ageMs: Date.now() - scope.armedAt })),
       });
     }
+    const expectedCancellation = classifyExpectedRequestFailure(request);
+    if (expectedCancellation) {
+      cda.expectCanceledRequest(request, expectedCancellation, {
+        endpoint: entry?.endpoint,
+        outputId: entry?.payload?.outputId,
+        action: currentCancellationAction,
+      });
+      report.expectedCancellations ??= [];
+      report.expectedCancellations.push({ url: request.url(), requestId: request.headers()['x-request-id'] ?? null,
+        method: request.method(), action: currentCancellationAction, reason: expectedCancellation });
+    }
     pendingActionRequests.delete(request);
   });
+
   await page.setViewportSize({ width: 1280, height: 900 });
-  report.activeAction = { label: 'navigate to Builder', locator: url, startedAt: Date.now() };
-  await page.goto(url, { waitUntil: 'domcontentloaded' });
-  report.activeAction = undefined;
+  report.before = await readBuilder();
+  await cda.navigate(url);
   await page.getByText('Dataset workspace', { exact: true }).waitFor({ state: 'visible', timeout: 5000 });
   const openSuggestions = async phase => {
     await timedAction(`${phase}: open Add columns editor`, page.getByTestId('construction-action-add-columns'), target => target.click(),
@@ -157,17 +140,16 @@ try {
   for (let index = 0; index < suggestionIdentities.length; index += 1) {
     const suggestionIdentity = suggestionIdentities[index];
     const suggestion = page.getByRole('button', { name: suggestionIdentity.accessibleName, exact: true });
-    await requireUnique(suggestion, `coded-value suggestion ${suggestionIdentity.accessibleName}`);
-    assert.equal(await suggestion.isVisible(), true, `Coded-value suggestion ${suggestionIdentity.accessibleName} must be visible`);
-    assert.equal(await suggestion.isEnabled(), true, `Coded-value suggestion ${suggestionIdentity.accessibleName} must be enabled`);
+    await expect(suggestion).toBeVisible({ timeout: 5000 });
+    await expect(suggestion).toBeEnabled({ timeout: 5000 });
     const startedAt = Date.now();
     const openLabel = `open suggestion ${suggestionIdentity.accessibleName}`;
     armExpectedCancellations(openLabel, ['semantic-inventory']);
-    await performAction(report, `open ${suggestionIdentity.accessibleName}`, suggestion, target => target.click());
     report.activeAction = { label: openLabel, locator: suggestion.toString(), startedAt };
+    await cda.action(`open ${suggestionIdentity.accessibleName}`, suggestion, () => suggestion.click());
     const dialog = page.getByRole('dialog');
     await dialog.waitFor({ state: 'visible', timeout: 5000 });
-    await requireUnique(dialog, `dialog for ${suggestionIdentity.accessibleName}`);
+    await expectUnique(dialog, `dialog for ${suggestionIdentity.accessibleName}`);
     const openElapsedMs = Date.now() - startedAt;
     report.transitions.push({ name: `dialog-open-${suggestionIdentity.accessibleName}`, elapsedMs: openElapsedMs, limitMs: 5000, passed: openElapsedMs <= 5000 });
     assert(openElapsedMs <= 5000, `Dialog for ${suggestionIdentity.accessibleName} rendered in ${openElapsedMs} ms`);
@@ -185,13 +167,15 @@ try {
     assert.equal(details.parent, 'BODY', `${suggestionIdentity.accessibleName} dialog must be portaled outside a disclosure`);
     assert(details.rect.width > 0 && details.rect.height > 0 && details.rect.y >= 0 && details.rect.y < details.viewport.height, 'Dialog must be visible within the viewport');
     assert(details.routeChoices > 0, `${suggestionIdentity.accessibleName} has no route choice`);
-    await page.screenshot({ path: join(evidence, `dialog-${index + 1}.png`), fullPage: true });
+    if (process.env.LOOM_VERIFY_SCREENSHOTS === '1') {
+      await page.screenshot({ path: `${evidence}/dialog-${index + 1}.png`, fullPage: true });
+    }
     const cancel = dialog.getByRole('button', { name: 'Cancel', exact: true });
     const closeStartedAt = Date.now();
     const cancelLabel = `cancel ${suggestionIdentity.accessibleName} dialog`;
     armExpectedCancellations(cancelLabel, ['construction-choice-proposals']);
-    await performAction(report, `cancel ${suggestionIdentity.accessibleName} dialog`, cancel, target => target.click());
     report.activeAction = { label: cancelLabel, locator: cancel.toString(), startedAt: closeStartedAt };
+    await cda.action(`cancel ${suggestionIdentity.accessibleName} dialog`, cancel, () => cancel.click());
     await dialog.waitFor({ state: 'hidden', timeout: 5000 });
     const closeElapsedMs = Date.now() - closeStartedAt;
     report.transitions.push({ name: `dialog-close-${suggestionIdentity.accessibleName}`, elapsedMs: closeElapsedMs, limitMs: 5000, passed: closeElapsedMs <= 5000 });
@@ -208,36 +192,21 @@ try {
     for (const initialIdentity of suggestionIdentities) {
       const currentSuggestion = page.getByRole('button', { name: initialIdentity.accessibleName, exact: true });
       await currentSuggestion.waitFor({ state: 'visible', timeout: 5000 });
-      await requireUnique(currentSuggestion, `restored coded suggestion ${initialIdentity.accessibleName}`);
+      await expectUnique(currentSuggestion, `restored coded suggestion ${initialIdentity.accessibleName}`);
     }
     report.cancelledInventoryChecks = (report.cancelledInventoryChecks ?? 0) + 1;
   }
-  assert.deepEqual(browser.diagnostics.console, [], 'Unexpected browser console errors');
-  assert.deepEqual(browser.diagnostics.pageErrors, [], 'Unexpected browser exceptions');
-  assert.deepEqual(browser.diagnostics.httpFailures, [], 'Unexpected HTTP responses');
-  assert.deepEqual(browser.diagnostics.networkFailures, [], 'Unexpected local network failures');
-  report.diagnostics = browser.diagnostics;
+  await requestCapture.flush();
+  cda.includeBrowserDiagnostics();
+  assert.deepEqual(cda.diagnostics.console, [], 'Unexpected browser console errors');
+  assert.deepEqual(cda.diagnostics.pageErrors, [], 'Unexpected browser exceptions');
+  assert.deepEqual(cda.diagnostics.httpFailures, [], 'Unexpected HTTP responses');
+  const unexpectedNetworkFailures = cda.diagnostics.networkFailures.filter(failure => !failure.expected);
+  assert.deepEqual(unexpectedNetworkFailures, [], 'Unexpected local network failures');
   report.status = 'passed';
-} catch (error) {
-  report.status = 'failed';
-  report.error = String(error.stack ?? error);
-  if (report.activeAction) report.firstFailedAction = { label: report.activeAction.label, locator: report.activeAction.locator, elapsedMs: Date.now() - report.activeAction.startedAt };
-  report.diagnostics = browser?.diagnostics;
-  await browser?.captureFailure(error, { phase: 'add-column-dialogs', action: report.activeAction, project, explorer, dialogsCompleted: report.dialogs.length });
-  process.exitCode = 1;
-} finally {
-  await browser?.close();
-  if (apiBuildFreeze) {
-    try { report.apiBuildFreeze = await apiBuildFreeze.assertUnchanged(); }
-    catch (error) { report.priorStatus = report.status; report.status = 'invalidated'; report.apiBuildFreezeError = String(error.stack ?? error); process.exitCode = 1; }
-  }
-  if (sourceFreeze) {
-    try {
-      report.sourceFingerprint.after = sourceFingerprint(sourceRoot);
-      report.sourceFreeze = await sourceFreeze.assertUnchanged();
-    } catch (error) { report.priorStatus = report.status; report.status = 'invalidated'; report.sourceFreezeError = String(error.stack ?? error); process.exitCode = 1; }
-  }
-  report.finishedAt = new Date().toISOString();
-  await writeFile(join(evidence, 'report.json'), JSON.stringify(report, null, 2));
+  return report;
 }
-process.stdout.write(`${JSON.stringify({ status: report.status, evidence, dialogs: report.dialogs.length, error: report.error })}\n`);
+
+async function expectUnique(locator, label) {
+  await expect(locator, `${label}: expected a unique target`).toHaveCount(1, { timeout: 5000 });
+}

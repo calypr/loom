@@ -3,42 +3,28 @@ import { randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { parseArgs } from 'node:util';
-import { fileURLToPath } from 'node:url';
-import { inspectDOM, waitForDOM, clickControl, navigatePage, selectControl } from './lib/playwright-verification.mjs';
-import { launchBrowser } from './lib/playwright-browser.mjs';
-import { captureCDARequests } from './lib/cda-playwright-requests.mjs';
-import { assertOwnedCdaTarget } from './lib/owned-cda-target.mjs';
-import { startVerificationIdentity } from './lib/cda-verification-identity.mjs';
 
-const { values } = parseArgs({ options: {
-  origin: { type: 'string', default: process.env.LOOM_CDA_API_ORIGIN },
-  'ui-origin': { type: 'string', default: process.env.LOOM_CDA_UI_ORIGIN },
-  project: { type: 'string', default: process.env.LOOM_CDA_PROJECT },
-  'related-seed': { type: 'string', default: 'upstream-related-empty-policy-1790867613516' },
-  evidence: { type: 'string', default: `/tmp/loom-base-settings-${Date.now()}` },
-  browser: { type: 'boolean', default: false },
-  'browser-cases': { type: 'string' },
-  'arango-container': { type: 'string', default: process.env.LOOM_ARANGO_CONTAINER },
-  'api-container': { type: 'string', default: process.env.LOOM_CDA_API_CONTAINER },
-  'compose-project': { type: 'string', default: process.env.LOOM_CDA_COMPOSE_PROJECT },
-} });
-const report = { started: new Date().toISOString(), cases: [], failures: [], requests: [], coverage: [] };
-const browserCases = [];
-report.environment = {
-  node: process.version, apiOrigin: values.origin, uiOrigin: values['ui-origin'], project: values.project,
-  commit: spawnSync('rtk', ['proxy', 'git', 'rev-parse', 'HEAD'], { encoding: 'utf8' }).stdout.trim(),
+export async function verifyBaseSettings({ page, cda }) {
+const values = {
+  origin: cda.apiOrigin,
+  'ui-origin': cda.uiOrigin,
+  project: cda.project,
+  'related-seed': process.env.LOOM_CDA_BASE_SETTINGS_RELATED_SEED ?? 'upstream-related-empty-policy-1790867613516',
+  evidence: cda.evidence,
+  browser: true,
+  'browser-cases': process.env.LOOM_CDA_BASE_SETTINGS_BROWSER_CASES,
+  'arango-container': cda.target.arangoContainer ?? process.env.LOOM_ARANGO_CONTAINER,
+  'api-container': cda.target.apiContainer,
+  'compose-project': cda.target.composeProject,
 };
+const report = { started: new Date().toISOString(), cases: [], failures: [], requests: [], coverage: [], environment: {
+  node: process.version, apiOrigin: values.origin, uiOrigin: values['ui-origin'], project: values.project,
+} };
+const browserCases = [];
 const root = `/api/v1/projects/${encodeURIComponent(values.project)}/explorers`;
-const sourceRoot = fileURLToPath(new URL('..', import.meta.url));
-await assertOwnedCdaTarget({ project: values.project, apiOrigin: values.origin, uiOrigin: values['ui-origin'],
-  apiContainer: values['api-container'], composeProject: values['compose-project'], sourceRoot,
-  arangoContainer: values['arango-container'] });
-const verificationIdentity = await startVerificationIdentity(sourceRoot, values['api-container']);
-report.environment.sourceFingerprint = verificationIdentity.sourceFingerprint;
-report.environment.apiBuildIdentity = verificationIdentity.apiBuildIdentity;
 const sourceID = '485e2567-b566-56f3-b5bd-5f025f37cd95';
 await mkdir(values.evidence, { recursive: true });
+const requestTracker = cda.captureRequests(root, { responsePaths: /row-definition-proposals|builder|preview/, browserRequestOrigin: values['ui-origin'] });
 const api = async (path, body, allowFailure = false) => {
   const entry = { path, request: body, requestId: `base-settings-${randomUUID()}` };
   report.requests.push(entry);
@@ -144,21 +130,28 @@ const selections = (discovery, group) => [
 const verifyBrowser = async (ctx, item, record) => {
   const directory = join(values.evidence, record.id);
   await mkdir(directory, { recursive: true });
-  const browser = await launchBrowser({ evidence: directory, appOrigins: [values.origin, values['ui-origin']], noAuth: true });
-  const state = { exceptions: [], http: [], incidental: [], responses: [], previews: [], errors: [], nativeRequests: [] };
-  const tracker = { activeAction: undefined, actions: [] };
-  const requests = captureCDARequests(browser.page, {
-    apiOrigin: values['ui-origin'], appOrigins: [values.origin, values['ui-origin']], ownedPathPrefix: root,
-    report: state, responsePaths: /row-definition-proposals|builder|preview/,
-    shouldReportHttpError: (path, status) => !(path.endsWith('/row-definition-proposals') && status === 422),
-  });
-  const page = browser.page;
-  const inspect = (fn, args) => inspectDOM(page, fn, args);
+  const state = { exceptions: [], http: [], incidental: [], responses: [], previews: [], errors: [], nativeRequests: cda.report.nativeRequests };
+  const requests = requestTracker;
+  const caseErrors = { console: [], pageErrors: [], networkFailures: [], httpFailures: [] };
+  const onConsole = message => { if (message.type() === 'error') caseErrors.console.push(message.text()); };
+  const onPageError = error => caseErrors.pageErrors.push(error.message);
+  const onRequestFailed = request => caseErrors.networkFailures.push({ url: request.url(), error: request.failure()?.errorText });
+  const onResponse = response => {
+    const path = new URL(response.url()).pathname;
+    if (response.status() >= 400 && !(record.expectedValidation && response.status() === 422 && path.endsWith('/row-definition-proposals'))) {
+      caseErrors.httpFailures.push({ status: response.status(), url: response.url() });
+    }
+  };
+  page.on('console', onConsole); page.on('pageerror', onPageError); page.on('requestfailed', onRequestFailed); page.on('response', onResponse);
+  const inspect = (fn, args) => cda.inspect(fn, args);
+  const waitFor = (fn, args = {}, timeout = 5000) => cda.wait(fn, args, timeout);
+  const click = (selector, identity = {}) => cda.click(selector, identity);
+  const select = (selector, value) => cda.selectOption(selector, value);
   const assertBrowserClean = () => {
-    assert.deepEqual(browser.diagnostics.console, [], 'Unexpected browser console errors');
-    assert.deepEqual(browser.diagnostics.pageErrors, [], 'Unexpected page errors');
-    assert.deepEqual(browser.diagnostics.networkFailures, [], 'Unexpected app network failures');
-    const unexpectedHTTP = browser.diagnostics.httpFailures.filter(failure => {
+    assert.deepEqual(caseErrors.console, [], 'Unexpected browser console errors');
+    assert.deepEqual(caseErrors.pageErrors, [], 'Unexpected page errors');
+    assert.deepEqual(caseErrors.networkFailures, [], 'Unexpected app network failures');
+    const unexpectedHTTP = caseErrors.httpFailures.filter(failure => {
       const expectedValidation = record.expectedValidation && failure.status === 422 && failure.url.endsWith('/row-definition-proposals');
       return !expectedValidation;
     });
@@ -168,15 +161,15 @@ const verifyBrowser = async (ctx, item, record) => {
   const table = `[data-testid="construction-table-${ctx.builder.workspace.documents[0].output.id}"]`;
   const url = `${values['ui-origin']}/?project=${encodeURIComponent(values.project)}&explorer=${ctx.explorer}&mode=builder`;
   const open = async () => {
-    await navigatePage(page, url);
-    await waitForDOM(page, ({ selector }) => Boolean(document.querySelector(selector)), { selector: table }, 30000);
-    await clickControl(tracker, page, table);
-    await waitForDOM(page, () => !document.body.innerText.includes('Loading your table') && document.querySelector('[data-testid="construction-rows-settings-trigger"]')?.disabled === false, {}, 30000);
-    await clickControl(tracker, page, '[data-testid="construction-rows-settings-trigger"]');
-    await waitForDOM(page, () => document.querySelector('select[aria-label="What should each row represent?"]')?.disabled === false, {}, 5000);
+    await cda.navigate(url);
+    await waitFor(({ selector }) => Boolean(document.querySelector(selector)), { selector: table }, 5000);
+    await click(table);
+    await waitFor(() => !document.body.innerText.includes('Loading your table') && document.querySelector('[data-testid="construction-rows-settings-trigger"]')?.disabled === false, {}, 5000);
+    await click('[data-testid="construction-rows-settings-trigger"]');
+    await waitFor( () => document.querySelector('select[aria-label="What should each row represent?"]')?.disabled === false, {}, 5000);
   };
   try {
-    state.browserVersion = browser.browser.version();
+    state.browserVersion = page.context().browser()?.version();
     await open();
     const shapeSelect = 'select[aria-label="What should each row represent?"]';
     state.options = await inspect(({ selector }) => [...document.querySelector(selector).options].map(option => ({ value: option.value, label: option.text, disabled: option.disabled })), { selector: shapeSelect });
@@ -187,14 +180,14 @@ const verifyBrowser = async (ctx, item, record) => {
     const configure = async (target = item) => {
       const requestStart = state.nativeRequests.length;
       const started = Date.now();
-      await selectControl(tracker, page, shapeSelect, target.shape);
+      await select(shapeSelect, target.shape);
       if (target.policy) {
-        await waitForDOM(page, () => document.querySelector('select[aria-label="Unmatched record policy"]')?.disabled === false, {}, 5000);
-        await selectControl(tracker, page, 'select[aria-label="Unmatched record policy"]', target.policy);
+        await waitFor( () => document.querySelector('select[aria-label="Unmatched record policy"]')?.disabled === false, {}, 5000);
+        await select('select[aria-label="Unmatched record policy"]', target.policy);
       }
       const [request] = await Promise.all([
         requests.waitFor(entry => entry.path.endsWith('/row-definition-proposals') && entry.method === 'POST' && JSON.stringify(entry.body?.selection) === JSON.stringify(target.selection), { fromIndex: requestStart, timeoutMs: 5000 }),
-        waitForDOM(page, () => !document.body.innerText.includes('Compiling and comparing row membership') && (document.querySelector('[aria-label="Row definition preview"]') || document.querySelector('[role="alert"]')), {}, 5000),
+        waitFor(() => !document.body.innerText.includes('Compiling and comparing row membership') && (document.querySelector('[aria-label="Row definition preview"]') || document.querySelector('[role="alert"]')), {}, 5000),
       ]);
       await requests.flush();
       state.durationMs = Date.now() - started;
@@ -222,8 +215,8 @@ const verifyBrowser = async (ctx, item, record) => {
       assert.equal(state.proposal.comparison.status, 'AVAILABLE');
       assert.equal(state.proposal.comparison.candidate.rowCount, record.repairRows);
       const beforeSteps = ctx.builder.workspace.documents[0].construction?.steps ?? [];
-      await clickControl(tracker, page, '[aria-label="Row definition settings"] button', { name: 'Apply row definition' });
-      await waitForDOM(page, () => !document.querySelector('[aria-label="Row definition settings"]'), {}, 5000);
+      await click('[aria-label="Row definition settings"] button', { name: 'Apply row definition' });
+      await waitFor( () => !document.querySelector('[aria-label="Row definition settings"]'), {}, 5000);
       ctx.builder = (await api(ctx.base + '/builder')).body;
       verifySaved(ctx, repair, beforeSteps);
       await open();
@@ -239,15 +232,15 @@ const verifyBrowser = async (ctx, item, record) => {
     assert.equal(state.proposal.comparison.candidate.rowCount, record.expectedRows);
     assert.equal((await api(ctx.base + '/builder')).body.draftDigest, ctx.builder.draftDigest);
     if (item.name === 'records' || item.name === 'cohort-ERROR') {
-      await clickControl(tracker, page, '[aria-label="Row definition settings"] button', { name: 'Cancel' });
-      await waitForDOM(page, () => !document.querySelector('[aria-label="Row definition settings"]'), {}, 5000);
+      await click('[aria-label="Row definition settings"] button', { name: 'Cancel' });
+      await waitFor( () => !document.querySelector('[aria-label="Row definition settings"]'), {}, 5000);
       assert.equal((await api(ctx.base + '/builder')).body.draftDigest, ctx.builder.draftDigest);
       state.cancel = 'unchanged draft';
       await open();
       await configure();
     }
-    await clickControl(tracker, page, '[aria-label="Row definition settings"] button', { name: 'Apply row definition' });
-    await waitForDOM(page, () => !document.querySelector('[aria-label="Row definition settings"]'), {}, 5000);
+    await click('[aria-label="Row definition settings"] button', { name: 'Apply row definition' });
+    await waitFor( () => !document.querySelector('[aria-label="Row definition settings"]'), {}, 5000);
     ctx.builder = (await api(ctx.base + '/builder')).body;
     const digest = ctx.builder.draftDigest;
     await open();
@@ -259,15 +252,14 @@ const verifyBrowser = async (ctx, item, record) => {
     assertBrowserClean();
     record.browser = { status: 'passed', durationMs: state.durationMs };
   } catch (error) {
-    await browser.captureFailure(error, { phase: 'base-settings-lifecycle', action: tracker.activeAction, elapsedMs: tracker.activeAction ? Date.now() - tracker.activeAction.startedAt : undefined, state: { case: record.id, selection: item.selection, responses: state.responses } });
     throw error;
   } finally {
     await requests.flush();
     state.body = await page.locator('body').innerText().catch(() => undefined);
-    state.exceptions = [...browser.diagnostics.console, ...browser.diagnostics.pageErrors];
-    state.http = [...browser.diagnostics.httpFailures, ...browser.diagnostics.networkFailures, ...state.errors];
-    await writeFile(join(directory, 'browser.json'), JSON.stringify({ ...state, diagnostics: browser.diagnostics }, null, 2));
-    await browser.close();
+    state.exceptions = [...caseErrors.console, ...caseErrors.pageErrors];
+    state.http = [...caseErrors.httpFailures, ...caseErrors.networkFailures, ...state.errors];
+    page.off('console', onConsole); page.off('pageerror', onPageError); page.off('requestfailed', onRequestFailed); page.off('response', onResponse);
+    await writeFile(join(directory, 'browser.json'), JSON.stringify(state, null, 2));
   }
 };
 
@@ -361,13 +353,11 @@ try {
   }
 } catch (error) { report.failures.push({ error: String(error.stack ?? error) }); }
 report.finished = new Date().toISOString();
-const logs = spawnSync('rtk', ['proxy', 'docker', 'logs', '--since', report.started, values['api-container']], { encoding: 'utf8', timeout: 30000, maxBuffer: 8 * 1024 * 1024 });
-if (logs.status === 0) {
-  const requestIds = new Set(report.requests.map(r => r.requestId));
-  const lines = `${logs.stdout}\n${logs.stderr}`.split('\n').filter(line => [...requestIds].some(id => line.includes(id)));
-  await writeFile(join(values.evidence, 'server.log'), lines.join('\n'));
-} else report.logCaptureError = logs.error?.message ?? logs.stderr;
-report.verificationIdentity = await verificationIdentity.finish();
+report.browserSelection = values['browser-cases']?.split(',') ?? 'all';
 await writeFile(join(values.evidence, 'report.json'), JSON.stringify(report, null, 2));
-console.log(JSON.stringify({ evidence: values.evidence, passed: report.cases.filter(c => c.status === 'passed').length, untested: report.cases.filter(c => c.status === 'untested').length, failures: report.failures }, null, 2));
-process.exitCode = report.failures.length ? 1 : 0;
+await cda.attachReport('base-settings', report);
+assert.deepEqual(report.failures, [], 'Base-settings browser lifecycle must complete every selected case');
+cda.check('correctness', 'base settings lifecycle preserves authored steps and persisted row shape', true,
+  { browserCases: report.cases.map(item => item.id), coverage: report.coverage });
+return report;
+}

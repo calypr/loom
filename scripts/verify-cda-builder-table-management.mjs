@@ -1,18 +1,7 @@
 import assert from 'node:assert/strict';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import {
-  apiBuildIdentity,
-  measuredAction,
-  record,
-  targetFromEnvironment,
-} from './verify-cda-builder-related-source-chooser.mjs';
-import { launchBrowser, sanitizeText } from './lib/playwright-browser.mjs';
-import { requireUnique } from './lib/playwright-actions.mjs';
-import {
-  sourceFingerprintChangedPaths,
-  sourceFingerprintWithManifest,
-} from './verify-ui/source-fingerprint.mjs';
+import { captureBuilderScreenshot, measuredAction, record, requireUnique } from './verify-cda-builder-related-source-chooser.mjs';
 import { assertExactTableNames, assertPreviewShape, tableManagementActions } from './verify-cda-builder-table-management-contract.mjs';
 
 const tableNames = async page => page.locator('[data-testid^="construction-table-"]')
@@ -72,8 +61,8 @@ const openBuilder = async (page, target, explorerId) => {
   url.searchParams.set('project', target.fixtureProject);
   url.searchParams.set('explorer', explorerId);
   url.searchParams.set('mode', 'builder');
-  await page.goto(url.toString(), { waitUntil: 'domcontentloaded', timeout: 15000 });
-  await page.getByText('DATASET WORKSPACE', { exact: true }).waitFor({ state: 'visible', timeout: 15000 });
+  await page.goto(url.toString(), { waitUntil: 'domcontentloaded', timeout: 5000 });
+  await page.getByText('DATASET WORKSPACE', { exact: true }).waitFor({ state: 'visible', timeout: 5000 });
   const explorer = page.getByRole('combobox', { name: 'Explorer', exact: true });
   await requireUnique(explorer, 'Explorer selector');
   assert.equal(await explorer.inputValue(), explorerId, 'Builder opened on a different Explorer');
@@ -108,8 +97,8 @@ async function runVerifyDuplicateAndDelete({ page, report, tracker }) {
     () => page.getByRole('button', { name: 'Specimen copy', exact: true }).waitFor({ state: 'detached', timeout: 5000 }));
   assert.equal(confirmation, 'Delete Specimen copy?', 'Delete confirmation did not identify the requested table');
   const remaining = await tableNames(page);
-  await page.reload({ waitUntil: 'domcontentloaded', timeout: 15000 });
-  await page.getByText('DATASET WORKSPACE', { exact: true }).waitFor({ state: 'visible', timeout: 15000 });
+  await page.reload({ waitUntil: 'domcontentloaded', timeout: 5000 });
+  await page.getByText('DATASET WORKSPACE', { exact: true }).waitFor({ state: 'visible', timeout: 5000 });
   await waitForNames(page, ['Specimen']);
   const reloaded = await tableNames(page);
   assertExactTableNames(reloaded, ['Specimen'], 'Tables after duplicate deletion and reload');
@@ -137,8 +126,8 @@ async function runCleanupOrphanPatient({ page, report, tracker }) {
     button => button.click({ timeout: 5000 }),
     () => patient.waitFor({ state: 'detached', timeout: 5000 }));
   assert.equal(confirmation, 'Delete Patient?', 'Delete confirmation did not identify the Patient table');
-  await page.reload({ waitUntil: 'domcontentloaded', timeout: 15000 });
-  await page.getByText('DATASET WORKSPACE', { exact: true }).waitFor({ state: 'visible', timeout: 15000 });
+  await page.reload({ waitUntil: 'domcontentloaded', timeout: 5000 });
+  await page.getByText('DATASET WORKSPACE', { exact: true }).waitFor({ state: 'visible', timeout: 5000 });
   const after = await tableNames(page);
   assert(!after.includes('Patient'), 'Orphan Patient table remains after reload');
   record(report, 'Orphan Patient removal persists after reload', true, { before, after, confirmation });
@@ -156,8 +145,8 @@ async function runDuplicateTable({ page, report, tracker }) {
     () => page.getByRole('button', { name: duplicateTitle, exact: true }).waitFor({ state: 'visible', timeout: 5000 }));
   const copiedNames = await tableNames(page);
   assert(copiedNames.includes(duplicateTitle), 'Duplicate action did not create Specimen copy');
-  await page.reload({ waitUntil: 'domcontentloaded', timeout: 15000 });
-  await page.getByText('DATASET WORKSPACE', { exact: true }).waitFor({ state: 'visible', timeout: 15000 });
+  await page.reload({ waitUntil: 'domcontentloaded', timeout: 5000 });
+  await page.getByText('DATASET WORKSPACE', { exact: true }).waitFor({ state: 'visible', timeout: 5000 });
   const reloadedNames = await tableNames(page);
   assertExactTableNames(reloadedNames, ['Specimen', 'Specimen copy'], 'Duplicated table names after reload');
   const inputs = page.locator('input[aria-label^="Table name for "]');
@@ -211,8 +200,8 @@ async function runRenameReorderUndo({ page, report, tracker }) {
     }, undefined, { timeout: 5000 }));
   const undone = await tableNames(page);
   assert.equal(undone[1], 'Body structures QA', 'Undo did not restore the table order');
-  await page.reload({ waitUntil: 'domcontentloaded', timeout: 15000 });
-  await page.getByText('DATASET WORKSPACE', { exact: true }).waitFor({ state: 'visible', timeout: 15000 });
+  await page.reload({ waitUntil: 'domcontentloaded', timeout: 5000 });
+  await page.getByText('DATASET WORKSPACE', { exact: true }).waitFor({ state: 'visible', timeout: 5000 });
   const reloaded = await tableNames(page);
   assertExactTableNames(reloaded, undone, 'Renamed table inventory after reload');
   record(report, 'Rename, reorder, undo, and reload match', true, { starting, moved, undone, reloaded });
@@ -259,8 +248,8 @@ async function runSwitchExplorers({ page, report, tracker, explorerId, secondExp
   assert.equal(switched.explorerId, secondExplorerId, 'Explorer selection did not switch');
   assert(switched.tables.some(table => table.title === expectedSecondExplorerTable), 'Second Explorer table marker is absent');
   assert.notDeepEqual(switched.tables, first.tables, 'Explorer switch did not change the visible table set');
-  await page.reload({ waitUntil: 'domcontentloaded', timeout: 15000 });
-  await page.getByText('DATASET WORKSPACE', { exact: true }).waitFor({ state: 'visible', timeout: 15000 });
+  await page.reload({ waitUntil: 'domcontentloaded', timeout: 5000 });
+  await page.getByText('DATASET WORKSPACE', { exact: true }).waitFor({ state: 'visible', timeout: 5000 });
   const explorer = page.getByRole('combobox', { name: 'Explorer', exact: true });
   await requireUnique(explorer, 'Explorer selector after reload');
   assert.equal(await explorer.inputValue(), explorerId, 'Reload did not restore the requested starting Explorer');
@@ -270,27 +259,25 @@ async function runSwitchExplorers({ page, report, tracker, explorerId, secondExp
   report.lifecycle = { switch: 'passed', reload: 'passed', preview: 'untested', apply: 'not applicable', edit: 'untested', removal: 'untested' };
 }
 
-export async function runBuilderTableManagement({ action, explorerId, secondExplorerId, expectedSecondExplorerTable, env = process.env } = {}) {
+export async function runBuilderTableManagement({ page, cda, action, explorerId = cda.target.explorer, secondExplorerId, expectedSecondExplorerTable } = {}) {
   assert(tableManagementActions.has(action), `Unsupported Builder table action: ${action}`);
   assert(String(explorerId ?? '').trim(), 'Pass an explicit Builder Explorer ID');
-  const target = await targetFromEnvironment(env);
+  const target = cda.target;
+  const evidenceDirectory = cda.evidence;
+  const report = cda.report;
+  const diagnostics = cda.diagnostics;
   const timestamp = new Date().toISOString().replaceAll(':', '-');
   const caseName = action.toLowerCase().replaceAll(' ', '-');
-  const evidenceDirectory = resolve(target.artifacts, `playwright-table-management-${caseName}-${timestamp}`);
-  await mkdir(evidenceDirectory, { recursive: true, mode: 0o700 });
-  const sourceAtStart = sourceFingerprintWithManifest(target.sourceRoot);
-  const buildAtStart = apiBuildIdentity(target);
-  const report = {
+  Object.assign(report, {
     schemaVersion: 1,
     scenario: 'cda-builder-table-management',
     case: action,
     status: 'running',
     target: {
+      ...report.target,
       sourceRoot: target.sourceRoot,
-      sourceFingerprint: sourceAtStart.fingerprint,
-      apiBuildIdentity: buildAtStart,
       composeProject: target.composeProject,
-      apiContainer: env.LOOM_CDA_API_CONTAINER,
+      apiContainer: target.apiContainer,
       uiOrigin: target.uiUrl,
       apiOrigin: target.apiUrl,
       project: target.fixtureProject,
@@ -303,22 +290,16 @@ export async function runBuilderTableManagement({ action, explorerId, secondExpl
     independentOracle: 'Table identity, exact table inventory, visible preview shape, browser API responses, and persisted Builder state are checked independently of click success.',
     lifecycle: {},
     evidenceDirectory,
-    assertions: [],
-    actions: [],
-    timings: [],
-  };
-  const tracker = { actions: [], timings: [] };
-  let browser;
-  let pageURL;
-  let activeAction = { label: 'launch Playwright browser', locator: 'Chromium launch' };
-  let failure;
-  try {
-    browser = await launchBrowser({ evidence: evidenceDirectory, appOrigins: [target.uiUrl, target.apiUrl], noAuth: true });
-    const { page, diagnostics } = browser;
+    });
+  Object.defineProperty(report, 'nativeCheck', {
+    configurable: true,
+    value: (name, passed, evidence) => cda.check('correctness', name, passed, evidence),
+  });
+  const tracker = { actions: [], timings: [], cda };
+
     report.browserDiagnostics = diagnostics;
-    activeAction = { label: 'open Builder', locator: target.uiUrl };
     const navigationStarted = Date.now();
-    pageURL = await openBuilder(page, target, explorerId);
+    await openBuilder(page, target, explorerId);
     report.actions.push({ name: 'open Builder', elapsedMs: Date.now() - navigationStarted, status: 'passed' });
     switch (action) {
       case 'Verify duplicate and delete':
@@ -346,48 +327,6 @@ export async function runBuilderTableManagement({ action, explorerId, secondExpl
     record(report, 'No unexpected console, page, request, or API failures', !unexpectedErrors, diagnostics);
     report.status = action === 'Inspect tables' ? 'partial' : 'partial';
     report.statusReason = 'This focused table-management case does not establish the complete Builder preview/edit/removal lifecycle.';
-    await page.screenshot({ path: resolve(evidenceDirectory, 'final-state.png'), fullPage: true });
-    report.evidence = ['final-state.png'];
-  } catch (error) {
-    failure = error;
-    report.failure = { action: tracker.activeAction?.label ?? activeAction.label, message: sanitizeText(error.message ?? error) };
-    if (browser) {
-      report.failureTrace = await browser.captureFailure(error, {
-        action: tracker.activeAction ?? activeAction,
-        elapsedMs: tracker.actionStartedAt ? Date.now() - tracker.actionStartedAt : undefined,
-        target: report.target,
-        pageURL,
-        lifecycle: report.lifecycle,
-        draftIdentity: await builderIdentity(browser.page).catch(() => undefined),
-      });
-      report.browserDiagnostics = browser.diagnostics;
-    }
-  } finally {
-    report.actions.push(...tracker.actions);
-    report.timings = tracker.timings;
-    if (browser) await browser.close().catch(error => { report.closeError = sanitizeText(error.message); });
-    try {
-      const sourceAtEnd = sourceFingerprintWithManifest(target.sourceRoot);
-      const changedPaths = sourceFingerprintChangedPaths(sourceAtStart.manifest, sourceAtEnd.manifest);
-      const sourceUnchanged = sourceAtStart.fingerprint.sha256 === sourceAtEnd.fingerprint.sha256;
-      report.assertions.push({ name: 'Watched source stayed unchanged', status: sourceUnchanged ? 'passed' : 'failed',
-        evidence: { before: sourceAtStart.fingerprint, after: sourceAtEnd.fingerprint, changedPaths } });
-      if (!sourceUnchanged) failure ??= new Error('Watched source changed during the browser run');
-      const buildAtEnd = apiBuildIdentity(target);
-      const buildUnchanged = buildAtEnd === buildAtStart;
-      report.assertions.push({ name: 'API build identity stayed unchanged', status: buildUnchanged ? 'passed' : 'failed',
-        evidence: { before: buildAtStart, after: buildAtEnd } });
-      if (!buildUnchanged) failure ??= new Error('API build identity changed during the browser run');
-    } catch (error) {
-      failure ??= error;
-      report.identityCheckError = sanitizeText(error.message ?? error);
-    }
-    const failedAssertion = report.assertions.some(assertion => assertion.status === 'failed');
-    const missingAssertions = report.assertions.length === 0 || report.assertions.some(assertion => !assertion.name || !assertion.status);
-    if (failure || failedAssertion || missingAssertions) report.status = 'failed';
-    else if (report.status === 'running') report.status = 'partial';
-    await writeFile(resolve(evidenceDirectory, 'report.json'), JSON.stringify(report, null, 2), { mode: 0o600 });
-  }
-  if (failure) throw Object.assign(failure, { reportPath: resolve(evidenceDirectory, 'report.json'), report });
+    await captureBuilderScreenshot({ page, cda, report, name: 'final-state.png' });
   return report;
 }

@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict';
+import { expect, test } from '@playwright/test';
 import { createHash } from 'node:crypto';
+import { performance } from 'node:perf_hooks';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { executeScenario, runPlaywrightCase, browserURL } from './common.mjs';
+import { browserURL } from './builder-url.mjs';
 import { recordCheck } from './report.mjs';
-import { builderCancelStateEvidence, nativeResponseScopeEvidence, removalProposalEvidence, targetDocumentStateEvidence } from './builder-combine-nullable-helpers.mjs';
+import { builderCancelStateEvidence, nativeResponseScopeEvidence, removalProposalEvidence } from './builder-combine-nullable-helpers.mjs';
 import { classifyNativeBrowserApiRequest } from '../lib/native-browser-api-scope.mjs';
 import {
   builderRequestURL,
@@ -16,16 +18,19 @@ import {
   isNumericClickHouseType,
   isScalarStringColumn,
   nativeCombineTargetBindingEvidence,
+  rootedEmptyTargetRestorationEvidence,
   sameSourceDocuments,
   snapshotSourceDocument,
 } from './builder-combine-helpers.mjs';
 
 const workspaceReady = "document.body.innerText.includes('DATASET WORKSPACE') && Boolean(document.querySelector('[data-testid=\"construction-workspace\"]'))";
-const proposalReady = "(()=>{const panel=document.querySelector('[data-testid=\"construction-proposal-panel\"][data-proposal-status=\"ready\"]');return Boolean(panel?.querySelector('[data-testid=\"construction-proposal-preview\"][data-preview-status=\"ready\"]'))})()";
+const proposalReady = "(()=>{const panel=document.querySelector('[data-testid=\"construction-proposal-panel\"][data-proposal-status=\"ready\"]');const preview=document.querySelector('[data-testid=\"construction-proposal-preview\"][data-preview-status=\"ready\"]');return Boolean(panel&&preview&&preview.getAttribute('data-preview-receipt-id')===panel.getAttribute('data-proposal-id'))})()";
 const proposalPreview = (count) =>
-  "(()=>{const panel=document.querySelector('[data-testid=\"construction-proposal-panel\"][data-proposal-status=\"ready\"]');const preview=panel?.querySelector('[data-testid=\"construction-proposal-preview\"][data-preview-status=\"ready\"]');return Boolean(preview&&preview.querySelectorAll('tbody tr[data-testid=\"construction-proposal-preview-row\"]').length===" + count + ')})()';
+  "(()=>{const panel=document.querySelector('[data-testid=\"construction-proposal-panel\"][data-proposal-status=\"ready\"]');const preview=document.querySelector('[data-testid=\"construction-proposal-preview\"][data-preview-status=\"ready\"]');return Boolean(panel&&preview&&preview.getAttribute('data-preview-receipt-id')===panel.getAttribute('data-proposal-id')&&preview.querySelectorAll('tbody tr[data-testid=\"construction-proposal-preview-row\"]').length===" + count + ')})()';
 const savedPreview = (count) =>
   "(()=>{const preview=document.querySelector('[data-testid=\"construction-preview\"]');const table=document.querySelector('[data-testid=\"preview-table-scroll\"] [role=\"table\"]');return Boolean(preview?.getAttribute('data-preview-status')==='ready'&&table?.getAttribute('aria-rowcount')===" + JSON.stringify(String(count + 1)) + "&&!document.body.innerText.includes('Loading your table…')&&!document.body.innerText.includes('Preview failed:'))})()";
+
+const emptyTargetReady = (outputId) => `(()=>{const selected=document.querySelector('[data-testid="construction-table-'+CSS.escape(${JSON.stringify(outputId)})+'"]');const preview=document.querySelector('[data-testid="preview-table-scroll"]');return selected?.getAttribute('aria-current')==='page'&&!document.querySelector('[data-testid="construction-proposal-panel"]')&&!document.querySelector('[data-testid="construction-history"]')&&preview?.textContent?.trim()==='Add a column to see your table.'})()`;
 
 const fixtureRows = (fixtureDir, file) => readFileSync(join(fixtureDir, file), 'utf8')
   .split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line));
@@ -47,13 +52,13 @@ const nativeApiScope = (context, explorer) => ({
   protectedExplorer: context.target.bootstrapExplorerId,
 });
 
-let activeAction;
+const STEP_TIMEOUT_MS = 5000;
 const setSelectValue = async (page, selector, value) => {
   const selected = await page.locator(selector).selectOption(value);
   return Array.isArray(selected) ? selected[0] : selected;
 };
 const evaluate = (page, expression) => page.evaluate(expression);
-const waitFor = (page, expression, timeout = 10000) => page.waitForFunction(expression, undefined, { timeout });
+const waitFor = (page, expression, timeout = 5000) => page.waitForFunction(expression, undefined, { timeout });
 const click = async (page, selector, options = {}) => {
   const locator = selector === 'button' ? page.getByRole('button', { name: options.name, exact: true }) :
     selector === 'summary' ? page.getByText(options.name, { exact: true }) : page.locator(selector);
@@ -61,11 +66,38 @@ const click = async (page, selector, options = {}) => {
 };
 const fill = (page, selector, value) => page.locator(selector).fill(value);
 const reload = async (page, ready) => { await page.reload({ waitUntil: 'domcontentloaded' }); await waitFor(page, ready, 30000); };
-const recordBrowserTiming = async (report, page, { name, action: perform, after, timeout = 10000, budget = 5000 }) => {
-  if (!activeAction) throw new Error('Playwright action runner was not initialized.');
-  const locator = page.locator('body');
-  await activeAction(name, locator, perform, { timeout, budget, after: after ? async () => typeof after === 'function' ? after() : waitFor(page, after, timeout) : undefined });
-};
+const recordBrowserTiming = (report, page, { name, action: perform, after, timeout = 5000, budget = STEP_TIMEOUT_MS }) =>
+  test.step(name, async () => {
+    const started = performance.now();
+    const budgetMs = Math.min(STEP_TIMEOUT_MS, budget);
+    let performCompleted = false;
+    let afterCompleted = false;
+    let afterMs;
+    let elapsedMs;
+    try {
+      await perform();
+      performCompleted = true;
+      if (after) {
+        const afterStarted = performance.now();
+        if (typeof after === 'function') await after();
+        else await waitFor(page, after, Math.min(timeout, STEP_TIMEOUT_MS));
+        afterMs = performance.now() - afterStarted;
+        afterCompleted = true;
+      }
+      elapsedMs = performance.now() - started;
+      expect(elapsedMs, `${name} action-to-render exceeded ${STEP_TIMEOUT_MS} ms`).toBeLessThanOrEqual(budgetMs);
+    } finally {
+      elapsedMs ??= performance.now() - started;
+      const passed = performCompleted && (!after || afterCompleted) && elapsedMs <= budgetMs;
+      const recordedElapsedMs = Math.round(elapsedMs);
+      report.actions.push({ label: name, status: passed ? 'passed' : 'failed', elapsedMs: recordedElapsedMs, locator: 'native Playwright step' });
+      report.timings[name] = recordedElapsedMs;
+      recordCheck(report, 'usability', `${name} completed`, passed,
+        { elapsedMs: recordedElapsedMs, afterMs: afterMs === undefined ? null : Math.round(afterMs) });
+      if (after) recordCheck(report, 'performance', `${name} action-to-render within budget`, passed,
+        { elapsedMs: recordedElapsedMs, afterMs: afterMs === undefined ? null : Math.round(afterMs), budgetMs });
+    }
+  }, { timeout: STEP_TIMEOUT_MS });
 
 const readGrid = async (page, kind = 'saved') => page.evaluate((kind) => {
   const proposal = kind === 'proposal';
@@ -166,7 +198,7 @@ const captureProposalRequests = (page, outputId, scope) => {
   page.on('response', onResponse);
   return {
     startIndex: () => entries.length,
-    stop: async () => { page.off('request', onRequest); page.off('response', onResponse); await Promise.all(entries.map(entry => entry.responsePromise).filter(Boolean)); },
+    stop: () => { page.off('request', onRequest); page.off('response', onResponse); },
     async find(joinType, afterIndex = 0) {
       const candidates = entries.slice(afterIndex).filter((entry) => {
         const step = entry.body?.candidateConstruction?.steps?.at(-1);
@@ -174,9 +206,12 @@ const captureProposalRequests = (page, outputId, scope) => {
       });
       const entry = candidates.at(-1);
       if (!entry) throw new Error('No automatic ' + joinType + ' KEY_JOIN proposal was sent for this output; rejected scope traffic=' + JSON.stringify(scopeRejections));
-      const deadline = Date.now() + 10000;
-      while (!entry.response && !entry.responseReadError && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 20));
-      if (!entry.response) throw new Error('Could not read exact ' + joinType + ' proposal response: ' + (entry.responseReadError ?? 'timed out'));
+      await expect.poll(() => entry.response !== undefined || Boolean(entry.responseReadError), {
+        timeout: STEP_TIMEOUT_MS,
+        message: 'Timed out waiting for the exact ' + joinType + ' nullable Join proposal response.',
+      }).toBe(true);
+      if (entry.responseReadError) throw new Error('Could not read exact ' + joinType + ' proposal response: ' + entry.responseReadError);
+      if (entry.response === null) throw new Error('Could not read exact ' + joinType + ' proposal response: response body was null.');
       entry.transportEvidence = nativeResponseScopeEvidence(entry.requestURL, entry.responseURL, scope);
       if (entry.scopeRejected) entry.transportEvidence = { ...entry.transportEvidence, ok: false, requestScopeRejected: entry.scopeRejected };
       return entry;
@@ -189,9 +224,12 @@ const captureProposalRequests = (page, outputId, scope) => {
       });
       const entry = candidates.at(-1);
       if (!entry) throw new Error('No scoped removal proposal was sent for step ' + stepID + '.');
-      const deadline = Date.now() + 10000;
-      while (!entry.response && !entry.responseReadError && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 20));
-      if (!entry.response) throw new Error('Could not read the exact removal proposal response: ' + (entry.responseReadError ?? 'timed out'));
+      await expect.poll(() => entry.response !== undefined || Boolean(entry.responseReadError), {
+        timeout: STEP_TIMEOUT_MS,
+        message: 'Timed out waiting for the exact nullable KEY_JOIN removal response.',
+      }).toBe(true);
+      if (entry.responseReadError) throw new Error('Could not read the exact removal proposal response: ' + entry.responseReadError);
+      if (entry.response === null) throw new Error('Could not read the exact removal proposal response: response body was null.');
       entry.transportEvidence = nativeResponseScopeEvidence(entry.requestURL, entry.responseURL, scope);
       if (entry.scopeRejected) entry.transportEvidence = { ...entry.transportEvidence, ok: false, requestScopeRejected: entry.scopeRejected };
       return entry;
@@ -259,14 +297,14 @@ const reloadTarget = (report, page, outputId, expectedRows, name) => recordBrows
     await selectTarget(page, outputId);
   },
   after: savedPreview(expectedRows),
-  timeout: 30000,
+  timeout: 5000,
 });
 
 const openSavedEdit = (report, page, stepID, name) => recordBrowserTiming(report, page, {
   name,
   action: () => editSavedStep(page, stepID),
   after: "Boolean(document.querySelector('[data-testid=\"construction-combine-editor\"]'))",
-  timeout: 10000,
+  timeout: 5000,
 });
 
 const captureCreateTableCommand = (page, scope) => {
@@ -298,22 +336,19 @@ const captureCreateTableCommand = (page, scope) => {
   page.on('request', onRequest);
   page.on('response', onResponse);
   return {
-    stop: async () => { page.off('request', onRequest); page.off('response', onResponse); await Promise.all(entries.map(entry => entry.responsePromise).filter(Boolean)); },
+    stop: () => { page.off('request', onRequest); page.off('response', onResponse); },
     read: async () => {
-      const deadline = Date.now() + 10000;
-      while (Date.now() < deadline) {
-        const candidates = entries.filter((entry) => entry.body?.commands?.some((command) => command?.type === 'CREATE_TABLE'));
+      let entry;
+      await expect.poll(() => {
+        const candidates = entries.filter((item) => item.body?.commands?.some((command) => command?.type === 'CREATE_TABLE'));
         if (candidates.length > 1) throw new Error('Expected one native CREATE_TABLE request while opening Combine; found ' + candidates.length);
-        const entry = candidates[0];
-        if (entry?.responseReadError) throw new Error('Could not read native Combine target creation response: ' + entry.responseReadError);
-        if (entry?.response) {
-          entry.transportEvidence = nativeResponseScopeEvidence(entry.requestURL, entry.responseURL, scope);
-          if (entry.scopeRejected) entry.transportEvidence = { ...entry.transportEvidence, ok: false, requestScopeRejected: entry.scopeRejected, scopeRejections };
-          return entry;
-        }
-        await new Promise((resolve) => setTimeout(resolve, 20));
-      }
-      throw new Error('Timed out capturing the native CREATE_TABLE command and returned workspace.');
+        entry = candidates[0];
+        return Boolean(entry?.response || entry?.responseReadError);
+      }, { timeout: STEP_TIMEOUT_MS, message: 'Timed out capturing native CREATE_TABLE and returned workspace.' }).toBe(true);
+      if (entry.responseReadError) throw new Error('Could not read native Combine target creation response: ' + entry.responseReadError);
+      entry.transportEvidence = nativeResponseScopeEvidence(entry.requestURL, entry.responseURL, scope);
+      if (entry.scopeRejected) entry.transportEvidence = { ...entry.transportEvidence, ok: false, requestScopeRejected: entry.scopeRejected, scopeRejections };
+      return entry;
     },
   };
 };
@@ -327,7 +362,7 @@ const startCombineTarget = async (context, page, report, explorer, observationOu
       name: 'open native Combine for nullable Join',
       action: () => click(page, 'button[data-testid="construction-action-combine"]'),
       after: 'Boolean(document.querySelector(\'[data-testid="construction-operation-editor"][data-operation-family="COMBINE"][data-output-id]\')) && Boolean(document.querySelector(\'[data-testid="construction-combine-editor"]\'))',
-      timeout: 30000,
+      timeout: 5000,
     });
     const command = await capture.read();
     check(report, 'correctness', 'native CREATE_TABLE request and response bind to the owned UI proxy project and Explorer route', command.transportEvidence.ok, command.transportEvidence);
@@ -346,7 +381,7 @@ const startCombineTarget = async (context, page, report, explorer, observationOu
     check(report, 'correctness', 'native Combine creates the scoped rooted empty target without adding an authored step or output column', evidence.ok, evidence);
     if (!evidence.ok) throw new Error('Native Combine target did not bind its creation request, response, and mounted editor: ' + JSON.stringify(evidence));
     return { outputId: evidence.outputId, rootNodeId: evidence.rootNodeId };
-  } finally { await capture.stop(); }
+  } finally { capture.stop(); }
 };
 
 const chooseOperation = async (report, page, inputs) => {
@@ -356,7 +391,7 @@ const chooseOperation = async (report, page, inputs) => {
     name: 'choose nullable KEY_JOIN and load its input selectors',
     action: () => click(page, 'button[data-testid="construction-combine-choice-key_join"]'),
     after: selectorsReady,
-    timeout: 30000,
+    timeout: 5000,
   });
   for (let index = 0; index < inputs.length; index += 1) {
     const value = publishedRef(inputs[index]);
@@ -418,18 +453,27 @@ const documentByRoot = (builder, resourceType) => {
 
 const createAndPublishSources = async (context, page, report, _includePatient, rawFieldsByResource) => {
   await page.goto(browserURL(context.target, context.target.fixtureProject, context.target.bootstrapExplorerId, 'builder'), { waitUntil: 'domcontentloaded' });
-  await click(page, 'text=New explorer');
-  await waitFor(page, "Boolean(document.querySelector('#new-explorer-name'))", 10000);
+  await recordBrowserTiming(report, page, {
+    name: 'open Explorer creation',
+    action: () => click(page, 'text=New explorer'),
+    after: "Boolean(document.querySelector('#new-explorer-name'))",
+  });
   const title = `Verify ${context.runID.slice(-10)} combine`;
   await fill(page, '#new-explorer-name', title);
-  await click(page, 'button', { name: 'Create blank' });
-  await waitFor(page, "document.querySelector('select[aria-label=\"Explorer\"]')?.selectedOptions[0]?.textContent?.trim()===" + JSON.stringify(title) + "&&document.body.innerText.includes('Build your first table')", 30000);
+  await recordBrowserTiming(report, page, {
+    name: 'create blank Explorer',
+    action: () => click(page, 'button', { name: 'Create blank' }),
+    after: "document.querySelector('select[aria-label=\"Explorer\"]')?.selectedOptions[0]?.textContent?.trim()===" + JSON.stringify(title) + "&&document.body.innerText.includes('Build your first table')",
+  });
   const explorer = await page.getByRole('combobox', { name: 'Explorer' }).inputValue();
   report.target.explorer = explorer;
+  check(report, 'persistence', 'created a fresh Explorer distinct from the bootstrap',
+    Boolean(explorer) && explorer !== context.target.bootstrapExplorerId,
+    { explorer, bootstrapExplorerId: context.target.bootstrapExplorerId });
 
   const addRoot = async (resourceType, tableTitle, rows) => {
     await fill(page, '#first-table-name', tableTitle);
-    await recordBrowserTiming(report, page, { name: `create ${resourceType} source table with its direct identity`, action: () => click(page, 'button', { name: `Choose ${resourceType} rows` }), timeout: 30000,
+    await recordBrowserTiming(report, page, { name: `create ${resourceType} source table with its direct identity`, action: () => click(page, 'button', { name: `Choose ${resourceType} rows` }), timeout: 5000,
       after: "Boolean(document.querySelector('[data-testid=\"construction-workspace\"]'))&&document.body.innerText.includes('" + tableTitle + "')" });
     await waitFor(page, savedPreview(rows), 30000);
     const grid = await readGrid(page);
@@ -450,7 +494,7 @@ const createAndPublishSources = async (context, page, report, _includePatient, r
     const label = `Add ${paths.length} selected feature${paths.length === 1 ? '' : 's'}`;
     await click(page, 'button', { name: label });
     await waitFor(page, "[...document.querySelectorAll('button')].some(button=>button.innerText.trim()==='Apply columns'&&!button.disabled)", 30000);
-    await recordBrowserTiming(report, page, { name: `apply ${resourceType} source fields and render its preview`, action: () => click(page, 'button', { name: 'Apply columns' }), timeout: 30000,
+    await recordBrowserTiming(report, page, { name: `apply ${resourceType} source fields and render its preview`, action: () => click(page, 'button', { name: 'Apply columns' }), timeout: 5000,
       after: savedPreview(rows) });
     await click(page, 'button', { name: 'Close operation editor' });
   };
@@ -461,8 +505,8 @@ const createAndPublishSources = async (context, page, report, _includePatient, r
   await addRoot('DiagnosticReport', 'Diagnostic reports', expectedReports.length);
   await addFields('DiagnosticReport', rawFieldsByResource.DiagnosticReport, expectedReports.length);
   const publishPath = `/api/v1/projects/${encodeURIComponent(context.target.fixtureProject)}/explorers/${encodeURIComponent(explorer)}/authoring/v2/publish`;
-  const publication = page.waitForResponse(response => response.request().method() === 'POST' && new URL(response.url()).origin === new URL(context.target.uiUrl).origin && new URL(response.url()).pathname === publishPath, { timeout: 60000 });
-  await recordBrowserTiming(report, page, { name: 'publish both exact source tables', action: () => click(page, 'button', { name: 'Publish' }), timeout: 60000,
+  const publication = page.waitForResponse(response => response.request().method() === 'POST' && new URL(response.url()).origin === new URL(context.target.uiUrl).origin && new URL(response.url()).pathname === publishPath, { timeout: 5000 });
+  await recordBrowserTiming(report, page, { name: 'publish both exact source tables', action: () => click(page, 'button', { name: 'Publish' }), timeout: 5000,
     after: async () => { const response = await publication; if (!response.ok()) throw new Error('source table publication returned HTTP ' + response.status()); } });
   const publishResponse = await publication;
   check(report, 'correctness', 'native source-table publication completed successfully', publishResponse.ok(), { status: publishResponse.status(), path: publishPath });
@@ -503,8 +547,7 @@ const createAndPublishSources = async (context, page, report, _includePatient, r
 };
 const currentRevisionForOutput = (builder, outputId, entries) => currentPublishedRevisionForOutput(entries, outputId);
 
-const runNullableLifecycle = (context) => runPlaywrightCase(context, 'builder-combine-nullable', 'lifecycle', async ({ page, report, action }) => {
-  activeAction = action;
+export const nullableJoinWorkflow = async ({ page, report, action }, context) => {
   assert.equal(context.custom, false, 'nullable Combine authoring requires an owned isolated fixture.');
   assert.equal(context.seed?.fresh, true, 'nullable Combine authoring requires a fresh verification project.');
   const rawObservations = fixtureRows(context.target.fixtureDir, 'Observation.ndjson');
@@ -591,7 +634,7 @@ const runNullableLifecycle = (context) => runPlaywrightCase(context, 'builder-co
       if (actual !== api.columns.reportID.id) throw new Error('Report ID projection was not selected.');
     },
     after: proposalPreview(innerRows.length),
-    timeout: 30000,
+    timeout: 5000,
   });
   await checkProposalBinding(report, page, proposalCapture, 0, 'INNER', target.outputId,
     ['observation_id', 'report_id'], innerRows, [observationKey.id, reportKey.id]);
@@ -602,7 +645,7 @@ const runNullableLifecycle = (context) => runPlaywrightCase(context, 'builder-co
     name: 'Apply INNER nullable Join',
     action: () => click(page, '[data-testid="construction-apply-proposal"]'),
     after: '!document.querySelector(\'[data-testid="construction-proposal-panel"]\') && Boolean(document.querySelector(\'[data-testid="construction-history"]\')) && ' + savedPreview(innerRows.length),
-    timeout: 30000,
+    timeout: 5000,
   });
   const appliedInner = await readBuilder(context, explorer);
   const innerSaved = assertSavedStep(report, appliedInner, target, [observationRevision, reportRevision], observationKey.id, reportKey.id, 'INNER');
@@ -618,7 +661,7 @@ const runNullableLifecycle = (context) => runPlaywrightCase(context, 'builder-co
     name: 'preview LEFT nullable Join before Cancel',
     action: () => setSelectValue(page, 'select[aria-label="If a row in the first table has no match"]', 'LEFT'),
     after: proposalPreview(leftRows.length),
-    timeout: 30000,
+    timeout: 5000,
   });
   await checkProposalBinding(report, page, proposalCapture, leftCancelRequestStart, 'LEFT', target.outputId,
     ['observation_id', 'report_id'], [
@@ -632,7 +675,7 @@ const runNullableLifecycle = (context) => runPlaywrightCase(context, 'builder-co
     name: 'Cancel LEFT nullable Join edit',
     action: () => click(page, '[data-testid="construction-cancel-proposal"]'),
     after: "Boolean(document.querySelector('[data-testid=\"construction-history\"]')) && !document.querySelector('[data-testid=\"construction-combine-editor\"]') && !document.querySelector('[data-testid=\"construction-proposal-panel\"]')",
-    timeout: 10000,
+    timeout: 5000,
   });
   await reloadTarget(report, page, target.outputId, innerRows.length, 'reload saved INNER after LEFT Cancel');
   const cancelledBuilder = await readBuilder(context, explorer);
@@ -647,7 +690,7 @@ const runNullableLifecycle = (context) => runPlaywrightCase(context, 'builder-co
     name: 'preview LEFT nullable Join for Apply',
     action: () => setSelectValue(page, 'select[aria-label="If a row in the first table has no match"]', 'LEFT'),
     after: proposalPreview(leftRows.length),
-    timeout: 30000,
+    timeout: 5000,
   });
   await checkProposalBinding(report, page, proposalCapture, leftApplyRequestStart, 'LEFT', target.outputId,
     ['observation_id', 'report_id'], [
@@ -661,7 +704,7 @@ const runNullableLifecycle = (context) => runPlaywrightCase(context, 'builder-co
     name: 'Apply LEFT nullable Join edit',
     action: () => click(page, '[data-testid="construction-apply-proposal"]'),
     after: '!document.querySelector(\'[data-testid="construction-proposal-panel"]\') && ' + savedPreview(leftRows.length),
-    timeout: 30000,
+    timeout: 5000,
   });
   const appliedLeft = await readBuilder(context, explorer);
   const leftSaved = assertSavedStep(report, appliedLeft, target, [observationRevision, reportRevision], observationKey.id, reportKey.id, 'LEFT', savedStepID);
@@ -680,14 +723,14 @@ const runNullableLifecycle = (context) => runPlaywrightCase(context, 'builder-co
     name: 'open nullable KEY_JOIN removal proposal before Cancel',
     action: openRemovalProposal,
     after: proposalReady,
-    timeout: 30000,
+    timeout: 5000,
   });
   await checkRemovalProposalBinding(report, page, proposalCapture, firstRemovalStart, target.outputId, leftSaved.step.id, beforeRemovalBuilder);
   await recordBrowserTiming(report, page, {
     name: 'Cancel nullable KEY_JOIN removal proposal',
     action: () => click(page, '[data-testid="construction-cancel-proposal"]'),
     after: "Boolean(document.querySelector('[data-testid=\"construction-history\"]')) && !document.querySelector('[data-testid=\"construction-proposal-panel\"]')",
-    timeout: 10000,
+    timeout: 5000,
   });
   await reloadTarget(report, page, target.outputId, leftRows.length, 'reload saved LEFT after removal Cancel');
   const cancelledRemovalBuilder = await readBuilder(context, explorer);
@@ -701,19 +744,23 @@ const runNullableLifecycle = (context) => runPlaywrightCase(context, 'builder-co
     name: 'reopen nullable KEY_JOIN removal proposal for Apply',
     action: openRemovalProposal,
     after: proposalReady,
-    timeout: 30000,
+    timeout: 5000,
   });
   await checkRemovalProposalBinding(report, page, proposalCapture, applyRemovalStart, target.outputId, leftSaved.step.id, cancelledRemovalBuilder);
   await recordBrowserTiming(report, page, {
     name: 'Apply nullable KEY_JOIN removal',
     action: () => click(page, '[data-testid="construction-apply-proposal"]'),
-    after: '!document.querySelector(\'[data-testid="construction-proposal-panel"]\') && Boolean(document.querySelector(\'[data-testid="construction-history"]\')) && ' + savedPreview(rawObservations.length),
-    timeout: 30000,
+    after: emptyTargetReady(target.outputId),
+    timeout: 5000,
   });
-  await reloadTarget(report, page, target.outputId, rawObservations.length, 'reload nullable KEY_JOIN removal result');
+  await recordBrowserTiming(report, page, {
+    name: 'reload nullable KEY_JOIN removal result',
+    action: async () => { await reload(page, workspaceReady); await selectTarget(page, target.outputId); },
+    after: emptyTargetReady(target.outputId),
+  });
   const afterRemoval = await readBuilder(context, explorer);
   const restored = documentByOutput(afterRemoval, target.outputId);
-  const restoredEvidence = targetDocumentStateEvidence(preCombineTargetDocument, restored);
+  const restoredEvidence = rootedEmptyTargetRestorationEvidence(restored, preCombineTargetDocument, target);
   check(report, 'persistence', 'removing nullable KEY_JOIN and reloading restores the exact pre-Combine target document', restoredEvidence.ok,
     { ...restoredEvidence, before: preCombineTargetDocument, after: restored });
 
@@ -732,18 +779,5 @@ const runNullableLifecycle = (context) => runPlaywrightCase(context, 'builder-co
       authorizationScopeDigest: finalBuilder.catalog?.authorizationScopeDigest, expectedAuthorizationScopeDigest: api.builder.catalog.authorizationScopeDigest });
   report.target.explorer = explorer;
   report.target.nullableCombineTarget = target;
-  } finally { await proposalCapture.stop(); }
-});
-
-export const runNullableJoin = async (context, caseNames) => {
-  const reports = [];
-  for (const caseName of caseNames) {
-    if (caseName !== 'lifecycle') throw new Error('unknown nullable Combine case: ' + caseName);
-    reports.push(await runNullableLifecycle(context));
-  }
-  return reports;
+  } finally { proposalCapture.stop(); }
 };
-
-if (import.meta.url === new URL(process.argv[1] ?? '', 'file:').href) {
-  await executeScenario({ id: 'builder-combine-nullable', argv: process.argv.slice(2), runner: runNullableJoin, mutating: true });
-}

@@ -30,6 +30,20 @@ test('nullable KEY_JOIN is registered as a separate owned native lifecycle', () 
   ]) assert.ok(required.includes(name), 'registry must require ' + name);
 });
 
+test('nullable lifecycle is discovered by the official Playwright Test runner', () => {
+  const spec = readFileSync(new URL('../../playwright/nullable-combine.spec.mjs', import.meta.url), 'utf8');
+  assert.match(driver, /export const nullableJoinWorkflow = async \(\{ page, report, action \}, context\) =>/);
+  assert.match(driver, /import \{ expect, test \} from '@playwright\/test'/);
+  assert.doesNotMatch(driver, /runPlaywrightCase|executeScenario|runNullableJoin/);
+  assert.doesNotMatch(driver, /activeAction|page\.locator\('body'\)|await Promise\.all\(entries\.map\(entry => entry\.responsePromise\)/);
+  assert.match(driver, /test\.step\(name, async \(\) =>/);
+  assert.match(driver, /\}, \{ timeout: STEP_TIMEOUT_MS \}\)/);
+  assert.equal((driver.match(/await expect\.poll\(/g) ?? []).length, 3);
+  assert.match(spec, /import \{ test \} from '\.\/fixtures\.mjs'/);
+  assert.match(spec, /test\.use\(\{ scenarioID: 'builder-combine-nullable', caseName: 'lifecycle', fixtureDir: 'testdata\/verify-combine' \}\)/);
+  assert.match(spec, /nullableJoinWorkflow\(\{ page, report: workflow\.report, action: workflow\.action \}, loomContext\)/);
+});
+
 test('nullable native case authors the exact optional source paths and checks the bound proposal receipt', () => {
   assert.match(driver, /Observation:\s*\['status',\s*'valueInteger',\s*'subject\.reference'\]/);
   assert.match(driver, /DiagnosticReport:\s*\['status',\s*'subject\.reference'\]/);

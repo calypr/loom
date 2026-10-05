@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { browserEval, click, launchCdaBrowser, navigate, selectOption, waitForBrowser } from './lib/playwright-cda-actions.mjs';
+import { join } from 'node:path';
 
-assert.equal(process.argv.length, 3, 'usage: node scripts/verify-row-definition-ui.mjs SELECTION_EVIDENCE');
-const source = JSON.parse(readFileSync(process.argv[2], 'utf8'));
-const target = { ...source.target, explorerId: source.explorerId };
+export async function verifyRowDefinitionUI({ page, cda, source: sourceInput, selectionEvidencePath }) {
+const source = sourceInput ?? JSON.parse(readFileSync(selectionEvidencePath, 'utf8'));
+const target = { ...(source.target ?? cda.target), explorerId: source.explorerId ?? cda.explorer };
 assert.ok(target.apiUrl && target.uiUrl && target.project && target.explorerId, 'evidence has no browser target');
+assert.equal(target.project, cda.project, 'selection evidence must belong to the owned CDA project');
+assert.equal(target.explorerId, cda.explorer, 'selection evidence must belong to the owned CDA explorer');
 const apiURL = new URL(target.apiUrl);
 const uiURL = new URL(target.uiUrl);
 assert.equal(apiURL.hostname, '127.0.0.1', 'row-definition verification only operates on the isolated local API');
@@ -68,47 +69,47 @@ assert.ok(original && !original.population, 'row-definition journey must start w
 const featureKeys = original.columns.map((column) => column.column);
 
 const query = new URLSearchParams({ project: target.project, explorer: target.explorerId, mode: 'builder' });
-const artifactRoot = join(process.cwd(), '.artifacts/loom-dev', `row-definition-ui-${Date.now()}`);
+const artifactRoot = join(cda.evidence, `row-definition-ui-${Date.now()}`);
 const htmlPath = `${artifactRoot}.html`;
 const reportPath = `${artifactRoot}.json`;
-mkdirSync(dirname(htmlPath), { recursive: true });
-const browser = await launchCdaBrowser(artifactRoot, apiURL.origin, uiURL.origin);
+mkdirSync(cda.evidence, { recursive: true });
 const browserFailures = [];
 const authoringResponses = [];
 const rowDefinitionSelector = 'select[aria-label="One row per"]';
+let evidence;
 const selectObservationRows = async () => {
-  await waitForBrowser(browser.page, () => [...document.querySelectorAll('select[aria-label="One row per"] option')]
+  await cda.wait(() => [...document.querySelectorAll('select[aria-label="One row per"] option')]
     .some(option => option.textContent.includes('Observation')));
-  const options = await browserEval(browser.page, () => [...document.querySelectorAll('select[aria-label="One row per"] option')]
+  const options = await cda.inspect(() => [...document.querySelectorAll('select[aria-label="One row per"] option')]
     .filter(option => option.textContent.includes('Observation'))
     .map(option => ({ value: option.value, text: option.textContent.trim(), disabled: option.disabled })));
   assert.equal(options.length, 1, `expected one Observation row option, found ${options.length}`);
   assert.equal(options[0].disabled, false, 'Observation row option is disabled');
   const startedAt = Date.now();
-  await selectOption(browser.page, rowDefinitionSelector, options[0].value);
+  await cda.selectOption(rowDefinitionSelector, options[0].value);
   await waitForObservationRows(Math.max(1, startedAt + 5000 - Date.now()));
   assert(Date.now() <= startedAt + 5000, 'row definition selection exceeded its five-second action-to-render budget');
 };
 const waitForObservationRows = async (timeout = 5000) => {
-  await waitForBrowser(browser.page, () =>
-    document.querySelector('select[aria-label="One row per"] option:checked')?.textContent.trim() === 'Observation', timeout);
+  await cda.wait(() =>
+    document.querySelector('select[aria-label="One row per"] option:checked')?.textContent.trim() === 'Observation', [], timeout);
 };
 const previewAndWait = async () => {
   const startedAt = Date.now();
-  await click(browser.page, 'button', { name: 'Preview' });
-  await waitForBrowser(browser.page, () => document.body.innerText.includes('dev-pair-001'), Math.max(1, startedAt + 5000 - Date.now()));
+  await cda.action('Preview row definition', page.getByRole('button', { name: 'Preview', exact: true }), target => target.click());
+  await cda.wait(() => document.body.innerText.includes('dev-pair-001'), [], Math.max(1, startedAt + 5000 - Date.now()));
   assert(Date.now() <= startedAt + 5000, 'Preview exceeded its five-second action-to-render budget');
 };
-browser.page.on('pageerror', error => browserFailures.push(error.message));
-browser.page.on('console', message => { if (message.type() === 'error') browserFailures.push(message.text()); });
-browser.page.on('response', response => {
+page.on('pageerror', error => browserFailures.push(error.message));
+page.on('console', message => { if (message.type() === 'error') browserFailures.push(message.text()); });
+page.on('response', response => {
   const responseURL = new URL(response.url());
   if (response.url().includes('/authoring/v2/')) authoringResponses.push(`${response.status()} ${responseURL.pathname}`);
   if (response.status() >= 400 && responseURL.pathname !== '/favicon.ico') browserFailures.push(`${response.status()} ${response.url()}`);
 });
 
 try {
-  await navigate(browser.page, `${target.uiUrl}/?${query}`);
+  await cda.navigate(`${target.uiUrl}/?${query}`);
   await selectObservationRows();
 
   const after = await json(`${authoring}/builder`);
@@ -121,7 +122,7 @@ try {
   assert.equal(after.draftVersion, before.draftVersion + 1, 'row definition must create exactly one draft version');
 
   await previewAndWait();
-  await browser.page.reload({ waitUntil: 'domcontentloaded', timeout: 5000 });
+  await page.reload({ waitUntil: 'domcontentloaded', timeout: 5000 });
   await waitForObservationRows();
 
   builder = await json(`${authoring}/builder`);
@@ -152,7 +153,7 @@ try {
   assert.equal(deepOriginal.population?.selectionRevisionId, source.selections.explicit.id, 'deep journey did not attach the file selection');
   const deepFeatureKeys = deepOriginal.columns.map((column) => column.column);
 
-  await browser.page.reload({ waitUntil: 'domcontentloaded', timeout: 5000 });
+  await page.reload({ waitUntil: 'domcontentloaded', timeout: 5000 });
   await selectObservationRows();
   const deepAfter = await json(`${authoring}/builder`);
   const deepRebased = deepAfter.workspace.documents.find((document) => document.output.id === deepOutputId);
@@ -165,12 +166,12 @@ try {
   assert.deepEqual(deepRebased.columns.map((column) => column.column), deepFeatureKeys, 'deep row change replaced stable feature keys');
   assert.equal(deepAfter.draftVersion, deepBefore.draftVersion + 1, 'deep row definition must create exactly one draft version');
   await previewAndWait();
-  await browser.page.reload({ waitUntil: 'domcontentloaded', timeout: 5000 });
+  await page.reload({ waitUntil: 'domcontentloaded', timeout: 5000 });
   await waitForObservationRows();
   assert.equal(browserFailures.length, 0, `browser failures: ${browserFailures.join(' | ')}`);
-  writeFileSync(htmlPath, await browser.page.content(), { mode: 0o600 });
+  writeFileSync(htmlPath, await page.content(), { mode: 0o600 });
 
-  const evidence = {
+  evidence = {
     status: 'passed', scenario: 'explicit-shallow-and-deep-row-definition',
     target, outputId, deepOutputId,
     before: { draftVersion: before.draftVersion, rootResourceType: original.rootResourceType, featureKeys },
@@ -192,13 +193,16 @@ try {
     ],
     authoringResponses, evidencePaths: [htmlPath],
   };
+  evidence.evidencePaths = [htmlPath, reportPath];
   writeFileSync(reportPath, JSON.stringify(evidence, null, 2), { mode: 0o600 });
-  console.log(JSON.stringify({ evidence: reportPath, assertions: evidence.assertions }, null, 2));
+  cda.check('correctness', 'shallow and deep row definitions preserve feature keys and population', true,
+    { outputId, deepOutputId, featureKeys, deepFeatureKeys });
 } catch (error) {
-  await browser.captureFailure(error, { action: browser.activeAction ?? browser.lastAction, explorer: target.explorerId, phase: 'shallow and deep row-definition lifecycle' });
-  writeFileSync(htmlPath, await browser.page.content(), { mode: 0o600 });
+  writeFileSync(htmlPath, await page.content(), { mode: 0o600 });
   const reason = error instanceof Error ? error.message : String(error);
   throw new Error(`${reason}; authoring responses: ${authoringResponses.slice(-12).join(' | ') || 'none'}; browser failures: ${browserFailures.slice(-5).join(' | ') || 'none'}`);
 } finally {
-  await browser.close();
+  if (evidence) await cda.attachReport('row-definition-ui', evidence);
+}
+return evidence;
 }

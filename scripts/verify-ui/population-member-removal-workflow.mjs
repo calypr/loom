@@ -1,38 +1,63 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { mkdir, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { assertExactPreviewMultiset, assertPopulationMemberRemovalApplyCommand, assertPopulationMemberRemovalProposal, shouldCapturePopulationMemberNativeResponse } from './lib/population-member-removal-proposal.mjs';
-import { launchBrowser, sanitizeBody, sanitizeText } from './lib/playwright-browser.mjs';
-import { performAction } from './lib/playwright-actions.mjs';
-import { captureCDARequests } from './lib/cda-playwright-requests.mjs';
-import { assertOwnedCdaTarget } from './lib/owned-cda-target.mjs';
-import { captureSourceFreeze } from './lib/source-freeze.mjs';
-import { sourceFingerprint } from './verify-ui/source-fingerprint.mjs';
-import { captureApiBuildFreeze, checkContainerApiBuildStamp, ApiBuildFreezeError } from './lib/api-build-freeze.mjs';
+import { assertExactPreviewMultiset, assertPopulationMemberRemovalApplyCommand, assertPopulationMemberRemovalProposal, shouldCapturePopulationMemberNativeResponse } from '../lib/population-member-removal-proposal.mjs';
+import { captureCDARequests } from '../lib/cda-playwright-requests.mjs';
+import { captureSourceFreeze } from '../lib/source-freeze.mjs';
+import { sourceFingerprint } from './source-fingerprint.mjs';
+import { captureApiBuildFreeze, checkContainerApiBuildStamp, ApiBuildFreezeError } from '../lib/api-build-freeze.mjs';
 
-const project = process.env.LOOM_CDA_PROJECT;
-const generation = 'cda-fhir-v1';
-const explorer = process.env.LOOM_CDA_EXPLORER ?? `population-member-removal-${Date.now()}`;
-assert(/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(explorer), 'LOOM_CDA_EXPLORER must be a simple owned Explorer identifier.');
-assert.notEqual(explorer, 'cda-builder-full-qa-1790440983382', 'The shared protected CDA Explorer is not an owned test target');
-const evidence = process.argv[2] ?? `/tmp/loom-cda-population-member-removal-${Date.now()}`;
-const apiOrigin = process.env.LOOM_CDA_API_ORIGIN?.replace(/\/$/, '');
-const uiOrigin = process.env.LOOM_CDA_UI_ORIGIN?.replace(/\/$/, '');
-const apiContainer = process.env.LOOM_CDA_API_CONTAINER;
-const arangoContainer = process.env.LOOM_ARANGO_CONTAINER;
-const composeProject = process.env.LOOM_CDA_COMPOSE_PROJECT;
-const sourceRoot = process.env.LOOM_SOURCE_FREEZE_ROOT ?? fileURLToPath(new URL('..', import.meta.url));
-assert(arangoContainer, 'Set LOOM_ARANGO_CONTAINER to the ArangoDB container in the isolated CDA Compose project.');
-await assertOwnedCdaTarget({ project, apiOrigin, uiOrigin, apiContainer, composeProject, sourceRoot, arangoContainer });
-const apiBuildContainer = apiContainer;
-const explorerRoot = `/api/v1/projects/${encodeURIComponent(project)}/explorers`;
-const authoring = `${explorerRoot}/${encodeURIComponent(explorer)}/authoring/v2`;
-const selections = authoring.replace('/authoring/v2', '/selections');
-const scenario = 'builder-population-member-removal';
-const caseName = 'mapped-plus-orphan-to-empty';
+const sensitiveName = /authorization|cookie|password|passwd|token|secret|credential|session|api[_-]?key/i;
+const sanitizeText = value => String(value ?? '')
+  .replaceAll(process.cwd(), '$CHECKOUT')
+  .replace(/(?:file:\/\/)?\/(?:private\/)?tmp\/[^\s)]+/g, '$TMP/<path>')
+  .replace(/\/Users\/[^/\s]+/g, '$HOME')
+  .replace(/\bBearer\s+[A-Za-z0-9._~+/-]+=*/gi, 'Bearer [REDACTED]')
+  .replace(/["']?[\w-]*(?:token|authorization|set-cookie|cookie|password|passwd|secret|credential|session(?:[_-]?id)?|api[_-]?key)[\w-]*["']?\s*[=:]\s*(?:"[^"]*"|'[^']*'|[^,;\s}\]]+)/gi, '[REDACTED]')
+  .replace(/<input\b[^>]*>/gi, tag => sensitiveName.test(tag)
+    ? tag.replace(/(\bvalue\s*=\s*)(["'])(.*?)\2/gi, '$1$2[REDACTED]$2')
+    : tag)
+  .replace(/\beyJ[A-Za-z0-9_-]{12,}\.[A-Za-z0-9_-]{12,}\.[A-Za-z0-9_-]{12,}\b/g, '[REDACTED_TOKEN]')
+  .replace(/\bsk-[A-Za-z0-9]{16,}\b/g, '[REDACTED_TOKEN]');
+const sanitizePayload = (value, key = '') => {
+  if (sensitiveName.test(key)) return '[REDACTED]';
+  if (typeof value === 'string') return sanitizeText(value);
+  if (Array.isArray(value)) return value.map(item => sanitizePayload(item));
+  if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([childKey, childValue]) => [childKey, sanitizePayload(childValue, childKey)]));
+  return value;
+};
+const sanitizeBody = body => {
+  const text = String(body ?? '').slice(0, 12000);
+  try { return JSON.stringify(sanitizePayload(JSON.parse(text))); } catch { return sanitizeText(text); }
+};
+
+export async function populationMemberRemovalWorkflow(page, nativeReport, action, check, fault, context) {
+  const env = { ...process.env, ...(context.env ?? {}) };
+  const target = context.target ?? {};
+  const project = context.project ?? target.project ?? target.fixtureProject ?? env.LOOM_CDA_PROJECT;
+  const generation = 'cda-fhir-v1';
+  const explorer = context.explorer ?? target.explorer ?? env.LOOM_CDA_EXPLORER ?? `population-member-removal-${Date.now()}`;
+  assert(/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(explorer), 'LOOM_CDA_EXPLORER must be a simple owned Explorer identifier.');
+  assert.notEqual(explorer, 'cda-builder-full-qa-1790440983382', 'The shared protected CDA Explorer is not an owned test target');
+  const apiOrigin = String(context.apiOrigin ?? target.apiOrigin ?? target.apiUrl ?? env.LOOM_CDA_API_ORIGIN ?? '').replace(/\/$/, '');
+  const uiOrigin = String(context.uiOrigin ?? target.uiOrigin ?? target.uiUrl ?? env.LOOM_CDA_UI_ORIGIN ?? '').replace(/\/$/, '');
+  const apiContainer = target.apiContainer ?? env.LOOM_CDA_API_CONTAINER;
+  const arangoContainer = target.arangoContainer ?? env.LOOM_CDA_ARANGO_CONTAINER ?? env.LOOM_ARANGO_CONTAINER;
+  const composeProject = target.composeProject ?? env.LOOM_CDA_COMPOSE_PROJECT;
+  const sourceRoot = target.sourceRoot ?? env.LOOM_SOURCE_FREEZE_ROOT ?? fileURLToPath(new URL('../..', import.meta.url));
+  assert(project, 'The native CDA fixture must provide the exact LOOM_CDA_PROJECT target.');
+  assert(apiOrigin, 'The native CDA fixture must provide LOOM_CDA_API_ORIGIN.');
+  assert(uiOrigin, 'The native CDA fixture must provide LOOM_CDA_UI_ORIGIN.');
+  assert(apiContainer, 'The native CDA fixture must provide LOOM_CDA_API_CONTAINER.');
+  assert(arangoContainer, 'The native CDA fixture must provide LOOM_ARANGO_CONTAINER for the independent Arango oracle.');
+  assert(composeProject, 'The native CDA fixture must provide LOOM_CDA_COMPOSE_PROJECT.');
+  const apiBuildContainer = apiContainer;
+  const explorerRoot = `/api/v1/projects/${encodeURIComponent(project)}/explorers`;
+  const authoring = `${explorerRoot}/${encodeURIComponent(explorer)}/authoring/v2`;
+  const selections = authoring.replace('/authoring/v2', '/selections');
+  const scenario = 'builder-population-member-removal';
+  const caseName = 'mapped-plus-orphan-to-empty';
 const requiredChecks = [
   'bounded independent CDA oracle proves one mapped and one orphan Specimen in the exact authorized project and generation',
   'saved source table contains the exact Observation population route followed by GROUP and RELATED_SOURCE COUNT',
@@ -46,13 +71,15 @@ const requiredChecks = [
   'native removal, Apply, and reload stay within five seconds; product API errors fail and incidental favicon 404s are recorded separately',
   'Undo restores the exact original collection, construction, columns and independently predicted populated rows after reload',
 ];
-const report = {
-  scenario, case: caseName, title: 'Mapped-plus-orphan source removal to empty GROUP→RELATED_SOURCE output', project, explorer,
-  requiredChecks, assertions: [], cases: [], requests: [], nativeRequests: [], errors: [], incidentalErrors: [], oracle: {}, started: new Date().toISOString(),
-};
-await mkdir(evidence, { recursive: true });
+  const report = nativeReport.populationMemberRemoval ?? (nativeReport.populationMemberRemoval = {});
+  Object.assign(report, {
+    scenario, case: caseName, title: 'Mapped-plus-orphan source removal to empty GROUP→RELATED_SOURCE output', project, explorer,
+    assertions: [], cases: [], requests: [], nativeRequests: [], errors: [], incidentalErrors: [], oracle: {}, started: new Date().toISOString(),
+  });
+  nativeReport.scenario = scenario;
+  nativeReport.case = caseName;
+  report.requiredChecks = requiredChecks;
 
-let browser;
 let requestMonitor;
 let builder;
 let outputId;
@@ -62,8 +89,7 @@ let sourceFreeze;
 let frozenApiBuild;
 let apiBuildCheckStarted = false;
 const networkRequests = report.nativeRequests;
-const actionTracker = {};
-const mark = name => { report.assertions.push({ name, status: 'passed' }); };
+const mark = name => { report.assertions.push({ name, status: 'passed' }); check('correctness', name, true, { workflow: 'population-member-removal' }); };
 const api = async (path, body) => {
   const requestId = randomUUID();
   const startedAt = Date.now();
@@ -99,25 +125,17 @@ const command = async commands => {
   });
   return refreshBuilder();
 };
-const inspect = (callback, argument) => browser.page.evaluate(callback, argument);
-const waitFor = (callback, argument, timeout = 30000) => browser.page.waitForFunction(callback, argument, { timeout });
+const inspect = (callback, argument) => page.evaluate(callback, argument);
+const waitFor = (callback, argument, timeout = 30000) => page.waitForFunction(callback, argument, { timeout });
 const locatorFor = (selector, options = {}) => {
-  if (options.name) return browser.page.getByRole('button', { name: options.name, exact: true });
-  const locator = browser.page.locator(selector);
+  if (options.name) return page.getByRole('button', { name: options.name, exact: true });
+  const locator = page.locator(selector);
   return options.includes ? locator.filter({ hasText: options.includes }) : locator;
 };
 const click = async (selector, options = {}, timeout = 5000) => {
   const label = options.name ?? options.includes ?? selector;
   const locator = locatorFor(selector, options);
-  const startedAt = Date.now();
-  try {
-    const elapsedMs = await performAction(actionTracker, label, locator, (target, actionOptions) => target.click(actionOptions), { timeout });
-    actionTracker.lastAction = { label, locator: locator.toString(), targetLocator: locator, elapsedMs };
-    return elapsedMs;
-  } catch (error) {
-    actionTracker.activeAction ??= { label, locator: locator.toString(), targetLocator: locator, startedAt };
-    throw error;
-  }
+  await action(`click ${label}`, locator, () => locator.click({ timeout }), { timeout, budget: Math.min(timeout, 5000) });
 };
 const requestEntry = (path, startedAt) => report.nativeRequests.findLast(request => shouldCapturePopulationMemberNativeResponse(request, { project, explorer }) && request.path === path && request.startedAt >= startedAt && request.completedAt && request.response);
 const visibleRows = async () => inspect(() => [...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]')].slice(1).map(row => [...row.querySelectorAll('[role="cell"]')].map(cell => cell.innerText.trim())).filter(row => row.length));
@@ -128,7 +146,7 @@ const assertRendered = async expectedRows => {
 };
 const openBuilder = async expectedRows => {
   await refreshBuilder();
-  await browser.page.goto(`${uiOrigin}/?project=${encodeURIComponent(project)}&explorer=${encodeURIComponent(explorer)}&mode=builder`);
+  await page.goto(`${uiOrigin}/?project=${encodeURIComponent(project)}&explorer=${encodeURIComponent(explorer)}&mode=builder`);
   await waitFor(id => Boolean(document.querySelector(`[data-testid="construction-table-${CSS.escape(id)}"]`)), outputId, 30000);
   await click(`[data-testid="construction-table-${outputId}"]`);
   await waitFor(() => {
@@ -174,7 +192,8 @@ const waitForMemberProposal = async (startAt, { expectedRows, expected }) => {
 };
 const rawMembership = selectionId => rawQuery(`FOR member IN loom_explorer_selection_members FILTER member.selectionId==${JSON.stringify(selectionId)} AND member.project==${JSON.stringify(project)} AND member.generation==${JSON.stringify(generation)} AND member.resourceType=="Specimen" SORT member.id RETURN {project:member.project,generation:member.generation,resourceType:member.resourceType,id:member.id}`);
 
-const run = async () => {
+
+  const run = async () => {
   report.sourceFingerprint = { root: sourceRoot, before: sourceFingerprint(sourceRoot) };
   sourceFreeze = await captureSourceFreeze(sourceRoot);
   report.sourceFreeze = { watchedFileCount: sourceFreeze.watchedFileCount };
@@ -232,26 +251,25 @@ const run = async () => {
   const pinnedBaseSelection = currentDocument(builder).population.selectionRevisionId;
   assert.equal(pinnedBaseSelection, baseSelection.id);
   assert.deepEqual(await rawMembership(baseSelection.id), refs, 'The independent persisted membership must be the exact two source refs');
-  const page = await api(`${selections}/${baseSelection.id}?limit=10`);
-  assert.deepEqual(page.members.map(member => member.ref).sort((a, b) => a.id.localeCompare(b.id)), refs);
-  report.oracle.baseSelection = page.revision;
+  const selectionPage = await api(`${selections}/${baseSelection.id}?limit=10`);
+  assert.deepEqual(selectionPage.members.map(member => member.ref).sort((a, b) => a.id.localeCompare(b.id)), refs);
+  report.oracle.baseSelection = selectionPage.revision;
 
-  browser = await launchBrowser({ evidence, appOrigins: [apiOrigin, uiOrigin], noAuth: process.env.LOOM_CDA_NO_AUTH === '1' });
   report.browserTarget = { uiOrigin, project, explorer };
-  requestMonitor = captureCDARequests(browser.page, {
+  requestMonitor = captureCDARequests(page, {
     apiOrigin: uiOrigin,
     appOrigins: [apiOrigin, uiOrigin],
     ownedPathPrefix: `${explorerRoot}/${encodeURIComponent(explorer)}`,
     responsePaths: /./,
     report: { nativeRequests: report.nativeRequests, errors: report.errors },
   });
-  browser.page.on('request', request => {
+  page.on('request', request => {
     const entry = requestMonitor.byRequest.get(request);
     if (!entry) return;
     const scope = /^\/api\/v1\/projects\/([^/]+)\/explorers\/([^/]+)(?:\/|$)/.exec(entry.path);
     if (scope) { entry.scopeProject = decodeURIComponent(scope[1]); entry.scopeExplorer = decodeURIComponent(scope[2]); }
   });
-  browser.page.on('response', response => {
+  page.on('response', response => {
     if (response.status() < 400) return;
     const url = new URL(response.url());
     if (![new URL(apiOrigin).origin, new URL(uiOrigin).origin].includes(url.origin)) return;
@@ -259,7 +277,7 @@ const run = async () => {
     if (response.status() === 404 && url.pathname.endsWith('/favicon.ico')) report.incidentalErrors.push({ ...failure, reason: 'The local UI does not serve a favicon asset.' });
     else if (!requestMonitor.byRequest.has(response.request())) report.errors.push({ kind: url.pathname.startsWith('/api/') ? 'http' : 'asset-http', ...failure });
   });
-  browser.page.on('requestfailed', request => {
+  page.on('requestfailed', request => {
     const url = new URL(request.url());
     if (![new URL(apiOrigin).origin, new URL(uiOrigin).origin].includes(url.origin) || requestMonitor.byRequest.has(request)) return;
     report.errors.push({ kind: 'network', path: url.pathname, method: request.method(), error: sanitizeText(request.failure()?.errorText) });
@@ -298,9 +316,9 @@ const run = async () => {
   await openBuilder(roots.map(row => [row.id]));
   let started = Date.now();
   await click('[data-testid="construction-rows-settings-trigger"]');
-  await browser.page.locator('[data-testid="construction-action-group-rows"]').waitFor({ state: 'visible', timeout: 30000 });
+  await page.locator('[data-testid="construction-action-group-rows"]').waitFor({ state: 'visible', timeout: 30000 });
   await click('[data-testid="construction-action-group-rows"]');
-  await browser.page.locator('input[aria-label="Group by Observation ID"]').waitFor({ state: 'visible', timeout: 30000 });
+  await page.locator('input[aria-label="Group by Observation ID"]').waitFor({ state: 'visible', timeout: 30000 });
   await click('input[aria-label="Group by Observation ID"]');
   await expectProposalForConstruction(started, roots.map(row => [row.id, '1']));
   await applyConstruction(roots.map(row => [row.id, '1']));
@@ -308,21 +326,21 @@ const run = async () => {
   const openRelatedFieldChooser = async () => {
     await click('[data-testid="construction-action-add-columns"]');
     await click('[aria-label="Column types"] button', { includes: 'Fields and related data' });
-    await browser.page.locator('[data-testid="construction-add-columns-source"]').waitFor({ state: 'visible', timeout: 30000 });
+    await page.locator('[data-testid="construction-add-columns-source"]').waitFor({ state: 'visible', timeout: 30000 });
     if (!await inspect(() => document.querySelector('[aria-label="Related resources"] summary')?.parentElement.open === true)) await click('[aria-label="Related resources"] summary');
     await click('[data-testid="construction-add-columns-source-option"][aria-label="Specimen, Related resource"]');
     if (!await inspect(() => document.querySelector('[data-testid="feature-catalog-raw-fields"] summary')?.parentElement.open === true)) await click('[data-testid="feature-catalog-raw-fields"] summary');
-    await browser.page.locator('input[aria-label="Select Specimen.id"]').waitFor({ state: 'visible', timeout: 30000 });
+    await page.locator('input[aria-label="Select Specimen.id"]').waitFor({ state: 'visible', timeout: 30000 });
   };
   const configureRelated = async () => {
     await openRelatedFieldChooser();
     await click('input[aria-label="Select Specimen.id"]');
     await click('[aria-label="Add columns editor"] button', { includes: 'Add 1 selected feature' });
-    await browser.page.getByRole('dialog').waitFor({ state: 'visible', timeout: 30000 });
+    await page.getByRole('dialog').waitFor({ state: 'visible', timeout: 30000 });
     if (!await inspect(() => [...document.querySelectorAll('[role="dialog"] summary')].find(summary => summary.innerText.includes('Other relationship paths'))?.parentElement.open === true)) await click('[role="dialog"] summary', { includes: 'Other relationship paths' });
     const relationLabel = 'Observation -[specimen]-> Specimen';
     const pathSelector = `[role="dialog"] input[aria-label=${JSON.stringify(`Specimen ID: ${relationLabel}`)}]`;
-    await browser.page.locator(pathSelector).waitFor({ state: 'visible', timeout: 30000 });
+    await page.locator(pathSelector).waitFor({ state: 'visible', timeout: 30000 });
     await click(pathSelector);
     await click('[role="dialog"] input[aria-label="Specimen ID: Count matching records"]');
     const proposalStarted = Date.now();
@@ -519,43 +537,40 @@ const run = async () => {
   assert(report.cases.some(testCase => testCase.name === 'reload-applied-candidate-to-render' && testCase.durationMs <= 5000));
   mark(requiredChecks[9]);
   report.status = 'passed';
-};
+  };
 
-try {
-  await run();
-} catch (error) {
-  report.status = error instanceof ApiBuildFreezeError ? 'invalidated' : 'failed';
-  report.error = String(error?.stack ?? error);
-  process.exitCode = 1;
-  if (error instanceof ApiBuildFreezeError) report.apiBuildFreeze = { ...report.apiBuildFreeze, invalidatesRun: true, productFailure: false, error: String(error), reason: error.reason };
-  report.failureUI = browser ? await inspect(() => document.body.innerText).catch(String) : undefined;
-  if (browser) {
-    try { await browser.page.screenshot({ path: join(evidence, 'failure.png'), fullPage: true }); } catch { /* preserve primary failure */ }
-    report.failureEvidence = await browser.captureFailure(error, { action: actionTracker.activeAction ?? actionTracker.lastAction, phase: report.assertions.length, requestIdentity: report.nativeRequests.at(-1) && (({ requestId, path, method }) => ({ requestId, path, method }))(report.nativeRequests.at(-1)) }).catch(sanitizeText);
+  let primaryError;
+  try {
+    await run();
+  } catch (error) {
+    primaryError = error;
+    report.status = error instanceof ApiBuildFreezeError ? 'invalidated' : 'failed';
+    report.error = String(error?.stack ?? error);
+    if (error instanceof ApiBuildFreezeError) report.apiBuildFreeze = { ...report.apiBuildFreeze, invalidatesRun: true, productFailure: false, error: String(error), reason: error.reason };
+  } finally {
+    if (requestMonitor) {
+      try { await requestMonitor.flush(); } catch (error) { report.responseDrainError = String(error); }
+    }
+    report.networkRequests ??= report.nativeRequests.map(({ requestId, browserRequestId, path, method, startedAt, completedAt, status, failure, expectedCancellation }) => ({ requestId, browserRequestId, path, method, startedAt, completedAt, status, failure, expectedCancellation }));
+    report.networkFailures ??= report.nativeRequests.filter(request => request.failure).map(({ requestId, path, method, failure }) => ({ requestId, path, method, failure }));
+    const invalidations = [];
+    if (sourceFreeze) {
+      try { report.sourceFreeze = { ...report.sourceFreeze, ...await sourceFreeze.assertUnchanged() }; }
+      catch (error) { report.status = 'invalidated'; report.sourceFreeze = { ...report.sourceFreeze, invalidatesRun: true, productFailure: false, changedPaths: error.changedPaths }; invalidations.push(error); }
+    }
+    if (apiBuildCheckStarted && frozenApiBuild) {
+      try { report.apiBuildFreeze = { ...report.apiBuildFreeze, ...await frozenApiBuild.assertUnchanged() }; }
+      catch (error) { report.status = 'invalidated'; report.apiBuildFreeze = { ...report.apiBuildFreeze, invalidatesRun: true, productFailure: false, error: String(error) }; invalidations.push(error); }
+    }
+    if (report.sourceFingerprint) {
+      report.sourceFingerprint.after = sourceFingerprint(sourceRoot);
+      report.sourceFingerprint.unchanged = report.sourceFingerprint.before.sha256 === report.sourceFingerprint.after.sha256 && report.sourceFingerprint.before.files === report.sourceFingerprint.after.files;
+      report.sourceFingerprint.invalidatesRun = !report.sourceFingerprint.unchanged;
+      report.sourceFingerprint.productFailure = false;
+      if (!report.sourceFingerprint.unchanged) { report.status = 'invalidated'; invalidations.push(new Error('Watched source fingerprint changed during native browser lifecycle.')); }
+    }
+    report.finished = new Date().toISOString();
+    if (invalidations.length && !primaryError) primaryError = invalidations[0];
   }
-} finally {
-  if (requestMonitor) {
-    try { await requestMonitor.flush(); } catch (error) { report.responseDrainError = sanitizeText(error); }
-  }
-  report.networkRequests ??= report.nativeRequests.map(({ requestId, browserRequestId, path, method, startedAt, completedAt, status, failure, expectedCancellation }) => ({ requestId, browserRequestId, path, method, startedAt, completedAt, status, failure, expectedCancellation }));
-  report.networkFailures ??= report.nativeRequests.filter(request => request.failure).map(({ requestId, path, method, failure }) => ({ requestId, path, method, failure }));
-  if (sourceFreeze) {
-    try { report.sourceFreeze = { ...report.sourceFreeze, ...await sourceFreeze.assertUnchanged() }; }
-    catch (error) { report.status = 'invalidated'; report.sourceFreeze = { ...report.sourceFreeze, invalidatesRun: true, productFailure: false, changedPaths: error.changedPaths }; process.exitCode = 1; }
-  }
-  if (apiBuildCheckStarted && frozenApiBuild) {
-    try { report.apiBuildFreeze = { ...report.apiBuildFreeze, ...await frozenApiBuild.assertUnchanged() }; }
-    catch (error) { report.status = 'invalidated'; report.apiBuildFreeze = { ...report.apiBuildFreeze, invalidatesRun: true, productFailure: false, error: String(error) }; process.exitCode = 1; }
-  }
-  if (report.sourceFingerprint) {
-    report.sourceFingerprint.after = sourceFingerprint(sourceRoot);
-    report.sourceFingerprint.unchanged = report.sourceFingerprint.before.sha256 === report.sourceFingerprint.after.sha256 && report.sourceFingerprint.before.files === report.sourceFingerprint.after.files;
-    report.sourceFingerprint.invalidatesRun = !report.sourceFingerprint.unchanged;
-    report.sourceFingerprint.productFailure = false;
-    if (!report.sourceFingerprint.unchanged) { report.status = 'invalidated'; process.exitCode = 1; }
-  }
-  report.finished = new Date().toISOString();
-  await writeFile(join(evidence, 'report.json'), JSON.stringify(report, null, 2));
-  await browser?.close();
+  if (primaryError) throw primaryError;
 }
-console.log(JSON.stringify({ status: report.status, evidence, cases: report.cases, error: report.error }));

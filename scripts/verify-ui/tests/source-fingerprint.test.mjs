@@ -30,9 +30,11 @@ test('fingerprint includes verifier source and fixture inputs but excludes insta
   try {
     mkdirSync(join(root, 'scripts', 'node_modules'), { recursive: true });
     mkdirSync(join(root, 'testdata', 'devloop-fixture'), { recursive: true });
+    mkdirSync(join(root, 'testdata', 'verify-combine'), { recursive: true });
     writeFileSync(join(root, 'scripts', 'verify.mjs'), 'original verifier');
     writeFileSync(join(root, 'scripts', 'node_modules', 'dependency.mjs'), 'original dependency');
     writeFileSync(join(root, 'testdata', 'devloop-fixture', 'Patient.ndjson'), '{"id":"one"}\n');
+    writeFileSync(join(root, 'testdata', 'verify-combine', 'Patient.ndjson'), '{"id":"combine-one"}\n');
     const before = sourceFingerprintWithManifest(root);
     writeFileSync(join(root, 'scripts', 'verify.mjs'), 'changed verifier');
     const changedVerifier = sourceFingerprintWithManifest(root);
@@ -43,8 +45,14 @@ test('fingerprint includes verifier source and fixture inputs but excludes insta
     writeFileSync(join(root, 'testdata', 'devloop-fixture', 'Patient.ndjson'), '{"id":"two"}\n');
     const changedFixture = sourceFingerprintWithManifest(root);
     assert.notEqual(changedFixture.fingerprint.sha256, changedVerifier.fingerprint.sha256);
+    writeFileSync(join(root, 'testdata', 'verify-combine', 'Patient.ndjson'), '{"id":"combine-two"}\n');
+    const changedCombineFixture = sourceFingerprintWithManifest(root);
+    assert.notEqual(changedCombineFixture.fingerprint.sha256, changedFixture.fingerprint.sha256);
+    assert.deepEqual(sourceFingerprintChangedPaths(changedFixture.manifest, changedCombineFixture.manifest), [
+      { path: 'testdata/verify-combine/Patient.ndjson', change: 'modified' },
+    ]);
     writeFileSync(join(root, 'scripts', 'node_modules', 'dependency.mjs'), 'changed dependency');
-    assert.deepEqual(sourceFingerprintWithManifest(root).fingerprint, changedFixture.fingerprint);
+    assert.deepEqual(sourceFingerprintWithManifest(root).fingerprint, changedCombineFixture.fingerprint);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

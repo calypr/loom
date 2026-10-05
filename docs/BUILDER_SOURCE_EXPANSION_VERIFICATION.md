@@ -17,11 +17,10 @@ LOOM_DEV_COMPOSE_PROJECT=loom-dev-6d7df93d6a37 \
 LOOM_DEV_API_PORT=8188 LOOM_DEV_UI_PORT=30008 \
 LOOM_DEV_PROJECT=loom_dev_c89a69d7e137 \
 LOOM_DEV_FIXTURE_DIR=/private/tmp/loom-construction-implementation/testdata/verify-repeated-empty \
-node scripts/verify-ui/builder-authoring.mjs --case repeated-empty \
-  --report /tmp/loom-repeated-source-direct-rows-restored-values.json
+./scripts/node_modules/.bin/playwright test --config scripts/playwright.config.mjs builder-authoring.spec.mjs --grep repeated-empty
 ```
 
-Report: `/tmp/loom-repeated-source-direct-rows-restored-values.json.repeated-empty`.
+Historical report: `/tmp/loom-repeated-source-direct-rows-restored-values.json.repeated-empty`.
 All required checks and all four dimensions passed. The 26 timed actions took
 at most 699 ms. No unexpected browser/network failures occurred. The watched
 source fingerprint stayed
@@ -87,7 +86,7 @@ The direct Rows action “Make one row per list value” now starts an automatic
 
 The first registered basic run, `/tmp/loom-authored-expand-native/report.json.cohort-expand`, independently verified the two fixture Patient IDs, exact cohort revision, native ALL field proposal, and saved member list. It then stopped because the verifier attempted to open Rows while Add columns remained open. The visible Back to table action must be used before Rows. This is a harness navigation failure; EXPAND Preview/Cancel/Apply/edit/remove/reload remain unverified.
 
-Run: `node scripts/verify-ui/builder-authoring.mjs --case cohort-expand --report /tmp/loom-authored-expand-native/report.json` with the owned local stack environment. Real CDA follow-up remains required after the basic lifecycle passes.
+Run: `./scripts/node_modules/.bin/playwright test --config scripts/playwright.config.mjs builder-authoring.spec.mjs --grep cohort-expand` with the owned local stack environment. Real CDA follow-up remains required after the basic lifecycle passes.
 
 Basic full lifecycle passed in `/tmp/loom-authored-expand-header-case/report.json.cohort-expand`: all four dimensions passed, all 18 required checks present, 20 timed actions maximum2000ms, errors[]. Independent fixture IDs remain exact through automatic preview, Cancel/Apply, saved-label edit, removal and reload. Source fingerprint before=after `5b4791ae606e1aeaef953e011a58314d61c14022a9c98c84c3fdffe9c971c950` (1125 files). Prior failures above were verifier navigation/header assumptions, corrected in the same registered case. Real CDA follow-up remains open.
 

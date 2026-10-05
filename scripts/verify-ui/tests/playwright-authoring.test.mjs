@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { launchBrowser } from '../../lib/playwright-browser.mjs';
-import { assertPreviewPatientIds, assertPreviewPatientWindow, assertRestoredBuilder } from '../playwright-authoring.mjs';
+import { assertPreviewPatientIds, assertPreviewPatientWindow, assertRestoredBuilder } from '../../lib/playwright-authoring.mjs';
 
 test('authoring oracle rejects a wrong visible row and a missing persisted field', async t => {
   const evidence = await mkdtemp(join(tmpdir(), 'loom-playwright-authoring-test-'));

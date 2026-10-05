@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { browserURL } from './common.mjs';
+import { browserURL } from './builder-url.mjs';
 import { sanitizeBody } from '../lib/playwright-browser.mjs';
 import { recordCheck } from './report.mjs';
 import { appendNullPaddingRows, builderRequestURL, builderResponseIdentity, constructionProposalPreviewEvidence, currentPublishedRevisionForOutput, displayAppendNullPaddingRows, findColumn, isCombineInputIDColumn, isNumericClickHouseType, isScalarStringColumn, joinOracleRows, appendEditorConfigurationEvidence, nativeCombineTargetBindingEvidence, sameSourceDocuments, snapshotSourceDocument, isOwnedConstructionCapabilitiesRequest, rootedEmptyTargetRestorationEvidence } from './builder-combine-helpers.mjs';
@@ -357,7 +357,7 @@ const waitSavedPreviewWithPlaywright = async (page, count) => page.waitForFuncti
   const table = document.querySelector('[data-testid="preview-table-scroll"] [role="table"]');
   return preview?.getAttribute('data-preview-status') === 'ready' && table?.getAttribute('aria-rowcount') === String(expected + 1) &&
     !document.body.innerText.includes('Loading your table…') && !document.body.innerText.includes('Preview failed:');
-}, count, { timeout: 30000 });
+}, count, { timeout: 5000 });
 
 const waitProposalWithPlaywright = async (page, outputId, count) => page.waitForFunction(({ expectedOutput, expectedRows }) => {
   const panel = document.querySelector('[data-testid="construction-proposal-panel"][data-proposal-status="ready"]');
@@ -366,7 +366,7 @@ const waitProposalWithPlaywright = async (page, outputId, count) => page.waitFor
     preview.getAttribute('data-preview-receipt-id') === panel.getAttribute('data-proposal-id') &&
     preview.getAttribute('data-preview-output-id') === expectedOutput &&
     (expectedRows === undefined || preview.querySelectorAll('tbody tr[data-testid="construction-proposal-preview-row"]').length === expectedRows));
-}, { expectedOutput: outputId, expectedRows: count }, { timeout: 30000 });
+}, { expectedOutput: outputId, expectedRows: count }, { timeout: 5000 });
 
 const selectInputWithPlaywright = async (page, action, selector, value, label) => {
   const control = page.locator(selector);
@@ -383,10 +383,10 @@ const fillWithPlaywright = async (page, action, selector, value, label) => {
 const applyProposalWithPlaywright = async (page, action, label, savedRows, outputId) => {
   const apply = page.getByTestId('construction-apply-proposal');
   await action(label, apply, () => apply.click(), {
-    timeout: 30000,
+    timeout: 5000,
     budget: 5000,
     after: async () => {
-      await page.getByTestId('construction-proposal-panel').waitFor({ state: 'hidden', timeout: 30000 });
+      await page.getByTestId('construction-proposal-panel').waitFor({ state: 'hidden', timeout: 5000 });
       if (savedRows === null) {
         await page.waitForFunction(expectedOutput => {
           const selected = document.querySelector(`[data-testid="construction-table-${CSS.escape(expectedOutput)}"]`);
@@ -395,9 +395,9 @@ const applyProposalWithPlaywright = async (page, action, label, savedRows, outpu
             !document.querySelector('[data-testid="construction-history"]') &&
             !document.querySelector('[data-testid="construction-combine-editor"]') &&
             preview?.textContent?.trim() === 'Add a column to see your table.';
-        }, outputId, { timeout: 30000 });
+        }, outputId, { timeout: 5000 });
       } else {
-        await page.getByTestId('construction-history').waitFor({ state: 'visible', timeout: 30000 });
+        await page.getByTestId('construction-history').waitFor({ state: 'visible', timeout: 5000 });
         await waitSavedPreviewWithPlaywright(page, savedRows);
       }
     },
@@ -421,7 +421,7 @@ const editSavedStepWithPlaywright = async (page, action, stepId) => {
       await page.waitForFunction(id => {
         const button = document.querySelector(`[data-testid="construction-edit-step-${CSS.escape(id)}"]`);
         return Boolean(button && !button.disabled);
-      }, stepId, { timeout: 10000 });
+      }, stepId, { timeout: 5000 });
     },
   });
   const edit = page.getByTestId(`construction-edit-step-${stepId}`);
@@ -431,7 +431,7 @@ const editSavedStepWithPlaywright = async (page, action, stepId) => {
       await page.locator('select[aria-label="Input table 1"]').waitFor({ state: 'visible' });
       await page.locator('input[aria-label="Output field 1 label"]').waitFor({ state: 'visible' });
       await page.waitForFunction(() => !document.querySelector('select[aria-label="Input table 1"]')?.disabled &&
-        !document.querySelector('input[aria-label="Output field 1 label"]')?.disabled, undefined, { timeout: 10000 });
+        !document.querySelector('input[aria-label="Output field 1 label"]')?.disabled, undefined, { timeout: 5000 });
     },
   });
 };
@@ -446,7 +446,7 @@ const createAndPublishSourcesWithPlaywright = async (context, page, action, repo
   await fillWithPlaywright(page, action, '#new-explorer-name', title, 'name source Explorer');
   const create = page.getByRole('button', { name: 'Create blank', exact: true });
   await action('create blank source Explorer', create, () => create.click(), {
-    timeout: 10000,
+    timeout: 5000,
     after: () => page.waitForFunction(expected => document.querySelector('select[aria-label="Explorer"]')?.selectedOptions[0]?.textContent?.trim() === expected &&
       document.body.innerText.includes('Build your first table'), title),
   });
@@ -457,10 +457,10 @@ const createAndPublishSourcesWithPlaywright = async (context, page, action, repo
     await fillWithPlaywright(page, action, '#first-table-name', tableTitle, `name ${resourceType} source table`);
     const choose = page.getByRole('button', { name: `Choose ${resourceType} rows`, exact: true });
     await action(`create ${resourceType} source table with its direct identity`, choose, () => choose.click(), {
-      timeout: 30000,
+      timeout: 5000,
       budget: 5000,
       after: async () => {
-        await page.getByTestId('construction-workspace').waitFor({ state: 'visible', timeout: 30000 });
+        await page.getByTestId('construction-workspace').waitFor({ state: 'visible', timeout: 5000 });
         await waitSavedPreviewWithPlaywright(page, expectedIDs.length);
       },
     });
@@ -492,7 +492,7 @@ const createAndPublishSourcesWithPlaywright = async (context, page, action, repo
     });
     const apply = page.getByRole('button', { name: 'Apply columns', exact: true });
     await action(`apply ${resourceType} source fields and render its preview`, apply, () => apply.click(), {
-      timeout: 30000,
+      timeout: 5000,
       budget: 5000,
       after: () => waitSavedPreviewWithPlaywright(page, expectedRows),
     });
@@ -520,10 +520,10 @@ const createAndPublishSourcesWithPlaywright = async (context, page, action, repo
 
   const publishPath = `/api/v1/projects/${encodeURIComponent(context.target.fixtureProject)}/explorers/${encodeURIComponent(explorer)}/authoring/v2/publish`;
   const publishResponse = page.waitForResponse(response => response.request().method() === 'POST' &&
-    new URL(response.url()).origin === new URL(context.target.uiUrl).origin && new URL(response.url()).pathname === publishPath, { timeout: 60000 });
+    new URL(response.url()).origin === new URL(context.target.uiUrl).origin && new URL(response.url()).pathname === publishPath, { timeout: 5000 });
   const publish = page.getByRole('button', { name: 'Publish', exact: true });
   await action(includePatient ? 'publish all three exact source tables' : 'publish both exact source tables', publish, () => publish.click(), {
-    timeout: 60000,
+    timeout: 5000,
     budget: 5000,
     after: async () => {
       const response = await publishResponse;
@@ -586,15 +586,15 @@ const startCombineTargetWithPlaywright = async (context, page, action, report, e
     try { body = request.postDataJSON(); } catch { return false; }
     return body?.commands?.some(command => command?.type === 'CREATE_TABLE');
   };
-  const commandResponse = page.waitForResponse(response => createRequest(response.request()), { timeout: 15000 });
+  const commandResponse = page.waitForResponse(response => createRequest(response.request()), { timeout: 5000 });
   const operationChooser = page.getByTestId('construction-action-combine');
   await action('open Combine operation chooser', operationChooser, () => operationChooser.click(), {
-    timeout: 30000,
+    timeout: 5000,
     budget: 5000,
     after: async () => {
-      await page.locator('[data-testid="construction-operation-editor"][data-operation-family="COMBINE"][data-output-id]').waitFor({ state: 'visible', timeout: 30000 });
-      await page.getByTestId('construction-combine-editor').waitFor({ state: 'visible', timeout: 30000 });
-      await page.getByTestId('construction-combine-choice-key_join').waitFor({ state: 'visible', timeout: 30000 });
+      await page.locator('[data-testid="construction-operation-editor"][data-operation-family="COMBINE"][data-output-id]').waitFor({ state: 'visible', timeout: 5000 });
+      await page.getByTestId('construction-combine-editor').waitFor({ state: 'visible', timeout: 5000 });
+      await page.getByTestId('construction-combine-choice-key_join').waitFor({ state: 'visible', timeout: 5000 });
     },
   });
   const response = await commandResponse;
@@ -621,7 +621,7 @@ const startCombineTargetWithPlaywright = async (context, page, action, report, e
 const chooseOperationWithPlaywright = async (page, action, kind, inputs) => {
   const choice = page.getByTestId(`construction-combine-choice-${kind.toLowerCase()}`);
   await action(`choose ${kind} and load the initial two input selectors`, choice, () => choice.click(), {
-    timeout: 30000,
+    timeout: 5000,
     after: async () => {
       await page.locator('select[aria-label="Input table 1"]').waitFor({ state: 'visible' });
       await page.locator('select[aria-label="Input table 2"]').waitFor({ state: 'visible' });
@@ -642,7 +642,7 @@ const chooseOperationWithPlaywright = async (page, action, kind, inputs) => {
 
 const configureOutputWithPlaywright = async (page, action, index, name, label, sourceFields, kind) => {
   const nameSelector = `input[aria-label="Output field ${index} name"]`;
-  await page.locator(nameSelector).waitFor({ state: 'visible', timeout: 10000 });
+  await page.locator(nameSelector).waitFor({ state: 'visible', timeout: 5000 });
   await fillWithPlaywright(page, action, nameSelector, name, `name output field ${index}`);
   await fillWithPlaywright(page, action, `input[aria-label="Output field ${index} label"]`, label, `label output field ${index}`);
   for (const [inputIndex, columnId] of sourceFields) {
@@ -669,13 +669,13 @@ const removeCombineAndRestoreEmptyRootWithPlaywright = async (context, page, act
   });
   const remove = page.getByTestId(`construction-remove-step-${stepId}`);
   await action(`preview ${operation} removal`, remove, () => remove.click(), {
-    timeout: 30000,
+    timeout: 5000,
     after: () => waitProposalWithPlaywright(page, target.outputId),
   });
   check(report, 'correctness', operation + ' removal proposal is ready for the rooted empty target', true, { outputId: target.outputId, stepId });
   await applyProposalWithPlaywright(page, action, `Remove ${operation} and restore the rooted empty target`, null, target.outputId);
   await page.reload({ waitUntil: 'domcontentloaded' });
-  await page.getByTestId(`construction-table-${target.outputId}`).waitFor({ state: 'visible', timeout: 30000 });
+  await page.getByTestId(`construction-table-${target.outputId}`).waitFor({ state: 'visible', timeout: 5000 });
   await selectTargetWithPlaywright(page, action, target.outputId);
   const builder = await readBuilder(context, explorer);
   const restored = readTargetDocument(builder, target.outputId);
@@ -718,7 +718,7 @@ export const joinWorkflow = async ({ page, report, action }, context) => {
   await addOutputWithPlaywright(page, action, 4, 'report_status', 'Report status', [], 'KEY_JOIN');
   const reportStatus = page.locator('select[aria-label="Output field 4 source field in input 2"]');
   await action('render INNER Join preview', reportStatus, () => reportStatus.selectOption(api.columns.reportStatus.id), {
-    timeout: 30000,
+    timeout: 5000,
     budget: 5000,
     after: () => waitProposalWithPlaywright(page, target.outputId, expectedInnerRows.length),
   });
@@ -735,7 +735,7 @@ export const joinWorkflow = async ({ page, report, action }, context) => {
   assertPinnedInputs(report, step, api);
   await exactRowsWithPlaywright(report, 'INNER Apply preserves the exact joined rows', page, 'saved', joinHeaders, expectedInnerRows);
   await page.reload({ waitUntil: 'domcontentloaded' });
-  await page.getByTestId(`construction-table-${target.outputId}`).waitFor({ state: 'visible', timeout: 30000 });
+  await page.getByTestId(`construction-table-${target.outputId}`).waitFor({ state: 'visible', timeout: 5000 });
   await selectTargetWithPlaywright(page, action, target.outputId);
   await waitSavedPreviewWithPlaywright(page, expectedInnerRows.length);
   await exactRowsWithPlaywright(report, 'INNER table reload retains the three exact rows', page, 'saved', joinHeaders, expectedInnerRows);
@@ -743,7 +743,7 @@ export const joinWorkflow = async ({ page, report, action }, context) => {
   await editSavedStepWithPlaywright(page, action, step.id);
   const noMatch = page.locator('select[aria-label="If a row in the first table has no match"]');
   await action('render LEFT Join preview', noMatch, () => noMatch.selectOption('LEFT'), {
-    timeout: 30000,
+    timeout: 5000,
     budget: 5000,
     after: () => waitProposalWithPlaywright(page, target.outputId, expectedLeftRows.length),
   });
@@ -759,7 +759,7 @@ export const joinWorkflow = async ({ page, report, action }, context) => {
     },
   });
   await page.reload({ waitUntil: 'domcontentloaded' });
-  await page.getByTestId(`construction-table-${target.outputId}`).waitFor({ state: 'visible', timeout: 30000 });
+  await page.getByTestId(`construction-table-${target.outputId}`).waitFor({ state: 'visible', timeout: 5000 });
   await selectTargetWithPlaywright(page, action, target.outputId);
   await waitSavedPreviewWithPlaywright(page, expectedInnerRows.length);
   const cancelledBuilder = await readBuilder(context, explorer);
@@ -773,7 +773,7 @@ export const joinWorkflow = async ({ page, report, action }, context) => {
   await editSavedStepWithPlaywright(page, action, step.id);
   const leftPolicy = page.locator('select[aria-label="If a row in the first table has no match"]');
   await action('repreview LEFT Join before Apply', leftPolicy, () => leftPolicy.selectOption('LEFT'), {
-    timeout: 30000,
+    timeout: 5000,
     budget: 5000,
     after: () => waitProposalWithPlaywright(page, target.outputId, expectedLeftRows.length),
   });
@@ -789,7 +789,7 @@ export const joinWorkflow = async ({ page, report, action }, context) => {
   assertPinnedInputs(report, step, api);
   await exactRowsWithPlaywright(report, 'LEFT Apply preserves exact matches and unmatched null fields', page, 'saved', joinHeaders, expectedLeftRows);
   await page.reload({ waitUntil: 'domcontentloaded' });
-  await page.getByTestId(`construction-table-${target.outputId}`).waitFor({ state: 'visible', timeout: 30000 });
+  await page.getByTestId(`construction-table-${target.outputId}`).waitFor({ state: 'visible', timeout: 5000 });
   await selectTargetWithPlaywright(page, action, target.outputId);
   await waitSavedPreviewWithPlaywright(page, expectedLeftRows.length);
   await exactRowsWithPlaywright(report, 'LEFT rows and nulls survive Builder reload', page, 'saved', joinHeaders, expectedLeftRows);
@@ -961,7 +961,7 @@ export const appendWorkflow = async ({ page, report, action }, context) => {
     const genderMapping = page.locator('select[aria-label="Output field 3 matching field in input 3"]');
     await action('automatically preview three-input APPEND with explicit absent-field mappings', genderMapping,
       () => genderMapping.selectOption('column:' + api.columns.patientGender.id), {
-        timeout: 30000, budget: 5000,
+        timeout: 5000, budget: 5000,
         after: () => waitProposalWithPlaywright(page, target.outputId, appendedRows.length),
       });
     const candidateRequest = [...proposalCapture.entries].reverse().find(entry =>
@@ -1013,7 +1013,7 @@ export const appendWorkflow = async ({ page, report, action }, context) => {
     assertAppendNullPaddingStep(report, 'Apply persists the exact sparse three-input APPEND mapping and nullable outputs', step, api);
     await exactRowsWithPlaywright(report, 'APPEND Apply preserves the exact null-padded row union', page, 'saved', appendHeaders, appendedRows);
     await page.reload({ waitUntil: 'domcontentloaded' });
-    await page.getByTestId(`construction-table-${target.outputId}`).waitFor({ state: 'visible', timeout: 30000 });
+    await page.getByTestId(`construction-table-${target.outputId}`).waitFor({ state: 'visible', timeout: 5000 });
     await selectTargetWithPlaywright(page, action, target.outputId);
     await waitSavedPreviewWithPlaywright(page, appendedRows.length);
     await exactRowsWithPlaywright(report, 'APPEND null padding and complete input union survive Builder reload', page, 'saved', appendHeaders, appendedRows);
@@ -1032,7 +1032,7 @@ export const appendWorkflow = async ({ page, report, action }, context) => {
       reconstructedEmptyChoices.genderReport === 'empty-for-this-table', reconstructedEmptyChoices);
     const patientSexLabel = page.locator('input[aria-label="Output field 3 label"]');
     await action('preview APPEND edit after saved empty choices are reconstructed', patientSexLabel,
-      () => patientSexLabel.fill('Patient sex'), { editable: true, timeout: 30000, budget: 5000,
+      () => patientSexLabel.fill('Patient sex'), { editable: true, timeout: 5000, budget: 5000,
         after: async () => {
           await waitProposalWithPlaywright(page, target.outputId, appendedRows.length);
           await page.getByTestId('construction-proposal-preview').getByText('Patient sex', { exact: true }).waitFor({ state: 'visible' });
@@ -1047,7 +1047,7 @@ export const appendWorkflow = async ({ page, report, action }, context) => {
       },
     });
     await page.reload({ waitUntil: 'domcontentloaded' });
-    await page.getByTestId(`construction-table-${target.outputId}`).waitFor({ state: 'visible', timeout: 30000 });
+    await page.getByTestId(`construction-table-${target.outputId}`).waitFor({ state: 'visible', timeout: 5000 });
     await selectTargetWithPlaywright(page, action, target.outputId);
     await waitSavedPreviewWithPlaywright(page, appendedRows.length);
     const cancelled = await readBuilder(context, explorer);
@@ -1062,7 +1062,7 @@ export const appendWorkflow = async ({ page, report, action }, context) => {
     await editSavedStepWithPlaywright(page, action, savedStepId);
     const editedLabel = page.locator('input[aria-label="Output field 3 label"]');
     await action('repreview edited APPEND output label with absent-field mappings intact', editedLabel,
-      () => editedLabel.fill('Patient sex'), { editable: true, timeout: 30000, budget: 5000,
+      () => editedLabel.fill('Patient sex'), { editable: true, timeout: 5000, budget: 5000,
         after: () => waitProposalWithPlaywright(page, target.outputId, appendedRows.length) });
     await exactRowsWithPlaywright(report, 'edited APPEND output label preview retains the exact null-padded union',
       page, 'proposal', ['Record ID', 'Status', 'Patient sex'], appendedRows);
@@ -1075,7 +1075,7 @@ export const appendWorkflow = async ({ page, report, action }, context) => {
       { stepId: step?.id, outputLabels: step?.outputs?.map(output => output.label) });
     assertAppendNullPaddingStep(report, 'edited APPEND preserves omitted mappings and nullable outputs', step, api);
     await page.reload({ waitUntil: 'domcontentloaded' });
-    await page.getByTestId(`construction-table-${target.outputId}`).waitFor({ state: 'visible', timeout: 30000 });
+    await page.getByTestId(`construction-table-${target.outputId}`).waitFor({ state: 'visible', timeout: 5000 });
     await selectTargetWithPlaywright(page, action, target.outputId);
     await waitSavedPreviewWithPlaywright(page, appendedRows.length);
     await exactRowsWithPlaywright(report, 'edited APPEND null padding survives reload', page, 'saved', ['Record ID', 'Status', 'Patient sex'], appendedRows);

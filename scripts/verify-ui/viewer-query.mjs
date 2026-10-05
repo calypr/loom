@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
+import { expect } from '@playwright/test';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { executeScenario, browserURL, runPlaywrightCase } from './common.mjs';
-import { matchesViewerRequestBody } from './playwright-case.mjs';
+import { browserURL } from './builder-url.mjs';
+import { sanitizePayload, sanitizeText } from '../lib/playwright-browser.mjs';
 import { recordCheck, recordUntested } from './report.mjs';
 
 const graphPath = '/graphql/graph';
@@ -28,6 +29,32 @@ export const assertViewerPatientRows = (rows, expectedIDs) => {
   const actualIDs = rows.map(text => expectedIDs.find(id => text.includes(id)) ?? `UNEXPECTED:${text}`).sort();
   assert.deepEqual(actualIDs, [...expectedIDs].sort(), 'Viewer rows must contain the exact independent fixture Patient identities');
   return actualIDs;
+};
+
+export const matchesViewerRequestBody = (body, { project, selector }) => {
+  const input = body?.variables?.input;
+  return input?.projectId === project && input.selector?.recipe === selector?.recipe &&
+    input.selector?.translationVersion === selector?.translationVersion &&
+    input.selector?.output === selector?.output;
+};
+
+const captureViewerFailure = async (page, report, testInfo, error, details = {}) => {
+  const { action, ...safeDetails } = details;
+  const location = new URL(page.url());
+  const dom = await page.locator('body').innerText().catch(() => '');
+  const evidence = sanitizePayload({
+    message: sanitizeText(error?.message ?? error),
+    stack: sanitizeText(error?.stack ?? ''),
+    url: `${location.origin}${location.pathname}`,
+    ...safeDetails,
+    ...(action ? { action: { label: action.label, locator: action.locator } } : {}),
+    dom: sanitizeText(dom).slice(0, 8000),
+  });
+  report.failureTrace ??= evidence;
+  await testInfo?.attach('viewer-query-first-failure.json', {
+    body: JSON.stringify(evidence, null, 2),
+    contentType: 'application/json',
+  }).catch(() => undefined);
 };
 
 const requestBody = request => {
@@ -67,7 +94,7 @@ const checkViewerScope = (report, { target, explorer, runtime, output, request }
   return body.variables.input.selector;
 };
 
-const runOutput = context => runPlaywrightCase(context, 'viewer-query', 'output', async ({ page, browser, report, action, fault, check }) => {
+export const viewerQueryWorkflow = async ({ page, report, action, fault, check }, context, testInfo) => {
   const target = context.target;
   const project = target.fixtureProject;
   let explorer = target.bootstrapExplorerId;
@@ -113,11 +140,11 @@ const runOutput = context => runPlaywrightCase(context, 'viewer-query', 'output'
     await action('name Viewer Patient table', tableName, () => tableName.fill('Patients'), { editable: true });
     const choosePatients = page.getByRole('button', { name: 'Choose Patient rows', exact: true });
     await action('create Viewer Patient table and render Preview', choosePatients, () => choosePatients.click(), {
-      timeout: 30000,
+      timeout: 5000,
       budget: 5000,
       after: async () => {
-        await page.getByTestId('construction-workspace').waitFor({ state: 'visible', timeout: 30000 });
-        await page.waitForFunction(rowCount => document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount') === String(rowCount), expectedIDs.length + 1, { timeout: 30000 });
+        await page.getByTestId('construction-workspace').waitFor({ state: 'visible', timeout: 5000 });
+        await page.waitForFunction(rowCount => document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount') === String(rowCount), expectedIDs.length + 1, { timeout: 5000 });
       },
     });
     await assertViewerPatientRows(await page.getByTestId('preview-table-scroll').locator('tbody tr').allInnerTexts(), expectedIDs);
@@ -140,11 +167,11 @@ const runOutput = context => runPlaywrightCase(context, 'viewer-query', 'output'
     });
     const applyColumns = page.getByRole('button', { name: 'Apply columns', exact: true });
     await action('apply Gender and render Viewer source Preview', applyColumns, () => applyColumns.click(), {
-      timeout: 30000,
+      timeout: 5000,
       budget: 5000,
       after: async () => {
-        await page.getByRole('button', { name: /^Select Gender/ }).waitFor({ state: 'visible', timeout: 30000 });
-        await page.waitForFunction(rowCount => document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount') === String(rowCount), expectedIDs.length + 1, { timeout: 30000 });
+        await page.getByRole('button', { name: /^Select Gender/ }).waitFor({ state: 'visible', timeout: 5000 });
+        await page.waitForFunction(rowCount => document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount') === String(rowCount), expectedIDs.length + 1, { timeout: 5000 });
       },
     });
     await assertViewerPatientRows(await page.getByTestId('preview-table-scroll').locator('tbody tr').allInnerTexts(), expectedIDs);
@@ -155,15 +182,15 @@ const runOutput = context => runPlaywrightCase(context, 'viewer-query', 'output'
 
     const publishPath = `/api/v1/projects/${encodeURIComponent(project)}/explorers/${encodeURIComponent(explorer)}/authoring/v2/publish`;
     const publishResponse = page.waitForResponse(response => response.request().method() === 'POST' &&
-      new URL(response.url()).origin === new URL(target.uiUrl).origin && new URL(response.url()).pathname === publishPath, { timeout: 60000 });
+      new URL(response.url()).origin === new URL(target.uiUrl).origin && new URL(response.url()).pathname === publishPath, { timeout: 5000 });
     const publish = page.getByRole('button', { name: 'Publish', exact: true });
     await action('publish Viewer Explorer', publish, () => publish.click(), {
-      timeout: 60000,
+      timeout: 5000,
       budget: 5000,
       after: async () => {
         await Promise.all([
           publishResponse,
-          page.getByRole('button', { name: 'Publish', exact: true }).waitFor({ state: 'disabled', timeout: 60000 }),
+          page.getByRole('button', { name: 'Publish', exact: true }).waitFor({ state: 'disabled', timeout: 5000 }),
         ]);
       },
     });
@@ -177,12 +204,12 @@ const runOutput = context => runPlaywrightCase(context, 'viewer-query', 'output'
   const runtimePath = explorerRuntimePath(project, explorer);
   const uiOrigin = new URL(target.uiUrl).origin;
   const runtimeResponsePromise = page.waitForResponse(response => response.request().method() === 'GET' &&
-    new URL(response.url()).origin === uiOrigin && new URL(response.url()).pathname === runtimePath, { timeout: 30000 });
+    new URL(response.url()).origin === uiOrigin && new URL(response.url()).pathname === runtimePath, { timeout: 5000 });
   const initialQueryPromise = page.waitForRequest(request => {
     const url = new URL(request.url());
     return request.method() === 'POST' && url.origin === uiOrigin && url.pathname === graphPath &&
       requestBody(request)?.variables?.input?.projectId === project;
-  }, { timeout: 30000 });
+  }, { timeout: 5000 });
   const viewerURL = browserURL(target, project, explorer, 'viewer');
   await page.goto(viewerURL, { waitUntil: 'domcontentloaded' });
   const runtimeResponse = await runtimeResponsePromise;
@@ -205,7 +232,7 @@ const runOutput = context => runPlaywrightCase(context, 'viewer-query', 'output'
   report.target.viewerOutputId = output.outputId;
   const outputSelector = output.selector;
   const outputTable = page.locator('table[aria-label$=" results"]');
-  await outputTable.waitFor({ state: 'visible', timeout: 60000 });
+  await outputTable.waitFor({ state: 'visible', timeout: 5000 });
   const initialRows = await outputTable.locator('tbody tr').allInnerTexts();
   if (context.custom) {
     check('correctness', 'custom Viewer runtime and output table load before fault injection', true,
@@ -225,9 +252,9 @@ const runOutput = context => runPlaywrightCase(context, 'viewer-query', 'output'
   await page.goto(retryURL.toString(), { waitUntil: 'domcontentloaded' });
   const queryError = page.getByRole('alert').filter({ hasText: 'Results could not be loaded.' });
   try {
-    await queryError.waitFor({ state: 'visible', timeout: 15000 });
+    await queryError.waitFor({ state: 'visible', timeout: 5000 });
   } catch (error) {
-    await browser.captureFailure(error, {
+    await captureViewerFailure(page, report, testInfo, error, {
       action: { label: 'wait for Viewer query error', locator: queryError.toString(), targetLocator: queryError },
       phase: 'injected-query-failure',
       project,
@@ -244,18 +271,19 @@ const runOutput = context => runPlaywrightCase(context, 'viewer-query', 'output'
     { origin: uiOrigin, path: graphPath, method: 'POST', project, explorer, outputId: output.outputId, count: injection.count() });
 
   const retry = page.getByRole('button', { name: /^(Try again|Retry)$/ });
-  const retryCount = await retry.count();
-  const actionable = retryCount === 1 && await retry.isVisible() && await retry.isEnabled();
-  if (!actionable) await browser.captureFailure(new Error('Viewer query error did not expose a unique enabled Retry control'), {
-    action: { label: 'inspect Viewer Retry', locator: retry.toString(), targetLocator: retry },
-    phase: 'retry-unavailable',
-    project,
-    explorer,
-    outputId: output.outputId,
-    selector: outputSelector,
-  });
-  check('usability', 'result-query error exposes an actionable Retry control', actionable,
-    { count: retryCount, visible: retryCount === 1 ? await retry.isVisible() : false, enabled: retryCount === 1 ? await retry.isEnabled() : false });
+  try {
+    await expect(retry).toHaveCount(1);
+    await expect(retry).toBeVisible();
+    await expect(retry).toBeEnabled();
+  } catch (error) {
+    await captureViewerFailure(page, report, testInfo, error, {
+      action: { label: 'inspect Viewer Retry', locator: retry.toString(), targetLocator: retry },
+      phase: 'retry-unavailable', project, explorer, outputId: output.outputId, selector: outputSelector,
+    });
+    throw error;
+  }
+  check('usability', 'result-query error exposes an actionable Retry control', true,
+    { count: 1, visible: true, enabled: true });
 
   const retryResponse = page.waitForResponse(response => {
     const url = new URL(response.url());
@@ -268,8 +296,8 @@ const runOutput = context => runPlaywrightCase(context, 'viewer-query', 'output'
     after: async () => {
       await Promise.all([
         retryResponse,
-        outputTable.waitFor({ state: 'visible', timeout: 10000 }),
-        queryError.waitFor({ state: 'hidden', timeout: 10000 }),
+        outputTable.waitFor({ state: 'visible', timeout: 5000 }),
+        queryError.waitFor({ state: 'hidden', timeout: 5000 }),
       ]);
     },
   });
@@ -288,20 +316,18 @@ const runOutput = context => runPlaywrightCase(context, 'viewer-query', 'output'
     { rows: restoredRows, patientIDs: actualIDs, expectedPatientIDs: expectedIDs, sourceSHA256: sourceOracle.sha256 });
 
   const loadValues = page.getByRole('button', { name: 'Load values', exact: true });
-  const loadValuesCount = await loadValues.count();
-  if (loadValuesCount !== 1 || !await loadValues.isVisible() || !await loadValues.isEnabled()) {
-    recordUntested(report, 'usability', 'Gender facet can be opened to load values',
-      loadValuesCount === 0 ? 'The published fixture declares no runtime filters.' : 'The candidate facet control is ambiguous, hidden, or disabled and was not exercised.');
-    return;
-  }
-  recordCheck(report, 'usability', 'Gender facet can be opened to load values', true, { count: loadValuesCount });
+  await expect(loadValues).toHaveCount(1);
+  await expect(loadValues).toBeVisible();
+  await expect(loadValues).toBeEnabled();
+  recordCheck(report, 'usability', 'Gender facet can be opened to load values', true, { count: 1 });
   await action('load Gender facet values', loadValues, () => loadValues.click(), {
     after: () => page.getByRole('checkbox', { name: /female/i }).waitFor({ state: 'visible' }),
   });
   const female = page.getByRole('checkbox', { name: /female/i });
-  const femaleCount = await female.count();
-  recordCheck(report, 'usability', 'female facet value is visible and actionable', femaleCount === 1 && await female.isVisible() && await female.isEnabled(), { count: femaleCount });
-  if (femaleCount !== 1 || !await female.isVisible() || !await female.isEnabled()) return;
+  await expect(female).toHaveCount(1);
+  await expect(female).toBeVisible();
+  await expect(female).toBeEnabled();
+  recordCheck(report, 'usability', 'female facet value is visible and actionable', true, { count: 1 });
   await action('apply female filter', female, () => female.check(), {
     after: async () => page.waitForFunction(expectedID => {
       const rows = [...document.querySelectorAll('table[aria-label$=" results"] tbody tr')];
@@ -329,14 +355,4 @@ const runOutput = context => runPlaywrightCase(context, 'viewer-query', 'output'
       }
     }
   }
-});
-
-export const runViewerQuery = async (context, caseNames) => {
-  const reports = [];
-  for (const caseName of caseNames) reports.push(await runOutput(context, caseName));
-  return reports;
 };
-
-if (import.meta.url === new URL(process.argv[1] ?? '', 'file:').href) {
-  await executeScenario({ id: 'viewer-query', argv: process.argv.slice(2), runner: runViewerQuery });
-}
