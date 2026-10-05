@@ -149,7 +149,7 @@ export async function addColumnDialogWorkflow({ page, cda, expect }) {
     await cda.action(`open ${suggestionIdentity.accessibleName}`, suggestion, () => suggestion.click());
     const dialog = page.getByRole('dialog');
     await dialog.waitFor({ state: 'visible', timeout: 5000 });
-    await expectUnique(dialog, `dialog for ${suggestionIdentity.accessibleName}`);
+    await expectUnique(dialog, `dialog for ${suggestionIdentity.accessibleName}`, expect);
     const openElapsedMs = Date.now() - startedAt;
     report.transitions.push({ name: `dialog-open-${suggestionIdentity.accessibleName}`, elapsedMs: openElapsedMs, limitMs: 5000, passed: openElapsedMs <= 5000 });
     assert(openElapsedMs <= 5000, `Dialog for ${suggestionIdentity.accessibleName} rendered in ${openElapsedMs} ms`);
@@ -192,7 +192,7 @@ export async function addColumnDialogWorkflow({ page, cda, expect }) {
     for (const initialIdentity of suggestionIdentities) {
       const currentSuggestion = page.getByRole('button', { name: initialIdentity.accessibleName, exact: true });
       await currentSuggestion.waitFor({ state: 'visible', timeout: 5000 });
-      await expectUnique(currentSuggestion, `restored coded suggestion ${initialIdentity.accessibleName}`);
+      await expectUnique(currentSuggestion, `restored coded suggestion ${initialIdentity.accessibleName}`, expect);
     }
     report.cancelledInventoryChecks = (report.cancelledInventoryChecks ?? 0) + 1;
   }
@@ -207,6 +207,6 @@ export async function addColumnDialogWorkflow({ page, cda, expect }) {
   return report;
 }
 
-async function expectUnique(locator, label) {
+async function expectUnique(locator, label, expect) {
   await expect(locator, `${label}: expected a unique target`).toHaveCount(1, { timeout: 5000 });
 }

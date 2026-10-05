@@ -9,6 +9,8 @@ const env = cda.env ?? {};
 const project = cda.project;
 assert(project, 'CDA fixture must provide the isolated project');
 const explorer = cda.explorer;
+const protectedExplorer = 'cda-builder-full-qa-1790440983382';
+assert.notEqual(explorer, protectedExplorer, 'The protected full-QA Explorer must remain untouched');
 const evidence = cda.evidence;
 const apiOrigin = cda.apiOrigin;
 const uiOrigin = cda.uiOrigin;
@@ -34,7 +36,7 @@ assert.equal(project, 'loom_dev_cda_fhir', 'This verifier is bound to the CDA-FH
 const root = `/api/v1/projects/${project}/explorers`;
 const base = `${root}/${explorer}/authoring/v2`;
 const selections = base.replace('/authoring/v2','/selections');
-const report = { evidence, target: cda.target, groupedFilterDirect, groupedRelatedFilter, expandAfterGroup, collectionRoundTrip, unmappedMemberRepair, upstreamGroupEdit, summaryShape, resultForm, zeroMatches, explorer, cases: [], errors: [], requests: [], nativeRequests: [], started: new Date().toISOString() };
+const report = { evidence, target: cda.target, groupedFilterDirect, groupedRelatedFilter, expandAfterGroup, collectionRoundTrip, unmappedMemberRepair, upstreamGroupEdit, summaryShape, resultForm, zeroMatches, explorer, protectedExplorerUntouched: true, cases: [], errors: [], requests: [], nativeRequests: [], started: new Date().toISOString() };
 let nativeCapture, builder, outputId, source, initialSelection;
 const click = (_page, ...args) => cda.click(...args);
 const selectOption = (_page, ...args) => cda.selectOption(...args);
@@ -934,6 +936,7 @@ try {
   assert.deepEqual(doc(builder).construction,restoredConstruction);
   }
   }
+  assert(report.protectedExplorerUntouched, `A browser request targeted protected Explorer ${protectedExplorer}`);
   assert.deepEqual(report.errors,[]);
   report.status='passed';
 } catch (error) {

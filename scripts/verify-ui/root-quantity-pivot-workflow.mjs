@@ -1622,7 +1622,6 @@ const editor=document.querySelector('[data-testid="construction-reshape-pivot"]'
   report.finishedAt = report.finished;
   for (const failure of report.validationWaitFailures ?? []) refreshValidationWaitFailureRequests(failure, report.authoringRequests);
 
-    for (const [event, listener] of [['pageerror', onRuntimeError], ['console', onConsoleError], ['requestfailed', onRequestFailure]]) page.removeListener(event, listener);
   }
   if (workflowError) throw workflowError;
 }

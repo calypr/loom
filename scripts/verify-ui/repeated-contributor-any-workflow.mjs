@@ -373,13 +373,19 @@ const displayedRows = async () => {
   return { total, ordinals: ordered.map(([ordinal]) => ordinal), rows: ordered.map(([, cells]) => cells) };
 };
 
+const resolveScopedLocator = async (selector, includes) => {
+  let locator = page.locator(selector);
+  if (includes !== undefined) locator = locator.filter({ hasText: includes });
+  return requireUnique(locator, `${selector} ${includes ?? ''}`.trim());
+};
+
 const revealControl = async (selector, includes) => {
   const label = `Scroll ${selector} into view`;
   report.activeAction = { label, locator: selector, targetLocator: page.locator(selector), startedAt: Date.now() };
-  const locator = await resolveActionLocator(page, selector, { includes });
+  const locator = await resolveScopedLocator(selector, includes);
   report.activeAction.targetLocator = locator;
   report.activeAction.locator = locator.toString();
-  const elapsedMs = await performAction(report, label, locator, (target, options) => target.scrollIntoViewIfNeeded(options));
+  const elapsedMs = await performAction(page, label, locator, (target, options) => target.scrollIntoViewIfNeeded(options));
   report.lastAction = { label, locator: locator.toString(), targetLocator: locator, elapsedMs, startedAt: Date.now() - elapsedMs };
   const box = await locator.boundingBox();
   const viewport = page.viewportSize();

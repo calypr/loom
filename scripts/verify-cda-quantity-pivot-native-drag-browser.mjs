@@ -13,6 +13,7 @@ import { runCDAQuantityCategoryOracle } from './lib/cda-quantity-category-oracle
 import { compareCDAQuantityCategoryValues } from './lib/cda-quantity-category-oracle.mjs';
 import { sourceFingerprint } from './verify-ui/source-fingerprint.mjs';
 import { captureApiBuildFreeze, checkContainerApiBuildStamp } from './lib/api-build-freeze.mjs';
+import { assertOwnedCdaTarget } from './lib/owned-cda-target.mjs';
 
 
 export async function runQuantityPivotNativeDragBrowserWorkflow({ page, cda }, originalArgs = {}) {

@@ -26,6 +26,7 @@ import { applyInjectedFaultPolicy, ownedFaultTarget, matchesOwnedFaultRequest } 
 import { registry, requiredChecksFor } from '../verify-ui/registry.mjs';
 import { classifyNetworkRecord, createReport, finishReport, recordCheck, writeReport } from '../verify-ui/report.mjs';
 import { sanitizeBody, sanitizePayload, sanitizeText } from '../lib/playwright-browser.mjs';
+import { captureNativeFailureEvidence, MAX_NATIVE_FAILURE_CAPTURE_MS } from './native-failure-evidence.mjs';
 
 const ACTION_TIMEOUT_MS = 5_000;
 const MAX_DIAGNOSTICS = 100;
@@ -106,7 +107,7 @@ function safeAttachmentPath(testInfo, name) {
 }
 
 function gateFailure(report) {
-  const missing = report.missingRequiredChecks ?? [];
+  const missing = report.runnerStatus === 'skipped' ? [] : report.missingRequiredChecks ?? [];
   const failedAssertions = (report.assertions ?? []).filter(entry => entry.status === 'failed');
   const unexpectedNetwork = (report.network ?? []).filter(entry =>
     !entry.expectedHttpFailure && classifyNetworkRecord(entry) === 'unexpected-error');
@@ -310,6 +311,17 @@ export const test = base.extend({
 
     const diagnostics = { console: [], pageErrors: [], networkFailures: [], httpFailures: [], assetFailures: [] };
     const ownedOrigins = new Set([apiUrl, uiUrl].map(value => new URL(value).origin));
+    const captureFailureEvidence = async details => {
+      if (report.failureEvidence) return;
+      try {
+        report.failureEvidence = await captureNativeFailureEvidence({ page, ownedOrigins, ...details });
+      } catch (error) {
+        report.failureEvidence = {
+          reason: safeText(details.reason ?? 'CDA Playwright workflow failed'),
+          captureError: safeText(error?.message ?? error),
+        };
+      }
+    };
     const trackers = new Set();
     const faultAttempts = [];
     const faultHandlers = [];
@@ -319,6 +331,9 @@ export const test = base.extend({
     const cancellationScopes = [];
     let requestSequence = 0;
     let activeAction;
+    let activeLocator;
+    let activeActionContext;
+    let firstFailureActionContext;
     let retainedDiagnostics = 0;
     let droppedDiagnostics = 0;
     const addNetworkDiagnostic = entry => {
@@ -475,13 +490,18 @@ export const test = base.extend({
       requiredCheck,
     } = {}) => base.step(label, async () => {
       activeAction = safeText(label);
+      activeLocator = locator;
       const started = performance.now();
+      const startedAt = Date.now();
+      const actionContext = { label: safeText(label), locator, startedAt };
+      activeActionContext = actionContext;
       const actionTimeout = Math.max(1, Math.min(ACTION_TIMEOUT_MS, Number.isFinite(timeout) ? timeout : ACTION_TIMEOUT_MS));
       const budgetMs = Math.max(1, Math.min(ACTION_TIMEOUT_MS, Number.isFinite(budget) ? budget : ACTION_TIMEOUT_MS));
       let performCompleted = false;
       let afterCompleted = false;
       let afterMs;
       let elapsedMs;
+      let failureReason;
       try {
         await expect(locator, `${label}: expected exactly one control`).toHaveCount(1, { timeout: actionTimeout });
         await locator.click({ trial: true, timeout: actionTimeout });
@@ -497,9 +517,23 @@ export const test = base.extend({
         elapsedMs = performance.now() - started;
         expect(elapsedMs, `${label} action-to-render exceeded ${ACTION_TIMEOUT_MS} ms`).toBeLessThanOrEqual(budgetMs);
         return elapsedMs;
+      } catch (error) {
+        failureReason = error?.message ?? error;
+        throw error;
       } finally {
         elapsedMs ??= performance.now() - started;
         const passed = performCompleted && (!after || afterCompleted) && elapsedMs <= budgetMs;
+        if (!passed && !firstFailureActionContext) firstFailureActionContext = actionContext;
+        // Leave a full read-capture window before the native step deadline; teardown captures late failures.
+        if (!passed && !report.failureEvidence && elapsedMs + MAX_NATIVE_FAILURE_CAPTURE_MS + 250 < ACTION_TIMEOUT_MS) {
+          await captureFailureEvidence({
+            reason: failureReason ?? `${label} did not complete successfully`,
+            label,
+            locator,
+            elapsedMs,
+            startedAt,
+          });
+        }
         report.actions.push({
           label: safeText(label), status: passed ? 'passed' : 'failed', elapsedMs: Math.round(elapsedMs),
           locator: safeText(locator.toString()), ...(afterMs === undefined ? {} : { afterMs: Math.round(afterMs) }),
@@ -509,7 +543,11 @@ export const test = base.extend({
           { elapsedMs: Math.round(elapsedMs), afterMs: afterMs === undefined ? null : Math.round(afterMs) });
         if (after) recordCheck(report, 'performance', requiredCheck ?? `${label} action-to-render within budget`,
           passed, { afterMs: afterMs === undefined ? null : Math.round(afterMs), budgetMs });
-        activeAction = undefined;
+        if (passed && activeActionContext === actionContext) activeActionContext = undefined;
+        if (passed) {
+          activeAction = undefined;
+          activeLocator = undefined;
+        }
       }
     }, { timeout: ACTION_TIMEOUT_MS });
 
@@ -599,15 +637,27 @@ export const test = base.extend({
       }
       return cancellation;
     };
-    const expectHttpFailure = (capturedEntry, reason, proof) => {
+    const expectHttpFailure = (capturedEntry, reason, proof, { status = 422 } = {}) => {
+      if (status !== 400 && status !== 422) {
+        throw new RangeError('Expected HTTP failures may classify only exact native status 400 or 422 responses.');
+      }
       if (!capturedEntry || !report.nativeRequests.includes(capturedEntry)) {
         throw new TypeError('Expected HTTP failures must name an exact entry from this CDA fixture request capture.');
       }
       if (typeof capturedEntry.browserRequestId !== 'string' || !capturedEntry.browserRequestId) {
         throw new Error('Expected HTTP failures need a concrete native browser request ID.');
       }
-      if (capturedEntry.status !== 422) {
-        throw new Error('Only an exact native HTTP 422 validation/conflict response may be marked expected.');
+      if (capturedEntry.status !== status) {
+        throw new Error(`Expected HTTP ${status} classification did not match the captured native response status.`);
+      }
+      if (!capturedEntry.completedAt) {
+        throw new Error('Expected HTTP failures need a completed native response capture.');
+      }
+      if (capturedEntry.responseReadError || capturedEntry.response === undefined || capturedEntry.response?.bodyNotRead === true) {
+        throw new Error('Expected HTTP failures need the captured response body to exclude internal errors.');
+      }
+      if (/\bINTERNAL(?:_SERVER)?_ERROR\b|\binternal(?: server)? error\b/i.test(JSON.stringify(capturedEntry.response))) {
+        throw new Error('INTERNAL_ERROR responses cannot be classified as expected validation failures.');
       }
       if (typeof reason !== 'string' || !reason.trim()) throw new TypeError('Expected HTTP failures need a concrete reason.');
       if (!proof || typeof proof !== 'object') throw new TypeError('Expected HTTP failures need request/action proof.');
@@ -709,6 +759,8 @@ export const test = base.extend({
       step,
       setActionEvidence: (label, locator) => {
         activeAction = safeText(label);
+        activeLocator = locator;
+        activeActionContext = { label: activeAction, locator, startedAt: Date.now() };
         report.activeAction = {
           label: activeAction,
           locator: locator?.toString ? safeText(locator.toString()) : undefined,
@@ -830,13 +882,15 @@ export const test = base.extend({
         browserNoAuth: true,
         directAPICredentialsConfigured: Boolean(process.env.LOOM_CDA_API_TOKEN || process.env.LOOM_CDA_TOKEN),
       };
-      if (testInfo.status !== 'passed' || freezeError || report.assertions.some(assertion => assertion.status === 'failed')) {
+      const runnerSkipped = testInfo.status === 'skipped';
+      const failedAssertion = report.assertions.some(assertion => assertion.status === 'failed');
+      if (freezeError || failedAssertion || (!runnerSkipped && testInfo.status !== 'passed')) {
         report.status = 'failed';
-      } else if (report.status === 'running') {
+      } else if (runnerSkipped || report.status === 'running') {
         report.status = 'unverified';
       }
       report.finishedAt = new Date().toISOString();
-      if (testInfo.status === 'passed' && !freezeError) {
+      if ((testInfo.status === 'passed' || runnerSkipped) && !freezeError) {
         reportVerificationError = gateFailure(report);
         if (reportVerificationError) {
           report.errors.push({ kind: 'verification-gate', message: safeText(reportVerificationError.message) });
@@ -845,6 +899,16 @@ export const test = base.extend({
           report.status = 'failed';
           report.finishedAt = new Date().toISOString();
         }
+      }
+      if (report.status === 'failed' && !report.failureEvidence) {
+        const currentAction = firstFailureActionContext ?? activeActionContext;
+        await captureFailureEvidence({
+          reason: testInfo.error?.message ?? freezeError?.message ?? reportVerificationError?.message ??
+            report.errors.at(-1)?.message ?? 'CDA Playwright workflow failed outside the action helper',
+          label: currentAction?.label ?? activeAction ?? report.activeAction?.label,
+          locator: currentAction?.locator ?? activeLocator,
+          startedAt: currentAction?.startedAt ?? report.activeAction?.startedAt,
+        });
       }
       try {
         writeReport(reportPath, sanitizePayload(report));

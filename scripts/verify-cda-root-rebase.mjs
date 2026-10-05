@@ -64,8 +64,8 @@ export async function rootRebaseWorkflow({ page, cda }) {
     return value;
   };
   const rawQuery = query => {
-    const container = process.env.LOOM_ARANGO_CONTAINER;
-    assert(container, 'Set LOOM_ARANGO_CONTAINER to the isolated CDA source database container.');
+    const container = cda.target.arangoContainer;
+    assert(container, 'The owned CDA target must include its Arango source database container.');
     const script = `print(JSON.stringify(db._query(${JSON.stringify(query)}).toArray()))`;
     const output = execFileSync('rtk', ['docker', 'exec', container, 'arangosh', '--server.database', process.env.LOOM_CDA_DATABASE ?? 'loom_dev', '--javascript.execute-string', script], { encoding: 'utf8', maxBuffer: 200000 });
     return JSON.parse(output.slice(output.indexOf('[')));

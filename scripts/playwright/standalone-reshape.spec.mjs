@@ -1,3 +1,4 @@
+import { randomUUID, randomInt } from 'node:crypto';
 import { test } from './cda-fixtures.mjs';
 import { runCodedPivotWorkflow } from '../verify-cda-coded-pivot.mjs';
 import { runImplicitPivotWorkflow } from '../verify-cda-implicit-pivot.mjs';
@@ -21,10 +22,15 @@ import { runGroupEditBeforeRelatedColumnBrowserWorkflow } from '../verify-cda-gr
 test.describe('standalone CDA reshape workflows', () => {
 
   const register = (name, workflow, args = {}, options = {}) => {
+    const createsExplorer = !name.startsWith('implicit-pivot-') && !['pivot-reload', 'unpivot'].includes(name);
+    const explorer = name === 'pivot-category-edit'
+      ? `pivot-category-edit-browser-${Date.now()}${randomInt(100000, 1000000)}`
+      : `qa-reshape-${name}-${randomUUID()}`;
     test.describe(name, () => {
       test.use({
         cdaScenarioID: `standalone-reshape-${name}`,
         cdaCaseName: name,
+        ...(createsExplorer ? { cdaExplorer: explorer } : {}),
         ...options,
       });
       test(name, async ({ page, cda }) => {

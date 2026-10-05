@@ -149,7 +149,15 @@ const displayedRows = async () => browserEval(page, () => { return [...document.
     .map(row=>[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText.trim())).filter(row=>row.length); });
 
 const revealControl = async (selector, includes) => {
-  const snapshot = await scrollIntoView(page, selector, { includes });
+  let locator = page.locator(selector);
+  if (includes !== undefined) locator = locator.filter({ hasText: includes });
+  const label = `Reveal ${includes ?? selector}`;
+  await requireUnique(locator, `${label}: matching native control`);
+  await performAction(page, label, locator, (target, options) => target.scrollIntoViewIfNeeded(options));
+  const box = await locator.boundingBox();
+  assert(box, `${label}: control has no visible bounding box after Playwright scrolling`);
+  const viewport = page.viewportSize();
+  const snapshot = { top: box.y, bottom: box.y + box.height, viewportHeight: viewport.height };
   assert(snapshot.top >= 0 && snapshot.bottom <= snapshot.viewportHeight,
     `Control remains outside the viewport after native scroll: ${JSON.stringify(snapshot)}`);
   return snapshot;

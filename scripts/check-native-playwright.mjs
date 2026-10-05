@@ -32,34 +32,42 @@ function* files(directory) {
   }
 }
 
-for (const directory of ['scripts/verify-ui', 'scripts/playwright']) {
-  for (const path of files(join(root, directory))) {
-    const source = readFileSync(path, 'utf8');
-    if (/\brunPlaywrightCase\b|\bexecuteScenario\b/.test(source)) {
-      problems.push(`${path.slice(root.length + 1)}: custom runner remains`);
-    }
-    if (/\b(?:launchBrowser|launchPlaywrightBrowser)\s*\(|\bimport\s*\{[^}]*\b(?:launchBrowser|launchPlaywrightBrowser)\b[^}]*\}/s.test(source)) {
-      problems.push(`${path.slice(root.length + 1)}: verifier still owns its browser`);
-    }
-    if (/\b__loomSession\b/.test(source)) {
-      problems.push(`${path.slice(root.length + 1)}: legacy browser session facade remains`);
-    }
+const checkedPaths = new Set();
+const browserOwnerNames = 'launchBrowser|launchCdaBrowser|launchPlaywrightBrowser|launchPlaywrightEvidenceBrowser';
+const browserOwnership = new RegExp(
+  `\\b(?:${browserOwnerNames})\\s*\\(|\\bimport\\s*\\{[^}]*\\b(?:${browserOwnerNames})\\b[^}]*\\}|` +
+  `\\bexport\\s+(?:async\\s+)?(?:function|const|let)\\s+(?:${browserOwnerNames})\\b|` +
+  `\\b(?:chromium|firefox|webkit)\\.launch(?:PersistentContext)?\\s*\\(`,
+  's',
+);
+
+function checkBrowserSource(path) {
+  if (checkedPaths.has(path)) return;
+  checkedPaths.add(path);
+  const source = readFileSync(path, 'utf8');
+  const relativePath = path.slice(root.length + 1);
+  if (/\brunPlaywrightCase\b|\bexecuteScenario\b/.test(source)) {
+    problems.push(`${relativePath}: custom runner remains`);
   }
-}
-for (const entry of readdirSync(join(root, 'scripts'))) {
-  if (!/^verify(?:-|_).*\.mjs$/.test(entry)) continue;
-  const source = readFileSync(join(root, 'scripts', entry), 'utf8');
-  if (/\b(?:launchBrowser|launchPlaywrightBrowser)\s*\(|\bimport\s*\{[^}]*\b(?:launchBrowser|launchPlaywrightBrowser)\b[^}]*\}/s.test(source)) {
-    problems.push(`scripts/${entry}: verifier still owns its browser`);
+  if (browserOwnership.test(source)) {
+    problems.push(`${relativePath}: verifier still owns its browser`);
+  }
+  if (/\b__loomSession\b/.test(source)) {
+    problems.push(`${relativePath}: legacy browser session facade remains`);
   }
 }
 
-for (const path of files(join(root, 'ui/packages/loom-ui/scripts'))) {
-  if (!/^verify.*\.mjs$/.test(path.split('/').at(-1))) continue;
-  const source = readFileSync(path, 'utf8');
-  if (/\b(?:launchBrowser|launchPlaywrightBrowser)\s*\(|\bimport\s*\{[^}]*\b(?:launchBrowser|launchPlaywrightBrowser)\b[^}]*\}/s.test(source)) {
-    problems.push(`${path.slice(root.length + 1)}: verifier still owns its browser`);
+for (const directory of ['scripts/verify-ui', 'scripts/playwright', 'scripts/lib']) {
+  for (const path of files(join(root, directory))) checkBrowserSource(path);
+}
+checkBrowserSource(join(root, 'scripts/loom-dev.mjs'));
+for (const entry of readdirSync(join(root, 'scripts'))) {
+  if (/^verify(?:-|_).*\.mjs$/.test(entry) && !entry.endsWith('.test.mjs')) {
+    checkBrowserSource(join(root, 'scripts', entry));
   }
+}
+for (const path of files(join(root, 'ui/packages/loom-ui/scripts'))) {
+  if (/^verify.*\.mjs$/.test(path.split('/').at(-1))) checkBrowserSource(path);
 }
 
 console.log(`${mappedCases}/${registry.reduce((total, scenario) => total + scenario.cases.length, 0)} registered cases have native spec mappings`);

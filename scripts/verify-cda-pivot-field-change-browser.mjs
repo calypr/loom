@@ -252,7 +252,7 @@ return document.querySelector('select[aria-label="Preview row limit"]')?.value;
 };
 const openTable = async () => {
   await gotoPage(page, `${uiOrigin}/?project=${project}&explorer=${explorer}&mode=builder`);
-  await waitForVisible(page, `[data-testid="construction-table-${outputId}"]`, 10000);
+  await waitForVisible(page, `[data-testid="construction-table-${outputId}"]`, 5000);
   await clickNative(page, `[data-testid="construction-table-${outputId}"]`);
   await waitForObservable(page, () => Boolean(document.querySelector('[data-testid="construction-rows-settings-trigger"]')?.disabled===false), 10000);
 };

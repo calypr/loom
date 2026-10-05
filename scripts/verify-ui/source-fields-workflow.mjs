@@ -522,7 +522,8 @@ if (sourceRecords.length < 2) {
   await waitForBrowser(page, ([__arg0]) => Boolean(Boolean(document.querySelector(__arg0))), [renameSelector], 5000);
   const renameInput = page.locator(renameSelector);
   await nativeFill(page, renameSelector, renameTo, {});
-  await press(page, renameSelector, 'Enter');
+  await performAction(page, 'Commit renamed repeated source field label', renameInput,
+    (target, options) => target.press('Enter', options));
   const renameCommand = await waitNative((entry) => entry.path.endsWith('/commands') && entry.body?.commands?.some((item) => item.type === 'UPDATE_COLUMN'), renameStart);
   builder = await api(`${base}/builder`);
   savedDocument = document();

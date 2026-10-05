@@ -18,9 +18,10 @@ import {
   scenarioFor,
   validateScenarioCase,
 } from '../verify-ui/fixture-context.mjs';
-import { createReport, finishReport, recordCheck, writeReport } from '../verify-ui/report.mjs';
+import { classifyNetworkRecord, createReport, finishReport, recordCheck, writeReport } from '../verify-ui/report.mjs';
 import { requiredChecksFor } from '../verify-ui/registry.mjs';
 import { sourceFingerprintChangedPaths, sourceFingerprintWithManifest } from '../verify-ui/source-fingerprint.mjs';
+import { captureNativeFailureEvidence, MAX_NATIVE_FAILURE_CAPTURE_MS } from './native-failure-evidence.mjs';
 
 const ACTION_TIMEOUT_MS = 5_000;
 const CONTEXT_SETUP_TIMEOUT_MS = 120_000;
@@ -198,6 +199,17 @@ export const test = base.extend({
     const { report, target } = loomContext;
     const lifecycleStarted = performance.now();
     const ownedOrigins = new Set([target.uiUrl, target.apiUrl].filter(Boolean).map((url) => new URL(url).origin));
+    const captureFailureEvidence = async details => {
+      if (report.failureEvidence) return;
+      try {
+        report.failureEvidence = await captureNativeFailureEvidence({ page, ownedOrigins, ...details });
+      } catch (error) {
+        report.failureEvidence = {
+          reason: safeText(details.reason ?? 'Playwright workflow failed'),
+          captureError: safeText(error?.message ?? error),
+        };
+      }
+    };
     const capabilityRequests = new Map();
     const requestIDs = new WeakMap();
     const faultAttempts = [];
@@ -205,6 +217,8 @@ export const test = base.extend({
     let requestSequence = 0;
     let requestIDSequence = 0;
     let activeAction;
+    let activeActionContext;
+    let firstFailureActionContext;
     let retainedDiagnostics = 0;
     let droppedDiagnostics = 0;
     const addDiagnostic = (entry) => {
@@ -324,6 +338,9 @@ export const test = base.extend({
     } = {}) => test.step(label, async () => {
       activeAction = label;
       const started = performance.now();
+      const startedAt = Date.now();
+      const actionContext = { label, locator, startedAt };
+      activeActionContext = actionContext;
       const requestedTimeout = Number.isFinite(timeout) ? timeout : ACTION_TIMEOUT_MS;
       const actionTimeout = Math.max(1, Math.min(ACTION_TIMEOUT_MS, requestedTimeout));
       const requestedBudget = Number.isFinite(budget) ? budget : ACTION_TIMEOUT_MS;
@@ -332,6 +349,7 @@ export const test = base.extend({
       let afterCompleted = false;
       let afterMs;
       let elapsedMs;
+      let failureReason;
       try {
         await expect(locator, `${label}: expected exactly one control`).toHaveCount(1, { timeout: actionTimeout });
         await locator.click({ trial: true, timeout: actionTimeout });
@@ -346,9 +364,23 @@ export const test = base.extend({
         }
         elapsedMs = performance.now() - started;
         expect(elapsedMs, `${label} action-to-render exceeded ${ACTION_TIMEOUT_MS} ms`).toBeLessThanOrEqual(budgetMs);
+      } catch (error) {
+        failureReason = error?.message ?? error;
+        throw error;
       } finally {
         elapsedMs ??= performance.now() - started;
         const passed = performCompleted && (!after || afterCompleted) && elapsedMs <= budgetMs;
+        if (!passed && !firstFailureActionContext) firstFailureActionContext = actionContext;
+        // Leave a full read-capture window before the native step deadline; teardown captures late failures.
+        if (!passed && !report.failureEvidence && elapsedMs + MAX_NATIVE_FAILURE_CAPTURE_MS + 250 < ACTION_TIMEOUT_MS) {
+          await captureFailureEvidence({
+            reason: failureReason ?? `${label} did not complete successfully`,
+            label,
+            locator,
+            elapsedMs,
+            startedAt,
+          });
+        }
         report.actions.push({
           label: safeText(label), status: passed ? 'passed' : 'failed', elapsedMs: Math.round(elapsedMs),
           locator: safeText(locator.toString()), ...(afterMs === undefined ? {} : { afterMs: Math.round(afterMs) }),
@@ -360,6 +392,7 @@ export const test = base.extend({
           recordCheck(report, 'performance', requiredCheck ?? `${label} action-to-render within budget`,
             passed, { afterMs: afterMs === undefined ? null : Math.round(afterMs), budgetMs });
         }
+        if (passed && activeActionContext === actionContext) activeActionContext = undefined;
       }
     }, { timeout: ACTION_TIMEOUT_MS });
 
@@ -441,6 +474,21 @@ export const test = base.extend({
       };
       if (droppedDiagnostics > 0) {
         report.network.push({ kind: 'exception', message: `diagnostic limit exceeded; ${droppedDiagnostics} events omitted` });
+      }
+      const missingRequiredChecks = report.requiredChecks.filter(name =>
+        !report.assertions.some(assertion => assertion.name === name && assertion.status === 'passed'));
+      const firstFailurePending = testInfo.status !== 'passed' ||
+        report.assertions.some(assertion => assertion.status === 'failed') ||
+        missingRequiredChecks.length > 0 || droppedDiagnostics > 0 ||
+        report.network.some(entry => classifyNetworkRecord(entry) === 'unexpected-error');
+      if (firstFailurePending && !report.failureEvidence) {
+        const failureAction = firstFailureActionContext ?? activeActionContext;
+        await captureFailureEvidence({
+          reason: testInfo.error?.message ?? 'Playwright workflow failed outside the action helper',
+          label: failureAction?.label,
+          locator: failureAction?.locator,
+          startedAt: failureAction?.startedAt,
+        });
       }
     }
   },

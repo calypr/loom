@@ -5,7 +5,7 @@ export async function identifierMultiplicityWorkflow({ page, cda, expect }) {
 const project = cda.project;
 const apiOrigin = cda.apiOrigin;
 const uiOrigin = cda.uiOrigin;
-const seedExplorerId = process.env.LOOM_CDA_EXPLORER_SEED ?? cda.explorer;
+const seedExplorerId = process.env.LOOM_CDA_EXPLORER_SEED ?? cda.explorer ?? 'cda-builder-full-qa-1790440983382';
 const explorerId = `identifier-multiplicity-${Date.now()}`;
 const observationId = 'CGCI-BLGSP.BLGSP-71-06-00169.BLGSP-71-06-00169_diagnosis';
 const evidenceDirectory = cda.evidence;
