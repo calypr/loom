@@ -64,11 +64,13 @@ declares a runtime Gender filter before closing that separate coverage gap.
 
 The generated inventory currently contains 257 records from 41 scanned production source files.
 
-The [feature registry](../scripts/verify-ui/registry.mjs) maps workflows to data
-hooks, endpoints, state transitions, and executable browser scripts. The
-[source inventory](UI_INTERACTION_INVENTORY.md) records where production UI code disables controls, hides content,
-returns early, or calls a data hook or client method. Neither list establishes
-that a feature works. Each browser run produces its own evidence and status.
+The native executable cases live in `scripts/playwright/*.spec.mjs`; choose a
+spec and use `--grep` to select a workflow. The feature registry
+(`scripts/verify-ui/registry.mjs`) supplies required checks and coverage metadata
+to those Playwright fixtures. The [source inventory](UI_INTERACTION_INVENTORY.md)
+records where production UI code disables controls, hides content, returns early,
+or calls a data hook or client method. Neither list establishes that a feature
+works. Each browser run produces its own evidence and status.
 
 ## Run a workflow
 
@@ -82,10 +84,10 @@ make dev-doctor
 Run the workflows independently:
 
 ```bash
-./scripts/node_modules/.bin/playwright test --config scripts/playwright.config.mjs builder-load.spec.mjs
-./scripts/node_modules/.bin/playwright test --config scripts/playwright.config.mjs builder-authoring.spec.mjs
-./scripts/node_modules/.bin/playwright test --config scripts/playwright.config.mjs viewer-query.spec.mjs
-./scripts/node_modules/.bin/playwright test --config scripts/playwright.config.mjs builder-controls.spec.mjs
+./scripts/node_modules/.bin/playwright test --config scripts/playwright.config.mjs builder-load.spec.mjs --grep 'Builder load'
+./scripts/node_modules/.bin/playwright test --config scripts/playwright.config.mjs builder-authoring.spec.mjs --grep 'Builder authoring'
+./scripts/node_modules/.bin/playwright test --config scripts/playwright.config.mjs viewer-query.spec.mjs --grep 'Viewer query'
+./scripts/node_modules/.bin/playwright test --config scripts/playwright.config.mjs builder-controls.spec.mjs --grep 'Recompile'
 ```
 
 Use Playwright `--list` to discover cases and `--grep` to select a workflow.
@@ -212,9 +214,12 @@ They do not establish large-data performance. Reports include request durations
 and browser long tasks; long-task evidence is limited to the final page after
 navigation or reload.
 
-`make verify-ui-test` passed 16 tests with no skips, including a real Chrome
-negative control for an overlay, inherited disabled state, JavaScript errors,
-and an intentionally slow browser task. The inventory drift check passed.
+Historical run note (2026-09-30): `make verify-ui-test` passed 16 tests with no
+skips, including a real Chrome negative control for an overlay, inherited
+disabled state, JavaScript errors, and an intentionally slow browser task. The
+inventory drift check passed. The Make target and custom browser runner belong
+to that checkpoint and are not current commands; use the native Playwright Test
+commands above for current browser execution.
 
 The frontend behavior remains unchanged. The failed Builder cases are regression
 reproductions for the next cleanup pass, rather than exceptions to the checks.
@@ -236,16 +241,25 @@ Automatic catalog fitting can leave a resource clipped after asynchronous layout
 the failure remains recorded in `builder-controls-tables-muoi7a7o-a6e1659.json`.
 Successful feature runs therefore do not establish that automatic fitting works.
 
-Current canonical follow-up (2026-10-03): the automatic-preview owner replacement
-is integrated. `builder-controls --case first-table` and `--case recompile` pass
-on the named 6d stack. Reports are
+Historical control follow-up (2026-10-03): the automatic-preview owner
+replacement was integrated. The retired `builder-controls --case first-table`
+and `builder-controls --case recompile` dispatcher recorded passes on the named
+6d stack. Reports are
 `/tmp/loom-first-table-basic-preview-integrated.json.first-table` and
-`/tmp/loom-recompile-basic-preview-integrated.json.recompile`. Both retain the
+`/tmp/loom-recompile-basic-preview-integrated.json.recompile`; both retain the
 unchanged 1120-file source fingerprint
 `2d9d34eab308a7951979cd6ee48ae06548bad9fb4655322c6bf1c1de31de9bc3`.
 First-table readiness records zero premature Add-columns enables and verifies
 independent Patient rows plus native editor open/close. Recompile obtains a fresh
 successful compilation after its intentionally injected 422. These bounded
-cases do not establish save/reload or CDA performance. Earlier RED reports above
-remain historical reproduction evidence. The corrected inventory test passes;
-the sandbox-only Chrome self-check skips, while both real browser cases run.
+historical cases do not establish save/reload or CDA performance. Their current
+native selections are:
+
+```bash
+./scripts/node_modules/.bin/playwright test --config scripts/playwright.config.mjs builder-controls.spec.mjs --grep 'Add columns waits for a current-draft preview'
+./scripts/node_modules/.bin/playwright test --config scripts/playwright.config.mjs builder-controls.spec.mjs --grep 'Recompile recovers from automatic compilation failure'
+```
+
+These are current invocation examples, not new browser results. Earlier RED
+reports remain historical reproduction evidence. The corrected inventory test
+passed at the prior checkpoint; the sandbox-only Chrome self-check skipped.

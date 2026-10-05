@@ -41,6 +41,8 @@ and operating guides. Superseded product plans and their evidence live under
   guidance.
 - [Reliability contract](loom-reliability-contract.md) — immutable generations,
   publication, selectors, and error-state guarantees.
+- [UI interaction verification](UI_VERIFICATION.md) — current native Playwright
+  commands, owned-stack requirements, and evidence interpretation.
 
 ## Frontend contract
 

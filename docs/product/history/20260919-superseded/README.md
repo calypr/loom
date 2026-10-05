@@ -25,4 +25,4 @@ The relative layout among historical product documents is preserved. Source path
 | C10 copy/refresh | Preserve existing behavior. No redesign in this plan. |
 | C11 and C12 export/release | S05 literal artifact parity and integrated acceptance. |
 
-The old catalog mockup remains a historical experiment. `scripts/verify_ml_dataframer_prototype.mjs` points here and does not count as current application acceptance.
+The old catalog mockup remains a historical experiment and does not count as current application acceptance. Its standalone browser launcher, `scripts/verify_ml_dataframer_prototype.mjs`, was retired during the native Playwright Test migration; the original probe remains in Git history.

@@ -10,12 +10,15 @@ LOOM_DEV_SOURCE_ROOT=/private/tmp/loom-construction-implementation LOOM_DEV_COMP
 
 Historical report: `/tmp/loom-cohort-recode-ordinary-columns.json.cohort-recode`. Source fingerprint: `42482158c733a19e0dc66cebaf534a4a9f58a130bef0a74cf5f308169b7a9ff4` (1122 files).
 
-The CDA follow-up passes 45 timed checks, maximum 2287 ms, with errors[] and unchanged source/API build. Native Save/Remove, ALL/ONE edits, Undo and reload preserve independently scoped Specimen member values and stable bindings. A raw ONE disagreement retains the saved ALL table. Receipt-bound CellTrace API checks supplement native row inspection; they do not prove a native draft-cell Explain control.
+Historical CDA evidence records 45 timed checks, maximum 2287 ms, with no errors and unchanged source/API build. Save/Remove, ALL/ONE edits, Undo and reload preserved independently scoped Specimen member values and stable bindings. A raw ONE disagreement retained the saved ALL table. Receipt-bound CellTrace API checks supplement row inspection; they do not prove a native draft-cell Explain control.
+
+The former direct browser invocation is retained to identify the recorded run, but its current native Playwright Test mapping is pending:
 
 ```sh
+# Historical command; no current native case mapping is recorded.
 LOOM_COHORT_ROW_VALUE_CASE=transformed-category node scripts/verify-cda-cohort-row-sources-browser.mjs /tmp/loom-cda-cohort-recode-menu-contained-select
 ```
 
-Report: `/tmp/loom-cda-cohort-recode-menu-contained-select/report.json`. The native select helper dismisses its platform popup inside the Columns menu to avoid destroying the draft through an outside click. Other callers retain their existing dismissal behavior.
+Report: `/tmp/loom-cda-cohort-recode-menu-contained-select/report.json`. The native select helper dismissed its platform popup inside the Columns menu to avoid destroying the draft through an outside click. Other callers retained their existing dismissal behavior.
 
 Focused editor and table tests pass 49/49; UI test typechecking passes. This proof covers exact string member recoding, not every transformation family or the remaining Builder workflows.

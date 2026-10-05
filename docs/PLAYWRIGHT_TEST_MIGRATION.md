@@ -1,5 +1,28 @@
 # Official Playwright Test migration
 
+## First phase of the current Builder reliability goal
+
+The Playwright Test migration precedes further Builder exploration. Finish the
+mechanical conversion of all browser verifiers, including the nine embedded
+`loom-dev.mjs` journeys, into native `@playwright/test` cases and fixtures.
+Preserve independent source oracles, lifecycle assertions, owned data setup,
+and five-second user-action budgets. Migrate callers before deleting legacy
+Chrome/CDP launchers and custom runners; retain API-only tools.
+
+Complete and integrate the mechanical batch before beginning behavioral testing.
+Syntax checks and test discovery establish migration coverage only. Freeze the
+integrated source checkpoint, then run the native cases, fix failures, and rerun
+the same cases. Report harness defects separately from product defects, attach
+bounded sanitized failure summaries and source fingerprints, and record skipped
+or unrun cases as unverified. Migration is complete when no active browser path
+owns a legacy launcher and the inventoried native cases have passing evidence
+or an explicit unresolved blocker.
+
+Then resume the existing CDA Builder reliability goal with its full feature and
+transition inventory: preview, Apply/Cancel, edit/removal, reload, independent
+correctness, and latency. Keep bounded exploration waves and roughly a 20%
+routine verification budget. The migration does not replace or reduce that goal.
+
 The earlier migration replaced Chrome/CDP actions with the Playwright library.
 It retained a custom runner. That is not a completed Playwright Test migration.
 

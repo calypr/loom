@@ -66,12 +66,18 @@ three no-component roots while retaining the two exact values. An empty-only
 saved `EXCLUDE` policy. Fourteen assertions passed across 34 timed actions;
 the slowest measured action was 1,621 ms.
 
+The report below came from the historical standalone browser command shown
+here; its current native Playwright Test mapping for CDA source expansion followed
+by authored grouping is pending. The separately registered `repeated-empty`
+fixture case covers a different, small fixture workflow.
+
 ```sh
+# Historical command; use only to identify the recorded invocation.
 node scripts/verify-cda-repeated-empty-browser.mjs \
   --evidence /tmp/loom-cda-source-expanded-group-fingerprinted
 ```
 
-Report: `/tmp/loom-cda-source-expanded-group-fingerprinted/report.json` (status
+Historical report: `/tmp/loom-cda-source-expanded-group-fingerprinted/report.json` (status
 `partial`). Its only gap is the literal `component: []` source shape: the CDA
 oracle found missing-property witnesses only. The standalone isolated fixture
 above proves literal-empty-array behavior separately; this CDA report does not
@@ -88,6 +94,6 @@ The first registered basic run, `/tmp/loom-authored-expand-native/report.json.co
 
 Run: `./scripts/node_modules/.bin/playwright test --config scripts/playwright.config.mjs builder-authoring.spec.mjs --grep cohort-expand` with the owned local stack environment. Real CDA follow-up remains required after the basic lifecycle passes.
 
-Basic full lifecycle passed in `/tmp/loom-authored-expand-header-case/report.json.cohort-expand`: all four dimensions passed, all 18 required checks present, 20 timed actions maximum2000ms, errors[]. Independent fixture IDs remain exact through automatic preview, Cancel/Apply, saved-label edit, removal and reload. Source fingerprint before=after `5b4791ae606e1aeaef953e011a58314d61c14022a9c98c84c3fdffe9c971c950` (1125 files). Prior failures above were verifier navigation/header assumptions, corrected in the same registered case. Real CDA follow-up remains open.
+Historical basic full lifecycle passed in `/tmp/loom-authored-expand-header-case/report.json.cohort-expand`: all four dimensions passed, all 18 required checks present, 20 timed actions maximum2000ms, errors[]. Independent fixture IDs remain exact through automatic preview, Cancel/Apply, saved-label edit, removal and reload. Source fingerprint before=after `5b4791ae606e1aeaef953e011a58314d61c14022a9c98c84c3fdffe9c971c950` (1125 files). Prior failures above were verifier navigation/header assumptions, corrected in the same registered case. Real CDA follow-up remains open.
 
-The CDA follow-up now passes in `/tmp/loom-cda-cohort-authored-expand-normalized-document/report.json`. Run `LOOM_COHORT_FIELD=id LOOM_COHORT_AUTHORED_EXPAND=1 node scripts/verify-cda-cohort-fields-browser.mjs /tmp/loom-cda-cohort-authored-expand-normalized-document`. All 22 actions complete within 1838ms, including automatic Preview, Cancel, Apply, reload, saved-label editing, removal and restored member-list reload. The oracle uses two exact scoped Specimen IDs and their pinned selection/cohort revision; retained ALL bindings and normalized source-column IDs remain stable. Source1064/API unchanged and aggregate fingerprint1127 unchanged (`a3b04db8e37a3ab2f62bab418e72b6d2503f5192128ae958fbebfa1d79f73a7f`). This closes the CDA equivalent of the direct authored-list entry; other expansion compositions and empty-list policies retain their separate gaps.
+The CDA follow-up passed at `/tmp/loom-cda-cohort-authored-expand-normalized-document/report.json` on its recorded source/build checkpoint. Its former standalone command, `LOOM_COHORT_FIELD=id LOOM_COHORT_AUTHORED_EXPAND=1 node scripts/verify-cda-cohort-fields-browser.mjs /tmp/loom-cda-cohort-authored-expand-normalized-document`, is historical; a current native Playwright Test mapping for the CDA variant is pending. All 22 recorded actions completed within 1838ms, including automatic Preview, Cancel, Apply, reload, saved-label editing, removal and restored member-list reload. The oracle uses two exact scoped Specimen IDs and their pinned selection/cohort revision; retained ALL bindings and normalized source-column IDs remain stable. Source1064/API unchanged and aggregate fingerprint1127 unchanged (`a3b04db8e37a3ab2f62bab418e72b6d2503f5192128ae958fbebfa1d79f73a7f`). This closes the CDA equivalent of the direct authored-list entry; other expansion compositions and empty-list policies retain their separate gaps.
