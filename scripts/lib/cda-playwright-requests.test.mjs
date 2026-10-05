@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import test from 'node:test';
 import { captureCDARequests } from './cda-playwright-requests.mjs';
+import { sanitizePayload } from './playwright-browser.mjs';
 
 test('owned requests correlate sanitized responses and reject sibling explorer prefixes', async () => {
   const page = new EventEmitter();
@@ -69,13 +70,14 @@ test('related expand choice responses are retained as sanitized diagnostics', as
     postData: () => '{"selectionToken":"secret"}',
   };
   page.emit('request', request);
+  const completed = capture.waitFor(entry => entry.path.endsWith('/related-expand-choices') && entry.status === 422);
   page.emit('response', {
     request: () => request,
     status: () => 422,
     headers: () => ({}),
     text: async () => '{"error":"selection is stale","authorization":"secret"}',
   });
-  await capture.flush();
+  await completed;
   assert.deepEqual(report.nativeRequests[0].body, { selectionToken: '[REDACTED]' });
   assert.deepEqual(report.nativeRequests[0].response, { error: 'selection is stale', authorization: '[REDACTED]' });
   assert.deepEqual(report.errors[0].response, report.nativeRequests[0].response);
@@ -122,6 +124,30 @@ test('UI proxy requests retain private exact bodies while reports stay redacted'
   assert.deepEqual(capture.rawRequestBody(entry), { snapshotToken: 'exact-private-token' });
   assert.deepEqual(capture.rawResponseBody(entry), { draftToken: 'exact-private-response' });
   assert(!JSON.stringify(report).includes('exact-private-'));
+});
+
+test('captured public snapshot hashes and no-auth metadata stay inspectable after report sanitization', () => {
+  const page = new EventEmitter();
+  const report = { nativeRequests: [], errors: [] };
+  const snapshotToken = `sha256:${'b'.repeat(64)}`;
+  captureCDARequests(page, {
+    apiOrigin: 'http://127.0.0.1:8282',
+    ownedPathPrefix: '/api/v1/projects/isolated/explorers/owned',
+    report,
+  });
+  const request = {
+    url: () => 'http://127.0.0.1:8282/api/v1/projects/isolated/explorers/owned/authoring/v2/construction-proposals',
+    method: () => 'POST',
+    headers: () => ({ 'content-type': 'application/json' }),
+    postData: () => JSON.stringify({ snapshotToken, access_token: snapshotToken }),
+  };
+
+  page.emit('request', request);
+  const safeReport = sanitizePayload(report);
+
+  assert.equal(safeReport.nativeRequests[0].body.snapshotToken, snapshotToken);
+  assert.equal(safeReport.nativeRequests[0].body.access_token, '[REDACTED]');
+  assert.equal(safeReport.nativeRequests[0].authorizationHeaderPresent, false);
 });
 
 test('only the known missing favicon is recorded as an incidental asset failure', () => {

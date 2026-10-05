@@ -1168,6 +1168,7 @@ func terminalKeylessCountRowsOnly(sequence *ir.PhysicalStageSequence) bool {
 		stage.Kind == ir.PhysicalStageGroupOp &&
 		stage.Group != nil &&
 		len(stage.Group.Keys) == 0 &&
+		stage.Group.RootContributorInputColumn == "" &&
 		constructionGroupCountsOnlyRows(stage.Group)
 }
 

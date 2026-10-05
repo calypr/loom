@@ -1941,7 +1941,22 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
       createdAt: '2026-09-21T00:00:00Z',
     };
 
-    render(
+    const view = render(
+      <BuilderWorkspace
+        organization="HTAN_INT"
+        project="BForePC"
+        explorerId="test"
+        populationSelectionLoading
+      />,
+    );
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Configure rows' }));
+    const rowSettings = await screen.findByRole('dialog', { name: 'Row definition settings' });
+    const panel = await within(rowSettings).findByRole('region', { name: 'Starting collection' });
+    expect(await within(panel).findByText('Loading the saved selection…')).toBeInTheDocument();
+    expect(mockLoomClient.getSelection).not.toHaveBeenCalled();
+
+    view.rerender(
       <BuilderWorkspace
         organization="HTAN_INT"
         project="BForePC"
@@ -1950,10 +1965,8 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
       />,
     );
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Configure rows' }));
-    const rowSettings = await screen.findByRole('dialog', { name: 'Row definition settings' });
-    const panel = await within(rowSettings).findByRole('region', { name: 'Starting collection' });
-    expect(panel).toHaveAttribute('data-selection-revision-id', 'selection-2');
+    await waitFor(() => expect(panel).toHaveAttribute('data-selection-revision-id', 'selection-2'));
+    expect(within(panel).queryByText('Loading the saved selection…')).not.toBeInTheDocument();
     expect(panel).toHaveAttribute('data-attached-selection-revision-id', 'selection-1');
     expect(mockLoomClient.getSelection).not.toHaveBeenCalled();
   });

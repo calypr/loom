@@ -814,6 +814,7 @@ export const registry = Object.freeze([
       'compound-coded-group-basic': [
         'raw synthetic source oracle matches dev-observation-001 height value',
         'Builder generation is bound to the raw synthetic source record',
+        'Initial GROUP preview counts the independently selected Observation population',
         'Initial coded preview matches the raw height and row-count oracle',
         'Apply persists the coded extraction and GROUP as one construction',
         'Edit preserves the exact population and binds Observation ID through the coded output',

@@ -958,7 +958,7 @@ const BuilderWorkspaceContent = ({
     cohortRevisionID ?? '',
     handedOffPopulationSelectionID ?? '',
   ]);
-  const populationSelectionQueryArgs = !handedOffPopulationSelectionID && table &&
+  const populationSelectionQueryArgs = !populationSelectionLoading && !handedOffPopulationSelectionID && table &&
     (attachedSelectionID || cohortRevisionID)
     ? {
       project: projectId,

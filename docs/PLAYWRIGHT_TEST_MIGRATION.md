@@ -6,12 +6,12 @@ On October 4, native discovery lists 155 tests in 22 spec files, plus one
 benchmark case in its dedicated configuration. All 23
 registered cases have native spec mappings, and the static binding check finds
 no undefined names. These results prove discovery and static coverage only;
-the converted cases have not been run against this checkpoint.
+most converted cases remain unrun. The first runtime results are recorded below.
 
 The ownership and static binding gate passes. The benchmark uses the native
 Test browser fixture; the old launcher and CDA browser session helper have
-been removed. Reconcile the standalone inventory against exact discovered
-titles before freezing source for browser verification.
+been removed. The standalone inventory is reconciled against exact discovered
+titles. Its gate rejects both current-source hash drift and a deleted case mapping.
 
 The targeted unit group passes 92 checks with zero skips after correcting one
 stale screenshot-location assertion. It covers development journey contracts,
@@ -26,6 +26,65 @@ checkout. The target guard now validates that ownership instead of rejecting
 those names and ports unconditionally. Foreign checkout identities, mismatched
 service ports, and foreign source mounts remain rejected. The updated guard
 tests pass in the targeted unit group.
+
+## Initial native runtime evidence
+
+The corrected basic run on October 4 completed with one passing case and one
+failure in 24.5 seconds. Its source fingerprint was
+`66d09284d7ea894c4ab3885d310a769368e72b8b85f3801b7bd2200c4263819b`
+before and after. The owned API identity also stayed unchanged.
+Reports are retained at `/private/tmp/loom-native-basic-corrected-evidence`.
+
+`builder-authoring/group-entry` passed its automatic empty-key `COUNT_ROWS`
+preview and raw two-Patient oracle. The Group action completed in 816 ms.
+This case does not cover Apply, Cancel, edit, removal, or reload; it is partial
+workflow evidence rather than a complete Group lifecycle.
+
+The compound basic case reached the coded chooser but found two `Height`
+checkboxes, one decimal and one date/time. Its driver must select the decimal
+source described by the independent quantity oracle. The same run also
+captured an unexpected backend 409, `RECEIPT_RECOMPILE_REQUIRED`, while opening
+Group on a selected Observation population. Scoped server logs identify
+`RECIPE_CONTRACT_VIOLATION` during preview-plan compilation. The compiler's
+keyless count shortcut incorrectly skipped source-row materialization for a
+Group carrying population contributors. The contributor-aware guard now passes
+the compiler regression and the real database preview returns count 1. The
+driver selects the decimal Height candidate by its visible type metadata.
+
+The next frozen run completed in 32.6 seconds with one passing case and one
+failure. Its source fingerprint was
+`c8908931e1fcb0674d1acc924802854c2b1bcdbbcc294f7e846440e166d603f0`;
+the source and API identity stayed unchanged. Evidence is retained at
+`/private/tmp/loom-native-compound-sanitizer-fix-evidence`. The compound case
+passed its data, Apply, edit, Cancel, removal, and reload assertions, but three
+aborted selection reads kept the overall case failed. The outer Builder and
+workspace both load the handed-off selection during reload; the outer result
+retires the workspace's duplicate request. Fix that ownership overlap before
+accepting this lifecycle. Do not exclude these failures from diagnostics.
+
+Harness corrections preserve exact public catalog SHA-256 snapshot identifiers
+and boolean identity metadata in sanitized reports while still redacting
+credentials. The focused sanitizer and request-capture group passes 9/9 tests.
+
+After the ownership correction, the same two native cases passed in 31.6 seconds
+with zero unexpected browser or network errors. The workspace now waits while
+the outer Builder resolves a handed-off selection; standalone selection loading
+still passes its regression. The basic compound case verifies exact decimal
+Height values and Observation identity through preview, Apply, edit, Cancel,
+removal, and reload. All measured result transitions complete within 1.5 seconds.
+Source fingerprint
+`c62fd107f21a4ee93a9081ea06d1ffffba6c2bdbf88919314a8472c1488ce8d0`
+and API build identity stayed unchanged. The compact report is
+`docs/verification/playwright/runtime/compound-coded-group-basic.json`; full
+artifacts are retained at `/private/tmp/loom-native-compound-handoff-fix-evidence`.
+This closes the basic compound lifecycle. Real CDA follow-up and other native
+lifecycles remain unverified.
+
+Earlier setup failures came from using the CDA project as the basic fixture's
+bootstrap project. Correcting that environment exposed two stale assumptions:
+a blank Explorer loads through GET `/builder`, and row-choice buttons have
+accessible names distinct from their visible record-type text. Those harness
+corrections preserve the original assertions. They are not product fixes.
 
 ## First phase of the current Builder reliability goal
 

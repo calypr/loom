@@ -22,15 +22,16 @@ export LOOM_CDA_CLICKHOUSE_CONTAINER="${LOOM_CDA_COMPOSE_PROJECT}-clickhouse-1"
 export LOOM_CDA_PROJECT=loom_dev_cda_fhir
 export LOOM_CDA_GENERATION=cda-fhir-v1
 
-# The basic fixture helper consumes the same owned dev-session identity.
+# The basic fixture helper shares the owned stack, but validates its configured
+# UI bootstrap project. It creates a fresh synthetic project for each case.
 export LOOM_DEV_SOURCE_ROOT="$LOOM_CDA_SOURCE_ROOT"
 export LOOM_DEV_COMPOSE_PROJECT="$LOOM_CDA_COMPOSE_PROJECT"
 export LOOM_DEV_API_PORT="$LOOM_CDA_API_PORT"
 export LOOM_DEV_UI_PORT="$LOOM_CDA_UI_PORT"
 export LOOM_DEV_API_URL="$LOOM_CDA_API_ORIGIN"
 export LOOM_DEV_UI_URL="$LOOM_CDA_UI_ORIGIN"
-export LOOM_DEV_PROJECT="$LOOM_CDA_PROJECT"
-export LOOM_DEV_GENERATION="$LOOM_CDA_GENERATION"
+export LOOM_DEV_PROJECT=loom_dev_c89a69d7e137
+export LOOM_DEV_GENERATION=devloop-v1
 
 # The legacy raw-related-record workflow reads these exact names. The Arango
 # alias points at the already validated CDA target in this same shell.

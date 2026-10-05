@@ -1,21 +1,11 @@
-import { sanitizeText } from './playwright-browser.mjs';
+import { sanitizePayload, sanitizeText } from './playwright-browser.mjs';
 
 const maxBodyLength = 32768;
-const sensitiveName = /authorization|cookie|password|passwd|token|secret|credential|session|api[_-]?key/i;
-const sanitizeValue = (value, key = '') => {
-  if (sensitiveName.test(key)) return '[REDACTED]';
-  if (typeof value === 'string') return sanitizeText(value);
-  if (Array.isArray(value)) return value.map(item => sanitizeValue(item));
-  if (value && typeof value === 'object') {
-    return Object.fromEntries(Object.entries(value).map(([childKey, childValue]) => [childKey, sanitizeValue(childValue, childKey)]));
-  }
-  return value;
-};
 const parseBody = body => {
   const text = String(body ?? '');
   if (text.length > maxBodyLength) return { truncated: true, length: text.length };
   try {
-    return sanitizeValue(JSON.parse(text));
+    return sanitizePayload(JSON.parse(text));
   } catch {
     return sanitizeText(text);
   }

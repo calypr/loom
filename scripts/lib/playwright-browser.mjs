@@ -16,6 +16,8 @@ export function sanitizeText(value) {
 }
 
 export function sanitizePayload(value, key = '') {
+  if (key === 'snapshotToken' && typeof value === 'string' && /^sha256:[a-f0-9]{64}$/.test(value)) return value;
+  if ((key === 'authorizationHeaderPresent' || key === 'snapshotTokenMatched') && typeof value === 'boolean') return value;
   if (sensitiveName.test(key)) return '[REDACTED]';
   if (typeof value === 'string') return sanitizeText(value);
   if (Array.isArray(value)) return value.map(item => sanitizePayload(item));

@@ -36,20 +36,20 @@ export const groupEntryWorkflow = async ({ page, report, check, action }, contex
     JSON.stringify(fixtureIDs) === JSON.stringify(expectedPatientIDs), fixtureOracle);
 
   const explorerName = `Verify ${context.runID.slice(-10)} group entry`;
-  const bootstrapPath = `/api/v1/projects/${encodeURIComponent(context.target.fixtureProject)}`
-    + `/explorers/${encodeURIComponent(context.target.bootstrapExplorerId)}/authoring/v2/construction-capabilities`;
+  const bootstrapBuilderPath = `/api/v1/projects/${encodeURIComponent(context.target.fixtureProject)}`
+    + `/explorers/${encodeURIComponent(context.target.bootstrapExplorerId)}/authoring/v2/builder`;
   const bootstrapResponsePromise = page.waitForResponse(response => {
     const url = new URL(response.url());
     return url.origin === new URL(context.target.uiUrl).origin
-      && url.pathname === bootstrapPath && response.request().method() === 'POST';
+      && url.pathname === bootstrapBuilderPath && response.request().method() === 'GET';
   }, { timeout: 5000 });
   await page.goto(browserURL(context.target, context.target.fixtureProject, context.target.bootstrapExplorerId, 'builder'),
     { waitUntil: 'domcontentloaded' });
   const bootstrapResponse = await bootstrapResponsePromise;
   assert.equal(bootstrapResponse.status(), 200,
-    'bootstrap construction-capabilities request must complete before Explorer creation');
+    'bootstrap Builder state request must complete before Explorer creation');
   const bootstrapRequestBody = await bootstrapResponse.json();
-  assert(bootstrapRequestBody, 'bootstrap construction-capabilities response must be readable');
+  assert(bootstrapRequestBody, 'bootstrap Builder state response must be readable');
 
   const newExplorer = page.getByText('New explorer', { exact: true });
   await newExplorer.waitFor({ state: 'visible' });

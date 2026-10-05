@@ -7,7 +7,7 @@
     "runnerInventoryPath": "docs/verification/playwright/runner-inventory.snapshot.json",
     "runnerInventorySha256": "596ab9f0bace824e8c9a6abde45a9302c9b668ef8ec06d675b95d37d79dac24a",
     "registryPath": "scripts/verify-ui/registry.mjs",
-    "registrySha256": "d65a1ce3bd10066c757427ec533e56cae9b74216d572bc7cfe09481e41dc9e43",
+    "registrySha256": "633a6ad94d5bb92abca9ce0ae6c7fdf8b4efd4e0829e6b92e010031ed3f4cd18",
     "preimagesCapturedFromStageCopy": true
   },
   "sourceScope": {
@@ -5004,6 +5004,7 @@
       "preservedAssertions": [
         "raw synthetic source oracle matches dev-observation-001 height value",
         "Builder generation is bound to the raw synthetic source record",
+        "Initial GROUP preview counts the independently selected Observation population",
         "Initial coded preview matches the raw height and row-count oracle",
         "Apply persists the coded extraction and GROUP as one construction",
         "Edit preserves the exact population and binds Observation ID through the coded output",
@@ -5560,7 +5561,7 @@
           "legacyBrowserOwnershipRemoved": true,
           "sourcePreimageSha256": "f7f9d3728496a03d59d1accf8201cd35661e2126a4fc2f0a9ab735f6f83b75a3",
           "sourceResultSha256": "9d3bf8ce0ce6d9a442f3f4ad8ffdc29adbe838cda7c72c9d6cc2e410b497a8af",
-          "portPatchSha256": "e144623050af3bf14134c3146076b53f1fface68b17e15804ab1603b5e94bd65",
+          "portPatchSha256": null,
           "reviewCorrectionPatchSha256": "92f022a857a4f32758d6327c0bb3ae9d86a0d04ca9572450cae9aa80512fcaec",
           "runtimeEvidence": {
             "status": "not-run"
@@ -5576,7 +5577,7 @@
     {
       "path": "scripts/lib/playwright-browser.mjs",
       "purpose": "chromium launch, diagnostics capture, evidence artifacts and browser close",
-      "sha256": "16297f227dbd6b01f293047e3cbed9538337474dc9820507fd7e8424193ac70b",
+      "sha256": "6c15f1eeee29161e16dbaf83acee3ebc5c11d61f908bc90800084b8c4304d705",
       "sourceStillPresent": true,
       "directBrowserOwnershipPresent": false,
       "disposition": "retained-native-page-action-helper",
@@ -14218,7 +14219,7 @@
     {
       "sourcePath": "scripts/verify-compound-coded-group.mjs",
       "preimageSha256": "cc00449ed70f10f4d3f313865b4eb10d506da21de1808f77f507e04addd992d3",
-      "currentSha256": "d628b83b9832cee0abf12d2e7b5efa082e5c3bb4ee8c8ef877849d96cbacca89",
+      "currentSha256": "e65c769aba1ac94b31604066b1af06eefd0ffe746d9bcbe500561d211ff39131",
       "sourceStillPresent": true,
       "ownerPartition": "native-standalone-misc",
       "kind": "standalone-browser-entrypoint",
@@ -14253,7 +14254,7 @@
       "workflowArtifacts": [
         {
           "path": "scripts/verify-compound-coded-group.mjs",
-          "sha256": "d628b83b9832cee0abf12d2e7b5efa082e5c3bb4ee8c8ef877849d96cbacca89",
+          "sha256": "e65c769aba1ac94b31604066b1af06eefd0ffe746d9bcbe500561d211ff39131",
           "artifactSource": "canonical-source-root"
         }
       ],

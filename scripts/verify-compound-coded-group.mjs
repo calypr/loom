@@ -33,11 +33,21 @@ const clickControl = async (_tracker, selector, identity = {}) => {
   const label = `Click ${identity.name ?? identity.includes ?? selector}`;
   const activeAction = { label, startedAt: Date.now() };
   tracker.activeAction = activeAction;
-  const locator = identity.name
-    ? page.locator(selector).filter({ hasText: identity.name })
-    : page.locator(selector);
+  const locator = typeof selector === 'string'
+    ? identity.name
+      ? page.locator(selector).and(page.getByRole('button', { name: identity.name, exact: true }))
+      : page.locator(selector)
+    : selector;
   try { return await cda.action(label, locator, (target) => target.click(), { timeout: 5000 }); }
   finally { tracker.activeAction = undefined; }
+};
+const codedCheckboxLocator = (label) => {
+  const accessibleName = `Group by coded value: ${label}`;
+  return basicMode
+    ? page.getByTestId('construction-group-coded-option')
+      .filter({ hasText: 'code · decimal' })
+      .getByRole('checkbox', { name: accessibleName, exact: true })
+    : page.locator(`input[aria-label=${JSON.stringify(accessibleName)}]`);
 };
 let observationIDs = [observationId];
 let rawSources = [];
@@ -69,6 +79,8 @@ const readTable = () => inspectDOM(() => ({
 
 const finishTiming = (name, started) => {
   state.timingsMs[name] = Date.now() - started;
+  recordWorkflowCheck('performance', `${name} completes within five seconds`, state.timingsMs[name] <= 5000,
+    { elapsedMs: state.timingsMs[name], budgetMs: 5000 });
   assert(state.timingsMs[name] <= 5000, `${name} took ${state.timingsMs[name]} ms`);
 };
 
@@ -344,9 +356,18 @@ try {
   assert(state.timingsMs.openPicker <= 5000, `Opening the coded picker took ${state.timingsMs.openPicker} ms`);
   state.groupChoices = await inspectDOM( () => [...document.querySelectorAll('input[aria-label^="Group by"]')].map(input => ({ label: input.getAttribute('aria-label'), disabled: input.disabled, checked: input.checked })));
   assert(!await inspectDOM( () => document.body.innerText.includes('Need a coded-value column first?')));
+  if (basicMode) {
+    state.initialGroupPreview = await proposed(openedAt, 'openToCountPreview', state.baseline, requestStart);
+    assertNamedPreviewValues(state.initialGroupPreview, [['Row count', String(rawSources.length)]],
+      'Initial whole-population group preview');
+    recordWorkflowCheck('correctness', 'Initial GROUP preview counts the independently selected Observation population',
+      state.initialGroupPreview.rows.length === 1,
+      { headers: state.initialGroupPreview.headers, rows: state.initialGroupPreview.rows,
+        selectedIDs: rawSources.map(source => source.id), expectedCount: rawSources.length });
+  }
   const proposalRequestStart = state.requests.length;
   const selectedAt = Date.now();
-  await clickControl(tracker, `input[aria-label="Group by coded value: ${codedPairs[0].label}"]`);
+  await clickControl(tracker, codedCheckboxLocator(codedPairs[0].label), { name: `Group by coded value: ${codedPairs[0].label}` });
   state.proposal = await proposed(selectedAt, 'selectToPreview', state.baseline, proposalRequestStart);
   if (differentialMode) {
     assertNamedPreviewValues(state.proposal, [
@@ -377,7 +398,7 @@ try {
   assert.equal(group.operation.kind, 'GROUP');
   assert.equal(helper.ownerStepId, group.id);
   assert.equal(helper.operation.codedPivot.categories.length, 1);
-  if (differentialMode) {
+  if (basicMode || differentialMode) {
     assert.deepEqual(helper.operation.codedPivot.categories.map(({ system, code }) => ({ system, code })), [{ system: codedPairs[0].system, code: codedPairs[0].code }], 'The first coded Group input must preserve its exact system/code identity');
   }
   assert.equal(savedDocument(state.saved).columns.length, savedDocument(state.baseline).columns.length, 'The prerequisite must not become a standalone source column');
@@ -391,7 +412,17 @@ try {
   await rowsReady();
   await clickControl(tracker, `[data-testid="construction-history-step-${group.id}"]`);
   await clickControl(tracker, `[data-testid="construction-edit-step-${group.id}"]`);
-  await waitForDOM( ({ label }) => document.querySelector(`input[aria-label="Group by coded value: ${CSS.escape(label)}"]`)?.checked === true, { label: codedPairs[0].label }, 5000);
+  if (basicMode) {
+    await waitForDOM(({ label, metadata }) => {
+      const accessibleName = `Group by coded value: ${label}`;
+      const options = [...document.querySelectorAll('[data-testid="construction-group-coded-option"]')]
+        .filter((option) => option.innerText.includes(metadata) &&
+          option.querySelector('input[type="checkbox"]')?.getAttribute('aria-label') === accessibleName);
+      return options.length === 1 && options[0].querySelector('input[type="checkbox"]')?.checked === true;
+    }, { label: codedPairs[0].label, metadata: 'code · decimal' }, 5000);
+  } else {
+    await waitForDOM(({ label }) => document.querySelector(`input[aria-label="Group by coded value: ${CSS.escape(label)}"]`)?.checked === true, { label: codedPairs[0].label }, 5000);
+  }
   if (!basicMode) {
     await waitForDOM( () => Boolean(document.querySelector('input[aria-label="Group by coded value: Primary disease type"]:not(:disabled)')), {}, 5000);
     const editProposalRequestStart = state.requests.length;
@@ -524,11 +555,13 @@ try {
   } else {
     assert.deepEqual(state.removalProposal.rows, [[observationId]], 'Removing the compound group must restore its original source table');
   }
+  const cancelRemovalAt = Date.now();
   await clickControl(tracker, '[data-testid="construction-cancel-proposal"]');
   await waitForDOM( () => !document.querySelector('[data-testid="construction-proposal-panel"]'), {}, 5000);
   state.afterRemovalCancel = await api(base + '/authoring/v2/builder');
   assert.equal(state.afterRemovalCancel.draftDigest, state.edited.draftDigest, 'Cancel must preserve the grouped draft');
   assert.deepEqual(state.afterRemovalCancel.workspace, state.edited.workspace);
+  finishTiming('cancelGroupRemoval', cancelRemovalAt);
   if (basicMode) recordWorkflowCheck('persistence', 'Cancel preserves the edited grouped draft',
     state.afterRemovalCancel.draftDigest === state.edited.draftDigest && isDeepStrictEqual(state.afterRemovalCancel.workspace, state.edited.workspace),
     { beforeDigest: state.edited.draftDigest, afterCancelDigest: state.afterRemovalCancel.draftDigest,

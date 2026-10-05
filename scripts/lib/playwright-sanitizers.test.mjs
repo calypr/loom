@@ -18,3 +18,49 @@ test('body sanitization redacts structured credentials, text secrets, and clips 
   assert.equal(sanitizedText.includes('private-token'), false);
   assert.equal(sanitizeBody('x'.repeat(12_100)).length, 12_000);
 });
+
+test('only exact public snapshot hashes and typed identity metadata survive sanitization', () => {
+  const snapshotToken = `sha256:${'a'.repeat(64)}`;
+  const sanitized = sanitizePayload({
+    snapshotToken,
+    malformedSnapshot: { snapshotToken: `sha256:${'A'.repeat(64)}` },
+    otherToken: snapshotToken,
+    snapshot_token: snapshotToken,
+    privateValues: {
+      authorization: snapshotToken,
+      access_token: snapshotToken,
+      cookie: snapshotToken,
+      secret: snapshotToken,
+      session: snapshotToken,
+    },
+    authorizationHeaderPresent: false,
+    flags: { authorizationHeaderPresent: true, snapshotTokenMatched: true },
+    snapshotTokenMatched: false,
+    booleanStringFields: {
+      authorizationHeaderPresent: 'Bearer private-secret-token',
+      snapshotTokenMatched: 'true',
+    },
+  });
+
+  assert.equal(sanitized.snapshotToken, snapshotToken);
+  assert.equal(sanitized.malformedSnapshot.snapshotToken, '[REDACTED]');
+  assert.equal(sanitized.otherToken, '[REDACTED]');
+  assert.equal(sanitized.snapshot_token, '[REDACTED]');
+  assert.deepEqual(sanitized.privateValues, {
+    authorization: '[REDACTED]',
+    access_token: '[REDACTED]',
+    cookie: '[REDACTED]',
+    secret: '[REDACTED]',
+    session: '[REDACTED]',
+  });
+  assert.equal(sanitized.authorizationHeaderPresent, false);
+  assert.equal(sanitized.flags.authorizationHeaderPresent, true);
+  assert.equal(sanitized.snapshotTokenMatched, false);
+  assert.equal(sanitized.booleanStringFields.authorizationHeaderPresent, '[REDACTED]');
+  assert.equal(sanitized.booleanStringFields.snapshotTokenMatched, '[REDACTED]');
+  assert.equal(sanitized.flags.snapshotTokenMatched, true);
+  assert.deepEqual(JSON.parse(sanitizeBody(JSON.stringify({ snapshotToken, authorizationHeaderPresent: false }))), {
+    snapshotToken,
+    authorizationHeaderPresent: false,
+  });
+});
