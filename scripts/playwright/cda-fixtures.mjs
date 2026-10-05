@@ -450,6 +450,7 @@ export const test = base.extend({
       addNetworkDiagnostic(entry);
       for (const scope of cancellationScopes) {
         if (!scope.active || !scope.requests.has(request) || entry.errorText !== 'net::ERR_ABORTED') continue;
+        entry.cancellationAction = safeText(scope.actionLabel);
         expectCanceledRequest(request, scope.reason, {
           ...scope.proof,
           scopeAction: scope.actionLabel,
@@ -656,14 +657,39 @@ export const test = base.extend({
         capturedEntry.cancellationReason = cancellation.reason;
         capturedEntry.expectedCancellation = cancellation;
       }
-      const capturedError = capturedEntry?.browserRequestId
-        ? report.errors.find(entry => entry.kind === 'network' && entry.browserRequestId === capturedEntry.browserRequestId)
-        : undefined;
-      if (capturedError) {
-        capturedError.expected = true;
-        capturedError.expectedCancellation = cancellation;
+      if (capturedEntry?.browserRequestId) {
+        const sameCapturedRequest = entry => entry.kind === 'network' &&
+          entry.browserRequestId === capturedEntry.browserRequestId;
+        for (const diagnostic of report.network ?? []) {
+          if (!sameCapturedRequest(diagnostic)) continue;
+          diagnostic.expected = true;
+          diagnostic.canceled = true;
+          diagnostic.cancellationReason = cancellation.reason;
+          diagnostic.expectedCancellation = cancellation;
+        }
+        for (const capturedError of report.errors ?? []) {
+          if (!sameCapturedRequest(capturedError)) continue;
+          capturedError.expected = true;
+          capturedError.expectedCancellation = cancellation;
+        }
       }
       return cancellation;
+    };
+    const expectCapturedCancellation = (capturedEntry, reason, proof) => {
+      if (!capturedEntry || !report.nativeRequests.includes(capturedEntry)) {
+        throw new TypeError('Expected cancellation must name an exact entry from this CDA fixture request capture.');
+      }
+      if (typeof capturedEntry.browserRequestId !== 'string' || !capturedEntry.browserRequestId ||
+        report.nativeRequests.filter(entry => entry.browserRequestId === capturedEntry.browserRequestId).length !== 1) {
+        throw new Error('Expected cancellation needs a unique native browser request ID.');
+      }
+      const nativeRequests = [...trackers].flatMap(tracker => [...tracker.byRequest.entries()]
+        .filter(([, entry]) => entry === capturedEntry)
+        .map(([request]) => request));
+      if (nativeRequests.length !== 1) {
+        throw new Error('Expected cancellation must resolve to exactly one retained native Playwright Request object.');
+      }
+      return expectCanceledRequest(nativeRequests[0], reason, proof);
     };
     const expectHttpFailure = (capturedEntry, reason, proof, { status = 422 } = {}) => {
       if (status !== 400 && status !== 422) {
@@ -807,6 +833,7 @@ export const test = base.extend({
       check,
       fault,
       expectCanceledRequest,
+      expectCapturedCancellation,
       expectHttpFailure,
       withExpectedCancellations,
       step,
@@ -829,6 +856,7 @@ export const test = base.extend({
       check,
       fault,
       expectCanceledRequest,
+      expectCapturedCancellation,
       expectHttpFailure,
       withExpectedCancellations,
       onDialog: handler => {

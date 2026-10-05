@@ -1,0 +1,567 @@
+{
+  "schemaVersion": 1,
+  "evidenceKind": "native-cda-compound-fields-lifecycle",
+  "epoch": 6,
+  "terminalStatus": "passed",
+  "recordedAt": "2026-10-05T16:05:43.384Z",
+  "test": {
+    "title": "CDA compound fields",
+    "spec": "scripts/playwright/standalone-cda-fields.spec.mjs",
+    "playwrightVersion": "1.63.0",
+    "command": "npm run test:browser -- playwright/standalone-cda-fields.spec.mjs --grep 'CDA compound fields' --output /private/tmp/loom-native-parallel-wave6/compound/results",
+    "jsonReport": "/private/tmp/loom-native-parallel-wave6/compound/results.json",
+    "runnerExitCode": 0,
+    "retryCount": 0,
+    "workers": 1,
+    "fullyParallel": false
+  },
+  "scope": {
+    "targetProject": "loom_dev_cda_fhir",
+    "generation": "cda-fhir-v1",
+    "composeProject": "loom-dev-6d7df93d6a37",
+    "api": "http://127.0.0.1:8188",
+    "ui": "http://127.0.0.1:30008",
+    "bootstrapProject": "loom_dev_c89a69d7e137",
+    "datasetDirectory": "/Users/peterkor/Desktop/BMEG/loom/CDA-FHIR/META",
+    "ownedExplorer": "compound-fields-browser-1791216316806",
+    "protectedExplorerRequestCount": 0,
+    "outputId": "out_2221755902d71b1d706fd02d",
+    "sourceFrame": {
+      "rootResource": "Specimen",
+      "relatedResource": "Observation",
+      "relationship": "specimen_Specimen",
+      "storageDirection": "INBOUND",
+      "sourcePath": "component[]",
+      "form": "ALL",
+      "frameId": "frame_66f3426af5b1c40cefcb06d0f6a3193cbfa751dde3b3f6b8f3e00a91c9ac4ab5"
+    }
+  },
+  "sourceAndApiIdentity": {
+    "baseline": {
+      "sourceFingerprint": {
+        "sha256": "2a9e0cfb2b4a48ab8984033241dd00922613bfeb8f4a147bfcec78b172b12c66",
+        "files": 1484
+      },
+      "sourceBaselineManifestSha256": "a53572e964b4dff24bdc4f295e488393fe8d6ad2476a6e943c9715252b8b1bd2",
+      "apiBuildIdentity": "9e0e53a002c2cde544c54a34905fcea04f51a00d5247909f6204e73ccc85fc3c:9e0e53a002c2cde544c54a34905fcea04f51a00d5247909f6204e73ccc85fc3c:1480cbf92c206363ef5f24926e95396d0a25634ff9b9c99a08df3a26db41d114",
+      "apiBaselineFileSha256": "d1cccac23c77d5d8c9d6a6ff97c28b08aea20f5c8543a6d8d8e33737306ff582"
+    },
+    "duringRunBefore": {
+      "sourceFingerprint": {
+        "sha256": "2a9e0cfb2b4a48ab8984033241dd00922613bfeb8f4a147bfcec78b172b12c66",
+        "files": 1484
+      },
+      "apiBuildIdentity": "9e0e53a002c2cde544c54a34905fcea04f51a00d5247909f6204e73ccc85fc3c:9e0e53a002c2cde544c54a34905fcea04f51a00d5247909f6204e73ccc85fc3c:1480cbf92c206363ef5f24926e95396d0a25634ff9b9c99a08df3a26db41d114"
+    },
+    "duringRunAfter": {
+      "sourceFingerprint": {
+        "sha256": "2a9e0cfb2b4a48ab8984033241dd00922613bfeb8f4a147bfcec78b172b12c66",
+        "files": 1484
+      },
+      "apiBuildIdentity": "9e0e53a002c2cde544c54a34905fcea04f51a00d5247909f6204e73ccc85fc3c:9e0e53a002c2cde544c54a34905fcea04f51a00d5247909f6204e73ccc85fc3c:1480cbf92c206363ef5f24926e95396d0a25634ff9b9c99a08df3a26db41d114"
+    },
+    "freeze": {
+      "unchanged": true,
+      "watchedFileCount": 1114,
+      "changedPaths": [],
+      "invalidatesRun": false,
+      "productFailure": false
+    },
+    "unchanged": true
+  },
+  "playwrightRun": {
+    "status": "passed",
+    "durationMs": 29606,
+    "workerIndex": 0,
+    "parallelIndex": 0,
+    "errors": 0,
+    "startedAt": "2026-10-05T16:05:15.061Z",
+    "finishedAt": "2026-10-05T16:05:43.384Z"
+  },
+  "workflowLifecycle": {
+    "status": "passed",
+    "caseCount": 20,
+    "caseLatencies": [
+      {
+        "name": "initial-explicit-Specimen-table",
+        "durationMs": 1423
+      },
+      {
+        "name": "browse-direct-component-source",
+        "durationMs": 624
+      },
+      {
+        "name": "save-direct-component-frame",
+        "durationMs": 770
+      },
+      {
+        "name": "native-category-choice-primary_disease_type",
+        "durationMs": 217
+      },
+      {
+        "name": "native-category-choice-specimen_type",
+        "durationMs": 217
+      },
+      {
+        "name": "cancel-two-category-selection-keeps-framed-baseline",
+        "durationMs": 796
+      },
+      {
+        "name": "native-category-choice-primary_disease_type",
+        "durationMs": 292
+      },
+      {
+        "name": "native-category-choice-specimen_type",
+        "durationMs": 263
+      },
+      {
+        "name": "native-add-two-compound-ALL-columns",
+        "durationMs": 1835
+      },
+      {
+        "name": "reload-compound-ALL-columns",
+        "durationMs": 1440
+      },
+      {
+        "name": "remove-coded-column-Primary disease type",
+        "durationMs": 740
+      },
+      {
+        "name": "remove-coded-column-Specimen type",
+        "durationMs": 826
+      },
+      {
+        "name": "remove-empty-frame",
+        "durationMs": 911
+      },
+      {
+        "name": "reload-after-removing-frame-and-columns",
+        "durationMs": 1324
+      },
+      {
+        "name": "browse-direct-component-source",
+        "durationMs": 606
+      },
+      {
+        "name": "save-direct-component-frame",
+        "durationMs": 774
+      },
+      {
+        "name": "native-category-choice-primary_disease_type",
+        "durationMs": 248
+      },
+      {
+        "name": "native-category-choice-specimen_type",
+        "durationMs": 299
+      },
+      {
+        "name": "restore-two-compound-ALL-columns",
+        "durationMs": 1956
+      },
+      {
+        "name": "reload-restored-compound-ALL-columns",
+        "durationMs": 1635
+      }
+    ],
+    "maxCaseLatencyMs": 1956,
+    "nativeActionCount": 47,
+    "nativeActionMaxLatencyMs": 215,
+    "nativeActionMaxLabel": "Close operation editor",
+    "preflightPreviewDurationsMs": [
+      191,
+      192
+    ],
+    "maxPreflightPreviewDurationMs": 192,
+    "initialTable": {
+      "name": "initial-explicit-Specimen-table",
+      "durationMs": 1423,
+      "headers": [
+        "SPECIMEN ID"
+      ],
+      "receiptId": "receipt_208278b4300a1e02463720c7df9c8cd39d1575a9ebad789e9908b1353bd0ef7e"
+    },
+    "frameBrowsePageCounts": [
+      1,
+      1
+    ],
+    "cancelSelection": {
+      "case": "cancel-two-category-selection-keeps-framed-baseline",
+      "selectedCodes": [
+        "primary_disease_type",
+        "specimen_type"
+      ],
+      "savedWorkspaceUnchanged": true,
+      "mutationCommandsSent": 0
+    },
+    "previewAndApply": {
+      "preflightStatus": "READY",
+      "choiceCodes": [
+        "primary_disease_type",
+        "specimen_type"
+      ],
+      "candidateColumnIds": [
+        "col_25840f265b48f5b5ccf72560",
+        "col_7b0970ca03797e19e9449ca9"
+      ],
+      "form": "ALL",
+      "rowCount": 1,
+      "columnCount": 3,
+      "freshSavedReceiptId": "receipt_d8149fb21f8745aab5cde34287bb581350e5593350d848f9ad6cffcc8b3ce88f",
+      "atomicApplyCommandCount": 2,
+      "visibleAndPreviewValues": {
+        "primary_disease_type": [
+          "Squamous cell neoplasms"
+        ],
+        "specimen_type": [
+          "sample"
+        ]
+      }
+    },
+    "removal": {
+      "columnRemovals": [
+        {
+          "name": "remove-coded-column-Primary disease type",
+          "durationMs": 740,
+          "columnId": "col_25840f265b48f5b5ccf72560"
+        },
+        {
+          "name": "remove-coded-column-Specimen type",
+          "durationMs": 826,
+          "columnId": "col_7b0970ca03797e19e9449ca9"
+        }
+      ],
+      "frameRemoval": {
+        "name": "remove-empty-frame",
+        "durationMs": 911,
+        "restoredWorkspaceDigest": "sha256:5db5ffe65d8d088181caee466c97dd516082bbad41113a71ac59b932047a7488"
+      },
+      "authoredRelationshipPreserved": {
+        "route": {
+          "occurrenceId": "base",
+          "resourceType": "Specimen",
+          "children": [
+            {
+              "occurrenceId": "occ_42753f426b254bf17308ae76",
+              "resourceType": "Observation",
+              "catalogEdgeId": "e_cbd721c812385db76b14715f",
+              "relationship": "specimen_Specimen",
+              "matchMode": "OPTIONAL"
+            }
+          ]
+        },
+        "reason": "Frame and column removal preserve authored routes; REMOVE_ROUTE owns relationship removal."
+      }
+    },
+    "reloads": [
+      {
+        "name": "reload-compound-ALL-columns",
+        "durationMs": 1440,
+        "headers": [
+          "SPECIMEN ID",
+          "PRIMARY DISEASE TYPE",
+          "SPECIMEN TYPE"
+        ],
+        "receiptId": "receipt_d8149fb21f8745aab5cde34287bb581350e5593350d848f9ad6cffcc8b3ce88f"
+      },
+      {
+        "name": "reload-after-removing-frame-and-columns",
+        "durationMs": 1324,
+        "headers": [
+          "SPECIMEN ID"
+        ],
+        "receiptId": "receipt_db26f82bcfb91317e12698ef7a1f8d1fa27b39cd7ef235a85ab4dd5e34e74128"
+      },
+      {
+        "name": "reload-restored-compound-ALL-columns",
+        "durationMs": 1635,
+        "headers": [
+          "SPECIMEN ID",
+          "PRIMARY DISEASE TYPE",
+          "SPECIMEN TYPE"
+        ],
+        "receiptId": "receipt_41ff4d4547daa4811989679e9b84f1810bc0b33a586f736c6716a8f806da0db9"
+      }
+    ],
+    "restore": {
+      "case": {
+        "name": "restore-two-compound-ALL-columns",
+        "durationMs": 1956,
+        "previewDurationMs": 192,
+        "atomicCommandCount": 2
+      },
+      "restoredHeaders": [
+        "SPECIMEN ID",
+        "PRIMARY DISEASE TYPE",
+        "SPECIMEN TYPE"
+      ],
+      "restoredValues": {
+        "primary_disease_type": [
+          "Squamous cell neoplasms"
+        ],
+        "specimen_type": [
+          "sample"
+        ]
+      }
+    },
+    "nativeCommandEvidence": [
+      {
+        "browserRequestId": "playwright-15",
+        "triggerAction": "Use this source",
+        "status": 200,
+        "commandTypes": [
+          "SET_FRAME_SOURCE"
+        ],
+        "commandCount": 1,
+        "outputIds": [
+          "out_2221755902d71b1d706fd02d"
+        ]
+      },
+      {
+        "browserRequestId": "playwright-36",
+        "triggerAction": null,
+        "status": 200,
+        "commandTypes": [
+          "APPLY_CONSTRUCTION_CHOICE",
+          "APPLY_CONSTRUCTION_CHOICE"
+        ],
+        "commandCount": 2,
+        "outputIds": [
+          "out_2221755902d71b1d706fd02d"
+        ]
+      },
+      {
+        "browserRequestId": "playwright-51",
+        "triggerAction": "Remove Primary disease type column",
+        "status": 200,
+        "commandTypes": [
+          "REMOVE_COLUMN"
+        ],
+        "commandCount": 1,
+        "outputIds": [
+          "out_2221755902d71b1d706fd02d"
+        ]
+      },
+      {
+        "browserRequestId": "playwright-60",
+        "triggerAction": "Remove Specimen type column",
+        "status": 200,
+        "commandTypes": [
+          "REMOVE_COLUMN"
+        ],
+        "commandCount": 1,
+        "outputIds": [
+          "out_2221755902d71b1d706fd02d"
+        ]
+      },
+      {
+        "browserRequestId": "playwright-69",
+        "triggerAction": "Remove",
+        "status": 200,
+        "commandTypes": [
+          "REMOVE_FRAME_SOURCE"
+        ],
+        "commandCount": 1,
+        "outputIds": [
+          "out_2221755902d71b1d706fd02d"
+        ]
+      },
+      {
+        "browserRequestId": "playwright-89",
+        "triggerAction": "Use this source",
+        "status": 200,
+        "commandTypes": [
+          "SET_FRAME_SOURCE"
+        ],
+        "commandCount": 1,
+        "outputIds": [
+          "out_2221755902d71b1d706fd02d"
+        ]
+      },
+      {
+        "browserRequestId": "playwright-102",
+        "triggerAction": null,
+        "status": 200,
+        "commandTypes": [
+          "APPLY_CONSTRUCTION_CHOICE",
+          "APPLY_CONSTRUCTION_CHOICE"
+        ],
+        "commandCount": 2,
+        "outputIds": [
+          "out_2221755902d71b1d706fd02d"
+        ]
+      }
+    ],
+    "rawArangoOracle": {
+      "kind": "raw-Arango direct specimen_Specimen witness",
+      "query": "Observation payload.component values joined by one direct fhir_edge specimen_Specimen edge to a single selected Specimen",
+      "specimen": {
+        "id": "125ee9db-6ee1-5bd9-9d04-c64a1e6b027c",
+        "key": "g_ff185484d7581eb226dc02b367768fba8b01b3936a84b84c6c775882cf49077f"
+      },
+      "observation": {
+        "id": "00002c8f-7dc7-570e-83c1-68ea3a69b385",
+        "key": "g_959862697081f35eb5acd2e771d2a0d94e561e07a885608ef82fda4f907b3bfc"
+      },
+      "categories": {
+        "primary_disease_type": [
+          "Squamous cell neoplasms"
+        ],
+        "specimen_type": [
+          "sample"
+        ]
+      }
+    },
+    "finalTable": {
+      "status": "passed",
+      "tableOutputId": "out_2221755902d71b1d706fd02d",
+      "root": "Specimen",
+      "directRelationship": "specimen_Specimen",
+      "restoredFrameId": "frame_66f3426af5b1c40cefcb06d0f6a3193cbfa751dde3b3f6b8f3e00a91c9ac4ab5",
+      "restoredCodeColumns": [
+        "Primary disease type",
+        "Specimen type"
+      ],
+      "rawCdaValues": {
+        "primary_disease_type": [
+          "Squamous cell neoplasms"
+        ],
+        "specimen_type": [
+          "sample"
+        ]
+      }
+    },
+    "persistenceChecks": {
+      "status": "passed for this selected UI lifecycle",
+      "dimensionLabel": "The aggregate fixture persistence dimension remains untested.",
+      "reloads": [
+        {
+          "case": "reload-compound-ALL-columns",
+          "status": "passed"
+        },
+        {
+          "case": "reload-after-removing-frame-and-columns",
+          "status": "passed"
+        },
+        {
+          "case": "reload-restored-compound-ALL-columns",
+          "status": "passed"
+        }
+      ]
+    }
+  },
+  "timingContext": {
+    "thresholdMs": 5000,
+    "parallelWave": 6,
+    "otherNativeCdaCasesOverlappingThisRun": [],
+    "nativeCdaCaseOverlapObserved": false,
+    "timingConfirmationRequired": false,
+    "interpretation": "Per-lifecycle case, preview, and action latencies are below 5 seconds. The full Playwright duration includes fixture setup, bootstrapping, oracle work, reloads, and teardown; it is not a single interaction latency.",
+    "observationalTimingsOnly": true,
+    "performanceDimensionStatus": "untested"
+  },
+  "fixtureStatus": {
+    "runnerStatus": "passed",
+    "browserLifecycle": {
+      "kind": "official-playwright-page",
+      "status": "passed",
+      "durationMs": 27458,
+      "diagnosticLimit": 100,
+      "droppedDiagnostics": 0
+    },
+    "recordedAssertions": {
+      "passed": 49,
+      "failed": 0
+    },
+    "missingRequiredChecks": [],
+    "expectedSourceBrowseCancellations": [
+      {
+        "browserRequestId": "playwright-9",
+        "method": "POST",
+        "path": "/api/v1/projects/loom_dev_cda_fhir/explorers/compound-fields-browser-1791216316806/authoring/v2/frame-source-options",
+        "reason": "The Observation source search superseded a pending empty-query frame-source browse.",
+        "scopeAction": "Search",
+        "outputId": "out_2221755902d71b1d706fd02d",
+        "previousQuery": "empty",
+        "replacementQuery": "Observation"
+      },
+      {
+        "browserRequestId": "playwright-83",
+        "method": "POST",
+        "path": "/api/v1/projects/loom_dev_cda_fhir/explorers/compound-fields-browser-1791216316806/authoring/v2/frame-source-options",
+        "reason": "The Observation source search superseded a pending empty-query frame-source browse.",
+        "scopeAction": "Search",
+        "outputId": "out_2221755902d71b1d706fd02d",
+        "previousQuery": "empty",
+        "replacementQuery": "Observation"
+      }
+    ],
+    "expectedCapabilityCancellations": [],
+    "unexpectedErrors": 0,
+    "unexpectedHttpFailures": 0,
+    "incidentalErrors": [
+      {
+        "kind": "asset-failure",
+        "url": "http://127.0.0.1:30008/favicon.ico",
+        "status": 404
+      }
+    ],
+    "assetFailures": [
+      {
+        "kind": "asset-failure",
+        "url": "http://127.0.0.1:30008/favicon.ico",
+        "status": 404
+      },
+      {
+        "kind": "console",
+        "url": "http://127.0.0.1:30008/favicon.ico",
+        "status": 404
+      }
+    ],
+    "droppedDiagnostics": 0,
+    "dimensions": {
+      "usability": "passed",
+      "correctness": "passed",
+      "persistence": "untested",
+      "performance": "untested"
+    },
+    "requiredChecks": {
+      "required": [],
+      "missing": []
+    },
+    "diagnostics": {
+      "capturedErrorCopies": 2,
+      "expectedErrorCopies": 2,
+      "unexpectedErrorCopies": 0,
+      "expectedSourceBrowseCancellations": 2,
+      "expectedCapabilityCancellations": 0,
+      "pageAndConsoleGate": "passed",
+      "httpFailureGate": "passed",
+      "incidentalAssetFailures": [
+        {
+          "kind": "asset-failure",
+          "url": "http://127.0.0.1:30008/favicon.ico",
+          "status": 404
+        },
+        {
+          "kind": "console",
+          "url": "http://127.0.0.1:30008/favicon.ico",
+          "status": 404
+        }
+      ]
+    }
+  },
+  "evidenceFiles": {
+    "results.json": "f87045e618bf8688b877ed0b80a3c5ece7257cb4822d1a3f1a893611da81cf3d",
+    "runner.log": "d1b53c026e5ad91096c7cc57d9547466ac64d998e5235b1f18045dfa93274cef",
+    "results/standalone-cda-fields-CDA--952b2--fields-CDA-compound-fields/cda-report.json": "1ed8d96a4553f1f63a0005e6f7cfd8ae70428abab1b5b11f07a0c015d649c140",
+    "results/standalone-cda-fields-CDA--952b2--fields-CDA-compound-fields/attachments/standalone-compound-fields-domain.json": "0da73e2877f11a972884396c6b526f49443cd9c399ffb44a1df84860677bbc97",
+    "epoch6SourceBaseline": {
+      "path": "/private/tmp/loom-native-parallel-wave6/source-before.json",
+      "sha256": "a53572e964b4dff24bdc4f295e488393fe8d6ad2476a6e943c9715252b8b1bd2"
+    },
+    "epoch6ApiBaseline": {
+      "path": "/private/tmp/loom-native-parallel-wave6/api-identity.json",
+      "sha256": "d1cccac23c77d5d8c9d6a6ff97c28b08aea20f5c8543a6d8d8e33737306ff582"
+    }
+  }
+}

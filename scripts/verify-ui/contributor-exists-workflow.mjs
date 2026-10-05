@@ -241,16 +241,23 @@ const chooseContributorIDExists = async (panel, actionName) => {
   const { options } = await openContributorOptions(panel);
   const onlyRecords = `${options} label`;
   const search = `${options} input[placeholder="Search field name or path"]`;
-  const contributorRequestPath = `${base}/related-expand-contributors`;
+  const contributorRequestPath = base + '/related-expand-contributors';
+  const proposalRequestPath = base + '/construction-proposals';
   const contributorRequestStart = report.nativeRequests.length;
-  const cancellationAction = 'search contributor fields for id';
+  const cancellationAction = 'switch to contributor condition and search for id';
+  let filteredRequest;
   await cda.withExpectedCancellations({
     origin: uiOrigin,
     method: 'POST',
-    paths: [contributorRequestPath],
-    requestIdPrefixes: ['cda-request-'],
-    reason: 'The initial unfiltered contributor lookup is superseded by the explicit id search.',
-    proof: { priorQuery: null, replacementQuery: 'id' },
+    paths: [contributorRequestPath, proposalRequestPath],
+    requestIdPrefixes: ['cda-request-', 'construction-proposal-'],
+    reason: 'Selecting a contributor condition invalidates the all-matching proposal; the explicit id search supersedes the unfiltered contributor lookup.',
+    proof: {
+      outputId,
+      priorProposal: { contributorRule: 'ALL_MATCHES', emptyPolicy: 'PRESERVE_PARENT' },
+      priorQuery: null,
+      replacementQuery: 'id',
+    },
     actionLabel: cancellationAction,
   }, async () => {
     await revealControl(onlyRecords, 'Only records meeting a condition');
@@ -259,33 +266,74 @@ const chooseContributorIDExists = async (panel, actionName) => {
     await revealControl(search);
     await clickControl(page, search);
     await fillControl(page, search, 'id');
-    const filteredRequest = await requestCapture.waitFor(request => request.path === contributorRequestPath
-      && request.body?.query === 'id' && request.status === 200
+    filteredRequest = await requestCapture.waitFor(request => request.path === contributorRequestPath
+      && request.body?.outputId === outputId && request.body?.query === 'id' && request.status === 200
       && request.response?.choices?.some(choice => choice.source?.path === 'id' && choice.source?.resourceType === 'Observation'),
     { fromIndex: contributorRequestStart, timeoutMs: 5000 });
     assert.equal(filteredRequest.status, 200, 'The superseding Observation id field search must return successfully');
     await waitForDOM(page, args => Boolean(document.querySelector(''+args.__template0+' [role="group"][aria-label="Fields for related-record condition"] button')), { __template0: (options) });
   });
   const cancellations = cda.report.expectedCancellations?.filter(item => item.proof?.scopeAction === cancellationAction) ?? [];
-  assert(cancellations.length <= 1, 'Contributor field search may classify at most one superseded initial lookup');
-  const cancellation = cancellations[0];
-  if (cancellation) {
+  assert(cancellations.length <= 2, 'Contributor mode and field search may classify at most one superseded request per exact path');
+  const cancellationPaths = new Set();
+  for (const cancellation of cancellations) {
     const cancelledRequest = report.nativeRequests.find(request => request.browserRequestId === cancellation.browserRequestId);
-    assert(cancelledRequest, 'Expected contributor search cancellation must point to an exact captured browser request');
-    assert.equal(cancelledRequest.path, contributorRequestPath);
+    assert(cancelledRequest, 'Expected contributor workflow cancellation must point to an exact captured browser request');
+    assert([contributorRequestPath, proposalRequestPath].includes(cancelledRequest.path),
+      'Expected contributor workflow cancellation must use one of its two exact owned paths');
+    assert(!cancellationPaths.has(cancelledRequest.path),
+      'Contributor mode and field search may classify at most one cancellation for each exact path');
+    cancellationPaths.add(cancelledRequest.path);
     assert.equal(cancelledRequest.method, 'POST');
-    assert([undefined, null, ''].includes(cancelledRequest.body?.query),
-      'The cancelled contributor request must be the initial unfiltered lookup');
-    const cancelledError = report.errors.find(error => error.kind === 'network'
+    assert.equal(cancelledRequest.origin, uiOrigin);
+    assert.equal(cancelledRequest.body?.outputId, outputId);
+    assert.equal(cancelledRequest.failure, 'net::ERR_ABORTED');
+    assert.equal(cancellation.method, 'POST');
+    assert.equal(new URL(cancellation.url).pathname, cancelledRequest.path);
+    assert.equal(cancellation.proof?.scopeAction, cancellationAction);
+    assert.equal(cancellation.proof?.outputId, outputId);
+    assert.equal(cancelledRequest.expectedCancellation?.browserRequestId, cancelledRequest.browserRequestId);
+
+    const cancelledErrors = report.errors.filter(error => error.kind === 'network'
       && error.browserRequestId === cancellation.browserRequestId);
-    assert(cancelledError, 'The exact cancelled contributor request failure must remain in browser diagnostics');
-    assert.equal(cancelledError.error, 'net::ERR_ABORTED');
-    cancelledError.expected = true;
-    cancelledError.expectedCancellation = cancellation;
-    report.contributorSearchCancellation = {
+    assert(cancelledErrors.length >= 1 && cancelledErrors.length <= 2,
+      'Each exact native cancellation must retain its bounded browser network diagnostics');
+    for (const cancelledError of cancelledErrors) {
+      assert.equal(cancelledError.error ?? cancelledError.failure, 'net::ERR_ABORTED');
+      cancelledError.expected = true;
+      cancelledError.expectedCancellation = cancellation;
+    }
+
+    assert(cancelledRequest.startedAt <= filteredRequest.startedAt,
+      'A superseded request must start before the successful id-search replacement');
+    if (cancelledRequest.path === contributorRequestPath) {
+      assert([undefined, null, ''].includes(cancelledRequest.body?.query),
+        'The cancelled contributor request must be the initial unfiltered lookup');
+      report.contributorSearchCancellation = {
+        request: { browserRequestId: cancelledRequest.browserRequestId, path: cancelledRequest.path,
+          method: cancelledRequest.method, outputId, query: cancelledRequest.body?.query ?? null,
+          error: cancelledRequest.failure },
+        replacement: { browserRequestId: filteredRequest.browserRequestId, query: 'id', status: filteredRequest.status,
+          field: 'Observation.id' },
+        reason: cancellation.reason,
+      };
+      continue;
+    }
+
+    const relatedSteps = cancelledRequest.body?.candidateConstruction?.steps
+      ?.filter(step => step.operation?.kind === 'RELATED_EXPAND') ?? [];
+    assert.equal(relatedSteps.length, 1, 'Cancelled stale proposal must contain one related-expansion step');
+    const relatedExpand = relatedSteps[0].operation.relatedExpand;
+    assert.deepEqual(relatedExpand.contributorRule, { policy: 'ALL_MATCHES' },
+      'Only the stale unfiltered all-matching proposal may be classified as an expected cancellation');
+    assert.equal(relatedExpand.emptyPolicy, 'PRESERVE_PARENT');
+    assert.equal(relatedExpand.contributorSource, undefined);
+    assert.equal(relatedExpand.contributorRule.predicate, undefined);
+    report.staleContributorProposalCancellation = {
       request: { browserRequestId: cancelledRequest.browserRequestId, path: cancelledRequest.path,
-        method: cancelledRequest.method, query: cancelledRequest.body?.query ?? null, error: cancelledError.error },
-      replacement: { query: 'id', status: 200, field: 'Observation.id' },
+        method: cancelledRequest.method, outputId, contributorRule: relatedExpand.contributorRule,
+        emptyPolicy: relatedExpand.emptyPolicy, error: cancelledRequest.failure },
+      replacement: { browserRequestId: filteredRequest.browserRequestId, query: 'id', status: filteredRequest.status },
       reason: cancellation.reason,
     };
   }
@@ -364,10 +412,26 @@ const expectedErrorProposal = async (name, startedAt) => {
   assert(durationMs <= 5000, `${name} took ${durationMs}ms`);
   report.cases.push({ name, durationMs, status: request.status, code, message: result.alert, repairOptions: repair.options });
   await requestCapture.flush();
-  const expectedError = report.errors.findLast((failure) => failure.kind === 'http' && failure.path === `${base}/construction-proposals` && failure.startedAt >= startedAt && failure.status === request.status && failure.requestId === request.requestId);
-  assert(expectedError, `${name}: expected failed response was not retained with request identity`);
-  expectedError.expected = true;
-  report.expectedPolicyError = { status: request.status, code, response, message: result.alert, requestId: request.requestId };
+  const expectedFailures = cda.report.expectedHttpFailures?.filter(failure =>
+    failure.browserRequestId === request.browserRequestId && failure.requestId === request.requestId
+      && failure.method === request.method && failure.path === request.path && failure.status === request.status) ?? [];
+  assert.equal(expectedFailures.length, 1, name + ': exact expected HTTP evidence must be retained for the native request');
+  const expectedFailure = expectedFailures[0];
+  assert.deepEqual(request.expectedHttpFailure, expectedFailure,
+    name + ': captured request classification must match the fixture exact expected HTTP evidence');
+  assert.equal(expectedFailure.proof?.action, 'preview a related expansion with ERROR empty policy');
+  assert.equal(expectedFailure.proof?.policy, 'ERROR');
+  assert.equal(expectedFailure.proof?.sourceWitness, 'zero related Observation rows');
+  assert.equal(expectedFailure.proof?.errorCode, code);
+  assert.equal(expectedFailure.console?.status, 422,
+    name + ': the expected 422 console event must be retained with its exact request classification');
+  assert.equal(expectedFailure.console?.location, uiOrigin + request.path);
+  assert.equal(Number(expectedFailure.console.fixtureDiagnostic) + Number(expectedFailure.console.requestCaptureError), 1,
+    name + ': the expected console event must have exactly one native capture owner');
+  report.expectedPolicyError = {
+    browserRequestId: request.browserRequestId, requestId: request.requestId, method: request.method, path: request.path,
+    status: request.status, code, response, message: result.alert, expectedFailure,
+  };
   report.expectedErrorWindow.active = false;
 };
 
@@ -481,9 +545,78 @@ report.allMatchingBaseline = { contributorRule: baselineStep.operation.relatedEx
 
 const beforeBaselineCancel = await api(base + '/builder');
 startedAt = Date.now();
-await nativeClick(page, '[data-testid="construction-cancel-proposal"]', {});
-await waitForDOM(page, args => Boolean(!document.querySelector('[data-testid="construction-proposal-panel"]')), {}, 5000);
-await rendered(baselineRows, 'cancel-all-matching-preview');
+const routeChoiceCancellationStart = cda.report.expectedCancellations?.length ?? 0;
+const routeChoiceCancellationAction = 'Cancel';
+const routeChoicesPath = base + '/related-expand-choices';
+await cda.withExpectedCancellations({
+  origin: uiOrigin,
+  method: 'POST',
+  paths: [routeChoicesPath],
+  requestIdPrefixes: ['related-expand-choices-'],
+  reason: 'Cancel closes the related-expand editor and retires its in-flight paginated route-choice query.',
+  proof: {
+    outputId,
+    stageId: 'source_projection',
+    anchorColumnId: '_key',
+    targetResourceType: 'Observation',
+    retirement: 'Cancel clears the active construction family and editing step, unmounting RelatedExpandEditor and aborting its useQuery signal.',
+  },
+  actionLabel: routeChoiceCancellationAction,
+}, async () => {
+  await nativeClick(page, '[data-testid="construction-cancel-proposal"]', {});
+  await waitForDOM(page, args => Boolean(!document.querySelector('[data-testid="construction-proposal-panel"]')), {}, 5000);
+  await rendered(baselineRows, 'cancel-all-matching-preview');
+});
+const routeChoiceCancellations = (cda.report.expectedCancellations ?? []).slice(routeChoiceCancellationStart);
+assert(routeChoiceCancellations.length <= 1,
+  'Cancel may retire at most one active related-choice page because route pagination awaits one page at a time');
+const verifyRouteChoiceCancellation = cancellation => {
+  const requests = report.nativeRequests.filter(request => request.browserRequestId === cancellation.browserRequestId);
+  assert.equal(requests.length, 1, 'Cancellation must identify one captured native request');
+  const [retiredRequest] = requests;
+  const body = retiredRequest.body;
+  assert.deepEqual([retiredRequest.path, retiredRequest.origin, retiredRequest.method], [routeChoicesPath, uiOrigin, 'POST']);
+  assert.equal(retiredRequest.requestId, cancellation.requestId);
+  assert.match(retiredRequest.requestId, /^related-expand-choices-/);
+  assert.deepEqual([body?.outputId, body?.stageId, body?.anchorColumnId, body?.targetResourceType, body?.limit], [outputId, 'source_projection', '_key', 'Observation', 50]);
+  assert(body?.snapshotToken && Number.isInteger(body.expectedDraftVersion) && body.expectedDraftDigest);
+  assert(typeof body.cursor === 'string' && body.cursor.length > 0);
+  assert.equal(retiredRequest.failure, 'net::ERR_ABORTED');
+  assert.deepEqual([cancellation.method, new URL(cancellation.url).origin, new URL(cancellation.url).pathname], ['POST', uiOrigin, routeChoicesPath]);
+  assert.deepEqual([
+    cancellation.proof?.scopeAction, cancellation.proof?.outputId, cancellation.proof?.stageId,
+    cancellation.proof?.anchorColumnId, cancellation.proof?.targetResourceType, cancellation.proof?.retirement,
+  ], [routeChoiceCancellationAction, outputId, 'source_projection', '_key', 'Observation',
+    'Cancel clears the active construction family and editing step, unmounting RelatedExpandEditor and aborting its useQuery signal.']);
+  const sameQuery = request => ['outputId', 'stageId', 'anchorColumnId', 'targetResourceType', 'snapshotToken', 'expectedDraftVersion', 'expectedDraftDigest'].every(key => request.body?.[key] === body[key]);
+  const previousPage = report.nativeRequests.filter(request => request.path === routeChoicesPath && request.method === 'POST'
+    && request.startedAt < retiredRequest.startedAt && request.status === 200 && sameQuery(request)
+    && typeof request.body?.cursor === 'string' && request.body.cursor.length > 0).at(-1);
+  assert(previousPage, 'Retirement must follow a successful page for the same output, stage, anchor, target, draft, and snapshot');
+  assert(previousPage.body.limit === body.limit && previousPage.body.cursor !== body.cursor);
+  const nativeNetwork = (cda.report.network ?? []).filter(entry => entry.kind === 'network' && entry.browserRequestId === retiredRequest.browserRequestId);
+  assert.equal(nativeNetwork.length, 1, 'The exact route-choice abort must stay in native browser network diagnostics');
+  assert.deepEqual([nativeNetwork[0].errorText, nativeNetwork[0].cancellationAction, nativeNetwork[0].expected], ['net::ERR_ABORTED', routeChoiceCancellationAction, true]);
+  const requestErrors = report.errors.filter(error => error.kind === 'network' && error.browserRequestId === retiredRequest.browserRequestId);
+  assert(requestErrors.length >= 1 && requestErrors.length <= 2, 'Retain bounded diagnostics for the exact route-choice abort');
+  for (const error of requestErrors) {
+    assert.equal(error.error ?? error.failure, 'net::ERR_ABORTED');
+    error.expected = true;
+    error.expectedCancellation = cancellation;
+  }
+  return {
+    request: { requestId: retiredRequest.requestId, browserRequestId: retiredRequest.browserRequestId,
+      path: retiredRequest.path, method: retiredRequest.method, outputId, stageId: body.stageId,
+      anchorColumnId: body.anchorColumnId, targetResourceType: body.targetResourceType,
+      snapshotToken: body.snapshotToken, expectedDraftVersion: body.expectedDraftVersion,
+      expectedDraftDigest: body.expectedDraftDigest, limit: body.limit, cursor: body.cursor, error: retiredRequest.failure },
+    previousPage: { requestId: previousPage.requestId, browserRequestId: previousPage.browserRequestId,
+      status: previousPage.status, cursor: previousPage.body.cursor },
+    action: cancellation.proof.scopeAction, reason: cancellation.reason,
+  };
+};
+const routeChoiceCancellationEvidence = routeChoiceCancellations.map(verifyRouteChoiceCancellation);
+if (routeChoiceCancellationEvidence.length) report.routeChoiceCancellationOnCancel = routeChoiceCancellationEvidence[0];
 recordAction('cancel-all-matching-preview', startedAt, { rowCount: baselineRows.length });
 builder = await api(base + '/builder');
 assert.deepEqual(builder.workspace, beforeBaselineCancel.workspace, 'Cancel must leave the saved workspace unchanged');
@@ -576,14 +709,35 @@ builder = await api(base + '/builder');
 assertStableSourceProjection(builder, original, canonicalSourceColumnId, 'reload after EXISTS Contributor removal');
 await requestCapture.flush();
 assert.deepEqual(report.errors.filter((failure) => !failure.expected), [], 'Unexpected browser errors were reported');
-const expectedHTTP = cda.diagnostics.httpFailures.filter((failure) => failure.status === report.expectedPolicyError.status && failure.url.endsWith(`${base}/construction-proposals`));
-assert.equal(expectedHTTP.length, 1, 'Exactly the expected construction proposal HTTP failure must be captured by Playwright diagnostics');
-assert.deepEqual(cda.diagnostics.httpFailures.filter(failure => !expectedHTTP.includes(failure)), [], 'Unexpected app-origin HTTP failures were reported');
+const expectedFailureEvidence = cda.report.expectedHttpFailures ?? [];
+assert.equal(expectedFailureEvidence.length, 1, 'Exactly one native HTTP response may carry expected-validation evidence');
+assert.deepEqual(expectedFailureEvidence[0], report.expectedPolicyError.expectedFailure,
+  'The expected HTTP ledger must retain the exact request and console evidence verified during the workflow');
+assert.equal(expectedFailureEvidence[0].browserRequestId, report.expectedPolicyError.browserRequestId);
+assert.equal(expectedFailureEvidence[0].requestId, report.expectedPolicyError.requestId);
+assert.equal(expectedFailureEvidence[0].method, 'POST');
+assert.equal(expectedFailureEvidence[0].path, base + '/construction-proposals');
+assert.equal(expectedFailureEvidence[0].status, 422);
+const expectedHTTP = cda.diagnostics.httpFailures.filter(failure =>
+  failure.browserRequestId === report.expectedPolicyError.browserRequestId);
+assert.equal(expectedHTTP.length, 1, 'The exact expected construction proposal request must remain in Playwright HTTP diagnostics');
+assert.equal(expectedHTTP[0].status, report.expectedPolicyError.status);
+assert.equal(expectedHTTP[0].url, uiOrigin + report.expectedPolicyError.path);
+assert.deepEqual(cda.diagnostics.httpFailures.filter(failure => !expectedHTTP.includes(failure)), [],
+  'Unexpected app-origin HTTP failures were reported');
 assert.deepEqual(cda.diagnostics.pageErrors, [], 'Unexpected page errors were reported');
 assert.deepEqual(cda.diagnostics.console, [], 'Unexpected console errors were reported');
 assert.deepEqual(cda.diagnostics.networkFailures.filter(failure => !failure.expectedCancellation), [], 'Unexpected network failures were reported');
-assert.equal(report.errors.filter((failure) => failure.kind === 'http' && failure.expected).length, 1,
-  'The expected ERROR-policy validation must be the only expected browser HTTP failure');
+const requestBoundHttpErrors = report.errors.filter(failure =>
+  failure.kind === 'http' && failure.browserRequestId === report.expectedPolicyError.browserRequestId);
+assert(requestBoundHttpErrors.length <= 1,
+  'The exact expected ERROR-policy response may produce at most one generic browser HTTP diagnostic');
+for (const failure of requestBoundHttpErrors) {
+  assert.equal(failure.expected, true, 'Any generic HTTP diagnostic for the exact expected request must retain its classification');
+  assert.deepEqual(failure.expectedHttpFailure, report.expectedPolicyError.expectedFailure);
+}
+assert.equal(report.errors.filter(failure => failure.kind === 'http').length, requestBoundHttpErrors.length,
+  'Unmatched HTTP diagnostics must remain fatal');
 report.expectedErrorWindow.active = false;
 report.status = 'passed';
   } finally {

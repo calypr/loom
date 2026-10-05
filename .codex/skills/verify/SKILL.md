@@ -123,7 +123,7 @@ diagnostics, source/API identity, and lifecycle assertions in native fixtures
 and tests; a test must not invoke an old browser script as a subprocess or
 launch a second browser.
 
-The current `verify-ui` registry declares 23 cases. A separate static discovery
+The current `verify-ui` registry declares 24 cases. A separate static discovery
 snapshot at 2026-10-05 02:02 UTC lists 152 cases across 19 Playwright spec files;
 discovery is separate from registry coverage and does not mean those cases are
 registered or verified. The development journeys and miscellaneous workflows

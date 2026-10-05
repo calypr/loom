@@ -187,8 +187,20 @@ export function includeBrowserDiagnostics(diagnostics, report) {
     add({ kind: 'console', message: failure.text, location: failure.location }, existing => existing.kind === 'console' && existing.message === failure.text);
   }
   for (const failure of diagnostics.networkFailures ?? []) {
-    add({ kind: 'network', path: failure.url, failure: failure.errorText, playwrightRequestId: failure.playwrightRequestId,
-      browserRequestId: failure.browserRequestId }, existing => existing.kind === 'network' && existing.path === failure.url);
+    const requestIdentity = typeof failure.browserRequestId === 'string' && failure.browserRequestId
+      ? ['browserRequestId', failure.browserRequestId]
+      : typeof failure.playwrightRequestId === 'string' && failure.playwrightRequestId
+        ? ['playwrightRequestId', failure.playwrightRequestId]
+        : typeof failure.requestId === 'string' && failure.requestId
+          ? ['requestId', failure.requestId]
+          : undefined;
+    add({ kind: 'network', path: failure.url, failure: failure.errorText, requestId: failure.requestId,
+      playwrightRequestId: failure.playwrightRequestId,
+      browserRequestId: failure.browserRequestId, ...(failure.expected ? { expected: true } : {}),
+      ...(failure.canceled ? { canceled: true } : {}),
+      ...(failure.expectedCancellation ? { expectedCancellation: failure.expectedCancellation } : {}) },
+    existing => Boolean(requestIdentity) && existing.kind === 'network' &&
+      existing[requestIdentity[0]] === requestIdentity[1]);
   }
   for (const failure of diagnostics.httpFailures ?? []) {
     add({ kind: 'http', url: failure.url, status: failure.status, response: failure.body,

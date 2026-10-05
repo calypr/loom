@@ -1,0 +1,664 @@
+{
+  "schemaVersion": 1,
+  "case": {
+    "name": "CDA source fields",
+    "selector": "CDA source fields",
+    "runnerStatus": "passed",
+    "playwright": {
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0,
+      "flaky": 0,
+      "durationMs": 22802,
+      "runnerElapsedDisplay": "24.2s"
+    },
+    "explorer": "cda-source-fields-1791216428239-6e22cdf4",
+    "protectedExplorer": "cda-builder-full-qa-1790440983382",
+    "reportStatus": "unverified",
+    "aggregateStatusExplanation": "The fixture has no registered required-check list for source-fields/cda-native (requiredChecks and missingRequiredChecks are both empty). Usability and correctness are passed, while persistence and performance aggregates remain untested; the native Playwright/domain lifecycle itself passed.",
+    "requiredChecks": [],
+    "missingRequiredChecks": [],
+    "dimensions": {
+      "usability": "passed",
+      "correctness": "passed",
+      "persistence": "untested",
+      "performance": "untested"
+    },
+    "noNewBenchmarkRequired": true
+  },
+  "sourceAndApiIdentity": {
+    "preflight": {
+      "sourceFingerprint": {
+        "sha256": "2a9e0cfb2b4a48ab8984033241dd00922613bfeb8f4a147bfcec78b172b12c66",
+        "files": 1484
+      },
+      "apiBuildIdentity": "9e0e53a002c2cde544c54a34905fcea04f51a00d5247909f6204e73ccc85fc3c:9e0e53a002c2cde544c54a34905fcea04f51a00d5247909f6204e73ccc85fc3c:1480cbf92c206363ef5f24926e95396d0a25634ff9b9c99a08df3a26db41d114",
+      "ownership": "passed"
+    },
+    "postflight": {
+      "sourceFingerprint": {
+        "sha256": "2a9e0cfb2b4a48ab8984033241dd00922613bfeb8f4a147bfcec78b172b12c66",
+        "files": 1484
+      },
+      "apiBuildIdentity": "9e0e53a002c2cde544c54a34905fcea04f51a00d5247909f6204e73ccc85fc3c:9e0e53a002c2cde544c54a34905fcea04f51a00d5247909f6204e73ccc85fc3c:1480cbf92c206363ef5f24926e95396d0a25634ff9b9c99a08df3a26db41d114",
+      "ownership": null
+    },
+    "unchanged": true,
+    "target": {
+      "project": "loom_dev_cda_fhir",
+      "composeProject": "loom-dev-6d7df93d6a37",
+      "apiContainer": "loom-dev-6d7df93d6a37-loom-api-1",
+      "uiContainer": "loom-dev-6d7df93d6a37-loom-ui-1",
+      "arangoContainer": "loom-dev-6d7df93d6a37-arangodb-1",
+      "clickhouseContainer": "loom-dev-6d7df93d6a37-clickhouse-1",
+      "apiPort": "8188",
+      "uiPort": "30008",
+      "sourceRoot": "/private/tmp/loom-construction-implementation",
+      "generation": "cda-fhir-v1"
+    }
+  },
+  "checks": [
+    {
+      "name": "bounded independent raw CDA oracle selected unique populated Observation witnesses",
+      "status": "passed",
+      "evidence": {
+        "limit": 1000,
+        "selected": [
+          {
+            "id": "00004888-0740-540e-bc75-68b5192fbf5a",
+            "status": "final",
+            "componentValues": [
+              "aliquot",
+              "Adenoma, NOS"
+            ]
+          },
+          {
+            "id": "00008c9a-64db-55f9-96bf-7a0db4e32551",
+            "status": "final",
+            "componentValues": [
+              "sample",
+              "Acinar cell adenoma"
+            ]
+          },
+          {
+            "id": "0000961c-775c-52cf-b25c-c71ee28c423f",
+            "status": "final",
+            "componentValues": [
+              "aliquot",
+              "Glioma, malignant"
+            ]
+          }
+        ],
+        "maxSelectedIds": 3,
+        "maxRepeatedValues": 6
+      }
+    },
+    {
+      "name": "native base table rendered the independently selected Observation membership",
+      "status": "passed",
+      "evidence": {
+        "receiptId": "receipt_fa5887bc796807fe44e202690ad68df97c0a059196b14d07f2ee414d1fc041eb",
+        "ids": [
+          "0000961c-775c-52cf-b25c-c71ee28c423f",
+          "00008c9a-64db-55f9-96bf-7a0db4e32551",
+          "00004888-0740-540e-bc75-68b5192fbf5a"
+        ]
+      }
+    },
+    {
+      "name": "native Add columns resolved a direct scalar VALUE and repeated ALL field batch against raw CDA",
+      "status": "passed",
+      "evidence": {
+        "choices": [
+          {
+            "path": "component[].valueString",
+            "form": "ALL",
+            "columnId": "col_7cb1f071002d271dbef7d917",
+            "candidateId": "c_8a521937841fa94c13f8ca21",
+            "title": "Component Value String"
+          },
+          {
+            "path": "status",
+            "form": "VALUE",
+            "columnId": "col_d85c3b30329fe8657e177ad2",
+            "candidateId": "c_16d8a31d0ec09b0b02c03861",
+            "title": "Status"
+          }
+        ],
+        "previewReceiptId": "receipt_dce3c3c965945067f82ac94ae45c251fac7a4c1b6ac6b36fd12155f2e413f85c",
+        "rowCount": 3
+      }
+    },
+    {
+      "name": "native proposal Cancel leaves the draft and source population unchanged",
+      "status": "passed",
+      "evidence": {
+        "draftDigest": "sha256:291ec4cbfc51f96bd5247c4d24759c082ee77d037bdbd9f59335799b37be7b6a",
+        "commandCountAfterCancel": 0
+      }
+    },
+    {
+      "name": "native Add columns resolved a direct scalar VALUE and repeated ALL field batch against raw CDA",
+      "status": "passed",
+      "evidence": {
+        "choices": [
+          {
+            "path": "component[].valueString",
+            "form": "ALL",
+            "columnId": "col_3a2e974a32ea7351e222899c",
+            "candidateId": "c_8a521937841fa94c13f8ca21",
+            "title": "Component Value String"
+          },
+          {
+            "path": "status",
+            "form": "VALUE",
+            "columnId": "col_4a88d8d6640bc89ddaec3082",
+            "candidateId": "c_16d8a31d0ec09b0b02c03861",
+            "title": "Status"
+          }
+        ],
+        "previewReceiptId": "receipt_57586a531659e2d55d53014b4fda9c7e95c3c10c9c165c3e7239df332ac7d077",
+        "rowCount": 3
+      }
+    },
+    {
+      "name": "saved Builder state binds both direct fields to the base Observation and retains source membership",
+      "status": "passed",
+      "evidence": {
+        "status": {
+          "columnId": "col_4a88d8d6640bc89ddaec3082",
+          "candidateId": "c_16d8a31d0ec09b0b02c03861",
+          "path": "status",
+          "projection": "VALUE",
+          "logicalType": "string",
+          "cardinality": "optional_one"
+        },
+        "repeated": {
+          "columnId": "col_3a2e974a32ea7351e222899c",
+          "candidateId": "c_8a521937841fa94c13f8ca21",
+          "path": "component[].valueString",
+          "projection": "ALL",
+          "logicalType": "string",
+          "cardinality": "many"
+        },
+        "sourcePopulation": {
+          "selectionRevisionId": "selection_259b3aeaa86c0c0e32cef0134339bd05815552625c3ec87e482be193561b885b",
+          "route": []
+        },
+        "rowDefinition": {
+          "kind": "RECORDS",
+          "records": {}
+        }
+      }
+    },
+    {
+      "name": "native presentation edit changes the label while preserving column and field binding identities",
+      "status": "passed",
+      "evidence": {
+        "label": "CDA component values QA",
+        "columnId": "col_3a2e974a32ea7351e222899c",
+        "field": {
+          "path": "component[].valueString",
+          "projectionMode": "ALL"
+        }
+      }
+    },
+    {
+      "name": "reload renders exact raw scalar/list values and retains saved types, source IDs, and population",
+      "status": "passed",
+      "evidence": {
+        "receiptId": "receipt_a4e290a62dfdc36b4b977b7e150bafa64066bfd3d78322134db967a539600ae5",
+        "rows": 3,
+        "columnIds": [
+          "col_253ab670b4ae70d457c30ede",
+          "col_3a2e974a32ea7351e222899c",
+          "col_4a88d8d6640bc89ddaec3082"
+        ],
+        "values": {
+          "0000961c-775c-52cf-b25c-c71ee28c423f": {
+            "id": "0000961c-775c-52cf-b25c-c71ee28c423f",
+            "status": "final",
+            "component[].valueString": [
+              "aliquot",
+              "Glioma, malignant"
+            ]
+          },
+          "00008c9a-64db-55f9-96bf-7a0db4e32551": {
+            "id": "00008c9a-64db-55f9-96bf-7a0db4e32551",
+            "status": "final",
+            "component[].valueString": [
+              "sample",
+              "Acinar cell adenoma"
+            ]
+          },
+          "00004888-0740-540e-bc75-68b5192fbf5a": {
+            "id": "00004888-0740-540e-bc75-68b5192fbf5a",
+            "status": "final",
+            "component[].valueString": [
+              "aliquot",
+              "Adenoma, NOS"
+            ]
+          }
+        },
+        "statusType": "string",
+        "repeatedType": "array<string>",
+        "bindings": {
+          "status": {
+            "path": "status",
+            "projectionMode": "VALUE"
+          },
+          "repeated": {
+            "path": "component[].valueString",
+            "projectionMode": "ALL"
+          }
+        },
+        "population": {
+          "selectionRevisionId": "selection_259b3aeaa86c0c0e32cef0134339bd05815552625c3ec87e482be193561b885b",
+          "route": []
+        }
+      }
+    },
+    {
+      "name": "native removal and reload restore the original ID field, direct RECORDS rows, and exact CDA population",
+      "status": "passed",
+      "evidence": {
+        "outputId": "out_38d0521c7ac565cb90b356b5",
+        "rootColumnId": "col_253ab670b4ae70d457c30ede",
+        "selectionRevisionId": "selection_259b3aeaa86c0c0e32cef0134339bd05815552625c3ec87e482be193561b885b",
+        "restoredIds": [
+          "00004888-0740-540e-bc75-68b5192fbf5a",
+          "00008c9a-64db-55f9-96bf-7a0db4e32551",
+          "0000961c-775c-52cf-b25c-c71ee28c423f"
+        ],
+        "columns": [
+          {
+            "column": "col_253ab670b4ae70d457c30ede",
+            "path": "id"
+          }
+        ]
+      }
+    }
+  ],
+  "rawOracle": {
+    "source": "ArangoDB raw Observation payloads",
+    "queryLimit": 1000,
+    "scanned": 1000,
+    "scalarPath": "status",
+    "repeatedPath": "component[].valueString",
+    "selected": [
+      {
+        "id": "00004888-0740-540e-bc75-68b5192fbf5a",
+        "generation": "cda-fhir-v1",
+        "resourceType": "Observation",
+        "status": "final",
+        "componentValues": [
+          "aliquot",
+          "Adenoma, NOS"
+        ]
+      },
+      {
+        "id": "00008c9a-64db-55f9-96bf-7a0db4e32551",
+        "generation": "cda-fhir-v1",
+        "resourceType": "Observation",
+        "status": "final",
+        "componentValues": [
+          "sample",
+          "Acinar cell adenoma"
+        ]
+      },
+      {
+        "id": "0000961c-775c-52cf-b25c-c71ee28c423f",
+        "generation": "cda-fhir-v1",
+        "resourceType": "Observation",
+        "status": "final",
+        "componentValues": [
+          "aliquot",
+          "Glioma, malignant"
+        ]
+      }
+    ],
+    "expectedTypes": {
+      "id": "string",
+      "status": "string",
+      "component[].valueString": "array<string>"
+    }
+  },
+  "lifecycle": {
+    "cancelledProposal": {
+      "status": "passed",
+      "restoredDraftDigest": "sha256:291ec4cbfc51f96bd5247c4d24759c082ee77d037bdbd9f59335799b37be7b6a"
+    },
+    "savedBindings": {
+      "status": {
+        "columnId": "col_4a88d8d6640bc89ddaec3082",
+        "candidateId": "c_16d8a31d0ec09b0b02c03861",
+        "path": "status",
+        "projection": "VALUE",
+        "logicalType": "string",
+        "cardinality": "optional_one"
+      },
+      "repeated": {
+        "columnId": "col_3a2e974a32ea7351e222899c",
+        "candidateId": "c_8a521937841fa94c13f8ca21",
+        "path": "component[].valueString",
+        "projection": "ALL",
+        "logicalType": "string",
+        "cardinality": "many"
+      },
+      "sourcePopulation": {
+        "selectionRevisionId": "selection_259b3aeaa86c0c0e32cef0134339bd05815552625c3ec87e482be193561b885b",
+        "route": []
+      },
+      "rowDefinition": {
+        "kind": "RECORDS",
+        "records": {}
+      }
+    },
+    "presentationEdit": {
+      "label": "CDA component values QA",
+      "columnId": "col_3a2e974a32ea7351e222899c",
+      "field": {
+        "path": "component[].valueString",
+        "projectionMode": "ALL"
+      }
+    },
+    "reloadExactRawValuesAndTypes": {
+      "receiptId": "receipt_a4e290a62dfdc36b4b977b7e150bafa64066bfd3d78322134db967a539600ae5",
+      "rows": 3,
+      "columnIds": [
+        "col_253ab670b4ae70d457c30ede",
+        "col_3a2e974a32ea7351e222899c",
+        "col_4a88d8d6640bc89ddaec3082"
+      ],
+      "values": {
+        "0000961c-775c-52cf-b25c-c71ee28c423f": {
+          "id": "0000961c-775c-52cf-b25c-c71ee28c423f",
+          "status": "final",
+          "component[].valueString": [
+            "aliquot",
+            "Glioma, malignant"
+          ]
+        },
+        "00008c9a-64db-55f9-96bf-7a0db4e32551": {
+          "id": "00008c9a-64db-55f9-96bf-7a0db4e32551",
+          "status": "final",
+          "component[].valueString": [
+            "sample",
+            "Acinar cell adenoma"
+          ]
+        },
+        "00004888-0740-540e-bc75-68b5192fbf5a": {
+          "id": "00004888-0740-540e-bc75-68b5192fbf5a",
+          "status": "final",
+          "component[].valueString": [
+            "aliquot",
+            "Adenoma, NOS"
+          ]
+        }
+      },
+      "statusType": "string",
+      "repeatedType": "array<string>",
+      "bindings": {
+        "status": {
+          "path": "status",
+          "projectionMode": "VALUE"
+        },
+        "repeated": {
+          "path": "component[].valueString",
+          "projectionMode": "ALL"
+        }
+      },
+      "population": {
+        "selectionRevisionId": "selection_259b3aeaa86c0c0e32cef0134339bd05815552625c3ec87e482be193561b885b",
+        "route": []
+      }
+    },
+    "removals": [
+      {
+        "label": "CDA component values QA",
+        "columnId": "col_3a2e974a32ea7351e222899c",
+        "remainingColumns": [
+          "col_253ab670b4ae70d457c30ede",
+          "col_4a88d8d6640bc89ddaec3082"
+        ]
+      },
+      {
+        "label": "Status",
+        "columnId": "col_4a88d8d6640bc89ddaec3082",
+        "remainingColumns": [
+          "col_253ab670b4ae70d457c30ede"
+        ]
+      }
+    ],
+    "restoredFinalState": {
+      "status": "passed",
+      "outputId": "out_38d0521c7ac565cb90b356b5",
+      "rootResourceType": "Observation",
+      "selectedIds": [
+        "00004888-0740-540e-bc75-68b5192fbf5a",
+        "00008c9a-64db-55f9-96bf-7a0db4e32551",
+        "0000961c-775c-52cf-b25c-c71ee28c423f"
+      ],
+      "addedFields": [
+        {
+          "columnId": "col_4a88d8d6640bc89ddaec3082",
+          "candidateId": "c_16d8a31d0ec09b0b02c03861",
+          "path": "status",
+          "projection": "VALUE",
+          "logicalType": "string",
+          "cardinality": "optional_one"
+        },
+        {
+          "columnId": "col_3a2e974a32ea7351e222899c",
+          "candidateId": "c_8a521937841fa94c13f8ca21",
+          "path": "component[].valueString",
+          "projection": "ALL",
+          "logicalType": "string",
+          "cardinality": "many"
+        }
+      ],
+      "restoredPopulation": {
+        "selectionRevisionId": "selection_259b3aeaa86c0c0e32cef0134339bd05815552625c3ec87e482be193561b885b",
+        "rowCount": 3,
+        "columnCount": 1
+      },
+      "nativeRequestCount": 59
+    }
+  },
+  "expectedCapabilityCancellations": {
+    "count": 2,
+    "diagnosticsPreservedAndClassifiedExpected": true,
+    "networkFailuresMarkedExpected": 2,
+    "domainErrors": 2,
+    "proofs": [
+      {
+        "abortedRequest": {
+          "browserRequestId": "playwright-25",
+          "method": "POST",
+          "path": "/api/v1/projects/loom_dev_cda_fhir/explorers/cda-source-fields-1791216428239-6e22cdf4/authoring/v2/construction-capabilities",
+          "draftVersion": 4,
+          "draftDigest": "sha256:de5e5fa0bb1b17cf51127e4f2cd4b97f82b3ef6ea2d508e4c28964a9352afab1",
+          "startedAt": 1791216436826,
+          "completedAt": 1791216437864,
+          "failure": "net::ERR_ABORTED"
+        },
+        "triggeringMutation": {
+          "browserRequestId": "playwright-28",
+          "origin": "http://127.0.0.1:30008",
+          "path": "/api/v1/projects/loom_dev_cda_fhir/explorers/cda-source-fields-1791216428239-6e22cdf4/authoring/v2/commands",
+          "action": "CDA component values QA",
+          "command": "UPDATE_COLUMN",
+          "startedAt": 1791216437720,
+          "status": 200,
+          "fromIdentity": {
+            "snapshotToken": "sha256:7e9a025ec2555033fd138a3cbf9eaecebb24f870a6b37cf5e86e0355c84b40f7",
+            "outputId": "out_38d0521c7ac565cb90b356b5",
+            "draftVersion": 4,
+            "draftDigest": "sha256:de5e5fa0bb1b17cf51127e4f2cd4b97f82b3ef6ea2d508e4c28964a9352afab1"
+          },
+          "toIdentity": {
+            "snapshotToken": "sha256:7e9a025ec2555033fd138a3cbf9eaecebb24f870a6b37cf5e86e0355c84b40f7",
+            "outputId": "out_38d0521c7ac565cb90b356b5",
+            "stageId": "source_projection",
+            "expectedDraftVersion": 5,
+            "expectedDraftDigest": "sha256:5fa4719b2898196ccdde4144ff08b943baa1501192373b6b3e5f715b499f1c39"
+          }
+        },
+        "successfulReplacement": {
+          "browserRequestId": "playwright-38",
+          "origin": "http://127.0.0.1:30008",
+          "path": "/api/v1/projects/loom_dev_cda_fhir/explorers/cda-source-fields-1791216428239-6e22cdf4/authoring/v2/construction-capabilities",
+          "startedAt": 1791216439481,
+          "status": 200,
+          "identity": {
+            "snapshotToken": "sha256:7e9a025ec2555033fd138a3cbf9eaecebb24f870a6b37cf5e86e0355c84b40f7",
+            "expectedDraftVersion": 5,
+            "expectedDraftDigest": "sha256:5fa4719b2898196ccdde4144ff08b943baa1501192373b6b3e5f715b499f1c39",
+            "outputId": "out_38d0521c7ac565cb90b356b5",
+            "stageId": "source_projection"
+          }
+        },
+        "chronology": {
+          "abortedRequestStartedBeforeMutation": true,
+          "abortedRequestWasPendingAtIdentityChange": true,
+          "replacementStartedAfterIdentityChange": true,
+          "replacementMatchesMutationResult": true
+        },
+        "classification": "A concrete same-Explorer column mutation changed the draft identity while this capabilities read was pending, and the matching replacement read succeeded."
+      },
+      {
+        "abortedRequest": {
+          "browserRequestId": "playwright-44",
+          "method": "POST",
+          "path": "/api/v1/projects/loom_dev_cda_fhir/explorers/cda-source-fields-1791216428239-6e22cdf4/authoring/v2/construction-capabilities",
+          "draftVersion": 6,
+          "draftDigest": "sha256:52d31480d109bee06655ec85dd97c4a6dfcbeadbdde990fe044476d01df9f109",
+          "startedAt": 1791216440762,
+          "completedAt": 1791216441640,
+          "failure": "net::ERR_ABORTED"
+        },
+        "triggeringMutation": {
+          "browserRequestId": "playwright-47",
+          "origin": "http://127.0.0.1:30008",
+          "path": "/api/v1/projects/loom_dev_cda_fhir/explorers/cda-source-fields-1791216428239-6e22cdf4/authoring/v2/commands",
+          "action": "Remove Status column",
+          "command": "REMOVE_COLUMN",
+          "startedAt": 1791216441595,
+          "status": 200,
+          "fromIdentity": {
+            "snapshotToken": "sha256:7e9a025ec2555033fd138a3cbf9eaecebb24f870a6b37cf5e86e0355c84b40f7",
+            "outputId": "out_38d0521c7ac565cb90b356b5",
+            "draftVersion": 6,
+            "draftDigest": "sha256:52d31480d109bee06655ec85dd97c4a6dfcbeadbdde990fe044476d01df9f109"
+          },
+          "toIdentity": {
+            "snapshotToken": "sha256:7e9a025ec2555033fd138a3cbf9eaecebb24f870a6b37cf5e86e0355c84b40f7",
+            "outputId": "out_38d0521c7ac565cb90b356b5",
+            "stageId": "source_projection",
+            "expectedDraftVersion": 7,
+            "expectedDraftDigest": "sha256:291ec4cbfc51f96bd5247c4d24759c082ee77d037bdbd9f59335799b37be7b6a"
+          }
+        },
+        "successfulReplacement": {
+          "browserRequestId": "playwright-49",
+          "origin": "http://127.0.0.1:30008",
+          "path": "/api/v1/projects/loom_dev_cda_fhir/explorers/cda-source-fields-1791216428239-6e22cdf4/authoring/v2/construction-capabilities",
+          "startedAt": 1791216441638,
+          "status": 200,
+          "identity": {
+            "snapshotToken": "sha256:7e9a025ec2555033fd138a3cbf9eaecebb24f870a6b37cf5e86e0355c84b40f7",
+            "expectedDraftVersion": 7,
+            "expectedDraftDigest": "sha256:291ec4cbfc51f96bd5247c4d24759c082ee77d037bdbd9f59335799b37be7b6a",
+            "outputId": "out_38d0521c7ac565cb90b356b5",
+            "stageId": "source_projection"
+          }
+        },
+        "chronology": {
+          "abortedRequestStartedBeforeMutation": true,
+          "abortedRequestWasPendingAtIdentityChange": true,
+          "replacementStartedAfterIdentityChange": true,
+          "replacementMatchesMutationResult": true
+        },
+        "classification": "A concrete same-Explorer column mutation changed the draft identity while this capabilities read was pending, and the matching replacement read succeeded."
+      }
+    ]
+  },
+  "timings": {
+    "nativeLifecycleSteps": [
+      {
+        "name": "initial scoped Observation table",
+        "durationMs": 1488,
+        "rows": 3,
+        "columns": 1,
+        "receiptId": "receipt_fa5887bc796807fe44e202690ad68df97c0a059196b14d07f2ee414d1fc041eb"
+      },
+      {
+        "name": "native Add columns proposal cancellation",
+        "durationMs": 2654,
+        "choices": 2,
+        "savedCommandCount": 0
+      },
+      {
+        "name": "native Add columns apply",
+        "durationMs": 1749,
+        "choices": 2,
+        "columns": 3,
+        "nativeCommandStatus": 200
+      },
+      {
+        "name": "native presentation edit",
+        "durationMs": 938,
+        "columnId": "col_3a2e974a32ea7351e222899c",
+        "label": "CDA component values QA",
+        "commandStatus": 200
+      },
+      {
+        "name": "reload after native direct-field save and presentation edit",
+        "durationMs": 1338,
+        "rows": 3,
+        "columns": 3,
+        "receiptId": "receipt_a4e290a62dfdc36b4b977b7e150bafa64066bfd3d78322134db967a539600ae5"
+      },
+      {
+        "name": "native removal of CDA component values QA",
+        "durationMs": 1023,
+        "columnId": "col_3a2e974a32ea7351e222899c",
+        "commandStatus": 200,
+        "remainingColumns": 2
+      },
+      {
+        "name": "native removal of Status",
+        "durationMs": 878,
+        "columnId": "col_4a88d8d6640bc89ddaec3082",
+        "commandStatus": 200,
+        "remainingColumns": 1
+      },
+      {
+        "name": "reload after removing direct fields restores original population",
+        "durationMs": 1298,
+        "rows": 3,
+        "columns": 1,
+        "receiptId": "receipt_fa5887bc796807fe44e202690ad68df97c0a059196b14d07f2ee414d1fc041eb"
+      }
+    ],
+    "maxMeasuredStep": {
+      "name": "native Add columns proposal cancellation",
+      "durationMs": 2654,
+      "choices": 2,
+      "savedCommandCount": 0
+    },
+    "totalCaseDurationMs": 22802,
+    "concurrentRunContext": "Other epoch-6 native cases were running concurrently; individual step timings are provisional.",
+    "benchmarkClaim": false
+  },
+  "retainedEvidence": {
+    "sourceBefore": "/private/tmp/loom-native-parallel-wave6/source/source-before.json",
+    "apiIdentity": "/private/tmp/loom-native-parallel-wave6/source/api-identity.json",
+    "preflight": "/private/tmp/loom-native-parallel-wave6/source/preflight.json",
+    "postflight": "/private/tmp/loom-native-parallel-wave6/source/postflight.json",
+    "runnerLog": "/private/tmp/loom-native-parallel-wave6/source/runner.log",
+    "playwrightResults": "/private/tmp/loom-native-parallel-wave6/source/results.json",
+    "fixtureReport": "/private/tmp/loom-native-parallel-wave6/source/results/standalone-cda-fields-CDA-source-fields-CDA-source-fields/cda-report.json",
+    "domainReport": "/private/tmp/loom-native-parallel-wave6/source/results/standalone-cda-fields-CDA-source-fields-CDA-source-fields/attachments/standalone-source-fields-domain.json"
+  }
+}

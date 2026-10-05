@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { createNativeCdaWorkflowTools, validatedArangoContainer } from './native-cda-workflow-tools.mjs';
+import { proveSupersededCapabilitiesAbort } from '../lib/superseded-capabilities-abort.mjs';
 
 export async function compoundFieldsWorkflow({ page, cda, caseOptions = {} }) {
   const { click, fill, selectOption, navigate, inspect, clickControl, fillControl, selectControl,
@@ -228,7 +229,10 @@ const chooseDirectFrame = async () => {
     const networkFailure = cda.diagnostics.networkFailures.find((failure) => failure.browserRequestId === entry.browserRequestId);
     assert(networkFailure, 'The exact canceled browse must have a captured native network diagnostic');
     assert.equal(networkFailure.errorText, 'net::ERR_ABORTED');
-    assert.equal(networkFailure.triggerAction, 'Search');
+    assert.match(entry.triggerAction ?? '', /^(Browse sources|Add coded source)/,
+      'The canceled native request must retain its original Browse action');
+    assert.equal(networkFailure.cancellationAction, 'Search',
+      'The exact native cancellation must identify the Search action that superseded it');
     assert(entry.expectedCancellation, 'The fixture must classify the exact native cancellation');
     assert.equal(entry.expectedCancellation.reason, supersededSourceBrowseReason);
     assert.equal(entry.expectedCancellation.proof.scopeAction, 'Search');
@@ -557,11 +561,41 @@ record('restore-two-compound-ALL-columns', restoreAddStart, { previewDurationMs:
 const restoredReload = await openTable(3, 'reload-restored-compound-ALL-columns', [...source.diseaseValues, ...source.specimenValues]);
 assertPreviewValues(restoredReload, { ...restoreValues, [rootColumnId]: source.specimen.id });
 await flushNetworkReads();
-assert.deepEqual(report.errors.filter((entry) => !expectedSupersededSourceBrowseIDs.has(entry.browserRequestId)), [],
-  'Unexpected browser, console, or owned request errors were reported');
+cda.includeBrowserDiagnostics();
+const expectedCapabilityCancellations = nativeRequests.flatMap((entry) => {
+  const proof = proveSupersededCapabilitiesAbort(nativeRequests, entry);
+  return proof ? [proof] : [];
+});
+const cancellationReason = 'A concrete same-Explorer column mutation changed the draft identity while this capabilities read was pending, and the matching replacement read succeeded.';
+for (const cancellation of expectedCapabilityCancellations) {
+  const matchingRequests = nativeRequests.filter((entry) =>
+    entry.browserRequestId === cancellation.request.browserRequestId);
+  assert.equal(matchingRequests.length, 1, 'A proven capabilities cancellation must bind to exactly one captured native request.');
+  cda.expectCapturedCancellation(matchingRequests[0], cancellationReason, cancellation);
+}
+const cancellationByRequestID = new Map(expectedCapabilityCancellations.map((entry) => [entry.request.browserRequestId, entry]));
+const expectedCancellationDiagnostics = report.errors.flatMap((error, errorIndex) => {
+  const errorText = error.error ?? error.failure;
+  const requestId = error.browserRequestId ?? error.requestId ?? error.playwrightRequestId;
+  if (error.kind !== 'network' || errorText !== 'net::ERR_ABORTED' || !requestId) return [];
+  const cancellation = cancellationByRequestID.get(requestId);
+  if (!cancellation) return [];
+  assert.equal(error.expected, true, 'Every preserved diagnostic copy of a proven cancellation must be marked expected.');
+  assert.equal(error.expectedCancellation?.browserRequestId, cancellation.request.browserRequestId);
+  return [{ errorIndex, error: { ...error }, cancelledRequestId: cancellation.request.browserRequestId }];
+});
+report.expectedCapabilityCancellations = expectedCapabilityCancellations;
+report.expectedCapabilityCancellationDiagnostics = expectedCancellationDiagnostics;
+const unexpectedBrowserErrors = report.errors.filter((entry) =>
+  !entry.expected && !entry.expectedCancellation && !expectedSupersededSourceBrowseIDs.has(entry.browserRequestId));
+assert.deepEqual(unexpectedBrowserErrors, [], 'Unexpected browser, console, or owned request errors were reported');
 assert.deepEqual(cda.diagnostics.pageErrors, [], 'Unexpected page errors were reported');
 assert.deepEqual(cda.diagnostics.console, [], 'Unexpected console errors were reported');
-assert.deepEqual(cda.diagnostics.networkFailures.filter((entry) => !expectedSupersededSourceBrowseIDs.has(entry.browserRequestId)), [],
+const expectedNetworkFailureIDs = new Set([
+  ...expectedSupersededSourceBrowseIDs,
+  ...expectedCapabilityCancellations.map((entry) => entry.request.browserRequestId),
+]);
+assert.deepEqual(cda.diagnostics.networkFailures.filter((entry) => !expectedNetworkFailureIDs.has(entry.browserRequestId)), [],
   'Unexpected network failures were reported');
 assert.deepEqual(cda.diagnostics.httpFailures, [], 'Unexpected HTTP failures were reported');
 assert(nativeRequests.every((entry) => !entry.path.includes(originalExplorer)));

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { createNativeCdaWorkflowTools, validatedArangoContainer } from './native-cda-workflow-tools.mjs';
+import { proveSupersededCapabilitiesAbort } from '../lib/superseded-capabilities-abort.mjs';
 
 export async function sourceFieldsWorkflow({ page, cda, caseOptions = {} }) {
   const { click, fill, selectOption, navigate, inspect, clickControl, fillControl, selectControl,
@@ -620,7 +621,32 @@ if (sourceRecords.length < 2) {
   await saveDOM('restored-original-population-after-remove-reload');
 
   cda.includeBrowserDiagnostics();
-  assert.deepEqual(report.errors, [], `Browser reported unexpected errors: ${JSON.stringify(report.errors)}`);
+  const expectedCapabilityCancellations = nativeRequests.flatMap((entry) => {
+    const proof = proveSupersededCapabilitiesAbort(nativeRequests, entry);
+    return proof ? [proof] : [];
+  });
+  const cancellationReason = 'A concrete same-Explorer column mutation changed the draft identity while this capabilities read was pending, and the matching replacement read succeeded.';
+  for (const cancellation of expectedCapabilityCancellations) {
+    const matchingRequests = nativeRequests.filter((entry) =>
+      entry.browserRequestId === cancellation.request.browserRequestId);
+    assert.equal(matchingRequests.length, 1, 'A proven capabilities cancellation must bind to exactly one captured native request.');
+    cda.expectCapturedCancellation(matchingRequests[0], cancellationReason, cancellation);
+  }
+  const cancellationByRequestID = new Map(expectedCapabilityCancellations.map((entry) => [entry.request.browserRequestId, entry]));
+  const expectedCancellationDiagnostics = report.errors.flatMap((error, errorIndex) => {
+    const errorText = error.error ?? error.failure;
+    const requestId = error.browserRequestId ?? error.requestId ?? error.playwrightRequestId;
+    if (error.kind !== 'network' || errorText !== 'net::ERR_ABORTED' || !requestId) return [];
+    const cancellation = cancellationByRequestID.get(requestId);
+    if (!cancellation) return [];
+    assert.equal(error.expected, true, 'Every preserved diagnostic copy of a proven cancellation must be marked expected.');
+    assert.equal(error.expectedCancellation?.browserRequestId, cancellation.request.browserRequestId);
+    return [{ errorIndex, error: { ...error }, cancelledRequestId: cancellation.request.browserRequestId }];
+  });
+  report.expectedCapabilityCancellations = expectedCapabilityCancellations;
+  report.expectedCapabilityCancellationDiagnostics = expectedCancellationDiagnostics;
+  const unexpectedBrowserErrors = report.errors.filter((error) => !error.expected && !error.expectedCancellation);
+  assert.deepEqual(unexpectedBrowserErrors, [], `Browser reported unexpected errors: ${JSON.stringify(unexpectedBrowserErrors)}`);
   assert(nativeRequests.every((entry) => !entry.path.includes(protectedExplorer)), 'Browser must never request the protected Explorer');
   report.final = {
     status: 'passed',

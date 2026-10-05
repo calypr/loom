@@ -1,6 +1,39 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { browserEval, waitForBrowser, waitForCapturedResponse } from './cda-playwright.mjs';
+import { browserEval, includeBrowserDiagnostics, waitForBrowser, waitForCapturedResponse } from './cda-playwright.mjs';
+
+test('browser network diagnostics deduplicate only the same captured request', () => {
+  const url = 'http://127.0.0.1:30008/api/v1/projects/owned/explorers/editor/authoring/v2/construction-capabilities';
+  const report = { errors: [] };
+  const failure = (browserRequestId, playwrightRequestId = browserRequestId) => ({
+    url,
+    errorText: 'net::ERR_ABORTED',
+    browserRequestId,
+    playwrightRequestId,
+  });
+
+  includeBrowserDiagnostics({ networkFailures: [failure('playwright-1'), failure('playwright-2')] }, report);
+  includeBrowserDiagnostics({ networkFailures: [failure('playwright-1')] }, report);
+  assert.equal(report.errors.length, 2, 'same-URL failures from distinct requests must both remain, while the same request is deduplicated');
+  assert.deepEqual(report.errors.map(error => error.browserRequestId), ['playwright-1', 'playwright-2']);
+
+  const legacyReport = { errors: [] };
+  includeBrowserDiagnostics({ networkFailures: [failure(undefined, 'request-1'), failure(undefined, 'request-2')] }, legacyReport);
+  includeBrowserDiagnostics({ networkFailures: [failure(undefined, 'request-1')] }, legacyReport);
+  assert.equal(legacyReport.errors.length, 2, 'legacy Playwright request IDs provide exact fallback identity');
+  assert.deepEqual(legacyReport.errors.map(error => error.playwrightRequestId), ['request-1', 'request-2']);
+
+  const requestIdReport = { errors: [] };
+  const requestIDFailure = requestId => ({ url, errorText: 'net::ERR_ABORTED', requestId });
+  includeBrowserDiagnostics({ networkFailures: [requestIDFailure('legacy-1'), requestIDFailure('legacy-2')] }, requestIdReport);
+  includeBrowserDiagnostics({ networkFailures: [requestIDFailure('legacy-1')] }, requestIdReport);
+  assert.equal(requestIdReport.errors.length, 2, 'legacy request IDs remain available as an exact fallback identity');
+  assert.deepEqual(requestIdReport.errors.map(error => error.requestId), ['legacy-1', 'legacy-2']);
+
+  const anonymousReport = { errors: [] };
+  includeBrowserDiagnostics({ networkFailures: [failure(undefined, undefined), failure(undefined, undefined)] }, anonymousReport);
+  assert.equal(anonymousReport.errors.length, 2, 'unidentified same-URL failures must not be collapsed');
+});
 
 test('captured response wait accepts a response completed before the visible UI result', async () => {
   const completed = { path: '/owned/preview', status: 200, response: { rows: [['patient-1']] }, completedAt: 1 };
