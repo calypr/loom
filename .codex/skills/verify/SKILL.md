@@ -103,8 +103,10 @@ The current `verify-ui` registry declares 23 cases. A separate static discovery
 snapshot at 2026-10-05 02:02 UTC lists 152 cases across 19 Playwright spec files;
 discovery is separate from registry coverage and does not mean those cases are
 registered or verified. The development journeys and miscellaneous workflows
-are included in that snapshot. Benchmark porting and launcher cleanup remain
-open. Run the static migration gate from the repository root after installing
+are included in that snapshot. After benchmark porting and launcher cleanup,
+discovery lists 155 main-suite cases and one dedicated benchmark case. The
+ownership gate passes; exact inventory reconciliation and runtime verification
+remain open. Run the static migration gate from the repository root after installing
 both existing workspaces:
 
 ```bash

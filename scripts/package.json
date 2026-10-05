@@ -4,6 +4,7 @@
     "playwright": "1.63.0"
   },
   "scripts": {
+    "bench:construction-preview": "playwright test --config playwright/construction-preview-bench.config.mjs",
     "test:browser": "playwright test --config playwright.config.mjs",
     "test:browser:list": "playwright test --config playwright.config.mjs --list"
   }

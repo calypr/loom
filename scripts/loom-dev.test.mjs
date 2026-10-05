@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { requireNativeDevJourneyContext } from './loom-dev.mjs';
 import { addColumnsActionReadinessCondition, AUTHORING_SEMANTICS_VERSION, authoringCommandSemanticsVersion, assertExternalJ01SourcesUnchanged, assertJ05ArtifactIdentity, assertJ05ArtifactRows, bootstrapSeedPlan, bootstrapWorkspaceNeedsSeed, builderDOMReadyCondition, builderDraftMatchesPreviewDOM, builderPreviewFailureMatchesDraft, builderPreviewIsFreshForDraft, canonicalProjectID, collectJ01SemanticConceptPages, commandEnvironment, compareJ04Evidence, createDevSession, createVerificationReport, expectedFixtureRelatedValue, expectedTrainingArtifactMembers, explicitGroupPreviewRows, externalJ01PatientScalar, fixtureSourceDigest, generatedJ01ConceptNDJSON, generationLoadDisposition, graphQLRowsRequest, inspectJ01ArtifactRows, inspectJ05ArtifactPackage, j01ArtifactDownloadPlan, j01ColumnIdentitySnapshot, j01ConstructionChoiceCommandIdentities, j01JSONValuesEquivalent, j01OwnerLiteralSnapshot, j01SemanticInventoryRequest, j01ViewerValuesAgree, j04BrowserControlPlan, j04DefaultRecordCellTraceRowID, j04ExactEqual, j04FixtureManifest, j04PatientOperatorDOMPlan, j04PatientOperatorSourceIDs, j04PatientSelectionSeedPlan, J05_REQUIRED_ASSERTIONS, j05AssertionCompletion, j05ArtifactIdentityIsCurrent, loadJ04FixtureContract, normalizeJ04Surface, normalizeJ05LogicalValue, readJ05OutputRows, selectExternalJ01Manifest, shapeJ04Evidence, sourceMountMatches, summarizeTimingSamples, validateJ04FixtureContract } from './loom-dev.mjs';
 
 test('J05 cannot pass with missing, failed, or unproven assertions', () => {
@@ -414,12 +415,18 @@ test('native dev journeys use the Playwright Test-owned page and diagnostics fix
     'successful journey screenshots are opt-in');
   assert.match(driver, /page\.screenshot\(\{ path, fullPage: true, \.\.\.options, timeout: Math\.max\(1, Math\.min\(requestedTimeout, 1000\)\) \}\)/,
     'opt-in screenshots have an enforced 1-second cap after caller options');
-  assert.match(driver, /captureScreenshots: process\.env\.LOOM_DEV_CAPTURE_SCREENSHOTS === '1'/,
-    'native diagnostics leave screenshots disabled by default');
   assert.doesNotMatch(driver, /launchPlaywrightEvidenceBrowser|launchBrowser as launchPlaywrightEvidenceBrowser|new\s+WebSocket\s*\(/,
     'journey functions must not launch their own browser');
   assert.doesNotMatch(nativeSpec, /chromium\.launch|launchBrowser|browser\.close\(/,
     'the official Playwright test page owns browser lifecycle');
+});
+
+test('native journey diagnostics disable screenshots by default and preserve an explicit opt-in', () => {
+  const page = { goto() {}, on() {} };
+  const defaults = requireNativeDevJourneyContext(page, {}).diagnostics;
+  assert.equal(defaults.captureScreenshots, false);
+  const optedIn = requireNativeDevJourneyContext(page, { captureScreenshots: true }).diagnostics;
+  assert.equal(optedIn.captureScreenshots, true);
 });
 
 test('local J01 browser lifecycle uses Playwright actions and retains its exact request and failure evidence', () => {

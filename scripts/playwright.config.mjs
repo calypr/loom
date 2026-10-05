@@ -3,6 +3,7 @@ import { defineConfig } from '@playwright/test';
 export default defineConfig({
   testDir: './playwright',
   testMatch: '**/*.spec.mjs',
+  testIgnore: '**/construction-preview-bench.spec.mjs',
   fullyParallel: false,
   workers: 1,
   retries: 0,

@@ -38,7 +38,7 @@ const browserOwnerNames = 'launchBrowser|launchCdaBrowser|launchPlaywrightBrowse
 const browserOwnership = new RegExp(
   `\\b(?:${browserOwnerNames})\\s*\\(|\\bimport\\s*\\{[^}]*\\b(?:${browserOwnerNames})\\b[^}]*\\}|` +
   `\\bexport\\s+(?:async\\s+)?(?:function|const|let)\\s+(?:${browserOwnerNames})\\b|` +
-  `\\b(?:chromium|firefox|webkit)\\.launch(?:PersistentContext)?\\s*\\(`,
+  `\\b(?:chromium|firefox|webkit)\\.(?:launch(?:PersistentContext)?|connect(?:OverCDP)?)\\s*\\(`,
   's',
 );
 

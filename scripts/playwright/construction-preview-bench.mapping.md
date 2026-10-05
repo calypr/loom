@@ -1,0 +1,30 @@
+# Construction preview benchmark native port map
+
+The official Playwright Test case is `construction preview benchmark @construction-preview-bench` in `construction-preview-bench.spec.mjs`. The case imports the ordinary workflow in `../construction_preview_bench.mjs`, receives Playwright Test's `browser` fixture, creates one native `BrowserContext` and page per benchmark session, and closes those contexts after each workload/concurrency batch. It uses no standalone browser launcher and no browser-shaped fake fixture.
+
+## Source behavior to native case
+
+| Existing benchmark scope | Native owner and preserved behavior |
+| --- | --- |
+| CLI `run` workflow | `construction_preview_bench.mjs` validates the scenario and authorization, then `dispatchNativeBenchmark` invokes the official `playwright test` CLI with `--grep @construction-preview-bench`. It passes options and authorization through child-process environment variables rather than arguments. The child exit code becomes the CLI exit code. |
+| CLI `doctor` and Builder API preflight | `doctor` remains direct Node/fetch API-only and reports `browserOpened: false`. `runBenchmark` retains the BuilderState API preflight before benchmark sessions are created. |
+| `BrowserSession.initialize` page setup | `NativeBenchSession.initialize` runs on a real Playwright Test-owned browser/context/page. It retains the origin allowlist, strips ambient Authorization/Cookie headers, re-adds configured Authorization only to the owned page/API origins, and records browser errors plus request/response/failure/timing/safe response identity diagnostics. |
+| `BrowserSession.action` / `actions` | Retained against native Playwright `Page`/`Locator` objects, including uniqueness checks, visible/enabled observable waits (5s maximum), editable-control checks, exact option-text matching, and detailed action failure context. Enabled waits use Playwright Test `expect(locator).toBeEnabled()` with its native retry behavior. |
+| Completion/rendered comparison oracle | `completionPredicate`, `waitForCompletion`, and `measureOne` are retained. They still require rendered tables, optional ready status, applicable/enabled apply control, optional changed DOM identity, positive candidate row count, expected row/column values including `$any`, and checked-choice expectations. |
+| Backend identity and BuilderState oracle | `measureOne` retains response identity extraction, DOM/backend preview identity comparison, pre-action BuilderState reads, draft version/digest/snapshot token/output ID/base receipt matching, optional identity-context comparison, and request status/failed/canceled accounting. |
+| Metrics and profile labels | The workload→concurrency→sample loop is retained. Each batch gets the requested number of fresh contexts; samples run sequentially within each session, sessions in the same sample are measured concurrently, the first sample is `cold-client`, and later samples in that same context are `warm-client`. It preserves timing distributions, category summaries, resource timings, request metrics, and report fields. |
+| Supersession correctness | `runSupersessionProbe` remains on the first session for each workload/concurrency batch. It preserves setup/action bursts, gap, expected latest rows, identity-change observation, cancellation/failure counts, cleanup, and API/browser health assertions. |
+| Failure and assertion evidence | Optional assertion DOM capture remains opt-in via `--capture-assertion-dom`. First-failure page/control evidence uses shared `captureNativeFailureEvidence` with owned origins, active action/locator, and its bounded one-second capture. Response-body diagnostic reads are capped at one second. Screenshot, video, and trace are off in the dedicated config. |
+| Runner lifecycle | The case derives a finite Playwright test timeout from workload, concurrency, sample, action, navigation, API-read, and preview-deadline counts. The config gives scenario parsing a 30s initial test timeout and sets a finite 24h runner ceiling; the derived test timeout must fit under that ceiling. Browser navigation/reload and user-control readiness waits are capped at 5s; the workload completion timeout remains a separate measurement deadline. The general browser config ignores this benchmark spec so only the dedicated CLI path selects it. |
+
+## Launcher ownership delta
+
+The source preimage contained one `launchBrowser(...)` call inside `BrowserSession.start`; that class owned the browser, context, and page. The result contains zero direct `launchBrowser` calls and zero direct browser-launch calls in the benchmark. Playwright Test owns the browser process; the spec's fixture factory uses that official browser fixture to create and close native isolated contexts/pages, preserving the existing per-batch profile boundaries.
+
+## Validation and hashes
+
+Only static checks were run: `node --check` for the edited module, spec, config, and general config; `git diff --check`; and source scans for `launchBrowser`, `BrowserSession`, the old harness, `.launch(`, and infinite test timeouts. No benchmark, unit test, or browser run was executed.
+
+Preimage SHA-256 values: `scripts/construction_preview_bench.mjs` `f7f9d3728496a03d59d1accf8201cd35661e2126a4fc2f0a9ab735f6f83b75a3`; `scripts/package.json` `44936c2c8845d3809a5ac949b57127bcf8251ca02329d080228e83d75aaf62a6`; `scripts/playwright.config.mjs` `c6be4b28e15f21a0ac38198ac0608844de48628d098453ae5870aeda193b1ee9`.
+
+Result SHA-256 values: `scripts/construction_preview_bench.mjs` `35ac8947c576221ff2e0d620d50475b6bcc2c31963f918781c621f036d6763f1`; `scripts/package.json` `07f433d2b4be6d44d0dfdf26e379beed695902dcc6ba35f0fc4744d87508febc`; `scripts/playwright.config.mjs` `ae1acf486f382cc52e1de90344f42f091c30c0d2c1e911f06d9fba491c55115e`; `scripts/playwright/construction-preview-bench.spec.mjs` `3aa45d32652a51c78546e877e2bfeb4362feabea7d82844580e32bfb0723baff`; `scripts/playwright/construction-preview-bench.config.mjs` `70d1f3ab93ea23edc7fe71e2e020f826bedc8378f783d55ff31e01fcfa52fa92`.

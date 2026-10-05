@@ -1,13 +1,17 @@
 #!/usr/bin/env node
 
 import { createHash } from 'node:crypto';
+import { spawn } from 'node:child_process';
 import { chmod, mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { performAction, requireUnique } from './lib/playwright-actions.mjs';
-import { launchBrowser } from './lib/playwright-browser.mjs';
+import { sanitizeText } from './lib/playwright-browser.mjs';
+import { captureNativeFailureEvidence } from './playwright/native-failure-evidence.mjs';
 
 const DEFAULT_CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+const BENCH_ACTION_TIMEOUT_MS = 5_000;
+export const MAX_BENCH_TEST_TIMEOUT_MS = 24 * 60 * 60 * 1000;
 const SAFE_TIMING_KEYS = new Set([
   'cachehit', 'cachereused', 'cachemiss', 'compilationms', 'compilems', 'contextresolutionms',
   'queryms', 'querydurationms', 'queryrowsread', 'rowsread', 'rowsscanned', 'bytesread',
@@ -23,9 +27,11 @@ const SAFE_TIMING_HEADERS = new Set([
   'x-query-bytes-read', 'x-query-duration-ms', 'x-request-id', 'x-reqid',
 ]);
 
-class UsageError extends Error {}
+const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 
-function parseArgs(argv) {
+export class UsageError extends Error {}
+
+export function parseArgs(argv) {
   const options = {
     command: 'run',
     tokenFile: process.env.LOOM_E2E_TOKEN_FILE ?? '',
@@ -72,7 +78,7 @@ function parseArgs(argv) {
   return options;
 }
 
-function parseConcurrency(value) {
+export function parseConcurrency(value) {
   const result = [...new Set(value.split(',').map(Number))].sort((a, b) => a - b);
   if (!result.length || result.some((count) => !Number.isInteger(count) || count < 1 || count > 32)) {
     throw new UsageError('--concurrency accepts comma-separated integers from 1 to 32');
@@ -84,7 +90,7 @@ function isLoopback(url) {
   return new Set(['127.0.0.1', 'localhost', '::1']).has(new URL(url).hostname);
 }
 
-async function loadAuthorization(options, targetUrls) {
+export async function loadAuthorization(options, targetUrls) {
   const token = process.env.LOOM_E2E_TOKEN?.trim();
   if (token) return /^bearer\s+/i.test(token) ? token : `Bearer ${token}`;
   if (options.noAuth) {
@@ -220,6 +226,9 @@ function validateStep(step, label) {
   }
   requireString(step.selector, `${label}.selector`);
   if (step.type === 'clickUnlessVisible') requireString(step.visibleSelector, `${label}.visibleSelector`);
+  if (step.timeoutMs !== undefined && (!Number.isFinite(step.timeoutMs) || step.timeoutMs <= 0)) {
+    throw new UsageError(`${label}.timeoutMs must be a positive finite number`);
+  }
   if (step.type === 'setChecked' && typeof step.checked !== 'boolean') {
     throw new UsageError(`${label}.checked must be a boolean`);
   }
@@ -234,6 +243,9 @@ function validateStep(step, label) {
 function validateWorkload(workload) {
   requireString(workload.id, 'workload.id');
   requireString(workload.family, 'workload.family');
+  if (workload.timeoutMs !== undefined && (!Number.isFinite(workload.timeoutMs) || workload.timeoutMs <= 0)) {
+    throw new UsageError(`${workload.id}.timeoutMs must be a positive finite number`);
+  }
   const identity = workload.identity;
   if (!identity || typeof identity !== 'object') throw new UsageError(`${workload.id}.identity is required`);
   requireString(identity.sourceSnapshot, `${workload.id}.identity.sourceSnapshot`);
@@ -312,10 +324,18 @@ function validateWorkload(workload) {
       if (!Array.isArray(burst) || burst.length === 0) throw new UsageError(`${workload.id}.supersession.actions[${i}] must not be empty`);
       for (const [j, step] of burst.entries()) validateStep(step, `${workload.id}.supersession.actions[${i}][${j}]`);
     }
+    if (workload.supersession.timeoutMs !== undefined
+      && (!Number.isFinite(workload.supersession.timeoutMs) || workload.supersession.timeoutMs <= 0)) {
+      throw new UsageError(`${workload.id}.supersession.timeoutMs must be a positive finite number`);
+    }
+    if (workload.supersession.gapMs !== undefined
+      && (!Number.isFinite(workload.supersession.gapMs) || workload.supersession.gapMs < 0)) {
+      throw new UsageError(`${workload.id}.supersession.gapMs must be a non-negative finite number`);
+    }
   }
 }
 
-async function loadScenario(options) {
+export async function loadScenario(options) {
   const value = JSON.parse(await readFile(options.scenarioPath, 'utf8'));
   if (value.schemaVersion !== 1) throw new UsageError('scenario.schemaVersion must be 1');
   if (!Array.isArray(value.workloads) || value.workloads.length === 0) {
@@ -352,7 +372,7 @@ async function requestBuilder(apiUrl, authorization) {
   };
 }
 
-async function requestBuilderIdentity(apiUrl, authorization) {
+export async function requestBuilderIdentity(apiUrl, authorization) {
   const headers = { accept: 'application/json' };
   if (authorization) headers.authorization = authorization;
   const response = await fetch(apiUrl, {
@@ -380,31 +400,19 @@ async function requestBuilderIdentity(apiUrl, authorization) {
   };
 }
 
-class BrowserSession {
-  static async start(options, authorization) {
-    const origins = [new URL(options.pageUrl).origin, new URL(options.apiUrl).origin];
-    const harness = await launchBrowser({ evidence: path.join(options.artifactDir, `browser-${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}`),
-      appOrigins: origins, noAuth: !authorization && origins.every(isLoopback), executablePath: options.chrome });
-    const session = new BrowserSession(options, authorization, harness);
-    try {
-      await session.initialize();
-      return session;
-    } catch (error) {
-      await session.close();
-      throw error;
-    }
-  }
-
-  constructor(options, authorization, harness) {
+export class NativeBenchSession {
+  constructor(options, authorization, { browser, context, page, expect, ownsContext = true }) {
     this.options = options;
     this.authorization = authorization;
-    this.harness = harness;
-    this.browser = harness.browser;
-    this.context = harness.context;
-    this.page = harness.page;
+    this.browser = browser;
+    this.context = context;
+    this.page = page;
+    this.expect = expect;
+    this.ownsContext = ownsContext;
     this.requests = [];
     this.requestById = new WeakMap();
     this.bodyTasks = new Set();
+    this.diagnostics = { pageErrors: [], console: [] };
     this.allowedOrigins = [...new Set([new URL(options.pageUrl).origin, new URL(options.apiUrl).origin])];
     this.pageOrigin = new URL(options.pageUrl).origin;
     this.apiOrigin = new URL(options.apiUrl).origin;
@@ -418,6 +426,18 @@ class BrowserSession {
       delete headers.cookie;
       if (this.authorization && this.allowedOrigins.includes(new URL(request.url()).origin)) headers.authorization = this.authorization;
       await route.continue({ headers });
+    });
+    this.page.on('pageerror', error => this.diagnostics.pageErrors.push({ message: sanitizeText(error?.message ?? error) }));
+    this.page.on('console', message => {
+      if (message.type() !== 'error') return;
+      const location = message.location();
+      if (location.url) {
+        let origin;
+        try { origin = new URL(location.url).origin; }
+        catch { return; }
+        if (!this.allowedOrigins.includes(origin)) return;
+      }
+      this.diagnostics.console.push({ text: sanitizeText(message.text()) });
     });
     this.page.on('request', (request) => {
       const url = request.url();
@@ -448,7 +468,11 @@ class BrowserSession {
       if (item.apiRequest && item.response?.status >= 200 && shouldCaptureSafeResponse(item.url)) {
         const task = (async () => {
           try {
-            const raw = await request.response().then(response => response.body());
+            const raw = await boundedRead(async () => {
+              const response = await request.response();
+              return response ? response.body() : null;
+            }, 1000);
+            if (!raw) return;
             const value = JSON.parse(raw.toString('utf8'));
             item.metrics = extractSafeMetrics(value);
             item.identities = extractSafeIdentities(value);
@@ -457,11 +481,11 @@ class BrowserSession {
         this.bodyTasks.add(task);
       }
     });
-    await this.page.goto(this.options.pageUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await this.page.goto(this.options.pageUrl, { waitUntil: 'domcontentloaded', timeout: BENCH_ACTION_TIMEOUT_MS });
     this.browserVersion = { product: `Playwright Chromium ${this.browser.version()}`, userAgent: await this.page.evaluate(() => navigator.userAgent), protocolVersion: 'Playwright' };
   }
 
-  async reload() { await this.page.reload({ waitUntil: 'domcontentloaded', timeout: 30000 }); }
+  async reload() { await this.page.reload({ waitUntil: 'domcontentloaded', timeout: BENCH_ACTION_TIMEOUT_MS }); }
 
   async action(step) {
     if (step.type === 'wait') throw new Error('fixed browser waits are not supported; use an observable waitFor condition');
@@ -474,8 +498,8 @@ class BrowserSession {
     }
     await requireUnique(locator, `${step.type} ${step.selector}`);
     if (step.type === 'waitFor') {
-      await locator.waitFor({ state: 'visible', timeout: step.timeoutMs ?? 15000 });
-      if (step.enabled === true && !(await locator.isEnabled())) throw new Error(`control is disabled: ${step.selector}`);
+      await locator.waitFor({ state: 'visible', timeout: Math.min(step.timeoutMs ?? BENCH_ACTION_TIMEOUT_MS, BENCH_ACTION_TIMEOUT_MS) });
+      if (step.enabled === true) await this.expect(locator).toBeEnabled({ timeout: BENCH_ACTION_TIMEOUT_MS });
       return;
     }
     const label = `${step.type} ${step.selector}`;
@@ -541,15 +565,95 @@ class BrowserSession {
     const requestFailures = this.requests.slice(requestOffset).filter(request => request.apiRequest &&
       (request.response?.status >= 400 || (request.failed && !request.failed.canceled)))
       .map(request => ({ route: request.route, status: request.response?.status ?? null, failure: request.failed?.errorText ?? null }));
-    const diagnostics = this.harness.diagnostics;
-    const browserErrors = [...diagnostics.pageErrors, ...diagnostics.console].map(item => item.message ?? item.text);
+    const browserErrors = [...this.diagnostics.pageErrors, ...this.diagnostics.console].map(item => item.message ?? item.text);
     if (requestFailures.length || browserErrors.length) {
       throw new Error(`unexpected browser/API failures; requests=${JSON.stringify(requestFailures)} browserErrors=${JSON.stringify(browserErrors.slice(0, 20))}`);
     }
   }
 
-  async close() { await this.harness.close(); }
-  async captureFailure(error, details) { await this.harness.captureFailure(error, details); }
+  async close() {
+    await Promise.allSettled([...this.bodyTasks]);
+    if (this.ownsContext) await this.context.close();
+  }
+
+  async captureFailure(error, details = {}) {
+    const evidence = await captureNativeFailureEvidence({
+      page: this.page,
+      ownedOrigins: this.allowedOrigins,
+      reason: sanitizeText(error?.message ?? error),
+      label: details.label ?? this.activeAction?.label,
+      locator: details.locator ?? this.activeAction?.targetLocator,
+      startedAt: this.activeAction?.startedAt,
+    });
+    const output = path.join(this.options.artifactDir, 'failure-page-evidence.json');
+    await writeFile(output, `${JSON.stringify({ ...evidence, phase: details.phase, workloadId: details.workloadId, concurrency: details.concurrency }, null, 2)}\n`, { mode: 0o600 });
+    return output;
+  }
+}
+
+async function boundedRead(operation, timeoutMs) {
+  let timer;
+  try {
+    return await Promise.race([
+      Promise.resolve().then(operation),
+      new Promise(resolve => { timer = setTimeout(() => resolve(null), timeoutMs); }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export async function createNativeBenchSession({ browser, context, options, authorization, expect }) {
+  let session;
+  try {
+    const page = await context.newPage();
+    session = new NativeBenchSession(options, authorization, { browser, context, page, expect, ownsContext: true });
+    await session.initialize();
+    return session;
+  } catch (error) {
+    await Promise.allSettled([session ? session.close() : context.close()]);
+    throw error;
+  }
+}
+
+function actionBudget(steps = []) {
+  return steps.reduce((total, step) => {
+    const phaseCount = step.type === 'waitFor' ? 3 : 6;
+    return total + (phaseCount * BENCH_ACTION_TIMEOUT_MS);
+  }, 0);
+}
+
+export function estimateBenchTestTimeoutMs(options, scenario) {
+  let totalMs = 60_000; // API preflight, report writing, and bounded failure diagnostics.
+  for (const workload of scenario.workloads) {
+    const prepareAndCleanupMs = actionBudget(workload.prepare) + actionBudget(workload.cleanup);
+    const sampleActionMs = Math.max(...workload.samples.map(sample => {
+      const readyStep = sample.setup?.find(step => step.type === 'waitFor');
+      return actionBudget(sample.setup) + actionBudget(readyStep ? [readyStep] : []) + actionBudget(sample.request);
+    }));
+    const completionMs = workload.timeoutMs ?? 45_000;
+    for (const concurrency of options.concurrency) {
+      totalMs += concurrency * BENCH_ACTION_TIMEOUT_MS;
+      totalMs += options.samples * (BENCH_ACTION_TIMEOUT_MS + 15_000 + 1_000 + prepareAndCleanupMs + sampleActionMs + completionMs);
+      if (workload.supersession) {
+        const probe = workload.supersession;
+        const probeSteps = [
+          ...(workload.prepare ?? []),
+          ...(probe.setup ?? []),
+          ...probe.actions.flat(),
+          ...(workload.cleanup ?? []),
+        ];
+        totalMs += (probe.timeoutMs ?? workload.timeoutMs ?? 45_000)
+          + actionBudget(probeSteps)
+          + Math.max(0, probe.actions.length - 1) * (probe.gapMs ?? 40);
+      }
+    }
+  }
+  if (options.captureAssertionDom) totalMs += 30_000;
+  if (!Number.isFinite(totalMs) || totalMs > MAX_BENCH_TEST_TIMEOUT_MS) {
+    throw new UsageError(`requested benchmark exceeds the finite Playwright test budget of ${MAX_BENCH_TEST_TIMEOUT_MS}ms`);
+  }
+  return Math.max(60_000, Math.ceil(totalMs));
 }
 
 function completionPredicate(args) {
@@ -873,7 +977,8 @@ async function doctor(options, authorization) {
   if (!api.ready) process.exitCode = 1;
 }
 
-async function run(options, authorization, scenario) {
+export async function runBenchmark(options, authorization, scenario, createSessions) {
+  if (typeof createSessions !== 'function') throw new TypeError('runBenchmark requires a native Playwright Test session factory');
   const preflight = await requestBuilder(scenario.apiUrl, authorization);
   if (!preflight.ready) {
     throw new Error(`Builder API preflight failed with status=${preflight.status} kind=${preflight.kind ?? 'missing'} lifecycle=${preflight.lifecycleState ?? 'missing'}`);
@@ -887,9 +992,13 @@ async function run(options, authorization, scenario) {
     for (const concurrency of options.concurrency) {
       const sessions = [];
       try {
-        for (let index = 0; index < concurrency; index += 1) {
-          sessions.push(await BrowserSession.start({ ...options, pageUrl: scenario.pageUrl, apiUrl: scenario.apiUrl, artifactDir }, authorization));
-        }
+        sessions.push(...await createSessions({
+          browserOptions: { ...options, pageUrl: scenario.pageUrl, apiUrl: scenario.apiUrl, artifactDir },
+          authorization,
+          concurrency,
+          scenario,
+        }));
+        if (sessions.length !== concurrency) throw new Error(`native Playwright fixture created ${sessions.length} sessions for concurrency ${concurrency}`);
         browserDetails ??= {
           product: sessions[0].browserVersion.product,
           userAgent: sessions[0].browserVersion.userAgent,
@@ -930,7 +1039,8 @@ async function run(options, authorization, scenario) {
     startedAt,
     finishedAt: new Date().toISOString(),
     target: { pageOrigin: new URL(scenario.pageUrl).origin, apiOrigin: new URL(scenario.apiUrl).origin },
-    runner: { node: process.version, platform: process.platform, arch: process.arch, chrome: browserDetails },
+    runner: { node: process.version, platform: process.platform, arch: process.arch, chrome: browserDetails,
+      testTimeoutBudgetMs: options.nativeTestTimeoutMs ?? null },
     cacheLabels: {
       cold: 'first preview in a new headless Chrome profile; backend cache state is unreported unless returned by server timing/header/metrics',
       warm: 'later preview in the same profile after a successful first preview; server cache state is unreported unless returned by server timing/header/metrics',
@@ -956,7 +1066,29 @@ async function main() {
   }
   const scenario = await loadScenario(options);
   const authorization = await loadAuthorization(options, [scenario.pageUrl, scenario.apiUrl]);
-  await run(options, authorization, scenario);
+  await dispatchNativeBenchmark(options, authorization, scenario);
+}
+
+export async function dispatchNativeBenchmark(options, authorization, scenario) {
+  const env = {
+    ...process.env,
+    LOOM_CONSTRUCTION_BENCH_OPTIONS: JSON.stringify(options),
+    LOOM_CONSTRUCTION_BENCH_AUTHORIZATION: authorization,
+    LOOM_CONSTRUCTION_BENCH_CHROME: options.chrome,
+  };
+  delete env.LOOM_E2E_TOKEN;
+  return new Promise((resolve, reject) => {
+    const child = spawn('npm', ['run', 'bench:construction-preview', '--', '--grep', '@construction-preview-bench'], {
+      cwd: SCRIPT_DIR,
+      env,
+      stdio: 'inherit',
+    });
+    child.once('error', reject);
+    child.once('close', (code, signal) => {
+      process.exitCode = Number.isInteger(code) ? code : signal ? 1 : 1;
+      resolve();
+    });
+  });
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {

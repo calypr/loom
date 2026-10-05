@@ -2,16 +2,30 @@
 
 ## Current mechanical checkpoint
 
-On October 4, native discovery lists 152 tests in 19 spec files. All 23
+On October 4, native discovery lists 155 tests in 22 spec files, plus one
+benchmark case in its dedicated configuration. All 23
 registered cases have native spec mappings, and the static binding check finds
 no undefined names. These results prove discovery and static coverage only;
 the converted cases have not been run against this checkpoint.
 
-The ownership gate still rejects three files: `scripts/lib/playwright-browser.mjs`,
-`scripts/lib/playwright-cda-actions.mjs`, and `scripts/construction_preview_bench.mjs`.
-Port the benchmark before applying the prepared launcher deletion. Reconcile
-the standalone inventory and runtime target ownership before freezing source
-for browser verification.
+The ownership and static binding gate passes. The benchmark uses the native
+Test browser fixture; the old launcher and CDA browser session helper have
+been removed. Reconcile the standalone inventory against exact discovered
+titles before freezing source for browser verification.
+
+The targeted unit group passes 92 checks with zero skips after correcting one
+stale screenshot-location assertion. It covers development journey contracts,
+owned CDA target validation, report sanitization, API build freezing, and
+native network evidence. The initial failure was a harness assertion, not a
+product defect. Browser lifecycle evidence is still pending.
+
+The existing loaded CDA stack is `loom-dev-6d7df93d6a37`, with API port 8188
+and UI port 30008. Docker inspection confirmed its Compose working directory,
+configuration file, and API/UI source mounts point to the implementation
+checkout. The target guard now validates that ownership instead of rejecting
+those names and ports unconditionally. Foreign checkout identities, mismatched
+service ports, and foreign source mounts remain rejected. The updated guard
+tests pass in the targeted unit group.
 
 ## First phase of the current Builder reliability goal
 

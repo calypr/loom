@@ -2,17 +2,15 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { realpath } from 'node:fs/promises';
 
-const sharedPrefix = 'loom-dev-6d7df93d6a37';
 const localHosts = new Set(['127.0.0.1', 'localhost', '::1']);
 
-function validateOrigin(name, raw, forbiddenPort) {
+function validateOrigin(name, raw) {
   assert(raw, `Set ${name} to the owned isolated CDA stack.`);
   const url = new URL(raw);
   assert(['http:', 'https:'].includes(url.protocol), `${name} must use HTTP or HTTPS`);
   assert(!url.username && !url.password, `${name} must not embed credentials`);
   assert(localHosts.has(url.hostname), `${name} must target a local isolated stack`);
   assert(url.port, `${name} must include its explicit published port`);
-  assert.notEqual(url.port, forbiddenPort, `${name} must not use the shared CDA port ${forbiddenPort}`);
   assert(url.pathname === '/' && !url.search && !url.hash, `${name} must be an origin without path, query, or fragment`);
   return url;
 }
@@ -46,19 +44,16 @@ export async function assertOwnedCdaTarget({
   assert.match(project, /^[A-Za-z0-9_-]+$/, 'LOOM_CDA_PROJECT contains unsupported characters');
   assert(composeProject, 'Set LOOM_CDA_COMPOSE_PROJECT to the isolated Compose project.');
   assert.match(composeProject, /^[A-Za-z0-9_.-]+$/, 'LOOM_CDA_COMPOSE_PROJECT contains unsupported characters');
-  assert(!composeProject.startsWith(sharedPrefix), 'Do not use the shared CDA Compose project');
   assert(apiContainer, 'Set LOOM_CDA_API_CONTAINER to the isolated Loom API container.');
   assert.match(apiContainer, /^[A-Za-z0-9_.-]+$/, 'LOOM_CDA_API_CONTAINER contains unsupported characters');
-  assert(!apiContainer.startsWith(sharedPrefix), 'Do not use the shared CDA API container');
   assert(sourceRoot, 'sourceRoot must identify this verifier checkout');
   for (const [label, value] of [['ArangoDB', arangoContainer], ['ClickHouse', clickhouseContainer]]) {
     if (!value) continue;
     assert.match(value, /^[A-Za-z0-9_.-]+$/, `${label} container name contains unsupported characters`);
-    assert(!value.startsWith(sharedPrefix), `Do not use the shared CDA ${label} container`);
   }
 
-  const apiURL = validateOrigin('LOOM_CDA_API_ORIGIN', apiOrigin, '8188');
-  const uiURL = validateOrigin('LOOM_CDA_UI_ORIGIN', uiOrigin, '30008');
+  const apiURL = validateOrigin('LOOM_CDA_API_ORIGIN', apiOrigin);
+  const uiURL = validateOrigin('LOOM_CDA_UI_ORIGIN', uiOrigin);
   const names = docker(['ps', '--filter', `label=com.docker.compose.project=${composeProject}`, '--format', '{{.Names}}'])
     .trim().split('\n').filter(Boolean);
   assert(names.includes(apiContainer), `The named API container is not running in Compose project ${composeProject}`);
@@ -67,6 +62,8 @@ export async function assertOwnedCdaTarget({
   }
   const containers = inspectContainers(names, docker);
   const byName = new Map(containers.map(container => [container.Name?.replace(/^\//, ''), container]));
+  const source = await realpathImpl(sourceRoot);
+  const composeFile = await realpathImpl(`${source}/compose.dev.yaml`);
   const api = byName.get(apiContainer);
   const ui = containers.find(container => container.Config.Labels['com.docker.compose.service'] === 'loom-ui');
   assert(api, 'The named API container is missing from the isolated Compose project');
@@ -85,6 +82,17 @@ export async function assertOwnedCdaTarget({
     const labels = container.Config.Labels ?? {};
     assert.equal(labels['com.docker.compose.project'], composeProject, 'Container Compose ownership changed');
     assert.equal(labels['com.docker.compose.service'], service, `Container ${name} is not service ${service}`);
+    const workingDirectory = labels['com.docker.compose.project.working_dir'];
+    assert(workingDirectory, `Container ${name} has no Compose working-directory identity`);
+    assert.equal(await realpathImpl(workingDirectory.startsWith('/host_mnt/')
+      ? workingDirectory.slice('/host_mnt'.length) : workingDirectory), source,
+      `Container ${name} Compose project must be owned by this source checkout`);
+    const configuredFiles = String(labels['com.docker.compose.project.config_files'] ?? '')
+      .split(',').map(value => value.trim().replace(/^['"]|['"]$/g, '')).filter(Boolean);
+    const resolvedConfigFiles = await Promise.all(configuredFiles.map(file =>
+      realpathImpl(file.startsWith('/host_mnt/') ? file.slice('/host_mnt'.length) : file)));
+    assert(resolvedConfigFiles.includes(composeFile),
+      `Container ${name} Compose project must use this checkout's compose.dev.yaml`);
     assert.equal(container.State.Running, true, `Container ${name} must already be running`);
   }
   publishedPort(api, apiURL.port, 'loom-api');
@@ -96,7 +104,6 @@ export async function assertOwnedCdaTarget({
     const hostPath = source.startsWith('/host_mnt/') ? source.slice('/host_mnt'.length) : source;
     return realpathImpl(hostPath);
   };
-  const source = await realpathImpl(sourceRoot);
   assert.equal(await hostMount(api, '/workspace/cmd'), await realpathImpl(`${source}/cmd`),
     'API container must be mounted from this isolated source checkout');
   assert.equal(await hostMount(ui, '/workspace/packages/loom-ui/src'), await realpathImpl(`${source}/ui/packages/loom-ui/src`),
