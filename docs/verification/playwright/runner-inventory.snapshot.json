@@ -1,0 +1,1900 @@
+{
+  "schemaVersion": 1,
+  "source": ".",
+  "snapshotCommit": "0ffb587fd703a51aa6054bb4aab03dd6d49b8a5e",
+  "method": "Static source inventory plus dynamic import of the snapshot registry; GitNexus MCP was attempted but the isolated checkout is not available through the MCP server. No project files changed by inventory generation. The 80-file non-test/non-library symbol search includes one migration checker that only mentions launcher names; 79 entries actually launch or own browser workflows. Three lower-level launcher implementation modules are listed separately. Counts were reconciled from the persisted browserLauncherConsumers array: it contains 80 non-test/non-library symbol-search hits, one of which is the migration checker keyword-only false positive, leaving 79 actual launcher/workflow consumers.",
+  "counts": {
+    "registryScenarios": 9,
+    "registryCases": 22,
+    "sharedRunPlaywrightCaseConsumerModules": 10,
+    "registeredCasesUsingRunPlaywrightCase": 16,
+    "registeredCasesWithIndependentBrowserWorkflowOrEntryPoint": 6,
+    "directBrowserLauncherConsumers": 79,
+    "rootStandaloneVerifierEntrypoints": 74,
+    "rootVerifierFilesOutsideVerifyUIRegistry": 72,
+    "browserSymbolSearchHitsOutsideTestsAndLib": 80,
+    "actualBrowserLaunchersOutsideTestsAndLib": 79
+  },
+  "sharedRunner": {
+    "runnerFile": "scripts/verify-ui/playwright-case.mjs",
+    "signature": "runPlaywrightCase(context, scenarioID, caseName, work)",
+    "workCallback": "async ({ page, browser, report, check, action, fault }) => void",
+    "contextShape": "{ target, runID, custom, scenario, args, seed? }",
+    "responsibilities": [
+      "report/evidence creation",
+      "source and API build fingerprints",
+      "browser launch and diagnostics",
+      "action timing and native action checks",
+      "request fault injection",
+      "case exception and browser cleanup",
+      "registry required-check attachment"
+    ],
+    "consumers": [
+      {
+        "file": "scripts/verify-ui/builder-authoring.mjs",
+        "calls": [
+          {
+            "scenario": "builder-authoring",
+            "case": "cohort-recode",
+            "workArgs": [
+              "page",
+              "browser",
+              "report",
+              "check",
+              "action"
+            ]
+          }
+        ],
+        "exportedSignatures": [
+          {
+            "name": "runBuilderAuthoring",
+            "params": "context, caseNames)"
+          }
+        ],
+        "localHelpers": [
+          {
+            "module": "./builder-repeated.mjs",
+            "symbols": [
+              "runRepeatedEmpty"
+            ]
+          },
+          {
+            "module": "./builder-cohort-expand.mjs",
+            "symbols": [
+              "runCohortExpand"
+            ]
+          },
+          {
+            "module": "./builder-group-entry.mjs",
+            "symbols": [
+              "runGroupEntry"
+            ]
+          },
+          {
+            "module": "./common.mjs",
+            "symbols": [
+              "browserURL",
+              "executeScenario"
+            ]
+          },
+          {
+            "module": "./cohort-identities.mjs",
+            "symbols": [
+              "assertCohortPatientIDColumns"
+            ]
+          },
+          {
+            "module": "./playwright-case.mjs",
+            "symbols": [
+              "runPlaywrightCase"
+            ]
+          },
+          {
+            "module": "./playwright-authoring.mjs",
+            "symbols": [
+              "runPlaywrightAuthoring"
+            ]
+          },
+          {
+            "module": "./playwright-suggestions.mjs",
+            "symbols": [
+              "runPlaywrightSuggestions"
+            ]
+          }
+        ]
+      },
+      {
+        "file": "scripts/verify-ui/builder-cohort-expand.mjs",
+        "calls": [
+          {
+            "scenario": "builder-authoring",
+            "case": "cohort-expand",
+            "workArgs": [
+              "page",
+              "browser",
+              "action",
+              "report"
+            ]
+          }
+        ],
+        "exportedSignatures": [
+          {
+            "name": "runCohortExpand",
+            "params": "context)"
+          }
+        ],
+        "localHelpers": [
+          {
+            "module": "./common.mjs",
+            "symbols": [
+              "browserURL",
+              "runPlaywrightCase"
+            ]
+          },
+          {
+            "module": "./playwright-dom.mjs",
+            "symbols": [
+              "click",
+              "evaluate",
+              "fill",
+              "inspectAction",
+              "isActionable",
+              "recordPlaywrightTiming",
+              "reload",
+              "waitFor",
+              "goto",
+              "setActionEvidence"
+            ]
+          },
+          {
+            "module": "./report.mjs",
+            "symbols": [
+              "recordCheck"
+            ]
+          }
+        ]
+      },
+      {
+        "file": "scripts/verify-ui/builder-combine-draft.mjs",
+        "calls": [
+          {
+            "scenario": "builder-combine-draft",
+            "case": "join",
+            "workArgs": [
+              "page",
+              "report"
+            ]
+          },
+          {
+            "scenario": "builder-combine-draft",
+            "case": "append",
+            "workArgs": [
+              "page",
+              "report"
+            ]
+          },
+          {
+            "scenario": "builder-combine-draft",
+            "case": "group-pivot",
+            "workArgs": [
+              "page",
+              "report"
+            ]
+          }
+        ],
+        "exportedSignatures": [
+          {
+            "name": "runBuilderCombineDraft",
+            "params": "context, caseNames)"
+          }
+        ],
+        "localHelpers": [
+          {
+            "module": "./common.mjs",
+            "symbols": [
+              "executeScenario",
+              "runPlaywrightCase",
+              "browserURL"
+            ]
+          },
+          {
+            "module": "./report.mjs",
+            "symbols": [
+              "isActionable",
+              "recordCheck",
+              "recordUntested"
+            ]
+          },
+          {
+            "module": "./proposal-preview-readiness.mjs",
+            "symbols": [
+              "proposalPreviewReadinessExpression"
+            ]
+          },
+          {
+            "module": "./builder-combine-draft-helpers.mjs",
+            "symbols": [
+              "appendGroupedCounts",
+              "builderDraftStateEvidence",
+              "canceledDraftEvidence",
+              "currentDraftSourceEvidence",
+              "groupCounts",
+              "groupedPivotRows",
+              "joinGroupPivotRows",
+              "joinGroupedCounts",
+              "joinPivotRows",
+              "sourceRecompileEvidence",
+              "workspaceOutputOption"
+            ]
+          },
+          {
+            "module": "./builder-combine-helpers.mjs",
+            "symbols": [
+              "nativeCombineTargetBindingEvidence"
+            ]
+          }
+        ]
+      },
+      {
+        "file": "scripts/verify-ui/builder-combine-nullable.mjs",
+        "calls": [
+          {
+            "scenario": "builder-combine-nullable",
+            "case": "lifecycle",
+            "workArgs": [
+              "page",
+              "report",
+              "action"
+            ]
+          }
+        ],
+        "exportedSignatures": [
+          {
+            "name": "runNullableJoin",
+            "params": "context, caseNames)"
+          }
+        ],
+        "localHelpers": [
+          {
+            "module": "./common.mjs",
+            "symbols": [
+              "executeScenario",
+              "runPlaywrightCase",
+              "browserURL"
+            ]
+          },
+          {
+            "module": "./report.mjs",
+            "symbols": [
+              "recordCheck"
+            ]
+          },
+          {
+            "module": "./builder-combine-nullable-helpers.mjs",
+            "symbols": [
+              "builderCancelStateEvidence",
+              "nativeResponseScopeEvidence",
+              "removalProposalEvidence",
+              "targetDocumentStateEvidence"
+            ]
+          },
+          {
+            "module": "../lib/native-browser-api-scope.mjs",
+            "symbols": [
+              "classifyNativeBrowserApiRequest"
+            ]
+          },
+          {
+            "module": "./builder-combine-helpers.mjs",
+            "symbols": [
+              "builderRequestURL",
+              "builderResponseIdentity",
+              "constructionProposalPreviewEvidence",
+              "currentPublishedRevisionForOutput",
+              "findColumn",
+              "isCombineInputIDColumn",
+              "isNumericClickHouseType",
+              "isScalarStringColumn",
+              "nativeCombineTargetBindingEvidence",
+              "sameSourceDocuments",
+              "snapshotSourceDocument"
+            ]
+          }
+        ]
+      },
+      {
+        "file": "scripts/verify-ui/builder-combine.mjs",
+        "calls": [
+          {
+            "scenario": "builder-combine",
+            "case": "join",
+            "workArgs": [
+              "page",
+              "report",
+              "action"
+            ]
+          },
+          {
+            "scenario": "builder-combine",
+            "case": "append",
+            "workArgs": [
+              "page",
+              "report",
+              "action"
+            ]
+          }
+        ],
+        "exportedSignatures": [
+          {
+            "name": "runBuilderCombine",
+            "params": "context, caseNames)"
+          }
+        ],
+        "localHelpers": [
+          {
+            "module": "./common.mjs",
+            "symbols": [
+              "executeScenario",
+              "runPlaywrightCase",
+              "browserURL"
+            ]
+          },
+          {
+            "module": "../lib/playwright-browser.mjs",
+            "symbols": [
+              "sanitizeBody"
+            ]
+          },
+          {
+            "module": "./report.mjs",
+            "symbols": [
+              "recordCheck"
+            ]
+          },
+          {
+            "module": "./builder-combine-helpers.mjs",
+            "symbols": [
+              "appendNullPaddingRows",
+              "builderRequestURL",
+              "builderResponseIdentity",
+              "constructionProposalPreviewEvidence",
+              "currentPublishedRevisionForOutput",
+              "displayAppendNullPaddingRows",
+              "findColumn",
+              "isCombineInputIDColumn",
+              "isNumericClickHouseType",
+              "isScalarStringColumn",
+              "joinOracleRows",
+              "appendEditorConfigurationEvidence",
+              "nativeCombineTargetBindingEvidence",
+              "sameSourceDocuments",
+              "snapshotSourceDocument",
+              "isOwnedConstructionCapabilitiesRequest",
+              "rootedEmptyTargetRestorationEvidence"
+            ]
+          }
+        ]
+      },
+      {
+        "file": "scripts/verify-ui/builder-controls.mjs",
+        "calls": [
+          {
+            "scenario": "builder-controls",
+            "case": "recompile",
+            "workArgs": [
+              "page",
+              "report",
+              "action",
+              "fault",
+              "check"
+            ]
+          },
+          {
+            "scenario": "builder-controls",
+            "case": "first-table",
+            "workArgs": [
+              "page",
+              "report",
+              "action",
+              "check"
+            ]
+          },
+          {
+            "scenario": "builder-controls",
+            "case": "tables",
+            "workArgs": [
+              "page",
+              "report",
+              "action",
+              "check"
+            ]
+          }
+        ],
+        "exportedSignatures": [
+          {
+            "name": "runBuilderControls",
+            "params": "context, cases)"
+          }
+        ],
+        "localHelpers": [
+          {
+            "module": "./common.mjs",
+            "symbols": [
+              "executeScenario",
+              "runPlaywrightCase",
+              "browserURL"
+            ]
+          },
+          {
+            "module": "./report.mjs",
+            "symbols": [
+              "recordCheck"
+            ]
+          }
+        ]
+      },
+      {
+        "file": "scripts/verify-ui/builder-group-entry.mjs",
+        "calls": [
+          {
+            "scenario": "builder-authoring",
+            "case": "group-entry",
+            "workArgs": [
+              "page",
+              "report",
+              "check",
+              "action"
+            ]
+          }
+        ],
+        "exportedSignatures": [],
+        "localHelpers": [
+          {
+            "module": "./common.mjs",
+            "symbols": [
+              "browserURL",
+              "runPlaywrightCase"
+            ]
+          }
+        ]
+      },
+      {
+        "file": "scripts/verify-ui/builder-load.mjs",
+        "calls": [
+          {
+            "scenario": "builder-load",
+            "case": "registry cases from caseName loop",
+            "workArgs": [
+              "page",
+              "browser",
+              "report",
+              "check",
+              "action",
+              "fault"
+            ]
+          }
+        ],
+        "exportedSignatures": [
+          {
+            "name": "isLoadedBuilderSnapshot",
+            "params": "snapshot, expectedExplorer)"
+          },
+          {
+            "name": "runBuilderLoad",
+            "params": "context, caseNames)"
+          }
+        ],
+        "localHelpers": [
+          {
+            "module": "./common.mjs",
+            "symbols": [
+              "executeScenario",
+              "browserURL"
+            ]
+          },
+          {
+            "module": "./playwright-case.mjs",
+            "symbols": [
+              "runPlaywrightCase"
+            ]
+          },
+          {
+            "module": "./report.mjs",
+            "symbols": [
+              "recordCheck"
+            ]
+          }
+        ]
+      },
+      {
+        "file": "scripts/verify-ui/builder-repeated.mjs",
+        "calls": [
+          {
+            "scenario": "builder-authoring",
+            "case": "repeated-empty",
+            "workArgs": [
+              "page",
+              "browser",
+              "action",
+              "report"
+            ]
+          }
+        ],
+        "exportedSignatures": [
+          {
+            "name": "runRepeatedEmpty",
+            "params": "context)"
+          }
+        ],
+        "localHelpers": [
+          {
+            "module": "./common.mjs",
+            "symbols": [
+              "browserURL",
+              "runPlaywrightCase"
+            ]
+          },
+          {
+            "module": "./playwright-dom.mjs",
+            "symbols": [
+              "click",
+              "evaluate",
+              "fill",
+              "recordPlaywrightTiming",
+              "reload",
+              "waitFor",
+              "goto",
+              "setActionEvidence"
+            ]
+          },
+          {
+            "module": "./report.mjs",
+            "symbols": [
+              "recordCheck"
+            ]
+          }
+        ]
+      },
+      {
+        "file": "scripts/verify-ui/viewer-query.mjs",
+        "calls": [
+          {
+            "scenario": "viewer-query",
+            "case": "output",
+            "workArgs": [
+              "page",
+              "browser",
+              "report",
+              "action",
+              "fault",
+              "check"
+            ]
+          }
+        ],
+        "exportedSignatures": [
+          {
+            "name": "assertViewerPatientRows",
+            "params": "rows, expectedIDs)"
+          },
+          {
+            "name": "runViewerQuery",
+            "params": "context, caseNames)"
+          }
+        ],
+        "localHelpers": [
+          {
+            "module": "./common.mjs",
+            "symbols": [
+              "executeScenario",
+              "browserURL",
+              "runPlaywrightCase"
+            ]
+          },
+          {
+            "module": "./playwright-case.mjs",
+            "symbols": [
+              "matchesViewerRequestBody"
+            ]
+          },
+          {
+            "module": "./report.mjs",
+            "symbols": [
+              "recordCheck",
+              "recordUntested"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "registryCases": [
+    {
+      "scenario": "builder-controls",
+      "case": "tables",
+      "source": "scripts/verify-ui/builder-controls.mjs",
+      "executionKind": "runPlaywrightCase"
+    },
+    {
+      "scenario": "builder-controls",
+      "case": "recompile",
+      "source": "scripts/verify-ui/builder-controls.mjs",
+      "executionKind": "runPlaywrightCase"
+    },
+    {
+      "scenario": "builder-controls",
+      "case": "first-table",
+      "source": "scripts/verify-ui/builder-controls.mjs",
+      "executionKind": "runPlaywrightCase"
+    },
+    {
+      "scenario": "builder-load",
+      "case": "list",
+      "source": "scripts/verify-ui/builder-load.mjs",
+      "executionKind": "runPlaywrightCase"
+    },
+    {
+      "scenario": "builder-load",
+      "case": "state",
+      "source": "scripts/verify-ui/builder-load.mjs",
+      "executionKind": "runPlaywrightCase"
+    },
+    {
+      "scenario": "builder-authoring",
+      "case": "suggestions",
+      "source": "scripts/verify-ui/playwright-suggestions.mjs",
+      "executionKind": "independent-browser-workflow"
+    },
+    {
+      "scenario": "builder-authoring",
+      "case": "authoring",
+      "source": "scripts/verify-ui/playwright-authoring.mjs",
+      "executionKind": "independent-browser-workflow"
+    },
+    {
+      "scenario": "builder-authoring",
+      "case": "cohort-recode",
+      "source": "scripts/verify-ui/builder-authoring.mjs",
+      "executionKind": "runPlaywrightCase"
+    },
+    {
+      "scenario": "builder-authoring",
+      "case": "cohort-expand",
+      "source": "scripts/verify-ui/builder-cohort-expand.mjs",
+      "executionKind": "runPlaywrightCase"
+    },
+    {
+      "scenario": "builder-authoring",
+      "case": "repeated-empty",
+      "source": "scripts/verify-ui/builder-repeated.mjs",
+      "executionKind": "runPlaywrightCase"
+    },
+    {
+      "scenario": "builder-authoring",
+      "case": "group-entry",
+      "source": "scripts/verify-ui/builder-group-entry.mjs",
+      "executionKind": "runPlaywrightCase"
+    },
+    {
+      "scenario": "builder-population-member-removal",
+      "case": "mapped-plus-orphan-to-empty",
+      "source": "scripts/verify-cda-population-member-removal-browser.mjs",
+      "executionKind": "independent-browser-entrypoint"
+    },
+    {
+      "scenario": "root-quantity-pivot",
+      "case": "full-population-discovery",
+      "source": "scripts/verify-cda-quantity-root-category-browser.mjs",
+      "executionKind": "independent-browser-entrypoint"
+    },
+    {
+      "scenario": "root-quantity-pivot",
+      "case": "fixture-lifecycle",
+      "source": "scripts/verify-cda-quantity-root-category-browser.mjs",
+      "executionKind": "independent-browser-entrypoint"
+    },
+    {
+      "scenario": "root-quantity-pivot",
+      "case": "full-population-lifecycle",
+      "source": "scripts/verify-cda-quantity-root-category-browser.mjs",
+      "executionKind": "independent-browser-entrypoint"
+    },
+    {
+      "scenario": "builder-combine-draft",
+      "case": "join",
+      "source": "scripts/verify-ui/builder-combine-draft.mjs",
+      "executionKind": "runPlaywrightCase"
+    },
+    {
+      "scenario": "builder-combine-draft",
+      "case": "append",
+      "source": "scripts/verify-ui/builder-combine-draft.mjs",
+      "executionKind": "runPlaywrightCase"
+    },
+    {
+      "scenario": "builder-combine-draft",
+      "case": "group-pivot",
+      "source": "scripts/verify-ui/builder-combine-draft.mjs",
+      "executionKind": "runPlaywrightCase"
+    },
+    {
+      "scenario": "builder-combine",
+      "case": "join",
+      "source": "scripts/verify-ui/builder-combine.mjs",
+      "executionKind": "runPlaywrightCase"
+    },
+    {
+      "scenario": "builder-combine",
+      "case": "append",
+      "source": "scripts/verify-ui/builder-combine.mjs",
+      "executionKind": "runPlaywrightCase"
+    },
+    {
+      "scenario": "builder-combine-nullable",
+      "case": "lifecycle",
+      "source": "scripts/verify-ui/builder-combine-nullable.mjs",
+      "executionKind": "runPlaywrightCase"
+    },
+    {
+      "scenario": "viewer-query",
+      "case": "output",
+      "source": "scripts/verify-ui/viewer-query.mjs",
+      "executionKind": "runPlaywrightCase"
+    }
+  ],
+  "browserLauncherConsumers": [
+    {
+      "file": "scripts/check-playwright-migration.mjs",
+      "role": "migration checker (symbol-name match only)",
+      "launchCalls": [],
+      "domainHelpers": []
+    },
+    {
+      "file": "scripts/construction_preview_bench.mjs",
+      "role": "benchmark entrypoint",
+      "launchCalls": [
+        "launchBrowser"
+      ],
+      "domainHelpers": [
+        "playwright-actions.mjs",
+        "playwright-browser.mjs"
+      ]
+    },
+    {
+      "file": "scripts/loom-dev.mjs",
+      "role": "development-tool browser entrypoint",
+      "launchCalls": [
+        "launchPlaywrightEvidenceBrowser"
+      ],
+      "domainHelpers": [
+        "playwright-browser.mjs",
+        "playwright-actions.mjs"
+      ]
+    },
+    {
+      "file": "scripts/verify-base-settings.mjs",
+      "role": "standalone verifier entrypoint",
+      "launchCalls": [
+        "launchBrowser"
+      ],
+      "domainHelpers": [
+        "cda-playwright-requests.mjs",
+        "cda-verification-identity.mjs",
+        "owned-cda-target.mjs",
+        "playwright-browser.mjs",
+        "playwright-verification.mjs"
+      ]
+    },
+    {
+      "file": "scripts/verify-browser-disclosure.mjs",
+      "role": "standalone verifier entrypoint",
+      "launchCalls": [
+        "launchBrowser"
+      ],
+      "domainHelpers": [
+        "playwright-actions.mjs",
+        "playwright-browser.mjs"
+      ]
+    },
+    {
+      "file": "scripts/verify-cda-active-related-contributor-any-browser.mjs",
+      "role": "standalone verifier entrypoint",
+      "launchCalls": [
+        "launchCdaBrowser"
+      ],
+      "domainHelpers": [
+        "cda-playwright-requests.mjs",
+        "owned-cda-target.mjs",
+        "playwright-cda-actions.mjs",
+        "source-freeze.mjs"
+      ]
+    },
+    {
+      "file": "scripts/verify-cda-add-column-dialog.mjs",
+      "role": "standalone verifier entrypoint",
+      "launchCalls": [
+        "launchBrowser"
+      ],
+      "domainHelpers": [
+        "action-scoped-cancellations.mjs",
+        "api-build-freeze.mjs",
+        "owned-cda-target.mjs",
+        "playwright-actions.mjs",
+        "playwright-browser.mjs",
+        "source-freeze.mjs"
+      ]
+    },
+    {
+      "file": "scripts/verify-cda-authored-expand-browser.mjs",
+      "role": "standalone verifier entrypoint",
+      "launchCalls": [
+        "launchBrowser"
+      ],
+      "domainHelpers": [
+        "api-build-freeze.mjs",
+        "cda-playwright-requests.mjs",
+        "owned-cda-target.mjs",
+        "playwright-actions.mjs",
+        "playwright-browser.mjs",
+        "playwright-observations.mjs",
+        "source-freeze.mjs"
+      ]
+    },
+    {
+      "file": "scripts/verify-cda-builder-column-presentation.mjs",
+      "role": "standalone verifier entrypoint",
+      "launchCalls": [
+        "launchBrowser"
+      ],
+      "domainHelpers": [
+        "playwright-actions.mjs",
+        "playwright-browser.mjs"
+      ]
+    },
+    {
+      "file": "scripts/verify-cda-builder-filters.mjs",
+      "role": "standalone verifier entrypoint",
+      "launchCalls": [
+        "launchBrowser"
+      ],
+      "domainHelpers": [
+        "filter-oracle-assertions.mjs",
+        "playwright-actions.mjs",
+        "playwright-browser.mjs"
+      ]
+    },
+    {
+      "file": "scripts/verify-cda-builder-patient-related.mjs",
+      "role": "standalone verifier entrypoint",
+      "launchCalls": [
+        "launchBrowser"
+      ],
+      "domainHelpers": [
+        "playwright-actions.mjs",
+        "playwright-browser.mjs"
+      ]
+    },
+    {
+      "file": "scripts/verify-cda-builder-preview-limits.mjs",
+      "role": "standalone verifier entrypoint",
+      "launchCalls": [
+        "launchBrowser"
+      ],
+      "domainHelpers": [
+        "playwright-actions.mjs",
+        "playwright-browser.mjs"
+      ]
+    },
+    {
+      "file": "scripts/verify-cda-builder-related-patient-inspection.mjs",
+      "role": "standalone verifier entrypoint",
+      "launchCalls": [
+        "launchBrowser"
+      ],
+      "domainHelpers": [
+        "playwright-actions.mjs",
+        "playwright-browser.mjs"
+      ]
+    },
+    {
+      "file": "scripts/verify-cda-builder-related-source-chooser.mjs",
+      "role": "standalone verifier entrypoint",
+      "launchCalls": [
+        "launchBrowser"
+      ],
+      "domainHelpers": [
+        "playwright-actions.mjs",
+        "playwright-browser.mjs"
+      ]
+    },
+    {
+      "file": "scripts/verify-cda-builder-row-choice-inspection.mjs",
+      "role": "standalone verifier entrypoint",
+      "launchCalls": [
+        "launchBrowser"
+      ],
+      "domainHelpers": [
+        "playwright-actions.mjs",
+        "playwright-browser.mjs"
+      ]
+    },
+    {
+      "file": "scripts/verify-cda-builder-table-management.mjs",
+      "role": "standalone verifier entrypoint",
+      "launchCalls": [
+        "launchBrowser"
+      ],
+      "domainHelpers": [
+        "playwright-actions.mjs",
+        "playwright-browser.mjs"
+      ]
+    },
+    {
+      "file": "scripts/verify-cda-coded-field-lifecycle-browser.mjs",
+      "role": "standalone verifier entrypoint",
+      "launchCalls": [
+        "launchBrowser"
+      ],
+      "domainHelpers": [
+        "cda-playwright-requests.mjs",
+        "cda-verification-identity.mjs",
+        "owned-cda-target.mjs",
+        "playwright-actions.mjs",
+        "playwright-browser.mjs",
+        "playwright-verification.mjs"
+      ]
+    },
+    {
+      "file": "scripts/verify-cda-coded-pivot.mjs",
+      "role": "standalone verifier entrypoint",
+      "launchCalls": [
+        "launchBrowser"
+      ],
+      "domainHelpers": [
+        "cda-playwright-requests.mjs",
+        "cda-verification-identity.mjs",
+        "owned-cda-target.mjs",
+        "playwright-actions.mjs",
+        "playwright-browser.mjs",
+        "playwright-verification.mjs"
+      ]
+    },
+    {
+      "file": "scripts/verify-cda-cohort-fields-browser.mjs",
+      "role": "standalone verifier entrypoint",
+      "launchCalls": [
+        "launchBrowser"
+      ],
+      "domainHelpers": [
+        "api-build-freeze.mjs",
+        "cda-playwright-requests.mjs",
+        "owned-cda-target.mjs",
+        "playwright-actions.mjs",
+        "playwright-browser.mjs",
+        "source-freeze.mjs"
+      ]
+    },
+    {
+      "file": "scripts/verify-cda-cohort-membership-revision-browser.mjs",
+      "role": "standalone verifier entrypoint",
+      "launchCalls": [
+        "launchBrowser"
+      ],
+      "domainHelpers": [
+        "api-build-freeze.mjs",
+        "cda-playwright-requests.mjs",
+        "owned-cda-target.mjs",
+        "playwright-actions.mjs",
+        "playwright-browser.mjs",
+        "source-freeze.mjs"
+      ]
+    },
+    {
+      "file": "scripts/verify-cda-cohort-row-sources-browser.mjs",
+      "role": "standalone verifier entrypoint",
+      "launchCalls": [
+        "launchBrowser"
+      ],
+      "domainHelpers": [
+        "api-build-freeze.mjs",
+        "cda-playwright-requests.mjs",
+        "owned-cda-target.mjs",
+        "playwright-actions.mjs",
+        "playwright-browser.mjs",
+        "source-freeze.mjs"
+      ]
+    },
+    {
+      "file": "scripts/verify-cda-collection-repair.mjs",
+      "role": "standalone verifier entrypoint",
+      "launchCalls": [
+        "launchBrowser"
+      ],
+      "domainHelpers": [
+        "api-build-freeze.mjs",
+        "cda-playwright-requests.mjs",
+        "owned-cda-target.mjs",
+        "playwright-actions.mjs",
+        "playwright-browser.mjs",
+        "playwright-observations.mjs",
+        "source-freeze.mjs"
+      ]
+    },
+    {
+      "file": "scripts/verify-cda-composed-row-lineage-browser.mjs",
+      "role": "standalone verifier entrypoint",
+      "launchCalls": [
+        "launchBrowser"
+      ],
+      "domainHelpers": [
+        "api-build-freeze.mjs",
+        "cda-playwright-requests.mjs",
+        "owned-cda-target.mjs",
+        "playwright-actions.mjs",
+        "playwright-browser.mjs",
+        "source-freeze.mjs"
+      ]
+    },
+    {
+      "file": "scripts/verify-cda-compound-fields-browser.mjs",
+      "role": "standalone verifier entrypoint",
+      "launchCalls": [
+        "launchBrowser"
+      ],
+      "domainHelpers": [
+        "cda-playwright-requests.mjs",
+        "cda-verification-identity.mjs",
+        "owned-cda-target.mjs",
+        "playwright-browser.mjs",
+        "playwright-verification.mjs"
+      ]
+    },
+    {
+      "file": "scripts/verify-cda-contributor-code-browser.mjs",
+      "role": "standalone verifier entrypoint",
+      "launchCalls": [
+        "launchBrowser"
+      ],
+      "domainHelpers": [
+        "cda-playwright-requests.mjs",
+        "cda-verification-identity.mjs",
+        "owned-cda-target.mjs",
+        "playwright-actions.mjs",
+        "playwright-browser.mjs",
+        "playwright-verification.mjs"
+      ]
+    },
+    {
+      "file": "scripts/verify-cda-contributor-exists-browser.mjs",
+      "role": "standalone verifier entrypoint",
+      "launchCalls": [
+        "launchBrowser"
+      ],
+      "domainHelpers": [
+        "cda-playwright-requests.mjs",
+        "cda-verification-identity.mjs",
+        "owned-cda-target.mjs",
+        "playwright-actions.mjs",
+        "playwright-browser.mjs",
+        "playwright-verification.mjs"
+      ]
+    },
+    {
+      "file": "scripts/verify-cda-contributor-rules-browser.mjs",
+      "role": "standalone verifier entrypoint",
+      "launchCalls": [
+        "launchBrowser"
+      ],
+      "domainHelpers": [
+        "cda-playwright.mjs"
+      ]
+    },
+    {
+      "file": "scripts/verify-cda-expanded-publication-browser.mjs",
+      "role": "standalone verifier entrypoint",
+      "launchCalls": [
+        "launchBrowser"
+      ],
+      "domainHelpers": [
+        "api-build-freeze.mjs",
+        "cda-playwright-requests.mjs",
+        "owned-cda-target.mjs",
+        "playwright-actions.mjs",
+        "playwright-browser.mjs",
+        "playwright-observations.mjs",
+        "source-freeze.mjs"
+      ]
+    },
+    {
+      "file": "scripts/verify-cda-filter-browser.mjs",
+      "role": "standalone verifier entrypoint",
+      "launchCalls": [
+        "launchBrowser"
+      ],
+      "domainHelpers": [
+        "cda-playwright.mjs"
+      ]
+    },
+    {
+      "file": "scripts/verify-cda-filter-lifecycle.mjs",
+      "role": "standalone verifier entrypoint",
+      "launchCalls": [
+        "launchBrowser"
+      ],
+      "domainHelpers": [
+        "cda-playwright-requests.mjs",
+        "cda-verification-identity.mjs",
+        "owned-cda-target.mjs",
+        "playwright-browser.mjs",
+        "playwright-verification.mjs"
+      ]
+    },
+    {
+      "file": "scripts/verify-cda-framing.mjs",
+      "role": "standalone verifier entrypoint",
+      "launchCalls": [
+        "launchBrowser"
+      ],
+      "domainHelpers": [
+        "cda-playwright.mjs"
+      ]
+    },
+    {
+      "file": "scripts/verify-cda-group-add-fields-browser.mjs",
+      "role": "standalone verifier entrypoint",
+      "launchCalls": [
+        "launchBrowser"
+      ],
+      "domainHelpers": [
+        "api-build-freeze.mjs",
+        "cda-playwright-controls.mjs",
+        "cda-row-oracle.mjs",
+        "owned-cda-target.mjs",
+        "playwright-browser.mjs",
+        "source-freeze.mjs"
+      ]
+    },
+    {
+      "file": "scripts/verify-cda-group-edit-before-related-column-browser.mjs",
+      "role": "standalone verifier entrypoint",
+      "launchCalls": [
+        "launchCdaBrowser"
+      ],
+      "domainHelpers": [
+        "native-browser-api-scope.mjs",
+        "owned-cda-target.mjs",
+        "playwright-browser.mjs",
+        "playwright-cda-actions.mjs",
+        "proposal-reopen-binding.mjs"
+      ]
+    },
+    {
+      "file": "scripts/verify-cda-group-one-conflict-browser.mjs",
+      "role": "standalone verifier entrypoint",
+      "launchCalls": [
+        "launchBrowser"
+      ],
+      "domainHelpers": [
+        "api-build-freeze.mjs",
+        "cda-playwright-controls.mjs",
+        "cda-row-oracle.mjs",
+        "owned-cda-target.mjs",
+        "playwright-browser.mjs",
+        "source-freeze.mjs"
+      ]
+    },
+    {
+      "file": "scripts/verify-cda-group-related-summary-browser.mjs",
+      "role": "standalone verifier entrypoint",
+      "launchCalls": [
+        "launchCdaBrowser"
+      ],
+      "domainHelpers": [
+        "api-build-freeze.mjs",
+        "cda-playwright-requests.mjs",
+        "owned-cda-target.mjs",
+        "playwright-browser.mjs",
+        "playwright-cda-actions.mjs",
+        "saved-preview-binding.mjs",
+        "source-freeze.mjs"
+      ]
+    },
+    {
+      "file": "scripts/verify-cda-group-related-values-browser.mjs",
+      "role": "standalone verifier entrypoint",
+      "launchCalls": [
+        "launchBrowser"
+      ],
+      "domainHelpers": [
+        "api-build-freeze.mjs",
+        "cda-playwright-controls.mjs",
+        "cda-row-oracle.mjs",
+        "owned-cda-target.mjs",
+        "playwright-browser.mjs",
+        "source-freeze.mjs"
+      ]
+    },
+    {
+      "file": "scripts/verify-cda-identifier-multiplicity.mjs",
+      "role": "standalone verifier entrypoint",
+      "launchCalls": [
+        "launchBrowser"
+      ],
+      "domainHelpers": [
+        "cda-playwright-requests.mjs",
+        "cda-verification-identity.mjs",
+        "owned-cda-target.mjs",
+        "playwright-actions.mjs",
+        "playwright-browser.mjs",
+        "playwright-verification.mjs"
+      ]
+    },
+    {
+      "file": "scripts/verify-cda-implicit-pivot.mjs",
+      "role": "standalone verifier entrypoint",
+      "launchCalls": [
+        "launchBrowser"
+      ],
+      "domainHelpers": [
+        "cda-playwright.mjs"
+      ]
+    },
+    {
+      "file": "scripts/verify-cda-indirect-specimen-patient.mjs",
+      "role": "standalone verifier entrypoint",
+      "launchCalls": [
+        "launchBrowser"
+      ],
+      "domainHelpers": [
+        "api-build-freeze.mjs",
+        "cda-playwright-requests.mjs",
+        "owned-cda-target.mjs",
+        "playwright-actions.mjs",
+        "playwright-browser.mjs",
+        "playwright-observations.mjs",
+        "source-freeze.mjs"
+      ]
+    },
+    {
+      "file": "scripts/verify-cda-last-table.mjs",
+      "role": "standalone verifier entrypoint",
+      "launchCalls": [
+        "launchBrowser"
+      ],
+      "domainHelpers": [
+        "api-build-freeze.mjs",
+        "ndjson-resource-oracle.mjs",
+        "owned-cda-target.mjs",
+        "playwright-actions.mjs",
+        "playwright-browser.mjs",
+        "source-freeze.mjs"
+      ]
+    },
+    {
+      "file": "scripts/verify-cda-legacy-collection.mjs",
+      "role": "standalone verifier entrypoint",
+      "launchCalls": [
+        "launchBrowser"
+      ],
+      "domainHelpers": [
+        "api-build-freeze.mjs",
+        "cda-playwright-requests.mjs",
+        "owned-cda-target.mjs",
+        "playwright-actions.mjs",
+        "playwright-browser.mjs",
+        "playwright-observations.mjs",
+        "source-freeze.mjs"
+      ]
+    },
+    {
+      "file": "scripts/verify-cda-mixed-sibling-count-browser.mjs",
+      "role": "standalone verifier entrypoint",
+      "launchCalls": [
+        "launchCdaBrowser"
+      ],
+      "domainHelpers": [
+        "api-build-freeze.mjs",
+        "cda-playwright-requests.mjs",
+        "owned-cda-target.mjs",
+        "playwright-cda-actions.mjs",
+        "source-freeze.mjs"
+      ]
+    },
+    {
+      "file": "scripts/verify-cda-named-cohort-related-count-browser.mjs",
+      "role": "standalone verifier entrypoint",
+      "launchCalls": [
+        "launchCdaBrowser"
+      ],
+      "domainHelpers": [
+        "api-build-freeze.mjs",
+        "cda-playwright-requests.mjs",
+        "owned-cda-target.mjs",
+        "playwright-cda-actions.mjs",
+        "source-freeze.mjs"
+      ]
+    },
+    {
+      "file": "scripts/verify-cda-nested-repeated-browser.mjs",
+      "role": "standalone verifier entrypoint",
+      "launchCalls": [
+        "launchBrowser"
+      ],
+      "domainHelpers": [
+        "api-build-freeze.mjs",
+        "cda-playwright-requests.mjs",
+        "owned-cda-target.mjs",
+        "playwright-actions.mjs",
+        "playwright-browser.mjs",
+        "playwright-observations.mjs",
+        "source-freeze.mjs"
+      ]
+    },
+    {
+      "file": "scripts/verify-cda-pivot-category-cycle-browser.mjs",
+      "role": "standalone verifier entrypoint",
+      "launchCalls": [
+        "launchBrowser"
+      ],
+      "domainHelpers": [
+        "api-build-freeze.mjs",
+        "cda-playwright-requests.mjs",
+        "owned-cda-target.mjs",
+        "playwright-actions.mjs",
+        "playwright-browser.mjs",
+        "playwright-preview-rows.mjs",
+        "source-freeze.mjs"
+      ]
+    },
+    {
+      "file": "scripts/verify-cda-pivot-category-edit-browser.mjs",
+      "role": "standalone verifier entrypoint",
+      "launchCalls": [
+        "launchBrowser"
+      ],
+      "domainHelpers": [
+        "api-build-freeze.mjs",
+        "cda-playwright-controls.mjs",
+        "cda-row-oracle.mjs",
+        "owned-cda-target.mjs",
+        "playwright-browser.mjs",
+        "source-freeze.mjs"
+      ]
+    },
+    {
+      "file": "scripts/verify-cda-pivot-field-change-browser.mjs",
+      "role": "standalone verifier entrypoint",
+      "launchCalls": [
+        "launchBrowser"
+      ],
+      "domainHelpers": [
+        "api-build-freeze.mjs",
+        "cda-playwright-requests.mjs",
+        "owned-cda-target.mjs",
+        "playwright-actions.mjs",
+        "playwright-browser.mjs",
+        "playwright-preview-rows.mjs",
+        "source-freeze.mjs"
+      ]
+    },
+    {
+      "file": "scripts/verify-cda-pivot-reload-browser.mjs",
+      "role": "standalone verifier entrypoint",
+      "launchCalls": [
+        "launchBrowser"
+      ],
+      "domainHelpers": [
+        "playwright-browser.mjs",
+        "source-freeze.mjs"
+      ]
+    },
+    {
+      "file": "scripts/verify-cda-population-member-removal-browser.mjs",
+      "role": "standalone verifier entrypoint",
+      "launchCalls": [
+        "launchBrowser"
+      ],
+      "domainHelpers": [
+        "api-build-freeze.mjs",
+        "cda-playwright-requests.mjs",
+        "owned-cda-target.mjs",
+        "playwright-actions.mjs",
+        "playwright-browser.mjs",
+        "population-member-removal-proposal.mjs",
+        "source-freeze.mjs"
+      ]
+    },
+    {
+      "file": "scripts/verify-cda-publication-browser.mjs",
+      "role": "standalone verifier entrypoint",
+      "launchCalls": [
+        "launchBrowser"
+      ],
+      "domainHelpers": [
+        "cda-playwright.mjs"
+      ]
+    },
+    {
+      "file": "scripts/verify-cda-quantity-pivot-browser.mjs",
+      "role": "standalone verifier entrypoint",
+      "launchCalls": [
+        "launchBrowser"
+      ],
+      "domainHelpers": [
+        "api-build-freeze.mjs",
+        "cda-playwright-requests.mjs",
+        "cda-quantity-category-oracle-runner.mjs",
+        "cda-quantity-category-oracle.mjs",
+        "owned-cda-target.mjs",
+        "playwright-actions.mjs",
+        "playwright-browser.mjs",
+        "playwright-preview-rows.mjs",
+        "source-freeze.mjs"
+      ]
+    },
+    {
+      "file": "scripts/verify-cda-quantity-pivot-native-drag-browser.mjs",
+      "role": "standalone verifier entrypoint",
+      "launchCalls": [
+        "launchBrowser"
+      ],
+      "domainHelpers": [
+        "api-build-freeze.mjs",
+        "cda-playwright-requests.mjs",
+        "cda-quantity-category-oracle-runner.mjs",
+        "cda-quantity-category-oracle.mjs",
+        "playwright-actions.mjs",
+        "playwright-browser.mjs",
+        "playwright-preview-rows.mjs",
+        "source-freeze.mjs"
+      ]
+    },
+    {
+      "file": "scripts/verify-cda-quantity-root-category-browser.mjs",
+      "role": "standalone verifier entrypoint",
+      "launchCalls": [
+        "launchBrowser"
+      ],
+      "domainHelpers": [
+        "api-build-freeze.mjs",
+        "cda-playwright-requests.mjs",
+        "owned-cda-target.mjs",
+        "playwright-actions.mjs",
+        "playwright-browser.mjs",
+        "playwright-preview-rows.mjs",
+        "root-quantity-raw-preview.mjs",
+        "source-freeze.mjs",
+        "validation-wait-evidence.mjs"
+      ]
+    },
+    {
+      "file": "scripts/verify-cda-related-eligibility.mjs",
+      "role": "standalone verifier entrypoint",
+      "launchCalls": [
+        "launchBrowser"
+      ],
+      "domainHelpers": [
+        "api-build-freeze.mjs",
+        "owned-cda-target.mjs",
+        "playwright-actions.mjs",
+        "playwright-browser.mjs",
+        "source-freeze.mjs"
+      ]
+    },
+    {
+      "file": "scripts/verify-cda-related-field-after-unpivot-browser.mjs",
+      "role": "standalone verifier entrypoint",
+      "launchCalls": [
+        "launchBrowser"
+      ],
+      "domainHelpers": [
+        "api-build-freeze.mjs",
+        "cda-playwright-requests.mjs",
+        "nullable-related-all.mjs",
+        "owned-cda-target.mjs",
+        "playwright-actions.mjs",
+        "playwright-browser.mjs",
+        "source-freeze.mjs"
+      ]
+    },
+    {
+      "file": "scripts/verify-cda-related-group-browser.mjs",
+      "role": "standalone verifier entrypoint",
+      "launchCalls": [
+        "launchBrowser"
+      ],
+      "domainHelpers": [
+        "api-build-freeze.mjs",
+        "cda-playwright-controls.mjs",
+        "cda-row-oracle.mjs",
+        "owned-cda-target.mjs",
+        "playwright-browser.mjs",
+        "source-freeze.mjs"
+      ]
+    },
+    {
+      "file": "scripts/verify-cda-related-one-all-browser.mjs",
+      "role": "standalone verifier entrypoint",
+      "launchCalls": [
+        "launchBrowser"
+      ],
+      "domainHelpers": [
+        "api-build-freeze.mjs",
+        "native-abort-probe.mjs",
+        "owned-cda-target.mjs",
+        "playwright-actions.mjs",
+        "playwright-browser.mjs",
+        "related-source-capture.mjs",
+        "source-freeze.mjs"
+      ]
+    },
+    {
+      "file": "scripts/verify-cda-related-pivot-browser.mjs",
+      "role": "standalone verifier entrypoint",
+      "launchCalls": [
+        "launchBrowser"
+      ],
+      "domainHelpers": [
+        "api-build-freeze.mjs",
+        "cda-playwright-controls.mjs",
+        "cda-row-oracle.mjs",
+        "owned-cda-target.mjs",
+        "playwright-browser.mjs",
+        "source-freeze.mjs"
+      ]
+    },
+    {
+      "file": "scripts/verify-cda-related-unpivot-browser.mjs",
+      "role": "standalone verifier entrypoint",
+      "launchCalls": [
+        "launchBrowser"
+      ],
+      "domainHelpers": [
+        "api-build-freeze.mjs",
+        "cda-playwright-controls.mjs",
+        "cda-row-oracle.mjs",
+        "owned-cda-target.mjs",
+        "playwright-browser.mjs",
+        "source-freeze.mjs"
+      ]
+    },
+    {
+      "file": "scripts/verify-cda-repeated-contributor-any-browser.mjs",
+      "role": "standalone verifier entrypoint",
+      "launchCalls": [
+        "launchBrowser"
+      ],
+      "domainHelpers": [
+        "api-build-freeze.mjs",
+        "cda-playwright-requests.mjs",
+        "owned-cda-target.mjs",
+        "playwright-actions.mjs",
+        "playwright-browser.mjs",
+        "playwright-observations.mjs",
+        "source-freeze.mjs"
+      ]
+    },
+    {
+      "file": "scripts/verify-cda-repeated-empty-browser.mjs",
+      "role": "standalone verifier entrypoint",
+      "launchCalls": [
+        "launchBrowser"
+      ],
+      "domainHelpers": [
+        "api-build-freeze.mjs",
+        "cda-playwright-requests.mjs",
+        "owned-cda-target.mjs",
+        "playwright-actions.mjs",
+        "playwright-browser.mjs",
+        "playwright-observations.mjs",
+        "source-freeze.mjs"
+      ]
+    },
+    {
+      "file": "scripts/verify-cda-repeated-rows-browser.mjs",
+      "role": "standalone verifier entrypoint",
+      "launchCalls": [
+        "launchBrowser"
+      ],
+      "domainHelpers": [
+        "cda-playwright.mjs"
+      ]
+    },
+    {
+      "file": "scripts/verify-cda-root-rebase.mjs",
+      "role": "standalone verifier entrypoint",
+      "launchCalls": [
+        "launchBrowser"
+      ],
+      "domainHelpers": [
+        "cda-playwright.mjs"
+      ]
+    },
+    {
+      "file": "scripts/verify-cda-root-settings.mjs",
+      "role": "standalone verifier entrypoint",
+      "launchCalls": [
+        "launchBrowser"
+      ],
+      "domainHelpers": [
+        "cda-playwright.mjs"
+      ]
+    },
+    {
+      "file": "scripts/verify-cda-row-sources-browser.mjs",
+      "role": "standalone verifier entrypoint",
+      "launchCalls": [
+        "launchBrowser"
+      ],
+      "domainHelpers": [
+        "cda-playwright.mjs"
+      ]
+    },
+    {
+      "file": "scripts/verify-cda-source-fields-browser.mjs",
+      "role": "standalone verifier entrypoint",
+      "launchCalls": [
+        "launchBrowser"
+      ],
+      "domainHelpers": [
+        "cda-playwright.mjs"
+      ]
+    },
+    {
+      "file": "scripts/verify-cda-sourceaggregate-mixed-sibling-count-browser.mjs",
+      "role": "standalone verifier entrypoint",
+      "launchCalls": [
+        "launchCdaBrowser"
+      ],
+      "domainHelpers": [
+        "api-build-freeze.mjs",
+        "cda-playwright-requests.mjs",
+        "owned-cda-target.mjs",
+        "playwright-cda-actions.mjs",
+        "source-freeze.mjs"
+      ]
+    },
+    {
+      "file": "scripts/verify-cda-table-management-browser.mjs",
+      "role": "standalone verifier entrypoint",
+      "launchCalls": [
+        "launchBrowser"
+      ],
+      "domainHelpers": [
+        "cda-playwright.mjs"
+      ]
+    },
+    {
+      "file": "scripts/verify-cda-unpivot.mjs",
+      "role": "standalone verifier entrypoint",
+      "launchCalls": [
+        "launchBrowser"
+      ],
+      "domainHelpers": [
+        "cda-playwright.mjs"
+      ]
+    },
+    {
+      "file": "scripts/verify-compound-coded-group.mjs",
+      "role": "standalone verifier entrypoint",
+      "launchCalls": [
+        "launchBrowser"
+      ],
+      "domainHelpers": [
+        "cda-playwright-requests.mjs",
+        "cda-verification-identity.mjs",
+        "owned-cda-target.mjs",
+        "playwright-browser.mjs",
+        "playwright-verification.mjs"
+      ]
+    },
+    {
+      "file": "scripts/verify-construction-removal-ui.mjs",
+      "role": "standalone verifier entrypoint",
+      "launchCalls": [
+        "launchBrowser"
+      ],
+      "domainHelpers": [
+        "api-build-freeze.mjs",
+        "owned-cda-target.mjs",
+        "playwright-actions.mjs",
+        "playwright-browser.mjs",
+        "source-freeze.mjs"
+      ]
+    },
+    {
+      "file": "scripts/verify-population-row-ui.mjs",
+      "role": "standalone verifier entrypoint",
+      "launchCalls": [
+        "launchBrowser"
+      ],
+      "domainHelpers": [
+        "api-build-freeze.mjs",
+        "owned-cda-target.mjs",
+        "playwright-actions.mjs",
+        "playwright-browser.mjs",
+        "source-freeze.mjs"
+      ]
+    },
+    {
+      "file": "scripts/verify-row-actions-clarity.mjs",
+      "role": "standalone verifier entrypoint",
+      "launchCalls": [
+        "launchBrowser"
+      ],
+      "domainHelpers": [
+        "api-build-freeze.mjs",
+        "owned-cda-target.mjs",
+        "playwright-actions.mjs",
+        "playwright-browser.mjs",
+        "source-freeze.mjs"
+      ]
+    },
+    {
+      "file": "scripts/verify-row-definition-ui.mjs",
+      "role": "standalone verifier entrypoint",
+      "launchCalls": [
+        "launchCdaBrowser"
+      ],
+      "domainHelpers": [
+        "playwright-cda-actions.mjs"
+      ]
+    },
+    {
+      "file": "scripts/verify-row-rebase-ui.mjs",
+      "role": "standalone verifier entrypoint",
+      "launchCalls": [
+        "launchBrowser"
+      ],
+      "domainHelpers": [
+        "cda-playwright.mjs"
+      ]
+    },
+    {
+      "file": "scripts/verify-ui/playwright-authoring.mjs",
+      "role": "verify-ui workflow/helper",
+      "launchCalls": [
+        "launchBrowser"
+      ],
+      "domainHelpers": [
+        "playwright-browser.mjs"
+      ]
+    },
+    {
+      "file": "scripts/verify-ui/playwright-case.mjs",
+      "role": "verify-ui workflow/helper",
+      "launchCalls": [
+        "launchBrowser"
+      ],
+      "domainHelpers": [
+        "playwright-actions.mjs",
+        "playwright-browser.mjs"
+      ]
+    },
+    {
+      "file": "scripts/verify-ui/playwright-suggestions.mjs",
+      "role": "verify-ui workflow/helper",
+      "launchCalls": [
+        "launchBrowser"
+      ],
+      "domainHelpers": [
+        "playwright-authoring.mjs",
+        "playwright-browser.mjs"
+      ]
+    },
+    {
+      "file": "scripts/verify-upstream-edits.mjs",
+      "role": "standalone verifier entrypoint",
+      "launchCalls": [
+        "launchBrowser"
+      ],
+      "domainHelpers": [
+        "cda-playwright-requests.mjs",
+        "cda-verification-identity.mjs",
+        "owned-cda-target.mjs",
+        "playwright-browser.mjs",
+        "playwright-verification.mjs"
+      ]
+    },
+    {
+      "file": "scripts/verify_ml_dataframer_prototype.mjs",
+      "role": "standalone verifier entrypoint",
+      "launchCalls": [
+        "launchBrowser"
+      ],
+      "domainHelpers": [
+        "playwright-actions.mjs",
+        "playwright-browser.mjs"
+      ]
+    }
+  ],
+  "deletionConversion": {
+    "candidateDeleteAfterMigration": [
+      "scripts/verify-ui/cli.mjs (argument parser, scenario/list/case dispatch, owned/custom target bootstrap)",
+      "scripts/verify-ui/common.mjs executeScenario/CLI adapter (browserURL is a small reusable helper)",
+      "per-scenario import.meta.url CLI tails and run*CaseNames batch dispatchers",
+      "scripts/verify-ui/playwright-case.mjs as a monolithic browser-owning test runner after its responsibilities are moved to test fixtures/helpers",
+      "scripts/check-playwright-migration.mjs should be replaced with an @playwright/test boundary/discovery check; its current checks only legacy Chrome/CDP mechanics, not custom runner usage."
+    ],
+    "convertOrRetainAsDomainFixtures": [
+      "16 runPlaywrightCase case bodies",
+      "2 registry browser workflows that open their own browser: suggestions and authoring",
+      "4 standalone registry cases in population member removal and root quantity pivot",
+      "74 standalone root browser verifier entrypoints",
+      "Loom ownership/fixture provisioning, registry assertions/coverage metadata, browser diagnostics, source/API fingerprints, row/oracle/domain helpers"
+    ],
+    "keepOrPortMetadata": [
+      "registry requiredChecks and coverage data; port to Playwright annotations/report attachment or test metadata before deleting registry module"
+    ]
+  },
+  "nativeDiscoveryPlan": {
+    "observedAtSnapshot": {
+      "config": "scripts/playwright.config.mjs",
+      "testDir": "./playwright",
+      "testMatch": "**/*.spec.mjs",
+      "packageScripts": [
+        "test:browser",
+        "test:browser:list"
+      ],
+      "specFilesFound": []
+    },
+    "recommendation": "Keep native specs under scripts/playwright and add one test per registry case, grouped with test.describe; use test fixtures for named owned target/fresh disposable fixture, page/browser diagnostics, and reporting. Continue using explicit testMatch so existing node:test *.test.mjs files are not accidentally discovered.",
+    "caseIsolation": "Mutating cases get a fresh owned project per test; validated read-only cases may reuse the named owned dataset only when their existing contract permits it."
+  },
+  "remainingDelegationScopesAfterAppend": [
+    "builder-controls + builder-load (5 cases)",
+    "builder-authoring: independent suggestions/authoring launch flows plus shared cohort-recode, cohort-expand, repeated-empty, group-entry (6 cases)",
+    "builder-combine: Join (1 case, if Append is the converted unit)",
+    "builder-combine-draft: Join + Append + Group\u2192Pivot Join (3 cases)",
+    "builder-combine-nullable: lifecycle (1 case)",
+    "viewer-query: output (1 case)",
+    "standalone registered browser scenarios: population-member-removal (1), root-quantity-pivot (3)",
+    "remaining independent root browser verifier entrypoints: 72 outside the two registered scripts; partition by helper family and sole file ownership"
+  ],
+  "helperFamilyCounts": {
+    "playwright-actions.mjs": 45,
+    "playwright-browser.mjs": 62,
+    "cda-playwright-requests.mjs": 35,
+    "playwright-trace-redact.mjs": 1,
+    "cda-verification-identity.mjs": 10,
+    "owned-cda-target.mjs": 48,
+    "playwright-verification.mjs": 10,
+    "playwright-cda-actions.mjs": 7,
+    "source-freeze.mjs": 39,
+    "action-scoped-cancellations.mjs": 1,
+    "api-build-freeze.mjs": 37,
+    "playwright-observations.mjs": 8,
+    "filter-oracle-assertions.mjs": 1,
+    "cda-playwright.mjs": 13,
+    "cda-playwright-controls.mjs": 7,
+    "cda-row-oracle.mjs": 7,
+    "native-browser-api-scope.mjs": 1,
+    "proposal-reopen-binding.mjs": 1,
+    "saved-preview-binding.mjs": 1,
+    "ndjson-resource-oracle.mjs": 1,
+    "playwright-preview-rows.mjs": 5,
+    "population-member-removal-proposal.mjs": 1,
+    "cda-quantity-category-oracle-runner.mjs": 2,
+    "cda-quantity-category-oracle.mjs": 2,
+    "root-quantity-raw-preview.mjs": 1,
+    "validation-wait-evidence.mjs": 1,
+    "nullable-related-all.mjs": 1,
+    "native-abort-probe.mjs": 1,
+    "related-source-capture.mjs": 1,
+    "playwright-authoring.mjs": 1
+  },
+  "launcherImplementations": [
+    {
+      "file": "scripts/lib/playwright-browser.mjs",
+      "purpose": "chromium launch, diagnostics capture, evidence artifacts and browser close"
+    },
+    {
+      "file": "scripts/lib/cda-playwright.mjs",
+      "purpose": "legacy CDA browser wrapper over shared Playwright helper"
+    },
+    {
+      "file": "scripts/lib/playwright-cda-actions.mjs",
+      "purpose": "CDA-specific browser launch/action wrapper"
+    }
+  ],
+  "snapshotWorkingTree": "dirty; inventory captured from commit 0ffb587fd703a51aa6054bb4aab03dd6d49b8a5e"
+}

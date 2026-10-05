@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 1,
+  "sourcePath": "scripts/construction_preview_bench.mjs",
+  "sourcePreimageSha256": "f7f9d3728496a03d59d1accf8201cd35661e2126a4fc2f0a9ab735f6f83b75a3",
+  "sourceResultSha256": "9d3bf8ce0ce6d9a442f3f4ad8ffdc29adbe838cda7c72c9d6cc2e410b497a8af",
+  "patchSha256": "e144623050af3bf14134c3146076b53f1fface68b17e15804ab1603b5e94bd65",
+  "reviewCorrectionPatchSha256": "92f022a857a4f32758d6327c0bb3ae9d86a0d04ca9572450cae9aa80512fcaec",
+  "journeys": [
+    {
+      "journeyID": "construction-preview-bench",
+      "function": "BrowserSession.start",
+      "launchLine": 386,
+      "nativeSpecPaths": [
+        "scripts/playwright/construction-preview-bench.spec.mjs"
+      ],
+      "nativeCases": [
+        {
+          "scenarioID": "construction-preview-bench",
+          "caseName": "construction-preview-bench",
+          "caseTitle": "construction preview benchmark @construction-preview-bench",
+          "nativeSpecPaths": [
+            "scripts/playwright/construction-preview-bench.spec.mjs"
+          ],
+          "expectedVariants": {
+            "workload": "scenario \u00d7 concurrency \u00d7 sample matrix",
+            "session": "fresh owned context per session/batch",
+            "profile": "cold-client first sample; warm-client later samples in same context"
+          },
+          "preservedAssertions": [
+            "BuilderState API preflight precedes benchmark sessions.",
+            "Origin allowlist and bounded authorization routing keep credentials only on owned page/API origins.",
+            "Native Page/Locator actions preserve uniqueness, visibility, enabled, editability, exact option text, and bounded waits.",
+            "Completion oracle checks rendered tables/status/apply control, changed DOM identity where required, positive candidate rows, expected values/columns, and checked choices.",
+            "Backend response identity is compared with DOM preview identity and pre-action BuilderState project/generation/draft/digest/snapshot/output/base receipt/identity context.",
+            "Workload \u00d7 concurrency \u00d7 sample loop preserves fresh contexts per batch, sequential samples per context, concurrent sessions per sample, timing distributions, request/resource metrics, and cold/warm labels.",
+            "Supersession probe preserves latest-row identity, cancellation/failure accounting, cleanup, and health oracles.",
+            "Failure evidence remains opt-in and bounded; screenshot, video, and trace remain off.",
+            "Finite native test timeout derives from workload/action/navigation/API/preview budget under the dedicated config ceiling."
+          ]
+        }
+      ],
+      "legacyBrowserOwnershipRemoved": true,
+      "runtimeEvidence": {
+        "status": "not-run"
+      },
+      "reason": "Mapped from the benchmark native-port handoff and exact dedicated Playwright discovery case; no benchmark lifecycle was run."
+    }
+  ]
+}
