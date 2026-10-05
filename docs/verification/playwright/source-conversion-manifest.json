@@ -794,7 +794,7 @@
     ],
     "discoverySnapshot": {
       "path": "docs/verification/playwright/discovery.snapshot.json",
-      "sha256": "8061eb377f7a4eb0b4bb4f0b8195028132dd676ba89fff83a85df16e356ce206"
+      "sha256": "49d79d0a49078f10e536f3c1f1825137744776d90cd66f008a673d5422783a52"
     },
     "discoveryOverrideInputs": [
       {
@@ -2675,12 +2675,15 @@
     {
       "path": "scripts/playwright/native-action-readiness.spec.mjs",
       "kind": "native-harness-contract-spec",
-      "sha256": "fcbb30f469f234168f1b988a4550b5ec826dce16787e63e3e636080f61308fb2",
+      "sha256": "27d6d843d4c54244a3eadaf0faafc4cd6e31a1464561c682761f16121873196d",
       "discoveryTestTitles": [
+        "CDA button locator clicks a uniquely selected no-identity tab with decorative icon text",
+        "CDA button locator follows its accessible name after a DOM reorder",
+        "CDA button locator rejects duplicate accessible names before action dispatch",
         "shared action readiness uses Playwright auto-waiting for count and editability"
       ],
-      "discoveryTestCount": 1,
-      "discoverySpecSha256": "fcbb30f469f234168f1b988a4550b5ec826dce16787e63e3e636080f61308fb2",
+      "discoveryTestCount": 4,
+      "discoverySpecSha256": "27d6d843d4c54244a3eadaf0faafc4cd6e31a1464561c682761f16121873196d",
       "reason": "Exercises Playwright action-readiness helper behavior as infrastructure evidence, not a product acceptance lifecycle.",
       "runtimeEvidence": {
         "status": "not-run"
@@ -2703,12 +2706,12 @@
     {
       "path": "scripts/playwright/native-raw-fields-locator.spec.mjs",
       "kind": "native-harness-contract-spec",
-      "sha256": "96bfc08c98073c626c0afafc22e6f9c31a5761ac2b571d6d324bd50daf11e7cd",
+      "sha256": "3693c58a457dbbab30ac34f9fbbefee5be67232defcba8131e0978f1d18ee207",
       "discoveryTestTitles": [
-        "raw FHIR locator selects the direct summary among nested resource summaries"
+        "raw FHIR locator targets the exact direct disclosure summary in the Add columns editor"
       ],
       "discoveryTestCount": 1,
-      "discoverySpecSha256": "96bfc08c98073c626c0afafc22e6f9c31a5761ac2b571d6d324bd50daf11e7cd",
+      "discoverySpecSha256": "3693c58a457dbbab30ac34f9fbbefee5be67232defcba8131e0978f1d18ee207",
       "reason": "Exercises raw fields-locator selection as infrastructure evidence, not a product acceptance lifecycle.",
       "runtimeEvidence": {
         "status": "not-run"
@@ -2749,12 +2752,12 @@
   "testDiscoveryEvidence": {
     "status": "discovery-only",
     "playwrightListPassed": true,
-    "discoveredTestCount": 157,
+    "discoveredTestCount": 160,
     "discoveredSpecFileCount": 23,
     "dedicatedBenchmarkTestCount": 1,
     "dedicatedBenchmarkSpecFileCount": 1,
     "discoverySnapshotPath": "docs/verification/playwright/discovery.snapshot.json",
-    "discoverySnapshotSha256": "8061eb377f7a4eb0b4bb4f0b8195028132dd676ba89fff83a85df16e356ce206",
+    "discoverySnapshotSha256": "49d79d0a49078f10e536f3c1f1825137744776d90cd66f008a673d5422783a52",
     "discoverySnapshotMatchesCurrentSourceTree": true,
     "runtimeLifecycleStatus": "not-run",
     "note": "Official Playwright --list snapshots cover the main suite, the dedicated construction-preview benchmark config, and configured related ONE/ALL variants. They confirm discovery only; no test body or domain lifecycle is represented as run."
@@ -5617,7 +5620,7 @@
           "legacyBrowserOwnershipRemoved": true,
           "sourcePreimageSha256": "f7f9d3728496a03d59d1accf8201cd35661e2126a4fc2f0a9ab735f6f83b75a3",
           "sourceResultSha256": "9d3bf8ce0ce6d9a442f3f4ad8ffdc29adbe838cda7c72c9d6cc2e410b497a8af",
-          "portPatchSha256": "e144623050af3bf14134c3146076b53f1fface68b17e15804ab1603b5e94bd65",
+          "portPatchSha256": null,
           "reviewCorrectionPatchSha256": "92f022a857a4f32758d6327c0bb3ae9d86a0d04ca9572450cae9aa80512fcaec",
           "runtimeEvidence": {
             "status": "not-run"
@@ -5645,7 +5648,7 @@
     {
       "path": "scripts/lib/cda-playwright.mjs",
       "purpose": "legacy CDA browser wrapper over shared Playwright helper",
-      "sha256": "556fedbbdca4922610d961fa6de627c497a88dce60a3460b5e5c7fdd9c4beb4d",
+      "sha256": "8eaf81e1632da8db6334fdcb14cfc7e372583cd341cdcba3d80ff9d246b57e30",
       "sourceStillPresent": true,
       "directBrowserOwnershipPresent": false,
       "disposition": "retained-native-page-action-helper",
@@ -10161,7 +10164,7 @@
         "replacementWorkflowArtifacts": [
           {
             "path": "scripts/verify-ui/contributor-rules-workflow.mjs",
-            "sha256": "da66dab1fea5fc2d3334ea9c82419396d94608b004e025414c4277bf2f4ea941",
+            "sha256": "e4fa1a98bfba69f6c6194310fd649a1b476f803943b97e19334887d18e602fd7",
             "artifactSource": "canonical-source-root"
           }
         ],
@@ -10194,7 +10197,7 @@
       "workflowArtifacts": [
         {
           "path": "scripts/verify-ui/contributor-rules-workflow.mjs",
-          "sha256": "da66dab1fea5fc2d3334ea9c82419396d94608b004e025414c4277bf2f4ea941",
+          "sha256": "e4fa1a98bfba69f6c6194310fd649a1b476f803943b97e19334887d18e602fd7",
           "artifactSource": "canonical-source-root"
         }
       ],
@@ -13426,7 +13429,7 @@
         "replacementWorkflowArtifacts": [
           {
             "path": "scripts/verify-ui/repeated-contributor-any-workflow.mjs",
-            "sha256": "d775557f3037f563167c7e66de2fab5ebe0db01e0b34338105906c602ac8b48b",
+            "sha256": "b90959ad2b47e1e457c6f54ef9864beee2367617bf633d7417e57be30d1a98c5",
             "artifactSource": "canonical-source-root"
           }
         ],
@@ -13465,7 +13468,7 @@
       "workflowArtifacts": [
         {
           "path": "scripts/verify-ui/repeated-contributor-any-workflow.mjs",
-          "sha256": "d775557f3037f563167c7e66de2fab5ebe0db01e0b34338105906c602ac8b48b",
+          "sha256": "b90959ad2b47e1e457c6f54ef9864beee2367617bf633d7417e57be30d1a98c5",
           "artifactSource": "canonical-source-root"
         }
       ],

@@ -1,0 +1,346 @@
+{
+  "schemaVersion": 1,
+  "evidenceKind": "native-browser-runtime-evidence-candidate",
+  "epoch": 8,
+  "status": "passed",
+  "test": {
+    "title": "Builder authoring repeated-empty repeated empty and missing values preserve source row identities",
+    "file": "scripts/playwright/builder-authoring.spec.mjs",
+    "scenario": "builder-authoring",
+    "case": "repeated-empty",
+    "processSession": 18483,
+    "officialExitCode": 0,
+    "playwrightStats": {
+      "startTime": "2026-10-05T17:11:45.455Z",
+      "duration": 13864.008,
+      "expected": 1,
+      "skipped": 0,
+      "unexpected": 0,
+      "flaky": 0
+    },
+    "reportPath": "/private/tmp/loom-native-parallel-wave8/empty-basic/artifacts/verify-ui/builder-authoring-repeated-empty-muvibo59-3d279b0.json",
+    "playwrightResultsPath": "/private/tmp/loom-native-parallel-wave8/empty-basic/results.json",
+    "runnerLogPath": "/private/tmp/loom-native-parallel-wave8/empty-basic/runner.log"
+  },
+  "isolatedFixture": {
+    "project": "loom_dev_verify_muvibo59-3d279b0",
+    "generation": "fixture-v1",
+    "explorer": "verify-59-3d279b0-repeated-empty",
+    "fixtureContractPassed": true,
+    "observationIDs": [
+      "verify-repeat-empty",
+      "verify-repeat-missing",
+      "verify-repeat-two"
+    ],
+    "populatedComponentCount": 2,
+    "literalComponentArrayEmpty": true,
+    "missingComponentProperty": true,
+    "expectedFirstScalarPairs": [
+      [
+        "verify-repeat-empty",
+        "NO_ITEM"
+      ],
+      [
+        "verify-repeat-missing",
+        "NO_ITEM"
+      ],
+      [
+        "verify-repeat-two",
+        "ALPHA"
+      ]
+    ],
+    "expectedExpandedPreserveParentPairs": [
+      [
+        "verify-repeat-empty",
+        "NO_ITEM"
+      ],
+      [
+        "verify-repeat-missing",
+        "NO_ITEM"
+      ],
+      [
+        "verify-repeat-two",
+        "ALPHA"
+      ],
+      [
+        "verify-repeat-two",
+        "BETA"
+      ]
+    ]
+  },
+  "fullLifecycle": {
+    "sourceExpansionPreview": {
+      "status": "passed",
+      "rowEffect": "3 -> 4",
+      "policy": "PRESERVE_PARENT",
+      "choice": "Observation.component[]"
+    },
+    "cancelBeforeApply": {
+      "status": "passed",
+      "sourceIDsRetained": [
+        "verify-repeat-empty",
+        "verify-repeat-missing",
+        "verify-repeat-two"
+      ]
+    },
+    "applyPreserveParent": {
+      "status": "passed",
+      "expandedObservationIDMultiset": [
+        "verify-repeat-empty",
+        "verify-repeat-missing",
+        "verify-repeat-two",
+        "verify-repeat-two"
+      ]
+    },
+    "componentCodeTextFirstScalarProposal": {
+      "status": "passed",
+      "field": "Observation.component[].code.text",
+      "form": "FIRST",
+      "pairs": [
+        [
+          "verify-repeat-empty",
+          "NO_ITEM"
+        ],
+        [
+          "verify-repeat-missing",
+          "NO_ITEM"
+        ],
+        [
+          "verify-repeat-two",
+          "ALPHA"
+        ],
+        [
+          "verify-repeat-two",
+          "BETA"
+        ]
+      ]
+    },
+    "preserveParentReload": {
+      "status": "passed",
+      "rowCount": 4,
+      "exactPairsRetained": true,
+      "rowPolicyRestored": true,
+      "authoredHistoryPresent": false
+    },
+    "excludeEditPreviewAndCancel": {
+      "status": "passed",
+      "rowEffect": "4 -> 2",
+      "cancelRetainedFourPRESERVE_PARENTPairs": true,
+      "sameSourceRowPolicyRetained": true
+    },
+    "applyExcludeAndReload": {
+      "status": "passed",
+      "rowCount": 2,
+      "exactPairs": [
+        [
+          "verify-repeat-two",
+          "ALPHA"
+        ],
+        [
+          "verify-repeat-two",
+          "BETA"
+        ]
+      ],
+      "rowPolicyRestored": true,
+      "authoredHistoryPresent": false
+    },
+    "removeExpansionPreviewAndApply": {
+      "status": "passed",
+      "rowEffect": "2 -> 3",
+      "sourceRecordRowsRestored": [
+        "verify-repeat-empty",
+        "verify-repeat-missing",
+        "verify-repeat-two"
+      ],
+      "firstScalarPairs": [
+        [
+          "verify-repeat-empty",
+          "NO_ITEM"
+        ],
+        [
+          "verify-repeat-missing",
+          "NO_ITEM"
+        ],
+        [
+          "verify-repeat-two",
+          "ALPHA"
+        ]
+      ]
+    },
+    "restoredRowsReload": {
+      "status": "passed",
+      "exactPairsRetained": true,
+      "sourceRecordsRowDefinitionRestored": true,
+      "authoredExpandStepPresent": false
+    },
+    "independentLifecycleAssertions": [
+      "Observation root Preview contains the three exact fixture IDs before source expansion",
+      "source-row preview defaults to PRESERVE_PARENT and predicts four rows from three source records",
+      "Cancel leaves all three original source Observation IDs unchanged",
+      "PRESERVE_PARENT keeps the literal-empty and missing parent while expanding both component items",
+      "native item-field proposal renders exact alpha, beta, explicit-empty, and missing pairs",
+      "saved PRESERVE_PARENT source rows show exact Observation/component item multiplicity",
+      "PRESERVE_PARENT source EXPANDED rows and item values survive Builder reload",
+      "reloaded Rows controls restore component[] and PRESERVE_PARENT with no authored construction step",
+      "EXCLUDE row-definition comparison shows four base rows and 2 candidate rows",
+      "Cancel retains saved PRESERVE_PARENT pairs and all four rows",
+      "EXCLUDE source rows retain the two exact populated component items",
+      "EXCLUDE source EXPANDED rows and component items survive Builder reload",
+      "reloaded Rows controls restore component[] and EXCLUDE without authored history",
+      "removing source EXPANDED previews a two-to-three row comparison",
+      "source RECORDS restoration retains exact Observation/component first-value pairs after Apply",
+      "source Observation/component first-value pairs survive Builder reload after row restoration",
+      "removal persists the source RECORDS row definition without an authored EXPAND step"
+    ]
+  },
+  "requiredChecks": {
+    "passed": 53,
+    "total": 53,
+    "missing": [],
+    "names": [
+      "case started with a fresh owned project and the exact repeated-empty fixture contract",
+      "native source-row lifecycle remains in the exact isolated project, generation, and Explorer",
+      "Observation root Preview contains the three exact fixture IDs before source expansion",
+      "source Preview starts with one direct Observation identity column",
+      "source EXPANDED chooser exposes the exact Observation.component[] collection",
+      "source-row preview defaults to PRESERVE_PARENT and predicts four rows from three source records",
+      "Cancel leaves all three original source Observation IDs unchanged",
+      "PRESERVE_PARENT keeps the literal-empty and missing parent while expanding both component items",
+      "source EXPANDED rows expose the scalar component code text field for exact item verification",
+      "native component code field offers a selectable FIRST scalar form",
+      "native item-field proposal renders exact alpha, beta, explicit-empty, and missing pairs",
+      "saved PRESERVE_PARENT source rows show exact Observation/component item multiplicity",
+      "PRESERVE_PARENT source EXPANDED rows and item values survive Builder reload",
+      "reload keeps the same authorized fixture project, generation, and Explorer",
+      "reloaded Rows controls restore component[] and PRESERVE_PARENT with no authored construction step",
+      "EXCLUDE is available in the saved EXPANDED row definition",
+      "EXCLUDE row-definition comparison shows four base rows and 2 candidate rows",
+      "Cancel retains saved PRESERVE_PARENT pairs and all four rows",
+      "Cancel retains the same source row choice and PRESERVE_PARENT policy",
+      "Cancel keeps the exact same expanded source row choice",
+      "EXCLUDE source rows retain the two exact populated component items",
+      "EXCLUDE source EXPANDED rows and component items survive Builder reload",
+      "EXCLUDE reload keeps the same authorized fixture project, generation, and Explorer",
+      "reloaded Rows controls restore component[] and EXCLUDE without authored history",
+      "Rows settings offers the original one-row-per-source-record shape for removal",
+      "removing source EXPANDED previews a two-to-three row comparison",
+      "source RECORDS restoration retains exact Observation/component first-value pairs after Apply",
+      "source Observation/component first-value pairs survive Builder reload after row restoration",
+      "final reload keeps the exact fixture project, generation, and Explorer",
+      "removal persists the source RECORDS row definition without an authored EXPAND step",
+      "choose Observation root and render the three source rows action-to-render within budget",
+      "open row-shape settings for source expansion action-to-render within budget",
+      "open the native repeated-source expansion dialog action-to-render within budget",
+      "preview PRESERVE_PARENT for Observation.component[] without applying it action-to-render within budget",
+      "Cancel the source expansion proposal action-to-render within budget",
+      "return to the table after cancelling source expansion action-to-render within budget",
+      "reopen the native repeated-source expansion dialog action-to-render within budget",
+      "preview the source expansion that will be applied action-to-render within budget",
+      "Apply source EXPANDED row definition with PRESERVE_PARENT action-to-render within budget",
+      "return to the table after applying source expansion action-to-render within budget",
+      "open native source and form choices for the component code text field action-to-render within budget",
+      "preview component code text with the native FIRST form action-to-render within budget",
+      "apply component code text field to the expanded source rows action-to-render within budget",
+      "open source EXPANDED row settings after reload action-to-render within budget",
+      "preview EXCLUDE through the native saved-row policy control before Cancel action-to-render within budget",
+      "Cancel the EXCLUDE row-definition edit action-to-render within budget",
+      "reopen the source EXPANDED row definition after Cancel action-to-render within budget",
+      "preview EXCLUDE again from the same saved source-row definition action-to-render within budget",
+      "apply EXCLUDE to the saved source EXPANDED row definition action-to-render within budget",
+      "open EXCLUDE source row definition after reload action-to-render within budget",
+      "preview removing source expansion by restoring one row per source record action-to-render within budget",
+      "apply source-row removal and restore all three fixture Observation IDs action-to-render within budget",
+      "verify the restored source row definition after reload action-to-render within budget"
+    ]
+  },
+  "assertions": {
+    "passed": 125,
+    "total": 125,
+    "failed": 0
+  },
+  "dimensions": {
+    "usability": "passed",
+    "correctness": "passed",
+    "persistence": "passed",
+    "performance": "passed"
+  },
+  "remainingGaps": [
+    "This case covers the fresh self-seeded Observation.component[] fixture; other repeated fields and source shapes remain untested.",
+    "GROUP authoring/edit/removal is a separate workflow and was not exercised by this repeated-empty case; registry coverage still lists grouping rows as untested."
+  ],
+  "incidentalDiagnostics": {
+    "errors": [],
+    "networkFailures": [],
+    "assetFailures": [
+      {
+        "kind": "asset-failure",
+        "url": "http://127.0.0.1:30008/favicon.ico",
+        "status": 404
+      }
+    ]
+  },
+  "timing": {
+    "allRecordedActions": 59,
+    "allRecordedTimingEntries": 47,
+    "maxActionToRenderMs": 446,
+    "maxActionName": "preview removing source expansion by restoring one row per source record",
+    "officialTestDurationMs": 13864.008,
+    "browserLifecycleDurationMs": 7218,
+    "interpretation": "Provisional timing only: other isolated epoch8 native cases ran concurrently against the shared UI/API stack; do not claim serial latency or a performance SLO."
+  },
+  "sourceAndAPIClosure": {
+    "sourceBaselinePath": "/private/tmp/loom-native-parallel-wave8/source-before.json",
+    "sourceBefore": {
+      "sha256": "f617117fa5e22c562dd3fb3996414659e76221b5bdfb1666771d0f12278ac978",
+      "files": 1485
+    },
+    "sourceAfter": {
+      "sha256": "f617117fa5e22c562dd3fb3996414659e76221b5bdfb1666771d0f12278ac978",
+      "files": 1485
+    },
+    "changedPaths": [],
+    "apiBaselinePath": "/private/tmp/loom-native-parallel-wave8/api-identity.json",
+    "apiBuildIdentityBefore": "9e0e53a002c2cde544c54a34905fcea04f51a00d5247909f6204e73ccc85fc3c:9e0e53a002c2cde544c54a34905fcea04f51a00d5247909f6204e73ccc85fc3c:1480cbf92c206363ef5f24926e95396d0a25634ff9b9c99a08df3a26db41d114",
+    "apiBuildIdentityAfter": "9e0e53a002c2cde544c54a34905fcea04f51a00d5247909f6204e73ccc85fc3c:9e0e53a002c2cde544c54a34905fcea04f51a00d5247909f6204e73ccc85fc3c:1480cbf92c206363ef5f24926e95396d0a25634ff9b9c99a08df3a26db41d114",
+    "unchanged": true
+  },
+  "artifactHashes": {
+    "officialReport": {
+      "path": "/private/tmp/loom-native-parallel-wave8/empty-basic/artifacts/verify-ui/builder-authoring-repeated-empty-muvibo59-3d279b0.json",
+      "sha256": "c3c8ddd83ae92bbe92d8fe11dd068a2123dd6116a0f52b87834a7cef4ca232b0"
+    },
+    "playwrightResults": {
+      "path": "/private/tmp/loom-native-parallel-wave8/empty-basic/results.json",
+      "sha256": "a9dc27a219fa7d49b04a0cf4aee23b1a0ada94036a5360862a9c0ba650f232a4"
+    },
+    "runnerLog": {
+      "path": "/private/tmp/loom-native-parallel-wave8/empty-basic/runner.log",
+      "sha256": "fa9947f21e1ab1a6830c3c28c28bf392f445ef87244fa4ef70bd12f1a44eb0a7"
+    },
+    "sourceBaseline": {
+      "path": "/private/tmp/loom-native-parallel-wave8/source-before.json",
+      "sha256": "08c5a467e19d201bf8aa04d0e84861d548ce81cd05171aad7bfcccdd2be9b45e"
+    },
+    "apiIdentityBaseline": {
+      "path": "/private/tmp/loom-native-parallel-wave8/api-identity.json",
+      "sha256": "c4d8fe9b09f71cec0e8be521dbebe56e8b8fd9f6d8cfe5da40c2b5f5efb72968"
+    },
+    "release": {
+      "path": "/private/tmp/loom-native-parallel-wave8/release.json",
+      "sha256": "8cca6c0e6f012d496fa927bd40a67e67ba8a87fdfb44a0c8517709fc0d1cc34c"
+    },
+    "target": {
+      "path": "/private/tmp/loom-native-parallel-wave8/target.json",
+      "sha256": "d99f2a35e295e150d11b1d6cef2122fe6a84568c619741fc5292b1f7797eac4d"
+    },
+    "caseEnvironment": {
+      "path": "/private/tmp/loom-native-parallel-wave8/empty-basic/environment.sh",
+      "sha256": "08304bc2c06d19e2dab4dbe30c9195bd5116a5088e5d422ab9996c34bae0041d"
+    },
+    "ownerCommand": {
+      "path": "/private/tmp/loom-native-parallel-wave8/owner-commands.md",
+      "sha256": "b02107ea6ed87db22705eebe22827f6515a2be94fc7885d0259425544350acde"
+    }
+  },
+  "createdFrom": "/private/tmp/loom-native-parallel-wave8/empty-basic/artifacts/verify-ui/builder-authoring-repeated-empty-muvibo59-3d279b0.json"
+}

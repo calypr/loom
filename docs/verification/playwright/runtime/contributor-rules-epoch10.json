@@ -1,0 +1,333 @@
+{
+  "schemaVersion": 1,
+  "epoch": 10,
+  "case": "CDA contributor rules",
+  "target": {
+    "project": "loom_dev_cda_fhir",
+    "generation": "cda-fhir-v1",
+    "explorer": "contributor-rules-browser-1791222167275",
+    "sourceRoot": "$TMP/<path>"
+  },
+  "invocation": {
+    "sessionId": 51501,
+    "runnerExitCode": 0,
+    "playwrightPassed": 1,
+    "playwrightFailed": 0,
+    "testDurationMs": 33100,
+    "runnerDurationMs": 34300,
+    "browserLifecycleDurationMs": 31434,
+    "command": "npm run test:browser -- playwright/standalone-cda-fields.spec.mjs --grep 'CDA contributor rules' --output /private/tmp/loom-native-parallel-wave10/rules/results"
+  },
+  "outcome": {
+    "runnerStatus": "passed",
+    "reportStatus": "unverified",
+    "reportStatusNote": "The native case passed, but the generic CDA report remains unverified because requiredChecks is empty; performance and persistence dimensions are therefore recorded as untested by that reporter.",
+    "dimensions": {
+      "usability": "passed",
+      "correctness": "passed",
+      "persistence": "untested",
+      "performance": "untested"
+    },
+    "requiredChecks": [],
+    "assertions": {
+      "passed": 42,
+      "total": 42,
+      "failed": []
+    },
+    "actions": {
+      "passed": 40,
+      "total": 40,
+      "maxElapsedMs": 300,
+      "maxAction": "Apply change"
+    },
+    "domainStatus": "passed",
+    "lifecycleCases": [
+      {
+        "name": "source-selection-zero-one-many",
+        "rowCount": 3,
+        "workspaceUnchanged": null
+      },
+      {
+        "name": "open-related-expand-editor",
+        "rowCount": null,
+        "workspaceUnchanged": null
+      },
+      {
+        "name": "configure-contributor-rule-controls",
+        "rowCount": null,
+        "workspaceUnchanged": null
+      },
+      {
+        "name": "contributor-id-equals-preview",
+        "rowCount": 3,
+        "workspaceUnchanged": null
+      },
+      {
+        "name": "cancel-contributor-preview",
+        "rowCount": 3,
+        "workspaceUnchanged": null
+      },
+      {
+        "name": "contributor-rule-cancel-preserves-source",
+        "rowCount": null,
+        "workspaceUnchanged": true
+      },
+      {
+        "name": "open-related-expand-editor",
+        "rowCount": null,
+        "workspaceUnchanged": null
+      },
+      {
+        "name": "reconfigure-contributor-rule-after-cancel",
+        "rowCount": null,
+        "workspaceUnchanged": null
+      },
+      {
+        "name": "confirmed-contributor-id-equals-preview",
+        "rowCount": 3,
+        "workspaceUnchanged": null
+      },
+      {
+        "name": "apply-contributor-rule-to-render",
+        "rowCount": 3,
+        "workspaceUnchanged": null
+      },
+      {
+        "name": "reload-contributor-id-exists",
+        "rowCount": 3,
+        "workspaceUnchanged": null
+      },
+      {
+        "name": "edit-saved-step-to-policy-control",
+        "rowCount": null,
+        "workspaceUnchanged": null
+      },
+      {
+        "name": "edit-policy-exclude-preview",
+        "rowCount": 1,
+        "workspaceUnchanged": null
+      },
+      {
+        "name": "apply-exclude-policy-to-render",
+        "rowCount": 1,
+        "workspaceUnchanged": null
+      },
+      {
+        "name": "reload-edited-exclude-policy",
+        "rowCount": 1,
+        "workspaceUnchanged": null
+      },
+      {
+        "name": "remove-contributor-rule-preview",
+        "rowCount": 3,
+        "workspaceUnchanged": null
+      },
+      {
+        "name": "cancel-remove-to-render",
+        "rowCount": 1,
+        "workspaceUnchanged": null
+      },
+      {
+        "name": "remove-cancel-preserves-contributor-rule",
+        "rowCount": null,
+        "workspaceUnchanged": true
+      },
+      {
+        "name": "remove-contributor-rule-preview",
+        "rowCount": 3,
+        "workspaceUnchanged": null
+      },
+      {
+        "name": "apply-remove-to-render",
+        "rowCount": 3,
+        "workspaceUnchanged": null
+      },
+      {
+        "name": "reload-restored-source-table",
+        "rowCount": 3,
+        "workspaceUnchanged": null
+      }
+    ]
+  },
+  "independentOracle": {
+    "project": "loom_dev_cda_fhir",
+    "generation": "cda-fhir-v1",
+    "relationship": "Observation --subject_Patient--> Patient",
+    "countByBucket": {
+      "zero": 0,
+      "one": 1,
+      "many": 7
+    },
+    "witnesses": [
+      {
+        "bucket": "zero",
+        "patientId": "00002515-7676-5bc4-877c-9dcaf820e9f1",
+        "observationIds": []
+      },
+      {
+        "bucket": "one",
+        "patientId": "0002c145-1fbe-520c-a498-5428daa67e81",
+        "observationIds": [
+          "f41e9c56-4cf8-520c-be45-90388d7fd3e2"
+        ]
+      },
+      {
+        "bucket": "many",
+        "patientId": "0000b24b-86e5-50e2-803d-013cc7b8a87d",
+        "observationIds": [
+          "0f3cacfe-7eca-5de2-a7ee-b17eec085946",
+          "4caec5da-d759-5cb8-bcda-6159f02cb171",
+          "5b08146d-4916-5461-b68b-56bf6641b6c2",
+          "73333a98-4b89-582c-975d-8c1eaa33daeb",
+          "9a264e2d-5128-55ae-8f64-bad1051ad6c9",
+          "f34c864a-7080-5be9-bd29-d33790c79561",
+          "f4da6f1d-1e46-57e7-93a6-82b9b7aa77a2"
+        ]
+      }
+    ],
+    "appliedRule": {
+      "condition": "EQUALS",
+      "field": "id\nid · string",
+      "value": "0f3cacfe-7eca-5de2-a7ee-b17eec085946"
+    },
+    "previews": {
+      "contributor-id-equals-preview": {
+        "rowCount": 3,
+        "rows": [
+          [
+            "0000b24b-86e5-50e2-803d-013cc7b8a87d",
+            "0f3cacfe-7eca-5de2-a7ee-b17eec085946"
+          ],
+          [
+            "0002c145-1fbe-520c-a498-5428daa67e81",
+            "—"
+          ],
+          [
+            "00002515-7676-5bc4-877c-9dcaf820e9f1",
+            "—"
+          ]
+        ]
+      },
+      "confirmed-contributor-id-equals-preview": {
+        "rowCount": 3,
+        "rows": [
+          [
+            "0000b24b-86e5-50e2-803d-013cc7b8a87d",
+            "0f3cacfe-7eca-5de2-a7ee-b17eec085946"
+          ],
+          [
+            "0002c145-1fbe-520c-a498-5428daa67e81",
+            "—"
+          ],
+          [
+            "00002515-7676-5bc4-877c-9dcaf820e9f1",
+            "—"
+          ]
+        ]
+      },
+      "edit-policy-exclude-preview": {
+        "rowCount": 1,
+        "rows": [
+          [
+            "0000b24b-86e5-50e2-803d-013cc7b8a87d",
+            "0f3cacfe-7eca-5de2-a7ee-b17eec085946"
+          ]
+        ]
+      },
+      "remove-contributor-rule-preview": {
+        "rowCount": 3,
+        "rows": [
+          [
+            "0000b24b-86e5-50e2-803d-013cc7b8a87d"
+          ],
+          [
+            "0002c145-1fbe-520c-a498-5428daa67e81"
+          ],
+          [
+            "00002515-7676-5bc4-877c-9dcaf820e9f1"
+          ]
+        ]
+      }
+    }
+  },
+  "network": {
+    "requests": 105,
+    "statusCounts": {
+      "200": 102,
+      "aborted/no HTTP status": 3
+    },
+    "http409Count": 0,
+    "unexpectedErrors": [],
+    "expectedCancellations": [
+      {
+        "browserRequestId": "playwright-14",
+        "nativeRequestId": "construction-proposal-d2876002-b549-425f-9dca-2a1446bac59f",
+        "path": "construction-proposals",
+        "matchedPriorProposalState": "all-matches-no-predicate",
+        "replacementPreviewStatus": "READY"
+      },
+      {
+        "browserRequestId": "playwright-15",
+        "nativeRequestId": "cda-request-126",
+        "path": "related-expand-contributors",
+        "matchedPriorProposalState": null,
+        "replacementPreviewStatus": null
+      },
+      {
+        "browserRequestId": "playwright-39",
+        "nativeRequestId": "cda-request-150",
+        "path": "related-expand-contributors",
+        "matchedPriorProposalState": null,
+        "replacementPreviewStatus": null
+      }
+    ],
+    "incidentalErrors": [
+      {
+        "kind": "asset-failure",
+        "url": "http://127.0.0.1:30008/favicon.ico",
+        "status": 404
+      }
+    ]
+  },
+  "identity": {
+    "source": {
+      "baseline": {
+        "sha256": "ef54d66321006cd46d9c857a449583f5e2314adf463008580829767135634943",
+        "files": 1487
+      },
+      "after": {
+        "sha256": "ef54d66321006cd46d9c857a449583f5e2314adf463008580829767135634943",
+        "files": 1487
+      },
+      "unchanged": true,
+      "changedPaths": []
+    },
+    "docs": {
+      "baseline": {
+        "sha256": "57b621f150632f86842431b507837cc73432194212615b5c9b44b70659de071c",
+        "files": 103
+      },
+      "changedCount": 0,
+      "changedPaths": []
+    },
+    "api": {
+      "baseline": "9e0e53a002c2cde544c54a34905fcea04f51a00d5247909f6204e73ccc85fc3c:9e0e53a002c2cde544c54a34905fcea04f51a00d5247909f6204e73ccc85fc3c:1480cbf92c206363ef5f24926e95396d0a25634ff9b9c99a08df3a26db41d114",
+      "after": "9e0e53a002c2cde544c54a34905fcea04f51a00d5247909f6204e73ccc85fc3c:9e0e53a002c2cde544c54a34905fcea04f51a00d5247909f6204e73ccc85fc3c:1480cbf92c206363ef5f24926e95396d0a25634ff9b9c99a08df3a26db41d114",
+      "unchanged": true
+    }
+  },
+  "timingQualification": "Native lifecycle ran during concurrent epoch-10 case execution; action timings are provisional and the reporter marks performance untested.",
+  "artifactHashes": {
+    "rules/runner.log": "5d874e8850fc4ab8b38e5f93aa4524103cc0bd0d1169e86dc75ce2f4e70bf6dc",
+    "rules/results.json": "f27aa6706e314427715d9ecf43756dc33d03b91ff26013620a6f6a7831f6e128",
+    "rules/results/standalone-cda-fields-CDA--f3f59-rules-CDA-contributor-rules/cda-report.json": "bbb8cb7a332e79bebefc383777485a5bd1d221fb2784c0d2911d4ac1281b19ea",
+    "rules/results/standalone-cda-fields-CDA--f3f59-rules-CDA-contributor-rules/attachments/cda-domain-report-json-d4b4099d4995fe03681146b861b0b1fa4ef2ac2c.json": "bbb8cb7a332e79bebefc383777485a5bd1d221fb2784c0d2911d4ac1281b19ea",
+    "rules/results/standalone-cda-fields-CDA--f3f59-rules-CDA-contributor-rules/attachments/standalone-contributor-rules-domain.json": "800d3fb2e7f11cc0c9593fe0ef11ba9ec3d927d3474c30b6355c61a562a43d6b",
+    "source-before.json": "0083ac5b210baa625300c0b2eead4e2995633bc214c7e1b16c92022c864df5ce",
+    "docs-before.json": "5c3764b3978cd9c2c5ef306dee92eaad253a92bb1ddf32b41c5a27b19486ba01",
+    "api-identity.json": "91c6b151fddd2764b14f5c7993a5fcc3b46f49ae86b4dd62513309a8b2d21869",
+    "release.json": "1977b1a49c57be72d998d20cf84915e722ba4673faa3b2e77172f48289a8e4ec",
+    "health.json": "5e95e791edfc0d31c1e1a7a00007e107130b0ac2b63e037edb9895331336bfb2",
+    "mount-validation.json": "08094185bba103ad1f374472938d3ee4356532f45ccc7cac4d3c287ade687121"
+  }
+}

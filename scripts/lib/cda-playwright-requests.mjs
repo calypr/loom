@@ -118,7 +118,10 @@ export function captureCDARequests(page, { apiOrigin, browserRequestOrigin = api
     if (!entry) return;
     entry.completedAt = Date.now();
     entry.failure = sanitizeText(request.failure()?.errorText);
-    report.errors.push({ kind: 'network', origin: entry.origin, path: entry.path, url: `${entry.origin}${entry.path}`, requestId: entry.requestId, browserRequestId: entry.browserRequestId, method: entry.method, startedAt: entry.startedAt, error: entry.failure });
+    report.errors.push({ kind: 'network', origin: entry.origin, path: entry.path, url: `${entry.origin}${entry.path}`, requestId: entry.requestId, browserRequestId: entry.browserRequestId, method: entry.method, startedAt: entry.startedAt, error: entry.failure,
+      ...(entry.expected === true ? { expected: true } : {}),
+      ...(entry.expectedCancellation ? { expectedCancellation: entry.expectedCancellation } : {}),
+    });
     notify();
   });
   page.on('pageerror', error => report.errors.push({ kind: 'runtime', message: sanitizeText(error.message) }));

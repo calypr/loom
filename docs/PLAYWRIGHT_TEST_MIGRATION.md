@@ -2,31 +2,86 @@
 
 ## October 5 migration checkpoint
 
-The current registry contains 24 cases. Main Playwright discovery lists 155
-tests in 22 spec files; the dedicated benchmark configuration is separate. The
-static native ownership and binding gate passes all 24 registered cases.
-These checks establish mapping, discovery, and static coverage only.
+The current registry contains 24 cases. Main Playwright static discovery lists
+160 tests in 23 spec files; the discovery snapshot declares 164 cases across
+five scoped sessions (the main suite, one separately configured benchmark, and
+three scoped one-case lists). The static native ownership and binding gate
+passes all 24 registered cases.
+These counts and gates establish discovery and static coverage only.
 
-One current serial native lifecycle has passed: CDA cohort fields, epoch 3.
-Its report, `docs/verification/playwright/runtime/cohort-fields-epoch3.json`,
-records all seven required checks passing, unchanged watched-source and API
-identities, and no unexpected errors or network records. The report leaves
-aggregate performance untested. Its 11 serial transitions took at most 1,645 ms,
-within the five-second transition budget; those timings do not constitute an
-aggregate benchmark. This single case does not establish a suite pass.
+Selected durable native runtime results:
 
-Wave 4 runtime attempts remain separate harness failures: coded fields failed
-the expected cancellation-classification assertion; compound fields failed to
-find the expected `Search` value; repeated contributor ANY passed a string to
-the structured browser-inspection API; and contributor-exists failed because
-its workflow required the retained expected HTTP failure to also appear in the
-generic errors ledger. The exact failed response was present in the
-`expectedHttpFailures` ledger. The empty-row case executed and passed 14 of 14
-lifecycle assertions for the missing-component shape, but native Playwright
-skipped it because literal empty-array (`[]`) coverage remained unproven. These
-attempts do not establish full lifecycle passes or product findings. All other
-cases without passing runtime evidence remain unverified; discovery and
-static-gate results do not change that status.
+- Epoch 6 `CDA compound fields` passed its native lifecycle with 47 recorded
+actions and unchanged source/API identities:
+`docs/verification/playwright/runtime/compound-fields-epoch6.json`.
+- Epoch 6 `CDA contributor exists` passed the official runner 1/1 with no
+skips, unexpected results, or retries. Its generic report does not carry the
+workflow's required-check aggregate, so this is a runner pass rather than a
+registry-complete coverage claim:
+`docs/verification/playwright/runtime/contributor-exists-epoch6.json`.
+- Epoch 6 `CDA source fields` passed the native Playwright/domain lifecycle;
+its required-check list is empty, and persistence/performance aggregates remain
+untested: `docs/verification/playwright/runtime/source-fields-epoch6.json`.
+- Epoch 7 `CDA coded fields` passed the official test and 52 workflow
+assertions/actions with unchanged source/API identities. Its generic report is
+unverified and concurrent timing is provisional:
+`docs/verification/playwright/runtime/coded-fields-epoch7.json`.
+- Epoch 8 `builder-authoring/repeated-empty` passed the standalone Basic
+fixture lifecycle, including literal `component: []`, a missing component,
+populated items, PRESERVE_PARENT and EXCLUDE, Cancel/Apply/reload, and
+restoration to RECORDS. Official exit 0; 125/125 assertions and 53/53 required
+checks passed. Source/API stayed unchanged; timing is provisional under
+concurrent runs. This does not prove literal-empty CDA EXPANDED-to-GROUP
+composition, which remains partial in coverage row 123, or GROUP authoring:
+`docs/verification/playwright/runtime/repeated-empty-basic-epoch8.json`.
+- Epoch 9 `CDA source fields` passed the official native case 1/1 with 25
+recorded assertions and 23 actions. The full direct-field lifecycle covers
+scalar and repeated source values, proposal Cancel, Apply, rename, reload,
+removal, and final reload against exact selected raw CDA identities and values.
+Source, documentation, and API identities stayed unchanged. Max action latency
+was 592 ms during overlapping cases and is provisional, not a serial benchmark.
+The fixture report remains `unverified` because its required-check list is
+empty; the native Playwright case and all recorded assertions passed. Related
+semantic sources and authored EXPAND remain separate gaps:
+`docs/verification/playwright/runtime/source-fields-epoch9.json`.
+
+Epoch 10 `CDA contributor rules` subsequently passed the full native case: 42
+assertions and 40 actions, exact EQUALS filtering against raw 0/1/7-related
+Observation witnesses, Cancel/Apply, reload, EXCLUDE edit, removal, and source
+restoration. Source/docs/API identities were unchanged. Maximum action time was
+300 ms, provisional under concurrent execution. The generic report retains its
+empty-required-check metadata limitation. Evidence:
+`docs/verification/playwright/runtime/contributor-rules-epoch10.json`.
+Epoch 11 `CDA repeated contributor ANY` also passed: 53 assertions, 51 actions,
+and 26 workflow checkpoints including nested-code EXISTS/EQUALS, Cancel/Apply,
+policy edit, reload, removal, and source restoration. Its serial maximum
+recorded action time was 336 ms; the longest workflow checkpoint was 2,204 ms.
+Source/docs/API were unchanged and there were no unexpected errors. Duplicate
+code occurrences within one Observation remain unexercised by the bounded CDA
+witnesses. Evidence:
+`docs/verification/playwright/runtime/contributor-any-epoch11.json`.
+
+The epoch 9 `CDA contributor ANY` and `CDA contributor rules` runs passed the
+previous stable-table locator and advanced into diagnostic accounting, but
+their official tests ended failed. ANY reported `Only an exact observed stale
+proposal abort may be classified` (`1 !== 0`); rules reported `Mode change may
+classify at most one superseded request on each exact owned path`. These remain
+unverified harness/diagnostic outcomes; they do not establish product workflow
+failures or passing lifecycles. Their raw results are under
+`/private/tmp/loom-native-parallel-wave9/{any,rules}/results/`.
+
+Historically, those three epoch 9 cases first failed in epoch 8 before workflow
+actions because a shared locator included a decorative `▤` icon in the role
+name. Epoch 9 source fields passed the full native lifecycle, while ANY and
+rules reached later diagnostics. Epoch 9 closed with source, documentation,
+and API identities unchanged; source fingerprint
+`a8711c9d98001708135b725f4c704b0f28dd73bf7049e4ecc9a3d7806e7160f6` (1487
+files), no changed paths, and unchanged API build identity. Closure record:
+`/private/tmp/loom-native-parallel-wave9/closure.json`.
+
+This is a selected checkpoint list. Other retained runtime reports remain
+separate evidence; cases without scoped passing runtime evidence remain
+unverified. Discovery and static gates do not change that status.
 
 ## Immediate integration priority: public verifier commands
 

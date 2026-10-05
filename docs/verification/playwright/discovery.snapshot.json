@@ -12,9 +12,9 @@
       "configPath": "scripts/playwright.config.mjs",
       "configSha256": "ae1acf486f382cc52e1de90344f42f091c30c0d2c1e911f06d9fba491c55115e",
       "environment": {},
-      "testCount": 157,
+      "testCount": 160,
       "specFileCount": 23,
-      "discoveredCasesSha256": "6dc85f5afffa84c722658a54910e4a5e75427a684e1fe4b016cb09fbd38c4b1d",
+      "discoveredCasesSha256": "8f99e90ab3e243212311b9608a4b6fbec822668982d7202632b5ddba2083081e",
       "specs": [
         {
           "path": "scripts/playwright/append.spec.mjs",
@@ -282,12 +282,33 @@
         },
         {
           "path": "scripts/playwright/native-action-readiness.spec.mjs",
-          "sha256": "fcbb30f469f234168f1b988a4550b5ec826dce16787e63e3e636080f61308fb2",
+          "sha256": "27d6d843d4c54244a3eadaf0faafc4cd6e31a1464561c682761f16121873196d",
           "cases": [
             {
               "title": "shared action readiness uses Playwright auto-waiting for count and editability",
               "id": "574935c15c3b65b95d70-3d10aa1e4cde9720ad6a",
-              "line": 4,
+              "line": 11,
+              "column": 1,
+              "occurrence": 1
+            },
+            {
+              "title": "CDA button locator clicks a uniquely selected no-identity tab with decorative icon text",
+              "id": "574935c15c3b65b95d70-20810978b04b2b54efaa",
+              "line": 45,
+              "column": 1,
+              "occurrence": 1
+            },
+            {
+              "title": "CDA button locator follows its accessible name after a DOM reorder",
+              "id": "574935c15c3b65b95d70-64d4322495d77e1098d1",
+              "line": 60,
+              "column": 1,
+              "occurrence": 1
+            },
+            {
+              "title": "CDA button locator rejects duplicate accessible names before action dispatch",
+              "id": "574935c15c3b65b95d70-0e294a666d31bc3fc83b",
+              "line": 89,
               "column": 1,
               "occurrence": 1
             }
@@ -349,12 +370,12 @@
         },
         {
           "path": "scripts/playwright/native-raw-fields-locator.spec.mjs",
-          "sha256": "96bfc08c98073c626c0afafc22e6f9c31a5761ac2b571d6d324bd50daf11e7cd",
+          "sha256": "3693c58a457dbbab30ac34f9fbbefee5be67232defcba8131e0978f1d18ee207",
           "cases": [
             {
-              "title": "raw FHIR locator selects the direct summary among nested resource summaries",
-              "id": "5b7f9ec248e34f9750bb-4b967f4ab01884880c29",
-              "line": 3,
+              "title": "raw FHIR locator targets the exact direct disclosure summary in the Add columns editor",
+              "id": "5b7f9ec248e34f9750bb-641125ace107b4a91cf5",
+              "line": 4,
               "column": 1,
               "occurrence": 1
             }
@@ -1391,10 +1412,10 @@
       ]
     }
   ],
-  "mainDiscoveryTestCount": 157,
+  "mainDiscoveryTestCount": 160,
   "mainDiscoverySpecFileCount": 23,
   "dedicatedBenchmarkTestCount": 1,
   "dedicatedBenchmarkSpecFileCount": 1,
-  "totalDeclaredTestCount": 161,
+  "totalDeclaredTestCount": 164,
   "note": "Official Playwright list commands loaded registrations only; no test bodies ran. `sessions` records the main suite, the benchmark dedicated config, and the three non-default related ONE/ALL configurations. Each recorded spec/config hash binds titles to the current source tree."
 }

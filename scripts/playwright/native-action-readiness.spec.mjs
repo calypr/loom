@@ -1,5 +1,12 @@
 import { expect, test } from '@playwright/test';
+import { click as cdaClickFromSource } from '../lib/cda-playwright.mjs';
+import { pathToFileURL } from 'node:url';
 import { performAction, prepareNativeAction, requireUnique } from '../lib/playwright-actions.mjs';
+
+
+const cdaClick = process.env.CDA_PLAYWRIGHT_MODULE
+  ? (await import(pathToFileURL(process.env.CDA_PLAYWRIGHT_MODULE).href)).click
+  : cdaClickFromSource;
 
 test('shared action readiness uses Playwright auto-waiting for count and editability', async ({ page }) => {
   await page.setContent(`
@@ -33,4 +40,64 @@ test('shared action readiness uses Playwright auto-waiting for count and editabi
   const elapsedMs = await performAction(undefined, 'Save', page.getByRole('button', { name: 'Save' }), target => target.click());
   await expect(page.getByText('Saved')).toBeVisible();
   expect(elapsedMs).toBeGreaterThanOrEqual(0);
+});
+
+test('CDA button locator clicks a uniquely selected no-identity tab with decorative icon text', async ({ page }) => {
+  await page.setContent(`<button data-testid="table-tab" aria-pressed="false" onclick="this.setAttribute('aria-pressed', 'true')"><span aria-hidden="true">▤</span>Direct source field rows</button>`);
+  const actionContext = {
+    async action(_label, locator, perform) {
+      await expect(locator).toHaveCount(1);
+      await perform(locator);
+    },
+  };
+
+  await cdaClick(page, '[data-testid="table-tab"]', {}, 5000, actionContext);
+
+  const tab = page.getByRole('button', { name: 'Direct source field rows', exact: true });
+  await expect(tab).toHaveAttribute('aria-pressed', 'true');
+});
+
+test('CDA button locator follows its accessible name after a DOM reorder', async ({ page }) => {
+  await page.setContent(`<section aria-label="Add columns editor">
+    <script>window.clicked = [];</script>
+    <button data-testid="load-choices" onclick="window.clicked.push('load-choices')">Load choices for these table rows</button>
+    <button data-testid="add-selected" onclick="window.clicked.push('add-selected')">Add 2 selected features</button>
+  </section>`);
+
+  const actionContext = {
+    async action(_label, locator, perform, { timeout = 5000 } = {}) {
+      await expect(locator).toHaveCount(1, { timeout });
+      await page.evaluate(() => {
+        const editor = document.querySelector('[aria-label="Add columns editor"]');
+        const inserted = document.createElement('button');
+        inserted.textContent = 'Async inserted option';
+        editor.insertBefore(inserted, editor.firstElementChild);
+      });
+      await locator.click({ trial: true, timeout });
+      await perform(locator);
+    },
+  };
+
+  await cdaClick(page, '[aria-label="Add columns editor"] button', {
+    includes: 'Add 2 selected features',
+  }, 5000, actionContext);
+
+  expect(await page.evaluate(() => window.clicked)).toEqual(['add-selected']);
+  await expect(page.getByTestId('load-choices')).toBeVisible();
+});
+
+test('CDA button locator rejects duplicate accessible names before action dispatch', async ({ page }) => {
+  await page.setContent(`<section aria-label="Add columns editor">
+    <script>window.clicked = [];</script>
+    <button data-testid="add-first" onclick="window.clicked.push('first')">Add 2 selected features</button>
+    <button data-testid="add-second" onclick="window.clicked.push('second')">Add 2 selected features</button>
+  </section>`);
+  let actionCalls = 0;
+  const actionContext = { async action() { actionCalls += 1; } };
+
+  await expect(cdaClick(page, '[aria-label="Add columns editor"] button', {
+    includes: 'Add 2 selected features',
+  }, 5000, actionContext)).rejects.toThrow(/Expected exactly one target/);
+  expect(actionCalls).toBe(0);
+  expect(await page.evaluate(() => window.clicked)).toEqual([]);
 });

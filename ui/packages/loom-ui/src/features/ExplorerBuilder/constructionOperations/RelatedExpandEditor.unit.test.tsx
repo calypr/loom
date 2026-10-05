@@ -4,7 +4,7 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest';
 import { relatedExpandContributorSearchResponseSchema, type ConstructionCapabilitiesResponse, type ExplorerBuilderCatalog, type RelatedExpandContributorSearchResponse } from '../../../types';
 import { ConstructionProposalPanel } from '../constructionWorkspace/ConstructionProposalPanel';
-import { RelatedExpandEditor } from './RelatedExpandEditor';
+import { RelatedExpandEditor, type RelatedExpandQueryOwner } from './RelatedExpandEditor';
 
 const searchRelatedExpandChoices = vi.fn();
 const searchRelatedExpandContributors = vi.fn(async (args: { snapshotToken: string; expectedDraftVersion: number; expectedDraftDigest: string; outputId: string; stageId: string; routeChoiceId: string }): Promise<RelatedExpandContributorSearchResponse> => ({
@@ -179,6 +179,7 @@ describe('RelatedExpandEditor', () => {
     fireEvent.change(screen.getByLabelText('Related record type'), { target: { value: 'Encounter' } });
     await waitFor(() => expect(searchRelatedExpandChoices).toHaveBeenCalledWith(
       expect.objectContaining({ stageId: 'source_projection', targetResourceType: 'Encounter' }),
+      expect.any(AbortSignal),
     ));
     expect(screen.getByTestId('construction-related-expand-advanced')).not.toHaveAttribute('open');
     expect(screen.getByText('Start from')).toBeInTheDocument();
@@ -685,25 +686,37 @@ describe('RelatedExpandEditor', () => {
       readonly args: { readonly expectedDraftVersion: number; readonly expectedDraftDigest: string; readonly requestId: string };
       readonly resolve: (value: unknown) => void;
     }> = [];
-    searchRelatedExpandChoices.mockReset().mockImplementation((args, ...rest) => new Promise((resolve) => {
+    searchRelatedExpandChoices.mockReset().mockImplementation((args, signal) => new Promise((resolve, reject) => {
       pending.push({ args, resolve });
-      expect(rest).toHaveLength(0);
+      expect(signal).toBeInstanceOf(AbortSignal);
+      signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true });
     }));
     const onCandidateChange = vi.fn();
+    const queryOwnerRef = React.createRef<RelatedExpandQueryOwner>();
     const props = {
       project: 'project', explorerId: 'explorer', snapshotToken: 'snapshot-1', outputId: 'patients',
-      catalog, construction: capabilities.baseConstruction, capabilities, disabled: false, onCandidateChange,
+      catalog, construction: capabilities.baseConstruction, capabilities, disabled: false, queryOwnerRef, onCandidateChange,
     };
     const view = render(<RelatedExpandEditor {...props} />);
     fireEvent.change(screen.getByLabelText('Related record type'), { target: { value: 'Encounter' } });
     await waitFor(() => expect(pending).toHaveLength(1));
+    const retiredOwner = queryOwnerRef.current;
+    expect(retiredOwner).toMatchObject({ draftVersion: 1, draftDigest: 'draft-1' });
 
     const nextCapabilities = { ...capabilities, draftVersion: 2, draftDigest: 'draft-2' };
     view.rerender(<RelatedExpandEditor {...props} capabilities={nextCapabilities} />);
     await waitFor(() => expect(pending).toHaveLength(2));
+    const currentOwner = queryOwnerRef.current;
+    expect(currentOwner).not.toBe(retiredOwner);
+    expect(currentOwner).toMatchObject({ draftVersion: 2, draftDigest: 'draft-2' });
     expect(pending[0].args.expectedDraftVersion).toBe(1);
     expect(pending[1].args.expectedDraftVersion).toBe(2);
     expect(pending[0].args.requestId).not.toBe(pending[1].args.requestId);
+
+    await act(async () => {
+      await retiredOwner?.pauseAndDrain();
+      retiredOwner?.resume();
+    });
 
     await act(async () => pending[0].resolve({
       snapshotToken: 'snapshot-1', draftVersion: 1, draftDigest: 'draft-1', outputId: 'patients',
@@ -715,6 +728,15 @@ describe('RelatedExpandEditor', () => {
 
     await act(async () => pending[1].resolve({
       snapshotToken: 'snapshot-1', draftVersion: 2, draftDigest: 'draft-2', outputId: 'patients',
+      stageId: 'source_projection', anchorColumnId: '_key', complete: false, truncated: true, nextCursor: 'current-next-page',
+      choices: [],
+    }));
+    await waitFor(() => expect(pending).toHaveLength(3));
+    expect(pending[2].args.expectedDraftVersion).toBe(2);
+    expect(pending[2].args.expectedDraftDigest).toBe('draft-2');
+    expect(pending[2].args.requestId).not.toBe(pending[1].args.requestId);
+    await act(async () => pending[2].resolve({
+      snapshotToken: 'snapshot-1', draftVersion: 2, draftDigest: 'draft-2', outputId: 'patients',
       stageId: 'source_projection', anchorColumnId: '_key', complete: true, truncated: false,
       choices: [{ ...rootAnchor, choiceId: 'current-choice', targetNodeId: 'encounter-node', targetResourceType: 'Encounter', route }],
     }));
@@ -725,19 +747,109 @@ describe('RelatedExpandEditor', () => {
       .toBe('current-choice');
   });
 
-  it('does not request the next route page when the editor unmounts during a pending page', async () => {
-    let resolveFirstPage: ((value: unknown) => void) | undefined;
-    searchRelatedExpandChoices.mockReset().mockImplementation(() => new Promise((resolve) => { resolveFirstPage = resolve; }));
+  it('rejects an incomplete route page without a cursor instead of repeating the first page', async () => {
+    searchRelatedExpandChoices.mockReset().mockResolvedValue({
+      snapshotToken: 'snapshot-1', draftVersion: 1, draftDigest: 'draft-1',
+      outputId: 'patients', stageId: 'source_projection', anchorColumnId: '_key',
+      complete: false, truncated: false,
+      choices: [{ ...rootAnchor, choiceId: 'partial-choice', targetNodeId: 'encounter-node', targetResourceType: 'Encounter', route }],
+    });
+    render(<RelatedExpandEditor
+      project="project" explorerId="explorer" snapshotToken="snapshot-1" outputId="patients"
+      catalog={catalog} construction={capabilities.baseConstruction} capabilities={capabilities}
+      disabled={false} onCandidateChange={vi.fn()}
+    />);
+
+    fireEvent.change(screen.getByLabelText('Related record type'), { target: { value: 'Encounter' } });
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Could not finish loading relationship paths. Reopen this editor to retry.',
+    );
+    expect(searchRelatedExpandChoices).toHaveBeenCalledTimes(1);
+    expect(searchRelatedExpandChoices).toHaveBeenCalledWith(
+      expect.not.objectContaining({ cursor: expect.anything() }),
+      expect.any(AbortSignal),
+    );
+  });
+
+  it('drains the current page before Apply and resumes from its saved cursor after failure', async () => {
+    const pending: Array<{
+      readonly args: { readonly cursor?: string };
+      readonly resolve: (value: unknown) => void;
+    }> = [];
+    searchRelatedExpandChoices.mockReset().mockImplementation((args, signal) => new Promise((resolve, reject) => {
+      pending.push({ args, resolve });
+      signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true });
+    }));
+    const queryOwnerRef = React.createRef<RelatedExpandQueryOwner>();
     const onCandidateChange = vi.fn();
+    const props = {
+      project: 'project', explorerId: 'explorer', snapshotToken: 'snapshot-1', outputId: 'patients',
+      catalog, construction: capabilities.baseConstruction, capabilities, queryOwnerRef, onCandidateChange,
+    };
+    const view = render(<RelatedExpandEditor {...props} disabled={false} />);
+    fireEvent.change(screen.getByLabelText('Related record type'), { target: { value: 'Encounter' } });
+    await waitFor(() => expect(pending).toHaveLength(1));
+
+    const mutationOrder: string[] = [];
+    let failMutation: (() => void) | undefined;
+    const mutationSettlement = new Promise<void>((resolve) => { failMutation = resolve; });
+    const mutation = (async () => {
+      await queryOwnerRef.current?.pauseAndDrain();
+      mutationOrder.push('command-started');
+      await mutationSettlement;
+      mutationOrder.push('command-failed');
+      queryOwnerRef.current?.resume();
+    })();
+    expect(mutationOrder).toEqual([]);
+
+    view.rerender(<RelatedExpandEditor {...props} disabled />);
+    await act(async () => pending[0]?.resolve({
+      snapshotToken: 'snapshot-1', draftVersion: 1, draftDigest: 'draft-1', outputId: 'patients',
+      stageId: 'source_projection', anchorColumnId: '_key', complete: false, truncated: true, nextCursor: 'saved-route-cursor',
+      choices: [{ ...rootAnchor, choiceId: 'first-page-choice', targetNodeId: 'encounter-node', targetResourceType: 'Encounter', route }],
+    }));
+    await waitFor(() => expect(mutationOrder).toEqual(['command-started']));
+    expect(screen.getByRole('radio', { name: 'Patient <-[subject]- Encounter' })).toBeDisabled();
+    expect(searchRelatedExpandChoices).toHaveBeenCalledTimes(1);
+
+    await act(async () => failMutation?.());
+    await waitFor(() => expect(pending).toHaveLength(2));
+    expect(pending[1]?.args.cursor).toBe('saved-route-cursor');
+    expect(pending[0]?.args.cursor).toBeUndefined();
+    await act(async () => pending[1]?.resolve({
+      snapshotToken: 'snapshot-1', draftVersion: 1, draftDigest: 'draft-1', outputId: 'patients',
+      stageId: 'source_projection', anchorColumnId: '_key', complete: true, truncated: false,
+      choices: [{ ...rootAnchor, choiceId: 'second-page-choice', targetNodeId: 'encounter-node', targetResourceType: 'Encounter', route }],
+    }));
+    await mutation;
+    expect(mutationOrder).toEqual(['command-started', 'command-failed']);
+    view.unmount();
+  });
+
+  it('settles a draining page on unmount and leaves the retired owner inert', async () => {
+    let resolveFirstPage: ((value: unknown) => void) | undefined;
+    let routeSignal: AbortSignal | undefined;
+    searchRelatedExpandChoices.mockReset().mockImplementation((_args, signal) => new Promise((resolve, reject) => {
+      resolveFirstPage = resolve;
+      routeSignal = signal;
+      signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true });
+    }));
+    const onCandidateChange = vi.fn();
+    const queryOwnerRef = React.createRef<RelatedExpandQueryOwner>();
     const view = render(<RelatedExpandEditor
       project="project" explorerId="explorer" snapshotToken="snapshot-1" outputId="patients"
       catalog={catalog} construction={capabilities.baseConstruction} capabilities={capabilities}
-      disabled={false} onCandidateChange={onCandidateChange}
+      disabled={false} queryOwnerRef={queryOwnerRef} onCandidateChange={onCandidateChange}
     />);
     fireEvent.change(screen.getByLabelText('Related record type'), { target: { value: 'Encounter' } });
     await waitFor(() => expect(searchRelatedExpandChoices).toHaveBeenCalledTimes(1));
     const changesBeforeRetirement = onCandidateChange.mock.calls.length;
+    const retiredOwner = queryOwnerRef.current;
+    const drained = retiredOwner?.pauseAndDrain();
     view.unmount();
+    await act(async () => drained);
+    expect(routeSignal?.aborted).toBe(true);
+    retiredOwner?.resume();
     await act(async () => resolveFirstPage?.({
       snapshotToken: 'snapshot-1', draftVersion: 1, draftDigest: 'draft-1', outputId: 'patients',
       stageId: 'source_projection', anchorColumnId: '_key', complete: false, truncated: true, nextCursor: 'must-not-request',
@@ -769,6 +881,7 @@ describe('RelatedExpandEditor', () => {
     fireEvent.change(screen.getByLabelText('Related record type'), { target: { value: 'Encounter' } });
     await waitFor(() => expect(searchRelatedExpandChoices).toHaveBeenLastCalledWith(
       expect.objectContaining({ cursor: 'next-route-page' }),
+      expect.any(AbortSignal),
     ));
     expect(screen.queryByRole('button', { name: 'Load more paths' })).toBeNull();
     expect(requestIds).toHaveLength(2);
@@ -804,6 +917,7 @@ describe('RelatedExpandEditor', () => {
     fireEvent.change(screen.getByLabelText('Related record type'), { target: { value: 'Encounter' } });
     await waitFor(() => expect(searchRelatedExpandChoices).toHaveBeenCalledWith(
       expect.objectContaining({ stageId: 'keep-patients' }),
+      expect.any(AbortSignal),
     ));
     fireEvent.click(await screen.findByRole('radio', { name: 'Patient <-[subject]- Encounter' }));
     const steps = onCandidateChange.mock.lastCall?.[0]?.candidateConstruction.steps;
@@ -862,6 +976,7 @@ describe('RelatedExpandEditor', () => {
     expect(onCandidateChange).toHaveBeenLastCalledWith(undefined);
     await waitFor(() => expect(searchRelatedExpandChoices).toHaveBeenLastCalledWith(
       expect.objectContaining({ anchorColumnId: '_key', targetResourceType: 'Observation' }),
+      expect.any(AbortSignal),
     ));
   });
 

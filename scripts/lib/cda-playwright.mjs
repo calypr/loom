@@ -42,6 +42,7 @@ async function exactTarget(page, selector, identity = {}) {
     const normalize = value => String(value ?? '').replace(/\s+/g, ' ').trim();
     return elements.map((element, index) => ({
       index,
+      tagName: element.tagName.toLowerCase(),
       label: normalize(element.getAttribute('aria-label') || element.innerText || element.textContent),
     })).filter(({ label }) => {
       if (match.name !== undefined) return label === match.name;
@@ -57,7 +58,21 @@ async function exactTarget(page, selector, identity = {}) {
     message: `Expected exactly one target for ${selector} ${identity.name ?? identity.includes ?? ''}`,
     timeout: 5000,
   }).toBe(1);
-  return { locator: candidates.nth(matches[0].index), label: normalizeLabel(matches[0].label) };
+  const match = matches[0];
+  if (match.tagName === 'button') {
+    if (identity.name === undefined && identity.includes === undefined) {
+      return { locator: candidates, label: normalizeLabel(match.label) };
+    }
+    const name = identity.name ?? identity.includes ?? match.label;
+    const locator = candidates.and(page.getByRole('button', {
+      name,
+      exact: identity.includes === undefined,
+    }));
+    await expect(locator, `Expected exactly one stable button for ${selector} ${name}`)
+      .toHaveCount(1, { timeout: 5000 });
+    return { locator, label: normalizeLabel(match.label) };
+  }
+  return { locator: candidates.nth(match.index), label: normalizeLabel(match.label) };
 }
 
 async function action(actionContext, label, locator, perform, options = {}) {

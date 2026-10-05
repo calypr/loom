@@ -298,7 +298,7 @@ export const repeatedEmptyWorkflow = async (workflow, context = workflow) => {
     await chooseComponentSource('preview PRESERVE_PARENT for Observation.component[] without applying it');
     await recordPlaywrightTiming(report, page, workflow, {
       name: 'Cancel the source expansion proposal',
-      action: () => click(workflow, '[role="dialog"][aria-label="Expand a repeated source field"] button', { name: 'Cancel' }),
+      action: () => click(workflow, '[role="dialog"][aria-label="Expand a repeated source field"] header button', { name: 'Cancel' }),
       after: `!document.querySelector('[role="dialog"][aria-label="Expand a repeated source field"]')`,
       timeout: 5000,
       budget: 5000,
@@ -332,8 +332,9 @@ export const repeatedEmptyWorkflow = async (workflow, context = workflow) => {
     await click(workflow, 'button', { includes: 'Add columns:' });
     await waitFor(page, "document.querySelector('[aria-label=\"Add columns editor\"]')", 5000);
     await click(workflow, 'button', { name: 'Fields and related data' });
-    const rawFieldsOpen = await evaluate(page, `Boolean(document.querySelector('[data-testid="feature-catalog-raw-fields"]')?.open)`);
-    if (!rawFieldsOpen) await click(workflow, '[data-testid="feature-catalog-raw-fields"] summary');
+    const rawFieldsDisclosure = '[aria-label="Add columns editor"] [data-testid="feature-catalog-raw-fields"]';
+    const rawFieldsOpen = await evaluate(page, `Boolean(document.querySelector(${JSON.stringify(rawFieldsDisclosure)})?.open)`);
+    if (!rawFieldsOpen) await click(workflow, `${rawFieldsDisclosure} > summary`, { name: 'Raw FHIR fields (advanced)' });
     await waitFor(page, "document.querySelector('[aria-label=\"Add columns editor\"] input[type=\"checkbox\"][aria-label]')", 5000);
     const componentCodeChoices = await evaluate(page, `([...document.querySelectorAll('[aria-label="Add columns editor"] input[type="checkbox"][aria-label]')].map(input=>input.getAttribute('aria-label')).filter(label=>/Observation\.component.*code.*text/i.test(label||'')))`);
     requireCheck(report, 'correctness', 'source EXPANDED rows expose the scalar component code text field for exact item verification',

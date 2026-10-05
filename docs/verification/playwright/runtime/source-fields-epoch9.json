@@ -1,0 +1,767 @@
+{
+  "epoch": 9,
+  "case": "CDA source fields",
+  "runner": {
+    "command": [
+      "/Users/peterkor/.nvm/versions/node/v22.22.0/bin/node",
+      "/private/tmp/loom-construction-implementation/scripts/node_modules/.bin/playwright",
+      "test",
+      "--config",
+      "playwright.config.mjs",
+      "playwright/standalone-cda-fields.spec.mjs",
+      "--grep",
+      "CDA source fields",
+      "--output",
+      "/private/tmp/loom-native-parallel-wave9/source/results"
+    ],
+    "exitCode": 0,
+    "status": "passed",
+    "durationMs": 26773.066000000003,
+    "expected": 1,
+    "unexpected": 0,
+    "flaky": 0
+  },
+  "explorer": "cda-source-fields-1791221259939-a65e29c6",
+  "sourceAndApi": {
+    "sourceBaseline": {
+      "sha256": "a8711c9d98001708135b725f4c704b0f28dd73bf7049e4ecc9a3d7806e7160f6",
+      "files": 1487
+    },
+    "sourceChangedFiles": [],
+    "docsBaseline": {
+      "sha256": "f2fdd1b783f13593cbdb17ce7b8c63fc7fdad9c30639e663f2d62eaf56960565",
+      "files": 102
+    },
+    "docsChangedFiles": [],
+    "apiBuildIdentityBaseline": "9e0e53a002c2cde544c54a34905fcea04f51a00d5247909f6204e73ccc85fc3c:9e0e53a002c2cde544c54a34905fcea04f51a00d5247909f6204e73ccc85fc3c:1480cbf92c206363ef5f24926e95396d0a25634ff9b9c99a08df3a26db41d114",
+    "apiBuildIdentityBefore": "9e0e53a002c2cde544c54a34905fcea04f51a00d5247909f6204e73ccc85fc3c:9e0e53a002c2cde544c54a34905fcea04f51a00d5247909f6204e73ccc85fc3c:1480cbf92c206363ef5f24926e95396d0a25634ff9b9c99a08df3a26db41d114",
+    "apiBuildIdentityAfter": "9e0e53a002c2cde544c54a34905fcea04f51a00d5247909f6204e73ccc85fc3c:9e0e53a002c2cde544c54a34905fcea04f51a00d5247909f6204e73ccc85fc3c:1480cbf92c206363ef5f24926e95396d0a25634ff9b9c99a08df3a26db41d114",
+    "apiIdentityUnchanged": true,
+    "closure": {
+      "status": "SOURCE_DOCS_API_CLOSED_UNCHANGED",
+      "sourceUnchanged": true,
+      "sourceFingerprint": {
+        "sha256": "a8711c9d98001708135b725f4c704b0f28dd73bf7049e4ecc9a3d7806e7160f6",
+        "files": 1487
+      },
+      "docsUnchanged": true,
+      "docsFingerprint": {
+        "sha256": "f2fdd1b783f13593cbdb17ce7b8c63fc7fdad9c30639e663f2d62eaf56960565",
+        "files": 102
+      },
+      "apiUnchanged": true,
+      "apiBuildIdentity": "9e0e53a002c2cde544c54a34905fcea04f51a00d5247909f6204e73ccc85fc3c:9e0e53a002c2cde544c54a34905fcea04f51a00d5247909f6204e73ccc85fc3c:1480cbf92c206363ef5f24926e95396d0a25634ff9b9c99a08df3a26db41d114",
+      "terminalCaseCount": 3
+    }
+  },
+  "oracle": {
+    "source": "ArangoDB raw Observation payloads",
+    "sha256CanonicalJson": "6d9629c2f6389602410f61b19906968df837447a5f3e3fe23a4a697fdfaa0991",
+    "queryLimit": 1000,
+    "scanned": 1000,
+    "scalarPath": "status",
+    "repeatedPath": "component[].valueString",
+    "selected": [
+      {
+        "id": "00004888-0740-540e-bc75-68b5192fbf5a",
+        "generation": "cda-fhir-v1",
+        "resourceType": "Observation",
+        "status": "final",
+        "componentValues": [
+          "aliquot",
+          "Adenoma, NOS"
+        ]
+      },
+      {
+        "id": "00008c9a-64db-55f9-96bf-7a0db4e32551",
+        "generation": "cda-fhir-v1",
+        "resourceType": "Observation",
+        "status": "final",
+        "componentValues": [
+          "sample",
+          "Acinar cell adenoma"
+        ]
+      },
+      {
+        "id": "0000961c-775c-52cf-b25c-c71ee28c423f",
+        "generation": "cda-fhir-v1",
+        "resourceType": "Observation",
+        "status": "final",
+        "componentValues": [
+          "aliquot",
+          "Glioma, malignant"
+        ]
+      }
+    ],
+    "expectedTypes": {
+      "id": "string",
+      "status": "string",
+      "component[].valueString": "array<string>"
+    }
+  },
+  "lifecycle": {
+    "outputId": "out_283a21c921c473fd5a8f0401",
+    "rootResourceType": "Observation",
+    "initialRowCount": 3,
+    "selectedIds": [
+      "00004888-0740-540e-bc75-68b5192fbf5a",
+      "00008c9a-64db-55f9-96bf-7a0db4e32551",
+      "0000961c-775c-52cf-b25c-c71ee28c423f"
+    ],
+    "bindings": {
+      "status": {
+        "columnId": "col_3458f1c0649360eb843d784b",
+        "candidateId": "c_16d8a31d0ec09b0b02c03861",
+        "path": "status",
+        "projection": "VALUE",
+        "logicalType": "string",
+        "cardinality": "optional_one"
+      },
+      "repeated": {
+        "columnId": "col_5cf32c703d229d08db23e9ad",
+        "candidateId": "c_8a521937841fa94c13f8ca21",
+        "path": "component[].valueString",
+        "projection": "ALL",
+        "logicalType": "string",
+        "cardinality": "many"
+      },
+      "sourcePopulation": {
+        "selectionRevisionId": "selection_453ca89e0651f5895171eeb12cd36a5f19e0486648fbb13b3bdd2c48b40dd8d0",
+        "route": []
+      },
+      "rowDefinition": {
+        "kind": "RECORDS",
+        "records": {}
+      }
+    },
+    "cancelProposal": {
+      "status": "passed",
+      "restoredDraftDigest": "sha256:c533b3c678ef5ae735ab934079111a797e4cff8ab3999f8e95059640db66b057"
+    },
+    "presentationEdit": {
+      "label": "CDA component values QA",
+      "columnId": "col_5cf32c703d229d08db23e9ad",
+      "field": {
+        "path": "component[].valueString",
+        "projectionMode": "ALL"
+      }
+    },
+    "reload": {
+      "receiptId": "receipt_9417c8761f2184e2d0e668fba72ef27dbda83175689e6b95f425ea686f2af2de",
+      "rows": 3,
+      "columnIds": [
+        "col_8ffde23959df9c4e4dcaecf3",
+        "col_5cf32c703d229d08db23e9ad",
+        "col_3458f1c0649360eb843d784b"
+      ],
+      "values": {
+        "0000961c-775c-52cf-b25c-c71ee28c423f": {
+          "id": "0000961c-775c-52cf-b25c-c71ee28c423f",
+          "status": "final",
+          "component[].valueString": [
+            "aliquot",
+            "Glioma, malignant"
+          ]
+        },
+        "00008c9a-64db-55f9-96bf-7a0db4e32551": {
+          "id": "00008c9a-64db-55f9-96bf-7a0db4e32551",
+          "status": "final",
+          "component[].valueString": [
+            "sample",
+            "Acinar cell adenoma"
+          ]
+        },
+        "00004888-0740-540e-bc75-68b5192fbf5a": {
+          "id": "00004888-0740-540e-bc75-68b5192fbf5a",
+          "status": "final",
+          "component[].valueString": [
+            "aliquot",
+            "Adenoma, NOS"
+          ]
+        }
+      },
+      "statusType": "string",
+      "repeatedType": "array<string>",
+      "bindings": {
+        "status": {
+          "path": "status",
+          "projectionMode": "VALUE"
+        },
+        "repeated": {
+          "path": "component[].valueString",
+          "projectionMode": "ALL"
+        }
+      },
+      "population": {
+        "selectionRevisionId": "selection_453ca89e0651f5895171eeb12cd36a5f19e0486648fbb13b3bdd2c48b40dd8d0",
+        "route": []
+      }
+    },
+    "removals": [
+      {
+        "label": "CDA component values QA",
+        "columnId": "col_5cf32c703d229d08db23e9ad",
+        "remainingColumns": [
+          "col_8ffde23959df9c4e4dcaecf3",
+          "col_3458f1c0649360eb843d784b"
+        ]
+      },
+      {
+        "label": "Status",
+        "columnId": "col_3458f1c0649360eb843d784b",
+        "remainingColumns": [
+          "col_8ffde23959df9c4e4dcaecf3"
+        ]
+      }
+    ],
+    "restoredPopulation": {
+      "selectionRevisionId": "selection_453ca89e0651f5895171eeb12cd36a5f19e0486648fbb13b3bdd2c48b40dd8d0",
+      "rowCount": 3,
+      "columnCount": 1
+    },
+    "nativeRequestCount": 60,
+    "expectedCancellationProofs": [
+      {
+        "requestId": "cda-request-267",
+        "playwrightRequestId": "cda-request-267",
+        "browserRequestId": "playwright-45",
+        "method": "POST",
+        "url": "http://127.0.0.1:30008/api/v1/projects/loom_dev_cda_fhir/explorers/cda-source-fields-1791221259939-a65e29c6/authoring/v2/construction-capabilities",
+        "reason": "A concrete same-Explorer column mutation changed the draft identity while this capabilities read was pending, and the matching replacement read succeeded.",
+        "proof": {
+          "request": {
+            "requestId": "playwright-45",
+            "browserRequestId": "playwright-45",
+            "origin": "http://127.0.0.1:30008",
+            "path": "/api/v1/projects/loom_dev_cda_fhir/explorers/cda-source-fields-1791221259939-a65e29c6/authoring/v2/construction-capabilities",
+            "body": {
+              "snapshotToken": "sha256:7e9a025ec2555033fd138a3cbf9eaecebb24f870a6b37cf5e86e0355c84b40f7",
+              "expectedDraftVersion": 6,
+              "expectedDraftDigest": "sha256:05081bfc11acbf382fe8865d590b94a02d5f6a26df67643bcc953d418e3812cb",
+              "outputId": "out_283a21c921c473fd5a8f0401",
+              "stageId": "source_projection"
+            },
+            "startedAt": 1791221275685,
+            "completedAt": 1791221276705,
+            "failure": "net::ERR_ABORTED"
+          },
+          "mutation": {
+            "requestId": "builder-command-e37009f6-a3bd-4a70-ba59-7b430795649d",
+            "browserRequestId": "playwright-48",
+            "origin": "http://127.0.0.1:30008",
+            "path": "/api/v1/projects/loom_dev_cda_fhir/explorers/cda-source-fields-1791221259939-a65e29c6/authoring/v2/commands",
+            "action": "Remove Status column",
+            "commands": [
+              {
+                "type": "REMOVE_COLUMN",
+                "outputId": "out_283a21c921c473fd5a8f0401",
+                "column": "col_3458f1c0649360eb843d784b"
+              }
+            ],
+            "startedAt": 1791221276662,
+            "responseReceivedAt": 1791221276663,
+            "status": 200,
+            "requestIdentity": {
+              "snapshotToken": "sha256:7e9a025ec2555033fd138a3cbf9eaecebb24f870a6b37cf5e86e0355c84b40f7",
+              "outputId": "out_283a21c921c473fd5a8f0401",
+              "draftVersion": 6,
+              "draftDigest": "sha256:05081bfc11acbf382fe8865d590b94a02d5f6a26df67643bcc953d418e3812cb"
+            },
+            "resultingIdentity": {
+              "snapshotToken": "sha256:7e9a025ec2555033fd138a3cbf9eaecebb24f870a6b37cf5e86e0355c84b40f7",
+              "outputId": "out_283a21c921c473fd5a8f0401",
+              "stageId": "source_projection",
+              "expectedDraftVersion": 7,
+              "expectedDraftDigest": "sha256:c533b3c678ef5ae735ab934079111a797e4cff8ab3999f8e95059640db66b057"
+            }
+          },
+          "replacement": {
+            "requestId": "playwright-50",
+            "browserRequestId": "playwright-50",
+            "origin": "http://127.0.0.1:30008",
+            "path": "/api/v1/projects/loom_dev_cda_fhir/explorers/cda-source-fields-1791221259939-a65e29c6/authoring/v2/construction-capabilities",
+            "startedAt": 1791221276702,
+            "responseReceivedAt": 1791221277654,
+            "completedAt": 1791221277726,
+            "status": 200,
+            "body": {
+              "snapshotToken": "sha256:7e9a025ec2555033fd138a3cbf9eaecebb24f870a6b37cf5e86e0355c84b40f7",
+              "expectedDraftVersion": 7,
+              "expectedDraftDigest": "sha256:c533b3c678ef5ae735ab934079111a797e4cff8ab3999f8e95059640db66b057",
+              "outputId": "out_283a21c921c473fd5a8f0401",
+              "stageId": "source_projection"
+            }
+          },
+          "chronology": {
+            "abortedRequestStartedBeforeMutation": true,
+            "abortedRequestWasPendingAtIdentityChange": true,
+            "replacementStartedAfterIdentityChange": true,
+            "replacementMatchesMutationResult": true
+          }
+        }
+      }
+    ]
+  },
+  "assertions": [
+    {
+      "dimension": "usability",
+      "name": "▤ Direct source field rows completed",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 176,
+        "afterMs": null
+      }
+    },
+    {
+      "dimension": "usability",
+      "name": "Add columns: Bring more information into each row. completed",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 100,
+        "afterMs": null
+      }
+    },
+    {
+      "dimension": "usability",
+      "name": "Fields and related data completed",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 92,
+        "afterMs": null
+      }
+    },
+    {
+      "dimension": "usability",
+      "name": "Observation, Current table rows completed",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 105,
+        "afterMs": null
+      }
+    },
+    {
+      "dimension": "usability",
+      "name": "Raw FHIR fields (advanced) completed",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 78,
+        "afterMs": null
+      }
+    },
+    {
+      "dimension": "usability",
+      "name": "Select Observation.component[].valueString completed",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 84,
+        "afterMs": null
+      }
+    },
+    {
+      "dimension": "usability",
+      "name": "Select Observation.status completed",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 100,
+        "afterMs": null
+      }
+    },
+    {
+      "dimension": "usability",
+      "name": "Add 2 selected features completed",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 109,
+        "afterMs": null
+      }
+    },
+    {
+      "dimension": "usability",
+      "name": "Add 2 columns completed",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 592,
+        "afterMs": null
+      }
+    },
+    {
+      "dimension": "usability",
+      "name": "Cancel completed",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 108,
+        "afterMs": null
+      }
+    },
+    {
+      "dimension": "usability",
+      "name": "Fields and related data completed",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 198,
+        "afterMs": null
+      }
+    },
+    {
+      "dimension": "usability",
+      "name": "Select Observation.component[].valueString completed",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 158,
+        "afterMs": null
+      }
+    },
+    {
+      "dimension": "usability",
+      "name": "Select Observation.status completed",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 127,
+        "afterMs": null
+      }
+    },
+    {
+      "dimension": "usability",
+      "name": "Add 2 selected features completed",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 224,
+        "afterMs": null
+      }
+    },
+    {
+      "dimension": "usability",
+      "name": "Add 2 columns completed",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 246,
+        "afterMs": null
+      }
+    },
+    {
+      "dimension": "usability",
+      "name": "Apply columns completed",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 240,
+        "afterMs": null
+      }
+    },
+    {
+      "dimension": "usability",
+      "name": "Columns completed",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 356,
+        "afterMs": null
+      }
+    },
+    {
+      "dimension": "usability",
+      "name": "Column name for Component Value String completed",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 62,
+        "afterMs": null
+      }
+    },
+    {
+      "dimension": "usability",
+      "name": "▤ Direct source field rows completed",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 179,
+        "afterMs": null
+      }
+    },
+    {
+      "dimension": "usability",
+      "name": "Columns completed",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 64,
+        "afterMs": null
+      }
+    },
+    {
+      "dimension": "usability",
+      "name": "Remove CDA component values QA column completed",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 251,
+        "afterMs": null
+      }
+    },
+    {
+      "dimension": "usability",
+      "name": "Remove Status column completed",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 256,
+        "afterMs": null
+      }
+    },
+    {
+      "dimension": "usability",
+      "name": "▤ Direct source field rows completed",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 76,
+        "afterMs": null
+      }
+    },
+    {
+      "dimension": "correctness",
+      "name": "CDA watched source and API build stayed unchanged",
+      "status": "passed",
+      "evidence": {
+        "sourceFingerprint": {
+          "before": {
+            "sha256": "a8711c9d98001708135b725f4c704b0f28dd73bf7049e4ecc9a3d7806e7160f6",
+            "files": 1487
+          },
+          "after": {
+            "sha256": "a8711c9d98001708135b725f4c704b0f28dd73bf7049e4ecc9a3d7806e7160f6",
+            "files": 1487
+          }
+        },
+        "apiBuildIdentity": {
+          "before": "9e0e53a002c2cde544c54a34905fcea04f51a00d5247909f6204e73ccc85fc3c:9e0e53a002c2cde544c54a34905fcea04f51a00d5247909f6204e73ccc85fc3c:1480cbf92c206363ef5f24926e95396d0a25634ff9b9c99a08df3a26db41d114",
+          "after": "9e0e53a002c2cde544c54a34905fcea04f51a00d5247909f6204e73ccc85fc3c:9e0e53a002c2cde544c54a34905fcea04f51a00d5247909f6204e73ccc85fc3c:1480cbf92c206363ef5f24926e95396d0a25634ff9b9c99a08df3a26db41d114"
+        },
+        "sourceFreeze": {
+          "unchanged": true,
+          "watchedFileCount": 1114,
+          "changedPaths": [],
+          "invalidatesRun": false,
+          "productFailure": false
+        }
+      }
+    },
+    {
+      "dimension": "correctness",
+      "name": "incidental asset failures are explicitly recorded",
+      "status": "passed",
+      "evidence": {
+        "failures": [
+          {
+            "kind": "asset-failure",
+            "url": "http://127.0.0.1:30008/favicon.ico",
+            "status": 404
+          },
+          {
+            "kind": "console",
+            "url": "http://127.0.0.1:30008/favicon.ico",
+            "status": 404
+          }
+        ]
+      }
+    }
+  ],
+  "actionTimings": [
+    {
+      "label": "▤ Direct source field rows",
+      "elapsedMs": 176
+    },
+    {
+      "label": "Add columns: Bring more information into each row.",
+      "elapsedMs": 100
+    },
+    {
+      "label": "Fields and related data",
+      "elapsedMs": 92
+    },
+    {
+      "label": "Observation, Current table rows",
+      "elapsedMs": 105
+    },
+    {
+      "label": "Raw FHIR fields (advanced)",
+      "elapsedMs": 78
+    },
+    {
+      "label": "Select Observation.component[].valueString",
+      "elapsedMs": 84
+    },
+    {
+      "label": "Select Observation.status",
+      "elapsedMs": 100
+    },
+    {
+      "label": "Add 2 selected features",
+      "elapsedMs": 109
+    },
+    {
+      "label": "Add 2 columns",
+      "elapsedMs": 592
+    },
+    {
+      "label": "Cancel",
+      "elapsedMs": 108
+    },
+    {
+      "label": "Fields and related data",
+      "elapsedMs": 198
+    },
+    {
+      "label": "Select Observation.component[].valueString",
+      "elapsedMs": 158
+    },
+    {
+      "label": "Select Observation.status",
+      "elapsedMs": 127
+    },
+    {
+      "label": "Add 2 selected features",
+      "elapsedMs": 224
+    },
+    {
+      "label": "Add 2 columns",
+      "elapsedMs": 246
+    },
+    {
+      "label": "Apply columns",
+      "elapsedMs": 240
+    },
+    {
+      "label": "Columns",
+      "elapsedMs": 356
+    },
+    {
+      "label": "Column name for Component Value String",
+      "elapsedMs": 62
+    },
+    {
+      "label": "▤ Direct source field rows",
+      "elapsedMs": 179
+    },
+    {
+      "label": "Columns",
+      "elapsedMs": 64
+    },
+    {
+      "label": "Remove CDA component values QA column",
+      "elapsedMs": 251
+    },
+    {
+      "label": "Remove Status column",
+      "elapsedMs": 256
+    },
+    {
+      "label": "▤ Direct source field rows",
+      "elapsedMs": 76
+    }
+  ],
+  "performance": {
+    "actionCount": 23,
+    "maxActionMs": 592,
+    "failIfOver5000Ms": false,
+    "setupMs": 2087
+  },
+  "remainingCoverageGap": [
+    {
+      "assertion": "related semantic sources and authored EXPAND",
+      "status": "not-covered",
+      "reason": "This verifier covers direct same-resource field projections only; related semantic selection and authored list expansion remain separate behavior classes."
+    }
+  ],
+  "coverageMetadata": {
+    "domainReportStatus": "unverified",
+    "requiredChecks": [],
+    "missingRequiredChecks": [],
+    "interpretation": "Native Playwright case passed and all recorded assertions passed; fixture report remains unverified because requiredChecks is empty."
+  },
+  "network": {
+    "expectedCancellations": 1,
+    "unexpectedErrors": 0,
+    "incidentalErrors": [
+      {
+        "kind": "asset-failure",
+        "url": "http://127.0.0.1:30008/favicon.ico",
+        "status": 404
+      }
+    ]
+  },
+  "sourceReportPath": "/private/tmp/loom-native-parallel-wave9/source/results/standalone-cda-fields-CDA-source-fields-CDA-source-fields/cda-report.json",
+  "rawDomainAttachmentPath": "/private/tmp/loom-native-parallel-wave9/source/results/standalone-cda-fields-CDA-source-fields-CDA-source-fields/attachments/standalone-source-fields-domain.json",
+  "timingInterpretation": {
+    "concurrentNativeCases": {
+      "source": {
+        "startedAt": "2026-10-05T17:27:38.324Z",
+        "finishedAt": "2026-10-05T17:28:02.656Z"
+      },
+      "any": {
+        "startedAt": "2026-10-05T17:27:38.402Z",
+        "finishedAt": "2026-10-05T17:27:55.449Z"
+      },
+      "rules": {
+        "startedAt": "2026-10-05T17:27:36.404Z",
+        "finishedAt": "2026-10-05T17:27:55.449Z"
+      }
+    },
+    "allThreeCasesOverlap": true,
+    "overlapWindow": {
+      "startedAt": "2026-10-05T17:27:38.402Z",
+      "finishedAt": "2026-10-05T17:27:55.449Z"
+    },
+    "actionTimingsAreProvisional": true,
+    "reason": "The source-fields browser run overlapped the ANY and contributor-rules runs on the shared local stack; these action latencies are operational evidence, not an isolated benchmark.",
+    "thresholdMs": 5000,
+    "maxActionMs": 592,
+    "performanceFailure": false
+  },
+  "artifactHashesSha256": {
+    "sourceReport": {
+      "path": "/private/tmp/loom-native-parallel-wave9/source/results/standalone-cda-fields-CDA-source-fields-CDA-source-fields/cda-report.json",
+      "sha256": "25021c0c9e6a1e71d62c8804ce04098bf0990b006839e1a2c296452705d7fd73"
+    },
+    "playwrightResults": {
+      "path": "/private/tmp/loom-native-parallel-wave9/source/results.json",
+      "sha256": "18338e53e9df7c04c183b713bc16ad2b623e302b7d7cfcc650f845bea7e58ced"
+    },
+    "runnerLog": {
+      "path": "/private/tmp/loom-native-parallel-wave9/source/runner.log",
+      "sha256": "c26b36f1d4e0192f78eadcb939a14525c8ade9493b0991e7648d4e97632ed340"
+    },
+    "rawDomainAttachment": {
+      "path": "/private/tmp/loom-native-parallel-wave9/source/results/standalone-cda-fields-CDA-source-fields-CDA-source-fields/attachments/standalone-source-fields-domain.json",
+      "sha256": "c76738ae6f4da4aedce737c987d395e6b236919cf00eff5ff7d1737b87440095"
+    },
+    "sourceBaseline": {
+      "path": "/private/tmp/loom-native-parallel-wave9/source-before.json",
+      "sha256": "d5eca1c87ab3a935077d7500e75d1c7a06254ed4684eae35e0f219facf9a1534"
+    },
+    "docsBaseline": {
+      "path": "/private/tmp/loom-native-parallel-wave9/docs-before.json",
+      "sha256": "903bfe1722a1dd0740fa9512c8c90aaa62d20e93d3d4dad48c3f954a9ce4810f"
+    },
+    "apiIdentityBaseline": {
+      "path": "/private/tmp/loom-native-parallel-wave9/api-identity.json",
+      "sha256": "1e7fb143fef5e3e572f8ccd54e03a9e3a37cb7131caffae9bfa43618560ce063"
+    },
+    "release": {
+      "path": "/private/tmp/loom-native-parallel-wave9/release.json",
+      "sha256": "538ff72b0add8fa1e4877c0e5f9a88248578bf7272e761f79619c80f59917342"
+    },
+    "sourceAfter": {
+      "path": "/private/tmp/loom-native-parallel-wave9/source-after.json",
+      "sha256": "6896ab91de3e5884917bba3d946740277482acc7c055f2fac8648c21f5821879"
+    },
+    "docsAfter": {
+      "path": "/private/tmp/loom-native-parallel-wave9/docs-after.json",
+      "sha256": "3bfb17c05c7215a15b92deb8971564430669d858e94c5352f54cb79d9c12f5ac"
+    },
+    "apiIdentityAfter": {
+      "path": "/private/tmp/loom-native-parallel-wave9/api-identity-after.json",
+      "sha256": "03f9c07fc7c8aa9d7bc59635516763c80fa694f1874778d9577fb34289c68460"
+    },
+    "closure": {
+      "path": "/private/tmp/loom-native-parallel-wave9/closure.json",
+      "sha256": "c5d10ef79bd8158500bb6b9e77c3d5f5cbc4ec2a8329cffd1317bd28dd4aac85"
+    },
+    "actualProcesses": {
+      "path": "/private/tmp/loom-native-parallel-wave9/actual-processes.json",
+      "sha256": "c616b8d93260298edd1016162ad4a5adb055940ce14d7eb69e01526446927641"
+    }
+  }
+}

@@ -12,7 +12,7 @@ import type {
   SemanticInventoryItem,
 } from '../../../types';
 import { constructionSchema } from '../../../types';
-import { RelatedExpandEditor } from './RelatedExpandEditor';
+import { RelatedExpandEditor, type RelatedExpandQueryOwner } from './RelatedExpandEditor';
 import { CodedPivotEditor } from './CodedPivotEditor';
 import { semanticConceptLabel } from '../catalogItems';
 
@@ -251,6 +251,7 @@ export interface ConstructionReshapeEditorProps {
     readonly outputId: string;
     readonly catalog: ExplorerBuilderCatalog;
   };
+  readonly relatedExpandQueryOwnerRef?: React.RefObject<RelatedExpandQueryOwner | null>;
   readonly codedPivotContext?: {
     readonly client: Pick<LoomClient, 'browseFrameSourceOptions' | 'browseSemanticInventory'>;
     readonly project: string;
@@ -1786,6 +1787,7 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
           capabilities={capabilities}
           step={editingStep?.operation.kind === 'RELATED_EXPAND' ? editingStep as Extract<ConstructionStep, { readonly operation: { readonly kind: 'RELATED_EXPAND' } }> : undefined}
           disabled={disabled || !relatedExpandSupport.supported}
+          queryOwnerRef={props.relatedExpandQueryOwnerRef}
           onCandidateChange={onCandidateChange}
         />
       ) : null}

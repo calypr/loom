@@ -223,6 +223,60 @@ const startRelatedExpand = async () => {
   return panel;
 };
 
+const provenContributorSearchCancellations = new Map();
+const provenContributorProposalCancellations = new Map();
+
+const isProvenContributorSearchError = error => error.kind === 'network'
+  && provenContributorSearchCancellations.has(error.browserRequestId)
+  && (error.error ?? error.failure) === 'net::ERR_ABORTED';
+
+const isProvenContributorProposalError = error => error.kind === 'network'
+  && provenContributorProposalCancellations.has(error.browserRequestId)
+  && (error.error ?? error.failure) === 'net::ERR_ABORTED';
+
+const markProvenCancellationDiagnostics = cancellations => {
+  for (const [browserRequestId, cancellation] of cancellations) {
+    for (const error of report.errors.filter(entry => entry.kind === 'network'
+      && entry.browserRequestId === browserRequestId)) {
+      assert.equal(error.error ?? error.failure, 'net::ERR_ABORTED');
+      error.expected = true;
+      error.expectedCancellation = cancellation;
+    }
+  }
+};
+
+const proposalRequestBody = request => browserEvents.rawRequestBody(request) ?? request.body;
+const proposalResponseBody = request => browserEvents.rawResponseBody(request) ?? request.response;
+const relatedExpandStep = body => {
+  const steps = body?.candidateConstruction?.steps
+    ?.filter(step => step.operation?.kind === 'RELATED_EXPAND') ?? [];
+  return steps.length === 1 ? steps[0] : undefined;
+};
+const matchesObservationIdProposal = (request, observationId) => {
+  const body = proposalRequestBody(request);
+  const step = relatedExpandStep(body);
+  const relatedExpand = step?.operation?.relatedExpand;
+  const predicate = relatedExpand?.contributorRule?.predicate;
+  return request.path === `${base}/construction-proposals`
+    && request.method === 'POST'
+    && request.origin === uiOrigin
+    && request.status === 200
+    && body?.snapshotToken === builder.catalog.snapshotToken
+    && body?.expectedDraftVersion === builder.draftVersion
+    && body?.expectedDraftDigest === builder.draftDigest
+    && body?.outputId === outputId
+    && body?.changedStepId === step?.id
+    && relatedExpand?.contributorRule?.policy === 'ALL_MATCHES'
+    && predicate?.operator === 'EQUALS'
+    && predicate?.value?.kind === 'STRING'
+    && predicate?.value?.string === observationId
+    && relatedExpand?.contributorSource?.resourceType === 'Observation'
+    && relatedExpand?.contributorSource?.path === 'id'
+    && relatedExpand?.emptyPolicy === 'PRESERVE_PARENT'
+    && proposalResponseBody(request)?.previewStatus === 'READY'
+    && Boolean(proposalResponseBody(request)?.proposalId);
+};
+
 const chooseContributorIDEquals = async (panel, observationId, actionName) => {
   const startedAt = Date.now();
   const options = `${panel} [data-testid="construction-related-expand-contributors"]`;
@@ -236,33 +290,313 @@ const chooseContributorIDEquals = async (panel, observationId, actionName) => {
     await waitForBrowser(page, ([__arg0]) => Boolean(document.querySelector(__arg0)?.open === true), [disclosure]);
   }
   const onlyRecords = `${options} label`;
-  await revealControl(onlyRecords, 'Only records meeting a condition');
-  await click(page, onlyRecords, { includes: 'Only records meeting a condition' });
-  await waitForBrowser(page, ([__arg0]) => Boolean(document.querySelector(''+String(__arg0)+' input[placeholder="Search field name or path"]')), [options]);
   const search = `${options} input[placeholder="Search field name or path"]`;
-  await revealControl(search);
-  await fill(page, search, 'id');
-  await waitForBrowser(page, ([__arg0]) => Boolean(document.querySelector(''+String(__arg0)+' [role="group"][aria-label="Fields for related-record condition"] button')), [options]);
-  const choices = await browserEval(page, ([__arg0]) => { return [...document.querySelectorAll(''+String(__arg0)+' [role="group"][aria-label="Fields for related-record condition"] button')]
+  const contributorRequestPath = `${base}/related-expand-contributors`;
+  const proposalRequestPath = `${base}/construction-proposals`;
+  const requestStartIndex = report.nativeRequests.length;
+  const cancellationAction = `${actionName}: configure Observation.id EQUALS contributor condition`;
+  let filteredRequest;
+  let conditionalProposal;
+  let choices;
+  let selected;
+  await cda.withExpectedCancellations({
+    origin: uiOrigin,
+    method: 'POST',
+    paths: [contributorRequestPath, proposalRequestPath],
+    requestIdPrefixes: ['cda-request-', 'construction-proposal-'],
+    reason: 'The contributor condition sequence supersedes pending requests as the rule moves from all matches through Observation.id EXISTS to Observation.id EQUALS.',
+    proof: { actionName, outputId, snapshotToken: builder.catalog.snapshotToken,
+      expectedDraftVersion: builder.draftVersion, expectedDraftDigest: builder.draftDigest,
+      priorQuery: null,
+      priorProposalStates: [
+        { policy: 'ALL_MATCHES', predicate: null, contributorSource: null },
+        { policy: 'ALL_MATCHES', predicate: { operator: 'EXISTS', source: 'Observation.id' },
+          contributorSource: { resourceType: 'Observation', path: 'id' } },
+      ],
+      replacementQuery: 'Observation.id EQUALS' },
+    actionLabel: cancellationAction,
+  }, async () => {
+    await revealControl(onlyRecords, 'Only records meeting a condition');
+    await click(page, onlyRecords, { includes: 'Only records meeting a condition' });
+    await waitForBrowser(page, ([__arg0]) => Boolean(document.querySelector(''+String(__arg0)+' input[placeholder="Search field name or path"]')), [options]);
+    await revealControl(search);
+    await fill(page, search, 'id');
+    filteredRequest = await browserEvents.waitFor(request => request.path === contributorRequestPath
+      && request.method === 'POST' && request.body?.query === 'id'
+      && request.body?.outputId === outputId && request.body?.stageId === 'source_projection'
+      && request.status === 200
+      && (browserEvents.rawResponseBody(request) ?? request.response)?.choices?.some(choice => choice.source?.path === 'id' && choice.source?.resourceType === 'Observation'),
+    { fromIndex: requestStartIndex, timeoutMs: 5000 });
+    await waitForBrowser(page, ([__arg0]) => Boolean(document.querySelector(''+String(__arg0)+' [role="group"][aria-label="Fields for related-record condition"] button')), [options]);
+    choices = await browserEval(page, ([__arg0]) => { return [...document.querySelectorAll(''+String(__arg0)+' [role="group"][aria-label="Fields for related-record condition"] button')]
       .map(button=>({text:button.innerText.trim(),pressed:button.getAttribute('aria-pressed')})); }, [options]);
+    const fieldButton = choices.find((choice) => choice.text.split('\n')[0].trim() === 'id');
+    assert(fieldButton, `Observation ID field was not offered: ${JSON.stringify(choices)}`);
+    const contributorFieldButtons = `${options} [role="group"][aria-label="Fields for related-record condition"] button`;
+    const fieldLabel = fieldButton.text.split('\n')[1]?.trim() ?? fieldButton.text;
+    await revealControl(contributorFieldButtons, fieldLabel);
+    await click(page, contributorFieldButtons, { includes: fieldLabel });
+    await waitForBrowser(page, ([__arg0]) => Boolean(document.querySelector(''+String(__arg0)+' select')?.value === 'EXISTS'), [options]);
+    await revealControl(`${options} select`);
+    await selectOption(page, `${options} select`, 'EQUALS');
+    await waitForBrowser(page, ([__arg0]) => Boolean(Boolean([...document.querySelectorAll(''+String(__arg0)+' label')].find(label=>label.innerText.trim().startsWith('Exact value'))?.querySelector('input'))), [options]);
+    await revealControl(`${options} label`, 'Exact value');
+    await click(page, `${options} label`, { includes: 'Exact value' });
+    await fill(page, `${options} label:has-text("Exact value") input`, observationId);
+    await waitForBrowser(page, ([__arg0, __arg1]) => Boolean(([...document.querySelectorAll(''+String(__arg0)+' label')].find(label=>label.innerText.trim().startsWith('Exact value'))?.querySelector('input')?.value === __arg1)), [options, observationId]);
+    selected = await browserEval(page, ([__arg0, __arg1, __arg2]) => { return {condition:document.querySelector(''+String(__arg0)+' select')?.value,
+        field:document.querySelector(''+String(__arg1)+' [aria-pressed="true"]')?.innerText.trim(),
+        value:[...document.querySelectorAll(''+String(__arg2)+' label')].find(label=>label.innerText.trim().startsWith('Exact value'))?.querySelector('input')?.value}; }, [options, options, options]);
+    assert.equal(selected.condition, 'EQUALS');
+    assert(selected.field?.includes('id'), JSON.stringify(selected));
+    assert.equal(selected.value, observationId);
+    conditionalProposal = await browserEvents.waitFor(request => matchesObservationIdProposal(request, observationId),
+      { fromIndex: requestStartIndex, timeoutMs: 5000 });
+  });
+
+  assert.equal(filteredRequest.origin, uiOrigin, 'Observation id search must use the validated CDA UI origin');
+  assert.equal(filteredRequest.status, 200, 'Observation id search must return HTTP 200');
+  const filteredResponse = browserEvents.rawResponseBody(filteredRequest) ?? filteredRequest.response;
+  assert.equal(filteredResponse.complete, true, 'Observation id search must return a complete field-choice response');
+  assert.equal(filteredResponse.truncated, false, 'Observation id search must not truncate its field choices');
+  assert.equal(filteredRequest.body.snapshotToken, builder.catalog.snapshotToken, 'Observation id search must use the active catalog snapshot');
+  assert.equal(filteredRequest.body.expectedDraftVersion, builder.draftVersion, 'Observation id search must use the active draft version');
+  assert.equal(filteredRequest.body.expectedDraftDigest, builder.draftDigest, 'Observation id search must use the active draft digest');
+  assert.equal(filteredResponse.snapshotToken, filteredRequest.body.snapshotToken, 'Observation id response must retain its snapshot identity');
+  assert.equal(filteredResponse.draftVersion, filteredRequest.body.expectedDraftVersion, 'Observation id response must retain its draft version');
+  assert.equal(filteredResponse.draftDigest, filteredRequest.body.expectedDraftDigest, 'Observation id response must retain its draft digest');
+  assert.equal(filteredResponse.outputId, filteredRequest.body.outputId, 'Observation id response must retain its output identity');
+  assert.equal(filteredResponse.stageId, filteredRequest.body.stageId, 'Observation id response must retain its stage identity');
+  assert.equal(filteredResponse.routeChoiceId, filteredRequest.body.routeChoiceId, 'Observation id response must retain its route identity');
+
+  const replacementBody = proposalRequestBody(conditionalProposal);
+  const replacementStep = relatedExpandStep(replacementBody);
+  const replacementExpand = replacementStep.operation.relatedExpand;
+  const replacementResponse = proposalResponseBody(conditionalProposal);
+  assert.equal(conditionalProposal.status, 200, 'Conditional construction proposal must return HTTP 200');
+  assert.equal(replacementResponse.snapshotToken, replacementBody.snapshotToken, 'Conditional proposal response must retain snapshot identity');
+  assert.equal(replacementResponse.draftVersion, replacementBody.expectedDraftVersion, 'Conditional proposal response must retain draft version');
+  assert.equal(replacementResponse.draftDigest, replacementBody.expectedDraftDigest, 'Conditional proposal response must retain draft digest');
+  assert.equal(replacementResponse.outputId, replacementBody.outputId, 'Conditional proposal response must retain output identity');
+  assert.equal(replacementResponse.changedStepId, replacementBody.changedStepId, 'Conditional proposal response must retain changed-step identity');
+  assert.equal(replacementResponse.previewStatus, 'READY', 'Conditional proposal response must contain a ready preview');
+  assert(replacementResponse.proposalId, 'Conditional proposal response must include its preview proposal ID');
+  const responseStep = relatedExpandStep(replacementResponse);
+  assert(responseStep, 'Conditional proposal response must retain its RELATED_EXPAND candidate');
+  assert.equal(responseStep.id, replacementStep.id, 'Conditional proposal response must retain the selected related step');
+  for (const key of ['anchorColumnId', 'choiceId', 'targetNodeId', 'targetResourceType', 'emptyPolicy', 'relatedRecordColumnId']) {
+    assert.deepEqual(responseStep.operation.relatedExpand[key], replacementExpand[key], `Conditional proposal response must retain ${key}`);
+  }
+  assert.deepEqual(responseStep.operation.relatedExpand.route, replacementExpand.route, 'Conditional proposal response must retain the selected route');
+  assert.deepEqual(responseStep.operation.relatedExpand.contributorRule, replacementExpand.contributorRule,
+    'Conditional proposal response must retain the selected contributor predicate');
+  assert.deepEqual(responseStep.operation.relatedExpand.contributorSource, replacementExpand.contributorSource,
+    'Conditional proposal response must retain the selected Observation id source');
+
+  const cancellations = cda.report.expectedCancellations?.filter(item => item.proof?.scopeAction === cancellationAction) ?? [];
+  const cancellationPathCounts = new Map();
+  const cancellationRequestIds = new Set();
+  const proposalCancellationStates = new Map();
+  for (const cancellation of cancellations) {
+    const cancelledRequest = report.nativeRequests.find(request => request.browserRequestId === cancellation.browserRequestId);
+    assert(cancelledRequest, 'Expected contributor workflow cancellation must point to an exact captured browser request');
+    assert([contributorRequestPath, proposalRequestPath].includes(cancelledRequest.path),
+      'Expected contributor workflow cancellation must use one of its two exact owned paths');
+    assert(!cancellationRequestIds.has(cancelledRequest.browserRequestId),
+      'Each superseded native request may be classified only once');
+    cancellationRequestIds.add(cancelledRequest.browserRequestId);
+    const pathCount = (cancellationPathCounts.get(cancelledRequest.path) ?? 0) + 1;
+    const pathLimit = cancelledRequest.path === proposalRequestPath ? 2 : 1;
+    assert(pathCount <= pathLimit,
+      'Only the all-matches and id-EXISTS proposals, plus one unfiltered lookup, may be superseded');
+    cancellationPathCounts.set(cancelledRequest.path, pathCount);
+    assert.equal(cancelledRequest.method, 'POST');
+    assert.equal(cancelledRequest.origin, uiOrigin);
+    assert.equal(cancellation.browserRequestId, cancelledRequest.browserRequestId,
+      'Fixture and native request records must identify the same browser request');
+    assert.match(cancellation.playwrightRequestId, /^cda-request-/,
+      'Each scoped cancellation must retain the fixture-local Playwright request identity');
+    if (cancelledRequest.path === proposalRequestPath) {
+      assert.match(cancelledRequest.requestId, /^construction-proposal-/,
+        'Stale proposal cancellation must retain the native X-Request-ID');
+      assert.equal(cancellation.requestId, cancelledRequest.requestId,
+        'Proposal scope identity must match the native X-Request-ID');
+    } else {
+      const expectedScopeRequestId = cancelledRequest.requestId === cancelledRequest.browserRequestId
+        ? cancellation.playwrightRequestId
+        : cancelledRequest.requestId;
+      assert.equal(cancellation.requestId, expectedScopeRequestId,
+        'Contributor cancellation scope must use its fixture-local ID only when the native request has no X-Request-ID');
+    }
+    assert.equal(cancelledRequest.failure, 'net::ERR_ABORTED');
+    assert.equal(cancelledRequest.status, undefined, 'An aborted request must have no HTTP response status');
+    assert.equal(cancellation.method, 'POST');
+    assert.equal(new URL(cancellation.url).pathname, cancelledRequest.path);
+    assert.equal(cancellation.proof?.scopeAction, cancellationAction);
+    assert.equal(cancellation.proof?.actionName, actionName);
+    assert.equal(cancellation.proof?.outputId, outputId);
+    assert.equal(cancelledRequest.expectedCancellation?.browserRequestId, cancelledRequest.browserRequestId);
+    assert(cancelledRequest.startedAt < conditionalProposal.startedAt,
+      'Superseded work must begin before the successful conditional proposal replacement');
+
+    const cancelledErrors = report.errors.filter(error => error.kind === 'network'
+      && error.browserRequestId === cancelledRequest.browserRequestId);
+    assert(cancelledErrors.length >= 1 && cancelledErrors.length <= 2,
+      'Each proven contributor cancellation must retain its bounded browser network diagnostics');
+    for (const cancelledError of cancelledErrors) assert.equal(cancelledError.error ?? cancelledError.failure, 'net::ERR_ABORTED');
+
+    if (cancelledRequest.path === contributorRequestPath) {
+      assert([undefined, null, ''].includes(cancelledRequest.body?.query),
+        'The cancelled contributor request must be the initial unfiltered lookup');
+      for (const key of ['snapshotToken', 'expectedDraftVersion', 'expectedDraftDigest', 'outputId', 'stageId', 'routeChoiceId']) {
+        assert.equal(cancelledRequest.body?.[key], filteredRequest.body?.[key], `Superseded lookup and id-search replacement must share ${key}`);
+      }
+      assert(cancelledRequest.startedAt <= filteredRequest.startedAt,
+        'The superseded unfiltered lookup must start before the successful id-search replacement');
+      assert.equal(cancellation.proof?.priorQuery, null);
+      assert.equal(cancellation.proof?.replacementQuery, 'Observation.id EQUALS');
+      for (const cancelledError of cancelledErrors) {
+        cancelledError.expected = true;
+        cancelledError.expectedCancellation = cancellation;
+      }
+      provenContributorSearchCancellations.set(cancelledRequest.browserRequestId, cancellation);
+      report.contributorSearchSupersessions ??= [];
+      report.contributorSearchSupersessions.push({
+        action: actionName,
+        cancellation: {
+          browserRequestId: cancelledRequest.browserRequestId,
+          path: cancelledRequest.path,
+          query: null,
+          failure: cancelledRequest.failure,
+          requestIdentity: { capturedRequestId: cancelledRequest.requestId, scopeRequestId: cancellation.requestId,
+            fixturePlaywrightRequestId: cancellation.playwrightRequestId,
+            source: cancelledRequest.requestId === cancelledRequest.browserRequestId ? 'browser-id-fallback' : 'native-x-request-id' },
+          identity: Object.fromEntries(['snapshotToken', 'expectedDraftVersion', 'expectedDraftDigest', 'outputId', 'stageId', 'routeChoiceId']
+            .map(key => [key, cancelledRequest.body[key]])),
+        },
+        replacement: {
+          browserRequestId: filteredRequest.browserRequestId,
+          query: filteredRequest.body.query,
+          status: filteredRequest.status,
+          complete: filteredResponse.complete,
+          truncated: filteredResponse.truncated,
+          field: 'Observation.id',
+          identity: Object.fromEntries(['snapshotToken', 'expectedDraftVersion', 'expectedDraftDigest', 'outputId', 'stageId', 'routeChoiceId']
+            .map(key => [key, filteredRequest.body[key]])),
+        },
+      });
+      continue;
+    }
+
+    const cancelledBody = proposalRequestBody(cancelledRequest);
+    const cancelledStep = relatedExpandStep(cancelledBody);
+    assert(cancelledStep, 'Cancelled stale proposal must contain exactly one related-expansion step');
+    const cancelledExpand = cancelledStep.operation.relatedExpand;
+    let priorProposalState;
+    if (!cancelledExpand.contributorRule?.predicate) {
+      assert.deepEqual(cancelledExpand.contributorRule, { policy: 'ALL_MATCHES' },
+        'The first superseded proposal must be the unfiltered all-matches state');
+      assert.equal(cancelledExpand.contributorSource, undefined);
+      priorProposalState = 'all-matches-no-predicate';
+    } else {
+      assert.deepEqual(cancelledExpand.contributorRule, {
+        policy: 'ALL_MATCHES',
+        predicate: { candidateId: replacementExpand.contributorRule.predicate.candidateId, operator: 'EXISTS' },
+      }, 'The second superseded proposal may only be the intermediate Observation.id EXISTS state');
+      assert.deepEqual(cancelledExpand.contributorSource, replacementExpand.contributorSource);
+      assert.equal(cancelledExpand.contributorSource.resourceType, 'Observation');
+      assert.equal(cancelledExpand.contributorSource.path, 'id');
+      priorProposalState = 'observation-id-exists';
+    }
+    assert(!proposalCancellationStates.has(priorProposalState),
+      `The ${priorProposalState} proposal state may be superseded only once`);
+    proposalCancellationStates.set(priorProposalState, cancelledRequest);
+    assert.equal(cancelledExpand.emptyPolicy, 'PRESERVE_PARENT');
+    assert.equal(cancelledBody.changedStepId, cancelledStep.id);
+    assert(cancelledRequest.startedAt < conditionalProposal.startedAt,
+      'The stale all-matching proposal must start before its conditional replacement');
+    for (const key of ['snapshotToken', 'expectedDraftVersion', 'expectedDraftDigest', 'outputId']) {
+      assert.equal(cancelledBody[key], replacementBody[key], `Stale proposal and conditional replacement must share ${key}`);
+      assert.equal(cancellation.proof?.[key], replacementBody[key], `Cancellation scope must prove matching ${key}`);
+    }
+    assert.equal(cancelledBody.changedStepId, replacementBody.changedStepId,
+      'Stale proposal and conditional replacement must share changed-step identity');
+    assert.equal(cancelledStep.id, replacementStep.id, 'Stale proposal and replacement must target the same related step');
+    for (const key of ['anchorColumnId', 'choiceId', 'targetNodeId', 'targetResourceType', 'emptyPolicy', 'relatedRecordColumnId']) {
+      assert.deepEqual(cancelledExpand[key], replacementExpand[key], `Stale proposal and replacement must share ${key}`);
+    }
+    assert.deepEqual(cancelledExpand.route, replacementExpand.route, 'Stale proposal and replacement must share the exact relationship route');
+    assert.equal(replacementExpand.contributorRule.policy, 'ALL_MATCHES');
+    assert.equal(replacementExpand.contributorRule.predicate.operator, 'EQUALS');
+    assert.equal(replacementExpand.contributorRule.predicate.value.kind, 'STRING');
+    assert.equal(replacementExpand.contributorRule.predicate.value.string, observationId);
+    assert.equal(replacementExpand.contributorSource.resourceType, 'Observation');
+    assert.equal(replacementExpand.contributorSource.path, 'id');
+    assert.deepEqual(cancellation.proof?.priorProposalStates, [
+      { policy: 'ALL_MATCHES', predicate: null, contributorSource: null },
+      { policy: 'ALL_MATCHES', predicate: { operator: 'EXISTS', source: 'Observation.id' },
+        contributorSource: { resourceType: 'Observation', path: 'id' } },
+    ]);
+    assert.equal(cancellation.proof?.replacementQuery, 'Observation.id EQUALS');
+    cancellation.proof.matchedPriorProposalState = priorProposalState;
+    cancellation.proof.replacementProposal = {
+      browserRequestId: conditionalProposal.browserRequestId,
+      requestId: conditionalProposal.requestId,
+      status: conditionalProposal.status,
+      previewStatus: replacementResponse.previewStatus,
+      proposalId: replacementResponse.proposalId,
+      identity: Object.fromEntries(['snapshotToken', 'draftVersion', 'draftDigest', 'outputId', 'changedStepId']
+        .map(key => [key, replacementResponse[key]])),
+    };
+    cancelledRequest.expectedCancellation = cancellation;
+    for (const cancelledError of cancelledErrors) {
+      cancelledError.expected = true;
+      cancelledError.expectedCancellation = cancellation;
+    }
+    provenContributorProposalCancellations.set(cancelledRequest.browserRequestId, cancellation);
+    report.contributorProposalSupersessions ??= [];
+    report.contributorProposalSupersessions.push({
+      action: actionName,
+      cancellation: {
+        browserRequestId: cancelledRequest.browserRequestId,
+        path: cancelledRequest.path,
+        requestIdentity: { capturedRequestId: cancelledRequest.requestId, scopeRequestId: cancellation.requestId,
+          fixturePlaywrightRequestId: cancellation.playwrightRequestId,
+          source: cancelledRequest.requestId === cancelledRequest.browserRequestId ? 'browser-id-fallback' : 'native-x-request-id' },
+        failure: cancelledRequest.failure,
+        status: cancelledRequest.status,
+        contributorRule: cancelledExpand.contributorRule,
+        contributorSource: cancelledExpand.contributorSource,
+        identity: Object.fromEntries(['snapshotToken', 'expectedDraftVersion', 'expectedDraftDigest', 'outputId', 'changedStepId']
+          .map(key => [key, cancelledBody[key]])),
+        step: { id: cancelledStep.id, choiceId: cancelledExpand.choiceId, route: cancelledExpand.route,
+          emptyPolicy: cancelledExpand.emptyPolicy, relatedRecordColumnId: cancelledExpand.relatedRecordColumnId },
+      },
+      replacement: {
+        browserRequestId: conditionalProposal.browserRequestId,
+        status: conditionalProposal.status,
+        previewStatus: replacementResponse.previewStatus,
+        proposalId: replacementResponse.proposalId,
+        contributorRule: replacementExpand.contributorRule,
+        contributorSource: replacementExpand.contributorSource,
+        identity: Object.fromEntries(['snapshotToken', 'expectedDraftVersion', 'expectedDraftDigest', 'outputId', 'changedStepId']
+          .map(key => [key, replacementBody[key]])),
+        step: { id: replacementStep.id, choiceId: replacementExpand.choiceId, route: replacementExpand.route,
+          emptyPolicy: replacementExpand.emptyPolicy, relatedRecordColumnId: replacementExpand.relatedRecordColumnId },
+        responseIdentity: Object.fromEntries(['snapshotToken', 'draftVersion', 'draftDigest', 'outputId', 'changedStepId']
+          .map(key => [key, replacementResponse[key]])),
+      },
+      reason: cancellation.reason,
+    });
+  }
+  const unfilteredProposalCancellation = proposalCancellationStates.get('all-matches-no-predicate');
+  const existsProposalCancellation = proposalCancellationStates.get('observation-id-exists');
+  if (unfilteredProposalCancellation && existsProposalCancellation) {
+    assert(unfilteredProposalCancellation.startedAt < existsProposalCancellation.startedAt,
+      'The unfiltered proposal must precede the intermediate id-EXISTS proposal');
+  }
+
   report.contributorChoices = choices;
-  const fieldButton = choices.find((choice) => choice.text.split('\n')[0].trim() === 'id');
-  assert(fieldButton, `Observation ID field was not offered: ${JSON.stringify(choices)}`);
-  const contributorFieldButtons = `${options} [role="group"][aria-label="Fields for related-record condition"] button`;
-  const fieldLabel = fieldButton.text.split('\n')[1]?.trim() ?? fieldButton.text;
-  await revealControl(contributorFieldButtons, fieldLabel);
-  await click(page, contributorFieldButtons, { includes: fieldLabel });
-  await waitForBrowser(page, ([__arg0]) => Boolean(document.querySelector(''+String(__arg0)+' select')?.value === 'EXISTS'), [options]);
-  await revealControl(`${options} select`);
-  await selectOption(page, `${options} select`, 'EQUALS');
-  await waitForBrowser(page, ([__arg0]) => Boolean(Boolean([...document.querySelectorAll(''+String(__arg0)+' label')].find(label=>label.innerText.trim().startsWith('Exact value'))?.querySelector('input'))), [options]);
-  await revealControl(`${options} label`, 'Exact value');
-  await click(page, `${options} label`, { includes: 'Exact value' });
-  await fill(page, `${options} label:has-text("Exact value") input`, observationId);
-  await waitForBrowser(page, ([__arg0, __arg1]) => Boolean(([...document.querySelectorAll(''+String(__arg0)+' label')].find(label=>label.innerText.trim().startsWith('Exact value'))?.querySelector('input')?.value === __arg1)), [options, observationId]);
-  const selected = await browserEval(page, ([__arg0, __arg1, __arg2]) => { return {condition:document.querySelector(''+String(__arg0)+' select')?.value,
-      field:document.querySelector(''+String(__arg1)+' [aria-pressed="true"]')?.innerText.trim(),
-      value:[...document.querySelectorAll(''+String(__arg2)+' label')].find(label=>label.innerText.trim().startsWith('Exact value'))?.querySelector('input')?.value}; }, [options, options, options]);
   assert.equal(selected.condition, 'EQUALS');
   assert(selected.field?.includes('id'), JSON.stringify(selected));
   assert.equal(selected.value, observationId);
@@ -270,7 +604,6 @@ const chooseContributorIDEquals = async (panel, observationId, actionName) => {
   recordAction(actionName, startedAt, { condition: selected.condition, sourceField: 'id', policy: 'PRESERVE_PARENT' });
   return selected;
 };
-
 const beginEdit = async (stepId) => {
   const startedAt = Date.now();
   await click(page, `[data-testid="construction-history-step-${stepId}"]`);
@@ -346,7 +679,7 @@ const original = structuredClone(documentForOutput(builder));
 assert.equal(original.population.selectionRevisionId, selection.id);
 
 report.nativeRequests = cda.report.nativeRequests;
-browserEvents = cda.captureRequests(root + '/' + explorer, { responsePaths: { apiOrigin, uiOrigin, responsePaths: /related-expand|commands|preview/ }.responsePaths });
+browserEvents = cda.captureRequests(root + '/' + explorer, { responsePaths: { apiOrigin, uiOrigin, responsePaths: /related-expand|construction-proposals|commands|preview/ }.responsePaths });
 
 
 
@@ -439,7 +772,11 @@ cda.includeBrowserDiagnostics();
 failedResponses = report.nativeRequests.filter(entry => entry.status >= 400).map(entry => ({
   kind: 'http', path: entry.path, status: entry.status, request: entry.body, body: entry.response, observedAfter: report.cases.at(-1)?.name,
 }));
-assert.deepEqual(report.errors, [], 'Unexpected browser errors were reported');
+markProvenCancellationDiagnostics(provenContributorSearchCancellations);
+markProvenCancellationDiagnostics(provenContributorProposalCancellations);
+assert.deepEqual(report.errors.filter(error => !isProvenContributorSearchError(error)
+  && !isProvenContributorProposalError(error)), [],
+  'Only exact paired unfiltered contributor lookup and proposal cancellations may be classified as expected');
 report.status = 'passed';
   } finally {
     try { await browserEvents?.flush(); } catch (error) { report.requestFlushError = String(error); }

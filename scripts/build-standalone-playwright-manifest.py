@@ -677,7 +677,7 @@ def main() -> int:
     parser.add_argument("--embedded-map", type=Path, action="append", default=[], help="map for browser journeys embedded in a non-verify entrypoint such as scripts/loom-dev.mjs")
     parser.add_argument("--additional-browser-map", type=Path, action="append", default=[], help="source-to-native-case map for a browser entrypoint outside the verify[-_]* inventory")
     parser.add_argument("--discovery", type=Path, default=Path("docs/verification/playwright/discovery.snapshot.json"), help="normalized official Playwright --list JSON snapshot (discovery only)")
-    parser.add_argument("--discovery-overrides", type=Path, action="append", default=[], help="explicit exact-title bindings for source case names that differ from discovered test titles")
+    parser.add_argument("--discovery-overrides", type=Path, action="append", default=None, help="explicit exact-title bindings for source case names that differ from discovered test titles")
     parser.add_argument("--registry", type=Path, default=Path("scripts/verify-ui/registry.mjs"))
     parser.add_argument("--output", type=Path, default=Path("docs/verification/playwright/source-conversion-manifest.json"))
     parser.add_argument("--preimages", type=Path, default=Path("docs/verification/playwright/source-preimages.json"), help="persistent source preimage hash ledger")
@@ -698,7 +698,8 @@ def main() -> int:
         raise SystemExit(str(error)) from error
     discovery_overrides = {}
     discovery_override_inputs = []
-    for path in args.discovery_overrides:
+    override_paths = args.discovery_overrides or [Path("docs/verification/playwright/discovery-case-overrides.json")]
+    for path in override_paths:
         override_path = path if path.is_absolute() else Path(__file__).resolve().parents[1] / path
         override_document = json.loads(override_path.read_text())
         discovery_override_inputs.append({"label": f"{override_path.parent.name}/{override_path.name}", "sha256": sha256(override_path)})

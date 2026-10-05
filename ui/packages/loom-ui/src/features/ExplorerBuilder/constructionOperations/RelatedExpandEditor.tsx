@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { useLoomClient, useQuery } from '../../../react';
 import type {
   Construction,
@@ -19,6 +19,26 @@ type RelatedExpandStep = Omit<ConstructionStep, 'operation'> & { readonly operat
 type RouteChoice = RelatedExpandChoiceSearchResponse['choices'][number];
 type CandidateIntent = Pick<ConstructionProposalRequest, 'candidateConstruction' | 'changedStepId'>;
 type EmptyPolicy = NonNullable<RelatedExpandOperation['relatedExpand']['emptyPolicy']>;
+
+export interface RelatedExpandQueryOwner {
+  readonly draftVersion: number;
+  readonly draftDigest: string;
+  pauseAndDrain: () => Promise<void>;
+  resume: () => void;
+}
+
+interface RouteQueryCheckpoint {
+  readonly queryKey: string;
+  readonly choices: ReadonlyArray<RouteChoice>;
+  readonly cursor?: string;
+  readonly seenCursors: ReadonlyArray<string>;
+  readonly complete: boolean;
+}
+
+interface ActiveRoutePage {
+  readonly queryKey: string;
+  readonly task: Promise<void>;
+}
 
 const newId = (prefix: string): string => `${prefix}_${globalThis.crypto.randomUUID()}`;
 
@@ -140,6 +160,7 @@ export const RelatedExpandEditor = ({
   capabilities,
   step,
   disabled,
+  queryOwnerRef,
   onCandidateChange,
 }: {
   readonly project: string;
@@ -152,6 +173,7 @@ export const RelatedExpandEditor = ({
   readonly capabilities: ConstructionCapabilitiesResponse;
   readonly step?: RelatedExpandStep;
   readonly disabled: boolean;
+  readonly queryOwnerRef?: React.RefObject<RelatedExpandQueryOwner | null>;
   readonly onCandidateChange: (candidate: CandidateIntent | undefined) => void;
 }) => {
   const client = useLoomClient();
@@ -204,6 +226,10 @@ export const RelatedExpandEditor = ({
     readonly queryKey: string;
     readonly choices: ReadonlyArray<RouteChoice>;
   }>();
+  const routeCheckpointRef = useRef<RouteQueryCheckpoint | undefined>(undefined);
+  const routeQueryPausedRef = useRef(false);
+  const pausedAtPageBoundaryRef = useRef(false);
+  const activeRoutePageRef = useRef<ActiveRoutePage | undefined>(undefined);
   const choices = loadedChoices?.queryKey === routeQueryKey ? loadedChoices.choices : [];
   const savedOutput = step?.outputs.find((column) => column.id === outputColumnId);
   const [outputName, setOutputName] = useState(savedOutput?.name ?? '');
@@ -224,41 +250,102 @@ export const RelatedExpandEditor = ({
       : `${matchingRowEffect} Existing values on the current row repeat on each new row. After Apply, choose fields from the matched records in Add columns. ${noMatchDescription}${emptyMatchEffect[emptyPolicy]}`;
 
   const routeQuery = useQuery(async (signal) => {
-    let cursor: string | undefined;
-    const seenCursors = new Set<string>();
-    const paths: RouteChoice[] = [];
-    let complete = false;
-    do {
+    const currentCheckpoint = routeCheckpointRef.current?.queryKey === routeQueryKey
+      ? routeCheckpointRef.current
+      : { queryKey: routeQueryKey, choices: [], seenCursors: [], complete: false };
+    let checkpoint: RouteQueryCheckpoint = currentCheckpoint;
+    if (routeCheckpointRef.current !== currentCheckpoint) {
+      routeCheckpointRef.current = checkpoint;
+      routeQueryPausedRef.current = false;
+      pausedAtPageBoundaryRef.current = false;
+    }
+    let cursor = checkpoint.cursor;
+    let paths = [...checkpoint.choices];
+    let complete = checkpoint.complete;
+    const seenCursors = new Set(checkpoint.seenCursors);
+    while (!complete) {
       if (signal.aborted) return paths;
-      const result = await client.searchRelatedExpandChoices({
-        project, explorerId, authResourcePath, snapshotToken, outputId,
-        expectedDraftVersion: capabilities.draftVersion,
-        expectedDraftDigest: capabilities.draftDigest,
-        stageId: stage.id, anchorColumnId, targetResourceType, limit: 50,
-        requestId: `related-expand-choices-${window.crypto.randomUUID()}`,
-        ...(cursor ? { cursor } : {}),
-      });
+      if (routeQueryPausedRef.current) {
+        pausedAtPageBoundaryRef.current = true;
+        return paths;
+      }
+      const task = (async () => {
+        const result = await client.searchRelatedExpandChoices({
+          project, explorerId, authResourcePath, snapshotToken, outputId,
+          expectedDraftVersion: capabilities.draftVersion,
+          expectedDraftDigest: capabilities.draftDigest,
+          stageId: stage.id, anchorColumnId, targetResourceType, limit: 50,
+          requestId: `related-expand-choices-${window.crypto.randomUUID()}`,
+          ...(cursor ? { cursor } : {}),
+        }, signal);
+        if (signal.aborted) return;
+        if (!choicesMatchRequest(result, snapshotToken, capabilities.draftVersion, capabilities.draftDigest, outputId, stage.id, anchorColumnId, targetResourceType)) {
+          throw new Error('The available paths changed. Reload this table before expanding records.');
+        }
+        paths = [...paths, ...result.choices];
+        setLoadedChoices({ queryKey: routeQueryKey, choices: paths });
+        complete = result.complete;
+        cursor = result.nextCursor;
+        if (result.truncated && !cursor) {
+          throw new Error('Could not finish loading relationship paths. Reopen this editor to retry.');
+        }
+        if (!complete && !cursor) {
+          throw new Error('Could not finish loading relationship paths. Reopen this editor to retry.');
+        }
+        if (cursor && seenCursors.has(cursor)) {
+          throw new Error('Could not finish loading relationship paths. Reopen this editor to retry.');
+        }
+        if (cursor) seenCursors.add(cursor);
+        checkpoint = {
+          queryKey: routeQueryKey,
+          choices: paths,
+          ...(cursor ? { cursor } : {}),
+          seenCursors: [...seenCursors],
+          complete,
+        };
+        routeCheckpointRef.current = checkpoint;
+      })();
+      const activePage: ActiveRoutePage = { queryKey: routeQueryKey, task };
+      activeRoutePageRef.current = activePage;
+      try {
+        await task;
+      } finally {
+        if (activeRoutePageRef.current === activePage) activeRoutePageRef.current = undefined;
+      }
       if (signal.aborted) return paths;
-      if (!choicesMatchRequest(result, snapshotToken, capabilities.draftVersion, capabilities.draftDigest, outputId, stage.id, anchorColumnId, targetResourceType)) {
-        throw new Error('The available paths changed. Reload this table before expanding records.');
+      if (routeQueryPausedRef.current) {
+        pausedAtPageBoundaryRef.current = !complete;
+        return paths;
       }
-      paths.push(...result.choices);
-      setLoadedChoices({ queryKey: routeQueryKey, choices: [...paths] });
-      complete = result.complete;
-      cursor = result.nextCursor;
-      if (result.truncated && !cursor) {
-        throw new Error('Could not finish loading relationship paths. Reopen this editor to retry.');
-      }
-      if (cursor && seenCursors.has(cursor)) {
-        throw new Error('Could not finish loading relationship paths. Reopen this editor to retry.');
-      }
-      if (cursor) seenCursors.add(cursor);
-    } while (cursor);
+    }
     if (!complete) throw new Error('Could not finish loading relationship paths. Reopen this editor to retry.');
     return paths;
   }, [client, authResourcePath, explorerId, project, snapshotToken, capabilities.draftVersion,
     capabilities.draftDigest, outputId, stage.id, anchorColumnId, targetResourceType],
   Boolean(targetResourceType && anchorColumnId));
+  const queryOwner = useMemo<RelatedExpandQueryOwner>(() => ({
+    draftVersion: capabilities.draftVersion,
+    draftDigest: capabilities.draftDigest,
+    pauseAndDrain: async () => {
+      if (queryOwnerRef && queryOwnerRef.current !== queryOwner) return;
+      routeQueryPausedRef.current = true;
+      const activePage = activeRoutePageRef.current;
+      if (activePage?.queryKey === routeQueryKey) {
+        await activePage.task.then(() => undefined, () => undefined);
+      }
+    },
+    resume: () => {
+      if (queryOwnerRef && queryOwnerRef.current !== queryOwner) return;
+      routeQueryPausedRef.current = false;
+      if (!pausedAtPageBoundaryRef.current) return;
+      pausedAtPageBoundaryRef.current = false;
+      const checkpoint = routeCheckpointRef.current;
+      if (checkpoint?.queryKey === routeQueryKey && !checkpoint.complete) {
+        void routeQuery.refetch();
+      }
+    },
+  }), [capabilities.draftDigest, capabilities.draftVersion, queryOwnerRef, routeQuery.refetch, routeQueryKey]);
+  useImperativeHandle(queryOwnerRef ?? null, () => queryOwner, [queryOwner]);
   const loading = routeQuery.isFetching;
   const error = routeQuery.error instanceof Error
     ? routeQuery.error.message

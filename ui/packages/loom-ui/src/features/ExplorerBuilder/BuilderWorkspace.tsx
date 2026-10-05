@@ -132,6 +132,7 @@ import {
   type RelatedSourceStep,
 } from './constructionOperations/RelatedSourceStepEditor';
 import { RelatedFieldEditor, type RelatedFieldStep } from './constructionOperations/RelatedFieldEditor';
+import type { RelatedExpandQueryOwner } from './constructionOperations/RelatedExpandEditor';
 
 const previewPresentationCommand = (
   outputId: string,
@@ -549,6 +550,7 @@ const BuilderWorkspaceContent = ({
     activeAutomaticPreview.current?.cancel();
   }, []);
   const commandQueue = useRef<Promise<void>>(Promise.resolve());
+  const relatedExpandQueryOwnerRef = useRef<RelatedExpandQueryOwner | null>(null);
   const firstTableActionPending = useRef(false);
   const serverDraft = useRef({ version: 0, digest: '' });
   const suggestionRequestKey = useRef('');
@@ -669,9 +671,12 @@ const BuilderWorkspaceContent = ({
       activePreview.current?.abort();
       setPendingCommands((value) => value + 1);
       const run = commandQueue.current.then(async () => {
-        const current = latestState.current;
-        const commandId = proposedCommandId ?? window.crypto.randomUUID();
+        const queryOwner = relatedExpandQueryOwnerRef.current;
+        let commandSucceeded = false;
         try {
+          await queryOwner?.pauseAndDrain();
+          const current = latestState.current;
+          const commandId = proposedCommandId ?? window.crypto.randomUUID();
           const value = await applyBuilderCommands({
             project: projectId,
             explorerId: current.explorerId,
@@ -683,6 +688,7 @@ const BuilderWorkspaceContent = ({
             commands,
             requestId: `builder-command-${commandId}`,
           }).unwrap();
+          commandSucceeded = true;
           serverDraft.current = {
             version: value.draftVersion,
             digest: value.draftDigest,
@@ -734,6 +740,13 @@ const BuilderWorkspaceContent = ({
           }
           return undefined;
         } finally {
+          if (!commandSucceeded &&
+              relatedExpandQueryOwnerRef.current === queryOwner &&
+              queryOwner &&
+              serverDraft.current.version === queryOwner.draftVersion &&
+              serverDraft.current.digest === queryOwner.draftDigest) {
+            queryOwner.resume();
+          }
           setPendingCommands((value) => Math.max(0, value - 1));
         }
       });
@@ -3046,6 +3059,7 @@ const BuilderWorkspaceContent = ({
                 outputId: table.outputId,
                 catalog: state.catalog,
               }}
+              relatedExpandQueryOwnerRef={relatedExpandQueryOwnerRef}
               codedPivotContext={{
                 client: loomClient,
                 project: projectId,

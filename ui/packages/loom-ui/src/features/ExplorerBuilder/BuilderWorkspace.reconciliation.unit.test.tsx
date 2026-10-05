@@ -27,6 +27,7 @@ import type {
   ExplorerBuilderDocument,
   ExplorerBuilderWorkspace,
 } from '../../types';
+import type { RelatedExpandQueryOwner } from './constructionOperations/RelatedExpandEditor';
 import type { ConstructionCandidateIntent } from './constructionWorkspace/useConstructionLifecycle';
 import type { LoomClient } from '../../api';
 import type {
@@ -50,6 +51,13 @@ const mockLoomClient = vi.hoisted(() => ({
   proposeConstructionChoices: vi.fn(),
   preview: vi.fn(),
   browseSemanticInventory: vi.fn(),
+}));
+const mockRelatedExpandOwnerState = vi.hoisted(() => ({ enabled: false }));
+const mockRelatedExpandQueryOwner = vi.hoisted(() => ({
+  draftVersion: 1,
+  draftDigest: 'sha256:draft-1',
+  pauseAndDrain: vi.fn(async () => undefined),
+  resume: vi.fn(),
 }));
 
 vi.mock('../../react', async (importOriginal) => {
@@ -242,6 +250,7 @@ vi.mock('./constructionOperations/ConstructionReshapeEditor', async (importOrigi
     pivotDiscovery,
     onDiscoverCategories,
     onCandidateChange,
+    relatedExpandQueryOwnerRef,
   }: {
     readonly editingStep?: { readonly id: string; readonly operation: { readonly kind: string } };
     readonly initialKind?: string;
@@ -254,43 +263,51 @@ vi.mock('./constructionOperations/ConstructionReshapeEditor', async (importOrigi
     readonly pivotDiscovery?: { readonly status: string };
     readonly onDiscoverCategories?: (request: { readonly stageId: string; readonly categoryColumnId: string; readonly valueColumnId: string }) => void;
     readonly onCandidateChange?: (intent: ConstructionCandidateIntent | undefined) => void;
-  }) => (
-    <div
-      data-testid="construction-reshape-editor"
-      data-editing-step-id={editingStep?.id ?? ''}
-      data-editing-operation={editingStep?.operation.kind ?? ''}
-      data-initial-kind={initialKind ?? ''}
-      data-initial-entry-step-id={initialEntry?.form.stepId ?? ''}
-      data-initial-candidate-step-id={initialEntry?.candidateIntent.changedStepId ?? ''}
-      data-construction-step-count={construction.steps.length}
-      data-discovery-status={pivotDiscovery?.status ?? 'none'}
-    >
-      {onDiscoverCategories ? <button type="button" onClick={() => onDiscoverCategories({
-        stageId: capabilities.selectedStage.id,
-        categoryColumnId: 'status-id',
-        valueColumnId: 'value-id',
-      })}>Find category values in construction editor</button> : null}
-      {onCandidateChange ? <button type="button" onClick={() => onCandidateChange({
-        changedStepId: 'pivot-proposal-step',
-        candidateConstruction: {
-          version: 1,
-          steps: [{
-            id: 'pivot-proposal-step',
-            inputs: [{ kind: 'SOURCE_PROJECTION' }],
-            operation: { kind: 'PIVOT' },
-            outputs: [
-              { id: 'd-output', name: 'd', label: 'Observed quantity d', type: 'integer', table: { order: 0 } },
-              { id: 'specimen-output', name: 'specimen_id', label: 'Specimen ID', type: 'string', table: { order: 1 } },
-              { id: 'patient-output', name: 'patient_id', label: 'Patient FHIR ID', type: 'string', table: { order: 2 } },
-              { id: 'observation-output', name: 'observation_id', label: 'Observation FHIR ID', type: 'string', table: { order: 3 } },
-              { id: 'value-output', name: 'related_value', label: 'Observation value', type: 'string', table: { order: 4 } },
-              { id: 'null-output', name: 'null_value', label: 'Null', type: 'string', table: { order: 5 } },
-            ],
-          }],
-        } as unknown as Construction,
-      })}>Emit Pivot presentation proposal</button> : null}
-    </div>
-  ),
+    readonly relatedExpandQueryOwnerRef?: React.RefObject<RelatedExpandQueryOwner | null>;
+  }) => {
+    React.useImperativeHandle(
+      relatedExpandQueryOwnerRef ?? null,
+      () => mockRelatedExpandOwnerState.enabled ? mockRelatedExpandQueryOwner : null,
+      [relatedExpandQueryOwnerRef, mockRelatedExpandOwnerState.enabled],
+    );
+    return (
+      <div
+        data-testid="construction-reshape-editor"
+        data-editing-step-id={editingStep?.id ?? ''}
+        data-editing-operation={editingStep?.operation.kind ?? ''}
+        data-initial-kind={initialKind ?? ''}
+        data-initial-entry-step-id={initialEntry?.form.stepId ?? ''}
+        data-initial-candidate-step-id={initialEntry?.candidateIntent.changedStepId ?? ''}
+        data-construction-step-count={construction.steps.length}
+        data-discovery-status={pivotDiscovery?.status ?? 'none'}
+      >
+        {onDiscoverCategories ? <button type="button" onClick={() => onDiscoverCategories({
+          stageId: capabilities.selectedStage.id,
+          categoryColumnId: 'status-id',
+          valueColumnId: 'value-id',
+        })}>Find category values in construction editor</button> : null}
+        {onCandidateChange ? <button type="button" onClick={() => onCandidateChange({
+          changedStepId: 'pivot-proposal-step',
+          candidateConstruction: {
+            version: 1,
+            steps: [{
+              id: 'pivot-proposal-step',
+              inputs: [{ kind: 'SOURCE_PROJECTION' }],
+              operation: { kind: 'PIVOT' },
+              outputs: [
+                { id: 'd-output', name: 'd', label: 'Observed quantity d', type: 'integer', table: { order: 0 } },
+                { id: 'specimen-output', name: 'specimen_id', label: 'Specimen ID', type: 'string', table: { order: 1 } },
+                { id: 'patient-output', name: 'patient_id', label: 'Patient FHIR ID', type: 'string', table: { order: 2 } },
+                { id: 'observation-output', name: 'observation_id', label: 'Observation FHIR ID', type: 'string', table: { order: 3 } },
+                { id: 'value-output', name: 'related_value', label: 'Observation value', type: 'string', table: { order: 4 } },
+                { id: 'null-output', name: 'null_value', label: 'Null', type: 'string', table: { order: 5 } },
+              ],
+            }],
+          } as unknown as Construction,
+        })}>Emit Pivot presentation proposal</button> : null}
+      </div>
+    );
+  },
 }));
 
 const apiVersion = 'loom.calypr.org/explorer-authoring/v2' as const;
@@ -458,6 +475,89 @@ const abortableRequest = <T,>() => {
   return { unwrap: vi.fn(() => promise), abort };
 };
 
+const openPivotPresentationProposal = async () => {
+  const sourceStage = {
+    id: 'source_projection',
+    inputStageId: '',
+    rowIdentityColumn: 'source-row-id',
+    columns: [
+      { id: 'specimen-id', name: 'specimen_id', label: 'Specimen ID', type: 'string' },
+      { id: 'patient-id', name: 'patient_id', label: 'Patient FHIR ID', type: 'string' },
+      { id: 'observation-id', name: 'observation_id', label: 'Observation FHIR ID', type: 'string' },
+      { id: 'value-id', name: 'related_value', label: 'Observation value', type: 'string' },
+    ],
+    capabilities: [
+      { kind: 'PIVOT' as const, supported: true },
+      { kind: 'FILTER' as const, supported: true },
+    ],
+  };
+  mockLoomClient.getConstructionCapabilities.mockImplementation(async (args: {
+    readonly snapshotToken: string;
+    readonly expectedDraftVersion: number;
+    readonly expectedDraftDigest: string;
+    readonly outputId: string;
+    readonly stageId: string;
+  }) => ({
+    snapshotToken: args.snapshotToken,
+    draftVersion: args.expectedDraftVersion,
+    draftDigest: args.expectedDraftDigest,
+    outputId: args.outputId,
+    stageId: args.stageId,
+    baseConstruction: { version: 1, steps: [] },
+    stages: [sourceStage],
+    selectedStage: sourceStage,
+  }));
+  mockLoomClient.proposeConstruction.mockImplementation(async (args: ProposeConstructionArgs): Promise<ConstructionProposalResponse> => ({
+    proposalId: 'pivot-presentation-proposal',
+    outputId: args.outputId,
+    snapshotToken: args.snapshotToken,
+    draftVersion: args.expectedDraftVersion,
+    draftDigest: args.expectedDraftDigest,
+    baseDocumentDigest: 'document-1',
+    candidateWorkspaceDigest: 'candidate-workspace-1',
+    changedStepId: args.changedStepId ?? '',
+    candidateConstruction: args.candidateConstruction,
+    dependencyImpact: { affectedStepIds: [] },
+    stages: [sourceStage],
+    previewStatus: 'READY',
+    previewDurationMs: 3,
+  }));
+  mockLoomClient.preview.mockResolvedValue({
+    apiVersion,
+    kind: 'ExplorerBuilderPreview',
+    rowLineageCapability: { status: 'UNAVAILABLE', reasonCode: 'TEST_FIXTURE' },
+    receiptId: 'pivot-presentation-proposal',
+    outputId: 'specimens',
+    columns: [
+      { column: 'specimen_id', label: 'Specimen ID', logicalType: 'string', filterable: true, chartable: false },
+      { column: 'patient_id', label: 'Patient FHIR ID', logicalType: 'string', filterable: true, chartable: false },
+      { column: 'observation_id', label: 'Observation FHIR ID', logicalType: 'string', filterable: true, chartable: false },
+      { column: 'related_value', label: 'Observation value', logicalType: 'string', filterable: true, chartable: false },
+      { column: 'null_value', label: 'Null', logicalType: 'string', filterable: true, chartable: false },
+      { column: 'd', label: 'd', logicalType: 'integer', filterable: true, chartable: false },
+    ],
+    rows: [{
+      specimen_id: 'specimen-1',
+      patient_id: 'patient-1',
+      observation_id: 'observation-1',
+      related_value: 'value-1',
+      null_value: null,
+      d: 7,
+    }],
+    rowCount: 1,
+    diagnostics: [],
+  });
+
+  mockRelatedExpandOwnerState.enabled = true;
+  const view = render(<BuilderWorkspace organization="HTAN_INT" project="BForePC" explorerId="test" />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Configure rows' }));
+  const rowSettings = await screen.findByRole('dialog', { name: 'Row definition settings' });
+  fireEvent.click(within(rowSettings).getByTestId('construction-action-pivot-rows'));
+  fireEvent.click(await screen.findByRole('button', { name: 'Emit Pivot presentation proposal' }));
+  const proposalPreview = await screen.findByTestId('construction-proposal-preview');
+  return { view, proposalPreview };
+};
+
 describe('BuilderWorkspace on-demand reconciliation', () => {
   let applyCommands: Mock;
   let assessRowChange: Mock;
@@ -466,6 +566,9 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
   let publish: Mock;
 
   beforeEach(() => {
+    mockRelatedExpandOwnerState.enabled = false;
+    mockRelatedExpandQueryOwner.pauseAndDrain.mockReset().mockResolvedValue(undefined);
+    mockRelatedExpandQueryOwner.resume.mockReset();
     mockLoomClient.getSelection.mockReset();
     mockLoomClient.listRowDefinitionChoices.mockReset();
     mockLoomClient.listRowDefinitionChoices.mockResolvedValue({
@@ -1160,85 +1263,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
   });
 
   it('uses candidate Pivot output presentation when rendering the construction proposal preview', async () => {
-    const sourceStage = {
-      id: 'source_projection',
-      inputStageId: '',
-      rowIdentityColumn: 'source-row-id',
-      columns: [
-        { id: 'specimen-id', name: 'specimen_id', label: 'Specimen ID', type: 'string' },
-        { id: 'patient-id', name: 'patient_id', label: 'Patient FHIR ID', type: 'string' },
-        { id: 'observation-id', name: 'observation_id', label: 'Observation FHIR ID', type: 'string' },
-        { id: 'value-id', name: 'related_value', label: 'Observation value', type: 'string' },
-      ],
-      capabilities: [
-        { kind: 'PIVOT' as const, supported: true },
-        { kind: 'FILTER' as const, supported: true },
-      ],
-    };
-    mockLoomClient.getConstructionCapabilities.mockImplementation(async (args: {
-      readonly snapshotToken: string;
-      readonly expectedDraftVersion: number;
-      readonly expectedDraftDigest: string;
-      readonly outputId: string;
-      readonly stageId: string;
-    }) => ({
-      snapshotToken: args.snapshotToken,
-      draftVersion: args.expectedDraftVersion,
-      draftDigest: args.expectedDraftDigest,
-      outputId: args.outputId,
-      stageId: args.stageId,
-      baseConstruction: { version: 1, steps: [] },
-      stages: [sourceStage],
-      selectedStage: sourceStage,
-    }));
-    mockLoomClient.proposeConstruction.mockImplementation(async (args: ProposeConstructionArgs): Promise<ConstructionProposalResponse> => ({
-      proposalId: 'pivot-presentation-proposal',
-      outputId: args.outputId,
-      snapshotToken: args.snapshotToken,
-      draftVersion: args.expectedDraftVersion,
-      draftDigest: args.expectedDraftDigest,
-      baseDocumentDigest: 'document-1',
-      candidateWorkspaceDigest: 'candidate-workspace-1',
-      changedStepId: args.changedStepId ?? '',
-      candidateConstruction: args.candidateConstruction,
-      dependencyImpact: { affectedStepIds: [] },
-      stages: [sourceStage],
-      previewStatus: 'READY',
-      previewDurationMs: 3,
-    }));
-    mockLoomClient.preview.mockResolvedValue({
-      apiVersion,
-      kind: 'ExplorerBuilderPreview',
-      rowLineageCapability: { status: 'UNAVAILABLE', reasonCode: 'TEST_FIXTURE' },
-      receiptId: 'pivot-presentation-proposal',
-      outputId: 'specimens',
-      columns: [
-        { column: 'specimen_id', label: 'Specimen ID', logicalType: 'string', filterable: true, chartable: false },
-        { column: 'patient_id', label: 'Patient FHIR ID', logicalType: 'string', filterable: true, chartable: false },
-        { column: 'observation_id', label: 'Observation FHIR ID', logicalType: 'string', filterable: true, chartable: false },
-        { column: 'related_value', label: 'Observation value', logicalType: 'string', filterable: true, chartable: false },
-        { column: 'null_value', label: 'Null', logicalType: 'string', filterable: true, chartable: false },
-        { column: 'd', label: 'd', logicalType: 'integer', filterable: true, chartable: false },
-      ],
-      rows: [{
-        specimen_id: 'specimen-1',
-        patient_id: 'patient-1',
-        observation_id: 'observation-1',
-        related_value: 'value-1',
-        null_value: null,
-        d: 7,
-      }],
-      rowCount: 1,
-      diagnostics: [],
-    });
-
-    const view = render(<BuilderWorkspace organization="HTAN_INT" project="BForePC" explorerId="test" />);
-    fireEvent.click(await screen.findByRole('button', { name: 'Configure rows' }));
-    const rowSettings = await screen.findByRole('dialog', { name: 'Row definition settings' });
-    fireEvent.click(within(rowSettings).getByTestId('construction-action-pivot-rows'));
-    fireEvent.click(await screen.findByRole('button', { name: 'Emit Pivot presentation proposal' }));
-
-    const proposalPreview = await screen.findByTestId('construction-proposal-preview');
+    const { view, proposalPreview } = await openPivotPresentationProposal();
     expect(within(proposalPreview).getAllByRole('columnheader').map((header) => header.firstElementChild?.textContent)).toEqual([
       'Observed quantity d',
       'Specimen ID',
@@ -1255,6 +1280,45 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
       'value-1',
       '',
     ]);
+    view.unmount();
+  });
+
+  it('waits for the route query owner before applying a construction proposal', async () => {
+    const { view } = await openPivotPresentationProposal();
+    const commandOrder: string[] = [];
+    let releaseQueryDrain: (() => void) | undefined;
+    const queryDrain = new Promise<void>((resolve) => { releaseQueryDrain = resolve; });
+    mockRelatedExpandQueryOwner.pauseAndDrain.mockImplementation(() => {
+      commandOrder.push('route-page-drained');
+      return queryDrain;
+    });
+    mockRelatedExpandQueryOwner.resume.mockImplementation(() => commandOrder.push('route-query-resumed'));
+    applyCommands.mockImplementation((args: { readonly commandId: string }) => {
+      commandOrder.push('mutation-started');
+      return rejectedRequest(Object.assign(new Error('Temporary command failure.'), { code: 'TEST_FAILURE' }));
+    });
+    fireEvent.click(screen.getByTestId('construction-apply-proposal'));
+    await waitFor(() => expect(mockRelatedExpandQueryOwner.pauseAndDrain).toHaveBeenCalledOnce());
+    expect(applyCommands).not.toHaveBeenCalled();
+    expect(commandOrder).toEqual(['route-page-drained']);
+    await act(async () => releaseQueryDrain?.());
+    await waitFor(() => expect(applyCommands).toHaveBeenCalledOnce());
+    await waitFor(() => expect(mockRelatedExpandQueryOwner.resume).toHaveBeenCalledOnce());
+    expect(commandOrder).toEqual(['route-page-drained', 'mutation-started', 'route-query-resumed']);
+
+    view.unmount();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    mockLoomClient.proposeConstruction.mockClear();
+  });
+
+  it('retires the route query owner after a successful command advances the draft', async () => {
+    const { view } = await openPivotPresentationProposal();
+    fireEvent.click(screen.getByTestId('construction-apply-proposal'));
+
+    await waitFor(() => expect(mockRelatedExpandQueryOwner.pauseAndDrain).toHaveBeenCalledOnce());
+    await waitFor(() => expect(applyCommands).toHaveBeenCalledOnce());
+    expect(mockRelatedExpandQueryOwner.resume).not.toHaveBeenCalled();
+
     view.unmount();
     await new Promise((resolve) => setTimeout(resolve, 0));
     mockLoomClient.proposeConstruction.mockClear();

@@ -3,6 +3,7 @@ import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createHash } from 'node:crypto';
+import { playwrightDiscoveryCountIssues } from './lib/playwright-discovery-counts.mjs';
 
 const scriptRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const args = process.argv.slice(2);
@@ -22,6 +23,7 @@ const ledger = JSON.parse(readFileSync(manifestPath, 'utf8'));
 const runnerInventory = JSON.parse(readFileSync(runnerInventoryPath, 'utf8'));
 const preimages = JSON.parse(readFileSync(preimagesPath, 'utf8'));
 const discovery = JSON.parse(readFileSync(discoveryPath, 'utf8'));
+issues.push(...playwrightDiscoveryCountIssues(discovery));
 if (discovery.status !== 'discovery-only' || discovery.runtimeStatus !== 'not-run') addIssue('discovery snapshot must remain explicitly discovery-only with runtimeStatus not-run');
 if (ledger.sourceScope.discoverySnapshot?.path !== 'docs/verification/playwright/discovery.snapshot.json' || ledger.sourceScope.discoverySnapshot?.sha256 !== digest(discoveryPath)) addIssue('discovery snapshot path/hash does not match the generated ledger');
 const discoveryTests = new Map();
@@ -29,7 +31,6 @@ const discoverySpecHashes = new Map();
 for (const session of discovery.sessions ?? []) {
   const configPath = join(sourceRoot, session.configPath ?? '');
   if (!statSafe(configPath) || digest(configPath) !== session.configSha256) addIssue(`discovery config hash drift: ${session.configPath}`);
-  let testCount = 0;
   for (const spec of session.specs ?? []) {
     const specPath = spec.path;
     const specFile = join(sourceRoot, specPath);
@@ -38,10 +39,8 @@ for (const session of discovery.sessions ?? []) {
     for (const test of spec.cases ?? []) {
       const key = `${session.sessionID}:${specPath}:${test.title}`;
       discoveryTests.set(key, [...(discoveryTests.get(key) ?? []), test]);
-      testCount += 1;
     }
   }
-  if (testCount !== session.testCount || (session.specs ?? []).length !== session.specFileCount) addIssue(`discovery case/spec count drift: ${session.sessionID}`);
 }
 for (const [sessionID, testCountKey, fileCountKey] of [
   ['main', 'discoveredTestCount', 'discoveredSpecFileCount'],
