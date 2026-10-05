@@ -1,29 +1,21 @@
 import assert from 'node:assert/strict';
 import { createHash, randomUUID } from 'node:crypto';
-import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
-import { mkdir, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
-import { browserEval, click, launchCdaBrowser, navigate, waitForBrowser } from './lib/playwright-cda-actions.mjs';
-import { captureSourceFreeze } from './lib/source-freeze.mjs';
-import { assertOwnedCdaTarget } from './lib/owned-cda-target.mjs';
 import { captureCDARequests } from './lib/cda-playwright-requests.mjs';
-import { ApiBuildFreezeError, captureApiBuildFreeze, checkContainerApiBuildStamp } from './lib/api-build-freeze.mjs';
 
-const project = process.env.LOOM_CDA_PROJECT;
+export async function mixedSiblingCountWorkflow({ page, cda }) {
+let fatal;
+const project = cda.project;
 const generation = 'cda-fhir-v1';
 const protectedExplorer = 'cda-builder-full-qa-1790440983382';
 const explorer = `mixed-sibling-count-${Date.now()}-${randomUUID().slice(0, 8)}`;
-const evidence = process.argv[2] ?? `/tmp/loom-${explorer}`;
-const apiOrigin = process.env.LOOM_CDA_API_ORIGIN;
-const uiOrigin = process.env.LOOM_CDA_UI_ORIGIN;
-const arangoContainer = process.env.LOOM_ARANGO_CONTAINER;
-const apiContainer = process.env.LOOM_CDA_API_CONTAINER;
-const composeProject = process.env.LOOM_CDA_COMPOSE_PROJECT;
-const apiBuildTarget = 'local-cda-api';
-const sourceRoot = process.env.LOOM_SOURCE_ROOT ?? fileURLToPath(new URL('..', import.meta.url));
+const evidence = cda.evidenceDirectory;
+const apiOrigin = cda.apiOrigin;
+const uiOrigin = cda.uiOrigin;
+const arangoContainer = cda.target.arangoContainer;
+const apiContainer = cda.target.apiContainer;
+const composeProject = cda.target.composeProject;
 assert.equal(project, 'loom_dev_cda_fhir', 'This verifier is bound to the CDA-FHIR project');
-await assertOwnedCdaTarget({ project, apiOrigin, uiOrigin, apiContainer, composeProject, sourceRoot, arangoContainer });
 const patientType = 'Patient';
 const targetTypes = ['Condition', 'Observation', 'Specimen'];
 const seedLimit = 2000;
@@ -35,12 +27,12 @@ const selections = `${root}/${explorer}/selections`;
 
 assert.notEqual(explorer, protectedExplorer, 'The verifier must own a fresh QA Explorer');
 
-const report = {
+const report = Object.assign(cda.report, {
   started: new Date().toISOString(),
   explorer,
   protectedExplorer,
   protectedExplorerUntouched: true,
-  target: { apiOrigin, uiOrigin, project, generation, arangoContainer },
+  target: { ...cda.report.target, apiOrigin, uiOrigin, project, generation, arangoContainer },
   localScopeAssertion: {
     mode: 'localhost unrestricted, no-auth local API',
     apiOrigin,
@@ -52,25 +44,27 @@ const report = {
   coverageBoundary: { group: 'deferred', pivot: 'deferred' },
   cases: [],
   apiRequests: [],
-  nativeRequests: [],
+  nativeRequests: cda.nativeRequests,
   errors: [],
-};
-await mkdir(evidence, { recursive: true });
+});
 
-let browser;
 let builder;
 let outputId;
 let rootColumnId;
-let frozenSource;
-let frozenApiBuild;
 let originalWorkspace;
 let originalDocument;
 let nativeCapture;
+
+const browserEval = (_page, callback, args = []) => cda.inspect(callback, args);
+const click = (_page, selector, identity, timeout) => cda.click(selector, identity, timeout);
+const navigate = (_page, url) => cda.navigate(url);
+const waitForBrowser = (_page, predicate, argsOrTimeout = [], argsOrTimeout2) => Array.isArray(argsOrTimeout)
+  ? cda.wait(predicate, argsOrTimeout, argsOrTimeout2 ?? 5000)
+  : cda.wait(predicate, [], argsOrTimeout);
 const pause = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
 const pathOf = entry => entry.path.split('?')[0];
 const doc = (state = builder) => state.workspace?.documents?.find(document => document.output.id === outputId);
 const columnID = column => column?.column ?? column?.id;
-const readApiBuildStamp = () => checkContainerApiBuildStamp(apiContainer);
 
 class BoundedAbsenceError extends Error {
   constructor(message) { super(message); this.name = 'BoundedAbsenceError'; }
@@ -218,9 +212,9 @@ FOR patient IN Patient
 `;
 
 const trackBrowser = () => {
-  nativeCapture = captureCDARequests(browser.page, { apiOrigin: uiOrigin, appOrigins: [apiOrigin, uiOrigin],
+  nativeCapture = captureCDARequests(page, { apiOrigin: uiOrigin, appOrigins: [apiOrigin, uiOrigin],
     ownedPathPrefix: base, report, responsePaths: /builder|commands|preview|construction-proposals|population-routes|selections/ });
-  browser.page.on('request', request => {
+  page.on('request', request => {
     const url = new URL(request.url());
     if (url.pathname.includes(protectedExplorer)) {
       report.protectedExplorerUntouched = false;
@@ -267,13 +261,13 @@ const assertPreviewValues = (preview, expectedTypes, phase) => {
 
 const renderTable = async (expectedTypes, phase) => {
   const expectedColumns = 1 + expectedTypes.length;
-  await waitForBrowser(browser.page, (args) => { return Boolean(((() => {
+  await waitForBrowser(page, (args) => { return Boolean(((() => {
     const table=document.querySelector('[data-testid="preview-table-scroll"] [role="table"]');
     return Boolean(table && table.getAttribute('aria-rowcount')==='2' &&
       table.getAttribute('aria-colcount')===args[0] &&
       !document.body.innerText.includes('Loading your table…') && !document.body.innerText.includes('Preview failed:'));
   })())); }, [String(expectedColumns)]);
-  const view = await browserEval(browser.page, (args) => { const table=document.querySelector('[data-testid="preview-table-scroll"] [role="table"]');return {
+  const view = await browserEval(page, (args) => { const table=document.querySelector('[data-testid="preview-table-scroll"] [role="table"]');return {
     rowCount:table?.getAttribute('aria-rowcount'),columnCount:table?.getAttribute('aria-colcount'),
     headers:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].map(cell=>cell.innerText.trim()),
     rows:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]')].slice(1).map(row=>[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText.trim())).filter(row=>row.length)
@@ -296,10 +290,10 @@ const renderTable = async (expectedTypes, phase) => {
 const openTable = async (expectedTypes, phase) => {
   const startedAt = Date.now();
   const fromIndex = nativeIndex();
-  await navigate(browser.page, `${uiOrigin}/?project=${encodeURIComponent(project)}&explorer=${encodeURIComponent(explorer)}&mode=builder`);
-  await waitForBrowser(browser.page, (args) => { return Boolean((Boolean(document.querySelector(args[0])))); }, [`[data-testid="construction-table-${outputId}"]`]);
-  await click(browser.page, `[data-testid="construction-table-${outputId}"]`);
-  await waitForBrowser(browser.page, (args) => { return Boolean((document.querySelector('[data-testid="construction-rows-settings-trigger"]')?.disabled===false)); });
+  await navigate(page, `${uiOrigin}/?project=${encodeURIComponent(project)}&explorer=${encodeURIComponent(explorer)}&mode=builder`);
+  await waitForBrowser(page, (args) => { return Boolean((Boolean(document.querySelector(args[0])))); }, [`[data-testid="construction-table-${outputId}"]`]);
+  await click(page, `[data-testid="construction-table-${outputId}"]`);
+  await waitForBrowser(page, (args) => { return Boolean((document.querySelector('[data-testid="construction-rows-settings-trigger"]')?.disabled===false)); });
   const view = await renderTable(expectedTypes, phase);
   const request = await waitNative(entry => pathOf(entry).endsWith('/preview') && entry.body?.outputId === outputId, fromIndex);
   const preview = previewBody(request.response);
@@ -311,46 +305,46 @@ const openTable = async (expectedTypes, phase) => {
 const selectRelatedCount = async targetType => {
   const start = Date.now();
   const fromIndex = nativeIndex();
-  await click(browser.page, '[data-testid="construction-action-add-columns"]');
-  await click(browser.page, '[aria-label="Column types"] button', { includes: 'Fields and related data' });
-  await waitForBrowser(browser.page, (args) => { return Boolean((Boolean(document.querySelector('[data-testid="construction-add-columns-source"]')))); });
-  const resourcesOpen = await browserEval(browser.page, (args) => { return document.querySelector('[aria-label="Related resources"]')?.open===true; });
-  if (!resourcesOpen) await click(browser.page, '[aria-label="Related resources"] summary');
+  await click(page, '[data-testid="construction-action-add-columns"]');
+  await click(page, '[aria-label="Column types"] button', { includes: 'Fields and related data' });
+  await waitForBrowser(page, (args) => { return Boolean((Boolean(document.querySelector('[data-testid="construction-add-columns-source"]')))); });
+  const resourcesOpen = await browserEval(page, (args) => { return document.querySelector('[aria-label="Related resources"]')?.open===true; });
+  if (!resourcesOpen) await click(page, '[aria-label="Related resources"] summary');
   const sourceOption = `[data-testid="construction-add-columns-source-option"][aria-label=${JSON.stringify(`${targetType}, Related resource`)}]`;
-  await click(browser.page, sourceOption);
-  const rawFieldsOpen = await browserEval(browser.page, (args) => { return document.querySelector('[data-testid="feature-catalog-raw-fields"]')?.open===true; });
-  if (!rawFieldsOpen) await click(browser.page, '[data-testid="feature-catalog-raw-fields"] summary');
+  await click(page, sourceOption);
+  const rawFieldsOpen = await browserEval(page, (args) => { return document.querySelector('[data-testid="feature-catalog-raw-fields"]')?.open===true; });
+  if (!rawFieldsOpen) await click(page, '[data-testid="feature-catalog-raw-fields"] summary');
   const fieldSelector = `input[aria-label=${JSON.stringify(`Select ${targetType}.id`)}]`;
-  await waitForBrowser(browser.page, (args) => { return Boolean((Boolean(document.querySelector(args[0])))); }, [fieldSelector + ':not(:disabled)']);
-  await click(browser.page, fieldSelector);
-  await click(browser.page, '[aria-label="Add columns editor"] button', { includes: 'Add 1 selected feature' });
-  await waitForBrowser(browser.page, (args) => { return Boolean((Boolean(document.querySelector('[role="dialog"]')))); });
+  await waitForBrowser(page, (args) => { return Boolean((Boolean(document.querySelector(args[0])))); }, [fieldSelector + ':not(:disabled)']);
+  await click(page, fieldSelector);
+  await click(page, '[aria-label="Add columns editor"] button', { includes: 'Add 1 selected feature' });
+  await waitForBrowser(page, (args) => { return Boolean((Boolean(document.querySelector('[role="dialog"]')))); });
 
   const routeLabel = `${targetType} ID: Patient <-[subject]- ${targetType}`;
   const routeSelector = `[role="dialog"] input[aria-label=${JSON.stringify(routeLabel)}]`;
-  let routePresent = await browserEval(browser.page, (args) => { return Boolean(document.querySelector(args[0])); }, [routeSelector]);
+  let routePresent = await browserEval(page, (args) => { return Boolean(document.querySelector(args[0])); }, [routeSelector]);
   if (!routePresent) {
-    const alternativesOpen = await browserEval(browser.page, (args) => { return [...document.querySelectorAll('[role="dialog"] summary')].find(summary=>summary.innerText.includes('Other relationship paths'))?.parentElement.open===true; });
-    if (!alternativesOpen) await click(browser.page, '[role="dialog"] summary', { includes: 'Other relationship paths' });
-    await waitForBrowser(browser.page, (args) => { return Boolean((Boolean(document.querySelector(args[0])))); }, [routeSelector]);
+    const alternativesOpen = await browserEval(page, (args) => { return [...document.querySelectorAll('[role="dialog"] summary')].find(summary=>summary.innerText.includes('Other relationship paths'))?.parentElement.open===true; });
+    if (!alternativesOpen) await click(page, '[role="dialog"] summary', { includes: 'Other relationship paths' });
+    await waitForBrowser(page, (args) => { return Boolean((Boolean(document.querySelector(args[0])))); }, [routeSelector]);
     routePresent = true;
   }
   assert(routePresent, `Native chooser omitted one-hop Patient-to-${targetType} path`);
-  await click(browser.page, routeSelector);
+  await click(page, routeSelector);
   const formLabel = `${targetType} ID: Count matching records`;
   const formSelector = `[role="dialog"] input[aria-label=${JSON.stringify(formLabel)}]`;
-  await waitForBrowser(browser.page, (args) => { return Boolean((Boolean(document.querySelector(args[0])))); }, [formSelector]);
-  const formChoice = await browserEval(browser.page, (args) => { const input=document.querySelector(args[0]);return input?{disabled:input.disabled,checked:input.checked}:null; }, [formSelector]);
+  await waitForBrowser(page, (args) => { return Boolean((Boolean(document.querySelector(args[0])))); }, [formSelector]);
+  const formChoice = await browserEval(page, (args) => { const input=document.querySelector(args[0]);return input?{disabled:input.disabled,checked:input.checked}:null; }, [formSelector]);
   assert(formChoice && !formChoice.disabled, `Native chooser cannot author a ${targetType} related COUNT: ${JSON.stringify(formChoice)}`);
-  await click(browser.page, formSelector);
-  const chosen = await browserEval(browser.page, (args) => { return {
+  await click(page, formSelector);
+  const chosen = await browserEval(page, (args) => { return {
     route:document.querySelector(args[0])?.checked,
     form:document.querySelector(args[1])?.checked
   }; }, [routeSelector, formSelector]);
   assert.deepEqual(chosen, { route: true, form: true }, `Chooser must retain the selected ${targetType} route and COUNT form`);
-  await click(browser.page, '[role="dialog"] button', { name: 'Add 1 column' });
-  await waitForBrowser(browser.page, (args) => { return Boolean((document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalStatus==='ready')); });
-  const adoptedProposal = await browserEval(browser.page, (args) => { const panel=document.querySelector('[data-testid="construction-proposal-panel"]');return {proposalId:panel?.dataset.proposalId,status:panel?.dataset.proposalStatus}; });
+  await click(page, '[role="dialog"] button', { name: 'Add 1 column' });
+  await waitForBrowser(page, (args) => { return Boolean((document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalStatus==='ready')); });
+  const adoptedProposal = await browserEval(page, (args) => { const panel=document.querySelector('[data-testid="construction-proposal-panel"]');return {proposalId:panel?.dataset.proposalId,status:panel?.dataset.proposalStatus}; });
   assert(adoptedProposal.proposalId, `The native ${targetType} proposal preview has no proposal identity`);
   const proposalRequest = await waitNative(entry => pathOf(entry).endsWith('/construction-proposals') &&
     entry.body?.candidateConstruction?.steps?.some(step => step.operation?.kind === 'RELATED_SOURCE' &&
@@ -379,7 +373,7 @@ const selectRelatedCount = async targetType => {
     from: edge.fromResourceType, to: edge.toResourceType,
     relationship: edge.relationship, direction: edge.storageDirection,
   })), [{ from: patientType, to: targetType, relationship: 'subject_Patient', direction: 'INBOUND' }]);
-  const proposalPanel = await browserEval(browser.page, (args) => { return document.querySelector('[data-testid="construction-proposal-panel"]')?.innerText; });
+  const proposalPanel = await browserEval(page, (args) => { return document.querySelector('[data-testid="construction-proposal-panel"]')?.innerText; });
   assert(proposalPanel, `The native ${targetType} count proposal is not visible in the Builder`);
   record(`add-${targetType}-count-chooser-to-preview`, start, {
     candidateColumnId: candidateColumn,
@@ -395,13 +389,13 @@ const selectRelatedCount = async targetType => {
 const applyRelatedCount = async (targetType, candidate) => {
   const start = Date.now();
   const fromIndex = nativeIndex();
-  await click(browser.page, '[data-testid="construction-apply-proposal"]');
+  await click(page, '[data-testid="construction-apply-proposal"]');
   const savedCommand = await waitNative(entry => pathOf(entry).endsWith('/commands') &&
     entry.body?.commands?.some(item => item.type === 'APPLY_CONSTRUCTION_PROPOSAL'), fromIndex);
   const appliedProposal = savedCommand.body.commands.find(item => item.type === 'APPLY_CONSTRUCTION_PROPOSAL');
   assert.equal(appliedProposal.outputId, outputId);
   assert.equal(appliedProposal.proposalId, candidate.proposal.proposalId, 'Apply must consume the exact native preview proposal');
-  await waitForBrowser(browser.page, (args) => { return Boolean((!document.querySelector('[data-testid="construction-proposal-panel"]'))); });
+  await waitForBrowser(page, (args) => { return Boolean((!document.querySelector('[data-testid="construction-proposal-panel"]'))); });
   builder = await api(`${base}/builder`);
   const savedStep = doc().construction.steps.find(step => step.operation?.relatedSource?.outputColumnId === candidate.candidateColumn);
   assert(savedStep, `Saved Builder omitted ${targetType} related COUNT step`);
@@ -440,15 +434,15 @@ const removeRelatedCount = async targetType => {
   const remainingTypes = currentTypes.filter(type => type !== targetType);
   const start = Date.now();
   const fromIndex = nativeIndex();
-  await click(browser.page, `[data-testid="construction-history-step-${saved.stepId}"]`);
-  await waitForBrowser(browser.page, (args) => { return Boolean((Boolean(document.querySelector(args[0])))); }, [`[data-testid="construction-remove-step-${saved.stepId}"]:not(:disabled)`]);
-  await click(browser.page, `[data-testid="construction-remove-step-${saved.stepId}"]`);
+  await click(page, `[data-testid="construction-history-step-${saved.stepId}"]`);
+  await waitForBrowser(page, (args) => { return Boolean((Boolean(document.querySelector(args[0])))); }, [`[data-testid="construction-remove-step-${saved.stepId}"]:not(:disabled)`]);
+  await click(page, `[data-testid="construction-remove-step-${saved.stepId}"]`);
   const removalProposal = await waitNative(entry => pathOf(entry).endsWith('/construction-proposals') &&
     entry.body?.removeStepIds?.includes(saved.stepId) && entry.response?.previewStatus === 'READY', fromIndex);
   assert(!removalProposal.response.candidateConstruction.steps.some(step => step.id === saved.stepId),
     `The native ${targetType} removal proposal retained the authored source step`);
   assertPreviewValues(removalProposal.response.preview, remainingTypes, `remove-${targetType}-count-proposal`);
-  await click(browser.page, '[data-testid="construction-apply-proposal"]');
+  await click(page, '[data-testid="construction-apply-proposal"]');
   const removal = await waitNative(entry => pathOf(entry).endsWith('/commands') &&
     entry.body?.commands?.some(item => item.type === 'APPLY_CONSTRUCTION_PROPOSAL' && item.proposalId === removalProposal.response.proposalId), fromIndex);
   delete report.savedColumns[targetType];
@@ -465,15 +459,6 @@ const removeRelatedCount = async targetType => {
 };
 
 try {
-  const sourceStartedAt = new Date().toISOString();
-  report.sourceFreeze = { startedAt: sourceStartedAt };
-  frozenSource = await captureSourceFreeze(sourceRoot);
-  report.sourceFreeze.watchedFileCount = frozenSource.watchedFileCount;
-  const apiBuildStartedAt = new Date().toISOString();
-  report.apiBuildFreeze = { target: apiBuildTarget, startedAt: apiBuildStartedAt };
-  frozenApiBuild = await captureApiBuildFreeze(readApiBuildStamp);
-  report.apiBuildFreeze.initial = frozenApiBuild.initial;
-
   const [seed] = rawQuery(seedQuery);
   if (!seed) {
     report.status = 'unverified';
@@ -568,7 +553,6 @@ try {
   report.savedColumns = {};
   assert.deepEqual(report.oracle.patient, { id: exact.patient.id, _id: exact.patient._id, resourceType: patientType, project, generation });
 
-  browser = await launchCdaBrowser(evidence, apiOrigin, uiOrigin);
   trackBrowser();
   const initial = await openTable([], 'load-base-Patient-table');
   assertPreviewValues(initial.preview, [], 'base Patient table');
@@ -586,8 +570,8 @@ try {
   assert.equal(beforeCancel.draftDigest, baselineDraftDigest,
     'A ready, unapplied related COUNT proposal must not change the saved draft digest');
   const cancelStart = Date.now();
-  await click(browser.page, '[data-testid="construction-cancel-proposal"]');
-  await waitForBrowser(browser.page, (args) => { return Boolean((!document.querySelector('[data-testid="construction-proposal-panel"]'))); });
+  await click(page, '[data-testid="construction-cancel-proposal"]');
+  await waitForBrowser(page, (args) => { return Boolean((!document.querySelector('[data-testid="construction-proposal-panel"]'))); });
   builder = await api(`${base}/builder`);
   assert.deepEqual(builder.workspace, originalWorkspace,
     'Cancel must leave the complete source-only Patient workspace unchanged');
@@ -668,22 +652,16 @@ try {
   assert(report.authoredSiblingOperations.every(step => step.kind === 'RELATED_SOURCE'),
     'This unit must keep Group/Pivot operations out of the mixed-sibling construction chain');
   report.persistedWorkspaceDigest = builder.draftDigest;
-  report.sourceFreeze = { ...report.sourceFreeze, ...(await frozenSource.assertUnchanged()) };
   report.status = 'passed';
 } catch (error) {
+  fatal = error;
   const invalidated = Boolean(error.invalidatesRun);
   report.status = invalidated ? 'invalidated' : error instanceof BoundedAbsenceError ? 'unverified' : 'failed';
   report.error = String(error.stack ?? error);
-  if (error instanceof ApiBuildFreezeError) {
-    report.apiBuildFreeze = { ...report.apiBuildFreeze, initial: error.before,
-      ...(error.after?.checked ? { after: error.after } : {}), unchanged: false,
-      invalidatesRun: true, productFailure: false, reason: error.reason };
-  } else if (invalidated) {
+  if (invalidated) {
     report.sourceFreeze = { ...report.sourceFreeze, unchanged: false, changedPaths: error.changedPaths ?? [], invalidatesRun: true };
   }
-  if (!(error instanceof BoundedAbsenceError) && !invalidated) process.exitCode = 1;
-  if (browser) await browser.captureFailure(error, { action: browser.activeAction ?? browser.lastAction, explorer, phase: 'CDA sibling COUNT lifecycle', draftVersion: builder?.draftVersion, draftDigest: builder?.draftDigest });
-  if (browser) report.failureUI = await browserEval(browser.page, (args) => { return {
+  report.failureUI = await browserEval(page, () => { return {
     tail:document.body.innerText.slice(-8000),
     headers:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].map(cell=>cell.innerText.trim()),
     proposal:(()=>{const p=document.querySelector('[data-testid="construction-proposal-panel"]');return p?{proposalId:p.dataset.proposalId,status:p.dataset.proposalStatus,text:p.innerText}:null})(),
@@ -691,49 +669,11 @@ try {
   }; }).catch(String);
 } finally {
   await nativeCapture?.flush();
-  if (frozenApiBuild) {
-    try {
-      report.apiBuildFreeze = { ...report.apiBuildFreeze, ...(await frozenApiBuild.assertUnchanged()), finishedAt: new Date().toISOString() };
-    } catch (error) {
-      report.priorStatus = report.status;
-      report.status = 'invalidated';
-      report.error = String(error.stack ?? error);
-      report.apiBuildFreeze = { ...report.apiBuildFreeze,
-        ...(error.before ? { initial: error.before } : {}), ...(error.after ? { after: error.after } : {}),
-        unchanged: false, invalidatesRun: true, productFailure: false,
-        ...(error.reason ? { reason: error.reason } : {}), finishedAt: new Date().toISOString() };
-      process.exitCode = 1;
-    }
-  } else {
-    try {
-      const finalOnly = await captureApiBuildFreeze(readApiBuildStamp);
-      report.apiBuildFreeze = { ...report.apiBuildFreeze, after: finalOnly.initial, unchanged: false,
-        invalidatesRun: true, productFailure: false, finishedAt: new Date().toISOString() };
-    } catch (error) {
-      report.apiBuildFreeze = { ...report.apiBuildFreeze,
-        ...(error.before ? { after: error.before } : {}), unchanged: false,
-        invalidatesRun: true, productFailure: false, ...(error.reason ? { reason: error.reason } : {}),
-        finishedAt: new Date().toISOString() };
-    }
-    report.priorStatus ??= report.status;
-    report.status = 'invalidated';
-    process.exitCode = 1;
-  }
-  if (frozenSource && !report.sourceFreeze?.unchanged) {
-    try {
-      report.sourceFreeze = { ...report.sourceFreeze, ...(await frozenSource.assertUnchanged()) };
-    } catch (error) {
-      report.sourceFreeze = { ...report.sourceFreeze, unchanged: false, changedPaths: error.changedPaths ?? [], invalidatesRun: true, error: String(error) };
-      if (report.status === 'passed') {
-        report.status = 'invalidated';
-        report.error = String(error.stack ?? error);
-        process.exitCode = 1;
-      }
-    }
-  }
   report.finished = new Date().toISOString();
   report.nativeRequestSummary = report.nativeRequests.map(({ path, method, status, body, response, failure }) => ({ path, method, status, body, response, failure }));
-  await writeFile(join(evidence, 'report.json'), JSON.stringify(report, null, 2));
-  await browser?.close();
+  await cda.attachReport('mixedSiblingCountWorkflow-domain-report.json', report);
 }
-console.log(JSON.stringify({ status: report.status, explorer, evidence, cases: report.cases.map(({ name, durationMs }) => ({ name, durationMs })), error: report.error }));
+
+if (fatal || report.status !== 'passed') throw fatal ?? new Error(report.unverifiedReason ?? report.error ?? 'CDA sibling COUNT workflow did not pass');
+return report;
+}

@@ -1,59 +1,39 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { mkdir, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { launchBrowser, sanitizeText } from './lib/playwright-browser.mjs';
 import { performAction } from './lib/playwright-actions.mjs';
-import { captureCDARequests } from './lib/cda-playwright-requests.mjs';
-import { assertOwnedCdaTarget } from './lib/owned-cda-target.mjs';
-import { ApiBuildFreezeError, captureApiBuildFreeze, checkContainerApiBuildStamp } from './lib/api-build-freeze.mjs';
-import { captureSourceFreeze } from './lib/source-freeze.mjs';
 
-const project = process.env.LOOM_CDA_PROJECT;
-const generation = process.env.LOOM_CDA_GENERATION;
+export async function cohortRowSourcesWorkflow({ page, cda, cohortRowValueCase = process.env.LOOM_COHORT_ROW_VALUE_CASE ?? 'default' }) {
+const project = cda.project;
+const generation = cda.generation;
 const resourceType = 'Specimen';
-const explorer = `cohort-row-sources-browser-${Date.now()}`;
-const evidence = process.argv[2] ?? `/tmp/loom-cohort-row-sources-${Date.now()}`;
-const cohortRowValueCase = process.env.LOOM_COHORT_ROW_VALUE_CASE ?? 'default';
-const apiOrigin = process.env.LOOM_CDA_API_ORIGIN;
-const uiOrigin = process.env.LOOM_CDA_UI_ORIGIN;
-const apiContainer = process.env.LOOM_CDA_API_CONTAINER;
-const composeProject = process.env.LOOM_CDA_COMPOSE_PROJECT;
-const arangoContainer = process.env.LOOM_ARANGO_CONTAINER;
-assert(apiOrigin && uiOrigin, 'Set LOOM_CDA_API_ORIGIN and LOOM_CDA_UI_ORIGIN to the isolated CDA stack.');
-assert.equal(generation, 'cda-fhir-v1', 'Set LOOM_CDA_GENERATION to the loaded CDA FHIR generation.');
-const root = `/api/v1/projects/${project}/explorers`;
-const base = `${root}/${explorer}/authoring/v2`;
+const explorer = `cohort-row-sources-${Date.now()}`;
+const evidence = cda.evidence;
+const apiOrigin = cda.apiOrigin;
+const uiOrigin = cda.uiOrigin;
+const arangoContainer = cda.target.arangoContainer;
+assert(apiOrigin && uiOrigin, 'The CDA fixture must provide an isolated API and UI origin.');
+assert.equal(generation, 'cda-fhir-v1', 'Cohort row sources require the cda-fhir-v1 fixture generation.');
+const root = `/api/v1/projects/${encodeURIComponent(project)}/explorers`;
+const base = `${root}/${encodeURIComponent(explorer)}/authoring/v2`;
 const selections = base.replace('/authoring/v2', '/selections');
-const sourceRoot = fileURLToPath(new URL('..', import.meta.url));
-const apiBuildTarget = apiContainer;
-const readApiBuildStamp = () => checkContainerApiBuildStamp(apiContainer);
-const report = { project, generation, resourceType, explorer, cohortRowValueCase, cases: [], errors: [], requests: [], nativeRequests: [], started: new Date().toISOString() };
-await mkdir(evidence, { recursive: true });
-const ownedTarget = await assertOwnedCdaTarget({ project, apiOrigin, uiOrigin, apiContainer, composeProject, sourceRoot, arangoContainer });
-report.ownedTarget = ownedTarget;
-
-let browser;
+const report = cda.report;
+Object.assign(report, { project, generation, resourceType, explorer, cohortRowValueCase, cases: [], requests: [], started: new Date().toISOString() });
+report.target = cda.target;
 let builder;
 let outputId;
-let frozenApiBuild;
-let frozenSource;
-let expectedPolicyRejectionPending;
-let requestCapture;
-const page = () => browser.page;
-const inspect = callback => page().evaluate(callback);
-const waitUI = (condition, timeout = 30000) => page().waitForFunction(condition, undefined, { timeout });
-const navigateUI = url => page().goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+const requestCapture = cda.captureRequests(base);
+const inspect = callback => page.evaluate(callback);
+const waitUI = (condition, timeout = 5000) => page.waitForFunction(condition, undefined, { timeout: Math.min(timeout, 5000) });
+const navigateUI = url => page.goto(url, { waitUntil: 'domcontentloaded', timeout: 5000 });
 const clickUI = (selector, options = {}) => {
-  let locator = page().locator(selector);
-  if (options.name) locator = locator.and(page().getByRole('button', { name: options.name, exact: true }));
-  if (options.includes) locator = locator.and(page().getByRole('button', { name: new RegExp(options.includes.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i') }));
+  let locator = page.locator(selector);
+  if (options.name) locator = locator.and(page.getByRole('button', { name: options.name, exact: true }));
+  if (options.includes) locator = locator.and(page.getByRole('button', { name: new RegExp(options.includes.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i') }));
   return performAction(report, options.name ?? options.includes ?? selector, locator, target => target.click({ timeout: 5000 }));
 };
 const selectUI = async (selector, value, options = {}) => {
-  const locator = page().locator(selector);
+  const locator = page.locator(selector);
   await performAction(report, `Select ${value}`, locator, (target, { timeout }) => target.selectOption(value, { timeout }));
   if (options.settledWhen) await waitUI(options.settledWhen, 5000);
   else await waitUI(`document.querySelector(${JSON.stringify(selector)})?.value===${JSON.stringify(value)}`, 5000);
@@ -66,31 +46,6 @@ const safeEvidence = (value, key = '') => {
   if (Array.isArray(value)) return value.map(item => safeEvidence(item));
   if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([childKey, child]) => [childKey, safeEvidence(child, childKey)]));
   return value;
-};
-const invalidateRun = (kind, reason) => {
-  if (report.status !== 'invalidated') {
-    report.priorStatus = report.status ?? 'not-started';
-    if (report.error) report.priorError = report.error;
-  }
-  report.status = 'invalidated';
-  report.productFailure = false;
-  report.invalidations ??= [];
-  if (!report.invalidations.some(item => item.kind === kind && item.reason === reason)) report.invalidations.push({ kind, reason });
-  report.error = `${kind}: ${reason}`;
-  process.exitCode = 1;
-};
-const finalizeFreeze = async (kind, check, failureDetails) => {
-  const finishedAt = new Date().toISOString();
-  try {
-    const result = await check();
-    report[kind] = { ...report[kind], ...result, finishedAt };
-    if (result.invalidatesRun || result.unchanged === false) {
-      invalidateRun(kind, result.reason ?? report[kind].reason ?? 'freeze was not established for the complete run');
-    }
-  } catch (error) {
-    report[kind] = { ...report[kind], ...failureDetails(error), finishedAt };
-    invalidateRun(kind, error.reason ?? String(error));
-  }
 };
 const api = async (path, body, timeoutMs = 30000) => {
   const response = await fetch(apiOrigin + path, {
@@ -126,14 +81,19 @@ const record = (name, started) => {
 const openTable = async (expectedRowCount, expectedColumnCount) => {
   const started = Date.now();
   await navigateUI(`${uiOrigin}/?project=${project}&explorer=${explorer}&mode=builder`);
-  await page().getByTestId(`construction-table-${outputId}`).waitFor({ state: 'visible', timeout: 5000 });
+  await page.getByTestId(`construction-table-${outputId}`).waitFor({ state: 'visible', timeout: 5000 });
   await clickUI(`[data-testid="construction-table-${outputId}"]`);
-  await page().getByTestId('construction-rows-settings-trigger').waitFor({ state: 'visible', timeout: 5000 });
+  await page.getByTestId('construction-rows-settings-trigger').waitFor({ state: 'visible', timeout: 5000 });
   await waitUI(`document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount')===${JSON.stringify(String(expectedRowCount))}&&document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-colcount')===${JSON.stringify(String(expectedColumnCount))}&&!document.body.innerText.includes('Loading your table…')`);
   record('load-table', started);
 };
-const waitForNativeRequest = async (fromIndex, predicate, label, timeout = 5000) => requestCapture.waitFor(entry =>
-  report.nativeRequests.indexOf(entry) >= fromIndex && predicate({ ...entry, body: requestBody(entry), response: responseBody(entry) }), { timeout, label }).then(actionResult);
+const waitForNativeRequest = async (fromIndex, predicate, label, timeout = 5000) => {
+  const captured = await requestCapture.waitFor(entry =>
+    report.nativeRequests.indexOf(entry) >= fromIndex && predicate({
+      ...entry, body: requestBody(entry), response: responseBody(entry),
+    }), { timeout, label });
+  return { ...captured, body: requestBody(captured), response: responseBody(captured) };
+};
 const waitForLineage = async started => waitForNativeRequest(0,
   entry => entry.path === base + '/row-lineage' && entry.startedAt >= started && entry.response,
   'Native row inspection did not complete a fresh row-lineage request within five seconds', Math.max(1, started + 5000 - Date.now()));
@@ -152,8 +112,8 @@ const inspectCohortRow = async name => {
   const started = Date.now();
   await clickUI('button[aria-label="Inspect row 1 identity"]');
   const selector = '[role="dialog"][aria-label="Row 1 identity"]';
-  await page().locator(selector).waitFor({ state: 'visible', timeout: 5000 });
-  const panelText = await page().locator(selector).innerText();
+  await page.locator(selector).waitFor({ state: 'visible', timeout: 5000 });
+  const panelText = await page.locator(selector).innerText();
   assert(panelText.includes('Source records in this row'), panelText);
   assert(!/cannot be listed|unavailable|could not be fully listed|Could not load/i.test(panelText), panelText);
   await waitUI(`document.querySelectorAll(${JSON.stringify(selector + ' ul li')}).length===${report.oracle.sources.length}&&!document.querySelector(${JSON.stringify(selector)}).innerText.includes('Loading source records…')`, 5000);
@@ -164,7 +124,7 @@ const inspectCohortRow = async name => {
   assert.equal(native.response.outputId, outputId);
   assert.equal(native.response.rowId, native.body.rowId);
   const expected = report.oracle.sources.map(source => `${resourceType}/${source.id}`).sort();
-  const listed = await page().locator(`${selector} ul li`).evaluateAll(items => items.map(item=>item.innerText.trim()).sort());
+  const listed = await page.locator(`${selector} ul li`).evaluateAll(items => items.map(item=>item.innerText.trim()).sort());
   assert.deepEqual(listed, expected, 'Native source-record panel must list exactly the independently pinned cohort members');
   assert.deepEqual(native.response.contributors.map(item => `${item.resourceType}/${item.resourceId}`).sort(), expected,
     'Row-lineage response must have the exact independently pinned contributor set');
@@ -173,7 +133,7 @@ const inspectCohortRow = async name => {
     .sort((left, right) => `${left.resourceType}/${left.resourceId}`.localeCompare(`${right.resourceType}/${right.resourceId}`));
   assert.equal(new Set(listed).size, expected.length, 'Each pinned member must appear once');
   assert.equal(native.response.hasMore ?? false, false, 'The complete two-member cohort must fit in one lineage page');
-  const identity = await page().locator(`${selector} p.font-mono`).textContent();
+  const identity = await page.locator(`${selector} p.font-mono`).textContent();
   assert(identity);
   const rowId = native.body.rowId;
   assert.equal(typeof rowId, 'string', 'The native row inspector must submit the displayed row identity as a string');
@@ -187,7 +147,7 @@ const inspectCohortRow = async name => {
   report.inspections ??= [];
   report.inspections.push({ name, identity, rowId, rowIdObject, count: listed.length, contributors: listed, sourceContributors, lineageStatus: native.response.status, receiptId: native.response.receiptId });
   await clickUI(`${selector} button`, { name: 'Close' });
-  await page().locator(selector).waitFor({ state: 'detached', timeout: 5000 });
+  await page.locator(selector).waitFor({ state: 'detached', timeout: 5000 });
   record(name, started);
   return { identity, rowId, rowIdObject, receiptId: native.body.receiptId, sourceContributors };
 };
@@ -295,27 +255,27 @@ const traceCohortCell = async (
 };
 
 const chooseRootFieldWithPolicy = async (policy, fieldPath = 'resourceType') => {
-  const editorOpen = await page().getByTestId('construction-add-columns-source').count().then(count => count > 0);
+  const editorOpen = await page.getByTestId('construction-add-columns-source').count().then(count => count > 0);
   if (!editorOpen) {
     await clickUI('[data-testid="construction-action-add-columns"]');
     await clickUI('[aria-label="Column types"] button', { includes: 'Fields and related data' });
   } else {
-    const fieldsMode = await page().locator('[aria-label="Column types"] button').evaluateAll(buttons => buttons.some(button=>button.innerText.includes('Fields and related data')&&button.getAttribute('aria-pressed')==='true'));
+    const fieldsMode = await page.locator('[aria-label="Column types"] button').evaluateAll(buttons => buttons.some(button=>button.innerText.includes('Fields and related data')&&button.getAttribute('aria-pressed')==='true'));
     if (!fieldsMode) await clickUI('[aria-label="Column types"] button', { includes: 'Fields and related data' });
   }
   await waitUI(`Boolean(document.querySelector('[data-testid="construction-add-columns-source"]'))`, 5000);
-  const policyControl = await page().locator('select[aria-label="Values per grouped row"]').evaluate(control => [...control.options].map(option=>option.value));
+  const policyControl = await page.locator('select[aria-label="Values per grouped row"]').evaluate(control => [...control.options].map(option=>option.value));
   assert.deepEqual(policyControl, ['ALL', 'ONE'], 'The native grouped-row policy selector must retain both supported choices');
   await selectUI('select[aria-label="Values per grouped row"]', policy);
-  const rawFieldsOpen = await page().getByTestId('feature-catalog-raw-fields').evaluate(details => details.open);
+  const rawFieldsOpen = await page.getByTestId('feature-catalog-raw-fields').evaluate(details => details.open);
   if (!rawFieldsOpen) await clickUI('[data-testid="feature-catalog-raw-fields"] summary');
   const checkbox = `input[aria-label=${JSON.stringify(`Select Specimen.${fieldPath.replace(/^root\./, '')}`)}]`;
   await waitUI(`Boolean(document.querySelector(${JSON.stringify(`${checkbox}:not(:disabled)`)}))`, 5000);
-  const checked = await page().locator(checkbox).isChecked();
+  const checked = await page.locator(checkbox).isChecked();
   if (!checked) await clickUI(checkbox);
   await clickUI('[aria-label="Add columns editor"] button', { includes: 'Add 1 selected feature' });
   await waitUI(`['ready','error'].includes(document.querySelector('[data-testid="construction-choice-proposal-panel"]')?.dataset.proposalStatus)`, 5000);
-  return page().getByTestId('construction-choice-proposal-panel').evaluate(panel => ({status:panel.dataset.proposalStatus,text:panel.innerText,rows:[...document.querySelectorAll('[data-testid="construction-proposal-preview-row"]')].map(row=>[...row.querySelectorAll('td')].map(cell=>cell.innerText.trim()))}));
+  return page.getByTestId('construction-choice-proposal-panel').evaluate(panel => ({status:panel.dataset.proposalStatus,text:panel.innerText,rows:[...document.querySelectorAll('[data-testid="construction-proposal-preview-row"]')].map(row=>[...row.querySelectorAll('td')].map(cell=>cell.innerText.trim()))}));
 };
 
 const changeSavedMemberPolicy = async (columnId, expectedPolicy, nextPolicy, { expectRejected = false, allowTransformed = false } = {}) => {
@@ -336,7 +296,7 @@ const changeSavedMemberPolicy = async (columnId, expectedPolicy, nextPolicy, { e
   } else {
     assert(!column.valueTransformation, 'Untransformed policy-edit cases must remain untransformed');
   }
-  const previewAriaRowCount = await page().locator('[data-testid="preview-table-scroll"] [role="table"]').getAttribute('aria-rowcount');
+  const previewAriaRowCount = await page.locator('[data-testid="preview-table-scroll"] [role="table"]').getAttribute('aria-rowcount');
   assert(previewAriaRowCount, 'The saved cohort preview must expose its existing row count');
   const snapshot = {
     previewAriaRowCount,
@@ -350,7 +310,7 @@ const changeSavedMemberPolicy = async (columnId, expectedPolicy, nextPolicy, { e
     columns: structuredClone(currentDocument.columns),
   };
 
-  const columnsMenuOpen = await page().getByLabel('Table columns').count().then(count => count > 0);
+  const columnsMenuOpen = await page.getByLabel('Table columns').count().then(count => count > 0);
   if (!columnsMenuOpen) await clickUI('button', { name: 'Columns' });
   await waitUI(`Boolean(document.querySelector('[aria-label="Table columns"]'))`, 5000);
   const selector = `[aria-label="Table columns"] [data-column-name=${JSON.stringify(column.column)}] select[aria-label^="Values per cohort member for "]`;
@@ -358,19 +318,14 @@ const changeSavedMemberPolicy = async (columnId, expectedPolicy, nextPolicy, { e
 
   const requestFrom = report.nativeRequests.length;
   let request;
-  expectedPolicyRejectionPending = expectRejected ? { outputId, column: column.column, rowValuePolicy: nextPolicy } : undefined;
-  try {
-    await selectUI(selector, nextPolicy, {
-      ...(expectRejected ? { settledWhen: `document.querySelector(${JSON.stringify(selector)})?.value===${JSON.stringify(expectedPolicy)}` } : {}),
-    });
-    request = await waitForNativeRequest(requestFrom,
-      entry => entry.path.endsWith('/commands') && entry.body?.commands?.some(item =>
-        item.type === 'UPDATE_COLUMN_ROW_VALUE_POLICY' && item.outputId === outputId &&
-        item.column === column.column && item.rowValuePolicy === nextPolicy),
-      `Saved ${expectedPolicy} to ${nextPolicy} row-value policy update for ${column.column}`);
-  } finally {
-    expectedPolicyRejectionPending = undefined;
-  }
+  await selectUI(selector, nextPolicy, {
+    ...(expectRejected ? { settledWhen: `document.querySelector(${JSON.stringify(selector)})?.value===${JSON.stringify(expectedPolicy)}` } : {}),
+  });
+  request = await waitForNativeRequest(requestFrom,
+    entry => entry.path.endsWith('/commands') && entry.body?.commands?.some(item =>
+      item.type === 'UPDATE_COLUMN_ROW_VALUE_POLICY' && item.outputId === outputId &&
+      item.column === column.column && item.rowValuePolicy === nextPolicy),
+    `Saved ${expectedPolicy} to ${nextPolicy} row-value policy update for ${column.column}`);
   assert.deepEqual(request.body.commands, [{
     type: 'UPDATE_COLUMN_ROW_VALUE_POLICY',
     outputId,
@@ -392,13 +347,18 @@ const changeSavedMemberPolicy = async (columnId, expectedPolicy, nextPolicy, { e
     const captured = report.nativeRequests.find(entry => entry.browserRequestId === request.browserRequestId);
     assert(captured, 'Expected policy validation must correlate to its captured native request');
     captured.expectedPolicyValidation = true;
+    cda.expectHttpFailure(captured, 'The server rejects an ambiguous ONE policy for a member field with different per-member values.', {
+      control: 'saved member-field policy select', outputId, column: column.column,
+      previousPolicy: expectedPolicy, attemptedPolicy: nextPolicy,
+      draftDigest: snapshot.draftDigest, stableColumnId: columnId,
+    });
     await waitForNativeRequest(requestFrom,
       entry => entry.path.endsWith('/commands') && entry.body?.commands?.some(item =>
         item.type === 'UPDATE_COLUMN_ROW_VALUE_POLICY' && item.outputId === outputId && item.column === column.column &&
         item.rowValuePolicy === nextPolicy) && Boolean(entry.response || entry.responseReadError),
       `Readable validation response for ambiguous ONE policy on ${column.column}`);
   }
-  const policyMenuStillMounted = await page().locator(selector).count().then(count => count > 0);
+  const policyMenuStillMounted = await page.locator(selector).count().then(count => count > 0);
   if (!policyMenuStillMounted) await clickUI('button', { name: 'Columns' });
   await waitUI(`Boolean(document.querySelector('[aria-label="Table columns"]'))`, 5000);
   const expectedVisiblePolicy = expectRejected ? expectedPolicy : nextPolicy;
@@ -497,43 +457,21 @@ const removeColumnByIdentity = async (columnName) => {
   const duplicateLabels = expectedRows.filter(row => row.label === targetColumn.label);
   assert.equal(duplicateLabels.length, 2, 'The fixture should expose two same-labeled Resource Type rows for the identity check');
 
-  const panelOpen = await page().getByLabel('Table columns').count().then(count => count > 0);
+  const panelOpen = await page.getByLabel('Table columns').count().then(count => count > 0);
   if (!panelOpen) await clickUI('button', { name: 'Columns' });
   await waitUI(`Boolean(document.querySelector('[aria-label="Table columns"]'))`, 5000);
-  const renderedRows = await page().locator('[aria-label="Table columns"] [role="listitem"]').evaluateAll(rows => rows.map(row=>({label:row.querySelector('input[aria-label^="Column name for "]')?.value,removeLabel:row.querySelector('button[aria-label^="Remove "]')?.getAttribute('aria-label')})));
+  const renderedRows = await page.locator('[aria-label="Table columns"] [role="listitem"]').evaluateAll(rows => rows.map(row=>({label:row.querySelector('input[aria-label^="Column name for "]')?.value,removeLabel:row.querySelector('button[aria-label^="Remove "]')?.getAttribute('aria-label')})));
   assert.deepEqual(renderedRows, expectedRows,
     'Compact Columns rows must match the saved explicit-group fields in PreviewTable presentation order');
   assert.equal(renderedRows.filter(row => row.label === targetColumn.label).length, 2,
     'Both duplicate Resource Type labels must be present before selecting the ONE row by saved order');
-  const targetRow = page().locator('[aria-label="Table columns"] [role="listitem"]').nth(targetIndex);
+  const targetRow = page.locator('[aria-label="Table columns"] [role="listitem"]').nth(targetIndex);
   const targetLabel = await targetRow.locator('input[aria-label^="Column name for "]').inputValue();
   assert.equal(targetLabel, targetColumn.label, `Could not map saved ONE output ${columnName} to its compact Columns row`);
   await performAction(report, `Remove ${columnName}`, targetRow.getByRole('button', { name: `Remove ${targetColumn.label} column`, exact: true }), target => target.click({ timeout: 5000 }));
 };
 
 try {
-  const apiBuildStartedAt = new Date().toISOString();
-  report.apiBuildFreeze = { target: apiBuildTarget, startedAt: apiBuildStartedAt };
-  frozenApiBuild = await captureApiBuildFreeze(readApiBuildStamp);
-  report.apiBuildFreeze = { ...report.apiBuildFreeze, initial: frozenApiBuild.initial };
-  const sourceFreezeStartedAt = new Date().toISOString();
-  report.sourceFreeze = { startedAt: sourceFreezeStartedAt, available: false };
-  try {
-    frozenSource = await captureSourceFreeze(sourceRoot);
-    report.sourceFreeze = { ...report.sourceFreeze, available: true, watchedFileCount: frozenSource.watchedFileCount };
-  } catch (error) {
-    report.sourceFreeze = {
-      ...report.sourceFreeze,
-      unchanged: false,
-      changedPaths: [],
-      invalidatesRun: true,
-      productFailure: false,
-      error: String(error),
-    };
-    const captureError = new Error(`Initial source freeze capture failed: ${String(error)}`);
-    captureError.initialSourceFreezeFailure = true;
-    throw captureError;
-  }
   const query = `FOR s IN Specimen FILTER s.project=="${project}" AND s.dataset_generation=="${generation}" SORT s._key LIMIT 2 RETURN {id:s.id,resourceType:s.resourceType,fieldValue:s.payload.resourceType,generation:s.dataset_generation,project:s.project}`;
   const raw = spawnSync('rtk', [
     'proxy', 'docker', 'exec', arangoContainer, 'arangosh', '--server.database', 'loom_dev',
@@ -608,32 +546,13 @@ try {
   assert.deepEqual(cohort.groups.map(group => ({ id: group.id, label: group.label, memberCount: group.memberCount })), [{ id: 'qa-cohort', label: 'Two Specimens', memberCount: sources.length }]);
   report.cohort = { ...cohort, sourceScopeDigest: scopeDigest, sourceRefs: selectedRefs };
 
-  browser = await launchBrowser({ evidence, appOrigins: [apiOrigin, uiOrigin], noAuth: true });
-  requestCapture = captureCDARequests(page(), {
-    apiOrigin,
-    browserRequestOrigin: uiOrigin,
-    appOrigins: [apiOrigin, uiOrigin],
-    ownedPathPrefix: base,
-    report,
-    shouldReportHttpError: (path, status, entry) => {
-      const expected = expectedPolicyRejectionPending;
-      const command = entry.body?.commands;
-      return !(expected && path === base + '/commands' && status >= 400 && status < 500
-        && entry.method === 'POST' && command?.length === 1
-        && command[0].type === 'UPDATE_COLUMN_ROW_VALUE_POLICY'
-        && command[0].outputId === expected.outputId
-        && command[0].column === expected.column
-        && command[0].rowValuePolicy === expected.rowValuePolicy);
-    },
-  });
-
   await openTable(sources.length + 1, 1);
   const startRows = Date.now();
   await clickUI('[data-testid="construction-rows-settings-trigger"]');
   const rowShapeSelector = 'select[aria-label="What should each row represent?"]';
   await waitUI(`document.querySelector(${JSON.stringify(rowShapeSelector)})?.disabled===false`);
   const cohortShape = `explicit:${cohort.revisionId}`;
-  const options = await page().locator(rowShapeSelector).evaluate(select => [...select.options].map(option=>({value:option.value,disabled:option.disabled,text:option.text})));
+  const options = await page.locator(rowShapeSelector).evaluate(select => [...select.options].map(option=>({value:option.value,disabled:option.disabled,text:option.text})));
   report.rowShapeOptions = options;
   assert(options.some(option => option.value === cohortShape && !option.disabled), 'The saved named cohort must appear as a usable row shape: ' + JSON.stringify(options));
   await selectUI(rowShapeSelector, cohortShape);
@@ -641,7 +560,7 @@ try {
   await waitUI(`document.querySelector(${JSON.stringify(policySelector)})?.disabled===false`);
   await selectUI(policySelector, `explicit:${cohort.revisionId}:ERROR`);
   await waitUI(`[...document.querySelectorAll('[aria-label="Row definition settings"] button')].some(button=>button.innerText==='Apply row definition'&&!button.disabled)`);
-  const comparison = await page().getByLabel('Row definition preview').innerText();
+  const comparison = await page.getByLabel('Row definition preview').innerText();
   assert(comparison?.includes('2 rows → 1 rows'), comparison ?? 'The row definition preview must collapse the two pinned records to one cohort row');
   await clickUI('[aria-label="Row definition settings"] button', { name: 'Apply row definition' });
   await waitUI(`document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount')==='2'&&!document.body.innerText.includes('Loading your table…')&&!document.body.innerText.includes('Preview failed:')`);
@@ -663,7 +582,7 @@ try {
   await clickUI('input[aria-label="Select Specimen.resourceType"]');
   await clickUI('[aria-label="Add columns editor"] button', { includes: 'Add 1 selected feature' });
   await waitUI(`['ready','error'].includes(document.querySelector('[data-testid="construction-choice-proposal-panel"]')?.dataset.proposalStatus)`);
-  const fieldProposal = await page().getByTestId('construction-choice-proposal-panel').evaluate(panel => ({status:panel.dataset.proposalStatus,text:panel.innerText,rows:[...document.querySelectorAll('[data-testid="construction-proposal-preview-row"]')].map(row=>[...row.querySelectorAll('td')].map(cell=>cell.innerText.trim()))}));
+  const fieldProposal = await page.getByTestId('construction-choice-proposal-panel').evaluate(panel => ({status:panel.dataset.proposalStatus,text:panel.innerText,rows:[...document.querySelectorAll('[data-testid="construction-proposal-preview-row"]')].map(row=>[...row.querySelectorAll('td')].map(cell=>cell.innerText.trim()))}));
   report.fieldProposal = fieldProposal;
   assert.equal(fieldProposal.status, 'ready', fieldProposal.text);
   assert.equal(fieldProposal.rows.length, 1, 'The named cohort field must preview one group row');
@@ -689,7 +608,7 @@ try {
   assert.equal(doc(afterReload).population.selectionRevisionId, selection.id);
   const reloadedResourceTypeColumn = doc(afterReload).columns.find(column => column.source.kind === 'field' && column.source.field?.path === 'resourceType');
   assert.equal(reloadedResourceTypeColumn?.column, resourceTypeColumn.column, 'Reload must retain the exact typed resourceType output column');
-  const cells = await page().locator('[data-testid="preview-table-scroll"] [role="cell"]').evaluateAll(items => items.map(cell=>cell.innerText.trim()));
+  const cells = await page.locator('[data-testid="preview-table-scroll"] [role="cell"]').evaluateAll(items => items.map(cell=>cell.innerText.trim()));
   assert.equal(cells.length, 4);
   assert(cells.includes('Two Specimens'), 'Reloaded cohort row must retain its named group label');
   assert(cells.includes(resourceType), 'Reloaded cohort row must retain the member field');
@@ -778,7 +697,7 @@ try {
     'Saved ONE→ALL edit must restore the exact array value and raw source ID/value pairs');
 
   const undoPolicyEditStarted = Date.now();
-  const policyColumnsMenuOpen = await page().getByLabel('Table columns').count().then(count => count > 0);
+  const policyColumnsMenuOpen = await page.getByLabel('Table columns').count().then(count => count > 0);
   if (policyColumnsMenuOpen) await clickUI('button', { name: 'Columns' });
   const undoRequestFrom = report.nativeRequests.length;
   await clickUI('[data-testid="construction-undo"]');
@@ -927,7 +846,7 @@ try {
   // only to construct the negative case. The rejection below edits this saved
   // binding; it is not counted as an add-new-ONE success.
   const ambiguousSetupStarted = Date.now();
-  const currentRenderedColumnCount = Number(await page().locator('[data-testid="preview-table-scroll"] [role="table"]').getAttribute('aria-colcount'));
+  const currentRenderedColumnCount = Number(await page.locator('[data-testid="preview-table-scroll"] [role="table"]').getAttribute('aria-colcount'));
   assert(Number.isInteger(currentRenderedColumnCount) && currentRenderedColumnCount > 0);
   const ambiguousRenderedColumnCount = currentRenderedColumnCount + 1;
   const ambiguousProposalFrom = report.nativeRequests.length;
@@ -985,23 +904,23 @@ try {
     assert.equal(recodingTransformation.exactCategoryRecode.mappings.length, sources.length,
       'The raw oracle must show a separate exact input for each selected cohort member');
     const ensurePreviewColumnsRecoder = async () => {
-      const operationEditor = await page().getByTestId('construction-operation-editor').count().then(count => count > 0);
+      const operationEditor = await page.getByTestId('construction-operation-editor').count().then(count => count > 0);
       if (operationEditor) {
         const backToTable = 'button[data-testid="construction-close-operation-editor"]';
-        const backToTableState = await page().locator(backToTable).evaluate(button => ({found:true,label:button.getAttribute('aria-label'),text:button.innerText.trim()})).catch(() => ({found:false}));
+        const backToTableState = await page.locator(backToTable).evaluate(button => ({found:true,label:button.getAttribute('aria-label'),text:button.innerText.trim()})).catch(() => ({found:false}));
         assert(backToTableState.found && backToTableState.label === 'Close operation editor' && backToTableState.text === 'Back to table',
           `The verifier-opened operation editor must expose its native Back to table action: ${JSON.stringify(backToTableState)}`);
         await clickUI(backToTable, { name: 'Close operation editor' });
         await waitUI(`!document.querySelector('[data-testid="construction-operation-editor"]')&&Boolean(document.querySelector('[data-testid="preview-table-scroll"] [role="table"]'))`, 5000);
       }
-      const columnsOpen = await page().getByLabel('Table columns').count().then(count => count > 0);
+      const columnsOpen = await page.getByLabel('Table columns').count().then(count => count > 0);
       if (!columnsOpen) await clickUI('button', { name: 'Columns' });
       await waitUI(`Boolean(document.querySelector('[aria-label="Table columns"]'))`, 5000);
-      const sourceSetup = await page().getByTestId('construction-source-setup').evaluate(section => ({found:true,open:section.open})).catch(() => ({found:false,open:false}));
+      const sourceSetup = await page.getByTestId('construction-source-setup').evaluate(section => ({found:true,open:section.open})).catch(() => ({found:false,open:false}));
       assert(sourceSetup.found && !sourceSetup.open,
         `Ordinary PreviewTable recoding must work while Advanced source setup remains closed: ${JSON.stringify(sourceSetup)}`);
       const selector = `[aria-label="Table columns"] [role="listitem"][data-column-name=${JSON.stringify(ambiguousColumn.column)}]`;
-      const row = await page().locator(selector).evaluateAll(rows => ({count:rows.length,names:rows.map(item=>item.getAttribute('data-column-name')),text:rows[0]?.innerText.trim()}));
+      const row = await page.locator(selector).evaluateAll(rows => ({count:rows.length,names:rows.map(item=>item.getAttribute('data-column-name')),text:rows[0]?.innerText.trim()}));
       assert(row.count === 1 && row.names[0] === ambiguousColumn.column,
         `The ordinary Columns menu must contain exactly one stable physical source row ${ambiguousColumn.column}: ${JSON.stringify(row)}`);
       report.memberFieldRecodeAccess ??= {
@@ -1020,15 +939,15 @@ try {
     const clickConfiguredFieldControl = async (suffix, name) => clickUI(await configuredFieldControl(suffix), { name });
     const openConfiguredFieldEditor = async summaryText => {
       const selector = await configuredFieldControl('summary');
-      const state = await page().locator(selector).evaluate(summary => ({found:true,text:summary.innerText.trim(),open:Boolean(summary.closest('details')?.open)})).catch(() => ({found:false,open:false}));
+      const state = await page.locator(selector).evaluate(summary => ({found:true,text:summary.innerText.trim(),open:Boolean(summary.closest('details')?.open)})).catch(() => ({found:false,open:false}));
       assert(state.found && state.text === summaryText, `Native FeaturePolicyEditor did not expose ${summaryText} for ${ambiguousColumn.column}: ${JSON.stringify(state)}`);
       if (!state.open) await clickUI(selector, { name: summaryText });
     };
     const setConfiguredFieldInput = async (ariaLabel, value) => {
       const selector = await configuredFieldControl(`input[aria-label=${JSON.stringify(ariaLabel)}]`);
       await clickUI(selector);
-      await performAction(report, `Edit ${ariaLabel}`, page().locator(selector), (target, { timeout }) => target.fill(value, { timeout }), { editable: true });
-      assert.equal(await page().locator(selector).inputValue(), value, `The native configured editor must retain ${ariaLabel}`);
+      await performAction(report, `Edit ${ariaLabel}`, page.locator(selector), (target, { timeout }) => target.fill(value, { timeout }), { editable: true });
+      assert.equal(await page.locator(selector).inputValue(), value, `The native configured editor must retain ${ariaLabel}`);
     };
     await openConfiguredFieldEditor('Recode exact category values');
     for (let index = 0; index < recodingTransformation.exactCategoryRecode.mappings.length; index += 1) {
@@ -1099,7 +1018,7 @@ try {
       'The temporary recode cycle must restore ALL on the same stable binding');
     ambiguousSetupDraftVersion = builder.draftVersion;
     ambiguousSetupDraftDigest = builder.draftDigest;
-    const menuOpen = await page().getByLabel('Table columns').count().then(count => count > 0);
+    const menuOpen = await page.getByLabel('Table columns').count().then(count => count > 0);
     if (menuOpen) await clickUI('button', { name: 'Columns' });
     record('restore-untransformed-all-after-category-row-policy-cycle', removeRecodingStarted);
   } else {
@@ -1186,75 +1105,19 @@ try {
   assert.equal(oneApplyDoc.rows.groups.rowValues.find(value => value.columnId === oneColumn.columnId)?.policy, 'ONE');
   assert.equal(report.memberFieldPolicyCoverage.savedPolicyEditSupported, true);
   await requestCapture.flush();
-  for (const failure of browser.diagnostics.networkFailures) report.errors.push({ kind: 'browser-network', ...failure });
-  for (const failure of browser.diagnostics.httpFailures) report.errors.push({ kind: 'browser-http', ...failure });
-  assert.deepEqual(report.errors, []);
+  assert.deepEqual(report.errors.filter(error => !(error.expected || error.expectedHttpFailure || error.expectedCancellation || error.expectedInjectedFault)), []);
   report.status = 'passed';
 } catch (error) {
-  const apiBuildInvalidated = error instanceof ApiBuildFreezeError;
-  const sourceFreezeInvalidated = error.initialSourceFreezeFailure;
-  report.status = apiBuildInvalidated || sourceFreezeInvalidated ? 'invalidated' : 'failed';
+  report.status = 'failed';
   report.error = String(error.stack ?? error);
-  if (apiBuildInvalidated) {
-    report.apiBuildFreeze = {
-      ...report.apiBuildFreeze,
-      initial: error.before,
-      ...(error.after?.checked ? { after: error.after } : {}),
-      unchanged: false,
-      invalidatesRun: true,
-      productFailure: false,
-      reason: error.reason,
-    };
-    report.priorStatus = 'not-started';
-    report.productFailure = false;
-    report.invalidations = [{ kind: 'apiBuildFreeze', reason: error.reason }];
-  } else if (sourceFreezeInvalidated) {
-    report.sourceFreeze = {
-      ...report.sourceFreeze,
-      unchanged: false,
-      changedPaths: error.changedPaths ?? [],
-      invalidatesRun: true,
-      productFailure: false,
-      error: report.sourceFreeze.error ?? String(error),
-    };
-    report.priorStatus = 'not-started';
-    report.productFailure = false;
-    report.invalidations = [{ kind: 'sourceFreeze', reason: error.message }];
-  }
-  process.exitCode = 1;
-  const failedAction = report.activeAction;
-  if (browser) await browser.captureFailure(error, {
-    phase: 'cohort-row-sources',
-    elapsedMs: Date.now() - new Date(report.started).getTime(),
-    action: failedAction ? { label: failedAction.label, locator: failedAction.locator, targetLocator: failedAction.targetLocator } : undefined,
-  });
-  report.failedAction = failedAction ? { label: failedAction.label, locator: failedAction.locator } : undefined;
-  report.failureUI = browser ? sanitizeText(await page().locator('body').innerText().catch(String)) : undefined;
+  throw error;
 } finally {
-  await requestCapture?.flush().catch(() => undefined);
-  if (frozenSource) await finalizeFreeze('sourceFreeze', () => frozenSource.assertUnchanged(), error => ({
-    unchanged: false,
-    changedPaths: error.changedPaths ?? [],
-    invalidatesRun: true,
-    productFailure: false,
-    error: String(error),
-  }));
-  await finalizeFreeze('apiBuildFreeze', async () => {
-    if (frozenApiBuild) return frozenApiBuild.assertUnchanged();
-    const finalOnly = await captureApiBuildFreeze(readApiBuildStamp);
-    return { after: finalOnly.initial, unchanged: false, invalidatesRun: true, productFailure: false };
-  }, error => ({
-    ...(frozenApiBuild
-      ? { ...(error.before ? { initial: error.before } : {}), ...(error.after ? { after: error.after } : {}) }
-      : error.before ? { after: error.before } : {}),
-    unchanged: false,
-    invalidatesRun: true,
-    productFailure: false,
-    ...(error.reason ? { reason: error.reason } : {}),
-    error: String(error),
-  }));
-  report.finished = new Date().toISOString();
-  await writeFile(join(evidence, 'report.json'), JSON.stringify(report, null, 2));
-  await browser?.close();
+  if (report.activeAction) {
+    report.failedAction = { label: report.activeAction.label, locator: report.activeAction.locator,
+      elapsedMs: Date.now() - report.activeAction.startedAt };
+    delete report.activeAction;
+  }
+  await requestCapture.flush();
+  await cda.attachReport(`cohort-row-sources-${cohortRowValueCase}-evidence.json`, report);
 }
-console.log(JSON.stringify({ status: report.status, evidence, cases: report.cases.map(item => ({ name: item.name, durationMs: item.durationMs })), error: report.error }));
+}

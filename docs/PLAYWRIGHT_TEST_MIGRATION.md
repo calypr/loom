@@ -18,10 +18,27 @@ or unrun cases as unverified. Migration is complete when no active browser path
 owns a legacy launcher and the inventoried native cases have passing evidence
 or an explicit unresolved blocker.
 
-Then resume the existing CDA Builder reliability goal with its full feature and
-transition inventory: preview, Apply/Cancel, edit/removal, reload, independent
-correctness, and latency. Keep bounded exploration waves and roughly a 20%
-routine verification budget. The migration does not replace or reduce that goal.
+Before calling the migration verified, make
+`node scripts/check-native-playwright.mjs` pass, reconcile the complete case
+inventory, freeze source, and run the native browser cases. Diagnose failures
+and rerun the same cases. Report passing lifecycles, unverified cases, product
+failures, and harness failures separately.
+
+## Second priority: Builder request ownership
+
+Only after that verified migration checkpoint, read
+`/private/tmp/loom-agent-architecture/docs/architecture/AGENT_FRIENDLY_PLAN.md`
+and take its Builder request-ownership refactor as the next unit in
+`/private/tmp/loom-construction-implementation`. Preserve all current uncommitted
+work and do not create another worktree for this integration. The user selected
+**full autopilot** for this later refactor. That authorization is recorded;
+proceed after the verified migration checkpoint without asking again.
+
+Then continue the existing CDA Builder reliability goal with its full feature
+and transition inventory: preview, Apply/Cancel, edit/removal, reload,
+independent correctness, and latency. Keep bounded exploration waves and
+roughly a 20% routine verification budget. These priorities do not replace or
+reduce that goal.
 
 The earlier migration replaced Chrome/CDP actions with the Playwright library.
 It retained a custom runner. That is not a completed Playwright Test migration.
@@ -198,3 +215,19 @@ container and reject a mismatched override. Source-to-case mappings are in
 Syntax checks and native discovery passed: 99 tests in 14 spec files. Browser,
 unit, and runtime checks for this batch have not run. The fields lifecycle cases
 remain unverified until the frozen-checkpoint testing phase.
+
+## CDA rows and standalone mechanical checkpoint
+
+The remaining CDA standalone helpers and the authored/cohort/repeated-row
+workflows now run through native specs and fixtures. Source oracles, option
+variants, and lifecycle assertions remain. Missing required source witnesses
+produce explicit skipped/unverified reports; product failures stay fatal.
+Failure diagnostics use bounded sanitized JSON with DOM/control state and
+native five-second action deadlines. Exact expected 400/422 validation and
+request cancellation are correlated to their captured request identities.
+
+Syntax and discovery passed: 131 tests in 17 spec files. These are mechanical
+checks, not passing browser lifecycles. The migration gate still names six
+paths: the two launcher libraries, `loom-dev.mjs`, compound coded grouping,
+upstream edits, and the package-local contributor-exists helper. Their ports
+and launcher cleanup precede the frozen-source runtime phase.

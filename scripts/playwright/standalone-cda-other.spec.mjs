@@ -9,6 +9,16 @@ import { cdaPublicationWorkflow } from '../verify-cda-publication-browser.mjs';
 import { relatedEligibilityWorkflow } from '../verify-cda-related-eligibility.mjs';
 import { framingWorkflow } from '../verify-cda-framing.mjs';
 import { identifierMultiplicityWorkflow } from '../verify-cda-identifier-multiplicity.mjs';
+import { lastTableWorkflow } from '../verify-cda-last-table.mjs';
+import { collectionRepairWorkflow } from '../verify-cda-collection-repair.mjs';
+import { rowSourcesWorkflow } from '../verify-cda-row-sources-browser.mjs';
+import { tableManagementWorkflow } from '../verify-cda-table-management-browser.mjs';
+import { mixedSiblingCountWorkflow } from '../verify-cda-mixed-sibling-count-browser.mjs';
+import { sourceAggregateMixedSiblingCountWorkflow } from '../verify-cda-sourceaggregate-mixed-sibling-count-browser.mjs';
+import { expandedPublicationWorkflow } from '../verify-cda-expanded-publication-browser.mjs';
+import { indirectSpecimenPatientWorkflow } from '../verify-cda-indirect-specimen-patient.mjs';
+import { activeRelatedContributorAnyWorkflow } from '../verify-cda-active-related-contributor-any-browser.mjs';
+import { namedCohortRelatedCountWorkflow } from '../verify-cda-named-cohort-related-count-browser.mjs';
 
 test.describe('CDA Add columns dialog cancellation', () => {
   test.use({
@@ -60,7 +70,7 @@ test.describe('CDA framing', () => {
 
 test.describe('CDA identifier multiplicity', () => {
   test.use({
-    cdaExplorer: process.env.LOOM_CDA_EXPLORER_SEED,
+    ...(process.env.LOOM_CDA_EXPLORER_SEED ? { cdaExplorer: process.env.LOOM_CDA_EXPLORER_SEED } : {}),
     cdaScenarioID: 'cda-identifier-multiplicity',
     cdaCaseName: 'diagnosis-identifier-preserves-multiplicity',
   });
@@ -129,3 +139,152 @@ test.describe('CDA legacy collection', () => {
     await legacyCollectionWorkflow({ page, cda });
   });
 });
+
+test.describe('CDA last-table deletion and Undo', () => {
+  test.use({
+    cdaScenarioID: 'cda-last-table',
+    cdaCaseName: 'delete-last-table-undo-and-reload',
+    cdaRequireSourceFixture: true,
+  });
+
+  test('delete the only CDA table, restore it with Undo, and verify reload state', async ({ page, cda }) => {
+    await lastTableWorkflow({ page, cda });
+  });
+});
+
+test.describe('CDA collection repair', () => {
+  const partialLongRoute = process.env.LOOM_COLLECTION_PARTIAL_LONG_ROUTE === '1';
+  const longRoute = process.env.LOOM_COLLECTION_LONG_ROUTE === '1' || partialLongRoute;
+  test.use({
+    cdaScenarioID: 'cda-collection-repair',
+    cdaCaseName: partialLongRoute ? 'partial-long-route-repair-and-reload' : longRoute ? 'long-route-repair-and-reload' : 'unmapped-parent-repair-and-reload',
+    cdaRequireSourceFixture: true,
+  });
+
+  test('remove an unmapped selected resource, verify the saved route, and reload', async ({ page, cda }) => {
+    await collectionRepairWorkflow({ page, cda });
+  });
+});
+
+test.describe('CDA row source lineage', () => {
+  const lineageMode = process.env.LOOM_LINEAGE_MODE ?? 'GROUP';
+  const withFilter = process.env.LOOM_LINEAGE_FILTER === '1';
+  test.use({
+    cdaScenarioID: 'cda-row-sources',
+    cdaCaseName: `${lineageMode.toLowerCase()}-${withFilter ? 'with-filter' : 'source-inspection'}`,
+    cdaRequireSourceFixture: true,
+  });
+
+  test('inspect grouped, coded, or related row sources across save, edit, removal, and reload', async ({ page, cda }) => {
+    await rowSourcesWorkflow({ page, cda });
+  });
+});
+
+test.describe('CDA table management', () => {
+  test.use({
+    cdaScenarioID: 'cda-table-management',
+    cdaCaseName: 'create-rename-duplicate-reorder-delete-undo-and-reload',
+    cdaRequireSourceFixture: true,
+  });
+
+  test('create, rename, duplicate, reorder, delete, undo, and reload CDA tables', async ({ page, cda }) => {
+    await tableManagementWorkflow({ page, cda });
+  });
+});
+
+test.describe('CDA mixed sibling related COUNT', () => {
+  test.use({
+    cdaScenarioID: 'cda-mixed-sibling-count',
+    cdaCaseName: 'condition-observation-specimen-count-lifecycle',
+    cdaRequireSourceFixture: true,
+  });
+
+  test('cancel, save, reload, and remove three related COUNT siblings', async ({ page, cda }) => {
+    const report = await mixedSiblingCountWorkflow({ page, cda });
+    expect(report.status).toBe('passed');
+  });
+});
+
+test.describe('CDA mixed sibling SourceAggregate COUNT', () => {
+  test.use({
+    cdaScenarioID: 'cda-sourceaggregate-mixed-sibling-count',
+    cdaCaseName: 'condition-observation-specimen-sourceaggregate-lifecycle',
+    cdaRequireSourceFixture: true,
+  });
+
+  test('save, reload, and remove three sibling SourceAggregate COUNT columns', async ({ page, cda }) => {
+    const report = await sourceAggregateMixedSiblingCountWorkflow({ page, cda });
+    expect(report.status).toBe('passed');
+  });
+});
+
+test.describe('CDA expanded publication', () => {
+  test.use({
+    cdaScenarioID: 'cda-expanded-publication',
+    cdaCaseName: 'component-row-expand-publish-clickhouse-viewer-reload',
+    cdaRequireSourceFixture: true,
+    cdaRequireClickhouse: true,
+  });
+
+  test('expand exact Observation component tuples, publish, and verify ClickHouse Viewer rows', async ({ page, cda }) => {
+    const report = await expandedPublicationWorkflow({ page, cda });
+    expect(report.status).toBe('passed');
+  });
+});
+
+test.describe('CDA indirect Specimen to Patient values', () => {
+  test.use({
+    cdaScenarioID: 'cda-indirect-specimen-patient',
+    cdaCaseName: 'two-hop-route-value-lifecycle',
+    cdaRequireSourceFixture: true,
+  });
+
+  test('verify Patient.id values through the Specimen to Observation to Patient route', async ({ page, cda }) => {
+    await indirectSpecimenPatientWorkflow({ page, cda, mode: 'values' });
+  });
+});
+
+test.describe('CDA indirect Specimen to Patient count', () => {
+  test.use({
+    cdaScenarioID: 'cda-indirect-specimen-patient',
+    cdaCaseName: 'two-hop-route-count-lifecycle',
+    cdaRequireSourceFixture: true,
+  });
+
+  test('verify related Patient.id counts through the Specimen to Observation to Patient route', async ({ page, cda }) => {
+    await indirectSpecimenPatientWorkflow({ page, cda, mode: 'count' });
+  });
+});
+
+test.describe('CDA active-related Contributor ANY', () => {
+  test.use({
+    cdaScenarioID: 'cda-active-related-contributor-any',
+    cdaCaseName: 'active-related-repeated-nested-code-any-lifecycle',
+    cdaRequireSourceFixture: true,
+  });
+
+  test('author and restore an Observation Contributor ANY rule from the active Patient anchor', async ({ page, cda }) => {
+    const report = await activeRelatedContributorAnyWorkflow({ page, cda });
+    expect(report.status).toBe('passed');
+  });
+});
+
+for (const { relatedForm, includeEmptyGroup, caseName } of [
+  { relatedForm: 'COUNT', includeEmptyGroup: false, caseName: 'related-count-nonempty-groups' },
+  { relatedForm: 'COUNT', includeEmptyGroup: true, caseName: 'related-count-including-empty-group' },
+  { relatedForm: 'ALL', includeEmptyGroup: false, caseName: 'related-all-nonempty-groups' },
+  { relatedForm: 'ALL', includeEmptyGroup: true, caseName: 'related-all-including-empty-group' },
+]) {
+  test.describe(`CDA named-cohort related ${relatedForm} ${includeEmptyGroup ? 'with' : 'without'} empty group`, () => {
+    test.use({
+      cdaScenarioID: 'cda-named-cohort-related-count',
+      cdaCaseName: caseName,
+      cdaRequireSourceFixture: true,
+    });
+
+    test(`author and restore the exact named-cohort ${relatedForm} contributor lifecycle`, async ({ page, cda }) => {
+      const report = await namedCohortRelatedCountWorkflow({ page, cda, relatedForm, includeEmptyGroup });
+      expect(report.status).toBe('passed');
+    });
+  });
+}

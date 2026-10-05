@@ -1,59 +1,40 @@
 import assert from 'node:assert/strict';
-import { fileURLToPath } from 'node:url';
-import { captureSourceFreeze } from './lib/source-freeze.mjs';
-import { ApiBuildFreezeError, captureApiBuildFreeze, checkContainerApiBuildStamp } from './lib/api-build-freeze.mjs';
 import { randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { mkdir, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
-import { launchBrowser } from './lib/playwright-browser.mjs';
 import { performAction } from './lib/playwright-actions.mjs';
-import { captureCDARequests } from './lib/cda-playwright-requests.mjs';
-import { assertOwnedCdaTarget } from './lib/owned-cda-target.mjs';
 
-const project = process.env.LOOM_CDA_PROJECT;
-const generation = process.env.LOOM_CDA_GENERATION;
+export async function cohortMembershipRevisionWorkflow({ page, cda, changeSourceCollection = process.env.LOOM_COHORT_SOURCE_COLLECTION_CHANGE === '1' }) {
+const project = cda.project;
+const generation = cda.generation;
+assert.equal(generation, 'cda-fhir-v1', 'Set the CDA fixture generation to cda-fhir-v1.');
 const resourceType = 'Specimen';
 const groupLabel = 'Cohort';
 const memberFieldLabel = 'Specimen ID';
-const changeSourceCollection = process.env.LOOM_COHORT_SOURCE_COLLECTION_CHANGE === '1';
-const explorer = `cohort-membership-revision-browser-${Date.now()}`;
-const evidence = process.argv[2] ?? `/tmp/${explorer}`;
-const apiOrigin = process.env.LOOM_CDA_API_ORIGIN;
-const uiOrigin = process.env.LOOM_CDA_UI_ORIGIN;
-const apiContainer = process.env.LOOM_CDA_API_CONTAINER;
-const composeProject = process.env.LOOM_CDA_COMPOSE_PROJECT;
-const arangoContainer = process.env.LOOM_ARANGO_CONTAINER;
-const root = `/api/v1/projects/${project}/explorers`;
-const base = `${root}/${explorer}/authoring/v2`;
+const explorer = `cohort-membership-revision-${Date.now()}`;
+const evidence = cda.evidence;
+const apiOrigin = cda.apiOrigin;
+const uiOrigin = cda.uiOrigin;
+const apiContainer = cda.target.apiContainer;
+const composeProject = cda.target.composeProject;
+const arangoContainer = cda.target.arangoContainer;
+const root = `/api/v1/projects/${encodeURIComponent(project)}/explorers`;
+const base = `${root}/${encodeURIComponent(explorer)}/authoring/v2`;
 const selections = base.replace('/authoring/v2', '/selections');
-const sourceRoot = fileURLToPath(new URL('..', import.meta.url));
-const ownedTarget = await assertOwnedCdaTarget({ project, apiOrigin, uiOrigin, apiContainer, composeProject, sourceRoot, arangoContainer });
-assert.equal(generation, 'cda-fhir-v1', 'Set LOOM_CDA_GENERATION to the loaded CDA FHIR generation.');
-const report = {
-  project, generation, resourceType, explorer, groupLabel, memberFieldLabel, changeSourceCollection,
-  ownedTarget,
-  cases: [], errors: [], requests: [], nativeRequests: [], revisions: [], started: new Date().toISOString(),
-};
-await mkdir(evidence, { recursive: true });
-const sourceFreeze = await captureSourceFreeze(sourceRoot);
-const apiBuildTarget = 'local-cda-api';
-const readApiBuildStamp = () => checkContainerApiBuildStamp(apiContainer);
-let frozenApiBuild;
-
-let browser;
+const report = cda.report;
+Object.assign(report, { project, generation, resourceType, explorer, groupLabel, memberFieldLabel,
+  changeSourceCollection, cases: [], requests: [], revisions: [], started: new Date().toISOString() });
+const requestCapture = cda.captureRequests(`${root}/${encodeURIComponent(explorer)}`);
+report.target = cda.target;
 let builder;
 let outputId;
-let requestCapture;
-const page = () => browser.page;
-const waitUI = (condition, timeout = 30000) => page().waitForFunction(condition, undefined, { timeout });
-const navigateUI = url => page().goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+const waitUI = (condition, timeout = 5000) => page.waitForFunction(condition, undefined, { timeout: Math.min(timeout, 5000) });
+const navigateUI = url => page.goto(url, { waitUntil: 'domcontentloaded', timeout: 5000 });
 const actionTarget = (selector, identity = {}) => {
-  let locator = page().locator(selector);
-  if (identity.name !== undefined) locator = locator.and(page().getByRole('button', { name: identity.name, exact: true }));
+  let locator = page.locator(selector);
+  if (identity.name !== undefined) locator = locator.and(page.getByRole('button', { name: identity.name, exact: true }));
   if (identity.includes !== undefined) {
     const escaped = identity.includes.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    locator = locator.and(page().getByRole('button', { name: new RegExp(escaped, 'i') }));
+    locator = locator.and(page.getByRole('button', { name: new RegExp(escaped, 'i') }));
   }
   return locator;
 };
@@ -63,11 +44,11 @@ const clickUI = (selector, identity = {}) => {
   return performAction(report, label, locator, target => target.click({ timeout: 5000 }));
 };
 const fillUI = (selector, value, label = selector) => {
-  const locator = page().locator(selector);
+  const locator = page.locator(selector);
   return performAction(report, label, locator, (target, { timeout }) => target.fill(value, { timeout }), { editable: true });
 };
 const selectUI = (selector, value) => {
-  const locator = page().locator(selector);
+  const locator = page.locator(selector);
   return performAction(report, `Select ${value}`, locator, (target, { timeout }) => target.selectOption(value, { timeout }));
 };
 const pathOf = entry => entry.path.split('?')[0];
@@ -125,7 +106,7 @@ const waitRowProposal = async (startedAt, expectedRevisionID, expectedPolicy) =>
 };
 const waitTable = async expectedRows => {
   await waitUI(`document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount')===${JSON.stringify(String(expectedRows + 1))}&&!document.body.innerText.includes('Loading your table…')&&!document.body.innerText.includes('Preview failed:')`);
-  const table = page().getByTestId('preview-table-scroll').getByRole('table');
+  const table = page.getByTestId('preview-table-scroll').getByRole('table');
   return table.evaluate(element => ({
     headers: [...element.querySelectorAll('[role="columnheader"]')].map(cell => cell.innerText.trim()),
     rows: [...element.querySelectorAll('[role="row"]')].slice(1).map(row => [...row.querySelectorAll('[role="cell"]')].map(cell => cell.innerText.trim())).filter(row => row.length),
@@ -179,7 +160,7 @@ const waitChoiceProposal = async startedAt => {
   const proposal = await waitNative('/construction-choice-proposals', startedAt);
   assert.equal(proposal.status, 200, JSON.stringify(proposal.response));
   await waitUI(`['ready','error'].includes(document.querySelector('[data-testid="construction-choice-proposal-panel"]')?.dataset.proposalStatus)`);
-  const result = await page().getByTestId('construction-choice-proposal-panel').evaluate(panel => ({
+  const result = await page.getByTestId('construction-choice-proposal-panel').evaluate(panel => ({
     status: panel.dataset.proposalStatus,
     text: panel.innerText,
     rows: [...document.querySelectorAll('[data-testid="construction-proposal-preview-row"]')].map(row => [...row.querySelectorAll('td')].map(cell => cell.innerText.trim())),
@@ -200,7 +181,7 @@ const createCohortNatively = async (memberIDs, memberKeyByID, revisionName) => {
   for (const member of report.oracle.members) {
     const label = `Assign ${member.uiLabel} to ${groupLabel}`;
     const selector = `${editor} input[aria-label=${JSON.stringify(label)}]`;
-    const exists = await page().locator(selector).count() === 1;
+    const exists = await page.locator(selector).count() === 1;
     assert(exists, `Native member assignment control is missing: ${label}`);
     if (memberIDs.includes(member.ref.id)) {
       await clickUI(selector);
@@ -208,7 +189,7 @@ const createCohortNatively = async (memberIDs, memberKeyByID, revisionName) => {
     }
   }
   assert.deepEqual(sorted(assignments.map(member => member.id)), sorted(memberIDs));
-  const exactMembershipText = await page().locator('[aria-label="Exact group memberships"]').innerText();
+  const exactMembershipText = await page.locator('[aria-label="Exact group memberships"]').innerText();
   assert(exactMembershipText?.includes(groupLabel), exactMembershipText);
   for (const id of memberIDs) assert(exactMembershipText.includes(id), `Native exact-membership summary omitted ${id}: ${exactMembershipText}`);
   const beforeCreate = Date.now();
@@ -236,7 +217,7 @@ const createCohortNatively = async (memberIDs, memberKeyByID, revisionName) => {
 const selectPolicyAndWait = async (revisionID, policy, name) => {
   const selector = 'select[aria-label="Unmatched record policy"]';
   await waitUI(`document.querySelector(${JSON.stringify(selector)})?.disabled===false`);
-  const options = await page().locator(selector).locator('option').evaluateAll(items => items.map(option => ({ value: option.value, disabled: option.disabled, text: option.text })));
+  const options = await page.locator(selector).locator('option').evaluateAll(items => items.map(option => ({ value: option.value, disabled: option.disabled, text: option.text })));
   const value = `explicit:${revisionID}:${policy}`;
   assert(options.some(option => option.value === value && !option.disabled), `Unassigned policy ${value} is unavailable: ${JSON.stringify(options)}`);
   const startedAt = Date.now();
@@ -259,7 +240,7 @@ const waitConstructionProposal = async (startedAt, predicate = () => true) => {
   const request = await waitNative('/construction-proposals', startedAt, predicate);
   assert.equal(request.status, 200, JSON.stringify(request.response));
   await waitUI(`['ready','error','needs-repair'].includes(document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalStatus)`);
-  const result = await page().getByTestId('construction-proposal-panel').evaluate(panel => ({
+  const result = await page.getByTestId('construction-proposal-panel').evaluate(panel => ({
     status: panel.dataset.proposalStatus,
     text: panel.innerText,
     rows: [...document.querySelectorAll('[data-testid="construction-proposal-preview-row"]')].map(row => [...row.querySelectorAll('td')].map(cell => cell.innerText.trim())),
@@ -278,7 +259,7 @@ const inspectFirstRow = async (name, expectedIDs) => {
   const dialog = '[role="dialog"][aria-label="Row 1 identity"]';
   await waitUI(`document.querySelector(${JSON.stringify(dialog)})`);
   await waitUI(`document.querySelectorAll(${JSON.stringify(dialog + ' ul li')}).length===${JSON.stringify(expectedIDs.length)} || /unavailable|cannot be listed|could not load|could not be fully listed/i.test(document.querySelector(${JSON.stringify(dialog)})?.innerText ?? '')`, 5000);
-  const inspector = page().locator(dialog);
+  const inspector = page.locator(dialog);
   const inspectorText = await inspector.innerText();
   assert(!/unavailable|cannot be listed|could not load|could not be fully listed/i.test(inspectorText), `${name}: ${inspectorText}`);
   const native = await waitLineage(startedAt);
@@ -306,10 +287,6 @@ const inspectFirstRow = async (name, expectedIDs) => {
 };
 
 try {
-  const apiBuildStartedAt = new Date().toISOString();
-  report.apiBuildFreeze = { target: apiBuildTarget, startedAt: apiBuildStartedAt };
-  frozenApiBuild = await captureApiBuildFreeze(readApiBuildStamp);
-  report.apiBuildFreeze = { ...report.apiBuildFreeze, initial: frozenApiBuild.initial };
   const query = `FOR s IN Specimen FILTER s.project=="${project}" AND s.dataset_generation=="${generation}" SORT s._key LIMIT 2 RETURN {id:s.id,resourceType:s.resourceType,generation:s.dataset_generation,project:s.project}`;
   const raw = spawnSync('rtk', [
     'proxy', 'docker', 'exec', arangoContainer, 'arangosh', '--server.database', 'loom_dev',
@@ -366,16 +343,6 @@ try {
     memberKey: member.memberKey, ref: member.ref, uiLabel: `Record ${index + 1} · ${member.ref.id}`,
   }));
 
-  browser = await launchBrowser({ evidence, appOrigins: [apiOrigin, uiOrigin], noAuth: process.env.LOOM_CDA_NO_AUTH === '1' });
-  requestCapture = captureCDARequests(browser.page, {
-    apiOrigin,
-    browserRequestOrigin: uiOrigin,
-    appOrigins: [apiOrigin, uiOrigin],
-    ownedPathPrefix: `${root}/${explorer}`,
-    report,
-    shouldReportHttpError: path => !path.endsWith('/favicon.ico'),
-  });
-
   let start = Date.now();
   await navigateUI(`${uiOrigin}/?project=${project}&explorer=${explorer}&mode=builder`);
   await waitUI(`document.querySelector('[data-testid="construction-table-${outputId}"]')`);
@@ -425,7 +392,7 @@ try {
   await clickUI('[data-testid="construction-action-keep-rows"]');
   const filterEditor = '[data-testid="construction-filter-editor"]';
   await waitUI(`document.querySelector(${JSON.stringify(filterEditor + ' select[aria-label="Column"]:not(:disabled)')})`);
-  const groupLabelOption = await page().locator(`${filterEditor} select[aria-label="Column"] option`).evaluateAll(options =>
+  const groupLabelOption = await page.locator(`${filterEditor} select[aria-label="Column"] option`).evaluateAll(options =>
     options.find(option => option.textContent.trim().startsWith('Group label ('))?.value);
   assert(groupLabelOption, 'The downstream filter must be able to select the cohort group label');
   await selectUI(`${filterEditor} select[aria-label="Column"]`, groupLabelOption);
@@ -475,7 +442,7 @@ try {
 
   const rowSelector = await openRows();
   const revisionOption = `explicit:${second.revision.revisionId}`;
-  const choices = await page().locator(rowSelector).locator('option').evaluateAll(options => options.map(option => ({ value: option.value, disabled: option.disabled, text: option.text })));
+  const choices = await page.locator(rowSelector).locator('option').evaluateAll(options => options.map(option => ({ value: option.value, disabled: option.disabled, text: option.text })));
   assert(choices.some(option => option.value === revisionOption && !option.disabled), 'The canceled immutable revision must remain available for native reattachment');
   await selectUI(rowSelector, revisionOption);
   await waitUI(`document.querySelector('select[aria-label="Unmatched record policy"]')?.disabled===false`);
@@ -534,7 +501,7 @@ try {
     assert.equal(coverageRequest.status, 200,
       `Native population coverage request failed: ${JSON.stringify(report.populationCoverageRequest)}`);
     await waitUI(`document.querySelector('[data-testid="population-coverage-report"]')?.innerText.includes('2 selected · 1 produce rows · 1 needs attention')`, 5000);
-  const coverage = await page().getByTestId('population-coverage-report').evaluate(element => ({
+  const coverage = await page.getByTestId('population-coverage-report').evaluate(element => ({
       summary: element.querySelector('p')?.innerText,
       unmapped: [...element.querySelectorAll('li span')].map(item => item.innerText.trim()),
     }));
@@ -560,7 +527,7 @@ try {
     assert(variantID && variantID !== selection.id, 'The authored table must attach a new immutable source collection revision');
     assert.equal(populationChange.outputId, outputId);
     await waitSavedPreview(collectionChangeStart);
-    const settingsOpen = await page().locator('[aria-label="Row definition settings"]').count() === 1;
+    const settingsOpen = await page.locator('[aria-label="Row definition settings"]').count() === 1;
     if (settingsOpen) {
       await clickUI('[aria-label="Row definition settings"] button', { name: 'Back to table' });
       await waitUI(`!document.querySelector('[aria-label="Row definition settings"]')`);
@@ -707,101 +674,19 @@ try {
   assert.equal(doc(builder).population.selectionRevisionId, finalSelectionRevisionID);
   recordRender(changeSourceCollection ? 'reload-restored-one-member-source-scope' : 'reload-restored-exact-source-scope', reloadedBaselineStart);
 
-  await requestCapture?.flush();
   assert.deepEqual(report.errors, []);
   report.status = 'passed';
 } catch (error) {
-  const apiBuildInvalidated = error instanceof ApiBuildFreezeError;
-  report.status = apiBuildInvalidated ? 'invalidated' : 'failed';
+  report.status = 'failed';
   report.error = String(error.stack ?? error);
-  if (apiBuildInvalidated) {
-    report.apiBuildFreeze = {
-      ...report.apiBuildFreeze,
-      initial: error.before,
-      ...(error.after?.checked ? { after: error.after } : {}),
-      unchanged: false,
-      invalidatesRun: true,
-      productFailure: false,
-      reason: error.reason,
-    };
-    report.priorStatus = 'not-started';
-  }
-  process.exitCode = 1;
-  report.savedBuilderAtFailure = await api(base + '/builder').catch(fetchError => ({ readError: String(fetchError) }));
-  if (browser) {
-    const failedAction = report.activeAction;
-    const failedActionElapsedMs = failedAction?.startedAt ? Date.now() - failedAction.startedAt : undefined;
-    report.failureEvidence = await browser.captureFailure(error, { phase: 'cohort-membership-revision', action: failedAction, elapsedMs: failedActionElapsedMs });
-    if (failedAction) report.failedAction = { label: failedAction.label, locator: failedAction.locator, startedAt: failedAction.startedAt, elapsedMs: failedActionElapsedMs };
-    delete report.activeAction;
-    report.failureUI = await browser.page.locator('body').innerText().catch(String);
-  }
+  throw error;
 } finally {
-  try { report.sourceFreeze = await sourceFreeze.assertUnchanged(); } catch (error) {
-    report.priorStatus = report.status;
-    report.status = 'invalidated';
-    report.sourceFreeze = { unchanged: false, changedPaths: error.changedPaths ?? [], invalidatesRun: true, productFailure: false, error: String(error) };
-    process.exitCode = 1;
+  if (report.activeAction) {
+    report.failedAction = { label: report.activeAction.label, locator: report.activeAction.locator,
+      elapsedMs: Date.now() - report.activeAction.startedAt };
+    delete report.activeAction;
   }
-  await requestCapture?.flush();
-  const apiBuildFinishedAt = new Date().toISOString();
-  if (frozenApiBuild) {
-    try {
-      report.apiBuildFreeze = {
-        ...report.apiBuildFreeze,
-        ...(await frozenApiBuild.assertUnchanged()),
-        finishedAt: apiBuildFinishedAt,
-      };
-    } catch (error) {
-      report.priorStatus = report.status;
-      if (report.error) report.priorError = report.error;
-      report.status = 'invalidated';
-      report.error = String(error.stack ?? error);
-      report.apiBuildFreeze = {
-        ...report.apiBuildFreeze,
-        ...(error.before ? { initial: error.before } : {}),
-        ...(error.after ? { after: error.after } : {}),
-        unchanged: false,
-        invalidatesRun: true,
-        productFailure: false,
-        ...(error.reason ? { reason: error.reason } : {}),
-        error: String(error),
-        finishedAt: apiBuildFinishedAt,
-      };
-      process.exitCode = 1;
-    }
-  } else {
-    try {
-      const finalOnly = await captureApiBuildFreeze(readApiBuildStamp);
-      report.apiBuildFreeze = {
-        ...report.apiBuildFreeze,
-        after: finalOnly.initial,
-        unchanged: false,
-        invalidatesRun: true,
-        productFailure: false,
-        finishedAt: apiBuildFinishedAt,
-      };
-    } catch (error) {
-      report.apiBuildFreeze = {
-        ...report.apiBuildFreeze,
-        ...(error.before ? { after: error.before } : {}),
-        unchanged: false,
-        invalidatesRun: true,
-        productFailure: false,
-        ...(error.reason ? { reason: error.reason } : {}),
-        finishedAt: apiBuildFinishedAt,
-      };
-    }
-    report.priorStatus ??= report.status;
-    report.status = 'invalidated';
-    process.exitCode = 1;
-  }
-  report.finished = new Date().toISOString();
-  await writeFile(join(evidence, 'report.json'), JSON.stringify(report, null, 2));
-  await browser?.close();
+  await requestCapture.flush();
+  await cda.attachReport('cohort-membership-revision-evidence.json', report);
 }
-console.log(JSON.stringify({
-  status: report.status, evidence,
-  cases: report.cases.map(item => ({ name: item.name, durationMs: item.durationMs })),
-  error: report.error,
-}));
+}

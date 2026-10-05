@@ -1,72 +1,46 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { parseArgs } from 'node:util';
-import { launchBrowser, sanitizeBody, sanitizeText } from './lib/playwright-browser.mjs';
-import { performAction, requireUnique } from './lib/playwright-actions.mjs';
-import { captureCDARequests } from './lib/cda-playwright-requests.mjs';
-import { assertOwnedCdaTarget } from './lib/owned-cda-target.mjs';
-import { fileURLToPath } from 'node:url';
-import { captureSourceFreeze } from './lib/source-freeze.mjs';
-import { ApiBuildFreezeError, captureApiBuildFreeze, checkContainerApiBuildStamp } from './lib/api-build-freeze.mjs';
-import { sourceFingerprint } from './verify-ui/source-fingerprint.mjs';
+import { requireUnique } from './lib/playwright-actions.mjs';
 import { waitForCondition } from './lib/playwright-observations.mjs';
 
-const { values } = parseArgs({ options: {
-  'api-origin': { type: 'string', default: process.env.LOOM_CDA_API_ORIGIN },
-  'ui-origin': { type: 'string', default: process.env.LOOM_CDA_UI_ORIGIN },
-  'api-container': { type: 'string', default: process.env.LOOM_CDA_API_CONTAINER },
-  'compose-project': { type: 'string', default: process.env.LOOM_CDA_COMPOSE_PROJECT },
-  project: { type: 'string', default: process.env.LOOM_CDA_PROJECT },
-  generation: { type: 'string', default: 'cda-fhir-v1' },
-  evidence: { type: 'string', default: `/tmp/loom-cda-authored-expand-${Date.now()}` },
-  'arango-container': { type: 'string', default: process.env.LOOM_ARANGO_CONTAINER },
-} });
-
+export async function authoredExpandWorkflow({ page, cda }) {
+const values = {
+  project: cda.project,
+  generation: cda.generation ?? 'cda-fhir-v1',
+  evidence: cda.evidence,
+  'api-origin': cda.apiOrigin,
+  'ui-origin': cda.uiOrigin,
+  'api-container': cda.target.apiContainer,
+  'arango-container': cda.target.arangoContainer,
+  'compose-project': cda.target.composeProject,
+};
+const report = cda.report;
+Object.assign(report, {
+  started: new Date().toISOString(), assertions: [], gaps: [], failures: [], requests: [], workflowTimings: [],
+  browserErrors: { protocol: [], exceptions: [], console: [], modules: [], http: [], incidental: [] },
+  evidencePaths: [],
+});
+report.browserRequests = report.nativeRequests;
+assert.equal(values.generation, 'cda-fhir-v1', 'CDA authored EXPAND requires the cda-fhir-v1 fixture generation.');
 const protectedExplorer = 'cda-builder-full-qa-1790440983382';
 const explorer = `cda-authored-expand-${Date.now()}`;
 assert.notEqual(explorer, protectedExplorer, 'The run must own a fresh Explorer');
-const sourceFreezeRoot = process.env.LOOM_SOURCE_FREEZE_ROOT ?? fileURLToPath(new URL('..', import.meta.url));
-await assertOwnedCdaTarget({ project: values.project, apiOrigin: values['api-origin'], uiOrigin: values['ui-origin'],
-  apiContainer: values['api-container'], composeProject: values['compose-project'], sourceRoot: sourceFreezeRoot,
-  arangoContainer: values['arango-container'] });
-
-const report = {
-  errors: [],
-  started: new Date().toISOString(),
-  invocation: process.argv,
-  target: {
-    apiOrigin: values['api-origin'], uiOrigin: values['ui-origin'], project: values.project,
-    generation: values.generation, protectedExplorer,
-  },
-  explorer,
-  assertions: [],
-  gaps: [],
-  failures: [],
-  timings: [],
-  requests: [],
-  browserRequests: [],
-  browserErrors: { protocol: [], exceptions: [], console: [], modules: [], http: [], incidental: [] },
-  evidencePaths: [],
-};
-const sourceFreeze = await captureSourceFreeze(sourceFreezeRoot);
-const sourceBefore = sourceFingerprint(sourceFreezeRoot);
-const frozenApiBuild = await captureApiBuildFreeze(() => checkContainerApiBuildStamp(values['api-container']));
-report.sourceFreeze = { root: sourceFreezeRoot, watchedFileCount: sourceFreeze.watchedFileCount, invalidatesRun: false };
-report.sourceFingerprint = { root: sourceFreezeRoot, before: sourceBefore, checked: true, invalidatesRun: false };
-report.apiBuildFreeze = { container: values['api-container'], initial: frozenApiBuild.initial, invalidatesRun: false };
-
+report.target = cda.target;
+report.explorer = explorer;
+report.target.protectedExplorer = protectedExplorer;
 const projectRoot = `/api/v1/projects/${encodeURIComponent(values.project)}/explorers`;
 const root = `${projectRoot}/${encodeURIComponent(explorer)}`;
 const base = `${root}/authoring/v2`;
 let builder;
 let outputId;
-let browser;
-let requestMonitor;
-const inspectPage = (page, body) => page.evaluate(`(()=>{${body}})()`);
-const waitForBrowser = (page, condition, timeout = 30000) => waitForCondition(page, condition, timeout);
+const browserPending = new Set();
+const requestMonitor = cda.captureRequests(`/api/v1/projects/${encodeURIComponent(values.project)}/explorers/${encodeURIComponent(explorer)}`);
+
+const inspectPage = (_page, body) => page.evaluate(`(()=>{${body}})()`);
+const waitForBrowser = (page, condition, timeout = 5000) => waitForCondition(page, condition, Math.min(timeout, 5000));
 const resolveActionLocator = async (page, selector, identity = {}) => {
   const candidates = page.locator(selector);
   const { name, includes } = identity;
@@ -83,41 +57,32 @@ const resolveActionLocator = async (page, selector, identity = {}) => {
 };
 const click = async (page, selector, identity = {}, timeout = 5000) => {
   const label = `Click ${selector} ${identity.name ?? identity.includes ?? ''}`.trim();
-  report.activeAction = { label, locator: selector, targetLocator: page.locator(selector), startedAt: Date.now() };
   const locator = await resolveActionLocator(page, selector, identity);
-  report.activeAction.targetLocator = locator;
-  report.activeAction.locator = locator.toString();
-  const elapsedMs = await performAction(report, label, locator, (target, options) => target.click(options), { timeout });
-  report.lastAction = { label, locator: locator.toString(), targetLocator: locator, elapsedMs, startedAt: Date.now() - elapsedMs };
+  const elapsedMs = await cda.action(label, locator, target => target.click({ timeout }), { timeout });
+  report.lastAction = { label, locator: locator.toString(), elapsedMs, startedAt: Date.now() - elapsedMs };
   return elapsedMs;
 };
 const fill = async (page, selector, value, timeout = 5000) => {
   const label = `Fill ${selector}`;
-  report.activeAction = { label, locator: selector, targetLocator: page.locator(selector), startedAt: Date.now() };
   const locator = await resolveActionLocator(page, selector);
-  report.activeAction.targetLocator = locator;
-  report.activeAction.locator = locator.toString();
-  const elapsedMs = await performAction(report, label, locator, (target, options) => target.fill(value, options), { timeout, editable: true });
-  report.lastAction = { label, locator: locator.toString(), targetLocator: locator, elapsedMs, startedAt: Date.now() - elapsedMs };
+  const elapsedMs = await cda.action(label, locator, target => target.fill(value, { timeout }), { timeout, editable: true });
+  report.lastAction = { label, locator: locator.toString(), elapsedMs, startedAt: Date.now() - elapsedMs };
   return elapsedMs;
 };
 const selectOption = async (page, selector, value, timeout = 5000) => {
   const label = `Select ${value} in ${selector}`;
-  report.activeAction = { label, locator: selector, targetLocator: page.locator(selector), startedAt: Date.now() };
   const locator = await resolveActionLocator(page, selector);
-  report.activeAction.targetLocator = locator;
-  report.activeAction.locator = locator.toString();
-  const elapsedMs = await performAction(report, label, locator, (target, options) => target.selectOption(value, options), { timeout });
-  report.lastAction = { label, locator: locator.toString(), targetLocator: locator, elapsedMs, startedAt: Date.now() - elapsedMs };
+  const elapsedMs = await cda.action(label, locator, target => target.selectOption(value, { timeout }), { timeout });
+  report.lastAction = { label, locator: locator.toString(), elapsedMs, startedAt: Date.now() - elapsedMs };
   return elapsedMs;
 };
-const navigate = (page, url) => page.goto(url, { waitUntil: 'load', timeout: 30000 });
-let browserPending = new Set();
+const navigate = (page, url) => page.goto(url, { waitUntil: 'load', timeout: 5000 });
 let sourceRecords = [];
 let idColumn;
 let listColumn;
 let originalRows;
 let appliedStep;
+let fixtureGapReason;
 
 const recordAssertion = (name, evidence) => report.assertions.push({ name, status: 'passed', evidence });
 const responseEvidence = (value) => {
@@ -160,7 +125,7 @@ const command = async (commands) => {
 const document = (value = builder) => value.workspace.documents.find((doc) => doc.output.id === outputId);
 const previewTableSelector = '[data-testid="preview-table-scroll"] [role="table"]';
 const rowsReady = count => ({ kind: 'rows', selector: previewTableSelector, count });
-const domText = () => inspectPage(browser.page, 'return document.body.innerText;');
+const domText = () => inspectPage(page, 'return document.body.innerText;');
 
 const boundedRawOracle = () => {
   const query = `FOR r IN Observation FILTER r.project == ${JSON.stringify(values.project)} AND r.dataset_generation == ${JSON.stringify(values.generation)} FILTER IS_ARRAY(r.payload.component) SORT r.id LIMIT 1000 RETURN {id:r.id,generation:r.dataset_generation,resourceType:r.payload.resourceType,components:r.payload.component}`;
@@ -205,7 +170,7 @@ const boundedRawOracle = () => {
 
 const fastWait = async (startedAt, condition, message) => {
   const remainingMs = Math.max(100, 5000 - (Date.now() - startedAt));
-  try { await waitForBrowser(browser.page, condition, remainingMs); }
+  try { await waitForBrowser(page, condition, remainingMs); }
   catch (error) { throw new Error(`${message} within the five-second action budget: ${String(error)}`); }
 };
 
@@ -213,16 +178,16 @@ const measure = async (name, action) => {
   const startedAt = Date.now();
   await action(startedAt);
   const durationMs = Date.now() - startedAt;
-  report.timings.push({ name, durationMs, limitMs: 5000 });
+  report.workflowTimings.push({ name, durationMs, limitMs: 5000 });
   assert(durationMs <= 5000, `${name} took ${durationMs}ms`);
   return durationMs;
 };
 
 const openTable = async (expectedRows, name) => measure(name, async (startedAt) => {
   const url = `${values['ui-origin']}/?project=${encodeURIComponent(values.project)}&explorer=${encodeURIComponent(explorer)}&mode=builder`;
-  await navigate(browser.page, url);
+  await navigate(page, url);
   await fastWait(startedAt, { kind: 'present', selector: `[data-testid="construction-table-${outputId}"]` }, 'Explorer table discovery');
-  await click(browser.page, `[data-testid="construction-table-${outputId}"]`);
+  await click(page, `[data-testid="construction-table-${outputId}"]`);
   await fastWait(startedAt, rowsReady(expectedRows), 'CDA table render');
 });
 
@@ -232,7 +197,7 @@ const saveDOM = async (name) => {
   report.evidencePaths.push(path);
 };
 
-const previewRows = async () => inspectPage(browser.page, `
+const previewRows = async () => inspectPage(page, `
   const proposalRow=document.querySelector('[data-testid="construction-proposal-preview-row"]');
   const root=proposalRow?.closest('table')??document.querySelector(${JSON.stringify(previewTableSelector)});
   if(!root)return null;
@@ -368,44 +333,14 @@ const nativePreviewAfter = async (requestIndex, phase) => {
 };
 
 const monitorBrowser = () => {
-  requestMonitor = captureCDARequests(browser.page, {
-    apiOrigin: values['ui-origin'],
-    appOrigins: [values['api-origin'], values['ui-origin']],
-    ownedPathPrefix: `${root}/${encodeURIComponent(explorer)}`,
-    report: { nativeRequests: report.browserRequests, errors: report.errors },
-    shouldReportRequestFailure: (entry, request) => {
-      const index = report.browserRequests.indexOf(entry);
-      const replacement = report.browserRequests.slice(index + 1).find(candidate =>
-        candidate.path === entry.path && candidate.method === entry.method);
-      return request.failure()?.errorText === 'net::ERR_ABORTED'
-        && ['/construction-proposals', '/construction-choice-proposals'].some(path => entry.path.endsWith(path))
-        && replacement
-        ? { expected: true, reason: `A later same-path EXPAND editor request (${replacement.requestId}) superseded this proposal.` } : true;
-    },
-  });
-  browserPending = requestMonitor.pendingReads;
-  browser.page.on('response', response => {
-    const url = new URL(response.url());
-    if (url.origin !== new URL(values['ui-origin']).origin || response.status() < 400) return;
-    const incident = { url: sanitizeText(response.url()), status: response.status() };
-    if (url.pathname.endsWith('/favicon.ico')) report.browserErrors.incidental.push(incident);
-    else report.browserErrors.http.push(incident);
-  });
-  browser.page.on('requestfailed', request => {
-    const url = new URL(request.url());
-    if (url.origin !== new URL(values['ui-origin']).origin || request.failure()?.errorText === 'net::ERR_ABORTED') return;
-    const failure = { url: sanitizeText(request.url()), type: request.resourceType(), error: sanitizeText(request.failure()?.errorText) };
-    if (url.pathname.endsWith('/favicon.ico')) report.browserErrors.incidental.push(failure);
-    else if (request.resourceType() === 'script') report.browserErrors.modules.push(failure);
-    else report.browserErrors.protocol.push(failure);
-  });
-  return monitor;
+  report.browserRequests = report.nativeRequests;
+  return requestMonitor;
 };
 
 const waitForCapturedResponse = async (entry) => {
   assert(entry, 'Expected browser protocol request was not captured');
   if (entry.status === undefined) {
-    await browser.page.waitForResponse(response => requestMonitor.byRequest.get(response.request()) === entry, { timeout: 5000 });
+    await requestMonitor.waitFor(candidate => candidate === entry, { timeoutMs: 5000 });
   }
   await requestMonitor.flush();
   assert.equal(entry.status, 200, `Browser request failed: ${entry.path} ${JSON.stringify(entry.response)}`);
@@ -433,44 +368,44 @@ const waitForProposal = async (startedAt, outputLabel) => {
 };
 
 const openExpandChoice = async () => measure('native-EXPAND-editor-discovery', async (startedAt) => {
-  const editorAlreadyOpen = await inspectPage(browser.page, `return Boolean(document.querySelector('[data-testid="construction-reshape-editor"]'));`);
+  const editorAlreadyOpen = await inspectPage(page, `return Boolean(document.querySelector('[data-testid="construction-reshape-editor"]'));`);
   if (!editorAlreadyOpen) {
-    await click(browser.page, '[data-testid="construction-rows-settings-trigger"]');
+    await click(page, '[data-testid="construction-rows-settings-trigger"]');
     await fastWait(startedAt, { kind: 'present', selector: '[role="dialog"][aria-label="Row definition settings"]' }, 'Row settings discovery');
-    const unpivot = await inspectPage(browser.page, `const button=document.querySelector('[data-testid="construction-action-unpivot-rows"]');return {found:Boolean(button),disabled:button?.disabled};`);
+    const unpivot = await inspectPage(page, `const button=document.querySelector('[data-testid="construction-action-unpivot-rows"]');return {found:Boolean(button),disabled:button?.disabled};`);
     assert.equal(unpivot.found, true, 'The native reshape entry is missing from row settings');
     assert.equal(unpivot.disabled, false, 'The native reshape entry must be enabled');
-    await click(browser.page, '[data-testid="construction-action-unpivot-rows"]');
+    await click(page, '[data-testid="construction-action-unpivot-rows"]');
     await fastWait(startedAt, { kind: 'present', selector: '[data-testid="construction-reshape-editor"]' }, 'Reshape editor discovery');
   }
-  const changeOperation = await inspectPage(browser.page, `return Boolean([...document.querySelectorAll('button')].find(button=>button.textContent?.trim()==='Change row operation'));`);
-  if (changeOperation) await click(browser.page, 'button', { name: 'Change row operation' });
+  const changeOperation = await inspectPage(page, `return Boolean([...document.querySelectorAll('button')].find(button=>button.textContent?.trim()==='Change row operation'));`);
+  if (changeOperation) await click(page, 'button', { name: 'Change row operation' });
   await fastWait(startedAt, { kind: 'enabled', selector: '[data-testid="construction-reshape-choice-expand"]' }, 'EXPAND choice discovery');
 });
 
-const setInput = (label, value) => fill(browser.page, `input[aria-label=${JSON.stringify(label)}]`, value);
+const setInput = (label, value) => fill(page, `input[aria-label=${JSON.stringify(label)}]`, value);
 
 const configureExpand = async (expectedLabel) => {
   await openExpandChoice();
   const startedAt = Date.now();
-  await click(browser.page, '[data-testid="construction-reshape-choice-expand"]');
-  await waitForBrowser(browser.page, { kind: 'present', selector: '[data-testid="construction-reshape-expand"] select[aria-label="Repeated field"]' }, 5000);
-  const choices = await inspectPage(browser.page, `return [...document.querySelector('[data-testid="construction-reshape-expand"] select[aria-label="Repeated field"]').options].map(option=>({value:option.value,label:option.text,disabled:option.disabled}));`);
+  await click(page, '[data-testid="construction-reshape-choice-expand"]');
+  await waitForBrowser(page, { kind: 'present', selector: '[data-testid="construction-reshape-expand"] select[aria-label="Repeated field"]' }, 5000);
+  const choices = await inspectPage(page, `return [...document.querySelector('[data-testid="construction-reshape-expand"] select[aria-label="Repeated field"]').options].map(option=>({value:option.value,label:option.text,disabled:option.disabled}));`);
   const matching = choices.filter((option) => option.label.startsWith('Component Value String') && !option.disabled);
   assert.equal(matching.length, 1, `EXPAND must offer exactly the projected component list: ${JSON.stringify(choices)}`);
-  await selectOption(browser.page, '[data-testid="construction-reshape-expand"] select[aria-label="Repeated field"]', matching[0].value);
+  await selectOption(page, '[data-testid="construction-reshape-expand"] select[aria-label="Repeated field"]', matching[0].value);
   const advanced = '[data-testid="construction-reshape-expand-advanced"]';
-  await click(browser.page, `${advanced} summary`);
+  await click(page, `${advanced} summary`);
   await setInput('Expanded item name', 'component_value_item');
   await setInput('Expanded item label', expectedLabel);
-  const checked = await inspectPage(browser.page, `return document.querySelector('input[aria-label="Include item position"]')?.checked;`);
-  if (!checked) await click(browser.page, 'input[aria-label="Include item position"]');
+  const checked = await inspectPage(page, `return document.querySelector('input[aria-label="Include item position"]')?.checked;`);
+  if (!checked) await click(page, 'input[aria-label="Include item position"]');
   await setInput('Position column name', 'component_value_position');
   await setInput('Position column label', 'Component position');
-  await selectOption(browser.page, '[data-testid="construction-reshape-expand"] select[aria-label="Empty list policy"]', 'PRESERVE_PARENT');
+  await selectOption(page, '[data-testid="construction-reshape-expand"] select[aria-label="Empty list policy"]', 'PRESERVE_PARENT');
   const preview = await waitForProposal(startedAt, expectedLabel);
   const durationMs = Date.now() - startedAt;
-  report.timings.push({ name: 'native-EXPAND-configure-to-preview', durationMs, limitMs: 5000 });
+  report.workflowTimings.push({ name: 'native-EXPAND-configure-to-preview', durationMs, limitMs: 5000 });
   assert(durationMs <= 5000, `EXPAND configure-to-preview took ${durationMs}ms`);
   return preview;
 };
@@ -495,29 +430,17 @@ const assertExpandRequest = async (expectedLabel, expectedInputColumnId, expecte
 
 const finish = async () => {
   report.finished = new Date().toISOString();
-  if (report.status !== 'invalidated') {
-    report.status = report.failures.length ? 'failed'
-      : report.gaps.length ? 'partial'
-        : report.assertions.length && report.assertions.every((assertion) => assertion.status === 'passed') ? 'passed'
-          : 'untested';
-  }
-  const path = join(values.evidence, 'report.json');
-  await writeFile(path, JSON.stringify(report, null, 2));
-  report.evidencePaths.push(path);
-  console.log(JSON.stringify({
-    status: report.status, evidence: values.evidence, explorer,
-    assertions: report.assertions.map(({ name, status }) => ({ name, status })),
-    timings: report.timings, browserErrors: report.browserErrors, gaps: report.gaps, failures: report.failures,
-  }, null, 2));
-  if (report.status === 'failed') process.exitCode = 1;
+  report.status = report.failures.length ? 'failed'
+    : report.gaps.length ? 'partial'
+      : report.assertions.length && report.assertions.every(assertion => assertion.status === 'passed') ? 'passed' : 'untested';
+  await cda.attachReport('authored-expand-evidence.json', report);
 };
 
 try {
-  await mkdir(values.evidence, { recursive: true });
   sourceRecords = boundedRawOracle();
   if (sourceRecords.length === 0 || report.oracle.expectedRows.length < 2) {
-    report.gaps.push({ assertion: 'bounded Observation.component[].valueString raw oracle', status: 'untested',
-      reason: 'The bounded 1000-record scan found no selection of up to three Observations and six components with distinct non-empty valueString items.' });
+    fixtureGapReason = 'The bounded 1000-record scan found no selection of up to three Observations and six components with distinct non-empty valueString items.';
+    report.gaps.push({ assertion: 'bounded Observation.component[].valueString raw oracle', status: 'untested', reason: fixtureGapReason });
   } else {
     assert(sourceRecords.every((resource) => resource.generation === values.generation && resource.resourceType === 'Observation'));
     recordAssertion('bounded independent raw oracle selected at most three roots and six distinct list items', {
@@ -577,7 +500,6 @@ try {
     assert.equal(saved.construction?.steps?.length ?? 0, 0, 'QA table must start without construction operations');
     recordAssertion('fresh QA document binds a scalar Observation ID and a base-occurrence ALL list while rows remain RECORDS', report.seed);
 
-    browser = await launchBrowser({ evidence: values.evidence, appOrigins: [values['api-origin'], values['ui-origin']], noAuth: process.env.LOOM_CDA_NO_AUTH === '1' });
     monitorBrowser();
     await openTable(sourceRecords.length, 'fresh-owned-explorer-load-to-render');
     const initialPreview = await previewRows();
@@ -587,24 +509,24 @@ try {
 
     await openExpandChoice();
     const defaultExpandReadyAt = Date.now();
-    await click(browser.page, '[data-testid="construction-reshape-choice-expand"]');
-    await waitForBrowser(browser.page, { kind: 'present', selector: '[data-testid="construction-reshape-expand"] select[aria-label="Repeated field"]' }, 5000);
-    const initialFieldOptions = await inspectPage(browser.page, `return [...document.querySelector('[data-testid="construction-reshape-expand"] select[aria-label="Repeated field"]').options].map(option=>({value:option.value,label:option.text,disabled:option.disabled}));`);
+    await click(page, '[data-testid="construction-reshape-choice-expand"]');
+    await waitForBrowser(page, { kind: 'present', selector: '[data-testid="construction-reshape-expand"] select[aria-label="Repeated field"]' }, 5000);
+    const initialFieldOptions = await inspectPage(page, `return [...document.querySelector('[data-testid="construction-reshape-expand"] select[aria-label="Repeated field"]').options].map(option=>({value:option.value,label:option.text,disabled:option.disabled}));`);
     const initialListOption = initialFieldOptions.find((option) => option.label.startsWith('Component Value String') && !option.disabled);
     assert(initialListOption, `Native EXPAND did not offer the projected component list: ${JSON.stringify(initialFieldOptions)}`);
     // The editor binds the compiler-owned source projection, not the authored UI column ID.
     listColumnId = initialListOption.value;
-    await selectOption(browser.page, '[data-testid="construction-reshape-expand"] select[aria-label="Repeated field"]', initialListOption.value);
-    await click(browser.page, '[data-testid="construction-reshape-expand-advanced"] summary');
+    await selectOption(page, '[data-testid="construction-reshape-expand"] select[aria-label="Repeated field"]', initialListOption.value);
+    await click(page, '[data-testid="construction-reshape-expand-advanced"] summary');
     await setInput('Expanded item name', 'component_value_item');
     await setInput('Expanded item label', 'Expanded component value');
-    await click(browser.page, 'input[aria-label="Include item position"]');
+    await click(page, 'input[aria-label="Include item position"]');
     await setInput('Position column name', 'component_value_position');
     await setInput('Position column label', 'Component position');
-    await selectOption(browser.page, '[data-testid="construction-reshape-expand"] select[aria-label="Empty list policy"]', 'PRESERVE_PARENT');
+    await selectOption(page, '[data-testid="construction-reshape-expand"] select[aria-label="Empty list policy"]', 'PRESERVE_PARENT');
     const initialProposalPreview = await waitForProposal(defaultExpandReadyAt, 'Expanded component value');
     const initialDurationMs = Date.now() - defaultExpandReadyAt;
-    report.timings.push({ name: 'native-EXPAND-configure-to-preview', durationMs: initialDurationMs, limitMs: 5000 });
+    report.workflowTimings.push({ name: 'native-EXPAND-configure-to-preview', durationMs: initialDurationMs, limitMs: 5000 });
     assert(initialDurationMs <= 5000, `EXPAND configure-to-preview took ${initialDurationMs}ms`);
     report.expansionPreview = verifyExpandedRows(initialProposalPreview, 'Expanded component value', 'Initial native EXPAND preview');
     const firstProposal = await assertExpandRequest('Expanded component value', listColumnId);
@@ -616,7 +538,7 @@ try {
 
     const beforeCancel = (await api(`${base}/builder`)).body;
     await measure('native-EXPAND-cancel-restoration', async (startedAt) => {
-      await click(browser.page, '[data-testid="construction-cancel-proposal"]');
+      await click(page, '[data-testid="construction-cancel-proposal"]');
       await fastWait(startedAt, { kind: 'all', conditions: [
         { kind: 'hidden', selector: '[data-testid="construction-proposal-panel"]' }, rowsReady(sourceRecords.length),
       ] }, 'Canceled EXPAND source-row restoration');
@@ -643,7 +565,7 @@ try {
     await saveDOM('expand-confirmed-preview');
     const applyPreviewRequestIndex = report.browserRequests.length;
     await measure('native-EXPAND-apply', async (startedAt) => {
-      await click(browser.page, '[data-testid="construction-apply-proposal"]');
+      await click(page, '[data-testid="construction-apply-proposal"]');
       await fastWait(startedAt, { kind: 'all', conditions: [
         { kind: 'hidden', selector: '[data-testid="construction-proposal-panel"]' },
         rowsReady(report.oracle.expectedRows.length),
@@ -698,14 +620,14 @@ try {
     await saveDOM('expand-reloaded');
     recordAssertion('Reload preserves native EXPAND output and unchanged RECORDS row definition', { preview: report.reloadPreview, stepId: appliedStep.id });
 
-    await click(browser.page, `[data-testid="construction-history-step-${appliedStep.id}"]`);
-    await waitForBrowser(browser.page, { kind: 'enabled', selector: `[data-testid="construction-edit-step-${appliedStep.id}"]` }, 5000);
-    await click(browser.page, `[data-testid="construction-edit-step-${appliedStep.id}"]`);
-    await waitForBrowser(browser.page, { kind: 'present', selector: '[data-testid="construction-reshape-expand"] select[aria-label="Repeated field"]' }, 5000);
+    await click(page, `[data-testid="construction-history-step-${appliedStep.id}"]`);
+    await waitForBrowser(page, { kind: 'enabled', selector: `[data-testid="construction-edit-step-${appliedStep.id}"]` }, 5000);
+    await click(page, `[data-testid="construction-edit-step-${appliedStep.id}"]`);
+    await waitForBrowser(page, { kind: 'present', selector: '[data-testid="construction-reshape-expand"] select[aria-label="Repeated field"]' }, 5000);
     const advanced = '[data-testid="construction-reshape-expand-advanced"]';
-    const advancedOpen = await inspectPage(browser.page, `return document.querySelector(${JSON.stringify(advanced)})?.open;`);
-    if (!advancedOpen) await click(browser.page, `${advanced} summary`);
-    const reopened = await inspectPage(browser.page, `return {
+    const advancedOpen = await inspectPage(page, `return document.querySelector(${JSON.stringify(advanced)})?.open;`);
+    if (!advancedOpen) await click(page, `${advanced} summary`);
+    const reopened = await inspectPage(page, `return {
       field:document.querySelector('select[aria-label="Repeated field"]')?.value,
       name:document.querySelector('input[aria-label="Expanded item name"]')?.value,
       label:document.querySelector('input[aria-label="Expanded item label"]')?.value,
@@ -727,7 +649,7 @@ try {
     await setInput('Expanded item label', 'Edited component value');
     const editedPreview = await waitForProposal(editStartedAt, 'Edited component value');
     const editDurationMs = Date.now() - editStartedAt;
-    report.timings.push({ name: 'native-EXPAND-edit-to-preview', durationMs: editDurationMs, limitMs: 5000 });
+    report.workflowTimings.push({ name: 'native-EXPAND-edit-to-preview', durationMs: editDurationMs, limitMs: 5000 });
     assert(editDurationMs <= 5000, `EXPAND edit-to-preview took ${editDurationMs}ms`);
     report.editedPreview = verifyExpandedRows(editedPreview, 'Edited component value', 'Edited native EXPAND preview');
     const editedProposal = await assertExpandRequest('Edited component value', listColumnId, appliedStep.id);
@@ -741,7 +663,7 @@ try {
     await saveDOM('expand-edit-preview');
     const editApplyPreviewRequestIndex = report.browserRequests.length;
     await measure('native-EXPAND-edit-apply', async (startedAt) => {
-      await click(browser.page, '[data-testid="construction-apply-proposal"]');
+      await click(page, '[data-testid="construction-apply-proposal"]');
       await fastWait(startedAt, { kind: 'all', conditions: [
         { kind: 'hidden', selector: '[data-testid="construction-proposal-panel"]' },
         rowsReady(report.oracle.expectedRows.length),
@@ -782,13 +704,13 @@ try {
     await saveDOM('expand-edit-reloaded');
     recordAssertion('Edited EXPAND output and unchanged RECORDS definition persist after reload', { preview: report.editReloadPreview });
 
-    await click(browser.page, `[data-testid="construction-history-step-${appliedStep.id}"]`);
-    await waitForBrowser(browser.page, { kind: 'enabled', selector: `[data-testid="construction-remove-step-${appliedStep.id}"]` }, 5000);
+    await click(page, `[data-testid="construction-history-step-${appliedStep.id}"]`);
+    await waitForBrowser(page, { kind: 'enabled', selector: `[data-testid="construction-remove-step-${appliedStep.id}"]` }, 5000);
     const removeStartedAt = Date.now();
-    await click(browser.page, `[data-testid="construction-remove-step-${appliedStep.id}"]`);
+    await click(page, `[data-testid="construction-remove-step-${appliedStep.id}"]`);
     await fastWait(removeStartedAt, { kind: 'status-in', selector: '[data-testid="construction-proposal-panel"]', statuses: ['ready'] }, 'EXPAND removal proposal');
     const removalDurationMs = Date.now() - removeStartedAt;
-    report.timings.push({ name: 'native-EXPAND-remove-to-preview', durationMs: removalDurationMs, limitMs: 5000 });
+    report.workflowTimings.push({ name: 'native-EXPAND-remove-to-preview', durationMs: removalDurationMs, limitMs: 5000 });
     assert(removalDurationMs <= 5000, `EXPAND removal-to-preview took ${removalDurationMs}ms`);
     const removalPreview = await previewRows();
     report.removalPreview = await verifyOriginalRows(removalPreview, 'EXPAND removal proposal');
@@ -801,7 +723,7 @@ try {
     assert(removeRequest, 'The applied and edited EXPAND proposal evidence should remain available');
     await saveDOM('expand-remove-preview-restored-records');
     await measure('native-EXPAND-remove-apply-restoration', async (startedAt) => {
-      await click(browser.page, '[data-testid="construction-apply-proposal"]');
+      await click(page, '[data-testid="construction-apply-proposal"]');
       await fastWait(startedAt, { kind: 'all', conditions: [
         { kind: 'hidden', selector: '[data-testid="construction-proposal-panel"]' },
         rowsReady(sourceRecords.length),
@@ -833,51 +755,29 @@ try {
     await saveDOM('expand-removal-reloaded');
     recordAssertion('Reload after removal preserves source-record restoration', { preview: report.removalReloadPreview });
 
-    await Promise.all([...browserPending]);
+    await requestMonitor.flush();
     assert.deepEqual(report.browserErrors.protocol, [], 'Browser reported a failed network protocol request');
     assert.deepEqual(report.browserErrors.exceptions, [], 'Browser raised JavaScript exceptions');
     assert.deepEqual(report.browserErrors.console, [], 'Browser logged console errors');
     assert.deepEqual(report.browserErrors.modules, [], 'Browser failed to load a module');
     assert.deepEqual(report.browserErrors.http, [], 'Browser received unexpected HTTP errors');
   assert.deepEqual(report.errors, [], 'Playwright request capture reported an owned API, runtime, or console failure');
-    assert(!report.browserRequests.some((entry) => entry.url.includes(protectedExplorer)), 'Browser must not select or mutate the protected Explorer');
+    assert(!report.browserRequests.some((entry) => `${entry.origin}${entry.path}`.includes(protectedExplorer)), 'Browser must not select or mutate the protected Explorer');
     assert(!report.requests.some((entry) => entry.path.includes(protectedExplorer)), 'API setup must not select or mutate the protected Explorer');
     assert(!report.browserRequests.some((entry) => entry.path.endsWith('/row-definition-proposals')),
       'Native EXPAND must use construction proposals and leave row definition untouched');
     recordAssertion('browser protocol, runtime, module, and console capture is clean; incidental favicon errors are retained separately', report.browserErrors);
   }
+  if (fixtureGapReason) return { skipReason: fixtureGapReason };
+  return { status: 'passed' };
 } catch (error) {
   report.status = 'failed';
   report.failures.push({ error: String(error.stack ?? error), phase: report.assertions.length });
-  if (browser) report.failureTrace = await browser.captureFailure(error, {
-    phase: report.assertions.length, action: report.activeAction ?? report.lastAction,
-    elapsedMs: report.activeAction?.startedAt ? Date.now() - report.activeAction.startedAt : report.lastAction?.elapsedMs,
-    requestIdentity: report.browserRequests.at(-1) && (({ requestId, path, method }) => ({ requestId, path, method }))(report.browserRequests.at(-1)),
-  }).catch(String);
-  try { report.failureDOM = await domText(); } catch { /* Browser may not have opened. */ }
+  try { report.failureDOM = await domText(); } catch { /* Page may not have opened. */ }
   try { report.failureBuilder = (await api(`${base}/builder`)).body; } catch (readError) { report.builderReadError = String(readError); }
+  throw error;
 } finally {
-  try { await Promise.all([...browserPending]); } catch { /* Response reads are also recorded above. */ }
-  if (browser) await browser.close().catch((error) => { report.browserCloseError = String(error); });
-  try {
-    report.sourceFreeze = { ...report.sourceFreeze, ...(await sourceFreeze.assertUnchanged()) };
-    const after = sourceFingerprint(sourceFreezeRoot);
-    const unchanged = sourceBefore.sha256 === after.sha256 && sourceBefore.files === after.files;
-    report.sourceFingerprint = { ...report.sourceFingerprint, after, unchanged, invalidatesRun: !unchanged };
-    assert(unchanged, 'Watched source fingerprint changed during the run');
-  } catch (error) {
-    report.priorStatus = report.status;
-    report.status = 'invalidated';
-    report.invalidations = [...(report.invalidations ?? []), { kind: 'source-freeze', reason: String(error) }];
-    process.exitCode = 1;
-  }
-  try {
-    report.apiBuildFreeze = { ...report.apiBuildFreeze, ...(await frozenApiBuild.assertUnchanged()) };
-  } catch (error) {
-    report.priorStatus = report.status;
-    report.status = 'invalidated';
-    report.invalidations = [...(report.invalidations ?? []), { kind: 'api-build-freeze', reason: error.reason ?? String(error) }];
-    process.exitCode = 1;
-  }
+  await requestMonitor.flush();
   await finish();
+}
 }

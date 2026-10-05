@@ -1,34 +1,25 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { parseArgs } from 'node:util';
-import { launchBrowser, sanitizeBody, sanitizeText } from './lib/playwright-browser.mjs';
-import { performAction, requireUnique } from './lib/playwright-actions.mjs';
+
+import { sanitizeText } from './lib/playwright-browser.mjs';
+import { requireUnique } from './lib/playwright-actions.mjs';
 import { captureCDARequests } from './lib/cda-playwright-requests.mjs';
-import { assertOwnedCdaTarget } from './lib/owned-cda-target.mjs';
-import { fileURLToPath } from 'node:url';
-import { captureSourceFreeze } from './lib/source-freeze.mjs';
-import { ApiBuildFreezeError, captureApiBuildFreeze, checkContainerApiBuildStamp } from './lib/api-build-freeze.mjs';
-import { sourceFingerprint } from './verify-ui/source-fingerprint.mjs';
 import { waitForCondition } from './lib/playwright-observations.mjs';
 
-const { values } = parseArgs({ options: {
-  'api-origin': { type: 'string', default: process.env.LOOM_CDA_API_ORIGIN },
-  'ui-origin': { type: 'string', default: process.env.LOOM_CDA_UI_ORIGIN },
-  'api-container': { type: 'string', default: process.env.LOOM_CDA_API_CONTAINER },
-  'compose-project': { type: 'string', default: process.env.LOOM_CDA_COMPOSE_PROJECT },
-  project: { type: 'string', default: process.env.LOOM_CDA_PROJECT },
-  evidence: { type: 'string', default: `/tmp/loom-cda-expanded-publication-${Date.now()}` },
-  'arango-container': { type: 'string', default: process.env.LOOM_ARANGO_CONTAINER },
-  'clickhouse-container': { type: 'string', default: process.env.LOOM_CLICKHOUSE_CONTAINER },
-} });
-
-const sourceFreezeRoot = process.env.LOOM_SOURCE_FREEZE_ROOT ?? fileURLToPath(new URL('..', import.meta.url));
-await assertOwnedCdaTarget({ project: values.project, apiOrigin: values['api-origin'], uiOrigin: values['ui-origin'],
-  apiContainer: values['api-container'], composeProject: values['compose-project'], sourceRoot: sourceFreezeRoot,
-  arangoContainer: values['arango-container'], clickhouseContainer: values['clickhouse-container'] });
+export async function expandedPublicationWorkflow({ page, cda }) {
+const values = {
+  'api-origin': cda.apiOrigin,
+  'ui-origin': cda.uiOrigin,
+  'api-container': cda.target.apiContainer,
+  'compose-project': cda.target.composeProject,
+  project: cda.project,
+  evidence: cda.evidenceDirectory,
+  'arango-container': cda.target.arangoContainer,
+  'clickhouse-container': cda.target.clickhouseContainer,
+};
 
 const protectedExplorer = 'cda-builder-full-qa-1790440983382';
 const explorer = `cda-expanded-publication-${Date.now()}-${randomUUID().slice(0, 8)}`;
@@ -41,11 +32,11 @@ const root = `/api/v1/projects/${encodeURIComponent(values.project)}/explorers`;
 const explorerPath = `${root}/${encodeURIComponent(explorer)}`;
 const base = `${explorerPath}/authoring/v2`;
 const pageURL = `${uiOrigin}/?project=${encodeURIComponent(values.project)}&explorer=${encodeURIComponent(explorer)}&mode=builder`;
-const report = {
+const report = Object.assign(cda.report, {
   errors: [],
   started: new Date().toISOString(),
-  invocation: process.argv,
-  target: { apiOrigin, uiOrigin, project: values.project, protectedExplorer },
+  invocation: ['native-playwright'],
+  target: { ...cda.report.target, apiOrigin, uiOrigin, project: values.project, protectedExplorer },
   explorer,
   status: 'running',
   assertions: [],
@@ -56,13 +47,7 @@ const report = {
   browserRequests: [],
   browserErrors: { exceptions: [], console: [], modules: [], http: [], network: [], incidental: [] },
   evidencePaths: [],
-};
-const sourceFreeze = await captureSourceFreeze(sourceFreezeRoot);
-const sourceBefore = sourceFingerprint(sourceFreezeRoot);
-const frozenApiBuild = await captureApiBuildFreeze(() => checkContainerApiBuildStamp(values['api-container']));
-report.sourceFreeze = { root: sourceFreezeRoot, watchedFileCount: sourceFreeze.watchedFileCount, invalidatesRun: false };
-report.sourceFingerprint = { root: sourceFreezeRoot, before: sourceBefore, checked: true, invalidatesRun: false };
-report.apiBuildFreeze = { container: values['api-container'], initial: frozenApiBuild.initial, invalidatesRun: false };
+});
 const protocol = [];
 const protocolById = new Map();
 const networkById = new Map();
@@ -72,10 +57,6 @@ let datasetGeneration;
 let outputId;
 let componentChoice;
 let oracleRows = [];
-let browser;
-let requestMonitor;
-const inspectPage = (page, body) => page.evaluate(`(()=>{${body}})()`);
-const waitForBrowser = (page, condition, timeout = 30000) => waitForCondition(page, condition, timeout);
 const resolveActionLocator = async (page, selector, identity = {}) => {
   const candidates = page.locator(selector);
   const { name, includes } = identity;
@@ -90,23 +71,29 @@ const resolveActionLocator = async (page, selector, identity = {}) => {
   assert.equal(matches.length, 1, `${selector}: expected one matching control, found ${matches.length}`);
   return requireUnique(candidates.nth(matches[0]), `${selector} ${name ?? includes}`);
 };
-const click = async (page, selector, identity = {}, timeout = 5000) => {
+
+const inspectPage = (_page, body) => page.evaluate(body);
+const performAction = async (_tracker, label, locator, action, options = {}) => cda.action(
+  label, locator, target => action(target, { timeout: options.timeout ?? 5000 }), options);
+const waitForBrowser = (_page, condition, timeout = 30000) => waitForCondition(page, condition, Math.min(timeout, 5000));
+const click = async (_page, selector, identity = {}, timeout = 5000) => {
   const locator = await resolveActionLocator(page, selector, identity);
   return performAction(report, `Click ${selector} ${identity.name ?? identity.includes ?? ''}`.trim(), locator,
     (target, options) => target.click(options), { timeout });
 };
-const fill = async (page, selector, value, timeout = 5000) => {
+const fill = async (_page, selector, value, timeout = 5000) => {
   const locator = await resolveActionLocator(page, selector);
   return performAction(report, `Fill ${selector}`, locator,
     (target, options) => target.fill(value, options), { timeout, editable: true });
 };
-const selectOption = async (page, selector, value, timeout = 5000) => {
+const selectOption = async (_page, selector, value, timeout = 5000) => {
   const locator = await resolveActionLocator(page, selector);
   return performAction(report, `Select ${value} in ${selector}`, locator,
     (target, options) => target.selectOption(value, options), { timeout });
 };
-const navigate = (page, url) => page.goto(url, { waitUntil: 'load', timeout: 30000 });
+const navigate = (_page, url) => cda.navigate(url);
 let browserPending = new Set();
+let requestMonitor;
 let fatal;
 
 const recordAssertion = (name, evidence) => report.assertions.push({ name, status: 'passed', evidence });
@@ -190,7 +177,7 @@ const command = async (commands) => {
 const document = () => builder.workspace.documents.find(doc => doc.output.id === outputId);
 const previewTableSelector = '[data-testid="preview-table-scroll"] [role="table"]';
 const rowsReady = count => ({ kind: 'rows', selector: previewTableSelector, count });
-const domText = () => inspectPage(browser.page, 'return document.body.innerText;');
+const domText = () => inspectPage(page, 'return document.body.innerText;');
 const scalarCell = cell => {
   let value = cell?.raw;
   if (value) {
@@ -207,7 +194,7 @@ const sortedPairs = pairs => pairs.map(pair => [String(pair[0]), String(pair[1])
   .sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)));
 const expectedPairs = () => report.oracle.expectedRows.map(({ id, value }) => [id, value]);
 
-const fieldPreviewRows = async () => inspectPage(browser.page, `const proposalRow=document.querySelector('[data-testid="construction-proposal-preview-row"]');const root=proposalRow?.closest('table')??document.querySelector('[data-testid="preview-table-scroll"] [role="table"]');if(!root)return null;const proposal=Boolean(proposalRow);const headers=[...root.querySelectorAll(proposal?'thead th':'[role="columnheader"]')].map(cell=>cell.innerText.trim());const rows=[...root.querySelectorAll(proposal?'[data-testid="construction-proposal-preview-row"]':'[role="row"]')].slice(proposal?0:1).map(row=>[...row.querySelectorAll(proposal?'td':'[role="cell"]')].map(cell=>({text:cell.innerText.trim(),raw:cell.title}))).filter(row=>row.length);return {headers,rows,rowCount:root.getAttribute('aria-rowcount')};`);
+const fieldPreviewRows = async () => inspectPage(page, `const proposalRow=document.querySelector('[data-testid="construction-proposal-preview-row"]');const root=proposalRow?.closest('table')??document.querySelector('[data-testid="preview-table-scroll"] [role="table"]');if(!root)return null;const proposal=Boolean(proposalRow);const headers=[...root.querySelectorAll(proposal?'thead th':'[role="columnheader"]')].map(cell=>cell.innerText.trim());const rows=[...root.querySelectorAll(proposal?'[data-testid="construction-proposal-preview-row"]':'[role="row"]')].slice(proposal?0:1).map(row=>[...row.querySelectorAll(proposal?'td':'[role="cell"]')].map(cell=>({text:cell.innerText.trim(),raw:cell.title}))).filter(row=>row.length);return {headers,rows,rowCount:root.getAttribute('aria-rowcount')};`);
 
 const verifyRenderedPairs = async (label) => {
   const preview = await fieldPreviewRows();
@@ -229,7 +216,7 @@ const recordBrowserError = (event) => {
 };
 
 const monitorBrowser = () => {
-  requestMonitor = captureCDARequests(browser.page, {
+  requestMonitor = captureCDARequests(page, {
     apiOrigin: uiOrigin,
     appOrigins: [apiOrigin, uiOrigin],
     ownedPathPrefix: `${explorerPath}`,
@@ -245,21 +232,21 @@ const monitorBrowser = () => {
     },
   });
   browserPending = requestMonitor.pendingReads;
-  browser.page.on('request', request => {
+  page.on('request', request => {
     const captured = requestMonitor.byRequest.get(request);
     if (!captured || !captured.path.includes('/authoring/v2/')) return;
     networkById.set(request, { path: captured.path, url: `${captured.origin}${captured.path}` });
     protocolById.set(request, captured);
     protocol.push(captured);
   });
-  browser.page.on('response', response => {
+  page.on('response', response => {
     const url = new URL(response.url());
     if (url.origin !== new URL(uiOrigin).origin || response.status() < 400) return;
     const failure = { url: sanitizeText(response.url()), status: response.status(), resourceType: response.request().resourceType() };
     if (url.pathname.endsWith('/favicon.ico') && response.status() === 404) report.browserErrors.incidental.push(failure);
     else report.browserErrors.http.push(failure);
   });
-  browser.page.on('requestfailed', request => {
+  page.on('requestfailed', request => {
     const url = new URL(request.url());
     if (url.origin !== new URL(uiOrigin).origin || request.failure()?.errorText === 'net::ERR_ABORTED') return;
     const failure = { url: sanitizeText(request.url()), type: request.resourceType(), error: sanitizeText(request.failure()?.errorText) };
@@ -267,12 +254,12 @@ const monitorBrowser = () => {
     else if (request.resourceType() === 'script') report.browserErrors.modules.push(failure);
     else report.browserErrors.network.push(failure);
   });
-  return monitor;
+  return requestMonitor;
 };
 
 const remaining = startedAt => Math.max(100, 5000 - (Date.now() - startedAt));
 const fastWait = async (startedAt, condition, message) => {
-  try { await waitForBrowser(browser.page, condition, remaining(startedAt)); }
+  try { await waitForBrowser(page, condition, remaining(startedAt)); }
   catch (error) { throw new Error(`${message} within the five-second action budget: ${String(error)}`); }
 };
 const measure = async (name, action) => {
@@ -288,7 +275,7 @@ const waitForNativeResponse = async (suffix, priorCount, timeoutMs = 5000) => {
   const existing = protocol.filter(entry => entry.path.endsWith(suffix) && entry.status !== undefined);
   let entry = existing.length > priorCount ? existing.at(-1) : undefined;
   if (!entry) {
-    const response = await browser.page.waitForResponse(candidate => {
+    const response = await page.waitForResponse(candidate => {
       const candidateEntry = requestMonitor.byRequest.get(candidate.request());
       return candidateEntry?.path.endsWith(suffix) && candidateEntry.status !== undefined;
     }, { timeout: timeoutMs });
@@ -340,28 +327,28 @@ const saveDOM = async name => {
 };
 
 const openTable = async (expectedCount, name, exactTuples = false) => measure(name, async startedAt => {
-  await navigate(browser.page, pageURL);
+  await navigate(page, pageURL);
   await fastWait(startedAt, { kind: 'present', selector: '[data-testid="construction-workspace"]' }, 'Explorer workspace load');
   await fastWait(startedAt, { kind: 'present', selector: `[data-testid="construction-table-${outputId}"]` }, 'Explorer table discovery');
-  await click(browser.page, `[data-testid="construction-table-${outputId}"]`);
+  await click(page, `[data-testid="construction-table-${outputId}"]`);
   await fastWait(startedAt, exactTuples ? renderedPairsCondition() : rowsReady(expectedCount), 'CDA table render');
   if (exactTuples) await verifyRenderedPairs(name);
 });
 
 const openRowSettings = async () => measure('row-definition-choice-discovery', async startedAt => {
-  await click(browser.page, '[data-testid="construction-rows-settings-trigger"]');
+  await click(page, '[data-testid="construction-rows-settings-trigger"]');
   await fastWait(startedAt, { kind: 'enabled', selector: 'select[aria-label="What should each row represent?"]' }, 'Row definition choice discovery');
 });
 
 const selectExpandedAndPreview = async () => measure('native-component-row-preview', async startedAt => {
   const priorProposalCount = protocol.filter(entry => entry.path.endsWith('/row-definition-proposals') && entry.status !== undefined).length;
   const shapeSelect = 'select[aria-label="What should each row represent?"]';
-  await selectOption(browser.page, shapeSelect, `expanded:${componentChoice.choiceId}`);
+  await selectOption(page, shapeSelect, `expanded:${componentChoice.choiceId}`);
   const policySelect = 'select[aria-label="Unmatched record policy"]';
   await fastWait(startedAt, { kind: 'enabled', selector: policySelect }, 'Expansion policy discovery');
   const wanted = `expanded:${componentChoice.choiceId}:PRESERVE_PARENT`;
-  const selected = await inspectPage(browser.page, `return document.querySelector(${JSON.stringify(policySelect)})?.value;`);
-  if (selected !== wanted) await selectOption(browser.page, policySelect, wanted);
+  const selected = await inspectPage(page, `return document.querySelector(${JSON.stringify(policySelect)})?.value;`);
+  if (selected !== wanted) await selectOption(page, policySelect, wanted);
   const expectedCount = report.oracle.expectedRows.length;
   await fastWait(startedAt, { kind: 'any', conditions: [
     { kind: 'all', conditions: [
@@ -370,7 +357,7 @@ const selectExpandedAndPreview = async () => measure('native-component-row-previ
     ] },
     { kind: 'present', selector: '[aria-label="Row definition settings"] [role="alert"]' },
   ] }, 'Automatic row definition proposal');
-  const proposalError = await inspectPage(browser.page, `return document.querySelector('[aria-label="Row definition settings"] [role="alert"]')?.innerText;`);
+  const proposalError = await inspectPage(page, `return document.querySelector('[aria-label="Row definition settings"] [role="alert"]')?.innerText;`);
   assert(!proposalError, `Row definition proposal failed: ${proposalError}`);
   const proposal = await waitForNativeResponse('/row-definition-proposals', priorProposalCount, remaining(startedAt));
   assert.equal(proposal.status, 200, `Native row proposal failed: ${JSON.stringify(proposal.response)}`);
@@ -381,7 +368,7 @@ const selectExpandedAndPreview = async () => measure('native-component-row-previ
   report.rowProposal = proposal;
 });
 
-const viewerSnapshot = async () => inspectPage(browser.page, `const normalize=value=>String(value??'').replace(/\\s+/g,' ').trim();const tables=[...document.querySelectorAll('[role="table"],table')];const readTable=table=>{const headerNodes=[...table.querySelectorAll('[role="columnheader"],thead th')];const headers=headerNodes.map(cell=>normalize(cell.innerText||cell.textContent));const rows=[...table.querySelectorAll('[role="row"],tbody tr')].filter(row=>!row.querySelector('[role="columnheader"],th'));const cells=rows.map(row=>[...row.querySelectorAll('[role="cell"],td')].map(cell=>({text:normalize(cell.innerText||cell.textContent),raw:cell.title})));return {headers,cells,ariaRowCount:table.getAttribute('aria-rowcount')};};return {url:location.href,body:document.body.innerText.slice(0,1800),tables:tables.map(readTable)};`);
+const viewerSnapshot = async () => inspectPage(page, `const normalize=value=>String(value??'').replace(/\\s+/g,' ').trim();const tables=[...document.querySelectorAll('[role="table"],table')];const readTable=table=>{const headerNodes=[...table.querySelectorAll('[role="columnheader"],thead th')];const headers=headerNodes.map(cell=>normalize(cell.innerText||cell.textContent));const rows=[...table.querySelectorAll('[role="row"],tbody tr')].filter(row=>!row.querySelector('[role="columnheader"],th'));const cells=rows.map(row=>[...row.querySelectorAll('[role="cell"],td')].map(cell=>({text:normalize(cell.innerText||cell.textContent),raw:cell.title})));return {headers,cells,ariaRowCount:table.getAttribute('aria-rowcount')};};return {url:location.href,body:document.body.innerText.slice(0,1800),tables:tables.map(readTable)};`);
 
 const verifyViewerPairs = (snapshot, label) => {
   const table = snapshot.tables.find(candidate => candidate.headers.some(header => header.toUpperCase() === 'OBSERVATION ID') && candidate.headers.some(header => /component.*value.?string/i.test(header)));
@@ -397,18 +384,18 @@ const verifyViewerPairs = (snapshot, label) => {
 const verifyViewerAndReload = async () => {
   let viewerURL;
   await measure('native-viewer-open-and-data-render', async startedAt => {
-    const control = await inspectPage(browser.page, `const button=[...document.querySelectorAll('button')].find(candidate=>candidate.textContent?.trim()==='Viewer');return {visible:Boolean(button&&button.offsetParent!==null),disabled:button?.disabled};`);
+    const control = await inspectPage(page, `const button=[...document.querySelectorAll('button')].find(candidate=>candidate.textContent?.trim()==='Viewer');return {visible:Boolean(button&&button.offsetParent!==null),disabled:button?.disabled};`);
     assert(control.visible && !control.disabled, 'Native Viewer control is missing or disabled after publication');
-    await click(browser.page, 'button', { name: 'Viewer' }, 1500);
+    await click(page, 'button', { name: 'Viewer' }, 1500);
     await fastWait(startedAt, { kind: 'query', values: { mode: 'viewer', project: values.project, explorer } }, 'Native Viewer navigation');
     await fastWait(startedAt, { kind: 'viewer-pairs', pairs: expectedPairs() }, 'Viewer rendered exact published rows');
-    viewerURL = await inspectPage(browser.page, 'return location.href;');
+    viewerURL = await inspectPage(page, 'return location.href;');
     report.viewer = verifyViewerPairs(await viewerSnapshot(), 'Viewer');
   });
   report.viewerURL = viewerURL;
 
   await measure('native-viewer-reload-and-data-render', async startedAt => {
-    await navigate(browser.page, viewerURL);
+    await navigate(page, viewerURL);
     await fastWait(startedAt, { kind: 'query', values: { mode: 'viewer' } }, 'Reloaded Viewer navigation');
     await fastWait(startedAt, { kind: 'viewer-pairs', pairs: expectedPairs() }, 'Reloaded Viewer rendered exact published rows');
     report.viewerReload = verifyViewerPairs(await viewerSnapshot(), 'Reloaded Viewer');
@@ -536,17 +523,15 @@ const prepareExplorer = async () => {
 };
 
 const main = async () => {
-  await mkdir(values.evidence, { recursive: true });
   const prepared = await prepareExplorer();
   if (!prepared) return;
 
   const rootCount = oracleRows.length;
   const expandedCount = report.oracle.expectedRows.length;
-  browser = await launchBrowser({ evidence: values.evidence, appOrigins: [values['api-origin'], values['ui-origin']], noAuth: !apiToken && process.env.LOOM_CDA_NO_AUTH === '1' });
-  await navigate(browser.page, 'about:blank');
+  await navigate(page, 'about:blank');
   monitorBrowser();
   if (apiToken) {
-    await browser.page.route(url => new URL(url).origin === apiOrigin, route => route.continue({
+    await page.route(url => new URL(url).origin === apiOrigin, route => route.continue({
       headers: { ...route.request().headers(), authorization: `Bearer ${apiToken}` },
     }));
   }
@@ -562,7 +547,7 @@ const main = async () => {
   const beforeCancel = await readBuilder();
   const savedDigest = beforeCancel.draftDigest;
   await measure('native-row-definition-cancel', async startedAt => {
-    await click(browser.page, '[aria-label="Row definition settings"] button', { name: 'Cancel' });
+    await click(page, '[aria-label="Row definition settings"] button', { name: 'Cancel' });
     await fastWait(startedAt, { kind: 'all', conditions: [{ kind: 'hidden', selector: '[aria-label="Row definition settings"]' }, rowsReady(rootCount)] }, 'Canceled row-definition preview restoration');
   });
   builder = await readBuilder();
@@ -579,7 +564,7 @@ const main = async () => {
   const previousPreviewCount = previewEntries().length;
   let appliedPreviewEntry;
   await measure('native-row-definition-apply-and-render', async startedAt => {
-    await click(browser.page, '[aria-label="Row definition settings"] button', { name: 'Apply row definition' });
+    await click(page, '[aria-label="Row definition settings"] button', { name: 'Apply row definition' });
     await fastWait(startedAt, { kind: 'all', conditions: [
       { kind: 'hidden', selector: '[aria-label="Row definition settings"]' }, renderedPairsCondition(),
     ] }, 'Applied component rows and exact tuples');
@@ -615,7 +600,7 @@ const main = async () => {
   } else {
     report.gaps.push({ assertion: 'stable expanded row identity', status: 'untested', reason: 'The native preview did not expose __loom_row_id for every expanded row.' });
   }
-  const previewPanel = await inspectPage(browser.page, `const panel=document.querySelector('[data-testid="construction-preview"]');return {status:panel?.dataset.previewStatus,outputId:panel?.dataset.previewOutputId,receiptId:panel?.dataset.previewReceiptId,currentDraftDigest:panel?.dataset.currentDraftDigest};`);
+  const previewPanel = await inspectPage(page, `const panel=document.querySelector('[data-testid="construction-preview"]');return {status:panel?.dataset.previewStatus,outputId:panel?.dataset.previewOutputId,receiptId:panel?.dataset.previewReceiptId,currentDraftDigest:panel?.dataset.currentDraftDigest};`);
   report.preview = { ...nativePreview(reloadedPreviewEntry), ...previewPanel };
   assert.equal(previewPanel.outputId, outputId, 'Automatic preview targets a different output');
   assert.equal(previewPanel.status, 'ready', 'Automatic native preview is not ready');
@@ -624,12 +609,12 @@ const main = async () => {
   recordAssertion('saved reload renders exact raw component tuples in the native preview', { rowCount: expandedCount, pairs: report.reloadedPreview.pairs });
   await saveDOM('component-rows-reloaded');
 
-  const publishControl = await inspectPage(browser.page, `const button=[...document.querySelectorAll('button')].find(candidate=>candidate.textContent?.trim()==='Publish');return {disabled:button?.disabled,visible:Boolean(button)};`);
+  const publishControl = await inspectPage(page, `const button=[...document.querySelectorAll('button')].find(candidate=>candidate.textContent?.trim()==='Publish');return {disabled:button?.disabled,visible:Boolean(button)};`);
   assert(publishControl.visible && !publishControl.disabled, 'Publish is not enabled after the ready expanded preview');
   const priorPublishCount = protocol.filter(entry => entry.path.endsWith('/publish') && entry.status !== undefined).length;
   let publication;
   await measure('native-publish-and-render', async startedAt => {
-    await click(browser.page, 'button', { name: 'Publish' }, 1500);
+    await click(page, 'button', { name: 'Publish' }, 1500);
     const publish = await waitForNativeResponse('/publish', priorPublishCount, remaining(startedAt));
     assert.equal(publish.status, 200, `Native Publish request failed: ${JSON.stringify(publish.response)}`);
     publication = publish.response;
@@ -650,12 +635,12 @@ const main = async () => {
 
   await verifyViewerAndReload();
   await Promise.all([...browserPending]);
-  assert.equal(browser.dialogErrors.length, 0, `Unexpected browser dialogs: ${JSON.stringify(browser.dialogErrors)}`);
+  assert.deepEqual(cda.diagnostics.pageErrors, [], 'Unexpected browser JavaScript exceptions occurred');
   assert.deepEqual(report.errors, [], 'CDA request capture reported an owned API, runtime, or console failure');
   for (const kind of ['exceptions', 'console', 'modules', 'http', 'network']) {
     assert.deepEqual(report.browserErrors[kind], [], `Unexpected browser ${kind} errors: ${JSON.stringify(report.browserErrors[kind])}`);
   }
-  report.dialogs = browser.dialogErrors;
+  report.dialogs = [];
   recordAssertion('native Viewer and reload render exact published tuples with no browser, HTTP, module or console errors', {
     rows: report.viewer.rowCount, errors: report.browserErrors,
   });
@@ -667,38 +652,12 @@ try {
 } catch (error) {
   fatal = error;
   report.status = 'failed';
+  report.error = String(error.stack ?? error);
   report.failures.push({ error: String(error.stack ?? error), phase: report.assertions.length });
-  if (browser) report.failureTrace = await browser.captureFailure(error, {
-    phase: report.assertions.length, action: report.activeAction ?? report.lastAction,
-    elapsedMs: report.activeAction?.startedAt ? Date.now() - report.activeAction.startedAt : report.lastAction?.elapsedMs,
-    requestIdentity: report.browserRequests.at(-1) && (({ requestId, path, method }) => ({ requestId, path, method }))(report.browserRequests.at(-1)),
-  }).catch(String);
 } finally {
-  if (browser) {
-    await Promise.all([...browserPending]);
-    report.dialogs = browser.dialogErrors;
-    await browser.close().catch(error => report.failures.push({ error: `Browser close: ${String(error)}` }));
-  }
-  try {
-    report.sourceFreeze = { ...report.sourceFreeze, ...(await sourceFreeze.assertUnchanged()) };
-    const after = sourceFingerprint(sourceFreezeRoot);
-    const unchanged = sourceBefore.sha256 === after.sha256 && sourceBefore.files === after.files;
-    report.sourceFingerprint = { ...report.sourceFingerprint, after, unchanged, invalidatesRun: !unchanged };
-    assert(unchanged, 'Watched source fingerprint changed during the run');
-  } catch (error) {
-    report.priorStatus = report.status;
-    report.status = 'invalidated';
-    report.invalidations = [...(report.invalidations ?? []), { kind: 'source-freeze', reason: String(error) }];
-    process.exitCode = 1;
-  }
-  try {
-    report.apiBuildFreeze = { ...report.apiBuildFreeze, ...(await frozenApiBuild.assertUnchanged()) };
-  } catch (error) {
-    report.priorStatus = report.status;
-    report.status = 'invalidated';
-    report.invalidations = [...(report.invalidations ?? []), { kind: 'api-build-freeze', reason: error.reason ?? String(error) }];
-    process.exitCode = 1;
-  }
+  await Promise.all([...browserPending]);
+  await requestMonitor?.flush();
+  report.dialogs ??= [];
   report.finished = new Date().toISOString();
   report.cleanup = {
     retainedOwnedExplorer: true,
@@ -706,15 +665,9 @@ try {
     protectedExplorerTouched: false,
     reason: 'The run-owned Explorer and materialization are retained for evidence; no delete route is used.',
   };
-  await mkdir(values.evidence, { recursive: true });
-  const evidencePath = join(values.evidence, 'report.json');
-  await writeFile(evidencePath, JSON.stringify(report, null, 2));
-  report.evidencePaths.push(evidencePath);
-  console.log(JSON.stringify({
-    status: report.status, evidence: values.evidence, explorer, generation: datasetGeneration,
-    outputId, oracleRows: report.oracle?.expectedRows?.length, timingsMs: report.timingsMs,
-    failures: report.failures, gaps: report.gaps, protectedExplorerTouched: false,
-  }, null, 2));
+  await cda.attachReport('expanded-publication-domain-report.json', report);
 }
 
-if (fatal || report.status === 'failed') process.exitCode = 1;
+if (fatal || report.status !== 'passed') throw fatal ?? new Error(report.error ?? 'Expanded publication workflow did not pass');
+return report;
+}

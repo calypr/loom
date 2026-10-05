@@ -1,42 +1,30 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { mkdir, realpath, writeFile } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { captureApiBuildFreeze, checkContainerApiBuildStamp } from './lib/api-build-freeze.mjs';
+import { realpath, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { assertVisibleRowsMatchOracle, readNDJSONResourceIdentityOracle } from './lib/ndjson-resource-oracle.mjs';
-import { assertOwnedCdaTarget } from './lib/owned-cda-target.mjs';
-import { launchBrowser } from './lib/playwright-browser.mjs';
-import { performAction } from './lib/playwright-actions.mjs';
-import { captureSourceFreeze } from './lib/source-freeze.mjs';
-import { sourceFingerprint } from './verify-ui/source-fingerprint.mjs';
 
-const project = process.env.LOOM_CDA_PROJECT;
+export async function lastTableWorkflow({ page, cda }) {
+const project = cda.project;
 const explorer = `last-table-command-qa-${Date.now()}`;
-const apiOrigin = process.env.LOOM_CDA_API_ORIGIN;
-const uiOrigin = process.env.LOOM_CDA_UI_ORIGIN;
-const apiContainer = process.env.LOOM_CDA_API_CONTAINER;
-const composeProject = process.env.LOOM_CDA_COMPOSE_PROJECT;
-const fixtureDir = process.env.LOOM_CDA_FIXTURE_DIR;
-const sourceRoot = resolve(fileURLToPath(new URL('..', import.meta.url)));
-const generation = 'cda-fhir-v1';
-const evidence = process.argv[2] ?? `/tmp/loom-last-table-command-${Date.now()}`;
+const apiOrigin = cda.apiOrigin;
+const uiOrigin = cda.uiOrigin;
+const apiContainer = cda.target.apiContainer;
+const composeProject = cda.target.composeProject;
+const fixtureDir = cda.target.fixtureDir ?? cda.env.LOOM_CDA_DATASET_DIR;
+const generation = cda.generation ?? process.env.LOOM_CDA_GENERATION ?? 'cda-fhir-v1';
+const evidence = cda.evidenceDirectory;
 const root = project ? `/api/v1/projects/${encodeURIComponent(project)}/explorers` : '';
 const base = `${root}/${encodeURIComponent(explorer)}/authoring/v2`;
-const report = { status: 'running', explorer, project, target: { apiOrigin, uiOrigin, apiContainer, composeProject }, requests: [], nativeChecks: [], errors: [], sourceFingerprint: {} };
-await mkdir(evidence, { recursive: true });
+const report = Object.assign(cda.report, { status: 'running', explorer, project, target: { ...cda.report.target, apiOrigin, uiOrigin, apiContainer, composeProject }, requests: [], nativeChecks: [], errors: [] });
+let fatal;
 let state;
-let browser;
-let sourceFreeze;
-let apiBuildFreeze;
-let apiBuildBefore;
+let browserEvents;
+const classifiedInventoryCancellations = [];
+const semanticInventoryPath = `${base}/semantic-inventory`;
 
-function extractBuildIdentity(observation) {
-  assert.equal(observation.status, 0, 'API build stamp check must succeed');
-  const values = observation.stdout.trim().match(/^([a-f0-9]{64})\s+([a-f0-9]{64})\s+([a-f0-9]{64})$/i);
-  assert(values, 'API build stamp must contain three SHA-256 identities');
-  return values.slice(1).join(':').toLowerCase();
-}
+const performAction = async (_tracker, label, locator, perform, options = {}) => cda.action(
+  label, locator, target => perform(target, { timeout: options.timeout ?? 5000 }), options);
 
 const api = async (path, body) => {
   assert(path === root || path.startsWith(`${root}/${explorer}/`));
@@ -63,23 +51,10 @@ const command = async commands => {
   return result;
 };
 try {
-  assert(fixtureDir, 'Set LOOM_CDA_FIXTURE_DIR to the independently loaded CDA-FHIR/META source directory.');
+  assert(fixtureDir, 'Set LOOM_CDA_FIXTURE_DIR or LOOM_CDA_DATASET_DIR to the independently loaded CDA-FHIR/META source directory.');
   const fixtureRoot = await realpath(fixtureDir);
   const specimenPath = await realpath(join(fixtureRoot, 'Specimen.ndjson'));
   report.target.fixtureDirectory = fixtureRoot;
-  report.target.ownership = await assertOwnedCdaTarget({
-    project, apiOrigin, uiOrigin, apiContainer, composeProject, sourceRoot,
-    arangoContainer: process.env.LOOM_ARANGO_CONTAINER,
-  });
-  sourceFreeze = await captureSourceFreeze(sourceRoot);
-  report.sourceFreeze = { watchedFileCount: sourceFreeze.watchedFileCount, before: sourceFingerprint(sourceRoot) };
-  let firstBuildObservation;
-  apiBuildFreeze = await captureApiBuildFreeze(async () => {
-    firstBuildObservation = await checkContainerApiBuildStamp(apiContainer);
-    return firstBuildObservation;
-  });
-  apiBuildBefore = extractBuildIdentity(firstBuildObservation);
-  report.apiBuildIdentity = { before: apiBuildBefore };
   const specimenOracle = await readNDJSONResourceIdentityOracle({ path: specimenPath, project, generation, resourceType: 'Specimen' });
   report.oracle = {
     path: specimenOracle.path,
@@ -113,8 +88,40 @@ try {
   await command([{ type: 'ADD_COLUMN', outputId, occurrenceId: 'base', candidateId: field.candidateId, projectionMode: 'VALUE', initialPresentation: 'TABLE', title: 'Specimen ID' }]);
   const nativeBaseline = structuredClone(state.workspace);
 
-  browser = await launchBrowser({ evidence, appOrigins: [uiOrigin, apiOrigin], noAuth: true });
-  const { page } = browser;
+  browserEvents = cda.captureRequests(base);
+  page.on('requestfailed', request => {
+    let url;
+    try { url = new URL(request.url()); } catch { return; }
+    if (url.origin !== new URL(uiOrigin).origin || url.pathname !== semanticInventoryPath
+      || request.method() !== 'POST' || request.failure()?.errorText !== 'net::ERR_ABORTED') return;
+    const captured = browserEvents.byRequest.get(request);
+    if (!captured) {
+      report.errors.push({ kind: 'unmatched-semantic-inventory-cancellation', path: url.pathname });
+      return;
+    }
+    const requestId = request.headers()['x-request-id'] ?? null;
+    try {
+      const expectedCancellation = cda.expectCanceledRequest(request,
+        'A superseded semantic inventory read was canceled during the last-table lifecycle.', {
+          phase: 'last-table delete, Undo, or reload',
+          path: url.pathname,
+          method: request.method(),
+          requestId,
+          capturedRequestId: captured.requestId,
+          browserRequestId: captured.browserRequestId,
+        });
+      classifiedInventoryCancellations.push({ request: captured, requestId, expectedCancellation });
+    } catch (error) {
+      report.errors.push({
+        kind: 'unclassified-semantic-inventory-cancellation',
+        path: url.pathname,
+        requestId: captured.requestId,
+        browserRequestId: captured.browserRequestId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  });
+  report.browserLifecycle = 'official Playwright fixture page';
   await page.setViewportSize({ width: 1440, height: 1000 });
   const uiURL = `${uiOrigin}/?project=${encodeURIComponent(project)}&explorer=${encodeURIComponent(explorer)}&mode=builder`;
   await page.goto(uiURL, { waitUntil: 'domcontentloaded' });
@@ -253,16 +260,41 @@ try {
   const fullReloadedRows = await captureFullPreviewWindow('reload-preview');
   assert.deepEqual(assertVisibleRowsMatchOracle({ rows: fullReloadedRows, sourceIds: specimenOracle.ids, ariaRowCount: reloadedRowCount }), fullInitialRows,
     'Reload must retain all 25 independent source identities');
-  const recoveredInventoryCancellation = browser.diagnostics.networkFailures
-    .filter(failure => failure.url === `${uiOrigin}${base}/semantic-inventory`
-      && failure.method === 'POST' && failure.failure === 'net::ERR_ABORTED'
-      && browser.diagnostics.apiResponses.some(response => response.url === failure.url
-        && response.method === 'POST' && response.status === 200 && response.observedAt > failure.observedAt));
+  await browserEvents.flush();
+  const inventoryRequests = report.nativeRequests.filter(request => request.path === `${base}/semantic-inventory` && request.method === 'POST');
+  const recoveredInventoryCancellation = classifiedInventoryCancellations.flatMap(({ request, requestId, expectedCancellation }) => {
+    const diagnostic = cda.diagnostics.networkFailures.find(failure =>
+      failure.browserRequestId === request.browserRequestId
+        && failure.requestId === requestId
+        && failure.method === request.method
+        && failure.url === `${request.origin}${request.path}`
+        && failure.errorText === 'net::ERR_ABORTED'
+        && failure.expectedCancellation?.browserRequestId === request.browserRequestId
+        && failure.expectedCancellation?.requestId === (failure.requestId ?? failure.playwrightRequestId)
+        && expectedCancellation.browserRequestId === request.browserRequestId
+        && expectedCancellation.requestId === (failure.requestId ?? failure.playwrightRequestId));
+    const response = inventoryRequests.find(candidate => candidate.status === 200
+      && candidate.method === request.method
+      && candidate.path === request.path
+      && candidate.startedAt > request.startedAt
+      && candidate.browserRequestId !== request.browserRequestId);
+    return diagnostic && response ? [{ requestId: diagnostic.requestId ?? expectedCancellation.requestId,
+      capturedRequestId: request.requestId, browserRequestId: request.browserRequestId,
+      diagnostic, recoveryRequestId: response.requestId, recoveryBrowserRequestId: response.browserRequestId }] : [];
+  });
+  assert.equal(recoveredInventoryCancellation.length, classifiedInventoryCancellations.length,
+    'Every classified semantic inventory cancellation must match its exact native failure diagnostic and a later successful read');
   assert(recoveredInventoryCancellation.length <= 1, 'More than one semantic inventory request was canceled');
   report.recoveredInventoryCancellation = recoveredInventoryCancellation;
-  report.incidentalAssets = browser.diagnostics.assetFailures;
-  report.errors = [...browser.diagnostics.console, ...browser.diagnostics.pageErrors, ...browser.diagnostics.httpFailures,
-    ...browser.diagnostics.networkFailures.filter(failure => !recoveredInventoryCancellation.includes(failure))];
+  const isRecoveredInventoryCancellation = failure => recoveredInventoryCancellation.some(request =>
+    request.browserRequestId === failure.browserRequestId
+      && request.requestId === (failure.requestId ?? failure.playwrightRequestId)
+      && request.diagnostic === failure
+      && failure.expectedCancellation?.browserRequestId === request.browserRequestId
+      && failure.expectedCancellation?.requestId === (failure.requestId ?? failure.playwrightRequestId));
+  report.incidentalAssets = cda.diagnostics.assetFailures;
+  report.errors = [...cda.diagnostics.console, ...cda.diagnostics.pageErrors, ...cda.diagnostics.httpFailures,
+    ...cda.diagnostics.networkFailures.filter(failure => !isRecoveredInventoryCancellation(failure))];
   assert.deepEqual(report.errors, []);
   report.scope = 'API deletion/revision restore plus native last-table deletion, Undo, and reload';
   report.status = 'passed';
@@ -270,6 +302,7 @@ try {
   await page.screenshot({ path: join(evidence, 'passed-reload.png'), fullPage: true });
   await writeFile(join(evidence, 'passed-reload.dom.txt'), await page.locator('body').innerText());
 } catch (error) {
+  fatal = error;
   report.status = 'failed';
   report.error = String(error.stack ?? error);
   if (report.activeAction) report.firstFailedAction = {
@@ -277,56 +310,27 @@ try {
     locator: report.activeAction.locator,
     elapsedMs: Date.now() - report.activeAction.startedAt,
   };
-  report.diagnostics = browser?.diagnostics;
-  await browser?.captureFailure(error, {
-    phase: 'last-table-lifecycle',
-    action: report.activeAction,
-    draftVersion: state?.draftVersion,
-    draftDigest: state?.draftDigest,
-    explorer,
-  });
-  process.exitCode = 1;
+  report.diagnostics = cda.diagnostics;
 } finally {
-  if (browser && report.status !== 'failed') {
-    report.incidentalAssets = browser.diagnostics.assetFailures;
-    report.errors = [...browser.diagnostics.console, ...browser.diagnostics.pageErrors, ...browser.diagnostics.httpFailures,
-      ...browser.diagnostics.networkFailures.filter(failure => !report.recoveredInventoryCancellation?.includes(failure))];
+  if (report.status !== 'failed') {
+    report.incidentalAssets = cda.diagnostics.assetFailures;
+    report.errors = [...cda.diagnostics.console, ...cda.diagnostics.pageErrors, ...cda.diagnostics.httpFailures,
+      ...cda.diagnostics.networkFailures.filter(failure => !report.recoveredInventoryCancellation?.some(request =>
+        request.browserRequestId === failure.browserRequestId
+          && request.requestId === (failure.requestId ?? failure.playwrightRequestId)
+          && request.diagnostic === failure
+          && failure.expectedCancellation?.browserRequestId === request.browserRequestId
+          && failure.expectedCancellation?.requestId === (failure.requestId ?? failure.playwrightRequestId)))];
     if (report.errors.length) {
       report.status = 'failed';
       report.error = `Unexpected browser diagnostics: ${JSON.stringify(report.errors)}`;
-      process.exitCode = 1;
     }
   }
-  await browser?.close();
-  if (apiBuildFreeze) {
-    try {
-      report.apiBuildFreeze = await apiBuildFreeze.assertUnchanged();
-      assert.equal(report.apiBuildFreeze.checked, true);
-      assert.equal(report.apiBuildFreeze.unchanged, true);
-      assert.equal(report.apiBuildFreeze.invalidatesRun, false);
-      const finalObservation = await checkContainerApiBuildStamp(apiContainer);
-      report.apiBuildIdentity.after = extractBuildIdentity(finalObservation);
-      assert.equal(report.apiBuildIdentity.after, report.apiBuildIdentity.before, 'API build identity changed during the run');
-    } catch (error) {
-      report.priorStatus = report.status;
-      report.status = 'invalidated';
-      report.apiBuildFreezeError = String(error.stack ?? error);
-      process.exitCode = 1;
-    }
-  }
-  if (sourceFreeze) {
-    try {
-      report.sourceFreeze.after = sourceFingerprint(sourceRoot);
-      report.sourceFreeze.check = await sourceFreeze.assertUnchanged();
-      assert.equal(report.sourceFreeze.check.unchanged, true);
-      assert.equal(report.sourceFreeze.check.invalidatesRun, false);
-    } catch (error) {
-      report.priorStatus = report.status;
-      report.status = 'invalidated';
-      report.sourceFreeze.error = String(error.stack ?? error);
-      process.exitCode = 1;
-    }
-  }
+  await browserEvents?.flush();
   await writeFile(join(evidence, 'report.json'), JSON.stringify(report, null, 2));
+  await cda.attachReport('last-table-domain-report.json', report);
 }
-process.stdout.write(`${JSON.stringify({ status: report.status, explorer, evidence, error: report.error })}\n`);
+
+if (fatal || report.status === 'failed') throw fatal ?? new Error(report.error ?? 'Last-table lifecycle failed');
+return report;
+}

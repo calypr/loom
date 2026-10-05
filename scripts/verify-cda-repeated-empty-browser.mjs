@@ -3,40 +3,37 @@ import { randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { parseArgs } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { captureSourceFreeze } from './lib/source-freeze.mjs';
 import { ApiBuildFreezeError, captureApiBuildFreeze, checkContainerApiBuildStamp } from './lib/api-build-freeze.mjs';
 import { sourceFingerprint } from './verify-ui/source-fingerprint.mjs';
-import { launchBrowser, sanitizeBody, sanitizeText } from './lib/playwright-browser.mjs';
-import { performAction, requireUnique } from './lib/playwright-actions.mjs';
+import { sanitizeBody, sanitizeText } from './lib/playwright-browser.mjs';
+import { requireUnique } from './lib/playwright-actions.mjs';
 import { captureCDARequests } from './lib/cda-playwright-requests.mjs';
-import { assertOwnedCdaTarget } from './lib/owned-cda-target.mjs';
 import { waitForCondition } from './lib/playwright-observations.mjs';
 
-const { values } = parseArgs({ options: {
-  'api-origin': { type: 'string', default: process.env.LOOM_CDA_API_ORIGIN },
-  'ui-origin': { type: 'string', default: process.env.LOOM_CDA_UI_ORIGIN },
-  'api-container': { type: 'string', default: process.env.LOOM_CDA_API_CONTAINER },
-  'compose-project': { type: 'string', default: process.env.LOOM_CDA_COMPOSE_PROJECT },
-  project: { type: 'string', default: process.env.LOOM_CDA_PROJECT },
-  generation: { type: 'string', default: 'cda-fhir-v1' },
-  evidence: { type: 'string', default: '/tmp/loom-cda-repeated-empty-' + Date.now() },
-  'arango-container': { type: 'string', default: process.env.LOOM_ARANGO_CONTAINER },
-} });
+export async function repeatedEmptyWorkflow({ page: nativePage, cda }) {
+const values = {
+  'api-origin': cda.apiOrigin,
+  'ui-origin': cda.uiOrigin,
+  'api-container': cda.target.apiContainer,
+  'compose-project': cda.target.composeProject,
+  project: cda.project,
+  generation: cda.generation ?? 'cda-fhir-v1',
+  evidence: cda.evidence,
+  'arango-container': cda.target.arangoContainer,
+};
 
 const protectedExplorer = 'cda-builder-full-qa-1790440983382';
 const explorer = 'cda-repeated-empty-' + Date.now();
 assert.notEqual(explorer, protectedExplorer);
-const sourceFreezeRoot = process.env.LOOM_SOURCE_FREEZE_ROOT ?? fileURLToPath(new URL('..', import.meta.url));
+const sourceFreezeRoot = cda.target.sourceRoot ?? fileURLToPath(new URL('..', import.meta.url));
 const apiBuildTarget = 'local-cda-api';
 const apiContainer = values['api-container'];
-await assertOwnedCdaTarget({ project: values.project, apiOrigin: values['api-origin'], uiOrigin: values['ui-origin'],
-  apiContainer, composeProject: values['compose-project'], sourceRoot: sourceFreezeRoot, arangoContainer: values['arango-container'] });
 const readApiBuildStamp = () => checkContainerApiBuildStamp(apiContainer);
 const report = {
   errors: [],
-  started: new Date().toISOString(), invocation: process.argv,
+  started: new Date().toISOString(),
   target: { apiOrigin: values['api-origin'], uiOrigin: values['ui-origin'], project: values.project, generation: values.generation, protectedExplorer },
   explorer, scenario: 'Owned CDA Observation.component[] source EXPANDED composed with authored GROUP COUNT_ROWS, with raw-value, preview, cancel, apply, reload, and removal restoration checks.',
   assertions: [], gaps: [], failures: [], timings: [], requests: [], browserRequests: [],
@@ -44,6 +41,7 @@ const report = {
 };
 const root = '/api/v1/projects/' + encodeURIComponent(values.project) + '/explorers';
 const base = root + '/' + encodeURIComponent(explorer) + '/authoring/v2';
+const officialRequestCapture = cda.captureRequests(`${root}/${encodeURIComponent(explorer)}`);
 const shapeSelect = 'select[aria-label="What should each row represent?"]';
 const policySelect = 'select[aria-label="Unmatched record policy"]';
 const tableSelector = '[data-testid="preview-table-scroll"] [role="table"]';
@@ -51,10 +49,9 @@ let builder;
 let outputId;
 let sourceFreeze;
 let frozenApiBuild;
-let browser;
 let requestMonitor;
 const inspectPage = (page, body) => page.evaluate(`(()=>{${body}})()`);
-const waitForBrowser = (page, condition, timeout = 30000) => waitForCondition(page, condition, timeout);
+const waitForBrowser = (page, condition, timeout = 5000) => waitForCondition(page, condition, Math.min(5000, timeout));
 const resolveActionLocator = async (page, selector, identity = {}) => {
   const candidates = page.locator(selector);
   const { name, includes } = identity;
@@ -75,7 +72,7 @@ const click = async (page, selector, identity = {}, timeout = 5000) => {
   const locator = await resolveActionLocator(page, selector, identity);
   report.activeAction.targetLocator = locator;
   report.activeAction.locator = locator.toString();
-  const elapsedMs = await performAction(report, label, locator, (target, options) => target.click(options), { timeout });
+  const elapsedMs = await cda.action(label, locator, target => target.click({ timeout }), { timeout });
   report.lastAction = { label, locator: locator.toString(), targetLocator: locator, elapsedMs, startedAt: Date.now() - elapsedMs };
   return elapsedMs;
 };
@@ -85,7 +82,7 @@ const fill = async (page, selector, value, timeout = 5000) => {
   const locator = await resolveActionLocator(page, selector);
   report.activeAction.targetLocator = locator;
   report.activeAction.locator = locator.toString();
-  const elapsedMs = await performAction(report, label, locator, (target, options) => target.fill(value, options), { timeout, editable: true });
+  const elapsedMs = await cda.action(label, locator, target => target.fill(value, { timeout }), { timeout, editable: true });
   report.lastAction = { label, locator: locator.toString(), targetLocator: locator, elapsedMs, startedAt: Date.now() - elapsedMs };
   return elapsedMs;
 };
@@ -95,11 +92,11 @@ const selectOption = async (page, selector, value, timeout = 5000) => {
   const locator = await resolveActionLocator(page, selector);
   report.activeAction.targetLocator = locator;
   report.activeAction.locator = locator.toString();
-  const elapsedMs = await performAction(report, label, locator, (target, options) => target.selectOption(value, options), { timeout });
+  const elapsedMs = await cda.action(label, locator, target => target.selectOption(value, { timeout }), { timeout });
   report.lastAction = { label, locator: locator.toString(), targetLocator: locator, elapsedMs, startedAt: Date.now() - elapsedMs };
   return elapsedMs;
 };
-const navigate = (page, url) => page.goto(url, { waitUntil: 'load', timeout: 30000 });
+const navigate = (_page, url) => cda.navigate(url);
 let browserPending = new Set();
 let expectedEmptyErrorMode = false;
 
@@ -133,7 +130,7 @@ const document = () => builder.workspace.documents.find(doc => doc.output.id ===
 const rowsReady = count => {
   return { kind: 'rows', selector: tableSelector, count, allowEmptyParent: true };
 };
-const domText = () => inspectPage(browser.page, 'return document.body.innerText;');
+const domText = () => inspectPage(nativePage, 'return document.body.innerText;');
 const laterSamePathRequest = entry => {
   const index = report.browserRequests.indexOf(entry);
   return report.browserRequests.slice(index + 1).find(candidate => candidate.path === entry.path && candidate.method === entry.method);
@@ -197,7 +194,7 @@ const boundedRawOracle = () => {
 };
 
 const monitorBrowser = () => {
-  requestMonitor = captureCDARequests(browser.page, {
+  requestMonitor = captureCDARequests(nativePage, {
     apiOrigin: values['ui-origin'],
     appOrigins: [values['api-origin'], values['ui-origin']],
     ownedPathPrefix: `${root}/${encodeURIComponent(explorer)}`,
@@ -212,7 +209,7 @@ const monitorBrowser = () => {
     },
   });
   browserPending = requestMonitor.pendingReads;
-  browser.page.on('response', response => {
+  nativePage.on('response', response => {
     const url = new URL(response.url());
     if (url.origin !== new URL(values['ui-origin']).origin || response.status() < 400) return;
     const incident = { url: sanitizeText(response.url()), status: response.status() };
@@ -227,16 +224,15 @@ const monitorBrowser = () => {
     if (url.pathname.endsWith('/favicon.ico')) report.browserErrors.incidental.push(incident);
     else report.browserErrors.http.push(incident);
   });
-  browser.page.on('requestfailed', request => {
+  nativePage.on('requestfailed', request => {
     const url = new URL(request.url());
     if (url.origin !== new URL(values['ui-origin']).origin || request.failure()?.errorText === 'net::ERR_ABORTED') return;
     if (request.resourceType() === 'script') report.browserErrors.modules.push({ url: sanitizeText(request.url()), error: sanitizeText(request.failure()?.errorText) });
   });
-  return monitor;
 };
 const remaining = startedAt => Math.max(100, 5000 - (Date.now() - startedAt));
 const fastWait = async (startedAt, condition, message) => {
-  try { await waitForBrowser(browser.page, condition, remaining(startedAt)); }
+  try { await waitForBrowser(nativePage, condition, remaining(startedAt)); }
   catch (error) { throw new Error(message + ' within the five-second action budget: ' + String(error)); }
 };
 const measure = async (name, action) => {
@@ -249,14 +245,14 @@ const measure = async (name, action) => {
 };
 const tableURL = () => values['ui-origin'] + '/?project=' + encodeURIComponent(values.project) + '&explorer=' + encodeURIComponent(explorer) + '&mode=builder';
 const openTable = async (expectedRows, name) => measure(name, async startedAt => {
-  await navigate(browser.page, tableURL());
+  await navigate(nativePage, tableURL());
   const table = '[data-testid="construction-table-' + outputId + '"]';
   await fastWait(startedAt, { kind: 'present', selector: table }, 'Explorer table discovery');
-  await click(browser.page, table);
+  await click(nativePage, table);
   await fastWait(startedAt, rowsReady(expectedRows), 'CDA table render');
 });
 const openRowSettings = async () => measure('row-definition-choice-discovery', async startedAt => {
-  await click(browser.page, '[data-testid="construction-rows-settings-trigger"]');
+  await click(nativePage, '[data-testid="construction-rows-settings-trigger"]');
   await fastWait(startedAt, { kind: 'enabled', selector: shapeSelect }, 'Row definition choice discovery');
 });
 const rowProposalRequest = selection => report.browserRequests.findLast(entry =>
@@ -266,7 +262,7 @@ const rowProposalRequest = selection => report.browserRequests.findLast(entry =>
 const awaitRequestBody = async (entry, startedAt) => {
   assert(entry, 'Native row proposal request was not captured');
   if (entry.status === undefined) {
-    await browser.page.waitForResponse(response => requestMonitor.byRequest.get(response.request()) === entry,
+    await nativePage.waitForResponse(response => requestMonitor.byRequest.get(response.request()) === entry,
       { timeout: Math.max(1, 5000 - (Date.now() - startedAt)) });
   }
   await requestMonitor.flush();
@@ -274,13 +270,13 @@ const awaitRequestBody = async (entry, startedAt) => {
 };
 const selectAndPreview = async (policy, expectedRows, emptyError = false) => measure('row-definition-preview-' + policy, async startedAt => {
   expectedEmptyErrorMode = emptyError;
-  const selectedShape = await inspectPage(browser.page, 'return document.querySelector(' + q(shapeSelect) + ')?.value;');
+  const selectedShape = await inspectPage(nativePage, 'return document.querySelector(' + q(shapeSelect) + ')?.value;');
   if (selectedShape !== 'expanded:' + report.choice.choiceId) {
-    await selectOption(browser.page, shapeSelect, 'expanded:' + report.choice.choiceId);
+    await selectOption(nativePage, shapeSelect, 'expanded:' + report.choice.choiceId);
   }
   const wanted = 'expanded:' + report.choice.choiceId + ':' + policy;
-  const selectedPolicy = await inspectPage(browser.page, 'return document.querySelector(' + q(policySelect) + ')?.value;');
-  if (selectedPolicy !== wanted) await selectOption(browser.page, policySelect, wanted);
+  const selectedPolicy = await inspectPage(nativePage, 'return document.querySelector(' + q(policySelect) + ')?.value;');
+  if (selectedPolicy !== wanted) await selectOption(nativePage, policySelect, wanted);
   const terminal = emptyError
     ? { kind: 'any', conditions: [
       { kind: 'present', selector: '[aria-label="Row definition settings"] [role="alert"]' },
@@ -301,7 +297,7 @@ const selectAndPreview = async (policy, expectedRows, emptyError = false) => mea
   return request;
 });
 const selectRecordsPreview = expectedRows => measure('row-definition-preview-records', async startedAt => {
-  await selectOption(browser.page, shapeSelect, 'records');
+  await selectOption(nativePage, shapeSelect, 'records');
   await fastWait(startedAt, { kind: 'text-includes', selector: '[aria-label="Row definition preview"]', text: '→ ' + expectedRows + ' rows' }, 'Source-record row preview');
   await Promise.all([...browserPending]);
   const request = rowProposalRequest({ kind: 'RECORDS' });
@@ -311,14 +307,14 @@ const selectRecordsPreview = expectedRows => measure('row-definition-preview-rec
   report.latestProposal = request;
 });
 const applyRowDefinition = expectedRows => measure('row-definition-apply', async startedAt => {
-  await click(browser.page, '[aria-label="Row definition settings"] button', { name: 'Apply row definition' });
+  await click(nativePage, '[aria-label="Row definition settings"] button', { name: 'Apply row definition' });
   await fastWait(startedAt, { kind: 'all', conditions: [{ kind: 'hidden', selector: '[aria-label="Row definition settings"]' }, rowsReady(expectedRows)] }, 'Applied row definition render');
 });
 const cancelRowDefinition = expectedRows => measure('row-definition-cancel', async startedAt => {
-  await click(browser.page, '[aria-label="Row definition settings"] button', { name: 'Cancel' });
+  await click(nativePage, '[aria-label="Row definition settings"] button', { name: 'Cancel' });
   await fastWait(startedAt, { kind: 'all', conditions: [{ kind: 'hidden', selector: '[aria-label="Row definition settings"]' }, rowsReady(expectedRows)] }, 'Canceled row definition restoration');
 });
-const fieldPreviewRows = () => inspectPage(browser.page,
+const fieldPreviewRows = () => inspectPage(nativePage,
   'const proposalRow=document.querySelector(\'[data-testid="construction-proposal-preview-row"]\');' +
   'const root=proposalRow?.closest("table")??document.querySelector(\'[data-testid="preview-table-scroll"] [role="table"]\');' +
   'if(!root)return null;const proposal=Boolean(proposalRow);' +
@@ -388,11 +384,11 @@ const expectedGroupRows = () => sortedRows([
   ...report.oracle.expectedPreservedEmptyIDs.map(id => [id, 1]),
 ]);
 const constructionProposalFor = async (name, startedAt) => {
-  await browser.page.waitForFunction(() => {
+  await nativePage.waitForFunction(() => {
     const panel = document.querySelector('[data-testid="construction-proposal-panel"]');
     return panel && ['ready', 'error', 'needs-repair'].includes(panel.dataset.proposalStatus);
   }, undefined, { timeout: Math.max(1, 5000 - (Date.now() - startedAt)) });
-  const panel = await inspectPage(browser.page, `const value=document.querySelector('[data-testid="construction-proposal-panel"]');const preview=document.querySelector('[data-testid="construction-proposal-preview"]');return {id:value?.dataset.proposalId,status:value?.dataset.proposalStatus,text:value?.innerText,receiptId:preview?.dataset.previewReceiptId};`);
+  const panel = await inspectPage(nativePage, `const value=document.querySelector('[data-testid="construction-proposal-panel"]');const preview=document.querySelector('[data-testid="construction-proposal-preview"]');return {id:value?.dataset.proposalId,status:value?.dataset.proposalStatus,text:value?.innerText,receiptId:preview?.dataset.previewReceiptId};`);
   const request = report.browserRequests.findLast(entry => entry.startedAt >= startedAt && entry.path.endsWith('/construction-proposals'));
   assert(request, `${name} native construction request was not captured`);
   await awaitRequestBody(request, startedAt);
@@ -521,26 +517,26 @@ const assertExpandedProposal = (request, expectedRows) => {
 };
 const groupKeyControl = 'input[aria-label="Group by Observation ID"]';
 const chooseOnlyObservationIDGroupKey = async (startedAt) => {
-  const controls = await inspectPage(browser.page, `return [...document.querySelectorAll('[data-testid="construction-reshape-group"] input[type="checkbox"][aria-label^="Group by "]')].map(input=>({label:input.getAttribute('aria-label'),checked:input.checked,disabled:input.disabled}));`);
+  const controls = await inspectPage(nativePage, `return [...document.querySelectorAll('[data-testid="construction-reshape-group"] input[type="checkbox"][aria-label^="Group by "]')].map(input=>({label:input.getAttribute('aria-label'),checked:input.checked,disabled:input.disabled}));`);
   const target = controls.find(control => control.label === 'Group by Observation ID');
   assert(target && !target.disabled, `GROUP editor did not expose an enabled Observation ID key: ${JSON.stringify(controls)}`);
   for (const control of controls) {
     if (control.checked && control.label !== 'Group by Observation ID') {
-      await click(browser.page, `input[aria-label=${q(control.label)}]`);
+      await click(nativePage, `input[aria-label=${q(control.label)}]`);
     }
   }
-  let current = await inspectPage(browser.page, `return document.querySelector(${q(groupKeyControl)})?.checked === true;`);
+  let current = await inspectPage(nativePage, `return document.querySelector(${q(groupKeyControl)})?.checked === true;`);
   if (current) {
-    await click(browser.page, groupKeyControl);
+    await click(nativePage, groupKeyControl);
     current = false;
   }
-  if (!current) await click(browser.page, groupKeyControl);
+  if (!current) await click(nativePage, groupKeyControl);
   await fastWait(startedAt, { kind: 'checked', selector: groupKeyControl, value: true }, 'Exact Observation ID group key selection');
 };
 const configureGroup = async () => measure('source-expanded-group-editor-to-key', async startedAt => {
-  await click(browser.page, '[data-testid="construction-rows-settings-trigger"]');
+  await click(nativePage, '[data-testid="construction-rows-settings-trigger"]');
   await fastWait(startedAt, { kind: 'enabled', selector: '[data-testid="construction-action-group-rows"]' }, 'Group operation discovery');
-  await click(browser.page, '[data-testid="construction-action-group-rows"]');
+  await click(nativePage, '[data-testid="construction-action-group-rows"]');
   await fastWait(startedAt, { kind: 'present', selector: '[data-testid="construction-reshape-group"]' }, 'Native GROUP editor');
   await chooseOnlyObservationIDGroupKey(startedAt);
 });
@@ -568,7 +564,7 @@ const verifyGroupedTable = async (expected, name) => {
   return { headers: preview.headers, rowCount: preview.rows.length, rows: protocolRows };
 };
 const applyConstructionProposal = async (expectedRows, name) => measure(name, async startedAt => {
-  await click(browser.page, '[data-testid="construction-apply-proposal"]');
+  await click(nativePage, '[data-testid="construction-apply-proposal"]');
   await fastWait(startedAt, { kind: 'all', conditions: [{ kind: 'hidden', selector: '[data-testid="construction-proposal-panel"]' }, rowsReady(expectedRows)] }, 'Applied authored row operation render');
 });
 const createSelection = async (refs, idempotencyKey) => {
@@ -598,12 +594,12 @@ const saveDOM = async name => {
 const verifyEmptyError = async request => {
   assert(request, 'No native ERROR-policy row proposal was captured');
   assert([400, 422].includes(request.status), 'Empty-only ERROR must return 400/422, got ' + request.status + ': ' + JSON.stringify(request.response));
-  const alertText = await inspectPage(browser.page, 'return document.querySelector(\'[aria-label="Row definition settings"] [role="alert"]\')?.innerText ?? "";');
+  const alertText = await inspectPage(nativePage, 'return document.querySelector(\'[aria-label="Row definition settings"] [role="alert"]\')?.innerText ?? "";');
   const responseText = JSON.stringify(request.response) + ' ' + alertText;
   const code = request.response?.error?.code ?? request.response?.code ?? request.response?.errorCode ?? request.response?.error?.errorCode;
   assert.notEqual(code, 'INTERNAL_ERROR', 'Empty-only ERROR returned INTERNAL_ERROR: ' + responseText);
   assert(/empty|no values|at least one|collection/i.test(responseText), 'Validation did not explain the empty collection: ' + responseText);
-  const policy = await inspectPage(browser.page,
+  const policy = await inspectPage(nativePage,
     'const select=document.querySelector(' + q(policySelect) + ');return {disabled:select?.disabled,options:[...(select?.options??[])].map(option=>({value:option.value,label:option.text,disabled:option.disabled}))};');
   assert.equal(policy.disabled, false, 'Policy repair control must remain enabled after ERROR validation');
   assert(policy.options.some(option => option.value.endsWith(':PRESERVE_PARENT') && !option.disabled), 'PRESERVE_PARENT repair choice must remain enabled');
@@ -612,16 +608,37 @@ const verifyEmptyError = async request => {
   recordAssertion('ERROR policy gives understandable empty-only validation and keeps repair choices enabled', report.expectedEmptyError);
 };
 const finish = async () => {
+  await officialRequestCapture.flush();
+  for (const expected of report.expectedEmptyValidationResponses ?? []) {
+    const entry = cda.nativeRequests.findLast(candidate => candidate.path === expected.path &&
+      candidate.requestId === expected.requestId && candidate.status === expected.status);
+    assert(entry, 'The official CDA fixture must capture the exact expected empty-only validation response');
+    await cda.waitForCapturedResponse(officialRequestCapture, candidate => candidate === entry, 5000);
+    const proof = {
+      outputPath: expected.path,
+      method: entry.method,
+      status: entry.status,
+      requestId: entry.requestId,
+      rawOracle: report.oracle?.selected?.filter(resource => resource.emptyComponentKind)
+        .map(({ id, emptyComponentKind }) => ({ id, emptyComponentKind })),
+      policy: 'ERROR',
+      reason: expected.reason,
+    };
+    cda.expectHttpFailure(entry, 'The independent raw CDA oracle predicts empty-only ERROR validation', proof, {
+      status: entry.status,
+    });
+  }
   report.finished = new Date().toISOString();
-  report.status = report.failures.length ? 'failed' : report.gaps.length ? 'partial' : report.assertions.length ? 'passed' : 'untested';
-  const path = join(values.evidence, 'report.json');
-  await writeFile(path, JSON.stringify(report, null, 2));
-  report.evidencePaths.push(path);
-  console.log(JSON.stringify({
-    status: report.status, evidence: values.evidence, explorer,
-    assertions: report.assertions.map(({ name, status }) => ({ name, status })), timings: report.timings, gaps: report.gaps, failures: report.failures,
-  }, null, 2));
-  if (report.status === 'failed') process.exitCode = 1;
+  if (report.status !== 'invalidated') {
+    report.status = report.failures.length ? 'failed' : report.gaps.length ? 'unverified' : report.assertions.length ? 'passed' : 'untested';
+  }
+  if (report.status === 'unverified') report.skipReason = report.gaps.map(gap => `${gap.assertion}: ${gap.reason}`).join('; ');
+  cda.report.standaloneCdaRows = report;
+  await cda.attachReport('standalone-cda-repeated-empty.json', report);
+  for (const assertion of report.assertions) cda.check('correctness', assertion.name, assertion.status === 'passed', assertion.evidence ?? {});
+  if (report.status === 'failed' || report.status === 'invalidated') {
+    throw new Error(`Repeated-empty workflow ${report.status}: ${JSON.stringify(report.failures ?? report.invalidations)}`);
+  }
 };
 
 const main = async () => {
@@ -648,7 +665,7 @@ const main = async () => {
   const positive = selected.find(resource => resource.componentValues);
   const emptyResources = selected.filter(resource => resource.emptyComponentKind);
   if (!positive || emptyResources.length === 0) {
-    report.gaps.push({ assertion: 'bounded positive and zero-component Observation oracle', status: 'untested',
+    report.gaps.push({ assertion: 'bounded positive and zero-component Observation oracle', status: 'unverified',
       reason: 'The bounded 1000-resource scan needs one Observation with 2–3 distinct non-empty component values and at least one zero-component Observation.' });
     return;
   }
@@ -656,7 +673,7 @@ const main = async () => {
   assert(report.oracle.expectedComponentRows.length + emptyResources.length <= 6, 'PRESERVE_PARENT expansion exceeds six expected rows');
   assert(selected.every(resource => resource.generation === values.generation && resource.resourceType === 'Observation'));
   if (!emptyResources.some(resource => resource.emptyComponentKind === 'empty-array')) {
-    report.gaps.push({ assertion: 'literal component: [] source shape', status: 'untested',
+    report.gaps.push({ assertion: 'literal component: [] source shape', status: 'unverified',
       reason: 'Only missing/null/non-array component witnesses were selected; this run does not prove a literal empty-array source.' });
   }
   recordAssertion('bounded raw CDA oracle selected positive and zero-component Observations', {
@@ -693,7 +710,6 @@ const main = async () => {
   }
   report.choice = { choiceId: choice.choiceId, fieldPath: choice.fieldPath, occurrenceId: choice.occurrenceId };
 
-  browser = await launchBrowser({ evidence: values.evidence, appOrigins: [values['api-origin'], values['ui-origin']], noAuth: process.env.LOOM_CDA_NO_AUTH === '1' });
   monitorBrowser();
   const rootsCount = selected.length;
   const preserveCount = report.oracle.expectedComponentRows.length + emptyResources.length;
@@ -742,7 +758,7 @@ const main = async () => {
   recordAssertion('automatic Group COUNT_ROWS proposal matches raw expanded-item cardinalities', report.groupCancelPreview);
   const beforeGroupCancel = structuredClone((await api(base + '/builder')).body.workspace);
   await measure('source-expanded Group preview Cancel', async startedAt => {
-    await click(browser.page, '[data-testid="construction-cancel-proposal"]');
+    await click(nativePage, '[data-testid="construction-cancel-proposal"]');
     await fastWait(startedAt, { kind: 'hidden', selector: '[data-testid="construction-proposal-panel"]' }, 'Canceled authored GROUP preview');
   });
   builder = (await api(base + '/builder')).body;
@@ -781,11 +797,11 @@ const main = async () => {
   recordAssertion('reloaded GROUP output matches exact raw Observation component counts', report.groupApplyReload);
 
   await measure('open saved GROUP removal control', async startedAt => {
-    await click(browser.page, '[data-testid="construction-rows-settings-trigger"]');
+    await click(nativePage, '[data-testid="construction-rows-settings-trigger"]');
     await fastWait(startedAt, { kind: 'present', selector: `[data-testid="construction-row-remove-${groupStepId}"]` }, 'Saved GROUP removal control');
   });
   const removeStarted = Date.now();
-  await click(browser.page, '[data-testid="construction-row-remove-' + groupStepId + '"]');
+  await click(nativePage, '[data-testid="construction-row-remove-' + groupStepId + '"]');
   const removeProposal = await constructionProposalFor('remove source-expanded GROUP', removeStarted);
   assert.deepEqual(removeProposal.body?.candidateConstruction?.steps ?? [], [], 'Removing the only GROUP must restore the source projection construction');
   report.groupRemovalPreview = assertExpandedProposal(removeProposal, preserveCount);
@@ -820,7 +836,7 @@ const main = async () => {
   await verifyEmptyError(errorProposal);
   expectedEmptyErrorMode = false;
   await measure('repair-policy-after-error', async startedAt => {
-    await selectOption(browser.page, policySelect, 'expanded:' + report.choice.choiceId + ':PRESERVE_PARENT');
+    await selectOption(nativePage, policySelect, 'expanded:' + report.choice.choiceId + ':PRESERVE_PARENT');
     await fastWait(startedAt, { kind: 'text-includes', selector: '[aria-label="Row definition preview"]', text: '→ ' + emptyResources.length + ' rows' }, 'Actionable empty-collection policy repair');
     await Promise.all([...browserPending]);
   });
@@ -889,20 +905,14 @@ try {
         invalidatesRun: true, productFailure: false, error: String(error),
       };
     }
-    process.exitCode = 1;
+    report.status = 'invalidated';
   } else {
   report.failures.push({ error: String(error.stack ?? error), phase: report.assertions.length });
-  if (browser) report.failureTrace = await browser.captureFailure(error, {
-    phase: report.assertions.length, action: report.activeAction ?? report.lastAction,
-    elapsedMs: report.activeAction?.startedAt ? Date.now() - report.activeAction.startedAt : report.lastAction?.elapsedMs,
-    requestIdentity: report.browserRequests.at(-1) && (({ requestId, path, method }) => ({ requestId, path, method }))(report.browserRequests.at(-1)),
-  }).catch(String);
   }
-  try { if (browser) report.failureDOM = await domText(); } catch { /* Browser may not have opened. */ }
+  try { if (nativePage) report.failureDOM = await domText(); } catch { /* Browser may not have opened. */ }
   try { if (outputId) report.failureBuilder = (await api(base + '/builder')).body; } catch (readError) { report.builderReadError = String(readError); }
 } finally {
   try { await Promise.all([...browserPending]); } catch { /* Network response reads remain in the report. */ }
-  if (browser) await browser.close().catch(error => { report.browserCloseError = String(error); });
   const sourceFreezeFinishedAt = new Date().toISOString();
   try {
     const after = sourceFingerprint(sourceFreezeRoot);
@@ -915,7 +925,7 @@ try {
     };
     assert(unchanged, 'Watched source fingerprint changed during the run');
   } catch (error) {
-    report.priorStatus = report.status ?? (report.failures.length ? 'failed' : report.gaps.length ? 'partial' : report.assertions.length ? 'passed' : 'not-started');
+    report.priorStatus = report.status ?? (report.failures.length ? 'failed' : report.gaps.length ? 'unverified' : report.assertions.length ? 'passed' : 'not-started');
     if (report.error) report.priorError = report.error;
     report.status = 'invalidated';
     report.productFailure = false;
@@ -924,13 +934,13 @@ try {
       ...report.sourceFingerprint, unchanged: false, invalidatesRun: true,
       productFailure: false, error: String(error), finishedAt: sourceFreezeFinishedAt,
     };
-    process.exitCode = 1;
+    report.status = 'invalidated';
   }
   if (sourceFreeze) {
     try {
       report.sourceFreeze = { ...report.sourceFreeze, ...(await sourceFreeze.assertUnchanged()), finishedAt: sourceFreezeFinishedAt };
     } catch (error) {
-      report.priorStatus = report.status ?? (report.failures.length ? 'failed' : report.gaps.length ? 'partial' : report.assertions.length ? 'passed' : 'not-started');
+      report.priorStatus = report.status ?? (report.failures.length ? 'failed' : report.gaps.length ? 'unverified' : report.assertions.length ? 'passed' : 'not-started');
       if (report.error) report.priorError = report.error;
       report.status = 'invalidated';
       report.productFailure = false;
@@ -939,7 +949,7 @@ try {
         ...report.sourceFreeze, unchanged: false, changedPaths: error.changedPaths ?? [],
         invalidatesRun: true, productFailure: false, error: String(error), finishedAt: sourceFreezeFinishedAt,
       };
-      process.exitCode = 1;
+      report.status = 'invalidated';
     }
   } else if (!report.sourceFreeze?.available) {
     report.sourceFreeze = { ...report.sourceFreeze, unchanged: false, invalidatesRun: true, productFailure: false, finishedAt: sourceFreezeFinishedAt };
@@ -949,7 +959,7 @@ try {
     try {
       report.apiBuildFreeze = { ...report.apiBuildFreeze, ...(await frozenApiBuild.assertUnchanged()), finishedAt: apiBuildFinishedAt };
     } catch (error) {
-      report.priorStatus = report.status ?? (report.failures.length ? 'failed' : report.gaps.length ? 'partial' : report.assertions.length ? 'passed' : 'not-started');
+      report.priorStatus = report.status ?? (report.failures.length ? 'failed' : report.gaps.length ? 'unverified' : report.assertions.length ? 'passed' : 'not-started');
       if (report.error) report.priorError = report.error;
       report.status = 'invalidated';
       report.productFailure = false;
@@ -959,22 +969,15 @@ try {
         ...(error.after ? { after: error.after } : {}), unchanged: false,
         invalidatesRun: true, productFailure: false, reason: error.reason ?? String(error), finishedAt: apiBuildFinishedAt,
       };
-      process.exitCode = 1;
+      report.status = 'invalidated';
     }
   } else if (!report.apiBuildFreeze?.initial) {
     report.apiBuildFreeze = { ...report.apiBuildFreeze, unchanged: false, invalidatesRun: true, productFailure: false, finishedAt: apiBuildFinishedAt };
   }
   report.finished = new Date().toISOString();
   if (report.status !== 'invalidated') {
-    report.status = report.failures.length ? 'failed' : report.gaps.length ? 'partial' : report.assertions.length ? 'passed' : 'untested';
+    report.status = report.failures.length ? 'failed' : report.gaps.length ? 'unverified' : report.assertions.length ? 'passed' : 'untested';
   }
-  const path = join(values.evidence, 'report.json');
-  await writeFile(path, JSON.stringify(report, null, 2));
-  report.evidencePaths.push(path);
-  console.log(JSON.stringify({
-    status: report.status, evidence: values.evidence, explorer,
-    assertions: report.assertions.map(({ name, status }) => ({ name, status })), timings: report.timings,
-    gaps: report.gaps, failures: report.failures,
-  }, null, 2));
-  if (report.status === 'failed') process.exitCode = 1;
+  await finish();
+}
 }

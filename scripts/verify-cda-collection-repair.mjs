@@ -1,43 +1,28 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { mkdir, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { sourceFingerprint } from './verify-ui/source-fingerprint.mjs';
-import { launchBrowser, sanitizeText } from './lib/playwright-browser.mjs';
-import { performAction, requireUnique } from './lib/playwright-actions.mjs';
+import { sanitizeText } from './lib/playwright-browser.mjs';
+import { requireUnique } from './lib/playwright-actions.mjs';
 import { captureCDARequests } from './lib/cda-playwright-requests.mjs';
-import { assertOwnedCdaTarget } from './lib/owned-cda-target.mjs';
 import { waitForCondition } from './lib/playwright-observations.mjs';
-import { captureSourceFreeze } from './lib/source-freeze.mjs';
-import { captureApiBuildFreeze, checkContainerApiBuildStamp } from './lib/api-build-freeze.mjs';
 
-const apiOrigin = process.env.LOOM_CDA_API_ORIGIN;
-const uiOrigin = process.env.LOOM_CDA_UI_ORIGIN;
+export async function collectionRepairWorkflow({ page, cda }) {
+const apiOrigin = cda.apiOrigin;
+const uiOrigin = cda.uiOrigin;
 const partialLongRoute=process.env.LOOM_COLLECTION_PARTIAL_LONG_ROUTE==='1';
 const longRoute=process.env.LOOM_COLLECTION_LONG_ROUTE==='1'||partialLongRoute;
-const project = process.env.LOOM_CDA_PROJECT;
-const apiContainer = process.env.LOOM_CDA_API_CONTAINER;
-const arangoContainer = process.env.LOOM_ARANGO_CONTAINER;
-const composeProject = process.env.LOOM_CDA_COMPOSE_PROJECT;
-const evidence = process.argv[2] ?? `/tmp/loom-collection-repair-${Date.now()}`;
+const project = cda.project;
+const apiContainer = cda.target.apiContainer;
+const arangoContainer = cda.target.arangoContainer;
+const composeProject = cda.target.composeProject;
+const evidence = cda.evidenceDirectory;
 const explorer = `collection-repair-${Date.now()}`;
-const sourceRoot = process.env.LOOM_SOURCE_FREEZE_ROOT ?? fileURLToPath(new URL('..', import.meta.url));
-await assertOwnedCdaTarget({ project, apiOrigin, uiOrigin, apiContainer, composeProject, sourceRoot, arangoContainer });
 const root = `/api/v1/projects/${project}/explorers`;
 const base = `${root}/${explorer}/authoring/v2`;
 const selections = base.replace('/authoring/v2','/selections');
-const report = { longRoute, partialLongRoute, explorer, cases: [], requests: [], browserRequests: [], errors: [], exceptions: [], http: [], incidental: [], responses: [], responseCaptureErrors: [], started: new Date().toISOString() };
-const sourceFreeze = await captureSourceFreeze(sourceRoot);
-const frozenApiBuild = await captureApiBuildFreeze(() => checkContainerApiBuildStamp(apiContainer));
-report.sourceFreeze = { root: sourceRoot, watchedFileCount: sourceFreeze.watchedFileCount };
-report.sourceBefore = sourceFingerprint(sourceRoot);
-report.apiBuildFreeze = { container: apiContainer, initial: frozenApiBuild.initial };
-await mkdir(evidence, { recursive: true });
+const report = Object.assign(cda.report, { longRoute, partialLongRoute, explorer, cases: [], requests: [], browserRequests: [], nativeRequests: [], errors: [], exceptions: [], http: [], incidental: [], responses: [], responseCaptureErrors: [], started: new Date().toISOString() });
 const recordCase = result => {
   report.cases.push(result);
-  console.log(JSON.stringify({ case: result.name, durationMs: result.durationMs, populationRouteHops: result.populationRouteHops }));
 };
 const api = async (path, body) => {
   const request = { path, body, requestId: `collection-repair-${randomUUID()}` };
@@ -51,12 +36,13 @@ const api = async (path, body) => {
   return request.response;
 };
 let builder;
-let browser;
 let actionTracker = {};
+let requestMonitor;
+let fatal;
 let outputId;
 let expectedObservationIDs=[];
-const inspectPage = (page, inspect, argument) => page.evaluate(inspect, argument);
-const waitForBrowser = (page, condition, timeout = 30000) => waitForCondition(page, condition, timeout);
+const inspectPage = (_page, inspect, argument) => cda.inspect(inspect, argument);
+const waitForBrowser = (_page, condition, timeout = 30000) => waitForCondition(page, condition, Math.min(timeout, 5000));
 const resolveActionLocator = async (page, selector, identity = {}) => {
   const candidates = page.locator(selector);
   if (identity.name === undefined) return requireUnique(candidates, selector);
@@ -65,7 +51,9 @@ const resolveActionLocator = async (page, selector, identity = {}) => {
   assert.equal(matches.length, 1, `${selector}: expected one target named ${identity.name}, found ${matches.length}`);
   return requireUnique(candidates.nth(matches[0]), `${selector} ${identity.name}`);
 };
-const click = async (page, selector, identity = {}, timeout = 5000) => {
+const performAction = async (_tracker, label, locator, action, options = {}) => cda.action(
+  label, locator, target => action(target, { timeout: options.timeout ?? 5000 }), options);
+const click = async (_page, selector, identity = {}, timeout = 5000) => {
   const label = `Click ${identity.name ?? selector}`;
   actionTracker.activeAction = { label, locator: selector, targetLocator: page.locator(selector), startedAt: Date.now() };
   const locator = await resolveActionLocator(page, selector, identity);
@@ -74,7 +62,7 @@ const click = async (page, selector, identity = {}, timeout = 5000) => {
   actionTracker.lastAction = { label, locator: locator.toString(), targetLocator: locator, elapsedMs };
   return elapsedMs;
 };
-const selectOption = async (page, selector, value, timeout = 5000) => {
+const selectOption = async (_page, selector, value, timeout = 5000) => {
   const label = `Select ${value} in ${selector}`;
   actionTracker.activeAction = { label, locator: selector, targetLocator: page.locator(selector), startedAt: Date.now() };
   const locator = await resolveActionLocator(page, selector);
@@ -83,7 +71,7 @@ const selectOption = async (page, selector, value, timeout = 5000) => {
   actionTracker.lastAction = { label, locator: locator.toString(), targetLocator: locator, elapsedMs };
   return elapsedMs;
 };
-const navigate = (page, url) => page.goto(url, { waitUntil: 'load', timeout: 30000 });
+const navigate = (_page, url) => cda.navigate(url);
 const command = async commands => {
   await api(base + '/commands', { commandId: randomUUID(), semanticsVersion: builder.workspace?.semanticsVersion ?? 10, snapshotToken: builder.catalog.snapshotToken, expectedDraftVersion: builder.draftVersion, expectedDraftDigest: builder.draftDigest, commands });
   builder = await api(base + '/builder');
@@ -103,14 +91,14 @@ const assertPreviewIDs = async name => {
   if(!partialLongRoute)return;
   const started=Date.now();
   const expectedCount=expectedObservationIDs.length;
-  await browser.page.waitForFunction(({ expectedCount }) => {
+  await page.waitForFunction(({ expectedCount }) => {
     const table = document.querySelector('[data-testid="preview-table-scroll"] [role="table"]');
     return table?.getAttribute('aria-rowcount') === String(expectedCount + 1)
       && table.getAttribute('aria-colcount') === '1'
       && !document.body.innerText.includes('Loading your table…')
       && !document.body.innerText.includes('Preview failed:');
   }, { expectedCount }, { timeout: 10000 });
-  const preview = browser.page.locator('[data-testid="preview-table-scroll"]');
+  const preview = page.locator('[data-testid="preview-table-scroll"]');
   const table = preview.locator('[role="table"]');
   const rowsByIndex = new Map();
   const collectVisibleRows = async () => {
@@ -130,10 +118,10 @@ const assertPreviewIDs = async name => {
     if (rowsByIndex.size >= expectedCount) break;
     const box = await preview.boundingBox();
     assert(box, `${name}: preview scroll container is not visible`);
-    await browser.page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
     const beforeTop = await preview.evaluate(node => node.scrollTop);
-    await browser.page.mouse.wheel(0, Math.max(240, Math.floor(box.height * 0.8)));
-    await browser.page.waitForFunction(({ beforeTop }) => {
+    await page.mouse.wheel(0, Math.max(240, Math.floor(box.height * 0.8)));
+    await page.waitForFunction(({ beforeTop }) => {
       const node = document.querySelector('[data-testid="preview-table-scroll"]');
       return node && (node.scrollTop > beforeTop || node.scrollTop + node.clientHeight >= node.scrollHeight);
     }, { beforeTop }, { timeout: 1000 });
@@ -150,31 +138,31 @@ const assertPreviewIDs = async name => {
 };
 const open = async () => {
   const loadStart=Date.now();
-  await navigate(browser.page, `${uiOrigin}/?project=${project}&explorer=${explorer}&mode=builder`);
-  await waitForBrowser(browser.page, { kind: 'present', selector: `[data-testid="construction-table-${outputId}"]` });
-  await click(browser.page, `[data-testid="construction-table-${outputId}"]`);
-  await waitForBrowser(browser.page, { kind: 'enabled', selector: '[data-testid="construction-rows-settings-trigger"]' });
+  await navigate(page, `${uiOrigin}/?project=${project}&explorer=${explorer}&mode=builder`);
+  await waitForBrowser(page, { kind: 'present', selector: `[data-testid="construction-table-${outputId}"]` });
+  await click(page, `[data-testid="construction-table-${outputId}"]`);
+  await waitForBrowser(page, { kind: 'enabled', selector: '[data-testid="construction-rows-settings-trigger"]' });
   if(partialLongRoute)await assertPreviewIDs('partial-long-route-preview');
   else {
-    await browser.page.waitForFunction(() => {
+    await page.waitForFunction(() => {
       const table = document.querySelector('[data-testid="preview-table-scroll"] [role="table"]');
       return table?.getAttribute('aria-rowcount') === '1' && table.getAttribute('aria-colcount') === '1'
         && !document.body.innerText.includes('Loading your table…');
     });
-    assert.equal(await browser.page.locator('[data-testid="preview-table-scroll"] [role="cell"]').count(),0,'The independently unmapped selection must produce no table rows');
+    assert.equal(await page.locator('[data-testid="preview-table-scroll"] [role="cell"]').count(),0,'The independently unmapped selection must produce no table rows');
   }
-  await click(browser.page, '[data-testid="construction-rows-settings-trigger"]');
-  await waitForBrowser(browser.page, { kind: 'present', selector: 'section[aria-label="Starting collection"]' });
+  await click(page, '[data-testid="construction-rows-settings-trigger"]');
+  await waitForBrowser(page, { kind: 'present', selector: 'section[aria-label="Starting collection"]' });
   const durationMs=Date.now()-loadStart;assert(durationMs<=5000,'The native table and settings must render within five seconds');recordCase({name:partialLongRoute?'partial-long-route-table-load-to-settings':'empty-table-load-to-settings',durationMs});
 };
 const checkCoverage = async (name, counts) => {
   const start = Date.now();
-  await click(browser.page, 'section[aria-label="Starting collection"] button', {name:'Check selected-resource coverage'});
-  await waitForBrowser(browser.page, { kind: 'any', conditions: [
+  await click(page, 'section[aria-label="Starting collection"] button', {name:'Check selected-resource coverage'});
+  await waitForBrowser(page, { kind: 'any', conditions: [
     { kind: 'present', selector: '[data-testid="population-coverage-report"]' },
     { kind: 'present', selector: 'section[aria-label="Starting collection"] [role="alert"]' },
   ] });
-  const text = await inspectPage(browser.page, () => document.querySelector('[data-testid="population-coverage-report"]')?.innerText);
+  const text = await inspectPage(page, () => document.querySelector('[data-testid="population-coverage-report"]')?.innerText);
   assert((text ?? '').includes(counts), `Coverage must match independent CDA records: ${text}`);
   assert(Date.now()-start <= 5000, 'Coverage must render within five seconds');
   recordCase({name,durationMs:Date.now()-start,text});
@@ -232,8 +220,7 @@ try {
   await command([{type:'SET_TABLE_POPULATION',outputId,selectionRevisionId:selection.id,routeChoiceId:parent.routeChoiceId}]);
   const original = builder.workspace.documents[0];
   if(partialLongRoute)assert.deepEqual(original.population.route,report.savedConnection,'The saved route must match the exact catalog route before collection repair');
-  browser = await launchBrowser({ evidence, appOrigins: [apiOrigin, uiOrigin], noAuth: process.env.LOOM_CDA_NO_AUTH === '1' });
-  const requestMonitor = captureCDARequests(browser.page, {
+  requestMonitor = captureCDARequests(page, {
     apiOrigin: uiOrigin,
     appOrigins: [apiOrigin, uiOrigin],
     ownedPathPrefix: `${root}/${explorer}`,
@@ -248,7 +235,7 @@ try {
         ? { expected: true, reason: `A later owned proposal request (${replacement.requestId}) superseded the prior request.` } : true;
     },
   });
-  browser.page.on('response', response => {
+  page.on('response', response => {
     if (response.status() < 400) return;
     const url = new URL(response.url());
     if (![new URL(apiOrigin).origin, new URL(uiOrigin).origin].includes(url.origin)) return;
@@ -256,7 +243,7 @@ try {
     if (url.pathname.endsWith('/favicon.ico')) report.incidental.push(incident);
     else report.http.push(incident);
   });
-  browser.page.on('requestfailed', request => {
+  page.on('requestfailed', request => {
     const url = new URL(request.url());
     if (![new URL(apiOrigin).origin, new URL(uiOrigin).origin].includes(url.origin)) return;
     if (request.resourceType() === 'script') report.errors.push({ kind: 'module', path: url.pathname, error: sanitizeText(request.failure()?.errorText) });
@@ -264,17 +251,17 @@ try {
   await open();
   await checkCoverage(partialLongRoute?'partial-mapped-unmapped-coverage':'unmapped-parent-coverage',partialLongRoute?'2 selected · 1 produce rows · 1 needs attention':'1 selected · 0 produce rows · 1 needs attention');
   if(partialLongRoute){
-    const coverageText=await inspectPage(browser.page, () => document.querySelector('[data-testid="population-coverage-report"]')?.innerText ?? '');
+    const coverageText=await inspectPage(page, () => document.querySelector('[data-testid="population-coverage-report"]')?.innerText ?? '');
     assert(coverageText.includes(report.oracle.unmapped.id),`Coverage must identify the independently unmapped Specimen ${report.oracle.unmapped.id}: ${coverageText}`);
   }
-  const remove = browser.page.getByRole('button', { name: 'Remove from collection', exact: true });
+  const remove = page.getByRole('button', { name: 'Remove from collection', exact: true });
   await remove.waitFor({ state: 'visible', timeout: 5000 });
   assert.equal(await remove.count(), 1, 'The saved parent connection must expose one removal control');
   assert.equal(await remove.isEnabled(), true, 'The saved parent connection must make an unmapped record removable');
   const before = builder.draftDigest;
   const start = Date.now();
-  await click(browser.page, '[data-testid="population-coverage-report"] button', {name:'Remove from collection'});
-  await browser.page.waitForFunction(selectionId => document.querySelector('section[aria-label="Starting collection"]')?.dataset.attachedSelectionRevisionId !== selectionId, selection.id, { timeout: 5000 });
+  await click(page, '[data-testid="population-coverage-report"] button', {name:'Remove from collection'});
+  await page.waitForFunction(selectionId => document.querySelector('section[aria-label="Starting collection"]')?.dataset.attachedSelectionRevisionId !== selectionId, selection.id, { timeout: 5000 });
   builder = await api(base+'/builder');
   const revised = builder.workspace.documents[0];
   assert.notEqual(builder.draftDigest,before);
@@ -319,23 +306,23 @@ try {
   }else await checkCoverage('empty-collection-reload','0 selected · 0 produce rows · 0 needs attention');
   if(longRoute&&!partialLongRoute){
     const clearStart=Date.now();
-    await click(browser.page,'section[aria-label="Starting collection"] button',{name:'Use all authorized rows'});
-    await browser.page.waitForFunction(() => document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount')==='26'
+    await click(page,'section[aria-label="Starting collection"] button',{name:'Use all authorized rows'});
+    await page.waitForFunction(() => document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount')==='26'
       && [...document.querySelectorAll('section[aria-label="Starting collection"] button')].some(button=>button.innerText==='Use selected resources'&&!button.disabled), null, { timeout: 5000 });
     const clearDuration=Date.now()-clearStart;
     assert(clearDuration<=5000,'Clearing the collection must render authorized records within five seconds');
-    const visibleIDs=await browser.page.locator('[data-testid="preview-table-scroll"] [role="cell"]').allInnerTexts();
+    const visibleIDs=await page.locator('[data-testid="preview-table-scroll"] [role="cell"]').allInnerTexts();
     assert(visibleIDs.length>0,'Authorized table must show records after clearing its collection');
     const verifiedIDs=rawQuery(`FOR d IN Observation FILTER d.id IN ${JSON.stringify(visibleIDs)} AND d.project=="${project}" AND d.dataset_generation=="cda-fhir-v1" RETURN d.id`);
     assert.deepEqual([...new Set(visibleIDs)].sort(),verifiedIDs.sort(),'Visible rows must belong to the scoped CDA source');
     recordCase({name:'clear-long-collection-to-authorized-rows',durationMs:clearDuration,visibleIDs});
-    const options=await browser.page.locator('select[aria-label="Population connection"] option').evaluateAll(nodes=>nodes.map(option=>({value:option.value,label:option.text})));
+    const options=await page.locator('select[aria-label="Population connection"] option').evaluateAll(nodes=>nodes.map(option=>({value:option.value,label:option.text})));
     const exact=options.find(option=>option.label.includes('via specimen_Specimen (outgoing,')&&option.label.includes('via parent (incoming,'));
     assert(exact,'The native dropdown must offer the exact previous connection: '+JSON.stringify(options));
-    await selectOption(browser.page,'select[aria-label="Population connection"]',exact.value);
+    await selectOption(page,'select[aria-label="Population connection"]',exact.value);
     const attachStart=Date.now();
-    await click(browser.page,'section[aria-label="Starting collection"] button',{name:'Use selected resources'});
-    await browser.page.waitForFunction(() => document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount')==='1'
+    await click(page,'section[aria-label="Starting collection"] button',{name:'Use selected resources'});
+    await page.waitForFunction(() => document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount')==='1'
       && [...document.querySelectorAll('section[aria-label="Starting collection"] button')].some(button=>button.innerText==='Use all authorized rows'&&!button.disabled), null, { timeout: 5000 });
     const attachDuration=Date.now()-attachStart;
     assert(attachDuration<=5000,'Reattaching the empty collection must render within five seconds');
@@ -354,25 +341,16 @@ try {
   assert.equal(report.exceptions.length,0,JSON.stringify(report.exceptions));
   report.status='passed';
 } catch (error) {
+  fatal = error;
   report.status = 'failed';
   report.error = String(error.stack ?? error);
-  report.failureUI = browser ? await inspectPage(browser.page, () => document.body.innerText).catch(()=>undefined) : undefined;
-  if (browser) report.failureTrace = await browser.captureFailure(error, { phase: report.cases.length,
-    action: actionTracker.activeAction ?? actionTracker.lastAction,
-    elapsedMs: actionTracker.activeAction?.startedAt ? Date.now() - actionTracker.activeAction.startedAt : actionTracker.lastAction?.elapsedMs,
-    requestIdentity: report.browserRequests.at(-1) && (({ requestId, path, method }) => ({ requestId, path, method }))(report.browserRequests.at(-1)),
-  }).catch(String);
-  process.exitCode = 1;
+  report.failureUI = await inspectPage(page, () => document.body.innerText).catch(()=>undefined);
 } finally {
-  report.sourceAfter = sourceFingerprint(sourceRoot);
-  report.sourceUnchanged = JSON.stringify(report.sourceBefore) === JSON.stringify(report.sourceAfter);
-  if (!report.sourceUnchanged) { report.status = 'failed'; report.error = [report.error, 'Watched source changed during verification'].filter(Boolean).join('; '); process.exitCode = 1; }
-  try { report.sourceFreeze = { ...report.sourceFreeze, ...(await sourceFreeze.assertUnchanged()) }; }
-  catch (error) { report.status = 'invalidated'; report.invalidations = [{ kind: 'source-freeze', reason: sanitizeText(error) }]; process.exitCode = 1; }
-  try { report.apiBuildFreeze = { ...report.apiBuildFreeze, ...(await frozenApiBuild.assertUnchanged()) }; }
-  catch (error) { report.status = 'invalidated'; report.invalidations = [...(report.invalidations ?? []), { kind: 'api-build', reason: sanitizeText(error) }]; process.exitCode = 1; }
+  await requestMonitor?.flush();
   report.finished = new Date().toISOString();
-  await writeFile(join(evidence, 'report.json'), JSON.stringify(report, null, 2));
-  await browser?.close();
+  await cda.attachReport('collection-repair-domain-report.json', report);
 }
-console.log(JSON.stringify({ status: report.status, evidence, error: report.error }, null, 2));
+
+if (fatal || report.status === 'failed') throw fatal ?? new Error(report.error ?? 'Collection repair lifecycle failed');
+return report;
+}
