@@ -156,7 +156,7 @@ verify-current:
 
 .PHONY: verify-base-settings
 verify-base-settings:
-	node scripts/verify-base-settings.mjs --browser
+	./scripts/node_modules/.bin/playwright test --config scripts/playwright.config.mjs standalone-misc.spec.mjs --grep 'preserves authored construction through cancel, apply, and reload'
 
 verify-fast:
 	node scripts/loom-dev.mjs verify-fast

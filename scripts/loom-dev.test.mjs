@@ -228,7 +228,7 @@ test('verify-fast creates its Observation and Patient tables through the current
   const catalog = readFileSync(join(process.cwd(), 'ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.tsx'), 'utf8');
   const actionBar = readFileSync(join(process.cwd(), 'ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/ConstructionWorkspace.tsx'), 'utf8');
   const choiceDialog = readFileSync(join(process.cwd(), 'ui/packages/loom-ui/src/features/ExplorerBuilder/components/CatalogSelectionDialog.tsx'), 'utf8');
-  const start = driver.indexOf('const verifyBrowserScenario =');
+  const start = driver.indexOf('export const verifyBrowserScenario =');
   const end = driver.indexOf('\nconst measureHotReload =', start);
   assert.ok(start >= 0 && end > start, 'generic verify-fast scenario must remain identifiable');
   const scenario = driver.slice(start, end);
@@ -345,49 +345,100 @@ test('verify-fast creates its Observation and Patient tables through the current
 test('generic Builder and interpretation browser paths use only Playwright browser actions', () => {
   const driver = readFileSync(join(process.cwd(), 'scripts/loom-dev.mjs'), 'utf8');
   const interpretationStart = driver.indexOf('const verifyInterpretationCandidate =');
-  const interpretationEnd = driver.indexOf('\nconst verifyBrowserScenario =', interpretationStart);
+  const interpretationEnd = driver.indexOf('\nexport const verifyBrowserScenario =', interpretationStart);
   const scenarioStart = interpretationEnd;
   const scenarioEnd = driver.indexOf('\nconst measureHotReload =', scenarioStart);
   assert.ok(interpretationStart >= 0 && interpretationEnd > interpretationStart && scenarioEnd > scenarioStart,
     'interpretation and generic Builder scenario must remain identifiable');
   const browserCode = `${driver.slice(interpretationStart, interpretationEnd)}\n${driver.slice(scenarioStart, scenarioEnd)}`;
 
-  assert.match(browserCode, /performAction\(browser/);
+  assert.match(browserCode, /performAction\(diagnostics/);
   assert.match(browserCode, /\.getByRole\(/);
   assert.match(browserCode, /\.getByLabel\(/);
   assert.match(browserCode, /\.selectOption\(/);
   assert.match(browserCode, /page\.goto\(/);
   assert.match(browserCode, /page\.reload\(/);
-  assert.match(browserCode, /captureFailure\(/);
+  assert.match(browserCode, /captureDevJourneyFailure\(/);
   assert.doesNotMatch(browserCode, /\b(?:cdp|browserEval|waitForBrowser|snapshot)\b|\.send\(['"](?:Runtime|Page|Input)\./,
     'migrated generic paths must not call the legacy CDP driver');
   assert.doesNotMatch(browserCode, /Object\.getOwnPropertyDescriptor|\.dispatchEvent\(|\.click\(\s*\)/,
     'migrated generic paths must not set DOM values or invoke handlers directly');
 });
 
-test('loom-dev uses the shared Playwright browser launcher', () => {
+test('native dev journeys use the Playwright Test-owned page and diagnostics fixture', () => {
   const driver = readFileSync(join(process.cwd(), 'scripts/loom-dev.mjs'), 'utf8');
-  assert.match(driver, /launchPlaywrightEvidenceBrowser/);
-  assert.doesNotMatch(driver, /new\s+WebSocket\s*\(/, 'browser sessions must use the shared launcher');
+  const nativeSpec = readFileSync(join(process.cwd(), 'scripts/playwright/dev-journeys.spec.mjs'), 'utf8');
+  assert.match(nativeSpec, /import \{ test as base \} from '@playwright\/test'/);
+  assert.match(nativeSpec, /async \(\{ page \}, use\)/);
+  assert.match(nativeSpec, /@dev-journey:\$\{command\}/);
+  assert.doesNotMatch(nativeSpec, /from ['"]\.\/fixtures\.mjs/,
+    'dev journeys do not borrow the unrelated registry fixture');
+  assert.match(driver, /requireNativeDevJourneyContext\(page, diagnostics\)/);
+  assert.match(driver, /captureDevJourneyFailure\(page, diagnostics, report/);
+  assert.match(driver, /const captureCommandResult = async \(item\) =>/,
+    'J02 request/result correlation retains a bounded native response reader');
+  assert.match(driver, /command response capture timed out after 1000 ms/,
+    'J02 result identity capture cannot block the journey teardown indefinitely');
+  assert.match(driver, /import \{ sanitizeBody, sanitizeText \} from '\.\/lib\/playwright-browser\.mjs'/,
+    'J04 response-body diagnostics use the shared text sanitizer');
+  assert.match(driver, /captureNativeFailureEvidence\(\{[\s\S]*?ownedOrigins: diagnostics\.ownedOrigins[\s\S]*?locator: action\?\.targetLocator/,
+    'first-failure JSON includes the shared bounded native page and control-state summary');
+  assert.match(driver, /sourceFingerprintWithManifest\(target\.sourceRoot\)/,
+    'native dev journey integrity captures a source fingerprint and manifest');
+  assert.match(driver, /sourceFingerprintChangedPaths\(before\.sourceManifest, after\.sourceManifest\)/,
+    'native journey integrity compares before and after watched source manifests');
+  assert.match(driver, /devJourneyProbePaths\(command, verificationTarget\)/,
+    'HMR journeys list their exact probe-owned source paths');
+  assert.match(driver, /command !== 'verify-current' && command !== 'verify-full'/,
+    'both existing verify-current and verify-full HMR workflows include their actual probe paths');
+  assert.match(driver, /devloop_hotreload_success_\$\{probeID\}\.go[\s\S]*?devloop_hotreload_failure_\$\{probeID\}\.go/,
+    'HMR integrity tracks the precise successful-build and failed-build Go probes');
+  assert.match(driver, /apiBuildIdentity: \{ before: before\.apiBuildIdentity, after: after\.apiBuildIdentity \}/,
+    'native journey reports include before and after API build identities');
+  assert.match(driver, /baselineCaptured: identityBefore\.apiBuildFresh/,
+    'a failed or missing API build-stamp check cannot count as a captured integrity baseline');
+  assert.match(driver, /restorationProven: changedPaths\.length === 0[\s\S]*?hasExpectedProbeBaseline/,
+    'HMR source probes must be absent/restored before integrity is considered proven');
+  assert.match(driver, /await verifyDevJourneyIdentity\(journey\)/,
+    'native journey completion verifies source and API identity');
+  assert.match(nativeSpec, /push\(diagnostics\.httpFailures, entry\);[\s\S]*?response\.text\(\)/,
+    'failed response status is retained before bounded body capture');
+  assert.match(nativeSpec, /setTimeout\(\(\) => resolve\(undefined\), 1000\)/,
+    'response body diagnostics use a bounded read');
+  assert.match(nativeSpec, /await flushPending\(\)/,
+    'pending diagnostic captures are flushed at fixture teardown');
+  assert.match(nativeSpec, /droppedDiagnostics > 0/,
+    'diagnostic truncation fails the domain report instead of disappearing');
+  assert.match(nativeSpec, /captureScreenshots: process\.env\.LOOM_DEV_CAPTURE_SCREENSHOTS === '1'/);
+  assert.match(driver, /if \(!diagnostics\.captureScreenshots\) return null/,
+    'successful journey screenshots are opt-in');
+  assert.match(driver, /page\.screenshot\(\{ path, fullPage: true, \.\.\.options, timeout: Math\.max\(1, Math\.min\(requestedTimeout, 1000\)\) \}\)/,
+    'opt-in screenshots have an enforced 1-second cap after caller options');
+  assert.match(driver, /captureScreenshots: process\.env\.LOOM_DEV_CAPTURE_SCREENSHOTS === '1'/,
+    'native diagnostics leave screenshots disabled by default');
+  assert.doesNotMatch(driver, /launchPlaywrightEvidenceBrowser|launchBrowser as launchPlaywrightEvidenceBrowser|new\s+WebSocket\s*\(/,
+    'journey functions must not launch their own browser');
+  assert.doesNotMatch(nativeSpec, /chromium\.launch|launchBrowser|browser\.close\(/,
+    'the official Playwright test page owns browser lifecycle');
 });
 
 test('local J01 browser lifecycle uses Playwright actions and retains its exact request and failure evidence', () => {
   const driver = readFileSync(join(process.cwd(), 'scripts/loom-dev.mjs'), 'utf8');
-  const start = driver.indexOf('const verifyJ01BrowserScenario =');
+  const start = driver.indexOf('export const verifyJ01BrowserScenario =');
   const end = driver.indexOf('\nexport const readStoredZip', start);
   assert.ok(start >= 0 && end > start, 'local J01 scenario must remain identifiable');
   const scenario = driver.slice(start, end);
-  assert.match(scenario, /launchPlaywrightEvidenceBrowser/);
+  assert.doesNotMatch(scenario, /launchPlaywrightEvidenceBrowser/);
   assert.doesNotMatch(scenario, /\bcdp\b|browserEval\(|waitForBrowser\(|Input\.dispatchKeyEvent|\.click\(\)/,
     'J01 browser controls must be driven through Playwright locator actions');
-  assert.match(scenario, /performAction\(browser/);
+  assert.match(scenario, /performAction\(diagnostics/);
   assert.match(scenario, /editable: true/);
   assert.match(scenario, /waitForResponse\(/);
   assert.match(scenario, /new URL\(target\.uiUrl\)\.origin/);
   assert.match(scenario, /decodeURIComponent\(match\[1\]\) !== target\.fixtureProject/);
   assert.match(scenario, /ownedExplorerIDs\.has\(decodeURIComponent\(match\[2\]\)\)/);
   assert.match(scenario, /waitForEvent\('download'/);
-  assert.match(scenario, /browser\.captureFailure\(error/);
+  assert.match(scenario, /captureDevJourneyFailure\(page, diagnostics/);
   assert.match(scenario, /j01-browser-has-no-unexpected-errors-or-api-failures/);
   assert.match(driver, /J01 \$\{label\} action-to-render took \$\{elapsed\}ms; required <= 5000ms/);
   for (const assertion of [
@@ -398,6 +449,30 @@ test('local J01 browser lifecycle uses Playwright actions and retains its exact 
     'j01-same-owner-output-has-exact-value-and-absence-literals',
     'j01-export-preserves-exact-observation-row-membership',
   ]) assert.ok(scenario.includes(assertion), `J01 contract is missing ${assertion}`);
+});
+
+test('all nine loom-dev browser scopes have native Playwright Test cases and exported workflows', () => {
+  const driver = readFileSync(join(process.cwd(), 'scripts/loom-dev.mjs'), 'utf8');
+  const nativeSpec = readFileSync(join(process.cwd(), 'scripts/playwright/dev-journeys.spec.mjs'), 'utf8');
+  for (const [command, workflow] of [
+    ['verify-current', 'verifyCurrentBuilderDOM'],
+    ['verify-fast', 'verifyBrowserScenario'],
+    ['verify-full', 'verifyBrowserScenario'],
+    ['verify-j01', 'verifyJ01BrowserScenario'],
+    ['verify-j02', 'verifyJ02BrowserScenario'],
+    ['verify-j03', 'verifyJ03BrowserScenario'],
+    ['verify-j04', 'verifyJ04BrowserScenario'],
+    ['verify-j04-patient', 'verifyJ04PatientOperatorScenario'],
+    ['verify-j05', 'verifyJ05BrowserScenario'],
+  ]) {
+    assert.ok(nativeSpec.includes(`'${command}'`), `${command} is missing from the native case registry`);
+    assert.ok(nativeSpec.includes(workflow), `${command} does not call ${workflow}`);
+    assert.match(driver, new RegExp(`export const ${workflow} = async`), `${workflow} must accept the native fixture context`);
+  }
+  assert.match(driver, /export const verifyJ01ExternalBrowserScenario = async/,
+    'the J01 external CDA variant remains a distinct workflow');
+  assert.match(nativeSpec, /externalManifest/,
+    'J01 native setup retains the external manifest/profile selection');
 });
 
 test('J04 fixture keeps valid Observation values, recorded absence, Patient aggregates, and pivot types in separate row scopes', () => {

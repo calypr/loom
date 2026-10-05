@@ -99,18 +99,34 @@ diagnostics, source/API identity, and lifecycle assertions in native fixtures
 and tests; a test must not invoke an old browser script as a subprocess or
 launch a second browser.
 
-Migration is partial. Append is the first native integration unit, but test
-discovery or an implementation patch is not a verified workflow. Keep Append
-unverified until a current JSON report proves its complete lifecycle. Other
-cases remain unmigrated until they are ported and their retained assertions are
-shown to pass.
-
-Install `scripts/package-lock.json` with `npm ci --prefix scripts`. With the
-owned development environment configured as described in the migration record,
-run the focused native Append case from the repository root:
+The current `verify-ui` registry declares 23 cases. A separate static discovery
+snapshot at 2026-10-05 02:02 UTC lists 152 cases across 19 Playwright spec files;
+discovery is separate from registry coverage and does not mean those cases are
+registered or verified. The development journeys and miscellaneous workflows
+are included in that snapshot. Benchmark porting and launcher cleanup remain
+open. Run the static migration gate from the repository root after installing
+both existing workspaces:
 
 ```bash
-./scripts/node_modules/.bin/playwright test --config scripts/playwright.config.mjs append.spec.mjs
+npm ci --prefix ui
+npm ci --prefix scripts
+node scripts/check-native-playwright.mjs
+```
+
+The gate checks registered-case mappings, remaining custom browser ownership
+(including the construction-preview benchmark driver), and undefined workflow
+bindings using the UI workspace's existing TypeScript dependency. It is a
+static migration check, not runtime, benchmark-performance, or browser evidence.
+Select a case from `scripts/verify-ui/registry.mjs` using its
+`playwrightTests[caseName]` entry, then grep for that native test's exact title
+or case text. Keep unknown or unregistered mappings explicitly pending; do not
+invent a runner command for them. For example, the registered
+`builder-authoring/group-entry` case can be selected as follows after the
+owned development environment is configured. This is an invocation example,
+not a reported pass:
+
+```bash
+./scripts/node_modules/.bin/playwright test --config scripts/playwright.config.mjs builder-authoring.spec.mjs --grep 'standard Group entry proposes an empty-key COUNT_ROWS preview'
 ```
 
 Use Playwright locators and native actions for navigation, clicks, fills,

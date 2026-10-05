@@ -777,6 +777,56 @@ export const registry = Object.freeze([
       { feature: 'CSV export', status: 'untested' },
     ],
   }),
+  Object.freeze({
+    id: 'standalone-misc',
+    workflow: 'native-standalone-misc-compound-coded-group-basic',
+    hooks: [
+      'useGetExplorerAuthoringExplorersQuery',
+      'useGetExplorerBuilderStateV2Query',
+      'useCreateExplorerAuthoringMutation',
+      'useApplyExplorerBuilderCommandsV2Mutation',
+    ],
+    endpoints: [
+      'POST /api/v1/projects/{project}/explorers',
+      'GET /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/builder',
+      'POST /api/v1/projects/{project}/explorers/{explorer}/selections',
+      'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/construction-proposals',
+      'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/commands',
+    ],
+    requiredTransitions: [
+      'fresh owned synthetic fixture contains the exact dev-observation-001 height Observation',
+      'select the exact source Observation and use its current Builder generation',
+      'native coded-group proposal previews the exact height, Observation ID, and row count',
+      'Apply persists the owned CODED_PIVOT extraction and GROUP together',
+      'edit preserves the selected population and binds Observation ID through the coded output',
+      'cancel removal without changing the edited grouped draft',
+      'apply removal to restore the source table, then reload the restored source workspace',
+    ],
+    gateReasons: [
+      'the native case requires an explicitly named owned LOOM_DEV_* stack and seeds a fresh project from testdata/devloop-fixture',
+      'the independent raw Arango oracle is scoped by the fresh project and catalog generation and requires exactly one dev-observation-001 with the exact height Coding and value 172.5',
+      'the lifecycle remains unverified until the browser case passes every registry-required source, Apply, edit, Cancel, removal, and reload check',
+    ],
+    script: '../verify-compound-coded-group.mjs',
+    playwrightTests: { 'compound-coded-group-basic': 'scripts/playwright/standalone-misc.spec.mjs' },
+    cases: ['compound-coded-group-basic'],
+    requiredChecks: {
+      'compound-coded-group-basic': [
+        'raw synthetic source oracle matches dev-observation-001 height value',
+        'Builder generation is bound to the raw synthetic source record',
+        'Initial coded preview matches the raw height and row-count oracle',
+        'Apply persists the coded extraction and GROUP as one construction',
+        'Edit preserves the exact population and binds Observation ID through the coded output',
+        'Edited coded group and exact rows survive a fresh Builder reload',
+        'Cancel preserves the edited grouped draft',
+        'Applying GROUP removal restores the source schema without either owned step',
+        'Restored source workspace and exact Observation ID survive reload',
+      ],
+    },
+    coverage: [
+      { feature: 'fresh synthetic Observation coded GROUP lifecycle with exact ID passthrough, edit, Cancel, removal, and reload', status: 'untested', reason: 'The native case and meaningful source/lifecycle gates are registered; no browser lifecycle has run, so it remains unverified.' },
+    ],
+  }),
 ]);
 
 export const getScenario = (id) => {

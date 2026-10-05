@@ -7,8 +7,11 @@ import { tmpdir } from 'node:os';
 import { dirname, basename, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createInterface } from 'node:readline';
-import { launchBrowser as launchPlaywrightEvidenceBrowser, sanitizeBody } from './lib/playwright-browser.mjs';
+import { sanitizeBody, sanitizeText } from './lib/playwright-browser.mjs';
 import { performAction } from './lib/playwright-actions.mjs';
+import { captureApiBuildFreeze } from './lib/api-build-freeze.mjs';
+import { captureNativeFailureEvidence } from './playwright/native-failure-evidence.mjs';
+import { sourceFingerprintChangedPaths, sourceFingerprintWithManifest } from './verify-ui/source-fingerprint.mjs';
 import { dataframeOutputQuery } from '../ui/packages/loom-ui/src/dataframeOutputQuery.mjs';
 import { EXPLORER_AUTHORING_SEMANTICS_VERSION } from '../ui/packages/loom-ui/src/authoringSemanticsVersion.mjs';
 
@@ -317,6 +320,86 @@ const recordLimitation = (report, name, detail) => {
 
 const recordEvidence = (report, path) => {
   if (!report.evidencePaths.includes(path)) report.evidencePaths.push(path);
+};
+
+export const requireNativeDevJourneyContext = (page, diagnostics) => {
+  if (!page || typeof page.goto !== 'function' || typeof page.on !== 'function') {
+    throw new TypeError('dev journey requires the Playwright Test-owned native page');
+  }
+  if (!diagnostics || typeof diagnostics !== 'object') {
+    throw new TypeError('dev journey requires its Playwright-native diagnostics fixture context');
+  }
+  for (const field of ['console', 'pageErrors', 'networkFailures', 'httpFailures', 'assetFailures']) {
+    if (!Array.isArray(diagnostics[field])) diagnostics[field] = [];
+  }
+  diagnostics.actions ??= [];
+  diagnostics.captureScreenshots ??= false;
+  return { page, diagnostics };
+};
+
+export const sanitizeDevJourneyDiagnostic = (value) => sanitizeBody(value);
+
+export const captureDevJourneyFailure = async (page, diagnostics, report, evidenceDirectory, error, details = {}) => {
+  const action = details.action ?? diagnostics.activeAction;
+  let failureEvidence;
+  try {
+    failureEvidence = await captureNativeFailureEvidence({
+      page,
+      ownedOrigins: diagnostics.ownedOrigins ?? [],
+      reason: error?.message ?? error,
+      label: action?.label ?? details.phase,
+      locator: action?.targetLocator,
+      elapsedMs: Number.isFinite(action?.startedAt) ? Date.now() - action.startedAt : undefined,
+      startedAt: action?.startedAt,
+    });
+  } catch (captureError) {
+    failureEvidence = {
+      state: 'capture-error',
+      reason: sanitizeBody(captureError?.message ?? captureError),
+    };
+  } finally {
+    if (diagnostics.activeAction?.targetLocator) delete diagnostics.activeAction.targetLocator;
+  }
+  const failure = {
+    message: sanitizeBody(error?.message ?? error),
+    stack: sanitizeBody(error?.stack ?? ''),
+    ...details,
+    nativeFailureEvidence: failureEvidence,
+    ...(action ? {
+      action: {
+        label: action.label,
+        locator: action.locator,
+        elapsedMs: Number.isFinite(action.startedAt) ? Math.max(0, Date.now() - action.startedAt) : undefined,
+      },
+    } : {}),
+    diagnostics: {
+      console: diagnostics.console,
+      pageErrors: diagnostics.pageErrors,
+      networkFailures: diagnostics.networkFailures,
+      httpFailures: diagnostics.httpFailures,
+      assetFailures: diagnostics.assetFailures,
+      droppedDiagnostics: diagnostics.droppedDiagnostics ?? 0,
+    },
+  };
+  const evidenceName = 'native-failure.json';
+  const evidencePath = join(evidenceDirectory, evidenceName);
+  try {
+    mkdirSync(evidenceDirectory, { recursive: true, mode: 0o700 });
+    writeJSON(evidencePath, JSON.parse(sanitizeBody(JSON.stringify(failure))));
+    recordEvidence(report, evidencePath);
+  } catch {
+    // Keep the originating Playwright assertion if failure evidence cannot be written.
+  }
+  report.target.nativeFailure = evidenceName;
+  return evidenceName;
+};
+
+export const captureDevJourneyScreenshot = async (page, diagnostics, report, path, options = {}) => {
+  if (!diagnostics.captureScreenshots) return null;
+  const requestedTimeout = Number.isFinite(options.timeout) && options.timeout > 0 ? options.timeout : 1000;
+  await page.screenshot({ path, fullPage: true, ...options, timeout: Math.max(1, Math.min(requestedTimeout, 1000)) });
+  recordEvidence(report, path);
+  return path;
 };
 
 export const fixtureSourceDigest = (fixtureDir) => {
@@ -2337,7 +2420,8 @@ const routeOccurrences = (root) => {
   return result;
 };
 
-const verifyJ02BrowserScenario = async (target, report, entryTarget = target) => {
+export const verifyJ02BrowserScenario = async (target, report, entryTarget = target, page, diagnostics) => {
+  requireNativeDevJourneyContext(page, diagnostics);
   const runID = `${Date.now().toString(36)}-${randomUUID().slice(0, 8)}`;
   const evidenceDir = join(target.artifacts, runID);
   const downloadDir = join(evidenceDir, 'downloads');
@@ -2348,16 +2432,42 @@ const verifyJ02BrowserScenario = async (target, report, entryTarget = target) =>
   report.actions = [];
   report.sourceTuples = {};
   report.literalValues = {};
-  const browser = await launchPlaywrightEvidenceBrowser({
-    evidence: evidenceDir,
-    appOrigins: [target.uiUrl, target.apiUrl, entryTarget.uiUrl],
-    noAuth: true,
-  });
-  const { page } = browser;
   const uiOrigin = new URL(target.uiUrl).origin;
   let explorerId = '';
   const network = new Map();
   const pendingNetworkBodies = new Set();
+  const captureCommandResult = async (item) => {
+    const response = item.responseObject;
+    if (!response) {
+      item.resultIdentity ??= { unavailable: true, reason: 'Playwright response object was unavailable' };
+      return item.resultIdentity;
+    }
+    let timer;
+    let outcome;
+    const capture = Promise.resolve().then(() => response.json()).then(
+      (body) => ({ state: 'captured', body }),
+      (error) => ({ state: 'error', error: sanitizeText(error instanceof Error ? error.message : error) }),
+    );
+    const timeout = new Promise((resolvePromise) => {
+      timer = setTimeout(() => resolvePromise({ state: 'timed-out' }), 1000);
+    });
+    try {
+      outcome = await Promise.race([capture, timeout]);
+    } finally {
+      if (timer) clearTimeout(timer);
+      delete item.responseObject;
+    }
+    item.resultIdentity = outcome.state === 'captured'
+      ? {
+        commandId: outcome.body?.commandId,
+        draftVersion: outcome.body?.draftVersion,
+        draftDigest: outcome.body?.draftDigest,
+        results: outcome.body?.results,
+      }
+      : { unavailable: true, reason: outcome.state === 'timed-out' ? 'command response capture timed out after 1000 ms' : outcome.error };
+    item.finishedAt = Date.now();
+    return item.resultIdentity;
+  };
   const ownedPathPrefix = () => explorerId
     ? `${new URL(bootstrapAuthoringURL(target, explorerId)).pathname}/`
     : '';
@@ -2383,21 +2493,9 @@ const verifyJ02BrowserScenario = async (target, report, entryTarget = target) =>
     const item = network.get(request);
     if (!item) return;
     item.response = { status: response.status(), mimeType: response.headers()['content-type'] ?? '' };
-    if (!item.url.endsWith('/commands') || !response.ok()) return;
-    const capture = (async () => {
-      try {
-        const parsed = await response.json();
-        item.resultIdentity = {
-          commandId: parsed.commandId,
-          draftVersion: parsed.draftVersion,
-          draftDigest: parsed.draftDigest,
-          results: parsed.results,
-        };
-      } catch (error) {
-        item.resultIdentity = { unavailable: true, reason: String(error) };
-      }
-      item.finishedAt = Date.now();
-    })().finally(() => pendingNetworkBodies.delete(capture));
+    if (!item.url.endsWith('/commands')) return;
+    item.responseObject = response;
+    const capture = captureCommandResult(item).finally(() => pendingNetworkBodies.delete(capture));
     pendingNetworkBodies.add(capture);
   });
   let outputId = '';
@@ -2425,12 +2523,12 @@ const verifyJ02BrowserScenario = async (target, report, entryTarget = target) =>
     recordEvidence(report, path);
   };
   const clickButton = (name, locator = page.getByRole('button', { name, exact: true })) =>
-    performAction(browser, `click ${name}`, locator, (targetLocator, { timeout }) => targetLocator.click({ timeout }), { timeout: 5000 });
+    performAction(diagnostics, `click ${name}`, locator, (targetLocator, { timeout }) => targetLocator.click({ timeout }), { timeout: 5000 });
   const fillInput = (label, value, locator = page.getByLabel(label, { exact: true })) =>
-    performAction(browser, `fill ${label}`, locator, (targetLocator, { timeout }) => targetLocator.fill(value, { timeout }), { timeout: 5000, editable: true });
+    performAction(diagnostics, `fill ${label}`, locator, (targetLocator, { timeout }) => targetLocator.fill(value, { timeout }), { timeout: 5000, editable: true });
   const clickGraphNode = async (nodeId) => {
     const node = page.locator(`.react-flow__node[data-id=${JSON.stringify(nodeId)}]`);
-    await performAction(browser, `select graph node ${nodeId}`, node,
+    await performAction(diagnostics, `select graph node ${nodeId}`, node,
       (targetLocator, { timeout }) => targetLocator.click({ timeout }), { timeout: 5000 });
   };
   const selectTraversalOccurrence = async (document, occurrenceId) => {
@@ -2451,8 +2549,7 @@ const verifyJ02BrowserScenario = async (target, report, entryTarget = target) =>
   }, label);
   const saveScreenshot = async (name) => {
     const path = join(evidenceDir, `${name}.png`);
-    await page.screenshot({ path, fullPage: true });
-    recordEvidence(report, path);
+    await captureDevJourneyScreenshot(page, diagnostics, report, path);
   };
   const navigate = async (url) => {
     await page.goto(url, { waitUntil: 'domcontentloaded' });
@@ -2524,7 +2621,7 @@ const verifyJ02BrowserScenario = async (target, report, entryTarget = target) =>
       await clickButton('Search');
       const statusChoice = page.getByLabel('Select DiagnosticReport.status', { exact: true });
       await statusChoice.waitFor({ state: 'visible', timeout: 30000 });
-      await performAction(browser, 'select DiagnosticReport.status', statusChoice, (locator, { timeout }) => locator.check({ timeout }), { timeout: 5000 });
+      await performAction(diagnostics, 'select DiagnosticReport.status', statusChoice, (locator, { timeout }) => locator.check({ timeout }), { timeout: 5000 });
       const beforeCancel = await readState();
       const beforeBytes = draftFingerprint(beforeCancel);
       await clickButton('Add 1 selected feature');
@@ -2589,7 +2686,7 @@ const verifyJ02BrowserScenario = async (target, report, entryTarget = target) =>
       if (currentChoices.choices.length > 1) {
         const label = `${candidate.label.trim() || candidate.fieldPath} route ${selectedIndex + 1}: ${directChoice.presentation.summary}`;
         const routeRadio = page.locator(`input[type="radio"][aria-label$=${JSON.stringify(label)}]`);
-        await performAction(browser, 'select direct related route', routeRadio,
+        await performAction(diagnostics, 'select direct related route', routeRadio,
           (locator, { timeout }) => locator.check({ timeout }), { timeout: 5000 });
       } else if (routeChoiceSignature(currentChoices.choices[0]) !== routeChoiceSignature(directChoice)) {
         throw new Error('J02 single catalog choice is not the expected direct source route');
@@ -2600,7 +2697,7 @@ const verifyJ02BrowserScenario = async (target, report, entryTarget = target) =>
         : `${formOption.shape} · ${formOption.preservation} · ${validForm}`;
       const formRadio = `${candidate.label.trim() || candidate.fieldPath}: ${formLabel}`;
       const formRadioControl = page.getByRole('radio', { name: formRadio, exact: true });
-      await performAction(browser, 'select related column output form', formRadioControl,
+      await performAction(diagnostics, 'select related column output form', formRadioControl,
         (locator, { timeout }) => locator.check({ timeout }), { timeout: 5000 });
       await clickButton('Add 1 selected feature');
       state = await waitForState((value) => value.workspace?.documents?.[0]?.columns?.some((column) => column.source?.kind === 'field' && column.source.field.path.replace(/^root\./, '') === 'status'), 'catalog related column');
@@ -2712,11 +2809,11 @@ const verifyJ02BrowserScenario = async (target, report, entryTarget = target) =>
           if (await relationship.count()) {
             const options = await relationship.locator('option').evaluateAll((items) => items.map((item) => item.value));
             if (!options.includes(edge.edgeId)) throw new Error(`expected relationship edge is not offered: ${edge.edgeId}`);
-            await performAction(browser, `select graph relationship ${edge.edgeId}`, relationship,
+            await performAction(diagnostics, `select graph relationship ${edge.edgeId}`, relationship,
               (locator, { timeout }) => locator.selectOption(edge.edgeId, { timeout }), { timeout: 5000 });
           }
           const addButton = page.getByRole('button', { name: 'Add branch', exact: true }).or(page.getByRole('button', { name: 'Add traversal', exact: true }));
-          await performAction(browser, `add graph traversal ${edge.edgeId}`, addButton,
+          await performAction(diagnostics, `add graph traversal ${edge.edgeId}`, addButton,
             (locator, { timeout }) => locator.click({ timeout }), { timeout: 5000 });
           stateAfterClick = await waitForRoutePrefix(stateAfterClick, prefix, `${edge.relationship} route edge`);
         }
@@ -2757,7 +2854,7 @@ const verifyJ02BrowserScenario = async (target, report, entryTarget = target) =>
       await clickButton('Search');
       const titleChoice = page.getByLabel('Select ResearchStudy.title', { exact: true });
       await titleChoice.waitFor({ state: 'visible', timeout: 30000 });
-      await performAction(browser, 'select ResearchStudy.title', titleChoice,
+      await performAction(diagnostics, 'select ResearchStudy.title', titleChoice,
         (locator, { timeout }) => locator.check({ timeout }), { timeout: 5000 });
       await clickButton('Add 1 selected feature');
       await page.locator('[role="dialog"], input[aria-label="Display name for configured title"]').first().waitFor({ state: 'visible', timeout: 30000 });
@@ -2857,6 +2954,7 @@ const verifyJ02BrowserScenario = async (target, report, entryTarget = target) =>
       if (item.response && item.url.endsWith('/commands') && !item.resultIdentity) {
         await captureCommandResult(item);
       }
+      delete item.responseObject;
       networkEvidence.push({ ...item });
     }
     const networkPath = join(evidenceDir, 'network-identities.json');
@@ -2867,15 +2965,15 @@ const verifyJ02BrowserScenario = async (target, report, entryTarget = target) =>
       commandTransactions.length >= 6 && commandTransactions.every((item) => item.xRequestId && item.resultIdentity?.commandId && item.resultIdentity?.draftVersion));
     report.target.successfulCommandTransactions = commandTransactions.length;
     const diagnosticsPath = join(evidenceDir, 'browser-diagnostics.json');
-    writeJSON(diagnosticsPath, browser.diagnostics);
+    writeJSON(diagnosticsPath, diagnostics);
     recordEvidence(report, diagnosticsPath);
     recordAssertion(report, 'j02-browser-has-no-unexpected-errors-or-api-failures', true,
-      browser.diagnostics.console.length === 0
-      && browser.diagnostics.pageErrors.length === 0
-      && browser.diagnostics.networkFailures.length === 0
-      && browser.diagnostics.httpFailures.length === 0);
+      diagnostics.console.length === 0
+      && diagnostics.pageErrors.length === 0
+      && diagnostics.networkFailures.length === 0
+      && diagnostics.httpFailures.length === 0);
   } catch (error) {
-    await browser.captureFailure(error, {
+    await captureDevJourneyFailure(page, diagnostics, report, evidenceDir, error, {
       phase: 'J02 related-column route, edit, and persistence lifecycle',
       explorerId,
       outputId,
@@ -2889,11 +2987,11 @@ const verifyJ02BrowserScenario = async (target, report, entryTarget = target) =>
       if (!existsSync(path)) writeJSON(path, [...network.values()]);
       recordEvidence(report, path);
     } catch {}
-    await browser.close();
   }
 };
 
-const verifyJ05BrowserScenario = async (target, report, entryTarget = target) => {
+export const verifyJ05BrowserScenario = async (target, report, entryTarget = target, page, diagnostics) => {
+  requireNativeDevJourneyContext(page, diagnostics);
   const runID = `${Date.now().toString(36)}-${randomUUID().slice(0, 8)}`;
   const evidenceDir = join(target.artifacts, runID);
   const downloadDir = join(evidenceDir, 'downloads');
@@ -2909,13 +3007,7 @@ const verifyJ05BrowserScenario = async (target, report, entryTarget = target) =>
   const authoringPath = new URL(bootstrapAuthoringURL(target, ownedExplorerId)).pathname;
   const previewPath = `${authoringPath}/preview`;
   const publishPath = `${authoringPath}/publish`;
-  const browser = await launchPlaywrightEvidenceBrowser({
-    evidence: evidenceDir,
-    appOrigins: [target.uiUrl, target.apiUrl, entryTarget.uiUrl],
-    noAuth: true,
-  });
-  const { page } = browser;
-  const actionTracker = browser;
+  const actionTracker = diagnostics;
   const requestByPlaywrightRequest = new Map();
   const previewResponses = [];
   const previewRequestForResponse = new Map();
@@ -3428,31 +3520,31 @@ const verifyJ05BrowserScenario = async (target, report, entryTarget = target) =>
     recordAssertion(report, 'j05-filtered-viewer-reloads-to-published-rows', true,
       (await page.locator('body').innerText()).includes('dev-patient-001'));
     await captureDOM('j05-viewer-after-reload');
-    const incidentalAssetErrors = browser.diagnostics.console.filter((item) =>
+    const incidentalAssetErrors = diagnostics.console.filter((item) =>
       /Failed to load resource:.*404/.test(item.text)
-      && browser.diagnostics.httpFailures.length === 0
+      && diagnostics.httpFailures.length === 0
       && item.location && new URL(item.location).pathname === '/favicon.ico');
-    report.target.browserDiagnostics = browser.diagnostics;
-    report.target.incidentalBrowserAssetFailures = [...browser.diagnostics.assetFailures, ...incidentalAssetErrors];
+    report.target.browserDiagnostics = diagnostics;
+    report.target.incidentalBrowserAssetFailures = [...diagnostics.assetFailures, ...incidentalAssetErrors];
     const expectedAbortPaths = [
       '/frame-source-options',
       '/semantic-inventory',
       `/api/v1/projects/${encodeURIComponent(target.fixtureProject)}/explorers/${encodeURIComponent(explorerId)}/authoring/v2/construction-capabilities`,
     ];
-    const cancelledReads = browser.diagnostics.networkFailures.filter((item) =>
+    const cancelledReads = diagnostics.networkFailures.filter((item) =>
       item.failure === 'net::ERR_ABORTED'
       && item.method === 'POST'
       && expectedAbortPaths.some((path) => new URL(item.url).pathname.endsWith(path)));
     report.target.cancelledOwnedReads = cancelledReads;
     recordAssertion(report, 'j05-browser-has-no-unexpected-errors-or-api-failures', [], {
-      console: browser.diagnostics.console.filter((item) => !incidentalAssetErrors.includes(item)),
-      pageErrors: browser.diagnostics.pageErrors,
-      networkFailures: browser.diagnostics.networkFailures.filter((item) => !cancelledReads.includes(item)),
-      httpFailures: browser.diagnostics.httpFailures,
+      console: diagnostics.console.filter((item) => !incidentalAssetErrors.includes(item)),
+      pageErrors: diagnostics.pageErrors,
+      networkFailures: diagnostics.networkFailures.filter((item) => !cancelledReads.includes(item)),
+      httpFailures: diagnostics.httpFailures,
     });
   } catch (error) {
-    report.target.browserDiagnostics = browser.diagnostics;
-    const failureTrace = await browser.captureFailure(error, {
+    report.target.browserDiagnostics = diagnostics;
+    const failureTrace = await captureDevJourneyFailure(page, diagnostics, report, evidenceDir, error, {
       action: actionTracker.activeAction,
       scenario: report.scenario,
       outputId: report.target.outputId,
@@ -3462,7 +3554,6 @@ const verifyJ05BrowserScenario = async (target, report, entryTarget = target) =>
     throw error;
   } finally {
     try { await captureDOM('j05-final'); } catch { /* preserve the primary failure */ }
-    await browser.close();
   }
 };
 
@@ -3477,7 +3568,8 @@ const outputColumnForPath = (builder, output, path) => {
   return runtime;
 };
 
-const verifyJ01ExternalBrowserScenario = async (target, report, entryTarget, externalManifest) => {
+export const verifyJ01ExternalBrowserScenario = async (target, report, entryTarget, externalManifest, page, diagnostics) => {
+  requireNativeDevJourneyContext(page, diagnostics);
   const runID = `j01-cda-${Date.now().toString(36)}-${randomUUID().slice(0, 8)}`;
   const journeyStarted = Date.now();
   const evidenceDir = join(target.artifacts, runID);
@@ -3522,12 +3614,6 @@ const verifyJ01ExternalBrowserScenario = async (target, report, entryTarget, ext
   writeJSON(manifestPath, { ...externalManifest.summary, selectedRepeatedFeature: report.target.cdaSelection.repeatedObservation.feature });
   recordEvidence(report, manifestPath);
 
-  const browser = await launchPlaywrightEvidenceBrowser({
-    evidence: evidenceDir,
-    appOrigins: [target.uiUrl, target.apiUrl, entryTarget.uiUrl],
-    noAuth: true,
-  });
-  const { page } = browser;
   const network = [];
   const ownedExplorerIDs = new Set();
   let activeExplorerID;
@@ -3570,14 +3656,13 @@ const verifyJ01ExternalBrowserScenario = async (target, report, entryTarget, ext
   };
   const saveScreenshot = async (name) => {
     const path = join(evidenceDir, `${name}.png`);
-    await page.screenshot({ path, fullPage: true });
-    recordEvidence(report, path);
+    await captureDevJourneyScreenshot(page, diagnostics, report, path);
   };
   const readState = (explorerId) => fetchBuilderState(target, explorerId);
   const bootstrapExplorerId = report.target.bootstrapExplorerId;
   const entryURL = `${entryTarget.uiUrl}/?project=${encodeURIComponent(target.fixtureProject)}&explorer=${encodeURIComponent(bootstrapExplorerId ?? '')}&mode=builder`;
   const userAction = async (label, locator, operation, options = {}) => {
-    const elapsedMs = await performAction(browser, label, locator, operation, { timeout: 5000, ...options });
+    const elapsedMs = await performAction(diagnostics, label, locator, operation, { timeout: 5000, ...options });
     report.actions.push({ name: label, elapsedMs });
     lastUserAction = { label, locator: locator.toString(), targetLocator: locator };
     return elapsedMs;
@@ -4012,8 +4097,8 @@ const verifyJ01ExternalBrowserScenario = async (target, report, entryTarget, ext
     failure = error;
     report.status = 'failed';
     report.error = error instanceof Error ? error.message : String(error);
-    const active = browser.activeAction;
-    await browser.captureFailure(error, {
+    const active = diagnostics.activeAction;
+    await captureDevJourneyFailure(page, diagnostics, report, evidenceDir, error, {
       phase: 'J01 external CDA source, Builder, preview, publish, Viewer, and artifact lifecycle',
       action: active ?? lastUserAction,
       explorerId: activeExplorerID,
@@ -4030,21 +4115,21 @@ const verifyJ01ExternalBrowserScenario = async (target, report, entryTarget, ext
       writeJSON(requestEvidencePath, network);
       recordEvidence(report, requestEvidencePath);
       const diagnosticsPath = join(evidenceDir, 'browser-diagnostics.json');
-      writeJSON(diagnosticsPath, browser.diagnostics);
+      writeJSON(diagnosticsPath, diagnostics);
       recordEvidence(report, diagnosticsPath);
       recordAssertion(report, 'j01-cda-browser-has-no-unexpected-errors-or-api-failures', true,
-        browser.diagnostics.console.length === 0
-        && browser.diagnostics.pageErrors.length === 0
-        && browser.diagnostics.networkFailures.length === 0
-        && browser.diagnostics.httpFailures.length === 0);
+        diagnostics.console.length === 0
+        && diagnostics.pageErrors.length === 0
+        && diagnostics.networkFailures.length === 0
+        && diagnostics.httpFailures.length === 0);
     } catch (error) {
       if (!failure) throw error;
     }
-    try { await browser.close(); } catch {}
   }
 };
-const verifyJ01BrowserScenario = async (target, report, entryTarget = target, externalManifest) => {
-  if (externalManifest) return verifyJ01ExternalBrowserScenario(target, report, entryTarget, externalManifest);
+export const verifyJ01BrowserScenario = async (target, report, entryTarget = target, externalManifest, page, diagnostics) => {
+  requireNativeDevJourneyContext(page, diagnostics);
+  if (externalManifest) return verifyJ01ExternalBrowserScenario(target, report, entryTarget, externalManifest, page, diagnostics);
   const runID = `${Date.now().toString(36)}-${randomUUID().slice(0, 8)}`;
   const evidenceDir = join(target.artifacts, runID);
   const downloadDir = join(evidenceDir, 'downloads');
@@ -4056,12 +4141,6 @@ const verifyJ01BrowserScenario = async (target, report, entryTarget = target, ex
   report.actions = [];
   let previewRowsForArtifact = [];
 
-  const browser = await launchPlaywrightEvidenceBrowser({
-    evidence: evidenceDir,
-    appOrigins: [target.uiUrl, target.apiUrl, entryTarget.uiUrl],
-    noAuth: true,
-  });
-  const { page } = browser;
   const network = [];
   const pendingBodies = new Set();
   const requestItems = new WeakMap();
@@ -4115,12 +4194,12 @@ const verifyJ01BrowserScenario = async (target, report, entryTarget = target, ex
     report.actions.push({ name, elapsedMs });
     report.timings[`j01_${name}_ms`] = elapsedMs;
   };
-  const click = (label, locator) => performAction(browser, label, locator,
+  const click = (label, locator) => performAction(diagnostics, label, locator,
     (targetLocator, { timeout }) => targetLocator.click({ timeout }), { timeout: 5000 });
   const clickButton = (name, scope = page) => click(`click button ${name}`, scope.getByRole('button', { name, exact: true }));
-  const fill = (label, value, locator = page.getByLabel(label, { exact: true })) => performAction(browser, `fill ${label}`, locator,
+  const fill = (label, value, locator = page.getByLabel(label, { exact: true })) => performAction(diagnostics, `fill ${label}`, locator,
     (locator, { timeout }) => locator.fill(String(value), { timeout }), { timeout: 5000, editable: true });
-  const select = (label, value, scope = page) => performAction(browser, `select ${label}`, scope.getByLabel(label, { exact: true }),
+  const select = (label, value, scope = page) => performAction(diagnostics, `select ${label}`, scope.getByLabel(label, { exact: true }),
     (locator, { timeout }) => locator.selectOption({ label: value }, { timeout }), { timeout });
   const waitForDOMCondition = async (condition, timeout = 30000) => page.waitForFunction(condition, undefined, { timeout });
   const navigatePage = async (url) => page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
@@ -4165,8 +4244,8 @@ const verifyJ01BrowserScenario = async (target, report, entryTarget = target, ex
   };
   const saveScreenshot = async (name) => {
     const path = join(evidenceDir, `${name}.png`);
-    await page.screenshot({ path, fullPage: true, mask: [page.locator('input'), page.locator('textarea')] });
-    recordEvidence(report, path);
+    await captureDevJourneyScreenshot(page, diagnostics, report, path,
+      { mask: [page.locator('input'), page.locator('textarea')] });
   };
   const saveNetworkEvidence = async () => {
     await Promise.allSettled([...pendingBodies]);
@@ -4485,7 +4564,7 @@ const verifyJ01BrowserScenario = async (target, report, entryTarget = target, ex
       };
       await captureDOM('j01-owner-record-evidence');
       await clickButton('Close');
-      const acknowledgementSamples = await measureJ01InspectorAcknowledgements(browser, page, 'shared', ownerRowIndex);
+      const acknowledgementSamples = await measureJ01InspectorAcknowledgements(diagnostics, page, 'shared', ownerRowIndex);
       report.timings.uiAcknowledgements = summarizeTimingSamples(acknowledgementSamples);
       report.target.uiAcknowledgementSamples = acknowledgementSamples;
       recordAssertion(report, 'j01-captures-thirty-ui-acknowledgements', 30, acknowledgementSamples.length);
@@ -4652,12 +4731,12 @@ const verifyJ01BrowserScenario = async (target, report, entryTarget = target, ex
     await saveNetworkEvidence();
   } catch (error) {
     primaryFailure = error;
-    await browser.captureFailure(error, {
+    await captureDevJourneyFailure(page, diagnostics, report, evidenceDir, error, {
       phase: 'j01-local-browser-scenario',
       explorerID: report.target.explorerId,
       outputID: report.target.outputId,
-      action: browser.activeAction,
-      elapsedMs: browser.activeAction?.startedAt ? Date.now() - browser.activeAction.startedAt : undefined,
+      action: diagnostics.activeAction,
+      elapsedMs: diagnostics.activeAction?.startedAt ? Date.now() - diagnostics.activeAction.startedAt : undefined,
     });
     throw error;
   } finally {
@@ -4665,17 +4744,15 @@ const verifyJ01BrowserScenario = async (target, report, entryTarget = target, ex
       await saveNetworkEvidence();
       await captureDOM('j01-final');
       const diagnosticsPath = join(evidenceDir, 'browser-diagnostics.json');
-      writeJSON(diagnosticsPath, browser.diagnostics);
+      writeJSON(diagnosticsPath, diagnostics);
       recordEvidence(report, diagnosticsPath);
       if (!primaryFailure) recordAssertion(report, 'j01-browser-has-no-unexpected-errors-or-api-failures', true,
-        browser.diagnostics.console.length === 0
-        && browser.diagnostics.pageErrors.length === 0
-        && browser.diagnostics.networkFailures.length === 0
-        && browser.diagnostics.httpFailures.length === 0);
+        diagnostics.console.length === 0
+        && diagnostics.pageErrors.length === 0
+        && diagnostics.networkFailures.length === 0
+        && diagnostics.httpFailures.length === 0);
     } catch (error) {
       if (!primaryFailure) throw error;
-    } finally {
-      try { await browser.close(); } catch (error) { if (!primaryFailure) throw error; }
     }
   }
 };
@@ -4969,20 +5046,20 @@ const measureJ01CatalogRequests = async (target, report, { explorerId, snapshotT
   return { summary, requests };
 };
 
-const measureJ01InspectorAcknowledgements = async (browser, page, label, rowIndex) => {
+const measureJ01InspectorAcknowledgements = async (diagnostics, page, label, rowIndex) => {
   const button = page.getByRole('button', { name: `Inspect ${label} for row ${rowIndex + 1}`, exact: true });
   const dialog = page.getByRole('dialog', { name: `${label} record evidence`, exact: true });
   const samples = [];
   for (let index = 0; index < 30; index += 1) {
     const started = Date.now();
-    await performAction(browser, `inspect ${label} for row ${rowIndex + 1}`, button,
+    await performAction(diagnostics, `inspect ${label} for row ${rowIndex + 1}`, button,
       (locator, { timeout }) => locator.click({ timeout }), { timeout: 5000 });
     await dialog.waitFor({ state: 'visible', timeout: 5000 });
     const elapsed = Date.now() - started;
     if (elapsed > 5000) throw new Error(`J01 ${label} action-to-render took ${elapsed}ms; required <= 5000ms`);
     samples.push(elapsed);
     const close = dialog.getByRole('button', { name: 'Close', exact: true });
-    await performAction(browser, `close ${label} evidence`, close,
+    await performAction(diagnostics, `close ${label} evidence`, close,
       (locator, { timeout }) => locator.click({ timeout }), { timeout: 5000 });
     await dialog.waitFor({ state: 'hidden', timeout: 5000 });
   }
@@ -5065,7 +5142,7 @@ const rowValue = (row, column) => row[column] ?? null;
 
 const coordinateIndex = (emitted) => emitted?.coordinates?.at(-1)?.index ?? -1;
 
-const verifyInterpretationCandidate = async (target, report, browser, page, explorerID, evidenceDir, browserURL, physicalColumnID) => {
+const verifyInterpretationCandidate = async (target, report, diagnostics, page, explorerID, evidenceDir, browserURL, physicalColumnID) => {
   const started = Date.now();
   const sourceDigestBefore = fixtureSourceDigest(target.fixtureDir);
   const initial = await fetchBuilderState(target, explorerID);
@@ -5129,9 +5206,9 @@ const verifyInterpretationCandidate = async (target, report, browser, page, expl
   const sameLabelColumns = document.columns.filter((column) => column.label === feature.label);
   const sameLabelIndex = sameLabelColumns.findIndex((column) => column.column === feature.column);
   if (sameLabelIndex < 0) throw new Error(`Patient id column ${feature.column} is missing from its saved label group`);
-  const click = (label, locator) => performAction(browser, label, locator,
+  const click = (label, locator) => performAction(diagnostics, label, locator,
     (targetLocator, { timeout }) => targetLocator.click({ timeout }), { timeout: 5000 });
-  const fill = (label, value, locator) => performAction(browser, label, locator,
+  const fill = (label, value, locator) => performAction(diagnostics, label, locator,
     (targetLocator, { timeout }) => targetLocator.fill(String(value), { timeout }), { timeout: 5000, editable: true });
   const waitForDOMCondition = async (condition, timeout = 30000) => page.waitForFunction(condition, undefined, { timeout });
   const navigatePage = async (url) => page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
@@ -5367,7 +5444,8 @@ export const j04DefaultRecordCellTraceRowID = (project, generation, resourceType
 
 export const builderDOMReadyCondition = `Boolean(document.querySelector('[data-testid="construction-workspace"]')) || Boolean(document.querySelector('#first-table-name') && document.querySelector('[aria-label="Choose row type"]'))`;
 
-const verifyBrowserScenario = async (target, report, full, entryTarget = target) => {
+export const verifyBrowserScenario = async (target, report, full, entryTarget = target, page, diagnostics) => {
+  requireNativeDevJourneyContext(page, diagnostics);
   const relatedValue = expectedFixtureRelatedValue(target.fixtureProject, target.fixtureGeneration);
   const maximumRelatedValue = 180;
   const scenarioStarted = Date.now();
@@ -5379,22 +5457,16 @@ const verifyBrowserScenario = async (target, report, full, entryTarget = target)
   recordEvidence(report, evidenceDir);
   const bootstrapExplorerId = report.target.bootstrapExplorerId;
   if (!bootstrapExplorerId) throw new Error('fixture bootstrap Explorer identity is missing');
-  const browser = await launchPlaywrightEvidenceBrowser({
-    evidence: evidenceDir,
-    appOrigins: [target.uiUrl, target.apiUrl, entryTarget.uiUrl],
-    noAuth: true,
-  });
-  const { page } = browser;
   const browserURL = `${target.uiUrl}/?project=${encodeURIComponent(target.fixtureProject)}&explorer=${encodeURIComponent(bootstrapExplorerId)}&mode=builder`;
   let explorerId = '';
-  const click = (label, locator) => performAction(browser, label, locator,
+  const click = (label, locator) => performAction(diagnostics, label, locator,
     (targetLocator, { timeout }) => targetLocator.click({ timeout }), { timeout: 5000 });
   const clickButton = (name, scope = page) => click(`click button ${name}`, scope.getByRole('button', { name, exact: true }));
-  const fill = (label, value, locator = page.getByLabel(label, { exact: true })) => performAction(browser, `fill ${label}`, locator,
+  const fill = (label, value, locator = page.getByLabel(label, { exact: true })) => performAction(diagnostics, `fill ${label}`, locator,
     (targetLocator, { timeout }) => targetLocator.fill(String(value), { timeout }), { timeout: 5000, editable: true });
-  const select = (label, value, scope = page) => performAction(browser, `select ${label}`, scope.getByLabel(label, { exact: true }),
+  const select = (label, value, scope = page) => performAction(diagnostics, `select ${label}`, scope.getByLabel(label, { exact: true }),
     (locator, { timeout }) => locator.selectOption({ label: value }, { timeout }), { timeout });
-  const selectValue = (label, value) => performAction(browser, `select ${label}`, page.getByLabel(label, { exact: true }),
+  const selectValue = (label, value) => performAction(diagnostics, `select ${label}`, page.getByLabel(label, { exact: true }),
     (locator, { timeout }) => locator.selectOption({ value }, { timeout }), { timeout });
   const clickCandidate = (fieldPath, suffix) => click(`select ${fieldPath} ${suffix}`,
     page.getByRole('checkbox', { name: `Add ${fieldPath} ${suffix}`, exact: true }));
@@ -5730,7 +5802,7 @@ const verifyBrowserScenario = async (target, report, full, entryTarget = target)
       { path: 'name[].family', projectionMode: familyCandidate.defaultProjectionMode },
       { path: 'gender', projectionMode: genderCandidate.defaultProjectionMode },
     ], configuredSourceBindings);
-    await verifyInterpretationCandidate(target, report, browser, page, explorerId, evidenceDir, verificationBrowserURL, catalogIDColumn.column);
+    await verifyInterpretationCandidate(target, report, diagnostics, page, explorerId, evidenceDir, verificationBrowserURL, catalogIDColumn.column);
 
     await waitForDOMCondition(`document.body.innerText.includes('Concept catalog')`);
     await clickButton('Advanced graph');
@@ -6259,13 +6331,13 @@ const verifyBrowserScenario = async (target, report, full, entryTarget = target)
 
   } catch (error) {
     primaryFailure = error;
-    await browser.captureFailure(error, {
+    await captureDevJourneyFailure(page, diagnostics, report, evidenceDir, error, {
       phase: 'verify-fast-full-browser-scenario',
       explorerID: explorerId,
       fixtureProject: target.fixtureProject,
       fixtureGeneration: target.fixtureGeneration,
-      action: browser.activeAction,
-      elapsedMs: browser.activeAction?.startedAt ? Date.now() - browser.activeAction.startedAt : undefined,
+      action: diagnostics.activeAction,
+      elapsedMs: diagnostics.activeAction?.startedAt ? Date.now() - diagnostics.activeAction.startedAt : undefined,
     });
     throw error;
   } finally {
@@ -6273,17 +6345,15 @@ const verifyBrowserScenario = async (target, report, full, entryTarget = target)
     try {
       await captureDOM(join(evidenceDir, 'final.html'));
       const diagnosticsPath = join(evidenceDir, 'browser-diagnostics.json');
-      writeJSON(diagnosticsPath, browser.diagnostics);
+      writeJSON(diagnosticsPath, diagnostics);
       recordEvidence(report, diagnosticsPath);
       if (!primaryFailure) recordAssertion(report, 'verify-fast-browser-has-no-unexpected-errors-or-api-failures', true,
-        browser.diagnostics.console.length === 0
-        && browser.diagnostics.pageErrors.length === 0
-        && browser.diagnostics.networkFailures.length === 0
-        && browser.diagnostics.httpFailures.length === 0);
+        diagnostics.console.length === 0
+        && diagnostics.pageErrors.length === 0
+        && diagnostics.networkFailures.length === 0
+        && diagnostics.httpFailures.length === 0);
     } catch (error) {
       if (!primaryFailure) throw error;
-    } finally {
-      try { await browser.close(); } catch (error) { if (!primaryFailure) throw error; }
     }
   }
 };
@@ -6408,16 +6478,13 @@ export const doctor = async (target) => {
   return { api: api.status, ui: ui.status, generation: generation.status, builder: builder?.response.status ?? 404, builderState: builder?.response.ok ? builder.value : undefined, bootstrapExplorerId: bootstrap?.explorerId, composeProject: target.composeProject, project: target.fixtureProject, generationName: target.fixtureGeneration, buildBarrier };
 };
 
-const verifyCurrentBuilderDOM = async (target, report, explorerId, builderState) => {
+export const verifyCurrentBuilderDOM = async (target, report, explorerId, builderState, page, diagnostics) => {
+  requireNativeDevJourneyContext(page, diagnostics);
   if (!explorerId) throw new Error('current development target has no bootstrap Explorer');
   const evidenceDirectory = join(target.artifacts, `current-${Date.now().toString(36)}`);
   mkdirSync(evidenceDirectory, { recursive: true, mode: 0o700 });
-  const browser = await launchPlaywrightEvidenceBrowser({
-    evidence: evidenceDirectory,
-    appOrigins: [target.uiUrl, target.apiUrl],
-    noAuth: true,
-  });
-  const { page } = browser;
+  report.target.evidenceDirectory = evidenceDirectory;
+  recordEvidence(report, evidenceDirectory);
   const url = `${target.uiUrl}/?project=${encodeURIComponent(target.fixtureProject)}&explorer=${encodeURIComponent(explorerId)}&mode=builder`;
   try {
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
@@ -6440,8 +6507,7 @@ const verifyCurrentBuilderDOM = async (target, report, explorerId, builderState)
     writeFileSync(domPath, await page.content(), { mode: 0o600 });
     recordEvidence(report, domPath);
     const screenshotPath = join(evidenceDirectory, 'builder.png');
-    await page.screenshot({ path: screenshotPath, fullPage: true });
-    recordEvidence(report, screenshotPath);
+    await captureDevJourneyScreenshot(page, diagnostics, report, screenshotPath);
     report.target.browserUrl = url;
     report.target.visibleButtons = state.visibleButtons;
     const expectedTableTitles = (builderState?.workspace?.documents ?? [])
@@ -6458,24 +6524,23 @@ const verifyCurrentBuilderDOM = async (target, report, explorerId, builderState)
         expected, { timeout: 15000 }),
       () => page.evaluate(() => getComputedStyle(document.querySelector('.loom-ui-root')).getPropertyValue('--loom-dev-hotreload-probe').trim()));
     const diagnosticsPath = join(evidenceDirectory, 'browser-diagnostics.json');
-    writeJSON(diagnosticsPath, browser.diagnostics);
+    writeJSON(diagnosticsPath, diagnostics);
     recordEvidence(report, diagnosticsPath);
     recordAssertion(report, 'current-builder-has-no-unexpected-browser-or-api-errors', true,
-      browser.diagnostics.console.length === 0
-      && browser.diagnostics.pageErrors.length === 0
-      && browser.diagnostics.networkFailures.length === 0
-      && browser.diagnostics.httpFailures.length === 0);
+      diagnostics.console.length === 0
+      && diagnostics.pageErrors.length === 0
+      && diagnostics.networkFailures.length === 0
+      && diagnostics.httpFailures.length === 0);
   } catch (error) {
     report.status = 'failed';
     report.error = error instanceof Error ? error.message : String(error);
-    await browser.captureFailure(error, { phase: 'current Builder browser render and hot-reload check', explorerId });
+    await captureDevJourneyFailure(page, diagnostics, report, evidenceDirectory, error, { phase: 'current Builder browser render and hot-reload check', explorerId });
     throw error;
-  } finally {
-    await browser.close();
   }
 };
 
-const verifyJ03BrowserScenario = async (target, report, entryTarget = target) => {
+export const verifyJ03BrowserScenario = async (target, report, entryTarget = target, page, diagnostics) => {
+  requireNativeDevJourneyContext(page, diagnostics);
   const evidenceDirectory = join(target.artifacts, `${Date.now().toString(36)}-${randomUUID().slice(0, 8)}`);
   report.target.evidenceDirectory = evidenceDirectory;
   report.target.ports = { api: target.apiPort, ui: target.uiPort };
@@ -6494,12 +6559,6 @@ const verifyJ03BrowserScenario = async (target, report, entryTarget = target) =>
     for (const resolveWaiter of networkWaiters) resolveWaiter();
     networkWaiters.clear();
   };
-  const browser = await launchPlaywrightEvidenceBrowser({
-    evidence: evidenceDirectory,
-    appOrigins: [target.uiUrl, target.apiUrl, entryTarget.uiUrl],
-    noAuth: true,
-  });
-  const { page } = browser;
   const ownedPath = (pathname) => pathname.startsWith(`${authoringPath}/`)
     || pathname === selectionPath
     || pathname === `${selectionPath}/explicit-groups`;
@@ -6538,9 +6597,9 @@ const verifyJ03BrowserScenario = async (target, report, entryTarget = target) =>
   });
 
   const readState = () => fetchBuilderState(target, explorerId);
-  const clickButton = (name, scope = page) => performAction(browser, `click ${name}`, scope.getByRole('button', { name, exact: true }),
+  const clickButton = (name, scope = page) => performAction(diagnostics, `click ${name}`, scope.getByRole('button', { name, exact: true }),
     (locator, { timeout }) => locator.click({ timeout }), { timeout: 5000 });
-  const fillInput = (label, value, scope = page) => performAction(browser, `fill ${label}`, scope.getByLabel(label, { exact: true }),
+  const fillInput = (label, value, scope = page) => performAction(diagnostics, `fill ${label}`, scope.getByLabel(label, { exact: true }),
     (locator, { timeout }) => locator.fill(value, { timeout }), { timeout: 5000, editable: true });
   const navigate = async (nextURL) => {
     await page.goto(nextURL, { waitUntil: 'domcontentloaded', timeout: 60000 });
@@ -6586,7 +6645,7 @@ const verifyJ03BrowserScenario = async (target, report, entryTarget = target) =>
     const choices = await select.locator('option').evaluateAll((options) => options.map((option) => ({ value: option.value, text: option.textContent ?? '' })));
     const option = choices.find((candidate) => candidate.text.includes('EXPANDED') && candidate.text.includes(policy));
     if (!option) throw new Error(`server offered no EXPANDED row choice with policy ${policy}`);
-    await performAction(browser, `select EXPANDED row policy ${policy}`, select,
+    await performAction(diagnostics, `select EXPANDED row policy ${policy}`, select,
       (locator, { timeout }) => locator.selectOption(option.value, { timeout }), { timeout: 5000 });
     return option.text.trim();
   };
@@ -6596,7 +6655,7 @@ const verifyJ03BrowserScenario = async (target, report, entryTarget = target) =>
     const choices = await select.locator('option').evaluateAll((options) => options.map((option) => ({ value: option.value, text: option.textContent ?? '' })));
     const option = choices.find((candidate) => candidate.text.includes('Explicit group') && candidate.text.includes(revisionId.slice(0, 12)) && candidate.text.includes(policy));
     if (!option) throw new Error(`server offered no explicit group row choice with policy ${policy}`);
-    await performAction(browser, `select explicit group policy ${policy}`, select,
+    await performAction(diagnostics, `select explicit group policy ${policy}`, select,
       (locator, { timeout }) => locator.selectOption(option.value, { timeout }), { timeout: 5000 });
     return option.text.trim();
   };
@@ -6633,12 +6692,12 @@ const verifyJ03BrowserScenario = async (target, report, entryTarget = target) =>
   });
   const captureBrowserProposal = async (selectChoice) => {
     const dialog = page.getByRole('dialog', { name: 'Row definition settings', exact: true });
-    if (!(await dialog.count())) await performAction(browser, 'open row settings', page.getByRole('button', { name: 'Configure rows', exact: true }),
+    if (!(await dialog.count())) await performAction(diagnostics, 'open row settings', page.getByRole('button', { name: 'Configure rows', exact: true }),
       (locator, { timeout }) => locator.click({ timeout }), { timeout: 5000 });
     await dialog.waitFor({ state: 'visible', timeout: 30000 });
     const label = await selectChoice();
     const afterIndex = network.length - 1;
-    await performAction(browser, 'preview row change', page.getByRole('button', { name: 'Preview row change', exact: true }),
+    await performAction(diagnostics, 'preview row change', page.getByRole('button', { name: 'Preview row change', exact: true }),
       (locator, { timeout }) => locator.click({ timeout }), { timeout: 5000 });
     await page.getByLabel('Row definition preview', { exact: true }).waitFor({ state: 'visible', timeout: 60000 });
     await dialog.getByRole('button', { name: 'Apply row definition', exact: true }).waitFor({ state: 'visible', timeout: 60000 });
@@ -6647,7 +6706,7 @@ const verifyJ03BrowserScenario = async (target, report, entryTarget = target) =>
   };
   const capturePreview = async () => {
     const afterIndex = network.length - 1;
-    await performAction(browser, 'open preview', page.getByRole('button', { name: 'Preview', exact: true }),
+    await performAction(diagnostics, 'open preview', page.getByRole('button', { name: 'Preview', exact: true }),
       (locator, { timeout }) => locator.click({ timeout }), { timeout: 5000 });
     const response = await waitForResponse('/preview', afterIndex);
     if (response.response?.status !== 200 || !Array.isArray(response.responseBody?.rows)) {
@@ -6754,7 +6813,7 @@ const verifyJ03BrowserScenario = async (target, report, entryTarget = target) =>
       const checkbox = page.getByLabel(checkboxLabel, { exact: true });
       await checkbox.waitFor({ state: 'visible', timeout: 30000 });
       if (await checkbox.isChecked()) throw new Error(`J03 group membership checkbox is already selected: ${checkboxLabel}`);
-      await performAction(browser, `assign record ${memberIndex + 1} to ${groupName}`, checkbox,
+      await performAction(diagnostics, `assign record ${memberIndex + 1} to ${groupName}`, checkbox,
         (locator, { timeout }) => locator.check({ timeout }), { timeout: 5000 });
     }
     const exactMembershipRows = (await page.getByLabel('Exact group memberships', { exact: true }).getByRole('listitem').allTextContents()).map((text) => text.replace(/\s+/g, ' ').trim());
@@ -7002,20 +7061,20 @@ const verifyJ03BrowserScenario = async (target, report, entryTarget = target) =>
     };
     await captureDOM('j03-reloaded-explicit-group-preview');
     const diagnosticsPath = join(evidenceDirectory, 'browser-diagnostics.json');
-    writeJSON(diagnosticsPath, browser.diagnostics);
+    writeJSON(diagnosticsPath, diagnostics);
     recordEvidence(report, diagnosticsPath);
     recordAssertion(report, 'j03-browser-has-no-unexpected-errors-or-api-failures', true,
-      browser.diagnostics.console.length === 0
-      && browser.diagnostics.pageErrors.length === 0
-      && browser.diagnostics.networkFailures.length === 0
-      && browser.diagnostics.httpFailures.length === 0);
+      diagnostics.console.length === 0
+      && diagnostics.pageErrors.length === 0
+      && diagnostics.networkFailures.length === 0
+      && diagnostics.httpFailures.length === 0);
     const networkPath = join(evidenceDirectory, 'network-identities.json');
     writeJSON(networkPath, network.map(({ responsePromise, resolveResponse, ...item }) => item));
     recordEvidence(report, networkPath);
     writeJSON(join(evidenceDirectory, 'report.json'), { status: 'passed', scenario: 'J03-row-definition-settings', target: report.target, assertions: report.assertions, evidencePaths: report.evidencePaths });
     console.log(`DEV_J03_BROWSER_PASSED explorer=${explorerId} output=${outputId} evidence=${evidenceDirectory}`);
   } catch (error) {
-    await browser.captureFailure(error, {
+    await captureDevJourneyFailure(page, diagnostics, report, evidenceDirectory, error, {
       phase: 'J03 row definition, explicit groups, preview, export, and persistence lifecycle',
       explorerId,
       outputId: report.target.outputId,
@@ -7031,8 +7090,6 @@ const verifyJ03BrowserScenario = async (target, report, entryTarget = target) =>
     })));
     recordEvidence(report, networkPath);
     throw error;
-  } finally {
-    await browser.close();
   }
 };
 
@@ -7101,7 +7158,8 @@ const j04EvidenceDocument = (report) => {
   return `${lines.join('\n')}\n`;
 };
 
-const verifyJ04PatientOperatorScenario = async (target, report, entryTarget, fixture) => {
+export const verifyJ04PatientOperatorScenario = async (target, report, entryTarget, fixture, page, diagnostics) => {
+  requireNativeDevJourneyContext(page, diagnostics);
   const controlPlan = j04PatientOperatorDOMPlan(fixture.contract);
   const evidenceDirectory = join(report.target.evidenceDirectory, 'patient-operator');
   const downloadDirectory = join(evidenceDirectory, 'downloads');
@@ -7112,8 +7170,6 @@ const verifyJ04PatientOperatorScenario = async (target, report, entryTarget, fix
   report.actions ??= [];
   const journey = report.target.patientOperatorJourney;
   const network = [];
-  let browser;
-  let page;
   let explorerId;
   let outputId;
   let failure;
@@ -7129,12 +7185,10 @@ const verifyJ04PatientOperatorScenario = async (target, report, entryTarget, fix
   };
   const captureScreenshot = async (name) => {
     const path = join(evidenceDirectory, `${name}.png`);
-    await page.screenshot({ path, fullPage: true });
-    recordEvidence(report, path);
-    return path;
+    return captureDevJourneyScreenshot(page, diagnostics, report, path);
   };
   const userAction = async (label, locator, operation, options = {}) => {
-    const elapsedMs = await performAction(browser, label, locator, operation, { timeout: 5000, ...options });
+    const elapsedMs = await performAction(diagnostics, label, locator, operation, { timeout: 5000, ...options });
     journey.actions.push({ name: label, elapsedMs });
     lastUserAction = { label, locator: locator.toString(), targetLocator: locator };
     return elapsedMs;
@@ -7456,12 +7510,6 @@ const verifyJ04PatientOperatorScenario = async (target, report, entryTarget, fix
   };
 
   try {
-    browser = await launchPlaywrightEvidenceBrowser({
-      evidence: evidenceDirectory,
-      appOrigins: [target.uiUrl, target.apiUrl, entryTarget.uiUrl],
-      noAuth: true,
-    });
-    page = browser.page;
     page.on('request', (request) => {
       const url = new URL(request.url());
       const match = url.pathname.match(/^\/api\/v1\/projects\/([^/]+)\/explorers\/([^/]+)\/authoring\/v2\/(.+)$/);
@@ -7986,13 +8034,13 @@ const verifyJ04PatientOperatorScenario = async (target, report, entryTarget, fix
     });
 
     const diagnosticsPath = join(evidenceDirectory, 'browser-diagnostics.json');
-    writeJSON(diagnosticsPath, browser.diagnostics);
+    writeJSON(diagnosticsPath, diagnostics);
     recordEvidence(report, diagnosticsPath);
     recordAssertion(report, 'j04-patient-browser-has-no-unexpected-errors-or-api-failures', true,
-      browser.diagnostics.console.length === 0
-      && browser.diagnostics.pageErrors.length === 0
-      && browser.diagnostics.networkFailures.length === 0
-      && browser.diagnostics.httpFailures.length === 0);
+      diagnostics.console.length === 0
+      && diagnostics.pageErrors.length === 0
+      && diagnostics.networkFailures.length === 0
+      && diagnostics.httpFailures.length === 0);
     journey.status = 'completed';
     const requiredVisibleActions = [
       'create-blank-explorer-through-visible-controls',
@@ -8006,10 +8054,10 @@ const verifyJ04PatientOperatorScenario = async (target, report, entryTarget, fix
     failure = error;
     journey.status = 'failed';
     journey.error = error instanceof Error ? error.message : String(error);
-    if (browser) {
-      journey.failureTrace = await browser.captureFailure(error, {
+    if (page) {
+      journey.failureTrace = await captureDevJourneyFailure(page, diagnostics, report, evidenceDirectory, error, {
         phase: 'J04 Patient operator preview, recoding, aggregation, normalization, selection, and refusal lifecycle',
-        action: browser.activeAction ?? lastUserAction,
+        action: diagnostics.activeAction ?? lastUserAction,
         explorerId,
         outputId,
         draft: explorerId
@@ -8023,7 +8071,6 @@ const verifyJ04PatientOperatorScenario = async (target, report, entryTarget, fix
     if (page) {
       try { await captureDOM('final'); } catch {}
       try { journey.failureScreenshot = await captureScreenshot('failure'); } catch {}
-      try { await browser.close(); } catch {}
     }
     journey.network = network.map(({ path, method, status, requestJSON }) => ({ path, method, status, commandId: requestJSON?.commandId }));
     journey.elapsedMs = Date.now() - started;
@@ -8040,7 +8087,8 @@ const verifyJ04PatientOperatorScenario = async (target, report, entryTarget, fix
   }
 };
 
-const verifyJ04BrowserScenario = async (target, report, entryTarget, fixture) => {
+export const verifyJ04BrowserScenario = async (target, report, entryTarget, fixture, page, diagnostics) => {
+  requireNativeDevJourneyContext(page, diagnostics);
   const controlPlan = j04BrowserControlPlan(fixture.contract);
   const evidenceDirectory = report.target.evidenceDirectory;
   const downloadDirectory = join(evidenceDirectory, 'downloads');
@@ -8068,8 +8116,6 @@ const verifyJ04BrowserScenario = async (target, report, entryTarget, fixture) =>
   };
   recordLimitation(report, 'j04-proposal-evidence-is-not-carried-into-typed-artifact', report.target.proposalEvidenceCrossSurfaceGap.detail);
   const network = [];
-  let browser;
-  let page;
   let requests = new Map();
   let failure;
   const started = Date.now();
@@ -8081,9 +8127,7 @@ const verifyJ04BrowserScenario = async (target, report, entryTarget, fixture) =>
   };
   const captureScreenshot = async (name) => {
     const path = join(evidenceDirectory, `${name}.png`);
-    await page.screenshot({ path, fullPage: true });
-    recordEvidence(report, path);
-    return path;
+    return captureDevJourneyScreenshot(page, diagnostics, report, path);
   };
   const action = async (name, operation) => {
     const actionStarted = Date.now();
@@ -8106,10 +8150,10 @@ const verifyJ04BrowserScenario = async (target, report, entryTarget, fixture) =>
     recordEvidence(report, path);
     return state;
   };
-  const click = (label, locator) => performAction(browser, label, locator,
+  const click = (label, locator) => performAction(diagnostics, label, locator,
     (targetLocator, { timeout }) => targetLocator.click({ timeout }), { timeout: 5000 });
   const clickButton = (name, scope = page) => click(`click ${name}`, scope.getByRole('button', { name, exact: true }));
-  const fill = (label, value, locator = page.getByLabel(label, { exact: true })) => performAction(browser, `fill ${label}`, locator,
+  const fill = (label, value, locator = page.getByLabel(label, { exact: true })) => performAction(diagnostics, `fill ${label}`, locator,
     (targetLocator, { timeout }) => targetLocator.fill(String(value), { timeout }), { timeout: 5000, editable: true });
   const navigate = async (nextURL) => {
     await page.goto(nextURL, { waitUntil: 'domcontentloaded', timeout: 60000 });
@@ -8156,7 +8200,7 @@ const verifyJ04BrowserScenario = async (target, report, entryTarget, fixture) =>
       await clickButton('Search');
       const choice = page.getByLabel(`Select ${resourceType}.${field.path}`, { exact: true });
       await choice.waitFor({ state: 'visible', timeout: 60000 });
-      await performAction(browser, `select ${resourceType}.${field.path}`, choice,
+      await performAction(diagnostics, `select ${resourceType}.${field.path}`, choice,
         (targetLocator, { timeout }) => targetLocator.check({ timeout }), { timeout: 5000 });
       await clickButton('Add 1 selected feature');
       const expectedCount = initialColumnCount + index + 1;
@@ -8164,7 +8208,7 @@ const verifyJ04BrowserScenario = async (target, report, entryTarget, fixture) =>
       const outputFormDialog = await formDialog.waitFor({ state: 'visible', timeout: 5000 }).then(() => true, () => false);
       if (outputFormDialog) {
         const form = formDialog.locator(`input[type="radio"][aria-label$=${JSON.stringify(` · ${field.selection.form}`)}]`);
-        await performAction(browser, `select output form ${field.selection.form}`, form,
+        await performAction(diagnostics, `select output form ${field.selection.form}`, form,
           (targetLocator, { timeout }) => targetLocator.check({ timeout }), { timeout: 5000 });
         await clickButton('Add 1 selected feature', formDialog);
       }
@@ -8180,12 +8224,12 @@ const verifyJ04BrowserScenario = async (target, report, entryTarget, fixture) =>
     const options = await select.locator('option').evaluateAll((items) => items.map((item) => ({ value: item.value, label: item.textContent?.trim() ?? '', disabled: item.disabled })));
     const option = options.find((item) => item.label.toLocaleLowerCase().includes(textNeedle.toLocaleLowerCase()));
     if (!option || option.disabled) throw new Error(`J04 test option is unavailable: ${textNeedle}; choices=${options.map((item) => item.label).join(' | ')}`);
-    await performAction(browser, `select ${testId}`, select, (targetLocator, { timeout }) => targetLocator.selectOption(option.value, { timeout }), { timeout: 5000 });
+    await performAction(diagnostics, `select ${testId}`, select, (targetLocator, { timeout }) => targetLocator.selectOption(option.value, { timeout }), { timeout: 5000 });
     return { value: option.value, label: option.label };
   };
   const checkTestID = async (testId, checked = true) => {
     const input = page.getByTestId(testId);
-    await performAction(browser, `${checked ? 'check' : 'uncheck'} ${testId}`, input,
+    await performAction(diagnostics, `${checked ? 'check' : 'uncheck'} ${testId}`, input,
       (targetLocator, { timeout }) => checked ? targetLocator.check({ timeout }) : targetLocator.uncheck({ timeout }), { timeout: 5000 });
     return input.isChecked();
   };
@@ -8193,24 +8237,18 @@ const verifyJ04BrowserScenario = async (target, report, entryTarget, fixture) =>
     const select = page.getByLabel(label, { exact: true });
     const option = select.locator(`option[value=${JSON.stringify(value)}]`);
     if (await option.count() !== 1 || await option.isDisabled()) throw new Error(`J04 accessible option is unavailable: ${value} for ${label}`);
-    await performAction(browser, `select ${label}`, select, (targetLocator, { timeout }) => targetLocator.selectOption(value, { timeout }), { timeout: 5000 });
+    await performAction(diagnostics, `select ${label}`, select, (targetLocator, { timeout }) => targetLocator.selectOption(value, { timeout }), { timeout: 5000 });
     return option.textContent();
   };
   const checkChoiceByLabel = async (testIdPrefix, labelNeedle) => {
     const matchingLabel = page.locator('label').filter({ has: page.locator(`input[type="checkbox"][data-testid^=${JSON.stringify(testIdPrefix)}]`), hasText: labelNeedle });
     const checkbox = matchingLabel.getByRole('checkbox');
-    await performAction(browser, `select ${labelNeedle}`, checkbox,
+    await performAction(diagnostics, `select ${labelNeedle}`, checkbox,
       (targetLocator, { timeout }) => targetLocator.check({ timeout }), { timeout: 5000 });
     return { testId: await checkbox.getAttribute('data-testid'), label: (await matchingLabel.innerText()).replace(/\s+/g, ' ').trim() };
   };
 
   try {
-    browser = await launchPlaywrightEvidenceBrowser({
-      evidence: evidenceDirectory,
-      appOrigins: [target.uiUrl, target.apiUrl, entryTarget.uiUrl],
-      noAuth: true,
-    });
-    page = browser.page;
     const uiOrigin = new URL(target.uiUrl).origin;
     const authoringPath = new URL(bootstrapAuthoringURL(target, report.target.bootstrapExplorerId)).pathname;
     requests = new Map();
@@ -9086,7 +9124,7 @@ const verifyJ04BrowserScenario = async (target, report, entryTarget, fixture) =>
         await captureDOM('j04-observation-artifact-download-modal');
         const downloadPromise = page.waitForEvent('download', { timeout: 60000 });
         const downloadLink = downloadDialog.getByRole('link', { name: 'Download ZIP', exact: true });
-        await performAction(browser, 'download typed artifact ZIP', downloadLink,
+        await performAction(diagnostics, 'download typed artifact ZIP', downloadLink,
           (targetLocator, { timeout }) => targetLocator.click({ timeout }), { timeout: 5000 });
         const download = await downloadPromise;
         const archivePath = join(downloadDirectory, download.suggestedFilename());
@@ -9132,20 +9170,20 @@ const verifyJ04BrowserScenario = async (target, report, entryTarget, fixture) =>
         };
       });
       const diagnosticsPath = join(evidenceDirectory, 'browser-diagnostics.json');
-      writeJSON(diagnosticsPath, browser.diagnostics);
+      writeJSON(diagnosticsPath, diagnostics);
       recordEvidence(report, diagnosticsPath);
       recordAssertion(report, 'j04-browser-has-no-unexpected-errors-or-api-failures', true,
-        browser.diagnostics.console.length === 0
-        && browser.diagnostics.pageErrors.length === 0
-        && browser.diagnostics.networkFailures.length === 0
-        && browser.diagnostics.httpFailures.length === 0);
+        diagnostics.console.length === 0
+        && diagnostics.pageErrors.length === 0
+        && diagnostics.networkFailures.length === 0
+        && diagnostics.httpFailures.length === 0);
     });
   } catch (error) {
     failure = error;
     report.status = 'failed';
     report.error = error instanceof Error ? error.message : String(error);
     if (report.target.firstMissingDOMAction) markJ04DownstreamUnproven(report);
-    await browser?.captureFailure(error, {
+    await captureDevJourneyFailure(page, diagnostics, report, evidenceDirectory, error, {
       phase: 'J04 Builder, table-shape, preview, publication, Viewer, and artifact lifecycle',
       explorerId: report.target.explorerId,
       outputId: report.target.outputId,
@@ -9156,7 +9194,7 @@ const verifyJ04BrowserScenario = async (target, report, entryTarget, fixture) =>
     });
     throw error;
   } finally {
-    if (browser && page) {
+    if (page) {
       try { await captureDOM('j04-failure-dom'); } catch {}
       try { report.target.failureScreenshot = await captureScreenshot('j04-failure'); } catch {}
       try {
@@ -9165,7 +9203,6 @@ const verifyJ04BrowserScenario = async (target, report, entryTarget, fixture) =>
       } catch (error) {
         report.target.afterWorkspaceError = String(error);
       }
-      try { await browser.close(); } catch {}
     }
     report.target.networkSummary = network.map((item) => ({ path: item.path, method: item.method, status: item.status }));
     const networkPath = join(evidenceDirectory, 'network-summary.json');
@@ -9188,22 +9225,385 @@ const cleanup = async (target, purge = false) => {
   if (result.code !== 0) throw new Error(`development Compose cleanup failed: ${result.stderr || result.stdout}`);
 };
 
-const main = async (argv) => {
-  const commandStarted = Date.now();
-  const command = argv[0] ?? 'dev-doctor';
-  const target = createDevSession();
-  const j01Scenario = target.fixtureDir === FIXTURE_DIR
+const DEV_JOURNEY_COMMANDS = new Set([
+  'verify-current', 'verify-fast', 'verify-full', 'verify-j01', 'verify-j02', 'verify-j03',
+  'verify-j04', 'verify-j04-patient', 'verify-j05',
+]);
+
+const devJourneyScenario = (command, target) => command === 'verify-current' ? 'current-builder-hotreload'
+  : command === 'verify-j01' ? target.fixtureDir === FIXTURE_DIR
     ? 'S01-J01-three-column-choice-preview-persistence-export'
-    : 'S01-J01-CDA-patient-and-observation-publish-export';
-  const report = createVerificationReport(target,
-    command === 'verify-current' ? 'current-builder-hotreload'
-      : command === 'verify-j01' ? j01Scenario
-        : command === 'verify-j02' ? 'S02-J02-related-column-route-edit-persistence'
+    : 'S01-J01-CDA-patient-and-observation-publish-export'
+    : command === 'verify-j02' ? 'S02-J02-related-column-route-edit-persistence'
       : command === 'verify-j03' ? 'S03-J03-row-definition-settings-preview-stale-apply-persistence'
-            : command === 'verify-j04' || command === 'verify-j04-patient' ? 'S04-J04-values-time-shape-typed-pivot-derived'
-            : command === 'verify-j05' ? 'S05-UI05-builder-review-viewer-dataset-artifact'
-          : undefined);
-  let activeReport = report;
+        : command === 'verify-j04' || command === 'verify-j04-patient' ? 'S04-J04-values-time-shape-typed-pivot-derived'
+          : command === 'verify-j05' ? 'S05-UI05-builder-review-viewer-dataset-artifact'
+            : undefined;
+
+const copyStartupTimings = (from, to) => {
+  to.timings.startup_ms = from.timings.startup_ms;
+  to.timings.api_build_barrier_ms = from.timings.api_build_barrier_ms;
+};
+
+const apiBuildIdentityPattern = /^([a-f0-9]{64})\s+([a-f0-9]{64})\s+([a-f0-9]{64})$/i;
+
+const captureDevJourneyIdentity = async (target) => {
+  const source = sourceFingerprintWithManifest(target.sourceRoot);
+  let rawObservation;
+  let observation;
+  let apiBuildCaptureError;
+  try {
+    observation = await captureApiBuildFreeze(async () => {
+      const result = await compose(target, ['exec', '-T', 'loom-api', '/workspace/loom-dev-build-stamp.sh', '--check']);
+      rawObservation = { status: result.code, stdout: result.stdout };
+      return rawObservation;
+    });
+  } catch (error) {
+    apiBuildCaptureError = sanitizeBody(error?.message ?? error);
+  }
+  const match = apiBuildIdentityPattern.exec(rawObservation?.stdout?.trim() ?? '');
+  return {
+    sourceFingerprint: source.fingerprint,
+    sourceManifest: source.manifest,
+    apiBuildObservation: observation?.initial,
+    apiBuildCaptureError,
+    apiBuildFresh: Boolean(observation?.initial?.fresh && match),
+    ...(match ? { apiBuildIdentity: {
+      expectedSource: match[1].toLowerCase(),
+      containerSource: match[2].toLowerCase(),
+      runningBinary: match[3].toLowerCase(),
+    } } : {}),
+  };
+};
+
+const devJourneyProbePaths = (command, target) => {
+  if (command !== 'verify-current' && command !== 'verify-full') return [];
+  const probeID = target.fixtureProject.replace(/[^A-Za-z0-9_]/g, '_');
+  return [
+    'ui/packages/loom-ui/src/styles.css',
+    `cmd/arango-fhir-server/devloop_hotreload_success_${probeID}.go`,
+    `cmd/arango-fhir-server/devloop_hotreload_failure_${probeID}.go`,
+  ];
+};
+
+const verifyDevJourneyIdentity = async (journey) => {
+  const after = await captureDevJourneyIdentity(journey.verificationTarget);
+  const before = journey.identityBefore;
+  const probePaths = journey.probeOwnedPaths;
+  const changedPaths = sourceFingerprintChangedPaths(before.sourceManifest, after.sourceManifest);
+  const probeBaselines = probePaths.map((path) => ({
+    path,
+    presentBefore: Object.hasOwn(before.sourceManifest, path),
+    sha256Before: before.sourceManifest[path],
+    presentAfter: Object.hasOwn(after.sourceManifest, path),
+    sha256After: after.sourceManifest[path],
+  }));
+  const hasExpectedProbeBaseline = probeBaselines.every((entry) =>
+    entry.path.endsWith('/styles.css') ? entry.presentBefore && entry.presentAfter && entry.sha256Before === entry.sha256After
+      : !entry.presentBefore && !entry.presentAfter);
+  const unchangedAPI = Boolean(before.apiBuildFresh && after.apiBuildFresh && before.apiBuildIdentity && after.apiBuildIdentity)
+    && JSON.stringify(before.apiBuildIdentity) === JSON.stringify(after.apiBuildIdentity);
+  const apiSourceRestored = Boolean(before.apiBuildFresh && after.apiBuildFresh && before.apiBuildIdentity && after.apiBuildIdentity)
+    && after.apiBuildIdentity?.expectedSource === after.apiBuildIdentity?.containerSource
+    && after.apiBuildIdentity?.expectedSource === before.apiBuildIdentity?.expectedSource;
+  const hmr = probePaths.length > 0;
+  const identity = {
+    mode: hmr ? 'hotreload-restoration' : 'unchanged-source-and-api',
+    probeOwnedPaths: probePaths,
+    sourceFingerprint: { before: before.sourceFingerprint, after: after.sourceFingerprint },
+    sourceChangedPathsAfter: changedPaths,
+    probePathRestoration: probeBaselines,
+    apiBuildIdentity: { before: before.apiBuildIdentity, after: after.apiBuildIdentity },
+    apiBuildCheck: { before: before.apiBuildObservation, after: after.apiBuildObservation },
+    ...(after.apiBuildCaptureError ? { apiBuildCaptureError: after.apiBuildCaptureError } : {}),
+    restorationProven: changedPaths.length === 0 && hasExpectedProbeBaseline && (hmr ? apiSourceRestored : unchangedAPI),
+  };
+  journey.report.target.sourceApiIdentity = identity;
+  if (!identity.restorationProven) {
+    throw new Error(`development journey source/API integrity did not restore cleanly: ${JSON.stringify({ changedPaths, probeBaselines, apiBefore: before.apiBuildIdentity, apiAfter: after.apiBuildIdentity })}`);
+  }
+  return identity;
+};
+
+export const prepareDevJourney = async (command, env = process.env) => {
+  if (!DEV_JOURNEY_COMMANDS.has(command)) throw new Error(`unknown native dev journey: ${command}`);
+  const startedAt = Date.now();
+  const target = createDevSession(env);
+  mkdirSync(target.artifacts, { recursive: true, mode: 0o700 });
+  const baseReport = createVerificationReport(target, devJourneyScenario(command, target));
+  let report = baseReport;
+  let verificationTarget = target;
+  let entryTarget = target;
+  let externalManifest;
+  let fixture;
+  let explorerId;
+  let builderState;
+  let fixtureDirectoryToRemove;
+  let probeOwnedPaths = [];
+  let identityBefore;
+
+  try {
+  if (command === 'verify-current') {
+    const result = await doctor(target);
+    recordAssertion(report, 'development-api-ready', 200, result.api);
+    recordAssertion(report, 'development-ui-served', 200, result.ui);
+    recordAssertion(report, 'fixture-generation-present', 200, result.generation);
+    recordAssertion(report, 'development-build-is-fresh', true, result.buildBarrier >= 0);
+    report.timings.api_build_barrier_ms = result.buildBarrier;
+    report.target.bootstrapExplorerId = result.bootstrapExplorerId;
+    explorerId = result.bootstrapExplorerId;
+    builderState = result.builderState;
+  } else if (command === 'verify-j04' || command === 'verify-j04-patient') {
+    const runID = `${Date.now().toString(36)}-${randomUUID().slice(0, 8)}`;
+    verificationTarget = createVerificationTarget(target, runID);
+    report = createVerificationReport(verificationTarget, 'S04-J04-values-time-shape-typed-pivot-derived');
+    report.target.evidenceDirectory = join(verificationTarget.artifacts, runID);
+    mkdirSync(report.target.evidenceDirectory, { recursive: true, mode: 0o700 });
+    recordEvidence(report, report.target.evidenceDirectory);
+    writeJSON(join(report.target.evidenceDirectory, 'report.json'), report);
+    fixture = loadJ04FixtureContract(verificationTarget.fixtureDir);
+    report.target.fixtureContractSummary = {
+      sourceFile: fixture.contract.sourceFile,
+      sourceRecords: fixture.contract.sourceRecords,
+      baseRowResourceType: fixture.contract.baseRowResourceType,
+      baseColumns: fixture.contract.baseColumns,
+      aggregateRowResourceType: fixture.contract.aggregateScope.rowResourceType,
+      aggregatePopulation: fixture.contract.aggregateScope.selectedRowIdentities,
+      expectedAggregateRows: fixture.contract.expectedAggregates.length,
+      unsupportedUnitRefusal: fixture.contract.unsupportedUnitRefusal,
+      normalizationCases: fixture.contract.normalizationCases.length,
+      pivotSourceColumns: fixture.contract.pivot.requiredSourceColumns,
+      pivotCategories: fixture.contract.pivot.categories,
+      pivotDerivedColumns: fixture.contract.pivot.derivedColumns,
+    };
+    await ensureDev(target, baseReport);
+    copyStartupTimings(baseReport, report);
+    const seed = await seedFixture(verificationTarget, {
+      requireFresh: true,
+      populateBootstrap: false,
+      fixtureManifest: j04FixtureManifest(verificationTarget.fixtureDir, fixture),
+    });
+    if (seed.reused || !seed.fresh || !seed.bootstrapExplorerId) {
+      throw new Error(`J04 fixture project was not freshly seeded with an empty Explorer: ${verificationTarget.fixtureProject}`);
+    }
+    report.target.fixtureSeed = 'seeded';
+    report.target.bootstrapExplorerId = seed.bootstrapExplorerId;
+    recordAssertion(report, 'j04-seeds-a-fresh-isolated-project-with-an-empty-builder', true,
+      seed.fresh && !seed.reused && Boolean(seed.bootstrapExplorerId) && !seed.bootstrapWorkspace?.workspace?.documents?.length);
+  } else {
+    if (command === 'verify-j01' && target.fixtureDir !== FIXTURE_DIR) {
+      externalManifest = await selectExternalJ01Manifest(target.fixtureDir);
+      assertExternalJ01SourcesUnchanged(externalManifest);
+      baseReport.target.externalManifest = externalManifest.summary;
+    }
+    await ensureDev(target, baseReport, false, externalManifest);
+    if (externalManifest) assertExternalJ01SourcesUnchanged(externalManifest);
+
+    if (command === 'verify-j03') {
+      fixtureDirectoryToRemove = createJ03ThreeMemberFixture(target.fixtureDir);
+      verificationTarget = Object.freeze({
+        ...createVerificationTarget(target, `${Date.now().toString(36)}-${randomUUID().slice(0, 8)}`),
+        fixtureDir: fixtureDirectoryToRemove,
+      });
+    } else {
+      verificationTarget = createVerificationTarget(target, `${Date.now().toString(36)}-${randomUUID().slice(0, 8)}`);
+    }
+    report = createVerificationReport(verificationTarget, devJourneyScenario(command, target)
+      ?? 'builder-preview-publish-viewer-filter-export');
+    copyStartupTimings(baseReport, report);
+    if (externalManifest) report.target.externalManifest = externalManifest.summary;
+
+    if (command === 'verify-j01') {
+      const seed = await seedFixture(verificationTarget, { requireFresh: true, populateBootstrap: false, fixtureManifest: externalManifest });
+      if (seed.reused || !seed.fresh) throw new Error(`J01 verification fixture was unexpectedly reused: ${verificationTarget.fixtureProject}`);
+      report.target.fixtureSeed = 'seeded';
+      report.target.bootstrapExplorerId = seed.bootstrapExplorerId;
+      recordAssertion(report, 'j01-starts-with-fresh-isolated-fixture-and-editor-identity', true,
+        seed.fresh && !seed.reused && Boolean(seed.bootstrapExplorerId));
+      if (externalManifest) {
+        recordAssertion(report, 'j01-external-manifest-digest-is-bound-to-ingested-fixture', externalManifest.summary.sourceSHA256, seed.fixtureManifest?.sourceSHA256);
+        assertExternalJ01SourcesUnchanged(externalManifest);
+      }
+    } else if (command === 'verify-j02') {
+      const seed = await seedFixture(verificationTarget, { requireFresh: true, populateBootstrap: false });
+      if (seed.reused || !seed.fresh) throw new Error(`J02 verification fixture was unexpectedly reused: ${verificationTarget.fixtureProject}`);
+      report.target.fixtureSeed = 'seeded';
+      report.target.bootstrapExplorerId = seed.bootstrapExplorerId;
+      recordAssertion(report, 'j02-starts-from-fresh-isolated-fixture-and-editor-identity', true,
+        seed.fresh && !seed.reused && Boolean(seed.bootstrapExplorerId));
+    } else if (command === 'verify-j03') {
+      const seed = await seedFixture(verificationTarget, { requireFresh: true, populateBootstrap: true });
+      if (seed.reused || !seed.fresh || !seed.bootstrapExplorerId) throw new Error(`J03 verification fixture was not freshly seeded: ${verificationTarget.fixtureProject}`);
+      report.target.fixtureSeed = 'seeded';
+      report.target.bootstrapExplorerId = seed.bootstrapExplorerId;
+      recordAssertion(report, 'j03-starts-with-fresh-isolated-fixture-and-bootstrap-table', true,
+        seed.fresh && !seed.reused && Boolean(seed.bootstrapExplorerId) && Boolean(seed.bootstrapWorkspace?.workspace?.documents?.length));
+      report.target.explicitGroupFixture = await seedJ03ExplicitGroupRevision(verificationTarget, seed.bootstrapExplorerId);
+      recordAssertion(report, 'j03-starts-from-existing-three-member-selection', {
+        complete: true, memberCount: 3,
+      }, {
+        complete: report.target.explicitGroupFixture.selection.complete,
+        memberCount: report.target.explicitGroupFixture.selection.memberCount,
+      });
+    } else if (command === 'verify-j05') {
+      const seed = await seedFixture(verificationTarget, { requireFresh: true, populateBootstrap: false });
+      if (seed.reused || !seed.fresh) throw new Error(`J05 verification fixture was unexpectedly reused: ${verificationTarget.fixtureProject}`);
+      report.target.fixtureSeed = 'seeded';
+      report.target.bootstrapExplorerId = seed.bootstrapExplorerId;
+      recordAssertion(report, 'j05-starts-with-fresh-isolated-fixture-and-empty-bootstrap-explorer', true,
+        seed.fresh && !seed.reused && Boolean(seed.bootstrapExplorerId));
+    } else {
+      const seed = await seedFixture(verificationTarget, { requireFresh: true, populateBootstrap: false });
+      if (seed.reused || !seed.fresh) throw new Error(`verification fixture was unexpectedly reused: ${verificationTarget.fixtureProject}`);
+      report.target.fixtureSeed = 'seeded';
+      report.target.bootstrapExplorerId = seed.bootstrapExplorerId;
+      recordAssertion(report, 'verification-started-with-no-explorers-or-fixture-generation', true, seed.fresh && !seed.reused);
+    }
+  }
+  probeOwnedPaths = devJourneyProbePaths(command, verificationTarget);
+  report.target.sourceApiIdentity = {
+    mode: probeOwnedPaths.length ? 'hotreload-restoration' : 'unchanged-source-and-api',
+    probeOwnedPaths,
+    baselineCaptured: false,
+  };
+  identityBefore = await captureDevJourneyIdentity(verificationTarget);
+  report.target.sourceApiIdentity = {
+    mode: probeOwnedPaths.length ? 'hotreload-restoration' : 'unchanged-source-and-api',
+    probeOwnedPaths,
+    sourceFingerprint: { before: identityBefore.sourceFingerprint },
+    ...(identityBefore.apiBuildIdentity ? { apiBuildIdentity: { before: identityBefore.apiBuildIdentity } } : {}),
+    ...(identityBefore.apiBuildObservation ? { apiBuildCheck: { before: identityBefore.apiBuildObservation } } : {}),
+    ...(identityBefore.apiBuildCaptureError ? { apiBuildCaptureError: identityBefore.apiBuildCaptureError } : {}),
+    baselineCaptured: identityBefore.apiBuildFresh,
+  };
+  if (!identityBefore.apiBuildFresh) {
+    throw new Error(`could not capture a fresh development API build identity before browser actions: ${identityBefore.apiBuildCaptureError ?? 'missing identity fields'}`);
+  }
+  } catch (error) {
+    if (fixtureDirectoryToRemove) rmSync(fixtureDirectoryToRemove, { recursive: true, force: true });
+    report.status = 'failed';
+    report.error = error instanceof Error ? error.message : String(error);
+    if (!report.target.sourceApiIdentity?.baselineCaptured) {
+      report.target.sourceApiIdentity = {
+        ...report.target.sourceApiIdentity,
+        mode: probeOwnedPaths.length ? 'hotreload-restoration' : 'unchanged-source-and-api',
+        probeOwnedPaths: probeOwnedPaths.length ? probeOwnedPaths : devJourneyProbePaths(command, verificationTarget),
+        baselineCaptured: false,
+        captureError: report.target.sourceApiIdentity?.apiBuildCaptureError ?? sanitizeBody(error?.message ?? error),
+      };
+    }
+    try {
+      const evidenceDirectory = report.target.evidenceDirectory ?? verificationTarget.artifacts;
+      mkdirSync(evidenceDirectory, { recursive: true, mode: 0o700 });
+      writeJSON(join(evidenceDirectory, 'report.json'), report);
+      writeJSON(join(verificationTarget.artifacts, 'report.json'), report);
+    } catch {}
+    throw error;
+  }
+
+  return {
+    command, startedAt, target, report, baseReport, verificationTarget, entryTarget,
+    externalManifest, fixture, explorerId, builderState,
+    identityBefore, probeOwnedPaths,
+    dispose: async () => {
+      if (fixtureDirectoryToRemove) rmSync(fixtureDirectoryToRemove, { recursive: true, force: true });
+    },
+  };
+};
+
+export const finishDevJourney = async (journey, testInfo) => {
+  const { command, report, verificationTarget } = journey;
+  if (command === 'verify-j05') {
+    const assertionCompletion = j05AssertionCompletion(report.assertions);
+    report.target.assertionCompletion = assertionCompletion;
+    if (!assertionCompletion.passed) {
+      throw new Error(`J05 verification has ${assertionCompletion.missing.length} missing and ${assertionCompletion.failed.length} failed assertions`);
+    }
+  }
+  if (command === 'verify-j04-patient') {
+    const failures = report.assertions.filter((assertion) => assertion.status === 'failed');
+    const unproven = report.assertions.filter((assertion) => assertion.status === 'not-proven');
+    if (failures.length || unproven.length || report.limitations.length) {
+      throw new Error(`J04 Patient operator acceptance incomplete: ${failures.length} literal assertion mismatch(es), ${unproven.length} unproven assertion(s), ${report.limitations.length} limitation(s)`);
+    }
+  }
+  await verifyDevJourneyIdentity(journey);
+  report.status = 'passed';
+  report.timings.total_ms = Date.now() - journey.startedAt;
+  if (command === 'verify-j04') {
+    const evidenceDoc = join(report.target.evidenceDirectory, 'J04-evidence.md');
+    writeFileSync(evidenceDoc, j04EvidenceDocument(report), { mode: 0o600 });
+    recordEvidence(report, evidenceDoc);
+  }
+  const evidenceDirectory = report.target.evidenceDirectory ?? verificationTarget.artifacts;
+  mkdirSync(evidenceDirectory, { recursive: true, mode: 0o700 });
+  const reportPath = join(evidenceDirectory, 'report.json');
+  writeJSON(reportPath, report);
+  writeJSON(join(verificationTarget.artifacts, 'report.json'), report);
+  if (testInfo) await testInfo.attach('loom-dev-journey-report.json', { path: reportPath, contentType: 'application/json' });
+  return report;
+};
+
+export const failDevJourney = async (journey, error, testInfo) => {
+  const { command, report, verificationTarget } = journey;
+  report.status = 'failed';
+  report.error = error instanceof Error ? error.message : String(error);
+  try {
+    await verifyDevJourneyIdentity(journey);
+  } catch (integrityError) {
+    report.target.sourceApiIdentityError = sanitizeBody(integrityError?.message ?? integrityError);
+  }
+  if (report.scenario === 'S04-J04-values-time-shape-typed-pivot-derived') {
+    markJ04DownstreamUnproven(report);
+    if (report.target.evidenceDirectory) {
+      const evidenceDoc = join(report.target.evidenceDirectory, 'J04-evidence.md');
+      try { writeFileSync(evidenceDoc, j04EvidenceDocument(report), { mode: 0o600 }); } catch {}
+      recordEvidence(report, evidenceDoc);
+    }
+  }
+  const evidenceDirectory = report.target.evidenceDirectory ?? verificationTarget.artifacts;
+  mkdirSync(evidenceDirectory, { recursive: true, mode: 0o700 });
+  const reportPath = join(evidenceDirectory, 'report.json');
+  writeJSON(reportPath, report);
+  writeJSON(join(verificationTarget.artifacts, 'report.json'), report);
+  if (testInfo) await testInfo.attach('loom-dev-journey-report.json', { path: reportPath, contentType: 'application/json' });
+  return report;
+};
+
+export const recordDevJourneyPreparationFailure = async (command, error, env = process.env, testInfo) => {
+  const target = createDevSession(env);
+  const report = createVerificationReport(target, devJourneyScenario(command, target));
+  report.status = 'failed';
+  report.error = error instanceof Error ? error.message : String(error);
+  mkdirSync(target.artifacts, { recursive: true, mode: 0o700 });
+  const reportPath = join(target.artifacts, 'report.json');
+  if (!existsSync(reportPath)) writeJSON(reportPath, report);
+  if (testInfo) await testInfo.attach('loom-dev-journey-report.json', { path: reportPath, contentType: 'application/json' });
+  return report;
+};
+
+export const dispatchNativeDevJourney = async (command) => {
+  if (!DEV_JOURNEY_COMMANDS.has(command)) throw new Error(`unknown native dev journey: ${command}`);
+  const child = spawn('npm', [
+    'run', 'test:browser', '--',
+    'playwright/dev-journeys.spec.mjs', '--grep', `@dev-journey:${command}`,
+  ], { cwd: SCRIPT_DIR, env: process.env, stdio: 'inherit' });
+  const code = await new Promise((resolvePromise, reject) => {
+    child.on('error', reject);
+    child.on('close', (exitCode) => resolvePromise(exitCode ?? 1));
+  });
+  process.exitCode = code;
+};
+
+const main = async (argv) => {
+  const command = argv[0] ?? 'dev-doctor';
+  if (DEV_JOURNEY_COMMANDS.has(command)) {
+    await dispatchNativeDevJourney(command);
+    return;
+  }
+
+  const target = createDevSession();
+  const report = createVerificationReport(target);
   mkdirSync(target.artifacts, { recursive: true, mode: 0o700 });
   try {
     if (command === 'dev') {
@@ -9236,219 +9636,6 @@ const main = async (argv) => {
       console.log('DEV_DOCTOR_PASSED');
       return;
     }
-    if (command === 'verify-current') {
-      const result = await doctor(target);
-      recordAssertion(report, 'development-api-ready', 200, result.api);
-      recordAssertion(report, 'development-ui-served', 200, result.ui);
-      recordAssertion(report, 'fixture-generation-present', 200, result.generation);
-      recordAssertion(report, 'development-build-is-fresh', true, result.buildBarrier >= 0);
-      await verifyCurrentBuilderDOM(target, report, result.bootstrapExplorerId, result.builderState);
-      report.status = 'passed';
-      report.timings.total_ms = Date.now() - commandStarted;
-      writeJSON(join(target.artifacts, 'report.json'), report);
-      console.log(`DEV_CURRENT_VERIFY_PASSED project=${target.fixtureProject} evidence=${report.evidencePaths[0] ? dirname(report.evidencePaths[0]) : target.artifacts}`);
-      return;
-    }
-    if (command === 'verify-j02') {
-      await ensureDev(target, report);
-      const verificationTarget = createVerificationTarget(target, `${Date.now().toString(36)}-${randomUUID().slice(0, 8)}`);
-      const verificationReport = createVerificationReport(verificationTarget, 'S02-J02-related-column-route-edit-persistence');
-      activeReport = verificationReport;
-      verificationReport.timings.startup_ms = report.timings.startup_ms;
-      verificationReport.timings.api_build_barrier_ms = report.timings.api_build_barrier_ms;
-      const seed = await seedFixture(verificationTarget, { requireFresh: true, populateBootstrap: false });
-      if (seed.reused || !seed.fresh) throw new Error(`J02 verification fixture was unexpectedly reused: ${verificationTarget.fixtureProject}`);
-      verificationReport.target.fixtureSeed = 'seeded';
-      verificationReport.target.bootstrapExplorerId = seed.bootstrapExplorerId;
-      recordAssertion(verificationReport, 'j02-starts-from-fresh-isolated-fixture-and-editor-identity', true,
-        seed.fresh && !seed.reused && Boolean(seed.bootstrapExplorerId));
-      await verifyJ02BrowserScenario(verificationTarget, verificationReport, target);
-      verificationReport.status = 'passed';
-      verificationReport.timings.total_ms = Date.now() - commandStarted;
-      writeJSON(join(verificationReport.target.evidenceDirectory, 'report.json'), verificationReport);
-      writeJSON(join(verificationTarget.artifacts, 'report.json'), verificationReport);
-      console.log(`DEV_J02_VERIFY_PASSED project=${verificationTarget.fixtureProject} evidence=${verificationTarget.artifacts}`);
-      return;
-    }
-    if (command === 'verify-j03') {
-      await ensureDev(target, report);
-      const j03FixtureDirectory = createJ03ThreeMemberFixture(target.fixtureDir);
-      try {
-        const verificationTarget = Object.freeze({
-          ...createVerificationTarget(target, `${Date.now().toString(36)}-${randomUUID().slice(0, 8)}`),
-          fixtureDir: j03FixtureDirectory,
-        });
-        const verificationReport = createVerificationReport(verificationTarget, 'S03-J03-row-definition-settings-preview-stale-apply-persistence');
-        activeReport = verificationReport;
-        verificationReport.timings.startup_ms = report.timings.startup_ms;
-        verificationReport.timings.api_build_barrier_ms = report.timings.api_build_barrier_ms;
-        const seed = await seedFixture(verificationTarget, { requireFresh: true, populateBootstrap: true });
-        if (seed.reused || !seed.fresh || !seed.bootstrapExplorerId) throw new Error(`J03 verification fixture was not freshly seeded: ${verificationTarget.fixtureProject}`);
-        verificationReport.target.fixtureSeed = 'seeded';
-        verificationReport.target.bootstrapExplorerId = seed.bootstrapExplorerId;
-        recordAssertion(verificationReport, 'j03-starts-with-fresh-isolated-fixture-and-bootstrap-table', true,
-          seed.fresh && !seed.reused && Boolean(seed.bootstrapExplorerId) && Boolean(seed.bootstrapWorkspace?.workspace?.documents?.length));
-        verificationReport.target.explicitGroupFixture = await seedJ03ExplicitGroupRevision(verificationTarget, seed.bootstrapExplorerId);
-        recordAssertion(verificationReport, 'j03-starts-from-existing-three-member-selection', {
-          complete: true, memberCount: 3,
-        }, {
-          complete: verificationReport.target.explicitGroupFixture.selection.complete,
-          memberCount: verificationReport.target.explicitGroupFixture.selection.memberCount,
-        });
-        await verifyJ03BrowserScenario(verificationTarget, verificationReport, target);
-        verificationReport.status = 'passed';
-        verificationReport.timings.total_ms = Date.now() - commandStarted;
-        writeJSON(join(verificationReport.target.evidenceDirectory, 'report.json'), verificationReport);
-        writeJSON(join(verificationTarget.artifacts, 'report.json'), verificationReport);
-        console.log(`DEV_J03_VERIFY_PASSED project=${verificationTarget.fixtureProject} evidence=${verificationReport.target.evidenceDirectory}`);
-      } finally {
-        rmSync(j03FixtureDirectory, { recursive: true, force: true });
-      }
-      return;
-    }
-    if (command === 'verify-j04' || command === 'verify-j04-patient') {
-      const runID = `${Date.now().toString(36)}-${randomUUID().slice(0, 8)}`;
-      const verificationTarget = createVerificationTarget(target, runID);
-      const verificationReport = createVerificationReport(verificationTarget, 'S04-J04-values-time-shape-typed-pivot-derived');
-      activeReport = verificationReport;
-      verificationReport.timings.startup_ms = report.timings.startup_ms;
-      verificationReport.timings.api_build_barrier_ms = report.timings.api_build_barrier_ms;
-      verificationReport.target.evidenceDirectory = join(verificationTarget.artifacts, runID);
-      mkdirSync(verificationReport.target.evidenceDirectory, { recursive: true, mode: 0o700 });
-      recordEvidence(verificationReport, verificationReport.target.evidenceDirectory);
-      writeJSON(join(verificationReport.target.evidenceDirectory, 'report.json'), verificationReport);
-
-      const fixture = loadJ04FixtureContract(verificationTarget.fixtureDir);
-      verificationReport.target.fixtureContractSummary = {
-        sourceFile: fixture.contract.sourceFile,
-        sourceRecords: fixture.contract.sourceRecords,
-        baseRowResourceType: fixture.contract.baseRowResourceType,
-        baseColumns: fixture.contract.baseColumns,
-        aggregateRowResourceType: fixture.contract.aggregateScope.rowResourceType,
-        aggregatePopulation: fixture.contract.aggregateScope.selectedRowIdentities,
-        expectedAggregateRows: fixture.contract.expectedAggregates.length,
-        unsupportedUnitRefusal: fixture.contract.unsupportedUnitRefusal,
-        normalizationCases: fixture.contract.normalizationCases.length,
-        pivotSourceColumns: fixture.contract.pivot.requiredSourceColumns,
-        pivotCategories: fixture.contract.pivot.categories,
-        pivotDerivedColumns: fixture.contract.pivot.derivedColumns,
-      };
-      await ensureDev(target, report);
-      verificationReport.timings.startup_ms = report.timings.startup_ms;
-      verificationReport.timings.api_build_barrier_ms = report.timings.api_build_barrier_ms;
-      const seed = await seedFixture(verificationTarget, {
-        requireFresh: true,
-        populateBootstrap: false,
-        fixtureManifest: j04FixtureManifest(verificationTarget.fixtureDir, fixture),
-      });
-      if (seed.reused || !seed.fresh || !seed.bootstrapExplorerId) throw new Error(`J04 fixture project was not freshly seeded with an empty Explorer: ${verificationTarget.fixtureProject}`);
-      verificationReport.target.fixtureSeed = 'seeded';
-      verificationReport.target.bootstrapExplorerId = seed.bootstrapExplorerId;
-      recordAssertion(verificationReport, 'j04-seeds-a-fresh-isolated-project-with-an-empty-builder', true,
-        seed.fresh && !seed.reused && Boolean(seed.bootstrapExplorerId) && !seed.bootstrapWorkspace?.workspace?.documents?.length);
-      await verifyJ04PatientOperatorScenario(verificationTarget, verificationReport, target, fixture);
-      if (command === 'verify-j04-patient') {
-        const failures = verificationReport.assertions.filter((assertion) => assertion.status === 'failed');
-        const unproven = verificationReport.assertions.filter((assertion) => assertion.status === 'not-proven');
-        if (failures.length || unproven.length || verificationReport.limitations.length) {
-          throw new Error(`J04 Patient operator acceptance incomplete: ${failures.length} literal assertion mismatch(es), ${unproven.length} unproven assertion(s), ${verificationReport.limitations.length} limitation(s)`);
-        }
-        verificationReport.status = 'passed';
-        verificationReport.timings.total_ms = Date.now() - commandStarted;
-        writeJSON(join(verificationReport.target.evidenceDirectory, 'report.json'), verificationReport);
-        writeJSON(join(verificationTarget.artifacts, 'report.json'), verificationReport);
-        console.log(`DEV_J04_PATIENT_VERIFY_PASSED project=${verificationTarget.fixtureProject} evidence=${verificationReport.target.evidenceDirectory}`);
-        return;
-      }
-      await verifyJ04BrowserScenario(verificationTarget, verificationReport, target, fixture);
-      verificationReport.status = 'passed';
-      verificationReport.timings.total_ms = Date.now() - commandStarted;
-      writeFileSync(join(verificationReport.target.evidenceDirectory, 'J04-evidence.md'), j04EvidenceDocument(verificationReport), { mode: 0o600 });
-      writeJSON(join(verificationReport.target.evidenceDirectory, 'report.json'), verificationReport);
-      writeJSON(join(verificationTarget.artifacts, 'report.json'), verificationReport);
-      console.log(`DEV_J04_VERIFY_PASSED project=${verificationTarget.fixtureProject} evidence=${verificationReport.target.evidenceDirectory}`);
-      return;
-    }
-    if (command === 'verify-j05') {
-      await ensureDev(target, report);
-      const verificationTarget = createVerificationTarget(target, `${Date.now().toString(36)}-${randomUUID().slice(0, 8)}`);
-      const verificationReport = createVerificationReport(verificationTarget, 'S05-UI05-builder-review-viewer-dataset-artifact');
-      activeReport = verificationReport;
-      verificationReport.timings.startup_ms = report.timings.startup_ms;
-      verificationReport.timings.api_build_barrier_ms = report.timings.api_build_barrier_ms;
-      const seed = await seedFixture(verificationTarget, { requireFresh: true, populateBootstrap: false });
-      if (seed.reused || !seed.fresh) throw new Error(`J05 verification fixture was unexpectedly reused: ${verificationTarget.fixtureProject}`);
-      verificationReport.target.fixtureSeed = 'seeded';
-      verificationReport.target.bootstrapExplorerId = seed.bootstrapExplorerId;
-      recordAssertion(verificationReport, 'j05-starts-with-fresh-isolated-fixture-and-empty-bootstrap-explorer', true,
-        seed.fresh && !seed.reused && Boolean(seed.bootstrapExplorerId));
-      await verifyJ05BrowserScenario(verificationTarget, verificationReport, target);
-      const assertionCompletion = j05AssertionCompletion(verificationReport.assertions);
-      verificationReport.target.assertionCompletion = assertionCompletion;
-      if (!assertionCompletion.passed) {
-        throw new Error(`J05 verification has ${assertionCompletion.missing.length} missing and ${assertionCompletion.failed.length} failed assertions`);
-      }
-      verificationReport.status = 'passed';
-      verificationReport.timings.total_ms = Date.now() - commandStarted;
-      writeJSON(join(verificationReport.target.evidenceDirectory, 'report.json'), verificationReport);
-      writeJSON(join(verificationTarget.artifacts, 'report.json'), verificationReport);
-      console.log(`DEV_J05_VERIFY_PASSED project=${verificationTarget.fixtureProject} evidence=${verificationReport.target.evidenceDirectory}`);
-      return;
-    }
-    if (command === 'verify-j01') {
-      const externalManifest = j01Scenario === 'S01-J01-CDA-patient-and-observation-publish-export'
-        ? await selectExternalJ01Manifest(target.fixtureDir)
-        : undefined;
-      if (externalManifest) {
-        assertExternalJ01SourcesUnchanged(externalManifest);
-        report.target.externalManifest = externalManifest.summary;
-      }
-      await ensureDev(target, report, false, externalManifest);
-      if (externalManifest) assertExternalJ01SourcesUnchanged(externalManifest);
-      const verificationTarget = createVerificationTarget(target, `${Date.now().toString(36)}-${randomUUID().slice(0, 8)}`);
-      const verificationReport = createVerificationReport(verificationTarget, report.scenario);
-      activeReport = verificationReport;
-      verificationReport.timings.startup_ms = report.timings.startup_ms;
-      verificationReport.timings.api_build_barrier_ms = report.timings.api_build_barrier_ms;
-      if (externalManifest) verificationReport.target.externalManifest = externalManifest.summary;
-      const seed = await seedFixture(verificationTarget, { requireFresh: true, populateBootstrap: false, fixtureManifest: externalManifest });
-      if (seed.reused || !seed.fresh) throw new Error(`J01 verification fixture was unexpectedly reused: ${verificationTarget.fixtureProject}`);
-      verificationReport.target.fixtureSeed = 'seeded';
-      verificationReport.target.bootstrapExplorerId = seed.bootstrapExplorerId;
-      recordAssertion(verificationReport, 'j01-starts-with-fresh-isolated-fixture-and-editor-identity', true,
-        seed.fresh && !seed.reused && Boolean(seed.bootstrapExplorerId));
-      if (externalManifest) {
-        recordAssertion(verificationReport, 'j01-external-manifest-digest-is-bound-to-ingested-fixture', externalManifest.summary.sourceSHA256, seed.fixtureManifest?.sourceSHA256);
-        assertExternalJ01SourcesUnchanged(externalManifest);
-      }
-      await verifyJ01BrowserScenario(verificationTarget, verificationReport, target, externalManifest);
-      verificationReport.status = 'passed';
-      verificationReport.timings.total_ms = Date.now() - commandStarted;
-      writeJSON(join(verificationReport.target.evidenceDirectory, 'report.json'), verificationReport);
-      writeJSON(join(verificationTarget.artifacts, 'report.json'), verificationReport);
-      console.log(`DEV_J01_VERIFY_PASSED project=${verificationTarget.fixtureProject} evidence=${verificationReport.target.evidenceDirectory}`);
-      return;
-    }
-    if (command === 'verify-fast' || command === 'verify-full') {
-      await ensureDev(target, report);
-      const verificationTarget = createVerificationTarget(target, `${Date.now().toString(36)}-${Math.random().toString(16).slice(2, 10)}`);
-      const verificationReport = createVerificationReport(verificationTarget);
-      activeReport = verificationReport;
-      verificationReport.timings.startup_ms = report.timings.startup_ms;
-      verificationReport.timings.api_build_barrier_ms = report.timings.api_build_barrier_ms;
-      const seed = await seedFixture(verificationTarget, { requireFresh: true, populateBootstrap: false });
-      if (seed.reused || !seed.fresh) throw new Error(`verification fixture was unexpectedly reused: ${verificationTarget.fixtureProject}`);
-      verificationReport.target.fixtureSeed = 'seeded';
-      verificationReport.target.bootstrapExplorerId = seed.bootstrapExplorerId;
-      recordAssertion(verificationReport, 'verification-started-with-no-explorers-or-fixture-generation', true, seed.fresh && !seed.reused);
-      await verifyBrowserScenario(verificationTarget, verificationReport, command === 'verify-full', target);
-      verificationReport.status = 'passed';
-      verificationReport.timings.total_ms = Date.now() - commandStarted;
-      writeJSON(join(verificationReport.target.evidenceDirectory, 'report.json'), verificationReport);
-      writeJSON(join(verificationTarget.artifacts, 'report.json'), verificationReport);
-      console.log(`DEV_VERIFY_PASSED status=${verificationReport.status} project=${verificationTarget.fixtureProject} evidence=${verificationTarget.artifacts}`);
-      return;
-    }
     if (command === 'dev-down') {
       await cleanup(target, argv.includes('--purge'));
       report.status = 'ready';
@@ -9458,17 +9645,10 @@ const main = async (argv) => {
     }
     throw new Error(`unknown command ${command}; use dev, dev-doctor, verify-current, verify-fast, verify-full, verify-j01, verify-j02, verify-j03, verify-j04, verify-j04-patient, verify-j05, dev-rebuild, or dev-down [--purge]`);
   } catch (error) {
-    activeReport.status = 'failed';
-    activeReport.error = error instanceof Error ? error.message : String(error);
-    if (activeReport.scenario === 'S04-J04-values-time-shape-typed-pivot-derived' && activeReport.target.evidenceDirectory) {
-      markJ04DownstreamUnproven(activeReport);
-      const evidenceDoc = join(activeReport.target.evidenceDirectory, 'J04-evidence.md');
-      try { writeFileSync(evidenceDoc, j04EvidenceDocument(activeReport), { mode: 0o600 }); } catch {}
-      if (!activeReport.evidencePaths.includes(evidenceDoc)) recordEvidence(activeReport, evidenceDoc);
-    }
-    if (activeReport.target.evidenceDirectory) writeJSON(join(activeReport.target.evidenceDirectory, 'report.json'), activeReport);
-    try { writeJSON(join(activeReport.target.artifacts ?? target.artifacts, 'report.json'), activeReport); } catch { /* Keep the original command error. */ }
-    console.error(`DEV_VERIFY_FAILED ${activeReport.error}`);
+    report.status = 'failed';
+    report.error = error instanceof Error ? error.message : String(error);
+    try { writeJSON(join(target.artifacts, 'report.json'), report); } catch {}
+    console.error(`LOOM_DEV_FAILED ${report.error}`);
     process.exitCode = 1;
   }
 };

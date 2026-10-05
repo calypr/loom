@@ -1,10 +1,24 @@
 # Official Playwright Test migration
 
+## Current mechanical checkpoint
+
+On October 4, native discovery lists 152 tests in 19 spec files. All 23
+registered cases have native spec mappings, and the static binding check finds
+no undefined names. These results prove discovery and static coverage only;
+the converted cases have not been run against this checkpoint.
+
+The ownership gate still rejects three files: `scripts/lib/playwright-browser.mjs`,
+`scripts/lib/playwright-cda-actions.mjs`, and `scripts/construction_preview_bench.mjs`.
+Port the benchmark before applying the prepared launcher deletion. Reconcile
+the standalone inventory and runtime target ownership before freezing source
+for browser verification.
+
 ## First phase of the current Builder reliability goal
 
 The Playwright Test migration precedes further Builder exploration. Finish the
 mechanical conversion of all browser verifiers, including the nine embedded
-`loom-dev.mjs` journeys, into native `@playwright/test` cases and fixtures.
+`loom-dev.mjs` journeys and `construction_preview_bench.mjs`, into native
+`@playwright/test` cases and fixtures.
 Preserve independent source oracles, lifecycle assertions, owned data setup,
 and five-second user-action budgets. Migrate callers before deleting legacy
 Chrome/CDP launchers and custom runners; retain API-only tools.
@@ -67,13 +81,14 @@ The five-second navigation cap is intentional for this integration unit. It is
 stricter than the old unbounded reload and the thirty-second explicit waits.
 The action-to-render performance assertion remains independent of that cap.
 
-## First integration unit
+## Historical first integration unit
 
 Append is the first full lifecycle: source setup, exact eight-row oracle with
 duplicate identities and null padding, Preview, Apply, reload, edit, Cancel,
 edit Apply, removal/restoration, and reload. Discovery is not a browser pass.
 Until a current report proves every required assertion, this workflow remains
-unverified. Other runner-based scripts remain explicitly unmigrated.
+unverified. The unmigrated status below describes that earlier checkpoint;
+current conversion coverage comes from the static gate and case inventory.
 
 Run the focused native case from the repository root after installing scripts
 dependencies and setting the five owned development environment variables:

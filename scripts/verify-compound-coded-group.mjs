@@ -1,22 +1,20 @@
 import assert from 'node:assert/strict';
-import { mkdir, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
-import { inspectDOM, waitForDOM, clickControl, navigatePage } from './lib/playwright-verification.mjs';
-import { launchBrowser } from './lib/playwright-browser.mjs';
-import { captureCDARequests } from './lib/cda-playwright-requests.mjs';
-import { assertOwnedCdaTarget } from './lib/owned-cda-target.mjs';
-import { startVerificationIdentity } from './lib/cda-verification-identity.mjs';
+import { isDeepStrictEqual } from 'node:util';
 
-// Run against the construction checkout's local stack and loaded CDA fixture.
-const origin = process.env.LOOM_CDA_UI_ORIGIN;
-const apiOrigin = process.env.LOOM_CDA_API_ORIGIN;
-const basicMode = process.argv[2] === 'basic';
-const project = process.env.LOOM_CDA_PROJECT;
+// Native Playwright body for compound coded grouping lifecycles.
+export async function verifyCompoundCodedGroup({ page, cda, check, mode = 'single' }) {
+const origin = cda.uiOrigin;
+const apiOrigin = cda.apiOrigin;
+const basicMode = mode === 'basic';
+const differentialMode = mode === 'differential';
+if (basicMode && typeof check !== 'function') throw new TypeError('The registered basic compound-coded-group case requires workflow.check.');
+const recordWorkflowCheck = (dimension, name, passed, evidence = {}) => {
+  if (basicMode) check(dimension, name, passed, evidence);
+};
+const project = cda.project;
 const observationId = basicMode ? 'dev-observation-001' : '485e2567-b566-56f3-b5bd-5f025f37cd95';
-const differentialMode = process.argv[2] === 'differential';
-let generation = basicMode ? undefined : 'cda-fhir-v1';
+let generation = basicMode ? undefined : (cda.generation ?? 'cda-fhir-v1');
 const codedPairs = basicMode ? [
   { system: 'https://example.test/codes', code: 'height', label: 'Height' },
 ] : [
@@ -24,23 +22,30 @@ const codedPairs = basicMode ? [
   { system: 'https://cda.readthedocs.io', code: 'primary_disease_type', label: 'Primary disease type' },
 ];
 const explorer = `compound-coded-qa-${Date.now()}`;
-const evidenceDirectory = process.env.LOOM_VERIFY_OUTPUT ?? (basicMode ? '/tmp/loom-basic-coded-pivot-grouping' : '/tmp/loom-compound-coded-verification');
 const base = `/api/v1/projects/${project}/explorers/${explorer}`;
-const state = { explorer, observationId, project, mode: basicMode ? 'devloop-basic-coded-grouping' : differentialMode ? 'differential' : 'single-observation', timingsMs: {}, failures: [], requests: [], nativeRequests: [], errors: [] };
+const state = { explorer, observationId, project, mode: basicMode ? 'devloop-basic-coded-grouping' : differentialMode ? 'differential' : 'single-observation', timingsMs: {}, failures: [], requests: [], nativeRequests: [], errors: [], target: cda.target };
 state.requests = state.nativeRequests;
-const sourceRoot = fileURLToPath(new URL('..', import.meta.url));
-await assertOwnedCdaTarget({ project, apiOrigin, uiOrigin: origin, apiContainer: process.env.LOOM_CDA_API_CONTAINER,
-  composeProject: process.env.LOOM_CDA_COMPOSE_PROJECT, sourceRoot, arangoContainer: process.env.LOOM_ARANGO_CONTAINER });
-const verificationIdentity = await startVerificationIdentity(sourceRoot, process.env.LOOM_CDA_API_CONTAINER);
-state.sourceFingerprint = verificationIdentity.sourceFingerprint;
-state.apiBuildIdentity = verificationIdentity.apiBuildIdentity;
-state.sourceFreeze = { initialFingerprint: verificationIdentity.sourceFingerprint };
+const tracker = { activeAction: undefined, actions: [] };
+const waitForDOM = (predicate, args = {}, timeout = 5000) => cda.wait(predicate, args, Math.min(timeout, 5000));
+const inspectDOM = (inspect, args = {}) => cda.inspect(inspect, args);
+const navigatePage = (url) => cda.navigate(url);
+const clickControl = async (_tracker, selector, identity = {}) => {
+  const label = `Click ${identity.name ?? identity.includes ?? selector}`;
+  const activeAction = { label, startedAt: Date.now() };
+  tracker.activeAction = activeAction;
+  const locator = identity.name
+    ? page.locator(selector).filter({ hasText: identity.name })
+    : page.locator(selector);
+  try { return await cda.action(label, locator, (target) => target.click(), { timeout: 5000 }); }
+  finally { tracker.activeAction = undefined; }
+};
 let observationIDs = [observationId];
 let rawSources = [];
 let statusColumn;
 let statusColumnID;
 let statusInputColumnID;
 let requestCapture;
+let diagnostics;
 
 const api = async (path, method = 'GET', body) => {
   const response = await fetch(apiOrigin + path, {
@@ -53,10 +58,10 @@ const api = async (path, method = 'GET', body) => {
   return value;
 };
 
-const rowsReady = (page) => waitForDOM(page,
+const rowsReady = () => waitForDOM(
   () => !document.body.innerText.includes('Loading your table') && document.querySelector('[data-testid="construction-rows-settings-trigger"]')?.disabled === false,
-  {}, 30000);
-const readTable = (page) => inspectDOM(page, () => ({
+  {}, 5000);
+const readTable = () => inspectDOM(() => ({
   headers: [...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].map(cell => cell.innerText.trim()),
   rows: [...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]')].slice(1)
     .map(row => [...row.querySelectorAll('[role="cell"]')].map(cell => cell.innerText.trim())),
@@ -67,9 +72,11 @@ const finishTiming = (name, started) => {
   assert(state.timingsMs[name] <= 5000, `${name} took ${state.timingsMs[name]} ms`);
 };
 
-const proposed = async (page, started, timing, expectedBuilder, requestStart) => {
+const proposed = async (started, timing, expectedBuilder, requestStart) => {
   const deadline = started + 5000;
-  const request = await requestCapture.waitFor(entry => entry.path.endsWith('/construction-proposals') && entry.method === 'POST', { fromIndex: requestStart, timeoutMs: Math.max(1, deadline - Date.now()) });
+  const requestEntry = await requestCapture.waitFor(entry => entry.path.endsWith('/construction-proposals') && entry.method === 'POST',
+    { fromIndex: requestStart, timeoutMs: Math.max(1, deadline - Date.now()) });
+  const request = await cda.waitForCapturedResponse(requestCapture, entry => entry === requestEntry, Math.max(1, deadline - Date.now()));
   assert(request.response, `${timing} proposal response could not be captured: ${request.responseBodyError ?? 'unknown response body error'}`);
   assert.equal(request.status, 200, `${timing} proposal request failed: ${JSON.stringify(request.response)}`);
   assert(request.response.proposalId, `${timing} proposal response omitted its receipt`);
@@ -82,11 +89,11 @@ const proposed = async (page, started, timing, expectedBuilder, requestStart) =>
   assert.equal(request.response.draftDigest, expectedBuilder.draftDigest);
   const remaining = deadline - Date.now();
   assert(remaining > 0, `${timing} exceeded five seconds before its receipt rendered`);
-  await waitForDOM(page, ({ proposalId }) => {
+  await waitForDOM(({ proposalId }) => {
     const panel = document.querySelector('[data-testid="construction-proposal-panel"]');
     return panel?.dataset.proposalId === proposalId && ['ready', 'error', 'needs-repair'].includes(panel?.dataset.proposalStatus);
   }, { proposalId: request.response.proposalId }, remaining);
-  const result = await inspectDOM(page, () => {
+  const result = await inspectDOM(() => {
     const panel = document.querySelector('[data-testid="construction-proposal-panel"]');
     return { status: panel?.getAttribute('data-proposal-status'), proposalId: panel?.dataset.proposalId, text: panel?.innerText,
       headers: [...document.querySelectorAll('[data-testid="construction-proposal-preview"] th')].map(cell => cell.querySelector('span')?.textContent?.trim() ?? cell.innerText.trim()),
@@ -147,11 +154,9 @@ const applyAuthoringCommands = async (commands) => {
   return { response, builder: await api(base + '/authoring/v2/builder') };
 };
 
-await mkdir(evidenceDirectory, { recursive: true });
-const browser = await launchBrowser({ evidence: evidenceDirectory, appOrigins: [apiOrigin, origin], noAuth: true });
-const page = browser.page;
-const tracker = { activeAction: undefined, actions: [] };
-requestCapture = captureCDARequests(page, { apiOrigin: origin, appOrigins: [apiOrigin, origin], ownedPathPrefix: `/api/v1/projects/${project}/explorers`, report: state, responsePaths: /construction-proposals|commands|builder|preview/ });
+requestCapture = cda.captureRequests(`/api/v1/projects/${project}/explorers`, { responsePaths: /construction-proposals|commands|builder|preview/ });
+state.nativeRequests = cda.report.nativeRequests;
+state.requests = state.nativeRequests;
 
 try {
   let initialBuilder;
@@ -163,7 +168,7 @@ try {
   }
   const readRawObservations = (query) => {
     const raw = execFileSync('rtk', [
-      'proxy', 'docker', 'exec', process.env.LOOM_ARANGO_CONTAINER,
+      'proxy', 'docker', 'exec', cda.target.arangoContainer,
       'arangosh', '--server.database', 'loom_dev', '--javascript.execute-string',
       `print(JSON.stringify(db._query(${JSON.stringify(query)}).toArray()));`,
     ], { encoding: 'utf8', timeout: 30000, maxBuffer: 16 * 1024 * 1024 });
@@ -235,6 +240,11 @@ try {
     assert.deepEqual(values, ['172.5'], 'Pair the exact height Coding with valueQuantity.value 172.5');
     state.oracle = { generation: source.generation, status: source.status, values, specimenType: values[0], count: 1,
       codingPairs: codedPairs.map(({ system, code }) => ({ system, code })) };
+    recordWorkflowCheck('correctness', 'raw synthetic source oracle matches dev-observation-001 height value',
+      rawSources.length === 1 && source?.project === project && source?.generation === generation &&
+      source?.resourceType === 'Observation' && source?.id === observationId && source?.status === 'final' && values[0] === '172.5',
+      { project, generation, id: source?.id, resourceType: source?.resourceType, status: source?.status, values,
+        codingPairs: codedPairs.map(({ system, code }) => ({ system, code })) });
   } else {
     const query = `FOR d IN Observation FILTER d.id == ${JSON.stringify(observationId)} AND d.project == ${JSON.stringify(project)} AND d.dataset_generation == ${JSON.stringify(generation)} LIMIT 2 RETURN {id:d.id,project:d.project,generation:d.dataset_generation,resourceType:d.payload.resourceType,status:d.payload.status,component:d.payload.component}`;
     rawSources = readRawObservations(query);
@@ -255,6 +265,9 @@ try {
   if (!basicMode) await api(`/api/v1/projects/${project}/explorers`, 'POST', { name: explorer, title: 'Compound coded grouping verification' });
   const initial = initialBuilder ?? await api(base + '/authoring/v2/builder');
   assert.equal(initial.catalog.generation, state.oracle.generation);
+  if (basicMode) recordWorkflowCheck('correctness', 'Builder generation is bound to the raw synthetic source record',
+    initial.catalog.generation === state.oracle.generation,
+    { project, builderGeneration: initial.catalog.generation, sourceGeneration: state.oracle.generation });
   const selection = await api(base + '/selections', 'POST', {
     snapshotToken: initial.catalog.snapshotToken,
     idempotencyKey: explorer,
@@ -262,15 +275,15 @@ try {
   });
   const url = `${origin}/?project=${project}&explorer=${explorer}&mode=builder&selection=${encodeURIComponent(selection.id)}`;
   state.url = url;
-  await navigatePage(page, url);
-  await waitForDOM(page, () => Boolean(document.querySelector('button[aria-label="Choose Observation rows"]:not(:disabled)')), {}, 30000);
-  await clickControl(tracker, page, 'button', { name: 'Choose Observation rows' });
-  await rowsReady(page);
-  await waitForDOM(page, () => document.querySelector('[data-testid="construction-rows-settings-trigger"]')?.innerText.includes('Observation'), {}, 30000);
-  await clickControl(tracker, page, '[data-testid="construction-rows-settings-trigger"]');
-  await waitForDOM(page, () => [...document.querySelectorAll('[aria-label="Starting collection"] button')].some(button => button.innerText === 'Use selected resources' && !button.disabled), {}, 30000);
-  await clickControl(tracker, page, '[aria-label="Starting collection"] button', { name: 'Use selected resources' });
-  await waitForDOM(page, ({ expected }) => document.querySelector('[aria-label="Starting collection settings"]')?.innerText.includes(expected), { expected: `${observationIDs.length} Observation resources attached` }, 30000);
+  await navigatePage( url);
+  await waitForDOM( () => Boolean(document.querySelector('button[aria-label="Choose Observation rows"]:not(:disabled)')), {}, 5000);
+  await clickControl(tracker, 'button', { name: 'Choose Observation rows' });
+  await rowsReady();
+  await waitForDOM( () => document.querySelector('[data-testid="construction-rows-settings-trigger"]')?.innerText.includes('Observation'), {}, 5000);
+  await clickControl(tracker, '[data-testid="construction-rows-settings-trigger"]');
+  await waitForDOM( () => [...document.querySelectorAll('[aria-label="Starting collection"] button')].some(button => button.innerText === 'Use selected resources' && !button.disabled), {}, 5000);
+  await clickControl(tracker, '[aria-label="Starting collection"] button', { name: 'Use selected resources' });
+  await waitForDOM( ({ expected }) => document.querySelector('[aria-label="Starting collection settings"]')?.innerText.includes(expected), { expected: `${observationIDs.length} Observation resources attached` }, 5000);
   if (differentialMode) {
     const current = await api(base + '/authoring/v2/builder');
     const document = savedDocument(current);
@@ -310,31 +323,31 @@ try {
     assert.equal(savedPopulation.route?.length ?? 0, 0);
     assert.deepEqual(savedDocument(state.baseline).columns.filter((column) => ['id', 'status'].includes(column.source?.field?.path)).map((column) => column.source.field.path), ['id', 'status']);
     const statusReloadAt = Date.now();
-    await navigatePage(page, url);
-    await rowsReady(page);
-    await waitForDOM(page, ({ ids }) => Boolean(document.querySelector('[data-testid="preview-table-scroll"]')) && ids.every(id => document.querySelector('[data-testid="preview-table-scroll"]')?.innerText.includes(id)), { ids: observationIDs }, 30000);
+    await navigatePage( url);
+    await rowsReady();
+    await waitForDOM( ({ ids }) => Boolean(document.querySelector('[data-testid="preview-table-scroll"]')) && ids.every(id => document.querySelector('[data-testid="preview-table-scroll"]')?.innerText.includes(id)), { ids: observationIDs }, 5000);
     finishTiming('reloadStatusBinding', statusReloadAt);
-    state.statusSourceReload = await readTable(page);
+    state.statusSourceReload = await readTable();
     assert(state.statusSourceReload.headers.some((header) => /status/i.test(header)), 'The ordinary Observation.status grouping field must be visible in the native table');
     assertSourceIdentityRows(state.statusSourceReload, rawSources, savedDocument(state.baseline), 'Reloaded ordinary Observation source table');
   } else {
     state.baseline = await api(base + '/authoring/v2/builder');
   }
-  const rowDefinitionDialogOpen = await inspectDOM(page, () => Boolean(document.querySelector('[role="dialog"][aria-label="Row definition settings"][aria-modal="true"]')));
-  if (!rowDefinitionDialogOpen) await clickControl(tracker, page, '[data-testid="construction-rows-settings-trigger"]');
-  await waitForDOM(page, () => document.querySelector('[data-testid="construction-action-group-rows"]')?.disabled === false, {}, 5000);
+  const rowDefinitionDialogOpen = await inspectDOM( () => Boolean(document.querySelector('[role="dialog"][aria-label="Row definition settings"][aria-modal="true"]')));
+  if (!rowDefinitionDialogOpen) await clickControl(tracker, '[data-testid="construction-rows-settings-trigger"]');
+  await waitForDOM( () => document.querySelector('[data-testid="construction-action-group-rows"]')?.disabled === false, {}, 5000);
   const requestStart = state.requests.length;
   const openedAt = Date.now();
-  await clickControl(tracker, page, '[data-testid="construction-action-group-rows"]');
-  await waitForDOM(page, ({ label }) => Boolean(document.querySelector(`input[aria-label="Group by coded value: ${CSS.escape(label)}"]:not(:disabled)`)), { label: codedPairs[0].label }, 5000);
+  await clickControl(tracker, '[data-testid="construction-action-group-rows"]');
+  await waitForDOM( ({ label }) => Boolean(document.querySelector(`input[aria-label="Group by coded value: ${CSS.escape(label)}"]:not(:disabled)`)), { label: codedPairs[0].label }, 5000);
   state.timingsMs.openPicker = Date.now() - openedAt;
   assert(state.timingsMs.openPicker <= 5000, `Opening the coded picker took ${state.timingsMs.openPicker} ms`);
-  state.groupChoices = await inspectDOM(page, () => [...document.querySelectorAll('input[aria-label^="Group by"]')].map(input => ({ label: input.getAttribute('aria-label'), disabled: input.disabled, checked: input.checked })));
-  assert(!await inspectDOM(page, () => document.body.innerText.includes('Need a coded-value column first?')));
+  state.groupChoices = await inspectDOM( () => [...document.querySelectorAll('input[aria-label^="Group by"]')].map(input => ({ label: input.getAttribute('aria-label'), disabled: input.disabled, checked: input.checked })));
+  assert(!await inspectDOM( () => document.body.innerText.includes('Need a coded-value column first?')));
   const proposalRequestStart = state.requests.length;
   const selectedAt = Date.now();
-  await clickControl(tracker, page, `input[aria-label="Group by coded value: ${codedPairs[0].label}"]`);
-  state.proposal = await proposed(page, selectedAt, 'selectToPreview', state.baseline, proposalRequestStart);
+  await clickControl(tracker, `input[aria-label="Group by coded value: ${codedPairs[0].label}"]`);
+  state.proposal = await proposed(selectedAt, 'selectToPreview', state.baseline, proposalRequestStart);
   if (differentialMode) {
     assertNamedPreviewValues(state.proposal, [
       [codedPairs[0].label, state.oracle.values[0]],
@@ -342,6 +355,9 @@ try {
     ], 'First coded group preview');
   } else {
     assert.deepEqual(state.proposal.rows, [[state.oracle.specimenType, '1']], 'The grouped preview must match the independent source value and record count');
+    if (basicMode) recordWorkflowCheck('correctness', 'Initial coded preview matches the raw height and row-count oracle',
+      isDeepStrictEqual(state.proposal.rows, [[state.oracle.values[0], String(state.oracle.count)]]),
+      { headers: state.proposal.headers, rows: state.proposal.rows, expectedHeight: state.oracle.values[0], expectedCount: String(state.oracle.count) });
   }
   const beforeApply = await api(base + '/authoring/v2/builder');
   assert.equal(beforeApply.draftDigest, state.baseline.draftDigest, 'Selecting a code must not save its prerequisite');
@@ -349,8 +365,8 @@ try {
   const proposalRequests = state.requests.slice(requestStart);
   assert(!proposalRequests.some(request => request.path.includes('construction-choice-proposals') || request.path.endsWith('/commands')), 'The coded selection must not issue a separate saved-column command');
   const firstApplyAt = Date.now();
-  await clickControl(tracker, page, '[data-testid="construction-apply-proposal"]');
-  await waitForDOM(page, () => !document.querySelector('[data-testid="construction-proposal-panel"]') && document.querySelectorAll('[data-testid^="construction-history-step-"]').length === 1, {}, 30000);
+  await clickControl(tracker, '[data-testid="construction-apply-proposal"]');
+  await waitForDOM( () => !document.querySelector('[data-testid="construction-proposal-panel"]') && document.querySelectorAll('[data-testid^="construction-history-step-"]').length === 1, {}, 5000);
   finishTiming('applyFirstCodedGroup', firstApplyAt);
   state.saved = await api(base + '/authoring/v2/builder');
   assert.deepEqual(state.requests.slice(requestStart).filter(request => request.path.endsWith('/commands')).flatMap(request => request.body.commands.map(command => command.type)), ['APPLY_CONSTRUCTION_PROPOSAL'], 'One Apply must save both parts in one command');
@@ -365,19 +381,23 @@ try {
     assert.deepEqual(helper.operation.codedPivot.categories.map(({ system, code }) => ({ system, code })), [{ system: codedPairs[0].system, code: codedPairs[0].code }], 'The first coded Group input must preserve its exact system/code identity');
   }
   assert.equal(savedDocument(state.saved).columns.length, savedDocument(state.baseline).columns.length, 'The prerequisite must not become a standalone source column');
+  recordWorkflowCheck('persistence', 'Apply persists the coded extraction and GROUP as one construction',
+    construction.steps.length === 2 && helper.operation.kind === 'CODED_PIVOT' && group.operation.kind === 'GROUP' && helper.ownerStepId === group.id,
+    { stepKinds: construction.steps.map((step) => step.operation.kind), helperStepId: helper.id, groupStepId: group.id,
+      ownerStepId: helper.ownerStepId, columns: savedDocument(state.saved).columns.length });
 
-  await navigatePage(page, url);
-  await waitForDOM(page, ({ id }) => Boolean(document.querySelector(`[data-testid="construction-history-step-${CSS.escape(id)}"]`)), { id: group.id }, 30000);
-  await rowsReady(page);
-  await clickControl(tracker, page, `[data-testid="construction-history-step-${group.id}"]`);
-  await clickControl(tracker, page, `[data-testid="construction-edit-step-${group.id}"]`);
-  await waitForDOM(page, ({ label }) => document.querySelector(`input[aria-label="Group by coded value: ${CSS.escape(label)}"]`)?.checked === true, { label: codedPairs[0].label }, 5000);
+  await navigatePage( url);
+  await waitForDOM( ({ id }) => Boolean(document.querySelector(`[data-testid="construction-history-step-${CSS.escape(id)}"]`)), { id: group.id }, 5000);
+  await rowsReady();
+  await clickControl(tracker, `[data-testid="construction-history-step-${group.id}"]`);
+  await clickControl(tracker, `[data-testid="construction-edit-step-${group.id}"]`);
+  await waitForDOM( ({ label }) => document.querySelector(`input[aria-label="Group by coded value: ${CSS.escape(label)}"]`)?.checked === true, { label: codedPairs[0].label }, 5000);
   if (!basicMode) {
-    await waitForDOM(page, () => Boolean(document.querySelector('input[aria-label="Group by coded value: Primary disease type"]:not(:disabled)')), {}, 5000);
+    await waitForDOM( () => Boolean(document.querySelector('input[aria-label="Group by coded value: Primary disease type"]:not(:disabled)')), {}, 5000);
     const editProposalRequestStart = state.requests.length;
     const editedAt = Date.now();
-    await clickControl(tracker, page, 'input[aria-label="Group by coded value: Primary disease type"]');
-    state.editedProposal = await proposed(page, editedAt, 'editToPreview', state.saved, editProposalRequestStart);
+    await clickControl(tracker, 'input[aria-label="Group by coded value: Primary disease type"]');
+    state.editedProposal = await proposed(editedAt, 'editToPreview', state.saved, editProposalRequestStart);
     assert.equal(state.editedProposal.rows.length, 1);
     if (differentialMode) {
       assertNamedPreviewValues(state.editedProposal, [
@@ -392,21 +412,21 @@ try {
   }
   let ordinaryKeySelector = 'input[aria-label="Group by Observation ID"]';
   if (differentialMode) {
-    const ordinaryKeyLabel = await inspectDOM(page, () => {
+    const ordinaryKeyLabel = await inspectDOM( () => {
       const inputs = [...document.querySelectorAll('input[type="checkbox"][aria-label^="Group by"]')];
       return inputs.find(item => /status/i.test(item.getAttribute('aria-label') ?? ''))?.getAttribute('aria-label') ?? '';
     });
     assert(ordinaryKeyLabel, 'The Group editor did not offer the direct Observation.status binding as an ordinary grouping key');
     ordinaryKeySelector = `input[type="checkbox"][aria-label=${JSON.stringify(ordinaryKeyLabel)}]`;
   }
-  await waitForDOM(page, ({ selector }) => Boolean(document.querySelector(selector)), { selector: ordinaryKeySelector }, 5000);
+  await waitForDOM( ({ selector }) => Boolean(document.querySelector(selector)), { selector: ordinaryKeySelector }, 5000);
   const ordinaryKeyAt = Date.now();
-  const ordinaryKeyState = await inspectDOM(page, ({ selector }) => { const input = document.querySelector(selector); return { disabled: input?.disabled, checked: input?.checked }; }, { selector: ordinaryKeySelector });
+  const ordinaryKeyState = await inspectDOM( ({ selector }) => { const input = document.querySelector(selector); return { disabled: input?.disabled, checked: input?.checked }; }, { selector: ordinaryKeySelector });
   assert.equal(ordinaryKeyState.disabled, false);
   assert.equal(ordinaryKeyState.checked, false, 'The direct ordinary source key must start unselected before this edit');
   const ordinaryProposalRequestStart = state.requests.length;
-  await clickControl(tracker, page, ordinaryKeySelector);
-  state.mixedKeyProposal = await proposed(page, ordinaryKeyAt, 'ordinaryKeyToPreview', state.saved, ordinaryProposalRequestStart);
+  await clickControl(tracker, ordinaryKeySelector);
+  state.mixedKeyProposal = await proposed(ordinaryKeyAt, 'ordinaryKeyToPreview', state.saved, ordinaryProposalRequestStart);
   assert.equal(state.mixedKeyProposal.rows.length, 1);
   if (differentialMode) {
     assertNamedPreviewValues(state.mixedKeyProposal, [
@@ -428,8 +448,8 @@ try {
     }
   }
   const editedApplyAt = Date.now();
-  await clickControl(tracker, page, '[data-testid="construction-apply-proposal"]');
-  await waitForDOM(page, () => !document.querySelector('[data-testid="construction-proposal-panel"]'), {}, 30000);
+  await clickControl(tracker, '[data-testid="construction-apply-proposal"]');
+  await waitForDOM( () => !document.querySelector('[data-testid="construction-proposal-panel"]'), {}, 5000);
   finishTiming('applyEditedCodedGroup', editedApplyAt);
   state.edited = await api(base + '/authoring/v2/builder');
   const editedDocument = savedDocument(state.edited);
@@ -446,6 +466,12 @@ try {
     assert.equal(groupStep.operation.kind, 'GROUP');
     assert(groupStep.operation.group.keys.some((key) => key.inputColumnId === idPassthrough.outputColumnId),
       'The ordinary Observation ID grouping key must bind through the CODED_PIVOT-owned row-value output');
+    recordWorkflowCheck('persistence', 'Edit preserves the exact population and binds Observation ID through the coded output',
+      isDeepStrictEqual(editedDocument.population, savedDocument(state.baseline).population) &&
+      editedSteps.length === 2 && editedSteps[0].rowValues[0]?.policy === 'ONE' &&
+      groupStep.operation.group.keys.some((key) => key.inputColumnId === idPassthrough.outputColumnId),
+      { population: editedDocument.population, selectionRevisionId: savedDocument(state.baseline).population?.selectionRevisionId,
+        groupKeyOutputColumnId: idPassthrough.outputColumnId, groupKeyInputColumnIds: groupStep.operation.group.keys.map((key) => key.inputColumnId) });
   }
   if (differentialMode) {
     const durablePairs = editedSteps[0].operation.codedPivot.categories
@@ -462,16 +488,16 @@ try {
   }
 
   const groupedReloadAt = Date.now();
-  await navigatePage(page, url);
-  await waitForDOM(page, ({ id }) => Boolean(document.querySelector(`[data-testid="construction-history-step-${CSS.escape(id)}"]`)), { id: group.id }, 30000);
-  await rowsReady(page);
+  await navigatePage( url);
+  await waitForDOM( ({ id }) => Boolean(document.querySelector(`[data-testid="construction-history-step-${CSS.escape(id)}"]`)), { id: group.id }, 5000);
+  await rowsReady();
   if (basicMode) {
     state.reloadedBuilder = await api(base + '/authoring/v2/builder');
     assert.equal(state.reloadedBuilder.draftDigest, state.edited.draftDigest, 'The edited coded grouping must survive a fresh Builder reload');
     assert.deepEqual(state.reloadedBuilder.workspace, state.edited.workspace);
   }
   finishTiming('reloadEditedCodedGroup', groupedReloadAt);
-  state.groupedReload = await readTable(page);
+  state.groupedReload = await readTable();
   assert.equal(state.groupedReload.rows.length, 1);
   if (differentialMode) assertNamedPreviewValues(state.groupedReload, [
     ...codedPairs.map((pair, index) => [pair.label, state.oracle.values[index]]),
@@ -481,79 +507,103 @@ try {
   else if (basicMode) assertNamedPreviewValues(state.groupedReload, [
     [codedPairs[0].label, state.oracle.values[0]], ['Observation ID', observationId], ['Row count', '1'],
   ], 'Reloaded coded group with source identity key');
+  if (basicMode) recordWorkflowCheck('persistence', 'Edited coded group and exact rows survive a fresh Builder reload',
+    state.reloadedBuilder.draftDigest === state.edited.draftDigest &&
+    isDeepStrictEqual(state.reloadedBuilder.workspace, state.edited.workspace) &&
+    state.groupedReload.rows.length === 1 && state.groupedReload.rows[0].includes(observationId) && state.groupedReload.rows[0].includes(state.oracle.values[0]),
+    { draftDigest: state.reloadedBuilder.draftDigest, rowCount: state.groupedReload.rows.length,
+      row: state.groupedReload.rows[0], expectedObservationId: observationId, expectedHeight: state.oracle.values[0] });
 
-  await clickControl(tracker, page, `[data-testid="construction-history-step-${group.id}"]`);
+  await clickControl(tracker, `[data-testid="construction-history-step-${group.id}"]`);
   const removedAt = Date.now();
   const removalProposalRequestStart = state.requests.length;
-  await clickControl(tracker, page, `[data-testid="construction-remove-step-${group.id}"]`);
-  state.removalProposal = await proposed(page, removedAt, 'removeToPreview', state.edited, removalProposalRequestStart);
+  await clickControl(tracker, `[data-testid="construction-remove-step-${group.id}"]`);
+  state.removalProposal = await proposed(removedAt, 'removeToPreview', state.edited, removalProposalRequestStart);
   if (differentialMode) {
     assertSourceIdentityRows(state.removalProposal, rawSources, savedDocument(state.baseline), 'Coded group removal proposal');
   } else {
     assert.deepEqual(state.removalProposal.rows, [[observationId]], 'Removing the compound group must restore its original source table');
   }
-  await clickControl(tracker, page, '[data-testid="construction-cancel-proposal"]');
-  await waitForDOM(page, () => !document.querySelector('[data-testid="construction-proposal-panel"]'), {}, 30000);
+  await clickControl(tracker, '[data-testid="construction-cancel-proposal"]');
+  await waitForDOM( () => !document.querySelector('[data-testid="construction-proposal-panel"]'), {}, 5000);
   state.afterRemovalCancel = await api(base + '/authoring/v2/builder');
   assert.equal(state.afterRemovalCancel.draftDigest, state.edited.draftDigest, 'Cancel must preserve the grouped draft');
   assert.deepEqual(state.afterRemovalCancel.workspace, state.edited.workspace);
-  await clickControl(tracker, page, `[data-testid="construction-history-step-${group.id}"]`);
+  if (basicMode) recordWorkflowCheck('persistence', 'Cancel preserves the edited grouped draft',
+    state.afterRemovalCancel.draftDigest === state.edited.draftDigest && isDeepStrictEqual(state.afterRemovalCancel.workspace, state.edited.workspace),
+    { beforeDigest: state.edited.draftDigest, afterCancelDigest: state.afterRemovalCancel.draftDigest,
+      constructionSteps: savedDocument(state.afterRemovalCancel).construction.steps.map((step) => step.operation.kind) });
+  await clickControl(tracker, `[data-testid="construction-history-step-${group.id}"]`);
   const confirmedRemovalAt = Date.now();
   const confirmedRemovalRequestStart = state.requests.length;
-  await clickControl(tracker, page, `[data-testid="construction-remove-step-${group.id}"]`);
-  state.confirmedRemovalProposal = await proposed(page, confirmedRemovalAt, 'confirmedRemovalToPreview', state.edited, confirmedRemovalRequestStart);
+  await clickControl(tracker, `[data-testid="construction-remove-step-${group.id}"]`);
+  state.confirmedRemovalProposal = await proposed(confirmedRemovalAt, 'confirmedRemovalToPreview', state.edited, confirmedRemovalRequestStart);
   if (differentialMode) {
     assertSourceIdentityRows(state.confirmedRemovalProposal, rawSources, savedDocument(state.baseline), 'Confirmed coded group removal proposal');
   } else {
     assert.deepEqual(state.confirmedRemovalProposal.rows, [[observationId]]);
   }
   const finalApplyAt = Date.now();
-  await clickControl(tracker, page, '[data-testid="construction-apply-proposal"]');
-  await waitForDOM(page, () => !document.querySelector('[data-testid="construction-proposal-panel"]') && document.querySelectorAll('[data-testid^="construction-history-step-"]').length === 0, {}, 30000);
+  await clickControl(tracker, '[data-testid="construction-apply-proposal"]');
+  await waitForDOM( () => !document.querySelector('[data-testid="construction-proposal-panel"]') && document.querySelectorAll('[data-testid^="construction-history-step-"]').length === 0, {}, 5000);
   finishTiming('applyGroupRemoval', finalApplyAt);
   state.restored = await api(base + '/authoring/v2/builder');
   assert.equal(savedDocument(state.restored).construction?.steps?.length ?? 0, 0, 'Removing GROUP must remove its owned extraction');
   const sourceColumnSemantics = (columns) => columns.map(({ columnId: generatedStageId, ...column }) => column);
   assert.deepEqual(sourceColumnSemantics(savedDocument(state.restored).columns), sourceColumnSemantics(savedDocument(state.baseline).columns));
+  if (basicMode) recordWorkflowCheck('persistence', 'Applying GROUP removal restores the source schema without either owned step',
+    (savedDocument(state.restored).construction?.steps?.length ?? 0) === 0 &&
+    isDeepStrictEqual(sourceColumnSemantics(savedDocument(state.restored).columns), sourceColumnSemantics(savedDocument(state.baseline).columns)),
+    { restoredConstructionSteps: savedDocument(state.restored).construction?.steps?.length ?? 0,
+      restoredColumns: savedDocument(state.restored).columns.map((column) => column.label),
+      sourceColumns: savedDocument(state.baseline).columns.map((column) => column.label) });
   const restoredReloadAt = Date.now();
-  await navigatePage(page, url);
-  await rowsReady(page);
-  await waitForDOM(page, ({ ids }) => document.querySelectorAll('[data-testid^="construction-history-step-"]').length === 0 && ids.every(id => document.body.innerText.includes(id)), { ids: observationIDs }, 30000);
+  await navigatePage( url);
+  await rowsReady();
+  await waitForDOM( ({ ids }) => document.querySelectorAll('[data-testid^="construction-history-step-"]').length === 0 && ids.every(id => document.body.innerText.includes(id)), { ids: observationIDs }, 5000);
   finishTiming('reloadRestoredSource', restoredReloadAt);
   state.restoredAfterReload = await api(base + '/authoring/v2/builder');
   assert.deepEqual(state.restoredAfterReload.workspace, state.restored.workspace, 'The restored table must persist after fresh reload');
   if (differentialMode) {
-    const restoredRows = await readTable(page);
+    const restoredRows = await readTable();
     assert(restoredRows.headers.some((header) => /status/i.test(header)));
     assertSourceIdentityRows(restoredRows, rawSources, savedDocument(state.restoredAfterReload), 'Restored source table after reload');
   }
+  if (basicMode) {
+    const restoredRows = await readTable();
+    const idIndex = restoredRows.headers.findIndex((header) => /observation id/i.test(header));
+    const restoredIDs = idIndex < 0 ? [] : restoredRows.rows.map((row) => row[idIndex]);
+    recordWorkflowCheck('persistence', 'Restored source workspace and exact Observation ID survive reload',
+      isDeepStrictEqual(state.restoredAfterReload.workspace, state.restored.workspace) &&
+      (savedDocument(state.restoredAfterReload).construction?.steps?.length ?? 0) === 0 &&
+      restoredRows.rows.length === 1 && isDeepStrictEqual(restoredIDs, [observationId]),
+      { rowCount: restoredRows.rows.length, headers: restoredRows.headers, restoredObservationIDs: restoredIDs,
+        expectedObservationId: observationId, constructionSteps: savedDocument(state.restoredAfterReload).construction?.steps?.length ?? 0 });
+  }
   await requestCapture.flush();
-  state.failures.push(...browser.diagnostics.console.map(entry => ({ kind: 'console', ...entry })));
-  state.failures.push(...browser.diagnostics.pageErrors.map(entry => ({ kind: 'page-error', ...entry })));
-  state.failures.push(...browser.diagnostics.networkFailures.map(entry => ({ kind: 'network', ...entry })));
-  state.failures.push(...browser.diagnostics.httpFailures.map(entry => ({ kind: 'http', ...entry })));
+  await cda.includeBrowserDiagnostics();
+  diagnostics = cda.diagnostics;
+  state.failures.push(...diagnostics.console.map(entry => ({ kind: 'console', ...entry })));
+  state.failures.push(...diagnostics.pageErrors.map(entry => ({ kind: 'page-error', ...entry })));
+  state.failures.push(...diagnostics.networkFailures.map(entry => ({ kind: 'network', ...entry })));
+  state.failures.push(...diagnostics.httpFailures.map(entry => ({ kind: 'http', ...entry })));
   state.failures.push(...state.errors.map(entry => ({ kind: 'api', ...entry })));
   assert.deepEqual(state.failures, [], 'The browser lifecycle must not hide HTTP or runtime failures');
 } catch (error) {
   state.failures.push({ kind: 'assertion', text: String(error.stack ?? error) });
-  await browser.captureFailure(error, { phase: 'compound-coded-group-lifecycle', action: tracker.activeAction,
-    elapsedMs: tracker.activeAction ? Date.now() - tracker.activeAction.startedAt : undefined,
-    state: { explorer, observationIDs, timingsMs: state.timingsMs, requests: state.requests } });
   if (error.invalidatesRun) state.status = 'invalidated';
-  process.exitCode = 1;
+  state.failureCapture = { phase: 'compound-coded-group-lifecycle', action: tracker.activeAction?.label,
+    elapsedMs: tracker.activeAction ? Date.now() - tracker.activeAction.startedAt : undefined,
+    state: { explorer, observationIDs, timingsMs: state.timingsMs, requests: state.requests } };
+  throw error;
 } finally {
-  try { state.verificationIdentity = await verificationIdentity.finish(); }
-  catch (error) {
-    state.status = 'invalidated';
-    state.verificationIdentity = { unchanged: false, invalidatesRun: true, productFailure: false, error: String(error) };
-    state.failures.push({ kind: 'source-build-identity', invalidatesRun: true, text: String(error) });
-    process.exitCode = 1;
-  }
   await requestCapture.flush();
   state.body = await page.locator('body').innerText().catch(String);
-  state.diagnostics = browser.diagnostics;
-  await writeFile(join(evidenceDirectory, `${explorer}.json`), JSON.stringify(state, null, 2));
-  await browser.close();
+  if (!diagnostics) {
+    await cda.includeBrowserDiagnostics();
+    diagnostics = cda.diagnostics;
+  }
+  state.diagnostics = diagnostics;
+  await cda.attachReport(`${explorer}-compound-coded-group`, state);
 }
-if (state.failures.length) process.exitCode = 1;
-console.log(JSON.stringify({ explorer, evidenceDirectory, failures: state.failures, timingsMs: state.timingsMs }, null, 2));
+}

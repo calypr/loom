@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
 import { registry } from './verify-ui/registry.mjs';
 
 const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
@@ -61,6 +62,7 @@ for (const directory of ['scripts/verify-ui', 'scripts/playwright', 'scripts/lib
   for (const path of files(join(root, directory))) checkBrowserSource(path);
 }
 checkBrowserSource(join(root, 'scripts/loom-dev.mjs'));
+checkBrowserSource(join(root, 'scripts/construction_preview_bench.mjs'));
 for (const entry of readdirSync(join(root, 'scripts'))) {
   if (/^verify(?:-|_).*\.mjs$/.test(entry) && !entry.endsWith('.test.mjs')) {
     checkBrowserSource(join(root, 'scripts', entry));
@@ -68,6 +70,31 @@ for (const entry of readdirSync(join(root, 'scripts'))) {
 }
 for (const path of files(join(root, 'ui/packages/loom-ui/scripts'))) {
   if (/^verify.*\.mjs$/.test(path.split('/').at(-1))) checkBrowserSource(path);
+}
+
+try {
+  const requireUI = createRequire(join(root, 'ui/packages/loom-ui/package.json'));
+  const ts = requireUI('typescript');
+  const program = ts.createProgram([...checkedPaths], {
+    allowJs: true,
+    checkJs: true,
+    noEmit: true,
+    noResolve: true,
+    skipLibCheck: true,
+    target: ts.ScriptTarget.ESNext,
+    module: ts.ModuleKind.NodeNext,
+    moduleResolution: ts.ModuleResolutionKind.NodeNext,
+  });
+  const nodeGlobals = new Set(['process', 'Buffer', 'setImmediate', 'clearImmediate', 'global']);
+  for (const diagnostic of program.getSemanticDiagnostics()) {
+    if (diagnostic.code !== 2304) continue;
+    const message = ts.flattenDiagnosticMessageText(diagnostic.messageText, ' ');
+    if (nodeGlobals.has(message.match(/Cannot find name '([^']+)'/)?.[1])) continue;
+    const { line } = diagnostic.file.getLineAndCharacterOfPosition(diagnostic.start);
+    problems.push(`${diagnostic.file.fileName.slice(root.length + 1)}:${line + 1}: ${message} Restore its import or use the native fixture API.`);
+  }
+} catch (error) {
+  problems.push(`Native binding check could not run: ${error.message}. Install the UI package dependencies before running this gate.`);
 }
 
 console.log(`${mappedCases}/${registry.reduce((total, scenario) => total + scenario.cases.length, 0)} registered cases have native spec mappings`);
