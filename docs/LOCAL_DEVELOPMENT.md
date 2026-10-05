@@ -18,8 +18,9 @@ fallbacks.
 
 ## Start the development stack
 
-Requires Node.js 22 or newer, Docker with Compose, and Chrome or Chromium for
-browser verification.
+Requires Node.js 22 or newer, Docker with Compose, and Google Chrome for the
+configured Playwright channel. Install the browser-runner dependencies once with
+`npm ci --prefix scripts`.
 
 Run:
 
@@ -56,14 +57,23 @@ fixture generation return HTTP 200. It writes `.artifacts/loom-dev/report.json`.
 
 ## Run browser verification
 
+The public Make verification targets use the official `@playwright/test` runner
+through `npm --prefix scripts run test:browser`. The nine development journeys
+select the matching `@dev-journey:<target>` case in
+`scripts/playwright/dev-journeys.spec.mjs`; `scripts/loom-dev.mjs` remains the
+stack, fixture, and cleanup API rather than the browser CLI. `make verify-base-settings`
+and `make verify-cda-root-settings` select native cases in the standalone specs.
+The latter keeps its three repeated root-change cycles through
+`LOOM_ROOT_REPEAT_CYCLES=3`.
+
 Run the short browser path:
 
 ```bash
 make verify-fast
 ```
 
-The driver launches a temporary headless Chrome profile through the Chrome
-DevTools Protocol. Each run checks that its unique namespaced project
+The native Playwright Test case owns its browser page and diagnostics. Each run
+checks that its unique namespaced project
 `loom_dev_verify_<run-id>` has no Explorers or fixture generation, seeds the fixture, and creates a
 new Explorer in the Builder. It starts a Patient query, adds the
 `Patient -> Observation` relationship, selects nested Patient name fields and
@@ -87,8 +97,8 @@ Run the longer path when you need watcher evidence:
 make verify-full
 ```
 
-The full path adds an observable package-source Vite CSS edit and restore, then
-creates a temporary success probe in the compiled Go server package and proves
+The full native case adds an observable package-source Vite CSS edit and
+restore, then creates a temporary success probe in the compiled Go server package and proves
 its unique marker executes in a fresh binary. It then introduces a separate
 syntax error in an exact Go probe file, checks that Air reports the failed
 build and stops the stale API, restores the probe, and waits for a fresh build
@@ -112,6 +122,10 @@ minutes. If its HTTP connection closes while the durable load continues, the
 driver follows the generation status until it becomes ready or fails. Later
 runs reuse the same generation.
 
+`verify-current` and `verify-full` both make temporary edits to watched source
+while checking Vite/Air recovery. Run those targets one at a time, and do not
+overlap them with another browser run or source-writing process.
+
 After the large fixture is ready, run the same environment with:
 
 ```bash
@@ -119,14 +133,15 @@ make verify-current
 ```
 
 This does not create or ingest another project. It opens the existing bootstrap
-Builder in Chrome, checks the rendered table names against its V2 backend
-workspace, captures the DOM and screenshot, and exercises both Vite and Air
-hot reload. The command writes timings and evidence to the normal development
-report directory.
+Builder in the native Playwright page, checks the rendered table names against
+its V2 backend workspace, captures the DOM and screenshot, and exercises both
+Vite and Air hot reload. The command writes timings and evidence to the normal
+development report directory.
 
-Set `CHROME_BIN` when Chrome is not installed at a standard path. Set
-`LOOM_DEV_ARTIFACTS` to an owned directory when you need evidence outside the
-repository. Reports include assertion results, timings, the target session,
+The native runner's browser channel is configured in
+`scripts/playwright.config.mjs`. Set `LOOM_DEV_ARTIFACTS` to an owned directory
+when you need evidence outside the repository. Reports include assertion
+results, timings, the target session,
 the materialization identity, DOM snapshots, CSV output, and the failed-build
 log. They never include credentials.
 

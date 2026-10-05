@@ -1,6 +1,17 @@
-This document records the historical library/CDP migration checkpoint. Its
-commands and pass counts describe that source checkpoint. Current native runner
-commands and coverage status are in [PLAYWRIGHT_TEST_MIGRATION.md](PLAYWRIGHT_TEST_MIGRATION.md).
+This document records historical library/CDP migration checkpoints. Its old
+pass counts describe their recorded source snapshots. Current browser entrypoints
+use native `@playwright/test`; commands and coverage status are in
+[PLAYWRIGHT_TEST_MIGRATION.md](PLAYWRIGHT_TEST_MIGRATION.md).
+
+## Current public entrypoints
+
+The Make browser targets call `npm --prefix scripts run test:browser` with a
+native spec and exact case grep. The `scripts/verify-ui` directory supplies
+reusable workflow, registry, and reporting modules; it has no public browser CLI.
+Keep API-only tools such as `coverage-status.mjs` and `inventory.mjs` available,
+and do not invoke workflow modules directly with retired `--case` flags. The
+`verify-cda-root-settings` Make target selects the native root-row settings case
+and preserves its three repeat cycles.
 
 ## Integrated working-tree checkpoint
 
@@ -16,8 +27,8 @@ tests pass 195/195 (zero skipped). Native actions wait for transient disabled
 controls; failure-body scans have a two-second deadline and fall back to sanitized
 JSON. Screenshots are opt-in. Microsoft’s official agent CLI is available through
 `./scripts/node_modules/.bin/playwright cli`; interactive diagnostics use
-text snapshots and JSON output. Repeatable cases remain Node scripts using native
-Playwright locators and independent fixture/source assertions.
+text snapshots and JSON output. Repeatable browser cases are native Playwright Test specs; workflow helpers use
+native Playwright locators and independent fixture/source assertions.
 
 The first staged Append run stopped at an immediate disabled-control assertion
 before reaching Append (`/private/tmp/loom-append-playwright-integration-v1.json.append`).
@@ -34,7 +45,7 @@ This inventory tracks the isolated `infra/playwright-verification` branch based 
 | --- | --- | --- | --- |
 | `scripts/verify-ui/browser.mjs` | No remaining runtime callers | Former Chrome/CDP launcher and custom actions | Removed after migrating all registered `verify-ui` cases. `common.mjs` remains for report dispatch and `browserURL`; native browser execution uses Playwright Test specs. |
 | `scripts/lib/browser.mjs` | No remaining callers | Former separate Chrome/CDP launcher and custom actions | Removed with its legacy tests after the standalone cases migrated. Playwright actionability and trace tests cover the replacement. |
-| `scripts/loom-dev.mjs` | Fixture/session setup and the remaining `verify-cda-builder.mjs` branches | Integrated legacy Chrome/CDP driver | Generic verify-fast/full and J01–J05 use Playwright. Its CDP exports will be removed after the Builder harness migrates. |
+| `scripts/loom-dev.mjs` | Development stack/session setup, fixture preparation, report/fingerprint helpers, and journey workflows | Native Playwright Test `Page` workflows; public Make aliases select tagged specs directly | `verify-fast`/`verify-full` and J01–J05 are selected from `scripts/playwright/dev-journeys.spec.mjs`. Keep non-browser `dev`, `dev-doctor`, and `dev-down` CLI operations. |
 
 The two adapter modules have different APIs. `verify-ui` owns assertion/report integration, injected faults, and action timing. CDA scripts retain independent raw fixture or CDA queries and source/build freezes. Playwright replaces their interaction, navigation, waiting, and browser event plumbing; it does not replace those oracles.
 
@@ -58,7 +69,7 @@ The outcomes and report paths below preserve their recorded checkpoints. Current
 | `builder-authoring/authoring`, small fixture | Open Builder, create a blank Explorer and Patient table, add Gender through the visible editor, inspect the automatic Preview, Publish, then reload Builder; both Patient IDs and both configured fields must remain visible | The independent `testdata/devloop-fixture/Patient.ndjson` IDs under a fresh project and `fixture-v1` generation | Passed before the CDA extension at `.artifacts/loom-dev/c52d4223d857/verify-ui/builder-authoring-authoring-muu1ldsq-fde5d18.json`. This is historical evidence for that source snapshot. The current CDA stack cannot be targeted as this small fixture without changing its owned session configuration. |
 | `builder-authoring/authoring`, CDA | Open an owned CDA Builder, create a blank Explorer and Patient table, add `identifier[].value` with ALL through the visible choice dialog, inspect the 25-row Preview, Publish, then reload; the configured field must persist | The read-only 159,047-Patient `CDA-FHIR/META/Patient.ndjson` file, exact first 25 identities ordered by storage key, and each row's raw identifier list including duplicates; file SHA-256, project and `cda-fhir-v1` generation are recorded | Correctness, Publish response, and reload persistence passed; overall **failed** because Publish rendered in 14,690 ms against the 5,000 ms gate. First-failure screenshot, DOM, control state, sanitized diagnostics, and Playwright trace are under `.artifacts/loom-dev/c52d4223d857/verify-ui/builder-authoring-authoring-muu325aa-18d89e9/`; report is the matching `.json`. No Publish retry occurs within a case. |
 | `builder-authoring/suggestions`, CDA | Open an owned CDA Builder, create a Patient table, expand Raw FHIR fields, and select the exact Patient ID checkbox | The same independent CDA Patient source and its 25-row preview window, plus the rendered catalog candidate labels | Passed with nine Patient field controls and no unexpected browser/API errors at `.artifacts/loom-dev/c52d4223d857/verify-ui/builder-authoring-suggestions-muu373p7-d238b59.json`. This case checks discoverability and actionability; it does not Apply, Publish, or reload. |
-| `builder-authoring/cohort-recode`, CDA | Create a Patient table and exact two-member cohort, change Patient ID values to one shared category, switch ALL to ONE, reload, edit back to ALL, remove the recoding, and reload again; Preview must show the exact member values at each step | Streamed raw CDA Patient IDs, exact selection revision membership and project/generation, saved column bindings, and independent Builder/Preview API reads | Historical evidence: 78 assertions passed at `.artifacts/loom-dev/c52d4223d857/verify-ui/builder-authoring-cohort-recode-muu7mtxt-bcfdd13.json`. Three catalog requests canceled by the UI on their exact panel transitions are retained with request identity; all other browser/API failures remain fatal. Source and build stayed fixed. The former `node scripts/verify-ui/builder-authoring.mjs --case cohort-recode --reuse-owned-dataset` invocation belongs to the retired dispatcher. The current native `cohort-recode` case uses the small fixture; a native replay against the recorded CDA generation remains pending. |
+| `builder-authoring/cohort-recode`, CDA | Create a Patient table and exact two-member cohort, change Patient ID values to one shared category, switch ALL to ONE, reload, edit back to ALL, remove the recoding, and reload again; Preview must show the exact member values at each step | Streamed raw CDA Patient IDs, exact selection revision membership and project/generation, saved column bindings, and independent Builder/Preview API reads | Historical evidence: 78 assertions passed at `.artifacts/loom-dev/c52d4223d857/verify-ui/builder-authoring-cohort-recode-muu7mtxt-bcfdd13.json`. Three catalog requests canceled by the UI on their exact panel transitions are retained with request identity; all other browser/API failures remain fatal. Source and build stayed fixed. The former dispatcher invocation is omitted because it is retired. The current native `cohort-recode` case uses the small fixture; a native replay against the recorded CDA generation remains pending. |
 | `builder-load/list`, CDA | Open the owned CDA Builder, inject one list-read failure, observe the error alert, click its unique enabled Try again button, and see the same selected Patients table with ready preview | Exact UI-proxy GET origin, project, path, method, and one-shot failure; the independently validated loaded CDA generation and bootstrap Explorer | Passed at `.artifacts/loom-dev/c52d4223d857/verify-ui/builder-load-list-muu4vpps-6abd603.json`. Retry-to-render was 194 ms; source and API build identity remained unchanged. The two earlier failed harness runs and first-failure traces remain retained beside their reports. |
 | `builder-load/state`, CDA | Open the same Builder, inject one builder-state read failure, observe the error alert, click Try again, and see the selected Patients table with ready preview | Exact UI-proxy GET origin, project, Explorer, path, method, and one-shot failure; the independently validated loaded CDA generation | Passed at `.artifacts/loom-dev/c52d4223d857/verify-ui/builder-load-state-muu4w81m-033763d.json`. Retry-to-render was 1,585 ms; source and API build identity remained unchanged. |
 | `verify-browser-disclosure.mjs` | In an isolated page, collapse Advanced through its summary, prove the hidden input cannot be filled, reopen it, and type into the visible editable input | Native Playwright visibility/actionability and the literal input value after the visible action | Passed at `/private/tmp/loom-playwright-disclosure-evidence/report.json`. This is a harness actionability check, not a Loom product lifecycle. |
@@ -70,19 +81,10 @@ The outcomes and report paths below preserve their recorded checkpoints. Current
 | `verify-cda-builder.mjs` — `Verify Patient related column` | Open a clean named Specimen Builder, inspect all 25 initial rows, add Patient.id with Keep all matching values, verify the proposal, Apply, and reload | Independent streaming read of `META/Specimen.ndjson` and `META/Patient.ndjson`; all expected Specimen columns/nulls, Patient membership, source order, and project/generation storage keys are checked without using preview rows as the oracle | Playwright lifecycle and negative oracle/persistence tests are implemented; **live result remains untested** in the staging checkout. Run the mapped native case with `./scripts/node_modules/.bin/playwright test --config scripts/playwright.config.mjs standalone-builder.spec.mjs --grep 'Verify Patient related column'` and the explicit isolated `LOOM_CDA_*` target. Report, screenshot, all preview row windows, source file fingerprints, timings, and failure trace are retained under `.artifacts/cda-builder/playwright-patient-related-apply-reload-*/`. This case requires a clean Explorer with zero saved construction steps and preserves edit/removal as outside its case scope. |
 | `verify-cda-builder.mjs` — `Preview limits` | Change the native Preview row-limit control from 25 to 50, 100, 500, and 1,000 | Raw Specimen count and first visible row values ordered by exact project/generation Arango storage key; selected limits must report `min(limit, source count) + header` rows | Implemented with four measured five-second action-to-render gates and successful preview response checks. Static negative tests cover wrong counts and wrong/missing row values. Live CDA timing remains untested. Run the mapped native case with `./scripts/node_modules/.bin/playwright test --config scripts/playwright.config.mjs standalone-builder.spec.mjs --grep 'Preview limits'` and the explicit isolated `LOOM_CDA_*` target. Report, screenshot, source/build fingerprints, timings, preview responses, and trace are under `.artifacts/cda-builder/playwright-preview-limits-*/`. |
 
-The former loaded-CDA example used the retired `verify-ui` dispatcher and is
-historical. Its invocation is retained for reference only:
-
-```bash
-# Historical command; the verify-ui dispatcher has been retired.
-LOOM_DEV_SOURCE_ROOT=/private/tmp/loom-playwright-verification \
-LOOM_DEV_COMPOSE_PROJECT=loom-dev-c52d4223d857 \
-LOOM_DEV_API_PORT=8282 LOOM_DEV_UI_PORT=30102 \
-LOOM_DEV_PROJECT=loom_dev_cda_playwright_c52d4223d857 \
-LOOM_DEV_GENERATION=cda-fhir-v1 \
-LOOM_DEV_FIXTURE_DIR=/Users/peterkor/Desktop/BMEG/loom/CDA-FHIR/META \
-node scripts/verify-ui/builder-authoring.mjs --case authoring --reuse-owned-dataset
-```
+The former loaded-CDA `verify-ui` dispatcher example is removed because it is
+no longer an executable browser entrypoint. Use the mapped native Playwright
+spec with the explicit `LOOM_CDA_*` target documented in
+[PLAYWRIGHT_TEST_MIGRATION.md](PLAYWRIGHT_TEST_MIGRATION.md).
 
 Native fixture-backed examples are:
 
@@ -95,14 +97,18 @@ Native fixture-backed examples are:
 These cases use their registered small fixtures and do not replay the historical
 CDA generation. Native CDA authoring and suggestions mappings remain pending.
 
-## Known documentation and coverage gaps
+## Historical documentation and coverage gaps
+
+These bullets record the gaps at this migration checkpoint; they are not a
+current inventory of the repository. Use the current native entrypoints above
+and the linked Playwright Test migration record for present-day status.
 
 - The historical `make verify-ui-test` note in `docs/UI_VERIFICATION.md` records an earlier runner checkpoint; the target is absent from the current Makefile. `node --test scripts/verify-ui/tests/*.test.mjs` remains a separate supporting-test command after `npm ci --prefix scripts`; it does not run the browser suite.
 - The current feature guides include reports and commands tied to `/private/tmp/loom-construction-implementation` and its CDA stack. Those reports are historical and cannot prove this branch.
-- `make verify-fast` and `make verify-full` exercise the older synthetic fixture. They do not establish the CDA lifecycle or the required project, generation, and authorization semantics.
+- `make verify-fast` and `make verify-full` select native `@dev-journey:verify-fast` and `@dev-journey:verify-full` cases on the isolated development fixture. They do not establish the CDA lifecycle or the required project, generation, and authorization semantics.
 - A registered case proves only its declared assertions. Compare assertions with the original case and inspect actual result predicates before marking its migration complete.
 - CDA replay scripts that require owned seed reports remain untested until their corresponding 31-category Explorers are built in this isolated project. The loaded CDA generation alone does not establish a Pivot lifecycle pass.
-- `verify-cda-builder.mjs` still contains legacy CDP interactions for many other action branches. `Verify related source chooser`, the three Patient field-choice inspection actions, `Verify Patient related column`, and `Preview limits` dispatch to Playwright. The migrated Patient Apply/reload and Preview limits cases read independent raw CDA files. The three inspection reports remain deliberately `partial`; they do not assert preview values or persistence. These CDA cases have not had live runs in this execution checkout; the retained reports above describe earlier named stacks and source checkpoints.
+- At this historical checkpoint, `verify-cda-builder.mjs` still contained legacy CDP interactions for many other action branches. `Verify related source chooser`, the three Patient field-choice inspection actions, `Verify Patient related column`, and `Preview limits` dispatch to Playwright. The migrated Patient Apply/reload and Preview limits cases read independent raw CDA files. The three inspection reports remain deliberately `partial`; they do not assert preview values or persistence. These CDA cases have not had live runs in this execution checkout; the retained reports above describe earlier named stacks and source checkpoints.
 - `verify-cda-filter-lifecycle.mjs` is statically migrated, but its first isolated runtime attempt was interrupted after several minutes without a report. That attempt is **unverified**. Its relative API URL was corrected before the attempt, and source/build identity setup was independently measured at under one second; the later blocking stage remains to be diagnosed.
 - The migrated group-edit CDA case reached a saved Preview render delay beyond the five-second gate. Its report is `/private/tmp/loom-playwright-group-edit-evidence-rerun/report.json`; first-failure screenshot, DOM, sanitized requests, and trace fallback are in the same directory. The post-Unpivot `id-count` case failed its five-second render gate at `/private/tmp/loom-playwright-after-unpivot-id-count-evidence/report.json`. These are product performance failures for the other instance to triage, not migration passes.
 

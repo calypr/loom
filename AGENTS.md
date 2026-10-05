@@ -128,6 +128,25 @@ If the task has no frozen design, use the Peter mode routing rules. This
 section limits repeated analysis. It does not prohibit needed investigation or
 architecture work.
 
+## Parallel execution and integration
+
+For independent verification cases, delegate case ownership to Luna xhigh
+workers by default. Sol owns context, review, integration, and completion claims.
+Closing one integration priority does not require serializing independent runs
+or investigations. Workers return reviewable staged patches with preimages;
+they do not edit shared source or runtime during browser runs. Follow the local
+verification skill for isolated evidence paths, source freezing, lifecycle proof,
+and serial confirmation of performance failures observed under contention.
+
+For broad case inventories, target at least 10 active Luna xhigh workers per
+foreground Sol whenever useful independent work and available agent slots permit.
+There is no fixed upper cap. Split the ready work into disjoint owned cases,
+investigations, and staged fixes; refill assignments as workers finish. Do not
+create duplicate work or idle assignments merely to meet the count. Sol owns
+context and priorities, reviews returned evidence and patches, and integrates
+verified coherent units promptly. Serialize shared writes and dependent steps,
+not the independent work that can proceed alongside integration.
+
 ## Package audit safety
 
 For every package combine, move, or deletion decision:

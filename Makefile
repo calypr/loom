@@ -151,36 +151,38 @@ dev-rebuild:
 dev-doctor:
 	node scripts/loom-dev.mjs dev-doctor
 
+# Public browser targets select native Playwright Test cases directly.
+# verify-current and verify-full write temporary watched-source HMR probes; run them alone.
 verify-current:
-	node scripts/loom-dev.mjs verify-current
+	npm --prefix scripts run test:browser -- playwright/dev-journeys.spec.mjs --grep '@dev-journey:verify-current$$'
 
 .PHONY: verify-base-settings
 verify-base-settings:
-	./scripts/node_modules/.bin/playwright test --config scripts/playwright.config.mjs standalone-misc.spec.mjs --grep 'preserves authored construction through cancel, apply, and reload'
+	npm --prefix scripts run test:browser -- playwright/standalone-misc.spec.mjs --grep 'preserves authored construction through cancel, apply, and reload$$'
 
 verify-fast:
-	node scripts/loom-dev.mjs verify-fast
+	npm --prefix scripts run test:browser -- playwright/dev-journeys.spec.mjs --grep '@dev-journey:verify-fast$$'
 
 verify-full:
-	node scripts/loom-dev.mjs verify-full
+	npm --prefix scripts run test:browser -- playwright/dev-journeys.spec.mjs --grep '@dev-journey:verify-full$$'
 
 verify-j01:
-	node scripts/loom-dev.mjs verify-j01
+	npm --prefix scripts run test:browser -- playwright/dev-journeys.spec.mjs --grep '@dev-journey:verify-j01$$'
 
 verify-j02:
-	node scripts/loom-dev.mjs verify-j02
+	npm --prefix scripts run test:browser -- playwright/dev-journeys.spec.mjs --grep '@dev-journey:verify-j02$$'
 
 verify-j03:
-	node scripts/loom-dev.mjs verify-j03
+	npm --prefix scripts run test:browser -- playwright/dev-journeys.spec.mjs --grep '@dev-journey:verify-j03$$'
 
 verify-j04:
-	node scripts/loom-dev.mjs verify-j04
+	npm --prefix scripts run test:browser -- playwright/dev-journeys.spec.mjs --grep '@dev-journey:verify-j04$$'
 
 verify-j04-patient:
-	node scripts/loom-dev.mjs verify-j04-patient
+	npm --prefix scripts run test:browser -- playwright/dev-journeys.spec.mjs --grep '@dev-journey:verify-j04-patient$$'
 
 verify-j05:
-	node scripts/loom-dev.mjs verify-j05
+	npm --prefix scripts run test:browser -- playwright/dev-journeys.spec.mjs --grep '@dev-journey:verify-j05$$'
 
 dev-down:
 	node scripts/loom-dev.mjs dev-down
@@ -190,4 +192,4 @@ clean:
 
 .PHONY: verify-cda-root-settings
 verify-cda-root-settings:
-	LOOM_ROOT_REPEAT_CYCLES=3 node scripts/verify-cda-root-settings.mjs
+	LOOM_ROOT_REPEAT_CYCLES=3 npm --prefix scripts run test:browser -- playwright/standalone-cda-other.spec.mjs --grep 'preserve selected CDA membership while changing and restoring the row root$$'

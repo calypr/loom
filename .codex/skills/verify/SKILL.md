@@ -146,10 +146,37 @@ artifacts, disabled by default in the native runner. Run from a physically separ
 checkout with the source frozen. Use a dedicated Compose project for isolated
 state by default. A single explicitly named, owned development stack with a
 loaded CDA may be reused when authorized and its project and generation are
-validated; this flow does not require a second Compose project. Keep one
-browser session at a time. A passed historical report remains useful but is
-not current proof: `node scripts/verify-ui/coverage-status.mjs` shows status
-and source/build freshness separately. Missing API build identity is unknown.
+validated; this flow does not require a second Compose project. Default to
+parallel ownership for independent functional cases. Each worker must own a
+fresh QA project or a distinct disposable Explorer in the validated CDA project,
+plus separate JSON and artifact paths. Cases that mutate the same saved Explorer,
+publication target, source, or runtime must run in dependency order. Workers stage
+fixes separately while Sol owns review and integration. Keep the shared source
+checkpoint frozen throughout the batch. Target at least 10 productive Luna xhigh
+workers per foreground Sol when independent work permits, including case runs,
+first-failure investigations, and staged fixes. Refill completed assignments;
+avoid duplicate work or idle assignments solely to meet the count.
+
+Use the native runner's output controls for each independent process after
+configuring the validated target from the run plan:
+
+```bash
+mkdir -p "$REPORT_DIR"
+PLAYWRIGHT_JSON_OUTPUT_FILE="$REPORT_DIR/results.json" \
+./scripts/node_modules/.bin/playwright test --config scripts/playwright.config.mjs "$SPEC" --grep "$CASE" --output "$REPORT_DIR/artifacts"
+```
+
+Give every process its own `REPORT_DIR`. Select self-seeding cases with distinct
+owned QA data; an existing seed is a dependency, not permission to share writes.
+The official `--output` option isolates artifacts, and
+`PLAYWRIGHT_JSON_OUTPUT_FILE` overrides the configured JSON report path.
+
+Label latency measured during concurrent runs provisional. Confirm a timing
+failure serially before calling it a product performance defect; do not suppress
+functional, browser, or network failures. A passed historical report remains
+useful but is not current proof: `node scripts/verify-ui/coverage-status.mjs`
+shows status and source/build freshness separately. Missing API build identity
+is unknown.
 
 Run registered workflows through the official native test runner:
 
@@ -181,7 +208,7 @@ dependency, toolchain, or development image change.
 
 ## Doctor
 
-Check the service and fixture without opening Chrome:
+Check the service and fixture without opening a browser:
 
 ```bash
 make dev-doctor
@@ -199,8 +226,9 @@ Run the browser path:
 make verify-fast
 ```
 
-This command is the legacy synthetic-fixture workflow; native Append coverage
-runs with the focused Playwright Test command above. It uses accessible roles,
+This command selects the native Playwright development journey on the synthetic
+fixture; it does not establish CDA coverage. Focused Append coverage runs with
+the Playwright Test command above. It uses accessible roles,
 labels, and visible text to create a new per-run Explorer,
 create a table, choose Patient as the root, add the supported
 `Patient -> Observation` relationship, choose nested and scalar fields, click
@@ -227,8 +255,9 @@ then creates an exact compiled Go success probe and proves its unique marker
 executes in a fresh binary. It removes that probe, creates a separate
 syntax-error probe, requires the stale API to stop and the current probe name
 to appear in logs, then restores the probe and requires a fresh build stamp and
-`/readyz` recovery. Source restoration has an identity guard and Chrome exits
-before its temporary profile is removed.
+`/readyz` recovery. Source restoration has an identity guard. Playwright Test
+owns browser teardown. Run `verify-current` and `verify-full` alone because
+their HMR probes temporarily modify watched source.
 
 ## Evidence
 

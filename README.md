@@ -115,6 +115,9 @@ To launch from a separate repository's hydrated `META` data and native Loom
 
 For warm backend and Explorer UI iterations with an isolated Compose project
 and real browser verification, see [Fast local Explorer development](docs/LOCAL_DEVELOPMENT.md).
+The public `make verify-*` targets run native Playwright Test cases. `verify-current`
+and `verify-full` temporarily edit watched source for HMR checks, so run them one
+at a time.
 
 For backend-only development, the lightweight Compose stack starts ArangoDB and ClickHouse:
 

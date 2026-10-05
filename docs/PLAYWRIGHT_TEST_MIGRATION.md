@@ -1,5 +1,21 @@
 # Official Playwright Test migration
 
+## Immediate integration priority: public verifier commands
+
+Audit `make verify-fast`, `make verify-full`, all other browser verification
+targets, and references to the retired `verify-ui` launcher before expanding
+the browser case inventory. Each supported command must invoke native
+Playwright Test explicitly. Remove obsolete targets and document their native
+replacement rather than leaving a retired script callable from Make.
+
+The public Make targets now invoke Playwright Test directly. All eleven targets
+select exactly one native case with anchored titles, including distinct `j04`
+and `j04-patient` selections. The root-settings target preserves three cycles.
+The retired `verify-ui` launch example has been removed; registry and coverage
+APIs remain. The worker's two existing dispatcher contract checks passed.
+Discovery verifies command selection, not browser lifecycle success. The
+source-mutating `verify-current` and `verify-full` cases must run alone.
+
 ## Current mechanical checkpoint
 
 On October 4, native discovery lists 155 tests in 22 spec files, plus one
@@ -97,6 +113,10 @@ and five-second user-action budgets. Migrate callers before deleting legacy
 Chrome/CDP launchers and custom runners; retain API-only tools.
 
 Complete and integrate the mechanical batch before beginning behavioral testing.
+During testing, assign independent native cases to Luna xhigh owners by default.
+Sol reviews evidence and staged fixes and integrates one coherent unit at a time.
+Independent case execution continues while that integration is in progress;
+use the local verification skill's isolation and performance rules.
 Syntax checks and test discovery establish migration coverage only. Freeze the
 integrated source checkpoint, then run the native cases, fix failures, and rerun
 the same cases. Report harness defects separately from product defects, attach
