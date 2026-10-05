@@ -199,7 +199,13 @@ const monitorBrowser = () => {
     appOrigins: [values['api-origin'], values['ui-origin']],
     ownedPathPrefix: `${root}/${encodeURIComponent(explorer)}`,
     report: { nativeRequests: report.browserRequests, errors: report.errors },
-    shouldReportHttpError: (path, status) => !(path.endsWith('/row-definition-proposals') && expectedEmptyErrorMode && [400, 422].includes(status)),
+    shouldReportHttpError: (path, status, entry) => !(
+      path === `${root}/${encodeURIComponent(explorer)}/authoring/v2/row-definition-proposals` &&
+      expectedEmptyErrorMode && [400, 422].includes(status) && entry.method === 'POST' &&
+      entry.body?.outputId === outputId && entry.body?.selection?.kind === 'EXPANDED' &&
+      entry.body?.selection?.expanded?.rowChoiceId === report.choice?.choiceId &&
+      entry.body?.selection?.expanded?.emptyCollectionPolicy === 'ERROR'
+    ),
     shouldReportRequestFailure: (entry, request) => {
       const replacement = laterSamePathRequest(entry);
       return request.failure()?.errorText === 'net::ERR_ABORTED'

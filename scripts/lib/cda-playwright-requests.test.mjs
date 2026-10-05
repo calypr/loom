@@ -161,3 +161,68 @@ test('only the known missing favicon is recorded as an incidental asset failure'
   assert.equal(report.errors.length, 1);
   assert.equal(report.errors[0].kind, 'console');
 });
+
+test('expected HTTP and matching console errors are scoped to the exact owned request', async () => {
+  const page = new EventEmitter();
+  const report = { nativeRequests: [], errors: [] };
+  const path = '/api/v1/projects/loom_dev_cda_fhir/explorers/owned/authoring/v2/row-definition-proposals';
+  const choiceId = 'choice-owned';
+  const capture = captureCDARequests(page, {
+    apiOrigin: 'http://127.0.0.1:30102',
+    ownedPathPrefix: '/api/v1/projects/loom_dev_cda_fhir/explorers/owned',
+    report,
+    shouldReportHttpError: (requestPath, status, entry) => !(
+      requestPath === path && status === 422 && entry.method === 'POST' &&
+      entry.body?.outputId === 'out-owned' &&
+      entry.body?.selection?.kind === 'EXPANDED' &&
+      entry.body?.selection?.expanded?.rowChoiceId === choiceId &&
+      entry.body?.selection?.expanded?.emptyCollectionPolicy === 'ERROR'
+    ),
+  });
+  const makeRequest = (requestId, policy) => ({
+    url: () => `http://127.0.0.1:30102${path}`,
+    method: () => 'POST',
+    headers: () => ({ 'x-request-id': requestId }),
+    postData: () => JSON.stringify({ outputId: 'out-owned', selection: { kind: 'EXPANDED', expanded: { rowChoiceId: choiceId, emptyCollectionPolicy: policy } } }),
+  });
+  const emitResponse = async (request, body) => {
+    page.emit('request', request);
+    const fromIndex = report.nativeRequests.length - 1;
+    const complete = capture.waitFor(entry => entry.completedAt && entry.status === 422, { fromIndex, timeout: 1000 });
+    page.emit('response', {
+      request: () => request,
+      status: () => 422,
+      headers: () => ({ 'x-request-id': `server-${request.headers()['x-request-id']}` }),
+      text: async () => JSON.stringify(body),
+    });
+    return complete;
+  };
+  const emitConsole = (text = 'Failed to load resource: the server responded with a status of 422 (Unprocessable Entity)') => page.emit('console', {
+    type: () => 'error',
+    location: () => ({ url: `http://127.0.0.1:30102${path}` }),
+    text: () => text,
+  });
+  const diagnostic = { error: { code: 'EMPTY_COLLECTION_ERROR', message: 'Choose PRESERVE_PARENT or EXCLUDE.' } };
+
+  const expectedRequest = makeRequest('expected-error-policy', 'ERROR');
+  const expectedDone = emitResponse(expectedRequest, diagnostic);
+  emitConsole();
+  const expectedEntry = await expectedDone;
+  assert.equal(expectedEntry.expectedHttpFailure, true);
+  assert.equal(expectedEntry.expectedHttpConsoleConsumed, true);
+  assert.deepEqual(expectedEntry.response, diagnostic);
+  assert.deepEqual(report.errors, []);
+
+  emitConsole();
+  emitConsole('A UI error mentioned status of 422 but was not a Chromium resource failure');
+  assert.deepEqual(report.errors.map(error => error.kind), ['console', 'console']);
+
+  const unexpectedRequest = makeRequest('unexpected-preserve-policy', 'PRESERVE_PARENT');
+  const unexpectedDone = emitResponse(unexpectedRequest, { error: { code: 'UNEXPECTED_FAILURE' } });
+  const unexpectedEntry = await unexpectedDone;
+  assert.equal(unexpectedEntry.expectedHttpFailure, undefined);
+  emitConsole();
+  assert.equal(report.errors.filter(error => error.kind === 'http').length, 1);
+  assert.equal(report.errors.filter(error => error.kind === 'console').length, 3);
+  assert.equal(report.errors.find(error => error.kind === 'http').requestId, 'unexpected-preserve-policy');
+});

@@ -10008,7 +10008,7 @@
         "replacementWorkflowArtifacts": [
           {
             "path": "scripts/verify-ui/contributor-exists-workflow.mjs",
-            "sha256": "ee1294bc8fe555d632405542b456cf87f837fd555f00fdf6ecc8c74096e8285e",
+            "sha256": "09a21c14c1a6f1f7533a6128e2b722115274d71ef034aa2790272eb484bcc62c",
             "artifactSource": "canonical-source-root"
           }
         ],
@@ -10046,7 +10046,7 @@
       "workflowArtifacts": [
         {
           "path": "scripts/verify-ui/contributor-exists-workflow.mjs",
-          "sha256": "ee1294bc8fe555d632405542b456cf87f837fd555f00fdf6ecc8c74096e8285e",
+          "sha256": "09a21c14c1a6f1f7533a6128e2b722115274d71ef034aa2790272eb484bcc62c",
           "artifactSource": "canonical-source-root"
         }
       ],
@@ -13033,7 +13033,7 @@
     {
       "sourcePath": "scripts/verify-cda-related-one-all-browser.mjs",
       "preimageSha256": "46a347a9baf3705fe36c5ae40f34a0c200385a986ab17dfe3ce528bf320a57aa",
-      "currentSha256": "154aab8223cacdd359e7c4eddcd2950a441a9a08130a9dee0ce6760b3e6edb6b",
+      "currentSha256": "04d52a521c30fbe68e795cff7bec89c5ef510ead921f35e3481147dea3218c34",
       "sourceStillPresent": true,
       "ownerPartition": "native-standalone-cda-rows",
       "kind": "standalone-browser-entrypoint",
@@ -13070,7 +13070,7 @@
       "workflowArtifacts": [
         {
           "path": "scripts/verify-cda-related-one-all-browser.mjs",
-          "sha256": "154aab8223cacdd359e7c4eddcd2950a441a9a08130a9dee0ce6760b3e6edb6b",
+          "sha256": "04d52a521c30fbe68e795cff7bec89c5ef510ead921f35e3481147dea3218c34",
           "artifactSource": "canonical-source-root"
         }
       ],
@@ -13451,7 +13451,7 @@
     {
       "sourcePath": "scripts/verify-cda-repeated-empty-browser.mjs",
       "preimageSha256": "c9bddd0691836db2a2470ef7f8cae2b6fbf82dd8e86f310bdd64c45fe10d717d",
-      "currentSha256": "5deed602d54c94ae264d3aee0b54e5905d1c735570926756181f86e335dfb7d6",
+      "currentSha256": "e7f9dfcf716caa742c81fc35b8ef1107ec2575d76d2c4ab2a9f8bd8e6415c99e",
       "sourceStillPresent": true,
       "ownerPartition": "native-standalone-cda-rows",
       "kind": "standalone-browser-entrypoint",
@@ -13488,7 +13488,7 @@
       "workflowArtifacts": [
         {
           "path": "scripts/verify-cda-repeated-empty-browser.mjs",
-          "sha256": "5deed602d54c94ae264d3aee0b54e5905d1c735570926756181f86e335dfb7d6",
+          "sha256": "e7f9dfcf716caa742c81fc35b8ef1107ec2575d76d2c4ab2a9f8bd8e6415c99e",
           "artifactSource": "canonical-source-root"
         }
       ],
@@ -13572,7 +13572,7 @@
     {
       "sourcePath": "scripts/verify-cda-repeated-rows-browser.mjs",
       "preimageSha256": "ca30a78264db4a99dff8ada79172a920c914ad39d866040b2620c873eefa3f4d",
-      "currentSha256": "3a206f2838bcfff4f62f41514a2810def1037c81f73e0d74f97435ee5f18599a",
+      "currentSha256": "afa4683e759a821693c893fe5fd6458a01a502aa9f7dfaa56b80eda9973a3d28",
       "sourceStillPresent": true,
       "ownerPartition": "native-standalone-cda-rows",
       "kind": "standalone-browser-entrypoint",
@@ -13603,7 +13603,7 @@
       "workflowArtifacts": [
         {
           "path": "scripts/verify-cda-repeated-rows-browser.mjs",
-          "sha256": "3a206f2838bcfff4f62f41514a2810def1037c81f73e0d74f97435ee5f18599a",
+          "sha256": "afa4683e759a821693c893fe5fd6458a01a502aa9f7dfaa56b80eda9973a3d28",
           "artifactSource": "canonical-source-root"
         }
       ],

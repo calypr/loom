@@ -367,7 +367,7 @@ export const test = base.extend({
     const matchesCancellationScope = (request, scope) => {
       try {
         const url = new URL(request.url());
-        const requestId = request.headers()['x-request-id'] ?? '';
+        const requestId = request.headers()['x-request-id'] ?? playwrightRequestId(request);
         return Date.now() - scope.armedAt <= ACTION_TIMEOUT_MS && url.origin === scope.origin &&
           request.method() === scope.method && scope.paths.includes(url.pathname) &&
           scope.requestIdPrefixes.some(prefix => requestId.startsWith(prefix));

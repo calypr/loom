@@ -240,14 +240,55 @@ const chooseContributorIDExists = async (panel, actionName) => {
   const startedAt = Date.now();
   const { options } = await openContributorOptions(panel);
   const onlyRecords = `${options} label`;
-  await revealControl(onlyRecords, 'Only records meeting a condition');
-  await clickControl(page, onlyRecords, { includes: 'Only records meeting a condition' });
-  await waitForDOM(page, args => Boolean(document.querySelector(''+args.__template0+' input[placeholder="Search field name or path"]')), { __template0: (options) });
   const search = `${options} input[placeholder="Search field name or path"]`;
-  await revealControl(search);
-  await clickControl(page, search);
-  await fillControl(page, search, 'id');
-  await waitForDOM(page, args => Boolean(document.querySelector(''+args.__template0+' [role="group"][aria-label="Fields for related-record condition"] button')), { __template0: (options) });
+  const contributorRequestPath = `${base}/related-expand-contributors`;
+  const contributorRequestStart = report.nativeRequests.length;
+  const cancellationAction = 'search contributor fields for id';
+  await cda.withExpectedCancellations({
+    origin: uiOrigin,
+    method: 'POST',
+    paths: [contributorRequestPath],
+    requestIdPrefixes: ['cda-request-'],
+    reason: 'The initial unfiltered contributor lookup is superseded by the explicit id search.',
+    proof: { priorQuery: null, replacementQuery: 'id' },
+    actionLabel: cancellationAction,
+  }, async () => {
+    await revealControl(onlyRecords, 'Only records meeting a condition');
+    await clickControl(page, onlyRecords, { includes: 'Only records meeting a condition' });
+    await waitForDOM(page, args => Boolean(document.querySelector(''+args.__template0+' input[placeholder="Search field name or path"]')), { __template0: (options) });
+    await revealControl(search);
+    await clickControl(page, search);
+    await fillControl(page, search, 'id');
+    const filteredRequest = await requestCapture.waitFor(request => request.path === contributorRequestPath
+      && request.body?.query === 'id' && request.status === 200
+      && request.response?.choices?.some(choice => choice.source?.path === 'id' && choice.source?.resourceType === 'Observation'),
+    { fromIndex: contributorRequestStart, timeoutMs: 5000 });
+    assert.equal(filteredRequest.status, 200, 'The superseding Observation id field search must return successfully');
+    await waitForDOM(page, args => Boolean(document.querySelector(''+args.__template0+' [role="group"][aria-label="Fields for related-record condition"] button')), { __template0: (options) });
+  });
+  const cancellations = cda.report.expectedCancellations?.filter(item => item.proof?.scopeAction === cancellationAction) ?? [];
+  assert(cancellations.length <= 1, 'Contributor field search may classify at most one superseded initial lookup');
+  const cancellation = cancellations[0];
+  if (cancellation) {
+    const cancelledRequest = report.nativeRequests.find(request => request.browserRequestId === cancellation.browserRequestId);
+    assert(cancelledRequest, 'Expected contributor search cancellation must point to an exact captured browser request');
+    assert.equal(cancelledRequest.path, contributorRequestPath);
+    assert.equal(cancelledRequest.method, 'POST');
+    assert([undefined, null, ''].includes(cancelledRequest.body?.query),
+      'The cancelled contributor request must be the initial unfiltered lookup');
+    const cancelledError = report.errors.find(error => error.kind === 'network'
+      && error.browserRequestId === cancellation.browserRequestId);
+    assert(cancelledError, 'The exact cancelled contributor request failure must remain in browser diagnostics');
+    assert.equal(cancelledError.error, 'net::ERR_ABORTED');
+    cancelledError.expected = true;
+    cancelledError.expectedCancellation = cancellation;
+    report.contributorSearchCancellation = {
+      request: { browserRequestId: cancelledRequest.browserRequestId, path: cancelledRequest.path,
+        method: cancelledRequest.method, query: cancelledRequest.body?.query ?? null, error: cancelledError.error },
+      replacement: { query: 'id', status: 200, field: 'Observation.id' },
+      reason: cancellation.reason,
+    };
+  }
   const choices = await inspectDOM(page, async args => { return [...document.querySelectorAll(''+args.__template0+' [role="group"][aria-label="Fields for related-record condition"] button')]
       .map(button=>({text:button.innerText.trim(),pressed:button.getAttribute('aria-pressed')})); }, { __template0: (options) });
   report.contributorChoices = choices;
@@ -526,8 +567,8 @@ assert.equal(expectedHTTP.length, 1, 'Exactly the expected construction proposal
 assert.deepEqual(cda.diagnostics.httpFailures.filter(failure => !expectedHTTP.includes(failure)), [], 'Unexpected app-origin HTTP failures were reported');
 assert.deepEqual(cda.diagnostics.pageErrors, [], 'Unexpected page errors were reported');
 assert.deepEqual(cda.diagnostics.console, [], 'Unexpected console errors were reported');
-assert.deepEqual(cda.diagnostics.networkFailures, [], 'Unexpected network failures were reported');
-assert.equal(report.errors.filter((failure) => failure.expected).length, 1,
+assert.deepEqual(cda.diagnostics.networkFailures.filter(failure => !failure.expectedCancellation), [], 'Unexpected network failures were reported');
+assert.equal(report.errors.filter((failure) => failure.kind === 'http' && failure.expected).length, 1,
   'The expected ERROR-policy validation must be the only expected browser HTTP failure');
 report.expectedErrorWindow.active = false;
 report.status = 'passed';

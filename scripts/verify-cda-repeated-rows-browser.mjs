@@ -552,4 +552,5 @@ try {
   try { await browserEvents.flush(); } catch { /* Response reads are also captured above. */ }
   await finish();
 }
+return report;
 }

@@ -15,7 +15,7 @@ const parseRawBody = body => {
   catch { return String(body ?? ''); }
 };
 
-export function captureCDARequests(page, { apiOrigin, browserRequestOrigin = apiOrigin, appOrigins = [apiOrigin], ownedPathPrefix, report, currentAction = () => undefined, responsePaths = /commands|selections|explicit-groups|row-definition-proposals|construction-choice-proposals|construction-proposals|construction-capabilities|row-lineage|population-mapping|preview/ } = {}) {
+export function captureCDARequests(page, { apiOrigin, browserRequestOrigin = apiOrigin, appOrigins = [apiOrigin], ownedPathPrefix, report, currentAction = () => undefined, responsePaths = /commands|selections|explicit-groups|row-definition-proposals|construction-choice-proposals|construction-proposals|construction-capabilities|row-lineage|population-mapping|preview/, shouldReportHttpError = () => true } = {}) {
   if (!apiOrigin || !ownedPathPrefix || !report || !Array.isArray(report.nativeRequests)) {
     throw new TypeError('CDA request capture needs an API origin, owned path prefix, and nativeRequests report array');
   }
@@ -77,6 +77,8 @@ export function captureCDARequests(page, { apiOrigin, browserRequestOrigin = api
     entry.serverRequestId = headers['x-request-id'];
     const readResponse = responsePaths.test(entry.path) || /related-expand-choices/.test(entry.path);
     const httpFailure = response.status() >= 400;
+    const expectedHttpFailure = httpFailure && shouldReportHttpError(entry.path, response.status(), entry) === false;
+    if (expectedHttpFailure) entry.expectedHttpFailure = true;
     const read = Promise.resolve().then(async () => {
       try {
         if (readResponse) {
@@ -100,7 +102,7 @@ export function captureCDARequests(page, { apiOrigin, browserRequestOrigin = api
       let pendingDiagnostic;
       pendingDiagnostic = read.then(() => {
         if (entry.response !== undefined) errorEntry.response = entry.response;
-        report.errors.push(errorEntry);
+        if (!expectedHttpFailure) report.errors.push(errorEntry);
         entry.completedAt = Date.now();
         pendingReads.delete(read);
       }).finally(() => {
@@ -124,6 +126,15 @@ export function captureCDARequests(page, { apiOrigin, browserRequestOrigin = api
     if (message.type() !== 'error') return;
     const location = message.location().url;
     if (location && !appOriginSet.has(new URL(location).origin)) return;
+    const resourceFailureStatus = /^Failed to load resource: the server responded with a status of (\d{3}) \([^)]+\)$/.exec(message.text())?.[1];
+    if (location && resourceFailureStatus) {
+      const url = new URL(location);
+      const matchingRequests = report.nativeRequests.filter(entry => entry.origin === url.origin && entry.path === url.pathname && entry.status === Number(resourceFailureStatus));
+      if (matchingRequests.length === 1 && matchingRequests[0].expectedHttpFailure === true && !matchingRequests[0].expectedHttpConsoleConsumed) {
+        matchingRequests[0].expectedHttpConsoleConsumed = true;
+        return;
+      }
+    }
     if (location && new URL(location).pathname === '/favicon.ico' && /404 \(Not Found\)/.test(message.text())) {
       (report.assetFailures ??= []).push({ kind: 'console', url: location, status: 404 });
       return;

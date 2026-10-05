@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { mkdir, readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
-import { sanitizeBody, sanitizeText } from './lib/playwright-browser.mjs';
+import { sanitizeBody, sanitizePayload, sanitizeText } from './lib/playwright-browser.mjs';
 import { captureSourceFreeze } from './lib/source-freeze.mjs';
 import { sourceFingerprint } from './verify-ui/source-fingerprint.mjs';
 import { ApiBuildFreezeError, captureApiBuildFreeze, checkContainerApiBuildStamp } from './lib/api-build-freeze.mjs';
@@ -295,8 +295,8 @@ const isOwnedNativeRequest = request => {
   return Boolean(url && url.origin === uiApiOrigin && url.pathname.startsWith(ownedApiPath));
 };
 const parseSanitizedBody = value => {
-  const sanitized = sanitizeBody(value);
-  try { return JSON.parse(sanitized); } catch { return sanitized; }
+  const text = String(value ?? '');
+  try { return sanitizePayload(JSON.parse(text)); } catch { return sanitizeBody(text); }
 };
 const expectedHttpValidation = entry => entry.status === 422 &&
   entry.path.endsWith(relatedSourceMode ? '/construction-proposals' : '/construction-choice-proposals') &&
