@@ -5,8 +5,8 @@ Source set: 85 root inventory rows plus 1 additional package-local source (86 re
 Browser inventory: 74 root standalone entrypoints; 1 package-local entrypoint; 24 registered Playwright cases.
 Mapped sources: 73; retained API/helper sources: 10; pending source mappings/dispositions: 0.
 Native case map: 75 source rows / 154 source-to-case rows (154 distinct source-case keys); 76 source rows record legacy browser ownership removed.
-Native spec accounting: 23 current spec files; 19 mapped to legacy sources or registry cases; 4 explicitly classified harness specs; 0 orphan specs.
-Runtime evidence: not-run; official Playwright --list discovery: 155 tests in 22 files (discovery only; lifecycle not run).
+Native spec accounting: 24 current spec files; 19 mapped to legacy sources or registry cases; 5 explicitly classified harness specs; 0 orphan specs.
+Runtime evidence: not-run; official Playwright --list discovery: 157 tests in 23 files (discovery only; lifecycle not run).
 Embedded Loom dev launch sites: 9; mappings open: 0.
 Additional non-verify browser sources: 1; launch sites: 1; mappings open: 0; legacy helper owners still active: 0.
 

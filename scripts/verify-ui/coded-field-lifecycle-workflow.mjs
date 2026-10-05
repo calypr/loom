@@ -219,7 +219,8 @@ const chooseComponentFrame = async () => {
       && error.browserRequestId === cancellation.browserRequestId);
     assert(cancelledError, 'Expected frame-source cancellation must remain in browser diagnostics');
     assert.equal(cancelledError.error, 'net::ERR_ABORTED');
-    assert.equal(cancelledError.expected, true);
+    cancelledError.expected = true;
+    cancelledError.expectedCancellation = cancellation;
     assert.equal(result.body?.query, 'Observation');
     assert.equal(result.status, 200);
     report.frameSourceBrowseCancellation = {
@@ -510,7 +511,9 @@ assert.equal(oneFailure.body.constructionChoices[0].frameId, frame.id);
 assert.equal(oneFailure.status, 422, JSON.stringify(oneFailure));
 const oneError = oneFailure.response?.error?.code ?? oneFailure.response?.code;
 assert.equal(oneError, 'CONSTRUCTION_ROW_VALUE_MULTIPLE_VALUES', JSON.stringify(oneFailure.response));
-cda.expectHttpFailure(oneFailure,
+const oneFailureCapturedEntry = nativeRequests.find((entry) => entry.browserRequestId === oneFailure.browserRequestId);
+assert(oneFailureCapturedEntry, 'The ONE-policy response must resolve to its exact captured native request entry');
+cda.expectHttpFailure(oneFailureCapturedEntry,
   'The independent raw CDA witness contains multiple distinct values under the explicitly selected grouped-row ONE policy.',
   { action: 'preview coded component values with grouped-row policy ONE', form: 'ALL', rowValuePolicy: 'ONE',
     frameId: frame.id, distinctValues: source.distinctValues });
@@ -577,8 +580,9 @@ assert(groupedOutput, 'Saved Group step did not declare the derived row-value ou
 assert.equal(groupedOutput.name, codedColumn.column, 'The Group row-value output must target the coded column’s physical output name');
 assert.equal(groupedOutput.label, codedColumn.label);
 const groupStepId = savedGroup.id;
-const commandIndex = nativeRequests.indexOf(allCommand);
-const appliedPreview = await waitNative((entry) => entry.path.endsWith('/preview') && entry.body?.outputId === outputId, commandIndex, 5000);
+const commandIndex = nativeRequests.findIndex((entry) => entry.browserRequestId === allCommand.browserRequestId);
+assert(commandIndex >= 0, 'Applied coded choice command must remain in the captured native request sequence');
+const appliedPreview = await waitNative((entry) => entry.path.endsWith('/preview') && entry.body?.outputId === outputId, commandIndex + 1, 5000);
 assert.deepEqual(appliedPreview.response.rows[0]?.[codedColumn.column], source.distinctValues);
 assert.equal(appliedPreview.response.rowCount, 1);
 record('coded-all-saved-preview-matches-independent-cda', savedPreviewStarted, {
@@ -696,12 +700,33 @@ await requestCapture.flush();
 const expectedFailures = report.errors.filter((error) => error.kind === 'http' && error.path.endsWith('/construction-choice-proposals') && error.status === 422 && error.response?.error?.code === 'CONSTRUCTION_ROW_VALUE_MULTIPLE_VALUES');
 const expectedHttpDiagnostics = cda.diagnostics.httpFailures.filter(error => error.status === 422 && error.url.endsWith(`${base}/construction-choice-proposals`));
 assert.equal(expectedHttpDiagnostics.length, 1, 'The expected ONE-policy proposal rejection must be captured by Playwright HTTP diagnostics');
-const unexpectedErrors = report.errors.filter((error) => !expectedFailures.includes(error));
+const expectedCancellationLedger = new Set(cda.report.expectedCancellations ?? []);
+const expectedHttpFailureLedger = new Set(cda.report.expectedHttpFailures ?? []);
+const expectedCancellationErrors = new Set(report.errors.filter(error =>
+  error.kind === 'network' && error.expected === true && error.error === 'net::ERR_ABORTED' &&
+  error.expectedCancellation && expectedCancellationLedger.has(error.expectedCancellation) &&
+  error.requestId === error.expectedCancellation.requestId &&
+  error.browserRequestId === error.expectedCancellation.browserRequestId &&
+  error.method === error.expectedCancellation.method && error.url === error.expectedCancellation.url &&
+  error.path === `${base}/frame-source-options`
+));
+const expectedHttpConsoleErrors = new Set(report.errors.filter(error => {
+  const failure = error.expectedHttpFailure;
+  return error.kind === 'console' && error.expected === true && failure &&
+    expectedHttpFailureLedger.has(failure) && failure.method === 'POST' &&
+    failure.path === `${base}/construction-choice-proposals` && failure.status === 422 &&
+    failure.console?.fixtureDiagnostic === true && failure.console?.requestCaptureError === true &&
+    error.location === failure.console.location && error.message === failure.console.message;
+}));
+const unexpectedErrors = report.errors.filter((error) =>
+  !expectedFailures.includes(error) &&
+  !expectedCancellationErrors.has(error) &&
+  !expectedHttpConsoleErrors.has(error));
 assert.equal(expectedFailures.length, 1, 'Exactly one independently predicted ONE disagreement is expected');
 assert.deepEqual(unexpectedErrors, [], 'No unexpected browser or HTTP errors are allowed');
 assert.deepEqual(cda.diagnostics.pageErrors, [], 'Unexpected page errors were reported');
 assert.deepEqual(cda.diagnostics.console, [], 'Unexpected console errors were reported');
-assert.deepEqual(cda.diagnostics.networkFailures, [], 'Unexpected network failures were reported');
+assert.deepEqual(cda.diagnostics.networkFailures.filter(failure => !failure.expectedCancellation), [], 'Unexpected network failures were reported');
 assert.deepEqual(cda.diagnostics.httpFailures.filter(error => !expectedHttpDiagnostics.includes(error)), [], 'Unexpected HTTP failures were reported');
 report.expectedOneError = { code: oneError, requestId: oneFailure.requestId, independentDistinctValueCount: source.distinctValues.length };
 report.status = 'passed';

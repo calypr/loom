@@ -7,6 +7,10 @@ const legacyDrivers = new Set([
   'scripts/lib/browser.mjs',
   'scripts/verify-ui/browser.mjs',
 ]);
+const infrastructureCheckers = new Set([
+  'scripts/check-playwright-migration.mjs',
+  'scripts/check-standalone-playwright-ledger.mjs',
+]);
 const patterns = [
   ['legacy browser import', /\bfrom\s*['"][^'"]*\/browser\.mjs['"]/],
   ['legacy loom-dev browser import', /\bimport\s*\{[^}]*\b(?:browserEval|launchBrowser|navigate|waitForBrowser|snapshot)\b[^}]*\}\s*from\s*['"][^'"]*loom-dev\.mjs['"]/s],
@@ -27,7 +31,7 @@ function* files(directory) {
 const remaining = [];
 for (const path of files(scripts)) {
   const name = relative(root, path);
-  if (name === 'scripts/check-playwright-migration.mjs') continue;
+  if (infrastructureCheckers.has(name)) continue;
   const source = readFileSync(path, 'utf8');
   const reasons = patterns.filter(([, pattern]) => pattern.test(source)).map(([label]) => label);
   if (legacyDrivers.has(name)) reasons.unshift('legacy driver file');

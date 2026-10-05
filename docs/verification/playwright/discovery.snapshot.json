@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "kind": "official-playwright-static-discovery",
   "sourceRoot": ".",
-  "baseCommit": "39427ad83cfbc641b940b69ce8f60ebf9cbbc798",
+  "baseCommit": "5c94c73ac0f4fd4a6b35fb6d748309393e5aacf3",
   "status": "discovery-only",
   "runtimeStatus": "not-run",
   "commandTemplate": "<repo>/scripts/node_modules/.bin/playwright test --config <configPath> --list --reporter=json",
@@ -12,9 +12,9 @@
       "configPath": "scripts/playwright.config.mjs",
       "configSha256": "ae1acf486f382cc52e1de90344f42f091c30c0d2c1e911f06d9fba491c55115e",
       "environment": {},
-      "testCount": 155,
-      "specFileCount": 22,
-      "discoveredCasesSha256": "6aa52d7b82021b5053f06f7d66339751fa07dbeb4af32fcd7ec21a4ae8f4e354",
+      "testCount": 157,
+      "specFileCount": 23,
+      "discoveredCasesSha256": "6dc85f5afffa84c722658a54910e4a5e75427a684e1fe4b016cb09fbd38c4b1d",
       "specs": [
         {
           "path": "scripts/playwright/append.spec.mjs",
@@ -24,6 +24,26 @@
               "title": "APPEND preview, apply, edit, cancel, removal and reload",
               "id": "d0974d882aa3158ff774-858329bc98253d5941be",
               "line": 6,
+              "column": 1,
+              "occurrence": 1
+            }
+          ]
+        },
+        {
+          "path": "scripts/playwright/authoring-summary.spec.mjs",
+          "sha256": "4d292821f19f6b3798026c44f86c62cdc0782bef92df17e5f557b3fb751401ac",
+          "cases": [
+            {
+              "title": "opens an exact-text native summary when Chromium exposes no button role",
+              "id": "0d52153f53ca2a05a671-d4908707be4f0240822a",
+              "line": 9,
+              "column": 1,
+              "occurrence": 1
+            },
+            {
+              "title": "duplicate exact native summaries retain Playwright strictness",
+              "id": "0d52153f53ca2a05a671-e05d4570972df6a996f3",
+              "line": 29,
               "column": 1,
               "occurrence": 1
             }
@@ -1371,10 +1391,10 @@
       ]
     }
   ],
-  "mainDiscoveryTestCount": 155,
-  "mainDiscoverySpecFileCount": 22,
+  "mainDiscoveryTestCount": 157,
+  "mainDiscoverySpecFileCount": 23,
   "dedicatedBenchmarkTestCount": 1,
   "dedicatedBenchmarkSpecFileCount": 1,
-  "totalDeclaredTestCount": 156,
+  "totalDeclaredTestCount": 161,
   "note": "Official Playwright list commands loaded registrations only; no test bodies ran. `sessions` records the main suite, the benchmark dedicated config, and the three non-default related ONE/ALL configurations. Each recorded spec/config hash binds titles to the current source tree."
 }

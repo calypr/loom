@@ -157,6 +157,64 @@ function markExpectedErrors(report) {
   }
 }
 
+export function classifyExpectedCdaCancellation({ request, reason, proof, report, requestFailures, trackers }) {
+  if (!request || typeof request.url !== 'function') throw new TypeError('Expected cancellation needs the native Playwright Request object.');
+  if (typeof reason !== 'string' || !reason.trim()) throw new TypeError('Expected cancellation needs a concrete reason.');
+  if (!proof || typeof proof !== 'object') throw new TypeError('Expected cancellation needs request/action proof.');
+  const failure = requestFailures.get(request);
+  if (!failure) throw new Error('Expected cancellation must match an exact observed native request failure.');
+  if (failure.errorText !== 'net::ERR_ABORTED') throw new Error('Only a native net::ERR_ABORTED request can be marked as an expected cancellation.');
+
+  const capturedEntry = [...trackers].map(tracker => tracker.byRequest.get(request)).find(Boolean);
+  let cancellation;
+  if (failure.expected) {
+    if (failure.expectedCancellation?.reason !== reason) {
+      throw new Error('This exact native request already has a different cancellation classification.');
+    }
+    cancellation = failure.expectedCancellation;
+  } else {
+    cancellation = sanitizePayload({
+      requestId: failure.requestId ?? failure.playwrightRequestId,
+      playwrightRequestId: failure.playwrightRequestId,
+      browserRequestId: capturedEntry?.browserRequestId,
+      method: failure.method,
+      url: failure.url,
+      reason: safeText(reason),
+      proof,
+    });
+    failure.expected = true;
+    failure.canceled = true;
+    failure.cancellationReason = cancellation.reason;
+    failure.expectedCancellation = cancellation;
+    report.expectedCancellations ??= [];
+    report.expectedCancellations.push(cancellation);
+    if (capturedEntry) {
+      capturedEntry.expected = true;
+      capturedEntry.canceled = true;
+      capturedEntry.cancellationReason = cancellation.reason;
+      capturedEntry.expectedCancellation = cancellation;
+    }
+  }
+
+  if (capturedEntry?.browserRequestId) {
+    const sameCapturedRequest = entry => entry.kind === 'network' &&
+      entry.browserRequestId === capturedEntry.browserRequestId;
+    for (const diagnostic of report.network ?? []) {
+      if (!sameCapturedRequest(diagnostic)) continue;
+      diagnostic.expected = true;
+      diagnostic.canceled = true;
+      diagnostic.cancellationReason = cancellation.reason;
+      diagnostic.expectedCancellation = cancellation;
+    }
+    for (const capturedError of report.errors ?? []) {
+      if (!sameCapturedRequest(capturedError)) continue;
+      capturedError.expected = true;
+      capturedError.expectedCancellation = cancellation;
+    }
+  }
+  return cancellation;
+}
+
 function finishCdaReport(report) {
   const completeNetwork = report.network;
   report.network = completeNetwork.filter(entry => !entry.expectedHttpFailure);
@@ -624,57 +682,8 @@ export const test = base.extend({
       faultHandlers.push(handler);
       return { id: attempt.id, path: attempt.path, count: () => Number(attempt.matched), evidence };
     };
-    const expectCanceledRequest = (request, reason, proof) => {
-      if (!request || typeof request.url !== 'function') throw new TypeError('Expected cancellation needs the native Playwright Request object.');
-      if (typeof reason !== 'string' || !reason.trim()) throw new TypeError('Expected cancellation needs a concrete reason.');
-      if (!proof || typeof proof !== 'object') throw new TypeError('Expected cancellation needs request/action proof.');
-      const failure = requestFailures.get(request);
-      if (!failure) throw new Error('Expected cancellation must match an exact observed native request failure.');
-      if (failure.errorText !== 'net::ERR_ABORTED') throw new Error('Only a native net::ERR_ABORTED request can be marked as an expected cancellation.');
-      if (failure.expected) {
-        if (failure.expectedCancellation?.reason === reason) return failure.expectedCancellation;
-        throw new Error('This exact native request already has a different cancellation classification.');
-      }
-      const capturedEntry = [...trackers].map(tracker => tracker.byRequest.get(request)).find(Boolean);
-      const cancellation = sanitizePayload({
-        requestId: failure.requestId ?? failure.playwrightRequestId,
-        playwrightRequestId: failure.playwrightRequestId,
-        browserRequestId: capturedEntry?.browserRequestId,
-        method: failure.method,
-        url: failure.url,
-        reason: safeText(reason),
-        proof,
-      });
-      failure.expected = true;
-      failure.canceled = true;
-      failure.cancellationReason = cancellation.reason;
-      failure.expectedCancellation = cancellation;
-      report.expectedCancellations ??= [];
-      report.expectedCancellations.push(cancellation);
-      if (capturedEntry) {
-        capturedEntry.expected = true;
-        capturedEntry.canceled = true;
-        capturedEntry.cancellationReason = cancellation.reason;
-        capturedEntry.expectedCancellation = cancellation;
-      }
-      if (capturedEntry?.browserRequestId) {
-        const sameCapturedRequest = entry => entry.kind === 'network' &&
-          entry.browserRequestId === capturedEntry.browserRequestId;
-        for (const diagnostic of report.network ?? []) {
-          if (!sameCapturedRequest(diagnostic)) continue;
-          diagnostic.expected = true;
-          diagnostic.canceled = true;
-          diagnostic.cancellationReason = cancellation.reason;
-          diagnostic.expectedCancellation = cancellation;
-        }
-        for (const capturedError of report.errors ?? []) {
-          if (!sameCapturedRequest(capturedError)) continue;
-          capturedError.expected = true;
-          capturedError.expectedCancellation = cancellation;
-        }
-      }
-      return cancellation;
-    };
+    const expectCanceledRequest = (request, reason, proof) =>
+      classifyExpectedCdaCancellation({ request, reason, proof, report, requestFailures, trackers });
     const expectCapturedCancellation = (capturedEntry, reason, proof) => {
       if (!capturedEntry || !report.nativeRequests.includes(capturedEntry)) {
         throw new TypeError('Expected cancellation must name an exact entry from this CDA fixture request capture.');

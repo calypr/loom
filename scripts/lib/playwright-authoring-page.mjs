@@ -13,13 +13,24 @@ const pageFor = workflow => {
   return workflow.page;
 };
 
+const escapeRegExp = value => String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+const exactTextPattern = value => {
+  const words = String(value).trim().split(/\s+/).filter(Boolean).map(escapeRegExp);
+  return new RegExp(`^\\s*${words.join('\\s+')}\\s*$`);
+};
+
 const controlLocator = (page, selector, identity = {}) => {
   if (identity.name !== undefined || identity.includes !== undefined) {
     const accessibleName = identity.name ?? new RegExp(String(identity.includes).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+    if (selector.includes('summary')) {
+      const hasText = identity.name !== undefined ? exactTextPattern(identity.name) : accessibleName;
+      return page.locator(selector).filter({ hasText });
+    }
     const role = /input\[type=["']checkbox/.test(selector) ? 'checkbox'
       : /input\[type=["']radio/.test(selector) ? 'radio'
         : /select|input|textarea/.test(selector) ? 'combobox'
-          : /button|summary/.test(selector) ? 'button' : null;
+          : /button/.test(selector) ? 'button' : null;
     if (role) {
       const scope = selector.match(/^(.*?)(?:\s+)(?:button|input|select|textarea)(?:\[|$)/)?.[1];
       const root = scope ? page.locator(scope) : page;

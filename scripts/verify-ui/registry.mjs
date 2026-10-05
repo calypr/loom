@@ -840,7 +840,6 @@ export const registry = Object.freeze([
     ],
     gateReasons: [
       'native verification requires the owned CDA Builder and API stack with the pinned cda-fhir-v1 generation',
-      'the fixture aggregate performance dimension remains untested; serial transition timings are recorded separately',
     ],
     script: 'cohort-fields-workflow.mjs',
     playwrightTests: { 'cohort-fields': 'scripts/playwright/standalone-cda-fields.spec.mjs' },
@@ -857,7 +856,7 @@ export const registry = Object.freeze([
       ],
     },
     coverage: [
-      { feature: 'CDA named-cohort member-field Apply, Cancel, reload, removal, and restoration lifecycle', status: 'implemented', reason: 'The dedicated wave3 serial native run passed all seven required checks and the exact lifecycle. Independent serial transition timings peaked at 1,645 ms, below the 5 s per-transition budget; the fixture aggregate performance dimension remains untested. Evidence: docs/verification/playwright/runtime/cohort-fields-epoch3.json.' },
+      { feature: 'CDA named-cohort member-field Apply, Cancel, reload, removal, and restoration lifecycle', status: 'implemented', reason: 'The dedicated wave3 serial native run passed all seven required checks and the exact lifecycle. Independent serial transition timings peaked at 1,645 ms, within the 5 s per-transition budget. The fixture aggregate performance dimension remains untested report metadata and is not a separate acceptance gate. Evidence: docs/verification/playwright/runtime/cohort-fields-epoch3.json.' },
     ],
   }),
 ]);

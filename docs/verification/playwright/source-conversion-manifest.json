@@ -7,7 +7,7 @@
     "runnerInventoryPath": "docs/verification/playwright/runner-inventory.snapshot.json",
     "runnerInventorySha256": "596ab9f0bace824e8c9a6abde45a9302c9b668ef8ec06d675b95d37d79dac24a",
     "registryPath": "scripts/verify-ui/registry.mjs",
-    "registrySha256": "809a635ac55eae5b163c43f5f11aea4b59fe929b0318127085e7a3c3d550c511",
+    "registrySha256": "7759e8c637653dfe120939164a1f33e8a7ccc0e66ebc75a801ae5e2cc1bd13af",
     "preimagesCapturedFromStageCopy": true
   },
   "sourceScope": {
@@ -794,7 +794,7 @@
     ],
     "discoverySnapshot": {
       "path": "docs/verification/playwright/discovery.snapshot.json",
-      "sha256": "0049296f3b7d836cd29c4735d6a4a73007c9c7a947101b37b88c81a84ef9c8db"
+      "sha256": "8061eb377f7a4eb0b4bb4f0b8195028132dd676ba89fff83a85df16e356ce206"
     },
     "discoveryOverrideInputs": [
       {
@@ -2606,6 +2606,7 @@
     "unmappedWorkerSources": [],
     "orphanNativeSpecs": [],
     "infrastructureSpecPaths": [
+      "scripts/playwright/authoring-summary.spec.mjs",
       "scripts/playwright/native-action-readiness.spec.mjs",
       "scripts/playwright/native-authoring-oracles.spec.mjs",
       "scripts/playwright/native-failure-evidence.spec.mjs",
@@ -2647,8 +2648,8 @@
     "legacyLauncherImplementationFiles": 3,
     "unresolvedLegacyLauncherImplementationOwners": 0,
     "orphanNativeSpecs": 0,
-    "infrastructureSpecs": 4,
-    "nativePlaywrightSpecFiles": 23,
+    "infrastructureSpecs": 5,
+    "nativePlaywrightSpecFiles": 24,
     "mappedNativePlaywrightSpecFiles": 19,
     "unmappedWorkerSources": 0
   },
@@ -2712,6 +2713,21 @@
       "runtimeEvidence": {
         "status": "not-run"
       }
+    },
+    {
+      "path": "scripts/playwright/authoring-summary.spec.mjs",
+      "kind": "native-harness-contract-spec",
+      "sha256": "4d292821f19f6b3798026c44f86c62cdc0782bef92df17e5f557b3fb751401ac",
+      "discoveryTestTitles": [
+        "duplicate exact native summaries retain Playwright strictness",
+        "opens an exact-text native summary when Chromium exposes no button role"
+      ],
+      "discoveryTestCount": 2,
+      "discoverySpecSha256": "4d292821f19f6b3798026c44f86c62cdc0782bef92df17e5f557b3fb751401ac",
+      "reason": "Checks exact native HTML summary locator behavior and strictness with an isolated page fixture; it is a helper contract with no legacy browser entrypoint or product acceptance lifecycle.",
+      "runtimeEvidence": {
+        "status": "not-run"
+      }
     }
   ],
   "ownershipPartitions": {
@@ -2733,12 +2749,12 @@
   "testDiscoveryEvidence": {
     "status": "discovery-only",
     "playwrightListPassed": true,
-    "discoveredTestCount": 155,
-    "discoveredSpecFileCount": 22,
+    "discoveredTestCount": 157,
+    "discoveredSpecFileCount": 23,
     "dedicatedBenchmarkTestCount": 1,
     "dedicatedBenchmarkSpecFileCount": 1,
     "discoverySnapshotPath": "docs/verification/playwright/discovery.snapshot.json",
-    "discoverySnapshotSha256": "0049296f3b7d836cd29c4735d6a4a73007c9c7a947101b37b88c81a84ef9c8db",
+    "discoverySnapshotSha256": "8061eb377f7a4eb0b4bb4f0b8195028132dd676ba89fff83a85df16e356ce206",
     "discoverySnapshotMatchesCurrentSourceTree": true,
     "runtimeLifecycleStatus": "not-run",
     "note": "Official Playwright --list snapshots cover the main suite, the dedicated construction-preview benchmark config, and configured related ONE/ALL variants. They confirm discovery only; no test body or domain lifecycle is represented as run."
@@ -5024,8 +5040,8 @@
       "scenarioCoverage": [
         {
           "feature": "CDA named-cohort member-field Apply, Cancel, reload, removal, and restoration lifecycle",
-          "status": "untested",
-          "reason": "The native functional baseline passed before named report gates were added; keep report coverage unverified until this dedicated mapping runs against the owned stack."
+          "status": "implemented",
+          "reason": "The dedicated wave3 serial native run passed all seven required checks and the exact lifecycle. Independent serial transition timings peaked at 1,645 ms, within the 5 s per-transition budget. The fixture aggregate performance dimension remains untested report metadata and is not a separate acceptance gate. Evidence: docs/verification/playwright/runtime/cohort-fields-epoch3.json."
         }
       ],
       "domainLifecycleStatus": "unverified",
@@ -5601,7 +5617,7 @@
           "legacyBrowserOwnershipRemoved": true,
           "sourcePreimageSha256": "f7f9d3728496a03d59d1accf8201cd35661e2126a4fc2f0a9ab735f6f83b75a3",
           "sourceResultSha256": "9d3bf8ce0ce6d9a442f3f4ad8ffdc29adbe838cda7c72c9d6cc2e410b497a8af",
-          "portPatchSha256": null,
+          "portPatchSha256": "e144623050af3bf14134c3146076b53f1fface68b17e15804ab1603b5e94bd65",
           "reviewCorrectionPatchSha256": "92f022a857a4f32758d6327c0bb3ae9d86a0d04ca9572450cae9aa80512fcaec",
           "runtimeEvidence": {
             "status": "not-run"
@@ -5629,7 +5645,7 @@
     {
       "path": "scripts/lib/cda-playwright.mjs",
       "purpose": "legacy CDA browser wrapper over shared Playwright helper",
-      "sha256": "56cee62df55f4b372ad8a0df53f3f88de595681f94536a128719154a160acd6f",
+      "sha256": "556fedbbdca4922610d961fa6de627c497a88dce60a3460b5e5c7fdd9c4beb4d",
       "sourceStillPresent": true,
       "directBrowserOwnershipPresent": false,
       "disposition": "retained-native-page-action-helper",
@@ -8954,7 +8970,7 @@
         "replacementWorkflowArtifacts": [
           {
             "path": "scripts/verify-ui/coded-field-lifecycle-workflow.mjs",
-            "sha256": "55a4c22e6098a423a3d83cc32a13050e9e28d33e3204fcfad5657543288c7972",
+            "sha256": "4cd1724a4405537532c2b5b0e84ab5c4ee2a3298b3d7c7191d1eb63d66c7765b",
             "artifactSource": "canonical-source-root"
           }
         ],
@@ -8992,7 +9008,7 @@
       "workflowArtifacts": [
         {
           "path": "scripts/verify-ui/coded-field-lifecycle-workflow.mjs",
-          "sha256": "55a4c22e6098a423a3d83cc32a13050e9e28d33e3204fcfad5657543288c7972",
+          "sha256": "4cd1724a4405537532c2b5b0e84ab5c4ee2a3298b3d7c7191d1eb63d66c7765b",
           "artifactSource": "canonical-source-root"
         }
       ],
@@ -9855,7 +9871,7 @@
         "replacementWorkflowArtifacts": [
           {
             "path": "scripts/verify-ui/compound-fields-workflow.mjs",
-            "sha256": "e78f924e0af2a38103489cec3044a125fb9375c5cf3d22e733976a48498e3a47",
+            "sha256": "a744ac581d104ff7aaeff026369e884caa07dfe8a4aaa29448cf4ce6cd2aa62f",
             "artifactSource": "canonical-source-root"
           }
         ],
@@ -9892,7 +9908,7 @@
       "workflowArtifacts": [
         {
           "path": "scripts/verify-ui/compound-fields-workflow.mjs",
-          "sha256": "e78f924e0af2a38103489cec3044a125fb9375c5cf3d22e733976a48498e3a47",
+          "sha256": "a744ac581d104ff7aaeff026369e884caa07dfe8a4aaa29448cf4ce6cd2aa62f",
           "artifactSource": "canonical-source-root"
         }
       ],
@@ -10048,7 +10064,7 @@
         "replacementWorkflowArtifacts": [
           {
             "path": "scripts/verify-ui/contributor-exists-workflow.mjs",
-            "sha256": "d653ad3e53f3e71a0c55f6147033d31aa9f6d03a9f4a641653c5b332d67e40ec",
+            "sha256": "1d90707d825530a52b01442f59fe7d88d75b03ee0e11a495bd043c2f603e5ca5",
             "artifactSource": "canonical-source-root"
           }
         ],
@@ -10086,7 +10102,7 @@
       "workflowArtifacts": [
         {
           "path": "scripts/verify-ui/contributor-exists-workflow.mjs",
-          "sha256": "d653ad3e53f3e71a0c55f6147033d31aa9f6d03a9f4a641653c5b332d67e40ec",
+          "sha256": "1d90707d825530a52b01442f59fe7d88d75b03ee0e11a495bd043c2f603e5ca5",
           "artifactSource": "canonical-source-root"
         }
       ],
@@ -10145,7 +10161,7 @@
         "replacementWorkflowArtifacts": [
           {
             "path": "scripts/verify-ui/contributor-rules-workflow.mjs",
-            "sha256": "4ebdd79c1d08839a0a84091935f6c2d4a71d9d47a83d5349948c5dc01df32299",
+            "sha256": "da66dab1fea5fc2d3334ea9c82419396d94608b004e025414c4277bf2f4ea941",
             "artifactSource": "canonical-source-root"
           }
         ],
@@ -10178,7 +10194,7 @@
       "workflowArtifacts": [
         {
           "path": "scripts/verify-ui/contributor-rules-workflow.mjs",
-          "sha256": "4ebdd79c1d08839a0a84091935f6c2d4a71d9d47a83d5349948c5dc01df32299",
+          "sha256": "da66dab1fea5fc2d3334ea9c82419396d94608b004e025414c4277bf2f4ea941",
           "artifactSource": "canonical-source-root"
         }
       ],
@@ -13410,7 +13426,7 @@
         "replacementWorkflowArtifacts": [
           {
             "path": "scripts/verify-ui/repeated-contributor-any-workflow.mjs",
-            "sha256": "41666b27c71a611fa638b599dcf589de5e629dbcc1b64c915089bd0dad3d7d89",
+            "sha256": "d775557f3037f563167c7e66de2fab5ebe0db01e0b34338105906c602ac8b48b",
             "artifactSource": "canonical-source-root"
           }
         ],
@@ -13449,7 +13465,7 @@
       "workflowArtifacts": [
         {
           "path": "scripts/verify-ui/repeated-contributor-any-workflow.mjs",
-          "sha256": "41666b27c71a611fa638b599dcf589de5e629dbcc1b64c915089bd0dad3d7d89",
+          "sha256": "d775557f3037f563167c7e66de2fab5ebe0db01e0b34338105906c602ac8b48b",
           "artifactSource": "canonical-source-root"
         }
       ],
@@ -13954,7 +13970,7 @@
         "replacementWorkflowArtifacts": [
           {
             "path": "scripts/verify-ui/source-fields-workflow.mjs",
-            "sha256": "08cc92ec2ac7a9773e10afc0f2ccee49b97b1175061b1f3367de6c9a44e196d1",
+            "sha256": "3585541f89d770f0e3d4904f58a696d801844ce1bf09a18f382433e9a76f0bb4",
             "artifactSource": "canonical-source-root"
           }
         ],
@@ -13987,7 +14003,7 @@
       "workflowArtifacts": [
         {
           "path": "scripts/verify-ui/source-fields-workflow.mjs",
-          "sha256": "08cc92ec2ac7a9773e10afc0f2ccee49b97b1175061b1f3367de6c9a44e196d1",
+          "sha256": "3585541f89d770f0e3d4904f58a696d801844ce1bf09a18f382433e9a76f0bb4",
           "artifactSource": "canonical-source-root"
         }
       ],

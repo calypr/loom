@@ -113,6 +113,10 @@ INFRASTRUCTURE_SPEC_CLASSIFICATION = {
         "kind": "native-harness-contract-spec",
         "reason": "Exercises raw fields-locator selection as infrastructure evidence, not a product acceptance lifecycle.",
     },
+    "scripts/playwright/authoring-summary.spec.mjs": {
+        "kind": "native-harness-contract-spec",
+        "reason": "Checks exact native HTML summary locator behavior and strictness with an isolated page fixture; it is a helper contract with no legacy browser entrypoint or product acceptance lifecycle.",
+    },
 }
 LOOM_DEV_COMMANDS = {
     "verifyCurrentBuilderDOM": ["verify-current"],
