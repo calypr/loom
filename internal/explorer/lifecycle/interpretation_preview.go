@@ -74,7 +74,11 @@ func (s *Service) PreviewInterpretationCandidate(ctx context.Context, request Pr
 	if err != nil {
 		return PreviewInterpretationCandidateResult{}, err
 	}
-	if err := verifyPreviewReceiptIntent(baseReceipt, workspace); err != nil {
+	baseForCompilation, err := authoringv2.PrepareWorkspaceForCompilation(workspace, catalog)
+	if err != nil {
+		return PreviewInterpretationCandidateResult{}, conflict("interpretation-preview", "INVALID_COMPILATION_RECEIPT", "the base workspace cannot be normalized for compilation", nil, err)
+	}
+	if err := verifyPreviewReceiptIntent(baseReceipt, baseForCompilation); err != nil {
 		return PreviewInterpretationCandidateResult{}, conflict("interpretation-preview", "INVALID_COMPILATION_RECEIPT", "the base receipt does not represent the current draft", nil, err)
 	}
 	if err := verifyPreviewReceiptIntent(candidateReceipt, candidateWorkspace); err != nil {

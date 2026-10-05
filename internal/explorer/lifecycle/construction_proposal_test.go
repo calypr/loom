@@ -439,6 +439,58 @@ func TestConstructionCapabilitiesReturnOnlyReceiptBoundStableStages(t *testing.T
 	}
 }
 
+func TestConstructionCapabilitiesNormalizePersistedV9ReceiptWithoutChangingOwnerDraft(t *testing.T) {
+	for _, forged := range []bool{false, true} {
+		t.Run(map[bool]string{false: "matching", true: "mismatched"}[forged], func(t *testing.T) {
+			service, store, snapshot := constructionProposalService(t)
+			workspace, err := authoringv2.DecodeWorkspace(store.created.DraftConfig)
+			if err != nil {
+				t.Fatal(err)
+			}
+			workspace.SemanticsVersion = 9
+			draft, err := workspace.CanonicalJSON()
+			if err != nil {
+				t.Fatal(err)
+			}
+			digest, err := workspace.Digest()
+			if err != nil {
+				t.Fatal(err)
+			}
+			store.created.DraftConfig, store.created.DraftDigest = draft, digest
+			originalConfig, originalVersion, originalDigest := string(draft), store.created.DraftVersion, digest
+			compileReceipt := service.config.CompileReceipt
+			catalog := service.config.Capability.Catalog(snapshot, store.created.ExplorerID)
+			service.config.CompileReceipt = func(ctx context.Context, request CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+				prepared, migrateErr := authoringv2.MigrateLegacyContributors(request.Workspace, catalog)
+				if migrateErr != nil {
+					return nil, migrateErr
+				}
+				prepared = authoringv2.MigrateLosslessDefaults(prepared, catalog).NormalizePresentationOrders()
+				if forged {
+					prepared.Explorer.Title += " forged"
+				}
+				request.Workspace = prepared
+				return compileReceipt(ctx, request)
+			}
+			_, err = service.GetConstructionCapabilities(context.Background(), ConstructionCapabilitiesRequest{
+				Project: store.created.Project, ExplorerID: store.created.ExplorerID, SnapshotToken: snapshot.Token,
+				ExpectedDraftVersion: store.created.DraftVersion, ExpectedDraftDigest: store.created.DraftDigest,
+				OutputID: "patients", StageID: recipe.ConstructionSourceProjectionID,
+			})
+			if forged {
+				if lifecycleErrorCode(err) != "INVALID_COMPILATION_RECEIPT" {
+					t.Fatalf("mismatched normalized receipt error = %v, want INVALID_COMPILATION_RECEIPT", err)
+				}
+			} else if err != nil {
+				t.Fatalf("matching v9 workspace receipt: %v", err)
+			}
+			if string(store.created.DraftConfig) != originalConfig || store.created.DraftVersion != originalVersion || store.created.DraftDigest != originalDigest {
+				t.Fatalf("construction capability read changed owner draft: version=%d digest=%q", store.created.DraftVersion, store.created.DraftDigest)
+			}
+		})
+	}
+}
+
 func TestConstructionCodedGroupChoicesRequirePopulatedCodeAndShowPathBreadcrumb(t *testing.T) {
 	const populatedPath = "includedStructure[].structure.coding[]"
 	snapshot := capability.NewSnapshot(

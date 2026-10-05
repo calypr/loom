@@ -164,7 +164,11 @@ func (s *Service) ProposePopulationMemberRemoval(ctx context.Context, request Po
 	candidatePopulation.SelectionRevisionID = candidateSelection.ID
 	candidateDocument.Population = &candidatePopulation
 	candidateWorkspace.Documents[documentIndex] = candidateDocument
-	candidateDigest, err := candidateWorkspace.Digest()
+	preparedCandidate, err := authoringv2.PrepareWorkspaceForCompilation(candidateWorkspace, s.catalog(snapshot, request.ExplorerID))
+	if err != nil {
+		return PopulationMemberRemovalProposalResponse{}, fmt.Errorf("prepare population removal candidate workspace: %w", err)
+	}
+	candidateDigest, err := preparedCandidate.Digest()
 	if err != nil {
 		return PopulationMemberRemovalProposalResponse{}, fmt.Errorf("digest population removal candidate workspace: %w", err)
 	}
@@ -401,7 +405,11 @@ func (s *Service) preparePopulationMemberRemovalProposal(ctx context.Context, pr
 	expectedPopulation.SelectionRevisionID = candidateSelection.ID
 	expectedDocument.Population = &expectedPopulation
 	expectedWorkspace.Documents[baseIndex] = expectedDocument
-	expectedDigest, err := expectedWorkspace.Digest()
+	preparedExpected, err := authoringv2.PrepareWorkspaceForCompilation(expectedWorkspace, s.catalog(snapshot, explorerID))
+	if err != nil {
+		return nil, nil, conflict("commands", "INVALID_POPULATION_MEMBER_PROPOSAL", "the expected candidate workspace cannot be normalized for compilation", nil, err)
+	}
+	expectedDigest, err := preparedExpected.Digest()
 	if err != nil || expectedDigest != binding.CandidateWorkspaceDigest || expectedDigest != receipt.IntentDigest {
 		return nil, nil, conflict("commands", "INVALID_POPULATION_MEMBER_PROPOSAL", "the receipt does not represent the exact base workspace with only its population revision replaced", nil, err)
 	}

@@ -60,6 +60,8 @@ func TestPreviewInterpretationCandidateUsesBothReceiptsWithoutMutatingDraft(t *t
 	snapshot.Candidates = []capability.Candidate{{ID: "candidate-id", NodeID: "node-patient", ResourceType: "Patient", FieldPath: "id", LogicalType: "string", ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar}, SupportedOperations: []capability.Operation{capability.OperationSelect}}}
 	revision := lifecyclePrepareInterpretation(t)
 	workspace := lifecycleCandidatePreviewWorkspace()
+	workspace.Documents[0].Rows = authoringv2.RecordsRowDefinition()
+	workspace.SemanticsVersion = 9
 	draft, err := workspace.CanonicalJSON()
 	if err != nil {
 		t.Fatal(err)
@@ -82,7 +84,11 @@ func TestPreviewInterpretationCandidateUsesBothReceiptsWithoutMutatingDraft(t *t
 		if len(request.ResolvedInputs.Interpretations) != 0 {
 			resolved = &revision
 		}
-		receipt := lifecycleCandidatePreviewReceipt(t, snapshot, request.Workspace, resolved)
+		prepared, err := authoringv2.PrepareWorkspaceForCompilation(request.Workspace, lifecycleInterpretationCatalog(snapshot, "patients"))
+		if err != nil {
+			return nil, err
+		}
+		receipt := lifecycleCandidatePreviewReceipt(t, snapshot, prepared, resolved)
 		store.receipt = receipt
 		return receipt, nil
 	}

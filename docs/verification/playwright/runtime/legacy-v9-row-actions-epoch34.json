@@ -1,0 +1,116 @@
+{
+  "status": "partial",
+  "workflow": "Persisted semantics v9 row actions",
+  "browserCase": "legacy semantics v9 preserves the saved Patient digest through native row actions and reload",
+  "reportPath": "/private/tmp/loom-native-parallel-wave34/legacy-v9-workspace/artifacts/verify-ui/builder-authoring-legacy-v9-rows-muvu2spg-67a7f0f.json",
+  "closurePath": "/private/tmp/loom-native-parallel-wave34/closure.json",
+  "passedChecks": [
+    {
+      "dimension": "correctness",
+      "name": "saved v9 Builder workspace preserves the Go canonical draft digest",
+      "status": "passed",
+      "evidence": {
+        "semanticsVersion": 9,
+        "draftVersion": 3,
+        "digestMatched": true,
+        "generation": "fixture-v1",
+        "scopeDigestMatched": true,
+        "apiProject": "loom_dev_verify_muvu2spg/67a7f0f",
+        "rawStorageProject": "loom_dev_verify_muvu2spg-67a7f0f",
+        "explorer": "verify-pg-67a7f0f-legacy-v9-rows",
+        "title": "Verify pg-67a7f0f legacy v9 rows"
+      }
+    },
+    {
+      "dimension": "persistence",
+      "name": "reload keeps legacy semantics v9 and its exact saved digest",
+      "status": "passed",
+      "evidence": {
+        "semanticsVersion": 9,
+        "draftVersion": 3,
+        "digest": "sha256:d5ad88b488e359c1e99995ab821c61c24b098772d95fc0eb89a31438904a0bca",
+        "rawStorageProject": "loom_dev_verify_muvu2spg-67a7f0f",
+        "apiProject": "loom_dev_verify_muvu2spg/67a7f0f",
+        "explorer": "verify-pg-67a7f0f-legacy-v9-rows",
+        "generation": "fixture-v1",
+        "authorizationScopeDigest": "[REDACTED]"
+      }
+    }
+  ],
+  "remaining": {
+    "rowActions": "unverified",
+    "GroupApplyCancelReload": "unverified",
+    "editRemoval": "unverified"
+  },
+  "productFailure": {
+    "endpoint": "construction-capabilities",
+    "httpStatus": 409,
+    "code": "INVALID_COMPILATION_RECEIPT",
+    "message": "the compiled receipt does not represent the expected workspace",
+    "requestId": "d9119566-4c66-4cf8-a886-a5d3c4a50d54",
+    "diagnosis": "Compiler normalization advances the expected v9 workspace copy to v10; receipt matching compares the raw v9 digest."
+  },
+  "harnessFailure": "The case waited for table-shape-capabilities after opening settings; the UI uses eager construction-capabilities. Correction pending.",
+  "closure": {
+    "status": "closed",
+    "phase": "after-failed-run-before-edits",
+    "runner": {
+      "handle": 6978,
+      "exitCode": 1,
+      "firstFailure": "timeout waiting for scoped table-shape-capabilities response while opening legacy Patient row settings",
+      "artifacts": "/private/tmp/loom-native-parallel-wave34/legacy-v9-workspace/"
+    },
+    "source": {
+      "fingerprint": {
+        "sha256": "69d3f95c6b64274535d187e4553490263fa0b8cc7dc93fb9ba495d615f7adc9d",
+        "files": 1491
+      },
+      "manifestUnchanged": true
+    },
+    "docs": {
+      "fingerprint": {
+        "sha256": "b46a1f25de916c22ff3bdfd6dc53006825ed880257e71089b6f2dfe5243f93f8",
+        "files": 109
+      },
+      "manifestUnchanged": true
+    },
+    "api": {
+      "buildIdentity": "5a78601a4662696e29b46183f9d1503224354fb6cd2f3919d6587896fceac4ac:5a78601a4662696e29b46183f9d1503224354fb6cd2f3919d6587896fceac4ac:14de1228f61002d308f018bf4d019e4fc805a33791b528352bb07887613f964a",
+      "unchanged": true
+    },
+    "ownedMounts": {
+      "status": "PASS",
+      "targetUnchanged": true
+    },
+    "health": {
+      "status": "PASS",
+      "samples": [
+        {
+          "at": "2026-10-05T22:41:53.550Z",
+          "apiStatus": 200,
+          "apiBody": "{\"core\":\"ready\",\"dataframe\":\"ready\",\"status\":\"ready\"}",
+          "uiStatus": 200,
+          "uiHasDocument": true,
+          "apiBuildIdentity": "5a78601a4662696e29b46183f9d1503224354fb6cd2f3919d6587896fceac4ac:5a78601a4662696e29b46183f9d1503224354fb6cd2f3919d6587896fceac4ac:14de1228f61002d308f018bf4d019e4fc805a33791b528352bb07887613f964a"
+        },
+        {
+          "at": "2026-10-05T22:41:56.533Z",
+          "apiStatus": 200,
+          "apiBody": "{\"core\":\"ready\",\"dataframe\":\"ready\",\"status\":\"ready\"}",
+          "uiStatus": 200,
+          "uiHasDocument": true,
+          "apiBuildIdentity": "5a78601a4662696e29b46183f9d1503224354fb6cd2f3919d6587896fceac4ac:5a78601a4662696e29b46183f9d1503224354fb6cd2f3919d6587896fceac4ac:14de1228f61002d308f018bf4d019e4fc805a33791b528352bb07887613f964a"
+        },
+        {
+          "at": "2026-10-05T22:41:59.479Z",
+          "apiStatus": 200,
+          "apiBody": "{\"core\":\"ready\",\"dataframe\":\"ready\",\"status\":\"ready\"}",
+          "uiStatus": 200,
+          "uiHasDocument": true,
+          "apiBuildIdentity": "5a78601a4662696e29b46183f9d1503224354fb6cd2f3919d6587896fceac4ac:5a78601a4662696e29b46183f9d1503224354fb6cd2f3919d6587896fceac4ac:14de1228f61002d308f018bf4d019e4fc805a33791b528352bb07887613f964a"
+        }
+      ]
+    },
+    "editAllowedAfterThisRecord": true
+  }
+}

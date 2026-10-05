@@ -404,9 +404,13 @@ func (s *Service) ProposeConstruction(ctx context.Context, request ConstructionP
 		return ConstructionProposalResponse{}, conflict("construction-proposal", "OUTPUT_NOT_FOUND", "the proposal output is missing from the candidate workspace", nil, nil)
 	}
 	candidateWorkspace.Documents[documentIndex] = candidateDocument
-	candidateDigest, err := candidateWorkspace.Digest()
+	preparedCandidate, err := authoringv2.PrepareWorkspaceForCompilation(candidateWorkspace, s.catalog(base.snapshot, request.ExplorerID))
+	if err != nil {
+		return ConstructionProposalResponse{}, fmt.Errorf("prepare construction candidate workspace: %w", err)
+	}
+	candidateDigest, err := preparedCandidate.Digest()
 	if err != nil && impact.HasMissingInputs() {
-		candidateDigest, err = constructionWorkspaceCandidateDigest(candidateWorkspace)
+		candidateDigest, err = constructionWorkspaceCandidateDigest(preparedCandidate)
 	}
 	if err != nil {
 		return ConstructionProposalResponse{}, fmt.Errorf("digest construction candidate workspace: %w", err)
@@ -1235,7 +1239,11 @@ func (s *Service) prepareConstructionProposal(ctx context.Context, project, expl
 	expectedWorkspace := current
 	expectedWorkspace.Documents = append([]authoringv2.Document(nil), current.Documents...)
 	expectedWorkspace.Documents[baseIndex] = expectedDocument
-	expectedDigest, err := expectedWorkspace.Digest()
+	preparedExpected, err := authoringv2.PrepareWorkspaceForCompilation(expectedWorkspace, s.catalog(snapshot, explorerID))
+	if err != nil {
+		return nil, nil, conflict("commands", "INVALID_CONSTRUCTION_PROPOSAL", "the expected candidate workspace cannot be normalized for compilation", nil, err)
+	}
+	expectedDigest, err := preparedExpected.Digest()
 	if err != nil || expectedDigest != binding.CandidateWorkspaceDigest || expectedDigest != receipt.IntentDigest {
 		return nil, nil, conflict("commands", "INVALID_CONSTRUCTION_PROPOSAL", "the candidate workspace digest does not match the exact proposal", nil, err)
 	}

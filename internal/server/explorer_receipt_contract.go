@@ -84,11 +84,10 @@ func compileExplorerReceipt(ctx context.Context, request lifecycle.CompileReceip
 	}
 	prepareStarted := time.Now()
 	catalog := authoringV2Catalog(snapshot, request.ExplorerID)
-	workspace, err := authoringv2.MigrateLegacyContributors(request.Workspace, catalog)
+	workspace, err := authoringv2.PrepareWorkspaceForCompilation(request.Workspace, catalog)
 	if err != nil {
 		return nil, fmt.Errorf("migrate legacy contributor predicates: %w", err)
 	}
-	workspace = authoringv2.MigrateLosslessDefaults(workspace, catalog).NormalizePresentationOrders()
 	intentDigest, err := workspace.Digest()
 	if err != nil {
 		return nil, err

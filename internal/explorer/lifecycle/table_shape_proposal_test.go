@@ -431,6 +431,57 @@ func TestDiscardingTableShapeProposalDoesNotApplyIt(t *testing.T) {
 	}
 }
 
+func TestApplyTableShapeProposalMigratesV9CandidateAndKeepsBaseCAS(t *testing.T) {
+	service, store, snapshot, _ := tableShapeProposalService(t)
+	baseDigest := persistV9TableShapeDraft(t, store)
+	compile := service.config.CompileReceipt
+	service.config.CompileReceipt = func(ctx context.Context, request CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+		prepared, err := authoringv2.PrepareWorkspaceForCompilation(request.Workspace, service.catalog(snapshot, "patients"))
+		if err != nil {
+			return nil, err
+		}
+		request.Workspace = prepared
+		return compile(ctx, request)
+	}
+	baseBytes := append([]byte(nil), store.created.DraftConfig...)
+	baseVersion := store.created.DraftVersion
+	proposalRequest := tableShapeProposalRequest(t, service, store.created, snapshot, TableShapeProposalAdd)
+	proposal, err := service.ProposeTableShape(context.Background(), proposalRequest)
+	if err != nil {
+		t.Fatalf("propose table shape from v9 draft: %v", err)
+	}
+	if proposal.DraftDigest != baseDigest || proposal.CandidateWorkspaceDigest == baseDigest {
+		t.Fatalf("proposal base/candidate digests = %q/%q, want raw v9 base %q and distinct normalized candidate", proposal.DraftDigest, proposal.CandidateWorkspaceDigest, baseDigest)
+	}
+	if store.receipt.TableShapeProposal == nil || store.receipt.TableShapeProposal.DraftDigest != baseDigest || store.receipt.TableShapeProposal.CandidateWorkspaceDigest != proposal.CandidateWorkspaceDigest {
+		t.Fatalf("receipt proposal binding = %#v, want raw v9 base and normalized candidate digest", store.receipt.TableShapeProposal)
+	}
+	if store.created.DraftDigest != baseDigest || store.created.DraftVersion != baseVersion || string(store.created.DraftConfig) != string(baseBytes) {
+		t.Fatal("proposal changed the persisted v9 base draft")
+	}
+	candidate, err := authoringv2.DecodeWorkspace(store.receipt.NormalizedBundle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if candidate.SemanticsVersion != authoringv2.CurrentSemanticsVersion {
+		t.Fatalf("candidate semantics version = %d, want %d", candidate.SemanticsVersion, authoringv2.CurrentSemanticsVersion)
+	}
+	candidateDigest, err := candidate.Digest()
+	if err != nil || candidateDigest != proposal.CandidateWorkspaceDigest {
+		t.Fatalf("normalized candidate digest=%q, err=%v, want proposal digest %q", candidateDigest, err, proposal.CandidateWorkspaceDigest)
+	}
+	request := tableShapeApplyRequest(store.created, snapshot, proposal.ProposalID, "apply-v9-table-shape")
+	if request.ExpectedDraftDigest != baseDigest {
+		t.Fatalf("apply base CAS=%q, want persisted v9 digest %q", request.ExpectedDraftDigest, baseDigest)
+	}
+	if _, err := service.ApplyCommands(context.Background(), "project-a", "patients", request, "alice"); err != nil {
+		t.Fatalf("apply table shape against v9 base: %v", err)
+	}
+	if store.created.DraftVersion != baseVersion+1 || store.created.DraftDigest != proposal.CandidateWorkspaceDigest {
+		t.Fatalf("applied owner version/digest=%d/%q, want %d/%q", store.created.DraftVersion, store.created.DraftDigest, baseVersion+1, proposal.CandidateWorkspaceDigest)
+	}
+}
+
 func TestApplyTableShapeProposalSavesCandidateOnceAndIsIdempotent(t *testing.T) {
 	service, store, snapshot, workspace := tableShapeProposalService(t)
 	proposalRequest := tableShapeProposalRequest(t, service, store.created, snapshot, TableShapeProposalAdd)

@@ -122,3 +122,26 @@ func TestCompileWorkspaceCanonicalizesEquivalentProjectIdentities(t *testing.T) 
 		})
 	}
 }
+func TestCompileWorkspaceRejectsNegativePresentationOrderBeforeNormalization(t *testing.T) {
+	visible, negativeOrder := true, -1
+	workspace := authoringv2.Workspace{
+		APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind,
+		SemanticsVersion: authoringv2.CurrentSemanticsVersion, Explorer: authoringv2.ExplorerMetadata{Title: "Negative order"},
+		Documents: []authoringv2.Document{{
+			Kind: authoringv2.Kind, Rows: authoringv2.RecordsRowDefinition(),
+			Output: authoringv2.Output{ID: "patients", Title: "Patients"}, RootResourceType: "Patient",
+			Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient"},
+			Columns: []authoringv2.Column{{
+				Column: "patient_id", Label: "Patient ID", OccurrenceID: authoringv2.RootOccurrenceID,
+				Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "id", ProjectionMode: "VALUE"}},
+				Table:  &authoringv2.TablePresentation{Visible: &visible, Order: &negativeOrder},
+			}},
+		}},
+		Tabs: []authoringv2.Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Order: 0, Visible: true}},
+	}
+	_, err := CompileWorkspace(context.Background(), "project-a", "explorer-a", workspace, fixtureSnapshot(), ResolvedInputs{})
+	compileErr, ok := err.(*Error)
+	if !ok || compileErr.Code != "INVALID_AUTHORING_INTENT" {
+		t.Fatalf("CompileWorkspace error = %v, want INVALID_AUTHORING_INTENT", err)
+	}
+}

@@ -23,7 +23,11 @@ func (s *Service) verifyProposalReceipt(_ context.Context, stage string, receipt
 		return authoringv2.Workspace{}, conflict(stage, "INVALID_COMPILATION_RECEIPT", "the compiled receipt has no authoring intent digest", nil, nil)
 	}
 	if expected != nil {
-		expectedDigest, err := expected.Digest()
+		preparedExpected, err := authoringv2.PrepareWorkspaceForCompilation(*expected, s.catalog(snapshot, explorerID))
+		if err != nil {
+			return authoringv2.Workspace{}, conflict(stage, "INVALID_COMPILATION_RECEIPT", "the expected workspace cannot be normalized for compilation", nil, err)
+		}
+		expectedDigest, err := preparedExpected.Digest()
 		if err != nil {
 			return authoringv2.Workspace{}, err
 		}

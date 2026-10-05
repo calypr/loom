@@ -339,7 +339,11 @@ func (s *Service) ProposeTableShape(ctx context.Context, request TableShapePropo
 	if err != nil {
 		return TableShapeProposal{}, unprocessable("table-shape-proposal", "INVALID_TABLE_SHAPE", err.Error(), err)
 	}
-	if _, err := tableShapeWorkspaceChange(base.workspace, candidateWorkspace, request.OutputID); err != nil {
+	comparisonBase, err := authoringv2.PrepareWorkspaceForCompilation(base.workspace, s.catalog(base.snapshot, request.ExplorerID))
+	if err != nil {
+		return TableShapeProposal{}, unprocessable("table-shape-proposal", "INVALID_TABLE_SHAPE", err.Error(), err)
+	}
+	if _, err := tableShapeWorkspaceChange(comparisonBase, candidateWorkspace, request.OutputID); err != nil {
 		return TableShapeProposal{}, unprocessable("table-shape-proposal", "INVALID_TABLE_SHAPE", err.Error(), err)
 	}
 	candidateDigest, err := candidateWorkspace.Digest()
@@ -488,7 +492,11 @@ func (s *Service) prepareTableShapeProposal(ctx context.Context, project, explor
 	if candidateDocument == nil {
 		return nil, nil, conflict("commands", "INVALID_TABLE_SHAPE_PROPOSAL", "the candidate receipt does not contain the requested output", nil, nil)
 	}
-	if _, err := tableShapeWorkspaceChange(current, candidate, command.OutputID); err != nil {
+	comparisonBase, err := authoringv2.PrepareWorkspaceForCompilation(current, s.catalog(snapshot, explorerID))
+	if err != nil {
+		return nil, nil, conflict("commands", "STALE_TABLE_SHAPE_PROPOSAL", "the saved draft can no longer be normalized for the proposal", nil, err)
+	}
+	if _, err := tableShapeWorkspaceChange(comparisonBase, candidate, command.OutputID); err != nil {
 		return nil, nil, conflict("commands", "STALE_TABLE_SHAPE_PROPOSAL", "the candidate receipt no longer changes only the requested table shape", nil, err)
 	}
 	if err := command.ResolveTableShapeProposal(candidateDocument.TableShape); err != nil {

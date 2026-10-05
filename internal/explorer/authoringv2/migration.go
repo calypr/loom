@@ -82,6 +82,22 @@ func MigrateLegacyContributors(workspace Workspace, catalog CatalogSnapshot) (Wo
 	return migrated, nil
 }
 
+// PrepareWorkspaceForCompilation returns the canonical workspace representation
+// used to bind compilation receipts. It works on a detached copy so callers can
+// retain the exact persisted draft and its compare-and-swap digest.
+func PrepareWorkspaceForCompilation(workspace Workspace, catalog CatalogSnapshot) (Workspace, error) {
+	prepared, err := cloneWorkspace(workspace)
+	if err != nil {
+		return Workspace{}, err
+	}
+	prepared, err = MigrateLegacyContributors(prepared, catalog)
+	if err != nil {
+		return Workspace{}, err
+	}
+	prepared = MigrateLosslessDefaults(prepared, catalog).NormalizePresentationOrders()
+	return prepared, nil
+}
+
 func workspaceHasLegacyContributors(workspace Workspace) bool {
 	for _, document := range workspace.Documents {
 		for _, column := range document.Columns {

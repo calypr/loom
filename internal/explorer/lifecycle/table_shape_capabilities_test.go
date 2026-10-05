@@ -144,7 +144,11 @@ func lifecycleTableShapeService(t *testing.T, saved *authoringv2.TableShape) (*S
 		return dataframeexecution.CategoryScanResult{Values: values, Complete: true, Proof: proof}, nil
 	}
 	service.config.CompileReceipt = func(_ context.Context, request CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
-		receipt := lifecycleTableShapeReceipt(snapshot, request.Workspace)
+		prepared, err := authoringv2.PrepareWorkspaceForCompilation(request.Workspace, service.catalog(snapshot, request.ExplorerID))
+		if err != nil {
+			return nil, err
+		}
+		receipt := lifecycleTableShapeReceipt(snapshot, prepared)
 		store.receipt = receipt
 		return receipt, nil
 	}
