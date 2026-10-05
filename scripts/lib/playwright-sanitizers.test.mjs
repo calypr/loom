@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { sanitizeBody, sanitizePayload } from './playwright-browser.mjs';
+import { sanitizeBody, sanitizePayload, sanitizeText } from './playwright-browser.mjs';
 
 test('large CDA report payloads remain complete while credential fields are redacted', () => {
   const rows = Array.from({ length: 1000 }, (_, index) => ({ id: `patient-${index}`, value: index % 2 ? null : 'repeat' }));
@@ -63,4 +63,41 @@ test('only exact public snapshot hashes and typed identity metadata survive sani
     snapshotToken,
     authorizationHeaderPresent: false,
   });
+});
+
+test('text redaction preserves benign assignments and signed choice IDs while removing credential variants', () => {
+  const signedChoiceId = 'choice.v3.payload-7f9a.signature-a81c';
+  const text = [
+    'displayName=Specimen',
+    `signedChoiceId=${signedChoiceId}`,
+    '"refresh-token"="quoted-private-token"',
+    'x-upstream-api-key=prefixed-private-key',
+    'authorization=Bearer bearer-private-token',
+  ].join(' ');
+
+  const sanitized = sanitizeText(text);
+  assert.match(sanitized, /displayName=Specimen/);
+  assert.match(sanitized, new RegExp(`signedChoiceId=${signedChoiceId}`));
+  assert.doesNotMatch(sanitized, /quoted-private-token|prefixed-private-key|bearer-private-token/);
+  assert.match(sanitized, /\[REDACTED\]/);
+});
+
+test('plain 60,000-character words sanitize within the bounded scan budget', () => {
+  const input = 'x'.repeat(60_000);
+  const startedAt = performance.now();
+  const sanitized = sanitizeText(input);
+  const elapsedMs = performance.now() - startedAt;
+
+  assert.equal(sanitized, input);
+  assert.ok(elapsedMs < 500, `60,000-character sanitization took ${elapsedMs.toFixed(1)}ms`);
+});
+
+test('text redaction still finds credentials embedded inside a benign message assignment', () => {
+  for (const text of [
+    'message:cookie=private',
+    'message:"cookie=private"',
+    'message:{"access_token":"private"}',
+  ]) {
+    assert.doesNotMatch(sanitizeText(text), /private/);
+  }
 });

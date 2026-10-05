@@ -374,10 +374,17 @@ export const test = base.extend({
       if (report.failureEvidence) return;
       try {
         report.failureEvidence = await captureNativeFailureEvidence({ page, ownedOrigins, ...details });
+        if (report.failureEvidence.action && details.failurePhase !== undefined) {
+          report.failureEvidence.action.failurePhase = details.failurePhase;
+          report.failureEvidence.action.phases = details.phases;
+        }
       } catch (error) {
         report.failureEvidence = {
           reason: safeText(details.reason ?? 'CDA Playwright workflow failed'),
           captureError: safeText(error?.message ?? error),
+          ...(details.failurePhase === undefined ? {} : {
+            action: { failurePhase: details.failurePhase, phases: details.phases },
+          }),
         };
       }
     };
@@ -584,25 +591,57 @@ export const test = base.extend({
       activeActionContext = actionContext;
       const actionTimeout = Math.max(1, Math.min(ACTION_TIMEOUT_MS, Number.isFinite(timeout) ? timeout : ACTION_TIMEOUT_MS));
       const budgetMs = Math.max(1, Math.min(ACTION_TIMEOUT_MS, Number.isFinite(budget) ? budget : ACTION_TIMEOUT_MS));
+      const phases = {
+        count: { completed: false },
+        trial: { completed: false },
+        ...(editable ? { editable: { completed: false } } : {}),
+        perform: { completed: false },
+        ...(after ? { after: { completed: false } } : {}),
+      };
+      actionContext.phases = phases;
+      const runPhase = async (name, work) => {
+        failurePhase = name;
+        actionContext.failurePhase = name;
+        const phaseStarted = performance.now();
+        try {
+          const result = await work();
+          phases[name].completed = true;
+          return result;
+        } finally {
+          phases[name].durationMs = Math.round(performance.now() - phaseStarted);
+        }
+      };
       let performCompleted = false;
       let afterCompleted = false;
-      let afterMs;
       let elapsedMs;
       let failureReason;
+      let failurePhase;
       try {
-        await expect(locator, `${label}: expected exactly one control`).toHaveCount(1, { timeout: actionTimeout });
-        await locator.click({ trial: true, timeout: actionTimeout });
-        if (editable) await expect(locator, `${label}: expected an editable control`).toBeEditable({ timeout: actionTimeout });
-        await perform(locator);
-        performCompleted = true;
+        failurePhase = 'count';
+        await runPhase('count', () => expect(locator, `${label}: expected exactly one control`).toHaveCount(1, { timeout: actionTimeout }));
+        failurePhase = 'trial';
+        await runPhase('trial', () => locator.click({ trial: true, timeout: actionTimeout }));
+        if (editable) {
+          failurePhase = 'editable';
+          await runPhase('editable', () => expect(locator, `${label}: expected an editable control`).toBeEditable({ timeout: actionTimeout }));
+        }
+        failurePhase = 'perform';
+        await runPhase('perform', async () => {
+          await perform(locator);
+          performCompleted = true;
+        });
         if (after) {
-          const afterStarted = performance.now();
-          await after();
-          afterMs = performance.now() - afterStarted;
-          afterCompleted = true;
+          failurePhase = 'after';
+          await runPhase('after', async () => {
+            await after();
+            afterCompleted = true;
+          });
         }
         elapsedMs = performance.now() - started;
+        failurePhase = 'budget';
+        actionContext.failurePhase = 'budget';
         expect(elapsedMs, `${label} action-to-render exceeded ${ACTION_TIMEOUT_MS} ms`).toBeLessThanOrEqual(budgetMs);
+        failurePhase = undefined;
         return elapsedMs;
       } catch (error) {
         failureReason = error?.message ?? error;
@@ -610,6 +649,8 @@ export const test = base.extend({
       } finally {
         elapsedMs ??= performance.now() - started;
         const passed = performCompleted && (!after || afterCompleted) && elapsedMs <= budgetMs;
+        actionContext.failurePhase = passed ? null : failurePhase ?? actionContext.failurePhase ?? 'unknown';
+        actionContext.phases = phases;
         if (!passed && !firstFailureActionContext) firstFailureActionContext = actionContext;
         // Leave a full read-capture window before the native step deadline; teardown captures late failures.
         if (!passed && !report.failureEvidence && elapsedMs + MAX_NATIVE_FAILURE_CAPTURE_MS + 250 < ACTION_TIMEOUT_MS) {
@@ -619,17 +660,22 @@ export const test = base.extend({
             locator,
             elapsedMs,
             startedAt,
+            failurePhase: actionContext.failurePhase,
+            phases,
           });
         }
         report.actions.push({
           label: safeText(label), status: passed ? 'passed' : 'failed', elapsedMs: Math.round(elapsedMs),
-          locator: safeText(locator.toString()), ...(afterMs === undefined ? {} : { afterMs: Math.round(afterMs) }),
+          failurePhase: actionContext.failurePhase, phases,
+          locator: safeText(locator.toString()),
+          ...(phases.after ? { afterMs: phases.after.durationMs } : {}),
         });
         report.timings[label] = Math.round(elapsedMs);
         recordCheck(report, 'usability', `${label} completed`, passed,
-          { elapsedMs: Math.round(elapsedMs), afterMs: afterMs === undefined ? null : Math.round(afterMs) });
+          { elapsedMs: Math.round(elapsedMs), afterMs: phases.after?.durationMs ?? null,
+            failurePhase: actionContext.failurePhase, phases });
         if (after) recordCheck(report, 'performance', requiredCheck ?? `${label} action-to-render within budget`,
-          passed, { afterMs: afterMs === undefined ? null : Math.round(afterMs), budgetMs });
+          passed, { afterMs: phases.after.durationMs ?? null, budgetMs, failurePhase: actionContext.failurePhase, phases });
         if (passed && activeActionContext === actionContext) activeActionContext = undefined;
         if (passed) {
           activeAction = undefined;
@@ -998,6 +1044,8 @@ export const test = base.extend({
           label: currentAction?.label ?? activeAction ?? report.activeAction?.label,
           locator: currentAction?.locator ?? activeLocator,
           startedAt: currentAction?.startedAt ?? report.activeAction?.startedAt,
+          failurePhase: currentAction?.failurePhase,
+          phases: currentAction?.phases,
         });
       }
       try {

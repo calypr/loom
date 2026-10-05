@@ -292,7 +292,65 @@ describe('RelatedExpandEditor', () => {
     expect(screen.getByRole('radio', { name: 'Patient <-[patient]- Encounter' })).toBeInTheDocument();
     fireEvent.click(screen.getByText('Other relationship paths (1)'));
     expect(screen.getByTestId('construction-related-expand-other-routes')).toHaveAttribute('open');
-    expect(screen.getByRole('radio', { name: 'Patient <-[subject]- Encounter' })).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole('radio', { name: 'Patient <-[subject]- Encounter' })).toBeInTheDocument());
+  });
+
+  it('mounts alternate route controls only when their disclosure is open and retains the selected route', async () => {
+    const longRoutes = Array.from({ length: 64 }, (_, index) => ({
+      ...rootAnchor,
+      choiceId: `alternate-route-${index}`,
+      targetNodeId: 'encounter-node',
+      targetResourceType: 'Encounter',
+      route: [
+        ...route,
+        {
+          ...route[0],
+          edgeId: `encounter-linked-${index}`,
+          fromNodeId: 'encounter-node',
+          toNodeId: 'encounter-node',
+          fromResourceType: 'Encounter',
+          toResourceType: 'Encounter',
+          relationship: `linked_${index}`,
+          storageDirection: 'OUTBOUND' as const,
+        },
+      ],
+    }));
+    searchRelatedExpandChoices.mockReset().mockResolvedValue({
+      snapshotToken: 'snapshot-1', draftVersion: 1, draftDigest: 'draft-1',
+      outputId: 'patients', stageId: 'source_projection', anchorColumnId: '_key',
+      complete: true, truncated: false,
+      choices: [
+        { ...rootAnchor, choiceId: 'shortest-route', targetNodeId: 'encounter-node', targetResourceType: 'Encounter', route },
+        ...longRoutes,
+      ],
+    });
+    const onCandidateChange = vi.fn();
+    const { container } = render(<RelatedExpandEditor
+      project="project" explorerId="explorer" snapshotToken="snapshot-1" outputId="patients"
+      catalog={catalog} construction={capabilities.baseConstruction} capabilities={capabilities}
+      disabled={false} onCandidateChange={onCandidateChange}
+    />);
+
+    fireEvent.change(screen.getByLabelText('Related record type'), { target: { value: 'Encounter' } });
+    const selectedRoute = await screen.findByRole('radio', { name: 'Patient <-[subject]- Encounter' });
+    const editor = container.querySelector('[data-testid="construction-related-expand-editor"]');
+    const otherRoutes = screen.getByTestId('construction-related-expand-other-routes');
+    expect(editor?.querySelectorAll('input[type="radio"]')).toHaveLength(1);
+    expect(otherRoutes.querySelectorAll('input[type="radio"]')).toHaveLength(0);
+
+    fireEvent.click(selectedRoute);
+    expect((selectedRoute as HTMLInputElement).checked).toBe(true);
+    expect(otherRoutes.querySelectorAll('input[type="radio"]')).toHaveLength(0);
+    const selectedChoiceId = onCandidateChange.mock.lastCall?.[0]?.candidateConstruction.steps[0].operation.relatedExpand.choiceId;
+    expect(selectedChoiceId).toBe('shortest-route');
+
+    fireEvent.click(screen.getByText('Other relationship paths (64)'));
+    await waitFor(() => expect(otherRoutes.querySelectorAll('input[type="radio"]')).toHaveLength(64));
+    expect((screen.getByRole('radio', { name: 'Patient <-[subject]- Encounter' }) as HTMLInputElement).checked).toBe(true);
+    expect(screen.getByRole('radio', { name: 'Patient <-[subject]- Encounter -[linked_0]-> Encounter' }))
+      .toBeInTheDocument();
+    expect(onCandidateChange.mock.lastCall?.[0]?.candidateConstruction.steps[0].operation.relatedExpand.choiceId)
+      .toBe(selectedChoiceId);
   });
 
   it('authors a route-bound scalar contributor condition and can edit its exact value', async () => {
@@ -745,6 +803,73 @@ describe('RelatedExpandEditor', () => {
     fireEvent.click(screen.getByRole('radio', { name: 'Patient <-[subject]- Encounter' }));
     expect(onCandidateChange.mock.lastCall?.[0]?.candidateConstruction.steps[0].operation.relatedExpand.choiceId)
       .toBe('current-choice');
+  });
+
+  it('keeps validated paths from a terminal truncated page and reports that more paths may exist', async () => {
+    const foundChoices = Array.from({ length: 614 }, (_, index) => ({
+      ...rootAnchor,
+      choiceId: `bounded-choice-${index}`,
+      targetNodeId: 'encounter-node',
+      targetResourceType: 'Encounter',
+      route,
+    }));
+    searchRelatedExpandChoices.mockReset().mockImplementation(async (args: { readonly cursor?: string }) => {
+      const offset = Number(args.cursor ?? 0);
+      const choices = foundChoices.slice(offset, offset + 50);
+      const nextOffset = offset + choices.length;
+      const hasMoreKnownChoices = nextOffset < foundChoices.length;
+      return {
+        snapshotToken: 'snapshot-1', draftVersion: 1, draftDigest: 'draft-1',
+        outputId: 'patients', stageId: 'source_projection', anchorColumnId: '_key',
+        complete: false, truncated: true,
+        ...(hasMoreKnownChoices ? { nextCursor: String(nextOffset) } : {}),
+        choices,
+      };
+    });
+    const onCandidateChange = vi.fn();
+    render(<RelatedExpandEditor
+      project="project" explorerId="explorer" snapshotToken="snapshot-1" outputId="patients"
+      catalog={catalog} construction={capabilities.baseConstruction} capabilities={capabilities}
+      disabled={false} onCandidateChange={onCandidateChange}
+    />);
+
+    fireEvent.change(screen.getByLabelText('Related record type'), { target: { value: 'Encounter' } });
+
+    const truncationNotice = await screen.findByTestId('construction-related-route-truncation');
+    expect(truncationNotice).toHaveTextContent('Showing 614 paths found before the search limit; additional paths may exist.');
+    expect(screen.queryByText('Could not finish loading relationship paths. Reopen this editor to retry.')).not.toBeInTheDocument();
+    expect(searchRelatedExpandChoices).toHaveBeenCalledTimes(13);
+    expect(searchRelatedExpandChoices).toHaveBeenLastCalledWith(
+      expect.objectContaining({ cursor: '600' }),
+      expect.any(AbortSignal),
+    );
+
+    const availablePaths = screen.getAllByRole('radio');
+    expect(availablePaths).toHaveLength(614);
+    fireEvent.click(availablePaths[0]);
+    expect(onCandidateChange.mock.lastCall?.[0]?.candidateConstruction.steps[0].operation.relatedExpand.choiceId)
+      .toBe('bounded-choice-0');
+    expect(searchRelatedExpandChoices).toHaveBeenCalledTimes(13);
+  });
+
+  it('does not report no supported path when a truncated search found no paths', async () => {
+    searchRelatedExpandChoices.mockReset().mockResolvedValue({
+      snapshotToken: 'snapshot-1', draftVersion: 1, draftDigest: 'draft-1',
+      outputId: 'patients', stageId: 'source_projection', anchorColumnId: '_key',
+      complete: false, truncated: true, choices: [],
+    });
+    render(<RelatedExpandEditor
+      project="project" explorerId="explorer" snapshotToken="snapshot-1" outputId="patients"
+      catalog={catalog} construction={capabilities.baseConstruction} capabilities={capabilities}
+      disabled={false} onCandidateChange={vi.fn()}
+    />);
+
+    fireEvent.change(screen.getByLabelText('Related record type'), { target: { value: 'Encounter' } });
+
+    expect(await screen.findByTestId('construction-related-route-truncation'))
+      .toHaveTextContent('Showing 0 paths found before the search limit; additional paths may exist.');
+    expect(screen.queryByText('No supported path reaches this record type from these rows.')).not.toBeInTheDocument();
+    expect(searchRelatedExpandChoices).toHaveBeenCalledTimes(1);
   });
 
   it('rejects an incomplete route page without a cursor instead of repeating the first page', async () => {

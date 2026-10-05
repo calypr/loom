@@ -33,6 +33,7 @@ interface RouteQueryCheckpoint {
   readonly cursor?: string;
   readonly seenCursors: ReadonlyArray<string>;
   readonly complete: boolean;
+  readonly terminalTruncated: boolean;
 }
 
 interface ActiveRoutePage {
@@ -218,6 +219,7 @@ export const RelatedExpandEditor = ({
     return { kind: 'ALL' };
   });
   const [contributorOptionsOpen, setContributorOptionsOpen] = useState(condition.kind !== 'ALL');
+  const [otherRoutesOpen, setOtherRoutesOpen] = useState(false);
   const routeQueryKey = JSON.stringify([
     project, explorerId, authResourcePath ?? '', snapshotToken,
     capabilities.draftVersion, capabilities.draftDigest, outputId, stage.id, anchorColumnId, targetResourceType,
@@ -225,12 +227,14 @@ export const RelatedExpandEditor = ({
   const [loadedChoices, setLoadedChoices] = useState<{
     readonly queryKey: string;
     readonly choices: ReadonlyArray<RouteChoice>;
+    readonly truncated: boolean;
   }>();
   const routeCheckpointRef = useRef<RouteQueryCheckpoint | undefined>(undefined);
   const routeQueryPausedRef = useRef(false);
   const pausedAtPageBoundaryRef = useRef(false);
   const activeRoutePageRef = useRef<ActiveRoutePage | undefined>(undefined);
   const choices = loadedChoices?.queryKey === routeQueryKey ? loadedChoices.choices : [];
+  const routeSearchTruncated = loadedChoices?.queryKey === routeQueryKey && loadedChoices.truncated;
   const savedOutput = step?.outputs.find((column) => column.id === outputColumnId);
   const [outputName, setOutputName] = useState(savedOutput?.name ?? '');
   const [outputLabel, setOutputLabel] = useState(savedOutput?.label ?? '');
@@ -252,7 +256,7 @@ export const RelatedExpandEditor = ({
   const routeQuery = useQuery(async (signal) => {
     const currentCheckpoint = routeCheckpointRef.current?.queryKey === routeQueryKey
       ? routeCheckpointRef.current
-      : { queryKey: routeQueryKey, choices: [], seenCursors: [], complete: false };
+      : { queryKey: routeQueryKey, choices: [], seenCursors: [], complete: false, terminalTruncated: false };
     let checkpoint: RouteQueryCheckpoint = currentCheckpoint;
     if (routeCheckpointRef.current !== currentCheckpoint) {
       routeCheckpointRef.current = checkpoint;
@@ -262,8 +266,9 @@ export const RelatedExpandEditor = ({
     let cursor = checkpoint.cursor;
     let paths = [...checkpoint.choices];
     let complete = checkpoint.complete;
+    let terminalTruncated = checkpoint.terminalTruncated;
     const seenCursors = new Set(checkpoint.seenCursors);
-    while (!complete) {
+    while (!complete && !terminalTruncated) {
       if (signal.aborted) return paths;
       if (routeQueryPausedRef.current) {
         pausedAtPageBoundaryRef.current = true;
@@ -283,13 +288,11 @@ export const RelatedExpandEditor = ({
           throw new Error('The available paths changed. Reload this table before expanding records.');
         }
         paths = [...paths, ...result.choices];
-        setLoadedChoices({ queryKey: routeQueryKey, choices: paths });
         complete = result.complete;
         cursor = result.nextCursor;
-        if (result.truncated && !cursor) {
-          throw new Error('Could not finish loading relationship paths. Reopen this editor to retry.');
-        }
-        if (!complete && !cursor) {
+        terminalTruncated = result.truncated && !cursor;
+        setLoadedChoices({ queryKey: routeQueryKey, choices: paths, truncated: terminalTruncated });
+        if (!complete && !cursor && !terminalTruncated) {
           throw new Error('Could not finish loading relationship paths. Reopen this editor to retry.');
         }
         if (cursor && seenCursors.has(cursor)) {
@@ -302,6 +305,7 @@ export const RelatedExpandEditor = ({
           ...(cursor ? { cursor } : {}),
           seenCursors: [...seenCursors],
           complete,
+          terminalTruncated,
         };
         routeCheckpointRef.current = checkpoint;
       })();
@@ -314,11 +318,11 @@ export const RelatedExpandEditor = ({
       }
       if (signal.aborted) return paths;
       if (routeQueryPausedRef.current) {
-        pausedAtPageBoundaryRef.current = !complete;
+        pausedAtPageBoundaryRef.current = !complete && !terminalTruncated;
         return paths;
       }
     }
-    if (!complete) throw new Error('Could not finish loading relationship paths. Reopen this editor to retry.');
+    if (!complete && !terminalTruncated) throw new Error('Could not finish loading relationship paths. Reopen this editor to retry.');
     return paths;
   }, [client, authResourcePath, explorerId, project, snapshotToken, capabilities.draftVersion,
     capabilities.draftDigest, outputId, stage.id, anchorColumnId, targetResourceType],
@@ -340,7 +344,7 @@ export const RelatedExpandEditor = ({
       if (!pausedAtPageBoundaryRef.current) return;
       pausedAtPageBoundaryRef.current = false;
       const checkpoint = routeCheckpointRef.current;
-      if (checkpoint?.queryKey === routeQueryKey && !checkpoint.complete) {
+      if (checkpoint?.queryKey === routeQueryKey && !checkpoint.complete && !checkpoint.terminalTruncated) {
         void routeQuery.refetch();
       }
     },
@@ -412,7 +416,8 @@ export const RelatedExpandEditor = ({
             setAnchorColumnId(event.target.value);
             setChoice(undefined);
             setCondition({ kind: 'ALL' });
-            setLoadedChoices({ queryKey: routeQueryKey, choices: [] });
+            setOtherRoutesOpen(false);
+            setLoadedChoices({ queryKey: routeQueryKey, choices: [], truncated: false });
             onCandidateChange(undefined);
           }} className="rounded border border-slate-300 bg-white px-3 py-2">
             {anchors.map((anchor) => <option key={anchor.anchorColumnId} value={anchor.anchorColumnId}>{anchor.label}</option>)}
@@ -433,7 +438,8 @@ export const RelatedExpandEditor = ({
           setTargetResourceType(target);
           setChoice(undefined);
           setCondition({ kind: 'ALL' });
-          setLoadedChoices({ queryKey: routeQueryKey, choices: [] });
+          setOtherRoutesOpen(false);
+          setLoadedChoices({ queryKey: routeQueryKey, choices: [], truncated: false });
           const suggested = availableColumnName(`related_${target.toLowerCase()}_id`, stage.columns);
           setOutputName(suggested);
           setOutputLabel(`${target} FHIR resource ID`);
@@ -445,7 +451,10 @@ export const RelatedExpandEditor = ({
       </label>
       {loading ? <p role="status" className="text-sm text-slate-600">Finding supported paths…</p> : null}
       {error ? <p role="alert" className="text-sm text-red-800">{error}</p> : null}
-      {targetResourceType && !loading && choices.length === 0 && !choice && !error
+      {routeSearchTruncated && !loading ? <p role="status" data-testid="construction-related-route-truncation" className="text-sm text-amber-900">
+        Showing {choices.length.toLocaleString()} paths found before the search limit; additional paths may exist.
+      </p> : null}
+      {targetResourceType && !loading && choices.length === 0 && !choice && !error && !routeSearchTruncated
         ? <p role="status" className="text-sm text-slate-600">No supported path reaches this record type from these rows.</p>
         : null}
       {choices.length > 0 || choice ? (
@@ -454,10 +463,12 @@ export const RelatedExpandEditor = ({
           <p className="text-xs text-slate-600">Each path begins at {selectedAnchor?.label ?? 'the selected starting record'} and leads to {targetResourceType} records.</p>
           {visibleRoutes.map(renderRoute)}
           {otherRoutes.length > 0 ? (
-            <details data-testid="construction-related-expand-other-routes" className="rounded border border-slate-200 bg-white p-2">
+            <details data-testid="construction-related-expand-other-routes" open={otherRoutesOpen}
+              onToggle={(event) => setOtherRoutesOpen(event.currentTarget.open)}
+              className="rounded border border-slate-200 bg-white p-2">
               <summary className="cursor-pointer font-medium text-blue-800">Other relationship paths ({otherRoutes.length})</summary>
               <p className="mt-2 text-xs text-slate-600"><span className="rounded bg-amber-100 px-1.5 py-0.5 text-amber-950">Highlighted segments</span> differ from {choice ? 'the selected path' : 'the shortest path'}. Select a path to use it.</p>
-              <div className="mt-2 grid gap-2">{otherRoutes.map(renderRoute)}</div>
+              {otherRoutesOpen ? <div className="mt-2 grid gap-2">{otherRoutes.map(renderRoute)}</div> : null}
             </details>
           ) : null}
 

@@ -1,0 +1,412 @@
+{
+  "epoch": 22,
+  "outcome": {
+    "playwrightExit": 0,
+    "playwrightCaseStatus": "skipped",
+    "workflowStatus": "unverified",
+    "workflowReason": "The grouped-row ONE-to-ALL lifecycle passed, but bounded raw witnesses were unavailable for: zero.",
+    "durationMs": 39117,
+    "explorer": "related-one-all-1791231833688",
+    "project": "loom_dev_cda_fhir",
+    "generation": "cda-fhir-v1"
+  },
+  "lifecycle": {
+    "status": "passed",
+    "repairStatus": "passed",
+    "checkpoints": [
+      {
+        "name": "reload-exact-available-cardinality-source-members",
+        "durationMs": 1503,
+        "receiptId": "receipt_2b4a1f42f96ae760f7651b5d77268d0eced117557fca37debd0a0da4c5552eb8",
+        "rowCount": 2
+      },
+      {
+        "name": "expand-Specimen-Patient-preview",
+        "durationMs": 675,
+        "proposalId": "receipt_a8ab4a164cda5e33a5eb778ed0a0bb5cc62aeda85615d64e112f44df1ea65c5d",
+        "rows": [
+          [
+            "bb160bd9-51c9-51c3-9937-b731bf0fc3ee",
+            "0004723d-d79d-5084-9b86-a41791bd472e"
+          ],
+          [
+            "0869e4eb-7fb2-550d-9c13-1f70b2616d99",
+            "0000b24b-86e5-50e2-803d-013cc7b8a87d"
+          ]
+        ],
+        "witnessCount": 2
+      },
+      {
+        "name": "expand-Specimen-Patient-apply-to-render",
+        "durationMs": 562
+      },
+      {
+        "name": "expand-Patient-Observation-preview",
+        "durationMs": 697,
+        "proposalId": "receipt_c6cffd7b427d78eb38371513f108807c6f8b90bfe1b4bbc78863ce14c8fb3709",
+        "rows": [
+          [
+            "bb160bd9-51c9-51c3-9937-b731bf0fc3ee",
+            "0004723d-d79d-5084-9b86-a41791bd472e",
+            "444db2fb-cd3a-54f2-8d89-e4bf8a35b71c"
+          ],
+          [
+            "0869e4eb-7fb2-550d-9c13-1f70b2616d99",
+            "0000b24b-86e5-50e2-803d-013cc7b8a87d",
+            "9a264e2d-5128-55ae-8f64-bad1051ad6c9"
+          ],
+          [
+            "0869e4eb-7fb2-550d-9c13-1f70b2616d99",
+            "0000b24b-86e5-50e2-803d-013cc7b8a87d",
+            "4caec5da-d759-5cb8-bcda-6159f02cb171"
+          ],
+          [
+            "0869e4eb-7fb2-550d-9c13-1f70b2616d99",
+            "0000b24b-86e5-50e2-803d-013cc7b8a87d",
+            "f34c864a-7080-5be9-bd29-d33790c79561"
+          ],
+          [
+            "0869e4eb-7fb2-550d-9c13-1f70b2616d99",
+            "0000b24b-86e5-50e2-803d-013cc7b8a87d",
+            "0f3cacfe-7eca-5de2-a7ee-b17eec085946"
+          ],
+          [
+            "0869e4eb-7fb2-550d-9c13-1f70b2616d99",
+            "0000b24b-86e5-50e2-803d-013cc7b8a87d",
+            "5b08146d-4916-5461-b68b-56bf6641b6c2"
+          ],
+          [
+            "0869e4eb-7fb2-550d-9c13-1f70b2616d99",
+            "0000b24b-86e5-50e2-803d-013cc7b8a87d",
+            "73333a98-4b89-582c-975d-8c1eaa33daeb"
+          ],
+          [
+            "0869e4eb-7fb2-550d-9c13-1f70b2616d99",
+            "0000b24b-86e5-50e2-803d-013cc7b8a87d",
+            "f4da6f1d-1e46-57e7-93a6-82b9b7aa77a2"
+          ]
+        ],
+        "witnessCount": 2
+      },
+      {
+        "name": "expand-Patient-Observation-apply-to-render",
+        "durationMs": 598
+      },
+      {
+        "name": "group-available-patient-witnesses-preview-cancel-target",
+        "durationMs": 673,
+        "proposalId": "receipt_0a873aa4421be34ed2fe405468f1d8e1e2792f588452fba32e59f8a2a9ec6587",
+        "rows": [
+          [
+            "0000b24b-86e5-50e2-803d-013cc7b8a87d",
+            "7"
+          ],
+          [
+            "0004723d-d79d-5084-9b86-a41791bd472e",
+            "1"
+          ]
+        ]
+      },
+      {
+        "name": "cancel-group-proposal-preserves-source-bindings",
+        "durationMs": 774
+      },
+      {
+        "name": "reload-expanded-source-after-group-cancel",
+        "durationMs": 1423,
+        "receiptId": "receipt_6757f4a8495417ba8f8b7d7ed00f06a711203c0e5909ada0929081e3636c9f77",
+        "rowCount": 8
+      },
+      {
+        "name": "group-available-patient-witnesses-preview",
+        "durationMs": 670,
+        "proposalId": "receipt_f14b9865819c084a00a0537c8cbb5521ab2c389037a8a1a19104dcff62d32398",
+        "rows": [
+          [
+            "0000b24b-86e5-50e2-803d-013cc7b8a87d",
+            "7"
+          ],
+          [
+            "0004723d-d79d-5084-9b86-a41791bd472e",
+            "1"
+          ]
+        ]
+      },
+      {
+        "name": "group-available-patient-witnesses-apply-to-render",
+        "durationMs": 410
+      },
+      {
+        "name": "reload-independent-grouped-witnesses",
+        "durationMs": 1407,
+        "receiptId": "receipt_10bad5c306b488eb6f9642e041a67519e818514c78cd12ee6719ba62bb889ba2",
+        "rowCount": 2
+      },
+      {
+        "name": "related-observation-one-disagreement",
+        "durationMs": 732,
+        "status": 422,
+        "relatedSourceForm": "ALL",
+        "requestedRowValuePolicy": "ONE",
+        "relatedSourceRowValuePolicy": "ONE"
+      },
+      {
+        "name": "same-chooser-all-repair-preview",
+        "durationMs": 724,
+        "status": 200,
+        "responseStatus": "READY",
+        "previewDurationMs": 54,
+        "relatedSourceForm": "ALL",
+        "requestedRowValuePolicy": "ALL",
+        "relatedSourceRowValuePolicy": "ALL",
+        "proposalId": "receipt_1ef1540ba42effe67cc0402b2438794d9be308e0dd48ae65c17c567003488ca7"
+      },
+      {
+        "name": "cancel-related-all-proposal-preserves-group",
+        "durationMs": 708
+      },
+      {
+        "name": "reopened-all-preview-before-apply",
+        "durationMs": 782,
+        "status": 200,
+        "responseStatus": "READY",
+        "previewDurationMs": 67,
+        "relatedSourceForm": "ALL",
+        "requestedRowValuePolicy": "ALL",
+        "relatedSourceRowValuePolicy": "ALL",
+        "proposalId": "receipt_ef9c8511253a20c43b2011a66556b9f1d65643793065f55143026302dc47db9d"
+      },
+      {
+        "name": "apply-related-all-to-native-table-render",
+        "durationMs": 481,
+        "commandStatus": 200
+      },
+      {
+        "name": "native-preview-matches-exact-related-field-oracle",
+        "durationMs": 4,
+        "receiptId": "receipt_188c03d85f78f6f02a70959cce5410e526e37c724355638a99638dac0b44fa34",
+        "source": "post-apply-native-preview",
+        "postApplyPreviewRequestCount": 1
+      },
+      {
+        "name": "reload-related-all-available-cardinality-values",
+        "durationMs": 1405,
+        "receiptId": "receipt_188c03d85f78f6f02a70959cce5410e526e37c724355638a99638dac0b44fa34",
+        "rowCount": 2
+      },
+      {
+        "name": "edit-related-field-output-label",
+        "durationMs": 909,
+        "priorLabel": "Observation IDs",
+        "newLabel": "Verified Observation ID",
+        "path": "id"
+      },
+      {
+        "name": "reload-edited-related-field-output-label",
+        "durationMs": 1407,
+        "receiptId": "receipt_fe18de7ea93b460ccf5c952d0909bd97f822b73f01ad1f3bdbff4ea4f061c460",
+        "rowCount": 2
+      },
+      {
+        "name": "remove-related-source-step-preview",
+        "durationMs": 748,
+        "proposalId": "receipt_f46c040627e815b15f1836922af276c41a015efef5782c3af8b37799fb8d7039",
+        "rows": [
+          [
+            "0000b24b-86e5-50e2-803d-013cc7b8a87d",
+            "7"
+          ],
+          [
+            "0004723d-d79d-5084-9b86-a41791bd472e",
+            "1"
+          ]
+        ]
+      },
+      {
+        "name": "apply-remove-related-step-restores-native-group-table",
+        "durationMs": 868,
+        "commandStatus": 200
+      },
+      {
+        "name": "reload-restored-available-witness-group-table",
+        "durationMs": 1400,
+        "receiptId": "receipt_10bad5c306b488eb6f9642e041a67519e818514c78cd12ee6719ba62bb889ba2",
+        "rowCount": 2
+      }
+    ],
+    "maximumCheckpointMs": 1503,
+    "actionBudgetMs": 5000,
+    "allCheckpointsWithinBudget": true,
+    "expectedOneValidation": {
+      "status": 422,
+      "code": "CONSTRUCTION_ROW_VALUE_MULTIPLE_VALUES",
+      "policy": "ONE"
+    },
+    "directAllRepair": {
+      "policy": "ALL",
+      "form": "ALL",
+      "contributorPolicy": "ALL_MATCHES",
+      "receiptId": "receipt_1ef1540ba42effe67cc0402b2438794d9be308e0dd48ae65c17c567003488ca7"
+    },
+    "reopenedAllReceipt": "receipt_ef9c8511253a20c43b2011a66556b9f1d65643793065f55143026302dc47db9d",
+    "assertions": [
+      "two related expansions Preview/Apply",
+      "Group Preview/Cancel/Apply and reload",
+      "ONE conflict 422 retained the chooser",
+      "same-chooser ALL repair Preview/Cancel",
+      "reopened ALL Preview/Apply",
+      "exact raw-value preview comparison",
+      "reload saved ALL values",
+      "edit label and reload",
+      "remove exact RELATED_SOURCE step and restore Group",
+      "reload restored Group"
+    ]
+  },
+  "rawOracle": {
+    "project": "loom_dev_cda_fhir",
+    "generation": "cda-fhir-v1",
+    "patientCandidateLimit": 2000,
+    "availableCategories": [
+      "one",
+      "many"
+    ],
+    "missingCategories": [
+      "zero"
+    ],
+    "completeZeroOneManyCoverage": false,
+    "witnesses": [
+      {
+        "category": "one",
+        "patient": {
+          "id": "0004723d-d79d-5084-9b86-a41791bd472e",
+          "_id": "Patient/g_82b74902eafe29c92ee8bdbf9807d81be2b5cfc373ca26cab374d04437b9c085",
+          "reference": "Patient/0004723d-d79d-5084-9b86-a41791bd472e"
+        },
+        "observationCount": 1,
+        "contributorRows": 1,
+        "terminalIdentityOrderedObservationPairs": [
+          {
+            "id": "444db2fb-cd3a-54f2-8d89-e4bf8a35b71c",
+            "_id": "Observation/g_a66098f9106d8b746d21a798f21ae8e26a6bf021436ff30b123d9b7719c1595d"
+          }
+        ]
+      },
+      {
+        "category": "many",
+        "patient": {
+          "id": "0000b24b-86e5-50e2-803d-013cc7b8a87d",
+          "_id": "Patient/g_240416ae374b737d888583c78c92a9267964a12daf5aa7d8353896938820077b",
+          "reference": "Patient/0000b24b-86e5-50e2-803d-013cc7b8a87d"
+        },
+        "observationCount": 7,
+        "contributorRows": 7,
+        "terminalIdentityOrderedObservationPairs": [
+          {
+            "id": "9a264e2d-5128-55ae-8f64-bad1051ad6c9",
+            "_id": "Observation/g_4cd0adbe6a6a70c95fe1fdeed43435c937fabc0aa7062ca9dee78cb8edcdcc27"
+          },
+          {
+            "id": "4caec5da-d759-5cb8-bcda-6159f02cb171",
+            "_id": "Observation/g_7822b3df3d3ff0ceafbc62ad44dee6e03f6ae0214359c5912f93ffbd28c9625a"
+          },
+          {
+            "id": "f34c864a-7080-5be9-bd29-d33790c79561",
+            "_id": "Observation/g_8962de01433894ecc6992f8b4ecc75fed1082bb1c9688a9311a05a924103e4a5"
+          },
+          {
+            "id": "0f3cacfe-7eca-5de2-a7ee-b17eec085946",
+            "_id": "Observation/g_c33b63c680a642d6ff404ea9462474ceeaab938823e371c817bea380c4248c60"
+          },
+          {
+            "id": "5b08146d-4916-5461-b68b-56bf6641b6c2",
+            "_id": "Observation/g_d38fb4e590e197043daac335a01df48774ceb5e106f1e6176f62622bd653ad46"
+          },
+          {
+            "id": "73333a98-4b89-582c-975d-8c1eaa33daeb",
+            "_id": "Observation/g_f14adeec43b35ca7de562f80a67c2756e6876560e7065b6338bd98d088480d0d"
+          },
+          {
+            "id": "f4da6f1d-1e46-57e7-93a6-82b9b7aa77a2",
+            "_id": "Observation/g_f513fa07104b2846e58972e39d4ff700209f05a37afca258da6b5bf15dbfac88"
+          }
+        ]
+      }
+    ],
+    "missingWitness": [
+      {
+        "category": "zero",
+        "patientCandidateLimit": 2000,
+        "selectedSpecimensPerPatient": 1,
+        "meaning": "No zero-Observation witness with at least one linked Specimen was found among the first 2000 scoped current-generation Patient candidates. The query selects one Specimen per Patient for the exact membership reread. This is bounded fixture absence, not proof that no such witness exists elsewhere in the project or generation."
+      }
+    ]
+  },
+  "diagnostics": {
+    "unexpectedConsoleCount": 0,
+    "pageErrors": 0,
+    "networkFailures": 0,
+    "expectedHttpFailures": [
+      {
+        "status": 422,
+        "url": "http://127.0.0.1:30008/api/v1/projects/loom_dev_cda_fhir/explorers/related-one-all-1791231833688/authoring/v2/construction-proposals",
+        "browserRequestId": "playwright-83"
+      }
+    ],
+    "incidentalAssetFailures": [
+      {
+        "kind": "asset-failure",
+        "url": "http://127.0.0.1:30008/favicon.ico",
+        "status": 404
+      }
+    ],
+    "domainExpectedConsoleEvidence": [
+      {
+        "status": 422,
+        "message": "Failed to load resource: the server responded with a status of 422 (Unprocessable Entity)",
+        "location": "http://127.0.0.1:30008/api/v1/projects/loom_dev_cda_fhir/explorers/related-one-all-1791231833688/authoring/v2/construction-proposals",
+        "fixtureDiagnostic": true,
+        "requestCaptureError": true
+      }
+    ]
+  },
+  "closure": {
+    "releaseStatus": "SERIAL_CASE_UNVERIFIED_CLOSED",
+    "sourceBefore": {
+      "sha256": "a36e39de88257af8cfe4c84ab8798de1f7468b84f206cc7f0581421589fe15a6",
+      "files": 1489
+    },
+    "sourceAfter": {
+      "sha256": "a36e39de88257af8cfe4c84ab8798de1f7468b84f206cc7f0581421589fe15a6",
+      "files": 1489
+    },
+    "sourceUnchanged": true,
+    "docsBefore": {
+      "sha256": "f1036fd5fe7cc056245403ee30d8cb16e84d97a85ca29d24dec2e82febdfa3ab",
+      "files": 106
+    },
+    "docsAfter": {
+      "sha256": "f1036fd5fe7cc056245403ee30d8cb16e84d97a85ca29d24dec2e82febdfa3ab",
+      "files": 106
+    },
+    "docsUnchanged": true,
+    "apiIdentityBefore": "9e0e53a002c2cde544c54a34905fcea04f51a00d5247909f6204e73ccc85fc3c:9e0e53a002c2cde544c54a34905fcea04f51a00d5247909f6204e73ccc85fc3c:1480cbf92c206363ef5f24926e95396d0a25634ff9b9c99a08df3a26db41d114",
+    "apiIdentityAfter": "9e0e53a002c2cde544c54a34905fcea04f51a00d5247909f6204e73ccc85fc3c:9e0e53a002c2cde544c54a34905fcea04f51a00d5247909f6204e73ccc85fc3c:1480cbf92c206363ef5f24926e95396d0a25634ff9b9c99a08df3a26db41d114",
+    "apiUnchanged": false,
+    "mountsBefore": "PASS",
+    "mountsAfter": "PASS",
+    "healthBefore": {
+      "api": 200,
+      "ui": 200
+    },
+    "healthAfter": {
+      "api": 200,
+      "ui": 200
+    },
+    "nativeFreeze": {
+      "unchanged": true,
+      "watchedFileCount": 1114,
+      "changedPaths": [],
+      "apiBuildUnchanged": true
+    }
+  }
+}
