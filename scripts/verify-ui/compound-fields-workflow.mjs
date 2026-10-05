@@ -27,7 +27,7 @@ const report = { explorer, project, generation, cases: [], errors: [], apiCalls:
 let builder;
 let outputId;
 let rootColumnId;
-const nativeRequests = [];
+let nativeRequests = [];
 report.nativeRequests = nativeRequests;
 let requestCapture;
 
@@ -80,7 +80,10 @@ const rawQuery = (query) => {
 const waitNative = async (predicate, fromIndex, timeoutMs = 5000) => {
   const match = await requestCapture.waitFor(predicate, { fromIndex, timeoutMs });
   assert.equal(match.status, 200, `${match.path} returned ${match.status}: ${JSON.stringify(match.response).slice(0, 1200)}`);
-  return match;
+  const rawResponse = requestCapture.rawResponseBody(match);
+  assert(rawResponse && typeof rawResponse === 'object' && !Array.isArray(rawResponse),
+    `${match.path} did not provide a captured JSON object response body`);
+  return { ...match, response: rawResponse };
 };
 const flushNetworkReads = async () => requestCapture?.flush();
 
@@ -266,7 +269,8 @@ const freshCategory = async (frame, code, fromIndex) => {
 
 
 report.target ??= { ...cda.report.target };
-report.nativeRequests = cda.report.nativeRequests;
+nativeRequests = cda.report.nativeRequests;
+report.nativeRequests = nativeRequests;
 report.errors = cda.report.errors;
 
   try {

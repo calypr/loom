@@ -357,7 +357,7 @@ const visibleRows = async () => inspectPage(page, () => {
 });
 
 const displayedRows = async () => {
-  const root = requireUnique(page.locator('[data-testid="preview-table-scroll"]'), 'Preview table scroll region');
+  const root = await requireUnique(page.locator('[data-testid="preview-table-scroll"]'), 'Preview table scroll region');
   await performAction(report, 'Scroll preview rows to first row', root, (target, options) => target.press('Home', options));
   const rows = new Map();
   let total;

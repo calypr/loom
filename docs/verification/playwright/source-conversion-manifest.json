@@ -8914,7 +8914,7 @@
         "replacementWorkflowArtifacts": [
           {
             "path": "scripts/verify-ui/coded-field-lifecycle-workflow.mjs",
-            "sha256": "e3a6a4f020da72eff4dcab7aef9871f6344b065f6c315c9abd8a2873630435d6",
+            "sha256": "ff66ad473793846dd529defcdbbaa6615d197444fe1740d1b1f6bfcdb483559b",
             "artifactSource": "canonical-source-root"
           }
         ],
@@ -8952,7 +8952,7 @@
       "workflowArtifacts": [
         {
           "path": "scripts/verify-ui/coded-field-lifecycle-workflow.mjs",
-          "sha256": "e3a6a4f020da72eff4dcab7aef9871f6344b065f6c315c9abd8a2873630435d6",
+          "sha256": "ff66ad473793846dd529defcdbbaa6615d197444fe1740d1b1f6bfcdb483559b",
           "artifactSource": "canonical-source-root"
         }
       ],
@@ -9124,7 +9124,7 @@
         "replacementWorkflowArtifacts": [
           {
             "path": "scripts/verify-ui/cohort-fields-workflow.mjs",
-            "sha256": "90a6eb670e3a39deb86ed6d36c937f90cfaa027fa0b9f45b7931cc4594441dbf",
+            "sha256": "8d9e20b5b0c982785ab64e7f909d2b57c8531bb888abf86254a79fd97bf89553",
             "artifactSource": "canonical-source-root"
           }
         ],
@@ -9162,7 +9162,7 @@
       "workflowArtifacts": [
         {
           "path": "scripts/verify-ui/cohort-fields-workflow.mjs",
-          "sha256": "90a6eb670e3a39deb86ed6d36c937f90cfaa027fa0b9f45b7931cc4594441dbf",
+          "sha256": "8d9e20b5b0c982785ab64e7f909d2b57c8531bb888abf86254a79fd97bf89553",
           "artifactSource": "canonical-source-root"
         }
       ],
@@ -9815,7 +9815,7 @@
         "replacementWorkflowArtifacts": [
           {
             "path": "scripts/verify-ui/compound-fields-workflow.mjs",
-            "sha256": "e2569ae251bcaf0deec3de8230070a59ce036f1610723fe4e92439f84ae8a67e",
+            "sha256": "3dab54d9394cf3b731833e2d0a0a25b7b9ff8f1e9b5edc5f53cebefa1a3f226f",
             "artifactSource": "canonical-source-root"
           }
         ],
@@ -9852,7 +9852,7 @@
       "workflowArtifacts": [
         {
           "path": "scripts/verify-ui/compound-fields-workflow.mjs",
-          "sha256": "e2569ae251bcaf0deec3de8230070a59ce036f1610723fe4e92439f84ae8a67e",
+          "sha256": "3dab54d9394cf3b731833e2d0a0a25b7b9ff8f1e9b5edc5f53cebefa1a3f226f",
           "artifactSource": "canonical-source-root"
         }
       ],
@@ -13033,7 +13033,7 @@
     {
       "sourcePath": "scripts/verify-cda-related-one-all-browser.mjs",
       "preimageSha256": "46a347a9baf3705fe36c5ae40f34a0c200385a986ab17dfe3ce528bf320a57aa",
-      "currentSha256": "4df8929b451b9043b89c2e26b4eb3c953b98c9f6139a5676297d3f278c47f65d",
+      "currentSha256": "154aab8223cacdd359e7c4eddcd2950a441a9a08130a9dee0ce6760b3e6edb6b",
       "sourceStillPresent": true,
       "ownerPartition": "native-standalone-cda-rows",
       "kind": "standalone-browser-entrypoint",
@@ -13070,7 +13070,7 @@
       "workflowArtifacts": [
         {
           "path": "scripts/verify-cda-related-one-all-browser.mjs",
-          "sha256": "4df8929b451b9043b89c2e26b4eb3c953b98c9f6139a5676297d3f278c47f65d",
+          "sha256": "154aab8223cacdd359e7c4eddcd2950a441a9a08130a9dee0ce6760b3e6edb6b",
           "artifactSource": "canonical-source-root"
         }
       ],
@@ -13370,7 +13370,7 @@
         "replacementWorkflowArtifacts": [
           {
             "path": "scripts/verify-ui/repeated-contributor-any-workflow.mjs",
-            "sha256": "f0c1e677a4fb826426ae6117ba13871214a4d71229d23a0441ab98a41a112768",
+            "sha256": "ca7e395ccfe67dad9cd3b3e2209d86f5d1096b328aa29b7f6e1bb50691c9c61f",
             "artifactSource": "canonical-source-root"
           }
         ],
@@ -13409,7 +13409,7 @@
       "workflowArtifacts": [
         {
           "path": "scripts/verify-ui/repeated-contributor-any-workflow.mjs",
-          "sha256": "f0c1e677a4fb826426ae6117ba13871214a4d71229d23a0441ab98a41a112768",
+          "sha256": "ca7e395ccfe67dad9cd3b3e2209d86f5d1096b328aa29b7f6e1bb50691c9c61f",
           "artifactSource": "canonical-source-root"
         }
       ],
@@ -13451,7 +13451,7 @@
     {
       "sourcePath": "scripts/verify-cda-repeated-empty-browser.mjs",
       "preimageSha256": "c9bddd0691836db2a2470ef7f8cae2b6fbf82dd8e86f310bdd64c45fe10d717d",
-      "currentSha256": "935ac253f6fead95a26ade5e41542d0b3c3465eb603418c7e3a276a0df7ac727",
+      "currentSha256": "5deed602d54c94ae264d3aee0b54e5905d1c735570926756181f86e335dfb7d6",
       "sourceStillPresent": true,
       "ownerPartition": "native-standalone-cda-rows",
       "kind": "standalone-browser-entrypoint",
@@ -13488,7 +13488,7 @@
       "workflowArtifacts": [
         {
           "path": "scripts/verify-cda-repeated-empty-browser.mjs",
-          "sha256": "935ac253f6fead95a26ade5e41542d0b3c3465eb603418c7e3a276a0df7ac727",
+          "sha256": "5deed602d54c94ae264d3aee0b54e5905d1c735570926756181f86e335dfb7d6",
           "artifactSource": "canonical-source-root"
         }
       ],
@@ -13572,7 +13572,7 @@
     {
       "sourcePath": "scripts/verify-cda-repeated-rows-browser.mjs",
       "preimageSha256": "ca30a78264db4a99dff8ada79172a920c914ad39d866040b2620c873eefa3f4d",
-      "currentSha256": "aa93b0d1625b725e5b68f6257fe6383bbf6a449844ed6715a4310a585e13d0a8",
+      "currentSha256": "3a206f2838bcfff4f62f41514a2810def1037c81f73e0d74f97435ee5f18599a",
       "sourceStillPresent": true,
       "ownerPartition": "native-standalone-cda-rows",
       "kind": "standalone-browser-entrypoint",
@@ -13603,7 +13603,7 @@
       "workflowArtifacts": [
         {
           "path": "scripts/verify-cda-repeated-rows-browser.mjs",
-          "sha256": "aa93b0d1625b725e5b68f6257fe6383bbf6a449844ed6715a4310a585e13d0a8",
+          "sha256": "3a206f2838bcfff4f62f41514a2810def1037c81f73e0d74f97435ee5f18599a",
           "artifactSource": "canonical-source-root"
         }
       ],
@@ -13914,7 +13914,7 @@
         "replacementWorkflowArtifacts": [
           {
             "path": "scripts/verify-ui/source-fields-workflow.mjs",
-            "sha256": "aaa9bf90e9cfe15e33cedf8865dd1165b3781f0d2a48b431032465646da8251a",
+            "sha256": "bb8b19df734ac32bd5205e7491c2219056f47df24ac34e4fabdf611748c450d4",
             "artifactSource": "canonical-source-root"
           }
         ],
@@ -13947,7 +13947,7 @@
       "workflowArtifacts": [
         {
           "path": "scripts/verify-ui/source-fields-workflow.mjs",
-          "sha256": "aaa9bf90e9cfe15e33cedf8865dd1165b3781f0d2a48b431032465646da8251a",
+          "sha256": "bb8b19df734ac32bd5205e7491c2219056f47df24ac34e4fabdf611748c450d4",
           "artifactSource": "canonical-source-root"
         }
       ],

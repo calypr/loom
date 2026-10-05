@@ -10,6 +10,30 @@ Compose project. It does not drive the canonical `loom-demo` deployment.
 
 ## Failure-loop discipline
 
+### Worker-owned checks and bottlenecks
+
+The assigned Luna worker runs and diagnoses its case, including reruns after
+corrections. Return the exact command, exit status, elapsed time, report paths,
+tested file hashes or source fingerprint, API identity, and remaining lifecycle
+gaps with the patch. Sol reads the diff and evidence to accept or reject the
+submission; do not routinely repeat a worker's passing checks.
+
+When integration changes the tested artifact or creates a concrete shared risk,
+assign the necessary combined check to a Luna worker. Sol runs a check only to
+resolve a critical discrepancy that source and retained evidence cannot settle,
+or when no worker can perform the required check. State that reason before
+rerunning. Missing evidence goes back to the case owner rather than becoming
+foreground testing work.
+
+When progress slows, identify the limiting step: product diagnosis, harness
+repair, test execution, review, integration, or shared runtime access. Use actual
+run durations and the ready-patch queue, and label unmeasured time unknown.
+Change assignments or integration order to relieve that step before increasing
+worker count. Track closed lifecycles and elapsed time; worker activity alone
+does not establish a speedup.
+
+### Isolation and failure evidence
+
 Before workers edit, resolve staging and deployed checkout with `realpath`.
 Require physically distinct source files and preserve preimages for patch review.
 A deployed checkout under `/tmp` is not an isolated stage. Sol owns integration.

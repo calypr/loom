@@ -218,7 +218,7 @@ await nativeClick(page, '[data-testid="construction-action-add-columns"]');
 await nativeClick(page, '[aria-label="Column types"] button',{includes:'Fields and related data'});
 await waitUI(`document.querySelector('[data-testid="construction-add-columns-source"]')`);
 const chooseField=async()=>{
-  await nativeClick(page, '[data-testid="feature-catalog-raw-fields"] summary');
+  await nativeClick(page, '[data-testid="feature-catalog-raw-fields"] > summary');
   await waitUI(`document.querySelector('input[aria-label="Select Specimen.${memberField}"]:not(:disabled)')`);
   start=Date.now();
   await nativeClick(page, 'input[aria-label="Select Specimen.'+memberField+'"]');
@@ -239,7 +239,7 @@ const chooseField=async()=>{
 await chooseField();
 await nativeClick(page, '[data-testid="construction-choice-proposal-panel"] button',{name:'Cancel'});
 assert.deepEqual((await api(base+'/builder')).workspace,beforeField.workspace);
-await nativeClick(page, '[data-testid="feature-catalog-raw-fields"] summary');
+await nativeClick(page, '[data-testid="feature-catalog-raw-fields"] > summary');
 await chooseField();
 start=Date.now();
 await nativeClick(page, '[data-testid="construction-choice-proposal-panel"] button',{name:'Apply columns'});

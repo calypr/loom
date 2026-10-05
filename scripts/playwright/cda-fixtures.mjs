@@ -58,6 +58,7 @@ function environmentSnapshot(overrides) {
     LOOM_CDA_UI_PORT: overrides.uiPort,
     LOOM_CDA_EXPLORER_ID: overrides.explorer,
     LOOM_CDA_NO_AUTH: process.env.LOOM_CDA_NO_AUTH,
+    LOOM_DEV_PROJECT: process.env.LOOM_DEV_PROJECT,
     LOOM_QA_EXPLORER: process.env.LOOM_QA_EXPLORER,
   };
   return Object.freeze(Object.fromEntries(Object.entries(env).filter(([, value]) => value !== undefined && value !== '')));
@@ -254,7 +255,7 @@ export const test = base.extend({
         LOOM_DEV_UI_PORT: env.LOOM_CDA_UI_PORT,
         LOOM_DEV_API_URL: env.LOOM_CDA_API_ORIGIN,
         LOOM_DEV_UI_URL: env.LOOM_CDA_UI_ORIGIN,
-        LOOM_DEV_PROJECT: env.LOOM_CDA_PROJECT,
+        LOOM_DEV_PROJECT: env.LOOM_DEV_PROJECT ?? env.LOOM_CDA_PROJECT,
         LOOM_DEV_GENERATION: env.LOOM_CDA_GENERATION,
         LOOM_DEV_ARTIFACTS: resolve(configuredSourceRoot, '.artifacts/cda-playwright'),
       }, configuredSourceRoot);

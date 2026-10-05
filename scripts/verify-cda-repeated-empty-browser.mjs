@@ -396,6 +396,8 @@ const constructionProposalFor = async (name, startedAt) => {
   assert.equal(request.status, 200, `${name} proposal request failed: ${JSON.stringify(request.response)}`);
   assert.equal(request.response?.previewStatus, 'READY', `${name} response preview is not ready: ${JSON.stringify(request.response)}`);
   assert(request.response?.preview?.receiptId, `${name} proposal is missing a preview receipt`);
+  request.durationMs ??= request.responseReceivedAt - request.startedAt;
+  assert(Number.isFinite(request.durationMs), `${name} native proposal request timing is unavailable`);
   assert(request.durationMs <= 5000, `${name} native proposal request took ${request.durationMs} ms`);
   assert(request.response.previewDurationMs <= 5000, `${name} preview took ${request.response.previewDurationMs} ms`);
   assert.equal(panel.receiptId, request.response.preview.receiptId, `${name} UI did not adopt the exact automatic-preview receipt`);
@@ -633,6 +635,9 @@ const finish = async () => {
     report.status = report.failures.length ? 'failed' : report.gaps.length ? 'unverified' : report.assertions.length ? 'passed' : 'untested';
   }
   if (report.status === 'unverified') report.skipReason = report.gaps.map(gap => `${gap.assertion}: ${gap.reason}`).join('; ');
+  for (const action of [report.activeAction, report.lastAction]) {
+    if (action && typeof action === 'object') delete action.targetLocator;
+  }
   cda.report.standaloneCdaRows = report;
   await cda.attachReport('standalone-cda-repeated-empty.json', report);
   for (const assertion of report.assertions) cda.check('correctness', assertion.name, assertion.status === 'passed', assertion.evidence ?? {});

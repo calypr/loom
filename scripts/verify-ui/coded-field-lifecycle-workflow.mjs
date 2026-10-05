@@ -33,7 +33,7 @@ const report = {
 
 let builder;
 let outputId;
-const nativeRequests = [];
+const nativeRequests = cda.report.nativeRequests;
 report.nativeRequests = nativeRequests;
 let requestCapture;
 

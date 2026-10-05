@@ -287,7 +287,7 @@ const openAddColumns = async () => {
   if (!rootScope.selected) await click(page, '[data-testid="construction-add-columns-source-option"]', { name: rootScope.label });
   await waitForBrowser(page, () => Boolean(document.querySelector('[data-testid="construction-add-columns-source-option"][data-source-key="root:Observation"]')?.getAttribute('aria-pressed')==='true'), []);
   const rawFieldsOpen = await browserEval(page, () => { return document.querySelector('[data-testid="feature-catalog-raw-fields"]')?.open===true; });
-  if (!rawFieldsOpen) await click(page, '[data-testid="feature-catalog-raw-fields"] summary');
+  if (!rawFieldsOpen) await click(page, '[data-testid="feature-catalog-raw-fields"] > summary');
 };
 
 const addNativeFields = async (candidateByPath, cancelProposal) => {

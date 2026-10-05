@@ -431,6 +431,7 @@ const startNativeCapture = async () => {
       else report.errors.push(failure);
       return;
     }
+    if (!entry) return;
     entry.status = status;
     entry.responseReceivedAt = Date.now();
     entry.networkTerminal = true;

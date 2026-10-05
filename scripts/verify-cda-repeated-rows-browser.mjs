@@ -233,7 +233,7 @@ const addFieldAndPreview = async () => {
   await click(page, '[data-testid="construction-action-add-columns"]');
   await click(page, '[aria-label="Column types"] button', { includes: 'Fields and related data' });
   await waitForBrowser(page, () => Boolean(document.querySelector('[data-testid="construction-add-columns-source"]')), [], 5000);
-  await click(page, '[data-testid="feature-catalog-raw-fields"] summary');
+  await click(page, '[data-testid="feature-catalog-raw-fields"] > summary');
   const checkbox = 'input[aria-label="Select Observation.component[].valueString"]';
   await waitForBrowser(page, ([__arg0]) => Boolean(document.querySelector(__arg0)), [checkbox], 5000);
   const offered = await browserEval(page, ([__arg0]) => { const input=document.querySelector(__arg0);return {disabled:input?.disabled,checked:input?.checked,label:input?.getAttribute('aria-label')}; }, [checkbox]);
