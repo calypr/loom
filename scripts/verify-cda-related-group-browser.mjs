@@ -1,41 +1,47 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { mkdir, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { captureSourceFreeze } from './lib/source-freeze.mjs';
-import { captureApiBuildFreeze, checkContainerApiBuildStamp } from './lib/api-build-freeze.mjs';
-import { sourceFingerprint } from './verify-ui/source-fingerprint.mjs';
-import { launchBrowser, sanitizePayload } from './lib/playwright-browser.mjs';
-import { createCDAPlaywrightControls } from './lib/cda-playwright-controls.mjs';
 import { assertVisibleRowsMatchOracle } from './lib/cda-row-oracle.mjs';
-import { assertOwnedCdaTarget } from './lib/owned-cda-target.mjs';
 
-const project = process.env.LOOM_CDA_PROJECT;
-assert(project, 'Set LOOM_CDA_PROJECT to the isolated CDA project');
-const explorer = `related-group-browser-${Date.now()}`;
-const evidence = process.argv[2] ?? `/tmp/loom-related-group-browser-${Date.now()}`;
-const apiOrigin = process.env.LOOM_CDA_API_ORIGIN;
-const uiOrigin = process.env.LOOM_CDA_UI_ORIGIN;
-const apiContainer = process.env.LOOM_CDA_API_CONTAINER;
-const arangoContainer = process.env.LOOM_ARANGO_CONTAINER;
-const composeProject = process.env.LOOM_CDA_COMPOSE_PROJECT;
-const sourceRoot = fileURLToPath(new URL('..', import.meta.url));
-const sourceFreezeStartedAt = new Date().toISOString();
-const root = `/api/v1/projects/${project}/explorers`;
+export async function runRelatedGroupBrowserWorkflow({ page, cda }) {
+  const project = cda.project;
+  assert(project, 'CDA fixture must provide the isolated project');
+  const explorer = cda.explorer;
+  const evidence = cda.evidence;
+  const apiOrigin = cda.apiOrigin;
+  const uiOrigin = cda.uiOrigin;
+  const env = cda.env ?? {};
+  const arangoContainer = cda.target?.arangoContainer ?? env.LOOM_ARANGO_CONTAINER;
+  cda.report.errors ??= [];
+  cda.report.nativeRequests ??= [];
+  const root = `/api/v1/projects/${project}/explorers`;
 const base = `${root}/${explorer}/authoring/v2`;
-const report = { explorer, cases: [], errors: [], requests: [], nativeRequests: [], sourceFreeze: { startedAt: sourceFreezeStartedAt }, started: new Date().toISOString() };
-await mkdir(evidence, { recursive: true });
-let browser, builder, outputId;
-let sourceFreeze, frozenApiBuild, controls, ownedTarget;
-const click = (...args) => controls.click(...args);
-const selectOption = (...args) => controls.selectOption(...args);
-const fill = (...args) => controls.fill(...args);
-const browserEval = (...args) => controls.evaluate(...args);
-const waitForBrowser = (...args) => controls.wait(...args);
-const navigate = (...args) => controls.navigate(...args);
-const sanitizeReportValue = sanitizePayload;
+const report = { explorer, evidence, target: cda.target, cases: [], errors: cda.report.errors, requests: [], nativeRequests: cda.report.nativeRequests, started: new Date().toISOString() };
+let builder, outputId;
+const click = (...args) => cda.click(...args);
+const selectOption = (...args) => cda.selectOption(...args);
+const fill = (...args) => cda.fill(...args);
+const browserEval = (...args) => cda.inspect(...args);
+const waitForBrowser = (...args) => cda.wait(...args);
+const navigate = (...args) => cda.navigate(...args);
+const sensitiveName = /authorization|cookie|password|passwd|token|secret|credential|session|api[_-]?key/i;
+const sanitizeText = value => String(value ?? '')
+  .replaceAll(process.cwd(), '$CHECKOUT')
+  .replace(/(?:file:\/\/)?\/(?:private\/)?tmp\/[^\s)]+/g, '$TMP/<path>')
+  .replace(/\/Users\/[^/\s]+/g, '$HOME')
+  .replace(/\bBearer\s+[A-Za-z0-9._~+/-]+=*/gi, 'Bearer [REDACTED]')
+  .replace(/["']?[\w-]*(?:token|authorization|set-cookie|cookie|password|passwd|secret|credential|session(?:[_-]?id)?|api[_-]?key)[\w-]*["']?\s*[=:]\s*(?:"[^"]*"|'[^']*'|[^,;\s}\]]+)/gi, '[REDACTED]')
+  .replace(/<input\b[^>]*>/gi, tag => sensitiveName.test(tag) ? tag.replace(/(\bvalue\s*=\s*)(["'])(.*?)\2/gi, '$1$2[REDACTED]$2') : tag)
+  .replace(/\beyJ[A-Za-z0-9_-]{12,}\.[A-Za-z0-9_-]{12,}\.[A-Za-z0-9_-]{12,}\b/g, '[REDACTED_TOKEN]')
+  .replace(/\bsk-[A-Za-z0-9]{16,}\b/g, '[REDACTED_TOKEN]');
+const sanitizeReportValue = (value, key = '') => {
+  if (sensitiveName.test(key)) return '[REDACTED]';
+  if (typeof value === 'string') return sanitizeText(value);
+  if (Array.isArray(value)) return value.map(item => sanitizeReportValue(item));
+  if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([childKey, childValue]) => [childKey, sanitizeReportValue(childValue, childKey)]));
+  return value;
+};
+
 const api = async (path, body) => {
   const response = await fetch(apiOrigin + path, {
     method: body ? 'POST' : 'GET', headers: { 'Content-Type': 'application/json', 'X-Request-ID': `related-group-browser-${randomUUID()}` },
@@ -58,13 +64,11 @@ const proposal = async (name, start, expectedRows) => {
   assert.equal(result.status, 'ready', result.text);
   assertVisibleRowsMatchOracle(result.rows, expectedRows, { label: `${name} preview` });
   const durationMs = Date.now() - start;
-  if (browser) browser.lastElapsedMs = durationMs;
   assert(durationMs <= 5000, `${name} took ${durationMs}ms`);
   report.cases.push({ name, durationMs, result });
 };
 const recordRender = (name, start) => {
   const durationMs = Date.now() - start;
-  if (browser) browser.lastElapsedMs = durationMs;
   assert(durationMs <= 5000, `${name} took ${durationMs}ms`);
   report.cases.push({ name, durationMs });
 };
@@ -79,7 +83,7 @@ const apply = async expectedRows => {
 const open = async expectedRows => {
   const start = Date.now();
   await navigate( `${uiOrigin}/?project=${project}&explorer=${explorer}&mode=builder`);
-  await waitForBrowser(selector => Boolean(document.querySelector(selector)), `[data-testid="construction-table-${outputId}"]`);
+  await waitForBrowser(({ selector }) => Boolean(document.querySelector(selector)), { selector: `[data-testid="construction-table-${outputId}"]` });
   await click( `[data-testid="construction-table-${outputId}"]`);
   await waitForBrowser(() => (document.querySelector('[data-testid="construction-rows-settings-trigger"]')?.disabled === false));
   await rendered(expectedRows);
@@ -95,13 +99,6 @@ const rendered = async expectedRows => {
   assertVisibleRowsMatchOracle(rows, savedRows, { label: 'saved table' });
 };
 try {
-  ownedTarget = await assertOwnedCdaTarget({ project, apiOrigin, uiOrigin, apiContainer, composeProject, sourceRoot, arangoContainer });
-  report.target = ownedTarget;
-  report.sourceFingerprint = { root: sourceRoot, before: sourceFingerprint(sourceRoot) };
-  sourceFreeze = await captureSourceFreeze(sourceRoot);
-  report.sourceFreeze.watchedFileCount = sourceFreeze.watchedFileCount;
-  frozenApiBuild = await captureApiBuildFreeze(() => checkContainerApiBuildStamp(apiContainer));
-  report.apiBuildFreeze = { target: 'running isolated CDA API build stamp', container: apiContainer, initial: frozenApiBuild.initial, invalidatesRun: true, productFailure: false };
   const query = `FOR s IN Specimen FILTER s.project == "${project}" AND s.dataset_generation == "cda-fhir-v1" LIMIT 1 RETURN {id:s.id,_id:s._id,generation:s.dataset_generation}`;
   const raw = spawnSync('rtk', ['proxy', 'docker', 'exec', arangoContainer, 'arangosh', '--server.database', 'loom_dev', '--javascript.execute-string', `print(JSON.stringify(db._query(${JSON.stringify(query)}).toArray()));`], { encoding: 'utf8', timeout: 30000 });
   assert.equal(raw.status, 0, raw.stderr);
@@ -122,8 +119,7 @@ try {
   const direct = routes.choices.find(c => c.route.length === 0);
   assert(direct);
   await command([{ type: 'SET_TABLE_POPULATION', outputId, selectionRevisionId: selection.id, routeChoiceId: direct.routeChoiceId }]);
-  browser = await launchBrowser({ evidence, appOrigins: [apiOrigin, uiOrigin], noAuth: true });
-  controls = createCDAPlaywrightControls({ browser, browserApiOrigin: uiOrigin, ownedPathPrefix: `${root}/${explorer}`, report });
+  cda.captureRequests(`${root}/${explorer}`);
   const rawQuery = query => {
     const r=spawnSync('rtk',['proxy','docker','exec',arangoContainer,'arangosh','--server.database','loom_dev','--javascript.execute-string',`print(JSON.stringify(db._query(${JSON.stringify(query)}).toArray()));`],{encoding:'utf8',timeout:30000});
     assert.equal(r.status,0,r.stderr);return JSON.parse(r.stdout.slice(r.stdout.indexOf('[')));
@@ -152,11 +148,11 @@ try {
     await waitForBrowser(() => (document.querySelector('[data-testid="construction-action-related-rows"]')?.disabled===false));
     await click('[data-testid="construction-action-related-rows"]');
     const panel='[data-testid="construction-related-expand-editor"]';
-    await waitForBrowser(selector => { const control = document.querySelector(selector); return Boolean(control) && !control.disabled; }, `${panel} select[aria-label="Related record type"]`);
+    await waitForBrowser(({ selector }) => { const control = document.querySelector(selector); return Boolean(control) && !control.disabled; }, { selector: `${panel} select[aria-label="Related record type"]` });
     let start=Date.now();
     await selectOption(panel+' select[aria-label="Related record type"]',hop.to);
     const label=hop.from+(hop.direction==='INBOUND'?` <-[${hop.field}]- `:` -[${hop.field}]-> `)+hop.to;
-    await waitForBrowser(selector => Boolean(document.querySelector(selector)), `${panel} input[aria-label="${label}"]`, 5000);
+    await waitForBrowser(({ selector }) => Boolean(document.querySelector(selector)), { selector: `${panel} input[aria-label="${label}"]` }, 5000);
     await click(panel+' input[aria-label="'+label+'"]');
     await proposal('expand-'+hop.from+'-'+hop.to,start,expected);
     await apply(expected);
@@ -204,8 +200,8 @@ try {
   const filterPanel='[data-testid="construction-filter-editor"]';
   const configureMissing=async()=>{
     await click('[data-testid="construction-action-keep-rows"]');
-    await waitForBrowser(selector => { const control = document.querySelector(selector); return Boolean(control) && !control.disabled; }, `${filterPanel} select[aria-label="Condition"]`);
-    const options=await browserEval(selector => [...document.querySelector(`${selector} select[aria-label="Column"]`).options].map(option => ({ value: option.value, label: option.textContent })), filterPanel);
+    await waitForBrowser(({ selector }) => { const control = document.querySelector(selector); return Boolean(control) && !control.disabled; }, { selector: `${filterPanel} select[aria-label="Condition"]` });
+    const options=await browserEval(({ selector }) => [...document.querySelector(`${selector} select[aria-label="Column"]`).options].map(option => ({ value: option.value, label: option.textContent })), { selector: filterPanel });
     report.filterColumns=options;
     const key=options.find(o=>o.label.startsWith('Specimen ID'));
     assert(key,'Grouped key must be available to Filter: '+JSON.stringify(options));
@@ -227,7 +223,7 @@ try {
   assert(filter);
   await click(`[data-testid="construction-history-step-${filter.id}"]`);
   await click(`[data-testid="construction-edit-step-${filter.id}"]`);
-  await waitForBrowser(selector => { const control = document.querySelector(selector); return Boolean(control) && !control.disabled; }, `${filterPanel} select[aria-label="Condition"]`);
+  await waitForBrowser(({ selector }) => { const control = document.querySelector(selector); return Boolean(control) && !control.disabled; }, { selector: `${filterPanel} select[aria-label="Condition"]` });
   await selectOption(filterPanel+' select[aria-label="Condition"]','EQUALS');
   await click(filterPanel+' input[aria-label="Value"]');
   start=Date.now();
@@ -253,45 +249,18 @@ try {
   await apply(expected);
   await open(expected);
   assert.deepEqual(doc(builder).construction,doc(expanded).construction,'Removing Group must restore the exact related chain');
-  await controls?.flush();
   assert.deepEqual(report.errors,[]);
   report.status = 'passed';
+  assert.deepEqual(cda.report.errors, [], 'CDA fixture must observe no unexpected browser diagnostics');
 } catch (error) {
-  report.status = 'failed'; report.error = String(error.stack ?? error); process.exitCode = 1;
-  if (browser) {
-    const action = browser.activeAction ?? controls?.lastAction;
-    await browser.captureFailure(error, { scenario: explorer, ...(action ? { action, elapsedMs: browser.activeAction ? Date.now() - browser.activeAction.startedAt : browser.lastElapsedMs ?? action.elapsedMs } : {}), draft: builder ? { draftVersion: builder.draftVersion, draftDigest: builder.draftDigest } : undefined, latestDiagnostic: report.errors.at(-1) });
-  }
-  report.failureUI = browser ? await browserEval(() => document.body.innerText).catch(String) : undefined;
+  report.status = 'failed';
+  report.error = String(error.stack ?? error);
+  report.savedBuilderAtFailure = await api(base + '/builder').catch(readError => ({ readError: String(readError) }));
+  report.failureUI = await browserEval(() => document.body.innerText).catch(String);
+  throw error;
 } finally {
-  if (frozenApiBuild) {
-    try { report.apiBuildFreeze = { ...report.apiBuildFreeze, ...await frozenApiBuild.assertUnchanged() }; }
-    catch (error) { report.priorStatus = report.status; report.status = 'invalidated'; report.apiBuildFreeze = { ...report.apiBuildFreeze, unchanged: false, invalidatesRun: true, productFailure: false, error: String(error), reason: error.reason, before: error.before, after: error.after }; process.exitCode = 1; }
-  }
-  if (sourceFreeze) {
-    try { report.sourceFreeze = { ...report.sourceFreeze, ...await sourceFreeze.assertUnchanged(), finishedAt: new Date().toISOString() }; }
-    catch (error) { report.priorStatus = report.status; report.status = 'invalidated'; report.sourceFreeze = { ...report.sourceFreeze, unchanged: false, changedPaths: error.changedPaths ?? [], invalidatesRun: true, productFailure: false, error: String(error), finishedAt: new Date().toISOString() }; process.exitCode = 1; }
-  }
-  if (report.sourceFingerprint) {
-    report.sourceFingerprint.after = sourceFingerprint(sourceRoot);
-    report.sourceFingerprint.unchanged = report.sourceFingerprint.after.sha256 === report.sourceFingerprint.before.sha256 && report.sourceFingerprint.after.files === report.sourceFingerprint.before.files;
-    report.sourceFingerprint.invalidatesRun = !report.sourceFingerprint.unchanged;
-    if (!report.sourceFingerprint.unchanged) { report.priorStatus = report.status; report.status = 'invalidated'; process.exitCode = 1; }
-  }
-  await controls?.flush();
-  if (report.status === 'passed' && report.errors.length) {
-    const error = new Error(`Unexpected browser diagnostics: ${JSON.stringify(report.errors)}`);
-    report.status = 'failed';
-    report.error = String(error.stack);
-    process.exitCode = 1;
-    const action = browser?.activeAction ?? controls?.lastAction;
-    if (browser) await browser.captureFailure(error, { scenario: explorer, ...(action ? { action, elapsedMs: browser.lastElapsedMs ?? action.elapsedMs } : {}), draft: builder ? { draftVersion: builder.draftVersion, draftDigest: builder.draftDigest } : undefined, latestDiagnostic: report.errors.at(-1) });
-  }
-  report.browserDiagnostics = browser?.diagnostics;
-  report.incidentalAssetFailures = browser?.diagnostics.assetFailures ?? [];
-  report.actions = browser?.actions ?? [];
   report.finished = new Date().toISOString();
-  await writeFile(join(evidence, 'report.json'), JSON.stringify(report, null, 2));
-  await browser?.browser.close();
+  await cda.attachReport('related-group', report);
 }
-console.log(JSON.stringify({ status: report.status, evidence, cases: report.cases.map(c => ({ name: c.name, durationMs: c.durationMs })), error: report.error }));
+return report;
+}

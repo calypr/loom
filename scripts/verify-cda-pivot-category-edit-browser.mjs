@@ -7,35 +7,50 @@ import { fileURLToPath } from 'node:url';
 import { captureSourceFreeze } from './lib/source-freeze.mjs';
 import { captureApiBuildFreeze, checkContainerApiBuildStamp } from './lib/api-build-freeze.mjs';
 import { sourceFingerprint } from './verify-ui/source-fingerprint.mjs';
-import { launchBrowser, sanitizePayload } from './lib/playwright-browser.mjs';
-import { createCDAPlaywrightControls } from './lib/cda-playwright-controls.mjs';
+import { sanitizePayload } from './lib/playwright-browser.mjs';
 import { assertVisibleRowsMatchOracle } from './lib/cda-row-oracle.mjs';
 import { assertOwnedCdaTarget } from './lib/owned-cda-target.mjs';
 
-const project = process.env.LOOM_CDA_PROJECT;
+
+export async function runPivotCategoryEditBrowserWorkflow({ page, cda }, originalArgs = {}) {
+  const environment = cda.env ?? process.env;
+const includeFixtureDiagnostics = domainReport => {
+    const diagnostics = cda.diagnostics;
+    domainReport.errors ??= [];
+    const add = (entry, same) => { if (!domainReport.errors.some(same)) domainReport.errors.push(entry); };
+    for (const failure of diagnostics.pageErrors ?? []) add({ kind: 'runtime', message: failure.message }, item => item.kind === 'runtime' && item.message === failure.message);
+    for (const failure of diagnostics.console ?? []) add({ kind: 'console', message: failure.text, location: failure.location }, item => item.kind === 'console' && item.message === failure.text);
+    for (const failure of diagnostics.networkFailures ?? []) add({ kind: 'network', path: failure.url, failure: failure.failure }, item => item.kind === 'network' && item.path === failure.url);
+    for (const failure of diagnostics.httpFailures ?? []) add({ kind: 'http', url: failure.url, status: failure.status, response: failure.body }, item => item.kind === 'http' && item.url === failure.url && item.status === failure.status);
+    domainReport.incidentalErrors ??= [];
+    for (const failure of diagnostics.assetFailures ?? []) if (!domainReport.incidentalErrors.some(item => item.url === failure.url && item.status === failure.status)) domainReport.incidentalErrors.push(failure);
+  };
+  const captureFailure = async (error, details = {}) => cda.attachReport('failure-evidence', { error: String(error), details, diagnostics: cda.diagnostics });
+const project = cda.project;
 assert(project, 'Set LOOM_CDA_PROJECT to the isolated CDA project');
-const explorer = `pivot-category-edit-browser-${Date.now()}`;
-const evidence = process.argv[2] ?? `/tmp/loom-pivot-category-edit-browser-${Date.now()}`;
-const apiOrigin = process.env.LOOM_CDA_API_ORIGIN;
-const uiOrigin = process.env.LOOM_CDA_UI_ORIGIN;
-const apiContainer = process.env.LOOM_CDA_API_CONTAINER;
-const arangoContainer = process.env.LOOM_ARANGO_CONTAINER;
-const composeProject = process.env.LOOM_CDA_COMPOSE_PROJECT;
+const explorer = cda.explorer;
+const evidence = cda.evidence;
+const apiOrigin = cda.apiOrigin;
+const uiOrigin = cda.uiOrigin;
+const apiContainer = (cda.target.apiContainer ?? cda.env?.LOOM_CDA_API_CONTAINER);
+const arangoContainer = (cda.target.arangoContainer ?? cda.env?.LOOM_ARANGO_CONTAINER);
+const composeProject = (cda.target.composeProject ?? cda.env?.LOOM_CDA_COMPOSE_PROJECT);
 const sourceRoot = fileURLToPath(new URL('..', import.meta.url));
 const sourceFreezeStartedAt = new Date().toISOString();
 const root = `/api/v1/projects/${project}/explorers`;
 const base = `${root}/${explorer}/authoring/v2`;
 const report = { explorer, cases: [], errors: [], requests: [], nativeRequests: [], sourceFreeze: { startedAt: sourceFreezeStartedAt }, started: new Date().toISOString() };
+const fixtureRequestCapture = cda.captureRequests(base, { apiOrigin: uiOrigin });
 await mkdir(evidence, { recursive: true });
-let browser, builder, outputId;
+let builder, outputId;
 let sourceFreeze, frozenApiBuild, controls, ownedTarget;
 let editedPivotPresentation=false;
 const click = (...args) => controls.click(...args);
 const selectOption = (...args) => controls.selectOption(...args);
 const fill = (...args) => controls.fill(...args);
-const browserEval = (...args) => controls.evaluate(...args);
-const waitForBrowser = (...args) => controls.wait(...args);
-const navigate = (...args) => controls.navigate(...args);
+const browserEval = (...args) => controls.inspect(...args);
+const waitForBrowser = (callback, args = {}, timeout = 5000) => cda.wait(callback, args ?? {}, Math.min(timeout, 5000));
+const navigate = (...args) => cda.navigate(...args);
 const sanitizeReportValue = sanitizePayload;
 const api = async (path, body) => {
   const response = await fetch(apiOrigin + path, {
@@ -59,13 +74,13 @@ const proposal = async (name, start, expectedRows) => {
   assert.equal(result.status, 'ready', result.text);
   assertVisibleRowsMatchOracle(result.rows, expectedRows, { label: `${name} preview` });
   const durationMs = Date.now() - start;
-  if (browser) browser.lastElapsedMs = durationMs;
+if (page) report.lastElapsedMs = durationMs;
   assert(durationMs <= 5000, `${name} took ${durationMs}ms`);
   report.cases.push({ name, durationMs, result });
 };
 const recordRender = (name, start) => {
   const durationMs = Date.now() - start;
-  if (browser) browser.lastElapsedMs = durationMs;
+if (page) report.lastElapsedMs = durationMs;
   assert(durationMs <= 5000, `${name} took ${durationMs}ms`);
   report.cases.push({ name, durationMs });
 };
@@ -80,7 +95,7 @@ const apply = async expectedRows => {
 const open = async expectedRows => {
   const start = Date.now();
   await navigate( `${uiOrigin}/?project=${project}&explorer=${explorer}&mode=builder`);
-  await waitForBrowser(selector => Boolean(document.querySelector(selector)), `[data-testid="construction-table-${outputId}"]`);
+  await waitForBrowser(({ selector }) => Boolean(document.querySelector(selector)), { selector: `[data-testid="construction-table-${outputId}"]` });
   await click( `[data-testid="construction-table-${outputId}"]`);
   await waitForBrowser(() => (document.querySelector('[data-testid="construction-rows-settings-trigger"]')?.disabled === false));
   await rendered(expectedRows);
@@ -128,8 +143,7 @@ try {
   const direct = routes.choices.find(c => c.route.length === 0);
   assert(direct);
   await command([{ type: 'SET_TABLE_POPULATION', outputId, selectionRevisionId: selection.id, routeChoiceId: direct.routeChoiceId }]);
-  browser = await launchBrowser({ evidence, appOrigins: [apiOrigin, uiOrigin], noAuth: true });
-  controls = createCDAPlaywrightControls({ browser, browserApiOrigin: uiOrigin, ownedPathPrefix: `${root}/${explorer}`, report });
+  controls = cda;
   const rawQuery = query => {
     const r=spawnSync('rtk',['proxy','docker','exec',arangoContainer,'arangosh','--server.database','loom_dev','--javascript.execute-string',`print(JSON.stringify(db._query(${JSON.stringify(query)}).toArray()));`],{encoding:'utf8',timeout:30000});
     assert.equal(r.status,0,r.stderr);return JSON.parse(r.stdout.slice(r.stdout.indexOf('[')));
@@ -158,11 +172,11 @@ try {
     await waitForBrowser(() => (document.querySelector('[data-testid="construction-action-related-rows"]')?.disabled===false));
     await click('[data-testid="construction-action-related-rows"]');
     const panel='[data-testid="construction-related-expand-editor"]';
-    await waitForBrowser(selector => { const control = document.querySelector(selector); return Boolean(control) && !control.disabled; }, `${panel} select[aria-label="Related record type"]`);
+    await waitForBrowser(({ selector }) => { const control = document.querySelector(selector); return Boolean(control) && !control.disabled; }, { selector: `${panel} select[aria-label="Related record type"]` });
     let start=Date.now();
     await selectOption(panel+' select[aria-label="Related record type"]',hop.to);
     const label=hop.from+(hop.direction==='INBOUND'?` <-[${hop.field}]- `:` -[${hop.field}]-> `)+hop.to;
-    await waitForBrowser(selector => Boolean(document.querySelector(selector)), `${panel} input[aria-label="${label}"]`, 5000);
+    await waitForBrowser(({ selector }) => Boolean(document.querySelector(selector)), { selector: `${panel} input[aria-label="${label}"]` }, 5000);
     await click(panel+' input[aria-label="'+label+'"]');
     await proposal('expand-'+hop.from+'-'+hop.to,start,expected);
     await apply(expected);
@@ -180,7 +194,7 @@ try {
     await click('[data-testid="construction-action-pivot-rows"]');
     await waitForBrowser(() => (document.querySelector('select[aria-label="Pivot category field"]:not(:disabled)')));
     const chooseField=async(label,prefix)=>{
-      const options=await browserEval(label => [...document.querySelector(`select[aria-label="${label}"]`).options].map(option => ({ value: option.value, label: option.textContent })), label);
+      const options=await browserEval(({ label }) => [...document.querySelector(`select[aria-label="${label}"]`).options].map(option => ({ value: option.value, label: option.textContent })), { label: label });
       const field=options.find(o=>o.label.startsWith(prefix));assert(field,JSON.stringify(options));
       await selectOption(`select[aria-label="${label}"]`,field.value);
     };
@@ -215,8 +229,8 @@ try {
   const filterPanel='[data-testid="construction-filter-editor"]';
   const configureMissing=async()=>{
     await click('[data-testid="construction-action-keep-rows"]');
-    await waitForBrowser(selector => { const control = document.querySelector(selector); return Boolean(control) && !control.disabled; }, `${filterPanel} select[aria-label="Condition"]`);
-    const options=await browserEval(selector => [...document.querySelector(`${selector} select[aria-label="Column"]`).options].map(option => ({ value: option.value, label: option.textContent })), filterPanel);
+    await waitForBrowser(({ selector }) => { const control = document.querySelector(selector); return Boolean(control) && !control.disabled; }, { selector: `${filterPanel} select[aria-label="Condition"]` });
+    const options=await browserEval(({ selector }) => [...document.querySelector(`${selector} select[aria-label="Column"]`).options].map(option => ({ value: option.value, label: option.textContent })), { selector: filterPanel });
     const category=options.find(o=>o.label.startsWith(categoryIds[0]));
     assert(category,'Pivot-generated category must be filterable: '+JSON.stringify(options));
     await selectOption(filterPanel+' select[aria-label="Column"]',category.value);
@@ -236,7 +250,7 @@ try {
   const filter=doc(builder).construction.steps.find(s=>s.operation.kind==='FILTER');assert(filter);
   await click(`[data-testid="construction-history-step-${filter.id}"]`);
   await click(`[data-testid="construction-edit-step-${filter.id}"]`);
-  await waitForBrowser(selector => { const control = document.querySelector(selector); return Boolean(control) && !control.disabled; }, `${filterPanel} select[aria-label="Condition"]`);
+  await waitForBrowser(({ selector }) => { const control = document.querySelector(selector); return Boolean(control) && !control.disabled; }, { selector: `${filterPanel} select[aria-label="Condition"]` });
   await selectOption(filterPanel+' select[aria-label="Condition"]','EQUALS');
   await click(filterPanel+' input[aria-label="Value"]');
   start=Date.now();
@@ -283,45 +297,47 @@ try {
   await apply(expected);
   await open(expected);
   assert.deepEqual(doc(builder).construction,doc(expanded).construction);
-  await controls?.flush();
+
   assert.deepEqual(report.errors,[]);
   report.status = 'passed';
 } catch (error) {
-  report.status = 'failed'; report.error = String(error.stack ?? error); process.exitCode = 1;
-  if (browser) {
-    const action = browser.activeAction ?? controls?.lastAction;
-    await browser.captureFailure(error, { scenario: explorer, ...(action ? { action, elapsedMs: browser.activeAction ? Date.now() - browser.activeAction.startedAt : browser.lastElapsedMs ?? action.elapsedMs } : {}), draft: builder ? { draftVersion: builder.draftVersion, draftDigest: builder.draftDigest } : undefined, latestDiagnostic: report.errors.at(-1) });
+  report.status = 'failed'; report.error = String(error.stack ?? error); report.__nativeFailure = true;
+if (page) {
+    const action = report.activeAction ?? controls?.lastAction;
+    await captureFailure(error, { scenario: explorer, ...(action ? { action, elapsedMs: report.activeAction ? Date.now() - report.activeAction.startedAt : report.lastElapsedMs ?? action.elapsedMs } : {}), draft: builder ? { draftVersion: builder.draftVersion, draftDigest: builder.draftDigest } : undefined, latestDiagnostic: report.errors.at(-1) });
   }
-  report.failureUI = browser ? await browserEval(() => document.body.innerText).catch(String) : undefined;
+  report.failureUI = page ? await browserEval(() => document.body.innerText).catch(String) : undefined;
 } finally {
   if (frozenApiBuild) {
     try { report.apiBuildFreeze = { ...report.apiBuildFreeze, ...await frozenApiBuild.assertUnchanged() }; }
-    catch (error) { report.priorStatus = report.status; report.status = 'invalidated'; report.apiBuildFreeze = { ...report.apiBuildFreeze, unchanged: false, invalidatesRun: true, productFailure: false, error: String(error), reason: error.reason, before: error.before, after: error.after }; process.exitCode = 1; }
+    catch (error) { report.priorStatus = report.status; report.status = 'invalidated'; report.apiBuildFreeze = { ...report.apiBuildFreeze, unchanged: false, invalidatesRun: true, productFailure: false, error: String(error), reason: error.reason, before: error.before, after: error.after }; report.__nativeFailure = true; }
   }
   if (sourceFreeze) {
     try { report.sourceFreeze = { ...report.sourceFreeze, ...await sourceFreeze.assertUnchanged(), finishedAt: new Date().toISOString() }; }
-    catch (error) { report.priorStatus = report.status; report.status = 'invalidated'; report.sourceFreeze = { ...report.sourceFreeze, unchanged: false, changedPaths: error.changedPaths ?? [], invalidatesRun: true, productFailure: false, error: String(error), finishedAt: new Date().toISOString() }; process.exitCode = 1; }
+    catch (error) { report.priorStatus = report.status; report.status = 'invalidated'; report.sourceFreeze = { ...report.sourceFreeze, unchanged: false, changedPaths: error.changedPaths ?? [], invalidatesRun: true, productFailure: false, error: String(error), finishedAt: new Date().toISOString() }; report.__nativeFailure = true; }
   }
   if (report.sourceFingerprint) {
     report.sourceFingerprint.after = sourceFingerprint(sourceRoot);
     report.sourceFingerprint.unchanged = report.sourceFingerprint.after.sha256 === report.sourceFingerprint.before.sha256 && report.sourceFingerprint.after.files === report.sourceFingerprint.before.files;
     report.sourceFingerprint.invalidatesRun = !report.sourceFingerprint.unchanged;
-    if (!report.sourceFingerprint.unchanged) { report.priorStatus = report.status; report.status = 'invalidated'; process.exitCode = 1; }
+    if (!report.sourceFingerprint.unchanged) { report.priorStatus = report.status; report.status = 'invalidated'; report.__nativeFailure = true; }
   }
-  await controls?.flush();
+
   if (report.status === 'passed' && report.errors.length) {
     const error = new Error(`Unexpected browser diagnostics: ${JSON.stringify(report.errors)}`);
     report.status = 'failed';
     report.error = String(error.stack);
-    process.exitCode = 1;
-    const action = browser?.activeAction ?? controls?.lastAction;
-    if (browser) await browser.captureFailure(error, { scenario: explorer, ...(action ? { action, elapsedMs: browser.lastElapsedMs ?? action.elapsedMs } : {}), draft: builder ? { draftVersion: builder.draftVersion, draftDigest: builder.draftDigest } : undefined, latestDiagnostic: report.errors.at(-1) });
+    report.__nativeFailure = true;
+    const action = report.activeAction ?? controls?.lastAction;
+if (page) await captureFailure(error, { scenario: explorer, ...(action ? { action, elapsedMs: report.lastElapsedMs ?? action.elapsedMs } : {}), draft: builder ? { draftVersion: builder.draftVersion, draftDigest: builder.draftDigest } : undefined, latestDiagnostic: report.errors.at(-1) });
   }
-  report.browserDiagnostics = browser?.diagnostics;
-  report.incidentalAssetFailures = browser?.diagnostics.assetFailures ?? [];
-  report.actions = browser?.actions ?? [];
+  report.browserDiagnostics = cda.diagnostics;
+  report.incidentalAssetFailures = cda.diagnostics.assetFailures ?? [];
+  report.actions = cda.report.actions ?? [];
   report.finished = new Date().toISOString();
   await writeFile(join(evidence, 'report.json'), JSON.stringify(report, null, 2));
-  await browser?.browser.close();
 }
-console.log(JSON.stringify({ status: report.status, evidence, cases: report.cases.map(c => ({ name: c.name, durationMs: c.durationMs })), error: report.error }));
+  if (report.__nativeFailure) throw new Error(report.error ?? report.identityFailure ?? 'verify-cda-pivot-category-edit-browser.mjs workflow failed');
+  await cda.attachReport('verify-cda-pivot-category-edit-browser.mjs', report);
+  return report;
+}

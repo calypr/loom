@@ -19,4 +19,3 @@ test('Builder readiness accepts the selected empty workspace or a populated read
     selectedExplorerId: 'owned-explorer', emptyWorkspaceVisible: false, tableCount: 0, previewStatus: null,
   }, 'owned-explorer'), false);
 });
-

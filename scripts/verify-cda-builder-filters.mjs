@@ -117,7 +117,7 @@ export async function runBuilderFilterCase({ page, cda, action, explorerId = cda
     scenario: 'cda-builder-filter-lifecycle',
     case: action,
     status: 'running',
-    target: { ...report.target, sourceRoot: target.sourceRoot, 
+    target: { ...report.target, sourceRoot: target.sourceRoot,
       composeProject: target.composeProject, apiContainer: target.apiContainer, uiOrigin: target.uiUrl,
       apiOrigin: target.apiUrl, project: target.fixtureProject, generation: target.fixtureGeneration, explorerId },
     sourceOracle: { file: oracle.path, sha256: oracle.sha256, specimenCount: oracle.specimenCount,

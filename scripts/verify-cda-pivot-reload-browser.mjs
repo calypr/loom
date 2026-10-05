@@ -4,19 +4,34 @@ import { mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { captureSourceFreeze } from './lib/source-freeze.mjs';
-import { launchBrowser, sanitizeBody, sanitizeText } from './lib/playwright-browser.mjs';
+import { sanitizeBody, sanitizeText } from './lib/playwright-browser.mjs';
 import { sourceFingerprint } from './verify-ui/source-fingerprint.mjs';
 
-const evidence = process.argv[2] ?? `/tmp/loom-pivot-reload-${Date.now()}`;
-const apiOrigin = process.env.LOOM_CDA_API_ORIGIN;
-const uiOrigin = process.env.LOOM_CDA_UI_ORIGIN;
-const seedPath = process.env.LOOM_PIVOT_RELOAD_SEED;
-const apiContainer = process.env.LOOM_CDA_API_CONTAINER;
+
+export async function runPivotReloadBrowserWorkflow({ page, cda }, originalArgs = {}) {
+  const environment = cda.env ?? process.env;
+const includeFixtureDiagnostics = domainReport => {
+    const diagnostics = cda.diagnostics;
+    domainReport.errors ??= [];
+    const add = (entry, same) => { if (!domainReport.errors.some(same)) domainReport.errors.push(entry); };
+    for (const failure of diagnostics.pageErrors ?? []) add({ kind: 'runtime', message: failure.message }, item => item.kind === 'runtime' && item.message === failure.message);
+    for (const failure of diagnostics.console ?? []) add({ kind: 'console', message: failure.text, location: failure.location }, item => item.kind === 'console' && item.message === failure.text);
+    for (const failure of diagnostics.networkFailures ?? []) add({ kind: 'network', path: failure.url, failure: failure.failure }, item => item.kind === 'network' && item.path === failure.url);
+    for (const failure of diagnostics.httpFailures ?? []) add({ kind: 'http', url: failure.url, status: failure.status, response: failure.body }, item => item.kind === 'http' && item.url === failure.url && item.status === failure.status);
+    domainReport.incidentalErrors ??= [];
+    for (const failure of diagnostics.assetFailures ?? []) if (!domainReport.incidentalErrors.some(item => item.url === failure.url && item.status === failure.status)) domainReport.incidentalErrors.push(failure);
+  };
+  const captureFailure = async (error, details = {}) => cda.attachReport('failure-evidence', { error: String(error), details, diagnostics: cda.diagnostics });
+const evidence = cda.evidence;
+const apiOrigin = cda.apiOrigin;
+const uiOrigin = cda.uiOrigin;
+const seedPath = (cda.env?.LOOM_PIVOT_RELOAD_SEED ?? process.env.LOOM_PIVOT_RELOAD_SEED);
+const apiContainer = (cda.target.apiContainer ?? cda.env?.LOOM_CDA_API_CONTAINER);
 const isolatedSourceRoot = fileURLToPath(new URL('..', import.meta.url));
 const sourceFreezeStartedAt = new Date().toISOString();
 const report = {
   evidence,
-  project: 'loom_dev_cda_fhir',
+  project: cda.project,
   cases: [],
   errors: [],
   apiRequests: [],
@@ -32,7 +47,7 @@ let oracleIds;
 let expectedCategoryLabels;
 let base;
 let sourceFreeze;
-let browser;
+
 let verificationPhase = 'setup';
 let cycle = 0;
 let cycleStartedAt;
@@ -98,7 +113,7 @@ const readWindow = async tableLocator => tableLocator.evaluate(tableElement => {
 async function captureWideCoverage(page) {
   const scroll = page.getByTestId('preview-table-scroll');
   const tableLocator = scroll.getByRole('table');
-  await tableLocator.waitFor({ state: 'visible', timeout: 30000 });
+  await tableLocator.waitFor({ state: 'visible', timeout: 5000 });
   const initial = await scroll.evaluate(element => ({
     originalScrollLeft: element.scrollLeft,
     clientWidth: element.clientWidth,
@@ -202,8 +217,8 @@ try {
     assert(parsed.pathname === '/' && !parsed.search && !parsed.hash, `${name} value must be an origin without a path, query, or fragment`);
   }
   actualSourceRoot = await realpath(isolatedSourceRoot);
-  if (process.env.LOOM_SOURCE_FREEZE_ROOT) {
-    assert.equal(await realpath(process.env.LOOM_SOURCE_FREEZE_ROOT), actualSourceRoot,
+  if ((cda.env?.LOOM_SOURCE_FREEZE_ROOT ?? process.env.LOOM_SOURCE_FREEZE_ROOT)) {
+    assert.equal(await realpath((cda.env?.LOOM_SOURCE_FREEZE_ROOT ?? process.env.LOOM_SOURCE_FREEZE_ROOT)), actualSourceRoot,
       'LOOM_SOURCE_FREEZE_ROOT must resolve to this isolated source checkout');
   }
   sourceFreeze = await captureSourceFreeze(actualSourceRoot);
@@ -239,27 +254,21 @@ try {
     rawOracleCategoryCount: oracleIds.size,
     expectedCategoryLabels: [...expectedCategoryLabels].sort(),
   };
-
-  browser = await launchBrowser({
-    evidence,
-    appOrigins: [apiOrigin, uiOrigin],
-    noAuth: process.env.LOOM_CDA_NO_AUTH === '1',
-  });
   verificationPhase = 'browser';
-  const page = browser.page;
-  const builderURL = `${uiOrigin}/?project=loom_dev_cda_fhir&explorer=${seed.explorer}&mode=builder`;
+
+  const builderURL = `${uiOrigin}/?project=${encodeURIComponent(cda.project)}&explorer=${seed.explorer}&mode=builder`;
   const tableTestId = `construction-table-${table.output.id}`;
   for (cycle = 1; cycle <= 5; cycle++) {
     cycleStartedAt = Date.now();
     if (cycle === 1) {
       await runAction('Navigate to the owned Builder Explorer', page.locator('body'),
-        () => page.goto(builderURL, { waitUntil: 'domcontentloaded', timeout: 30000 }));
+        () => page.goto(builderURL, { waitUntil: 'domcontentloaded', timeout: 5000 }));
     } else {
       await runAction('Reload the owned Builder Explorer', page.locator('body'),
-        () => page.reload({ waitUntil: 'domcontentloaded', timeout: 30000 }));
+        () => page.reload({ waitUntil: 'domcontentloaded', timeout: 5000 }));
     }
     const constructionTable = page.getByTestId(tableTestId);
-    await constructionTable.waitFor({ state: 'visible', timeout: 30000 });
+    await constructionTable.waitFor({ state: 'visible', timeout: 5000 });
     await runAction('Open the saved construction table', constructionTable,
       () => constructionTable.click({ timeout: 5000 }));
     const previewTable = page.getByTestId('preview-table-scroll').getByRole('table');
@@ -267,8 +276,8 @@ try {
       const preview = document.querySelector(`[data-testid="${testId}"] [role="table"]`);
       const settings = document.querySelector('[data-testid="construction-rows-settings-trigger"]');
       return preview?.getAttribute('aria-rowcount') === '2' && settings?.disabled === false;
-    }, { testId: 'preview-table-scroll' }, { timeout: 30000 });
-    await previewTable.waitFor({ state: 'visible', timeout: 30000 });
+    }, { testId: 'preview-table-scroll' }, { timeout: 5000 });
+    await previewTable.waitFor({ state: 'visible', timeout: 5000 });
     const coverage = await captureWideCoverage(page);
     assert.equal(coverage.columnCount, oracleIds.size + 1,
       'Rendered table must expose Specimen ID plus all raw-observed Pivot categories');
@@ -291,7 +300,7 @@ try {
   const final = await fetchBuilder('after-browser-reloads');
   assert.equal(final.draftDigest, baseline.draftDigest);
   assert.deepEqual(final.workspace, baseline.workspace);
-  const diagnostics = browser.diagnostics;
+  const diagnostics = cda.diagnostics;
   const expectedAssetConsole = diagnostics.console.filter(entry => {
     if (!/\b404\b/.test(entry.text) || !entry.location) return false;
     try {
@@ -324,9 +333,9 @@ try {
     };
   }
   report.error = sanitizeText(error.stack ?? error);
-  if (browser) {
-    report.browserDiagnostics = browser.diagnostics;
-    report.failureEvidence = await browser.captureFailure(error, {
+if (page) {
+    report.browserDiagnostics = cda.diagnostics;
+    report.failureEvidence = await captureFailure(error, {
       phase: verificationPhase,
       cycle,
       elapsedMs: cycleStartedAt ? Date.now() - cycleStartedAt : undefined,
@@ -335,7 +344,7 @@ try {
       action: activeAction,
     });
   }
-  process.exitCode = 1;
+  report.__nativeFailure = true;
 } finally {
   if (sourceFreeze) {
     const sourceFreezeFinishedAt = new Date().toISOString();
@@ -357,10 +366,10 @@ try {
         error: sanitizeText(error),
         finishedAt: sourceFreezeFinishedAt,
       };
-      if (browser && !report.failureEvidence) {
-        report.failureEvidence = await browser.captureFailure(error, { phase: 'source-freeze', explorer: report.explorer });
+      if (!report.failureEvidence) {
+        report.failureEvidence = await captureFailure(error, { phase: 'source-freeze', explorer: report.explorer });
       }
-      process.exitCode = 1;
+      report.__nativeFailure = true;
     }
   } else {
     report.sourceFreeze.finishedAt = new Date().toISOString();
@@ -375,31 +384,14 @@ try {
       report.status = 'invalidated';
       report.productFailure = false;
       report.apiBuildIdentityError = sanitizeText(error.message ?? error);
-      process.exitCode = 1;
-    }
-  }
-  if (browser) {
-    try {
-      await browser.close();
-    } catch (error) {
-      report.browserCloseError = sanitizeText(error);
-      if (report.status === 'passed') {
-        report.priorStatus = 'passed';
-        report.status = 'failed';
-        report.productFailure = false;
-        report.harnessFailure = 'browser-close';
-        process.exitCode = 1;
-      }
+      report.__nativeFailure = true;
     }
   }
   report.finished = new Date().toISOString();
   await mkdir(evidence, { recursive: true });
   await writeFile(join(evidence, 'report.json'), JSON.stringify(report, null, 2));
 }
-
-console.log(JSON.stringify({
-  status: report.status,
-  evidence,
-  cases: report.cases.map(item => ({ cycle: item.cycle, ms: item.durationMs })),
-  error: report.error,
-}));
+  if (report.__nativeFailure) throw new Error(report.error ?? report.identityFailure ?? 'verify-cda-pivot-reload-browser.mjs workflow failed');
+  await cda.attachReport('verify-cda-pivot-reload-browser.mjs', report);
+  return report;
+}

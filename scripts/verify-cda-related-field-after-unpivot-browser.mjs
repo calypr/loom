@@ -9,31 +9,45 @@ import { fileURLToPath } from 'node:url';
 import { classifyNullableSourceScalar, expectedNullableRelatedAll } from './lib/nullable-related-all.mjs';
 import { captureSourceFreeze } from './lib/source-freeze.mjs';
 import { captureApiBuildFreeze, checkContainerApiBuildStamp, ApiBuildFreezeError } from './lib/api-build-freeze.mjs';
-import { launchBrowser } from './lib/playwright-browser.mjs';
-import { performAction } from './lib/playwright-actions.mjs';
+
 import { captureCDARequests } from './lib/cda-playwright-requests.mjs';
 import { assertOwnedCdaTarget } from './lib/owned-cda-target.mjs';
 
-const project = process.env.LOOM_CDA_PROJECT;
-const generation = process.env.LOOM_CDA_GENERATION;
-const afterUnpivotCase = process.env.LOOM_RELATED_AFTER_UNPIVOT_CASE ?? 'gender-all';
+
+export async function runRelatedFieldAfterUnpivotBrowserWorkflow({ page, cda }, originalArgs = {}) {
+  const environment = cda.env ?? process.env;
+const includeFixtureDiagnostics = domainReport => {
+    const diagnostics = cda.diagnostics;
+    domainReport.errors ??= [];
+    const add = (entry, same) => { if (!domainReport.errors.some(same)) domainReport.errors.push(entry); };
+    for (const failure of diagnostics.pageErrors ?? []) add({ kind: 'runtime', message: failure.message }, item => item.kind === 'runtime' && item.message === failure.message);
+    for (const failure of diagnostics.console ?? []) add({ kind: 'console', message: failure.text, location: failure.location }, item => item.kind === 'console' && item.message === failure.text);
+    for (const failure of diagnostics.networkFailures ?? []) add({ kind: 'network', path: failure.url, failure: failure.failure }, item => item.kind === 'network' && item.path === failure.url);
+    for (const failure of diagnostics.httpFailures ?? []) add({ kind: 'http', url: failure.url, status: failure.status, response: failure.body }, item => item.kind === 'http' && item.url === failure.url && item.status === failure.status);
+    domainReport.incidentalErrors ??= [];
+    for (const failure of diagnostics.assetFailures ?? []) if (!domainReport.incidentalErrors.some(item => item.url === failure.url && item.status === failure.status)) domainReport.incidentalErrors.push(failure);
+  };
+  const captureFailure = async (error, details = {}) => cda.attachReport('failure-evidence', { error: String(error), details, diagnostics: cda.diagnostics });
+const project = cda.project;
+const generation = (cda.generation ?? cda.env?.LOOM_CDA_GENERATION);
+const afterUnpivotCase = originalArgs.caseName ?? cda.caseName ?? (cda.env?.LOOM_RELATED_AFTER_UNPIVOT_CASE ?? process.env.LOOM_RELATED_AFTER_UNPIVOT_CASE) ?? 'gender-all';
 assert(['gender-all', 'gender-null-all', 'resource-type-all', 'id-count'].includes(afterUnpivotCase), `Unsupported LOOM_RELATED_AFTER_UNPIVOT_CASE: ${afterUnpivotCase}`);
 const nullableGenderCase = afterUnpivotCase === 'gender-null-all';
-const knownGenderWitnessReport = process.env.LOOM_CDA_GENDER_NULL_WITNESS_REPORT ?? '/tmp/loom-related-resource-type-after-unpivot-native-complete/report.json';
+const knownGenderWitnessReport = (cda.env?.LOOM_CDA_GENDER_NULL_WITNESS_REPORT ?? process.env.LOOM_CDA_GENDER_NULL_WITNESS_REPORT) ?? '/tmp/loom-related-resource-type-after-unpivot-native-complete/report.json';
 const afterUnpivotFieldPath = afterUnpivotCase === 'id-count'
   ? 'id'
   : afterUnpivotCase === 'resource-type-all' ? 'resourceType' : 'gender';
 const afterUnpivotForm = afterUnpivotCase === 'id-count' ? 'COUNT' : 'ALL';
 const requireFieldWitness = afterUnpivotCase === 'gender-all' || afterUnpivotCase === 'resource-type-all';
 const protectedExplorer = 'cda-builder-full-qa-1790440983382';
-const explorer = `related-field-after-unpivot-${randomUUID()}`;
+const explorer = cda.explorer;
 assert.notEqual(explorer, protectedExplorer);
-const evidence = process.argv[2] ?? `/tmp/loom-related-bindings-reshape-verifier/evidence-${Date.now()}`;
-const apiOrigin = process.env.LOOM_CDA_API_ORIGIN;
-const uiOrigin = process.env.LOOM_CDA_UI_ORIGIN;
-const apiContainer = process.env.LOOM_CDA_API_CONTAINER;
-const composeProject = process.env.LOOM_CDA_COMPOSE_PROJECT;
-const arangoContainer = process.env.LOOM_ARANGO_CONTAINER;
+const evidence = cda.evidence;
+const apiOrigin = cda.apiOrigin;
+const uiOrigin = cda.uiOrigin;
+const apiContainer = (cda.target.apiContainer ?? cda.env?.LOOM_CDA_API_CONTAINER);
+const composeProject = (cda.target.composeProject ?? cda.env?.LOOM_CDA_COMPOSE_PROJECT);
+const arangoContainer = (cda.target.arangoContainer ?? cda.env?.LOOM_ARANGO_CONTAINER);
 assert(apiOrigin && uiOrigin, 'Set LOOM_CDA_API_ORIGIN and LOOM_CDA_UI_ORIGIN to the isolated CDA stack.');
 assert.equal(generation, 'cda-fhir-v1', 'Set LOOM_CDA_GENERATION to the loaded CDA FHIR generation.');
 const sourceRoot = fileURLToPath(new URL('..', import.meta.url));
@@ -60,13 +74,13 @@ const report = {
   nativeRequests: [],
   errors: [],
 };
+const fixtureRequestCapture = cda.captureRequests(base, { apiOrigin: uiOrigin });
 await mkdir(evidence, { recursive: true });
 const sourceFreezeStartedAt = new Date().toISOString();
 const sourceFreeze = await captureSourceFreeze(sourceRoot);
 report.sourceFreeze = { startedAt: sourceFreezeStartedAt, watchedFileCount: sourceFreeze.watchedFileCount };
 let frozenApiBuild;
 
-let browser;
 let builder;
 let outputId;
 
@@ -105,26 +119,25 @@ const record = (name, startedAt, details = {}) => {
 };
 report.ownedTarget = ownedTarget;
 let requestCapture;
-const page = () => browser.page;
-const inspect = callback => page().evaluate(callback);
-const waitUI = (condition, argument, timeout = 5000) => page().waitForFunction(condition, argument, { timeout });
+const inspect = callback => page.evaluate(callback);
+const waitUI = (condition, argument, timeout = 5000) => page.waitForFunction(condition, argument, { timeout });
 const navigateUI = url => {
-  const targetLocator = page().locator('body');
-  browser.lastAction = { label: 'Navigate to Builder', locator: targetLocator.toString(), targetLocator, startedAt: Date.now() };
-  return page().goto(url, { waitUntil: 'commit', timeout: 5000 });
+  const targetLocator = page.locator('body');
+  report.lastAction = { label: 'Navigate to Builder', locator: targetLocator.toString(), targetLocator, startedAt: Date.now() };
+  return page.goto(url, { waitUntil: 'commit', timeout: 5000 });
 };
 const clickUI = (selector, options = {}) => {
-  let locator = page().locator(selector);
-  if (options.name) locator = locator.and(page().getByRole('button', { name: options.name, exact: true }));
-  if (options.includes) locator = locator.and(page().getByRole('button', { name: new RegExp(options.includes.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i') }));
+  let locator = page.locator(selector);
+  if (options.name) locator = locator.and(page.getByRole('button', { name: options.name, exact: true }));
+  if (options.includes) locator = locator.and(page.getByRole('button', { name: new RegExp(options.includes.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i') }));
   const label = options.name ?? options.includes ?? selector;
-  browser.lastAction = { label, locator: locator.toString(), targetLocator: locator, startedAt: Date.now() };
-  return performAction(report, label, locator, target => target.click({ timeout: 5000 }));
+  report.lastAction = { label, locator: locator.toString(), targetLocator: locator, startedAt: Date.now() };
+  return cda.action(label, locator, target => target.click({ timeout: 5000 }), { timeout: 5000, budget: 5000 });
 };
 const selectUI = (selector, value) => {
-  const locator = page().locator(selector);
-  browser.lastAction = { label: `Select ${value}`, locator: locator.toString(), targetLocator: locator, startedAt: Date.now() };
-  return performAction(report, `Select ${value}`, locator, (target, { timeout }) => target.selectOption(value, { timeout }));
+  const locator = page.locator(selector);
+  report.lastAction = { label: `Select ${value}`, locator: locator.toString(), targetLocator: locator, startedAt: Date.now() };
+  return cda.action(`Select ${value}`, locator, target => target.selectOption(value, { timeout: 5000 }), { timeout: 5000, budget: 5000 });
 };
 const requestBody = entry => requestCapture.rawRequestBody(entry) ?? entry.body;
 const responseBody = entry => requestCapture.rawResponseBody(entry) ?? entry.response;
@@ -302,14 +315,14 @@ const exactLinkedPatientQuery = `LET specimen = DOCUMENT(@specimenKey)
   }`;
 
 const beginNativeCapture = () => {
-  requestCapture = captureCDARequests(page(), {
+  requestCapture = captureCDARequests(page, {
     apiOrigin,
     browserRequestOrigin: uiOrigin,
     appOrigins: [apiOrigin, uiOrigin],
     ownedPathPrefix: base,
     report,
   });
-  page().on('request', request => {
+  page.on('request', request => {
     if (new URL(request.url()).pathname.includes(`/${protectedExplorer}/`)) report.protectedExplorerUntouched = false;
   });
 };
@@ -465,14 +478,14 @@ const applyProposal = async (expectedRows, name) => {
   const command = await waitNative('/commands', startedAt);
   assert.equal(command.status, 200, `${name}: Apply command failed`);
   builder = await api(base + '/builder');
-  await page().waitForFunction(({ outputId, draftDigest, draftVersion }) => {
+  await page.waitForFunction(({ outputId, draftDigest, draftVersion }) => {
     const preview = document.querySelector('[data-testid="construction-preview"]');
     return preview?.dataset.previewStatus === 'ready'
       && preview.dataset.previewOutputId === outputId
       && preview.dataset.currentDraftDigest === draftDigest
       && preview.dataset.currentDraftVersion === draftVersion;
   }, { outputId, draftDigest: builder.draftDigest, draftVersion: String(builder.draftVersion) }, { timeout: 5000 });
-  const receiptId = await page().locator('[data-testid="construction-preview"]').getAttribute('data-preview-receipt-id');
+  const receiptId = await page.locator('[data-testid="construction-preview"]').getAttribute('data-preview-receipt-id');
   assert(receiptId, `${name}: visible saved preview receipt missing`);
   const preview = await api(base + '/preview', { receiptId, outputId, limit: 100 });
   assert.equal(preview.receiptId, receiptId);
@@ -534,17 +547,17 @@ const openRelatedField = async (fieldPath, desiredForm = 'ALL') => {
   await clickUI('[data-testid="construction-action-add-columns"]');
   await clickUI('[aria-label="Column types"] button', { includes: 'Fields and related data' });
   await waitUI(() => Boolean(document.querySelector('[data-testid="construction-add-columns-source"]')));
-  if (!await page().locator('[aria-label="Related resources"] summary').evaluate(summary => summary.parentElement.open)) {
+  if (!await page.locator('[aria-label="Related resources"] summary').evaluate(summary => summary.parentElement.open)) {
     await clickUI('[aria-label="Related resources"] summary');
   }
-  const sources = await page().locator('[data-testid="construction-add-columns-source-option"]').evaluateAll(options =>
+  const sources = await page.locator('[data-testid="construction-add-columns-source-option"]').evaluateAll(options =>
     options
       .map((option) => ({ label: option.getAttribute('aria-label') ?? '', disabled: option.disabled }))
       .filter((option) => option.label.includes('Patient') && option.label.includes('Related resource')));
   assert.equal(sources.length, 1, `Expected one retained Patient related source, got ${JSON.stringify(sources)}`);
   assert.equal(sources[0].disabled, false, `Retained Patient source is disabled: ${sources[0].label}`);
   await clickUI(`[data-testid="construction-add-columns-source-option"][aria-label=${JSON.stringify(sources[0].label)}]`);
-  if (!await page().getByTestId('feature-catalog-raw-fields').locator('summary').evaluate(summary => summary.parentElement.open)) {
+  if (!await page.getByTestId('feature-catalog-raw-fields').locator('summary').evaluate(summary => summary.parentElement.open)) {
     await clickUI('[data-testid="feature-catalog-raw-fields"] summary');
   }
   const candidateSelector = `input[aria-label=${JSON.stringify(`Select Patient.${fieldPath}`)}]`;
@@ -553,7 +566,7 @@ const openRelatedField = async (fieldPath, desiredForm = 'ALL') => {
   await clickUI(candidateSelector);
   await clickUI('[aria-label="Add columns editor"] button', { includes: 'Add 1 selected feature' });
   await waitUI(() => Boolean(document.querySelector('[role="dialog"]')));
-  const controls = await page().getByRole('dialog').evaluate(dialog => {
+  const controls = await page.getByRole('dialog').evaluate(dialog => {
     const radios = [...(dialog?.querySelectorAll('input[type="radio"]') ?? [])]
       .map((input) => ({ aria: input.getAttribute('aria-label') ?? '', checked: input.checked }));
     return { radios, groupedPolicy: dialog?.querySelector('select[aria-label="Values per grouped row"]')?.value };
@@ -565,7 +578,7 @@ const openRelatedField = async (fieldPath, desiredForm = 'ALL') => {
   await clickUI(`[role="dialog"] input[aria-label=${JSON.stringify(route.aria)}]`);
   await waitUI(label => [...document.querySelectorAll('[role="dialog"] input[type="radio"]')]
     .some(input => (input.getAttribute('aria-label') ?? '').includes(label)), formLabel);
-  const formChoices = await page().getByRole('dialog').locator('input[type="radio"]').evaluateAll(radios => radios.map(input=>input.getAttribute('aria-label')??''));
+  const formChoices = await page.getByRole('dialog').locator('input[type="radio"]').evaluateAll(radios => radios.map(input=>input.getAttribute('aria-label')??''));
   const formChoice = formChoices.find(label=>label.includes(formLabel));
   assert(formChoice, `No ${desiredForm} choice for Patient.${fieldPath}: ${JSON.stringify(formChoices)}`);
   await clickUI(`[role="dialog"] input[aria-label=${JSON.stringify(formChoice)}]`);
@@ -592,9 +605,9 @@ const editRelatedLabel = async (step, nextLabel) => {
   await clickUI(`[data-testid="construction-edit-step-${step.id}"]`);
   const selector = '[data-testid="related-source-step-editor"] input[aria-label="Output column label"]';
   await waitUI(target => Boolean(document.querySelector(target + ':not(:disabled)')), selector);
-  const locator = page().locator(selector);
+  const locator = page.locator(selector);
   const startedAt = Date.now();
-  await performAction(report, `Edit related field label to ${nextLabel}`, locator, (target, { timeout }) => target.fill(nextLabel, { timeout }), { editable: true });
+  await cda.action(`Edit related field label to ${nextLabel}`, locator, target => target.fill(nextLabel, { timeout: 5000 }), { timeout: 5000, budget: 5000, editable: true });
   return startedAt;
 };
 
@@ -603,7 +616,7 @@ const removeStep = async (step, name, expectedRows, expectedPreviousConstruction
   const startedAt = Date.now();
   await clickUI(`[data-testid="construction-remove-step-${step.id}"]`);
   const preview = await proposal(name, startedAt, expectedRows);
-  const removalSteps = await page().locator('[data-testid^="construction-removal-step-"]').evaluateAll(elements => elements.map(element => element.dataset.testid));
+  const removalSteps = await page.locator('[data-testid^="construction-removal-step-"]').evaluateAll(elements => elements.map(element => element.dataset.testid));
   assert(removalSteps.includes('construction-removal-step-' + step.id), `${name}: removal preview omitted selected step ${step.id}`);
   if (expectedPreviousConstruction) {
     assert(removalSteps.length === 1, `${name}: expected only the selected step to be removed, got ${JSON.stringify(removalSteps)}`);
@@ -880,7 +893,6 @@ try {
     exactMemberCount: selection.memberCount,
     selectedSpecimenID: source.specimen.id,
   };
-  browser = await launchBrowser({ evidence, appOrigins: [apiOrigin, uiOrigin], noAuth: true });
   beginNativeCapture();
 
   let previewRows = [{ 'Specimen ID': source.specimen.id }];
@@ -1130,8 +1142,8 @@ try {
   await reloadTable(previewRows, 'reload-restored-pre-Unpivot-related-source-binding');
 
   await requestCapture.flush();
-  for (const failure of browser.diagnostics.networkFailures) report.errors.push({ kind: 'browser-network', ...failure });
-  for (const failure of browser.diagnostics.httpFailures) report.errors.push({ kind: 'browser-http', ...failure });
+  for (const failure of cda.diagnostics.networkFailures) report.errors.push({ kind: 'browser-network', ...failure });
+  for (const failure of cda.diagnostics.httpFailures) report.errors.push({ kind: 'browser-http', ...failure });
   assert.deepEqual(report.errors, [], 'No unexpected native HTTP, runtime, console, or module errors are allowed.');
   assert(report.protectedExplorerUntouched, `A browser request targeted protected Explorer ${protectedExplorer}.`);
   report.status = 'passed';
@@ -1149,7 +1161,7 @@ try {
   }
   report.error = String(error.stack ?? error);
   const failedAction = report.activeAction;
-  if (browser) await browser.captureFailure(error, {
+if (page) await captureFailure(error, {
     phase: 'related-field-after-unpivot',
     elapsedMs: Date.now() - new Date(report.started).getTime(),
     action: failedAction ? { label: failedAction.label, locator: failedAction.locator, targetLocator: failedAction.targetLocator } : undefined,
@@ -1164,7 +1176,7 @@ try {
       columnLabels: savedDocument?.columns?.map((column) => column.label),
     } : state;
   }
-  process.exitCode = 1;
+  report.__nativeFailure = true;
 } finally {
   await requestCapture?.flush().catch(() => undefined);
   report.nativeRequests = report.nativeRequests.map(entry => {
@@ -1190,7 +1202,7 @@ try {
       report.productFailure = false;
       report.apiBuildFreeze = { ...report.apiBuildFreeze, initial: error.before, after: error.after, unchanged: false, invalidatesRun: true, productFailure: false, reason: error.reason, finishedAt: new Date().toISOString() };
       report.invalidations = [...(report.invalidations ?? []), { kind: 'apiBuildFreeze', reason: error.reason }];
-      process.exitCode = 1;
+      report.__nativeFailure = true;
     }
   }
   const sourceFreezeFinishedAt = new Date().toISOString();
@@ -1212,17 +1224,12 @@ try {
       error: String(error),
       finishedAt: sourceFreezeFinishedAt,
     };
-    process.exitCode = 1;
+    report.__nativeFailure = true;
   }
   report.finished = new Date().toISOString();
   await writeFile(join(evidence, 'report.json'), JSON.stringify(report, null, 2));
-  await browser?.close();
 }
-console.log(JSON.stringify({
-  status: report.status,
-  evidence,
-  explorer,
-  route: report.oracle?.route,
-  cases: report.cases.map(({ name, durationMs }) => ({ name, durationMs })),
-  error: report.error,
-}));
+  if (report.__nativeFailure) throw new Error(report.error ?? report.identityFailure ?? 'verify-cda-related-field-after-unpivot-browser.mjs workflow failed');
+  await cda.attachReport('verify-cda-related-field-after-unpivot-browser.mjs', report);
+  return report;
+}

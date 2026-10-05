@@ -1,13 +1,10 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { writeFile } from 'node:fs/promises';
 import { createInterface } from 'node:readline';
 import { basename, resolve } from 'node:path';
-import { apiBuildIdentity, measuredAction, record, targetFromEnvironment } from './verify-cda-builder-related-source-chooser.mjs';
-import { launchBrowser, sanitizeText } from './lib/playwright-browser.mjs';
-import { requireUnique } from './lib/playwright-actions.mjs';
-import { sourceFingerprintChangedPaths, sourceFingerprintWithManifest } from './verify-ui/source-fingerprint.mjs';
+import { captureBuilderScreenshot, measuredAction, record, requireUnique } from './verify-cda-builder-related-source-chooser.mjs';
 
 const PREVIEW_LIMIT = 25;
 const BASE_HEADERS = ['SPECIMEN ID', 'SUBJECT.REFERENCE', 'COLLECTION.BODYSITE.REFERENCE.REFERENCE'];
@@ -151,21 +148,20 @@ export async function collectProposalRows(page) {
   return { headers, rows };
 }
 
-export async function runPatientRelatedApplyReload({ explorerId, env = process.env } = {}) {
+export async function runPatientRelatedApplyReload({ page, cda, explorerId = cda.target.explorer } = {}) {
   assert(String(explorerId ?? '').trim(), 'Pass an explicit Builder Explorer ID');
-  const target = await targetFromEnvironment(env);
+  const target = cda.target;
+  const evidenceDirectory = cda.evidence;
+  const report = cda.report;
+  const diagnostics = cda.diagnostics;
   const oracle = await readPatientRelatedOracle({ datasetDir: target.fixtureDir, project: target.fixtureProject, generation: target.fixtureGeneration });
-  const evidenceDirectory = resolve(target.artifacts, `playwright-patient-related-apply-reload-${new Date().toISOString().replaceAll(':', '-')}`);
-  await mkdir(evidenceDirectory, { recursive: true, mode: 0o700 });
-  const sourceAtStart = sourceFingerprintWithManifest(target.sourceRoot);
-  const buildAtStart = apiBuildIdentity(target);
-  const report = {
+  Object.assign(report, {
     schemaVersion: 1,
     scenario: 'cda-builder-patient-related-column-apply-reload',
     case: 'Verify Patient related column',
     status: 'running',
-    target: { sourceRoot: target.sourceRoot, sourceFingerprint: sourceAtStart.fingerprint, apiBuildIdentity: buildAtStart,
-      composeProject: target.composeProject, apiContainer: env.LOOM_CDA_API_CONTAINER, uiOrigin: target.uiUrl, apiOrigin: target.apiUrl,
+    target: { ...report.target, sourceRoot: target.sourceRoot,
+      composeProject: target.composeProject, apiContainer: target.apiContainer, uiOrigin: target.uiUrl, apiOrigin: target.apiUrl,
       project: target.fixtureProject, generation: target.fixtureGeneration, explorerId },
     sourceOracle: { files: { Specimen: oracle.specimenPath, Patient: oracle.patientPath }, hashes: oracle.sourceHashes,
       specimenCount: oracle.specimenCount, patientCount: oracle.patientCount, previewRows: oracle.rows.length,
@@ -174,23 +170,22 @@ export async function runPatientRelatedApplyReload({ explorerId, env = process.e
     expectedVisibleResult: 'The full initial and applied 25-row preview windows match raw Specimen values and raw Patient membership; Apply persists one history step and the same result after reload.',
     independentOracle: 'Raw CDA-FHIR/META/Specimen.ndjson and Patient.ndjson; no preview value supplies an expected result.',
     lifecycle: { sourceSelection: 'untested', preview: 'untested', proposal: 'untested', apply: 'untested', reload: 'untested', edit: 'not covered', removal: 'not covered' },
-    evidenceDirectory, assertions: [], actions: [], timings: [],
-  };
-  const tracker = { actions: [], timings: [] };
-  let browser;
-  let activeAction = { label: 'launch Playwright browser', locator: 'Chromium launch' };
-  let failure;
+    evidenceDirectory, });
+  Object.defineProperty(report, 'nativeCheck', {
+    configurable: true,
+    value: (name, passed, evidence) => cda.check('correctness', name, passed, evidence),
+  });
+  const tracker = { actions: [], timings: [], cda };
   let lifecycleEvidence = {};
+
+  let failure;
   try {
-    browser = await launchBrowser({ evidence: evidenceDirectory, appOrigins: [target.uiUrl, target.apiUrl], noAuth: true });
-    const { page, diagnostics } = browser;
     const builderURL = new URL(target.uiUrl);
     builderURL.searchParams.set('project', target.fixtureProject);
     builderURL.searchParams.set('explorer', explorerId);
     builderURL.searchParams.set('mode', 'builder');
-    activeAction = { label: 'open Builder', locator: builderURL.toString() };
-    await page.goto(builderURL.toString(), { waitUntil: 'domcontentloaded', timeout: 15000 });
-    await page.getByText('DATASET WORKSPACE', { exact: true }).waitFor({ state: 'visible', timeout: 15000 });
+    await page.goto(builderURL.toString(), { waitUntil: 'domcontentloaded', timeout: 5000 });
+    await page.getByText('DATASET WORKSPACE', { exact: true }).waitFor({ state: 'visible', timeout: 5000 });
     const explorer = page.getByRole('combobox', { name: 'Explorer', exact: true });
     await requireUnique(explorer, 'Explorer');
     record(report, 'Builder is scoped to requested Explorer', await explorer.inputValue() === explorerId,
@@ -199,7 +194,7 @@ export async function runPatientRelatedApplyReload({ explorerId, env = process.e
     const selectedTab = page.locator('button[data-testid^="construction-table-"][aria-pressed="true"]');
     await requireUnique(selectedTab, 'Selected Builder table');
     const outputId = (await selectedTab.getAttribute('data-testid')).slice('construction-table-'.length);
-    const builderResponse = await browser.context.request.get(`${target.apiUrl}/api/v1/projects/${encodeURIComponent(target.fixtureProject)}/explorers/${encodeURIComponent(explorerId)}/authoring/v2/builder`);
+    const builderResponse = await cda.request.get(`${target.apiUrl}/api/v1/projects/${encodeURIComponent(target.fixtureProject)}/explorers/${encodeURIComponent(explorerId)}/authoring/v2/builder`);
     assert.equal(builderResponse.status(), 200, 'Independent Builder document identity request must succeed');
     const builder = await builderResponse.json();
     assert.equal(builder.catalog?.generation, target.fixtureGeneration, 'Builder catalog generation must match the explicit raw CDA generation');
@@ -210,7 +205,7 @@ export async function runPatientRelatedApplyReload({ explorerId, env = process.e
       { outputId, rowResourceType: document.rowResourceType ?? document.rootResourceType ?? document.document?.rootResourceType, catalogGeneration: builder.catalog?.generation });
 
     const previewTable = await visiblePreview(page);
-    await previewTable.waitFor({ state: 'visible', timeout: 15000 });
+    await previewTable.waitFor({ state: 'visible', timeout: 5000 });
     const initial = await collectPreviewRows(page, { expectedCount: oracle.rows.length, expectedHeaders: BASE_HEADERS });
     assertPreviewOracle({ ...initial, expected: oracle.rows, headers: BASE_HEADERS, applied: false });
     lifecycleEvidence.initial = initial;
@@ -224,7 +219,6 @@ export async function runPatientRelatedApplyReload({ explorerId, env = process.e
     const addColumns = page.locator('button[aria-label^="Add columns:"]');
     await requireUnique(addColumns, 'Add columns');
     const sourcePanel = page.getByTestId('construction-add-columns-source');
-    activeAction = { label: 'open Add columns', locator: addColumns.toString(), targetLocator: addColumns };
     await measuredAction(tracker, 'open Add columns', addColumns, button => button.click({ timeout: 5000 }), () => sourcePanel.waitFor({ state: 'visible', timeout: 5000 }));
     const fieldsTab = page.getByRole('button', { name: 'Fields and related data', exact: true });
     await requireUnique(fieldsTab, 'Fields and related data');
@@ -277,11 +271,9 @@ export async function runPatientRelatedApplyReload({ explorerId, env = process.e
     const appliedRows = await collectPreviewRows(page, { expectedCount: oracle.rows.length, expectedHeaders: [...BASE_HEADERS, 'PATIENT ID'] });
     assertPreviewOracle({ ...appliedRows, expected: oracle.rows, headers: [...BASE_HEADERS, 'PATIENT ID'], applied: true });
     lifecycleEvidence.applied = appliedRows;
-
-    activeAction = { label: 'reload Builder', locator: builderURL.toString() };
     const reloadStart = Date.now();
-    await page.reload({ waitUntil: 'domcontentloaded', timeout: 15000 });
-    await page.getByText('DATASET WORKSPACE', { exact: true }).waitFor({ state: 'visible', timeout: 15000 });
+    await page.reload({ waitUntil: 'domcontentloaded', timeout: 5000 });
+    await page.getByText('DATASET WORKSPACE', { exact: true }).waitFor({ state: 'visible', timeout: 5000 });
     const restoredHistory = page.locator('[data-testid^="construction-history-step-"]');
     await restoredHistory.waitFor({ state: 'visible', timeout: 5000 });
     assert.equal(await restoredHistory.count(), 1, 'Reload must restore exactly one saved Patient related step');
@@ -297,71 +289,50 @@ export async function runPatientRelatedApplyReload({ explorerId, env = process.e
     record(report, 'Reload restores the saved step and independent result', true,
       { history: restoredText, elapsedMs: reloadElapsed, rows: restoredRows.rows });
 
-    report.timings = tracker.timings;
-    await page.screenshot({ path: `${evidenceDirectory}/patient-related-applied.png`, fullPage: true });
-    report.evidence = ['patient-related-applied.png'];
+    (report.builderTimings ??= []).push(...tracker.timings);
+    if (Object.keys(lifecycleEvidence).length) {
+      await writeFile(`${evidenceDirectory}/lifecycle.json`, JSON.stringify(lifecycleEvidence, null, 2) + '\n', { mode: 0o600 });
+      report.evidence ??= [];
+      report.evidence.push('lifecycle.json');
+    }
+    await captureBuilderScreenshot({ page, cda, report, name: 'patient-related-applied.png' });
     const noUnexpectedDiagnostics = diagnostics.console.length === 0 && diagnostics.pageErrors.length === 0
       && diagnostics.networkFailures.length === 0 && diagnostics.httpFailures.length === 0;
     record(report, 'No unexpected console, page, or API failures', noUnexpectedDiagnostics, diagnostics);
   } catch (error) {
     failure = error;
-    report.failure = { action: activeAction.label, locator: activeAction.locator,
-      elapsedMs: tracker.actionStartedAt ? Date.now() - tracker.actionStartedAt : undefined,
-      message: sanitizeText(error.message ?? error) };
-    if (browser) {
-      report.failureTrace = await browser.captureFailure(error, { action: { ...activeAction, startedAt: tracker.activeAction?.startedAt },
-        elapsedMs: report.failure.elapsedMs, target: report.target });
-      report.browserDiagnostics = browser.diagnostics;
-    }
   } finally {
-    report.actions.push(...tracker.actions);
-    report.timings = tracker.timings;
-    if (browser) await browser.close().catch(error => { report.closeError = sanitizeText(error.message); });
     try {
       const sourceHashesAtEnd = {
         Specimen: await hashFile(oracle.specimenPath),
         Patient: await hashFile(oracle.patientPath),
       };
-      const datasetUnchanged = JSON.stringify(sourceHashesAtEnd) === JSON.stringify(oracle.sourceHashes);
-      report.assertions.push({ name: 'Raw CDA source files stayed unchanged', status: datasetUnchanged ? 'passed' : 'failed', evidence: { before: oracle.sourceHashes, after: sourceHashesAtEnd } });
-      if (!datasetUnchanged) failure ??= new Error('Raw CDA source files changed during the browser case');
-      const sourceAtEnd = sourceFingerprintWithManifest(target.sourceRoot);
-      const changedPaths = sourceFingerprintChangedPaths(sourceAtStart.manifest, sourceAtEnd.manifest);
-      const unchanged = sourceAtStart.fingerprint.sha256 === sourceAtEnd.fingerprint.sha256;
-      report.assertions.push({ name: 'Watched source stayed unchanged', status: unchanged ? 'passed' : 'failed', evidence: { before: sourceAtStart.fingerprint, after: sourceAtEnd.fingerprint, changedPaths } });
-      if (!unchanged) failure ??= new Error('Watched source changed during the browser run');
-      const buildAtEnd = apiBuildIdentity(target);
-      const buildUnchanged = buildAtStart === buildAtEnd;
-      report.assertions.push({ name: 'API build identity stayed unchanged', status: buildUnchanged ? 'passed' : 'failed', evidence: { before: buildAtStart, after: buildAtEnd } });
-      if (!buildUnchanged) failure ??= new Error('API build identity changed during the browser run');
-    } catch (freezeError) {
-      report.freezeError = sanitizeText(freezeError.message ?? freezeError);
-      report.assertions.push({ name: 'Watched source and API build stayed unchanged', status: 'failed', evidence: { message: report.freezeError } });
-      failure ??= freezeError;
+      const sourceUnchanged = JSON.stringify(sourceHashesAtEnd) === JSON.stringify(oracle.sourceHashes);
+      report.assertions.push({ name: 'Raw CDA source files stayed unchanged', dimension: 'correctness',
+        status: sourceUnchanged ? 'passed' : 'failed', evidence: { before: oracle.sourceHashes, after: sourceHashesAtEnd } });
+      if (!sourceUnchanged) failure ??= new Error('Raw CDA source files changed during the native Playwright case');
+    } catch (integrityError) {
+      report.freezeError = String(integrityError.message ?? integrityError);
+      report.assertions.push({ name: 'Raw CDA source files stayed unchanged', dimension: 'correctness',
+        status: 'failed', evidence: { message: report.freezeError } });
+      failure ??= integrityError;
     }
-    if (Object.keys(lifecycleEvidence).length) await writeFile(`${evidenceDirectory}/lifecycle.json`, JSON.stringify(lifecycleEvidence, null, 2) + '\n', { mode: 0o600 });
-    report.evidence ??= [];
-    if (Object.keys(lifecycleEvidence).length) report.evidence.push('lifecycle.json');
-    report.status = failure || report.assertions.some(assertion => assertion.status === 'failed') ? 'failed' : 'passed';
-    report.finishedAt = new Date().toISOString();
-    await writeFile(`${evidenceDirectory}/report.json`, JSON.stringify(report, null, 2) + '\n', { mode: 0o600 });
   }
+  report.status = failure || report.assertions.some(assertion => assertion.status === 'failed') ? 'failed' : 'passed';
   if (failure) throw failure;
   return report;
 }
 
-export async function runPatientRelatedEditRemove({ explorerId, env = process.env } = {}) {
+export async function runPatientRelatedEditRemove({ page, cda, explorerId = cda.target.explorer } = {}) {
   assert(String(explorerId ?? '').trim(), 'Pass an explicit Builder Explorer ID');
-  const target = await targetFromEnvironment(env);
+  const target = cda.target;
+  const evidenceDirectory = cda.evidence;
+  const report = cda.report;
+  const diagnostics = cda.diagnostics;
   const oracle = await readPatientRelatedOracle({ datasetDir: target.fixtureDir, project: target.fixtureProject, generation: target.fixtureGeneration });
-  const evidenceDirectory = resolve(target.artifacts, `playwright-patient-related-edit-remove-${new Date().toISOString().replaceAll(':', '-')}`);
-  await mkdir(evidenceDirectory, { recursive: true, mode: 0o700 });
-  const sourceAtStart = sourceFingerprintWithManifest(target.sourceRoot);
-  const buildAtStart = apiBuildIdentity(target);
-  const report = {
+  Object.assign(report, {
     schemaVersion: 1, scenario: 'cda-builder-patient-related-edit-remove', case: 'Edit and remove Patient related column',
-    status: 'running', target: { sourceRoot: target.sourceRoot, sourceFingerprint: sourceAtStart.fingerprint,
-      apiBuildIdentity: buildAtStart, composeProject: target.composeProject, apiContainer: env.LOOM_CDA_API_CONTAINER,
+    status: 'running', target: { ...report.target, sourceRoot: target.sourceRoot, composeProject: target.composeProject, apiContainer: target.apiContainer,
       uiOrigin: target.uiUrl, apiOrigin: target.apiUrl, project: target.fixtureProject,
       generation: target.fixtureGeneration, explorerId },
     sourceOracle: { files: { Specimen: oracle.specimenPath, Patient: oracle.patientPath }, hashes: oracle.sourceHashes,
@@ -370,12 +341,12 @@ export async function runPatientRelatedEditRemove({ explorerId, env = process.en
     path: 'Open saved Patient related step > edit output label > Apply > reload > remove saved step > Apply > reload',
     expectedVisibleResult: 'Editing persists the renamed Patient ID values; removing the related step and reloading restores the exact raw Specimen columns, nulls, order, and row count.',
     lifecycle: { edit: 'untested', apply: 'untested', reload: 'untested', removal: 'untested', restoration: 'untested' },
-    evidenceDirectory, assertions: [], actions: [], timings: [],
-  };
-  const tracker = { actions: [], timings: [] };
-  let browser;
-  let failure;
-  let activeAction = { label: 'launch Playwright browser', locator: 'Chromium launch' };
+    evidenceDirectory, });
+  Object.defineProperty(report, 'nativeCheck', {
+    configurable: true,
+    value: (name, passed, evidence) => cda.check('correctness', name, passed, evidence),
+  });
+  const tracker = { actions: [], timings: [], cda };
   const expectedAddedHeaders = [...BASE_HEADERS, 'PATIENT ID'];
   const readPreview = async (headers, applied) => {
     const result = await collectPreviewRows(page, { expectedCount: oracle.rows.length, expectedHeaders: headers });
@@ -385,16 +356,15 @@ export async function runPatientRelatedEditRemove({ explorerId, env = process.en
   const waitProposalReady = () => page.waitForFunction(
     () => document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status') === 'ready',
     undefined, { timeout: 5000 });
+
+  let failure;
   try {
-    browser = await launchBrowser({ evidence: evidenceDirectory, appOrigins: [target.uiUrl, target.apiUrl], noAuth: true });
-    const { page, diagnostics } = browser;
     const builderURL = new URL(target.uiUrl);
     builderURL.searchParams.set('project', target.fixtureProject);
     builderURL.searchParams.set('explorer', explorerId);
     builderURL.searchParams.set('mode', 'builder');
-    activeAction = { label: 'open Builder', locator: builderURL.toString() };
-    await page.goto(builderURL.toString(), { waitUntil: 'domcontentloaded', timeout: 15000 });
-    await page.getByText('DATASET WORKSPACE', { exact: true }).waitFor({ state: 'visible', timeout: 15000 });
+    await page.goto(builderURL.toString(), { waitUntil: 'domcontentloaded', timeout: 5000 });
+    await page.getByText('DATASET WORKSPACE', { exact: true }).waitFor({ state: 'visible', timeout: 5000 });
     const explorer = page.getByRole('combobox', { name: 'Explorer', exact: true });
     await requireUnique(explorer, 'Explorer');
     record(report, 'Builder is scoped to requested Explorer', await explorer.inputValue() === explorerId,
@@ -402,7 +372,7 @@ export async function runPatientRelatedEditRemove({ explorerId, env = process.en
     const selectedTable = page.locator('button[data-testid^="construction-table-"][aria-pressed="true"]');
     await requireUnique(selectedTable, 'Selected Builder table');
     const outputId = (await selectedTable.getAttribute('data-testid')).slice('construction-table-'.length);
-    const response = await browser.context.request.get(`${target.apiUrl}/api/v1/projects/${encodeURIComponent(target.fixtureProject)}/explorers/${encodeURIComponent(explorerId)}/authoring/v2/builder`);
+    const response = await cda.request.get(`${target.apiUrl}/api/v1/projects/${encodeURIComponent(target.fixtureProject)}/explorers/${encodeURIComponent(explorerId)}/authoring/v2/builder`);
     assert.equal(response.status(), 200, 'Scoped Builder document identity query must succeed');
     const builder = await response.json();
     assert.equal(builder.catalog?.generation, target.fixtureGeneration, 'Builder catalog generation must match the independent CDA source');
@@ -444,11 +414,9 @@ export async function runPatientRelatedEditRemove({ explorerId, env = process.en
     report.lifecycle.apply = 'passed';
     record(report, 'Rename proposal applies and updates saved step label', true,
       { originalLabel, renamedHistory, proposalRows: editedProposalRows.rows });
-
-    activeAction = { label: 'reload edited Patient related result', locator: builderURL.toString() };
     const reloadStart = Date.now();
-    await page.reload({ waitUntil: 'domcontentloaded', timeout: 15000 });
-    await page.getByText('DATASET WORKSPACE', { exact: true }).waitFor({ state: 'visible', timeout: 15000 });
+    await page.reload({ waitUntil: 'domcontentloaded', timeout: 5000 });
+    await page.getByText('DATASET WORKSPACE', { exact: true }).waitFor({ state: 'visible', timeout: 5000 });
     const historyAfterReload = page.locator('[data-testid^="construction-history-step-"]');
     await historyAfterReload.waitFor({ state: 'visible', timeout: 5000 });
     const restoredEditHistory = await historyAfterReload.first().innerText();
@@ -484,11 +452,9 @@ export async function runPatientRelatedEditRemove({ explorerId, env = process.en
     const restored = await readPreview(BASE_HEADERS, false);
     report.restoredRows = restored.rows;
     record(report, 'Removal restores raw Specimen preview values and multiplicity', true, { rows: restored.rows, historyStepCount: 0 });
-
-    activeAction = { label: 'reload restored Specimen result', locator: builderURL.toString() };
     const restoreReloadStart = Date.now();
-    await page.reload({ waitUntil: 'domcontentloaded', timeout: 15000 });
-    await page.getByText('DATASET WORKSPACE', { exact: true }).waitFor({ state: 'visible', timeout: 15000 });
+    await page.reload({ waitUntil: 'domcontentloaded', timeout: 5000 });
+    await page.getByText('DATASET WORKSPACE', { exact: true }).waitFor({ state: 'visible', timeout: 5000 });
     assert.equal(await page.locator('[data-testid^="construction-history-step-"]').count(), 0,
       'Reload after removal must retain an empty construction history');
     const afterReload = await readPreview(BASE_HEADERS, false);
@@ -498,61 +464,45 @@ export async function runPatientRelatedEditRemove({ explorerId, env = process.en
     assert.deepEqual(afterReload.rows, restored.rows, 'Reload after removal must preserve the exact original source window');
     report.lifecycle.restoration = 'passed';
     record(report, 'Reload after removal restores the exact original result', true, { elapsedMs: restoreReloadMs, rows: afterReload.rows });
-    report.timings = tracker.timings;
-    await page.screenshot({ path: `${evidenceDirectory}/patient-related-restored.png`, fullPage: true });
-    report.evidence = ['patient-related-restored.png'];
+    (report.builderTimings ??= []).push(...tracker.timings);
+    await captureBuilderScreenshot({ page, cda, report, name: 'patient-related-restored.png' });
     record(report, 'No unexpected console, page, or API failures', diagnostics.console.length === 0
       && diagnostics.pageErrors.length === 0 && diagnostics.networkFailures.length === 0 && diagnostics.httpFailures.length === 0, diagnostics);
   } catch (error) {
     failure = error;
-    report.failure = { action: activeAction.label, locator: activeAction.locator,
-      elapsedMs: tracker.actionStartedAt ? Date.now() - tracker.actionStartedAt : undefined,
-      message: sanitizeText(error.message ?? error) };
-    if (browser) report.failureTrace = await browser.captureFailure(error,
-      { action: { ...activeAction, startedAt: tracker.activeAction?.startedAt }, elapsedMs: report.failure.elapsedMs, target: report.target });
   } finally {
-    report.actions.push(...tracker.actions);
-    report.timings = tracker.timings;
-    if (browser) await browser.close().catch(error => { report.closeError = sanitizeText(error.message); });
     try {
-      const sourceHashesAtEnd = { Specimen: await hashFile(oracle.specimenPath), Patient: await hashFile(oracle.patientPath) };
-      const rawDataUnchanged = JSON.stringify(sourceHashesAtEnd) === JSON.stringify(oracle.sourceHashes);
-      report.assertions.push({ name: 'Raw CDA source files stayed unchanged', status: rawDataUnchanged ? 'passed' : 'failed', evidence: { before: oracle.sourceHashes, after: sourceHashesAtEnd } });
-      if (!rawDataUnchanged) failure ??= new Error('Raw CDA source files changed during the browser run');
-      const sourceAtEnd = sourceFingerprintWithManifest(target.sourceRoot);
-      const changedPaths = sourceFingerprintChangedPaths(sourceAtStart.manifest, sourceAtEnd.manifest);
-      const sourceUnchanged = sourceAtStart.fingerprint.sha256 === sourceAtEnd.fingerprint.sha256;
-      report.assertions.push({ name: 'Watched source stayed unchanged', status: sourceUnchanged ? 'passed' : 'failed', evidence: { before: sourceAtStart.fingerprint, after: sourceAtEnd.fingerprint, changedPaths } });
-      if (!sourceUnchanged) failure ??= new Error('Watched source changed during the browser run');
-      const buildAtEnd = apiBuildIdentity(target);
-      const buildUnchanged = buildAtStart === buildAtEnd;
-      report.assertions.push({ name: 'API build identity stayed unchanged', status: buildUnchanged ? 'passed' : 'failed', evidence: { before: buildAtStart, after: buildAtEnd } });
-      if (!buildUnchanged) failure ??= new Error('API build identity changed during the browser run');
-    } catch (error) {
-      report.freezeError = sanitizeText(error.message ?? error);
-      report.assertions.push({ name: 'Raw source, watched source, and API build stayed unchanged', status: 'failed', evidence: { message: report.freezeError } });
-      failure ??= error;
+      const sourceHashesAtEnd = {
+        Specimen: await hashFile(oracle.specimenPath),
+        Patient: await hashFile(oracle.patientPath),
+      };
+      const sourceUnchanged = JSON.stringify(sourceHashesAtEnd) === JSON.stringify(oracle.sourceHashes);
+      report.assertions.push({ name: 'Raw CDA source files stayed unchanged', dimension: 'correctness',
+        status: sourceUnchanged ? 'passed' : 'failed', evidence: { before: oracle.sourceHashes, after: sourceHashesAtEnd } });
+      if (!sourceUnchanged) failure ??= new Error('Raw CDA source files changed during the native Playwright case');
+    } catch (integrityError) {
+      report.freezeError = String(integrityError.message ?? integrityError);
+      report.assertions.push({ name: 'Raw CDA source files stayed unchanged', dimension: 'correctness',
+        status: 'failed', evidence: { message: report.freezeError } });
+      failure ??= integrityError;
     }
-    report.status = failure || report.assertions.some(assertion => assertion.status === 'failed') ? 'failed' : 'passed';
-    report.finishedAt = new Date().toISOString();
-    await writeFile(`${evidenceDirectory}/report.json`, JSON.stringify(report, null, 2) + '\n', { mode: 0o600 });
   }
+  report.status = failure || report.assertions.some(assertion => assertion.status === 'failed') ? 'failed' : 'passed';
   if (failure) throw failure;
   return report;
 }
 
-export async function runPatientRelatedStepInspection({ action, explorerId, env = process.env } = {}) {
+export async function runPatientRelatedStepInspection({ page, cda, action, explorerId = cda.target.explorer } = {}) {
   assert(patientRelatedStepInspectionCases.includes(action), `Unsupported saved Patient related inspection: ${action}`);
   assert(String(explorerId ?? '').trim(), 'Pass an explicit Builder Explorer ID');
-  const target = await targetFromEnvironment(env);
-  const evidenceDirectory = resolve(target.artifacts, `playwright-patient-related-step-${action.toLowerCase().replaceAll(' ', '-')}-${new Date().toISOString().replaceAll(':', '-')}`);
-  await mkdir(evidenceDirectory, { recursive: true, mode: 0o700 });
-  const sourceAtStart = sourceFingerprintWithManifest(target.sourceRoot);
-  const buildAtStart = apiBuildIdentity(target);
-  const report = {
+  const target = cda.target;
+  const evidenceDirectory = cda.evidence;
+  const report = cda.report;
+  const diagnostics = cda.diagnostics;
+  Object.assign(report, {
     schemaVersion: 1, scenario: 'cda-builder-patient-related-saved-step-inspection', case: action, status: 'running',
-    target: { sourceRoot: target.sourceRoot, sourceFingerprint: sourceAtStart.fingerprint, apiBuildIdentity: buildAtStart,
-      composeProject: target.composeProject, apiContainer: env.LOOM_CDA_API_CONTAINER, uiOrigin: target.uiUrl, apiOrigin: target.apiUrl,
+    target: { ...report.target, sourceRoot: target.sourceRoot,
+      composeProject: target.composeProject, apiContainer: target.apiContainer, uiOrigin: target.uiUrl, apiOrigin: target.apiUrl,
       project: target.fixtureProject, generation: target.fixtureGeneration, explorerId },
     path: 'Builder > select saved Patient related step > inspect available controls' + (action === 'Inspect related edit' ? ' > Edit' : ''),
     expectedVisibleResult: action === 'Inspect related edit'
@@ -560,22 +510,19 @@ export async function runPatientRelatedStepInspection({ action, explorerId, env 
       : 'One saved Patient related step exposes visible enabled Edit and Remove controls.',
     independentOracle: 'This is a persisted-control inspection only; it makes no computed-row or persistence claim.',
     lifecycle: { savedStep: 'untested', edit: action === 'Inspect related edit' ? 'untested' : 'not applicable', apply: 'not applicable', reload: 'not applicable', removal: 'not applicable' },
-    evidenceDirectory, assertions: [], actions: [], timings: [],
-  };
-  const tracker = { actions: [], timings: [] };
-  let browser;
-  let activeAction = { label: 'launch Playwright browser', locator: 'Chromium launch' };
-  let failure;
-  try {
-    browser = await launchBrowser({ evidence: evidenceDirectory, appOrigins: [target.uiUrl, target.apiUrl], noAuth: true });
-    const { page, diagnostics } = browser;
+    evidenceDirectory, });
+  Object.defineProperty(report, 'nativeCheck', {
+    configurable: true,
+    value: (name, passed, evidence) => cda.check('correctness', name, passed, evidence),
+  });
+  const tracker = { actions: [], timings: [], cda };
+
     const url = new URL(target.uiUrl);
     url.searchParams.set('project', target.fixtureProject);
     url.searchParams.set('explorer', explorerId);
     url.searchParams.set('mode', 'builder');
-    activeAction = { label: 'open Builder', locator: url.toString() };
-    await page.goto(url.toString(), { waitUntil: 'domcontentloaded', timeout: 15000 });
-    await page.getByText('DATASET WORKSPACE', { exact: true }).waitFor({ state: 'visible', timeout: 15000 });
+    await page.goto(url.toString(), { waitUntil: 'domcontentloaded', timeout: 5000 });
+    await page.getByText('DATASET WORKSPACE', { exact: true }).waitFor({ state: 'visible', timeout: 5000 });
     const explorer = page.getByRole('combobox', { name: 'Explorer', exact: true });
     await requireUnique(explorer, 'Explorer');
     record(report, 'Builder is scoped to requested Explorer', await explorer.inputValue() === explorerId,
@@ -598,7 +545,6 @@ export async function runPatientRelatedStepInspection({ action, explorerId, env 
     record(report, 'Saved Patient related step exposes actionable edit and remove controls', true, { controls });
     let editor;
     if (action === 'Inspect related edit') {
-      activeAction = { label: 'open saved Patient related editor', locator: edit.toString(), targetLocator: edit };
       const label = page.getByRole('textbox', { name: 'Output column label', exact: true });
       await measuredAction(tracker, 'open saved Patient related editor', edit, button => button.click({ timeout: 5000 }),
         () => label.waitFor({ state: 'visible', timeout: 5000 }));
@@ -609,42 +555,13 @@ export async function runPatientRelatedStepInspection({ action, explorerId, env 
       report.lifecycle.edit = 'passed';
       record(report, 'Patient ID output label is editable with its saved value', true, editor);
     }
-    report.timings = tracker.timings;
-    await page.screenshot({ path: `${evidenceDirectory}/saved-related-step.png`, fullPage: true });
+    (report.builderTimings ??= []).push(...tracker.timings);
+    await captureBuilderScreenshot({ page, cda, report, name: 'saved-related-step.png' });
     await writeFile(`${evidenceDirectory}/state.json`, JSON.stringify({ action, controls, editor, timings: tracker.timings }, null, 2) + '\n', { mode: 0o600 });
-    report.evidence = ['saved-related-step.png', 'state.json'];
+    report.evidence ??= [];
+    report.evidence.push('state.json');
     record(report, 'No unexpected console, page, or API failures', diagnostics.console.length === 0
       && diagnostics.pageErrors.length === 0 && diagnostics.networkFailures.length === 0 && diagnostics.httpFailures.length === 0, diagnostics);
-  } catch (error) {
-    failure = error;
-    report.failure = { action: activeAction.label, locator: activeAction.locator,
-      elapsedMs: tracker.actionStartedAt ? Date.now() - tracker.actionStartedAt : undefined,
-      message: sanitizeText(error.message ?? error) };
-    if (browser) report.failureTrace = await browser.captureFailure(error,
-      { action: { ...activeAction, startedAt: tracker.activeAction?.startedAt }, elapsedMs: report.failure.elapsedMs, target: report.target });
-  } finally {
-    report.actions.push(...tracker.actions);
-    report.timings = tracker.timings;
-    if (browser) await browser.close().catch(error => { report.closeError = sanitizeText(error.message); });
-    try {
-      const sourceAtEnd = sourceFingerprintWithManifest(target.sourceRoot);
-      const changedPaths = sourceFingerprintChangedPaths(sourceAtStart.manifest, sourceAtEnd.manifest);
-      const sourceUnchanged = sourceAtStart.fingerprint.sha256 === sourceAtEnd.fingerprint.sha256;
-      report.assertions.push({ name: 'Watched source stayed unchanged', status: sourceUnchanged ? 'passed' : 'failed', evidence: { before: sourceAtStart.fingerprint, after: sourceAtEnd.fingerprint, changedPaths } });
-      if (!sourceUnchanged) failure ??= new Error('Watched source changed during the browser run');
-      const buildAtEnd = apiBuildIdentity(target);
-      const buildUnchanged = buildAtStart === buildAtEnd;
-      report.assertions.push({ name: 'API build identity stayed unchanged', status: buildUnchanged ? 'passed' : 'failed', evidence: { before: buildAtStart, after: buildAtEnd } });
-      if (!buildUnchanged) failure ??= new Error('API build identity changed during the browser run');
-    } catch (error) {
-      report.freezeError = sanitizeText(error.message ?? error);
-      report.assertions.push({ name: 'Source and build identities stayed unchanged', status: 'failed', evidence: { message: report.freezeError } });
-      failure ??= error;
-    }
-    report.status = failure || report.assertions.some(assertion => assertion.status === 'failed') ? 'failed' : 'partial';
-    report.finishedAt = new Date().toISOString();
-    await writeFile(`${evidenceDirectory}/report.json`, JSON.stringify(report, null, 2) + '\n', { mode: 0o600 });
-  }
-  if (failure) throw failure;
+    report.status = 'partial';
   return report;
 }

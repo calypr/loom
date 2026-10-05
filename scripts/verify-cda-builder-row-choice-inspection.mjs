@@ -200,4 +200,3 @@ export async function runRowChoiceInspection({ page, cda, action, explorerId = c
   report.status = 'partial';
   return report;
 }
-

@@ -1,0 +1,71 @@
+import { test } from './cda-fixtures.mjs';
+import { runCodedPivotWorkflow } from '../verify-cda-coded-pivot.mjs';
+import { runImplicitPivotWorkflow } from '../verify-cda-implicit-pivot.mjs';
+import { runPivotCategoryCycleBrowserWorkflow } from '../verify-cda-pivot-category-cycle-browser.mjs';
+import { runPivotCategoryEditBrowserWorkflow } from '../verify-cda-pivot-category-edit-browser.mjs';
+import { runPivotFieldChangeBrowserWorkflow } from '../verify-cda-pivot-field-change-browser.mjs';
+import { runPivotReloadBrowserWorkflow } from '../verify-cda-pivot-reload-browser.mjs';
+import { runQuantityPivotBrowserWorkflow } from '../verify-cda-quantity-pivot-browser.mjs';
+import { runQuantityPivotNativeDragBrowserWorkflow } from '../verify-cda-quantity-pivot-native-drag-browser.mjs';
+import { runRelatedFieldAfterUnpivotBrowserWorkflow } from '../verify-cda-related-field-after-unpivot-browser.mjs';
+import { runRelatedPivotBrowserWorkflow } from '../verify-cda-related-pivot-browser.mjs';
+import { runRelatedUnpivotBrowserWorkflow } from '../verify-cda-related-unpivot-browser.mjs';
+import { runUnpivotWorkflow } from '../verify-cda-unpivot.mjs';
+import { runGroupAddFieldsBrowserWorkflow } from '../verify-cda-group-add-fields-browser.mjs';
+import { runGroupOneConflictBrowserWorkflow } from '../verify-cda-group-one-conflict-browser.mjs';
+import { runGroupRelatedValuesBrowserWorkflow } from '../verify-cda-group-related-values-browser.mjs';
+import { runRelatedGroupBrowserWorkflow } from '../verify-cda-related-group-browser.mjs';
+import { runGroupRelatedSummaryBrowserWorkflow } from '../verify-cda-group-related-summary-browser.mjs';
+import { runGroupEditBeforeRelatedColumnBrowserWorkflow } from '../verify-cda-group-edit-before-related-column-browser.mjs';
+
+test.describe('standalone CDA reshape workflows', () => {
+
+  const register = (name, workflow, args = {}, options = {}) => {
+    test.describe(name, () => {
+      test.use({
+        cdaScenarioID: `standalone-reshape-${name}`,
+        cdaCaseName: name,
+        ...options,
+      });
+      test(name, async ({ page, cda }) => {
+        await workflow({ page, cda }, args);
+      });
+    });
+  };
+
+  for (const mode of ['integer', 'string']) {
+    register(`coded-pivot-${mode}`, runCodedPivotWorkflow, { mode });
+  }
+
+  for (const mode of ['root', 'related', 'related-source-key']) {
+    register(`implicit-pivot-${mode}`, runImplicitPivotWorkflow, { mode });
+  }
+
+  register('group-add-fields', runGroupAddFieldsBrowserWorkflow);
+  register('group-one-conflict', runGroupOneConflictBrowserWorkflow);
+  register('group-related-values', runGroupRelatedValuesBrowserWorkflow);
+  register('related-group', runRelatedGroupBrowserWorkflow);
+  register('group-related-summary', runGroupRelatedSummaryBrowserWorkflow);
+  register('group-edit-before-related-column', runGroupEditBeforeRelatedColumnBrowserWorkflow);
+
+  register('pivot-category-cycle', runPivotCategoryCycleBrowserWorkflow);
+  register('pivot-related-apply-only', runPivotCategoryCycleBrowserWorkflow, { relatedApplyOnly: true });
+  register('pivot-category-edit', runPivotCategoryEditBrowserWorkflow);
+  register('pivot-field-change', runPivotFieldChangeBrowserWorkflow);
+  register('pivot-reload', runPivotReloadBrowserWorkflow, {
+    seedPath: process.env.LOOM_PIVOT_RELOAD_SEED,
+  });
+
+  register('quantity-pivot', runQuantityPivotBrowserWorkflow);
+  register('quantity-pivot-full-population', runQuantityPivotBrowserWorkflow, { fullPopulation: true });
+  register('quantity-pivot-native-drag', runQuantityPivotNativeDragBrowserWorkflow);
+  register('quantity-pivot-native-drag-full-population', runQuantityPivotNativeDragBrowserWorkflow, { fullPopulation: true });
+
+  for (const caseName of ['gender-all', 'gender-null-all', 'resource-type-all', 'id-count']) {
+    register(`related-field-after-unpivot-${caseName}`, runRelatedFieldAfterUnpivotBrowserWorkflow, { caseName });
+  }
+
+  register('related-pivot', runRelatedPivotBrowserWorkflow);
+  register('related-unpivot', runRelatedUnpivotBrowserWorkflow);
+  register('unpivot', runUnpivotWorkflow);
+});

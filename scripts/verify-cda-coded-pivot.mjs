@@ -6,49 +6,66 @@ import { fileURLToPath } from 'node:url';
 import { assertOwnedCdaTarget } from './lib/owned-cda-target.mjs';
 import { startVerificationIdentity } from './lib/cda-verification-identity.mjs';
 import { captureCDARequests } from './lib/cda-playwright-requests.mjs';
-import { inspectDOM, waitForDOM, navigatePage } from './lib/playwright-verification.mjs';
-import { performAction, requireUnique } from './lib/playwright-actions.mjs';
-import { launchBrowser } from './lib/playwright-browser.mjs';
 
-const project = process.env.LOOM_CDA_PROJECT;
-const apiOrigin = process.env.LOOM_CDA_API_ORIGIN;
-const uiOrigin = process.env.LOOM_CDA_UI_ORIGIN;
-const apiContainer = process.env.LOOM_CDA_API_CONTAINER;
-const arangoContainer = process.env.LOOM_ARANGO_CONTAINER;
-const composeProject = process.env.LOOM_CDA_COMPOSE_PROJECT;
+
+
+export async function runCodedPivotWorkflow({ page, cda }, originalArgs = {}) {
+  const environment = cda.env ?? process.env;
+const includeFixtureDiagnostics = domainReport => {
+    const diagnostics = cda.diagnostics;
+    domainReport.errors ??= [];
+    const add = (entry, same) => { if (!domainReport.errors.some(same)) domainReport.errors.push(entry); };
+    for (const failure of diagnostics.pageErrors ?? []) add({ kind: 'runtime', message: failure.message }, item => item.kind === 'runtime' && item.message === failure.message);
+    for (const failure of diagnostics.console ?? []) add({ kind: 'console', message: failure.text, location: failure.location }, item => item.kind === 'console' && item.message === failure.text);
+    for (const failure of diagnostics.networkFailures ?? []) add({ kind: 'network', path: failure.url, failure: failure.failure }, item => item.kind === 'network' && item.path === failure.url);
+    for (const failure of diagnostics.httpFailures ?? []) add({ kind: 'http', url: failure.url, status: failure.status, response: failure.body }, item => item.kind === 'http' && item.url === failure.url && item.status === failure.status);
+    domainReport.incidentalErrors ??= [];
+    for (const failure of diagnostics.assetFailures ?? []) if (!domainReport.incidentalErrors.some(item => item.url === failure.url && item.status === failure.status)) domainReport.incidentalErrors.push(failure);
+  };
+  const captureFailure = async (error, details = {}) => cda.attachReport('failure-evidence', { error: String(error), details, diagnostics: cda.diagnostics });
+const waitNative = (callback, args = {}, timeout = 5000) => cda.wait(callback, args ?? {}, Math.min(timeout, 5000));
+const project = cda.project;
+const apiOrigin = cda.apiOrigin;
+const uiOrigin = cda.uiOrigin;
+const apiContainer = (cda.target.apiContainer ?? cda.env?.LOOM_CDA_API_CONTAINER);
+const arangoContainer = (cda.target.arangoContainer ?? cda.env?.LOOM_ARANGO_CONTAINER);
+const composeProject = (cda.target.composeProject ?? cda.env?.LOOM_CDA_COMPOSE_PROJECT);
 const sourceRoot = fileURLToPath(new URL('..', import.meta.url));
 await assertOwnedCdaTarget({ project, apiOrigin, uiOrigin, apiContainer, arangoContainer, composeProject, sourceRoot });
 const verificationIdentity = await startVerificationIdentity(sourceRoot, apiContainer);
 const observationId = '485e2567-b566-56f3-b5bd-5f025f37cd95';
-const mode = process.argv[2] === 'string' ? 'string' : 'integer';
+const mode = (originalArgs.mode ?? originalArgs[0]) === 'string' ? 'string' : 'integer';
 const expected = mode === 'string'
   ? [{ label: 'Specimen type', code: 'specimen_type', value: 'analyte' }, { label: 'Primary disease type', code: 'primary_disease_type', value: 'Ductal and lobular neoplasms' }]
   : [{ label: 'Days to collection', code: 'days_to_collection', value: '162' }];
-const explorerId = `coded-pivot-${mode}-${Date.now()}`;
+const explorerId = cda.explorer;
 const tableName = `Coded pivot ${mode} QA ${Date.now()}`;
-const evidence = process.env.LOOM_VERIFY_OUTPUT ?? `/tmp/loom-coded-pivot-${Date.now()}`;
+const evidence = cda.evidence;
 const artifact = join(evidence, `bounded-coded-pivot-${mode}.json`);
 const root = `/api/v1/projects/${encodeURIComponent(project)}/explorers`;
 const base = `${root}/${encodeURIComponent(explorerId)}`;
 const report = { explorerId, tableName, observationId, project, mode, expected, clicks: 0, timingsMs: {}, requests: [], nativeRequests: [], errors: [], failures: [] };
-let browser;
+const fixtureRequestCapture = cda.captureRequests(base, { apiOrigin: uiOrigin });
+
 let requestCapture;
 let created = false;
 let selectedURL;
 const tracker = { activeAction: undefined, actions: [] };
+const trackedAction = async (label, locator, perform, options = {}) => {
+  tracker.activeAction = { label, startedAt: Date.now() };
+  const elapsedMs = await cda.action(label, locator, perform, { timeout: 5000, budget: 5000, ...options });
+  tracker.actions.push({ label, elapsedMs });
+  tracker.activeAction = undefined;
+  return elapsedMs;
+};
 const action = async (label, locator) => {
   report.clicks++;
-  await requireUnique(locator, label);
-  return performAction(tracker, label, locator, (target, options) => target.click(options), { timeout: 5000 });
+  return trackedAction(label, locator, target => target.click({ timeout: 5000 }));
 };
-const fill = async (label, locator, value) => {
-  await requireUnique(locator, label);
-  return performAction(tracker, label, locator, (target, options) => target.fill(value, options), { timeout: 5000, editable: true });
-};
-const select = async (label, locator, value) => {
-  await requireUnique(locator, label);
-  return performAction(tracker, label, locator, (target, options) => target.selectOption(value, options), { timeout: 5000 });
-};
+const fill = async (label, locator, value) => trackedAction(label, locator,
+  target => target.fill(value, { timeout: 5000 }), { editable: true });
+const select = async (label, locator, value) => trackedAction(label, locator,
+  target => target.selectOption(value, { timeout: 5000 }));
 const timing = (name, started) => {
   report.timingsMs[name] = Date.now() - started;
   assert(report.timingsMs[name] < 5000, `${name} took ${report.timingsMs[name]} ms`);
@@ -106,42 +123,41 @@ try {
   assert(selection.id);
   const baseURL = `${uiOrigin}/?project=${encodeURIComponent(project)}&explorer=${encodeURIComponent(explorerId)}&mode=builder`;
   selectedURL = `${baseURL}&selection=${encodeURIComponent(selection.id)}`;
-  browser = await launchBrowser({ evidence, appOrigins: [apiOrigin, uiOrigin], noAuth: true });
-  const page = browser.page;
+
   requestCapture = captureCDARequests(page, { apiOrigin: uiOrigin, appOrigins: [apiOrigin, uiOrigin], ownedPathPrefix: root, report, responsePaths: /construction-proposals|commands|builder|selections|preview/ });
-  await navigatePage(page, baseURL);
-  await waitForDOM(page, () => document.body.innerText.includes('DATASET WORKSPACE'), {}, 30000);
-  assert.equal(await inspectDOM(page, () => [...document.querySelectorAll('button')].some(button => button.innerText.trim() === 'Preview')), false, 'Manual Preview button should not exist');
-  await navigatePage(page, selectedURL);
-  await waitForDOM(page, () => document.body.innerText.includes('DATASET WORKSPACE'), {}, 30000);
+  await cda.navigate( baseURL);
+  await waitNative( () => document.body.innerText.includes('DATASET WORKSPACE'), {}, 5000);
+  assert.equal(await cda.inspect( () => [...document.querySelectorAll('button')].some(button => button.innerText.trim() === 'Preview')), false, 'Manual Preview button should not exist');
+  await cda.navigate( selectedURL);
+  await waitNative( () => document.body.innerText.includes('DATASET WORKSPACE'), {}, 5000);
   await action('Open new table', page.getByRole('button', { name: 'New table', exact: true }));
-  await waitForDOM(page, () => Boolean(document.querySelector('button[aria-label="Choose Observation rows"]:not(:disabled)')), {}, 30000);
+  await waitNative( () => Boolean(document.querySelector('button[aria-label="Choose Observation rows"]:not(:disabled)')), {}, 5000);
   await fill('Name the table', page.locator('#first-table-name'), tableName);
   await action('Choose Observation rows', page.getByRole('button', { name: 'Choose Observation rows', exact: true }));
   created = true;
-  await waitForDOM(page, ({ tableName: name }) => document.querySelector('[data-testid="construction-workspace"] header')?.innerText.includes(name), { tableName }, 30000);
-  await waitForDOM(page, () => document.querySelector('[data-testid="construction-rows-settings-trigger"]')?.disabled === false, {}, 30000);
+  await waitNative( ({ tableName: name }) => document.querySelector('[data-testid="construction-workspace"] header')?.innerText.includes(name), { tableName }, 5000);
+  await waitNative( () => document.querySelector('[data-testid="construction-rows-settings-trigger"]')?.disabled === false, {}, 5000);
   await action('Open row settings', page.locator('[data-testid="construction-rows-settings-trigger"]'));
-  await waitForDOM(page, () => Boolean(document.querySelector('[role="dialog"][aria-label="Row definition settings"]')), {}, 5000);
-  await waitForDOM(page, () => [...document.querySelectorAll('[aria-label="Starting collection"] button')].some(button => button.innerText === 'Use selected resources' && !button.disabled), {}, 30000);
+  await waitNative( () => Boolean(document.querySelector('[role="dialog"][aria-label="Row definition settings"]')), {}, 5000);
+  await waitNative( () => [...document.querySelectorAll('[aria-label="Starting collection"] button')].some(button => button.innerText === 'Use selected resources' && !button.disabled), {}, 5000);
   const useSelected = page.getByRole('button', { name: 'Use selected resources', exact: true });
   await action('Use selected resources', useSelected);
-  await waitForDOM(page, () => document.querySelector('[aria-label="Starting collection settings"]')?.innerText.includes('1 Observation resources attached'), {}, 30000);
+  await waitNative( () => document.querySelector('[aria-label="Starting collection settings"]')?.innerText.includes('1 Observation resources attached'), {}, 5000);
   await action('Close row settings', page.getByRole('dialog', { name: 'Row definition settings' }).getByRole('button', { name: 'Back to table', exact: true }));
-  await waitForDOM(page, () => document.querySelector('[data-testid="construction-rows-settings-trigger"]')?.disabled === false, {}, 30000);
+  await waitNative( () => document.querySelector('[data-testid="construction-rows-settings-trigger"]')?.disabled === false, {}, 5000);
   await action('Reopen row settings', page.locator('[data-testid="construction-rows-settings-trigger"]'));
-  await waitForDOM(page, () => Boolean(document.querySelector('[data-testid="construction-action-pivot-rows"]:not(:disabled)')), {}, 30000);
-  report.choice = await inspectDOM(page, () => { const button = document.querySelector('[data-testid="construction-action-pivot-rows"]'); return { disabled: button?.disabled, text: button?.innerText }; });
+  await waitNative( () => Boolean(document.querySelector('[data-testid="construction-action-pivot-rows"]:not(:disabled)')), {}, 5000);
+  report.choice = await cda.inspect( () => { const button = document.querySelector('[data-testid="construction-action-pivot-rows"]'); return { disabled: button?.disabled, text: button?.innerText }; });
   assert.equal(report.choice.disabled, false, report.choice.text);
   await action('Choose coded values as columns', page.locator('[data-testid="construction-action-pivot-rows"]'));
-  await waitForDOM(page, () => Boolean(document.querySelector('section[aria-label="Coded values as columns"]')), {}, 30000);
-  await waitForDOM(page, () => !document.querySelector('section[aria-label="Coded values as columns"] [role="status"]'), {}, 30000);
-  report.sources = await inspectDOM(page, () => [...document.querySelectorAll('input[name="coded-pivot-source"]')].map(input => ({ text: input.closest('label')?.innerText, checked: input.checked, disabled: input.disabled })));
+  await waitNative( () => Boolean(document.querySelector('section[aria-label="Coded values as columns"]')), {}, 5000);
+  await waitNative( () => !document.querySelector('section[aria-label="Coded values as columns"] [role="status"]'), {}, 5000);
+  report.sources = await cda.inspect( () => [...document.querySelectorAll('input[name="coded-pivot-source"]')].map(input => ({ text: input.closest('label')?.innerText, checked: input.checked, disabled: input.disabled })));
   const matchingSource = report.sources.find(source => source.text?.includes('component') && source.text.toLowerCase().includes(mode));
   assert(matchingSource, `Direct component ${mode} source is missing`);
   await action(`Select ${mode} coded source`, page.locator('section[aria-label="Coded values as columns"] label').filter({ hasText: matchingSource.text }));
-  await waitForDOM(page, ({ label }) => [...document.querySelectorAll('section[aria-label="Coded values as columns"] input[type="checkbox"]')].some(input => input.closest('label')?.innerText.toLowerCase().includes(label)), { label: expected[0].label.toLowerCase() }, 30000);
-  report.categories = await inspectDOM(page, () => [...document.querySelectorAll('section[aria-label="Coded values as columns"] input[type="checkbox"]')].map(input => ({ text: input.closest('label')?.innerText, disabled: input.disabled })));
+  await waitNative( ({ label }) => [...document.querySelectorAll('section[aria-label="Coded values as columns"] input[type="checkbox"]')].some(input => input.closest('label')?.innerText.toLowerCase().includes(label)), { label: expected[0].label.toLowerCase() }, 5000);
+  report.categories = await cda.inspect( () => [...document.querySelectorAll('section[aria-label="Coded values as columns"] input[type="checkbox"]')].map(input => ({ text: input.closest('label')?.innerText, disabled: input.disabled })));
   const proposalStarted = Date.now();
   for (const pair of expected) {
     const match = report.categories.filter(category => category.text?.toLowerCase().includes(pair.label.toLowerCase()));
@@ -150,32 +166,32 @@ try {
     await action(`Select ${pair.label}`, page.locator('section[aria-label="Coded values as columns"] label').filter({ hasText: pair.label }));
   }
   const proposal = await requestCapture.waitFor(entry => entry.path.endsWith('/construction-proposals') && entry.method === 'POST', { fromIndex: 0, timeoutMs: Math.max(1, 5000 - (Date.now() - proposalStarted)) });
-  await waitForDOM(page, () => ['ready', 'error'].includes(document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status')), {}, Math.max(1, 5000 - (Date.now() - proposalStarted)));
+  await waitNative( () => ['ready', 'error'].includes(document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status')), {}, Math.max(1, 5000 - (Date.now() - proposalStarted)));
   report.timingsMs.proposal = Date.now() - proposalStarted;
   assert(report.timingsMs.proposal < 5000, `Proposal rendered in ${report.timingsMs.proposal} ms`);
   assert.equal(proposal.status, 200);
   assert(proposal.response?.proposalId, 'Browser proposal must return an applicable receipt');
-  report.proposal = await inspectDOM(page, () => ({ status: document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status'), text: document.querySelector('[data-testid="construction-proposal-panel"]')?.innerText, applyDisabled: document.querySelector('[data-testid="construction-apply-proposal"]')?.disabled, visibleRows: document.body.innerText.slice(-500) }));
+  report.proposal = await cda.inspect( () => ({ status: document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status'), text: document.querySelector('[data-testid="construction-proposal-panel"]')?.innerText, applyDisabled: document.querySelector('[data-testid="construction-apply-proposal"]')?.disabled, visibleRows: document.body.innerText.slice(-500) }));
   assert.equal(report.proposal.status, 'ready', report.proposal.text);
   assert.equal(report.proposal.applyDisabled, false);
   for (const pair of expected) assert(report.proposal.visibleRows.includes(pair.value), JSON.stringify(report.proposal));
   await action('Apply coded pivot', page.locator('[data-testid="construction-apply-proposal"]'));
-  await waitForDOM(page, () => document.querySelectorAll('[data-testid^="construction-history-step-"]').length === 1, {}, 30000);
-  await navigatePage(page, selectedURL);
-  await waitForDOM(page, ({ name }) => [...document.querySelectorAll('button')].some(button => button.innerText.trim().endsWith(name)), { name: tableName }, 30000);
+  await waitNative( () => document.querySelectorAll('[data-testid^="construction-history-step-"]').length === 1, {}, 5000);
+  await cda.navigate( selectedURL);
+  await waitNative( ({ name }) => [...document.querySelectorAll('button')].some(button => button.innerText.trim().endsWith(name)), { name: tableName }, 5000);
   await action('Open coded pivot table', page.locator('[data-testid^="construction-table-"]').filter({ hasText: tableName }));
   const previewStarted = Date.now();
-  await waitForDOM(page, ({ expectedValue }) => document.querySelector('[data-testid="preview-table-scroll"]')?.innerText.includes(expectedValue), { expectedValue: expected.at(-1).value }, 30000);
+  await waitNative( ({ expectedValue }) => document.querySelector('[data-testid="preview-table-scroll"]')?.innerText.includes(expectedValue), { expectedValue: expected.at(-1).value }, 5000);
   timing('preview', previewStarted);
-  report.saved = await inspectDOM(page, () => ({ headers: [...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].map(cell => cell.innerText), rows: [...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]')].slice(1).map(row => [...row.querySelectorAll('[role="cell"]')].map(cell => cell.innerText)) }));
+  report.saved = await cda.inspect( () => ({ headers: [...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].map(cell => cell.innerText), rows: [...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]')].slice(1).map(row => [...row.querySelectorAll('[role="cell"]')].map(cell => cell.innerText)) }));
   assert.equal(report.saved.rows.length, 1, JSON.stringify(report.saved));
   for (const pair of expected) assert(report.saved.rows[0].includes(pair.value), JSON.stringify(report.saved));
   await action('Select coded pivot history', page.locator('[data-testid^="construction-history-step-"]'));
-  await waitForDOM(page, () => Boolean(document.querySelector('[data-testid^="construction-edit-step-"]:not(:disabled)')), {}, 30000);
+  await waitNative( () => Boolean(document.querySelector('[data-testid^="construction-edit-step-"]:not(:disabled)')), {}, 5000);
   await action('Edit coded pivot', page.locator('[data-testid^="construction-edit-step-"]:not(:disabled)'));
-  await waitForDOM(page, () => Boolean(document.querySelector('section[aria-label="Coded values as columns"] select')), {}, 30000);
-  await waitForDOM(page, ({ count }) => document.querySelectorAll('section[aria-label="Coded values as columns"] input[type="checkbox"]:checked').length === count, { count: expected.length }, 30000);
-  report.reopened = await inspectDOM(page, () => { const section = document.querySelector('section[aria-label="Coded values as columns"]'); return { selected: [...section.querySelectorAll('input[type="checkbox"]:checked')].map(input => input.closest('label')?.innerText), source: [...section.querySelectorAll('input[name="coded-pivot-source"]:checked')].map(input => input.closest('label')?.innerText), policies: [...section.querySelectorAll('select')].map(input => input.value) }; });
+  await waitNative( () => Boolean(document.querySelector('section[aria-label="Coded values as columns"] select')), {}, 5000);
+  await waitNative( ({ count }) => document.querySelectorAll('section[aria-label="Coded values as columns"] input[type="checkbox"]:checked').length === count, { count: expected.length }, 5000);
+  report.reopened = await cda.inspect( () => { const section = document.querySelector('section[aria-label="Coded values as columns"]'); return { selected: [...section.querySelectorAll('input[type="checkbox"]:checked')].map(input => input.closest('label')?.innerText), source: [...section.querySelectorAll('input[name="coded-pivot-source"]:checked')].map(input => input.closest('label')?.innerText), policies: [...section.querySelectorAll('select')].map(input => input.value) }; });
   assert.equal(report.reopened.selected.length, expected.length, JSON.stringify(report.reopened));
   assert.equal(report.reopened.source.length, 1, JSON.stringify(report.reopened));
   const section = page.locator('section[aria-label="Coded values as columns"]');
@@ -184,85 +200,87 @@ try {
   const editStarted = Date.now();
   const editRequestStart = report.nativeRequests.length;
   await requestCapture.waitFor(entry => entry.path.endsWith('/construction-proposals') && entry.method === 'POST', { fromIndex: editRequestStart, timeoutMs: 5000 });
-  await waitForDOM(page, () => ['ready', 'error'].includes(document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status')), {}, 5000);
+  await waitNative( () => ['ready', 'error'].includes(document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status')), {}, 5000);
   timing('editProposal', editStarted);
-  report.editedProposal = await inspectDOM(page, () => ({ status: document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status'), text: document.querySelector('[data-testid="construction-proposal-panel"]')?.innerText }));
+  report.editedProposal = await cda.inspect( () => ({ status: document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status'), text: document.querySelector('[data-testid="construction-proposal-panel"]')?.innerText }));
   assert.equal(report.editedProposal.status, 'ready', report.editedProposal.text);
-  await waitForDOM(page, () => document.querySelector('[data-testid="construction-apply-proposal"]')?.disabled === false, {}, 5000);
+  await waitNative( () => document.querySelector('[data-testid="construction-apply-proposal"]')?.disabled === false, {}, 5000);
   await action('Apply edited coded pivot', page.locator('[data-testid="construction-apply-proposal"]'));
-  await waitForDOM(page, () => document.querySelectorAll('[data-testid^="construction-history-step-"]').length === 1 && !document.querySelector('section[aria-label="Coded values as columns"]'), {}, 30000);
-  await navigatePage(page, selectedURL);
-  await waitForDOM(page, ({ name }) => [...document.querySelectorAll('button')].some(button => button.innerText.trim().endsWith(name)), { name: tableName }, 30000);
+  await waitNative( () => document.querySelectorAll('[data-testid^="construction-history-step-"]').length === 1 && !document.querySelector('section[aria-label="Coded values as columns"]'), {}, 5000);
+  await cda.navigate( selectedURL);
+  await waitNative( ({ name }) => [...document.querySelectorAll('button')].some(button => button.innerText.trim().endsWith(name)), { name: tableName }, 5000);
   await action('Reopen coded pivot table', page.locator('[data-testid^="construction-table-"]').filter({ hasText: tableName }));
   await action('Select coded pivot history after reload', page.locator('[data-testid^="construction-history-step-"]'));
-  await waitForDOM(page, () => Boolean(document.querySelector('[data-testid^="construction-edit-step-"]:not(:disabled)')), {}, 30000);
+  await waitNative( () => Boolean(document.querySelector('[data-testid^="construction-edit-step-"]:not(:disabled)')), {}, 5000);
   await action('Reopen coded pivot editor', page.locator('[data-testid^="construction-edit-step-"]:not(:disabled)'));
-  await waitForDOM(page, () => document.querySelectorAll('section[aria-label="Coded values as columns"] select')[1]?.value === 'ERROR', {}, 30000);
-  report.editedReload = await inspectDOM(page, () => ({ policies: [...document.querySelectorAll('section[aria-label="Coded values as columns"] select')].map(input => input.value) }));
+  await waitNative( () => document.querySelectorAll('section[aria-label="Coded values as columns"] select')[1]?.value === 'ERROR', {}, 5000);
+  report.editedReload = await cda.inspect( () => ({ policies: [...document.querySelectorAll('section[aria-label="Coded values as columns"] select')].map(input => input.value) }));
   await action('Back to table', page.getByRole('button', { name: 'Back to table', exact: true }));
-  await waitForDOM(page, () => document.querySelectorAll('[data-testid^="construction-history-step-"]').length === 1, {}, 30000);
+  await waitNative( () => document.querySelectorAll('[data-testid^="construction-history-step-"]').length === 1, {}, 5000);
   report.editedReload.historyCount = 1;
   const editedPreviewStarted = Date.now();
-  await waitForDOM(page, ({ expectedValue }) => document.querySelector('[data-testid="preview-table-scroll"]')?.innerText.includes(expectedValue), { expectedValue: expected.at(-1).value }, 30000);
+  await waitNative( ({ expectedValue }) => document.querySelector('[data-testid="preview-table-scroll"]')?.innerText.includes(expectedValue), { expectedValue: expected.at(-1).value }, 5000);
   timing('editedPreview', editedPreviewStarted);
-  report.editedSaved = await inspectDOM(page, () => ({ headers: [...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].map(cell => cell.innerText), rows: [...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]')].slice(1).map(row => [...row.querySelectorAll('[role="cell"]')].map(cell => cell.innerText)) }));
+  report.editedSaved = await cda.inspect( () => ({ headers: [...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].map(cell => cell.innerText), rows: [...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]')].slice(1).map(row => [...row.querySelectorAll('[role="cell"]')].map(cell => cell.innerText)) }));
   assert.deepEqual(report.editedSaved, report.saved, 'Changing missing-value handling changed populated CDA values');
   const remove = page.locator('[data-testid^="construction-remove-step-"]');
   if (!(await remove.count())) await action('Select coded group before remove', page.locator('[data-testid^="construction-history-step-"]'));
-  await waitForDOM(page, () => Boolean(document.querySelector('[data-testid^="construction-remove-step-"]')), {}, 30000);
+  await waitNative( () => Boolean(document.querySelector('[data-testid^="construction-remove-step-"]')), {}, 5000);
   const removalStart = report.nativeRequests.length;
   await action('Remove coded pivot group', page.locator('[data-testid^="construction-remove-step-"]'));
   await requestCapture.waitFor(entry => entry.path.endsWith('/construction-proposals') && entry.method === 'POST', { fromIndex: removalStart, timeoutMs: 5000 });
-  await waitForDOM(page, () => document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status') === 'ready', {}, 30000);
+  await waitNative( () => document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status') === 'ready', {}, 5000);
   await action('Apply coded pivot removal', page.locator('[data-testid="construction-apply-proposal"]'));
-  await waitForDOM(page, () => document.querySelectorAll('[data-testid^="construction-history-step-"]').length === 0, {}, 30000);
-  await navigatePage(page, selectedURL);
-  await waitForDOM(page, ({ name }) => [...document.querySelectorAll('button')].some(button => button.innerText.trim().endsWith(name)), { name: tableName }, 30000);
+  await waitNative( () => document.querySelectorAll('[data-testid^="construction-history-step-"]').length === 0, {}, 5000);
+  await cda.navigate( selectedURL);
+  await waitNative( ({ name }) => [...document.querySelectorAll('button')].some(button => button.innerText.trim().endsWith(name)), { name: tableName }, 5000);
   await action('Open restored table', page.locator('[data-testid^="construction-table-"]').filter({ hasText: tableName }));
-  report.restored = await inspectDOM(page, () => ({ historyCount: document.querySelectorAll('[data-testid^="construction-history-step-"]').length, body: document.body.innerText.slice(0, 900) }));
+  report.restored = await cda.inspect( () => ({ historyCount: document.querySelectorAll('[data-testid^="construction-history-step-"]').length, body: document.body.innerText.slice(0, 900) }));
   assert.equal(report.restored.historyCount, 0);
-  await waitForDOM(page, ({ id }) => document.querySelector('[data-testid="preview-table-scroll"]')?.innerText.includes(id), { id: observationId }, 30000);
-  report.restored.headers = await inspectDOM(page, () => [...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].map(cell => cell.innerText));
+  await waitNative( ({ id }) => document.querySelector('[data-testid="preview-table-scroll"]')?.innerText.includes(id), { id: observationId }, 5000);
+  report.restored.headers = await cda.inspect( () => [...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].map(cell => cell.innerText));
   assert.deepEqual(report.restored.headers, ['OBSERVATION ID']);
   await requestCapture.flush();
   assert.equal(report.nativeRequests.filter(request => request.status >= 400).length, 0, JSON.stringify(report.nativeRequests));
-  assert.deepEqual(browser.diagnostics.console, []);
-  assert.deepEqual(browser.diagnostics.pageErrors, []);
-  assert.deepEqual(browser.diagnostics.networkFailures, []);
-  assert.deepEqual(browser.diagnostics.httpFailures, []);
+  assert.deepEqual(cda.diagnostics.console, []);
+  assert.deepEqual(cda.diagnostics.pageErrors, []);
+  assert.deepEqual(cda.diagnostics.networkFailures, []);
+  assert.deepEqual(cda.diagnostics.httpFailures, []);
   assert(Object.values(report.timingsMs).every(ms => ms < 5000), JSON.stringify(report.timingsMs));
   report.outcome = 'passed';
 } catch (error) {
   report.outcome = 'failed';
   report.failure = String(error.stack ?? error);
   report.failures.push(report.failure);
-  if (browser) await browser.captureFailure(error, { phase: 'coded-pivot-lifecycle', action: tracker.activeAction, elapsedMs: tracker.activeAction ? Date.now() - tracker.activeAction.startedAt : undefined, state: { tableName, mode, timingsMs: report.timingsMs, requests: report.nativeRequests } });
-  process.exitCode = 1;
+if (page) await captureFailure(error, { phase: 'coded-pivot-lifecycle', action: tracker.activeAction, elapsedMs: tracker.activeAction ? Date.now() - tracker.activeAction.startedAt : undefined, state: { tableName, mode, timingsMs: report.timingsMs, requests: report.nativeRequests } });
+  report.__nativeFailure = true;
 } finally {
-  if (browser && created) {
+  if (created) {
     try {
-      await navigatePage(browser.page, selectedURL);
-      await waitForDOM(browser.page, ({ name }) => [...document.querySelectorAll('button')].some(button => button.innerText.trim().endsWith(name)), { name: tableName }, 10000);
-      await action('Open table for cleanup', browser.page.locator('[data-testid^="construction-table-"]').filter({ hasText: tableName }));
-      await waitForDOM(browser.page, () => document.querySelector('[data-testid="construction-workspace"] header')?.innerText.includes(tableName), {}, 10000);
-      await waitForDOM(browser.page, () => document.querySelector('[data-testid="construction-delete-table"]')?.disabled === false, {}, 10000);
-      browser.page.once('dialog', dialog => dialog.accept());
-      await action('Delete verifier table', browser.page.locator('[data-testid="construction-delete-table"]'));
-      await waitForDOM(browser.page, ({ name }) => ![...document.querySelectorAll('button')].some(button => button.innerText.trim().endsWith(name)), { name: tableName }, 10000);
+      await cda.navigate( selectedURL);
+      await waitNative( ({ name }) => [...document.querySelectorAll('button')].some(button => button.innerText.trim().endsWith(name)), { name: tableName }, 5000);
+      await action('Open table for cleanup', page.locator('[data-testid^="construction-table-"]').filter({ hasText: tableName }));
+      await waitNative( () => document.querySelector('[data-testid="construction-workspace"] header')?.innerText.includes(tableName), {}, 5000);
+      await waitNative( () => document.querySelector('[data-testid="construction-delete-table"]')?.disabled === false, {}, 5000);
+      page.once('dialog', dialog => dialog.accept());
+      await action('Delete verifier table', page.locator('[data-testid="construction-delete-table"]'));
+      await waitNative( ({ name }) => ![...document.querySelectorAll('button')].some(button => button.innerText.trim().endsWith(name)), { name: tableName }, 5000);
       report.cleanup = 'deleted';
     } catch (error) {
       report.cleanup = 'failed';
       report.cleanupFailure = String(error);
-      process.exitCode = 1;
+      report.__nativeFailure = true;
     }
   }
   if (requestCapture) await requestCapture.flush();
-  if (browser) {
-    report.diagnostics = browser.diagnostics;
-    await browser.close();
+if (page) {
+    report.diagnostics = cda.diagnostics;
   }
   try { report.verificationIdentity = await verificationIdentity.finish(); }
-  catch (error) { report.outcome = 'invalidated'; report.identityFailure = String(error); process.exitCode = 1; }
+  catch (error) { report.outcome = 'invalidated'; report.identityFailure = String(error); report.__nativeFailure = true; }
   await writeFile(artifact, JSON.stringify(report, null, 2));
 }
-console.log(JSON.stringify({ outcome: report.outcome, clicks: report.clicks, timingsMs: report.timingsMs, evidence, artifact }));
+  if (report.__nativeFailure) throw new Error(report.error ?? report.identityFailure ?? 'verify-cda-coded-pivot.mjs workflow failed');
+  await cda.attachReport('verify-cda-coded-pivot.mjs', report);
+  return report;
+}

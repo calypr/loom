@@ -145,3 +145,20 @@ compatibility exports are retired. The basic fixture context now supports the
 owned fresh-fixture path directly. Historical helper tests were removed; the
 Builder readiness and pure preview/oracle assertions remain. The combined test
 batch is still pending completion of standalone ports and the shared CDA fixture.
+
+## Standalone integration checkpoint
+
+Official Playwright discovery now lists 91 tests in 13 spec files. This includes
+32 Builder actions, ten CDA dialog/filter/root/publication cases, and 27 reshape
+cases alongside the 22 registered cases. Discovery imports the integrated
+modules successfully; it is not browser or lifecycle evidence.
+
+The CDA fixture accepts native dialog handlers and rejects failed domain
+assertions as well as unexpected network and console diagnostics. Independent
+reshape cases use normal sequential execution so a failed case does not skip
+the remaining cases. Standalone scenarios without a registered lifecycle
+contract retain an unverified domain status even when individual assertions pass.
+
+Field and row consumers, the remaining collection scripts, and legacy launcher
+cleanup are still being converted. Finish these ports, reconcile source-to-case
+coverage, and freeze the integrated checkpoint before the combined test batch.

@@ -1,7 +1,11 @@
-import { join } from 'node:path';
 import { runRelatedSourceChooser } from './verify-cda-builder-related-source-chooser.mjs';
 import { runPatientRelatedInspection } from './verify-cda-builder-related-patient-inspection.mjs';
-import { patientRelatedStepInspectionCases, runPatientRelatedApplyReload, runPatientRelatedEditRemove, runPatientRelatedStepInspection } from './verify-cda-builder-patient-related.mjs';
+import {
+  patientRelatedStepInspectionCases,
+  runPatientRelatedApplyReload,
+  runPatientRelatedEditRemove,
+  runPatientRelatedStepInspection,
+} from './verify-cda-builder-patient-related.mjs';
 import { runPreviewLimits } from './verify-cda-builder-preview-limits.mjs';
 import { runBuilderTableManagement } from './verify-cda-builder-table-management.mjs';
 import { tableManagementActions } from './verify-cda-builder-table-management-contract.mjs';
@@ -9,18 +13,31 @@ import { rowChoiceCases, runRowChoiceInspection } from './verify-cda-builder-row
 import { runBuilderColumnPresentation } from './verify-cda-builder-column-presentation.mjs';
 import { runBuilderFilterCase } from './verify-cda-builder-filters.mjs';
 
-const action = process.argv[2] ?? 'Keep rows';
-const patientRelatedInspectionActions = new Set(['Inspect Patient field choice', 'Inspect selected Patient route', 'Inspect Patient proposal']);
-const patientRelatedApplyReloadAction = action === 'Verify Patient related column';
-const patientRelatedEditRemoveAction = action === 'Edit and remove Patient related column';
-const previewLimitsAction = action === 'Preview limits';
-const tableManagementAction = tableManagementActions.has(action);
-const rowChoiceAction = Object.hasOwn(rowChoiceCases, action);
-const columnPresentationActions = new Set(['Toggle source visibility', 'Verify constructed column rename', 'Verify constructed column presentation', 'Inspect columns', 'Inspect source column controls', 'Verify source column reorder']);
-const columnPresentationAction = columnPresentationActions.has(action);
-const filterActions = new Set(['Apply missing', 'Missing proposal', 'Remove saved filter', 'Edit saved missing filter', 'Edit saved filter', 'Apply known filter', 'Toggle filter flag', 'Inspect filters']);
-const filterAction = filterActions.has(action);
-const availableCases = [
+const patientRelatedInspectionActions = Object.freeze([
+  'Inspect Patient field choice',
+  'Inspect selected Patient route',
+  'Inspect Patient proposal',
+]);
+const columnPresentationActions = Object.freeze([
+  'Toggle source visibility',
+  'Verify constructed column rename',
+  'Verify constructed column presentation',
+  'Inspect columns',
+  'Inspect source column controls',
+  'Verify source column reorder',
+]);
+const filterActions = Object.freeze([
+  'Apply missing',
+  'Missing proposal',
+  'Remove saved filter',
+  'Edit saved missing filter',
+  'Edit saved filter',
+  'Apply known filter',
+  'Toggle filter flag',
+  'Inspect filters',
+]);
+
+export const builderCaseActions = Object.freeze([
   'Verify related source chooser',
   ...patientRelatedInspectionActions,
   'Verify Patient related column',
@@ -31,43 +48,28 @@ const availableCases = [
   ...Object.keys(rowChoiceCases),
   ...columnPresentationActions,
   ...filterActions,
-];
+]);
 
-if (!availableCases.includes(action)) {
-  throw new Error(
-    `Unsupported CDA Builder verifier case: "${action}". `
-    + `Available migrated Playwright cases: ${[...new Set(availableCases)].join(', ')}. `
-    + 'This verifier case has not been migrated; that coverage gap does not mean the product action is unsupported.',
-  );
+export async function runBuilderCase({ page, cda, action, ...originalArgs }) {
+  if (!builderCaseActions.includes(action)) {
+    throw new Error(`No native CDA Builder case is registered for ${JSON.stringify(action)}`);
+  }
+  const args = {
+    page,
+    cda,
+    action,
+    explorerId: cda.target.explorer,
+    ...originalArgs,
+  };
+  if (action === 'Verify related source chooser') return runRelatedSourceChooser(args);
+  if (patientRelatedInspectionActions.includes(action)) return runPatientRelatedInspection(args);
+  if (action === 'Verify Patient related column') return runPatientRelatedApplyReload(args);
+  if (action === 'Edit and remove Patient related column') return runPatientRelatedEditRemove(args);
+  if (patientRelatedStepInspectionCases.includes(action)) return runPatientRelatedStepInspection(args);
+  if (action === 'Preview limits') return runPreviewLimits(args);
+  if (tableManagementActions.has(action)) return runBuilderTableManagement(args);
+  if (Object.hasOwn(rowChoiceCases, action)) return runRowChoiceInspection(args);
+  if (columnPresentationActions.includes(action)) return runBuilderColumnPresentation(args);
+  if (filterActions.includes(action)) return runBuilderFilterCase(args);
+  throw new Error(`Native CDA Builder case dispatch is incomplete for ${JSON.stringify(action)}`);
 }
-
-const explorerId = process.argv[3];
-const evidenceDirectory = join('.artifacts', 'cda-builder', new Date().toISOString().replaceAll(':', '-'));
-const report = action === 'Verify related source chooser'
-  ? await runRelatedSourceChooser({ explorerId })
-  : patientRelatedApplyReloadAction
-    ? await runPatientRelatedApplyReload({ explorerId })
-    : patientRelatedEditRemoveAction
-      ? await runPatientRelatedEditRemove({ explorerId })
-      : patientRelatedStepInspectionCases.includes(action)
-        ? await runPatientRelatedStepInspection({ action, explorerId })
-        : previewLimitsAction
-          ? await runPreviewLimits({ explorerId })
-          : tableManagementAction
-            ? await runBuilderTableManagement({ action, explorerId, secondExplorerId: process.argv[4], expectedSecondExplorerTable: process.argv[5] })
-            : rowChoiceAction
-              ? await runRowChoiceInspection({ action, explorerId })
-              : columnPresentationAction
-                ? await runBuilderColumnPresentation({ action, explorerId })
-                : filterAction
-                  ? await runBuilderFilterCase({ action, explorerId })
-                  : await runPatientRelatedInspection({ action, explorerId });
-
-console.log(JSON.stringify({
-  action,
-  status: report.status,
-  report: join(report.evidenceDirectory, 'report.json'),
-  evidenceDirectory: report.evidenceDirectory ?? evidenceDirectory,
-  assertions: report.assertions,
-  lifecycle: report.lifecycle,
-}, null, 2));

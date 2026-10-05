@@ -107,6 +107,7 @@ function safeAttachmentPath(testInfo, name) {
 
 function gateFailure(report) {
   const missing = report.missingRequiredChecks ?? [];
+  const failedAssertions = (report.assertions ?? []).filter(entry => entry.status === 'failed');
   const unexpectedNetwork = (report.network ?? []).filter(entry =>
     !entry.expectedHttpFailure && classifyNetworkRecord(entry) === 'unexpected-error');
   const unexpectedErrors = (report.errors ?? []).filter(entry => {
@@ -114,9 +115,10 @@ function gateFailure(report) {
     if (entry.kind === 'expected-injected' && entry.injectedFault === true) return false;
     return true;
   });
-  if (!missing.length && !unexpectedNetwork.length && !unexpectedErrors.length) return undefined;
+  if (!missing.length && !failedAssertions.length && !unexpectedNetwork.length && !unexpectedErrors.length) return undefined;
   return new Error(`CDA verification evidence is incomplete: ${JSON.stringify({
     missingRequiredChecks: missing,
+    failedAssertions: failedAssertions.map(({ dimension, name, evidence }) => ({ dimension, name, evidence })),
     unexpectedNetwork: unexpectedNetwork.map(({ kind, method, url, status, errorText, message }) => ({ kind, method, url, status, errorText, message })),
     unexpectedErrors: unexpectedErrors.map(({ kind, method, url, status, message, error }) => ({ kind, method, url, status, message, error })),
   })}`);
@@ -456,6 +458,9 @@ export const test = base.extend({
 
     let customDialogHandler;
     const onUnexpectedDialog = async dialog => {
+      // Dialog listeners are snapshotted before dispatch, so an existing page.once('dialog')
+      // handler is already visible here even though this observer was registered first.
+      if (page.listeners('dialog').some(listener => listener !== onUnexpectedDialog)) return;
       const message = `Unexpected ${dialog.type()} dialog: ${safeText(dialog.message())}`;
       addNetworkDiagnostic({ kind: 'exception', message });
       await dialog.dismiss().catch(() => undefined);
