@@ -185,3 +185,16 @@ contract retain an unverified domain status even when individual assertions pass
 Field and row consumers, the remaining collection scripts, and legacy launcher
 cleanup are still being converted. Finish these ports, reconcile source-to-case
 coverage, and freeze the integrated checkpoint before the combined test batch.
+
+## CDA fields mechanical checkpoint
+
+The eight standalone coded/compound/cohort/contributor/source-field drivers now
+export native workflows under `scripts/verify-ui/`;
+`standalone-cda-fields.spec.mjs` owns their Playwright cases. Their raw source
+oracles and option variants remain. Arango queries use the validated fixture
+container and reject a mismatched override. Source-to-case mappings are in
+`scripts/playwright/standalone-cda-fields.mapping.md`.
+
+Syntax checks and native discovery passed: 99 tests in 14 spec files. Browser,
+unit, and runtime checks for this batch have not run. The fields lifecycle cases
+remain unverified until the frozen-checkpoint testing phase.

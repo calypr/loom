@@ -1,31 +1,24 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { mkdir, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
-import { captureSourceFreeze } from './lib/source-freeze.mjs';
-import { launchBrowser, sanitizeBody, sanitizeText } from './lib/playwright-browser.mjs';
-import { performAction, requireUnique } from './lib/playwright-actions.mjs';
-import { captureCDARequests } from './lib/cda-playwright-requests.mjs';
-import { assertOwnedCdaTarget } from './lib/owned-cda-target.mjs';
-import { fileURLToPath } from 'node:url';
-import { captureApiBuildFreeze, checkContainerApiBuildStamp } from './lib/api-build-freeze.mjs';
-import { sourceFingerprint } from './verify-ui/source-fingerprint.mjs';
-import { waitForCondition } from './lib/playwright-observations.mjs';
+import { createNativeCdaWorkflowTools, validatedArangoContainer } from './native-cda-workflow-tools.mjs';
+import { sanitizeText } from '../lib/playwright-browser.mjs';
 
-const project = process.env.LOOM_CDA_PROJECT;
-const generation = 'cda-fhir-v1';
+export async function repeatedContributorAnyWorkflow({ page, cda, caseOptions = {} }) {
+  const { click, fill, selectOption, navigate, inspect, clickControl, fillControl, selectControl,
+    nativeClick, nativeFill, nativeSelect, navigatePage, inspectDOM, browserEval, inspectPage,
+    waitForDOM, waitForBrowser, captureCDARequests, captureRequests, waitForCapturedResponse,
+    performAction, requireUnique } = createNativeCdaWorkflowTools({ page, cda });
+  const target = cda.target;
+  const project = cda.project;
+  const generation = cda.generation;
+  const apiOrigin = String(cda.apiOrigin).replace(/\/$/, '');
+  const uiOrigin = String(cda.uiOrigin).replace(/\/$/, '');
+  const arangoContainer = validatedArangoContainer(target, caseOptions.arangoContainer);
+  assert(project && generation && apiOrigin && uiOrigin, 'The CDA fixture must bind project, generation, API origin, and UI origin explicitly.');
+  assert.equal(generation, 'cda-fhir-v1', 'This verifier requires the loaded CDA FHIR generation.');
 const protectedExplorer = 'cda-builder-full-qa-1790440983382';
-const sourceFreezeRoot = process.env.LOOM_SOURCE_FREEZE_ROOT ?? fileURLToPath(new URL('..', import.meta.url));
 const explorer = `repeated-contributor-any-browser-${Date.now()}`;
-const evidence = process.argv[2] ?? `/tmp/loom-repeated-contributor-any-browser-${Date.now()}`;
-const apiOrigin = process.env.LOOM_CDA_API_ORIGIN?.replace(/\/$/, '');
-const uiOrigin = process.env.LOOM_CDA_UI_ORIGIN?.replace(/\/$/, '');
-const apiContainer = process.env.LOOM_CDA_API_CONTAINER;
-const composeProject = process.env.LOOM_CDA_COMPOSE_PROJECT;
-const arangoContainer = process.env.LOOM_ARANGO_CONTAINER;
-await assertOwnedCdaTarget({ project, apiOrigin, uiOrigin, apiContainer, composeProject, sourceRoot: sourceFreezeRoot, arangoContainer });
-const frozenApiBuild = await captureApiBuildFreeze(() => checkContainerApiBuildStamp(apiContainer));
 const browserRequestOrigins = new Set([apiOrigin, uiOrigin].map((origin) => new URL(origin).origin));
 const root = `/api/v1/projects/${project}/explorers`;
 const base = `${root}/${explorer}/authoring/v2`;
@@ -54,66 +47,25 @@ const report = {
   },
   cases: [], requests: [], errors: [], started: new Date().toISOString(),
 };
-await mkdir(evidence, { recursive: true });
 assert.notEqual(explorer, protectedExplorer, 'Only a fresh QA Explorer may be used');
-const sourceFreezeStartedAt = new Date().toISOString();
-const sourceFreeze = await captureSourceFreeze(sourceFreezeRoot);
-report.sourceFreeze = { root: sourceFreezeRoot, startedAt: sourceFreezeStartedAt, watchedFileCount: sourceFreeze.watchedFileCount };
-report.sourceFingerprint = { root: sourceFreezeRoot, before: sourceFingerprint(sourceFreezeRoot), checked: true, invalidatesRun: false };
-report.apiBuildFreeze = { container: apiContainer, initial: frozenApiBuild.initial, invalidatesRun: false };
 
-let browser;
-const inspectPage = (page, body) => page.evaluate(`(()=>{${body}})()`);
-const waitForBrowser = (page, condition, timeout = 30000) => waitForCondition(page, condition, timeout);
-const resolveActionLocator = async (page, selector, identity = {}) => {
-  const candidates = page.locator(selector);
-  const { name, includes } = identity;
-  if (name === undefined && includes === undefined) return requireUnique(candidates, selector);
-  const matches = await candidates.evaluateAll((nodes, wanted) => nodes.flatMap((node, index) => {
-    const label = String(node.getAttribute('aria-label') || node.innerText || node.textContent || '')
-      .replace(/\\s+/g, ' ').trim();
-    const matched = wanted.name !== undefined ? label === wanted.name
-      : label.toLocaleLowerCase().includes(wanted.includes.toLocaleLowerCase());
-    return matched ? [index] : [];
-  }), { name, includes });
-  assert.equal(matches.length, 1, `${selector}: expected one matching control, found ${matches.length}`);
-  return requireUnique(candidates.nth(matches[0]), `${selector} ${name ?? includes}`);
-};
-const click = async (page, selector, identity = {}, timeout = 5000) => {
-  const locator = await resolveActionLocator(page, selector, identity);
-  return performAction(report, `Click ${selector} ${identity.name ?? identity.includes ?? ''}`.trim(), locator,
-    (target, options) => target.click(options), { timeout });
-};
-const fill = async (page, selector, value, timeout = 5000) => {
-  const locator = await resolveActionLocator(page, selector);
-  return performAction(report, `Fill ${selector}`, locator,
-    (target, options) => target.fill(value, options), { timeout, editable: true });
-};
-const selectOption = async (page, selector, value, timeout = 5000) => {
-  const locator = await resolveActionLocator(page, selector);
-  return performAction(report, `Select ${value} in ${selector}`, locator,
-    (target, options) => target.selectOption(value, options), { timeout });
-};
-const navigate = (page, url) => page.goto(url, { waitUntil: 'load', timeout: 30000 });
 let builder;
 let outputId;
 let browserPending = new Set();
 let requestMonitor;
 
 const api = async (path, body) => {
-  assert(!path.startsWith(`${root}/${protectedExplorer}/`), `Refusing to call the protected Explorer: ${path}`);
-  if (path.startsWith(`${root}/`) && path !== `${root}/selections`) {
-    assert(path.startsWith(`${root}/${explorer}/`), `Refusing to call an unowned Explorer route: ${path}`);
-  }
-  const response = await fetch(apiOrigin + path, {
-    method: body ? 'POST' : 'GET',
-    headers: { 'Content-Type': 'application/json', 'X-Request-ID': `repeated-contributor-${randomUUID()}` },
-    ...(body ? { body: JSON.stringify(body) } : {}),
-    signal: AbortSignal.timeout(30000),
-  });
+  const startedAt = Date.now();
+  const headers = { 'Content-Type': 'application/json', 'X-Request-ID': `native-cda-${randomUUID()}` };
+  const url = apiOrigin + path;
+  const response = body === undefined
+    ? await cda.request.get(url, { headers, timeout: 30000 })
+    : await cda.request.post(url, { headers, data: body, timeout: 30000 });
   const value = await response.json();
-  report.requests.push({ path, status: response.status });
-  assert(response.ok, `${path}: ${JSON.stringify(value)}`);
+  const apiEvidence = { path, status: response.status(), body, response: value, startedAt, completedAt: Date.now() };
+  report.apiCalls?.push(apiEvidence);
+  report.requests?.push(apiEvidence);
+  assert(response.ok(), `${path}: ${JSON.stringify(value)}`);
   return value;
 };
 
@@ -391,20 +343,21 @@ const assertUniqueTerminalRows = (rows, name) => {
     `${name}: a repeated primitive occurrence duplicated its terminal Observation record`);
 };
 
-const visibleRows = async () => inspectPage(browser.page,
-  `const root=document.querySelector('[data-testid="preview-table-scroll"]');
-    const table=root?.querySelector('[role="table"]');
-    if(!root||!table)throw new Error('Preview table is not mounted');
-    const total=Number(table.getAttribute('aria-rowcount'))-1;
-    const rows=[...table.querySelectorAll('[role="row"]')].flatMap(row=>{
-      const ordinal=Number(row.firstElementChild?.textContent?.trim());
-      const cells=[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText.trim());
-      return Number.isInteger(ordinal)&&ordinal>0&&cells.length?[[ordinal,cells]]:[];
-    });
-    return {total,rows};`);
+const visibleRows = async () => inspectPage(page, () => {
+  const root = document.querySelector('[data-testid="preview-table-scroll"]');
+  const table = root?.querySelector('[role="table"]');
+  if (!root || !table) throw new Error('Preview table is not mounted');
+  const total = Number(table.getAttribute('aria-rowcount')) - 1;
+  const rows = [...table.querySelectorAll('[role="row"]')].flatMap(row => {
+    const ordinal = Number(row.firstElementChild?.textContent?.trim());
+    const cells = [...row.querySelectorAll('[role="cell"]')].map(cell => cell.innerText.trim());
+    return Number.isInteger(ordinal) && ordinal > 0 && cells.length ? [[ordinal, cells]] : [];
+  });
+  return { total, rows };
+});
 
 const displayedRows = async () => {
-  const root = requireUnique(browser.page.locator('[data-testid="preview-table-scroll"]'), 'Preview table scroll region');
+  const root = requireUnique(page.locator('[data-testid="preview-table-scroll"]'), 'Preview table scroll region');
   await performAction(report, 'Scroll preview rows to first row', root, (target, options) => target.press('Home', options));
   const rows = new Map();
   let total;
@@ -422,14 +375,14 @@ const displayedRows = async () => {
 
 const revealControl = async (selector, includes) => {
   const label = `Scroll ${selector} into view`;
-  report.activeAction = { label, locator: selector, targetLocator: browser.page.locator(selector), startedAt: Date.now() };
-  const locator = await resolveActionLocator(browser.page, selector, { includes });
+  report.activeAction = { label, locator: selector, targetLocator: page.locator(selector), startedAt: Date.now() };
+  const locator = await resolveActionLocator(page, selector, { includes });
   report.activeAction.targetLocator = locator;
   report.activeAction.locator = locator.toString();
   const elapsedMs = await performAction(report, label, locator, (target, options) => target.scrollIntoViewIfNeeded(options));
   report.lastAction = { label, locator: locator.toString(), targetLocator: locator, elapsedMs, startedAt: Date.now() - elapsedMs };
   const box = await locator.boundingBox();
-  const viewport = browser.page.viewportSize();
+  const viewport = page.viewportSize();
   assert(box && box.y >= 0 && box.y + box.height <= viewport.height,
     `Control remains outside the viewport after Playwright scroll: ${JSON.stringify({ box, viewport })}`);
   return { box, viewport };
@@ -451,7 +404,7 @@ const recordAction = (name, startedAt, details = {}) => {
 };
 
 const rendered = async (expectedRows, name) => {
-  await waitForBrowser(browser.page, { kind: 'rows', selector: '[data-testid="preview-table-scroll"] [role="table"]',
+  await waitForBrowser(page, { kind: 'rows', selector: '[data-testid="preview-table-scroll"] [role="table"]',
     count: Math.min(25, expectedRows.length), loadingText: 'Loading your table…' });
   const snapshot = await displayedRows();
   const expectedCount = Math.min(25, expectedRows.length);
@@ -464,13 +417,17 @@ const rendered = async (expectedRows, name) => {
 };
 
 const proposal = async (name, startedAt, expectedRows) => {
-  await waitForBrowser(browser.page, { kind: 'status-in', selector: '[data-testid="construction-proposal-panel"]',
+  await waitForBrowser(page, { kind: 'status-in', selector: '[data-testid="construction-proposal-panel"]',
     statuses: ['ready', 'error', 'needs-repair'] });
-  const result = await inspectPage(browser.page,
-    `const panel=document.querySelector('[data-testid="construction-proposal-panel"]');return {
-      status:panel?.dataset.proposalStatus,text:panel?.innerText,
-      rows:[...document.querySelectorAll('[data-testid="construction-proposal-preview-row"]')]
-        .map(row=>[...row.querySelectorAll('td')].map(cell=>cell.innerText.trim()))};`);
+  const result = await inspectPage(page, () => {
+    const panel = document.querySelector('[data-testid="construction-proposal-panel"]');
+    return {
+      status: panel?.dataset.proposalStatus,
+      text: panel?.innerText,
+      rows: [...document.querySelectorAll('[data-testid="construction-proposal-preview-row"]')]
+        .map(row => [...row.querySelectorAll('td')].map(cell => cell.innerText.trim())),
+    };
+  });
   assert.equal(result.status, 'ready', `${name}: ${result.text}`);
   assertRows(result.rows, expectedRows, name);
   const durationMs = Date.now() - startedAt;
@@ -481,26 +438,26 @@ const proposal = async (name, startedAt, expectedRows) => {
 
 const open = async (expectedRows, name) => {
   const startedAt = Date.now();
-  await navigate(browser.page, pageURL);
-  await waitForBrowser(browser.page, { kind: 'present', selector: `[data-testid="construction-table-${outputId}"]` });
-  await click(browser.page, `[data-testid="construction-table-${outputId}"]`);
-  await waitForBrowser(browser.page, { kind: 'enabled', selector: '[data-testid="construction-rows-settings-trigger"]' });
+  await navigate(page, pageURL);
+  await waitForBrowser(page, { kind: 'present', selector: `[data-testid="construction-table-${outputId}"]` });
+  await click(page, `[data-testid="construction-table-${outputId}"]`);
+  await waitForBrowser(page, { kind: 'enabled', selector: '[data-testid="construction-rows-settings-trigger"]' });
   const rows = await rendered(expectedRows, name);
   recordAction(name, startedAt, { rowCount: rows.length });
 };
 
 const startRelatedExpand = async () => {
   const startedAt = Date.now();
-  await click(browser.page, '[data-testid="construction-rows-settings-trigger"]');
-  await waitForBrowser(browser.page, { kind: 'enabled', selector: '[data-testid="construction-action-related-rows"]' });
-  await click(browser.page, '[data-testid="construction-action-related-rows"]');
+  await click(page, '[data-testid="construction-rows-settings-trigger"]');
+  await waitForBrowser(page, { kind: 'enabled', selector: '[data-testid="construction-action-related-rows"]' });
+  await click(page, '[data-testid="construction-action-related-rows"]');
   const panel = '[data-testid="construction-related-expand-editor"]';
-  await waitForBrowser(browser.page, { kind: 'enabled', selector: `${panel} select[aria-label="Related record type"]` });
-  await selectOption(browser.page, `${panel} select[aria-label="Related record type"]`, 'Observation');
+  await waitForBrowser(page, { kind: 'enabled', selector: `${panel} select[aria-label="Related record type"]` });
+  await selectOption(page, `${panel} select[aria-label="Related record type"]`, 'Observation');
   const route = 'Patient <-[subject]- Observation';
-  await waitForBrowser(browser.page, { kind: 'present', selector: `${panel} input[aria-label="${route}"]` });
-  await click(browser.page, `${panel} input[aria-label="${route}"]`);
-  await waitForBrowser(browser.page, { kind: 'present', selector: `${panel} [data-testid="construction-related-expand-contributor-options"]` });
+  await waitForBrowser(page, { kind: 'present', selector: `${panel} input[aria-label="${route}"]` });
+  await click(page, `${panel} input[aria-label="${route}"]`);
+  await waitForBrowser(page, { kind: 'present', selector: `${panel} [data-testid="construction-related-expand-contributor-options"]` });
   recordAction('open-related-expand-editor', startedAt);
   return panel;
 };
@@ -523,36 +480,35 @@ const waitForContributorSearch = async responsePromise => {
 const chooseRepeatedContributorCondition = async (panel, oracle, actionName, condition) => {
   const startedAt = Date.now();
   const options = `${panel} [data-testid="construction-related-expand-contributors"]`;
-  await selectOption(browser.page, `${panel} select[aria-label="If a current row has no matches"]`, 'PRESERVE_PARENT');
+  await selectOption(page, `${panel} select[aria-label="If a current row has no matches"]`, 'PRESERVE_PARENT');
   const disclosure = `${panel} [data-testid="construction-related-expand-contributor-options"]`;
-  await waitForBrowser(browser.page, { kind: 'present', selector: `${disclosure} summary` });
-  const disclosureState = await inspectPage(browser.page,
-    `return document.querySelector(${JSON.stringify(disclosure)})?.open ?? false;`);
+  await waitForBrowser(page, { kind: 'present', selector: `${disclosure} summary` });
+  const disclosureState = await inspectPage(page, () => document.querySelector('[data-testid="construction-related-expand-contributor-options"]')?.open ?? false);
   if (!disclosureState) {
     await revealControl(`${disclosure} summary`);
-    await click(browser.page, `${disclosure} summary`);
-    await waitForBrowser(browser.page, { kind: 'open', selector: disclosure, value: true });
+    await click(page, `${disclosure} summary`);
+    await waitForBrowser(page, { kind: 'open', selector: disclosure, value: true });
   }
   const onlyRecords = `${options} label`;
   await revealControl(onlyRecords, 'Only records meeting a condition');
-  await click(browser.page, onlyRecords, { includes: 'Only records meeting a condition' });
-  await waitForBrowser(browser.page, { kind: 'present', selector: `${options} input[placeholder="Search field name or path"]` });
+  await click(page, onlyRecords, { includes: 'Only records meeting a condition' });
+  await waitForBrowser(page, { kind: 'present', selector: `${options} input[placeholder="Search field name or path"]` });
   const search = `${options} input[placeholder="Search field name or path"]`;
   await revealControl(search);
-  await click(browser.page, search);
+  await click(page, search);
   const searchStartedAt = Date.now();
-  const searchResponsePromise = browser.page.waitForResponse(response => {
+  const searchResponsePromise = page.waitForResponse(response => {
     const url = new URL(response.url());
     const entry = requestMonitor.byRequest.get(response.request());
     return url.origin === new URL(uiOrigin).origin && url.pathname === `${base}/related-expand-contributors`
       && entry?.body?.query === nestedCodePath && entry.startedAt >= searchStartedAt;
   }, { timeout: 5000 });
-  await fill(browser.page, search, nestedCodePath);
-  await waitForBrowser(browser.page, { kind: 'some-text', selector: `${options} [role="group"][aria-label="Fields for related-record condition"] button`, text: nestedCodePath });
+  await fill(page, search, nestedCodePath);
+  await waitForBrowser(page, { kind: 'some-text', selector: `${options} [role="group"][aria-label="Fields for related-record condition"] button`, text: nestedCodePath });
   const choiceResponse = await waitForContributorSearch(searchResponsePromise);
-  const visibleChoices = await inspectPage(browser.page,
-    `return [...document.querySelectorAll('${options} [role="group"][aria-label="Fields for related-record condition"] button')]
-      .map(button=>({text:button.innerText.trim(),pressed:button.getAttribute('aria-pressed')}));`);
+  const visibleChoices = await inspectPage(page, selector =>
+    [...document.querySelectorAll(`${selector} [role="group"][aria-label="Fields for related-record condition"] button`)]
+      .map(button => ({ text: button.innerText.trim(), pressed: button.getAttribute('aria-pressed') })), options);
   const rawObservations = oracle.witnesses.flatMap((item) => item.observations);
   const choice = choiceResponse.choices.find((candidate) => candidate.source.path === nestedCodePath
     && candidate.source.resourceType === 'Observation'
@@ -645,31 +601,35 @@ const chooseRepeatedContributorCondition = async (panel, oracle, actionName, con
   const contributorFieldButtons = `${options} [role="group"][aria-label="Fields for related-record condition"] button`;
   const fieldIdentity = `${choice.source.path} · ${choice.source.logicalType}`;
   await revealControl(contributorFieldButtons, fieldIdentity);
-  await click(browser.page, contributorFieldButtons, { includes: fieldIdentity });
-  await waitForBrowser(browser.page, { kind: 'value', selector: `${options} select`, value: 'EXISTS' });
+  await click(page, contributorFieldButtons, { includes: fieldIdentity });
+  await waitForBrowser(page, { kind: 'value', selector: `${options} select`, value: 'EXISTS' });
   await revealControl(`${options} select`);
-  if (condition === 'EQUALS') await selectOption(browser.page, `${options} select`, 'EQUALS');
-  const helpText = await inspectPage(browser.page,
-    `return document.querySelector('${options} [role="note"]')?.innerText ?? '';`);
+  if (condition === 'EQUALS') await selectOption(page, `${options} select`, 'EQUALS');
+  const helpText = await inspectPage(page, selector =>
+    document.querySelector(`${selector} [role="note"]`)?.innerText ?? '', options);
   assert(helpText.includes('any value')
     && (condition === 'EXISTS' || (choice.source.logicalType === 'code'
       ? helpText.includes('code alone') : helpText.includes('exact value below'))),
     `Repeated code condition did not explain its ANY/code-only match: ${helpText}`);
   const valueLabel = choice.source.logicalType === 'code' ? 'Code' : 'Exact value';
   if (condition === 'EQUALS') {
-    await waitForBrowser(browser.page, { kind: 'label-input-starts', selector: `${options} label`, text: valueLabel });
+    await waitForBrowser(page, { kind: 'label-input-starts', selector: `${options} label`, text: valueLabel });
     await revealControl(`${options} label`, valueLabel);
     const suggestions = `${options} [aria-label="Catalog value suggestions"] button`;
-    await waitForBrowser(browser.page, { kind: 'some-text-exact', selector: suggestions, text: targetValue });
+    await waitForBrowser(page, { kind: 'some-text-exact', selector: suggestions, text: targetValue });
     await revealControl(suggestions, targetValue);
-    await click(browser.page, suggestions, { name: targetValue });
-    await waitForBrowser(browser.page, { kind: 'label-input-value', selector: `${options} label`, text: valueLabel, value: targetValue });
+    await click(page, suggestions, { name: targetValue });
+    await waitForBrowser(page, { kind: 'label-input-value', selector: `${options} label`, text: valueLabel, value: targetValue });
   }
-  const selected = await inspectPage(browser.page,
-    `const label=[...document.querySelectorAll('${options} label')].find(item=>item.innerText.trim().startsWith(${JSON.stringify(valueLabel)}));
-      return {condition:document.querySelector('${options} select')?.value,
-        field:document.querySelector('${options} [aria-pressed="true"]')?.innerText.trim(),
-        value:label?.querySelector('input')?.value};`);
+  const selected = await inspectPage(page, ({ selector, valueLabel }) => {
+    const label = [...document.querySelectorAll(`${selector} label`)]
+      .find(item => item.innerText.trim().startsWith(valueLabel));
+    return {
+      condition: document.querySelector(`${selector} select`)?.value,
+      field: document.querySelector(`${selector} [aria-pressed="true"]`)?.innerText.trim(),
+      value: label?.querySelector('input')?.value,
+    };
+  }, { selector: options, valueLabel });
   assert.equal(selected.condition, condition);
   assert(selected.field?.includes(nestedCodePath) && selected.field?.includes(choice.source.logicalType), JSON.stringify(selected));
   if (condition === 'EQUALS') assert.equal(selected.value, targetValue);
@@ -685,340 +645,277 @@ const chooseRepeatedContributorCondition = async (panel, oracle, actionName, con
 
 const beginEdit = async (stepId) => {
   const startedAt = Date.now();
-  await click(browser.page, `[data-testid="construction-history-step-${stepId}"]`);
-  await click(browser.page, `[data-testid="construction-edit-step-${stepId}"]`);
+  await click(page, `[data-testid="construction-history-step-${stepId}"]`);
+  await click(page, `[data-testid="construction-edit-step-${stepId}"]`);
   const policy = '[data-testid="construction-related-expand-editor"] select[aria-label="If a current row has no matches"]';
-  await waitForBrowser(browser.page, { kind: 'enabled', selector: policy });
+  await waitForBrowser(page, { kind: 'enabled', selector: policy });
   await revealControl(policy);
   recordAction('edit-saved-step-to-policy-control', startedAt);
 };
 
 const applyProposal = async (expectedRows, name) => {
   const startedAt = Date.now();
-  await click(browser.page, '[data-testid="construction-apply-proposal"]');
-  await waitForBrowser(browser.page, { kind: 'hidden', selector: '[data-testid="construction-proposal-panel"]' });
+  await click(page, '[data-testid="construction-apply-proposal"]');
+  await waitForBrowser(page, { kind: 'hidden', selector: '[data-testid="construction-proposal-panel"]' });
   await rendered(expectedRows, name);
   recordAction(name, startedAt, { rowCount: expectedRows.length });
   builder = await api(base + '/builder');
 };
 
-try {
-  await api(root, { name: explorer, title: 'Repeated Contributor code lifecycle QA' });
-  builder = await api(base + '/builder');
-  assert.equal(builder.catalog.generation, generation);
-  const oracle = await sourceWitnesses(builder.catalog);
-  const witnesses = oracle.witnesses;
-  report.oracle = {
-    project,
-    generation,
-    relationship: 'Observation --subject_Patient--> Patient',
-    boundedManyCandidateCount: oracle.candidateCount,
-    candidatePatientLimit,
-    relatedObservationLimit,
-    observationEdgeLimit,
-    categoryLimit,
-    codingPerCategoryLimit,
-    manyWitnessPatientLimit,
-    manyCandidateLimit,
-    sourceCandidateId: oracle.sourceCandidateId,
-    boundedObservationCount: oracle.observationCount,
-    nestedCodeCounts: oracle.nestedCodeCounts,
-    nestedCodeDetails: oracle.nestedCodeDetails,
-    literalCodeMatching: true,
-    codingSystemCorrelation: false,
-    witnessAvailability: report.oracleWitnessAvailability,
-    witnesses,
-    patientCountByBucket: Object.fromEntries([...new Set(witnesses.map((item) => item.bucket))]
-      .map((bucket) => [bucket, witnesses.filter((item) => item.bucket === bucket).length])),
-    observationCountByBucket: Object.fromEntries([...new Set(witnesses.map((item) => item.bucket))]
-      .map((bucket) => [bucket, witnesses.filter((item) => item.bucket === bucket)
-        .reduce((count, item) => count + item.observations.length, 0)])),
-  };
-  const baselineRows = witnesses.map((item) => [item.patient.id]);
 
-  const patientNode = builder.catalog.nodes.find((node) => node.resourceType === 'Patient');
-  assert(patientNode, 'Patient source type is absent from the current catalog');
-  await command([{ type: 'CREATE_TABLE', title: 'Contributor code QA', rootNodeId: patientNode.nodeId }]);
-  outputId = builder.workspace.documents[0].output.id;
-  const patientIDField = builder.catalog.candidates.find((candidate) => candidate.nodeId === patientNode.nodeId && candidate.fieldPath === 'id');
-  assert(patientIDField, 'Patient ID is absent from the current catalog');
-  await command([{ type: 'ADD_COLUMN', outputId, occurrenceId: 'base', candidateId: patientIDField.candidateId,
-    projectionMode: 'VALUE', initialPresentation: 'TABLE', title: 'Patient ID' }]);
-  const selection = await api(base.replace('/authoring/v2', '/selections'), {
-    snapshotToken: builder.catalog.snapshotToken,
-    idempotencyKey: explorer,
-    source: { kind: 'resources', resources: { refs: witnesses.map(({ patient }) => ({
-      project, generation, resourceType: 'Patient', id: patient.id,
-    })) } },
-  });
-  assert.equal(selection.memberCount, witnesses.length,
-    'Selection must contain each independently witnessed source row');
-  const routes = await api(base + '/population-routes', {
-    snapshotToken: builder.catalog.snapshotToken, outputId, selectionRevisionId: selection.id, limit: 50,
-  });
-  const direct = routes.choices.find((choice) => choice.route.length === 0);
-  assert(direct, 'Selected Patient resources have no direct population route');
-  await command([{ type: 'SET_TABLE_POPULATION', outputId, selectionRevisionId: selection.id, routeChoiceId: direct.routeChoiceId }]);
-  const original = structuredClone(documentForOutput(builder));
-  assert.equal(original.population.selectionRevisionId, selection.id);
+report.target ??= { ...cda.report.target };
+report.nativeRequests = cda.report.nativeRequests;
+report.errors = cda.report.errors;
 
-  browser = await launchBrowser({
-    evidence,
-    appOrigins: [apiOrigin, uiOrigin],
-    noAuth: process.env.LOOM_CDA_NO_AUTH === '1',
-  });
-  requestMonitor = captureCDARequests(browser.page, {
-    apiOrigin: uiOrigin,
-    appOrigins: [apiOrigin, uiOrigin],
-    ownedPathPrefix: `${root}/${explorer}`,
-    responsePaths: /related-expand-contributors|commands|selections|explicit-groups|row-definition-proposals|construction-choice-proposals|construction-proposals|construction-capabilities|row-lineage|population-mapping|preview/,
-    report,
-    shouldReportRequestFailure: (entry, request) => {
-      const replacement = laterSamePathSearch(entry);
-      return request.failure()?.errorText === 'net::ERR_ABORTED'
-        && entry.path.endsWith('/related-expand-contributors') && replacement
-        ? { expected: true, reason: `A later owned Contributor search (${replacement.requestId}) superseded the prior catalog request.` } : true;
-    },
-  });
-  browserPending = requestMonitor.pendingReads;
-  browser.page.on('request', (request) => {
-    const url = new URL(request.url());
-    if (!browserRequestOrigins.has(url.origin)) return;
-    if (url.pathname.startsWith(`${root}/${protectedExplorer}/`)) {
-      report.protectedExplorerUntouched = false;
-      report.errors.push({ kind: 'protected-explorer-request', path: url.pathname });
+  try {
+
+await api(root, { name: explorer, title: 'Repeated Contributor code lifecycle QA' });
+builder = await api(base + '/builder');
+assert.equal(builder.catalog.generation, generation);
+const oracle = await sourceWitnesses(builder.catalog);
+const witnesses = oracle.witnesses;
+report.oracle = {
+  project,
+  generation,
+  relationship: 'Observation --subject_Patient--> Patient',
+  boundedManyCandidateCount: oracle.candidateCount,
+  candidatePatientLimit,
+  relatedObservationLimit,
+  observationEdgeLimit,
+  categoryLimit,
+  codingPerCategoryLimit,
+  manyWitnessPatientLimit,
+  manyCandidateLimit,
+  sourceCandidateId: oracle.sourceCandidateId,
+  boundedObservationCount: oracle.observationCount,
+  nestedCodeCounts: oracle.nestedCodeCounts,
+  nestedCodeDetails: oracle.nestedCodeDetails,
+  literalCodeMatching: true,
+  codingSystemCorrelation: false,
+  witnessAvailability: report.oracleWitnessAvailability,
+  witnesses,
+  patientCountByBucket: Object.fromEntries([...new Set(witnesses.map((item) => item.bucket))]
+    .map((bucket) => [bucket, witnesses.filter((item) => item.bucket === bucket).length])),
+  observationCountByBucket: Object.fromEntries([...new Set(witnesses.map((item) => item.bucket))]
+    .map((bucket) => [bucket, witnesses.filter((item) => item.bucket === bucket)
+      .reduce((count, item) => count + item.observations.length, 0)])),
+};
+const baselineRows = witnesses.map((item) => [item.patient.id]);
+
+const patientNode = builder.catalog.nodes.find((node) => node.resourceType === 'Patient');
+assert(patientNode, 'Patient source type is absent from the current catalog');
+await command([{ type: 'CREATE_TABLE', title: 'Contributor code QA', rootNodeId: patientNode.nodeId }]);
+outputId = builder.workspace.documents[0].output.id;
+const patientIDField = builder.catalog.candidates.find((candidate) => candidate.nodeId === patientNode.nodeId && candidate.fieldPath === 'id');
+assert(patientIDField, 'Patient ID is absent from the current catalog');
+await command([{ type: 'ADD_COLUMN', outputId, occurrenceId: 'base', candidateId: patientIDField.candidateId,
+  projectionMode: 'VALUE', initialPresentation: 'TABLE', title: 'Patient ID' }]);
+const selection = await api(base.replace('/authoring/v2', '/selections'), {
+  snapshotToken: builder.catalog.snapshotToken,
+  idempotencyKey: explorer,
+  source: { kind: 'resources', resources: { refs: witnesses.map(({ patient }) => ({
+    project, generation, resourceType: 'Patient', id: patient.id,
+  })) } },
+});
+assert.equal(selection.memberCount, witnesses.length,
+  'Selection must contain each independently witnessed source row');
+const routes = await api(base + '/population-routes', {
+  snapshotToken: builder.catalog.snapshotToken, outputId, selectionRevisionId: selection.id, limit: 50,
+});
+const direct = routes.choices.find((choice) => choice.route.length === 0);
+assert(direct, 'Selected Patient resources have no direct population route');
+await command([{ type: 'SET_TABLE_POPULATION', outputId, selectionRevisionId: selection.id, routeChoiceId: direct.routeChoiceId }]);
+const original = structuredClone(documentForOutput(builder));
+assert.equal(original.population.selectionRevisionId, selection.id);
+
+requestMonitor = captureCDARequests(page, {
+  apiOrigin: uiOrigin,
+  appOrigins: [apiOrigin, uiOrigin],
+  ownedPathPrefix: `${root}/${explorer}`,
+  responsePaths: /related-expand-contributors|commands|selections|explicit-groups|row-definition-proposals|construction-choice-proposals|construction-proposals|construction-capabilities|row-lineage|population-mapping|preview/,
+  report,
+});
+browserPending = requestMonitor.pendingReads;
+page.on('request', (request) => {
+  const url = new URL(request.url());
+  if (!browserRequestOrigins.has(url.origin)) return;
+  if (url.pathname.startsWith(`${root}/${protectedExplorer}/`)) {
+    report.protectedExplorerUntouched = false;
+    report.errors.push({ kind: 'protected-explorer-request', path: url.pathname });
+    return;
+  }
+  if (url.pathname === root || url.pathname.startsWith(`${root}/`)) {
+    report.browserExplorerRequests.push({ path: url.pathname });
+    if (url.pathname !== `${root}/selections` && url.pathname !== root
+        && !url.pathname.startsWith(`${root}/${explorer}/`)) {
+      report.errors.push({ kind: 'foreign-explorer-request', path: url.pathname });
       return;
     }
-    if (url.pathname === root || url.pathname.startsWith(`${root}/`)) {
-      report.browserExplorerRequests.push({ path: url.pathname });
-      if (url.pathname !== `${root}/selections` && url.pathname !== root
-          && !url.pathname.startsWith(`${root}/${explorer}/`)) {
-        report.errors.push({ kind: 'foreign-explorer-request', path: url.pathname });
-        return;
-      }
-    }
-  });
-  browser.page.on('response', (response) => {
-    const url = new URL(response.url());
-    if (url.origin !== new URL(uiOrigin).origin || response.status() < 400 || url.pathname.endsWith('/favicon.ico')) return;
-    report.errors.push({ kind: 'http', url: sanitizeText(response.url()), status: response.status() });
-  });
-  browser.page.on('requestfailed', (request) => {
-    const url = new URL(request.url());
-    if (url.origin !== new URL(uiOrigin).origin || request.failure()?.errorText === 'net::ERR_ABORTED') return;
-    if (request.resourceType() === 'script') report.errors.push({ kind: 'module', url: sanitizeText(request.url()), error: sanitizeText(request.failure()?.errorText) });
-  });
-
-  await open(baselineRows, 'source-selection-bounded-witness-buckets');
-  let panel = await startRelatedExpand();
-  let startedAt = Date.now();
-  const existsChoice = await chooseRepeatedContributorCondition(panel, oracle,
-    'configure-repeated-nested-code-exists', 'EXISTS');
-  const existsPreserveRows = rowsForRepeatedCodeExists(witnesses, true);
-  const existsExcludedRows = rowsForRepeatedCodeExists(witnesses, false);
-  report.existsRule = { condition: 'EXISTS', quantifier: 'ANY', sourceField: nestedCodePath,
-    logicalType: existsChoice.choice.source.logicalType,
-    matchingObservationCount: witnesses.flatMap((witness) => witness.observations)
-      .filter((observation) => observation.hasCodeValue).length,
-    preservedNoMatchRows: existsPreserveRows.length - existsExcludedRows.length };
-  startedAt = Date.now();
-  await proposal('repeated-nested-code-exists-preview', startedAt, existsPreserveRows);
-  const beforeExistsCancel = await api(base + '/builder');
-  startedAt = Date.now();
-  await click(browser.page, '[data-testid="construction-cancel-proposal"]');
-  await waitForBrowser(browser.page, { kind: 'hidden', selector: '[data-testid="construction-proposal-panel"]' });
-  await rendered(baselineRows, 'cancel-repeated-nested-code-exists-preview');
-  recordAction('cancel-repeated-nested-code-exists-preview', startedAt, { rowCount: baselineRows.length });
-  builder = await api(base + '/builder');
-  assert.deepEqual(builder.workspace, beforeExistsCancel.workspace,
-    'Cancel must leave the workspace unchanged after the repeated EXISTS preview');
-  assert.deepEqual(documentForOutput(builder), original,
-    'Cancel must preserve the source table after the repeated EXISTS preview');
-  report.cases.push({ name: 'repeated-exists-cancel-preserves-source', workspaceUnchanged: true });
-
-  panel = await startRelatedExpand();
-  const cancelledChoice = await chooseRepeatedContributorCondition(panel, oracle,
-    'configure-nested-code-contributor-controls', 'EQUALS');
-  const cancelledPreserveRows = rowsForNestedCode(witnesses, cancelledChoice.targetValue, true);
-  const cancelledExcludedRows = rowsForNestedCode(witnesses, cancelledChoice.targetValue, false);
-  report.oracle.equalityPreservedNoMatchRows = cancelledPreserveRows.length - cancelledExcludedRows.length;
-  if (cancelledPreserveRows.length === cancelledExcludedRows.length) {
-    report.controls.uncovered.push('No source Patient in the bounded selected witness set had zero related Observations matching the selected code, so PRESERVE_PARENT versus EXCLUDE is not distinguished by this fixture.');
   }
-  startedAt = Date.now();
-  await proposal('contributor-nested-code-equals-preview', startedAt, cancelledPreserveRows);
-  const beforeCancel = await api(base + '/builder');
-  startedAt = Date.now();
-  await click(browser.page, '[data-testid="construction-cancel-proposal"]');
-  await waitForBrowser(browser.page, { kind: 'hidden', selector: '[data-testid="construction-proposal-panel"]' });
-  await rendered(baselineRows, 'cancel-contributor-preview');
-  recordAction('cancel-contributor-preview', startedAt, { rowCount: baselineRows.length });
-  builder = await api(base + '/builder');
-  assert.deepEqual(builder.workspace, beforeCancel.workspace, 'Cancel must leave the saved workspace unchanged');
-  assert.deepEqual(documentForOutput(builder), original, 'Cancel must preserve the exact source table');
-  report.cases.push({ name: 'contributor-rule-cancel-preserves-source', workspaceUnchanged: true });
+});
+page.on('response', (response) => {
+  const url = new URL(response.url());
+  if (url.origin !== new URL(uiOrigin).origin || response.status() < 400 || url.pathname.endsWith('/favicon.ico')) return;
+  report.errors.push({ kind: 'http', url: sanitizeText(response.url()), status: response.status() });
+});
+page.on('requestfailed', (request) => {
+  const url = new URL(request.url());
+  if (url.origin !== new URL(uiOrigin).origin || request.failure()?.errorText === 'net::ERR_ABORTED') return;
+  if (request.resourceType() === 'script') report.errors.push({ kind: 'module', url: sanitizeText(request.url()), error: sanitizeText(request.failure()?.errorText) });
+});
 
-  panel = await startRelatedExpand();
-  const selectedChoice = await chooseRepeatedContributorCondition(panel, oracle,
-    'reconfigure-nested-code-after-cancel', 'EQUALS');
-  assert.equal(selectedChoice.targetValue, cancelledChoice.targetValue,
-    'The same native catalog suggestion must be selected after Cancel');
-  assert.equal(selectedChoice.choice.choiceId, cancelledChoice.choice.choiceId,
-    'The same signed field choice must be selected after Cancel');
-  assert.deepEqual(selectedChoice.choice.source, cancelledChoice.choice.source,
-    'The same signed source field must be selected after Cancel');
-  const preserveRows = rowsForNestedCode(witnesses, selectedChoice.targetValue, true);
-  const excludedRows = rowsForNestedCode(witnesses, selectedChoice.targetValue, false);
-  report.oracle.selectedCatalogValue = selectedChoice.targetValue;
-  report.oracle.matchedNestedCodeCountInManyWitness = oracle.nestedCodeCounts[selectedChoice.targetValue];
-  assert.equal(preserveRows.length - excludedRows.length, report.oracle.equalityPreservedNoMatchRows,
-    'Cancel and reconfiguration must retain the same independently witnessed no-match rows');
-  startedAt = Date.now();
-  await proposal('confirmed-contributor-nested-code-equals-preview', startedAt, preserveRows);
-  await applyProposal(preserveRows, 'apply-contributor-nested-code-rule-to-render');
-  let relatedStep = documentForOutput(builder).construction.steps.find((step) => step.operation.kind === 'RELATED_EXPAND');
-  assert(relatedStep, 'Applied contributor rule is missing from saved construction');
-  const sourceProjection = relatedStep.outputs.find((column) => column.name === original.columns[0].column);
-  assert(sourceProjection?.id, 'Applied related-expand step omitted the compiler-owned source projection identity');
-  const canonicalSourceColumnId = sourceProjection.id;
-  assertStableSourceProjection(builder, original, canonicalSourceColumnId, 'initial contributor Apply');
-  report.sourceColumnIdentity = {
-    sourceColumnName: sourceProjection.name,
-    compilerCanonicalSourceColumnId: canonicalSourceColumnId,
-  };
-  assertPersistedEqualsRule(codeRule(relatedStep), selectedChoice.choice, selectedChoice.targetValue, 'PRESERVE_PARENT',
-    'initial Contributor category[].coding[].code Apply');
-  report.persistedNestedCodeCondition = {
-    operator: 'EQUALS', valueKind: typedEqualsValue(selectedChoice.choice, selectedChoice.targetValue).kind,
-    sourceLogicalType: selectedChoice.choice.source.logicalType, selectedCatalogValue: selectedChoice.targetValue,
-    source: report.contributorChoice, signedSourcePersisted: true, selectedChoicePersisted: true,
-    noMatchPolicy: 'PRESERVE_PARENT',
-  };
-  await open(preserveRows, 'reload-contributor-nested-code-equals');
+await open(baselineRows, 'source-selection-bounded-witness-buckets');
+let panel = await startRelatedExpand();
+let startedAt = Date.now();
+const existsChoice = await chooseRepeatedContributorCondition(panel, oracle,
+  'configure-repeated-nested-code-exists', 'EXISTS');
+const existsPreserveRows = rowsForRepeatedCodeExists(witnesses, true);
+const existsExcludedRows = rowsForRepeatedCodeExists(witnesses, false);
+report.existsRule = { condition: 'EXISTS', quantifier: 'ANY', sourceField: nestedCodePath,
+  logicalType: existsChoice.choice.source.logicalType,
+  matchingObservationCount: witnesses.flatMap((witness) => witness.observations)
+    .filter((observation) => observation.hasCodeValue).length,
+  preservedNoMatchRows: existsPreserveRows.length - existsExcludedRows.length };
+startedAt = Date.now();
+await proposal('repeated-nested-code-exists-preview', startedAt, existsPreserveRows);
+const beforeExistsCancel = await api(base + '/builder');
+startedAt = Date.now();
+await nativeClick(page, '[data-testid="construction-cancel-proposal"]', {});
+await waitForBrowser(page, { kind: 'hidden', selector: '[data-testid="construction-proposal-panel"]' }, [], 5000);
+await rendered(baselineRows, 'cancel-repeated-nested-code-exists-preview');
+recordAction('cancel-repeated-nested-code-exists-preview', startedAt, { rowCount: baselineRows.length });
+builder = await api(base + '/builder');
+assert.deepEqual(builder.workspace, beforeExistsCancel.workspace,
+  'Cancel must leave the workspace unchanged after the repeated EXISTS preview');
+assert.deepEqual(documentForOutput(builder), original,
+  'Cancel must preserve the source table after the repeated EXISTS preview');
+report.cases.push({ name: 'repeated-exists-cancel-preserves-source', workspaceUnchanged: true });
 
-  const beforeEdit = await api(base + '/builder');
-  assertStableSourceProjection(beforeEdit, original, canonicalSourceColumnId, 'reload after initial contributor Apply');
-  relatedStep = documentForOutput(beforeEdit).construction.steps.find((step) => step.operation.kind === 'RELATED_EXPAND');
-  assertPersistedEqualsRule(codeRule(relatedStep), selectedChoice.choice, selectedChoice.targetValue, 'PRESERVE_PARENT',
-    'reload after initial Contributor category[].coding[].code Apply');
-  await beginEdit(relatedStep.id);
-  const policySelector = '[data-testid="construction-related-expand-editor"] select[aria-label="If a current row has no matches"]';
-  assert.equal(await inspectPage(browser.page, `return document.querySelector(${JSON.stringify(policySelector)})?.value;`), 'PRESERVE_PARENT');
-  startedAt = Date.now();
-  await selectOption(browser.page, policySelector, 'EXCLUDE');
-  await proposal('edit-policy-exclude-preview', startedAt, excludedRows);
-  await applyProposal(excludedRows, 'apply-exclude-policy-to-render');
-  relatedStep = documentForOutput(builder).construction.steps.find((step) => step.operation.kind === 'RELATED_EXPAND');
-  assertStableSourceProjection(builder, original, canonicalSourceColumnId, 'edited EXCLUDE policy Apply');
-  assertPersistedEqualsRule(codeRule(relatedStep), selectedChoice.choice, selectedChoice.targetValue, 'EXCLUDE',
-    'edited EXCLUDE policy Apply');
-  report.persistedNestedCodeCondition.policyEditKeptCondition = true;
-  report.persistedNestedCodeCondition.noMatchPolicyAfterEdit = 'EXCLUDE';
-  await open(excludedRows, 'reload-edited-exclude-policy');
-
-  const beforeRemoval = await api(base + '/builder');
-  assertStableSourceProjection(beforeRemoval, original, canonicalSourceColumnId, 'reload after edited EXCLUDE policy');
-  relatedStep = documentForOutput(beforeRemoval).construction.steps.find((step) => step.operation.kind === 'RELATED_EXPAND');
-  assertPersistedEqualsRule(codeRule(relatedStep), selectedChoice.choice, selectedChoice.targetValue, 'EXCLUDE',
-    'reload after edited EXCLUDE policy');
-  const remove = async () => {
-    await click(browser.page, `[data-testid="construction-history-step-${relatedStep.id}"]`);
-    startedAt = Date.now();
-    await click(browser.page, `[data-testid="construction-remove-step-${relatedStep.id}"]`);
-    await proposal('remove-contributor-rule-preview', startedAt, baselineRows);
-  };
-  await remove();
-  startedAt = Date.now();
-  await click(browser.page, '[data-testid="construction-cancel-proposal"]');
-  await waitForBrowser(browser.page, { kind: 'hidden', selector: '[data-testid="construction-proposal-panel"]' });
-  await rendered(excludedRows, 'cancel-remove-to-render');
-  recordAction('cancel-remove-to-render', startedAt, { rowCount: excludedRows.length });
-  builder = await api(base + '/builder');
-  assert.deepEqual(builder.workspace, beforeRemoval.workspace, 'Cancel removal must preserve the authored Contributor rule');
-  assertStableSourceProjection(builder, original, canonicalSourceColumnId, 'cancel remove');
-  report.cases.push({ name: 'remove-cancel-preserves-contributor-rule', workspaceUnchanged: true });
-  await remove();
-  await applyProposal(baselineRows, 'apply-remove-to-render');
-  const restored = documentForOutput(builder);
-  assert.deepEqual(restored.construction?.steps ?? [], original.construction?.steps ?? [],
-    'Removing Contributor rules must restore the exact authored source construction');
-  assertStableSourceProjection(builder, original, canonicalSourceColumnId, 'remove Apply');
-  assert.deepEqual(restored.rows, original.rows, 'Removing Contributor rules must restore the exact row definition');
-  assert.deepEqual(restored.population, original.population, 'Removing Contributor rules must restore the exact selected population');
-  await open(baselineRows, 'reload-restored-source-table');
-  builder = await api(base + '/builder');
-  assertStableSourceProjection(builder, original, canonicalSourceColumnId, 'reload after Contributor removal');
-  await Promise.all([...browserPending]);
-  assert(report.protectedExplorerUntouched, `A request unexpectedly targeted protected Explorer ${protectedExplorer}`);
-  assert(report.browserExplorerRequests.every(({ path }) => path === root || path === `${root}/selections`
-    || path.startsWith(`${root}/${explorer}/`)), 'Browser requests must remain within the fresh owned Explorer and global selection route');
-  assert.deepEqual(report.errors, [], 'Unexpected browser errors were reported');
-  report.status = 'passed';
-} catch (error) {
-  report.status = 'failed';
-  report.error = String(error.stack ?? error);
-  if (browser) report.failureTrace = await browser.captureFailure(error, {
-    phase: report.cases.length, action: report.activeAction ?? report.lastAction,
-    elapsedMs: report.activeAction?.startedAt ? Date.now() - report.activeAction.startedAt : report.lastAction?.elapsedMs,
-    requestIdentity: report.nativeRequests.at(-1) && (({ requestId, path, method }) => ({ requestId, path, method }))(report.nativeRequests.at(-1)),
-  }).catch(String);
-  report.failureUI = browser ? await inspectPage(browser.page,
-    `const body=document.body.innerText;return {
-      body:body.slice(0,6000),bodyTail:body.slice(-12000),
-      alerts:[...document.querySelectorAll('[role="alert"]')].map(item=>item.innerText),
-      selects:[...document.querySelectorAll('select')].map(select=>({
-        label:select.getAttribute('aria-label'),value:select.value,disabled:select.disabled,
-        options:[...select.options].map(option=>({label:option.textContent.trim(),value:option.value,disabled:option.disabled}))
-      })),
-      relatedRoutes:[...document.querySelectorAll('input[name^="related-expand-route-"]')].map(input=>({
-        label:input.getAttribute('aria-label'),checked:input.checked,disabled:input.disabled,
-        visible:!input.closest('details:not([open])')
-      }))};`).catch(String) : undefined;
-  process.exitCode = 1;
-} finally {
-  const sourceFreezeFinishedAt = new Date().toISOString();
-  try {
-    report.sourceFreeze = {
-      ...report.sourceFreeze,
-      ...(await sourceFreeze.assertUnchanged()),
-      finishedAt: sourceFreezeFinishedAt,
-    };
-  } catch (error) {
-    report.priorStatus = report.status;
-    report.status = 'invalidated';
-    report.sourceFreeze = {
-      ...report.sourceFreeze,
-      unchanged: false,
-      changedPaths: error.changedPaths ?? [],
-      invalidatesRun: true,
-      productFailure: false,
-      error: String(error),
-      finishedAt: sourceFreezeFinishedAt,
-    };
-    process.exitCode = 1;
-  }
-  try {
-    const after = sourceFingerprint(sourceFreezeRoot);
-    const before = report.sourceFingerprint.before;
-    const unchanged = before.sha256 === after.sha256 && before.files === after.files;
-    report.sourceFingerprint = { ...report.sourceFingerprint, after, unchanged, invalidatesRun: !unchanged };
-    assert(unchanged, 'Watched source fingerprint changed during the run');
-  } catch (error) {
-    report.priorStatus = report.status;
-    report.status = 'invalidated';
-    report.invalidations = [...(report.invalidations ?? []), { kind: 'sourceFingerprint', reason: String(error) }];
-    process.exitCode = 1;
-  }
-  try {
-    report.apiBuildFreeze = { ...report.apiBuildFreeze, ...(await frozenApiBuild.assertUnchanged()) };
-  } catch (error) {
-    report.priorStatus = report.status;
-    report.status = 'invalidated';
-    report.apiBuildFreeze = { ...report.apiBuildFreeze, unchanged: false, invalidatesRun: true, reason: error.reason ?? String(error) };
-    process.exitCode = 1;
-  }
-  report.finished = new Date().toISOString();
-  await writeFile(join(evidence, 'report.json'), JSON.stringify(report, null, 2));
-  await browser?.close();
+panel = await startRelatedExpand();
+const cancelledChoice = await chooseRepeatedContributorCondition(panel, oracle,
+  'configure-nested-code-contributor-controls', 'EQUALS');
+const cancelledPreserveRows = rowsForNestedCode(witnesses, cancelledChoice.targetValue, true);
+const cancelledExcludedRows = rowsForNestedCode(witnesses, cancelledChoice.targetValue, false);
+report.oracle.equalityPreservedNoMatchRows = cancelledPreserveRows.length - cancelledExcludedRows.length;
+if (cancelledPreserveRows.length === cancelledExcludedRows.length) {
+  report.controls.uncovered.push('No source Patient in the bounded selected witness set had zero related Observations matching the selected code, so PRESERVE_PARENT versus EXCLUDE is not distinguished by this fixture.');
 }
-console.log(JSON.stringify({ status: report.status, evidence, cases: report.cases.map((item) => item.name), error: report.error }));
+startedAt = Date.now();
+await proposal('contributor-nested-code-equals-preview', startedAt, cancelledPreserveRows);
+const beforeCancel = await api(base + '/builder');
+startedAt = Date.now();
+await nativeClick(page, '[data-testid="construction-cancel-proposal"]', {});
+await waitForBrowser(page, { kind: 'hidden', selector: '[data-testid="construction-proposal-panel"]' }, [], 5000);
+await rendered(baselineRows, 'cancel-contributor-preview');
+recordAction('cancel-contributor-preview', startedAt, { rowCount: baselineRows.length });
+builder = await api(base + '/builder');
+assert.deepEqual(builder.workspace, beforeCancel.workspace, 'Cancel must leave the saved workspace unchanged');
+assert.deepEqual(documentForOutput(builder), original, 'Cancel must preserve the exact source table');
+report.cases.push({ name: 'contributor-rule-cancel-preserves-source', workspaceUnchanged: true });
+
+panel = await startRelatedExpand();
+const selectedChoice = await chooseRepeatedContributorCondition(panel, oracle,
+  'reconfigure-nested-code-after-cancel', 'EQUALS');
+assert.equal(selectedChoice.targetValue, cancelledChoice.targetValue,
+  'The same native catalog suggestion must be selected after Cancel');
+assert.equal(selectedChoice.choice.choiceId, cancelledChoice.choice.choiceId,
+  'The same signed field choice must be selected after Cancel');
+assert.deepEqual(selectedChoice.choice.source, cancelledChoice.choice.source,
+  'The same signed source field must be selected after Cancel');
+const preserveRows = rowsForNestedCode(witnesses, selectedChoice.targetValue, true);
+const excludedRows = rowsForNestedCode(witnesses, selectedChoice.targetValue, false);
+report.oracle.selectedCatalogValue = selectedChoice.targetValue;
+report.oracle.matchedNestedCodeCountInManyWitness = oracle.nestedCodeCounts[selectedChoice.targetValue];
+assert.equal(preserveRows.length - excludedRows.length, report.oracle.equalityPreservedNoMatchRows,
+  'Cancel and reconfiguration must retain the same independently witnessed no-match rows');
+startedAt = Date.now();
+await proposal('confirmed-contributor-nested-code-equals-preview', startedAt, preserveRows);
+await applyProposal(preserveRows, 'apply-contributor-nested-code-rule-to-render');
+let relatedStep = documentForOutput(builder).construction.steps.find((step) => step.operation.kind === 'RELATED_EXPAND');
+assert(relatedStep, 'Applied contributor rule is missing from saved construction');
+const sourceProjection = relatedStep.outputs.find((column) => column.name === original.columns[0].column);
+assert(sourceProjection?.id, 'Applied related-expand step omitted the compiler-owned source projection identity');
+const canonicalSourceColumnId = sourceProjection.id;
+assertStableSourceProjection(builder, original, canonicalSourceColumnId, 'initial contributor Apply');
+report.sourceColumnIdentity = {
+  sourceColumnName: sourceProjection.name,
+  compilerCanonicalSourceColumnId: canonicalSourceColumnId,
+};
+assertPersistedEqualsRule(codeRule(relatedStep), selectedChoice.choice, selectedChoice.targetValue, 'PRESERVE_PARENT',
+  'initial Contributor category[].coding[].code Apply');
+report.persistedNestedCodeCondition = {
+  operator: 'EQUALS', valueKind: typedEqualsValue(selectedChoice.choice, selectedChoice.targetValue).kind,
+  sourceLogicalType: selectedChoice.choice.source.logicalType, selectedCatalogValue: selectedChoice.targetValue,
+  source: report.contributorChoice, signedSourcePersisted: true, selectedChoicePersisted: true,
+  noMatchPolicy: 'PRESERVE_PARENT',
+};
+await open(preserveRows, 'reload-contributor-nested-code-equals');
+
+const beforeEdit = await api(base + '/builder');
+assertStableSourceProjection(beforeEdit, original, canonicalSourceColumnId, 'reload after initial contributor Apply');
+relatedStep = documentForOutput(beforeEdit).construction.steps.find((step) => step.operation.kind === 'RELATED_EXPAND');
+assertPersistedEqualsRule(codeRule(relatedStep), selectedChoice.choice, selectedChoice.targetValue, 'PRESERVE_PARENT',
+  'reload after initial Contributor category[].coding[].code Apply');
+await beginEdit(relatedStep.id);
+const policySelector = '[data-testid="construction-related-expand-editor"] select[aria-label="If a current row has no matches"]';
+assert.equal(await inspectPage(page, selector => document.querySelector(selector)?.value, policySelector), 'PRESERVE_PARENT');
+startedAt = Date.now();
+await nativeSelect(page, policySelector, 'EXCLUDE', {});
+await proposal('edit-policy-exclude-preview', startedAt, excludedRows);
+await applyProposal(excludedRows, 'apply-exclude-policy-to-render');
+relatedStep = documentForOutput(builder).construction.steps.find((step) => step.operation.kind === 'RELATED_EXPAND');
+assertStableSourceProjection(builder, original, canonicalSourceColumnId, 'edited EXCLUDE policy Apply');
+assertPersistedEqualsRule(codeRule(relatedStep), selectedChoice.choice, selectedChoice.targetValue, 'EXCLUDE',
+  'edited EXCLUDE policy Apply');
+report.persistedNestedCodeCondition.policyEditKeptCondition = true;
+report.persistedNestedCodeCondition.noMatchPolicyAfterEdit = 'EXCLUDE';
+await open(excludedRows, 'reload-edited-exclude-policy');
+
+const beforeRemoval = await api(base + '/builder');
+assertStableSourceProjection(beforeRemoval, original, canonicalSourceColumnId, 'reload after edited EXCLUDE policy');
+relatedStep = documentForOutput(beforeRemoval).construction.steps.find((step) => step.operation.kind === 'RELATED_EXPAND');
+assertPersistedEqualsRule(codeRule(relatedStep), selectedChoice.choice, selectedChoice.targetValue, 'EXCLUDE',
+  'reload after edited EXCLUDE policy');
+const remove = async () => {
+  await nativeClick(page, `[data-testid="construction-history-step-${relatedStep.id}"]`, {});
+  startedAt = Date.now();
+  await nativeClick(page, `[data-testid="construction-remove-step-${relatedStep.id}"]`, {});
+  await proposal('remove-contributor-rule-preview', startedAt, baselineRows);
+};
+await remove();
+startedAt = Date.now();
+await nativeClick(page, '[data-testid="construction-cancel-proposal"]', {});
+await waitForBrowser(page, { kind: 'hidden', selector: '[data-testid="construction-proposal-panel"]' }, [], 5000);
+await rendered(excludedRows, 'cancel-remove-to-render');
+recordAction('cancel-remove-to-render', startedAt, { rowCount: excludedRows.length });
+builder = await api(base + '/builder');
+assert.deepEqual(builder.workspace, beforeRemoval.workspace, 'Cancel removal must preserve the authored Contributor rule');
+assertStableSourceProjection(builder, original, canonicalSourceColumnId, 'cancel remove');
+report.cases.push({ name: 'remove-cancel-preserves-contributor-rule', workspaceUnchanged: true });
+await remove();
+await applyProposal(baselineRows, 'apply-remove-to-render');
+const restored = documentForOutput(builder);
+assert.deepEqual(restored.construction?.steps ?? [], original.construction?.steps ?? [],
+  'Removing Contributor rules must restore the exact authored source construction');
+assertStableSourceProjection(builder, original, canonicalSourceColumnId, 'remove Apply');
+assert.deepEqual(restored.rows, original.rows, 'Removing Contributor rules must restore the exact row definition');
+assert.deepEqual(restored.population, original.population, 'Removing Contributor rules must restore the exact selected population');
+await open(baselineRows, 'reload-restored-source-table');
+builder = await api(base + '/builder');
+assertStableSourceProjection(builder, original, canonicalSourceColumnId, 'reload after Contributor removal');
+await Promise.all([...browserPending]);
+assert(report.protectedExplorerUntouched, `A request unexpectedly targeted protected Explorer ${protectedExplorer}`);
+assert(report.browserExplorerRequests.every(({ path }) => path === root || path === `${root}/selections`
+  || path.startsWith(`${root}/${explorer}/`)), 'Browser requests must remain within the fresh owned Explorer and global selection route');
+assert.deepEqual(report.errors, [], 'Unexpected browser errors were reported');
+report.status = 'passed';
+  } finally {
+    try { await requestMonitor?.flush(); } catch (error) { report.requestFlushError = String(error); }
+    cda.includeBrowserDiagnostics();
+    report.finished = new Date().toISOString();
+    await cda.attachReport(`standalone-${cda.caseName}-domain.json`, {
+      ...cda.report,
+      domain: report,
+    });
+  }
+}
