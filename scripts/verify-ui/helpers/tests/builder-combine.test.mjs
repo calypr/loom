@@ -15,6 +15,9 @@ import {
   findColumn,
   isCombineInputIDColumn,
   isJoinableStringColumn,
+  isMembershipWorkspaceKeyColumn,
+  membershipGroupCapabilityKeyEvidence,
+  membershipOutputNullabilityEvidence,
   isNumericClickHouseType,
   isScalarStringColumn,
   joinOracleRows,
@@ -324,17 +327,67 @@ test('nullable scalar status projections retain consistent published type and nu
   assert.equal(isScalarStringColumn({ clickhouseType: 'String', nullable: false, repeated: true }), false);
 });
 
-test('APPEND and KEY_JOIN accept nullable scalar strings while MEMBERSHIP keeps its non-null key contract', () => {
+test('APPEND, KEY_JOIN, and MEMBERSHIP accept only consistently declared scalar String nullability', () => {
   const nullableIdentity = { clickhouseType: 'Nullable(String)', nullable: true, repeated: false };
   const requiredIdentity = { clickhouseType: 'String', nullable: false, repeated: false };
   assert.equal(isCombineInputIDColumn(nullableIdentity, 'APPEND'), true);
   assert.equal(isCombineInputIDColumn(nullableIdentity, 'KEY_JOIN'), true);
   assert.equal(isCombineInputIDColumn(requiredIdentity, 'KEY_JOIN'), true);
   assert.equal(isCombineInputIDColumn(requiredIdentity, 'MEMBERSHIP'), true);
-  assert.equal(isCombineInputIDColumn(nullableIdentity, 'MEMBERSHIP'), false);
+  assert.equal(isCombineInputIDColumn(nullableIdentity, 'MEMBERSHIP'), true);
   assert.equal(isCombineInputIDColumn(nullableIdentity, 'UNKNOWN'), false);
   assert.equal(isCombineInputIDColumn({ ...nullableIdentity, repeated: true }, 'APPEND'), false);
   assert.equal(isCombineInputIDColumn({ ...nullableIdentity, repeated: true }, 'KEY_JOIN'), false);
+  assert.equal(isCombineInputIDColumn({ ...nullableIdentity, nullable: false }, 'MEMBERSHIP'), false);
+  assert.equal(isCombineInputIDColumn({ ...requiredIdentity, nullable: true }, 'MEMBERSHIP'), false);
+  assert.equal(isCombineInputIDColumn({ ...nullableIdentity, clickhouseType: 'Nullable(UInt64)' }, 'MEMBERSHIP'), false);
+  assert.equal(isCombineInputIDColumn({ ...nullableIdentity, repeated: true }, 'MEMBERSHIP'), false);
+});
+
+test('current-draft MEMBERSHIP accepts only compatible scalar String columns with boolean nullability metadata', () => {
+  const required = { logicalType: 'string', cardinality: 'required_one', nullable: false, joinCompatibilityKey: 'String' };
+  const optional = { logicalType: 'string', cardinality: 'optional_one', nullable: true, joinCompatibilityKey: 'String' };
+  assert.equal(isMembershipWorkspaceKeyColumn(required), true);
+  assert.equal(isMembershipWorkspaceKeyColumn(optional), true);
+  assert.equal(isMembershipWorkspaceKeyColumn({ ...optional, nullable: false }), true);
+  assert.equal(isMembershipWorkspaceKeyColumn({ ...required, nullable: true }), true);
+  assert.equal(isMembershipWorkspaceKeyColumn({ ...optional, logicalType: 'integer' }), false);
+  assert.equal(isMembershipWorkspaceKeyColumn({ ...optional, joinCompatibilityKey: 'UInt64' }), false);
+  assert.equal(isMembershipWorkspaceKeyColumn({ ...optional, cardinality: 'optional_many' }), false);
+  assert.equal(isMembershipWorkspaceKeyColumn({ ...optional, cardinality: 'many' }), false);
+  assert.equal(isMembershipWorkspaceKeyColumn({ ...optional, nullable: undefined }), false);
+});
+
+test('MEMBERSHIP uses compiled Group-key nullability when the authored output omits it and binds by exact column ID', () => {
+  const authoredGroupOutput = { id: 'group-key-id', name: 'col_observation_id', label: 'Observation ID' };
+  assert.equal(Object.hasOwn(authoredGroupOutput, 'nullable'), false,
+    'Group key output nullable is an optional author declaration, not compiled schema metadata');
+
+  const compiledCapabilityColumn = {
+    id: 'group-key-id', name: 'col_observation_id', label: 'Observation ID',
+    logicalType: 'string', cardinality: 'optional_one', nullable: true, joinCompatibilityKey: 'String',
+  };
+  const matched = membershipGroupCapabilityKeyEvidence([compiledCapabilityColumn], authoredGroupOutput.id);
+  assert.equal(matched.ok, true);
+  assert.equal(matched.exactOutputColumnId, true);
+  assert.equal(matched.compiledNullable, true);
+
+  const wrongID = membershipGroupCapabilityKeyEvidence(
+    [{ ...compiledCapabilityColumn, id: 'different-group-key-id' }], authoredGroupOutput.id,
+  );
+  assert.equal(wrongID.ok, false, 'a same-label capability column with a different ID must not bind');
+  assert.equal(wrongID.exactOutputColumnId, false);
+
+  assert.deepEqual(membershipOutputNullabilityEvidence({ type: 'string', nullable: true }, matched.compiledNullable), {
+    ok: true, sourceCompiledNullable: true, outputNullable: true,
+  });
+  assert.equal(membershipOutputNullabilityEvidence({ type: 'string', nullable: false }, matched.compiledNullable).ok, false);
+  assert.equal(membershipOutputNullabilityEvidence({ type: 'string' }, matched.compiledNullable).ok, false);
+  assert.deepEqual(membershipOutputNullabilityEvidence({ type: 'string' }, false), {
+    ok: true, sourceCompiledNullable: false, outputNullable: false,
+  }, 'an omitted authoring bool encodes false under the Go JSON omitempty contract');
+  assert.equal(membershipOutputNullabilityEvidence({ type: 'string', nullable: null }, false).ok, false);
+  assert.equal(membershipOutputNullabilityEvidence(undefined, false).ok, false);
 });
 
 test('numeric type detection unwraps actual Nullable(...) ClickHouse declarations', () => {

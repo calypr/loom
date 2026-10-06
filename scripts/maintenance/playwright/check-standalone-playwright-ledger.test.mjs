@@ -70,6 +70,7 @@ test('conversion ledger preserves owned and distinct custom registry assertion c
   const scenario = registry.find(item => item.id === 'viewer-query');
   const owned = scenarioCaseFor(scenario, 'output');
   const custom = scenarioCaseFor(scenario, 'output', true);
+  assert.notDeepEqual(custom.requiredChecks, owned.requiredChecks);
   const ledgerCase = conversionLedger.registryCases.find(item => item.scenario === 'viewer-query' && item.case === 'output');
   assert.ok(ledgerCase);
   assert.deepEqual(ledgerCase.preservedAssertions, owned.requiredChecks);
@@ -94,9 +95,8 @@ test('conversion ledger preserves owned and distinct custom registry assertion c
     customPreservedAssertions: item.customPreservedAssertions ?? null,
   })), registryContracts);
   const totalEntries = registryContracts.reduce((total, item) => total + item.preservedAssertions.length + (item.customPreservedAssertions?.length ?? 0), 0);
-  const customVariants = registryContracts.filter(item => item.customPreservedAssertions !== null).length;
-  assert.equal(totalEntries, 396);
-  assert.equal(conversionLedger.counts.registryRequiredCheckEntries, 396);
-  assert.equal(customVariants, 1);
-  assert.equal(conversionLedger.counts.registryCustomAssertionVariants, customVariants);
+  const customVariants = registryContracts.filter(item => item.customPreservedAssertions !== null).map(item => `${item.scenario}/${item.case}`);
+  assert.deepEqual(customVariants, ['viewer-query/output']);
+  assert.equal(conversionLedger.counts.registryRequiredCheckEntries, totalEntries);
+  assert.equal(conversionLedger.counts.registryCustomAssertionVariants, customVariants.length);
 });

@@ -2,11 +2,11 @@
 
 Source conversion status is separate from browser execution status.
 Source set: 85 root inventory rows plus 1 additional package-local source (86 records); 3 root sources intentionally deleted; 74 root verify files and 1 package-local verify file remain (75 current files total).
-Browser inventory: 74 root standalone entrypoints; 1 package-local entrypoint; 26 registered Playwright cases.
+Browser inventory: 74 root standalone entrypoints; 1 package-local entrypoint; 27 registered Playwright cases.
 Mapped sources: 73; retained API/helper sources: 10; pending source mappings/dispositions: 0.
 Native case map: 75 source rows / 154 source-to-case rows (154 distinct source-case keys); 76 source rows record legacy browser ownership removed.
 Native spec accounting: 25 current spec files; 20 mapped to legacy sources or registry cases; 5 explicitly classified harness specs; 0 orphan specs.
-Runtime evidence: not-run; official Playwright --list discovery: 162 tests in 25 files (discovery only; lifecycle not run).
+Runtime evidence: not-run; official Playwright --list discovery: 163 tests in 25 files (discovery only; lifecycle not run).
 Embedded Loom dev launch sites: 9; mappings open: 0.
 Additional non-verify browser sources: 1; launch sites: 1; mappings open: 0; legacy helper owners still active: 0.
 
@@ -146,6 +146,7 @@ Additional non-verify browser sources: 1; launch sites: 1; mappings open: 0; leg
 - `builder-combine-draft/join` → `scripts/verify-ui/specs/draft-combine.spec.mjs`; lifecycle unverified
 - `builder-combine-draft/append` → `scripts/verify-ui/specs/draft-combine.spec.mjs`; lifecycle unverified
 - `builder-combine-draft/group-pivot` → `scripts/verify-ui/specs/draft-combine.spec.mjs`; lifecycle unverified
+- `builder-combine-draft/membership` → `scripts/verify-ui/specs/draft-combine.spec.mjs`; lifecycle unverified
 - `builder-combine/join` → `scripts/verify-ui/specs/join.spec.mjs`; lifecycle unverified
 - `builder-combine/append` → `scripts/verify-ui/specs/append.spec.mjs`; lifecycle unverified
 - `builder-combine-nullable/lifecycle` → `scripts/verify-ui/specs/nullable-combine.spec.mjs`; lifecycle unverified

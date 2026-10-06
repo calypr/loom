@@ -123,30 +123,92 @@ func TestRenderKeyJoinUsesOrdinaryEqualityForNullableScalarKeys(t *testing.T) {
 	}
 }
 
-func TestRenderMembershipRejectsNullableKeys(t *testing.T) {
-	plan := ir.PhysicalClickHouseCombine{
-		Kind: ir.PhysicalCombineMembership,
-		Inputs: []ir.PhysicalCombineInputRef{
-			{TableID: "left-table", RevisionID: "execution-left", OutputID: "left"},
-			{TableID: "right-table", RevisionID: "execution-right", OutputID: "members"},
-		},
-		Keys:           []ir.PhysicalCombineKey{{LeftColumnID: "person", RightColumnID: "member"}},
-		MembershipMode: "INCLUDE",
-		Projections:    []ir.PhysicalCombineProjection{{OutputColumnID: "person", InputIndex: 0, InputColumnID: "person"}},
-		Outputs:        []ir.PhysicalCombineOutputColumn{{ID: "person", Name: "person_id", LogicalType: "string", ClickHouseType: "String"}},
+func TestRenderMembershipUsesOrdinaryEqualityForNullableCompositeKeys(t *testing.T) {
+	for _, mode := range []string{"INCLUDE", "EXCLUDE"} {
+		t.Run(mode, func(t *testing.T) {
+			plan := ir.PhysicalClickHouseCombine{
+				Kind: ir.PhysicalCombineMembership,
+				Inputs: []ir.PhysicalCombineInputRef{
+					{TableID: "left-table", RevisionID: "execution-left", OutputID: "left"},
+					{TableID: "right-table", RevisionID: "execution-right", OutputID: "members"},
+				},
+				Keys: []ir.PhysicalCombineKey{
+					{LeftColumnID: "person", RightColumnID: "member"},
+					{LeftColumnID: "period", RightColumnID: "member-period"},
+				},
+				MembershipMode: mode,
+				Projections: []ir.PhysicalCombineProjection{
+					{OutputColumnID: "person", InputIndex: 0, InputColumnID: "person"},
+					{OutputColumnID: "period", InputIndex: 0, InputColumnID: "period"},
+				},
+				Outputs: []ir.PhysicalCombineOutputColumn{
+					{ID: "person", Name: "person_id", LogicalType: "string", ClickHouseType: "Nullable(String)", Nullable: true},
+					{ID: "period", Name: "period", LogicalType: "string", ClickHouseType: "Nullable(String)", Nullable: true},
+				},
+			}
+			inputs := []ir.ResolvedClickHouseTable{
+				resolvedInput("left-table", "execution-left", "left", "left_table", []ir.ResolvedClickHouseColumn{
+					{ID: "row-id", Name: "__loom_row_id", ClickHouseType: "String"},
+					{ID: "person", Name: "person", ClickHouseType: "Nullable(String)", Nullable: true},
+					{ID: "period", Name: "period", ClickHouseType: "Nullable(String)", Nullable: true},
+				}),
+				resolvedInput("right-table", "execution-right", "members", "right_table", []ir.ResolvedClickHouseColumn{
+					{ID: "row-id", Name: "__loom_row_id", ClickHouseType: "String"},
+					{ID: "member", Name: "member", ClickHouseType: "Nullable(String)", Nullable: true},
+					{ID: "member-period", Name: "member_period", ClickHouseType: "Nullable(String)", Nullable: true},
+				}),
+			}
+
+			rendered, err := RenderCombine(plan, inputs, "project-a")
+			if err != nil {
+				t.Fatalf("RenderCombine() rejected nullable scalar keys: %v", err)
+			}
+			for _, expected := range []string{
+				"SELECT DISTINCT",
+				"__loom_left.`person` = __loom_members.`__loom_key_0`",
+				"__loom_left.`period` = __loom_members.`__loom_key_1`",
+				"__loom_members.`__loom_match` " + map[string]string{"INCLUDE": "IS NOT NULL", "EXCLUDE": "IS NULL"}[mode],
+				"SETTINGS join_use_nulls = 1",
+			} {
+				if !strings.Contains(rendered.Query, expected) {
+					t.Errorf("nullable membership query does not contain %q: %s", expected, rendered.Query)
+				}
+			}
+			if strings.Contains(rendered.Query, "isNotDistinctFrom") || strings.Contains(rendered.Query, "isNotNull(__loom_left") {
+				t.Fatalf("nullable membership query changed ordinary NULL-never-matches semantics: %s", rendered.Query)
+			}
+		})
 	}
-	inputs := []ir.ResolvedClickHouseTable{
-		resolvedInput("left-table", "execution-left", "left", "left_table", []ir.ResolvedClickHouseColumn{
-			{ID: "row-id", Name: "__loom_row_id", ClickHouseType: "String"},
-			{ID: "person", Name: "person", ClickHouseType: "String"},
-		}),
-		resolvedInput("right-table", "execution-right", "members", "right_table", []ir.ResolvedClickHouseColumn{
-			{ID: "row-id", Name: "__loom_row_id", ClickHouseType: "String"},
-			{ID: "member", Name: "member", ClickHouseType: "Nullable(String)", Nullable: true},
-		}),
-	}
-	if _, err := RenderCombine(plan, inputs, "project-a"); err == nil || !strings.Contains(err.Error(), "supported scalar base type") {
-		t.Fatalf("membership widened to nullable keys unexpectedly: %v", err)
+}
+
+func TestRenderMembershipStillRejectsUnsupportedNullableKeyTypes(t *testing.T) {
+	for _, rightType := range []string{"Nullable(Int64)", "Nullable(Array(String))"} {
+		t.Run(rightType, func(t *testing.T) {
+			plan := ir.PhysicalClickHouseCombine{
+				Kind: ir.PhysicalCombineMembership,
+				Inputs: []ir.PhysicalCombineInputRef{
+					{TableID: "left-table", RevisionID: "execution-left", OutputID: "left"},
+					{TableID: "right-table", RevisionID: "execution-right", OutputID: "members"},
+				},
+				Keys:           []ir.PhysicalCombineKey{{LeftColumnID: "person", RightColumnID: "member"}},
+				MembershipMode: "INCLUDE",
+				Projections:    []ir.PhysicalCombineProjection{{OutputColumnID: "person", InputIndex: 0, InputColumnID: "person"}},
+				Outputs:        []ir.PhysicalCombineOutputColumn{{ID: "person", Name: "person_id", LogicalType: "string", ClickHouseType: "Nullable(String)", Nullable: true}},
+			}
+			inputs := []ir.ResolvedClickHouseTable{
+				resolvedInput("left-table", "execution-left", "left", "left_table", []ir.ResolvedClickHouseColumn{
+					{ID: "row-id", Name: "__loom_row_id", ClickHouseType: "String"},
+					{ID: "person", Name: "person", ClickHouseType: "Nullable(String)", Nullable: true},
+				}),
+				resolvedInput("right-table", "execution-right", "members", "right_table", []ir.ResolvedClickHouseColumn{
+					{ID: "row-id", Name: "__loom_row_id", ClickHouseType: "String"},
+					{ID: "member", Name: "member", ClickHouseType: rightType, Nullable: true},
+				}),
+			}
+			if _, err := RenderCombine(plan, inputs, "project-a"); err == nil || !strings.Contains(err.Error(), "same supported scalar base type") {
+				t.Fatalf("membership accepted unsupported nullable key type %q: %v", rightType, err)
+			}
+		})
 	}
 }
 

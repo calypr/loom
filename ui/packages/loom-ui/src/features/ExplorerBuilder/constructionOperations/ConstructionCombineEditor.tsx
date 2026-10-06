@@ -138,7 +138,7 @@ const isJoinableColumn = (column: ConstructionCombineColumn, allowNullable = fal
 };
 
 const isMatchKeyColumn = (column: ConstructionCombineColumn, kind: ConstructionCombineKind): boolean =>
-  isJoinableColumn(column, kind === 'KEY_JOIN') && (kind !== 'MEMBERSHIP' || !column.nullable);
+  isJoinableColumn(column, kind === 'KEY_JOIN' || kind === 'MEMBERSHIP');
 
 const appendPhysicalType = (value: string): { readonly base: string; readonly nullable: boolean } | undefined => {
   const type = value.trim();
@@ -627,7 +627,7 @@ export const ConstructionCombineEditor = ({
               <p className="mt-1 text-xs text-slate-600">
                 {kind === 'KEY_JOIN'
                   ? 'Select fields with the same scalar type. A NULL key never matches another NULL key. Add more than one pair when a match uses multiple values.'
-                  : 'Select fields with the same non-null scalar type. Add more than one pair when a match uses multiple values.'}
+                  : 'Select fields with the same type. Missing values never match. “Rows with a match” leaves out rows with missing matching values; “Rows without a match” keeps them. Add more than one pair when a match uses multiple values.'}
               </p>
             </div>
             {draft.keys.map((key, keyIndex) => {

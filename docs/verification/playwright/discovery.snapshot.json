@@ -2,25 +2,25 @@
   "schemaVersion": 1,
   "kind": "official-playwright-static-discovery",
   "sourceRoot": ".",
-  "baseCommit": "9edd233018140504b81b8366f8fce173f15a00da",
+  "baseCommit": "13b569d71d2c8ca6371f02593021d5231cec5e4f",
   "status": "discovery-only",
   "runtimeStatus": "not-run",
   "commandTemplate": "<repo>/scripts/node_modules/.bin/playwright test --config <configPath> --list --reporter=json",
-  "note": "Captured by official Playwright --list --reporter=json on the verified epoch 47 working tree. The JSON reporter lists registrations only; no test body ran, so this is discovery evidence, not lifecycle evidence. The five invocation counts sum to 166 session entries (main 162, benchmark 1, and three one-case scoped variants). The three related-row variants share the conditional test registration at scripts/verify-ui/specs/standalone-cda-rows.spec.mjs:52 with the main default CDA-ID listing, but have environment-specific titles and IDs; session-entry totals are not the registry acceptance-case count.",
-  "mainDiscoveryTestCount": 162,
+  "note": "Captured by official Playwright --list --reporter=json on the source snapshot rooted at 13b569d71d2c8ca6371f02593021d5231cec5e4f. The JSON reporter lists registrations only; no test body ran, so this is discovery evidence, not lifecycle evidence. The five invocation counts sum to 167 session entries (main 163, benchmark 1, and three one-case scoped variants). The current-draft MEMBERSHIP registration appears in the main session; the three related-row variants remain environment-specific and share their conditional registration with the main suite.",
+  "mainDiscoveryTestCount": 163,
   "mainDiscoverySpecFileCount": 25,
   "dedicatedBenchmarkTestCount": 1,
   "dedicatedBenchmarkSpecFileCount": 1,
-  "totalDeclaredTestCount": 166,
+  "totalDeclaredTestCount": 167,
   "sessions": [
     {
       "sessionID": "main",
       "configPath": "scripts/playwright.config.mjs",
       "configSha256": "d16ccb10ccf63f8a711ae7f8c5b61d4bc44452172e9a309a06cab32ce30f69bc",
       "environment": {},
-      "testCount": 162,
+      "testCount": 163,
       "specFileCount": 25,
-      "discoveredCasesSha256": "9b0ab832fc45207b5840773ddcfc6f497af2a00495171c21f583fa1d6d060f1e",
+      "discoveredCasesSha256": "fb984a4d2a9400378ad498ebc97dca4e2fd27f907b2a85a260bc4c8ae41f24d1",
       "specs": [
         {
           "path": "scripts/verify-ui/specs/append.spec.mjs",
@@ -60,13 +60,6 @@
           "sha256": "a18a1b18baca15ef3f1aadb2f6f2e8c089c70600ffc4807b04a41c3d49d784ab",
           "cases": [
             {
-              "title": "catalog-backed suggestions expose actionable Patient candidates",
-              "id": "24bb9758cf56e99e0894-8b4e0a361d583a42be89",
-              "line": 15,
-              "column": 7,
-              "occurrence": 1
-            },
-            {
               "title": "Builder authoring previews, publishes, and reloads configured fields",
               "id": "24bb9758cf56e99e0894-687369b05c2060a831eb",
               "line": 15,
@@ -74,8 +67,8 @@
               "occurrence": 1
             },
             {
-              "title": "named cohort recoding preserves raw ALL bindings across edit and reload",
-              "id": "24bb9758cf56e99e0894-5a211cb23de4663e6a93",
+              "title": "catalog-backed suggestions expose actionable Patient candidates",
+              "id": "24bb9758cf56e99e0894-8b4e0a361d583a42be89",
               "line": 15,
               "column": 7,
               "occurrence": 1
@@ -83,6 +76,13 @@
             {
               "title": "named cohort expansion preserves exact Patient IDs through its lifecycle",
               "id": "24bb9758cf56e99e0894-cef2ae9fee6132f1d22b",
+              "line": 15,
+              "column": 7,
+              "occurrence": 1
+            },
+            {
+              "title": "named cohort recoding preserves raw ALL bindings across edit and reload",
+              "id": "24bb9758cf56e99e0894-5a211cb23de4663e6a93",
               "line": 15,
               "column": 7,
               "occurrence": 1
@@ -234,26 +234,33 @@
         },
         {
           "path": "scripts/verify-ui/specs/draft-combine.spec.mjs",
-          "sha256": "0651ed7d2b5c500f36513620f059e4afa04c90c59c6ab4cc421c6533b8566410",
+          "sha256": "6626f2cc08ae029cb1e7f5d33267a6c154c04d3ec02db295f4779b5ce25fd1e9",
           "cases": [
             {
               "title": "grouped current-draft Join supports cancel, apply, edit, removal, and reload",
               "id": "8ae9a22d8f0663aee4a2-b43dfd4ad51d0f4500dc",
-              "line": 11,
+              "line": 12,
               "column": 3,
               "occurrence": 1
             },
             {
               "title": "three-source current-draft APPEND supports cancel, apply, edit, removal, and reload",
               "id": "8ae9a22d8f0663aee4a2-fdf7e068bce5d2088182",
-              "line": 21,
+              "line": 22,
               "column": 3,
               "occurrence": 1
             },
             {
               "title": "GROUP-to-PIVOT current-draft Join supports cancel, apply, edit, removal, and reload",
               "id": "8ae9a22d8f0663aee4a2-3aeae72c4f1c9f3e1ad4",
-              "line": 31,
+              "line": 32,
+              "column": 3,
+              "occurrence": 1
+            },
+            {
+              "title": "current-draft MEMBERSHIP supports INCLUDE, EXCLUDE edit, removal, restoration, and reload",
+              "id": "8ae9a22d8f0663aee4a2-e9f9b079b84b34fe7a1e",
+              "line": 42,
               "column": 3,
               "occurrence": 1
             }
@@ -444,71 +451,15 @@
           "sha256": "de10a7b0067c3bcec377a9867544f089f8a667d45f0e586d9300cda9bb53aa03",
           "cases": [
             {
-              "title": "Verify related source chooser",
-              "id": "6939c11f571a5f8781e8-2130d310c400a2c17088",
+              "title": "Apply known filter",
+              "id": "6939c11f571a5f8781e8-e725764bb90c3a1243ce",
               "line": 32,
               "column": 5,
               "occurrence": 1
             },
             {
-              "title": "Inspect Patient field choice",
-              "id": "6939c11f571a5f8781e8-2d59dfb596a7cde2955a",
-              "line": 32,
-              "column": 5,
-              "occurrence": 1
-            },
-            {
-              "title": "Inspect selected Patient route",
-              "id": "6939c11f571a5f8781e8-655e15a126e3cfbc8e91",
-              "line": 32,
-              "column": 5,
-              "occurrence": 1
-            },
-            {
-              "title": "Inspect Patient proposal",
-              "id": "6939c11f571a5f8781e8-c5a1ea5705c4103ea579",
-              "line": 32,
-              "column": 5,
-              "occurrence": 1
-            },
-            {
-              "title": "Verify Patient related column",
-              "id": "6939c11f571a5f8781e8-64c7667f732152487582",
-              "line": 32,
-              "column": 5,
-              "occurrence": 1
-            },
-            {
-              "title": "Edit and remove Patient related column",
-              "id": "6939c11f571a5f8781e8-5d5375c0d8ab6cdcecec",
-              "line": 32,
-              "column": 5,
-              "occurrence": 1
-            },
-            {
-              "title": "Inspect saved related step",
-              "id": "6939c11f571a5f8781e8-6aaa4f3959586e938305",
-              "line": 32,
-              "column": 5,
-              "occurrence": 1
-            },
-            {
-              "title": "Inspect related edit",
-              "id": "6939c11f571a5f8781e8-7c96e88eb2bf7509fb51",
-              "line": 32,
-              "column": 5,
-              "occurrence": 1
-            },
-            {
-              "title": "Preview limits",
-              "id": "6939c11f571a5f8781e8-66224313933eca13d95d",
-              "line": 32,
-              "column": 5,
-              "occurrence": 1
-            },
-            {
-              "title": "Verify duplicate and delete",
-              "id": "6939c11f571a5f8781e8-14e1b338b6b4443859ad",
+              "title": "Apply missing",
+              "id": "6939c11f571a5f8781e8-c128eef8873f79f72564",
               "line": 32,
               "column": 5,
               "occurrence": 1
@@ -528,29 +479,36 @@
               "occurrence": 1
             },
             {
-              "title": "Rename reorder undo table",
-              "id": "6939c11f571a5f8781e8-c14cb191bcae78942c92",
+              "title": "Edit and remove Patient related column",
+              "id": "6939c11f571a5f8781e8-5d5375c0d8ab6cdcecec",
               "line": 32,
               "column": 5,
               "occurrence": 1
             },
             {
-              "title": "Inspect tables",
-              "id": "6939c11f571a5f8781e8-017ea918e847ddbc737b",
+              "title": "Edit saved filter",
+              "id": "6939c11f571a5f8781e8-9ae980fbb020976ba84a",
               "line": 32,
               "column": 5,
               "occurrence": 1
             },
             {
-              "title": "Switch explorers",
-              "id": "6939c11f571a5f8781e8-4beffe5f7acf00ff4de1",
+              "title": "Edit saved missing filter",
+              "id": "6939c11f571a5f8781e8-cd6c8ab6098e9b06910c",
               "line": 32,
               "column": 5,
               "occurrence": 1
             },
             {
-              "title": "Inspect bounded Patient row choices",
-              "id": "6939c11f571a5f8781e8-71df6900f382fb209055",
+              "title": "Inspect Patient field choice",
+              "id": "6939c11f571a5f8781e8-2d59dfb596a7cde2955a",
+              "line": 32,
+              "column": 5,
+              "occurrence": 1
+            },
+            {
+              "title": "Inspect Patient proposal",
+              "id": "6939c11f571a5f8781e8-c5a1ea5705c4103ea579",
               "line": 32,
               "column": 5,
               "occurrence": 1
@@ -570,22 +528,8 @@
               "occurrence": 1
             },
             {
-              "title": "Toggle source visibility",
-              "id": "6939c11f571a5f8781e8-9a8094ba8e6174a20f4c",
-              "line": 32,
-              "column": 5,
-              "occurrence": 1
-            },
-            {
-              "title": "Verify constructed column rename",
-              "id": "6939c11f571a5f8781e8-7973eba1643512c8d96c",
-              "line": 32,
-              "column": 5,
-              "occurrence": 1
-            },
-            {
-              "title": "Verify constructed column presentation",
-              "id": "6939c11f571a5f8781e8-9311d4b17b98634608d1",
+              "title": "Inspect bounded Patient row choices",
+              "id": "6939c11f571a5f8781e8-71df6900f382fb209055",
               "line": 32,
               "column": 5,
               "occurrence": 1
@@ -598,6 +542,34 @@
               "occurrence": 1
             },
             {
+              "title": "Inspect filters",
+              "id": "6939c11f571a5f8781e8-d13a9b1b44a6518e9d46",
+              "line": 32,
+              "column": 5,
+              "occurrence": 1
+            },
+            {
+              "title": "Inspect related edit",
+              "id": "6939c11f571a5f8781e8-7c96e88eb2bf7509fb51",
+              "line": 32,
+              "column": 5,
+              "occurrence": 1
+            },
+            {
+              "title": "Inspect saved related step",
+              "id": "6939c11f571a5f8781e8-6aaa4f3959586e938305",
+              "line": 32,
+              "column": 5,
+              "occurrence": 1
+            },
+            {
+              "title": "Inspect selected Patient route",
+              "id": "6939c11f571a5f8781e8-655e15a126e3cfbc8e91",
+              "line": 32,
+              "column": 5,
+              "occurrence": 1
+            },
+            {
               "title": "Inspect source column controls",
               "id": "6939c11f571a5f8781e8-840e63c8e80ee45a83e4",
               "line": 32,
@@ -605,15 +577,8 @@
               "occurrence": 1
             },
             {
-              "title": "Verify source column reorder",
-              "id": "6939c11f571a5f8781e8-c46fd94ad7c62c3dfc21",
-              "line": 32,
-              "column": 5,
-              "occurrence": 1
-            },
-            {
-              "title": "Apply missing",
-              "id": "6939c11f571a5f8781e8-c128eef8873f79f72564",
+              "title": "Inspect tables",
+              "id": "6939c11f571a5f8781e8-017ea918e847ddbc737b",
               "line": 32,
               "column": 5,
               "occurrence": 1
@@ -626,6 +591,13 @@
               "occurrence": 1
             },
             {
+              "title": "Preview limits",
+              "id": "6939c11f571a5f8781e8-66224313933eca13d95d",
+              "line": 32,
+              "column": 5,
+              "occurrence": 1
+            },
+            {
               "title": "Remove saved filter",
               "id": "6939c11f571a5f8781e8-31638667230d85e48f7f",
               "line": 32,
@@ -633,22 +605,15 @@
               "occurrence": 1
             },
             {
-              "title": "Edit saved missing filter",
-              "id": "6939c11f571a5f8781e8-cd6c8ab6098e9b06910c",
+              "title": "Rename reorder undo table",
+              "id": "6939c11f571a5f8781e8-c14cb191bcae78942c92",
               "line": 32,
               "column": 5,
               "occurrence": 1
             },
             {
-              "title": "Edit saved filter",
-              "id": "6939c11f571a5f8781e8-9ae980fbb020976ba84a",
-              "line": 32,
-              "column": 5,
-              "occurrence": 1
-            },
-            {
-              "title": "Apply known filter",
-              "id": "6939c11f571a5f8781e8-e725764bb90c3a1243ce",
+              "title": "Switch explorers",
+              "id": "6939c11f571a5f8781e8-4beffe5f7acf00ff4de1",
               "line": 32,
               "column": 5,
               "occurrence": 1
@@ -661,8 +626,50 @@
               "occurrence": 1
             },
             {
-              "title": "Inspect filters",
-              "id": "6939c11f571a5f8781e8-d13a9b1b44a6518e9d46",
+              "title": "Toggle source visibility",
+              "id": "6939c11f571a5f8781e8-9a8094ba8e6174a20f4c",
+              "line": 32,
+              "column": 5,
+              "occurrence": 1
+            },
+            {
+              "title": "Verify Patient related column",
+              "id": "6939c11f571a5f8781e8-64c7667f732152487582",
+              "line": 32,
+              "column": 5,
+              "occurrence": 1
+            },
+            {
+              "title": "Verify constructed column presentation",
+              "id": "6939c11f571a5f8781e8-9311d4b17b98634608d1",
+              "line": 32,
+              "column": 5,
+              "occurrence": 1
+            },
+            {
+              "title": "Verify constructed column rename",
+              "id": "6939c11f571a5f8781e8-7973eba1643512c8d96c",
+              "line": 32,
+              "column": 5,
+              "occurrence": 1
+            },
+            {
+              "title": "Verify duplicate and delete",
+              "id": "6939c11f571a5f8781e8-14e1b338b6b4443859ad",
+              "line": 32,
+              "column": 5,
+              "occurrence": 1
+            },
+            {
+              "title": "Verify related source chooser",
+              "id": "6939c11f571a5f8781e8-2130d310c400a2c17088",
+              "line": 32,
+              "column": 5,
+              "occurrence": 1
+            },
+            {
+              "title": "Verify source column reorder",
+              "id": "6939c11f571a5f8781e8-c46fd94ad7c62c3dfc21",
               "line": 32,
               "column": 5,
               "occurrence": 1
@@ -945,20 +952,6 @@
               "occurrence": 1
             },
             {
-              "title": "author and restore the exact named-cohort COUNT contributor lifecycle",
-              "id": "4d172c4a6a38586646e6-6dcaf3fb0700fc763f1d",
-              "line": 285,
-              "column": 5,
-              "occurrence": 1
-            },
-            {
-              "title": "author and restore the exact named-cohort COUNT contributor lifecycle",
-              "id": "4d172c4a6a38586646e6-e3c5c26a58bdbb56db20",
-              "line": 285,
-              "column": 5,
-              "occurrence": 2
-            },
-            {
               "title": "author and restore the exact named-cohort ALL contributor lifecycle",
               "id": "4d172c4a6a38586646e6-228ca6b8e39c791eede7",
               "line": 285,
@@ -968,6 +961,20 @@
             {
               "title": "author and restore the exact named-cohort ALL contributor lifecycle",
               "id": "4d172c4a6a38586646e6-312fa1af77966ba86b32",
+              "line": 285,
+              "column": 5,
+              "occurrence": 2
+            },
+            {
+              "title": "author and restore the exact named-cohort COUNT contributor lifecycle",
+              "id": "4d172c4a6a38586646e6-6dcaf3fb0700fc763f1d",
+              "line": 285,
+              "column": 5,
+              "occurrence": 1
+            },
+            {
+              "title": "author and restore the exact named-cohort COUNT contributor lifecycle",
+              "id": "4d172c4a6a38586646e6-e3c5c26a58bdbb56db20",
               "line": 285,
               "column": 5,
               "occurrence": 2
@@ -1117,8 +1124,36 @@
               "occurrence": 1
             },
             {
-              "title": "implicit-pivot-root",
-              "id": "70fc556bb9ebf4a2c951-ad5bd3f18c5e706f3158",
+              "title": "group-add-fields",
+              "id": "70fc556bb9ebf4a2c951-6b9b3b6a5a2c0d93090f",
+              "line": 36,
+              "column": 7,
+              "occurrence": 1
+            },
+            {
+              "title": "group-edit-before-related-column",
+              "id": "70fc556bb9ebf4a2c951-d380baa278a6427b4b0e",
+              "line": 36,
+              "column": 7,
+              "occurrence": 1
+            },
+            {
+              "title": "group-one-conflict",
+              "id": "70fc556bb9ebf4a2c951-0d4d546e6dab82e4b508",
+              "line": 36,
+              "column": 7,
+              "occurrence": 1
+            },
+            {
+              "title": "group-related-summary",
+              "id": "70fc556bb9ebf4a2c951-65a12826e3564a6b3364",
+              "line": 36,
+              "column": 7,
+              "occurrence": 1
+            },
+            {
+              "title": "group-related-values",
+              "id": "70fc556bb9ebf4a2c951-39ee699c3511160e0617",
               "line": 36,
               "column": 7,
               "occurrence": 1
@@ -1138,43 +1173,8 @@
               "occurrence": 1
             },
             {
-              "title": "group-add-fields",
-              "id": "70fc556bb9ebf4a2c951-6b9b3b6a5a2c0d93090f",
-              "line": 36,
-              "column": 7,
-              "occurrence": 1
-            },
-            {
-              "title": "group-one-conflict",
-              "id": "70fc556bb9ebf4a2c951-0d4d546e6dab82e4b508",
-              "line": 36,
-              "column": 7,
-              "occurrence": 1
-            },
-            {
-              "title": "group-related-values",
-              "id": "70fc556bb9ebf4a2c951-39ee699c3511160e0617",
-              "line": 36,
-              "column": 7,
-              "occurrence": 1
-            },
-            {
-              "title": "related-group",
-              "id": "70fc556bb9ebf4a2c951-5dc98710202ac2a3d60f",
-              "line": 36,
-              "column": 7,
-              "occurrence": 1
-            },
-            {
-              "title": "group-related-summary",
-              "id": "70fc556bb9ebf4a2c951-65a12826e3564a6b3364",
-              "line": 36,
-              "column": 7,
-              "occurrence": 1
-            },
-            {
-              "title": "group-edit-before-related-column",
-              "id": "70fc556bb9ebf4a2c951-d380baa278a6427b4b0e",
+              "title": "implicit-pivot-root",
+              "id": "70fc556bb9ebf4a2c951-ad5bd3f18c5e706f3158",
               "line": 36,
               "column": 7,
               "occurrence": 1
@@ -1182,13 +1182,6 @@
             {
               "title": "pivot-category-cycle",
               "id": "70fc556bb9ebf4a2c951-5138202bfff701c27b50",
-              "line": 36,
-              "column": 7,
-              "occurrence": 1
-            },
-            {
-              "title": "pivot-related-apply-only",
-              "id": "70fc556bb9ebf4a2c951-772f3aefa24c0dafb1ea",
               "line": 36,
               "column": 7,
               "occurrence": 1
@@ -1203,6 +1196,13 @@
             {
               "title": "pivot-field-change",
               "id": "70fc556bb9ebf4a2c951-7dbaf8e1ea53e8785df2",
+              "line": 36,
+              "column": 7,
+              "occurrence": 1
+            },
+            {
+              "title": "pivot-related-apply-only",
+              "id": "70fc556bb9ebf4a2c951-772f3aefa24c0dafb1ea",
               "line": 36,
               "column": 7,
               "occurrence": 1
@@ -1257,6 +1257,13 @@
               "occurrence": 1
             },
             {
+              "title": "related-field-after-unpivot-id-count",
+              "id": "70fc556bb9ebf4a2c951-810c1355138963e42cd0",
+              "line": 36,
+              "column": 7,
+              "occurrence": 1
+            },
+            {
               "title": "related-field-after-unpivot-resource-type-all",
               "id": "70fc556bb9ebf4a2c951-972e19c83316a4227ffd",
               "line": 36,
@@ -1264,8 +1271,8 @@
               "occurrence": 1
             },
             {
-              "title": "related-field-after-unpivot-id-count",
-              "id": "70fc556bb9ebf4a2c951-810c1355138963e42cd0",
+              "title": "related-group",
+              "id": "70fc556bb9ebf4a2c951-5dc98710202ac2a3d60f",
               "line": 36,
               "column": 7,
               "occurrence": 1

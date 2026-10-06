@@ -79,7 +79,41 @@ export const isJoinableStringColumn = (column) =>
   column.nullable === (column.clickhouseType === 'Nullable(String)') && column.repeated === false;
 
 export const isMembershipStringKeyColumn = (column) =>
-  column?.clickhouseType === 'String' && column.nullable === false && column.repeated === false;
+  ['String', 'Nullable(String)'].includes(column?.clickhouseType) &&
+  column.nullable === (column.clickhouseType === 'Nullable(String)') && column.repeated === false;
+
+export const isMembershipWorkspaceKeyColumn = (column) =>
+  column?.logicalType === 'string' &&
+  ['required_one', 'optional_one'].includes(column.cardinality) &&
+  typeof column.nullable === 'boolean' &&
+  column.joinCompatibilityKey === 'String';
+
+export const membershipGroupCapabilityKeyEvidence = (columns, groupKeyOutputColumnId) => {
+  const validOutputColumnId = typeof groupKeyOutputColumnId === 'string' && groupKeyOutputColumnId.length > 0;
+  const matchingColumns = (columns ?? []).filter((column) => column?.id === groupKeyOutputColumnId);
+  const column = matchingColumns.length === 1 ? matchingColumns[0] : undefined;
+  return {
+    ok: validOutputColumnId && matchingColumns.length === 1 && isMembershipWorkspaceKeyColumn(column),
+    exactOutputColumnId: validOutputColumnId && matchingColumns.length === 1,
+    matchingColumns,
+    column,
+    compiledNullable: typeof column?.nullable === 'boolean' ? column.nullable : null,
+  };
+};
+
+export const membershipOutputNullabilityEvidence = (outputColumn, sourceCompiledNullable) => {
+  const hasOutputColumn = Boolean(outputColumn && typeof outputColumn === 'object' && !Array.isArray(outputColumn));
+  const outputNullable = hasOutputColumn
+    ? Object.hasOwn(outputColumn, 'nullable') ? outputColumn.nullable : false
+    : undefined;
+  const ok = hasOutputColumn && typeof sourceCompiledNullable === 'boolean' && typeof outputNullable === 'boolean' &&
+    outputNullable === sourceCompiledNullable;
+  return {
+    ok,
+    sourceCompiledNullable: typeof sourceCompiledNullable === 'boolean' ? sourceCompiledNullable : null,
+    outputNullable: typeof outputNullable === 'boolean' ? outputNullable : null,
+  };
+};
 
 export const isScalarStringColumn = (column) =>
   ['String', 'Nullable(String)'].includes(column?.clickhouseType) &&

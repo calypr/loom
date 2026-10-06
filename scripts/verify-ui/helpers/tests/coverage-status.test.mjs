@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { classifyEvidence, classifyFreshness, summarizeCoverage } from '../coverage-status.mjs';
-import { registry, scenarioCaseFor } from '../../registry.mjs';
+import { caseNamesFor, registry, scenarioCaseFor } from '../../registry.mjs';
 
 const complete = Object.fromEntries(['usability', 'correctness', 'persistence', 'performance'].map((dimension) => [dimension, { status: 'passed' }]));
 const fingerprint = (sha256 = 'a'.repeat(64), files = 12) => ({ sha256, files });
@@ -13,15 +13,34 @@ const freezeAssertion = (before, after = before, status = 'passed') => ({
 });
 
 
-test('registry case objects own the Playwright mapping and required checks and reject unknown cases', () => {
-  const registeredCases = registry.flatMap((scenario) => Object.entries(scenario.cases));
-  const totalRequiredChecks = registry.reduce((total, scenario) => total + Object.values(scenario.cases).reduce((scenarioTotal, contract) => {
+test('every registry case resolves its Playwright mapping and owned/custom checks', () => {
+  const registeredCases = registry.flatMap((scenario) => Object.entries(scenario.cases).map(([caseName, contract]) => ({ scenario, caseName, contract })));
+  const resolvedCases = registry.flatMap((scenario) => caseNamesFor(scenario).map((caseName) => ({
+    scenario,
+    caseName,
+    owned: scenarioCaseFor(scenario, caseName),
+    custom: scenarioCaseFor(scenario, caseName, true),
+  })));
+  assert.equal(resolvedCases.length, registeredCases.length);
+  assert.deepEqual(resolvedCases.map(({ scenario, caseName }) => `${scenario.id}/${caseName}`), registeredCases.map(({ scenario, caseName }) => `${scenario.id}/${caseName}`));
+  const rawCheckEntries = registeredCases.reduce((total, { contract }) => {
     const checks = contract.requiredChecks;
-    return scenarioTotal + (Array.isArray(checks) ? checks.length : Object.values(checks).reduce((n, variant) => n + variant.length, 0));
-  }, 0), 0);
-  assert.equal(registeredCases.length, 26);
-  assert.equal(totalRequiredChecks, 396);
-  assert.ok(registeredCases.every(([, contract]) => contract.playwrightTest && contract.requiredChecks));
+    if (Array.isArray(checks)) return total + checks.length;
+    const customChecks = checks.custom ?? checks.owned;
+    return total + checks.owned.length + (JSON.stringify(customChecks) === JSON.stringify(checks.owned) ? 0 : customChecks.length);
+  }, 0);
+  const resolvedCheckEntries = resolvedCases.reduce((total, { owned, custom }) => total + owned.requiredChecks.length + (
+    JSON.stringify(custom.requiredChecks) === JSON.stringify(owned.requiredChecks) ? 0 : custom.requiredChecks.length
+  ), 0);
+  assert.equal(resolvedCheckEntries, rawCheckEntries);
+  for (const { scenario, caseName, contract } of registeredCases) {
+    const checks = contract.requiredChecks;
+    const ownedChecks = Array.isArray(checks) ? checks : checks.owned;
+    const customChecks = Array.isArray(checks) ? checks : (checks.custom ?? checks.owned);
+    assert.ok(contract.playwrightTest, `${scenario.id}/${caseName} has a native Playwright mapping`);
+    assert.deepEqual(scenarioCaseFor(scenario, caseName).requiredChecks, ownedChecks);
+    assert.deepEqual(scenarioCaseFor(scenario, caseName, true).requiredChecks, customChecks);
+  }
   assert.throws(() => scenarioCaseFor('builder-load', 'unknown'), /unknown case for builder-load: unknown/);
   assert.throws(() => scenarioCaseFor('unknown-scenario', 'case'), /unknown scenario: unknown-scenario/);
 });

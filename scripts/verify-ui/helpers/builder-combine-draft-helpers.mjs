@@ -4,6 +4,34 @@ export const workspaceOutputRef = (outputId) => ({ kind: 'WORKSPACE_OUTPUT', out
 
 export const workspaceOutputOption = (outputId) => JSON.stringify(['WORKSPACE_OUTPUT', outputId]);
 
+export const uniqueValueFieldProjection = (document, fieldPath, occurrenceId = 'base') => {
+  const matches = (document?.columns ?? []).filter((column) =>
+    column?.occurrenceId === occurrenceId &&
+    column?.source?.kind === 'field' &&
+    column.source.field?.path === fieldPath &&
+    column.source.field?.projectionMode === 'VALUE');
+  const match = matches.length === 1 ? matches[0] : null;
+  const binding = match && typeof match.columnId === 'string' && match.columnId.length > 0
+    ? { columnId: match.columnId, column: match.column, label: match.label, occurrenceId: match.occurrenceId,
+      fieldPath: match.source.field.path, projectionMode: match.source.field.projectionMode }
+    : null;
+  return {
+    ok: matches.length === 1 && binding !== null,
+    fieldPath,
+    occurrenceId,
+    projectionMode: 'VALUE',
+    matches: matches.map((column) => ({
+      columnId: column?.columnId ?? null,
+      column: column?.column ?? null,
+      label: column?.label ?? null,
+      occurrenceId: column?.occurrenceId ?? null,
+      fieldPath: column?.source?.field?.path ?? null,
+      projectionMode: column?.source?.field?.projectionMode ?? null,
+    })),
+    binding,
+  };
+};
+
 
 const normalizeConstructionOutputNullability = (construction) => {
   if (!construction || typeof construction !== 'object' || Array.isArray(construction) || !Array.isArray(construction.steps)) {

@@ -281,7 +281,7 @@ const editableConstructionFamily = (
     case 'RELATED_EXPAND': return 'RESHAPE';
     case 'RELATED_SOURCE': return undefined;
     case 'RELATED_FIELD': return undefined;
-    case 'COMBINE': return operation.combine.kind === 'KEY_JOIN' || operation.combine.kind === 'APPEND'
+    case 'COMBINE': return operation.combine.kind === 'KEY_JOIN' || operation.combine.kind === 'APPEND' || operation.combine.kind === 'MEMBERSHIP'
       ? 'COMBINE'
       : undefined;
     default: {

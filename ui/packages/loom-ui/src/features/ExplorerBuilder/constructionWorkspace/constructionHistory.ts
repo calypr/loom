@@ -207,7 +207,7 @@ const formatStep = (
         id: step.id,
         title: 'Combine',
         summary: `${description}${source}.`,
-        editable: combine.kind === 'KEY_JOIN' || combine.kind === 'APPEND',
+        editable: combine.kind === 'KEY_JOIN' || combine.kind === 'APPEND' || combine.kind === 'MEMBERSHIP',
       };
     }
     case 'RELATED_SOURCE': {

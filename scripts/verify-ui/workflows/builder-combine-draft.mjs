@@ -16,9 +16,14 @@ import {
   joinGroupedCounts,
   joinPivotRows,
   sourceRecompileEvidence,
+  uniqueValueFieldProjection,
   workspaceOutputOption,
 } from '../helpers/builder-combine-draft-helpers.mjs';
-import { nativeCombineTargetBindingEvidence } from '../helpers/builder-combine-helpers.mjs';
+import {
+  membershipGroupCapabilityKeyEvidence,
+  membershipOutputNullabilityEvidence,
+  nativeCombineTargetBindingEvidence,
+} from '../helpers/builder-combine-helpers.mjs';
 
 const expectedPatients = [{ id: 'combine-fixture-patient', gender: 'female' }];
 const expectedObservations = [
@@ -32,6 +37,25 @@ const expectedReports = [
   { id: 'combine-observation-final-2', status: 'final' },
   { id: 'combine-observation-preliminary', status: 'preliminary' },
 ];
+const expectedMembership = {
+  observationIDs: [
+    'combine-observation-final-1',
+    'combine-observation-final-2',
+    'combine-observation-preliminary',
+    'combine-observation-unmatched',
+  ],
+  reportIDs: [
+    'combine-observation-final-1',
+    'combine-observation-final-2',
+    'combine-observation-preliminary',
+  ],
+  includeIDs: [
+    'combine-observation-final-1',
+    'combine-observation-final-2',
+    'combine-observation-preliminary',
+  ],
+  excludeIDs: ['combine-observation-unmatched'],
+};
 const proposalPanel = '[data-testid="construction-proposal-panel"]';
 const proposalPreview = '[data-testid="construction-proposal-preview"][data-preview-status="ready"]';
 const workspaceReady = "Boolean(document.querySelector('[data-testid=construction-workspace]'))";
@@ -338,16 +362,19 @@ const readScope = (context, explorer, builder, expectedScope, expectedDraftState
   };
 };
 
-const sourceColumnLabels = async (page, resourceType, needsKey = true) => {
+const sourceColumnBindings = async (page, document, resourceType, keyFieldPath, needsKey = true) => {
   const candidates = await evaluate(page, `(()=>[...document.querySelectorAll('input[type="checkbox"][aria-label^="Group by "]')].map(i=>i.getAttribute('aria-label').slice('Group by '.length)))()`);
-  const status = candidates.filter((label) => /status/i.test(label));
-  const gender = candidates.filter((label) => /gender/i.test(label));
-  const ids = candidates.filter((label) => /\bid\b/i.test(label));
-  const key = resourceType === 'Patient' ? gender : status;
-  if ((needsKey && key.length !== 1) || (resourceType !== 'Patient' && ids.length !== 1)) {
-    throw new Error('Group field identity is ambiguous for ' + resourceType + ': ' + JSON.stringify(candidates));
-  }
-  return { key: key[0], id: ids[0] };
+  const visibleBinding = (evidence, fieldPath) => {
+    if (!evidence?.ok) throw new Error('Builder VALUE projection is ambiguous for ' + resourceType + '.' + fieldPath + ': ' + JSON.stringify(evidence));
+    const matches = candidates.filter((label) => label === evidence.binding.label);
+    if (matches.length !== 1) {
+      throw new Error('Visible Group control is not a unique label for Builder columnId ' + evidence.binding.columnId + ': ' + JSON.stringify({ fieldPath, label: evidence.binding.label, matches, candidates }));
+    }
+    return evidence.binding;
+  };
+  const id = resourceType === 'Patient' ? null : visibleBinding(uniqueValueFieldProjection(document, 'id'), 'id');
+  const key = needsKey ? visibleBinding(uniqueValueFieldProjection(document, keyFieldPath), keyFieldPath) : null;
+  return { key, id, candidates };
 };
 
 const addRoot = async (context, page, report, explorer, resourceType, title, expectedIDs, expectedDocumentCount, expectedScope) => {
@@ -409,47 +436,49 @@ const addRawField = async (page, report, resourceType, path, expectedRows) => {
   await click(page, 'button', { name: 'Close operation editor' });
 };
 
-const chooseGroupKey = async (page, ariaLabel) => {
-  const selector = 'input[type="checkbox"][aria-label=' + JSON.stringify('Group by ' + ariaLabel) + ']';
+const chooseGroupKey = async (page, binding) => {
+  const selector = 'input[type="checkbox"][aria-label=' + JSON.stringify('Group by ' + binding.label) + ']';
+  const matches = await page.locator(selector).count();
+  if (matches !== 1) throw new Error('Native Group selector is not unique for Builder columnId ' + binding.columnId + ': found ' + matches);
   const action = await inspectAction(page, selector);
-  if (!isActionable(action)) throw new Error('Native Group key control is unavailable: ' + JSON.stringify(action));
+  if (!isActionable(action)) throw new Error('Native Group key control is unavailable for Builder columnId ' + binding.columnId + ': ' + JSON.stringify(action));
   await click(page, selector);
 };
 
-const beginGroup = async (page, resourceType, keys) => {
+const beginGroup = async (page, document, resourceType, keyFieldPath, keys) => {
   await click(page, '[data-testid="construction-rows-settings-trigger"]');
   await waitFor(page, "document.querySelector('[data-testid=construction-action-group-rows]')?.disabled===false", 10000);
   await click(page, '[data-testid="construction-action-group-rows"]');
   await waitFor(page, "Boolean(document.querySelector('[data-testid=construction-reshape-editor]'))&&Boolean(document.querySelector('select[aria-label=\"Summary 1\"]'))", 10000);
-  const fields = await sourceColumnLabels(page, resourceType, keys !== 'id-only');
+  const fields = await sourceColumnBindings(page, document, resourceType, keyFieldPath, keys !== 'id-only');
   const selectedKeys = keys === 'pivot-source' ? [fields.id, fields.key] : keys === 'id-only' ? [fields.id] : [fields.key];
   for (const key of selectedKeys) await chooseGroupKey(page, key);
   return { fields, selectedKeys };
 };
 
-const groupRows = async (page, report, resourceType, composed, rawRows, expectedCount, labelPrefix = '', groupByID = false) => {
+const groupRows = async (page, report, resourceType, document, keyFieldPath, composed, rawRows, expectedCount, labelPrefix = '', groupByID = false) => {
   const started = Date.now();
   const groupMode = composed ? 'pivot-source' : groupByID ? 'id-only' : 'ordinary';
-  const { fields, selectedKeys } = await beginGroup(page, resourceType, groupMode);
+  const { fields, selectedKeys } = await beginGroup(page, document, resourceType, keyFieldPath, groupMode);
   const outputId = await evaluate(page, "document.querySelector('[data-testid=construction-operation-editor]')?.getAttribute('data-output-id')??null");
   if (!outputId) throw new Error('Native GROUP editor is missing its current draft output identity.');
   await waitProposal(page, expectedCount, outputId);
   const grid = await readGrid(page, 'proposal');
   const countHeaderIndex = grid.headers.findIndex((header) => /row count/i.test(header));
-  const keyHeaderIndexes = selectedKeys.map((label) => grid.headers.findIndex((header) => header === label));
+  const keyHeaderIndexes = selectedKeys.map((binding) => grid.headers.findIndex((header) => header === binding.label));
   const sorted = grid.rows.map((row) => [...keyHeaderIndexes.map((index) => row[index]), Number(row[countHeaderIndex])])
     .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
   const expected = (composed
     ? rawRows.map((row) => [row.id, String(row.status), 1])
     : groupMode === 'id-only' ? groupCounts(rawRows, 'id')
-      : groupCounts(rawRows, resourceType === 'Patient' ? 'gender' : 'status'))
+      : groupCounts(rawRows, keyFieldPath))
     .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
   const groupCheckName = (labelPrefix || resourceType).trim() + ' native GROUP count rows match the direct fixture oracle';
   check(report, 'correctness', groupCheckName,
     keyHeaderIndexes.every((index) => index >= 0) && countHeaderIndex >= 0 && JSON.stringify(sorted) === JSON.stringify(expected),
     { fields, selectedKeys, headers: grid.headers, actual: sorted, expected });
   check(report, 'performance', (labelPrefix || resourceType).trim() + ' GROUP automatic preview is within five seconds', Date.now() - started <= 5000,
-    { elapsedMs: Date.now() - started, selectedKeys });
+    { elapsedMs: Date.now() - started, selectedKeys: selectedKeys.map((binding) => binding.columnId) });
   return { fields, selectedKeys, grid, outputId };
 };
 
@@ -467,6 +496,7 @@ const savedGroupStep = (document) => document.construction?.steps?.find((step) =
 
 const createGroupSource = async (context, page, report, explorer, {
   resourceType, title, fieldPath, rawRows, keyName, idName, outputRows, composed = false, groupByID = false, deriveCountPlusOne = false,
+  reuseRootIdentity = false,
 }) => {
   const expectedIDs = rawRows.map((row) => row.id);
   const initial = await readBuilder(context, explorer);
@@ -477,14 +507,41 @@ const createGroupSource = async (context, page, report, explorer, {
   }
   await addRoot(context, page, report, explorer, resourceType, title, expectedIDs,
     (initial.workspace?.documents ?? []).length + 1, report.target.scope);
-  await addRawField(page, report, resourceType, fieldPath, rawRows.length);
+  if (reuseRootIdentity) {
+    if (fieldPath !== 'id') throw new Error('Only the exact root id VALUE projection may be reused as a Membership Group source.');
+    const rootBuilder = await readBuilder(context, explorer);
+    const rootDocument = documentByRoot(rootBuilder, resourceType);
+    const identity = uniqueValueFieldProjection(rootDocument, 'id');
+    const exactRoot = rootDocument.output?.title === title && identity.ok;
+    check(report, 'correctness', title + ' reuses the unique root VALUE id projection by stable columnId', exactRoot, {
+      outputId: rootDocument.output?.id ?? null,
+      outputTitle: rootDocument.output?.title ?? null,
+      expectedTitle: title,
+      identity,
+    });
+    if (!exactRoot) throw new Error('Membership source did not expose one exact root VALUE id projection: ' + JSON.stringify({ title, identity }));
+  } else {
+    await addRawField(page, report, resourceType, fieldPath, rawRows.length);
+  }
+  const sourceBuilder = await readBuilder(context, explorer);
+  const sourceDocument = documentByRoot(sourceBuilder, resourceType);
   const groupKeyCount = composed || groupByID ? rawRows.length : groupCounts(rawRows, resourceType === 'Patient' ? 'gender' : 'status').length;
-  const grouped = await groupRows(page, report, resourceType, composed, rawRows, groupKeyCount, composed || groupByID ? title + ' ' : '', groupByID);
+  const grouped = await groupRows(page, report, resourceType, sourceDocument, fieldPath, composed, rawRows, groupKeyCount, composed || groupByID ? title + ' ' : '', groupByID);
   await applyCurrentProposal(page, report, 'Apply ' + title + ' current-draft GROUP', groupKeyCount, grouped.outputId);
   let builder = await readBuilder(context, explorer);
   let document = documentByRoot(builder, resourceType);
   let group = savedGroupStep(document);
   assert(group && group.operation.group.aggregates.some((aggregate) => aggregate.operation === 'COUNT_ROWS'), 'Native GROUP must persist COUNT_ROWS.');
+  if (reuseRootIdentity) {
+    const expectedInputColumnIDs = grouped.selectedKeys.map((binding) => binding.columnId);
+    const actualInputColumnIDs = (group.operation.group.keys ?? []).map((key) => key.inputColumnId);
+    const exactGroupBinding = JSON.stringify(actualInputColumnIDs) === JSON.stringify(expectedInputColumnIDs);
+    check(report, 'correctness', title + ' native GROUP binds the exact source projection columnId', exactGroupBinding, {
+      expectedInputColumnIDs,
+      actualInputColumnIDs,
+    });
+    if (!exactGroupBinding) throw new Error('Membership GROUP does not bind its exact root identity columnId.');
+  }
   if (composed) {
     const keyOutputs = group.operation.group.keys.map((key) => group.outputs.find((output) => output.id === key.outputColumnId));
     const idOutput = keyOutputs.find((output) => /id/i.test(output?.label ?? output?.name ?? ''));
@@ -606,6 +663,7 @@ const createGroupSource = async (context, page, report, explorer, {
     title,
     document,
     group,
+    groupKeyOutputColumnId: groupKeyOutputs[0]?.id ?? null,
     outputRows,
     composed,
     groupKeyLabel: groupKeyOutputs[0]?.label ?? null,
@@ -707,7 +765,7 @@ const startCombineTarget = async (context, page, report, explorer, sourceOutputI
 };
 
 const chooseWorkspaceInputs = async (page, kind, sources) => {
-  const choice = kind === 'KEY_JOIN' ? 'key_join' : 'append';
+  const choice = kind === 'KEY_JOIN' ? 'key_join' : kind === 'MEMBERSHIP' ? 'membership' : 'append';
   await click(page, 'button[data-testid="construction-combine-choice-' + choice + '"]');
   await waitFor(page, "Boolean(document.querySelector('select[aria-label=\"Input table 1\"]'))&&Boolean(document.querySelector('select[aria-label=\"Input table 2\"]'))", 10000);
   for (let index = 0; index < sources.length; index += 1) {
@@ -730,18 +788,75 @@ const addCombineOutput = async (page, kind, index, name, label, sourceLabels, le
   await fill(page, 'input[aria-label="Output field ' + index + ' name"]', name);
   await fill(page, 'input[aria-label="Output field ' + index + ' label"]', label);
   let finalMapping;
+  const finalInputIndex = sourceLabels.reduce((last, sourceLabel, inputIndex) => sourceLabel ? inputIndex : last, -1);
   for (let inputIndex = 0; inputIndex < sourceLabels.length; inputIndex += 1) {
     if (!sourceLabels[inputIndex]) continue;
-    const selector = kind === 'KEY_JOIN'
-      ? 'select[aria-label="Output field ' + index + ' source field in input ' + (inputIndex + 1) + '"]'
-      : 'select[aria-label="Output field ' + index + ' matching field in input ' + (inputIndex + 1) + '"]';
-    if (leaveFinalMapping && inputIndex === sourceLabels.length - 1) {
+    const selector = kind === 'APPEND'
+      ? 'select[aria-label="Output field ' + index + ' matching field in input ' + (inputIndex + 1) + '"]'
+      : 'select[aria-label="Output field ' + index + ' source field in input ' + (inputIndex + 1) + '"]';
+    if (leaveFinalMapping && inputIndex === finalInputIndex) {
       finalMapping = { selector, label: sourceLabels[inputIndex] };
     } else {
       await chooseOption(page, selector, sourceLabels[inputIndex]);
     }
   }
   return finalMapping;
+};
+
+const configureMembership = async (page, sources) => {
+  if (sources.length !== 2 || sources.some((source) => !source.groupKeyLabel)) {
+    throw new Error('Native MEMBERSHIP needs two current-draft sources with scalar String ID keys and compiler-resolved nullability.');
+  }
+  await chooseWorkspaceInputs(page, 'MEMBERSHIP', sources);
+  await chooseOption(page, 'select[aria-label="Matching pair 1 first field"]', sources[0].groupKeyLabel);
+  await chooseOption(page, 'select[aria-label="Matching pair 1 second field"]', sources[1].groupKeyLabel);
+  return addCombineOutput(page, 'MEMBERSHIP', 1, 'observation_id', 'Observation ID', [sources[0].groupKeyLabel, ''], true);
+};
+
+const membershipKeyMetadataEvidence = ({ event, builder, context, explorer, target, sources }) => {
+  const response = event?.response ?? {};
+  const workspaceInputs = response.workspaceInputs ?? [];
+  const inputEvidence = sources.map((source) => {
+    const matches = workspaceInputs.filter((input) => input.outputId === source.outputId);
+    const input = matches[0];
+    const columns = input?.columns ?? [];
+    const keyEvidence = membershipGroupCapabilityKeyEvidence(columns, source.groupKeyOutputColumnId);
+    const key = keyEvidence.column;
+    return {
+      outputId: source.outputId,
+      title: input?.title ?? null,
+      keyLabel: source.groupKeyLabel,
+      groupKeyOutputColumnId: source.groupKeyOutputColumnId,
+      exactGroupKeyOutputColumnId: keyEvidence.exactOutputColumnId,
+      matchingColumns: keyEvidence.matchingColumns,
+      keyReady: keyEvidence.ok,
+      compiledNullable: keyEvidence.compiledNullable,
+      outputUnique: matches.length === 1,
+    };
+  });
+  const body = event?.body ?? {};
+  const expectedBuilderURL = new URL(apiRoot(context, explorer) + '/builder', context.target.apiUrl);
+  const expectedCapabilitiesPath = expectedBuilderURL.pathname.replace(/\/builder$/, '/construction-capabilities');
+  const requestURL = event?.url ? new URL(event.url) : undefined;
+  const checks = {
+    requestRouteMatches: requestURL?.pathname === expectedCapabilitiesPath,
+    requestOriginMatches: requestURL?.origin === new URL(context.target.uiUrl).origin,
+    requestOutputMatches: body.outputId === target.outputId,
+    requestSnapshotMatches: body.snapshotToken === builder.catalog?.snapshotToken,
+    requestDraftVersionMatches: body.expectedDraftVersion === builder.draftVersion,
+    requestDraftDigestMatches: body.expectedDraftDigest === builder.draftDigest,
+    builderGenerationMatches: builder.catalog?.generation === context.target.fixtureGeneration,
+    responseSnapshotMatches: response.snapshotToken === builder.catalog?.snapshotToken,
+    responseDraftVersionMatches: response.draftVersion === builder.draftVersion,
+    responseDraftDigestMatches: response.draftDigest === builder.draftDigest,
+    responseOutputMatches: response.outputId === target.outputId,
+    responseStageMatches: response.stageId === body.stageId,
+    responseStatusIsSuccess: event?.status === 200,
+    exactSourceOutputs: workspaceInputs.map((input) => input.outputId).sort().join(',') === sources.map((source) => source.outputId).sort().join(','),
+    sourceKeysAreScalarCompatibleStrings: inputEvidence.length === 2 && inputEvidence.every((input) =>
+      input.outputUnique && input.exactGroupKeyOutputColumnId && input.keyReady),
+  };
+  return { ok: Object.values(checks).every(Boolean), checks, inputEvidence };
 };
 
 const configureJoin = async (page, sources, joinType, shape = 'status-counts') => {
@@ -1169,6 +1284,235 @@ export const draftJoinWorkflow = async ({ page, report }, context) => {
     const after = await readBuilder(context, run.explorer);
     check(report, 'correctness', 'Join lifecycle made no Publish request or pinned revision reference', run.publishCount() === 0 && sources.every((source) => !JSON.stringify(after.workspace.documents).includes('TABLE_REVISION')), {
       publishRequests: run.publishCount(), inputKinds: after.workspace.documents.flatMap((document) => document.construction?.steps?.flatMap((step) => step.inputs ?? []) ?? []).map((input) => input.kind),
+    });
+  } finally {
+    report.previewRequestLifecycle = previewLifecycle.stop();
+    run.stopPublish();
+  }
+};
+
+export const draftMembershipWorkflow = async ({ page, report }, context) => {
+  const run = await beginOwnedWorkspace(context, page, report, 'membership');
+  const previewLifecycle = captureOwnedPreviewLifecycle(page, context.target, run.explorer);
+  const sources = [];
+  const expectedIncludeRows = expectedMembership.includeIDs.map((id) => [id]);
+  const expectedExcludeRows = expectedMembership.excludeIDs.map((id) => [id]);
+  const matchingReportIDs = new Set(run.raw.reports.map((row) => row.id));
+  const oracleIncludeIDs = run.raw.observations.filter((row) => matchingReportIDs.has(row.id)).map((row) => row.id).sort();
+  const oracleExcludeIDs = run.raw.observations.filter((row) => !matchingReportIDs.has(row.id)).map((row) => row.id).sort();
+  const exactMembershipOracle = run.raw.observations.length === 4 && run.raw.reports.length === 3 &&
+    JSON.stringify(run.raw.observations.map((row) => row.id).sort()) === JSON.stringify([...expectedMembership.observationIDs].sort()) &&
+    JSON.stringify(run.raw.reports.map((row) => row.id).sort()) === JSON.stringify([...expectedMembership.reportIDs].sort()) &&
+    JSON.stringify(oracleIncludeIDs) === JSON.stringify([...expectedMembership.includeIDs].sort()) &&
+    JSON.stringify(oracleExcludeIDs) === JSON.stringify([...expectedMembership.excludeIDs].sort());
+  check(report, 'correctness', 'independent MEMBERSHIP oracle has four Observation rows, three DiagnosticReport rows, three matches, and one exclusion', exactMembershipOracle, {
+    observationCount: run.raw.observations.length,
+    diagnosticReportCount: run.raw.reports.length,
+    observationIDs: run.raw.observations.map((row) => row.id).sort(),
+    diagnosticReportIDs: run.raw.reports.map((row) => row.id).sort(),
+    expectedObservationIDs: expectedMembership.observationIDs,
+    expectedDiagnosticReportIDs: expectedMembership.reportIDs,
+    oracleIncludeIDs,
+    expectedIncludeIDs: expectedMembership.includeIDs,
+    oracleExcludeIDs,
+    expectedExcludeIDs: expectedMembership.excludeIDs,
+  });
+
+  const openTargetWithVerifiedKeys = async () => {
+    const sourceBuilder = await readBuilder(context, run.explorer);
+    const capabilities = capturePost(page, '/construction-capabilities');
+    try {
+      const target = await startCombineTarget(context, page, report, run.explorer, sources[0].outputId, sourceBuilder);
+      const builder = await readBuilder(context, run.explorer);
+      const event = await capabilities.waitFor((entry) => entry.body?.outputId === target.outputId &&
+        entry.response?.outputId === target.outputId && Array.isArray(entry.response?.workspaceInputs), 10000);
+      const evidence = membershipKeyMetadataEvidence({ event, builder, context, explorer: run.explorer, target, sources });
+      check(report, 'correctness', 'MEMBERSHIP key choices use exact current-draft metadata with scalar String IDs and compiled nullability', evidence.ok, evidence);
+      if (!evidence.ok) throw new Error('Current-draft MEMBERSHIP source keys are not editor-eligible scalar String columns with exact compiled nullability metadata.');
+      return { target, builder, evidence };
+    } finally {
+      await capabilities.stop();
+    }
+  };
+
+  try {
+    sources.push(await createGroupSource(context, page, report, run.explorer, {
+      resourceType: 'Observation', title: 'Observation ID membership source', fieldPath: 'id', rawRows: run.raw.observations, groupByID: true, reuseRootIdentity: true,
+    }));
+    sources.push(await createGroupSource(context, page, report, run.explorer, {
+      resourceType: 'DiagnosticReport', title: 'DiagnosticReport ID membership source', fieldPath: 'id', rawRows: run.raw.reports, groupByID: true, reuseRootIdentity: true,
+    }));
+
+    let openedTarget = await openTargetWithVerifiedKeys();
+    let { target } = openedTarget;
+    report.target.combineTarget = target;
+    const firstBase = await readBuilder(context, run.explorer);
+    const firstCapture = capturePost(page, '/construction-proposals');
+    try {
+      const finalMapping = await configureMembership(page, sources);
+      await renderFinalMapping(page, report, 'INCLUDE MEMBERSHIP automatic preview completes within five seconds', finalMapping, expectedIncludeRows.length, target.outputId);
+      await waitProposal(page, expectedIncludeRows.length, target.outputId);
+      assertRows(report, 'INCLUDE preview keeps exactly the three independently matched Observation IDs',
+        await readGrid(page, 'proposal'), ['Observation ID'], expectedIncludeRows);
+      await assertDraftCandidate(report, page, firstCapture, firstBase, target, sources, 'MEMBERSHIP');
+      const cancelBase = await readBuilder(context, run.explorer);
+      await recordBrowserTiming(report, page, {
+        name: 'Cancel current-draft INCLUDE MEMBERSHIP preview',
+        action: () => click(page, '[data-testid="construction-cancel-proposal"]'),
+        after: "!document.querySelector('[data-testid=construction-combine-editor]')&&!document.querySelector('[data-testid=construction-proposal-panel]')&&" + selectedOutputReady(target.outputId),
+        timeout: 5000,
+        budget: 5000,
+      });
+      await reloadAndSelectSavedTable(report, page, target.outputId, undefined, 'reload canceled INCLUDE MEMBERSHIP and select its unchanged empty target');
+      const canceled = await readBuilder(context, run.explorer);
+      const cancelEvidence = canceledDraftEvidence(cancelBase, canceled);
+      const targetStayedEmpty = documentByOutput(canceled, target.outputId).columns.length === 0 &&
+        (documentByOutput(canceled, target.outputId).construction?.steps?.length ?? 0) === 0;
+      check(report, 'persistence', 'Cancel leaves the entire MEMBERSHIP workspace and draft CAS unchanged after reload', cancelEvidence.ok && targetStayedEmpty, {
+        cancelEvidence,
+        targetStayedEmpty,
+        targetOutputId: target.outputId,
+      });
+    } finally {
+      await firstCapture.stop();
+    }
+
+    openedTarget = await openTargetWithVerifiedKeys();
+    ({ target } = openedTarget);
+    report.target.combineTarget = target;
+    let base = await readBuilder(context, run.explorer);
+    const includeCapture = capturePost(page, '/construction-proposals');
+    let includeMetadata;
+    try {
+      const finalMapping = await configureMembership(page, sources);
+      await renderFinalMapping(page, report, 'second INCLUDE MEMBERSHIP automatic preview completes within five seconds', finalMapping, expectedIncludeRows.length, target.outputId);
+      await waitProposal(page, expectedIncludeRows.length, target.outputId);
+      assertRows(report, 'INCLUDE preview rows match the exact independent raw membership oracle',
+        await readGrid(page, 'proposal'), ['Observation ID'], expectedIncludeRows);
+      await assertDraftCandidate(report, page, includeCapture, base, target, sources, 'MEMBERSHIP');
+      const metadataEvent = includeCapture.entries.findLast((entry) => entry.body?.candidateConstruction?.steps?.at(-1)?.operation?.combine?.kind === 'MEMBERSHIP');
+      includeMetadata = metadataEvent?.body?.candidateConstruction?.steps?.at(-1)?.operation?.combine;
+      const includeKeyIDs = [sources[0].groupKeyLabel, sources[1].groupKeyLabel];
+      const includeKeyEvidence = {
+        modeIsInclude: includeMetadata?.membershipMode === 'INCLUDE',
+        oneKeyPair: includeMetadata?.keys?.length === 1,
+        projectionsUseOnlyLeftInput: includeMetadata?.projections?.length === 1 && includeMetadata.projections[0]?.inputIndex === 0,
+        stableLeftAndRightLabels: includeKeyIDs.every(Boolean),
+        exactCapabilityKeyPair: JSON.stringify(includeMetadata?.keys) === JSON.stringify([{
+          leftColumnId: openedTarget.evidence.inputEvidence[0]?.matchingColumns[0]?.id,
+          rightColumnId: openedTarget.evidence.inputEvidence[1]?.matchingColumns[0]?.id,
+        }]),
+      };
+      check(report, 'correctness', 'INCLUDE proposal retains left rows with one exact current-draft key pair', Object.values(includeKeyEvidence).every(Boolean), includeKeyEvidence);
+      await applyCurrentProposal(page, report, 'Apply current-draft INCLUDE MEMBERSHIP', expectedIncludeRows.length, target.outputId);
+    } finally {
+      await includeCapture.stop();
+    }
+
+    base = await readBuilder(context, run.explorer);
+    let targetDocument = documentByOutput(base, target.outputId);
+    let step = targetDocument.construction?.steps?.at(-1);
+    const sourceEvidence = currentDraftSourceEvidence({
+      inputs: step?.inputs,
+      expectedOutputIDs: sources.map((source) => source.outputId),
+      sourceDocuments: base.workspace?.documents,
+      publishedOutputIDs: [],
+    });
+    const includeOperation = step?.operation?.combine;
+    const includeInputs = structuredClone(step?.inputs ?? []);
+    const includeProjections = structuredClone(includeOperation?.projections ?? []);
+    const includeSaved = step?.operation?.kind === 'COMBINE' && includeOperation?.kind === 'MEMBERSHIP' &&
+      includeOperation.membershipMode === 'INCLUDE' && includeOperation.keys?.length === 1 &&
+      includeOperation.projections?.length === 1 && includeOperation.projections[0]?.inputIndex === 0 && sourceEvidence.ok;
+    check(report, 'persistence', 'saved INCLUDE MEMBERSHIP uses exactly the two unpublished current-draft ID sources', includeSaved, {
+      stepId: step?.id,
+      combine: includeOperation,
+      sourceEvidence,
+    });
+    const savedOutputColumnID = includeOperation?.projections?.[0]?.outputColumnId;
+    const includeSavedStepID = step?.id;
+    const includeSavedOutputIDs = step?.outputs?.map((output) => output.id) ?? [];
+    const includeOutputColumn = step?.outputs?.find((output) => output.id === savedOutputColumnID);
+    const sourceCompiledNullable = openedTarget.evidence.inputEvidence[0]?.compiledNullable;
+    const includeOutputNullability = membershipOutputNullabilityEvidence(includeOutputColumn, sourceCompiledNullable);
+    check(report, 'persistence', 'INCLUDE MEMBERSHIP output preserves left ID nullability', Boolean(includeOutputColumn && includeOutputColumn.type === 'string' && includeOutputNullability.ok), {
+      outputColumn: includeOutputColumn ?? null,
+      sourceCapabilityOutputColumnId: sources[0].groupKeyOutputColumnId,
+      ...includeOutputNullability,
+    });
+    await reloadAndSelectSavedTable(report, page, target.outputId, expectedIncludeRows.length, 'reload applied INCLUDE MEMBERSHIP and render its exact output');
+    assertRows(report, 'INCLUDE output values survive reload as the exact matched Observation IDs',
+      await readGrid(page), ['Observation ID'], expectedIncludeRows);
+
+    await editSavedStep(page, report, target.outputId, step.id, '[data-testid="construction-combine-editor"]');
+    const editBase = await readBuilder(context, run.explorer);
+    const excludeCapture = capturePost(page, '/construction-proposals');
+    try {
+      await recordBrowserTiming(report, page, {
+        name: 'edit saved MEMBERSHIP from INCLUDE to EXCLUDE and preview the exact unmatched row',
+        action: () => setSelectValue(page, 'select[aria-label="Which rows should stay?"]', 'EXCLUDE'),
+        after: proposalRowsReady(expectedExcludeRows.length, target.outputId),
+        timeout: 5000,
+        budget: 5000,
+      });
+      assertRows(report, 'EXCLUDE preview changes to exactly the unmatched Observation ID',
+        await readGrid(page, 'proposal'), ['Observation ID'], expectedExcludeRows);
+      await assertDraftCandidate(report, page, excludeCapture, editBase, target, sources, 'MEMBERSHIP');
+      const excludeEvent = excludeCapture.entries.findLast((entry) => entry.body?.candidateConstruction?.steps?.at(-1)?.operation?.combine?.kind === 'MEMBERSHIP');
+      const excludeStep = excludeEvent?.body?.candidateConstruction?.steps?.at(-1);
+      const excludeOperation = excludeStep?.operation?.combine;
+      const editEvidence = {
+        modeIsExclude: excludeOperation?.membershipMode === 'EXCLUDE',
+        inputsUnchanged: JSON.stringify(excludeStep?.inputs) === JSON.stringify(step.inputs),
+        keyPairUnchanged: JSON.stringify(excludeOperation?.keys) === JSON.stringify(includeOperation?.keys),
+        stepIdentityUnchanged: excludeStep?.id === includeSavedStepID,
+        outputIdentityUnchanged: JSON.stringify(excludeStep?.outputs?.map((output) => output.id)) === JSON.stringify(includeSavedOutputIDs),
+      };
+      check(report, 'correctness', 'EXCLUDE edit changes membership policy while preserving exact inputs, keys, and output identity', Object.values(editEvidence).every(Boolean), editEvidence);
+      await applyCurrentProposal(page, report, 'Apply saved MEMBERSHIP EXCLUDE edit', expectedExcludeRows.length, target.outputId);
+    } finally {
+      await excludeCapture.stop();
+    }
+
+    base = await readBuilder(context, run.explorer);
+    targetDocument = documentByOutput(base, target.outputId);
+    step = targetDocument.construction?.steps?.at(-1);
+    const excludeSaved = step?.operation?.kind === 'COMBINE' && step.operation.combine?.kind === 'MEMBERSHIP' &&
+      step.operation.combine.membershipMode === 'EXCLUDE' &&
+      JSON.stringify(step.inputs) === JSON.stringify(includeInputs) &&
+      JSON.stringify(step.operation.combine.keys) === JSON.stringify(includeOperation?.keys) &&
+      step.id === includeSavedStepID &&
+      JSON.stringify(step.operation.combine.projections) === JSON.stringify(includeProjections) &&
+      JSON.stringify(step.outputs?.map((output) => output.id)) === JSON.stringify(includeSavedOutputIDs);
+    check(report, 'persistence', 'saved EXCLUDE MEMBERSHIP policy and stable output identity survive Apply', excludeSaved, {
+      mode: step?.operation?.combine?.membershipMode ?? null,
+      keys: step?.operation?.combine?.keys ?? [],
+      outputIDs: step?.outputs?.map((output) => output.id) ?? [],
+    });
+    await reloadAndSelectSavedTable(report, page, target.outputId, expectedExcludeRows.length, 'reload edited EXCLUDE MEMBERSHIP and render its exact output');
+    assertRows(report, 'EXCLUDE values survive reload as the exact unmatched Observation ID',
+      await readGrid(page), ['Observation ID'], expectedExcludeRows);
+
+    await removeStepAndRestoreTarget(context, page, report, run.explorer, target, step.id);
+    const after = await readBuilder(context, run.explorer);
+    const sourceDocuments = sources.map((source) => (after.workspace?.documents ?? []).find((document) => document.output?.id === source.outputId));
+    const sourceGroupsPreserved = sourceDocuments.length === 2 && sourceDocuments.every((document, index) =>
+      document?.rootResourceType === sources[index].rootResourceType &&
+      document.construction?.steps?.length === 1 &&
+      document.construction.steps[0]?.id === sources[index].group?.id &&
+      document.construction.steps[0]?.operation?.kind === 'GROUP');
+    check(report, 'persistence', 'removing MEMBERSHIP preserves both exact GROUP source outputs after reload', sourceGroupsPreserved, {
+      expectedSourceOutputIDs: sources.map((source) => source.outputId),
+      sources: sourceDocuments.map((document) => ({
+        outputId: document?.output?.id ?? null,
+        rootResourceType: document?.rootResourceType ?? null,
+        steps: document?.construction?.steps?.map((savedStep) => ({ id: savedStep.id, operation: savedStep.operation?.kind })) ?? [],
+      })),
+    });
+    const inputKinds = after.workspace?.documents?.flatMap((document) => document.construction?.steps?.flatMap((savedStep) => savedStep.inputs ?? []) ?? []).map((input) => input.kind) ?? [];
+    check(report, 'correctness', 'MEMBERSHIP lifecycle makes no Publish request or pinned revision reference', run.publishCount() === 0 && !inputKinds.includes('TABLE_REVISION'), {
+      publishRequests: run.publishCount(),
+      inputKinds,
     });
   } finally {
     report.previewRequestLifecycle = previewLifecycle.stop();

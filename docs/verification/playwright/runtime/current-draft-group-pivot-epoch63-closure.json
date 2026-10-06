@@ -1,0 +1,166 @@
+{
+  "epoch": 63,
+  "status": "CLOSED_WITH_CASE_PASS_AND_SANDBOX_PRECHECK_OVERHEAD",
+  "integrityClosure": {
+    "status": "PASS",
+    "source": {
+      "beforeSha256": "91ec48ffd83d426f8073140a2b4714d0e0472b875ce1d1ed2739bead0552df03",
+      "afterSha256": "91ec48ffd83d426f8073140a2b4714d0e0472b875ce1d1ed2739bead0552df03",
+      "files": 1502,
+      "changedPaths": []
+    },
+    "docs": {
+      "beforeSha256": "d3162ca0b50713e631700280d8e24d92cb5a2ea6e2bfc64b938ab7b9d0b43dad",
+      "afterSha256": "d3162ca0b50713e631700280d8e24d92cb5a2ea6e2bfc64b938ab7b9d0b43dad",
+      "files": 155,
+      "changedPaths": []
+    },
+    "apiBuildIdentity": {
+      "before": "93c80c92ecdc7e5f3d7540c713c9612af329ecc901f3055c1908c3b272b59423:93c80c92ecdc7e5f3d7540c713c9612af329ecc901f3055c1908c3b272b59423:6ba105393f746f46111643988a47ac6a3480bb7e4ac6177e489b449c6e48d5e0",
+      "after": "93c80c92ecdc7e5f3d7540c713c9612af329ecc901f3055c1908c3b272b59423:93c80c92ecdc7e5f3d7540c713c9612af329ecc901f3055c1908c3b272b59423:6ba105393f746f46111643988a47ac6a3480bb7e4ac6177e489b449c6e48d5e0",
+      "unchanged": true
+    },
+    "ownedMounts": {
+      "beforeStatus": "PASS",
+      "afterStatus": "PASS",
+      "targetUnchanged": true,
+      "target": {
+        "project": "loom_dev_cda_fhir",
+        "composeProject": "loom-dev-6d7df93d6a37",
+        "apiContainer": "loom-dev-6d7df93d6a37-loom-api-1",
+        "uiContainer": "loom-dev-6d7df93d6a37-loom-ui-1",
+        "arangoContainer": "loom-dev-6d7df93d6a37-arangodb-1",
+        "clickhouseContainer": "loom-dev-6d7df93d6a37-clickhouse-1",
+        "apiPort": "8188",
+        "uiPort": "30008",
+        "sourceRoot": "/private/tmp/loom-construction-implementation",
+        "generation": "cda-fhir-v1"
+      }
+    },
+    "health": {
+      "beforeStatus": "PASS",
+      "beforeSamples": 3,
+      "afterStatus": "PASS",
+      "afterSamples": 3,
+      "allApiUiHealthy": true
+    },
+    "handles": {
+      "apiBuildPrecheckAttempts": [
+        {
+          "session": 7034,
+          "exitCode": 0,
+          "artifactStatus": "console success output; shared output path was subsequently overwritten by default-sandbox owner attempt"
+        },
+        {
+          "session": null,
+          "exitCode": 1,
+          "at": "2026-10-06T05:21:16.899Z",
+          "sandboxPermissions": "default",
+          "artifact": "/private/tmp/loom-native-parallel-wave63/api-build-precheck-sandbox-failure.json",
+          "productFailure": false
+        },
+        {
+          "session": 21321,
+          "exitCode": 0,
+          "artifact": "/private/tmp/loom-native-parallel-wave63/api-build-precheck-confirmed.json",
+          "fresh": true
+        }
+      ],
+      "beforeCapture": {
+        "session": 35283,
+        "exitCode": 0
+      },
+      "beforeHealth": {
+        "session": 72997,
+        "exitCode": 0
+      },
+      "browser": {
+        "session": 28418,
+        "exitCode": 0
+      },
+      "afterCapture": {
+        "session": 45054,
+        "exitCode": 0
+      },
+      "afterHealth": {
+        "session": 77414,
+        "exitCode": 0
+      }
+    }
+  },
+  "case": {
+    "owner": "verify_group_pivot_join",
+    "scenario": "builder-combine-draft/group-pivot-join",
+    "title": "GROUP-to-PIVOT current-draft Join supports cancel, apply, edit, removal, and reload",
+    "runnerStatus": "passed",
+    "runnerExpected": 1,
+    "runnerUnexpected": 0,
+    "playwrightTestDurationMs": 17194,
+    "runnerProcessDurationMs": 22590.747,
+    "reportStatus": "passed",
+    "dimensions": {
+      "usability": "passed",
+      "correctness": "passed",
+      "persistence": "passed",
+      "performance": "passed"
+    },
+    "requiredChecks": {
+      "passed": 21,
+      "total": 21,
+      "missing": []
+    },
+    "assertions": {
+      "passed": 96,
+      "failed": 0
+    },
+    "nativeActions": {
+      "passed": 30,
+      "failed": 0,
+      "maxElapsedMs": 614
+    },
+    "workflowTimings": {
+      "measuredSteps": 29,
+      "maxStepMs": 614
+    },
+    "networkErrors": 0,
+    "runtimeErrors": 0,
+    "incidentalAssetFailures": [
+      {
+        "kind": "asset-failure",
+        "url": "http://127.0.0.1:30008/favicon.ico",
+        "status": 404
+      }
+    ],
+    "fixtureProject": "loom_dev_verify_muw8gm1b-2ddb9da",
+    "explorer": "verify-1b-2ddb9da-draft-combine-group-pivot",
+    "reportPath": "/private/tmp/loom-native-parallel-wave63/dev-artifacts/verify-ui/builder-combine-draft-group-pivot-muw8gm1b-2ddb9da.json",
+    "reportSha256": "56662a7c023aa960c9021f3a8160226fd6f90042949d469ee5a0298d04d71aec",
+    "playwrightResultsPath": "/private/tmp/loom-native-parallel-wave63/group-pivot-join/attempt1/results.json",
+    "playwrightResultsSha256": "5d5ebf3ddbf8bc0424ad83b1606b127e16e0f173572aee6580edec39f9c2aff4",
+    "noRetry": true,
+    "functionalScope": "The basic fixture native Group\u2192Group\u2192Pivot source lifecycle and mixed Group/Pivot current-draft Join passed cancel, apply as LEFT, exact reload values, edit to INNER, exact reload values, removal, rooted empty restoration, and reload. No Publish or pinned reference was used.",
+    "environmentOverhead": {
+      "classification": "SANDBOX_DOCKER_ACCESS_DENIED",
+      "failureArtifact": "/private/tmp/loom-native-parallel-wave63/api-build-precheck-sandbox-failure.json",
+      "checkedAt": "2026-10-06T05:21:16.899Z",
+      "detail": "The owner accidentally ran the precheck once without escalation; Docker build-stamp access failed and overwrote the shared precheck path. The coordinator preserved this report and reran precheck with escalation to a fresh path. Confirmed identity matched the captured baseline and three-sample health; no product failure."
+    }
+  },
+  "artifacts": {
+    "runPlan": "/private/tmp/loom-native-parallel-wave63/run-plan.json",
+    "browserEnvironment": "/private/tmp/loom-native-parallel-wave63/browser-environment.sh",
+    "captureEnvironment": "/private/tmp/loom-native-parallel-wave63/capture-environment.sh",
+    "apiBuildPrecheckConfirmed": "/private/tmp/loom-native-parallel-wave63/api-build-precheck-confirmed.json",
+    "apiBuildPrecheckSandboxFailure": "/private/tmp/loom-native-parallel-wave63/api-build-precheck-sandbox-failure.json",
+    "sourceBefore": "/private/tmp/loom-native-parallel-wave63/source-before.json",
+    "sourceAfter": "/private/tmp/loom-native-parallel-wave63/source-after.json",
+    "docsBefore": "/private/tmp/loom-native-parallel-wave63/docs-before.json",
+    "docsAfter": "/private/tmp/loom-native-parallel-wave63/docs-after.json",
+    "apiBefore": "/private/tmp/loom-native-parallel-wave63/api-identity-before.json",
+    "apiAfter": "/private/tmp/loom-native-parallel-wave63/api-identity-after.json",
+    "mountsBefore": "/private/tmp/loom-native-parallel-wave63/owned-mounts-before.json",
+    "mountsAfter": "/private/tmp/loom-native-parallel-wave63/owned-mounts-after.json",
+    "healthBefore": "/private/tmp/loom-native-parallel-wave63/health-before.json",
+    "healthAfter": "/private/tmp/loom-native-parallel-wave63/health-after.json"
+  }
+}

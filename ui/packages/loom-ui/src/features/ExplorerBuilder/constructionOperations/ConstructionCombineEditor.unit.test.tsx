@@ -384,40 +384,79 @@ describe('ConstructionCombineEditor', () => {
     });
   });
 
-  it('keeps nullable and repeated fields unavailable as membership keys', () => {
+  it('allows nullable scalar Membership keys, preserves their nullable output, and keeps invalid keys unavailable', () => {
     const left = {
       ...workspaceOutput('membership-left', 'Membership left', 'left-key'),
       columns: [
-        { id: 'left-key', name: 'patient_id', label: 'Patient ID', type: 'string', nullable: false, repeated: false, cardinality: 'required_one' as const, joinCompatibilityKey: 'String' },
-        { id: 'left-nullable', name: 'nullable_id', label: 'Nullable ID', type: 'string', nullable: true, repeated: false, cardinality: 'optional_one' as const, joinCompatibilityKey: 'String' },
-        { id: 'left-repeated', name: 'repeated_id', label: 'Repeated ID', type: 'string', nullable: false, repeated: true, cardinality: 'many' as const, joinCompatibilityKey: 'String' },
+        { id: 'left-nullable', name: 'patient_id', label: 'Patient ID', type: 'string', nullable: true, repeated: false, cardinality: 'optional_one' as const, joinCompatibilityKey: 'String' },
+        { id: 'left-repeated', name: 'repeated_id', label: 'Repeated ID', type: 'string', nullable: true, repeated: true, cardinality: 'many' as const, joinCompatibilityKey: 'String' },
       ],
     } satisfies ConstructionCombineWorkspaceOutput;
     const right = {
       ...workspaceOutput('membership-right', 'Membership right', 'right-key'),
       columns: [
-        { id: 'right-key', name: 'patient_id', label: 'Patient ID', type: 'string', nullable: false, repeated: false, cardinality: 'required_one' as const, joinCompatibilityKey: 'String' },
-        { id: 'right-nullable', name: 'nullable_id', label: 'Nullable ID', type: 'string', nullable: true, repeated: false, cardinality: 'optional_one' as const, joinCompatibilityKey: 'String' },
-        { id: 'right-repeated', name: 'repeated_id', label: 'Repeated ID', type: 'string', nullable: false, repeated: true, cardinality: 'many' as const, joinCompatibilityKey: 'String' },
+        { id: 'right-nullable', name: 'patient_id', label: 'Patient ID', type: 'string', nullable: true, repeated: false, cardinality: 'optional_one' as const, joinCompatibilityKey: 'String' },
+        { id: 'right-repeated', name: 'repeated_id', label: 'Repeated ID', type: 'string', nullable: true, repeated: true, cardinality: 'many' as const, joinCompatibilityKey: 'String' },
+        { id: 'right-invalid-nullability', name: 'invalid_id', label: 'Invalid ID', type: 'string', clickhouseType: 'String', nullable: true, repeated: false, cardinality: 'optional_one' as const, joinCompatibilityKey: 'String' },
+        { id: 'right-integer', name: 'integer_id', label: 'Integer ID', type: 'integer', clickhouseType: 'Nullable(Int64)', nullable: true, repeated: false, cardinality: 'optional_one' as const, joinCompatibilityKey: 'Int64' },
       ],
     } satisfies ConstructionCombineWorkspaceOutput;
-    renderEditor({ catalog: { kind: 'ready', revisions: [] }, workspaceInputs: [left, right] });
+    const onCandidateChange = renderEditor({ catalog: { kind: 'ready', revisions: [] }, workspaceInputs: [left, right] });
 
     fireEvent.click(screen.getByRole('button', { name: 'Keep or exclude matches' }));
     choose('Input table 1', JSON.stringify(['WORKSPACE_OUTPUT', 'membership-left']));
     choose('Input table 2', JSON.stringify(['WORKSPACE_OUTPUT', 'membership-right']));
+    expect(screen.getByText(/Missing values never match\. “Rows with a match” leaves out rows with missing matching values; “Rows without a match” keeps them\./)).toBeInTheDocument();
+    expect(screen.getByLabelText('Matching pair 1 first field').querySelector('option[value="left-nullable"]')).not.toBeNull();
+    expect(screen.getByLabelText('Matching pair 1 first field').querySelector('option[value="left-repeated"]')).toBeNull();
 
-    for (const fieldId of ['left-nullable', 'left-repeated']) {
-      expect(screen.getByLabelText('Matching pair 1 first field').querySelector(`option[value="${fieldId}"]`)).toBeNull();
+    choose('Matching pair 1 first field', 'left-nullable');
+    const rightKey = screen.getByLabelText('Matching pair 1 second field');
+    expect(rightKey.querySelector('option[value="right-nullable"]')).not.toBeNull();
+    for (const fieldId of ['right-repeated', 'right-invalid-nullability', 'right-integer']) {
+      expect(rightKey.querySelector(`option[value="${fieldId}"]`)).toBeNull();
     }
-    for (const fieldId of ['right-nullable', 'right-repeated']) {
-      expect(screen.getByLabelText('Matching pair 1 second field').querySelector(`option[value="${fieldId}"]`)).toBeNull();
-    }
+    choose('Matching pair 1 second field', 'right-nullable');
+    fireEvent.click(screen.getByRole('button', { name: 'Add output field' }));
+    choose('Output field 1 source field in input 1', 'left-nullable');
+    choose('Output field 1 name', 'patient_id');
+    choose('Output field 1 label', 'Patient ID');
+    choose('Which rows should stay?', 'INCLUDE');
+
+    const include = lastCandidate(onCandidateChange)?.candidateConstruction.steps[0];
+    expect(include).toMatchObject({
+      inputs: [
+        { kind: 'WORKSPACE_OUTPUT', outputId: 'membership-left' },
+        { kind: 'WORKSPACE_OUTPUT', outputId: 'membership-right' },
+      ],
+      operation: {
+        combine: {
+          kind: 'MEMBERSHIP',
+          membershipMode: 'INCLUDE',
+          keys: [{ leftColumnId: 'left-nullable', rightColumnId: 'right-nullable' }],
+          projections: [{ outputColumnId: expect.any(String), inputIndex: 0, inputColumnId: 'left-nullable' }],
+        },
+      },
+      outputs: [{ name: 'patient_id', label: 'Patient ID', type: 'string', nullable: true }],
+    });
+
+    choose('Which rows should stay?', 'EXCLUDE');
+    expect(lastCandidate(onCandidateChange)?.candidateConstruction.steps[0]).toMatchObject({
+      inputs: include?.inputs,
+      operation: {
+        combine: {
+          kind: 'MEMBERSHIP',
+          membershipMode: 'EXCLUDE',
+          keys: [{ leftColumnId: 'left-nullable', rightColumnId: 'right-nullable' }],
+          projections: [{ outputColumnId: include?.outputs[0]?.id, inputIndex: 0, inputColumnId: 'left-nullable' }],
+        },
+      },
+      outputs: [{ id: include?.outputs[0]?.id, name: 'patient_id', label: 'Patient ID', type: 'string', nullable: true }],
+    });
   });
 
 
-
-  it('allows nullable scalar KEY_JOIN fields by base type without changing MEMBERSHIP rules', () => {
+  it('allows nullable scalar KEY_JOIN fields by base type', () => {
     const nullableLeft = { ...workspaceOutput('nullable-left', 'Nullable left', 'left-nullable-id'), columns: [{ id: 'left-nullable-id', name: 'code', label: 'Code', type: 'string', nullable: true, repeated: false, cardinality: 'optional_one' as const, joinCompatibilityKey: 'String' }] };
     const requiredRight = workspaceOutput('required-right', 'Required right', 'right-required-id');
     const onCandidateChange = renderEditor({ catalog: { kind: 'ready', revisions: [] }, workspaceInputs: [nullableLeft, requiredRight] });

@@ -1,0 +1,126 @@
+{
+  "epoch": 64,
+  "scenario": "builder-combine-draft/membership",
+  "status": "failed",
+  "lifecycleStatus": "unverified",
+  "classification": "HARNESS_AUTHORED_OUTPUT_NULLABILITY_ASSUMPTION",
+  "case": {
+    "owner": "membership_native_lifecycle",
+    "scenario": "builder-combine-draft/membership",
+    "title": "current-draft MEMBERSHIP supports INCLUDE, EXCLUDE edit, removal, restoration, and reload",
+    "runnerStatus": "failed",
+    "runnerExpected": 0,
+    "runnerUnexpected": 1,
+    "playwrightTestDurationMs": 5010,
+    "runnerProcessDurationMs": 10562.684,
+    "reportStatus": "failed",
+    "attribution": "HARNESS_AUTHORED_OUTPUT_NULLABILITY_ASSUMPTION",
+    "dimensions": {
+      "usability": "passed",
+      "correctness": "failed",
+      "persistence": "passed",
+      "performance": "passed"
+    },
+    "assertions": {
+      "total": 40,
+      "failed": 2
+    },
+    "requiredChecks": {
+      "total": 50,
+      "missing": 29,
+      "missingNames": [
+        "MEMBERSHIP key choices use exact current-draft metadata with scalar String IDs and declared nullability",
+        "automatic Combine proposal is bound to this exact draft CAS and UI proxy scope",
+        "INCLUDE MEMBERSHIP automatic preview completes within five seconds action-to-render within budget",
+        "INCLUDE preview keeps exactly the three independently matched Observation IDs",
+        "Cancel current-draft INCLUDE MEMBERSHIP preview action-to-render within budget",
+        "reload canceled INCLUDE MEMBERSHIP and select its unchanged empty target action-to-render within budget",
+        "Cancel leaves the entire MEMBERSHIP workspace and draft CAS unchanged after reload",
+        "second INCLUDE MEMBERSHIP automatic preview completes within five seconds action-to-render within budget",
+        "INCLUDE preview rows match the exact independent raw membership oracle",
+        "INCLUDE proposal retains left rows with one exact current-draft key pair",
+        "Apply current-draft INCLUDE MEMBERSHIP action-to-render within budget",
+        "saved INCLUDE MEMBERSHIP uses exactly the two unpublished current-draft ID sources",
+        "INCLUDE MEMBERSHIP output preserves left ID nullability",
+        "reload applied INCLUDE MEMBERSHIP and render its exact output action-to-render within budget",
+        "INCLUDE output values survive reload as the exact matched Observation IDs",
+        "open saved Combine editor after draft input schemas resolve action-to-render within budget",
+        "edit saved MEMBERSHIP from INCLUDE to EXCLUDE and preview the exact unmatched row action-to-render within budget",
+        "EXCLUDE preview changes to exactly the unmatched Observation ID",
+        "EXCLUDE edit changes membership policy while preserving exact inputs, keys, and output identity",
+        "Apply saved MEMBERSHIP EXCLUDE edit action-to-render within budget",
+        "saved EXCLUDE MEMBERSHIP policy and stable output identity survive Apply",
+        "reload edited EXCLUDE MEMBERSHIP and render its exact output action-to-render within budget",
+        "EXCLUDE values survive reload as the exact unmatched Observation ID",
+        "propose Combine removal and render the exact rooted empty output action-to-render within budget",
+        "apply Combine removal to restore the empty target action-to-render within budget",
+        "reload removed Combine and select its exact rooted empty output action-to-render within budget",
+        "removing Combine and reloading restores its rooted empty target",
+        "removing MEMBERSHIP preserves both exact GROUP source outputs after reload",
+        "MEMBERSHIP lifecycle makes no Publish request or pinned revision reference"
+      ]
+    },
+    "failedCheck": "MEMBERSHIP key choices use exact current-draft metadata with scalar String IDs and declared nullability",
+    "failureSummary": "Both GROUP ID key choices are eligible and report nullable=true under optional_one. All request/response scope and exact-source bindings passed; only the harness authored-output nullability equivalence failed. Root classifies this as a harness-authored assumption; the nullable compiler contract remains subject to source audit. No Membership proposal or lifecycle action was reached.",
+    "firstFailure": "Error: required draft Combine check failed: MEMBERSHIP key choices use exact current-draft metadata with scalar String IDs and declared nullability; evidence={\"ok\":false,\"checks\":{\"requestRouteMatches\":true,\"requestOriginMatches\":true,\"requestOutputMatches\":true,\"requestSnapshotMatches\":true,\"requestDraftVersionMatches\":true,\"requestDraftDigestMatches\":true,\"builderGenerationMatches\":true,\"responseSnapshotMatches\":true,\"responseDraftVersionMatches\":true,\"responseDraftDigestMatches\":true,\"responseOutputMatches\":true,\"responseStageMatches\":true,\"responseStatusIsSuccess\":true,\"exactSourceOutputs\":true,\"sourceKeysAreScalarCompatibleStrings\":false},\"inputEvidence\":[{\"outputId\":\"out_cfde68a78c94cd7975da82e4\",\"title\":\"Observation ID membership source\",\"keyLabel\":\"Observation ID\",\"matchingColumns\":[{\"appendCompatibilityKey\":\"string:String\",\"cardinality\":\"optional_one\",\"id\":\"group-key_fbad1d48-fac6-4828-9cb9-f5be9f5403fd\",\"joinCompatibilityKey\":\"String\",\"label\":\"Observation ID\",\"logicalType\":\"string\",\"name\":\"col_992f59de8ba5d0a7a6d58c30\",\"nullable\":true}],\"keyReady\":true,\"outputNullabilityMatches\":false,\"outputUnique\":true},{\"outputId\":\"out_829ca7ec61f5f00944ed6a34\",\"title\":\"DiagnosticReport ID membership source\",\"keyLabel\":\"DiagnosticReport ID\",\"matchingColumns\":[{\"appendCompatibilityKey\":\"string:String\",\"cardinality\":\"optional_one\",\"id\":\"group-key_b7bac7ea-cd62-4b22-a09b-4d316b829320\",\"joinCompatibilityKey\":\"String\",\"label\":\"DiagnosticReport ID\",\"logicalType\":\"string\",\"name\":\"col_d5b22c09f660736540ca8147\",\"nullable\":true}],\"keyReady\":true,\"outputNullabilityMatches\":false,\"outputUnique\":true}]}\n\n   at ../workflows/builder-combine-draft.mjs:68\n\n  66 |   }\n  67 |   recordCheck(report, dimension, name, passed, evidence);\n> 68 |   if (!passed) throw new Error('required draft Combine check failed: ' + name + '; evidence=' + JSON.stringify(evidence).slice(0, 1600));\n     |                      ^\n  69 | };\n  70 |\n  71 | const parseNDJSON = (path) => readFileSync(path, 'utf8').split(/\\r?\\n/).filter(Boolean).map((line) => JSON.parse(line));\n    at check (/private/tmp/loom-construction-implementation/scripts/verify-ui/workflows/builder-combine-draft.mjs:68:22)\n    at openTargetWithVerifiedKeys (/private/tmp/loom-construction-implementation/scripts/verify-ui/workflows/builder-combine-draft.mjs:1326:7)\n    at draftMembershipWorkflow (/private/tmp/loom-construction-implementation/scripts/verify-ui/workflows/builder-combine-draft.mjs:1342:24)\n    at /private/tmp/loom-construction-implementation/scripts/verify-ui/specs/draft-combine.spec.mjs:43:5",
+    "sourceKeyEvidence": [
+      {
+        "outputId": "out_cfde68a78c94cd7975da82e4",
+        "title": "Observation ID membership source",
+        "keyLabel": "Observation ID",
+        "matchingColumns": [
+          {
+            "appendCompatibilityKey": "string:String",
+            "cardinality": "optional_one",
+            "id": "group-key_fbad1d48-fac6-4828-9cb9-f5be9f5403fd",
+            "joinCompatibilityKey": "String",
+            "label": "Observation ID",
+            "logicalType": "string",
+            "name": "col_992f59de8ba5d0a7a6d58c30",
+            "nullable": true
+          }
+        ],
+        "keyReady": true,
+        "outputNullabilityMatches": false,
+        "outputUnique": true
+      },
+      {
+        "outputId": "out_829ca7ec61f5f00944ed6a34",
+        "title": "DiagnosticReport ID membership source",
+        "keyLabel": "DiagnosticReport ID",
+        "matchingColumns": [
+          {
+            "appendCompatibilityKey": "string:String",
+            "cardinality": "optional_one",
+            "id": "group-key_b7bac7ea-cd62-4b22-a09b-4d316b829320",
+            "joinCompatibilityKey": "String",
+            "label": "DiagnosticReport ID",
+            "logicalType": "string",
+            "name": "col_d5b22c09f660736540ca8147",
+            "nullable": true
+          }
+        ],
+        "keyReady": true,
+        "outputNullabilityMatches": false,
+        "outputUnique": true
+      }
+    ],
+    "reachedMembershipLifecycle": false,
+    "networkErrors": 0,
+    "runtimeErrors": 1,
+    "assetFailures": [
+      {
+        "kind": "asset-failure",
+        "url": "http://127.0.0.1:30008/favicon.ico",
+        "status": 404
+      }
+    ],
+    "resultsPath": "/private/tmp/loom-native-parallel-wave64/basic-membership/attempt1/results.json",
+    "resultsSha256": "ced09c4c31400c177215dfc7ace7dee785b5a29ad5b23576c9945fc102f666f5",
+    "reportPath": "/private/tmp/loom-native-parallel-wave64/basic-membership/attempt1/artifacts/draft-combine-Builder-Comb-74e97-oval-restoration-and-reload/attachments/loom-verification-report-json-710bd7eef3a7804700e3b557ca093c1a0198664c.json",
+    "reportSha256": "337cb9dc512d78e56348802c6558d479baf97b49046e0a070a7aa87730185eae",
+    "noRetry": true
+  },
+  "integrityStatus": "PASS",
+  "nextAction": "Compare capability schema to compiler-authoritative source metadata and exact GROUP column identity; retain original ID lifecycle."
+}

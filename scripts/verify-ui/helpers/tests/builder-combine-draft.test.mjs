@@ -11,6 +11,7 @@ import {
   joinGroupedCounts,
   joinPivotRows,
   sourceRecompileEvidence,
+  uniqueValueFieldProjection,
   workspaceOutputOption,
 } from '../builder-combine-draft-helpers.mjs';
 
@@ -46,6 +47,35 @@ test('fresh Builder scope accepts only the exact empty pre-table state, then req
     assert.equal(builderDraftStateEvidence(malformed, 'empty').ok, false, JSON.stringify(malformed));
     assert.equal(builderDraftStateEvidence(malformed, 'draft').ok, false, JSON.stringify(malformed));
   }
+});
+
+test('stable Group keys are resolved by exact VALUE field projection identity and reject duplicate projections', () => {
+  const document = { columns: [
+    { columnId: 'column_exact_id', column: 'fhir_id', label: 'Observation ID', occurrenceId: 'base', source: { kind: 'field', field: { path: 'id', projectionMode: 'VALUE' } } },
+    { columnId: 'column_other_id_label', column: 'business_id', label: 'Observation ID', occurrenceId: 'base', source: { kind: 'field', field: { path: 'identifier', projectionMode: 'VALUE' } } },
+  ] };
+  assert.deepEqual(uniqueValueFieldProjection(document, 'id'), {
+    ok: true,
+    fieldPath: 'id',
+    occurrenceId: 'base',
+    projectionMode: 'VALUE',
+    matches: [{
+      columnId: 'column_exact_id', column: 'fhir_id', label: 'Observation ID', occurrenceId: 'base',
+      fieldPath: 'id', projectionMode: 'VALUE',
+    }],
+    binding: {
+      columnId: 'column_exact_id', column: 'fhir_id', label: 'Observation ID', occurrenceId: 'base',
+      fieldPath: 'id', projectionMode: 'VALUE',
+    },
+  });
+  const duplicate = uniqueValueFieldProjection({ columns: [
+    document.columns[0],
+    { ...document.columns[0], columnId: 'column_duplicate_id', column: 'second_fhir_id' },
+  ] }, 'id');
+  assert.equal(duplicate.ok, false);
+  assert.equal(duplicate.binding, null);
+  assert.deepEqual(duplicate.matches.map((column) => column.columnId), ['column_exact_id', 'column_duplicate_id']);
+  assert.equal(uniqueValueFieldProjection(document, 'id', 'related-observation').ok, false);
 });
 
 test('current-draft evidence requires exact distinct saved workspace outputs and excludes revisions', () => {
