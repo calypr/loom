@@ -34,9 +34,9 @@ for (const name of requiredEnvironment) assert(env[name], `Set ${name} in the ow
 
 const importCanonical = async path => import(pathToFileURL(join(sourceRoot, path)).href);
 const [{ assertOwnedCdaTarget }, { startVerificationIdentity }, { sourceFingerprintWithManifest }] = await Promise.all([
-  importCanonical('scripts/lib/owned-cda-target.mjs'),
-  importCanonical('scripts/lib/cda-verification-identity.mjs'),
-  importCanonical('scripts/verify-ui/source-fingerprint.mjs'),
+  importCanonical('scripts/verify-ui/helpers/owned-cda-target.mjs'),
+  importCanonical('scripts/verify-ui/helpers/cda-verification-identity.mjs'),
+  importCanonical('scripts/verify-ui/helpers/source-fingerprint.mjs'),
 ]);
 
 function docsFingerprint(root) {

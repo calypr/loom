@@ -142,7 +142,7 @@ both existing workspaces:
 ```bash
 npm ci --prefix ui
 npm ci --prefix scripts
-node scripts/check-native-playwright.mjs
+node scripts/maintenance/playwright/check-native-playwright.mjs
 ```
 
 The gate checks registered-case mappings, remaining custom browser ownership
@@ -204,7 +204,7 @@ The official `--output` option isolates artifacts, and
 Label latency measured during concurrent runs provisional. Confirm a timing
 failure serially before calling it a product performance defect; do not suppress
 functional, browser, or network failures. A passed historical report remains
-useful but is not current proof: `node scripts/verify-ui/coverage-status.mjs`
+useful but is not current proof: `node scripts/verify-ui/helpers/coverage-status.mjs`
 shows status and source/build freshness separately. Missing API build identity
 is unknown.
 

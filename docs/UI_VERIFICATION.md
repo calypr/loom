@@ -64,7 +64,7 @@ declares a runtime Gender filter before closing that separate coverage gap.
 
 The generated inventory currently contains 257 records from 41 scanned production source files.
 
-The native executable cases live in `scripts/playwright/*.spec.mjs`; choose a
+The native executable cases live in `scripts/verify-ui/specs/*.spec.mjs`; choose a
 spec and use `--grep` to select a workflow. The feature registry
 (`scripts/verify-ui/registry.mjs`) supplies required checks and coverage metadata
 to those Playwright fixtures. The [source inventory](UI_INTERACTION_INVENTORY.md)

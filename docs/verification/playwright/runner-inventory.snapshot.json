@@ -31,7 +31,7 @@
     ],
     "consumers": [
       {
-        "file": "scripts/verify-ui/builder-authoring.mjs",
+        "file": "scripts/verify-ui/workflows/builder-authoring.mjs",
         "calls": [
           {
             "scenario": "builder-authoring",
@@ -104,7 +104,7 @@
         ]
       },
       {
-        "file": "scripts/verify-ui/builder-cohort-expand.mjs",
+        "file": "scripts/verify-ui/workflows/builder-cohort-expand.mjs",
         "calls": [
           {
             "scenario": "builder-authoring",
@@ -155,7 +155,7 @@
         ]
       },
       {
-        "file": "scripts/verify-ui/builder-combine-draft.mjs",
+        "file": "scripts/verify-ui/workflows/builder-combine-draft.mjs",
         "calls": [
           {
             "scenario": "builder-combine-draft",
@@ -236,7 +236,7 @@
         ]
       },
       {
-        "file": "scripts/verify-ui/builder-combine-nullable.mjs",
+        "file": "scripts/verify-ui/workflows/builder-combine-nullable.mjs",
         "calls": [
           {
             "scenario": "builder-combine-nullable",
@@ -303,7 +303,7 @@
         ]
       },
       {
-        "file": "scripts/verify-ui/builder-combine.mjs",
+        "file": "scripts/verify-ui/workflows/builder-combine.mjs",
         "calls": [
           {
             "scenario": "builder-combine",
@@ -376,7 +376,7 @@
         ]
       },
       {
-        "file": "scripts/verify-ui/builder-controls.mjs",
+        "file": "scripts/verify-ui/workflows/builder-controls.mjs",
         "calls": [
           {
             "scenario": "builder-controls",
@@ -434,7 +434,7 @@
         ]
       },
       {
-        "file": "scripts/verify-ui/builder-group-entry.mjs",
+        "file": "scripts/verify-ui/workflows/builder-group-entry.mjs",
         "calls": [
           {
             "scenario": "builder-authoring",
@@ -459,7 +459,7 @@
         ]
       },
       {
-        "file": "scripts/verify-ui/builder-load.mjs",
+        "file": "scripts/verify-ui/workflows/builder-load.mjs",
         "calls": [
           {
             "scenario": "builder-load",
@@ -507,7 +507,7 @@
         ]
       },
       {
-        "file": "scripts/verify-ui/builder-repeated.mjs",
+        "file": "scripts/verify-ui/workflows/builder-repeated.mjs",
         "calls": [
           {
             "scenario": "builder-authoring",
@@ -556,7 +556,7 @@
         ]
       },
       {
-        "file": "scripts/verify-ui/viewer-query.mjs",
+        "file": "scripts/verify-ui/workflows/viewer-query.mjs",
         "calls": [
           {
             "scenario": "viewer-query",
@@ -611,31 +611,31 @@
     {
       "scenario": "builder-controls",
       "case": "tables",
-      "source": "scripts/verify-ui/builder-controls.mjs",
+      "source": "scripts/verify-ui/workflows/builder-controls.mjs",
       "executionKind": "runPlaywrightCase"
     },
     {
       "scenario": "builder-controls",
       "case": "recompile",
-      "source": "scripts/verify-ui/builder-controls.mjs",
+      "source": "scripts/verify-ui/workflows/builder-controls.mjs",
       "executionKind": "runPlaywrightCase"
     },
     {
       "scenario": "builder-controls",
       "case": "first-table",
-      "source": "scripts/verify-ui/builder-controls.mjs",
+      "source": "scripts/verify-ui/workflows/builder-controls.mjs",
       "executionKind": "runPlaywrightCase"
     },
     {
       "scenario": "builder-load",
       "case": "list",
-      "source": "scripts/verify-ui/builder-load.mjs",
+      "source": "scripts/verify-ui/workflows/builder-load.mjs",
       "executionKind": "runPlaywrightCase"
     },
     {
       "scenario": "builder-load",
       "case": "state",
-      "source": "scripts/verify-ui/builder-load.mjs",
+      "source": "scripts/verify-ui/workflows/builder-load.mjs",
       "executionKind": "runPlaywrightCase"
     },
     {
@@ -653,25 +653,25 @@
     {
       "scenario": "builder-authoring",
       "case": "cohort-recode",
-      "source": "scripts/verify-ui/builder-authoring.mjs",
+      "source": "scripts/verify-ui/workflows/builder-authoring.mjs",
       "executionKind": "runPlaywrightCase"
     },
     {
       "scenario": "builder-authoring",
       "case": "cohort-expand",
-      "source": "scripts/verify-ui/builder-cohort-expand.mjs",
+      "source": "scripts/verify-ui/workflows/builder-cohort-expand.mjs",
       "executionKind": "runPlaywrightCase"
     },
     {
       "scenario": "builder-authoring",
       "case": "repeated-empty",
-      "source": "scripts/verify-ui/builder-repeated.mjs",
+      "source": "scripts/verify-ui/workflows/builder-repeated.mjs",
       "executionKind": "runPlaywrightCase"
     },
     {
       "scenario": "builder-authoring",
       "case": "group-entry",
-      "source": "scripts/verify-ui/builder-group-entry.mjs",
+      "source": "scripts/verify-ui/workflows/builder-group-entry.mjs",
       "executionKind": "runPlaywrightCase"
     },
     {
@@ -701,43 +701,43 @@
     {
       "scenario": "builder-combine-draft",
       "case": "join",
-      "source": "scripts/verify-ui/builder-combine-draft.mjs",
+      "source": "scripts/verify-ui/workflows/builder-combine-draft.mjs",
       "executionKind": "runPlaywrightCase"
     },
     {
       "scenario": "builder-combine-draft",
       "case": "append",
-      "source": "scripts/verify-ui/builder-combine-draft.mjs",
+      "source": "scripts/verify-ui/workflows/builder-combine-draft.mjs",
       "executionKind": "runPlaywrightCase"
     },
     {
       "scenario": "builder-combine-draft",
       "case": "group-pivot",
-      "source": "scripts/verify-ui/builder-combine-draft.mjs",
+      "source": "scripts/verify-ui/workflows/builder-combine-draft.mjs",
       "executionKind": "runPlaywrightCase"
     },
     {
       "scenario": "builder-combine",
       "case": "join",
-      "source": "scripts/verify-ui/builder-combine.mjs",
+      "source": "scripts/verify-ui/workflows/builder-combine.mjs",
       "executionKind": "runPlaywrightCase"
     },
     {
       "scenario": "builder-combine",
       "case": "append",
-      "source": "scripts/verify-ui/builder-combine.mjs",
+      "source": "scripts/verify-ui/workflows/builder-combine.mjs",
       "executionKind": "runPlaywrightCase"
     },
     {
       "scenario": "builder-combine-nullable",
       "case": "lifecycle",
-      "source": "scripts/verify-ui/builder-combine-nullable.mjs",
+      "source": "scripts/verify-ui/workflows/builder-combine-nullable.mjs",
       "executionKind": "runPlaywrightCase"
     },
     {
       "scenario": "viewer-query",
       "case": "output",
-      "source": "scripts/verify-ui/viewer-query.mjs",
+      "source": "scripts/verify-ui/workflows/viewer-query.mjs",
       "executionKind": "runPlaywrightCase"
     }
   ],
@@ -749,7 +749,7 @@
       "domainHelpers": []
     },
     {
-      "file": "scripts/construction_preview_bench.mjs",
+      "file": "scripts/measurements/construction-preview/construction_preview_bench.mjs",
       "role": "benchmark entrypoint",
       "launchCalls": [
         "launchBrowser"
@@ -771,7 +771,7 @@
       ]
     },
     {
-      "file": "scripts/verify-base-settings.mjs",
+      "file": "scripts/verify-ui/workflows/verify-base-settings.mjs",
       "role": "standalone verifier entrypoint",
       "launchCalls": [
         "launchBrowser"
@@ -785,7 +785,7 @@
       ]
     },
     {
-      "file": "scripts/verify-browser-disclosure.mjs",
+      "file": "scripts/verify-ui/helpers/verify-browser-disclosure.mjs",
       "role": "standalone verifier entrypoint",
       "launchCalls": [
         "launchBrowser"
@@ -796,7 +796,7 @@
       ]
     },
     {
-      "file": "scripts/verify-cda-active-related-contributor-any-browser.mjs",
+      "file": "scripts/verify-ui/workflows/verify-cda-active-related-contributor-any-browser.mjs",
       "role": "standalone verifier entrypoint",
       "launchCalls": [
         "launchCdaBrowser"
@@ -809,7 +809,7 @@
       ]
     },
     {
-      "file": "scripts/verify-cda-add-column-dialog.mjs",
+      "file": "scripts/verify-ui/workflows/verify-cda-add-column-dialog.mjs",
       "role": "standalone verifier entrypoint",
       "launchCalls": [
         "launchBrowser"
@@ -824,7 +824,7 @@
       ]
     },
     {
-      "file": "scripts/verify-cda-authored-expand-browser.mjs",
+      "file": "scripts/verify-ui/workflows/verify-cda-authored-expand-browser.mjs",
       "role": "standalone verifier entrypoint",
       "launchCalls": [
         "launchBrowser"
@@ -840,7 +840,7 @@
       ]
     },
     {
-      "file": "scripts/verify-cda-builder-column-presentation.mjs",
+      "file": "scripts/verify-ui/workflows/verify-cda-builder-column-presentation.mjs",
       "role": "standalone verifier entrypoint",
       "launchCalls": [
         "launchBrowser"
@@ -851,7 +851,7 @@
       ]
     },
     {
-      "file": "scripts/verify-cda-builder-filters.mjs",
+      "file": "scripts/verify-ui/workflows/verify-cda-builder-filters.mjs",
       "role": "standalone verifier entrypoint",
       "launchCalls": [
         "launchBrowser"
@@ -863,7 +863,7 @@
       ]
     },
     {
-      "file": "scripts/verify-cda-builder-patient-related.mjs",
+      "file": "scripts/verify-ui/workflows/verify-cda-builder-patient-related.mjs",
       "role": "standalone verifier entrypoint",
       "launchCalls": [
         "launchBrowser"
@@ -874,7 +874,7 @@
       ]
     },
     {
-      "file": "scripts/verify-cda-builder-preview-limits.mjs",
+      "file": "scripts/verify-ui/workflows/verify-cda-builder-preview-limits.mjs",
       "role": "standalone verifier entrypoint",
       "launchCalls": [
         "launchBrowser"
@@ -885,7 +885,7 @@
       ]
     },
     {
-      "file": "scripts/verify-cda-builder-related-patient-inspection.mjs",
+      "file": "scripts/verify-ui/workflows/verify-cda-builder-related-patient-inspection.mjs",
       "role": "standalone verifier entrypoint",
       "launchCalls": [
         "launchBrowser"
@@ -896,7 +896,7 @@
       ]
     },
     {
-      "file": "scripts/verify-cda-builder-related-source-chooser.mjs",
+      "file": "scripts/verify-ui/workflows/verify-cda-builder-related-source-chooser.mjs",
       "role": "standalone verifier entrypoint",
       "launchCalls": [
         "launchBrowser"
@@ -907,7 +907,7 @@
       ]
     },
     {
-      "file": "scripts/verify-cda-builder-row-choice-inspection.mjs",
+      "file": "scripts/verify-ui/workflows/verify-cda-builder-row-choice-inspection.mjs",
       "role": "standalone verifier entrypoint",
       "launchCalls": [
         "launchBrowser"
@@ -918,7 +918,7 @@
       ]
     },
     {
-      "file": "scripts/verify-cda-builder-table-management.mjs",
+      "file": "scripts/verify-ui/workflows/verify-cda-builder-table-management.mjs",
       "role": "standalone verifier entrypoint",
       "launchCalls": [
         "launchBrowser"
@@ -944,7 +944,7 @@
       ]
     },
     {
-      "file": "scripts/verify-cda-coded-pivot.mjs",
+      "file": "scripts/verify-ui/workflows/verify-cda-coded-pivot.mjs",
       "role": "standalone verifier entrypoint",
       "launchCalls": [
         "launchBrowser"
@@ -974,7 +974,7 @@
       ]
     },
     {
-      "file": "scripts/verify-cda-cohort-membership-revision-browser.mjs",
+      "file": "scripts/verify-ui/workflows/verify-cda-cohort-membership-revision-browser.mjs",
       "role": "standalone verifier entrypoint",
       "launchCalls": [
         "launchBrowser"
@@ -989,7 +989,7 @@
       ]
     },
     {
-      "file": "scripts/verify-cda-cohort-row-sources-browser.mjs",
+      "file": "scripts/verify-ui/workflows/verify-cda-cohort-row-sources-browser.mjs",
       "role": "standalone verifier entrypoint",
       "launchCalls": [
         "launchBrowser"
@@ -1004,7 +1004,7 @@
       ]
     },
     {
-      "file": "scripts/verify-cda-collection-repair.mjs",
+      "file": "scripts/verify-ui/workflows/verify-cda-collection-repair.mjs",
       "role": "standalone verifier entrypoint",
       "launchCalls": [
         "launchBrowser"
@@ -1020,7 +1020,7 @@
       ]
     },
     {
-      "file": "scripts/verify-cda-composed-row-lineage-browser.mjs",
+      "file": "scripts/verify-ui/workflows/verify-cda-composed-row-lineage-browser.mjs",
       "role": "standalone verifier entrypoint",
       "launchCalls": [
         "launchBrowser"
@@ -1089,7 +1089,7 @@
       ]
     },
     {
-      "file": "scripts/verify-cda-expanded-publication-browser.mjs",
+      "file": "scripts/verify-ui/workflows/verify-cda-expanded-publication-browser.mjs",
       "role": "standalone verifier entrypoint",
       "launchCalls": [
         "launchBrowser"
@@ -1105,7 +1105,7 @@
       ]
     },
     {
-      "file": "scripts/verify-cda-filter-browser.mjs",
+      "file": "scripts/verify-ui/workflows/verify-cda-filter-browser.mjs",
       "role": "standalone verifier entrypoint",
       "launchCalls": [
         "launchBrowser"
@@ -1115,7 +1115,7 @@
       ]
     },
     {
-      "file": "scripts/verify-cda-filter-lifecycle.mjs",
+      "file": "scripts/verify-ui/workflows/verify-cda-filter-lifecycle.mjs",
       "role": "standalone verifier entrypoint",
       "launchCalls": [
         "launchBrowser"
@@ -1129,7 +1129,7 @@
       ]
     },
     {
-      "file": "scripts/verify-cda-framing.mjs",
+      "file": "scripts/verify-ui/workflows/verify-cda-framing.mjs",
       "role": "standalone verifier entrypoint",
       "launchCalls": [
         "launchBrowser"
@@ -1139,7 +1139,7 @@
       ]
     },
     {
-      "file": "scripts/verify-cda-group-add-fields-browser.mjs",
+      "file": "scripts/verify-ui/workflows/verify-cda-group-add-fields-browser.mjs",
       "role": "standalone verifier entrypoint",
       "launchCalls": [
         "launchBrowser"
@@ -1154,7 +1154,7 @@
       ]
     },
     {
-      "file": "scripts/verify-cda-group-edit-before-related-column-browser.mjs",
+      "file": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
       "role": "standalone verifier entrypoint",
       "launchCalls": [
         "launchCdaBrowser"
@@ -1168,7 +1168,7 @@
       ]
     },
     {
-      "file": "scripts/verify-cda-group-one-conflict-browser.mjs",
+      "file": "scripts/verify-ui/workflows/verify-cda-group-one-conflict-browser.mjs",
       "role": "standalone verifier entrypoint",
       "launchCalls": [
         "launchBrowser"
@@ -1183,7 +1183,7 @@
       ]
     },
     {
-      "file": "scripts/verify-cda-group-related-summary-browser.mjs",
+      "file": "scripts/verify-ui/workflows/verify-cda-group-related-summary-browser.mjs",
       "role": "standalone verifier entrypoint",
       "launchCalls": [
         "launchCdaBrowser"
@@ -1199,7 +1199,7 @@
       ]
     },
     {
-      "file": "scripts/verify-cda-group-related-values-browser.mjs",
+      "file": "scripts/verify-ui/workflows/verify-cda-group-related-values-browser.mjs",
       "role": "standalone verifier entrypoint",
       "launchCalls": [
         "launchBrowser"
@@ -1214,7 +1214,7 @@
       ]
     },
     {
-      "file": "scripts/verify-cda-identifier-multiplicity.mjs",
+      "file": "scripts/verify-ui/workflows/verify-cda-identifier-multiplicity.mjs",
       "role": "standalone verifier entrypoint",
       "launchCalls": [
         "launchBrowser"
@@ -1229,7 +1229,7 @@
       ]
     },
     {
-      "file": "scripts/verify-cda-implicit-pivot.mjs",
+      "file": "scripts/verify-ui/workflows/verify-cda-implicit-pivot.mjs",
       "role": "standalone verifier entrypoint",
       "launchCalls": [
         "launchBrowser"
@@ -1239,7 +1239,7 @@
       ]
     },
     {
-      "file": "scripts/verify-cda-indirect-specimen-patient.mjs",
+      "file": "scripts/verify-ui/workflows/verify-cda-indirect-specimen-patient.mjs",
       "role": "standalone verifier entrypoint",
       "launchCalls": [
         "launchBrowser"
@@ -1255,7 +1255,7 @@
       ]
     },
     {
-      "file": "scripts/verify-cda-last-table.mjs",
+      "file": "scripts/verify-ui/workflows/verify-cda-last-table.mjs",
       "role": "standalone verifier entrypoint",
       "launchCalls": [
         "launchBrowser"
@@ -1270,7 +1270,7 @@
       ]
     },
     {
-      "file": "scripts/verify-cda-legacy-collection.mjs",
+      "file": "scripts/verify-ui/workflows/verify-cda-legacy-collection.mjs",
       "role": "standalone verifier entrypoint",
       "launchCalls": [
         "launchBrowser"
@@ -1286,7 +1286,7 @@
       ]
     },
     {
-      "file": "scripts/verify-cda-mixed-sibling-count-browser.mjs",
+      "file": "scripts/verify-ui/workflows/verify-cda-mixed-sibling-count-browser.mjs",
       "role": "standalone verifier entrypoint",
       "launchCalls": [
         "launchCdaBrowser"
@@ -1300,7 +1300,7 @@
       ]
     },
     {
-      "file": "scripts/verify-cda-named-cohort-related-count-browser.mjs",
+      "file": "scripts/verify-ui/workflows/verify-cda-named-cohort-related-count-browser.mjs",
       "role": "standalone verifier entrypoint",
       "launchCalls": [
         "launchCdaBrowser"
@@ -1314,7 +1314,7 @@
       ]
     },
     {
-      "file": "scripts/verify-cda-nested-repeated-browser.mjs",
+      "file": "scripts/verify-ui/workflows/verify-cda-nested-repeated-browser.mjs",
       "role": "standalone verifier entrypoint",
       "launchCalls": [
         "launchBrowser"
@@ -1330,7 +1330,7 @@
       ]
     },
     {
-      "file": "scripts/verify-cda-pivot-category-cycle-browser.mjs",
+      "file": "scripts/verify-ui/workflows/verify-cda-pivot-category-cycle-browser.mjs",
       "role": "standalone verifier entrypoint",
       "launchCalls": [
         "launchBrowser"
@@ -1346,7 +1346,7 @@
       ]
     },
     {
-      "file": "scripts/verify-cda-pivot-category-edit-browser.mjs",
+      "file": "scripts/verify-ui/workflows/verify-cda-pivot-category-edit-browser.mjs",
       "role": "standalone verifier entrypoint",
       "launchCalls": [
         "launchBrowser"
@@ -1361,7 +1361,7 @@
       ]
     },
     {
-      "file": "scripts/verify-cda-pivot-field-change-browser.mjs",
+      "file": "scripts/verify-ui/workflows/verify-cda-pivot-field-change-browser.mjs",
       "role": "standalone verifier entrypoint",
       "launchCalls": [
         "launchBrowser"
@@ -1377,7 +1377,7 @@
       ]
     },
     {
-      "file": "scripts/verify-cda-pivot-reload-browser.mjs",
+      "file": "scripts/verify-ui/workflows/verify-cda-pivot-reload-browser.mjs",
       "role": "standalone verifier entrypoint",
       "launchCalls": [
         "launchBrowser"
@@ -1404,7 +1404,7 @@
       ]
     },
     {
-      "file": "scripts/verify-cda-publication-browser.mjs",
+      "file": "scripts/verify-ui/workflows/verify-cda-publication-browser.mjs",
       "role": "standalone verifier entrypoint",
       "launchCalls": [
         "launchBrowser"
@@ -1414,7 +1414,7 @@
       ]
     },
     {
-      "file": "scripts/verify-cda-quantity-pivot-browser.mjs",
+      "file": "scripts/verify-ui/workflows/verify-cda-quantity-pivot-browser.mjs",
       "role": "standalone verifier entrypoint",
       "launchCalls": [
         "launchBrowser"
@@ -1432,7 +1432,7 @@
       ]
     },
     {
-      "file": "scripts/verify-cda-quantity-pivot-native-drag-browser.mjs",
+      "file": "scripts/verify-ui/workflows/verify-cda-quantity-pivot-native-drag-browser.mjs",
       "role": "standalone verifier entrypoint",
       "launchCalls": [
         "launchBrowser"
@@ -1467,7 +1467,7 @@
       ]
     },
     {
-      "file": "scripts/verify-cda-related-eligibility.mjs",
+      "file": "scripts/verify-ui/workflows/verify-cda-related-eligibility.mjs",
       "role": "standalone verifier entrypoint",
       "launchCalls": [
         "launchBrowser"
@@ -1481,7 +1481,7 @@
       ]
     },
     {
-      "file": "scripts/verify-cda-related-field-after-unpivot-browser.mjs",
+      "file": "scripts/verify-ui/workflows/verify-cda-related-field-after-unpivot-browser.mjs",
       "role": "standalone verifier entrypoint",
       "launchCalls": [
         "launchBrowser"
@@ -1497,7 +1497,7 @@
       ]
     },
     {
-      "file": "scripts/verify-cda-related-group-browser.mjs",
+      "file": "scripts/verify-ui/workflows/verify-cda-related-group-browser.mjs",
       "role": "standalone verifier entrypoint",
       "launchCalls": [
         "launchBrowser"
@@ -1512,7 +1512,7 @@
       ]
     },
     {
-      "file": "scripts/verify-cda-related-one-all-browser.mjs",
+      "file": "scripts/verify-ui/workflows/verify-cda-related-one-all-browser.mjs",
       "role": "standalone verifier entrypoint",
       "launchCalls": [
         "launchBrowser"
@@ -1528,7 +1528,7 @@
       ]
     },
     {
-      "file": "scripts/verify-cda-related-pivot-browser.mjs",
+      "file": "scripts/verify-ui/workflows/verify-cda-related-pivot-browser.mjs",
       "role": "standalone verifier entrypoint",
       "launchCalls": [
         "launchBrowser"
@@ -1543,7 +1543,7 @@
       ]
     },
     {
-      "file": "scripts/verify-cda-related-unpivot-browser.mjs",
+      "file": "scripts/verify-ui/workflows/verify-cda-related-unpivot-browser.mjs",
       "role": "standalone verifier entrypoint",
       "launchCalls": [
         "launchBrowser"
@@ -1574,7 +1574,7 @@
       ]
     },
     {
-      "file": "scripts/verify-cda-repeated-empty-browser.mjs",
+      "file": "scripts/verify-ui/workflows/verify-cda-repeated-empty-browser.mjs",
       "role": "standalone verifier entrypoint",
       "launchCalls": [
         "launchBrowser"
@@ -1590,7 +1590,7 @@
       ]
     },
     {
-      "file": "scripts/verify-cda-repeated-rows-browser.mjs",
+      "file": "scripts/verify-ui/workflows/verify-cda-repeated-rows-browser.mjs",
       "role": "standalone verifier entrypoint",
       "launchCalls": [
         "launchBrowser"
@@ -1600,7 +1600,7 @@
       ]
     },
     {
-      "file": "scripts/verify-cda-root-rebase.mjs",
+      "file": "scripts/verify-ui/workflows/verify-cda-root-rebase.mjs",
       "role": "standalone verifier entrypoint",
       "launchCalls": [
         "launchBrowser"
@@ -1610,7 +1610,7 @@
       ]
     },
     {
-      "file": "scripts/verify-cda-root-settings.mjs",
+      "file": "scripts/verify-ui/workflows/verify-cda-root-settings.mjs",
       "role": "standalone verifier entrypoint",
       "launchCalls": [
         "launchBrowser"
@@ -1620,7 +1620,7 @@
       ]
     },
     {
-      "file": "scripts/verify-cda-row-sources-browser.mjs",
+      "file": "scripts/verify-ui/workflows/verify-cda-row-sources-browser.mjs",
       "role": "standalone verifier entrypoint",
       "launchCalls": [
         "launchBrowser"
@@ -1640,7 +1640,7 @@
       ]
     },
     {
-      "file": "scripts/verify-cda-sourceaggregate-mixed-sibling-count-browser.mjs",
+      "file": "scripts/verify-ui/workflows/verify-cda-sourceaggregate-mixed-sibling-count-browser.mjs",
       "role": "standalone verifier entrypoint",
       "launchCalls": [
         "launchCdaBrowser"
@@ -1654,7 +1654,7 @@
       ]
     },
     {
-      "file": "scripts/verify-cda-table-management-browser.mjs",
+      "file": "scripts/verify-ui/workflows/verify-cda-table-management-browser.mjs",
       "role": "standalone verifier entrypoint",
       "launchCalls": [
         "launchBrowser"
@@ -1664,7 +1664,7 @@
       ]
     },
     {
-      "file": "scripts/verify-cda-unpivot.mjs",
+      "file": "scripts/verify-ui/workflows/verify-cda-unpivot.mjs",
       "role": "standalone verifier entrypoint",
       "launchCalls": [
         "launchBrowser"
@@ -1674,7 +1674,7 @@
       ]
     },
     {
-      "file": "scripts/verify-compound-coded-group.mjs",
+      "file": "scripts/verify-ui/workflows/verify-compound-coded-group.mjs",
       "role": "standalone verifier entrypoint",
       "launchCalls": [
         "launchBrowser"
@@ -1688,7 +1688,7 @@
       ]
     },
     {
-      "file": "scripts/verify-construction-removal-ui.mjs",
+      "file": "scripts/verify-ui/workflows/verify-construction-removal-ui.mjs",
       "role": "standalone verifier entrypoint",
       "launchCalls": [
         "launchBrowser"
@@ -1702,7 +1702,7 @@
       ]
     },
     {
-      "file": "scripts/verify-population-row-ui.mjs",
+      "file": "scripts/verify-ui/workflows/verify-population-row-ui.mjs",
       "role": "standalone verifier entrypoint",
       "launchCalls": [
         "launchBrowser"
@@ -1716,7 +1716,7 @@
       ]
     },
     {
-      "file": "scripts/verify-row-actions-clarity.mjs",
+      "file": "scripts/verify-ui/workflows/verify-row-actions-clarity.mjs",
       "role": "standalone verifier entrypoint",
       "launchCalls": [
         "launchBrowser"
@@ -1730,7 +1730,7 @@
       ]
     },
     {
-      "file": "scripts/verify-row-definition-ui.mjs",
+      "file": "scripts/verify-ui/workflows/verify-row-definition-ui.mjs",
       "role": "standalone verifier entrypoint",
       "launchCalls": [
         "launchCdaBrowser"
@@ -1740,7 +1740,7 @@
       ]
     },
     {
-      "file": "scripts/verify-row-rebase-ui.mjs",
+      "file": "scripts/verify-ui/workflows/verify-row-rebase-ui.mjs",
       "role": "standalone verifier entrypoint",
       "launchCalls": [
         "launchBrowser"
@@ -1782,7 +1782,7 @@
       ]
     },
     {
-      "file": "scripts/verify-upstream-edits.mjs",
+      "file": "scripts/verify-ui/workflows/verify-upstream-edits.mjs",
       "role": "standalone verifier entrypoint",
       "launchCalls": [
         "launchBrowser"
@@ -1837,14 +1837,14 @@
       ],
       "specFilesFound": []
     },
-    "recommendation": "Keep native specs under scripts/playwright and add one test per registry case, grouped with test.describe; use test fixtures for named owned target/fresh disposable fixture, page/browser diagnostics, and reporting. Continue using explicit testMatch so existing node:test *.test.mjs files are not accidentally discovered.",
+    "recommendation": "Keep native specs under scripts/verify-ui/specs and add one test per registry case, grouped with test.describe; use test fixtures for named owned target/fresh disposable fixture, page/browser diagnostics, and reporting. Continue using explicit testMatch so existing node:test *.test.mjs files are not accidentally discovered.",
     "caseIsolation": "Mutating cases get a fresh owned project per test; validated read-only cases may reuse the named owned dataset only when their existing contract permits it."
   },
   "remainingDelegationScopesAfterAppend": [
     "builder-controls + builder-load (5 cases)",
     "builder-authoring: independent suggestions/authoring launch flows plus shared cohort-recode, cohort-expand, repeated-empty, group-entry (6 cases)",
     "builder-combine: Join (1 case, if Append is the converted unit)",
-    "builder-combine-draft: Join + Append + Group\u2192Pivot Join (3 cases)",
+    "builder-combine-draft: Join + Append + Group→Pivot Join (3 cases)",
     "builder-combine-nullable: lifecycle (1 case)",
     "viewer-query: output (1 case)",
     "standalone registered browser scenarios: population-member-removal (1), root-quantity-pivot (3)",
@@ -1884,11 +1884,11 @@
   },
   "launcherImplementations": [
     {
-      "file": "scripts/lib/playwright-browser.mjs",
+      "file": "scripts/verify-ui/helpers/playwright-browser.mjs",
       "purpose": "chromium launch, diagnostics capture, evidence artifacts and browser close"
     },
     {
-      "file": "scripts/lib/cda-playwright.mjs",
+      "file": "scripts/verify-ui/helpers/cda-playwright.mjs",
       "purpose": "legacy CDA browser wrapper over shared Playwright helper"
     },
     {

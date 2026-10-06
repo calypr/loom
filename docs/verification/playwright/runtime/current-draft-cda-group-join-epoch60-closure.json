@@ -1,0 +1,44 @@
+{
+  "epoch": 60,
+  "status": "PASSED",
+  "integrityClosure": {
+    "status": "PASS",
+    "source": {
+      "sha256": "c73d8c26ecbb1c3c5a645569c62babe7e2764bc21db03dc501cd6de66feccdc5",
+      "files": 1499
+    },
+    "docs": {
+      "sha256": "dbb9bc047eb17ce01343123a4dd30f9c67e8e3495d5a1a858b81d0c2b9a583f0",
+      "files": 147
+    },
+    "changedPaths": [],
+    "apiBuildIdentity": "93c80c92ecdc7e5f3d7540c713c9612af329ecc901f3055c1908c3b272b59423:93c80c92ecdc7e5f3d7540c713c9612af329ecc901f3055c1908c3b272b59423:6ba105393f746f46111643988a47ac6a3480bb7e4ac6177e489b449c6e48d5e0",
+    "ownedMounts": "PASS before and after; exact owned target unchanged",
+    "health": "PASS 3/3 before and after",
+    "handles": {
+      "beforeCapture": {
+        "session": 12617,
+        "exitCode": 0
+      },
+      "beforeHealth": {
+        "session": 49064,
+        "exitCode": 0
+      },
+      "browser": {
+        "session": 27139,
+        "exitCode": 0
+      },
+      "afterCapture": {
+        "session": 11567,
+        "exitCode": 0
+      },
+      "afterHealth": {
+        "session": 44572,
+        "exitCode": 0
+      }
+    }
+  },
+  "lifecycleReport": "docs/verification/playwright/runtime/current-draft-cda-group-join-epoch60-report.json",
+  "lifecycleReportSha256": "91d87dab8e8f985ba8bcee531f4196915aaab826622eae2beb8acbe015fdd3a6",
+  "harnessRepair": "Disposable epoch60 health helper import rebased to moved API-freeze helper before baseline acceptance; canonical remained frozen."
+}

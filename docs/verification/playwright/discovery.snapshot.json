@@ -2,23 +2,29 @@
   "schemaVersion": 1,
   "kind": "official-playwright-static-discovery",
   "sourceRoot": ".",
-  "baseCommit": "5c94c73ac0f4fd4a6b35fb6d748309393e5aacf3",
+  "baseCommit": "9edd233018140504b81b8366f8fce173f15a00da",
   "status": "discovery-only",
   "runtimeStatus": "not-run",
   "commandTemplate": "<repo>/scripts/node_modules/.bin/playwright test --config <configPath> --list --reporter=json",
+  "note": "Captured by official Playwright --list --reporter=json on the verified epoch 47 working tree. The JSON reporter lists registrations only; no test body ran, so this is discovery evidence, not lifecycle evidence. The five invocation counts sum to 166 session entries (main 162, benchmark 1, and three one-case scoped variants). The three related-row variants share the conditional test registration at scripts/verify-ui/specs/standalone-cda-rows.spec.mjs:52 with the main default CDA-ID listing, but have environment-specific titles and IDs; session-entry totals are not the registry acceptance-case count.",
+  "mainDiscoveryTestCount": 162,
+  "mainDiscoverySpecFileCount": 25,
+  "dedicatedBenchmarkTestCount": 1,
+  "dedicatedBenchmarkSpecFileCount": 1,
+  "totalDeclaredTestCount": 166,
   "sessions": [
     {
       "sessionID": "main",
       "configPath": "scripts/playwright.config.mjs",
-      "configSha256": "ae1acf486f382cc52e1de90344f42f091c30c0d2c1e911f06d9fba491c55115e",
+      "configSha256": "d16ccb10ccf63f8a711ae7f8c5b61d4bc44452172e9a309a06cab32ce30f69bc",
       "environment": {},
-      "testCount": 160,
-      "specFileCount": 23,
-      "discoveredCasesSha256": "8f99e90ab3e243212311b9608a4b6fbec822668982d7202632b5ddba2083081e",
+      "testCount": 162,
+      "specFileCount": 25,
+      "discoveredCasesSha256": "9b0ab832fc45207b5840773ddcfc6f497af2a00495171c21f583fa1d6d060f1e",
       "specs": [
         {
-          "path": "scripts/playwright/append.spec.mjs",
-          "sha256": "94a1af825b2f9bd7ab3b4924e8cc9a33698f85ce6dbf74730ba33789a2ce21f6",
+          "path": "scripts/verify-ui/specs/append.spec.mjs",
+          "sha256": "2d68e6e877d30ce14a75e3d338ee82a83af43318677873cf45d4f2db5d4c2ec0",
           "cases": [
             {
               "title": "APPEND preview, apply, edit, cancel, removal and reload",
@@ -30,8 +36,8 @@
           ]
         },
         {
-          "path": "scripts/playwright/authoring-summary.spec.mjs",
-          "sha256": "4d292821f19f6b3798026c44f86c62cdc0782bef92df17e5f557b3fb751401ac",
+          "path": "scripts/verify-ui/specs/authoring-summary.spec.mjs",
+          "sha256": "80388f34f1f076b108a06e9657af3f049e47622fd81aa73f7de39032363db844",
           "cases": [
             {
               "title": "opens an exact-text native summary when Chromium exposes no button role",
@@ -50,8 +56,8 @@
           ]
         },
         {
-          "path": "scripts/playwright/builder-authoring.spec.mjs",
-          "sha256": "9679e036e07b457b384c205db0ec747f073d40f92326b19ca6cd08554c89f36f",
+          "path": "scripts/verify-ui/specs/builder-authoring.spec.mjs",
+          "sha256": "a18a1b18baca15ef3f1aadb2f6f2e8c089c70600ffc4807b04a41c3d49d784ab",
           "cases": [
             {
               "title": "catalog-backed suggestions expose actionable Patient candidates",
@@ -98,8 +104,8 @@
           ]
         },
         {
-          "path": "scripts/playwright/builder-controls.spec.mjs",
-          "sha256": "90eb2eebe030372bbbea88f1f34e4a1a113291b5f77b834adb68a3f2320e27bf",
+          "path": "scripts/verify-ui/specs/builder-controls.spec.mjs",
+          "sha256": "43b85851f51efdfec62b43daf9d6d884bbbb944e4efbf0a76ec09ab5915d0560",
           "cases": [
             {
               "title": "Recompile recovers from automatic compilation failure",
@@ -125,8 +131,8 @@
           ]
         },
         {
-          "path": "scripts/playwright/builder-load.spec.mjs",
-          "sha256": "83d08bc93ef679046f020fb6e18d026abe2f0daae7dea42611e466be3fb842a1",
+          "path": "scripts/verify-ui/specs/builder-load.spec.mjs",
+          "sha256": "bc1909efa4dfd41bf3fcb7e76dfed92404f4c6174e9a57bde903772c12df7d0c",
           "cases": [
             {
               "title": "shows the list failure and recovers through the in-app Retry",
@@ -145,104 +151,90 @@
           ]
         },
         {
-          "path": "scripts/playwright/dev-journeys.spec.mjs",
-          "sha256": "c0fd1ce104799f6c0a2281f841f9154d590a9ea7bfeaa43d7bd03de187f539b1",
+          "path": "scripts/verify-ui/specs/cda-current-draft-group-join.spec.mjs",
+          "sha256": "2657e9aabd54d4a0df3989e3b23059cf6625bfcc2b8c1c5db058656d0aa093ae",
+          "cases": [
+            {
+              "title": "two independent native Observation Groups join through the current draft lifecycle",
+              "id": "608bad1f9c0a44d25038-a32f3794026ad9f02d1c",
+              "line": 11,
+              "column": 3,
+              "occurrence": 1
+            }
+          ]
+        },
+        {
+          "path": "scripts/verify-ui/specs/dev-journeys.spec.mjs",
+          "sha256": "9837f4549c9e80b011bd45b8c84c0dbf1624a5b2764d80a8dd342447f7aa8f1a",
           "cases": [
             {
               "title": "Loom development journey verify-current @dev-journey:verify-current",
               "id": "d5ada7e99f144faf30cf-bf63bda0cb6935aaf488",
               "line": 192,
               "column": 3,
-              "occurrence": 1,
-              "tags": [
-                "dev-journey:verify-current"
-              ]
+              "occurrence": 1
             },
             {
               "title": "Loom development journey verify-fast @dev-journey:verify-fast",
               "id": "d5ada7e99f144faf30cf-066414cca9cef3cef9bb",
               "line": 192,
               "column": 3,
-              "occurrence": 1,
-              "tags": [
-                "dev-journey:verify-fast"
-              ]
+              "occurrence": 1
             },
             {
               "title": "Loom development journey verify-full @dev-journey:verify-full",
               "id": "d5ada7e99f144faf30cf-05d12d1f6847bd96e6ff",
               "line": 192,
               "column": 3,
-              "occurrence": 1,
-              "tags": [
-                "dev-journey:verify-full"
-              ]
+              "occurrence": 1
             },
             {
               "title": "Loom development journey verify-j01 @dev-journey:verify-j01",
               "id": "d5ada7e99f144faf30cf-d58bc88fbfb1f92ccd6b",
               "line": 192,
               "column": 3,
-              "occurrence": 1,
-              "tags": [
-                "dev-journey:verify-j01"
-              ]
+              "occurrence": 1
             },
             {
               "title": "Loom development journey verify-j02 @dev-journey:verify-j02",
               "id": "d5ada7e99f144faf30cf-8a2f48abea33f494cbfe",
               "line": 192,
               "column": 3,
-              "occurrence": 1,
-              "tags": [
-                "dev-journey:verify-j02"
-              ]
+              "occurrence": 1
             },
             {
               "title": "Loom development journey verify-j03 @dev-journey:verify-j03",
               "id": "d5ada7e99f144faf30cf-2278d4575fff596c3938",
               "line": 192,
               "column": 3,
-              "occurrence": 1,
-              "tags": [
-                "dev-journey:verify-j03"
-              ]
+              "occurrence": 1
             },
             {
               "title": "Loom development journey verify-j04 @dev-journey:verify-j04",
               "id": "d5ada7e99f144faf30cf-f6da220e7832663f54e5",
               "line": 192,
               "column": 3,
-              "occurrence": 1,
-              "tags": [
-                "dev-journey:verify-j04"
-              ]
+              "occurrence": 1
             },
             {
               "title": "Loom development journey verify-j04-patient @dev-journey:verify-j04-patient",
               "id": "d5ada7e99f144faf30cf-879158fb20eb1ed20994",
               "line": 192,
               "column": 3,
-              "occurrence": 1,
-              "tags": [
-                "dev-journey:verify-j04-patient"
-              ]
+              "occurrence": 1
             },
             {
               "title": "Loom development journey verify-j05 @dev-journey:verify-j05",
               "id": "d5ada7e99f144faf30cf-25d047a211c6aacbcdab",
               "line": 192,
               "column": 3,
-              "occurrence": 1,
-              "tags": [
-                "dev-journey:verify-j05"
-              ]
+              "occurrence": 1
             }
           ]
         },
         {
-          "path": "scripts/playwright/draft-combine.spec.mjs",
-          "sha256": "cabafaeb8d903ecd95116f4b3e0460fc608de1254aba22b2e03204aebae46736",
+          "path": "scripts/verify-ui/specs/draft-combine.spec.mjs",
+          "sha256": "0651ed7d2b5c500f36513620f059e4afa04c90c59c6ab4cc421c6533b8566410",
           "cases": [
             {
               "title": "grouped current-draft Join supports cancel, apply, edit, removal, and reload",
@@ -268,8 +260,8 @@
           ]
         },
         {
-          "path": "scripts/playwright/join.spec.mjs",
-          "sha256": "8721141b73259a7c4d5743105e64e2349ea82963728206cd70e3ec2a243fc03e",
+          "path": "scripts/verify-ui/specs/join.spec.mjs",
+          "sha256": "6e6604abf412aa2179972bae3b1bbde4009dd1ad5b1e40edda3aa85094c3c0a6",
           "cases": [
             {
               "title": "KEY_JOIN INNER/LEFT preview, apply, cancel, removal and reload",
@@ -281,8 +273,21 @@
           ]
         },
         {
-          "path": "scripts/playwright/native-action-readiness.spec.mjs",
-          "sha256": "27d6d843d4c54244a3eadaf0faafc4cd6e31a1464561c682761f16121873196d",
+          "path": "scripts/verify-ui/specs/legacy-v9-workspace.spec.mjs",
+          "sha256": "0bf8284e42d07cbba4db5c182e5bba7a1a48b72f07fba2284984a2ffbf4a8269",
+          "cases": [
+            {
+              "title": "legacy semantics v9 preserves the saved Patient digest through native row actions and reload",
+              "id": "666cd413b8edb2a25cd9-eab9593f309db15a19bb",
+              "line": 7,
+              "column": 3,
+              "occurrence": 1
+            }
+          ]
+        },
+        {
+          "path": "scripts/verify-ui/specs/native-action-readiness.spec.mjs",
+          "sha256": "ea91700315d59fc0d963f4126a6fe9c157ce4582aca0ad8b03c19d2c41ac95d4",
           "cases": [
             {
               "title": "shared action readiness uses Playwright auto-waiting for count and editability",
@@ -315,8 +320,8 @@
           ]
         },
         {
-          "path": "scripts/playwright/native-authoring-oracles.spec.mjs",
-          "sha256": "3361c401f0fb1a21b4c1288ccff9bd3d771dbf5d8ba1398cb6f65333d2b758b1",
+          "path": "scripts/verify-ui/specs/native-authoring-oracles.spec.mjs",
+          "sha256": "c704bcb0319537d85e07cc94d7e65a5877bd76a882f7b5df2fa690ebf498aa19",
           "cases": [
             {
               "title": "authoring oracle rejects a wrong visible row and a missing persisted field",
@@ -328,8 +333,8 @@
           ]
         },
         {
-          "path": "scripts/playwright/native-failure-evidence.spec.mjs",
-          "sha256": "09107242c121cc1f73b99c735494214adb4c4c1ca6c5ac4865d5f46fe1046e01",
+          "path": "scripts/verify-ui/specs/native-failure-evidence.spec.mjs",
+          "sha256": "a8968212a3c35daa2964da2704812868afeebf652a99f10c4fa42a32d653d3a3",
           "cases": [
             {
               "title": "closed pages return a failure summary without querying page or locator",
@@ -369,8 +374,8 @@
           ]
         },
         {
-          "path": "scripts/playwright/native-raw-fields-locator.spec.mjs",
-          "sha256": "3693c58a457dbbab30ac34f9fbbefee5be67232defcba8131e0978f1d18ee207",
+          "path": "scripts/verify-ui/specs/native-raw-fields-locator.spec.mjs",
+          "sha256": "4580f6c11b1775fc86583ab789d143b60ea1ecde02243f161502dbccaa00a775",
           "cases": [
             {
               "title": "raw FHIR locator targets the exact direct disclosure summary in the Add columns editor",
@@ -382,8 +387,8 @@
           ]
         },
         {
-          "path": "scripts/playwright/nullable-combine.spec.mjs",
-          "sha256": "0d7ecfdd8e43dd5b09d30ce7797dd817a9e65aa25dfd480315783f3f7c15d4cf",
+          "path": "scripts/verify-ui/specs/nullable-combine.spec.mjs",
+          "sha256": "ce1d9b2870d07a6a3a8664099b715ae393923c7a45937b69d96ba8148bb5f261",
           "cases": [
             {
               "title": "nullable KEY_JOIN INNER and LEFT lifecycle preserves ordinary NULL equality",
@@ -395,8 +400,8 @@
           ]
         },
         {
-          "path": "scripts/playwright/population-member-removal.spec.mjs",
-          "sha256": "378a0d1b04e4abf4d25ea23741b7bc1a7233b2a32d6af5cf9a1659bab19db686",
+          "path": "scripts/verify-ui/specs/population-member-removal.spec.mjs",
+          "sha256": "da827919139dadb1f233e580a98ceced530db7b9775ea610f271cfc9a2fde96e",
           "cases": [
             {
               "title": "removes the mapped source member and restores the full population after undo",
@@ -408,8 +413,8 @@
           ]
         },
         {
-          "path": "scripts/playwright/root-quantity-pivot.spec.mjs",
-          "sha256": "373490e2cb28cccb89d38c1094af3246d10bf58eda79da9e84ad9290980c5948",
+          "path": "scripts/verify-ui/specs/root-quantity-pivot.spec.mjs",
+          "sha256": "a5a4f83002d5ba753e212235c1ad561e614f0572bdce5a398f65f66136c0f3ce",
           "cases": [
             {
               "title": "discovers typed categories and completes the SUM, edit, removal, and reload lifecycle",
@@ -435,8 +440,8 @@
           ]
         },
         {
-          "path": "scripts/playwright/standalone-builder.spec.mjs",
-          "sha256": "1a03d0070aa8ec53c134fd7b6bd8ceb8fa7b7bb50078df750b6f4ed34faf93fe",
+          "path": "scripts/verify-ui/specs/standalone-builder.spec.mjs",
+          "sha256": "de10a7b0067c3bcec377a9867544f089f8a667d45f0e586d9300cda9bb53aa03",
           "cases": [
             {
               "title": "Verify related source chooser",
@@ -665,8 +670,8 @@
           ]
         },
         {
-          "path": "scripts/playwright/standalone-cda-cohort.spec.mjs",
-          "sha256": "b4f4ddf7a7724f8fd5a5b5038e0c272e7c5a02574df8c467775e97e436dc7505",
+          "path": "scripts/verify-ui/specs/standalone-cda-cohort.spec.mjs",
+          "sha256": "a7662dcb6d6eaf569624d86aac68a533fb6762c85545656510cae49dcfb4ac87",
           "cases": [
             {
               "title": "preserve RECORDS rows while applying, editing, reloading, and removing EXPAND",
@@ -734,8 +739,8 @@
           ]
         },
         {
-          "path": "scripts/playwright/standalone-cda-fields.spec.mjs",
-          "sha256": "0594444e741ea249c64655e055177a6df7956f8780e83a3e51493a708a7f6cb7",
+          "path": "scripts/verify-ui/specs/standalone-cda-fields.spec.mjs",
+          "sha256": "535e536d39e51672537408bc44ae579aa10973dde24fff57d39633189cfaeab1",
           "cases": [
             {
               "title": "CDA coded field lifecycle",
@@ -796,8 +801,8 @@
           ]
         },
         {
-          "path": "scripts/playwright/standalone-cda-other.spec.mjs",
-          "sha256": "0aa09b696124ec1f7f383ec1b985c1c74f4f77f658b852fcae059afbbc4fb5d5",
+          "path": "scripts/verify-ui/specs/standalone-cda-other.spec.mjs",
+          "sha256": "79fa9a6b68c2cdfca3e91475e0d0044bdc9260fd798a66599757500b5189d211",
           "cases": [
             {
               "title": "cancel each coded suggestion dialog without changing the draft",
@@ -970,8 +975,8 @@
           ]
         },
         {
-          "path": "scripts/playwright/standalone-cda-rows.spec.mjs",
-          "sha256": "5d3c70daa3f633c6955ab96b445f87accd2718b341096ec988a04996024cd24e",
+          "path": "scripts/verify-ui/specs/standalone-cda-rows.spec.mjs",
+          "sha256": "718bbe68348bdc5565631e586f79a2a52b4159c848a4f33b757a06e7d2376d63",
           "cases": [
             {
               "title": "expands nested component coding items and verifies exact raw source identities",
@@ -1004,8 +1009,8 @@
           ]
         },
         {
-          "path": "scripts/playwright/standalone-misc.spec.mjs",
-          "sha256": "c92e418ae246bdf27c9c2123e427bbe78544cfa481aed68d917bf6db8f35551d",
+          "path": "scripts/verify-ui/specs/standalone-misc.spec.mjs",
+          "sha256": "0e7a77c38b45eba524a5330ecf7bd4c94e547d993319198d066a4b053002c9b5",
           "cases": [
             {
               "title": "native disclosure controls reject hidden edits and accept visible typing",
@@ -1094,8 +1099,8 @@
           ]
         },
         {
-          "path": "scripts/playwright/standalone-reshape.spec.mjs",
-          "sha256": "badbc05c188a5692261413779fbafc52871280489309b2c7a134f4d3dd2bbd92",
+          "path": "scripts/verify-ui/specs/standalone-reshape.spec.mjs",
+          "sha256": "8176064b9dd8326a4cae3dd2cac139ec9e35842c145caa653544f970502f3be4",
           "cases": [
             {
               "title": "coded-pivot-integer",
@@ -1289,8 +1294,8 @@
           ]
         },
         {
-          "path": "scripts/playwright/viewer-query.spec.mjs",
-          "sha256": "119b9f49eda5a5d8cd451a3daad0fa6fb3f09df18a250b9b3148f85bfb6cf639",
+          "path": "scripts/verify-ui/specs/viewer-query.spec.mjs",
+          "sha256": "7b3212ac3c14192f09dd1fc35850acfffd3820f21ba08772bf544532247cce00",
           "cases": [
             {
               "title": "Viewer query reports an owned read failure and recovers through Retry",
@@ -1305,26 +1310,23 @@
     },
     {
       "sessionID": "construction-preview-bench",
-      "configPath": "scripts/playwright/construction-preview-bench.config.mjs",
-      "configSha256": "70d1f3ab93ea23edc7fe71e2e020f826bedc8378f783d55ff31e01fcfa52fa92",
+      "configPath": "scripts/measurements/construction-preview/construction-preview-bench.config.mjs",
+      "configSha256": "3ad96e538a1eb730dcd1e102576f4347b90ce83ba9504c4cd59f762700295ed3",
       "environment": {},
       "testCount": 1,
       "specFileCount": 1,
-      "discoveredCasesSha256": "40e4f2cfde62c998927dc9976a241febf4f7470792bead280e554c4e5b694a5d",
+      "discoveredCasesSha256": "42d33fa5638b641d3ad17849833d21e6a9640b2ad92ab168d370a547bd7e03c2",
       "specs": [
         {
-          "path": "scripts/playwright/construction-preview-bench.spec.mjs",
-          "sha256": "3aa45d32652a51c78546e877e2bfeb4362feabea7d82844580e32bfb0723baff",
+          "path": "scripts/measurements/construction-preview/construction-preview-bench.spec.mjs",
+          "sha256": "fee4ec063ed931a48fe9edd88009913d93e69bcb757e8611be17d024c9c8d043",
           "cases": [
             {
               "title": "construction preview benchmark @construction-preview-bench",
               "id": "437ed127b10ff3c054fb-2a684fa81c551a813709",
               "line": 9,
               "column": 1,
-              "occurrence": 1,
-              "tags": [
-                "construction-preview-bench"
-              ]
+              "occurrence": 1
             }
           ]
         }
@@ -1333,18 +1335,18 @@
     {
       "sessionID": "related-one-all-basic-status",
       "configPath": "scripts/playwright.config.mjs",
-      "configSha256": "ae1acf486f382cc52e1de90344f42f091c30c0d2c1e911f06d9fba491c55115e",
+      "configSha256": "d16ccb10ccf63f8a711ae7f8c5b61d4bc44452172e9a309a06cab32ce30f69bc",
       "environment": {
         "LOOM_RELATED_ONE_ALL_MODE": "basic",
         "LOOM_RELATED_ONE_ALL_FIELD": "status"
       },
       "testCount": 1,
       "specFileCount": 1,
-      "discoveredCasesSha256": "45fe24b13c538b83931136f341e4929a4a42cb991cc4ac8b2b87a7d824cdb56d",
+      "discoveredCasesSha256": "8058b3a9d242b3d377b6f89e70f9f305ed10a718a89ad4e5d3c745716c6c02c1",
       "specs": [
         {
-          "path": "scripts/playwright/standalone-cda-rows.spec.mjs",
-          "sha256": "5d3c70daa3f633c6955ab96b445f87accd2718b341096ec988a04996024cd24e",
+          "path": "scripts/verify-ui/specs/standalone-cda-rows.spec.mjs",
+          "sha256": "718bbe68348bdc5565631e586f79a2a52b4159c848a4f33b757a06e7d2376d63",
           "cases": [
             {
               "title": "preserves basic status behavior against raw related records",
@@ -1360,18 +1362,18 @@
     {
       "sessionID": "related-one-all-cda-status",
       "configPath": "scripts/playwright.config.mjs",
-      "configSha256": "ae1acf486f382cc52e1de90344f42f091c30c0d2c1e911f06d9fba491c55115e",
+      "configSha256": "d16ccb10ccf63f8a711ae7f8c5b61d4bc44452172e9a309a06cab32ce30f69bc",
       "environment": {
         "LOOM_RELATED_ONE_ALL_MODE": "cda",
         "LOOM_RELATED_ONE_ALL_FIELD": "status"
       },
       "testCount": 1,
       "specFileCount": 1,
-      "discoveredCasesSha256": "b74fa5f8a4b89e632a966281590833b4a17dd8420d288db2f8d5a769fc8bb9c7",
+      "discoveredCasesSha256": "fc1188acd7e5b2e04176971c16ded0d3a69209be1672e095d5c18d6c6bd35c3f",
       "specs": [
         {
-          "path": "scripts/playwright/standalone-cda-rows.spec.mjs",
-          "sha256": "5d3c70daa3f633c6955ab96b445f87accd2718b341096ec988a04996024cd24e",
+          "path": "scripts/verify-ui/specs/standalone-cda-rows.spec.mjs",
+          "sha256": "718bbe68348bdc5565631e586f79a2a52b4159c848a4f33b757a06e7d2376d63",
           "cases": [
             {
               "title": "preserves cda status behavior against raw related records",
@@ -1387,18 +1389,18 @@
     {
       "sessionID": "related-one-all-cda-specimen-reference",
       "configPath": "scripts/playwright.config.mjs",
-      "configSha256": "ae1acf486f382cc52e1de90344f42f091c30c0d2c1e911f06d9fba491c55115e",
+      "configSha256": "d16ccb10ccf63f8a711ae7f8c5b61d4bc44452172e9a309a06cab32ce30f69bc",
       "environment": {
         "LOOM_RELATED_ONE_ALL_MODE": "cda",
         "LOOM_RELATED_ONE_ALL_FIELD": "specimen-reference"
       },
       "testCount": 1,
       "specFileCount": 1,
-      "discoveredCasesSha256": "3ef86796ea2d3b48dc981accb1e39717e9d32b75f166756f3062a43fdd995bcc",
+      "discoveredCasesSha256": "d57a2182ccc8f2f3cc50ff40c1e82db7ccb9fd94f58cde13ef67db22ff74b04f",
       "specs": [
         {
-          "path": "scripts/playwright/standalone-cda-rows.spec.mjs",
-          "sha256": "5d3c70daa3f633c6955ab96b445f87accd2718b341096ec988a04996024cd24e",
+          "path": "scripts/verify-ui/specs/standalone-cda-rows.spec.mjs",
+          "sha256": "718bbe68348bdc5565631e586f79a2a52b4159c848a4f33b757a06e7d2376d63",
           "cases": [
             {
               "title": "preserves cda specimen-reference behavior against raw related records",
@@ -1412,10 +1414,18 @@
       ]
     }
   ],
-  "mainDiscoveryTestCount": 160,
-  "mainDiscoverySpecFileCount": 23,
-  "dedicatedBenchmarkTestCount": 1,
-  "dedicatedBenchmarkSpecFileCount": 1,
-  "totalDeclaredTestCount": 164,
-  "note": "Official Playwright list commands loaded registrations only; no test bodies ran. `sessions` records the main suite, the benchmark dedicated config, and the three non-default related ONE/ALL configurations. Each recorded spec/config hash binds titles to the current source tree."
+  "sessionRelationships": [
+    {
+      "kind": "shared-conditional-source-registration",
+      "specPath": "scripts/verify-ui/specs/standalone-cda-rows.spec.mjs",
+      "line": 52,
+      "sessionIDs": [
+        "main",
+        "related-one-all-basic-status",
+        "related-one-all-cda-status",
+        "related-one-all-cda-specimen-reference"
+      ],
+      "note": "The main session uses default CDA ID mode; each scoped session lists one environment-specific related-row variant from the same registration site. These are separate list rows, not additional registry ownership cases."
+    }
+  ]
 }

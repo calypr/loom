@@ -225,7 +225,7 @@ owns a legacy launcher and the inventoried native cases have passing evidence
 or an explicit unresolved blocker.
 
 Before calling the migration verified, make
-`node scripts/check-native-playwright.mjs` pass, reconcile the complete case
+`node scripts/maintenance/playwright/check-native-playwright.mjs` pass, reconcile the complete case
 inventory, freeze source, and run the native browser cases. Diagnose failures
 and rerun the same cases. Report passing lifecycles, unverified cases, product
 failures, and harness failures separately.
@@ -417,7 +417,7 @@ export native workflows under `scripts/verify-ui/`;
 `standalone-cda-fields.spec.mjs` owns their Playwright cases. Their raw source
 oracles and option variants remain. Arango queries use the validated fixture
 container and reject a mismatched override. Source-to-case mappings are in
-`scripts/playwright/standalone-cda-fields.mapping.md`.
+`scripts/verify-ui/specs/standalone-cda-fields.mapping.md`.
 
 Syntax checks and native discovery passed: 99 tests in 14 spec files. Browser,
 unit, and runtime checks for this batch have not run. The fields lifecycle cases

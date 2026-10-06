@@ -52,14 +52,14 @@ watched product checkout and its deployment were not edited or driven.
 
 ## Open migration work
 
-`node scripts/check-playwright-migration.mjs` reports two files:
-`scripts/verify-cda-builder.mjs` still has legacy CDP branches, and
+`node scripts/maintenance/playwright/check-playwright-migration.mjs` reports two files:
+`scripts/verify-ui/workflows/verify-cda-builder.mjs` still has legacy CDP branches, and
 `scripts/loom-dev.mjs` retains the CDP exports they call. The prepared
 `6701eb96c787b8252c5e6180b39964c2360768e9` legacy-driver deletion
 commit must wait until the Builder callers migrate. Do not count a zero static
 gate as a runtime pass. Most newly migrated CDA cases have only static tests.
 
-`node scripts/verify-ui/coverage-status.mjs
+`node scripts/verify-ui/helpers/coverage-status.mjs
 .artifacts/loom-dev/c52d4223d857/verify-ui` currently reports 0/13
 registered cases with passing evidence for the current source and API build;
 four historical passes remain. The quantity Pivot browser code preserves its

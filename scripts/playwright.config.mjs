@@ -1,7 +1,7 @@
 import { defineConfig } from '@playwright/test';
 
 export default defineConfig({
-  testDir: './playwright',
+  testDir: './verify-ui/specs',
   testMatch: '**/*.spec.mjs',
   testIgnore: '**/construction-preview-bench.spec.mjs',
   fullyParallel: false,

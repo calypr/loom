@@ -1,6 +1,6 @@
 # Native Playwright cases for `loom-dev` journeys
 
-`scripts/playwright/dev-journeys.spec.mjs` owns the Playwright Test page and
+`scripts/verify-ui/specs/dev-journeys.spec.mjs` owns the Playwright Test page and
 diagnostics fixture. It calls the exported workflow functions in
 `scripts/loom-dev.mjs` with that native page. The journey functions retain
 their report assertions, direct API/state oracles, fixture seeding, and

@@ -224,7 +224,7 @@ The native report passes all nine timed checks with a maximum of 2144 ms and no 
 
 ### Patient resourceType ALL after Unpivot passes
 
-LOOM_RELATED_AFTER_UNPIVOT_CASE=resource-type-all node scripts/verify-cda-related-field-after-unpivot-browser.mjs /tmp/loom-related-resource-type-after-unpivot-native-complete passes 31 timed checks (maximum 2074 ms, no errors). Its independent raw CDA oracle is scoped to project loom_dev_cda_fhir and generation cda-fhir-v1; it selects one Specimen with exactly one subject_Patient link and verifies that the Patient resourceType is Patient. The native flow adds Patient id with ALL, unpivots Specimen ID while retaining the Patient ID array, then adds Patient resourceType with ALL on the same route. Preview, Cancel, Apply, reload, label edit, field removal, and Unpivot removal/reload all pass; ["Patient"] and the retained ID array match the raw source. The source freeze found 1057 files unchanged. The report has no API build-freeze result and makes no restricted-auth claim.
+LOOM_RELATED_AFTER_UNPIVOT_CASE=resource-type-all node scripts/verify-ui/workflows/verify-cda-related-field-after-unpivot-browser.mjs /tmp/loom-related-resource-type-after-unpivot-native-complete passes 31 timed checks (maximum 2074 ms, no errors). Its independent raw CDA oracle is scoped to project loom_dev_cda_fhir and generation cda-fhir-v1; it selects one Specimen with exactly one subject_Patient link and verifies that the Patient resourceType is Patient. The native flow adds Patient id with ALL, unpivots Specimen ID while retaining the Patient ID array, then adds Patient resourceType with ALL on the same route. Preview, Cancel, Apply, reload, label edit, field removal, and Unpivot removal/reload all pass; ["Patient"] and the retained ID array match the raw source. The source freeze found 1057 files unchanged. The report has no API build-freeze result and makes no restricted-auth claim.
 
 The bounded first-2,000-Specimen scan found one valid resourceType witness. It does not establish project-wide availability or absence. Patient gender ALL remains untested: /tmp/loom-related-field-after-unpivot-execute-file-current/report.json found no populated gender witness and did not reach Builder behavior. Restricted-auth and Pivot compositions also remain untested. See row 113 in the Builder verification matrix.
 
@@ -248,7 +248,7 @@ the matrix. Native first-table action took 924 ms and editor open/close 265/267 
 CDA follow-up and broader save/reload remain open; this does not close the goal.
 
 CDA preview-owner follow-up passes:
-`LOOM_COHORT_SOURCE_COLLECTION_CHANGE=1 node scripts/verify-cda-cohort-membership-revision-browser.mjs /tmp/loom-cohort-source-collection-preview-owner-green`.
+`LOOM_COHORT_SOURCE_COLLECTION_CHANGE=1 node scripts/verify-ui/workflows/verify-cda-cohort-membership-revision-browser.mjs /tmp/loom-cohort-source-collection-preview-owner-green`.
 The report records 28 timed steps, max1890ms, errors[], independent exact-project /
 generation raw Specimen membership, unchanged1057-file source freeze and fresh
 unchanged API build. Cohort Apply/Cancel/revision replacement, collection repair
@@ -281,7 +281,7 @@ the editor. Existing published references remain valid; no floating head or
 preview-limited source may silently substitute for a complete table.
 
 Current full-population quantity-category discovery RED:
-`LOOM_QUANTITY_FULLPOP=1 node scripts/verify-cda-quantity-pivot-native-drag-browser.mjs /tmp/loom-quantity-fullpop-category-baseline-current`.
+`LOOM_QUANTITY_FULLPOP=1 node scripts/verify-ui/workflows/verify-cda-quantity-pivot-native-drag-browser.mjs /tmp/loom-quantity-fullpop-category-baseline-current`.
 HTTP503 CATEGORY_SCAN_TIMEOUT after8277ms; native action-to-render8815ms;
 unchanged1057-file source. Independent complete scoped route oracle is built
 into this case but is not reached on failure. This is one run, with no causal
@@ -326,7 +326,7 @@ Automatic proposal preview source finding: `BuilderWorkspace.tsx` reuses the app
 
 Repeated-value source expansion design: expose signed source repeated scopes alongside existing scalar list columns in Expand. Existing row proposal changes only `Document.Rows`, retains authored steps/column IDs, and compiles source expansion before all authored operations; preview must communicate that ordering and preserve Apply/Cancel. Object-valued Observation.component[] is supported by this source path, while authored scalar-column EXPAND cannot represent it. Mid-sequence object expansion and coexistence with a GROUPS row source remain explicit contract gaps, not closed by this UI change. Native repeated-empty regression must assert actual source shape and exact alpha/beta/empty/missing identities, reload, policy edit, Cancel and removal.
 
-Partial mapped collection repair now passes: `LOOM_COLLECTION_PARTIAL_LONG_ROUTE=1 node scripts/verify-cda-collection-repair.mjs /tmp/loom-partial-long-route-normalized`. Independent scoped CDA oracle, native exact exclusion, surviving membership/Observation row, unchanged exact saved route and reload all pass; max2525ms, no errors, unchanged source. The bounded CDA prefix supplies one output Observation; multi-result and restricted-auth evidence remain separate.
+Partial mapped collection repair now passes: `LOOM_COLLECTION_PARTIAL_LONG_ROUTE=1 node scripts/verify-ui/workflows/verify-cda-collection-repair.mjs /tmp/loom-partial-long-route-normalized`. Independent scoped CDA oracle, native exact exclusion, surviving membership/Observation row, unchanged exact saved route and reload all pass; max2525ms, no errors, unchanged source. The bounded CDA prefix supplies one output Observation; multi-result and restricted-auth evidence remain separate.
 
 Related category discovery native GREEN: `/tmp/loom-quantity-fullpop-type-index/report.json` passes fullpopulation discovery in2066ms and the complete independent raw scoped NULL+d oracle (815261Observations). Sourcefreeze unchanged1057files, pre-run APIbuildstamp matchescurrent. Root queried index inventory afterward: exact old fourfield quantity-code index replaced by `loom_pivot_preview_601548896a95cbf8`, remaining three preview indexes preserved/cap4. This closes discovery timeout, not Pivot lifecycle or generic root-category performance follow-up.
 

@@ -7,11 +7,11 @@ import { tmpdir } from 'node:os';
 import { dirname, basename, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createInterface } from 'node:readline';
-import { sanitizeBody, sanitizeText } from './lib/playwright-browser.mjs';
-import { performAction } from './lib/playwright-actions.mjs';
-import { captureApiBuildFreeze } from './lib/api-build-freeze.mjs';
-import { captureNativeFailureEvidence } from './playwright/native-failure-evidence.mjs';
-import { sourceFingerprintChangedPaths, sourceFingerprintWithManifest } from './verify-ui/source-fingerprint.mjs';
+import { sanitizeBody, sanitizeText } from './verify-ui/helpers/playwright-browser.mjs';
+import { performAction } from './verify-ui/helpers/playwright-actions.mjs';
+import { captureApiBuildFreeze } from './verify-ui/helpers/api-build-freeze.mjs';
+import { captureNativeFailureEvidence } from './verify-ui/helpers/native-failure-evidence.mjs';
+import { sourceFingerprintChangedPaths, sourceFingerprintWithManifest } from './verify-ui/helpers/source-fingerprint.mjs';
 import { dataframeOutputQuery } from '../ui/packages/loom-ui/src/dataframeOutputQuery.mjs';
 import { EXPLORER_AUTHORING_SEMANTICS_VERSION } from '../ui/packages/loom-ui/src/authoringSemanticsVersion.mjs';
 
@@ -9586,7 +9586,7 @@ export const dispatchNativeDevJourney = async (command) => {
   if (!DEV_JOURNEY_COMMANDS.has(command)) throw new Error(`unknown native dev journey: ${command}`);
   const child = spawn('npm', [
     'run', 'test:browser', '--',
-    'playwright/dev-journeys.spec.mjs', '--grep', `@dev-journey:${command}`,
+    'verify-ui/specs/dev-journeys.spec.mjs', '--grep', `@dev-journey:${command}`,
   ], { cwd: SCRIPT_DIR, env: process.env, stdio: 'inherit' });
   const code = await new Promise((resolvePromise, reject) => {
     child.on('error', reject);

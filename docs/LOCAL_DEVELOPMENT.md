@@ -60,7 +60,7 @@ fixture generation return HTTP 200. It writes `.artifacts/loom-dev/report.json`.
 The public Make verification targets use the official `@playwright/test` runner
 through `npm --prefix scripts run test:browser`. The nine development journeys
 select the matching `@dev-journey:<target>` case in
-`scripts/playwright/dev-journeys.spec.mjs`; `scripts/loom-dev.mjs` remains the
+`scripts/verify-ui/specs/dev-journeys.spec.mjs`; `scripts/loom-dev.mjs` remains the
 stack, fixture, and cleanup API rather than the browser CLI. `make verify-base-settings`
 and `make verify-cda-root-settings` select native cases in the standalone specs.
 The latter keeps its three repeated root-change cycles through

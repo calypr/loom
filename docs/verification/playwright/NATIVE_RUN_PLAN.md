@@ -2,7 +2,7 @@
 
 Preparation only. Do not run these commands until the native conversion patch is integrated and the owner has cleared the browser-run window. This plan uses the already owned local stack; it does not rebuild or redeploy it. Run all Playwright commands from the canonical checkout at `/private/tmp/loom-construction-implementation/scripts`.
 
-The canonical fixture contract is `scripts/playwright/cda-fixtures.mjs`: CDA runs require `LOOM_CDA_ARANGO_CONTAINER`; with the full source target below, the fixture also validates the real source root, dataset directory, Compose project, ports and origins, API container, project, and generation against the owned stack. The fixture takes a source fingerprint and API build identity before each case and checks both after the case. The field and cohort specs set `cdaRequireSourceFixture: true`. The fields test timeout is 300 seconds per case; Playwright's global timeout is 600 seconds, with one worker and no retries.
+The canonical fixture contract is `scripts/verify-ui/helpers/cda-fixtures.mjs`: CDA runs require `LOOM_CDA_ARANGO_CONTAINER`; with the full source target below, the fixture also validates the real source root, dataset directory, Compose project, ports and origins, API container, project, and generation against the owned stack. The fixture takes a source fingerprint and API build identity before each case and checks both after the case. The field and cohort specs set `cdaRequireSourceFixture: true`. The fields test timeout is 300 seconds per case; Playwright's global timeout is 600 seconds, with one worker and no retries.
 
 ## Environment for the existing owned stack
 
@@ -66,7 +66,7 @@ After the final selected group, repeat those commands to `source-after.json` and
 
 Each selection below was enumerated with Playwright's official `--list` option against the current canonical specs. The basic selection lists exactly 2 cases; each field invocation lists 1; each rows pair lists 2; and the cohort invocations list 2, 1, 2, 2, and 2 cases respectively. These are discovery counts only; no browser tests were run.
 
-The two basic cases use `scripts/playwright/fixtures.mjs` and the checked-in `testdata/devloop-fixture`; `group-entry` creates its own Group entry in a fresh fixture project. The compound BASIC case also selects, edits, removes, and reloads its coded group from a fresh synthetic fixture. They need the `LOOM_DEV_*` identity above, but no external CDA seed or selection file. The combined run has two cases at 180 seconds each (360 seconds total worst case).
+The two basic cases use `scripts/verify-ui/helpers/fixtures.mjs` and the checked-in `testdata/devloop-fixture`; `group-entry` creates its own Group entry in a fresh fixture project. The compound BASIC case also selects, edits, removes, and reloads its coded group from a fresh synthetic fixture. They need the `LOOM_DEV_*` identity above, but no external CDA seed or selection file. The combined run has two cases at 180 seconds each (360 seconds total worst case).
 
 ```sh
 npm run test:browser -- playwright/builder-authoring.spec.mjs playwright/standalone-misc.spec.mjs \

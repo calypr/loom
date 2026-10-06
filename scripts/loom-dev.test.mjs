@@ -368,7 +368,7 @@ test('generic Builder and interpretation browser paths use only Playwright brows
 
 test('native dev journeys use the Playwright Test-owned page and diagnostics fixture', () => {
   const driver = readFileSync(join(process.cwd(), 'scripts/loom-dev.mjs'), 'utf8');
-  const nativeSpec = readFileSync(join(process.cwd(), 'scripts/playwright/dev-journeys.spec.mjs'), 'utf8');
+  const nativeSpec = readFileSync(join(process.cwd(), 'scripts/verify-ui/specs/dev-journeys.spec.mjs'), 'utf8');
   assert.match(nativeSpec, /import \{ test as base \} from '@playwright\/test'/);
   assert.match(nativeSpec, /async \(\{ page \}, use\)/);
   assert.match(nativeSpec, /@dev-journey:\$\{command\}/);
@@ -460,7 +460,7 @@ test('local J01 browser lifecycle uses Playwright actions and retains its exact 
 
 test('all nine loom-dev browser scopes have native Playwright Test cases and exported workflows', () => {
   const driver = readFileSync(join(process.cwd(), 'scripts/loom-dev.mjs'), 'utf8');
-  const nativeSpec = readFileSync(join(process.cwd(), 'scripts/playwright/dev-journeys.spec.mjs'), 'utf8');
+  const nativeSpec = readFileSync(join(process.cwd(), 'scripts/verify-ui/specs/dev-journeys.spec.mjs'), 'utf8');
   for (const [command, workflow] of [
     ['verify-current', 'verifyCurrentBuilderDOM'],
     ['verify-fast', 'verifyBrowserScenario'],

@@ -4,10 +4,10 @@
   "note": "Only cases whose portable source names differ from the official discovered Playwright title are listed. Every target title is checked against the hashed static discovery snapshot. Variant names and environment values remain explicit.",
   "cases": [
     {
-      "sourcePath": "scripts/verify-cda-named-cohort-related-count-browser.mjs",
+      "sourcePath": "scripts/verify-ui/workflows/verify-cda-named-cohort-related-count-browser.mjs",
       "scenarioID": "cda-named-cohort-related-count",
       "caseName": "related-count-nonempty-groups",
-      "specPath": "scripts/playwright/standalone-cda-other.spec.mjs",
+      "specPath": "scripts/verify-ui/specs/standalone-cda-other.spec.mjs",
       "sessionID": "main",
       "testTitle": "author and restore the exact named-cohort COUNT contributor lifecycle",
       "expectedVariants": {
@@ -16,10 +16,10 @@
       }
     },
     {
-      "sourcePath": "scripts/verify-cda-named-cohort-related-count-browser.mjs",
+      "sourcePath": "scripts/verify-ui/workflows/verify-cda-named-cohort-related-count-browser.mjs",
       "scenarioID": "cda-named-cohort-related-count",
       "caseName": "related-count-including-empty-group",
-      "specPath": "scripts/playwright/standalone-cda-other.spec.mjs",
+      "specPath": "scripts/verify-ui/specs/standalone-cda-other.spec.mjs",
       "sessionID": "main",
       "testTitle": "author and restore the exact named-cohort COUNT contributor lifecycle",
       "expectedVariants": {
@@ -28,10 +28,10 @@
       }
     },
     {
-      "sourcePath": "scripts/verify-cda-named-cohort-related-count-browser.mjs",
+      "sourcePath": "scripts/verify-ui/workflows/verify-cda-named-cohort-related-count-browser.mjs",
       "scenarioID": "cda-named-cohort-related-count",
       "caseName": "related-all-nonempty-groups",
-      "specPath": "scripts/playwright/standalone-cda-other.spec.mjs",
+      "specPath": "scripts/verify-ui/specs/standalone-cda-other.spec.mjs",
       "sessionID": "main",
       "testTitle": "author and restore the exact named-cohort ALL contributor lifecycle",
       "expectedVariants": {
@@ -40,10 +40,10 @@
       }
     },
     {
-      "sourcePath": "scripts/verify-cda-named-cohort-related-count-browser.mjs",
+      "sourcePath": "scripts/verify-ui/workflows/verify-cda-named-cohort-related-count-browser.mjs",
       "scenarioID": "cda-named-cohort-related-count",
       "caseName": "related-all-including-empty-group",
-      "specPath": "scripts/playwright/standalone-cda-other.spec.mjs",
+      "specPath": "scripts/verify-ui/specs/standalone-cda-other.spec.mjs",
       "sessionID": "main",
       "testTitle": "author and restore the exact named-cohort ALL contributor lifecycle",
       "expectedVariants": {
@@ -52,10 +52,10 @@
       }
     },
     {
-      "sourcePath": "scripts/verify-cda-add-column-dialog.mjs",
+      "sourcePath": "scripts/verify-ui/workflows/verify-cda-add-column-dialog.mjs",
       "scenarioID": "cda-add-column-dialog",
       "caseName": "add-columns-dialog-cancel-and-restore-coded-suggestions",
-      "specPath": "scripts/playwright/standalone-cda-other.spec.mjs",
+      "specPath": "scripts/verify-ui/specs/standalone-cda-other.spec.mjs",
       "sessionID": "main",
       "testTitle": "cancel each coded suggestion dialog without changing the draft",
       "expectedVariants": {
@@ -63,10 +63,10 @@
       }
     },
     {
-      "sourcePath": "scripts/verify-cda-related-one-all-browser.mjs",
+      "sourcePath": "scripts/verify-ui/workflows/verify-cda-related-one-all-browser.mjs",
       "scenarioID": "cda-related-one-all",
       "caseName": "${mode}-${field}-raw-oracle-one-all-lifecycle",
-      "specPath": "scripts/playwright/standalone-cda-rows.spec.mjs",
+      "specPath": "scripts/verify-ui/specs/standalone-cda-rows.spec.mjs",
       "sessionID": "main",
       "testTitle": "preserves cda id behavior against raw related records",
       "expectedVariants": [
