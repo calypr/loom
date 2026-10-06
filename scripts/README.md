@@ -3,10 +3,41 @@
 Run commands from the repository root.
 
 Native browser cases live under `scripts/verify-ui/specs/`. The case registry
-maps each workflow and case name to its Playwright spec. Specs call workflow
-code under `scripts/verify-ui/workflows/`; fixtures, request capture, and source
-oracles live under `scripts/verify-ui/helpers/`. The main suite uses
+maps each workflow and case name to its Playwright spec at
+`scenario.cases[caseName].playwrightTest`. Specs call workflow code under
+`scripts/verify-ui/workflows/`; fixtures, request capture, and source oracles
+live under `scripts/verify-ui/helpers/`. The main suite uses
 `scripts/playwright.config.mjs`.
+
+## Owned-stack precheck, capture, and health
+
+Set `REPORT_DIR` to a fresh run-specific directory, then source the validated
+`LOOM_CDA_*` environment. Use the canonical precheck and health CLI around
+`capture-owned-verification.mjs`. This keeps Docker stamp and owned-target
+checks in repository code instead of copying temporary helpers into each run
+directory:
+
+```sh
+mkdir -p "$REPORT_DIR"
+node scripts/owned-stack-verification.mjs --mode precheck --output "$REPORT_DIR/api-build-precheck.json"
+node scripts/capture-owned-verification.mjs --phase before \
+  --source-output "$REPORT_DIR/source-before.json" \
+  --docs-output "$REPORT_DIR/docs-before.json" \
+  --api-output "$REPORT_DIR/api-identity-before.json" \
+  --mount-output "$REPORT_DIR/owned-mounts-before.json"
+node scripts/owned-stack-verification.mjs --mode health \
+  --output "$REPORT_DIR/health-before.json" \
+  --identity "$REPORT_DIR/api-identity-before.json"
+```
+
+The capture coordinator alone performs Docker-backed precheck, capture, and
+health operations. Keep the watched source and running API unchanged from the
+before capture through the after capture and final health check.
+
+After the browser run, capture with `--phase after` and four distinct
+`*-after.json` paths, then run health mode again with the same before-capture
+identity via `--identity`. See the [verification skill](../.codex/skills/verify/SKILL.md)
+for the complete before/after sequence and acceptance rules.
 
 Run the main suite with:
 

@@ -50,7 +50,7 @@ test('a stale initial stamp rejects capture before the verifier can start', asyn
   }), (error) => {
     assert(error instanceof ApiBuildFreezeError);
     assert.equal(error.reason, 'the initial running API stamp check failed');
-    assert.deepEqual(error.before, { checked: true, fresh: false, status: 1 });
+    assert.deepEqual(error.before, { checked: true, fresh: false, status: 1, failureKind: 'stamp-check-failed' });
     assert.deepEqual(error.after, { checked: false });
     assert.equal(error.invalidatesRun, true);
     assert.equal(error.productFailure, false);
@@ -78,6 +78,7 @@ test('a failed final stamp command is sanitized in the invalidation report', asy
     assert.equal(error.invalidatesRun, true);
     assert.equal(error.productFailure, false);
     assert.equal(error.after.errorCode, 'ENOENT');
+    assert.equal(error.after.failureKind, 'docker-command-execution-failed');
     assert(!String(error).includes('private-value'));
     assert(!JSON.stringify(error).includes('private-value'));
     return true;
@@ -98,4 +99,46 @@ test('the optional Docker adapter targets the selected local CDA API container',
   assert.equal(checked.stdout, stamp('c'));
   assert.deepEqual(calls[0].args, ['exec', 'custom-api', '/workspace/loom-dev-build-stamp.sh', '--check']);
   assert.equal(calls[0].options.encoding, 'utf8');
+});
+
+test('Docker permission failures keep a bounded redacted diagnostic and do not look like stamp staleness', async () => {
+  const accessError = Object.assign(new Error('Command failed: docker exec'), { code: 1 });
+  const access = await checkContainerApiBuildStamp('owned-api', {
+    execFileImpl: (_file, _args, _options, callback) => callback(accessError, '',
+      'permission denied while trying to connect to unix:///Users/peter/.docker/run/docker.sock token=private-value'),
+  });
+  assert.equal(access.status, 1);
+  assert.equal(access.failureKind, 'docker-access-denied');
+  assert.match(access.diagnostic, /permission denied/);
+  assert.match(access.diagnostic, /\/Users\/\[user\]/);
+  assert(!access.diagnostic.includes('private-value'));
+  assert(access.diagnostic.length <= 1000);
+  await assert.rejects(captureApiBuildFreeze(async () => access), error => {
+    assert(error instanceof ApiBuildFreezeError);
+    assert.equal(error.before.failureKind, 'docker-access-denied');
+    assert.match(error.before.diagnostic, /permission denied/);
+    assert(!JSON.stringify(error).includes('private-value'));
+    return true;
+  });
+});
+
+test('Docker command execution failures are distinguished from stamp mismatches', async () => {
+  const executionError = Object.assign(new Error('spawn docker EACCES credential=private-value'), { code: 'EACCES' });
+  const failed = await checkContainerApiBuildStamp('owned-api', {
+    execFileImpl: (_file, _args, _options, callback) => callback(executionError, '', executionError.message),
+  });
+  assert.equal(failed.status, null);
+  assert.equal(failed.failureKind, 'docker-command-execution-failed');
+  assert(!failed.diagnostic.includes('private-value'));
+});
+
+test('a well-formed source mismatch is classified separately from Docker access failure', async () => {
+  const mismatch = await checkContainerApiBuildStamp('owned-api', {
+    execFileImpl: (_file, _args, _options, callback) => {
+      const error = Object.assign(new Error('build stamp source mismatch'), { code: 1 });
+      callback(error, `${'a'.repeat(64)} ${'b'.repeat(64)} ${'c'.repeat(64)}\n`, 'source stamp mismatch');
+    },
+  });
+  assert.equal(mismatch.failureKind, 'source-stamp-mismatch');
+  assert.notEqual(mismatch.failureKind, 'docker-access-denied');
 });

@@ -42,13 +42,35 @@ Retain per-file hashes, aggregate fingerprint, and API build identity before a
 browser run. Compare afterward and identify changed paths. Source mutation
 invalidates the run; its apparent UI failures are not reproduced product bugs.
 
-Use `node scripts/capture-owned-verification.mjs` after loading the validated
-`LOOM_CDA_*` environment. Set `--phase before|after` and four distinct output
-paths with `--source-output`, `--docs-output`, `--api-output`, and
-`--mount-output`. It reuses the canonical owned-target and source/API helpers
-and records a stable per-file docs manifest. Compare before/after manifests and
-API identity before accepting a run. Keep health checks alongside the capture;
-do not recreate Docker mount validation in inline scripts.
+Set `REPORT_DIR` to a fresh run-specific directory and load the validated
+`LOOM_CDA_*` environment. Use the canonical precheck, capture, and health
+commands below. Do not copy health or build-stamp helpers into a per-run
+temporary directory.
+
+```bash
+mkdir -p "$REPORT_DIR"
+node scripts/owned-stack-verification.mjs --mode precheck --output "$REPORT_DIR/api-build-precheck.json"
+node scripts/capture-owned-verification.mjs --phase before \
+  --source-output "$REPORT_DIR/source-before.json" \
+  --docs-output "$REPORT_DIR/docs-before.json" \
+  --api-output "$REPORT_DIR/api-identity-before.json" \
+  --mount-output "$REPORT_DIR/owned-mounts-before.json"
+node scripts/owned-stack-verification.mjs --mode health \
+  --output "$REPORT_DIR/health-before.json" \
+  --identity "$REPORT_DIR/api-identity-before.json"
+```
+
+The capture coordinator alone performs Docker-backed precheck, capture, and
+health operations. Keep the watched source and running API unchanged from the
+before capture through the after capture and final health check.
+
+After the browser run, capture the same four dimensions with `--phase after`
+and distinct `*-after.json` paths. Run health mode again against the same
+`api-identity-before.json`; it revalidates the captured owned target and checks
+three API/UI/build-identity samples. The capture reuses the canonical
+owned-target and source/API helpers and records a stable per-file docs
+manifest. Compare before/after manifests and API identity before accepting a
+run. Do not recreate Docker mount validation in inline scripts.
 
 Capture diagnostics on the first failing action: elapsed time, control values,
 DOM, console exception, exact owned request scope and draft/stage identity,
@@ -149,10 +171,10 @@ The gate checks registered-case mappings, remaining custom browser ownership
 (including the construction-preview benchmark driver), and undefined workflow
 bindings using the UI workspace's existing TypeScript dependency. It is a
 static migration check, not runtime, benchmark-performance, or browser evidence.
-Select a case from `scripts/verify-ui/registry.mjs` using its
-`playwrightTests[caseName]` entry, then grep for that native test's exact title
-or case text. Keep unknown or unregistered mappings explicitly pending; do not
-invent a runner command for them. For example, the registered
+Select the scenario by `id` in `scripts/verify-ui/registry.mjs`, then select its
+case with `scenario.cases[caseName].playwrightTest`. Grep for that native test's
+exact title or case text. Keep unknown or unregistered mappings explicitly
+pending; do not invent a runner command for them. For example, the registered
 `builder-authoring/group-entry` case can be selected as follows after the
 owned development environment is configured. This is an invocation example,
 not a reported pass:
@@ -211,13 +233,14 @@ is unknown.
 Run registered workflows through the official native test runner:
 
 ```bash
-./scripts/node_modules/.bin/playwright test --config scripts/playwright.config.mjs builder-authoring.spec.mjs --grep cohort-recode
+./scripts/node_modules/.bin/playwright test --config scripts/playwright.config.mjs builder-authoring.spec.mjs --grep 'named cohort recoding preserves raw ALL bindings across edit and reload$'
 ```
 
-Use `playwrightTests` in the registry to select the spec, then `--grep` for the
-case. The native basic fixture creates a fresh disposable project with the
-case's declared source files. Real CDA follow-up uses the native CDA specs and
-`LOOM_CDA_*` target options on the already loaded, validated owned stack. It does
+Use `scenario.cases[caseName].playwrightTest` in the registry to select the
+spec, then `--grep` for the case. The native basic fixture creates a fresh
+disposable project with the case's declared source files. Real CDA follow-up
+uses the native CDA specs and `LOOM_CDA_*` target options on the already loaded,
+validated owned stack. It does
 not upload the large dataset again. Retired standalone browser modules are
 workflow libraries; do not invoke them with Node or the old reuse flags.
 See `docs/PLAYWRIGHT_TEST_MIGRATION.md` for checkpoint status. Source conversion
