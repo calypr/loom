@@ -1,6 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { classifyEvidence, classifyFreshness, summarizeCoverage } from '../coverage-status.mjs';
+import { mkdtempSync, mkdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { basename, join } from 'node:path';
+import { classifyEvidence, classifyFreshness, readReports, summarizeCoverage } from '../coverage-status.mjs';
 import { caseNamesFor, registry, scenarioCaseFor } from '../../registry.mjs';
 
 const complete = Object.fromEntries(['usability', 'correctness', 'persistence', 'performance'].map((dimension) => [dimension, { status: 'passed' }]));
@@ -188,4 +191,203 @@ test('a source fingerprint that changed during the report is historical even whe
     assertions: [freezeAssertion(sourceFingerprint, changedFingerprint, 'failed')],
   }, { sourceFingerprint, apiBuildIdentity });
   assert.deepEqual(freshness, { status: 'historical', source: 'historical', build: 'current' });
+});
+
+const writeCompactRun = (root, { epoch = 78, source = fingerprint(), build = apiBuildIdentity, status = 'passed', integritySource = source } = {}) => {
+  const scenario = registry.find((entry) => entry.id === 'cda-current-draft-upstream-append');
+  const required = scenarioCaseFor(scenario, 'upstream-append').requiredChecks;
+  const reportDir = join(root, 'docs/verification/playwright/runtime');
+  mkdirSync(reportDir, { recursive: true });
+  const stem = `upstream-append-epoch${epoch}`;
+  const reportPath = join(reportDir, `${stem}-report.json`);
+  const closurePath = join(reportDir, `${stem}-closure.json`);
+  const target = { project: 'loom_dev_cda_fhir', composeProject: 'loom-test-compose', generation: 'cda-fhir-v1', sourceRoot: root };
+  const report = {
+    epoch,
+    scenario: scenario.id,
+    case: 'upstream-append',
+    title: 'durable compact report fixture',
+    status,
+    runnerStatus: status,
+    coverageStatus: status,
+    requiredChecks: { passed: required.length, failed: 0, total: required.length },
+    assertions: { passed: 215, failed: 0, total: 215 },
+    dimensions: { usability: 'passed', correctness: 'passed', persistence: 'passed', performance: 'passed' },
+    network: { unexpectedNetworkErrors: 0, domainErrors: 0 },
+    target,
+    integrity: {
+      closureStatus: 'PASS',
+      sourceBeforeAfter: { ...integritySource, unchanged: true },
+      apiBuildIdentityUnchanged: true,
+      ownedMounts: { before: 'PASS', after: 'PASS', targetUnchanged: true },
+      health: { before: { status: 'PASS', samples: 3 }, after: { status: 'PASS', samples: 3 } },
+    },
+    durableClosurePath: `docs/verification/playwright/runtime/${stem}-closure.json`,
+  };
+  const closure = {
+    epoch,
+    status: 'CLOSED_PASS',
+    integrityClosure: {
+      status: 'PASS',
+      source: { before: source, after: source, manifestsEqual: true, changedPaths: [] },
+      apiBuildIdentity: { before: build, after: build, precheck: build, unchanged: true },
+      ownedMounts: { before: 'PASS', after: 'PASS', targetUnchanged: true, target },
+      health: { before: { status: 'PASS', samples: 3 }, after: { status: 'PASS', samples: 3 } },
+    },
+    case: {
+      scenarioId: scenario.id,
+      caseName: 'upstream-append',
+      status: 'passed',
+      requiredChecks: {
+        passed: required.length,
+        total: required.length,
+        missingOrFailed: 0,
+        evidence: required.map((name) => ({ name, status: 'passed' })),
+      },
+    },
+  };
+  writeFileSync(reportPath, JSON.stringify(report));
+  writeFileSync(closurePath, JSON.stringify(closure));
+  return { reportPath, closurePath, report, closure, scenario, required };
+};
+
+test('durable compact report plus matching closure contributes current or historical evidence only against exact baselines', () => {
+  const root = mkdtempSync(join(tmpdir(), 'coverage-compact-'));
+  try {
+    const source = fingerprint('c'.repeat(64), 1518);
+    const fixture = writeCompactRun(root, { source });
+    const reports = readReports(join(root, 'docs/verification/playwright/runtime'), { cwd: root });
+    const loaded = reports.find((entry) => entry.path === fixture.reportPath);
+    assert.ok(loaded?.closure, 'reader pairs the report with its repo-relative durable closure');
+    const baseline = { sourceFingerprint: source, apiBuildIdentity };
+    const summarize = (current) => summarizeCoverage([fixture.scenario], reports, current)[0];
+
+    assert.deepEqual(
+      (({ status, freshness }) => ({ status, freshness }))(summarize(baseline)),
+      { status: 'passed', freshness: { status: 'current', source: 'current', build: 'current' } },
+    );
+    assert.deepEqual(summarize({ sourceFingerprint: fingerprint('d'.repeat(64), 1518), apiBuildIdentity }).freshness,
+      { status: 'historical', source: 'historical', build: 'current' });
+    assert.deepEqual(summarize({ sourceFingerprint: source, apiBuildIdentity: '4'.repeat(64) + ':' + '5'.repeat(64) + ':' + '6'.repeat(64) }).freshness,
+      { status: 'historical', source: 'current', build: 'historical' });
+    assert.deepEqual(summarize({ sourceFingerprint: source }).freshness,
+      { status: 'unknown', source: 'current', build: 'unknown' });
+
+    const mixedFormat = summarizeCoverage([fixture.scenario], [
+      ...reports,
+      {
+        path: 'later-full-report.json',
+        report: {
+          scenario: fixture.scenario.id,
+          case: 'upstream-append',
+          finishedAt: '2026-10-06T12:00:00.000Z',
+          schemaVersion: 2,
+          status: 'failed',
+          assertions: [],
+        },
+      },
+    ], baseline)[0];
+    assert.equal(mixedFormat.status, 'partial');
+    assert.equal(mixedFormat.freshness.status, 'unknown', 'incomparable timestamp and epoch ordering cannot claim current coverage');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('a compact report with a mismatched closure is partial and never current', () => {
+  const root = mkdtempSync(join(tmpdir(), 'coverage-compact-mismatch-'));
+  try {
+    const source = fingerprint('e'.repeat(64), 1518);
+    const fixture = writeCompactRun(root, { source });
+    fixture.closure.epoch += 1;
+    writeFileSync(fixture.closurePath, JSON.stringify(fixture.closure));
+    const reports = readReports(join(root, 'docs/verification/playwright/runtime'), { cwd: root });
+    const row = summarizeCoverage([fixture.scenario], reports, { sourceFingerprint: source, apiBuildIdentity })[0];
+    assert.equal(row.status, 'partial');
+    assert.deepEqual(row.freshness, { status: 'unknown', source: 'unknown', build: 'unknown' });
+
+    rmSync(fixture.closurePath);
+    const missingClosureReports = readReports(join(root, 'docs/verification/playwright/runtime'), { cwd: root });
+    const missingClosure = summarizeCoverage([fixture.scenario], missingClosureReports, { sourceFingerprint: source, apiBuildIdentity })[0];
+    assert.equal(missingClosure.status, 'partial');
+    assert.equal(missingClosure.freshness.status, 'unknown');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('compact reports cannot override contradictory integrity summaries or resolve a nonsibling closure', () => {
+  const source = fingerprint('f'.repeat(64), 1518);
+  const build = apiBuildIdentity;
+  const rejectedRow = (fixture, root) => summarizeCoverage(
+    [fixture.scenario],
+    readReports(join(root, 'docs/verification/playwright/runtime'), { cwd: root }),
+    { sourceFingerprint: source, apiBuildIdentity: build },
+  )[0];
+  const assertRejected = (mutate) => {
+    const root = mkdtempSync(join(tmpdir(), 'coverage-compact-contradiction-'));
+    try {
+      const fixture = writeCompactRun(root, { source, build });
+      mutate(fixture, root);
+      const row = rejectedRow(fixture, root);
+      assert.equal(row.status, 'partial');
+      assert.deepEqual(row.freshness, { status: 'unknown', source: 'unknown', build: 'unknown' });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  };
+
+  assertRejected(({ report, reportPath }) => {
+    report.target.composeProject = 'different-compose-project';
+    writeFileSync(reportPath, JSON.stringify(report));
+  });
+  assertRejected(({ report, reportPath }) => {
+    report.target.composeProject = '';
+    writeFileSync(reportPath, JSON.stringify(report));
+  });
+  assertRejected(({ report, reportPath }) => {
+    report.target.sourceRoot = '';
+    writeFileSync(reportPath, JSON.stringify(report));
+  });
+  assertRejected(({ report, reportPath }) => {
+    report.integrity.apiBuildIdentityUnchanged = true;
+    report.integrity.apiBuildIdentity = {
+      before: '0'.repeat(64) + ':' + '2'.repeat(64) + ':' + '3'.repeat(64),
+      after: build,
+      unchanged: true,
+    };
+    writeFileSync(reportPath, JSON.stringify(report));
+  });
+  assertRejected(({ report, reportPath }) => {
+    report.integrity.sourceBeforeAfter.manifestsEqual = false;
+    report.integrity.sourceBeforeAfter.changedPaths = ['internal/server/example.go'];
+    writeFileSync(reportPath, JSON.stringify(report));
+  });
+  assertRejected(({ report, reportPath }) => {
+    report.integrity.sourceBeforeAfter.changedPaths = { length: 0 };
+    writeFileSync(reportPath, JSON.stringify(report));
+  });
+  assertRejected(({ closure, closurePath }) => {
+    closure.integrityClosure.source.manifestsEqual = 'false';
+    writeFileSync(closurePath, JSON.stringify(closure));
+  });
+  assertRejected(({ closure, closurePath }) => {
+    closure.integrityClosure.source.changedPaths = { length: 0 };
+    writeFileSync(closurePath, JSON.stringify(closure));
+  });
+  assertRejected(({ closure, closurePath }) => {
+    closure.integrityClosure.apiBuildIdentity.unchanged = 'false';
+    writeFileSync(closurePath, JSON.stringify(closure));
+  });
+  assertRejected(({ closure, closurePath }) => {
+    closure.integrityClosure.ownedMounts.targetUnchanged = 'false';
+    writeFileSync(closurePath, JSON.stringify(closure));
+  });
+  assertRejected(({ closurePath }, root) => {
+    const alternateDirectory = join(root, 'alternate');
+    mkdirSync(alternateDirectory);
+    const redirected = join(alternateDirectory, basename(closurePath));
+    renameSync(closurePath, redirected);
+    symlinkSync(redirected, closurePath);
+  });
 });

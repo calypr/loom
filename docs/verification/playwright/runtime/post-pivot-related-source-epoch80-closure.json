@@ -1,0 +1,235 @@
+{
+  "epoch": 80,
+  "status": "CLOSED_PRE_LIFECYCLE_RAW_ORACLE_FAILURE_UNATTRIBUTED",
+  "integrityClosure": {
+    "status": "PASS",
+    "source": {
+      "before": {
+        "sha256": "fbb157236d7df3392bf009b1a235f0d26d1b0db4ac67a5f4bb71d90644c70f3e",
+        "files": 1521
+      },
+      "after": {
+        "sha256": "fbb157236d7df3392bf009b1a235f0d26d1b0db4ac67a5f4bb71d90644c70f3e",
+        "files": 1521
+      },
+      "manifestsEqual": true,
+      "changedPaths": [],
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave80/source-before.json",
+        "sha256": "82f8100fbd531c71bc378b03e494bb914d16b9d5974c5dd03e988bdcfdb04a5a"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave80/source-after.json",
+        "sha256": "9b691799f11086b09639af34e81f9760ed07a8ae5ae6e537f037c8ee482cecc2"
+      }
+    },
+    "docs": {
+      "before": {
+        "sha256": "ac031159f2e642ec8dda59a7633d0789e570ebb455ac0f8648ba0f1ea0d14478",
+        "files": 187
+      },
+      "after": {
+        "sha256": "ac031159f2e642ec8dda59a7633d0789e570ebb455ac0f8648ba0f1ea0d14478",
+        "files": 187
+      },
+      "manifestsEqual": true,
+      "changedPaths": [],
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave80/docs-before.json",
+        "sha256": "fa807c25b6ee7988e85838ff56f40cde5a7423e42f54d7937e2f336e8a67d651"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave80/docs-after.json",
+        "sha256": "978015e3918166242821dd1c34b9766a6119f0c80d4a6182f35388e0a4a25393"
+      }
+    },
+    "apiBuildIdentity": {
+      "before": "59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:d0ff798529bdfbf5b796a4d549d73ffee8de0acbb412c5604913a091b36abd51",
+      "after": "59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:d0ff798529bdfbf5b796a4d549d73ffee8de0acbb412c5604913a091b36abd51",
+      "precheck": "59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:d0ff798529bdfbf5b796a4d549d73ffee8de0acbb412c5604913a091b36abd51",
+      "unchanged": true,
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave80/api-identity-before.json",
+        "sha256": "b583d6ee86e5342a9830126e435f9cf7cfb8860719be71f0e55f0435edeca728"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave80/api-identity-after.json",
+        "sha256": "b1e4278e529fba20e4690873e1c197e866296feecef9b257b36debcaf4dfda0d"
+      },
+      "precheckArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave80/api-build-precheck-confirmed.json",
+        "sha256": "c66430fba283f899246f038d9aa1e677df1979f2efdeca01d010fe6bacc9da5e"
+      }
+    },
+    "ownedMounts": {
+      "before": "PASS",
+      "after": "PASS",
+      "targetUnchanged": true,
+      "target": {
+        "project": "loom_dev_cda_fhir",
+        "composeProject": "loom-dev-6d7df93d6a37",
+        "apiContainer": "loom-dev-6d7df93d6a37-loom-api-1",
+        "uiContainer": "loom-dev-6d7df93d6a37-loom-ui-1",
+        "arangoContainer": "loom-dev-6d7df93d6a37-arangodb-1",
+        "clickhouseContainer": "loom-dev-6d7df93d6a37-clickhouse-1",
+        "apiPort": "8188",
+        "uiPort": "30008",
+        "sourceRoot": "/private/tmp/loom-construction-implementation",
+        "generation": "cda-fhir-v1"
+      },
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave80/owned-mounts-before.json",
+        "sha256": "38435064331b7ffc2ac78c976a58c37785ac9c82ba7921d61b63561e93d90e54"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave80/owned-mounts-after.json",
+        "sha256": "671c3b666082825172142f165c6f2775c01dc7de034e6b5354489895cd0bf58d"
+      }
+    },
+    "health": {
+      "before": {
+        "status": "PASS",
+        "samples": 3
+      },
+      "after": {
+        "status": "PASS",
+        "samples": 3
+      },
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave80/health-before.json",
+        "sha256": "2711bd2e33e020b0dbeadfbb0b1f8bf70ab092e081e167810fc2d3242bfe95e8"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave80/health-after.json",
+        "sha256": "959c0aa6d98d8a21bdeb4a876d0136802c9cfc5c002d933c9a60d601f518872e"
+      }
+    }
+  },
+  "case": {
+    "scenarioId": "standalone-reshape-related-source-after-pivot",
+    "caseName": "related-source-after-pivot",
+    "title": "standalone CDA reshape workflows related-source-after-pivot related-source-after-pivot",
+    "status": "failed_before_lifecycle_raw_oracle_query",
+    "failureClassification": "PRE_LIFECYCLE_RAW_ORACLE_FAILURE_UNATTRIBUTED",
+    "testCaseExecuted": true,
+    "productBehaviorExercised": false,
+    "summary": "The selected test entered its setup but failed while running the raw Arango oracle, before native lifecycle actions. Captured error states ArangoError 1203 (collection or view `generation` not found); error context also begins with an Arango password prompt. Root cause is left unattributed pending review.",
+    "requiredChecks": {
+      "total": 25,
+      "passed": 1,
+      "missing": 24,
+      "missingNames": [
+        "CDA raw oracle selects two same-status Observation roots with distinct Patient references",
+        "Exact scoped subject_Patient edges resolve the two roots to distinct Patient documents",
+        "Fresh Explorer binds the exact two-root Observation population to its direct source table",
+        "Native Pivot preview matches the two exact source categories and coalesces one row",
+        "Pivot Cancel preserves exact source workspace and rows after reload",
+        "Confirmed Pivot proposal retains exact typed category and value bindings",
+        "Applied Pivot persists typed categories and one independently verified coalesced row after reload",
+        "Pivot compiler stage exposes the exact row identity and RELATED_SOURCE capability",
+        "Post-Pivot Patient.id ALL proposal retains both source contributors",
+        "Native chooser and candidate bind Patient.id ALL through exact Observation.subject → Patient",
+        "Post-Pivot ALL returns both independently resolved Patient IDs on one Pivot row",
+        "Related-source Cancel preserves the exact saved Pivot and its raw values after reload",
+        "Confirmed post-Pivot Patient.id ALL preview",
+        "Applied post-Pivot RELATED_SOURCE retains exact ALL binding and contributors after reload",
+        "Edited related-source label keeps exact contributor values",
+        "Editing the saved related source and Cancel preserves its exact construction and ALL values",
+        "Apply related-source edit preserves the post-Pivot binding",
+        "Applied related-source edit changes only the label and survives reload with exact Patient values",
+        "Related-source removal preview restores exact Pivot values",
+        "Related-source removal Cancel preserves the edited binding and exact ALL values after reload",
+        "Confirmed related-source removal restores the exact Pivot row",
+        "Applying related-source removal restores the exact pre-source Pivot workspace and values",
+        "No unexpected native network, module, or browser errors occurred",
+        "All native lifecycle actions complete within five seconds"
+      ]
+    },
+    "assertions": {
+      "passed": 1,
+      "failed": 0,
+      "total": 1
+    },
+    "nativeActions": {
+      "passed": 0,
+      "failed": 0,
+      "total": 0
+    },
+    "firstFailure": {
+      "phase": "raw oracle setup",
+      "message": "AssertionError: Raw CDA query failed: Please specify a [REDACTED] [1330715-1] ERROR [979b9] {general} JavaScript exception in file '/usr/share/arangodb3/js/client/modules/@arangodb/arangosh.js' at 92,9: ArangoError 1203: collection or view not found: generation\\n!        throw error;\\n!        ^\\nstacktrace: ArangoError: collection or view not found: generation\\n    at exports.checkRequestResult (/usr/share/arangodb3/js/client/modules/@arangodb/arangosh.js:90:23)\\n    at ArangoStatement.execute (/usr/share/arangodb3/js/client/modules/@arangodb/arango-statement.js:170:12)\\n    at ArangoDatabase._query (/usr/share/arangodb3/js/client/modules/@arangodb/arango-database.js:1019:45)\\n    at (command-line):1:25\\n\n\n\n1 !== 0\n"
+    },
+    "playwrightDiscovery": {
+      "selectedTestCount": 1,
+      "expected": 0,
+      "skipped": 0,
+      "unexpected": 1,
+      "flaky": 0
+    },
+    "timings": {
+      "testDurationMs": 4500,
+      "playwrightRunnerDurationMs": 6257.786,
+      "processDurationMs": null
+    },
+    "artifacts": {
+      "runPlan": {
+        "path": "/private/tmp/loom-native-parallel-wave80/run-plan.json",
+        "sha256": "1c0744cccb3fbb61269323fb73b9e7b48ebdf7e52603f340f61726d059230e00"
+      },
+      "selectedTitleList": {
+        "path": "/private/tmp/loom-native-parallel-wave80/selected-title-list.json",
+        "sha256": "c8a54113f09e2453902879102277dea29b8fc6aa01a39a5f87584d66a3227314"
+      },
+      "precheck": {
+        "path": "/private/tmp/loom-native-parallel-wave80/api-build-precheck-confirmed.json",
+        "sha256": "c66430fba283f899246f038d9aa1e677df1979f2efdeca01d010fe6bacc9da5e"
+      },
+      "domainReport": {
+        "path": "/private/tmp/loom-native-parallel-wave80/standalone-reshape-related-source-after-pivot/attempt1/artifacts/standalone-reshape-standal-689d5--related-source-after-pivot/cda-report.json",
+        "sha256": "cf6fb4b2f8a3a8366da94e1c10e795209938f5903b6917900c4ba2964ef772d0"
+      },
+      "errorContext": {
+        "path": "/private/tmp/loom-native-parallel-wave80/standalone-reshape-related-source-after-pivot/attempt1/artifacts/standalone-reshape-standal-689d5--related-source-after-pivot/error-context.md",
+        "sha256": "5598073629cdcfe3d18775a011b8039782f8dd808b9f70988f0daa4f64905dcd"
+      },
+      "playwrightResults": {
+        "path": "/private/tmp/loom-native-parallel-wave80/standalone-reshape-related-source-after-pivot/attempt1/results.json",
+        "sha256": "5fc457345e3b5ceb9bead21f6133933b929c501516e7aa0c50879dd36e600a7b"
+      },
+      "runnerLog": {
+        "path": "/private/tmp/loom-native-parallel-wave80/standalone-reshape-related-source-after-pivot/attempt1/runner.log",
+        "sha256": "e091ae3b2d66119c76eee8d67f122a411f898f552e1028460ababdef11f1b010"
+      },
+      "captureIntegrity": {
+        "path": "/private/tmp/loom-native-parallel-wave80/closure-integrity.json",
+        "sha256": "d31a55f16d9115a2ec654552e24e786d12ba623ed9b7b7a0ceeb3dff364fb991"
+      }
+    }
+  },
+  "handles": {
+    "precheck": {
+      "session": 25661,
+      "exitCode": 0
+    },
+    "beforeCapture": {
+      "session": 48981,
+      "exitCode": 0
+    },
+    "beforeHealth": {
+      "session": 72999,
+      "exitCode": 0
+    },
+    "browser": {
+      "session": 4626,
+      "exitCode": 1
+    },
+    "afterCapture": {
+      "session": 54762,
+      "exitCode": 0
+    },
+    "afterHealth": {
+      "session": 39853,
+      "exitCode": 0
+    }
+  }
+}

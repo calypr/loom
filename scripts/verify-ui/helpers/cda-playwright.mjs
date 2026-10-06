@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
 
 const sourceRoot = resolve(fileURLToPath(new URL('../../..', import.meta.url)));
-const forbiddenInspection = /\.(?:click|focus|blur|select|dispatchEvent|setAttribute|removeAttribute|scrollIntoView|submit|requestSubmit|remove|append|prepend|replaceWith|insertAdjacentHTML|on[A-Z]\w*|handle[A-Z]\w*)\s*\(|\[['"](?:click|focus|blur|select|dispatchEvent|setAttribute|removeAttribute|submit|requestSubmit)['"]\]\s*\(|\b(?:eval|Function)\s*\(|(?:^|[^\w$])(?:value|checked|selected|open|scrollTop|scrollLeft|innerHTML|outerHTML|textContent|innerText|dataset\.\w+|location(?:\.href)?)\s*=(?!=)|\[['"][^\]]+['"]\]\s*=(?!=)|\+\+|--/i;
+const forbiddenInspection = /\.(?:click|focus|blur|select|dispatchEvent|setAttribute|removeAttribute|scrollIntoView|submit|requestSubmit|remove|append|prepend|replaceWith|insertAdjacentHTML|on[A-Z]\w*|handle[A-Z]\w*)\s*\(|\[['"](?:click|focus|blur|select|dispatchEvent|setAttribute|removeAttribute|submit|requestSubmit)['"]\]\s*\(|\b(?:eval|Function)\s*\(|(?:^|[^\w$])(?:value|checked|selected|open|scrollTop|scrollLeft|innerHTML|outerHTML|textContent|innerText|dataset\.\w+|location(?:\.href)?)\s*=(?![=>])|\[['"][^\]]+['"]\]\s*=(?!=)|\+\+|--/i;
 
 function requireInspectionCallback(callback, label) {
   if (typeof callback !== 'function') throw new TypeError(`${label} requires a function callback.`);

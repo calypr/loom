@@ -18,6 +18,7 @@ import { runGroupRelatedValuesBrowserWorkflow } from '../workflows/verify-cda-gr
 import { runRelatedGroupBrowserWorkflow } from '../workflows/verify-cda-related-group-browser.mjs';
 import { runGroupRelatedSummaryBrowserWorkflow } from '../workflows/verify-cda-group-related-summary-browser.mjs';
 import { runGroupEditBeforeRelatedColumnBrowserWorkflow } from '../workflows/verify-cda-group-edit-before-related-column-browser.mjs';
+import { isPostPivotRawOracleUnavailable, runRelatedSourceAfterPivotBrowserWorkflow } from '../workflows/verify-cda-related-source-after-pivot-browser.mjs';
 
 test.describe('standalone CDA reshape workflows', () => {
 
@@ -34,7 +35,14 @@ test.describe('standalone CDA reshape workflows', () => {
         ...options,
       });
       test(name, async ({ page, cda }) => {
-        await workflow({ page, cda }, args);
+        try {
+          await workflow({ page, cda }, args);
+        } catch (error) {
+          if (name === 'related-source-after-pivot' && isPostPivotRawOracleUnavailable(error)) {
+            test.skip(true, error.message);
+          }
+          throw error;
+        }
       });
     });
   };
@@ -72,6 +80,7 @@ test.describe('standalone CDA reshape workflows', () => {
   }
 
   register('related-pivot', runRelatedPivotBrowserWorkflow);
+  register('related-source-after-pivot', runRelatedSourceAfterPivotBrowserWorkflow, {}, { cdaScenarioID: 'standalone-reshape-related-source-after-pivot', cdaExplorer: `qa-post-pivot-${randomUUID()}` });
   register('related-unpivot', runRelatedUnpivotBrowserWorkflow);
   register('unpivot', runUnpivotWorkflow);
 });

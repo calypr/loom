@@ -2,25 +2,25 @@
   "schemaVersion": 1,
   "kind": "official-playwright-static-discovery",
   "sourceRoot": ".",
-  "baseCommit": "e44c4abf0b8cdaa4e42033108427d3af13ff4405",
+  "baseCommit": "02e20692932eb2abc847e40fc85c27b1f994954a",
   "status": "discovery-only",
   "runtimeStatus": "not-run",
   "commandTemplate": "<repo>/scripts/node_modules/.bin/playwright test --config <configPath> --list --reporter=json",
-  "note": "Captured from 6 official Playwright --list --reporter=json outputs. These reports list registrations only and skip every test body; no lifecycle ran. The 6 session counts sum to 171 entries.",
-  "mainDiscoveryTestCount": 166,
+  "note": "Captured from 6 official Playwright --list --reporter=json outputs. These reports list registrations only and skip every test body; no lifecycle ran. The 6 session counts sum to 172 entries.",
+  "mainDiscoveryTestCount": 167,
   "mainDiscoverySpecFileCount": 27,
   "dedicatedBenchmarkTestCount": 1,
   "dedicatedBenchmarkSpecFileCount": 1,
-  "totalDeclaredTestCount": 171,
+  "totalDeclaredTestCount": 172,
   "sessions": [
     {
       "sessionID": "main",
       "configPath": "scripts/playwright.config.mjs",
       "configSha256": "d16ccb10ccf63f8a711ae7f8c5b61d4bc44452172e9a309a06cab32ce30f69bc",
       "environment": {},
-      "testCount": 166,
+      "testCount": 167,
       "specFileCount": 27,
-      "discoveredCasesSha256": "034f8108cb2bf5480c8d42a41b9adc97843b094f41609ac0dcb9b0737836883a",
+      "discoveredCasesSha256": "dd2957c7e0611c41321640d77acf4eb436c47e8c4537b44ead5b3ea359173feb",
       "specs": [
         {
           "path": "scripts/verify-ui/specs/append.spec.mjs",
@@ -1140,194 +1140,201 @@
         },
         {
           "path": "scripts/verify-ui/specs/standalone-reshape.spec.mjs",
-          "sha256": "8176064b9dd8326a4cae3dd2cac139ec9e35842c145caa653544f970502f3be4",
+          "sha256": "459705176a59746c914d4f53e4855f3adcd42224c12b998c8bb89c9c1032c524",
           "cases": [
             {
               "title": "coded-pivot-integer",
               "id": "70fc556bb9ebf4a2c951-7ab88f919bb28279df9b",
-              "line": 36,
+              "line": 37,
               "column": 7,
               "occurrence": 1
             },
             {
               "title": "coded-pivot-string",
               "id": "70fc556bb9ebf4a2c951-7dd8406544bdcb4a9b97",
-              "line": 36,
+              "line": 37,
               "column": 7,
               "occurrence": 1
             },
             {
               "title": "implicit-pivot-root",
               "id": "70fc556bb9ebf4a2c951-ad5bd3f18c5e706f3158",
-              "line": 36,
+              "line": 37,
               "column": 7,
               "occurrence": 1
             },
             {
               "title": "implicit-pivot-related",
               "id": "70fc556bb9ebf4a2c951-04b2ee9faec0dafd9e25",
-              "line": 36,
+              "line": 37,
               "column": 7,
               "occurrence": 1
             },
             {
               "title": "implicit-pivot-related-source-key",
               "id": "70fc556bb9ebf4a2c951-20eba20e46dd65f23758",
-              "line": 36,
+              "line": 37,
               "column": 7,
               "occurrence": 1
             },
             {
               "title": "group-add-fields",
               "id": "70fc556bb9ebf4a2c951-6b9b3b6a5a2c0d93090f",
-              "line": 36,
+              "line": 37,
               "column": 7,
               "occurrence": 1
             },
             {
               "title": "group-one-conflict",
               "id": "70fc556bb9ebf4a2c951-0d4d546e6dab82e4b508",
-              "line": 36,
+              "line": 37,
               "column": 7,
               "occurrence": 1
             },
             {
               "title": "group-related-values",
               "id": "70fc556bb9ebf4a2c951-39ee699c3511160e0617",
-              "line": 36,
+              "line": 37,
               "column": 7,
               "occurrence": 1
             },
             {
               "title": "related-group",
               "id": "70fc556bb9ebf4a2c951-5dc98710202ac2a3d60f",
-              "line": 36,
+              "line": 37,
               "column": 7,
               "occurrence": 1
             },
             {
               "title": "group-related-summary",
               "id": "70fc556bb9ebf4a2c951-65a12826e3564a6b3364",
-              "line": 36,
+              "line": 37,
               "column": 7,
               "occurrence": 1
             },
             {
               "title": "group-edit-before-related-column",
               "id": "70fc556bb9ebf4a2c951-d380baa278a6427b4b0e",
-              "line": 36,
+              "line": 37,
               "column": 7,
               "occurrence": 1
             },
             {
               "title": "pivot-category-cycle",
               "id": "70fc556bb9ebf4a2c951-5138202bfff701c27b50",
-              "line": 36,
+              "line": 37,
               "column": 7,
               "occurrence": 1
             },
             {
               "title": "pivot-related-apply-only",
               "id": "70fc556bb9ebf4a2c951-772f3aefa24c0dafb1ea",
-              "line": 36,
+              "line": 37,
               "column": 7,
               "occurrence": 1
             },
             {
               "title": "pivot-category-edit",
               "id": "70fc556bb9ebf4a2c951-619a25be04c05783cbe4",
-              "line": 36,
+              "line": 37,
               "column": 7,
               "occurrence": 1
             },
             {
               "title": "pivot-field-change",
               "id": "70fc556bb9ebf4a2c951-7dbaf8e1ea53e8785df2",
-              "line": 36,
+              "line": 37,
               "column": 7,
               "occurrence": 1
             },
             {
               "title": "pivot-reload",
               "id": "70fc556bb9ebf4a2c951-adc542d8fb2c0dbce85e",
-              "line": 36,
+              "line": 37,
               "column": 7,
               "occurrence": 1
             },
             {
               "title": "quantity-pivot",
               "id": "70fc556bb9ebf4a2c951-270793e0aa3a2fae00a6",
-              "line": 36,
+              "line": 37,
               "column": 7,
               "occurrence": 1
             },
             {
               "title": "quantity-pivot-full-population",
               "id": "70fc556bb9ebf4a2c951-56b17fbe8a8bef766a60",
-              "line": 36,
+              "line": 37,
               "column": 7,
               "occurrence": 1
             },
             {
               "title": "quantity-pivot-native-drag",
               "id": "70fc556bb9ebf4a2c951-45d9b49cda1d76dffea6",
-              "line": 36,
+              "line": 37,
               "column": 7,
               "occurrence": 1
             },
             {
               "title": "quantity-pivot-native-drag-full-population",
               "id": "70fc556bb9ebf4a2c951-4308951f6d2ba7245619",
-              "line": 36,
+              "line": 37,
               "column": 7,
               "occurrence": 1
             },
             {
               "title": "related-field-after-unpivot-gender-all",
               "id": "70fc556bb9ebf4a2c951-fb91349f8ab5d693ef44",
-              "line": 36,
+              "line": 37,
               "column": 7,
               "occurrence": 1
             },
             {
               "title": "related-field-after-unpivot-gender-null-all",
               "id": "70fc556bb9ebf4a2c951-a53330265486fcbfb425",
-              "line": 36,
+              "line": 37,
               "column": 7,
               "occurrence": 1
             },
             {
               "title": "related-field-after-unpivot-resource-type-all",
               "id": "70fc556bb9ebf4a2c951-972e19c83316a4227ffd",
-              "line": 36,
+              "line": 37,
               "column": 7,
               "occurrence": 1
             },
             {
               "title": "related-field-after-unpivot-id-count",
               "id": "70fc556bb9ebf4a2c951-810c1355138963e42cd0",
-              "line": 36,
+              "line": 37,
               "column": 7,
               "occurrence": 1
             },
             {
               "title": "related-pivot",
               "id": "70fc556bb9ebf4a2c951-689cab6dc5f25b80d9a7",
-              "line": 36,
+              "line": 37,
+              "column": 7,
+              "occurrence": 1
+            },
+            {
+              "title": "related-source-after-pivot",
+              "id": "70fc556bb9ebf4a2c951-0209db370e0a3d8bb3ed",
+              "line": 37,
               "column": 7,
               "occurrence": 1
             },
             {
               "title": "related-unpivot",
               "id": "70fc556bb9ebf4a2c951-7f9b3125ebf59b617774",
-              "line": 36,
+              "line": 37,
               "column": 7,
               "occurrence": 1
             },
             {
               "title": "unpivot",
               "id": "70fc556bb9ebf4a2c951-203307ea5c48abe76f36",
-              "line": 36,
+              "line": 37,
               "column": 7,
               "occurrence": 1
             }

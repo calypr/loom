@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { browserEval, includeBrowserDiagnostics, waitForBrowser, waitForCapturedResponse } from '../cda-playwright.mjs';
+import { readProposalPreviewDocument } from '../../workflows/verify-cda-related-source-after-pivot-browser.mjs';
 
 test('browser network diagnostics deduplicate only the same captured request', () => {
   const url = 'http://127.0.0.1:30008/api/v1/projects/owned/explorers/editor/authoring/v2/construction-capabilities';
@@ -66,6 +67,20 @@ test('browser inspection and waits require callbacks with explicit serializable 
     { kind: 'evaluate', args: [19, 23] },
     { kind: 'wait', args: [42, 42], timeout: 5000 },
   ]);
+});
+
+test('native Pivot preview inspection callback passes the read-only browser guard', async () => {
+  let forwarded;
+  const page = {
+    async evaluate(callback, args) {
+      forwarded = { callback, args };
+      return { status: 'ready' };
+    },
+  };
+
+  assert.deepEqual(await browserEval(page, readProposalPreviewDocument), { status: 'ready' });
+  assert.equal(forwarded.callback, readProposalPreviewDocument);
+  assert.deepEqual(forwarded.args, []);
 });
 
 test('browser inspection rejects source strings and obvious control mutations', async () => {
