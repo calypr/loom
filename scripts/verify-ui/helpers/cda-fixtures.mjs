@@ -27,6 +27,7 @@ import { registry, scenarioCaseFor } from '../registry.mjs';
 import { classifyNetworkRecord, createReport, finishReport, recordCheck, writeReport } from './report.mjs';
 import { sanitizeBody, sanitizePayload, sanitizeText } from './playwright-browser.mjs';
 import { captureNativeFailureEvidence, MAX_NATIVE_FAILURE_CAPTURE_MS } from './native-failure-evidence.mjs';
+import { correlateRequestFailure } from './network-timing.mjs';
 
 const ACTION_TIMEOUT_MS = 5_000;
 const MAX_DIAGNOSTICS = 100;
@@ -369,6 +370,7 @@ export const test = base.extend({
     report.fixtureTimings = { setupMs: Math.round(performance.now() - setupStarted) };
 
     const diagnostics = { console: [], pageErrors: [], networkFailures: [], httpFailures: [], assetFailures: [] };
+    const workflowStartedAt = performance.now();
     const ownedOrigins = new Set([apiUrl, uiUrl].map(value => new URL(value).origin));
     const captureFailureEvidence = async details => {
       if (report.failureEvidence) return;
@@ -392,14 +394,24 @@ export const test = base.extend({
     const faultAttempts = [];
     const faultHandlers = [];
     const requestIDs = new WeakMap();
+    const requestMetadata = new WeakMap();
     const requestFailures = new WeakMap();
     const pendingRequests = new Set();
     const cancellationScopes = [];
     let requestSequence = 0;
+    let navigationSequence = 0;
+    let actionSequence = 0;
+    const mainFrameNavigations = [];
+    let droppedNavigationTimings = 0;
     let activeAction;
     let activeLocator;
     let activeActionContext;
     let firstFailureActionContext;
+    const actionSnapshot = () => {
+      const context = activeActionContext ?? report.activeAction;
+      const label = context?.label;
+      return context?.id && label ? { id: context.id, label: safeText(label) } : null;
+    };
     let retainedDiagnostics = 0;
     let droppedDiagnostics = 0;
     const addNetworkDiagnostic = entry => {
@@ -441,12 +453,40 @@ export const test = base.extend({
       }
     };
     const onRequest = request => {
-      playwrightRequestId(request);
+      const requestId = playwrightRequestId(request);
       if (!localRequest(request)) return;
+      if (request.isNavigationRequest?.() && request.frame() === page.mainFrame()) {
+        const startedAt = performance.now();
+        const sequence = ++navigationSequence;
+        if (mainFrameNavigations.length < MAX_DIAGNOSTICS) {
+          mainFrameNavigations.push({ id: `navigation-${sequence}`, sequence, startedAt,
+            atMs: Math.round(startedAt - workflowStartedAt), url: safeURL(request.url()), phase: 'request-start' });
+        } else droppedNavigationTimings += 1;
+      }
+      const startedAt = performance.now();
+      requestMetadata.set(request, {
+        requestId, method: request.method(), resourceType: request.resourceType(), url: safeURL(request.url()),
+        requestDetails: requestDiagnostic(request), startedAt, startedMs: Math.round(startedAt - workflowStartedAt),
+        action: actionSnapshot(), navigationSequenceAtStart: navigationSequence,
+      });
       pendingRequests.add(request);
       for (const scope of cancellationScopes) {
         if (scope.active && matchesCancellationScope(request, scope)) scope.requests.add(request);
       }
+    };
+    const onFrameNavigated = frame => {
+      if (frame !== page.mainFrame()) return;
+      let origin;
+      try { origin = new URL(frame.url()).origin; } catch { return; }
+      if (!ownedOrigins.has(origin)) return;
+      const startedAt = performance.now();
+      const sequence = ++navigationSequence;
+      if (mainFrameNavigations.length >= MAX_DIAGNOSTICS) {
+        droppedNavigationTimings += 1;
+        return;
+      }
+      mainFrameNavigations.push({ id: `navigation-${sequence}`, sequence, startedAt,
+        atMs: Math.round(startedAt - workflowStartedAt), url: safeURL(frame.url()), phase: 'commit' });
     };
     const onRequestFinished = request => {
       pendingRequests.delete(request);
@@ -500,9 +540,36 @@ export const test = base.extend({
     };
     const onRequestFailed = request => {
       if (!localRequest(request)) return;
+      const failedAt = performance.now();
+      const metadata = requestMetadata.get(request);
+      const requestScope = (() => {
+        try {
+          const match = new URL(request.url()).pathname.match(/\/projects\/([^/]+)\/explorers\/([^/]+)/);
+          return {
+            expectedProject: target.fixtureProject ?? target.project ?? null,
+            generation: target.fixtureGeneration ?? null,
+            configuredExplorer: target.explorer ?? report.target.explorer ?? null,
+            requestProject: match ? decodeURIComponent(match[1]) : null,
+            requestExplorer: match ? decodeURIComponent(match[2]) : null,
+          };
+        } catch {
+          return { expectedProject: target.fixtureProject ?? target.project ?? null,
+            generation: target.fixtureGeneration ?? null,
+            configuredExplorer: target.explorer ?? report.target.explorer ?? null,
+            requestProject: null, requestExplorer: null };
+        }
+      })();
       const entry = {
-        kind: 'network', method: request.method(), url: safeURL(request.url()),
+        kind: 'network', method: request.method(), url: metadata?.url ?? safeURL(request.url()),
         resourceType: request.resourceType(), errorText: safeText(request.failure()?.errorText),
+        requestDetails: metadata?.requestDetails ?? requestDiagnostic(request),
+        requestScope: sanitizePayload(requestScope),
+        ...(metadata ? { requestTimeline: correlateRequestFailure({
+          requestStartedAt: metadata.startedAt, failedAt, workflowStartedAt, action: metadata.action,
+          navigationSequenceAtStart: metadata.navigationSequenceAtStart, navigations: mainFrameNavigations,
+        }) } : { failedAtMs: Math.round(failedAt - workflowStartedAt) }),
+        requestAction: metadata ? metadata.action : null,
+        failureAction: actionSnapshot(),
         triggerAction: activeAction,
         requestId: request.headers()['x-request-id'] ?? null,
         playwrightRequestId: playwrightRequestId(request),
@@ -559,6 +626,7 @@ export const test = base.extend({
       });
     };
     page.on('request', onRequest);
+    page.on('framenavigated', onFrameNavigated);
     page.on('requestfinished', onRequestFinished);
     page.on('console', onConsole);
     page.on('pageerror', onPageError);
@@ -587,7 +655,7 @@ export const test = base.extend({
       activeLocator = locator;
       const started = performance.now();
       const startedAt = Date.now();
-      const actionContext = { label: safeText(label), locator, startedAt };
+      const actionContext = { id: `cda-action-${++actionSequence}`, label: safeText(label), locator, startedAt, startedMs: Math.round(started - workflowStartedAt) };
       activeActionContext = actionContext;
       const actionTimeout = Math.max(1, Math.min(ACTION_TIMEOUT_MS, Number.isFinite(timeout) ? timeout : ACTION_TIMEOUT_MS));
       const budgetMs = Math.max(1, Math.min(ACTION_TIMEOUT_MS, Number.isFinite(budget) ? budget : ACTION_TIMEOUT_MS));
@@ -665,7 +733,7 @@ export const test = base.extend({
           });
         }
         report.actions.push({
-          label: safeText(label), status: passed ? 'passed' : 'failed', elapsedMs: Math.round(elapsedMs),
+          id: actionContext.id, label: safeText(label), status: passed ? 'passed' : 'failed', elapsedMs: Math.round(elapsedMs),
           failurePhase: actionContext.failurePhase, phases,
           locator: safeText(locator.toString()),
           ...(phases.after ? { afterMs: phases.after.durationMs } : {}),
@@ -895,11 +963,16 @@ export const test = base.extend({
       setActionEvidence: (label, locator) => {
         activeAction = safeText(label);
         activeLocator = locator;
-        activeActionContext = { label: activeAction, locator, startedAt: Date.now() };
+        const startedAt = Date.now();
+        const started = performance.now();
+        activeActionContext = { id: `cda-action-${++actionSequence}`, label: activeAction, locator, startedAt,
+          startedMs: Math.round(started - workflowStartedAt) };
         report.activeAction = {
+          id: activeActionContext.id,
           label: activeAction,
           locator: locator?.toString ? safeText(locator.toString()) : undefined,
-          startedAt: Date.now(),
+          startedAt,
+          startedMs: activeActionContext.startedMs,
         };
       },
     };
@@ -975,12 +1048,14 @@ export const test = base.extend({
       for (const handler of faultHandlers) await page.unroute('**/*', handler);
       await Promise.all([...trackers].map(tracker => tracker.flush()));
       includeBrowserDiagnostics(diagnostics, report);
+      report.navigationTimings = mainFrameNavigations.map(({ id, atMs, url, phase }) => ({ id, atMs, url, phase }));
       report.browserLifecycle = {
         kind: 'official-playwright-page',
         status: testInfo.status,
         durationMs: Math.round(performance.now() - setupStarted),
         diagnosticLimit: MAX_DIAGNOSTICS,
         droppedDiagnostics,
+        droppedNavigationTimings,
       };
       const result = await identity.finish();
       report.verificationIdentity = sanitizePayload(result);
@@ -994,6 +1069,7 @@ export const test = base.extend({
     } finally {
       page.removeListener('console', onConsole);
       page.removeListener('request', onRequest);
+      page.removeListener('framenavigated', onFrameNavigated);
       page.removeListener('requestfinished', onRequestFinished);
       page.removeListener('pageerror', onPageError);
       page.removeListener('requestfailed', onRequestFailed);

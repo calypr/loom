@@ -7,7 +7,7 @@
     "runnerInventoryPath": "docs/verification/playwright/runner-inventory.snapshot.json",
     "runnerInventorySha256": "ea1f0421f76eb31fc3a9d7ee29734439b37a5eca8ce84a6b97634ebd1abdc5de",
     "registryPath": "scripts/verify-ui/registry.mjs",
-    "registrySha256": "26ebf1f39a5eb4ac94eebdfab4a5292ba413d2f96ac92415b8dd525be0a9d2c8",
+    "registrySha256": "08459c6e4670a586a69f288b5b075cefc932c97f0b27ff63e30c3cdb77f52d24",
     "preimagesCapturedFromStageCopy": true
   },
   "sourceScope": {
@@ -794,7 +794,7 @@
     ],
     "discoverySnapshot": {
       "path": "docs/verification/playwright/discovery.snapshot.json",
-      "sha256": "e4dba27892c5f77e89118af9c8fa998caa6361314808c92656e5f3f56ad1d4e1"
+      "sha256": "7a200d92ee7c6bbe142a25f044b3da79c52f4bce9dd9142eae8ec155e6b7d37c"
     },
     "discoveryOverrideInputs": [
       {
@@ -2628,10 +2628,10 @@
     "officialRootBrowserEntrypoints": 74,
     "additionalUiPackageBrowserEntrypoints": 1,
     "registeredBrowserEntrypoints": 2,
-    "registryCases": 30,
-    "registryRequiredCheckEntries": 549,
+    "registryCases": 31,
+    "registryRequiredCheckEntries": 575,
     "registryCustomAssertionVariants": 1,
-    "registryCaseMappingsPresent": 30,
+    "registryCaseMappingsPresent": 31,
     "additionalBrowserWorkflowSources": 2,
     "additionalEmbeddedBrowserJourneys": 9,
     "mappedEmbeddedBrowserJourneys": 9,
@@ -2653,8 +2653,8 @@
     "unresolvedLegacyLauncherImplementationOwners": 0,
     "orphanNativeSpecs": 0,
     "infrastructureSpecs": 5,
-    "nativePlaywrightSpecFiles": 26,
-    "mappedNativePlaywrightSpecFiles": 21,
+    "nativePlaywrightSpecFiles": 27,
+    "mappedNativePlaywrightSpecFiles": 22,
     "unmappedWorkerSources": 0
   },
   "infrastructureSpecs": [
@@ -2756,12 +2756,12 @@
   "testDiscoveryEvidence": {
     "status": "discovery-only",
     "playwrightListPassed": true,
-    "discoveredTestCount": 165,
-    "discoveredSpecFileCount": 26,
+    "discoveredTestCount": 166,
+    "discoveredSpecFileCount": 27,
     "dedicatedBenchmarkTestCount": 1,
     "dedicatedBenchmarkSpecFileCount": 1,
     "discoverySnapshotPath": "docs/verification/playwright/discovery.snapshot.json",
-    "discoverySnapshotSha256": "e4dba27892c5f77e89118af9c8fa998caa6361314808c92656e5f3f56ad1d4e1",
+    "discoverySnapshotSha256": "7a200d92ee7c6bbe142a25f044b3da79c52f4bce9dd9142eae8ec155e6b7d37c",
     "discoverySnapshotMatchesCurrentSourceTree": true,
     "runtimeLifecycleStatus": "not-run",
     "note": "Official Playwright --list snapshots cover the main suite, the dedicated construction-preview benchmark config, and configured related ONE/ALL variants. They confirm discovery only; no test body or domain lifecycle is represented as run."
@@ -5634,6 +5634,59 @@
         "applying Join removal restores the exact empty target while preserving both Group populations",
         "CDA current-draft lifecycle never publishes or pins table revisions",
         "all native lifecycle actions complete within five seconds",
+        "CDA watched source and API build stayed unchanged"
+      ],
+      "mappingStatus": "native-spec-mapped; lifecycle-unverified"
+    },
+    {
+      "scenario": "cda-current-draft-upstream-append",
+      "case": "upstream-append",
+      "source": "scripts/verify-ui/workflows/cda-current-draft-upstream-append-workflow.mjs",
+      "nativeSpecPath": "scripts/verify-ui/specs/cda-current-draft-upstream-append.spec.mjs",
+      "customPreservedAssertions": null,
+      "scenarioWorkflow": "owned-cda-current-draft-group-derive-append-lifecycle",
+      "scenarioCoverage": [
+        {
+          "feature": "real-CDA exact-population Group\u2192DERIVE\u2192APPEND with upstream edit, Cancel/Apply, dependent receipt recompute, removal, restoration, and reload",
+          "status": "implemented",
+          "reason": "The native case, source inventory, and pure bounded raw oracle are registered. No browser lifecycle ran in this staged change, so runtime behavior remains unverified."
+        }
+      ],
+      "domainLifecycleStatus": "unverified",
+      "runtimeEvidence": {
+        "status": "not-run"
+      },
+      "discoveryTestTitles": [
+        "three exact CDA populations Group, edit Patient DERIVE, then Append with full restoration"
+      ],
+      "discoveryTestCount": 1,
+      "discoverySpecSha256": "eb5ab7aa78b9e1d2fe941f274979f7a62bd13ed6942e1904f40f52dea73fabd4",
+      "preservedAssertions": [
+        "bounded raw CDA witnesses select two Patient FHIR IDs and two disjoint Observation.status final pairs with duplicate APPEND categories",
+        "fresh CDA Explorer preserves exact project, generation, snapshot, baseline scope digest, and empty draft",
+        "Observation final-status source A immutable current-draft population binds exactly its scoped raw FHIR witnesses",
+        "Observation final-status source B immutable current-draft population binds exactly its scoped raw FHIR witnesses",
+        "Patient FHIR ID source immutable current-draft population binds exactly its scoped raw FHIR witnesses",
+        "three immutable populations preserve disjoint Observation pairs and exact Patient FHIR IDs",
+        "Observation final-status source A root preview equals its exact immutable raw population",
+        "Observation final-status source B root preview equals its exact immutable raw population",
+        "Patient FHIR ID source root preview equals its exact immutable raw population",
+        "Observation final-status source A native GROUP binds its exact raw field and COUNT_ROWS",
+        "Observation final-status source B native GROUP binds its exact raw field and COUNT_ROWS",
+        "Patient FHIR ID source native GROUP binds its exact raw field and COUNT_ROWS",
+        "Patient native Group\u2192DERIVE +1 saves exact Group lineage and integer arithmetic",
+        "Cancel leaves exact APPEND candidate, source workspace, empty target, and draft CAS unchanged after reload",
+        "three-source APPEND proposal row multiset matches raw concatenation with duplicate category multiplicity",
+        "applied APPEND persists Observation A, Observation B, Patient FHIR ID DERIVE inputs in that order with stable step identity",
+        "Canceling saved DERIVE +2 preserves the complete source and APPEND workspace with the same draft CAS",
+        "saved Patient DERIVE +2 proposal retains exact stable step, input, output, and integer expression",
+        "dependent APPEND keeps ordered current-draft inputs while recomputing a fresh receipt, version, and digest",
+        "exact selected raw witnesses reread unchanged after Group, DERIVE edit, and APPEND recompute",
+        "Cancel APPEND removal preserves complete recomputed output and current-draft source workspace after reload",
+        "applying APPEND removal restores its exact empty target and preserves every full current-draft source",
+        "CDA Group\u2192DERIVE\u2192APPEND uses no pinned table revisions or Publish",
+        "full lifecycle never publishes and retains the exact immutable source populations",
+        "all native CDA Group\u2192DERIVE\u2192APPEND lifecycle actions complete within five seconds",
         "CDA watched source and API build stayed unchanged"
       ],
       "mappingStatus": "native-spec-mapped; lifecycle-unverified"

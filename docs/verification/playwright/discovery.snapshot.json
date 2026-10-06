@@ -2,25 +2,25 @@
   "schemaVersion": 1,
   "kind": "official-playwright-static-discovery",
   "sourceRoot": ".",
-  "baseCommit": "a617cdc301685c71c51ce98a7dad9d9ba15236f2",
+  "baseCommit": "e44c4abf0b8cdaa4e42033108427d3af13ff4405",
   "status": "discovery-only",
   "runtimeStatus": "not-run",
   "commandTemplate": "<repo>/scripts/node_modules/.bin/playwright test --config <configPath> --list --reporter=json",
-  "note": "Captured from 6 official Playwright --list --reporter=json outputs. These reports list registrations only and skip every test body; no lifecycle ran. The 6 session counts sum to 170 entries.",
-  "mainDiscoveryTestCount": 165,
-  "mainDiscoverySpecFileCount": 26,
+  "note": "Captured from 6 official Playwright --list --reporter=json outputs. These reports list registrations only and skip every test body; no lifecycle ran. The 6 session counts sum to 171 entries.",
+  "mainDiscoveryTestCount": 166,
+  "mainDiscoverySpecFileCount": 27,
   "dedicatedBenchmarkTestCount": 1,
   "dedicatedBenchmarkSpecFileCount": 1,
-  "totalDeclaredTestCount": 170,
+  "totalDeclaredTestCount": 171,
   "sessions": [
     {
       "sessionID": "main",
       "configPath": "scripts/playwright.config.mjs",
       "configSha256": "d16ccb10ccf63f8a711ae7f8c5b61d4bc44452172e9a309a06cab32ce30f69bc",
       "environment": {},
-      "testCount": 165,
-      "specFileCount": 26,
-      "discoveredCasesSha256": "35df6049155708894a6816084939347c820fc71f439026364e537fb386233f94",
+      "testCount": 166,
+      "specFileCount": 27,
+      "discoveredCasesSha256": "034f8108cb2bf5480c8d42a41b9adc97843b094f41609ac0dcb9b0737836883a",
       "specs": [
         {
           "path": "scripts/verify-ui/specs/append.spec.mjs",
@@ -171,6 +171,19 @@
               "title": "native INCLUDE and EXCLUDE Membership use two exact grouped Observation ID populations",
               "id": "e00616ef1ee3950d633f-fd3433698874f3988888",
               "line": 11,
+              "column": 3,
+              "occurrence": 1
+            }
+          ]
+        },
+        {
+          "path": "scripts/verify-ui/specs/cda-current-draft-upstream-append.spec.mjs",
+          "sha256": "eb5ab7aa78b9e1d2fe941f274979f7a62bd13ed6942e1904f40f52dea73fabd4",
+          "cases": [
+            {
+              "title": "three exact CDA populations Group, edit Patient DERIVE, then Append with full restoration",
+              "id": "65ae1e78a00c3709544b-ad05492db2f8d13a6274",
+              "line": 12,
               "column": 3,
               "occurrence": 1
             }

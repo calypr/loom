@@ -2,11 +2,11 @@
 
 Source conversion status is separate from browser execution status.
 Source set: 85 root inventory rows plus 1 additional package-local source (86 records); 3 root sources intentionally deleted; 74 root verify files and 1 package-local verify file remain (75 current files total).
-Browser inventory: 74 root standalone entrypoints; 1 package-local entrypoint; 30 registered Playwright cases.
+Browser inventory: 74 root standalone entrypoints; 1 package-local entrypoint; 31 registered Playwright cases.
 Mapped sources: 73; retained API/helper sources: 10; pending source mappings/dispositions: 0.
 Native case map: 75 source rows / 154 source-to-case rows (154 distinct source-case keys); 76 source rows record legacy browser ownership removed.
-Native spec accounting: 26 current spec files; 21 mapped to legacy sources or registry cases; 5 explicitly classified harness specs; 0 orphan specs.
-Runtime evidence: not-run; official Playwright --list discovery: 165 tests in 26 files (discovery only; lifecycle not run).
+Native spec accounting: 27 current spec files; 22 mapped to legacy sources or registry cases; 5 explicitly classified harness specs; 0 orphan specs.
+Runtime evidence: not-run; official Playwright --list discovery: 166 tests in 27 files (discovery only; lifecycle not run).
 Embedded Loom dev launch sites: 9; mappings open: 0.
 Additional non-verify browser sources: 1; launch sites: 1; mappings open: 0; legacy helper owners still active: 0.
 
@@ -155,5 +155,6 @@ Additional non-verify browser sources: 1; launch sites: 1; mappings open: 0; leg
 - `standalone-misc/compound-coded-group-basic` → `scripts/verify-ui/specs/standalone-misc.spec.mjs`; lifecycle unverified
 - `cda-collection-repair-partial/partial-long-route-repair-and-reload` → `scripts/verify-ui/specs/standalone-cda-other.spec.mjs`; lifecycle unverified
 - `cda-workspace-combine/group-join` → `scripts/verify-ui/specs/cda-current-draft-group-join.spec.mjs`; lifecycle unverified
+- `cda-current-draft-upstream-append/upstream-append` → `scripts/verify-ui/specs/cda-current-draft-upstream-append.spec.mjs`; lifecycle unverified
 - `cda-current-draft-membership/membership` → `scripts/verify-ui/specs/cda-current-draft-membership.spec.mjs`; lifecycle unverified
 - `cda-cohort-fields/cohort-fields` → `scripts/verify-ui/specs/standalone-cda-fields.spec.mjs`; lifecycle unverified
