@@ -1,0 +1,298 @@
+{
+  "schemaVersion": 1,
+  "epoch": 109,
+  "scenario": "builder-combine",
+  "case": "join",
+  "title": "KEY_JOIN INNER/LEFT preview, apply, cancel, removal and reload",
+  "status": "passed",
+  "runnerStatus": "passed",
+  "coverageStatus": "passed",
+  "classification": "functional_lifecycle_pass",
+  "startedAt": "2026-10-06T18:26:41.082Z",
+  "finishedAt": "2026-10-06T18:27:02.730Z",
+  "durableClosurePath": "docs/verification/playwright/runtime/published-join-epoch109-closure.json",
+  "target": {
+    "kind": "basic-devloop-browser-fixture",
+    "project": "loom_dev_verify_mux0frhw-77836ed",
+    "generation": "fixture-v1",
+    "fixtureContext": {
+      "freshExplorerCreated": true,
+      "project": "loom_dev_verify_mux0frhw-77836ed",
+      "generation": "fixture-v1",
+      "explorerId": "verify-hw-77836ed-combine",
+      "workspaceTitle": "Verify hw-77836ed combine",
+      "snapshotToken": "sha256:f16ed15622b7a0fa997f204b9189d26c062063ffa18c0e24df1dff26425eb425",
+      "draftVersionAfterLifecycle": 10,
+      "sourceTables": [
+        "Observation",
+        "DiagnosticReport"
+      ],
+      "patientIds": [
+        "combine-fixture-patient"
+      ],
+      "observationIds": [
+        "combine-observation-final-1",
+        "combine-observation-final-2",
+        "combine-observation-preliminary",
+        "combine-observation-unmatched"
+      ],
+      "diagnosticReportIds": [
+        "combine-observation-final-1",
+        "combine-observation-final-2",
+        "combine-observation-preliminary"
+      ],
+      "combineTargetOutputId": "out_460c821b8dca5049ff7e144b"
+    },
+    "fixtureSetupStatus": "fresh-explorer-created",
+    "cdaDatasetClaim": false
+  },
+  "requiredChecks": {
+    "total": 32,
+    "passed": 32,
+    "failed": 0,
+    "unrun": 0,
+    "passedNames": [
+      "fixture contains one bootstrap Patient, four Observations, and three DiagnosticReports",
+      "Observation source starts with every literal fixture identity",
+      "DiagnosticReport source starts with every literal fixture identity",
+      "native source-table publication completed successfully",
+      "Builder response matches the exact project-scoped route, workspace title, and source output identities",
+      "source Builder snapshot is bound to the expected generation, draft, and authorization scope",
+      "source revisions are published in the exact project, generation, and authorization scope",
+      "source schemas expose compatible nullable scalar ID keys, scalar status fields, and a numeric Observation value",
+      "published source API and schema fingerprint captured within five seconds",
+      "native Combine creates a rooted empty Observation target without adding an authored step or output column",
+      "native Combine inputs pin the exact current Observation and DiagnosticReport revisions",
+      "published Join source labels match independently authored columns and source previews",
+      "pinned published source cards show immutable authored output and column labels",
+      "Join output names and labels default from selected pinned fields without manual entry",
+      "INNER preview returns the three exact rows matched on shared required IDs",
+      "INNER Apply preserves the exact joined rows",
+      "INNER table reload retains the three exact rows",
+      "Canceling the LEFT edit leaves the saved INNER operation unchanged",
+      "LEFT preview retains the unmatched Observation with empty right-side values",
+      "LEFT preview before Apply includes null projections for the unmatched row",
+      "LEFT Apply preserves exact matches and unmatched null fields",
+      "LEFT rows and nulls survive Builder reload",
+      "KEY_JOIN removal proposal is ready for the rooted empty target",
+      "removing KEY_JOIN and reloading restores the rooted empty target",
+      "published Observation and DiagnosticReport source tables remain unchanged",
+      "project, generation, Explorer, and authorization scope remain stable",
+      "open Combine operation chooser action-to-render within budget",
+      "choose KEY_JOIN and load the initial two input selectors action-to-render within budget",
+      "render INNER Join preview action-to-render within budget",
+      "open saved Combine editor and load pinned sources action-to-render within budget",
+      "render LEFT Join preview action-to-render within budget",
+      "repreview LEFT Join before Apply action-to-render within budget"
+    ],
+    "failedNames": [],
+    "unrunNames": []
+  },
+  "assertions": {
+    "passed": 120,
+    "failed": 0,
+    "total": 120
+  },
+  "actions": {
+    "passed": 52,
+    "failed": 0,
+    "total": 52,
+    "maxElapsedMs": 940,
+    "maxMeasuredActionToRenderMs": 543
+  },
+  "dimensions": {
+    "usability": "passed",
+    "correctness": "passed",
+    "persistence": "passed",
+    "performance": "passed"
+  },
+  "lifecycle": {
+    "independentOracle": {
+      "patientIds": [
+        "combine-fixture-patient"
+      ],
+      "observationIds": [
+        "combine-observation-final-1",
+        "combine-observation-final-2",
+        "combine-observation-preliminary",
+        "combine-observation-unmatched"
+      ],
+      "diagnosticReportIds": [
+        "combine-observation-final-1",
+        "combine-observation-final-2",
+        "combine-observation-preliminary"
+      ],
+      "expectedInnerRows": 3,
+      "expectedLeftRows": 4,
+      "unmatchedObservationId": "combine-observation-unmatched"
+    },
+    "inner": {
+      "previewRows": 3,
+      "applyRows": 3,
+      "reloadRows": 3,
+      "allExact": true
+    },
+    "left": {
+      "cancelPreservedInner": true,
+      "previewRows": 4,
+      "applyRows": 4,
+      "reloadRows": 4,
+      "unmatchedObservationHasNullRightFields": true
+    },
+    "removal": {
+      "proposalReady": true,
+      "removedAndReloaded": true,
+      "rootedEmptyTargetRestored": true,
+      "sameAsPreCombineDocument": true
+    },
+    "sourceTablesUnchanged": true,
+    "projectGenerationExplorerAndAuthorizationScopeStable": true
+  },
+  "performanceEvidence": {
+    "dimension": "passed",
+    "registeredActionToRenderChecksPassed": true,
+    "measuredActions": 52,
+    "maxActionElapsedMs": 940,
+    "maxMeasuredActionToRenderMs": 543,
+    "budgetMs": 5000,
+    "fullReloadLatency": "unmeasured",
+    "note": "Functional reload values and restored state passed; this run has no reload timing entry and makes no full-reload latency claim. Epoch110 instrumentation remains pending."
+  },
+  "network": {
+    "errors": [],
+    "expectedSupersededCapabilityCancellations": 2,
+    "cancellationReplacementsSucceeded": true,
+    "incidentalAssetFailures": [
+      {
+        "kind": "asset-failure",
+        "url": "http://127.0.0.1:30008/favicon.ico",
+        "status": 404
+      }
+    ]
+  },
+  "integrity": {
+    "closureStatus": "PASS",
+    "sourceBeforeAfter": {
+      "before": {
+        "sha256": "d859f89f551e9ad37219657138c5bf316424909d22271f5a4e08c6385bc570eb",
+        "files": 1534
+      },
+      "after": {
+        "sha256": "d859f89f551e9ad37219657138c5bf316424909d22271f5a4e08c6385bc570eb",
+        "files": 1534
+      },
+      "unchanged": true,
+      "manifestsEqual": true,
+      "changedPaths": []
+    },
+    "apiBuildIdentity": {
+      "before": "98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:85c11c1b9b88b8ff8cbd1241e8be6dea82f222956cf717e47c11fcb5efc7e135",
+      "after": "98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:85c11c1b9b88b8ff8cbd1241e8be6dea82f222956cf717e47c11fcb5efc7e135",
+      "unchanged": true
+    },
+    "apiBuildIdentityUnchanged": true,
+    "ownedMounts": {
+      "before": "PASS",
+      "after": "PASS",
+      "targetUnchanged": true
+    },
+    "health": {
+      "before": {
+        "status": "PASS",
+        "samples": 3
+      },
+      "after": {
+        "status": "PASS",
+        "samples": 3
+      }
+    },
+    "targetRoleNote": "Integrity target records the owned stack used for source/API/build/health/mount validation. It is not the browser fixture project; see target for the basic devloop fixture."
+  },
+  "rawArtifacts": {
+    "nativeVerificationReport": {
+      "path": "/private/tmp/loom-native-combine-join-wave109/attempt1/artifacts/join-KEY-JOIN-INNER-LEFT-p-7f058-y-cancel-removal-and-reload/attachments/loom-verification-report-json-f8408ecc3f8c6fba059062eceff0951d033c1ffa.json",
+      "sha256": "1ad098c3f79289169103072c636aa67570d00f40e93be8ecb9d83aedf75a18d2"
+    },
+    "strictCoordinatorClosure": {
+      "path": "/private/tmp/loom-native-combine-join-wave109/closure.json",
+      "sha256": "fb1112947e5378235bc2403f1bbc0d855c5737ea5d94881da6d5987be737f37a",
+      "rawStatus": "CLOSED_INTEGRITY_PASS_BROWSER_PASS"
+    },
+    "integrityClosure": {
+      "path": "/private/tmp/loom-native-combine-join-wave109/integrity-closure.json",
+      "sha256": "d8ae89a4558e149146e1f0f4f2f748c54d484a10fb1824d95aac39bde856c785"
+    },
+    "playwrightResults": {
+      "path": "/private/tmp/loom-native-combine-join-wave109/attempt1/results.json",
+      "sha256": "2acf08f7b2895dd1fa99a9eb1fb22ad433dfd253c1640e75345ac1e59f611c14"
+    },
+    "runnerLog": {
+      "path": "/private/tmp/loom-native-combine-join-wave109/attempt1/runner.log",
+      "sha256": "5dc1101c42448a6362c1c7398a7a5213a228e7057e0a3a4267567ff9ca4f4885"
+    },
+    "sourceBefore": {
+      "path": "/private/tmp/loom-native-combine-join-wave109/source-before.json",
+      "sha256": "d1a3e33193b1e4bbde58a7622bc281a21f78c7203aa924f0f4c76dd559fc3d42"
+    },
+    "sourceAfter": {
+      "path": "/private/tmp/loom-native-combine-join-wave109/source-after.json",
+      "sha256": "28f9c11257ebb1b30ba2859d571800065368ceef0300f9df61235b27c70f8e15"
+    },
+    "docsBefore": {
+      "path": "/private/tmp/loom-native-combine-join-wave109/docs-before.json",
+      "sha256": "5f284b9699f47e07de1457ef8a463e5164294486c4e8bd0a2040150734b8e025"
+    },
+    "docsAfter": {
+      "path": "/private/tmp/loom-native-combine-join-wave109/docs-after.json",
+      "sha256": "88c143e20c0c80df1c505cdec3fb5b6a4f7c61285be10b654f139b3ccdd77803"
+    },
+    "apiBefore": {
+      "path": "/private/tmp/loom-native-combine-join-wave109/api-identity-before.json",
+      "sha256": "a09a330a17bca9c856ad29e3f89d2023748111e5f6859285e17e1296e74137fc"
+    },
+    "apiAfter": {
+      "path": "/private/tmp/loom-native-combine-join-wave109/api-identity-after.json",
+      "sha256": "e2f895f9d1bdfd14aa4de7248eb662e7d5df37c4bb78f6d550fe74c2589c7e10"
+    },
+    "mountsBefore": {
+      "path": "/private/tmp/loom-native-combine-join-wave109/owned-mounts-before.json",
+      "sha256": "d117a7b92f9e3646d9b41152eb25c1f5bec90482a38ab413d9e91769c7b8d986"
+    },
+    "mountsAfter": {
+      "path": "/private/tmp/loom-native-combine-join-wave109/owned-mounts-after.json",
+      "sha256": "8e9daf374208569ee4bfa7dfe1993e00ff875aef334b3e66c057875bf070b477"
+    },
+    "healthBefore": {
+      "path": "/private/tmp/loom-native-combine-join-wave109/health-before.json",
+      "sha256": "6de7e2d555ae9fcaf05cc1d00adc4fa81a657cc5f3649c22b0caf0d0518c7df9"
+    },
+    "healthAfter": {
+      "path": "/private/tmp/loom-native-combine-join-wave109/health-after.json",
+      "sha256": "00093993eda839bdf8f66d92b4baedb8a545b837623ada5710adf5feddae2d4e"
+    }
+  },
+  "operationalNotes": [
+    {
+      "observedAt": "2026-10-06T18:28:19Z",
+      "description": "A separate worker-isolation incident occurred after the final epoch109 health sample at 2026-10-06T18:27:33.980Z. Root restored the source preimage. This later event is retained for operational context and is outside epoch109’s captured browser/integrity window; it does not change the recorded epoch109 source/docs/API/mount/health comparisons."
+    }
+  ],
+  "ownedStackValidationTarget": {
+    "kind": "isolated",
+    "project": "loom_dev_cda_fhir",
+    "generation": "cda-fhir-v1",
+    "sourceRoot": "/private/tmp/loom-construction-implementation",
+    "composeProject": "loom-dev-6d7df93d6a37",
+    "apiContainer": "loom-dev-6d7df93d6a37-loom-api-1",
+    "arangoContainer": "loom-dev-6d7df93d6a37-arangodb-1",
+    "clickhouseContainer": "loom-dev-6d7df93d6a37-clickhouse-1",
+    "apiUrl": "http://127.0.0.1:8188",
+    "uiUrl": "http://127.0.0.1:30008",
+    "sourceFingerprint": {
+      "sha256": "d859f89f551e9ad37219657138c5bf316424909d22271f5a4e08c6385bc570eb",
+      "files": 1534
+    },
+    "apiBuildIdentity": "98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:85c11c1b9b88b8ff8cbd1241e8be6dea82f222956cf717e47c11fcb5efc7e135"
+  },
+  "verificationScope": "Native browser fixture uses the basic devloop fixture; the CDA/FHIR project is only the owned stack validation target."
+}

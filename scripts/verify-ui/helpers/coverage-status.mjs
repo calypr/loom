@@ -98,6 +98,7 @@ const compactReportForCoverage = (report, closure, requiredChecks) => {
     ? reportApi.unchanged === true && reportApi.before === api.before && reportApi.after === api.after
     : report.integrity?.apiBuildIdentityUnchanged === true);
   const mountTarget = mounts.target;
+  const ownedStackTarget = report.ownedStackValidationTarget ?? report.target;
   if (report.integrity?.closureStatus !== 'PASS' || !reportApiUnchanged
     || !reportSourceUnchanged || !sameFingerprint(reportSourceBefore, sourceAfter)
     || !sameFingerprint(reportSourceAfter, sourceAfter)
@@ -105,7 +106,7 @@ const compactReportForCoverage = (report, closure, requiredChecks) => {
     || report.integrity.ownedMounts?.targetUnchanged !== true
     || report.integrity.health?.before?.status !== 'PASS' || report.integrity.health?.after?.status !== 'PASS'
     || ['project', 'composeProject', 'generation', 'sourceRoot'].some((key) =>
-      Object.hasOwn(report.target ?? {}, key) && report.target[key] !== mountTarget?.[key])) return null;
+      Object.hasOwn(ownedStackTarget ?? {}, key) && ownedStackTarget[key] !== mountTarget?.[key])) return null;
 
   const checkSummary = report.requiredChecks;
   const closedChecks = closure.case.requiredChecks;

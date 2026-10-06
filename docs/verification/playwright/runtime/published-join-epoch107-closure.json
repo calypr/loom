@@ -1,0 +1,173 @@
+{
+  "epoch": 107,
+  "status": "CLOSED_FAILED_HARNESS_SETUP",
+  "case": {
+    "scenarioId": "builder-combine",
+    "caseName": "join",
+    "title": "KEY_JOIN INNER/LEFT preview, apply, cancel, removal and reload",
+    "status": "failed_harness_setup",
+    "failureAttribution": "HARNESS_CHROMIUM_LAUNCH_SIGABRT_KILL_EPERM",
+    "classificationNote": "The Playwright test failed during browserType.launch before browser context, page, fixture setup, or native UI actions. Chromium exited with SIGABRT; Playwright cleanup reported kill EPERM. This is a browser-launch environment failure and provides no product behavior result.",
+    "requiredChecks": {
+      "passed": 0,
+      "total": 32,
+      "missingOrFailed": 0,
+      "missingOrUnrun": 32,
+      "evidence": []
+    },
+    "assertions": {
+      "passed": 0,
+      "failed": 0,
+      "total": 0,
+      "note": "No workflow assertions ran."
+    },
+    "actions": {
+      "passed": 0,
+      "failed": 0,
+      "total": 0,
+      "maxElapsedMs": 0,
+      "actions": []
+    },
+    "dimensions": {
+      "usability": "untested",
+      "correctness": "untested",
+      "persistence": "untested",
+      "performance": "untested"
+    },
+    "firstFailure": {
+      "kind": "browserType.launch",
+      "message": "Error: browserType.launch: Target page, context or browser has been closed",
+      "browserProcessExitSignal": "SIGABRT",
+      "cleanupKillError": "EPERM",
+      "testDurationMs": 1,
+      "runnerDurationMs": 1191.306,
+      "fixtureSetupStarted": false,
+      "freshExplorerCreated": false,
+      "nativeUIActions": 0,
+      "networkRequests": 0,
+      "failureAttribution": "environment/harness setup; not a product finding"
+    }
+  },
+  "integrityClosure": {
+    "status": "PASS",
+    "source": {
+      "before": {
+        "sha256": "274ffdbf89822a5ad6d2972cedbcd9c431ef75de8aa5c366f6530f907a87727b",
+        "files": 1534
+      },
+      "after": {
+        "sha256": "274ffdbf89822a5ad6d2972cedbcd9c431ef75de8aa5c366f6530f907a87727b",
+        "files": 1534
+      },
+      "manifestsEqual": true,
+      "changedPaths": [],
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-combine-join-wave107/source-before.json",
+        "sha256": "8761960c3e8301abfdd76e805c1adc2d2632fa078e74e6804b354a1a417c9ac3"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-combine-join-wave107/source-after.json",
+        "sha256": "4f24c3a04fb5f67246f9b58a13a8ec5adc542cba691a5b05fa13f8a78f0e4733"
+      }
+    },
+    "docs": {
+      "before": {
+        "sha256": "4160d62fefa064df5536838ef4eb40786fab4cf696af21645d81613cedcc89b7",
+        "files": 248
+      },
+      "after": {
+        "sha256": "4160d62fefa064df5536838ef4eb40786fab4cf696af21645d81613cedcc89b7",
+        "files": 248
+      },
+      "manifestsEqual": true,
+      "changedPaths": [],
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-combine-join-wave107/docs-before.json",
+        "sha256": "f1a5e051db7766df932fab8b07265fb24973945be29a87ef2b479093ef85f1e8"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-combine-join-wave107/docs-after.json",
+        "sha256": "546da56896130c546b6a1abe85acf69f4a39303205d2aec019f1b7d57492e328"
+      }
+    },
+    "apiBuildIdentity": {
+      "before": "515282ceaff546db82c74acd965aa3efa167158bd355220568d041603ddb8720:515282ceaff546db82c74acd965aa3efa167158bd355220568d041603ddb8720:6249df280cc3597a7f2843aedc45d34270846a38ade91ae08295cc5d2ca0fa10",
+      "after": "515282ceaff546db82c74acd965aa3efa167158bd355220568d041603ddb8720:515282ceaff546db82c74acd965aa3efa167158bd355220568d041603ddb8720:6249df280cc3597a7f2843aedc45d34270846a38ade91ae08295cc5d2ca0fa10",
+      "precheck": "515282ceaff546db82c74acd965aa3efa167158bd355220568d041603ddb8720:515282ceaff546db82c74acd965aa3efa167158bd355220568d041603ddb8720:6249df280cc3597a7f2843aedc45d34270846a38ade91ae08295cc5d2ca0fa10",
+      "unchanged": true,
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-combine-join-wave107/api-identity-before.json",
+        "sha256": "2e6809844611e20068b5ca59a7f92dbc7540bfc3f681585dd1a2f4461fff22d9"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-combine-join-wave107/api-identity-after.json",
+        "sha256": "73e8a2cae1a2e24bdacca8157a8da80d0feff83e00b7192860a24bb06ed3fa8f"
+      },
+      "precheckArtifact": {
+        "path": "/private/tmp/loom-native-combine-join-wave107/api-build-precheck.json",
+        "sha256": "3dee72bc7f13e1987b253cf9ed86777610e452e0fb709d1f5c0f15a8f0239cd5"
+      }
+    },
+    "ownedMounts": {
+      "before": "PASS",
+      "after": "PASS",
+      "targetUnchanged": true,
+      "target": {
+        "project": "loom_dev_cda_fhir",
+        "composeProject": "loom-dev-6d7df93d6a37",
+        "apiContainer": "loom-dev-6d7df93d6a37-loom-api-1",
+        "uiContainer": "loom-dev-6d7df93d6a37-loom-ui-1",
+        "arangoContainer": "loom-dev-6d7df93d6a37-arangodb-1",
+        "clickhouseContainer": "loom-dev-6d7df93d6a37-clickhouse-1",
+        "apiPort": "8188",
+        "uiPort": "30008",
+        "sourceRoot": "/private/tmp/loom-construction-implementation",
+        "generation": "cda-fhir-v1"
+      },
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-combine-join-wave107/owned-mounts-before.json",
+        "sha256": "ded6586fcb1ec209240053cee0c3ed868d888da92b8fe939550a49d4596e2d6a"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-combine-join-wave107/owned-mounts-after.json",
+        "sha256": "7a231732498c3a5ba5114192f6dc64427980498bda8fbaf713846b0d491aa98d"
+      }
+    },
+    "health": {
+      "before": {
+        "status": "PASS",
+        "samples": 3
+      },
+      "after": {
+        "status": "PASS",
+        "samples": 3
+      },
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-combine-join-wave107/health-before.json",
+        "sha256": "e253f71f9cb0bf285576ba62086d1c9a39a2be77c0c3eae0d885f3154bc76ad6"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-combine-join-wave107/health-after.json",
+        "sha256": "d300d1639239113766b6b9269e3079a3f10b51a5e230e456ec56828bd86d1f76"
+      }
+    }
+  },
+  "rawArtifacts": {
+    "playwrightResults": {
+      "path": "/private/tmp/loom-native-combine-join-wave107/attempt1/results.json",
+      "sha256": "5597f7d24c1a0ff62e910c9b97fc6ecb81ed33021859818ea15c25577e141f26"
+    },
+    "runnerLog": {
+      "path": "/private/tmp/loom-native-combine-join-wave107/attempt1/runner.log",
+      "sha256": "965228438b04adfe7fc86040bae1982cc92880b4b98e4477cd50a3f11068ab0e"
+    },
+    "errorContext": {
+      "path": "/private/tmp/loom-native-combine-join-wave107/attempt1/artifacts/join-KEY-JOIN-INNER-LEFT-p-7f058-y-cancel-removal-and-reload/error-context.md",
+      "sha256": "e6475831c33b46280af62f6183de7663dc94541da9f7753db3d7ad61264adcad"
+    },
+    "strictIntegrityClosure": {
+      "path": "/private/tmp/loom-native-combine-join-wave107/closure.json",
+      "sha256": "8ee9f414ad35e2ab472d5f2f36821874ad22cd67b740619ffe73b1a584b5db5f"
+    }
+  }
+}

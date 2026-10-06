@@ -477,6 +477,29 @@ test('durable compact report plus matching closure contributes current or histor
   }
 });
 
+test('compact browser fixture target stays separate from the owned stack closure target', () => {
+  const root = mkdtempSync(join(tmpdir(), 'coverage-compact-fixture-target-'));
+  try {
+    const source = fingerprint('c'.repeat(64), 1518);
+    const fixture = writeCompactRun(root, { source });
+    fixture.report.ownedStackValidationTarget = { ...fixture.closure.integrityClosure.ownedMounts.target };
+    fixture.report.target = {
+      kind: 'basic-devloop-browser-fixture',
+      project: 'loom_dev_verify_owned-case',
+      generation: 'fixture-v1',
+      cdaDatasetClaim: false,
+    };
+    fixture.report.integrity.targetRoleNote = 'The closure target validates the owned stack; target names the browser fixture.';
+    writeFileSync(fixture.reportPath, JSON.stringify(fixture.report));
+    const reports = readReports(join(root, 'docs/verification/playwright/runtime'), { cwd: root });
+    const row = summarizeCoverage([fixture.scenario], reports, { sourceFingerprint: source, apiBuildIdentity })[0];
+    assert.equal(row.status, 'passed');
+    assert.deepEqual(row.freshness, { status: 'current', source: 'current', build: 'current' });
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('a compact report with a mismatched closure is partial and never current', () => {
   const root = mkdtempSync(join(tmpdir(), 'coverage-compact-mismatch-'));
   try {
