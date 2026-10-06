@@ -158,6 +158,25 @@ test('lifecycle phase references point to the named applied, edited, reloaded, a
   assert.match(fiveHopChecks[8], /removing RelatedExpand restores/);
   assert.equal(hasLifecycleContract(fiveHopCoverage, fiveHopScenario), true,
     'named lifecycle completeness does not change its untested runtime status');
+  const filterOwner = registry.find((entry) => entry.id === 'builder-authoring');
+  const filterCoverage = filterOwner.coverage.find((entry) => entry.feature === 'Filter rows');
+  const filterScenario = registry.find((entry) => entry.id === 'cda-filter-browser');
+  assert.equal(filterCoverage.status, 'untested', 'a complete contract does not imply a fresh browser pass');
+  assert.equal(filterCoverage.acceptance.kind, 'lifecycle');
+  assert.deepEqual(filterCoverage.acceptance.checks,
+    { choice: 0, proposal: 1, cancel: 2, apply: 3, savedRows: 4, reload: 5, edit: 6, restoration: 7 });
+  assert.equal(hasLifecycleContract(filterCoverage, filterOwner), true,
+    'Filter rows must link all lifecycle phases to a registered native CDA case while remaining runtime-unverified');
+  assert.deepEqual(scenarioCaseFor(filterScenario, 'filter-lifecycle').requiredChecks, [
+    'native Filter rows controls expose an enabled source column and typed condition',
+    'filter proposals and rendered result values match an independent scoped CDA source oracle within five seconds',
+    'Cancel preserves the exact pre-proposal construction and rendered rows within five seconds',
+    'Apply persists the filter construction and exact result rows within five seconds',
+    'saved filter rows match the independent scoped CDA oracle',
+    'reload restores the saved filter and exact rendered rows',
+    'edit reopens the exact saved column and condition before applying a replacement within five seconds',
+    'filter removal restores the exact source columns, population, and rows after reload',
+  ]);
 });
 
 test('row-operation gate rejects missing lifecycle links and invalid named-check references', () => {

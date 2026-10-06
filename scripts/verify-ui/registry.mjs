@@ -312,7 +312,7 @@ export const registry = Object.freeze([
       { feature: 'ordinary Pivot', acceptance: {"intent":"row-lifecycle","kind":"lifecycle","scenario":"root-quantity-pivot","case":"fixture-lifecycle","checks":{"choice":1,"proposal":2,"cancel":3,"apply":4,"savedRows":5,"reload":5,"edit":5,"restoration":6}}, status: 'implemented', reason: 'The registered quantity Pivot cases verify typed category discovery and native fixture lifecycle; full CDA lifecycle remains separately gated on its own full-population run.' },
       { feature: 'coded Pivot', acceptance: {"intent":"row-lifecycle"}, status: 'untested' },
       { feature: 'Unpivot', acceptance: {"intent":"row-lifecycle"}, status: 'untested' },
-      { feature: 'Filter rows', acceptance: {"intent":"row-lifecycle"}, status: 'untested' },
+      { feature: 'Filter rows', acceptance: {"intent":"row-lifecycle","kind":"lifecycle","scenario":"cda-filter-browser","case":"filter-lifecycle","checks":{"choice":0,"proposal":1,"cancel":2,"apply":3,"savedRows":4,"reload":5,"edit":6,"restoration":7}}, status: 'untested', reason: 'The native lifecycle now has an executable eight-check contract; keep it unverified until a fresh run passes against the current CDA source and API identity.' },
       { feature: 'direct columns', acceptance: {"intent":"row-lifecycle"}, status: 'untested' },
       { feature: 'coded columns', acceptance: {"intent":"row-lifecycle"}, status: 'untested' },
       { feature: 'related columns', acceptance: {"intent":"row-lifecycle"}, status: 'untested' },
@@ -1036,6 +1036,51 @@ export const registry = Object.freeze([
     coverage: [
       { feature: 'fresh synthetic Observation coded GROUP lifecycle with exact ID passthrough, edit, Cancel, removal, and reload', status: 'untested', reason: 'The native case and meaningful source/lifecycle gates are registered; no browser lifecycle has run, so it remains unverified.' },
     ],
+  }),
+  Object.freeze({
+    id: 'cda-filter-browser',
+    workflow: 'native-cda-filter-lifecycle',
+    hooks: [
+      'useGetExplorerBuilderStateV2Query',
+      'useApplyExplorerBuilderCommandsV2Mutation',
+      'usePreviewExplorerAuthoringV2Mutation',
+    ],
+    endpoints: [
+      'POST /api/v1/projects/{project}/explorers',
+      'GET /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/builder',
+      'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/commands',
+      'POST /api/v1/projects/{project}/explorers/{explorer}/selections',
+      'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/population-routes',
+      'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/construction-proposals',
+      'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/preview',
+    ],
+    requiredTransitions: [
+      'create a source table from one project/generation-scoped CDA record and author a native filter',
+      'compare automatic filter proposals and rendered rows with the independent source oracle',
+      'Cancel, Apply, reload, edit, remove, and reload the filter through Builder controls',
+    ],
+    gateReasons: [
+      'the case requires the owned CDA Builder stack and its pinned source generation',
+      'proposal, saved preview, and restored source rows are checked against a separately queried CDA record',
+      'native filter proposal, Apply, edit, removal, and reload checkpoints must each stay within five seconds',
+    ],
+    script: 'verify-cda-filter-browser.mjs',
+    cases: {
+      'filter-lifecycle': {
+        playwrightTest: 'scripts/verify-ui/specs/standalone-cda-other.spec.mjs',
+        requiredChecks: [
+          'native Filter rows controls expose an enabled source column and typed condition',
+          'filter proposals and rendered result values match an independent scoped CDA source oracle within five seconds',
+          'Cancel preserves the exact pre-proposal construction and rendered rows within five seconds',
+          'Apply persists the filter construction and exact result rows within five seconds',
+          'saved filter rows match the independent scoped CDA oracle',
+          'reload restores the saved filter and exact rendered rows',
+          'edit reopens the exact saved column and condition before applying a replacement within five seconds',
+          'filter removal restores the exact source columns, population, and rows after reload',
+        ],
+      },
+    },
+    coverage: [],
   }),
   Object.freeze({
     id: 'cda-collection-repair-partial',

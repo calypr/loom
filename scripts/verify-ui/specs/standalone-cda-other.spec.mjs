@@ -86,7 +86,7 @@ test.describe('CDA identifier multiplicity', () => {
 test.describe('CDA filter lifecycle', () => {
   test.use({
     cdaScenarioID: 'cda-filter-browser',
-    cdaCaseName: `operator-${process.env.LOOM_SAVED_FILTER_OPERATOR ?? 'default'}-value-${process.env.LOOM_FILTER_VALUE_TYPE ?? 'string'}`,
+    cdaCaseName: 'filter-lifecycle',
   });
 
   test('create, edit, cancel, apply, and remove a typed CDA filter', async ({ page, cda }) => {
