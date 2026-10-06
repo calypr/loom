@@ -375,8 +375,8 @@ export const registry = Object.freeze([
       },
     },
     coverage: [
-      { feature: 'mapped-plus-orphan member removal to an empty GROUP→RELATED_SOURCE output', status: 'untested', reason: 'The bounded native regression is staged; keep this transition unverified until it passes against the owned CDA Builder and API stack.' },
-      { feature: 'Cancel and exact proposal Apply for mapped-plus-orphan removal to an empty output', status: 'untested', reason: 'The script asserts the complete receipt/CAS lifecycle, but native acceptance has not run.' },
+      { feature: 'mapped-plus-orphan member removal to an empty GROUP→RELATED_SOURCE output', status: 'implemented', reason: 'Epoch96 passed all 10 required checks, 40 assertions, and 27 native actions (maximum lifecycle checkpoint 2,382 ms). The independent scoped raw oracle selected the mapped and orphan membership witnesses. Native Cancel, exact proposal Apply, reload, and Undo restored the original workspace, member route, and columns. This evidence covers this exact mapped-plus-orphan empty-output transition. Report: docs/verification/playwright/runtime/current-draft-cda-population-member-removal-epoch96-lifecycle-report.json; lifecycle closure: docs/verification/playwright/runtime/current-draft-cda-population-member-removal-epoch96-lifecycle-closure.json.' },
+      { feature: 'Cancel and exact proposal Apply for mapped-plus-orphan removal to an empty output', status: 'implemented', reason: 'Epoch96 verified Cancel preserved the saved membership and draft, then a fresh exact proposal Apply removed the mapped member and reloaded the empty result; Undo restored the original workspace, route, and columns. These transitions passed within the 10 required checks, 40 assertions, and 27 native actions (maximum lifecycle checkpoint 2,382 ms), against the independent scoped mapped-plus-orphan raw oracle. Report: docs/verification/playwright/runtime/current-draft-cda-population-member-removal-epoch96-lifecycle-report.json; lifecycle closure: docs/verification/playwright/runtime/current-draft-cda-population-member-removal-epoch96-lifecycle-closure.json.' },
     ],
   }),
   Object.freeze({

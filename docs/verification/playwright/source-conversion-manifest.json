@@ -7,7 +7,7 @@
     "runnerInventoryPath": "docs/verification/playwright/runner-inventory.snapshot.json",
     "runnerInventorySha256": "ea1f0421f76eb31fc3a9d7ee29734439b37a5eca8ce84a6b97634ebd1abdc5de",
     "registryPath": "scripts/verify-ui/registry.mjs",
-    "registrySha256": "cdab620475c517bf081e019efc94466f28313e77a07d26862592b893c2d88732",
+    "registrySha256": "d2217eb2eb2b618336af13daf8f8c927e26ce96584ad97ad61bc65578510bb3f",
     "preimagesCapturedFromStageCopy": true
   },
   "sourceScope": {
@@ -4565,13 +4565,13 @@
       "scenarioCoverage": [
         {
           "feature": "mapped-plus-orphan member removal to an empty GROUP\u2192RELATED_SOURCE output",
-          "status": "untested",
-          "reason": "The bounded native regression is staged; keep this transition unverified until it passes against the owned CDA Builder and API stack."
+          "status": "implemented",
+          "reason": "Epoch96 passed all 10 required checks, 40 assertions, and 27 native actions (maximum lifecycle checkpoint 2,382 ms). The independent scoped raw oracle selected the mapped and orphan membership witnesses. Native Cancel, exact proposal Apply, reload, and Undo restored the original workspace, member route, and columns. This evidence covers this exact mapped-plus-orphan empty-output transition. Report: docs/verification/playwright/runtime/current-draft-cda-population-member-removal-epoch96-lifecycle-report.json; lifecycle closure: docs/verification/playwright/runtime/current-draft-cda-population-member-removal-epoch96-lifecycle-closure.json."
         },
         {
           "feature": "Cancel and exact proposal Apply for mapped-plus-orphan removal to an empty output",
-          "status": "untested",
-          "reason": "The script asserts the complete receipt/CAS lifecycle, but native acceptance has not run."
+          "status": "implemented",
+          "reason": "Epoch96 verified Cancel preserved the saved membership and draft, then a fresh exact proposal Apply removed the mapped member and reloaded the empty result; Undo restored the original workspace, route, and columns. These transitions passed within the 10 required checks, 40 assertions, and 27 native actions (maximum lifecycle checkpoint 2,382 ms), against the independent scoped mapped-plus-orphan raw oracle. Report: docs/verification/playwright/runtime/current-draft-cda-population-member-removal-epoch96-lifecycle-report.json; lifecycle closure: docs/verification/playwright/runtime/current-draft-cda-population-member-removal-epoch96-lifecycle-closure.json."
         }
       ],
       "domainLifecycleStatus": "unverified",
@@ -8134,7 +8134,7 @@
       "workflowArtifacts": [
         {
           "path": "scripts/verify-ui/workflows/population-member-removal-workflow.mjs",
-          "sha256": "5ab2b4bad2183f7bfe59ddc90ad3dc601b8aa54b69ec0dd02d2fb5f97331279d",
+          "sha256": "213bfc92924864b59ae386e196b2fb8baee155940909a9581841cf115a4ea8ef",
           "artifactSource": "canonical-source-root"
         }
       ],

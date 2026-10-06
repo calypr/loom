@@ -9,6 +9,8 @@ import { sourceFingerprint } from '../helpers/source-fingerprint.mjs';
 import { captureApiBuildFreeze, checkContainerApiBuildStamp, ApiBuildFreezeError } from '../helpers/api-build-freeze.mjs';
 import { scenarioCaseFor } from '../registry.mjs';
 
+export const populationMemberRemovalRawFieldsSummarySelector = '[data-testid="construction-operation-editor"] [data-testid="feature-catalog-raw-fields"] > summary';
+
 const sensitiveName = /authorization|cookie|password|passwd|token|secret|credential|session|api[_-]?key/i;
 const sanitizeText = value => String(value ?? '')
   .replaceAll(process.cwd(), '$CHECKOUT')
@@ -31,6 +33,16 @@ const sanitizePayload = (value, key = '') => {
 const sanitizeBody = body => {
   const text = String(body ?? '').slice(0, 12000);
   try { return JSON.stringify(sanitizePayload(JSON.parse(text))); } catch { return sanitizeText(text); }
+};
+export const decodePopulationMemberRemovalApiResponse = rawBody => {
+  const raw = String(rawBody ?? '');
+  let value;
+  let validJson = true;
+  try { value = JSON.parse(raw); } catch { validJson = false; }
+  const sanitized = sanitizeBody(raw);
+  let diagnostic;
+  try { diagnostic = JSON.parse(sanitized); } catch { diagnostic = sanitized; }
+  return { value, validJson, diagnostic };
 };
 
 export async function populationMemberRemovalWorkflow(page, nativeReport, action, check, fault, context) {
@@ -93,9 +105,10 @@ const api = async (path, body) => {
   entry.status = response.status;
   entry.completedAt = Date.now();
   const raw = await response.text();
-  try { entry.response = JSON.parse(sanitizeBody(raw)); } catch { entry.response = sanitizeBody(raw); }
+  const decoded = decodePopulationMemberRemovalApiResponse(raw);
+  entry.response = decoded.diagnostic;
   assert(response.ok, `${path} returned ${response.status}: ${JSON.stringify(entry.response)}`);
-  return entry.response;
+  return decoded.validJson ? decoded.value : decoded.diagnostic;
 };
 const shellQuote = value => `'${String(value).replaceAll("'", "'\\''")}'`;
 const rawQuery = query => {
@@ -117,7 +130,10 @@ const command = async commands => {
 const inspect = (callback, argument) => page.evaluate(callback, argument);
 const waitFor = (callback, argument, timeout = 30000) => page.waitForFunction(callback, argument, { timeout });
 const locatorFor = (selector, options = {}) => {
-  if (options.name) return page.getByRole('button', { name: options.name, exact: true });
+  if (options.name) {
+    const scope = options.scope ? page.locator(options.scope) : page;
+    return scope.getByRole('button', { name: options.name, exact: true });
+  }
   const locator = page.locator(selector);
   return options.includes ? locator.filter({ hasText: options.includes }) : locator;
 };
@@ -159,7 +175,7 @@ const waitForMemberProposal = async (startAt, { expectedRows, expected }) => {
   const entry = requestEntry(path, startAt);
   assert(entry, 'Ready member proposal must have a captured native request and response');
   assert.equal(entry.status, 200, `Member removal proposal failed: ${JSON.stringify(entry.response)}`);
-  const value = entry.response;
+  const value = requestMonitor.rawResponseBody(entry) ?? entry.response;
   const candidate = assertPopulationMemberRemovalProposal(value, expected);
   assert.equal(value.previewStatus, 'READY');
   assert(value.preview && value.preview.receiptId === value.proposalId && value.preview.outputId === outputId, 'Proposal must carry the candidate receipt preview for this exact table');
@@ -286,8 +302,9 @@ const rawMembership = selectionId => rawQuery(`FOR member IN loom_explorer_selec
     const entry = report.nativeRequests.findLast(request => shouldCapturePopulationMemberNativeResponse(request, { project, explorer }) && /\/construction-(?:choice-)?proposals$/.test(request.path) && request.startedAt >= startedAt && request.completedAt && request.response);
     assert(entry, 'Visible construction proposal omitted its captured owned response');
     assert.equal(entry.status, 200, JSON.stringify(entry.response));
-    assert.equal(entry.response.previewStatus, 'READY', JSON.stringify(entry.response));
-    const preview = entry.response.preview;
+    const response = requestMonitor.rawResponseBody(entry) ?? entry.response;
+    assert.equal(response.previewStatus, 'READY', JSON.stringify(entry.response));
+    const preview = response.preview;
     const rows = preview.rows.map(row => preview.columns.map(column => row[column.column] == null ? '—' : String(row[column.column])));
     assertExactPreviewMultiset(rows, expectedRows, 'construction proposal multiset');
     return entry;
@@ -318,13 +335,21 @@ const rawMembership = selectionId => rawQuery(`FOR member IN loom_explorer_selec
     await page.locator('[data-testid="construction-add-columns-source"]').waitFor({ state: 'visible', timeout: 30000 });
     if (!await inspect(() => document.querySelector('[aria-label="Related resources"] summary')?.parentElement.open === true)) await click('[aria-label="Related resources"] summary');
     await click('[data-testid="construction-add-columns-source-option"][aria-label="Specimen, Related resource"]');
-    if (!await inspect(() => document.querySelector('[data-testid="feature-catalog-raw-fields"] summary')?.parentElement.open === true)) await click('[data-testid="feature-catalog-raw-fields"] summary');
+    const rawFieldsState = await inspect(selector => {
+      const matches = document.querySelectorAll(selector);
+      return { count: matches.length, open: matches.length === 1 && matches[0].parentElement?.open === true };
+    }, populationMemberRemovalRawFieldsSummarySelector);
+    assert.equal(rawFieldsState.count, 1, 'The active Add Columns editor must expose one direct Raw FHIR fields disclosure summary');
+    if (!rawFieldsState.open) await click(populationMemberRemovalRawFieldsSummarySelector);
     await page.locator('input[aria-label="Select Specimen.id"]').waitFor({ state: 'visible', timeout: 30000 });
   };
   const configureRelated = async () => {
     await openRelatedFieldChooser();
     await click('input[aria-label="Select Specimen.id"]');
-    await click('[aria-label="Add columns editor"] button', { includes: 'Add 1 selected feature' });
+    await click('[data-testid="construction-operation-editor"]', {
+      name: 'Add 1 selected feature',
+      scope: '[data-testid="construction-operation-editor"]',
+    });
     await page.getByRole('dialog').waitFor({ state: 'visible', timeout: 30000 });
     if (!await inspect(() => [...document.querySelectorAll('[role="dialog"] summary')].find(summary => summary.innerText.includes('Other relationship paths'))?.parentElement.open === true)) await click('[role="dialog"] summary', { includes: 'Other relationship paths' });
     const relationLabel = 'Observation -[specimen]-> Specimen';
@@ -498,6 +523,7 @@ const rawMembership = selectionId => rawQuery(`FOR member IN loom_explorer_selec
   await click('button', { name: 'Undo last saved draft change' });
   await waitFor(digest => { const p=document.querySelector('[data-testid="construction-preview"]'); return p?.dataset.previewStatus === 'ready' && p.dataset.currentDraftDigest !== digest; }, reloaded.draftDigest, 30000);
   await assertRendered(baselineRows);
+  const undoRenderMs = Date.now() - undoStarted;
   const restored = await refreshBuilder();
   assert(restored.draftVersion > reloaded.draftVersion, 'Undo must advance the current draft CAS version');
   assert.equal(restored.draftDigest, originalDigest, 'Undo must restore the exact pre-removal workspace digest');
@@ -506,9 +532,9 @@ const rawMembership = selectionId => rawQuery(`FOR member IN loom_explorer_selec
   assert.deepEqual(currentDocument(restored).construction, savedDocument.construction);
   assert.deepEqual(currentDocument(restored).columns, savedDocument.columns);
   assert.deepEqual(await rawMembership(baseSelection.id), refs);
-  const undoMs = Date.now() - undoStarted;
-  assert(undoMs <= 5000, `Undo-to-restored rows took ${undoMs}ms`);
-  report.cases.push({ name: 'undo-restores-original-membership-and-rows', durationMs: undoMs });
+  const undoVerificationMs = Date.now() - undoStarted;
+  assert(undoRenderMs <= 5000, `Undo-to-restored rows took ${undoRenderMs}ms`);
+  report.cases.push({ name: 'undo-restores-original-membership-and-rows', durationMs: undoRenderMs, verificationDurationMs: undoVerificationMs });
   const restorationReloadStarted = Date.now();
   await openBuilder(baselineRows);
   const restoredReload = await refreshBuilder();
