@@ -598,12 +598,34 @@ describe('staged construction contract', () => {
       baseConstruction: { version: 1, steps: [] },
       stages: [stage],
       selectedStage: stage,
+      workspaceInputs: [],
     };
 
     expect(constructionCapabilitiesResponseSchema.parse(response).selectedStage.columns[0]?.cardinality)
       .toBe('many');
+    expect(constructionCapabilitiesResponseSchema.parse(response).workspaceInputs).toEqual([]);
+    const { workspaceInputs, ...withoutWorkspaceInputs } = response;
+    expect(workspaceInputs).toEqual([]);
+    expect(constructionCapabilitiesResponseSchema.safeParse(withoutWorkspaceInputs).success).toBe(false);
     expect(constructionCapabilitiesResponseSchema.parse(response).selectedStage.capabilities)
       .toContainEqual({ kind: 'RELATED_ELIGIBILITY', supported: true });
+    const withWorkspaceInput = {
+      ...response,
+      workspaceInputs: [{
+        outputId: 'grouped-visits',
+        title: 'Grouped visits',
+        columns: [{
+          id: 'patient-id', name: 'patient_id', label: 'Patient ID', logicalType: 'string',
+          cardinality: 'optional_one', nullable: true, joinCompatibilityKey: 'String',
+          appendCompatibilityKey: 'string:String',
+        }],
+      }],
+    };
+    expect(constructionCapabilitiesResponseSchema.parse(withWorkspaceInput).workspaceInputs).toEqual(withWorkspaceInput.workspaceInputs);
+    expect(constructionCapabilitiesResponseSchema.safeParse({
+      ...withWorkspaceInput,
+      workspaceInputs: [{ ...withWorkspaceInput.workspaceInputs[0], columns: [{ ...withWorkspaceInput.workspaceInputs[0].columns[0], cardinality: 'MANY' }] }],
+    }).success).toBe(false);
     expect(constructionCapabilitiesResponseSchema.safeParse({
       ...response,
       selectedStage: {
@@ -642,6 +664,7 @@ describe('staged construction contract', () => {
       snapshotToken: 'snapshot', draftVersion: 1, draftDigest: 'sha256:draft',
       outputId: 'patients', stageId: stage.id,
       baseConstruction: { version: 1, steps: [] }, stages: [stage], selectedStage: stage,
+      workspaceInputs: [],
     };
 
     expect(constructionCapabilitiesResponseSchema.parse(response).selectedStage.relatedExpand)

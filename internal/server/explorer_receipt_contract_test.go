@@ -16,6 +16,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
+	"github.com/calypr/loom/internal/dataframe/published"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/unit"
 	"github.com/calypr/loom/internal/explorer"
@@ -98,7 +99,7 @@ func TestCompileExplorerReceiptReconcilesAuthoredDerivedOutput(t *testing.T) {
 		Project: "project-a", ExplorerID: "custom", Workspace: workspace, SnapshotToken: snapshot.Token,
 		Authorized: lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}},
 	}
-	receipt, err := compileExplorerReceipt(context.Background(), request, nil, recipeEngine, service, nil)
+	receipt, err := compileExplorerReceipt(context.Background(), request, nil, recipeEngine, service, nil, nil)
 	if err != nil {
 		t.Fatalf("compile receipt with an authored derived column: %v", err)
 	}
@@ -132,7 +133,7 @@ func TestCompileExplorerReceiptReconcilesAuthoredDerivedOutput(t *testing.T) {
 	if contract.Lossless || contract.MLReady || contract.StructuralSuitability != "requires-review" || !reflect.DeepEqual(contract.LossReasons, []string{"AGGREGATE_REDUCTION", "TABLE_SHAPE_DERIVED_MULTIPLY_NON_LOSSLESS", "TABLE_SHAPE_ML_READINESS_UNASSESSED", "TABLE_SHAPE_DERIVED_ADD_NON_LOSSLESS"}) {
 		t.Fatalf("derived receipt contract aggregation = %#v", contract)
 	}
-	repeated, err := compileExplorerReceipt(context.Background(), request, nil, recipeEngine, service, nil)
+	repeated, err := compileExplorerReceipt(context.Background(), request, nil, recipeEngine, service, nil, nil)
 	if err != nil {
 		t.Fatalf("compile identical derived receipt again: %v", err)
 	}
@@ -228,7 +229,7 @@ func TestCompileExplorerReceiptPersistsCompilerConstructionStages(t *testing.T) 
 		}}},
 		Authorized: lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}},
 	}
-	receipt, err := compileExplorerReceipt(context.Background(), request, nil, recipeEngine, service, nil)
+	receipt, err := compileExplorerReceipt(context.Background(), request, nil, recipeEngine, service, nil, nil)
 	if err != nil {
 		t.Fatalf("compile receipt with typed construction stages: %v", err)
 	}
@@ -241,6 +242,20 @@ func TestCompileExplorerReceiptPersistsCompilerConstructionStages(t *testing.T) 
 	}
 	if stages[0].Columns[0].Cardinality != "optional_one" {
 		t.Fatalf("source stage cardinality = %q, want optional_one", stages[0].Columns[0].Cardinality)
+	}
+	compiledSchemas := receipt.CompiledOutputSchemas["specimens"]
+	if len(compiledSchemas) == 0 {
+		t.Fatal("receipt omitted lowerer's finalized output schema")
+	}
+	var compiledColumn *explorer.ReceiptCompiledOutputColumn
+	for index := range compiledSchemas {
+		if compiledSchemas[index].ID == "group_id" {
+			compiledColumn = &compiledSchemas[index]
+			break
+		}
+	}
+	if compiledColumn == nil || compiledColumn.Name != "group_id" || compiledColumn.LogicalType != "string" || compiledColumn.Cardinality != "required_one" || compiledColumn.Nullable {
+		t.Fatalf("receipt final schema did not preserve the compiler-final output identity and typing: %#v", compiledSchemas)
 	}
 	wantCapabilities := map[string]bool{"PIVOT": true, "DERIVE": true, "FILTER": true, "UNPIVOT": true, "GROUP": true, "EXPAND": true}
 	for _, capability := range stages[0].Capabilities {
@@ -259,7 +274,7 @@ func TestCompileExplorerReceiptPersistsCompilerConstructionStages(t *testing.T) 
 	if _, err := compileValidatedReceiptResolution(context.Background(), recipeEngine, receipt, bindings); err != nil {
 		t.Fatalf("cohort construction receipt failed deterministic re-lowering: %v", err)
 	}
-	repeated, err := compileExplorerReceipt(context.Background(), request, nil, recipeEngine, service, nil)
+	repeated, err := compileExplorerReceipt(context.Background(), request, nil, recipeEngine, service, nil, nil)
 	if err != nil {
 		t.Fatalf("recompile identical typed construction receipt: %v", err)
 	}
@@ -405,7 +420,7 @@ func TestCompileExplorerReceiptReconcilesCodedGroupProposalOutputsAndLineage(t *
 			Catalog:        authoringV2Catalog,
 		},
 		CompileReceipt: func(ctx context.Context, request lifecycle.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
-			return compileExplorerReceipt(ctx, request, nil, recipeEngine, service, nil)
+			return compileExplorerReceipt(ctx, request, nil, recipeEngine, service, nil, nil)
 		},
 		PreviewReceipt: func(_ context.Context, _ *explorer.CompilationReceipt, _ recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 			if err := visit(map[string]any{"system": "https://example.org", "version": nil, "code": "TUMOR", "source_count": 1}); err != nil {
@@ -421,7 +436,7 @@ func TestCompileExplorerReceiptReconcilesCodedGroupProposalOutputsAndLineage(t *
 		Project: "project-a", ExplorerID: "custom", Workspace: workspace, SnapshotToken: snapshot.Token,
 		Authorized: lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: readScope},
 	}
-	receipt, err := compileExplorerReceipt(context.Background(), request, nil, recipeEngine, service, nil)
+	receipt, err := compileExplorerReceipt(context.Background(), request, nil, recipeEngine, service, nil, nil)
 	if err != nil {
 		t.Fatalf("compile CODED_GROUP proposal through receipt reconciliation: %v", err)
 	}
@@ -462,7 +477,7 @@ func TestCompileExplorerReceiptReconcilesCodedGroupProposalOutputsAndLineage(t *
 	if len(stages) != 3 || stages[1].Operation != "CODED_GROUP" || stages[2].InputStageID != stepID || stages[2].Operation != "FILTER" {
 		t.Fatalf("recompiled proposal stages = %#v, want CODED_GROUP then downstream FILTER", stages)
 	}
-	repeated, err := compileExplorerReceipt(context.Background(), request, nil, recipeEngine, service, nil)
+	repeated, err := compileExplorerReceipt(context.Background(), request, nil, recipeEngine, service, nil, nil)
 	if err != nil {
 		t.Fatalf("recompile saved CODED_GROUP proposal without proposal token: %v", err)
 	}
@@ -525,7 +540,7 @@ func TestCompileExplorerReceiptReconcilesCodedGroupProposalOutputsAndLineage(t *
 	}
 	acceptedRequest := request
 	acceptedRequest.Workspace = accepted
-	acceptedReceipt, err := compileExplorerReceipt(context.Background(), acceptedRequest, nil, recipeEngine, service, nil)
+	acceptedReceipt, err := compileExplorerReceipt(context.Background(), acceptedRequest, nil, recipeEngine, service, nil, nil)
 	if err != nil {
 		t.Fatalf("recompile applied CODED_GROUP draft without a fresh proposal token: %v", err)
 	}
@@ -613,7 +628,7 @@ func TestCompileExplorerReceiptReconcilesTypedConstructionOutputs(t *testing.T) 
 		Project: "project-a", ExplorerID: "custom", Workspace: workspace, SnapshotToken: snapshot.Token,
 		Authorized: lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}},
 	}
-	receipt, err := compileExplorerReceipt(context.Background(), request, nil, recipeEngine, service, nil)
+	receipt, err := compileExplorerReceipt(context.Background(), request, nil, recipeEngine, service, nil, nil)
 	if err != nil {
 		t.Fatalf("compile and reconcile typed derived construction output: %v", err)
 	}
@@ -1486,7 +1501,7 @@ func TestCompileExplorerReceiptBindsRowDefinitionProposalBeforeIdentity(t *testi
 		SnapshotToken:         snapshot.Token,
 		Authorized:            lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}},
 		RowDefinitionProposal: binding,
-	}, nil, recipeEngine, service, nil)
+	}, nil, recipeEngine, service, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1543,7 +1558,7 @@ func TestCompileExplorerReceiptBindsTableShapeProposalBeforeIdentity(t *testing.
 		Project: "project-a", ExplorerID: "custom", Workspace: workspace, SnapshotToken: snapshot.Token,
 		Authorized:         lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}},
 		TableShapeProposal: binding,
-	}, nil, recipeEngine, service, nil)
+	}, nil, recipeEngine, service, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2278,4 +2293,277 @@ func persistTestNativeReceipt(ctx context.Context, t *testing.T, service *explor
 		return nil, err
 	}
 	return service.StoreCompilationReceipt(ctx, receipt)
+}
+
+func TestCompileExplorerReceiptAllowsEmptyConstructionTargetWithSiblingOutputs(t *testing.T) {
+	snapshot := testAuthoringV2CapabilitySnapshot()
+	workspace, err := authoringv2.DecodeWorkspace(baselineExplorerWorkspaceV2())
+	if err != nil {
+		t.Fatal(err)
+	}
+	template := workspace.Documents[0]
+	emptyTarget := template
+	emptyTarget.Output = authoringv2.Output{ID: "empty_target", Title: "Empty target"}
+	emptyTarget.Columns = []authoringv2.Column{}
+	emptyTarget, err = authoringv2.UpgradeDocumentToConstruction(emptyTarget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	emptyTarget.Construction.Steps = []authoringv2.ConstructionStep{}
+	workspace.Documents = []authoringv2.Document{emptyTarget}
+	workspace.Tabs = []authoringv2.Tab{{ID: "tab_empty_target", Title: "Empty target", OutputID: "empty_target", Order: 0, Visible: true}}
+	for index := 1; index <= 3; index++ {
+		document := template
+		document.Output = authoringv2.Output{ID: fmt.Sprintf("source_%d", index), Title: fmt.Sprintf("Source %d", index)}
+		document.Columns = append([]authoringv2.Column(nil), template.Columns...)
+		document.Columns[0].ColumnID = fmt.Sprintf("source_column_%d", index)
+		document.Columns[0].Column = fmt.Sprintf("patient_id_%d", index)
+		workspace.Documents = append(workspace.Documents, document)
+		workspace.Tabs = append(workspace.Tabs, authoringv2.Tab{ID: fmt.Sprintf("tab_source_%d", index), Title: fmt.Sprintf("Source %d", index), OutputID: document.Output.ID, Order: index, Visible: true})
+	}
+	if err := workspace.Validate(); err != nil {
+		t.Fatalf("validate empty target plus source siblings: %v", err)
+	}
+
+	recipeEngine, err := dataframeexecution.New(dataframeexecution.Config{
+		Registry:  compilerTestRegistry{},
+		QueryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	service, err := explorer.NewService(newTestExplorerStore())
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipt, err := compileExplorerReceipt(context.Background(), lifecycle.CompileReceiptRequest{
+		Project: "project-a", ExplorerID: "custom", Workspace: workspace, SnapshotToken: snapshot.Token,
+		Authorized: lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}},
+	}, nil, recipeEngine, service, nil, nil)
+	if err != nil {
+		t.Fatalf("compile and persist receipt for empty target with sibling inputs: %v", err)
+	}
+	contracts, err := explorer.DecodePublicOutputContracts(receipt.PublicOutputContract)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(receipt.Bundle.Outputs) != 4 || len(contracts.Outputs) != 4 {
+		t.Fatalf("receipt outputs/contracts = %d/%d, want target plus all three siblings", len(receipt.Bundle.Outputs), len(contracts.Outputs))
+	}
+	if empty := contracts.Outputs[0]; empty.OutputID != "empty_target" || len(empty.Columns) != 0 || empty.StructuralSuitability != "" {
+		t.Fatalf("empty target contract = %#v, want empty compiler-owned contract", empty)
+	}
+	for index := 1; index <= 3; index++ {
+		wantOutput, wantColumn := fmt.Sprintf("source_%d", index), fmt.Sprintf("patient_id_%d", index)
+		contract := contracts.Outputs[index]
+		if receipt.Bundle.Outputs[index].Name != wantOutput || contract.OutputID != wantOutput || len(contract.Columns) != 1 || contract.Columns[0].Column != wantColumn {
+			t.Fatalf("sibling %d receipt output/contract = %#v / %#v", index, receipt.Bundle.Outputs[index], contract)
+		}
+	}
+	if err := contracts.ValidateAgainst(receipt.Bundle, receipt.EmittedColumns); err != nil {
+		t.Fatalf("validate persisted multi-output receipt contract: %v", err)
+	}
+}
+
+func TestCompileExplorerReceiptReconcilesSparsePublishedAppendWithExactSourceSchema(t *testing.T) {
+	readScope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
+	snapshot := testAuthoringV2CapabilitySnapshot()
+	bindings := recipe.RuntimeBindings{
+		Project: "project-a", DatasetGeneration: snapshot.Identity.Generation,
+		AuthScopeMode: readScope.Mode,
+	}
+	left := combineInputReference("labs", "source_one", "execution-left")
+	right := combineInputReference("labs", "source_two", "execution-right")
+	sparse := combineInputReference("labs", "source_three", "execution-sparse")
+	leftMaterialization := combineInputMaterialization(left, bindings)
+	leftMaterialization.Columns = []published.Column{
+		{ID: "left-row", Name: "__loom_row_id", ClickHouse: "String", LogicalType: "string", LoomOwned: true},
+		{ID: "left-display-name", Name: "display_name", ClickHouse: "String", LogicalType: "string"},
+	}
+	rightMaterialization := combineInputMaterialization(right, bindings)
+	rightMaterialization.Columns = []published.Column{
+		{ID: "right-row", Name: "__loom_row_id", ClickHouse: "String", LogicalType: "string", LoomOwned: true},
+		{ID: "right-display-name", Name: "display_name", ClickHouse: "Nullable(String)", LogicalType: "string", Nullable: true},
+	}
+	sparseMaterialization := combineInputMaterialization(sparse, bindings)
+	sparseMaterialization.Columns = []published.Column{
+		{ID: "sparse-row", Name: "__loom_row_id", ClickHouse: "String", LogicalType: "string", LoomOwned: true},
+		{ID: "sparse-other", Name: "other_value", ClickHouse: "String", LogicalType: "string"},
+	}
+	reader := &combineMaterializationReader{values: map[string]published.Materialization{
+		left.RevisionID + "/" + left.OutputID:     leftMaterialization,
+		right.RevisionID + "/" + right.OutputID:   rightMaterialization,
+		sparse.RevisionID + "/" + sparse.OutputID: sparseMaterialization,
+	}}
+	var pinned []string
+	withPins := dataframeexecution.WithExecutionReadPins(func(ctx context.Context, executionIDs []string, visit func(context.Context) error) error {
+		pinned = append([]string(nil), executionIDs...)
+		return visit(ctx)
+	})
+	resolveSchemas := func(ctx context.Context, output lower.CompiledRecipeOutput, bindings recipe.RuntimeBindings) (resolvedCombineInputSchema, error) {
+		return exactPublishedCombineInputSchemas(ctx, output, bindings, reader, withPins, nil)
+	}
+
+	document := authoringv2.Document{
+		Kind:             authoringv2.Kind,
+		Rows:             authoringv2.RecordsRowDefinition(),
+		Output:           authoringv2.Output{ID: "combined", Title: "Combined"},
+		RootResourceType: "Patient",
+		Route:            authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient"},
+		Construction: &authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{{
+			ID: "append_sources",
+			Inputs: []authoringv2.ConstructionInputRef{
+				{Kind: authoringv2.ConstructionInputTableRevision, TableID: left.TableID, RevisionID: left.RevisionID, OutputID: left.OutputID},
+				{Kind: authoringv2.ConstructionInputTableRevision, TableID: right.TableID, RevisionID: right.RevisionID, OutputID: right.OutputID},
+				{Kind: authoringv2.ConstructionInputTableRevision, TableID: sparse.TableID, RevisionID: sparse.RevisionID, OutputID: sparse.OutputID},
+			},
+			Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationCombine, Combine: &authoringv2.ConstructionCombine{
+				Kind: authoringv2.ConstructionCombineAppend,
+				Projections: []authoringv2.ConstructionCombineProjection{
+					{OutputColumnID: "display-name", InputIndex: 0, InputColumnID: "left-display-name"},
+					{OutputColumnID: "display-name", InputIndex: 1, InputColumnID: "right-display-name"},
+				},
+			}},
+			Outputs: []authoringv2.StageColumn{{ID: "display-name", Name: "display_name", Label: "Display name", Type: "string", Nullable: true}},
+		}}},
+	}
+	templateWorkspace, err := authoringv2.DecodeWorkspace(baselineExplorerWorkspaceV2())
+	if err != nil {
+		t.Fatal(err)
+	}
+	sourceIDs := []string{left.OutputID, right.OutputID, sparse.OutputID}
+	sourceDocuments := make([]authoringv2.Document, 0, len(sourceIDs))
+	tabs := make([]authoringv2.Tab, 0, len(sourceIDs)+1)
+	for index, outputID := range sourceIDs {
+		source := templateWorkspace.Documents[0]
+		source.Output = authoringv2.Output{ID: outputID, Title: outputID}
+		source.Columns = append([]authoringv2.Column(nil), source.Columns...)
+		source.Columns[0].ColumnID = fmt.Sprintf("source_column_%d", index+1)
+		source.Columns[0].Column = fmt.Sprintf("patient_id_%d", index+1)
+		source, err = authoringv2.UpgradeDocumentToConstruction(source)
+		if err != nil {
+			t.Fatalf("upgrade non-Combine source output %q: %v", outputID, err)
+		}
+		sourceDocuments = append(sourceDocuments, source)
+		tabs = append(tabs, authoringv2.Tab{ID: fmt.Sprintf("%s-tab", outputID), Title: outputID, OutputID: outputID, Order: index, Visible: true})
+	}
+	documents := append(sourceDocuments, document)
+	tabs = append(tabs, authoringv2.Tab{ID: "combined-tab", Title: "Combined", OutputID: "combined", Order: len(tabs), Visible: true})
+	workspace := authoringv2.Workspace{
+		APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind,
+		Explorer:  authoringv2.ExplorerMetadata{Title: "Combined"},
+		Documents: documents,
+		Tabs:      tabs,
+	}
+	if err := workspace.Validate(); err != nil {
+		t.Fatalf("validate target plus three source outputs: %v", err)
+	}
+
+	engine, err := dataframeexecution.New(dataframeexecution.Config{
+		Registry:  compilerTestRegistry{},
+		QueryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := newTestExplorerStore()
+	service, err := explorer.NewService(store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := lifecycle.CompileReceiptRequest{
+		Project: "project-a", ExplorerID: "custom", Workspace: workspace, SnapshotToken: snapshot.Token,
+		Authorized: lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: readScope},
+	}
+	receipt, err := compileExplorerReceipt(context.Background(), request, nil, engine, service, nil, resolveSchemas)
+	if err != nil {
+		t.Fatalf("compile sparse published APPEND receipt: %v", err)
+	}
+	if !reflect.DeepEqual(reader.calls, []string{
+		"execution-left/source_one", "execution-right/source_two", "execution-sparse/source_three",
+	}) || !reflect.DeepEqual(pinned, []string{"execution-left", "execution-right", "execution-sparse"}) {
+		t.Fatalf("exact metadata resolution calls=%#v pinned=%#v", reader.calls, pinned)
+	}
+	if len(receipt.Bundle.Outputs) != 4 {
+		t.Fatalf("receipt output count = %d, want three source outputs plus Combine target", len(receipt.Bundle.Outputs))
+	}
+	var combinedOutput *recipe.Output
+	for index := range receipt.Bundle.Outputs {
+		if receipt.Bundle.Outputs[index].Name == "combined" {
+			combinedOutput = &receipt.Bundle.Outputs[index]
+			break
+		}
+	}
+	if combinedOutput == nil || combinedOutput.Construction == nil {
+		t.Fatalf("Combine target recipe = %#v", combinedOutput)
+	}
+	step := combinedOutput.Construction.Steps[0]
+	for _, outputID := range sourceIDs {
+		stages := receipt.ConstructionStages[outputID]
+		if len(stages) != 1 || stages[0].ID != recipe.ConstructionSourceProjectionID || stages[0].InputStageID != "" || stages[0].Operation != "" {
+			t.Fatalf("non-Combine source output %q stages = %#v", outputID, stages)
+		}
+	}
+	combineStages := receipt.ConstructionStages["combined"]
+	if len(combineStages) != 1 || combineStages[0].ID != "append_sources" || combineStages[0].InputStageID != "" || combineStages[0].Operation != "APPEND" {
+		t.Fatalf("external APPEND first stage = %#v", combineStages)
+	}
+	if err := receipt.Validate(); err != nil {
+		t.Fatalf("validate sparse APPEND receipt before/after persistence: %v", err)
+	}
+	persisted, err := service.CompilationReceiptForExplorer(context.Background(), "project-a", "custom", receipt.ID)
+	if err != nil {
+		t.Fatalf("load persisted sparse APPEND receipt: %v", err)
+	}
+	if err := persisted.Validate(); err != nil {
+		t.Fatalf("validate persisted sparse APPEND receipt: %v", err)
+	}
+	if !reflect.DeepEqual(persisted.ConstructionStages, receipt.ConstructionStages) {
+		t.Fatalf("persisted receipt stage contract = %#v, want %#v", persisted.ConstructionStages, receipt.ConstructionStages)
+	}
+	wantInputs := []recipe.ConstructionInputRef{
+		{Kind: recipe.ConstructionTableRevisionInput, TableID: left.TableID, RevisionID: left.RevisionID, OutputID: left.OutputID},
+		{Kind: recipe.ConstructionTableRevisionInput, TableID: right.TableID, RevisionID: right.RevisionID, OutputID: right.OutputID},
+		{Kind: recipe.ConstructionTableRevisionInput, TableID: sparse.TableID, RevisionID: sparse.RevisionID, OutputID: sparse.OutputID},
+	}
+	wantProjections := []recipe.ConstructionCombineProjection{
+		{OutputColumnID: "display-name", InputIndex: 0, InputColumnID: "left-display-name"},
+		{OutputColumnID: "display-name", InputIndex: 1, InputColumnID: "right-display-name"},
+	}
+	if !reflect.DeepEqual(step.Inputs, wantInputs) || step.Operation.Combine == nil || !reflect.DeepEqual(step.Operation.Combine.Projections, wantProjections) {
+		t.Fatalf("receipt lost typed exact APPEND bindings: inputs=%#v combine=%#v", step.Inputs, step.Operation.Combine)
+	}
+	var combinedEmissions []explorer.EmittedColumn
+	for _, emitted := range receipt.EmittedColumns {
+		if emitted.OutputID == "combined" {
+			combinedEmissions = append(combinedEmissions, emitted)
+		}
+	}
+	if len(combinedEmissions) != 1 {
+		t.Fatalf("Combine target emitted columns = %#v", combinedEmissions)
+	}
+	emitted := combinedEmissions[0]
+	if emitted.PublicColumn != "display_name" || emitted.Label != "Display name" || emitted.ConstructionID != "append_sources" ||
+		!reflect.DeepEqual(emitted.InputColumns, []string{"display_name"}) || len(emitted.AuthoredColumns) != 0 ||
+		emitted.LogicalType != "string" || emitted.Cardinality != "optional_one" || !emitted.Nullable {
+		t.Fatalf("reconciled sparse APPEND emission = %#v", emitted)
+	}
+	var finalSchema *explorer.ReceiptCompiledOutputColumn
+	for index := range receipt.CompiledOutputSchemas["combined"] {
+		column := &receipt.CompiledOutputSchemas["combined"][index]
+		if column.ID == "display-name" {
+			finalSchema = column
+			break
+		}
+	}
+	if finalSchema == nil || finalSchema.Name != emitted.PublicColumn || finalSchema.LogicalType != "string" || finalSchema.Cardinality != "optional_one" || !finalSchema.Nullable {
+		t.Fatalf("receipt compiler-final sparse schema = %#v", receipt.CompiledOutputSchemas["combined"])
+	}
+	contracts, err := explorer.DecodePublicOutputContracts(receipt.PublicOutputContract)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := contracts.ValidateAgainst(receipt.Bundle, receipt.EmittedColumns); err != nil {
+		t.Fatalf("validate reconciled sparse APPEND contract: %v", err)
+	}
 }

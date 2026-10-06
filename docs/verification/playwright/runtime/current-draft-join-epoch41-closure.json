@@ -1,0 +1,74 @@
+{
+  "status": "closed",
+  "phase": "after-passing-run",
+  "runner": {
+    "handle": 51617,
+    "exitCode": 0,
+    "expected": 1,
+    "unexpected": 0,
+    "skipped": 0,
+    "flaky": 0,
+    "durationMs": 16393,
+    "caseStatus": "passed",
+    "verificationStatus": "passed",
+    "assertionCount": 103,
+    "failedAssertionCount": 0,
+    "requiredCheckCount": 25,
+    "missingRequiredChecks": [],
+    "reportedErrorCount": 0,
+    "report": "/private/tmp/loom-native-parallel-wave41/draft-combine-current-draft-join/results/draft-combine-Builder-Comb-de4e1-ply-edit-removal-and-reload/attachments/loom-verification-report-json-aa6c8bd9ac8fd94c7a3c60e11241c2101cc847d4.json",
+    "artifacts": "/private/tmp/loom-native-parallel-wave41/draft-combine-current-draft-join"
+  },
+  "source": {
+    "fingerprint": {
+      "sha256": "d0e85e7ed15fa112d867cfb0d70982d49b7b8514c80193c8560480fb714d8e44",
+      "files": 1495
+    },
+    "manifestUnchanged": true
+  },
+  "docs": {
+    "fingerprint": {
+      "sha256": "7aecc2f0fcf624fee6bfb14271fc55987a97c631403f27fabf64b875e7f27466",
+      "files": 117
+    },
+    "manifestUnchanged": true
+  },
+  "api": {
+    "buildIdentity": "a538e6f509005ba18b57d1ed4d4b1eaa80cbee4d2471a1d324de70921e32a83c:a538e6f509005ba18b57d1ed4d4b1eaa80cbee4d2471a1d324de70921e32a83c:bfc1e103155528c63f986a1421f4628aa31ef47ae71b9eccf097a2e8a3a36df8",
+    "unchanged": true,
+    "sourceFingerprintUnchanged": true
+  },
+  "ownedMounts": {
+    "status": "PASS",
+    "targetUnchanged": true
+  },
+  "health": {
+    "before": {
+      "status": "PASS",
+      "samples": 3,
+      "apiBuildIdentity": "a538e6f509005ba18b57d1ed4d4b1eaa80cbee4d2471a1d324de70921e32a83c:a538e6f509005ba18b57d1ed4d4b1eaa80cbee4d2471a1d324de70921e32a83c:bfc1e103155528c63f986a1421f4628aa31ef47ae71b9eccf097a2e8a3a36df8"
+    },
+    "after": {
+      "status": "PASS",
+      "samples": 3,
+      "apiBuildIdentity": "a538e6f509005ba18b57d1ed4d4b1eaa80cbee4d2471a1d324de70921e32a83c:a538e6f509005ba18b57d1ed4d4b1eaa80cbee4d2471a1d324de70921e32a83c:bfc1e103155528c63f986a1421f4628aa31ef47ae71b9eccf097a2e8a3a36df8"
+    }
+  },
+  "editAllowedAfterThisRecord": true,
+  "closureChecksPass": true,
+  "diagnosticSummary": {
+    "scope": "preview POST lifecycle only",
+    "requestCount": 14,
+    "eventCount": 42,
+    "responses200": 14,
+    "finishedCount": 14,
+    "allRequestsCompleteInOrder": true,
+    "allResponses200": true,
+    "eventCap": 256,
+    "droppedEvents": 0,
+    "timedActionCount": 32,
+    "maximumActionElapsedMs": 680,
+    "finalRemovedJoinReloadPreviewRequests": 0,
+    "unexpectedErrorCount": 0
+  }
+}

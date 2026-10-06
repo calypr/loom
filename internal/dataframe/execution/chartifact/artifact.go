@@ -44,21 +44,31 @@ var (
 	identifierRE = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 )
 
+const (
+	// ScopeModeRows preserves and validates the authorization path on every row.
+	ScopeModeRows = "ROW_SCOPED"
+	// ScopeModeWhole binds the complete relation to one compiler-verified
+	// authorization scope. Such rows intentionally carry no individual path.
+	ScopeModeWhole = "WHOLE_SCOPE"
+)
+
 // Identity binds an intermediate table to the exact source execution and
 // compiler result that created it. SchemaDigest and ScopeDigest are computed
 // by Begin; supplied values, when present, must match.
 type Identity struct {
-	ExecutionID       string
-	OutputID          string
-	StageID           string
-	Project           string
-	DatasetGeneration string
-	RecipeDigest      string
-	PlanDigest        string
-	SchemaDigest      string
-	ScopeDigest       string
-	AuthScopeMode     authscope.ReadScopeMode
-	AuthResourcePaths []string
+	ExecutionID         string
+	OutputID            string
+	StageID             string
+	Project             string
+	DatasetGeneration   string
+	RecipeDigest        string
+	PlanDigest          string
+	SchemaDigest        string
+	ScopeDigest         string
+	AuthScopeMode       authscope.ReadScopeMode
+	AuthResourcePaths   []string
+	ScopeMode           string
+	ScopeEvidenceDigest string
 }
 
 // Column records a stable compiler ID alongside logical and physical types.
@@ -278,17 +288,18 @@ func ColumnsFromCompiledOutput(schema []lower.CompiledOutputColumn) ([]Column, e
 	columns := make([]Column, 0, len(schema))
 	rowIDSeen := false
 	for _, compiled := range schema {
-		if compiled.Identity || compiled.Name == rowIDColumn {
-			if rowIDSeen || compiled.Name != rowIDColumn {
+		if compiled.Name == rowIDColumn {
+			if rowIDSeen || !compiled.Internal || compiled.Kind != string(expression.KindString) ||
+				compiled.Nullable || compiled.Cardinality != string(expression.RequiredOne) {
 				return nil, fmt.Errorf("compiled artifact schema has an invalid row identity column")
-			}
-			if (compiled.Kind != "" && !strings.EqualFold(compiled.Kind, "string")) || compiled.Nullable || (compiled.Cardinality != "" && compiled.Cardinality != string(expression.RequiredOne)) {
-				return nil, fmt.Errorf("compiled artifact row identity must be a required scalar string")
 			}
 			rowIDSeen = true
 			columns = append(columns, Column{ID: compiled.ID, Name: rowIDColumn, SemanticPath: "loom:row_id", LogicalType: "string", Internal: true})
 			continue
 		}
+		// Other internal identity helpers (for example, the root FHIR `_key`)
+		// are not the artifact's stable row identity. They are compiler inputs
+		// for deriving `__loom_row_id` and must not be exposed as artifact data.
 		if compiled.Internal {
 			continue
 		}
@@ -352,10 +363,18 @@ func logicalTypeIsString(logical string) bool {
 func scopeDigest(identity Identity) string {
 	paths := append([]string(nil), identity.AuthResourcePaths...)
 	sort.Strings(paths)
-	data := identity.Project + "\x00" + identity.DatasetGeneration + "\x00" + string(identity.AuthScopeMode) + "\x00" + strings.Join(paths, "\x00")
+	scopeMode := identity.ScopeMode
+	if scopeMode == "" {
+		scopeMode = ScopeModeRows
+	}
+	data := identity.Project + "\x00" + identity.DatasetGeneration + "\x00" + string(identity.AuthScopeMode) + "\x00" + strings.Join(paths, "\x00") + "\x00" + scopeMode + "\x00" + identity.ScopeEvidenceDigest
 	sum := sha256.Sum256([]byte(data))
 	return hex.EncodeToString(sum[:])
 }
+
+// ScopeDigest returns the private artifact scope digest for an exact identity.
+// An omitted scope mode retains the legacy row-scoped meaning.
+func ScopeDigest(identity Identity) string { return scopeDigest(identity) }
 
 func schemaDigest(stageID string, columns []Column) (string, error) {
 	data, err := json.Marshal(struct {
@@ -384,6 +403,9 @@ func (m *Manager) Begin(ctx context.Context, identity Identity, columns []Column
 		return nil, fmt.Errorf("private artifact context is required")
 	}
 	identity = cloneIdentity(identity)
+	if identity.ScopeMode == "" {
+		identity.ScopeMode = ScopeModeRows
+	}
 	if err := validateIdentity(identity); err != nil {
 		return nil, err
 	}
@@ -464,7 +486,27 @@ func validateIdentity(identity Identity) error {
 	default:
 		return fmt.Errorf("private artifact requires an explicit authorization scope mode")
 	}
+	switch identity.ScopeMode {
+	case ScopeModeRows:
+		if identity.ScopeEvidenceDigest != "" {
+			return fmt.Errorf("row-scoped private artifact cannot carry whole-scope evidence")
+		}
+	case ScopeModeWhole:
+		if !validDigest(identity.ScopeEvidenceDigest) {
+			return fmt.Errorf("whole-scope private artifact requires compiler evidence digest")
+		}
+	default:
+		return fmt.Errorf("private artifact requires an explicit supported scope mode")
+	}
 	return nil
+}
+
+func validDigest(value string) bool {
+	if len(value) != sha256.Size*2 {
+		return false
+	}
+	_, err := hex.DecodeString(value)
+	return err == nil
 }
 
 type Writer struct {
@@ -542,18 +584,24 @@ func (w *Writer) validateRow(input map[string]any) (map[string]any, int, error) 
 	if !ok || strings.TrimSpace(rowID) == "" {
 		return nil, 0, fmt.Errorf("private artifact row is missing its stable string row identity")
 	}
-	if _, ok := row[authPathColumn]; !ok {
-		if w.manifest.Identity.AuthScopeMode == authscope.ReadScopeRestricted {
-			return nil, 0, fmt.Errorf("restricted private artifact row is missing auth_resource_path")
+	pathValue, pathPresent := row[authPathColumn]
+	if w.manifest.Identity.ScopeMode == ScopeModeWhole {
+		if pathPresent && pathValue != nil && pathValue != "" {
+			return nil, 0, fmt.Errorf("whole-scope private artifact row cannot carry an individual authorization path")
 		}
-		row[authPathColumn] = ""
-	}
-	path, ok := row[authPathColumn].(string)
-	if !ok {
-		return nil, 0, fmt.Errorf("private artifact auth_resource_path must be a string")
-	}
-	if w.manifest.Identity.AuthScopeMode == authscope.ReadScopeRestricted {
-		if path == "" || !contains(w.manifest.Identity.AuthResourcePaths, path) {
+		row[authPathColumn] = nil
+	} else {
+		if !pathPresent {
+			if w.manifest.Identity.AuthScopeMode == authscope.ReadScopeRestricted {
+				return nil, 0, fmt.Errorf("restricted private artifact row is missing auth_resource_path")
+			}
+			row[authPathColumn] = ""
+		}
+		path, ok := row[authPathColumn].(string)
+		if !ok {
+			return nil, 0, fmt.Errorf("private artifact auth_resource_path must be a string")
+		}
+		if w.manifest.Identity.AuthScopeMode == authscope.ReadScopeRestricted && (path == "" || !contains(w.manifest.Identity.AuthResourcePaths, path)) {
 			return nil, 0, fmt.Errorf("private artifact row authorization path is outside the exact restricted scope")
 		}
 	}

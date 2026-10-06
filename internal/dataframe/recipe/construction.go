@@ -450,7 +450,11 @@ func (construction Construction) validate(sourceFields []Field, groupRows *Group
 	}
 	allowEmptyCodedPivotSource := len(sourceColumns) == 0 && len(sourceFields) == 0 && len(construction.Steps) > 0 &&
 		construction.Steps[0].Operation.Kind == ConstructionCodedPivotOp
-	if len(sourceColumns) == 0 && !allowEmptyCodedPivotSource {
+	// A new rooted output can intentionally start with no user-selected
+	// columns. The compiler still supplies its row-identity source schema;
+	// lowerer validation checks that identity before accepting the output.
+	allowEmptyIdentitySource := len(sourceColumns) == 0 && len(sourceFields) == 0 && len(construction.Steps) == 0
+	if len(sourceColumns) == 0 && !allowEmptyCodedPivotSource && !allowEmptyIdentitySource {
 		return fmt.Errorf("source projection must contain at least one column")
 	}
 	if len(sourceColumns) != 0 {

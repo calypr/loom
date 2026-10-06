@@ -41,6 +41,7 @@ const capabilitiesFor = (
   baseConstruction: { version: 1, steps: [] },
   stages,
   selectedStage,
+  workspaceInputs: [],
 });
 
 const renderEditor = (args: {
@@ -105,6 +106,7 @@ describe('ConstructionReshapeEditor', () => {
     const entry = createReshapeEditorEntry({
       construction: capabilities.baseConstruction,
       capabilities,
+      kind: 'expand',
     });
     expect(entry).toBeDefined();
     if (!entry || entry.form.kind !== 'expand') throw new Error('Expected a supported public scalar list column');
@@ -137,6 +139,62 @@ describe('ConstructionReshapeEditor', () => {
     expect(onCandidateChange).toHaveBeenCalledOnce();
     expect(onCandidateChange.mock.lastCall?.[0]?.candidateConstruction.steps.at(-1)?.id).toBe(entry.form.stepId);
     expect(onCandidateChange.mock.lastCall?.[0]?.candidateConstruction.steps.at(-1)?.operation.kind).toBe('EXPAND');
+  });
+
+  it('uses the same event-owned empty-key COUNT_ROWS GROUP form for its first render and later field previews', () => {
+    const capabilities = capabilitiesFor();
+    const entry = createReshapeEditorEntry({
+      construction: capabilities.baseConstruction,
+      capabilities,
+      kind: 'group',
+      selectedColumns: [],
+    });
+    expect(entry).toBeDefined();
+    if (!entry || entry.form.kind !== 'group') throw new Error('Expected a supported standard GROUP entry');
+    const initialStep = entry.candidateIntent.candidateConstruction.steps.at(-1);
+    expect(initialStep?.id).toBe(entry.form.stepId);
+    expect(initialStep?.operation).toEqual({
+      kind: 'GROUP',
+      group: {
+        constructionId: entry.form.stepId,
+        missingKeyPolicy: 'GROUP',
+        keys: [],
+        aggregates: [{ operation: 'COUNT_ROWS', outputColumnId: entry.form.aggregates[0]?.outputColumnId }],
+      },
+    });
+    expect(constructionSchema.parse(entry.candidateIntent.candidateConstruction)).toEqual(entry.candidateIntent.candidateConstruction);
+
+    const onCandidateChange = vi.fn();
+    const { view } = renderEditor({
+      capabilities,
+      initialKind: 'group',
+      initialEntry: entry,
+      onCandidateChange,
+    });
+    expect(controlValue('Summary 1')).toBe('COUNT_ROWS');
+    expect(onCandidateChange).not.toHaveBeenCalled();
+
+    view.rerender(
+      <ConstructionReshapeEditor
+        construction={capabilities.baseConstruction}
+        capabilities={capabilities}
+        initialKind="group"
+        initialEntry={entry}
+        disabled={false}
+        onCandidateChange={onCandidateChange}
+        onEditStep={vi.fn()}
+      />,
+    );
+    expect(onCandidateChange).not.toHaveBeenCalled();
+
+    fireEvent.change(screen.getByLabelText('Summary output label 1'), { target: { value: 'Total fixture rows' } });
+    expect(onCandidateChange).toHaveBeenCalledOnce();
+    const updatedIntent = onCandidateChange.mock.lastCall?.[0];
+    expect(updatedIntent?.candidateConstruction.steps.at(-1)?.id).toBe(entry.form.stepId);
+    expect(updatedIntent?.candidateConstruction.steps.at(-1)?.operation).toMatchObject({
+      kind: 'GROUP',
+      group: { keys: [], aggregates: [{ operation: 'COUNT_ROWS' }] },
+    });
   });
 
   it('offers only compiler-supported scalar fields as pivot inputs', () => {
@@ -783,6 +841,7 @@ describe('ConstructionReshapeEditor', () => {
     const entry = createReshapeEditorEntry({
       construction: capabilities.baseConstruction,
       capabilities,
+      kind: 'expand',
     });
     expect(entry).toBeDefined();
     if (!entry || entry.form.kind !== 'expand') throw new Error('Expected the initial expansion entry');

@@ -6,6 +6,7 @@ import (
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/optimize"
+	"github.com/calypr/loom/internal/dataframe/expression"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/semantic"
 )
@@ -71,6 +72,29 @@ func TestCompileTerminalAppendMapsIndependentInputColumnIDs(t *testing.T) {
 	combine := compiled.Plan.ClickHouseCombine
 	if combine == nil || combine.Kind != ir.PhysicalCombineAppend || len(combine.Projections) != 2 || combine.Projections[0].InputColumnID == combine.Projections[1].InputColumnID {
 		t.Fatalf("append mapping did not preserve independent stable IDs: %#v", combine)
+	}
+}
+
+func TestCompileTerminalAppendAllowsNullableMissingInputWithTypedOutput(t *testing.T) {
+	output := combineRecipeOutput(recipe.ConstructionCombine{
+		Kind: recipe.ConstructionCombineAppend,
+		Projections: []recipe.ConstructionCombineProjection{
+			{OutputColumnID: "status", InputIndex: 0, InputColumnID: "left-status"},
+		},
+	}, []recipe.ConstructionInputRef{
+		{Kind: recipe.ConstructionTableRevisionInput, TableID: "a:1:table", RevisionID: "exec-a", OutputID: "table-a"},
+		{Kind: recipe.ConstructionTableRevisionInput, TableID: "b:1:table", RevisionID: "exec-b", OutputID: "table-b"},
+	}, []recipe.StageColumn{{ID: "status", Name: "status", Type: "code", Nullable: true}})
+	compiled := compileTerminalCombineOutput(t, output)
+	combine := compiled.Plan.ClickHouseCombine
+	if combine == nil || len(combine.Projections) != 1 || combine.Projections[0].InputIndex != 0 {
+		t.Fatalf("append omitted-input projection = %#v", combine)
+	}
+	if len(combine.Outputs) != 1 || combine.Outputs[0].LogicalType != "code" || combine.Outputs[0].ClickHouseType != "Nullable(String)" || !combine.Outputs[0].Nullable {
+		t.Fatalf("nullable append output schema = %#v", combine.Outputs)
+	}
+	if got := compiled.OutputSchema[len(compiled.OutputSchema)-1]; got.Cardinality != string(expression.OptionalOne) || !got.Nullable {
+		t.Fatalf("nullable append compiler schema = %#v", got)
 	}
 }
 

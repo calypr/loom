@@ -3,6 +3,7 @@ package explorer
 import (
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/calypr/loom/internal/dataframe/recipe"
@@ -205,5 +206,17 @@ func TestCompilationReceiptValidateAcceptsCurrentMultiOutputContract(t *testing.
 	}
 	if err := r.Validate(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestEmptyOutputContractHasNoAggregateSuitability(t *testing.T) {
+	bundle := recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "empty-output", TranslationVersion: "test", Outputs: []recipe.Output{{Name: "empty", RootResourceType: "Patient", RowGrain: "patient"}}}
+	contract := PublicOutputContract{OutputID: "empty", Lossless: true, MLReady: true, Columns: []PublicOutputColumn{}}
+	if err := contract.ValidateAgainst(bundle, nil); err != nil {
+		t.Fatalf("empty output contract rejected: %v", err)
+	}
+	contract.StructuralSuitability = "scalar"
+	if err := contract.ValidateAgainst(bundle, nil); err == nil || !strings.Contains(err.Error(), "structuralSuitability") {
+		t.Fatalf("empty output suitability mismatch error = %v, want specific aggregate metadata diagnostic", err)
 	}
 }

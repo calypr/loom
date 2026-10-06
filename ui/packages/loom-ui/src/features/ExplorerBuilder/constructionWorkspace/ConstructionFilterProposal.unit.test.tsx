@@ -51,6 +51,7 @@ const capabilities: ConstructionCapabilitiesResponse = {
   baseConstruction: { version: 1, steps: [] },
   stages: [sourceStage],
   selectedStage: sourceStage,
+  workspaceInputs: [],
 };
 
 const preview: ExplorerBuilderPreviewResult = {

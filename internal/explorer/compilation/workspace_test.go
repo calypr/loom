@@ -122,6 +122,63 @@ func TestCompileWorkspaceCanonicalizesEquivalentProjectIdentities(t *testing.T) 
 		})
 	}
 }
+
+func TestCompileWorkspaceAllowsEmptyConstructionTargetBesideSiblingSources(t *testing.T) {
+	visible := true
+	emptyTarget := authoringv2.Document{
+		Kind: authoringv2.Kind, Rows: authoringv2.RecordsRowDefinition(),
+		Output:           authoringv2.Output{ID: "empty_target", Title: "Empty target"},
+		RootResourceType: "Patient",
+		Route:            authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient"},
+		Construction:     &authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{}},
+	}
+	workspace := authoringv2.Workspace{
+		APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind,
+		Explorer:  authoringv2.ExplorerMetadata{Title: "Sparse target with sibling inputs"},
+		Documents: []authoringv2.Document{emptyTarget},
+		Tabs:      []authoringv2.Tab{{ID: "tab_empty_target", Title: "Empty target", OutputID: "empty_target", Order: 0, Visible: true}},
+	}
+	for index := 1; index <= 3; index++ {
+		outputID := fmt.Sprintf("source_%d", index)
+		columnID := fmt.Sprintf("stable-source-column-%d", index)
+		workspace.Documents = append(workspace.Documents, authoringv2.Document{
+			Kind: authoringv2.Kind, Rows: authoringv2.RecordsRowDefinition(),
+			Output: authoringv2.Output{ID: outputID, Title: outputID}, RootResourceType: "Patient",
+			Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient"},
+			Columns: []authoringv2.Column{{
+				ColumnID: columnID, Column: fmt.Sprintf("patient_id_%d", index), Label: fmt.Sprintf("Patient ID %d", index),
+				OccurrenceID: authoringv2.RootOccurrenceID,
+				Source:       authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "id", ProjectionMode: "VALUE"}},
+				Table:        &authoringv2.TablePresentation{Visible: &visible},
+			}},
+		})
+		workspace.Tabs = append(workspace.Tabs, authoringv2.Tab{ID: "tab_" + outputID, Title: outputID, OutputID: outputID, Order: index, Visible: true})
+	}
+
+	compiled, err := CompileWorkspace(context.Background(), "project-a", "explorer-a", workspace, fixtureSnapshot(), ResolvedInputs{})
+	if err != nil {
+		t.Fatalf("CompileWorkspace with an empty rooted target and three source siblings: %v", err)
+	}
+	if len(compiled.Bundle.Outputs) != 4 || len(compiled.OutputContracts) != 4 {
+		t.Fatalf("compiled output/contracts count = %d/%d, want target plus all three source siblings", len(compiled.Bundle.Outputs), len(compiled.OutputContracts))
+	}
+	if got := compiled.Bundle.Outputs[0]; got.Name != "empty_target" || len(got.Construction.Steps) != 0 || len(got.Fields) != 0 {
+		t.Fatalf("empty target gained authored source fields or construction steps: %#v", got)
+	}
+	for index := 1; index <= 3; index++ {
+		output := compiled.Bundle.Outputs[index]
+		contract := compiled.OutputContracts[index]
+		wantOutput := fmt.Sprintf("source_%d", index)
+		wantColumn := fmt.Sprintf("patient_id_%d", index)
+		if output.Name != wantOutput || len(contract.Columns) != 1 || contract.Columns[0].Column != wantColumn {
+			t.Fatalf("sibling %d output/contract = %#v / %#v", index, output, contract)
+		}
+		if len(compiled.EmittedColumns) < index || compiled.EmittedColumns[index-1].OutputID != wantOutput || compiled.EmittedColumns[index-1].PublicColumn != wantColumn {
+			t.Fatalf("sibling %d emitted schema was not preserved: %#v", index, compiled.EmittedColumns)
+		}
+	}
+}
+
 func TestCompileWorkspaceRejectsNegativePresentationOrderBeforeNormalization(t *testing.T) {
 	visible, negativeOrder := true, -1
 	workspace := authoringv2.Workspace{

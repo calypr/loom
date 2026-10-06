@@ -22,8 +22,11 @@ import (
 	"github.com/calypr/loom/internal/catalog"
 	catalogarango "github.com/calypr/loom/internal/catalog/arango"
 	"github.com/calypr/loom/internal/dataframe/compiler"
+	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
+	"github.com/calypr/loom/internal/dataframe/execution/chartifact"
+	chartifactarango "github.com/calypr/loom/internal/dataframe/execution/chartifact/arango"
 	publication "github.com/calypr/loom/internal/dataframe/publication"
 	bundlearango "github.com/calypr/loom/internal/dataframe/publication/arango"
 	publicationclickhouse "github.com/calypr/loom/internal/dataframe/publication/clickhouse"
@@ -209,6 +212,7 @@ func run(ctx context.Context, serverConfig Config) error {
 	}
 	var clickhouse *clickhousestore.Client
 	var materializationReader *published.Reader
+	var privateClickHouseArtifacts *chartifact.Manager
 	if serverConfig.Server.ClickHouse.Enabled {
 		clickhouse, err = clickhousestore.New(clickhousestore.Options{URL: serverConfig.Server.ClickHouse.URL, Database: serverConfig.Server.ClickHouse.Database, Username: serverConfig.Server.ClickHouse.Username, Password: serverConfig.Server.ClickHouse.Password})
 		if err != nil {
@@ -221,6 +225,20 @@ func run(ctx context.Context, serverConfig Config) error {
 		if err := clickhouse.EnsureDatabase(ctx); err != nil {
 			degradation = recordDegradation(logger, degradation, "ClickHouse database", err)
 			publicationReady = false
+		}
+		if err := lifecycleClient.Bootstrap(ctx, chartifactarango.BootstrapSpec()); err != nil {
+			return fmt.Errorf("bootstrap private dataframe artifact catalog: %w", err)
+		}
+		privateArtifactCatalog, err := chartifactarango.NewCatalog(lifecycleClient)
+		if err != nil {
+			return fmt.Errorf("create private dataframe artifact catalog: %w", err)
+		}
+		privateClickHouseArtifacts, err = chartifact.New(chartifact.Config{
+			Catalog: privateArtifactCatalog, ClickHouse: clickhouse,
+			BatchRows: serverConfig.Server.RecipeBatchRows, BatchBytes: serverConfig.Server.RecipeBatchBytes,
+		})
+		if err != nil {
+			return fmt.Errorf("create private ClickHouse artifact manager: %w", err)
 		}
 		materializationReader = &published.Reader{ClickHouse: clickhouse, Catalog: publishedRegistry, Logger: logger, MaxPage: 1000, ActiveManifestResolver: activeManifestResolver, ActiveReleaseResolver: lifecycleStore}
 	}
@@ -284,8 +302,9 @@ func run(ctx context.Context, serverConfig Config) error {
 			logger.Info("dataframe preview AQL complete", fields...)
 			return nil
 		},
-		ResolveClickHouseInputs: resolveClickHouseInputs,
-		WithExecutionReadPins:   withExecutionReadPins,
+		ResolveClickHouseInputs:    resolveClickHouseInputs,
+		WithExecutionReadPins:      withExecutionReadPins,
+		PrivateClickHouseArtifacts: privateClickHouseArtifacts,
 		QueryRows: func(ctx context.Context, query string, batchSize int, bindVars map[string]any, visit func(map[string]any) error) error {
 			started := time.Now()
 			digest := sha256.Sum256([]byte(query))
@@ -426,7 +445,13 @@ func run(ctx context.Context, serverConfig Config) error {
 		return fmt.Errorf("create generation load service: %w", err)
 	}
 	compileReceipt := func(ctx context.Context, request lifecycle.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
-		return compileExplorerReceipt(ctx, request, capabilityResolver, recipeEngine, explorerService, logger)
+		var resolveCombineSchemas combineInputSchemaResolver
+		if materializationReader != nil {
+			resolveCombineSchemas = func(ctx context.Context, output lower.CompiledRecipeOutput, bindings recipe.RuntimeBindings) (resolvedCombineInputSchema, error) {
+				return exactPublishedCombineInputSchemas(ctx, output, bindings, materializationReader, materializationReader.WithExecutionReadPins, scopeResolver)
+			}
+		}
+		return compileExplorerReceipt(ctx, request, capabilityResolver, recipeEngine, explorerService, logger, resolveCombineSchemas)
 	}
 	persistPublishedWorkspace, err := localWorkspaceWriter(serverConfig.Server.LocalWorkspaceWriteback, serverConfig.Server.LocalWorkspaceProject)
 	if err != nil {
@@ -624,6 +649,20 @@ func run(ctx context.Context, serverConfig Config) error {
 	}
 	if err := registerRoutes(server, generationService, authorizer, resolver, explorerHandlers, publishedRegistry, scopeResolver); err != nil {
 		return fmt.Errorf("register HTTP routes: %w", err)
+	}
+	if privateClickHouseArtifacts != nil {
+		reconcileCtx, cancelReconciler := context.WithCancel(ctx)
+		reconcilerDone := startPrivateArtifactReconciler(reconcileCtx, privateClickHouseArtifacts, logger)
+		defer func() {
+			cancelReconciler()
+			timer := time.NewTimer(cleanupTimeout)
+			defer timer.Stop()
+			select {
+			case <-reconcilerDone:
+			case <-timer.C:
+				logger.Error("private ClickHouse artifact reconciler did not stop before shutdown deadline")
+			}
+		}()
 	}
 	errCh := make(chan error, 1)
 	go func() {

@@ -3,8 +3,11 @@ package lifecycle
 import (
 	"context"
 	"errors"
+	"reflect"
 	"testing"
 
+	"github.com/calypr/loom/internal/dataframe/compiler/ir"
+	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/expression"
 	"github.com/calypr/loom/internal/dataframe/recipe"
@@ -813,5 +816,239 @@ func TestConstructionGroupEditCannotIntroduceUnsignedSourceProjection(t *testing
 	}
 	if len(candidate.SourceProjections) != 1 || candidate.SourceProjections[0].ColumnID != "accepted" {
 		t.Fatalf("unsigned source metadata accepted: %#v", candidate.SourceProjections)
+	}
+}
+
+func TestConstructionWorkspaceInputsUseFinalSchemasAndExcludeTargetDependents(t *testing.T) {
+	workspaceOutput := func(id string, steps ...authoringv2.ConstructionStep) authoringv2.Document {
+		return authoringv2.Document{Output: authoringv2.Output{ID: id, Title: "Table " + id}, Construction: &authoringv2.Construction{Version: 1, Steps: steps}}
+	}
+	combineInput := func(outputID string) authoringv2.ConstructionStep {
+		return authoringv2.ConstructionStep{Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputWorkspaceOutput, OutputID: outputID}}}
+	}
+	base := constructionBase{
+		workspace: authoringv2.Workspace{Documents: []authoringv2.Document{
+			{Output: authoringv2.Output{ID: "upstream", Title: "Upstream"}},
+			workspaceOutput("target"),
+			workspaceOutput("depends-on-target", combineInput("target")),
+			workspaceOutput("transitive-dependent", combineInput("depends-on-target")),
+			{Output: authoringv2.Output{ID: "independent", Title: "Independent"}},
+		}},
+		receipt: &explorer.CompilationReceipt{CompiledOutputSchemas: map[string][]explorer.ReceiptCompiledOutputColumn{
+			"upstream": {
+				{ID: "patient-id", Name: "patient_id", Label: "Patient ID", LogicalType: "string", Cardinality: "required_one"},
+				{ID: "birth-date", Name: "birth_date", Label: "Birth date", LogicalType: "date", Cardinality: "optional_one", Nullable: true},
+				{ID: "tags", Name: "tags", Label: "Tags", LogicalType: "string", Cardinality: "many"},
+				{ID: "__row_id", Name: "__row_id", Label: "Internal row ID", LogicalType: "string", Cardinality: "required_one", Internal: true, Identity: true},
+			},
+			"target":               {{ID: "target-col", Name: "x", Label: "X", LogicalType: "string", Cardinality: "required_one"}},
+			"depends-on-target":    {{ID: "dependent-col", Name: "x", Label: "X", LogicalType: "string", Cardinality: "required_one"}},
+			"transitive-dependent": {{ID: "transitive-col", Name: "x", Label: "X", LogicalType: "string", Cardinality: "required_one"}},
+			"independent":          {{ID: "independent-col", Name: "id", Label: "Identifier", LogicalType: "uuid", Cardinality: "required_one", Identity: true}},
+		}},
+	}
+
+	inputs, err := constructionWorkspaceInputs(base, "target")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(inputs) != 2 || inputs[0].OutputID != "upstream" || inputs[1].OutputID != "independent" {
+		t.Fatalf("eligible current outputs = %#v, want upstream and independent only", inputs)
+	}
+	columns := inputs[0].Columns
+	if len(columns) != 3 || columns[0].ID != "patient-id" || columns[0].JoinCompatibilityKey != "String" || columns[0].AppendCompatibilityKey != "string:String" {
+		t.Fatalf("compiler source field identity/compatibility = %#v", columns)
+	}
+	if columns[1].ID != "birth-date" || columns[1].Nullable != true || columns[1].JoinCompatibilityKey != "Date" || columns[1].AppendCompatibilityKey != "date:Date" {
+		t.Fatalf("nullable scalar compatibility = %#v", columns[1])
+	}
+	if columns[2].ID != "tags" || columns[2].Cardinality != "many" || columns[2].JoinCompatibilityKey != "" || columns[2].AppendCompatibilityKey != "" {
+		t.Fatalf("repeated scalar compatibility = %#v", columns[2])
+	}
+	if inputs[1].Columns[0].ID != "independent-col" {
+		t.Fatalf("visible identity column was omitted from compiler schema: %#v", inputs[1].Columns)
+	}
+}
+
+func TestConstructionWorkspaceInputsRejectMissingFinalSiblingSchema(t *testing.T) {
+	base := constructionBase{
+		workspace: authoringv2.Workspace{Documents: []authoringv2.Document{
+			{Output: authoringv2.Output{ID: "target"}},
+			{Output: authoringv2.Output{ID: "sibling"}},
+		}},
+		receipt: &explorer.CompilationReceipt{CompiledOutputSchemas: map[string][]explorer.ReceiptCompiledOutputColumn{
+			"target": {{ID: "target-id", Name: "target", Label: "Target", LogicalType: "string", Cardinality: "required_one"}},
+		}},
+	}
+	_, err := constructionWorkspaceInputs(base, "target")
+	if lifecycleErrorCode(err) != "WORKSPACE_OUTPUT_SCHEMA_UNAVAILABLE" {
+		t.Fatalf("missing compiler-final sibling schema error = %v", err)
+	}
+}
+
+func TestConstructionWorkspaceCompatibilityKeysMatchCompilerCombineTypeRules(t *testing.T) {
+	for _, test := range []struct {
+		logical     string
+		cardinality string
+		nullable    bool
+		joinKey     string
+		appendKey   string
+	}{
+		{logical: "string", cardinality: "required_one", joinKey: "String", appendKey: "string:String"},
+		{logical: "code", cardinality: "optional_one", nullable: true, joinKey: "String", appendKey: "code:String"},
+		{logical: "uuid", cardinality: "required_one", appendKey: "uuid:UUID"},
+		{logical: "date", cardinality: "required_one", joinKey: "Date", appendKey: "date:Date"},
+		{logical: "date_time", cardinality: "required_one", joinKey: "DateTime64(3)", appendKey: "date-time:DateTime64(3)"},
+		{logical: "boolean", cardinality: "required_one", joinKey: "Bool", appendKey: "boolean:Bool"},
+		{logical: "integer", cardinality: "required_one", joinKey: "Int64", appendKey: "integer:Int64"},
+		{logical: "decimal", cardinality: "required_one", appendKey: "decimal:Float64"},
+		{logical: "string", cardinality: "many"},
+		{logical: "quantity", cardinality: "required_one"},
+	} {
+		logical, physical, err := lower.ConstructionCombineColumnType(recipe.StageColumn{Type: test.logical})
+		if err != nil {
+			gotJoin, gotAppend := constructionCombineCompatibilityKeys(test.logical, test.cardinality, test.nullable)
+			if gotJoin != "" || gotAppend != "" {
+				t.Errorf("unsupported logical type %q received compatibility keys (%q, %q)", test.logical, gotJoin, gotAppend)
+			}
+			continue
+		}
+		physicalType := physical
+		if test.nullable {
+			physicalType = "Nullable(" + physicalType + ")"
+		}
+		wantJoin, joinOK := ir.ClickHouseCombineScalarBaseType(physicalType, ir.PhysicalCombineKeyJoin)
+		wantAppend, appendOK := ir.ClickHouseCombineScalarBaseType(physicalType, ir.PhysicalCombineAppend)
+		if test.cardinality == "many" {
+			joinOK, appendOK = false, false
+		}
+		if !joinOK {
+			wantJoin = ""
+		}
+		if !appendOK {
+			wantAppend = ""
+		} else {
+			wantAppend = logical + ":" + wantAppend
+		}
+		gotJoin, gotAppend := constructionCombineCompatibilityKeys(test.logical, test.cardinality, test.nullable)
+		if gotJoin != wantJoin || gotAppend != wantAppend || gotJoin != test.joinKey || gotAppend != test.appendKey {
+			t.Errorf("compatibility keys for %s/%s nullable=%t = (%q, %q), want IR (%q, %q) and contract (%q, %q)", test.logical, test.cardinality, test.nullable, gotJoin, gotAppend, wantJoin, wantAppend, test.joinKey, test.appendKey)
+		}
+	}
+}
+
+func TestConstructionCapabilitiesRejectStaleDraftBeforeWorkspaceSchemaProjection(t *testing.T) {
+	service, store, snapshot := constructionProposalService(t)
+	workspace, err := authoringv2.DecodeWorkspace(store.created.DraftConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	proposal := constructionProposalRequest(store.created, snapshot, workspace.Documents[0], "filter_step")
+	_, err = service.GetConstructionCapabilities(context.Background(), ConstructionCapabilitiesRequest{
+		Project: proposal.Project, ExplorerID: proposal.ExplorerID, SnapshotToken: proposal.SnapshotToken,
+		ExpectedDraftVersion: proposal.ExpectedDraftVersion + 1, ExpectedDraftDigest: proposal.ExpectedDraftDigest,
+		OutputID: proposal.OutputID, StageID: recipe.ConstructionSourceProjectionID,
+	})
+	if lifecycleErrorCode(err) != "DRAFT_CONFLICT" {
+		t.Fatalf("stale draft capability error = %v, want DRAFT_CONFLICT", err)
+	}
+}
+
+func TestApplyAppendProposalPreservesExplicitlyEmptyTargetColumns(t *testing.T) {
+	service, store, snapshot := constructionProposalService(t)
+	service.config.ConstructionSourceStage = func(_ context.Context, _ ConstructionSourceStageRequest) (explorer.ReceiptConstructionStage, error) {
+		return explorer.ReceiptConstructionStage{
+			ID: recipe.ConstructionSourceProjectionID, RowIdentityColumn: "_key",
+			Columns: []explorer.ReceiptConstructionStageColumn{},
+		}, nil
+	}
+	workspace, err := authoringv2.DecodeWorkspace(store.created.DraftConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace.Documents[0].Columns = []authoringv2.Column{}
+	workspace.Documents[0].Construction = nil
+	workspace.Documents[0].TableShape = nil
+	sibling := workspace.Documents[0]
+	sibling.Output = authoringv2.Output{ID: "sibling", Title: "Sibling"}
+	sibling.Columns = []authoringv2.Column{{
+		ColumnID: "sibling_id", Column: "sibling_id", Label: "Sibling ID", LogicalType: "string",
+		OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceProjectID},
+	}}
+	workspace.Documents = append(workspace.Documents, sibling)
+	workspace.Tabs = append(workspace.Tabs, authoringv2.Tab{ID: "sibling-tab", Title: "Sibling", OutputID: "sibling", Order: 1, Visible: true})
+	baseRaw, err := workspace.CanonicalJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	baseDigest, err := workspace.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.created.DraftConfig = baseRaw
+	store.created.DraftDigest = baseDigest
+
+	candidate := authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{{
+		ID: "append_three_sources",
+		Inputs: []authoringv2.ConstructionInputRef{
+			{Kind: authoringv2.ConstructionInputTableRevision, TableID: "table-observations", RevisionID: "rev-source", OutputID: "observations"},
+			{Kind: authoringv2.ConstructionInputTableRevision, TableID: "table-reports", RevisionID: "rev-source", OutputID: "reports"},
+			{Kind: authoringv2.ConstructionInputTableRevision, TableID: "table-patients", RevisionID: "rev-source", OutputID: "source-patients"},
+		},
+		Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationCombine, Combine: &authoringv2.ConstructionCombine{
+			Kind: authoringv2.ConstructionCombineAppend,
+			Projections: []authoringv2.ConstructionCombineProjection{
+				{OutputColumnID: "record_id", InputIndex: 0, InputColumnID: "observation-id"},
+				{OutputColumnID: "record_id", InputIndex: 1, InputColumnID: "report-id"},
+				{OutputColumnID: "record_id", InputIndex: 2, InputColumnID: "patient-id"},
+				{OutputColumnID: "status", InputIndex: 0, InputColumnID: "observation-status"},
+				{OutputColumnID: "status", InputIndex: 1, InputColumnID: "report-status"},
+				{OutputColumnID: "patient_gender", InputIndex: 2, InputColumnID: "patient-gender"},
+			},
+		}},
+		Outputs: []authoringv2.StageColumn{
+			{ID: "record_id", Name: "record_id", Label: "Record ID", Type: "string", Nullable: true},
+			{ID: "status", Name: "status", Label: "Status", Type: "string", Nullable: true},
+			{ID: "patient_gender", Name: "patient_gender", Label: "Patient gender", Type: "string", Nullable: true},
+		},
+	}}}
+	proposal, err := service.ProposeConstruction(context.Background(), ConstructionProposalRequest{
+		Project: store.created.Project, ExplorerID: store.created.ExplorerID, SnapshotToken: snapshot.Token,
+		ExpectedDraftVersion: store.created.DraftVersion, ExpectedDraftDigest: store.created.DraftDigest,
+		OutputID: "patients", ChangedStepID: "append_three_sources", CandidateConstruction: candidate,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if proposal.ProposalID == "" || proposal.PreviewStatus != "PREVIEW_PENDING" {
+		t.Fatalf("append proposal = %#v", proposal)
+	}
+	service.config.PreviewReceipt = func(_ context.Context, _ *explorer.CompilationReceipt, _ recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+		if err := visit(map[string]any{"record_id": "r1", "status": "final", "patient_gender": nil}); err != nil {
+			return dataframeexecution.PreviewSummary{}, err
+		}
+		return dataframeexecution.PreviewSummary{Output: "patients", Columns: []string{"record_id", "status", "patient_gender"}, RowCount: 1, Complete: true}, nil
+	}
+	_, err = service.ApplyCommands(context.Background(), store.created.Project, store.created.ExplorerID, authoringv2.ApplyCommandsRequest{
+		CommandID: "apply-empty-target-append", SemanticsVersion: authoringv2.CurrentSemanticsVersion,
+		SnapshotToken: snapshot.Token, ExpectedDraftVersion: store.created.DraftVersion, ExpectedDraftDigest: store.created.DraftDigest,
+		Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyConstructionProposal, OutputID: "patients", ProposalID: proposal.ProposalID}},
+	}, "alice")
+	if err != nil {
+		t.Fatalf("apply APPEND candidate after canonical receipt round-trip: %v", err)
+	}
+	if store.saveDraftCalls != 1 {
+		t.Fatalf("successful APPEND proposal saves = %d, want one atomic save", store.saveDraftCalls)
+	}
+	saved, err := authoringv2.DecodeWorkspace(store.created.DraftConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	applied := saved.Documents[0]
+	if applied.Columns == nil || len(applied.Columns) != 0 {
+		t.Fatalf("applied APPEND changed the empty authored source column list: %#v", applied.Columns)
+	}
+	if applied.Construction == nil || !reflect.DeepEqual(*applied.Construction, candidate) {
+		t.Fatalf("saved APPEND construction differs from the exact proposal: got %#v want %#v", applied.Construction, candidate)
 	}
 }

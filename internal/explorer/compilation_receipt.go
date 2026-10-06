@@ -109,12 +109,30 @@ type CompilationReceipt struct {
 	// OutputColumnProvenance is the durable publication behavior for every
 	// compiler output column. Recipe Discovered flags are compiler-local and
 	// intentionally do not cross the authoring recipe JSON boundary.
-	OutputColumnProvenance map[string]map[string]string  `json:"outputColumnProvenance,omitempty"`
-	Warnings               []CompilationWarning          `json:"warnings,omitempty"`
-	RowDefinitionProposal  *RowDefinitionProposalBinding `json:"rowDefinitionProposal,omitempty"`
-	TableShapeProposal     *TableShapeProposalBinding    `json:"tableShapeProposal,omitempty"`
-	RequestID              string                        `json:"requestId,omitempty"`
-	CreatedAt              time.Time                     `json:"createdAt"`
+	OutputColumnProvenance map[string]map[string]string `json:"outputColumnProvenance,omitempty"`
+	// CompiledOutputSchemas preserves the lowerer's exact finalized schema for
+	// every output in this workspace receipt. It is used only as server-owned
+	// source metadata when another draft output consumes a WORKSPACE_OUTPUT.
+	CompiledOutputSchemas map[string][]ReceiptCompiledOutputColumn `json:"compiledOutputSchemas,omitempty"`
+	Warnings              []CompilationWarning                     `json:"warnings,omitempty"`
+	RowDefinitionProposal *RowDefinitionProposalBinding            `json:"rowDefinitionProposal,omitempty"`
+	TableShapeProposal    *TableShapeProposalBinding               `json:"tableShapeProposal,omitempty"`
+	RequestID             string                                   `json:"requestId,omitempty"`
+	CreatedAt             time.Time                                `json:"createdAt"`
+}
+
+// ReceiptCompiledOutputColumn is the minimal stable schema projection needed
+// to describe a sibling output. IDs and logical facts come from lower's final
+// OutputSchema; no physical storage names are exposed to authoring clients.
+type ReceiptCompiledOutputColumn struct {
+	ID          string `json:"id,omitempty"`
+	Name        string `json:"name"`
+	Label       string `json:"label"`
+	LogicalType string `json:"logicalType"`
+	Cardinality string `json:"cardinality"`
+	Nullable    bool   `json:"nullable"`
+	Internal    bool   `json:"internal,omitempty"`
+	Identity    bool   `json:"identity,omitempty"`
 }
 
 // RowDefinitionProposalBinding freezes the exact draft and output from which a
@@ -375,13 +393,36 @@ type ReceiptConstructionOperationChoice struct {
 	Reason     string `json:"reason,omitempty"`
 }
 
-func validateReceiptConstructionStages(stagesByOutput map[string][]ReceiptConstructionStage) error {
+func validateReceiptConstructionStages(stagesByOutput map[string][]ReceiptConstructionStage, bundle recipe.Bundle) error {
+	outputsByID := make(map[string]recipe.Output, len(bundle.Outputs))
+	ambiguousOutputs := make(map[string]struct{})
+	for _, output := range bundle.Outputs {
+		if _, duplicate := outputsByID[output.Name]; duplicate {
+			delete(outputsByID, output.Name)
+			ambiguousOutputs[output.Name] = struct{}{}
+			continue
+		}
+		if _, ambiguous := ambiguousOutputs[output.Name]; !ambiguous {
+			outputsByID[output.Name] = output
+		}
+	}
 	for outputID, stages := range stagesByOutput {
 		if strings.TrimSpace(outputID) == "" || outputID != strings.TrimSpace(outputID) {
 			return fmt.Errorf("constructionStages requires exact output IDs")
 		}
 		if len(stages) == 0 {
 			return fmt.Errorf("constructionStages[%q] must include the source projection", outputID)
+		}
+		first := stages[0]
+		hasSourceProjection := first.ID == recipe.ConstructionSourceProjectionID && first.InputStageID == "" && first.Operation == ""
+		hasTerminalCombine := false
+		if !hasSourceProjection {
+			output, exists := outputsByID[outputID]
+			_, ambiguous := ambiguousOutputs[outputID]
+			hasTerminalCombine = exists && !ambiguous && isReceiptTerminalCombineStage(output, stages)
+		}
+		if !hasSourceProjection && !hasTerminalCombine {
+			return fmt.Errorf("constructionStages[%q][0] must be the implicit source projection or the exact terminal Combine stage", outputID)
 		}
 		seenStageIDs := make(map[string]struct{}, len(stages))
 		priorStageID := ""
@@ -394,8 +435,12 @@ func validateReceiptConstructionStages(stagesByOutput map[string][]ReceiptConstr
 			}
 			seenStageIDs[stage.ID] = struct{}{}
 			if index == 0 {
-				if stage.ID != recipe.ConstructionSourceProjectionID || stage.InputStageID != "" || stage.Operation != "" {
-					return fmt.Errorf("constructionStages[%q][0] must be the implicit source projection", outputID)
+				if hasSourceProjection {
+					if stage.ID != recipe.ConstructionSourceProjectionID || stage.InputStageID != "" || stage.Operation != "" {
+						return fmt.Errorf("constructionStages[%q][0] must be the implicit source projection", outputID)
+					}
+				} else if !hasTerminalCombine {
+					return fmt.Errorf("constructionStages[%q][0] must be the exact terminal Combine stage", outputID)
 				}
 			} else if stage.InputStageID != priorStageID || stage.ID == recipe.ConstructionSourceProjectionID || strings.TrimSpace(stage.Operation) == "" {
 				return fmt.Errorf("constructionStages[%q][%d] does not follow its previous stage", outputID, index)
@@ -547,6 +592,60 @@ func validateReceiptConstructionStages(stagesByOutput map[string][]ReceiptConstr
 	return nil
 }
 
+func isReceiptTerminalCombineStage(output recipe.Output, stages []ReceiptConstructionStage) bool {
+	if len(stages) != 1 || output.Construction == nil {
+		return false
+	}
+	step, terminal := output.Construction.TerminalCombineStep()
+	if !terminal || step.Operation.Combine == nil || output.Construction.Validate(nil) != nil {
+		return false
+	}
+	stage := stages[0]
+	return stage.ID == step.ID && stage.InputStageID == "" && stage.Operation == string(step.Operation.Combine.Kind)
+}
+
+func validateReceiptCompiledOutputSchemas(
+	schemas map[string][]ReceiptCompiledOutputColumn,
+	bundle recipe.Bundle,
+) error {
+	if len(schemas) == 0 {
+		return nil // Older receipts remain readable; new compiles always populate this field.
+	}
+	if len(schemas) != len(bundle.Outputs) {
+		return fmt.Errorf("receipt compiled output schema set changed")
+	}
+	for _, output := range bundle.Outputs {
+		columns, exists := schemas[output.Name]
+		if !exists {
+			return fmt.Errorf("receipt compiled output schema is missing output %q", output.Name)
+		}
+		ids := make(map[string]struct{}, len(columns))
+		names := make(map[string]struct{}, len(columns))
+		for index, column := range columns {
+			invalidPublicLabel := !column.Internal && (strings.TrimSpace(column.Label) == "" || column.Label != strings.TrimSpace(column.Label))
+			if strings.TrimSpace(column.Name) == "" || column.Name != strings.TrimSpace(column.Name) || invalidPublicLabel ||
+				strings.TrimSpace(column.LogicalType) == "" || column.LogicalType != strings.TrimSpace(column.LogicalType) ||
+				!expression.Cardinality(column.Cardinality).Valid() {
+				return fmt.Errorf("receipt compiled output schema %q column %d is incomplete", output.Name, index)
+			}
+			if column.ID != "" {
+				if strings.TrimSpace(column.ID) != column.ID {
+					return fmt.Errorf("receipt compiled output schema %q has a non-exact column ID", output.Name)
+				}
+				if _, duplicate := ids[column.ID]; duplicate {
+					return fmt.Errorf("receipt compiled output schema %q duplicates column ID %q", output.Name, column.ID)
+				}
+				ids[column.ID] = struct{}{}
+			}
+			if _, duplicate := names[column.Name]; duplicate {
+				return fmt.Errorf("receipt compiled output schema %q duplicates column name %q", output.Name, column.Name)
+			}
+			names[column.Name] = struct{}{}
+		}
+	}
+	return nil
+}
+
 type IdentityMapping struct {
 	OutputID       string   `json:"outputId,omitempty"`
 	CandidateID    string   `json:"candidateId"`
@@ -639,31 +738,32 @@ func ReceiptID(r CompilationReceipt) (string, error) {
 		return "", fmt.Errorf("canonical public output contract: %w", err)
 	}
 	identity := struct {
-		CompilationKey                  string                                  `json:"compilationKey"`
-		RecipeDigest                    string                                  `json:"recipeDigest"`
-		ResolvedRecipeDigest            string                                  `json:"resolvedRecipeDigest,omitempty"`
-		ResolvedSchemaDigest            string                                  `json:"resolvedSchemaDigest,omitempty"`
-		OutputContractDigest            string                                  `json:"outputContractDigest,omitempty"`
-		Bundle                          recipe.Bundle                           `json:"compiledRecipe"`
-		CompiledConfig                  []byte                                  `json:"compiledConfig,omitempty"`
-		PublicOutputContract            []byte                                  `json:"publicOutputContract,omitempty"`
-		Mappings                        []IdentityMapping                       `json:"identityMappings"`
-		Emissions                       []EmittedColumn                         `json:"emittedColumns"`
-		Fingerprints                    map[string]string                       `json:"outputFingerprints,omitempty"`
-		ColumnProvenance                map[string]map[string]string            `json:"outputColumnProvenance,omitempty"`
-		ResolvedInterpretations         []ResolvedInterpretation                `json:"resolvedInterpretations,omitempty"`
-		Warnings                        []CompilationWarning                    `json:"warnings,omitempty"`
-		RowDefinitionProposal           *RowDefinitionProposalBinding           `json:"rowDefinitionProposal,omitempty"`
-		TableShapeProposal              *TableShapeProposalBinding              `json:"tableShapeProposal,omitempty"`
-		ConstructionProposal            *ConstructionProposalBinding            `json:"constructionProposal,omitempty"`
-		PopulationMemberRemovalProposal *PopulationMemberRemovalProposalBinding `json:"populationMemberRemovalProposal,omitempty"`
-		ConstructionStages              map[string][]ReceiptConstructionStage   `json:"constructionStages,omitempty"`
+		CompilationKey                  string                                   `json:"compilationKey"`
+		RecipeDigest                    string                                   `json:"recipeDigest"`
+		ResolvedRecipeDigest            string                                   `json:"resolvedRecipeDigest,omitempty"`
+		ResolvedSchemaDigest            string                                   `json:"resolvedSchemaDigest,omitempty"`
+		OutputContractDigest            string                                   `json:"outputContractDigest,omitempty"`
+		Bundle                          recipe.Bundle                            `json:"compiledRecipe"`
+		CompiledConfig                  []byte                                   `json:"compiledConfig,omitempty"`
+		PublicOutputContract            []byte                                   `json:"publicOutputContract,omitempty"`
+		Mappings                        []IdentityMapping                        `json:"identityMappings"`
+		Emissions                       []EmittedColumn                          `json:"emittedColumns"`
+		Fingerprints                    map[string]string                        `json:"outputFingerprints,omitempty"`
+		ColumnProvenance                map[string]map[string]string             `json:"outputColumnProvenance,omitempty"`
+		ResolvedInterpretations         []ResolvedInterpretation                 `json:"resolvedInterpretations,omitempty"`
+		Warnings                        []CompilationWarning                     `json:"warnings,omitempty"`
+		RowDefinitionProposal           *RowDefinitionProposalBinding            `json:"rowDefinitionProposal,omitempty"`
+		TableShapeProposal              *TableShapeProposalBinding               `json:"tableShapeProposal,omitempty"`
+		ConstructionProposal            *ConstructionProposalBinding             `json:"constructionProposal,omitempty"`
+		PopulationMemberRemovalProposal *PopulationMemberRemovalProposalBinding  `json:"populationMemberRemovalProposal,omitempty"`
+		ConstructionStages              map[string][]ReceiptConstructionStage    `json:"constructionStages,omitempty"`
+		CompiledOutputSchemas           map[string][]ReceiptCompiledOutputColumn `json:"compiledOutputSchemas,omitempty"`
 	}{
 		key, r.RecipeDigest, r.ResolvedRecipeDigest, r.ResolvedSchemaDigest,
 		r.OutputContractDigest, r.Bundle, compiledConfig,
 		publicContract, r.IdentityMappings, r.EmittedColumns,
 		r.OutputFingerprints, r.OutputColumnProvenance, r.ResolvedInterpretations, r.Warnings, r.RowDefinitionProposal, r.TableShapeProposal,
-		r.ConstructionProposal, r.PopulationMemberRemovalProposal, r.ConstructionStages,
+		r.ConstructionProposal, r.PopulationMemberRemovalProposal, r.ConstructionStages, r.CompiledOutputSchemas,
 	}
 	return digestIdentity("receipt_", identity)
 }
@@ -722,7 +822,10 @@ func (r CompilationReceipt) Validate() error {
 			return fmt.Errorf("population member proposals require the current receipt and compiler contract")
 		}
 	}
-	if err := validateReceiptConstructionStages(r.ConstructionStages); err != nil {
+	if err := validateReceiptConstructionStages(r.ConstructionStages, r.Bundle); err != nil {
+		return err
+	}
+	if err := validateReceiptCompiledOutputSchemas(r.CompiledOutputSchemas, r.Bundle); err != nil {
 		return err
 	}
 	if r.ReceiptFormatVersion != 0 && r.ReceiptFormatVersion != CompilationReceiptFormatVersion && r.ReceiptFormatVersion != previousCompilationReceiptFormatVersion && r.ReceiptFormatVersion != legacyCompilationReceiptFormatVersion {

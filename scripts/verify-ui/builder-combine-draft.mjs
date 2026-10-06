@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import { isDeepStrictEqual } from 'node:util';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { browserURL } from './builder-url.mjs';
@@ -9,6 +8,7 @@ import {
   appendGroupedCounts,
   builderDraftStateEvidence,
   canceledDraftEvidence,
+  constructionCandidateWireEquivalent,
   currentDraftSourceEvidence,
   groupCounts,
   groupedPivotRows,
@@ -133,8 +133,15 @@ const setSelectValue = async (page, selector, value) => {
   const selected = await locator.selectOption(value);
   if (!selected.includes(value)) throw new Error('Select rejected requested option ' + value + ': got ' + selected);
 };
+let activeTimedAction;
+let activeTimedActionStartedAt;
+let lastTimedAction;
 const recordBrowserTiming = async (report, page, { name, action, after, timeout = 5000, budget = 5000 }) => {
   const started = Date.now();
+  const previousTimedAction = activeTimedAction;
+  const previousTimedActionStartedAt = activeTimedActionStartedAt;
+  activeTimedAction = name;
+  activeTimedActionStartedAt = started;
   let actionDispatched = false;
   try {
     await action();
@@ -155,7 +162,98 @@ const recordBrowserTiming = async (report, page, { name, action, after, timeout 
       { elapsedMs, budgetMs: budget, waitTimeoutMs: timeout });
     else if (after) recordUntested(report, 'performance', name + ' action-to-render', 'No action was dispatched because the target was not actionable.');
     throw error;
+  } finally {
+    lastTimedAction = { name, startedAtEpochMs: started, finishedAtEpochMs: Date.now() };
+    activeTimedAction = previousTimedAction;
+    activeTimedActionStartedAt = previousTimedActionStartedAt;
   }
+};
+
+const captureOwnedPreviewLifecycle = (page, target, explorer) => {
+  const expectedURL = new URL(apiRoot({ target }, explorer) + '/preview', target.apiUrl);
+  const ownedOrigins = new Set([target.uiUrl, target.apiUrl].filter(Boolean).map((value) => new URL(value).origin));
+  const requests = new Map();
+  const events = [];
+  const maxEvents = 256;
+  const startedAt = performance.now();
+  let nextRequest = 0;
+  let nextEvent = 0;
+  let droppedEvents = 0;
+  const append = (event, request, fields = {}) => {
+    const record = {
+      sequence: ++nextEvent,
+      event,
+      elapsedMs: Math.round(performance.now() - startedAt),
+      observedAtEpochMs: Date.now(),
+      actionPhase: activeTimedAction ?? 'outside timed action',
+      actionStartedAtEpochMs: activeTimedActionStartedAt ?? null,
+      lastTimedAction: lastTimedAction ?? null,
+      requestId: request.id,
+      outputId: request.outputId,
+      receiptId: request.receiptId,
+      ...fields,
+    };
+    if (events.length >= maxEvents) {
+      droppedEvents += 1;
+      if (event === 'failed') {
+        const replaceAt = events.findIndex((existing) => existing.event !== 'failed');
+        if (replaceAt >= 0) {
+          events.splice(replaceAt, 1);
+          events.push(record);
+        }
+      }
+      return;
+    }
+    events.push(record);
+  };
+  const requestIdentity = (request) => {
+    if (request.method() !== 'POST') return undefined;
+    let url;
+    try { url = new URL(request.url()); } catch { return undefined; }
+    if (!ownedOrigins.has(url.origin) || url.pathname !== expectedURL.pathname) return undefined;
+    let body;
+    try { body = request.postDataJSON(); } catch { body = undefined; }
+    return {
+      id: 'preview-request-' + (++nextRequest),
+      outputId: typeof body?.outputId === 'string' ? body.outputId : null,
+      receiptId: typeof body?.receiptId === 'string' ? body.receiptId : null,
+    };
+  };
+  const onRequest = (request) => {
+    const identity = requestIdentity(request);
+    if (!identity) return;
+    requests.set(request, identity);
+    append('request', identity);
+  };
+  const onResponse = (response) => {
+    const identity = requests.get(response.request());
+    if (identity) append('response', identity, { status: response.status() });
+  };
+  const onRequestFinished = (request) => {
+    const identity = requests.get(request);
+    if (!identity) return;
+    append('finished', identity);
+    requests.delete(request);
+  };
+  const onRequestFailed = (request) => {
+    const identity = requests.get(request);
+    if (!identity) return;
+    append('failed', identity, { errorText: String(request.failure()?.errorText ?? 'request failed').slice(0, 240) });
+    requests.delete(request);
+  };
+  page.on('request', onRequest);
+  page.on('response', onResponse);
+  page.on('requestfinished', onRequestFinished);
+  page.on('requestfailed', onRequestFailed);
+  return {
+    stop: () => {
+      page.off('request', onRequest);
+      page.off('response', onResponse);
+      page.off('requestfinished', onRequestFinished);
+      page.off('requestfailed', onRequestFailed);
+      return { path: expectedURL.pathname, maxEvents, droppedEvents, events };
+    },
+  };
 };
 const reload = async (page, expression) => {
   await page.reload({ waitUntil: 'domcontentloaded' });
@@ -169,7 +267,7 @@ const optionValueByText = async (page, selector, expectedText) => {
     if (option.disabled) return false;
     const text = normalize(option.text).replace(/ · current draft$/, '');
     const wanted = normalize(expectedText);
-    return text === wanted || text.startsWith(wanted + ' (');
+    return text === wanted || text.startsWith(wanted + ' (') || text.startsWith(wanted + ' · ');
   });
   if (matches.length !== 1) throw new Error('Expected one enabled option ' + JSON.stringify(expectedText) + ' in ' + selector + '; options=' + JSON.stringify(options));
   return matches[0].value;
@@ -288,14 +386,12 @@ const addRawField = async (page, report, resourceType, path, expectedRows) => {
   await click(page, 'summary', { name: 'Raw FHIR fields (advanced)' });
   const selector = 'input[type="checkbox"][aria-label=' + JSON.stringify('Select ' + resourceType + '.' + path) + ']';
   await waitFor(page, 'Boolean(document.querySelector(' + JSON.stringify(selector) + '))', 10000);
-  const action = await inspectAction(page, selector);
-  if (!isActionable(action)) throw new Error('Raw source field is not actionable: ' + JSON.stringify(action));
   const outputId = await evaluate(page, "document.querySelector('[data-testid=construction-preview]')?.dataset.previewOutputId??null");
   if (!outputId) throw new Error('Raw field selection has no current root output identity.');
   await recordBrowserTiming(report, page, {
     name: 'select raw ' + resourceType + '.' + path + ' and make Apply columns ready',
     action: async () => {
-      await click(page, selector);
+      await page.locator(selector).check({ timeout: 5000 });
       await click(page, 'button', { name: 'Add 1 selected feature' });
     },
     after: "[...document.querySelectorAll('button')].some(b=>b.innerText.trim()==='Apply columns'&&!b.disabled)&&" +
@@ -432,7 +528,7 @@ const createGroupSource = async (context, page, report, explorer, {
     await applyCurrentProposal(page, report, 'Apply ' + title + ' current-draft PIVOT', expectedIDs.length, document.output.id);
     await reloadAndSelectSavedTable(report, page, document.output.id, expectedIDs.length, 'reload applied ' + title + ' Group→Pivot and render its exact table');
     assertRows(report, title + ' Group→Pivot values survive reload', await readGrid(page),
-      [idLabel, ...requiredCategories.map((category) => category[0].toUpperCase() + category.slice(1))], expectedByID.map((row) => row.map((value) => value === null ? '—' : String(value))));
+      [idLabel, ...requiredCategories], expectedByID.map((row) => row.map((value) => value === null ? '—' : String(value))));
     builder = await readBuilder(context, explorer);
     document = documentByRoot(builder, resourceType);
     const pivot = document.construction?.steps?.find((step) => step.operation?.kind === 'PIVOT');
@@ -704,11 +800,18 @@ const renderFinalMapping = async (page, report, name, mapping, rows, outputId) =
   });
 };
 
+const boundedJSONEvidence = (value, limit = 16000) => {
+  const serialized = JSON.stringify(value);
+  if (serialized === undefined) return null;
+  return serialized.length <= limit
+    ? value
+    : { truncated: true, serializedLength: serialized.length, jsonPrefix: serialized.slice(0, limit) };
+};
 const assertDraftCandidate = async (report, page, capture, base, target, sources, expectedKind) => {
   const expectedOutputIDs = sources.map((source) => source.outputId);
   const expectedBuilderURL = new URL(report.target.scope.requestURL);
   const expectedProposalPath = expectedBuilderURL.pathname.replace(/\/builder$/, '/construction-proposals');
-  const expectedProposalOrigin = expectedBuilderURL.origin;
+  const expectedProposalOrigin = new URL(report.target.uiUrl).origin;
   const event = await capture.waitFor((entry) => {
     if (entry.path !== expectedProposalPath || entry.status !== 200 || entry.response?.previewStatus !== 'READY' || entry.body?.outputId !== target.outputId || !entry.body?.candidateConstruction) return false;
     const step = entry.body.candidateConstruction.steps?.at(-1);
@@ -724,26 +827,39 @@ const assertDraftCandidate = async (report, page, capture, base, target, sources
     sourceDocuments: base.workspace?.documents,
     publishedOutputIDs: [],
   });
-  const proposalOriginMatched = new URL(event.url).origin === expectedProposalOrigin;
-  const scope = event.path === expectedProposalPath && proposalOriginMatched &&
-    base.catalog?.generation === report.target.scope.generation &&
-    base.catalog?.authorizationScopeDigest === report.target.scope.authorizationScopeDigest &&
-    event.body.snapshotToken === base.catalog?.snapshotToken &&
-    event.body.expectedDraftVersion === base.draftVersion && event.body.expectedDraftDigest === base.draftDigest;
+  const requestOrigin = new URL(event.url).origin;
+  const scopeChecks = {
+    routePathMatches: event.path === expectedProposalPath,
+    validatedUIProxyOriginMatches: requestOrigin === expectedProposalOrigin,
+    generationMatches: base.catalog?.generation === report.target.scope.generation,
+    authorizationScopeMatches: base.catalog?.authorizationScopeDigest === report.target.scope.authorizationScopeDigest,
+    snapshotTokenMatches: event.body.snapshotToken === base.catalog?.snapshotToken,
+    expectedDraftVersionMatches: event.body.expectedDraftVersion === base.draftVersion,
+    expectedDraftDigestMatches: event.body.expectedDraftDigest === base.draftDigest,
+  };
+  const proposalOriginMatched = scopeChecks.validatedUIProxyOriginMatches;
+  const scope = Object.values(scopeChecks).every(Boolean);
   const domProposal = await evaluate(page, `(()=>({
     proposalId:document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-id')??null,
     receiptId:document.querySelector('[data-testid="construction-proposal-preview"]')?.getAttribute('data-preview-receipt-id')??null,
     outputId:document.querySelector('[data-testid="construction-proposal-preview"]')?.getAttribute('data-preview-output-id')??null
   }))()`);
   const responsePreview = event.response?.preview;
-  const responseBound = event.response?.proposalId === domProposal.proposalId &&
-    responsePreview?.receiptId === domProposal.receiptId && responsePreview?.outputId === target.outputId &&
-    domProposal.outputId === target.outputId && event.response?.outputId === target.outputId &&
-    event.response?.snapshotToken === event.body.snapshotToken &&
-    event.response?.draftVersion === event.body.expectedDraftVersion &&
-    event.response?.draftDigest === event.body.expectedDraftDigest &&
-    event.response?.previewStatus === 'READY' &&
-    isDeepStrictEqual(event.response?.candidateConstruction, event.body.candidateConstruction);
+  const requestConstruction = event.body.candidateConstruction;
+  const responseConstruction = event.response?.candidateConstruction;
+  const responseChecks = {
+    proposalIdMatchesDOM: event.response?.proposalId === domProposal.proposalId,
+    previewReceiptMatchesDOM: responsePreview?.receiptId === domProposal.receiptId,
+    previewOutputMatchesTarget: responsePreview?.outputId === target.outputId,
+    domOutputMatchesTarget: domProposal.outputId === target.outputId,
+    responseOutputMatchesTarget: event.response?.outputId === target.outputId,
+    snapshotTokenMatchesRequest: event.response?.snapshotToken === event.body.snapshotToken,
+    draftVersionMatchesRequest: event.response?.draftVersion === event.body.expectedDraftVersion,
+    draftDigestMatchesRequest: event.response?.draftDigest === event.body.expectedDraftDigest,
+    previewStatusReady: event.response?.previewStatus === 'READY',
+    candidateConstructionMatchesRequest: constructionCandidateWireEquivalent(requestConstruction, responseConstruction),
+  };
+  const responseBound = Object.values(responseChecks).every(Boolean);
   check(report, 'correctness', 'automatic Combine proposal is bound to this exact draft CAS and UI proxy scope',
     evidence.ok && scope && responseBound && event.status === 200, {
       path: event.path,
@@ -755,18 +871,21 @@ const assertDraftCandidate = async (report, page, capture, base, target, sources
       generation: report.target.scope.generation,
       authorizationScopeDigest: report.target.scope.authorizationScopeDigest,
       proposalOriginMatched,
+      requestOrigin,
+      expectedProposalOrigin,
+      expectedDirectApiOrigin: expectedBuilderURL.origin,
+      scopeChecks,
       responseBound,
+      responseChecks,
       domProposal,
       responseProposalId: event.response?.proposalId ?? null,
       responseOutputId: event.response?.outputId ?? null,
       responsePreview: responsePreview ? { receiptId: responsePreview.receiptId, outputId: responsePreview.outputId } : null,
-      snapshotTokenMatched: event.body.snapshotToken === base.catalog?.snapshotToken,
-      draftVersionMatched: event.body.expectedDraftVersion === base.draftVersion,
-      draftDigestMatched: event.body.expectedDraftDigest === base.draftDigest,
       candidateStepKind: step?.operation?.kind ?? null,
       candidateCombineKind: step?.operation?.combine?.kind ?? null,
+      requestCandidateConstruction: boundedJSONEvidence(requestConstruction),
+      responseCandidateConstruction: boundedJSONEvidence(responseConstruction),
       expectedProposalPath,
-      expectedProposalOrigin,
       evidence,
     });
   if (!evidence.ok || !scope || !responseBound || event.status !== 200) throw new Error('Native Combine candidate did not use the exact current-draft workspace outputs.');
@@ -787,10 +906,10 @@ const readPreviewIdentity = async (page) => evaluate(page, `(()=>{const p=docume
 
 const savedStepEditorReady = (editorSelector) => {
   if (editorSelector.includes('construction-combine-editor')) {
-    return `(()=>{const e=document.querySelector(${JSON.stringify(editorSelector)});if(!e)return false;const fieldset=e.querySelector('fieldset');const inputs=[...e.querySelectorAll('select[aria-label^="Input table "]')];const maps=[...e.querySelectorAll('select[aria-label*=" field in input "]')];const labels=[...e.querySelectorAll('input[aria-label^="Output field "][aria-label$=" label"]')];return Boolean(fieldset&&!fieldset.matches(':disabled')&&inputs.length>=2&&inputs.every(s=>!s.matches(':disabled')&&s.options.length>1)&&maps.length>0&&maps.every(s=>!s.matches(':disabled')&&s.options.length>1)&&labels.length>0&&labels.every(input=>!input.matches(':disabled'))})()`;
+    return `(()=>{const e=document.querySelector(${JSON.stringify(editorSelector)});if(!e)return false;const fieldset=e.querySelector('fieldset');const inputs=[...e.querySelectorAll('select[aria-label^="Input table "]')];const maps=[...e.querySelectorAll('select[aria-label*=" field in input "]')];const labels=[...e.querySelectorAll('input[aria-label^="Output field "][aria-label$=" label"]')];return Boolean(fieldset&&!fieldset.matches(':disabled')&&inputs.length>=2&&inputs.every(s=>!s.matches(':disabled')&&s.options.length>1)&&maps.length>0&&maps.every(s=>!s.matches(':disabled')&&s.options.length>1)&&labels.length>0&&labels.every(input=>!input.matches(':disabled')));})()`;
   }
   if (editorSelector.includes('construction-reshape-group')) {
-    return `(()=>{const e=document.querySelector(${JSON.stringify(editorSelector)});if(!e)return false;const summary=e.querySelector('select[aria-label="Summary 1"]');const keys=[...e.querySelectorAll('input[type="checkbox"][aria-label^="Group by "]')];return Boolean(summary&&!summary.matches(':disabled')&&keys.length>0&&keys.every(input=>!input.matches(':disabled'))})()`;
+    return `(()=>{const e=document.querySelector(${JSON.stringify(editorSelector)});if(!e)return false;const summary=e.querySelector('select[aria-label="Summary 1"]');const keys=[...e.querySelectorAll('input[type="checkbox"][aria-label^="Group by "]')];return Boolean(summary&&!summary.matches(':disabled')&&keys.length>0&&keys.every(input=>!input.matches(':disabled')));})()`;
   }
   throw new Error('No readiness contract is defined for saved step editor ' + editorSelector);
 };
@@ -914,6 +1033,7 @@ const beginOwnedWorkspace = async (context, page, report, label) => {
 
 export const draftJoinWorkflow = async ({ page, report }, context) => {
   const run = await beginOwnedWorkspace(context, page, report, 'join');
+  const previewLifecycle = captureOwnedPreviewLifecycle(page, context.target, run.explorer);
   const sources = [];
   try {
     sources.push(await createGroupSource(context, page, report, run.explorer, {
@@ -1050,7 +1170,10 @@ export const draftJoinWorkflow = async ({ page, report }, context) => {
     check(report, 'correctness', 'Join lifecycle made no Publish request or pinned revision reference', run.publishCount() === 0 && sources.every((source) => !JSON.stringify(after.workspace.documents).includes('TABLE_REVISION')), {
       publishRequests: run.publishCount(), inputKinds: after.workspace.documents.flatMap((document) => document.construction?.steps?.flatMap((step) => step.inputs ?? []) ?? []).map((input) => input.kind),
     });
-  } finally { run.stopPublish(); }
+  } finally {
+    report.previewRequestLifecycle = previewLifecycle.stop();
+    run.stopPublish();
+  }
 };
 
 export const draftAppendWorkflow = async ({ page, report }, context) => {
@@ -1161,7 +1284,7 @@ export const groupPivotJoinWorkflow = async ({ page, report }, context) => {
     const reportPivot = groupedPivotRows(run.raw.reports, 'id', 'status', categories);
     const expectedInner = joinGroupPivotRows(observationGroups, reportPivot).map((row) => row.map((value) => value === null ? '—' : String(value)));
     const expectedLeft = joinGroupPivotRows(observationGroups, reportPivot, 'LEFT').map((row) => row.map((value) => value === null ? '—' : String(value)));
-    const headers = ['Observation ID', 'Observation rows', 'DiagnosticReport ID', ...categories.map((category) => 'Report ' + category[0].toUpperCase() + category.slice(1))];
+    const headers = ['Observation ID', 'Observation rows', 'DiagnosticReport ID', ...categories.map((category) => 'Report ' + category)];
     try {
       const finalMapping = await configureJoin(page, sources, 'INNER', 'group-pivot');
       await renderFinalMapping(page, report, 'mixed Group and Group→Pivot draft INNER Join auto-preview within five seconds', finalMapping, expectedInner.length, target.outputId);

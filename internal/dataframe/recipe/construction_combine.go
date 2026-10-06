@@ -125,7 +125,7 @@ func (combine ConstructionCombine) Validate(inputCount int, outputs []StageColum
 		if len(combine.Keys) != 0 || combine.JoinType != "" || combine.RightMatchPolicy != "" || combine.MembershipMode != "" {
 			return fmt.Errorf("append does not accept keys, joinType, rightMatchPolicy, or membershipMode")
 		}
-		if err := validateCombineProjectionOutputs(combine.Projections, inputCount, outputs, true); err != nil {
+		if err := validateAppendProjectionOutputs(combine.Projections, inputCount, outputs); err != nil {
 			return err
 		}
 	case ConstructionCombineMembership:
@@ -171,6 +171,64 @@ func validateCombineKeys(keys []ConstructionCombineKey) error {
 		seenLeft[key.LeftColumnID], seenRight[key.RightColumnID] = true, true
 	}
 	return nil
+}
+
+func validateAppendProjectionOutputs(projections []ConstructionCombineProjection, inputCount int, outputs []StageColumn) error {
+	outputIDs := make(map[string]bool, len(outputs))
+	for _, output := range outputs {
+		outputIDs[output.ID] = true
+	}
+	mapped := make(map[string]map[int]bool, len(outputs))
+	seen := make(map[string]bool, len(projections))
+	for _, projection := range projections {
+		if projection.InputIndex < 0 || projection.InputIndex >= inputCount {
+			return fmt.Errorf("append projection input index %d is out of range", projection.InputIndex)
+		}
+		if !outputIDs[projection.OutputColumnID] {
+			return fmt.Errorf("append projection references unknown output %q", projection.OutputColumnID)
+		}
+		key := fmt.Sprintf("%d\x00%s", projection.InputIndex, projection.OutputColumnID)
+		if seen[key] {
+			return fmt.Errorf("combine has duplicate projection for input %d and output %q", projection.InputIndex, projection.OutputColumnID)
+		}
+		seen[key] = true
+		if mapped[projection.OutputColumnID] == nil {
+			mapped[projection.OutputColumnID] = make(map[int]bool, inputCount)
+		}
+		mapped[projection.OutputColumnID][projection.InputIndex] = true
+	}
+	for _, output := range outputs {
+		outputInputs := mapped[output.ID]
+		if len(outputInputs) == 0 {
+			return fmt.Errorf("append output %q is not mapped from any input", output.ID)
+		}
+		if len(outputInputs) == inputCount {
+			continue
+		}
+		missingInput := -1
+		for inputIndex := 0; inputIndex < inputCount; inputIndex++ {
+			if !outputInputs[inputIndex] {
+				missingInput = inputIndex
+				break
+			}
+		}
+		if !output.Nullable {
+			return fmt.Errorf("append output %q must be nullable when input %d is absent", output.ID, missingInput)
+		}
+		if !constructionCombineScalarType(output.Type) {
+			return fmt.Errorf("append output %q must have a concrete scalar type when an input is absent", output.ID)
+		}
+	}
+	return nil
+}
+
+func constructionCombineScalarType(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "string", "code", "uuid", "date", "date_time", "date-time", "datetime", "boolean", "integer", "decimal":
+		return true
+	default:
+		return false
+	}
 }
 
 func validateCombineProjectionOutputs(projections []ConstructionCombineProjection, inputCount int, outputs []StageColumn, allowAppendMappings bool) error {

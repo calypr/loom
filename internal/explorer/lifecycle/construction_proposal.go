@@ -9,6 +9,8 @@ import (
 	"reflect"
 	"strings"
 
+	"github.com/calypr/loom/internal/dataframe/compiler/ir"
+	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
@@ -39,6 +41,27 @@ type ConstructionCapabilitiesResponse struct {
 	SelectedStage    explorer.ReceiptConstructionStage   `json:"selectedStage"`
 	SourceInput      ConstructionGroupSourceCapability   `json:"sourceInput"`
 	PivotSourceInput ConstructionPivotSourceCapability   `json:"pivotSourceInput"`
+	WorkspaceInputs  []ConstructionWorkspaceInput        `json:"workspaceInputs"`
+}
+
+// ConstructionWorkspaceInput is a current sibling output eligible to be
+// consumed by a same-workspace Combine. Its columns come from the finalized
+// lower.OutputSchema frozen into the exact workspace compilation receipt.
+type ConstructionWorkspaceInput struct {
+	OutputID string                             `json:"outputId"`
+	Title    string                             `json:"title"`
+	Columns  []ConstructionWorkspaceInputColumn `json:"columns"`
+}
+
+type ConstructionWorkspaceInputColumn struct {
+	ID                     string `json:"id"`
+	Name                   string `json:"name"`
+	Label                  string `json:"label"`
+	LogicalType            string `json:"logicalType"`
+	Cardinality            string `json:"cardinality"`
+	Nullable               bool   `json:"nullable"`
+	JoinCompatibilityKey   string `json:"joinCompatibilityKey,omitempty"`
+	AppendCompatibilityKey string `json:"appendCompatibilityKey,omitempty"`
 }
 
 type ConstructionGroupSourceCapability struct {
@@ -181,6 +204,19 @@ func (r ConstructionProposalRequest) Validate() error {
 	if err := validateConstructionPivotSourceSelections(r.PivotSources); err != nil {
 		return err
 	}
+	for stepIndex, step := range r.CandidateConstruction.Steps {
+		for inputIndex, input := range step.Inputs {
+			if err := input.Validate(); err != nil {
+				return fmt.Errorf("candidateConstruction.steps[%d].inputs[%d]: %w", stepIndex, inputIndex, err)
+			}
+			if input.Kind == authoringv2.ConstructionInputWorkspaceOutput && step.Operation.Kind != authoringv2.ConstructionOperationCombine {
+				return fmt.Errorf("candidateConstruction.steps[%d].inputs[%d]: WORKSPACE_OUTPUT is only supported by COMBINE", stepIndex, inputIndex)
+			}
+			if input.Kind == authoringv2.ConstructionInputTableRevision && step.Operation.Kind != authoringv2.ConstructionOperationCombine {
+				return fmt.Errorf("candidateConstruction.steps[%d].inputs[%d]: TABLE_REVISION is only supported by COMBINE", stepIndex, inputIndex)
+			}
+		}
+	}
 	if r.Limit < 0 || r.Limit > dataframeexecution.MaxPreviewLimit {
 		return fmt.Errorf("limit must be between 1 and %d", dataframeexecution.MaxPreviewLimit)
 	}
@@ -265,11 +301,106 @@ func (s *Service) GetConstructionCapabilities(ctx context.Context, request Const
 	if err != nil {
 		return ConstructionCapabilitiesResponse{}, fmt.Errorf("compile pivot source choices: %w", err)
 	}
+	workspaceInputs, err := constructionWorkspaceInputs(base, request.OutputID)
+	if err != nil {
+		return ConstructionCapabilitiesResponse{}, err
+	}
 	return ConstructionCapabilitiesResponse{
 		SnapshotToken: request.SnapshotToken, DraftVersion: base.owner.DraftVersion, DraftDigest: base.owner.DraftDigest,
 		OutputID: request.OutputID, StageID: request.StageID, BaseConstruction: base.construction,
 		Stages: stages, SelectedStage: *selected, SourceInput: sourceInput, PivotSourceInput: pivotSourceInput,
+		WorkspaceInputs: workspaceInputs,
 	}, nil
+}
+
+func constructionWorkspaceInputs(base constructionBase, targetOutputID string) ([]ConstructionWorkspaceInput, error) {
+	inputs := []ConstructionWorkspaceInput{}
+	if base.receipt == nil || len(base.workspace.Documents) < 2 {
+		return inputs, nil
+	}
+	if len(base.receipt.CompiledOutputSchemas) == 0 {
+		return nil, conflict("construction-capabilities", "WORKSPACE_OUTPUT_SCHEMA_UNAVAILABLE", "the current compilation receipt has no finalized workspace output schemas", nil, nil)
+	}
+	blocked := map[string]struct{}{targetOutputID: {}}
+	changed := true
+	for changed {
+		changed = false
+		for _, document := range base.workspace.Documents {
+			if _, alreadyBlocked := blocked[document.Output.ID]; alreadyBlocked || document.Construction == nil {
+				continue
+			}
+			dependsOnBlocked := false
+			for _, step := range document.Construction.Steps {
+				for _, input := range step.Inputs {
+					if input.Kind != authoringv2.ConstructionInputWorkspaceOutput {
+						continue
+					}
+					if _, dependencyBlocked := blocked[input.OutputID]; dependencyBlocked {
+						dependsOnBlocked = true
+						break
+					}
+				}
+				if dependsOnBlocked {
+					break
+				}
+			}
+			if dependsOnBlocked {
+				blocked[document.Output.ID] = struct{}{}
+				changed = true
+			}
+		}
+	}
+	for _, document := range base.workspace.Documents {
+		if _, excluded := blocked[document.Output.ID]; excluded {
+			continue
+		}
+		compiled, exists := base.receipt.CompiledOutputSchemas[document.Output.ID]
+		if !exists {
+			return nil, conflict("construction-capabilities", "WORKSPACE_OUTPUT_SCHEMA_UNAVAILABLE", "a sibling output is missing from the current compilation receipt schema", map[string]any{"outputId": document.Output.ID}, nil)
+		}
+		columns := make([]ConstructionWorkspaceInputColumn, 0, len(compiled))
+		for _, column := range compiled {
+			if column.Internal || column.ID == "" {
+				continue
+			}
+			joinKey, appendKey := constructionCombineCompatibilityKeys(column.LogicalType, column.Cardinality, column.Nullable)
+			columns = append(columns, ConstructionWorkspaceInputColumn{
+				ID: column.ID, Name: column.Name, Label: column.Label,
+				LogicalType: column.LogicalType, Cardinality: column.Cardinality, Nullable: column.Nullable,
+				JoinCompatibilityKey: joinKey, AppendCompatibilityKey: appendKey,
+			})
+		}
+		if len(columns) == 0 {
+			continue
+		}
+		title := strings.TrimSpace(document.Output.Title)
+		if title == "" {
+			title = document.Output.ID
+		}
+		inputs = append(inputs, ConstructionWorkspaceInput{OutputID: document.Output.ID, Title: title, Columns: columns})
+	}
+	return inputs, nil
+}
+
+func constructionCombineCompatibilityKeys(logicalType, cardinality string, nullable bool) (joinKey, appendKey string) {
+	if cardinality == "many" {
+		return "", ""
+	}
+	logical, physical, err := lower.ConstructionCombineColumnType(recipe.StageColumn{Type: logicalType})
+	if err != nil {
+		return "", ""
+	}
+	physicalWithNullability := physical
+	if nullable {
+		physicalWithNullability = "Nullable(" + physical + ")"
+	}
+	if base, ok := ir.ClickHouseCombineScalarBaseType(physicalWithNullability, ir.PhysicalCombineKeyJoin); ok {
+		joinKey = base
+	}
+	if base, ok := ir.ClickHouseCombineScalarBaseType(physicalWithNullability, ir.PhysicalCombineAppend); ok {
+		appendKey = logical + ":" + base
+	}
+	return joinKey, appendKey
 }
 
 func (s *Service) ProposeConstruction(ctx context.Context, request ConstructionProposalRequest) (ConstructionProposalResponse, error) {
@@ -1124,6 +1255,30 @@ func (s *Service) loadConstructionBase(ctx context.Context, project, explorerID,
 		}
 		if stage.ID != recipe.ConstructionSourceProjectionID || stage.RowIdentityColumn == "" || len(stage.Columns) != 0 {
 			return constructionBase{}, conflict("construction-capabilities", "INVALID_SOURCE_STAGE_DESCRIPTOR", "the compiler returned an invalid zero-column source-stage descriptor", nil, nil)
+		}
+		if len(workspace.Documents) > 1 {
+			if s.config.CompileReceipt == nil {
+				return constructionBase{}, unavailable("construction-capabilities", "CAPABILITY_UNAVAILABLE", "authorized construction compilation is not configured", nil)
+			}
+			workspace.Documents[documentIndex] = upgraded
+			receipt, err := s.compile(ctx, compileRequest{
+				Project: project, ExplorerID: explorerID, Workspace: workspace, SnapshotToken: snapshotToken,
+				RequestID: "construction-capabilities",
+			})
+			if err != nil {
+				return constructionBase{}, err
+			}
+			if _, err := s.verifyProposalReceipt(ctx, "construction-capabilities", receipt, project, explorerID, snapshotToken, snapshot, &workspace); err != nil {
+				return constructionBase{}, err
+			}
+			if err := validateReceiptOutputContract(receipt, outputID); err != nil {
+				return constructionBase{}, unprocessable("construction-capabilities", "OUTPUT_NOT_FOUND", "outputId is not in the compiler output contract", nil)
+			}
+			return constructionBase{
+				owner: owner, explorerID: explorerID, workspace: workspace, document: document,
+				construction: *upgraded.Construction, snapshot: snapshot, authorized: authorized.Clone(), catalog: catalogSnapshot,
+				receipt: receipt, stages: []explorer.ReceiptConstructionStage{stage}, baseDocumentSHA: baseDocumentSHA,
+			}, nil
 		}
 		return constructionBase{
 			owner: owner, explorerID: explorerID, workspace: workspace, document: document,

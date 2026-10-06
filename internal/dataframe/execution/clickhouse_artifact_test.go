@@ -11,9 +11,8 @@ import (
 	"time"
 
 	"github.com/calypr/loom/internal/authscope"
-	"github.com/calypr/loom/internal/dataframe/compiler/lower"
+	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/execution/chartifact"
-	"github.com/calypr/loom/internal/dataframe/expression"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/store/clickhouse"
 )
@@ -24,23 +23,8 @@ func TestMaterializeClickHouseArtifactUsesCompleteScopedAQLStream(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	stream := OutputStream{
-		Name: "patients", Columns: []string{"name"}, batchSize: 10,
-		recipeDigest: strings.Repeat("a", 64), planFingerprint: strings.Repeat("b", 64),
-		stageID: "source_projection",
-		outputSchema: []lower.CompiledOutputColumn{
-			{ID: "loom:row_id", Name: "__loom_row_id", Kind: "string", Cardinality: string(expression.RequiredOne), Internal: true, Identity: true},
-			{ID: "name-id", Name: "name", Kind: "string", Cardinality: string(expression.RequiredOne)},
-		},
-		bindings: recipe.RuntimeBindings{
-			Project: "project-a", DatasetGeneration: "generation-2", AuthScopeMode: authscope.ReadScopeRestricted,
-			AuthResourcePaths: []string{"/programs/a"}, IncludeAuthResourcePath: true,
-		},
-		stream: func(_ context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
-			return visit(map[string]any{"__loom_row_id": "stable-1", "name": "Ada", "auth_resource_path": "/programs/a"})
-		},
-	}
-	artifact, err := stream.MaterializeClickHouseArtifact(context.Background(), manager, "execution-9", "source_projection", []chartifact.Column{{ID: "name-id", Name: "name", LogicalType: "string"}})
+	stream, columns := compiledPrivateCaptureStream(t, "patients", "name", "Ada")
+	artifact, err := stream.MaterializeClickHouseArtifact(context.Background(), manager, "execution-9", stream.stageID, columns)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,28 +46,54 @@ func TestMaterializeClickHouseArtifactRejectsPreviewAndMissingRowScope(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	stream := OutputStream{
-		Name: "patients", Columns: []string{"name"}, queryLimit: 10,
-		recipeDigest: strings.Repeat("a", 64), planFingerprint: strings.Repeat("b", 64),
-		stageID: "source_projection",
-		outputSchema: []lower.CompiledOutputColumn{
-			{ID: "loom:row_id", Name: "__loom_row_id", Kind: "string", Cardinality: string(expression.RequiredOne), Internal: true, Identity: true},
-			{ID: "name-id", Name: "name", Kind: "string", Cardinality: string(expression.RequiredOne)},
-		},
-		bindings: recipe.RuntimeBindings{Project: "project-a", DatasetGeneration: "generation-2", AuthScopeMode: authscope.ReadScopeRestricted, AuthResourcePaths: []string{"/programs/a"}, IncludeAuthResourcePath: true},
-		stream:   func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil },
-	}
-	columns := []chartifact.Column{{ID: "name-id", Name: "name", LogicalType: "string"}}
-	if _, err := stream.MaterializeClickHouseArtifact(context.Background(), manager, "execution-9", "source_projection", columns); err == nil {
+	stream, columns := compiledPrivateCaptureStream(t, "patients", "name", "Ada")
+	stream.queryLimit = 10
+	if _, err := stream.MaterializeClickHouseArtifact(context.Background(), manager, "execution-9", stream.stageID, columns); err == nil {
 		t.Fatal("private artifact accepted a bounded preview")
 	}
 	stream.queryLimit = 0
 	stream.bindings.IncludeAuthResourcePath = false
-	if _, err := stream.MaterializeClickHouseArtifact(context.Background(), manager, "execution-9", "source_projection", columns); err == nil {
+	if _, err := stream.MaterializeClickHouseArtifact(context.Background(), manager, "execution-9", stream.stageID, columns); err == nil {
 		t.Fatal("private artifact accepted restricted scope without row-level paths")
 	}
 	if len(catalog.items) != 0 {
 		t.Fatalf("rejected source stream created %d artifacts", len(catalog.items))
+	}
+}
+
+func TestStreamExecutionAuthScopeModeUsesTypedCompilerScope(t *testing.T) {
+	tests := []struct {
+		name       string
+		mode       authscope.ReadScopeMode
+		paths      []string
+		wantMode   authscope.ReadScopeMode
+		wantBypass bool
+	}{
+		{name: "legacy empty mode and paths uses the compiler unrestricted bind", wantMode: authscope.ReadScopeUnrestricted, wantBypass: true},
+		{name: "empty mode with paths remains restricted", paths: []string{"/programs/a"}, wantMode: authscope.ReadScopeRestricted},
+		{name: "explicit restricted empty scope denies all", mode: authscope.ReadScopeRestricted, wantMode: authscope.ReadScopeRestricted},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			stream, _ := compiledPrivateCaptureStreamWithBindings(t, "patients", "value", "Ada", recipe.RuntimeBindings{
+				Project: "project-a", DatasetGeneration: "generation-2", AuthScopeMode: test.mode,
+				AuthResourcePaths: test.paths, IncludeAuthResourcePath: len(test.paths) > 0,
+			})
+			if got, ok := stream.physicalPlan.BindVars["auth_resource_paths_unrestricted"].(bool); !ok || got != test.wantBypass {
+				t.Fatalf("compiled unrestricted bind = %#v, want %t", stream.physicalPlan.BindVars["auth_resource_paths_unrestricted"], test.wantBypass)
+			}
+			stream.bindings.AuthScopeMode = ""
+			got, err := streamExecutionAuthScopeMode(stream)
+			if err != nil || got != test.wantMode {
+				t.Fatalf("empty runtime mode resolved as %q, %v; want %q", got, err, test.wantMode)
+			}
+			stream.bindings.AuthScopeMode = authscope.ReadScopeUnrestricted
+			if test.wantMode == authscope.ReadScopeRestricted {
+				if _, err := streamExecutionAuthScopeMode(stream); err == nil {
+					t.Fatal("explicit unrestricted runtime mode broadened a compiler-restricted scope")
+				}
+			}
+		})
 	}
 }
 
@@ -95,7 +105,7 @@ func TestWithPrivateClickHouseArtifactsCaptureOrderedWorkspaceOutputsWithoutPins
 	}
 	pinsCalled := false
 	err = WithPrivateClickHouseArtifacts(context.Background(), manager, "execution-9", []PrivateClickHouseArtifactSource{
-		privateCaptureSource("patients", "Ada", "b"), privateCaptureSource("observations", "registered", "b"),
+		privateCaptureSource(t, "patients", "Ada"), privateCaptureSource(t, "observations", "registered"),
 	}, nil, func(context.Context, []string, func(context.Context) error) error {
 		pinsCalled = true
 		return errors.New("all-workspace inputs must not request published pins")
@@ -117,11 +127,11 @@ func TestWithPrivateClickHouseArtifactsCaptureOrderedWorkspaceOutputsWithoutPins
 			if got := manifest.Identity.ExecutionID; got != "execution-9" {
 				return fmt.Errorf("input %d execution identity = %q", index, got)
 			}
-			if manifest.Identity.OutputID != input.OutputID || manifest.Identity.StageID != "source_projection" || manifest.Identity.PlanDigest != strings.Repeat("b", 64) {
+			if manifest.Identity.OutputID != input.OutputID || manifest.Identity.StageID == "" || manifest.Identity.PlanDigest == "" {
 				return fmt.Errorf("input %d exact artifact identity = %#v", index, manifest.Identity)
 			}
-			if manifest.Identity.SchemaDigest != inputs[0].Artifact.Manifest().Identity.SchemaDigest {
-				return fmt.Errorf("same-stage outputs unexpectedly changed schema identity: %q != %q", manifest.Identity.SchemaDigest, inputs[0].Artifact.Manifest().Identity.SchemaDigest)
+			if manifest.Identity.SchemaDigest == "" {
+				return fmt.Errorf("input %d lacks the compiler-final schema identity", index)
 			}
 		}
 		return nil
@@ -131,6 +141,29 @@ func TestWithPrivateClickHouseArtifactsCaptureOrderedWorkspaceOutputsWithoutPins
 	}
 	if pinsCalled || len(catalog.items) != 0 {
 		t.Fatalf("all-workspace pin/cleanup state: pinsCalled=%t artifacts=%d", pinsCalled, len(catalog.items))
+	}
+}
+
+func TestWithPrivateClickHouseArtifactsReleasesCaptureOnIdentityMismatch(t *testing.T) {
+	catalog, ch := &testArtifactCatalog{items: map[string]chartifact.Manifest{}}, &testArtifactClickHouse{columns: map[string][]clickhouse.Column{}, rows: map[string][]map[string]any{}}
+	manager, err := chartifact.New(chartifact.Config{Catalog: catalog, ClickHouse: ch, BatchRows: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sources := []PrivateClickHouseArtifactSource{
+		privateCaptureSource(t, "patients", "Ada"), privateCaptureSource(t, "observations", "registered"),
+	}
+	sources[1].ExpectedIdentity = ir.ClickHouseArtifactIdentity{OutputID: "observations", Project: "wrong-project"}
+	consumeCalled := false
+	err = WithPrivateClickHouseArtifacts(context.Background(), manager, "execution-mismatch", sources, nil, nil, func(context.Context, []PrivateClickHouseArtifactInput) error {
+		consumeCalled = true
+		return nil
+	})
+	if err == nil || !strings.Contains(err.Error(), "exact expected identity") {
+		t.Fatalf("mismatched capture identity error = %v", err)
+	}
+	if consumeCalled || len(catalog.items) != 0 || len(ch.rows) != 0 {
+		t.Fatalf("identity mismatch left consumer/artifacts state: consume=%t manifests=%d tables=%d", consumeCalled, len(catalog.items), len(ch.rows))
 	}
 }
 
@@ -153,7 +186,7 @@ func TestWithPrivateClickHouseArtifactsPinPublishedInputsThroughAllCaptures(t *t
 		}
 		return err
 	}
-	sources := []PrivateClickHouseArtifactSource{privateCaptureSource("patients", "Ada", "b"), privateCaptureSource("observations", "registered", "c")}
+	sources := []PrivateClickHouseArtifactSource{privateCaptureSource(t, "patients", "Ada"), privateCaptureSource(t, "observations", "registered")}
 	for index := range sources {
 		outputID := sources[index].OutputID
 		sources[index].Stream.stream = func(_ context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
@@ -184,7 +217,7 @@ func TestWithPrivateClickHouseArtifactsCleansEarlierCaptureAfterSecondFailure(t 
 	if err != nil {
 		t.Fatal(err)
 	}
-	sources := []PrivateClickHouseArtifactSource{privateCaptureSource("patients", "Ada", "b"), privateCaptureSource("observations", "registered", "c")}
+	sources := []PrivateClickHouseArtifactSource{privateCaptureSource(t, "patients", "Ada"), privateCaptureSource(t, "observations", "registered")}
 	sources[1].Stream.stream = func(context.Context, string, int, map[string]any, func(map[string]any) error) error {
 		return errors.New("second source failed")
 	}
@@ -207,7 +240,7 @@ func TestWithPrivateClickHouseArtifactsAcceptsOneAllDraftSource(t *testing.T) {
 	}
 	consumed := false
 	err = WithPrivateClickHouseArtifacts(context.Background(), manager, "execution-9", []PrivateClickHouseArtifactSource{
-		privateCaptureSource("patients", "Ada", "b"),
+		privateCaptureSource(t, "patients", "Ada"),
 	}, nil, nil, func(_ context.Context, inputs []PrivateClickHouseArtifactInput) error {
 		consumed = true
 		if len(inputs) != 1 || inputs[0].OutputID != "patients" || inputs[0].Artifact.Manifest().Identity.OutputID != "patients" {
@@ -227,7 +260,7 @@ func TestWithPrivateClickHouseArtifactsRejectsDuplicateIDsAndContextMismatch(t *
 		if err != nil {
 			t.Fatal(err)
 		}
-		source := privateCaptureSource("patients", "Ada", "b")
+		source := privateCaptureSource(t, "patients", "Ada")
 		err = WithPrivateClickHouseArtifacts(context.Background(), manager, "execution-9", []PrivateClickHouseArtifactSource{source, source}, nil, nil,
 			func(context.Context, []PrivateClickHouseArtifactInput) error { return nil })
 		if err == nil || !strings.Contains(err.Error(), "unique exact output ID") || len(catalog.items) != 0 {
@@ -248,10 +281,10 @@ func TestWithPrivateClickHouseArtifactsRejectsDuplicateIDsAndContextMismatch(t *
 				if err != nil {
 					t.Fatal(err)
 				}
-				second := privateCaptureSource("observations", "registered", "b")
+				second := privateCaptureSource(t, "observations", "registered")
 				mutate(&second.Stream)
 				err = WithPrivateClickHouseArtifacts(context.Background(), manager, "execution-9", []PrivateClickHouseArtifactSource{
-					privateCaptureSource("patients", "Ada", "b"), second,
+					privateCaptureSource(t, "patients", "Ada"), second,
 				}, nil, nil, func(context.Context, []PrivateClickHouseArtifactInput) error { return nil })
 				if err == nil || !strings.Contains(err.Error(), "differs from the first source") || len(catalog.items) != 0 {
 					t.Fatalf("mismatched %s context accepted: error=%v artifacts=%d", name, err, len(catalog.items))
@@ -270,7 +303,7 @@ func TestWithPrivateClickHouseArtifactsCleansCapturesAfterCancellationAndConsume
 		}
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		sources := []PrivateClickHouseArtifactSource{privateCaptureSource("patients", "Ada", "b"), privateCaptureSource("observations", "registered", "c")}
+		sources := []PrivateClickHouseArtifactSource{privateCaptureSource(t, "patients", "Ada"), privateCaptureSource(t, "observations", "registered")}
 		sources[1].Stream.stream = func(ctx context.Context, _ string, _ int, _ map[string]any, _ func(map[string]any) error) error {
 			cancel()
 			<-ctx.Done()
@@ -292,7 +325,7 @@ func TestWithPrivateClickHouseArtifactsCleansCapturesAfterCancellationAndConsume
 		}
 		sentinel := errors.New("combine query failed")
 		err = WithPrivateClickHouseArtifacts(context.Background(), manager, "execution-9", []PrivateClickHouseArtifactSource{
-			privateCaptureSource("patients", "Ada", "b"), privateCaptureSource("observations", "registered", "c"),
+			privateCaptureSource(t, "patients", "Ada"), privateCaptureSource(t, "observations", "registered"),
 		}, nil, nil, func(_ context.Context, inputs []PrivateClickHouseArtifactInput) error {
 			if len(inputs) != 2 || len(catalog.items) != 2 {
 				t.Fatalf("consumer sees %d inputs and %d artifacts", len(inputs), len(catalog.items))
@@ -312,7 +345,7 @@ func TestWithPrivateClickHouseArtifactsLeaseLossCancelsNextSourceStream(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	sources := []PrivateClickHouseArtifactSource{privateCaptureSource("patients", "Ada", "b"), privateCaptureSource("observations", "registered", "c")}
+	sources := []PrivateClickHouseArtifactSource{privateCaptureSource(t, "patients", "Ada"), privateCaptureSource(t, "observations", "registered")}
 	sources[1].Stream.stream = func(ctx context.Context, _ string, _ int, _ map[string]any, _ func(map[string]any) error) error {
 		catalog.mu.Lock()
 		if len(catalog.createdIDs) == 0 {
@@ -346,7 +379,7 @@ func TestWithPrivateClickHouseArtifactsRechecksLeaseAndContextAfterConsumer(t *t
 			t.Fatal(err)
 		}
 		err = WithPrivateClickHouseArtifacts(context.Background(), manager, "execution-9", []PrivateClickHouseArtifactSource{
-			privateCaptureSource("patients", "Ada", "b"),
+			privateCaptureSource(t, "patients", "Ada"),
 		}, nil, nil, func(ctx context.Context, inputs []PrivateClickHouseArtifactInput) error {
 			catalog.mu.Lock()
 			catalog.failRenewID = catalog.createdIDs[0]
@@ -371,7 +404,7 @@ func TestWithPrivateClickHouseArtifactsRechecksLeaseAndContextAfterConsumer(t *t
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		err = WithPrivateClickHouseArtifacts(ctx, manager, "execution-9", []PrivateClickHouseArtifactSource{
-			privateCaptureSource("patients", "Ada", "b"),
+			privateCaptureSource(t, "patients", "Ada"),
 		}, nil, nil, func(context.Context, []PrivateClickHouseArtifactInput) error {
 			cancel()
 			return nil
@@ -382,38 +415,74 @@ func TestWithPrivateClickHouseArtifactsRechecksLeaseAndContextAfterConsumer(t *t
 	})
 }
 
-func privateCaptureSource(outputID, value, fingerprint string) PrivateClickHouseArtifactSource {
-	columnID := "shared-value-id"
-	return PrivateClickHouseArtifactSource{
-		OutputID: outputID,
-		Columns:  []chartifact.Column{{ID: columnID, Name: "value", LogicalType: "string"}},
-		Stream: OutputStream{
-			Name: outputID, Columns: []string{"value"}, recipeDigest: strings.Repeat("a", 64),
-			planFingerprint: strings.Repeat(fingerprint, 64), stageID: "source_projection",
-			outputSchema: []lower.CompiledOutputColumn{
-				{ID: "loom:row_id", Name: "__loom_row_id", Kind: "string", Cardinality: string(expression.RequiredOne), Internal: true, Identity: true},
-				{ID: columnID, Name: "value", Kind: "string", Cardinality: string(expression.RequiredOne)},
-			},
-			bindings: recipe.RuntimeBindings{
-				Project: "project-a", DatasetGeneration: "generation-2", AuthScopeMode: authscope.ReadScopeRestricted,
-				AuthResourcePaths: []string{"/programs/a"}, IncludeAuthResourcePath: true,
-			},
-			stream: func(_ context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
-				return visit(privateCaptureRow(value))
-			},
-		},
+func privateCaptureSource(t *testing.T, outputID, value string) PrivateClickHouseArtifactSource {
+	t.Helper()
+	stream, columns := compiledPrivateCaptureStream(t, outputID, "value", value)
+	return PrivateClickHouseArtifactSource{OutputID: outputID, Stream: stream, Columns: columns}
+}
+
+func compiledPrivateCaptureStream(t *testing.T, outputID, columnName, value string) (OutputStream, []chartifact.Column) {
+	return compiledPrivateCaptureStreamWithBindings(t, outputID, columnName, value, recipe.RuntimeBindings{
+		Project: "project-a", DatasetGeneration: "generation-2", AuthScopeMode: authscope.ReadScopeRestricted,
+		AuthResourcePaths: []string{"/programs/a"}, IncludeAuthResourcePath: true,
+	})
+}
+
+func compiledPrivateCaptureStreamWithBindings(t *testing.T, outputID, columnName, value string, bindings recipe.RuntimeBindings) (OutputStream, []chartifact.Column) {
+	t.Helper()
+	makeOutput := func(name string) recipe.Output {
+		columnID := name + "-" + columnName
+		return recipe.Output{
+			Name: name, RootResourceType: "Patient", RowGrain: "patient",
+			Fields: []recipe.Field{{Name: columnName, ColumnID: columnID, Expr: recipe.Expression{Select: "root.id"}}},
+		}
 	}
+	bundle := recipe.Bundle{
+		RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "private-capture-fixture", TranslationVersion: "test",
+		Outputs: []recipe.Output{makeOutput("patients"), makeOutput("observations")},
+	}
+	engine, err := New(Config{
+		Registry:  invalidRecipeRegistry{},
+		QueryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := engine.CompileResolvedBundle(context.Background(), bundle, bindings)
+	if err != nil {
+		t.Fatalf("compile fixture capture output %q: %v", outputID, err)
+	}
+	stream, _, err := engine.streamForOutput(resolved, outputID, 0)
+	if err != nil {
+		t.Fatalf("build fixture capture stream %q: %v", outputID, err)
+	}
+	if stream.scopeEvidence == nil || stream.scopeEvidenceIdentity == nil || !stream.scopeEvidence.Matches(stream.physicalPlan, *stream.scopeEvidenceIdentity) {
+		t.Fatalf("fixture capture stream %q has no compiler-issued source evidence", outputID)
+	}
+	stream.stream = func(_ context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+		return visit(privateCaptureRowFor(columnName, value))
+	}
+	columns, err := chartifact.ColumnsFromCompiledOutput(stream.outputSchema)
+	if err != nil {
+		t.Fatalf("convert fixture capture schema %q: %v", outputID, err)
+	}
+	return stream, columns
 }
 
 func privateCaptureRow(value string) map[string]any {
-	return map[string]any{"__loom_row_id": "stable-" + value, "value": value, "auth_resource_path": "/programs/a"}
+	return privateCaptureRowFor("value", value)
+}
+
+func privateCaptureRowFor(columnName, value string) map[string]any {
+	return map[string]any{"__loom_row_id": "stable-" + value, columnName: value, "auth_resource_path": "/programs/a"}
 }
 
 type testArtifactCatalog struct {
-	mu          sync.Mutex
-	items       map[string]chartifact.Manifest
-	createdIDs  []string
-	failRenewID string
+	mu             sync.Mutex
+	items          map[string]chartifact.Manifest
+	createdIDs     []string
+	readyOutputIDs map[string]bool
+	failRenewID    string
 }
 
 func (c *testArtifactCatalog) Create(_ context.Context, value chartifact.Manifest) error {
@@ -432,6 +501,12 @@ func (c *testArtifactCatalog) Update(_ context.Context, id, owner string, progre
 		return chartifact.ErrLeaseLost
 	}
 	value.State, value.RowCount, value.ByteCount, value.UpdatedAt = progress.State, progress.RowCount, progress.ByteCount, progress.UpdatedAt
+	if progress.State == chartifact.StateReady {
+		if c.readyOutputIDs == nil {
+			c.readyOutputIDs = make(map[string]bool)
+		}
+		c.readyOutputIDs[value.Identity.OutputID] = true
+	}
 	if progress.LeaseUntil.After(value.LeaseUntil) || progress.State == chartifact.StateCleanupPending {
 		value.LeaseUntil = progress.LeaseUntil
 	}
@@ -507,9 +582,11 @@ func (c *testArtifactCatalog) ReleaseCleanup(_ context.Context, id, owner string
 }
 
 type testArtifactClickHouse struct {
-	mu      sync.Mutex
-	columns map[string][]clickhouse.Column
-	rows    map[string][]map[string]any
+	mu                sync.Mutex
+	columns           map[string][]clickhouse.Column
+	rows              map[string][]map[string]any
+	failDropTable     string
+	failDropTableWith error
 }
 
 func (c *testArtifactClickHouse) CreateTable(_ context.Context, table string, columns []clickhouse.Column) error {
@@ -548,6 +625,9 @@ func (c *testArtifactClickHouse) VerifyOutput(_ context.Context, table string, c
 func (c *testArtifactClickHouse) DropTable(_ context.Context, table string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if table == c.failDropTable && c.failDropTableWith != nil {
+		return c.failDropTableWith
+	}
 	delete(c.columns, table)
 	delete(c.rows, table)
 	return nil

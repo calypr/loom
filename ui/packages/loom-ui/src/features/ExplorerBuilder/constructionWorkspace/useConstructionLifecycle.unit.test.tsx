@@ -42,6 +42,7 @@ const capabilitiesFor = (
     baseConstruction: { version: 1, steps: [] },
     stages: [stage],
     selectedStage: stage,
+    workspaceInputs: [],
   };
 };
 

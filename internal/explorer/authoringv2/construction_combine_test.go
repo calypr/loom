@@ -85,6 +85,64 @@ func TestConstructionCombineValidatesAppendAndMembershipModes(t *testing.T) {
 	}
 }
 
+func TestConstructionCombineAuthoringAllowsNullableSparseAppendMappings(t *testing.T) {
+	newAppendDocument := func() Document {
+		document := terminalCombineDocument()
+		step := document.Construction.Steps[0]
+		step.Inputs = append(step.Inputs, ConstructionInputRef{
+			Kind: ConstructionInputTableRevision, TableID: "project:1:archive", RevisionID: "archive-r2", OutputID: "archive",
+		})
+		step.Outputs = []StageColumn{
+			{ID: "record_id", Name: "record_id", Label: "Record ID", Type: "string"},
+			{ID: "status", Name: "status", Label: "Status", Type: "string", Nullable: true},
+			{ID: "patient_gender", Name: "patient_gender", Label: "Patient gender", Type: "string", Nullable: true},
+		}
+		step.Operation.Combine = &ConstructionCombine{Kind: ConstructionCombineAppend, Projections: []ConstructionCombineProjection{
+			{OutputColumnID: "record_id", InputIndex: 0, InputColumnID: "observation-id"},
+			{OutputColumnID: "record_id", InputIndex: 1, InputColumnID: "report-id"},
+			{OutputColumnID: "record_id", InputIndex: 2, InputColumnID: "patient-id"},
+			{OutputColumnID: "status", InputIndex: 0, InputColumnID: "observation-status"},
+			{OutputColumnID: "status", InputIndex: 2, InputColumnID: "patient-status"},
+			{OutputColumnID: "patient_gender", InputIndex: 2, InputColumnID: "gender"},
+		}}
+		document.Construction.Steps = []ConstructionStep{step}
+		return document
+	}
+
+	t.Run("sparse mappings validate", func(t *testing.T) {
+		if err := newAppendDocument().Validate(); err != nil {
+			t.Fatalf("nullable three-input APPEND with omitted mappings rejected: %v", err)
+		}
+	})
+	t.Run("all-empty output rejected", func(t *testing.T) {
+		document := newAppendDocument()
+		step := document.Construction.Steps[0]
+		step.Operation.Combine.Projections = step.Operation.Combine.Projections[:5]
+		document.Construction.Steps[0] = step
+		if err := document.Validate(); err == nil || !strings.Contains(err.Error(), "not mapped from any input") {
+			t.Fatalf("all-empty APPEND output error = %v", err)
+		}
+	})
+	t.Run("missing mapping requires nullable output", func(t *testing.T) {
+		document := newAppendDocument()
+		step := document.Construction.Steps[0]
+		step.Outputs[1].Nullable = false
+		document.Construction.Steps[0] = step
+		if err := document.Validate(); err == nil || !strings.Contains(err.Error(), "must be nullable") {
+			t.Fatalf("missing-input non-nullable APPEND output error = %v", err)
+		}
+	})
+	t.Run("missing mapping requires scalar output", func(t *testing.T) {
+		document := newAppendDocument()
+		step := document.Construction.Steps[0]
+		step.Outputs[1].Type = "array"
+		document.Construction.Steps[0] = step
+		if err := document.Validate(); err == nil || !strings.Contains(err.Error(), "concrete scalar type") {
+			t.Fatalf("missing-input non-scalar APPEND output error = %v", err)
+		}
+	})
+}
+
 func TestConstructionCombineRejectsSourceStagesInvalidPinsAndNullability(t *testing.T) {
 	t.Run("source columns", func(t *testing.T) {
 		document := terminalCombineDocument()

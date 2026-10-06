@@ -12,9 +12,66 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
+	"github.com/calypr/loom/internal/dataframe/execution/chartifact"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/recipe/exec"
 )
+
+func TestPlanHasExecutionWindowRecognizesStandaloneGroupRowsLimit(t *testing.T) {
+	unbounded := ir.PhysicalPlan{Operations: []ir.PhysicalOperation{{
+		Kind: ir.PhysicalGroupRowsOp, GroupRows: &ir.PhysicalGroupRows{},
+	}}}
+	if planHasExecutionWindow(unbounded) {
+		t.Fatal("unbounded standalone GroupRows was classified as a preview window")
+	}
+	bounded := ir.PhysicalPlan{Operations: []ir.PhysicalOperation{{
+		Kind: ir.PhysicalGroupRowsOp, GroupRows: &ir.PhysicalGroupRows{LimitBindKey: "preview_limit"},
+	}}}
+	if !planHasExecutionWindow(bounded) {
+		t.Fatal("standalone GroupRows limit was not classified as an execution window")
+	}
+}
+
+func TestCompiledArtifactScopeKeepsBoundedGroupRowsPreviewWhole(t *testing.T) {
+	engine, err := New(Config{
+		Registry: invalidRecipeRegistry{},
+		QueryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error {
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bindings := recipe.RuntimeBindings{Project: "group-preview-project", SelectionProject: "group-preview-project", DatasetGeneration: "group-preview-generation"}
+	bundle := recipe.Bundle{
+		RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "explicit_group_scope", TranslationVersion: "test",
+		Outputs: []recipe.Output{{
+			Name: "groups", RootResourceType: "Patient", RowGrain: "groups",
+			GroupRows: &recipe.GroupRows{RevisionID: "grouprev_scope", UnassignedMemberPolicy: "EXCLUDE"},
+			Fields:    []recipe.Field{{Name: "id", Expr: recipe.Expression{Select: "root.id"}}},
+		}},
+	}
+	resolved, err := engine.CompileResolvedBundle(context.Background(), bundle, bindings)
+	if err != nil {
+		t.Fatalf("compile explicit GroupRows output: %v", err)
+	}
+	output := resolved.Compiled.Outputs[0]
+	unboundedMode, unboundedEvidence, unboundedIdentity, err := compiledArtifactScope(output, bindings, output.Plan)
+	if err != nil || unboundedMode != chartifact.ScopeModeWhole || unboundedEvidence == nil || unboundedIdentity == nil {
+		t.Fatalf("complete GroupRows source scope=(%q,%v,%v), err=%v; want whole-relation capture evidence", unboundedMode, unboundedEvidence != nil, unboundedIdentity != nil, err)
+	}
+	preview, err := compiler.CompileRecipeOutputWithPolicy(output, bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatalf("compile bounded GroupRows preview: %v", err)
+	}
+	if preview.PhysicalPlan.Operations[0].GroupRows == nil || preview.PhysicalPlan.Operations[0].GroupRows.LimitBindKey == "" {
+		t.Fatal("preview plan did not retain its typed GroupRows limit")
+	}
+	previewMode, previewEvidence, previewIdentity, err := compiledArtifactScope(output, bindings, preview.PhysicalPlan)
+	if err != nil || previewMode != chartifact.ScopeModeWhole || previewEvidence != nil || previewIdentity != nil {
+		t.Fatalf("bounded GroupRows preview scope=(%q,%v,%v), err=%v; want whole-relation mode without capture evidence", previewMode, previewEvidence != nil, previewIdentity != nil, err)
+	}
+}
 
 type invalidRecipeRegistry struct{}
 

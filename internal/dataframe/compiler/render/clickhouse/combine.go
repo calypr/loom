@@ -1,6 +1,7 @@
 package clickhouse
 
 import (
+	"encoding/hex"
 	"fmt"
 	"regexp"
 	"sort"
@@ -115,6 +116,11 @@ func renderCombineWithResolvedInputs(plan ir.PhysicalClickHouseCombine, inputs [
 	if err := validateResolvedSchema(plan, inputs); err != nil {
 		return RenderedCombine{}, err
 	}
+	if plan.Kind == ir.PhysicalCombineAppend {
+		if err := validateAppendProjectionTypes(plan, inputs); err != nil {
+			return RenderedCombine{}, err
+		}
+	}
 	columns := combineQueryColumns(plan)
 	var query string
 	var args []any
@@ -219,8 +225,15 @@ func validateArtifactIdentity(expected, actual ir.ClickHouseArtifactIdentity) er
 	}
 	switch expected.AuthScopeMode {
 	case "restricted":
-		if len(expected.AuthResourcePaths) != 1 || strings.TrimSpace(expected.AuthResourcePaths[0]) == "" || expected.AuthResourcePaths[0] != strings.TrimSpace(expected.AuthResourcePaths[0]) {
-			return fmt.Errorf("private ClickHouse artifact requires one exact restricted authorization path")
+		if len(expected.AuthResourcePaths) == 0 {
+			return fmt.Errorf("private ClickHouse artifact requires a non-empty exact restricted authorization scope")
+		}
+		seenPaths := make(map[string]bool, len(expected.AuthResourcePaths))
+		for _, path := range expected.AuthResourcePaths {
+			if strings.TrimSpace(path) == "" || path != strings.TrimSpace(path) || seenPaths[path] {
+				return fmt.Errorf("private ClickHouse artifact has an invalid or duplicate restricted authorization path")
+			}
+			seenPaths[path] = true
 		}
 	case "unrestricted":
 		if len(expected.AuthResourcePaths) != 0 {
@@ -228,6 +241,32 @@ func validateArtifactIdentity(expected, actual ir.ClickHouseArtifactIdentity) er
 		}
 	default:
 		return fmt.Errorf("private ClickHouse artifact has an unsupported authorization scope mode")
+	}
+	expectedScopeMode := expected.ScopeMode
+	actualScopeMode := actual.ScopeMode
+	if expectedScopeMode == "" {
+		expectedScopeMode = ir.ClickHouseArtifactScopeRows
+	}
+	if actualScopeMode == "" {
+		actualScopeMode = ir.ClickHouseArtifactScopeRows
+	}
+	switch expectedScopeMode {
+	case ir.ClickHouseArtifactScopeRows:
+		if expected.ScopeEvidenceDigest != "" {
+			return fmt.Errorf("row-scoped private ClickHouse artifact cannot carry whole-scope evidence")
+		}
+	case ir.ClickHouseArtifactScopeWhole:
+		if !validScopeEvidenceDigest(expected.ScopeEvidenceDigest) {
+			return fmt.Errorf("whole-scope private ClickHouse artifact requires a valid compiler evidence digest")
+		}
+	default:
+		return fmt.Errorf("private ClickHouse artifact has an unsupported scope mode")
+	}
+	if actualScopeMode != expectedScopeMode {
+		return fmt.Errorf("private ClickHouse artifact scope mode differs from the compiler identity")
+	}
+	if actual.ScopeEvidenceDigest != expected.ScopeEvidenceDigest {
+		return fmt.Errorf("private ClickHouse artifact scope evidence differs from the compiler identity")
 	}
 	if actual.ExecutionID != expected.ExecutionID || actual.OutputID != expected.OutputID || actual.StageID != expected.StageID || actual.Project != expected.Project ||
 		actual.DatasetGeneration != expected.DatasetGeneration || actual.RecipeDigest != expected.RecipeDigest ||
@@ -237,6 +276,14 @@ func validateArtifactIdentity(expected, actual ir.ClickHouseArtifactIdentity) er
 		return fmt.Errorf("private ClickHouse artifact manifest does not match the exact compiled prefix identity")
 	}
 	return nil
+}
+
+func validScopeEvidenceDigest(value string) bool {
+	if len(value) != 64 {
+		return false
+	}
+	_, err := hex.DecodeString(value)
+	return err == nil
 }
 
 func validateResolvedSchema(plan ir.PhysicalClickHouseCombine, inputs []ir.ResolvedClickHouseTable) error {
@@ -269,8 +316,10 @@ func validateResolvedSchema(plan ir.PhysicalClickHouseCombine, inputs []ir.Resol
 		if !leftOK || !rightOK {
 			return fmt.Errorf("ClickHouse combine key references a missing exact input column")
 		}
-		if left.ClickHouseType != right.ClickHouseType || !joinableType(left.ClickHouseType) {
-			return fmt.Errorf("ClickHouse combine key types must match and be non-null scalar types")
+		leftBase, leftOK := ir.ClickHouseCombineScalarBaseType(left.ClickHouseType, plan.Kind)
+		rightBase, rightOK := ir.ClickHouseCombineScalarBaseType(right.ClickHouseType, plan.Kind)
+		if !leftOK || !rightOK || leftBase != rightBase {
+			return fmt.Errorf("ClickHouse combine key types must have the same supported scalar base type")
 		}
 	}
 	for _, projection := range plan.Projections {
@@ -279,6 +328,9 @@ func validateResolvedSchema(plan ir.PhysicalClickHouseCombine, inputs []ir.Resol
 			return fmt.Errorf("ClickHouse combine projection references a missing exact input column")
 		}
 		output := outputColumn(plan, projection.OutputColumnID)
+		if plan.Kind == ir.PhysicalCombineAppend {
+			continue
+		}
 		wantType := inputColumn.ClickHouseType
 		if plan.Kind == ir.PhysicalCombineKeyJoin && plan.JoinType == "LEFT" && projection.InputIndex == 1 {
 			if strings.HasPrefix(wantType, "Array(") || strings.HasPrefix(wantType, "Nullable(Array(") {
@@ -303,6 +355,28 @@ func validateResolvedSchema(plan ir.PhysicalClickHouseCombine, inputs []ir.Resol
 			if !outputColumn(plan, projection.OutputColumnID).Nullable {
 				return fmt.Errorf("LEFT key join right-side output %q must be nullable", outputColumn(plan, projection.OutputColumnID).Name)
 			}
+		}
+	}
+	return nil
+}
+
+func validateAppendProjectionTypes(plan ir.PhysicalClickHouseCombine, inputs []ir.ResolvedClickHouseTable) error {
+	for _, projection := range plan.Projections {
+		if projection.InputIndex < 0 || projection.InputIndex >= len(inputs) {
+			return fmt.Errorf("ClickHouse append projection input index %d is out of range", projection.InputIndex)
+		}
+		inputColumn, ok := inputColumnByID(inputs[projection.InputIndex], projection.InputColumnID)
+		if !ok {
+			return fmt.Errorf("ClickHouse append projection references a missing exact input column")
+		}
+		output := outputColumn(plan, projection.OutputColumnID)
+		sourceBase, sourceNullable, sourceOK := appendScalarType(inputColumn.ClickHouseType)
+		outputBase, outputNullable, outputOK := appendScalarType(output.ClickHouseType)
+		if inputColumn.LogicalType != output.LogicalType {
+			return fmt.Errorf("ClickHouse append projection for %q has source logical type %s, output logical type %s", output.Name, inputColumn.LogicalType, output.LogicalType)
+		}
+		if !sourceOK || !outputOK || output.Nullable != outputNullable || output.Repeated || inputColumn.Repeated || sourceBase != outputBase || sourceNullable && !outputNullable {
+			return fmt.Errorf("ClickHouse append projection for %q has incompatible source type %s, output type %s", output.Name, inputColumn.ClickHouseType, output.ClickHouseType)
 		}
 	}
 	return nil
@@ -358,6 +432,10 @@ func renderAppend(plan ir.PhysicalClickHouseCombine, inputs []ir.ResolvedClickHo
 		selects := []string{appendIdentity(alias, inputIndex)}
 		for _, output := range plan.Outputs {
 			projection := projectionFor(plan, inputIndex, output.ID)
+			if projection.InputColumnID == "" {
+				selects = append(selects, fmt.Sprintf("CAST(NULL, '%s') AS `%s`", output.ClickHouseType, output.Name))
+				continue
+			}
 			column := resolvedColumnByID(input, projection.InputColumnID)
 			selects = append(selects, fmt.Sprintf("%s.`%s` AS `%s`", alias, column.Name, output.Name))
 		}
@@ -488,11 +566,23 @@ func inputColumnByName(input ir.ResolvedClickHouseTable, name string) (ir.Resolv
 	return ir.ResolvedClickHouseColumn{}, false
 }
 
-func joinableType(value string) bool {
-	if strings.HasPrefix(value, "Nullable(") || strings.HasPrefix(value, "Array(") {
-		return false
+func inputColumnByID(input ir.ResolvedClickHouseTable, id string) (ir.ResolvedClickHouseColumn, bool) {
+	for _, column := range input.Columns {
+		if column.ID == id {
+			return column, true
+		}
 	}
-	return value == "String" || value == "Bool" || strings.HasPrefix(value, "Int") || strings.HasPrefix(value, "UInt") || strings.HasPrefix(value, "Decimal") || strings.HasPrefix(value, "Date")
+	return ir.ResolvedClickHouseColumn{}, false
+}
+
+func appendScalarType(value string) (string, bool, bool) {
+	if strings.TrimSpace(value) != value {
+		return "", false, false
+	}
+	physical := strings.TrimSpace(value)
+	nullable := strings.HasPrefix(physical, "Nullable(") && strings.HasSuffix(physical, ")")
+	base, ok := ir.ClickHouseCombineScalarBaseType(physical, ir.PhysicalCombineAppend)
+	return base, nullable, ok
 }
 
 func quoteIdentifier(value string) string { return "`" + value + "`" }

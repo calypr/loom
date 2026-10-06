@@ -43,6 +43,35 @@ func TestSourceGroupPrunesUnusedRelatedSetAndKeepsFilters(t *testing.T) {
 			EdgeTargetTypeField: "from_type",
 		}}
 	}
+	scopedTraversal := func(operation ir.PhysicalOperation) []ir.PhysicalOperation {
+		traversal := operation.Traversal
+		operations := []ir.PhysicalOperation{operation}
+		for _, variable := range []string{traversal.EdgeVariable, traversal.TargetVariable} {
+			operations = append(operations, ir.PhysicalOperation{Kind: ir.PhysicalFilterOp, Filter: &ir.PhysicalFilter{Predicate: ir.PhysicalPredicate{
+				Operator: "EQUALS", Left: ir.PhysicalValue{Variable: variable, Path: []string{"project"}}, Right: &ir.PhysicalValue{BindKey: "project"},
+			}}})
+		}
+		for _, variable := range []string{traversal.EdgeVariable, traversal.TargetVariable} {
+			operations = append(operations, ir.PhysicalOperation{Kind: ir.PhysicalFilterOp, Filter: &ir.PhysicalFilter{Predicate: ir.PhysicalPredicate{
+				Operator: "EQUALS", Left: ir.PhysicalValue{Variable: variable, Path: []string{"dataset_generation"}}, Right: &ir.PhysicalValue{BindKey: "dataset_generation"},
+			}}})
+		}
+		scopeVariable := traversal.TargetVariable + "_scope_allowed"
+		operations = append(operations,
+			ir.PhysicalOperation{Kind: ir.PhysicalDerivedLetOp, DerivedLet: &ir.PhysicalDerivedLet{
+				Variable: scopeVariable, Operator: "AUTH_RESOURCE_PATH_ALLOWED",
+				Inputs: []ir.PhysicalValue{
+					{Variable: traversal.EdgeVariable, Path: []string{"auth_resource_path"}},
+					{Variable: traversal.TargetVariable, Path: []string{"auth_resource_path"}},
+					{BindKey: "auth_resource_paths"}, {BindKey: "auth_resource_paths_unrestricted"},
+				},
+			}},
+			ir.PhysicalOperation{Kind: ir.PhysicalFilterOp, Filter: &ir.PhysicalFilter{Predicate: ir.PhysicalPredicate{
+				Operator: "EQUALS", Left: ir.PhysicalValue{Variable: scopeVariable}, Right: &ir.PhysicalValue{BindKey: "scope_allowed"},
+			}}},
+		)
+		return operations
+	}
 	valueExpression := func(value ir.PhysicalValue) ir.PhysicalExpression {
 		return ir.PhysicalExpression{Kind: ir.PhysicalValueExpression, Cardinality: ir.PhysicalScalarCardinality,
 			NullBehavior: ir.PhysicalPreserveNull, Value: &value}
@@ -104,7 +133,7 @@ func TestSourceGroupPrunesUnusedRelatedSetAndKeepsFilters(t *testing.T) {
 				Kind: ir.PhysicalExistsPredicate,
 				Exists: &ir.PhysicalSubplan{
 					Captures:   []string{"root"},
-					Operations: []ir.PhysicalOperation{traversal("eligibility_child", "eligibility_edge", "required_edges", "required_label", "required_resource_type")},
+					Operations: scopedTraversal(traversal("eligibility_child", "eligibility_edge", "required_edges", "required_label", "required_resource_type")),
 					Return:     valueExpression(ir.PhysicalValue{Variable: "eligibility_child", Path: []string{"_key"}}),
 				},
 			}}},
@@ -112,7 +141,7 @@ func TestSourceGroupPrunesUnusedRelatedSetAndKeepsFilters(t *testing.T) {
 				Variable: "unused_child_set", Kind: ir.PhysicalNodeSetKind,
 				Subplan: ir.PhysicalSubplan{
 					Captures:   []string{"root"},
-					Operations: []ir.PhysicalOperation{traversal("unused_child", "unused_edge", "child_edges", "child_label", "child_resource_type")},
+					Operations: scopedTraversal(traversal("unused_child", "unused_edge", "child_edges", "child_label", "child_resource_type")),
 					Return:     valueExpression(ir.PhysicalValue{Variable: "unused_child", Path: []string{"_key"}}),
 				},
 			}},
@@ -162,6 +191,12 @@ func TestSourceGroupPrunesUnusedRelatedSetAndKeepsFilters(t *testing.T) {
 		"LET required_coded_map = { [@__loom_physical_object_field_0_name]: root.payload.eligibility }",
 		"required_coded_map[@required_key]",
 		"required_edges",
+		"FILTER eligibility_edge.project == @project",
+		"FILTER eligibility_child.project == @project",
+		"FILTER eligibility_edge.dataset_generation == @dataset_generation",
+		"FILTER eligibility_child.dataset_generation == @dataset_generation",
+		"eligibility_edge.auth_resource_path IN @auth_resource_paths AND eligibility_child.auth_resource_path IN @auth_resource_paths",
+		"FILTER eligibility_child_scope_allowed == @scope_allowed",
 		"RETURN { [@__loom_physical_projection_0_name]: root.payload.collection.bodySite.reference.reference }",
 	} {
 		if !strings.Contains(rendered.Query, fragment) {

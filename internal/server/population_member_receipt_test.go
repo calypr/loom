@@ -144,7 +144,7 @@ func TestCompileExplorerReceiptBindsPopulationRemovalWithGroupedRelatedSummary(t
 		}}},
 		Authorized: lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: readScope},
 	}
-	receipt, err := compileExplorerReceipt(context.Background(), request, nil, engine, service, nil)
+	receipt, err := compileExplorerReceipt(context.Background(), request, nil, engine, service, nil, nil)
 	if err != nil {
 		t.Fatalf("compile grouped related-summary population proposal receipt: %v", err)
 	}

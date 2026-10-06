@@ -318,6 +318,76 @@ func TestCompilationReceiptIdentityIncludesConstructionStageDescriptors(t *testi
 	}
 }
 
+func TestReceiptCompiledOutputSchemaAllowsUnlabeledInternalIdentityColumn(t *testing.T) {
+	bundle := testReceipt().Bundle
+	schemas := map[string][]ReceiptCompiledOutputColumn{"out": {
+		{Name: "construction_row_id", LogicalType: "string", Cardinality: "required_one", Internal: true, Identity: true},
+		{ID: "field", Name: "field", Label: "Field", LogicalType: "string", Cardinality: "optional_one"},
+	}}
+	if err := validateReceiptCompiledOutputSchemas(schemas, bundle); err != nil {
+		t.Fatalf("validate internal unlabeled identity column: %v", err)
+	}
+	schemas["out"][0].Internal = false
+	if err := validateReceiptCompiledOutputSchemas(schemas, bundle); err == nil {
+		t.Fatal("accepted an unlabeled public compiled column")
+	}
+}
+
+func TestReceiptConstructionStagesAcceptsExactTerminalCombineRoot(t *testing.T) {
+	combine := recipe.ConstructionCombine{
+		Kind: recipe.ConstructionCombineAppend,
+		Projections: []recipe.ConstructionCombineProjection{
+			{OutputColumnID: "combined_value", InputIndex: 0, InputColumnID: "left_value"},
+			{OutputColumnID: "combined_value", InputIndex: 1, InputColumnID: "right_value"},
+		},
+	}
+	bundle := testReceipt().Bundle
+	bundle.Outputs[0].Construction = &recipe.Construction{Version: 1, Steps: []recipe.ConstructionStep{{
+		ID: "append_sources",
+		Inputs: []recipe.ConstructionInputRef{
+			{Kind: recipe.ConstructionTableRevisionInput, TableID: "source:1:left", RevisionID: "revision-left", OutputID: "left"},
+			{Kind: recipe.ConstructionTableRevisionInput, TableID: "source:1:right", RevisionID: "revision-right", OutputID: "right"},
+		},
+		Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionCombineOp, Combine: &combine},
+		Outputs:   []recipe.StageColumn{{ID: "combined_value", Name: "value", Label: "Value", Type: "string"}},
+	}}}
+	stages := map[string][]ReceiptConstructionStage{"out": {{
+		ID: "append_sources", Operation: "APPEND",
+		Columns: []ReceiptConstructionStageColumn{{ID: "combined_value", Name: "value", Label: "Value", Type: "string"}},
+	}}}
+	if err := validateReceiptConstructionStages(stages, bundle); err != nil {
+		t.Fatalf("validate exact terminal Combine stage: %v", err)
+	}
+
+	stages["out"][0].ID = "other_step"
+	if err := validateReceiptConstructionStages(stages, bundle); err == nil {
+		t.Fatal("accepted Combine root stage that does not match the exact recipe step ID")
+	}
+	badBundle := bundle
+	badBundle.Outputs = append([]recipe.Output(nil), bundle.Outputs...)
+	badConstruction := *bundle.Outputs[0].Construction
+	badConstruction.Steps = append([]recipe.ConstructionStep(nil), badConstruction.Steps...)
+	badConstruction.Steps[0].Inputs = append([]recipe.ConstructionInputRef(nil), badConstruction.Steps[0].Inputs...)
+	badConstruction.Steps[0].Inputs[1].RevisionID = " "
+	badBundle.Outputs[0].Construction = &badConstruction
+	stages["out"][0].ID = "append_sources"
+	if err := validateReceiptConstructionStages(stages, badBundle); err == nil {
+		t.Fatal("accepted an external Combine stage whose exact source revision is invalid")
+	}
+}
+
+func TestReceiptConstructionStagesRejectsMissingSourceProjectionForNonCombine(t *testing.T) {
+	bundle := testReceipt().Bundle
+	for _, stage := range []ReceiptConstructionStage{
+		{ID: "filter_step", Operation: "FILTER"},
+		{ID: "append_step", Operation: "APPEND"},
+	} {
+		if err := validateReceiptConstructionStages(map[string][]ReceiptConstructionStage{"out": {stage}}, bundle); err == nil {
+			t.Fatalf("accepted unbound root operation %#v without its implicit source projection", stage)
+		}
+	}
+}
+
 func TestCompilationReceiptAcceptsGroupRowsValuesCapability(t *testing.T) {
 	receipt := testReceipt()
 	receipt.ConstructionStages = map[string][]ReceiptConstructionStage{"out": {
@@ -593,6 +663,41 @@ func TestCompilationReceiptJSONRoundTripKeepsIdentity(t *testing.T) {
 		t.Fatalf("JSON round trip changed receipt ID: %q != %q", first, second)
 	}
 }
+
+func TestFinalOutputSchemaIsReceiptContentButNotCompileRequestIdentity(t *testing.T) {
+	base := testReceipt()
+	base.CompiledOutputSchemas = map[string][]ReceiptCompiledOutputColumn{
+		"out": {{ID: "patient-id", Name: "patient_id", Label: "Patient ID", LogicalType: "string", Cardinality: "required_one"}},
+	}
+	if err := base.Validate(); err != nil {
+		t.Fatalf("validate compiler-final schema receipt: %v", err)
+	}
+	firstKey, err := CompilationKey(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstID, err := ReceiptID(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	base.CompiledOutputSchemas["out"][0].Label = "Resolved Patient ID"
+	secondKey, err := CompilationKey(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondID, err := ReceiptID(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if firstKey != secondKey {
+		t.Fatal("compiler result schema unexpectedly changed the compile-request cache key")
+	}
+	if firstID == secondID {
+		t.Fatal("compiler-final output schema was omitted from receipt content identity")
+	}
+}
+
 func TestPopulationMemberRemovalBindingIsContentAddressedAndScopeBound(t *testing.T) {
 	base := testReceipt()
 	base.IntentDigest = "sha256:candidate"

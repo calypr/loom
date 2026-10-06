@@ -133,6 +133,12 @@ import {
 } from './constructionOperations/RelatedSourceStepEditor';
 import { RelatedFieldEditor, type RelatedFieldStep } from './constructionOperations/RelatedFieldEditor';
 import type { RelatedExpandQueryOwner } from './constructionOperations/RelatedExpandEditor';
+import { ConstructionCombineEditor } from './constructionOperations/ConstructionCombineEditor';
+import type {
+  ConstructionCombineCatalog,
+  ConstructionCombinePublishedRevision,
+  ConstructionCombineStep,
+} from './constructionOperations/combineEditorTypes';
 
 const previewPresentationCommand = (
   outputId: string,
@@ -172,6 +178,13 @@ type ChoiceProposalState =
       readonly response: ConstructionChoiceProposalResponse;
     }
   | { readonly status: 'error'; readonly message: string };
+
+type ConstructionCombineCatalogLoad = {
+  readonly identity: string;
+  readonly catalog: ConstructionCombineCatalog;
+  readonly loadingMore: boolean;
+  readonly loadMoreError?: string;
+};
 
 const emptyCatalog = (): ExplorerBuilderCatalog => ({
   snapshotToken: '',
@@ -254,7 +267,7 @@ const constructionSourceStageId = 'source_projection';
 
 const editableConstructionFamily = (
   operation: ConstructionOperation,
-): Extract<ConstructionOperationFamily, 'KEEP_ROWS' | 'CALCULATE' | 'RESHAPE'> | undefined => {
+): Extract<ConstructionOperationFamily, 'KEEP_ROWS' | 'CALCULATE' | 'RESHAPE' | 'COMBINE'> | undefined => {
   switch (operation.kind) {
     case 'FILTER':
     case 'RELATED_ELIGIBILITY': return 'KEEP_ROWS';
@@ -268,7 +281,9 @@ const editableConstructionFamily = (
     case 'RELATED_EXPAND': return 'RESHAPE';
     case 'RELATED_SOURCE': return undefined;
     case 'RELATED_FIELD': return undefined;
-    case 'COMBINE': return undefined;
+    case 'COMBINE': return operation.combine.kind === 'KEY_JOIN' || operation.combine.kind === 'APPEND'
+      ? 'COMBINE'
+      : undefined;
     default: {
       const exhaustive: never = operation;
       return exhaustive;
@@ -466,10 +481,6 @@ const BuilderWorkspaceContent = ({
       // Browser storage can be unavailable; table editing remains usable.
     }
   }, [selectedTableStorageKey]);
-  const selectTableFromUser = useCallback((outputId: string) => {
-    rememberSelectedTable(outputId);
-    dispatch({ type: 'selectTable', outputId });
-  }, [dispatch, rememberSelectedTable]);
   const [message, setMessage] = useState<string>();
   const [pendingRowChange, setPendingRowChange] =
     useState<PendingRowChange>();
@@ -509,8 +520,19 @@ const BuilderWorkspaceContent = ({
   const [sourceSetupOpen, setSourceSetupOpen] = useState(false);
   const [pairedColumnSuggestion, setPairedColumnSuggestion] =
     useState<PairedColumnSuggestion>();
-  const [activeConstructionFamily, setActiveConstructionFamily] =
-    useState<ConstructionOperationFamily>();
+  const [activeConstructionSelection, setActiveConstructionSelection] = useState<{
+    readonly ownerKey: string;
+    readonly explorerId: string;
+    readonly outputId: string;
+    readonly family: ConstructionOperationFamily;
+  }>();
+  const [combineCatalogLoad, setCombineCatalogLoad] = useState<ConstructionCombineCatalogLoad>({
+    identity: '',
+    catalog: { kind: 'loading' },
+    loadingMore: false,
+  });
+  const combineCatalogController = useRef<AbortController | undefined>(undefined);
+  const combineCatalogRequestGeneration = useRef(0);
   const [addColumnsView, setAddColumnsView] = useState<'coded' | 'fields'>('coded');
   const [rowValuePolicy, setRowValuePolicy] = useState<NonNullable<ConstructionChoiceSelection['rowValuePolicy']>>('ALL');
   const [reshapeEntry, setReshapeEntry] = useState(0);
@@ -561,6 +583,40 @@ const BuilderWorkspaceContent = ({
   const suggestionRequestKey = useRef('');
   const latestState = useRef(state);
   latestState.current = state;
+  const combineCatalogOwnerRef = useRef({ ownerKey, explorerId: state.explorerId });
+  combineCatalogOwnerRef.current = { ownerKey, explorerId: state.explorerId };
+  const activeConstructionFamily = activeConstructionSelection?.ownerKey === ownerKey &&
+    activeConstructionSelection.explorerId === state.explorerId &&
+    activeConstructionSelection.outputId === state.selectedOutputId
+    ? activeConstructionSelection.family
+    : undefined;
+  const setActiveConstructionFamily = (
+    next: ConstructionOperationFamily | undefined |
+      ((current: ConstructionOperationFamily | undefined) => ConstructionOperationFamily | undefined),
+  ) => {
+    const currentState = latestState.current;
+    const outputId = currentState.selectedOutputId;
+    if (!outputId) {
+      setActiveConstructionSelection(undefined);
+      return;
+    }
+    setActiveConstructionSelection((current) => {
+      const currentFamily = current?.ownerKey === ownerKey &&
+        current.explorerId === currentState.explorerId &&
+        current.outputId === outputId
+        ? current.family
+        : undefined;
+      const family = typeof next === 'function' ? next(currentFamily) : next;
+      return family
+        ? { ownerKey, explorerId: currentState.explorerId, outputId, family }
+        : undefined;
+    });
+  };
+  const selectTableFromUser = useCallback((outputId: string) => {
+    setActiveConstructionSelection(undefined);
+    rememberSelectedTable(outputId);
+    dispatch({ type: 'selectTable', outputId });
+  }, [dispatch, rememberSelectedTable]);
   const [interpretationContextRefreshVersion, setInterpretationContextRefreshVersion] = useState(0);
 
   const serverDraftKey = useRef('');
@@ -619,6 +675,10 @@ const BuilderWorkspaceContent = ({
     : undefined;
 
   const selectExplorer = (nextExplorerId: string) => {
+    setActiveConstructionSelection(undefined);
+    combineCatalogRequestGeneration.current += 1;
+    combineCatalogController.current?.abort();
+    combineCatalogController.current = undefined;
     cancelAutomaticPreview();
     compileGeneration.current += 1;
     previewGeneration.current += 1;
@@ -714,6 +774,7 @@ const BuilderWorkspaceContent = ({
           );
           if (selectsTableThroughCommand && next.selectedOutputId) {
             rememberSelectedTable(next.selectedOutputId);
+            setActiveConstructionSelection(undefined);
           }
           latestState.current = next;
           setLocalState({ key: builderDataKey, value: next });
@@ -837,14 +898,161 @@ const BuilderWorkspaceContent = ({
     capabilitiesRequest,
     previewLimit,
   });
+  const combineCatalogIdentityFor = (value: BuilderAuthoringState): string => {
+    const selected = selectedTable(value);
+    return JSON.stringify([
+      ownerKey,
+      value.explorerId,
+      selected?.outputId ?? '',
+      value.catalog.snapshotToken,
+      value.draftVersion,
+      value.draftDigest,
+    ]);
+  };
+  const combineCatalogIdentity = combineCatalogIdentityFor(state);
+  const cancelCombineCatalogRequest = () => {
+    combineCatalogRequestGeneration.current += 1;
+    combineCatalogController.current?.abort();
+    combineCatalogController.current = undefined;
+    setCombineCatalogLoad((current) => current.loadingMore ? { ...current, loadingMore: false } : current);
+  };
+  const loadCombineCatalogPage = async (cursor?: string) => {
+    const requestState = latestState.current;
+    const requestTable = selectedTable(requestState);
+    const identity = combineCatalogIdentityFor(requestState);
+    if (!requestTable || !requestState.catalog.snapshotToken || requestState.draftVersion <= 0 || !requestState.draftDigest) {
+      setCombineCatalogLoad({
+        identity,
+        catalog: { kind: 'failed', message: 'The current table draft is still loading.' },
+        loadingMore: false,
+      });
+      return;
+    }
+    const previous = combineCatalogLoad.identity === identity ? combineCatalogLoad : undefined;
+    if (!cursor && previous?.catalog.kind === 'ready') return;
+    if (cursor && (
+      previous?.catalog.kind !== 'ready' ||
+      previous.catalog.nextCursor !== cursor ||
+      previous.loadingMore
+    )) return;
+
+    combineCatalogController.current?.abort();
+    const requestGeneration = ++combineCatalogRequestGeneration.current;
+    const controller = new AbortController();
+    combineCatalogController.current = controller;
+    if (cursor && previous?.catalog.kind === 'ready') {
+      setCombineCatalogLoad({ ...previous, loadingMore: true, loadMoreError: undefined });
+    } else {
+      setCombineCatalogLoad({ identity, catalog: { kind: 'loading' }, loadingMore: false });
+    }
+
+    try {
+      const response = await loomClient.getConstructionInputs({
+        project: projectId,
+        explorerId: requestState.explorerId,
+        ...(authResourcePath ? { authResourcePath } : {}),
+        snapshotToken: requestState.catalog.snapshotToken,
+        expectedDraftVersion: requestState.draftVersion,
+        expectedDraftDigest: requestState.draftDigest,
+        ...(cursor ? { cursor } : {}),
+        limit: 100,
+      }, controller.signal);
+      const latest = latestState.current;
+      if (
+        controller.signal.aborted ||
+        requestGeneration !== combineCatalogRequestGeneration.current ||
+        combineCatalogOwnerRef.current.ownerKey !== ownerKey ||
+        combineCatalogOwnerRef.current.explorerId !== requestState.explorerId ||
+        identity !== combineCatalogIdentityFor(latest)
+      ) return;
+      if (
+        response.snapshotToken !== requestState.catalog.snapshotToken ||
+        response.draftVersion !== requestState.draftVersion ||
+        response.draftDigest !== requestState.draftDigest ||
+        response.datasetGeneration !== requestState.catalog.generation ||
+        response.snapshotToken !== latest.catalog.snapshotToken ||
+        response.draftVersion !== latest.draftVersion ||
+        response.draftDigest !== latest.draftDigest ||
+        response.datasetGeneration !== latest.catalog.generation
+      ) {
+        setCombineCatalogLoad({
+          identity,
+          catalog: { kind: 'failed', message: 'The table changed while published versions were loading. Reopen Combine tables to refresh.' },
+          loadingMore: false,
+        });
+        return;
+      }
+      const revisions: ConstructionCombinePublishedRevision[] = response.entries.map((entry) => ({
+        kind: 'TABLE_REVISION',
+        tableId: entry.tableId,
+        revisionId: entry.revisionId,
+        outputId: entry.outputId,
+        tableTitle: entry.tableTitle,
+        outputTitle: entry.outputTitle,
+        rowMeaning: entry.rowMeaning,
+        isCurrent: entry.isCurrent,
+        columns: entry.columns,
+      }));
+      setCombineCatalogLoad((current) => {
+        if (
+          current.identity !== identity ||
+          requestGeneration !== combineCatalogRequestGeneration.current ||
+          combineCatalogOwnerRef.current.ownerKey !== ownerKey ||
+          combineCatalogOwnerRef.current.explorerId !== requestState.explorerId
+        ) return current;
+        const existing = cursor && current.catalog.kind === 'ready' ? current.catalog.revisions : [];
+        const byKey = new Map<string, ConstructionCombinePublishedRevision>();
+        for (const revision of [...existing, ...revisions]) {
+          byKey.set(JSON.stringify([revision.tableId, revision.revisionId, revision.outputId]), revision);
+        }
+        return {
+          identity,
+          catalog: { kind: 'ready', revisions: [...byKey.values()], ...(response.nextCursor ? { nextCursor: response.nextCursor } : {}) },
+          loadingMore: false,
+        };
+      });
+    } catch (error) {
+      if (
+        controller.signal.aborted ||
+        requestGeneration !== combineCatalogRequestGeneration.current ||
+        combineCatalogOwnerRef.current.ownerKey !== ownerKey ||
+        combineCatalogOwnerRef.current.explorerId !== requestState.explorerId
+      ) return;
+      const message = error instanceof Error && error.message.trim()
+        ? error.message
+        : 'Loom could not load published table versions.';
+      setCombineCatalogLoad((current) => {
+        if (
+          current.identity !== identity ||
+          combineCatalogOwnerRef.current.ownerKey !== ownerKey ||
+          combineCatalogOwnerRef.current.explorerId !== requestState.explorerId
+        ) return current;
+        if (cursor && current.catalog.kind === 'ready') {
+          return { ...current, loadingMore: false, loadMoreError: message };
+        }
+        return { identity, catalog: { kind: 'failed', message }, loadingMore: false };
+      });
+    }
+  };
+  const currentCombineCatalogLoad = combineCatalogLoad.identity === combineCatalogIdentity
+    ? combineCatalogLoad
+    : { identity: combineCatalogIdentity, catalog: { kind: 'loading' as const }, loadingMore: false };
+  const combineRootNodeId = table?.document.rootResourceType
+    ? derivedOccurrences(table, state.catalog)[0]?.nodeId
+    : undefined;
+  const canStartCombine = Boolean(
+    combineRootNodeId &&
+    state.catalog.snapshotToken &&
+    state.draftVersion > 0 &&
+    state.draftDigest
+  );
   const constructionProposalBusy = constructionLifecycle.proposal.status === 'previewing' ||
     constructionLifecycle.proposal.status === 'applying';
   useEffect(() => {
-    setActiveConstructionFamily(undefined);
     setColumnSelection({ kind: 'empty' });
     setConstructionHistorySelection({ kind: 'source' });
     setEditingConstructionStepId(undefined);
-  }, [state.explorerId, table?.outputId]);
+  }, [ownerKey, state.explorerId, table?.outputId]);
   const tablePreview =
     state.preview?.outputId === table?.outputId ? state.preview : undefined;
   const previewIsCurrent = Boolean(
@@ -901,6 +1109,7 @@ const BuilderWorkspaceContent = ({
   useEffect(() => {
     if (!focusedFeature || reviewFocusTarget) return;
     if (state.selectedOutputId !== focusedFeature.table.outputId) {
+      setActiveConstructionSelection(undefined);
       dispatch({ type: 'selectTable', outputId: focusedFeature.table.outputId });
       return;
     }
@@ -2483,8 +2692,61 @@ const BuilderWorkspaceContent = ({
 
   const reshapeEditorKeyFor = (entry: number, kind: ReshapeEntryKind, stageId: string) =>
     `${ownerKey}:${state.catalog.snapshotToken}:${state.draftVersion}:${state.draftDigest}:${table?.outputId ?? ''}:${stageId}:${entry}:${kind}`;
-  const selectConstructionFamily = (family: ConstructionOperationFamily) => {
+  const startCombine = async () => {
+    const current = latestState.current;
+    const currentTable = selectedTable(current);
+    const requestOwner = { ownerKey, explorerId: current.explorerId };
+    const rootNodeId = currentTable?.document.rootResourceType
+      ? derivedOccurrences(currentTable, current.catalog)[0]?.nodeId
+      : undefined;
+    if (!currentTable || !rootNodeId || !current.catalog.snapshotToken) {
+      setMessage('Choose a rooted table before starting a new table from published versions.');
+      return;
+    }
+
     constructionLifecycle.cancel();
+    cancelCombineCatalogRequest();
+    setConstructionHistorySelection({ kind: 'source' });
+    setEditingConstructionStepId(undefined);
+    setReshapeEntryKind('choose');
+
+    const existingTitles = new Set(current.tables.map((candidate) => candidate.title.trim().toLocaleLowerCase()));
+    const baseTitle = currentTable.title.trim() ? `${currentTable.title.trim()} combined` : 'Combined table';
+    let title = baseTitle;
+    let suffix = 2;
+    while (existingTitles.has(title.toLocaleLowerCase())) {
+      title = `${baseTitle} ${suffix++}`;
+    }
+
+    const created = await applyCommandsWithResult([{
+      type: 'CREATE_TABLE',
+      title,
+      rootNodeId,
+    }]);
+    if (
+      combineCatalogOwnerRef.current.ownerKey !== requestOwner.ownerKey ||
+      combineCatalogOwnerRef.current.explorerId !== requestOwner.explorerId
+    ) return;
+    const createdTable = created?.results.find(
+      (result) => result.type === 'TABLE_CREATED' && Boolean(result.outputId),
+    );
+    if (!createdTable?.outputId) {
+      return;
+    }
+    setFeatureMode('catalog');
+    setActiveConstructionFamily('COMBINE');
+    void loadCombineCatalogPage();
+  };
+
+  const selectConstructionFamily = (family: ConstructionOperationFamily) => {
+    const willOpen = activeConstructionFamily !== family;
+    if (family === 'COMBINE' && willOpen) {
+      if (!canStartCombine) return;
+      void startCombine();
+      return;
+    }
+    constructionLifecycle.cancel();
+    cancelCombineCatalogRequest();
     setConstructionHistorySelection({ kind: 'source' });
     setEditingConstructionStepId(undefined);
     setReshapeEntryKind('choose');
@@ -2492,6 +2754,7 @@ const BuilderWorkspaceContent = ({
   };
   const chooseRelatedRows = () => {
     constructionLifecycle.cancel();
+    cancelCombineCatalogRequest();
     setConstructionHistorySelection({ kind: 'source' });
     setEditingConstructionStepId(undefined);
     setReshapeEntryKind('related-expand');
@@ -2500,20 +2763,25 @@ const BuilderWorkspaceContent = ({
   };
   const chooseReshapeRows = (kind: 'group' | 'source-group' | 'coded-group' | 'expand' | 'categories' | 'pivot' | 'coded-pivot' | 'unpivot') => {
     constructionLifecycle.cancel();
+    cancelCombineCatalogRequest();
     setConstructionHistorySelection({ kind: 'source' });
     setEditingConstructionStepId(undefined);
     setReshapeEntryKind(kind);
     const nextEntry = reshapeEntry + 1;
-    if (kind === 'expand' && table && constructionLifecycle.capabilities.status === 'ready') {
+    if ((kind === 'expand' || kind === 'group') && table && constructionLifecycle.capabilities.status === 'ready') {
       const response = constructionLifecycle.capabilities.response;
       const appendStageId = constructionAppendStageFor(response.baseConstruction, table.document.rows);
-      const supported = response.selectedStage.id === appendStageId
-        && response.selectedStage.capabilities.some((candidate) => candidate.kind === 'EXPAND' && candidate.supported)
-        && hasPublicScalarListColumn(response.selectedStage);
+      const supported = kind === 'expand'
+        ? response.selectedStage.id === appendStageId
+          && response.selectedStage.capabilities.some((candidate) => candidate.kind === 'EXPAND' && candidate.supported)
+          && hasPublicScalarListColumn(response.selectedStage)
+        : response.selectedStage.id === appendStageId
+          && response.selectedStage.capabilities.some((candidate) => candidate.kind === 'GROUP' && candidate.supported);
       const entry = supported
         ? createReshapeEditorEntry({
             construction: construction ?? response.baseConstruction,
             capabilities: response,
+            kind,
           })
         : undefined;
       if (entry) {
@@ -2533,6 +2801,7 @@ const BuilderWorkspaceContent = ({
   };
   const openCodedValueCatalog = () => {
     constructionLifecycle.cancel();
+    cancelCombineCatalogRequest();
     setConstructionHistorySelection({ kind: 'source' });
     setEditingConstructionStepId(undefined);
     setPairedColumnSuggestion(undefined);
@@ -2547,6 +2816,7 @@ const BuilderWorkspaceContent = ({
   };
   const selectConstructionHistory = (selection: ConstructionHistorySelection) => {
     constructionLifecycle.cancel();
+    cancelCombineCatalogRequest();
     setConstructionHistorySelection(selection);
     setEditingConstructionStepId(undefined);
     setActiveConstructionFamily(undefined);
@@ -2564,12 +2834,18 @@ const BuilderWorkspaceContent = ({
     const family = editableConstructionFamily(step.operation);
     if (!family) return;
     constructionLifecycle.cancel();
+    if (family === 'COMBINE') {
+      void loadCombineCatalogPage();
+    } else {
+      cancelCombineCatalogRequest();
+    }
     setConstructionHistorySelection({ kind: 'step', stepId });
     setEditingConstructionStepId(stepId);
     setActiveConstructionFamily(family);
   };
   const removeConstructionStep = (stepId: string) => {
     if (!construction?.steps.some((step) => step.id === stepId)) return;
+    cancelCombineCatalogRequest();
     constructionLifecycle.onCandidateChange({
       candidateConstruction: {
         ...construction,
@@ -2591,6 +2867,7 @@ const BuilderWorkspaceContent = ({
     }]);
     constructionLifecycle.finishApply(applied);
     if (applied) {
+      cancelCombineCatalogRequest();
       setActiveConstructionFamily(undefined);
       setConstructionHistorySelection({ kind: 'source' });
       setEditingConstructionStepId(undefined);
@@ -2600,6 +2877,7 @@ const BuilderWorkspaceContent = ({
   const restorePreviousDraft = async () => {
     if (!previousDraftRevisionId) return;
     constructionLifecycle.cancel();
+    cancelCombineCatalogRequest();
     setActiveConstructionFamily(undefined);
     setEditingConstructionStepId(undefined);
     setConstructionHistorySelection({ kind: 'source' });
@@ -2787,6 +3065,7 @@ const BuilderWorkspaceContent = ({
       aria-label={`${activeOperation.label} editor`}
       data-testid="construction-operation-editor"
       data-operation-family={activeOperation.family}
+      data-output-id={table.outputId}
       className="overflow-hidden rounded-xl border border-emerald-200 bg-white shadow-sm"
     >
       <header className="border-b border-slate-200 px-3 py-2.5">
@@ -2801,6 +3080,7 @@ const BuilderWorkspaceContent = ({
             data-testid="construction-close-operation-editor"
             onClick={() => {
               constructionLifecycle.cancel();
+              cancelCombineCatalogRequest();
               setActiveConstructionFamily(undefined);
               setEditingConstructionStepId(undefined);
             }}
@@ -3089,10 +3369,42 @@ const BuilderWorkspaceContent = ({
           )
         ) : null}
         {activeOperation.family === 'COMBINE' ? (
-          <div role="status" data-testid="construction-operation-unavailable" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
-            <h3 className="font-semibold">Combining tables is not available yet</h3>
-            <p className="mt-1">The authoring API does not yet execute immutable table joins or appends. No change has been proposed.</p>
-          </div>
+          <ConstructionCombineEditor
+            key={`${ownerKey}:${combineCatalogIdentity}:${editingConstructionStep?.id ?? 'new'}`}
+            catalog={currentCombineCatalogLoad.catalog}
+            workspaceInputs={constructionLifecycle.capabilities.status === 'ready'
+              ? constructionLifecycle.capabilities.response.workspaceInputs.map((input) => ({
+                  kind: 'WORKSPACE_OUTPUT' as const,
+                  outputId: input.outputId,
+                  title: input.title,
+                  columns: input.columns.map((column) => ({
+                    id: column.id,
+                    name: column.name,
+                    label: column.label,
+                    type: column.logicalType,
+                    nullable: column.nullable,
+                    repeated: column.cardinality === 'many',
+                    cardinality: column.cardinality,
+                    joinCompatibilityKey: column.joinCompatibilityKey,
+                    appendCompatibilityKey: column.appendCompatibilityKey,
+                  })),
+                }))
+              : []}
+            constructionVersion={construction?.version ?? 1}
+            editingStep={editingConstructionStep?.operation.kind === 'COMBINE'
+              ? editingConstructionStep as ConstructionCombineStep
+              : undefined}
+            disabled={pendingCommands > 0 || state.reconciliation === 'pending' || publishing}
+            loadingMore={currentCombineCatalogLoad.loadingMore}
+            loadMoreError={currentCombineCatalogLoad.loadMoreError}
+            onLoadMore={() => {
+              if (currentCombineCatalogLoad.catalog.kind === 'ready' && currentCombineCatalogLoad.catalog.nextCursor) {
+                void loadCombineCatalogPage(currentCombineCatalogLoad.catalog.nextCursor);
+              }
+            }}
+            onRetryCatalog={() => void loadCombineCatalogPage()}
+            onCandidateChange={constructionLifecycle.onCandidateChange}
+          />
         ) : null}
       </div>
     </section>
@@ -3165,6 +3477,7 @@ const BuilderWorkspaceContent = ({
       onApply={() => void applyConstructionProposal()}
       onCancel={() => {
         constructionLifecycle.cancel();
+        cancelCombineCatalogRequest();
         setActiveConstructionFamily(undefined);
         setEditingConstructionStepId(undefined);
       }}
@@ -3485,6 +3798,7 @@ const BuilderWorkspaceContent = ({
                 }
                 onSelectTable={(outputId) => {
                   selectConstructionHistory({ kind: 'source' });
+                  cancelCombineCatalogRequest();
                   selectTableFromUser(outputId);
                 }}
                 onNewTable={addTable}
@@ -3625,6 +3939,14 @@ const BuilderWorkspaceContent = ({
                   constructionLifecycle.proposal.status === 'applying'
                 }
                 addColumnsDisabled={addColumnsPreviewPending}
+                combineDisabled={!canStartCombine}
+                calculateAvailable={Boolean(
+                  construction?.steps.length &&
+                  capabilityIsForAppendStage &&
+                  capabilityStage?.capabilities.some(
+                    (candidate) => candidate.kind === 'DERIVE' && candidate.supported,
+                  ),
+                )}
                 activeFamily={activeConstructionFamily}
                 onSelectFamily={selectConstructionFamily}
                 preview={

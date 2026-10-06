@@ -1461,10 +1461,15 @@ const candidateFor = (args: {
 export const createReshapeEditorEntry = (args: {
   readonly construction: Construction;
   readonly capabilities: ReshapeCapabilities;
+  readonly kind: 'group' | 'expand';
+  readonly selectedColumns?: ReadonlyArray<string>;
 }): ConstructionReshapeEditorEntry | undefined => {
   const stage = args.capabilities.selectedStage;
-  if (!capabilityFor(stage, 'EXPAND').supported || !hasPublicScalarListColumn(stage)) return undefined;
-  const form = initialExpandForm(stage);
+  if (args.kind === 'expand' && (!capabilityFor(stage, 'EXPAND').supported || !hasPublicScalarListColumn(stage))) return undefined;
+  if (args.kind === 'group' && !capabilityFor(stage, 'GROUP').supported) return undefined;
+  const form = args.kind === 'group'
+    ? initialGroupForm(stage, args.selectedColumns ?? [], undefined, args.construction)
+    : initialExpandForm(stage);
   const evaluation = candidateFor({
     form,
     construction: args.construction,
@@ -1516,7 +1521,7 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
   const pivotDiscovery = props.pivotDiscovery;
 
   useLayoutEffect(() => {
-    if (props.initialEntry?.form.kind === 'expand') return;
+    if (props.initialEntry) return;
     const initialForm = formForStep(construction, capabilities, editingStep, groupStage, props.selectedColumns ?? [], props.initialKind);
     setForm(initialForm);
     setFormContextKey(contextKey);

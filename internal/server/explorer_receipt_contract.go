@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/expression"
@@ -66,7 +67,7 @@ func compileConstructionSourceStage(ctx context.Context, request lifecycle.Const
 	return explorer.ReceiptConstructionStage{}, fmt.Errorf("source projection compiler returned no output %q", request.OutputID)
 }
 
-func compileExplorerReceipt(ctx context.Context, request lifecycle.CompileReceiptRequest, capabilityResolver *explorerCapabilityResolver, recipeEngine *dataframeexecution.Engine, explorerService *explorer.Service, logger *slog.Logger) (*explorer.CompilationReceipt, error) {
+func compileExplorerReceipt(ctx context.Context, request lifecycle.CompileReceiptRequest, capabilityResolver *explorerCapabilityResolver, recipeEngine *dataframeexecution.Engine, explorerService *explorer.Service, logger *slog.Logger, combineResolver combineInputSchemaResolver) (*explorer.CompilationReceipt, error) {
 	started := time.Now()
 	authorized := request.Authorized.Clone()
 	if strings.TrimSpace(authorized.Snapshot.Token) == "" {
@@ -110,8 +111,33 @@ func compileExplorerReceipt(ctx context.Context, request lifecycle.CompileReceip
 		return nil, classifyReceiptRecipeError(err)
 	}
 	compileResolvedDuration := time.Since(compileResolvedStarted)
+	combineInputSchemas := make(map[string]map[int]ir.ResolvedClickHouseTable)
+	for _, output := range resolved.Compiled.Outputs {
+		combine := output.Plan.ClickHouseCombine
+		if combine == nil {
+			continue
+		}
+		hasPublishedInputs := false
+		for _, input := range combine.Inputs {
+			if input.WorkspaceOutputID == "" {
+				hasPublishedInputs = true
+				break
+			}
+		}
+		if !hasPublishedInputs {
+			continue
+		}
+		if combineResolver == nil {
+			return nil, fmt.Errorf("resolve Combine output %q metadata: exact published input schema resolver is required", output.Name)
+		}
+		inputSchemas, err := combineResolver(ctx, output, bindings)
+		if err != nil {
+			return nil, fmt.Errorf("resolve Combine output %q metadata: %w", output.Name, err)
+		}
+		combineInputSchemas[output.Name] = inputSchemas
+	}
 	contractBuildStarted := time.Now()
-	translated, err = reconcileFinalOutputMetadata(translated, resolved)
+	translated, err = reconcileFinalOutputMetadataWithCombineInputs(translated, resolved, combineInputSchemas)
 	if err != nil {
 		return nil, fmt.Errorf("reconcile receipt output metadata: %w", err)
 	}
@@ -139,6 +165,10 @@ func compileExplorerReceipt(ctx context.Context, request lifecycle.CompileReceip
 	if err != nil {
 		return nil, fmt.Errorf("build receipt construction stages: %w", err)
 	}
+	compiledOutputSchemas, err := receiptCompiledOutputSchemas(&resolved)
+	if err != nil {
+		return nil, fmt.Errorf("build receipt compiled output schemas: %w", err)
+	}
 	var rowDefinitionProposal *explorer.RowDefinitionProposalBinding
 	if request.RowDefinitionProposal != nil {
 		binding := *request.RowDefinitionProposal
@@ -159,7 +189,7 @@ func compileExplorerReceipt(ctx context.Context, request lifecycle.CompileReceip
 		binding := *request.PopulationMemberRemovalProposal
 		populationMemberRemovalProposal = &binding
 	}
-	receipt := explorer.CompilationReceipt{ReceiptFormatVersion: explorer.CurrentReceiptFormatVersion, CompilerContractVersion: explorer.CurrentCompilerContractVersion, Project: projectid.Canonical(request.Project), ExplorerID: request.ExplorerID, IntentDigest: intentDigest, ResolvedInputsDigest: translated.ResolvedInputsDigest, ResolvedInterpretations: append([]explorer.ResolvedInterpretation(nil), request.ResolvedInputs.Interpretations...), SnapshotToken: request.SnapshotToken, AuthorizationScopeDigest: snapshot.Identity.AuthorizationScopeDigest, CapabilitySchemaDigest: snapshot.Identity.SchemaDigest, ShapeDigest: snapshot.Identity.ShapeDigest, SourceGeneration: snapshot.Identity.Generation, RecipeDigest: resolved.StoredRecipeDigest, ResolvedRecipeDigest: resolvedRecipeDigest, ResolvedSchemaDigest: resolved.ResolvedSchemaDigest, OutputContractDigest: contractDigest, NormalizedBundle: normalized, Bundle: resolved.Bundle, CompiledConfig: compiledConfig, PublicOutputContract: contract, IdentityMappings: translated.IdentityMappings, EmittedColumns: translated.EmittedColumns, OutputFingerprints: fingerprints, OutputColumnProvenance: columnProvenance, RowDefinitionProposal: rowDefinitionProposal, TableShapeProposal: tableShapeProposal, ConstructionProposal: constructionProposal, PopulationMemberRemovalProposal: populationMemberRemovalProposal, ConstructionStages: constructionStages, RequestID: request.RequestID, CreatedAt: time.Now().UTC()}
+	receipt := explorer.CompilationReceipt{ReceiptFormatVersion: explorer.CurrentReceiptFormatVersion, CompilerContractVersion: explorer.CurrentCompilerContractVersion, Project: projectid.Canonical(request.Project), ExplorerID: request.ExplorerID, IntentDigest: intentDigest, ResolvedInputsDigest: translated.ResolvedInputsDigest, ResolvedInterpretations: append([]explorer.ResolvedInterpretation(nil), request.ResolvedInputs.Interpretations...), SnapshotToken: request.SnapshotToken, AuthorizationScopeDigest: snapshot.Identity.AuthorizationScopeDigest, CapabilitySchemaDigest: snapshot.Identity.SchemaDigest, ShapeDigest: snapshot.Identity.ShapeDigest, SourceGeneration: snapshot.Identity.Generation, RecipeDigest: resolved.StoredRecipeDigest, ResolvedRecipeDigest: resolvedRecipeDigest, ResolvedSchemaDigest: resolved.ResolvedSchemaDigest, OutputContractDigest: contractDigest, NormalizedBundle: normalized, Bundle: resolved.Bundle, CompiledConfig: compiledConfig, PublicOutputContract: contract, IdentityMappings: translated.IdentityMappings, EmittedColumns: translated.EmittedColumns, OutputFingerprints: fingerprints, OutputColumnProvenance: columnProvenance, CompiledOutputSchemas: compiledOutputSchemas, RowDefinitionProposal: rowDefinitionProposal, TableShapeProposal: tableShapeProposal, ConstructionProposal: constructionProposal, PopulationMemberRemovalProposal: populationMemberRemovalProposal, ConstructionStages: constructionStages, RequestID: request.RequestID, CreatedAt: time.Now().UTC()}
 	receipt.CompilationKey, err = explorer.CompilationKey(receipt)
 	if err != nil {
 		return nil, err
@@ -442,6 +472,13 @@ func validateReceiptResolution(receipt *explorer.CompilationReceipt, resolved *d
 	if !reflect.DeepEqual(receipt.ConstructionStages, constructionStages) {
 		return contractMismatch("construction_stages", "", "compiler-derived stage descriptors", "receipt stage descriptors differ")
 	}
+	compiledOutputSchemas, err := receiptCompiledOutputSchemas(resolved)
+	if err != nil {
+		return contractMismatch("compiled_output_schemas", "", "valid finalized output schemas", err.Error())
+	}
+	if len(receipt.CompiledOutputSchemas) > 0 && !reflect.DeepEqual(receipt.CompiledOutputSchemas, compiledOutputSchemas) {
+		return contractMismatch("compiled_output_schemas", "", "compiler-derived finalized output schemas", "receipt output schemas differ")
+	}
 	if len(receipt.OutputColumnProvenance) != len(resolved.Compiled.Outputs) {
 		return contractMismatch("provenance", "", fmt.Sprint(len(resolved.Compiled.Outputs)), fmt.Sprint(len(receipt.OutputColumnProvenance)))
 	}
@@ -456,6 +493,37 @@ func validateReceiptResolution(receipt *explorer.CompilationReceipt, resolved *d
 		}
 	}
 	return nil
+}
+
+// receiptCompiledOutputSchemas freezes the lowerer's finalized public and
+// internal projection schema for every output. The capability response later
+// filters internal columns and derives compatibility keys from these exact
+// compiler values; no workspace presentation rows are used as schema input.
+func receiptCompiledOutputSchemas(resolved *dataframeexecution.Resolved) (map[string][]explorer.ReceiptCompiledOutputColumn, error) {
+	if resolved == nil {
+		return nil, fmt.Errorf("resolved compilation is required")
+	}
+	schemas := make(map[string][]explorer.ReceiptCompiledOutputColumn, len(resolved.Compiled.Outputs))
+	for _, output := range resolved.Compiled.Outputs {
+		if strings.TrimSpace(output.Name) == "" {
+			return nil, fmt.Errorf("compiled output has an empty name")
+		}
+		if _, duplicate := schemas[output.Name]; duplicate {
+			return nil, fmt.Errorf("compiled output %q appears more than once", output.Name)
+		}
+		columns := make([]explorer.ReceiptCompiledOutputColumn, 0, len(output.OutputSchema))
+		for _, column := range output.OutputSchema {
+			columns = append(columns, explorer.ReceiptCompiledOutputColumn{
+				ID: column.ID, Name: column.Name, Label: column.Label, LogicalType: column.Kind,
+				Cardinality: column.Cardinality, Nullable: column.Nullable, Internal: column.Internal, Identity: column.Identity,
+			})
+		}
+		schemas[output.Name] = columns
+	}
+	if len(schemas) == 0 {
+		return nil, fmt.Errorf("compiled output schema set is empty")
+	}
+	return schemas, nil
 }
 
 // receiptConstructionStages freezes the compiler's exact stage schemas and

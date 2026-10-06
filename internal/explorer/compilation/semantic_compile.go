@@ -82,7 +82,11 @@ func compileSemanticDocument(ctx context.Context, project, explorerID string, do
 	if expansion != nil {
 		rowMultiplication = "expand"
 	}
-	contract := explorer.PublicOutputContract{OutputID: document.Output.ID, RootResourceType: root.graph.ResourceType, RowGrain: string(rowGrain), RowMultiplication: rowMultiplication, Lossless: true, MLReady: true, StructuralSuitability: "scalar", Columns: make([]explorer.PublicOutputColumn, 0, len(document.Columns))}
+	structuralSuitability := "scalar"
+	if len(document.Columns) == 0 {
+		structuralSuitability = ""
+	}
+	contract := explorer.PublicOutputContract{OutputID: document.Output.ID, RootResourceType: root.graph.ResourceType, RowGrain: string(rowGrain), RowMultiplication: rowMultiplication, Lossless: true, MLReady: true, StructuralSuitability: structuralSuitability, Columns: make([]explorer.PublicOutputColumn, 0, len(document.Columns))}
 	countEmissions := map[string]int{}
 	presentationOrder := 0
 

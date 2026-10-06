@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/expression"
@@ -27,6 +28,7 @@ type authoredOutputColumn struct {
 	TypedStageOutput        bool
 	PriorStageSelfInput     bool
 	PreservesSourceIdentity bool
+	ExternalInputLineage    bool
 	Quality                 constructedOutputQuality
 }
 
@@ -40,6 +42,14 @@ type constructedOutputQuality struct {
 const tableShapeMLReadinessUnassessed = "TABLE_SHAPE_ML_READINESS_UNASSESSED"
 
 func reconcileFinalOutputMetadata(translated explorercompilation.WorkspaceResult, resolved dataframeexecution.Resolved) (explorercompilation.WorkspaceResult, error) {
+	return reconcileFinalOutputMetadataWithCombineInputs(translated, resolved, nil)
+}
+
+func reconcileFinalOutputMetadataWithCombineInputs(
+	translated explorercompilation.WorkspaceResult,
+	resolved dataframeexecution.Resolved,
+	combineInputs map[string]map[int]ir.ResolvedClickHouseTable,
+) (explorercompilation.WorkspaceResult, error) {
 	if len(translated.Bundle.Outputs) != len(resolved.Bundle.Outputs) || len(resolved.Bundle.Outputs) != len(resolved.Compiled.Outputs) {
 		return explorercompilation.WorkspaceResult{}, fmt.Errorf("compiled output set does not match translated output set")
 	}
@@ -55,10 +65,6 @@ func reconcileFinalOutputMetadata(translated explorercompilation.WorkspaceResult
 		return explorercompilation.WorkspaceResult{}, fmt.Errorf("translated output contract is inconsistent: %w", err)
 	}
 
-	documents, authoredColumns, err := authoredOutputColumns(translated.Workspace)
-	if err != nil {
-		return explorercompilation.WorkspaceResult{}, err
-	}
 	compiledByOutput := make(map[string]lower.CompiledRecipeOutput, len(resolved.Compiled.Outputs))
 	for _, output := range resolved.Compiled.Outputs {
 		if strings.TrimSpace(output.Name) == "" {
@@ -68,6 +74,10 @@ func reconcileFinalOutputMetadata(translated explorercompilation.WorkspaceResult
 			return explorercompilation.WorkspaceResult{}, fmt.Errorf("duplicate compiled output identity %q", output.Name)
 		}
 		compiledByOutput[output.Name] = output
+	}
+	documents, authoredColumns, err := authoredOutputColumnsWithCombineInputs(translated.Workspace, compiledByOutput, combineInputs)
+	if err != nil {
+		return explorercompilation.WorkspaceResult{}, err
 	}
 	if len(documents) != len(resolved.Bundle.Outputs) {
 		return explorercompilation.WorkspaceResult{}, fmt.Errorf("workspace document set does not match compiled output set")
@@ -399,6 +409,14 @@ func explicitGroupEmissionID(revisionID, column string) string {
 }
 
 func authoredOutputColumns(workspace authoringv2.Workspace) (map[string]authoringv2.Document, map[string]map[string]authoredOutputColumn, error) {
+	return authoredOutputColumnsWithCombineInputs(workspace, nil, nil)
+}
+
+func authoredOutputColumnsWithCombineInputs(
+	workspace authoringv2.Workspace,
+	compiledOutputs map[string]lower.CompiledRecipeOutput,
+	combineInputs map[string]map[int]ir.ResolvedClickHouseTable,
+) (map[string]authoringv2.Document, map[string]map[string]authoredOutputColumn, error) {
 	documents := make(map[string]authoringv2.Document, len(workspace.Documents))
 	columns := make(map[string]map[string]authoredOutputColumn, len(workspace.Documents))
 	for _, document := range workspace.Documents {
@@ -500,7 +518,18 @@ func authoredOutputColumns(workspace authoringv2.Workspace) (map[string]authorin
 			}
 		}
 		if document.Construction != nil {
-			if err := authoredConstructionOutputs(document, columns[outputID]); err != nil {
+			compiledOutput, exists := compiledOutputs[outputID]
+			needsCompiledCombine := false
+			for _, step := range document.Construction.Steps {
+				if step.Operation.Kind == authoringv2.ConstructionOperationCombine {
+					needsCompiledCombine = true
+					break
+				}
+			}
+			if needsCompiledCombine && !exists {
+				return nil, nil, fmt.Errorf("compiled output %q is missing for Combine construction metadata", outputID)
+			}
+			if err := authoredConstructionOutputsWithCombineInputs(document, columns[outputID], compiledOutput, combineInputs[outputID]); err != nil {
 				return nil, nil, fmt.Errorf("construction outputs for document %q: %w", outputID, err)
 			}
 		}
@@ -509,6 +538,15 @@ func authoredOutputColumns(workspace authoringv2.Workspace) (map[string]authorin
 }
 
 func authoredConstructionOutputs(document authoringv2.Document, authored map[string]authoredOutputColumn) error {
+	return authoredConstructionOutputsWithCombineInputs(document, authored, lower.CompiledRecipeOutput{}, nil)
+}
+
+func authoredConstructionOutputsWithCombineInputs(
+	document authoringv2.Document,
+	authored map[string]authoredOutputColumn,
+	compiledOutput lower.CompiledRecipeOutput,
+	resolvedInputs map[int]ir.ResolvedClickHouseTable,
+) error {
 	if document.Construction == nil {
 		return nil
 	}
@@ -797,6 +835,44 @@ func authoredConstructionOutputs(document authoringv2.Document, authored map[str
 			if step.Operation.Filter == nil {
 				return fmt.Errorf("filter step %q has no operation payload", step.ID)
 			}
+		case authoringv2.ConstructionOperationCombine:
+			if step.Operation.Combine == nil {
+				return fmt.Errorf("combine step %q has no operation payload", step.ID)
+			}
+			quality := constructedOutputQuality{
+				Lossless: false, StructuralSuitability: "requires-review",
+				LossReasons: []string{"CONSTRUCTION_COMBINE_CHANGES_ROW_SOURCE"},
+			}
+			for _, output := range step.Outputs {
+				if !requiredConstructionID(output.ID) || strings.TrimSpace(output.Name) == "" || strings.TrimSpace(output.Label) == "" {
+					return fmt.Errorf("combine step %q output is missing a stable ID, name, or label", step.ID)
+				}
+				if _, duplicate := nextAuthored[output.Name]; duplicate {
+					return fmt.Errorf("construction output %q is duplicated for document %q", output.Name, document.Output.ID)
+				}
+				inputNames := make([]string, 0)
+				for _, projection := range step.Operation.Combine.Projections {
+					if projection.OutputColumnID != output.ID {
+						continue
+					}
+					name, err := combineProjectionInputName(compiledOutput, resolvedInputs, projection.InputIndex, projection.InputColumnID)
+					if err != nil {
+						return fmt.Errorf("combine step %q output %q: %w", step.ID, output.Name, err)
+					}
+					inputNames = append(inputNames, name)
+				}
+				uniqueNames, err := uniqueColumnsInOrder(inputNames)
+				if err != nil {
+					return fmt.Errorf("combine step %q output %q: %w", step.ID, output.Name, err)
+				}
+				if len(uniqueNames) == 0 {
+					return fmt.Errorf("combine step %q output %q has no compiler-resolved input columns", step.ID, output.Name)
+				}
+				nextAuthored[output.Name] = authoredOutputColumn{
+					ConstructionID: step.ID, Label: output.Label, InputColumns: uniqueNames,
+					ExternalInputLineage: true, Quality: quality,
+				}
+			}
 		case authoringv2.ConstructionOperationRelatedSource:
 			if step.Operation.RelatedSource == nil {
 				return fmt.Errorf("related-source step %q has no operation payload", step.ID)
@@ -897,6 +973,42 @@ func authoredConstructionOutputs(document authoringv2.Document, authored map[str
 		prior = next
 	}
 	return nil
+}
+
+func combineProjectionInputName(
+	compiledOutput lower.CompiledRecipeOutput,
+	resolvedInputs map[int]ir.ResolvedClickHouseTable,
+	inputIndex int,
+	columnID string,
+) (string, error) {
+	if compiledOutput.Plan.ClickHouseCombine == nil || inputIndex < 0 || inputIndex >= len(compiledOutput.Plan.ClickHouseCombine.Inputs) {
+		return "", fmt.Errorf("input %d is not present in the compiled Combine plan", inputIndex)
+	}
+	input := compiledOutput.Plan.ClickHouseCombine.Inputs[inputIndex]
+	if input.WorkspaceOutputID != "" {
+		for _, source := range compiledOutput.WorkspaceOutputSources {
+			if source.InputIndex != inputIndex || source.OutputID != input.WorkspaceOutputID {
+				continue
+			}
+			for _, column := range source.Schema {
+				if column.ID == columnID && column.Name != "" && !column.Internal && !column.Identity {
+					return column.Name, nil
+				}
+			}
+			return "", fmt.Errorf("workspace input %d output %q has no compiler-resolved public column ID %q", inputIndex, input.WorkspaceOutputID, columnID)
+		}
+		return "", fmt.Errorf("workspace input %d output %q has no compiler-resolved sibling schema", inputIndex, input.WorkspaceOutputID)
+	}
+	resolved, ok := resolvedInputs[inputIndex]
+	if !ok || resolved.TableID != input.TableID || resolved.RevisionID != input.RevisionID || resolved.OutputID != input.OutputID {
+		return "", fmt.Errorf("published input %d does not match the exact compiled table revision", inputIndex)
+	}
+	for _, column := range resolved.Columns {
+		if column.ID == columnID && strings.TrimSpace(column.Name) != "" {
+			return column.Name, nil
+		}
+	}
+	return "", fmt.Errorf("published input %d exact schema has no column ID %q", inputIndex, columnID)
 }
 
 func constructionInputNames(schema map[string]string, ids []string) ([]string, error) {
@@ -1066,6 +1178,11 @@ func resolveAuthoredOutputLineage(constructed map[string]authoredOutputColumn, e
 				return append([]string(nil), resolved[column]...), nil
 			}
 			states[column] = 1
+			if authored.ExternalInputLineage {
+				states[column] = 2
+				resolved[column] = []string{}
+				return []string{}, nil
+			}
 			roots := make([]string, 0)
 			for _, input := range authored.InputColumns {
 				if input == column && authored.PriorStageSelfInput {

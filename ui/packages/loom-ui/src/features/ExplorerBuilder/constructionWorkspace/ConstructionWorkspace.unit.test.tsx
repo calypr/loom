@@ -76,6 +76,7 @@ describe('ConstructionWorkspace', () => {
     const actions = [
       ['ADD_COLUMNS', 'Add columns'],
       ['KEEP_ROWS', 'Filter rows'],
+      ['COMBINE', 'Combine tables'],
     ] as const;
     for (const [family, label] of actions) {
       const button = screen.getByTestId(
@@ -86,8 +87,18 @@ describe('ConstructionWorkspace', () => {
       expect(onSelect).toHaveBeenLastCalledWith(family);
     }
     expect(screen.queryByTestId('construction-action-calculate')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('construction-action-combine')).not.toBeInTheDocument();
     expect(screen.queryByTestId('construction-action-reshape')).not.toBeInTheDocument();
+  });
+
+  it('offers calculations only when the selected constructed stage supports them', () => {
+    const onSelect = vi.fn<(family: ConstructionOperationFamily) => void>();
+    render(<ConstructionActionBar onSelect={onSelect} calculateAvailable />);
+
+    const calculate = screen.getByTestId('construction-action-calculate');
+    expect(calculate).toBeEnabled();
+    expect(calculate).toHaveTextContent('Add a calculated column');
+    fireEvent.click(calculate);
+    expect(onSelect).toHaveBeenCalledWith('CALCULATE');
   });
 
   it('blocks Add columns during preview loading without blocking row filters', () => {
@@ -100,6 +111,17 @@ describe('ConstructionWorkspace', () => {
     expect(filterRows).toBeEnabled();
     fireEvent.click(filterRows);
     expect(onSelect).toHaveBeenCalledWith('KEEP_ROWS');
+  });
+
+  it('offers a new-table Combine entry without asking users to clear their current table', () => {
+    const onSelect = vi.fn<(family: ConstructionOperationFamily) => void>();
+    render(<ConstructionActionBar onSelect={onSelect} />);
+
+    const combine = screen.getByTestId('construction-action-combine');
+    expect(combine).toBeEnabled();
+    expect(combine).toHaveAttribute('aria-label', 'Combine tables: Create a new table by joining or stacking table versions.');
+    fireEvent.click(combine);
+    expect(onSelect).toHaveBeenCalledWith('COMBINE');
   });
 
   it('navigates named tables and keeps a history panel absent when there are no authored steps', () => {
@@ -408,6 +430,7 @@ describe('ConstructionWorkspace', () => {
         id: 'append_visits',
         title: 'Combine',
         summary: 'Append rows from visits (revision revision-7).',
+        editable: true,
       },
     ]);
   });

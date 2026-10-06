@@ -47,6 +47,7 @@ const capabilitiesFor = (
   baseConstruction: construction,
   stages: [...stages],
   selectedStage,
+  workspaceInputs: [],
 });
 
 const renderEditor = (args: {

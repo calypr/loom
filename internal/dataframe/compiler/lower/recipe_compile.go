@@ -29,6 +29,10 @@ type CompiledRecipe struct {
 	ScopeDigest          string
 	SourceGeneration     string
 	Outputs              []CompiledRecipeOutput
+	// WorkspaceDependencies contains the topologically compiled, unselected
+	// outputs required by the selected public outputs. It is execution support
+	// only; public output ordering remains in Outputs.
+	WorkspaceDependencies []CompiledRecipeOutput
 }
 
 // CompiledRecipeOutput is the canonical compiler result for one output.
@@ -257,6 +261,19 @@ func CompileResolvedRecipePlan(resolved semantic.ResolvedRecipePlan, policy ir.P
 			return CompiledRecipe{}, fmt.Errorf("output %q was not compiled after workspace dependency resolution", output.Name)
 		}
 		result.Outputs = append(result.Outputs, compiled)
+	}
+	if len(selected) > 0 {
+		for _, index := range dependencyOrder {
+			output := semanticPlan.Outputs[index]
+			if !needed[output.Name] || selected[output.Name] {
+				continue
+			}
+			compiled, ok := compiledByName[output.Name]
+			if !ok {
+				return CompiledRecipe{}, fmt.Errorf("workspace dependency %q was not compiled after dependency resolution", output.Name)
+			}
+			result.WorkspaceDependencies = append(result.WorkspaceDependencies, compiled)
+		}
 	}
 	return result, nil
 }

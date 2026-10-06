@@ -3458,7 +3458,7 @@ components:
       additionalProperties: false
       required: [kind]
       properties:
-        kind: {type: string, enum: [SOURCE_PROJECTION, STEP_OUTPUT, TABLE_REVISION]}
+        kind: {type: string, enum: [SOURCE_PROJECTION, STEP_OUTPUT, TABLE_REVISION, WORKSPACE_OUTPUT]}
         stepId: {type: string, minLength: 1}
         tableId: {type: string, minLength: 1}
         revisionId: {type: string, minLength: 1}
@@ -4052,7 +4052,7 @@ components:
     ConstructionCapabilitiesResponse:
       type: object
       additionalProperties: false
-      required: [snapshotToken, draftVersion, draftDigest, outputId, stageId, baseConstruction, stages, selectedStage, sourceInput]
+      required: [snapshotToken, draftVersion, draftDigest, outputId, stageId, baseConstruction, stages, selectedStage, sourceInput, workspaceInputs]
       properties:
         snapshotToken: {type: string, minLength: 1}
         draftVersion: {type: integer, minimum: 1}
@@ -4066,6 +4066,32 @@ components:
         selectedStage: {$ref: '#/components/schemas/ConstructionStageDescriptor'}
         sourceInput: {$ref: '#/components/schemas/ConstructionSourceInput'}
         pivotSourceInput: {$ref: '#/components/schemas/ConstructionSourceInput'}
+        workspaceInputs:
+          type: array
+          items: {$ref: '#/components/schemas/ConstructionWorkspaceInput'}
+    ConstructionWorkspaceInput:
+      type: object
+      additionalProperties: false
+      required: [outputId, title, columns]
+      properties:
+        outputId: {type: string, minLength: 1}
+        title: {type: string, minLength: 1}
+        columns:
+          type: array
+          items: {$ref: '#/components/schemas/ConstructionWorkspaceInputColumn'}
+    ConstructionWorkspaceInputColumn:
+      type: object
+      additionalProperties: false
+      required: [id, name, label, logicalType, cardinality, nullable]
+      properties:
+        id: {type: string, minLength: 1}
+        name: {type: string, minLength: 1}
+        label: {type: string, minLength: 1}
+        logicalType: {type: string, minLength: 1}
+        cardinality: {type: string, enum: [required_one, optional_one, many]}
+        nullable: {type: boolean}
+        joinCompatibilityKey: {type: string, minLength: 1}
+        appendCompatibilityKey: {type: string, minLength: 1}
     ConstructionSourceInput:
       type: object
       additionalProperties: false

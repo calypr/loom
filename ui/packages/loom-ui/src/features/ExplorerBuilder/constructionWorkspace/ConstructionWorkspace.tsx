@@ -45,7 +45,7 @@ const allOperationFamilies = [
   },
   {
     family: 'CALCULATE',
-    label: 'Calculate',
+    label: 'Add a calculated column',
     description: 'Create a value from existing columns.',
   },
   {
@@ -55,8 +55,8 @@ const allOperationFamilies = [
   },
   {
     family: 'COMBINE',
-    label: 'Combine',
-    description: 'Use another named table.',
+    label: 'Combine tables',
+    description: 'Create a new table by joining or stacking table versions.',
   },
 ] satisfies ReadonlyArray<{
   readonly family: ConstructionOperationFamily;
@@ -80,30 +80,33 @@ export const ConstructionUndoButton = ({ onUndo, disabled = false }: {
     Undo
   </button>
 );
-const actionFamilies = allOperationFamilies.filter(
-  ({ family }) => family === 'ADD_COLUMNS' || family === 'KEEP_ROWS',
-);
-
 export const ConstructionActionBar = ({
   activeFamily,
   disabled = false,
   addColumnsDisabled = false,
+  combineDisabled = false,
+  calculateAvailable = false,
   onSelect,
 }: {
   readonly activeFamily?: ConstructionOperationFamily;
   readonly disabled?: boolean;
   readonly addColumnsDisabled?: boolean;
+  readonly combineDisabled?: boolean;
+  readonly calculateAvailable?: boolean;
   readonly onSelect: (family: ConstructionOperationFamily) => void;
 }) => (
   <nav aria-label="Table actions" className="flex flex-wrap items-center gap-2">
-    {actionFamilies.map(({ family, label, description }) => (
+    {allOperationFamilies.filter(({ family }) =>
+      family === 'ADD_COLUMNS' || family === 'KEEP_ROWS' || family === 'COMBINE' ||
+      (family === 'CALCULATE' && calculateAvailable)
+    ).map(({ family, label, description }) => (
       <button
         key={family}
         type="button"
         aria-label={`${label}: ${description}`}
         aria-pressed={activeFamily === family}
         data-testid={`construction-action-${family.toLowerCase().replace('_', '-')}`}
-        disabled={disabled || (family === 'ADD_COLUMNS' && addColumnsDisabled)}
+        disabled={disabled || (family === 'ADD_COLUMNS' && addColumnsDisabled) || (family === 'COMBINE' && combineDisabled)}
         onClick={() => onSelect(family)}
         title={description}
         className={`min-w-0 rounded-md border px-3 py-2 text-left text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
@@ -315,6 +318,8 @@ export const ConstructionWorkspace = ({
   actionsDisabled,
   activeFamily,
   addColumnsDisabled = false,
+  combineDisabled = false,
+  calculateAvailable = false,
   onSelectFamily,
   history,
   rowSetup,
@@ -346,6 +351,8 @@ export const ConstructionWorkspace = ({
   readonly actionsDisabled?: boolean;
   readonly activeFamily?: ConstructionOperationFamily;
   readonly addColumnsDisabled?: boolean;
+  readonly combineDisabled?: boolean;
+  readonly calculateAvailable?: boolean;
   readonly onSelectFamily: (family: ConstructionOperationFamily) => void;
   readonly history?: ConstructionHistoryProps;
   readonly rowSetup?: React.ReactNode;
@@ -417,6 +424,8 @@ export const ConstructionWorkspace = ({
         activeFamily={activeFamily}
         disabled={actionsDisabled}
         addColumnsDisabled={addColumnsDisabled}
+        combineDisabled={combineDisabled}
+        calculateAvailable={calculateAvailable}
         onSelect={onSelectFamily}
       /> : null}
 

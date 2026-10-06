@@ -51,6 +51,10 @@ type PreviewGroupScanSpec struct {
 // It contains parameterized AQL plus stable metadata for execution, export,
 // and diagnostics; it does not expose a transport-specific request builder.
 type CompiledQuery struct {
+	// PhysicalPlan is the finalized execution plan after optimization and
+	// preview-window insertion. It is retained for server-owned execution
+	// preparation; Query and BindVars remain the rendered public result.
+	PhysicalPlan       ir.PhysicalPlan
 	Project            string
 	DatasetGeneration  string
 	RootResourceType   string

@@ -46,6 +46,7 @@ const mockLoomClient = vi.hoisted(() => ({
   resolveTableShape: vi.fn(),
   proposeTableShape: vi.fn(),
   getConstructionCapabilities: vi.fn(),
+  getConstructionInputs: vi.fn(),
   discoverConstructionCategories: vi.fn(),
   proposeConstruction: vi.fn(),
   proposeConstructionChoices: vi.fn(),
@@ -57,7 +58,7 @@ const mockRelatedExpandOwnerState = vi.hoisted(() => ({ enabled: false }));
 const mockRelatedExpandQueryOwner = vi.hoisted(() => ({
   draftVersion: 1,
   draftDigest: 'sha256:draft-1',
-  pauseAndDrain: vi.fn(async () => undefined),
+  pauseAndDrain: vi.fn<RelatedExpandQueryOwner['pauseAndDrain']>(async () => undefined),
   resume: vi.fn(),
 }));
 
@@ -266,7 +267,7 @@ vi.mock('./constructionOperations/ConstructionReshapeEditor', async (importOrigi
     readonly onCandidateChange?: (intent: ConstructionCandidateIntent | undefined) => void;
     readonly relatedExpandQueryOwnerRef?: React.RefObject<RelatedExpandQueryOwner | null>;
   }) => {
-    React.useImperativeHandle(
+    React.useImperativeHandle<RelatedExpandQueryOwner | null, RelatedExpandQueryOwner | null>(
       relatedExpandQueryOwnerRef ?? null,
       () => mockRelatedExpandOwnerState.enabled ? mockRelatedExpandQueryOwner : null,
       [relatedExpandQueryOwnerRef, mockRelatedExpandOwnerState.enabled],
@@ -567,6 +568,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
   let publish: Mock;
 
   beforeEach(() => {
+    window.sessionStorage.clear();
     mockLoomClientReference.current = undefined;
     mockRelatedExpandOwnerState.enabled = false;
     mockRelatedExpandQueryOwner.pauseAndDrain.mockReset().mockResolvedValue(undefined);
@@ -664,7 +666,15 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
         baseConstruction: { version: 1, steps: [] },
         stages: [selectedStage],
         selectedStage,
+        workspaceInputs: [],
       };
+    });
+    mockLoomClient.getConstructionInputs.mockReset().mockResolvedValue({
+      snapshotToken: 'snapshot-1',
+      draftVersion: 2,
+      draftDigest: 'sha256:draft-2',
+      datasetGeneration: 'generation-1',
+      entries: [],
     });
     mockLoomClient.discoverConstructionCategories.mockImplementation(async (args: {
       readonly snapshotToken: string;
@@ -1031,6 +1041,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
         baseConstruction: { version: 1, steps: [] },
         stages: [sourceStage],
         selectedStage: sourceStage,
+        workspaceInputs: [],
         sourceInput: { supported: true, stageId: 'source_projection', choices: pivotSourceChoices },
         pivotSourceInput: { supported: true, stageId: 'source_projection', choices: pivotSourceChoices },
       });
@@ -2873,6 +2884,71 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     await waitFor(() => expect(preview).toHaveBeenCalledTimes(1));
   });
 
+  it('opens the calculation editor for a Group output when its final stage supports DERIVE', async () => {
+    const groupedConstruction: Construction = {
+      version: 1,
+      steps: [{
+        id: 'group_rows',
+        inputs: [{ kind: 'SOURCE_PROJECTION' }],
+        operation: { kind: 'GROUP', group: {
+          constructionId: 'group_rows',
+          missingKeyPolicy: 'GROUP',
+          keys: [],
+          aggregates: [{ operation: 'COUNT_ROWS', outputColumnId: 'row_count' }],
+        } },
+        outputs: [{ id: 'row_count', name: 'row_count', label: 'Row count', type: 'integer' }],
+      }],
+    };
+    const groupedWorkspace: ExplorerBuilderWorkspace = {
+      ...workspace,
+      documents: [{ ...workspace.documents[0], construction: groupedConstruction }],
+    };
+    (useGetExplorerBuilderStateV2Query as Mock).mockReturnValue({
+      data: { ...builderState, workspace: groupedWorkspace },
+      isLoading: false,
+      refetch: vi.fn(),
+    });
+    reconcile.mockReturnValue(resolvedRequest({ ...receipt, builder: groupedWorkspace }));
+    mockLoomClient.getConstructionCapabilities.mockImplementation(async (args: {
+      readonly snapshotToken: string;
+      readonly expectedDraftVersion: number;
+      readonly expectedDraftDigest: string;
+      readonly outputId: string;
+      readonly stageId: string;
+    }) => {
+      const selectedStage = {
+        id: args.stageId,
+        inputStageId: '',
+        rowIdentityColumn: 'group-row-id',
+        columns: [{ id: 'row_count', name: 'row_count', label: 'Row count', type: 'integer' }],
+        capabilities: [{ kind: 'DERIVE' as const, supported: true }],
+      };
+      return {
+        snapshotToken: args.snapshotToken,
+        draftVersion: args.expectedDraftVersion,
+        draftDigest: args.expectedDraftDigest,
+        outputId: args.outputId,
+        stageId: args.stageId,
+        baseConstruction: groupedConstruction,
+        stages: [selectedStage],
+        selectedStage,
+        workspaceInputs: [],
+      };
+    });
+
+    render(<BuilderWorkspace organization="HTAN_INT" project="BForePC" explorerId="test" />);
+
+    const calculate = await screen.findByTestId('construction-action-calculate');
+    expect(calculate).toHaveTextContent('Add a calculated column');
+    expect(calculate).toBeEnabled();
+    expect(mockLoomClient.getConstructionCapabilities).toHaveBeenCalledWith(
+      expect.objectContaining({ outputId: 'specimens', stageId: 'group_rows' }),
+      expect.any(AbortSignal),
+    );
+    fireEvent.click(calculate);
+    expect(await screen.findByTestId('construction-calculate-editor')).toBeInTheDocument();
+  });
+
   it('keeps the preview visible, collapses source setup, supports focusable column selection, and applies only the reviewed receipt command', async () => {
     render(
       <BuilderWorkspace
@@ -2892,7 +2968,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     expect(screen.getByTestId('construction-action-keep-rows')).toHaveTextContent('Filter rows');
     expect(screen.getByTestId('construction-rows-settings-trigger')).toBeInTheDocument();
     expect(screen.queryByTestId('construction-action-calculate')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('construction-action-combine')).not.toBeInTheDocument();
+    expect(screen.getByTestId('construction-action-combine')).toBeEnabled();
 
     const selectedColumn = screen.getByTestId('construction-column-specimen_identifier_id');
     expect(selectedColumn.tagName).toBe('BUTTON');
@@ -2938,6 +3014,421 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     expect(mockLoomClient.proposeTableShape).toHaveBeenCalledWith(expect.objectContaining({
       mode: 'ADD', catalogId: 'shape-catalog', derivedResolutionIds: ['derived-resolution'],
     }));
+  });
+
+  it('creates an empty rooted Combine target from a populated table and opens its published-version editor', async () => {
+    const combineOutputId = 'specimens-combined';
+    const combineWorkspace = {
+      ...workspace,
+      documents: [
+        ...workspace.documents,
+        {
+          ...workspace.documents[0],
+          output: { id: combineOutputId, title: 'Specimens combined' },
+          columns: [],
+        },
+      ],
+      tabs: [
+        ...workspace.tabs,
+        {
+          id: 'specimens-combined-tab',
+          title: 'Specimens combined',
+          outputId: combineOutputId,
+          order: 1,
+          visible: true,
+        },
+      ],
+    };
+    applyCommands.mockReturnValue(resolvedRequest({
+      commandId: 'create-combine-target',
+      workspace: combineWorkspace,
+      draftVersion: 2,
+      draftDigest: 'sha256:draft-2',
+      results: [{ type: 'TABLE_CREATED', outputId: combineOutputId, occurrenceId: 'base' }],
+      diagnostics: [],
+    }));
+
+    render(
+      <BuilderWorkspace
+        organization="HTAN_INT"
+        project="BForePC"
+        explorerId="test"
+      />,
+    );
+
+    const action = await screen.findByTestId('construction-action-combine');
+    expect(action).toBeEnabled();
+    fireEvent.click(action);
+
+    await waitFor(() => expect(applyCommands).toHaveBeenCalledWith(expect.objectContaining({
+      project: 'HTAN_INT/BForePC',
+      explorerId: 'test',
+      authResourcePath: '/programs/HTAN_INT/projects/BForePC',
+      commands: [{ type: 'CREATE_TABLE', title: 'Specimens combined', rootNodeId: 'specimen-node' }],
+    })));
+    await screen.findByTestId('construction-combine-editor');
+    expect(screen.getByTestId('construction-operation-editor')).toHaveAttribute(
+      'data-output-id',
+      combineOutputId,
+    );
+    await waitFor(() => expect(mockLoomClient.getConstructionInputs).toHaveBeenCalledWith(
+      expect.objectContaining({
+        project: 'HTAN_INT/BForePC',
+        explorerId: 'test',
+        authResourcePath: '/programs/HTAN_INT/projects/BForePC',
+        snapshotToken: 'snapshot-1',
+        expectedDraftVersion: 2,
+        expectedDraftDigest: 'sha256:draft-2',
+        limit: 100,
+      }),
+      expect.any(AbortSignal),
+    ));
+    expect(applyCommands.mock.calls[0]?.[0].commands).toEqual([
+      { type: 'CREATE_TABLE', title: 'Specimens combined', rootNodeId: 'specimen-node' },
+    ]);
+  });
+
+  it('automatically proposes a current-draft Combine edit and loads its exact preview without a Preview action', async () => {
+    const combineOutputId = 'specimens-combined';
+    const draftInput = (outputId: string, title: string) => ({
+      ...workspace.documents[0]!,
+      output: { id: outputId, title },
+      columns: [{
+        ...column,
+        column: `${outputId}_record_key`,
+        label: 'Record key',
+      }],
+    });
+    const baseWorkspace: ExplorerBuilderWorkspace = {
+      ...workspace,
+      documents: [
+        workspace.documents[0]!,
+        draftInput('draft-left', 'Left draft table'),
+        draftInput('draft-right', 'Right draft table'),
+      ],
+      tabs: [
+        ...workspace.tabs,
+        { id: 'draft-left-tab', title: 'Left draft table', outputId: 'draft-left', order: 1, visible: true },
+        { id: 'draft-right-tab', title: 'Right draft table', outputId: 'draft-right', order: 2, visible: true },
+      ],
+    };
+    const combineWorkspace: ExplorerBuilderWorkspace = {
+      ...baseWorkspace,
+      documents: [
+        ...baseWorkspace.documents,
+        {
+          ...workspace.documents[0]!,
+          output: { id: combineOutputId, title: 'Specimens combined' },
+          columns: [],
+        },
+      ],
+      tabs: [
+        ...baseWorkspace.tabs,
+        { id: 'specimens-combined-tab', title: 'Specimens combined', outputId: combineOutputId, order: 3, visible: true },
+      ],
+    };
+    const workspaceInputs = [
+      {
+        outputId: 'draft-left',
+        title: 'Left draft table',
+        columns: [{
+          id: 'left-record-key',
+          name: 'record_key',
+          label: 'Record key',
+          logicalType: 'string',
+          cardinality: 'required_one' as const,
+          nullable: false,
+          appendCompatibilityKey: 'string:String',
+        }],
+      },
+      {
+        outputId: 'draft-right',
+        title: 'Right draft table',
+        columns: [{
+          id: 'right-record-key',
+          name: 'record_key',
+          label: 'Record key',
+          logicalType: 'string',
+          cardinality: 'required_one' as const,
+          nullable: false,
+          appendCompatibilityKey: 'string:String',
+        }],
+      },
+    ];
+    (useGetExplorerBuilderStateV2Query as Mock).mockReturnValue({
+      data: { ...builderState, workspace: baseWorkspace },
+      isLoading: false,
+      refetch: vi.fn(),
+    });
+    reconcile.mockImplementation((args: { readonly draftVersion: number }) => resolvedRequest({
+      ...receipt,
+      receiptId: `receipt-v${args.draftVersion}`,
+      builder: args.draftVersion >= 2 ? combineWorkspace : baseWorkspace,
+    }));
+    mockLoomClient.getConstructionCapabilities.mockImplementation(async (args: {
+      readonly snapshotToken: string;
+      readonly expectedDraftVersion: number;
+      readonly expectedDraftDigest: string;
+      readonly outputId: string;
+      readonly stageId: string;
+    }) => {
+      const selectedStage = {
+        id: args.stageId,
+        inputStageId: '',
+        rowIdentityColumn: 'source-row-id',
+        columns: [{ id: 'record-key', name: 'record_key', label: 'Record key', type: 'string' }],
+        capabilities: [{ kind: 'FILTER' as const, supported: true }],
+      };
+      return {
+        snapshotToken: args.snapshotToken,
+        draftVersion: args.expectedDraftVersion,
+        draftDigest: args.expectedDraftDigest,
+        outputId: args.outputId,
+        stageId: args.stageId,
+        baseConstruction: { version: 1, steps: [] },
+        stages: [selectedStage],
+        selectedStage,
+        workspaceInputs,
+      };
+    });
+    mockLoomClient.getConstructionInputs.mockReset().mockResolvedValue({
+      snapshotToken: 'snapshot-1',
+      draftVersion: 2,
+      draftDigest: 'sha256:draft-2',
+      datasetGeneration: 'generation-1',
+      entries: [],
+    });
+    mockLoomClient.proposeConstruction.mockReset();
+    mockLoomClient.preview.mockReset().mockImplementation(async (args: {
+      readonly receiptId: string;
+      readonly outputId: string;
+    }) => ({
+      apiVersion,
+      kind: 'ExplorerBuilderPreview' as const,
+      rowLineageCapability: { status: 'UNAVAILABLE' as const, reasonCode: 'TEST_FIXTURE' },
+      receiptId: args.receiptId,
+      outputId: args.outputId,
+      columns: [{ column: 'record_key', label: 'Record key', logicalType: 'string', filterable: false, chartable: false }],
+      rows: [{ record_key: 'previewed-row' }],
+      rowCount: 1,
+      diagnostics: [],
+    }));
+    mockLoomClient.proposeConstruction.mockImplementation(async (args: ProposeConstructionArgs): Promise<ConstructionProposalResponse> => ({
+      proposalId: 'workspace-combine-proposal',
+      outputId: args.outputId,
+      snapshotToken: args.snapshotToken,
+      draftVersion: args.expectedDraftVersion,
+      draftDigest: args.expectedDraftDigest,
+      baseDocumentDigest: 'combined-document-v2',
+      candidateWorkspaceDigest: 'sha256:combine-candidate',
+      changedStepId: args.changedStepId ?? '',
+      candidateConstruction: args.candidateConstruction,
+      dependencyImpact: { affectedStepIds: [] },
+      stages: [],
+      previewStatus: 'READY',
+      previewDurationMs: 2,
+    }));
+    applyCommands.mockImplementation((args: { readonly commandId: string }) => resolvedRequest({
+      commandId: args.commandId,
+      workspace: combineWorkspace,
+      draftVersion: 2,
+      draftDigest: 'sha256:draft-2',
+      results: [{ type: 'TABLE_CREATED', outputId: combineOutputId, occurrenceId: 'base' }],
+      diagnostics: [],
+    }));
+
+    render(<BuilderWorkspace organization="HTAN_INT" project="BForePC" explorerId="test" />);
+    await waitFor(() => expect(reconcile).toHaveBeenCalled());
+    const combineAction = await screen.findByTestId('construction-action-combine');
+    expect(combineAction).toBeEnabled();
+    fireEvent.click(combineAction);
+    await screen.findByTestId('construction-combine-editor');
+    fireEvent.click(screen.getByTestId('construction-combine-choice-append'));
+    fireEvent.change(screen.getByRole('combobox', { name: 'Input table 1' }), {
+      target: { value: JSON.stringify(['WORKSPACE_OUTPUT', 'draft-left']) },
+    });
+    fireEvent.change(screen.getByRole('combobox', { name: 'Input table 2' }), {
+      target: { value: JSON.stringify(['WORKSPACE_OUTPUT', 'draft-right']) },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Add output field' }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Output field 1 name' }), {
+      target: { value: 'record_key' },
+    });
+    fireEvent.change(screen.getByRole('textbox', { name: 'Output field 1 label' }), {
+      target: { value: 'Record key' },
+    });
+    fireEvent.change(screen.getByRole('combobox', { name: 'Output field 1 matching field in input 1' }), {
+      target: { value: 'column:left-record-key' },
+    });
+    fireEvent.change(screen.getByRole('combobox', { name: 'Output field 1 matching field in input 2' }), {
+      target: { value: 'column:right-record-key' },
+    });
+
+    await screen.findByTestId('construction-proposal-ready');
+    const proposalPanel = screen.getByTestId('construction-proposal-panel');
+    expect(proposalPanel).toHaveAttribute('data-proposal-id', 'workspace-combine-proposal');
+    expect(screen.getByTestId('construction-proposal-preview')).toHaveAttribute('data-preview-receipt-id', 'workspace-combine-proposal');
+    await waitFor(() => expect(mockLoomClient.proposeConstruction).toHaveBeenCalledOnce());
+    const proposalArgs = mockLoomClient.proposeConstruction.mock.calls[0]?.[0] as ProposeConstructionArgs;
+    expect(proposalArgs).toMatchObject({
+      project: 'HTAN_INT/BForePC',
+      explorerId: 'test',
+      authResourcePath: '/programs/HTAN_INT/projects/BForePC',
+      snapshotToken: 'snapshot-1',
+      expectedDraftVersion: 2,
+      expectedDraftDigest: 'sha256:draft-2',
+      outputId: combineOutputId,
+    });
+    expect(proposalArgs.candidateConstruction.steps).toHaveLength(1);
+    const combineStep = proposalArgs.candidateConstruction.steps[0]!;
+    expect(combineStep.inputs).toEqual([
+      { kind: 'WORKSPACE_OUTPUT', outputId: 'draft-left' },
+      { kind: 'WORKSPACE_OUTPUT', outputId: 'draft-right' },
+    ]);
+    expect(combineStep.operation).toMatchObject({ kind: 'COMBINE', combine: { kind: 'APPEND' } });
+    expect(combineStep.operation.kind === 'COMBINE' ? combineStep.operation.combine.projections : []).toEqual([
+      { outputColumnId: combineStep.outputs[0]?.id, inputIndex: 0, inputColumnId: 'left-record-key' },
+      { outputColumnId: combineStep.outputs[0]?.id, inputIndex: 1, inputColumnId: 'right-record-key' },
+    ]);
+    await waitFor(() => expect(mockLoomClient.preview).toHaveBeenCalledWith(
+      expect.objectContaining({ receiptId: 'workspace-combine-proposal', outputId: combineOutputId }),
+      expect.any(AbortSignal),
+    ));
+    expect(screen.queryByRole('button', { name: /preview/i })).not.toBeInTheDocument();
+  });
+
+  it('automatically previews history removal, lets Cancel preserve the saved step, and applies only the exact proposal receipt', async () => {
+    const savedConstruction: Construction = {
+      version: 1,
+      steps: [{
+        id: 'saved-filter',
+        inputs: [{ kind: 'SOURCE_PROJECTION' }],
+        operation: { kind: 'FILTER', filter: { columnId: 'specimen_identifier_id', operator: 'EXISTS' } },
+        outputs: [{ id: 'specimen_identifier_id', name: 'specimen_identifier', label: 'Specimen identifier' }],
+      }],
+    };
+    const savedWorkspace: ExplorerBuilderWorkspace = {
+      ...workspace,
+      documents: [{ ...workspace.documents[0]!, construction: savedConstruction }],
+    };
+    const workspaceAfterRemoval: ExplorerBuilderWorkspace = {
+      ...workspace,
+      documents: [{ ...workspace.documents[0]! }],
+    };
+    (useGetExplorerBuilderStateV2Query as Mock).mockReturnValue({
+      data: { ...builderState, workspace: savedWorkspace },
+      isLoading: false,
+      refetch: vi.fn(),
+    });
+    reconcile.mockImplementation((args: { readonly draftVersion: number }) => resolvedRequest({
+      ...receipt,
+      receiptId: `receipt-v${args.draftVersion}`,
+      builder: args.draftVersion > 1 ? workspaceAfterRemoval : savedWorkspace,
+    }));
+    mockLoomClient.getConstructionCapabilities.mockImplementation(async (args: {
+      readonly snapshotToken: string;
+      readonly expectedDraftVersion: number;
+      readonly expectedDraftDigest: string;
+      readonly outputId: string;
+      readonly stageId: string;
+    }) => {
+      const selectedStage = {
+        id: args.stageId,
+        inputStageId: '',
+        rowIdentityColumn: 'source-row-id',
+        columns: [{ id: 'specimen_identifier_id', name: 'specimen_identifier', label: 'Specimen identifier', type: 'string' }],
+        capabilities: [{ kind: 'FILTER' as const, supported: true }],
+      };
+      return {
+        snapshotToken: args.snapshotToken,
+        draftVersion: args.expectedDraftVersion,
+        draftDigest: args.expectedDraftDigest,
+        outputId: args.outputId,
+        stageId: args.stageId,
+        baseConstruction: savedConstruction,
+        stages: [selectedStage],
+        selectedStage,
+      };
+    });
+    mockLoomClient.proposeConstruction.mockReset();
+    mockLoomClient.proposeConstruction.mockImplementation(async (
+      args: ProposeConstructionArgs,
+    ): Promise<ConstructionProposalResponse> => {
+      const proposalNumber = mockLoomClient.proposeConstruction.mock.calls.length;
+      const proposalId = `remove-filter-proposal-${proposalNumber}`;
+      return {
+        proposalId,
+        outputId: args.outputId,
+        snapshotToken: args.snapshotToken,
+        draftVersion: args.expectedDraftVersion,
+        draftDigest: args.expectedDraftDigest,
+        baseDocumentDigest: 'filter-document-v1',
+        candidateWorkspaceDigest: `sha256:remove-filter-${proposalNumber}`,
+        changedStepId: args.changedStepId ?? '',
+        candidateConstruction: args.candidateConstruction,
+        dependencyImpact: { affectedStepIds: [], removedStepIds: args.removeStepIds ?? [] },
+        stages: [],
+        previewStatus: 'READY',
+        previewDurationMs: 1,
+        preview: {
+          apiVersion,
+          kind: 'ExplorerBuilderPreview',
+          rowLineageCapability: { status: 'UNAVAILABLE', reasonCode: 'TEST_FIXTURE' },
+          receiptId: proposalId,
+          outputId: args.outputId,
+          columns: receipt.outputs[0]!.columns,
+          rows: [{ specimen_identifier: `without-filter-${proposalNumber}` }],
+          rowCount: 1,
+          diagnostics: [],
+        },
+      };
+    });
+    applyCommands.mockImplementation((args: { readonly commandId: string }) => resolvedRequest({
+      commandId: args.commandId,
+      workspace: workspaceAfterRemoval,
+      draftVersion: 2,
+      draftDigest: 'sha256:draft-2',
+      results: [{ type: 'TABLE_CHANGED', outputId: 'specimens', column: 'specimen_identifier' }],
+      diagnostics: [],
+    }));
+
+    render(<BuilderWorkspace organization="HTAN_INT" project="BForePC" explorerId="test" />);
+    await screen.findByTestId('construction-history-step-saved-filter');
+    fireEvent.click(screen.getByTestId('construction-history-step-saved-filter'));
+    fireEvent.click(screen.getByTestId('construction-remove-step-saved-filter'));
+    await screen.findByTestId('construction-proposal-ready');
+    expect(screen.getByTestId('construction-proposal-panel')).toHaveAttribute('data-proposal-id', 'remove-filter-proposal-1');
+    expect(screen.getByTestId('construction-proposal-ready')).toHaveTextContent('Removal preview');
+    expect(screen.getByTestId('construction-proposal-panel')).toHaveAttribute('data-proposal-id', 'remove-filter-proposal-1');
+    await waitFor(() => expect(mockLoomClient.proposeConstruction).toHaveBeenCalledTimes(1));
+    const firstRemoval = mockLoomClient.proposeConstruction.mock.calls[0]?.[0] as ProposeConstructionArgs;
+    expect(firstRemoval.removeStepIds).toEqual(['saved-filter']);
+    expect(firstRemoval.candidateConstruction.steps).toEqual([]);
+    expect(Object.hasOwn(firstRemoval, 'changedStepId')).toBe(false);
+    expect(applyCommands).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByTestId('construction-cancel-proposal'));
+    expect(screen.queryByTestId('construction-proposal-panel')).not.toBeInTheDocument();
+    expect(screen.getByTestId('construction-history-step-saved-filter')).toBeInTheDocument();
+    expect(applyCommands).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByTestId('construction-history-step-saved-filter'));
+    fireEvent.click(screen.getByTestId('construction-remove-step-saved-filter'));
+    await screen.findByTestId('construction-proposal-ready');
+    await waitFor(() => expect(mockLoomClient.proposeConstruction).toHaveBeenCalledTimes(2));
+    expect(screen.getByTestId('construction-proposal-panel')).toHaveAttribute('data-proposal-id', 'remove-filter-proposal-2');
+    expect(screen.getByTestId('construction-proposal-preview')).toHaveAttribute('data-preview-receipt-id', 'remove-filter-proposal-2');
+    expect(screen.getByTestId('construction-apply-proposal')).toHaveTextContent('Apply removal');
+    expect(screen.getByTestId('construction-apply-proposal')).toBeEnabled();
+    expect(applyCommands).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId('construction-apply-proposal'));
+    await waitFor(() => expect(applyCommands).toHaveBeenCalledOnce());
+    expect(applyCommands.mock.calls[0]?.[0].commands).toEqual([{
+      type: 'APPLY_CONSTRUCTION_PROPOSAL',
+      outputId: 'specimens',
+      proposalId: 'remove-filter-proposal-2',
+    }]);
+    await waitFor(() => expect(screen.queryByTestId('construction-history-step-saved-filter')).not.toBeInTheDocument());
   });
 
   it('restores the server-provided previous draft revision through the normal CAS command path', async () => {

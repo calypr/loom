@@ -144,6 +144,7 @@ func CompileRecipeOutputWithPolicy(output lower.CompiledRecipeOutput, bindings r
 		}
 	}
 	return CompiledQuery{
+		PhysicalPlan:       clonePhysicalPlan(physical),
 		Project:            bindings.Project,
 		DatasetGeneration:  normalizeDatasetGeneration(bindings.DatasetGeneration),
 		RootResourceType:   output.RootResourceType,

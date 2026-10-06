@@ -24,7 +24,8 @@ func TestArtifactStreamsBoundedRowsWithExactSchemaAndScope(t *testing.T) {
 		t.Fatal(err)
 	}
 	columns, err := ColumnsFromCompiledOutput([]lower.CompiledOutputColumn{
-		{ID: "row", Name: rowIDColumn, Kind: string(expression.KindString), Cardinality: string(expression.RequiredOne), Internal: true, Identity: true},
+		{ID: "root-key", Name: "_key", Kind: string(expression.KindString), Cardinality: string(expression.RequiredOne), Internal: true, Identity: true},
+		{ID: "row", Name: rowIDColumn, Kind: string(expression.KindString), Cardinality: string(expression.RequiredOne), Internal: true},
 		{ID: "name-id", Name: "name", SemanticPath: "Patient.name", Kind: string(expression.KindString), Cardinality: string(expression.RequiredOne)},
 	})
 	if err != nil {
@@ -125,8 +126,20 @@ func TestArtifactRejectsScopeSchemaAndPreviewMismatches(t *testing.T) {
 	if _, err := NormalizeSchema([]Column{{ID: "x", Name: "payload", LogicalType: "object"}}); err == nil {
 		t.Fatal("NormalizeSchema accepted an unsupported object type")
 	}
-	if _, err := ColumnsFromCompiledOutput([]lower.CompiledOutputColumn{{Name: rowIDColumn, Kind: string(expression.KindObject), Identity: true}}); err == nil {
+	if _, err := ColumnsFromCompiledOutput([]lower.CompiledOutputColumn{{Name: rowIDColumn, Kind: string(expression.KindObject), Cardinality: string(expression.RequiredOne), Internal: true}}); err == nil {
 		t.Fatal("ColumnsFromCompiledOutput accepted a structured row identity that this boundary cannot encode")
+	}
+	for name, rowID := range map[string]lower.CompiledOutputColumn{
+		"missing internal marker": {Name: rowIDColumn, Kind: string(expression.KindString), Cardinality: string(expression.RequiredOne)},
+		"optional identity":       {Name: rowIDColumn, Kind: string(expression.KindString), Cardinality: string(expression.OptionalOne), Internal: true},
+		"repeated identity":       {Name: rowIDColumn, Kind: string(expression.KindString), Cardinality: string(expression.Many), Internal: true},
+		"nullable identity":       {Name: rowIDColumn, Kind: string(expression.KindString), Cardinality: string(expression.RequiredOne), Nullable: true, Internal: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := ColumnsFromCompiledOutput([]lower.CompiledOutputColumn{rowID}); err == nil {
+				t.Fatalf("ColumnsFromCompiledOutput accepted invalid reserved row identity %#v", rowID)
+			}
+		})
 	}
 	arraySchema, err := NormalizeSchema([]Column{{ID: "tags-id", Name: "tags", LogicalType: "string", Repeated: true, Nullable: true}})
 	if err != nil {
@@ -134,6 +147,70 @@ func TestArtifactRejectsScopeSchemaAndPreviewMismatches(t *testing.T) {
 	}
 	if got := arraySchema[1].ClickHouseType; got != "Array(String)" {
 		t.Fatalf("nullable repeated logical field type = %q, want publication-compatible Array(String)", got)
+	}
+}
+
+func TestWholeScopeArtifactStoresNullRowPathOnlyWithEvidence(t *testing.T) {
+	catalog, ch := newMemoryCatalog(), newMemoryClickHouse()
+	manager, err := New(Config{Catalog: catalog, ClickHouse: ch, BatchRows: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	identity := testIdentity()
+	identity.ScopeMode = ScopeModeWhole
+	identity.ScopeEvidenceDigest = strings.Repeat("c", 64)
+	writer, err := manager.Begin(context.Background(), identity, []Column{{ID: "name-id", Name: "name", LogicalType: "string"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Write(context.Background(), map[string]any{"__loom_row_id": "group-1", "name": "case-count"}); err != nil {
+		t.Fatalf("whole-scope row without a per-row auth path was rejected: %v", err)
+	}
+	artifact, err := writer.Finalize(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest := artifact.Manifest()
+	if manifest.Identity.ScopeMode != ScopeModeWhole || manifest.Identity.ScopeEvidenceDigest != identity.ScopeEvidenceDigest || manifest.Identity.ScopeDigest != ScopeDigest(manifest.Identity) {
+		t.Fatalf("whole-scope evidence was not bound to the artifact manifest: %#v", manifest.Identity)
+	}
+	if got := ch.rows[manifest.PhysicalTable][0][authPathColumn]; got != nil {
+		t.Fatalf("whole-scope artifact synthesized row authorization path %#v", got)
+	}
+	if err := artifact.Release(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	identity.ExecutionID = "execution-2"
+	writer, err = manager.Begin(context.Background(), identity, []Column{{ID: "name-id", Name: "name", LogicalType: "string"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Write(context.Background(), map[string]any{"__loom_row_id": "group-2", "name": "bad", authPathColumn: "/programs/a"}); err == nil {
+		t.Fatal("whole-scope artifact accepted an individual row authorization path")
+	}
+	if err := writer.Abort(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestArtifactScopeModeAndEvidenceMustMatch(t *testing.T) {
+	catalog, ch := newMemoryCatalog(), newMemoryClickHouse()
+	manager, err := New(Config{Catalog: catalog, ClickHouse: ch})
+	if err != nil {
+		t.Fatal(err)
+	}
+	columns := []Column{{ID: "name-id", Name: "name", LogicalType: "string"}}
+	for name, identity := range map[string]Identity{
+		"whole scope without evidence": func() Identity { id := testIdentity(); id.ScopeMode = ScopeModeWhole; return id }(),
+		"row scope with evidence":      func() Identity { id := testIdentity(); id.ScopeEvidenceDigest = strings.Repeat("c", 64); return id }(),
+		"unsupported scope":            func() Identity { id := testIdentity(); id.ScopeMode = "MAYBE"; return id }(),
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := manager.Begin(context.Background(), identity, columns); err == nil {
+				t.Fatal("Begin accepted inconsistent artifact scope metadata")
+			}
+		})
 	}
 }
 

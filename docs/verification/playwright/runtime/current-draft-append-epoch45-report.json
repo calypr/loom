@@ -1,0 +1,120 @@
+{
+  "schemaVersion": 1,
+  "scenario": "builder-combine-draft",
+  "case": "append",
+  "status": "passed",
+  "scope": "Native testdata/verify-combine basic fixture only; not real CDA or Group→Pivot-input APPEND.",
+  "target": {
+    "project": "loom_dev_verify_muvybreg-c245a49",
+    "explorer": "verify-eg-c245a49-draft-combine-append",
+    "generation": "fixture-v1",
+    "sourceFingerprint": {
+      "sha256": "04f23d10f722a9c6f32a55dd971c11513ecd0c01bbbeb1133b7c5446b9a5b376",
+      "files": 1495
+    },
+    "apiBuildIdentity": "a538e6f509005ba18b57d1ed4d4b1eaa80cbee4d2471a1d324de70921e32a83c:a538e6f509005ba18b57d1ed4d4b1eaa80cbee4d2471a1d324de70921e32a83c:bfc1e103155528c63f986a1421f4628aa31ef47ae71b9eccf097a2e8a3a36df8"
+  },
+  "result": {
+    "dimensions": {
+      "usability": "passed",
+      "correctness": "passed",
+      "persistence": "passed",
+      "performance": "passed"
+    },
+    "assertions": {
+      "passed": 111,
+      "total": 111
+    },
+    "actions": {
+      "passed": 35,
+      "total": 35
+    },
+    "timedActions": 34,
+    "maxActionMs": 640,
+    "errors": 0,
+    "networkFailures": 0,
+    "incidentalAssetFailures": [
+      {
+        "kind": "asset-failure",
+        "url": "http://127.0.0.1:30008/favicon.ico",
+        "status": 404
+      }
+    ]
+  },
+  "requiredChecksAtRunTime": {
+    "passed": 18,
+    "total": 18,
+    "names": [
+      "independent fixture contains one Patient, four Observations, and three DiagnosticReports",
+      "draft Combine uses the exact project, generation, Builder snapshot, and authorization scope",
+      "first native source table establishes a versioned current draft under the exact scope",
+      "Observation native GROUP count rows match the direct fixture oracle",
+      "DiagnosticReport native GROUP count rows match the direct fixture oracle",
+      "Patient native GROUP count rows match the direct fixture oracle",
+      "Patient gender counts persists its native Group→DERIVE output without pinning a revision",
+      "three unpublished current-draft siblings including GROUP→DERIVE APPEND into exact category/count rows",
+      "automatic Combine proposal is bound to this exact draft CAS and UI proxy scope",
+      "Cancel leaves the entire APPEND workspace and draft CAS unchanged",
+      "saved APPEND step uses exactly three current-draft grouped siblings",
+      "three-input APPEND rows survive reload",
+      "edited APPEND label preserves every independent grouped row",
+      "edited APPEND label and values survive reload",
+      "open saved Combine editor after draft input schemas resolve action-to-render within budget",
+      "Canceling Combine removal preserves its saved step, full workspace, and draft CAS after reload",
+      "removing Combine and reloading restores its rooted empty target",
+      "APPEND lifecycle never publishes or pins source revisions"
+    ]
+  },
+  "keyPassedAssertions": [
+    "Patient gender counts Group→DERIVE preview matches independent category/count arithmetic",
+    "Patient gender counts persists its native Group→DERIVE output without pinning a revision",
+    "Patient gender counts Group→DERIVE values survive reload",
+    "three unpublished current-draft siblings including GROUP→DERIVE APPEND into exact category/count rows",
+    "automatic Combine proposal is bound to this exact draft CAS and UI proxy scope",
+    "Cancel leaves the entire APPEND workspace and draft CAS unchanged",
+    "saved APPEND step uses exactly three current-draft grouped siblings",
+    "three-input APPEND rows survive reload",
+    "edited APPEND label preserves every independent grouped row",
+    "edited APPEND label and values survive reload",
+    "Canceling Combine removal preserves its saved step, full workspace, and draft CAS after reload",
+    "removing Combine and reloading restores its rooted empty target",
+    "APPEND lifecycle never publishes or pins source revisions"
+  ],
+  "registryMetadataEnrichment": {
+    "addedRequiredChecks": [
+      "Patient gender counts Group→DERIVE preview matches independent category/count arithmetic",
+      "Patient gender counts Group→DERIVE values survive reload",
+      "Patient gender counts Group→DERIVE configuration and preview complete within five seconds"
+    ],
+    "allThreeAlreadyPresentAndPassedInOriginalEpoch45Assertions": true,
+    "originalRunRequiredChecksRemainEighteen": true,
+    "browserRerunForMetadataOnlyChange": false
+  },
+  "integrity": {
+    "sourceBeforeAfterUnchanged": true,
+    "sourceAfter": {
+      "sha256": "04f23d10f722a9c6f32a55dd971c11513ecd0c01bbbeb1133b7c5446b9a5b376",
+      "files": 1495
+    },
+    "apiBuildIdentityAfter": "a538e6f509005ba18b57d1ed4d4b1eaa80cbee4d2471a1d324de70921e32a83c:a538e6f509005ba18b57d1ed4d4b1eaa80cbee4d2471a1d324de70921e32a83c:bfc1e103155528c63f986a1421f4628aa31ef47ae71b9eccf097a2e8a3a36df8",
+    "authoritativeClosurePath": "docs/verification/playwright/runtime/current-draft-append-epoch45-closure.json",
+    "authoritativeClosureSha256": "a75f7e05de4708f0da5815c3bf3401241e9a94356415338d18799a9d885cf0c6"
+  },
+  "scopeLimits": [
+    "This run exercised Group→DERIVE source creation, exact preview, Apply, and reload; it did not independently exercise that saved Group→DERIVE step’s edit, cancel, or removal lifecycle.",
+    "Group→Pivot-input APPEND and real-CDA APPEND remain unverified."
+  ],
+  "originalFullReport": {
+    "path": "/private/tmp/loom-native-parallel-wave45/append/results/draft-combine-Builder-Comb-0dee4-ply-edit-removal-and-reload/attachments/loom-verification-report-json-d6e5452d342e0fa3303780daaaf817c83de9c8fc.json",
+    "sha256": "d4e1fd00607282d17d072733f8718106662c67b0f3ceb1e7bf1edf1b4f68d4a9"
+  },
+  "browserLifecycle": {
+    "kind": "official-playwright-page",
+    "status": "passed",
+    "durationMs": 18140,
+    "diagnosticLimit": 100,
+    "droppedDiagnostics": 0
+  },
+  "startedAt": "2026-10-06T00:39:47.887Z",
+  "finishedAt": "2026-10-06T00:40:09.023Z"
+}

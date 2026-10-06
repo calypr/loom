@@ -1072,6 +1072,7 @@ const constructionInputRefSchema = z.discriminatedUnion('kind', [
     revisionId: opaqueIdSchema,
     outputId: opaqueIdSchema,
   }).strict(),
+  z.object({ kind: z.literal('WORKSPACE_OUTPUT'), outputId: opaqueIdSchema }).strict(),
 ]);
 export type ConstructionInputRef = z.infer<typeof constructionInputRefSchema>;
 
@@ -1598,6 +1599,25 @@ export const constructionCapabilitiesRequestSchema = z.object({
 }).strict();
 export type ConstructionCapabilitiesRequest = z.infer<typeof constructionCapabilitiesRequestSchema>;
 
+const constructionWorkspaceInputColumnSchema = z.object({
+  id: opaqueIdSchema,
+  name: z.string().min(1),
+  label: z.string().min(1),
+  logicalType: z.string().min(1),
+  cardinality: z.enum(['required_one', 'optional_one', 'many']),
+  nullable: z.boolean(),
+  joinCompatibilityKey: z.string().min(1).optional(),
+  appendCompatibilityKey: z.string().min(1).optional(),
+}).strict();
+export type ConstructionWorkspaceInputColumn = z.infer<typeof constructionWorkspaceInputColumnSchema>;
+
+const constructionWorkspaceInputSchema = z.object({
+  outputId: opaqueIdSchema,
+  title: z.string().min(1),
+  columns: z.array(constructionWorkspaceInputColumnSchema),
+}).strict();
+export type ConstructionWorkspaceInput = z.infer<typeof constructionWorkspaceInputSchema>;
+
 const constructionScalarSourceInputSchema = z.object({
   supported: z.boolean(),
   stageId: opaqueIdSchema,
@@ -1635,6 +1655,7 @@ export const constructionCapabilitiesResponseSchema = z.object({
   selectedStage: constructionStageDescriptorSchema,
   sourceInput: constructionScalarSourceInputSchema.optional(),
   pivotSourceInput: constructionScalarSourceInputSchema.optional(),
+  workspaceInputs: z.array(constructionWorkspaceInputSchema),
 }).strict();
 export type ConstructionCapabilitiesResponse = z.infer<typeof constructionCapabilitiesResponseSchema>;
 

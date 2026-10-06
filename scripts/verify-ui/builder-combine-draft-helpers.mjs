@@ -4,6 +4,35 @@ export const workspaceOutputRef = (outputId) => ({ kind: 'WORKSPACE_OUTPUT', out
 
 export const workspaceOutputOption = (outputId) => JSON.stringify(['WORKSPACE_OUTPUT', outputId]);
 
+
+const normalizeConstructionOutputNullability = (construction) => {
+  if (!construction || typeof construction !== 'object' || Array.isArray(construction) || !Array.isArray(construction.steps)) {
+    return construction;
+  }
+  return {
+    ...construction,
+    steps: construction.steps.map((step) => {
+      if (!step || typeof step !== 'object' || Array.isArray(step) || !Array.isArray(step.outputs)) return step;
+      return {
+        ...step,
+        outputs: step.outputs.map((output) => {
+          if (!output || typeof output !== 'object' || Array.isArray(output) || output.nullable !== false) return output;
+          const { nullable: _nullable, ...withoutExplicitDefaultFalse } = output;
+          return withoutExplicitDefaultFalse;
+        }),
+      };
+    }),
+  };
+};
+
+// Go omits false StageColumn.Nullable values on the response wire. Compare the
+// complete construction after only that one default-value normalization.
+export const constructionCandidateWireEquivalent = (request, response) =>
+  isDeepStrictEqual(
+    normalizeConstructionOutputNullability(request),
+    normalizeConstructionOutputNullability(response),
+  );
+
 export const builderDraftStateEvidence = (builder, expectedState = 'draft') => {
   if (!['empty', 'draft'].includes(expectedState)) throw new TypeError('expected Builder draft state must be empty or draft');
   const empty = builder?.workspace === null && builder?.draftVersion === 0 && builder?.draftDigest === '';

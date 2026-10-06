@@ -74,6 +74,82 @@ func TestRenderKeyJoinPinsExactInputsAndPreservesLeftRows(t *testing.T) {
 	}
 }
 
+func TestRenderKeyJoinUsesOrdinaryEqualityForNullableScalarKeys(t *testing.T) {
+	plan := ir.PhysicalClickHouseCombine{
+		Kind: ir.PhysicalCombineKeyJoin,
+		Inputs: []ir.PhysicalCombineInputRef{
+			{TableID: "left-table", RevisionID: "execution-left", OutputID: "patients"},
+			{TableID: "right-table", RevisionID: "execution-right", OutputID: "reports"},
+		},
+		Keys:             []ir.PhysicalCombineKey{{LeftColumnID: "patient-id", RightColumnID: "subject-id"}},
+		JoinType:         "LEFT",
+		RightMatchPolicy: "PRESERVE_ALL",
+		Projections: []ir.PhysicalCombineProjection{
+			{OutputColumnID: "patient-id", InputIndex: 0, InputColumnID: "patient-id"},
+			{OutputColumnID: "report-status", InputIndex: 1, InputColumnID: "status"},
+		},
+		Outputs: []ir.PhysicalCombineOutputColumn{
+			{ID: "patient-id", Name: "patient_id", LogicalType: "string", ClickHouseType: "Nullable(String)", Nullable: true},
+			{ID: "report-status", Name: "report_status", LogicalType: "string", ClickHouseType: "Nullable(String)", Nullable: true},
+		},
+	}
+	inputs := []ir.ResolvedClickHouseTable{
+		resolvedInput("left-table", "execution-left", "patients", "left_materialized", []ir.ResolvedClickHouseColumn{
+			{ID: "row-id", Name: "__loom_row_id", ClickHouseType: "String"},
+			{ID: "patient-id", Name: "patient_id", ClickHouseType: "Nullable(String)", Nullable: true},
+		}),
+		resolvedInput("right-table", "execution-right", "reports", "right_materialized", []ir.ResolvedClickHouseColumn{
+			{ID: "row-id", Name: "__loom_row_id", ClickHouseType: "String"},
+			{ID: "subject-id", Name: "subject_id", ClickHouseType: "String"},
+			{ID: "status", Name: "status", ClickHouseType: "String"},
+		}),
+	}
+
+	rendered, err := RenderCombine(plan, inputs, "project-a")
+	if err != nil {
+		t.Fatalf("RenderCombine() rejected a nullable scalar key: %v", err)
+	}
+	if !strings.Contains(rendered.Query, "ALL LEFT JOIN") {
+		t.Fatalf("nullable-key query lost LEFT join behavior: %s", rendered.Query)
+	}
+	if !strings.Contains(rendered.Query, "__loom_left.`patient_id` = __loom_right.`subject_id`") {
+		t.Fatalf("nullable key comparison must use ordinary equality so NULL never matches NULL: %s", rendered.Query)
+	}
+	if strings.Contains(rendered.Query, "isNotDistinctFrom") || strings.Contains(rendered.Query, "isNotNull(__loom_left.`patient_id`)") {
+		t.Fatalf("nullable key query introduced null-safe equality or filtered left rows: %s", rendered.Query)
+	}
+	if !strings.Contains(rendered.Query, "SETTINGS join_use_nulls = 1") {
+		t.Fatalf("LEFT join does not null-extend unmatched right projections: %s", rendered.Query)
+	}
+}
+
+func TestRenderMembershipRejectsNullableKeys(t *testing.T) {
+	plan := ir.PhysicalClickHouseCombine{
+		Kind: ir.PhysicalCombineMembership,
+		Inputs: []ir.PhysicalCombineInputRef{
+			{TableID: "left-table", RevisionID: "execution-left", OutputID: "left"},
+			{TableID: "right-table", RevisionID: "execution-right", OutputID: "members"},
+		},
+		Keys:           []ir.PhysicalCombineKey{{LeftColumnID: "person", RightColumnID: "member"}},
+		MembershipMode: "INCLUDE",
+		Projections:    []ir.PhysicalCombineProjection{{OutputColumnID: "person", InputIndex: 0, InputColumnID: "person"}},
+		Outputs:        []ir.PhysicalCombineOutputColumn{{ID: "person", Name: "person_id", LogicalType: "string", ClickHouseType: "String"}},
+	}
+	inputs := []ir.ResolvedClickHouseTable{
+		resolvedInput("left-table", "execution-left", "left", "left_table", []ir.ResolvedClickHouseColumn{
+			{ID: "row-id", Name: "__loom_row_id", ClickHouseType: "String"},
+			{ID: "person", Name: "person", ClickHouseType: "String"},
+		}),
+		resolvedInput("right-table", "execution-right", "members", "right_table", []ir.ResolvedClickHouseColumn{
+			{ID: "row-id", Name: "__loom_row_id", ClickHouseType: "String"},
+			{ID: "member", Name: "member", ClickHouseType: "Nullable(String)", Nullable: true},
+		}),
+	}
+	if _, err := RenderCombine(plan, inputs, "project-a"); err == nil || !strings.Contains(err.Error(), "supported scalar base type") {
+		t.Fatalf("membership widened to nullable keys unexpectedly: %v", err)
+	}
+}
+
 func TestRenderAppendMapsIndependentStableColumnIDs(t *testing.T) {
 	plan := ir.PhysicalClickHouseCombine{
 		Kind: ir.PhysicalCombineAppend,
@@ -106,6 +182,70 @@ func TestRenderAppendMapsIndependentStableColumnIDs(t *testing.T) {
 	}
 	if len(rendered.Args) != 0 {
 		t.Fatalf("unrestricted append args = %#v", rendered.Args)
+	}
+}
+
+func TestRenderAppendEmitsTypedNullForMissingNullableInput(t *testing.T) {
+	plan := ir.PhysicalClickHouseCombine{
+		Kind: ir.PhysicalCombineAppend,
+		Inputs: []ir.PhysicalCombineInputRef{
+			{TableID: "left-table", RevisionID: "execution-left", OutputID: "left"},
+			{TableID: "right-table", RevisionID: "execution-right", OutputID: "right"},
+		},
+		Projections: []ir.PhysicalCombineProjection{{OutputColumnID: "age", InputIndex: 0, InputColumnID: "left-age"}},
+		Outputs: []ir.PhysicalCombineOutputColumn{{
+			ID: "age", Name: "age", LogicalType: "integer", ClickHouseType: "Nullable(Int64)", Nullable: true,
+		}},
+	}
+	inputs := []ir.ResolvedClickHouseTable{
+		resolvedInput("left-table", "execution-left", "left", "left_table", []ir.ResolvedClickHouseColumn{
+			{ID: "row-id", Name: "__loom_row_id", LogicalType: "string", ClickHouseType: "String"},
+			{ID: "left-age", Name: "age_years", LogicalType: "integer", ClickHouseType: "Int64"},
+		}),
+		resolvedInput("right-table", "execution-right", "right", "right_table", []ir.ResolvedClickHouseColumn{
+			{ID: "row-id", Name: "__loom_row_id", LogicalType: "string", ClickHouseType: "String"},
+		}),
+	}
+
+	rendered, err := RenderCombine(plan, inputs, "project-a")
+	if err != nil {
+		t.Fatalf("RenderCombine() error = %v", err)
+	}
+	if !strings.Contains(rendered.Query, "CAST(NULL, 'Nullable(Int64)') AS `age`") {
+		t.Fatalf("append query does not emit a typed null for the missing input: %s", rendered.Query)
+	}
+	if !strings.Contains(rendered.Query, "__loom_input_0.`age_years` AS `age`") {
+		t.Fatalf("append query lost the mapped source field: %s", rendered.Query)
+	}
+}
+
+func TestRenderAppendRejectsMismatchedBasePhysicalTypes(t *testing.T) {
+	plan := ir.PhysicalClickHouseCombine{
+		Kind: ir.PhysicalCombineAppend,
+		Inputs: []ir.PhysicalCombineInputRef{
+			{TableID: "left-table", RevisionID: "execution-left", OutputID: "left"},
+			{TableID: "right-table", RevisionID: "execution-right", OutputID: "right"},
+		},
+		Projections: []ir.PhysicalCombineProjection{
+			{OutputColumnID: "age", InputIndex: 0, InputColumnID: "left-age"},
+			{OutputColumnID: "age", InputIndex: 1, InputColumnID: "right-age"},
+		},
+		Outputs: []ir.PhysicalCombineOutputColumn{{
+			ID: "age", Name: "age", LogicalType: "integer", ClickHouseType: "Nullable(Int64)", Nullable: true,
+		}},
+	}
+	inputs := []ir.ResolvedClickHouseTable{
+		resolvedInput("left-table", "execution-left", "left", "left_table", []ir.ResolvedClickHouseColumn{
+			{ID: "row-id", Name: "__loom_row_id", LogicalType: "string", ClickHouseType: "String"},
+			{ID: "left-age", Name: "age", LogicalType: "integer", ClickHouseType: "Int64"},
+		}),
+		resolvedInput("right-table", "execution-right", "right", "right_table", []ir.ResolvedClickHouseColumn{
+			{ID: "row-id", Name: "__loom_row_id", LogicalType: "string", ClickHouseType: "String"},
+			{ID: "right-age", Name: "age", LogicalType: "integer", ClickHouseType: "Int32"},
+		}),
+	}
+	if _, err := RenderCombine(plan, inputs, "project-a"); err == nil || !strings.Contains(err.Error(), "incompatible source type") {
+		t.Fatalf("mismatched base physical type error = %v", err)
 	}
 }
 

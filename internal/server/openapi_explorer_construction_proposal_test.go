@@ -61,6 +61,14 @@ func TestConstructionProposalHTTPContractPreviewsAndAppliesRemovalOnly(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
+	sibling := workspace.Documents[0]
+	sibling.Output = authoringv2.Output{ID: "sibling_patients", Title: "Sibling patients", RowLabel: "Sibling patients"}
+	sibling.Columns = append([]authoringv2.Column(nil), sibling.Columns...)
+	sibling.Columns[0].ColumnID = "sibling_patient_id"
+	sibling.Columns[0].Column = "sibling_patient_id"
+	sibling.Columns[0].Label = "Sibling patient ID"
+	workspace.Documents = append(workspace.Documents, sibling)
+	workspace.Tabs = append(workspace.Tabs, authoringv2.Tab{ID: "sibling-patients-tab", Title: "Sibling patients", OutputID: "sibling_patients", Order: 1, Visible: true})
 	document, err := authoringv2.UpgradeDocumentToConstruction(workspace.Documents[0])
 	if err != nil {
 		t.Fatal(err)
@@ -114,6 +122,7 @@ func TestConstructionProposalHTTPContractPreviewsAndAppliesRemovalOnly(t *testin
 	}
 	readScope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
 	categoryScanCalls := 0
+	proposalPreviewCalls := 0
 	config := lifecycle.Config{
 		Capability: lifecycle.CapabilityResolver{
 			ForCompilation: func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) {
@@ -125,13 +134,14 @@ func TestConstructionProposalHTTPContractPreviewsAndAppliesRemovalOnly(t *testin
 			Catalog: authoringV2Catalog,
 		},
 		CompileReceipt: func(ctx context.Context, request lifecycle.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
-			return compileExplorerReceipt(ctx, request, nil, recipeEngine, service, nil)
+			return compileExplorerReceipt(ctx, request, nil, recipeEngine, service, nil, nil)
 		},
 		ScanCategories: func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings, dataframeexecution.CategoryScanRequest) (dataframeexecution.CategoryScanResult, error) {
 			categoryScanCalls++
 			return dataframeexecution.CategoryScanResult{}, nil
 		},
 		PreviewReceipt: func(_ context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+			proposalPreviewCalls++
 			if receipt == nil || receipt.ConstructionProposal == nil || len(bindings.OutputNames) != 1 || bindings.OutputNames[0] != "patients" {
 				t.Fatalf("unexpected exact candidate preview receipt/bindings: %#v / %#v", receipt, bindings)
 			}
@@ -159,6 +169,25 @@ func TestConstructionProposalHTTPContractPreviewsAndAppliesRemovalOnly(t *testin
 	if capabilities.SelectedStage.Id != "source_projection" || len(capabilities.Stages) != 2 || len(capabilities.SelectedStage.Columns) != 1 {
 		t.Fatalf("capabilities did not return exact public source stage: %#v", capabilities)
 	}
+	if capabilities.SnapshotToken != snapshot.Token || capabilities.DraftVersion != 1 || capabilities.DraftDigest != digest || capabilities.OutputId != "patients" {
+		t.Fatalf("workspace input schemas were not returned under the requested snapshot and draft identity: %#v", capabilities)
+	}
+	if len(capabilities.WorkspaceInputs) != 1 || capabilities.WorkspaceInputs[0].OutputId != "sibling_patients" || capabilities.WorkspaceInputs[0].Title != "Sibling patients" {
+		t.Fatalf("wire workspace inputs = %#v, want the independent sibling output", capabilities.WorkspaceInputs)
+	}
+	var siblingColumn *loomapi.ConstructionWorkspaceInputColumn
+	for index := range capabilities.WorkspaceInputs[0].Columns {
+		if capabilities.WorkspaceInputs[0].Columns[index].Id == "sibling_patient_id" {
+			siblingColumn = &capabilities.WorkspaceInputs[0].Columns[index]
+			break
+		}
+	}
+	if siblingColumn == nil || siblingColumn.Name != "sibling_patient_id" || siblingColumn.LogicalType != "string" || siblingColumn.Cardinality != loomapi.ConstructionWorkspaceInputColumnCardinalityOptionalOne || !siblingColumn.Nullable {
+		t.Fatalf("wire workspace input omitted exact compiler-stable sibling column schema: %#v", capabilities.WorkspaceInputs)
+	}
+	if siblingColumn.JoinCompatibilityKey == nil || *siblingColumn.JoinCompatibilityKey != "String" || siblingColumn.AppendCompatibilityKey == nil || *siblingColumn.AppendCompatibilityKey != "string:String" {
+		t.Fatalf("wire workspace input omitted exact compatible scalar bases: %#v", siblingColumn)
+	}
 	columnCardinality := capabilities.SelectedStage.Columns[0].Cardinality
 	if columnCardinality == nil || *columnCardinality != loomapi.ConstructionStageColumnDescriptorCardinalityOPTIONALONE {
 		t.Fatalf("source stage cardinality = %v, want optional_one", columnCardinality)
@@ -172,6 +201,88 @@ func TestConstructionProposalHTTPContractPreviewsAndAppliesRemovalOnly(t *testin
 	}
 	if supported, exists := stageCapabilities[loomapi.ConstructionOperationCapabilityKindEXPAND]; !exists || supported {
 		t.Fatalf("scalar source stage should expose EXPAND as unsupported: %#v", capabilities.SelectedStage.Capabilities)
+	}
+
+	missingWorkspaceOutputID := authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{{
+		ID:     "only_step",
+		Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputWorkspaceOutput}},
+		Operation: authoringv2.ConstructionOperation{
+			Kind:   authoringv2.ConstructionOperationFilter,
+			Filter: &authoringv2.ConstructionFilter{ColumnID: columns[0].ID, Operator: authoringv2.ConstructionFilterExists},
+		},
+		Outputs: columns,
+	}}}
+	missingWorkspaceOutputIDJSON, err := json.Marshal(missingWorkspaceOutputID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(missingWorkspaceOutputIDJSON, []byte(`"kind":"WORKSPACE_OUTPUT"`)) {
+		t.Fatalf("invalid candidate fixture did not encode WORKSPACE_OUTPUT: %s", missingWorkspaceOutputIDJSON)
+	}
+	storedBefore, err := service.Get(context.Background(), "project-a", "custom")
+	if err != nil {
+		t.Fatal(err)
+	}
+	previewCallsBefore := proposalPreviewCalls
+	malformedInputHTTP := requestJSON(t, app, http.MethodPost, basePath+"/construction-proposals", fmt.Sprintf(
+		`{"snapshotToken":%q,"expectedDraftVersion":1,"expectedDraftDigest":%q,"outputId":"patients","changedStepId":"only_step","candidateConstruction":%s}`,
+		snapshot.Token, digest, missingWorkspaceOutputIDJSON,
+	))
+	if malformedInputHTTP.StatusCode != http.StatusBadRequest && malformedInputHTTP.StatusCode != http.StatusUnprocessableEntity {
+		t.Fatalf("missing workspace outputId status=%d, want a request validation error: %s", malformedInputHTTP.StatusCode, malformedInputHTTP.Body)
+	}
+	if !bytes.Contains([]byte(malformedInputHTTP.Body), []byte("outputId")) {
+		t.Fatalf("missing workspace outputId response did not identify the invalid field: %s", malformedInputHTTP.Body)
+	}
+	if proposalPreviewCalls != previewCallsBefore {
+		t.Fatalf("invalid workspace input reached receipt preview: calls before=%d after=%d", previewCallsBefore, proposalPreviewCalls)
+	}
+	storedAfter, err := service.Get(context.Background(), "project-a", "custom")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if storedAfter.DraftVersion != storedBefore.DraftVersion || storedAfter.DraftDigest != storedBefore.DraftDigest || !bytes.Equal(storedAfter.DraftConfig, storedBefore.DraftConfig) {
+		t.Fatalf("invalid workspace input mutated the stored draft: before=%#v after=%#v", storedBefore, storedAfter)
+	}
+
+	unsupportedTableInput := authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{{
+		ID: "only_step",
+		Inputs: []authoringv2.ConstructionInputRef{{
+			Kind: authoringv2.ConstructionInputTableRevision, TableID: "table-patients", RevisionID: "patients-r1", OutputID: "patients",
+		}},
+		Operation: authoringv2.ConstructionOperation{
+			Kind:   authoringv2.ConstructionOperationFilter,
+			Filter: &authoringv2.ConstructionFilter{ColumnID: columns[0].ID, Operator: authoringv2.ConstructionFilterExists},
+		},
+		Outputs: columns,
+	}}}
+	unsupportedTableInputJSON, err := json.Marshal(unsupportedTableInput)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(unsupportedTableInputJSON, []byte(`"kind":"TABLE_REVISION"`)) {
+		t.Fatalf("pinned table input fixture did not encode TABLE_REVISION: %s", unsupportedTableInputJSON)
+	}
+	previewCallsBefore = proposalPreviewCalls
+	unsupportedTableInputHTTP := requestJSON(t, app, http.MethodPost, basePath+"/construction-proposals", fmt.Sprintf(
+		`{"snapshotToken":%q,"expectedDraftVersion":1,"expectedDraftDigest":%q,"outputId":"patients","changedStepId":"only_step","candidateConstruction":%s}`,
+		snapshot.Token, digest, unsupportedTableInputJSON,
+	))
+	if unsupportedTableInputHTTP.StatusCode != http.StatusBadRequest && unsupportedTableInputHTTP.StatusCode != http.StatusUnprocessableEntity {
+		t.Fatalf("TABLE_REVISION on Filter status=%d, want a request validation error: %s", unsupportedTableInputHTTP.StatusCode, unsupportedTableInputHTTP.Body)
+	}
+	if !bytes.Contains([]byte(unsupportedTableInputHTTP.Body), []byte("TABLE_REVISION")) {
+		t.Fatalf("TABLE_REVISION response did not identify the unsupported input kind: %s", unsupportedTableInputHTTP.Body)
+	}
+	if proposalPreviewCalls != previewCallsBefore {
+		t.Fatalf("unsupported table input reached receipt preview: calls before=%d after=%d", previewCallsBefore, proposalPreviewCalls)
+	}
+	storedAfter, err = service.Get(context.Background(), "project-a", "custom")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if storedAfter.DraftVersion != storedBefore.DraftVersion || storedAfter.DraftDigest != storedBefore.DraftDigest || !bytes.Equal(storedAfter.DraftConfig, storedBefore.DraftConfig) {
+		t.Fatalf("unsupported table input mutated the stored draft: before=%#v after=%#v", storedBefore, storedAfter)
 	}
 
 	staleDiscoveryHTTP := requestJSON(t, app, http.MethodPost, basePath+"/construction-category-discoveries", fmt.Sprintf(
@@ -286,7 +397,7 @@ func TestRelatedExpandChoiceHTTPReturnsExactStageBoundRoute(t *testing.T) {
 			Catalog: authoringV2Catalog,
 		},
 		CompileReceipt: func(ctx context.Context, request lifecycle.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
-			return compileExplorerReceipt(ctx, request, nil, engine, service, nil)
+			return compileExplorerReceipt(ctx, request, nil, engine, service, nil, nil)
 		},
 		PreviewReceipt: func(_ context.Context, receipt *explorer.CompilationReceipt, _ recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 			if receipt == nil || receipt.ConstructionProposal == nil {
@@ -547,7 +658,7 @@ func TestRelatedSourceConstructionProposalHTTPPreviewsAllMatchesAsList(t *testin
 			Catalog: authoringV2Catalog,
 		},
 		CompileReceipt: func(ctx context.Context, request lifecycle.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
-			return compileExplorerReceipt(ctx, request, nil, recipeEngine, service, nil)
+			return compileExplorerReceipt(ctx, request, nil, recipeEngine, service, nil, nil)
 		},
 		PreviewReceipt: func(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 			if receipt == nil || receipt.ConstructionProposal == nil {
@@ -800,7 +911,7 @@ func TestEmptyConstructionBootstrapAddFirstColumnAndProposeOperation(t *testing.
 			Catalog: authoringV2Catalog,
 		},
 		CompileReceipt: func(ctx context.Context, request lifecycle.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
-			return compileExplorerReceipt(ctx, request, nil, recipeEngine, service, nil)
+			return compileExplorerReceipt(ctx, request, nil, recipeEngine, service, nil, nil)
 		},
 		ConstructionSourceStage: func(ctx context.Context, request lifecycle.ConstructionSourceStageRequest) (explorer.ReceiptConstructionStage, error) {
 			return compileConstructionSourceStage(ctx, request, recipeEngine)

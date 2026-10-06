@@ -252,7 +252,7 @@ func (c PublicOutputContract) ValidateAgainst(bundle recipe.Bundle, emitted []Em
 		}
 	}
 	if c.Lossless != expectedLossless || c.MLReady != expectedMLReady || c.StructuralSuitability != expectedSuitability || !reflect.DeepEqual(c.LossReasons, expectedLossReasons) {
-		return invalidOutputContract("aggregate lossless/mlReady flags do not match emitted columns: got (%t, %t), want (%t, %t)", c.Lossless, c.MLReady, expectedLossless, expectedMLReady)
+		return invalidOutputContract("aggregate metadata does not match emitted columns: got lossless=%t mlReady=%t structuralSuitability=%q lossReasons=%#v, want lossless=%t mlReady=%t structuralSuitability=%q lossReasons=%#v", c.Lossless, c.MLReady, c.StructuralSuitability, c.LossReasons, expectedLossless, expectedMLReady, expectedSuitability, expectedLossReasons)
 	}
 	return nil
 }

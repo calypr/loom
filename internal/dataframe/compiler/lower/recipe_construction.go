@@ -135,7 +135,9 @@ func appendRecipeConstructionStages(plan *ir.PhysicalPlan, outputName, rootResou
 		}
 		return appendRecipeTerminalCombine(plan, step, workspaceOutputSchemas)
 	}
-	if len(construction.SourceColumns) == 0 && (len(construction.Steps) == 0 || construction.Steps[0].Operation.Kind != recipe.ConstructionCodedPivotOp) {
+	allowEmptyIdentitySource := len(construction.SourceColumns) == 0 && len(construction.Steps) == 0 && constructionSourceIdentity(sourceSchema) != ""
+	if len(construction.SourceColumns) == 0 && !allowEmptyIdentitySource &&
+		(len(construction.Steps) == 0 || construction.Steps[0].Operation.Kind != recipe.ConstructionCodedPivotOp) {
 		return nil, nil, "", fmt.Errorf("construction source schema must be supplied by the resolved source compiler")
 	}
 	presenceCategoryIDs := constructionPivotCategoryColumnIDs(construction)

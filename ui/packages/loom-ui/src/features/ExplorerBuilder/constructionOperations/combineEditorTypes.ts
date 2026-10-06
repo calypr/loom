@@ -1,14 +1,21 @@
 export type ConstructionCombineKind = 'KEY_JOIN' | 'APPEND' | 'MEMBERSHIP';
 
-export interface ConstructionCombinePublishedColumn {
+export interface ConstructionCombineColumn {
   readonly id: string;
   readonly name: string;
   readonly label: string;
   readonly type: string;
-  readonly clickhouseType: string;
   readonly nullable: boolean;
   readonly repeated: boolean;
+  readonly clickhouseType?: string;
+  readonly joinCompatibilityKey?: string;
+  readonly appendCompatibilityKey?: string;
   readonly semanticPath?: string;
+  readonly cardinality?: 'required_one' | 'optional_one' | 'many';
+}
+
+export interface ConstructionCombinePublishedColumn extends ConstructionCombineColumn {
+  readonly clickhouseType: string;
 }
 
 export interface ConstructionCombinePublishedRevision {
@@ -23,20 +30,38 @@ export interface ConstructionCombinePublishedRevision {
   readonly columns: ReadonlyArray<ConstructionCombinePublishedColumn>;
 }
 
+export interface ConstructionCombineWorkspaceColumn extends ConstructionCombineColumn {
+  readonly cardinality: 'required_one' | 'optional_one' | 'many';
+  readonly joinCompatibilityKey?: string;
+  readonly appendCompatibilityKey?: string;
+}
+
+export interface ConstructionCombineWorkspaceOutput {
+  readonly kind: 'WORKSPACE_OUTPUT';
+  readonly outputId: string;
+  readonly title: string;
+  readonly columns: ReadonlyArray<ConstructionCombineWorkspaceColumn>;
+}
+
+export type ConstructionCombineSource = ConstructionCombinePublishedRevision | ConstructionCombineWorkspaceOutput;
+
 export type ConstructionCombineCatalog =
   | { readonly kind: 'loading' }
   | { readonly kind: 'failed'; readonly message: string }
   | {
       readonly kind: 'ready';
       readonly revisions: ReadonlyArray<ConstructionCombinePublishedRevision>;
+      readonly nextCursor?: string;
     };
 
-export interface ConstructionCombineInputRef {
-  kind: 'TABLE_REVISION';
-  tableId: string;
-  revisionId: string;
-  outputId: string;
-}
+export type ConstructionCombineInputRef =
+  | {
+      kind: 'TABLE_REVISION';
+      tableId: string;
+      revisionId: string;
+      outputId: string;
+    }
+  | { kind: 'WORKSPACE_OUTPUT'; outputId: string };
 
 export interface ConstructionCombineKey {
   leftColumnId: string;

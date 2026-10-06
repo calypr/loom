@@ -101,6 +101,20 @@ func TestWorkspaceOutputResolverUsesFinalGroupAndPivotSchemas(t *testing.T) {
 	if len(selected.Outputs) != 1 || len(selected.Outputs[0].WorkspaceOutputSources) != 2 {
 		t.Fatalf("selected output did not retain both resolved dependency schemas: %#v", selected.Outputs)
 	}
+	if len(selected.WorkspaceDependencies) != 2 {
+		t.Fatalf("selected output dependency count = %d, want 2: %#v", len(selected.WorkspaceDependencies), selected.WorkspaceDependencies)
+	}
+	if got := []string{selected.WorkspaceDependencies[0].Name, selected.WorkspaceDependencies[1].Name}; !reflect.DeepEqual(got, []string{"grouped", "pivoted"}) {
+		t.Fatalf("selected output dependency plans = %#v, want topological grouped/pivoted order", got)
+	}
+	for index, expected := range []string{"grouped", "pivoted"} {
+		if !equalCompiledOutputSchemas(selected.WorkspaceDependencies[index].OutputSchema, compiled.Outputs[index+1].OutputSchema) {
+			t.Fatalf("selected output dependency %q lost its finalized group/pivot schema", expected)
+		}
+	}
+	if len(compiled.WorkspaceDependencies) != 0 {
+		t.Fatalf("unfiltered compilation duplicated public outputs as dependencies: %#v", compiled.WorkspaceDependencies)
+	}
 
 	mismatched := bundle
 	mismatched.Outputs = append([]recipe.Output(nil), bundle.Outputs...)

@@ -54,6 +54,7 @@ const capabilities: ConstructionCapabilitiesResponse = {
   stageId: 'source_projection',
   baseConstruction: { version: 1, steps: [] },
   stages: [],
+  workspaceInputs: [],
   selectedStage: {
     id: 'source_projection', inputStageId: '',
     columns: [{ id: 'patient-id', name: 'patient_id', label: 'Patient ID', type: 'string', cardinality: 'required_one' }],

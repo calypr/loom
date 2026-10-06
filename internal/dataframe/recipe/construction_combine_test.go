@@ -41,8 +41,38 @@ func TestConstructionCombineAppendMapsEveryOutputFromEveryInput(t *testing.T) {
 		t.Fatalf("valid append with independent input IDs: %v", err)
 	}
 	combine.Projections = combine.Projections[:3]
-	if err := combine.Validate(2, outputs); err == nil || !strings.Contains(err.Error(), "not mapped from input 1") {
-		t.Fatalf("incomplete append mapping error = %v", err)
+	if err := combine.Validate(2, outputs); err == nil || !strings.Contains(err.Error(), "must be nullable") {
+		t.Fatalf("incomplete non-nullable append mapping error = %v", err)
+	}
+}
+
+func TestConstructionCombineAppendAllowsNullableMissingInputsButRejectsEmptyAndNonNullableOutputs(t *testing.T) {
+	outputs := []StageColumn{
+		{ID: "id", Name: "id", Type: "string"},
+		{ID: "value", Name: "value", Type: "integer", Nullable: true},
+	}
+	combine := ConstructionCombine{
+		Kind: ConstructionCombineAppend,
+		Projections: []ConstructionCombineProjection{
+			{OutputColumnID: "id", InputIndex: 0, InputColumnID: "left-id"},
+			{OutputColumnID: "id", InputIndex: 1, InputColumnID: "right-id"},
+			{OutputColumnID: "value", InputIndex: 1, InputColumnID: "right-value"},
+		},
+	}
+	if err := combine.Validate(2, outputs); err != nil {
+		t.Fatalf("valid append with an omitted nullable input mapping: %v", err)
+	}
+
+	nonNullable := append([]StageColumn(nil), outputs...)
+	nonNullable[1].Nullable = false
+	if err := combine.Validate(2, nonNullable); err == nil || !strings.Contains(err.Error(), "must be nullable") {
+		t.Fatalf("missing-input non-nullable output error = %v", err)
+	}
+
+	allEmpty := combine
+	allEmpty.Projections = combine.Projections[:2]
+	if err := allEmpty.Validate(2, outputs); err == nil || !strings.Contains(err.Error(), "not mapped from any input") {
+		t.Fatalf("all-empty output error = %v", err)
 	}
 }
 

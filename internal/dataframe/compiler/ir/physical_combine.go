@@ -20,6 +20,11 @@ const (
 	PhysicalCombineMembership PhysicalCombineKind = "MEMBERSHIP"
 )
 
+const (
+	ClickHouseArtifactScopeRows  = "ROW_SCOPED"
+	ClickHouseArtifactScopeWhole = "WHOLE_SCOPE"
+)
+
 type PhysicalCombineInputRef struct {
 	TableID           string
 	RevisionID        string
@@ -78,6 +83,16 @@ func (combine PhysicalClickHouseCombine) ValidateWithPrivateStage() error {
 // execution; ordinary Validate deliberately rejects those unresolved refs.
 func (combine PhysicalClickHouseCombine) ValidateForWorkspaceCompilation() error {
 	return combine.validate(false, true)
+}
+
+// ValidateWithWorkspaceArtifacts validates a typed terminal Combine that will
+// resolve same-bundle workspace references through server-owned artifacts.
+// Standard Validate deliberately continues to reject unresolved references.
+func (combine PhysicalClickHouseCombine) ValidateWithWorkspaceArtifacts() error {
+	if err := combine.validate(false, true); err != nil {
+		return fmt.Errorf("validate workspace artifact combine: %w", err)
+	}
+	return nil
 }
 
 func (combine PhysicalClickHouseCombine) validate(allowPrivateStage, allowWorkspaceOutputs bool) error {
@@ -201,11 +216,21 @@ func (combine PhysicalClickHouseCombine) validate(allowPrivateStage, allowWorksp
 		if len(combine.Keys) != 0 || combine.JoinType != "" || combine.RightMatchPolicy != "" || combine.MembershipMode != "" {
 			return fmt.Errorf("ClickHouse append does not accept key, join, or membership fields")
 		}
-		for inputIndex := range combine.Inputs {
-			for _, output := range combine.Outputs {
-				if !seenProjections[fmt.Sprintf("%d\x00%s", inputIndex, output.ID)] {
-					return fmt.Errorf("ClickHouse append output %q is not mapped from input %d", output.Name, inputIndex)
+		for _, output := range combine.Outputs {
+			mappedCount := 0
+			missingInput := -1
+			for inputIndex := range combine.Inputs {
+				if seenProjections[fmt.Sprintf("%d\x00%s", inputIndex, output.ID)] {
+					mappedCount++
+				} else if missingInput < 0 {
+					missingInput = inputIndex
 				}
+			}
+			if mappedCount == 0 {
+				return fmt.Errorf("ClickHouse append output %q is not mapped from any input", output.Name)
+			}
+			if missingInput >= 0 && (!output.Nullable || output.Repeated || !nullableAppendScalarType(output.ClickHouseType)) {
+				return fmt.Errorf("ClickHouse append output %q must be a nullable scalar when input %d is absent", output.Name, missingInput)
 			}
 		}
 	case PhysicalCombineMembership:
@@ -317,6 +342,20 @@ func (prefix PhysicalClickHousePrefix) ValidateScope() error {
 	return nil
 }
 
+func nullableAppendScalarType(value string) bool {
+	const prefix = "Nullable("
+	if !strings.HasPrefix(value, prefix) || !strings.HasSuffix(value, ")") {
+		return false
+	}
+	base := strings.TrimSuffix(strings.TrimPrefix(value, prefix), ")")
+	switch base {
+	case "String", "UUID", "Date", "DateTime64(3)", "Bool", "Int64", "Float64":
+		return true
+	default:
+		return false
+	}
+}
+
 func validatePhysicalCombineKeys(keys []PhysicalCombineKey) error {
 	seenLeft, seenRight := map[string]bool{}, map[string]bool{}
 	for index, key := range keys {
@@ -334,39 +373,43 @@ func validatePhysicalCombineKeys(keys []PhysicalCombineKey) error {
 // ResolvedClickHouseTable is populated by the exact revision resolver after
 // project, output, schema, scope, and authorization checks succeed.
 type ResolvedClickHouseTable struct {
-	TableID            string
-	RevisionID         string
-	OutputID           string
-	Recipe             string
-	TranslationVersion string
-	Project            string
-	DatasetGeneration  string
-	ReceiptID          string
-	SchemaDigest       string
-	ScopeDigest        string
-	PhysicalTable      string
-	Unrestricted       bool
-	AuthResourcePaths  []string
-	Columns            []ResolvedClickHouseColumn
-	PrivateStageID     string
-	PrivateArtifact    *ResolvedClickHousePrivateArtifact
+	TableID             string
+	RevisionID          string
+	OutputID            string
+	Recipe              string
+	TranslationVersion  string
+	Project             string
+	DatasetGeneration   string
+	ReceiptID           string
+	SchemaDigest        string
+	ScopeDigest         string
+	PhysicalTable       string
+	Unrestricted        bool
+	AuthResourcePaths   []string
+	Columns             []ResolvedClickHouseColumn
+	PrivateStageID      string
+	PrivateArtifact     *ResolvedClickHousePrivateArtifact
+	ScopeMode           string
+	ScopeEvidenceDigest string
 }
 
 // ClickHouseArtifactIdentity carries the exact identity used by the private
 // artifact writer. Expected and actual values are compared in full before the
 // artifact can become a ClickHouse input.
 type ClickHouseArtifactIdentity struct {
-	ExecutionID       string
-	OutputID          string
-	StageID           string
-	Project           string
-	DatasetGeneration string
-	RecipeDigest      string
-	PlanDigest        string
-	SchemaDigest      string
-	ScopeDigest       string
-	AuthScopeMode     string
-	AuthResourcePaths []string
+	ExecutionID         string
+	OutputID            string
+	StageID             string
+	Project             string
+	DatasetGeneration   string
+	RecipeDigest        string
+	PlanDigest          string
+	SchemaDigest        string
+	ScopeDigest         string
+	AuthScopeMode       string
+	AuthResourcePaths   []string
+	ScopeMode           string
+	ScopeEvidenceDigest string
 }
 
 type ResolvedClickHousePrivateArtifact struct {

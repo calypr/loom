@@ -550,9 +550,24 @@ func (combine ConstructionCombine) Validate(inputCount int, outputs []StageColum
 		}
 		for _, output := range outputs {
 			if allowAppendMappings {
+				mappedCount := 0
+				missingInput := -1
 				for inputIndex := 0; inputIndex < inputCount; inputIndex++ {
-					if !pairs[fmt.Sprintf("%d\x00%s", inputIndex, output.ID)] {
-						return fmt.Errorf("append output %q is not mapped from input %d", output.ID, inputIndex)
+					if pairs[fmt.Sprintf("%d\x00%s", inputIndex, output.ID)] {
+						mappedCount++
+					} else if missingInput < 0 {
+						missingInput = inputIndex
+					}
+				}
+				if mappedCount == 0 {
+					return fmt.Errorf("append output %q is not mapped from any input", output.ID)
+				}
+				if missingInput >= 0 {
+					if !output.Nullable {
+						return fmt.Errorf("append output %q must be nullable when input %d is absent", output.ID, missingInput)
+					}
+					if !constructionCombineNullableScalarType(output.Type) {
+						return fmt.Errorf("append output %q must have a concrete scalar type when an input is absent", output.ID)
 					}
 				}
 				continue
@@ -608,6 +623,15 @@ func (combine ConstructionCombine) Validate(inputCount int, outputs []StageColum
 		return validateProjections(false)
 	default:
 		return fmt.Errorf("unsupported combine kind %q", combine.Kind)
+	}
+}
+
+func constructionCombineNullableScalarType(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "string", "code", "uuid", "date", "date_time", "date-time", "datetime", "boolean", "integer", "decimal":
+		return true
+	default:
+		return false
 	}
 }
 
