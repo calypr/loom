@@ -131,21 +131,29 @@ test('KEY_JOIN lifecycle is exported for the native Playwright spec', () => {
   assert.match(officialSpec, /joinWorkflow\(\{ page, report: workflow\.report, action: workflow\.action \}, loomContext\)/);
 });
 
-test('last-step removal waits for the exact selected empty target instead of nonexistent history', () => {
+test('last-step removal waits for one exact ready zero-column target view', () => {
   const outputId = 'out_owned_target';
   const expression = rootedEmptyTargetAppliedExpression(outputId);
-  const evaluate = (historyExists = false) => Function('document', 'return ' + expression)({
+  const evaluate = ({ history = false, scrollTexts = ['Add a column to see your table.'] } = {}) => Function('document', 'return ' + expression)({
     querySelector(selector) {
       if (selector === '[data-testid="construction-table-' + outputId + '"]') return { getAttribute: (name) => name === 'aria-current' ? 'page' : null };
-      if (selector === '[data-testid="preview-table-scroll"]') return { textContent: 'Add a column to see your table.' };
-      if (historyExists && selector === '[data-testid="construction-history"]') return {};
+      if (history && selector === '[data-testid="construction-history"]') return {};
       return null;
     },
+    querySelectorAll(selector) {
+      assert.equal(selector, '[data-testid="preview-table-scroll"]');
+      return scrollTexts.map(textContent => ({ textContent }));
+    },
   });
-  assert.equal(evaluate(false), true);
-  assert.equal(evaluate(true), false);
+  assert.equal(evaluate(), true);
+  assert.equal(evaluate({ history: true }), false);
+  assert.equal(evaluate({ scrollTexts: [] }), false);
+  assert.equal(evaluate({ scrollTexts: ['Add a column to see your table.', 'Add a column to see your table.'] }), false);
+  assert.equal(evaluate({ scrollTexts: ['Loading your table…'] }), false);
+  assert.equal(evaluate({ scrollTexts: ['Preview did not complete for this draft: unavailable'] }), false);
   assert.match(expression, /construction-proposal-panel/);
   assert.match(expression, /construction-combine-editor/);
+  assert.match(expression, /querySelectorAll/);
 });
 
 test('reloaded last-step removal matches the full pre-Combine empty target document', () => {

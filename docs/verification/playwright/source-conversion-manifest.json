@@ -7,7 +7,7 @@
     "runnerInventoryPath": "docs/verification/playwright/runner-inventory.snapshot.json",
     "runnerInventorySha256": "ea1f0421f76eb31fc3a9d7ee29734439b37a5eca8ce84a6b97634ebd1abdc5de",
     "registryPath": "scripts/verify-ui/registry.mjs",
-    "registrySha256": "1ae8068705d3b3b647808e3752adb91a848c57d0294f9a31cfdff5d976008420",
+    "registrySha256": "337dc5a10b144e96d339240b4274b385c91c8d990dce734f5afd23c0f91cd6dc",
     "preimagesCapturedFromStageCopy": true
   },
   "sourceScope": {
@@ -794,7 +794,7 @@
     ],
     "discoverySnapshot": {
       "path": "docs/verification/playwright/discovery.snapshot.json",
-      "sha256": "35f51afa3b72e13e746188ad9f4349272aad19835a7f2d264af95bdf8583f70d"
+      "sha256": "5aa04d8a4968e41e542bdbe948a9d4e8b2aee2dbaa112e791ab09996aaf7d8cd"
     },
     "discoveryOverrideInputs": [
       {
@@ -2626,10 +2626,10 @@
     "officialRootBrowserEntrypoints": 74,
     "additionalUiPackageBrowserEntrypoints": 1,
     "registeredBrowserEntrypoints": 2,
-    "registryCases": 27,
-    "registryRequiredCheckEntries": 446,
+    "registryCases": 28,
+    "registryRequiredCheckEntries": 494,
     "registryCustomAssertionVariants": 1,
-    "registryCaseMappingsPresent": 27,
+    "registryCaseMappingsPresent": 28,
     "additionalBrowserWorkflowSources": 2,
     "additionalEmbeddedBrowserJourneys": 9,
     "mappedEmbeddedBrowserJourneys": 9,
@@ -2651,8 +2651,8 @@
     "unresolvedLegacyLauncherImplementationOwners": 0,
     "orphanNativeSpecs": 0,
     "infrastructureSpecs": 5,
-    "nativePlaywrightSpecFiles": 25,
-    "mappedNativePlaywrightSpecFiles": 20,
+    "nativePlaywrightSpecFiles": 26,
+    "mappedNativePlaywrightSpecFiles": 21,
     "unmappedWorkerSources": 0
   },
   "infrastructureSpecs": [
@@ -2754,12 +2754,12 @@
   "testDiscoveryEvidence": {
     "status": "discovery-only",
     "playwrightListPassed": true,
-    "discoveredTestCount": 163,
-    "discoveredSpecFileCount": 25,
+    "discoveredTestCount": 164,
+    "discoveredSpecFileCount": 26,
     "dedicatedBenchmarkTestCount": 1,
     "dedicatedBenchmarkSpecFileCount": 1,
     "discoverySnapshotPath": "docs/verification/playwright/discovery.snapshot.json",
-    "discoverySnapshotSha256": "35f51afa3b72e13e746188ad9f4349272aad19835a7f2d264af95bdf8583f70d",
+    "discoverySnapshotSha256": "5aa04d8a4968e41e542bdbe948a9d4e8b2aee2dbaa112e791ab09996aaf7d8cd",
     "discoverySnapshotMatchesCurrentSourceTree": true,
     "runtimeLifecycleStatus": "not-run",
     "note": "Official Playwright --list snapshots cover the main suite, the dedicated construction-preview benchmark config, and configured related ONE/ALL variants. They confirm discovery only; no test body or domain lifecycle is represented as run."
@@ -5459,6 +5459,81 @@
       "mappingStatus": "native-spec-mapped; lifecycle-unverified"
     },
     {
+      "scenario": "cda-current-draft-membership",
+      "case": "membership",
+      "source": "scripts/verify-ui/workflows/cda-current-draft-membership-workflow.mjs",
+      "nativeSpecPath": "scripts/verify-ui/specs/cda-current-draft-membership.spec.mjs",
+      "customPreservedAssertions": null,
+      "scenarioWorkflow": "owned-cda-current-draft-group-membership-lifecycle",
+      "scenarioCoverage": [
+        {
+          "feature": "real-CDA MEMBERSHIP over two exact unpublished grouped Observation ID populations with INCLUDE, EXCLUDE edit, cancellation, removal, restoration, and reload",
+          "status": "implemented",
+          "reason": "Epoch71 passes the complete 48-check, 166-assertion native lifecycle: exact bounded raw Observation oracle; INCLUDE/EXCLUDE; proposal and saved-edit Cancel/Apply; removal Cancel/Apply; empty-target restoration/reload; source preservation and no-Publish checks. All four dimensions pass; 57/57 actions completed within 1,439 ms. Integrity closure passed with unchanged source/docs/API/mounts and 3/3 health samples before and after. Two selection cancellations were expected; no unexpected network errors (incidental favicon 404 only). Epoch70 harness ancestry-assumption failure is retained at docs/verification/playwright/runtime/current-draft-cda-membership-epoch70-report.json. Report docs/verification/playwright/runtime/current-draft-cda-membership-epoch71-report.json; closure docs/verification/playwright/runtime/current-draft-cda-membership-epoch71-closure.json."
+        }
+      ],
+      "domainLifecycleStatus": "unverified",
+      "runtimeEvidence": {
+        "status": "not-run"
+      },
+      "discoveryTestTitles": [
+        "native INCLUDE and EXCLUDE Membership use two exact grouped Observation ID populations"
+      ],
+      "discoveryTestCount": 1,
+      "discoverySpecSha256": "736fb4b8393d6e9297ec0bc159ca5fc6f0c6ee39d232b1675bd5e63f92396bbe",
+      "preservedAssertions": [
+        "bounded raw CDA oracle derives exact overlapping ID groups and independent INCLUDE/EXCLUDE rows",
+        "fresh CDA Membership Explorer matches project, generation, snapshot, scope, and empty draft",
+        "CDA Membership left raw ID source binds its exact immutable raw Observation IDs and stable root ID VALUE projection",
+        "CDA Membership right raw ID source binds its exact immutable raw Observation IDs and stable root ID VALUE projection",
+        "two exact immutable source selections retain the shared ID and distinct left/right members",
+        "CDA Membership left raw ID source preview matches exact selected IDs",
+        "CDA Membership right raw ID source preview matches exact selected IDs",
+        "CDA Membership left raw ID source COUNT_ROWS GROUP preview matches the exact raw IDs",
+        "CDA Membership right raw ID source COUNT_ROWS GROUP preview matches the exact raw IDs",
+        "CDA Membership left raw ID source GROUP proposal binds the exact root ID and draft CAS",
+        "CDA Membership right raw ID source GROUP proposal binds the exact root ID and draft CAS",
+        "CDA Membership left raw ID source GROUP persists the stable root ID binding and COUNT_ROWS",
+        "CDA Membership right raw ID source GROUP persists the stable root ID binding and COUNT_ROWS",
+        "CDA Membership left raw ID source GROUP values survive reload with exact keys and counts",
+        "CDA Membership right raw ID source GROUP values survive reload with exact keys and counts",
+        "CDA Membership left raw ID source grouped rows and exact selection survive reload",
+        "CDA Membership right raw ID source grouped rows and exact selection survive reload",
+        "two current-draft GROUP sources preserve exact ID populations and stable source column bindings",
+        "canceled-proposal Membership target is a separate rooted empty current-draft document",
+        "canceled-proposal offers nullable scalar Observation ID GROUP keys to native Membership",
+        "applied-proposal Membership target is a separate rooted empty current-draft document",
+        "applied-proposal offers nullable scalar Observation ID GROUP keys to native Membership",
+        "canceled INCLUDE Membership preview equals the exact independent raw ID oracle",
+        "first INCLUDE preview keeps only the shared raw Observation ID",
+        "Cancel leaves Membership candidate inputs, empty target, and draft CAS unchanged after reload",
+        "applied INCLUDE Membership preview equals the exact independent raw ID oracle",
+        "applied INCLUDE Membership proposal binds exact nullable GROUP ID keys and current draft CAS",
+        "applied INCLUDE Membership saves exact ID GROUP inputs, keys, and left-only projection",
+        "applied INCLUDE Membership values and shared ID survive reload",
+        "INCLUDE Membership step identity, keys, projection, and source IDs survive reload",
+        "initial EXCLUDE edit keeps exactly the left-only raw Observation ID",
+        "initial EXCLUDE edit changes only membership policy and retains step, inputs, keys, output, and CAS",
+        "Canceling EXCLUDE edit preserves exact saved INCLUDE Membership, rows, and CAS after reload",
+        "Canceling EXCLUDE edit preserves saved INCLUDE rows after reload",
+        "reopened EXCLUDE edit keeps exactly the left-only raw Observation ID",
+        "reopened EXCLUDE edit changes only membership policy and retains step, inputs, keys, output, and CAS",
+        "saved EXCLUDE Membership edit keeps exact source bindings and stable output identity",
+        "EXCLUDE values survive reload as the exact left-only ID",
+        "canceled Membership removal proposal renders the rooted target with no visible columns",
+        "canceled removal proposal targets only the exact saved Membership step and draft CAS",
+        "Cancel removal preserves exact EXCLUDE Membership, full workspace, and CAS after reload",
+        "applied Membership removal proposal renders the rooted target with no visible columns",
+        "applied removal proposal targets only the exact saved Membership step and draft CAS",
+        "applying Membership removal and reloading restores the exact rooted empty target",
+        "removing Membership preserves both exact immutable GROUP source populations after reload",
+        "CDA Membership lifecycle makes no Publish request or pinned table revision reference",
+        "all native CDA Membership lifecycle actions complete within five seconds",
+        "CDA watched source and API build stayed unchanged"
+      ],
+      "mappingStatus": "native-spec-mapped; lifecycle-unverified"
+    },
+    {
       "scenario": "cda-cohort-fields",
       "case": "cohort-fields",
       "source": "scripts/verify-ui/workflows/cohort-fields-workflow.mjs",
@@ -5504,13 +5579,13 @@
   "additionalBrowserWorkflowSources": [
     {
       "sourcePath": "scripts/loom-dev.mjs",
-      "sourceSha256": "9a5e787c5f3c609a7b28621257c3a8fea3232341f7eaa9d1b24a92f7a9817f22",
+      "sourceSha256": "299fb1c3832f11ece21305583a4106fe3aa149a60a61caf30108691ab61ca1e1",
       "scopeNote": "These embedded journeys are outside the 86-file verify[-_]* inventory.",
       "journeys": [
         {
           "journeyID": "loom-dev:verifyJ02BrowserScenario:verify-j02",
           "sourcePath": "scripts/loom-dev.mjs",
-          "sourceSha256": "9a5e787c5f3c609a7b28621257c3a8fea3232341f7eaa9d1b24a92f7a9817f22",
+          "sourceSha256": "299fb1c3832f11ece21305583a4106fe3aa149a60a61caf30108691ab61ca1e1",
           "launchLine": 2351,
           "function": "verifyJ02BrowserScenario",
           "sourceLaunchStillPresent": false,
@@ -5558,7 +5633,7 @@
         {
           "journeyID": "loom-dev:verifyJ05BrowserScenario:verify-j05",
           "sourcePath": "scripts/loom-dev.mjs",
-          "sourceSha256": "9a5e787c5f3c609a7b28621257c3a8fea3232341f7eaa9d1b24a92f7a9817f22",
+          "sourceSha256": "299fb1c3832f11ece21305583a4106fe3aa149a60a61caf30108691ab61ca1e1",
           "launchLine": 2912,
           "function": "verifyJ05BrowserScenario",
           "sourceLaunchStillPresent": false,
@@ -5606,7 +5681,7 @@
         {
           "journeyID": "loom-dev:verifyJ01ExternalBrowserScenario:verify-j01",
           "sourcePath": "scripts/loom-dev.mjs",
-          "sourceSha256": "9a5e787c5f3c609a7b28621257c3a8fea3232341f7eaa9d1b24a92f7a9817f22",
+          "sourceSha256": "299fb1c3832f11ece21305583a4106fe3aa149a60a61caf30108691ab61ca1e1",
           "launchLine": 3525,
           "function": "verifyJ01ExternalBrowserScenario",
           "sourceLaunchStillPresent": false,
@@ -5655,7 +5730,7 @@
         {
           "journeyID": "loom-dev:verifyJ01BrowserScenario:verify-j01",
           "sourcePath": "scripts/loom-dev.mjs",
-          "sourceSha256": "9a5e787c5f3c609a7b28621257c3a8fea3232341f7eaa9d1b24a92f7a9817f22",
+          "sourceSha256": "299fb1c3832f11ece21305583a4106fe3aa149a60a61caf30108691ab61ca1e1",
           "launchLine": 4059,
           "function": "verifyJ01BrowserScenario",
           "sourceLaunchStillPresent": false,
@@ -5704,7 +5779,7 @@
         {
           "journeyID": "loom-dev:verifyBrowserScenario:verify-fast",
           "sourcePath": "scripts/loom-dev.mjs",
-          "sourceSha256": "9a5e787c5f3c609a7b28621257c3a8fea3232341f7eaa9d1b24a92f7a9817f22",
+          "sourceSha256": "299fb1c3832f11ece21305583a4106fe3aa149a60a61caf30108691ab61ca1e1",
           "launchLine": 5382,
           "function": "verifyBrowserScenario",
           "sourceLaunchStillPresent": false,
@@ -5773,7 +5848,7 @@
         {
           "journeyID": "loom-dev:verifyCurrentBuilderDOM:verify-current",
           "sourcePath": "scripts/loom-dev.mjs",
-          "sourceSha256": "9a5e787c5f3c609a7b28621257c3a8fea3232341f7eaa9d1b24a92f7a9817f22",
+          "sourceSha256": "299fb1c3832f11ece21305583a4106fe3aa149a60a61caf30108691ab61ca1e1",
           "launchLine": 6415,
           "function": "verifyCurrentBuilderDOM",
           "sourceLaunchStillPresent": false,
@@ -5821,7 +5896,7 @@
         {
           "journeyID": "loom-dev:verifyJ03BrowserScenario:verify-j03",
           "sourcePath": "scripts/loom-dev.mjs",
-          "sourceSha256": "9a5e787c5f3c609a7b28621257c3a8fea3232341f7eaa9d1b24a92f7a9817f22",
+          "sourceSha256": "299fb1c3832f11ece21305583a4106fe3aa149a60a61caf30108691ab61ca1e1",
           "launchLine": 6497,
           "function": "verifyJ03BrowserScenario",
           "sourceLaunchStillPresent": false,
@@ -5869,7 +5944,7 @@
         {
           "journeyID": "loom-dev:verifyJ04PatientOperatorScenario:verify-j04-patient",
           "sourcePath": "scripts/loom-dev.mjs",
-          "sourceSha256": "9a5e787c5f3c609a7b28621257c3a8fea3232341f7eaa9d1b24a92f7a9817f22",
+          "sourceSha256": "299fb1c3832f11ece21305583a4106fe3aa149a60a61caf30108691ab61ca1e1",
           "launchLine": 7459,
           "function": "verifyJ04PatientOperatorScenario",
           "sourceLaunchStillPresent": false,
@@ -5938,7 +6013,7 @@
         {
           "journeyID": "loom-dev:verifyJ04BrowserScenario:verify-j04",
           "sourcePath": "scripts/loom-dev.mjs",
-          "sourceSha256": "9a5e787c5f3c609a7b28621257c3a8fea3232341f7eaa9d1b24a92f7a9817f22",
+          "sourceSha256": "299fb1c3832f11ece21305583a4106fe3aa149a60a61caf30108691ab61ca1e1",
           "launchLine": 8208,
           "function": "verifyJ04BrowserScenario",
           "sourceLaunchStillPresent": false,

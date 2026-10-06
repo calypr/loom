@@ -1,0 +1,130 @@
+{
+  "epoch": 67,
+  "status": "CLOSED_WITH_CASE_FAILURE",
+  "integrityClosure": {
+    "status": "PASS",
+    "source": {
+      "beforeSha256": "112e54e6c17ae70a8c1f524e2055d251667b2c43288ea5e0a6f010ca777f3f5b",
+      "afterSha256": "112e54e6c17ae70a8c1f524e2055d251667b2c43288ea5e0a6f010ca777f3f5b",
+      "files": 1508,
+      "changedPaths": []
+    },
+    "docs": {
+      "beforeSha256": "0c7a068c36314e8781ce4b3e1745ca03243055860e5c25fc737763dd1bae5458",
+      "afterSha256": "0c7a068c36314e8781ce4b3e1745ca03243055860e5c25fc737763dd1bae5458",
+      "files": 163,
+      "changedPaths": []
+    },
+    "apiBuildIdentity": {
+      "before": "59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:d0ff798529bdfbf5b796a4d549d73ffee8de0acbb412c5604913a091b36abd51",
+      "after": "59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:d0ff798529bdfbf5b796a4d549d73ffee8de0acbb412c5604913a091b36abd51",
+      "precheck": "59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:d0ff798529bdfbf5b796a4d549d73ffee8de0acbb412c5604913a091b36abd51",
+      "unchanged": true
+    },
+    "ownedMounts": {
+      "beforeStatus": "PASS",
+      "afterStatus": "PASS",
+      "targetUnchanged": true,
+      "target": {
+        "project": "loom_dev_cda_fhir",
+        "composeProject": "loom-dev-6d7df93d6a37",
+        "apiContainer": "loom-dev-6d7df93d6a37-loom-api-1",
+        "uiContainer": "loom-dev-6d7df93d6a37-loom-ui-1",
+        "arangoContainer": "loom-dev-6d7df93d6a37-arangodb-1",
+        "clickhouseContainer": "loom-dev-6d7df93d6a37-clickhouse-1",
+        "apiPort": "8188",
+        "uiPort": "30008",
+        "sourceRoot": "/private/tmp/loom-construction-implementation",
+        "generation": "cda-fhir-v1"
+      }
+    },
+    "health": {
+      "beforeStatus": "PASS",
+      "beforeSamples": 3,
+      "afterStatus": "PASS",
+      "afterSamples": 3,
+      "allApiUiHealthy": true
+    },
+    "handles": {
+      "apiBuildPrecheck": {
+        "session": 38928,
+        "exitCode": 0,
+        "artifact": "/private/tmp/loom-native-parallel-wave67/api-build-precheck-static-ready.json",
+        "fresh": true
+      },
+      "beforeCapture": {
+        "session": 76574,
+        "exitCode": 0
+      },
+      "beforeHealth": {
+        "session": 1765,
+        "exitCode": 0
+      },
+      "browser": {
+        "session": 63143,
+        "exitCode": 1
+      },
+      "afterCapture": {
+        "session": 37393,
+        "exitCode": 0
+      },
+      "afterHealth": {
+        "session": 70378,
+        "exitCode": 0
+      }
+    }
+  },
+  "lifecycleReport": "docs/verification/playwright/runtime/current-draft-cda-membership-epoch67-report.json",
+  "lifecycleReportSha256": null,
+  "case": {
+    "classification": "INFERRED_HARNESS_SELECTOR_LABEL_EXPECTATION; selection cancellations remain unclassified",
+    "firstFailure": {
+      "status": "inferred; original thrown assertion was masked by finally cleanup",
+      "lastCompletedAction": {
+        "label": "Bind right exact current-draft GROUP source",
+        "status": "passed",
+        "elapsedMs": 39
+      },
+      "nextOperation": "configureMembership selects Matching pair 1 first field using exact text `Observation ID` from sources[0].group.keyLabel, before any action is recorded for key-field selection.",
+      "evidence": [
+        "The retained page snapshot shows the exact key choice as `Observation ID · String`.",
+        "ConstructionCombineEditor.tsx sets matching-pair option value to column.id and text to `${column.label} · ${joinCompatibilityKey(column)}`.",
+        "The raw GROUP document has a stable keyColumnId and label Observation ID; selecting by its exact column ID is the scoped native contract."
+      ],
+      "fix": "Use selectOptionByValue for both match-key selects with source.group.keyColumnId; select output projection by the same exact keyColumnId.",
+      "successfulPriorCoverage": [
+        "bounded independent raw oracle and exact reread",
+        "fresh Explorer project/generation/snapshot/scope",
+        "both immutable selections",
+        "both GROUP COUNT_ROWS previews, apply, and reload",
+        "Membership target creation/capability checks",
+        "all 16 recorded actions <= 1416ms"
+      ],
+      "unverified": "Membership field binding, INCLUDE/EXCLUDE proposal and lifecycle did not run."
+    },
+    "secondaryTeardownError": {
+      "message": "TypeError: capture.stop is not a function",
+      "location": "cda-current-draft-membership-workflow.mjs:894",
+      "cause": "cda.captureRequests returns a tracker with waitFor/flush and no stop method; fixture retains trackers and flushes them during teardown.",
+      "fix": "Remove invalid stop call; fixture owns tracker teardown."
+    },
+    "selectionCancellations": {
+      "count": 2,
+      "status": "unclassified in this run",
+      "sourceBackedInterpretation": {
+        "status": "source-supported expected lifecycle cancellation, but not classified in this run",
+        "mechanism": "Builder.tsx selection loader fetches the selected selectionRevisionId with AbortController and aborts in effect cleanup when selectionRevisionId changes.",
+        "mapping": "GET left selection was aborted during action selecting right raw-ID output; GET right selection was aborted during action selecting left GROUP output.",
+        "guardRequired": "If classified later, require exact owned Explorer /selections/<known prior selection ID>, GET, observed net::ERR_ABORTED, and corresponding source-switch action/request identity. Keep every other failed request fatal."
+      }
+    },
+    "durationMs": {
+      "playwrightTest": 35850,
+      "runnerProcess": 37677.944
+    },
+    "rawReportPath": "/private/tmp/loom-native-parallel-wave67/cda-current-draft-membership/attempt1/artifacts/cda-current-draft-membersh-28043--Observation-ID-populations/cda-report.json",
+    "rawReportSha256": "09f855f3426ef33bdcaa2f3c7e9b9b5b3c388167a3b3d5fcf7f5ebc79a21c6c4",
+    "requestDiagnosisPath": "/private/tmp/loom-native-parallel-wave67/stage/epoch67-diagnosis.json",
+    "requestDiagnosisSha256": "760a0997917750b7ea59560c540f54885d0251b62a559b497d0b725df8a96188"
+  }
+}

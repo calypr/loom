@@ -4200,7 +4200,7 @@ export const verifyJ01BrowserScenario = async (target, report, entryTarget = tar
   const fill = (label, value, locator = page.getByLabel(label, { exact: true })) => performAction(diagnostics, `fill ${label}`, locator,
     (locator, { timeout }) => locator.fill(String(value), { timeout }), { timeout: 5000, editable: true });
   const select = (label, value, scope = page) => performAction(diagnostics, `select ${label}`, scope.getByLabel(label, { exact: true }),
-    (locator, { timeout }) => locator.selectOption({ label: value }, { timeout }), { timeout });
+    (locator, { timeout }) => locator.selectOption({ label: value }, { timeout }), { timeout: 5000 });
   const waitForDOMCondition = async (condition, timeout = 30000) => page.waitForFunction(condition, undefined, { timeout });
   const navigatePage = async (url) => page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
   const readState = async () => fetchBuilderState(target, report.target.explorerId);
@@ -5465,9 +5465,9 @@ export const verifyBrowserScenario = async (target, report, full, entryTarget = 
   const fill = (label, value, locator = page.getByLabel(label, { exact: true })) => performAction(diagnostics, `fill ${label}`, locator,
     (targetLocator, { timeout }) => targetLocator.fill(String(value), { timeout }), { timeout: 5000, editable: true });
   const select = (label, value, scope = page) => performAction(diagnostics, `select ${label}`, scope.getByLabel(label, { exact: true }),
-    (locator, { timeout }) => locator.selectOption({ label: value }, { timeout }), { timeout });
+    (locator, { timeout }) => locator.selectOption({ label: value }, { timeout }), { timeout: 5000 });
   const selectValue = (label, value) => performAction(diagnostics, `select ${label}`, page.getByLabel(label, { exact: true }),
-    (locator, { timeout }) => locator.selectOption({ value }, { timeout }), { timeout });
+    (locator, { timeout }) => locator.selectOption({ value }, { timeout }), { timeout: 5000 });
   const clickCandidate = (fieldPath, suffix) => click(`select ${fieldPath} ${suffix}`,
     page.getByRole('checkbox', { name: `Add ${fieldPath} ${suffix}`, exact: true }));
   const scrollPreviewToRow = async (rowIndex, label) => {

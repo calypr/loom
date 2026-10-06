@@ -8,7 +8,7 @@ const scriptsRoot = path.resolve(scriptDirectory, '../..');
 export const repositoryRoot = path.resolve(scriptsRoot, '..');
 
 export const loadTypeScript = (root = repositoryRoot) =>
-  createRequire(path.join(root, 'ui/package.json'))('typescript');
+  createRequire(path.join(root, 'ui/packages/loom-ui/package.json'))('typescript');
 
 const isTransparent = (node, ts) => ts.isParenthesizedExpression(node)
   || ts.isAwaitExpression(node)

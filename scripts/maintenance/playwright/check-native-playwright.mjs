@@ -89,9 +89,11 @@ try {
   });
   const nodeGlobals = new Set(['process', 'Buffer', 'setImmediate', 'clearImmediate', 'global']);
   for (const diagnostic of program.getSemanticDiagnostics()) {
-    if (diagnostic.code !== 2304) continue;
+    if (![2304, 2552, 18004].includes(diagnostic.code)) continue;
     const message = ts.flattenDiagnosticMessageText(diagnostic.messageText, ' ');
-    if (nodeGlobals.has(message.match(/Cannot find name '([^']+)'/)?.[1])) continue;
+    const missingName = message.match(/Cannot find name '([^']+)'/)?.[1]
+      ?? message.match(/shorthand property '([^']+)'/)?.[1];
+    if (missingName && nodeGlobals.has(missingName)) continue;
     const { line } = diagnostic.file.getLineAndCharacterOfPosition(diagnostic.start);
     problems.push(`${diagnostic.file.fileName.slice(root.length + 1)}:${line + 1}: ${message} Restore its import or use the native fixture API.`);
   }

@@ -1,0 +1,141 @@
+{
+  "epoch": 71,
+  "scenario": "cda-current-draft-membership",
+  "case": "membership",
+  "title": "native INCLUDE and EXCLUDE Membership use two exact grouped Observation ID populations",
+  "status": "passed",
+  "classification": "PASS_COMPLETE_NATIVE_LIFECYCLE",
+  "requiredChecks": {
+    "passed": 48,
+    "failed": 0,
+    "notRun": 0,
+    "missing": 0,
+    "total": 48
+  },
+  "assertions": {
+    "passed": 166,
+    "failed": 0,
+    "total": 166,
+    "byDimension": {
+      "correctness": 37,
+      "performance": 58,
+      "persistence": 14,
+      "usability": 57
+    }
+  },
+  "nativeActions": {
+    "passed": 57,
+    "failed": 0,
+    "total": 57,
+    "maxElapsedMs": 1439,
+    "actionBudgetMs": 5000
+  },
+  "rawOracle": {
+    "scope": "owned CDA project + cda-fhir-v1 + Observation",
+    "maxRows": 2000,
+    "scannedRows": 2000,
+    "selectedCount": 3,
+    "leftCount": 2,
+    "rightCount": 2,
+    "overlapCount": 1,
+    "includeCount": 1,
+    "excludeCount": 1,
+    "exactRawRereadCount": 3
+  },
+  "lifecycle": {
+    "verified": "Exact immutable raw selections; native GROUP COUNT_ROWS sources; Membership INCLUDE and EXCLUDE previews, Cancel/Apply, saved edit, removal Cancel/Apply, restoration and reload.",
+    "stages": [
+      "raw-oracle",
+      "exact-selections",
+      "two-native-GROUP-sources",
+      "INCLUDE-cancel-reload",
+      "INCLUDE-apply-reload",
+      "EXCLUDE-preview-cancel-reload",
+      "EXCLUDE-reopen-apply-reload",
+      "removal-cancel-reload",
+      "removal-apply-reload"
+    ],
+    "publishOrPinnedRevision": "not used"
+  },
+  "network": {
+    "expectedCancellations": 2,
+    "unexpectedErrors": 0,
+    "cancellationPaths": [
+      "/api/v1/projects/loom_dev_cda_fhir/explorers/cda-membership-5f87706d-065b-436a-b4b6-5554a9376bae/selections/selection_f293f7d1d5364a2be678346520cae185258a4ffe4a1015e7138cbecb32871558",
+      "/api/v1/projects/loom_dev_cda_fhir/explorers/cda-membership-5f87706d-065b-436a-b4b6-5554a9376bae/selections/selection_8746a5f766b15081f24e51f5ac81dc38cfa58eff8deeb170b19533097133c01a"
+    ]
+  },
+  "incidentalAssetFailures": [
+    {
+      "url": "/favicon.ico",
+      "status": 404
+    }
+  ],
+  "timing": {
+    "playwrightTestDurationMs": 64430.387,
+    "ownerReportedCaseElapsedMs": 62920,
+    "runnerProcessDurationMs": null,
+    "runnerProcessDurationNote": "Not measured as a distinct retained duration; do not infer it from Playwright test or case timing."
+  },
+  "rawDomainReportPath": "/private/tmp/loom-native-parallel-wave71/cda-current-draft-membership/attempt1/artifacts/cda-current-draft-membersh-28043--Observation-ID-populations/attachments/cda-domain-report-json-88b8c53ce73f9a3f9fcd63df4f139f501484ef12.json",
+  "rawDomainReportSha256": "e20d92eec2d171c5f5160d9f71121c25b99ce9eda134c20a53c4a0a5892d4ef4",
+  "rawCdaReportPath": "/private/tmp/loom-native-parallel-wave71/cda-current-draft-membership/attempt1/artifacts/cda-current-draft-membersh-28043--Observation-ID-populations/cda-report.json",
+  "rawCdaReportSha256": "e20d92eec2d171c5f5160d9f71121c25b99ce9eda134c20a53c4a0a5892d4ef4",
+  "playwrightResultsPath": "/private/tmp/loom-native-parallel-wave71/cda-current-draft-membership/attempt1/results.json",
+  "playwrightResultsSha256": "f3d7a18d20381889437add08288f5331119c5ad20463c56a8e7553ae8da5860e",
+  "runnerLogPath": "/private/tmp/loom-native-parallel-wave71/cda-current-draft-membership/attempt1/runner.log",
+  "runnerLogSha256": "b29e0d2762c833932fd6333c4b84354cdf70a8e894227e3d6737f3af73fe5411",
+  "ownedTarget": {
+    "project": "loom_dev_cda_fhir",
+    "generation": "cda-fhir-v1",
+    "explorer": "cda-membership-5f87706d-065b-436a-b4b6-5554a9376bae",
+    "composeProject": "loom-dev-6d7df93d6a37",
+    "apiOrigin": "http://127.0.0.1:8188",
+    "uiOrigin": "http://127.0.0.1:30008"
+  },
+  "before": {
+    "sourceFingerprint": {
+      "sha256": "8830a5c94e432ffb3fd67f935c243fa8b96f8f1808307d2f5e41699717597f09",
+      "files": 1509
+    },
+    "docsFingerprint": {
+      "sha256": "57d93e5796cd050df36ebe1391f446332d17c393887bd45a77c30b2ef8754e61",
+      "files": 171
+    },
+    "apiBuildIdentity": "59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:d0ff798529bdfbf5b796a4d549d73ffee8de0acbb412c5604913a091b36abd51",
+    "mountValidation": "PASS",
+    "health": "PASS 3/3"
+  },
+  "after": {
+    "sourceFingerprint": {
+      "sha256": "8830a5c94e432ffb3fd67f935c243fa8b96f8f1808307d2f5e41699717597f09",
+      "files": 1509
+    },
+    "docsFingerprint": {
+      "sha256": "57d93e5796cd050df36ebe1391f446332d17c393887bd45a77c30b2ef8754e61",
+      "files": 171
+    },
+    "apiBuildIdentity": "59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:d0ff798529bdfbf5b796a4d549d73ffee8de0acbb412c5604913a091b36abd51",
+    "mountValidation": "PASS",
+    "health": "PASS 3/3",
+    "sourceManifestUnchanged": true,
+    "docsManifestUnchanged": true,
+    "apiIdentityUnchanged": true,
+    "ownedTargetUnchanged": true
+  },
+  "artifacts": {
+    "runPlan": "/private/tmp/loom-native-parallel-wave71/run-plan.json",
+    "precheck": "/private/tmp/loom-native-parallel-wave71/api-build-precheck-confirmed.json",
+    "sourceBefore": "/private/tmp/loom-native-parallel-wave71/source-before.json",
+    "sourceAfter": "/private/tmp/loom-native-parallel-wave71/source-after.json",
+    "docsBefore": "/private/tmp/loom-native-parallel-wave71/docs-before.json",
+    "docsAfter": "/private/tmp/loom-native-parallel-wave71/docs-after.json",
+    "apiBefore": "/private/tmp/loom-native-parallel-wave71/api-identity-before.json",
+    "apiAfter": "/private/tmp/loom-native-parallel-wave71/api-identity-after.json",
+    "mountsBefore": "/private/tmp/loom-native-parallel-wave71/owned-mounts-before.json",
+    "mountsAfter": "/private/tmp/loom-native-parallel-wave71/owned-mounts-after.json",
+    "healthBefore": "/private/tmp/loom-native-parallel-wave71/health-before.json",
+    "healthAfter": "/private/tmp/loom-native-parallel-wave71/health-after.json",
+    "closure": "/private/tmp/loom-native-parallel-wave71/closure.json"
+  }
+}
