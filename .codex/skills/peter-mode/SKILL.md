@@ -1,18 +1,18 @@
 ---
 name: peter-mode
-description: Use when the user invokes $peter-mode or asks to enter Peter mode for a conservative, token-aware pstack workflow with focused verification and selective escalation.
+description: Use when the user invokes $peter-mode or asks to enter Peter mode for a pstack workflow with aggressive Luna delegation, focused verification, and Sol-owned integration.
 ---
 
 # Peter mode
 
 Use pstack as a toolbox, not as mandatory ceremony. Spend tokens in proportion
-to risk. Prefer one capable agent, one coherent change, and evidence from the
-closest real behavior.
+to risk. Close coherent changes with evidence from the closest real behavior; use
+parallel workers for independent work.
 
 ## Default workflow
 
-Handle routine investigation and implementation in the root session. Read the
-smallest useful slice of the codebase. Use GitNexus first when the project
+Delegate bounded routine investigation and implementation when it can proceed
+independently. Read the smallest useful slice of the codebase. Use GitNexus first when the project
 requires it. Make the smallest coherent change and inspect the final diff.
 
 Do not load a pstack principle, playbook, or supporting reference unless it
@@ -46,11 +46,23 @@ the entry point for the current task.
 
 ## Delegation and models
 
-Do not spawn a subagent by default. Delegate only when a bounded implementation
-would materially reduce elapsed time or protect the root context. Use at most
-one Luna xhigh implementation agent for a coherent change. The root agent owns
-integration, final judgment, and prose using Sol medium when model selection is
-available.
+Delegate independent investigation, implementation, fixtures, tests, and
+verification to `gpt-6-luna` at `xhigh` reasoning by default. Use the maximum
+useful parallelism available; for broad inventories, target at least ten active
+workers when independent work and agent slots permit. There is no fixed worker
+cap. Do not create duplicate tasks or backlog merely to occupy slots.
+
+The foreground Sol agent retains the goal, architecture, dependencies, and
+evidence; it owns task decomposition, final judgment, review, integration, and
+communication. Keep its configured reasoning effort. Use `gpt-6-luna` at `max`
+for independent reviewers when model selection is available.
+
+Give workers clear outcomes, context, invariants, file ownership, and verification
+targets. Workers own their focused checks and return patches with preserved
+preimages and evidence from physically separate staging directories. Sol reviews
+ready units before opening more implementation threads. Serialize shared writes
+and dependent actions, and freeze watched source during browser runs. Handle
+small tasks directly when delegation would cost more than the work.
 
 Do not create model panels for confidence alone. If executable evidence settles
 a question, stop.

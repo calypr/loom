@@ -51,6 +51,28 @@ the verifier skill's failure-loop discipline for isolation checks, first-failure
 diagnostics, lifecycle evidence, and repeated harness-failure checkpoints.
 Report reliable workflows and remaining failures separately from testing overhead.
 
+A bottleneck changes worker assignments; it does not suspend useful parallel work.
+Keep at least ten productive Luna xhigh workers on broad inventories when the
+work and available slots permit, with no fixed upper cap. Refill completed
+assignments rather than letting the pool drain while Sol waits on one unit.
+
+- Identify the limiting step and assign workers to shorten it first: reproduce
+  the failure, inspect independent evidence, prepare the focused fix and tests,
+  review contracts, or prepare the exact deployment and browser invocation.
+- State how each assignment advances the current integration priority or the
+  next bounded workflow. Require a patch, executable check, fixture, or decisive
+  evidence; do not assign generic audits merely to keep agents occupied.
+- While a shared runtime action is serialized, workers continue isolated source
+  investigations, fixture preparation, focused tests, and staged fixes. Waiting
+  on deployment or a browser does not serialize work that has no such dependency.
+- Workers own their checks and browser cases when runtime ownership permits.
+  Sol reviews retained evidence instead of becoming the test runner for every
+  worker. Delegate integration preparation, but retain acceptance and shared
+  writes with the assigned owner.
+- When review is limiting progress, route independent review and missing-evidence
+  collection to workers and close ready submissions before expanding the queue.
+  Keep next-unit preparation bounded; worker count is not a measure of progress.
+
 - Measure progress by closed user-visible failures and fully verified lifecycles,
   with elapsed time. Commits, scripts, worker activity, and partial assertions
   do not establish completion.
