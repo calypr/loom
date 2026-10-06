@@ -4,7 +4,7 @@ import { mkdtempSync, mkdirSync, renameSync, rmSync, symlinkSync, writeFileSync 
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { classifyEvidence, classifyFreshness, readReports, summarizeCoverage } from '../coverage-status.mjs';
-import { caseNamesFor, registry, scenarioCaseFor } from '../../registry.mjs';
+import { caseNamesFor, coverageDrift, hasLifecycleContract, registry, requiresLifecycleAcceptance, scenarioCaseFor } from '../../registry.mjs';
 
 const complete = Object.fromEntries(['usability', 'correctness', 'persistence', 'performance'].map((dimension) => [dimension, { status: 'passed' }]));
 const fingerprint = (sha256 = 'a'.repeat(64), files = 12) => ({ sha256, files });
@@ -46,6 +46,157 @@ test('every registry case resolves its Playwright mapping and owned/custom check
   }
   assert.throws(() => scenarioCaseFor('builder-load', 'unknown'), /unknown case for builder-load: unknown/);
   assert.throws(() => scenarioCaseFor('unknown-scenario', 'case'), /unknown scenario: unknown-scenario/);
+});
+
+test('row-operation coverage distinguishes lifecycle acceptance from a runnable probe', () => {
+  assert.deepEqual(coverageDrift(registry), [], 'the checked-in registry declares valid lifecycle references');
+  const directGroup = registry.find((scenario) => scenario.id === 'builder-authoring')
+    .coverage.find((coverage) => coverage.feature === 'direct empty-key COUNT_ROWS GROUP automatic entry Preview');
+  const repeatedExpand = registry.find((scenario) => scenario.id === 'builder-authoring')
+    .coverage.find((coverage) => coverage.feature.startsWith('Observation.component literal-empty'));
+  assert.equal(directGroup.acceptance.kind, 'probe');
+  assert.equal(requiresLifecycleAcceptance(directGroup), true);
+  assert.equal(hasLifecycleContract(directGroup), false,
+    'an implemented probe remains visible but cannot close the Group lifecycle gap');
+  assert.equal(repeatedExpand.acceptance.kind, 'lifecycle');
+  assert.equal(hasLifecycleContract(repeatedExpand), true);
+
+  const authoring = registry.find((scenario) => scenario.id === 'builder-authoring');
+  for (const feature of [
+    'authored list EXPAND from a named-cohort ALL member field',
+    'raw ONE disagreement rejection for two Patient IDs',
+    'grouping rows',
+    'related-record rows',
+    'direct related Observation.status chooser ONE→ALL repair',
+    'repeated-value rows',
+    'coded Pivot',
+    'Unpivot',
+    'Filter rows',
+    'direct columns',
+    'coded columns',
+    'related columns',
+    'ONE/ALL contributing values',
+    'contributor rules',
+    'missing-match policies',
+  ]) {
+    assert.equal(requiresLifecycleAcceptance(authoring.coverage.find((coverage) => coverage.feature === feature)), true,
+      `${feature} has explicit lifecycle intent even without a keyword used by the gate`);
+  }
+  assert.deepEqual(coverageDrift([{
+    id: 'unclassified-row',
+    cases: {},
+    coverage: [{ feature: 'a feature label with no operation keyword', status: 'implemented', acceptance: { intent: 'row-lifecycle' } }],
+  }]).filter((message) => message.includes('must be classified')).length, 1,
+  'once a coverage row declares row-lifecycle intent, its implemented status requires probe or lifecycle classification');
+
+  const duplicateCheckScenarios = ['row-alpha', 'row-beta'].map((id) => ({
+    id,
+    cases: { complete: { playwrightTest: 'row-operation.spec.mjs', requiredChecks: ['choice', 'proposal', 'cancel', 'apply', 'saved rows', 'reload', 'edit', 'restoration'] } },
+    coverage: [{ feature: id, status: 'implemented', acceptance: { intent: 'row-lifecycle', kind: 'lifecycle', case: 'complete',
+      checks: { choice: 0, proposal: 1, apply: 3, savedRows: 4, reload: 5, edit: 6, restoration: 7 } } }],
+  }));
+  const duplicateCheckDrift = coverageDrift(duplicateCheckScenarios);
+  assert.equal(duplicateCheckDrift.length, 2,
+    'each malformed lifecycle row is reported once regardless of the number of registered scenarios');
+  assert.deepEqual(new Set(duplicateCheckDrift).size, 2,
+    'the lifecycle errors are unique rather than duplicated once per scenario');
+});
+
+test('lifecycle phase references point to the named applied, edited, reloaded, and restored evidence', () => {
+  const mappedText = (scenarioId, feature, phase) => {
+    const owner = registry.find((entry) => entry.id === scenarioId);
+    const row = owner.coverage.find((entry) => entry.feature === feature);
+    assert.ok(row, `${scenarioId} has the exact feature row`);
+    const scenario = registry.find((entry) => entry.id === (row.acceptance.scenario ?? owner.id));
+    const contract = scenarioCaseFor(scenario, row.acceptance.case);
+    return { index: row.acceptance.checks[phase], text: contract.requiredChecks[row.acceptance.checks[phase]] };
+  };
+
+  assert.equal(mappedText('builder-authoring', 'Observation.component literal-empty and missing-list policies with saved Expand lifecycle', 'edit').index, 48);
+  assert.match(mappedText('builder-authoring', 'Observation.component literal-empty and missing-list policies with saved Expand lifecycle', 'savedRows').text, /EXCLUDE source rows retain/);
+  assert.match(mappedText('builder-authoring', 'Observation.component literal-empty and missing-list policies with saved Expand lifecycle', 'reload').text, /EXCLUDE source EXPANDED rows.*survive Builder reload/);
+  assert.equal(mappedText('builder-authoring', 'ordinary Pivot', 'choice').index, 1);
+  assert.match(mappedText('builder-authoring', 'ordinary Pivot', 'choice').text, /offers visible SUM repair/);
+  assert.equal(mappedText('builder-combine-draft', 'KEY_JOIN over two independently authored unpublished Group outputs', 'savedRows').index, 11);
+  assert.match(mappedText('builder-combine-draft', 'KEY_JOIN over two independently authored unpublished Group outputs', 'savedRows').text, /applied LEFT Join rows survive reload/);
+  assert.equal(mappedText('builder-combine-draft', 'MEMBERSHIP over two unpublished grouped ID sources with INCLUDE, EXCLUDE edit, removal, restoration, and reload', 'edit').index, 41);
+  assert.equal(mappedText('builder-combine-draft', 'MEMBERSHIP over two unpublished grouped ID sources with INCLUDE, EXCLUDE edit, removal, restoration, and reload', 'savedRows').index, 43);
+  assert.match(mappedText('builder-combine-draft', 'MEMBERSHIP over two unpublished grouped ID sources with INCLUDE, EXCLUDE edit, removal, restoration, and reload', 'savedRows').text, /EXCLUDE values survive reload/);
+  assert.equal(mappedText('cda-current-draft-membership', 'real-CDA MEMBERSHIP over two exact unpublished grouped Observation ID populations with INCLUDE, EXCLUDE edit, cancellation, removal, restoration, and reload', 'edit').index, 36);
+  assert.equal(mappedText('cda-current-draft-membership', 'real-CDA MEMBERSHIP over two exact unpublished grouped Observation ID populations with INCLUDE, EXCLUDE edit, cancellation, removal, restoration, and reload', 'savedRows').index, 37);
+  assert.equal(mappedText('cda-current-draft-membership', 'real-CDA MEMBERSHIP over two exact unpublished grouped Observation ID populations with INCLUDE, EXCLUDE edit, cancellation, removal, restoration, and reload', 'restoration').index, 43);
+  assert.match(mappedText('cda-current-draft-membership', 'real-CDA MEMBERSHIP over two exact unpublished grouped Observation ID populations with INCLUDE, EXCLUDE edit, cancellation, removal, restoration, and reload', 'restoration').text, /removal and reloading restores the exact rooted empty target/);
+});
+
+test('row-operation gate rejects missing lifecycle links and invalid named-check references', () => {
+  const caseContract = {
+    playwrightTest: 'row-operation.spec.mjs',
+    requiredChecks: ['native choice', 'proposal preview', 'Cancel', 'Apply rows', 'saved rows', 'reload rows', 'edit saved operation', 'remove and restore'],
+  };
+  const scenario = { id: 'row-test', cases: { probe: { ...caseContract, acceptance: { kind: 'probe' } } }, coverage: [] };
+  const implemented = (acceptance) => ({
+    feature: 'native GROUP row lifecycle', status: 'implemented', acceptance: { intent: 'row-lifecycle', ...acceptance },
+  });
+  assert.match(coverageDrift([{ ...scenario, coverage: [implemented({ kind: undefined })] }]).join('\n'), /must be classified/);
+  assert.match(coverageDrift([{ ...scenario, coverage: [implemented({ kind: 'lifecycle', case: 'probe', checks: {
+    choice: 0, proposal: 1, cancel: 2, apply: 3, savedRows: 4, reload: 99, edit: 6, restoration: 7,
+  } })] }]).join('\n'), /reload/);
+  assert.match(coverageDrift([{ ...scenario, coverage: [implemented({ kind: 'lifecycle', case: 'probe', checks: {
+    choice: 0, proposal: 0, cancel: 0, apply: 0, savedRows: 0, reload: 0, edit: 0, restoration: 0,
+  } })] }]).join('\n'), /every lifecycle phase points to one check/);
+
+  const lifecycleScenario = { id: 'row-test', cases: { complete: caseContract }, coverage: [implemented({
+    kind: 'lifecycle', case: 'complete', checks: {
+      choice: 0, proposal: 1, cancel: 2, apply: 3, savedRows: 4, reload: 5, edit: 6, restoration: 7,
+    },
+  })] };
+  assert.deepEqual(coverageDrift([lifecycleScenario]), []);
+  assert.equal(hasLifecycleContract(lifecycleScenario.coverage[0], lifecycleScenario, [lifecycleScenario]), true);
+
+  const outOfRange = implemented({ kind: 'lifecycle', case: 'complete', checks: {
+    choice: 0, proposal: 1, cancel: 2, apply: 3, savedRows: 4, reload: 5, edit: 6, restoration: 8,
+  } });
+  assert.equal(hasLifecycleContract(outOfRange, lifecycleScenario, [lifecycleScenario]), false,
+    'the helper itself rejects a check index outside the case contract');
+  const unknownCase = implemented({ kind: 'lifecycle', case: 'missing', checks: {
+    choice: 0, proposal: 1, cancel: 2, apply: 3, savedRows: 4, reload: 5, edit: 6, restoration: 7,
+  } });
+  assert.equal(hasLifecycleContract(unknownCase, lifecycleScenario, [lifecycleScenario]), false,
+    'the helper itself rejects an unregistered acceptance case');
+  const malformedNotApplicable = implemented({ kind: 'lifecycle', case: 'complete', checks: {
+    choice: 0, proposal: 1, cancel: 2, apply: 3, savedRows: 4, reload: 5, restoration: 7,
+  }, notApplicable: { edit: '' , invented: 'not a lifecycle phase' } });
+  assert.equal(hasLifecycleContract(malformedNotApplicable, lifecycleScenario, [lifecycleScenario]), false,
+    'the helper itself rejects blank and unknown N/A declarations');
+
+  const explicitGap = implemented({ kind: 'lifecycle', case: 'complete', checks: {
+    choice: 0, proposal: 1, cancel: 2, apply: 3, savedRows: 4, reload: 5, edit: 6,
+  }, contractGaps: { restoration: 'The report proves restoration, but the named requiredChecks contract omits it.' } });
+  assert.deepEqual(coverageDrift([{ ...lifecycleScenario, coverage: [explicitGap] }]), [],
+    'a documented registry-contract gap is distinct from a malformed phase reference');
+  assert.equal(hasLifecycleContract(explicitGap, lifecycleScenario, [lifecycleScenario]), false,
+    'a report-only restoration assertion cannot make the registered lifecycle contract complete');
+  assert.match(coverageDrift([{ ...lifecycleScenario, coverage: [implemented({
+    kind: 'lifecycle', case: 'complete', checks: { choice: 0, proposal: 1, cancel: 2, apply: 3, savedRows: 4, reload: 5, edit: 6 },
+  })] }]).join('\n'), /restoration/,
+  'an unexplained missing phase still fails the registry gate');
+
+  const editNotApplicable = implemented({ kind: 'lifecycle', case: 'complete', checks: {
+    choice: 0, proposal: 1, cancel: 2, apply: 3, savedRows: 4, reload: 5, restoration: 7,
+  }, notApplicable: { edit: 'This case removes a row operation and contains no saved operation that can be edited.' } });
+  const notApplicableScenario = { ...lifecycleScenario, coverage: [editNotApplicable] };
+  assert.deepEqual(coverageDrift([notApplicableScenario]), [],
+    'a genuine N/A phase has its own explicit reason and is not a registry contract gap');
+  assert.equal(hasLifecycleContract(editNotApplicable, notApplicableScenario, [notApplicableScenario]), true,
+    'an explicit N/A phase may coexist with a complete lifecycle contract');
+  assert.equal(hasLifecycleContract(explicitGap, lifecycleScenario, [lifecycleScenario]), false,
+    'a contract gap remains uncovered even if other phases have an explicit N/A reason');
+  assert.match(coverageDrift([{ ...lifecycleScenario, coverage: [implemented({
+    kind: 'lifecycle', case: 'complete', checks: { choice: 0, proposal: 1, cancel: 2, apply: 3, savedRows: 4, reload: 5, edit: 6 },
+    notApplicable: { restoration: 'The report proves restoration, but the named contract does not.' },
+    contractGaps: { restoration: 'The named requiredChecks list has no restoration check.' },
+  })] }]).join('\n'), /contract gaps/,
+  'a phase cannot be both not applicable and an uncovered registry contract gap');
 });
 
 test('partial long-route collection repair owns one registered case while legacy variants stay unregistered', () => {

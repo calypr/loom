@@ -2,12 +2,13 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
-import { caseNamesFor, registry, scenarioCaseFor } from '../../verify-ui/registry.mjs';
+import { caseNamesFor, coverageDrift, registry, scenarioCaseFor } from '../../verify-ui/registry.mjs';
 import { createBrowserCallbackScopeChecker } from './browser-callback-scope.mjs';
 
 const scriptsRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const root = resolve(scriptsRoot, '..');
 const problems = [];
+problems.push(...coverageDrift());
 let mappedCases = 0;
 for (const scenario of registry) {
   for (const caseName of caseNamesFor(scenario)) {

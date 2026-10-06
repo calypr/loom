@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync, realpathSync } from 'node:fs';
 import { basename, dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { caseNamesFor, registry, scenarioCaseFor } from '../registry.mjs';
+import { caseNamesFor, hasLifecycleContract, registry, requiresLifecycleAcceptance, scenarioCaseFor } from '../registry.mjs';
 import { sourceFingerprint } from './source-fingerprint.mjs';
 
 const dimensions = ['usability', 'correctness', 'persistence', 'performance'];
@@ -292,8 +292,9 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
   console.log(`${currentPasses}/${rows.length} registered browser cases have passing report evidence for the current source and API build`);
   console.log(`${historicalPasses} historical passing reports preserved; ${unknownFreshnessPasses} passing reports have unknown freshness`);
   const gaps = registry.flatMap((scenario) => scenario.coverage
-    .filter((feature) => feature.status !== 'implemented')
+    .filter((feature) => !['implemented', 'passed'].includes(feature.status)
+      || (requiresLifecycleAcceptance(feature) && !hasLifecycleContract(feature, scenario)))
     .map((feature) => `${scenario.id}\t${feature.feature}`));
-  console.log(`${gaps.length} declared feature gaps have no implemented browser coverage`);
+  console.log(`${gaps.length} declared gaps or row-lifecycle claims lack a complete required-check contract`);
   for (const gap of gaps) console.log(`gap\t${gap}`);
 }

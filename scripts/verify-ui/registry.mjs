@@ -288,7 +288,7 @@ export const registry = Object.freeze([
       { feature: 'Patient graph root selection', status: 'implemented' },
       { feature: 'catalog-backed Patient candidate controls', status: 'implemented' },
       { feature: 'suggestion transport failure and retry', status: 'untested', reason: 'The isolated development Builder catalog already contains Patient candidates, so ensureSuggestions returns without issuing the lazy suggestions request.' },
-      { feature: 'column projection and filter authoring', status: 'implemented' },
+      { feature: 'column projection and filter authoring', acceptance: {"intent":"row-lifecycle","kind":"probe","case":"authoring"}, status: 'implemented' },
       { feature: 'automatic Preview and action-to-render timing', status: 'implemented' },
       { feature: 'Publish and reload persistence', status: 'implemented' },
       { feature: 'Explorer selection', status: 'untested' },
@@ -299,26 +299,26 @@ export const registry = Object.freeze([
       { feature: 'starting-record selection', status: 'untested', reason: 'No registered authoring case attaches or resolves a saved starting selection.' },
       { feature: 'named cohort selection', status: 'implemented', reason: 'Registered cohort-recode basic lifecycle passes with two independently known Patient refs; real CDA membership variants have separate cases.' },
       { feature: 'transformed named-cohort member values and ALL/ONE policy', status: 'implemented', reason: 'Registered cohort-recode passes exact ALL/ONE recode, reload and removal/restoration on the basic fixture; CDA follow-up remains separate.' },
-      { feature: 'authored list EXPAND from a named-cohort ALL member field', status: 'untested', reason: 'The registered native lifecycle case is staged; root must run it against an owned fresh fixture before marking this transition verified.' },
-      { feature: 'raw ONE disagreement rejection for two Patient IDs', status: 'untested', reason: 'The basic transformed cycle restores raw ALL and stops before attempting the expected raw ONE rejection; the CDA transformed-category driver covers that refusal.' },
+      { feature: 'authored list EXPAND from a named-cohort ALL member field', acceptance: {"intent":"row-lifecycle"}, status: 'untested', reason: 'The registered native lifecycle case is staged; root must run it against an owned fresh fixture before marking this transition verified.' },
+      { feature: 'raw ONE disagreement rejection for two Patient IDs', acceptance: {"intent":"row-lifecycle"}, status: 'untested', reason: 'The basic transformed cycle restores raw ALL and stops before attempting the expected raw ONE rejection; the CDA transformed-category driver covers that refusal.' },
       { feature: 'selected-resource population coverage check', status: 'untested', reason: 'No registered case attaches a saved selection and published receipt, then activates the coverage check.' },
-      { feature: 'grouping rows', status: 'untested' },
-      { feature: 'direct empty-key COUNT_ROWS GROUP automatic entry Preview', status: 'implemented', reason: 'The registered group-entry case opens standard Group directly on a fresh two-Patient table and checks the native proposal request plus its automatic one-row count Preview before any field edit; saved Group edit/removal and keyed grouping remain outside this case.' },
-      { feature: 'legacy semantics v9 digest and row-action lifecycle', status: 'implemented', reason: 'Epoch37 passed all 12 required checks on the basic Patient fixture: exact saved v9 digest/reload, actionable Related/List open and Cancel, and Group Preview/Cancel/Apply/reload with COUNT_ROWS 2. Related/List Apply, Group edit/removal/restoration, and real CDA follow-up remain unverified.' },
-      { feature: 'related-record rows', status: 'untested' },
-      { feature: 'direct related Observation.status chooser ONE→ALL repair', status: 'untested', reason: 'The standalone related-field verifier defines the direct chooser repair requirement, but native status-mode evidence has not been registered as a passing case; keep this transition unverified until a bounded native run passes.' },
-      { feature: 'repeated-value rows', status: 'untested', reason: 'The registered repeated-empty case covers only Observation.component literal-empty and missing policies; other repeated fields and source shapes remain untested.' },
-      { feature: 'Observation.component literal-empty and missing-list policies with saved Expand lifecycle', status: 'implemented', reason: 'The registered case checks exact ID/item pairs for PRESERVE_PARENT and EXCLUDE, Cancel retention of the saved policy/step identity, reloads both policies, and removes Expand.' },
-      { feature: 'ordinary Pivot', status: 'implemented', reason: 'The registered quantity Pivot cases verify typed category discovery and native fixture lifecycle; full CDA lifecycle remains separately gated on its own full-population run.' },
-      { feature: 'coded Pivot', status: 'untested' },
-      { feature: 'Unpivot', status: 'untested' },
-      { feature: 'Filter rows', status: 'untested' },
-      { feature: 'direct columns', status: 'untested' },
-      { feature: 'coded columns', status: 'untested' },
-      { feature: 'related columns', status: 'untested' },
-      { feature: 'ONE/ALL contributing values', status: 'untested' },
-      { feature: 'contributor rules', status: 'untested' },
-      { feature: 'missing-match policies', status: 'untested' },
+      { feature: 'grouping rows', acceptance: {"intent":"row-lifecycle"}, status: 'untested' },
+      { feature: 'direct empty-key COUNT_ROWS GROUP automatic entry Preview', acceptance: {"intent":"row-lifecycle","kind":"probe","case":"group-entry"}, status: 'implemented', reason: 'The registered group-entry case opens standard Group directly on a fresh two-Patient table and checks the native proposal request plus its automatic one-row count Preview before any field edit; saved Group edit/removal and keyed grouping remain outside this case.' },
+      { feature: 'legacy semantics v9 digest and row-action lifecycle', acceptance: {"intent":"row-lifecycle","kind":"probe","case":"legacy-v9-rows"}, status: 'implemented', reason: 'Epoch37 passed all 12 required checks on the basic Patient fixture: exact saved v9 digest/reload, actionable Related/List open and Cancel, and Group Preview/Cancel/Apply/reload with COUNT_ROWS 2. Related/List Apply, Group edit/removal/restoration, and real CDA follow-up remain unverified.' },
+      { feature: 'related-record rows', acceptance: {"intent":"row-lifecycle"}, status: 'untested' },
+      { feature: 'direct related Observation.status chooser ONE→ALL repair', acceptance: {"intent":"row-lifecycle"}, status: 'untested', reason: 'The standalone related-field verifier defines the direct chooser repair requirement, but native status-mode evidence has not been registered as a passing case; keep this transition unverified until a bounded native run passes.' },
+      { feature: 'repeated-value rows', acceptance: {"intent":"row-lifecycle"}, status: 'untested', reason: 'The registered repeated-empty case covers only Observation.component literal-empty and missing policies; other repeated fields and source shapes remain untested.' },
+      { feature: 'Observation.component literal-empty and missing-list policies with saved Expand lifecycle', acceptance: {"intent":"row-lifecycle","kind":"lifecycle","case":"repeated-empty","checks":{"choice":4,"proposal":5,"cancel":17,"apply":38,"savedRows":20,"reload":21,"edit":48,"restoration":26}}, status: 'implemented', reason: 'The registered case checks exact ID/item pairs for PRESERVE_PARENT and EXCLUDE, Cancel retention of the saved policy/step identity, reloads both policies, and removes Expand.' },
+      { feature: 'ordinary Pivot', acceptance: {"intent":"row-lifecycle","kind":"lifecycle","scenario":"root-quantity-pivot","case":"fixture-lifecycle","checks":{"choice":1,"proposal":2,"cancel":3,"apply":4,"savedRows":5,"reload":5,"edit":5,"restoration":6}}, status: 'implemented', reason: 'The registered quantity Pivot cases verify typed category discovery and native fixture lifecycle; full CDA lifecycle remains separately gated on its own full-population run.' },
+      { feature: 'coded Pivot', acceptance: {"intent":"row-lifecycle"}, status: 'untested' },
+      { feature: 'Unpivot', acceptance: {"intent":"row-lifecycle"}, status: 'untested' },
+      { feature: 'Filter rows', acceptance: {"intent":"row-lifecycle"}, status: 'untested' },
+      { feature: 'direct columns', acceptance: {"intent":"row-lifecycle"}, status: 'untested' },
+      { feature: 'coded columns', acceptance: {"intent":"row-lifecycle"}, status: 'untested' },
+      { feature: 'related columns', acceptance: {"intent":"row-lifecycle"}, status: 'untested' },
+      { feature: 'ONE/ALL contributing values', acceptance: {"intent":"row-lifecycle"}, status: 'untested' },
+      { feature: 'contributor rules', acceptance: {"intent":"row-lifecycle"}, status: 'untested' },
+      { feature: 'missing-match policies', acceptance: {"intent":"row-lifecycle"}, status: 'untested' },
       { feature: 'coverage inspection', status: 'untested' },
       { feature: 'column renaming', status: 'untested' },
       { feature: 'column chart configuration', status: 'untested' },
@@ -375,8 +375,8 @@ export const registry = Object.freeze([
       },
     },
     coverage: [
-      { feature: 'mapped-plus-orphan member removal to an empty GROUP→RELATED_SOURCE output', status: 'implemented', reason: 'Epoch96 passed all 10 required checks, 40 assertions, and 27 native actions (maximum lifecycle checkpoint 2,382 ms). The independent scoped raw oracle selected the mapped and orphan membership witnesses. Native Cancel, exact proposal Apply, reload, and Undo restored the original workspace, member route, and columns. This evidence covers this exact mapped-plus-orphan empty-output transition. Report: docs/verification/playwright/runtime/current-draft-cda-population-member-removal-epoch96-lifecycle-report.json; lifecycle closure: docs/verification/playwright/runtime/current-draft-cda-population-member-removal-epoch96-lifecycle-closure.json.' },
-      { feature: 'Cancel and exact proposal Apply for mapped-plus-orphan removal to an empty output', status: 'implemented', reason: 'Epoch96 verified Cancel preserved the saved membership and draft, then a fresh exact proposal Apply removed the mapped member and reloaded the empty result; Undo restored the original workspace, route, and columns. These transitions passed within the 10 required checks, 40 assertions, and 27 native actions (maximum lifecycle checkpoint 2,382 ms), against the independent scoped mapped-plus-orphan raw oracle. Report: docs/verification/playwright/runtime/current-draft-cda-population-member-removal-epoch96-lifecycle-report.json; lifecycle closure: docs/verification/playwright/runtime/current-draft-cda-population-member-removal-epoch96-lifecycle-closure.json.' },
+      { feature: 'mapped-plus-orphan member removal to an empty GROUP→RELATED_SOURCE output', acceptance: {"intent":"row-lifecycle","kind":"lifecycle","case":"mapped-plus-orphan-to-empty","checks":{"choice":2,"proposal":3,"cancel":4,"apply":6,"savedRows":8,"reload":8},"contractGaps":{"restoration":"Epoch96 report verifies Undo restoration, but the registered requiredChecks omit a named restoration assertion."},"notApplicable":{"edit":"This case removes the mapped member from a saved MEMBERSHIP operation; it does not edit a saved MEMBERSHIP policy or other editable construction."}}, status: 'implemented', reason: 'Epoch96 passed all 10 required checks, 40 assertions, and 27 native actions (maximum lifecycle checkpoint 2,382 ms). The independent scoped raw oracle selected the mapped and orphan membership witnesses. Native Cancel, exact proposal Apply, reload, and Undo restored the original workspace, member route, and columns. This evidence covers this exact mapped-plus-orphan empty-output transition. Report: docs/verification/playwright/runtime/current-draft-cda-population-member-removal-epoch96-lifecycle-report.json; lifecycle closure: docs/verification/playwright/runtime/current-draft-cda-population-member-removal-epoch96-lifecycle-closure.json.' },
+      { feature: 'Cancel and exact proposal Apply for mapped-plus-orphan removal to an empty output', acceptance: {"intent":"row-lifecycle","kind":"lifecycle","case":"mapped-plus-orphan-to-empty","checks":{"choice":2,"proposal":3,"cancel":4,"apply":6,"savedRows":8,"reload":8},"contractGaps":{"restoration":"Epoch96 report verifies Undo restoration, but the registered requiredChecks omit a named restoration assertion."},"notApplicable":{"edit":"This case removes the mapped member from a saved MEMBERSHIP operation; it does not edit a saved MEMBERSHIP policy or other editable construction."}}, status: 'implemented', reason: 'Epoch96 verified Cancel preserved the saved membership and draft, then a fresh exact proposal Apply removed the mapped member and reloaded the empty result; Undo restored the original workspace, route, and columns. These transitions passed within the 10 required checks, 40 assertions, and 27 native actions (maximum lifecycle checkpoint 2,382 ms), against the independent scoped mapped-plus-orphan raw oracle. Report: docs/verification/playwright/runtime/current-draft-cda-population-member-removal-epoch96-lifecycle-report.json; lifecycle closure: docs/verification/playwright/runtime/current-draft-cda-population-member-removal-epoch96-lifecycle-closure.json.' },
     ],
   }),
   Object.freeze({
@@ -456,9 +456,9 @@ export const registry = Object.freeze([
       },
     },
     coverage: [
-      { feature: 'full-population root quantity category discovery against the complete CDA oracle', status: 'implemented', reason: 'The discovery case records named checks for complete scoped MISSING/NULL/scalar categories, native summary selection, and the five-second discovery/render budget.' },
-      { feature: 'typed root quantity Pivot lifecycle on exact owned fixture data', status: 'implemented', reason: 'The fixture lifecycle records named assertions for independent raw IDs and categories, native validation repair, SUM/MAX persistence, exact restoration, and timing.' },
-      { feature: 'root quantity Pivot Apply/edit/removal lifecycle on full CDA population', status: 'implemented', reason: 'The full CDA lifecycle report /tmp/loom-root-quantity-cda-parent-rendered-v4/report.json passes all named requirements and 14 action/validation timings (maximum4619ms), with complete815261-row independent SUM/MAX and restoration checks and unchanged source/API identity.' },
+      { feature: 'full-population root quantity category discovery against the complete CDA oracle', acceptance: {"intent":"row-lifecycle","kind":"probe","case":"full-population-discovery"}, status: 'implemented', reason: 'The discovery case records named checks for complete scoped MISSING/NULL/scalar categories, native summary selection, and the five-second discovery/render budget.' },
+      { feature: 'typed root quantity Pivot lifecycle on exact owned fixture data', acceptance: {"intent":"row-lifecycle","kind":"lifecycle","case":"fixture-lifecycle","checks":{"choice":1,"proposal":2,"cancel":3,"apply":4,"savedRows":5,"reload":5,"edit":5,"restoration":6}}, status: 'implemented', reason: 'The fixture lifecycle records named assertions for independent raw IDs and categories, native validation repair, SUM/MAX persistence, exact restoration, and timing.' },
+      { feature: 'root quantity Pivot Apply/edit/removal lifecycle on full CDA population', acceptance: {"intent":"row-lifecycle","kind":"lifecycle","case":"full-population-lifecycle","checks":{"choice":2,"proposal":3,"cancel":4,"apply":5,"savedRows":5,"reload":5,"edit":6,"restoration":7}}, status: 'implemented', reason: 'The full CDA lifecycle report /tmp/loom-root-quantity-cda-parent-rendered-v4/report.json passes all named requirements and 14 action/validation timings (maximum4619ms), with complete815261-row independent SUM/MAX and restoration checks and unchanged source/API identity.' },
     ],
   }),
   Object.freeze({
@@ -688,11 +688,11 @@ export const registry = Object.freeze([
       },
     },
     coverage: [
-      { feature: 'KEY_JOIN over two independently authored unpublished Group outputs', status: 'implemented', reason: 'Epoch41 passed the native basic-fixture Group→Group lifecycle: 103/103 assertions, 25/25 required checks, 32/32 actions, max 680ms. Compact report: docs/verification/playwright/runtime/current-draft-join-epoch41-report.json (sha256 3de5ff2dcc5277c89ca1d3498e2715a06129c86c5cc221fcf2173c03d3645388); closure: docs/verification/playwright/runtime/current-draft-join-epoch41-closure.json (sha256 e13741d00494418a4ee34026349eb44cb77d0f2000e0a35f4147b7f21389487a). This closes only the basic fixture. Epoch39 request-300 net::ERR_ABORTED remains unresolved and unattributed; the clean epoch41 rerun did not establish its cause or fix. Real-CDA Group→Group and published-source Join remain unverified.' },
-      { feature: 'APPEND over three unpublished sibling outputs including a composed Group→DERIVE source', status: 'implemented', reason: 'Epoch45 native basic-fixture APPEND passed all 111 assertions, four dimensions, and all 18 checks required at run time. The three direct Group→DERIVE preview, reload-value, and timing assertions also passed in that report and are now listed as required checks. The Group→DERIVE source’s separate saved-step edit/cancel/removal lifecycle, Group→Pivot-input APPEND, and real-CDA APPEND remain unverified.' },
-      { feature: 'saved upstream Group→DERIVE Cancel/Apply/reload and dependent three-source APPEND recompute/removal restoration', status: 'implemented', reason: 'Epoch74 exact basic-fixture rerun passed all 44/44 registered checks, 140/140 assertions, and all four dimensions; 42 native actions and 40 timed checkpoints completed with max action 690 ms. Native upstream Group→DERIVE Cancel/Apply/reload, dependent APPEND recompute/reload, removal/restoration, and source-preservation checks passed. Epoch73 request-450 POST reconcile net::ERR_ABORTED at draftVersion 14 remains unattributed and unresolved; Epoch74 did not reproduce it, and the clean rerun establishes no cause or product fix, so the overall tracked workflow remains partial. Basic fixture only; real-CDA and published-source cases remain separate. Report docs/verification/playwright/runtime/current-draft-append-derived-edit-epoch74-report.json; closure docs/verification/playwright/runtime/current-draft-append-derived-edit-epoch74-closure.json.' },
-      { feature: 'KEY_JOIN over one Group and one Group→Pivot unpublished sibling', status: 'implemented', reason: 'Epoch44 passed the native basic-fixture mixed Group→Pivot Join lifecycle: 96/96 assertions, 21/21 required checks, 30 actions, max 1064ms, errors[]; the favicon 404 is recorded as an incidental asset failure. Compact report: docs/verification/playwright/runtime/current-draft-group-pivot-epoch44-report.json (sha256 b976f946c18d562289cef932c6d93dd9422deee7f7db90ad93a568fc3e9a7625); closure: docs/verification/playwright/runtime/current-draft-group-pivot-epoch44-closure.json (sha256 6c94cc2950806d43a45381e542aa24f7cbee1daad99faf244aef68b8b5f68d17). This closes only the basic fixture; real-CDA mixed Group→Pivot and published-source Join remain unverified. Epoch43 header-oracle harness history remains in the verification matrix.' },
-      { feature: 'MEMBERSHIP over two unpublished grouped ID sources with INCLUDE, EXCLUDE edit, removal, restoration, and reload', status: 'passed', reason: 'Epoch66 passed the full native basic-fixture lifecycle: 50 required checks, 86 assertions, 21 actions, max587ms. Exact independent raw ID sets, current-draft scope/CAS, compiled nullable key identity, Preview/Cancel/Apply, saved EXCLUDE edit, removal/restoration/reload and unchanged source/API/mounts pass. Durable report: docs/verification/playwright/runtime/current-draft-membership-epoch66-report.json; closure: docs/verification/playwright/runtime/current-draft-membership-epoch66-closure.json. Real-CDA and published-source Membership remain unverified.' },
+      { feature: 'KEY_JOIN over two independently authored unpublished Group outputs', acceptance: {"intent":"row-lifecycle","kind":"lifecycle","case":"join","checks":{"choice":7,"proposal":8,"cancel":9,"apply":11,"savedRows":11,"reload":11,"edit":20,"restoration":23}}, status: 'implemented', reason: 'Epoch41 passed the native basic-fixture Group→Group lifecycle: 103/103 assertions, 25/25 required checks, 32/32 actions, max 680ms. Compact report: docs/verification/playwright/runtime/current-draft-join-epoch41-report.json (sha256 3de5ff2dcc5277c89ca1d3498e2715a06129c86c5cc221fcf2173c03d3645388); closure: docs/verification/playwright/runtime/current-draft-join-epoch41-closure.json (sha256 e13741d00494418a4ee34026349eb44cb77d0f2000e0a35f4147b7f21389487a). This closes only the basic fixture. Epoch39 request-300 net::ERR_ABORTED remains unresolved and unattributed; the clean epoch41 rerun did not establish its cause or fix. Real-CDA Group→Group and published-source Join remain unverified.' },
+      { feature: 'APPEND over three unpublished sibling outputs including a composed Group→DERIVE source', acceptance: {"intent":"row-lifecycle","kind":"lifecycle","case":"append","checks":{"choice":10,"proposal":11,"cancel":12,"apply":13,"savedRows":14,"reload":14,"edit":15,"restoration":19}}, status: 'implemented', reason: 'Epoch45 native basic-fixture APPEND passed all 111 assertions, four dimensions, and all 18 checks required at run time. The three direct Group→DERIVE preview, reload-value, and timing assertions also passed in that report and are now listed as required checks. The Group→DERIVE source’s separate saved-step edit/cancel/removal lifecycle, Group→Pivot-input APPEND, and real-CDA APPEND remain unverified.' },
+      { feature: 'saved upstream Group→DERIVE Cancel/Apply/reload and dependent three-source APPEND recompute/removal restoration', acceptance: {"intent":"row-lifecycle","kind":"lifecycle","case":"append-derived-edit","checks":{"choice":14,"proposal":15,"cancel":26,"apply":33,"savedRows":34,"reload":38,"edit":32,"restoration":42}}, status: 'implemented', reason: 'Epoch74 exact basic-fixture rerun passed all 44/44 registered checks, 140/140 assertions, and all four dimensions; 42 native actions and 40 timed checkpoints completed with max action 690 ms. Native upstream Group→DERIVE Cancel/Apply/reload, dependent APPEND recompute/reload, removal/restoration, and source-preservation checks passed. Epoch73 request-450 POST reconcile net::ERR_ABORTED at draftVersion 14 remains unattributed and unresolved; Epoch74 did not reproduce it, and the clean rerun establishes no cause or product fix, so the overall tracked workflow remains partial. Basic fixture only; real-CDA and published-source cases remain separate. Report docs/verification/playwright/runtime/current-draft-append-derived-edit-epoch74-report.json; closure docs/verification/playwright/runtime/current-draft-append-derived-edit-epoch74-closure.json.' },
+      { feature: 'KEY_JOIN over one Group and one Group→Pivot unpublished sibling', acceptance: {"intent":"row-lifecycle","kind":"lifecycle","case":"group-pivot","checks":{"choice":9,"proposal":10,"cancel":11,"apply":13,"savedRows":14,"reload":14,"edit":15,"restoration":19}}, status: 'implemented', reason: 'Epoch44 passed the native basic-fixture mixed Group→Pivot Join lifecycle: 96/96 assertions, 21/21 required checks, 30 actions, max 1064ms, errors[]; the favicon 404 is recorded as an incidental asset failure. Compact report: docs/verification/playwright/runtime/current-draft-group-pivot-epoch44-report.json (sha256 b976f946c18d562289cef932c6d93dd9422deee7f7db90ad93a568fc3e9a7625); closure: docs/verification/playwright/runtime/current-draft-group-pivot-epoch44-closure.json (sha256 6c94cc2950806d43a45381e542aa24f7cbee1daad99faf244aef68b8b5f68d17). This closes only the basic fixture; real-CDA mixed Group→Pivot and published-source Join remain unverified. Epoch43 header-oracle harness history remains in the verification matrix.' },
+      { feature: 'MEMBERSHIP over two unpublished grouped ID sources with INCLUDE, EXCLUDE edit, removal, restoration, and reload', acceptance: {"intent":"row-lifecycle","kind":"lifecycle","case":"membership","checks":{"choice":21,"proposal":29,"cancel":27,"apply":31,"savedRows":43,"reload":43,"edit":41,"restoration":47}}, status: 'implemented', reason: 'Epoch66 passed the full native basic-fixture lifecycle: 50 required checks, 86 assertions, 21 actions, max587ms. Exact independent raw ID sets, current-draft scope/CAS, compiled nullable key identity, Preview/Cancel/Apply, saved EXCLUDE edit, removal/restoration/reload and unchanged source/API/mounts pass. Durable report: docs/verification/playwright/runtime/current-draft-membership-epoch66-report.json; closure: docs/verification/playwright/runtime/current-draft-membership-epoch66-closure.json. Real-CDA and published-source Membership remain unverified.' },
     ],
   }),
   Object.freeze({
@@ -813,9 +813,9 @@ export const registry = Object.freeze([
       },
     },
     coverage: [
-      { feature: 'published-table KEY_JOIN basic lifecycle', status: 'implemented', reason: 'The registered native case checks exact INNER and LEFT Observation/DiagnosticReport rows matched on shared required IDs, an unmatched Observation with empty right-side values, pinned revisions, Apply, reload, edit cancellation, removal to the original rooted empty target, and source immutability.' },
+      { feature: 'published-table KEY_JOIN basic lifecycle', acceptance: {"intent":"row-lifecycle","kind":"lifecycle","case":"join","checks":{"choice":10,"proposal":11,"cancel":14,"apply":12,"savedRows":12,"reload":13,"edit":17,"restoration":20}}, status: 'implemented', reason: 'The registered native case checks exact INNER and LEFT Observation/DiagnosticReport rows matched on shared required IDs, an unmatched Observation with empty right-side values, pinned revisions, Apply, reload, edit cancellation, removal to the original rooted empty target, and source immutability.' },
       { feature: 'duplicate-key multiplicity on nullable Join keys', status: 'untested', reason: 'KEY_JOIN accepts nullable scalar keys, but this basic fixture uses unique shared IDs. The separate nullable-reference case checks NULL non-equality and does not yet prove duplicate-key row multiplication.' },
-      { feature: 'published-table APPEND three-input null-padding lifecycle', status: 'implemented', reason: 'The bounded native case checks a literal eight-row Patient/Observation/DiagnosticReport oracle, explicit empty choices, sparse wire mappings, nullable outputs, automatic preview, Apply, reload, edit cancellation, edit Apply, removal, and source immutability. The case has not been run yet.' },
+      { feature: 'published-table APPEND three-input null-padding lifecycle', acceptance: {"intent":"row-lifecycle","kind":"lifecycle","case":"append","checks":{"choice":12,"proposal":16,"cancel":22,"apply":19,"savedRows":19,"reload":20,"edit":24,"restoration":27}}, status: 'implemented', reason: 'The bounded native case checks a literal eight-row Patient/Observation/DiagnosticReport oracle, explicit empty choices, sparse wire mappings, nullable outputs, automatic preview, Apply, reload, edit cancellation, edit Apply, removal, and source immutability. The case has not been run yet.' },
       { feature: 'Combine from current unsaved draft outputs', status: 'untested', reason: 'This intermediate workflow selects published source revisions and does not cover current-draft capture or its publication prerequisites.' },
       { feature: 'APPEND absent-schema null padding', status: 'untested', reason: 'A native three-source lifecycle is registered but remains unverified until its published-column metadata prerequisite is fixed and the browser case passes.' },
       { feature: 'Combine across restricted resource scopes', status: 'untested', reason: 'The basic fixture uses the owned unfiltered development authorization scope.' },
@@ -1198,7 +1198,7 @@ export const registry = Object.freeze([
       },
     },
     coverage: [
-      { feature: 'native post-Pivot RELATED_SOURCE Patient.id ALL with coalesced Observation contributors, edit, removal, and reload', status: 'implemented', reason: 'Epoch 87 passed 25/25 registered checks, 86 assertions, 60 native actions, and 26 measured lifecycle transitions. The exact two-Patient raw oracle matched the single coalesced Pivot row through Preview/Cancel/Apply, edit/Cancel/Apply, removal/Cancel/Apply, and reload; maximum checkpoint was 1,468 ms and maximum native action was 239 ms. Project, generation, Explorer, request, and source/API scope checks passed; the report records only incidental favicon 404s. Restricted-authorization behavior is not claimed. Report: docs/verification/playwright/runtime/post-pivot-related-source-epoch87-lifecycle-report.json; closure: docs/verification/playwright/runtime/post-pivot-related-source-epoch87-closure.json.' },
+      { feature: 'native post-Pivot RELATED_SOURCE Patient.id ALL with coalesced Observation contributors, edit, removal, and reload', acceptance: {"intent":"row-lifecycle","kind":"lifecycle","case":"related-source-after-pivot","checks":{"choice":9,"proposal":12,"cancel":11,"apply":13,"savedRows":13,"reload":13,"edit":16,"restoration":21}}, status: 'implemented', reason: 'Epoch 87 passed 25/25 registered checks, 86 assertions, 60 native actions, and 26 measured lifecycle transitions. The exact two-Patient raw oracle matched the single coalesced Pivot row through Preview/Cancel/Apply, edit/Cancel/Apply, removal/Cancel/Apply, and reload; maximum checkpoint was 1,468 ms and maximum native action was 239 ms. Project, generation, Explorer, request, and source/API scope checks passed; the report records only incidental favicon 404s. Restricted-authorization behavior is not claimed. Report: docs/verification/playwright/runtime/post-pivot-related-source-epoch87-lifecycle-report.json; closure: docs/verification/playwright/runtime/post-pivot-related-source-epoch87-closure.json.' },
     ],
   }),
   Object.freeze({
@@ -1303,8 +1303,8 @@ export const registry = Object.freeze([
       },
     },
     coverage: [
-      { feature: 'owned CDA current-draft Group-to-Group KEY_JOIN Cancel, Apply, edit, upstream recompute, removal, and reload lifecycle', status: 'passed', reason: 'Epoch58 verified the full native CDA Group-to-Group lifecycle: 16 required checks, 107 actions, max 1472ms, no unexpected errors; independent scoped raw oracle and unchanged source/API/mounts. Durable report: docs/verification/playwright/runtime/current-draft-cda-group-join-epoch58-report.json; closure: docs/verification/playwright/runtime/current-draft-cda-group-join-epoch58-closure.json. Other transition classes remain separate.' },
-      { feature: 'owned CDA current-draft Group-to-Pivot KEY_JOIN Cancel, Apply, LEFT-to-INNER edit, removal, restoration, and reload lifecycle', status: 'implemented', reason: 'Epoch93 passed all 30 registered checks, 204 assertions, and 113 native actions (maximum 1412ms; category discovery and exact preview 1428ms). Independent scoped Observation IDs prove left Group counts 3/1 and right code-category Pivot counts 2/1, LEFT unmatched nulls, and INNER matched rows. Cancel, Apply, edit, removal, exact empty-target restoration, reload, and preserved Group/Pivot source selections passed without Publish or TABLE_REVISION inputs. Actual fresh API precheck and before/after source, docs, API identity, owned mounts, and health all passed. One stale selection read cancellation is request-proven; four background requests have no recorded status and favicon404 is incidental. Report: docs/verification/playwright/runtime/current-draft-cda-group-pivot-join-epoch93-lifecycle-report.json; closure: docs/verification/playwright/runtime/current-draft-cda-group-pivot-join-epoch93-lifecycle-closure.json. This proves the exact subject/first-code Group-Pivot shape; other transition classes remain separate.' },
+      { feature: 'owned CDA current-draft Group-to-Group KEY_JOIN Cancel, Apply, edit, upstream recompute, removal, and reload lifecycle', acceptance: {"intent":"row-lifecycle","kind":"lifecycle","case":"group-join","checks":{"choice":3,"proposal":5,"cancel":6,"apply":7,"savedRows":7,"reload":7,"edit":9,"restoration":12}}, status: 'implemented', reason: 'Epoch58 verified the full native CDA Group-to-Group lifecycle: 16 required checks, 107 actions, max 1472ms, no unexpected errors; independent scoped raw oracle and unchanged source/API/mounts. Durable report: docs/verification/playwright/runtime/current-draft-cda-group-join-epoch58-report.json; closure: docs/verification/playwright/runtime/current-draft-cda-group-join-epoch58-closure.json. Other transition classes remain separate.' },
+      { feature: 'owned CDA current-draft Group-to-Pivot KEY_JOIN Cancel, Apply, LEFT-to-INNER edit, removal, restoration, and reload lifecycle', acceptance: {"intent":"row-lifecycle","kind":"lifecycle","case":"group-pivot-join","checks":{"choice":15,"proposal":14,"cancel":16,"apply":17,"savedRows":17,"reload":17,"edit":22,"restoration":25}}, status: 'implemented', reason: 'Epoch93 passed all 30 registered checks, 204 assertions, and 113 native actions (maximum 1412ms; category discovery and exact preview 1428ms). Independent scoped Observation IDs prove left Group counts 3/1 and right code-category Pivot counts 2/1, LEFT unmatched nulls, and INNER matched rows. Cancel, Apply, edit, removal, exact empty-target restoration, reload, and preserved Group/Pivot source selections passed without Publish or TABLE_REVISION inputs. Actual fresh API precheck and before/after source, docs, API identity, owned mounts, and health all passed. One stale selection read cancellation is request-proven; four background requests have no recorded status and favicon404 is incidental. Report: docs/verification/playwright/runtime/current-draft-cda-group-pivot-join-epoch93-lifecycle-report.json; closure: docs/verification/playwright/runtime/current-draft-cda-group-pivot-join-epoch93-lifecycle-closure.json. This proves the exact subject/first-code Group-Pivot shape; other transition classes remain separate.' },
     ],
   }),
   Object.freeze({
@@ -1378,7 +1378,7 @@ export const registry = Object.freeze([
       },
     },
     coverage: [
-      { feature: 'real-CDA exact-population Group→DERIVE→APPEND with upstream edit, Cancel/Apply, dependent receipt recompute, removal, restoration, and reload', status: 'implemented', reason: 'Epoch78 passed all 26 registered checks and 215 assertions; all 93 native actions passed within the five-second budget (maximum 1,858 ms), all four dimensions passed, and the strict network gate recorded zero unexpected failures. The bounded raw oracle selected two Patient.id witnesses and two disjoint two-row Observation.status=final populations, then verified Group→DERIVE→APPEND with duplicate-category multiplicity, edit-driven recompute, Cancel/Apply, removal, empty-target restoration, and reload without Publish or TABLE_REVISION inputs. Source, docs, API build, and owned mounts remained unchanged; health passed 3/3 before and after. This closes only the Patient.id plus disjoint Observation.status=final case; DiagnosticReport-backed and published-source APPEND remain unverified. Report: docs/verification/playwright/runtime/current-draft-cda-upstream-append-epoch78-report.json (domain report SHA-256 46ca0259df931df57fc8d39ff10321c92c557c7153104067ee1520b5f360d94a); closure: docs/verification/playwright/runtime/current-draft-cda-upstream-append-epoch78-closure.json (SHA-256 38125743af667fbc838991f35b86b9c71b68dac4ce64cf97e381029e496143c8).' },
+      { feature: 'real-CDA exact-population Group→DERIVE→APPEND with upstream edit, Cancel/Apply, dependent receipt recompute, removal, restoration, and reload', acceptance: {"intent":"row-lifecycle","kind":"lifecycle","case":"upstream-append","checks":{"choice":11,"proposal":14,"cancel":16,"apply":15,"savedRows":15,"reload":20,"edit":18,"restoration":21}}, status: 'implemented', reason: 'Epoch78 passed all 26 registered checks and 215 assertions; all 93 native actions passed within the five-second budget (maximum 1,858 ms), all four dimensions passed, and the strict network gate recorded zero unexpected failures. The bounded raw oracle selected two Patient.id witnesses and two disjoint two-row Observation.status=final populations, then verified Group→DERIVE→APPEND with duplicate-category multiplicity, edit-driven recompute, Cancel/Apply, removal, empty-target restoration, and reload without Publish or TABLE_REVISION inputs. Source, docs, API build, and owned mounts remained unchanged; health passed 3/3 before and after. This closes only the Patient.id plus disjoint Observation.status=final case; DiagnosticReport-backed and published-source APPEND remain unverified. Report: docs/verification/playwright/runtime/current-draft-cda-upstream-append-epoch78-report.json (domain report SHA-256 46ca0259df931df57fc8d39ff10321c92c557c7153104067ee1520b5f360d94a); closure: docs/verification/playwright/runtime/current-draft-cda-upstream-append-epoch78-closure.json (SHA-256 38125743af667fbc838991f35b86b9c71b68dac4ce64cf97e381029e496143c8).' },
     ],
   }),
   Object.freeze({
@@ -1472,7 +1472,7 @@ export const registry = Object.freeze([
       },
     },
     coverage: [
-      { feature: 'real-CDA MEMBERSHIP over two exact unpublished grouped Observation ID populations with INCLUDE, EXCLUDE edit, cancellation, removal, restoration, and reload', status: 'implemented', reason: 'Epoch71 passes the complete 48-check, 166-assertion native lifecycle: exact bounded raw Observation oracle; INCLUDE/EXCLUDE; proposal and saved-edit Cancel/Apply; removal Cancel/Apply; empty-target restoration/reload; source preservation and no-Publish checks. All four dimensions pass; 57/57 actions completed within 1,439 ms. Integrity closure passed with unchanged source/docs/API/mounts and 3/3 health samples before and after. Two selection cancellations were expected; no unexpected network errors (incidental favicon 404 only). Epoch70 harness ancestry-assumption failure is retained at docs/verification/playwright/runtime/current-draft-cda-membership-epoch70-report.json. Report docs/verification/playwright/runtime/current-draft-cda-membership-epoch71-report.json; closure docs/verification/playwright/runtime/current-draft-cda-membership-epoch71-closure.json.' },
+      { feature: 'real-CDA MEMBERSHIP over two exact unpublished grouped Observation ID populations with INCLUDE, EXCLUDE edit, cancellation, removal, restoration, and reload', acceptance: {"intent":"row-lifecycle","kind":"lifecycle","case":"membership","checks":{"choice":21,"proposal":25,"cancel":24,"apply":27,"savedRows":37,"reload":37,"edit":36,"restoration":43}}, status: 'implemented', reason: 'Epoch71 passes the complete 48-check, 166-assertion native lifecycle: exact bounded raw Observation oracle; INCLUDE/EXCLUDE; proposal and saved-edit Cancel/Apply; removal Cancel/Apply; empty-target restoration/reload; source preservation and no-Publish checks. All four dimensions pass; 57/57 actions completed within 1,439 ms. Integrity closure passed with unchanged source/docs/API/mounts and 3/3 health samples before and after. Two selection cancellations were expected; no unexpected network errors (incidental favicon 404 only). Epoch70 harness ancestry-assumption failure is retained at docs/verification/playwright/runtime/current-draft-cda-membership-epoch70-report.json. Report docs/verification/playwright/runtime/current-draft-cda-membership-epoch71-report.json; closure docs/verification/playwright/runtime/current-draft-cda-membership-epoch71-closure.json.' },
     ],
   }),
   Object.freeze({
@@ -1528,11 +1528,97 @@ export const scenarioCaseFor = (scenarioOrId, caseName, custom = false) => {
 
 export const caseNamesFor = (scenario) => Object.keys(scenario.cases);
 
-export const coverageDrift = (entries = registry) => entries.flatMap((entry) => [
-  ...entry.coverage.filter((coverage) => !['implemented', 'untested', 'failed'].includes(coverage.status))
-    .map((coverage) => entry.id + ': invalid coverage status ' + coverage.status),
-  ...caseNamesFor(entry).flatMap((caseName) => {
-    try { scenarioCaseFor(entry, caseName); return []; }
-    catch (error) { return [error.message]; }
+const lifecycleAcceptancePhases = ['choice', 'proposal', 'cancel', 'apply', 'savedRows', 'reload', 'edit', 'restoration'];
+export const requiresLifecycleAcceptance = (coverage) =>
+  coverage?.acceptance?.intent === 'row-lifecycle';
+
+export const lifecycleAcceptanceDrift = (entries = registry) => entries.flatMap((entry) =>
+  entry.coverage.flatMap((coverage) => {
+    if (!requiresLifecycleAcceptance(coverage)) return [];
+    const acceptance = coverage.acceptance;
+    const label = `${entry.id}: ${coverage.feature}`;
+    if (!['probe', 'lifecycle'].includes(acceptance.kind)) {
+      return coverage.status === 'implemented'
+        ? [`${label}: implemented row coverage must be classified as a probe or lifecycle`]
+        : [];
+    }
+    const contractScenario = acceptance.scenario
+      ? entries.find((scenario) => scenario.id === acceptance.scenario) ?? registry.find((scenario) => scenario.id === acceptance.scenario)
+      : entry;
+    if (!contractScenario) return [`${label}: acceptance references an unregistered scenario`];
+    if (typeof acceptance.case !== 'string' || !contractScenario.cases[acceptance.case]) {
+      return [`${label}: acceptance references an unregistered case`];
+    }
+    if (acceptance.kind === 'probe') return [];
+    let contract;
+    try { contract = scenarioCaseFor(contractScenario, acceptance.case); }
+    catch (error) { return [`${label}: ${error.message}`]; }
+    const checks = acceptance.checks ?? {};
+    const contractGaps = acceptance.contractGaps ?? {};
+    const notApplicable = acceptance.notApplicable ?? {};
+    const invalidChecks = Object.entries(checks).filter(([phase, index]) =>
+      !lifecycleAcceptancePhases.includes(phase) || !Number.isInteger(index) || index < 0 || index >= contract.requiredChecks.length);
+    if (invalidChecks.length) return [`${label}: lifecycle check references invalid phases or named-check indexes: ${invalidChecks.map(([phase]) => phase).join(', ')}`];
+    const invalidGaps = Object.entries(contractGaps).filter(([phase, note]) =>
+      !lifecycleAcceptancePhases.includes(phase) || typeof note !== 'string' || note.trim() === ''
+      || Object.hasOwn(checks, phase) || Object.hasOwn(notApplicable, phase));
+    if (invalidGaps.length) return [`${label}: lifecycle contract gaps must name an uncovered phase and explain the gap`];
+    const invalidNotApplicable = Object.entries(notApplicable).filter(([phase, note]) =>
+      !lifecycleAcceptancePhases.includes(phase) || typeof note !== 'string' || note.trim() === ''
+      || Object.hasOwn(checks, phase) || Object.hasOwn(contractGaps, phase));
+    if (invalidNotApplicable.length) return [`${label}: lifecycle N/A phases must be explicit, explained, and distinct from checks or contract gaps`];
+    const missing = lifecycleAcceptancePhases.filter((phase) =>
+      !Object.hasOwn(checks, phase) && !Object.hasOwn(contractGaps, phase) && !Object.hasOwn(notApplicable, phase));
+    const referencedChecks = lifecycleAcceptancePhases.filter((phase) => Object.hasOwn(checks, phase)).map((phase) => checks[phase]);
+    const allPhasesShareOneCheck = missing.length === 0
+      && referencedChecks.length > 1
+      && new Set(referencedChecks).size === 1;
+    return missing.length
+      ? [`${label}: lifecycle check references missing or invalid phases: ${missing.join(', ')}`]
+      : allPhasesShareOneCheck
+        ? [`${label}: every lifecycle phase points to one check; declare distinct named evidence`]
+        : [];
   }),
-]);
+);
+
+export const hasLifecycleContract = (coverage, ownerScenario, entries = registry) => {
+  if (!requiresLifecycleAcceptance(coverage) || coverage.acceptance?.kind !== 'lifecycle') return false;
+  const acceptance = coverage.acceptance;
+  if (Object.keys(acceptance.contractGaps ?? {}).length) return false;
+  const owner = ownerScenario ?? entries.find((scenario) => scenario.coverage?.includes(coverage));
+  const contractScenario = acceptance.scenario
+    ? entries.find((scenario) => scenario.id === acceptance.scenario)
+    : owner;
+  if (!contractScenario || typeof acceptance.case !== 'string') return false;
+  let contract;
+  try { contract = scenarioCaseFor(contractScenario, acceptance.case); }
+  catch { return false; }
+  const checks = acceptance.checks ?? {};
+  const notApplicable = acceptance.notApplicable ?? {};
+  const checkRefsValid = Object.entries(checks).every(([phase, index]) =>
+    lifecycleAcceptancePhases.includes(phase) && Number.isInteger(index) && index >= 0 && index < contract.requiredChecks.length);
+  const notApplicableReasonsValid = Object.entries(notApplicable).every(([phase, reason]) =>
+    lifecycleAcceptancePhases.includes(phase) && typeof reason === 'string' && reason.trim() !== '');
+  if (!checkRefsValid || !notApplicableReasonsValid) return false;
+  const valid = lifecycleAcceptancePhases.every((phase) => {
+    const hasCheck = Object.hasOwn(checks, phase);
+    const hasReason = Object.hasOwn(notApplicable, phase);
+    if (hasCheck === hasReason) return false;
+    if (hasCheck) return Number.isInteger(checks[phase]) && checks[phase] >= 0 && checks[phase] < contract.requiredChecks.length;
+    return typeof notApplicable[phase] === 'string' && notApplicable[phase].trim() !== '';
+  });
+  const referencedChecks = lifecycleAcceptancePhases.filter((phase) => Object.hasOwn(checks, phase)).map((phase) => checks[phase]);
+  return valid && new Set(referencedChecks).size > 1;
+};
+
+export const coverageDrift = (entries = registry) => [
+  ...entries.flatMap((entry) => [
+    ...entry.coverage.filter((coverage) => !['implemented', 'untested', 'failed'].includes(coverage.status))
+      .map((coverage) => entry.id + ': invalid coverage status ' + coverage.status),
+    ...caseNamesFor(entry).flatMap((caseName) => {
+      try { scenarioCaseFor(entry, caseName); return []; }
+      catch (error) { return [error.message]; }
+    }),
+  ]),
+  ...lifecycleAcceptanceDrift(entries),
+];
