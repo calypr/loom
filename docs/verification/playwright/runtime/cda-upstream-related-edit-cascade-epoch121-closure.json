@@ -1,0 +1,227 @@
+{
+  "schemaVersion": 1,
+  "epoch": 121,
+  "status": "CLOSED_PASS",
+  "rawCoordinatorStatus": "CLOSED_INTEGRITY_PASS_BROWSER_PASS",
+  "rawCoordinatorClosurePath": "/private/tmp/loom-native-parallel-wave121/closure.json",
+  "rawCoordinatorClosureSha256": "b6509c8302798f871c61c84365bd939bc014a10d027ccf5e800e55526a2c94e8",
+  "case": {
+    "scenarioId": "cda-upstream-related-edit-cascade",
+    "caseName": "upstream-edit-cascade",
+    "title": "CDA upstream Related edit and cascade: edit a saved upstream Related expansion while preserving dependent rows, then cascade-remove it",
+    "status": "passed",
+    "requiredChecks": {
+      "passed": 12,
+      "total": 12,
+      "missingOrFailed": 0,
+      "missingOrUnrun": 0,
+      "evidence": [
+        {
+          "name": "bounded raw oracle selects one root with an upstream match and 1–24 exact composed rows at every stage",
+          "status": "passed"
+        },
+        {
+          "name": "native saved Related editor exposes EXCLUDE and selects PRESERVE_PARENT",
+          "status": "passed"
+        },
+        {
+          "name": "upstream edit proposal is ready with dependent steps and exact raw rows",
+          "status": "passed"
+        },
+        {
+          "name": "Canceling the upstream policy edit preserves EXCLUDE, downstream steps, draft identity, and complete raw rows",
+          "status": "passed"
+        },
+        {
+          "name": "reopened upstream edit proposal retains every dependent step with exact raw rows",
+          "status": "passed"
+        },
+        {
+          "name": "upstream edit preserves dependent identities and operations; only policy-derived nullability changes",
+          "status": "passed"
+        },
+        {
+          "name": "Apply saves the exact upstream edit with stable dependent step identities",
+          "status": "passed"
+        },
+        {
+          "name": "applied upstream edit rows match the complete raw multiset and full row count",
+          "status": "passed"
+        },
+        {
+          "name": "upstream Related edit reload preserves bound draft and complete raw rows within five seconds",
+          "status": "passed"
+        },
+        {
+          "name": "Canceling the upstream cascade preserves saved dependent construction and draft identity",
+          "status": "passed"
+        },
+        {
+          "name": "root Related removal proposals name every dependent step before Apply",
+          "status": "passed"
+        },
+        {
+          "name": "root cascade Apply and reload restore the exact rooted starting row within five seconds",
+          "status": "passed"
+        }
+      ]
+    }
+  },
+  "integrityClosure": {
+    "status": "PASS",
+    "source": {
+      "before": {
+        "sha256": "c1caabe504e849e2c31c5dd387d3529d87b17c26d2e8208a6a92af65ea5c070d",
+        "files": 1550
+      },
+      "after": {
+        "sha256": "c1caabe504e849e2c31c5dd387d3529d87b17c26d2e8208a6a92af65ea5c070d",
+        "files": 1550
+      },
+      "manifestsEqual": true,
+      "changedPaths": [],
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave121/source-before.json",
+        "sha256": "b4c1fef40441c84b2d260dc7a5fa71206daa0cb81c65a599cdf39721fa8a7400"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave121/source-after.json",
+        "sha256": "0950ca175be692d9a6c3f68b22d30b7afd65f7d1288b1de7a8a2b4534f492294"
+      }
+    },
+    "docs": {
+      "before": {
+        "sha256": "f456889da739a73de8a3f8a3427f2977ffc7c84957d1ae612f308cc40252cff2",
+        "files": 264
+      },
+      "after": {
+        "sha256": "f456889da739a73de8a3f8a3427f2977ffc7c84957d1ae612f308cc40252cff2",
+        "files": 264
+      },
+      "manifestsEqual": true,
+      "changedPaths": [],
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave121/docs-before.json",
+        "sha256": "9f2c3da05b18854c7d1045cea888d4de6ac04b3cf768460ec866922af84a8268"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave121/docs-after.json",
+        "sha256": "28700e98cbdab2b55d9dd18685cfb6d089fd34b46291843dbc8a436b9c513b16"
+      }
+    },
+    "apiBuildIdentity": {
+      "before": "98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:85c11c1b9b88b8ff8cbd1241e8be6dea82f222956cf717e47c11fcb5efc7e135",
+      "after": "98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:85c11c1b9b88b8ff8cbd1241e8be6dea82f222956cf717e47c11fcb5efc7e135",
+      "precheck": "98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:85c11c1b9b88b8ff8cbd1241e8be6dea82f222956cf717e47c11fcb5efc7e135",
+      "unchanged": true,
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave121/api-identity-before.json",
+        "sha256": "9ef8f656eeb254ad3ec23c2e8256a8c1805cbfee927ec47265fb953070f74f53"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave121/api-identity-after.json",
+        "sha256": "0702ab3100bf4941453fec1575102091e7ef35e1d2059b139a2a25ae0d0b64a8"
+      },
+      "precheckArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave121/api-build-precheck.json",
+        "sha256": "09119049e037c2bd5631a4df979b36a8711ed06421b30f6d7d6e62cad449f85b"
+      }
+    },
+    "ownedMounts": {
+      "before": "PASS",
+      "after": "PASS",
+      "targetUnchanged": true,
+      "target": {
+        "project": "loom_dev_cda_fhir",
+        "composeProject": "loom-dev-6d7df93d6a37",
+        "apiContainer": "loom-dev-6d7df93d6a37-loom-api-1",
+        "uiContainer": "loom-dev-6d7df93d6a37-loom-ui-1",
+        "arangoContainer": "loom-dev-6d7df93d6a37-arangodb-1",
+        "clickhouseContainer": "loom-dev-6d7df93d6a37-clickhouse-1",
+        "apiPort": "8188",
+        "uiPort": "30008",
+        "sourceRoot": "/private/tmp/loom-construction-implementation",
+        "generation": "cda-fhir-v1"
+      },
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave121/owned-mounts-before.json",
+        "sha256": "24580527951661e3205591e90873b7af820121409d0635445f193bc4ec8c66fb"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave121/owned-mounts-after.json",
+        "sha256": "4c3dfee4952d33de8ebebe6a6c7b1ce99e4e3407fbfca4bb4fe8164291f8ac94"
+      }
+    },
+    "health": {
+      "before": {
+        "status": "PASS",
+        "samples": 3
+      },
+      "after": {
+        "status": "PASS",
+        "samples": 3
+      },
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave121/health-before.json",
+        "sha256": "d44493d2832681d45a1bec1069b0241c7c1fe62d57d2b59796f1d05867c44f5b"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave121/health-after.json",
+        "sha256": "01137c08c91171c3dd7c475c2cb683cf7683b3c7fe5f734d26c4ef1cb1e75b10"
+      }
+    }
+  },
+  "runner": {
+    "status": "passed",
+    "exitCode": 0,
+    "durationMs": 58509,
+    "suiteDurationMs": 60453.382,
+    "handle": 87584,
+    "results": {
+      "path": "/private/tmp/loom-native-parallel-wave121/cda-composed-row-lineage-upstream-edit-cascade/attempt1/results.json",
+      "sha256": "e59eff071a208b6300adb2f1048f80896ef5d8beab5a27f724165071bcf94aa1",
+      "sizeBytes": 4870
+    },
+    "runnerLog": {
+      "path": "/private/tmp/loom-native-parallel-wave121/cda-composed-row-lineage-upstream-edit-cascade/attempt1/runner.log",
+      "sha256": "b61d77ba667b5ac51cf4980d39b07d53a129efe49aad509ad093dcf6f258002d",
+      "sizeBytes": 701
+    }
+  },
+  "lifecycleReport": {
+    "path": "/private/tmp/loom-native-parallel-wave121/cda-composed-row-lineage-upstream-edit-cascade/attempt1/artifacts/standalone-cda-cohort-CDA--7c086-rows-then-cascade-remove-it/cda-report.json",
+    "sha256": "2210c6eb6ccef53014e29ebe9d5f54709e902d139fc660df23288de76594825f",
+    "sizeBytes": 33954682
+  },
+  "strictIntegrityClosure": {
+    "path": "/private/tmp/loom-native-parallel-wave121/integrity-closure.json",
+    "sha256": "922eaa044fc0e2c13bb954eda374960137ac2ab0d433851c010de89e915e5768",
+    "sizeBytes": 4500
+  },
+  "rootAcceptanceReceipt": {
+    "path": "/private/tmp/loom-native-parallel-wave121/root-acceptance.json",
+    "sha256": "510f2d0ec9c18b0d314d67a234dc1a7720605832c0f0b7753a6e7b6aac06723f",
+    "sizeBytes": 1126
+  },
+  "checks": {
+    "required": 12,
+    "passed": 12,
+    "assertions": 14,
+    "passedAssertions": 14,
+    "actions": 63,
+    "maxActionMs": 298,
+    "maxCheckpointMs": 1895,
+    "budgetMs": 5000
+  },
+  "actualExplorer": {
+    "id": "composed-row-lineage-1791325958563-a37cc026",
+    "rawReportExplorer": "composed-row-lineage-1791325958563-a37cc026",
+    "rawTargetExplorer": "composed-row-lineage-1791325958563-a37cc026"
+  },
+  "authorization": {
+    "executionMode": "Local owned development stack; report redacts authorization details.",
+    "verified": "Project, generation, selected root, and exact source-row integrity.",
+    "notProven": "Restricted authorization exclusion."
+  },
+  "noRawPayloadsEmbedded": true
+}

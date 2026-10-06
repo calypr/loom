@@ -1,7 +1,22 @@
+import { buildArangoShellInvocation } from '../helpers/owned-arangosh-command.mjs';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { performAction, requireUnique } from '../helpers/playwright-actions.mjs';
+import { proposalPreviewReadinessExpression } from '../helpers/proposal-preview-readiness.mjs';
+import { selectRelatedRouteOption } from '../helpers/related-route-disclosure.mjs';
+import { selectBoundedComposedRootCandidates } from '../helpers/composed-row-lineage-fixture.mjs';
+import { assertCompletePreviewRows, expectedPreviewColumns } from '../helpers/complete-preview-row-projection.mjs';
+import {
+  classifyPendingRelatedExpandChoicesAfterProposalCancel,
+  proposalCancelActionSelector,
+  snapshotPendingRelatedExpandChoices,
+} from '../helpers/related-expand-cancel.mjs';
+import {
+  assertPreserveParentRelatedEdit,
+  authoredStepOperations,
+  expectedPreserveParentRelatedEdit,
+} from '../helpers/related-policy-construction.mjs';
 
 export async function composedRowLineageWorkflow({ page, cda, lineageMode = process.env.LOOM_COMPOSED_LINEAGE_MODE ?? 'COMPOSED_RELATED' }) {
 const project = cda.project;
@@ -14,6 +29,9 @@ const groupCountPivot = lineageMode === 'DIRECT_GROUP_COUNT_PIVOT';
 const pivotName = groupCountPivot ? 'group-count-pivot-lineage' : sharedContributorPivot ? 'shared-contributor-pivot-lineage' : 'direct-pivot-lineage';
 const explorer = `${directPivot ? pivotName : 'composed-row-lineage'}-${Date.now()}-${randomUUID().slice(0, 8)}`;
 const rootDiscoveryLimit = 2000;
+const rootCandidateLimit = 25;
+const candidateStageRowSentinel = 25;
+const exactPreviewRowLimit = 24;
 const witnessPathsLimit = 2;
 const apiOrigin = cda.apiOrigin;
 const uiOrigin = cda.uiOrigin;
@@ -25,6 +43,15 @@ const localOrigins = new Set([localAPI.origin, localUI.origin]);
 const base = `/api/v1/projects/${encodeURIComponent(project)}/explorers/${encodeURIComponent(explorer)}/authoring/v2`;
 const explorersPath = `/api/v1/projects/${encodeURIComponent(project)}/explorers`;
 const report = cda.report;
+const oracleQueries = [];
+const oracleQueryAttempts = [];
+const focusedUpstreamRelatedRemovalCase = report.scenario === 'cda-upstream-related-edit-cascade'
+  && report.caseName === 'upstream-edit-cascade';
+const witnessCandidateLimit = focusedUpstreamRelatedRemovalCase ? rootCandidateLimit : 2;
+if (focusedUpstreamRelatedRemovalCase) report.oracle = { queries: oracleQueries, queryAttempts: oracleQueryAttempts };
+const recordFocusedUpstreamCheck = (name, evidence = {}) => {
+  if (focusedUpstreamRelatedRemovalCase) cda.check('correctness', name, true, evidence);
+};
 Object.assign(report, {
   explorer, project, generation, lineageMode,
   scope: { apiOrigin: localAPI.origin, uiOrigin: localUI.origin,
@@ -40,8 +67,8 @@ Object.assign(report, {
 report.target = cda.target;
 const requestCapture = cda.captureRequests(base);
 let builder, outputId;
-const oracleQueries = [];
-const waitUI = (condition, timeout = 5000) => page.waitForFunction(condition, undefined, { timeout: Math.min(timeout, 5000) });
+const resolveTimeout = timeout => typeof timeout === 'function' ? timeout() : timeout;
+const waitUI = (condition, timeout = 5000) => page.waitForFunction(condition, undefined, { timeout: Math.min(resolveTimeout(timeout), 5000) });
 const navigateUI = url => page.goto(url, { waitUntil: 'domcontentloaded', timeout: 5000 });
 const actionTarget = (selector, identity = {}) => {
   let locator = page.locator(selector);
@@ -52,20 +79,22 @@ const actionTarget = (selector, identity = {}) => {
   }
   return locator;
 };
-const clickUI = (selector, identity = {}) => {
+const clickUI = (selector, identity = {}, { timeout = 5000 } = {}) => {
   const locator = actionTarget(selector, identity);
-  return performAction(report, identity.name ?? identity.includes ?? selector, locator, target => target.click({ timeout: 5000 }));
+  return performAction(report, identity.name ?? identity.includes ?? selector, locator,
+    target => target.click({ timeout: resolveTimeout(timeout) }), { timeout: resolveTimeout(timeout) });
 };
 const fillUI = (selector, value, label = selector) => {
   const locator = page.locator(selector);
   return performAction(report, label, locator, (target, { timeout }) => target.fill(value, { timeout }), { editable: true });
 };
-const selectUI = async (selector, value, { settledWhen, dismissSelector } = {}) => {
+const selectUI = async (selector, value, { settledWhen, dismissSelector, timeout = 5000 } = {}) => {
   const locator = page.locator(selector);
-  await performAction(report, `Select ${value}`, locator, (target, { timeout }) => target.selectOption(value, { timeout }));
-  if (settledWhen) await waitUI(settledWhen, 5000);
-  else await waitUI(`document.querySelector(${JSON.stringify(selector)})?.value === ${JSON.stringify(value)}`, 5000);
-  if (dismissSelector) await clickUI(dismissSelector);
+  await performAction(report, `Select ${value}`, locator,
+    target => target.selectOption(value, { timeout: resolveTimeout(timeout) }), { timeout: resolveTimeout(timeout) });
+  if (settledWhen) await waitUI(settledWhen, timeout);
+  else await waitUI(`document.querySelector(${JSON.stringify(selector)})?.value === ${JSON.stringify(value)}`, timeout);
+  if (dismissSelector) await clickUI(dismissSelector, {}, { timeout });
 };
 const evidenceSafe = (value, key = '') => {
   if (/authorization|cookie|password|passwd|token|secret|credential|session|api[_-]?key/i.test(key)) return '[REDACTED]';
@@ -136,25 +165,61 @@ const command = async commands => {
 };
 const doc = state => state.workspace.documents.find(item => item.output.id === outputId);
 const scopedDocument = alias => `${alias}.project == ${JSON.stringify(project)} AND ${alias}.dataset_generation == ${JSON.stringify(generation)}`;
+const safeOracleDiagnostic = value => String(value ?? '')
+  .replaceAll(project, '[PROJECT]')
+  .replaceAll(generation, '[GENERATION]')
+  .replace(/\b(?:Patient|Specimen|Observation)\/[A-Za-z0-9._-]+/g, '[FHIR_RESOURCE]')
+  .replace(/\b[0-9a-f]{16,}\b/gi, '[ID]')
+  .slice(0, 500);
 const rawQuery = query => {
   assert(query.includes(JSON.stringify(project)), 'Every raw oracle query must bind the CDA project');
   assert(query.includes(JSON.stringify(generation)), 'Every raw oracle query must bind the CDA dataset generation');
   assert(!query.includes('auth_resource_path IN'), 'The local unrestricted fixture must not guess authorization paths');
   oracleQueries.push(query);
+  const attempt = focusedUpstreamRelatedRemovalCase ? {
+    index: oracleQueryAttempts.length, status: 'running', queryIndex: oracleQueries.length - 1,
+  } : null;
+  if (attempt) oracleQueryAttempts.push(attempt);
   const script = `print(JSON.stringify(db._query(${JSON.stringify(query)}).toArray()));`;
-  const result = spawnSync('rtk', [
-    'proxy', 'docker', 'exec', arangoContainer, 'arangosh', '--server.database', 'loom_dev',
-    '--javascript.execute-string', script,
-  ], { encoding: 'utf8', timeout: 30000 });
-  assert.equal(result.status, 0, result.stderr);
-  return JSON.parse(result.stdout.slice(result.stdout.indexOf('[')));
+  const invocation = buildArangoShellInvocation({ container: arangoContainer, script });
+  const result = spawnSync(invocation.command, invocation.args, { encoding: 'utf8', timeout: 30000 });
+  if (attempt) {
+    attempt.exitStatus = result.status;
+    attempt.signal = result.signal ?? null;
+    attempt.stdoutBytes = Buffer.byteLength(result.stdout ?? '');
+    attempt.stderrBytes = Buffer.byteLength(result.stderr ?? '');
+    if (result.error) attempt.spawnError = safeOracleDiagnostic(result.error.message);
+    if (result.status !== 0) {
+      attempt.status = 'failed';
+      attempt.stdoutExcerpt = safeOracleDiagnostic(result.stdout);
+      attempt.stderrExcerpt = safeOracleDiagnostic(result.stderr);
+      throw new Error(`Scoped Arango query failed (${result.status}${attempt.signal ? `, ${attempt.signal}` : ''}): ${attempt.spawnError ?? attempt.stderrExcerpt ?? attempt.stdoutExcerpt ?? 'no process diagnostic'}`);
+    }
+  } else {
+    assert.equal(result.status, 0, result.stderr);
+  }
+  try {
+    const rows = JSON.parse(result.stdout.slice(result.stdout.indexOf('[')));
+    if (attempt) {
+      attempt.status = 'passed';
+      attempt.rowCount = Array.isArray(rows) ? rows.length : null;
+    }
+    return rows;
+  } catch (error) {
+    if (attempt) {
+      attempt.status = 'failed';
+      attempt.parseError = String(error.message ?? error).slice(0, 300);
+      attempt.stdoutExcerpt = safeOracleDiagnostic(result.stdout);
+    }
+    throw error;
+  }
 };
 const uniqueBy = (values, key) => [...new Map(values.map(value => [key(value), value])).values()];
-const relatedRows = (priorRows, queryFor) => {
+const relatedRows = (priorRows, queryFor, { rowLimit } = {}) => {
   if (!priorRows.length) return [];
   const payload = priorRows.map(row => ({ pathKey: row.pathKey, terminalID: row.terminal._id }));
-  const query = queryFor(JSON.stringify(payload));
-  const raw = rawQuery(query);
+  const raw = rawQuery(queryFor(JSON.stringify(payload)));
+  if (rowLimit) assert(raw.length < rowLimit, `Complete selected candidate stage must stay below the ${rowLimit}-row sentinel`);
   const priorByPath = new Map(priorRows.map(row => [row.pathKey, row]));
   const distinct = uniqueBy(raw, row => `${row.parentPath}\u0000${row.terminal._id}`);
   return distinct.map(row => {
@@ -216,7 +281,7 @@ LET matchingPaths = (
 FILTER LENGTH(matchingPaths) > 0
 LET witness = FIRST(matchingPaths)
 SORT rootDoc._key
-LIMIT 2
+LIMIT ${witnessCandidateLimit}
 RETURN {
   root: witness.root, stageOne: witness.stageOne, bridge: witness.bridge,
   stageTwo: witness.stageTwo, stageThree: witness.stageThree,
@@ -251,41 +316,207 @@ FOR prior IN ${payload}
     LET p = DOCUMENT(e._to)
     FILTER p != null AND ${scopedDocument('p')}
     RETURN {parentPath: prior.pathKey, terminal: ${resourceProjection('p')}}`;
+const stageOneBoundedQuery = payload => `
+FOR prior IN ${payload}
+  FOR e IN fhir_edge
+    FILTER e._from == prior.terminalID AND e.label == "subject_Patient" AND ${scopedDocument('e')}
+    FILTER STARTS_WITH(e._to, "Patient/")
+    LET p = DOCUMENT(e._to)
+    FILTER p != null AND ${scopedDocument('p')}
+    COLLECT parentPath = prior.pathKey, terminalID = p._id
+    SORT parentPath, terminalID
+    LIMIT ${candidateStageRowSentinel}
+    LET terminal = DOCUMENT(terminalID)
+    FILTER terminal != null AND ${scopedDocument('terminal')}
+    RETURN {parentPath, terminal: ${resourceProjection('terminal')}}`;
+const stageTwoBoundedQuery = payload => `
+FOR prior IN ${payload}
+  FOR subjectEdge IN fhir_edge
+    FILTER subjectEdge._to == prior.terminalID AND subjectEdge.label == "subject_Patient" AND ${scopedDocument('subjectEdge')}
+    FILTER STARTS_WITH(subjectEdge._from, "Observation/")
+    LET observation = DOCUMENT(subjectEdge._from)
+    FILTER observation != null AND ${scopedDocument('observation')}
+    FOR specimenEdge IN fhir_edge
+      FILTER specimenEdge._from == observation._id AND specimenEdge.label == "specimen_Specimen" AND ${scopedDocument('specimenEdge')}
+      FILTER STARTS_WITH(specimenEdge._to, "Specimen/")
+      LET specimen = DOCUMENT(specimenEdge._to)
+      FILTER specimen != null AND ${scopedDocument('specimen')}
+      COLLECT parentPath = prior.pathKey, terminalID = specimen._id INTO bridgeIDs = observation._id
+      SORT parentPath, terminalID
+      LIMIT ${candidateStageRowSentinel}
+      LET terminal = DOCUMENT(terminalID)
+      FILTER terminal != null AND ${scopedDocument('terminal')}
+      LET bridgeID = MIN(bridgeIDs)
+      LET bridge = DOCUMENT(bridgeID)
+      FILTER bridge != null AND ${scopedDocument('bridge')}
+      RETURN {parentPath, terminal: ${resourceProjection('terminal')}, bridge: ${resourceProjection('bridge')}}`;
+const stageThreeBoundedQuery = payload => `
+FOR prior IN ${payload}
+  FOR e IN fhir_edge
+    FILTER e._from == prior.terminalID AND e.label == "subject_Patient" AND ${scopedDocument('e')}
+    FILTER STARTS_WITH(e._to, "Patient/")
+    LET p = DOCUMENT(e._to)
+    FILTER p != null AND ${scopedDocument('p')}
+    COLLECT parentPath = prior.pathKey, terminalID = p._id
+    SORT parentPath, terminalID
+    LIMIT ${candidateStageRowSentinel}
+    LET terminal = DOCUMENT(terminalID)
+    FILTER terminal != null AND ${scopedDocument('terminal')}
+    RETURN {parentPath, terminal: ${resourceProjection('terminal')}}`;
+const boundedRootCandidateCountsQuery = rootIDs => `
+FOR rootID IN ${JSON.stringify(rootIDs)}
+  LET root = DOCUMENT(rootID)
+  FILTER root != null AND ${scopedDocument('root')}
+  LET stage1 = (
+    FOR e IN fhir_edge
+      FILTER e._from == rootID AND e.label == "subject_Patient" AND ${scopedDocument('e')}
+      FILTER STARTS_WITH(e._to, "Patient/")
+      LET p = DOCUMENT(e._to)
+      FILTER p != null AND ${scopedDocument('p')}
+      COLLECT patientID = p._id
+      SORT patientID
+      LIMIT ${candidateStageRowSentinel}
+      RETURN patientID
+  )
+  LET stage2 = (
+    FOR patientID IN stage1
+      FOR subjectEdge IN fhir_edge
+        FILTER subjectEdge._to == patientID AND subjectEdge.label == "subject_Patient" AND ${scopedDocument('subjectEdge')}
+        FILTER STARTS_WITH(subjectEdge._from, "Observation/")
+        LET observation = DOCUMENT(subjectEdge._from)
+        FILTER observation != null AND ${scopedDocument('observation')}
+        FOR specimenEdge IN fhir_edge
+          FILTER specimenEdge._from == observation._id AND specimenEdge.label == "specimen_Specimen" AND ${scopedDocument('specimenEdge')}
+          FILTER STARTS_WITH(specimenEdge._to, "Specimen/")
+          LET specimen = DOCUMENT(specimenEdge._to)
+          FILTER specimen != null AND ${scopedDocument('specimen')}
+          COLLECT parentID = patientID, terminalID = specimen._id
+          SORT parentID, terminalID
+          LIMIT ${candidateStageRowSentinel}
+          RETURN {parentID, terminalID}
+  )
+  LET stage3 = (
+    FOR prior IN stage2
+      FOR e IN fhir_edge
+        FILTER e._from == prior.terminalID AND e.label == "subject_Patient" AND ${scopedDocument('e')}
+        FILTER STARTS_WITH(e._to, "Patient/")
+        LET p = DOCUMENT(e._to)
+        FILTER p != null AND ${scopedDocument('p')}
+        COLLECT parentID = prior.parentID, priorTerminalID = prior.terminalID, terminalID = p._id
+        SORT parentID, priorTerminalID, terminalID
+        LIMIT ${candidateStageRowSentinel}
+        RETURN {parentID, priorTerminalID, terminalID}
+  )
+  RETURN {rootID, stage1Count: LENGTH(stage1), stage2Count: LENGTH(stage2), stage3Count: LENGTH(stage3)}`;
 
-const proposal = async (name, started, expectedRows) => {
+const assertExactBoundedRows = (actualRows, expectedRows, label) => {
+  assert(expectedRows.length <= exactPreviewRowLimit, `${label} must use the independently bounded <=${exactPreviewRowLimit}-row fixture`);
+  assert.deepEqual(actualRows.map(row => JSON.stringify(row)).sort(), expectedRows.map(row => JSON.stringify(row)).sort(),
+    `${label} must preserve the complete row multiset, including duplicates`);
+};
+const proposal = async (name, started, expectedRows, { requireCompletePreview = false } = {}) => {
   const response = await requestCapture.waitFor(request => request.path === base + '/construction-proposals'
     && request.startedAt >= started && request.status !== undefined, { timeout: Math.max(1, started + 5000 - Date.now()) });
   const rawResponse = requestCapture.rawResponseBody(response);
-  await waitUI(`['ready','error','needs-repair'].includes(document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalStatus)`);
+  if (requireCompletePreview) {
+    assert(expectedRows.length <= exactPreviewRowLimit, `${name} requires an independent <=${exactPreviewRowLimit}-row fixture before editing`);
+    assert.equal(rawResponse.preview?.sampled, false, `${name} proposal preview must be complete and unsampled`);
+    assert.equal(rawResponse.preview?.rowCount, expectedRows.length, `${name} proposal must report the full raw-oracle row count`);
+    assert.equal(rawResponse.preview?.rows?.length, expectedRows.length, `${name} proposal must return every raw-oracle row`);
+  }
+  const apiRowProjection = requireCompletePreview
+    ? assertCompletePreviewRows(rawResponse.preview,
+      expectedPreviewColumns(rawResponse.candidateConstruction, doc(builder).columns), expectedRows, `${name} proposal`)
+    : null;
+  const renderedRowCount = Math.min(25, expectedRows.length);
+  const previewSelector = '[data-testid="construction-proposal-preview"]';
+  await waitUI(`document.querySelectorAll(${JSON.stringify(previewSelector)}).length===1&&${proposalPreviewReadinessExpression(outputId, renderedRowCount)}`,
+    Math.max(1, started + 5000 - Date.now()));
   const panel = page.getByTestId('construction-proposal-panel');
   assert.equal(await panel.getAttribute('data-proposal-id'), rawResponse?.proposalId,
     `${name} rendered proposal must match its exact owned API response`);
-  const result = await panel.evaluate(element => ({
-    status: element.dataset.proposalStatus,
-    text: element.innerText,
-    rows: [...element.querySelectorAll('[data-testid="construction-proposal-preview-row"]')].map(row => [...row.querySelectorAll('td')].map(cell => cell.innerText)),
+  const proposalState = await panel.evaluate(element => ({ status: element.dataset.proposalStatus, text: element.innerText }));
+  assert.equal(proposalState.status, 'ready', proposalState.text);
+  const previews = page.getByTestId('construction-proposal-preview');
+  assert.equal(await previews.count(), 1, `${name} must have one proposal preview sibling`);
+  const result = await previews.evaluate(element => ({
+    status: element.dataset.previewStatus,
+    receiptId: element.dataset.previewReceiptId,
+    outputId: element.dataset.previewOutputId,
+    rows: [...element.querySelectorAll('tbody tr[data-testid="construction-proposal-preview-row"]')].map(row => [...row.querySelectorAll('td')].map(cell => cell.innerText)),
   }));
-  assert.equal(result.status, 'ready', result.text);
+  assert.equal(result.status, 'ready', `${name} preview must be ready`);
+  assert.equal(result.receiptId, rawResponse?.preview?.receiptId, `${name} preview must bind the exact proposal receipt`);
+  assert.equal(result.receiptId, rawResponse?.proposalId, `${name} preview receipt must match the proposal`);
+  assert.equal(result.outputId, rawResponse?.preview?.outputId, `${name} preview must bind the exact output`);
+  assert.equal(result.outputId, outputId, `${name} preview must belong to the authored output`);
   assert.equal(result.rows.length, Math.min(25, expectedRows.length));
+  if (requireCompletePreview) assertExactBoundedRows(result.rows, expectedRows, `${name} proposal`);
   const witnesses = new Set(expectedRows.map(row => JSON.stringify(row)));
   for (const row of result.rows) assert(witnesses.has(JSON.stringify(row)), `${name} proposal row lacks a raw source witness: ${JSON.stringify(row)}`);
   assert(Date.now() - started <= 5000, `${name} exceeded the five-second proposal bound`);
-  report.cases.push({ name, elapsedMs: Date.now() - started, previewRows: result.rows.length });
+  report.cases.push({ name, elapsedMs: Date.now() - started, previewRows: result.rows.length,
+    ...(apiRowProjection ? { apiPreviewColumns: apiRowProjection.columns, apiPreviewRowIDs: apiRowProjection.rowIDs } : {}) });
   return rawResponse;
 };
-const apply = async expectedRows => {
+const apply = async (expectedRows, { requireCompletePreview = false, verifySavedState } = {}) => {
   const started = Date.now();
   await clickUI('[data-testid="construction-apply-proposal"]');
   await waitUI(`!document.querySelector('[data-testid="construction-proposal-panel"]')`);
-  await requestCapture.waitFor(request => request.path === base + '/preview' && request.startedAt >= started && request.status === 200,
+  const previewRequest = await requestCapture.waitFor(request => request.path === base + '/preview' && request.startedAt >= started && request.status === 200,
     { timeout: Math.max(1, started + 5000 - Date.now()) });
+  const previewResponse = requestCapture.rawResponseBody(previewRequest);
+  let completeSavedState;
+  let apiRowProjection;
+  if (requireCompletePreview) {
+    assert(expectedRows.length <= exactPreviewRowLimit, `Apply requires the independently bounded <=${exactPreviewRowLimit}-row fixture`);
+    assert.equal(previewResponse?.sampled, false, 'Applied complete preview must be complete and unsampled');
+    assert.equal(previewResponse?.outputId, outputId, 'Applied complete preview must belong to the authored output');
+    assert.equal(previewResponse?.rowCount, expectedRows.length, 'Applied complete preview must report the full raw-oracle row count');
+    assert.equal(previewResponse?.rows?.length, expectedRows.length, 'Applied complete preview must return every bounded row');
+    completeSavedState = await api(base + '/builder');
+    builder = completeSavedState;
+    apiRowProjection = assertCompletePreviewRows(previewResponse,
+      expectedPreviewColumns(doc(completeSavedState).construction, doc(completeSavedState).columns), expectedRows, 'Applied complete preview');
+  }
   await waitUI(`!document.body.innerText.includes('Loading your table…')`);
   const mounted = await collectPreviewRows();
+  let activeCompletePreview;
+  if (requireCompletePreview) {
+    activeCompletePreview = await page.getByTestId('construction-preview').evaluate(element => ({
+      status: element.dataset.previewStatus, receiptId: element.dataset.previewReceiptId,
+      outputId: element.dataset.previewOutputId, draftVersion: element.dataset.currentDraftVersion,
+      draftDigest: element.dataset.currentDraftDigest,
+    }));
+    assert.equal(activeCompletePreview.status, 'ready', 'Applied complete preview must be ready in the Builder');
+    assert(activeCompletePreview.receiptId, 'Applied complete preview must expose its rendered receipt');
+    assert.equal(activeCompletePreview.receiptId, previewResponse.receiptId,
+      'Applied API rows must use the exact receipt rendered by the Builder');
+    assert.equal(activeCompletePreview.outputId, outputId, 'Applied rendered preview must belong to the authored output');
+    assert.equal(activeCompletePreview.draftVersion, String(completeSavedState.draftVersion),
+      'Applied rendered preview must bind the saved draft version');
+    assert.equal(activeCompletePreview.draftDigest, completeSavedState.draftDigest,
+      'Applied rendered preview must bind the saved draft digest');
+    assertExactBoundedRows(mounted, expectedRows, 'Applied upstream policy edit');
+  }
   const witnessRows = new Set(expectedRows.map(row => JSON.stringify(row)));
   for (const row of mounted) assert(witnessRows.has(JSON.stringify(row)), `Mounted row is absent from the scoped raw oracle: ${JSON.stringify(row)}`);
-  assert(Date.now() - started <= 5000, 'Apply-to-render exceeded five seconds');
-  report.cases.push({ name: 'apply-proposal-to-render', elapsedMs: Date.now() - started });
-  builder = await api(base + '/builder');
+  const renderElapsedMs = Date.now() - started;
+  assert(renderElapsedMs <= 5000, 'Apply-to-render exceeded five seconds');
+  if (verifySavedState) {
+    builder = completeSavedState ?? await api(base + '/builder');
+    await verifySavedState(builder, { previewResponse, mountedRows: mounted });
+    const elapsedMs = Date.now() - started;
+    assert(elapsedMs <= 5000, 'Apply through saved Builder state and exact assertions exceeded five seconds');
+    report.cases.push({ name: 'apply-proposal-to-saved-state-and-render', elapsedMs,
+      previewRows: mounted.length, outputId, draftVersion: builder.draftVersion, draftDigest: builder.draftDigest,
+      ...(activeCompletePreview ? { receiptId: activeCompletePreview.receiptId } : {}),
+      ...(apiRowProjection ? { apiPreviewColumns: apiRowProjection.columns, apiPreviewRowIDs: apiRowProjection.rowIDs } : {}) });
+  } else {
+    report.cases.push({ name: 'apply-proposal-to-render', elapsedMs: renderElapsedMs });
+    builder = completeSavedState ?? await api(base + '/builder');
+  }
+  return { previewResponse, mountedRows: mounted, apiRowProjection };
 };
 const open = async () => {
   const started = Date.now();
@@ -305,48 +536,127 @@ const assertMountedRows = async (expectedRows, label) => {
   const witnesses = new Set(expectedRows.map(row => JSON.stringify(row)));
   for (const row of mounted) assert(witnesses.has(JSON.stringify(row)), `${label} mounted row is absent from the scoped raw oracle: ${JSON.stringify(row)}`);
 };
-const proposeRemoval = async (stepID, name, expectedRows) => {
+const proposeRemoval = async (stepID, name, expectedRows, { requireCompletePreview = false } = {}) => {
   const started = Date.now();
   await clickUI(`[data-testid="construction-history-step-${stepID}"]`);
   await waitUI(`document.querySelector('[data-testid=${JSON.stringify(`construction-remove-step-${stepID}`)}]')?.disabled === false`);
   await clickUI(`[data-testid="construction-remove-step-${stepID}"]`);
-  return proposal(name, started, expectedRows);
+  return proposal(name, started, expectedRows, { requireCompletePreview });
 };
-const cancelRemoval = async (baseline, name, expectedRows) => {
+const assertCascadeConfirmation = async (proposalResponse, stepIDs, name) => {
+  assert.deepEqual([...(proposalResponse.dependencyImpact.removedStepIds ?? [])].sort(), [...stepIDs].sort(), `${name} must include every dependent expansion`);
+  assert.deepEqual(proposalResponse.dependencyImpact.missingInputs ?? [], [], `${name} must resolve dependent inputs before preview`);
+  const panel = page.getByTestId('construction-proposal-panel');
+  assert.equal(await panel.getAttribute('data-proposal-status'), 'ready', `${name} must offer a ready confirmation instead of NEEDS_REPAIR`);
+  const summary = page.getByTestId('construction-removal-summary');
+  assert.equal(await summary.count(), 1, `${name} must show the cascade before Apply`);
+  const summaryText = await summary.innerText();
+  assert(summaryText.includes('Remove Patient expansion and its dependent Specimen expansion.'), `${name} confirmation must name both expansions: ${summaryText}`);
+  const visibleIDs = await page.locator('[data-testid^="construction-removal-step-"]').evaluateAll(elements => elements.map(element => element.dataset.testid.slice('construction-removal-step-'.length)).sort());
+  assert.deepEqual(visibleIDs, [...stepIDs].sort(), `${name} must list each affected expansion in the confirmation`);
+  report.cases.push({ name, removalSummary: summaryText, removedStepIDs: visibleIDs });
+};
+const assertCompleteRenderedRows = async (expectedRows, label, savedState) => {
+  assert(focusedUpstreamRelatedRemovalCase, `${label} exact API row projection is reserved for the dedicated bounded upstream case`);
+  assert(expectedRows.length <= exactPreviewRowLimit, `${label} must use an independently bounded <=${exactPreviewRowLimit}-row fixture`);
+  await waitUI(`(() => {const p=document.querySelector('[data-testid="construction-preview"]');return p?.dataset.previewStatus==='ready'&&p?.dataset.previewOutputId===${JSON.stringify(outputId)}&&p?.dataset.currentDraftVersion===${JSON.stringify(String(savedState.draftVersion))}&&p?.dataset.currentDraftDigest===${JSON.stringify(savedState.draftDigest)}&&Boolean(p?.dataset.previewReceiptId);})()`);
+  const active = await page.getByTestId('construction-preview').evaluate(element => ({
+    status: element.dataset.previewStatus, receiptId: element.dataset.previewReceiptId,
+    outputId: element.dataset.previewOutputId, draftVersion: element.dataset.currentDraftVersion,
+    draftDigest: element.dataset.currentDraftDigest,
+  }));
+  assert.equal(active.status, 'ready', `${label} preview must be ready`);
+  assert(active.receiptId, `${label} preview must have a receipt identity`);
+  assert.equal(active.outputId, outputId, `${label} preview must belong to the authored output`);
+  assert.equal(active.draftVersion, String(savedState.draftVersion), `${label} preview must bind the saved draft version`);
+  assert.equal(active.draftDigest, savedState.draftDigest, `${label} preview must bind the saved draft digest`);
+  const preview = await api(base + '/preview', { receiptId: active.receiptId, outputId, limit: 25 });
+  assert.equal(preview.sampled, false, `${label} preview must be complete and unsampled`);
+  assert.equal(preview.receiptId, active.receiptId, `${label} API preview must use the exact rendered receipt`);
+  assert.equal(preview.outputId, outputId, `${label} API preview must belong to the authored output`);
+  assert.equal(preview.rowCount, expectedRows.length, `${label} complete preview must report the full row count`);
+  assert.equal(preview.rows.length, expectedRows.length, `${label} complete preview must return every row`);
+  const apiRowProjection = assertCompletePreviewRows(preview,
+    expectedPreviewColumns(doc(savedState).construction, doc(savedState).columns), expectedRows, label);
+  await assertMountedRows(expectedRows, label);
+  return { preview, active, apiRowProjection };
+};
+const cancelRemoval = async (baseline, name, expectedRows, { requireCompletePreview = false } = {}) => {
   const started = Date.now();
-  await clickUI('[data-testid="construction-cancel-proposal"]');
+  const classifyUpstreamEditChoicesCancel = focusedUpstreamRelatedRemovalCase && name === 'Upstream policy edit' && requireCompletePreview;
+  let choicesSnapshot;
+  if (classifyUpstreamEditChoicesCancel) {
+    choicesSnapshot = snapshotPendingRelatedExpandChoices(cda.nativeRequests, {
+      origin: uiOrigin, path: base + '/related-expand-choices', outputId,
+      draftVersion: baseline.draftVersion, draftDigest: baseline.draftDigest,
+      stageId: 'source_projection', capturedAt: Date.now(),
+    });
+  }
+  const cancelActionStartedAt = Date.now();
+  await clickUI(proposalCancelActionSelector);
+  const cancelActionCompletedAt = Date.now();
   await waitUI(`!document.querySelector('[data-testid="construction-proposal-panel"]')`);
+  let canceledRelatedChoices = [];
+  if (classifyUpstreamEditChoicesCancel) {
+    const relatedEditorSelector = '[data-testid="construction-related-expand-editor"]';
+    await waitUI(`!document.querySelector(${JSON.stringify(relatedEditorSelector)})`);
+    const editorClosedAt = Date.now();
+    canceledRelatedChoices = classifyPendingRelatedExpandChoicesAfterProposalCancel({
+      cda, snapshot: choicesSnapshot,
+      action: { label: proposalCancelActionSelector, startedAt: cancelActionStartedAt, completedAt: cancelActionCompletedAt },
+      editorClosed: true, editorClosedAt,
+      reason: 'Explicitly canceled the saved upstream Related edit, so its scoped source-projection choices pages are no longer needed.',
+    });
+    report.upstreamRelatedChoicesCancel = {
+      action: proposalCancelActionSelector,
+      outputId, draftVersion: baseline.draftVersion, draftDigest: baseline.draftDigest,
+      stageId: 'source_projection', preCancelSnapshotAt: choicesSnapshot.capturedAt,
+      pendingBrowserRequestIDs: choicesSnapshot.entries.map(entry => entry.browserRequestId),
+      classifiedBrowserRequestIDs: canceledRelatedChoices,
+      cancelActionWindow: { startedAt: cancelActionStartedAt, completedAt: cancelActionCompletedAt, editorClosedAt },
+    };
+  }
   const after = await api(base + '/builder');
   assert.deepEqual(after.workspace, baseline.workspace, `${name} cancellation must preserve the authored workspace`);
   assert.equal(after.draftVersion, baseline.draftVersion, `${name} cancellation must preserve the draft version`);
   assert.equal(after.draftDigest, baseline.draftDigest, `${name} cancellation must preserve the draft digest`);
   builder = after;
-  await assertMountedRows(expectedRows, name);
+  if (requireCompletePreview) await assertCompleteRenderedRows(expectedRows, name, after);
+  else await assertMountedRows(expectedRows, name);
   assert(Date.now() - started <= 5000, `${name} Cancel-to-render exceeded five seconds`);
-  report.cases.push({ name: `${name} cancel-to-render`, elapsedMs: Date.now() - started });
+  report.cases.push({ name: `${name} cancel-to-render`, elapsedMs: Date.now() - started,
+    ...(classifyUpstreamEditChoicesCancel ? { canceledRelatedChoicesBrowserRequestIDs: canceledRelatedChoices } : {}) });
+  return { savedState: after, canceledRelatedChoicesBrowserRequestIDs: canceledRelatedChoices };
 };
-const chooseRoute = async (targetType, label) => {
-  await clickUI('[data-testid="construction-rows-settings-trigger"]');
-  await waitUI(`document.querySelector('[data-testid="construction-action-related-rows"]')?.disabled === false`);
-  await clickUI('[data-testid="construction-action-related-rows"]');
+const chooseRoute = async (targetType, label, started) => {
+  const remaining = () => Math.max(1, 5000 - (Date.now() - started));
+  await clickUI('[data-testid="construction-rows-settings-trigger"]', {}, { timeout: remaining });
+  await waitUI(`document.querySelector('[data-testid="construction-action-related-rows"]')?.disabled === false`, remaining);
+  await clickUI('[data-testid="construction-action-related-rows"]', {}, { timeout: remaining });
   const panel = '[data-testid="construction-related-expand-editor"]';
-  await waitUI(`document.querySelector(${JSON.stringify(`${panel} select[aria-label="Related record type"]`)})?.disabled === false`);
-  await selectUI(`${panel} select[aria-label="Related record type"]`, targetType);
-  const selector = `input[aria-label=${JSON.stringify(label)}]`;
-  await waitUI(`Boolean(document.querySelector(${JSON.stringify(selector)}))`);
-  const visible = await page.locator(selector).evaluate(item => Boolean(!item.closest('details:not([open])') && item.getBoundingClientRect().height > 0));
-  if (!visible) {
-    await clickUI(`${panel} [data-testid="construction-related-expand-other-routes"] summary`);
-  }
-  await waitUI(`document.querySelector(${JSON.stringify(selector)})?.disabled === false`, 5000);
-  await clickUI(selector);
-  await selectUI(`${panel} select[aria-label="If a current row has no matches"]`, 'EXCLUDE');
+  await waitUI(`document.querySelector(${JSON.stringify(`${panel} select[aria-label="Related record type"]`)})?.disabled === false`, remaining);
+  await selectUI(`${panel} select[aria-label="Related record type"]`, targetType, { timeout: remaining });
+  const selector = `${panel} input[aria-label=${JSON.stringify(label)}]`;
+  const disclosureSelector = `${panel} [data-testid="construction-related-expand-other-routes"]`;
+  await selectRelatedRouteOption({
+    waitForRouteOrDisclosure: () => page.waitForFunction(({ routeSelector, disclosureSelector: otherRoutesSelector }) =>
+      Boolean(document.querySelector(routeSelector) || document.querySelector(`${otherRoutesSelector} summary`)),
+    { routeSelector: selector, disclosureSelector }, { timeout: remaining() }),
+    routeIsMounted: async () => (await page.locator(selector).count()) > 0,
+    disclosureIsOpen: async () => page.locator(disclosureSelector).evaluate(details => details.open),
+    openDisclosure: () => clickUI(`${disclosureSelector} summary`, {}, { timeout: remaining }),
+    waitForRouteEnabled: () => waitUI(`document.querySelector(${JSON.stringify(selector)})?.disabled === false`, remaining),
+    clickRoute: () => clickUI(selector, {}, { timeout: remaining }),
+  });
+  await selectUI(`${panel} select[aria-label="If a current row has no matches"]`, 'EXCLUDE', { timeout: remaining });
+  assert(Date.now() - started <= 5000, `Selecting the ${label} relationship path exceeded five seconds`);
 };
 const expand = async ({ name, targetType, routeLabel, expectedRows }) => {
   const started = Date.now();
-  await chooseRoute(targetType, routeLabel);
-  await proposal(name, started, expectedRows);
-  await apply(expectedRows);
+  await chooseRoute(targetType, routeLabel, started);
+  const requireCompletePreview = focusedUpstreamRelatedRemovalCase;
+  await proposal(name, started, expectedRows, { requireCompletePreview });
+  await apply(expectedRows, { requireCompletePreview });
 };
 
 const runDirectGroupCountPivot = async () => {
@@ -1318,32 +1628,109 @@ try {
     report.status = 'passed';
   } else {
   const repeatedWitnesses = rawQuery(repeatedLeafWitnessQuery);
-  assert(repeatedWitnesses.length === 2, 'Fixture needs two distinct scoped roots with a three-stage repeated-Patient path');
+  assert(repeatedWitnesses.length >= 2, 'Fixture needs two distinct scoped roots with a three-stage repeated-Patient path');
+  assert(repeatedWitnesses.length <= witnessCandidateLimit, 'Witness search must stay within the explicit root-candidate bound');
   assert(repeatedWitnesses.every(row => typeof row.repeatedPathOverflow === 'boolean'), 'Witness search must report its bounded-path overflow sentinel');
-  const rootDoc = repeatedWitnesses[0].root;
-  const decoy = repeatedWitnesses[1].root;
+  const rowValues = rows => rows.map(row => [row.root.id, 'Specimen', ...row.stageDocs.map(stageDoc => stageDoc.id)]);
+  let evaluatedRootCandidates, member, decoyCandidate, memberRows, decoyRows;
+  if (focusedUpstreamRelatedRemovalCase) {
+    const candidateCounts = rawQuery(boundedRootCandidateCountsQuery(repeatedWitnesses.map(row => row.root._id)));
+    const candidateCountsByRoot = new Map(candidateCounts.map(row => [row.rootID, row]));
+    evaluatedRootCandidates = repeatedWitnesses.map(witness => {
+      const counts = candidateCountsByRoot.get(witness.root._id);
+      assert(counts, `Bounded count oracle omitted repeated-leaf root ${witness.root._id}`);
+      const stageCounts = { stage1: counts.stage1Count, stage2: counts.stage2Count, stage3: counts.stage3Count };
+      const overflowStages = Object.entries(stageCounts).filter(([, count]) => count === candidateStageRowSentinel).map(([stage]) => stage);
+      return {
+        rootID: witness.root._id,
+        witness,
+        stageCounts,
+        overflowStages,
+        hasRepeatedPatientLeaf: witness.stageOne._id === witness.stageThree._id,
+      };
+    });
+    report.oracle.candidateScan = evaluatedRootCandidates.map(candidate => ({ rootID: candidate.rootID,
+      stageCounts: candidate.stageCounts, overflowStages: candidate.overflowStages,
+      hasRepeatedPatientLeaf: candidate.hasRepeatedPatientLeaf }));
+    ({ member, decoy: decoyCandidate } = selectBoundedComposedRootCandidates(evaluatedRootCandidates, rootCandidateLimit));
+    const materializeSelectedCandidate = candidate => {
+      const root = candidate.witness.root;
+      const rootParents = [{ pathKey: `candidate:${root._id}`, root, stageDocs: [], terminal: root, bridgeDocs: [] }];
+      const stage1Rows = relatedRows(rootParents, stageOneBoundedQuery, { rowLimit: candidateStageRowSentinel });
+      const stage2Rows = relatedRows(stage1Rows, stageTwoBoundedQuery, { rowLimit: candidateStageRowSentinel });
+      const stage3Rows = relatedRows(stage2Rows, stageThreeBoundedQuery, { rowLimit: candidateStageRowSentinel });
+      assert.equal(stage1Rows.length, candidate.stageCounts.stage1, 'Selected raw stage-one rows must match the capped count oracle');
+      assert.equal(stage2Rows.length, candidate.stageCounts.stage2, 'Selected raw stage-two rows must match the capped count oracle');
+      assert.equal(stage3Rows.length, candidate.stageCounts.stage3, 'Selected raw stage-three rows must match the capped count oracle');
+      assert(stage1Rows.length <= exactPreviewRowLimit && stage2Rows.length <= exactPreviewRowLimit && stage3Rows.length <= exactPreviewRowLimit,
+        'Selected member and decoy must each fit fully below the native 25-row preview boundary at all stages');
+      return { rootParents, stage1Rows, stage2Rows, stage3Rows,
+        repeatedLeafRows: stage3Rows.filter(row => row.stageDocs[0]._id === row.stageDocs[2]._id) };
+    };
+    memberRows = materializeSelectedCandidate(member);
+    decoyRows = materializeSelectedCandidate(decoyCandidate);
+  } else {
+    evaluatedRootCandidates = [];
+    member = { rootID: repeatedWitnesses[0].root._id, witness: repeatedWitnesses[0] };
+    decoyCandidate = { rootID: repeatedWitnesses[1].root._id, witness: repeatedWitnesses[1] };
+    const materializeLegacyCandidate = candidate => {
+      const root = candidate.witness.root;
+      const rootParents = [{ pathKey: `candidate:${root._id}`, root, stageDocs: [], terminal: root, bridgeDocs: [] }];
+      const stage1Rows = relatedRows(rootParents, stageOneQuery);
+      const stage2Rows = relatedRows(stage1Rows, stageTwoQuery);
+      const stage3Rows = relatedRows(stage2Rows, stageThreeQuery);
+      return { rootParents, stage1Rows, stage2Rows, stage3Rows,
+        repeatedLeafRows: stage3Rows.filter(row => row.stageDocs[0]._id === row.stageDocs[2]._id) };
+    };
+    memberRows = materializeLegacyCandidate(member);
+    decoyRows = materializeLegacyCandidate(decoyCandidate);
+  }
+  const rootDoc = member.witness.root;
+  const decoy = decoyCandidate.witness.root;
   assert.notEqual(rootDoc._id, decoy._id, 'The valid decoy must be a separate nonmember root');
   const roots = [rootDoc];
-  const rootParents = [{ pathKey: `member:${rootDoc._id}`, root: rootDoc, stageDocs: [], terminal: rootDoc, bridgeDocs: [] }];
-  const decoyParent = [{ pathKey: `decoy:${decoy._id}`, root: decoy, stageDocs: [], terminal: decoy, bridgeDocs: [] }];
-  const stage1Rows = relatedRows(rootParents, stageOneQuery);
-  const decoyStage1Rows = relatedRows(decoyParent, stageOneQuery);
-  const decoyStage2Rows = relatedRows(decoyStage1Rows, stageTwoQuery);
-  const decoyStage3Rows = relatedRows(decoyStage2Rows, stageThreeQuery);
-  const stage2Rows = relatedRows(stage1Rows, stageTwoQuery);
-  const stage3Rows = relatedRows(stage2Rows, stageThreeQuery);
-  assert(stage1Rows.length > 0 && stage2Rows.length > 0 && stage3Rows.length > 0, 'CDA fixture must support each admitted authored expansion stage');
+  const rootParents = memberRows.rootParents;
+  const stage1Rows = memberRows.stage1Rows;
+  const stage2Rows = memberRows.stage2Rows;
+  const stage3Rows = memberRows.stage3Rows;
+  const decoyStage1Rows = decoyRows.stage1Rows;
+  const decoyStage2Rows = decoyRows.stage2Rows;
+  const decoyStage3Rows = decoyRows.stage3Rows;
+  assert(stage1Rows.length > 0 && stage2Rows.length > 0 && stage3Rows.length > 0, 'CDA fixture must support each admitted expansion stage');
   assert(decoyStage1Rows.length > 0 && decoyStage2Rows.length > 0 && decoyStage3Rows.length > 0, 'The excluded decoy must have a valid matching three-stage relationship chain');
   assert(stage2Rows.every(row => row.bridgeDocs.length === 1 && row.bridgeDocs[0]._id.startsWith('Observation/')), 'The multihop stage must retain its Observation bridge witness');
   assert(stage2Rows.every(row => row.bridgeDocs.every(bridge => bridge.project === project && bridge.dataset_generation === generation)), 'Every bridge witness must remain inside the scoped fixture');
   assert(stage2Rows.every(row => !row.stageDocs.some(source => row.bridgeDocs.some(bridge => source._id === bridge._id))), 'Observation is a traversal bridge, not a stage terminal');
-  assert(stage3Rows.length <= 1000, 'Keep the admitted composed chain bounded');
+  if (focusedUpstreamRelatedRemovalCase) {
+    assert(stage1Rows.length <= exactPreviewRowLimit && stage2Rows.length <= exactPreviewRowLimit
+      && stage3Rows.length <= exactPreviewRowLimit,
+    'The dedicated upstream edit fixture must keep every stage strictly below the native preview sampling boundary');
+  } else {
+    assert(stage3Rows.length <= 1000, 'Keep the admitted composed chain bounded');
+  }
+  assert.equal(roots.length, 1, 'The upstream policy edit fixture must start from one explicitly selected root');
+  assert(stage1Rows.every(row => row.root._id === rootDoc._id), 'Every independent stage-one match must belong to the selected root');
+  assert(stage1Rows.length > 0, 'The selected root has a raw stage-one match, so PRESERVE_PARENT adds no synthetic empty-match row');
 
-  const rowValues = rows => rows.map(row => [row.root.id, 'Specimen', ...row.stageDocs.map(stageDoc => stageDoc.id)]);
   const stage1PreviewRows = rowValues(stage1Rows);
   const stage2PreviewRows = rowValues(stage2Rows);
   const stage3PreviewRows = rowValues(stage3Rows);
-  const repeatedLeafRows = stage3Rows.filter(row => row.stageDocs[0]._id === row.stageDocs[2]._id);
+  if (focusedUpstreamRelatedRemovalCase) {
+    assert(stage1PreviewRows.length <= exactPreviewRowLimit && stage2PreviewRows.length <= exactPreviewRowLimit
+      && stage3PreviewRows.length <= exactPreviewRowLimit,
+    'Every stage in the dedicated upstream edit fixture must fit fully below the 25-row preview sampling boundary');
+  }
+  recordFocusedUpstreamCheck('bounded raw oracle selects one root with an upstream match and 1–24 exact composed rows at every stage', {
+    rootIDs: roots.map(row => row._id), selectedRootID: rootDoc._id, decoyRootID: decoy._id,
+    scannedCandidateRootCount: focusedUpstreamRelatedRemovalCase ? evaluatedRootCandidates.length : repeatedWitnesses.length,
+    candidateRootLimit: witnessCandidateLimit,
+    stageCandidateCounts: evaluatedRootCandidates.map(candidate => ({ rootID: candidate.rootID,
+      stageCounts: candidate.stageCounts, overflowStages: candidate.overflowStages })),
+    selectedMemberStageCounts: member.stageCounts, selectedDecoyStageCounts: decoyCandidate.stageCounts,
+    stageOneMatchCount: stage1Rows.length, exactComposedRowCount: stage3PreviewRows.length,
+    previewLimit: 25, strictUnsampledMaxRows: exactPreviewRowLimit,
+  });
+  const repeatedLeafRows = memberRows.repeatedLeafRows;
   assert(repeatedLeafRows.length > 0, 'The selected member root must have a leaf row repeating its Patient at authored stages 1 and 3');
   const leafByPreviewRow = new Map(repeatedLeafRows.map(row => [JSON.stringify(rowValues([row])[0]), row]));
   const contributorsForStages = row => [
@@ -1357,12 +1744,22 @@ try {
   let targetLeaf;
   let expectedTuples;
   report.oracle = {
-    discoveryBounds: { candidateRoots: rootDiscoveryLimit, witnessPathsPerRoot: witnessPathsLimit,
+    discoveryBounds: { scannedRootLimit: rootDiscoveryLimit, returnedRootCandidateLimit: rootCandidateLimit,
+      evaluatedRootCandidateCount: evaluatedRootCandidates.length, stageCountSentinel: candidateStageRowSentinel,
+      ...(focusedUpstreamRelatedRemovalCase ? { strictPreviewMaxRows: exactPreviewRowLimit } : {}), witnessPathsPerRoot: witnessPathsLimit,
       selectedWitnessOverflow: repeatedWitnesses.map(row => ({ rootID: row.root._id, overflow: row.repeatedPathOverflow })) },
     memberRootIDs: roots.map(row => row._id), decoyRootID: decoy._id,
     admittedRowsByStage: [stage1Rows.length, stage2Rows.length, stage3Rows.length],
+    ...(focusedUpstreamRelatedRemovalCase ? { upstreamPolicyEdit: {
+      selectedRootCount: roots.length, rawStageOneMatchCount: stage1Rows.length,
+      preserveParentAddsNoSyntheticRows: true, completePreviewRowCount: stage3PreviewRows.length, previewLimit: 25,
+      sampled: false, strictUnsampledMaxRows: exactPreviewRowLimit,
+      memberStageCounts: member.stageCounts, decoyStageCounts: decoyCandidate.stageCounts,
+    } } : {}),
     repeatedPatientLeafCandidates: repeatedLeafRows.map(row => ({ rootID: row.root._id, terminalIDs: row.stageDocs.map(item => item._id), bridgeIDs: row.bridgeDocs.map(item => item._id) })),
-    queries: oracleQueries,
+    candidateStageCounts: evaluatedRootCandidates.map(candidate => ({ rootID: candidate.rootID,
+      stageCounts: candidate.stageCounts, overflowStages: candidate.overflowStages })),
+    queries: oracleQueries, queryAttempts: oracleQueryAttempts,
   };
 
   await api(explorersPath, { name: explorer, title: 'Composed row lineage inspector regression' });
@@ -1501,6 +1898,168 @@ try {
   assert.equal(await inspect('composed-related-reload', reloadedRowNumber), rowIdentity, 'Row identity must survive reload');
   assert.deepEqual((await api(base + '/builder')).workspace, authoredWorkspace, 'Reloaded inspection must not mutate the saved workspace');
 
+  if (focusedUpstreamRelatedRemovalCase) {
+  const editedUpstreamStepID = doc(builder).construction.steps[0].id;
+  const upstreamEditBaseline = await api(base + '/builder');
+  const upstreamEditExpectation = expectedPreserveParentRelatedEdit(doc(upstreamEditBaseline).construction, 0);
+  const expectedConstructionAfterUpstreamEdit = upstreamEditExpectation.construction;
+  const authoredDownstreamSteps = JSON.parse(JSON.stringify(doc(upstreamEditBaseline).construction.steps.slice(1)));
+  const authoredDownstreamOperations = authoredStepOperations(authoredDownstreamSteps);
+  const expectedDownstreamAfterEdit = expectedConstructionAfterUpstreamEdit.steps.slice(1);
+  await open();
+  await clickUI(`[data-testid="construction-history-step-${editedUpstreamStepID}"]`);
+  await waitUI(`document.querySelector('[data-testid=${JSON.stringify(`construction-edit-step-${editedUpstreamStepID}`)}]')?.disabled === false`);
+  await clickUI(`[data-testid="construction-edit-step-${editedUpstreamStepID}"]`);
+  const policySelector = '[data-testid="construction-related-expand-editor"] select[aria-label="If a current row has no matches"]';
+  await waitUI(`Boolean(document.querySelector(${JSON.stringify(policySelector)}))`);
+  const upstreamPolicy = doc(builder).construction.steps[0].operation.relatedExpand.emptyPolicy;
+  assert.equal(upstreamPolicy, 'EXCLUDE', 'The saved upstream expansion must start with its known no-match policy');
+  const editStarted = Date.now();
+  await clickUI('[data-testid="construction-related-expand-advanced"] summary');
+  await selectUI(policySelector, 'PRESERVE_PARENT');
+  const policyChoice = await page.locator(policySelector).evaluate(select => ({
+    value: select.value, options: [...select.options].map(option => option.value),
+  }));
+  assert.equal(policyChoice.value, 'PRESERVE_PARENT', 'The native saved Related editor must select PRESERVE_PARENT');
+  assert(policyChoice.options.includes('PRESERVE_PARENT'), 'The native saved Related policy control must offer PRESERVE_PARENT');
+  recordFocusedUpstreamCheck('native saved Related editor exposes EXCLUDE and selects PRESERVE_PARENT', {
+    stepID: editedUpstreamStepID, savedPolicy: upstreamPolicy, selectedPolicy: policyChoice.value,
+    availablePolicies: policyChoice.options,
+  });
+  const upstreamEdit = await proposal('edit-saved-upstream-expansion-policy', editStarted, stage3PreviewRows, { requireCompletePreview: true });
+  assert.deepEqual(upstreamEdit.dependencyImpact.removedStepIds ?? [], [], 'A no-match policy edit must retain all dependent expansions');
+  assert.deepEqual(upstreamEdit.dependencyImpact.missingInputs ?? [], [], 'A valid saved expansion edit must not arrive as NEEDS_REPAIR');
+  assert.deepEqual(upstreamEdit.candidateConstruction.steps.map(step => step.id), authoredSteps.map(step => step.id));
+  assertPreserveParentRelatedEdit(upstreamEdit.candidateConstruction, upstreamEditExpectation);
+  assert.deepEqual(upstreamEdit.candidateConstruction.steps.slice(1), expectedDownstreamAfterEdit,
+    'Every dependent output may change only the carried related-record nullable flag');
+  assert.deepEqual(authoredStepOperations(upstreamEdit.candidateConstruction.steps.slice(1)), authoredDownstreamOperations,
+    'Every dependent step ID and operation must remain exactly as authored');
+  assert.equal((await api(base + '/builder')).draftDigest, upstreamEditBaseline.draftDigest, 'An edit proposal must not save before Apply');
+  recordFocusedUpstreamCheck('upstream edit proposal is ready with dependent steps and exact raw rows', {
+    proposalID: upstreamEdit.proposalId, rowCount: upstreamEdit.preview?.rowCount,
+    stepIDs: upstreamEdit.candidateConstruction.steps.map(step => step.id),
+    expectedStepIDs: authoredSteps.map(step => step.id),
+  });
+
+  const upstreamEditCancel = await cancelRemoval(upstreamEditBaseline, 'Upstream policy edit', stage3PreviewRows,
+    { requireCompletePreview: true });
+  assert.deepEqual(doc(builder).construction, doc(upstreamEditBaseline).construction,
+    'Canceling the upstream policy proposal must retain the saved EXCLUDE construction and dependent steps');
+  assert.deepEqual(doc(builder).construction.steps.slice(1), authoredDownstreamSteps,
+    'Canceling the upstream policy proposal must preserve every authored dependent output schema exactly');
+  assert.equal(doc(builder).construction.steps[0].operation.relatedExpand.emptyPolicy, 'EXCLUDE',
+    'Canceling the upstream policy proposal must keep the original empty-match policy');
+  assert.deepEqual(authoredStepOperations(doc(builder).construction.steps.slice(1)), authoredDownstreamOperations,
+    'Canceling the upstream policy proposal must preserve every authored dependent step ID and operation');
+  recordFocusedUpstreamCheck('Canceling the upstream policy edit preserves EXCLUDE, downstream steps, draft identity, and complete raw rows', {
+    draftVersion: builder.draftVersion, draftDigest: builder.draftDigest,
+    policy: doc(builder).construction.steps[0].operation.relatedExpand.emptyPolicy,
+    stepIDs: doc(builder).construction.steps.map(step => step.id),
+    exactRowCount: stage3PreviewRows.length,
+    canceledRelatedChoicesBrowserRequestIDs: upstreamEditCancel.canceledRelatedChoicesBrowserRequestIDs,
+  });
+
+  await open();
+  await clickUI(`[data-testid="construction-history-step-${editedUpstreamStepID}"]`);
+  await waitUI(`document.querySelector('[data-testid=${JSON.stringify(`construction-edit-step-${editedUpstreamStepID}`)}]')?.disabled === false`);
+  await clickUI(`[data-testid="construction-edit-step-${editedUpstreamStepID}"]`);
+  await waitUI(`Boolean(document.querySelector(${JSON.stringify(policySelector)}))`);
+  assert.equal(doc(builder).construction.steps[0].operation.relatedExpand.emptyPolicy, 'EXCLUDE',
+    'Reopening the saved upstream editor after Cancel must load the original policy');
+  const secondEditStarted = Date.now();
+  await clickUI('[data-testid="construction-related-expand-advanced"] summary');
+  await selectUI(policySelector, 'PRESERVE_PARENT');
+  assert.equal(await page.locator(policySelector).inputValue(), 'PRESERVE_PARENT',
+    'The reopened native editor must select PRESERVE_PARENT again before Apply');
+  const confirmedUpstreamEdit = await proposal('reopened-edit-saved-upstream-expansion-policy', secondEditStarted,
+    stage3PreviewRows, { requireCompletePreview: true });
+  assert.deepEqual(confirmedUpstreamEdit.dependencyImpact.removedStepIds ?? [], [],
+    'Reopened no-match policy edit must retain every dependent expansion');
+  assert.deepEqual(confirmedUpstreamEdit.dependencyImpact.missingInputs ?? [], [],
+    'Reopened upstream edit must remain ready rather than NEEDS_REPAIR');
+  assert.deepEqual(confirmedUpstreamEdit.candidateConstruction, expectedConstructionAfterUpstreamEdit,
+    'The confirmed proposal may change only the upstream policy and its carried related-record nullability');
+  assertPreserveParentRelatedEdit(confirmedUpstreamEdit.candidateConstruction, upstreamEditExpectation);
+  assert.deepEqual(confirmedUpstreamEdit.candidateConstruction.steps.slice(1), expectedDownstreamAfterEdit,
+    'The confirmed proposal must retain the exact policy-derived downstream output schemas');
+  assert.deepEqual(authoredStepOperations(confirmedUpstreamEdit.candidateConstruction.steps.slice(1)), authoredDownstreamOperations,
+    'The confirmed proposal must retain every dependent step ID and operation exactly');
+  assert.equal((await api(base + '/builder')).draftDigest, upstreamEditBaseline.draftDigest,
+    'Reproposing after Cancel must not save before the new Apply');
+  recordFocusedUpstreamCheck('reopened upstream edit proposal retains every dependent step with exact raw rows', {
+    proposalID: confirmedUpstreamEdit.proposalId, rowCount: confirmedUpstreamEdit.preview?.rowCount,
+    stepIDs: confirmedUpstreamEdit.candidateConstruction.steps.map(step => step.id),
+    expectedStepIDs: authoredSteps.map(step => step.id),
+  });
+  recordFocusedUpstreamCheck('upstream edit preserves dependent identities and operations; only policy-derived nullability changes', {
+    stepID: editedUpstreamStepID, previousPolicy: upstreamPolicy,
+    proposedPolicy: confirmedUpstreamEdit.candidateConstruction.steps[0].operation.relatedExpand.emptyPolicy,
+    relatedRecordColumnID: upstreamEditExpectation.relatedRecordColumnId,
+    propagatedOutputStepIDs: upstreamEditExpectation.propagatedOutputStepIDs,
+    dependentStepOperations: authoredStepOperations(confirmedUpstreamEdit.candidateConstruction.steps.slice(1)),
+  });
+  let savedUpstreamEdit;
+  const appliedUpstreamRows = await apply(stage3PreviewRows, { requireCompletePreview: true,
+    verifySavedState: async saved => {
+      assert.deepEqual(doc(saved).construction, confirmedUpstreamEdit.candidateConstruction, 'Apply must save the exact upstream edit with its dependent expansions');
+      assertPreserveParentRelatedEdit(doc(saved).construction, upstreamEditExpectation);
+      assert.deepEqual(doc(saved).construction.steps.slice(1), expectedDownstreamAfterEdit,
+        'Apply must preserve the exact policy-derived downstream output schemas');
+      assert.deepEqual(authoredStepOperations(doc(saved).construction.steps.slice(1)), authoredDownstreamOperations,
+        'Apply must preserve every dependent step ID and operation exactly');
+      assert.equal(doc(saved).construction.steps[0].operation.relatedExpand.emptyPolicy, 'PRESERVE_PARENT');
+      assert.equal(doc(saved).output.id, outputId, 'Apply must preserve the output identity');
+      savedUpstreamEdit = saved;
+    },
+  });
+  recordFocusedUpstreamCheck('Apply saves the exact upstream edit with stable dependent step identities', {
+    draftVersion: savedUpstreamEdit.draftVersion, draftDigest: savedUpstreamEdit.draftDigest,
+    stepIDs: doc(savedUpstreamEdit).construction.steps.map(step => step.id),
+  });
+  recordFocusedUpstreamCheck('applied upstream edit rows match the complete raw multiset and full row count', {
+    outputId, previewRowCount: appliedUpstreamRows.previewResponse?.rowCount,
+    responseRows: appliedUpstreamRows.previewResponse?.rows?.length,
+    mountedRows: appliedUpstreamRows.mountedRows.length, oracleRows: stage3PreviewRows.length,
+  });
+  const upstreamEditReloadStarted = Date.now();
+  await open();
+  builder = await api(base + '/builder');
+  assert.equal(builder.draftDigest, savedUpstreamEdit.draftDigest, 'The saved upstream edit must retain its draft identity after reload');
+  assert.deepEqual(doc(builder).construction, doc(savedUpstreamEdit).construction, 'Reload must preserve the edited upstream operation and its dependent expansions');
+  assertPreserveParentRelatedEdit(doc(builder).construction, upstreamEditExpectation);
+  await waitUI(`(() => {const p=document.querySelector('[data-testid="construction-preview"]');return p?.dataset.previewStatus==='ready'&&p?.dataset.previewOutputId===${JSON.stringify(outputId)}&&p?.dataset.currentDraftVersion===${JSON.stringify(String(builder.draftVersion))}&&p?.dataset.currentDraftDigest===${JSON.stringify(builder.draftDigest)}&&Boolean(p?.dataset.previewReceiptId);})()`);
+  const reloadedActive = await page.getByTestId('construction-preview').evaluate(p => ({ status: p.dataset.previewStatus,
+    receiptId: p.dataset.previewReceiptId, outputId: p.dataset.previewOutputId,
+    draftVersion: p.dataset.currentDraftVersion, draftDigest: p.dataset.currentDraftDigest }));
+  assert.equal(reloadedActive.status, 'ready', 'Reloaded preview must be ready');
+  assert(reloadedActive.receiptId, 'Reloaded preview must have a receipt identity');
+  assert.equal(reloadedActive.outputId, outputId, 'Reloaded preview must belong to the authored output');
+  assert.equal(reloadedActive.draftVersion, String(builder.draftVersion), 'Reloaded preview must belong to the saved draft version');
+  assert.equal(reloadedActive.draftDigest, builder.draftDigest, 'Reloaded preview must belong to the saved draft digest');
+  const reloadedPreview = await api(base + '/preview', { receiptId: reloadedActive.receiptId, outputId, limit: 25 });
+  assert.equal(reloadedPreview.sampled, false, 'Reloaded preview must be complete and unsampled');
+  assert.equal(reloadedPreview.receiptId, reloadedActive.receiptId, 'Reloaded complete preview must use the rendered receipt');
+  assert.equal(reloadedPreview.outputId, outputId, 'Reloaded complete preview must belong to the authored output');
+  assert.equal(reloadedPreview.rowCount, stage3PreviewRows.length, 'Reloaded preview full row count must match the independent raw oracle');
+  assert.equal(reloadedPreview.rows.length, stage3PreviewRows.length, 'Reloaded bounded preview must return every row from the <=25 fixture');
+  const reloadedAPIRowProjection = assertCompletePreviewRows(reloadedPreview,
+    expectedPreviewColumns(doc(builder).construction, doc(builder).columns), stage3PreviewRows,
+    'Reloaded construction after upstream expansion edit');
+  await assertMountedRows(stage3PreviewRows, 'Reloaded construction after upstream expansion edit');
+  const upstreamEditReloadElapsedMs = Date.now() - upstreamEditReloadStarted;
+  assert(upstreamEditReloadElapsedMs <= 5000, 'Upstream edit reload-to-exact-rows must complete within five seconds');
+  report.cases.push({ name: 'upstream-edit-reload-full-row-verification', elapsedMs: upstreamEditReloadElapsedMs,
+    rowCount: reloadedPreview.rowCount, outputId, receiptId: reloadedActive.receiptId,
+    draftVersion: builder.draftVersion, draftDigest: builder.draftDigest });
+  recordFocusedUpstreamCheck('upstream Related edit reload preserves bound draft and complete raw rows within five seconds', {
+    elapsedMs: upstreamEditReloadElapsedMs, rowCount: reloadedPreview.rowCount,
+    apiPreviewColumns: reloadedAPIRowProjection.columns, apiPreviewRowIDs: reloadedAPIRowProjection.rowIDs,
+    outputId, receiptId: reloadedActive.receiptId, draftVersion: builder.draftVersion, draftDigest: builder.draftDigest,
+  });
+
+  }
+
   const authoredConstruction = doc(builder).construction;
   const authoredStepIDs = authoredConstruction.steps.map(step => step.id);
   assert.deepEqual(authoredStepIDs, authoredSteps.map(step => step.id));
@@ -1541,22 +2100,92 @@ try {
   const zeroStepConstruction = { ...twoStepConstruction, steps: [] };
   const basePreviewRows = [[rootDoc.id, 'Specimen']];
   const twoStepBaseline = await api(base + '/builder');
+  const completeCascadeOptions = focusedUpstreamRelatedRemovalCase ? { requireCompletePreview: true } : {};
   await open();
-  const cancelledCascade = await proposeRemoval(firstStepID, 'remove-stage-1-cascade-cancel-preview', basePreviewRows);
+  const cancelledCascade = await proposeRemoval(firstStepID, 'remove-stage-1-cascade-cancel-preview', basePreviewRows, completeCascadeOptions);
   assert.deepEqual([...cancelledCascade.dependencyImpact.removedStepIds].sort(), [...twoStepIDs].sort(), 'Removing the first step must cascade to every remaining dependent RELATED_EXPAND step');
   assert.deepEqual(cancelledCascade.candidateConstruction, zeroStepConstruction, 'The first-step cascade must propose an empty construction');
-  await cancelRemoval(twoStepBaseline, 'First-step cascade removal', stage2PreviewRows);
+  if (focusedUpstreamRelatedRemovalCase) await assertCascadeConfirmation(cancelledCascade, twoStepIDs, 'First-step cascade cancellation preview');
+  await cancelRemoval(twoStepBaseline, 'First-step cascade removal', stage2PreviewRows, completeCascadeOptions);
+  assert.deepEqual(doc(builder).construction, twoStepConstruction, 'Cascade removal Cancel must preserve every saved Related step');
+  recordFocusedUpstreamCheck('Canceling the upstream cascade preserves saved dependent construction and draft identity', {
+    draftVersion: builder.draftVersion, draftDigest: builder.draftDigest,
+    stepIDs: doc(builder).construction.steps.map(step => step.id), expectedStepIDs: twoStepIDs,
+  });
 
   await open();
-  const appliedCascade = await proposeRemoval(firstStepID, 'remove-stage-1-cascade-apply-preview', basePreviewRows);
+  const appliedCascade = await proposeRemoval(firstStepID, 'remove-stage-1-cascade-apply-preview', basePreviewRows, completeCascadeOptions);
   assert.deepEqual([...appliedCascade.dependencyImpact.removedStepIds].sort(), [...twoStepIDs].sort());
   assert.deepEqual(appliedCascade.candidateConstruction, zeroStepConstruction);
-  await apply(basePreviewRows);
+  if (focusedUpstreamRelatedRemovalCase) await assertCascadeConfirmation(appliedCascade, twoStepIDs, 'First-step cascade apply preview');
+  recordFocusedUpstreamCheck('root Related removal proposals name every dependent step before Apply', {
+    canceledProposalRemovedStepIDs: [...cancelledCascade.dependencyImpact.removedStepIds].sort(),
+    appliedProposalRemovedStepIDs: [...appliedCascade.dependencyImpact.removedStepIds].sort(),
+    expectedRemovedStepIDs: [...twoStepIDs].sort(), candidateStepCount: appliedCascade.candidateConstruction.steps.length,
+  });
+  if (focusedUpstreamRelatedRemovalCase) {
+    await apply(basePreviewRows, { requireCompletePreview: true,
+      verifySavedState: async saved => {
+        assert.deepEqual(doc(saved).construction, zeroStepConstruction, 'Applying the cascade must save an explicit zero-step construction');
+        assert.equal(doc(saved).output.id, outputId, 'Cascade Apply must preserve the rooted output identity');
+      },
+    });
+  } else {
+    await apply(basePreviewRows);
+  }
   assert.deepEqual(doc(builder).construction, zeroStepConstruction, 'Applying the cascade must save an explicit zero-step construction');
-  await open();
-  builder = await api(base + '/builder');
-  assert.deepEqual(doc(builder).construction, zeroStepConstruction, 'The zero-step construction must persist after reload');
-  await assertMountedRows(basePreviewRows, 'Reloaded zero-step construction');
+  if (focusedUpstreamRelatedRemovalCase) {
+    const savedCascadeRestoration = await api(base + '/builder');
+    assert.deepEqual(doc(savedCascadeRestoration).construction, zeroStepConstruction,
+      'Applying the cascade must save the exact rooted zero-step construction');
+    const cascadeRestorationReloadStarted = Date.now();
+    await open();
+    builder = await api(base + '/builder');
+    assert.equal(builder.draftVersion, savedCascadeRestoration.draftVersion,
+      'The rooted restoration reload must retain the saved cascade draft version');
+    assert.equal(builder.draftDigest, savedCascadeRestoration.draftDigest,
+      'The rooted restoration reload must retain the saved cascade draft digest');
+    assert.deepEqual(builder.workspace, savedCascadeRestoration.workspace,
+      'The rooted restoration reload must retain the saved zero-step workspace');
+    assert.deepEqual(doc(builder).construction, zeroStepConstruction,
+      'The rooted restoration reload must retain the exact zero-step construction');
+    await waitUI(`(() => {const p=document.querySelector('[data-testid="construction-preview"]');return p?.dataset.previewStatus==='ready'&&p?.dataset.previewOutputId===${JSON.stringify(outputId)}&&p?.dataset.currentDraftVersion===${JSON.stringify(String(builder.draftVersion))}&&p?.dataset.currentDraftDigest===${JSON.stringify(builder.draftDigest)}&&Boolean(p?.dataset.previewReceiptId);})()`);
+    const restoredActive = await page.getByTestId('construction-preview').evaluate(p => ({ status: p.dataset.previewStatus,
+      receiptId: p.dataset.previewReceiptId, outputId: p.dataset.previewOutputId,
+      draftVersion: p.dataset.currentDraftVersion, draftDigest: p.dataset.currentDraftDigest }));
+    assert.equal(restoredActive.status, 'ready', 'The rooted restoration preview must be ready');
+    assert(restoredActive.receiptId, 'The rooted restoration preview must have a receipt identity');
+    assert.equal(restoredActive.outputId, outputId, 'The rooted restoration preview must belong to the authored output');
+    assert.equal(restoredActive.draftVersion, String(builder.draftVersion));
+    assert.equal(restoredActive.draftDigest, builder.draftDigest);
+    const restoredPreview = await api(base + '/preview', { receiptId: restoredActive.receiptId, outputId, limit: 25 });
+    assert.equal(restoredPreview.sampled, false, 'Rooted restoration preview must be complete and unsampled');
+    assert.equal(restoredPreview.receiptId, restoredActive.receiptId, 'The exact rooted preview must use its rendered receipt');
+    assert.equal(restoredPreview.outputId, outputId, 'The exact rooted preview must belong to the original output');
+    assert.equal(restoredPreview.rowCount, basePreviewRows.length, 'The restored full row count must match the independent rooted oracle');
+    assert.equal(restoredPreview.rows.length, basePreviewRows.length, 'The restored bounded preview must return every rooted row');
+    const restoredAPIRowProjection = assertCompletePreviewRows(restoredPreview,
+      expectedPreviewColumns(doc(builder).construction, doc(builder).columns), basePreviewRows,
+      'Cascade removal must restore the exact rooted starting row');
+    await assertMountedRows(basePreviewRows, 'Reloaded zero-step construction');
+    const cascadeRestorationReloadElapsedMs = Date.now() - cascadeRestorationReloadStarted;
+    assert(cascadeRestorationReloadElapsedMs <= 5000,
+      'Cascade restoration reload through saved state, complete preview, and exact rows must complete within five seconds');
+    report.cases.push({ name: 'root-cascade-restoration-reload-full-row-verification', elapsedMs: cascadeRestorationReloadElapsedMs,
+      rowCount: restoredPreview.rowCount, outputId, receiptId: restoredActive.receiptId,
+      draftVersion: builder.draftVersion, draftDigest: builder.draftDigest });
+    recordFocusedUpstreamCheck('root cascade Apply and reload restore the exact rooted starting row within five seconds', {
+      elapsedMs: cascadeRestorationReloadElapsedMs, constructionStepCount: doc(builder).construction.steps.length,
+      rootResourceID: rootDoc._id, previewRowCount: restoredPreview.rowCount,
+      apiPreviewColumns: restoredAPIRowProjection.columns, apiPreviewRowIDs: restoredAPIRowProjection.rowIDs,
+      outputId, receiptId: restoredActive.receiptId, draftVersion: builder.draftVersion, draftDigest: builder.draftDigest,
+    });
+  } else {
+    await open();
+    builder = await api(base + '/builder');
+    assert.deepEqual(doc(builder).construction, zeroStepConstruction, 'The zero-step construction must persist after reload');
+    await assertMountedRows(basePreviewRows, 'Reloaded zero-step construction');
+  }
   const baseMap = new Map([[JSON.stringify(basePreviewRows[0]), rootDoc]]);
   const baseTarget = await rowNumberFor(baseMap, 'Starting-record row');
   const startingInspectorStarted = Date.now();
@@ -1576,7 +2205,19 @@ try {
   assert.deepEqual((await api(base + '/builder')).workspace, builder.workspace, 'Starting-record inspection must not mutate the zero-step workspace');
 
   assert(report.nativeRequests.every(request => localOrigins.has(request.origin) && !request.authorizationHeaderPresent), 'Native Builder requests must remain on the local no-auth endpoints');
-  assert.deepEqual(report.errors, []);
+  if (focusedUpstreamRelatedRemovalCase) {
+    const classifiedChoiceRequestIDs = new Set(report.upstreamRelatedChoicesCancel?.classifiedBrowserRequestIDs ?? []);
+    const unexpectedErrors = report.errors.filter(error => {
+      const requestID = error.browserRequestId;
+      const isExactClassifiedChoiceAbort = requestID && classifiedChoiceRequestIDs.has(requestID)
+        && (error.error === 'net::ERR_ABORTED' || error.errorText === 'net::ERR_ABORTED') && error.expected === true
+        && error.expectedCancellation?.browserRequestId === requestID;
+      return !isExactClassifiedChoiceAbort;
+    });
+    assert.deepEqual(unexpectedErrors, [], 'Only the exact pre-snapshotted choices request aborted by the saved-policy Cancel may be expected');
+  } else {
+    assert.deepEqual(report.errors, []);
+  }
   report.status = 'passed';
   }
 } catch (error) {

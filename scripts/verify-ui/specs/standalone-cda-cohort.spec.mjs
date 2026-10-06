@@ -4,8 +4,8 @@ import { cohortMembershipRevisionWorkflow } from '../workflows/verify-cda-cohort
 import { cohortRowSourcesWorkflow } from '../workflows/verify-cda-cohort-row-sources-browser.mjs';
 import { composedRowLineageWorkflow } from '../workflows/verify-cda-composed-row-lineage-browser.mjs';
 
-const fixtureOptions = (caseName) => ({
-  cdaScenarioID: 'standalone-cda-cohort',
+const fixtureOptions = (caseName, scenarioID = 'standalone-cda-cohort') => ({
+  cdaScenarioID: scenarioID,
   cdaCaseName: caseName,
   cdaRequireSourceFixture: true,
 });
@@ -59,3 +59,12 @@ for (const lineageMode of [
     });
   });
 }
+
+test.describe('CDA upstream Related edit and cascade', () => {
+  test.use(fixtureOptions('upstream-edit-cascade', 'cda-upstream-related-edit-cascade'));
+
+  test('edit a saved upstream Related expansion while preserving dependent rows, then cascade-remove it', async ({ page, cda }) => {
+    await composedRowLineageWorkflow({ page, cda, lineageMode: 'COMPOSED_RELATED' });
+    expect(cda.report.status).toBe('passed');
+  });
+});
