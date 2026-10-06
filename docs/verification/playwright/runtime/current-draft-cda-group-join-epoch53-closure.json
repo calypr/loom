@@ -1,0 +1,132 @@
+{
+  "epoch": 53,
+  "status": "CLOSED_WITH_CASE_FAILURE",
+  "integrityClosure": {
+    "status": "PASS",
+    "source": {
+      "beforeSha256": "e367b8704cec6be63d2eeb68c5786b19f74fc0c2e65259fa00d7f05fdc45ad79",
+      "afterSha256": "e367b8704cec6be63d2eeb68c5786b19f74fc0c2e65259fa00d7f05fdc45ad79",
+      "files": 1498,
+      "changedPaths": []
+    },
+    "docs": {
+      "beforeSha256": "a85e5dfeee556ba93ece7ae944a01dfd7ba27459ab48798534130c1d993a9868",
+      "afterSha256": "a85e5dfeee556ba93ece7ae944a01dfd7ba27459ab48798534130c1d993a9868",
+      "files": 137,
+      "changedPaths": []
+    },
+    "apiBuildIdentity": {
+      "before": "93c80c92ecdc7e5f3d7540c713c9612af329ecc901f3055c1908c3b272b59423:93c80c92ecdc7e5f3d7540c713c9612af329ecc901f3055c1908c3b272b59423:6ba105393f746f46111643988a47ac6a3480bb7e4ac6177e489b449c6e48d5e0",
+      "after": "93c80c92ecdc7e5f3d7540c713c9612af329ecc901f3055c1908c3b272b59423:93c80c92ecdc7e5f3d7540c713c9612af329ecc901f3055c1908c3b272b59423:6ba105393f746f46111643988a47ac6a3480bb7e4ac6177e489b449c6e48d5e0",
+      "unchanged": true
+    },
+    "ownedMounts": {
+      "beforeStatus": "PASS",
+      "afterStatus": "PASS",
+      "targetUnchanged": true,
+      "target": {
+        "project": "loom_dev_cda_fhir",
+        "composeProject": "loom-dev-6d7df93d6a37",
+        "apiContainer": "loom-dev-6d7df93d6a37-loom-api-1",
+        "uiContainer": "loom-dev-6d7df93d6a37-loom-ui-1",
+        "arangoContainer": "loom-dev-6d7df93d6a37-arangodb-1",
+        "clickhouseContainer": "loom-dev-6d7df93d6a37-clickhouse-1",
+        "apiPort": "8188",
+        "uiPort": "30008",
+        "sourceRoot": "/private/tmp/loom-construction-implementation",
+        "generation": "cda-fhir-v1"
+      }
+    },
+    "health": {
+      "beforeStatus": "PASS",
+      "beforeSamples": 3,
+      "afterStatus": "PASS",
+      "afterSamples": 3,
+      "allApiUiHealthy": true
+    },
+    "handles": {
+      "apiBuildPrecheck": {
+        "session": 22885,
+        "exitCode": 0
+      },
+      "beforeCapture": {
+        "session": 64501,
+        "exitCode": 0
+      },
+      "beforeHealth": {
+        "session": 12550,
+        "exitCode": 0
+      },
+      "browser": {
+        "session": 64925,
+        "exitCode": 1
+      },
+      "afterCapture": {
+        "session": 47163,
+        "exitCode": 0
+      },
+      "afterHealth": {
+        "session": 88072,
+        "exitCode": 0
+      }
+    }
+  },
+  "case": {
+    "owner": "legacy_workspace_browser_case",
+    "scenario": "cda-workspace-combine/group-join",
+    "title": "two independent native Observation Groups join through the current draft lifecycle",
+    "result": "FAILED_UNEXPECTED_ABORTED_SELECTION_GET",
+    "causeClassification": "UNVERIFIED_CANCELLATION_EVIDENCE",
+    "durationMs": 65872,
+    "runnerProcessDurationMs": null,
+    "runnerExpected": 0,
+    "runnerUnexpected": 1,
+    "reportStatus": "failed",
+    "reportPath": "/private/tmp/loom-native-parallel-wave53/cda-workspace-combine/artifacts/cda-current-draft-group-jo-424dc-the-current-draft-lifecycle/cda-report.json",
+    "targetProject": "loom_dev_cda_fhir",
+    "targetGeneration": "cda-fhir-v1",
+    "firstFailure": "The final no-unexpected-network assertion failed on one net::ERR_ABORTED GET for the owned Explorer selection endpoint, triggered while opening the right exact-population table.",
+    "networkFailureCount": 1,
+    "networkFailure": {
+      "kind": "network",
+      "method": "GET",
+      "url": "http://127.0.0.1:30008/api/v1/projects/loom_dev_cda_fhir/explorers/cda-cdj-d8774e06-1f3e-4f6d-8c91-719ade2b2754/selections/selection_b9e042a00979c5e1394c5308e12223bf2a3d0d8ec243d307e636a32f85859ef2",
+      "resourceType": "fetch",
+      "errorText": "net::ERR_ABORTED",
+      "triggerAction": "Open right exact population table",
+      "requestId": null,
+      "playwrightRequestId": "cda-request-377",
+      "expected": false
+    },
+    "requiredChecksPassed": 16,
+    "requiredChecksTotal": 16,
+    "missingRequiredChecks": [],
+    "recordedAssertionsPassed": 195,
+    "recordedAssertionsFailed": 2,
+    "nativeActionsPassed": 107,
+    "nativeActionsFailed": 0,
+    "fullGroupJoinLifecycleReached": true,
+    "productCauseClassification": "pending owner trace of the selection GET abort trigger",
+    "reportSha256": "79b0c0066a72f03d80152548c424b27203e1a62b2d1d572542ca01219ccb7675",
+    "errorContextSha256": "26f7766571074774d48c96fdcadeac50846639ca5bd940d6001804cd096b4bb6",
+    "playwrightResultsSha256": "dbb1267d0d4525d0b10c93823beaccff0297cab441e97c5b046723a252c7eea8",
+    "diagnosis": "The aborted request was the old left-selection GET while the UI switched to the right exact-population table. No event timestamps or replacement-request read were retained, so the cancellation cannot be called expected or harmless. The 16 required workflow checks passed; the strict unexpected-network gate failed.",
+    "maxActionMs": 1450
+  },
+  "retryPerformed": false,
+  "artifacts": {
+    "apiBuildPrecheck": "/private/tmp/loom-native-parallel-wave53/api-build-precheck.json",
+    "sourceBefore": "/private/tmp/loom-native-parallel-wave53/source-before.json",
+    "sourceAfter": "/private/tmp/loom-native-parallel-wave53/source-after.json",
+    "docsBefore": "/private/tmp/loom-native-parallel-wave53/docs-before.json",
+    "docsAfter": "/private/tmp/loom-native-parallel-wave53/docs-after.json",
+    "apiBefore": "/private/tmp/loom-native-parallel-wave53/api-identity-before.json",
+    "apiAfter": "/private/tmp/loom-native-parallel-wave53/api-identity-after.json",
+    "mountsBefore": "/private/tmp/loom-native-parallel-wave53/owned-mounts-before.json",
+    "mountsAfter": "/private/tmp/loom-native-parallel-wave53/owned-mounts-after.json",
+    "healthBefore": "/private/tmp/loom-native-parallel-wave53/health-before.json",
+    "healthAfter": "/private/tmp/loom-native-parallel-wave53/health-after.json",
+    "playwrightResults": "/private/tmp/loom-native-parallel-wave53/cda-workspace-combine/results.json",
+    "runPlan": "/private/tmp/loom-native-parallel-wave53/run-plan.json"
+  }
+}

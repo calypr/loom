@@ -126,6 +126,52 @@ test('UI proxy requests retain private exact bodies while reports stay redacted'
   assert(!JSON.stringify(report).includes('exact-private-'));
 });
 
+test('request trackers wait only on entries whose exact bodies they own', async () => {
+  const page = new EventEmitter();
+  const report = { nativeRequests: [], errors: [] };
+  const options = {
+    apiOrigin: 'http://127.0.0.1:8282',
+    ownedPathPrefix: '/api/v1/projects/isolated/explorers/owned',
+    report,
+    responsePaths: /construction-proposals/,
+  };
+  report.nativeRequests.push({ path: '/earlier-shared-report-entry', completedAt: Date.now() });
+  const fromIndex = report.nativeRequests.length;
+  const earlierTracker = captureCDARequests(page, options);
+  const proposalTracker = captureCDARequests(page, options);
+  const path = '/api/v1/projects/isolated/explorers/owned/authoring/v2/construction-proposals';
+  const requestBody = { snapshotToken: 'exact-private-token', outputId: 'out-owned' };
+  const exactResponse = { draftToken: 'exact-private-response', outputId: 'out-owned', previewStatus: 'READY' };
+  const request = {
+    url: () => `http://127.0.0.1:8282${path}`,
+    method: () => 'POST',
+    headers: () => ({ 'x-request-id': 'proposal-owner-test' }),
+    postData: () => JSON.stringify(requestBody),
+  };
+  const predicate = entry => entry.path === path && entry.method === 'POST' && entry.status === 200;
+  const earlierWait = earlierTracker.waitFor(predicate, { fromIndex, timeoutMs: 1000 });
+  const proposalWait = proposalTracker.waitFor(predicate, { fromIndex, timeoutMs: 1000 });
+  page.emit('request', request);
+  page.emit('response', {
+    request: () => request,
+    status: () => 200,
+    headers: () => ({ 'x-request-id': 'proposal-owner-response' }),
+    text: async () => JSON.stringify(exactResponse),
+  });
+
+  const [earlierEntry, proposalEntry] = await Promise.all([earlierWait, proposalWait]);
+  assert.notEqual(earlierEntry, proposalEntry, 'Each tracker must return its own entry from the shared report array');
+  assert.deepEqual(earlierTracker.rawRequestBody(earlierEntry), requestBody);
+  assert.deepEqual(earlierTracker.rawResponseBody(earlierEntry), exactResponse);
+  assert.deepEqual(proposalTracker.rawRequestBody(proposalEntry), requestBody);
+  assert.deepEqual(proposalTracker.rawResponseBody(proposalEntry), exactResponse);
+
+  assert.equal(await earlierTracker.waitFor(predicate, { fromIndex }), earlierEntry,
+    'Completed requests must be found immediately within the owning tracker');
+  assert.equal(await proposalTracker.waitFor(predicate, { fromIndex }), proposalEntry,
+    'The newer tracker must skip a completed sibling entry that it does not own');
+});
+
 test('captured public snapshot hashes and no-auth metadata stay inspectable after report sanitization', () => {
   const page = new EventEmitter();
   const report = { nativeRequests: [], errors: [] };

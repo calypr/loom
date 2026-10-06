@@ -1,0 +1,94 @@
+{
+  "schemaVersion": 1,
+  "scenario": "cda-workspace-combine",
+  "case": "group-join",
+  "status": "partial",
+  "classification": "HARNESS_EARLY_ERROR_PROJECTION",
+  "scope": "Real CDA project loom_dev_cda_fhir, generation cda-fhir-v1. The exact case passed its bounded raw Observation oracle, fresh Explorer setup, left source selection and Group COUNT_ROWS save/reload, then stopped at the early cancellation-diagnostic assertion before Join setup.",
+  "workflowResult": {
+    "requiredChecksPassed": 5,
+    "requiredChecksTotal": 16,
+    "missingRequiredChecks": [
+      "native Observation GROUP outputs equal exact raw counts including shared-key COUNT_ROWS 2",
+      "native Combine target is a fresh rooted empty current-draft document",
+      "native LEFT Join preview matches the independent grouped oracle and exact current-draft proposal",
+      "canceling the first LEFT Join leaves both Groups, target, and draft CAS unchanged after reload",
+      "applied LEFT Join retains exact current-draft inputs, key IDs, mappings, and preview after reload",
+      "saved LEFT Join edit Cancel preserves exact construction, rows, and CAS after reload",
+      "saved LEFT Join edit to INNER preserves exact current-draft construction and preview after reload",
+      "upstream Group COUNT_DISTINCT edit recomputes the downstream Join from raw values after reload",
+      "Join removal Cancel preserves saved INNER construction and output after reload",
+      "applying Join removal restores the exact empty target while preserving both Group populations",
+      "CDA current-draft lifecycle never publishes or pins table revisions"
+    ],
+    "nativeActionsPassed": 13,
+    "nativeActionsFailed": 0,
+    "recordedAssertionsPassed": 29,
+    "recordedAssertionsFailed": 0,
+    "maxActionMs": 1410,
+    "rawOracle": {
+      "boundedRows": 2000,
+      "groupKeyFieldPath": "subject.reference",
+      "sharedGroupKey": "Patient/1c829609-1cfb-5326-aec2-7c4459c7cc7a",
+      "leftOnlyGroupKey": "Patient/0000da62-8ff3-5dc2-b9c5-c2c0b75442a2",
+      "leftSelectedMembers": 3,
+      "rightSelectedMembers": 1,
+      "sharedLeftCount": 2,
+      "groupOutputRowsAfterReload": 2,
+      "groupRowsMatchRawOracle": true
+    },
+    "joinPreviewAndLifecycle": "untested; run stopped before Join setup",
+    "browserTestDurationMs": 27689,
+    "runnerProcessDurationMs": null
+  },
+  "firstFailure": {
+    "kind": "harness-assertion",
+    "message": "AssertionError: The exact retired selection GET must have no unclassified native error diagnostic",
+    "sourceLocation": "scripts/verify-ui/cda-current-draft-group-join-workflow.mjs:448",
+    "classification": "HARNESS_EARLY_ERROR_PROJECTION",
+    "explanation": "The assertion reads requestErrors before finishReport projects request-tracker errors into report.errors. The final raw report contains the exact retired selection GET marked expected=true and canceled=true; the earlier check therefore fails due to report ordering, not a product error."
+  },
+  "cancellationDiagnostic": {
+    "count": 1,
+    "finalReportMarksExpectedAndCanceled": true,
+    "method": "GET",
+    "previousOutputId": "out_7c6d598f1a103ac6ea169eaf",
+    "previousSelectionRevisionId": "selection_d0024925387a136bcc0d6dfce42e4f9affcf99a58167176a2a8aaa830a5392c4",
+    "nextOutputId": "out_55449be2f2e1846a4073387f",
+    "nextSelectionRevisionId": "selection_8bec7e8313d107a164f710e956ba2c13e36b516b5e95ffc368a26ea95f7e5375",
+    "triggerAction": "Open right exact population table",
+    "unrelatedDiagnosticsDropped": 0
+  },
+  "integrityClosure": {
+    "status": "PASS",
+    "source": {
+      "beforeSha256": "839326931c1342757431d09e6c674de9a3842b9a77cd434479f2d5a80451a457",
+      "afterSha256": "839326931c1342757431d09e6c674de9a3842b9a77cd434479f2d5a80451a457",
+      "files": 1498,
+      "changedPaths": []
+    },
+    "docs": {
+      "beforeSha256": "249e52058bb338470eadc29b446c3e1a156403cb828ed1b8865e83204cdfb59f",
+      "afterSha256": "249e52058bb338470eadc29b446c3e1a156403cb828ed1b8865e83204cdfb59f",
+      "files": 139,
+      "changedPaths": []
+    },
+    "apiBuildIdentity": "93c80c92ecdc7e5f3d7540c713c9612af329ecc901f3055c1908c3b272b59423:93c80c92ecdc7e5f3d7540c713c9612af329ecc901f3055c1908c3b272b59423:6ba105393f746f46111643988a47ac6a3480bb7e4ac6177e489b449c6e48d5e0",
+    "ownedMounts": "PASS unchanged",
+    "health": "PASS 3/3 before and after"
+  },
+  "artifacts": {
+    "fullReport": {
+      "path": "/private/tmp/loom-native-parallel-wave55/cda-workspace-combine/artifacts/cda-current-draft-group-jo-424dc-the-current-draft-lifecycle/cda-report.json",
+      "sha256": "0791bb4d0719d36aed3c7d4ffb9ee04bf5738781c6f52cf10ad0bcd9191f6956"
+    },
+    "closure": {
+      "path": "docs/verification/playwright/runtime/current-draft-cda-group-join-epoch55-closure.json",
+      "sha256": "ce8c84709bcbfa87528a83d2a4dc39cadbdcbb231db87ede7f97e10272315c90"
+    },
+    "errorContextSha256": "d30be5fb1ceff66a38678e537262b08cee389f481fd648f7fbff7372944d222a",
+    "playwrightResultsSha256": "826e4a00391eb85f77efcb1991c6ab931eadf28b57b542db509f32aaed2b10e1",
+    "runPlan": "/private/tmp/loom-native-parallel-wave55/run-plan.json"
+  },
+  "nextCheck": "The focused harness fix moves the expected-cancellation diagnostic check after final error projection. Rerun this exact case once; keep the real CDA Group\u2192Join lifecycle partial until all required checks and the strict final diagnostic gate pass."
+}

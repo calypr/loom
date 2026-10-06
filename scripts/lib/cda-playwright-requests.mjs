@@ -26,9 +26,11 @@ export function captureCDARequests(page, { apiOrigin, browserRequestOrigin = api
   const pendingReads = new Set();
   const waiters = new Set();
   let nextBrowserRequestId = 1;
+  const findOwnedMatch = (fromIndex, predicate) => report.nativeRequests.slice(fromIndex)
+    .find(entry => rawBodies.has(entry) && entry.completedAt && predicate(entry));
   const notify = () => {
     for (const waiter of [...waiters]) {
-      const match = report.nativeRequests.slice(waiter.fromIndex).find(entry => entry.completedAt && waiter.predicate(entry));
+      const match = findOwnedMatch(waiter.fromIndex, waiter.predicate);
       if (!match) continue;
       waiters.delete(waiter);
       clearTimeout(waiter.timer);
@@ -164,13 +166,14 @@ export function captureCDARequests(page, { apiOrigin, browserRequestOrigin = api
     rawResponseBody: entry => rawBodies.get(entry)?.response,
     waitFor(predicate, { fromIndex = 0, timeoutMs, timeout } = {}) {
       const deadlineMs = timeoutMs ?? timeout ?? 5000;
-      const match = report.nativeRequests.slice(fromIndex).find(entry => entry.completedAt && predicate(entry));
+      const match = findOwnedMatch(fromIndex, predicate);
       if (match) return Promise.resolve(match);
       return new Promise((resolve, reject) => {
         const waiter = { predicate, fromIndex, resolve, timer: undefined };
         waiter.timer = setTimeout(() => {
           waiters.delete(waiter);
-          const observed = report.nativeRequests.slice(fromIndex).map(({ origin, path, method, status, completedAt, failure }) => ({ origin, path, method, status, completed: Boolean(completedAt), failure }));
+          const observed = report.nativeRequests.slice(fromIndex).filter(entry => rawBodies.has(entry))
+            .map(({ origin, path, method, status, completedAt, failure }) => ({ origin, path, method, status, completed: Boolean(completedAt), failure }));
           reject(new Error(`Timed out waiting for owned CDA request: ${JSON.stringify(observed)}`));
         }, deadlineMs);
         waiters.add(waiter);
