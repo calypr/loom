@@ -11,6 +11,7 @@ import { framingWorkflow } from '../workflows/verify-cda-framing.mjs';
 import { identifierMultiplicityWorkflow } from '../workflows/verify-cda-identifier-multiplicity.mjs';
 import { lastTableWorkflow } from '../workflows/verify-cda-last-table.mjs';
 import { collectionRepairWorkflow } from '../workflows/verify-cda-collection-repair.mjs';
+import { startingCollectionHandoffWorkflow } from '../workflows/verify-cda-starting-collection-handoff.mjs';
 import { rowSourcesWorkflow } from '../workflows/verify-cda-row-sources-browser.mjs';
 import { tableManagementWorkflow } from '../workflows/verify-cda-table-management-browser.mjs';
 import { mixedSiblingCountWorkflow } from '../workflows/verify-cda-mixed-sibling-count-browser.mjs';
@@ -163,6 +164,18 @@ test.describe('CDA collection repair', () => {
 
   test('remove an unmapped selected resource, verify the saved route, and reload', async ({ page, cda }) => {
     await collectionRepairWorkflow({ page, cda });
+  });
+});
+
+test.describe('CDA starting collection handoff', () => {
+  test.use({
+    cdaScenarioID: 'cda-starting-collection-handoff',
+    cdaCaseName: 'initial-selection-handoff-route-preview-apply-reload',
+    cdaRequireSourceFixture: true,
+  });
+
+  test('hand off a starting collection, attach its route, preview, and reload', async ({ page, cda }) => {
+    await startingCollectionHandoffWorkflow({ page, cda });
   });
 });
 

@@ -1,0 +1,203 @@
+{
+  "epoch": 101,
+  "status": "CLOSED_PASS",
+  "case": {
+    "scenarioId": "cda-starting-collection-handoff",
+    "caseName": "initial-selection-handoff-route-preview-apply-reload",
+    "status": "passed",
+    "failureAttribution": null,
+    "requiredChecks": {
+      "total": 9,
+      "passed": 9,
+      "missingOrUnrun": 0,
+      "missingOrFailed": 0,
+      "evidence": [
+        {
+          "name": "bounded raw CDA oracle proves exact Observation-to-Patient preview membership",
+          "status": "passed"
+        },
+        {
+          "name": "immutable handoff selection preserves exact scoped Observation membership",
+          "status": "passed"
+        },
+        {
+          "name": "standalone URL handoff loads the exact revision through the browser",
+          "status": "passed"
+        },
+        {
+          "name": "native route apply saves the exact collection and subject route",
+          "status": "passed"
+        },
+        {
+          "name": "automatic preview matches exact raw Patient membership",
+          "status": "passed"
+        },
+        {
+          "name": "reload restores the handed-off collection, route, columns, construction, and preview",
+          "status": "passed"
+        },
+        {
+          "name": "native handoff, apply, preview, and reload checkpoints complete within five seconds",
+          "status": "passed"
+        },
+        {
+          "name": "no unexpected HTTP or workflow errors occur",
+          "status": "passed"
+        },
+        {
+          "name": "CDA watched source and API build stayed unchanged",
+          "status": "passed"
+        }
+      ]
+    },
+    "assertions": {
+      "passed": 16,
+      "failed": 0,
+      "total": 16
+    },
+    "actions": {
+      "passed": 6,
+      "failed": 0,
+      "total": 6,
+      "maxElapsedMs": 207
+    },
+    "dimensions": {
+      "usability": "passed",
+      "correctness": "passed",
+      "persistence": "passed",
+      "performance": "passed"
+    },
+    "timingEvidence": {
+      "budgetMs": 5000,
+      "checkpoints": [
+        {
+          "name": "standalone URL handoff to visible starting collection",
+          "durationMs": 1597
+        },
+        {
+          "name": "native Apply to exact rendered Patient preview",
+          "durationMs": 847
+        },
+        {
+          "name": "reload to exact preview and restored starting collection",
+          "durationMs": 1711
+        }
+      ]
+    }
+  },
+  "integrityClosure": {
+    "status": "PASS",
+    "source": {
+      "before": {
+        "sha256": "14c1472d363b3ab5d9842110bd84ea0038cdce1dd4f554021eaae1726f9d4e03",
+        "files": 1530
+      },
+      "after": {
+        "sha256": "14c1472d363b3ab5d9842110bd84ea0038cdce1dd4f554021eaae1726f9d4e03",
+        "files": 1530
+      },
+      "manifestsEqual": true,
+      "changedPaths": [],
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-starting-collection-handoff-wave101/source-before.json",
+        "sha256": "db13ceb5a3ed11f3117d645723e848a3c25869ed9a5d7ca51761e7357b0f8b69"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-starting-collection-handoff-wave101/source-after.json",
+        "sha256": "6c1d1fd7b78111f0a5fc127e1f373c68a25d45f504330376df96f8cad8c7a42f"
+      }
+    },
+    "docs": {
+      "before": {
+        "sha256": "ffa2d54d8101640e7343243bded45033fe72d0880030d11223b733b57e5285ef",
+        "files": 236
+      },
+      "after": {
+        "sha256": "ffa2d54d8101640e7343243bded45033fe72d0880030d11223b733b57e5285ef",
+        "files": 236
+      },
+      "manifestsEqual": true,
+      "changedPaths": [],
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-starting-collection-handoff-wave101/docs-before.json",
+        "sha256": "2a73d4027d6ab59bdeb4a6275867b33ffe43aff80dfc2664def968a2e2c7e781"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-starting-collection-handoff-wave101/docs-after.json",
+        "sha256": "23739af3f25f7a955be9dd524b043fcc9ad59fbe4d3d91082975d46498aed0a8"
+      }
+    },
+    "apiBuildIdentity": {
+      "before": "822057db180c8c0546d89df455064981df2277beb70b55b85aafcb2539d4aae8:822057db180c8c0546d89df455064981df2277beb70b55b85aafcb2539d4aae8:cf3f98094a02760d5a6acf62e274ca2acaf5993096d3c3af665d8595093aedc1",
+      "after": "822057db180c8c0546d89df455064981df2277beb70b55b85aafcb2539d4aae8:822057db180c8c0546d89df455064981df2277beb70b55b85aafcb2539d4aae8:cf3f98094a02760d5a6acf62e274ca2acaf5993096d3c3af665d8595093aedc1",
+      "precheck": "822057db180c8c0546d89df455064981df2277beb70b55b85aafcb2539d4aae8:822057db180c8c0546d89df455064981df2277beb70b55b85aafcb2539d4aae8:cf3f98094a02760d5a6acf62e274ca2acaf5993096d3c3af665d8595093aedc1",
+      "unchanged": true,
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-starting-collection-handoff-wave101/api-identity-before.json",
+        "sha256": "cc0569db915801279c989070cb26c5e6e1cf9eabd8b7171b86842b1694483f4b"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-starting-collection-handoff-wave101/api-identity-after.json",
+        "sha256": "280f540e6e8a46518ded20373f4bad1658738abff07f1e58ccecd18e4ca1f9c2"
+      },
+      "precheckArtifact": {
+        "path": "/private/tmp/loom-native-starting-collection-handoff-wave101/api-build-precheck-confirmed.json",
+        "sha256": "1ad86467b10db4239dfd11f914be9e037e52610367a0f4347659b42f8620b8fe"
+      }
+    },
+    "ownedMounts": {
+      "before": "PASS",
+      "after": "PASS",
+      "targetUnchanged": true,
+      "target": {
+        "project": "loom_dev_cda_fhir",
+        "composeProject": "loom-dev-6d7df93d6a37",
+        "apiContainer": "loom-dev-6d7df93d6a37-loom-api-1",
+        "uiContainer": "loom-dev-6d7df93d6a37-loom-ui-1",
+        "arangoContainer": "loom-dev-6d7df93d6a37-arangodb-1",
+        "clickhouseContainer": "loom-dev-6d7df93d6a37-clickhouse-1",
+        "apiPort": "8188",
+        "uiPort": "30008",
+        "sourceRoot": "/private/tmp/loom-construction-implementation",
+        "generation": "cda-fhir-v1"
+      },
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-starting-collection-handoff-wave101/owned-mounts-before.json",
+        "sha256": "474c3d93c28e9d15af5709b0ccbd4f8f6a9cc82bd98e67a504334fe0259c733d"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-starting-collection-handoff-wave101/owned-mounts-after.json",
+        "sha256": "9a80a677ead637a7b85235a65511c93c3c86bf1d890f5673984dd1011211bfd5"
+      }
+    },
+    "health": {
+      "before": {
+        "status": "PASS",
+        "samples": 3
+      },
+      "after": {
+        "status": "PASS",
+        "samples": 3
+      },
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-starting-collection-handoff-wave101/health-before.json",
+        "sha256": "89e3f959f7c3aef5fdc7815fb9d643df5a48afeb121b35f9d137fa7a0244a645"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-starting-collection-handoff-wave101/health-after.json",
+        "sha256": "542df93169105610354c9ec665b0a9386a1989d2a162872e8c08ebf8220bde42"
+      }
+    }
+  },
+  "coordinatorClosure": {
+    "path": "/private/tmp/loom-native-starting-collection-handoff-wave101/closure.json",
+    "sha256": "bc1f43a8e27148fd580335e978a6e397b6148821769964e76328c6662821115f",
+    "status": "CLOSED_INTEGRITY_PASS_BROWSER_PASS",
+    "rootAcceptance": {
+      "baselineAccepted": true,
+      "browserReleased": true,
+      "integrityClosureAccepted": true,
+      "casePass": true
+    }
+  }
+}

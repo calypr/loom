@@ -1,0 +1,262 @@
+{
+  "schemaVersion": 1,
+  "epoch": 101,
+  "scenario": "cda-starting-collection-handoff",
+  "case": "initial-selection-handoff-route-preview-apply-reload",
+  "title": "hand off a starting collection, attach its route, preview, and reload",
+  "status": "passed",
+  "scope": "Direct starting-collection handoff, native route attachment and Apply, exact preview, and reload. This does not claim other route or selection variants.",
+  "cancel": {
+    "status": "not-applicable",
+    "reason": "Use selected resources saves directly; this attachment action has no Cancel step."
+  },
+  "requiredChecks": {
+    "passed": 9,
+    "failed": 0,
+    "unrun": 0,
+    "total": 9,
+    "names": [
+      "bounded raw CDA oracle proves exact Observation-to-Patient preview membership",
+      "immutable handoff selection preserves exact scoped Observation membership",
+      "standalone URL handoff loads the exact revision through the browser",
+      "native route apply saves the exact collection and subject route",
+      "automatic preview matches exact raw Patient membership",
+      "reload restores the handed-off collection, route, columns, construction, and preview",
+      "native handoff, apply, preview, and reload checkpoints complete within five seconds",
+      "no unexpected HTTP or workflow errors occur",
+      "CDA watched source and API build stayed unchanged"
+    ]
+  },
+  "assertions": {
+    "passed": 16,
+    "failed": 0,
+    "total": 16
+  },
+  "nativeActions": {
+    "passed": 6,
+    "total": 6,
+    "failed": 0,
+    "maxElapsedMs": 207
+  },
+  "dimensions": {
+    "usability": "passed",
+    "correctness": "passed",
+    "persistence": "passed",
+    "performance": "passed"
+  },
+  "oracle": {
+    "project": "loom_dev_cda_fhir",
+    "generation": "cda-fhir-v1",
+    "relationship": "Observation -[subject_Patient]-> Patient",
+    "witnessLimit": 4000,
+    "observationIds": [
+      "00002c8f-7dc7-570e-83c1-68ea3a69b385",
+      "00004888-0740-540e-bc75-68b5192fbf5a"
+    ],
+    "patientIds": [
+      "3cb852ae-a654-5529-91b5-2bd4bbceb501",
+      "74cdb5d0-d1a0-5b9b-bf34-e74272109710"
+    ]
+  },
+  "handoff": {
+    "selectionRevisionId": "selection_090905e0d5d0f1e7dbd025f786c3169caed9964a6aefef22d445828d5529d668",
+    "scopeDigest": "ec9d970710fa72b2edaa12c9080c3861e1c191935535582b23f0a29b50f042d6",
+    "memberRefs": [
+      {
+        "generation": "cda-fhir-v1",
+        "id": "00002c8f-7dc7-570e-83c1-68ea3a69b385",
+        "project": "loom_dev_cda_fhir",
+        "resourceType": "Observation"
+      },
+      {
+        "generation": "cda-fhir-v1",
+        "id": "00004888-0740-540e-bc75-68b5192fbf5a",
+        "project": "loom_dev_cda_fhir",
+        "resourceType": "Observation"
+      }
+    ],
+    "queryParameter": "selection"
+  },
+  "appliedRoute": {
+    "selectionRevisionId": "selection_090905e0d5d0f1e7dbd025f786c3169caed9964a6aefef22d445828d5529d668",
+    "route": [
+      {
+        "resourceType": "Observation",
+        "relationship": "subject_Patient",
+        "catalogEdgeId": "e_01d115023de6fde22eca61fe",
+        "storageDirection": "INBOUND"
+      }
+    ],
+    "nativeApplyStatus": 200,
+    "columnsPreserved": true,
+    "constructionPreserved": true,
+    "draftVersion": 3,
+    "draftDigest": "sha256:cf521c2a5e2becee33ca3167b2e215645e6c6d543d55ceeb17f2332902d1e403",
+    "receiptId": "receipt_034d12271e7d5b4ab9e8e4045b5f7801beedfe2ce6952ef919980a2e62939f3e"
+  },
+  "preview": {
+    "rowCount": 2,
+    "headers": [
+      "Patient ID"
+    ],
+    "patientIds": [
+      "3cb852ae-a654-5529-91b5-2bd4bbceb501",
+      "74cdb5d0-d1a0-5b9b-bf34-e74272109710"
+    ],
+    "rawPatientIds": [
+      "3cb852ae-a654-5529-91b5-2bd4bbceb501",
+      "74cdb5d0-d1a0-5b9b-bf34-e74272109710"
+    ],
+    "responseStatus": 200,
+    "receiptId": "receipt_034d12271e7d5b4ab9e8e4045b5f7801beedfe2ce6952ef919980a2e62939f3e"
+  },
+  "reload": {
+    "selectionRevisionId": "selection_090905e0d5d0f1e7dbd025f786c3169caed9964a6aefef22d445828d5529d668",
+    "route": [
+      {
+        "resourceType": "Observation",
+        "relationship": "subject_Patient",
+        "catalogEdgeId": "e_01d115023de6fde22eca61fe",
+        "storageDirection": "INBOUND"
+      }
+    ],
+    "columnsPreserved": true,
+    "constructionPreserved": true,
+    "patientIds": [
+      "3cb852ae-a654-5529-91b5-2bd4bbceb501",
+      "74cdb5d0-d1a0-5b9b-bf34-e74272109710"
+    ],
+    "receiptId": "receipt_034d12271e7d5b4ab9e8e4045b5f7801beedfe2ce6952ef919980a2e62939f3e",
+    "selectionReadCount": 3
+  },
+  "timing": {
+    "budgetMs": 5000,
+    "checkpoints": [
+      {
+        "name": "standalone URL handoff to visible starting collection",
+        "durationMs": 1597
+      },
+      {
+        "name": "native Apply to exact rendered Patient preview",
+        "durationMs": 847
+      },
+      {
+        "name": "reload to exact preview and restored starting collection",
+        "durationMs": 1711
+      }
+    ]
+  },
+  "integrity": {
+    "closureStatus": "PASS",
+    "sourceBeforeAfter": {
+      "before": {
+        "sha256": "14c1472d363b3ab5d9842110bd84ea0038cdce1dd4f554021eaae1726f9d4e03",
+        "files": 1530
+      },
+      "after": {
+        "sha256": "14c1472d363b3ab5d9842110bd84ea0038cdce1dd4f554021eaae1726f9d4e03",
+        "files": 1530
+      },
+      "unchanged": true,
+      "manifestsEqual": true,
+      "changedPaths": []
+    },
+    "apiBuildIdentity": {
+      "before": "822057db180c8c0546d89df455064981df2277beb70b55b85aafcb2539d4aae8:822057db180c8c0546d89df455064981df2277beb70b55b85aafcb2539d4aae8:cf3f98094a02760d5a6acf62e274ca2acaf5993096d3c3af665d8595093aedc1",
+      "after": "822057db180c8c0546d89df455064981df2277beb70b55b85aafcb2539d4aae8:822057db180c8c0546d89df455064981df2277beb70b55b85aafcb2539d4aae8:cf3f98094a02760d5a6acf62e274ca2acaf5993096d3c3af665d8595093aedc1",
+      "unchanged": true
+    },
+    "apiBuildIdentityUnchanged": true,
+    "ownedMounts": {
+      "before": "PASS",
+      "after": "PASS",
+      "targetUnchanged": true
+    },
+    "health": {
+      "before": {
+        "status": "PASS",
+        "samples": 3
+      },
+      "after": {
+        "status": "PASS",
+        "samples": 3
+      },
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-starting-collection-handoff-wave101/health-before.json",
+        "sha256": "89e3f959f7c3aef5fdc7815fb9d643df5a48afeb121b35f9d137fa7a0244a645"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-starting-collection-handoff-wave101/health-after.json",
+        "sha256": "542df93169105610354c9ec665b0a9386a1989d2a162872e8c08ebf8220bde42"
+      }
+    }
+  },
+  "diagnostics": {
+    "unexpectedErrors": [],
+    "unexpectedNetworkFailures": 0,
+    "incidentalAssetFailures": [
+      {
+        "kind": "asset-failure",
+        "url": "http://127.0.0.1:30008/favicon.ico",
+        "status": 404
+      },
+      {
+        "kind": "console",
+        "url": "http://127.0.0.1:30008/favicon.ico",
+        "status": 404
+      }
+    ]
+  },
+  "runner": {
+    "session": 60978,
+    "exitCode": 0,
+    "testDurationMs": 16822,
+    "runDurationMs": 18195.063000000002,
+    "startedAt": "2026-10-06T16:14:46.043Z",
+    "finishedAt": "2026-10-06T16:15:02.114Z"
+  },
+  "rawEvidence": {
+    "reportPath": "/private/tmp/loom-native-starting-collection-handoff-wave101/attempt1/artifacts/standalone-cda-other-CDA-s-80298-ts-route-preview-and-reload/cda-report.json",
+    "reportSha256": "5ee69f86c858fbcd85b6be607b8fde1e33d6f132b05339f9b7408ca8e8a5a68f",
+    "closurePath": "/private/tmp/loom-native-starting-collection-handoff-wave101/closure.json",
+    "closureSha256": "bc1f43a8e27148fd580335e978a6e397b6148821769964e76328c6662821115f"
+  },
+  "runnableCommand": "set -euo pipefail\nsource '/private/tmp/loom-native-starting-collection-handoff-wave101/browser-environment.sh'\nexport LOOM_ARANGO_CONTAINER=\"$LOOM_CDA_ARANGO_CONTAINER\"\nexport LOOM_ARANGO_DATABASE='loom_dev'\nunset LOOM_CDA_EXPLORER_ID LOOM_CDA_EXPLORER LOOM_QA_EXPLORER\nmkdir -p '/private/tmp/loom-native-starting-collection-handoff-wave101/attempt1'\nPLAYWRIGHT_JSON_OUTPUT_FILE='/private/tmp/loom-native-starting-collection-handoff-wave101/attempt1/results.json' npm --prefix scripts run test:browser -- 'verify-ui/specs/standalone-cda-other.spec.mjs' --grep 'hand off a starting collection, attach its route, preview, and reload$' --output '/private/tmp/loom-native-starting-collection-handoff-wave101/attempt1/artifacts' 2>&1 | tee '/private/tmp/loom-native-starting-collection-handoff-wave101/attempt1/runner.log'",
+  "runnerStatus": "passed",
+  "coverageStatus": "passed",
+  "durableClosurePath": "docs/verification/playwright/runtime/starting-collection-handoff-epoch101-closure.json",
+  "target": {
+    "kind": "owned-cda",
+    "project": "loom_dev_cda_fhir",
+    "composeProject": "loom-dev-6d7df93d6a37",
+    "generation": "cda-fhir-v1",
+    "sourceRoot": "/private/tmp/loom-construction-implementation",
+    "sourceFingerprint": {
+      "sha256": "14c1472d363b3ab5d9842110bd84ea0038cdce1dd4f554021eaae1726f9d4e03",
+      "files": 1530
+    },
+    "apiBuildIdentity": "822057db180c8c0546d89df455064981df2277beb70b55b85aafcb2539d4aae8:822057db180c8c0546d89df455064981df2277beb70b55b85aafcb2539d4aae8:cf3f98094a02760d5a6acf62e274ca2acaf5993096d3c3af665d8595093aedc1"
+  },
+  "apiBuildIdentity": "822057db180c8c0546d89df455064981df2277beb70b55b85aafcb2539d4aae8:822057db180c8c0546d89df455064981df2277beb70b55b85aafcb2539d4aae8:cf3f98094a02760d5a6acf62e274ca2acaf5993096d3c3af665d8595093aedc1",
+  "finishedAt": "2026-10-06T16:15:02.114Z",
+  "requestDiagnostics": {
+    "unexpectedNetworkFailures": 0,
+    "populationRouteEntries": [
+      {
+        "method": "POST",
+        "path": "/api/v1/projects/loom_dev_cda_fhir/explorers/selection-handoff-0b972009-8f26-4f6c-906e-4c3c75619ca5/authoring/v2/population-routes",
+        "status": 200,
+        "requestId": null,
+        "failure": null
+      },
+      {
+        "method": "POST",
+        "path": "/api/v1/projects/loom_dev_cda_fhir/explorers/selection-handoff-0b972009-8f26-4f6c-906e-4c3c75619ca5/authoring/v2/population-routes",
+        "status": null,
+        "requestId": null,
+        "failure": null
+      }
+    ],
+    "note": "The native request recorder contains one completed HTTP 200 population-routes entry and one unfinished entry for that same method/path. The unfinished entry is retained as diagnostic evidence; the case reports zero unexpected network failures."
+  }
+}

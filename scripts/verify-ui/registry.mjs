@@ -1080,6 +1080,58 @@ export const registry = Object.freeze([
     ],
   }),
   Object.freeze({
+    id: 'cda-starting-collection-handoff',
+    workflow: 'standalone-selection-handoff-route-preview-reload',
+    hooks: [
+      'useGetExplorerBuilderStateV2Query',
+      'useResolvePopulationSelectionQuery',
+      'useApplyExplorerBuilderCommandsV2Mutation',
+      'usePreviewExplorerAuthoringV2Mutation',
+    ],
+    endpoints: [
+      'POST /api/v1/projects/{project}/explorers',
+      'GET /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/builder',
+      'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/commands',
+      'POST /api/v1/projects/{project}/explorers/{explorer}/selections',
+      'GET /api/v1/projects/{project}/explorers/{explorer}/selections/{selectionRevision}',
+      'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/population-routes',
+      'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/preview',
+    ],
+    requiredTransitions: [
+      'find two distinct scoped Patient subjects for bounded Observation records in the pinned CDA generation',
+      'seed a per-run QA Explorer and Patient.id table, then create an immutable Observation selection matching the exact raw witnesses',
+      'hand the selection through the standalone demo selection query parameter and load it in LoomExplorerBuilder',
+      'natively apply the compiler-proved subject route and compare the automatic Patient preview with independent raw membership',
+      'reload with the same URL handoff and preserve the exact selection, route, columns, construction, and preview',
+    ],
+    gateReasons: [
+      'the native case requires the explicitly owned CDA project, pinned generation, API, UI, and source-backed Arango fixture',
+      'the bounded raw oracle must contain two Observations with distinct Patient subjects before it creates a per-run QA Explorer',
+      'the standalone host already reads the selection query parameter and passes the revision through the public LoomExplorerBuilder prop; native route apply and reload exercise that host and SDK path',
+      'raw Arango membership and subject edges are independent of the UI preview; direct API setup is scoped to the new uniquely named QA Explorer',
+    ],
+    script: 'verify-cda-starting-collection-handoff.mjs',
+    cases: {
+      'initial-selection-handoff-route-preview-apply-reload': {
+        playwrightTest: 'scripts/verify-ui/specs/standalone-cda-other.spec.mjs',
+        requiredChecks: [
+          'bounded raw CDA oracle proves exact Observation-to-Patient preview membership',
+          'immutable handoff selection preserves exact scoped Observation membership',
+          'standalone URL handoff loads the exact revision through the browser',
+          'native route apply saves the exact collection and subject route',
+          'automatic preview matches exact raw Patient membership',
+          'reload restores the handed-off collection, route, columns, construction, and preview',
+          'native handoff, apply, preview, and reload checkpoints complete within five seconds',
+          'no unexpected HTTP or workflow errors occur',
+          'CDA watched source and API build stayed unchanged',
+        ],
+      },
+    },
+    coverage: [
+      { feature: 'initial standalone selection handoff through native route apply, exact preview, and reload', status: 'implemented', reason: 'Epoch101 passed all 9 registered checks, 16 assertions, and 6 native actions (max 207 ms). The bounded scoped raw Observation-to-Patient oracle and rendered preview/reload agree on exactly Patient IDs 3cb852ae-a654-5529-91b5-2bd4bbceb501 and 74cdb5d0-d1a0-5b9b-bf34-e74272109710. Direct URL handoff, route Apply, and reload checkpoints were 1,597/847/1,711 ms (5,000 ms budget). Source/API identity and owned mounts were unchanged; before/after health passed 3/3. One unfinished population-routes recorder entry is retained alongside its HTTP 200 entry; unexpected network failures were zero. Cancel is not applicable to this direct attachment. Other routes and selection variants remain separate. Report docs/verification/playwright/runtime/starting-collection-handoff-epoch101-report.json; closure docs/verification/playwright/runtime/starting-collection-handoff-epoch101-closure.json.' },
+    ],
+  }),
+  Object.freeze({
     id: 'standalone-reshape-related-source-after-pivot',
     workflow: 'cda-related-source-after-pivot-contributor-lifecycle',
     hooks: [
