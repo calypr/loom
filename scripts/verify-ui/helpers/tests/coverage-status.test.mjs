@@ -45,6 +45,19 @@ test('every registry case resolves its Playwright mapping and owned/custom check
   assert.throws(() => scenarioCaseFor('unknown-scenario', 'case'), /unknown scenario: unknown-scenario/);
 });
 
+test('partial long-route collection repair owns one registered case while legacy variants stay unregistered', () => {
+  const scenario = registry.find((entry) => entry.id === 'cda-collection-repair-partial');
+  assert.ok(scenario, 'the exact partial long-route variant has a registry contract');
+  const contract = scenarioCaseFor(scenario, 'partial-long-route-repair-and-reload');
+  assert.equal(contract.playwrightTest, 'scripts/verify-ui/specs/standalone-cda-other.spec.mjs');
+  assert.equal(contract.requiredChecks.length, 11);
+  assert.equal(new Set(contract.requiredChecks).size, contract.requiredChecks.length);
+  assert.equal(registry.some((entry) => entry.id === 'cda-collection-repair'), false,
+    'legacy default and long-route reports retain their previously unregistered scenario identity');
+  assert.throws(() => scenarioCaseFor(scenario, 'long-route-repair-and-reload'), /unknown case/);
+  assert.throws(() => scenarioCaseFor(scenario, 'unmapped-parent-repair-and-reload'), /unknown case/);
+});
+
 test('a scenario pass with untested dimensions is only partial evidence', () => {
   assert.equal(classifyEvidence({ status: 'passed', dimensions: { ...complete, persistence: { status: 'untested' } } }), 'partial');
   assert.equal(classifyEvidence({ status: 'passed', dimensions: complete }), 'passed');

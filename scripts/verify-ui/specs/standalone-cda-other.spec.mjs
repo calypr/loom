@@ -156,7 +156,7 @@ test.describe('CDA collection repair', () => {
   const partialLongRoute = process.env.LOOM_COLLECTION_PARTIAL_LONG_ROUTE === '1';
   const longRoute = process.env.LOOM_COLLECTION_LONG_ROUTE === '1' || partialLongRoute;
   test.use({
-    cdaScenarioID: 'cda-collection-repair',
+    cdaScenarioID: partialLongRoute ? 'cda-collection-repair-partial' : 'cda-collection-repair',
     cdaCaseName: partialLongRoute ? 'partial-long-route-repair-and-reload' : longRoute ? 'long-route-repair-and-reload' : 'unmapped-parent-repair-and-reload',
     cdaRequireSourceFixture: true,
   });

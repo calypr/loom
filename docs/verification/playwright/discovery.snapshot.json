@@ -2,16 +2,16 @@
   "schemaVersion": 1,
   "kind": "official-playwright-static-discovery",
   "sourceRoot": ".",
-  "baseCommit": "2194f2ab723ca01374a5d38375c7bf31f53cfd9e",
+  "baseCommit": "9146d93f78e72d93c13cb54dff80c0eeb630e7d4",
   "status": "discovery-only",
   "runtimeStatus": "not-run",
   "commandTemplate": "<repo>/scripts/node_modules/.bin/playwright test --config <configPath> --list --reporter=json",
-  "note": "Captured from five official Playwright --list --reporter=json outputs. These reports list registrations only and skip every test body; no lifecycle ran. The five session counts sum to 168 entries.",
+  "note": "Captured from 6 official Playwright --list --reporter=json outputs. These reports list registrations only and skip every test body; no lifecycle ran. The 6 session counts sum to 169 entries.",
   "mainDiscoveryTestCount": 164,
   "mainDiscoverySpecFileCount": 26,
   "dedicatedBenchmarkTestCount": 1,
   "dedicatedBenchmarkSpecFileCount": 1,
-  "totalDeclaredTestCount": 168,
+  "totalDeclaredTestCount": 169,
   "sessions": [
     {
       "sessionID": "main",
@@ -822,7 +822,7 @@
         },
         {
           "path": "scripts/verify-ui/specs/standalone-cda-other.spec.mjs",
-          "sha256": "79fa9a6b68c2cdfca3e91475e0d0044bdc9260fd798a66599757500b5189d211",
+          "sha256": "3bfb26642867c8442f3cbaad43e6a7246a1e767b5f86455035a4183c636b2a49",
           "cases": [
             {
               "title": "cancel each coded suggestion dialog without changing the draft",
@@ -1346,6 +1346,32 @@
               "id": "437ed127b10ff3c054fb-2a684fa81c551a813709",
               "line": 9,
               "column": 1,
+              "occurrence": 1
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sessionID": "collection-partial-long-route",
+      "configPath": "scripts/playwright.config.mjs",
+      "configSha256": "d16ccb10ccf63f8a711ae7f8c5b61d4bc44452172e9a309a06cab32ce30f69bc",
+      "environment": {
+        "LOOM_COLLECTION_PARTIAL_LONG_ROUTE": "1"
+      },
+      "testCount": 1,
+      "specFileCount": 1,
+      "discoveredCasesSha256": "6214cf0ee7a22fd53bf094c924afabecdcec288a04303b7c65f312bcf0efab12",
+      "specs": [
+        {
+          "path": "scripts/verify-ui/specs/standalone-cda-other.spec.mjs",
+          "sha256": "3bfb26642867c8442f3cbaad43e6a7246a1e767b5f86455035a4183c636b2a49",
+          "cases": [
+            {
+              "title": "remove an unmapped selected resource, verify the saved route, and reload",
+              "id": "4d172c4a6a38586646e6-5405fbd63533ae57b73b",
+              "line": 164,
+              "column": 3,
               "occurrence": 1
             }
           ]

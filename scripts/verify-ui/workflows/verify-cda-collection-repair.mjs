@@ -5,11 +5,16 @@ import { sanitizeText } from '../helpers/playwright-browser.mjs';
 import { requireUnique } from '../helpers/playwright-actions.mjs';
 import { captureCDARequests } from '../helpers/cda-playwright-requests.mjs';
 import { waitForCondition } from '../helpers/playwright-observations.mjs';
+import { scenarioCaseFor } from '../registry.mjs';
 
 export async function collectionRepairWorkflow({ page, cda }) {
 const apiOrigin = cda.apiOrigin;
 const uiOrigin = cda.uiOrigin;
 const partialLongRoute=process.env.LOOM_COLLECTION_PARTIAL_LONG_ROUTE==='1';
+const requiredChecks = partialLongRoute
+  ? scenarioCaseFor('cda-collection-repair-partial', 'partial-long-route-repair-and-reload').requiredChecks
+  : [];
+assert(!partialLongRoute || JSON.stringify(requiredChecks) === JSON.stringify(cda.report.requiredChecks), 'CDA fixture report must use the registered partial long-route contract');
 const longRoute=process.env.LOOM_COLLECTION_LONG_ROUTE==='1'||partialLongRoute;
 const project = cda.project;
 const apiContainer = cda.target.apiContainer;
@@ -23,6 +28,12 @@ const selections = base.replace('/authoring/v2','/selections');
 const report = Object.assign(cda.report, { longRoute, partialLongRoute, explorer, cases: [], requests: [], browserRequests: [], nativeRequests: [], errors: [], exceptions: [], http: [], incidental: [], responses: [], responseCaptureErrors: [], started: new Date().toISOString() });
 const recordCase = result => {
   report.cases.push(result);
+};
+const recordRequirement = (index, dimension, passed, evidence) => {
+  if (!partialLongRoute) return;
+  const name = requiredChecks[index];
+  assert(name, `Partial long-route case is missing registered required check ${index}`);
+  cda.check(dimension, name, passed, evidence);
 };
 const api = async (path, body) => {
   const request = { path, body, requestId: `collection-repair-${randomUUID()}` };
@@ -217,6 +228,7 @@ try {
     assert(expectedObservationIDs.length<=25,'Mapped Observation roots must fit the complete 25-row native preview limit');
     selectedResources=[...mappedResources,unmapped];
     report.oracle={query:routeOracleQuery,seedLimit:4000,mapped:mappedResources.map(mapped=>({id:mapped.id,parentIDs:mapped.parents,rawObservationIDs:mapped.routeRows})),unmapped:{id:unmapped.id,parentIDs:unmapped.parents,childIDs:unmapped.children}};
+    recordRequirement(0, 'correctness', true, { project, generation: 'cda-fhir-v1', mappedSpecimenIDs: mappedResources.map(resource => resource.id), observationIDs: expectedObservationIDs, unmappedSpecimenID: unmapped.id, seedLimit: 4000 });
   }else{
     const specimens = rawQuery(`FOR s IN Specimen FILTER s.project == "${project}" AND s.dataset_generation == "cda-fhir-v1" LIMIT 10 LET parents = (FOR e IN fhir_edge FILTER e._from == s._id AND e.label == "parent" AND e.project == "${project}" AND e.dataset_generation == "cda-fhir-v1" RETURN e._to) LET children = (FOR e IN fhir_edge FILTER e._to == s._id AND e.label == "parent" AND e.project == "${project}" AND e.dataset_generation == "cda-fhir-v1" LET child = DOCUMENT(e._from) FILTER child.project == "${project}" AND child.dataset_generation == "cda-fhir-v1" RETURN child.id) RETURN {id:s.id, parents, children}`);
     selected = specimens.find(s=>s.parents.length===0 && s.children.length>0);
@@ -245,7 +257,8 @@ try {
   assert.equal(selectionPage.revision.scopeDigest,scopeDigest);
   assert.equal(selectionPage.revision.generation,generation);
   assert.equal(selectionPage.revision.resourceType,'Specimen');
-  assert.deepEqual(selectionPage.members.map(member=>member.ref).sort((a,b)=>a.id.localeCompare(b.id)),selectedResources.map(resource=>({project,generation,resourceType:'Specimen',id:resource.id})).sort((a,b)=>a.id.localeCompare(b.id)),'The initial selection must contain exactly the two scoped raw Specimen witnesses');
+  assert.deepEqual(selectionPage.members.map(member=>member.ref).sort((a,b)=>a.id.localeCompare(b.id)),selectedResources.map(resource=>({project,generation,resourceType:'Specimen',id:resource.id})).sort((a,b)=>a.id.localeCompare(b.id)),'The initial selection must contain exactly the scoped raw Specimen witnesses');
+  recordRequirement(1, 'correctness', true, { selectionId: selection.id, project: selection.project, generation: selection.generation, scopeDigest: selection.scopeDigest, memberCount: selectionPage.members.length, memberIDs: selectionPage.members.map(member => member.ref.id) });
   const routes = await api(base+'/population-routes', {snapshotToken:builder.catalog.snapshotToken,outputId,selectionRevisionId:selection.id,limit:50});
   report.parentChoices = routes.choices.filter(c=>c.route.length===1 && c.route[0].relationship==='parent');
   // Routes run from table roots to selected members: parent roots reach child members inbound.
@@ -259,6 +272,7 @@ try {
   await command([{type:'SET_TABLE_POPULATION',outputId,selectionRevisionId:selection.id,routeChoiceId:parent.routeChoiceId}]);
   const original = builder.workspace.documents[0];
   if(partialLongRoute)assert.deepEqual(original.population.route,report.savedConnection,'The saved route must match the exact catalog route before collection repair');
+  if(partialLongRoute) recordRequirement(2, 'correctness', true, { route: report.savedConnection, columns: original.columns, construction: original.construction });
   requestMonitor = captureCDARequests(page, {
     apiOrigin: uiOrigin,
     appOrigins: [apiOrigin, uiOrigin],
@@ -292,6 +306,7 @@ try {
   if(partialLongRoute){
     const coverageText=await inspectPage(page, () => document.querySelector('[data-testid="population-coverage-report"]')?.innerText ?? '');
     assert(coverageText.includes(report.oracle.unmapped.id),`Coverage must identify the independently unmapped Specimen ${report.oracle.unmapped.id}: ${coverageText}`);
+    recordRequirement(3, 'correctness', true, { coverageText, unmappedSpecimenID: report.oracle.unmapped.id, expectedObservationIDs, previewCases: report.cases.filter(item => item.name.includes('preview')) });
   }
   const remove = page.getByRole('button', { name: 'Remove from collection', exact: true });
   await remove.waitFor({ state: 'visible', timeout: 5000 });
@@ -330,6 +345,7 @@ try {
     const rawMembership=rawQuery(`FOR member IN loom_explorer_selection_members FILTER member.selectionId==${JSON.stringify(variantID)} AND member.project==${JSON.stringify(project)} AND member.generation==${JSON.stringify(generation)} AND member.resourceType=="Specimen" SORT member.id RETURN {id:member.id,project:member.project,generation:member.generation,resourceType:member.resourceType}`);
     assert.deepEqual(rawMembership,expectedMappedRefs,'Raw Arango membership must retain both mapped CDA Specimens');
     report.partialRepair={selectionRevisionId:variantID,membershipDigest:derived.revision.membershipDigest,retainedSpecimenIDs:mappedResources.map(mapped=>mapped.id),excludedSpecimenID:report.oracle.unmapped.id,expectedObservationIDs};
+    recordRequirement(4, 'correctness', true, { selectionRevisionId: variantID, membershipDigest: derived.revision.membershipDigest, retainedSpecimenIDs: mappedResources.map(mapped => mapped.id), rawMembership, excludedSpecimenID: report.oracle.unmapped.id, route: revised.population.route, columnsPreserved: JSON.stringify(revised.columns) === JSON.stringify(original.columns), constructionPreserved: JSON.stringify(revised.construction) === JSON.stringify(original.construction) });
   }
   assert(Date.now()-start<=5000,'Collection repair must finish within five seconds');
   recordCase({name:'remove-unmapped-record',durationMs:Date.now()-start});
@@ -339,12 +355,15 @@ try {
     const reloaded=builder.workspace.documents[0];
     assert.equal(builder.catalog.generation,generation);
     assert.deepEqual(reloaded.population.route,report.savedConnection,'Reload must preserve the exact saved Observation → Specimen → parent route');
+    assert.deepEqual(reloaded.columns,original.columns,'Reload after collection repair must preserve the saved columns');
+    assert.deepEqual(reloaded.construction,original.construction,'Reload after collection repair must preserve the saved construction');
     assert.equal(reloaded.population.selectionRevisionId,report.partialRepair.selectionRevisionId);
     const reloadedSelection=await api(`${selections}/${reloaded.population.selectionRevisionId}?limit=100`);
     assert.equal(reloadedSelection.revision.generation,generation);
     assert.equal(reloadedSelection.revision.resourceType,'Specimen');
     assert.deepEqual(reloadedSelection.members.map(member=>member.ref).sort((a,b)=>a.id.localeCompare(b.id)),expectedMappedRefs);
     await checkCoverage('partial-collection-reload','2 selected · 2 produce rows · 0 needs attention');
+    recordRequirement(5, 'persistence', true, { route: reloaded.population.route, selectionRevisionId: reloaded.population.selectionRevisionId, memberIDs: reloadedSelection.members.map(member => member.ref.id), generation: reloadedSelection.revision.generation, previewIDs: expectedObservationIDs, columns: reloaded.columns, construction: reloaded.construction });
   }else await checkCoverage('empty-collection-reload','0 selected · 0 produce rows · 0 needs attention');
   if(longRoute){
     const clearStart=Date.now();
@@ -364,6 +383,7 @@ try {
     assert(clearDuration<=5000,'Clearing the collection must render visible authorized records within five seconds');
     const verifiedIDs=rawQuery(`FOR d IN Observation FILTER d.id IN ${JSON.stringify(visibleIDs)} AND d.project=="${project}" AND d.dataset_generation=="cda-fhir-v1" RETURN d.id`);
     assert.deepEqual([...new Set(visibleIDs)].sort(),verifiedIDs.sort(),'Visible rows must belong to the scoped CDA source');
+    recordRequirement(6, 'correctness', true, { visibleObservationIDs: [...new Set(visibleIDs)].sort(), rawScopedObservationIDs: verifiedIDs.sort(), project, generation: 'cda-fhir-v1' });
     recordCase({name:'clear-long-collection-to-authorized-rows',durationMs:clearDuration,visibleIDs});
     const routeWaitStart=Date.now();
     await openRowSettings();
@@ -419,6 +439,7 @@ try {
     const attached=builder.workspace.documents[0];
     assert.deepEqual(attached.population,revised.population,'Native reattachment must preserve the revised selection and exact route direction');
     assert.deepEqual(attached.columns,original.columns);
+    assert.deepEqual(attached.construction,original.construction,'Native reattachment must preserve the saved construction');
     if(partialLongRoute){
       assert.equal(attached.population.selectionRevisionId,report.partialRepair.selectionRevisionId);
       assert.deepEqual(attached.population.route,report.savedConnection);
@@ -432,10 +453,13 @@ try {
       builder=await api(base+'/builder');
       const reattachedReload=builder.workspace.documents[0];
       assert.deepEqual(reattachedReload.population,revised.population,'Reload after reattachment must preserve the exact two-member selection and route');
+      assert.deepEqual(reattachedReload.columns,original.columns,'Reload after reattachment must preserve the saved columns');
+      assert.deepEqual(reattachedReload.construction,original.construction,'Reload after reattachment must preserve the saved construction');
       const reloadedSelection=await api(`${selections}/${reattachedReload.population.selectionRevisionId}?limit=100`);
       assert.equal(reloadedSelection.revision.generation,generation);
       assert.deepEqual(reloadedSelection.members.map(member=>member.ref).sort((a,b)=>a.id.localeCompare(b.id)),expectedMappedRefs);
       await checkCoverage('reattached-partial-long-collection-reload','2 selected · 2 produce rows · 0 needs attention');
+      recordRequirement(7, 'persistence', true, { route: reattachedReload.population.route, selectionRevisionId: reattachedReload.population.selectionRevisionId, memberIDs: reloadedSelection.members.map(member => member.ref.id), columns: reattachedReload.columns, construction: reattachedReload.construction, previewObservationIDs: expectedObservationIDs });
     }else await checkCoverage('reattached-long-collection-reload','0 selected · 0 produce rows · 0 needs attention');
   }
   await requestMonitor.flush();
@@ -443,6 +467,17 @@ try {
   report.exceptions = report.errors;
   assert.equal(report.http.length,0,JSON.stringify(report.http));
   assert.equal(report.exceptions.length,0,JSON.stringify(report.exceptions));
+  const measuredDurations = [
+    ...report.actions.map(action => action.elapsedMs),
+    ...report.cases.map(item => item.durationMs),
+  ];
+  const maxDurationMs = Math.max(0, ...measuredDurations);
+  recordRequirement(8, 'performance', measuredDurations.length > 0 && measuredDurations.every(durationMs => Number.isFinite(durationMs) && durationMs <= 5000), {
+    actionCount: report.actions.length, caseCount: report.cases.length, maxDurationMs, budgetMs: 5000,
+  });
+  recordRequirement(9, 'correctness', report.http.length === 0 && report.exceptions.length === 0, {
+    httpFailures: report.http, workflowExceptions: report.exceptions,
+  });
   report.status='passed';
 } catch (error) {
   fatal = error;

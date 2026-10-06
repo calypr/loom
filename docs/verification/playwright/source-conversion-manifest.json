@@ -7,7 +7,7 @@
     "runnerInventoryPath": "docs/verification/playwright/runner-inventory.snapshot.json",
     "runnerInventorySha256": "ea1f0421f76eb31fc3a9d7ee29734439b37a5eca8ce84a6b97634ebd1abdc5de",
     "registryPath": "scripts/verify-ui/registry.mjs",
-    "registrySha256": "337dc5a10b144e96d339240b4274b385c91c8d990dce734f5afd23c0f91cd6dc",
+    "registrySha256": "02132c2f27e20a0be0298216f6707ca0ca4b66c91b254041c42a98a29f594d4d",
     "preimagesCapturedFromStageCopy": true
   },
   "sourceScope": {
@@ -794,12 +794,12 @@
     ],
     "discoverySnapshot": {
       "path": "docs/verification/playwright/discovery.snapshot.json",
-      "sha256": "5aa04d8a4968e41e542bdbe948a9d4e8b2aee2dbaa112e791ab09996aaf7d8cd"
+      "sha256": "0ecfbdc521a9c5aaaa5444ecf6149da140ecac176b4c2227f970cfb93a4d344b"
     },
     "discoveryOverrideInputs": [
       {
         "label": "playwright/discovery-case-overrides.json",
-        "sha256": "6718c4aeac8c3ea156a2bbd9813657f2c945f457257f045bf9704a979c5e4fb0"
+        "sha256": "b1aa0b9b88ca73af45237962a08fa679ef48a52d67d0236d0052735b2e50e601"
       }
     ],
     "expectedDiscoveryCaseOwners": [
@@ -1809,8 +1809,8 @@
         "ownerKind": "source",
         "sourcePath": "scripts/verify-ui/workflows/verify-cda-collection-repair.mjs",
         "scenarioID": "cda-collection-repair",
-        "caseName": "partial-long-route-repair-and-reload",
-        "expectedVariants": "partial-long-route-repair-and-reload",
+        "caseName": "unmapped-parent-repair-and-reload",
+        "expectedVariants": "unmapped-parent-repair-and-reload",
         "sessionID": "main",
         "specPath": "scripts/verify-ui/specs/standalone-cda-other.spec.mjs",
         "testTitle": "remove an unmapped selected resource, verify the saved route, and reload"
@@ -1818,10 +1818,12 @@
       {
         "ownerKind": "source",
         "sourcePath": "scripts/verify-ui/workflows/verify-cda-collection-repair.mjs",
-        "scenarioID": "cda-collection-repair",
-        "caseName": "unmapped-parent-repair-and-reload",
-        "expectedVariants": "unmapped-parent-repair-and-reload",
-        "sessionID": "main",
+        "scenarioID": "cda-collection-repair-partial",
+        "caseName": "partial-long-route-repair-and-reload",
+        "expectedVariants": {
+          "LOOM_COLLECTION_PARTIAL_LONG_ROUTE": "1"
+        },
+        "sessionID": "collection-partial-long-route",
         "specPath": "scripts/verify-ui/specs/standalone-cda-other.spec.mjs",
         "testTitle": "remove an unmapped selected resource, verify the saved route, and reload"
       },
@@ -2626,10 +2628,10 @@
     "officialRootBrowserEntrypoints": 74,
     "additionalUiPackageBrowserEntrypoints": 1,
     "registeredBrowserEntrypoints": 2,
-    "registryCases": 28,
-    "registryRequiredCheckEntries": 494,
+    "registryCases": 29,
+    "registryRequiredCheckEntries": 505,
     "registryCustomAssertionVariants": 1,
-    "registryCaseMappingsPresent": 28,
+    "registryCaseMappingsPresent": 29,
     "additionalBrowserWorkflowSources": 2,
     "additionalEmbeddedBrowserJourneys": 9,
     "mappedEmbeddedBrowserJourneys": 9,
@@ -2759,7 +2761,7 @@
     "dedicatedBenchmarkTestCount": 1,
     "dedicatedBenchmarkSpecFileCount": 1,
     "discoverySnapshotPath": "docs/verification/playwright/discovery.snapshot.json",
-    "discoverySnapshotSha256": "5aa04d8a4968e41e542bdbe948a9d4e8b2aee2dbaa112e791ab09996aaf7d8cd",
+    "discoverySnapshotSha256": "0ecfbdc521a9c5aaaa5444ecf6149da140ecac176b4c2227f970cfb93a4d344b",
     "discoverySnapshotMatchesCurrentSourceTree": true,
     "runtimeLifecycleStatus": "not-run",
     "note": "Official Playwright --list snapshots cover the main suite, the dedicated construction-preview benchmark config, and configured related ONE/ALL variants. They confirm discovery only; no test body or domain lifecycle is represented as run."
@@ -5412,6 +5414,65 @@
         "Cancel preserves the edited grouped draft",
         "Applying GROUP removal restores the source schema without either owned step",
         "Restored source workspace and exact Observation ID survive reload"
+      ],
+      "mappingStatus": "native-spec-mapped; lifecycle-unverified"
+    },
+    {
+      "scenario": "cda-collection-repair-partial",
+      "case": "partial-long-route-repair-and-reload",
+      "source": "scripts/verify-ui/workflows/verify-cda-collection-repair.mjs",
+      "nativeSpecPath": "scripts/verify-ui/specs/standalone-cda-other.spec.mjs",
+      "customPreservedAssertions": null,
+      "scenarioWorkflow": "owned-cda-partial-long-route-collection-repair",
+      "scenarioCoverage": [
+        {
+          "feature": "partial long-route starting-collection repair with exact scoped Specimen membership, removal, clear, native reattachment, and reload",
+          "status": "implemented",
+          "reason": "Epoch72 passed all 11 registered checks, 28 assertions, and 16 native actions (max action 247 ms; max workflow checkpoint 2,652 ms). The bounded scoped raw oracle identified two mapped Specimens with distinct Observation IDs and one unmapped Specimen. Native removal retained the exact mapped membership and two-hop Observation \u2192 Specimen \u2192 parent route; clear, reattachment, and reload passed. Initial fixture/selection setup used the API; remove, clear, reattach, and reload were native Builder actions. The starting construction was absent, so nonempty-construction preservation is not covered; this broad-scope fixture does not establish restricted-authorization behavior. Source/docs/API/mount integrity and 3/3 health samples before and after passed; no unexpected HTTP/workflow errors (incidental favicon 404 only). Report docs/verification/playwright/runtime/cda-collection-repair-epoch72-report.json; closure docs/verification/playwright/runtime/cda-collection-repair-epoch72-closure.json."
+        }
+      ],
+      "domainLifecycleStatus": "unverified",
+      "runtimeEvidence": {
+        "status": "not-run"
+      },
+      "discoveryTestTitles": [
+        "author and restore an Observation Contributor ANY rule from the active Patient anchor",
+        "author and restore the exact named-cohort ALL contributor lifecycle",
+        "author and restore the exact named-cohort COUNT contributor lifecycle",
+        "cancel each coded suggestion dialog without changing the draft",
+        "cancel, save, reload, and remove three related COUNT siblings",
+        "change related-record eligibility and restore the source rows",
+        "create, edit, apply, and remove a CDA Patient filter with raw-source checks",
+        "create, edit, cancel, apply, and remove a typed CDA filter",
+        "create, rename, duplicate, reorder, delete, undo, and reload CDA tables",
+        "delete the only CDA table, restore it with Undo, and verify reload state",
+        "expand exact Observation component tuples, publish, and verify ClickHouse Viewer rows",
+        "inspect grouped, coded, or related row sources across save, edit, removal, and reload",
+        "preserve Condition diagnosis identifier multiplicity through add and remove",
+        "preserve selected CDA membership while changing and restoring the row root",
+        "publish a bounded Specimen output and verify its viewer rows",
+        "read legacy selection coverage and prove the saved draft remains unchanged",
+        "rebase Patient rows through Observation and restore the original route and values",
+        "remove an unmapped selected resource, verify the saved route, and reload",
+        "save and remove a related framed column",
+        "save, reload, and remove three sibling SourceAggregate COUNT columns",
+        "verify Patient.id values through the Specimen to Observation to Patient route",
+        "verify related Patient.id counts through the Specimen to Observation to Patient route"
+      ],
+      "discoveryTestCount": 24,
+      "discoverySpecSha256": "3bfb26642867c8442f3cbaad43e6a7246a1e767b5f86455035a4183c636b2a49",
+      "preservedAssertions": [
+        "bounded raw CDA oracle contains two mapped and one unmapped project/generation-scoped Specimens with exact Observation IDs",
+        "initial immutable selection preserves exact Specimen IDs, project, generation, and authorization scope",
+        "saved population preserves the exact two-hop Observation \u2192 Specimen \u2192 parent route",
+        "native preview and coverage match exact mapped/unmapped raw membership",
+        "removing the unmapped Specimen preserves mapped membership, route, columns, and construction",
+        "repaired route, immutable selection, and preview survive Builder reload",
+        "clearing the collection displays rows from the scoped current-generation Observation source",
+        "native reattachment preserves the repaired membership, route, columns, preview, and reload state",
+        "all measured native actions and workflow checkpoints complete within five seconds",
+        "no unexpected HTTP or workflow errors occur",
+        "CDA watched source and API build stayed unchanged"
       ],
       "mappingStatus": "native-spec-mapped; lifecycle-unverified"
     },
@@ -8482,7 +8543,7 @@
       "nativeSpecArtifacts": [
         {
           "path": "scripts/verify-ui/specs/standalone-cda-other.spec.mjs",
-          "sha256": "79fa9a6b68c2cdfca3e91475e0d0044bdc9260fd798a66599757500b5189d211",
+          "sha256": "3bfb26642867c8442f3cbaad43e6a7246a1e767b5f86455035a4183c636b2a49",
           "artifactSource": "canonical-source-root"
         }
       ],
@@ -8561,7 +8622,7 @@
       "nativeSpecArtifacts": [
         {
           "path": "scripts/verify-ui/specs/standalone-cda-other.spec.mjs",
-          "sha256": "79fa9a6b68c2cdfca3e91475e0d0044bdc9260fd798a66599757500b5189d211",
+          "sha256": "3bfb26642867c8442f3cbaad43e6a7246a1e767b5f86455035a4183c636b2a49",
           "artifactSource": "canonical-source-root"
         }
       ],
@@ -11043,7 +11104,7 @@
     {
       "sourcePath": "scripts/verify-ui/workflows/verify-cda-collection-repair.mjs",
       "preimageSha256": "973e0b48331b1c8f5f88dfbd3d15d2dcde803394b294c715022a906797e9eed7",
-      "currentSha256": "8859f056770ca9ed065d7093a07e6c084b38ee9c77faec4960f34c0251e24927",
+      "currentSha256": "80200de8af8ad47c3e58a11737b52313c242c9037b0b315000387460cc07255d",
       "sourceStillPresent": true,
       "ownerPartition": "native-standalone-cda-other",
       "kind": "standalone-browser-entrypoint",
@@ -11070,7 +11131,7 @@
       "nativeSpecArtifacts": [
         {
           "path": "scripts/verify-ui/specs/standalone-cda-other.spec.mjs",
-          "sha256": "79fa9a6b68c2cdfca3e91475e0d0044bdc9260fd798a66599757500b5189d211",
+          "sha256": "3bfb26642867c8442f3cbaad43e6a7246a1e767b5f86455035a4183c636b2a49",
           "artifactSource": "canonical-source-root"
         }
       ],
@@ -11080,7 +11141,7 @@
       "workflowArtifacts": [
         {
           "path": "scripts/verify-ui/workflows/verify-cda-collection-repair.mjs",
-          "sha256": "8859f056770ca9ed065d7093a07e6c084b38ee9c77faec4960f34c0251e24927",
+          "sha256": "80200de8af8ad47c3e58a11737b52313c242c9037b0b315000387460cc07255d",
           "artifactSource": "canonical-source-root"
         }
       ],
@@ -11132,7 +11193,7 @@
           "expectedVariants": "long-route-repair-and-reload"
         },
         {
-          "scenarioID": "cda-collection-repair",
+          "scenarioID": "cda-collection-repair-partial",
           "caseName": "partial-long-route-repair-and-reload",
           "caseTitle": "remove an unmapped selected resource, verify the saved route, and reload",
           "preservedAssertions": [
@@ -11143,7 +11204,7 @@
           ],
           "workflow": "scripts/verify-ui/workflows/verify-cda-collection-repair.mjs::collectionRepairWorkflow",
           "discoveryBinding": {
-            "sessionID": "main",
+            "sessionID": "collection-partial-long-route",
             "specPath": "scripts/verify-ui/specs/standalone-cda-other.spec.mjs",
             "testTitle": "remove an unmapped selected resource, verify the saved route, and reload",
             "matchingTestCount": 1,
@@ -11151,7 +11212,9 @@
               "4d172c4a6a38586646e6-5405fbd63533ae57b73b"
             ]
           },
-          "expectedVariants": "partial-long-route-repair-and-reload"
+          "expectedVariants": {
+            "LOOM_COLLECTION_PARTIAL_LONG_ROUTE": "1"
+          }
         }
       ],
       "directNativeBody": false,
@@ -11400,7 +11463,7 @@
       "nativeSpecArtifacts": [
         {
           "path": "scripts/verify-ui/specs/standalone-cda-other.spec.mjs",
-          "sha256": "79fa9a6b68c2cdfca3e91475e0d0044bdc9260fd798a66599757500b5189d211",
+          "sha256": "3bfb26642867c8442f3cbaad43e6a7246a1e767b5f86455035a4183c636b2a49",
           "artifactSource": "canonical-source-root"
         }
       ],
@@ -11474,7 +11537,7 @@
       "nativeSpecArtifacts": [
         {
           "path": "scripts/verify-ui/specs/standalone-cda-other.spec.mjs",
-          "sha256": "79fa9a6b68c2cdfca3e91475e0d0044bdc9260fd798a66599757500b5189d211",
+          "sha256": "3bfb26642867c8442f3cbaad43e6a7246a1e767b5f86455035a4183c636b2a49",
           "artifactSource": "canonical-source-root"
         }
       ],
@@ -11552,7 +11615,7 @@
       "nativeSpecArtifacts": [
         {
           "path": "scripts/verify-ui/specs/standalone-cda-other.spec.mjs",
-          "sha256": "79fa9a6b68c2cdfca3e91475e0d0044bdc9260fd798a66599757500b5189d211",
+          "sha256": "3bfb26642867c8442f3cbaad43e6a7246a1e767b5f86455035a4183c636b2a49",
           "artifactSource": "canonical-source-root"
         }
       ],
@@ -11626,7 +11689,7 @@
       "nativeSpecArtifacts": [
         {
           "path": "scripts/verify-ui/specs/standalone-cda-other.spec.mjs",
-          "sha256": "79fa9a6b68c2cdfca3e91475e0d0044bdc9260fd798a66599757500b5189d211",
+          "sha256": "3bfb26642867c8442f3cbaad43e6a7246a1e767b5f86455035a4183c636b2a49",
           "artifactSource": "canonical-source-root"
         }
       ],
@@ -12120,7 +12183,7 @@
       "nativeSpecArtifacts": [
         {
           "path": "scripts/verify-ui/specs/standalone-cda-other.spec.mjs",
-          "sha256": "79fa9a6b68c2cdfca3e91475e0d0044bdc9260fd798a66599757500b5189d211",
+          "sha256": "3bfb26642867c8442f3cbaad43e6a7246a1e767b5f86455035a4183c636b2a49",
           "artifactSource": "canonical-source-root"
         }
       ],
@@ -12336,7 +12399,7 @@
       "nativeSpecArtifacts": [
         {
           "path": "scripts/verify-ui/specs/standalone-cda-other.spec.mjs",
-          "sha256": "79fa9a6b68c2cdfca3e91475e0d0044bdc9260fd798a66599757500b5189d211",
+          "sha256": "3bfb26642867c8442f3cbaad43e6a7246a1e767b5f86455035a4183c636b2a49",
           "artifactSource": "canonical-source-root"
         }
       ],
@@ -12437,7 +12500,7 @@
       "nativeSpecArtifacts": [
         {
           "path": "scripts/verify-ui/specs/standalone-cda-other.spec.mjs",
-          "sha256": "79fa9a6b68c2cdfca3e91475e0d0044bdc9260fd798a66599757500b5189d211",
+          "sha256": "3bfb26642867c8442f3cbaad43e6a7246a1e767b5f86455035a4183c636b2a49",
           "artifactSource": "canonical-source-root"
         }
       ],
@@ -12517,7 +12580,7 @@
       "nativeSpecArtifacts": [
         {
           "path": "scripts/verify-ui/specs/standalone-cda-other.spec.mjs",
-          "sha256": "79fa9a6b68c2cdfca3e91475e0d0044bdc9260fd798a66599757500b5189d211",
+          "sha256": "3bfb26642867c8442f3cbaad43e6a7246a1e767b5f86455035a4183c636b2a49",
           "artifactSource": "canonical-source-root"
         }
       ],
@@ -12595,7 +12658,7 @@
       "nativeSpecArtifacts": [
         {
           "path": "scripts/verify-ui/specs/standalone-cda-other.spec.mjs",
-          "sha256": "79fa9a6b68c2cdfca3e91475e0d0044bdc9260fd798a66599757500b5189d211",
+          "sha256": "3bfb26642867c8442f3cbaad43e6a7246a1e767b5f86455035a4183c636b2a49",
           "artifactSource": "canonical-source-root"
         }
       ],
@@ -12673,7 +12736,7 @@
       "nativeSpecArtifacts": [
         {
           "path": "scripts/verify-ui/specs/standalone-cda-other.spec.mjs",
-          "sha256": "79fa9a6b68c2cdfca3e91475e0d0044bdc9260fd798a66599757500b5189d211",
+          "sha256": "3bfb26642867c8442f3cbaad43e6a7246a1e767b5f86455035a4183c636b2a49",
           "artifactSource": "canonical-source-root"
         }
       ],
@@ -13307,7 +13370,7 @@
       "nativeSpecArtifacts": [
         {
           "path": "scripts/verify-ui/specs/standalone-cda-other.spec.mjs",
-          "sha256": "79fa9a6b68c2cdfca3e91475e0d0044bdc9260fd798a66599757500b5189d211",
+          "sha256": "3bfb26642867c8442f3cbaad43e6a7246a1e767b5f86455035a4183c636b2a49",
           "artifactSource": "canonical-source-root"
         }
       ],
@@ -13612,7 +13675,7 @@
       "nativeSpecArtifacts": [
         {
           "path": "scripts/verify-ui/specs/standalone-cda-other.spec.mjs",
-          "sha256": "79fa9a6b68c2cdfca3e91475e0d0044bdc9260fd798a66599757500b5189d211",
+          "sha256": "3bfb26642867c8442f3cbaad43e6a7246a1e767b5f86455035a4183c636b2a49",
           "artifactSource": "canonical-source-root"
         }
       ],
@@ -14482,7 +14545,7 @@
       "nativeSpecArtifacts": [
         {
           "path": "scripts/verify-ui/specs/standalone-cda-other.spec.mjs",
-          "sha256": "79fa9a6b68c2cdfca3e91475e0d0044bdc9260fd798a66599757500b5189d211",
+          "sha256": "3bfb26642867c8442f3cbaad43e6a7246a1e767b5f86455035a4183c636b2a49",
           "artifactSource": "canonical-source-root"
         }
       ],
@@ -14556,7 +14619,7 @@
       "nativeSpecArtifacts": [
         {
           "path": "scripts/verify-ui/specs/standalone-cda-other.spec.mjs",
-          "sha256": "79fa9a6b68c2cdfca3e91475e0d0044bdc9260fd798a66599757500b5189d211",
+          "sha256": "3bfb26642867c8442f3cbaad43e6a7246a1e767b5f86455035a4183c636b2a49",
           "artifactSource": "canonical-source-root"
         }
       ],
@@ -14630,7 +14693,7 @@
       "nativeSpecArtifacts": [
         {
           "path": "scripts/verify-ui/specs/standalone-cda-other.spec.mjs",
-          "sha256": "79fa9a6b68c2cdfca3e91475e0d0044bdc9260fd798a66599757500b5189d211",
+          "sha256": "3bfb26642867c8442f3cbaad43e6a7246a1e767b5f86455035a4183c636b2a49",
           "artifactSource": "canonical-source-root"
         }
       ],
@@ -14709,7 +14772,7 @@
       "nativeSpecArtifacts": [
         {
           "path": "scripts/verify-ui/specs/standalone-cda-other.spec.mjs",
-          "sha256": "79fa9a6b68c2cdfca3e91475e0d0044bdc9260fd798a66599757500b5189d211",
+          "sha256": "3bfb26642867c8442f3cbaad43e6a7246a1e767b5f86455035a4183c636b2a49",
           "artifactSource": "canonical-source-root"
         }
       ],
@@ -14783,7 +14846,7 @@
       "nativeSpecArtifacts": [
         {
           "path": "scripts/verify-ui/specs/standalone-cda-other.spec.mjs",
-          "sha256": "79fa9a6b68c2cdfca3e91475e0d0044bdc9260fd798a66599757500b5189d211",
+          "sha256": "3bfb26642867c8442f3cbaad43e6a7246a1e767b5f86455035a4183c636b2a49",
           "artifactSource": "canonical-source-root"
         }
       ],

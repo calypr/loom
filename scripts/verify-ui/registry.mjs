@@ -982,6 +982,54 @@ export const registry = Object.freeze([
     ],
   }),
   Object.freeze({
+    id: 'cda-collection-repair-partial',
+    workflow: 'owned-cda-partial-long-route-collection-repair',
+    hooks: [],
+    endpoints: [
+      'POST /api/v1/projects/{project}/explorers',
+      'GET /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/builder',
+      'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/commands',
+      'POST /api/v1/projects/{project}/explorers/{explorer}/selections',
+      'GET /api/v1/projects/{project}/explorers/{explorer}/selections/{selectionRevision}',
+      'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/population-routes',
+    ],
+    requiredTransitions: [
+      'find two mapped Specimens and one unmapped child-bearing Specimen from bounded project/generation-scoped CDA records',
+      'create an immutable selection of those exact Specimen references and preserve project, generation, and authorization scope',
+      'save the exact Observation → Specimen → parent population route',
+      'remove only the unmapped Specimen while retaining the two mapped members, saved route, columns, and construction',
+      'reload the repaired population, clear it to inspect scoped authorized Observation rows, and natively reattach the saved route',
+    ],
+    gateReasons: [
+      'the native case runs only with LOOM_COLLECTION_PARTIAL_LONG_ROUTE=1 against the owned pinned cda-fhir-v1 fixture',
+      'the bounded raw oracle requires two mapped Specimens with distinct Observation IDs within the 25-row preview limit and one child-bearing Specimen with no incoming parent',
+      'direct API and Arango queries establish the raw witness and validate immutable memberships; Remove, clear, reattach, previews, and reload use native Builder controls',
+      'the native report remains lifecycle-unverified until its registered required checks pass in the generic CDA envelope',
+    ],
+    script: 'verify-cda-collection-repair.mjs',
+    cases: {
+      "partial-long-route-repair-and-reload": {
+        playwrightTest: "scripts/verify-ui/specs/standalone-cda-other.spec.mjs",
+        requiredChecks: [
+          "bounded raw CDA oracle contains two mapped and one unmapped project/generation-scoped Specimens with exact Observation IDs",
+          "initial immutable selection preserves exact Specimen IDs, project, generation, and authorization scope",
+          "saved population preserves the exact two-hop Observation → Specimen → parent route",
+          "native preview and coverage match exact mapped/unmapped raw membership",
+          "removing the unmapped Specimen preserves mapped membership, route, columns, and construction",
+          "repaired route, immutable selection, and preview survive Builder reload",
+          "clearing the collection displays rows from the scoped current-generation Observation source",
+          "native reattachment preserves the repaired membership, route, columns, preview, and reload state",
+          "all measured native actions and workflow checkpoints complete within five seconds",
+          "no unexpected HTTP or workflow errors occur",
+          "CDA watched source and API build stayed unchanged",
+        ],
+      },
+    },
+    coverage: [
+      { feature: 'partial long-route starting-collection repair with exact scoped Specimen membership, removal, clear, native reattachment, and reload', status: 'implemented', reason: 'Epoch72 passed all 11 registered checks, 28 assertions, and 16 native actions (max action 247 ms; max workflow checkpoint 2,652 ms). The bounded scoped raw oracle identified two mapped Specimens with distinct Observation IDs and one unmapped Specimen. Native removal retained the exact mapped membership and two-hop Observation → Specimen → parent route; clear, reattachment, and reload passed. Initial fixture/selection setup used the API; remove, clear, reattach, and reload were native Builder actions. The starting construction was absent, so nonempty-construction preservation is not covered; this broad-scope fixture does not establish restricted-authorization behavior. Source/docs/API/mount integrity and 3/3 health samples before and after passed; no unexpected HTTP/workflow errors (incidental favicon 404 only). Report docs/verification/playwright/runtime/cda-collection-repair-epoch72-report.json; closure docs/verification/playwright/runtime/cda-collection-repair-epoch72-closure.json.' },
+    ],
+  }),
+  Object.freeze({
     id: 'cda-workspace-combine',
     workflow: 'owned-cda-current-draft-group-join-lifecycle',
     hooks: [

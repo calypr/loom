@@ -105,6 +105,17 @@
           "testTitle": "preserves basic status behavior against raw related records"
         }
       ]
+    },
+    {
+      "sourcePath": "scripts/verify-ui/workflows/verify-cda-collection-repair.mjs",
+      "scenarioID": "cda-collection-repair-partial",
+      "caseName": "partial-long-route-repair-and-reload",
+      "specPath": "scripts/verify-ui/specs/standalone-cda-other.spec.mjs",
+      "sessionID": "collection-partial-long-route",
+      "testTitle": "remove an unmapped selected resource, verify the saved route, and reload",
+      "expectedVariants": {
+        "LOOM_COLLECTION_PARTIAL_LONG_ROUTE": "1"
+      }
     }
   ]
 }

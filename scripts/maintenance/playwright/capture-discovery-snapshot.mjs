@@ -9,13 +9,14 @@ const scriptsRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const repositoryRoot = resolve(scriptsRoot, '..');
 const inputDirectory = resolve(process.argv[2] ?? '');
 const outputPath = resolve(process.argv[3] ?? join(repositoryRoot, 'docs/verification/playwright/discovery.snapshot.json'));
-if (!process.argv[2]) throw new Error('Usage: node capture-discovery-snapshot.mjs <directory-of-five-official-list-json-files> [output.json]');
+if (!process.argv[2]) throw new Error('Usage: node capture-discovery-snapshot.mjs <directory-of-official-list-json-files> [output.json]');
 
 const sha256 = value => createHash('sha256').update(value).digest('hex');
 const fileHash = path => sha256(readFileSync(path));
 const sessions = [
   { sessionID: 'main', input: 'main.json', configPath: 'scripts/playwright.config.mjs', rootDir: 'scripts/verify-ui/specs', environment: {} },
   { sessionID: 'construction-preview-bench', input: 'benchmark.json', configPath: 'scripts/measurements/construction-preview/construction-preview-bench.config.mjs', rootDir: 'scripts/measurements/construction-preview', environment: {} },
+  { sessionID: 'collection-partial-long-route', input: 'collection-partial-long-route.json', configPath: 'scripts/playwright.config.mjs', rootDir: 'scripts/verify-ui/specs', environment: { LOOM_COLLECTION_PARTIAL_LONG_ROUTE: '1' } },
   { sessionID: 'related-one-all-basic-status', input: 'related-basic-status.json', configPath: 'scripts/playwright.config.mjs', rootDir: 'scripts/verify-ui/specs', environment: { LOOM_RELATED_ONE_ALL_MODE: 'basic', LOOM_RELATED_ONE_ALL_FIELD: 'status' } },
   { sessionID: 'related-one-all-cda-status', input: 'related-cda-status.json', configPath: 'scripts/playwright.config.mjs', rootDir: 'scripts/verify-ui/specs', environment: { LOOM_RELATED_ONE_ALL_MODE: 'cda', LOOM_RELATED_ONE_ALL_FIELD: 'status' } },
   { sessionID: 'related-one-all-cda-specimen-reference', input: 'related-cda-specimen-reference.json', configPath: 'scripts/playwright.config.mjs', rootDir: 'scripts/verify-ui/specs', environment: { LOOM_RELATED_ONE_ALL_MODE: 'cda', LOOM_RELATED_ONE_ALL_FIELD: 'specimen-reference' } },
@@ -68,6 +69,12 @@ const relatedSessions = normalizedSessions.filter(item => item.sessionID.startsW
 if (relatedSessions.length !== 3 || relatedSessions.some(item => item.testCount !== 1)) {
   throw new Error('Related ONE/ALL static variants must each contain exactly one discovered test');
 }
+const collectionPartial = normalizedSessions.find(item => item.sessionID === 'collection-partial-long-route');
+if (collectionPartial?.testCount !== 1 || collectionPartial.specFileCount !== 1
+  || collectionPartial.specs[0]?.path !== 'scripts/verify-ui/specs/standalone-cda-other.spec.mjs'
+  || collectionPartial.specs[0]?.cases[0]?.title !== 'remove an unmapped selected resource, verify the saved route, and reload') {
+  throw new Error('Partial long-route collection static variant must contain its exact standalone CDA test');
+}
 const totalDeclaredTestCount = normalizedSessions.reduce((total, session) => total + session.testCount, 0);
 const document = {
   schemaVersion: 1,
@@ -77,7 +84,7 @@ const document = {
   status: 'discovery-only',
   runtimeStatus: 'not-run',
   commandTemplate: '<repo>/scripts/node_modules/.bin/playwright test --config <configPath> --list --reporter=json',
-  note: `Captured from five official Playwright --list --reporter=json outputs. These reports list registrations only and skip every test body; no lifecycle ran. The five session counts sum to ${totalDeclaredTestCount} entries.`,
+  note: `Captured from ${normalizedSessions.length} official Playwright --list --reporter=json outputs. These reports list registrations only and skip every test body; no lifecycle ran. The ${normalizedSessions.length} session counts sum to ${totalDeclaredTestCount} entries.`,
   mainDiscoveryTestCount: main.testCount,
   mainDiscoverySpecFileCount: main.specFileCount,
   dedicatedBenchmarkTestCount: benchmark.testCount,
