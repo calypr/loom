@@ -31,10 +31,12 @@ test('fingerprint includes verifier source and fixture inputs but excludes insta
     mkdirSync(join(root, 'scripts', 'node_modules'), { recursive: true });
     mkdirSync(join(root, 'testdata', 'devloop-fixture'), { recursive: true });
     mkdirSync(join(root, 'testdata', 'verify-combine'), { recursive: true });
+    mkdirSync(join(root, 'testdata', 'verify-combine-nullable-duplicates'), { recursive: true });
     writeFileSync(join(root, 'scripts', 'verify.mjs'), 'original verifier');
     writeFileSync(join(root, 'scripts', 'node_modules', 'dependency.mjs'), 'original dependency');
     writeFileSync(join(root, 'testdata', 'devloop-fixture', 'Patient.ndjson'), '{"id":"one"}\n');
     writeFileSync(join(root, 'testdata', 'verify-combine', 'Patient.ndjson'), '{"id":"combine-one"}\n');
+    writeFileSync(join(root, 'testdata', 'verify-combine-nullable-duplicates', 'Observation.ndjson'), '{"id":"nullable-one"}\n');
     const before = sourceFingerprintWithManifest(root);
     writeFileSync(join(root, 'scripts', 'verify.mjs'), 'changed verifier');
     const changedVerifier = sourceFingerprintWithManifest(root);
@@ -51,8 +53,13 @@ test('fingerprint includes verifier source and fixture inputs but excludes insta
     assert.deepEqual(sourceFingerprintChangedPaths(changedFixture.manifest, changedCombineFixture.manifest), [
       { path: 'testdata/verify-combine/Patient.ndjson', change: 'modified' },
     ]);
+    writeFileSync(join(root, 'testdata', 'verify-combine-nullable-duplicates', 'Observation.ndjson'), '{"id":"nullable-two"}\n');
+    const changedNullableFixture = sourceFingerprintWithManifest(root);
+    assert.deepEqual(sourceFingerprintChangedPaths(changedCombineFixture.manifest, changedNullableFixture.manifest), [
+      { path: 'testdata/verify-combine-nullable-duplicates/Observation.ndjson', change: 'modified' },
+    ]);
     writeFileSync(join(root, 'scripts', 'node_modules', 'dependency.mjs'), 'changed dependency');
-    assert.deepEqual(sourceFingerprintWithManifest(root).fingerprint, changedCombineFixture.fingerprint);
+    assert.deepEqual(sourceFingerprintWithManifest(root).fingerprint, changedNullableFixture.fingerprint);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

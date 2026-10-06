@@ -290,13 +290,17 @@ const selectTarget = async (page, outputId) => {
   await waitFor(page, 'document.querySelector(' + JSON.stringify(selector) + ')?.getAttribute("aria-current")==="page"', 10000);
 };
 
-const reloadTarget = (report, page, outputId, expectedRows, name) => recordBrowserTiming(report, page, {
+const reloadTarget = (report, page, outputId, expectedRows, name, exactRowsName, verifySavedState) => recordBrowserTiming(report, page, {
   name,
   action: async () => {
     await reload(page, workspaceReady);
     await selectTarget(page, outputId);
   },
-  after: savedPreview(expectedRows),
+  after: async () => {
+    await waitFor(page, savedPreview(expectedRows.length), 5000);
+    exactRows(report, exactRowsName, await readGrid(page), ['Observation ID', 'Report ID'], expectedRows);
+    if (verifySavedState) await verifySavedState();
+  },
   timeout: 5000,
 });
 
@@ -557,18 +561,21 @@ export const nullableJoinWorkflow = async ({ page, report, action }, context) =>
     { observationIDs: rawObservations.map((row) => row.id), diagnosticReportIDs: rawReports.map((row) => row.id) });
   const observationKeyRows = rawObservations.map((row) => [row.id, row.subject?.reference ?? null]);
   const reportKeyRows = rawReports.map((row) => [row.id, row.subject?.reference ?? null]);
-  check(report, 'correctness', 'nullable-key fixture matches the exact ID-to-reference maps with two shared keys and NULL on both sides',
+  check(report, 'correctness', 'nullable-key fixture proves two duplicate rows per side for one shared key, NULL on both sides, and one left-only key',
     JSON.stringify(observationKeyRows) === JSON.stringify([
       ['combine-observation-final-1', 'Patient/combine-null-key-match'],
-      ['combine-observation-final-2', null],
-      ['combine-observation-preliminary', 'Patient/combine-null-key-preliminary'],
+      ['combine-observation-final-2', 'Patient/combine-null-key-match'],
+      ['combine-observation-preliminary', null],
       ['combine-observation-unmatched', 'Patient/combine-null-key-unmatched'],
     ]) && JSON.stringify(reportKeyRows) === JSON.stringify([
       ['combine-observation-final-1', null],
       ['combine-observation-final-2', 'Patient/combine-null-key-match'],
-      ['combine-observation-preliminary', 'Patient/combine-null-key-preliminary'],
+      ['combine-observation-preliminary', 'Patient/combine-null-key-match'],
     ]),
     { observations: observationKeyRows, reports: reportKeyRows });
+  const duplicatedKey = 'Patient/combine-null-key-match';
+  const duplicatedObservationIDs = observationKeyRows.filter(([, key]) => key === duplicatedKey).map(([id]) => id);
+  const duplicatedReportIDs = reportKeyRows.filter(([, key]) => key === duplicatedKey).map(([id]) => id);
 
   const prepared = await createAndPublishSources(context, page, report, false, {
     Observation: ['status', 'valueInteger', 'subject.reference'],
@@ -586,18 +593,27 @@ export const nullableJoinWorkflow = async ({ page, report, action }, context) =>
     typeof api.columns.observationID.id === 'string' && typeof api.columns.reportID.id === 'string',
     { observationKeyID: observationKey.id, observationID: api.columns.observationID.id, reportKeyID: reportKey.id, reportID: api.columns.reportID.id });
 
-  const innerRows = [
-    ['combine-observation-final-1', 'combine-observation-final-2'],
-    ['combine-observation-preliminary', 'combine-observation-preliminary'],
+  const innerRows = duplicatedObservationIDs.flatMap((observationID) =>
+    duplicatedReportIDs.map((reportID) => [observationID, reportID]));
+  const leftPreviewRows = [
+    ...innerRows,
+    ['combine-observation-preliminary', null],
+    ['combine-observation-unmatched', null],
   ];
   const leftRows = [
-    ['combine-observation-final-1', 'combine-observation-final-2'],
-    ['combine-observation-final-2', '—'],
-    ['combine-observation-preliminary', 'combine-observation-preliminary'],
+    ...innerRows,
+    ['combine-observation-preliminary', '—'],
     ['combine-observation-unmatched', '—'],
   ];
+  if (duplicatedObservationIDs.length !== 2 || duplicatedReportIDs.length !== 2 || innerRows.length !== 4 || leftRows.length !== 6) {
+    throw new Error('Nullable duplicate-key fixture must produce a 2×2 INNER multiplicity and six LEFT rows.');
+  }
   report.target.fixtureRawOracle = {
     key: 'Observation.subject.reference = DiagnosticReport.subject.reference under ordinary SQL NULL equality',
+    duplicatedKey,
+    duplicatedObservationIDs,
+    duplicatedReportIDs,
+    duplicateKeyInnerMultiplicity: `${duplicatedObservationIDs.length}x${duplicatedReportIDs.length}`,
     innerRows,
     leftRows,
     nullMatchesNull: false,
@@ -638,7 +654,7 @@ export const nullableJoinWorkflow = async ({ page, report, action }, context) =>
   });
   await checkProposalBinding(report, page, proposalCapture, 0, 'INNER', target.outputId,
     ['observation_id', 'report_id'], innerRows, [observationKey.id, reportKey.id]);
-  exactRows(report, 'INNER nullable Join matches exactly two equal non-NULL subject references and does not match NULL to NULL',
+  exactRows(report, 'INNER nullable Join preserves all four pairs from the 2x2 duplicate key and never matches NULL to NULL',
     await readGrid(page, 'proposal'), ['Observation ID', 'Report ID'], innerRows);
 
   await recordBrowserTiming(report, page, {
@@ -650,9 +666,8 @@ export const nullableJoinWorkflow = async ({ page, report, action }, context) =>
   const appliedInner = await readBuilder(context, explorer);
   const innerSaved = assertSavedStep(report, appliedInner, target, [observationRevision, reportRevision], observationKey.id, reportKey.id, 'INNER');
   const savedStepID = innerSaved.step.id;
-  exactRows(report, 'INNER applied rows retain the exact nullable-key matches', await readGrid(page), ['Observation ID', 'Report ID'], innerRows);
-  await reloadTarget(report, page, target.outputId, innerRows.length, 'reload INNER nullable-key table');
-  exactRows(report, 'INNER nullable-key rows survive Builder reload', await readGrid(page), ['Observation ID', 'Report ID'], innerRows);
+  exactRows(report, 'INNER applied rows preserve all four duplicate-key pairs', await readGrid(page), ['Observation ID', 'Report ID'], innerRows);
+  await reloadTarget(report, page, target.outputId, innerRows, 'reload INNER nullable-key table', 'INNER duplicate-key pairs survive Builder reload');
 
   const beforeCancelBuilder = await readBuilder(context, explorer);
   await openSavedEdit(report, page, savedStepID, 'open saved INNER nullable Join for Cancelled LEFT edit');
@@ -664,25 +679,20 @@ export const nullableJoinWorkflow = async ({ page, report, action }, context) =>
     timeout: 5000,
   });
   await checkProposalBinding(report, page, proposalCapture, leftCancelRequestStart, 'LEFT', target.outputId,
-    ['observation_id', 'report_id'], [
-      ['combine-observation-final-1', 'combine-observation-final-2'],
-      ['combine-observation-final-2', null],
-      ['combine-observation-preliminary', 'combine-observation-preliminary'],
-      ['combine-observation-unmatched', null],
-  ], [observationKey.id, reportKey.id]);
-  exactRows(report, 'LEFT preview keeps unmatched left rows and never matches NULL keys together', await readGrid(page, 'proposal'), ['Observation ID', 'Report ID'], leftRows);
+    ['observation_id', 'report_id'], leftPreviewRows, [observationKey.id, reportKey.id]);
+  exactRows(report, 'LEFT preview preserves four duplicate-key pairs, both unmatched left rows, and NULL non-equality', await readGrid(page, 'proposal'), ['Observation ID', 'Report ID'], leftRows);
   await recordBrowserTiming(report, page, {
     name: 'Cancel LEFT nullable Join edit',
     action: () => click(page, '[data-testid="construction-cancel-proposal"]'),
     after: "Boolean(document.querySelector('[data-testid=\"construction-history\"]')) && !document.querySelector('[data-testid=\"construction-combine-editor\"]') && !document.querySelector('[data-testid=\"construction-proposal-panel\"]')",
     timeout: 5000,
   });
-  await reloadTarget(report, page, target.outputId, innerRows.length, 'reload saved INNER after LEFT Cancel');
-  const cancelledBuilder = await readBuilder(context, explorer);
-  const cancelState = builderCancelStateEvidence(beforeCancelBuilder, cancelledBuilder);
-  check(report, 'persistence', 'Cancel leaves the full Builder workspace, draft version, and digest unchanged after reload', cancelState.ok, cancelState);
-  assertSavedStep(report, cancelledBuilder, target, [observationRevision, reportRevision], observationKey.id, reportKey.id, 'INNER', savedStepID);
-  exactRows(report, 'Cancel leaves saved INNER nullable Join rows unchanged after reload', await readGrid(page), ['Observation ID', 'Report ID'], innerRows);
+  await reloadTarget(report, page, target.outputId, innerRows, 'reload saved INNER after LEFT Cancel', 'Cancel leaves saved INNER nullable Join rows unchanged after reload', async () => {
+    const cancelledBuilder = await readBuilder(context, explorer);
+    const cancelState = builderCancelStateEvidence(beforeCancelBuilder, cancelledBuilder);
+    check(report, 'persistence', 'Cancel leaves the full Builder workspace, draft version, and digest unchanged after reload', cancelState.ok, cancelState);
+    assertSavedStep(report, cancelledBuilder, target, [observationRevision, reportRevision], observationKey.id, reportKey.id, 'INNER', savedStepID);
+  });
 
   await openSavedEdit(report, page, savedStepID, 'reopen saved INNER nullable Join for LEFT Apply');
   const leftApplyRequestStart = proposalCapture.startIndex();
@@ -693,13 +703,8 @@ export const nullableJoinWorkflow = async ({ page, report, action }, context) =>
     timeout: 5000,
   });
   await checkProposalBinding(report, page, proposalCapture, leftApplyRequestStart, 'LEFT', target.outputId,
-    ['observation_id', 'report_id'], [
-      ['combine-observation-final-1', 'combine-observation-final-2'],
-      ['combine-observation-final-2', null],
-      ['combine-observation-preliminary', 'combine-observation-preliminary'],
-      ['combine-observation-unmatched', null],
-    ], [observationKey.id, reportKey.id]);
-  exactRows(report, 'LEFT preview before Apply has the literal unmatched-null rows', await readGrid(page, 'proposal'), ['Observation ID', 'Report ID'], leftRows);
+    ['observation_id', 'report_id'], leftPreviewRows, [observationKey.id, reportKey.id]);
+  exactRows(report, 'LEFT preview before Apply preserves duplicate-key multiplicity and both unmatched-null rows', await readGrid(page, 'proposal'), ['Observation ID', 'Report ID'], leftRows);
   await recordBrowserTiming(report, page, {
     name: 'Apply LEFT nullable Join edit',
     action: () => click(page, '[data-testid="construction-apply-proposal"]'),
@@ -708,9 +713,8 @@ export const nullableJoinWorkflow = async ({ page, report, action }, context) =>
   });
   const appliedLeft = await readBuilder(context, explorer);
   const leftSaved = assertSavedStep(report, appliedLeft, target, [observationRevision, reportRevision], observationKey.id, reportKey.id, 'LEFT', savedStepID);
-  exactRows(report, 'LEFT applied output contains the exact matched and unmatched rows', await readGrid(page), ['Observation ID', 'Report ID'], leftRows);
-  await reloadTarget(report, page, target.outputId, leftRows.length, 'reload applied LEFT nullable-key table');
-  exactRows(report, 'LEFT nullable Join rows and null projections survive Builder reload', await readGrid(page), ['Observation ID', 'Report ID'], leftRows);
+  exactRows(report, 'LEFT applied output preserves duplicate-key multiplicity and both unmatched left rows', await readGrid(page), ['Observation ID', 'Report ID'], leftRows);
+  await reloadTarget(report, page, target.outputId, leftRows, 'reload applied LEFT nullable-key table', 'LEFT duplicate-key multiplicity and null projections survive Builder reload');
 
   const beforeRemovalBuilder = await readBuilder(context, explorer);
   const firstRemovalStart = proposalCapture.startIndex();
@@ -732,12 +736,13 @@ export const nullableJoinWorkflow = async ({ page, report, action }, context) =>
     after: "Boolean(document.querySelector('[data-testid=\"construction-history\"]')) && !document.querySelector('[data-testid=\"construction-proposal-panel\"]')",
     timeout: 5000,
   });
-  await reloadTarget(report, page, target.outputId, leftRows.length, 'reload saved LEFT after removal Cancel');
-  const cancelledRemovalBuilder = await readBuilder(context, explorer);
-  const removalCancelState = builderCancelStateEvidence(beforeRemovalBuilder, cancelledRemovalBuilder);
-  check(report, 'persistence', 'Cancel removal leaves the full Builder workspace, draft version, and digest unchanged after reload', removalCancelState.ok, removalCancelState);
-  assertSavedStep(report, cancelledRemovalBuilder, target, [observationRevision, reportRevision], observationKey.id, reportKey.id, 'LEFT', leftSaved.step.id);
-  exactRows(report, 'Cancel removal preserves the exact LEFT nullable Join rows after reload', await readGrid(page), ['Observation ID', 'Report ID'], leftRows);
+  let cancelledRemovalBuilder;
+  await reloadTarget(report, page, target.outputId, leftRows, 'reload saved LEFT after removal Cancel', 'Cancel removal preserves the exact LEFT nullable Join rows after reload', async () => {
+    cancelledRemovalBuilder = await readBuilder(context, explorer);
+    const removalCancelState = builderCancelStateEvidence(beforeRemovalBuilder, cancelledRemovalBuilder);
+    check(report, 'persistence', 'Cancel removal leaves the full Builder workspace, draft version, and digest unchanged after reload', removalCancelState.ok, removalCancelState);
+    assertSavedStep(report, cancelledRemovalBuilder, target, [observationRevision, reportRevision], observationKey.id, reportKey.id, 'LEFT', leftSaved.step.id);
+  });
 
   const applyRemovalStart = proposalCapture.startIndex();
   await recordBrowserTiming(report, page, {
@@ -756,14 +761,15 @@ export const nullableJoinWorkflow = async ({ page, report, action }, context) =>
   await recordBrowserTiming(report, page, {
     name: 'reload nullable KEY_JOIN removal result',
     action: async () => { await reload(page, workspaceReady); await selectTarget(page, target.outputId); },
-    after: emptyTargetReady(target.outputId),
+    after: async () => {
+      await waitFor(page, emptyTargetReady(target.outputId), 5000);
+      const afterRemoval = await readBuilder(context, explorer);
+      const restored = documentByOutput(afterRemoval, target.outputId);
+      const restoredEvidence = rootedEmptyTargetRestorationEvidence(restored, preCombineTargetDocument, target);
+      check(report, 'persistence', 'removing nullable KEY_JOIN and reloading restores the exact pre-Combine target document', restoredEvidence.ok,
+        { ...restoredEvidence, before: preCombineTargetDocument, after: restored });
+    },
   });
-  const afterRemoval = await readBuilder(context, explorer);
-  const restored = documentByOutput(afterRemoval, target.outputId);
-  const restoredEvidence = rootedEmptyTargetRestorationEvidence(restored, preCombineTargetDocument, target);
-  check(report, 'persistence', 'removing nullable KEY_JOIN and reloading restores the exact pre-Combine target document', restoredEvidence.ok,
-    { ...restoredEvidence, before: preCombineTargetDocument, after: restored });
-
   const finalBuilder = await readBuilder(context, explorer);
   const currentSources = docs.documents.map((document) => snapshotSourceDocument(documentByOutput(finalBuilder, document.output.id)));
   const sourceIdentity = builderResponseIdentity(finalBuilder, context.target.apiUrl, context.target.fixtureProject, explorer,

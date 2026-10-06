@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 const readRows = (name) => readFileSync(
-  new URL('../../../../testdata/verify-combine/' + name, import.meta.url),
+  new URL('../../../../testdata/verify-combine-nullable-duplicates/' + name, import.meta.url),
   'utf8',
 ).split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line));
 
@@ -20,7 +20,7 @@ const joinOnNullableKey = (leftRows, rightRows, joinType) => leftRows.flatMap((l
   return rows.map((right) => [left.id, right?.id ?? null]);
 });
 
-test('nullable subject-reference fixture proves SQL NULL key equality and LEFT preservation', () => {
+test('nullable duplicate-key fixture proves 2x2 row multiplication, SQL NULL non-equality, and LEFT preservation', () => {
   const rawObservations = readRows('Observation.ndjson');
   const rawReports = readRows('DiagnosticReport.ndjson');
   const observations = nullableReferenceRows(rawObservations);
@@ -32,28 +32,38 @@ test('nullable subject-reference fixture proves SQL NULL key equality and LEFT p
     'fixture keeps every required Observation resource id');
   assert.ok(reports.every((row) => typeof row.id === 'string' && row.id.length > 0),
     'fixture keeps every required DiagnosticReport resource id');
+  assert.equal(Object.hasOwn(rawObservations[2], 'subject'), false,
+    'the selected left NULL key is represented by the absent optional FHIR subject field');
+  assert.equal(Object.hasOwn(rawReports[0], 'subject'), false,
+    'the selected right NULL key is represented by the absent optional FHIR subject field');
   assert.deepEqual(observations.map(({ id, key }) => [id, key]), [
     ['combine-observation-final-1', 'Patient/combine-null-key-match'],
-    ['combine-observation-final-2', null],
-    ['combine-observation-preliminary', 'Patient/combine-null-key-preliminary'],
+    ['combine-observation-final-2', 'Patient/combine-null-key-match'],
+    ['combine-observation-preliminary', null],
     ['combine-observation-unmatched', 'Patient/combine-null-key-unmatched'],
   ]);
   assert.deepEqual(reports.map(({ id, key }) => [id, key]), [
     ['combine-observation-final-1', null],
     ['combine-observation-final-2', 'Patient/combine-null-key-match'],
-    ['combine-observation-preliminary', 'Patient/combine-null-key-preliminary'],
+    ['combine-observation-preliminary', 'Patient/combine-null-key-match'],
   ]);
+  assert.equal(observations.filter(({ key }) => key === 'Patient/combine-null-key-match').length, 2);
+  assert.equal(reports.filter(({ key }) => key === 'Patient/combine-null-key-match').length, 2);
 
   assert.deepEqual(joinOnNullableKey(observations, reports, 'INNER'), [
     ['combine-observation-final-1', 'combine-observation-final-2'],
-    ['combine-observation-preliminary', 'combine-observation-preliminary'],
-  ], 'equal non-NULL keys match, while the NULL key on each side never matches');
+    ['combine-observation-final-1', 'combine-observation-preliminary'],
+    ['combine-observation-final-2', 'combine-observation-final-2'],
+    ['combine-observation-final-2', 'combine-observation-preliminary'],
+  ], 'the shared key emits all 2x2 row pairs, while the NULL key on each side never matches');
   assert.deepEqual(joinOnNullableKey(observations, reports, 'LEFT'), [
     ['combine-observation-final-1', 'combine-observation-final-2'],
-    ['combine-observation-final-2', null],
-    ['combine-observation-preliminary', 'combine-observation-preliminary'],
+    ['combine-observation-final-1', 'combine-observation-preliminary'],
+    ['combine-observation-final-2', 'combine-observation-final-2'],
+    ['combine-observation-final-2', 'combine-observation-preliminary'],
+    ['combine-observation-preliminary', null],
     ['combine-observation-unmatched', null],
-  ], 'LEFT retains both unmatched left rows and null-extends the absent right identity');
+  ], 'LEFT keeps all four duplicate-key pairs and retains/null-extends both unmatched left rows');
 
   const appendRows = [
     ...rawObservations.map(({ id, status }) => [id, status, null]),

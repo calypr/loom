@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
-import { caseNamesFor, registry, scenarioCaseFor } from '../../registry.mjs';
+import { caseNamesFor, hasLifecycleContract, registry, scenarioCaseFor } from '../../registry.mjs';
 import { builderCancelStateEvidence, nativeResponseScopeEvidence, removalProposalEvidence, targetDocumentStateEvidence } from '../builder-combine-nullable-helpers.mjs';
 import { classifyNativeBrowserApiRequest } from '../native-browser-api-scope.mjs';
 
@@ -18,14 +18,20 @@ test('nullable KEY_JOIN is registered as a separate owned native lifecycle', () 
     'source schemas expose compatible nullable scalar ID keys, scalar status fields, and a numeric Observation value',
     'native CREATE_TABLE request and response bind to the owned UI proxy project and Explorer route',
     'INNER preview receipt binds the exact UI proxy route, target, nullable key pair, output columns, and raw rows',
-    'INNER nullable Join matches exactly two equal non-NULL subject references and does not match NULL to NULL',
+    'nullable-key fixture proves two duplicate rows per side for one shared key, NULL on both sides, and one left-only key',
+    'INNER nullable Join preserves all four pairs from the 2x2 duplicate key and never matches NULL to NULL',
+    'INNER applied rows preserve all four duplicate-key pairs',
+    'INNER duplicate-key pairs survive Builder reload',
     'LEFT preview receipt binds the exact UI proxy route, target, nullable key pair, output columns, and raw rows',
+    'LEFT preview preserves four duplicate-key pairs, both unmatched left rows, and NULL non-equality',
+    'LEFT applied output preserves duplicate-key multiplicity and both unmatched left rows',
+    'LEFT duplicate-key multiplicity and null projections survive Builder reload',
     'nullable KEY_JOIN removal preview receipt binds the exact scoped request, removed step, target, snapshot, and DOM receipt',
     'Cancel leaves saved INNER nullable Join rows unchanged after reload',
     'Cancel leaves the full Builder workspace, draft version, and digest unchanged after reload',
     'Cancel removal leaves the full Builder workspace, draft version, and digest unchanged after reload',
     'removing nullable KEY_JOIN and reloading restores the exact pre-Combine target document',
-    'LEFT nullable Join rows and null projections survive Builder reload',
+    'LEFT duplicate-key multiplicity and null projections survive Builder reload',
     'both published nullable-key source tables remain byte-structured unchanged',
   ]) assert.ok(required.includes(name), 'registry must require ' + name);
 });
@@ -40,18 +46,88 @@ test('nullable lifecycle is discovered by the official Playwright Test runner', 
   assert.match(driver, /\}, \{ timeout: STEP_TIMEOUT_MS \}\)/);
   assert.equal((driver.match(/await expect\.poll\(/g) ?? []).length, 3);
   assert.match(spec, /import \{ test \} from '\.\.\/helpers\/fixtures\.mjs'/);
-  assert.match(spec, /test\.use\(\{ scenarioID: 'builder-combine-nullable', caseName: 'lifecycle', fixtureDir: 'testdata\/verify-combine' \}\)/);
+  assert.match(spec, /test\.use\(\{ scenarioID: 'builder-combine-nullable', caseName: 'lifecycle', fixtureDir: 'testdata\/verify-combine-nullable-duplicates' \}\)/);
+  assert.match(spec, /test\('nullable KEY_JOIN duplicate-key multiplicity and NULL non-equality lifecycle'/);
   assert.match(spec, /nullableJoinWorkflow\(\{ page, report: workflow\.report, action: workflow\.action \}, loomContext\)/);
 });
 
 test('nullable native case authors the exact optional source paths and checks the bound proposal receipt', () => {
   assert.match(driver, /Observation:\s*\['status',\s*'valueInteger',\s*'subject\.reference'\]/);
   assert.match(driver, /DiagnosticReport:\s*\['status',\s*'subject\.reference'\]/);
-  assert.match(driver, /nullable-key fixture matches the exact ID-to-reference maps with two shared keys and NULL on both sides/);
+  assert.match(driver, /nullable-key fixture proves two duplicate rows per side for one shared key, NULL on both sides, and one left-only key/);
+  assert.match(driver, /duplicatedObservationIDs\.length !== 2 \|\| duplicatedReportIDs\.length !== 2/);
+  assert.match(driver, /duplicateKeyInnerMultiplicity: `\$\{duplicatedObservationIDs\.length\}x\$\{duplicatedReportIDs\.length\}`/);
   assert.match(driver, /column\.clickhouseType === 'Nullable\(String\)' && column\.nullable === true && column\.repeated === false/);
   assert.match(driver, /constructionProposalPreviewEvidence\(/);
   assert.match(driver, /leftColumnId === expectedKeyIDs\[0\].*rightColumnId === expectedKeyIDs\[1\]/s);
   assert.match(driver, /nullMatchesNull: false/);
+});
+
+test('nullable Join reload budgets include exact rows and rooted target restoration', () => {
+  const start = driver.indexOf('const reloadTarget =');
+  const end = driver.indexOf('\nconst openSavedEdit', start);
+  const reloadHelper = driver.slice(start, end);
+  assert.match(reloadHelper, /expectedRows, name, exactRowsName, verifySavedState/);
+  assert.match(reloadHelper, /after: async \(\) => \{\s*await waitFor\(page, savedPreview\(expectedRows\.length\), 5000\);\s*exactRows\(report, exactRowsName, await readGrid\(page\), \['Observation ID', 'Report ID'\], expectedRows\);\s*if \(verifySavedState\) await verifySavedState\(\);\s*\}/);
+  for (const [rows, timingName, exactRowsName, verifySavedState] of [
+    ['innerRows', 'reload INNER nullable-key table', 'INNER duplicate-key pairs survive Builder reload', false],
+    ['innerRows', 'reload saved INNER after LEFT Cancel', 'Cancel leaves saved INNER nullable Join rows unchanged after reload', true],
+    ['leftRows', 'reload applied LEFT nullable-key table', 'LEFT duplicate-key multiplicity and null projections survive Builder reload', false],
+    ['leftRows', 'reload saved LEFT after removal Cancel', 'Cancel removal preserves the exact LEFT nullable Join rows after reload', true],
+  ]) {
+    const callStart = driver.indexOf(`await reloadTarget(report, page, target.outputId, ${rows}, '${timingName}', '${exactRowsName}'`);
+    assert.notEqual(callStart, -1, `reload timing must include exact ${rows} proof: ${timingName}`);
+    const callEnd = verifySavedState ? driver.indexOf('\n  });', callStart) : driver.indexOf('\n', callStart);
+    const call = driver.slice(callStart, callEnd);
+    if (verifySavedState) {
+      assert.match(call, /, async \(\) => \{/);
+      assert.match(call, /readBuilder\(context, explorer\)/);
+      assert.match(call, /builderCancelStateEvidence\(/);
+      assert.match(call, /assertSavedStep\(/);
+    } else {
+      assert.match(call, /;$/);
+    }
+  }
+  const removalReloadStart = driver.indexOf("name: 'reload nullable KEY_JOIN removal result'");
+  const removalReloadEnd = driver.indexOf('\n  const finalBuilder', removalReloadStart);
+  const removalReload = driver.slice(removalReloadStart, removalReloadEnd);
+  assert.match(removalReload, /after: async \(\) => \{\s*await waitFor\(page, emptyTargetReady\(target\.outputId\), 5000\);\s*const afterRemoval = await readBuilder\(context, explorer\);[\s\S]*?check\(report, 'persistence', 'removing nullable KEY_JOIN and reloading restores the exact pre-Combine target document', restoredEvidence\.ok/);
+});
+
+test('nullable and duplicate-key coverage map to exact native lifecycle checks without claiming a browser pass', () => {
+  const scenario = registry.find((entry) => entry.id === 'builder-combine-nullable');
+  const duplicate = registry.find((entry) => entry.id === 'builder-combine')
+    .coverage.find((entry) => entry.feature === 'duplicate-key multiplicity on nullable Join keys');
+  const nullable = scenario.coverage.find((entry) => entry.feature === 'nullable scalar KEY_JOIN ordinary SQL NULL equality and LEFT preservation');
+  assert.equal(hasLifecycleContract(nullable, scenario), true);
+  assert.equal(hasLifecycleContract(duplicate, registry.find((entry) => entry.id === 'builder-combine')), true);
+  assert.equal(duplicate.acceptance.scenario, scenario.id);
+  assert.equal(nullable.acceptance.case, 'lifecycle');
+  const checks = scenarioCaseFor(scenario, 'lifecycle').requiredChecks;
+  for (const [coverage, expected] of [
+    [nullable, {
+      choice: /choose nullable KEY_JOIN/,
+      proposal: /INNER nullable Join preserves all four pairs.*never matches NULL to NULL/,
+      cancel: /Cancel leaves saved INNER nullable Join rows unchanged after reload/,
+      apply: /Apply INNER nullable Join action-to-render/,
+      savedRows: /INNER applied rows preserve all four duplicate-key pairs/,
+      reload: /INNER duplicate-key pairs survive Builder reload/,
+      edit: /LEFT applied output preserves duplicate-key multiplicity and both unmatched left rows/,
+      restoration: /removing nullable KEY_JOIN and reloading restores the exact pre-Combine target document/,
+    }],
+    [duplicate, {
+      choice: /choose nullable KEY_JOIN/,
+      proposal: /INNER nullable Join preserves all four pairs.*never matches NULL to NULL/,
+      cancel: /Cancel leaves saved INNER nullable Join rows unchanged after reload/,
+      apply: /Apply INNER nullable Join action-to-render/,
+      savedRows: /INNER applied rows preserve all four duplicate-key pairs/,
+      reload: /INNER duplicate-key pairs survive Builder reload/,
+      edit: /LEFT applied output preserves duplicate-key multiplicity and both unmatched left rows/,
+      restoration: /removing nullable KEY_JOIN and reloading restores the exact pre-Combine target document/,
+    }],
+  ]) {
+    for (const [phase, pattern] of Object.entries(expected)) assert.match(checks[coverage.acceptance.checks[phase]], pattern);
+  }
 });
 
 test('nullable Playwright request listener classifies the owned proxy scope', () => {

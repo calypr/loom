@@ -5,7 +5,7 @@ import { join } from 'node:path';
 const watchedPaths = [
   'cmd', 'internal', 'generated', 'schemas', 'openapi',
   'ui/packages/loom-ui/src', 'ui/apps/demo/src',
-  'scripts', 'testdata/devloop-fixture', 'testdata/verify-combine', 'testdata/verify-repeated-empty', 'testdata/root-quantity-pivot-fixture', '.codex/skills/verify',
+  'scripts', 'testdata/devloop-fixture', 'testdata/verify-combine', 'testdata/verify-combine-nullable-duplicates', 'testdata/verify-repeated-empty', 'testdata/root-quantity-pivot-fixture', '.codex/skills/verify',
   'go.mod', 'go.sum', 'compose.dev.yaml', '.air.dev.toml',
   'ui/apps/demo/index.html', 'ui/apps/demo/vite.config.ts',
 ];
