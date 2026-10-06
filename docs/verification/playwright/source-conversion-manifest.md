@@ -2,11 +2,11 @@
 
 Source conversion status is separate from browser execution status.
 Source set: 85 root inventory rows plus 1 additional package-local source (87 records); 3 root sources intentionally deleted; 75 root verify files and 1 package-local verify file remain (76 current files total).
-Browser inventory: 74 root standalone entrypoints; 1 package-local entrypoint; 32 registered Playwright cases.
+Browser inventory: 74 root standalone entrypoints; 1 package-local entrypoint; 33 registered Playwright cases.
 Mapped sources: 74; retained API/helper sources: 10; pending source mappings/dispositions: 0.
 Native case map: 76 source rows / 155 source-to-case rows (155 distinct source-case keys); 77 source rows record legacy browser ownership removed.
-Native spec accounting: 27 current spec files; 22 mapped to legacy sources or registry cases; 5 explicitly classified harness specs; 0 orphan specs.
-Runtime evidence: not-run; official Playwright --list discovery: 167 tests in 27 files (discovery only; lifecycle not run).
+Native spec accounting: 28 current spec files; 23 mapped to legacy sources or registry cases; 5 explicitly classified harness specs; 0 orphan specs.
+Runtime evidence: not-run; official Playwright --list discovery: 168 tests in 28 files (discovery only; lifecycle not run).
 Embedded Loom dev launch sites: 9; mappings open: 0.
 Additional non-verify browser sources: 1; launch sites: 1; mappings open: 0; legacy helper owners still active: 0.
 
@@ -157,6 +157,7 @@ Additional non-verify browser sources: 1; launch sites: 1; mappings open: 0; leg
 - `cda-collection-repair-partial/partial-long-route-repair-and-reload` → `scripts/verify-ui/specs/standalone-cda-other.spec.mjs`; lifecycle unverified
 - `standalone-reshape-related-source-after-pivot/related-source-after-pivot` → `scripts/verify-ui/specs/standalone-reshape.spec.mjs`; lifecycle unverified
 - `cda-workspace-combine/group-join` → `scripts/verify-ui/specs/cda-current-draft-group-join.spec.mjs`; lifecycle unverified
+- `cda-workspace-combine/group-pivot-join` → `scripts/verify-ui/specs/cda-current-draft-group-pivot-join.spec.mjs`; lifecycle unverified
 - `cda-current-draft-upstream-append/upstream-append` → `scripts/verify-ui/specs/cda-current-draft-upstream-append.spec.mjs`; lifecycle unverified
 - `cda-current-draft-membership/membership` → `scripts/verify-ui/specs/cda-current-draft-membership.spec.mjs`; lifecycle unverified
 - `cda-cohort-fields/cohort-fields` → `scripts/verify-ui/specs/standalone-cda-fields.spec.mjs`; lifecycle unverified

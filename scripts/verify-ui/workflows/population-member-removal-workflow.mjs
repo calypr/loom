@@ -499,6 +499,9 @@ const rawMembership = selectionId => rawQuery(`FOR member IN loom_explorer_selec
   await waitFor(digest => { const p=document.querySelector('[data-testid="construction-preview"]'); return p?.dataset.previewStatus === 'ready' && p.dataset.currentDraftDigest !== digest; }, reloaded.draftDigest, 30000);
   await assertRendered(baselineRows);
   const restored = await refreshBuilder();
+  assert(restored.draftVersion > reloaded.draftVersion, 'Undo must advance the current draft CAS version');
+  assert.equal(restored.draftDigest, originalDigest, 'Undo must restore the exact pre-removal workspace digest');
+  assert.deepEqual(restored.workspace, originalWorkspace, 'Undo must restore the exact pre-removal workspace');
   assert.equal(currentDocument(restored).population.selectionRevisionId, baseSelection.id);
   assert.deepEqual(currentDocument(restored).construction, savedDocument.construction);
   assert.deepEqual(currentDocument(restored).columns, savedDocument.columns);
@@ -515,7 +518,7 @@ const rawMembership = selectionId => rawQuery(`FOR member IN loom_explorer_selec
   const restorationReloadMs = Date.now() - restorationReloadStarted;
   assert(restorationReloadMs <= 5000, `Restoration reload took ${restorationReloadMs}ms`);
   report.cases.push({ name: 'reload-restored-original-collection-and-rows', durationMs: restorationReloadMs });
-  mark(requiredChecks[10]);
+  mark('Undo restores the original population and its exact attached selection');
   await drainNativeNetwork();
   report.networkRequests = report.nativeRequests.map(({ requestId, browserRequestId, path, method, startedAt, completedAt, status, failure, expectedCancellation }) => ({ requestId, browserRequestId, path, method, startedAt, completedAt, status, failure, expectedCancellation }));
   report.networkFailures = report.nativeRequests.filter(request => request.failure).map(({ requestId, path, method, failure }) => ({ requestId, path, method, failure }));

@@ -67,6 +67,7 @@
   "scripts/verify-ui/workflows/verify-cda-related-group-browser.mjs": "3a6d6979af61545d99d3bfbd07e66ce186bc08be501834f26abd894101384125",
   "scripts/verify-ui/workflows/verify-cda-related-one-all-browser.mjs": "46a347a9baf3705fe36c5ae40f34a0c200385a986ab17dfe3ce528bf320a57aa",
   "scripts/verify-ui/workflows/verify-cda-related-pivot-browser.mjs": "0e12e5c7dab43bdc7c62ac3679555e086800bb774853d1bf80cceb805618f3a2",
+  "scripts/verify-ui/workflows/verify-cda-related-source-after-pivot-browser.mjs": "f85445786baf984dfef67a6bf8b1a0a17a6c894f6fa597eb9161c7f391da3852",
   "scripts/verify-ui/workflows/verify-cda-related-unpivot-browser.mjs": "b5d6ec8f1dfa60e522db8a6e13480404b79bc84b3fdc160682c5096dcaa9bf02",
   "scripts/verify-ui/workflows/verify-cda-repeated-empty-browser.mjs": "c9bddd0691836db2a2470ef7f8cae2b6fbf82dd8e86f310bdd64c45fe10d717d",
   "scripts/verify-ui/workflows/verify-cda-repeated-rows-browser.mjs": "ca30a78264db4a99dff8ada79172a920c914ad39d866040b2620c873eefa3f4d",

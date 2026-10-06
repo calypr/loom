@@ -2,25 +2,25 @@
   "schemaVersion": 1,
   "kind": "official-playwright-static-discovery",
   "sourceRoot": ".",
-  "baseCommit": "02e20692932eb2abc847e40fc85c27b1f994954a",
+  "baseCommit": "4a8d22ce01e499bd40486167d9ddb6c6b7ee513c",
   "status": "discovery-only",
   "runtimeStatus": "not-run",
   "commandTemplate": "<repo>/scripts/node_modules/.bin/playwright test --config <configPath> --list --reporter=json",
-  "note": "Captured from 6 official Playwright --list --reporter=json outputs. These reports list registrations only and skip every test body; no lifecycle ran. The 6 session counts sum to 172 entries.",
-  "mainDiscoveryTestCount": 167,
-  "mainDiscoverySpecFileCount": 27,
+  "note": "Captured from 6 official Playwright --list --reporter=json outputs. These reports list registrations only and skip every test body; no lifecycle ran. The 6 session counts sum to 173 entries.",
+  "mainDiscoveryTestCount": 168,
+  "mainDiscoverySpecFileCount": 28,
   "dedicatedBenchmarkTestCount": 1,
   "dedicatedBenchmarkSpecFileCount": 1,
-  "totalDeclaredTestCount": 172,
+  "totalDeclaredTestCount": 173,
   "sessions": [
     {
       "sessionID": "main",
       "configPath": "scripts/playwright.config.mjs",
       "configSha256": "d16ccb10ccf63f8a711ae7f8c5b61d4bc44452172e9a309a06cab32ce30f69bc",
       "environment": {},
-      "testCount": 167,
-      "specFileCount": 27,
-      "discoveredCasesSha256": "dd2957c7e0611c41321640d77acf4eb436c47e8c4537b44ead5b3ea359173feb",
+      "testCount": 168,
+      "specFileCount": 28,
+      "discoveredCasesSha256": "f6d3d04f89ce0141fb6047097a4a243534c98c13144bbf4a5b6e786d465ea92c",
       "specs": [
         {
           "path": "scripts/verify-ui/specs/append.spec.mjs",
@@ -158,6 +158,19 @@
               "title": "two independent native Observation Groups join through the current draft lifecycle",
               "id": "608bad1f9c0a44d25038-a32f3794026ad9f02d1c",
               "line": 11,
+              "column": 3,
+              "occurrence": 1
+            }
+          ]
+        },
+        {
+          "path": "scripts/verify-ui/specs/cda-current-draft-group-pivot-join.spec.mjs",
+          "sha256": "f91956162b8fac0d255a7ff3a04bfe24f6348fd6fff56a794ab6ef5e4930b24a",
+          "cases": [
+            {
+              "title": "exact Observation Groups feed a native Pivot and editable current-draft Join",
+              "id": "51cfd5a4838546f5b945-414d4e23064ecb647dba",
+              "line": 12,
               "column": 3,
               "occurrence": 1
             }

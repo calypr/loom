@@ -7,7 +7,7 @@
     "runnerInventoryPath": "docs/verification/playwright/runner-inventory.snapshot.json",
     "runnerInventorySha256": "ea1f0421f76eb31fc3a9d7ee29734439b37a5eca8ce84a6b97634ebd1abdc5de",
     "registryPath": "scripts/verify-ui/registry.mjs",
-    "registrySha256": "c474d3b46e4707e6107daf6c8e96e5c2f55642838aaed711caf9ff05f936547e",
+    "registrySha256": "cdab620475c517bf081e019efc94466f28313e77a07d26862592b893c2d88732",
     "preimagesCapturedFromStageCopy": true
   },
   "sourceScope": {
@@ -795,7 +795,7 @@
     ],
     "discoverySnapshot": {
       "path": "docs/verification/playwright/discovery.snapshot.json",
-      "sha256": "7bdb1091d98e4e5a5ca13e2f002b1b3c0359f0f2daecee546a740ec1e95d32a8"
+      "sha256": "fb41b79fb41c85bd2e4497a1d1e6ca91730674887b6814c43ffcb1ce5a7f2b05"
     },
     "discoveryOverrideInputs": [
       {
@@ -2639,10 +2639,10 @@
     "officialRootBrowserEntrypoints": 74,
     "additionalUiPackageBrowserEntrypoints": 1,
     "registeredBrowserEntrypoints": 2,
-    "registryCases": 32,
-    "registryRequiredCheckEntries": 600,
+    "registryCases": 33,
+    "registryRequiredCheckEntries": 630,
     "registryCustomAssertionVariants": 1,
-    "registryCaseMappingsPresent": 32,
+    "registryCaseMappingsPresent": 33,
     "additionalBrowserWorkflowSources": 2,
     "additionalEmbeddedBrowserJourneys": 9,
     "mappedEmbeddedBrowserJourneys": 9,
@@ -2664,8 +2664,8 @@
     "unresolvedLegacyLauncherImplementationOwners": 0,
     "orphanNativeSpecs": 0,
     "infrastructureSpecs": 5,
-    "nativePlaywrightSpecFiles": 27,
-    "mappedNativePlaywrightSpecFiles": 22,
+    "nativePlaywrightSpecFiles": 28,
+    "mappedNativePlaywrightSpecFiles": 23,
     "unmappedWorkerSources": 0
   },
   "infrastructureSpecs": [
@@ -2767,12 +2767,12 @@
   "testDiscoveryEvidence": {
     "status": "discovery-only",
     "playwrightListPassed": true,
-    "discoveredTestCount": 167,
-    "discoveredSpecFileCount": 27,
+    "discoveredTestCount": 168,
+    "discoveredSpecFileCount": 28,
     "dedicatedBenchmarkTestCount": 1,
     "dedicatedBenchmarkSpecFileCount": 1,
     "discoverySnapshotPath": "docs/verification/playwright/discovery.snapshot.json",
-    "discoverySnapshotSha256": "7bdb1091d98e4e5a5ca13e2f002b1b3c0359f0f2daecee546a740ec1e95d32a8",
+    "discoverySnapshotSha256": "fb41b79fb41c85bd2e4497a1d1e6ca91730674887b6814c43ffcb1ce5a7f2b05",
     "discoverySnapshotMatchesCurrentSourceTree": true,
     "runtimeLifecycleStatus": "not-run",
     "note": "Official Playwright --list snapshots cover the main suite, the dedicated construction-preview benchmark config, and configured related ONE/ALL variants. They confirm discovery only; no test body or domain lifecycle is represented as run."
@@ -5697,6 +5697,11 @@
           "feature": "owned CDA current-draft Group-to-Group KEY_JOIN Cancel, Apply, edit, upstream recompute, removal, and reload lifecycle",
           "status": "passed",
           "reason": "Epoch58 verified the full native CDA Group-to-Group lifecycle: 16 required checks, 107 actions, max 1472ms, no unexpected errors; independent scoped raw oracle and unchanged source/API/mounts. Durable report: docs/verification/playwright/runtime/current-draft-cda-group-join-epoch58-report.json; closure: docs/verification/playwright/runtime/current-draft-cda-group-join-epoch58-closure.json. Other transition classes remain separate."
+        },
+        {
+          "feature": "owned CDA current-draft Group-to-Pivot KEY_JOIN Cancel, Apply, LEFT-to-INNER edit, removal, restoration, and reload lifecycle",
+          "status": "implemented",
+          "reason": "Epoch93 passed all 30 registered checks, 204 assertions, and 113 native actions (maximum 1412ms; category discovery and exact preview 1428ms). Independent scoped Observation IDs prove left Group counts 3/1 and right code-category Pivot counts 2/1, LEFT unmatched nulls, and INNER matched rows. Cancel, Apply, edit, removal, exact empty-target restoration, reload, and preserved Group/Pivot source selections passed without Publish or TABLE_REVISION inputs. Actual fresh API precheck and before/after source, docs, API identity, owned mounts, and health all passed. One stale selection read cancellation is request-proven; four background requests have no recorded status and favicon404 is incidental. Report: docs/verification/playwright/runtime/current-draft-cda-group-pivot-join-epoch93-lifecycle-report.json; closure: docs/verification/playwright/runtime/current-draft-cda-group-pivot-join-epoch93-lifecycle-closure.json. This proves the exact subject/first-code Group-Pivot shape; other transition classes remain separate."
         }
       ],
       "domainLifecycleStatus": "unverified",
@@ -5729,6 +5734,68 @@
       "mappingStatus": "native-spec-mapped; lifecycle-unverified"
     },
     {
+      "scenario": "cda-workspace-combine",
+      "case": "group-pivot-join",
+      "source": "scripts/verify-ui/workflows/cda-current-draft-group-join-workflow.mjs",
+      "nativeSpecPath": "scripts/verify-ui/specs/cda-current-draft-group-pivot-join.spec.mjs",
+      "customPreservedAssertions": null,
+      "scenarioWorkflow": "owned-cda-current-draft-group-join-lifecycle",
+      "scenarioCoverage": [
+        {
+          "feature": "owned CDA current-draft Group-to-Group KEY_JOIN Cancel, Apply, edit, upstream recompute, removal, and reload lifecycle",
+          "status": "passed",
+          "reason": "Epoch58 verified the full native CDA Group-to-Group lifecycle: 16 required checks, 107 actions, max 1472ms, no unexpected errors; independent scoped raw oracle and unchanged source/API/mounts. Durable report: docs/verification/playwright/runtime/current-draft-cda-group-join-epoch58-report.json; closure: docs/verification/playwright/runtime/current-draft-cda-group-join-epoch58-closure.json. Other transition classes remain separate."
+        },
+        {
+          "feature": "owned CDA current-draft Group-to-Pivot KEY_JOIN Cancel, Apply, LEFT-to-INNER edit, removal, restoration, and reload lifecycle",
+          "status": "implemented",
+          "reason": "Epoch93 passed all 30 registered checks, 204 assertions, and 113 native actions (maximum 1412ms; category discovery and exact preview 1428ms). Independent scoped Observation IDs prove left Group counts 3/1 and right code-category Pivot counts 2/1, LEFT unmatched nulls, and INNER matched rows. Cancel, Apply, edit, removal, exact empty-target restoration, reload, and preserved Group/Pivot source selections passed without Publish or TABLE_REVISION inputs. Actual fresh API precheck and before/after source, docs, API identity, owned mounts, and health all passed. One stale selection read cancellation is request-proven; four background requests have no recorded status and favicon404 is incidental. Report: docs/verification/playwright/runtime/current-draft-cda-group-pivot-join-epoch93-lifecycle-report.json; closure: docs/verification/playwright/runtime/current-draft-cda-group-pivot-join-epoch93-lifecycle-closure.json. This proves the exact subject/first-code Group-Pivot shape; other transition classes remain separate."
+        }
+      ],
+      "domainLifecycleStatus": "unverified",
+      "runtimeEvidence": {
+        "status": "not-run"
+      },
+      "discoveryTestTitles": [
+        "exact Observation Groups feed a native Pivot and editable current-draft Join"
+      ],
+      "discoveryTestCount": 1,
+      "discoverySpecSha256": "f91956162b8fac0d255a7ff3a04bfe24f6348fd6fff56a794ab6ef5e4930b24a",
+      "preservedAssertions": [
+        "Bounded scoped raw Observation witness has exact A,A,B shared and left-only identities",
+        "left Group immutable selection and direct population bind exact scoped FHIR IDs",
+        "left Group native GROUP proposal matches raw group counts",
+        "left Group proposal carries exact direct Group keys and COUNT_ROWS",
+        "left Group saved Group survives reload",
+        "Left native Group produces the exact shared count 3 and left-only count 1",
+        "right Group Pivot immutable selection and direct population bind exact scoped FHIR IDs",
+        "right Group Pivot native GROUP proposal matches raw group counts",
+        "right Group Pivot proposal carries exact direct Group keys and COUNT_ROWS",
+        "right Group Pivot saved Group survives reload",
+        "Right native Group preserves subject/code-category multiplicity as two COUNT_ROWS groups",
+        "Right native Pivot proposal preserves exact code category multiplicity 2 and 1",
+        "Right Group\u2192Pivot rows survive reload with exact code category multiplicity",
+        "Exact source outputs persist as one GROUP and one ordered GROUP\u2192PIVOT",
+        "LEFT Join preview matches exact Group/Pivot oracle",
+        "LEFT native Join binds exact Group/Pivot inputs, keys, mappings, and current CAS",
+        "Join proposal Cancel preserves the exact full workspace and draft CAS after reload",
+        "Apply native Group/Pivot LEFT Join persists exact visible values",
+        "Edited INNER proposal matches exact shared-key rows",
+        "Cancel saved LEFT Join edit to INNER preserves existing target rows",
+        "Canceled INNER edit retains LEFT values",
+        "INNER Join proposal matches exact shared-key rows",
+        "Apply saved LEFT Join edit as INNER persists exact visible values",
+        "Cancel INNER Join removal preserves existing target rows",
+        "Cancel removal preserves saved INNER values",
+        "Join removal Apply restores exact empty target and preserves scoped Group/Pivot sources",
+        "CDA Group/Pivot/Join lifecycle never publishes or pins TABLE_REVISION inputs",
+        "All native Group/Pivot/Join browser actions remain within five seconds",
+        "all native lifecycle actions complete within five seconds",
+        "CDA watched source and API build stayed unchanged"
+      ],
+      "mappingStatus": "native-spec-mapped; lifecycle-unverified"
+    },
+    {
       "scenario": "cda-current-draft-upstream-append",
       "case": "upstream-append",
       "source": "scripts/verify-ui/workflows/cda-current-draft-upstream-append-workflow.mjs",
@@ -5739,7 +5806,7 @@
         {
           "feature": "real-CDA exact-population Group\u2192DERIVE\u2192APPEND with upstream edit, Cancel/Apply, dependent receipt recompute, removal, restoration, and reload",
           "status": "implemented",
-          "reason": "The native case, source inventory, and pure bounded raw oracle are registered. No browser lifecycle ran in this staged change, so runtime behavior remains unverified."
+          "reason": "Epoch78 passed all 26 registered checks and 215 assertions; all 93 native actions passed within the five-second budget (maximum 1,858 ms), all four dimensions passed, and the strict network gate recorded zero unexpected failures. The bounded raw oracle selected two Patient.id witnesses and two disjoint two-row Observation.status=final populations, then verified Group\u2192DERIVE\u2192APPEND with duplicate-category multiplicity, edit-driven recompute, Cancel/Apply, removal, empty-target restoration, and reload without Publish or TABLE_REVISION inputs. Source, docs, API build, and owned mounts remained unchanged; health passed 3/3 before and after. This closes only the Patient.id plus disjoint Observation.status=final case; DiagnosticReport-backed and published-source APPEND remain unverified. Report: docs/verification/playwright/runtime/current-draft-cda-upstream-append-epoch78-report.json (domain report SHA-256 46ca0259df931df57fc8d39ff10321c92c557c7153104067ee1520b5f360d94a); closure: docs/verification/playwright/runtime/current-draft-cda-upstream-append-epoch78-closure.json (SHA-256 38125743af667fbc838991f35b86b9c71b68dac4ce64cf97e381029e496143c8)."
         }
       ],
       "domainLifecycleStatus": "unverified",
@@ -8067,7 +8134,7 @@
       "workflowArtifacts": [
         {
           "path": "scripts/verify-ui/workflows/population-member-removal-workflow.mjs",
-          "sha256": "af352271bcfaaa38be3923df4cbcbd5918fbfcfe772a1cabc11be3981a4e8653",
+          "sha256": "5ab2b4bad2183f7bfe59ddc90ad3dc601b8aa54b69ec0dd02d2fb5f97331279d",
           "artifactSource": "canonical-source-root"
         }
       ],

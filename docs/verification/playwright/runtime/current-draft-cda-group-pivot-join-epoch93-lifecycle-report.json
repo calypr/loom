@@ -1,0 +1,247 @@
+{
+  "epoch": 93,
+  "status": "passed",
+  "runnerStatus": "passed",
+  "coverageStatus": "passed",
+  "scenario": "cda-workspace-combine",
+  "case": "group-pivot-join",
+  "title": "CDA current-draft Group\u2192Pivot\u2192Join exact Observation Groups feed a native Pivot and editable current-draft Join",
+  "durableClosurePath": "docs/verification/playwright/runtime/current-draft-cda-group-pivot-join-epoch93-lifecycle-closure.json",
+  "coordinatorClosurePath": "docs/verification/playwright/runtime/current-draft-cda-group-pivot-join-epoch93-closure.json",
+  "target": {
+    "kind": "owned-cda",
+    "project": "loom_dev_cda_fhir",
+    "generation": "cda-fhir-v1",
+    "explorer": "cda-group-pivot-join-2eac7206-0ef9-4e78-870b-34a24de9ac8d",
+    "rawCapturedExplorer": null,
+    "explorerIdentitySource": "Derived from the proven expected-cancellation and replacement-selection GET paths; raw report target.explorer was null.",
+    "composeProject": "loom-dev-6d7df93d6a37",
+    "apiUrl": "http://127.0.0.1:8188",
+    "uiUrl": "http://127.0.0.1:30008",
+    "sourceRoot": "/private/tmp/loom-construction-implementation",
+    "sourceFingerprint": {
+      "sha256": "0d8d17a85ed75295cfccffb0d131efbe0546fc12c1c3b60648c332cafdccfc2a",
+      "files": 1526
+    },
+    "apiBuildIdentity": "59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:d0ff798529bdfbf5b796a4d549d73ffee8de0acbb412c5604913a091b36abd51"
+  },
+  "dimensions": {
+    "usability": "passed",
+    "correctness": "passed",
+    "persistence": "passed",
+    "performance": "passed"
+  },
+  "rawReportedDimensions": {
+    "usability": "passed",
+    "correctness": "passed",
+    "persistence": "passed",
+    "performance": "passed"
+  },
+  "requiredChecks": {
+    "passed": 30,
+    "failed": 0,
+    "unrun": 0,
+    "total": 30,
+    "reached": 30,
+    "passedNames": [
+      "Bounded scoped raw Observation witness has exact A,A,B shared and left-only identities",
+      "left Group immutable selection and direct population bind exact scoped FHIR IDs",
+      "left Group native GROUP proposal matches raw group counts",
+      "left Group proposal carries exact direct Group keys and COUNT_ROWS",
+      "left Group saved Group survives reload",
+      "Left native Group produces the exact shared count 3 and left-only count 1",
+      "right Group Pivot immutable selection and direct population bind exact scoped FHIR IDs",
+      "right Group Pivot native GROUP proposal matches raw group counts",
+      "right Group Pivot proposal carries exact direct Group keys and COUNT_ROWS",
+      "right Group Pivot saved Group survives reload",
+      "Right native Group preserves subject/code-category multiplicity as two COUNT_ROWS groups",
+      "Right native Pivot proposal preserves exact code category multiplicity 2 and 1",
+      "Right Group\u2192Pivot rows survive reload with exact code category multiplicity",
+      "Exact source outputs persist as one GROUP and one ordered GROUP\u2192PIVOT",
+      "LEFT Join preview matches exact Group/Pivot oracle",
+      "LEFT native Join binds exact Group/Pivot inputs, keys, mappings, and current CAS",
+      "Join proposal Cancel preserves the exact full workspace and draft CAS after reload",
+      "Apply native Group/Pivot LEFT Join persists exact visible values",
+      "Edited INNER proposal matches exact shared-key rows",
+      "Cancel saved LEFT Join edit to INNER preserves existing target rows",
+      "Canceled INNER edit retains LEFT values",
+      "INNER Join proposal matches exact shared-key rows",
+      "Apply saved LEFT Join edit as INNER persists exact visible values",
+      "Cancel INNER Join removal preserves existing target rows",
+      "Cancel removal preserves saved INNER values",
+      "Join removal Apply restores exact empty target and preserves scoped Group/Pivot sources",
+      "CDA Group/Pivot/Join lifecycle never publishes or pins TABLE_REVISION inputs",
+      "All native Group/Pivot/Join browser actions remain within five seconds",
+      "all native lifecycle actions complete within five seconds",
+      "CDA watched source and API build stayed unchanged"
+    ],
+    "failedNames": [],
+    "unrunNames": []
+  },
+  "assertions": {
+    "passed": 204,
+    "failed": 0,
+    "total": 204
+  },
+  "actions": {
+    "passed": 113,
+    "failed": 0,
+    "total": 113,
+    "maxElapsedMs": 1412,
+    "budgetMs": 5000,
+    "customTransitions": [
+      {
+        "name": "right Group\u2192Pivot category discovery and exact preview",
+        "elapsedMs": 1428
+      },
+      {
+        "name": "LEFT Group/Pivot Join proposal and exact visible preview",
+        "elapsedMs": 749
+      },
+      {
+        "name": "LEFT Group/Pivot Join proposal and exact visible preview",
+        "elapsedMs": 769
+      },
+      {
+        "name": "saved LEFT-to-INNER edit preview before Cancel",
+        "elapsedMs": 777
+      }
+    ],
+    "customTransitionMaxElapsedMs": 1428
+  },
+  "nativeRequests": {
+    "recordedEntries": 168,
+    "http200": 164,
+    "otherStatus": 0,
+    "noStatus": 4,
+    "unexpectedNetworkErrors": 0,
+    "noStatusDetail": "4 entries have no recorded HTTP status; they remain incomplete diagnostics.",
+    "expectedCancellationCount": 1
+  },
+  "incidentalErrors": [
+    {
+      "kind": "asset-failure",
+      "url": "http://127.0.0.1:30008/favicon.ico",
+      "status": 404
+    }
+  ],
+  "expectedSelectionCancellation": {
+    "count": 1,
+    "method": "GET",
+    "url": "http://127.0.0.1:30008/api/v1/projects/loom_dev_cda_fhir/explorers/cda-group-pivot-join-2eac7206-0ef9-4e78-870b-34a24de9ac8d/selections/selection_a8cf0f91717333a7df27a03608cdcc1667528b1819bec4b4ba9fd249b07cab30",
+    "requestId": "cda-request-376",
+    "expected": true,
+    "reason": "Selecting the right Group Pivot output retires the previous left attached-selection query.",
+    "proof": {
+      "project": "loom_dev_cda_fhir",
+      "explorer": "cda-group-pivot-join-2eac7206-0ef9-4e78-870b-34a24de9ac8d",
+      "generation": "cda-fhir-v1",
+      "previousOutputId": "out_2abfd2c51200007e963db3d4",
+      "previousSelectionRevisionId": "selection_a8cf0f91717333a7df27a03608cdcc1667528b1819bec4b4ba9fd249b07cab30",
+      "nextOutputId": "out_8cbb2f38a3d44c087217e417",
+      "nextSelectionRevisionId": "selection_67e3ccbb4451b94c113fa439951a000a5d7f19f03885ca2e1bcfa605f332d7dd",
+      "query": {
+        "method": "GET",
+        "limit": 1
+      },
+      "retirement": "BuilderWorkspace replaces the keyed active-table population selection query; resourceFor aborts its stale getSelection AbortSignal when the selected table changes.",
+      "scopeAction": "Select right Group Pivot exact source population",
+      "scopeRequest": {
+        "requestId": null,
+        "draftVersion": null,
+        "draftDigest": null,
+        "outputId": null,
+        "stageId": null
+      }
+    },
+    "replacementRead": null
+  },
+  "browserLifecycle": {
+    "kind": "official-playwright-page",
+    "status": "passed",
+    "durationMs": 67137,
+    "droppedDiagnostics": 0,
+    "droppedNavigationTimings": 0
+  },
+  "lifecycleExtent": {
+    "completed": [
+      "all 30 registered required checks; exact bounded raw witness and scoped sources",
+      "left/right GROUP and native Pivot exact preview, apply, persistence, and reload",
+      "LEFT Join preview, Cancel, Apply, and reload",
+      "saved LEFT Join edit to INNER, Cancel preservation, Apply, and reload",
+      "Join removal Cancel/Apply and reload with scoped Group/Pivot sources preserved",
+      "one expected stale LEFT-selection cancellation correlated to right-source switch with successful replacement GET"
+    ],
+    "productPassClaim": true
+  },
+  "integrity": {
+    "closureStatus": "PASS",
+    "sourceBeforeAfter": {
+      "before": {
+        "sha256": "0d8d17a85ed75295cfccffb0d131efbe0546fc12c1c3b60648c332cafdccfc2a",
+        "files": 1526
+      },
+      "after": {
+        "sha256": "0d8d17a85ed75295cfccffb0d131efbe0546fc12c1c3b60648c332cafdccfc2a",
+        "files": 1526
+      },
+      "unchanged": true,
+      "manifestsEqual": true,
+      "changedPaths": []
+    },
+    "docsBeforeAfter": {
+      "before": {
+        "sha256": "6e489f7221966d902b999743e7aeee770ace2b469ec08aac7f0240c7a53aec4b",
+        "files": 223
+      },
+      "after": {
+        "sha256": "6e489f7221966d902b999743e7aeee770ace2b469ec08aac7f0240c7a53aec4b",
+        "files": 223
+      },
+      "unchanged": true,
+      "manifestsEqual": true,
+      "changedPaths": []
+    },
+    "apiBuildIdentity": {
+      "before": "59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:d0ff798529bdfbf5b796a4d549d73ffee8de0acbb412c5604913a091b36abd51",
+      "after": "59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:d0ff798529bdfbf5b796a4d549d73ffee8de0acbb412c5604913a091b36abd51",
+      "unchanged": true
+    },
+    "apiBuildIdentityUnchanged": true,
+    "ownedMounts": {
+      "before": "PASS",
+      "after": "PASS",
+      "targetUnchanged": true
+    },
+    "health": {
+      "before": {
+        "status": "PASS",
+        "samples": 3
+      },
+      "after": {
+        "status": "PASS",
+        "samples": 3
+      }
+    }
+  },
+  "rawArtifacts": {
+    "domainReport": {
+      "path": "/private/tmp/loom-native-parallel-wave93/cda-current-draft-group-pivot-join/attempt1/artifacts/cda-current-draft-group-pi-508e8-editable-current-draft-Join/cda-report.json",
+      "sha256": "7e43301e16b8b47a034984299b53666963544b54dbdb13fcf82af9c9776f33d3"
+    },
+    "results": {
+      "path": "/private/tmp/loom-native-parallel-wave93/cda-current-draft-group-pivot-join/attempt1/results.json",
+      "sha256": "9fb64c554a492cbf49dba9d638e6c7613dccb384aa354630944bf1fd4043a4b0"
+    },
+    "runnerLog": {
+      "path": "/private/tmp/loom-native-parallel-wave93/cda-current-draft-group-pivot-join/attempt1/runner.log",
+      "sha256": "fac61f67690ea3628478249ad29e90c6054bb1de819d80db9d2d734e3ff7551d"
+    },
+    "coordinatorClosure": {
+      "path": "/private/tmp/loom-native-parallel-wave93/closure.json",
+      "sha256": "e2814bace08b69b04622ee8e4e34efb490af31977e10a1c467afa22a64599637"
+    }
+  },
+  "nextCheck": "Retain this exact owned CDA Group\u2192Pivot\u2192Join lifecycle as the passing case. Published-source and alternate mixed-source variants remain separate coverage.",
+  "finishedAt": "2026-10-06T14:08:13.286Z"
+}
