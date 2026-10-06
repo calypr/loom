@@ -4,7 +4,38 @@ import { readFileSync } from 'node:fs';
 import { correlateRequestFailure } from '../network-timing.mjs';
 import test from 'node:test';
 import { captureCDARequests } from '../cda-playwright-requests.mjs';
-import { classifyExpectedCdaCancellation } from '../cda-fixtures.mjs';
+import { classifyExpectedCdaCancellation, finalizeCdaExplorerMetadata } from '../cda-fixtures.mjs';
+
+test('CDA report retains explicitly workflow-owned Explorer identity at teardown', () => {
+  const fixtureSource = readFileSync(new URL('../cda-fixtures.mjs', import.meta.url), 'utf8');
+  assert.match(fixtureSource, /finalizeCdaExplorerMetadata\(report, target\)/);
+  assert.doesNotMatch(fixtureSource, /report\.explorer = target\.explorer/);
+  const report = {
+    explorer: 'collection-repair-fresh-113',
+    target: { explorer: null },
+    nativeRequests: [{ requestScope: { requestExplorer: 'unrelated-request-explorer' } }],
+  };
+  const target = { explorer: 'configured-existing-explorer' };
+
+  assert.equal(finalizeCdaExplorerMetadata(report, target), 'collection-repair-fresh-113');
+  assert.equal(report.explorer, 'collection-repair-fresh-113');
+  assert.equal(report.target.explorer, 'collection-repair-fresh-113');
+});
+
+test('CDA report uses explicit target metadata as fallback without inferring Explorer from request traffic', () => {
+  const workflowSelected = { target: { explorer: 'workflow-selected-explorer' }, nativeRequests: [] };
+  assert.equal(finalizeCdaExplorerMetadata(workflowSelected, { explorer: 'configured-existing-explorer' }), 'workflow-selected-explorer');
+  assert.equal(workflowSelected.explorer, 'workflow-selected-explorer');
+
+  const configured = { target: { explorer: null }, nativeRequests: [{ requestScope: { requestExplorer: 'incidental-explorer' } }] };
+  assert.equal(finalizeCdaExplorerMetadata(configured, { explorer: 'configured-existing-explorer' }), 'configured-existing-explorer');
+  assert.equal(configured.target.explorer, 'configured-existing-explorer');
+
+  const unresolved = { target: { explorer: null }, nativeRequests: [{ requestScope: { requestExplorer: 'incidental-explorer' } }] };
+  assert.equal(finalizeCdaExplorerMetadata(unresolved, { explorer: null }), null);
+  assert.equal(unresolved.explorer, null);
+  assert.equal(unresolved.target.explorer, null);
+});
 
 test('late request-failure copies inherit exact cancellation evidence and leave other request IDs unexpected', async () => {
   const page = new EventEmitter();

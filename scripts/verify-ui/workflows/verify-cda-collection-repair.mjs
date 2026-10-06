@@ -349,6 +349,7 @@ try {
   }
   assert(Date.now()-start<=5000,'Collection repair must finish within five seconds');
   recordCase({name:'remove-unmapped-record',durationMs:Date.now()-start});
+  const repairReloadStartedAt=Date.now();
   await open(partialLongRoute?'partial-long-route-reload-raw-oracle':undefined);
   if(partialLongRoute){
     builder=await api(base+'/builder');
@@ -363,6 +364,9 @@ try {
     assert.equal(reloadedSelection.revision.resourceType,'Specimen');
     assert.deepEqual(reloadedSelection.members.map(member=>member.ref).sort((a,b)=>a.id.localeCompare(b.id)),expectedMappedRefs);
     await checkCoverage('partial-collection-reload','2 selected · 2 produce rows · 0 needs attention');
+    const repairReloadDuration=Date.now()-repairReloadStartedAt;
+    assert(repairReloadDuration<=5000,'Reload must restore exact preview rows and saved population state within five seconds');
+    recordCase({name:'partial-long-route-reload-exact-rows-and-state',durationMs:repairReloadDuration,observationIDs:expectedObservationIDs});
     recordRequirement(5, 'persistence', true, { route: reloaded.population.route, selectionRevisionId: reloaded.population.selectionRevisionId, memberIDs: reloadedSelection.members.map(member => member.ref.id), generation: reloadedSelection.revision.generation, previewIDs: expectedObservationIDs, columns: reloaded.columns, construction: reloaded.construction });
   }else await checkCoverage('empty-collection-reload','0 selected · 0 produce rows · 0 needs attention');
   if(longRoute){
@@ -448,6 +452,7 @@ try {
       assert.deepEqual(attachedSelection.members.map(member=>member.ref).sort((a,b)=>a.id.localeCompare(b.id)),expectedMappedRefs);
     }
     recordCase({name:partialLongRoute?'reattach-repaired-multi-member-long-collection':'reattach-long-collection',durationMs:attachDuration,routeWaitDurationMs:routeWaitDuration});
+    const reattachedReloadStartedAt=Date.now();
     await open(partialLongRoute?'reattached-partial-long-route-reload-raw-oracle':undefined);
     if(partialLongRoute){
       builder=await api(base+'/builder');
@@ -459,6 +464,9 @@ try {
       assert.equal(reloadedSelection.revision.generation,generation);
       assert.deepEqual(reloadedSelection.members.map(member=>member.ref).sort((a,b)=>a.id.localeCompare(b.id)),expectedMappedRefs);
       await checkCoverage('reattached-partial-long-collection-reload','2 selected · 2 produce rows · 0 needs attention');
+      const reattachedReloadDuration=Date.now()-reattachedReloadStartedAt;
+      assert(reattachedReloadDuration<=5000,'Reload after reattachment must restore exact preview rows and saved population state within five seconds');
+      recordCase({name:'reattached-partial-long-route-reload-exact-rows-and-state',durationMs:reattachedReloadDuration,observationIDs:expectedObservationIDs});
       recordRequirement(7, 'persistence', true, { route: reattachedReload.population.route, selectionRevisionId: reattachedReload.population.selectionRevisionId, memberIDs: reloadedSelection.members.map(member => member.ref.id), columns: reattachedReload.columns, construction: reattachedReload.construction, previewObservationIDs: expectedObservationIDs });
     }else await checkCoverage('reattached-long-collection-reload','0 selected · 0 produce rows · 0 needs attention');
   }

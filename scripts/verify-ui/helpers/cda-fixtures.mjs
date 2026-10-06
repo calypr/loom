@@ -88,6 +88,14 @@ function makeReport({ scenarioID, caseName, target, evidenceDirectory }) {
   });
 }
 
+export const finalizeCdaExplorerMetadata = (report, target) => {
+  const explorer = [report?.explorer, report?.target?.explorer, target?.explorer]
+    .find(value => typeof value === 'string' && value.trim()) ?? null;
+  report.explorer = explorer;
+  if (report.target) report.target.explorer = explorer;
+  return explorer;
+};
+
 function requestDiagnostic(request) {
   let body;
   try { body = request.postDataJSON(); } catch { body = undefined; }
@@ -1088,7 +1096,7 @@ export const test = base.extend({
         report.finishedAt = new Date().toISOString();
       }
       report.runnerStatus = testInfo.status;
-      report.explorer = target.explorer;
+      finalizeCdaExplorerMetadata(report, target);
       report.authorization = {
         browserContext: 'fresh Playwright page context',
         browserNoAuth: true,
