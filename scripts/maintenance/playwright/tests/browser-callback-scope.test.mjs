@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
+import { waitForBrowser } from '../../../verify-ui/helpers/cda-playwright.mjs';
 import { createBrowserCallbackScopeChecker } from '../browser-callback-scope.mjs';
 
 const testDirectory = dirname(fileURLToPath(import.meta.url));
@@ -111,4 +112,17 @@ test('existing serialized wait callbacks pass all Node values as arguments', () 
   }));
 
   assert.deepEqual(inspectSources(sources), []);
+});
+
+test('native wait driver rejects source-string arguments and forwards structured values', async () => {
+  const calls = [];
+  const page = { waitForFunction: async (...args) => { calls.push(args); } };
+  const predicate = ({ selector }) => Boolean(document.querySelector(selector));
+
+  await assert.rejects(waitForBrowser(page, predicate, 'button', 1000), /arguments must be structured data/);
+  assert.equal(calls.length, 0);
+
+  const args = { selector: '[data-testid="construction-workspace"]' };
+  await waitForBrowser(page, predicate, args, 8000);
+  assert.deepEqual(calls, [[predicate, args, { timeout: 5000 }]]);
 });

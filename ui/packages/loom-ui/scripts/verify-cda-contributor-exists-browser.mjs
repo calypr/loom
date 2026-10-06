@@ -212,7 +212,7 @@ const startRelatedExpand = async () => {
   await waitFor(() => document.querySelector('[data-testid="construction-action-related-rows"]')?.disabled === false);
   await click('[data-testid="construction-action-related-rows"]');
   const panel = '[data-testid="construction-related-expand-editor"]';
-  await waitFor((panelSelector) => document.querySelector(`${panelSelector} select[aria-label="Related record type"]`)?.disabled === false, panel);
+  await waitFor(({ panel }) => document.querySelector(`${panel} select[aria-label="Related record type"]`)?.disabled === false, { panel });
   await selectOption(`${panel} select[aria-label="Related record type"]`, 'Observation');
   const route = 'Patient <-[subject]- Observation';
   await waitFor(({ selector }) => Boolean(document.querySelector(selector)), { selector: `${panel} input[aria-label="${route}"]` });

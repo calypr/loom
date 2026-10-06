@@ -148,18 +148,18 @@ try {
       .filter(button => button.innerText.trim().endsWith(name)).map(button => button.getAttribute('data-testid')), [tableName]);
     assert.equal(testIds.length, 1, `Created table must have one visible table control: ${JSON.stringify(testIds)}`);
     await recordAction(`[data-testid=${JSON.stringify(testIds[0])}]`, 'Open saved table');
-    await wait((name) => document.querySelector('[data-testid="construction-workspace"] header')?.innerText.includes(name), tableName);
+    await wait(({ name }) => document.querySelector('[data-testid="construction-workspace"] header')?.innerText.includes(name), { name: tableName });
   };
   await cda.navigate(selectionURL);
   await wait(() => document.body.innerText.includes('DATASET WORKSPACE'));
   assert.equal(await cda.inspect( () => [...document.querySelectorAll('button')].some(button => button.innerText.trim() === 'Preview')), false,
     'Manual Preview button should not exist before table selection.');
   await recordAction('button', 'Create new table', { name: 'New table' });
-  await wait((type) => Boolean(document.querySelector(`button[aria-label="Choose ${type} rows"]:not(:disabled)`)), resourceType);
+  await wait(({ resourceType }) => Boolean(document.querySelector(`button[aria-label="Choose ${resourceType} rows"]:not(:disabled)`)), { resourceType });
   await cda.fill('#first-table-name', tableName);
   await recordAction(`button[aria-label="Choose ${resourceType} rows"]`, `Choose ${resourceType} rows`);
   created = true;
-  await wait((name) => document.querySelector('[data-testid="construction-workspace"] header')?.innerText.includes(name), tableName);
+  await wait(({ name }) => document.querySelector('[data-testid="construction-workspace"] header')?.innerText.includes(name), { name: tableName });
   await wait(() => document.querySelector('[data-testid="construction-rows-settings-trigger"]')?.disabled === false);
   await recordAction('[data-testid="construction-rows-settings-trigger"]', 'Open row settings');
   await wait(() => Boolean(document.querySelector('[role="dialog"][aria-label="Row definition settings"]')));
@@ -175,7 +175,7 @@ try {
     await wait(() => document.querySelector('[data-testid="construction-action-related-rows"]')?.disabled === false);
     await recordAction('[data-testid="construction-action-related-rows"]', 'Expand related rows');
     const relatedType = '[data-testid="construction-related-expand-editor"] select[aria-label="Related record type"]';
-    await wait((selector) => Boolean(document.querySelector(selector)), relatedType);
+    await wait(({ selector }) => Boolean(document.querySelector(selector)), { selector: relatedType });
     await cda.selectOption(relatedType, 'Observation');
     await wait(() => [...document.querySelectorAll('[data-testid="construction-related-expand-editor"] input[type="radio"]')]
       .some(input => input.getAttribute('aria-label')?.toLowerCase().includes('specimen') && !input.disabled));
@@ -240,7 +240,7 @@ try {
   await apply(related ? 2 : 1);
 
   await openTable();
-  await wait((subject) => document.querySelector('[data-testid="preview-table-scroll"]')?.innerText.includes(subject), report.oracle.subject);
+  await wait(({ subject }) => document.querySelector('[data-testid="preview-table-scroll"]')?.innerText.includes(subject), { subject: report.oracle.subject });
   report.saved = await cda.inspect( () => ({
     headers: [...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].map(cell => cell.innerText),
     rows: [...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]')].slice(1)
@@ -310,14 +310,14 @@ if (page) {
   if (created) {
     try {
       await cda.navigate(selectionURL);
-      await waitNative((name) => [...document.querySelectorAll('button')]
-        .some(button => button.innerText.trim().endsWith(name)), tableName, 5000);
+      await waitNative(({ tableName }) => [...document.querySelectorAll('button')]
+        .some(button => button.innerText.trim().endsWith(tableName)), { tableName }, 5000);
       await recordAction('button', 'Open temporary table for cleanup', { includes: tableName });
       await waitNative( () => document.querySelector('[data-testid="construction-delete-table"]')?.disabled === false, {}, 5000);
       allowCleanupDialog = true;
       await recordAction('[data-testid="construction-delete-table"]', 'Delete temporary table');
-      await waitNative((name) => ![...document.querySelectorAll('button')]
-        .some(button => button.innerText.trim().endsWith(name)), tableName, 5000);
+      await waitNative(({ tableName }) => ![...document.querySelectorAll('button')]
+        .some(button => button.innerText.trim().endsWith(tableName)), { tableName }, 5000);
       report.cleanup = 'deleted';
     } catch (error) {
       report.cleanup = 'failed';
