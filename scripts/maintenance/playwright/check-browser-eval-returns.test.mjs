@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { auditBrowserEvalSource, loadTypeScript, repositoryRoot } from './check-browser-eval-returns.mjs';
+import {
+  auditBrowserEvalSource,
+  auditBrowserWaitPredicateSyntax,
+  loadTypeScript,
+  repositoryRoot,
+} from './check-browser-eval-returns.mjs';
 
 const ts = loadTypeScript(repositoryRoot);
 
@@ -47,4 +52,30 @@ test('flags returned and conditional values while keeping interpolated bodies un
   assert.deepEqual(findings.map(({ kind }) => kind), [
     'missing-outer-return', 'missing-outer-return', 'unresolved',
   ]);
+});
+
+test('rejects the malformed edit and remove waitFunction predicates from the Group/Pivot Join failure', () => {
+  const historicalBad = [
+    "const editReady = async stepId => waitFunction(`Boolean(document.querySelector('[data-testid=\"construction-edit-step-${stepId}\"]:not(:disabled))`));",
+    "const removeReady = async stepId => waitFunction(`Boolean(document.querySelector('[data-testid=\"construction-remove-step-${stepId}\"]:not(:disabled))`));",
+  ].join('\n');
+  assert.deepEqual(auditBrowserEvalSource(historicalBad, 'epoch90-history-readiness.mjs', ts), [],
+    'The old return-only checker ignores waitFunction predicates.');
+  const findings = auditBrowserWaitPredicateSyntax(historicalBad, 'epoch90-history-readiness.mjs', ts);
+
+  assert.deepEqual(findings.map(({ kind, line }) => [kind, line]), [
+    ['invalid-predicate-syntax', 1], ['invalid-predicate-syntax', 2],
+  ]);
+  assert(findings.every(finding => /Invalid or unexpected token/.test(finding.message)));
+
+  const currentNativeWaits = [
+    'const editAction = page.getByTestId("construction-edit-step-" + stepId);',
+    "await action('Open saved Join history step', history, click, async () => waitEnabled(editAction));",
+    'const removeAction = page.getByTestId("construction-remove-step-" + stepId);',
+    "await action('Open saved Join history for removal', history, click, async () => waitEnabled(removeAction));",
+  ].join('\n');
+  assert.deepEqual(auditBrowserWaitPredicateSyntax(currentNativeWaits, 'current-native-readiness.mjs', ts), []);
+
+  const correctedPredicate = "waitFunction(`Boolean(document.querySelector('[data-testid=\"construction-edit-step-${stepId}\"]:not(:disabled)'))`);";
+  assert.deepEqual(auditBrowserWaitPredicateSyntax(correctedPredicate, 'corrected-readiness.mjs', ts), []);
 });

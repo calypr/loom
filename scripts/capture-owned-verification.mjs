@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { lstatSync, readFileSync, readdirSync, realpathSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 function option(name) {
@@ -11,6 +11,12 @@ function option(name) {
 
 const phase = option('--phase');
 assert(['before', 'after'].includes(phase), 'Use --phase before|after.');
+const precheckInput = option('--precheck-input');
+if (phase === 'before') {
+  assert(precheckInput, 'Before capture requires --precheck-input from owned-stack-verification --mode precheck.');
+} else {
+  assert(!precheckInput, '--precheck-input is only valid for --phase before.');
+}
 const outputPaths = {
   source: option('--source-output'),
   docs: option('--docs-output'),
@@ -22,6 +28,28 @@ for (const [name, outputPath] of Object.entries(outputPaths)) {
 }
 assert.equal(new Set(Object.values(outputPaths).map(path => resolve(path))).size, 4,
   'Source, docs, API, and mount outputs must use four distinct paths.');
+if (precheckInput) {
+  const precheckPath = realpathSync(resolve(precheckInput));
+  for (const outputPath of Object.values(outputPaths)) {
+    let candidate = resolve(outputPath);
+    const missingSegments = [];
+    let outputDestination;
+    for (;;) {
+      try {
+        outputDestination = resolve(realpathSync(candidate), ...missingSegments);
+        break;
+      } catch (error) {
+        if (error.code !== 'ENOENT') throw error;
+        const parent = dirname(candidate);
+        assert.notEqual(parent, candidate, `Could not resolve capture output path: ${outputPath}`);
+        missingSegments.unshift(basename(candidate));
+        candidate = parent;
+      }
+    }
+    assert.notEqual(outputDestination, precheckPath,
+      `Precheck input must not alias a capture output path: ${outputPath}`);
+  }
+}
 
 const env = process.env;
 const sourceRoot = realpathSync(resolve(env.LOOM_CDA_SOURCE_ROOT ?? ''));
@@ -33,11 +61,24 @@ const requiredEnvironment = [
 for (const name of requiredEnvironment) assert(env[name], `Set ${name} in the owned environment file.`);
 
 const importCanonical = async path => import(pathToFileURL(join(sourceRoot, path)).href);
-const [{ assertOwnedCdaTarget }, { startVerificationIdentity }, { sourceFingerprintWithManifest }] = await Promise.all([
+const [
+  { assertOwnedCdaTarget },
+  { startVerificationIdentity },
+  { sourceFingerprintWithManifest },
+  { assertFreshApiBuildPrecheck },
+] = await Promise.all([
   importCanonical('scripts/verify-ui/helpers/owned-cda-target.mjs'),
   importCanonical('scripts/verify-ui/helpers/cda-verification-identity.mjs'),
   importCanonical('scripts/verify-ui/helpers/source-fingerprint.mjs'),
+  importCanonical('scripts/verify-ui/helpers/owned-stack-health.mjs'),
 ]);
+
+const precheckRecord = phase === 'before'
+  ? JSON.parse(readFileSync(resolve(precheckInput), 'utf8'))
+  : undefined;
+const precheckIdentity = phase === 'before'
+  ? assertFreshApiBuildPrecheck(precheckRecord, { targetContainer: env.LOOM_CDA_API_CONTAINER.trim() })
+  : undefined;
 
 function docsFingerprint(root) {
   const directory = join(root, 'docs');
@@ -76,6 +117,12 @@ const ownedTarget = await assertOwnedCdaTarget({
   clickhouseContainer: env.LOOM_CDA_CLICKHOUSE_CONTAINER,
 });
 const identity = await startVerificationIdentity(sourceRoot, env.LOOM_CDA_API_CONTAINER);
+if (precheckIdentity) {
+  assertFreshApiBuildPrecheck(precheckRecord, {
+    targetContainer: env.LOOM_CDA_API_CONTAINER.trim(),
+    apiBuildIdentity: identity.apiBuildIdentity,
+  });
+}
 const source = sourceFingerprintWithManifest(sourceRoot);
 assert.deepEqual(source.fingerprint, identity.sourceFingerprint,
   'Source manifest and verification identity must describe the same watched tree.');
@@ -90,7 +137,20 @@ const target = { ...ownedTarget, generation: env.LOOM_CDA_GENERATION ?? null };
 const outputs = {
   source: { capturedAt, phase, root: sourceRoot, fingerprint: source.fingerprint, manifest: source.manifest },
   docs: { capturedAt, phase, root: sourceRoot, ...docs },
-  api: { capturedAt, phase, target, apiBuildIdentity: identity.apiBuildIdentity, sourceFingerprint: source.fingerprint, identityCheck },
+  api: {
+    capturedAt,
+    phase,
+    target,
+    apiBuildIdentity: identity.apiBuildIdentity,
+    sourceFingerprint: source.fingerprint,
+    identityCheck,
+    ...(precheckRecord ? {
+      apiBuildPrecheck: {
+        ...precheckRecord,
+        verifiedCapturedApiBuildIdentity: identity.apiBuildIdentity,
+      },
+    } : {}),
+  },
   mounts: {
     capturedAt,
     phase,

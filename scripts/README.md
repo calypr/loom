@@ -21,6 +21,7 @@ directory:
 mkdir -p "$REPORT_DIR"
 node scripts/owned-stack-verification.mjs --mode precheck --output "$REPORT_DIR/api-build-precheck.json"
 node scripts/capture-owned-verification.mjs --phase before \
+  --precheck-input "$REPORT_DIR/api-build-precheck.json" \
   --source-output "$REPORT_DIR/source-before.json" \
   --docs-output "$REPORT_DIR/docs-before.json" \
   --api-output "$REPORT_DIR/api-identity-before.json" \
@@ -32,7 +33,13 @@ node scripts/owned-stack-verification.mjs --mode health \
 
 The capture coordinator alone performs Docker-backed precheck, capture, and
 health operations. Keep the watched source and running API unchanged from the
-before capture through the after capture and final health check.
+before capture through the after capture and final health check. Before-phase
+capture requires the precheck artifact, verifies its fresh/current-source flags
+and owned API container, then confirms its three-part identity still matches
+the captured API. It records that checked precheck in
+`api.apiBuildPrecheck`. The durable closure's
+`integrityClosure.apiBuildIdentity.precheck` must come from
+`api.apiBuildPrecheck.apiBuildIdentity` in the before API artifact.
 
 After the browser run, capture with `--phase after` and four distinct
 `*-after.json` paths, then run health mode again with the same before-capture

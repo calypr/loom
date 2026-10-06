@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import vm from 'node:vm';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 
@@ -58,6 +59,37 @@ const extractBody = (argument, ts) => {
     return { kind: 'interpolated', text: parts.join('') };
   }
   return { kind: 'unresolved-body' };
+};
+
+export const auditBrowserWaitPredicateSyntax = (source, file = '<source>', ts = loadTypeScript()) => {
+  const sourceFile = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+  const findings = [];
+  const visit = (node) => {
+    const isWaitFunction = ts.isCallExpression(node) && (
+      (ts.isIdentifier(node.expression) && node.expression.text === 'waitFunction') ||
+      (ts.isPropertyAccessExpression(node.expression) && node.expression.name.text === 'waitForFunction')
+    );
+    if (isWaitFunction) {
+      const body = extractBody(node.arguments[0], ts);
+      if (body.kind !== 'unresolved-body') {
+        const position = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile));
+        try {
+          new vm.Script(`Boolean((${body.text}))`, { filename: `${file}:${position.line + 1}` });
+        } catch (error) {
+          findings.push({
+            file,
+            line: position.line + 1,
+            kind: 'invalid-predicate-syntax',
+            body: body.text.replace(/\s+/g, ' ').slice(0, 180),
+            message: error.message,
+          });
+        }
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return findings;
 };
 
 const hasOuterReturn = (body, ts) => {
@@ -120,11 +152,15 @@ export const verifierFiles = (root = repositoryRoot) => [
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const root = path.resolve(process.argv[2] ?? repositoryRoot);
   const ts = loadTypeScript(repositoryRoot);
-  const findings = verifierFiles(root).flatMap((file) =>
+  const files = verifierFiles(root);
+  const findings = files.flatMap((file) =>
     auditBrowserEvalSource(fs.readFileSync(file, 'utf8'), path.relative(root, file), ts));
+  const invalidPredicates = files.flatMap((file) =>
+    auditBrowserWaitPredicateSyntax(fs.readFileSync(file, 'utf8'), path.relative(root, file), ts));
   const defects = findings.filter((finding) => finding.kind === 'missing-outer-return');
   const unresolved = findings.filter((finding) => finding.kind === 'unresolved');
-  console.log(`Scanned ${verifierFiles(root).length} verifier files: ${defects.length} missing outer returns, ${unresolved.length} value-consuming calls unresolved.`);
+  console.log(`Scanned ${files.length} verifier files: ${defects.length} missing outer returns, ${unresolved.length} value-consuming calls unresolved, ${invalidPredicates.length} malformed wait predicates.`);
   for (const finding of findings) console.log(`${finding.file}:${finding.line} ${finding.kind}${finding.body ? ` ${finding.body}` : ''}`);
-  if (defects.length) process.exitCode = 1;
+  for (const finding of invalidPredicates) console.error(`${finding.file}:${finding.line} ${finding.kind}: ${finding.message} ${finding.body}`);
+  if (defects.length || invalidPredicates.length) process.exitCode = 1;
 }

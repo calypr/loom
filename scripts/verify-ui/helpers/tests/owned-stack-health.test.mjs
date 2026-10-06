@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  assertFreshApiBuildPrecheck,
   assertCapturedTargetMatches,
   inspectBuildStamp,
   parseCapturedBuildIdentity,
@@ -12,6 +13,46 @@ const binary = 'b'.repeat(64);
 const identity = `${source}:${source}:${binary}`;
 const stamp = `${source} ${source} ${binary}\n`;
 const response = (status, body) => ({ status, text: async () => body });
+
+const precheckRecord = () => ({
+  checkedAt: '2026-10-06T20:00:00.000Z',
+  targetContainer: 'owned-api',
+  command: '/workspace/loom-dev-build-stamp.sh --check',
+  exitCode: 0,
+  apiBuildIdentity: identity,
+  sourceDigestMatchesCurrentMountedSource: true,
+  runningBinaryMatchesRecordedBuild: true,
+  fresh: true,
+});
+
+test('capture accepts the owned precheck CLI record only for its exact captured API identity', () => {
+  assert.equal(assertFreshApiBuildPrecheck(precheckRecord(), {
+    targetContainer: 'owned-api',
+    apiBuildIdentity: identity,
+  }), identity);
+});
+
+test('capture rejects stale, failed, wrong-target, and mismatched-identity prechecks', () => {
+  for (const [field, value, message] of [
+    ['fresh', false, /must be fresh/],
+    ['sourceDigestMatchesCurrentMountedSource', false, /current mounted source/],
+    ['runningBinaryMatchesRecordedBuild', false, /running binary/],
+    ['exitCode', 1, /exit successfully/],
+  ]) {
+    assert.throws(() => assertFreshApiBuildPrecheck({ ...precheckRecord(), [field]: value }, {
+      targetContainer: 'owned-api',
+      apiBuildIdentity: identity,
+    }), message);
+  }
+  assert.throws(() => assertFreshApiBuildPrecheck(precheckRecord(), {
+    targetContainer: 'other-api',
+    apiBuildIdentity: identity,
+  }), /owned API container/);
+  assert.throws(() => assertFreshApiBuildPrecheck(precheckRecord(), {
+    targetContainer: 'owned-api',
+    apiBuildIdentity: `${'c'.repeat(64)}:${'c'.repeat(64)}:${binary}`,
+  }), /changed after the fresh precheck/);
+});
 
 test('precheck stamp requires a successful fresh three-digest result', () => {
   assert.deepEqual(inspectBuildStamp({ status: 0, stdout: stamp }), {

@@ -35,6 +35,23 @@ export function parseCapturedBuildIdentity(value) {
   return normalized.join(':');
 }
 
+export function assertFreshApiBuildPrecheck(record, { targetContainer, apiBuildIdentity } = {}) {
+  assert(record && typeof record === 'object' && !Array.isArray(record), 'API build precheck must be an object.');
+  assert.equal(record.exitCode, 0, 'API build precheck must exit successfully.');
+  assert.equal(record.fresh, true, 'API build precheck must be fresh.');
+  assert.equal(record.sourceDigestMatchesCurrentMountedSource, true,
+    'API build precheck must match the current mounted source.');
+  assert.equal(record.runningBinaryMatchesRecordedBuild, true,
+    'API build precheck must confirm the running binary.');
+  assert.equal(record.targetContainer, targetContainer, 'API build precheck must target the owned API container.');
+  const precheckIdentity = parseCapturedBuildIdentity(record.apiBuildIdentity);
+  if (apiBuildIdentity !== undefined) {
+    assert.equal(parseCapturedBuildIdentity(apiBuildIdentity), precheckIdentity,
+      'API identity changed after the fresh precheck and before capture.');
+  }
+  return precheckIdentity;
+}
+
 export function assertCapturedTargetMatches(captured, current) {
   assert(captured && typeof captured === 'object', 'Capture must contain an owned target');
   for (const key of [
