@@ -260,7 +260,7 @@ if (page) await captureFailure(error, { phase: 'coded-pivot-lifecycle', action: 
       await cda.navigate( selectedURL);
       await waitNative( ({ name }) => [...document.querySelectorAll('button')].some(button => button.innerText.trim().endsWith(name)), { name: tableName }, 5000);
       await action('Open table for cleanup', page.locator('[data-testid^="construction-table-"]').filter({ hasText: tableName }));
-      await waitNative( () => document.querySelector('[data-testid="construction-workspace"] header')?.innerText.includes(tableName), {}, 5000);
+      await waitNative( ({ tableName: name }) => document.querySelector('[data-testid="construction-workspace"] header')?.innerText.includes(name), { tableName }, 5000);
       await waitNative( () => document.querySelector('[data-testid="construction-delete-table"]')?.disabled === false, {}, 5000);
       page.once('dialog', dialog => dialog.accept());
       await action('Delete verifier table', page.locator('[data-testid="construction-delete-table"]'));

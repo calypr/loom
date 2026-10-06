@@ -3,6 +3,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 import { caseNamesFor, registry, scenarioCaseFor } from '../../verify-ui/registry.mjs';
+import { createBrowserCallbackScopeChecker } from './browser-callback-scope.mjs';
 
 const scriptsRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const root = resolve(scriptsRoot, '..');
@@ -88,6 +89,7 @@ try {
     moduleResolution: ts.ModuleResolutionKind.NodeNext,
   });
   const nodeGlobals = new Set(['process', 'Buffer', 'setImmediate', 'clearImmediate', 'global']);
+  const checkBrowserCallbackScope = createBrowserCallbackScopeChecker(ts, program);
   for (const diagnostic of program.getSemanticDiagnostics()) {
     if (![2304, 2552, 18004].includes(diagnostic.code)) continue;
     const message = ts.flattenDiagnosticMessageText(diagnostic.messageText, ' ');
@@ -96,6 +98,13 @@ try {
     if (missingName && nodeGlobals.has(missingName)) continue;
     const { line } = diagnostic.file.getLineAndCharacterOfPosition(diagnostic.start);
     problems.push(`${diagnostic.file.fileName.slice(root.length + 1)}:${line + 1}: ${message} Restore its import or use the native fixture API.`);
+  }
+  for (const path of checkedPaths) {
+    const sourceFile = program.getSourceFile(path);
+    if (!sourceFile) continue;
+    for (const issue of checkBrowserCallbackScope(sourceFile)) {
+      problems.push(`${path.slice(root.length + 1)}:${issue.line}: Browser callback captures Node-scope name "${issue.name}". Pass it through serialized arguments or keep the browser logic self-contained.`);
+    }
   }
 } catch (error) {
   problems.push(`Native binding check could not run: ${error.message}. Install the UI package dependencies before running this gate.`);

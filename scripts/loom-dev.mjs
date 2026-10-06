@@ -1380,7 +1380,7 @@ export const finishFirstTableAddColumnsObserver = async (page) => page.evaluate(
 export const waitForAddColumnsAction = async (page, tableTitle) => {
   const selector = '[data-testid="construction-action-add-columns"]';
   try {
-    await page.waitForFunction((title) => {
+    await page.waitForFunction(({ title, selector }) => {
       const workspace = document.querySelector('[data-testid="construction-workspace"]');
       const preview = document.querySelector('[data-testid="construction-preview"]');
       const selectedTable = document.querySelector('[data-testid^="construction-table-"][aria-current="page"]');
@@ -1395,7 +1395,7 @@ export const waitForAddColumnsAction = async (page, tableTitle) => {
         && preview.dataset.currentDraftDigest === workspace.dataset.draftDigest);
       return Boolean(document.body.innerText.includes(title) && workspace && !pendingStatus && currentPreview
         && document.querySelector(`${selector}:not(:disabled)`));
-    }, tableTitle, { timeout: 30000 });
+    }, { title: tableTitle, selector }, { timeout: 30000 });
   } catch (error) {
     let state;
     try {

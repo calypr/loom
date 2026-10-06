@@ -104,7 +104,7 @@ try {
     const addProposalApply = 'button:text-is("Apply columns")';
     assert.equal(await one(`[data-testid="construction-choice-proposal-panel"] ${addProposalApply}`).isEnabled(), true, 'Selected features proposal must be applicable');
     await clickOne(`[data-testid="construction-choice-proposal-panel"] ${addProposalApply}`, 'Apply selected features');
-    await wait(() => fields.every(field => document.body.innerText.includes(field)));
+    await wait((fieldNames) => fieldNames.every(field => document.body.innerText.includes(field)), fields);
     added = await inspect(() => ({
       dialog: [...document.querySelectorAll('[role="dialog"]')].map(dialog => dialog.innerText),
       tableTabs: [...document.querySelectorAll('button')].filter(button => button.innerText.trim().startsWith('▤')).map(button => button.innerText.trim()),
