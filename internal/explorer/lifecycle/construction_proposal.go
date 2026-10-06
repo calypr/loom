@@ -577,7 +577,9 @@ func (s *Service) ProposeConstruction(ctx context.Context, request ConstructionP
 		return ConstructionProposalResponse{}, conflict("construction-proposal", "INVALID_COMPILATION_RECEIPT", "the candidate receipt has no stage descriptors for this output", nil, nil)
 	}
 	baseResponse.ProposalID = candidateReceipt.ID
-	baseResponse.BaseReceiptID = base.receipt.ID
+	if base.receipt != nil {
+		baseResponse.BaseReceiptID = base.receipt.ID
+	}
 	baseResponse.Stages = candidateReceipt.ConstructionStages[request.OutputID]
 	baseResponse.PreviewStatus = "PREVIEW_PENDING"
 	return baseResponse, nil

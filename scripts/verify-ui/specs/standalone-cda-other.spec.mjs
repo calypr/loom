@@ -12,6 +12,7 @@ import { identifierMultiplicityWorkflow } from '../workflows/verify-cda-identifi
 import { lastTableWorkflow } from '../workflows/verify-cda-last-table.mjs';
 import { collectionRepairWorkflow } from '../workflows/verify-cda-collection-repair.mjs';
 import { startingCollectionHandoffWorkflow } from '../workflows/verify-cda-starting-collection-handoff.mjs';
+import { zeroColumnRelatedMedicationWorkflow } from '../workflows/verify-cda-zero-column-related-medication.mjs';
 import { rowSourcesWorkflow } from '../workflows/verify-cda-row-sources-browser.mjs';
 import { tableManagementWorkflow } from '../workflows/verify-cda-table-management-browser.mjs';
 import { mixedSiblingCountWorkflow } from '../workflows/verify-cda-mixed-sibling-count-browser.mjs';
@@ -176,6 +177,19 @@ test.describe('CDA starting collection handoff', () => {
 
   test('hand off a starting collection, attach its route, preview, and reload', async ({ page, cda }) => {
     await startingCollectionHandoffWorkflow({ page, cda });
+  });
+});
+
+test.describe('CDA zero-column five-hop RelatedExpand', () => {
+  test.use({
+    cdaScenarioID: 'cda-five-hop-related-expansion',
+    cdaCaseName: 'medication-preserve-parent',
+    cdaRequireSourceFixture: true,
+  });
+
+  test('Make a row for each Medication from a zero-column Specimen through five relationship hops', async ({ page, cda }) => {
+    test.setTimeout(300_000);
+    await zeroColumnRelatedMedicationWorkflow({ page, cda });
   });
 });
 

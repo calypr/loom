@@ -3,6 +3,7 @@ package httpapi
 import (
 	"encoding/json"
 	"errors"
+	"runtime/debug"
 	"time"
 
 	"github.com/calypr/loom/internal/authscope"
@@ -79,7 +80,7 @@ func (s *HTTPServer) requestIDMiddleware(c fiber.Ctx) error {
 func (s *HTTPServer) recoveryMiddleware(c fiber.Ctx) (err error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
-			s.logger.Error("panic recovered", "request_id", requestIDFromCtx(c), "path", c.Path(), "panic", recovered)
+			s.logger.Error("panic recovered", "request_id", requestIDFromCtx(c), "path", c.Path(), "panic", recovered, "stack", string(debug.Stack()))
 			err = dataframeerrors.Wrap(errors.New("panic recovered"), dataframeerrors.CodeInternalError, "")
 		}
 	}()

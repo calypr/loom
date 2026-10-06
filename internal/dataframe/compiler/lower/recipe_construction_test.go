@@ -1247,6 +1247,106 @@ func TestCompileRelatedExpandUsesDistinctTerminalIdentityAndExplicitEmptyPolicy(
 	}
 }
 
+func TestCompileRelatedExpandChainFromIdentityOnlySource(t *testing.T) {
+	output := constructionTestOutput()
+	output.Fields = nil
+	_, activeObservationIdentity := relatedExpandIdentityColumnNames("expand_observations")
+	output.Construction = &recipe.Construction{Version: 1, Steps: []recipe.ConstructionStep{
+		{
+			ID: "expand_observations", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
+			Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionRelatedExpandOp, RelatedExpand: &recipe.ConstructionRelatedExpand{
+				AnchorColumnID: "_key", ChoiceID: "patient-observation", TargetNodeID: "observation-node", TargetResourceType: "Observation",
+				Route: []recipe.ConstructionRelatedRouteStep{{
+					EdgeID: "patient-observation", FromNodeID: "patient-node", ToNodeID: "observation-node",
+					FromResourceType: "Patient", ToResourceType: "Observation", Relationship: "subject_Patient",
+					StorageDirection: "INBOUND", MatchMode: "OPTIONAL",
+				}},
+				ContributorPolicy: "ALL_MATCHES", EmptyPolicy: recipe.ExpansionPreserveParent, RelatedRecordColumnID: "observation_id",
+			}},
+			Outputs: []recipe.StageColumn{{ID: "observation_id", Name: "observation_id", Label: "Observation ID", Type: "string", Nullable: true}},
+		},
+		{
+			ID: "expand_specimens", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionStepOutputInput, StepID: "expand_observations"}},
+			Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionRelatedExpandOp, RelatedExpand: &recipe.ConstructionRelatedExpand{
+				AnchorColumnID: activeObservationIdentity, ChoiceID: "observation-specimen", TargetNodeID: "specimen-node", TargetResourceType: "Specimen",
+				Route: []recipe.ConstructionRelatedRouteStep{{
+					EdgeID: "observation-specimen", FromNodeID: "observation-node", ToNodeID: "specimen-node",
+					FromResourceType: "Observation", ToResourceType: "Specimen", Relationship: "specimen_Specimen",
+					StorageDirection: "OUTBOUND", MatchMode: "OPTIONAL",
+				}},
+				ContributorPolicy: "ALL_MATCHES", EmptyPolicy: recipe.ExpansionPreserveParent, RelatedRecordColumnID: "specimen_id",
+			}},
+			Outputs: []recipe.StageColumn{
+				{ID: "observation_id", Name: "observation_id", Label: "Observation ID", Type: "string", Nullable: true},
+				{ID: "specimen_id", Name: "specimen_id", Label: "Specimen ID", Type: "string", Nullable: true},
+			},
+		},
+	}}
+
+	compiled, err := compileDerivedTestBundle(t, output)
+	if err != nil {
+		t.Fatalf("compile identity-only RELATED_EXPAND chain: %v", err)
+	}
+	sequence := compiled.Plan.StageSequence
+	if sequence == nil || sequence.SourceRowIdentity != "_key" || len(sequence.Stages) != 2 {
+		t.Fatalf("identity-only source sequence = %#v, want root _key and two expansion stages", sequence)
+	}
+	if len(publicCompiledSchema(compiled.Stages[0].Columns)) != 0 {
+		t.Fatalf("source projection should have no visible columns: %#v", compiled.Stages[0].Columns)
+	}
+	rootKey, found := physicalStageColumnsForTest(sequence.Stages[0].InputColumns)["_key"]
+	if !found || !rootKey.Internal || !rootKey.Identity || rootKey.Kind != "string" || rootKey.Cardinality != "required_one" {
+		t.Fatalf("first expansion did not receive the exact hidden root identity: %#v", sequence.Stages[0].InputColumns)
+	}
+	first, second := sequence.Stages[0], sequence.Stages[1]
+	if first.RelatedExpand == nil || first.RelatedExpand.AnchorKind != "root" || first.RelatedExpand.AnchorColumnID != "_key" ||
+		first.RelatedExpand.ParentIdentityColumn != "_key" || first.RelatedExpand.EmptyPolicy != ir.PhysicalUnnestPreserveParent {
+		t.Fatalf("first expansion lost its root identity or empty policy: %#v", first.RelatedExpand)
+	}
+	if second.RelatedExpand == nil || second.RelatedExpand.AnchorKind != "activeRelatedRecord" ||
+		second.RelatedExpand.AnchorColumnID != first.RelatedExpand.TerminalIdentityColumn ||
+		second.RelatedExpand.AnchorNodeID != "observation-node" || second.RelatedExpand.AnchorResourceType != "Observation" ||
+		second.RelatedExpand.ParentIdentityColumn != first.RowIdentityColumn ||
+		second.RelatedExpand.EmptyPolicy != ir.PhysicalUnnestPreserveParent {
+		t.Fatalf("onward expansion lost its active record identity or parent policy: %#v", second.RelatedExpand)
+	}
+	if got := publicCompiledSchema(compiled.OutputSchema); len(got) != 2 || got[0].ID != "observation_id" || got[1].ID != "specimen_id" {
+		t.Fatalf("identity-only chain public output = %#v, want only its two related IDs", got)
+	}
+	if !hasCompiledColumn(compiled.OutputSchema, "_key", true) {
+		t.Fatalf("related expansion chain dropped the original hidden root key: %#v", compiled.OutputSchema)
+	}
+	if compiled.Plan.BindVars["project"] != "project" || compiled.Plan.BindVars["dataset_generation"] != "generation" {
+		t.Fatalf("related expansion changed project or generation bindings: %#v", compiled.Plan.BindVars)
+	}
+	for _, stage := range []ir.PhysicalConstructionStage{first, second} {
+		projectScope, generationScope, authScope := false, false, false
+		for _, operation := range stage.RelatedExpand.RelatedRecords.Operations {
+			if operation.Filter != nil && operation.Filter.Predicate.Right != nil {
+				predicate := operation.Filter.Predicate
+				projectScope = projectScope || len(predicate.Left.Path) == 1 && predicate.Left.Path[0] == "project" && predicate.Right.BindKey == "project"
+				generationScope = generationScope || len(predicate.Left.Path) == 1 && predicate.Left.Path[0] == "dataset_generation" && predicate.Right.BindKey == "dataset_generation"
+			}
+			if operation.DerivedLet != nil && operation.DerivedLet.Operator == "AUTH_RESOURCE_PATH_ALLOWED" {
+				authScope = true
+			}
+		}
+		if !projectScope || !generationScope || !authScope {
+			t.Fatalf("%s route lost project, generation, or authorization scope: project=%t generation=%t auth=%t", stage.ID, projectScope, generationScope, authScope)
+		}
+	}
+
+	rendered, err := aql.RenderPhysicalPlan(compiled.Plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, stage := range []ir.PhysicalConstructionStage{first, second} {
+		if !strings.Contains(rendered.Query, "LENGTH("+stage.RelatedExpand.RelatedRecordsVariable+") == 0 ? [null]") {
+			t.Errorf("rendered %s expansion does not preserve empty parents: %s", stage.ID, rendered.Query)
+		}
+	}
+}
+
 func TestRelatedExpandAfterGroupUsesCompilerOwnedRootContributors(t *testing.T) {
 	output := recipe.Output{
 		Name: "group_related_expand", RootResourceType: "Patient", RowGrain: "patient",

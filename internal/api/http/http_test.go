@@ -3,7 +3,9 @@ package httpapi
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -136,5 +138,67 @@ func TestLoggingMiddlewareEmitsStructuredResponseDiagnostics(t *testing.T) {
 		if !strings.Contains(logText, want) {
 			t.Fatalf("logs missing %q:\n%s", want, logText)
 		}
+	}
+}
+
+func TestRecoveryMiddlewareLogsStackAndPreservesInternalErrorResponse(t *testing.T) {
+	var logs bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	server, err := NewHTTPServer(HTTPConfig{
+		Authenticator: authscope.StaticAuthenticator{},
+		Authorizer:    authscope.AllowAllAuthorizer{},
+		Logger:        logger,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server.App().Post("/panic", func(fiber.Ctx) error {
+		panic("fixture panic")
+	})
+
+	request := httptest.NewRequest(http.MethodPost, "/panic", strings.NewReader("request-body-secret"))
+	request.Header.Set("X-Request-ID", "panic-diagnostic")
+	response, err := server.App().Test(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500", response.StatusCode)
+	}
+	if response.Header.Get("X-Request-ID") != "panic-diagnostic" {
+		t.Fatalf("X-Request-ID = %q, want panic-diagnostic", response.Header.Get("X-Request-ID"))
+	}
+	var body struct {
+		Error struct {
+			Code      string `json:"code"`
+			RequestID string `json:"requestId"`
+		} `json:"error"`
+	}
+	responseBody, err := io.ReadAll(response.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(responseBody, &body); err != nil {
+		t.Fatalf("decode response body %q: %v", responseBody, err)
+	}
+	if body.Error.Code != "INTERNAL_ERROR" || body.Error.RequestID != "panic-diagnostic" {
+		t.Fatalf("error response = %#v, want INTERNAL_ERROR for panic-diagnostic", body.Error)
+	}
+
+	logText := logs.String()
+	for _, want := range []string{
+		"panic recovered",
+		"request_id=panic-diagnostic",
+		`panic="fixture panic"`,
+		"stack=",
+		"TestRecoveryMiddlewareLogsStackAndPreservesInternalErrorResponse",
+	} {
+		if !strings.Contains(logText, want) {
+			t.Fatalf("logs missing %q:\n%s", want, logText)
+		}
+	}
+	if strings.Contains(logText, "request-body-secret") {
+		t.Fatalf("logs unexpectedly contain request body:\n%s", logText)
 	}
 }

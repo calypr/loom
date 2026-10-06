@@ -451,9 +451,13 @@ func (construction Construction) validate(sourceFields []Field, groupRows *Group
 	allowEmptyCodedPivotSource := len(sourceColumns) == 0 && len(sourceFields) == 0 && len(construction.Steps) > 0 &&
 		construction.Steps[0].Operation.Kind == ConstructionCodedPivotOp
 	// A new rooted output can intentionally start with no user-selected
-	// columns. The compiler still supplies its row-identity source schema;
-	// lowerer validation checks that identity before accepting the output.
-	allowEmptyIdentitySource := len(sourceColumns) == 0 && len(sourceFields) == 0 && len(construction.Steps) == 0
+	// columns. A direct root RELATED_EXPAND can be its first operation because
+	// the compiler supplies and verifies the hidden source identity.
+	allowEmptyRootRelatedExpandSource := len(construction.Steps) > 0 &&
+		construction.Steps[0].Operation.Kind == ConstructionRelatedExpandOp &&
+		construction.Steps[0].Operation.RelatedExpand != nil && construction.Steps[0].Operation.RelatedExpand.AnchorColumnID == "_key"
+	allowEmptyIdentitySource := len(sourceColumns) == 0 && len(sourceFields) == 0 &&
+		(len(construction.Steps) == 0 || allowEmptyRootRelatedExpandSource)
 	if len(sourceColumns) == 0 && !allowEmptyCodedPivotSource && !allowEmptyIdentitySource {
 		return fmt.Errorf("source projection must contain at least one column")
 	}

@@ -135,7 +135,13 @@ func appendRecipeConstructionStages(plan *ir.PhysicalPlan, outputName, rootResou
 		}
 		return appendRecipeTerminalCombine(plan, step, workspaceOutputSchemas)
 	}
-	allowEmptyIdentitySource := len(construction.SourceColumns) == 0 && len(construction.Steps) == 0 && constructionSourceIdentity(sourceSchema) != ""
+	allowEmptyRootRelatedExpandSource := len(construction.Steps) > 0 &&
+		construction.Steps[0].Operation.Kind == recipe.ConstructionRelatedExpandOp &&
+		construction.Steps[0].Operation.RelatedExpand != nil && construction.Steps[0].Operation.RelatedExpand.AnchorColumnID == "_key" &&
+		len(publicCompiledSchema(sourceSchema)) == 0 && constructionSourceIdentity(sourceSchema) != "" &&
+		rootResourceType != "" && rootResourceType == plan.Source.ResourceType
+	allowEmptyIdentitySource := len(construction.SourceColumns) == 0 && constructionSourceIdentity(sourceSchema) != "" &&
+		(len(construction.Steps) == 0 || allowEmptyRootRelatedExpandSource)
 	if len(construction.SourceColumns) == 0 && !allowEmptyIdentitySource &&
 		(len(construction.Steps) == 0 || construction.Steps[0].Operation.Kind != recipe.ConstructionCodedPivotOp) {
 		return nil, nil, "", fmt.Errorf("construction source schema must be supplied by the resolved source compiler")

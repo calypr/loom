@@ -1,10 +1,41 @@
 package recipe
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/calypr/loom/internal/dataframe/lineage"
 )
+
+func TestConstructionAllowsRootRelatedExpandFromIdentityOnlySource(t *testing.T) {
+	construction := Construction{Version: 1, Steps: []ConstructionStep{{
+		ID: "expand_observations", Inputs: []ConstructionInputRef{{Kind: ConstructionSourceProjectionInput}},
+		Operation: ConstructionOperation{Kind: ConstructionRelatedExpandOp, RelatedExpand: &ConstructionRelatedExpand{
+			AnchorColumnID: "_key", ChoiceID: "patient-observation", TargetNodeID: "observation-node", TargetResourceType: "Observation",
+			Route: []ConstructionRelatedRouteStep{{
+				EdgeID: "patient-observation", FromNodeID: "patient-node", ToNodeID: "observation-node",
+				FromResourceType: "Patient", ToResourceType: "Observation", Relationship: "subject_Patient",
+				StorageDirection: "INBOUND", MatchMode: "OPTIONAL",
+			}},
+			ContributorPolicy: "ALL_MATCHES", EmptyPolicy: ExpansionPreserveParent, RelatedRecordColumnID: "observation_id",
+		}},
+		Outputs: []StageColumn{{ID: "observation_id", Name: "observation_id", Type: "string", Nullable: true}},
+	}}}
+	if err := construction.Validate(nil); err != nil {
+		t.Fatalf("root RELATED_EXPAND should accept an identity-only source: %v", err)
+	}
+
+	fieldDependent := Construction{Version: 1, Steps: []ConstructionStep{{
+		ID: "filter_source", Inputs: []ConstructionInputRef{{Kind: ConstructionSourceProjectionInput}},
+		Operation: ConstructionOperation{Kind: ConstructionFilterOp, Filter: &ConstructionFilter{
+			ColumnID: "source_id", Operator: FilterExists,
+		}},
+		Outputs: []StageColumn{{ID: "source_id", Name: "source_id", Type: "string"}},
+	}}}
+	if err := fieldDependent.Validate(nil); err == nil || !strings.Contains(err.Error(), "source projection must contain at least one column") {
+		t.Fatalf("field-dependent operation should still reject an empty source projection, got %v", err)
+	}
+}
 
 func TestConstructionValidatesTypedSourceChildIdentity(t *testing.T) {
 	child := lineage.SourceChild{

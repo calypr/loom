@@ -1132,6 +1132,62 @@ export const registry = Object.freeze([
     ],
   }),
   Object.freeze({
+    id: 'cda-five-hop-related-expansion',
+    workflow: 'zero-column-specimen-five-hop-related-medication-lifecycle',
+    hooks: [
+      'useGetExplorerBuilderStateV2Query',
+      'useApplyExplorerBuilderCommandsV2Mutation',
+      'usePreviewExplorerAuthoringV2Mutation',
+    ],
+    endpoints: [
+      'POST /api/v1/projects/{project}/explorers',
+      'GET /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/builder',
+      'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/commands',
+      'POST /api/v1/projects/{project}/explorers/{explorer}/selections',
+      'GET /api/v1/projects/{project}/explorers/{explorer}/selections/{selectionRevision}',
+      'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/population-routes',
+      'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/related-expand-choices',
+      'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/construction-proposals',
+      'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/preview',
+    ],
+    requiredTransitions: [
+      'scan the first 1,000 sorted project/generation Specimen roots and independently traverse the exact five-hop Medication route',
+      'seed a fresh zero-public-column Specimen table, immutable exact raw selection, and direct population route',
+      'use the native RelatedExpand editor from root identity to select the full five-hop route ending at Medication',
+      'preview and Apply PRESERVE_PARENT rows with exact raw Medication identities and one null target for each unmatched parent',
+      'reload the saved route and visible values, edit to EXCLUDE and reload, remove the step, then reload exact zero-column source state',
+    ],
+    gateReasons: [
+      'the native lifecycle uses only the owned project, pinned cda-fhir-v1 generation, and a uniquely named per-run QA Explorer',
+      'the independent Arango oracle scopes every endpoint document and all five fhir_edge traversals to the exact project and generation',
+      'the browser route must be selected through the native editor and Apply must render actual table rows before reload/edit/removal are accepted',
+      'the first 1,000 sorted Specimen roots currently contain no positive terminal Medication witness; the case exercises exact PRESERVE_PARENT null rows and records positive-value coverage as an open fixture gap',
+    ],
+    script: 'verify-cda-zero-column-related-medication.mjs',
+    cases: {
+      'medication-preserve-parent': {
+        playwrightTest: 'scripts/verify-ui/specs/standalone-cda-other.spec.mjs',
+        requiredChecks: [
+          'bounded independent raw CDA oracle proves the exact five-hop Medication route and records match availability',
+          'fresh Specimen table has zero public columns and exact scoped selected membership',
+          'native RelatedExpand editor selects the exact five-hop route from root identity to Medication',
+          'PRESERVE_PARENT automatic proposal renders exact terminal Medication IDs and one null ID per unmatched parent',
+          'Cancel leaves the zero-column source population and saved draft unchanged',
+          'Apply saves the exact route and renders actual Medication table preview rows matching raw membership',
+          'reload restores the exact route, policy, row identities, and Medication preview values',
+          'editing to EXCLUDE removes unmatched parents in preview and after reload',
+          'removing RelatedExpand restores the zero-column Specimen table, selection, direct route, and no stale Medication output after reload',
+          'native route, proposal, Apply, edit, removal, and reload checkpoints complete within five seconds',
+          'CDA watched source and API build stayed unchanged',
+        ],
+      },
+    },
+    coverage: [
+      { feature: 'zero-column five-hop Specimen-to-Medication RelatedExpand through native Apply/edit/removal/reload', acceptance: { intent: 'row-lifecycle', kind: 'lifecycle', case: 'medication-preserve-parent', checks: { choice: 2, proposal: 3, cancel: 4, apply: 5, savedRows: 5, reload: 6, edit: 7, restoration: 8 } }, status: 'implemented', reason: 'CDA wave106 passed all 11 checks with unchanged source/API identity: native preview, Cancel, Apply, exact saved rows, reload, EXCLUDE edit, removal and restored selection. The two independently checked parents have no Medication matches: PRESERVE_PARENT renders two null rows and EXCLUDE renders zero. All action-to-result checkpoints were below five seconds. Positive Medication values and multiplicity remain separately unverified.' },
+      { feature: 'positive-match values and multiplicity for the zero-column five-hop Specimen-to-Medication route', acceptance: { intent: 'row-lifecycle', kind: 'probe', case: 'medication-preserve-parent' }, status: 'untested', reason: 'The bounded independent CDA oracle found no positive Medication witness among the first 1,000 scoped Specimen roots. Wave106 proves the unmatched-parent lifecycle only; a positive witness or independent fixture is still needed for this data-shape class.' },
+    ],
+  }),
+  Object.freeze({
     id: 'standalone-reshape-related-source-after-pivot',
     workflow: 'cda-related-source-after-pivot-contributor-lifecycle',
     hooks: [

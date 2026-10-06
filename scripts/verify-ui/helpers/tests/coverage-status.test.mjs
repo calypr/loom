@@ -126,6 +126,22 @@ test('lifecycle phase references point to the named applied, edited, reloaded, a
   assert.equal(mappedText('cda-current-draft-membership', 'real-CDA MEMBERSHIP over two exact unpublished grouped Observation ID populations with INCLUDE, EXCLUDE edit, cancellation, removal, restoration, and reload', 'savedRows').index, 37);
   assert.equal(mappedText('cda-current-draft-membership', 'real-CDA MEMBERSHIP over two exact unpublished grouped Observation ID populations with INCLUDE, EXCLUDE edit, cancellation, removal, restoration, and reload', 'restoration').index, 43);
   assert.match(mappedText('cda-current-draft-membership', 'real-CDA MEMBERSHIP over two exact unpublished grouped Observation ID populations with INCLUDE, EXCLUDE edit, cancellation, removal, restoration, and reload', 'restoration').text, /removal and reloading restores the exact rooted empty target/);
+
+  const fiveHopScenario = registry.find((entry) => entry.id === 'cda-five-hop-related-expansion');
+  const fiveHopCoverage = fiveHopScenario.coverage.find((entry) => entry.feature.startsWith('zero-column five-hop Specimen-to-Medication'));
+  assert.equal(fiveHopCoverage.acceptance.kind, 'lifecycle');
+  assert.deepEqual(fiveHopCoverage.acceptance.checks, { choice: 2, proposal: 3, cancel: 4, apply: 5, savedRows: 5, reload: 6, edit: 7, restoration: 8 });
+  const fiveHopChecks = scenarioCaseFor(fiveHopScenario, fiveHopCoverage.acceptance.case).requiredChecks;
+  assert.equal(fiveHopChecks.length, 11);
+  assert.match(fiveHopChecks[2], /native RelatedExpand editor selects/);
+  assert.match(fiveHopChecks[3], /automatic proposal renders exact terminal Medication IDs/);
+  assert.match(fiveHopChecks[4], /Cancel leaves/);
+  assert.match(fiveHopChecks[5], /Apply saves.*actual Medication table preview rows/);
+  assert.match(fiveHopChecks[6], /reload restores/);
+  assert.match(fiveHopChecks[7], /editing to EXCLUDE/);
+  assert.match(fiveHopChecks[8], /removing RelatedExpand restores/);
+  assert.equal(hasLifecycleContract(fiveHopCoverage, fiveHopScenario), true,
+    'named lifecycle completeness does not change its untested runtime status');
 });
 
 test('row-operation gate rejects missing lifecycle links and invalid named-check references', () => {

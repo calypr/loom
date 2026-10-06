@@ -747,6 +747,9 @@ func TestApplyConstructionProposalPreviewsExactReceiptBeforeAtomicSave(t *testin
 	if proposal.PreviewStatus != "PREVIEW_PENDING" || proposal.ProposalID == "" || len(proposal.Stages) != 2 {
 		t.Fatalf("ready proposal = %#v", proposal)
 	}
+	if proposal.BaseReceiptID == "" {
+		t.Fatal("proposal omitted the existing base receipt identity")
+	}
 	before := append([]byte(nil), store.created.DraftConfig...)
 	version, digest := store.created.DraftVersion, store.created.DraftDigest
 	previewCalls := 0
