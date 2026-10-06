@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { URL } from 'node:url';
 import test from 'node:test';
 import { registry, scenarioCaseFor } from '../../registry.mjs';
+import { authoredColumn } from '../../workflows/builder-combine.mjs';
 import {
   appendEditorConfigurationEvidence,
   appendNullPaddingRows,
@@ -74,6 +75,21 @@ const parseCallArguments = (source, openParen) => {
   }
   throw new Error('Unterminated check(report, ...) call in the Combine driver.');
 };
+
+test('published source labels resolve against the authored Document wire column field', () => {
+  const document = {
+    columns: [
+      { columnId: 'column_observation_status', column: 'Observation_status', label: 'Observation status' },
+      { columnId: 'column_report_id', column: 'DiagnosticReport_id', label: 'Report ID' },
+    ],
+  };
+  assert.deepEqual(authoredColumn(document, { name: 'Observation_status' }), {
+    name: 'Observation_status', label: 'Observation status',
+  });
+  assert.throws(() => authoredColumn(document, { name: 'observation_status' }), /Expected one authored observation_status source column; found 0/);
+  assert.throws(() => authoredColumn({ columns: [...document.columns, { column: 'Observation_status', label: 'duplicate' }] },
+    { name: 'Observation_status' }), /Expected one authored Observation_status source column; found 2/);
+});
 
 test('construction capability diagnostics bind exact owned origin, project, explorer, and route', () => {
   const owner = { uiUrl: 'http://127.0.0.1:30008/', project: 'loom_dev_verify_owned', explorer: 'verify-owned-combine' };

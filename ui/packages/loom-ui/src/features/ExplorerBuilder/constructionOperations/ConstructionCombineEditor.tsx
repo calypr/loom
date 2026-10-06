@@ -24,6 +24,8 @@ type OutputDraft = {
   readonly id: string;
   readonly name: string;
   readonly label: string;
+  readonly nameAutoDefault: boolean;
+  readonly labelAutoDefault: boolean;
   readonly inputColumnIds: ReadonlyArray<string | typeof APPEND_EMPTY_INPUT>;
 };
 
@@ -102,6 +104,8 @@ const draftFromStep = (step: ConstructionCombineStep): CombineDraft => {
       id: output.id,
       name: output.name,
       label: output.label,
+      nameAutoDefault: false,
+      labelAutoDefault: false,
       inputColumnIds: step.inputs.map((_, inputIndex) => {
         const sourceId = combine.projections.find((projection) =>
           projection.outputColumnId === output.id && projection.inputIndex === inputIndex,
@@ -436,6 +440,8 @@ export const ConstructionCombineEditor = ({
       id: createOpaqueId('combine_output'),
       name: '',
       label: '',
+      nameAutoDefault: true,
+      labelAutoDefault: true,
       inputColumnIds: draft.inputs.map(() => ''),
     }],
   });
@@ -446,7 +452,24 @@ export const ConstructionCombineEditor = ({
   const mapOutput = (outputId: string, inputIndex: number, columnId: string | typeof APPEND_EMPTY_INPUT) => updateDraft({
     ...draft,
     outputs: draft.outputs.map((output) => output.id === outputId
-      ? { ...output, inputColumnIds: output.inputColumnIds.map((id, index) => index === inputIndex ? columnId : id) }
+      ? (() => {
+        const sourceColumn = typeof columnId === 'string' && columnId
+          ? selected[inputIndex]?.columns.find((candidate) => candidate.id === columnId)
+          : undefined;
+        const otherOutputs = draft.outputs.filter((candidate) => candidate.id !== outputId);
+        const name = sourceColumn?.name.trim() && (output.nameAutoDefault || !output.name.trim())
+          ? uniqueOutputName(sourceColumn.name, otherOutputs)
+          : output.name;
+        const label = sourceColumn && (output.labelAutoDefault || !output.label.trim())
+          ? sourceColumn.label.trim() || sourceColumn.name
+          : output.label;
+        return {
+          ...output,
+          name,
+          label,
+          inputColumnIds: output.inputColumnIds.map((id, index) => index === inputIndex ? columnId : id),
+        };
+      })()
       : output),
   });
   const removeOutput = (outputId: string) => updateDraft({
@@ -708,11 +731,11 @@ export const ConstructionCombineEditor = ({
                   <div className="grid gap-2 md:grid-cols-[1fr_1fr_auto]">
                     <label className="text-xs font-medium text-slate-700" htmlFor={`combine-output-name-${output.id}`}>
                       Output name
-                      <input id={`combine-output-name-${output.id}`} aria-label={`Output field ${outputIndex + 1} name`} value={output.name} onChange={(event) => updateOutput(output.id, { name: event.target.value })} className="mt-1 block w-full rounded-md border border-slate-300 px-2 py-2 text-sm" placeholder="e.g. visit_date" />
+                      <input id={`combine-output-name-${output.id}`} aria-label={`Output field ${outputIndex + 1} name`} value={output.name} onChange={(event) => updateOutput(output.id, { name: event.target.value, nameAutoDefault: false })} className="mt-1 block w-full rounded-md border border-slate-300 px-2 py-2 text-sm" placeholder="e.g. visit_date" />
                     </label>
                     <label className="text-xs font-medium text-slate-700" htmlFor={`combine-output-label-${output.id}`}>
                       Display label
-                      <input id={`combine-output-label-${output.id}`} aria-label={`Output field ${outputIndex + 1} label`} value={output.label} onChange={(event) => updateOutput(output.id, { label: event.target.value })} className="mt-1 block w-full rounded-md border border-slate-300 px-2 py-2 text-sm" placeholder="e.g. Visit date" />
+                      <input id={`combine-output-label-${output.id}`} aria-label={`Output field ${outputIndex + 1} label`} value={output.label} onChange={(event) => updateOutput(output.id, { label: event.target.value, labelAutoDefault: false })} className="mt-1 block w-full rounded-md border border-slate-300 px-2 py-2 text-sm" placeholder="e.g. Visit date" />
                     </label>
                     <button type="button" onClick={() => removeOutput(output.id)} className="self-end rounded px-2 py-2 text-sm text-red-700 hover:bg-red-50" aria-label={`Remove output field ${outputIndex + 1}`}>Remove</button>
                   </div>

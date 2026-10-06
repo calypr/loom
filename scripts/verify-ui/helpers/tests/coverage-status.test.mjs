@@ -119,6 +119,22 @@ test('lifecycle phase references point to the named applied, edited, reloaded, a
   assert.match(mappedText('builder-authoring', 'ordinary Pivot', 'choice').text, /offers visible SUM repair/);
   assert.equal(mappedText('builder-combine-draft', 'KEY_JOIN over two independently authored unpublished Group outputs', 'savedRows').index, 11);
   assert.match(mappedText('builder-combine-draft', 'KEY_JOIN over two independently authored unpublished Group outputs', 'savedRows').text, /applied LEFT Join rows survive reload/);
+  const publishedJoinFeature = 'published-table KEY_JOIN basic lifecycle';
+  const publishedJoinPhases = {
+    choice: [10, /native Combine inputs pin the exact current Observation and DiagnosticReport revisions/],
+    proposal: [14, /INNER preview returns the three exact rows matched on shared required IDs/],
+    cancel: [17, /Canceling the LEFT edit leaves the saved INNER operation unchanged/],
+    apply: [15, /INNER Apply preserves the exact joined rows/],
+    savedRows: [15, /INNER Apply preserves the exact joined rows/],
+    reload: [16, /INNER table reload retains the three exact rows/],
+    edit: [20, /LEFT Apply preserves exact matches and unmatched null fields/],
+    restoration: [23, /removing KEY_JOIN and reloading restores the rooted empty target/],
+  };
+  for (const [phase, [index, expectedText]] of Object.entries(publishedJoinPhases)) {
+    const mapped = mappedText('builder-combine', publishedJoinFeature, phase);
+    assert.equal(mapped.index, index, `published Join ${phase} phase points to its registered evidence`);
+    assert.match(mapped.text, expectedText, `published Join ${phase} phase resolves to its named lifecycle assertion`);
+  }
   assert.equal(mappedText('builder-combine-draft', 'MEMBERSHIP over two unpublished grouped ID sources with INCLUDE, EXCLUDE edit, removal, restoration, and reload', 'edit').index, 41);
   assert.equal(mappedText('builder-combine-draft', 'MEMBERSHIP over two unpublished grouped ID sources with INCLUDE, EXCLUDE edit, removal, restoration, and reload', 'savedRows').index, 43);
   assert.match(mappedText('builder-combine-draft', 'MEMBERSHIP over two unpublished grouped ID sources with INCLUDE, EXCLUDE edit, removal, restoration, and reload', 'savedRows').text, /EXCLUDE values survive reload/);

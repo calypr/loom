@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"reflect"
@@ -67,6 +68,20 @@ func (f constructionInputsExplorerFixture) Get(context.Context, string, string) 
 	return f.value, nil
 }
 
+type constructionInputsRevisionFixture struct {
+	values map[string]*explorer.Revision
+	calls  []string
+}
+
+func (r *constructionInputsRevisionFixture) GetRevision(_ context.Context, id string) (*explorer.Revision, error) {
+	r.calls = append(r.calls, id)
+	revision, ok := r.values[id]
+	if !ok {
+		return nil, explorer.ErrNotFound
+	}
+	return revision, nil
+}
+
 func TestConstructionInputsCatalogListsExactPinnedAuthorizedRevisions(t *testing.T) {
 	service, reader, bundleCatalog, snapshot, digest := newConstructionInputsFixture(t, authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted})
 	selector := dataset.DataframeSelector{Recipe: "lab_summary", TranslationVersion: "v1", Output: "observations"}
@@ -125,6 +140,198 @@ func TestConstructionInputsCatalogListsExactPinnedAuthorizedRevisions(t *testing
 	}
 	if !reflect.DeepEqual(reader.calls, []string{current.ID + "/" + selector.Output, old.ID + "/" + selector.Output}) {
 		t.Fatalf("exact revision lookups = %#v", reader.calls)
+	}
+}
+
+func TestConstructionInputsCatalogUsesExactImmutablePublicationLabelsOncePerRevision(t *testing.T) {
+	service, reader, bundleCatalog, snapshot, digest := newConstructionInputsFixture(t, authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted})
+	selector := dataset.DataframeSelector{Recipe: "lab_summary", TranslationVersion: "v1", Output: "observations"}
+	execution := constructionInputsExecution("source-revision", selector, "project-a", "generation-a", time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC))
+	execution.ReceiptID = "receipt_source-revision"
+	secondSelector := selector
+	secondSelector.Output = "diagnoses"
+	secondOutput := execution.Outputs[0]
+	secondOutput.Name = secondSelector.Output
+	secondOutput.Selector = secondSelector
+	secondOutput.Columns = []publication.PhysicalColumn{{ID: "physical-diagnosis-id", Name: "col_opaque_diagnosis", ClickHouse: "String", LogicalType: "string"}}
+	execution.Outputs[0].Columns = []publication.PhysicalColumn{{ID: "physical-observation-id", Name: "col_opaque_observation", ClickHouse: "String", LogicalType: "string"}}
+	execution.Outputs = append(execution.Outputs, secondOutput)
+	bundleCatalog.executions = []publication.BundleExecution{execution}
+	reader.values[execution.ID+"/"+selector.Output] = constructionInputsMaterialization(execution, selector, authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted})
+	reader.values[execution.ID+"/"+secondSelector.Output] = constructionInputsMaterialization(execution, secondSelector, authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted})
+	for key, name := range map[string]string{
+		execution.ID + "/" + selector.Output:       "col_opaque_observation",
+		execution.ID + "/" + secondSelector.Output: "col_opaque_diagnosis",
+	} {
+		materialization := reader.values[key]
+		materialization.ReceiptID = execution.ReceiptID
+		materialization.Columns = []published.Column{{ID: "stable-" + name, Name: name, ClickHouse: "String", LogicalType: "string"}}
+		reader.values[key] = materialization
+	}
+
+	workspace, err := authoringv2.DecodeWorkspace(baselineExplorerWorkspaceV2())
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace.Explorer.Title = "Published clinical tables"
+	document := workspace.Documents[0]
+	document.Output = authoringv2.Output{ID: selector.Output, Title: "Observation measurements"}
+	document.RootResourceType = "Observation"
+	document.Route.ResourceType = "Observation"
+	workspace.Documents = []authoringv2.Document{document, document}
+	workspace.Documents[1].Output = authoringv2.Output{ID: secondSelector.Output, Title: "Diagnosis records"}
+	workspace.Documents[1].Output.Title = ""
+	workspace.Tabs = []authoringv2.Tab{
+		{ID: "observations", Title: "Observation measurements", OutputID: selector.Output, Order: 0, Visible: true},
+		{ID: "diagnoses", Title: "Diagnosis records", OutputID: secondSelector.Output, Order: 1, Visible: true},
+	}
+	workspaceJSON, err := json.Marshal(workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	emitted := []explorer.EmittedColumn{
+		{OutputID: selector.Output, PublicColumn: "col_opaque_observation", Label: "Observed value", LogicalType: "string"},
+		{OutputID: secondSelector.Output, PublicColumn: "col_opaque_diagnosis", Label: "Diagnosis code", LogicalType: "string"},
+	}
+	contracts := explorer.PublicOutputContracts{Outputs: []explorer.PublicOutputContract{
+		{OutputID: selector.Output, RootResourceType: "Observation", RowGrain: "resource", Columns: []explorer.PublicOutputColumn{{Column: "col_opaque_observation", Label: "Observed value", LogicalType: "string"}}},
+		{OutputID: secondSelector.Output, RootResourceType: "Observation", RowGrain: "resource", Columns: []explorer.PublicOutputColumn{{Column: "col_opaque_diagnosis", Label: "Diagnosis code", LogicalType: "string"}}},
+	}}
+	contractJSON, err := json.Marshal(contracts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service.revisions.(*constructionInputsRevisionFixture).values["authoring_source-revision"] = &explorer.Revision{
+		ID: "authoring_source-revision", Project: "project-a", ExplorerID: "published-source",
+		CompilationReceiptID: execution.ReceiptID, PublicOutputContract: contractJSON,
+		AuthoringBundle: workspaceJSON,
+		Recipe: recipe.Bundle{Outputs: []recipe.Output{
+			{Name: selector.Output, RootResourceType: "Observation", RowGrain: "resource"},
+			{Name: secondSelector.Output, RootResourceType: "Observation", RowGrain: "resource"},
+		}},
+		EmittedColumns: emitted, SourceGeneration: "generation-a",
+		Publication: explorer.PublicationMetadata{State: string(explorer.RevisionReady), Generation: "generation-a", ExecutionID: execution.ID},
+		Status:      explorer.RevisionReady,
+	}
+	if _, err := service.constructionInputPublicationMetadata(context.Background(), execution, "project-a"); err != nil {
+		t.Fatal(err)
+	}
+	service.revisions.(*constructionInputsRevisionFixture).calls = nil
+
+	request := constructionInputsRequest{SnapshotToken: snapshot.Token, ExpectedDraftVersion: 1, ExpectedDraftDigest: digest, Limit: 2}
+	response, err := service.list(context.Background(), "project-a", "builder-a", request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(response.Entries) != 2 {
+		t.Fatalf("pinned source entries = %#v", response.Entries)
+	}
+	entriesByOutput := make(map[string]constructionInputEntry, len(response.Entries))
+	for _, entry := range response.Entries {
+		entriesByOutput[entry.OutputID] = entry
+	}
+	if got := entriesByOutput[selector.Output]; got.TableTitle != "Published clinical tables" || got.OutputTitle != "Observation measurements" || got.RevisionID != execution.ID || got.Columns[0].Name != "col_opaque_observation" || got.Columns[0].Label != "Observed value" {
+		t.Fatalf("immutable observation output presentation = %#v", got)
+	}
+	if got := entriesByOutput[secondSelector.Output]; got.TableTitle != "Published clinical tables" || got.OutputTitle != secondSelector.Output || got.RevisionID != execution.ID || got.Columns[0].Name != "col_opaque_diagnosis" || got.Columns[0].Label != "Diagnosis code" {
+		t.Fatalf("immutable diagnosis output presentation = %#v", got)
+	}
+	if calls := service.revisions.(*constructionInputsRevisionFixture).calls; !reflect.DeepEqual(calls, []string{"authoring_source-revision"}) {
+		t.Fatalf("immutable source revision reads = %#v, want one read per execution receipt", calls)
+	}
+
+	validRevision := *service.revisions.(*constructionInputsRevisionFixture).values["authoring_source-revision"]
+	for _, test := range []struct {
+		name             string
+		status           explorer.RevisionStatus
+		publicationState string
+		wantEntries      bool
+	}{
+		{name: "ready before activation", status: explorer.RevisionReady, publicationState: string(explorer.RevisionReady), wantEntries: true},
+		{name: "active current", status: explorer.RevisionActive, publicationState: string(explorer.RevisionActive), wantEntries: true},
+		{name: "superseded historical", status: explorer.RevisionSuperseded, publicationState: string(explorer.RevisionActive), wantEntries: true},
+		{name: "failed", status: explorer.RevisionFailed, publicationState: string(explorer.RevisionFailed)},
+		{name: "unknown status", status: explorer.RevisionStatus("UNKNOWN"), publicationState: string(explorer.RevisionActive)},
+	} {
+		t.Run("catalog listing accepts only successful immutable revision states/"+test.name, func(t *testing.T) {
+			revision := validRevision
+			revision.Status = test.status
+			revision.Publication.State = test.publicationState
+			service.revisions.(*constructionInputsRevisionFixture).values["authoring_source-revision"] = &revision
+
+			listed, err := service.list(context.Background(), "project-a", "builder-a", request)
+			if test.wantEntries {
+				if err != nil || len(listed.Entries) != 2 {
+					t.Fatalf("published revision status %q entries = %#v, err=%v", test.status, listed.Entries, err)
+				}
+				for _, entry := range listed.Entries {
+					if entry.Columns[0].Label == "" || entry.RevisionID != execution.ID {
+						t.Fatalf("published revision status %q lost pinned source metadata: %#v", test.status, entry)
+					}
+				}
+				return
+			}
+			var authoringErr *explorer.AuthoringError
+			if err == nil || !errors.As(err, &authoringErr) || authoringErr.Status != 503 || authoringErr.Diagnostic.Code != "AUTHORING_UNAVAILABLE" {
+				t.Fatalf("non-successful revision status %q error = %#v, want unavailable", test.status, err)
+			}
+		})
+	}
+	for _, test := range []struct {
+		name   string
+		mutate func(*explorer.Revision)
+	}{
+		{name: "project", mutate: func(revision *explorer.Revision) { revision.Project = "project-b" }},
+		{name: "generation", mutate: func(revision *explorer.Revision) { revision.SourceGeneration = "generation-b" }},
+		{name: "receipt", mutate: func(revision *explorer.Revision) { revision.CompilationReceiptID = "receipt-other" }},
+		{name: "execution", mutate: func(revision *explorer.Revision) { revision.Publication.ExecutionID = "execution-other" }},
+	} {
+		t.Run("reject mismatched immutable presentation "+test.name, func(t *testing.T) {
+			mismatched := validRevision
+			test.mutate(&mismatched)
+			service.revisions.(*constructionInputsRevisionFixture).values["authoring_source-revision"] = &mismatched
+			metadata, err := service.constructionInputPublicationMetadata(context.Background(), execution, "project-a")
+			if err == nil || metadata != nil {
+				t.Fatalf("mismatched immutable presentation exposed labels: metadata=%#v err=%v", metadata, err)
+			}
+		})
+	}
+}
+
+func TestConstructionInputColumnsFallsBackToTheExactPublishedNameWithoutALabel(t *testing.T) {
+	columns := constructionInputColumns([]published.Column{{ID: "stable-id", Name: "col_opaque", ClickHouse: "String", LogicalType: "string"}}, map[string]string{"col_opaque": " "})
+	if len(columns) != 1 || columns[0].Name != "col_opaque" || columns[0].Label != "col_opaque" {
+		t.Fatalf("blank display label should retain the exact published name: %#v", columns)
+	}
+}
+
+func TestConstructionInputsCatalogMissingImmutableRevisionKeepsOnlyPublishedNames(t *testing.T) {
+	service, reader, bundleCatalog, snapshot, digest := newConstructionInputsFixture(t, authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted})
+	selector := dataset.DataframeSelector{Recipe: "opaque_recipe", TranslationVersion: "v1", Output: "opaque_output"}
+	execution := constructionInputsExecution("legacy-published-execution", selector, "project-a", "generation-a", time.Now())
+	execution.ReceiptID = "receipt_legacy-published-execution"
+	execution.Outputs[0].Columns = []publication.PhysicalColumn{{ID: "stable-opaque-id", Name: "col_opaque", ClickHouse: "String", LogicalType: "string"}}
+	bundleCatalog.executions = []publication.BundleExecution{execution}
+	materialization := constructionInputsMaterialization(execution, selector, authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted})
+	materialization.ReceiptID = execution.ReceiptID
+	materialization.Columns = []published.Column{{ID: "stable-opaque-id", Name: "col_opaque", ClickHouse: "String", LogicalType: "string"}}
+	reader.values[execution.ID+"/"+selector.Output] = materialization
+
+	response, err := service.list(context.Background(), "project-a", "builder-a", constructionInputsRequest{
+		SnapshotToken: snapshot.Token, ExpectedDraftVersion: 1, ExpectedDraftDigest: digest,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(response.Entries) != 1 {
+		t.Fatalf("legacy entry count = %d", len(response.Entries))
+	}
+	got := response.Entries[0]
+	if got.TableTitle != "opaque_recipe" || got.OutputTitle != "opaque_output" || got.Columns[0].Name != "col_opaque" || got.Columns[0].Label != "col_opaque" {
+		t.Fatalf("missing immutable metadata invented a label: %#v", got)
+	}
+	if calls := service.revisions.(*constructionInputsRevisionFixture).calls; !reflect.DeepEqual(calls, []string{"authoring_legacy-published-execution"}) {
+		t.Fatalf("missing source revision lookup = %#v", calls)
 	}
 }
 
@@ -245,8 +452,10 @@ func newConstructionInputsFixture(t *testing.T, scope authscope.ReadScope) (cons
 	}
 	reader := &constructionInputsReaderFixture{values: map[string]published.Materialization{}}
 	catalogReader := &constructionInputsCatalogFixture{pointers: map[string]publication.BundlePointer{}}
+	revisionReader := &constructionInputsRevisionFixture{values: map[string]*explorer.Revision{}}
 	service := constructionInputsCatalog{
 		reader: reader, catalog: catalogReader, scopes: nil,
+		revisions: revisionReader,
 		explorers: constructionInputsExplorerFixture{value: &explorer.Explorer{Project: "project-a", ExplorerID: "builder-a", DraftVersion: 1, DraftDigest: digest, DraftConfig: draft}},
 		capabilities: lifecycle.CapabilityResolver{ForCompilation: func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) {
 			return lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
@@ -305,5 +514,119 @@ func constructionInputsMaterialization(execution publication.BundleExecution, se
 		CreatedAt: execution.CreatedAt, Selector: selector,
 		SourceRow: &publication.SourceRowMetadata{ResourceType: "Observation", IDColumn: "observation_id"},
 		Columns:   []published.Column{{ID: "stable-lab-value", Name: "value", ClickHouse: "Nullable(Float64)", LogicalType: "decimal", Nullable: true}},
+	}
+}
+
+func TestConstructionInputsCatalogDoesNotReadUnauthorizedRevisionMetadata(t *testing.T) {
+	scope := authscope.ReadScope{Mode: authscope.ReadScopeRestricted, AuthResourcePaths: []string{"allowed-a"}}
+	service, reader, bundleCatalog, snapshot, digest := newConstructionInputsFixture(t, scope)
+	selector := dataset.DataframeSelector{Recipe: "labs", TranslationVersion: "v1", Output: "observations"}
+	createdAt := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
+	active := constructionInputsExecution("revision-active", selector, "project-a", "generation-a", createdAt)
+	superseded := constructionInputsExecution("revision-superseded", selector, "project-a", "generation-a", createdAt.Add(time.Minute))
+	denied := constructionInputsExecution("revision-denied", selector, "project-a", "generation-a", createdAt.Add(2*time.Minute))
+	for _, execution := range []*publication.BundleExecution{&active, &superseded} {
+		setConstructionInputsExecutionScope(execution, scope)
+		execution.ReceiptID = "receipt_" + execution.ID
+	}
+	setConstructionInputsExecutionScope(&denied, authscope.ReadScope{Mode: authscope.ReadScopeRestricted, AuthResourcePaths: []string{"allowed-b"}})
+	denied.ReceiptID = "receipt_" + denied.ID
+	bundleCatalog.executions = []publication.BundleExecution{active, denied, superseded}
+	bundleCatalog.pointers[active.PointerName()] = publication.BundlePointer{Name: active.PointerName(), ExecutionID: active.ID}
+	for _, execution := range []publication.BundleExecution{active, superseded} {
+		materialization := constructionInputsMaterialization(execution, selector, scope)
+		materialization.ReceiptID = execution.ReceiptID
+		reader.values[execution.ID+"/"+selector.Output] = materialization
+	}
+	deniedScope := authscope.ReadScope{Mode: authscope.ReadScopeRestricted, AuthResourcePaths: []string{"allowed-b"}}
+	deniedMaterialization := constructionInputsMaterialization(denied, selector, deniedScope)
+	deniedMaterialization.ReceiptID = denied.ReceiptID
+	reader.values[denied.ID+"/"+selector.Output] = deniedMaterialization
+
+	revisions := service.revisions.(*constructionInputsRevisionFixture)
+	revisions.values["authoring_"+active.ID] = constructionInputsImmutablePresentationRevision(t, active, "Allowed active table", "Active observations", "Allowed active value", explorer.RevisionActive)
+	revisions.values["authoring_"+superseded.ID] = constructionInputsImmutablePresentationRevision(t, superseded, "Allowed historical table", "Historical observations", "Allowed historical value", explorer.RevisionSuperseded)
+	revisions.values["authoring_"+denied.ID] = constructionInputsImmutablePresentationRevision(t, denied, "DENIED_SECRET_TABLE", "DENIED_SECRET_OUTPUT", "DENIED_SECRET_COLUMN", explorer.RevisionActive)
+
+	service.scopes = authscope.NewScopeResolver(authscope.ScopeResolverConfig{
+		ResourceAccess: constructionInputsResourceAccess{"allowed-a"},
+		ListExistingAuthResourcePaths: func(_ context.Context, options catalog.AuthResourcePathOptions) ([]string, error) {
+			if options.Project != "project-a" || options.DatasetGeneration != "generation-a" {
+				t.Fatalf("scope lookup used project/generation %q/%q", options.Project, options.DatasetGeneration)
+			}
+			return []string{"allowed-a", "allowed-b"}, nil
+		},
+	})
+	ctx := authscope.ContextWithPrincipal(context.Background(), &authscope.Principal{AuthResourcePaths: []string{"allowed-a"}})
+	response, err := service.list(ctx, "project-a", "builder-a", constructionInputsRequest{
+		SnapshotToken: snapshot.Token, ExpectedDraftVersion: 1, ExpectedDraftDigest: digest,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(response.Entries) != 2 {
+		t.Fatalf("authorized immutable revisions = %#v, want active and superseded entries only", response.Entries)
+	}
+	entries := make(map[string]constructionInputEntry, len(response.Entries))
+	for _, entry := range response.Entries {
+		entries[entry.RevisionID] = entry
+	}
+	for revisionID, want := range map[string]struct{ tableTitle, outputTitle, columnLabel string }{
+		active.ID:     {tableTitle: "Allowed active table", outputTitle: "Active observations", columnLabel: "Allowed active value"},
+		superseded.ID: {tableTitle: "Allowed historical table", outputTitle: "Historical observations", columnLabel: "Allowed historical value"},
+	} {
+		entry, ok := entries[revisionID]
+		if !ok || entry.TableTitle != want.tableTitle || entry.OutputTitle != want.outputTitle || len(entry.Columns) != 1 || entry.Columns[0].Label != want.columnLabel {
+			t.Errorf("authorized revision %q presentation = %#v, want %#v", revisionID, entry, want)
+		}
+	}
+	if _, ok := entries[denied.ID]; ok {
+		t.Fatalf("unauthorized revision was returned: %#v", entries[denied.ID])
+	}
+	if !reflect.DeepEqual(revisions.calls, []string{"authoring_" + active.ID, "authoring_" + superseded.ID}) {
+		t.Fatalf("immutable revision lookups = %#v, want only authorized active and superseded revisions", revisions.calls)
+	}
+	encoded, err := json.Marshal(response)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, secret := range []string{"DENIED_SECRET_TABLE", "DENIED_SECRET_OUTPUT", "DENIED_SECRET_COLUMN"} {
+		if strings.Contains(string(encoded), secret) {
+			t.Errorf("unauthorized immutable metadata %q leaked in catalog response %s", secret, encoded)
+		}
+	}
+}
+
+func constructionInputsImmutablePresentationRevision(t *testing.T, execution publication.BundleExecution, tableTitle, outputTitle, columnLabel string, status explorer.RevisionStatus) *explorer.Revision {
+	t.Helper()
+	workspace, err := authoringv2.DecodeWorkspace(baselineExplorerWorkspaceV2())
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace.Explorer.Title = tableTitle
+	document := workspace.Documents[0]
+	document.Output = authoringv2.Output{ID: execution.Outputs[0].Name, Title: outputTitle}
+	document.RootResourceType = "Observation"
+	document.Route.ResourceType = "Observation"
+	workspace.Documents = []authoringv2.Document{document}
+	workspaceJSON, err := json.Marshal(workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	contracts, err := json.Marshal(explorer.PublicOutputContracts{Outputs: []explorer.PublicOutputContract{{
+		OutputID: execution.Outputs[0].Name, RootResourceType: "Observation", RowGrain: "resource",
+		Columns: []explorer.PublicOutputColumn{{Column: "value", Label: columnLabel, LogicalType: "decimal"}},
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &explorer.Revision{
+		ID: "authoring_" + strings.TrimPrefix(execution.ReceiptID, "receipt_"), Project: execution.Project,
+		CompilationReceiptID: execution.ReceiptID, PublicOutputContract: contracts, AuthoringBundle: workspaceJSON,
+		Recipe:           recipe.Bundle{Outputs: []recipe.Output{{Name: execution.Outputs[0].Name, RootResourceType: "Observation", RowGrain: "resource"}}},
+		EmittedColumns:   []explorer.EmittedColumn{{OutputID: execution.Outputs[0].Name, PublicColumn: "value", Label: columnLabel, LogicalType: "decimal"}},
+		SourceGeneration: execution.DatasetGeneration,
+		Publication:      explorer.PublicationMetadata{State: string(explorer.RevisionActive), Generation: execution.DatasetGeneration, ExecutionID: execution.ID},
+		Status:           status,
 	}
 }

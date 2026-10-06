@@ -84,12 +84,17 @@ type constructionInputsExplorerReader interface {
 	Get(context.Context, string, string) (*explorer.Explorer, error)
 }
 
+type constructionInputsRevisionReader interface {
+	GetRevision(context.Context, string) (*explorer.Revision, error)
+}
+
 type constructionInputsCatalog struct {
 	reader       constructionInputsExactReader
 	catalog      constructionInputsCatalogReader
 	capabilities lifecycle.CapabilityResolver
 	scopes       *authscope.ScopeResolver
 	explorers    constructionInputsExplorerReader
+	revisions    constructionInputsRevisionReader
 }
 
 type constructionInputReference struct {
@@ -99,8 +104,27 @@ type constructionInputReference struct {
 }
 
 type constructionInputCandidate struct {
-	reference constructionInputReference
-	entry     constructionInputEntry
+	reference    constructionInputReference
+	entry        constructionInputEntry
+	presentation constructionInputPresentation
+}
+
+type constructionInputPresentation struct {
+	tableTitle   string
+	outputTitle  string
+	rowMeaning   string
+	columnLabels map[string]string
+}
+
+type constructionInputPublicationMetadata struct {
+	tableTitle string
+	outputs    map[string]constructionInputOutputPresentation
+	contracts  explorer.PublicOutputContracts
+}
+
+type constructionInputOutputPresentation struct {
+	title            string
+	rootResourceType string
 }
 
 type constructionInputsCursor struct {
@@ -169,6 +193,8 @@ func (c constructionInputsCatalog) list(ctx context.Context, project, explorerID
 	}
 
 	candidates := make([]constructionInputCandidate, 0, len(references))
+	publicationMetadata := make(map[string]*constructionInputPublicationMetadata)
+	publicationMetadataLoaded := make(map[string]bool)
 	for _, reference := range references {
 		materialization := constructionInputMaterialization(reference)
 		if err := validateConstructionInputMaterialization(materialization, reference, project, snapshot.Identity.Generation); err != nil {
@@ -198,18 +224,31 @@ func (c constructionInputsCatalog) list(ctx context.Context, project, explorerID
 		if _, err := resolvedClickHouseColumns(materialization.Columns); err != nil {
 			continue
 		}
-		columns := constructionInputColumns(materialization.Columns)
+		metadataKey := reference.execution.ID + "\x00" + reference.execution.ReceiptID
+		if !publicationMetadataLoaded[metadataKey] {
+			metadata, err := c.constructionInputPublicationMetadata(ctx, reference.execution, project)
+			if err != nil {
+				return constructionInputsResponse{}, constructionInputsUnavailable(err)
+			}
+			publicationMetadata[metadataKey] = metadata
+			publicationMetadataLoaded[metadataKey] = true
+		}
+		presentation, err := constructionInputPresentationFor(materialization, publicationMetadata[metadataKey])
+		if err != nil {
+			return constructionInputsResponse{}, constructionInputsUnavailable(err)
+		}
+		columns := constructionInputColumns(materialization.Columns, presentation.columnLabels)
 		if len(columns) == 0 {
 			continue
 		}
 		entry := constructionInputEntry{
 			Kind: "TABLE_REVISION", TableID: materialization.Selector.Key(), RevisionID: materialization.Revision,
-			OutputID: materialization.Selector.Output, TableTitle: materialization.Selector.Recipe,
-			OutputTitle: materialization.Selector.Output,
-			RowMeaning:  constructionInputRowMeaning(materialization), CreatedAt: materialization.CreatedAt, Columns: columns,
+			OutputID: materialization.Selector.Output, TableTitle: presentation.tableTitle,
+			OutputTitle: presentation.outputTitle,
+			RowMeaning:  presentation.rowMeaning, CreatedAt: materialization.CreatedAt, Columns: columns,
 		}
 		if constructionInputMatchesQuery(entry, query) {
-			candidates = append(candidates, constructionInputCandidate{reference: reference, entry: entry})
+			candidates = append(candidates, constructionInputCandidate{reference: reference, entry: entry, presentation: presentation})
 		}
 	}
 	sort.Slice(candidates, func(left, right int) bool {
@@ -280,7 +319,7 @@ func (c constructionInputsCatalog) list(ctx context.Context, project, explorerID
 			if _, err := resolvedClickHouseColumns(materialization.Columns); err != nil {
 				return fmt.Errorf("exact published construction input schema is invalid: %w", err)
 			}
-			columns := constructionInputColumns(materialization.Columns)
+			columns := constructionInputColumns(materialization.Columns, candidate.presentation.columnLabels)
 			if len(columns) == 0 {
 				return errors.New("exact published construction input has no stable public columns")
 			}
@@ -291,8 +330,8 @@ func (c constructionInputsCatalog) list(ctx context.Context, project, explorerID
 			}
 			entry := constructionInputEntry{
 				Kind: "TABLE_REVISION", TableID: materialization.Selector.Key(), RevisionID: materialization.Revision,
-				OutputID: materialization.Selector.Output, TableTitle: materialization.Selector.Recipe,
-				OutputTitle: materialization.Selector.Output, RowMeaning: constructionInputRowMeaning(materialization),
+				OutputID: materialization.Selector.Output, TableTitle: candidate.presentation.tableTitle,
+				OutputTitle: candidate.presentation.outputTitle, RowMeaning: candidate.presentation.rowMeaning,
 				IsCurrent: isCurrent, CreatedAt: materialization.CreatedAt, Columns: columns,
 			}
 			page = append(page, entry)
@@ -454,7 +493,93 @@ func constructionInputMaterialization(reference constructionInputReference) publ
 	}
 }
 
-func constructionInputColumns(columns []published.Column) []constructionInputColumn {
+func (c constructionInputsCatalog) constructionInputPublicationMetadata(ctx context.Context, execution publication.BundleExecution, project string) (*constructionInputPublicationMetadata, error) {
+	if c.revisions == nil || !strings.HasPrefix(execution.ReceiptID, "receipt_") {
+		return nil, nil
+	}
+	revisionID := "authoring_" + strings.TrimPrefix(execution.ReceiptID, "receipt_")
+	revision, err := c.revisions.GetRevision(ctx, revisionID)
+	if errors.Is(err, explorer.ErrNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("resolve immutable source presentation for published revision %q: %w", execution.ID, err)
+	}
+	if revision == nil || revision.ID != revisionID || projectid.Canonical(revision.Project) != project || revision.CompilationReceiptID != execution.ReceiptID ||
+		revision.SourceGeneration != execution.DatasetGeneration || revision.Publication.ExecutionID != execution.ID ||
+		(revision.Status != explorer.RevisionReady && revision.Status != explorer.RevisionActive && revision.Status != explorer.RevisionSuperseded) {
+		return nil, fmt.Errorf("immutable source presentation does not match published revision %q", execution.ID)
+	}
+	contracts, err := explorer.DecodePublicOutputContracts(revision.PublicOutputContract)
+	if err != nil {
+		return nil, fmt.Errorf("decode immutable source presentation for published revision %q: %w", execution.ID, err)
+	}
+	if err := contracts.ValidateAgainst(revision.Recipe, revision.EmittedColumns); err != nil {
+		return nil, fmt.Errorf("validate immutable source presentation for published revision %q: %w", execution.ID, err)
+	}
+	var workspace struct {
+		Explorer struct {
+			Title string `json:"title"`
+		} `json:"explorer"`
+		Documents []struct {
+			Output struct {
+				ID    string `json:"id"`
+				Title string `json:"title"`
+			} `json:"output"`
+			RootResourceType string `json:"rootResourceType"`
+		} `json:"documents"`
+	}
+	if err := json.Unmarshal(revision.AuthoringBundle, &workspace); err != nil {
+		return nil, fmt.Errorf("decode immutable authoring labels for published revision %q: %w", execution.ID, err)
+	}
+	outputs := make(map[string]constructionInputOutputPresentation, len(workspace.Documents))
+	for _, document := range workspace.Documents {
+		outputID := strings.TrimSpace(document.Output.ID)
+		if outputID == "" {
+			return nil, fmt.Errorf("immutable authoring bundle has an output without an ID for published revision %q", execution.ID)
+		}
+		if _, duplicate := outputs[outputID]; duplicate {
+			return nil, fmt.Errorf("immutable authoring bundle repeats output %q", outputID)
+		}
+		outputs[outputID] = constructionInputOutputPresentation{title: document.Output.Title, rootResourceType: document.RootResourceType}
+	}
+	return &constructionInputPublicationMetadata{tableTitle: workspace.Explorer.Title, outputs: outputs, contracts: contracts}, nil
+}
+
+func constructionInputPresentationFor(materialization published.Materialization, metadata *constructionInputPublicationMetadata) (constructionInputPresentation, error) {
+	presentation := constructionInputPresentation{
+		tableTitle: materialization.Selector.Recipe, outputTitle: materialization.Selector.Output,
+		rowMeaning: constructionInputRowMeaning(materialization), columnLabels: nil,
+	}
+	if metadata == nil {
+		return presentation, nil
+	}
+	document, documentFound := metadata.outputs[materialization.Selector.Output]
+	contract, ok := metadata.contracts.Output(materialization.Selector.Output)
+	if !ok || !documentFound {
+		return constructionInputPresentation{}, fmt.Errorf("immutable source presentation is incomplete for output %q", materialization.Selector.Output)
+	}
+	labels := make(map[string]string, len(contract.Columns))
+	for _, column := range contract.Columns {
+		if strings.TrimSpace(column.Column) == "" || strings.TrimSpace(column.Label) == "" {
+			continue
+		}
+		labels[column.Column] = column.Label
+	}
+	if strings.TrimSpace(metadata.tableTitle) != "" {
+		presentation.tableTitle = metadata.tableTitle
+	}
+	if strings.TrimSpace(document.title) != "" {
+		presentation.outputTitle = document.title
+	}
+	if strings.TrimSpace(presentation.rowMeaning) == "" && strings.TrimSpace(document.rootResourceType) != "" {
+		presentation.rowMeaning = document.rootResourceType
+	}
+	presentation.columnLabels = labels
+	return presentation, nil
+}
+
+func constructionInputColumns(columns []published.Column, labels map[string]string) []constructionInputColumn {
 	result := make([]constructionInputColumn, 0, len(columns))
 	for _, column := range columns {
 		if strings.TrimSpace(column.ID) == "" {
@@ -465,8 +590,12 @@ func constructionInputColumns(columns []published.Column) []constructionInputCol
 		if logicalType == "" {
 			logicalType = capabilities.Logical
 		}
+		label := column.Name
+		if pinnedLabel := labels[column.Name]; strings.TrimSpace(pinnedLabel) != "" {
+			label = pinnedLabel
+		}
 		result = append(result, constructionInputColumn{
-			ID: column.ID, Name: column.Name, Label: column.Name, Type: logicalType,
+			ID: column.ID, Name: column.Name, Label: label, Type: logicalType,
 			ClickHouseType: column.ClickHouse, Nullable: column.Nullable || capabilities.Nullable,
 			Repeated: column.Repeated || capabilities.Repeated, SemanticPath: column.SemanticPath,
 		})

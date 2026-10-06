@@ -127,6 +127,49 @@ const lastCandidate = (callback: CandidateMock): ConstructionCombineCandidateInt
 afterEach(cleanup);
 
 describe('ConstructionCombineEditor', () => {
+  it('defaults Join outputs from the selected field without overwriting later user edits', () => {
+    const onCandidateChange = renderEditor();
+    fireEvent.click(screen.getByRole('button', { name: 'Match rows' }));
+    choose('Input table 1', refKey(leftRevision));
+    choose('Input table 2', refKey(rightOldRevision));
+    choose('Matching pair 1 first field', 'patient-key');
+    choose('Matching pair 1 second field', 'visit-patient-key');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add output field' }));
+    choose('Output field 1 source field in input 2', 'visit-day');
+    expect((screen.getByLabelText('Output field 1 name') as HTMLInputElement).value).toBe('visit_day');
+    expect((screen.getByLabelText('Output field 1 label') as HTMLInputElement).value).toBe('visit day');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add output field' }));
+    choose('Output field 2 source field in input 2', 'visit-day');
+    expect((screen.getByLabelText('Output field 2 name') as HTMLInputElement).value).toBe('visit_day_2');
+    expect((screen.getByLabelText('Output field 2 label') as HTMLInputElement).value).toBe('visit day');
+
+    choose('Output field 1 name', 'billing_date');
+    choose('Output field 1 label', 'Billing date');
+    choose('Output field 1 source field in input 2', 'visit-patient-key');
+    expect((screen.getByLabelText('Output field 1 name') as HTMLInputElement).value).toBe('billing_date');
+    expect((screen.getByLabelText('Output field 1 label') as HTMLInputElement).value).toBe('Billing date');
+
+    expect(lastCandidate(onCandidateChange)?.candidateConstruction.steps[0]).toMatchObject({
+      inputs: [
+        { kind: 'TABLE_REVISION', tableId: 'table-left', revisionId: 'left-rev-1', outputId: 'left-output' },
+        { kind: 'TABLE_REVISION', tableId: 'table-right', revisionId: 'right-rev-1', outputId: 'right-output' },
+      ],
+      operation: {
+        kind: 'COMBINE',
+        combine: {
+          kind: 'KEY_JOIN',
+          keys: [{ leftColumnId: 'patient-key', rightColumnId: 'visit-patient-key' }],
+        },
+      },
+      outputs: [
+        { name: 'billing_date', label: 'Billing date', type: 'string' },
+        { name: 'visit_day_2', label: 'visit day', type: 'date' },
+      ],
+    });
+  });
+
   it('emits an exact-pinned LEFT join, preserves right-side nullability, and requires explicit revision updates', () => {
     const onCandidateChange = renderEditor();
     fireEvent.click(screen.getByRole('button', { name: 'Match rows' }));

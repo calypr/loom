@@ -5,7 +5,14 @@ import { join } from 'node:path';
 import { browserURL } from './builder-url.mjs';
 import { sanitizeBody } from '../helpers/playwright-browser.mjs';
 import { recordCheck } from '../helpers/report.mjs';
-import { appendNullPaddingRows, builderRequestURL, builderResponseIdentity, constructionProposalPreviewEvidence, currentPublishedRevisionForOutput, displayAppendNullPaddingRows, findColumn, isCombineInputIDColumn, isNumericClickHouseType, isScalarStringColumn, joinOracleRows, appendEditorConfigurationEvidence, nativeCombineTargetBindingEvidence, sameSourceDocuments, snapshotSourceDocument, isOwnedConstructionCapabilitiesRequest, rootedEmptyTargetRestorationEvidence } from '../helpers/builder-combine-helpers.mjs';
+import { appendNullPaddingRows, builderRequestURL, builderResponseIdentity, constructionProposalPreviewEvidence, currentPublishedRevisionForOutput, displayAppendNullPaddingRows, findColumn, isCombineInputIDColumn, isNumericClickHouseType, isScalarStringColumn, joinOracleRows, appendEditorConfigurationEvidence, nativeCombineTargetBindingEvidence, sameSourceDocuments, snapshotSourceDocument, isOwnedConstructionCapabilitiesRequest, rootedEmptyTargetAppliedExpression, rootedEmptyTargetRestorationEvidence } from '../helpers/builder-combine-helpers.mjs';
+
+export const authoredColumn = (document, catalogColumn) => {
+  const matches = (document.columns ?? []).filter(column => column.column === catalogColumn.name);
+  if (matches.length !== 1) throw new Error(`Expected one authored ${catalogColumn.name} source column; found ${matches.length}.`);
+  const wireColumn = matches[0];
+  return { name: wireColumn.column, label: wireColumn.label };
+};
 
 const expectedPatients = [{ id: 'combine-fixture-patient', gender: 'female' }];
 const expectedObservations = [
@@ -99,6 +106,12 @@ const check = (report, dimension, name, condition, evidence = {}) => {
   }
   recordCheck(report, dimension, name, Boolean(condition), evidence);
   if (!condition) throw new Error('required Combine check failed: ' + name + '; evidence=' + JSON.stringify(evidence).slice(0, 1400));
+};
+
+const recordReloadTiming = (report, name, startedAt, evidence = {}) => {
+  const elapsedMs = Date.now() - startedAt;
+  report.timings[name] = elapsedMs;
+  check(report, 'performance', name, elapsedMs <= 5000, { elapsedMs, limitMs: 5000, ...evidence });
 };
 
 const parseNDJSON = (path) => readFileSync(path, 'utf8')
@@ -327,7 +340,6 @@ const assertSourceImmutability = async (context, explorer, docs, before, report)
 
 const expectedInnerRows = joinOracleRows(expectedObservations, expectedReports, 'INNER');
 const expectedLeftRows = joinOracleRows(expectedObservations, expectedReports, 'LEFT');
-const joinHeaders = ['Observation ID', 'Observation status', 'Report ID', 'Report status'];
 const appendHeaders = ['Record ID', 'Status', 'Patient gender'];
 
 const readGridWithPlaywright = async (page, kind = 'saved') => page.evaluate((viewKind) => {
@@ -496,20 +508,24 @@ const createAndPublishSourcesWithPlaywright = async (context, page, action, repo
       budget: 5000,
       after: () => waitSavedPreviewWithPlaywright(page, expectedRows),
     });
+    const sourcePreview = await readGridWithPlaywright(page);
+    if (!sourcePreview.ready) throw new Error(`${resourceType} source preview did not expose its authored headers.`);
     const close = page.getByRole('button', { name: 'Close operation editor', exact: true });
     await action('close source operation editor', close, () => close.click(), {
       after: () => page.locator('[aria-label="Add columns editor"]').waitFor({ state: 'hidden' }),
     });
+    return sourcePreview;
   };
 
   await addRootWithUI('Observation', 'Observations', expectedObservations.map(row => row.id));
-  await addRawFieldsWithUI('Observation', rawFieldsByResource.Observation ?? ['status', 'valueInteger'], expectedObservations.length);
+  const observationSourcePreview = await addRawFieldsWithUI('Observation', rawFieldsByResource.Observation ?? ['status', 'valueInteger'], expectedObservations.length);
   const newTable = page.getByTestId('construction-new-table');
   await action('start DiagnosticReport source table', newTable, () => newTable.click(), {
     after: () => page.locator('#first-table-name').waitFor({ state: 'visible' }),
   });
   await addRootWithUI('DiagnosticReport', 'Diagnostic reports', expectedReports.map(row => row.id));
-  await addRawFieldsWithUI('DiagnosticReport', rawFieldsByResource.DiagnosticReport ?? ['status'], expectedReports.length);
+  const reportSourcePreview = await addRawFieldsWithUI('DiagnosticReport', rawFieldsByResource.DiagnosticReport ?? ['status'], expectedReports.length);
+  const sourcePreviewHeaders = { Observation: observationSourcePreview.headers, DiagnosticReport: reportSourcePreview.headers };
   if (includePatient) {
     await action('start Patient source table', newTable, () => newTable.click(), {
       after: () => page.locator('#first-table-name').waitFor({ state: 'visible' }),
@@ -572,7 +588,7 @@ const createAndPublishSourcesWithPlaywright = async (context, page, action, repo
     authorizationScopeDigest: api.builder.catalog.authorizationScopeDigest,
   }]));
   report.target.sourceApiFingerprint = api.apiFingerprint;
-  return { explorer, docs, api };
+  return { explorer, docs, api, sourceExplorerTitle: title, sourcePreviewHeaders };
 };
 
 const startCombineTargetWithPlaywright = async (context, page, action, report, explorer, observationOutputId, sourceBuilder) => {
@@ -640,11 +656,28 @@ const chooseOperationWithPlaywright = async (page, action, kind, inputs) => {
   }
 };
 
-const configureOutputWithPlaywright = async (page, action, index, name, label, sourceFields, kind) => {
+const outputDefaultName = (column, previousNames) => {
+  const base = String(column.name ?? '').trim().replace(/[^A-Za-z0-9_]+/g, '_').replace(/^[^A-Za-z_]+/, '') || 'column';
+  let candidate = base;
+  let suffix = 2;
+  while (previousNames.includes(candidate)) candidate = `${base}_${suffix++}`;
+  return candidate;
+};
+
+const outputDefaultEvidenceWithPlaywright = async (page, index, expectedColumn, expectedName = expectedColumn.name) => {
+  const name = await page.locator(`input[aria-label="Output field ${index} name"]`).inputValue();
+  const label = await page.locator(`input[aria-label="Output field ${index} label"]`).inputValue();
+  const expectedLabel = String(expectedColumn.label ?? '').trim() || expectedColumn.name;
+  return { index, name, label, expectedName, expectedLabel, ok: name === expectedName && label === expectedLabel };
+};
+
+const configureOutputWithPlaywright = async (page, action, index, name, label, sourceFields, kind, { automaticDefault = false, expectedName } = {}) => {
   const nameSelector = `input[aria-label="Output field ${index} name"]`;
   await page.locator(nameSelector).waitFor({ state: 'visible', timeout: 5000 });
-  await fillWithPlaywright(page, action, nameSelector, name, `name output field ${index}`);
-  await fillWithPlaywright(page, action, `input[aria-label="Output field ${index} label"]`, label, `label output field ${index}`);
+  if (!automaticDefault) {
+    await fillWithPlaywright(page, action, nameSelector, name, `name output field ${index}`);
+    await fillWithPlaywright(page, action, `input[aria-label="Output field ${index} label"]`, label, `label output field ${index}`);
+  }
   for (const [inputIndex, columnId] of sourceFields) {
     const fieldKind = kind === 'APPEND' ? 'matching field in input ' : 'source field in input ';
     const value = kind === 'APPEND' ? (columnId === null ? 'empty-for-this-table' : 'column:' + columnId) : columnId;
@@ -652,14 +685,17 @@ const configureOutputWithPlaywright = async (page, action, index, name, label, s
       `select[aria-label="Output field ${index} ${fieldKind}${inputIndex + 1}"]`, value,
       `map output field ${index} from input ${inputIndex + 1}`);
   }
+  return automaticDefault && sourceFields.length === 1
+    ? outputDefaultEvidenceWithPlaywright(page, index, sourceFields[0][2], expectedName)
+    : undefined;
 };
 
-const addOutputWithPlaywright = async (page, action, index, name, label, sourceFields, kind) => {
+const addOutputWithPlaywright = async (page, action, index, name, label, sourceFields, kind, options) => {
   const add = page.getByRole('button', { name: 'Add output field', exact: true });
   await action(`add output field ${index}`, add, () => add.click(), {
     after: () => page.locator(`input[aria-label="Output field ${index} name"]`).waitFor({ state: 'visible' }),
   });
-  await configureOutputWithPlaywright(page, action, index, name, label, sourceFields, kind);
+  return configureOutputWithPlaywright(page, action, index, name, label, sourceFields, kind, options);
 };
 
 const removeCombineAndRestoreEmptyRootWithPlaywright = async (context, page, action, report, explorer, target, baseline, stepId, operation) => {
@@ -674,9 +710,16 @@ const removeCombineAndRestoreEmptyRootWithPlaywright = async (context, page, act
   });
   check(report, 'correctness', operation + ' removal proposal is ready for the rooted empty target', true, { outputId: target.outputId, stepId });
   await applyProposalWithPlaywright(page, action, `Remove ${operation} and restore the rooted empty target`, null, target.outputId);
+  const reloadTimingName = operation === 'KEY_JOIN'
+    ? 'KEY_JOIN removal reload through exact rooted empty restoration within five seconds'
+    : undefined;
+  const reloadStartedAt = reloadTimingName ? Date.now() : undefined;
   await page.reload({ waitUntil: 'domcontentloaded' });
   await page.getByTestId(`construction-table-${target.outputId}`).waitFor({ state: 'visible', timeout: 5000 });
   await selectTargetWithPlaywright(page, action, target.outputId);
+  if (reloadTimingName) {
+    await page.waitForFunction(rootedEmptyTargetAppliedExpression(target.outputId), undefined, { timeout: 5000 });
+  }
   const builder = await readBuilder(context, explorer);
   const restored = readTargetDocument(builder, target.outputId);
   const restoration = rootedEmptyTargetRestorationEvidence(restored, baseline, target);
@@ -684,6 +727,7 @@ const removeCombineAndRestoreEmptyRootWithPlaywright = async (context, page, act
     target, rootResourceType: restored.rootResourceType, columns: restored.columns, construction: restored.construction,
     sameAsPreCombineDocument: restoration.unchanged, expectedDocument: baseline,
   });
+  if (reloadTimingName) recordReloadTiming(report, reloadTimingName, reloadStartedAt, { outputId: target.outputId, stepId });
 };
 
 export const joinWorkflow = async ({ page, report, action }, context) => {
@@ -695,7 +739,7 @@ export const joinWorkflow = async ({ page, report, action }, context) => {
     fixture.patients.length === 1 && fixture.observations.length === 4 && fixture.diagnosticReports.length === 3, fixture);
 
   const prepared = await createAndPublishSourcesWithPlaywright(context, page, action, report);
-  const { explorer, docs, api } = prepared;
+  const { explorer, docs, api, sourceExplorerTitle, sourcePreviewHeaders } = prepared;
   const target = await startCombineTargetWithPlaywright(context, page, action, report, explorer, docs.observation.output.id, api.builder);
   report.target.combineTarget = target;
   const builderAtTarget = await readBuilder(context, explorer);
@@ -703,25 +747,113 @@ export const joinWorkflow = async ({ page, report, action }, context) => {
   const catalogEntries = await readPublishedInputs(context, explorer, builderAtTarget);
   const observationRevision = currentRevisionFor(catalogEntries, docs.observation);
   const reportRevision = currentRevisionFor(catalogEntries, docs.report);
+  const authored = {
+    observationID: authoredColumn(docs.observation, api.columns.observationID),
+    observationStatus: authoredColumn(docs.observation, api.columns.observationStatus),
+    reportID: authoredColumn(docs.report, api.columns.reportID),
+    reportStatus: authoredColumn(docs.report, api.columns.reportStatus),
+  };
+  const authoredSourceMetadataEvidence = {
+    observation: {
+      tableTitle: observationRevision.tableTitle,
+      expectedTableTitle: sourceExplorerTitle,
+      outputTitle: observationRevision.outputTitle,
+      expectedOutputTitle: docs.observation.output.title,
+      previewHeaders: sourcePreviewHeaders.Observation,
+      columns: [
+        { name: api.columns.observationID.name, label: api.columns.observationID.label, authoredName: authored.observationID.name, authoredLabel: authored.observationID.label },
+        { name: api.columns.observationStatus.name, label: api.columns.observationStatus.label, authoredName: authored.observationStatus.name, authoredLabel: authored.observationStatus.label },
+      ],
+    },
+    diagnosticReport: {
+      tableTitle: reportRevision.tableTitle,
+      expectedTableTitle: sourceExplorerTitle,
+      outputTitle: reportRevision.outputTitle,
+      expectedOutputTitle: docs.report.output.title,
+      previewHeaders: sourcePreviewHeaders.DiagnosticReport,
+      columns: [
+        { name: api.columns.reportID.name, label: api.columns.reportID.label, authoredName: authored.reportID.name, authoredLabel: authored.reportID.label },
+        { name: api.columns.reportStatus.name, label: api.columns.reportStatus.label, authoredName: authored.reportStatus.name, authoredLabel: authored.reportStatus.label },
+      ],
+    },
+  };
+  authoredSourceMetadataEvidence.ok = [authoredSourceMetadataEvidence.observation, authoredSourceMetadataEvidence.diagnosticReport].every(source =>
+    source.tableTitle === source.expectedTableTitle && source.outputTitle === source.expectedOutputTitle &&
+    source.columns.every(column => column.name === column.authoredName && column.label === column.authoredLabel &&
+      Boolean(String(column.authoredLabel ?? '').trim()) && source.previewHeaders.includes(column.authoredLabel)),
+  );
+  check(report, 'correctness', 'published Join source labels match independently authored columns and source previews',
+    authoredSourceMetadataEvidence.ok, authoredSourceMetadataEvidence);
+  if (!authoredSourceMetadataEvidence.ok) throw new Error('Published Join source presentation differs from its authored source tables: ' + JSON.stringify(authoredSourceMetadataEvidence));
+  const joinHeaders = [authored.observationID.label, authored.observationStatus.label, authored.reportID.label, authored.reportStatus.label]
+    .map((label, index) => String(label ?? '').trim() || [api.columns.observationID, api.columns.observationStatus, api.columns.reportID, api.columns.reportStatus][index].name);
   check(report, 'correctness', 'native Combine inputs pin the exact current Observation and DiagnosticReport revisions',
     publishedRef(observationRevision) === publishedRef(api.revisions.Observation) &&
     publishedRef(reportRevision) === publishedRef(api.revisions.DiagnosticReport),
     { observationRevision, reportRevision, expected: api.revisions });
 
   await chooseOperationWithPlaywright(page, action, 'KEY_JOIN', [observationRevision, reportRevision]);
+  const displayedSources = await Promise.all([
+    page.locator('select[aria-label="Input table 1"] option:checked').textContent(),
+    page.locator('select[aria-label="Input table 2"] option:checked').textContent(),
+    page.locator('select[aria-label="Matching pair 1 first field"] option').filter({ hasText: api.columns.observationID.label }).first().textContent(),
+    page.locator('select[aria-label="Matching pair 1 second field"] option').filter({ hasText: api.columns.reportID.label }).first().textContent(),
+  ]);
+  const sourceDisplayEvidence = {
+    observation: displayedSources[0] ?? '',
+    diagnosticReport: displayedSources[1] ?? '',
+    observationIDField: displayedSources[2] ?? '',
+    diagnosticReportIDField: displayedSources[3] ?? '',
+  };
+  sourceDisplayEvidence.ok = sourceDisplayEvidence.observation.includes(observationRevision.tableTitle) &&
+    sourceDisplayEvidence.observation.includes(observationRevision.outputTitle) &&
+    sourceDisplayEvidence.diagnosticReport.includes(reportRevision.tableTitle) &&
+    sourceDisplayEvidence.diagnosticReport.includes(reportRevision.outputTitle) &&
+    sourceDisplayEvidence.observationIDField.includes(api.columns.observationID.label) &&
+    sourceDisplayEvidence.diagnosticReportIDField.includes(api.columns.reportID.label);
+  check(report, 'correctness', 'pinned published source cards show immutable authored output and column labels',
+    sourceDisplayEvidence.ok, sourceDisplayEvidence);
+  if (!sourceDisplayEvidence.ok) throw new Error('Pinned published source cards did not show their authored labels: ' + JSON.stringify(sourceDisplayEvidence));
   await selectInputWithPlaywright(page, action, 'select[aria-label="Matching pair 1 first field"]', api.columns.observationID.id, 'select Observation ID join key');
   await selectInputWithPlaywright(page, action, 'select[aria-label="Matching pair 1 second field"]', api.columns.reportID.id, 'select DiagnosticReport ID join key');
   await selectInputWithPlaywright(page, action, 'select[aria-label="If a row in the first table has no match"]', 'INNER', 'select INNER join policy');
-  await addOutputWithPlaywright(page, action, 1, 'observation_id', 'Observation ID', [[0, api.columns.observationID.id]], 'KEY_JOIN');
-  await addOutputWithPlaywright(page, action, 2, 'observation_status', 'Observation status', [[0, api.columns.observationStatus.id]], 'KEY_JOIN');
-  await addOutputWithPlaywright(page, action, 3, 'report_id', 'Report ID', [[1, api.columns.reportID.id]], 'KEY_JOIN');
-  await addOutputWithPlaywright(page, action, 4, 'report_status', 'Report status', [], 'KEY_JOIN');
+  const outputDefaults = [];
+  const priorOutputNames = [];
+  const addAutomaticOutput = async (index, inputIndex, column) => {
+    const expectedName = outputDefaultName(column, priorOutputNames);
+    priorOutputNames.push(expectedName);
+    const evidence = await addOutputWithPlaywright(page, action, index, '', '', [[inputIndex, column.id, column]], 'KEY_JOIN', {
+      automaticDefault: true,
+      expectedName,
+    });
+    outputDefaults.push(evidence);
+  };
+  const observationIDSource = { ...api.columns.observationID, name: authored.observationID.name, label: authored.observationID.label };
+  const observationStatusSource = { ...api.columns.observationStatus, name: authored.observationStatus.name, label: authored.observationStatus.label };
+  const reportIDSource = { ...api.columns.reportID, name: authored.reportID.name, label: authored.reportID.label };
+  const reportStatusSource = { ...api.columns.reportStatus, name: authored.reportStatus.name, label: authored.reportStatus.label };
+  await addAutomaticOutput(1, 0, observationIDSource);
+  await addAutomaticOutput(2, 0, observationStatusSource);
+  await addAutomaticOutput(3, 1, reportIDSource);
+  const reportStatusExpectedName = outputDefaultName(reportStatusSource, priorOutputNames);
+  priorOutputNames.push(reportStatusExpectedName);
+  await addOutputWithPlaywright(page, action, 4, '', '', [], 'KEY_JOIN', { automaticDefault: true });
   const reportStatus = page.locator('select[aria-label="Output field 4 source field in input 2"]');
+  let reportStatusDefault;
   await action('render INNER Join preview', reportStatus, () => reportStatus.selectOption(api.columns.reportStatus.id), {
     timeout: 5000,
     budget: 5000,
-    after: () => waitProposalWithPlaywright(page, target.outputId, expectedInnerRows.length),
+    after: async () => {
+      await waitProposalWithPlaywright(page, target.outputId, expectedInnerRows.length);
+      reportStatusDefault = await outputDefaultEvidenceWithPlaywright(page, 4, reportStatusSource, reportStatusExpectedName);
+      if (!reportStatusDefault.ok) throw new Error('Selected published field did not supply the expected output defaults: ' + JSON.stringify(reportStatusDefault));
+    },
   });
+  outputDefaults.push(reportStatusDefault);
+  const outputDefaultCheck = { outputs: outputDefaults, ok: outputDefaults.length === 4 && outputDefaults.every(evidence => evidence?.ok) };
+  check(report, 'correctness', 'Join output names and labels default from selected pinned fields without manual entry',
+    outputDefaultCheck.ok, outputDefaultCheck);
+  if (!outputDefaultCheck.ok) throw new Error('Join output defaults did not match the selected published fields: ' + JSON.stringify(outputDefaultCheck));
   await exactRowsWithPlaywright(report, 'INNER preview returns the three exact rows matched on shared required IDs',
     page, 'proposal', joinHeaders, expectedInnerRows);
 
@@ -734,11 +866,13 @@ export const joinWorkflow = async ({ page, report, action }, context) => {
   }
   assertPinnedInputs(report, step, api);
   await exactRowsWithPlaywright(report, 'INNER Apply preserves the exact joined rows', page, 'saved', joinHeaders, expectedInnerRows);
+  const innerReloadStartedAt = Date.now();
   await page.reload({ waitUntil: 'domcontentloaded' });
   await page.getByTestId(`construction-table-${target.outputId}`).waitFor({ state: 'visible', timeout: 5000 });
   await selectTargetWithPlaywright(page, action, target.outputId);
   await waitSavedPreviewWithPlaywright(page, expectedInnerRows.length);
   await exactRowsWithPlaywright(report, 'INNER table reload retains the three exact rows', page, 'saved', joinHeaders, expectedInnerRows);
+  recordReloadTiming(report, 'INNER Apply reload through exact saved rows within five seconds', innerReloadStartedAt, { outputId: target.outputId, rowCount: expectedInnerRows.length });
 
   await editSavedStepWithPlaywright(page, action, step.id);
   const noMatch = page.locator('select[aria-label="If a row in the first table has no match"]');
@@ -758,6 +892,7 @@ export const joinWorkflow = async ({ page, report, action }, context) => {
       await page.getByTestId('construction-history').waitFor({ state: 'visible' });
     },
   });
+  const cancelReloadStartedAt = Date.now();
   await page.reload({ waitUntil: 'domcontentloaded' });
   await page.getByTestId(`construction-table-${target.outputId}`).waitFor({ state: 'visible', timeout: 5000 });
   await selectTargetWithPlaywright(page, action, target.outputId);
@@ -769,6 +904,7 @@ export const joinWorkflow = async ({ page, report, action }, context) => {
   check(report, 'persistence', 'Canceling the LEFT edit leaves the saved INNER operation unchanged',
     Boolean(step?.id === originalStep.id && step?.operation?.combine?.joinType === 'INNER'), { step: step ?? null });
   await exactRowsWithPlaywright(report, 'cancelled LEFT edit keeps the saved INNER rows after reload', page, 'saved', joinHeaders, expectedInnerRows);
+  recordReloadTiming(report, 'Cancel reload through saved INNER state and exact rows within five seconds', cancelReloadStartedAt, { outputId: target.outputId, stepId: step?.id, rowCount: expectedInnerRows.length });
 
   await editSavedStepWithPlaywright(page, action, step.id);
   const leftPolicy = page.locator('select[aria-label="If a row in the first table has no match"]');
@@ -788,11 +924,13 @@ export const joinWorkflow = async ({ page, report, action }, context) => {
   }
   assertPinnedInputs(report, step, api);
   await exactRowsWithPlaywright(report, 'LEFT Apply preserves exact matches and unmatched null fields', page, 'saved', joinHeaders, expectedLeftRows);
+  const leftReloadStartedAt = Date.now();
   await page.reload({ waitUntil: 'domcontentloaded' });
   await page.getByTestId(`construction-table-${target.outputId}`).waitFor({ state: 'visible', timeout: 5000 });
   await selectTargetWithPlaywright(page, action, target.outputId);
   await waitSavedPreviewWithPlaywright(page, expectedLeftRows.length);
   await exactRowsWithPlaywright(report, 'LEFT rows and nulls survive Builder reload', page, 'saved', joinHeaders, expectedLeftRows);
+  recordReloadTiming(report, 'LEFT Apply reload through exact saved rows and nulls within five seconds', leftReloadStartedAt, { outputId: target.outputId, rowCount: expectedLeftRows.length, unmatchedNulls: 1 });
 
   await removeCombineAndRestoreEmptyRootWithPlaywright(context, page, action, report, explorer, target, emptyTargetBaseline, step.id, 'KEY_JOIN');
   await assertSourceImmutability(context, explorer, docs, api, report);
