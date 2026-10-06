@@ -26,6 +26,16 @@ test.describe('Builder Combine Draft Append', () => {
   });
 });
 
+test.describe('Builder Combine Draft Append with upstream DERIVE edit', () => {
+  test.use({ scenarioID: 'builder-combine-draft', caseName: 'append-derived-edit', fixtureDir: 'testdata/verify-combine' });
+
+  test('upstream Group→DERIVE edit recomputes APPEND and removal restores its current-draft sources', async ({ page, workflow, loomContext }) => {
+    await draftAppendWorkflow({
+      page, report: workflow.report, action: workflow.action, check: workflow.check, fault: workflow.fault,
+    }, loomContext, { upstreamDeriveEdit: true });
+  });
+});
+
 test.describe('Builder Combine Draft Group Pivot Join', () => {
   test.use({ scenarioID: 'builder-combine-draft', caseName: 'group-pivot', fixtureDir: 'testdata/verify-combine' });
 

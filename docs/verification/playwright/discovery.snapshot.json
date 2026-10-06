@@ -2,25 +2,25 @@
   "schemaVersion": 1,
   "kind": "official-playwright-static-discovery",
   "sourceRoot": ".",
-  "baseCommit": "9146d93f78e72d93c13cb54dff80c0eeb630e7d4",
+  "baseCommit": "a617cdc301685c71c51ce98a7dad9d9ba15236f2",
   "status": "discovery-only",
   "runtimeStatus": "not-run",
   "commandTemplate": "<repo>/scripts/node_modules/.bin/playwright test --config <configPath> --list --reporter=json",
-  "note": "Captured from 6 official Playwright --list --reporter=json outputs. These reports list registrations only and skip every test body; no lifecycle ran. The 6 session counts sum to 169 entries.",
-  "mainDiscoveryTestCount": 164,
+  "note": "Captured from 6 official Playwright --list --reporter=json outputs. These reports list registrations only and skip every test body; no lifecycle ran. The 6 session counts sum to 170 entries.",
+  "mainDiscoveryTestCount": 165,
   "mainDiscoverySpecFileCount": 26,
   "dedicatedBenchmarkTestCount": 1,
   "dedicatedBenchmarkSpecFileCount": 1,
-  "totalDeclaredTestCount": 169,
+  "totalDeclaredTestCount": 170,
   "sessions": [
     {
       "sessionID": "main",
       "configPath": "scripts/playwright.config.mjs",
       "configSha256": "d16ccb10ccf63f8a711ae7f8c5b61d4bc44452172e9a309a06cab32ce30f69bc",
       "environment": {},
-      "testCount": 164,
+      "testCount": 165,
       "specFileCount": 26,
-      "discoveredCasesSha256": "99a82881aa0639b878e12a3728779e153c662371b90f035f0ebb9d9f1ea8f37a",
+      "discoveredCasesSha256": "35df6049155708894a6816084939347c820fc71f439026364e537fb386233f94",
       "specs": [
         {
           "path": "scripts/verify-ui/specs/append.spec.mjs",
@@ -247,7 +247,7 @@
         },
         {
           "path": "scripts/verify-ui/specs/draft-combine.spec.mjs",
-          "sha256": "6626f2cc08ae029cb1e7f5d33267a6c154c04d3ec02db295f4779b5ce25fd1e9",
+          "sha256": "5d7c58b86e8aee4c485b19138bc73dee2fc2599dfcf531252564cccaa9c3302c",
           "cases": [
             {
               "title": "grouped current-draft Join supports cancel, apply, edit, removal, and reload",
@@ -264,16 +264,23 @@
               "occurrence": 1
             },
             {
+              "title": "upstream Group→DERIVE edit recomputes APPEND and removal restores its current-draft sources",
+              "id": "8ae9a22d8f0663aee4a2-3d3fc7354f2b7e1dd769",
+              "line": 32,
+              "column": 3,
+              "occurrence": 1
+            },
+            {
               "title": "GROUP-to-PIVOT current-draft Join supports cancel, apply, edit, removal, and reload",
               "id": "8ae9a22d8f0663aee4a2-3aeae72c4f1c9f3e1ad4",
-              "line": 32,
+              "line": 42,
               "column": 3,
               "occurrence": 1
             },
             {
               "title": "current-draft MEMBERSHIP supports INCLUDE, EXCLUDE edit, removal, restoration, and reload",
               "id": "8ae9a22d8f0663aee4a2-e9f9b079b84b34fe7a1e",
-              "line": 42,
+              "line": 52,
               "column": 3,
               "occurrence": 1
             }

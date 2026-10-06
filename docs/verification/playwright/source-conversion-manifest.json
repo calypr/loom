@@ -7,7 +7,7 @@
     "runnerInventoryPath": "docs/verification/playwright/runner-inventory.snapshot.json",
     "runnerInventorySha256": "ea1f0421f76eb31fc3a9d7ee29734439b37a5eca8ce84a6b97634ebd1abdc5de",
     "registryPath": "scripts/verify-ui/registry.mjs",
-    "registrySha256": "02132c2f27e20a0be0298216f6707ca0ca4b66c91b254041c42a98a29f594d4d",
+    "registrySha256": "26ebf1f39a5eb4ac94eebdfab4a5292ba413d2f96ac92415b8dd525be0a9d2c8",
     "preimagesCapturedFromStageCopy": true
   },
   "sourceScope": {
@@ -794,7 +794,7 @@
     ],
     "discoverySnapshot": {
       "path": "docs/verification/playwright/discovery.snapshot.json",
-      "sha256": "0ecfbdc521a9c5aaaa5444ecf6149da140ecac176b4c2227f970cfb93a4d344b"
+      "sha256": "e4dba27892c5f77e89118af9c8fa998caa6361314808c92656e5f3f56ad1d4e1"
     },
     "discoveryOverrideInputs": [
       {
@@ -2628,10 +2628,10 @@
     "officialRootBrowserEntrypoints": 74,
     "additionalUiPackageBrowserEntrypoints": 1,
     "registeredBrowserEntrypoints": 2,
-    "registryCases": 29,
-    "registryRequiredCheckEntries": 505,
+    "registryCases": 30,
+    "registryRequiredCheckEntries": 549,
     "registryCustomAssertionVariants": 1,
-    "registryCaseMappingsPresent": 29,
+    "registryCaseMappingsPresent": 30,
     "additionalBrowserWorkflowSources": 2,
     "additionalEmbeddedBrowserJourneys": 9,
     "mappedEmbeddedBrowserJourneys": 9,
@@ -2756,12 +2756,12 @@
   "testDiscoveryEvidence": {
     "status": "discovery-only",
     "playwrightListPassed": true,
-    "discoveredTestCount": 164,
+    "discoveredTestCount": 165,
     "discoveredSpecFileCount": 26,
     "dedicatedBenchmarkTestCount": 1,
     "dedicatedBenchmarkSpecFileCount": 1,
     "discoverySnapshotPath": "docs/verification/playwright/discovery.snapshot.json",
-    "discoverySnapshotSha256": "0ecfbdc521a9c5aaaa5444ecf6149da140ecac176b4c2227f970cfb93a4d344b",
+    "discoverySnapshotSha256": "e4dba27892c5f77e89118af9c8fa998caa6361314808c92656e5f3f56ad1d4e1",
     "discoverySnapshotMatchesCurrentSourceTree": true,
     "runtimeLifecycleStatus": "not-run",
     "note": "Official Playwright --list snapshots cover the main suite, the dedicated construction-preview benchmark config, and configured related ONE/ALL variants. They confirm discovery only; no test body or domain lifecycle is represented as run."
@@ -4746,6 +4746,11 @@
           "reason": "Epoch45 native basic-fixture APPEND passed all 111 assertions, four dimensions, and all 18 checks required at run time. The three direct Group\u2192DERIVE preview, reload-value, and timing assertions also passed in that report and are now listed as required checks. The Group\u2192DERIVE source\u2019s separate saved-step edit/cancel/removal lifecycle, Group\u2192Pivot-input APPEND, and real-CDA APPEND remain unverified."
         },
         {
+          "feature": "saved upstream Group\u2192DERIVE Cancel/Apply/reload and dependent three-source APPEND recompute/removal restoration",
+          "status": "implemented",
+          "reason": "Epoch74 exact basic-fixture rerun passed all 44/44 registered checks, 140/140 assertions, and all four dimensions; 42 native actions and 40 timed checkpoints completed with max action 690 ms. Native upstream Group\u2192DERIVE Cancel/Apply/reload, dependent APPEND recompute/reload, removal/restoration, and source-preservation checks passed. Epoch73 request-450 POST reconcile net::ERR_ABORTED at draftVersion 14 remains unattributed and unresolved; Epoch74 did not reproduce it, and the clean rerun establishes no cause or product fix, so the overall tracked workflow remains partial. Basic fixture only; real-CDA and published-source cases remain separate. Report docs/verification/playwright/runtime/current-draft-append-derived-edit-epoch74-report.json; closure docs/verification/playwright/runtime/current-draft-append-derived-edit-epoch74-closure.json."
+        },
+        {
           "feature": "KEY_JOIN over one Group and one Group\u2192Pivot unpublished sibling",
           "status": "implemented",
           "reason": "Epoch44 passed the native basic-fixture mixed Group\u2192Pivot Join lifecycle: 96/96 assertions, 21/21 required checks, 30 actions, max 1064ms, errors[]; the favicon 404 is recorded as an incidental asset failure. Compact report: docs/verification/playwright/runtime/current-draft-group-pivot-epoch44-report.json (sha256 b976f946c18d562289cef932c6d93dd9422deee7f7db90ad93a568fc3e9a7625); closure: docs/verification/playwright/runtime/current-draft-group-pivot-epoch44-closure.json (sha256 6c94cc2950806d43a45381e542aa24f7cbee1daad99faf244aef68b8b5f68d17). This closes only the basic fixture; real-CDA mixed Group\u2192Pivot and published-source Join remain unverified. Epoch43 header-oracle harness history remains in the verification matrix."
@@ -4764,10 +4769,11 @@
         "GROUP-to-PIVOT current-draft Join supports cancel, apply, edit, removal, and reload",
         "current-draft MEMBERSHIP supports INCLUDE, EXCLUDE edit, removal, restoration, and reload",
         "grouped current-draft Join supports cancel, apply, edit, removal, and reload",
-        "three-source current-draft APPEND supports cancel, apply, edit, removal, and reload"
+        "three-source current-draft APPEND supports cancel, apply, edit, removal, and reload",
+        "upstream Group\u2192DERIVE edit recomputes APPEND and removal restores its current-draft sources"
       ],
-      "discoveryTestCount": 4,
-      "discoverySpecSha256": "6626f2cc08ae029cb1e7f5d33267a6c154c04d3ec02db295f4779b5ce25fd1e9",
+      "discoveryTestCount": 5,
+      "discoverySpecSha256": "5d7c58b86e8aee4c485b19138bc73dee2fc2599dfcf531252564cccaa9c3302c",
       "preservedAssertions": [
         "independent fixture contains one Patient, four Observations, and three DiagnosticReports",
         "draft Combine uses the exact project, generation, Builder snapshot, and authorization scope",
@@ -4816,6 +4822,11 @@
           "reason": "Epoch45 native basic-fixture APPEND passed all 111 assertions, four dimensions, and all 18 checks required at run time. The three direct Group\u2192DERIVE preview, reload-value, and timing assertions also passed in that report and are now listed as required checks. The Group\u2192DERIVE source\u2019s separate saved-step edit/cancel/removal lifecycle, Group\u2192Pivot-input APPEND, and real-CDA APPEND remain unverified."
         },
         {
+          "feature": "saved upstream Group\u2192DERIVE Cancel/Apply/reload and dependent three-source APPEND recompute/removal restoration",
+          "status": "implemented",
+          "reason": "Epoch74 exact basic-fixture rerun passed all 44/44 registered checks, 140/140 assertions, and all four dimensions; 42 native actions and 40 timed checkpoints completed with max action 690 ms. Native upstream Group\u2192DERIVE Cancel/Apply/reload, dependent APPEND recompute/reload, removal/restoration, and source-preservation checks passed. Epoch73 request-450 POST reconcile net::ERR_ABORTED at draftVersion 14 remains unattributed and unresolved; Epoch74 did not reproduce it, and the clean rerun establishes no cause or product fix, so the overall tracked workflow remains partial. Basic fixture only; real-CDA and published-source cases remain separate. Report docs/verification/playwright/runtime/current-draft-append-derived-edit-epoch74-report.json; closure docs/verification/playwright/runtime/current-draft-append-derived-edit-epoch74-closure.json."
+        },
+        {
           "feature": "KEY_JOIN over one Group and one Group\u2192Pivot unpublished sibling",
           "status": "implemented",
           "reason": "Epoch44 passed the native basic-fixture mixed Group\u2192Pivot Join lifecycle: 96/96 assertions, 21/21 required checks, 30 actions, max 1064ms, errors[]; the favicon 404 is recorded as an incidental asset failure. Compact report: docs/verification/playwright/runtime/current-draft-group-pivot-epoch44-report.json (sha256 b976f946c18d562289cef932c6d93dd9422deee7f7db90ad93a568fc3e9a7625); closure: docs/verification/playwright/runtime/current-draft-group-pivot-epoch44-closure.json (sha256 6c94cc2950806d43a45381e542aa24f7cbee1daad99faf244aef68b8b5f68d17). This closes only the basic fixture; real-CDA mixed Group\u2192Pivot and published-source Join remain unverified. Epoch43 header-oracle harness history remains in the verification matrix."
@@ -4834,10 +4845,11 @@
         "GROUP-to-PIVOT current-draft Join supports cancel, apply, edit, removal, and reload",
         "current-draft MEMBERSHIP supports INCLUDE, EXCLUDE edit, removal, restoration, and reload",
         "grouped current-draft Join supports cancel, apply, edit, removal, and reload",
-        "three-source current-draft APPEND supports cancel, apply, edit, removal, and reload"
+        "three-source current-draft APPEND supports cancel, apply, edit, removal, and reload",
+        "upstream Group\u2192DERIVE edit recomputes APPEND and removal restores its current-draft sources"
       ],
-      "discoveryTestCount": 4,
-      "discoverySpecSha256": "6626f2cc08ae029cb1e7f5d33267a6c154c04d3ec02db295f4779b5ce25fd1e9",
+      "discoveryTestCount": 5,
+      "discoverySpecSha256": "5d7c58b86e8aee4c485b19138bc73dee2fc2599dfcf531252564cccaa9c3302c",
       "preservedAssertions": [
         "independent fixture contains one Patient, four Observations, and three DiagnosticReports",
         "draft Combine uses the exact project, generation, Builder snapshot, and authorization scope",
@@ -4865,7 +4877,7 @@
     },
     {
       "scenario": "builder-combine-draft",
-      "case": "group-pivot",
+      "case": "append-derived-edit",
       "source": "scripts/verify-ui/workflows/builder-combine-draft.mjs",
       "nativeSpecPath": "scripts/verify-ui/specs/draft-combine.spec.mjs",
       "customPreservedAssertions": null,
@@ -4880,6 +4892,11 @@
           "feature": "APPEND over three unpublished sibling outputs including a composed Group\u2192DERIVE source",
           "status": "implemented",
           "reason": "Epoch45 native basic-fixture APPEND passed all 111 assertions, four dimensions, and all 18 checks required at run time. The three direct Group\u2192DERIVE preview, reload-value, and timing assertions also passed in that report and are now listed as required checks. The Group\u2192DERIVE source\u2019s separate saved-step edit/cancel/removal lifecycle, Group\u2192Pivot-input APPEND, and real-CDA APPEND remain unverified."
+        },
+        {
+          "feature": "saved upstream Group\u2192DERIVE Cancel/Apply/reload and dependent three-source APPEND recompute/removal restoration",
+          "status": "implemented",
+          "reason": "Epoch74 exact basic-fixture rerun passed all 44/44 registered checks, 140/140 assertions, and all four dimensions; 42 native actions and 40 timed checkpoints completed with max action 690 ms. Native upstream Group\u2192DERIVE Cancel/Apply/reload, dependent APPEND recompute/reload, removal/restoration, and source-preservation checks passed. Epoch73 request-450 POST reconcile net::ERR_ABORTED at draftVersion 14 remains unattributed and unresolved; Epoch74 did not reproduce it, and the clean rerun establishes no cause or product fix, so the overall tracked workflow remains partial. Basic fixture only; real-CDA and published-source cases remain separate. Report docs/verification/playwright/runtime/current-draft-append-derived-edit-epoch74-report.json; closure docs/verification/playwright/runtime/current-draft-append-derived-edit-epoch74-closure.json."
         },
         {
           "feature": "KEY_JOIN over one Group and one Group\u2192Pivot unpublished sibling",
@@ -4900,10 +4917,106 @@
         "GROUP-to-PIVOT current-draft Join supports cancel, apply, edit, removal, and reload",
         "current-draft MEMBERSHIP supports INCLUDE, EXCLUDE edit, removal, restoration, and reload",
         "grouped current-draft Join supports cancel, apply, edit, removal, and reload",
-        "three-source current-draft APPEND supports cancel, apply, edit, removal, and reload"
+        "three-source current-draft APPEND supports cancel, apply, edit, removal, and reload",
+        "upstream Group\u2192DERIVE edit recomputes APPEND and removal restores its current-draft sources"
       ],
-      "discoveryTestCount": 4,
-      "discoverySpecSha256": "6626f2cc08ae029cb1e7f5d33267a6c154c04d3ec02db295f4779b5ce25fd1e9",
+      "discoveryTestCount": 5,
+      "discoverySpecSha256": "5d7c58b86e8aee4c485b19138bc73dee2fc2599dfcf531252564cccaa9c3302c",
+      "preservedAssertions": [
+        "independent fixture contains one Patient, four Observations, and three DiagnosticReports",
+        "draft Combine uses the exact project, generation, Builder snapshot, and authorization scope",
+        "created a fresh Explorer distinct from the bootstrap",
+        "first native source table establishes a versioned current draft under the exact scope",
+        "Observation root Preview contains exact independent fixture IDs",
+        "DiagnosticReport root Preview contains exact independent fixture IDs",
+        "Patient root Preview contains exact independent fixture IDs",
+        "Observation native GROUP count rows match the direct fixture oracle",
+        "DiagnosticReport native GROUP count rows match the direct fixture oracle",
+        "Patient native GROUP count rows match the direct fixture oracle",
+        "Patient gender counts Group\u2192DERIVE preview matches independent category/count arithmetic",
+        "Patient gender counts persists its native Group\u2192DERIVE output without pinning a revision",
+        "Patient gender counts Group\u2192DERIVE values survive reload",
+        "native Combine uses CREATE_TABLE to make an empty rooted target without authoring a source",
+        "three unpublished current-draft siblings including GROUP\u2192DERIVE APPEND into exact category/count rows",
+        "automatic Combine proposal is bound to this exact draft CAS and UI proxy scope",
+        "Cancel leaves the entire APPEND workspace and draft CAS unchanged",
+        "saved APPEND step uses exactly three current-draft grouped siblings",
+        "three-input APPEND rows survive reload",
+        "saved APPEND consumes the exact fresh Patient GROUP\u2192DERIVE output",
+        "saved APPEND has an exact ready receipt before the upstream edit",
+        "independent fixture distinguishes the saved DERIVE and downstream APPEND values",
+        "open saved DERIVE editor after source columns resolve action-to-render within budget",
+        "preview canceled saved Group\u2192DERIVE edit from count plus one to count plus two matches independent Patient GROUP arithmetic",
+        "preview canceled saved Group\u2192DERIVE edit from count plus one to count plus two configuration and proposal complete within five seconds",
+        "canceled DERIVE proposal targets its exact saved step, output, and current draft CAS",
+        "Cancel upstream Group\u2192DERIVE proposal without changing saved APPEND sources action-to-render within budget",
+        "Cancel leaves the exact source GROUP\u2192DERIVE, APPEND, and draft CAS unchanged after reload",
+        "Cancel preserves original Group\u2192DERIVE values after reload",
+        "preview applied saved Group\u2192DERIVE edit from count plus one to count plus two matches independent Patient GROUP arithmetic",
+        "preview applied saved Group\u2192DERIVE edit from count plus one to count plus two configuration and proposal complete within five seconds",
+        "applied DERIVE proposal targets its exact saved step, output, and current draft CAS",
+        "Apply upstream Group\u2192DERIVE edit with stable output identity action-to-render within budget",
+        "Apply updates only the exact saved DERIVE expression and preserves its stable identities",
+        "applied Group\u2192DERIVE values and stable output survive reload",
+        "recompile saved APPEND after the upstream Group\u2192DERIVE edit action-to-render within budget",
+        "saved APPEND recompiles from the edited Patient workspace output at the new draft CAS",
+        "dependent APPEND preview matches independent Group\u2192DERIVE fixture rows after edit",
+        "recomputed APPEND rows survive reload exactly",
+        "Canceling Combine removal preserves its saved step, full workspace, and draft CAS after reload",
+        "removing Combine and reloading restores its rooted empty target",
+        "APPEND lifecycle never publishes or pins source revisions",
+        "removing APPEND restores its exact empty target and preserves every current-draft source",
+        "Patient Group\u2192DERIVE remains independently usable after APPEND removal"
+      ],
+      "mappingStatus": "native-spec-mapped; lifecycle-unverified"
+    },
+    {
+      "scenario": "builder-combine-draft",
+      "case": "group-pivot",
+      "source": "scripts/verify-ui/workflows/builder-combine-draft.mjs",
+      "nativeSpecPath": "scripts/verify-ui/specs/draft-combine.spec.mjs",
+      "customPreservedAssertions": null,
+      "scenarioWorkflow": "unpublished-current-draft-grouped-combine-lifecycle",
+      "scenarioCoverage": [
+        {
+          "feature": "KEY_JOIN over two independently authored unpublished Group outputs",
+          "status": "implemented",
+          "reason": "Epoch41 passed the native basic-fixture Group\u2192Group lifecycle: 103/103 assertions, 25/25 required checks, 32/32 actions, max 680ms. Compact report: docs/verification/playwright/runtime/current-draft-join-epoch41-report.json (sha256 3de5ff2dcc5277c89ca1d3498e2715a06129c86c5cc221fcf2173c03d3645388); closure: docs/verification/playwright/runtime/current-draft-join-epoch41-closure.json (sha256 e13741d00494418a4ee34026349eb44cb77d0f2000e0a35f4147b7f21389487a). This closes only the basic fixture. Epoch39 request-300 net::ERR_ABORTED remains unresolved and unattributed; the clean epoch41 rerun did not establish its cause or fix. Real-CDA Group\u2192Group and published-source Join remain unverified."
+        },
+        {
+          "feature": "APPEND over three unpublished sibling outputs including a composed Group\u2192DERIVE source",
+          "status": "implemented",
+          "reason": "Epoch45 native basic-fixture APPEND passed all 111 assertions, four dimensions, and all 18 checks required at run time. The three direct Group\u2192DERIVE preview, reload-value, and timing assertions also passed in that report and are now listed as required checks. The Group\u2192DERIVE source\u2019s separate saved-step edit/cancel/removal lifecycle, Group\u2192Pivot-input APPEND, and real-CDA APPEND remain unverified."
+        },
+        {
+          "feature": "saved upstream Group\u2192DERIVE Cancel/Apply/reload and dependent three-source APPEND recompute/removal restoration",
+          "status": "implemented",
+          "reason": "Epoch74 exact basic-fixture rerun passed all 44/44 registered checks, 140/140 assertions, and all four dimensions; 42 native actions and 40 timed checkpoints completed with max action 690 ms. Native upstream Group\u2192DERIVE Cancel/Apply/reload, dependent APPEND recompute/reload, removal/restoration, and source-preservation checks passed. Epoch73 request-450 POST reconcile net::ERR_ABORTED at draftVersion 14 remains unattributed and unresolved; Epoch74 did not reproduce it, and the clean rerun establishes no cause or product fix, so the overall tracked workflow remains partial. Basic fixture only; real-CDA and published-source cases remain separate. Report docs/verification/playwright/runtime/current-draft-append-derived-edit-epoch74-report.json; closure docs/verification/playwright/runtime/current-draft-append-derived-edit-epoch74-closure.json."
+        },
+        {
+          "feature": "KEY_JOIN over one Group and one Group\u2192Pivot unpublished sibling",
+          "status": "implemented",
+          "reason": "Epoch44 passed the native basic-fixture mixed Group\u2192Pivot Join lifecycle: 96/96 assertions, 21/21 required checks, 30 actions, max 1064ms, errors[]; the favicon 404 is recorded as an incidental asset failure. Compact report: docs/verification/playwright/runtime/current-draft-group-pivot-epoch44-report.json (sha256 b976f946c18d562289cef932c6d93dd9422deee7f7db90ad93a568fc3e9a7625); closure: docs/verification/playwright/runtime/current-draft-group-pivot-epoch44-closure.json (sha256 6c94cc2950806d43a45381e542aa24f7cbee1daad99faf244aef68b8b5f68d17). This closes only the basic fixture; real-CDA mixed Group\u2192Pivot and published-source Join remain unverified. Epoch43 header-oracle harness history remains in the verification matrix."
+        },
+        {
+          "feature": "MEMBERSHIP over two unpublished grouped ID sources with INCLUDE, EXCLUDE edit, removal, restoration, and reload",
+          "status": "passed",
+          "reason": "Epoch66 passed the full native basic-fixture lifecycle: 50 required checks, 86 assertions, 21 actions, max587ms. Exact independent raw ID sets, current-draft scope/CAS, compiled nullable key identity, Preview/Cancel/Apply, saved EXCLUDE edit, removal/restoration/reload and unchanged source/API/mounts pass. Durable report: docs/verification/playwright/runtime/current-draft-membership-epoch66-report.json; closure: docs/verification/playwright/runtime/current-draft-membership-epoch66-closure.json. Real-CDA and published-source Membership remain unverified."
+        }
+      ],
+      "domainLifecycleStatus": "unverified",
+      "runtimeEvidence": {
+        "status": "not-run"
+      },
+      "discoveryTestTitles": [
+        "GROUP-to-PIVOT current-draft Join supports cancel, apply, edit, removal, and reload",
+        "current-draft MEMBERSHIP supports INCLUDE, EXCLUDE edit, removal, restoration, and reload",
+        "grouped current-draft Join supports cancel, apply, edit, removal, and reload",
+        "three-source current-draft APPEND supports cancel, apply, edit, removal, and reload",
+        "upstream Group\u2192DERIVE edit recomputes APPEND and removal restores its current-draft sources"
+      ],
+      "discoveryTestCount": 5,
+      "discoverySpecSha256": "5d7c58b86e8aee4c485b19138bc73dee2fc2599dfcf531252564cccaa9c3302c",
       "preservedAssertions": [
         "independent fixture contains one Patient, four Observations, and three DiagnosticReports",
         "draft Combine uses the exact project, generation, Builder snapshot, and authorization scope",
@@ -4948,6 +5061,11 @@
           "reason": "Epoch45 native basic-fixture APPEND passed all 111 assertions, four dimensions, and all 18 checks required at run time. The three direct Group\u2192DERIVE preview, reload-value, and timing assertions also passed in that report and are now listed as required checks. The Group\u2192DERIVE source\u2019s separate saved-step edit/cancel/removal lifecycle, Group\u2192Pivot-input APPEND, and real-CDA APPEND remain unverified."
         },
         {
+          "feature": "saved upstream Group\u2192DERIVE Cancel/Apply/reload and dependent three-source APPEND recompute/removal restoration",
+          "status": "implemented",
+          "reason": "Epoch74 exact basic-fixture rerun passed all 44/44 registered checks, 140/140 assertions, and all four dimensions; 42 native actions and 40 timed checkpoints completed with max action 690 ms. Native upstream Group\u2192DERIVE Cancel/Apply/reload, dependent APPEND recompute/reload, removal/restoration, and source-preservation checks passed. Epoch73 request-450 POST reconcile net::ERR_ABORTED at draftVersion 14 remains unattributed and unresolved; Epoch74 did not reproduce it, and the clean rerun establishes no cause or product fix, so the overall tracked workflow remains partial. Basic fixture only; real-CDA and published-source cases remain separate. Report docs/verification/playwright/runtime/current-draft-append-derived-edit-epoch74-report.json; closure docs/verification/playwright/runtime/current-draft-append-derived-edit-epoch74-closure.json."
+        },
+        {
           "feature": "KEY_JOIN over one Group and one Group\u2192Pivot unpublished sibling",
           "status": "implemented",
           "reason": "Epoch44 passed the native basic-fixture mixed Group\u2192Pivot Join lifecycle: 96/96 assertions, 21/21 required checks, 30 actions, max 1064ms, errors[]; the favicon 404 is recorded as an incidental asset failure. Compact report: docs/verification/playwright/runtime/current-draft-group-pivot-epoch44-report.json (sha256 b976f946c18d562289cef932c6d93dd9422deee7f7db90ad93a568fc3e9a7625); closure: docs/verification/playwright/runtime/current-draft-group-pivot-epoch44-closure.json (sha256 6c94cc2950806d43a45381e542aa24f7cbee1daad99faf244aef68b8b5f68d17). This closes only the basic fixture; real-CDA mixed Group\u2192Pivot and published-source Join remain unverified. Epoch43 header-oracle harness history remains in the verification matrix."
@@ -4966,10 +5084,11 @@
         "GROUP-to-PIVOT current-draft Join supports cancel, apply, edit, removal, and reload",
         "current-draft MEMBERSHIP supports INCLUDE, EXCLUDE edit, removal, restoration, and reload",
         "grouped current-draft Join supports cancel, apply, edit, removal, and reload",
-        "three-source current-draft APPEND supports cancel, apply, edit, removal, and reload"
+        "three-source current-draft APPEND supports cancel, apply, edit, removal, and reload",
+        "upstream Group\u2192DERIVE edit recomputes APPEND and removal restores its current-draft sources"
       ],
-      "discoveryTestCount": 4,
-      "discoverySpecSha256": "6626f2cc08ae029cb1e7f5d33267a6c154c04d3ec02db295f4779b5ce25fd1e9",
+      "discoveryTestCount": 5,
+      "discoverySpecSha256": "5d7c58b86e8aee4c485b19138bc73dee2fc2599dfcf531252564cccaa9c3302c",
       "preservedAssertions": [
         "independent fixture contains one Patient, four Observations, and three DiagnosticReports",
         "independent MEMBERSHIP oracle has four Observation rows, three DiagnosticReport rows, three matches, and one exclusion",

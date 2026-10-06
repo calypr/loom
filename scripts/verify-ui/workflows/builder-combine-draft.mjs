@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { isDeepStrictEqual } from 'node:util';
 import { browserURL } from './builder-url.mjs';
 import { isActionable, recordCheck, recordUntested } from '../helpers/report.mjs';
 import { proposalPreviewReadinessExpression } from '../helpers/proposal-preview-readiness.mjs';
@@ -15,6 +16,7 @@ import {
   joinGroupPivotRows,
   joinGroupedCounts,
   joinPivotRows,
+  patientDerivedAppendOracle,
   sourceRecompileEvidence,
   uniqueValueFieldProjection,
   workspaceOutputOption,
@@ -159,37 +161,57 @@ const setSelectValue = async (page, selector, value) => {
 };
 let activeTimedAction;
 let activeTimedActionStartedAt;
+let activeTimedActionId;
+let timedActionSequence = 0;
 let lastTimedAction;
 const recordBrowserTiming = async (report, page, { name, action, after, timeout = 5000, budget = 5000 }) => {
   const started = Date.now();
+  const startedMonotonic = performance.now();
+  const actionId = `draft-action-${++timedActionSequence}`;
   const previousTimedAction = activeTimedAction;
   const previousTimedActionStartedAt = activeTimedActionStartedAt;
+  const previousTimedActionId = activeTimedActionId;
   activeTimedAction = name;
   activeTimedActionStartedAt = started;
+  activeTimedActionId = actionId;
+  report.activeAction = { id: actionId, label: name, startedAt: started };
   let actionDispatched = false;
   try {
     await action();
     actionDispatched = true;
     if (after) await waitFor(page, after, timeout);
-    const elapsedMs = Date.now() - started;
-    report.actions.push({ name, status: 'passed', elapsedMs, renderTimeoutMs: timeout, performanceBudgetMs: budget });
+    const finishedAtEpochMs = Date.now();
+    const finishedMonotonic = performance.now();
+    const elapsedMs = finishedAtEpochMs - started;
+    report.actions.push({ id: actionId, name, status: 'passed', elapsedMs, startedAtEpochMs: started, finishedAtEpochMs,
+      startedAtMs: Math.round(startedMonotonic), finishedAtMs: Math.round(finishedMonotonic),
+      renderTimeoutMs: timeout, performanceBudgetMs: budget });
     report.timings[name] = elapsedMs;
     recordCheck(report, 'usability', name + ' completed', true, { elapsedMs });
     if (after) recordCheck(report, 'performance', name + ' action-to-render within budget', elapsedMs <= budget,
       { elapsedMs, budgetMs: budget, waitTimeoutMs: timeout });
     return elapsedMs;
   } catch (error) {
-    const elapsedMs = Date.now() - started;
-    report.actions.push({ name, status: 'failed', elapsedMs, actionDispatched, error: error instanceof Error ? error.message : String(error) });
+    const finishedAtEpochMs = Date.now();
+    const finishedMonotonic = performance.now();
+    const elapsedMs = finishedAtEpochMs - started;
+    report.actions.push({ id: actionId, name, status: 'failed', elapsedMs, startedAtEpochMs: started, finishedAtEpochMs,
+      startedAtMs: Math.round(startedMonotonic), finishedAtMs: Math.round(finishedMonotonic),
+      actionDispatched, error: error instanceof Error ? error.message : String(error) });
     recordCheck(report, 'usability', name + ' completed', false, { elapsedMs, actionDispatched, error: error instanceof Error ? error.message : String(error) });
     if (after && actionDispatched) recordCheck(report, 'performance', name + ' action-to-render within budget', false,
       { elapsedMs, budgetMs: budget, waitTimeoutMs: timeout });
     else if (after) recordUntested(report, 'performance', name + ' action-to-render', 'No action was dispatched because the target was not actionable.');
     throw error;
   } finally {
-    lastTimedAction = { name, startedAtEpochMs: started, finishedAtEpochMs: Date.now() };
+    const finishedAtEpochMs = Date.now();
+    const finishedMonotonic = performance.now();
+    lastTimedAction = { id: actionId, name, startedAtEpochMs: started, finishedAtEpochMs,
+      startedAtMs: Math.round(startedMonotonic), finishedAtMs: Math.round(finishedMonotonic) };
+    if (report.activeAction?.id === actionId) delete report.activeAction;
     activeTimedAction = previousTimedAction;
     activeTimedActionStartedAt = previousTimedActionStartedAt;
+    activeTimedActionId = previousTimedActionId;
   }
 };
 
@@ -210,6 +232,7 @@ const captureOwnedPreviewLifecycle = (page, target, explorer) => {
       elapsedMs: Math.round(performance.now() - startedAt),
       observedAtEpochMs: Date.now(),
       actionPhase: activeTimedAction ?? 'outside timed action',
+      actionId: activeTimedActionId ?? null,
       actionStartedAtEpochMs: activeTimedActionStartedAt ?? null,
       lastTimedAction: lastTimedAction ?? null,
       requestId: request.id,
@@ -1017,7 +1040,7 @@ const assertDraftCandidate = async (report, page, capture, base, target, sources
   };
 };
 
-const readPreviewIdentity = async (page) => evaluate(page, `(()=>{const p=document.querySelector('[data-testid="construction-preview"]');return {status:p?.dataset.previewStatus??null,receipt:p?.dataset.previewReceiptId??null,outputId:p?.dataset.previewOutputId??null,draftVersion:p?.dataset.currentDraftVersion??null,stale:Boolean(document.querySelector('[data-testid="construction-preview-stale-notice"]'))}})()`);
+const readPreviewIdentity = async (page) => evaluate(page, `(()=>{const p=document.querySelector('[data-testid="construction-preview"]');return {status:p?.dataset.previewStatus??null,receipt:p?.dataset.previewReceiptId??null,outputId:p?.dataset.previewOutputId??null,draftVersion:p?.dataset.currentDraftVersion??null,draftDigest:p?.dataset.currentDraftDigest??null,stale:Boolean(document.querySelector('[data-testid="construction-preview-stale-notice"]'))}})()`);
 
 const savedStepEditorReady = (editorSelector) => {
   if (editorSelector.includes('construction-combine-editor')) {
@@ -1025,6 +1048,9 @@ const savedStepEditorReady = (editorSelector) => {
   }
   if (editorSelector.includes('construction-reshape-group')) {
     return `(()=>{const e=document.querySelector(${JSON.stringify(editorSelector)});if(!e)return false;const summary=e.querySelector('select[aria-label="Summary 1"]');const keys=[...e.querySelectorAll('input[type="checkbox"][aria-label^="Group by "]')];return Boolean(summary&&!summary.matches(':disabled')&&keys.length>0&&keys.every(input=>!input.matches(':disabled')));})()`;
+  }
+  if (editorSelector.includes('construction-calculate-editor')) {
+    return `(()=>{const e=document.querySelector(${JSON.stringify(editorSelector)});if(!e)return false;const formula=[...e.querySelectorAll('button')].find(button=>button.textContent.trim()==='Formula editor');const name=e.querySelector('input[aria-label="Output column name"]');const label=e.querySelector('input[aria-label="Output column label"]');return Boolean(formula&&!formula.disabled&&name&&!name.disabled&&label&&!label.disabled);})()`;
   }
   throw new Error('No readiness contract is defined for saved step editor ' + editorSelector);
 };
@@ -1036,7 +1062,9 @@ const editSavedStep = async (page, report, outputId, stepId, editorSelector) => 
   await recordBrowserTiming(report, page, {
     name: editorSelector.includes('construction-combine-editor')
       ? 'open saved Combine editor after draft input schemas resolve'
-      : 'open saved Group editor after source columns resolve',
+      : editorSelector.includes('construction-reshape-group')
+        ? 'open saved Group editor after source columns resolve'
+        : 'open saved DERIVE editor after source columns resolve',
     action: () => click(page, '[data-testid="construction-edit-step-' + stepId + '"]'),
     after: savedStepEditorReady(editorSelector),
     timeout: 5000,
@@ -1520,9 +1548,11 @@ export const draftMembershipWorkflow = async ({ page, report }, context) => {
   }
 };
 
-export const draftAppendWorkflow = async ({ page, report }, context) => {
+export const draftAppendWorkflow = async ({ page, report }, context, { upstreamDeriveEdit = false } = {}) => {
   const run = await beginOwnedWorkspace(context, page, report, 'append');
+  const previewLifecycle = upstreamDeriveEdit ? captureOwnedPreviewLifecycle(page, context.target, run.explorer) : undefined;
   const sources = [];
+  let sourceDocumentsAfterEdit;
   try {
     sources.push(await createGroupSource(context, page, report, run.explorer, { resourceType: 'Observation', title: 'Observation status counts', fieldPath: 'status', rawRows: run.raw.observations }));
     sources.push(await createGroupSource(context, page, report, run.explorer, { resourceType: 'DiagnosticReport', title: 'Report status counts', fieldPath: 'status', rawRows: run.raw.reports }));
@@ -1583,29 +1613,254 @@ export const draftAppendWorkflow = async ({ page, report }, context) => {
       check(report, 'persistence', 'saved APPEND step uses exactly three current-draft grouped siblings', draftEvidence.ok, { stepId: step?.id, draftEvidence });
       await reloadAndSelectSavedTable(report, page, target.outputId, expected.length, 'reload applied APPEND and render its exact union');
       assertRows(report, 'three-input APPEND rows survive reload', await readGrid(page), ['Category', 'Row count'], expected);
-      await editSavedStep(page, report, target.outputId, step.id, '[data-testid="construction-combine-editor"]');
-      await recordBrowserTiming(report, page, {
-        name: 'edit saved APPEND output label and preview all exact composed-source rows',
-        action: () => fill(page, 'input[aria-label="Output field 1 label"]', 'Grouped category'),
-        after: proposalRowsReady(expected.length, target.outputId),
-        timeout: 5000,
-        budget: 5000,
-      });
-      assertRows(report, 'edited APPEND label preserves every independent grouped row', await readGrid(page, 'proposal'), ['Grouped category', 'Row count'], expected);
-      await applyCurrentProposal(page, report, 'apply APPEND label edit from its saved draft step', expected.length, target.outputId);
-      builder = await readBuilder(context, run.explorer);
-      const edited = documentByOutput(builder, target.outputId).construction.steps.at(-1);
-      check(report, 'persistence', 'edited APPEND label retains its stable step and draft-only input refs', edited?.id === step.id && edited?.outputs?.[0]?.label === 'Grouped category' && currentDraftSourceEvidence({ inputs: edited?.inputs, expectedOutputIDs: sources.map((source) => source.outputId), sourceDocuments: builder.workspace.documents }).ok,
-        { stepId: edited?.id, outputs: edited?.outputs, inputs: edited?.inputs });
-      await reloadAndSelectSavedTable(report, page, target.outputId, expected.length, 'reload edited APPEND and render its exact union');
-      assertRows(report, 'edited APPEND label and values survive reload', await readGrid(page), ['Grouped category', 'Row count'], expected);
+      if (upstreamDeriveEdit) {
+        const patientSource = sources[2];
+        const sourceBeforeEdit = await readBuilder(context, run.explorer);
+        const patientDocument = documentByOutput(sourceBeforeEdit, patientSource.outputId);
+        const patientGroup = patientDocument.construction?.steps?.find((candidate) => candidate.operation?.kind === 'GROUP');
+        const patientDerive = patientDocument.construction?.steps?.find((candidate) => candidate.operation?.kind === 'DERIVE');
+        const patientGroupCount = patientGroup?.outputs?.find((output) => patientGroup.operation.group.aggregates.some((aggregate) => aggregate.outputColumnId === output.id));
+        const patientGroupKey = patientGroup?.operation.group.keys
+          .map((key) => patientGroup.outputs.find((output) => output.id === key.outputColumnId)).find(Boolean);
+        const patientDerivedOutput = patientDerive?.outputs?.find((output) => output.id === patientDerive.operation.derive.outputColumnId);
+        const originalDeriveID = patientDerive?.id;
+        const originalDerivedOutputID = patientDerivedOutput?.id;
+        const originalAppendPreview = await readPreviewIdentity(page);
+        check(report, 'correctness', 'saved APPEND consumes the exact fresh Patient GROUP→DERIVE output',
+          Boolean(patientGroup && patientDerive && patientGroupCount && patientGroupKey && patientDerivedOutput &&
+            patientDocument.construction.steps.map((candidate) => candidate.operation.kind).join(',') === 'GROUP,DERIVE' &&
+            patientDerive.inputs?.some((input) => input.kind === 'STEP_OUTPUT' && input.stepId === patientGroup.id) &&
+            step?.inputs?.some((input) => input.kind === 'WORKSPACE_OUTPUT' && input.outputId === patientSource.outputId)),
+          { patientOutputId: patientSource.outputId, groupStepId: patientGroup?.id, deriveStepId: patientDerive?.id,
+            derivedOutputId: patientDerivedOutput?.id, appendStepId: step?.id, appendInputs: step?.inputs });
+        check(report, 'correctness', 'saved APPEND has an exact ready receipt before the upstream edit',
+          originalAppendPreview.status === 'ready' && !originalAppendPreview.stale && originalAppendPreview.outputId === target.outputId &&
+            Number(originalAppendPreview.draftVersion) === sourceBeforeEdit.draftVersion && originalAppendPreview.draftDigest === sourceBeforeEdit.draftDigest && Boolean(originalAppendPreview.receipt),
+          originalAppendPreview);
+
+        const originalOracle = patientDerivedAppendOracle({
+          observations: run.raw.observations, reports: run.raw.reports, patients: run.raw.patients, offset: 1,
+        });
+        const editedOracle = patientDerivedAppendOracle({
+          observations: run.raw.observations, reports: run.raw.reports, patients: run.raw.patients, offset: 2,
+        });
+        const originalPatientRows = originalOracle.patientRows;
+        const editedPatientRows = editedOracle.patientRows;
+        const originalAppendRows = originalOracle.appendRows;
+        const editedAppendRows = editedOracle.appendRows;
+        check(report, 'correctness', 'independent fixture distinguishes the saved DERIVE and downstream APPEND values',
+          originalPatientRows.length === 1 && originalPatientRows[0]?.[2] === '2' && editedPatientRows[0]?.[2] === '3' &&
+            originalAppendRows.length === editedAppendRows.length && originalAppendRows.some((row, index) => row[0] === editedAppendRows[index]?.[0] && row[1] !== editedAppendRows[index]?.[1]),
+          { patientBefore: originalPatientRows, patientAfter: editedPatientRows, appendBefore: originalAppendRows, appendAfter: editedAppendRows });
+
+        const proposeDerivedEdit = async (nextName, nextLabel, offset, checkName) => {
+          await editSavedStep(page, report, patientSource.outputId, originalDeriveID, '[data-testid="construction-calculate-editor"]');
+          const started = Date.now();
+          await recordBrowserTiming(report, page, {
+            name: checkName,
+            action: async () => {
+              await click(page, 'button', { name: 'Formula editor' });
+              await fill(page, 'textarea[aria-label="Formula"]', 'row_count + ' + offset);
+              await fill(page, 'input[aria-label="Output column name"]', nextName);
+              await fill(page, 'input[aria-label="Output column label"]', nextLabel);
+            },
+            after: proposalRowsReady(editedPatientRows.length, patientSource.outputId),
+            timeout: 5000,
+            budget: 5000,
+          });
+          const grid = await readGrid(page, 'proposal');
+          assertRows(report, checkName + ' matches independent Patient GROUP arithmetic', grid,
+            [patientGroupKey.label, patientGroupCount.label, nextLabel], offset === 2 ? editedPatientRows : originalPatientRows);
+          check(report, 'performance', checkName + ' configuration and proposal complete within five seconds', Date.now() - started <= 5000,
+            { elapsedMs: Date.now() - started, outputId: patientSource.outputId, deriveStepId: originalDeriveID });
+        };
+        const deriveProposalEvidence = async (capture, expectedOffset, expectedName, expectedLabel, base, phase) => {
+          const expectedBuilderURL = new URL(report.target.scope.requestURL);
+          const expectedProposalPath = expectedBuilderURL.pathname.replace(/\/builder$/, '/construction-proposals');
+          const expectedProposalOrigin = new URL(report.target.uiUrl).origin;
+          const event = await capture.waitFor((entry) => {
+            const candidate = entry.body?.candidateConstruction;
+            const derive = candidate?.steps?.find((candidateStep) => candidateStep.id === originalDeriveID);
+            return entry.path === expectedProposalPath && new URL(entry.url).origin === expectedProposalOrigin &&
+              entry.body?.outputId === patientSource.outputId && entry.status === 200 &&
+              derive?.operation?.kind === 'DERIVE' && derive.operation.derive.right?.kind === 'LITERAL' &&
+              derive.operation.derive.right.literal?.kind === 'INTEGER' && derive.operation.derive.right.literal.integer === expectedOffset &&
+              derive.outputs?.some((output) => output.id === originalDerivedOutputID && output.name === expectedName && output.label === expectedLabel);
+          });
+          const candidate = event.body.candidateConstruction;
+          const derive = candidate.steps.find((candidateStep) => candidateStep.id === originalDeriveID);
+          const candidateGroup = candidate.steps.find((candidateStep) => candidateStep.id === patientGroup.id);
+          const domProposal = await evaluate(page, `(()=>({proposalId:document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-id')??null,receiptId:document.querySelector('[data-testid="construction-proposal-preview"]')?.getAttribute('data-preview-receipt-id')??null,outputId:document.querySelector('[data-testid="construction-proposal-preview"]')?.getAttribute('data-preview-output-id')??null}))()`);
+          const responsePreview = event.response?.preview;
+          const sourceInRequestScope = base.catalog?.generation === report.target.scope.generation &&
+            base.catalog?.authorizationScopeDigest === report.target.scope.authorizationScopeDigest &&
+            event.body.snapshotToken === base.catalog?.snapshotToken &&
+            Number(event.body.expectedDraftVersion) === base.draftVersion && event.body.expectedDraftDigest === base.draftDigest;
+          const responseMatchesRequest = event.response?.proposalId === domProposal.proposalId &&
+            responsePreview?.receiptId === domProposal.receiptId && responsePreview?.outputId === patientSource.outputId &&
+            domProposal.outputId === patientSource.outputId && event.response?.outputId === patientSource.outputId &&
+            event.response?.snapshotToken === event.body.snapshotToken && event.response?.draftVersion === event.body.expectedDraftVersion &&
+            event.response?.draftDigest === event.body.expectedDraftDigest && event.response?.previewStatus === 'READY' &&
+            constructionCandidateWireEquivalent(candidate, event.response?.candidateConstruction);
+          const bound = event.body.changedStepId === originalDeriveID && sourceInRequestScope &&
+            isDeepStrictEqual(candidateGroup?.operation?.group, patientGroup.operation.group) &&
+            isDeepStrictEqual(candidateGroup?.outputs?.map((output) => ({ id: output.id, name: output.name, label: output.label })),
+              patientGroup.outputs.map((output) => ({ id: output.id, name: output.name, label: output.label }))) &&
+            candidate.steps.map((candidateStep) => candidateStep.operation.kind).join(',') === 'GROUP,DERIVE' &&
+            derive.operation.derive.operation === 'ADD' &&
+            derive.operation.derive.left?.kind === 'COLUMN' && derive.operation.derive.left.columnId === patientGroupCount.id &&
+            derive.operation.derive.outputColumnId === originalDerivedOutputID && responseMatchesRequest;
+          check(report, 'correctness', phase === 'cancel'
+            ? 'canceled DERIVE proposal targets its exact saved step, output, and current draft CAS'
+            : 'applied DERIVE proposal targets its exact saved step, output, and current draft CAS', bound,
+          { status: event.status, path: event.path, requestOrigin: new URL(event.url).origin, expectedProposalPath,
+            changedStepId: event.body.changedStepId, outputId: event.body.outputId,
+            expectedDraftVersion: event.body.expectedDraftVersion, expectedDraftDigest: event.body.expectedDraftDigest,
+            deriveStepId: derive.id, derivedOutputId: derive.operation.derive.outputColumnId, expression: derive.operation.derive,
+            sourceInRequestScope, responseMatchesRequest, responsePreview, domProposal, response: event.response });
+        };
+
+        const cancelCapture = capturePost(page, '/construction-proposals');
+        try {
+          await proposeDerivedEdit('row_count_plus_two', 'Count plus two', 2,
+            'preview canceled saved Group→DERIVE edit from count plus one to count plus two');
+          await deriveProposalEvidence(cancelCapture, 2, 'row_count_plus_two', 'Count plus two', sourceBeforeEdit, 'cancel');
+          await recordBrowserTiming(report, page, {
+            name: 'Cancel upstream Group→DERIVE proposal without changing saved APPEND sources',
+            action: () => click(page, '[data-testid="construction-cancel-proposal"]'),
+            after: '!document.querySelector(\'[data-testid="construction-proposal-panel"]\')&&!document.querySelector(\'[data-testid="construction-calculate-editor"]\')&&' + selectedOutputReady(patientSource.outputId),
+            timeout: 5000,
+            budget: 5000,
+          });
+        } finally { await cancelCapture.stop(); }
+        await reloadAndSelectSavedTable(report, page, patientSource.outputId, originalPatientRows.length,
+          'reload canceled upstream DERIVE edit and prove the original Patient source');
+        assertRows(report, 'Cancel preserves original Group→DERIVE values after reload', await readGrid(page),
+          [patientGroupKey.label, patientGroupCount.label, patientDerivedOutput.label], originalPatientRows);
+        const afterCanceledDerive = await readBuilder(context, run.explorer);
+        const cancelEvidence = canceledDraftEvidence(sourceBeforeEdit, afterCanceledDerive);
+        const canceledPatient = documentByOutput(afterCanceledDerive, patientSource.outputId);
+        const canceledDerive = canceledPatient.construction?.steps?.find((candidate) => candidate.id === originalDeriveID);
+        check(report, 'persistence', 'Cancel leaves the exact source GROUP→DERIVE, APPEND, and draft CAS unchanged after reload',
+          cancelEvidence.ok && canceledDerive?.outputs?.some((output) => output.id === originalDerivedOutputID && output.name === 'row_count_plus_one' && output.label === 'Count plus one') &&
+            currentDraftSourceEvidence({ inputs: documentByOutput(afterCanceledDerive, target.outputId).construction?.steps?.at(-1)?.inputs,
+              expectedOutputIDs: sources.map((source) => source.outputId), sourceDocuments: afterCanceledDerive.workspace.documents }).ok,
+          { cancelEvidence, canceledDerive: canceledDerive ?? null, draftVersion: afterCanceledDerive.draftVersion });
+
+        const applyBase = await readBuilder(context, run.explorer);
+        const applyCapture = capturePost(page, '/construction-proposals');
+        try {
+          await proposeDerivedEdit('row_count_plus_two', 'Count plus two', 2,
+            'preview applied saved Group→DERIVE edit from count plus one to count plus two');
+          await deriveProposalEvidence(applyCapture, 2, 'row_count_plus_two', 'Count plus two', applyBase, 'apply');
+          await applyCurrentProposal(page, report, 'Apply upstream Group→DERIVE edit with stable output identity', editedPatientRows.length, patientSource.outputId);
+        } finally { await applyCapture.stop(); }
+        const afterSourceEdit = await readBuilder(context, run.explorer);
+        sourceDocumentsAfterEdit = sources.map((source) => structuredClone(documentByOutput(afterSourceEdit, source.outputId)));
+        const newScope = readScope(context, run.explorer, afterSourceEdit, report.target.scope, 'draft');
+        const appliedPatient = documentByOutput(afterSourceEdit, patientSource.outputId);
+        const appliedDerive = appliedPatient.construction?.steps?.find((candidate) => candidate.id === originalDeriveID);
+        const appliedExpression = appliedDerive?.operation?.kind === 'DERIVE' ? appliedDerive.operation.derive : undefined;
+        const appliedOutput = appliedDerive?.outputs?.find((output) => output.id === originalDerivedOutputID);
+        const exactPlusTwo = appliedExpression?.operation === 'ADD' && appliedExpression.left?.kind === 'COLUMN' &&
+          appliedExpression.left.columnId === patientGroupCount.id && appliedExpression.right?.kind === 'LITERAL' &&
+          appliedExpression.right.literal?.kind === 'INTEGER' && appliedExpression.right.literal.integer === 2 &&
+          appliedExpression.outputColumnId === originalDerivedOutputID && appliedOutput?.name === 'row_count_plus_two' &&
+          appliedOutput?.label === 'Count plus two';
+        check(report, 'persistence', 'Apply updates only the exact saved DERIVE expression and preserves its stable identities',
+          newScope.ok && appliedDerive?.id === originalDeriveID && appliedOutput?.id === originalDerivedOutputID && exactPlusTwo &&
+            appliedPatient.construction.steps.map((candidate) => candidate.operation.kind).join(',') === 'GROUP,DERIVE',
+          { newScope, outputId: patientSource.outputId, groupStepId: patientGroup.id, deriveStepId: appliedDerive?.id,
+            derivedOutputId: appliedOutput?.id, expression: appliedExpression, draftVersion: afterSourceEdit.draftVersion });
+        await reloadAndSelectSavedTable(report, page, patientSource.outputId, editedPatientRows.length,
+          'reload applied Group→DERIVE edit and render the exact Patient fixture result');
+        assertRows(report, 'applied Group→DERIVE values and stable output survive reload', await readGrid(page),
+          [patientGroupKey.label, patientGroupCount.label, 'Count plus two'], editedPatientRows);
+
+        const appendAfterEditPredicate = `(${savedPreviewOutput(editedAppendRows.length, target.outputId)})&&Number(document.querySelector('[data-testid="construction-preview"]')?.dataset.currentDraftVersion)===${afterSourceEdit.draftVersion}&&document.querySelector('[data-testid="construction-preview"]')?.dataset.currentDraftDigest===${JSON.stringify(afterSourceEdit.draftDigest)}&&!document.querySelector('[data-testid="construction-preview-stale-notice"]')`;
+        await recordBrowserTiming(report, page, {
+          name: 'recompile saved APPEND after the upstream Group→DERIVE edit',
+          action: () => selectTable(page, target.outputId),
+          after: appendAfterEditPredicate,
+          timeout: 5000,
+          budget: 5000,
+        });
+        const newAppendPreview = await readPreviewIdentity(page);
+        const recompile = sourceRecompileEvidence({ before: sourceBeforeEdit, after: afterSourceEdit,
+          targetOutputId: target.outputId, sourceOutputId: patientSource.outputId,
+          oldReceipt: originalAppendPreview.receipt, newReceipt: newAppendPreview.receipt });
+        const currentAppend = documentByOutput(afterSourceEdit, target.outputId);
+        const currentAppendStep = currentAppend.construction?.steps?.at(-1);
+        const currentAppendInputs = currentDraftSourceEvidence({ inputs: currentAppendStep?.inputs,
+          expectedOutputIDs: sources.map((source) => source.outputId), sourceDocuments: afterSourceEdit.workspace.documents });
+        check(report, 'persistence', 'saved APPEND recompiles from the edited Patient workspace output at the new draft CAS',
+          recompile.ok && newAppendPreview.status === 'ready' && !newAppendPreview.stale &&
+            newAppendPreview.outputId === target.outputId && Number(newAppendPreview.draftVersion) === afterSourceEdit.draftVersion &&
+            newAppendPreview.draftDigest === afterSourceEdit.draftDigest &&
+            newAppendPreview.receipt !== originalAppendPreview.receipt && currentAppendStep?.id === step.id && currentAppendInputs.ok,
+          { recompile, originalAppendPreview, newAppendPreview, appendStepId: currentAppendStep?.id, currentAppendInputs });
+        assertRows(report, 'dependent APPEND preview matches independent Group→DERIVE fixture rows after edit',
+          await readGrid(page), ['Category', 'Row count'], editedAppendRows);
+        await reloadAndSelectSavedTable(report, page, target.outputId, editedAppendRows.length,
+          'reload recomputed APPEND after upstream Group→DERIVE edit');
+        assertRows(report, 'recomputed APPEND rows survive reload exactly', await readGrid(page),
+          ['Category', 'Row count'], editedAppendRows);
+        report.upstreamDeriveEdit = {
+          sourceOutputId: patientSource.outputId, groupStepId: patientGroup.id, deriveStepId: originalDeriveID,
+          derivedOutputId: originalDerivedOutputID, appendOutputId: target.outputId, appendStepId: step.id,
+          originalPatientRows, editedPatientRows, originalAppendRows, editedAppendRows,
+          originalAppendReceipt: originalAppendPreview.receipt, editedAppendReceipt: newAppendPreview.receipt,
+          draftVersion: afterSourceEdit.draftVersion,
+        };
+      } else {
+        await editSavedStep(page, report, target.outputId, step.id, '[data-testid="construction-combine-editor"]');
+        await recordBrowserTiming(report, page, {
+          name: 'edit saved APPEND output label and preview all exact composed-source rows',
+          action: () => fill(page, 'input[aria-label="Output field 1 label"]', 'Grouped category'),
+          after: proposalRowsReady(expected.length, target.outputId),
+          timeout: 5000,
+          budget: 5000,
+        });
+        assertRows(report, 'edited APPEND label preserves every independent grouped row', await readGrid(page, 'proposal'), ['Grouped category', 'Row count'], expected);
+        await applyCurrentProposal(page, report, 'apply APPEND label edit from its saved draft step', expected.length, target.outputId);
+        builder = await readBuilder(context, run.explorer);
+        const edited = documentByOutput(builder, target.outputId).construction.steps.at(-1);
+        check(report, 'persistence', 'edited APPEND label retains its stable step and draft-only input refs', edited?.id === step.id && edited?.outputs?.[0]?.label === 'Grouped category' && currentDraftSourceEvidence({ inputs: edited?.inputs, expectedOutputIDs: sources.map((source) => source.outputId), sourceDocuments: builder.workspace.documents }).ok,
+          { stepId: edited?.id, outputs: edited?.outputs, inputs: edited?.inputs });
+        await reloadAndSelectSavedTable(report, page, target.outputId, expected.length, 'reload edited APPEND and render its exact union');
+        assertRows(report, 'edited APPEND label and values survive reload', await readGrid(page), ['Grouped category', 'Row count'], expected);
+      }
       await cancelStepRemovalAndPreserve(context, page, report, run.explorer, target, step.id, expected.length);
       await removeStepAndRestoreTarget(context, page, report, run.explorer, target, step.id);
     } finally { await capture.stop(); }
     const final = await readBuilder(context, run.explorer);
     const inputs = final.workspace.documents.flatMap((document) => document.construction?.steps?.flatMap((step) => step.inputs ?? []) ?? []);
     check(report, 'correctness', 'APPEND lifecycle never publishes or pins source revisions', run.publishCount() === 0 && inputs.every((input) => input.kind !== 'TABLE_REVISION'), { publishRequests: run.publishCount(), inputKinds: inputs.map((input) => input.kind) });
-  } finally { run.stopPublish(); }
+    if (upstreamDeriveEdit) {
+      const restoredTarget = documentByOutput(final, target.outputId);
+      const restoredSources = sources.map((source) => documentByOutput(final, source.outputId));
+      const sourceRestoration = sourceDocumentsAfterEdit?.length === restoredSources.length &&
+        isDeepStrictEqual(restoredSources, sourceDocumentsAfterEdit);
+      check(report, 'persistence', 'removing APPEND restores its exact empty target and preserves every current-draft source',
+        restoredTarget.rootResourceType === target.rootResourceType && restoredTarget.columns?.length === 0 &&
+          restoredTarget.construction?.steps?.length === 0 && sourceRestoration,
+        { targetOutputId: target.outputId, rootResourceType: restoredTarget.rootResourceType,
+          targetSteps: restoredTarget.construction?.steps, targetColumns: restoredTarget.columns,
+          expectedSourceDocuments: sourceDocumentsAfterEdit,
+          restoredSourceDocuments: restoredSources,
+          sourceDocumentsExactlyRestored: sourceRestoration });
+      await reloadAndSelectSavedTable(report, page, sources[2].outputId, 1,
+        'reload preserved Patient Group→DERIVE after removing APPEND');
+      const restoredPatientGrid = await readGrid(page);
+      assertRows(report, 'Patient Group→DERIVE remains independently usable after APPEND removal', restoredPatientGrid,
+        [sources[2].group.outputs.find((output) => sources[2].group.operation.group.keys.some((key) => key.outputColumnId === output.id))?.label,
+          sources[2].group.outputs.find((output) => sources[2].group.operation.group.aggregates.some((aggregate) => aggregate.outputColumnId === output.id))?.label,
+          'Count plus two'], report.upstreamDeriveEdit.editedPatientRows);
+    }
+  } finally {
+    run.stopPublish();
+    if (previewLifecycle) report.previewRequestLifecycle = previewLifecycle.stop();
+  }
 };
 
 export const groupPivotJoinWorkflow = async ({ page, report }, context) => {

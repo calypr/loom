@@ -22,6 +22,7 @@ import { classifyNetworkRecord, createReport, finishReport, recordCheck, writeRe
 import { scenarioCaseFor } from '../registry.mjs';
 import { sourceFingerprintChangedPaths, sourceFingerprintWithManifest } from './source-fingerprint.mjs';
 import { captureNativeFailureEvidence, MAX_NATIVE_FAILURE_CAPTURE_MS } from './native-failure-evidence.mjs';
+import { correlateRequestFailure } from './network-timing.mjs';
 
 const ACTION_TIMEOUT_MS = 5_000;
 const CONTEXT_SETUP_TIMEOUT_MS = 120_000;
@@ -198,6 +199,7 @@ export const test = base.extend({
   workflow: async ({ loomContext, page }, use, testInfo) => {
     const { report, target } = loomContext;
     const lifecycleStarted = performance.now();
+    const workflowStartedAt = lifecycleStarted;
     const ownedOrigins = new Set([target.uiUrl, target.apiUrl].filter(Boolean).map((url) => new URL(url).origin));
     const captureFailureEvidence = async details => {
       if (report.failureEvidence) return;
@@ -212,6 +214,11 @@ export const test = base.extend({
     };
     const capabilityRequests = new Map();
     const requestIDs = new WeakMap();
+    const requestMetadata = new WeakMap();
+    const mainFrameNavigations = [];
+    let navigationSequence = 0;
+    let droppedNavigationTimings = 0;
+    let actionSequence = 0;
     const faultAttempts = [];
     const faultRouteHandlers = [];
     let requestSequence = 0;
@@ -244,10 +251,58 @@ export const test = base.extend({
       return id;
     };
 
+    const actionSnapshot = () => {
+      if (activeAction) return { id: activeAction.id, label: activeAction.label };
+      const workflowAction = report.activeAction;
+      const label = workflowAction?.label ?? workflowAction?.name;
+      return workflowAction?.id && label ? { id: workflowAction.id, label: safeText(label) } : null;
+    };
     const onRequest = request => {
-      playwrightRequestId(request);
+      const requestId = playwrightRequestId(request);
+      if (belongsToTarget(request) && request.isNavigationRequest?.() && request.frame() === page.mainFrame()) {
+        const startedAt = performance.now();
+        const sequence = ++navigationSequence;
+        if (mainFrameNavigations.length < MAX_DIAGNOSTICS) {
+          mainFrameNavigations.push({ id: `navigation-${sequence}`, sequence, startedAt,
+            atMs: Math.round(startedAt - workflowStartedAt), url: safeURL(request.url()), phase: 'request-start' });
+        } else droppedNavigationTimings += 1;
+      }
+      if (belongsToTarget(request)) {
+        const startedAt = performance.now();
+        const metadata = {
+          requestId,
+          method: request.method(),
+          resourceType: request.resourceType(),
+          url: safeURL(request.url()),
+          requestDetails: requestDiagnostic(request),
+          startedAt,
+          startedMs: Math.round(startedAt - workflowStartedAt),
+          action: actionSnapshot(),
+          navigationSequenceAtStart: navigationSequence,
+        };
+        requestMetadata.set(request, metadata);
+      }
       const binding = capabilityBinding(request, { ...target, explorer: report.target.explorer ?? target.bootstrapExplorerId });
-      if (binding) capabilityRequests.set(request, { binding, sequence: ++requestSequence, status: null, requestAction: activeAction });
+      if (binding) capabilityRequests.set(request, { binding, sequence: ++requestSequence, status: null, requestAction: actionSnapshot()?.label ?? null });
+    };
+    const onFrameNavigated = frame => {
+      if (frame !== page.mainFrame()) return;
+      let origin;
+      try { origin = new URL(frame.url()).origin; } catch { return; }
+      if (!ownedOrigins.has(origin)) return;
+      const startedAt = performance.now();
+      const sequence = ++navigationSequence;
+      if (mainFrameNavigations.length >= MAX_DIAGNOSTICS) {
+        droppedNavigationTimings += 1;
+        return;
+      }
+      mainFrameNavigations.push({
+        id: `navigation-${sequence}`,
+        sequence,
+        startedAt,
+        atMs: Math.round(startedAt - workflowStartedAt),
+        url: safeURL(frame.url()),
+      });
     };
     const onConsole = (message) => {
       if (message.type() !== 'error') return;
@@ -285,7 +340,13 @@ export const test = base.extend({
         url: safeURL(response.url()), resourceType: response.request().resourceType(),
         rawURL: response.url(),
         playwrightRequestId: playwrightRequestId(request),
-        requestDetails: requestDiagnostic(request),
+        requestDetails: requestMetadata.get(request)?.requestDetails ?? requestDiagnostic(request),
+        ...(requestMetadata.has(request) ? { requestTimeline: correlateRequestFailure({
+          requestStartedAt: requestMetadata.get(request).startedAt, failedAt: performance.now(), workflowStartedAt,
+          action: requestMetadata.get(request).action,
+          navigationSequenceAtStart: requestMetadata.get(request).navigationSequenceAtStart,
+          navigations: mainFrameNavigations,
+        }) } : {}),
         responseBody,
       };
       if (!addDiagnostic(entry)) return;
@@ -301,14 +362,22 @@ export const test = base.extend({
       if (!belongsToTarget(request)) return;
       const ownedRequest = capabilityRequests.get(request);
       if (ownedRequest) ownedRequest.failed = true;
-      const errorText = safeText(request.failure()?.errorText);
+      const failedAt = performance.now();
+      const metadata = requestMetadata.get(request);
+      const errorText = safeText(request.failure()?.errorText).replace(/https?:\/\/[^\s\"'<>]+/g, value => safeURL(value));
       addDiagnostic({
-        kind: 'network', method: request.method(), url: safeURL(request.url()),
+        kind: 'network', method: request.method(), url: metadata?.url ?? safeURL(request.url()),
         resourceType: request.resourceType(), errorText,
         rawURL: request.url(),
-        playwrightRequestId: playwrightRequestId(request),
-        requestDetails: requestDiagnostic(request),
-        ...capabilityRequests.get(request), triggerAction: activeAction,
+        playwrightRequestId: metadata?.requestId ?? playwrightRequestId(request),
+        requestDetails: metadata?.requestDetails ?? requestDiagnostic(request),
+        ...(metadata ? { requestTimeline: correlateRequestFailure({
+          requestStartedAt: metadata.startedAt, failedAt, workflowStartedAt,
+          action: metadata.action,
+          navigationSequenceAtStart: metadata.navigationSequenceAtStart,
+          navigations: mainFrameNavigations,
+        }) } : { failedAtMs: Math.round(failedAt - workflowStartedAt) }),
+        ...capabilityRequests.get(request), triggerAction: metadata?.action?.label ?? null,
       });
     };
     const onRequestFinished = request => {
@@ -316,6 +385,7 @@ export const test = base.extend({
       if (ownedRequest) ownedRequest.finished = true;
     };
     page.on('requestfinished', onRequestFinished);
+    page.on('framenavigated', onFrameNavigated);
     page.on('request', onRequest);
     page.on('console', onConsole);
     page.on('pageerror', onPageError);
@@ -336,10 +406,12 @@ export const test = base.extend({
       editable = false,
       requiredCheck,
     } = {}) => test.step(label, async () => {
-      activeAction = label;
+      const actionID = `action-${++actionSequence}`;
+      activeAction = { id: actionID, label: safeText(label) };
       const started = performance.now();
+      const startedMs = Math.round(started - workflowStartedAt);
       const startedAt = Date.now();
-      const actionContext = { label, locator, startedAt };
+      const actionContext = { id: actionID, label, locator, startedAt, startedMs };
       activeActionContext = actionContext;
       const requestedTimeout = Number.isFinite(timeout) ? timeout : ACTION_TIMEOUT_MS;
       const actionTimeout = Math.max(1, Math.min(ACTION_TIMEOUT_MS, requestedTimeout));
@@ -381,7 +453,10 @@ export const test = base.extend({
             startedAt,
           });
         }
+        const ended = performance.now();
         report.actions.push({
+          id: actionID, startedAtMs: startedMs, endedAtMs: Math.round(ended - workflowStartedAt),
+          startedAtEpochMs: startedAt, finishedAtEpochMs: Date.now(),
           label: safeText(label), status: passed ? 'passed' : 'failed', elapsedMs: Math.round(elapsedMs),
           locator: safeText(locator.toString()), ...(afterMs === undefined ? {} : { afterMs: Math.round(afterMs) }),
         });
@@ -392,7 +467,8 @@ export const test = base.extend({
           recordCheck(report, 'performance', requiredCheck ?? `${label} action-to-render within budget`,
             passed, { afterMs: afterMs === undefined ? null : Math.round(afterMs), budgetMs });
         }
-        if (passed && activeActionContext === actionContext) activeActionContext = undefined;
+        if (activeActionContext === actionContext) activeActionContext = undefined;
+        if (activeAction?.id === actionID) activeAction = undefined;
       }
     }, { timeout: ACTION_TIMEOUT_MS });
 
@@ -428,10 +504,9 @@ export const test = base.extend({
         }
         attempt.matched = true;
         attempt.playwrightRequestId = playwrightRequestId(request);
-        attempt.rawURL = request.url();
         evidence.matched = true;
         evidence.playwrightRequestId = attempt.playwrightRequestId;
-        evidence.url = safeURL(attempt.rawURL);
+        evidence.url = safeURL(request.url());
         evidence.request = requestDiagnostic(request);
         if (response == null) await route.abort();
         else await route.fulfill(response);
@@ -451,6 +526,7 @@ export const test = base.extend({
     } finally {
       for (const handler of faultRouteHandlers) await page.unroute('**/*', handler);
       page.removeListener('requestfinished', onRequestFinished);
+      page.removeListener('framenavigated', onFrameNavigated);
       page.removeListener('request', onRequest);
       page.removeListener('console', onConsole);
       page.removeListener('pageerror', onPageError);
@@ -465,12 +541,14 @@ export const test = base.extend({
         failure.replacement = { sequence: replacement.sequence, status: replacement.status, finished: replacement.finished, responseMatches: replacement.responseMatches, binding: replacement.binding };
       }
       if (report.assetFailures.length) recordCheck(report, 'correctness', 'incidental asset failures are explicitly recorded', true, { failures: report.assetFailures });
+      report.navigationTimings = mainFrameNavigations.map(({ id, atMs, url }) => ({ id, atMs, url }));
       report.browserLifecycle = {
         kind: 'official-playwright-page',
         status: testInfo.status,
         durationMs: Math.round(performance.now() - lifecycleStarted),
         diagnosticLimit: MAX_DIAGNOSTICS,
         droppedDiagnostics,
+        droppedNavigationTimings,
       };
       if (droppedDiagnostics > 0) {
         report.network.push({ kind: 'exception', message: `diagnostic limit exceeded; ${droppedDiagnostics} events omitted` });

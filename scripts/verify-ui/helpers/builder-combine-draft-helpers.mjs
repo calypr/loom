@@ -101,6 +101,24 @@ export const joinGroupedCounts = (leftRows, rightRows, joinType = 'INNER') => {
 export const appendGroupedCounts = (groups) => groups.flatMap(({ keyRows, countRows }) =>
   keyRows.map(([key], index) => [String(key), Number(countRows[index]?.[1] ?? 0)]));
 
+export const patientDerivedAppendOracle = ({ observations, reports, patients, offset }) => {
+  if (![observations, reports, patients].every(Array.isArray) || !Number.isSafeInteger(offset)) {
+    throw new TypeError('Patient derived APPEND oracle requires raw row arrays and an integer offset.');
+  }
+  const observationGroups = groupCounts(observations, 'status');
+  const reportGroups = groupCounts(reports, 'status');
+  const patientGroups = groupCounts(patients, 'gender');
+  const patientDerivedCounts = patientGroups.map(([gender, count]) => [gender, count + offset]);
+  return {
+    patientRows: patientGroups.map(([gender, count]) => [String(gender), String(count), String(count + offset)]),
+    appendRows: appendGroupedCounts([
+      { keyRows: observationGroups.map(([value]) => [value]), countRows: observationGroups },
+      { keyRows: reportGroups.map(([value]) => [value]), countRows: reportGroups },
+      { keyRows: patientGroups.map(([value]) => [value]), countRows: patientDerivedCounts },
+    ]).map((row) => row.map(String)),
+  };
+};
+
 export const groupedPivotRows = (rawRows, rowID, category, categories) => {
   const output = new Map();
   for (const row of rawRows) {

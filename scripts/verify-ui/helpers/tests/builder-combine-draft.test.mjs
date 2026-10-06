@@ -10,6 +10,7 @@ import {
   joinGroupPivotRows,
   joinGroupedCounts,
   joinPivotRows,
+  patientDerivedAppendOracle,
   sourceRecompileEvidence,
   uniqueValueFieldProjection,
   workspaceOutputOption,
@@ -189,4 +190,27 @@ test('source edits must advance draft CAS, retain exact workspace binding, and r
   });
   assert.equal(sourceRecompileEvidence({ before, after: { ...after, draftVersion: 3 }, targetOutputId: 'target', sourceOutputId: 'source', oldReceipt: 'receipt-1', newReceipt: 'receipt-2' }).ok, false);
   assert.equal(sourceRecompileEvidence({ before, after, targetOutputId: 'target', sourceOutputId: 'source', oldReceipt: 'same', newReceipt: 'same' }).ok, false);
+});
+
+test('Group→DERIVE edit changes only the Patient-derived value in the independent APPEND oracle', () => {
+  const fixture = {
+    observations: [{ status: 'final' }, { status: 'final' }, { status: 'preliminary' }, { status: 'unknown' }],
+    reports: [{ status: 'final' }, { status: 'final' }, { status: 'preliminary' }],
+    patients: [{ gender: 'female' }],
+  };
+  const before = patientDerivedAppendOracle({ ...fixture, offset: 1 });
+  const after = patientDerivedAppendOracle({ ...fixture, offset: 2 });
+  assert.deepEqual(before.patientRows, [['female', '1', '2']]);
+  assert.deepEqual(after.patientRows, [['female', '1', '3']]);
+  assert.deepEqual(before.appendRows, [
+    ['final', '2'], ['preliminary', '1'], ['unknown', '1'],
+    ['final', '2'], ['preliminary', '1'], ['female', '2'],
+  ]);
+  assert.deepEqual(after.appendRows, [
+    ['final', '2'], ['preliminary', '1'], ['unknown', '1'],
+    ['final', '2'], ['preliminary', '1'], ['female', '3'],
+  ]);
+  assert.deepEqual(before.appendRows.map(([key]) => key), after.appendRows.map(([key]) => key));
+  assert.equal(before.appendRows.filter((row, index) => row[1] !== after.appendRows[index]?.[1]).length, 1);
+  assert.throws(() => patientDerivedAppendOracle({ ...fixture, offset: 1.5 }), /integer offset/);
 });
