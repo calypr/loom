@@ -42,6 +42,34 @@ outsourcing that understanding or final judgment.
   work, or when the next action requires its current context or judgment.
   Otherwise, prefer giving the work to Luna and reviewing the result.
 
+## Review and correction handoff
+
+Use a Luna max review stage before sending substantial worker changes to the
+foreground Sol agent. This separates implementation iterations from final
+acceptance; Sol still understands the change and owns integration and judgment.
+
+- Luna xhigh workers implement bounded changes in physically separate staging
+  directories and run their focused checks.
+- A `gpt-6-luna` reviewer at `max` reasoning reads the complete proposed patch,
+  relevant contracts, and executable evidence. It owns the initial review and
+  coordinates correction iterations with the implementation workers.
+- On a finding, Luna max gives exact correction instructions to the owning
+  worker, checks the revised artifact and necessary reruns, and repeats until
+  it has no remaining findings. Preserve the rejected patch and preimages so
+  corrections remain reviewable. A changed artifact requires renewed review.
+- Only then hand the foreground Sol agent the final patch and hash, preserved
+  preimages, exact verification commands and results, remaining gaps, and the
+  Luna max verdict with resolved findings. Use the configured foreground Sol
+  agent, with low reasoning when model selection is available, for final review.
+- Sol reads the final diff and consequential source and evidence, then accepts
+  or returns concrete findings to Luna max. Luna max manages the next correction
+  loop and resubmits; Sol does not routinely implement the corrections itself
+  or rerun workers' passing checks.
+- Luna max approval is a prerequisite for substantial worker handoffs, not
+  permission to merge. Sol retains acceptance, integration order, shared writes,
+  product decisions, and completion claims. Small direct changes may stay with
+  Sol when the extra handoff would cost more than the work.
+
 ## Close workflows before expanding work
 
 Sol owns the integration queue: prioritize reviewing and closing ready units over
