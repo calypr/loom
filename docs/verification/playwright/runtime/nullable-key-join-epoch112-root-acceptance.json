@@ -1,0 +1,19 @@
+{
+  "epoch": 112,
+  "rootReviewStatus": "ACCEPTED",
+  "acceptedBy": "/root",
+  "acceptedAt": "2026-10-06",
+  "closurePath": "/private/tmp/loom-native-combine-nullable-wave112/closure.json",
+  "closureSha256": "922aa5f95f77f6d923498b444d4e974f37183d07fc4a6263f65c1c44465aadf3",
+  "integrityClosurePath": "/private/tmp/loom-native-combine-nullable-wave112/integrity-closure.json",
+  "integrityClosureSha256": "57b40d14c7e311671de0a81b4b32c17e5d81fc81cb7a9d776b8e571128ab9c92",
+  "lifecycleReportPath": "/private/tmp/loom-native-combine-nullable-wave112/attempt1/artifacts/nullable-combine-nullable--69d1b-NULL-non-equality-lifecycle/attachments/loom-verification-report-json-1adec064685b794e26df0518128171e40e818b77.json",
+  "lifecycleReportSha256": "3f61fca8df658fcce1aaad621435e1f8d6cf11433efef438579aac17d33d1575",
+  "reviewedFacts": [
+    "63/63 required checks",
+    "96/96 assertions",
+    "26/26 actions",
+    "all four dimensions passed",
+    "source/docs/API/mount/health closure passed; all handles terminal"
+  ]
+}
