@@ -2,6 +2,7 @@ package compiler
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
@@ -172,7 +173,20 @@ func finalConstructionPopulationMappingIdentity(plan ir.PhysicalPlan, output low
 		for index := range effectiveIdentity.Fields {
 			canonicalDefault = canonicalDefault && effectiveIdentity.Fields[index] == defaultIdentity.Fields[index]
 		}
-		if !canonicalDefault || sequence.FinalRowIdentity != "__loom_row_id" {
+		if !canonicalDefault {
+			return nil, nil, fmt.Errorf("construction population mapping requires the exact final row identity")
+		}
+		switch sequence.FinalRowIdentity {
+		case "_key":
+			if len(defaultIdentity.Fields) != 2 || defaultIdentity.Fields[0] != "project" || defaultIdentity.Fields[1] != "_key" {
+				return nil, nil, fmt.Errorf("construction population mapping requires the exact final row identity")
+			}
+			project, ok := output.Plan.BindVars["project"].(string)
+			if !ok || strings.TrimSpace(project) == "" {
+				return nil, nil, fmt.Errorf("canonical project/key identity requires the pinned project bind")
+			}
+		case "__loom_row_id":
+		default:
 			return nil, nil, fmt.Errorf("construction population mapping requires the exact final row identity")
 		}
 		effectiveIdentity.Fields = []string{sequence.FinalRowIdentity}

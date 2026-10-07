@@ -1,0 +1,312 @@
+{
+  "schemaVersion": 1,
+  "epoch": 131,
+  "status": "CLOSED_FAILED_PRODUCT",
+  "rawCoordinatorStatus": "CLOSED_INTEGRITY_PASS_BROWSER_FAIL",
+  "rawCoordinatorClosurePath": "/private/tmp/loom-native-parallel-wave131/closure.json",
+  "rawCoordinatorClosureSha256": "10429173466710432e1836515a6feaaacbb86c66ffa10cf6c1833aa5f9ed4259",
+  "rootReviewStatus": "ACCEPTED_PRODUCT_FAILURE",
+  "rootAcceptanceReceipt": {
+    "path": "/private/tmp/loom-native-parallel-wave131/root-acceptance.json",
+    "sha256": "9f7846f8eeebb5a5217689cecf16fef5b405aac01cb8880437b3f446c2de878c",
+    "status": "ACCEPTED_PRODUCT_FAILURE",
+    "lifecycleAccepted": false,
+    "classification": "PRODUCT_POPULATION_MAPPING_HTTP_500_AFTER_FILTER",
+    "sourceFreezeReleased": true,
+    "coordinatorClosureSha256": "10429173466710432e1836515a6feaaacbb86c66ffa10cf6c1833aa5f9ed4259"
+  },
+  "case": {
+    "scenarioId": "cda-collection-repair-partial",
+    "caseName": "partial-long-route-repair-and-reload",
+    "title": "remove an unmapped selected resource, verify the saved route, and reload",
+    "status": "failed_product",
+    "classification": "PRODUCT_POPULATION_MAPPING_HTTP_500_AFTER_FILTER",
+    "requiredChecks": {
+      "passed": 4,
+      "total": 11,
+      "missingOrFailed": 0,
+      "missingOrUnrun": 7,
+      "passedNames": [
+        "bounded raw CDA oracle contains two mapped and one unmapped project/generation-scoped Specimens with exact Observation IDs",
+        "initial immutable selection preserves exact Specimen IDs, project, generation, and authorization scope",
+        "saved population preserves the exact two-hop Observation → Specimen → parent route",
+        "CDA watched source and API build stayed unchanged"
+      ],
+      "failedNames": [],
+      "unrunNames": [
+        "native preview and coverage match exact mapped/unmapped raw membership",
+        "removing the unmapped Specimen preserves mapped membership, route, columns, and construction",
+        "repaired route, immutable selection, and preview survive Builder reload",
+        "clearing the collection displays rows from the scoped current-generation Observation source",
+        "native reattachment preserves the repaired membership, route, columns, preview, and reload state",
+        "all measured native actions and workflow checkpoints complete within five seconds",
+        "no unexpected HTTP or workflow errors occur"
+      ],
+      "outcomes": [
+        {
+          "name": "bounded raw CDA oracle contains two mapped and one unmapped project/generation-scoped Specimens with exact Observation IDs",
+          "status": "passed"
+        },
+        {
+          "name": "initial immutable selection preserves exact Specimen IDs, project, generation, and authorization scope",
+          "status": "passed"
+        },
+        {
+          "name": "saved population preserves the exact two-hop Observation → Specimen → parent route",
+          "status": "passed"
+        },
+        {
+          "name": "native preview and coverage match exact mapped/unmapped raw membership",
+          "status": "unrun"
+        },
+        {
+          "name": "removing the unmapped Specimen preserves mapped membership, route, columns, and construction",
+          "status": "unrun"
+        },
+        {
+          "name": "repaired route, immutable selection, and preview survive Builder reload",
+          "status": "unrun"
+        },
+        {
+          "name": "clearing the collection displays rows from the scoped current-generation Observation source",
+          "status": "unrun"
+        },
+        {
+          "name": "native reattachment preserves the repaired membership, route, columns, preview, and reload state",
+          "status": "unrun"
+        },
+        {
+          "name": "all measured native actions and workflow checkpoints complete within five seconds",
+          "status": "unrun"
+        },
+        {
+          "name": "no unexpected HTTP or workflow errors occur",
+          "status": "unrun"
+        },
+        {
+          "name": "CDA watched source and API build stayed unchanged",
+          "status": "passed"
+        }
+      ],
+      "evidence": [
+        {
+          "name": "bounded raw CDA oracle contains two mapped and one unmapped project/generation-scoped Specimens with exact Observation IDs",
+          "status": "passed"
+        },
+        {
+          "name": "initial immutable selection preserves exact Specimen IDs, project, generation, and authorization scope",
+          "status": "passed"
+        },
+        {
+          "name": "saved population preserves the exact two-hop Observation → Specimen → parent route",
+          "status": "passed"
+        },
+        {
+          "name": "CDA watched source and API build stayed unchanged",
+          "status": "passed"
+        }
+      ]
+    },
+    "failureClassification": "PRODUCT_POPULATION_MAPPING_HTTP_500_AFTER_FILTER"
+  },
+  "integrityClosure": {
+    "status": "PASS",
+    "source": {
+      "before": {
+        "sha256": "a4c80e0167cf23cebc99ad86ef5de21c37cc4fbf7d977b77f8e44caa57a00a99",
+        "files": 1555
+      },
+      "after": {
+        "sha256": "a4c80e0167cf23cebc99ad86ef5de21c37cc4fbf7d977b77f8e44caa57a00a99",
+        "files": 1555
+      },
+      "manifestsEqual": true,
+      "changedPaths": [],
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave131/source-before.json",
+        "sha256": "206ca673f4ef87d83cbf9870ee238dd9f0ed9c686e406015af381af60d7c3e00"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave131/source-after.json",
+        "sha256": "7cf674de04b76c25aaa300c8bc0535e151d562c71e7a5038f4afc7bbe180e887"
+      }
+    },
+    "docs": {
+      "before": {
+        "sha256": "0df4c9488ee74a8b1be5f7142524e55cc5dc9a7b47227d1d186598cd520d1618",
+        "files": 282
+      },
+      "after": {
+        "sha256": "0df4c9488ee74a8b1be5f7142524e55cc5dc9a7b47227d1d186598cd520d1618",
+        "files": 282
+      },
+      "manifestsEqual": true,
+      "changedPaths": [],
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave131/docs-before.json",
+        "sha256": "b017ff89be842e269db0dc05763c4b325e6e310dceff4ef85b1d1a0b08a80ed0"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave131/docs-after.json",
+        "sha256": "3d718448e0a3778603142d9359515593a42e719247495f085022b4570479762b"
+      }
+    },
+    "apiBuildIdentity": {
+      "before": "98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:85c11c1b9b88b8ff8cbd1241e8be6dea82f222956cf717e47c11fcb5efc7e135",
+      "after": "98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:85c11c1b9b88b8ff8cbd1241e8be6dea82f222956cf717e47c11fcb5efc7e135",
+      "precheck": "98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:85c11c1b9b88b8ff8cbd1241e8be6dea82f222956cf717e47c11fcb5efc7e135",
+      "unchanged": true,
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave131/api-identity-before.json",
+        "sha256": "8b13af2c9072ee4f8036db1388df1fdb8a6cba2a4b49ef4f7ff6fc2839ddd068"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave131/api-identity-after.json",
+        "sha256": "e00291deec1d6768f870fe64875df0a349856aea189f74ab0c3001b4ae4744d5"
+      },
+      "precheckArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave131/api-build-precheck.json",
+        "sha256": "40245fc3b281d170f122e2aa4f0df686b6958d59bc0f0f8c45a67a4caffdc8b7"
+      }
+    },
+    "ownedMounts": {
+      "before": "PASS",
+      "after": "PASS",
+      "targetUnchanged": true,
+      "target": {
+        "project": "loom_dev_cda_fhir",
+        "composeProject": "loom-dev-6d7df93d6a37",
+        "apiContainer": "loom-dev-6d7df93d6a37-loom-api-1",
+        "uiContainer": "loom-dev-6d7df93d6a37-loom-ui-1",
+        "arangoContainer": "loom-dev-6d7df93d6a37-arangodb-1",
+        "clickhouseContainer": "loom-dev-6d7df93d6a37-clickhouse-1",
+        "apiPort": "8188",
+        "uiPort": "30008",
+        "sourceRoot": "/private/tmp/loom-construction-implementation",
+        "generation": "cda-fhir-v1"
+      },
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave131/owned-mounts-before.json",
+        "sha256": "00bb18bcfd4e800f3158a87ea2c43c182cb867a88ecb616a8b5e979a94eac645"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave131/owned-mounts-after.json",
+        "sha256": "24c8090e3f9af7a43f3f05ff69499c07ca181291d562af9dc6bc94db70f9c9a8"
+      }
+    },
+    "health": {
+      "before": {
+        "status": "PASS",
+        "samples": 3
+      },
+      "after": {
+        "status": "PASS",
+        "samples": 3
+      },
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave131/health-before.json",
+        "sha256": "1d63917c04b7031202edb6a6da087f7e160b1e6247dd9d1f10a2fbc72e5030f7"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave131/health-after.json",
+        "sha256": "7c46ec5c78f482b65b1a74057548e1aa7162bda71073da686b904d00dd8f6ec5"
+      }
+    }
+  },
+  "runner": {
+    "status": "failed",
+    "exitCode": 1,
+    "durationMs": 14542,
+    "suiteDurationMs": 16076.091,
+    "results": null,
+    "runnerLog": {
+      "path": "/private/tmp/loom-native-parallel-wave131/cda-collection-repair-partial-long-route/attempt1/runner.log",
+      "sha256": "a08c73614cea9557efa145628532e33d54e9c730d0477e658bdf6968409377dd",
+      "sizeBytes": 3623
+    },
+    "terminalRecord": {
+      "path": "/private/tmp/loom-native-parallel-wave131/cda-collection-repair-partial-long-route/attempt1/terminal.json",
+      "sha256": "ca4b50a6aabd8c09a9998c501233e663a1a779dee115f77beed1cc4e481ab5c3",
+      "sizeBytes": 15
+    }
+  },
+  "lifecycleReport": {
+    "path": "/private/tmp/loom-native-parallel-wave131/cda-collection-repair-partial-long-route/attempt1/artifacts/standalone-cda-other-CDA-c-9e9e2--the-saved-route-and-reload/cda-report.json",
+    "sha256": "f53eca31e7aa618dde0c70a257a5499d4600a9b627a6d178744d426cd19d935c",
+    "sizeBytes": 6244865,
+    "status": "failed"
+  },
+  "lifecycleReportCreated": true,
+  "strictIntegrityClosure": {
+    "path": "/private/tmp/loom-native-parallel-wave131/integrity-closure.json",
+    "sha256": "7a0b7e55c515ec5666e1e418c34dc2a2e2a26a2aa272148b331e25741932c199",
+    "sizeBytes": 4500
+  },
+  "jsonAttachments": [
+    {
+      "name": ".last-run.json",
+      "path": "/private/tmp/loom-native-parallel-wave131/cda-collection-repair-partial-long-route/attempt1/artifacts/.last-run.json",
+      "sha256": "e32eb7a2a508d03ea2f2e967285211736895692ed47b0744f4439705afe6eacf",
+      "sizeBytes": 96
+    },
+    {
+      "name": "standalone-cda-other-CDA-c-9e9e2--the-saved-route-and-reload/attachments/cda-domain-report-json-722ff92e2608d3e2afbfa8e2ebd773e01dfbc642.json",
+      "path": "/private/tmp/loom-native-parallel-wave131/cda-collection-repair-partial-long-route/attempt1/artifacts/standalone-cda-other-CDA-c-9e9e2--the-saved-route-and-reload/attachments/cda-domain-report-json-722ff92e2608d3e2afbfa8e2ebd773e01dfbc642.json",
+      "sha256": "f53eca31e7aa618dde0c70a257a5499d4600a9b627a6d178744d426cd19d935c",
+      "sizeBytes": 6244865
+    },
+    {
+      "name": "standalone-cda-other-CDA-c-9e9e2--the-saved-route-and-reload/attachments/collection-repair-domain-report-json-3dd395081dfe902186456795964af9d77ef20ddb.json",
+      "path": "/private/tmp/loom-native-parallel-wave131/cda-collection-repair-partial-long-route/attempt1/artifacts/standalone-cda-other-CDA-c-9e9e2--the-saved-route-and-reload/attachments/collection-repair-domain-report-json-3dd395081dfe902186456795964af9d77ef20ddb.json",
+      "sha256": "604814303081571ec5a107fb26129b56565c8f5036f59d3430119dc0d1b31bce",
+      "sizeBytes": 6222622
+    },
+    {
+      "name": "standalone-cda-other-CDA-c-9e9e2--the-saved-route-and-reload/attachments/collection-repair-domain-report.json",
+      "path": "/private/tmp/loom-native-parallel-wave131/cda-collection-repair-partial-long-route/attempt1/artifacts/standalone-cda-other-CDA-c-9e9e2--the-saved-route-and-reload/attachments/collection-repair-domain-report.json",
+      "sha256": "604814303081571ec5a107fb26129b56565c8f5036f59d3430119dc0d1b31bce",
+      "sizeBytes": 6222622
+    },
+    {
+      "name": "standalone-cda-other-CDA-c-9e9e2--the-saved-route-and-reload/cda-report.json",
+      "path": "/private/tmp/loom-native-parallel-wave131/cda-collection-repair-partial-long-route/attempt1/artifacts/standalone-cda-other-CDA-c-9e9e2--the-saved-route-and-reload/cda-report.json",
+      "sha256": "f53eca31e7aa618dde0c70a257a5499d4600a9b627a6d178744d426cd19d935c",
+      "sizeBytes": 6244865
+    }
+  ],
+  "performance": {
+    "completeActionToRender": {
+      "source": {
+        "path": "/private/tmp/loom-native-parallel-wave131/cda-collection-repair-partial-long-route/attempt1/artifacts/standalone-cda-other-CDA-c-9e9e2--the-saved-route-and-reload/cda-report.json",
+        "sha256": "f53eca31e7aa618dde0c70a257a5499d4600a9b627a6d178744d426cd19d935c",
+        "sizeBytes": 6244865
+      },
+      "timedCompleteCheckpoints": 0,
+      "maximumDurationMs": null,
+      "thresholdMs": 5000,
+      "withinThreshold": null,
+      "checkpoints": []
+    },
+    "nativeControlOnly": {
+      "actionsTotal": 8,
+      "maximumActionElapsedMs": 144,
+      "usedForPerformanceClaim": false
+    }
+  },
+  "checks": {
+    "required": 11,
+    "passed": 4,
+    "failed": 0,
+    "unrun": 7,
+    "assertions": 14,
+    "passedAssertions": 13,
+    "failedAssertions": 1,
+    "actions": 8,
+    "maxNativeControlMs": 144,
+    "timedCompleteCheckpoints": 0,
+    "maxCheckpointMs": null,
+    "budgetMs": 5000
+  },
+  "noRawPayloadsEmbedded": true,
+  "scope": "cda-collection-repair-partial/partial-long-route-repair-and-reload"
+}

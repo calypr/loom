@@ -4,6 +4,7 @@ import { spawnSync } from 'node:child_process';
 import { sanitizeText } from '../helpers/playwright-browser.mjs';
 import { requireUnique } from '../helpers/playwright-actions.mjs';
 import { captureCDARequests } from '../helpers/cda-playwright-requests.mjs';
+import { findSavedAuthoringColumn, savedAuthoringPreviewSchema } from '../helpers/collection-repair-preview-schema.mjs';
 import { waitForCondition } from '../helpers/playwright-observations.mjs';
 import { scenarioCaseFor } from '../registry.mjs';
 
@@ -161,6 +162,118 @@ const returnToTable = async () => {
   await click(page, '[role="dialog"][aria-label="Row definition settings"] button', {name:'Back to table'});
   await dialog.waitFor({ state: 'hidden', timeout: 5000 });
 };
+const seedNonEmptyConstruction = async () => {
+  const before = builder.workspace.documents.find(document => document.output.id === outputId);
+  assert(before, 'The population-bound output must exist before the construction seed');
+  assert(!before.construction?.steps?.length,
+    'The case must start from the empty epoch72 construction baseline before seeding one native step');
+  const beforeDigest = builder.draftDigest;
+  const seedStartedAt = Date.now();
+
+  await returnToTable();
+  await click(page, '[data-testid="construction-action-keep-rows"]');
+  const conditionSelector = '[data-testid="construction-filter-editor"] select[aria-label="Condition"]';
+  const columnSelector = '[data-testid="construction-filter-editor"] select[aria-label="Column"]';
+  await page.locator(conditionSelector).waitFor({ state: 'visible', timeout: 5000 });
+  await page.waitForFunction(({ columnSelector }) => Boolean(document.querySelector(columnSelector)?.value),
+    { columnSelector }, { timeout: 5000 });
+  const sourceColumn = await inspectPage(page, ({ columnSelector }) => {
+    const select = document.querySelector(columnSelector);
+    return { id: select?.value ?? null, label: select?.selectedOptions?.[0]?.textContent?.trim() ?? null };
+  }, { columnSelector });
+  assert(sourceColumn.id && sourceColumn.label?.startsWith('Observation ID'),
+    `The native seed must filter the displayed Observation ID column: ${JSON.stringify(sourceColumn)}`);
+  const proposalFromIndex = report.browserRequests.length;
+  await selectOption(page, conditionSelector, 'EXISTS');
+  const proposalEntry = await requestMonitor.waitFor(entry => {
+    const candidateSteps = entry.body?.candidateConstruction?.steps ?? [];
+    const filterStep = candidateSteps.find(step =>
+      step.operation?.kind === 'FILTER' && step.operation?.filter?.operator === 'EXISTS'
+      && step.operation?.filter?.columnId === sourceColumn.id);
+    return entry.path === `${base}/construction-proposals` && entry.method === 'POST'
+      && entry.body?.outputId === outputId && entry.body?.expectedDraftDigest === beforeDigest
+      && entry.body?.expectedDraftVersion === builder.draftVersion
+      && candidateSteps.length === 1 && filterStep;
+  }, { fromIndex: proposalFromIndex, timeoutMs: Math.max(1, seedStartedAt + 5000 - Date.now()) });
+  assert.equal(proposalEntry.status, 200, JSON.stringify(proposalEntry));
+  const proposalResponse = proposalEntry.response;
+  assert(proposalResponse?.proposalId, 'The native EXISTS seed request must return its proposal identity');
+  assert(proposalResponse.candidateConstruction && proposalResponse.candidateWorkspaceDigest,
+    'The native EXISTS seed must return its full candidate construction and digest');
+  assert.equal(proposalResponse.candidateConstruction.steps.length, 1);
+  assert.equal(proposalResponse.candidateConstruction.steps[0].operation?.kind, 'FILTER');
+  assert.equal(proposalResponse.candidateConstruction.steps[0].operation?.filter?.operator, 'EXISTS');
+  assert.equal(proposalResponse.candidateConstruction.steps[0].operation?.filter?.columnId, sourceColumn.id);
+  assert.equal(proposalResponse.preview?.receiptId, proposalResponse.proposalId,
+    'The native EXISTS seed preview must be bound to its exact proposal receipt');
+  assert.deepEqual(proposalResponse.preview.columns.map(({ column, label }) => ({ column, label })),
+    savedAuthoringPreviewSchema(before.columns),
+    'The native EXISTS seed must preserve the exact saved output column schema');
+  const sourceOutputColumn = findSavedAuthoringColumn(before.columns, sourceColumn.id);
+  assert(sourceOutputColumn, 'The selected native Observation ID column must belong to the saved output');
+  const previewColumn = proposalResponse.preview.columns.find(column => column.column === sourceOutputColumn.column);
+  assert(previewColumn, 'The exact selected Observation ID output must be present in the proposal preview');
+  assert.equal(proposalResponse.preview.rowCount, expectedObservationIDs.length,
+    'The native EXISTS seed must preserve the full scoped raw Observation count');
+  assert.equal(proposalResponse.preview.sampled, false,
+    'The native EXISTS seed must return a complete preview for the bounded raw witness');
+  const protocolObservationIDs = proposalResponse.preview.rows.map(row => String(row[previewColumn.column])).sort();
+  assert.deepEqual(protocolObservationIDs, [...expectedObservationIDs].sort(),
+    'The native EXISTS seed protocol rows must exactly preserve the scoped raw Observation IDs');
+  await page.waitForFunction(({ proposalId }) => {
+    const panel = document.querySelector('[data-testid="construction-proposal-panel"]');
+    return panel?.dataset.proposalId === proposalId
+      && ['ready', 'error', 'needs-repair'].includes(panel.dataset.proposalStatus);
+  }, { proposalId: proposalResponse.proposalId }, { timeout: Math.max(1, seedStartedAt + 5000 - Date.now()) });
+  const proposal = await inspectPage(page, () => {
+    const panel = document.querySelector('[data-testid="construction-proposal-panel"]');
+    return {
+      status: panel?.dataset.proposalStatus,
+      proposalId: panel?.dataset.proposalId,
+      text: panel?.innerText ?? '',
+      rows: [...document.querySelectorAll('[data-testid="construction-proposal-preview-row"]')]
+        .map(row => [...row.querySelectorAll('td')].map(cell => cell.innerText.trim())),
+    };
+  });
+  assert.equal(proposal.proposalId, proposalResponse.proposalId,
+    'The rendered seed preview must belong to the captured native proposal');
+  assert.equal(proposal.status, 'ready', proposal.text);
+  assert.deepEqual(proposal.rows.map(row => row[0]).sort(), [...expectedObservationIDs].sort(),
+    'The EXISTS seed preview must preserve every raw-oracle Observation ID');
+
+  await click(page, '[data-testid="construction-apply-proposal"]');
+  await page.waitForFunction(() => !document.querySelector('[data-testid="construction-proposal-panel"]'),
+    null, { timeout: 5000 });
+  await assertPreviewIDs('nonempty-construction-seed-preview');
+  builder = await api(base + '/builder');
+  const seeded = builder.workspace.documents.find(document => document.output.id === outputId);
+  assert(seeded);
+  assert.equal(builder.draftDigest, proposalResponse.candidateWorkspaceDigest,
+    'Applying the native seed must persist the exact accepted proposal digest');
+  assert.notEqual(builder.draftDigest, beforeDigest, 'Applying the native seed must persist a changed draft');
+  assert.deepEqual(seeded.construction, proposalResponse.candidateConstruction,
+    'Applying the native seed must persist the exact accepted construction');
+  assert.deepEqual(seeded.population, before.population, 'The seed must leave the exact 2+1 source selection and route unchanged');
+  assert.deepEqual(seeded.columns, before.columns, 'The seed must retain the existing Observation ID output column');
+  assert.equal(seeded.construction?.version, 1);
+  assert.equal(seeded.construction?.steps?.length, 1, 'Collection repair must start from one real saved construction step');
+  const step = seeded.construction.steps[0];
+  assert.equal(step.operation?.kind, 'FILTER');
+  assert.equal(step.operation.filter?.operator, 'EXISTS');
+  assert.equal(step.operation.filter?.columnId, sourceColumn.id);
+  assert.deepEqual(step.inputs, [{ kind: 'SOURCE_PROJECTION' }]);
+
+  await openRowSettings();
+  const durationMs = Date.now() - seedStartedAt;
+  assert(durationMs <= 5000, `Native nonempty-construction seed took ${durationMs}ms`);
+  report.constructionSeed = {
+    status: 'passed', stepId: step.id, operation: step.operation,
+    input: step.inputs, selectedColumn: sourceColumn, previewObservationIDs: expectedObservationIDs,
+    preservedPopulation: true, durationMs,
+  };
+  recordCase({ name: 'seed-nonempty-exists-construction-before-repair', durationMs, stepId: step.id,
+    previewObservationIDs: expectedObservationIDs });
+};
 const open = async (previewName='partial-long-route-preview') => {
   const loadStart=Date.now();
   await navigate(page, `${uiOrigin}/?project=${project}&explorer=${explorer}&mode=builder`);
@@ -270,9 +383,8 @@ try {
   report.savedConnection=savedPopulationRoute(parent.route);
   assert.equal(parent.route.length,longRoute?2:1);
   await command([{type:'SET_TABLE_POPULATION',outputId,selectionRevisionId:selection.id,routeChoiceId:parent.routeChoiceId}]);
-  const original = builder.workspace.documents[0];
+  let original = builder.workspace.documents[0];
   if(partialLongRoute)assert.deepEqual(original.population.route,report.savedConnection,'The saved route must match the exact catalog route before collection repair');
-  if(partialLongRoute) recordRequirement(2, 'correctness', true, { route: report.savedConnection, columns: original.columns, construction: original.construction });
   requestMonitor = captureCDARequests(page, {
     apiOrigin: uiOrigin,
     appOrigins: [apiOrigin, uiOrigin],
@@ -302,6 +414,18 @@ try {
     if (request.resourceType() === 'script') report.errors.push({ kind: 'module', path: url.pathname, error: sanitizeText(request.failure()?.errorText) });
   });
   await open();
+  if (partialLongRoute) {
+    await seedNonEmptyConstruction();
+    original = builder.workspace.documents.find(document => document.output.id === outputId);
+    assert.equal(original?.construction?.steps?.length, 1,
+      'Population repair baseline must contain a nonempty saved construction');
+    assert.deepEqual(original.population.route, report.savedConnection,
+      'The native construction seed must preserve the exact saved population route');
+    recordRequirement(2, 'correctness', true, {
+      route: report.savedConnection, columns: original.columns, construction: original.construction,
+      nonemptyConstructionStepIds: original.construction.steps.map(step => step.id),
+    });
+  }
   await checkCoverage(partialLongRoute?'partial-mapped-unmapped-coverage':'unmapped-parent-coverage',partialLongRoute?'3 selected · 2 produce rows · 1 needs attention':'1 selected · 0 produce rows · 1 needs attention');
   if(partialLongRoute){
     const coverageText=await inspectPage(page, () => document.querySelector('[data-testid="population-coverage-report"]')?.innerText ?? '');
