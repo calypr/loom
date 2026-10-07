@@ -31,6 +31,9 @@ export function readProposalPanelSnapshot() {
   return { headers, rows };
 }
 
+export const pivotOutputLabelLocator = (page, outputLabel) =>
+  page.getByLabel(`Pivot output label ${outputLabel}`, { exact: true });
+
 export function assertProposalPanelHeaders(actualHeaders, columns, label) {
   const expectedHeaders = columns.map(column => {
     const logicalType = column.logicalType || null;
@@ -1111,7 +1114,7 @@ const runFullPopulationLifecycle = async (discovery, oracle, prePivotWorkspace, 
   await selectOption(page, 'select[aria-label="Pivot duplicate policy"]', 'MAX', {
     settledWhen: `document.querySelector('select[aria-label="Pivot duplicate policy"]')?.value==='MAX'`,
   });
-  const headingInput = page.locator('input[aria-label^="Pivot output label "]').filter({ hasValue: originalHeading });
+  const headingInput = pivotOutputLabelLocator(page, originalHeading);
   await action('fill Pivot category label', headingInput, locator => locator.fill(editedHeading), { editable: true });
   await waitForBrowser(page, `(()=>{const panel=document.querySelector('[data-testid="construction-proposal-panel"]');return panel?.dataset.proposalStatus==='ready'&&panel.dataset.proposalId!==${JSON.stringify(priorEditProposal)}&&[...document.querySelectorAll('[data-testid="construction-proposal-preview"] th')].some(cell=>cell.innerText.includes(${JSON.stringify(editedHeading)}))})()`, 15000);
   await drainResponseReads();
