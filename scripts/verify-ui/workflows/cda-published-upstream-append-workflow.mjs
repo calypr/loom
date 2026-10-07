@@ -639,15 +639,15 @@ export async function cdaPublishedUpstreamAppendWorkflow({ page, cda }) {
       const exactSavedStepRemoved = savedSteps.length === 1 && savedStep.id === stepId &&
         candidateConstruction?.version === 1 && Array.isArray(candidateConstruction.steps) &&
         candidateConstruction.steps.length === 0 && restorationEvidence.ok;
-      requireCheck('correctness', 'APPEND removal proposal targets the exact rooted output',
-        exactSavedStepRemoved && removalEvidence.ok, { outputId: target.outputId, savedStepId: savedStep.id,
-          savedOperation: savedStep.operation?.combine?.kind, candidateSteps: candidateConstruction?.steps ?? null,
-          removalEvidence });
       assert(exactSavedStepRemoved && removalEvidence.ok,
         `APPEND removal must preview the exact rooted empty target: ${JSON.stringify(removalEvidence)}`);
+      const applyAfterCancel = page.getByTestId('construction-apply-proposal');
       await click('Cancel published APPEND removal proposal', page.getByTestId('construction-cancel-proposal'), async () => {
         await page.getByTestId('construction-proposal-panel').waitFor({ state: 'hidden', timeout: ACTION_BUDGET_MS });
         await page.getByTestId('construction-history').waitFor({ state: 'visible', timeout: ACTION_BUDGET_MS });
+        await applyAfterCancel.waitFor({ state: 'hidden', timeout: ACTION_BUDGET_MS });
+        assert.equal(await applyAfterCancel.isVisible(), false,
+          'Cancel must hide Apply until a fresh removal proposal is previewed');
       });
       const afterCancel = await readBuilder();
       const canceledDoc = documentByOutput(afterCancel, target.outputId);
@@ -662,8 +662,80 @@ export async function cdaPublishedUpstreamAppendWorkflow({ page, cda }) {
           draftVersionAfter: afterCancel.draftVersion, draftDigestBefore: savedBaseline.baselineBuilder.draftDigest,
           draftDigestAfter: afterCancel.draftDigest, rows: cancelGrid.rows });
       assert(cancelEvidence);
-      await click('Apply published APPEND removal and restore empty root', page.getByTestId('construction-apply-proposal'),
-        async () => waitEmpty(target.outputId));
+
+      await click('Reselect saved APPEND step after Cancel', page.getByTestId(`construction-history-step-${stepId}`),
+        async () => waitSelector(`[data-testid="construction-remove-step-${stepId}"]`));
+      const applyBaseState = structuredClone(await readBuilder());
+      checkScope(applyBaseState);
+      const applySavedDocument = documentByOutput(applyBaseState, target.outputId);
+      const applySavedSteps = applySavedDocument.construction?.steps ?? [];
+      const applySavedStep = applySavedSteps.at(-1);
+      assert.equal(applySavedSteps.length, 1, 'A fresh removal preview must still target the sole saved APPEND step');
+      assert.equal(applySavedStep?.id, stepId);
+      assert.equal(applySavedStep?.operation?.combine?.kind, 'APPEND');
+      assert(isDeepStrictEqual(snapshotSourceDocument(applySavedDocument), savedBaseline.snapshot),
+        'Reselecting after Cancel must preserve the exact saved APPEND document');
+      assert.equal(applyBaseState.draftVersion, savedBaseline.baselineBuilder.draftVersion);
+      assert.equal(applyBaseState.draftDigest, savedBaseline.baselineBuilder.draftDigest);
+
+      const applyFromIndex = report.nativeRequests.length;
+      let applyRemovalEvent;
+      let applyResponseBody;
+      const applyRemovalButton = page.getByTestId(`construction-remove-step-${stepId}`);
+      const applyButton = page.getByTestId('construction-apply-proposal');
+      await click('Re-preview published APPEND removal after Cancel', applyRemovalButton, async () => {
+        await waitProposal(target.outputId, 0);
+        applyRemovalEvent = await requestCapture.waitFor(entry => {
+          const body = requestCapture.rawRequestBody(entry);
+          return entry.path === proposalPath(explorer) && entry.method === 'POST' && entry.completedAt &&
+            body?.outputId === target.outputId && body?.candidateConstruction?.version === 1 &&
+            Array.isArray(body.candidateConstruction.steps) && body.candidateConstruction.steps.length === 0;
+        }, { fromIndex: applyFromIndex, timeoutMs: ACTION_BUDGET_MS });
+        const applyRequestBody = requestCapture.rawRequestBody(applyRemovalEvent);
+        applyResponseBody = requestCapture.rawResponseBody(applyRemovalEvent);
+        assert(applyRequestBody && applyResponseBody && !applyRemovalEvent.responseReadError,
+          'The fresh APPEND removal request and response must be retained');
+        assert.notEqual(applyRemovalEvent.browserRequestId, removalEvent.browserRequestId,
+          'Applying after Cancel must use a new native removal request');
+        assert(report.nativeRequests.slice(applyFromIndex).some(entry =>
+          entry.browserRequestId === applyRemovalEvent.browserRequestId),
+        'The fresh removal request must have started after Cancel');
+        const applyCandidate = applyResponseBody.candidateConstruction;
+        const applyCandidateDocument = { ...structuredClone(applySavedDocument), construction: applyCandidate };
+        const applyRestorationEvidence = rootedEmptyTargetRestorationEvidence(applyCandidateDocument, target.baseline, target);
+        const applyProposal = { event: applyRemovalEvent, requestBody: applyRequestBody, responseBody: applyResponseBody };
+        const applyRemovalDOM = await readProposalPreviewState(page, target.outputId);
+        const applyRemovalEvidence = cdaNullableEmptyRemovalPreviewEvidence({ proposal: applyProposal,
+          outputId: target.outputId, targetCreateBase: target.builder, baselineDocument: target.baseline,
+          currentDraft: applyBaseState, restorationEvidence: applyRestorationEvidence,
+          project, explorer, generation, uiOrigin, dom: applyRemovalDOM });
+        assert.equal(applyRemovalDOM.proposalId, applyResponseBody.proposalId,
+          'Apply must be bound to the fresh removal proposal, not the canceled proposal');
+        assert.equal(applyRemovalDOM.previewReceiptId, applyResponseBody.proposalId);
+        assert.equal(applyRemovalDOM.resultReceiptId, applyResponseBody.proposalId);
+        const exactFreshSavedStepRemoved = applySavedSteps.length === 1 && applySavedStep?.id === stepId &&
+          applySavedStep?.operation?.combine?.kind === 'APPEND' && applyCandidate?.version === 1 &&
+          Array.isArray(applyCandidate.steps) && applyCandidate.steps.length === 0 && applyRestorationEvidence.ok;
+        requireCheck('correctness', 'APPEND removal proposal targets the exact rooted output',
+          exactFreshSavedStepRemoved && applyRemovalEvidence.ok, { outputId: target.outputId,
+            savedStepId: applySavedStep?.id ?? null, savedOperation: applySavedStep?.operation?.combine?.kind ?? null,
+            candidateSteps: applyCandidate?.steps ?? null, proposalId: applyResponseBody.proposalId, applyRemovalEvidence });
+        assert(exactFreshSavedStepRemoved && applyRemovalEvidence.ok,
+        `Fresh APPEND removal must preview the same exact rooted empty target: ${JSON.stringify(applyRemovalEvidence)}`);
+        await applyButton.waitFor({ state: 'visible', timeout: ACTION_BUDGET_MS });
+        assert.equal(await applyButton.isEnabled(), true,
+          'A fresh ready removal proposal must enable Apply');
+      });
+
+      await timedAction('Apply the fresh published APPEND removal and restore empty root', applyButton, async locator => {
+        const currentPreview = await readProposalPreviewState(page, target.outputId);
+        assert.equal(currentPreview.proposalId, applyResponseBody.proposalId,
+          'The Apply click must still target the fresh removal proposal');
+        assert.equal(currentPreview.previewReceiptId, applyResponseBody.proposalId);
+        assert.equal(currentPreview.resultProposalId, applyResponseBody.proposalId);
+        assert.equal(currentPreview.previewOutputId, target.outputId);
+        await locator.click({ timeout: ACTION_BUDGET_MS });
+      }, async () => waitEmpty(target.outputId));
       builder = await readBuilder();
       const restored = documentByOutput(builder, target.outputId);
       const evidence = rootedEmptyTargetRestorationEvidence(restored, target.baseline, target);
