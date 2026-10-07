@@ -986,3 +986,171 @@ test('legacy raw evidence references outside the report root need an explicit al
     rmSync(externalRoot, { recursive: true, force: true });
   }
 });
+
+const nullableCodeJoinPairPaths = {
+  report: new URL('../../../../docs/verification/playwright/runtime/nullable-code-join-epoch142-report.json', import.meta.url),
+  closure: new URL('../../../../docs/verification/playwright/runtime/nullable-code-join-epoch142-closure.json', import.meta.url),
+};
+const nullableCodeJoinScenario = registry.find((entry) => entry.id === 'cda-workspace-combine');
+const nullableCodeJoinChecks = scenarioCaseFor(nullableCodeJoinScenario, 'nullable-code-join').requiredChecks;
+const nullableCodeJoinBaseline = {
+  sourceFingerprint: fingerprint('d'.repeat(64), 1581),
+  apiBuildIdentity: '4'.repeat(64) + ':' + '5'.repeat(64) + ':' + '6'.repeat(64),
+};
+const projectNullableCodeJoinCheckOutcomes = (outcomes, requiredNames) => requiredNames.map((name) => {
+  const matchingOutcomes = outcomes.filter((outcome) => outcome.name === name);
+  return {
+    name,
+    status: matchingOutcomes.length > 0 && matchingOutcomes.every((outcome) => outcome.status === 'passed')
+      ? 'passed'
+      : 'failed',
+  };
+});
+const writeNullableCodeJoinPair = (root, mutate = () => {}) => {
+  const runtime = legacyRuntimePath(root);
+  mkdirSync(runtime, { recursive: true });
+  const reportPath = join(runtime, 'nullable-code-join-epoch142-report.json');
+  const closurePath = join(runtime, 'nullable-code-join-epoch142-closure.json');
+  const report = JSON.parse(readFileSync(nullableCodeJoinPairPaths.report, 'utf8'));
+  const closure = JSON.parse(readFileSync(nullableCodeJoinPairPaths.closure, 'utf8'));
+  mutate(report, closure);
+  writeFileSync(reportPath, JSON.stringify(report));
+  writeFileSync(closurePath, JSON.stringify(closure));
+  return { root, runtime, reportPath, closurePath, report, closure };
+};
+const summarizeNullableCodeJoinPair = (fixture) => summarizeCoverage(
+  [nullableCodeJoinScenario],
+  readReports(fixture.runtime, { cwd: fixture.root }),
+  nullableCodeJoinBaseline,
+).find((entry) => entry.path === 'cda-workspace-combine/nullable-code-join');
+
+test('accepted epoch142 nullable-code-join evidence carries all registered per-check outcomes and remains historical', () => {
+  const runtime = nullableCodeJoinPairPaths.report.pathname.replace(/nullable-code-join-epoch142-report\.json$/, '');
+  const root = new URL('../../../../', import.meta.url).pathname;
+  const report = JSON.parse(readFileSync(nullableCodeJoinPairPaths.report, 'utf8'));
+  const closure = JSON.parse(readFileSync(nullableCodeJoinPairPaths.closure, 'utf8'));
+  const normalizedEvidence = report.assertions.filter((assertion) => nullableCodeJoinChecks.includes(assertion.name));
+  const rawOutcomes = report.provenance.rawDomainRequiredAssertions;
+  const repeatedPerformanceName = 'All native nullable Join lifecycle actions complete within five seconds';
+  const repeatedPerformanceOutcomes = rawOutcomes.filter((assertion) => assertion.name === repeatedPerformanceName);
+  const expectedEvidence = projectNullableCodeJoinCheckOutcomes(rawOutcomes, nullableCodeJoinChecks);
+  const source = report.target.sourceFingerprint;
+  const build = report.target.apiBuildIdentity;
+  const row = summarizeCoverage([nullableCodeJoinScenario], readReports(runtime, { cwd: root }), nullableCodeJoinBaseline)
+    .find((entry) => entry.path === 'cda-workspace-combine/nullable-code-join');
+
+  assert.equal(report.epoch, 142);
+  assert.equal(report.schemaVersion, 2);
+  assert.equal(report.scenario, 'cda-workspace-combine');
+  assert.equal(report.case, 'nullable-code-join');
+  assert.equal(report.requiredChecks.total, 37);
+  assert.equal(rawOutcomes.length, 99);
+  assert.equal(repeatedPerformanceOutcomes.length, 46);
+  assert.ok(rawOutcomes.every((assertion) => assertion.status === 'passed'));
+  const rawOutcomesSha256 = createHash('sha256').update(JSON.stringify(rawOutcomes)).digest('hex');
+  assert.equal(report.provenance.normalization.rawRequiredCheckOutcomesSha256, rawOutcomesSha256);
+  assert.equal(closure.provenance.normalization.rawRequiredCheckOutcomesSha256, rawOutcomesSha256);
+  assert.equal(closure.provenance.normalization.normalizedReportSha256,
+    createHash('sha256').update(readFileSync(nullableCodeJoinPairPaths.report)).digest('hex'));
+  assert.equal(report.provenance.normalization.requiredCheckNamesSha256,
+    report.provenance.acceptedNestedReport.registryAcceptance.requiredCheckNamesSha256);
+  assert.deepEqual(expectedEvidence.map(({ name }) => name), nullableCodeJoinChecks);
+  assert.deepEqual(normalizedEvidence, expectedEvidence);
+  assert.deepEqual(closure.case.requiredChecks.evidence, expectedEvidence);
+  assert.equal(report.provenance.acceptedNestedReport.case.scenarioId, report.scenario);
+  assert.equal(report.provenance.acceptedNestedReport.case.caseName, report.case);
+  assert.equal(report.provenance.acceptedNestedReport.status, 'PASSED');
+  assert.equal(report.provenance.acceptedNestedReport.rootReviewStatus, 'ACCEPTED');
+  assert.equal(report.provenance.acceptedNestedReport.artifacts.domainReport.sha256,
+    '5dc9ac71c412421c011c58c9aeb7121f9be2cace3bce207358c6419054d2dd37');
+  assert.equal(report.provenance.acceptedNestedReport.sourceIdentity.sourceFingerprint.sha256, source.sha256);
+  assert.equal(report.provenance.acceptedNestedReport.integrity.apiBuildIdentity.before, build);
+  assert.equal(closure.provenance.acceptedNestedClosure.rootReviewStatus, 'ACCEPTED');
+  assert.equal(row.status, 'passed', 'the accepted record has named pass evidence for every registered requirement');
+  assert.deepEqual(row.freshness, { status: 'historical', source: 'historical', build: 'historical' });
+  assert.equal(source.sha256, '811a1c37be01e896aa94beb20829dd687a6441d60d14f916547895987c406591');
+  assert.equal(build, 'ab11a3b84d44dad4cd628c2a2fdd65065b5f76f53e203186b6134e90a7430df8:ab11a3b84d44dad4cd628c2a2fdd65065b5f76f53e203186b6134e90a7430df8:9c49edecc4e062e3c4e6b9752e24d6b59696d614a9abf18aa3ade24636d169e9');
+});
+
+test('epoch142 nullable-code-join report and closure reject wrong identity, incomplete checks, and declined integrity', () => {
+  const assertNotPassed = (mutate, expectedStatus = 'partial') => {
+    const root = mkdtempSync(join(tmpdir(), 'coverage-epoch142-reject-'));
+    try {
+      const fixture = writeNullableCodeJoinPair(root, mutate);
+      const row = summarizeNullableCodeJoinPair(fixture);
+      assert.equal(row.status, expectedStatus);
+      assert.deepEqual(row.freshness, { status: 'unknown', source: 'unknown', build: 'unknown' });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  };
+
+  assertNotPassed((_report, closure) => { closure.case.caseName = 'other-case'; });
+  assertNotPassed((_report, closure) => {
+    closure.case.requiredChecks.evidence = closure.case.requiredChecks.evidence.slice(1);
+  });
+  assertNotPassed((_report, closure) => {
+    closure.case.requiredChecks.evidence[0].status = 'failed';
+  });
+  assertNotPassed((report, closure) => {
+    const repeated = report.provenance.rawDomainRequiredAssertions.filter((assertion) =>
+      assertion.name === 'All native nullable Join lifecycle actions complete within five seconds');
+    assert.equal(repeated.length, 46);
+    repeated[0].status = 'failed';
+    assert.equal(repeated[1].status, 'passed', 'a second same-name raw outcome remains passed');
+    const derivedEvidence = projectNullableCodeJoinCheckOutcomes(
+      report.provenance.rawDomainRequiredAssertions,
+      nullableCodeJoinChecks,
+    );
+    assert.deepEqual(derivedEvidence.find((assertion) => assertion.name === repeated[0].name), {
+      name: repeated[0].name,
+      status: 'failed',
+    });
+    report.assertions = [
+      ...derivedEvidence,
+      ...report.assertions.filter((assertion) => !nullableCodeJoinChecks.includes(assertion.name)),
+    ];
+    const passed = derivedEvidence.filter((assertion) => assertion.status === 'passed').length;
+    const failed = derivedEvidence.filter((assertion) => assertion.status === 'failed').length;
+    report.requiredChecks = { passed, failed, unrun: 0, total: nullableCodeJoinChecks.length };
+    closure.case.requiredChecks.evidence = derivedEvidence;
+    closure.case.requiredChecks.passed = passed;
+    closure.case.requiredChecks.failed = failed;
+    closure.case.requiredChecks.unrun = 0;
+    closure.case.requiredChecks.missingOrUnrun = 0;
+    closure.case.requiredChecks.missingOrFailed = failed;
+  });
+  assertNotPassed((_report, closure) => { closure.integrityClosure.status = 'FAIL'; });
+  assertNotPassed((_report, closure) => { closure.status = 'CLOSED_DECLINED'; });
+});
+
+test('epoch142 nullable-code-join authoritative report, closure, and ledger hashes cross-link', () => {
+  const reportBytes = readFileSync(nullableCodeJoinPairPaths.report);
+  const closureBytes = readFileSync(nullableCodeJoinPairPaths.closure);
+  const reportSha256 = createHash('sha256').update(reportBytes).digest('hex');
+  const closureSha256 = createHash('sha256').update(closureBytes).digest('hex');
+  const report = JSON.parse(reportBytes);
+  const closure = JSON.parse(closureBytes);
+  const ledgerPath = new URL('../../../../docs/BUILDER_VERIFICATION.tsv', import.meta.url);
+  const ledgerRows = readFileSync(ledgerPath, 'utf8').split('\n').map((line) => line.split('\t'))
+    .filter((columns) => columns[0] === 'Join'
+      && columns[1]?.startsWith('Epoch 142 native CDA current-draft MISSING-code KEY_JOIN'));
+
+  assert.equal(report.durableClosurePath, 'docs/verification/playwright/runtime/nullable-code-join-epoch142-closure.json');
+  assert.equal(closure.report.path, 'docs/verification/playwright/runtime/nullable-code-join-epoch142-report.json');
+  assert.equal(closure.report.sha256, reportSha256);
+  assert.equal(closure.provenance.normalization.normalizedReportSha256, reportSha256);
+  assert.equal(ledgerRows.length, 1);
+  const ledgerHashes = ledgerRows[0][8].match(
+    /docs\/verification\/playwright\/runtime\/nullable-code-join-epoch142-report\.json SHA-256 ([a-f0-9]{64}); closure SHA-256 ([a-f0-9]{64})/,
+  );
+  assert.ok(ledgerHashes, 'the owned epoch142 row records both normalized artifact hashes');
+  assert.equal(ledgerHashes[1], reportSha256);
+  assert.equal(ledgerHashes[2], closureSha256);
+  assert.equal(report.provenance.normalization.acceptedReportSha256,
+    '90ea3fce1de785e3487e642f89d05fd13118b659c12af45b2087822aa2e992fd');
+  assert.equal(closure.provenance.normalization.acceptedClosureSha256,
+    'b8f3579d5be39c2752d58f4edb87172e0479edf259fa165de11059ecada62919');
+  assert.equal(closure.provenance.acceptedNestedClosure.report.sha256,
+    '90ea3fce1de785e3487e642f89d05fd13118b659c12af45b2087822aa2e992fd');
+});
