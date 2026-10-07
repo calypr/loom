@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
+import { EventEmitter } from 'node:events';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
+import { captureRequests } from '../cda-playwright.mjs';
 import {
   cdaNullableEmptyRemovalPreviewEvidence,
   cdaNullableCodeJoinDirectSourceEvidence,
@@ -34,6 +36,76 @@ const right = [
   row('bfe79f40-5134-53d0-bcc7-9ec6d0843646', 'd'),
   row('485e2567-b566-56f3-b5bd-5f025f37cd95', null, false),
 ];
+
+test('native request capture uses report-array indexes and rejects wrong origins', async () => {
+  const page = new EventEmitter();
+  const report = { nativeRequests: [], errors: [] };
+  const apiOrigin = 'http://127.0.0.1:8188';
+  const ownedPathPrefix = '/api/v1/projects/loom_dev_cda_fhir/explorers/nullable-join';
+  const capture = captureRequests(page, report, ownedPathPrefix, { apiOrigin, uiOrigin: apiOrigin });
+  assert.equal(typeof capture.startIndex, 'undefined', 'the tracker exposes no startIndex method');
+
+  const emitOwnedResponse = async ({ path, body, responseBody, match }) => {
+    const fromIndex = report.nativeRequests.length;
+    const request = {
+      url: () => `${apiOrigin}${ownedPathPrefix}${path}`,
+      method: () => 'POST',
+      headers: () => ({ 'x-request-id': `request-${fromIndex}` }),
+      postData: () => JSON.stringify(body),
+      failure: () => null,
+    };
+    page.emit('request', request);
+    const pending = capture.waitFor(match, { fromIndex, timeoutMs: 1_000 });
+    page.emit('response', {
+      request: () => request,
+      status: () => 200,
+      headers: () => ({ 'x-request-id': `response-${fromIndex}` }),
+      text: async () => JSON.stringify(responseBody),
+    });
+    return { fromIndex, event: await pending };
+  };
+
+  const choiceBody = { commandId: 'choice-command', outputId: 'out-left', constructionChoices: [{ choiceId: 'choice-1' }] };
+  const choiceResponseBody = { commandId: 'choice-command', outputId: 'out-left', candidateColumnIds: ['code-column'] };
+  const choice = await emitOwnedResponse({ path: '/authoring/v2/construction-choice-proposals',
+    body: choiceBody, responseBody: choiceResponseBody,
+    match: entry => entry.path.endsWith('/construction-choice-proposals') && entry.body?.commandId === 'choice-command' });
+  assert.equal(choice.fromIndex, 0);
+  assert.equal(choice.event, report.nativeRequests[0]);
+  assert.deepEqual(capture.rawRequestBody(choice.event), choiceBody);
+  assert.deepEqual(capture.rawResponseBody(choice.event), choiceResponseBody);
+
+  const wrongOriginRequest = {
+    url: () => `http://127.0.0.1:9999${ownedPathPrefix}/authoring/v2/commands`,
+    method: () => 'POST', headers: () => ({}), postData: () => '{"commandId":"wrong-origin"}',
+  };
+  page.emit('request', wrongOriginRequest);
+  assert.equal(report.nativeRequests.length, 1, 'a same-path request from the wrong origin is ignored');
+
+  const commandsMatch = entry => entry.path.endsWith('/commands') && entry.method === 'POST';
+  const createBody = { commandId: 'create-command', commands: [{ type: 'CREATE_TABLE' }] };
+  const createResponseBody = { commandId: 'create-command', results: [{ type: 'TABLE_CREATED' }] };
+  const create = await emitOwnedResponse({ path: '/authoring/v2/commands', body: createBody,
+    responseBody: createResponseBody, match: commandsMatch });
+  assert.equal(create.fromIndex, 1);
+  assert.equal(create.event, report.nativeRequests[1]);
+  assert.deepEqual(capture.rawRequestBody(create.event), createBody);
+  assert.deepEqual(capture.rawResponseBody(create.event), createResponseBody);
+
+  const applyBody = { commandId: 'apply-command', commands: [{ type: 'APPLY_CONSTRUCTION_CHOICE', outputId: 'out-left' }] };
+  const applyResponseBody = { commandId: 'apply-command', results: [{ type: 'COLUMN_ADDED', outputId: 'out-left' }] };
+  const apply = await emitOwnedResponse({ path: '/authoring/v2/commands', body: applyBody,
+    responseBody: applyResponseBody, match: commandsMatch });
+  assert.equal(apply.fromIndex, 2, 'each action starts at the current report-array length');
+  assert.equal(apply.event, report.nativeRequests[2], 'the same predicate resolves only the later request');
+  assert.notEqual(apply.event, create.event, 'fromIndex excludes the earlier matching command');
+  assert.deepEqual(capture.rawRequestBody(apply.event), applyBody);
+  assert.deepEqual(capture.rawResponseBody(apply.event), applyResponseBody);
+
+  await capture.flush();
+  assert.equal(report.nativeRequests.length, 3);
+  assert.deepEqual(report.errors, []);
+});
 
 test('new Explorer identity binds create summary, exact Builder route, NEW null-workspace state, and catalog scope', () => {
   const project = 'loom_dev_cda_fhir';
@@ -346,6 +418,10 @@ test('native nullable Join registration binds proposal, LEFT edit, removal, and 
     'the proposal binds the public column name while Join references use the distinct stable source columnId');
   assert.match(workflow, /responsePaths: \/commands\|construction-choice-proposals\|construction-proposals\//,
     'native capture must retain choice proposal and Apply response bodies');
+  assert.doesNotMatch(workflow, /capture\.startIndex\s*\(/,
+    'request boundaries use the capture helper report array, which has no startIndex method');
+  assert.equal((workflow.match(/report\.nativeRequests\.length/g) ?? []).length, 5,
+    'every native request wait starts from the actual report-array boundary');
   assert.match(workflow, /leftSource\.idColumn\.columnId, leftSource\.codeColumn\.columnId,[\s\S]*?rightSource\.idColumn\.columnId, rightSource\.codeColumn\.columnId/,
     'native KEY_JOIN inputs must use the stable authored columnId, not the physical `column` name');
   assert.doesNotMatch(workflow, /(?:idColumn|codeColumn)\.id\b/,

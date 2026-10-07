@@ -287,7 +287,7 @@ export async function cdaCurrentDraftNullableCodeJoinWorkflow({ page, cda }) {
     await action(`Select Observation.valueQuantity.code for ${source.side} source`, page.locator(checkbox),
       locator => locator.check({ timeout: 5_000 }));
     const addSelected = page.getByRole('button', { name: 'Add 1 selected feature', exact: true });
-    const choiceProposalStart = capture.startIndex();
+    const choiceProposalStart = report.nativeRequests.length;
     await action(`Add scalar valueQuantity.code to ${source.side} source`, addSelected,
       locator => locator.click({ timeout: 5_000 }), async () => waitApplyColumns());
     const choiceEvent = await capture.waitFor(entry => entry.path === `${authoring}/construction-choice-proposals` &&
@@ -504,7 +504,7 @@ export async function cdaCurrentDraftNullableCodeJoinWorkflow({ page, cda }) {
       checkScope(builder);
       const rootNodeIDs = builder.catalog.nodes.filter(node => node.resourceType === 'Observation' && node.rowRootEligible).map(node => node.nodeId);
       const priorOutputIDs = builder.workspace.documents.map(document => document.output.id);
-      const fromIndex = capture.startIndex();
+      const fromIndex = report.nativeRequests.length;
       await cda.navigate(uiURL);
       const combineAction = page.getByTestId('construction-action-combine');
       await action('Open native Combine to create the empty nullable Join target', combineAction,
@@ -531,7 +531,7 @@ export async function cdaCurrentDraftNullableCodeJoinWorkflow({ page, cda }) {
       return target;
     };
     const configureJoin = async (joinType, expectedRows) => {
-      const fromIndex = capture.startIndex();
+      const fromIndex = report.nativeRequests.length;
       const baseState = structuredClone(await readBuilder());
       checkScope(baseState);
       await action('Choose native KEY_JOIN for raw CDA sources', page.getByTestId('construction-combine-choice-key_join'),
@@ -607,7 +607,7 @@ export async function cdaCurrentDraftNullableCodeJoinWorkflow({ page, cda }) {
     const configurePolicy = async (joinType, expectedRows, currentTarget) => {
       const baseState = structuredClone(await readBuilder());
       checkScope(baseState);
-      const fromIndex = capture.startIndex();
+      const fromIndex = report.nativeRequests.length;
       const selector = 'select[aria-label="If a row in the first table has no match"]';
       await action(`Set saved raw Join policy to ${joinType}`, page.locator(selector),
         locator => locator.selectOption(joinType, { timeout: 5_000 }), async () => waitProposal(currentTarget.outputId, expectedRows.length));
@@ -728,7 +728,7 @@ export async function cdaCurrentDraftNullableCodeJoinWorkflow({ page, cda }) {
       await action('Open saved Join history before removal', history, locator => locator.click({ timeout: 5_000 }),
         async () => assertEnabled(remove));
       const baseState = structuredClone(await readBuilder());
-      const fromIndex = capture.startIndex();
+      const fromIndex = report.nativeRequests.length;
       await action('Preview raw nullable Join removal', remove, locator => locator.click({ timeout: 5_000 }),
         async () => waitProposal(target.outputId, 0));
       const proposal = await captureProposal({ fromIndex, outputId: target.outputId, baseState });
