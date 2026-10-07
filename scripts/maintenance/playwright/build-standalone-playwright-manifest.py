@@ -382,7 +382,13 @@ def has_browser_owner(path: Path | None) -> bool:
     return any(pattern.search(source) for pattern in OWNER_PATTERNS)
 
 
-def loom_dev_journeys(root: Path, embedded_maps: list[Path], baseline_journeys: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+def loom_dev_journeys(
+    root: Path,
+    embedded_maps: list[Path],
+    baseline_journeys: list[dict[str, Any]],
+    *,
+    prefer_baseline: bool = False,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     source_path = root / "scripts" / "loom-dev.mjs"
     if not source_path.is_file():
         return [], []
@@ -411,7 +417,10 @@ def loom_dev_journeys(root: Path, embedded_maps: list[Path], baseline_journeys: 
             for item in entries:
                 if isinstance(item, dict):
                     function = item.get("function") or item.get("functionName")
-                    if function:
+                    # The previous manifest is the latest complete mapping.
+                    # Older handoff maps can fill new functions but cannot
+                    # roll an existing journey back.
+                    if function and (not prefer_baseline or function not in mapped_by_function):
                         mapped_by_function[function] = item
     journeys = []
     source_digest = sha256(source_path)
@@ -851,7 +860,13 @@ def main() -> int:
             browser_records[path] = item
 
     out_path = args.output if args.output.is_absolute() else REPOSITORY_ROOT / args.output
-    previous_manifest = json.loads(out_path.read_text()) if out_path.exists() else {}
+    previous_manifest_path = out_path
+    prefer_baseline = False
+    canonical_manifest_path = REPOSITORY_ROOT / "docs/verification/playwright/source-conversion-manifest.json"
+    if not out_path.is_file() and canonical_manifest_path.is_file():
+        previous_manifest_path = canonical_manifest_path
+        prefer_baseline = True
+    previous_manifest = json.loads(previous_manifest_path.read_text()) if previous_manifest_path.is_file() else {}
     previous_by_path = {relpath(item.get("sourcePath", "")): item for item in previous_manifest.get("sources", [])}
 
     all_paths = set(source_files) | set(browser_records) | set(worker_map) | set(previous_by_path)
@@ -1040,7 +1055,12 @@ def main() -> int:
     embedded_map_paths = [path if path.is_absolute() else REPOSITORY_ROOT / path for path in args.embedded_map]
     previous_embedded = previous_manifest.get("additionalBrowserWorkflowSources", [])
     baseline_journeys = next((item.get("journeys", []) for item in previous_embedded if item.get("sourcePath") == "scripts/loom-dev.mjs"), [])
-    embedded_journeys, embedded_map_inputs = loom_dev_journeys(source_root, embedded_map_paths, baseline_journeys)
+    embedded_journeys, embedded_map_inputs = loom_dev_journeys(
+        source_root,
+        embedded_map_paths,
+        baseline_journeys,
+        prefer_baseline=prefer_baseline,
+    )
     if not embedded_map_paths:
         embedded_map_inputs = previous_manifest.get("sourceScope", {}).get("embeddedJourneyMapInputs", [])
     additional_map_paths = [path if path.is_absolute() else REPOSITORY_ROOT / path for path in args.additional_browser_map]
