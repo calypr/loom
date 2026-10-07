@@ -1,0 +1,278 @@
+{
+  "epoch": 146,
+  "status": "CLOSED_PASS",
+  "acceptedCommit": {
+    "sha": "1944e2b86a3868ffee0a36c76b9cef099ba62974",
+    "provenance": "Frozen source commit accepted before the wave146 run; raw source/API capture hashes are linked below."
+  },
+  "case": {
+    "scenarioId": "builder-combine",
+    "caseName": "append",
+    "title": "APPEND preview, apply, edit, cancel, removal and reload",
+    "status": "passed",
+    "failureAttribution": null,
+    "classificationNote": "The full published-source Basic fixture lifecycle passed 45/45 named checks. It covers the eight-row duplicate-preserving null-padded union, initial and removal proposal Cancel, Apply, saved-edit Cancel/Apply, reload, and rooted-target restoration. This is not CDA or unpublished/current-draft evidence.",
+    "requiredChecks": {
+      "passed": 45,
+      "total": 45,
+      "missingOrFailed": 0,
+      "missingOrUnrun": 0,
+      "evidence": [
+        {
+          "name": "fixture contains one bootstrap Patient, four Observations, and three DiagnosticReports",
+          "status": "passed"
+        },
+        {
+          "name": "Observation source starts with every literal fixture identity",
+          "status": "passed"
+        },
+        {
+          "name": "DiagnosticReport source starts with every literal fixture identity",
+          "status": "passed"
+        },
+        {
+          "name": "Patient source starts with every literal fixture identity",
+          "status": "passed"
+        },
+        {
+          "name": "native source-table publication completed successfully",
+          "status": "passed"
+        },
+        {
+          "name": "Builder response matches the exact project-scoped route, workspace title, and source output identities",
+          "status": "passed"
+        },
+        {
+          "name": "source Builder snapshot is bound to the expected generation, draft, and authorization scope",
+          "status": "passed"
+        },
+        {
+          "name": "source revisions are published in the exact project, generation, and authorization scope",
+          "status": "passed"
+        },
+        {
+          "name": "source schemas expose scalar IDs, status and gender fields, and a numeric Observation value",
+          "status": "passed"
+        },
+        {
+          "name": "published source API and schema fingerprint captured within five seconds",
+          "status": "passed"
+        },
+        {
+          "name": "native Combine creates a rooted empty Observation target without adding an authored step or output column",
+          "status": "passed"
+        },
+        {
+          "name": "native APPEND inputs pin exact current Observation, DiagnosticReport, and Patient revisions",
+          "status": "passed"
+        },
+        {
+          "name": "APPEND editor has exactly three named output rows with the intended mappings before preview",
+          "status": "passed"
+        },
+        {
+          "name": "APPEND editor requires explicit Empty for this table choices while blank mappings stay unconfigured",
+          "status": "passed"
+        },
+        {
+          "name": "automatic APPEND proposal omits only explicit-empty source pairs and marks padded outputs nullable",
+          "status": "passed"
+        },
+        {
+          "name": "automatic APPEND proposal is bound to the exact target output and current Builder snapshot",
+          "status": "passed"
+        },
+        {
+          "name": "APPEND preview matches the literal null-padding oracle and contains the complete eight-row input union",
+          "status": "passed"
+        },
+        {
+          "name": "APPEND proposal response has literal JSON nulls at exactly omitted source positions",
+          "status": "passed"
+        },
+        {
+          "name": "APPEND field choices reject a source with a different scalar type",
+          "status": "passed"
+        },
+        {
+          "name": "APPEND Apply preserves the exact null-padded row union",
+          "status": "passed"
+        },
+        {
+          "name": "APPEND null padding and complete input union survive Builder reload",
+          "status": "passed"
+        },
+        {
+          "name": "editing a saved APPEND reconstructs each omitted mapping as explicit Empty for this table",
+          "status": "passed"
+        },
+        {
+          "name": "Cancel leaves the original absent-field APPEND schema and label unchanged",
+          "status": "passed"
+        },
+        {
+          "name": "cancelled APPEND edit retains null padding and all source rows after reload",
+          "status": "passed"
+        },
+        {
+          "name": "edited APPEND label and exact sparse mappings survive Apply",
+          "status": "passed"
+        },
+        {
+          "name": "edited APPEND null padding survives reload",
+          "status": "passed"
+        },
+        {
+          "name": "APPEND removal proposal is ready for the rooted empty target",
+          "status": "passed"
+        },
+        {
+          "name": "removing APPEND and reloading restores the rooted empty target",
+          "status": "passed"
+        },
+        {
+          "name": "published Patient, Observation, and DiagnosticReport source tables remain unchanged",
+          "status": "passed"
+        },
+        {
+          "name": "project, generation, Explorer, and authorization scope remain stable",
+          "status": "passed"
+        },
+        {
+          "name": "open Combine operation chooser action-to-render within budget",
+          "status": "passed"
+        },
+        {
+          "name": "choose APPEND and load the initial two input selectors action-to-render within budget",
+          "status": "passed"
+        },
+        {
+          "name": "add APPEND input table 3 action-to-render within budget",
+          "status": "passed"
+        },
+        {
+          "name": "automatically preview three-input APPEND with explicit absent-field mappings action-to-render within budget",
+          "status": "passed"
+        },
+        {
+          "name": "open saved Combine editor and load pinned sources action-to-render within budget",
+          "status": "passed"
+        },
+        {
+          "name": "preview APPEND edit after saved empty choices are reconstructed action-to-render within budget",
+          "status": "passed"
+        },
+        {
+          "name": "repreview edited APPEND output label with absent-field mappings intact action-to-render within budget",
+          "status": "passed"
+        },
+        {
+          "name": "initial APPEND proposal previews the literal eight-row ID union before Cancel",
+          "status": "passed"
+        },
+        {
+          "name": "Canceling initial APPEND proposal preserves the exact fresh rooted target before creating a distinct target for reconfiguration",
+          "status": "passed"
+        },
+        {
+          "name": "Canceling APPEND removal preserves the exact saved schema, step, and rows before removal",
+          "status": "passed"
+        },
+        {
+          "name": "Initial APPEND proposal Cancel reload reaches the exact rooted empty target within five seconds",
+          "status": "passed"
+        },
+        {
+          "name": "APPEND Apply reload reaches the exact saved rows and headers within five seconds",
+          "status": "passed"
+        },
+        {
+          "name": "APPEND saved-edit Cancel reload reaches the exact saved rows and headers within five seconds",
+          "status": "passed"
+        },
+        {
+          "name": "APPEND edit Apply reload reaches the exact saved rows and headers within five seconds",
+          "status": "passed"
+        },
+        {
+          "name": "APPEND removal reload reaches the exact rooted empty target within five seconds",
+          "status": "passed"
+        }
+      ]
+    },
+    "rawDomainReport": {
+      "path": "/private/tmp/loom-append-nullpadding-wave146.HX7V67/run-builder-combine-append-nuBUdp/playwright-results/append-APPEND-preview-apply-edit-cancel-removal-and-reload/attachments/loom-verification-report-json-602efebb7cd030d20dd6b3f6e9c88f80a0ecf8e8.json",
+      "sha256": "780f4ba23bdbca3c433fbf09787a8ed7cfb2044ada26f120b244ed77a0181e7a",
+      "bytes": 815724
+    },
+    "summary": {
+      "path": "/private/tmp/loom-append-nullpadding-wave146.HX7V67/run-builder-combine-append-nuBUdp/summary.json",
+      "sha256": "b6731e1fd20cf2bbfe0b7d48394ad09259f4b42e594f13d8129eacf621c85286",
+      "bytes": 155534
+    }
+  },
+  "integrityClosure": {
+    "status": "PASS",
+    "source": {
+      "before": {
+        "sha256": "f22ad000f6f93af88ce279a160868b2e9ac4c66e6450292d57b55a57320a2ae4",
+        "files": 1590
+      },
+      "after": {
+        "sha256": "f22ad000f6f93af88ce279a160868b2e9ac4c66e6450292d57b55a57320a2ae4",
+        "files": 1590
+      },
+      "manifestsEqual": true,
+      "changedPaths": []
+    },
+    "docs": {
+      "before": {
+        "sha256": "4d3ff5131ff56cf3f83e83e68a82c78cf11f985edc5b7155a800ad899a4eadd3",
+        "files": 294
+      },
+      "after": {
+        "sha256": "4d3ff5131ff56cf3f83e83e68a82c78cf11f985edc5b7155a800ad899a4eadd3",
+        "files": 294
+      },
+      "manifestsEqual": true,
+      "changedPaths": []
+    },
+    "apiBuildIdentity": {
+      "before": "47ab963c82138165bf570b155bde5559fa83711ab2775ec5dc4fa4db25771111:47ab963c82138165bf570b155bde5559fa83711ab2775ec5dc4fa4db25771111:f9d819db0aa31b233b2a4cae5b43295713bd0662eb5616fd8b72b32dca0e9b77",
+      "after": "47ab963c82138165bf570b155bde5559fa83711ab2775ec5dc4fa4db25771111:47ab963c82138165bf570b155bde5559fa83711ab2775ec5dc4fa4db25771111:f9d819db0aa31b233b2a4cae5b43295713bd0662eb5616fd8b72b32dca0e9b77",
+      "precheck": "47ab963c82138165bf570b155bde5559fa83711ab2775ec5dc4fa4db25771111:47ab963c82138165bf570b155bde5559fa83711ab2775ec5dc4fa4db25771111:f9d819db0aa31b233b2a4cae5b43295713bd0662eb5616fd8b72b32dca0e9b77",
+      "unchanged": true
+    },
+    "ownedMounts": {
+      "before": "PASS",
+      "after": "PASS",
+      "targetUnchanged": true,
+      "target": {
+        "project": "loom_dev_c89a69d7e137",
+        "composeProject": "loom-dev-6d7df93d6a37",
+        "apiContainer": "loom-dev-6d7df93d6a37-loom-api-1",
+        "uiContainer": "loom-dev-6d7df93d6a37-loom-ui-1",
+        "arangoContainer": "loom-dev-6d7df93d6a37-arangodb-1",
+        "clickhouseContainer": "loom-dev-6d7df93d6a37-clickhouse-1",
+        "apiPort": "8188",
+        "uiPort": "30008",
+        "sourceRoot": "/private/tmp/loom-construction-implementation",
+        "generation": "group-pivot-append-wave142"
+      }
+    },
+    "health": {
+      "before": {
+        "status": "PASS",
+        "samples": 3,
+        "apiBuildIdentity": "47ab963c82138165bf570b155bde5559fa83711ab2775ec5dc4fa4db25771111:47ab963c82138165bf570b155bde5559fa83711ab2775ec5dc4fa4db25771111:f9d819db0aa31b233b2a4cae5b43295713bd0662eb5616fd8b72b32dca0e9b77"
+      },
+      "after": {
+        "status": "PASS",
+        "samples": 3,
+        "apiBuildIdentity": "47ab963c82138165bf570b155bde5559fa83711ab2775ec5dc4fa4db25771111:47ab963c82138165bf570b155bde5559fa83711ab2775ec5dc4fa4db25771111:f9d819db0aa31b233b2a4cae5b43295713bd0662eb5616fd8b72b32dca0e9b77"
+      }
+    }
+  },
+  "rawReportSha256": "780f4ba23bdbca3c433fbf09787a8ed7cfb2044ada26f120b244ed77a0181e7a",
+  "summarySha256": "b6731e1fd20cf2bbfe0b7d48394ad09259f4b42e594f13d8129eacf621c85286"
+}
