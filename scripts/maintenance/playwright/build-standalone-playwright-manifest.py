@@ -862,12 +862,17 @@ def main() -> int:
             all_paths.add(rel)
     preimages_path = args.preimages if args.preimages.is_absolute() else REPOSITORY_ROOT / args.preimages
     preimages = json.loads(preimages_path.read_text()) if preimages_path.exists() else {}
+    unknown_historical_preimages = []
     for rel in sorted(all_paths):
-        current_path = source_files.get(rel, source_root / rel)
-        if rel not in preimages:
-            prior = previous_by_path.get(rel, {}).get("preimageSha256")
-            mapped_preimage = worker_map.get(rel, {}).get("workerSourcePreimageSha256") or worker_map.get(rel, {}).get("sourcePreimageSha256")
-            preimages[rel] = prior or mapped_preimage or sha256(current_path)
+        if preimages.get(rel):
+            continue
+        prior = previous_by_path.get(rel, {}).get("preimageSha256")
+        mapped_preimage = worker_map.get(rel, {}).get("workerSourcePreimageSha256") or worker_map.get(rel, {}).get("sourcePreimageSha256")
+        historical_preimage = prior or mapped_preimage
+        if historical_preimage:
+            preimages[rel] = historical_preimage
+        else:
+            unknown_historical_preimages.append(rel)
     preimages_path.parent.mkdir(parents=True, exist_ok=True)
     preimages_path.write_text(json.dumps(preimages, indent=2, sort_keys=True) + "\n")
 
@@ -1006,6 +1011,7 @@ def main() -> int:
         entry = {
             "sourcePath": source_path,
             "preimageSha256": preimages.get(source_path),
+            "historicalPreimageStatus": "known" if preimages.get(source_path) else "unknown",
             "currentSha256": current_hash,
             "sourceStillPresent": path is not None,
             "ownerPartition": worker.get("ownerPartition") or source_owner(source_path, bool(browser), ui),
@@ -1317,6 +1323,7 @@ def main() -> int:
         "currentRootVerifySources": sum(path.startswith("scripts/") for path in actual_source_paths),
         "currentUiPackageVerifySources": len(ui_paths),
         "sourceRowsWithNativeCaseMappings": sum(bool(item["nativeCases"]) for item in records),
+        "unknownHistoricalSourcePreimages": len(unknown_historical_preimages),
         "sourceToNativeCaseMappingRows": sum(len(item["nativeCases"]) for item in records),
         "distinctSourceNativeCaseKeys": len({
             (case.get("scenarioID"), case.get("caseName") or case.get("caseTitle"))
@@ -1393,8 +1400,9 @@ def main() -> int:
         "counts": counts,
         "infrastructureSpecs": infrastructure_specs,
         "ownershipPartitions": partition_counts,
-        "mechanicalConversionComplete": not unclassified and not set(pending) and not registry_pending and not orphan_specs and not unmapped_maps and not embedded_pending and not additional_pending and not any(item["directBrowserOwnershipPresent"] or item["disposition"] == "missing-without-retirement-evidence" for item in launcher_implementations),
-        "readyForBrowserTesting": not unclassified and not set(pending) and not registry_pending and not orphan_specs and not unmapped_maps and not embedded_pending and not additional_pending and not any(item["directBrowserOwnershipPresent"] or item["disposition"] == "missing-without-retirement-evidence" for item in launcher_implementations),
+        "mechanicalConversionComplete": not unknown_historical_preimages and not unclassified and not set(pending) and not registry_pending and not orphan_specs and not unmapped_maps and not embedded_pending and not additional_pending and not any(item["directBrowserOwnershipPresent"] or item["disposition"] == "missing-without-retirement-evidence" for item in launcher_implementations),
+        "readyForBrowserTesting": not unknown_historical_preimages and not unclassified and not set(pending) and not registry_pending and not orphan_specs and not unmapped_maps and not embedded_pending and not additional_pending and not any(item["directBrowserOwnershipPresent"] or item["disposition"] == "missing-without-retirement-evidence" for item in launcher_implementations),
+        "unknownHistoricalPreimages": unknown_historical_preimages,
         "runtimeEvidenceStatus": "not-run",
         "runtimeEvidenceNote": "Static source conversion and --list discovery do not establish that any mapped browser workflow ran.",
         "testDiscoveryEvidence": {
@@ -1450,6 +1458,7 @@ def main() -> int:
             f"Source set: 85 root inventory rows plus {counts['currentUiPackageVerifySources']} additional package-local source ({counts['allSourceRecords']} records); {counts['obsoleteSourcesRemoved']} root sources intentionally deleted; {counts['currentRootVerifySources']} root verify files and {counts['currentUiPackageVerifySources']} package-local verify file remain ({counts['currentSourceFiles']} current files total).",
             f"Browser inventory: {counts['officialRootBrowserEntrypoints']} root standalone entrypoints; {counts['additionalUiPackageBrowserEntrypoints']} package-local entrypoint; {counts['registryCases']} registered Playwright cases.",
             f"Mapped sources: {counts['convertedSources']}; retained API/helper sources: {counts['retainedApiOrHelperSources']}; pending source mappings/dispositions: {counts['pendingSourceMappingsOrDisposition']}.",
+            f"Historical preimages with unknown provenance: {counts['unknownHistoricalSourcePreimages']}; these keep mechanical conversion and browser readiness incomplete.",
             f"Native case map: {counts['sourceRowsWithNativeCaseMappings']} source rows / {counts['sourceToNativeCaseMappingRows']} source-to-case rows ({counts['distinctSourceNativeCaseKeys']} distinct source-case keys); {counts['sourceRowsWithLegacyBrowserOwnershipRemoved']} source rows record legacy browser ownership removed.",
             f"Native spec accounting: {counts['nativePlaywrightSpecFiles']} current spec files; {counts['mappedNativePlaywrightSpecFiles']} mapped to legacy sources or registry cases; {counts['infrastructureSpecs']} explicitly classified harness specs; {counts['orphanNativeSpecs']} orphan specs.",
             f"Runtime evidence: {manifest['runtimeEvidenceStatus']}; official Playwright --list discovery: {manifest['testDiscoveryEvidence']['discoveredTestCount']} tests in {manifest['testDiscoveryEvidence']['discoveredSpecFileCount']} files (discovery only; lifecycle not run).",
@@ -1466,6 +1475,8 @@ def main() -> int:
             lines.append(f"| `{item['sourcePath']}` | {item['ownerPartition']} | {item['disposition']} | {len(item['nativeCases'])} | {item['legacyBrowserOwnershipRemoved']} | {item['runtimeEvidence'].get('status', 'not-run')} | {specs} | {reason} |")
         lines.extend(["", "## Pending mappings and dispositions", ""])
         lines.extend(f"- `{path}`" for path in manifest["pendingNativeMappingsOrDisposition"])
+        lines.extend(["", "## Unknown historical source preimages", ""])
+        lines.extend(f"- `{path}`" for path in manifest["unknownHistoricalPreimages"])
         lines.extend(["", "## Embedded Loom development browser journeys", ""])
         for group in manifest["additionalBrowserWorkflowSources"]:
             lines.extend(f"- `{item['journeyID']}` at `scripts/loom-dev.mjs:{item['launchLine']}` ({item['function']}; {', '.join(item['commands']) or 'command pending'}): {('mapped' if item['nativeSpecPaths'] and item['nativeCases'] else 'mapping pending')}" for item in group["journeys"])
