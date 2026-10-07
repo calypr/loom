@@ -576,9 +576,16 @@ describe('ConstructionReshapeEditor', () => {
     }));
     const capabilities = { ...capabilitiesFor(), pivotSourceInput: { supported: true, stageId: sourceStage.id, choices } };
     const { view } = renderEditor({ initialKind: 'pivot', construction: base, capabilities, onDiscoverCategories, onCandidateChange });
+    const groupSelect = screen.getByLabelText('Add pivot group field');
     fireEvent.change(screen.getByLabelText('Add pivot group field'), { target: { value: 'source:choice-2' } });
+    expect(controlValue('Add pivot group field')).toBe('');
+    expect([...groupSelect.querySelectorAll('option')].map(option => option.value)).not.toContain('source:choice-2');
     fireEvent.change(screen.getByLabelText('Pivot category field'), { target: { value: 'source:choice-0' } });
     fireEvent.change(screen.getByLabelText('Pivot values field'), { target: { value: 'source:choice-1' } });
+    expect(controlValue('Pivot category field')).toMatch(/^pivot-input_/);
+    expect(screen.getByLabelText('Pivot category field').querySelector('option:checked')?.textContent).toBe('Category');
+    expect(controlValue('Pivot values field')).toMatch(/^pivot-input_/);
+    expect(screen.getByLabelText('Pivot values field').querySelector('option:checked')?.textContent).toBe('Value (string)');
     expect(controlChecked('Pivot group Group')).toBe(true);
     expect(screen.queryByRole('button', { name: 'Add a paired coded concept' })).not.toBeInTheDocument();
     await waitFor(() => expect(onDiscoverCategories).toHaveBeenCalled());

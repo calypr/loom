@@ -16,6 +16,20 @@ import { fixtureSourceDigest } from '../../loom-dev.mjs';
 import { browserURL } from './builder-url.mjs';
 import { scenarioCaseFor } from '../registry.mjs';
 
+export const pivotSourceSelectionReady = ({ selector, sourceValue, role, outputLabel, outputType }) => {
+  const control = document.querySelector(selector);
+  const sourceOptionRemains = control && [...control.options].some(option => option.value === sourceValue);
+  if (sourceOptionRemains) return false;
+  if (role === 'group') {
+    return [...document.querySelectorAll('input[type="checkbox"]')].some(input =>
+      input.getAttribute('aria-label') === `Pivot group ${outputLabel}` && input.checked);
+  }
+  if (!control || !control.value.startsWith('pivot-input_')) return false;
+  const selectedOption = control.selectedOptions?.[0];
+  const expectedLabel = role === 'value' ? `${outputLabel} (${outputType})` : outputLabel;
+  return selectedOption?.value === control.value && selectedOption.textContent.trim() === expectedLabel;
+};
+
 export async function rootQuantityPivotWorkflow(page, nativeReport, action, check, fault, context) {
   const report = nativeReport.rootQuantityPivot ?? (nativeReport.rootQuantityPivot = {});
   const env = { ...process.env, ...(context.env ?? {}) };
@@ -394,7 +408,24 @@ const selectPivotSource = async (label, path) => {
   const options = await inspectPage(page, selector => [...document.querySelector(selector).options].map(option=>({label:option.textContent,value:option.value})), selector);
   const matches = options.filter(option => option.value.startsWith('source:') && option.label.includes(path));
   assert.equal(matches.length, 1, `Expected one exact root source option for ${path}: ${JSON.stringify(options)}`);
-  await selectNative(page, selector, matches[0].value);
+  const role = label === 'Add pivot group field' ? 'group'
+    : label === 'Pivot category field' ? 'category'
+      : label === 'Pivot values field' ? 'value' : undefined;
+  assert(role, `Unexpected Pivot source role ${label}`);
+  const valueType = role === 'value' ? matches[0].label.match(/\s+\(([^()]*)\)$/) : undefined;
+  assert(role !== 'value' || valueType, `Expected a typed Pivot value choice for ${path}: ${matches[0].label}`);
+  const sourceLabel = valueType ? matches[0].label.slice(0, valueType.index) : matches[0].label;
+  const pathSuffix = ` (${path})`;
+  const outputLabel = sourceLabel.endsWith(pathSuffix) ? sourceLabel.slice(0, -pathSuffix.length) : sourceLabel;
+  await action(`select ${label} ${path}`, page.locator(selector), target => target.selectOption(matches[0].value, { timeout: 5000 }), {
+    after: () => waitForObservable(page, pivotSourceSelectionReady, {
+      selector,
+      sourceValue: matches[0].value,
+      role,
+      outputLabel,
+      outputType: valueType?.[1],
+    }, 5000),
+  });
   return matches[0].value;
 };
 
