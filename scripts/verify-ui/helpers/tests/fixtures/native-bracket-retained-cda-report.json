@@ -1,0 +1,237 @@
+{
+  "source": {
+    "path": "/private/tmp/loom-native-root-quantity-pivot-wave141/root-quantity-pivot/full-population-lifecycle/attempt1/artifacts/root-quantity-pivot-Root-q-8c2b7-ull-CDA-source-after-reload/cda-report.json",
+    "sha256": "025a3cb0c01fdaebe7f638ad141b674c66ded016446d966d0789089f82ee4cb2"
+  },
+  "report": {
+    "schemaVersion": 2,
+    "scenario": "root-quantity-pivot",
+    "case": "full-population-lifecycle",
+    "status": "passed",
+    "requiredChecks": [
+      "independent raw Arango oracle groups the complete scoped CDA Observation population by status and typed quantity.code state",
+      "raw oracle proves a duplicate Pivot bucket with at least two numeric values and different SUM and MAX results",
+      "typed category discovery matches the full raw MISSING, NULL, and scalar category domain",
+      "native SUM Pivot preview matches every status/category aggregate from the raw oracle",
+      "Cancel preserves the exact saved full-population workspace and source scope",
+      "Apply and reload preserve the exact root output, source bindings, project, generation, and independent full raw source-scope count",
+      "editing the duplicate bucket from SUM to MAX and renaming its heading matches the raw MAX oracle after reload",
+      "removing Pivot restores the full raw oracle scope and exact bounded source tuples after reload",
+      "all full-population native lifecycle actions complete within five seconds each",
+      "no unexpected browser or authoring errors occur and source, API build, project, and generation remain stable"
+    ],
+    "assertions": [
+      {
+        "name": "all full-population native lifecycle actions complete within five seconds each",
+        "status": "passed",
+        "evidence": {
+          "actions": [
+            {
+              "name": "root-quantity-category-discovery-to-render",
+              "durationMs": 2256
+            },
+            {
+              "name": "Initial full CDA Pivot preview expected duplicate validation to render",
+              "durationMs": 2501
+            },
+            {
+              "name": "Initial full CDA Pivot preview automatic preview action to render",
+              "durationMs": 2586
+            },
+            {
+              "name": "full CDA quantity Pivot preview cancel",
+              "durationMs": 779
+            },
+            {
+              "name": "Reopened full CDA Pivot preview expected duplicate validation to render",
+              "durationMs": 2523
+            },
+            {
+              "name": "Reopened full CDA Pivot preview automatic preview action to render",
+              "durationMs": 2574
+            },
+            {
+              "name": "full CDA quantity Pivot Apply to render",
+              "durationMs": 4419
+            },
+            {
+              "name": "full CDA quantity Pivot reload to render",
+              "durationMs": 3735
+            },
+            {
+              "name": "full CDA quantity Pivot edit preview",
+              "durationMs": 2733
+            },
+            {
+              "name": "full CDA quantity Pivot edit Apply to render",
+              "durationMs": 4456
+            },
+            {
+              "name": "full CDA quantity Pivot edited reload to render",
+              "durationMs": 3797
+            },
+            {
+              "name": "full CDA quantity Pivot removal preview",
+              "durationMs": 683
+            },
+            {
+              "name": "full CDA quantity Pivot removal Apply to render",
+              "durationMs": 543
+            },
+            {
+              "name": "full CDA quantity Pivot restoration reload to render",
+              "durationMs": 1484
+            }
+          ]
+        }
+      }
+    ],
+    "actions": [
+      {
+        "label": "click [data-testid=\"construction-table-out_4ced91da24dd5d8a752855c6\"]",
+        "elapsedMs": 304,
+        "status": "passed"
+      },
+      {
+        "label": "click [data-testid=\"construction-rows-settings-trigger\"]",
+        "elapsedMs": 67,
+        "status": "passed"
+      },
+      {
+        "label": "click [data-testid=\"construction-action-table-pivot-rows\"]",
+        "elapsedMs": 130,
+        "status": "passed"
+      },
+      {
+        "label": "select Add pivot group field Observation.status",
+        "elapsedMs": 46,
+        "status": "passed"
+      },
+      {
+        "label": "select Pivot category field Observation.valueQuantity.code",
+        "elapsedMs": 48,
+        "status": "passed"
+      },
+      {
+        "label": "select Pivot values field Observation.valueQuantity.value",
+        "elapsedMs": 48,
+        "status": "passed"
+      },
+      {
+        "label": "click [data-testid=\"construction-reshape-pivot-advanced\"] > summary",
+        "elapsedMs": 69,
+        "status": "passed"
+      },
+      {
+        "label": "select select[aria-label=\"Pivot duplicate policy\"]",
+        "elapsedMs": 54,
+        "status": "passed"
+      },
+      {
+        "label": "click [data-testid=\"construction-cancel-proposal\"]",
+        "elapsedMs": 210,
+        "status": "passed"
+      },
+      {
+        "label": "click [data-testid=\"construction-rows-settings-trigger\"]",
+        "elapsedMs": 57,
+        "status": "passed"
+      },
+      {
+        "label": "click [data-testid=\"construction-action-table-pivot-rows\"]",
+        "elapsedMs": 81,
+        "status": "passed"
+      },
+      {
+        "label": "select Add pivot group field Observation.status",
+        "elapsedMs": 39,
+        "status": "passed"
+      },
+      {
+        "label": "select Pivot category field Observation.valueQuantity.code",
+        "elapsedMs": 42,
+        "status": "passed"
+      },
+      {
+        "label": "select Pivot values field Observation.valueQuantity.value",
+        "elapsedMs": 47,
+        "status": "passed"
+      },
+      {
+        "label": "click [data-testid=\"construction-reshape-pivot-advanced\"] > summary",
+        "elapsedMs": 101,
+        "status": "passed"
+      },
+      {
+        "label": "select select[aria-label=\"Pivot duplicate policy\"]",
+        "elapsedMs": 49,
+        "status": "passed"
+      },
+      {
+        "label": "click [data-testid=\"construction-apply-proposal\"]",
+        "elapsedMs": 107,
+        "status": "passed"
+      },
+      {
+        "label": "click [data-testid=\"construction-table-out_4ced91da24dd5d8a752855c6\"]",
+        "elapsedMs": 270,
+        "status": "passed"
+      },
+      {
+        "label": "click [data-testid=\"construction-history-step-pivot_0fa9e0d0-0ed8-4700-bd1b-dfa92a352ec6\"]",
+        "elapsedMs": 120,
+        "status": "passed"
+      },
+      {
+        "label": "click [data-testid^=\"construction-edit-step-\"]",
+        "elapsedMs": 76,
+        "status": "passed"
+      },
+      {
+        "label": "click [data-testid=\"construction-reshape-pivot-advanced\"] > summary",
+        "elapsedMs": 70,
+        "status": "passed"
+      },
+      {
+        "label": "select select[aria-label=\"Pivot duplicate policy\"]",
+        "elapsedMs": 55,
+        "status": "passed"
+      },
+      {
+        "label": "fill Pivot category label",
+        "elapsedMs": 57,
+        "status": "passed"
+      },
+      {
+        "label": "click [data-testid=\"construction-apply-proposal\"]",
+        "elapsedMs": 120,
+        "status": "passed"
+      },
+      {
+        "label": "click [data-testid=\"construction-table-out_4ced91da24dd5d8a752855c6\"]",
+        "elapsedMs": 284,
+        "status": "passed"
+      },
+      {
+        "label": "click [data-testid=\"construction-history-step-pivot_0fa9e0d0-0ed8-4700-bd1b-dfa92a352ec6\"]",
+        "elapsedMs": 113,
+        "status": "passed"
+      },
+      {
+        "label": "click [data-testid^=\"construction-remove-step-\"]",
+        "elapsedMs": 82,
+        "status": "passed"
+      },
+      {
+        "label": "click [data-testid=\"construction-apply-proposal\"]",
+        "elapsedMs": 89,
+        "status": "passed"
+      },
+      {
+        "label": "click [data-testid=\"construction-table-out_4ced91da24dd5d8a752855c6\"]",
+        "elapsedMs": 293,
+        "status": "passed"
+      }
+    ]
+  }
+}
