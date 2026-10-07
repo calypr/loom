@@ -221,6 +221,47 @@ describe('ConstructionReshapeEditor', () => {
     }
   });
 
+  it('shows duplicate handling beside Pivot values, defaults to ERROR, and gates aggregations by value type', () => {
+    const stage = {
+      ...sourceStage,
+      capabilities: sourceStage.capabilities.map((capability) => ({ ...capability, supported: capability.kind === 'PIVOT' })),
+    } satisfies ConstructionReshapeEditorProps['capabilities']['selectedStage'];
+    renderEditor({
+      initialKind: 'pivot',
+      capabilities: capabilitiesFor([stage], stage),
+      onDiscoverCategories: vi.fn(),
+    });
+
+    const duplicatePolicy = screen.getByLabelText('Pivot duplicate policy');
+    const advanced = screen.getByTestId('construction-reshape-pivot-advanced');
+    expect(duplicatePolicy.closest('details')).toBeNull();
+    expect(duplicatePolicy.closest('label')).toHaveTextContent('If a group has duplicate values');
+    if (!(duplicatePolicy instanceof HTMLSelectElement)) throw new Error('Expected Pivot duplicate policy select');
+    expect([...duplicatePolicy.options].map((option) => [option.value, option.textContent])).toEqual([
+      ['ERROR', 'Stop with an error'],
+      ['SUM', 'Add them together'],
+      ['MIN', 'Keep the smallest'],
+      ['MAX', 'Keep the largest'],
+    ]);
+    expect(controlValue('Pivot values field')).toBe('age-id');
+    expect(controlValue('Pivot duplicate policy')).toBe('ERROR');
+    expect(advanced).not.toHaveAttribute('open');
+    expect(advanced.querySelector('[aria-label="Pivot duplicate policy"]')).toBeNull();
+    for (const policy of ['SUM', 'MIN', 'MAX']) {
+      expect(duplicatePolicy.querySelector(`option[value="${policy}"]`)).toBeEnabled();
+    }
+
+    fireEvent.change(screen.getByLabelText('Pivot values field'), { target: { value: 'site-id' } });
+    for (const policy of ['SUM', 'MIN', 'MAX']) {
+      expect(duplicatePolicy.querySelector(`option[value="${policy}"]`)).toBeDisabled();
+    }
+
+    fireEvent.change(screen.getByLabelText('Pivot values field'), { target: { value: 'age-id' } });
+    for (const policy of ['SUM', 'MIN', 'MAX']) {
+      expect(duplicatePolicy.querySelector(`option[value="${policy}"]`)).toBeEnabled();
+    }
+  });
+
   it('resolves the neutral categories entry to coded pivot when capabilities support it', () => {
     const codedStage = {
       ...sourceStage,
@@ -1085,11 +1126,28 @@ describe('ConstructionReshapeEditor', () => {
     expect(screen.queryByText('Not found in the latest category list')).not.toBeInTheDocument();
     const advanced = screen.getByTestId('construction-reshape-pivot-advanced');
     expect(advanced).not.toHaveAttribute('open');
+    expect(advanced.querySelector('[aria-label="Pivot duplicate policy"]')).toBeNull();
+    expect(screen.getByLabelText('Pivot duplicate policy').closest('details')).toBeNull();
+    expect(controlValue('Pivot duplicate policy')).toBe('SUM');
     expect(screen.getByTestId('construction-reshape-pivot-policy-summary')).toHaveTextContent(
       'Duplicate values: be added together. Empty cells: stay empty. Unselected categories: be skipped and reported.',
     );
+    const duplicatePolicies = [
+      { policy: 'ERROR', effect: 'stop the pivot with an error' },
+      { policy: 'SUM', effect: 'be added together' },
+      { policy: 'MIN', effect: 'keep the smallest value' },
+      { policy: 'MAX', effect: 'keep the largest value' },
+    ];
+    for (const { policy, effect } of duplicatePolicies) {
+      fireEvent.change(screen.getByLabelText('Pivot duplicate policy'), { target: { value: policy } });
+      expect(controlValue('Pivot duplicate policy')).toBe(policy);
+      expect(screen.getByTestId('construction-reshape-pivot-policy-summary')).toHaveTextContent(`Duplicate values: ${effect}.`);
+      expect(onCandidateChange.mock.lastCall?.[0]?.candidateConstruction.steps[0]?.operation).toMatchObject({
+        kind: 'PIVOT',
+        pivot: { duplicatePolicy: policy },
+      });
+    }
     fireEvent.click(screen.getByText('Advanced settings'));
-    expect(controlValue('Pivot duplicate policy')).toBe('SUM');
     expect(controlValue('Pivot missing cell policy')).toBe('NULL');
     expect(controlValue('Pivot unlisted category policy')).toBe('EXCLUDE_WITH_EVIDENCE');
     expect(controlValue('Pivot output name baseline')).toBe('baseline_value');
@@ -1105,7 +1163,7 @@ describe('ConstructionReshapeEditor', () => {
         categoryColumnId: 'kind-id',
         valueColumnId: 'value-id',
         categories: [{ key: { kind: 'STRING', string: 'baseline' }, outputColumnId: 'baseline-value-id' }],
-        duplicatePolicy: 'SUM',
+        duplicatePolicy: 'MAX',
         missingCellPolicy: 'NULL',
         unlistedCategoryPolicy: 'EXCLUDE_WITH_EVIDENCE',
       },

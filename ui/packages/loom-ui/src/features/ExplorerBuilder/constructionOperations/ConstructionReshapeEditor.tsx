@@ -2913,7 +2913,7 @@ const PivotEditor = (props: {
               {sourceOptions.map((choice) => <option key={choice.choiceId} value={`source:${choice.choiceId}`}>{pivotSourceLabel(choice)}</option>)}
             </select> : null}
           </fieldset>
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid gap-3 sm:grid-cols-3">
             <label className="grid gap-1 text-sm font-medium text-slate-700">
               Category field
               <select aria-label="Pivot category field" value={props.form.categoryColumnId} disabled={props.disabled || !props.supported} onChange={(event) => chooseInput('category', event.currentTarget.value)} className="rounded border border-slate-300 bg-white px-2 py-1.5">
@@ -2928,6 +2928,15 @@ const PivotEditor = (props: {
                 <option value="">Choose a values field</option>
                 {columns.filter((column) => !props.form.groupKeyIds.includes(column.id) && column.id !== props.form.categoryColumnId).map((column) => <option key={column.id} value={column.id}>{column.label} ({column.type ?? 'unknown type'})</option>)}
                 <optgroup label="Available source fields">{sourceOptions.map((choice) => <option key={choice.choiceId} value={`source:${choice.choiceId}`}>{pivotSourceLabel(choice)} ({choice.logicalType})</option>)}</optgroup>
+              </select>
+            </label>
+            <label className="grid gap-1 text-sm font-medium text-slate-700">
+              If a group has duplicate values
+              <select aria-label="Pivot duplicate policy" value={props.form.duplicatePolicy} disabled={props.disabled || !props.supported} onChange={(event) => { const policy = pivotDuplicatePolicyFromInput(event.currentTarget.value); if (policy) props.onChange({ ...props.form, duplicatePolicy: policy }); }} className="rounded border border-slate-300 bg-white px-2 py-1.5">
+                <option value="ERROR">Stop with an error</option>
+                <option value="SUM" disabled={!numericValue}>Add them together</option>
+                <option value="MIN" disabled={!numericValue}>Keep the smallest</option>
+                <option value="MAX" disabled={!numericValue}>Keep the largest</option>
               </select>
             </label>
           </div>
@@ -3015,16 +3024,7 @@ const PivotEditor = (props: {
           <details data-testid="construction-reshape-pivot-advanced" className="rounded border border-slate-200 p-3">
             <summary className="cursor-pointer text-sm font-semibold text-slate-800">Advanced settings</summary>
             <div className="mt-3 grid gap-4">
-              <div className="grid gap-3 sm:grid-cols-3">
-                <label className="grid gap-1 text-sm font-medium text-slate-700">
-                  If a group has duplicate values
-                  <select aria-label="Pivot duplicate policy" value={props.form.duplicatePolicy} disabled={props.disabled || !props.supported} onChange={(event) => { const policy = pivotDuplicatePolicyFromInput(event.currentTarget.value); if (policy) props.onChange({ ...props.form, duplicatePolicy: policy }); }} className="rounded border border-slate-300 bg-white px-2 py-1.5">
-                    <option value="ERROR">Stop with an error</option>
-                    <option value="SUM" disabled={!numericValue}>Add them together</option>
-                    <option value="MIN" disabled={!numericValue}>Keep the smallest</option>
-                    <option value="MAX" disabled={!numericValue}>Keep the largest</option>
-                  </select>
-                </label>
+              <div className="grid gap-3 sm:grid-cols-2">
                 <label className="grid gap-1 text-sm font-medium text-slate-700">
                   If a group has no value
                   <select aria-label="Pivot missing cell policy" value={props.form.missingCellPolicy} disabled={props.disabled || !props.supported} onChange={(event) => { const policy = pivotMissingPolicyFromInput(event.currentTarget.value); if (policy) props.onChange({ ...props.form, missingCellPolicy: policy }); }} className="rounded border border-slate-300 bg-white px-2 py-1.5">
