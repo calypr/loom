@@ -36,7 +36,8 @@ does not establish a speedup.
 
 Before workers edit, resolve staging and deployed checkout with `realpath`.
 Require physically distinct source files and preserve preimages for patch review.
-A deployed checkout under `/tmp` is not an isolated stage. Sol owns integration.
+A deployed checkout under `/tmp` is not an isolated stage. Follow `AGENTS.md`
+for team-lead integration after Sol accepts the final artifact.
 
 Retain per-file hashes, aggregate fingerprint, and API build identity before a
 browser run. Compare afterward and identify changed paths. Source mutation
@@ -93,10 +94,73 @@ invalidated runs. Record run durations and available repair time; label unmeasur
 time unknown. Use existing reports and the coverage matrix. Selector and fixture
 repairs do not count as closed product failures.
 
-After two consecutive harness failures on the same path, stop browser reruns.
-Validate selectors, fixture shape, event ordering, request ownership, and saved
-state against source and retained DOM, then run a focused check. Resume the same
-case after correcting the demonstrated assumption; do not weaken assertions.
+After two consecutive harness failures on the same path, stop backend browser
+reruns and audit the remaining actions in that workflow, not just the first
+failing line. Check selectors and control multiplicity, fixture/schema shape,
+request adapters, ownership, event ordering, saved state, and final error gates
+against current source and retained DOM. Inspect cheap remaining assumptions
+after the first failure when the evidence is already available.
+
+Batch demonstrated driver corrections before the next full run. Validate
+questionable locators with native Playwright on a small `page.setContent`
+fixture; use retained request/response artifacts for adapter and classification
+checks. Exercise the actual functions used by the driver. Include negative
+cases that reject wrong identities and extra or unexpected errors. Check the
+live fixture lifecycle: teardown-only records may not exist inside the workflow.
+Preserve raw errors and classify expected events only with exact ownership and
+response/supersession proof. Resume the same complete case with its original
+oracle, lifecycle scope, and latency budget; do not weaken assertions.
+
+### Verification bracket and compact handoff
+
+Keep run orchestration in repository code. The combined entrypoint must reuse
+the canonical precheck, capture, health, and native Playwright commands below;
+it must not introduce another browser driver or duplicate Docker checks.
+Select one registered case explicitly and validate its discovered selection and
+report identity. Use a fresh evidence directory outside watched source.
+Always attempt after-capture and health after a browser failure, compare source,
+docs, API identity and owned mounts, and report missing closure as unverified.
+Use the verified single-command bracket for a registered native browser case.
+Load the validated browser and capture environments first. If the browser loader
+unsets `LOOM_CDA_*`, load it before the capture loader. Keep both scopes available
+and use a fresh artifact directory outside watched source.
+
+```bash
+node scripts/run-native-verification-bracket.mjs \
+  --scenario builder-combine-draft --case group-pivot-append \
+  --grep 'GROUP-to-PIVOT current-draft APPEND supports cancel, apply, edit, removal, and reload$' \
+  --evidence-parent /private/tmp/loom-verification-runs
+```
+
+Replace the scenario, case, and exact test selection together for another
+registered workflow. The runner creates a fresh run directory, forces one worker
+and zero retries, validates exactly one discovered test, and writes `summary.json`.
+It runs the component commands above and below, including after-capture and health
+on browser failure. Do not run a second manual bracket around the same case.
+Accept a pass only when the summary reports a passed lifecycle and integrity,
+all registered checks pass, and the selected native test exits successfully.
+Read the linked domain report for correctness and consequential failure evidence.
+
+The first live proof passed the Group-to-Pivot Append lifecycle at source commit
+`d120b68c7bf172ef2a0979052802f7108158363b`: 31/31 required checks, no retries,
+23.579 seconds for Playwright and 44.284 seconds for the complete bracket.
+This proves the coordinator on that basic fixture; it does not establish CDA
+coverage or replace the remaining-workflow audit.
+
+Generate the run summary from retained artifacts: exact command, exit status,
+stage durations, source fingerprint, API identity, lifecycle checks and gaps,
+maximum measured latency, failure category, and evidence paths. Add the patch
+hash, preserved preimages, focused check results, and Luna max verdict once per
+final reviewed artifact. Link to detailed logs instead of copying payloads or
+manually reconstructing manifests. Sol reviews the consequential diff and this
+packet; missing evidence goes back to its owner, not to duplicate foreground
+runs. Renew review when the patch changes.
+
+Give the runtime bracket one owner through after-capture and release. Keep
+isolated implementation and review moving; a documentation commit or unrelated
+packet must not hold a ready browser run. Record preparation, execution, review,
+and harness repair separately so shorter browser duration is not reported as
+faster delivery.
 
 Keep routine verification near the agreed 20% time budget; broaden for concrete
 shared risks or unresolved failures. Long-run updates report newly reliable
@@ -209,11 +273,13 @@ parallel ownership for independent functional cases. Each worker must own a
 fresh QA project or a distinct disposable Explorer in the validated CDA project,
 plus separate JSON and artifact paths. Cases that mutate the same saved Explorer,
 publication target, source, or runtime must run in dependency order. Workers stage
-fixes separately while Sol owns review and integration. Keep the shared source
-checkpoint frozen throughout the batch. Target at least 10 productive Luna xhigh
-workers per foreground Sol when independent work permits, including case runs,
-first-failure investigations, and staged fixes. Refill completed assignments;
-avoid duplicate work or idle assignments solely to meet the count.
+fixes separately under the assigned team lead. Sol owns final acceptance;
+the accepted lead owns scoped integration. Keep the shared source checkpoint
+frozen throughout the batch. Follow the user's current team limits and ownership
+rules: at most three teams, each with up to three Luna xhigh workers and one
+Luna max lead. Assign distinct implementation, evidence, or review work; refill
+completed assignments when useful work is ready. Avoid duplicate diagnosis and
+idle assignments solely to meet a worker count.
 
 Use the native runner's output controls for each independent process after
 configuring the validated target from the run plan:
