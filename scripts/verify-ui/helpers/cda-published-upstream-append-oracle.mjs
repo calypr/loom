@@ -11,6 +11,19 @@ export const CDA_PUBLISHED_APPEND_SOURCES = Object.freeze([
   { sourceKey: 'patient', title: 'Patient ID source', resourceType: 'Patient', valueField: 'id' },
 ]);
 
+export const matchesPublishedAppendSourceProjectionResponse = (entry, requestBody, responseBody, expected) =>
+  entry?.origin === expected?.origin && entry?.path === expected?.path && entry?.method === 'POST' &&
+  entry?.status === 200 && Number.isFinite(entry?.responseReceivedAt) && Number.isFinite(entry?.completedAt) &&
+  entry?.failure === undefined && entry?.responseReadError === undefined &&
+  requestBody?.snapshotToken === expected?.snapshotToken && requestBody?.outputId === expected?.outputId &&
+  requestBody?.stageId === 'source_projection' &&
+  requestBody?.expectedDraftVersion === expected?.draftVersion &&
+  requestBody?.expectedDraftDigest === expected?.draftDigest &&
+  responseBody !== null && typeof responseBody === 'object' && !Array.isArray(responseBody) &&
+  responseBody?.outputId === expected?.outputId && responseBody?.stageId === 'source_projection' &&
+  responseBody?.snapshotToken === expected?.snapshotToken &&
+  responseBody?.draftVersion === expected?.draftVersion && responseBody?.draftDigest === expected?.draftDigest;
+
 const q = value => JSON.stringify(value);
 const resourceFor = resourceType => CDA_PUBLISHED_APPEND_RESOURCES.find(item => item.resourceType === resourceType);
 
