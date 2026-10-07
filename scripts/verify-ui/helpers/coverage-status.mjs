@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { readdirSync, readFileSync, realpathSync } from 'node:fs';
 import { basename, dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -159,6 +160,219 @@ const compactReportForCoverage = (report, closure, requiredChecks) => {
   return { ...report, schemaVersion: 2, target, apiBuildIdentity: api.after, assertions };
 };
 
+const legacyClosureFingerprint = (integrity) => {
+  const source = integrity?.source;
+  const before = source?.before ?? (source?.beforeSha256 ? { sha256: source.beforeSha256, files: source.files } : null);
+  const after = source?.after ?? (source?.afterSha256 ? { sha256: source.afterSha256, files: source.files } : null);
+  const api = integrity?.apiBuildIdentity;
+  const mounts = integrity?.ownedMounts;
+  const mountsBefore = mounts?.before ?? mounts?.beforeStatus;
+  const mountsAfter = mounts?.after ?? mounts?.afterStatus;
+  const health = integrity?.health;
+  const healthBeforeStatus = health?.before?.status ?? health?.beforeStatus;
+  const healthAfterStatus = health?.after?.status ?? health?.afterStatus;
+  const healthBeforeSamples = health?.before?.samples ?? health?.beforeSamples;
+  const healthAfterSamples = health?.after?.samples ?? health?.afterSamples;
+  if (integrity?.status !== 'PASS' || !sameFingerprint(before, after)
+    || source?.manifestsEqual === false || source?.manifestUnchanged === false
+    || !Array.isArray(source?.changedPaths) || source.changedPaths.length !== 0
+    || !normalizeApiBuildIdentity(api?.before) || api.before !== api.after
+    || (api.precheck !== undefined && api.before !== api.precheck) || api.unchanged !== true
+    || mountsBefore !== 'PASS' || mountsAfter !== 'PASS' || mounts.targetUnchanged !== true
+    || healthBeforeStatus !== 'PASS' || healthAfterStatus !== 'PASS'
+    || !Number.isInteger(healthBeforeSamples) || healthBeforeSamples < 1
+    || !Number.isInteger(healthAfterSamples) || healthAfterSamples < 1) return null;
+  return { sourceBefore: before, sourceAfter: after, apiIdentity: api.after, target: mounts.target };
+};
+
+const legacyCaseIdentityMatches = (report, closure, linkKind) => {
+  const details = closure?.case;
+  if (!details || typeof details !== 'object') return false;
+  const explicitScenario = details.scenarioId ?? details.scenarioID;
+  const pathScenario = typeof details.scenario === 'string' ? details.scenario : null;
+  const explicitCase = details.caseName;
+  if (explicitScenario !== undefined && explicitScenario !== report.scenario) return false;
+  if (explicitCase !== undefined && explicitCase !== report.case) return false;
+  if (pathScenario !== null && pathScenario !== `${report.scenario}/${report.case}`) return false;
+  return explicitScenario !== undefined || explicitCase !== undefined || pathScenario !== null
+    || linkKind === 'lifecycle-report-sha256';
+};
+
+const legacyCheckEvidence = (report, closure, requiredChecks) => {
+  const reported = report.requiredChecks;
+  const closed = closure?.case?.requiredChecks;
+  if (!reported || !closed || !Array.isArray(requiredChecks) || requiredChecks.length === 0) return null;
+  const reportNames = Array.isArray(reported) ? reported : null;
+  const reportCounts = reportNames
+    ? { passed: reportNames.length, failed: 0, missing: 0, notRun: 0, total: reportNames.length }
+    : {
+      passed: reported.passed,
+      failed: reported.failed ?? 0,
+      missing: reported.missing ?? 0,
+      notRun: reported.notRun ?? 0,
+      total: reported.total,
+    };
+  const closedMissing = Array.isArray(closed.missing) ? closed.missing.length : (closed.missing ?? 0);
+  if (reportCounts.total !== requiredChecks.length || reportCounts.passed !== requiredChecks.length
+    || reportCounts.failed !== 0 || reportCounts.missing !== 0 || reportCounts.notRun !== 0
+    || closed.total !== requiredChecks.length || closed.passed !== requiredChecks.length
+    || (closed.failed ?? 0) !== 0 || closedMissing !== 0 || (closed.notRun ?? 0) !== 0) return null;
+  const closureStatus = closure.case.status ?? closure.case.runnerStatus ?? closure.case.reportStatus;
+  if (closureStatus !== 'passed' || closure.case.runnerStatus === 'failed'
+    || closure.case.reportStatus === 'failed') return null;
+
+  if (!reportNames) return { named: false };
+  if (reportNames.length !== requiredChecks.length
+    || reportNames.some((name, index) => name !== requiredChecks[index])
+    || (Array.isArray(report.missingRequiredChecks) && report.missingRequiredChecks.length !== 0)
+    || !Array.isArray(report.assertions)) return null;
+  const byName = new Map();
+  for (const assertion of report.assertions) {
+    if (typeof assertion?.name !== 'string' || !['passed', 'failed'].includes(assertion.status)) continue;
+    if (!requiredChecks.includes(assertion.name)) continue;
+    const prior = byName.get(assertion.name);
+    if (prior === 'failed' || assertion.status === 'failed') byName.set(assertion.name, 'failed');
+    else byName.set(assertion.name, 'passed');
+  }
+  if (requiredChecks.some((name) => byName.get(name) !== 'passed')) return null;
+  return { named: true };
+};
+
+const normalizeLegacyPairedReport = (entry, requiredChecks) => {
+  const { report, closure, legacyPair } = entry;
+  if (!legacyPair || !closure || !Number.isSafeInteger(report?.epoch)
+    || closure.epoch !== report.epoch || report.status !== 'passed') return null;
+  const linkKind = legacyPair.linkKind;
+  if (!linkKind || !legacyCaseIdentityMatches(report, closure, linkKind)) return null;
+  if (typeof closure.status !== 'string'
+    || !(closure.status.startsWith('CLOSED_PASS') || closure.status.startsWith('CLOSED_WITH_CASE_PASS'))) return null;
+  const closureCase = closure.case ?? {};
+  if ([closureCase.unexpectedErrors, closureCase.networkErrors, closureCase.runtimeErrors, closureCase.unexpectedNetworkErrors]
+    .some((count) => Number.isFinite(count) && count !== 0)) return null;
+  const integrity = legacyClosureFingerprint(closure.integrityClosure);
+  const checkEvidence = legacyCheckEvidence(report, closure, requiredChecks);
+  if (!integrity || !checkEvidence) return null;
+
+  const claimedFingerprints = [
+    report.sourceFingerprint,
+    report.target?.sourceFingerprint,
+    report.before?.sourceFingerprint,
+    report.after?.sourceFingerprint,
+  ].filter((value) => value !== undefined);
+  if (report.integrity?.sourceFingerprintSha256 !== undefined) {
+    claimedFingerprints.push({ sha256: report.integrity.sourceFingerprintSha256, files: report.integrity.sourceFiles });
+  }
+  if (claimedFingerprints.some((value) => !sameFingerprint(value, integrity.sourceAfter))) return null;
+
+  const claimedIdentities = [
+    report.apiBuildIdentity,
+    report.target?.apiBuildIdentity,
+    report.apiBuildFreeze?.before,
+    report.apiBuildFreeze?.after,
+    report.before?.apiBuildIdentity,
+    report.after?.apiBuildIdentity,
+    report.integrity?.apiBuildIdentity,
+  ].filter((value) => value !== undefined);
+  if (claimedIdentities.some((value) => normalizeApiBuildIdentity(value) !== integrity.apiIdentity)) return null;
+
+  const target = {
+    ...report.target,
+    sourceFingerprint: integrity.sourceAfter,
+    apiBuildIdentity: integrity.apiIdentity,
+  };
+  const assertions = Array.isArray(report.assertions) ? [...report.assertions] : [];
+  if (!assertions.some((item) => item?.name === sourceFreezeCheck)) assertions.push({
+    name: sourceFreezeCheck,
+    status: 'passed',
+    evidence: { before: integrity.sourceBefore, after: integrity.sourceAfter },
+  });
+  const normalized = {
+    ...report,
+    schemaVersion: 2,
+    target,
+    apiBuildIdentity: integrity.apiIdentity,
+    assertions,
+  };
+  return {
+    report: normalized,
+    note: checkEvidence.named ? null : 'legacy closure verifies passing check totals, but this report has no named required-check outcomes; retained as partial',
+  };
+};
+
+const withinRoot = (candidate, root) => {
+  const fromRoot = relative(root, candidate);
+  return fromRoot === '' || (fromRoot !== '..' && !fromRoot.startsWith(`..${sep}`) && !isAbsolute(fromRoot));
+};
+
+const hashConfinedFile = (path, { cwd, evidenceRoots }) => {
+  if (typeof path !== 'string' || path.length === 0) return null;
+  try {
+    const resolvedPath = resolve(cwd, path);
+    const realPath = realpathSync(resolvedPath);
+    const roots = [cwd, ...evidenceRoots].flatMap((candidate) => {
+      try { return [realpathSync(candidate)]; } catch { return []; }
+    });
+    if (!roots.some((root) => withinRoot(realPath, root))) return null;
+    return createHash('sha256').update(readFileSync(realPath)).digest('hex');
+  } catch {
+    return null;
+  }
+};
+
+const legacyClosureLinkKind = ({ report, closure, relativeReportPath, reportSha256, cwd, evidenceRoots }) => {
+  if (closure?.lifecycleReport === relativeReportPath
+    && closure.lifecycleReportSha256 === reportSha256) return 'lifecycle-report-sha256';
+  const rawEvidenceSha256 = hashConfinedFile(report?.evidenceReportPath, { cwd, evidenceRoots });
+  if (typeof report?.evidenceReportPath === 'string'
+    && typeof report.evidenceReportSha256 === 'string'
+    && closure?.case?.reportPath === report.evidenceReportPath
+    && /^[a-f0-9]{64}$/i.test(report.evidenceReportSha256)
+    && typeof closure.case.reportSha256 === 'string'
+    && closure.case.reportSha256.toLowerCase() === report.evidenceReportSha256.toLowerCase()
+    && rawEvidenceSha256 === report.evidenceReportSha256.toLowerCase()) return 'evidence-report-sha256';
+  return null;
+};
+
+const readLegacySiblingClosure = ({ path, report, root, directory, evidenceRoots }) => {
+  if (!Number.isSafeInteger(report?.epoch) || typeof report?.scenario !== 'string'
+    || typeof report?.case !== 'string' || !basename(path).endsWith('-report.json')) return null;
+  const candidateWithoutClosure = { legacyPair: { candidate: true, linkKind: null } };
+  const expectedClosureName = basename(path).replace(/-report\.json$/, '-closure.json');
+  const siblingClosurePath = resolve(directory, expectedClosureName);
+  if (basename(siblingClosurePath) !== expectedClosureName) return null;
+  try {
+    const realRoot = realpathSync(root);
+    const realReportPath = realpathSync(path);
+    const realClosurePath = realpathSync(siblingClosurePath);
+    const withinRuntimeRoot = (candidate) => withinRoot(candidate, realRoot);
+    if (!withinRuntimeRoot(realReportPath)) return null;
+    if (!withinRuntimeRoot(realClosurePath) || dirname(realReportPath) !== dirname(realClosurePath)
+      || basename(realClosurePath) !== expectedClosureName) return candidateWithoutClosure;
+    const reportBytes = readFileSync(realReportPath);
+    const closure = JSON.parse(readFileSync(realClosurePath, 'utf8'));
+    const relativeReportPath = relative(realRoot, realReportPath).split(sep).join('/');
+    const reportSha256 = createHash('sha256').update(reportBytes).digest('hex');
+    return {
+      closure,
+      legacyPair: {
+        candidate: true,
+        closurePath: realClosurePath,
+        linkKind: legacyClosureLinkKind({ report, closure, relativeReportPath, reportSha256, cwd: root, evidenceRoots }),
+      },
+    };
+  } catch {
+    try {
+      const realRoot = realpathSync(root);
+      const realReportPath = realpathSync(path);
+      const fromRoot = relative(realRoot, realReportPath);
+      if (fromRoot === '..' || fromRoot.startsWith(`..${sep}`) || isAbsolute(fromRoot)) return null;
+      return candidateWithoutClosure;
+    } catch {
+      return null;
+    }
+  }
+};
+
 const registeredChecksFor = (scenario, caseName, report) => {
   try {
     return scenarioCaseFor(scenario, caseName, report.target?.kind === 'read-only-custom').requiredChecks;
@@ -184,19 +398,25 @@ export const classifyEvidence = (report, requiredChecks) => {
 
 export const summarizeCoverage = (scenarios, reports, baseline = {}) => {
   const latest = new Map();
-  for (const { path, report, closure } of reports) {
-    if (!report?.scenario || !report?.case || (!report?.finishedAt && !compactReport(report))) continue;
+  for (const { path, report, closure, legacyPair } of reports) {
+    if (!report?.scenario || !report?.case || (!report?.finishedAt && !compactReport(report) && !legacyPair?.candidate)) continue;
     const key = `${report.scenario}/${report.case}`;
     const compact = compactReport(report);
+    const legacy = !compact && legacyPair?.candidate === true;
     const requiredChecks = (() => {
       const scenario = scenarios.find((item) => item.id === report.scenario);
       return scenario ? registeredChecksFor(scenario, report.case, report) : undefined;
     })();
-    const normalized = compact ? compactReportForCoverage(report, closure, requiredChecks) : report;
-    const order = compact ? { kind: 'epoch', value: report.epoch } : { kind: 'time', value: report.finishedAt };
+    const legacyResult = legacy ? normalizeLegacyPairedReport({ report, closure, legacyPair }, requiredChecks) : null;
+    const normalized = compact ? compactReportForCoverage(report, closure, requiredChecks)
+      : legacy ? legacyResult?.report ?? null : report;
+    const note = legacy
+      ? legacyResult ? legacyResult.note : 'legacy report and adjacent closure lack exact case, report-hash, or complete integrity linkage'
+      : null;
+    const order = compact || legacy ? { kind: 'epoch', value: report.epoch } : { kind: 'time', value: report.finishedAt };
     const previous = latest.get(key);
     if (!previous) {
-      latest.set(key, { path, report, normalized, compact, order });
+      latest.set(key, { path, report, normalized, compact, legacy, note, order });
       continue;
     }
     if (previous.ambiguousOrder) {
@@ -206,7 +426,7 @@ export const summarizeCoverage = (scenarios, reports, baseline = {}) => {
     if (previous.order.kind !== order.kind) {
       latest.set(key, { path: `${previous.path},${path}`, report, normalized: null, compact: true, order, ambiguousOrder: true });
     } else if (order.value > previous.order.value) {
-      latest.set(key, { path, report, normalized, compact, order });
+      latest.set(key, { path, report, normalized, compact, legacy, note, order });
     } else if (order.value === previous.order.value && previous.path !== path) {
       latest.set(key, { path: `${previous.path},${path}`, report, normalized: null, compact: true, order, ambiguousOrder: true });
     }
@@ -218,6 +438,8 @@ export const summarizeCoverage = (scenarios, reports, baseline = {}) => {
       path: `${scenario.id}/${caseName}`,
       status: evidence
         ? evidence.ambiguousOrder || (evidence.compact && !evidence.normalized)
+          || (evidence.legacy && evidence.report.status === 'passed'
+            && (!evidence.normalized || evidence.note !== null))
           ? 'partial'
           : classifyEvidence(evidence.normalized ?? evidence.report, requiredChecks)
         : 'untested',
@@ -226,6 +448,7 @@ export const summarizeCoverage = (scenarios, reports, baseline = {}) => {
         : { status: 'unknown', source: 'unknown', build: 'unknown' },
       finishedAt: evidence?.report.finishedAt ?? null,
       report: evidence?.path ?? null,
+      evidenceNote: evidence?.note ?? null,
     };
   }));
 };
@@ -242,7 +465,7 @@ export const currentCoverageBaseline = ({ cwd = process.cwd(), env = process.env
   };
 };
 
-export const readReports = (directory, { cwd = process.cwd() } = {}) => {
+export const readReports = (directory, { cwd = process.cwd(), evidenceRoots = [] } = {}) => {
   let names;
   try { names = readdirSync(directory).filter((name) => name.endsWith('.json')); }
   catch (error) { if (error.code === 'ENOENT') return []; throw error; }
@@ -250,8 +473,11 @@ export const readReports = (directory, { cwd = process.cwd() } = {}) => {
     const path = resolve(directory, name);
     try {
       const report = JSON.parse(readFileSync(path, 'utf8'));
-      if (!compactReport(report)) return [{ path, report }];
       const root = resolve(cwd);
+      if (!compactReport(report)) {
+        const legacyPair = readLegacySiblingClosure({ path, report, root, directory, evidenceRoots });
+        return [{ path, report, ...(legacyPair ?? {}) }];
+      }
       const closurePath = report.durableClosurePath;
       if (isAbsolute(closurePath)) return [{ path, report }];
       const resolvedClosurePath = resolve(root, closurePath);
@@ -285,7 +511,8 @@ export const readReports = (directory, { cwd = process.cwd() } = {}) => {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   const directory = resolve(process.argv[2] ?? '.artifacts/loom-dev/verify-ui');
-  const rows = summarizeCoverage(registry, readReports(directory), currentCoverageBaseline());
+  const evidenceRoots = (process.env.LOOM_VERIFY_UI_EVIDENCE_ROOTS ?? '').split(process.platform === 'win32' ? ';' : ':').filter(Boolean);
+  const rows = summarizeCoverage(registry, readReports(directory, { evidenceRoots }), currentCoverageBaseline());
   for (const row of rows) console.log(`${row.status}\t${row.freshness.status}\t${row.path}\t${row.report ?? '-'}`);
   const currentPasses = rows.filter((row) => row.status === 'passed' && row.freshness.status === 'current').length;
   const historicalPasses = rows.filter((row) => row.status === 'passed' && row.freshness.status === 'historical').length;

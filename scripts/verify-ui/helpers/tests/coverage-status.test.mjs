@@ -1,8 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { mkdtempSync, mkdirSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { basename, join } from 'node:path';
+import { basename, dirname, join, relative, sep } from 'node:path';
 import { classifyEvidence, classifyFreshness, readReports, summarizeCoverage } from '../coverage-status.mjs';
 import { caseNamesFor, coverageDrift, hasLifecycleContract, registry, requiresLifecycleAcceptance, scenarioCaseFor } from '../../registry.mjs';
 import { buildArangoShellInvocation } from '../owned-arangosh-command.mjs';
@@ -771,4 +772,217 @@ test('compact reports cannot override contradictory integrity summaries or resol
     renameSync(closurePath, redirected);
     symlinkSync(redirected, closurePath);
   });
+});
+
+const legacyRuntimePath = (root) => join(root, 'docs/verification/playwright/runtime');
+const legacyPairs = {
+  'current-draft-append-derived-edit-epoch74': {
+    scenario: 'builder-combine-draft', caseName: 'append-derived-edit', epoch: 74, named: false,
+  },
+  'current-draft-cda-membership-epoch71': {
+    scenario: 'cda-current-draft-membership', caseName: 'membership', epoch: 71, named: false,
+  },
+  'current-draft-group-pivot-epoch63': {
+    scenario: 'builder-combine-draft', caseName: 'group-pivot', epoch: 63, named: true,
+    closureScenario: 'builder-combine-draft/group-pivot-join',
+  },
+  'current-draft-membership-epoch66': {
+    scenario: 'builder-combine-draft', caseName: 'membership', epoch: 66, named: true, evidenceLinked: true,
+  },
+  'current-draft-join-epoch41': {
+    scenario: 'builder-combine-draft', caseName: 'join', named: true,
+  },
+};
+const legacyFixtureSource = fingerprint('a'.repeat(64), 1511);
+const legacyFixtureBuild = '1'.repeat(64) + ':' + '2'.repeat(64) + ':' + '3'.repeat(64);
+const writeLegacyPair = (root, stem, mutateClosure = () => {}) => {
+  const runtime = legacyRuntimePath(root);
+  mkdirSync(runtime, { recursive: true });
+  const reportName = `${stem}-report.json`;
+  const closureName = `${stem}-closure.json`;
+  const pair = legacyPairs[stem];
+  assert.ok(pair, `unknown legacy fixture ${stem}`);
+  const scenario = registry.find((entry) => entry.id === pair.scenario);
+  const required = scenarioCaseFor(scenario, pair.caseName).requiredChecks;
+  const reportPath = join(runtime, reportName);
+  const closurePath = join(runtime, closureName);
+  const evidencePath = pair.evidenceLinked ? join(runtime, 'evidence', `${stem}-evidence.json`) : null;
+  if (evidencePath) mkdirSync(dirname(evidencePath), { recursive: true });
+  const evidenceBytes = Buffer.from('{"fixture":"minimal-hashed-raw-evidence"}');
+  if (evidencePath) writeFileSync(evidencePath, evidenceBytes);
+  const evidenceHash = evidencePath ? createHash('sha256').update(evidenceBytes).digest('hex') : null;
+  const report = {
+    ...(pair.epoch === undefined ? {} : { epoch: pair.epoch }),
+    scenario: pair.scenario,
+    case: pair.caseName,
+    status: 'passed',
+    requiredChecks: pair.named ? [...required] : { passed: required.length, failed: 0, missing: 0, notRun: 0, total: required.length },
+    sourceFingerprint: legacyFixtureSource,
+    apiBuildFreeze: { before: legacyFixtureBuild, after: legacyFixtureBuild, unchanged: true },
+    ...(pair.named ? { missingRequiredChecks: [], assertions: required.map((name) => ({ name, status: 'passed' })) } : {}),
+    ...(evidencePath ? { evidenceReportPath: evidencePath, evidenceReportSha256: evidenceHash } : {}),
+  };
+  const target = { project: 'loom_dev_verify_legacy', composeProject: 'loom-dev-legacy', generation: 'legacy-v1', sourceRoot: '/tmp/legacy-source' };
+  const closure = {
+    ...(pair.epoch === undefined ? {} : { epoch: pair.epoch }),
+    status: 'CLOSED_PASS',
+    integrityClosure: {
+      status: 'PASS',
+      source: { before: legacyFixtureSource, after: legacyFixtureSource, manifestsEqual: true, changedPaths: [] },
+      apiBuildIdentity: { before: legacyFixtureBuild, after: legacyFixtureBuild, precheck: legacyFixtureBuild, unchanged: true },
+      ownedMounts: { before: 'PASS', after: 'PASS', targetUnchanged: true, target },
+      health: { before: { status: 'PASS', samples: 3 }, after: { status: 'PASS', samples: 3 } },
+    },
+    case: {
+      ...(pair.closureScenario ? { scenario: pair.closureScenario } : { scenarioId: pair.scenario, caseName: pair.caseName }),
+      status: 'passed',
+      requiredChecks: {
+        passed: required.length, total: required.length, failed: 0, missing: 0, notRun: 0,
+        ...(pair.named ? { evidence: required.map((name) => ({ name, status: 'passed' })) } : {}),
+      },
+      ...(evidencePath ? { reportPath: evidencePath, reportSha256: evidenceHash } : {}),
+    },
+  };
+  if (!pair.evidenceLinked && pair.epoch !== undefined) {
+    const relativeReport = relative(root, reportPath).split(sep).join('/');
+    const reportBytes = Buffer.from(JSON.stringify(report));
+    writeFileSync(reportPath, reportBytes);
+    closure.lifecycleReport = relativeReport;
+    closure.lifecycleReportSha256 = createHash('sha256').update(reportBytes).digest('hex');
+  } else if (!pair.evidenceLinked) {
+    writeFileSync(reportPath, JSON.stringify(report));
+  }
+  let rawEvidencePath = null;
+  if (evidencePath) rawEvidencePath = evidencePath;
+  mutateClosure(closure);
+  if (pair.evidenceLinked) writeFileSync(reportPath, JSON.stringify(report));
+  writeFileSync(closurePath, JSON.stringify(closure));
+  return { reportName, closureName, runtime, rawEvidencePath };
+};
+
+test('legacy sibling report pairs require exact linkage and named registered checks for a pass', () => {
+  const root = mkdtempSync(join(tmpdir(), 'coverage-legacy-pairs-'));
+  try {
+    const pairs = [
+      'current-draft-append-derived-edit-epoch74',
+      'current-draft-cda-membership-epoch71',
+      'current-draft-group-pivot-epoch63',
+      'current-draft-membership-epoch66',
+      'current-draft-join-epoch41',
+    ];
+    for (const stem of pairs) writeLegacyPair(root, stem);
+
+    const reports = readReports(legacyRuntimePath(root), { cwd: root });
+    const rows = new Map(summarizeCoverage(registry, reports).map((row) => [row.path, row]));
+    assert.deepEqual(
+      ['builder-combine-draft/membership', 'builder-combine-draft/append-derived-edit',
+        'cda-current-draft-membership/membership', 'builder-combine-draft/group-pivot', 'builder-combine-draft/join']
+        .map((path) => [path, rows.get(path)?.status]),
+      [
+        ['builder-combine-draft/membership', 'passed'],
+        ['builder-combine-draft/append-derived-edit', 'partial'],
+        ['cda-current-draft-membership/membership', 'partial'],
+        ['builder-combine-draft/group-pivot', 'partial'],
+        ['builder-combine-draft/join', 'untested'],
+      ],
+    );
+    assert.match(rows.get('builder-combine-draft/append-derived-edit').evidenceNote,
+      /no named required-check outcomes/);
+    assert.match(rows.get('cda-current-draft-membership/membership').evidenceNote,
+      /no named required-check outcomes/);
+    assert.match(rows.get('builder-combine-draft/group-pivot').evidenceNote,
+      /lack exact case/);
+    assert.equal(rows.get('builder-combine-draft/join').report, null,
+      'the epoch-less closure does not establish an exact report identity or case pair');
+
+    const membershipReport = reports.find((entry) => entry.report.scenario === 'builder-combine-draft'
+      && entry.report.case === 'membership');
+    const source = membershipReport.report.sourceFingerprint;
+    const build = membershipReport.report.apiBuildFreeze.before;
+    assert.deepEqual(rows.get('builder-combine-draft/membership').freshness,
+      { status: 'unknown', source: 'unknown', build: 'unknown' });
+    const currentRow = summarizeCoverage(registry, reports, { sourceFingerprint: source, apiBuildIdentity: build })
+      .find((row) => row.path === 'builder-combine-draft/membership');
+    assert.deepEqual(currentRow.freshness, { status: 'current', source: 'current', build: 'current' });
+    const historicalRow = summarizeCoverage(registry, reports, {
+      sourceFingerprint: fingerprint('f'.repeat(64), source.files), apiBuildIdentity: build,
+    }).find((row) => row.path === 'builder-combine-draft/membership');
+    assert.deepEqual(historicalRow.freshness, { status: 'historical', source: 'historical', build: 'current' });
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('legacy pass normalization rejects a mismatched report hash, case identity, or integrity closure', () => {
+  const rejectedRow = (mutateClosure, mutateEvidence = () => {}) => {
+    const root = mkdtempSync(join(tmpdir(), 'coverage-legacy-reject-'));
+    try {
+      const fixture = writeLegacyPair(root, 'current-draft-membership-epoch66', mutateClosure);
+      if (fixture.rawEvidencePath) mutateEvidence(fixture.rawEvidencePath);
+      const row = summarizeCoverage(registry, readReports(legacyRuntimePath(root), { cwd: root }))
+        .find((item) => item.path === 'builder-combine-draft/membership');
+      assert.equal(row.status, 'partial');
+      assert.deepEqual(row.freshness, { status: 'unknown', source: 'unknown', build: 'unknown' });
+      return row;
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  };
+
+  rejectedRow((closure) => { closure.case.reportSha256 = '0'.repeat(64); });
+  rejectedRow(() => {}, (path) => { writeFileSync(path, `${readFileSync(path, 'utf8')} `); });
+  rejectedRow((closure) => { closure.case.scenario = 'builder-combine-draft/other-case'; });
+  rejectedRow((closure) => { closure.integrityClosure.health.after.samples = 0; });
+});
+
+test('legacy closure pairing uses only the report-named sibling and never scans nearby closures', () => {
+  const root = mkdtempSync(join(tmpdir(), 'coverage-legacy-no-scan-'));
+  try {
+    const runtime = legacyRuntimePath(root);
+    mkdirSync(runtime, { recursive: true });
+    const fixture = writeLegacyPair(root, 'current-draft-cda-membership-epoch71');
+    const report = readFileSync(join(runtime, fixture.reportName));
+    const closure = readFileSync(join(runtime, fixture.closureName));
+    writeFileSync(join(runtime, 'renamed-report.json'), report);
+    writeFileSync(join(runtime, 'unrelated-closure.json'), closure);
+    rmSync(join(runtime, fixture.reportName));
+    rmSync(join(runtime, fixture.closureName));
+    const reports = readReports(runtime, { cwd: root });
+    assert.equal(reports.find((entry) => entry.report.scenario)?.legacyPair?.candidate, true);
+    assert.equal(reports.find((entry) => entry.report.scenario)?.closure, undefined,
+      'the reader does not attach an unrelated nearby closure');
+    const row = summarizeCoverage(registry, reports).find((item) => item.path === 'cda-current-draft-membership/membership');
+    assert.equal(row.status, 'partial');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('legacy raw evidence references outside the report root need an explicit allowed root', () => {
+  const root = mkdtempSync(join(tmpdir(), 'coverage-legacy-allowed-root-'));
+  const externalRoot = mkdtempSync(join(tmpdir(), 'coverage-legacy-external-evidence-'));
+  try {
+    const fixture = writeLegacyPair(root, 'current-draft-membership-epoch66');
+    const externalPath = join(externalRoot, 'membership-evidence.json');
+    writeFileSync(externalPath, readFileSync(fixture.rawEvidencePath));
+    const reportPath = join(fixture.runtime, fixture.reportName);
+    const closurePath = join(fixture.runtime, fixture.closureName);
+    const report = JSON.parse(readFileSync(reportPath, 'utf8'));
+    const closure = JSON.parse(readFileSync(closurePath, 'utf8'));
+    report.evidenceReportPath = externalPath;
+    closure.case.reportPath = externalPath;
+    writeFileSync(reportPath, JSON.stringify(report));
+    writeFileSync(closurePath, JSON.stringify(closure));
+
+    const withoutAllowedRoot = summarizeCoverage(registry,
+      readReports(fixture.runtime, { cwd: root })).find((row) => row.path === 'builder-combine-draft/membership');
+    assert.equal(withoutAllowedRoot.status, 'partial', 'an absolute report reference outside the runtime root is not trusted by default');
+    const withAllowedRoot = summarizeCoverage(registry,
+      readReports(fixture.runtime, { cwd: root, evidenceRoots: [externalRoot] }))
+      .find((row) => row.path === 'builder-combine-draft/membership');
+    assert.equal(withAllowedRoot.status, 'passed', 'the exact referenced file hash is accepted only under a caller-authorized root');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+    rmSync(externalRoot, { recursive: true, force: true });
+  }
 });
