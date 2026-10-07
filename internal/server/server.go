@@ -8,12 +8,16 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
 	"os/signal"
+	"regexp"
+	"strings"
 	"sync/atomic"
 	"syscall"
 	"time"
 
+	shared "github.com/arangodb/go-driver/v2/arangodb/shared"
 	loadapi "github.com/calypr/loom/internal/api/bulk/load"
 	queryapi "github.com/calypr/loom/internal/api/graphql/graph/query"
 	graphresolver "github.com/calypr/loom/internal/api/graphql/graph/resolver"
@@ -40,6 +44,7 @@ import (
 	explorerarango "github.com/calypr/loom/internal/explorer/arango"
 	"github.com/calypr/loom/internal/explorer/artifactfs"
 	"github.com/calypr/loom/internal/explorer/capability"
+	explorercompilation "github.com/calypr/loom/internal/explorer/compilation"
 	"github.com/calypr/loom/internal/explorer/lifecycle"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 	"github.com/calypr/loom/internal/ingest"
@@ -127,6 +132,230 @@ func classifyDataframeQueryError(err error) error {
 		)
 	default:
 		return err
+	}
+}
+
+func configuredAQLQueryRows(logger *slog.Logger, phase string, execute dataframeexecution.QueryRows) dataframeexecution.QueryRows {
+	return func(ctx context.Context, query string, batchSize int, bindVars map[string]any, visit func(map[string]any) error) error {
+		started := time.Now()
+		digest := sha256.Sum256([]byte(query))
+		queryHash := hex.EncodeToString(digest[:])
+		if logger != nil {
+			logger.Info("dataframe AQL started", "request_id", requestIDFromContext(ctx), "phase", phase+"_start",
+				"query_hash", queryHash, "query_bytes", len(query), "bind_vars", len(bindVars), "cursor_batch_size", batchSize)
+		}
+		err := preserveConfiguredQueryError(execute(ctx, query, batchSize, bindVars, visit))
+		level := slog.LevelInfo
+		if err != nil {
+			level = slog.LevelError
+		}
+		logServerDiagnostic(logger, level, "dataframe AQL execution", requestIDFromContext(ctx), phase, time.Since(started), err,
+			"query_hash", queryHash)
+		return err
+	}
+}
+
+func preserveConfiguredQueryError(err error) error {
+	err = classifyDataframeQueryError(err)
+	if err == nil || errors.Is(err, context.DeadlineExceeded) {
+		return err
+	}
+	if errors.Is(err, context.Canceled) {
+		return previewRouteError(err)
+	}
+	if userErr, ok := dataframeerrors.AsUserError(err); ok {
+		switch userErr.Code() {
+		case string(dataframeerrors.CodeUnauthenticated):
+			return &explorer.AuthoringError{Status: http.StatusUnauthorized, Diagnostic: explorer.AuthoringDiagnostic{
+				Severity: "ERROR", Stage: "preview", Code: userErr.Code(), Message: dataframeerrors.PublicMessage(err),
+			}, Cause: err}
+		case string(dataframeerrors.CodeForbidden), string(dataframeerrors.CodeUnauthorizedProject):
+			return &explorer.AuthoringError{Status: http.StatusForbidden, Diagnostic: explorer.AuthoringDiagnostic{
+				Severity: "ERROR", Stage: "preview", Code: userErr.Code(), Message: dataframeerrors.PublicMessage(err),
+			}, Cause: err}
+		}
+		return previewRouteError(err)
+	}
+	return err
+}
+
+func loggedPreviewIndexPreparation(logger *slog.Logger, prepare func(context.Context, compiler.PreviewCoveringIndexSpec) error) func(context.Context, compiler.PreviewCoveringIndexSpec) error {
+	return func(ctx context.Context, spec compiler.PreviewCoveringIndexSpec) error {
+		started := time.Now()
+		err := prepare(ctx, spec)
+		level := slog.LevelInfo
+		if err != nil {
+			level = slog.LevelWarn
+		}
+		logServerDiagnostic(logger, level, "dataframe preview index preparation", requestIDFromContext(ctx), "index_prepare", time.Since(started), err,
+			"collection", spec.Collection, "index", spec.Name, "prewarm", spec.PrepareAfterPreview)
+		return err
+	}
+}
+
+func diagnosticErrorAttrs(err error) []any {
+	if err == nil {
+		return []any{"success", true}
+	}
+	attrs := []any{"success", false, "error_type", fmt.Sprintf("%T", err)}
+	if code := diagnosticErrorCode(err); code != "" {
+		attrs = append(attrs, "error_code", code)
+	}
+	attrs = append(attrs, "cause", diagnosticErrorCause(err))
+	return attrs
+}
+
+func diagnosticErrorCause(err error) string {
+	return capDiagnosticCause(redactDiagnosticCause(diagnosticErrorCauseValue(err)))
+}
+
+func diagnosticErrorCauseValue(err error) string {
+	if err == nil {
+		return ""
+	}
+	if _, ok := dataframeerrors.AsUserError(err); ok {
+		return dataframeerrors.PublicMessage(err)
+	}
+	var lifecycleErr *lifecycle.Error
+	if errors.As(err, &lifecycleErr) && lifecycleErr.Message != "" {
+		return lifecycleErr.Message
+	}
+	var authoringErr *explorer.AuthoringError
+	if errors.As(err, &authoringErr) && authoringErr.Diagnostic.Message != "" {
+		return authoringErr.Diagnostic.Message
+	}
+	var compilationErr *explorercompilation.Error
+	if errors.As(err, &compilationErr) && compilationErr.Message != "" {
+		return compilationErr.Message
+	}
+	switch {
+	case errors.Is(err, context.Canceled):
+		return "operation canceled"
+	case errors.Is(err, context.DeadlineExceeded):
+		return "operation deadline exceeded"
+	}
+	var arangoErr shared.ArangoError
+	if errors.As(err, &arangoErr) {
+		return arangoDiagnosticCause(arangoErr)
+	}
+	var arangoErrPointer *shared.ArangoError
+	if errors.As(err, &arangoErrPointer) && arangoErrPointer != nil {
+		return arangoDiagnosticCause(*arangoErrPointer)
+	}
+	return err.Error()
+}
+
+const maxDiagnosticCauseBytes = 256
+
+func capDiagnosticCause(cause string) string {
+	if len(cause) <= maxDiagnosticCauseBytes {
+		return cause
+	}
+	return strings.ToValidUTF8(cause[:maxDiagnosticCauseBytes-3], "") + "..."
+}
+
+func arangoDiagnosticCause(err shared.ArangoError) string {
+	cause := fmt.Sprintf("ArangoDB error number %d (HTTP %d)", err.ErrorNum, err.Code)
+	if err.ErrorMessage != "" {
+		cause += ": " + err.ErrorMessage
+	}
+	return cause
+}
+
+var (
+	diagnosticCredentialAssignment = regexp.MustCompile(`(?i)((?:"|')?(?:authorization|proxy-authorization|access[_ -]?token|refresh[_ -]?token|token|password|secret|api[_ -]?key|apikey|credential)(?:"|')?\s*[:=]\s*)(?:(?:bearer|basic)\s+)?(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^\s,;}\]]+)`)
+	diagnosticBearerCredential     = regexp.MustCompile(`(?i)\b(?:bearer|basic)\s+[A-Za-z0-9._~+/-]+=*`)
+	diagnosticURLCredential        = regexp.MustCompile(`(?i)(https?://)[^/\s:@]+:[^/\s@]+@`)
+	diagnosticPayloadAssignment    = regexp.MustCompile(`(?i)\b((?:"|')?(?:query|bind[_ -]?vars?|bind[_ -]?values?|(?:request|response)[_ -]?body|body)(?:"|')?\s*[:=]\s*)`)
+)
+
+func redactDiagnosticCause(cause string) string {
+	cause = diagnosticCredentialAssignment.ReplaceAllString(cause, "${1}[redacted]")
+	cause = diagnosticBearerCredential.ReplaceAllString(cause, "[redacted credential]")
+	cause = diagnosticURLCredential.ReplaceAllString(cause, "${1}[redacted]@")
+	if match := diagnosticPayloadAssignment.FindStringIndex(cause); match != nil {
+		return cause[:match[0]] + cause[match[0]:match[1]] + "[redacted]"
+	}
+	return cause
+}
+
+func diagnosticErrorCode(err error) string {
+	if err == nil {
+		return ""
+	}
+	if userErr, ok := dataframeerrors.AsUserError(err); ok {
+		return userErr.Code()
+	}
+	var lifecycleErr *lifecycle.Error
+	if errors.As(err, &lifecycleErr) {
+		return lifecycleErr.Code
+	}
+	var compilationErr *explorercompilation.Error
+	if errors.As(err, &compilationErr) {
+		return compilationErr.Code
+	}
+	var authoringErr *explorer.AuthoringError
+	if errors.As(err, &authoringErr) {
+		return authoringErr.Diagnostic.Code
+	}
+	switch {
+	case errors.Is(err, context.Canceled):
+		return "CANCELED"
+	case errors.Is(err, context.DeadlineExceeded):
+		return "DEADLINE_EXCEEDED"
+	default:
+		return ""
+	}
+}
+
+func logServerDiagnostic(logger *slog.Logger, level slog.Level, message, requestID, phase string, duration time.Duration, err error, fields ...any) {
+	if logger == nil {
+		return
+	}
+	attrs := []any{"request_id", requestID, "phase", phase, "duration_ms", duration.Milliseconds()}
+	attrs = append(attrs, diagnosticErrorAttrs(err)...)
+	attrs = append(attrs, fields...)
+	logger.Log(context.Background(), level, message, attrs...)
+}
+
+func categoryScanReceiptResolutionError(receiptID string, err error) error {
+	classified := classifyReceiptPreviewResolutionError(receiptID, err)
+	var resolution *receiptPreviewResolutionError
+	if errors.As(classified, &resolution) {
+		return receiptPreviewConflict(classified)
+	}
+	return classified
+}
+
+func configuredCategoryScanner(logger *slog.Logger, recipeEngine *dataframeexecution.Engine) lifecycle.CategoryScanner {
+	return func(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, request dataframeexecution.CategoryScanRequest) (dataframeexecution.CategoryScanResult, error) {
+		// Leave time for Arango's server-side preview runtime limit to stop
+		// work that continues after a canceled discovery request.
+		scanCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
+		defer cancel()
+		started := time.Now()
+		attrs := []any{"output_id", request.Output, "stage_id", request.StageID, "category_column_id", request.ColumnID, "value_column_id", request.ValueColumnID}
+		if receipt == nil {
+			err := fmt.Errorf("compilation receipt is missing")
+			logServerDiagnostic(logger, slog.LevelError, "Explorer table-shape category scan resolution", requestIDFromContext(ctx), "category_scan_resolution", time.Since(started), err, attrs...)
+			return dataframeexecution.CategoryScanResult{}, err
+		}
+		resolved, err := compileValidatedReceiptResolution(scanCtx, recipeEngine, receipt, bindings)
+		if err != nil {
+			resultErr := categoryScanReceiptResolutionError(receipt.ID, err)
+			logServerDiagnostic(logger, slog.LevelError, "Explorer table-shape category scan resolution", requestIDFromContext(ctx), "category_scan_resolution", time.Since(started), resultErr, attrs...)
+			return dataframeexecution.CategoryScanResult{}, resultErr
+		}
+		logServerDiagnostic(logger, slog.LevelInfo, "Explorer table-shape category scan resolution", requestIDFromContext(ctx), "category_scan_resolution", time.Since(started), nil, attrs...)
+
+		scanStarted := time.Now()
+		result, err := recipeEngine.ScanCategories(scanCtx, resolved, request)
+		level := slog.LevelInfo
+		if err != nil {
+			level = slog.LevelError
+		}
+		logServerDiagnostic(logger, level, "Explorer table-shape category scan", requestIDFromContext(ctx), "category_scan", time.Since(scanStarted), err, attrs...)
+		return result, err
 	}
 }
 
@@ -261,7 +490,7 @@ func run(ctx context.Context, serverConfig Config) error {
 		Registry:      recipeRegistry,
 		Revisions:     recipeRevisions,
 		ResolveBundle: recipeSchemaResolver(catalogStore.DiscoverFields, discoveryCache),
-		PreparePreviewIndex: func(ctx context.Context, spec compiler.PreviewCoveringIndexSpec) error {
+		PreparePreviewIndex: loggedPreviewIndexPreparation(logger, func(ctx context.Context, spec compiler.PreviewCoveringIndexSpec) error {
 			var err error
 			if len(spec.StoredValues) != 0 {
 				if spec.Supersedes != nil {
@@ -277,48 +506,23 @@ func run(ctx context.Context, serverConfig Config) error {
 			} else {
 				err = lifecycleClient.EnsurePreviewCoveringIndex(ctx, spec.Collection, spec.Name, spec.Fields)
 			}
-			if err != nil {
-				logger.Warn("preview covering index unavailable", "collection", spec.Collection, "error", err)
-			}
 			return err
-		},
+		}),
 		PreviewCollectionRevision: lifecycleClient.CollectionRevision,
 		PreviewExplainQuery: func(ctx context.Context, query string, bindVars map[string]any) (arangostore.ExplainResult, error) {
 			return lifecycleClient.Explain(ctx, arangostore.ExplainRequest{Query: query, BindVars: bindVars})
 		},
 		PreviewCollectionCount: lifecycleClient.CollectionCount,
 		ClickHouseQueryRows:    clickHouseQueryRows,
-		PreviewQueryRows: func(ctx context.Context, query string, batchSize int, bindVars map[string]any, visit func(map[string]any) error) error {
-			started := time.Now()
-			digest := sha256.Sum256([]byte(query))
-			queryID := hex.EncodeToString(digest[:8])
-			logger.Info("dataframe preview AQL start", "query_id", queryID, "query_bytes", len(query), "bind_vars", len(bindVars), "cursor_batch_size", batchSize)
-			err := lifecycleClient.QueryRowsWithMaxRuntime(ctx, query, batchSize, bindVars, explorerPreviewTimeout, visit)
-			fields := []any{"query_id", queryID, "query_bytes", len(query), "bind_vars", len(bindVars), "seconds", time.Since(started).Seconds()}
-			if err != nil {
-				logger.Error("dataframe preview AQL failed", append(fields, "error", err.Error())...)
-				return classifyDataframeQueryError(err)
-			}
-			logger.Info("dataframe preview AQL complete", fields...)
-			return nil
-		},
+		PreviewQueryRows: configuredAQLQueryRows(logger, "preview_query_rows", func(ctx context.Context, query string, batchSize int, bindVars map[string]any, visit func(map[string]any) error) error {
+			return lifecycleClient.QueryRowsWithMaxRuntime(ctx, query, batchSize, bindVars, explorerPreviewTimeout, arangostore.RowVisitor(visit))
+		}),
 		ResolveClickHouseInputs:    resolveClickHouseInputs,
 		WithExecutionReadPins:      withExecutionReadPins,
 		PrivateClickHouseArtifacts: privateClickHouseArtifacts,
-		QueryRows: func(ctx context.Context, query string, batchSize int, bindVars map[string]any, visit func(map[string]any) error) error {
-			started := time.Now()
-			digest := sha256.Sum256([]byte(query))
-			queryID := hex.EncodeToString(digest[:8])
-			logger.Info("dataframe AQL start", "query_id", queryID, "query_bytes", len(query), "bind_vars", len(bindVars), "cursor_batch_size", batchSize)
-			err := lifecycleClient.QueryRows(ctx, query, batchSize, bindVars, visit)
-			fields := []any{"query_id", queryID, "query_bytes", len(query), "bind_vars", len(bindVars), "seconds", time.Since(started).Seconds()}
-			if err != nil {
-				logger.Error("dataframe AQL failed", append(fields, "error", err.Error())...)
-				return classifyDataframeQueryError(err)
-			}
-			logger.Info("dataframe AQL complete", fields...)
-			return nil
-		},
+		QueryRows: configuredAQLQueryRows(logger, "query_rows", func(ctx context.Context, query string, batchSize int, bindVars map[string]any, visit func(map[string]any) error) error {
+			return lifecycleClient.QueryRows(ctx, query, batchSize, bindVars, arangostore.RowVisitor(visit))
+		}),
 		ScopeDigest:  recipeScopeDigest,
 		RootPageRows: serverConfig.Server.RecipeQueryPageRows,
 	})
@@ -497,22 +701,8 @@ func run(ctx context.Context, serverConfig Config) error {
 		ExplicitGroupResolver:              explicitGroupResolver,
 		ExplicitGroupRepository:            explorerStore,
 		TableShapeCapabilities:             tableShapeCapabilities,
-		ScanCategories: func(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, request dataframeexecution.CategoryScanRequest) (dataframeexecution.CategoryScanResult, error) {
-			// Leave time for Arango's server-side preview runtime limit to stop
-			// work that continues after a canceled discovery request.
-			scanCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
-			defer cancel()
-			if receipt == nil {
-				return dataframeexecution.CategoryScanResult{}, fmt.Errorf("compilation receipt is missing")
-			}
-			resolved, err := compileValidatedReceiptResolution(scanCtx, recipeEngine, receipt, bindings)
-			if err != nil {
-				logger.Error("Explorer table-shape category scan resolution failed", "receipt_id", receipt.ID, "error", err)
-				return dataframeexecution.CategoryScanResult{}, classifyReceiptPreviewResolutionError(receipt.ID, err)
-			}
-			return recipeEngine.ScanCategories(scanCtx, resolved, request)
-		},
-		CompileReceipt: compileReceipt,
+		ScanCategories:                     configuredCategoryScanner(logger, recipeEngine),
+		CompileReceipt:                     compileReceipt,
 		ConstructionSourceStage: func(ctx context.Context, request lifecycle.ConstructionSourceStageRequest) (explorer.ReceiptConstructionStage, error) {
 			return compileConstructionSourceStage(ctx, request, recipeEngine)
 		},

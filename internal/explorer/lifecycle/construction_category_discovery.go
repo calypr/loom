@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/calypr/loom/internal/dataframe/compiler"
+	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/expression"
 	"github.com/calypr/loom/internal/dataframe/recipe"
@@ -399,14 +400,7 @@ func (s *Service) DiscoverConstructionCategories(ctx context.Context, request Co
 		ValueColumnID: request.ValueColumnID, MaxValues: compiler.MaxCategoryScanValues,
 	})
 	if err != nil {
-		if errors.Is(err, context.DeadlineExceeded) || errors.Is(ctx.Err(), context.DeadlineExceeded) {
-			return ConstructionCategoryDiscoveryResponse{}, unavailable("construction-category-discovery", "CATEGORY_SCAN_TIMEOUT", "finding all category values exceeded the preview time limit; filter the source rows and try again", err)
-		}
-		code := "CATEGORY_SCAN_REFUSED"
-		if refusal, ok := compiler.CategoryScanRefusalCodeOf(err); ok {
-			code = string(refusal)
-		}
-		return ConstructionCategoryDiscoveryResponse{}, unprocessable("construction-category-discovery", code, "complete compiler-owned pivot categories are unavailable for this stage and pair", err)
+		return ConstructionCategoryDiscoveryResponse{}, classifyConstructionCategoryScanError(ctx, err)
 	}
 	proof := scan.Proof
 	overflow := scan.Overflow || len(scan.Values) > compiler.MaxCategoryScanValues
@@ -456,6 +450,84 @@ func (s *Service) DiscoverConstructionCategories(ctx context.Context, request Co
 		ValueColumnID: request.ValueColumnID, Outcome: constructionCategoryDiscoveryComplete,
 		Complete: true, ProofFingerprint: proof.Fingerprint, Categories: categories,
 	}, nil
+}
+
+func classifyConstructionCategoryScanError(ctx context.Context, err error) error {
+	const stage = "construction-category-discovery"
+	if err == nil {
+		return nil
+	}
+	contextErr := ctx.Err()
+	cause := err
+	if contextErr != nil && !errors.Is(err, contextErr) {
+		cause = errors.Join(err, contextErr)
+	}
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(contextErr, context.DeadlineExceeded) {
+		return unavailable(stage, "CATEGORY_SCAN_TIMEOUT", "finding all category values exceeded the preview time limit; filter the source rows and try again", cause)
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(contextErr, context.Canceled) {
+		return cause
+	}
+	var lifecycleErr *Error
+	if errors.As(err, &lifecycleErr) {
+		return err
+	}
+	var authoringErr *explorer.AuthoringError
+	if errors.As(err, &authoringErr) {
+		return err
+	}
+	if errors.Is(err, explorer.ErrReceiptRecompileRequired) {
+		return conflict(stage, "RECEIPT_RECOMPILE_REQUIRED", "the compiled receipt no longer matches the current construction; refresh and try again", nil, cause)
+	}
+	if refusal, ok := compiler.CategoryScanRefusalCodeOf(err); ok {
+		return unprocessable(stage, string(refusal), "complete compiler-owned pivot categories are unavailable for this stage and pair", cause)
+	}
+	if userErr, ok := dataframeerrors.AsUserError(err); ok {
+		code := userErr.Code()
+		message := dataframeerrors.PublicMessage(err)
+		details := userErr.Details()
+		if dataframeerrors.IsFeatureResolutionCode(code) {
+			return failureDetails(ClassUnprocessable, stage, code, message, details, cause)
+		}
+		switch dataframeerrors.ErrorCode(code) {
+		case dataframeerrors.CodeSchemaConflict,
+			dataframeerrors.CodeStaleCursor,
+			dataframeerrors.CodeDatasetGenerationChanged,
+			dataframeerrors.CodePublicationInProgress,
+			dataframeerrors.CodePublicationConflict,
+			dataframeerrors.CodeGenerationActivationUnknown,
+			dataframeerrors.CodeRecipeContractViolation,
+			dataframeerrors.CodeDynamicSchemaDrift:
+			return failureDetails(ClassConflict, stage, code, message, details, cause)
+		case dataframeerrors.CodeForbidden, dataframeerrors.CodeUnauthorizedProject:
+			return failureDetails(ClassForbidden, stage, code, message, details, cause)
+		case dataframeerrors.CodeDatasetNotFound,
+			dataframeerrors.CodeNoActiveGeneration,
+			dataframeerrors.CodeRecipeNotFound,
+			dataframeerrors.CodeRecipeExecutionNotFound:
+			return failureDetails(ClassNotFound, stage, code, message, details, cause)
+		case dataframeerrors.CodeBackendUnavailable,
+			dataframeerrors.CodeReceiptStoreUnavailable,
+			dataframeerrors.CodeQueryMemoryLimitExceeded,
+			dataframeerrors.CodeQueryResourceLimitExceeded,
+			dataframeerrors.CodeQueryBackendOutOfMemory:
+			return failureDetails(ClassUnavailable, stage, code, message, details, cause)
+		case dataframeerrors.CodeClientCanceled,
+			dataframeerrors.CodePreviewTimeout,
+			dataframeerrors.CodePreviewResponseTooLarge,
+			dataframeerrors.CodePlanTooExpensive,
+			dataframeerrors.CodeUnauthenticated:
+			// The HTTP adapter maps these status-specific codes directly.
+			return err
+		}
+		if dataframeerrors.IsRetryableCode(dataframeerrors.ErrorCode(code)) {
+			return failureDetails(ClassUnavailable, stage, code, message, details, cause)
+		}
+		// Keep other typed dataframe errors intact so the transport adapter can
+		// preserve their established code and status mapping.
+		return err
+	}
+	return internal(stage, "INTERNAL_ERROR", "category discovery failed unexpectedly", cause)
 }
 
 func constructionCategoryColumn(columns []explorer.ReceiptConstructionStageColumn, id string) (explorer.ReceiptConstructionStageColumn, bool) {

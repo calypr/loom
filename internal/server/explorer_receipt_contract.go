@@ -67,8 +67,25 @@ func compileConstructionSourceStage(ctx context.Context, request lifecycle.Const
 	return explorer.ReceiptConstructionStage{}, fmt.Errorf("source projection compiler returned no output %q", request.OutputID)
 }
 
-func compileExplorerReceipt(ctx context.Context, request lifecycle.CompileReceiptRequest, capabilityResolver *explorerCapabilityResolver, recipeEngine *dataframeexecution.Engine, explorerService *explorer.Service, logger *slog.Logger, combineResolver combineInputSchemaResolver) (*explorer.CompilationReceipt, error) {
+func compileExplorerReceipt(ctx context.Context, request lifecycle.CompileReceiptRequest, capabilityResolver *explorerCapabilityResolver, recipeEngine *dataframeexecution.Engine, explorerService *explorer.Service, logger *slog.Logger, combineResolver combineInputSchemaResolver) (result *explorer.CompilationReceipt, retErr error) {
 	started := time.Now()
+	var outputIDs, stageIDs, columnIDs []string
+	var prepareDuration, compileWorkspaceDuration, compileResolvedDuration, contractBuildDuration, validatePersistDuration time.Duration
+	var receiptBytes, outputCount, columnCount int
+	var receiptID string
+	defer func() {
+		level := slog.LevelInfo
+		if retErr != nil {
+			level = slog.LevelError
+		}
+		logServerDiagnostic(logger, level, "Explorer receipt compilation", requestIDFromContext(ctx), "compile_receipt", time.Since(started), retErr,
+			"project", request.Project, "explorer_id", request.ExplorerID, "receipt_id", receiptID,
+			"compile_role", request.RequestID, "output_ids", outputIDs, "stage_ids", stageIDs, "output_column_ids", columnIDs,
+			"prepare_ms", prepareDuration.Milliseconds(), "compile_workspace_ms", compileWorkspaceDuration.Milliseconds(),
+			"compile_resolved_bundle_ms", compileResolvedDuration.Milliseconds(), "contract_build_ms", contractBuildDuration.Milliseconds(),
+			"validate_persist_ms", validatePersistDuration.Milliseconds(), "receipt_bytes", receiptBytes,
+			"output_count", outputCount, "column_count", columnCount)
+	}()
 	authorized := request.Authorized.Clone()
 	if strings.TrimSpace(authorized.Snapshot.Token) == "" {
 		var err error
@@ -97,20 +114,29 @@ func compileExplorerReceipt(ctx context.Context, request lifecycle.CompileReceip
 	if err != nil {
 		return nil, err
 	}
-	prepareDuration := time.Since(prepareStarted)
+	prepareDuration = time.Since(prepareStarted)
 	compileWorkspaceStarted := time.Now()
 	translated, err := explorercompilation.CompileWorkspace(ctx, request.Project, request.ExplorerID, workspace, snapshot, request.ResolvedInputs)
 	if err != nil {
 		return nil, err
 	}
-	compileWorkspaceDuration := time.Since(compileWorkspaceStarted)
+	compileWorkspaceDuration = time.Since(compileWorkspaceStarted)
 	bindings := recipe.RuntimeBindings{Project: projectid.Legacy(request.Project), SelectionProject: projectid.Canonical(request.Project), DatasetGeneration: snapshot.Identity.Generation, AuthResourcePaths: append([]string(nil), authorized.Scope.AuthResourcePaths...), AuthScopeMode: authorized.Scope.Mode, SelectionMembersCollection: request.SelectionMembersCollection}
 	compileResolvedStarted := time.Now()
 	resolved, err := recipeEngine.CompileResolvedBundle(ctx, translated.Bundle, bindings)
 	if err != nil {
 		return nil, classifyReceiptRecipeError(err)
 	}
-	compileResolvedDuration := time.Since(compileResolvedStarted)
+	for _, output := range resolved.Compiled.Outputs {
+		outputIDs = append(outputIDs, output.Name)
+		for _, column := range output.OutputSchema {
+			columnIDs = append(columnIDs, column.Name)
+		}
+		for _, stage := range output.Stages {
+			stageIDs = append(stageIDs, stage.ID)
+		}
+	}
+	compileResolvedDuration = time.Since(compileResolvedStarted)
 	combineInputSchemas := make(map[string]map[int]ir.ResolvedClickHouseTable)
 	for _, output := range resolved.Compiled.Outputs {
 		combine := output.Plan.ClickHouseCombine
@@ -198,7 +224,10 @@ func compileExplorerReceipt(ctx context.Context, request lifecycle.CompileReceip
 	if err != nil {
 		return nil, err
 	}
-	contractBuildDuration := time.Since(contractBuildStarted)
+	receiptID = receipt.ID
+	outputCount = len(receipt.Bundle.Outputs)
+	columnCount = len(receipt.EmittedColumns)
+	contractBuildDuration = time.Since(contractBuildStarted)
 	validatePersistStarted := time.Now()
 	if err := validateReceiptResolution(&receipt, &resolved); err != nil {
 		return nil, receiptCompilationConflict(receipt.ID, err)
@@ -210,17 +239,9 @@ func compileExplorerReceipt(ctx context.Context, request lifecycle.CompileReceip
 	if err != nil {
 		return nil, err
 	}
-	validatePersistDuration := time.Since(validatePersistStarted)
-	receiptBytes := 0
+	validatePersistDuration = time.Since(validatePersistStarted)
 	if raw, marshalErr := json.Marshal(stored); marshalErr == nil {
 		receiptBytes = len(raw)
-	}
-	if logger != nil {
-		logger.Info("Explorer receipt compiled", "project", receipt.Project, "explorer_id", receipt.ExplorerID, "receipt_id", receipt.ID,
-			"duration_ms", time.Since(started).Milliseconds(), "prepare_ms", prepareDuration.Milliseconds(),
-			"compile_workspace_ms", compileWorkspaceDuration.Milliseconds(), "compile_resolved_bundle_ms", compileResolvedDuration.Milliseconds(),
-			"contract_build_ms", contractBuildDuration.Milliseconds(), "validate_persist_ms", validatePersistDuration.Milliseconds(),
-			"receipt_bytes", receiptBytes, "output_count", len(receipt.Bundle.Outputs), "column_count", len(receipt.EmittedColumns))
 	}
 	return stored, nil
 }
