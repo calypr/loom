@@ -749,7 +749,10 @@ export async function cdaCurrentDraftNullableCodeJoinWorkflow({ page, cda }) {
           draftVersion: proposal.requestBody.expectedDraftVersion, draftDigest: proposal.requestBody.expectedDraftDigest,
           candidateSteps: candidateConstruction.steps, removalEvidence });
       const dom = await readProposalPreviewState(page, target.outputId);
-      const emptyPreview = cdaNullableEmptyRemovalPreviewEvidence({ proposal, outputId: target.outputId, dom });
+      const emptyPreview = cdaNullableEmptyRemovalPreviewEvidence({ proposal, outputId: target.outputId,
+        targetCreateBase: target.createBase, baselineDocument: target.baselineDocument,
+        currentDraft: baseState, restorationEvidence: removalEvidence,
+        project, explorer, generation, uiOrigin, dom });
       cda.check('correctness', 'Removing nullable Join previews the exact empty target', emptyPreview.ok,
         { outputId: target.outputId, proposalId: proposal.responseBody.proposalId,
           previewEvidence: emptyPreview, candidateEmptyTarget: removalEvidence });

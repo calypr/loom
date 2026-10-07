@@ -318,12 +318,31 @@ test('raw Builder document columns bind native Join by stable columnId, not publ
 
 test('empty removal preview binds the exact receipt/output and the native no-columns status DOM', () => {
   const outputId = 'nullable-join-target';
-  const proposal = { responseBody: {
-    proposalId: 'nullable-removal-proposal',
-    outputId,
-    previewStatus: 'READY',
-    preview: { receiptId: 'nullable-removal-proposal', outputId, columns: [], rows: [], rowCount: 0 },
+  const project = 'loom_dev_cda_fhir';
+  const explorer = 'cda-nullable-code-join-test';
+  const generation = 'cda-fhir-v1';
+  const uiOrigin = 'http://127.0.0.1:30008';
+  const routePath = `/api/v1/projects/${project}/explorers/${explorer}/authoring/v2/construction-proposals`;
+  const currentDraft = { draftVersion: 12, draftDigest: 'draft-digest-12', catalog: {
+    generation, snapshotToken: 'snapshot-1', authorizationScopeDigest: 'authorization-scope-1',
   } };
+  const baselineDocument = { output: { id: outputId }, rootResourceType: 'Observation',
+    route: { occurrenceId: 'base', resourceType: 'Observation' }, columns: [], rows: { kind: 'RECORDS', records: {} } };
+  const targetCreateBase = { catalog: structuredClone(currentDraft.catalog), workspace: { documents: [baselineDocument] } };
+  const rows = Array.from({ length: 25 }, (_, index) => ({ __loom_row_id: String(index + 1).padStart(64, '0') }));
+  const rowSources = Array.from({ length: 25 }, (_, index) => ({
+    id: `observation-${index + 1}`, kind: 'SINGLE', resourceType: 'Observation',
+  }));
+  const requestBody = { snapshotToken: 'snapshot-1', expectedDraftVersion: 12,
+    expectedDraftDigest: 'draft-digest-12', outputId, limit: 25,
+    candidateConstruction: { version: 1, steps: [] } };
+  const responseBody = { proposalId: 'nullable-removal-proposal', outputId,
+    snapshotToken: 'snapshot-1', draftVersion: 12, draftDigest: 'draft-digest-12', previewStatus: 'READY',
+    candidateConstruction: { version: 1, steps: [] },
+    preview: { receiptId: 'nullable-removal-proposal', outputId, columns: [], rows, rowSources,
+      rowCount: 25, sampled: true } };
+  const proposal = { event: { origin: uiOrigin, path: routePath, method: 'POST', status: 200 }, requestBody, responseBody };
+  const restorationEvidence = { ok: true, emptyRoot: true, unchanged: true, emptyConstructionNormalized: true };
   const dom = {
     proposalPanelCount: 1,
     proposalStatus: 'ready',
@@ -338,32 +357,77 @@ test('empty removal preview binds the exact receipt/output and the native no-col
     previewOutputId: outputId,
     previewReceiptId: 'nullable-removal-proposal',
     statusText: 'This table has no visible columns.',
+    footerText: 'Showing 25 preview rows. Full-output coverage is unavailable before publication.',
     tableCount: 0,
   };
-  const evidence = cdaNullableEmptyRemovalPreviewEvidence({ proposal, outputId, dom });
+  const evidence = cdaNullableEmptyRemovalPreviewEvidence({ proposal, outputId, targetCreateBase, baselineDocument, currentDraft,
+    restorationEvidence, project, explorer, generation, uiOrigin, dom });
   assert.equal(evidence.ok, true);
   assert.deepEqual(evidence.checks, {
     readyResponse: true,
+    catalogScopeBound: true,
+    routeBound: true,
+    draftCASBound: true,
     receiptBound: true,
     outputBound: true,
-    emptyResponse: true,
+    baselineDocumentBound: true,
+    candidateRestoresBaseline: true,
+    emptyVisibleSchema: true,
+    emptyCandidateConstruction: true,
+    rowSampleBound: true,
     readyDOM: true,
     emptyStatus: true,
+    sampledFooter: true,
     tableAbsent: true,
   });
-  for (const changes of [
-    { outputId: 'wrong-output' },
-    { proposal: { responseBody: { ...proposal.responseBody, proposalId: 'wrong-proposal' } } },
-    { proposal: { responseBody: { ...proposal.responseBody, preview: { ...proposal.responseBody.preview, rows: [{ id: 'unexpected' }] } } } },
-    { proposal: { responseBody: { ...proposal.responseBody, preview: { ...proposal.responseBody.preview, columns: [{ column: 'unexpected' }] } } } },
-    { proposal: { responseBody: { ...proposal.responseBody, preview: { ...proposal.responseBody.preview, rowCount: 1 } } } },
-    { dom: { ...dom, statusText: 'Loom did not return preview rows for this proposal.' } },
-    { dom: { ...dom, tableCount: 1 } },
-    { dom: { ...dom, resultReceiptId: 'stale-receipt' } },
-  ]) {
-    assert.equal(cdaNullableEmptyRemovalPreviewEvidence({ proposal: changes.proposal ?? proposal,
-      outputId: changes.outputId ?? outputId, dom: changes.dom ?? dom }).ok, false);
-  }
+  assert.equal(evidence.responsePreview.sampled, true);
+  assert.equal(evidence.responsePreview.rowCount, 25);
+  assert.equal(evidence.responsePreview.rows.length, 25);
+  assert.equal(evidence.responsePreview.rowSources.length, 25);
+
+  const negative = (changes = {}) => cdaNullableEmptyRemovalPreviewEvidence({
+    proposal: changes.proposal ?? proposal,
+    outputId: changes.outputId ?? outputId,
+    targetCreateBase: changes.targetCreateBase ?? targetCreateBase,
+    baselineDocument: changes.baselineDocument ?? baselineDocument,
+    currentDraft: changes.currentDraft ?? currentDraft,
+    restorationEvidence: changes.restorationEvidence ?? restorationEvidence,
+    project: changes.project ?? project,
+    explorer: changes.explorer ?? explorer,
+    generation: changes.generation ?? generation,
+    uiOrigin: changes.uiOrigin ?? uiOrigin,
+    dom: changes.dom ?? dom,
+  });
+  const withRequest = change => ({ ...proposal, requestBody: { ...requestBody, ...change } });
+  const withResponse = change => ({ ...proposal, responseBody: { ...responseBody, ...change } });
+  const withPreview = change => withResponse({ preview: { ...responseBody.preview, ...change } });
+  assert.equal(negative({ outputId: 'wrong-output' }).ok, false);
+  assert.equal(negative({ proposal: withResponse({ proposalId: 'wrong-proposal' }) }).ok, false);
+  assert.equal(negative({ proposal: { ...proposal, event: { ...proposal.event, origin: 'http://wrong-origin' } } }).ok, false);
+  assert.equal(negative({ proposal: { ...proposal, event: { ...proposal.event, path: routePath.replace(project, 'other-project') } } }).ok, false);
+  assert.equal(negative({ proposal: withRequest({ outputId: 'wrong-output' }) }).ok, false);
+  assert.equal(negative({ proposal: withRequest({ snapshotToken: 'wrong-snapshot' }) }).ok, false);
+  assert.equal(negative({ proposal: withResponse({ draftVersion: 11 }) }).ok, false);
+  assert.equal(negative({ proposal: withResponse({ draftDigest: 'wrong-digest' }) }).ok, false);
+  assert.equal(negative({ currentDraft: { ...currentDraft, catalog: { ...currentDraft.catalog, generation: 'wrong-generation' } } }).ok, false);
+  assert.equal(negative({ currentDraft: { ...currentDraft, catalog: { ...currentDraft.catalog, authorizationScopeDigest: '' } } }).ok, false);
+  assert.equal(negative({ targetCreateBase: { ...targetCreateBase, catalog: { ...targetCreateBase.catalog, snapshotToken: 'wrong-snapshot' } } }).ok, false);
+  assert.equal(negative({ targetCreateBase: { ...targetCreateBase, workspace: { documents: [] } } }).ok, false);
+  assert.equal(negative({ baselineDocument: { ...baselineDocument, columns: [{ column: 'visible' }] } }).ok, false);
+  assert.equal(negative({ restorationEvidence: { ...restorationEvidence, unchanged: false } }).ok, false);
+  assert.equal(negative({ proposal: withResponse({ candidateConstruction: { version: 1, steps: [{ id: 'unexpected' }] } }) }).ok, false);
+  assert.equal(negative({ proposal: withPreview({ columns: [{ column: 'unexpected' }] }) }).ok, false);
+  assert.equal(negative({ proposal: withPreview({ rowCount: 24 }) }).ok, false);
+  assert.equal(negative({ proposal: withRequest({ limit: 24 }) }).ok, false);
+  assert.equal(negative({ proposal: withPreview({ sampled: false }) }).ok, false);
+  assert.equal(negative({ proposal: withPreview({ rows: [{ __loom_row_id: 'not-a-sha256' }, ...rows.slice(1)] }) }).ok, false);
+  assert.equal(negative({ proposal: withPreview({ rows: [rows[0], ...rows.slice(1, -1), rows[0]] }) }).ok, false);
+  assert.equal(negative({ proposal: withPreview({ rows: [{ ...rows[0], visible: 'unexpected' }, ...rows.slice(1)] }) }).ok, false);
+  assert.equal(negative({ proposal: withPreview({ rowSources: [{ id: 'source', kind: 'SINGLE', resourceType: 'DiagnosticReport' }, ...rowSources.slice(1)] }) }).ok, false);
+  assert.equal(negative({ dom: { ...dom, statusText: 'Loom did not return preview rows for this proposal.' } }).ok, false);
+  assert.equal(negative({ dom: { ...dom, footerText: 'Showing 24 preview rows.' } }).ok, false);
+  assert.equal(negative({ dom: { ...dom, tableCount: 1 } }).ok, false);
+  assert.equal(negative({ dom: { ...dom, resultReceiptId: 'stale-receipt' } }).ok, false);
 });
 
 test('native nullable Join registration binds proposal, LEFT edit, removal, and timed action evidence', async () => {
@@ -398,8 +462,8 @@ test('native nullable Join registration binds proposal, LEFT edit, removal, and 
   const removalBlock = workflow.slice(workflow.indexOf('const removalProposal'), workflow.indexOf('target = await makeTarget(false)'));
   assert.match(removalBlock, /readProposalPreviewState\(page, target\.outputId\)/,
     'removal reads the rendered empty preview state, whose zero-column layout has no table');
-  assert.match(removalBlock, /cdaNullableEmptyRemovalPreviewEvidence\(\{ proposal, outputId: target\.outputId, dom \}\)/,
-    'removal binds exact empty response rows/columns and the native status DOM');
+  assert.match(removalBlock, /cdaNullableEmptyRemovalPreviewEvidence\(\{ proposal, outputId: target\.outputId,[\s\S]*?targetCreateBase: target\.createBase, baselineDocument: target\.baselineDocument,[\s\S]*?currentDraft: baseState, restorationEvidence: removalEvidence,[\s\S]*?project, explorer, generation, uiOrigin, dom \}\)/,
+    'removal binds the create-time baseline, current-draft scope/CAS, response sample, and native status DOM');
   assert.doesNotMatch(removalBlock, /readGrid\('proposal'\)/,
     'removal must not require a table that the zero-column preview intentionally omits');
   assert.match(workflow, /isDeepStrictEqual\(outputs\.map\(output => output\.id\), expectedOutputColumnIDs\)/,

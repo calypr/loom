@@ -166,30 +166,85 @@ export const cdaNullableDirectSourceColumnBindings = ({ document, expectedCodeCo
   };
 };
 
-export const cdaNullableEmptyRemovalPreviewEvidence = ({ proposal, outputId, dom }) => {
+export const cdaNullableEmptyRemovalPreviewEvidence = ({ proposal, outputId, targetCreateBase, baselineDocument, currentDraft,
+  restorationEvidence, project, explorer, generation, uiOrigin, dom }) => {
+  const event = proposal?.event;
+  const request = proposal?.requestBody;
   const response = proposal?.responseBody;
   const preview = response?.preview;
   const proposalId = response?.proposalId;
+  const snapshotToken = currentDraft?.catalog?.snapshotToken;
+  const expectedRoute = `/api/v1/projects/${encodeURIComponent(project ?? '')}/explorers/${encodeURIComponent(explorer ?? '')}/authoring/v2/construction-proposals`;
+  let expectedOrigin = null;
+  try { expectedOrigin = new URL(uiOrigin).origin; } catch { /* invalid scope fails below */ }
   const readyResponse = response?.previewStatus === 'READY';
+  const createdCatalog = targetCreateBase?.catalog;
+  const createdTargets = (targetCreateBase?.workspace?.documents ?? []).filter(document => document?.output?.id === outputId);
+  const baselineDocumentBound = createdTargets.length === 1 && isDeepStrictEqual(createdTargets[0], baselineDocument);
+  const catalogScopeBound = nonempty(project) && nonempty(explorer) && currentDraft?.catalog?.generation === generation &&
+    createdCatalog?.generation === generation && nonempty(snapshotToken) &&
+    currentDraft?.catalog?.snapshotToken === createdCatalog?.snapshotToken &&
+    nonempty(currentDraft?.catalog?.authorizationScopeDigest) &&
+    currentDraft?.catalog?.authorizationScopeDigest === createdCatalog?.authorizationScopeDigest;
+  const routeBound = expectedOrigin !== null && event?.origin === expectedOrigin && event?.path === expectedRoute &&
+    event?.method === 'POST' && event?.status === 200;
+  const draftCASBound = nonempty(snapshotToken) && request?.snapshotToken === snapshotToken &&
+    response?.snapshotToken === snapshotToken && request?.expectedDraftVersion === currentDraft?.draftVersion &&
+    response?.draftVersion === currentDraft?.draftVersion && request?.expectedDraftDigest === currentDraft?.draftDigest &&
+    response?.draftDigest === currentDraft?.draftDigest;
   const receiptBound = nonempty(proposalId) && preview?.receiptId === proposalId &&
     dom?.proposalId === proposalId && dom?.previewReceiptId === proposalId &&
     dom?.resultReceiptId === proposalId && dom?.resultProposalId === proposalId;
-  const outputBound = nonempty(outputId) && response?.outputId === outputId &&
-    preview?.outputId === outputId && dom?.previewOutputId === outputId && dom?.resultOutputId === outputId;
-  const emptyResponse = preview?.rowCount === 0 && Array.isArray(preview?.columns) && preview.columns.length === 0 &&
-    Array.isArray(preview?.rows) && preview.rows.length === 0;
+  const outputBound = nonempty(outputId) && request?.outputId === outputId && response?.outputId === outputId &&
+    preview?.outputId === outputId && baselineDocument?.output?.id === outputId &&
+    dom?.previewOutputId === outputId && dom?.resultOutputId === outputId;
+  const baselineEmptySchema = baselineDocument?.rootResourceType === 'Observation' &&
+    baselineDocument?.route?.resourceType === 'Observation' && baselineDocument?.route?.occurrenceId === 'base' &&
+    Array.isArray(baselineDocument?.columns) && baselineDocument.columns.length === 0 &&
+    (baselineDocument?.construction?.steps?.length ?? 0) === 0;
+  const candidateRestoresBaseline = restorationEvidence?.ok === true && restorationEvidence?.emptyRoot === true &&
+    restorationEvidence?.unchanged === true && restorationEvidence?.emptyConstructionNormalized === true;
+  const emptyVisibleSchema = baselineEmptySchema && Array.isArray(preview?.columns) &&
+    isDeepStrictEqual(preview.columns, baselineDocument.columns);
+  const emptyCandidateConstruction = response?.candidateConstruction?.version === 1 &&
+    Array.isArray(response?.candidateConstruction?.steps) && response.candidateConstruction.steps.length === 0;
+  const rows = preview?.rows;
+  const rowSources = preview?.rowSources;
+  const rowIDs = Array.isArray(rows) ? rows.map(row => row?.__loom_row_id) : [];
+  const sourceIDs = Array.isArray(rowSources) ? rowSources.map(source => source?.id) : [];
+  const rowSampleBound = request?.limit === 25 && preview?.rowCount === 25 && rows?.length === 25 &&
+    preview?.sampled === true && rows.every(row => row &&
+      isDeepStrictEqual(Object.keys(row).sort(), ['__loom_row_id']) &&
+      typeof row.__loom_row_id === 'string' && /^[a-f0-9]{64}$/.test(row.__loom_row_id)) &&
+    new Set(rowIDs).size === rowIDs.length && rowSources?.length === 25 &&
+    rowSources.every(source => source && isDeepStrictEqual(Object.keys(source).sort(), ['id', 'kind', 'resourceType']) &&
+      nonempty(source.id) && source.kind === 'SINGLE' && source.resourceType === 'Observation') &&
+    new Set(sourceIDs).size === sourceIDs.length;
   const readyDOM = dom?.proposalPanelCount === 1 && dom?.resultSectionCount === 1 && dom?.proposalPreviewCount === 1 &&
     dom?.proposalStatus === 'ready' && dom?.previewStatus === 'ready' && dom?.resultStatus === 'ready';
   const emptyStatus = dom?.statusText === 'This table has no visible columns.';
+  const sampledFooter = dom?.footerText === 'Showing 25 preview rows. Full-output coverage is unavailable before publication.';
   const tableAbsent = dom?.tableCount === 0;
-  const checks = { readyResponse, receiptBound, outputBound, emptyResponse, readyDOM, emptyStatus, tableAbsent };
+  const checks = { readyResponse, catalogScopeBound, routeBound, draftCASBound, receiptBound, outputBound,
+    baselineDocumentBound, candidateRestoresBaseline, emptyVisibleSchema, emptyCandidateConstruction, rowSampleBound,
+    readyDOM, emptyStatus, sampledFooter, tableAbsent };
   return {
     ok: Object.values(checks).every(Boolean),
     checks,
     proposalId: proposalId ?? null,
     outputId: outputId ?? null,
+    scope: { project: project ?? null, explorer: explorer ?? null, generation: generation ?? null,
+      snapshotToken: snapshotToken ?? null, authorizationScopeDigest: currentDraft?.catalog?.authorizationScopeDigest ?? null,
+      draftVersion: currentDraft?.draftVersion ?? null, draftDigest: currentDraft?.draftDigest ?? null,
+      routeOrigin: event?.origin ?? null, routePath: event?.path ?? null },
     responsePreview: preview ? { columns: preview.columns, rows: preview.rows, rowCount: preview.rowCount,
+      rowSources: preview.rowSources,
+      sampled: preview.sampled, requestedLimit: request?.limit ?? null,
       receiptId: preview.receiptId, outputId: preview.outputId } : null,
+    baselineSchema: baselineDocument ? { outputId: baselineDocument.output?.id ?? null,
+      rootResourceType: baselineDocument.rootResourceType ?? null,
+      route: baselineDocument.route ?? null, columns: baselineDocument.columns ?? null,
+      constructionSteps: baselineDocument.construction?.steps?.length ?? 0 } : null,
     dom: dom ?? null,
   };
 };
