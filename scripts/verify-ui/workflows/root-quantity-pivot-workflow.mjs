@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
+import { buildArangoShellInvocation } from '../helpers/owned-arangosh-command.mjs';
 import { readFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -161,11 +162,12 @@ const api = async (path, body) => {
 const runRawCategoryOracle = generation => {
   const query = `FOR o IN Observation FILTER o.project == ${JSON.stringify(project)} AND o.dataset_generation == ${JSON.stringify(generation)} LET quantity = o.payload.valueQuantity LET present = IS_OBJECT(quantity) ? HAS(quantity, "code") : false LET value = o.payload.valueQuantity.code COLLECT categoryPresent = present, categoryValue = value WITH COUNT INTO rowCount SORT categoryPresent ASC, TYPENAME(categoryValue), categoryValue RETURN {present: categoryPresent, value: categoryValue, rowCount}`;
   const program = `print(JSON.stringify(db._query(${JSON.stringify(query)}).toArray()));`;
-  const result = spawnSync('rtk', [
-    'proxy', 'docker', 'exec', arangoContainer,
-    'arangosh', '--server.database', arangoDatabase,
-    '--javascript.execute-string', program,
-  ], { encoding: 'utf8', timeout: 30000, maxBuffer: 8 * 1024 * 1024 });
+  const invocation = buildArangoShellInvocation({
+    container: arangoContainer,
+    script: program,
+    database: arangoDatabase,
+  });
+  const result = spawnSync(invocation.command, invocation.args, { encoding: 'utf8', timeout: 30000, maxBuffer: 8 * 1024 * 1024 });
   if (result.error) throw result.error;
   assert.equal(result.status, 0, result.stderr || result.stdout);
   const payloadLine = result.stdout.split(/\r?\n/).findLast(line => line.trimStart().startsWith('['));
@@ -203,11 +205,12 @@ const runRawCategoryOracle = generation => {
 const runRawFullPopulationPivotOracle = generation => {
   const query = `FOR o IN Observation FILTER o.project == ${JSON.stringify(project)} AND o.dataset_generation == ${JSON.stringify(generation)} LET quantity = o.payload.valueQuantity LET codePresent = IS_OBJECT(quantity) ? HAS(quantity, "code") : false LET codeValue = codePresent ? quantity.code : null LET valuePresent = IS_OBJECT(quantity) ? HAS(quantity, "value") : false LET quantityValue = valuePresent ? quantity.value : null COLLECT status = o.payload.status, categoryPresent = codePresent, categoryValue = codeValue AGGREGATE rowCount = COUNT(), numericCount = SUM(IS_NUMBER(quantityValue) ? 1 : 0), valueSum = SUM(IS_NUMBER(quantityValue) ? quantityValue : 0), valueMax = MAX(IS_NUMBER(quantityValue) ? quantityValue : null) SORT status, categoryPresent ASC, TYPENAME(categoryValue), categoryValue RETURN {status, present: categoryPresent, value: categoryValue, rowCount, numericCount, valueSum, valueMax}`;
   const program = `print(JSON.stringify(db._query(${JSON.stringify(query)}).toArray()));`;
-  const result = spawnSync('rtk', [
-    'proxy', 'docker', 'exec', arangoContainer,
-    'arangosh', '--server.database', arangoDatabase ?? 'loom_dev',
-    '--javascript.execute-string', program,
-  ], { encoding: 'utf8', timeout: 30000, maxBuffer: 8 * 1024 * 1024 });
+  const invocation = buildArangoShellInvocation({
+    container: arangoContainer,
+    script: program,
+    database: arangoDatabase ?? 'loom_dev',
+  });
+  const result = spawnSync(invocation.command, invocation.args, { encoding: 'utf8', timeout: 30000, maxBuffer: 8 * 1024 * 1024 });
   if (result.error) throw result.error;
   assert.equal(result.status, 0, result.stderr || result.stdout);
   const payloadLine = result.stdout.split(/\r?\n/).findLast(line => line.trimStart().startsWith('['));
@@ -277,11 +280,12 @@ const runRawObservationTupleOracle = (generation, requestedIDs) => {
   assert.equal(new Set(requestedIDs).size, requestedIDs.length, 'Native preview must not request duplicate source IDs');
   const query = `FOR o IN Observation FILTER o.project == ${JSON.stringify(project)} AND o.dataset_generation == ${JSON.stringify(generation)} AND o.id IN ${JSON.stringify(requestedIDs)} LET quantity = o.payload.valueQuantity LET codePresent = IS_OBJECT(quantity) ? HAS(quantity, "code") : false LET valuePresent = IS_OBJECT(quantity) ? HAS(quantity, "value") : false SORT o.id RETURN {id: o.id, status: o.payload.status, codePresent, codeValue: codePresent ? quantity.code : null, valuePresent, value: valuePresent ? quantity.value : null}`;
   const program = `print(JSON.stringify(db._query(${JSON.stringify(query)}).toArray()));`;
-  const result = spawnSync('rtk', [
-    'proxy', 'docker', 'exec', arangoContainer,
-    'arangosh', '--server.database', arangoDatabase ?? 'loom_dev',
-    '--javascript.execute-string', program,
-  ], { encoding: 'utf8', timeout: 30000, maxBuffer: 2 * 1024 * 1024 });
+  const invocation = buildArangoShellInvocation({
+    container: arangoContainer,
+    script: program,
+    database: arangoDatabase ?? 'loom_dev',
+  });
+  const result = spawnSync(invocation.command, invocation.args, { encoding: 'utf8', timeout: 30000, maxBuffer: 2 * 1024 * 1024 });
   if (result.error) throw result.error;
   assert.equal(result.status, 0, result.stderr || result.stdout);
   const payloadLine = result.stdout.split(/\r?\n/).findLast(line => line.trimStart().startsWith('['));
@@ -323,11 +327,12 @@ const runFixtureOracle = async generation => {
   assert.equal(observedFixtureDigest, fixtureDigest, 'The independent raw fixture source must remain unchanged after its initial freeze');
   const query = `FOR o IN Observation FILTER o.project == ${JSON.stringify(project)} AND o.dataset_generation == ${JSON.stringify(generation)} LET quantity = o.payload.valueQuantity LET codePresent = IS_OBJECT(quantity) ? HAS(quantity, "code") : false LET valuePresent = IS_OBJECT(quantity) ? HAS(quantity, "value") : false SORT o.id RETURN {id: o.id, status: o.payload.status, codePresent, codeValue: codePresent ? quantity.code : null, valuePresent, value: valuePresent ? quantity.value : null}`;
   const program = `print(JSON.stringify(db._query(${JSON.stringify(query)}).toArray()));`;
-  const result = spawnSync('rtk', [
-    'proxy', 'docker', 'exec', arangoContainer,
-    'arangosh', '--server.database', arangoDatabase,
-    '--javascript.execute-string', program,
-  ], { encoding: 'utf8', timeout: 30000, maxBuffer: 8 * 1024 * 1024 });
+  const invocation = buildArangoShellInvocation({
+    container: arangoContainer,
+    script: program,
+    database: arangoDatabase,
+  });
+  const result = spawnSync(invocation.command, invocation.args, { encoding: 'utf8', timeout: 30000, maxBuffer: 8 * 1024 * 1024 });
   if (result.error) throw result.error;
   assert.equal(result.status, 0, result.stderr || result.stdout);
   const payloadLine = result.stdout.split(/\r?\n/).findLast(line => line.trimStart().startsWith('['));
