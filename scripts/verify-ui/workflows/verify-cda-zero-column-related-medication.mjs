@@ -28,6 +28,16 @@ const compareResourceRefs = (left, right) =>
   `${left.project}\u0000${left.generation}\u0000${left.resourceType}\u0000${left.id}`
     .localeCompare(`${right.project}\u0000${right.generation}\u0000${right.resourceType}\u0000${right.id}`);
 
+export const assertPersistedSelectionMatchesInitialRefs = (selectionPage, initialRefs) => {
+  assert(Array.isArray(initialRefs), 'Persisted selection check requires validated initial membership refs');
+  assert(Array.isArray(selectionPage?.members), 'Final selection read must return a members array');
+  const expectedRefs = [...initialRefs].sort(compareResourceRefs);
+  const persistedRefs = selectionPage.members.map(member => member.ref).sort(compareResourceRefs);
+  assert.deepEqual(persistedRefs, expectedRefs,
+    'Final persisted selection membership must exactly match the validated initial selection refs');
+  return persistedRefs;
+};
+
 export const assertPositiveMedicationSelectionPage = ({
   project, generation, scopeDigest, idempotencyKey, selectedRefs, selection, selectionPage,
 }) => {
@@ -884,9 +894,9 @@ FOR specimen IN Specimen
     assert.deepEqual(finalDocument.construction?.steps ?? [], []);
     assert.equal(finalDocument.population.selectionRevisionId, selection.id);
     const finalSelection = await api(`${explorerPath}/selections/${encodeURIComponent(selection.id)}?limit=100`);
-    assert.deepEqual(finalSelection.members.map(member => member.ref).sort((a, b) => a.id.localeCompare(b.id)), selectedRefs);
+    const persistedRefs = assertPersistedSelectionMatchesInitialRefs(finalSelection, actualRefs);
     assert.deepEqual(finalDocument.population, originalPopulation);
-    check(8, 'persistence', { columns: finalDocument.columns, constructionSteps: finalDocument.construction?.steps ?? [], population: finalDocument.population, selectedRefs: finalSelection.members.map(member => member.ref), restoredUI: restoredPreviewPrompt });
+    check(8, 'persistence', { columns: finalDocument.columns, constructionSteps: finalDocument.construction?.steps ?? [], population: finalDocument.population, selectedRefs: persistedRefs, restoredUI: restoredPreviewPrompt });
     check(9, 'performance', { budgetMs: ACTION_BUDGET_MS, checkpoints: report.checkpoints });
 
     await tracker.flush();

@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
+  assertPersistedSelectionMatchesInitialRefs,
   assertPositiveMedicationSelectionPage,
   medicationOracleModeForCase,
 } from '../../workflows/verify-cda-zero-column-related-medication.mjs';
@@ -142,6 +143,17 @@ test('positive selection checks canonical public identity while preserving raw f
   assert.deepEqual(result.refs, evidence.selectedRefs.map(ref => ({ ...ref, project: evidence.publicProject })));
   assert.deepEqual(evidence.selectedRefs.map(ref => ref.project), [evidence.project, evidence.project],
     'Expected API refs are derived from raw oracle refs without mutating the API/AQL request aliases');
+});
+
+test('final selection reload matches validated canonical refs and rejects a foreign project', () => {
+  const initial = assertPositiveMedicationSelectionPage(positiveSelectionEvidence());
+  const finalSelection = { members: initial.refs.map(ref => ({ ref: { ...ref } })) };
+  assert.deepEqual(assertPersistedSelectionMatchesInitialRefs(finalSelection, initial.refs), initial.refs);
+
+  const foreignProject = structuredClone(finalSelection);
+  foreignProject.members[0].ref.project = 'another_project/resource';
+  assert.throws(() => assertPersistedSelectionMatchesInitialRefs(foreignProject, initial.refs),
+    error => error?.name === 'AssertionError');
 });
 
 test('positive selection rejects raw aliases, wrong namespaces, and foreign member projects', () => {
