@@ -4,6 +4,7 @@ import test from 'node:test';
 import {
   cdaNullableEmptyRemovalPreviewEvidence,
   cdaNullableCodeJoinDirectSourceEvidence,
+  cdaNullableDirectSourceColumnBindings,
   cdaNullableNewExplorerIdentityEvidence,
   cdaNullableValueQuantityCodeCandidateEvidence,
   cdaNullableValueQuantityCodeJoinOracle,
@@ -179,6 +180,70 @@ test('direct-source evidence rejects wrong outputs, pinned refs, duplicate docs,
     ? { ...document, construction: { steps: [{ operation: { kind: 'GROUP' } }] } } : document) }).ok, false);
 });
 
+test('raw Builder document columns bind native Join by stable columnId, not public column name or id', () => {
+  // This is the Column wire shape retained by the attempt-2 APPLY response.
+  const document = {
+    rootResourceType: 'Observation',
+    columns: [
+      { columnId: 'source_4e077295953de003e04d49de', column: 'col_b595992da229f0370a51fa04',
+        logicalType: 'string', occurrenceId: 'base',
+        label: 'left Observation ID', source: { kind: 'field', field: { path: 'id', projectionMode: 'VALUE' } } },
+      { columnId: 'source_064bc175681cffe36bb600b6', column: 'col_b06cd4df2e76017c5a0fc401',
+        logicalType: 'string', occurrenceId: 'base',
+        label: 'Value Quantity Code', source: { kind: 'field', field: {
+          path: 'valueQuantity.code', projectionMode: 'VALUE',
+        } } },
+    ],
+  };
+  const expectedCodeColumnName = 'col_b06cd4df2e76017c5a0fc401';
+  assert.equal(document.columns[1].logicalType, 'string');
+  assert.deepEqual(document.columns[1].source.field, { path: 'valueQuantity.code', projectionMode: 'VALUE' });
+  const evidence = cdaNullableDirectSourceColumnBindings({ document, expectedCodeColumnName });
+  assert.equal(evidence.ok, true);
+  assert.deepEqual(evidence.sourceColumnIDs, [
+    'source_4e077295953de003e04d49de',
+    'source_064bc175681cffe36bb600b6',
+  ]);
+  assert.deepEqual(evidence.publicColumnNames, ['col_b595992da229f0370a51fa04', 'col_b06cd4df2e76017c5a0fc401']);
+  assert.notDeepEqual(evidence.sourceColumnIDs, evidence.publicColumnNames);
+
+  const missingStableID = structuredClone(document);
+  delete missingStableID.columns[0].columnId;
+  missingStableID.columns[0].id = 'legacy-id-is-not-the-stable-binding';
+  assert.equal(cdaNullableDirectSourceColumnBindings({ document: missingStableID, expectedCodeColumnName }).ok, false);
+  const duplicateStableID = structuredClone(document);
+  duplicateStableID.columns[1].columnId = duplicateStableID.columns[0].columnId;
+  assert.equal(cdaNullableDirectSourceColumnBindings({ document: duplicateStableID, expectedCodeColumnName }).ok, false);
+  const wrongPath = structuredClone(document);
+  wrongPath.columns[1].source.field.path = 'valueQuantity.value';
+  assert.equal(cdaNullableDirectSourceColumnBindings({ document: wrongPath, expectedCodeColumnName }).ok, false);
+  const wrongProjection = structuredClone(document);
+  wrongProjection.columns[1].source.field.projectionMode = 'ALL';
+  assert.equal(cdaNullableDirectSourceColumnBindings({ document: wrongProjection, expectedCodeColumnName }).ok, false);
+  const wrongType = structuredClone(document);
+  wrongType.columns[1].logicalType = 'integer';
+  assert.equal(cdaNullableDirectSourceColumnBindings({ document: wrongType, expectedCodeColumnName }).ok, false);
+  const wrongOccurrence = structuredClone(document);
+  wrongOccurrence.columns[1].occurrenceId = 'related-observation';
+  assert.equal(cdaNullableDirectSourceColumnBindings({ document: wrongOccurrence, expectedCodeColumnName }).ok, false);
+  const wrongSourceKind = structuredClone(document);
+  wrongSourceKind.columns[1].source.kind = 'aggregate';
+  assert.equal(cdaNullableDirectSourceColumnBindings({ document: wrongSourceKind, expectedCodeColumnName }).ok, false);
+  const wrongRoot = structuredClone(document);
+  wrongRoot.rootResourceType = 'DiagnosticReport';
+  assert.equal(cdaNullableDirectSourceColumnBindings({ document: wrongRoot, expectedCodeColumnName }).ok, false);
+  const duplicatePath = structuredClone(document);
+  duplicatePath.columns.push(structuredClone(document.columns[1]));
+  duplicatePath.columns[2].columnId = 'source-duplicate-code';
+  assert.equal(cdaNullableDirectSourceColumnBindings({ document: duplicatePath, expectedCodeColumnName }).ok, false);
+  assert.equal(cdaNullableDirectSourceColumnBindings({ document, expectedCodeColumnName: 'wrong-column-name' }).ok, false);
+  const swappedNames = structuredClone(document);
+  for (const column of swappedNames.columns) [column.columnId, column.column] = [column.column, column.columnId];
+  assert.equal(cdaNullableDirectSourceColumnBindings({ document: swappedNames, expectedCodeColumnName }).ok, false);
+  assert.equal(Object.hasOwn(document.columns[1].source.field, 'candidateId'), false,
+    'Persisted Column.source.field records the chosen path and projection mode, not the catalog candidate ID.');
+});
+
 test('empty removal preview binds the exact receipt/output and the native no-columns status DOM', () => {
   const outputId = 'nullable-join-target';
   const proposal = { responseBody: {
@@ -271,6 +336,22 @@ test('native nullable Join registration binds proposal, LEFT edit, removal, and 
     'proposal, saved edit, and persisted Join checks must use the direct raw-source contract');
   assert.match(workflow, /expectedSelectionRevisionIDs: sources\.map\(source => source\.selection\.id\)/,
     'each raw source document must retain its exact selected revision');
+  assert.match(workflow, /cdaNullableDirectSourceColumnBindings\(\{[\s\S]*?document,[\s\S]*?expectedCodeColumnName: choiceResponse\.candidateColumnIds\[0\],[\s\S]*?\}\)/,
+    'native raw-column resolution must validate the Builder document wire shape');
+  assert.match(workflow, /entry\.path === `\$\{authoring\}\/construction-choice-proposals`/,
+    'raw-column candidate selection must retain the native choice proposal');
+  assert.match(workflow, /appliedChoice\.constructionChoice\.choiceId, choiceRequest\.constructionChoices\[0\]\.choiceId/,
+    'Apply must use the exact choice token returned from the native field picker');
+  assert.match(workflow, /candidateColumnIds: choiceResponse\.candidateColumnIds, savedColumnId: codeColumn\.columnId,[\s\S]*?savedPublicColumnName: codeColumn\.column/,
+    'the proposal binds the public column name while Join references use the distinct stable source columnId');
+  assert.match(workflow, /responsePaths: \/commands\|construction-choice-proposals\|construction-proposals\//,
+    'native capture must retain choice proposal and Apply response bodies');
+  assert.match(workflow, /leftSource\.idColumn\.columnId, leftSource\.codeColumn\.columnId,[\s\S]*?rightSource\.idColumn\.columnId, rightSource\.codeColumn\.columnId/,
+    'native KEY_JOIN inputs must use the stable authored columnId, not the physical `column` name');
+  assert.doesNotMatch(workflow, /(?:idColumn|codeColumn)\.id\b/,
+    'raw workspace Column records do not use `id` as their stable identity');
+  assert.match(workflow, /step\.outputs\.map\(output => output\.id\)/,
+    'construction StageColumn output IDs retain their separate `id` wire contract');
   assert.match(workflow, /rawSourceBinding: sourceEvidence/,
     'the native proposal report must retain direct-source binding evidence');
   assert.doesNotMatch(workflow, /currentDraftSourceEvidence/,

@@ -5,6 +5,7 @@ import { isDeepStrictEqual } from 'node:util';
 import {
   cdaNullableEmptyRemovalPreviewEvidence,
   cdaNullableCodeJoinDirectSourceEvidence,
+  cdaNullableDirectSourceColumnBindings,
   cdaNullableNewExplorerIdentityEvidence,
   cdaNullableValueQuantityCodeCandidateEvidence,
   cdaNullableValueQuantityCodeJoinOracle,
@@ -126,7 +127,7 @@ export async function cdaCurrentDraftNullableCodeJoinWorkflow({ page, cda }) {
   const base = basePath(explorer);
   const authoring = `${base}/authoring/v2`;
   const uiURL = `${uiOrigin}/?project=${encode(project)}&explorer=${encode(explorer)}&mode=builder`;
-  const capture = cda.captureRequests(authoring, { responsePaths: /commands|construction-proposals/ });
+  const capture = cda.captureRequests(authoring, { responsePaths: /commands|construction-choice-proposals|construction-proposals/ });
   let builder = await api(`${authoring}/builder`);
   const empty = builderDraftStateEvidence(builder, 'empty');
   assert(empty.ok, `Fresh CDA Explorer must start with an empty draft: ${JSON.stringify(empty)}`);
@@ -269,6 +270,11 @@ export async function cdaCurrentDraftNullableCodeJoinWorkflow({ page, cda }) {
   const addDirectCodeColumn = async source => {
     await cda.navigate(uiURL);
     await selectTable(source.outputId, 3, `Select raw ${source.side} Observation population`);
+    const sourceBaseState = structuredClone(await readBuilder());
+    checkScope(sourceBaseState);
+    const sourceBaseDocument = getDocument(sourceBaseState, source.outputId);
+    assert.equal(sourceBaseDocument.population?.selectionRevisionId, source.selection.id);
+    assert.equal(sourceBaseDocument.construction?.steps?.length ?? 0, 0);
     const add = page.getByTestId('construction-action-add-columns');
     await action(`Open raw ${source.side} Observation field picker`, add, locator => locator.click({ timeout: 5_000 }),
       async () => waitSelector('[aria-label="Add columns editor"]'));
@@ -281,10 +287,57 @@ export async function cdaCurrentDraftNullableCodeJoinWorkflow({ page, cda }) {
     await action(`Select Observation.valueQuantity.code for ${source.side} source`, page.locator(checkbox),
       locator => locator.check({ timeout: 5_000 }));
     const addSelected = page.getByRole('button', { name: 'Add 1 selected feature', exact: true });
+    const choiceProposalStart = capture.startIndex();
     await action(`Add scalar valueQuantity.code to ${source.side} source`, addSelected,
       locator => locator.click({ timeout: 5_000 }), async () => waitApplyColumns());
+    const choiceEvent = await capture.waitFor(entry => entry.path === `${authoring}/construction-choice-proposals` &&
+      entry.method === 'POST' && entry.status === 200 && entry.completedAt && entry.body?.outputId === source.outputId,
+    { fromIndex: choiceProposalStart, timeoutMs: 5_000 });
+    const choiceRequest = capture.rawRequestBody(choiceEvent);
+    const choiceResponse = capture.rawResponseBody(choiceEvent);
+    assert(choiceRequest && choiceResponse, 'Native field-choice proposal request and response must be retained.');
+    assert.equal(choiceEvent.origin, new URL(uiOrigin).origin);
+    assert.equal(choiceRequest.snapshotToken, sourceBaseState.catalog.snapshotToken);
+    assert.equal(choiceRequest.expectedDraftVersion, sourceBaseState.draftVersion);
+    assert.equal(choiceRequest.expectedDraftDigest, sourceBaseState.draftDigest);
+    assert.equal(choiceRequest.outputId, source.outputId);
+    assert.equal(choiceRequest.constructionChoices?.length, 1);
+    assert.equal(choiceRequest.constructionChoices[0].form, 'VALUE');
+    assert(choiceRequest.constructionChoices[0].choiceId);
+    assert.equal(choiceResponse.commandId, choiceRequest.commandId);
+    assert.equal(choiceResponse.snapshotToken, choiceRequest.snapshotToken);
+    assert.equal(choiceResponse.draftVersion, choiceRequest.expectedDraftVersion);
+    assert.equal(choiceResponse.draftDigest, choiceRequest.expectedDraftDigest);
+    assert.equal(choiceResponse.outputId, source.outputId);
+    assert.deepEqual(choiceResponse.constructionChoices, choiceRequest.constructionChoices);
+    assert.equal(choiceResponse.previewStatus, 'READY');
+    assert.equal(choiceResponse.preview?.outputId, source.outputId);
+    assert.equal(choiceResponse.preview?.rowCount, source.rows.length);
+    assert.equal(choiceResponse.candidateColumnIds?.length, 1);
+    assert(choiceResponse.candidateColumnIds[0]);
     await action(`Apply raw code column to ${source.side} source`, page.getByRole('button', { name: 'Apply columns', exact: true }),
       locator => locator.click({ timeout: 5_000 }), async () => waitSaved(source.outputId, 3));
+    const applyEvent = await capture.waitFor(entry => entry.path === `${authoring}/commands` && entry.method === 'POST' &&
+      entry.status === 200 && entry.completedAt && entry.body?.commands?.some(command =>
+        command.type === 'APPLY_CONSTRUCTION_CHOICE' && command.outputId === source.outputId),
+    { fromIndex: choiceProposalStart, timeoutMs: 5_000 });
+    const applyRequest = capture.rawRequestBody(applyEvent);
+    const applyResponse = capture.rawResponseBody(applyEvent);
+    assert(applyRequest && applyResponse, 'Native field-choice Apply command and response must be retained.');
+    assert.equal(applyRequest.commandId, choiceResponse.commandId);
+    assert.equal(applyRequest.snapshotToken, choiceResponse.snapshotToken);
+    assert.equal(applyRequest.expectedDraftVersion, choiceResponse.draftVersion);
+    assert.equal(applyRequest.expectedDraftDigest, choiceResponse.draftDigest);
+    assert.equal(applyRequest.commands.length, 1);
+    const appliedChoice = applyRequest.commands[0];
+    assert.equal(appliedChoice.type, 'APPLY_CONSTRUCTION_CHOICE');
+    assert.equal(appliedChoice.outputId, source.outputId);
+    assert.equal(appliedChoice.constructionChoice.choiceId, choiceRequest.constructionChoices[0].choiceId);
+    assert.equal(appliedChoice.constructionChoice.form, choiceRequest.constructionChoices[0].form);
+    const addedResult = (applyResponse.results ?? []).filter(result =>
+      result.type === 'COLUMN_ADDED' && result.outputId === source.outputId);
+    assert.equal(addedResult.length, 1);
+    assert.equal(addedResult[0].column, choiceResponse.candidateColumnIds[0]);
     const close = page.getByRole('button', { name: 'Close operation editor', exact: true });
     if (await close.count()) await action(`Return to raw ${source.side} source table`, close,
       locator => locator.click({ timeout: 5_000 }), async () => waitSaved(source.outputId, 3));
@@ -295,13 +348,12 @@ export async function cdaCurrentDraftNullableCodeJoinWorkflow({ page, cda }) {
     assert.equal(document.population?.selectionRevisionId, source.selection.id);
     assert.equal(document.construction?.steps?.length ?? 0, 0,
       'Raw Join inputs must remain direct selected Observation tables without Group/Pivot operations.');
-    const idColumn = document.columns.find(column => column.source?.field?.path === 'id');
-    const codeColumns = document.columns.filter(column => column.source?.field?.path === 'valueQuantity.code');
-    assert(idColumn?.id);
-    assert.equal(codeColumns.length, 1);
-    const codeColumn = codeColumns[0];
-    assert.equal(codeColumn.source.field.projectionMode, 'VALUE');
-    assert.equal(codeColumn.source.field.candidateId, codeCandidate.candidateId);
+    const sourceColumnEvidence = cdaNullableDirectSourceColumnBindings({
+      document, expectedCodeColumnName: choiceResponse.candidateColumnIds[0],
+    });
+    assert(sourceColumnEvidence.ok,
+      `Raw Observation source columns must expose exact stable columnId bindings: ${JSON.stringify(sourceColumnEvidence)}`);
+    const { idColumn, codeColumn } = sourceColumnEvidence;
     source.idColumn = idColumn;
     source.codeColumn = codeColumn;
     source.document = structuredClone(document);
@@ -310,8 +362,13 @@ export async function cdaCurrentDraftNullableCodeJoinWorkflow({ page, cda }) {
     const expectedRows = source.rows.map(row => [row.id, display(row.valueQuantityCode)]);
     assertGrid(`${source.side} raw selected Observation rows expose exact IDs and code/missing cells`, grid,
       [idColumn.label, codeColumn.label], expectedRows, { outputId: source.outputId,
-        selectionId: source.selection.id, candidateId: codeColumn.source.field.candidateId,
-        projectionMode: codeColumn.source.field.projectionMode, codeCandidate: candidateEvidence });
+        selectionId: source.selection.id, candidateId: codeCandidate.candidateId,
+        projectionMode: codeColumn.source.field.projectionMode, codeCandidate: candidateEvidence, sourceColumnEvidence,
+        choiceSelection: { candidateId: codeCandidate.candidateId, fieldPath: 'valueQuantity.code',
+          outputId: source.outputId, choiceProposalOutputId: choiceResponse.outputId,
+          candidateColumnIds: choiceResponse.candidateColumnIds, savedColumnId: codeColumn.columnId,
+          savedPublicColumnName: codeColumn.column, form: appliedChoice.constructionChoice.form,
+          applyResult: addedResult[0] } });
     return source;
   };
   const createSource = async (side, rows) => {
@@ -376,7 +433,7 @@ export async function cdaCurrentDraftNullableCodeJoinWorkflow({ page, cda }) {
     checkScope(sourceBaseBuilder);
     const sourceBaseDocuments = sourceOutputIDs.map(outputId => snapshotSourceDocument(getDocument(sourceBaseBuilder, outputId)));
     const codeColumns = [leftSource.codeColumn, rightSource.codeColumn];
-    assert(codeColumns.every(column => column.source?.field?.candidateId === codeCandidate.candidateId &&
+    assert(codeColumns.every(column => column.source?.kind === 'field' &&
       column.source?.field?.path === 'valueQuantity.code' && column.source?.field?.projectionMode === 'VALUE'));
     cda.check('persistence', 'Both Join sources are distinct direct raw Observation selections with exact valueQuantity.code columns', true,
       { sourceOutputIDs, selectionIDs: [leftSource.selection.id, rightSource.selection.id],
@@ -389,7 +446,8 @@ export async function cdaCurrentDraftNullableCodeJoinWorkflow({ page, cda }) {
     const headers = ['Left Observation ID', 'Left valueQuantity.code', 'Right Observation ID', 'Right valueQuantity.code'];
     const expectedInner = raw.oracle.innerRows.map(row => row.map(display));
     const expectedLeft = raw.oracle.leftRows.map(row => row.map(display));
-    const sourceColumnIDs = [leftSource.idColumn.id, leftSource.codeColumn.id, rightSource.idColumn.id, rightSource.codeColumn.id];
+    const sourceColumnIDs = [leftSource.idColumn.columnId, leftSource.codeColumn.columnId,
+      rightSource.idColumn.columnId, rightSource.codeColumn.columnId];
     const mappingNames = ['left_observation_id', 'left_code', 'right_observation_id', 'right_code'];
     const mappings = [
       { inputIndex: 1, sourceColumnId: sourceColumnIDs[0] },

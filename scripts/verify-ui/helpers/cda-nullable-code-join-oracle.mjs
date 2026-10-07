@@ -134,6 +134,38 @@ export const cdaNullableCodeJoinDirectSourceEvidence = ({ inputs, expectedOutput
   };
 };
 
+export const cdaNullableDirectSourceColumnBindings = ({ document, expectedCodeColumnName }) => {
+  const columns = Array.isArray(document?.columns) ? document.columns : [];
+  const idMatches = columns.filter(column => column?.source?.kind === 'field' && column.source.field?.path === 'id');
+  const codeMatches = columns.filter(column => column?.source?.kind === 'field' &&
+    column.source.field?.path === 'valueQuantity.code');
+  const idColumn = idMatches.length === 1 ? idMatches[0] : null;
+  const codeColumn = codeMatches.length === 1 ? codeMatches[0] : null;
+  const stableIDs = columns.map(column => column?.columnId);
+  const stableIDSet = new Set(stableIDs);
+  const checks = {
+    directObservationRoot: document?.rootResourceType === 'Observation',
+    uniqueIDField: idMatches.length === 1,
+    uniqueCodeField: codeMatches.length === 1,
+    stableColumnIDs: stableIDs.length === columns.length && stableIDs.every(nonempty) && stableIDSet.size === stableIDs.length,
+    distinctSourceColumnIDs: nonempty(idColumn?.columnId) && nonempty(codeColumn?.columnId) &&
+      idColumn?.columnId !== codeColumn?.columnId,
+    codeColumnMatchesChoiceProposal: nonempty(expectedCodeColumnName) && codeColumn?.column === expectedCodeColumnName,
+    directRootOccurrences: idColumn?.occurrenceId === 'base' && codeColumn?.occurrenceId === 'base',
+    sourceTypesAreStrings: idColumn?.logicalType === 'string' && codeColumn?.logicalType === 'string',
+    idProjectionIsValueField: idColumn?.source?.field?.projectionMode === 'VALUE',
+    codeProjectionIsValueField: codeColumn?.source?.field?.projectionMode === 'VALUE',
+  };
+  return {
+    ok: Object.values(checks).every(Boolean),
+    checks,
+    sourceColumnIDs: [idColumn?.columnId ?? null, codeColumn?.columnId ?? null],
+    idColumn,
+    codeColumn,
+    publicColumnNames: [idColumn?.column ?? null, codeColumn?.column ?? null],
+  };
+};
+
 export const cdaNullableEmptyRemovalPreviewEvidence = ({ proposal, outputId, dom }) => {
   const response = proposal?.responseBody;
   const preview = response?.preview;
