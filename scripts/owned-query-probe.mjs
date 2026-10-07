@@ -49,6 +49,20 @@ const WRITE_NODE_TYPES = new Set([
 const sha256 = value => createHash('sha256').update(value).digest('hex');
 const isRecord = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const finiteNumberOrNull = value => Number.isFinite(value) ? value : null;
+const nonNegativeIntegerOrNull = value => Number.isSafeInteger(value) && value >= 0 ? value : null;
+const isSafeRuleName = value => typeof value === 'string' && /^[a-z][a-z0-9-]{0,127}$/.test(value);
+function safeProfileNodes(value) {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap(node => {
+    if (!isRecord(node)) return [];
+    const { id, calls, items, runtime } = node;
+    if (nonNegativeIntegerOrNull(id) === null
+      || nonNegativeIntegerOrNull(calls) === null
+      || nonNegativeIntegerOrNull(items) === null
+      || !Number.isFinite(runtime) || runtime < 0) return [];
+    return [{ id, calls, items, runtime }];
+  });
+}
 const executionHostTimeout = maxRuntimeSeconds => Math.min(
   MAX_EXECUTE_HOST_TIMEOUT_MS,
   Math.max(MIN_EXECUTE_HOST_TIMEOUT_MS, Math.ceil(maxRuntimeSeconds * 1000) + HOST_STARTUP_MARGIN_MS),
@@ -168,6 +182,8 @@ try {
   const explainStatusCode = safeNumber(explainResponse.statusCode ?? explainResponse.status);
   const explainServerElapsedMs = Date.now() - explainStarted;
   const plans = explainBody && (explainBody.plan ? [explainBody.plan, ...(explainBody.plans || [])] : (explainBody.plans || []));
+  const selectedPlan = explainBody && (explainBody.plan || (Array.isArray(explainBody.plans) ? explainBody.plans[0] : null));
+  const selectedPlanIndex = Array.isArray(plans) ? plans.indexOf(selectedPlan) : -1;
   const nodes = [];
   const indexes = [];
   const warnings = (explainBody && Array.isArray(explainBody.warnings) ? explainBody.warnings : []).map(value => ({
@@ -178,8 +194,9 @@ try {
       for (const node of (Array.isArray(plan && plan.nodes) ? plan.nodes : [])) {
         const nodeType = typeof node.type === 'string' ? node.type : '';
         const collection = typeof node.collection === 'string' ? node.collection : null;
+        const nodeId = safeNumber(node.id);
         nodes.push({
-          plan: planIndex, nodeId: safeNumber(node.id), type: nodeType,
+          plan: planIndex, nodeId, type: nodeType,
           collection, estimatedNrItems: safeNumber(node.estimatedNrItems),
         });
         function flattenIndexes(value) {
@@ -190,7 +207,7 @@ try {
         }
         for (const index of flattenIndexes(node.indexes)) {
           indexes.push({
-            plan: planIndex, nodeId: safeNumber(node.id), nodeType,
+            plan: planIndex, nodeId, nodeType,
             collection: typeof (index.collection || collection) === 'string' ? (index.collection || collection) : null,
             id: typeof index.id === 'string' ? index.id : null,
             name: typeof index.name === 'string' ? index.name : null,
@@ -206,10 +223,14 @@ try {
     estimatedCost: safeNumber(plan && plan.estimatedCost),
     estimatedNrItems: safeNumber(plan && plan.estimatedNrItems),
   })) : [];
+  const appliedRules = Array.isArray(selectedPlan && selectedPlan.rules)
+    ? [...new Set(selectedPlan.rules.filter(value => typeof value === 'string' && /^[a-z][a-z0-9-]{0,127}$/.test(value)))]
+    : [];
+  const selectedNodes = nodes.filter(node => node.plan === selectedPlanIndex);
   const planOk = explainStatusCode >= 200 && explainStatusCode < 300
     && explainBody && explainBody.error !== true && planEstimates.length > 0
-    && nodes.length > 0 && nodes.every(node => node.type.length > 0);
-  const writeNodeFound = nodes.some(node => ${quoteJavaScript([...WRITE_NODE_TYPES])}.includes(node.type));
+    && selectedNodes.length > 0 && selectedNodes.every(node => Number.isSafeInteger(node.nodeId) && node.nodeId >= 0 && node.type.length > 0);
+  const writeNodeFound = selectedNodes.some(node => ${quoteJavaScript([...WRITE_NODE_TYPES])}.includes(node.type));
   const responseError = explainBody
     ? errorSummary(explainBody, explainStatusCode)
     : { error: true, errorNum: null, code: null, message: ${quoteJavaScript(SAFE_ARANGO_ERROR)} };
@@ -217,7 +238,7 @@ try {
     stage: planOk ? 'explain-complete' : 'explain-failed', parseStatusCode, parseServerElapsedMs,
     explainStatusCode, explainServerElapsedMs, errorNum: responseError.errorNum,
     errorCode: explainStatusCode, message: responseError.message,
-    planCount: planEstimates.length, planEstimates, nodes, indexes, warnings,
+    planCount: planEstimates.length, planEstimates, appliedRules, selectedPlanIndex, nodes, indexes, warnings,
     parserReadOnly: true,
     readOnlyPlan: planOk && !writeNodeFound,
   }));
@@ -239,6 +260,16 @@ try {
   const cursor = db._query(${queryLiteral}, ${bindLiteral}, {
     maxRuntime: ${maxRuntimeSeconds}, memoryLimit: ${memoryLimitBytes}, profile: 2,
   });
+  function safeCount(value) {
+    return Number.isSafeInteger(value) && value >= 0 ? value : null;
+  }
+  function safeProfileNode(value) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+    const {id, calls, items, runtime} = value;
+    if (safeCount(id) === null || safeCount(calls) === null || safeCount(items) === null
+      || !Number.isFinite(runtime) || runtime < 0) return null;
+    return {id, calls, items, runtime};
+  }
   let resultCount = 0;
   let safeIntegerCounts = null;
   while (cursor.hasNext()) {
@@ -275,6 +306,8 @@ try {
       scannedFull: Number.isFinite(source.scannedFull) ? source.scannedFull : null,
       peakMemoryUsage: Number.isFinite(source.peakMemoryUsage) ? source.peakMemoryUsage : null,
       executionTime: Number.isFinite(source.executionTime) ? source.executionTime : null,
+      documentLookups: safeCount(source.documentLookups),
+      nodes: Array.isArray(source.nodes) ? source.nodes.map(safeProfileNode).filter(Boolean) : [],
     };
   } catch (_) {}
   const result = {ok:true, elapsedMs:Date.now()-started, resultCount, stats, warnings};
@@ -389,6 +422,8 @@ function baseReport(options) {
       readOnly: false,
       planCount: 0,
       planEstimates: [],
+      nodes: [],
+      appliedRules: [],
       indexes: [],
       scanNodes: [],
       fullCollectionScans: [],
@@ -474,14 +509,22 @@ function parseMarker(stdout) {
 }
 
 function planReadOnlySummary(envelope, expectedIndex) {
-  const nodes = Array.isArray(envelope.nodes) ? envelope.nodes : [];
+  const allNodes = Array.isArray(envelope.nodes) ? envelope.nodes.filter(isRecord) : [];
+  const selectedPlanIndex = Number.isSafeInteger(envelope.selectedPlanIndex) && envelope.selectedPlanIndex >= 0
+    ? envelope.selectedPlanIndex
+    : 0;
+  const nodes = allNodes.flatMap(node => {
+    if (node.plan !== selectedPlanIndex || nonNegativeIntegerOrNull(node.nodeId) === null
+      || typeof node.type !== 'string' || node.type.length === 0) return [];
+    return [{ id: node.nodeId, type: node.type }];
+  });
   const writes = nodes.some(node => WRITE_NODE_TYPES.has(node.type));
-  const readOnly = envelope.readOnlyPlan === true && !writes;
+  const readOnly = nodes.length > 0 && envelope.readOnlyPlan === true && !writes;
   const indexes = Array.isArray(envelope.indexes) ? envelope.indexes : [];
-  const fullCollectionScans = nodes.filter(node => node.type === 'EnumerateCollectionNode').map(node => ({
+  const fullCollectionScans = allNodes.filter(node => node.type === 'EnumerateCollectionNode').map(node => ({
     plan: node.plan, nodeId: node.nodeId, collection: node.collection,
   }));
-  const scanNodes = nodes.filter(node => /^Enumerate.*Collection|Index/.test(node.type ?? '')).map(node => ({
+  const scanNodes = allNodes.filter(node => /^Enumerate.*Collection|Index/.test(node.type ?? '')).map(node => ({
     plan: node.plan,
     nodeId: node.nodeId,
     type: node.type,
@@ -490,10 +533,15 @@ function planReadOnlySummary(envelope, expectedIndex) {
     indexes: indexes.filter(index => index.plan === node.plan && index.nodeId === node.nodeId),
   }));
   const candidateIndexSelected = expectedIndex === undefined ? null : indexes.some(index => index.name === expectedIndex);
+  const appliedRules = Array.isArray(envelope.appliedRules)
+    ? [...new Set(envelope.appliedRules.filter(isSafeRuleName))]
+    : [];
   return {
     readOnly,
     planCount: Number.isInteger(envelope.planCount) ? envelope.planCount : 0,
     planEstimates: Array.isArray(envelope.planEstimates) ? envelope.planEstimates : [],
+    nodes,
+    appliedRules,
     indexes,
     scanNodes,
     fullCollectionScans,
@@ -635,6 +683,8 @@ async function main() {
                     peakMemoryUsage: finiteNumberOrNull(executeEnvelope.stats?.peakMemoryUsage),
                     peakMemoryUsageStatus: Number.isFinite(executeEnvelope.stats?.peakMemoryUsage) ? 'available' : 'unavailable',
                     executionTime: finiteNumberOrNull(executeEnvelope.stats?.executionTime),
+                    documentLookups: nonNegativeIntegerOrNull(executeEnvelope.stats?.documentLookups),
+                    nodes: safeProfileNodes(executeEnvelope.stats?.nodes),
                   };
                   report.response = {
                     ...report.response,

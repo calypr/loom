@@ -15,6 +15,9 @@ const repoRoot = resolve(import.meta.dirname, '..');
 const cliPath = join(repoRoot, 'scripts', 'owned-query-probe.mjs');
 const sensitiveCategory = 'PRIVATE_CATEGORY_VALUE_79b1';
 const sensitiveResourcePath = 'PRIVATE_RESOURCE_PATH_40ca';
+const sensitiveProfileExpression = 'PRIVATE_PROFILE_EXPRESSION_86cd';
+const sensitiveProfileDocument = 'PRIVATE_PROFILE_DOCUMENT_a2e1';
+const sensitiveProfileExtra = 'PRIVATE_UNAPPROVED_PROFILE_FIELD_4fc1';
 const indexName = 'loom_probe_test_index';
 const ownedContainer = {
   Name: '/loom-dev-6d7df93d6a37-arangodb-1',
@@ -110,7 +113,14 @@ if (operation === 'explain') {
     collection: 'Observation',
     indexes: [{ id: 'Observation/77', name: expected, type: 'persistent', fields: ['project', 'dataset_generation', 'auth_resource_path'] }],
   };
-  const nodes = scenario === 'write' ? [node, { id: 8, type: 'InsertNode', collection: 'Observation' }] : [node];
+  const nodes = scenario === 'write'
+    ? [node, { id: 8, type: 'InsertNode', collection: 'Observation' }]
+    : [
+      node,
+      { id: 8, type: 'SubqueryNode' },
+      { id: 9, type: 'CollectNode' },
+      { id: 10, type: 'EnumerateCollectionNode', collection: 'Patient' },
+    ];
   const envelope = {
     stage: scenario === 'bad-body' ? 'explain-failed' : 'explain-complete',
     parseStatusCode: 200,
@@ -123,7 +133,12 @@ if (operation === 'explain') {
     parserReadOnly: true,
     planCount: 1,
     planEstimates: [{ plan: 0, estimatedCost: 4, estimatedNrItems: 2 }],
-    nodes: nodes.map(value => ({ plan: 0, nodeId: value.id, type: value.type, collection: value.collection, estimatedNrItems: 2 })),
+    appliedRules: ['use-indexes', 'sort-in-values', ${JSON.stringify(sensitiveProfileExpression)}, 'rule with spaces', 42],
+    selectedPlanIndex: 0,
+    nodes: nodes.map(value => ({
+      plan: 0, nodeId: value.id, type: value.type, collection: value.collection ?? null,
+      estimatedNrItems: 2, expression: ${JSON.stringify(sensitiveProfileExpression)},
+    })),
     indexes: [{ plan: 0, nodeId: 7, nodeType: 'IndexNode', collection: 'Observation', id: 'Observation/77', name: expected, type: 'persistent', fields: ['project', 'dataset_generation', 'auth_resource_path'] }],
     warnings: [{ code: 321, message: 'Arango reported a query warning.' }],
     readOnlyPlan: scenario !== 'write',
@@ -145,7 +160,22 @@ if (operation === 'explain') {
             ? { ok: true, elapsedMs: 7, resultCount: 2, safeIntegerCounts: { scoped_roots: 7 } }
       : scenario === 'safe-integer-counts'
         ? { ok: true, elapsedMs: 7, resultCount: 1, safeIntegerCounts: { scoped_roots: 742505, reachable_patients: 81 }, stats: { executionTime: 0.007, scannedIndex: 11, scannedFull: 0, peakMemoryUsage: 123456 } }
-      : { ok: true, elapsedMs: 7, resultCount: 2, stats: { executionTime: 0.007, scannedIndex: 11, scannedFull: 0, peakMemoryUsage: 123456 } };
+      : scenario === 'malformed-profile'
+        ? { ok: true, elapsedMs: 7, resultCount: 2, rows: [{ category: ${JSON.stringify(sensitiveCategory)} }], stats: {
+          executionTime: 0.007, scannedIndex: 11, scannedFull: 0, peakMemoryUsage: 123456,
+          documentLookups: -1,
+          nodes: [
+            { id: 9, calls: 2, items: 3, runtime: 0.004, expression: ${JSON.stringify(sensitiveProfileExpression)}, document: ${JSON.stringify(sensitiveProfileDocument)}, extra: ${JSON.stringify(sensitiveProfileExtra)} },
+            { id: 10, calls: -1, items: 3, runtime: 0.004 },
+            { id: 11, calls: 1, items: 3, runtime: '0.004' },
+          ],
+        } }
+      : { ok: true, elapsedMs: 7, resultCount: 2, rows: [{ category: ${JSON.stringify(sensitiveCategory)} }], stats: {
+        executionTime: 0.007, scannedIndex: 11, scannedFull: 0, peakMemoryUsage: 123456,
+        documentLookups: 5,
+        nodes: [{ id: 7, calls: 2, items: 12, runtime: 0.007,
+          expression: ${JSON.stringify(sensitiveProfileExpression)}, document: ${JSON.stringify(sensitiveProfileDocument)}, extra: ${JSON.stringify(sensitiveProfileExtra)} }],
+      } };
   const marker = [...shellCommand.matchAll(/__LOOM_[A-Z0-9_]+__/g)].map(match => match[0])[0];
   if (!marker) process.exit(22);
   process.stdout.write(marker + JSON.stringify(envelope) + '\\n');
@@ -225,6 +255,10 @@ function assertNoSensitiveValues(run) {
   assert(!visible.includes('PRIVATE_ARANGO_ERROR_DETAIL'), 'raw Arango error leaked');
   assert(!visible.includes('PRIVATE_DOCKER_ERROR_DETAIL'), 'raw Docker error leaked');
   assert(!visible.includes('PRIVATE_QUERY_ERROR_DETAIL'), 'raw query error leaked');
+  assert(!visible.includes(sensitiveProfileExpression), 'profile expression leaked');
+  assert(!visible.includes(sensitiveProfileDocument), 'profile document data leaked');
+  assert(!visible.includes(sensitiveProfileExtra), 'unapproved profile field leaked');
+  assert(!visible.includes('rawRows'), 'raw rows field leaked');
 }
 
 test('CLI defaults to EXPLAIN, records hashes and safe plan metadata without data values', async (t) => {
@@ -241,6 +275,7 @@ test('CLI defaults to EXPLAIN, records hashes and safe plan metadata without dat
   assert.ok(JSON.stringify(run.report).includes(run.queryPath));
   assert.ok(keysNamed(run.report, 'candidateIndexSelected').includes(true));
   assert.ok(keysNamed(run.report, 'code').includes(321));
+  assert.deepEqual(run.report.plan.appliedRules, ['use-indexes', 'sort-in-values']);
   assert.equal(run.report.parser.readOnlyCollectionAccess, true);
   assert.equal(run.report.response.message, null);
   assertNoSensitiveValues(run);
@@ -253,9 +288,93 @@ test('execute runs one bounded query only after a safe EXPLAIN and reports scan/
   assert.equal(keysNamed(run.report, 'scannedIndex')[0], 11);
   assert.equal(keysNamed(run.report, 'scannedFull')[0], 0);
   assert.equal(keysNamed(run.report, 'peakMemoryUsage')[0], 123456);
+  assert.equal(run.report.execution.documentLookups, 5);
+  assert.deepEqual(run.report.execution.nodes, [{ id: 7, calls: 2, items: 12, runtime: 0.007 }]);
+  assert.deepEqual(Object.keys(run.report.execution.nodes[0]).sort(), ['calls', 'id', 'items', 'runtime']);
+  assert.deepEqual(run.report.plan.nodes, [
+    { id: 7, type: 'IndexNode' },
+    { id: 8, type: 'SubqueryNode' },
+    { id: 9, type: 'CollectNode' },
+    { id: 10, type: 'EnumerateCollectionNode' },
+  ]);
+  assert.ok(run.report.plan.nodes.every(value => Object.keys(value).sort().join(',') === 'id,type'));
+  assert.deepEqual(run.report.plan.scanNodes, [
+    {
+      plan: 0,
+      nodeId: 7,
+      type: 'IndexNode',
+      collection: 'Observation',
+      estimatedNrItems: 2,
+      indexes: run.report.plan.indexes.filter(index => index.plan === 0 && index.nodeId === 7),
+    },
+    {
+      plan: 0,
+      nodeId: 10,
+      type: 'EnumerateCollectionNode',
+      collection: 'Patient',
+      estimatedNrItems: 2,
+      indexes: [],
+    },
+  ]);
+  assert.deepEqual(run.report.plan.fullCollectionScans, [{ plan: 0, nodeId: 10, collection: 'Patient' }]);
+  assert.equal(Object.hasOwn(run.report.execution, 'rows'), false);
   assert.ok(Object.entries(run.report.timing ?? {}).some(([key, value]) => /HostElapsedMs$/.test(key) && Number.isFinite(value)));
   assert.ok(Object.keys(run.report.timing ?? {}).some(key => /server|arang/i.test(key)));
   assertNoSensitiveValues(run);
+});
+
+test('profile counters omit malformed values and expose only approved numeric fields', async (t) => {
+  const malformed = await runProbe(t, { args: ['--execute'], executeScenario: 'malformed-profile' });
+  assert.equal(malformed.command.status, 0, malformed.command.stderr);
+  assert.equal(malformed.report.execution.documentLookups, null);
+  assert.deepEqual(malformed.report.execution.nodes, [{ id: 9, calls: 2, items: 3, runtime: 0.004 }]);
+  assert.equal(Object.hasOwn(malformed.report.execution, 'rows'), false);
+  assertNoSensitiveValues(malformed);
+
+  const script = buildExecuteRequestScript({
+    query: 'RETURN 1',
+    bindVars: unrestrictedBinds,
+    maxRuntimeSeconds: 8,
+    memoryLimitBytes: 268435456,
+  });
+  const runScriptWithStats = stats => {
+    const printed = [];
+    vm.runInNewContext(script, {
+      Date,
+      JSON,
+      Number,
+      Object,
+      Array,
+      print: value => printed.push(value),
+      db: {
+        _query: () => ({
+          hasNext: () => false,
+          next: () => null,
+          getExtra: () => ({ stats }),
+        }),
+      },
+    });
+    const marker = '__LOOM_OWNED_QUERY_PROBE__';
+    return JSON.parse(printed[0].slice(printed[0].indexOf(marker) + marker.length));
+  };
+  const envelope = runScriptWithStats({
+    documentLookups: 4,
+    nodes: [
+      { id: 2, calls: 3, items: 7, runtime: 0.5, expression: sensitiveProfileExpression, document: sensitiveProfileDocument },
+      { id: 3, calls: -1, items: 7, runtime: 0.5 },
+      { id: 4, calls: 3, items: 7, runtime: Infinity },
+      { id: 5, calls: 3, items: 7, runtime: -0.5 },
+      { id: '6', calls: 3, items: 7, runtime: 0.5 },
+      null,
+    ],
+  });
+  assert.equal(envelope.stats.documentLookups, 4);
+  assert.deepEqual(envelope.stats.nodes, [{ id: 2, calls: 3, items: 7, runtime: 0.5 }]);
+  assert.deepEqual(Object.keys(envelope.stats.nodes[0]).sort(), ['calls', 'id', 'items', 'runtime']);
+  assert.equal(JSON.stringify(envelope).includes(sensitiveProfileExpression), false);
+  assert.equal(JSON.stringify(envelope).includes(sensitiveProfileDocument), false);
+  assert.equal(runScriptWithStats({ documentLookups: Infinity, nodes: [] }).stats.documentLookups, null);
+  assert.equal(runScriptWithStats({ documentLookups: -1, nodes: [] }).stats.documentLookups, null);
 });
 
 test('safe-integer-count mode accepts only one bounded object with approved non-negative integer fields', async (t) => {
@@ -519,7 +638,12 @@ test('generated JavaScript restores every escaped bind marker and the exact null
         return {
           statusCode: 200,
           body: JSON.stringify({
-            plan: { estimatedCost: 1, estimatedNrItems: 1, nodes: [{ id: 1, type: 'IndexNode', collection: 'Observation', indexes: [] }] },
+            plan: { estimatedCost: 1, estimatedNrItems: 1, rules: [
+              'use-indexes', 'sort-in-values', sensitiveProfileExpression, 'rule with spaces', 42,
+            ], nodes: [{
+              id: 1, type: 'IndexNode', collection: 'Observation', indexes: [],
+              expression: sensitiveProfileExpression, document: sensitiveProfileDocument,
+            }] },
             warnings: [],
           }),
         };
@@ -533,6 +657,11 @@ test('generated JavaScript restores every escaped bind marker and the exact null
   const explainEnvelope = JSON.parse(printed[0].slice(printed[0].indexOf('__LOOM_OWNED_QUERY_PROBE__') + '__LOOM_OWNED_QUERY_PROBE__'.length));
   assert.equal(explainEnvelope.parserReadOnly, true);
   assert.equal(explainEnvelope.message, null);
+  assert.equal(explainEnvelope.selectedPlanIndex, 0);
+  assert.deepEqual(explainEnvelope.nodes.map(({ nodeId, type }) => ({ id: nodeId, type })), [{ id: 1, type: 'IndexNode' }]);
+  assert.deepEqual(explainEnvelope.appliedRules, ['use-indexes', 'sort-in-values']);
+  assert.equal(JSON.stringify(explainEnvelope).includes(sensitiveProfileExpression), false);
+  assert.equal(JSON.stringify(explainEnvelope).includes(sensitiveProfileDocument), false);
 
   const executeScript = buildExecuteRequestScript({
     query,
