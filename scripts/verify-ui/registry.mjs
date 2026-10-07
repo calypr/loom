@@ -1281,7 +1281,7 @@ export const registry = Object.freeze([
       },
     },
     coverage: [
-      { feature: 'missing-component PRESERVE_PARENT EXPANDED→GROUP COUNT_ROWS Cancel, Apply, saved-label edit, and restoration lifecycle', acceptance: { intent: 'row-lifecycle', kind: 'lifecycle', case: 'missing-component-expanded-group-cancel-restore', checks: { choice: 2, proposal: 5, cancel: 12, apply: 6, savedRows: 7, reload: 8, edit: 11, restoration: 13 } }, status: 'untested', reason: 'The bounded raw witness and native case are registered; no browser run has established this lifecycle yet. This case does not assert a literal component: [] source record.' },
+      { feature: 'missing-component PRESERVE_PARENT EXPANDED→GROUP COUNT_ROWS Cancel, Apply, saved-label edit, and restoration lifecycle', acceptance: { intent: 'row-lifecycle', kind: 'lifecycle', case: 'missing-component-expanded-group-cancel-restore', checks: { choice: 2, proposal: 5, cancel: 12, apply: 6, savedRows: 7, reload: 8, edit: 11, restoration: 13 } }, status: 'implemented', reason: 'Epoch 144 passed all 17 required checks and 57 assertions. Its bounded 1,000-Observation oracle selected one two-item owner and three owners with a missing component property, then verified five EXPANDED rows, four COUNT_ROWS groups, saved-label edit, Cancel, Apply/reload, and removal restoration. Literal component: [] coverage remains separate. See docs/verification/playwright/runtime/current-draft-cda-missing-component-group-epoch144-report.json.' },
     ],
   }),
   Object.freeze({
