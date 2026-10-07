@@ -5,23 +5,274 @@
   "title": "upstream Group→DERIVE edit recomputes APPEND and removal restores its current-draft sources",
   "status": "passed",
   "classification": "PASS_DIAGNOSTIC_NOT_REPRODUCED",
-  "requiredChecks": {
-    "passed": 44,
-    "failed": 0,
-    "missing": 0,
-    "total": 44
-  },
-  "assertions": {
-    "passed": 140,
-    "failed": 0,
-    "total": 140,
-    "byDimension": {
-      "usability": 42,
-      "correctness": 38,
-      "persistence": 12,
-      "performance": 48
+  "requiredChecks": [
+    "independent fixture contains one Patient, four Observations, and three DiagnosticReports",
+    "draft Combine uses the exact project, generation, Builder snapshot, and authorization scope",
+    "created a fresh Explorer distinct from the bootstrap",
+    "first native source table establishes a versioned current draft under the exact scope",
+    "Observation root Preview contains exact independent fixture IDs",
+    "DiagnosticReport root Preview contains exact independent fixture IDs",
+    "Patient root Preview contains exact independent fixture IDs",
+    "Observation native GROUP count rows match the direct fixture oracle",
+    "DiagnosticReport native GROUP count rows match the direct fixture oracle",
+    "Patient native GROUP count rows match the direct fixture oracle",
+    "Patient gender counts Group→DERIVE preview matches independent category/count arithmetic",
+    "Patient gender counts persists its native Group→DERIVE output without pinning a revision",
+    "Patient gender counts Group→DERIVE values survive reload",
+    "native Combine uses CREATE_TABLE to make an empty rooted target without authoring a source",
+    "three unpublished current-draft siblings including GROUP→DERIVE APPEND into exact category/count rows",
+    "automatic Combine proposal is bound to this exact draft CAS and UI proxy scope",
+    "Cancel leaves the entire APPEND workspace and draft CAS unchanged",
+    "saved APPEND step uses exactly three current-draft grouped siblings",
+    "three-input APPEND rows survive reload",
+    "saved APPEND consumes the exact fresh Patient GROUP→DERIVE output",
+    "saved APPEND has an exact ready receipt before the upstream edit",
+    "independent fixture distinguishes the saved DERIVE and downstream APPEND values",
+    "open saved DERIVE editor after source columns resolve action-to-render within budget",
+    "preview canceled saved Group→DERIVE edit from count plus one to count plus two matches independent Patient GROUP arithmetic",
+    "preview canceled saved Group→DERIVE edit from count plus one to count plus two configuration and proposal complete within five seconds",
+    "canceled DERIVE proposal targets its exact saved step, output, and current draft CAS",
+    "Cancel upstream Group→DERIVE proposal without changing saved APPEND sources action-to-render within budget",
+    "Cancel leaves the exact source GROUP→DERIVE, APPEND, and draft CAS unchanged after reload",
+    "Cancel preserves original Group→DERIVE values after reload",
+    "preview applied saved Group→DERIVE edit from count plus one to count plus two matches independent Patient GROUP arithmetic",
+    "preview applied saved Group→DERIVE edit from count plus one to count plus two configuration and proposal complete within five seconds",
+    "applied DERIVE proposal targets its exact saved step, output, and current draft CAS",
+    "Apply upstream Group→DERIVE edit with stable output identity action-to-render within budget",
+    "Apply updates only the exact saved DERIVE expression and preserves its stable identities",
+    "applied Group→DERIVE values and stable output survive reload",
+    "recompile saved APPEND after the upstream Group→DERIVE edit action-to-render within budget",
+    "saved APPEND recompiles from the edited Patient workspace output at the new draft CAS",
+    "dependent APPEND preview matches independent Group→DERIVE fixture rows after edit",
+    "recomputed APPEND rows survive reload exactly",
+    "Canceling Combine removal preserves its saved step, full workspace, and draft CAS after reload",
+    "removing Combine and reloading restores its rooted empty target",
+    "APPEND lifecycle never publishes or pins source revisions",
+    "removing APPEND restores its exact empty target and preserves every current-draft source",
+    "Patient Group→DERIVE remains independently usable after APPEND removal"
+  ],
+  "assertions": [
+    {
+      "name": "independent fixture contains one Patient, four Observations, and three DiagnosticReports",
+      "status": "passed",
+      "dimension": "correctness"
+    },
+    {
+      "name": "draft Combine uses the exact project, generation, Builder snapshot, and authorization scope",
+      "status": "passed",
+      "dimension": "correctness"
+    },
+    {
+      "name": "created a fresh Explorer distinct from the bootstrap",
+      "status": "passed",
+      "dimension": "correctness"
+    },
+    {
+      "name": "first native source table establishes a versioned current draft under the exact scope",
+      "status": "passed",
+      "dimension": "correctness"
+    },
+    {
+      "name": "Observation root Preview contains exact independent fixture IDs",
+      "status": "passed",
+      "dimension": "correctness"
+    },
+    {
+      "name": "DiagnosticReport root Preview contains exact independent fixture IDs",
+      "status": "passed",
+      "dimension": "correctness"
+    },
+    {
+      "name": "Patient root Preview contains exact independent fixture IDs",
+      "status": "passed",
+      "dimension": "correctness"
+    },
+    {
+      "name": "Observation native GROUP count rows match the direct fixture oracle",
+      "status": "passed",
+      "dimension": "correctness"
+    },
+    {
+      "name": "DiagnosticReport native GROUP count rows match the direct fixture oracle",
+      "status": "passed",
+      "dimension": "correctness"
+    },
+    {
+      "name": "Patient native GROUP count rows match the direct fixture oracle",
+      "status": "passed",
+      "dimension": "correctness"
+    },
+    {
+      "name": "Patient gender counts Group→DERIVE preview matches independent category/count arithmetic",
+      "status": "passed",
+      "dimension": "correctness"
+    },
+    {
+      "name": "Patient gender counts persists its native Group→DERIVE output without pinning a revision",
+      "status": "passed",
+      "dimension": "persistence"
+    },
+    {
+      "name": "Patient gender counts Group→DERIVE values survive reload",
+      "status": "passed",
+      "dimension": "correctness"
+    },
+    {
+      "name": "native Combine uses CREATE_TABLE to make an empty rooted target without authoring a source",
+      "status": "passed",
+      "dimension": "correctness"
+    },
+    {
+      "name": "three unpublished current-draft siblings including GROUP→DERIVE APPEND into exact category/count rows",
+      "status": "passed",
+      "dimension": "correctness"
+    },
+    {
+      "name": "automatic Combine proposal is bound to this exact draft CAS and UI proxy scope",
+      "status": "passed",
+      "dimension": "correctness"
+    },
+    {
+      "name": "Cancel leaves the entire APPEND workspace and draft CAS unchanged",
+      "status": "passed",
+      "dimension": "persistence"
+    },
+    {
+      "name": "saved APPEND step uses exactly three current-draft grouped siblings",
+      "status": "passed",
+      "dimension": "persistence"
+    },
+    {
+      "name": "three-input APPEND rows survive reload",
+      "status": "passed",
+      "dimension": "correctness"
+    },
+    {
+      "name": "saved APPEND consumes the exact fresh Patient GROUP→DERIVE output",
+      "status": "passed",
+      "dimension": "correctness"
+    },
+    {
+      "name": "saved APPEND has an exact ready receipt before the upstream edit",
+      "status": "passed",
+      "dimension": "correctness"
+    },
+    {
+      "name": "independent fixture distinguishes the saved DERIVE and downstream APPEND values",
+      "status": "passed",
+      "dimension": "correctness"
+    },
+    {
+      "name": "open saved DERIVE editor after source columns resolve action-to-render within budget",
+      "status": "passed",
+      "dimension": "performance"
+    },
+    {
+      "name": "preview canceled saved Group→DERIVE edit from count plus one to count plus two matches independent Patient GROUP arithmetic",
+      "status": "passed",
+      "dimension": "correctness"
+    },
+    {
+      "name": "preview canceled saved Group→DERIVE edit from count plus one to count plus two configuration and proposal complete within five seconds",
+      "status": "passed",
+      "dimension": "performance"
+    },
+    {
+      "name": "canceled DERIVE proposal targets its exact saved step, output, and current draft CAS",
+      "status": "passed",
+      "dimension": "correctness"
+    },
+    {
+      "name": "Cancel upstream Group→DERIVE proposal without changing saved APPEND sources action-to-render within budget",
+      "status": "passed",
+      "dimension": "performance"
+    },
+    {
+      "name": "Cancel leaves the exact source GROUP→DERIVE, APPEND, and draft CAS unchanged after reload",
+      "status": "passed",
+      "dimension": "persistence"
+    },
+    {
+      "name": "Cancel preserves original Group→DERIVE values after reload",
+      "status": "passed",
+      "dimension": "correctness"
+    },
+    {
+      "name": "preview applied saved Group→DERIVE edit from count plus one to count plus two matches independent Patient GROUP arithmetic",
+      "status": "passed",
+      "dimension": "correctness"
+    },
+    {
+      "name": "preview applied saved Group→DERIVE edit from count plus one to count plus two configuration and proposal complete within five seconds",
+      "status": "passed",
+      "dimension": "performance"
+    },
+    {
+      "name": "applied DERIVE proposal targets its exact saved step, output, and current draft CAS",
+      "status": "passed",
+      "dimension": "correctness"
+    },
+    {
+      "name": "Apply upstream Group→DERIVE edit with stable output identity action-to-render within budget",
+      "status": "passed",
+      "dimension": "performance"
+    },
+    {
+      "name": "Apply updates only the exact saved DERIVE expression and preserves its stable identities",
+      "status": "passed",
+      "dimension": "persistence"
+    },
+    {
+      "name": "applied Group→DERIVE values and stable output survive reload",
+      "status": "passed",
+      "dimension": "correctness"
+    },
+    {
+      "name": "recompile saved APPEND after the upstream Group→DERIVE edit action-to-render within budget",
+      "status": "passed",
+      "dimension": "performance"
+    },
+    {
+      "name": "saved APPEND recompiles from the edited Patient workspace output at the new draft CAS",
+      "status": "passed",
+      "dimension": "persistence"
+    },
+    {
+      "name": "dependent APPEND preview matches independent Group→DERIVE fixture rows after edit",
+      "status": "passed",
+      "dimension": "correctness"
+    },
+    {
+      "name": "recomputed APPEND rows survive reload exactly",
+      "status": "passed",
+      "dimension": "correctness"
+    },
+    {
+      "name": "Canceling Combine removal preserves its saved step, full workspace, and draft CAS after reload",
+      "status": "passed",
+      "dimension": "persistence"
+    },
+    {
+      "name": "removing Combine and reloading restores its rooted empty target",
+      "status": "passed",
+      "dimension": "persistence"
+    },
+    {
+      "name": "APPEND lifecycle never publishes or pins source revisions",
+      "status": "passed",
+      "dimension": "correctness"
+    },
+    {
+      "name": "removing APPEND restores its exact empty target and preserves every current-draft source",
+      "status": "passed",
+      "dimension": "persistence"
+    },
+    {
+      "name": "Patient Group→DERIVE remains independently usable after APPEND removal",
+      "status": "passed",
+      "dimension": "correctness"
     }
-  },
+  ],
   "nativeActions": {
     "count": 42,
     "timedWorkflowCheckpoints": 40,
@@ -149,6 +400,23 @@
     "rawVerificationReport": {
       "path": "/private/tmp/loom-native-parallel-wave74/basic-append-derived-edit/attempt1/artifacts/draft-combine-Builder-Comb-807a0-s-its-current-draft-sources/attachments/loom-verification-report-json-97d648c315608ffe33c4e7800f24c4ee08305cdf.json",
       "sha256": "0db5a12fccfb7f524b328ba4e0694eab4b2960e9758eae5d078ed48941b7563f"
+    }
+  },
+  "requiredCheckSummary": {
+    "passed": 44,
+    "failed": 0,
+    "missing": 0,
+    "total": 44
+  },
+  "assertionSummary": {
+    "passed": 140,
+    "failed": 0,
+    "total": 140,
+    "byDimension": {
+      "usability": 42,
+      "correctness": 38,
+      "persistence": 12,
+      "performance": 48
     }
   }
 }

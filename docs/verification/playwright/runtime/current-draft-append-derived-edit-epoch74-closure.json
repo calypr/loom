@@ -212,7 +212,7 @@
     }
   },
   "lifecycleReport": "docs/verification/playwright/runtime/current-draft-append-derived-edit-epoch74-report.json",
-  "lifecycleReportSha256": "eaed60bf8fd263848338c045103d1e64f73bbaa73cba5866a157a2a5cc4843de",
+  "lifecycleReportSha256": "5f6a095d8129dd007d0a26e98960d43229f9f0e2a885d28d88756a3ae74f553a",
   "rawReportPath": "/private/tmp/loom-native-parallel-wave74/basic-append-derived-edit/attempt1/artifacts/draft-combine-Builder-Comb-807a0-s-its-current-draft-sources/attachments/loom-verification-report-json-97d648c315608ffe33c4e7800f24c4ee08305cdf.json",
   "rawReportSha256": "0db5a12fccfb7f524b328ba4e0694eab4b2960e9758eae5d078ed48941b7563f"
 }
