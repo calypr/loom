@@ -1,0 +1,170 @@
+{
+  "schemaVersion": 1,
+  "scenario": "cda-current-draft-upstream-append",
+  "case": "upstream-append",
+  "status": "passed",
+  "scope": "Real-CDA current-draft Group→DERIVE→APPEND only; DiagnosticReport-backed APPEND remains separate.",
+  "run": {
+    "id": "4nlXSv",
+    "startedAt": "2026-10-07T22:10:25.820Z",
+    "finishedAt": "2026-10-07T22:12:42.890Z",
+    "bracketDurationMs": 137047,
+    "sourceCommit": "da6cc1286aac3c94d35c8ccfee0cca1a85ad27ef",
+    "spec": "scripts/verify-ui/specs/cda-current-draft-upstream-append.spec.mjs",
+    "title": "three exact CDA populations Group, edit Patient DERIVE, then Append with full restoration",
+    "command": "source '/private/tmp/loom-native-parallel-wave78/browser-environment.sh' && source '/private/tmp/loom-native-parallel-wave78/capture-environment.sh' && LOOM_CDA_NO_AUTH=1 node scripts/run-native-verification-bracket.mjs --scenario cda-current-draft-upstream-append --case upstream-append --grep 'three exact CDA populations Group, edit Patient DERIVE, then Append with full restoration$' --evidence-parent /private/tmp/loom-verification-runs",
+    "LOOM_CDA_NO_AUTH": "1"
+  },
+  "target": {
+    "project": "loom_dev_cda_fhir",
+    "generation": "cda-fhir-v1",
+    "explorer": "cda-upstream-append-3db82012-8272-4454-9bbb-a5e6ccacbf85"
+  },
+  "oracle": {
+    "boundedPerResourceRows": 2000,
+    "scanLimitBoundsReturnedRowsNotScanCost": true,
+    "patientIdEligibleRows": 2000,
+    "patientFHIRIDs": [
+      "dd5ed8d2-853b-51d6-9beb-dfa8aa71322d",
+      "15063d54-c705-58e2-acfe-f5d7d48b415a"
+    ],
+    "observationStatusEligibleRows": 2000,
+    "selectedStatus": "final",
+    "observationFHIRIDs": {
+      "sourceA": [
+        "52f5e622-0181-5feb-936c-e9992ab26616",
+        "485e2567-b566-56f3-b5bd-5f025f37cd95"
+      ],
+      "sourceB": [
+        "2cad1748-5e1e-5018-b5b4-f87ac1d8aef8",
+        "5577788c-1255-5439-85bb-8651f6f597a4"
+      ]
+    },
+    "observationPairsDisjoint": true,
+    "exactSelectedRereads": {
+      "observation-left": {
+        "count": 2,
+        "exact": true,
+        "resourceType": "Observation",
+        "project": "loom_dev_cda_fhir",
+        "generation": "cda-fhir-v1"
+      },
+      "observation-right": {
+        "count": 2,
+        "exact": true,
+        "resourceType": "Observation",
+        "project": "loom_dev_cda_fhir",
+        "generation": "cda-fhir-v1"
+      },
+      "patient-id": {
+        "count": 2,
+        "exact": true,
+        "resourceType": "Patient",
+        "project": "loom_dev_cda_fhir",
+        "generation": "cda-fhir-v1"
+      }
+    }
+  },
+  "append": {
+    "inputOrder": [
+      "Observation A",
+      "Observation B",
+      "Patient FHIR ID Group→DERIVE"
+    ],
+    "rowsAfterDERIVEPlusTwo": [
+      [
+        "final",
+        "2"
+      ],
+      [
+        "final",
+        "2"
+      ],
+      [
+        "15063d54-c705-58e2-acfe-f5d7d48b415a",
+        "3"
+      ],
+      [
+        "dd5ed8d2-853b-51d6-9beb-dfa8aa71322d",
+        "3"
+      ]
+    ],
+    "draftVersionBeforeEdit": 18,
+    "draftVersionAfterEdit": 19,
+    "receiptAndDigestRecomputed": true,
+    "noPublish": true,
+    "noPinnedTableRevisions": true,
+    "emptyTargetRestored": true
+  },
+  "lifecycle": {
+    "requiredChecks": {
+      "passed": 26,
+      "total": 26
+    },
+    "assertions": 215,
+    "actions": 93,
+    "maxActionMs": 3069,
+    "budgetMs": 5000,
+    "dimensions": [
+      "usability",
+      "correctness",
+      "persistence",
+      "performance"
+    ],
+    "cancelApplyEditRemovalReloadRestoration": "passed",
+    "networkErrors": 0,
+    "applicationErrors": 0,
+    "incidentalErrors": [
+      {
+        "kind": "asset-failure",
+        "url": "http://127.0.0.1:30008/favicon.ico",
+        "status": 404
+      }
+    ]
+  },
+  "sourceIntegrity": {
+    "sha256": "85ce05539585a2946fdb857f7cc6019ec57745f9027932b4b839a1af4318355e",
+    "files": 1612,
+    "unchanged": true,
+    "watchedFiles": 1127,
+    "apiBuildIdentity": "786d08d73d9c6675ab99c45322b96a32efed8aa7c4c8ba8180f19f7ecd872fd8:786d08d73d9c6675ab99c45322b96a32efed8aa7c4c8ba8180f19f7ecd872fd8:ce684c31db8b835d3cbc164086e1e5184df7e3affff5ffa4493c07ea01125ec5",
+    "apiUnchanged": true,
+    "mountsUnchanged": true,
+    "healthBefore": "PASS",
+    "healthAfter": "PASS"
+  },
+  "priorStrictNetworkFailure": {
+    "runId": "XrW1Cx",
+    "status": "strict network gate failed although all 26 registered checks reached",
+    "error": "net::ERR_ABORTED",
+    "requestId": "construction-proposal-f01ca1f9-9a70-4562-b006-57f24a4647ce",
+    "browserRequestId": "playwright-56",
+    "action": "Select Patient FHIR ID source native GROUP key and render COUNT_ROWS",
+    "retainedReportSha256": "385a66933d1418b47a07b3750fd961f2f3cf1f7e069f52a83f8aa60fff029024",
+    "correction": "The accepted helper classifies only exact proven proposal supersession. This browser run had zero aborted proposals, so it verifies the full lifecycle on the no-abort path; the focused 9/9 tests cover the proof contract. Unmatched aborts remain fatal."
+  },
+  "rawEvidence": {
+    "summary": {
+      "path": "/private/tmp/loom-verification-runs/run-cda-current-draft-upstream-append-upstream-append-4nlXSv/summary.json",
+      "sha256": "bca7ee31c126ad5b3546becea8c636ae9883d3b156f1df48946db963ab4a4206"
+    },
+    "domainReport": {
+      "path": "/private/tmp/loom-verification-runs/run-cda-current-draft-upstream-append-upstream-append-4nlXSv/playwright-results/cda-current-draft-upstream-d2dbe-ppend-with-full-restoration/attachments/cda-domain-report-json-3cf9dd8e2d67a03fef4af5ef6dbe5442b887aef9.json",
+      "sha256": "0c4d84686dab1fd98301e8f579f32371d00f41e24940c4ab808b30fa27f4038b"
+    },
+    "playwrightReport": {
+      "path": "/private/tmp/loom-verification-runs/run-cda-current-draft-upstream-append-upstream-append-4nlXSv/playwright-report.json",
+      "sha256": "1aff6b343806aa454857b3a8e7bacecb5bf251cbc710c4faabb22f7ef09d45ce"
+    },
+    "priorFailureReport": {
+      "path": "/private/tmp/loom-verification-runs/run-cda-current-draft-upstream-append-upstream-append-XrW1Cx/playwright-results/cda-current-draft-upstream-d2dbe-ppend-with-full-restoration/cda-report.json",
+      "sha256": "385a66933d1418b47a07b3750fd961f2f3cf1f7e069f52a83f8aa60fff029024"
+    }
+  },
+  "cancellationCoverage": {
+    "abortedIntermediateProposalsObserved": 0,
+    "supersededIntermediateProposals": [],
+    "classificationBranchExercisedInThisBrowserRun": false,
+    "focusedSourceProof": "9/9 focused helper tests passed; browser lifecycle used the no-abort path."
+  }
+}
