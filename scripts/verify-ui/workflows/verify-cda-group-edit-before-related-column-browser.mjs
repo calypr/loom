@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { assertExactMultiset } from '../helpers/group-related-multiset.mjs';
 import { classifyNativeBrowserApiRequest, isSameUiProxyResponse, nativeRequestsHaveOwnedTransportOutcomes } from '../helpers/native-browser-api-scope.mjs';
@@ -7,6 +7,7 @@ import { assertReopenedProposalAfterCancel } from '../helpers/proposal-reopen-bi
 import { selectSavedPreviewRequest } from '../helpers/saved-preview-binding.mjs';
 import { relatedSourceProposalCandidate } from '../helpers/related-source-capture.mjs';
 import { buildArangoShellInvocation } from '../helpers/owned-arangosh-command.mjs';
+import { assertCdaNoAuthRuntime } from '../helpers/cda-no-auth-runtime.mjs';
 import { classifyExpectedOwnedCancellation, nativeReadRequestMatchesExpectedScope } from '../helpers/native-request-ownership.mjs';
 import { createNativeAbortProbeSource, nativeAbortProbeEvidenceForRequest } from '../helpers/native-abort-probe.mjs';
 
@@ -53,7 +54,7 @@ const report = {
   status: 'running', explorer, project, generation, protectedExplorer,
   scope: { apiOrigin, uiOrigin, browserApiTransport: 'same-origin UI /api proxy',
     rawOracle: 'project + dataset generation + explicit selected Specimen ID' },
-  evidence, target, cases: [], errors: [], browserTransportViolations: [], requests: [], nativeRequests: [],
+  evidence, target, ownedApiRuntimeProof: null, oracleQueryAttempts: [], cases: [], errors: [], browserTransportViolations: [], requests: [], nativeRequests: [],
   nativeAbortProbeEvents: [], expectedOwnerCancellations: [], started: new Date().toISOString(),
 };
 let builder, outputId, selection, source, selectedPopulationRoute;
@@ -388,14 +389,30 @@ const rawQuery = (query) => {
   assert(query.includes(JSON.stringify(project)), 'Raw oracle query must scope to the CDA project');
   assert(query.includes(JSON.stringify(generation)), 'Raw oracle query must scope to the CDA generation');
   oracleQueries.push(query);
+  const timeoutMs = 30000;
+  const querySha256 = createHash('sha256').update(query).digest('hex');
   const invocation = buildArangoShellInvocation({
     container: arangoContainer,
     script: `print(JSON.stringify(db._query(${JSON.stringify(query)}).toArray()));`,
     database: 'loom_dev',
   });
-  const result = spawnSync(invocation.command, invocation.args,
-  { encoding: 'utf8', timeout: 30000 });
-  assert.equal(result.status, 0, `${result.stdout}${result.stderr}`);
+  const startedAt = Date.now();
+  const result = spawnSync(invocation.command, invocation.args, { encoding: 'utf8', timeout: timeoutMs });
+  const attempt = {
+    querySha256,
+    project,
+    generation,
+    database: 'loom_dev',
+    timeoutMs,
+    elapsedMs: Date.now() - startedAt,
+    status: Number.isInteger(result.status) ? result.status : null,
+    signal: typeof result.signal === 'string' ? result.signal : null,
+    errorCode: typeof result.error?.code === 'string' ? result.error.code : null,
+    stdoutBytes: Buffer.byteLength(result.stdout ?? ''),
+    stderrBytes: Buffer.byteLength(result.stderr ?? ''),
+  };
+  report.oracleQueryAttempts.push(attempt);
+  assert.equal(result.status, 0, `Raw CDA oracle process failed: ${JSON.stringify(attempt)}`);
   return JSON.parse(result.stdout.slice(result.stdout.indexOf('[')));
 };
 const waitNetwork = async () => {
@@ -788,10 +805,12 @@ const editGroupAggregate = async (operation, expectedRows, state, label) => {
 };
 
 try {
+  report.ownedApiRuntimeProof = assertCdaNoAuthRuntime({ apiContainer: target.apiContainer });
   const sourceQuery = `
 FOR s IN (
   FOR candidate IN Specimen
     FILTER candidate.project == ${JSON.stringify(project)} AND candidate.dataset_generation == ${JSON.stringify(generation)}
+      AND candidate.resourceType == "Specimen" AND candidate.payload.resourceType == "Specimen"
     SORT candidate.id
     LIMIT 2000
     RETURN {id:candidate.id,_id:candidate._id,generation:candidate.dataset_generation,resourceType:candidate.resourceType}
@@ -799,24 +818,27 @@ FOR s IN (
   LET patients = (
     FOR e IN fhir_edge
       FILTER e._from == s._id AND e._to != null AND e.label == "subject_Patient"
+        AND e.from_type == "Specimen" AND e.to_type == "Patient"
         AND e.project == ${JSON.stringify(project)} AND e.dataset_generation == ${JSON.stringify(generation)}
-        AND STARTS_WITH(e._to, "Patient/")
       LET p = DOCUMENT(e._to)
-      FILTER p.project == ${JSON.stringify(project)} AND p.dataset_generation == ${JSON.stringify(generation)}
-      RETURN DISTINCT {id:p.id,_id:p._id}
+      FILTER p != null AND p.project == ${JSON.stringify(project)} AND p.dataset_generation == ${JSON.stringify(generation)}
+        AND p.resourceType == "Patient" AND p.payload.resourceType == "Patient"
+      RETURN DISTINCT {id:p.id,_id:p._id,resourceType:p.resourceType,generation:p.dataset_generation}
   )
   FILTER LENGTH(patients) == 1
   LET patient = patients[0]
   LET observations = (
     FOR e IN fhir_edge
-      FILTER e._to == patient._id AND STARTS_WITH(e._from, "Observation/")
+      FILTER e._to == patient._id
         AND e.label == "subject_Patient" AND e.project == ${JSON.stringify(project)}
+        AND e.from_type == "Observation" AND e.to_type == "Patient"
         AND e.dataset_generation == ${JSON.stringify(generation)}
       COLLECT observationKey = e._from
       LET o = DOCUMENT(observationKey)
-      FILTER o.project == ${JSON.stringify(project)} AND o.dataset_generation == ${JSON.stringify(generation)}
+      FILTER o != null AND o.project == ${JSON.stringify(project)} AND o.dataset_generation == ${JSON.stringify(generation)}
+        AND o.resourceType == "Observation" AND o.payload.resourceType == "Observation"
       SORT o.id
-      RETURN {id:o.id,_id:o._id,status:o.payload.status,hasScalarStatus:IS_STRING(o.payload.status)}
+      RETURN {id:o.id,_id:o._id,status:o.payload.status,hasScalarStatus:IS_STRING(o.payload.status),resourceType:o.resourceType,generation:o.dataset_generation}
   )
   LET scalarObservations = (FOR observation IN observations FILTER observation.hasScalarStatus RETURN observation)
   LET statuses = UNIQUE(scalarObservations[*].status)
@@ -837,9 +859,14 @@ FOR s IN (
   assert(observations.every(({ hasScalarStatus }) => hasScalarStatus), 'Every selected Observation must carry scalar status');
   assert.equal(source.generation, generation);
   assert.equal(source.resourceType, 'Specimen');
+  assert.equal(patient.resourceType, 'Patient');
+  assert.equal(patient.generation, generation);
   assert.equal(new Set(observationIDs).size, observations.length, 'Raw witness Observation IDs must be unique');
   assert(observationIDs.length >= 2, 'Raw witness must contain at least two distinct Observation IDs');
   assert(observations.length <= 24, 'Raw witness must fit completely in the 25-row preview bound');
+  assert(observations.every(({ resourceType, generation: observationGeneration }) =>
+    resourceType === 'Observation' && observationGeneration === generation),
+  'Every selected Observation must retain exact resource type and generation identity');
   recordLifecycleCheck('correctness',
     'bounded real CDA oracle selects exact Specimen→Patient→Observation status witness',
     source.generation === generation && observationIDs.length === observationStatuses.length &&
