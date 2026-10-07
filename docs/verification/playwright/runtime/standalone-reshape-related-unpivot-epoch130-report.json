@@ -1,0 +1,3285 @@
+{
+  "schemaVersion": 1,
+  "epoch": 130,
+  "scenario": "standalone-reshape-related-unpivot",
+  "case": "related-unpivot",
+  "title": "related-unpivot",
+  "status": "passed",
+  "runnerStatus": "passed",
+  "coverageStatus": "passed",
+  "durableClosurePath": "docs/verification/playwright/runtime/standalone-reshape-related-unpivot-epoch130-closure.json",
+  "rawCoordinatorStatus": "CLOSED_INTEGRITY_PASS_BROWSER_PASS",
+  "rootAcceptanceStatus": "ACCEPTED_FULL_LIFECYCLE_PASS",
+  "classification": null,
+  "target": {
+    "kind": "owned-cda",
+    "project": "loom_dev_cda_fhir",
+    "generation": "cda-fhir-v1",
+    "explorer": "qa-reshape-related-unpivot-0eeb43fd-7ce7-42ae-9c45-df1a9be48fe1",
+    "apiUrl": "http://127.0.0.1:8188",
+    "uiUrl": "http://127.0.0.1:30008",
+    "composeProject": "loom-dev-6d7df93d6a37",
+    "apiContainer": "loom-dev-6d7df93d6a37-loom-api-1",
+    "arangoContainer": "loom-dev-6d7df93d6a37-arangodb-1",
+    "clickhouseContainer": "loom-dev-6d7df93d6a37-clickhouse-1",
+    "sourceRoot": "$TMP/<path>",
+    "sourceFingerprint": {
+      "sha256": "dfa2bce29c6c102f79bec2dc56eea6b19c484ebf2f19fb4f6335178e37f06800",
+      "files": 1554
+    },
+    "apiBuildIdentity": "98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:85c11c1b9b88b8ff8cbd1241e8be6dea82f222956cf717e47c11fcb5efc7e135"
+  },
+  "ownedStackValidationTarget": {
+    "project": "loom_dev_cda_fhir",
+    "composeProject": "loom-dev-6d7df93d6a37",
+    "apiContainer": "loom-dev-6d7df93d6a37-loom-api-1",
+    "uiContainer": "loom-dev-6d7df93d6a37-loom-ui-1",
+    "arangoContainer": "loom-dev-6d7df93d6a37-arangodb-1",
+    "clickhouseContainer": "loom-dev-6d7df93d6a37-clickhouse-1",
+    "apiPort": "8188",
+    "uiPort": "30008",
+    "sourceRoot": "/private/tmp/loom-construction-implementation",
+    "generation": "cda-fhir-v1"
+  },
+  "apiBuildIdentity": "98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:85c11c1b9b88b8ff8cbd1241e8be6dea82f222956cf717e47c11fcb5efc7e135",
+  "requiredChecks": {
+    "total": 17,
+    "passed": 17,
+    "failed": 0,
+    "unrun": 0,
+    "passedNames": [
+      "bounded raw CDA oracle selects a complete two-to-twenty-four-row Specimen Related chain",
+      "fresh Explorer and direct Specimen ID column bind the exact project and generation-scoped source",
+      "native Related choices preserve exact raw rows and stage identities at every chain hop",
+      "saved Related rows expose an enabled Unpivot action and the exact Specimen ID input",
+      "Unpivot preview matches the exact transformed raw multiset and retains related columns",
+      "Cancel preserves the exact Related workspace, draft CAS, construction, and rows",
+      "Apply persists Unpivot with the exact source-column and compiler-stage binding",
+      "applied Unpivot rows and output identities match the complete bounded source oracle",
+      "Builder reload preserves exact Unpivot schema, bindings, step identity, and rows",
+      "saved Unpivot edit reopens its exact source and previews the replacement null policy",
+      "edited Unpivot policy applies and reloads with exact schema and raw rows",
+      "Canceling Unpivot removal preserves the saved construction and exact rows",
+      "removing Unpivot and reloading restores exact Related construction, schema, bindings, and rows",
+      "Unpivot Value missing/equality Filter lifecycle remains exact through reload and restoration",
+      "All native action and action-to-render checkpoints complete within five seconds",
+      "No unexpected native network, module, or browser errors occurred",
+      "CDA watched source and API build stayed unchanged"
+    ],
+    "failedNames": [],
+    "unrunNames": [],
+    "outcomes": [
+      {
+        "name": "bounded raw CDA oracle selects a complete two-to-twenty-four-row Specimen Related chain",
+        "status": "passed"
+      },
+      {
+        "name": "fresh Explorer and direct Specimen ID column bind the exact project and generation-scoped source",
+        "status": "passed"
+      },
+      {
+        "name": "native Related choices preserve exact raw rows and stage identities at every chain hop",
+        "status": "passed"
+      },
+      {
+        "name": "saved Related rows expose an enabled Unpivot action and the exact Specimen ID input",
+        "status": "passed"
+      },
+      {
+        "name": "Unpivot preview matches the exact transformed raw multiset and retains related columns",
+        "status": "passed"
+      },
+      {
+        "name": "Cancel preserves the exact Related workspace, draft CAS, construction, and rows",
+        "status": "passed"
+      },
+      {
+        "name": "Apply persists Unpivot with the exact source-column and compiler-stage binding",
+        "status": "passed"
+      },
+      {
+        "name": "applied Unpivot rows and output identities match the complete bounded source oracle",
+        "status": "passed"
+      },
+      {
+        "name": "Builder reload preserves exact Unpivot schema, bindings, step identity, and rows",
+        "status": "passed"
+      },
+      {
+        "name": "saved Unpivot edit reopens its exact source and previews the replacement null policy",
+        "status": "passed"
+      },
+      {
+        "name": "edited Unpivot policy applies and reloads with exact schema and raw rows",
+        "status": "passed"
+      },
+      {
+        "name": "Canceling Unpivot removal preserves the saved construction and exact rows",
+        "status": "passed"
+      },
+      {
+        "name": "removing Unpivot and reloading restores exact Related construction, schema, bindings, and rows",
+        "status": "passed"
+      },
+      {
+        "name": "Unpivot Value missing/equality Filter lifecycle remains exact through reload and restoration",
+        "status": "passed"
+      },
+      {
+        "name": "All native action and action-to-render checkpoints complete within five seconds",
+        "status": "passed"
+      },
+      {
+        "name": "No unexpected native network, module, or browser errors occurred",
+        "status": "passed"
+      },
+      {
+        "name": "CDA watched source and API build stayed unchanged",
+        "status": "passed"
+      }
+    ]
+  },
+  "assertions": [
+    {
+      "name": "bounded raw CDA oracle selects a complete two-to-twenty-four-row Specimen Related chain",
+      "status": "passed"
+    },
+    {
+      "name": "fresh Explorer and direct Specimen ID column bind the exact project and generation-scoped source",
+      "status": "passed"
+    },
+    {
+      "name": "▤ Related Unpivot QA completed",
+      "status": "passed"
+    },
+    {
+      "name": "Configure rows completed",
+      "status": "passed"
+    },
+    {
+      "name": "Make a row for each related record Follow a relationship to another record type, such as Patient to Observation. Make a row for each match, with existing values repeated. Fields from each matched record become available in Add columns. By default, keep a current row once when no records match. Example: Patient A with 2 Observations → 2 rows, each describing Patient A and one Observation completed",
+      "status": "passed"
+    },
+    {
+      "name": "Select Patient completed",
+      "status": "passed"
+    },
+    {
+      "name": "Specimen -[subject]-> Patient completed",
+      "status": "passed"
+    },
+    {
+      "name": "Apply change completed",
+      "status": "passed"
+    },
+    {
+      "name": "Configure rows completed",
+      "status": "passed"
+    },
+    {
+      "name": "Make a row for each related record Follow a relationship to another record type, such as Patient to Observation. Make a row for each match, with existing values repeated. Fields from each matched record become available in Add columns. By default, keep a current row once when no records match. Example: Patient A with 2 Observations → 2 rows, each describing Patient A and one Observation completed",
+      "status": "passed"
+    },
+    {
+      "name": "Select Condition completed",
+      "status": "passed"
+    },
+    {
+      "name": "Patient <-[subject]- Condition completed",
+      "status": "passed"
+    },
+    {
+      "name": "Apply change completed",
+      "status": "passed"
+    },
+    {
+      "name": "Configure rows completed",
+      "status": "passed"
+    },
+    {
+      "name": "Make a row for each related record Follow a relationship to another record type, such as Patient to Observation. Make a row for each match, with existing values repeated. Fields from each matched record become available in Add columns. By default, keep a current row once when no records match. Example: Patient A with 2 Observations → 2 rows, each describing Patient A and one Observation completed",
+      "status": "passed"
+    },
+    {
+      "name": "Select Observation completed",
+      "status": "passed"
+    },
+    {
+      "name": "Condition <-[focus]- Observation completed",
+      "status": "passed"
+    },
+    {
+      "name": "Apply change completed",
+      "status": "passed"
+    },
+    {
+      "name": "Configure rows completed",
+      "status": "passed"
+    },
+    {
+      "name": "Make a row for each related record Follow a relationship to another record type, such as Patient to Observation. Make a row for each match, with existing values repeated. Fields from each matched record become available in Add columns. By default, keep a current row once when no records match. Example: Patient A with 2 Observations → 2 rows, each describing Patient A and one Observation completed",
+      "status": "passed"
+    },
+    {
+      "name": "Select Patient completed",
+      "status": "passed"
+    },
+    {
+      "name": "Observation -[subject]-> Patient completed",
+      "status": "passed"
+    },
+    {
+      "name": "Apply change completed",
+      "status": "passed"
+    },
+    {
+      "name": "▤ Related Unpivot QA completed",
+      "status": "passed"
+    },
+    {
+      "name": "native Related choices preserve exact raw rows and stage identities at every chain hop",
+      "status": "passed"
+    },
+    {
+      "name": "Configure rows completed",
+      "status": "passed"
+    },
+    {
+      "name": "Turn columns into rows Move selected columns into a field-name column and a value column. Other columns repeat on each new row. Example: Height and Weight columns → 2 rows, one for each measurement completed",
+      "status": "passed"
+    },
+    {
+      "name": "Unpivot Specimen ID completed",
+      "status": "passed"
+    },
+    {
+      "name": "saved Related rows expose an enabled Unpivot action and the exact Specimen ID input",
+      "status": "passed"
+    },
+    {
+      "name": "Unpivot preview matches the exact transformed raw multiset and retains related columns",
+      "status": "passed"
+    },
+    {
+      "name": "Cancel completed",
+      "status": "passed"
+    },
+    {
+      "name": "Cancel preserves the exact Related workspace, draft CAS, construction, and rows",
+      "status": "passed"
+    },
+    {
+      "name": "Configure rows completed",
+      "status": "passed"
+    },
+    {
+      "name": "Turn columns into rows Move selected columns into a field-name column and a value column. Other columns repeat on each new row. Example: Height and Weight columns → 2 rows, one for each measurement completed",
+      "status": "passed"
+    },
+    {
+      "name": "Unpivot Specimen ID completed",
+      "status": "passed"
+    },
+    {
+      "name": "Apply change completed",
+      "status": "passed"
+    },
+    {
+      "name": "Apply persists Unpivot with the exact source-column and compiler-stage binding",
+      "status": "passed"
+    },
+    {
+      "name": "applied Unpivot rows and output identities match the complete bounded source oracle",
+      "status": "passed"
+    },
+    {
+      "name": "▤ Related Unpivot QA completed",
+      "status": "passed"
+    },
+    {
+      "name": "Builder reload preserves exact Unpivot schema, bindings, step identity, and rows",
+      "status": "passed"
+    },
+    {
+      "name": "5. Unpivot completed",
+      "status": "passed"
+    },
+    {
+      "name": "Edit completed",
+      "status": "passed"
+    },
+    {
+      "name": "Advanced options: field names and missing values completed",
+      "status": "passed"
+    },
+    {
+      "name": "Select DROP completed",
+      "status": "passed"
+    },
+    {
+      "name": "saved Unpivot edit reopens its exact source and previews the replacement null policy",
+      "status": "passed"
+    },
+    {
+      "name": "Apply change completed",
+      "status": "passed"
+    },
+    {
+      "name": "▤ Related Unpivot QA completed",
+      "status": "passed"
+    },
+    {
+      "name": "edited Unpivot policy applies and reloads with exact schema and raw rows",
+      "status": "passed"
+    },
+    {
+      "name": "Filter rows: Choose which rows appear in the table output. completed",
+      "status": "passed"
+    },
+    {
+      "name": "Select unpivot-value_77e04c2c-ed41-46d9-8d4e-e228ec17644d completed",
+      "status": "passed"
+    },
+    {
+      "name": "Select EQUALS completed",
+      "status": "passed"
+    },
+    {
+      "name": "Select MISSING completed",
+      "status": "passed"
+    },
+    {
+      "name": "Cancel completed",
+      "status": "passed"
+    },
+    {
+      "name": "Filter rows: Choose which rows appear in the table output. completed",
+      "status": "passed"
+    },
+    {
+      "name": "Select unpivot-value_77e04c2c-ed41-46d9-8d4e-e228ec17644d completed",
+      "status": "passed"
+    },
+    {
+      "name": "Select EQUALS completed",
+      "status": "passed"
+    },
+    {
+      "name": "Select MISSING completed",
+      "status": "passed"
+    },
+    {
+      "name": "Apply change completed",
+      "status": "passed"
+    },
+    {
+      "name": "▤ Related Unpivot QA completed",
+      "status": "passed"
+    },
+    {
+      "name": "6. Filter rows completed",
+      "status": "passed"
+    },
+    {
+      "name": "Edit completed",
+      "status": "passed"
+    },
+    {
+      "name": "Select EQUALS completed",
+      "status": "passed"
+    },
+    {
+      "name": "Value completed",
+      "status": "passed"
+    },
+    {
+      "name": "Value completed",
+      "status": "passed"
+    },
+    {
+      "name": "Apply change completed",
+      "status": "passed"
+    },
+    {
+      "name": "▤ Related Unpivot QA completed",
+      "status": "passed"
+    },
+    {
+      "name": "Unpivot Value missing/equality Filter lifecycle remains exact through reload and restoration",
+      "status": "passed"
+    },
+    {
+      "name": "5. Unpivot completed",
+      "status": "passed"
+    },
+    {
+      "name": "Remove completed",
+      "status": "passed"
+    },
+    {
+      "name": "Cancel completed",
+      "status": "passed"
+    },
+    {
+      "name": "Canceling Unpivot removal preserves the saved construction and exact rows",
+      "status": "passed"
+    },
+    {
+      "name": "5. Unpivot Turn Specimen ID as “Specimen ID” into Variable and Value. completed",
+      "status": "passed"
+    },
+    {
+      "name": "Remove completed",
+      "status": "passed"
+    },
+    {
+      "name": "Apply removal completed",
+      "status": "passed"
+    },
+    {
+      "name": "▤ Related Unpivot QA completed",
+      "status": "passed"
+    },
+    {
+      "name": "removing Unpivot and reloading restores exact Related construction, schema, bindings, and rows",
+      "status": "passed"
+    },
+    {
+      "name": "All native action and action-to-render checkpoints complete within five seconds",
+      "status": "passed"
+    },
+    {
+      "name": "No unexpected native network, module, or browser errors occurred",
+      "status": "passed"
+    },
+    {
+      "name": "CDA watched source and API build stayed unchanged",
+      "status": "passed"
+    },
+    {
+      "name": "incidental asset failures are explicitly recorded",
+      "status": "passed"
+    }
+  ],
+  "assertionSummary": {
+    "passed": 80,
+    "failed": 0,
+    "total": 80
+  },
+  "dimensions": {
+    "usability": {
+      "status": "passed",
+      "evidence": [
+        {
+          "name": "▤ Related Unpivot QA completed",
+          "status": "passed",
+          "elapsedMs": 61,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 4
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 14
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 44
+            }
+          }
+        },
+        {
+          "name": "Configure rows completed",
+          "status": "passed",
+          "elapsedMs": 71,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 3
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 21
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 48
+            }
+          }
+        },
+        {
+          "name": "Make a row for each related record Follow a relationship to another record type, such as Patient to Observation. Make a row for each match, with existing values repeated. Fields from each matched record become available in Add columns. By default, keep a current row once when no records match. Example: Patient A with 2 Observations → 2 rows, each describing Patient A and one Observation completed",
+          "status": "passed",
+          "elapsedMs": 120,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 3
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 35
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 83
+            }
+          }
+        },
+        {
+          "name": "Select Patient completed",
+          "status": "passed",
+          "elapsedMs": 50,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 2
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 39
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 9
+            }
+          }
+        },
+        {
+          "name": "Specimen -[subject]-> Patient completed",
+          "status": "passed",
+          "elapsedMs": 90,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 2
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 22
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 66
+            }
+          }
+        },
+        {
+          "name": "Apply change completed",
+          "status": "passed",
+          "elapsedMs": 82,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 2
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 14
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 66
+            }
+          }
+        },
+        {
+          "name": "Configure rows completed",
+          "status": "passed",
+          "elapsedMs": 63,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 2
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 20
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 41
+            }
+          }
+        },
+        {
+          "name": "Make a row for each related record Follow a relationship to another record type, such as Patient to Observation. Make a row for each match, with existing values repeated. Fields from each matched record become available in Add columns. By default, keep a current row once when no records match. Example: Patient A with 2 Observations → 2 rows, each describing Patient A and one Observation completed",
+          "status": "passed",
+          "elapsedMs": 107,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 3
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 26
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 78
+            }
+          }
+        },
+        {
+          "name": "Select Condition completed",
+          "status": "passed",
+          "elapsedMs": 34,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 2
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 25
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 7
+            }
+          }
+        },
+        {
+          "name": "Patient <-[subject]- Condition completed",
+          "status": "passed",
+          "elapsedMs": 86,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 2
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 21
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 63
+            }
+          }
+        },
+        {
+          "name": "Apply change completed",
+          "status": "passed",
+          "elapsedMs": 79,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 1
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 12
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 65
+            }
+          }
+        },
+        {
+          "name": "Configure rows completed",
+          "status": "passed",
+          "elapsedMs": 61,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 2
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 22
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 38
+            }
+          }
+        },
+        {
+          "name": "Make a row for each related record Follow a relationship to another record type, such as Patient to Observation. Make a row for each match, with existing values repeated. Fields from each matched record become available in Add columns. By default, keep a current row once when no records match. Example: Patient A with 2 Observations → 2 rows, each describing Patient A and one Observation completed",
+          "status": "passed",
+          "elapsedMs": 111,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 2
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 30
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 79
+            }
+          }
+        },
+        {
+          "name": "Select Observation completed",
+          "status": "passed",
+          "elapsedMs": 36,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 1
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 27
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 8
+            }
+          }
+        },
+        {
+          "name": "Condition <-[focus]- Observation completed",
+          "status": "passed",
+          "elapsedMs": 89,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 2
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 26
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 61
+            }
+          }
+        },
+        {
+          "name": "Apply change completed",
+          "status": "passed",
+          "elapsedMs": 90,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 2
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 23
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 66
+            }
+          }
+        },
+        {
+          "name": "Configure rows completed",
+          "status": "passed",
+          "elapsedMs": 57,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 2
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 17
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 39
+            }
+          }
+        },
+        {
+          "name": "Make a row for each related record Follow a relationship to another record type, such as Patient to Observation. Make a row for each match, with existing values repeated. Fields from each matched record become available in Add columns. By default, keep a current row once when no records match. Example: Patient A with 2 Observations → 2 rows, each describing Patient A and one Observation completed",
+          "status": "passed",
+          "elapsedMs": 112,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 2
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 30
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 80
+            }
+          }
+        },
+        {
+          "name": "Select Patient completed",
+          "status": "passed",
+          "elapsedMs": 35,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 2
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 26
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 7
+            }
+          }
+        },
+        {
+          "name": "Observation -[subject]-> Patient completed",
+          "status": "passed",
+          "elapsedMs": 88,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 2
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 25
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 61
+            }
+          }
+        },
+        {
+          "name": "Apply change completed",
+          "status": "passed",
+          "elapsedMs": 77,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 1
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 12
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 63
+            }
+          }
+        },
+        {
+          "name": "▤ Related Unpivot QA completed",
+          "status": "passed",
+          "elapsedMs": 67,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 2
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 20
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 44
+            }
+          }
+        },
+        {
+          "name": "Configure rows completed",
+          "status": "passed",
+          "elapsedMs": 67,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 2
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 25
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 40
+            }
+          }
+        },
+        {
+          "name": "Turn columns into rows Move selected columns into a field-name column and a value column. Other columns repeat on each new row. Example: Height and Weight columns → 2 rows, one for each measurement completed",
+          "status": "passed",
+          "elapsedMs": 120,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 2
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 39
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 79
+            }
+          }
+        },
+        {
+          "name": "Unpivot Specimen ID completed",
+          "status": "passed",
+          "elapsedMs": 92,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 1
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 26
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 64
+            }
+          }
+        },
+        {
+          "name": "saved Related rows expose an enabled Unpivot action and the exact Specimen ID input",
+          "status": "passed",
+          "outputId": "out_25528db784f7a2b41250e69a",
+          "selectedColumnID": "source_f41fbc34db9698c06339e3c7",
+          "selectedUnpivotInput": {
+            "checked": true,
+            "disabled": false
+          }
+        },
+        {
+          "name": "Cancel completed",
+          "status": "passed",
+          "elapsedMs": 202,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 1
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 18
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 182
+            }
+          }
+        },
+        {
+          "name": "Configure rows completed",
+          "status": "passed",
+          "elapsedMs": 56,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 2
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 16
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 38
+            }
+          }
+        },
+        {
+          "name": "Turn columns into rows Move selected columns into a field-name column and a value column. Other columns repeat on each new row. Example: Height and Weight columns → 2 rows, one for each measurement completed",
+          "status": "passed",
+          "elapsedMs": 89,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 2
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 30
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 58
+            }
+          }
+        },
+        {
+          "name": "Unpivot Specimen ID completed",
+          "status": "passed",
+          "elapsedMs": 80,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 2
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 29
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 50
+            }
+          }
+        },
+        {
+          "name": "Apply change completed",
+          "status": "passed",
+          "elapsedMs": 114,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 2
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 36
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 76
+            }
+          }
+        },
+        {
+          "name": "▤ Related Unpivot QA completed",
+          "status": "passed",
+          "elapsedMs": 69,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 4
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 21
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 44
+            }
+          }
+        },
+        {
+          "name": "5. Unpivot completed",
+          "status": "passed",
+          "elapsedMs": 62,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 2
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 14
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 47
+            }
+          }
+        },
+        {
+          "name": "Edit completed",
+          "status": "passed",
+          "elapsedMs": 101,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 2
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 25
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 74
+            }
+          }
+        },
+        {
+          "name": "Advanced options: field names and missing values completed",
+          "status": "passed",
+          "elapsedMs": 64,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 2
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 25
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 38
+            }
+          }
+        },
+        {
+          "name": "Select DROP completed",
+          "status": "passed",
+          "elapsedMs": 44,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 1
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 21
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 22
+            }
+          }
+        },
+        {
+          "name": "Apply change completed",
+          "status": "passed",
+          "elapsedMs": 91,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 2
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 12
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 77
+            }
+          }
+        },
+        {
+          "name": "▤ Related Unpivot QA completed",
+          "status": "passed",
+          "elapsedMs": 75,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 2
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 29
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 43
+            }
+          }
+        },
+        {
+          "name": "Filter rows: Choose which rows appear in the table output. completed",
+          "status": "passed",
+          "elapsedMs": 67,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 2
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 18
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 47
+            }
+          }
+        },
+        {
+          "name": "Select unpivot-value_77e04c2c-ed41-46d9-8d4e-e228ec17644d completed",
+          "status": "passed",
+          "elapsedMs": 42,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 2
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 36
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 4
+            }
+          }
+        },
+        {
+          "name": "Select EQUALS completed",
+          "status": "passed",
+          "elapsedMs": 40,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 2
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 34
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 4
+            }
+          }
+        },
+        {
+          "name": "Select MISSING completed",
+          "status": "passed",
+          "elapsedMs": 58,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 2
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 35
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 21
+            }
+          }
+        },
+        {
+          "name": "Cancel completed",
+          "status": "passed",
+          "elapsedMs": 193,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 1
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 18
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 173
+            }
+          }
+        },
+        {
+          "name": "Filter rows: Choose which rows appear in the table output. completed",
+          "status": "passed",
+          "elapsedMs": 86,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 2
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 7
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 77
+            }
+          }
+        },
+        {
+          "name": "Select unpivot-value_77e04c2c-ed41-46d9-8d4e-e228ec17644d completed",
+          "status": "passed",
+          "elapsedMs": 33,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 1
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 28
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 4
+            }
+          }
+        },
+        {
+          "name": "Select EQUALS completed",
+          "status": "passed",
+          "elapsedMs": 41,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 2
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 35
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 4
+            }
+          }
+        },
+        {
+          "name": "Select MISSING completed",
+          "status": "passed",
+          "elapsedMs": 57,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 2
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 35
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 20
+            }
+          }
+        },
+        {
+          "name": "Apply change completed",
+          "status": "passed",
+          "elapsedMs": 102,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 1
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 25
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 75
+            }
+          }
+        },
+        {
+          "name": "▤ Related Unpivot QA completed",
+          "status": "passed",
+          "elapsedMs": 70,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 5
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 19
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 46
+            }
+          }
+        },
+        {
+          "name": "6. Filter rows completed",
+          "status": "passed",
+          "elapsedMs": 65,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 2
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 15
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 47
+            }
+          }
+        },
+        {
+          "name": "Edit completed",
+          "status": "passed",
+          "elapsedMs": 97,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 2
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 23
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 73
+            }
+          }
+        },
+        {
+          "name": "Select EQUALS completed",
+          "status": "passed",
+          "elapsedMs": 21,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 1
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 16
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 4
+            }
+          }
+        },
+        {
+          "name": "Value completed",
+          "status": "passed",
+          "elapsedMs": 73,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 3
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 36
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 35
+            }
+          }
+        },
+        {
+          "name": "Value completed",
+          "status": "passed",
+          "elapsedMs": 75,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 1
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 37
+            },
+            "editable": {
+              "completed": true,
+              "durationMs": 2
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 34
+            }
+          }
+        },
+        {
+          "name": "Apply change completed",
+          "status": "passed",
+          "elapsedMs": 95,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 2
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 16
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 78
+            }
+          }
+        },
+        {
+          "name": "▤ Related Unpivot QA completed",
+          "status": "passed",
+          "elapsedMs": 72,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 3
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 20
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 49
+            }
+          }
+        },
+        {
+          "name": "5. Unpivot completed",
+          "status": "passed",
+          "elapsedMs": 65,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 2
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 15
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 48
+            }
+          }
+        },
+        {
+          "name": "Remove completed",
+          "status": "passed",
+          "elapsedMs": 88,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 3
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 20
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 65
+            }
+          }
+        },
+        {
+          "name": "Cancel completed",
+          "status": "passed",
+          "elapsedMs": 198,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 1
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 24
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 172
+            }
+          }
+        },
+        {
+          "name": "5. Unpivot Turn Specimen ID as “Specimen ID” into Variable and Value. completed",
+          "status": "passed",
+          "elapsedMs": 112,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 2
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 23
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 88
+            }
+          }
+        },
+        {
+          "name": "Remove completed",
+          "status": "passed",
+          "elapsedMs": 84,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 2
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 14
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 67
+            }
+          }
+        },
+        {
+          "name": "Apply removal completed",
+          "status": "passed",
+          "elapsedMs": 86,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 2
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 9
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 75
+            }
+          }
+        },
+        {
+          "name": "▤ Related Unpivot QA completed",
+          "status": "passed",
+          "elapsedMs": 74,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 6
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 21
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 47
+            }
+          }
+        }
+      ]
+    },
+    "correctness": {
+      "status": "passed",
+      "evidence": [
+        {
+          "name": "bounded raw CDA oracle selects a complete two-to-twenty-four-row Specimen Related chain",
+          "status": "passed",
+          "sourceID": "0000f0c1-b945-5f22-900d-1c25c88cdc30",
+          "candidateCount": 4,
+          "rowCount": 3,
+          "matchedEdges": 9,
+          "project": "loom_dev_cda_fhir",
+          "generation": "cda-fhir-v1"
+        },
+        {
+          "name": "fresh Explorer and direct Specimen ID column bind the exact project and generation-scoped source",
+          "status": "passed",
+          "outputId": "out_25528db784f7a2b41250e69a",
+          "selectionRevisionId": "selection_4aad355efeccb89fe68d924bbc0c290d42dcb8bde4085f32cffdb57a35aeccf5",
+          "routeChoiceId": "pr1.eyJ2ZXJzaW9uIjoxLCJzbmFwc2hvdFRva2VuIjoic2hhMjU2OjdlOWEwMjVlYzI1NTUwMzNmZDEzOGEzY2JmOWVhZWNlYmIyNGY4NzBhNmIzN2NmNWU4NmUwMzU1Yzg0YjQwZjciLCJvdXRwdXRJZCI6Im91dF8yNTUyOGRiNzg0ZjdhMmI0MTI1MGU2OWEiLCJzZWxlY3Rpb25SZXZpc2lvbklkIjoic2VsZWN0aW9uXzRhYWQzNTVlZmVjY2I4OWZlNjhkOTI0YmJjMGMyOTBkNDJkY2I4YmRlNDA4NWYzMmNmZmRiNTdhMzVhZWNjZjUiLCJyb3V0ZSI6W119.c6dfd4a54ff029dfdfb30cfc63aee48ee6ffea9f0aaeca9e61ee90758066f2c1",
+          "source": {
+            "project": "loom_dev_cda_fhir",
+            "generation": "cda-fhir-v1",
+            "resourceType": "Specimen",
+            "id": "0000f0c1-b945-5f22-900d-1c25c88cdc30"
+          },
+          "column": {
+            "columnId": "source_f41fbc34db9698c06339e3c7",
+            "column": "col_4880ae32c180a9217c1ba305",
+            "label": "Specimen ID",
+            "logicalType": "string",
+            "occurrenceId": "base",
+            "source": {
+              "kind": "field",
+              "field": {
+                "path": "id",
+                "projectionMode": "VALUE"
+              }
+            },
+            "table": {
+              "visible": true,
+              "order": 0
+            }
+          }
+        },
+        {
+          "name": "native Related choices preserve exact raw rows and stage identities at every chain hop",
+          "status": "passed",
+          "relatedStepIDs": [
+            "related_expand_3107ba93-4240-4484-b47f-700b232b0725",
+            "related_expand_aa04ed96-2706-4487-be28-add9319339a7",
+            "related_expand_d56d4393-1679-477f-a02e-bdc7e6dfdfcf",
+            "related_expand_418f913d-9af8-4af6-b2e9-642bc30378f1"
+          ],
+          "sourceColumnIDs": [
+            "source_f41fbc34db9698c06339e3c7"
+          ],
+          "rawRows": [
+            [
+              "0000f0c1-b945-5f22-900d-1c25c88cdc30",
+              "c2c8d963-7b76-521d-9826-846dee2112be",
+              "25d3ebbf-af70-5fb8-9b15-682a9a79c535",
+              "070bcaa4-883e-57a0-848c-23ff277891aa",
+              "c2c8d963-7b76-521d-9826-846dee2112be"
+            ],
+            [
+              "0000f0c1-b945-5f22-900d-1c25c88cdc30",
+              "c2c8d963-7b76-521d-9826-846dee2112be",
+              "4be0e103-aa9d-585a-b2e4-14a05a9ebe5e",
+              "e50dcc49-e3ff-51a2-94f6-07babfec3005",
+              "c2c8d963-7b76-521d-9826-846dee2112be"
+            ],
+            [
+              "0000f0c1-b945-5f22-900d-1c25c88cdc30",
+              "c2c8d963-7b76-521d-9826-846dee2112be",
+              "4be0e103-aa9d-585a-b2e4-14a05a9ebe5e",
+              "38c7c08b-a57d-5d59-b132-a17623d5273e",
+              "c2c8d963-7b76-521d-9826-846dee2112be"
+            ]
+          ],
+          "savedRows": [
+            [
+              "0000f0c1-b945-5f22-900d-1c25c88cdc30",
+              "c2c8d963-7b76-521d-9826-846dee2112be",
+              "25d3ebbf-af70-5fb8-9b15-682a9a79c535",
+              "070bcaa4-883e-57a0-848c-23ff277891aa",
+              "c2c8d963-7b76-521d-9826-846dee2112be"
+            ],
+            [
+              "0000f0c1-b945-5f22-900d-1c25c88cdc30",
+              "c2c8d963-7b76-521d-9826-846dee2112be",
+              "4be0e103-aa9d-585a-b2e4-14a05a9ebe5e",
+              "e50dcc49-e3ff-51a2-94f6-07babfec3005",
+              "c2c8d963-7b76-521d-9826-846dee2112be"
+            ],
+            [
+              "0000f0c1-b945-5f22-900d-1c25c88cdc30",
+              "c2c8d963-7b76-521d-9826-846dee2112be",
+              "4be0e103-aa9d-585a-b2e4-14a05a9ebe5e",
+              "38c7c08b-a57d-5d59-b132-a17623d5273e",
+              "c2c8d963-7b76-521d-9826-846dee2112be"
+            ]
+          ],
+          "hopRows": [
+            [
+              {
+                "anchor": "Patient/g_1c784be63c3f7dd1c703623693cf53e73827ca80c1e6a4891345b05720eec826",
+                "values": [
+                  "0000f0c1-b945-5f22-900d-1c25c88cdc30",
+                  "c2c8d963-7b76-521d-9826-846dee2112be"
+                ]
+              }
+            ],
+            [
+              {
+                "anchor": "Condition/g_2e2fcf6236f9f984d3e3849991ce3cfde4f0f5e546d8f13b323f4ad007ea7359",
+                "values": [
+                  "0000f0c1-b945-5f22-900d-1c25c88cdc30",
+                  "c2c8d963-7b76-521d-9826-846dee2112be",
+                  "25d3ebbf-af70-5fb8-9b15-682a9a79c535"
+                ]
+              },
+              {
+                "anchor": "Condition/g_87c53cf5427c19a229db2c2049b18d164f1ac23daddbbb8d4da7b67e46d20849",
+                "values": [
+                  "0000f0c1-b945-5f22-900d-1c25c88cdc30",
+                  "c2c8d963-7b76-521d-9826-846dee2112be",
+                  "4be0e103-aa9d-585a-b2e4-14a05a9ebe5e"
+                ]
+              }
+            ],
+            [
+              {
+                "anchor": "Observation/g_9408eacb667e7e420bc6aa54337bc9a8c1e921166782f2d570844a19c7c6a26d",
+                "values": [
+                  "0000f0c1-b945-5f22-900d-1c25c88cdc30",
+                  "c2c8d963-7b76-521d-9826-846dee2112be",
+                  "25d3ebbf-af70-5fb8-9b15-682a9a79c535",
+                  "070bcaa4-883e-57a0-848c-23ff277891aa"
+                ]
+              },
+              {
+                "anchor": "Observation/g_35cebad3722897001b7645957d2782a92226d80131bbc1fe15707c13e13d13c5",
+                "values": [
+                  "0000f0c1-b945-5f22-900d-1c25c88cdc30",
+                  "c2c8d963-7b76-521d-9826-846dee2112be",
+                  "4be0e103-aa9d-585a-b2e4-14a05a9ebe5e",
+                  "e50dcc49-e3ff-51a2-94f6-07babfec3005"
+                ]
+              },
+              {
+                "anchor": "Observation/g_988209f5c99e71afe3210b4960f987fa51e1f6281d030753e7d778c6239a0273",
+                "values": [
+                  "0000f0c1-b945-5f22-900d-1c25c88cdc30",
+                  "c2c8d963-7b76-521d-9826-846dee2112be",
+                  "4be0e103-aa9d-585a-b2e4-14a05a9ebe5e",
+                  "38c7c08b-a57d-5d59-b132-a17623d5273e"
+                ]
+              }
+            ],
+            [
+              {
+                "anchor": "Patient/g_1c784be63c3f7dd1c703623693cf53e73827ca80c1e6a4891345b05720eec826",
+                "values": [
+                  "0000f0c1-b945-5f22-900d-1c25c88cdc30",
+                  "c2c8d963-7b76-521d-9826-846dee2112be",
+                  "25d3ebbf-af70-5fb8-9b15-682a9a79c535",
+                  "070bcaa4-883e-57a0-848c-23ff277891aa",
+                  "c2c8d963-7b76-521d-9826-846dee2112be"
+                ]
+              },
+              {
+                "anchor": "Patient/g_1c784be63c3f7dd1c703623693cf53e73827ca80c1e6a4891345b05720eec826",
+                "values": [
+                  "0000f0c1-b945-5f22-900d-1c25c88cdc30",
+                  "c2c8d963-7b76-521d-9826-846dee2112be",
+                  "4be0e103-aa9d-585a-b2e4-14a05a9ebe5e",
+                  "e50dcc49-e3ff-51a2-94f6-07babfec3005",
+                  "c2c8d963-7b76-521d-9826-846dee2112be"
+                ]
+              },
+              {
+                "anchor": "Patient/g_1c784be63c3f7dd1c703623693cf53e73827ca80c1e6a4891345b05720eec826",
+                "values": [
+                  "0000f0c1-b945-5f22-900d-1c25c88cdc30",
+                  "c2c8d963-7b76-521d-9826-846dee2112be",
+                  "4be0e103-aa9d-585a-b2e4-14a05a9ebe5e",
+                  "38c7c08b-a57d-5d59-b132-a17623d5273e",
+                  "c2c8d963-7b76-521d-9826-846dee2112be"
+                ]
+              }
+            ]
+          ]
+        },
+        {
+          "name": "Unpivot preview matches the exact transformed raw multiset and retains related columns",
+          "status": "passed",
+          "inputRows": [
+            [
+              "0000f0c1-b945-5f22-900d-1c25c88cdc30",
+              "c2c8d963-7b76-521d-9826-846dee2112be",
+              "25d3ebbf-af70-5fb8-9b15-682a9a79c535",
+              "070bcaa4-883e-57a0-848c-23ff277891aa",
+              "c2c8d963-7b76-521d-9826-846dee2112be"
+            ],
+            [
+              "0000f0c1-b945-5f22-900d-1c25c88cdc30",
+              "c2c8d963-7b76-521d-9826-846dee2112be",
+              "4be0e103-aa9d-585a-b2e4-14a05a9ebe5e",
+              "e50dcc49-e3ff-51a2-94f6-07babfec3005",
+              "c2c8d963-7b76-521d-9826-846dee2112be"
+            ],
+            [
+              "0000f0c1-b945-5f22-900d-1c25c88cdc30",
+              "c2c8d963-7b76-521d-9826-846dee2112be",
+              "4be0e103-aa9d-585a-b2e4-14a05a9ebe5e",
+              "38c7c08b-a57d-5d59-b132-a17623d5273e",
+              "c2c8d963-7b76-521d-9826-846dee2112be"
+            ]
+          ],
+          "previewRows": [
+            [
+              "c2c8d963-7b76-521d-9826-846dee2112be",
+              "25d3ebbf-af70-5fb8-9b15-682a9a79c535",
+              "070bcaa4-883e-57a0-848c-23ff277891aa",
+              "c2c8d963-7b76-521d-9826-846dee2112be",
+              "Specimen ID",
+              "0000f0c1-b945-5f22-900d-1c25c88cdc30"
+            ],
+            [
+              "c2c8d963-7b76-521d-9826-846dee2112be",
+              "4be0e103-aa9d-585a-b2e4-14a05a9ebe5e",
+              "e50dcc49-e3ff-51a2-94f6-07babfec3005",
+              "c2c8d963-7b76-521d-9826-846dee2112be",
+              "Specimen ID",
+              "0000f0c1-b945-5f22-900d-1c25c88cdc30"
+            ],
+            [
+              "c2c8d963-7b76-521d-9826-846dee2112be",
+              "4be0e103-aa9d-585a-b2e4-14a05a9ebe5e",
+              "38c7c08b-a57d-5d59-b132-a17623d5273e",
+              "c2c8d963-7b76-521d-9826-846dee2112be",
+              "Specimen ID",
+              "0000f0c1-b945-5f22-900d-1c25c88cdc30"
+            ]
+          ],
+          "expectedRows": [
+            [
+              "c2c8d963-7b76-521d-9826-846dee2112be",
+              "25d3ebbf-af70-5fb8-9b15-682a9a79c535",
+              "070bcaa4-883e-57a0-848c-23ff277891aa",
+              "c2c8d963-7b76-521d-9826-846dee2112be",
+              "Specimen ID",
+              "0000f0c1-b945-5f22-900d-1c25c88cdc30"
+            ],
+            [
+              "c2c8d963-7b76-521d-9826-846dee2112be",
+              "4be0e103-aa9d-585a-b2e4-14a05a9ebe5e",
+              "e50dcc49-e3ff-51a2-94f6-07babfec3005",
+              "c2c8d963-7b76-521d-9826-846dee2112be",
+              "Specimen ID",
+              "0000f0c1-b945-5f22-900d-1c25c88cdc30"
+            ],
+            [
+              "c2c8d963-7b76-521d-9826-846dee2112be",
+              "4be0e103-aa9d-585a-b2e4-14a05a9ebe5e",
+              "38c7c08b-a57d-5d59-b132-a17623d5273e",
+              "c2c8d963-7b76-521d-9826-846dee2112be",
+              "Specimen ID",
+              "0000f0c1-b945-5f22-900d-1c25c88cdc30"
+            ]
+          ],
+          "retainedColumnIDs": [
+            "related_record_412e2545-42f9-4907-9eed-f89ba888b21c",
+            "related_record_c4c2e01c-062f-4b7a-a016-4830bf676158",
+            "related_record_472f1399-347d-4c24-bbe9-f98e8d96693d",
+            "related_record_4cb4c6a7-ca5a-404c-ba76-d58d8b854443"
+          ]
+        },
+        {
+          "name": "applied Unpivot rows and output identities match the complete bounded source oracle",
+          "status": "passed",
+          "rows": [
+            [
+              "c2c8d963-7b76-521d-9826-846dee2112be",
+              "25d3ebbf-af70-5fb8-9b15-682a9a79c535",
+              "070bcaa4-883e-57a0-848c-23ff277891aa",
+              "c2c8d963-7b76-521d-9826-846dee2112be",
+              "Specimen ID",
+              "0000f0c1-b945-5f22-900d-1c25c88cdc30"
+            ],
+            [
+              "c2c8d963-7b76-521d-9826-846dee2112be",
+              "4be0e103-aa9d-585a-b2e4-14a05a9ebe5e",
+              "e50dcc49-e3ff-51a2-94f6-07babfec3005",
+              "c2c8d963-7b76-521d-9826-846dee2112be",
+              "Specimen ID",
+              "0000f0c1-b945-5f22-900d-1c25c88cdc30"
+            ],
+            [
+              "c2c8d963-7b76-521d-9826-846dee2112be",
+              "4be0e103-aa9d-585a-b2e4-14a05a9ebe5e",
+              "38c7c08b-a57d-5d59-b132-a17623d5273e",
+              "c2c8d963-7b76-521d-9826-846dee2112be",
+              "Specimen ID",
+              "0000f0c1-b945-5f22-900d-1c25c88cdc30"
+            ]
+          ],
+          "expectedRows": [
+            [
+              "c2c8d963-7b76-521d-9826-846dee2112be",
+              "25d3ebbf-af70-5fb8-9b15-682a9a79c535",
+              "070bcaa4-883e-57a0-848c-23ff277891aa",
+              "c2c8d963-7b76-521d-9826-846dee2112be",
+              "Specimen ID",
+              "0000f0c1-b945-5f22-900d-1c25c88cdc30"
+            ],
+            [
+              "c2c8d963-7b76-521d-9826-846dee2112be",
+              "4be0e103-aa9d-585a-b2e4-14a05a9ebe5e",
+              "e50dcc49-e3ff-51a2-94f6-07babfec3005",
+              "c2c8d963-7b76-521d-9826-846dee2112be",
+              "Specimen ID",
+              "0000f0c1-b945-5f22-900d-1c25c88cdc30"
+            ],
+            [
+              "c2c8d963-7b76-521d-9826-846dee2112be",
+              "4be0e103-aa9d-585a-b2e4-14a05a9ebe5e",
+              "38c7c08b-a57d-5d59-b132-a17623d5273e",
+              "c2c8d963-7b76-521d-9826-846dee2112be",
+              "Specimen ID",
+              "0000f0c1-b945-5f22-900d-1c25c88cdc30"
+            ]
+          ],
+          "expectedOutputColumnIDs": [
+            "related_record_412e2545-42f9-4907-9eed-f89ba888b21c",
+            "related_record_c4c2e01c-062f-4b7a-a016-4830bf676158",
+            "related_record_472f1399-347d-4c24-bbe9-f98e8d96693d",
+            "related_record_4cb4c6a7-ca5a-404c-ba76-d58d8b854443",
+            "unpivot-key_a6812e58-3437-47d9-8b9c-114911466b4b",
+            "unpivot-value_77e04c2c-ed41-46d9-8d4e-e228ec17644d"
+          ],
+          "outputColumnIDs": [
+            "related_record_412e2545-42f9-4907-9eed-f89ba888b21c",
+            "related_record_c4c2e01c-062f-4b7a-a016-4830bf676158",
+            "related_record_472f1399-347d-4c24-bbe9-f98e8d96693d",
+            "related_record_4cb4c6a7-ca5a-404c-ba76-d58d8b854443",
+            "unpivot-key_a6812e58-3437-47d9-8b9c-114911466b4b",
+            "unpivot-value_77e04c2c-ed41-46d9-8d4e-e228ec17644d"
+          ],
+          "expectedOutputSchema": [
+            {
+              "id": "related_record_412e2545-42f9-4907-9eed-f89ba888b21c",
+              "name": "related_patient_id",
+              "label": "Patient FHIR resource ID",
+              "type": "string"
+            },
+            {
+              "id": "related_record_c4c2e01c-062f-4b7a-a016-4830bf676158",
+              "name": "related_condition_id",
+              "label": "Condition FHIR resource ID",
+              "type": "string"
+            },
+            {
+              "id": "related_record_472f1399-347d-4c24-bbe9-f98e8d96693d",
+              "name": "related_observation_id",
+              "label": "Observation FHIR resource ID",
+              "type": "string"
+            },
+            {
+              "id": "related_record_4cb4c6a7-ca5a-404c-ba76-d58d8b854443",
+              "name": "related_patient_id_2",
+              "label": "Patient FHIR resource ID",
+              "type": "string"
+            },
+            {
+              "id": "unpivot-key_a6812e58-3437-47d9-8b9c-114911466b4b",
+              "name": "variable",
+              "label": "Variable",
+              "type": "string"
+            },
+            {
+              "id": "unpivot-value_77e04c2c-ed41-46d9-8d4e-e228ec17644d",
+              "name": "value",
+              "label": "Value",
+              "type": "string"
+            }
+          ],
+          "outputSchema": [
+            {
+              "id": "related_record_412e2545-42f9-4907-9eed-f89ba888b21c",
+              "name": "related_patient_id",
+              "label": "Patient FHIR resource ID",
+              "type": "string"
+            },
+            {
+              "id": "related_record_c4c2e01c-062f-4b7a-a016-4830bf676158",
+              "name": "related_condition_id",
+              "label": "Condition FHIR resource ID",
+              "type": "string"
+            },
+            {
+              "id": "related_record_472f1399-347d-4c24-bbe9-f98e8d96693d",
+              "name": "related_observation_id",
+              "label": "Observation FHIR resource ID",
+              "type": "string"
+            },
+            {
+              "id": "related_record_4cb4c6a7-ca5a-404c-ba76-d58d8b854443",
+              "name": "related_patient_id_2",
+              "label": "Patient FHIR resource ID",
+              "type": "string"
+            },
+            {
+              "id": "unpivot-key_a6812e58-3437-47d9-8b9c-114911466b4b",
+              "name": "variable",
+              "label": "Variable",
+              "type": "string"
+            },
+            {
+              "id": "unpivot-value_77e04c2c-ed41-46d9-8d4e-e228ec17644d",
+              "name": "value",
+              "label": "Value",
+              "type": "string"
+            }
+          ],
+          "outputMetadata": {
+            "key": {
+              "id": "unpivot-key_a6812e58-3437-47d9-8b9c-114911466b4b",
+              "name": "variable",
+              "label": "Variable",
+              "type": "string"
+            },
+            "value": {
+              "id": "unpivot-value_77e04c2c-ed41-46d9-8d4e-e228ec17644d",
+              "name": "value",
+              "label": "Value",
+              "type": "string"
+            }
+          }
+        },
+        {
+          "name": "saved Unpivot edit reopens its exact source and previews the replacement null policy",
+          "status": "passed",
+          "stepID": "unpivot_c0ce42e9-fd01-45bb-b5c7-d098c8edcace",
+          "inputColumnIDs": [
+            "source_f41fbc34db9698c06339e3c7"
+          ],
+          "policy": "DROP",
+          "rows": [
+            [
+              "c2c8d963-7b76-521d-9826-846dee2112be",
+              "25d3ebbf-af70-5fb8-9b15-682a9a79c535",
+              "070bcaa4-883e-57a0-848c-23ff277891aa",
+              "c2c8d963-7b76-521d-9826-846dee2112be",
+              "Specimen ID",
+              "0000f0c1-b945-5f22-900d-1c25c88cdc30"
+            ],
+            [
+              "c2c8d963-7b76-521d-9826-846dee2112be",
+              "4be0e103-aa9d-585a-b2e4-14a05a9ebe5e",
+              "e50dcc49-e3ff-51a2-94f6-07babfec3005",
+              "c2c8d963-7b76-521d-9826-846dee2112be",
+              "Specimen ID",
+              "0000f0c1-b945-5f22-900d-1c25c88cdc30"
+            ],
+            [
+              "c2c8d963-7b76-521d-9826-846dee2112be",
+              "4be0e103-aa9d-585a-b2e4-14a05a9ebe5e",
+              "38c7c08b-a57d-5d59-b132-a17623d5273e",
+              "c2c8d963-7b76-521d-9826-846dee2112be",
+              "Specimen ID",
+              "0000f0c1-b945-5f22-900d-1c25c88cdc30"
+            ]
+          ]
+        },
+        {
+          "name": "Unpivot Value missing/equality Filter lifecycle remains exact through reload and restoration",
+          "status": "passed",
+          "missingFilter": {
+            "stepID": "filter_13a207ed-e07b-4202-960d-7b01b725f2ab",
+            "columnID": "unpivot-value_77e04c2c-ed41-46d9-8d4e-e228ec17644d",
+            "operator": "MISSING",
+            "hasComparisonValues": false,
+            "rowsAfterApply": [],
+            "rowsAfterReload": [],
+            "previousDraftVersion": 9,
+            "previousDraftDigest": "sha256:fa16cc844b643e9a8ebbc421024b4a3753d7dc0ced5368a0ebac650d488a525d",
+            "draftVersion": 10,
+            "draftDigest": "sha256:e81a72691ae0c8345ede0360a05aeb9c2157efa58f7d8803a92fc8fb459b3c17"
+          },
+          "editedFilter": {
+            "stepID": "filter_13a207ed-e07b-4202-960d-7b01b725f2ab",
+            "columnID": "unpivot-value_77e04c2c-ed41-46d9-8d4e-e228ec17644d",
+            "operator": "EQUALS",
+            "values": [
+              {
+                "kind": "STRING",
+                "string": "0000f0c1-b945-5f22-900d-1c25c88cdc30"
+              }
+            ],
+            "rowsAfterApply": [
+              [
+                "c2c8d963-7b76-521d-9826-846dee2112be",
+                "25d3ebbf-af70-5fb8-9b15-682a9a79c535",
+                "070bcaa4-883e-57a0-848c-23ff277891aa",
+                "c2c8d963-7b76-521d-9826-846dee2112be",
+                "Specimen ID",
+                "0000f0c1-b945-5f22-900d-1c25c88cdc30"
+              ],
+              [
+                "c2c8d963-7b76-521d-9826-846dee2112be",
+                "4be0e103-aa9d-585a-b2e4-14a05a9ebe5e",
+                "e50dcc49-e3ff-51a2-94f6-07babfec3005",
+                "c2c8d963-7b76-521d-9826-846dee2112be",
+                "Specimen ID",
+                "0000f0c1-b945-5f22-900d-1c25c88cdc30"
+              ],
+              [
+                "c2c8d963-7b76-521d-9826-846dee2112be",
+                "4be0e103-aa9d-585a-b2e4-14a05a9ebe5e",
+                "38c7c08b-a57d-5d59-b132-a17623d5273e",
+                "c2c8d963-7b76-521d-9826-846dee2112be",
+                "Specimen ID",
+                "0000f0c1-b945-5f22-900d-1c25c88cdc30"
+              ]
+            ],
+            "rowsAfterReload": [
+              [
+                "c2c8d963-7b76-521d-9826-846dee2112be",
+                "25d3ebbf-af70-5fb8-9b15-682a9a79c535",
+                "070bcaa4-883e-57a0-848c-23ff277891aa",
+                "c2c8d963-7b76-521d-9826-846dee2112be",
+                "Specimen ID",
+                "0000f0c1-b945-5f22-900d-1c25c88cdc30"
+              ],
+              [
+                "c2c8d963-7b76-521d-9826-846dee2112be",
+                "4be0e103-aa9d-585a-b2e4-14a05a9ebe5e",
+                "e50dcc49-e3ff-51a2-94f6-07babfec3005",
+                "c2c8d963-7b76-521d-9826-846dee2112be",
+                "Specimen ID",
+                "0000f0c1-b945-5f22-900d-1c25c88cdc30"
+              ],
+              [
+                "c2c8d963-7b76-521d-9826-846dee2112be",
+                "4be0e103-aa9d-585a-b2e4-14a05a9ebe5e",
+                "38c7c08b-a57d-5d59-b132-a17623d5273e",
+                "c2c8d963-7b76-521d-9826-846dee2112be",
+                "Specimen ID",
+                "0000f0c1-b945-5f22-900d-1c25c88cdc30"
+              ]
+            ],
+            "draftVersionAfterApply": 11,
+            "draftDigestAfterApply": "sha256:a8a0286dde099c79385059f73c723f0cbfa23113dc698484ae47973f3232637e",
+            "draftVersionAfterReload": 11,
+            "draftDigestAfterReload": "sha256:a8a0286dde099c79385059f73c723f0cbfa23113dc698484ae47973f3232637e"
+          },
+          "availableColumns": [
+            {
+              "value": "related_record_412e2545-42f9-4907-9eed-f89ba888b21c",
+              "label": "Patient FHIR resource ID (string)"
+            },
+            {
+              "value": "related_record_c4c2e01c-062f-4b7a-a016-4830bf676158",
+              "label": "Condition FHIR resource ID (string)"
+            },
+            {
+              "value": "related_record_472f1399-347d-4c24-bbe9-f98e8d96693d",
+              "label": "Observation FHIR resource ID (string)"
+            },
+            {
+              "value": "related_record_4cb4c6a7-ca5a-404c-ba76-d58d8b854443",
+              "label": "Patient FHIR resource ID (string)"
+            },
+            {
+              "value": "unpivot-key_a6812e58-3437-47d9-8b9c-114911466b4b",
+              "label": "Variable (string)"
+            },
+            {
+              "value": "unpivot-value_77e04c2c-ed41-46d9-8d4e-e228ec17644d",
+              "label": "Value (string)"
+            }
+          ]
+        },
+        {
+          "name": "No unexpected native network, module, or browser errors occurred",
+          "status": "passed",
+          "unexpectedDiagnostics": [],
+          "unexpectedOwnedErrors": []
+        },
+        {
+          "name": "CDA watched source and API build stayed unchanged",
+          "status": "passed",
+          "sourceFingerprint": {
+            "before": {
+              "sha256": "dfa2bce29c6c102f79bec2dc56eea6b19c484ebf2f19fb4f6335178e37f06800",
+              "files": 1554
+            },
+            "after": {
+              "sha256": "dfa2bce29c6c102f79bec2dc56eea6b19c484ebf2f19fb4f6335178e37f06800",
+              "files": 1554
+            }
+          },
+          "apiBuildIdentity": {
+            "before": "98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:85c11c1b9b88b8ff8cbd1241e8be6dea82f222956cf717e47c11fcb5efc7e135",
+            "after": "98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:85c11c1b9b88b8ff8cbd1241e8be6dea82f222956cf717e47c11fcb5efc7e135"
+          },
+          "sourceFreeze": {
+            "unchanged": true,
+            "watchedFileCount": 1118,
+            "changedPaths": [],
+            "invalidatesRun": false,
+            "productFailure": false
+          }
+        },
+        {
+          "name": "incidental asset failures are explicitly recorded",
+          "status": "passed",
+          "failures": [
+            {
+              "kind": "asset-failure",
+              "url": "http://127.0.0.1:30008/favicon.ico",
+              "status": 404
+            },
+            {
+              "kind": "console",
+              "url": "http://127.0.0.1:30008/favicon.ico",
+              "status": 404
+            }
+          ]
+        }
+      ]
+    },
+    "persistence": {
+      "status": "passed",
+      "evidence": [
+        {
+          "name": "Cancel preserves the exact Related workspace, draft CAS, construction, and rows",
+          "status": "passed",
+          "draftVersion": 7,
+          "draftDigest": "sha256:8c1d6d871ea20df886b0552b8fdadfb88ff9c74055cd620fbf6a836fe39bf350",
+          "durationMs": 765,
+          "rows": [
+            [
+              "0000f0c1-b945-5f22-900d-1c25c88cdc30",
+              "c2c8d963-7b76-521d-9826-846dee2112be",
+              "25d3ebbf-af70-5fb8-9b15-682a9a79c535",
+              "070bcaa4-883e-57a0-848c-23ff277891aa",
+              "c2c8d963-7b76-521d-9826-846dee2112be"
+            ],
+            [
+              "0000f0c1-b945-5f22-900d-1c25c88cdc30",
+              "c2c8d963-7b76-521d-9826-846dee2112be",
+              "4be0e103-aa9d-585a-b2e4-14a05a9ebe5e",
+              "e50dcc49-e3ff-51a2-94f6-07babfec3005",
+              "c2c8d963-7b76-521d-9826-846dee2112be"
+            ],
+            [
+              "0000f0c1-b945-5f22-900d-1c25c88cdc30",
+              "c2c8d963-7b76-521d-9826-846dee2112be",
+              "4be0e103-aa9d-585a-b2e4-14a05a9ebe5e",
+              "38c7c08b-a57d-5d59-b132-a17623d5273e",
+              "c2c8d963-7b76-521d-9826-846dee2112be"
+            ]
+          ]
+        },
+        {
+          "name": "Apply persists Unpivot with the exact source-column and compiler-stage binding",
+          "status": "passed",
+          "unpivotStepID": "unpivot_c0ce42e9-fd01-45bb-b5c7-d098c8edcace",
+          "relatedSourceStepID": "related_expand_418f913d-9af8-4af6-b2e9-642bc30378f1",
+          "consumedColumnID": "source_f41fbc34db9698c06339e3c7",
+          "keyOutputColumnID": "unpivot-key_a6812e58-3437-47d9-8b9c-114911466b4b",
+          "valueOutputColumnID": "unpivot-value_77e04c2c-ed41-46d9-8d4e-e228ec17644d",
+          "expectedOutputColumnIDs": [
+            "related_record_412e2545-42f9-4907-9eed-f89ba888b21c",
+            "related_record_c4c2e01c-062f-4b7a-a016-4830bf676158",
+            "related_record_472f1399-347d-4c24-bbe9-f98e8d96693d",
+            "related_record_4cb4c6a7-ca5a-404c-ba76-d58d8b854443",
+            "unpivot-key_a6812e58-3437-47d9-8b9c-114911466b4b",
+            "unpivot-value_77e04c2c-ed41-46d9-8d4e-e228ec17644d"
+          ],
+          "actualOutputColumnIDs": [
+            "related_record_412e2545-42f9-4907-9eed-f89ba888b21c",
+            "related_record_c4c2e01c-062f-4b7a-a016-4830bf676158",
+            "related_record_472f1399-347d-4c24-bbe9-f98e8d96693d",
+            "related_record_4cb4c6a7-ca5a-404c-ba76-d58d8b854443",
+            "unpivot-key_a6812e58-3437-47d9-8b9c-114911466b4b",
+            "unpivot-value_77e04c2c-ed41-46d9-8d4e-e228ec17644d"
+          ],
+          "expectedOutputSchema": [
+            {
+              "id": "related_record_412e2545-42f9-4907-9eed-f89ba888b21c",
+              "name": "related_patient_id",
+              "label": "Patient FHIR resource ID",
+              "type": "string"
+            },
+            {
+              "id": "related_record_c4c2e01c-062f-4b7a-a016-4830bf676158",
+              "name": "related_condition_id",
+              "label": "Condition FHIR resource ID",
+              "type": "string"
+            },
+            {
+              "id": "related_record_472f1399-347d-4c24-bbe9-f98e8d96693d",
+              "name": "related_observation_id",
+              "label": "Observation FHIR resource ID",
+              "type": "string"
+            },
+            {
+              "id": "related_record_4cb4c6a7-ca5a-404c-ba76-d58d8b854443",
+              "name": "related_patient_id_2",
+              "label": "Patient FHIR resource ID",
+              "type": "string"
+            },
+            {
+              "id": "unpivot-key_a6812e58-3437-47d9-8b9c-114911466b4b",
+              "name": "variable",
+              "label": "Variable",
+              "type": "string"
+            },
+            {
+              "id": "unpivot-value_77e04c2c-ed41-46d9-8d4e-e228ec17644d",
+              "name": "value",
+              "label": "Value",
+              "type": "string"
+            }
+          ],
+          "actualOutputSchema": [
+            {
+              "id": "related_record_412e2545-42f9-4907-9eed-f89ba888b21c",
+              "name": "related_patient_id",
+              "label": "Patient FHIR resource ID",
+              "type": "string"
+            },
+            {
+              "id": "related_record_c4c2e01c-062f-4b7a-a016-4830bf676158",
+              "name": "related_condition_id",
+              "label": "Condition FHIR resource ID",
+              "type": "string"
+            },
+            {
+              "id": "related_record_472f1399-347d-4c24-bbe9-f98e8d96693d",
+              "name": "related_observation_id",
+              "label": "Observation FHIR resource ID",
+              "type": "string"
+            },
+            {
+              "id": "related_record_4cb4c6a7-ca5a-404c-ba76-d58d8b854443",
+              "name": "related_patient_id_2",
+              "label": "Patient FHIR resource ID",
+              "type": "string"
+            },
+            {
+              "id": "unpivot-key_a6812e58-3437-47d9-8b9c-114911466b4b",
+              "name": "variable",
+              "label": "Variable",
+              "type": "string"
+            },
+            {
+              "id": "unpivot-value_77e04c2c-ed41-46d9-8d4e-e228ec17644d",
+              "name": "value",
+              "label": "Value",
+              "type": "string"
+            }
+          ],
+          "outputMetadata": {
+            "key": {
+              "id": "unpivot-key_a6812e58-3437-47d9-8b9c-114911466b4b",
+              "name": "variable",
+              "label": "Variable",
+              "type": "string"
+            },
+            "value": {
+              "id": "unpivot-value_77e04c2c-ed41-46d9-8d4e-e228ec17644d",
+              "name": "value",
+              "label": "Value",
+              "type": "string"
+            }
+          },
+          "relatedColumnIDs": [
+            "related_record_412e2545-42f9-4907-9eed-f89ba888b21c",
+            "related_record_c4c2e01c-062f-4b7a-a016-4830bf676158",
+            "related_record_472f1399-347d-4c24-bbe9-f98e8d96693d",
+            "related_record_4cb4c6a7-ca5a-404c-ba76-d58d8b854443"
+          ],
+          "appliedRows": [
+            [
+              "c2c8d963-7b76-521d-9826-846dee2112be",
+              "25d3ebbf-af70-5fb8-9b15-682a9a79c535",
+              "070bcaa4-883e-57a0-848c-23ff277891aa",
+              "c2c8d963-7b76-521d-9826-846dee2112be",
+              "Specimen ID",
+              "0000f0c1-b945-5f22-900d-1c25c88cdc30"
+            ],
+            [
+              "c2c8d963-7b76-521d-9826-846dee2112be",
+              "4be0e103-aa9d-585a-b2e4-14a05a9ebe5e",
+              "e50dcc49-e3ff-51a2-94f6-07babfec3005",
+              "c2c8d963-7b76-521d-9826-846dee2112be",
+              "Specimen ID",
+              "0000f0c1-b945-5f22-900d-1c25c88cdc30"
+            ],
+            [
+              "c2c8d963-7b76-521d-9826-846dee2112be",
+              "4be0e103-aa9d-585a-b2e4-14a05a9ebe5e",
+              "38c7c08b-a57d-5d59-b132-a17623d5273e",
+              "c2c8d963-7b76-521d-9826-846dee2112be",
+              "Specimen ID",
+              "0000f0c1-b945-5f22-900d-1c25c88cdc30"
+            ]
+          ],
+          "durationMs": 553,
+          "draftVersion": 8,
+          "draftDigest": "sha256:b2f8be80b4b1d72a498df74b3ea144def0e100d3cf0adfe117645a4d3b55dee4",
+          "previousDraftVersion": 7,
+          "previousDraftDigest": "sha256:8c1d6d871ea20df886b0552b8fdadfb88ff9c74055cd620fbf6a836fe39bf350"
+        },
+        {
+          "name": "Builder reload preserves exact Unpivot schema, bindings, step identity, and rows",
+          "status": "passed",
+          "stepID": "unpivot_c0ce42e9-fd01-45bb-b5c7-d098c8edcace",
+          "inputColumnIDs": [
+            "source_f41fbc34db9698c06339e3c7"
+          ],
+          "expectedOutputColumnIDs": [
+            "related_record_412e2545-42f9-4907-9eed-f89ba888b21c",
+            "related_record_c4c2e01c-062f-4b7a-a016-4830bf676158",
+            "related_record_472f1399-347d-4c24-bbe9-f98e8d96693d",
+            "related_record_4cb4c6a7-ca5a-404c-ba76-d58d8b854443",
+            "unpivot-key_a6812e58-3437-47d9-8b9c-114911466b4b",
+            "unpivot-value_77e04c2c-ed41-46d9-8d4e-e228ec17644d"
+          ],
+          "outputColumnIDs": [
+            "related_record_412e2545-42f9-4907-9eed-f89ba888b21c",
+            "related_record_c4c2e01c-062f-4b7a-a016-4830bf676158",
+            "related_record_472f1399-347d-4c24-bbe9-f98e8d96693d",
+            "related_record_4cb4c6a7-ca5a-404c-ba76-d58d8b854443",
+            "unpivot-key_a6812e58-3437-47d9-8b9c-114911466b4b",
+            "unpivot-value_77e04c2c-ed41-46d9-8d4e-e228ec17644d"
+          ],
+          "expectedOutputSchema": [
+            {
+              "id": "related_record_412e2545-42f9-4907-9eed-f89ba888b21c",
+              "name": "related_patient_id",
+              "label": "Patient FHIR resource ID",
+              "type": "string"
+            },
+            {
+              "id": "related_record_c4c2e01c-062f-4b7a-a016-4830bf676158",
+              "name": "related_condition_id",
+              "label": "Condition FHIR resource ID",
+              "type": "string"
+            },
+            {
+              "id": "related_record_472f1399-347d-4c24-bbe9-f98e8d96693d",
+              "name": "related_observation_id",
+              "label": "Observation FHIR resource ID",
+              "type": "string"
+            },
+            {
+              "id": "related_record_4cb4c6a7-ca5a-404c-ba76-d58d8b854443",
+              "name": "related_patient_id_2",
+              "label": "Patient FHIR resource ID",
+              "type": "string"
+            },
+            {
+              "id": "unpivot-key_a6812e58-3437-47d9-8b9c-114911466b4b",
+              "name": "variable",
+              "label": "Variable",
+              "type": "string"
+            },
+            {
+              "id": "unpivot-value_77e04c2c-ed41-46d9-8d4e-e228ec17644d",
+              "name": "value",
+              "label": "Value",
+              "type": "string"
+            }
+          ],
+          "outputSchema": [
+            {
+              "id": "related_record_412e2545-42f9-4907-9eed-f89ba888b21c",
+              "name": "related_patient_id",
+              "label": "Patient FHIR resource ID",
+              "type": "string"
+            },
+            {
+              "id": "related_record_c4c2e01c-062f-4b7a-a016-4830bf676158",
+              "name": "related_condition_id",
+              "label": "Condition FHIR resource ID",
+              "type": "string"
+            },
+            {
+              "id": "related_record_472f1399-347d-4c24-bbe9-f98e8d96693d",
+              "name": "related_observation_id",
+              "label": "Observation FHIR resource ID",
+              "type": "string"
+            },
+            {
+              "id": "related_record_4cb4c6a7-ca5a-404c-ba76-d58d8b854443",
+              "name": "related_patient_id_2",
+              "label": "Patient FHIR resource ID",
+              "type": "string"
+            },
+            {
+              "id": "unpivot-key_a6812e58-3437-47d9-8b9c-114911466b4b",
+              "name": "variable",
+              "label": "Variable",
+              "type": "string"
+            },
+            {
+              "id": "unpivot-value_77e04c2c-ed41-46d9-8d4e-e228ec17644d",
+              "name": "value",
+              "label": "Value",
+              "type": "string"
+            }
+          ],
+          "outputMetadata": [
+            {
+              "id": "unpivot-key_a6812e58-3437-47d9-8b9c-114911466b4b",
+              "name": "variable",
+              "label": "Variable",
+              "type": "string"
+            },
+            {
+              "id": "unpivot-value_77e04c2c-ed41-46d9-8d4e-e228ec17644d",
+              "name": "value",
+              "label": "Value",
+              "type": "string"
+            }
+          ],
+          "rows": [
+            [
+              "c2c8d963-7b76-521d-9826-846dee2112be",
+              "25d3ebbf-af70-5fb8-9b15-682a9a79c535",
+              "070bcaa4-883e-57a0-848c-23ff277891aa",
+              "c2c8d963-7b76-521d-9826-846dee2112be",
+              "Specimen ID",
+              "0000f0c1-b945-5f22-900d-1c25c88cdc30"
+            ],
+            [
+              "c2c8d963-7b76-521d-9826-846dee2112be",
+              "4be0e103-aa9d-585a-b2e4-14a05a9ebe5e",
+              "e50dcc49-e3ff-51a2-94f6-07babfec3005",
+              "c2c8d963-7b76-521d-9826-846dee2112be",
+              "Specimen ID",
+              "0000f0c1-b945-5f22-900d-1c25c88cdc30"
+            ],
+            [
+              "c2c8d963-7b76-521d-9826-846dee2112be",
+              "4be0e103-aa9d-585a-b2e4-14a05a9ebe5e",
+              "38c7c08b-a57d-5d59-b132-a17623d5273e",
+              "c2c8d963-7b76-521d-9826-846dee2112be",
+              "Specimen ID",
+              "0000f0c1-b945-5f22-900d-1c25c88cdc30"
+            ]
+          ],
+          "durationMs": 1309
+        },
+        {
+          "name": "edited Unpivot policy applies and reloads with exact schema and raw rows",
+          "status": "passed",
+          "stepID": "unpivot_c0ce42e9-fd01-45bb-b5c7-d098c8edcace",
+          "policy": "DROP",
+          "inputColumnIDs": [
+            "source_f41fbc34db9698c06339e3c7"
+          ],
+          "outputColumnIDs": [
+            "related_record_412e2545-42f9-4907-9eed-f89ba888b21c",
+            "related_record_c4c2e01c-062f-4b7a-a016-4830bf676158",
+            "related_record_472f1399-347d-4c24-bbe9-f98e8d96693d",
+            "related_record_4cb4c6a7-ca5a-404c-ba76-d58d8b854443",
+            "unpivot-key_a6812e58-3437-47d9-8b9c-114911466b4b",
+            "unpivot-value_77e04c2c-ed41-46d9-8d4e-e228ec17644d"
+          ],
+          "rows": [
+            [
+              "c2c8d963-7b76-521d-9826-846dee2112be",
+              "25d3ebbf-af70-5fb8-9b15-682a9a79c535",
+              "070bcaa4-883e-57a0-848c-23ff277891aa",
+              "c2c8d963-7b76-521d-9826-846dee2112be",
+              "Specimen ID",
+              "0000f0c1-b945-5f22-900d-1c25c88cdc30"
+            ],
+            [
+              "c2c8d963-7b76-521d-9826-846dee2112be",
+              "4be0e103-aa9d-585a-b2e4-14a05a9ebe5e",
+              "e50dcc49-e3ff-51a2-94f6-07babfec3005",
+              "c2c8d963-7b76-521d-9826-846dee2112be",
+              "Specimen ID",
+              "0000f0c1-b945-5f22-900d-1c25c88cdc30"
+            ],
+            [
+              "c2c8d963-7b76-521d-9826-846dee2112be",
+              "4be0e103-aa9d-585a-b2e4-14a05a9ebe5e",
+              "38c7c08b-a57d-5d59-b132-a17623d5273e",
+              "c2c8d963-7b76-521d-9826-846dee2112be",
+              "Specimen ID",
+              "0000f0c1-b945-5f22-900d-1c25c88cdc30"
+            ]
+          ],
+          "applyDurationMs": 488,
+          "reloadDurationMs": 1315
+        },
+        {
+          "name": "Canceling Unpivot removal preserves the saved construction and exact rows",
+          "status": "passed",
+          "draftVersion": 11,
+          "draftDigest": "sha256:a8a0286dde099c79385059f73c723f0cbfa23113dc698484ae47973f3232637e",
+          "rows": [
+            [
+              "c2c8d963-7b76-521d-9826-846dee2112be",
+              "25d3ebbf-af70-5fb8-9b15-682a9a79c535",
+              "070bcaa4-883e-57a0-848c-23ff277891aa",
+              "c2c8d963-7b76-521d-9826-846dee2112be",
+              "Specimen ID",
+              "0000f0c1-b945-5f22-900d-1c25c88cdc30"
+            ],
+            [
+              "c2c8d963-7b76-521d-9826-846dee2112be",
+              "4be0e103-aa9d-585a-b2e4-14a05a9ebe5e",
+              "e50dcc49-e3ff-51a2-94f6-07babfec3005",
+              "c2c8d963-7b76-521d-9826-846dee2112be",
+              "Specimen ID",
+              "0000f0c1-b945-5f22-900d-1c25c88cdc30"
+            ],
+            [
+              "c2c8d963-7b76-521d-9826-846dee2112be",
+              "4be0e103-aa9d-585a-b2e4-14a05a9ebe5e",
+              "38c7c08b-a57d-5d59-b132-a17623d5273e",
+              "c2c8d963-7b76-521d-9826-846dee2112be",
+              "Specimen ID",
+              "0000f0c1-b945-5f22-900d-1c25c88cdc30"
+            ]
+          ],
+          "durationMs": 1626
+        },
+        {
+          "name": "removing Unpivot and reloading restores exact Related construction, schema, bindings, and rows",
+          "status": "passed",
+          "relatedStepIDs": [
+            "related_expand_3107ba93-4240-4484-b47f-700b232b0725",
+            "related_expand_aa04ed96-2706-4487-be28-add9319339a7",
+            "related_expand_d56d4393-1679-477f-a02e-bdc7e6dfdfcf",
+            "related_expand_418f913d-9af8-4af6-b2e9-642bc30378f1"
+          ],
+          "restoredStepIDs": [
+            "related_expand_3107ba93-4240-4484-b47f-700b232b0725",
+            "related_expand_aa04ed96-2706-4487-be28-add9319339a7",
+            "related_expand_d56d4393-1679-477f-a02e-bdc7e6dfdfcf",
+            "related_expand_418f913d-9af8-4af6-b2e9-642bc30378f1"
+          ],
+          "restoredColumns": [
+            {
+              "columnId": "source_f41fbc34db9698c06339e3c7",
+              "column": "col_4880ae32c180a9217c1ba305",
+              "label": "Specimen ID",
+              "logicalType": "string",
+              "occurrenceId": "base",
+              "source": {
+                "kind": "field",
+                "field": {
+                  "path": "id",
+                  "projectionMode": "VALUE"
+                }
+              },
+              "table": {
+                "visible": true,
+                "order": 0
+              }
+            }
+          ],
+          "restoredPopulation": {
+            "selectionRevisionId": "selection_4aad355efeccb89fe68d924bbc0c290d42dcb8bde4085f32cffdb57a35aeccf5",
+            "route": []
+          },
+          "rows": [
+            [
+              "0000f0c1-b945-5f22-900d-1c25c88cdc30",
+              "c2c8d963-7b76-521d-9826-846dee2112be",
+              "25d3ebbf-af70-5fb8-9b15-682a9a79c535",
+              "070bcaa4-883e-57a0-848c-23ff277891aa",
+              "c2c8d963-7b76-521d-9826-846dee2112be"
+            ],
+            [
+              "0000f0c1-b945-5f22-900d-1c25c88cdc30",
+              "c2c8d963-7b76-521d-9826-846dee2112be",
+              "4be0e103-aa9d-585a-b2e4-14a05a9ebe5e",
+              "e50dcc49-e3ff-51a2-94f6-07babfec3005",
+              "c2c8d963-7b76-521d-9826-846dee2112be"
+            ],
+            [
+              "0000f0c1-b945-5f22-900d-1c25c88cdc30",
+              "c2c8d963-7b76-521d-9826-846dee2112be",
+              "4be0e103-aa9d-585a-b2e4-14a05a9ebe5e",
+              "38c7c08b-a57d-5d59-b132-a17623d5273e",
+              "c2c8d963-7b76-521d-9826-846dee2112be"
+            ]
+          ],
+          "applyDurationMs": 505,
+          "reloadDurationMs": 1328
+        }
+      ]
+    },
+    "performance": {
+      "status": "passed",
+      "evidence": [
+        {
+          "name": "All native action and action-to-render checkpoints complete within five seconds",
+          "status": "passed",
+          "workflowCheckpoints": [
+            {
+              "name": "load-to-render",
+              "durationMs": 1378
+            },
+            {
+              "name": "expand-Specimen-Patient",
+              "durationMs": 1185
+            },
+            {
+              "name": "apply-to-render",
+              "durationMs": 615
+            },
+            {
+              "name": "expand-Patient-Condition",
+              "durationMs": 1179
+            },
+            {
+              "name": "apply-to-render",
+              "durationMs": 458
+            },
+            {
+              "name": "expand-Condition-Observation",
+              "durationMs": 1200
+            },
+            {
+              "name": "apply-to-render",
+              "durationMs": 473
+            },
+            {
+              "name": "expand-Observation-Patient",
+              "durationMs": 1226
+            },
+            {
+              "name": "apply-to-render",
+              "durationMs": 500
+            },
+            {
+              "name": "load-to-render",
+              "durationMs": 1305
+            },
+            {
+              "name": "related-chain-unpivot-preview",
+              "durationMs": 1008
+            },
+            {
+              "name": "Cancel Unpivot to exact Related rows",
+              "durationMs": 765
+            },
+            {
+              "name": "confirmed-related-chain-unpivot-preview",
+              "durationMs": 906
+            },
+            {
+              "name": "apply-to-render",
+              "durationMs": 553
+            },
+            {
+              "name": "load-to-render",
+              "durationMs": 1309
+            },
+            {
+              "name": "edit-unpivot-policy-preview",
+              "durationMs": 1207
+            },
+            {
+              "name": "apply-to-render",
+              "durationMs": 488
+            },
+            {
+              "name": "load-to-render",
+              "durationMs": 1315
+            },
+            {
+              "name": "unpivot-value-missing-preview",
+              "durationMs": 949
+            },
+            {
+              "name": "Cancel Unpivot Value Filter to exact saved Unpivot rows",
+              "durationMs": 775
+            },
+            {
+              "name": "confirmed-unpivot-value-missing-preview",
+              "durationMs": 970
+            },
+            {
+              "name": "apply-to-render",
+              "durationMs": 546
+            },
+            {
+              "name": "load-to-render",
+              "durationMs": 1309
+            },
+            {
+              "name": "unpivot-value-equality-preview",
+              "durationMs": 1270
+            },
+            {
+              "name": "apply-to-render",
+              "durationMs": 538
+            },
+            {
+              "name": "load-to-render",
+              "durationMs": 1329
+            },
+            {
+              "name": "remove-unpivot-and-dependent-filter-preview",
+              "durationMs": 857
+            },
+            {
+              "name": "Cancel Unpivot removal to exact saved rows",
+              "durationMs": 1626
+            },
+            {
+              "name": "remove-unpivot-and-dependent-filter-preview",
+              "durationMs": 895
+            },
+            {
+              "name": "apply-to-render",
+              "durationMs": 505
+            },
+            {
+              "name": "load-to-render",
+              "durationMs": 1328
+            }
+          ],
+          "maximumNativeActionMs": 202
+        }
+      ]
+    }
+  },
+  "lifecycle": null,
+  "performanceEvidence": {
+    "completeActionToRender": {
+      "source": {
+        "path": "/private/tmp/loom-native-parallel-wave130/standalone-reshape-related-unpivot/attempt1/artifacts/standalone-reshape-standal-1fcd7-ted-unpivot-related-unpivot/cda-evidence/report.json",
+        "sha256": "0f7c3651e85017efe1d9c63e8745c3ba9904c8d9a9125f98f87b987bbbb5444d",
+        "sizeBytes": 28513116
+      },
+      "timedCompleteCheckpoints": 28,
+      "maximumDurationMs": 1378,
+      "thresholdMs": 5000,
+      "withinThreshold": true,
+      "checkpoints": [
+        {
+          "name": "load-to-render",
+          "durationMs": 1378
+        },
+        {
+          "name": "expand-Specimen-Patient",
+          "durationMs": 1185
+        },
+        {
+          "name": "apply-to-render",
+          "durationMs": 615
+        },
+        {
+          "name": "expand-Patient-Condition",
+          "durationMs": 1179
+        },
+        {
+          "name": "apply-to-render",
+          "durationMs": 458
+        },
+        {
+          "name": "expand-Condition-Observation",
+          "durationMs": 1200
+        },
+        {
+          "name": "apply-to-render",
+          "durationMs": 473
+        },
+        {
+          "name": "expand-Observation-Patient",
+          "durationMs": 1226
+        },
+        {
+          "name": "apply-to-render",
+          "durationMs": 500
+        },
+        {
+          "name": "load-to-render",
+          "durationMs": 1305
+        },
+        {
+          "name": "related-chain-unpivot-preview",
+          "durationMs": 1008
+        },
+        {
+          "name": "confirmed-related-chain-unpivot-preview",
+          "durationMs": 906
+        },
+        {
+          "name": "apply-to-render",
+          "durationMs": 553
+        },
+        {
+          "name": "load-to-render",
+          "durationMs": 1309
+        },
+        {
+          "name": "edit-unpivot-policy-preview",
+          "durationMs": 1207
+        },
+        {
+          "name": "apply-to-render",
+          "durationMs": 488
+        },
+        {
+          "name": "load-to-render",
+          "durationMs": 1315
+        },
+        {
+          "name": "unpivot-value-missing-preview",
+          "durationMs": 949
+        },
+        {
+          "name": "confirmed-unpivot-value-missing-preview",
+          "durationMs": 970
+        },
+        {
+          "name": "apply-to-render",
+          "durationMs": 546
+        },
+        {
+          "name": "load-to-render",
+          "durationMs": 1309
+        },
+        {
+          "name": "unpivot-value-equality-preview",
+          "durationMs": 1270
+        },
+        {
+          "name": "apply-to-render",
+          "durationMs": 538
+        },
+        {
+          "name": "load-to-render",
+          "durationMs": 1329
+        },
+        {
+          "name": "remove-unpivot-and-dependent-filter-preview",
+          "durationMs": 857
+        },
+        {
+          "name": "remove-unpivot-and-dependent-filter-preview",
+          "durationMs": 895
+        },
+        {
+          "name": "apply-to-render",
+          "durationMs": 505
+        },
+        {
+          "name": "load-to-render",
+          "durationMs": 1328
+        }
+      ]
+    },
+    "nativeControlOnly": {
+      "actionsTotal": 62,
+      "maximumActionElapsedMs": 202,
+      "usedForPerformanceClaim": false
+    }
+  },
+  "nativeActions": {
+    "total": 62,
+    "maximumNativeControlElapsedMs": 202
+  },
+  "integrity": {
+    "closureStatus": "PASS",
+    "sourceBeforeAfter": {
+      "before": {
+        "sha256": "dfa2bce29c6c102f79bec2dc56eea6b19c484ebf2f19fb4f6335178e37f06800",
+        "files": 1554
+      },
+      "after": {
+        "sha256": "dfa2bce29c6c102f79bec2dc56eea6b19c484ebf2f19fb4f6335178e37f06800",
+        "files": 1554
+      },
+      "unchanged": true,
+      "manifestsEqual": true,
+      "changedPaths": []
+    },
+    "apiBuildIdentity": {
+      "before": "98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:85c11c1b9b88b8ff8cbd1241e8be6dea82f222956cf717e47c11fcb5efc7e135",
+      "after": "98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:85c11c1b9b88b8ff8cbd1241e8be6dea82f222956cf717e47c11fcb5efc7e135",
+      "unchanged": true
+    },
+    "apiBuildIdentityUnchanged": true,
+    "ownedMounts": {
+      "before": "PASS",
+      "after": "PASS",
+      "targetUnchanged": true
+    },
+    "health": {
+      "before": {
+        "status": "PASS",
+        "samples": 3
+      },
+      "after": {
+        "status": "PASS",
+        "samples": 3
+      }
+    }
+  },
+  "rootAcceptanceReceipt": {
+    "path": "/private/tmp/loom-native-parallel-wave130/root-acceptance.json",
+    "sha256": "c5db5734d5e678e6bcb52b754afeb28b0e36b9f4ef7db0ef79b9fa5d5a91554f",
+    "status": "ACCEPTED_FULL_LIFECYCLE_PASS",
+    "lifecycleAccepted": true,
+    "classification": null,
+    "sourceFreezeReleased": true,
+    "coordinatorClosureSha256": "7ace0859106e3df4ca5348bb1fee7046e6b30dd8e37a803ca41ec307abb6f45e"
+  },
+  "rawArtifacts": {
+    "coordinatorClosure": {
+      "path": "/private/tmp/loom-native-parallel-wave130/closure.json",
+      "sha256": "7ace0859106e3df4ca5348bb1fee7046e6b30dd8e37a803ca41ec307abb6f45e"
+    },
+    "rootAcceptance": {
+      "path": "/private/tmp/loom-native-parallel-wave130/root-acceptance.json",
+      "sha256": "c5db5734d5e678e6bcb52b754afeb28b0e36b9f4ef7db0ef79b9fa5d5a91554f",
+      "status": "ACCEPTED_FULL_LIFECYCLE_PASS",
+      "lifecycleAccepted": true,
+      "classification": null,
+      "sourceFreezeReleased": true,
+      "coordinatorClosureSha256": "7ace0859106e3df4ca5348bb1fee7046e6b30dd8e37a803ca41ec307abb6f45e"
+    },
+    "integrityClosure": {
+      "path": "/private/tmp/loom-native-parallel-wave130/integrity-closure.json",
+      "sha256": "167a94fbdb51f4e5865920e58c290c47d919141ed76d52ba4bfafccd9ae3e837",
+      "sizeBytes": 4500
+    },
+    "lifecycleReport": {
+      "path": "/private/tmp/loom-native-parallel-wave130/standalone-reshape-related-unpivot/attempt1/artifacts/standalone-reshape-standal-1fcd7-ted-unpivot-related-unpivot/cda-report.json",
+      "sha256": "8ae5332c903afce8888822571f1cbcced7a1d134be2d600d5b88384772f0d1b1",
+      "sizeBytes": 1085265,
+      "status": "passed"
+    },
+    "lifecycleReportCreated": true,
+    "timingAttachment": {
+      "path": "/private/tmp/loom-native-parallel-wave130/standalone-reshape-related-unpivot/attempt1/artifacts/standalone-reshape-standal-1fcd7-ted-unpivot-related-unpivot/cda-evidence/report.json",
+      "sha256": "0f7c3651e85017efe1d9c63e8745c3ba9904c8d9a9125f98f87b987bbbb5444d",
+      "sizeBytes": 28513116
+    },
+    "jsonAttachments": [
+      {
+        "name": ".last-run.json",
+        "path": "/private/tmp/loom-native-parallel-wave130/standalone-reshape-related-unpivot/attempt1/artifacts/.last-run.json",
+        "sha256": "91d1c43004802cd49950d78eb11c8fa7d05da8ffffe219a8b13b2f561bc00903",
+        "sizeBytes": 45
+      },
+      {
+        "name": "standalone-reshape-standal-1fcd7-ted-unpivot-related-unpivot/attachments/cda-domain-report-json-e2e14ed24bb3dcededdb6fbabcbdc13251efd79d.json",
+        "path": "/private/tmp/loom-native-parallel-wave130/standalone-reshape-related-unpivot/attempt1/artifacts/standalone-reshape-standal-1fcd7-ted-unpivot-related-unpivot/attachments/cda-domain-report-json-e2e14ed24bb3dcededdb6fbabcbdc13251efd79d.json",
+        "sha256": "8ae5332c903afce8888822571f1cbcced7a1d134be2d600d5b88384772f0d1b1",
+        "sizeBytes": 1085265
+      },
+      {
+        "name": "standalone-reshape-standal-1fcd7-ted-unpivot-related-unpivot/cda-evidence/report.json",
+        "path": "/private/tmp/loom-native-parallel-wave130/standalone-reshape-related-unpivot/attempt1/artifacts/standalone-reshape-standal-1fcd7-ted-unpivot-related-unpivot/cda-evidence/report.json",
+        "sha256": "0f7c3651e85017efe1d9c63e8745c3ba9904c8d9a9125f98f87b987bbbb5444d",
+        "sizeBytes": 28513116
+      },
+      {
+        "name": "standalone-reshape-standal-1fcd7-ted-unpivot-related-unpivot/cda-report.json",
+        "path": "/private/tmp/loom-native-parallel-wave130/standalone-reshape-related-unpivot/attempt1/artifacts/standalone-reshape-standal-1fcd7-ted-unpivot-related-unpivot/cda-report.json",
+        "sha256": "8ae5332c903afce8888822571f1cbcced7a1d134be2d600d5b88384772f0d1b1",
+        "sizeBytes": 1085265
+      }
+    ],
+    "runnerResults": null,
+    "runnerLog": {
+      "path": "/private/tmp/loom-native-parallel-wave130/standalone-reshape-related-unpivot/attempt1/runner.log",
+      "sha256": "e2bfb6e5e566980fe193f94196f1ae7e68912fc3e414d36b7580e71c75559898",
+      "sizeBytes": 670
+    },
+    "terminalRecord": {
+      "path": "/private/tmp/loom-native-parallel-wave130/standalone-reshape-related-unpivot/attempt1/terminal.json",
+      "sha256": "3edd82d4e49f89c30270dee752ac018539f4dc6848d7a33b1553404e6f8b58af",
+      "sizeBytes": 15
+    }
+  },
+  "scopeNote": "standalone-reshape-related-unpivot/related-unpivot"
+}

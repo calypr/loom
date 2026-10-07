@@ -1,10 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { classifyEvidence, classifyFreshness, readReports, summarizeCoverage } from '../coverage-status.mjs';
 import { caseNamesFor, coverageDrift, hasLifecycleContract, registry, requiresLifecycleAcceptance, scenarioCaseFor } from '../../registry.mjs';
+import { buildArangoShellInvocation } from '../owned-arangosh-command.mjs';
+import { finalOutputSchema, sourceColumnSchema } from '../unpivot-schema.mjs';
 
 const complete = Object.fromEntries(['usability', 'correctness', 'persistence', 'performance'].map((dimension) => [dimension, { status: 'passed' }]));
 const fingerprint = (sha256 = 'a'.repeat(64), files = 12) => ({ sha256, files });
@@ -15,6 +17,140 @@ const freezeAssertion = (before, after = before, status = 'passed') => ({
   evidence: { before, after },
 });
 
+
+
+test('Related Unpivot uses the owned authenticated Arango oracle and persists both filter states', () => {
+  const workflow = readFileSync(new URL('../../workflows/verify-cda-related-unpivot-browser.mjs', import.meta.url), 'utf8');
+  const invocation = buildArangoShellInvocation({ container: 'owned-arango', script: 'print("oracle")', database: 'loom_dev' });
+  assert.equal(invocation.command, 'rtk');
+  assert.deepEqual(invocation.args.slice(0, 4), ['proxy', 'docker', 'exec', 'owned-arango']);
+  const shellCommand = invocation.args.at(-1);
+  assert.match(shellCommand, /--server\.username root --server\.password "\$ARANGO_ROOT_PASSWORD"/);
+  assert.match(shellCommand, /--server\.database 'loom_dev'/);
+  assert.match(workflow, /buildArangoShellInvocation\(\{ container: arangoContainer, script, database: 'loom_dev' \}\)/);
+  assert.match(workflow, /spawnSync\(invocation\.command, invocation\.args, \{ encoding: 'utf8', timeout: 30000 \}\)/);
+
+  const filterLifecycleFragments = [
+    'const missingApply = await apply([]);',
+    'const missingReload = await open([]);',
+    "assert.equal(filter.operation.filter.operator, 'MISSING');",
+    "Object.hasOwn(filter.operation.filter, 'values'), false",
+    'const equalityApply = await apply(unpivotExpected);',
+    'const equalityReload = await open(unpivotExpected);',
+    "editedFilter.operation.filter.operator, 'EQUALS'",
+    "editedFilter.operation.filter.values, [{ kind: 'STRING', string: source.id }]",
+  ];
+  const filterLifecycleOffsets = filterLifecycleFragments.map(fragment => workflow.indexOf(fragment));
+  assert(filterLifecycleOffsets.every(offset => offset >= 0), 'The native workflow must assert saved MISSING and edited EQUALS states');
+  assert.deepEqual(filterLifecycleOffsets, [...filterLifecycleOffsets].sort((left, right) => left - right),
+    'The saved MISSING assertion must precede the edited and reloaded EQUALS assertion');
+});
+
+test('Related Unpivot binds saved CAS and output schema to the pre-transition oracle', () => {
+  const workflow = readFileSync(new URL('../../workflows/verify-cda-related-unpivot-browser.mjs', import.meta.url), 'utf8');
+  for (const fragment of [
+    'appliedUnpivot.state.draftVersion > expandedVersion',
+    'appliedUnpivot.state.draftDigest, expandedDigest',
+    'const expectedUnpivotColumnIDs = [',
+    '...relatedColumnIDs,',
+    'unpivot.operation.unpivot.keyOutputColumnId,',
+    'unpivot.operation.unpivot.valueOutputColumnId,',
+    'const sourceColumnID = directColumn.columnId;',
+    'const relatedSourceOutputs = relatedSourceStep.outputs;',
+    'const expectedUnpivotSchema = [',
+    '...relatedSourceOutputs.filter(output => output.id !== sourceColumnID).map(finalOutputSchema)',
+    'assert.deepEqual(unpivot.outputs.map(finalOutputSchema), expectedUnpivotSchema',
+    'assert.deepEqual(reloadedUnpivot.outputs.map(finalOutputSchema), expectedUnpivotSchema',
+    'assert.deepEqual(doc(builder).columns.map(sourceColumnSchema), expandedDocument.columns.map(sourceColumnSchema)',
+    "keyLabel: 'Variable'",
+    "valueLabel: 'Value'",
+    'missingApply.state.draftVersion > beforeFilter.draftVersion',
+    'missingApply.state.draftDigest, beforeFilter.draftDigest',
+    'equalityApply.state.draftVersion > missingApply.state.draftVersion',
+    'equalityApply.state.draftDigest, missingApply.state.draftDigest',
+    'equalityReload.state.draftVersion, equalityApply.state.draftVersion',
+    'equalityReload.state.draftDigest, equalityApply.state.draftDigest',
+    "recordLifecycleCheck('performance',\n    'All native action and action-to-render checkpoints complete within five seconds'",
+  ]) assert(workflow.includes(fragment), `Related Unpivot lifecycle is missing contract assertion: ${fragment}`);
+});
+
+test('Related Unpivot keeps saved source columns and final stage outputs on their distinct wire contracts', () => {
+  const savedSourceColumn = {
+    column: 'col_0156b5870232e7389f8a618f',
+    columnId: 'source_c717740ebe8e76cecec55427',
+    label: 'Specimen ID',
+    logicalType: 'string',
+    occurrenceId: 'base',
+    source: { field: { path: 'id', projectionMode: 'VALUE' }, kind: 'field' },
+    table: { order: 0, visible: true },
+  };
+  assert.deepEqual(sourceColumnSchema(savedSourceColumn), {
+    columnId: 'source_c717740ebe8e76cecec55427',
+    column: 'col_0156b5870232e7389f8a618f',
+    label: 'Specimen ID',
+    logicalType: 'string',
+  });
+  assert.equal(Object.hasOwn(savedSourceColumn, 'id'), false,
+    'Saved Builder source columns use columnId and column, not construction-output id/name fields');
+
+  const finalStageOutputs = [
+    { id: 'source_c717740ebe8e76cecec55427', name: 'specimen_id', label: 'Specimen ID', type: 'string' },
+    { id: 'related_patient_id', name: 'related_patient_id', label: 'Patient FHIR resource ID', type: 'string' },
+    { id: 'unpivot_key', name: 'variable', label: 'Variable', type: 'string' },
+    { id: 'unpivot_value', name: 'value', label: 'Value', type: 'string' },
+  ];
+  assert.deepEqual(finalStageOutputs.map(finalOutputSchema), [
+    { id: 'source_c717740ebe8e76cecec55427', name: 'specimen_id', label: 'Specimen ID', type: 'string' },
+    { id: 'related_patient_id', name: 'related_patient_id', label: 'Patient FHIR resource ID', type: 'string' },
+    { id: 'unpivot_key', name: 'variable', label: 'Variable', type: 'string' },
+    { id: 'unpivot_value', name: 'value', label: 'Value', type: 'string' },
+  ]);
+  assert.notDeepEqual(sourceColumnSchema(savedSourceColumn), finalOutputSchema(finalStageOutputs[0]),
+    'Source projection and final-stage output projections retain distinct identities and field names');
+
+  const workflow = readFileSync(new URL('../../workflows/verify-cda-related-unpivot-browser.mjs', import.meta.url), 'utf8');
+  for (const fragment of [
+    'directColumn?.columnId',
+    'const sourceColumnID = directColumn.columnId;',
+    'const relatedSourceOutputs = relatedSourceStep.outputs;',
+    'retainedColumnIDs: relatedSteps.at(-1).outputs.filter(output => output.id !== directColumn.columnId).map(output => output.id)',
+    'relatedSourceOutputs.filter(output => output.id !== sourceColumnID).map(finalOutputSchema)',
+    'unpivot.outputs.map(finalOutputSchema)',
+    'reloadedUnpivot.outputs.map(finalOutputSchema)',
+    'reloadedDocument.columns.map(sourceColumnSchema)',
+  ]) assert(workflow.includes(fragment), `Related Unpivot must use the explicit saved/final schema contract: ${fragment}`);
+  assert.equal(workflow.includes('doc(builder).columns.map(column => column.id)'), false,
+    'The workflow must not interpret source-projection columns as final construction outputs');
+});
+
+test('Related oracle keeps the compiler-required terminal document identity order', () => {
+  const workflow = readFileSync(new URL('../../workflows/verify-cda-related-unpivot-browser.mjs', import.meta.url), 'utf8');
+  assert.match(workflow, /SORT d\._id RETURN DISTINCT \{ id: d\.id, _id: d\._id \}/,
+    'The bounded oracle retains public values but orders target records by the compiler terminal identity');
+  assert.match(workflow, /SORT anchor, relatedRecord\._id LIMIT/,
+    'The outer bounded query preserves parent identity and terminal identity order');
+  assert.doesNotMatch(workflow, /SORT d\.id|SORT anchor, relatedRecord\.id/,
+    'Public resource IDs must not override the compiler row-identity order');
+  assert.match(workflow, /assertVisibleRowsMatchOracle\(result\.rows, expectedRows, \{ label: `\$\{name\} preview`, exactWindow: true \}\)/,
+    'The preview must still match the complete ordered oracle window exactly');
+
+  const conditionAnchor = 'Condition/g_87c53cf5427c19a229db2c2049b18d164f1ac23daddbbb8d4da7b67e46d20849';
+  const matches = [
+    { anchor: conditionAnchor, id: '38c7c08b-a57d-5d59-b132-a17623d5273e', terminalID: 'Observation/g_988209f5c99e71afe3210b4960f987fa51e1f6281d030753e7d778c6239a0273' },
+    { anchor: conditionAnchor, id: 'e50dcc49-e3ff-51a2-94f6-07babfec3005', terminalID: 'Observation/g_35cebad3722897001b7645957d2782a92226d80131bbc1fe15707c13e13d13c5' },
+  ];
+  const orderedByCompilerIdentity = matches.toSorted((left, right) =>
+    left.anchor.localeCompare(right.anchor) || left.terminalID.localeCompare(right.terminalID));
+  assert.deepEqual(orderedByCompilerIdentity.map(match => match.id), [
+    'e50dcc49-e3ff-51a2-94f6-07babfec3005',
+    '38c7c08b-a57d-5d59-b132-a17623d5273e',
+  ]);
+  assert.deepEqual(matches.toSorted((left, right) => left.anchor.localeCompare(right.anchor) || left.id.localeCompare(right.id))
+    .map(match => match.id), [
+    '38c7c08b-a57d-5d59-b132-a17623d5273e',
+    'e50dcc49-e3ff-51a2-94f6-07babfec3005',
+  ], 'The retained witness distinguishes resource ID order from compiler terminal identity order');
+});
 
 test('every registry case resolves its Playwright mapping and owned/custom checks', () => {
   const registeredCases = registry.flatMap((scenario) => Object.entries(scenario.cases).map(([caseName, contract]) => ({ scenario, caseName, contract })));
@@ -52,6 +188,8 @@ test('row-operation coverage distinguishes lifecycle acceptance from a runnable 
   assert.deepEqual(coverageDrift(registry), [], 'the checked-in registry declares valid lifecycle references');
   const directGroup = registry.find((scenario) => scenario.id === 'builder-authoring')
     .coverage.find((coverage) => coverage.feature === 'direct empty-key COUNT_ROWS GROUP automatic entry Preview');
+  const unpivotFeature = registry.find((scenario) => scenario.id === 'builder-authoring')
+    .coverage.find((coverage) => coverage.feature === 'Unpivot');
   const repeatedExpand = registry.find((scenario) => scenario.id === 'builder-authoring')
     .coverage.find((coverage) => coverage.feature.startsWith('Observation.component literal-empty'));
   assert.equal(directGroup.acceptance.kind, 'probe');
@@ -60,6 +198,21 @@ test('row-operation coverage distinguishes lifecycle acceptance from a runnable 
     'an implemented probe remains visible but cannot close the Group lifecycle gap');
   assert.equal(repeatedExpand.acceptance.kind, 'lifecycle');
   assert.equal(hasLifecycleContract(repeatedExpand), true);
+  assert.equal(unpivotFeature.status, 'untested', 'A declared lifecycle contract does not claim runtime completion');
+  assert.equal(unpivotFeature.acceptance.kind, 'lifecycle');
+  assert.equal(unpivotFeature.acceptance.scenario, 'standalone-reshape-related-unpivot');
+  assert.equal(unpivotFeature.acceptance.case, 'related-unpivot');
+  assert.deepEqual(unpivotFeature.acceptance.checks,
+    { choice: 3, proposal: 4, cancel: 5, apply: 6, savedRows: 7, reload: 8, edit: 9, restoration: 12 });
+  const unpivotScenario = registry.find((scenario) => scenario.id === 'standalone-reshape-related-unpivot');
+  const unpivotChecks = scenarioCaseFor(unpivotScenario, 'related-unpivot').requiredChecks;
+  assert.equal(unpivotChecks.length, 17);
+  assert.match(unpivotChecks[0], /two-to-twenty-four-row/);
+  assert.match(unpivotChecks[4], /exact transformed raw multiset/);
+  assert.match(unpivotChecks[6], /exact source-column and compiler-stage binding/);
+  assert.match(unpivotChecks[12], /restores exact Related construction, schema, bindings, and rows/);
+  assert.equal(hasLifecycleContract(unpivotFeature), true,
+    'The registered native Related→Unpivot phase contract remains runtime-unverified until a passing report exists');
 
   const authoring = registry.find((scenario) => scenario.id === 'builder-authoring');
   for (const feature of [
