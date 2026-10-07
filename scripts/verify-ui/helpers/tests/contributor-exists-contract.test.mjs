@@ -271,7 +271,7 @@ test('captured baseline request uses its raw top-level body and scoped Arango ca
   assert.match(shellCommand, /--server\.password "\$ARANGO_ROOT_PASSWORD"/);
   assert.match(shellCommand, /--server\.database 'loom_dev'/);
   assert.match(shellCommand, /--javascript\.execute "\$script_file"/);
-  assert(shellCommand.includes(query));
+  assert(shellCommand.includes(JSON.stringify(query)));
   assert(!invocation.args.some(argument => argument.includes('test-password')));
 
   const workflow = await readFile(workflowURL, 'utf8');
