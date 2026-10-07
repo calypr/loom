@@ -1010,6 +1010,9 @@ export async function cdaCurrentDraftMembershipWorkflow({ page, cda }) {
       'Applied Membership removal must retain its exact proposal receipt and next draft digest');
     const applyFromIndex = report.nativeRequests.length;
     const applyActionStartedAt = Date.now();
+    let appliedRemovalCapabilityEvidence;
+    let sourceGroupButton;
+    let sourceGroupChoice;
     await action('Apply Membership removal to restore the rooted empty target', page.getByTestId('construction-apply-proposal'),
       locator => locator.click({ timeout: MAX_ACTION_MS }), async () => {
         await waitFunction(`!document.querySelector('[data-testid="construction-proposal-panel"]')&&${selectedOutputReady(target.outputId)}`);
@@ -1076,30 +1079,146 @@ export async function cdaCurrentDraftMembershipWorkflow({ page, cda }) {
         const groupCapability = sourceStage?.capabilities?.find(capability => capability.kind === 'GROUP');
         assert(sourceStage && typeof groupCapability?.supported === 'boolean',
           'Restored source projection capabilities must include GROUP support state');
+        const sourceChoices = capabilitiesResponse.sourceInput?.choices ?? [];
+        const populatedSourceIDChoices = sourceChoices.filter(choice => choice.occurrenceId === 'base' &&
+          choice.fieldPath === 'id' && choice.logicalType === 'string' && choice.isPopulated);
+        assert(capabilitiesResponse.sourceInput?.supported && populatedSourceIDChoices.length === 1,
+          'Restored empty target must expose its exact populated root Observation ID as a source-group key');
+        sourceGroupChoice = populatedSourceIDChoices[0];
 
         await page.getByTestId('construction-rows-settings-trigger').click({ timeout: MAX_ACTION_MS });
         await waitSelector('[data-testid="construction-action-group-rows"]');
-        const visibleGroupCapability = await page.getByTestId('construction-action-group-rows').evaluate(button => ({
-          visible: button.getClientRects().length > 0,
-          disabled: button.disabled,
-          text: button.innerText,
-        }));
-        const visibleCapabilityMatches = visibleGroupCapability.visible &&
-          visibleGroupCapability.disabled === !groupCapability.supported &&
-          (groupCapability.supported || !groupCapability.reason ||
-            normalizeText(visibleGroupCapability.text).includes(normalizeText(groupCapability.reason)));
-        check('correctness', 'applied Membership removal captures and renders exact source-projection capabilities',
-          visibleCapabilityMatches, {
-            requestId: capabilitiesEvent.requestId, browserRequestId: capabilitiesEvent.browserRequestId,
-            status: capabilitiesEvent.status, completedAt: capabilitiesEvent.completedAt,
-            liveDraftVersion: liveBuilder.draftVersion, liveDraftDigest: liveBuilder.draftDigest,
-            outputId: capabilitiesResponse.outputId, stageId: capabilitiesResponse.stageId,
-            groupCapability: { supported: groupCapability.supported, reason: groupCapability.reason ?? null },
-            visibleGroupCapability,
-        });
-        assert(visibleCapabilityMatches,
-          'Visible restored Membership GROUP capability must match the captured source-stage capability');
+        sourceGroupButton = page.getByTestId('construction-action-source-group-rows');
+        assert(await sourceGroupButton.isVisible() && await sourceGroupButton.isEnabled(),
+          'Restored empty target must expose an enabled source-backed grouping choice');
+        assert.equal(normalizeText(await sourceGroupButton.innerText()), 'By source fields',
+          'Restored empty target must label the compound source-backed grouping choice');
+        appliedRemovalCapabilityEvidence = {
+          requestId: capabilitiesEvent.requestId,
+          browserRequestId: capabilitiesEvent.browserRequestId,
+          status: capabilitiesEvent.status,
+          completedAt: capabilitiesEvent.completedAt,
+          liveDraftVersion: liveBuilder.draftVersion,
+          liveDraftDigest: liveBuilder.draftDigest,
+          outputId: capabilitiesResponse.outputId,
+          stageId: capabilitiesResponse.stageId,
+          groupCapability: { supported: groupCapability.supported, reason: groupCapability.reason ?? null },
+          sourceInput: { supported: capabilitiesResponse.sourceInput?.supported ?? false,
+            populatedChoiceCount: sourceChoices.filter(choice => choice.isPopulated).length,
+            selectedChoice: { occurrenceId: sourceGroupChoice.occurrenceId, fieldPath: sourceGroupChoice.fieldPath,
+              label: sourceGroupChoice.label, logicalType: sourceGroupChoice.logicalType } },
+        };
       });
+    const sourceGroupFromIndex = report.nativeRequests.length;
+    await action('Open source-backed GROUP from the restored empty target', sourceGroupButton,
+      locator => locator.click({ timeout: MAX_ACTION_MS }), async () => waitSelector('[data-testid="construction-source-group-field"]'));
+    const sourceGroupBuilder = await readBuilder();
+    assertScope(sourceGroupBuilder);
+    const sourceGroupPreviewLimit = 25;
+    await selectOptionByValue('[data-testid="construction-source-group-field"]', sourceGroupChoice.choiceId,
+      'Group the restored target by its exact raw Observation ID field', async () =>
+        waitFunction(proposalReady(target.outputId, sourceGroupPreviewLimit)));
+    const sourceGroupProposalEvent = await capture.waitFor(entry => {
+      const body = capture.rawRequestBody(entry);
+      const group = body?.candidateConstruction?.steps?.at(-1)?.operation?.group;
+      return entry.origin === new URL(uiOrigin).origin && entry.path === `${explorerBase}/authoring/v2/construction-proposals` &&
+        entry.method === 'POST' && entry.status === 200 && Number.isFinite(entry.completedAt) &&
+        body?.outputId === target.outputId && body?.snapshotToken === sourceGroupBuilder.catalog?.snapshotToken &&
+        body?.expectedDraftVersion === sourceGroupBuilder.draftVersion && body?.expectedDraftDigest === sourceGroupBuilder.draftDigest &&
+        body?.groupSources?.length === 1 && body.groupSources[0]?.rowChoiceId === sourceGroupChoice.choiceId &&
+        group?.keys?.length === 1 && group.keys[0]?.inputColumnId === body.groupSources[0]?.columnId &&
+        group?.aggregates?.length === 1 && group.aggregates[0]?.operation === 'COUNT_ROWS';
+    }, { fromIndex: sourceGroupFromIndex, timeoutMs: MAX_ACTION_MS });
+   const sourceGroupRequest = capture.rawRequestBody(sourceGroupProposalEvent);
+   const sourceGroupResponse = capture.rawResponseBody(sourceGroupProposalEvent);
+    const sourceGroupStep = sourceGroupRequest?.candidateConstruction?.steps?.at(-1);
+    const sourceGroupResponseExact = sourceGroupResponse?.snapshotToken === sourceGroupBuilder.catalog?.snapshotToken &&
+      sourceGroupResponse?.draftVersion === sourceGroupBuilder.draftVersion &&
+      sourceGroupResponse?.draftDigest === sourceGroupBuilder.draftDigest &&
+      sourceGroupResponse?.outputId === target.outputId && sourceGroupResponse?.proposalId === sourceGroupResponse?.preview?.receiptId &&
+      constructionCandidateWireEquivalent(sourceGroupRequest?.candidateConstruction, sourceGroupResponse?.candidateConstruction);
+    assert(sourceGroupStep?.inputs?.length === 1 && sourceGroupStep.inputs[0]?.kind === 'SOURCE_PROJECTION',
+      'Source-backed Group proposal must add its exact root field projection before grouping');
+   assert(sourceGroupResponseExact && sourceGroupResponse?.previewStatus === 'READY',
+     'Source-backed Group proposal must complete an exact native preview response');
+   const sourceGroupGrid = await readGrid('proposal');
+    const sourceGroupPreview = sourceGroupResponse.preview;
+    assert(Array.isArray(sourceGroupPreview?.rows) && sourceGroupPreview.rows.length === sourceGroupPreviewLimit &&
+      sourceGroupPreview.rowCount === sourceGroupPreviewLimit && typeof sourceGroupPreview.sampled === 'boolean',
+      'Source-backed Group preview must retain its bounded 25-row sample metadata');
+   const visibleSourceGroupIDs = sourceGroupGrid.rows.map(row => row[0]);
+    assert(sourceGroupGrid.ready && sourceGroupGrid.rows.length === sourceGroupPreviewLimit &&
+      visibleSourceGroupIDs.every(id => typeof id === 'string' && id.trim().length > 0) &&
+      new Set(visibleSourceGroupIDs).size === sourceGroupPreviewLimit,
+      'Source-backed Group preview must expose 25 distinct populated Observation IDs');
+    const sourceGroupRereadQuery = `LET ids = ${JSON.stringify(visibleSourceGroupIDs)} FOR r IN Observation ` +
+      `FILTER r.project == ${JSON.stringify(project)} AND r.dataset_generation == ${JSON.stringify(generation)} ` +
+      `AND r.payload.resourceType == "Observation" AND r.id IN ids ` +
+      `COLLECT id = r.id, project = r.project, generation = r.dataset_generation, ` +
+      `resourceType = r.payload.resourceType WITH COUNT INTO sourceRecords SORT id ASC LIMIT ${sourceGroupPreviewLimit} ` +
+      `RETURN {id, count: sourceRecords, project, generation, resourceType}`;
+    const sourceGroupRereadStartedAt = Date.now();
+    const sourceGroupReread = runAQL(arangoContainer, sourceGroupRereadQuery,
+      'Source-backed Group preview exact raw Observation ID/count reread');
+    const sourceGroupRereadElapsedMs = Date.now() - sourceGroupRereadStartedAt;
+    const sourceGroupRereadIDs = sourceGroupReread.map(row => row?.id);
+    const sourceGroupRereadExact = sourceGroupReread.length === sourceGroupPreviewLimit &&
+      new Set(sourceGroupRereadIDs).size === sourceGroupPreviewLimit &&
+      isDeepStrictEqual([...sourceGroupRereadIDs].sort(), [...visibleSourceGroupIDs].sort()) &&
+      sourceGroupReread.every(row => row?.project === project && row?.generation === generation &&
+        row?.resourceType === 'Observation' && typeof row?.id === 'string' && row.id.trim().length > 0 &&
+        Number.isInteger(row.count) && row.count > 0);
+    const expectedSourceGroupRows = sourceGroupReread.map(row => [row.id, String(row.count)]);
+    const sourceGroupHeaders = [sourceGroupChoice.label, 'Source records'];
+    const sourceGroupPreviewExact = sourceGroupGrid.ready &&
+      isDeepStrictEqual(sourceGroupGrid.headers, sourceGroupHeaders) &&
+      sourceGroupRereadExact && isDeepStrictEqual(sortedRows(sourceGroupGrid.rows), sortedRows(expectedSourceGroupRows));
+    assert(sourceGroupPreviewExact,
+      'Source-backed Group preview must match exact scoped raw Observation ID/counts for all 25 displayed rows');
+    const sourceGroupCancelBase = await readBuilder();
+    await action('Cancel source-backed Group preview on the restored Membership target', page.getByTestId('construction-cancel-proposal'),
+      locator => locator.click({ timeout: MAX_ACTION_MS }), async () => waitFunction(`!document.querySelector('[data-testid="construction-proposal-panel"]')`));
+    const sourceGroupAfterCancel = await readBuilder();
+    const sourceGroupCancelEvidence = canceledDraftEvidence(sourceGroupCancelBase, sourceGroupAfterCancel);
+    const sourceGroupTargetRestored = getDocument(sourceGroupAfterCancel, target.outputId).columns?.length === 0 &&
+      (getDocument(sourceGroupAfterCancel, target.outputId).construction?.steps?.length ?? 0) === 0;
+    const capabilityAndSourceGroupExact = sourceGroupProposalEvent.status === 200 &&
+      Number.isFinite(sourceGroupProposalEvent.completedAt) && sourceGroupResponseExact && sourceGroupPreviewExact &&
+      sourceGroupCancelEvidence.ok && sourceGroupTargetRestored;
+    check('correctness', 'applied Membership removal captures and renders exact source-projection capabilities',
+      capabilityAndSourceGroupExact, {
+        ...appliedRemovalCapabilityEvidence,
+        sourceGroupProposal: {
+          requestId: sourceGroupProposalEvent.requestId,
+          completedAt: sourceGroupProposalEvent.completedAt,
+          responseExact: sourceGroupResponseExact,
+          sourceChoice: { fieldPath: sourceGroupChoice.fieldPath, label: sourceGroupChoice.label,
+            logicalType: sourceGroupChoice.logicalType },
+          groupSourceIdentityMatched: sourceGroupRequest?.groupSources?.length === 1 &&
+            sourceGroupRequest.groupSources[0]?.rowChoiceId === sourceGroupChoice.choiceId &&
+            sourceGroupRequest.groupSources[0]?.columnId === sourceGroupStep?.operation?.group?.keys?.[0]?.inputColumnId,
+          groupStepInputKind: sourceGroupStep?.inputs?.[0]?.kind,
+          groupAggregate: sourceGroupStep?.operation?.group?.aggregates?.map(aggregate => aggregate.operation),
+          previewHeaders: sourceGroupGrid.headers,
+          expectedHeaders: sourceGroupHeaders,
+          previewRows: sourceGroupGrid.rows,
+          expectedRows: expectedSourceGroupRows,
+          previewExact: sourceGroupPreviewExact,
+         rawGroupReread: {
+            project, generation, resourceType: 'Observation', query: sourceGroupRereadQuery,
+            rowCount: sourceGroupReread.length, elapsedMs: sourceGroupRereadElapsedMs,
+           visibleSampleCount: visibleSourceGroupIDs.length,
+            previewSampled: sourceGroupPreview.sampled,
+            previewRowCount: sourceGroupPreview.rowCount,
+            coverage: 'Exact raw scope and count reread for the 25 displayed keys only; no completeness or source-order claim is inferred from this sample check.',
+          },
+          rawGroupRereadExact: sourceGroupRereadExact,
+        },
+        sourceGroupCancelEvidence,
+        sourceGroupTargetRestored,
+      });
+    assert(capabilityAndSourceGroupExact,
+      'Restored empty Membership target must retain its source-backed GROUP preview and cancel it without saving');
     await reloadAndSelect(target.outputId, undefined, 'Reload removed Membership and select its empty target');
     builder = await readBuilder();
     assertScope(builder);
