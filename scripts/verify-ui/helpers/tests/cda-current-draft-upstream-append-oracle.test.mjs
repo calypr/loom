@@ -9,6 +9,8 @@ import {
   cdaUpstreamAppendRereadQuery,
   cdaUpstreamAppendScanQuery,
   prepareCdaUpstreamAppendOracle,
+  proveObservedSupersededEmptyGroupProposals,
+  proveSupersededEmptyGroupProposal,
 } from '../cda-current-draft-upstream-append-oracle.mjs';
 
 const project = 'loom-cda-oracle';
@@ -118,4 +120,204 @@ test('oracle rejects a row outside the exact project or generation', () => {
   const input = scans();
   input.Patient[0] = { ...input.Patient[0], generation: 'other-generation' };
   assert.throws(() => prepareCdaUpstreamAppendOracle(input, { project, generation }), /out-of-scope/);
+});
+
+const supersededProposalEvidence = () => {
+  const uiOrigin = 'http://127.0.0.1:30008';
+  const proposalPath = '/api/v1/projects/owned/explorers/editor/authoring/v2/construction-proposals';
+  const outputId = 'out_patient_group';
+  const snapshotToken = 'catalog-snapshot-17';
+  const draftVersion = 9;
+  const draftDigest = 'draft-digest-9';
+  const inputColumnId = 'column_patient_id';
+  const changedStepId = 'step_group_patient';
+  const countOutputColumnId = 'column_patient_count';
+  const keyOutputColumnId = 'column_grouped_patient_id';
+  const base = { outputId, snapshotToken, expectedDraftVersion: draftVersion, expectedDraftDigest: draftDigest };
+  const step = (keys) => ({
+    id: changedStepId,
+    operation: {
+      kind: 'GROUP',
+      group: {
+        keys,
+        aggregates: [{ operation: 'COUNT_ROWS', outputColumnId: countOutputColumnId }],
+      },
+    },
+    outputs: [
+      ...(keys.length === 0 ? [] : [{ id: keyOutputColumnId, name: 'patient_id', label: 'Patient ID' }]),
+      { id: countOutputColumnId, name: 'count', label: 'Rows' },
+    ],
+  });
+  const canceledStep = step([]);
+  const selectedStep = step([{ inputColumnId, outputColumnId: keyOutputColumnId }]);
+  const canceledEntry = {
+    origin: uiOrigin,
+    path: proposalPath,
+    method: 'POST',
+    requestId: 'request-empty-group-1',
+    browserRequestId: 'browser-request-empty-group-1',
+    startedAt: 100,
+    completedAt: 140,
+    failure: 'net::ERR_ABORTED',
+  };
+  const replacementEntry = {
+    origin: uiOrigin,
+    path: proposalPath,
+    method: 'POST',
+    requestId: 'request-selected-group-2',
+    browserRequestId: 'browser-request-selected-group-2',
+    startedAt: 160,
+    completedAt: 190,
+    status: 200,
+  };
+  const requestBody = (candidateStep) => ({
+    ...base,
+    changedStepId,
+    candidateConstruction: { steps: [candidateStep] },
+  });
+  const response = {
+    outputId,
+    snapshotToken,
+    draftVersion,
+    draftDigest,
+    changedStepId,
+    candidateConstruction: { steps: [selectedStep] },
+    previewStatus: 'READY',
+    proposalId: 'receipt-selected-group-2',
+    preview: { outputId, receiptId: 'receipt-selected-group-2', rowCount: 2 },
+  };
+
+  return {
+    canceledEntry,
+    canceledBody: requestBody(canceledStep),
+    replacementEntry,
+    replacementBody: requestBody(selectedStep),
+    replacementResponse: response,
+    uiOrigin,
+    proposalPath,
+    outputId,
+    snapshotToken,
+    draftVersion,
+    draftDigest,
+    inputColumnId,
+    checkboxClickedAt: 120,
+    previewRowCount: 2,
+    previewRowsMatched: true,
+  };
+};
+
+test('superseded empty GROUP evidence accepts a captured abort followed by the selected-key READY receipt', () => {
+  const evidence = proveSupersededEmptyGroupProposal(supersededProposalEvidence());
+  assert.deepEqual(evidence, {
+    supersession: 'initial-empty-group-candidate-replaced-by-selected-key',
+    uiOriginBound: true,
+    proposalEndpointBound: true,
+    outputId: 'out_patient_group',
+    changedStepId: 'step_group_patient',
+    request: {
+      canceledRequestId: 'request-empty-group-1',
+      canceledBrowserRequestId: 'browser-request-empty-group-1',
+      replacementRequestId: 'request-selected-group-2',
+      replacementBrowserRequestId: 'browser-request-selected-group-2',
+    },
+    base: { sameSnapshot: true, sameDraftVersion: 9, sameDraftDigest: true },
+    canceledCandidate: { operation: 'GROUP', keyCount: 0, aggregate: 'COUNT_ROWS' },
+    replacementCandidate: {
+      operation: 'GROUP', keyCount: 1, inputColumnId: 'column_patient_id', aggregate: 'COUNT_ROWS',
+      keyOutputColumnId: 'column_grouped_patient_id', countOutputColumnId: 'column_patient_count',
+    },
+    replacementResponse: {
+      status: 200, previewStatus: 'READY', receiptBound: true,
+      previewRowCount: 2, independentRowsMatched: true,
+    },
+    timing: {
+      intermediateStartedAt: 100,
+      checkboxClickedAt: 120,
+      intermediateAbortedAt: 140,
+      replacementStartedAt: 160,
+    },
+  });
+});
+
+test('superseded empty GROUP proof rejects wrong origin, route, output, and CAS provenance', () => {
+  const invalidCases = [
+    ['wrong UI origin', args => { args.replacementEntry.origin = 'https://other-origin.example'; }],
+    ['wrong proposal route', args => { args.replacementEntry.path += '/wrong'; }],
+    ['wrong output', args => { args.replacementBody.outputId = 'out_other'; }],
+    ['wrong catalog snapshot', args => { args.canceledBody.snapshotToken = 'other-snapshot'; }],
+    ['wrong request draft version', args => { args.replacementBody.expectedDraftVersion += 1; }],
+    ['wrong request draft digest', args => { args.canceledBody.expectedDraftDigest = 'other-digest'; }],
+    ['contradictory legacy request version', args => { args.canceledBody.draftVersion = 8; }],
+    ['contradictory response CAS alias', args => { args.replacementResponse.expectedDraftDigest = 'other-digest'; }],
+  ];
+
+  for (const [label, mutate] of invalidCases) {
+    const args = supersededProposalEvidence();
+    mutate(args);
+    assert.throws(() => proveSupersededEmptyGroupProposal(args), undefined, label);
+  }
+});
+
+test('superseded empty GROUP proof rejects wrong selected key, timing, failure, receipt, and oracle match', () => {
+  const invalidCases = [
+    ['wrong selected source key', args => {
+      args.replacementBody.candidateConstruction.steps[0].operation.group.keys[0].inputColumnId = 'column_wrong';
+    }],
+    ['checkbox click outside the canceled request', args => { args.checkboxClickedAt = 140; }],
+    ['canceled request timestamps are reversed', args => { args.canceledEntry.completedAt = 90; }],
+    ['replacement starts before canceled request completion', args => { args.replacementEntry.startedAt = 135; }],
+    ['replacement request timestamps are reversed', args => { args.replacementEntry.completedAt = 150; }],
+    ['replacement has a native failure', args => { args.replacementEntry.failure = 'net::ERR_CONNECTION_RESET'; }],
+    ['replacement response body was not captured', args => { args.replacementEntry.responseReadError = 'response body unavailable'; }],
+    ['replacement preview is bound to another receipt', args => { args.replacementResponse.preview.receiptId = 'receipt-stale'; }],
+    ['preview rows differ from the independent oracle', args => { args.previewRowsMatched = false; }],
+    ['preview row count differs from the independent oracle', args => { args.replacementResponse.preview.rowCount = 3; }],
+  ];
+
+  for (const [label, mutate] of invalidCases) {
+    const args = supersededProposalEvidence();
+    mutate(args);
+    assert.throws(() => proveSupersededEmptyGroupProposal(args), undefined, label);
+  }
+});
+
+test('observed superseded empty GROUP proposals ignore a completed empty-key proposal with a successful replacement', () => {
+  const { canceledEntry, canceledBody, ...commonEvidence } = supersededProposalEvidence();
+  const initialEntry = {
+    ...canceledEntry,
+    requestId: 'request-initial-empty-group-0',
+    browserRequestId: 'browser-request-initial-empty-group-0',
+    startedAt: 80,
+    completedAt: 110,
+    failure: undefined,
+    status: 200,
+  };
+  const proof = proveObservedSupersededEmptyGroupProposals({
+    proposalEntries: [{ entry: initialEntry, body: canceledBody }],
+    ...commonEvidence,
+  });
+  assert.deepEqual(proof, [], 'a completed initial empty-key proposal requires no superseded-abort proof');
+});
+
+test('observed superseded empty GROUP proposals prove one captured abort and reject a second unproven abort', () => {
+  const { canceledEntry, canceledBody, ...commonEvidence } = supersededProposalEvidence();
+  const capturedAbort = { entry: canceledEntry, body: canceledBody };
+  const single = proveObservedSupersededEmptyGroupProposals({ proposalEntries: [capturedAbort], ...commonEvidence });
+  assert.equal(single.length, 1);
+  assert.equal(single[0].request.canceledRequestId, canceledEntry.requestId);
+  assert.equal(single[0].canceledCandidate.keyCount, 0);
+  assert.equal(single[0].replacementCandidate.inputColumnId, 'column_patient_id');
+
+  const unprovenAbort = {
+    ...canceledEntry,
+    requestId: 'request-unproven-empty-group-2',
+    browserRequestId: 'browser-request-unproven-empty-group-2',
+    startedAt: 101,
+    completedAt: 141,
+    expected: true,
+  };
+  assert.throws(() => proveObservedSupersededEmptyGroupProposals({
+    proposalEntries: [capturedAbort, { entry: unprovenAbort, body: canceledBody }],
+    ...commonEvidence,
+  }));
 });

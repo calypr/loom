@@ -10,6 +10,7 @@ import {
   cdaUpstreamAppendRereadQuery,
   cdaUpstreamAppendScanQuery,
   prepareCdaUpstreamAppendOracle,
+  proveObservedSupersededEmptyGroupProposals,
 } from '../helpers/cda-current-draft-upstream-append-oracle.mjs';
 import {
   builderDraftStateEvidence,
@@ -17,7 +18,7 @@ import {
   workspaceOutputOption,
 } from '../helpers/builder-combine-draft-helpers.mjs';
 import { nativeCombineTargetBindingEvidence } from '../helpers/builder-combine-helpers.mjs';
-import { proposalPreviewReadinessExpression } from '../helpers/proposal-preview-readiness.mjs';
+import { proposalPreviewReadinessExpression, proposalPreviewStateInPage } from '../helpers/proposal-preview-readiness.mjs';
 import { validatedArangoContainer } from '../helpers/native-cda-workflow-tools.mjs';
 import { buildArangoShellInvocation } from '../helpers/owned-arangosh-command.mjs';
 
@@ -459,6 +460,9 @@ export async function cdaCurrentDraftUpstreamAppendWorkflow({ page, cda }) {
       const { idColumn, keyColumn } = await checkVisibleRawSource(source);
       await click(`Open ${source.definition.title} row settings`, page.getByTestId('construction-rows-settings-trigger'),
         async () => waitFunction(`document.querySelector('[data-testid="construction-action-group-rows"]')?.disabled===false`));
+      const proposalPath = `${explorerBase}/authoring/v2/construction-proposals`;
+      const proposalOrigin = new URL(uiOrigin).origin;
+      const groupProposalFromIndex = report.nativeRequests.length;
       await click(`Open native ${source.definition.title} GROUP`, page.getByTestId('construction-action-group-rows'),
         async () => waitSelector('select[aria-label="Summary 1"]'));
       const summary = page.locator('select[aria-label="Summary 1"]');
@@ -466,19 +470,41 @@ export async function cdaCurrentDraftUpstreamAppendWorkflow({ page, cda }) {
       const groupKey = page.locator(`input[type="checkbox"][aria-label=${JSON.stringify(`Group by ${keyColumn.label}`)}]`);
       assert.equal(await groupKey.count(), 1, 'GROUP editor must expose the exact selected raw FHIR key column');
       const groupBase = await readBuilder();
-      const proposalFromIndex = report.nativeRequests.length;
-      await click(`Select ${source.definition.title} native GROUP key and render COUNT_ROWS`, groupKey,
+      const replacementFromIndex = report.nativeRequests.length;
+      let checkboxClickedAt;
+      await timedAction(`Select ${source.definition.title} native GROUP key and render COUNT_ROWS`, groupKey, async item => {
+        checkboxClickedAt = Date.now();
+        await item.click({ timeout: MAX_ACTION_MS });
+      },
         async () => waitProposal(source.outputId, source.groupRows.length));
       const grid = await readGrid('proposal');
       assertRows(`${source.definition.title} native GROUP preview matches exact selected raw counts`, grid,
         [keyColumn.label, 'Row count'], source.groupRows);
-      const groupEvent = await requestCapture.waitFor(entry => entry.path === `${explorerBase}/authoring/v2/construction-proposals` &&
-        entry.method === 'POST' && entry.status === 200 && entry.completedAt &&
+      const groupEvent = await requestCapture.waitFor(entry => entry.path === proposalPath &&
+        entry.origin === proposalOrigin && entry.method === 'POST' && entry.status === 200 &&
+        Number.isFinite(entry.completedAt) && entry.failure === undefined && entry.responseReadError === undefined &&
         requestCapture.rawRequestBody(entry)?.outputId === source.outputId &&
-        requestCapture.rawRequestBody(entry)?.candidateConstruction?.steps?.at(-1)?.operation?.kind === 'GROUP',
-      { fromIndex: proposalFromIndex, timeoutMs: MAX_ACTION_MS });
+        requestCapture.rawRequestBody(entry)?.snapshotToken === groupBase.catalog.snapshotToken &&
+        requestCapture.rawRequestBody(entry)?.expectedDraftVersion === groupBase.draftVersion &&
+        requestCapture.rawRequestBody(entry)?.expectedDraftDigest === groupBase.draftDigest &&
+        requestCapture.rawRequestBody(entry)?.candidateConstruction?.steps?.length === 1 &&
+        requestCapture.rawRequestBody(entry)?.candidateConstruction?.steps?.[0]?.operation?.kind === 'GROUP' &&
+        requestCapture.rawRequestBody(entry)?.candidateConstruction?.steps?.[0]?.operation?.group?.keys?.length === 1 &&
+        requestCapture.rawRequestBody(entry)?.candidateConstruction?.steps?.[0]?.operation?.group?.keys?.[0]?.inputColumnId === keyColumn.columnId,
+      { fromIndex: replacementFromIndex, timeoutMs: MAX_ACTION_MS });
       const groupRequest = requestCapture.rawRequestBody(groupEvent);
       const groupResponse = requestCapture.rawResponseBody(groupEvent);
+      const proposalDOM = await page.evaluate(proposalPreviewStateInPage, source.outputId);
+      assert.equal(proposalDOM.proposalPanelCount, 1, 'The replacement proposal must have exactly one native proposal panel');
+      assert.equal(proposalDOM.proposalStatus, 'ready', 'The replacement proposal panel must be READY');
+      assert.equal(proposalDOM.proposalId, groupResponse.proposalId, 'The visible proposal must bind the captured replacement response');
+      assert.equal(proposalDOM.resultSectionCount, 1, 'The current output must expose exactly one preview section');
+      assert.equal(proposalDOM.resultOutputId, source.outputId, 'The visible replacement preview must target the current output');
+      assert.equal(proposalDOM.resultReceiptId, groupResponse.proposalId, 'The visible current preview receipt must match the response');
+      assert.equal(proposalDOM.proposalPreviewCount, 1, 'The current output must expose exactly one proposal preview');
+      assert.equal(proposalDOM.previewStatus, 'ready', 'The visible replacement preview must be READY');
+      assert.equal(proposalDOM.previewOutputId, source.outputId);
+      assert.equal(proposalDOM.previewReceiptId, groupResponse.proposalId);
       const groupStep = groupRequest?.candidateConstruction?.steps?.at(-1);
       assert(groupStep?.operation?.kind === 'GROUP');
       const aggregate = groupStep.operation.group.aggregates.find(item => item.operation === 'COUNT_ROWS');
@@ -491,11 +517,39 @@ export async function cdaCurrentDraftUpstreamAppendWorkflow({ page, cda }) {
       const proposalCAS = groupRequest.expectedDraftVersion === groupBase.draftVersion &&
         groupRequest.expectedDraftDigest === groupBase.draftDigest && groupRequest.snapshotToken === groupBase.catalog.snapshotToken &&
         groupResponse.previewStatus === 'READY' && groupResponse.preview?.outputId === source.outputId &&
-        Boolean(groupResponse.preview?.receiptId);
+        Boolean(groupResponse.preview?.receiptId) && groupResponse.preview.receiptId === groupResponse.proposalId &&
+        proposalDOM.proposalId === groupResponse.proposalId && proposalDOM.resultReceiptId === groupResponse.proposalId &&
+        proposalDOM.previewReceiptId === groupResponse.proposalId;
+      const proposalEntries = report.nativeRequests.slice(groupProposalFromIndex).filter(entry =>
+        entry.origin === proposalOrigin && entry.path === proposalPath && entry.method === 'POST' &&
+        Number.isFinite(entry.completedAt));
+      const supersessionProofs = proveObservedSupersededEmptyGroupProposals({
+        proposalEntries: proposalEntries.map(entry => ({ entry, body: requestCapture.rawRequestBody(entry) })),
+        replacementEntry: groupEvent,
+        replacementBody: groupRequest,
+        replacementResponse: groupResponse,
+        uiOrigin: proposalOrigin,
+        proposalPath,
+        outputId: source.outputId,
+        snapshotToken: groupBase.catalog.snapshotToken,
+        draftVersion: groupBase.draftVersion,
+        draftDigest: groupBase.draftDigest,
+        inputColumnId: keyColumn.columnId,
+        checkboxClickedAt,
+        previewRowCount: source.groupRows.length,
+        previewRowsMatched: true,
+      });
+      const proposalAborts = proposalEntries.filter(entry => entry.failure === 'net::ERR_ABORTED');
+      for (let index = 0; index < proposalAborts.length; index += 1) {
+        cda.expectCapturedCancellation(proposalAborts[index],
+          'Initial empty-key GROUP proposal was superseded by the user-selected key and exact READY preview',
+          supersessionProofs[index]);
+      }
       requireCheck('correctness', `${source.definition.title} native GROUP binds its exact raw field and COUNT_ROWS`,
         groupStep.operation.group.keys.some(key => key.inputColumnId === keyColumn.columnId) && aggregate.operation === 'COUNT_ROWS' && proposalCAS,
         { outputId: source.outputId, inputColumnId: keyColumn.columnId, groupStepId: groupStep.id,
-          keyOutput, countOutput, groupOperation: groupStep.operation.group, proposalCAS,
+          keyOutput, countOutput, groupOperation: groupStep.operation.group, proposalCAS, proposalDOM,
+          supersededIntermediateProposals: supersessionProofs,
           draftVersion: groupRequest.expectedDraftVersion, draftDigest: groupRequest.expectedDraftDigest });
       await click(`Apply ${source.definition.title} native GROUP`, page.getByTestId('construction-apply-proposal'),
         async () => waitSaved(source.outputId, source.groupRows.length));

@@ -188,3 +188,168 @@ export function assertCdaUpstreamAppendReread(actualRows, expectedRows, { projec
   assert.deepEqual(actual, expected, `Exact selected ${resourceType} raw reread differs from the independent witness`);
   return { count: actual.length, exact: true, resourceType, project, generation };
 }
+
+export function proveSupersededEmptyGroupProposal({
+  canceledEntry,
+  canceledBody,
+  replacementEntry,
+  replacementBody,
+  replacementResponse,
+  uiOrigin,
+  proposalPath,
+  outputId,
+  snapshotToken,
+  draftVersion,
+  draftDigest,
+  inputColumnId,
+  checkboxClickedAt,
+  previewRowCount,
+  previewRowsMatched,
+}) {
+  const sameRequestBase = (value, label) => {
+    assert.equal(value?.outputId, outputId, `${label} must target the exact current-draft output`);
+    assert.equal(value?.snapshotToken, snapshotToken, `${label} must use the exact current catalog snapshot`);
+    assert.equal(value?.expectedDraftVersion, draftVersion, `${label} must use the exact current draft version`);
+    assert.equal(value?.expectedDraftDigest, draftDigest, `${label} must use the exact current draft digest`);
+    if (Object.hasOwn(value, 'draftVersion')) assert.equal(value.draftVersion, draftVersion);
+    if (Object.hasOwn(value, 'draftDigest')) assert.equal(value.draftDigest, draftDigest);
+  };
+  const sameResponseBase = (value, label) => {
+    assert.equal(value?.outputId, outputId, `${label} must target the exact current-draft output`);
+    assert.equal(value?.snapshotToken, snapshotToken, `${label} must use the exact current catalog snapshot`);
+    assert.equal(value?.draftVersion, draftVersion, `${label} must use the exact current draft version`);
+    assert.equal(value?.draftDigest, draftDigest, `${label} must use the exact current draft digest`);
+    if (Object.hasOwn(value, 'expectedDraftVersion')) assert.equal(value.expectedDraftVersion, draftVersion);
+    if (Object.hasOwn(value, 'expectedDraftDigest')) assert.equal(value.expectedDraftDigest, draftDigest);
+  };
+  const groupStep = (body, label) => {
+    const steps = body?.candidateConstruction?.steps;
+    assert(Array.isArray(steps) && steps.length === 1, `${label} must contain only the new GROUP step`);
+    const step = steps[0];
+    assert.equal(step.operation?.kind, 'GROUP', `${label} must be a GROUP proposal`);
+    assert.equal(body.changedStepId, step.id, `${label} must bind the changed step identity`);
+    return step;
+  };
+  const countRowsOutput = (step, label) => {
+    const aggregates = step.operation.group?.aggregates;
+    assert(Array.isArray(aggregates) && aggregates.length === 1,
+      `${label} must contain exactly one GROUP aggregate`);
+    const aggregate = aggregates[0];
+    assert.equal(aggregate.operation, 'COUNT_ROWS', `${label} must retain COUNT_ROWS`);
+    assert.equal(typeof aggregate.outputColumnId, 'string', `${label} must identify its count output`);
+    return aggregate.outputColumnId;
+  };
+
+  assert.equal(canceledEntry?.origin, uiOrigin, 'Canceled proposal must use the independently validated UI origin');
+  assert.equal(canceledEntry?.path, proposalPath, 'Canceled proposal must use this Explorer proposal endpoint');
+  assert.equal(canceledEntry?.method, 'POST', 'Canceled proposal must be a native POST');
+  assert.equal(canceledEntry?.failure, 'net::ERR_ABORTED', 'Only the observed native abort can be superseded');
+  assert.equal(typeof canceledEntry?.requestId, 'string');
+  assert.equal(typeof canceledEntry?.browserRequestId, 'string');
+  assert(Number.isFinite(canceledEntry?.startedAt));
+  assert(Number.isFinite(canceledEntry?.completedAt));
+  assert(canceledEntry.completedAt >= canceledEntry.startedAt,
+    'Canceled proposal completion time must follow its start time');
+  assert.equal(canceledEntry.status, undefined, 'Canceled intermediate proposal must have no HTTP response');
+  assert.equal(canceledEntry.expected, undefined, 'The workflow must prove cancellation before classifying it');
+  assert.equal(typeof checkboxClickedAt, 'number');
+  assert(canceledEntry.startedAt < checkboxClickedAt && checkboxClickedAt < canceledEntry.completedAt,
+    'The empty GROUP proposal must be in flight when the selected-key checkbox is clicked');
+
+  assert.equal(replacementEntry?.origin, uiOrigin, 'Replacement must use the independently validated UI origin');
+  assert.equal(replacementEntry?.path, proposalPath, 'Replacement must use this Explorer proposal endpoint');
+  assert.equal(replacementEntry?.method, 'POST', 'Replacement must be a native POST');
+  assert.equal(replacementEntry?.status, 200, 'Replacement proposal must return HTTP 200');
+  assert.equal(replacementEntry.failure, undefined, 'Replacement request must not have a native failure');
+  assert.equal(replacementEntry.responseReadError, undefined, 'Replacement response body must be captured cleanly');
+  assert(Number.isFinite(replacementEntry?.startedAt));
+  assert(Number.isFinite(replacementEntry?.completedAt));
+  assert(replacementEntry.completedAt >= replacementEntry.startedAt,
+    'Replacement proposal completion time must follow its start time');
+  assert(replacementEntry.startedAt > checkboxClickedAt && canceledEntry.completedAt < replacementEntry.startedAt,
+    'The selected-key replacement must start after the click and after the intermediate request aborts');
+  assert.notEqual(replacementEntry.browserRequestId, canceledEntry.browserRequestId,
+    'Replacement must be a distinct native browser request');
+  assert.notEqual(replacementEntry.requestId, canceledEntry.requestId,
+    'Replacement must have a distinct request identity');
+
+  sameRequestBase(canceledBody, 'Canceled empty GROUP request');
+  sameRequestBase(replacementBody, 'Selected-key replacement request');
+  sameResponseBase(replacementResponse, 'Selected-key replacement response');
+  const canceledStep = groupStep(canceledBody, 'Canceled intermediate candidate');
+  const replacementStep = groupStep(replacementBody, 'Selected-key replacement candidate');
+  assert.equal(canceledStep.id, replacementStep.id, 'Both proposals must edit the same new GROUP step');
+  assert.equal(replacementResponse.changedStepId, replacementStep.id,
+    'READY response must belong to the selected-key GROUP step');
+  const canceledKeys = canceledStep.operation.group?.keys;
+  const replacementKeys = replacementStep.operation.group?.keys;
+  assert.deepEqual(canceledKeys, [], 'Superseded intermediate candidate must have no selected group key');
+  assert(Array.isArray(replacementKeys) && replacementKeys.length === 1,
+    'Replacement candidate must contain exactly the newly selected group key');
+  assert.equal(replacementKeys[0].inputColumnId, inputColumnId,
+    'Replacement candidate must use the exact source key selected by the user');
+  const canceledCountID = countRowsOutput(canceledStep, 'Canceled intermediate candidate');
+  const replacementCountID = countRowsOutput(replacementStep, 'Selected-key replacement candidate');
+  assert.equal(canceledCountID, replacementCountID,
+    'Replacement must preserve the initial GROUP count output identity');
+  const replacementKeyOutput = replacementStep.outputs?.find(output => output.id === replacementKeys[0].outputColumnId);
+  assert(replacementKeyOutput, 'Replacement candidate must expose its selected key output');
+
+  const responseStep = groupStep(replacementResponse, 'READY response candidate');
+  assert.equal(responseStep.id, replacementStep.id);
+  assert.equal(responseStep.operation.group?.keys?.length, 1);
+  assert.equal(responseStep.operation.group.keys[0].inputColumnId, inputColumnId);
+  assert.equal(countRowsOutput(responseStep, 'READY response candidate'), replacementCountID);
+  assert.equal(replacementResponse.previewStatus, 'READY', 'Replacement response must be READY');
+  assert.equal(replacementResponse.preview?.outputId, outputId, 'READY preview must target the exact output');
+  assert.equal(typeof replacementResponse.proposalId, 'string');
+  assert(replacementResponse.proposalId.length > 0, 'READY replacement must have a proposal receipt');
+  assert.equal(replacementResponse.preview?.receiptId, replacementResponse.proposalId,
+    'READY preview must be bound to the exact replacement receipt');
+  assert.equal(replacementResponse.preview?.rowCount, previewRowCount,
+    'READY preview row count must match the independent raw GROUP oracle');
+  assert.equal(previewRowsMatched, true, 'Replacement preview must already match the independent raw GROUP rows');
+
+  return {
+    supersession: 'initial-empty-group-candidate-replaced-by-selected-key',
+    uiOriginBound: true,
+    proposalEndpointBound: true,
+    outputId,
+    changedStepId: replacementStep.id,
+    request: {
+      canceledRequestId: canceledEntry.requestId,
+      canceledBrowserRequestId: canceledEntry.browserRequestId,
+      replacementRequestId: replacementEntry.requestId,
+      replacementBrowserRequestId: replacementEntry.browserRequestId,
+    },
+    base: { sameSnapshot: true, sameDraftVersion: draftVersion, sameDraftDigest: true },
+    canceledCandidate: { operation: 'GROUP', keyCount: 0, aggregate: 'COUNT_ROWS' },
+    replacementCandidate: {
+      operation: 'GROUP', keyCount: 1, inputColumnId, aggregate: 'COUNT_ROWS',
+      keyOutputColumnId: replacementKeyOutput.id, countOutputColumnId: replacementCountID,
+    },
+    replacementResponse: {
+      status: replacementEntry.status,
+      previewStatus: replacementResponse.previewStatus,
+      receiptBound: true,
+      previewRowCount,
+      independentRowsMatched: true,
+    },
+    timing: {
+      intermediateStartedAt: canceledEntry.startedAt,
+      checkboxClickedAt,
+      intermediateAbortedAt: canceledEntry.completedAt,
+      replacementStartedAt: replacementEntry.startedAt,
+    },
+  };
+}
+
+export function proveObservedSupersededEmptyGroupProposals({ proposalEntries, ...replacementEvidence }) {
+  assert(Array.isArray(proposalEntries), 'Observed GROUP proposal evidence must be an array');
+  const canceledEntries = proposalEntries.filter(({ entry }) => entry?.failure === 'net::ERR_ABORTED');
+  return canceledEntries.map(({ entry, body }) => proveSupersededEmptyGroupProposal({
+    ...replacementEvidence,
+    canceledEntry: entry,
+    canceledBody: body,
+  }));
+}
