@@ -9,12 +9,14 @@ import {
   runNativeVerificationBracket,
   parseOfficialPlaywrightList,
   summarizeRenderCheckpoints,
+  main,
 } from '../../../run-native-verification-bracket.mjs';
 
 const root = resolve(fileURLToPath(new URL('../../../..', import.meta.url)));
 const buildIdentity = 'a'.repeat(64) + ':' + 'a'.repeat(64) + ':' + 'b'.repeat(64);
 const retainedCda = JSON.parse(readFileSync(new URL('./fixtures/native-bracket-retained-cda-report.json', import.meta.url), 'utf8'));
 const retainedBasic = JSON.parse(readFileSync(new URL('./fixtures/native-bracket-retained-basic-report.json', import.meta.url), 'utf8'));
+const wave152Failure = JSON.parse(readFileSync(new URL('./fixtures/wave152-root-quantity-pivot-failure.json', import.meta.url), 'utf8'));
 
 function makeTarget(sourceRoot) {
   return {
@@ -49,7 +51,8 @@ function option(args, name) {
 function fakeRunner({ scenarioID, caseName, rootDir, browserExit = 0, browserReport = 'pass', listTotal = 1,
   afterCaptureExit = 0, afterCaptureWritesArtifacts = true, afterHealthExit = 0, afterHealthWritesArtifact = true,
   sourceChanged = false, malformedAfterSource = false, afterHealthIdentity = buildIdentity, reportScenarioID,
-  reportedChecksOverride, officialTestStatus, officialTestOutcome, officialTestResultStatuses, officialTestResultRetries } = {}) {
+  reportedChecksOverride, officialTestStatus, officialTestOutcome, officialTestResultStatuses, officialTestResultRetries,
+  domainReportOverride } = {}) {
   const commands = [];
   const playwrightArgs = [];
   const scenario = registry.find((entry) => entry.id === scenarioID);
@@ -111,7 +114,7 @@ function fakeRunner({ scenarioID, caseName, rootDir, browserExit = 0, browserRep
               ],
             };
           }
-          const domainReport = {
+          const baseDomainReport = {
             schemaVersion: 2,
             scenario: scenarioID,
             ...(reportScenarioID !== undefined ? { scenarioID: reportScenarioID } : {}),
@@ -124,6 +127,9 @@ function fakeRunner({ scenarioID, caseName, rootDir, browserExit = 0, browserRep
             assertions,
             actions: [{ elapsedMs: 842, status: 'passed' }],
           };
+          const domainReport = domainReportOverride
+            ? { ...baseDomainReport, ...domainReportOverride, target: { ...baseDomainReport.target, ...domainReportOverride.target } }
+            : baseDomainReport;
           writeJson(domainPath, domainReport);
         }
         writeJson(reportPath, {
@@ -325,6 +331,9 @@ test('CDA report shape closes only when all registered lifecycle checks and the 
     'Top-level click action latency remains separate from nested render checkpoint latency.');
   assert.equal(summary.reviewPacket.maximumRenderCheckpointLatencyMs, 4456);
   assert.equal(summary.reviewPacket.renderCheckpointCount, 2);
+  assert.equal(summary.reviewPacket.firstFailureReason, null);
+  assert.equal(summary.reviewPacket.failedAction, null);
+  assert.deepEqual(summary.reviewPacket.pendingOwnedRequests, []);
   assert.equal(fake.playwrightArgs.length, 2);
   for (const args of fake.playwrightArgs) {
     assert.equal(option(args, '--workers'), '1');
@@ -358,6 +367,9 @@ test('basic fixture report shape is accepted from its Playwright attachment', as
   assert.equal(summary.lifecycle.requiredCheckCount,
     scenarioCaseFor('builder-combine-draft', 'group-pivot-append').requiredChecks.length);
   assert.equal(summary.integrity.status, 'PASS');
+  assert.equal(summary.reviewPacket.firstFailureReason, null);
+  assert.equal(summary.reviewPacket.failedAction, null);
+  assert.deepEqual(summary.reviewPacket.pendingOwnedRequests, []);
 });
 
 test('conflicting scenario identity aliases cannot pass an attached report', async (t) => {
@@ -512,6 +524,10 @@ test('missing domain report remains unverified after the bracket closes', async 
 
   assert.equal(summary.status, 'unverified');
   assert.equal(summary.lifecycle.status, 'unverified');
+  assert.equal(summary.reviewPacket.firstFailureReason, null);
+  assert.equal(summary.reviewPacket.failedAction, null);
+  assert.equal(summary.reviewPacket.lastCompletedAction, null);
+  assert.deepEqual(summary.reviewPacket.pendingOwnedRequests, []);
   assert.deepEqual(fake.commands.slice(-2), ['captureAfter', 'healthAfter']);
 });
 
@@ -638,6 +654,8 @@ test('source fingerprint changes invalidate an otherwise passing lifecycle', asy
 
   assert.equal(summary.status, 'failed');
   assert.equal(summary.integrity.status, 'FAIL');
+  assert.equal(summary.reviewPacket.integrityStatus, 'FAIL');
+  assert.equal(summary.reviewPacket.status, 'failed');
   assert.deepEqual(summary.integrity.dimensions.source.changedPaths, [
     { path: 'internal/changed.go', change: 'added' },
     { path: 'internal/fake.go', change: 'removed' },
@@ -667,4 +685,269 @@ test('ambiguous official selection prevents the browser launch', async (t) => {
   assert.equal(summary.commands.precheck, undefined);
   assert.equal(summary.commands.playwright, undefined);
   assert.deepEqual(fake.commands, ['selectionList']);
+});
+
+test('wave152 timeout appears in the review packet and CLI with the last action and pending owned endpoint', async (t) => {
+  const parent = evidenceParent();
+  t.after(() => rmSync(parent, { recursive: true, force: true }));
+  const scenarioID = 'root-quantity-pivot';
+  const caseName = 'related-text-only-full-population-lifecycle';
+  const fake = fakeRunner({
+    scenarioID,
+    caseName,
+    rootDir: root,
+    browserExit: 1,
+    browserReport: 'cda',
+    domainReportOverride: wave152Failure,
+  });
+  let runSummary;
+  const cliOutput = [];
+  const exitCode = await main([
+    '--scenario', scenarioID,
+    '--case', caseName,
+    '--grep', 'wave152 retained failure',
+  ], {
+    runBracket: async (options) => {
+      runSummary = await runNativeVerificationBracket({
+        ...options,
+        evidenceParent: parent,
+        root,
+        env: fake.env,
+        commandRunner: fake.commandRunner,
+      });
+      return runSummary;
+    },
+    write: (value) => cliOutput.push(value),
+  });
+
+  const expectedRequest = {
+    endpoint: 'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/construction-category-discoveries',
+    requestID: 'wave152-category-discovery',
+    status: 'pending',
+  };
+  assert.equal(exitCode, 1);
+  assert.equal(runSummary.status, 'failed');
+  assert.equal(runSummary.integrity.status, 'PASS');
+  assert.equal(runSummary.reviewPacket.firstFailureReason, 'Timeout 5000ms exceeded.');
+  assert.equal(runSummary.reviewPacket.failedAction, null);
+  assert.deepEqual(runSummary.reviewPacket.lastCompletedAction, { label: 'Select SUM', status: 'passed' });
+  assert.deepEqual(runSummary.reviewPacket.pendingOwnedRequests, [expectedRequest]);
+  assert.deepEqual(JSON.parse(readFileSync(runSummary.evidence.summary, 'utf8')).reviewPacket, runSummary.reviewPacket);
+  assert.equal(cliOutput.length, 1);
+  const printed = JSON.parse(cliOutput[0]);
+  assert.equal(printed.status, 'failed');
+  assert.equal(printed.integrity, 'PASS');
+  assert.equal(printed.firstFailureReason, 'Timeout 5000ms exceeded.');
+  assert.equal(printed.failedAction, null);
+  assert.deepEqual(printed.lastCompletedAction, { label: 'Select SUM', status: 'passed' });
+  assert.deepEqual(printed.pendingOwnedRequests, [expectedRequest]);
+});
+
+test('a pending owned request does not invent a failure on a passing report', async (t) => {
+  const parent = evidenceParent();
+  t.after(() => rmSync(parent, { recursive: true, force: true }));
+  const scenarioID = 'root-quantity-pivot';
+  const caseName = 'related-text-only-full-population-lifecycle';
+  const fake = fakeRunner({
+    scenarioID,
+    caseName,
+    rootDir: root,
+    browserReport: 'cda',
+    domainReportOverride: {
+      target: wave152Failure.target,
+      actions: [{ label: 'Select SUM', status: 'passed' }],
+      nativeRequests: wave152Failure.nativeRequests,
+    },
+  });
+  const summary = await runNativeVerificationBracket({
+    scenarioID,
+    caseName,
+    grep: 'passing report with a pending request',
+    evidenceParent: parent,
+    root,
+    env: fake.env,
+    commandRunner: fake.commandRunner,
+  });
+
+  assert.equal(summary.status, 'passed');
+  assert.equal(summary.reviewPacket.firstFailureReason, null);
+  assert.equal(summary.reviewPacket.failedAction, null);
+  assert.deepEqual(summary.reviewPacket.lastCompletedAction, { label: 'Select SUM', status: 'passed' });
+  assert.equal(summary.reviewPacket.pendingOwnedRequests.length, 1);
+  assert.equal(summary.reviewPacket.pendingOwnedRequests[0].status, 'pending');
+});
+
+test('preparation failure reports a sanitized reason and empty domain diagnostics', async (t) => {
+  const parent = evidenceParent();
+  t.after(() => rmSync(parent, { recursive: true, force: true }));
+  const fake = fakeRunner({
+    scenarioID: 'root-quantity-pivot',
+    caseName: 'related-text-only-full-population-lifecycle',
+    rootDir: root,
+  });
+  const summary = await runNativeVerificationBracket({
+    scenarioID: 'root-quantity-pivot',
+    caseName: 'related-text-only-full-population-lifecycle',
+    grep: 'preparation failure',
+    evidenceParent: parent,
+    root,
+    env: { ...fake.env, LOOM_CDA_API_ORIGIN: '' },
+    commandRunner: fake.commandRunner,
+  });
+
+  assert.equal(summary.failureCategory, 'preparation');
+  assert.equal(summary.reviewPacket.firstFailureReason,
+    'Missing required owned environment names: LOOM_CDA_API_ORIGIN');
+  assert.equal(summary.reviewPacket.failedAction, null);
+  assert.equal(summary.reviewPacket.lastCompletedAction, null);
+  assert.deepEqual(summary.reviewPacket.pendingOwnedRequests, []);
+  assert.deepEqual(fake.commands, []);
+});
+
+test('failed action is separate from the last completed action', async (t) => {
+  const parent = evidenceParent();
+  t.after(() => rmSync(parent, { recursive: true, force: true }));
+  const scenarioID = 'root-quantity-pivot';
+  const caseName = 'related-text-only-full-population-lifecycle';
+  const fake = fakeRunner({
+    scenarioID,
+    caseName,
+    rootDir: root,
+    browserExit: 1,
+    browserReport: 'cda',
+    domainReportOverride: {
+      ...wave152Failure,
+      failureEvidence: {
+        action: { label: 'Apply Pivot', status: 'failed', error: 'Error: Apply Pivot failed' },
+      },
+      actions: [
+        { label: 'Select SUM', status: 'passed' },
+        { label: 'Apply Pivot', status: 'failed' },
+      ],
+    },
+  });
+  const summary = await runNativeVerificationBracket({
+    scenarioID,
+    caseName,
+    grep: 'failed action',
+    evidenceParent: parent,
+    root,
+    env: fake.env,
+    commandRunner: fake.commandRunner,
+  });
+
+  assert.equal(summary.reviewPacket.firstFailureReason, 'Error: Apply Pivot failed');
+  assert.deepEqual(summary.reviewPacket.failedAction, { label: 'Apply Pivot', status: 'failed' });
+  assert.deepEqual(summary.reviewPacket.lastCompletedAction, { label: 'Select SUM', status: 'passed' });
+});
+
+test('request ID reuse keeps only requests whose status is pending', async (t) => {
+  const parent = evidenceParent();
+  t.after(() => rmSync(parent, { recursive: true, force: true }));
+  const scenarioID = 'root-quantity-pivot';
+  const caseName = 'related-text-only-full-population-lifecycle';
+  const original = wave152Failure.nativeRequests[0];
+  const fake = fakeRunner({
+    scenarioID,
+    caseName,
+    rootDir: root,
+    browserExit: 1,
+    browserReport: 'cda',
+    domainReportOverride: {
+      ...wave152Failure,
+      nativeRequests: [
+        { ...original, status: 200, completedAt: '2026-10-07T12:00:01.000Z' },
+        { ...original, status: 'pending' },
+        { ...original, status: 'failed', endedAt: '2026-10-07T12:00:02.000Z' },
+        { ...original, requestId: 'unknown-route', path: original.path + '/unknown', status: 'pending' },
+      ],
+    },
+  });
+  const summary = await runNativeVerificationBracket({
+    scenarioID,
+    caseName,
+    grep: 'request ID reuse',
+    evidenceParent: parent,
+    root,
+    env: fake.env,
+    commandRunner: fake.commandRunner,
+  });
+
+  assert.deepEqual(summary.reviewPacket.pendingOwnedRequests, [{
+    endpoint: 'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/construction-category-discoveries',
+    requestID: 'wave152-category-discovery',
+    status: 'pending',
+  }]);
+});
+
+test('review diagnostics do not expose paths, bodies, tokens, auth, or query values', async (t) => {
+  const parent = evidenceParent();
+  t.after(() => rmSync(parent, { recursive: true, force: true }));
+  const scenarioID = 'root-quantity-pivot';
+  const caseName = 'related-text-only-full-population-lifecycle';
+  const report = structuredClone(wave152Failure);
+  report.failureEvidence.reason = 'Error: token=TOKEN_SENTINEL query=QUERY_SENTINEL body=BODY_SENTINEL authorization=AUTH_SENTINEL path=/private/secret/file at $CHECKOUT/scripts/private.mjs';
+  report.failureEvidence.action = { label: 'Choose source:cc2.SENSITIVE_TOKEN_VALUE', status: 'failed' };
+  report.nativeRequests[0] = {
+    ...report.nativeRequests[0],
+    path: report.nativeRequests[0].path + '?query=URL_QUERY_SENTINEL&token=URL_TOKEN_SENTINEL',
+    query: { filter: 'QUERY_OBJECT_SENTINEL' },
+    authorizationHeaderPresent: true,
+    authorization: 'AUTH_OBJECT_SENTINEL',
+    body: { content: 'BODY_OBJECT_SENTINEL' },
+  };
+  const fake = fakeRunner({
+    scenarioID,
+    caseName,
+    rootDir: root,
+    browserExit: 1,
+    browserReport: 'cda',
+    domainReportOverride: report,
+  });
+  const summary = await runNativeVerificationBracket({
+    scenarioID,
+    caseName,
+    grep: 'sensitive field negative',
+    evidenceParent: parent,
+    root,
+    env: fake.env,
+    commandRunner: fake.commandRunner,
+  });
+  const diagnostics = JSON.stringify({
+    firstFailureReason: summary.reviewPacket.firstFailureReason,
+    failedAction: summary.reviewPacket.failedAction,
+    lastCompletedAction: summary.reviewPacket.lastCompletedAction,
+    pendingOwnedRequests: summary.reviewPacket.pendingOwnedRequests,
+  });
+
+  for (const secret of [
+    'TOKEN_SENTINEL', 'QUERY_SENTINEL', 'BODY_SENTINEL', 'AUTH_SENTINEL',
+    'SENSITIVE_TOKEN_VALUE', 'URL_QUERY_SENTINEL', 'URL_TOKEN_SENTINEL',
+    'QUERY_OBJECT_SENTINEL', 'AUTH_OBJECT_SENTINEL', 'BODY_OBJECT_SENTINEL',
+    '$CHECKOUT', '/private/secret/file', 'scripts/private.mjs',
+  ]) assert.equal(diagnostics.includes(secret), false, secret);
+  assert.equal(summary.reviewPacket.firstFailureReason, 'Failure details contained sensitive values.');
+  assert.match(diagnostics, /\[redacted token\]/);
+
+  const pathOnlyReport = structuredClone(wave152Failure);
+  pathOnlyReport.failureEvidence.reason = 'Error: failed at scripts/private.mjs';
+  const pathOnlyFake = fakeRunner({
+    scenarioID,
+    caseName,
+    rootDir: root,
+    browserExit: 1,
+    browserReport: 'cda',
+    domainReportOverride: pathOnlyReport,
+  });
+  const pathOnlySummary = await runNativeVerificationBracket({
+    scenarioID,
+    caseName,
+    grep: 'relative path and query negative',
+    evidenceParent: parent,
+    root,
+    env: pathOnlyFake.env,
+    commandRunner: pathOnlyFake.commandRunner,
+  });
+  assert.equal(pathOnlySummary.reviewPacket.firstFailureReason, 'Error: failed at [redacted path]');
+  assert.equal(pathOnlySummary.reviewPacket.firstFailureReason.includes('scripts/private.mjs'), false);
 });

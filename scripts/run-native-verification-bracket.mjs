@@ -255,6 +255,145 @@ function reportIdentity(report) {
   return { scenario, caseName: caseValue, valid: true };
 }
 
+function diagnosticLine(value) {
+  if (typeof value !== 'string' || !value.trim()) return null;
+  const firstLine = value.split(/\r?\n/).find((line) => line.trim() && !/^\s*at\s/.test(line));
+  if (!firstLine) return null;
+  const timeout = firstLine.match(/Timeout\s+(\d+)\s*ms\s+exceeded\.?/i);
+  if (timeout) return 'Timeout ' + timeout[1] + 'ms exceeded.';
+  if (/["']?(?:authorization|auth|access[_-]?token|refresh[_-]?token|token|query|body)["']?\s*[:=]/i.test(firstLine)) {
+    return 'Failure details contained sensitive values.';
+  }
+  return firstLine.trim()
+    .replace(/\b(?:Bearer|Basic)\s+[^\s,;]+/gi, '[redacted credentials]')
+    .replace(/\b(path|file|source)\s*[:=]\s*\/[^\s,;]+/gi, '$1=[redacted path]')
+    .replace(/https?:\/\/[^\s)]+/gi, '[redacted URL]')
+    .replace(/\?[^\s)]+/g, '?[redacted query]')
+    .replace(/\bcc[0-9]\.\S+/gi, '[redacted token]')
+    .replace(/\$[A-Z_][A-Z0-9_]*\/[^\s)]+/g, '[redacted path]')
+    .replace(/(?:\/[\w.-]+){2,}/g, '[redacted path]')
+    .replace(/\b(?:[\w.-]+\/)+[\w.-]+/g, '[redacted path]')
+    .replace(/[A-Za-z]:\\(?:[^\\\s]+\\?)+/g, '[redacted path]')
+    .slice(0, 240);
+}
+
+function actionLabel(action) {
+  if (typeof action === 'string') return diagnosticLine(action);
+  if (!action || typeof action !== 'object' || Array.isArray(action)) return null;
+  for (const key of ['label', 'name', 'title', 'description']) {
+    const label = diagnosticLine(action[key]);
+    if (label) return label;
+  }
+  return null;
+}
+
+function summarizeFailedAction(report) {
+  const evidenceAction = report?.failureEvidence?.action;
+  const evidenceLabel = actionLabel(evidenceAction);
+  if (evidenceLabel) {
+    const evidenceStatus = String(evidenceAction?.status ?? '').toLowerCase();
+    return {
+      label: evidenceLabel,
+      status: ['failed', 'running', 'current'].includes(evidenceStatus) ? evidenceStatus : 'failed',
+    };
+  }
+  const failed = (Array.isArray(report?.actions) ? report.actions : [])
+    .filter((action) => ['failed', 'running', 'current'].includes(String(action?.status ?? '').toLowerCase()))
+    .at(-1);
+  const label = actionLabel(failed);
+  return label ? { label, status: String(failed.status).toLowerCase() } : null;
+}
+
+function summarizeLastCompletedAction(report) {
+  const completed = (Array.isArray(report?.actions) ? report.actions : [])
+    .filter((action) => ['passed', 'completed', 'complete', 'succeeded', 'success'].includes(String(action?.status ?? '').toLowerCase()))
+    .at(-1);
+  const label = actionLabel(completed);
+  return label ? { label, status: String(completed.status).toLowerCase() } : null;
+}
+
+function endpointForNativeRequest(request, report, scenario) {
+  if (!request || typeof request !== 'object' || Array.isArray(request)) return null;
+  const method = typeof request.method === 'string' ? request.method.toUpperCase() : '';
+  if (!method) return null;
+  const origin = typeof request.origin === 'string' ? request.origin : report?.target?.uiUrl;
+  let requestUrl;
+  let uiOrigin;
+  try {
+    requestUrl = new URL(request.path ?? request.url, origin);
+    uiOrigin = new URL(report?.target?.uiUrl).origin;
+  } catch {
+    return null;
+  }
+  if (requestUrl.origin !== uiOrigin) return null;
+  const pathSegments = requestUrl.pathname.split('/').filter(Boolean);
+  const projectIndex = pathSegments.indexOf('projects');
+  const explorerIndex = pathSegments.indexOf('explorers');
+  if (projectIndex < 0 || explorerIndex !== projectIndex + 2) return null;
+  const project = report?.target?.project;
+  const explorer = report?.target?.explorer;
+  if (typeof project !== 'string' || typeof explorer !== 'string'
+    || pathSegments[projectIndex + 1] !== project
+    || pathSegments[explorerIndex + 1] !== explorer) return null;
+
+  for (const endpoint of scenario?.endpoints ?? []) {
+    const [registeredMethod, template] = String(endpoint).split(/\s+/, 2);
+    if (registeredMethod !== method || !template) continue;
+    const templateSegments = template.split('/').filter(Boolean);
+    if (templateSegments.length !== pathSegments.length) continue;
+    const matches = templateSegments.every((segment, index) =>
+      /^\{[^/{}]+\}$/.test(segment) || segment === pathSegments[index]);
+    if (matches) return method + ' ' + template;
+  }
+  return null;
+}
+
+function pendingRequestStatus(request) {
+  const status = request?.status;
+  if (typeof status === 'string' && status.trim()) {
+    return ['pending', 'started', 'running', 'in-progress', 'in_progress'].includes(status.trim().toLowerCase())
+      ? 'pending'
+      : null;
+  }
+  if (status !== undefined && status !== null) return null;
+  return request?.completedAt || request?.endedAt || request?.finishedAt ? null : 'pending';
+}
+
+function summarizePendingOwnedRequests(report, scenario) {
+  const requests = [];
+  for (const request of Array.isArray(report?.nativeRequests) ? report.nativeRequests : []) {
+    const status = pendingRequestStatus(request);
+    if (!status) continue;
+    const endpoint = endpointForNativeRequest(request, report, scenario);
+    const requestID = request?.requestID ?? request?.requestId;
+    if (!endpoint || typeof requestID !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(requestID)) continue;
+    requests.push({ endpoint, requestID, status });
+  }
+  return requests;
+}
+
+function summarizeFirstFailureReason(report, workflowFailure) {
+  const failedReportAction = (Array.isArray(report?.actions) ? report.actions : [])
+    .filter((action) => ['failed', 'running', 'current'].includes(String(action?.status ?? '').toLowerCase()))
+    .at(-1);
+  const evidenceAction = report?.failureEvidence?.action;
+  const candidates = [
+    report?.failureEvidence?.reason,
+    report?.failureEvidence?.error,
+    report?.failureEvidence?.message,
+    evidenceAction?.error,
+    evidenceAction?.message,
+    failedReportAction?.error,
+    failedReportAction?.message,
+    workflowFailure,
+  ];
+  for (const candidate of candidates) {
+    const reason = diagnosticLine(candidate);
+    if (reason) return reason;
+  }
+  return null;
+}
+
 export function summarizeRenderCheckpoints(report, registeredChecks) {
   const registered = new Set(Array.isArray(registeredChecks) ? registeredChecks : []);
   const checkpoints = [];
@@ -751,8 +890,9 @@ export async function runNativeVerificationBracket({
     const identity = reportIdentity(candidate.data);
     return identity.valid && identity.scenario === scenarioID && identity.caseName === caseName;
   });
+  let domainReportData = null;
   if (matchedCandidates.length === 1) {
-    const domainReportData = matchedCandidates[0].data;
+    domainReportData = matchedCandidates[0].data;
     domainReportPath = matchedCandidates[0].path;
     summary.evidence.domainReport = domainReportPath;
     summary.lifecycle = summarizeLifecycle(domainReportData, scenarioID, caseName);
@@ -798,6 +938,7 @@ export async function runNativeVerificationBracket({
   summary.finishedAt = new Date().toISOString();
   summary.durationMs = Math.round(performance.now() - started);
   summary.workflowError = workflowFailure;
+  const failedAction = summarizeFailedAction(domainReportData);
   summary.reviewPacket = {
     status: summary.status,
     scenario: scenarioID,
@@ -806,6 +947,10 @@ export async function runNativeVerificationBracket({
     browserExitCode: browserStage?.exitCode ?? null,
     lifecycleStatus: summary.lifecycle.status,
     integrityStatus: summary.integrity.status,
+    firstFailureReason: summarizeFirstFailureReason(domainReportData, workflowFailure),
+    failedAction,
+    lastCompletedAction: summarizeLastCompletedAction(domainReportData),
+    pendingOwnedRequests: summarizePendingOwnedRequests(domainReportData, scenario),
     requiredCheckCount: summary.lifecycle.requiredCheckCount ?? null,
     passedCheckCount: summary.lifecycle.passedCheckCount ?? null,
     failedCheckNames: summary.lifecycle.failedCheckNames ?? [],
@@ -821,14 +966,14 @@ export async function runNativeVerificationBracket({
   return summary;
 }
 
-async function main(argv) {
+export async function main(argv, { runBracket = runNativeVerificationBracket, write = console.log } = {}) {
   const options = parseCli(argv);
   if (options.help) {
     console.log(usage);
     return 0;
   }
-  const summary = await runNativeVerificationBracket(options);
-  console.log(JSON.stringify({
+  const summary = await runBracket(options);
+  write(JSON.stringify({
     status: summary.status,
     scenario: summary.scenario,
     case: summary.case,
@@ -837,6 +982,10 @@ async function main(argv) {
     summary: summary.evidence.summary,
     report: summary.evidence.domainReport,
     integrity: summary.integrity.status,
+    firstFailureReason: summary.reviewPacket.firstFailureReason,
+    failedAction: summary.reviewPacket.failedAction,
+    lastCompletedAction: summary.reviewPacket.lastCompletedAction,
+    pendingOwnedRequests: summary.reviewPacket.pendingOwnedRequests,
   }, null, 2));
   return summary.status === 'passed' ? 0 : 1;
 }
