@@ -63,6 +63,22 @@ test.describe('CDA related source ONE and ALL values', () => {
   });
 });
 
+test.describe('CDA zero Observation related source ONE and ALL', () => {
+  test.use({
+    ...(process.env.LOOM_API_ORIGIN ? { cdaApiOrigin: process.env.LOOM_API_ORIGIN } : {}),
+    ...(process.env.LOOM_UI_ORIGIN ? { cdaUiOrigin: process.env.LOOM_UI_ORIGIN } : {}),
+    cdaScenarioID: 'cda-related-one-all-zero-observation',
+    cdaCaseName: 'zero-patient-observation-one-all-stable-parent-lifecycle',
+  });
+
+  test('keeps an exact zero-match Patient through native ONE/ALL and restoration', async ({ page, cda }) => {
+    const result = await relatedOneAllWorkflow({ page, cda, mode: 'cda', fieldMode: 'id', witnessMode: 'zero' });
+    if (result.status !== 'passed') test.skip(true, result.skipReason ?? `Zero Observation ONE/ALL coverage is ${result.status}.`);
+    expect(result.cases.length).toBeGreaterThan(0);
+    expect(result.status).toBe('passed');
+  });
+});
+
 test.describe('CDA repeated component empty-list policies', () => {
   test.use({
     cdaScenarioID: 'cda-repeated-empty',

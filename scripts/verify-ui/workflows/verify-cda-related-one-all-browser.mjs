@@ -15,15 +15,22 @@ import { createNativeAbortProbeSource, nativeAbortProbeEvidenceForRequest, nativ
 // Adapted from verify-cda-group-related-values-browser.mjs and
 // verify-cda-coded-field-lifecycle-browser.mjs. The raw CDA oracle is kept
 // separate from Explorer previews and bounds independent witnesses.
-export async function relatedOneAllWorkflow({ page: nativePage, cda }) {
-const mode = process.env.LOOM_RELATED_ONE_ALL_MODE ?? 'cda';
+export async function relatedOneAllWorkflow({
+  page: nativePage, cda, mode: requestedMode, fieldMode: requestedFieldMode, witnessMode: requestedWitnessMode,
+}) {
+const mode = requestedMode ?? process.env.LOOM_RELATED_ONE_ALL_MODE ?? 'cda';
 assert(['basic', 'cda'].includes(mode), 'LOOM_RELATED_ONE_ALL_MODE must be basic or cda');
 const basicMode = mode === 'basic';
 const project = basicMode ? process.env.LOOM_DEV_PROJECT : cda.project;
 const generation = basicMode ? process.env.LOOM_DEV_GENERATION : cda.generation ?? process.env.LOOM_CDA_GENERATION;
-const fieldMode = process.env.LOOM_RELATED_ONE_ALL_FIELD ?? 'id';
+const fieldMode = requestedFieldMode ?? process.env.LOOM_RELATED_ONE_ALL_FIELD ?? 'id';
 assert(['id', 'status', 'specimen-reference'].includes(fieldMode),
   'LOOM_RELATED_ONE_ALL_FIELD must be id, status, or specimen-reference');
+const witnessMode = requestedWitnessMode ?? process.env.LOOM_RELATED_ONE_ALL_WITNESS ?? 'default';
+assert(['default', 'zero'].includes(witnessMode), 'LOOM_RELATED_ONE_ALL_WITNESS must be default or zero');
+const zeroObservationMode = witnessMode === 'zero';
+assert(!zeroObservationMode || (mode === 'cda' && fieldMode === 'id'),
+  'The zero Observation witness mode requires the CDA Observation.id workflow');
 const statusFieldMode = fieldMode === 'status';
 const referenceFieldMode = fieldMode === 'specimen-reference';
 assert(!basicMode || statusFieldMode, 'The basic fixture mode is only defined for Observation.status');
@@ -37,13 +44,16 @@ const referenceWitness = {
   specimenId: 'b7cad184-db67-5542-a975-10fffa3e89e7',
   patientId: 'afcfb15e-7617-5691-ae2c-ab675322fb33',
 };
-const rootResourceType = basicMode ? 'Patient' : 'Specimen';
-const expectedRelatedRouteTypes = basicMode ? ['Patient', 'Observation'] : ['Specimen', 'Patient', 'Observation'];
+const rootResourceType = basicMode || zeroObservationMode ? 'Patient' : 'Specimen';
+const expectedRelatedRouteTypes = basicMode || zeroObservationMode ? ['Patient', 'Observation'] : ['Specimen', 'Patient', 'Observation'];
+const expectedPatientObservationRoute = [
+  { fromResourceType: 'Patient', toResourceType: 'Observation', relationship: 'subject_Patient', storageDirection: 'INBOUND' },
+];
 const expectedReferenceRoute = [
   { fromResourceType: 'Specimen', toResourceType: 'Patient', relationship: 'subject_Patient', storageDirection: 'OUTBOUND' },
   { fromResourceType: 'Patient', toResourceType: 'Observation', relationship: 'subject_Patient', storageDirection: 'INBOUND' },
 ];
-const patientObservationRouteLabel = basicMode
+const patientObservationRouteLabel = basicMode || zeroObservationMode
   ? `${relatedChoiceLabel}: Patient <-[subject]- Observation`
   : `${relatedChoiceLabel}: Specimen -[subject]-> Patient <-[subject]- Observation`;
 const protectedExplorer = 'cda-builder-full-qa-1790440983382';
@@ -62,8 +72,10 @@ assert(apiBuildContainer && arangoContainer && arangoDatabase && process.env.LOO
 const sourceRoot = cda.target.sourceRoot ?? fileURLToPath(new URL('../../..', import.meta.url));
 const report = {
   explorer, project, generation, protectedExplorerUntouched: true, relatedChoiceAssertions: [],
-  mode: basicMode ? 'basic-fixture' : 'cda', fieldMode,
-  scenario: referenceFieldMode
+  mode: basicMode ? 'basic-fixture' : 'cda', fieldMode, witnessMode,
+  scenario: zeroObservationMode
+    ? 'Bounded exact project/generation Patient root with an independently reread empty incoming typed Observation.subject_Patient edge set; native ONE/ALL is checked through the current PRESERVE_PARENT expansion and full saved lifecycle.'
+    : referenceFieldMode
     ? 'Pinned current-generation Specimen→Patient→Observation witness with 29 distinct nonnull Observation.specimen.reference values and two null/missing references; native grouped-row ONE rejection and same-chooser ALL repair preserve one protocol value per terminal Observation identity.'
     : statusFieldMode
       ? basicMode
@@ -290,7 +302,10 @@ const assertRelatedIdCandidate = (state) => {
   return candidates;
 };
 const relatedValuesFor = (witness) => statusFieldMode ? witness.observationStatuses : referenceFieldMode ? witness.observationReferences : witness.observationIds;
-const relatedDisplayValuesFor = (witness) => relatedValuesFor(witness).filter((value) => value !== null && value !== undefined).join('; ');
+const relatedDisplayValuesFor = (witness) => {
+  const values = relatedValuesFor(witness).filter((value) => value !== null && value !== undefined);
+  return zeroObservationMode && values.length === 0 ? '—' : values.join('; ');
+};
 const readFixtureNDJSON = async (relativePath) => (await readFile(fileURLToPath(new URL(relativePath, import.meta.url)), 'utf8'))
   .split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line));
 const nativeByRequest = new Map();
@@ -698,6 +713,9 @@ const waitRelatedProposal = async (name, started, expectedRequestPolicy, fromInd
   assert(match.related.route.every((hop, index) => hop.fromResourceType === expectedRelatedRouteTypes[index] &&
     hop.toResourceType === expectedRelatedRouteTypes[index + 1]),
   `The related source proposal lost exact route ${expectedRelatedRouteTypes.join(' → ')}`);
+  if (zeroObservationMode) assert.deepEqual(match.related.route.map(({ fromResourceType, toResourceType, relationship, storageDirection }) =>
+    ({ fromResourceType, toResourceType, relationship, storageDirection })), expectedPatientObservationRoute,
+  'The zero-match proposal must use the exact inbound Patient <-[subject_Patient]- Observation route');
   if (referenceFieldMode) assert.deepEqual(match.related.route.map(({ fromResourceType, toResourceType, relationship, storageDirection }) =>
     ({ fromResourceType, toResourceType, relationship, storageDirection })), expectedReferenceRoute,
   'The nullable-reference repair must retain the exact Specimen→Patient→Observation subject route');
@@ -721,7 +739,7 @@ const waitAdoptedChoicePreview = async (entry, name) => {
   assert.deepEqual(active, { status: 'ready', proposalId }, `${name} must be the active native construction proposal`);
   return proposalId;
 };
-const expand = async (hop, witnesses, expectedRows) => {
+const expand = async (hop, witnesses, expectedRows, sourcePopulationBaseline) => {
   await clickNative(nativePage, '[data-testid="construction-rows-settings-trigger"]');
   await waitForObservable(nativePage, () => document.querySelector('[data-testid="construction-action-related-rows"]')?.disabled === false, 5000);
   await clickNative(nativePage, '[data-testid="construction-action-related-rows"]');
@@ -736,10 +754,50 @@ const expand = async (hop, witnesses, expectedRows) => {
   const proposalFromIndex = report.nativeRequests.length;
   const proposalStarted = Date.now();
   await clickNative(nativePage, `${panel} input[aria-label="${label}"]`);
-  const value = await proposal(`expand-${hop.from}-${hop.to}-preview`, proposalStarted, expectedRows, proposalFromIndex);
+  let rowsFromProposal = expectedRows;
+  let zeroExpandEvidence;
+  let zeroExpansionStepID;
+  if (zeroObservationMode) {
+    const expansionEntry = await waitNative((entry, response) => entry.startedAt >= proposalStarted &&
+      entry.path.endsWith('/construction-proposals') && response?.proposalId, proposalFromIndex);
+    const expansionResponse = protocolResponse(expansionEntry);
+    const expansionStep = expansionEntry.request?.candidateConstruction?.steps?.find((step) =>
+      step.operation?.kind === 'RELATED_EXPAND' && step.operation.relatedExpand?.targetResourceType === 'Observation');
+    assert(expansionStep, 'The direct Patient-root proposal must contain the selected Observation expansion');
+    zeroExpansionStepID = expansionStep.id;
+    assert.equal(expansionStep.operation.relatedExpand.emptyPolicy, 'PRESERVE_PARENT',
+      'The zero-match lifecycle must use the current native RelatedExpand empty policy');
+    const expansionOutput = expansionStep.outputs?.find((output) =>
+      output.id === expansionStep.operation.relatedExpand.relatedRecordColumnId);
+    assert(expansionOutput, 'The PRESERVE_PARENT proposal must expose its nullable Observation identity output');
+    const preview = expansionResponse?.preview;
+    assert.equal(preview?.rowCount, 1, 'The native PRESERVE_PARENT proposal must retain the exact zero-match Patient row');
+    assert.equal(preview?.rows?.length, 1, 'The zero-match proposal must return the retained parent row');
+    const parentColumn = preview.columns.find((column) => column.label === 'Patient ID');
+    assert(parentColumn, 'The proposal must retain the native Patient identity column');
+    assert.equal(preview.rows[0][parentColumn.column], witnesses[0].patient.id,
+      'The native proposal must preserve the exact selected Patient under its current empty policy');
+    assert.equal(preview.rows[0][expansionOutput.name], null,
+      'PRESERVE_PARENT must represent the unmatched related Observation identity as a null value');
+    rowsFromProposal = preview.rows.map((row) => preview.columns.map((column) =>
+      row[column.column] === null || row[column.column] === undefined ? '—' : String(row[column.column])));
+    assert.deepEqual(rowsFromProposal, expectedRows,
+      'The native proposal rows must agree with the independently reread Patient root and zero-edge oracle');
+    zeroExpandEvidence = { emptyPolicy: expansionStep.operation.relatedExpand.emptyPolicy,
+      previewRowCount: preview.rowCount, unmatchedObservationOutputIsNull: true };
+  }
+  const value = await proposal(`expand-${hop.from}-${hop.to}-preview`, proposalStarted, rowsFromProposal, proposalFromIndex);
   assert(report.nativeRequests.slice(proposalFromIndex).some((entry) => protocolResponse(entry)?.proposalId === value.proposalId), 'The displayed expansion preview must match its captured native proposal');
   report.cases.at(-1).witnessCount = witnesses.length;
-  await applyProposal(expectedRows, `expand-${hop.from}-${hop.to}-apply-to-render`);
+  await applyProposal(rowsFromProposal, `expand-${hop.from}-${hop.to}-apply-to-render`);
+  if (zeroObservationMode) {
+    const savedExpansion = doc().construction.steps.find((step) => step.id === zeroExpansionStepID);
+    assert.equal(savedExpansion?.operation.relatedExpand.emptyPolicy, 'PRESERVE_PARENT',
+      'Applying the zero-match expansion must save the proposal’s PRESERVE_PARENT policy');
+    assert.deepEqual(doc().population, sourcePopulationBaseline,
+      'Applying the zero-match expansion must preserve the exact one-Patient source population');
+    report.zeroObservationExpansion = { ...zeroExpandEvidence, savedPolicy: savedExpansion.operation.relatedExpand.emptyPolicy };
+  }
 };
 const openRelatedFieldChooser = async () => {
   const alreadyOpen = await nativePage.locator('[aria-label="Add columns editor"]').count() === 1;
@@ -801,6 +859,8 @@ const openRelatedFieldChooser = async () => {
       Array.isArray(route) && route.length === expectedRelatedRouteTypes.length - 1 &&
       route.every((hop, index) => hop.fromResourceType === expectedRelatedRouteTypes[index] &&
         hop.toResourceType === expectedRelatedRouteTypes[index + 1]) &&
+      (!zeroObservationMode || JSON.stringify(route.map(({ fromResourceType, toResourceType, relationship, storageDirection }) =>
+        ({ fromResourceType, toResourceType, relationship, storageDirection }))) === JSON.stringify(expectedPatientObservationRoute)) &&
       (!referenceFieldMode || JSON.stringify(route.map(({ fromResourceType, toResourceType, relationship, storageDirection }) =>
         ({ fromResourceType, toResourceType, relationship, storageDirection }))) === JSON.stringify(expectedReferenceRoute));
   };
@@ -820,7 +880,10 @@ const openRelatedFieldChooser = async () => {
   assert.equal(selectedChoice.source.nodeId, candidate.nodeId);
   assert.equal(selectedChoice.source.resourceType, 'Observation');
   assert.equal(selectedChoice.source.path, relatedFieldPath);
-  if (!basicMode) assert.deepEqual(selectedChoice.route.map(({ fromResourceType, toResourceType, relationship, storageDirection }) =>
+  if (zeroObservationMode) assert.deepEqual(selectedChoice.route.map(({ fromResourceType, toResourceType, relationship, storageDirection }) =>
+    ({ fromResourceType, toResourceType, relationship, storageDirection })), expectedPatientObservationRoute,
+  'The authorized catalog choice must represent the exact incoming typed Observation edge');
+  else if (!basicMode) assert.deepEqual(selectedChoice.route.map(({ fromResourceType, toResourceType, relationship, storageDirection }) =>
     ({ fromResourceType, toResourceType, relationship, storageDirection })), expectedReferenceRoute,
   'The selected catalog choice must preserve the exact Specimen→Patient→Observation subject route');
   report.relatedFieldCandidate = candidate;
@@ -898,7 +961,112 @@ try {
   let witnesses;
   let selectedMembers;
   let manyWitness;
-  if (basicMode) {
+  let rereadZeroObservationWitness;
+  if (zeroObservationMode) {
+    const patientCandidateLimit = 2000;
+    const zeroWitnessQuery = `
+FOR p IN (
+  FOR scopedPatient IN Patient
+    FILTER scopedPatient.project == ${JSON.stringify(project)}
+      AND scopedPatient.dataset_generation == ${JSON.stringify(generation)}
+      AND scopedPatient.resourceType == "Patient"
+      AND scopedPatient.payload.resourceType == "Patient"
+    SORT scopedPatient.id
+    LIMIT ${patientCandidateLimit}
+    RETURN { id: scopedPatient.id, _id: scopedPatient._id }
+)
+  LET matchingObservations = (
+    FOR edge IN fhir_edge
+      FILTER edge._to == p._id AND edge.from_type == "Observation" AND edge.to_type == "Patient"
+        AND STARTS_WITH(edge._from, "Observation/") AND edge.label == "subject_Patient"
+        AND edge.project == ${JSON.stringify(project)} AND edge.dataset_generation == ${JSON.stringify(generation)}
+      LET observation = DOCUMENT(edge._from)
+      FILTER observation != null AND observation.project == ${JSON.stringify(project)}
+        AND observation.dataset_generation == ${JSON.stringify(generation)}
+        AND observation.resourceType == "Observation"
+        AND observation.payload.resourceType == "Observation"
+      COLLECT observationKey = observation._id
+      RETURN observationKey
+  )
+  FILTER LENGTH(matchingObservations) == 0
+  SORT p.id
+  LIMIT 1
+  RETURN { patient: { id: p.id, _id: p._id, reference: CONCAT("Patient/", p.id) } }
+`;
+    report.oracle = {
+      kind: 'bounded scoped Patient finder for no incoming typed Observation.subject_Patient edge, followed by an exact selected-Patient reread',
+      searchBounds: {
+        patientCandidates: { project, generation, sortedBy: 'id', limit: patientCandidateLimit },
+        edge: { fromResourceType: 'Observation', toResourceType: 'Patient', relationship: 'subject_Patient', storageDirection: 'INBOUND' },
+        targetDocumentScope: { project, generation },
+        authorizationScope: 'local unrestricted project/generation reads; no restricted-auth claim',
+        missingWitnessMeaning: 'No witness in this bounded candidate scan is unavailability, not proof of global absence.',
+      },
+      fixtureAvailability: { zeroIncomingObservationWitnessAvailable: false, patientCandidateLimit },
+      missingWitnessCategories: [],
+    };
+    const [zeroSeed] = rawQuery(zeroWitnessQuery);
+    if (!zeroSeed) {
+      const meaning = `No Patient with zero scoped incoming Observation.subject_Patient edges was found among the first ${patientCandidateLimit} current-generation Patient candidates. This is bounded witness unavailability, not proof of global absence.`;
+      report.oracle.fixtureAvailability.meaning = meaning;
+      report.oracle.missingWitnessCategories.push({ category: 'zero-observation', patientCandidateLimit, meaning });
+      throw new Error(meaning);
+    }
+
+    const exactZeroMembershipQuery = `
+LET patientKey = ${JSON.stringify(zeroSeed.patient._id)}
+LET patient = DOCUMENT(patientKey)
+FILTER patient != null AND patient._id == patientKey
+  AND patient.id == ${JSON.stringify(zeroSeed.patient.id)}
+  AND patient.project == ${JSON.stringify(project)}
+  AND patient.dataset_generation == ${JSON.stringify(generation)}
+  AND patient.resourceType == "Patient"
+  AND patient.payload.resourceType == "Patient"
+LET matchingObservations = (
+  FOR edge IN fhir_edge
+    FILTER edge._to == patient._id AND edge.from_type == "Observation" AND edge.to_type == "Patient"
+      AND STARTS_WITH(edge._from, "Observation/") AND edge.label == "subject_Patient"
+      AND edge.project == ${JSON.stringify(project)} AND edge.dataset_generation == ${JSON.stringify(generation)}
+    LET observation = DOCUMENT(edge._from)
+    FILTER observation != null AND observation.project == ${JSON.stringify(project)}
+      AND observation.dataset_generation == ${JSON.stringify(generation)}
+      AND observation.resourceType == "Observation"
+      AND observation.payload.resourceType == "Observation"
+    COLLECT observationKey = observation._id
+    RETURN observationKey
+)
+RETURN {
+  patient: { id: patient.id, _id: patient._id, reference: CONCAT("Patient/", patient.id) },
+  matchingObservationCount: LENGTH(matchingObservations)
+}
+`;
+    const [exactZero] = rawQuery(exactZeroMembershipQuery);
+    assert(exactZero, 'The exact selected Patient and its project/generation scope must survive the independent reread');
+    assert.equal(exactZero.matchingObservationCount, 0,
+      'The independent exact Patient reread found a scoped incoming Observation.subject_Patient match');
+    assert.equal(exactZero.patient.id, zeroSeed.patient.id, 'The bounded finder and exact Patient reread disagree');
+    assert.equal(exactZero.patient._id, zeroSeed.patient._id, 'The exact Patient identity changed between finder and reread');
+    assert.equal(exactZero.patient.reference, zeroSeed.patient.reference, 'The exact Patient reference changed between finder and reread');
+
+    const witness = {
+      category: 'zero-observation', patient: exactZero.patient,
+      members: [{ id: exactZero.patient.id, _id: exactZero.patient._id,
+        patientReference: exactZero.patient.reference, patient: exactZero.patient }],
+      observationIds: [], observationKeys: [], observationCount: 0,
+      observationStatuses: [], distinctStatusValues: [], expectedContributorRows: 1,
+    };
+    witnesses = [witness];
+    selectedMembers = witness.members;
+    rereadZeroObservationWitness = () => rawQuery(exactZeroMembershipQuery);
+    Object.assign(report.oracle, {
+      exactMembershipScope: { project, generation, rootResourceType: 'Patient', selectedRootCount: 1,
+        incomingObservationEdgeCount: 0, exactRootRereadPerformed: true,
+        authorizationScope: 'unrestricted local Arango scope' },
+      fixtureAvailability: { zeroIncomingObservationWitnessAvailable: true, patientCandidateLimit },
+      witnessSummary: { category: witness.category, rootResourceType: 'Patient', rootCount: 1,
+        distinctIncomingObservationCount: 0 },
+    });
+  } else if (basicMode) {
     const patientCandidateLimit = 2000;
     const basicWitnessQuery = `
 FOR p IN (
@@ -1304,7 +1472,7 @@ FOR s IN Specimen
 
   verificationPhase = 'builder';
   const rootTitle = `${rootResourceType} ID`;
-  const tableTitle = referenceFieldMode ? 'Related Observation specimen reference QA' : statusFieldMode ? 'Related Observation status code QA' : 'Related ID ONE to ALL QA';
+  const tableTitle = zeroObservationMode ? 'Zero Observation related ID ONE to ALL QA' : referenceFieldMode ? 'Related Observation specimen reference QA' : statusFieldMode ? 'Related Observation status code QA' : 'Related ID ONE to ALL QA';
   await api(root, { name: explorer, title: tableTitle });
   builder = await api(`${base}/builder`);
   assert.equal(builder.catalog.generation, generation);
@@ -1332,8 +1500,10 @@ FOR s IN Specimen
   const sourceRows = selectedMembers.map((member) => [member.id]);
   const groupedRows = witnesses.map((witness) => [witness.patient.id, String(witness.expectedContributorRows)]).sort((a, b) => a[0].localeCompare(b[0]));
   const relatedRows = basicMode ? sourceRows : witnesses.flatMap((witness) => witness.members.flatMap((member) => witness.observationIds.length
-    ? witness.observationIds.map((observationId) => [member.id, member.patient.id, observationId])
-    : [[member.id, member.patient.id, '—']])).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
+    ? witness.observationIds.map((observationId) => zeroObservationMode
+      ? [member.id, observationId]
+      : [member.id, member.patient.id, observationId])
+    : [zeroObservationMode ? [member.id, '—'] : [member.id, member.patient.id, '—']])).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
   if (referenceFieldMode) {
     const actualRawRelatedRows = relatedRows.map((row) => JSON.stringify(row)).sort();
     const expectedRawRelatedRows = report.referenceOracleAssertions.rawExpectedRelatedExpansionRows
@@ -1352,24 +1522,27 @@ FOR s IN Specimen
   assert.deepEqual(doc(sourceBaseline).columns.map((column) => column.label), [rootTitle]);
 
   let pipelineRows = sourceRows;
-  const chain = basicMode ? [] : [
-    { from: 'Specimen', to: 'Patient', label: 'subject_Patient', field: 'subject', direction: 'OUTBOUND' },
-    { from: 'Patient', to: 'Observation', label: 'subject_Patient', field: 'subject', direction: 'INBOUND' },
+  const chain = basicMode ? [] : zeroObservationMode
+    ? [{ from: 'Patient', to: 'Observation', label: 'subject_Patient', field: 'subject', direction: 'INBOUND' }]
+    : [
+      { from: 'Specimen', to: 'Patient', label: 'subject_Patient', field: 'subject', direction: 'OUTBOUND' },
+      { from: 'Patient', to: 'Observation', label: 'subject_Patient', field: 'subject', direction: 'INBOUND' },
   ];
   for (let index = 0; index < chain.length; index += 1) {
     const hop = chain[index];
-    const expectedRows = index === 0
+    const firstSpecimenPatientHop = index === 0 && !zeroObservationMode;
+    const expectedRows = firstSpecimenPatientHop
       ? selectedMembers.map((member) => [member.id, member.patient.id])
       : relatedRows;
-    const witnessesForHop = index === 0 ? selectedMembers : witnesses;
-    await expand(hop, witnessesForHop, expectedRows);
+    const witnessesForHop = firstSpecimenPatientHop ? selectedMembers : witnesses;
+    await expand(hop, witnessesForHop, expectedRows, zeroObservationMode ? doc(sourceBaseline).population : undefined);
     pipelineRows = expectedRows;
   }
   assert.equal(pipelineRows.length, relatedRows.length);
   const expandedDoc = doc();
   const populationBeforeGroup = structuredClone(expandedDoc.population);
   const patientExpansion = basicMode ? undefined : expandedDoc.construction?.steps.find((step) => step.operation.kind === 'RELATED_EXPAND' && step.operation.relatedExpand.targetResourceType === 'Patient');
-  const patientGroupOutput = basicMode
+  const patientGroupOutput = basicMode || zeroObservationMode
     ? expandedDoc.columns.find((column) => column.label === rootTitle)
     : patientExpansion?.outputs.find((output) => output.label === 'Patient FHIR resource ID');
   assert(patientGroupOutput, basicMode ? 'The Patient root ID source must remain available as the Group key' : 'The first related expansion must retain the exact Patient ID group key');
@@ -1415,7 +1588,39 @@ FOR s IN Specimen
   const beforeOne = await api(`${base}/builder`);
   assert.deepEqual(doc(beforeOne).construction, groupedBaseline.construction);
   assert.deepEqual(doc(beforeOne).population, groupedBaseline.population);
-  if (basicMode) {
+  if (zeroObservationMode) {
+    await selectRelatedPolicy('ONE');
+    const oneStarted = Date.now();
+    const oneFromIndex = report.nativeRequests.length;
+    await clickAddRelated();
+    const oneProposal = await waitRelatedProposal('zero-observation-one-preview', oneStarted, 'ONE', oneFromIndex);
+    const oneResponse = protocolResponse(oneProposal);
+    assert.equal(oneProposal.status, 200, JSON.stringify(oneProposal.response));
+    assert.equal(oneResponse.previewStatus, 'READY', JSON.stringify(oneProposal.response));
+    await waitAdoptedChoicePreview(oneProposal, 'Zero Observation ONE proposal');
+    const oneRelatedStep = relatedSourceProposalCandidate({ ...oneProposal, response: oneResponse }, {
+      candidateId: report.relatedFieldCandidate?.candidateId, resourceType: 'Observation', path: 'id',
+    })?.step;
+    assert(oneRelatedStep, 'The zero-match ONE proposal must retain the selected Observation.id RELATED_SOURCE step');
+    const oneOutput = oneRelatedStep.outputs.find((candidate) => candidate.id === oneRelatedStep.operation.relatedSource.outputColumnId);
+    assert(oneOutput, 'The zero-match ONE proposal must expose its related ID output');
+    assert.equal(oneResponse.preview?.rowCount, 1, 'ONE must preserve the grouped Patient row when the exact raw route has no Observation matches');
+    const oneRow = oneResponse.preview.rows.find((row) => row[groupKeyName] === witnesses[0].patient.id);
+    assert(oneRow, 'The zero-match ONE preview omitted the exact scoped Patient root');
+    assert.equal(oneRow[oneOutput.name], null,
+      'The typed nullable ONE source must return null for zero matching Observation values');
+    report.zeroObservationOne = { status: oneProposal.status, previewStatus: oneResponse.previewStatus,
+      rowCount: oneResponse.preview.rowCount, nullableValueIsNull: true };
+
+    const cancelOneStarted = Date.now();
+    await cancelColumnProposal();
+    await rendered(groupedRows);
+    assert.deepEqual((await api(`${base}/builder`)).workspace, groupedWorkspace,
+      'Canceling zero-match ONE must preserve the exact grouped source workspace');
+    record('cancel-zero-observation-one-preserves-group', cancelOneStarted);
+    await openRelatedFieldChooser();
+    await selectRelatedPolicy('ALL');
+  } else if (basicMode) {
     await selectRelatedPolicy('ONE');
     const oneStarted = Date.now();
     const oneFromIndex = report.nativeRequests.length;
@@ -1517,6 +1722,13 @@ FOR s IN Specimen
   for (const witness of witnesses) {
     const proposed = proposedValues.find((row) => row.patientReference === witness.patient.id);
     assert(proposed, `Native preview omitted ${witness.category} witness ${witness.patient.reference}`);
+    if (zeroObservationMode) {
+      assert(Array.isArray(proposed.values), 'The typed ALL output must remain an array when its exact raw route has zero terminals');
+      assert.equal(proposed.values.length, 0,
+        'The typed ALL output must contain no fabricated value when the exact raw route has zero terminals');
+      report.zeroObservationAll = { previewStatus: firstAllResponse.previewStatus, previewValueIsEmptyArray: true,
+        sourceContract: 'RELATED_SOURCE ALL returns a typed array subplan with empty-on-null behavior when no terminal record matches' };
+    }
     if (referenceFieldMode) {
       assert.equal(proposed.values.length, witness.observationKeys.length,
         'ALL must return one protocol value per distinct terminal Observation identity');
@@ -1578,7 +1790,10 @@ FOR s IN Specimen
   assert.equal(related.rowValuePolicy ?? 'ALL', 'ALL', 'The saved related source must retain the selected grouped-row ALL policy');
   assert.deepEqual(related.route.map((hop) => [hop.fromResourceType, hop.toResourceType]),
     expectedRelatedRouteTypes.slice(0, -1).map((resourceType, index) => [resourceType, expectedRelatedRouteTypes[index + 1]]));
-  if (!basicMode) assert.deepEqual(related.route.map(({ fromResourceType, toResourceType, relationship, storageDirection }) =>
+  if (zeroObservationMode) assert.deepEqual(related.route.map(({ fromResourceType, toResourceType, relationship, storageDirection }) =>
+    ({ fromResourceType, toResourceType, relationship, storageDirection })), expectedPatientObservationRoute,
+  'The saved RELATED_SOURCE must retain the exact inbound typed Observation edge');
+  else if (!basicMode) assert.deepEqual(related.route.map(({ fromResourceType, toResourceType, relationship, storageDirection }) =>
     ({ fromResourceType, toResourceType, relationship, storageDirection })), expectedReferenceRoute,
   'The saved RELATED_SOURCE must retain the exact Specimen→Patient→Observation subject route');
   const output = savedRelatedStep.outputs.find((candidate) => candidate.id === related.outputColumnId);
@@ -1842,6 +2057,15 @@ FOR s IN Specimen
     assert.equal(Object.hasOwn(row, relatedColumn.column), false, `${witness.category} restored row still contains the removed related value`);
   }
 
+  if (zeroObservationMode) {
+    const [finalWitness] = rereadZeroObservationWitness();
+    assert(finalWitness, 'The selected Patient disappeared during the native lifecycle');
+    assert.equal(finalWitness.matchingObservationCount, 0,
+      'The independent exact Patient reread found an incoming Observation edge after the native lifecycle');
+    assert.equal(finalWitness.patient.id, witnesses[0].patient.id,
+      'The exact scoped Patient identity changed during the native lifecycle');
+    report.oracle.finalScopedRereadMatched = true;
+  }
   if (referenceFieldMode) {
     const [finalReference] = rawQuery(report.oracle.exactMembershipQuery);
     assert(finalReference, 'The pinned source witness disappeared during the native lifecycle');
@@ -1871,9 +2095,12 @@ FOR s IN Specimen
     });
   }
   const unexpectedHttp = report.nativeRequests.filter((entry) => entry.status >= 400 && !expectedHttpFailures.includes(entry));
-  assert.equal(expectedHttpFailures.length, basicMode ? 0 : 1, basicMode
+  const expectedOneFailureCount = basicMode || zeroObservationMode ? 0 : 1;
+  assert.equal(expectedHttpFailures.length, expectedOneFailureCount, basicMode
     ? 'The exact single-Observation basic witness must permit ONE'
-    : 'Exactly one raw-oracle-predicted ONE disagreement is expected');
+    : zeroObservationMode
+      ? 'The exact zero-Observation root must permit ONE with the nullable result defined by the source contract'
+      : 'Exactly one raw-oracle-predicted ONE disagreement is expected');
   assert.deepEqual(unexpectedHttp, [], 'No unexpected browser HTTP errors are allowed');
   assert.deepEqual(report.errors.filter((error) => error.expectedOwnerCancellation !== true && error.expectedValidation !== true), [],
     'No unexpected browser runtime, console, network, or module errors are allowed');
@@ -1890,7 +2117,7 @@ FOR s IN Specimen
   assert.deepEqual(cda.diagnostics.console, [], 'Playwright observed an unexpected application console error');
   assert(report.protectedExplorerUntouched, `A request unexpectedly targeted protected Explorer ${protectedExplorer}`);
   report.relatedFieldLifecycle = 'passed';
-  if (!basicMode) report.repairStatus = 'passed';
+  if (!basicMode && !zeroObservationMode) report.repairStatus = 'passed';
   if ((report.oracle.missingWitnessCategories ?? []).length > 0) {
     const categories = report.oracle.missingWitnessCategories.map(({ category }) => category);
     report.status = 'unverified';
@@ -1988,8 +2215,19 @@ FOR s IN Specimen
   cda.report.standaloneCdaRows = report;
   await cda.attachReport('standalone-cda-related-one-all.json', report);
   if (report.status === 'passed' || (report.status === 'unverified' && report.relatedFieldLifecycle === 'passed')) {
-    cda.check('correctness', 'related ONE/ALL lifecycle preserves exact raw-source values and row identities', true, {
-      mode, fieldMode, cases: report.cases.map(({ name }) => name),
+    const checkName = zeroObservationMode
+      ? 'zero Patient Observation ONE/ALL preserves the exact scoped parent through the native lifecycle'
+      : 'related ONE/ALL lifecycle preserves exact raw-source values and row identities';
+    cda.check('correctness', checkName, true, {
+      mode, fieldMode, witnessMode, cases: report.cases.map(({ name }) => name),
+      ...(zeroObservationMode ? {
+        scopedZeroMatch: report.oracle.finalScopedRereadMatched === true,
+        emptyPolicy: report.zeroObservationExpansion?.savedPolicy,
+        oneValueIsNull: report.zeroObservationOne?.nullableValueIsNull === true,
+        allValueIsEmptyArray: report.zeroObservationAll?.previewValueIsEmptyArray === true,
+        parentRowCount: report.oracle.witnessSummary?.rootCount,
+        expectedOneValidationCount: 0,
+      } : {}),
       exactRawOracle: true, oneValidationCount: report.nativeRequests.filter(entry => entry.status === 422).length,
     });
   }

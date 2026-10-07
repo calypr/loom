@@ -1927,6 +1927,48 @@ export const registry = Object.freeze([
     ],
   }),
   Object.freeze({
+    id: 'cda-related-one-all-zero-observation',
+    workflow: 'cda-related-source-one-all-null-preserving-lifecycle',
+    hooks: [
+      'useGetExplorerBuilderStateV2Query',
+      'useApplyExplorerBuilderCommandsV2Mutation',
+      'useReconcileExplorerBuilderV2Mutation',
+      'usePreviewExplorerAuthoringV2Mutation',
+    ],
+    endpoints: [
+      'POST /api/v1/projects/{project}/explorers',
+      'GET /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/builder',
+      'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/commands',
+      'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/population-routes',
+      'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/construction-choices',
+      'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/construction-proposals',
+      'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/reconcile',
+      'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/preview',
+    ],
+    requiredTransitions: [
+      'bound the Patient→Observation raw oracle to the exact project and generation and prove the selected Patient has zero inbound typed Observation.subject_Patient edges',
+      'preserve that exact selected Patient through native ONE, ALL, Cancel, Apply, reload, removal, restoration, and final raw reread',
+    ],
+    gateReasons: [
+      'the case requires the explicitly owned CDA project, pinned cda-fhir-v1 generation, API/UI stack, and validated Arango container',
+      'the bounded raw oracle is limited to the first 2,000 current-generation scoped Patients, and exact selected-Patient rereads prove zero inbound typed Observation.subject_Patient edges',
+      'registration does not establish browser coverage; coverage remains untested until this exact native case passes',
+    ],
+    script: 'verify-cda-related-one-all-browser.mjs',
+    cases: {
+      'zero-patient-observation-one-all-stable-parent-lifecycle': {
+        playwrightTest: 'scripts/verify-ui/specs/standalone-cda-rows.spec.mjs',
+        requiredChecks: [
+          'zero Patient Observation ONE/ALL preserves the exact scoped parent through the native lifecycle',
+          'CDA watched source and API build stayed unchanged',
+        ],
+      },
+    },
+    coverage: [
+      { feature: 'zero Observation Patient ONE/ALL and exact parent restoration through the native lifecycle', status: 'untested', reason: 'The bounded raw witness and native case are staged; no browser lifecycle has run against the exact scoped zero-match Patient.' },
+    ],
+  }),
+  Object.freeze({
     id: 'cda-contributor-exists',
     workflow: 'native-cda-contributor-exists-lifecycle',
     hooks: [],
