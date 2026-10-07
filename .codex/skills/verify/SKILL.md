@@ -192,11 +192,43 @@ discovery and compilation. More than five seconds on CDA fails performance.
 Expected validation errors must offer an understandable repair path;
 INTERNAL_ERROR always fails. Record incidental asset errors explicitly.
 
+### Performance escalation
+
+Classify functional correctness and performance independently. A timeout or
+latency-budget miss is a performance failure; it does not prove an unsupported
+operation or a functional bug. If execution never returns, correctness remains
+unverified. A wrong result, crash, or broken control still needs a functional
+regression even when it also causes excessive work.
+
+Confirm timing failures serially on stable source and the same scoped data.
+Separate browser wait, compilation, index preparation, query execution, and
+render time before choosing a fix. Try a low-cost correction when evidence
+identifies redundant work, a missing index, or another local cause. Compare the
+same operation before and after with unchanged population, authorization,
+limits, and correctness checks.
+
+After two measured local corrections miss the same budget, stop hill climbing
+and profile the execution structure before another rewrite. Escalate sooner
+when scans, fan-out, large intermediates, or memory limits already show a
+structural cost. Record actual scoped input and intermediate cardinalities,
+phase timings, selected indexes, scanned rows, peak memory, and repeated work.
+Distinguish backend execution from diagnostic cursor-draining overhead;
+index-entry counts are not automatically population counts. Use the existing
+owned query probe and retained query/bind artifacts. Mark unavailable measures
+unknown rather than inferring them from EXPLAIN estimates.
+
+Use that profile to compare execution strategies and their expected cost before
+implementing the next candidate. Preserve null/missing values, empty parents,
+multiplicity, membership, authorization, project, and generation semantics.
+Do not hide controls, add filters, lengthen waits, or raise resource limits to
+make the existing performance gate pass. Validate candidate correctness and
+performance separately, then rerun the same complete browser lifecycle.
+
 Build an integrated change before updating the shared stack. Freeze watched
 source throughout browser verification; workers prepare incomplete edits in an
-isolated checkout. A source/binary change invalidates the run. After failure,
+isolated checkout. A source/binary change invalidates the run. After a functional failure,
 inspect the actual response and exception, fix the owning boundary, health-check,
-and repeat from a fresh page. Do not declare the UI fixed while unfinished edits
+and repeat from a fresh page. Route timing failures through performance escalation. Do not declare the UI fixed while unfinished edits
 are still breaking its build.
 
 Use the existing single Docker stack and loaded CDA data when requested; discover
