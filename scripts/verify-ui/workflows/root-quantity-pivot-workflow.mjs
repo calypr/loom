@@ -42,6 +42,195 @@ export function assertProposalPanelHeaders(actualHeaders, columns, label) {
   assert.deepEqual(actualHeaders, expectedHeaders, `${label} proposal headers must show the exact native labels and logical types`);
 }
 
+export function classifyRootQuantityPivotValidationConsoleBatch({
+  validations,
+  authoringRequests,
+  workflowErrors,
+  fixtureNetwork,
+  fixtureErrors,
+  fixtureConsoleDiagnostics,
+  project,
+  explorer,
+  outputId,
+  origin,
+  initialDraft,
+  duplicateWitness,
+}) {
+  const route = `/api/v1/projects/${project}/explorers/${explorer}/authoring/v2/construction-proposals`;
+  const url = `${origin.replace(/\/$/, '')}${route}`;
+  const consoleMessage = 'Failed to load resource: the server responded with a status of 422 (Unprocessable Entity)';
+  const code = 'TABLE_PIVOT_CELL_CARDINALITY';
+  const expectedRequestIDs = (validations ?? []).map(validation => validation.requestId);
+  assert.equal(expectedRequestIDs.length, 2, 'Full-population Pivot must have exactly two previously validated ERROR proposals');
+  assert(expectedRequestIDs.every(id => typeof id === 'string' && id.length > 0), 'Each expected validation must have a request ID');
+  assert.equal(new Set(expectedRequestIDs).size, 2, 'Expected validation request IDs must be unique');
+  assert(duplicateWitness?.present === true && typeof duplicateWitness.value === 'string', 'Expected validation batch needs the raw present-string duplicate witness');
+  assert(duplicateWitness.rowCount > 1 && duplicateWitness.numericCount > 1
+    && Math.abs(duplicateWitness.valueSum - duplicateWitness.valueMax) > 1e-9,
+  'Expected validation batch needs the independent repeated-numeric raw bucket');
+  assert(initialDraft && typeof initialDraft.snapshotToken === 'string'
+    && Number.isInteger(initialDraft.draftVersion) && typeof initialDraft.draftDigest === 'string',
+  'Expected validation batch needs the original saved draft identity');
+
+  const expectedBucket = {
+    status: duplicateWitness.status,
+    category: JSON.stringify({ kind: 'STRING', string: duplicateWitness.value }),
+    rowCount: duplicateWitness.rowCount,
+    numericCount: duplicateWitness.numericCount,
+    sum: duplicateWitness.valueSum,
+    max: duplicateWitness.valueMax,
+  };
+  const proposalFailures = authoringRequests.filter(request => request.endpoint === 'construction-proposals' && request.status >= 400);
+  assert.deepEqual(proposalFailures.map(request => request.requestId).sort(), [...expectedRequestIDs].sort(),
+    'The only failed native proposal requests must be the two explicitly expected validations');
+  const validatedRequests = expectedRequestIDs.map(requestId => {
+    const matches = authoringRequests.filter(request => request.requestId === requestId);
+    assert.equal(matches.length, 1, `Expected validation ${requestId} must match one native captured request`);
+    const request = matches[0];
+    const validation = validations.find(item => item.requestId === requestId);
+    assert.equal(request.method, 'POST');
+    assert.equal(request.origin, origin);
+    assert.equal(request.path, route, 'Expected validation must use the exact owned proposal route');
+    assert.equal(request.status, 422);
+    assert(Number.isFinite(request.startedAt) && Number.isFinite(request.completedAt) && request.completedAt > request.startedAt,
+      `Expected validation ${requestId} must have a completed response capture`);
+    assert.equal(request.requestId, request.serverRequestId, 'Proposal request ID must match its response request ID');
+    assert.equal(validation.backendRequestId, request.requestId);
+    assert.equal(validation.code, code);
+    assert.equal(validation.duplicatePolicy, 'ERROR');
+    assert.equal(validation.project, project);
+    assert.equal(validation.explorer, explorer);
+    assert.equal(validation.outputId, outputId);
+    assert.equal(validation.snapshotToken, initialDraft.snapshotToken);
+    assert.equal(validation.draftVersion, initialDraft.draftVersion);
+    assert.deepEqual(validation.rawDuplicateBucket, expectedBucket, 'Expected validation must retain the exact independent raw duplicate bucket');
+    assert.equal(validation.classification, 'expected-domain-validation-repaired-by-user-selected-SUM');
+    assert.equal(validation.visibleRepair?.policy, 'ERROR');
+    assert.equal(validation.visibleRepair?.alert, request.response?.error?.message);
+    assert.deepEqual(validation.visibleRepair?.sumOption, { label: 'Add them together', disabled: false });
+    assert.match(validation.visibleRepair?.summary ?? '', /duplicate values: stop the pivot with an error/i);
+
+    const body = request.body;
+    assert.equal(body?.outputId, outputId);
+    assert.equal(body?.snapshotToken, initialDraft.snapshotToken);
+    assert.equal(body?.expectedDraftVersion, initialDraft.draftVersion);
+    assert.equal(body?.expectedDraftDigest, initialDraft.draftDigest, 'Expected validation must use the exact saved draft digest');
+    const steps = body?.candidateConstruction?.steps ?? [];
+    assert.equal(steps.length, 1, 'Rejected candidate must contain exactly one construction step');
+    assert.equal(body.changedStepId, steps[0].id);
+    assert.equal(steps[0].operation?.kind, 'PIVOT');
+    const pivot = steps[0].operation.pivot;
+    assert.equal(pivot.duplicatePolicy, 'ERROR', 'Expected rejection must be authored with duplicate policy ERROR');
+    assert.equal(pivot.groupKeyIds?.length, 1);
+    assert.equal(typeof pivot.categoryColumnId, 'string');
+    assert.equal(typeof pivot.valueColumnId, 'string');
+    assert(pivot.categories?.some(category => JSON.stringify(category.key) === expectedBucket.category),
+      'Rejected Pivot must include the raw duplicate category');
+    const expectedColumnIDs = [...pivot.groupKeyIds, pivot.categoryColumnId, pivot.valueColumnId].sort();
+    const sourceColumnIDs = (body.pivotSources ?? []).map(source => source.columnId).sort();
+    assert.equal(sourceColumnIDs.length, 3);
+    assert.deepEqual(sourceColumnIDs, expectedColumnIDs, 'Rejected Pivot source bindings must exactly cover the group, category, and value columns');
+
+    const response = request.response;
+    assert.equal(response?.error?.code, code);
+    assert.equal(response?.error?.requestId, request.requestId);
+    assert.equal(response?.error?.diagnostic?.code, code);
+    assert.equal(response?.error?.diagnostic?.requestId, request.requestId, 'Response diagnostic must identify the exact proposal request');
+    assert.equal(response?.error?.diagnostic?.stage, 'preview');
+    assert.equal(response?.error?.diagnostic?.severity, 'error');
+    assert.deepEqual(response?.diagnostics, [response.error.diagnostic], 'Expected response must contain only its exact cardinality diagnostic');
+    return { requestId, request, validation, message: response.error.message };
+  });
+
+  const localConsoleIndexes = workflowErrors.flatMap((error, index) =>
+    error.kind === 'console' && error.location === url && error.message === consoleMessage ? [index] : []);
+  assert.equal(localConsoleIndexes.length, 2, 'The local browser capture must contain exactly two console events at the exact owned 422 route');
+  const localHTTPIndexes = workflowErrors.flatMap((error, index) =>
+    error.kind === 'http' && error.url === url && error.status === 422 ? [index] : []);
+  assert.equal(localHTTPIndexes.length, 2, 'The local browser capture must contain exactly two matching HTTP 422 records');
+  for (const item of validatedRequests) {
+    const matches = localHTTPIndexes.map(index => workflowErrors[index])
+      .filter(error => error.requestId === item.requestId && error.browserRequestId === item.request.browserRequestId);
+    assert.equal(matches.length, 1, `Local HTTP record must bind to exact request ${item.requestId}`);
+  }
+
+  const fixtureRequestNetworkIndexes = fixtureNetwork.flatMap((entry, index) =>
+    entry.kind === 'network' && entry.status === 422 && entry.method === 'POST' && entry.url === url ? [index] : []);
+  assert.equal(fixtureRequestNetworkIndexes.length, 2, 'Fixture network diagnostics must contain exactly the two scoped POST 422 requests');
+  const fixtureConsoleNetworkIndexes = fixtureNetwork.flatMap((entry, index) =>
+    entry.kind === 'console-error' && entry.location === url && entry.text === consoleMessage ? [index] : []);
+  assert.equal(fixtureConsoleNetworkIndexes.length, 2, 'Fixture network diagnostics must contain exactly two matching console events');
+  const fixtureDiagnosticConsoleIndexes = fixtureConsoleDiagnostics.flatMap((entry, index) =>
+    entry.location === url && entry.text === consoleMessage ? [index] : []);
+  assert.equal(fixtureDiagnosticConsoleIndexes.length, 2, 'Fixture console diagnostics must retain exactly two matching console events');
+
+  const fixtureConsoleErrorIndexes = fixtureErrors.flatMap((entry, index) =>
+    entry.kind === 'console' && entry.location === url && entry.message === consoleMessage ? [index] : []);
+  const fixtureConsoleErrorDiagnosticIndexes = fixtureErrors.flatMap((entry, index) =>
+    entry.kind === 'console-error' && entry.location === url && entry.text === consoleMessage ? [index] : []);
+  assert.equal(fixtureConsoleErrorIndexes.length, 1, 'Fixture error ledger must retain its single matching generic console event');
+  assert.equal(fixtureConsoleErrorDiagnosticIndexes.length, 2, 'Fixture error ledger must retain exactly the two matching console diagnostics');
+  const fixtureHTTPIndexes = fixtureErrors.flatMap((entry, index) =>
+    entry.kind === 'http' && entry.url === url && entry.status === 422 ? [index] : []);
+  assert.equal(fixtureHTTPIndexes.length, 1, 'Fixture error ledger must retain its single deduplicated matching HTTP response event');
+  const fixtureRequestErrorIndexes = fixtureErrors.flatMap((entry, index) =>
+    entry.kind === 'network' && entry.url === url && entry.method === 'POST' && entry.status === 422 ? [index] : []);
+
+  const fixtureRequestPairs = validatedRequests.map(item => {
+    const networkIndexes = fixtureRequestNetworkIndexes.filter(index => fixtureNetwork[index].requestId === item.requestId);
+    assert.equal(networkIndexes.length, 1, `Fixture network request must bind to exact response ${item.requestId}`);
+    const networkEntry = fixtureNetwork[networkIndexes[0]];
+    assert.equal(networkEntry.requestDetails?.requestId, item.requestId);
+    assert.equal(networkEntry.requestDetails?.draftVersion, initialDraft.draftVersion);
+    assert.equal(networkEntry.requestDetails?.draftDigest, initialDraft.draftDigest);
+    assert.equal(networkEntry.requestDetails?.outputId, outputId);
+    assert.equal(networkEntry.responseBody?.captureState, 'completed');
+    assert.deepEqual(JSON.parse(networkEntry.responseBody.body), item.request.response,
+      'Fixture response body must match the locally captured and validated proposal response');
+    const playwrightRequestId = networkEntry.playwrightRequestId;
+    assert.equal(typeof playwrightRequestId, 'string');
+    assert.notEqual(playwrightRequestId, item.request.browserRequestId,
+      'Fixture and workflow captures keep their separately assigned request IDs distinct');
+    const httpIndexes = fixtureHTTPIndexes.filter(index => fixtureErrors[index].playwrightRequestId === playwrightRequestId);
+    const requestErrorIndexes = fixtureRequestErrorIndexes.filter(index => fixtureErrors[index].playwrightRequestId === playwrightRequestId);
+    assert(httpIndexes.length <= 1, `Fixture HTTP ledger must not duplicate proposal ${item.requestId}`);
+    assert.equal(requestErrorIndexes.length, 1, `Fixture error ledger must retain one network error for proposal ${item.requestId}`);
+    return {
+      requestId: item.requestId,
+      browserRequestId: item.request.browserRequestId,
+      playwrightRequestId,
+      networkIndex: networkIndexes[0],
+      httpIndexes,
+      requestErrorIndexes,
+    };
+  });
+  const knownFixturePlaywrightRequestIDs = new Set(fixtureRequestPairs.map(pair => pair.playwrightRequestId));
+  for (const index of [...fixtureHTTPIndexes, ...fixtureRequestErrorIndexes]) {
+    const error = fixtureErrors[index];
+    assert(knownFixturePlaywrightRequestIDs.has(error.playwrightRequestId),
+      'Every scoped fixture HTTP/network error must bind to one of the two validated proposal requests');
+  }
+
+  return {
+    route,
+    url,
+    code,
+    status: 422,
+    requestIDs: validatedRequests.map(item => item.requestId),
+    fixtureRequestPairs,
+    localConsoleIndexes,
+    localHTTPIndexes,
+    fixtureRequestNetworkIndexes,
+    fixtureConsoleNetworkIndexes,
+    fixtureDiagnosticConsoleIndexes,
+    fixtureConsoleErrorIndexes,
+    fixtureConsoleErrorDiagnosticIndexes,
+    fixtureHTTPIndexes,
+    fixtureRequestErrorIndexes,
+    association: 'The two console events have no request IDs; only the exact two-event route/message/status multiset is associated with the two independently validated request IDs.',
+  };
+}
+
 export function authoringRequestsFromNative(nativeRequests, requestCapture) {
   const endpoints = new Set(['construction-capabilities', 'construction-category-discoveries', 'construction-proposals', 'commands', 'reconcile', 'preview']);
   return nativeRequests
@@ -175,7 +364,8 @@ const selectOption = async (page, selector, value, { settledWhen } = {}) => {
 const syncAuthoringRequests = () => {
   report.authoringRequests.splice(0, report.authoringRequests.length, ...authoringRequestsFromNative(report.nativeRequests, browserRequestCapture));
   report.browserErrors.runtime = report.errors.filter(error => error.kind === 'runtime');
-  report.browserErrors.console = report.errors.filter(error => error.kind === 'console');
+  report.browserErrors.console = report.errors.filter(error =>
+    error.kind === 'console' && error.expectedRootQuantityPivotValidation !== true);
   const ownedFailures = report.nativeRequests.filter(request => request.failure).map(request => ({ pathname: request.path, errorText: request.failure, canceled: request.failure === 'net::ERR_ABORTED' }));
   const allFailures = browserNetworkFailures.map(failure => ({ pathname: new URL(failure.url, apiOrigin).pathname, errorText: failure.failure, canceled: failure.failure === 'net::ERR_ABORTED' }));
   report.browserErrors.network = [...ownedFailures, ...allFailures.filter(failure => !ownedFailures.some(owned => owned.pathname === failure.pathname && owned.errorText === failure.errorText))];
@@ -1354,6 +1544,11 @@ const runFullPopulationLifecycle = async (discovery, oracle, prePivotWorkspace, 
       projectionMode: 'VALUE', initialPresentation: 'TABLE', title: 'Quantity Value' });
   }
   for (const rootColumn of rootColumns) await command([rootColumn]);
+  const initialDraftIdentity = {
+    snapshotToken: builder.catalog.snapshotToken,
+    draftVersion: builder.draftVersion,
+    draftDigest: builder.draftDigest,
+  };
 
   browserRequestCapture = captureCDARequests(page, {
     apiOrigin: uiOrigin,
@@ -1558,6 +1753,99 @@ const editor=document.querySelector('[data-testid="construction-reshape-pivot"]'
     } else if (mode === 'full-population-lifecycle') {
       await runFullPopulationLifecycle(discovery, oracle, prePivotWorkspace, prePivotDocument, requestOffset);
       await drainResponseReads();
+      await context.flushHttpDiagnostics({ timeoutMs: 5_000 });
+      context.includeBrowserDiagnostics();
+      const validationBatch = classifyRootQuantityPivotValidationConsoleBatch({
+        validations: report.expectedAuthoringValidations,
+        authoringRequests: report.authoringRequests,
+        workflowErrors: report.errors,
+        fixtureNetwork: nativeReport.network,
+        fixtureErrors: nativeReport.errors,
+        fixtureConsoleDiagnostics: context.diagnostics?.console ?? [],
+        project,
+        explorer,
+        outputId,
+        origin: uiOrigin,
+        initialDraft: initialDraftIdentity,
+        duplicateWitness: oracle.duplicateWitness,
+      });
+      const batchEvidence = {
+        kind: 'expected-root-quantity-pivot-validation-console-batch',
+        project,
+        explorer,
+        route: validationBatch.route,
+        status: validationBatch.status,
+        code: validationBatch.code,
+        duplicatePolicy: 'ERROR',
+        outputId,
+        snapshotToken: initialDraftIdentity.snapshotToken,
+        draftVersion: initialDraftIdentity.draftVersion,
+        draftDigest: initialDraftIdentity.draftDigest,
+        rawDuplicateBucket: {
+          status: oracle.duplicateWitness.status,
+          category: JSON.stringify({ kind: 'STRING', string: oracle.duplicateWitness.value }),
+          rowCount: oracle.duplicateWitness.rowCount,
+          numericCount: oracle.duplicateWitness.numericCount,
+          sum: oracle.duplicateWitness.valueSum,
+          max: oracle.duplicateWitness.valueMax,
+        },
+        requestIDs: validationBatch.requestIDs,
+        fixtureRequestPairs: validationBatch.fixtureRequestPairs,
+        consoleEventCount: validationBatch.fixtureConsoleNetworkIndexes.length,
+        consoleEventsHaveRequestIDs: false,
+        association: validationBatch.association,
+      };
+      const requestEvidence = new Map(validationBatch.fixtureRequestPairs.map(pair => [pair.requestId, {
+        ...batchEvidence,
+        requestId: pair.requestId,
+        browserRequestId: pair.browserRequestId,
+        playwrightRequestId: pair.playwrightRequestId,
+      }]));
+      for (const index of validationBatch.localConsoleIndexes) {
+        Object.assign(report.errors[index], {
+          expected: true,
+          expectedRootQuantityPivotValidation: true,
+          expectedHttpFailureBatch: batchEvidence,
+        });
+      }
+      for (const index of validationBatch.localHTTPIndexes) {
+        const error = report.errors[index];
+        Object.assign(error, {
+          expected: true,
+          expectedRootQuantityPivotValidation: true,
+          expectedHttpFailureBatch: requestEvidence.get(error.requestId),
+        });
+      }
+      for (const pair of validationBatch.fixtureRequestPairs) {
+        for (const index of [pair.networkIndex]) {
+          Object.assign(nativeReport.network[index], {
+            expected: true,
+            expectedHttpFailure: requestEvidence.get(pair.requestId),
+          });
+        }
+        for (const index of [...pair.httpIndexes, ...pair.requestErrorIndexes]) {
+          Object.assign(nativeReport.errors[index], {
+            expected: true,
+            expectedHttpFailure: requestEvidence.get(pair.requestId),
+          });
+        }
+      }
+      for (const index of [...validationBatch.fixtureConsoleNetworkIndexes]) {
+        Object.assign(nativeReport.network[index], {
+          expected: true,
+          expectedHttpFailure: batchEvidence,
+        });
+      }
+      for (const index of validationBatch.fixtureDiagnosticConsoleIndexes) {
+        Object.assign(context.diagnostics.console[index], { expected: true, expectedHttpFailure: batchEvidence });
+      }
+      for (const index of [...validationBatch.fixtureConsoleErrorIndexes, ...validationBatch.fixtureConsoleErrorDiagnosticIndexes]) {
+        Object.assign(nativeReport.errors[index], { expected: true, expectedHttpFailure: batchEvidence });
+      }
+      report.fullPopulationLifecycle.expectedValidationConsoleBatch = batchEvidence;
+      nativeReport.expectedHttpFailureBatches ??= [];
+      nativeReport.expectedHttpFailureBatches.push(batchEvidence);
+      syncAuthoringRequests();
       assert.deepEqual(report.browserErrors.runtime, [], `Browser runtime exceptions after full lifecycle: ${JSON.stringify(report.browserErrors.runtime)}`);
       assert.deepEqual(report.browserErrors.console, [], `Browser console errors after full lifecycle: ${JSON.stringify(report.browserErrors.console)}`);
       const finalNetworkFailures = report.browserErrors.network.filter(failure => !failure.canceled);

@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
-import { pivotSourceSelectionReady } from '../../workflows/root-quantity-pivot-workflow.mjs';
+import { includeBrowserDiagnostics } from '../cda-playwright.mjs';
+import {
+  classifyRootQuantityPivotValidationConsoleBatch,
+  pivotSourceSelectionReady,
+} from '../../workflows/root-quantity-pivot-workflow.mjs';
 
 const installDocument = ({ controls, checkboxes = [] }) => {
   const previous = globalThis.document;
@@ -78,4 +82,236 @@ test('workflow times the role-aware selection postcondition instead of requiring
   assert.match(workflow, /after:\s*\(\)\s*=>\s*waitForObservable\(page,\s*pivotSourceSelectionReady/);
   assert.match(workflow, /const selectPivotSource = async \(label, path\) =>[\s\S]*?await action\(/);
   assert.doesNotMatch(workflow, /const selectPivotSource = async \(label, path\) =>[\s\S]*?await selectNative\(page, selector, matches\[0\]\.value\)/);
+});
+
+test('live fixture diagnostics are projected before batch classification and repeated teardown projection is idempotent', async () => {
+  const workflow = await readFile(new URL('../../workflows/root-quantity-pivot-workflow.mjs', import.meta.url), 'utf8');
+  const fullPopulationLifecycle = workflow.slice(workflow.indexOf('await runFullPopulationLifecycle('));
+  assert.match(fullPopulationLifecycle,
+    /await drainResponseReads\(\);\s*await context\.flushHttpDiagnostics\(\{ timeoutMs: 5_000 \}\);\s*context\.includeBrowserDiagnostics\(\);\s*const validationBatch = classifyRootQuantityPivotValidationConsoleBatch\(/);
+
+  const message = 'Failed to load resource: the server responded with a status of 422 (Unprocessable Entity)';
+  const url = 'http://127.0.0.1:30008/api/v1/projects/loom_dev_cda_fhir/explorers/root-quantity-category-test/authoring/v2/construction-proposals';
+  const diagnostics = {
+    pageErrors: [],
+    console: [
+      { text: message, location: url },
+      { text: message, location: url },
+    ],
+    networkFailures: [],
+    httpFailures: [
+      { url, status: 422, body: '{"error":{"code":"TABLE_PIVOT_CELL_CARDINALITY"}}', playwrightRequestId: 'cda-request-121' },
+      { url, status: 422, body: '{"error":{"code":"TABLE_PIVOT_CELL_CARDINALITY"}}', playwrightRequestId: 'cda-request-126' },
+    ],
+    assetFailures: [],
+  };
+  const report = {
+    errors: [
+      { kind: 'network', playwrightRequestId: 'cda-request-121' },
+      { kind: 'network', playwrightRequestId: 'cda-request-126' },
+      { kind: 'console-error', message, location: url },
+      { kind: 'console-error', message, location: url },
+    ],
+  };
+  includeBrowserDiagnostics(diagnostics, report);
+  assert.equal(report.errors.filter(error => error.kind === 'console' && error.message === message).length, 1);
+  assert.equal(report.errors.filter(error => error.kind === 'http' && error.url === url && error.status === 422).length, 1);
+  assert.equal(diagnostics.console.length, 2, 'Raw console diagnostics remain available for exact two-event validation');
+  const once = structuredClone(report.errors);
+  includeBrowserDiagnostics(diagnostics, report);
+  assert.deepEqual(report.errors, once, 'The fixture teardown projection must not duplicate live diagnostics');
+});
+
+const validationBatchFixture = () => {
+  const project = 'loom_dev_cda_fhir';
+  const explorer = 'root-quantity-category-test';
+  const origin = 'http://127.0.0.1:30008';
+  const outputId = 'out_root_quantity';
+  const route = `/api/v1/projects/${project}/explorers/${explorer}/authoring/v2/construction-proposals`;
+  const url = origin + route;
+  const snapshotToken = 'sha256:test-snapshot';
+  const draftDigest = 'sha256:test-draft';
+  const initialDraft = { snapshotToken, draftVersion: 4, draftDigest };
+  const duplicateWitness = { status: 'final', present: true, value: 'd', rowCount: 100, numericCount: 100, valueSum: 250, valueMax: 5 };
+  const rawDuplicateBucket = {
+    status: duplicateWitness.status,
+    category: JSON.stringify({ kind: 'STRING', string: duplicateWitness.value }),
+    rowCount: duplicateWitness.rowCount,
+    numericCount: duplicateWitness.numericCount,
+    sum: duplicateWitness.valueSum,
+    max: duplicateWitness.valueMax,
+  };
+  const consoleMessage = 'Failed to load resource: the server responded with a status of 422 (Unprocessable Entity)';
+  const ids = [
+    'construction-proposal-first',
+    'construction-proposal-second',
+  ];
+  const validated = ids.map((requestId, index) => {
+    const browserRequestId = `playwright-${index + 10}`;
+    const diagnostic = {
+      code: 'TABLE_PIVOT_CELL_CARDINALITY',
+      message: 'More than one record matched a Pivot cell; choose how to handle duplicates or filter the input rows.',
+      requestId,
+      severity: 'error',
+      stage: 'preview',
+    };
+    const response = {
+      diagnostics: [diagnostic],
+      error: { code: diagnostic.code, message: diagnostic.message, requestId, diagnostic },
+    };
+    const body = {
+      outputId,
+      snapshotToken,
+      expectedDraftVersion: initialDraft.draftVersion,
+      expectedDraftDigest: draftDigest,
+      changedStepId: `pivot-step-${index}`,
+      candidateConstruction: {
+        version: 1,
+        steps: [{
+          id: `pivot-step-${index}`,
+          operation: {
+            kind: 'PIVOT',
+            pivot: {
+              groupKeyIds: ['group-column'],
+              categoryColumnId: 'category-column',
+              valueColumnId: 'value-column',
+              categories: [{ key: { kind: 'STRING', string: 'd' }, outputColumnId: 'output-d' }],
+              duplicatePolicy: 'ERROR',
+            },
+          },
+        }],
+      },
+      pivotSources: [
+        { choiceId: `choice-group-${index}`, columnId: 'group-column' },
+        { choiceId: `choice-category-${index}`, columnId: 'category-column' },
+        { choiceId: `choice-value-${index}`, columnId: 'value-column' },
+      ],
+    };
+    const request = {
+      requestId,
+      browserRequestId,
+      endpoint: 'construction-proposals',
+      path: route,
+      origin,
+      method: 'POST',
+      startedAt: 100 + index * 100,
+      responseReceivedAt: 110 + index * 100,
+      completedAt: 120 + index * 100,
+      serverRequestId: requestId,
+      status: 422,
+      body,
+      response,
+    };
+    const validation = {
+      requestId,
+      backendRequestId: requestId,
+      code: diagnostic.code,
+      duplicatePolicy: 'ERROR',
+      project,
+      explorer,
+      outputId,
+      snapshotToken,
+      draftVersion: initialDraft.draftVersion,
+      rawDuplicateBucket,
+      visibleRepair: {
+        alert: diagnostic.message,
+        policy: 'ERROR',
+        summary: 'Duplicate values: stop the pivot with an error.',
+        sumOption: { label: 'Add them together', disabled: false },
+      },
+      classification: 'expected-domain-validation-repaired-by-user-selected-SUM',
+    };
+    const fixturePlaywrightRequestId = `cda-request-${index + 121}`;
+    const fixtureNetworkRequest = {
+      kind: 'network',
+      status: 422,
+      method: 'POST',
+      url,
+      requestDetails: { requestId, draftVersion: 4, draftDigest, outputId },
+      requestId,
+      playwrightRequestId: fixturePlaywrightRequestId,
+      responseBody: { captureState: 'completed', body: JSON.stringify(response) },
+    };
+    const fixtureHTTPError = { kind: 'http', url, status: 422, playwrightRequestId: fixturePlaywrightRequestId };
+    const fixtureRequestError = { kind: 'network', url, status: 422, method: 'POST', requestId, playwrightRequestId: fixturePlaywrightRequestId };
+    return {
+      request,
+      validation,
+      fixtureNetworkRequest,
+      fixtureHTTPError,
+      fixtureRequestError,
+      fixturePlaywrightRequestId,
+      consoleError: { kind: 'console-error', text: consoleMessage, location: url },
+      fixtureConsoleDiagnostic: { kind: 'console-error', text: consoleMessage, location: url },
+      workflowConsole: { kind: 'console', message: consoleMessage, location: url },
+      workflowHTTP: { kind: 'http', requestId, browserRequestId, url, status: 422 },
+    };
+  });
+  return {
+    project,
+    explorer,
+    outputId,
+    origin,
+    initialDraft,
+    duplicateWitness,
+    validations: validated.map(item => item.validation),
+    authoringRequests: validated.map(item => item.request),
+    workflowErrors: validated.flatMap(item => [item.workflowConsole, item.workflowHTTP]),
+    fixtureNetwork: validated.flatMap(item => [item.fixtureNetworkRequest, item.consoleError]),
+    fixtureErrors: [
+      validated[0].workflowConsole,
+      validated[0].fixtureHTTPError,
+      ...validated.flatMap(item => [item.fixtureRequestError, item.consoleError]),
+    ],
+    fixtureConsoleDiagnostics: validated.map(item => item.fixtureConsoleDiagnostic),
+  };
+};
+
+const classifyFixture = fixture => classifyRootQuantityPivotValidationConsoleBatch(fixture);
+
+test('expected root quantity validation console batch matches two exact ERROR proposals and raw witness', () => {
+  const result = classifyFixture(validationBatchFixture());
+  assert.deepEqual(result.requestIDs, ['construction-proposal-first', 'construction-proposal-second']);
+  assert.equal(result.status, 422);
+  assert.equal(result.code, 'TABLE_PIVOT_CELL_CARDINALITY');
+  assert.equal(result.localConsoleIndexes.length, 2);
+  assert.equal(result.fixtureConsoleNetworkIndexes.length, 2);
+  assert.equal(result.fixtureDiagnosticConsoleIndexes.length, 2);
+  assert.equal(result.fixtureRequestPairs.length, 2);
+  assert.deepEqual(result.fixtureRequestPairs.map(({ browserRequestId, playwrightRequestId, httpIndexes, requestErrorIndexes }) => ({ browserRequestId, playwrightRequestId, httpIndexes, requestErrorIndexes })), [
+    { browserRequestId: 'playwright-10', playwrightRequestId: 'cda-request-121', httpIndexes: [1], requestErrorIndexes: [2] },
+    { browserRequestId: 'playwright-11', playwrightRequestId: 'cda-request-122', httpIndexes: [], requestErrorIndexes: [4] },
+  ]);
+  assert.match(result.association, /console events have no request IDs/);
+});
+
+test('expected root quantity validation console batch rejects route, response, CAS, policy, and witness mismatches', () => {
+  const mutations = [
+    [fixture => { fixture.authoringRequests[1].path += '/other'; }, /exact owned proposal route/],
+    [fixture => { fixture.authoringRequests[1].response.error.diagnostic.requestId = 'unrelated-request'; }, /exact proposal request/],
+    [fixture => { fixture.authoringRequests[1].body.expectedDraftDigest = 'sha256:stale'; }, /draft digest/],
+    [fixture => { fixture.authoringRequests[1].body.candidateConstruction.steps[0].operation.pivot.duplicatePolicy = 'SUM'; }, /duplicate policy/],
+    [fixture => { fixture.validations[1].rawDuplicateBucket.sum += 1; }, /raw duplicate bucket/],
+  ];
+  for (const [mutate, message] of mutations) {
+    const fixture = validationBatchFixture();
+    mutate(fixture);
+    assert.throws(() => classifyFixture(fixture), message);
+  }
+});
+
+test('expected root quantity validation console batch rejects an extra matching console event in every ledger', () => {
+  const mutations = [
+    [fixture => fixture.workflowErrors.push({ ...fixture.workflowErrors.find(error => error.kind === 'console') }), /local browser capture must contain exactly two console events/],
+    [fixture => fixture.fixtureNetwork.push({ ...fixture.fixtureNetwork.find(error => error.kind === 'console-error') }), /Fixture network diagnostics must contain exactly two matching console events/],
+    [fixture => fixture.fixtureConsoleDiagnostics.push({ ...fixture.fixtureConsoleDiagnostics[0] }), /Fixture console diagnostics must retain exactly two matching console events/],
+    [fixture => fixture.fixtureErrors.push({ ...fixture.fixtureErrors.find(error => error.kind === 'console') }), /Fixture error ledger must retain its single matching generic console event/],
+    [fixture => fixture.fixtureErrors.push({ ...fixture.fixtureErrors.find(error => error.kind === 'console-error') }), /Fixture error ledger must retain exactly the two matching console diagnostics/],
+    [fixture => fixture.fixtureErrors.push({ ...fixture.fixtureErrors.find(error => error.kind === 'http') }), /Fixture error ledger must retain its single deduplicated matching HTTP response event/],
+  ];
+  for (const [mutate, message] of mutations) {
+    const fixture = validationBatchFixture();
+    mutate(fixture);
+    assert.throws(() => classifyFixture(fixture), message);
+  }
 });
