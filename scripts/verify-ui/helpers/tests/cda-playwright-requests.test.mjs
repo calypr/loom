@@ -153,6 +153,107 @@ test('direct workflow report payloads redact small values and cap oversized valu
   assert(!JSON.stringify(persistedCandidateConstruction).includes('private-candidate-token'));
 });
 
+test('Membership capability wait resolves only on the exact terminal source-projection response', async () => {
+  const page = new EventEmitter();
+  const report = { nativeRequests: [], errors: [] };
+  const capture = captureCDARequests(page, {
+    apiOrigin: 'http://127.0.0.1:30102',
+    ownedPathPrefix: '/api/v1/projects/isolated/explorers/owned',
+    report,
+    responsePaths: /construction-capabilities|builder/,
+  });
+  const origin = 'http://127.0.0.1:30102';
+  const explorerPath = '/api/v1/projects/isolated/explorers/owned';
+  const path = `${explorerPath}/authoring/v2/construction-capabilities`;
+  const snapshotToken = `sha256:${'a'.repeat(64)}`;
+  const draftDigest = `sha256:${'b'.repeat(64)}`;
+  const expectedRequest = { snapshotToken, expectedDraftVersion: 13,
+    expectedDraftDigest: draftDigest, outputId: 'output-1', stageId: 'source_projection' };
+  const expectedResponse = { snapshotToken, draftVersion: 13, draftDigest,
+    outputId: 'output-1', stageId: 'source_projection' };
+  const requestFor = (url, body = expectedRequest) => ({
+    url: () => url,
+    method: () => 'POST',
+    headers: () => ({}),
+    postData: () => JSON.stringify(body),
+    failure: () => null,
+  });
+  const responseFor = (request, status, text) => ({
+    request: () => request,
+    status: () => status,
+    headers: () => ({ 'x-request-id': 'capability-response-1' }),
+    text,
+  });
+  const exactTerminalResponse = entry => {
+    const response = capture.rawResponseBody(entry);
+    return entry.origin === origin && entry.path === path && entry.method === 'POST' &&
+      Number.isFinite(entry.completedAt) && entry.status === 200 && entry.failure === undefined &&
+      entry.responseReadError === undefined && response !== null && typeof response === 'object' &&
+      entry.body?.snapshotToken === snapshotToken && entry.body?.expectedDraftVersion === 13 &&
+      entry.body?.expectedDraftDigest === draftDigest && entry.body?.outputId === 'output-1' &&
+      entry.body?.stageId === 'source_projection' &&
+      response.snapshotToken === snapshotToken && response.draftVersion === 13 &&
+      response.draftDigest === draftDigest && response.outputId === 'output-1' &&
+      response.stageId === 'source_projection';
+  };
+  let resolved = false;
+  const waiting = capture.waitFor(exactTerminalResponse, { timeoutMs: 1500 }).then(entry => {
+    resolved = true;
+    return entry;
+  });
+
+  const wrongOrigin = requestFor(`http://127.0.0.1:30103${path}`);
+  page.emit('request', wrongOrigin);
+  page.emit('response', responseFor(wrongOrigin, 200, async () => JSON.stringify(expectedResponse)));
+  const wrongPath = requestFor(`${origin}${explorerPath}/authoring/v2/builder`);
+  page.emit('request', wrongPath);
+  page.emit('response', responseFor(wrongPath, 200, async () => JSON.stringify(expectedResponse)));
+  await capture.flush();
+  assert.equal(resolved, false, 'wrong origin and path must not satisfy the capability wait');
+
+  const wrongRequest = requestFor(`${origin}${path}`, {
+    ...expectedRequest,
+    expectedDraftVersion: 12,
+    expectedDraftDigest: `sha256:${'c'.repeat(64)}`,
+    outputId: 'output-other',
+  });
+  page.emit('request', wrongRequest);
+  await Promise.resolve();
+  assert.equal(resolved, false, 'request start alone must not close the lifecycle wait');
+  page.emit('response', responseFor(wrongRequest, 200, async () => JSON.stringify({
+    ...expectedResponse, draftVersion: 12, draftDigest: `sha256:${'c'.repeat(64)}`, outputId: 'output-other',
+  })));
+  await capture.flush();
+  assert.equal(resolved, false, 'wrong CAS and output must not satisfy the capability wait');
+
+  const request = requestFor(`${origin}${path}`);
+  page.emit('request', request);
+  await Promise.resolve();
+  assert.equal(resolved, false, 'the exact request must remain pending until response-body capture finishes');
+  let resolveResponseText;
+  const deferredText = new Promise(resolve => { resolveResponseText = resolve; });
+  page.emit('response', responseFor(request, 200, () => deferredText));
+  await new Promise(resolve => setImmediate(resolve));
+  const pendingEntry = report.nativeRequests.at(-1);
+  assert.equal(pendingEntry.status, 200, 'response headers arrive before its body is decoded');
+  assert.equal(pendingEntry.completedAt, undefined);
+  assert.equal(capture.rawResponseBody(pendingEntry), undefined);
+  assert.equal(resolved, false, 'response headers without a captured body must not close the wait');
+
+  resolveResponseText(JSON.stringify(expectedResponse));
+  const event = await waiting;
+  await capture.flush();
+  assert.equal(event, pendingEntry);
+  assert.equal(event.origin, origin);
+  assert.equal(event.path, path);
+  assert.equal(event.status, 200);
+  assert(Number.isFinite(event.completedAt));
+  assert.equal(event.failure, undefined);
+  assert.equal(event.responseReadError, undefined);
+  assert.deepEqual(capture.rawResponseBody(event), expectedResponse);
+  assert.equal(exactTerminalResponse(event), true);
+});
+
 test('ONE/ALL response drain times out with request identity when a response body never resolves', async () => {
   const workflowSource = await readFile(new URL('../../workflows/verify-cda-related-one-all-browser.mjs', import.meta.url), 'utf8');
   const drainSource = workflowSource.match(/const settleNativeResponses = async \(timeoutMs = 5000\) => \{[\s\S]*?\n\};(?=\nconst waitNative)/)?.[0];

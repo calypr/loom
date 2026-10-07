@@ -1004,9 +1004,102 @@ export async function cdaCurrentDraftMembershipWorkflow({ page, cda }) {
     assert(removalCancel.ok && stillSaved, 'Canceling Membership removal changed its saved workspace');
 
     const beforeRemoveApply = await readBuilder();
-    await proposeRemove(target.outputId, stepId, 'applied', beforeRemoveApply);
+    const removalProposal = await proposeRemove(target.outputId, stepId, 'applied', beforeRemoveApply);
+    const removalProposalResponse = capture.rawResponseBody(removalProposal);
+    assert(removalProposalResponse?.proposalId && removalProposalResponse?.candidateWorkspaceDigest,
+      'Applied Membership removal must retain its exact proposal receipt and next draft digest');
+    const applyFromIndex = report.nativeRequests.length;
+    const applyActionStartedAt = Date.now();
     await action('Apply Membership removal to restore the rooted empty target', page.getByTestId('construction-apply-proposal'),
-      locator => locator.click({ timeout: MAX_ACTION_MS }), async () => waitFunction(`!document.querySelector('[data-testid="construction-proposal-panel"]')&&${selectedOutputReady(target.outputId)}`));
+      locator => locator.click({ timeout: MAX_ACTION_MS }), async () => {
+        await waitFunction(`!document.querySelector('[data-testid="construction-proposal-panel"]')&&${selectedOutputReady(target.outputId)}`);
+        const liveBuilder = await readBuilder();
+        assertScope(liveBuilder);
+        assert.equal(liveBuilder.draftVersion, beforeRemoveApply.draftVersion + 1,
+          'Applying Membership removal must advance the expected draft version once');
+        assert.equal(liveBuilder.draftDigest, removalProposalResponse.candidateWorkspaceDigest,
+          'Applied Membership removal must match its exact proposal candidate digest');
+        const restoredDocument = getDocument(liveBuilder, target.outputId);
+        assert.equal(restoredDocument.rootResourceType, 'Observation');
+        assert.deepEqual(restoredDocument.columns, []);
+        assert.deepEqual(restoredDocument.construction?.steps ?? [], []);
+
+        const capabilitiesPath = `${explorerBase}/authoring/v2/construction-capabilities`;
+        const capabilitiesTimeoutMs = MAX_ACTION_MS - (Date.now() - applyActionStartedAt);
+        assert(capabilitiesTimeoutMs > 0, 'Membership removal exhausted its action-to-render budget before capabilities completed');
+        const capabilitiesEvent = await capture.waitFor(entry => {
+          const response = capture.rawResponseBody(entry);
+          return entry.origin === new URL(uiOrigin).origin && entry.path === capabilitiesPath && entry.method === 'POST' &&
+            Number.isFinite(entry.completedAt) && entry.status === 200 && entry.failure === undefined &&
+            entry.responseReadError === undefined && response !== null && typeof response === 'object' &&
+            entry.body?.snapshotToken === liveBuilder.catalog?.snapshotToken &&
+            entry.body?.expectedDraftVersion === liveBuilder.draftVersion &&
+            entry.body?.expectedDraftDigest === liveBuilder.draftDigest && entry.body?.outputId === target.outputId &&
+            entry.body?.stageId === 'source_projection';
+        },
+        { fromIndex: applyFromIndex, timeoutMs: capabilitiesTimeoutMs });
+        const capabilitiesBody = capture.rawRequestBody(capabilitiesEvent);
+        const capabilitiesResponse = capture.rawResponseBody(capabilitiesEvent);
+        assert.equal(capabilitiesEvent.status, 200,
+          'Restored Membership target capabilities must complete with HTTP 200');
+        assert(capabilitiesEvent.completedAt && capabilitiesResponse && typeof capabilitiesResponse === 'object',
+          'Restored Membership target capabilities must retain the completed response body');
+        assert.deepEqual({
+          snapshotToken: capabilitiesBody?.snapshotToken,
+          expectedDraftVersion: capabilitiesBody?.expectedDraftVersion,
+          expectedDraftDigest: capabilitiesBody?.expectedDraftDigest,
+          outputId: capabilitiesBody?.outputId,
+          stageId: capabilitiesBody?.stageId,
+        }, {
+          snapshotToken: liveBuilder.catalog?.snapshotToken,
+          expectedDraftVersion: liveBuilder.draftVersion,
+          expectedDraftDigest: liveBuilder.draftDigest,
+          outputId: target.outputId,
+          stageId: 'source_projection',
+        }, 'Restored Membership capabilities must use the exact live draft CAS and source projection');
+        assert.deepEqual({
+          snapshotToken: capabilitiesResponse.snapshotToken,
+          draftVersion: capabilitiesResponse.draftVersion,
+          draftDigest: capabilitiesResponse.draftDigest,
+          outputId: capabilitiesResponse.outputId,
+          stageId: capabilitiesResponse.stageId,
+          selectedStageId: capabilitiesResponse.selectedStage?.id,
+        }, {
+          snapshotToken: liveBuilder.catalog?.snapshotToken,
+          draftVersion: liveBuilder.draftVersion,
+          draftDigest: liveBuilder.draftDigest,
+          outputId: target.outputId,
+          stageId: 'source_projection',
+          selectedStageId: 'source_projection',
+        }, 'Restored Membership capabilities response must match the exact live source projection');
+        const sourceStage = capabilitiesResponse.stages?.find(stage => stage.id === 'source_projection');
+        const groupCapability = sourceStage?.capabilities?.find(capability => capability.kind === 'GROUP');
+        assert(sourceStage && typeof groupCapability?.supported === 'boolean',
+          'Restored source projection capabilities must include GROUP support state');
+
+        await page.getByTestId('construction-rows-settings-trigger').click({ timeout: MAX_ACTION_MS });
+        await waitSelector('[data-testid="construction-action-group-rows"]');
+        const visibleGroupCapability = await page.getByTestId('construction-action-group-rows').evaluate(button => ({
+          visible: button.getClientRects().length > 0,
+          disabled: button.disabled,
+          text: button.innerText,
+        }));
+        const visibleCapabilityMatches = visibleGroupCapability.visible &&
+          visibleGroupCapability.disabled === !groupCapability.supported &&
+          (groupCapability.supported || !groupCapability.reason ||
+            normalizeText(visibleGroupCapability.text).includes(normalizeText(groupCapability.reason)));
+        check('correctness', 'applied Membership removal captures and renders exact source-projection capabilities',
+          visibleCapabilityMatches, {
+            requestId: capabilitiesEvent.requestId, browserRequestId: capabilitiesEvent.browserRequestId,
+            status: capabilitiesEvent.status, completedAt: capabilitiesEvent.completedAt,
+            liveDraftVersion: liveBuilder.draftVersion, liveDraftDigest: liveBuilder.draftDigest,
+            outputId: capabilitiesResponse.outputId, stageId: capabilitiesResponse.stageId,
+            groupCapability: { supported: groupCapability.supported, reason: groupCapability.reason ?? null },
+            visibleGroupCapability,
+        });
+        assert(visibleCapabilityMatches,
+          'Visible restored Membership GROUP capability must match the captured source-stage capability');
+      });
     await reloadAndSelect(target.outputId, undefined, 'Reload removed Membership and select its empty target');
     builder = await readBuilder();
     assertScope(builder);
