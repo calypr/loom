@@ -77,6 +77,12 @@
   "scripts/verify-ui/workflows/verify-cda-sourceaggregate-mixed-sibling-count-browser.mjs": "32ae1c0b3708537d4cc9c52b48dab1399119c5499712596612c728462e0916be",
   "scripts/verify-ui/workflows/verify-cda-table-management-browser.mjs": "e6e8e50249f4979c618d24c90022d308cb0bd37db77ec5e1d88f03ce53e86870",
   "scripts/verify-ui/workflows/verify-cda-unpivot.mjs": "f10b1adedf536a00a44d10e4e37972d12f605a54b92f3a0d81370700b4854339",
+  "scripts/verify-ui/workflows/verify-cda-zero-column-related-medication.mjs": {
+    "introducedBlobSha256": "91fa03e6ad6f33643d238c0476a92594f2d10551291b49029c1518297378b7a7",
+    "introducedCommit": "77dfb688b421d988ba8ce0ed0c43481a4a0c4347",
+    "kind": "new-native-source",
+    "parentCommit": "9792d43a9cfec266b5a86d466f6e73dde8db9412"
+  },
   "scripts/verify-ui/workflows/verify-compound-coded-group.mjs": "cc00449ed70f10f4d3f313865b4eb10d506da21de1808f77f507e04addd992d3",
   "scripts/verify-ui/workflows/verify-construction-removal-ui.mjs": "08fdc688d7a19b2a0259a726bbd377bb24a62762a53d43d6a291af19b4bb57af",
   "scripts/verify-ui/workflows/verify-population-row-ui.mjs": "36219e32a449ddfcedc1f68dd0e63d86f4dde51a147cf89a7854a14b6ca5d688",

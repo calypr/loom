@@ -147,6 +147,12 @@ LEGACY_LAUNCHER_RETIREMENT_EVIDENCE = {
         "reason": "The legacy CDA launch/action wrapper was removed after its browser workflows moved to official Playwright Test ownership.",
     },
 }
+NEW_NATIVE_SOURCE_PROVENANCE_KEYS = {
+    "kind",
+    "introducedCommit",
+    "parentCommit",
+    "introducedBlobSha256",
+}
 
 
 def sha256(path: Path) -> str | None:
@@ -157,6 +163,24 @@ def sha256(path: Path) -> str | None:
         for block in iter(lambda: stream.read(1024 * 1024), b""):
             digest.update(block)
     return digest.hexdigest()
+
+
+def new_native_source_provenance(record: Any) -> dict[str, str] | None:
+    if not isinstance(record, dict) or set(record) != NEW_NATIVE_SOURCE_PROVENANCE_KEYS:
+        return None
+    if record.get("kind") != "new-native-source":
+        return None
+    if not re.fullmatch(r"[0-9a-f]{40}", record.get("introducedCommit", "")):
+        return None
+    if not re.fullmatch(r"[0-9a-f]{40}", record.get("parentCommit", "")):
+        return None
+    if not re.fullmatch(r"[0-9a-f]{64}", record.get("introducedBlobSha256", "")):
+        return None
+    return record
+
+
+def historical_preimage_hash(record: Any) -> str | None:
+    return record if isinstance(record, str) and record else None
 
 
 def relpath(value: str | Path) -> str:
@@ -704,7 +728,7 @@ def main() -> int:
     parser.add_argument("--discovery-overrides", type=Path, action="append", default=None, help="explicit exact-title bindings for source case names that differ from discovered test titles")
     parser.add_argument("--registry", type=Path, default=Path("scripts/verify-ui/registry.mjs"))
     parser.add_argument("--output", type=Path, default=Path("docs/verification/playwright/source-conversion-manifest.json"))
-    parser.add_argument("--preimages", type=Path, default=Path("docs/verification/playwright/source-preimages.json"), help="persistent source preimage hash ledger")
+    parser.add_argument("--preimages", type=Path, default=Path("docs/verification/playwright/source-preimages.json"), help="persistent source preimage/provenance ledger")
     parser.add_argument("--markdown-output", type=Path, default=Path("docs/verification/playwright/source-conversion-manifest.md"), help="human-readable inventory report")
     parser.add_argument("--require-complete", action="store_true", help="fail if any legacy browser workflow still needs a mapping or disposition")
     args = parser.parse_args()
@@ -879,10 +903,21 @@ def main() -> int:
     preimages = json.loads(preimages_path.read_text()) if preimages_path.exists() else {}
     unknown_historical_preimages = []
     for rel in sorted(all_paths):
-        if preimages.get(rel):
+        recorded_preimage = preimages.get(rel)
+        if isinstance(recorded_preimage, str):
+            if recorded_preimage:
+                continue
+        elif new_native_source_provenance(recorded_preimage):
+            # The generator records the proof but does not verify its Git lineage.
+            # Keep it in the unknown set until the ledger checker confirms it.
+            unknown_historical_preimages.append(rel)
             continue
-        prior = previous_by_path.get(rel, {}).get("preimageSha256")
+        elif recorded_preimage is not None:
+            unknown_historical_preimages.append(rel)
+            continue
+        prior = historical_preimage_hash(previous_by_path.get(rel, {}).get("preimageSha256"))
         mapped_preimage = worker_map.get(rel, {}).get("workerSourcePreimageSha256") or worker_map.get(rel, {}).get("sourcePreimageSha256")
+        mapped_preimage = historical_preimage_hash(mapped_preimage)
         historical_preimage = prior or mapped_preimage
         if historical_preimage:
             preimages[rel] = historical_preimage
@@ -922,6 +957,9 @@ def main() -> int:
         )
         spec_complete = bool(specs) and all(item.get("sha256") for item in specs)
         helper_artifacts_complete = all(item.get("sha256") for item in workflow_artifacts + oracle_artifacts)
+        preimage_record = preimages.get(source_path)
+        preimage_hash = historical_preimage_hash(preimage_record)
+        preimage_provenance = new_native_source_provenance(preimage_record)
         explicit = worker.get("disposition")
         classification = NON_BROWSER_CLASSIFICATION.get(source_path)
 
@@ -1004,7 +1042,7 @@ def main() -> int:
                 "sourcePath": source_path,
                 "sourcePresent": path is not None,
                 "sourceSha256": current_hash,
-                "preimageSha256": preimages.get(source_path),
+                "preimageSha256": preimage_hash,
                 "replacementWorkflowPaths": workflows,
                 "replacementWorkflowArtifacts": workflow_artifacts,
                 "specPaths": native_specs,
@@ -1025,8 +1063,8 @@ def main() -> int:
 
         entry = {
             "sourcePath": source_path,
-            "preimageSha256": preimages.get(source_path),
-            "historicalPreimageStatus": "known" if preimages.get(source_path) else "unknown",
+            "preimageSha256": preimage_hash,
+            "historicalPreimageStatus": "new-native-source-unverified" if preimage_provenance else ("known" if preimage_hash else "unknown"),
             "currentSha256": current_hash,
             "sourceStillPresent": path is not None,
             "ownerPartition": worker.get("ownerPartition") or source_owner(source_path, bool(browser), ui),
@@ -1049,6 +1087,8 @@ def main() -> int:
             "sourceStillOwnsBrowser": owner_present,
             "runtimeEvidence": runtime,
         }
+        if preimage_provenance:
+            entry["historicalPreimageProvenance"] = preimage_provenance
         records.append(entry)
         source_rows.append(entry)
 

@@ -4,6 +4,7 @@ import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createHash } from 'node:crypto';
 import { playwrightDiscoveryCountIssues } from '../../lib/playwright-discovery-counts.mjs';
+import { sourcePreimageLedgerIssue } from './source-preimage-provenance.mjs';
 
 const scriptsRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const scriptRoot = resolve(scriptsRoot, '..');
@@ -20,6 +21,7 @@ const discoveryPath = resolve(option('--discovery', join(dirname(manifestPath), 
 const requireComplete = args.includes('--require-complete');
 const issues = [];
 const open = [];
+const verifiedNewNativeSourceProvenances = [];
 const ledger = JSON.parse(readFileSync(manifestPath, 'utf8'));
 const runnerInventory = JSON.parse(readFileSync(runnerInventoryPath, 'utf8'));
 const preimages = JSON.parse(readFileSync(preimagesPath, 'utf8'));
@@ -379,7 +381,9 @@ for (const source of ledger.sources) {
   const sourcePath = join(sourceRoot, source.sourcePath);
   const sourceExists = statSafe(sourcePath);
   if (sourceExists && (!source.currentSha256 || digest(sourcePath) !== source.currentSha256)) addIssue(`current source artifact hash drift: ${source.sourcePath}`);
-  if (!source.preimageSha256 || preimages[source.sourcePath] !== source.preimageSha256) addIssue(`source preimage is not bound to the persistent historical hash ledger: ${source.sourcePath}`);
+  const preimageIssue = sourcePreimageLedgerIssue(source.sourcePath, source, preimages[source.sourcePath], scriptRoot);
+  if (preimageIssue) addIssue(preimageIssue);
+  else if (source.historicalPreimageStatus === 'new-native-source-unverified') verifiedNewNativeSourceProvenances.push(source.sourcePath);
   if (source.sourceStillPresent !== sourceExists && actualSources.includes(source.sourcePath)) addIssue(`source-presence drift: ${source.sourcePath}`);
   if (source.nativeSpecPaths.length > 0) {
     if (!Array.isArray(source.nativeCases) || source.nativeCases.length === 0) addOpen(`native spec mapping has no case map: ${source.sourcePath}`);
@@ -497,6 +501,7 @@ for (const consumer of ledger.oldBrowserLauncherConsumers) {
 
 const uniqueOpen = [...new Set(open)].sort();
 const uniqueIssues = [...new Set(issues)].sort();
+for (const path of [...new Set(verifiedNewNativeSourceProvenances)].sort()) console.log(`VERIFIED new-native-source provenance: ${path}`);
 console.log(`Standalone Playwright source ledger: ${ledger.counts.currentSourceFiles} verify files, ${ledger.counts.registryCases} registered cases, ${ledger.counts.oldBrowserLauncherConsumerSources} old launcher consumer sources, and ${ledger.counts.loomDevEmbeddedLaunchSites} additional loom-dev launch sites.`);
 console.log(`Conversion: ${ledger.counts.convertedSources} source mappings complete, ${ledger.counts.pendingSourceMappingsOrDisposition} source rows pending, ${ledger.counts.pendingEmbeddedBrowserJourneys} embedded journeys pending; runtime evidence: ${ledger.runtimeEvidenceStatus}.`);
 for (const issue of uniqueIssues) console.error(`ERROR ${issue}`);

@@ -150,6 +150,110 @@ class HistoricalPreimageTest(unittest.TestCase):
             self.assertTrue(completed_manifest["readyForBrowserTesting"])
 
 
+class NewNativeSourcePreimageTest(unittest.TestCase):
+    def test_builder_emits_new_native_source_provenance_without_a_preimage_hash(self) -> None:
+        source_path = "scripts/verify-ui/workflows/verify-cda-zero-column-related-medication.mjs"
+        source_preimages = json.loads((REPOSITORY_ROOT / "docs/verification/playwright/source-preimages.json").read_text())
+        provenance = source_preimages[source_path]
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "source"
+            source = root / source_path
+            source.parent.mkdir(parents=True)
+            source.write_text("export const newNativeSource = true;\n")
+
+            main_config = root / "scripts/playwright.config.mjs"
+            main_config.parent.mkdir(parents=True, exist_ok=True)
+            main_config.write_text("export default {};\n")
+            benchmark_config = root / "scripts/measurements/construction-preview/construction-preview-bench.config.mjs"
+            benchmark_config.parent.mkdir(parents=True)
+            benchmark_config.write_text("export default {};\n")
+            registry = root / "scripts/verify-ui/registry.mjs"
+            registry.parent.mkdir(parents=True, exist_ok=True)
+            registry.write_text(
+                "export const registry = [];\n"
+                "export const caseNamesFor = () => [];\n"
+                "export const scenarioCaseFor = () => ({ requiredChecks: [] });\n"
+            )
+
+            inventory = root / "runner-inventory.json"
+            write_json(inventory, {"snapshotCommit": "fixture", "browserLauncherConsumers": [], "launcherImplementations": []})
+            discovery = root / "discovery.json"
+            write_json(discovery, {
+                "status": "discovery-only",
+                "runtimeStatus": "not-run",
+                "sessions": [
+                    {
+                        "sessionID": "main",
+                        "configPath": "scripts/playwright.config.mjs",
+                        "configSha256": sha256(main_config),
+                        "testCount": 0,
+                        "specFileCount": 0,
+                        "specs": [],
+                    },
+                    {
+                        "sessionID": "construction-preview-bench",
+                        "configPath": "scripts/measurements/construction-preview/construction-preview-bench.config.mjs",
+                        "configSha256": sha256(benchmark_config),
+                        "testCount": 0,
+                        "specFileCount": 0,
+                        "specs": [],
+                    },
+                ],
+            })
+            preimages = root / "source-preimages.json"
+            write_json(preimages, {source_path: provenance})
+            worker_map = root / "empty-worker-map.json"
+            write_json(worker_map, {"sources": [{
+                "sourcePath": source_path,
+                "disposition": "retained-pure-oracle-helper",
+                "reason": "complete conversion fixture aside from unverified new-source provenance",
+            }]})
+            output = root / "fresh-manifest.json"
+            write_json(output, {})
+            markdown = root / "fresh-manifest.md"
+
+            result = subprocess.run([
+                sys.executable,
+                str(BUILDER),
+                "--source-root", str(root),
+                "--runner-inventory", str(inventory),
+                "--worker-map", str(worker_map),
+                "--discovery", str(discovery),
+                "--registry", str(registry),
+                "--preimages", str(preimages),
+                "--output", str(output),
+                "--markdown-output", str(markdown),
+            ], cwd=REPOSITORY_ROOT, text=True, capture_output=True, check=False)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+            manifest = json.loads(output.read_text())
+            row = next(item for item in manifest["sources"] if item["sourcePath"] == source_path)
+            self.assertIsNone(row["preimageSha256"])
+            self.assertEqual(row["historicalPreimageStatus"], "new-native-source-unverified")
+            self.assertEqual(row["historicalPreimageProvenance"], provenance)
+            self.assertIn(source_path, manifest["unknownHistoricalPreimages"])
+            self.assertEqual(manifest["counts"]["unknownHistoricalSourcePreimages"], 1)
+            self.assertFalse(manifest["mechanicalConversionComplete"])
+            self.assertFalse(manifest["readyForBrowserTesting"])
+            self.assertEqual(json.loads(preimages.read_text())[source_path], provenance)
+
+            complete_result = subprocess.run([
+                sys.executable,
+                str(BUILDER),
+                "--source-root", str(root),
+                "--runner-inventory", str(inventory),
+                "--worker-map", str(worker_map),
+                "--discovery", str(discovery),
+                "--registry", str(registry),
+                "--preimages", str(preimages),
+                "--output", str(output),
+                "--markdown-output", str(markdown),
+                "--require-complete",
+            ], cwd=REPOSITORY_ROOT, text=True, capture_output=True, check=False)
+            self.assertEqual(complete_result.returncode, 1, complete_result.stdout + complete_result.stderr)
+
+
 class CanonicalManifestJourneyTest(unittest.TestCase):
     def test_canonical_manifest_wins_over_stale_embedded_map_in_fresh_output(self) -> None:
         previous_manifest_path = REPOSITORY_ROOT / "docs/verification/playwright/source-conversion-manifest.json"
