@@ -418,11 +418,43 @@ an unsupported Explorer-delete endpoint.
 
 ## Helpers and feature map
 
+Use `scripts/owned-query-probe.mjs` to inspect a raw AQL file against the owned
+development Arango database. It checks the Compose container, project and
+generation binds, authorization binds, and the parser and EXPLAIN read-only
+result. It defaults to EXPLAIN only. Add `--execute` to run the same query once
+after those checks pass. The execution limit is at most eight seconds and 256
+MiB. An expected-index mismatch stops execution. Reports include source paths
+and hashes, plan and scan metadata, and timings. They omit query text, bind
+values, result rows, and raw Arango messages. Choose a fresh output path.
+
+```bash
+node scripts/owned-query-probe.mjs \
+  --query "$QUERY_FILE" \
+  --bind-vars "$BIND_VARS_FILE" \
+  --output "$REPORT_DIR/query-probe.json" \
+  --expected-index "$EXPECTED_INDEX"
+```
+
+Append `--execute` to run the query and collect its bounded execution
+statistics. The default runtime and memory limits are eight seconds and
+268435456 bytes. The command refuses to replace an existing report.
+
+The probe tests use only local fake subprocesses:
+
+```bash
+node --test scripts/owned-query-probe.test.mjs
+```
+
 Run session-safety tests with:
 
 ```bash
 node --test scripts/loom-dev.test.mjs
 ```
+
+Reuse the shared Go build cache across stages instead of creating per-stage
+caches. Measure free disk before heavyweight checks and stop if it is
+insufficient. After an accepted handoff, remove only task-owned build caches
+and dependency copies; retain source patches and evidence.
 
 The implemented feature map is in [features/README.md](features/README.md).
 The implemented checks are:
