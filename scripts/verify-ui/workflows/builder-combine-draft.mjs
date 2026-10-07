@@ -9,6 +9,7 @@ import {
   appendColumnOptionMapping,
   appendControlSnapshot,
   matchAppendChoiceControls,
+  resolveAppendCapabilityColumns,
 } from '../helpers/append-option-evidence.mjs';
 import {
   appendGroupedCounts,
@@ -2044,23 +2045,18 @@ const configureGroupPivotAppend = async (page, sources) => {
   return addCombineOutput(page, 'APPEND', 4, 'report_preliminary', 'Report preliminary', [APPEND_EMPTY_MAPPING, preliminaryLabel], true);
 };
 
-const groupPivotAppendChoiceEvidence = async (page, sources) => {
-  const finalColumn = sources[1].pivotCategoryColumns.find((item) => item.value === 'final')?.outputColumn;
-  const preliminaryColumn = sources[1].pivotCategoryColumns.find((item) => item.value === 'preliminary')?.outputColumn;
-  const requiredColumns = [sources[0].groupKeyOutputColumn, sources[0].groupCountOutputColumn,
-    sources[1].pivotIdentityOutputColumn, finalColumn, preliminaryColumn];
-  if (requiredColumns.some((column) => !column?.id)) {
-    throw new Error('Group→Pivot APPEND evidence is missing a source column ID or schema.');
-  }
+const groupPivotAppendChoiceEvidence = async (page, sources, capabilityEvidence) => {
+  const mappings = capabilityEvidence?.mappings ?? {};
   const expectedInputs = sources.map((source) => workspaceOutputOption(source.outputId));
   const expectedOutputs = [
-    { name: 'record_id', label: 'Record ID', mappings: [appendColumnOptionMapping(sources[0].groupKeyOutputColumn), appendColumnOptionMapping(sources[1].pivotIdentityOutputColumn)] },
-    { name: 'observation_rows', label: 'Observation rows', mappings: [appendColumnOptionMapping(sources[0].groupCountOutputColumn), APPEND_EMPTY_MAPPING] },
-    { name: 'report_final', label: 'Report final', mappings: [APPEND_EMPTY_MAPPING, appendColumnOptionMapping(finalColumn)] },
-    { name: 'report_preliminary', label: 'Report preliminary', mappings: [APPEND_EMPTY_MAPPING, appendColumnOptionMapping(preliminaryColumn)] },
+    { name: 'record_id', label: 'Record ID', mappings: [mappings.observationGroupKey, mappings.reportPivotIdentity] },
+    { name: 'observation_rows', label: 'Observation rows', mappings: [mappings.observationGroupCount, APPEND_EMPTY_MAPPING] },
+    { name: 'report_final', label: 'Report final', mappings: [APPEND_EMPTY_MAPPING, mappings.reportFinal] },
+    { name: 'report_preliminary', label: 'Report preliminary', mappings: [APPEND_EMPTY_MAPPING, mappings.reportPreliminary] },
   ];
   const controls = await evaluate(page, appendControlSnapshot);
-  return matchAppendChoiceControls({ controls, expectedInputs, expectedOutputs, emptyMapping: APPEND_EMPTY_MAPPING });
+  const matched = matchAppendChoiceControls({ controls, expectedInputs, expectedOutputs, emptyMapping: APPEND_EMPTY_MAPPING });
+  return { ...matched, ok: Boolean(capabilityEvidence?.ok && matched.ok), capabilityEvidence };
 };
 
 export const groupPivotAppendWorkflow = async ({ page, report }, context) => {
@@ -2095,15 +2091,58 @@ export const groupPivotAppendWorkflow = async ({ page, report }, context) => {
       { rawSourceRows: { observations: run.raw.observations.length, reports: run.raw.reports.length }, observationGroups, reportPivotRows, expectedMultiplicity, expectedRows });
 
     const beforeTarget = await readBuilder(context, run.explorer);
-    let target = await startCombineTarget(context, page, report, run.explorer, sources[0].outputId, beforeTarget);
+    const capabilityCapture = capturePost(page, '/construction-capabilities');
+    let target;
+    let base;
+    let appendCapabilityEvidence;
+    try {
+      target = await startCombineTarget(context, page, report, run.explorer, sources[0].outputId, beforeTarget);
+      const builder = await readBuilder(context, run.explorer);
+      const event = await capabilityCapture.waitFor((entry) => entry.body?.outputId === target.outputId &&
+        entry.body?.snapshotToken === builder.catalog?.snapshotToken &&
+        entry.body?.expectedDraftVersion === builder.draftVersion &&
+        entry.body?.expectedDraftDigest === builder.draftDigest &&
+        entry.body?.stageId === 'source_projection' && entry.response?.outputId === target.outputId, 10000);
+      const expectedBuilderURL = new URL(apiRoot(context, run.explorer) + '/builder', context.target.apiUrl);
+      const expectedCapabilitiesURL = new URL(
+        expectedBuilderURL.pathname.replace(/\/builder$/, '/construction-capabilities'),
+        context.target.apiUrl,
+      );
+      const finalColumn = sources[1].pivotCategoryColumns.find((item) => item.value === 'final')?.outputColumn;
+      const preliminaryColumn = sources[1].pivotCategoryColumns.find((item) => item.value === 'preliminary')?.outputColumn;
+      appendCapabilityEvidence = resolveAppendCapabilityColumns({
+        event,
+        binding: {
+          requestPath: expectedCapabilitiesURL.pathname,
+          requestOrigin: new URL(context.target.uiUrl).origin,
+          outputId: target.outputId,
+          snapshotToken: builder.catalog?.snapshotToken,
+          draftVersion: builder.draftVersion,
+          draftDigest: builder.draftDigest,
+          stageId: 'source_projection',
+          builderGeneration: builder.catalog?.generation,
+          fixtureGeneration: context.target.fixtureGeneration,
+          sourceOutputIds: sources.map((source) => source.outputId),
+        },
+        sourceColumnRefs: [
+          { key: 'observationGroupKey', outputId: sources[0].outputId, columnId: sources[0].groupKeyOutputColumn?.id },
+          { key: 'observationGroupCount', outputId: sources[0].outputId, columnId: sources[0].groupCountOutputColumn?.id },
+          { key: 'reportPivotIdentity', outputId: sources[1].outputId, columnId: sources[1].pivotIdentityOutputColumn?.id },
+          { key: 'reportFinal', outputId: sources[1].outputId, columnId: finalColumn?.id },
+          { key: 'reportPreliminary', outputId: sources[1].outputId, columnId: preliminaryColumn?.id },
+        ],
+      });
+      base = builder;
+    } finally {
+      await capabilityCapture.stop();
+    }
     report.target.combineTarget = target;
-    const base = await readBuilder(context, run.explorer);
     const capture = capturePost(page, '/construction-proposals');
     let removalApplyBase;
     let final;
     const verifyAppendPreview = async (candidateCapture, candidateBase, candidateTarget, includeChoice = false) => {
       if (includeChoice) {
-        const choiceEvidence = await groupPivotAppendChoiceEvidence(page, sources);
+        const choiceEvidence = await groupPivotAppendChoiceEvidence(page, sources, appendCapabilityEvidence);
         check(report, 'correctness', 'Group→Pivot APPEND native choice uses exact current-draft inputs and four output mappings', choiceEvidence.ok, choiceEvidence);
       }
       const grid = await readGrid(page, 'proposal');
