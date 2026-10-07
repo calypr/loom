@@ -1,0 +1,71 @@
+{
+  "schemaVersion": 1,
+  "scenario": "cda-current-draft-diagnostic-report-append",
+  "case": "diagnostic-report-append",
+  "runId": "run-cda-current-draft-diagnostic-report-append-diagnostic-report-append-JevmQz",
+  "status": "unverified",
+  "disposition": "bounded_witness_unavailable",
+  "coverageStatus": "untested",
+  "lifecycleStatus": "unverified",
+  "integrityStatus": "PASS",
+  "sourceIdentityAtRun": {
+    "targetCommit": "46652cf5182b2433981725cc72e408c6fa6681c1",
+    "watchedSourceFingerprint": "7ba0f4f82e34b8c30856a780ed7b733c43d9d370c1d95a81f993ba15d1cfc7ba",
+    "watchedSourceFileCount": 1618,
+    "apiBuildIdentity": "786d08d73d9c6675ab99c45322b96a32efed8aa7c4c8ba8180f19f7ecd872fd8:786d08d73d9c6675ab99c45322b96a32efed8aa7c4c8ba8180f19f7ecd872fd8:ce684c31db8b835d3cbc164086e1e5184df7e3affff5ffa4493c07ea01125ec5"
+  },
+  "closure": {
+    "source": {
+      "status": "PASS",
+      "beforeSha256": "7ba0f4f82e34b8c30856a780ed7b733c43d9d370c1d95a81f993ba15d1cfc7ba",
+      "afterSha256": "7ba0f4f82e34b8c30856a780ed7b733c43d9d370c1d95a81f993ba15d1cfc7ba",
+      "beforeFiles": 1618,
+      "afterFiles": 1618,
+      "changedPaths": []
+    },
+    "docs": {
+      "status": "PASS",
+      "beforeSha256": "649c328fc08b000f5eaea8923474447adb8b7d37c6d3b6c73d088dea07e48740",
+      "afterSha256": "649c328fc08b000f5eaea8923474447adb8b7d37c6d3b6c73d088dea07e48740",
+      "beforeFiles": 306,
+      "afterFiles": 306,
+      "changedPaths": []
+    },
+    "api": {
+      "status": "PASS",
+      "before": "786d08d73d9c6675ab99c45322b96a32efed8aa7c4c8ba8180f19f7ecd872fd8:786d08d73d9c6675ab99c45322b96a32efed8aa7c4c8ba8180f19f7ecd872fd8:ce684c31db8b835d3cbc164086e1e5184df7e3affff5ffa4493c07ea01125ec5",
+      "after": "786d08d73d9c6675ab99c45322b96a32efed8aa7c4c8ba8180f19f7ecd872fd8:786d08d73d9c6675ab99c45322b96a32efed8aa7c4c8ba8180f19f7ecd872fd8:ce684c31db8b835d3cbc164086e1e5184df7e3affff5ffa4493c07ea01125ec5",
+      "precheckMatches": true,
+      "targetUnchanged": true
+    },
+    "ownedMountsUnchanged": true,
+    "health": {
+      "before": "PASS",
+      "beforeSamples": 3,
+      "after": "PASS",
+      "afterSamples": 3
+    }
+  },
+  "lifecycleDisposition": {
+    "browserCaseAttempted": true,
+    "builderLifecycleActionsAttempted": false,
+    "runnerStatus": "skipped",
+    "requiredChecks": {
+      "passed": 1,
+      "failed": 0,
+      "unrun": 36,
+      "total": 37,
+      "passedCheckMeaning": "The single passing check is watched source/API integrity only; it does not establish Builder correctness."
+    },
+    "browserActionCount": 0
+  },
+  "evidence": {
+    "reportPath": "docs/verification/playwright/runtime/cda-current-draft-diagnostic-report-append-20261007-report.json",
+    "reportSha256": "67f32de3b2e8f613e1b77932243f33d27b5fb95cf197c4bd2a204e97d8c98a48",
+    "summaryPath": "/private/tmp/loom-verification-runs/run-cda-current-draft-diagnostic-report-append-diagnostic-report-append-JevmQz/summary.json",
+    "summarySha256": "242f4ef9dde47171706371442098cfd73d10e9e78e453a1c9d7f3f5caca5d4be",
+    "domainReportPath": "/private/tmp/loom-verification-runs/run-cda-current-draft-diagnostic-report-append-diagnostic-report-append-JevmQz/playwright-results/cda-current-draft-diagnost-7917b--restores-the-rooted-target/attachments/cda-domain-report-json-79d81178eebd2079a4e117fb79acdb8cf4b2fcfd.json",
+    "domainReportSha256": "e4be0c84c897beebc124633d8918e08345b6bb4715ef6b12ec541720d3341ee2"
+  },
+  "note": "The report contains the bounded witness details and original redacted runtime proof field. The registry case remains untested because the lifecycle did not run."
+}

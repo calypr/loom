@@ -48,8 +48,8 @@ export async function cdaCurrentDraftDiagnosticReportAppendWorkflow({ page, cda 
     'Owned CDA fixture must provide project, generation, API, and UI origins');
   assert.equal(project, target.fixtureProject, 'DiagnosticReport witnesses must use the exact owned project');
   assert.equal(generation, 'cda-fhir-v1', 'DiagnosticReport APPEND requires the pinned FHIR generation');
-  const apiRuntimeAuthorization = assertCdaNoAuthRuntime({ apiContainer: target.apiContainer });
-  report.apiRuntimeAuthorization = apiRuntimeAuthorization;
+  const ownedApiRuntimeProof = assertCdaNoAuthRuntime({ apiContainer: target.apiContainer });
+  report.ownedApiRuntimeProof = ownedApiRuntimeProof;
 
   let oracle;
   try {
