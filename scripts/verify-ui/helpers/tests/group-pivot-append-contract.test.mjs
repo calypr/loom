@@ -38,7 +38,9 @@ test('Group→Pivot APPEND binds exact restoration checks and compares complete 
 
   assert.ok(checks.includes('removing Combine and reloading restores its rooted empty target'));
   assert.equal(checks.includes('removing Combine and reloading restores its rooted empty output'), false);
-  assert.equal(coverage.status, 'untested');
+  assert.equal(coverage.status, 'implemented');
+  assert.match(coverage.reason, /Epoch143 passed the native basic-fixture Group→Pivot APPEND lifecycle: 31\/31 required checks/);
+  assert.match(coverage.reason, /This proves the basic synthetic fixture only; real CDA and published-source APPEND remain separate/);
   assert.deepEqual(lifecycleAcceptanceDrift(registry).filter((message) => message.includes('APPEND over unpublished Observation GROUP and DiagnosticReport GROUP→PIVOT siblings')), []);
   assert.equal(coverage.acceptance.kind, 'lifecycle');
   assert.equal(coverage.acceptance.case, 'group-pivot-append');
