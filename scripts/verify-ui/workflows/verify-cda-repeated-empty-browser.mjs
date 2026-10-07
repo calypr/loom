@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { captureSourceFreeze } from '../helpers/source-freeze.mjs';
 import { ApiBuildFreezeError, captureApiBuildFreeze, checkContainerApiBuildStamp } from '../helpers/api-build-freeze.mjs';
 import { sourceFingerprint } from '../helpers/source-fingerprint.mjs';
-import { sanitizeBody, sanitizeText } from '../helpers/playwright-browser.mjs';
+import { sanitizeBody, sanitizeReportPayload, sanitizeText } from '../helpers/playwright-browser.mjs';
 import { requireUnique } from '../helpers/playwright-actions.mjs';
 import { captureCDARequests } from '../helpers/cda-playwright-requests.mjs';
 import { waitForCondition } from '../helpers/playwright-observations.mjs';
@@ -50,6 +50,7 @@ let outputId;
 let sourceFreeze;
 let frozenApiBuild;
 let requestMonitor;
+const protocolResponse = entry => requestMonitor.rawResponseBody(entry);
 const inspectPage = (page, body) => page.evaluate(`(()=>{${body}})()`);
 const waitForBrowser = (page, condition, timeout = 5000) => waitForCondition(page, condition, Math.min(5000, timeout));
 const resolveActionLocator = async (page, selector, identity = {}) => {
@@ -113,7 +114,7 @@ const api = async (path, body, allowFailure = false) => {
   const text = await response.text();
   let responseBody;
   try { responseBody = JSON.parse(text); } catch { responseBody = text; }
-  report.requests.push({ path, requestId, body, status: response.status, durationMs: Date.now() - startedAt, response: responseBody });
+  report.requests.push({ path, requestId, body: sanitizeReportPayload(body), status: response.status, durationMs: Date.now() - startedAt, response: sanitizeReportPayload(responseBody) });
   if (!allowFailure) assert(response.ok, response.status + ' ' + path + ': ' + JSON.stringify(responseBody));
   return { status: response.status, body: responseBody };
 };
@@ -272,7 +273,7 @@ const awaitRequestBody = async (entry, startedAt) => {
       { timeout: Math.max(1, 5000 - (Date.now() - startedAt)) });
   }
   await requestMonitor.flush();
-  assert(entry && Object.hasOwn(entry, 'response'), 'Native row proposal response was not captured: ' + JSON.stringify(entry));
+  assert(entry && protocolResponse(entry) !== undefined, 'Native row proposal response was not captured: ' + JSON.stringify(entry));
 };
 const selectAndPreview = async (policy, expectedRows, emptyError = false) => measure('row-definition-preview-' + policy, async startedAt => {
   expectedEmptyErrorMode = emptyError;
@@ -296,9 +297,10 @@ const selectAndPreview = async (policy, expectedRows, emptyError = false) => mea
   await awaitRequestBody(request, startedAt);
   report.latestProposal = request;
   if (!emptyError) {
+    const response = protocolResponse(request);
     assert.equal(request.status, 200, 'Row-definition ' + policy + ' proposal response: ' + JSON.stringify(request.response));
-    assert.equal(request.response?.mode, 'EXPANDED');
-    assert.equal(request.response?.comparison?.candidate?.rowCount, expectedRows);
+    assert.equal(response?.mode, 'EXPANDED');
+    assert.equal(response?.comparison?.candidate?.rowCount, expectedRows);
   }
   return request;
 });
@@ -308,8 +310,9 @@ const selectRecordsPreview = expectedRows => measure('row-definition-preview-rec
   await Promise.all([...browserPending]);
   const request = rowProposalRequest({ kind: 'RECORDS' });
   await awaitRequestBody(request, startedAt);
+  const response = protocolResponse(request);
   assert.equal(request.status, 200, 'RECORDS proposal response: ' + JSON.stringify(request.response));
-  assert.equal(request.response?.comparison?.candidate?.rowCount, expectedRows);
+  assert.equal(response?.comparison?.candidate?.rowCount, expectedRows);
   report.latestProposal = request;
 });
 const applyRowDefinition = expectedRows => measure('row-definition-apply', async startedAt => {
@@ -367,7 +370,8 @@ const verifyPreview = async (policy, expectedPairs, emptyIDs = []) => {
   const expected = report.oracle.expectedComponentRows.map(item => [item.id, item.value]);
   assert.deepEqual(sortPairs(actualPairs), sortPairs(expected), policy + ' values must match raw component array items');
   assert.deepEqual(preservedEmptyIDs.sort(), (policy === 'PRESERVE_PARENT' ? emptyIDs : []).slice().sort(), policy + ' empty owner rows');
-  const response = report.browserRequests.findLast(request => request.path.endsWith('/preview') && request.status === 200)?.response;
+  const request = report.browserRequests.findLast(entry => entry.path.endsWith('/preview') && entry.status === 200 && protocolResponse(entry));
+  const response = protocolResponse(request);
   assert(response?.rows && response?.columns, 'Saved native preview protocol is missing');
   const idColumn = response.columns.find(column => column.label === 'Observation ID')?.column;
   const valueColumn = response.columns.find(column => /component.*value.?string/i.test(column.label))?.column;
@@ -400,13 +404,14 @@ const constructionProposalFor = async (name, startedAt) => {
   await awaitRequestBody(request, startedAt);
   assert.equal(panel.status, 'ready', `${name} proposal is not ready: ${panel.text}`);
   assert.equal(request.status, 200, `${name} proposal request failed: ${JSON.stringify(request.response)}`);
-  assert.equal(request.response?.previewStatus, 'READY', `${name} response preview is not ready: ${JSON.stringify(request.response)}`);
-  assert(request.response?.preview?.receiptId, `${name} proposal is missing a preview receipt`);
+  const response = protocolResponse(request);
+  assert.equal(response?.previewStatus, 'READY', `${name} response preview is not ready: ${JSON.stringify(request.response)}`);
+  assert(response?.preview?.receiptId, `${name} proposal is missing a preview receipt`);
   request.durationMs ??= request.responseReceivedAt - request.startedAt;
   assert(Number.isFinite(request.durationMs), `${name} native proposal request timing is unavailable`);
   assert(request.durationMs <= 5000, `${name} native proposal request took ${request.durationMs} ms`);
-  assert(request.response.previewDurationMs <= 5000, `${name} preview took ${request.response.previewDurationMs} ms`);
-  assert.equal(panel.receiptId, request.response.preview.receiptId, `${name} UI did not adopt the exact automatic-preview receipt`);
+  assert(response.previewDurationMs <= 5000, `${name} preview took ${response.previewDurationMs} ms`);
+  assert.equal(panel.receiptId, response.preview.receiptId, `${name} UI did not adopt the exact automatic-preview receipt`);
   const durationMs = Date.now() - startedAt;
   report.timings.push({ name, durationMs, limitMs: 5000 });
   assert(durationMs <= 5000, `${name} took ${durationMs} ms`);
@@ -475,7 +480,7 @@ const assertGroupProposal = (request, expected, inputColumn) => {
   const keyOutput = step.outputs.find(column => column.id === step.operation.group.keys[0].outputColumnId);
   const countOutput = step.outputs.find(column => column.id === count.outputColumnId);
   assert(keyOutput?.name && countOutput?.name, 'GROUP key/count outputs are missing stable names');
-  const preview = request.response.preview;
+  const preview = protocolResponse(request).preview;
   assert.equal(preview.rowCount, expected.length, 'GROUP preview row count differs from raw Observation witnesses');
   const key = preview.columns.find(column => column.column === keyOutput.name);
   const rows = preview.columns.find(column => column.column === countOutput.name);
@@ -497,7 +502,7 @@ const assertGroupProposal = (request, expected, inputColumn) => {
   };
 };
 const assertExpandedProposal = (request, expectedRows) => {
-  const preview = request.response?.preview;
+  const preview = protocolResponse(request)?.preview;
   assert(preview?.rows && preview?.columns, 'Removing GROUP did not return an expanded-source preview');
   assert.equal(preview.rowCount, expectedRows, 'Removing GROUP preview did not restore exact expanded-source cardinality');
   const idColumn = preview.columns.find(column => column.label === 'Observation ID')?.column;
@@ -562,7 +567,8 @@ const verifyGroupedTable = async (expected, name) => {
   const visibleRows = sortedRows(preview.rows.map(row => [String(parseCell(row[keyIndex])), Number(parseCell(row[countIndex]))]));
   assert.deepEqual(visibleRows, expected, `${name}: rendered GROUP rows differ from raw component cardinalities`);
   assert.equal(preview.rows.length, expected.length);
-  const response = report.browserRequests.findLast(request => request.path.endsWith('/preview') && request.status === 200)?.response;
+  const request = report.browserRequests.findLast(entry => entry.path.endsWith('/preview') && entry.status === 200 && protocolResponse(entry));
+  const response = protocolResponse(request);
   assert(response?.rows && response?.columns, `${name}: saved preview protocol is missing`);
   const keyColumn = response.columns.find(column => column.label === keyOutput.label)?.column;
   const countColumn = response.columns.find(column => column.label === countOutput.label)?.column;
@@ -604,7 +610,8 @@ const verifyEmptyError = async request => {
   assert([400, 422].includes(request.status), 'Empty-only ERROR must return 400/422, got ' + request.status + ': ' + JSON.stringify(request.response));
   const alertText = await inspectPage(nativePage, 'return document.querySelector(\'[aria-label="Row definition settings"] [role="alert"]\')?.innerText ?? "";');
   const responseText = JSON.stringify(request.response) + ' ' + alertText;
-  const code = request.response?.error?.code ?? request.response?.code ?? request.response?.errorCode ?? request.response?.error?.errorCode;
+  const rawResponse = protocolResponse(request);
+  const code = rawResponse?.error?.code ?? rawResponse?.code ?? rawResponse?.errorCode ?? rawResponse?.error?.errorCode;
   assert.notEqual(code, 'INTERNAL_ERROR', 'Empty-only ERROR returned INTERNAL_ERROR: ' + responseText);
   assert(/empty|no values|at least one|collection/i.test(responseText), 'Validation did not explain the empty collection: ' + responseText);
   const policy = await inspectPage(nativePage,

@@ -16,6 +16,13 @@ const parseRawBody = body => {
   catch { return String(body ?? ''); }
 };
 
+export const findCompletedNativeResponse = (entries, responseFor, predicate, fromIndex = 0) =>
+  entries.slice(fromIndex).find(entry => {
+    if (entry.complete !== true && entry.completedAt === undefined) return false;
+    const response = responseFor(entry);
+    return response !== undefined && predicate(entry, response);
+  });
+
 export function captureCDARequests(page, { apiOrigin, browserRequestOrigin = apiOrigin, appOrigins = [apiOrigin], ownedPathPrefix, report, currentAction = () => undefined, responsePaths = /commands|selections|explicit-groups|row-definition-proposals|construction-choice-proposals|construction-proposals|construction-capabilities|row-lineage|population-mapping|preview/, shouldReportHttpError = () => true } = {}) {
   if (!apiOrigin || !ownedPathPrefix || !report || !Array.isArray(report.nativeRequests)) {
     throw new TypeError('CDA request capture needs an API origin, owned path prefix, and nativeRequests report array');

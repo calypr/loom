@@ -70,8 +70,11 @@ const ownedApiRequest = async (path, { method = 'GET', body } = {}) => {
   });
   entry.status = response.status;
   entry.completedAt = Date.now();
-  entry.response = JSON.parse(sanitizeBody(await response.text()));
-  return { response, entry };
+  const value = await response.json();
+  const diagnostic = sanitizeBody(JSON.stringify(value));
+  try { entry.response = JSON.parse(diagnostic); }
+  catch { entry.response = diagnostic; }
+  return { response, entry, value };
 };
 
 const shellQuote = (value) => `'${value.replaceAll("'", "'\\''")}'`;
@@ -353,18 +356,19 @@ try {
   await screenshot('00-builder-start');
 
   const builderCall = await ownedApiRequest(`${explorerRoot}/${explorerId}/authoring/v2/builder`);
-  const builder = builderCall.entry.response;
+  const builder = builderCall.value;
   const selectionCall = await ownedApiRequest(`${explorerRoot}/${explorerId}/selections`, { method: 'POST',
     body: { snapshotToken: builder.catalog.snapshotToken, idempotencyKey: `cda-indirect-route-${Date.now()}`,
       source: { kind: 'resources', resources: { refs: [{ project, generation: builder.catalog.generation, resourceType: 'Specimen', id: specimenId }] } } },
   });
+  const selectionValue = selectionCall.value;
   const selection = { builderStatus: builderCall.entry.status, generation: builder.catalog.generation,
     snapshotPresent: Boolean(builder.catalog.snapshotToken), status: selectionCall.entry.status, body: selectionCall.entry.response };
   report.selection = selection;
   addAssertion('CDA selection uses the active dataset generation', selection.builderStatus === 200 && selection.generation === generation, selection);
-  addAssertion('Specimen selection was created', selection.status === 201 && Boolean(selection.body.id), selection);
+  addAssertion('Specimen selection was created', selection.status === 201 && Boolean(selectionValue.id), selection);
 
-  await page.goto(`${pageURL}&selection=${encodeURIComponent(selection.body.id)}`);
+  await page.goto(`${pageURL}&selection=${encodeURIComponent(selectionValue.id)}`);
   await waitForBrowser(page, { kind: 'text-includes', selector: 'body', text: 'DATASET WORKSPACE' }, 30000);
   await recordClick('Start temporary table', 'button text: New table');
   await waitForBrowser(page, { kind: 'enabled', selector: 'button[aria-label="Choose Specimen rows"]' }, 30000);

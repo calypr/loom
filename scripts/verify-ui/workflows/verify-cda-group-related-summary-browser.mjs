@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { captureCDARequests } from '../helpers/cda-playwright-requests.mjs';
-import { selectSavedPreviewRequest } from '../helpers/saved-preview-binding.mjs';
+import { sanitizeReportPayload } from '../helpers/playwright-browser.mjs';
 
 export async function runGroupRelatedSummaryBrowserWorkflow({ page, cda }) {
 const env = cda.env ?? {};
@@ -88,7 +88,7 @@ const api = async (path, body) => {
     ...(body ? { body: JSON.stringify(body) } : {}), signal: AbortSignal.timeout(30000),
   });
   const value = await response.json();
-  report.requests.push({ path, body, status: response.status, response: value });
+  report.requests.push({ path, body: sanitizeReportPayload(body), status: response.status, response: sanitizeReportPayload(value) });
   assert(response.ok, JSON.stringify(value));
   return value;
 };
@@ -108,12 +108,13 @@ const proposal = async (name, start, expectedRows) => {
   let response;
   while (!(response = report.nativeRequests.findLast(request =>
     /\/construction-(?:choice-)?proposals$/.test(request.path) &&
-    request.startedAt >= start && request.completedAt && request.response))) {
+    request.startedAt >= start && request.completedAt && nativeCapture.rawResponseBody(request)))) {
     assert(Date.now() < deadline, `${name} did not complete a fresh proposal within five seconds`);
     await new Promise(resolve => setTimeout(resolve, 50));
   }
-  if (response.status === 200 && response.response.proposalId) {
-    await waitForBrowser(page, (args) => { return Boolean((document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalId === args[0])); }, [response.response.proposalId]);
+  const protocolResponse = nativeCapture.rawResponseBody(response);
+  if (response.status === 200 && protocolResponse.proposalId) {
+    await waitForBrowser(page, (args) => { return Boolean((document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalId === args[0])); }, [protocolResponse.proposalId]);
   }
   await waitForBrowser(page, (args) => { return Boolean((['ready','error','needs-repair'].includes(document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalStatus))); });
   const result = await browserEval(page, (args) => { const p=document.querySelector('[data-testid="construction-proposal-panel"]');return {status:p?.dataset.proposalStatus,proposalId:p?.dataset.proposalId,text:p?.innerText,rows:[...document.querySelectorAll('[data-testid="construction-proposal-preview-row"]')].map(r=>[...r.querySelectorAll('td')].map(c=>c.innerText))}; });
@@ -185,12 +186,18 @@ const assertSavedPreviewRows = async (expectedRows, { requestStart, expectedBuil
   assert.equal(activePreview.draftVersion,String(expectedBuilder.draftVersion),`${phase} preview version must match the current Builder draft`);
   assert.equal(activePreview.draftDigest,expectedBuilder.draftDigest,`${phase} preview digest must match the current Builder draft`);
   let request;
-  while(!(request=selectSavedPreviewRequest(report.nativeRequests,{startIndex:requestStart,path:base+'/preview',receiptId:activePreview.receiptId,outputId}))){
+  while(!(request=report.nativeRequests.slice(requestStart).find(entry => {
+    const response = nativeCapture.rawResponseBody(entry);
+    return entry.path===base+'/preview' && entry.status===200 && entry.completedAt &&
+      entry.body?.receiptId===activePreview.receiptId && entry.body?.outputId===outputId &&
+      response?.receiptId===activePreview.receiptId && response?.outputId===outputId;
+  }))){
     assert(Date.now()<deadline,`${phase} did not complete a current-draft native saved preview within five seconds`);
     await new Promise(resolve=>setTimeout(resolve,50));
   }
-  assert.equal(request.response.receiptId,activePreview.receiptId,`${phase} native response must be the receipt visible in the current preview`);
-  assert.equal(request.response.outputId,outputId,`${phase} native response must be bound to the current output`);
+  const nativePreviewResponse=nativeCapture.rawResponseBody(request);
+  assert.equal(nativePreviewResponse.receiptId,activePreview.receiptId,`${phase} native response must be the receipt visible in the current preview`);
+  assert.equal(nativePreviewResponse.outputId,outputId,`${phase} native response must be bound to the current output`);
   const preview=await api(base+'/preview',{receiptId:activePreview.receiptId,outputId,limit:100});
   assert.equal(preview.receiptId,activePreview.receiptId,`${phase} receipt-bound reread must use the current native receipt`);
   assert.equal(preview.outputId,outputId,`${phase} receipt-bound reread must use the current output`);

@@ -1239,6 +1239,58 @@ export const registry = Object.freeze([
     ],
   }),
   Object.freeze({
+    id: 'cda-related-one-all-specimen-reference',
+    workflow: 'cda-related-source-one-all-null-preserving-lifecycle',
+    hooks: [
+      'useGetExplorerBuilderStateV2Query',
+      'useApplyExplorerBuilderCommandsV2Mutation',
+      'useReconcileExplorerBuilderV2Mutation',
+      'usePreviewExplorerAuthoringV2Mutation',
+    ],
+    endpoints: [
+      'POST /api/v1/projects/{project}/explorers',
+      'GET /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/builder',
+      'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/commands',
+      'POST /api/v1/projects/{project}/explorers/{explorer}/selections',
+      'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/population-routes',
+      'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/construction-choices',
+      'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/construction-proposals',
+      'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/reconcile',
+      'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/preview',
+    ],
+    requiredTransitions: [
+      'independently reread the pinned project/generation-scoped Specimen-to-Patient-to-Observation route and prove 31 distinct Observation identities, 29 distinct nonnull specimen.reference values, and two null values',
+      'create a fresh per-run QA Explorer, select the exact pinned Specimen member, and save the direct source population with its current signed route choice',
+      'use native RelatedExpand controls to expand Specimen-to-Patient and Patient-to-Observation, then group by the exact Patient identity and compare the grouped rows with raw membership',
+      'select the related Observation.specimen.reference scalar source with grouped-row ONE and require the raw-predicted multiple-values validation while preserving the chooser and saved Group workspace',
+      'repair the same chooser to ALL and prove the protocol retains one value per distinct terminal Observation identity, including both null entries',
+      'Cancel and verify unchanged saved Group state, reopen the exact ALL proposal, Apply it, and compare the actual saved table preview and reload with the raw identities and values',
+      'rename the applied related output, reload, and preserve its source candidate, route, ALL policy, row identities, and values',
+      'remove the related source, Apply, and reload the exact original Group table and source membership without the removed output',
+      'reread the exact raw membership after the native lifecycle and require all route, proposal, Apply, preview, edit, removal, and reload actions to meet the five-second budget',
+    ],
+    gateReasons: [
+      'the case requires the explicitly owned CDA project, pinned cda-fhir-v1 generation, API/UI stack, and validated Arango container',
+      'the independent raw oracle is pinned to one exact Specimen and proves all 31 Observation identities under project/generation filters on endpoint documents and both relationship traversals',
+      'the raw field oracle contains 29 distinct nonnull Observation.specimen.reference strings and two null/missing values; ALL correctness is identity-based and must retain both null entries',
+      'the browser creates a unique disposable QA Explorer and uses native Builder controls for relationship expansion, grouping, ONE rejection, ALL repair, Apply, edit, removal, and reload',
+      'registration does not establish browser coverage; feature status stays untested until this exact native case passes with current source/API identity evidence',
+    ],
+    script: 'verify-cda-related-one-all-browser.mjs',
+    cases: {
+      'cda-specimen-reference-raw-oracle-one-all-lifecycle': {
+        playwrightTest: 'scripts/verify-ui/specs/standalone-cda-rows.spec.mjs',
+        requiredChecks: [
+          'related ONE/ALL lifecycle preserves exact raw-source values and row identities',
+          'CDA watched source and API build stayed unchanged',
+        ],
+      },
+    },
+    coverage: [
+      { feature: 'related Observation.specimen.reference ONE rejection and null-preserving ALL Apply/edit/removal/reload lifecycle', acceptance: { intent: 'row-lifecycle', kind: 'probe', case: 'cda-specimen-reference-raw-oracle-one-all-lifecycle' }, status: 'untested', reason: 'The registered native case defines the exact pinned 31-Observation raw oracle and complete ONE-to-ALL lifecycle, but this registration has no passing native browser report yet. Do not count source inspection, a selected check contract, or historical coverage from the separate related ONE/ALL variants as a lifecycle pass.' },
+    ],
+  }),
+  Object.freeze({
     id: 'cda-upstream-related-edit-cascade',
     workflow: 'cda-composed-related-upstream-edit-cascade',
     hooks: [

@@ -1,8 +1,11 @@
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
+import { readFile } from 'node:fs/promises';
 import test from 'node:test';
-import { captureCDARequests } from '../cda-playwright-requests.mjs';
-import { sanitizePayload } from '../playwright-browser.mjs';
+import { captureCDARequests, findCompletedNativeResponse } from '../cda-playwright-requests.mjs';
+import { sanitizePayload, sanitizeReportPayload } from '../playwright-browser.mjs';
+import { createPendingResponseReads } from '../pending-response-reads.mjs';
+import { expectedRelatedSourceOneValidation } from '../related-source-capture.mjs';
 
 test('owned requests correlate sanitized responses and reject sibling explorer prefixes', async () => {
   const page = new EventEmitter();
@@ -124,6 +127,168 @@ test('UI proxy requests retain private exact bodies while reports stay redacted'
   assert.deepEqual(capture.rawRequestBody(entry), { snapshotToken: 'exact-private-token' });
   assert.deepEqual(capture.rawResponseBody(entry), { draftToken: 'exact-private-response' });
   assert(!JSON.stringify(report).includes('exact-private-'));
+});
+
+test('direct workflow report payloads redact small values and cap oversized values', () => {
+  const small = { snapshotToken: 'private-token', patientName: 'Sensitive Name' };
+  const sanitizedSmall = sanitizeReportPayload(small);
+  assert.deepEqual(sanitizedSmall, {
+    snapshotToken: '[REDACTED]', patientName: 'Sensitive Name',
+  });
+
+  const large = { rows: [{ patientName: 'Sensitive Name', value: 'x'.repeat(12_100) }] };
+  const serializedLength = JSON.stringify(large).length;
+  const sanitizedLarge = sanitizeReportPayload(large);
+  assert.deepEqual(sanitizedLarge, { truncated: true, length: serializedLength });
+  assert(!JSON.stringify(sanitizedLarge).includes('Sensitive Name'));
+
+  const smallCandidateConstruction = { steps: [{ operation: { snapshotToken: 'private-candidate-token', outputId: 'output-safe' } }] };
+  const persistedSmallCandidateConstruction = sanitizeReportPayload(smallCandidateConstruction);
+  assert.deepEqual(persistedSmallCandidateConstruction, { steps: [{ operation: { snapshotToken: '[REDACTED]', outputId: 'output-safe' } }] });
+  assert(!JSON.stringify(persistedSmallCandidateConstruction).includes('private-candidate-token'));
+
+  const candidateConstruction = { steps: [{ operation: { snapshotToken: 'private-candidate-token', rows: [{ value: 'x'.repeat(12_100) }] } }] };
+  const persistedCandidateConstruction = sanitizeReportPayload(candidateConstruction);
+  assert.deepEqual(persistedCandidateConstruction, { truncated: true, length: JSON.stringify(candidateConstruction).length });
+  assert(!JSON.stringify(persistedCandidateConstruction).includes('private-candidate-token'));
+});
+
+test('ONE/ALL response drain times out with request identity when a response body never resolves', async () => {
+  const workflowSource = await readFile(new URL('../../workflows/verify-cda-related-one-all-browser.mjs', import.meta.url), 'utf8');
+  const drainSource = workflowSource.match(/const settleNativeResponses = async \(timeoutMs = 5000\) => \{[\s\S]*?\n\};(?=\nconst waitNative)/)?.[0];
+  assert(drainSource, 'workflow must expose its native response settle boundary');
+  assert.match(workflowSource, /nativeResponseReads\.track\(read, \{[\s\S]*?browserRequestId: entry\.browserRequestId,[\s\S]*?path: entry\.path/,
+    'each response-body read must retain exact request metadata');
+  assert.doesNotMatch(workflowSource, /Promise\.allSettled\(\[\.\.\.nativeResponseReads\]\)/,
+    'the settle deadline must not await an unbounded allSettled drain');
+
+  const makeSettle = new Function('assert', 'nativeResponseReads', 'report', 'annotateExpectedOwnerCancellation',
+    'pendingNativeEvidence', 'sanitizeText', 'waitForNativeRequestChange', `${drainSource}; return settleNativeResponses;`);
+  const reads = createPendingResponseReads();
+  const request = {
+    browserRequestId: 'browser-never-body', requestId: 'request-never-body', requestCorrelationId: 'correlation-never-body',
+    method: 'POST', path: '/authoring/v2/construction-proposals', status: 200,
+    networkTerminal: true, bodyReadStatus: 'reading',
+  };
+  reads.track(new Promise(() => {}), {
+    phase: 'native-api-response-body', browserRequestId: request.browserRequestId,
+    requestId: request.requestCorrelationId, requestCorrelationId: request.requestCorrelationId,
+    method: request.method, path: request.path, status: request.status,
+  });
+  const report = { nativeRequests: [request], expectedOwnerCancellations: [] };
+  const settle = makeSettle(assert, reads, report, () => {}, entry => ({
+    browserRequestId: entry.browserRequestId, requestId: entry.requestId,
+    requestCorrelationId: entry.requestCorrelationId, method: entry.method, path: entry.path,
+    status: entry.status, bodyReadStatus: entry.bodyReadStatus,
+  }), value => String(value), async () => {});
+  const started = Date.now();
+  await assert.rejects(settle(30), /Timed out draining native API responses/);
+  assert(Date.now() - started < 500, 'the unresolved body must not defeat the settle deadline');
+  assert.equal(report.nativeResponseDrain.status, 'timed-out');
+  assert.deepEqual(report.nativeResponseDrain.pending, [{
+    browserRequestId: 'browser-never-body', requestId: 'request-never-body',
+    requestCorrelationId: 'correlation-never-body', method: 'POST',
+    path: '/authoring/v2/construction-proposals', status: 200, bodyReadStatus: 'reading',
+  }]);
+  assert.match(report.nativeResponseDrain.responseReadError, /correlation-never-body/);
+});
+
+test('ONE/ALL response drain keeps one absolute deadline across newly arriving body reads', async () => {
+  const workflowSource = await readFile(new URL('../../workflows/verify-cda-related-one-all-browser.mjs', import.meta.url), 'utf8');
+  const drainSource = workflowSource.match(/const settleNativeResponses = async \(timeoutMs = 5000\) => \{[\s\S]*?\n\};(?=\nconst waitNative)/)?.[0];
+  assert(drainSource);
+  const makeSettle = new Function('assert', 'nativeResponseReads', 'report', 'annotateExpectedOwnerCancellation',
+    'pendingNativeEvidence', 'sanitizeText', 'waitForNativeRequestChange', `${drainSource}; return settleNativeResponses;`);
+  const deferred = () => {
+    let resolve;
+    const promise = new Promise(resolvePromise => { resolve = resolvePromise; });
+    return { promise, resolve };
+  };
+  const reads = createPendingResponseReads();
+  const firstBody = deferred();
+  const first = { browserRequestId: 'browser-first', requestId: 'request-first', requestCorrelationId: 'correlation-first',
+    method: 'POST', path: '/authoring/v2/preview', status: 200, networkTerminal: true, bodyReadStatus: 'reading' };
+  const second = { browserRequestId: 'browser-second', requestId: 'request-second', requestCorrelationId: 'correlation-second',
+    method: 'POST', path: '/authoring/v2/construction-proposals', status: 200, networkTerminal: true, bodyReadStatus: 'pending' };
+  const detailsFor = entry => ({ phase: 'native-api-response-body', browserRequestId: entry.browserRequestId,
+    requestId: entry.requestCorrelationId, requestCorrelationId: entry.requestCorrelationId,
+    method: entry.method, path: entry.path, status: entry.status });
+  reads.track(firstBody.promise, detailsFor(first));
+  firstBody.promise.then(() => {
+    first.bodyReadStatus = 'decoded';
+    second.bodyReadStatus = 'reading';
+    reads.track(new Promise(() => {}), detailsFor(second));
+  });
+  const report = { nativeRequests: [first, second], expectedOwnerCancellations: [] };
+  const settle = makeSettle(assert, reads, report, () => {}, entry => ({
+    browserRequestId: entry.browserRequestId, requestId: entry.requestId,
+    requestCorrelationId: entry.requestCorrelationId, method: entry.method, path: entry.path,
+    status: entry.status, bodyReadStatus: entry.bodyReadStatus,
+  }), value => String(value), async () => {});
+  setTimeout(() => firstBody.resolve(), 35);
+  const started = Date.now();
+  await assert.rejects(settle(70), /Timed out draining native API responses/);
+  const elapsed = Date.now() - started;
+  assert(elapsed >= 60 && elapsed < 100, `the overall 70ms settle deadline must span both read batches (elapsed ${elapsed}ms)`);
+  assert.equal(report.nativeResponseDrain.status, 'timed-out');
+  assert.deepEqual(report.nativeResponseDrain.pending.map(entry => entry.requestCorrelationId), ['correlation-second']);
+});
+
+test('ONE/ALL response drain still rejects unexpected failed bodies with request evidence', async () => {
+  const workflowSource = await readFile(new URL('../../workflows/verify-cda-related-one-all-browser.mjs', import.meta.url), 'utf8');
+  const drainSource = workflowSource.match(/const settleNativeResponses = async \(timeoutMs = 5000\) => \{[\s\S]*?\n\};(?=\nconst waitNative)/)?.[0];
+  assert(drainSource);
+  const makeSettle = new Function('assert', 'nativeResponseReads', 'report', 'annotateExpectedOwnerCancellation',
+    'pendingNativeEvidence', 'sanitizeText', 'waitForNativeRequestChange', `${drainSource}; return settleNativeResponses;`);
+  const request = { requestId: 'failed-request', requestCorrelationId: 'failed-correlation', method: 'POST',
+    path: '/authoring/v2/commands', status: 200, networkTerminal: true, bodyReadStatus: 'failed', bodyError: 'body read failed' };
+  const report = { nativeRequests: [request], expectedOwnerCancellations: [] };
+  const settle = makeSettle(assert, createPendingResponseReads(), report, () => {}, entry => ({
+    requestId: entry.requestId, requestCorrelationId: entry.requestCorrelationId, method: entry.method,
+    path: entry.path, status: entry.status, bodyReadStatus: entry.bodyReadStatus, bodyError: entry.bodyError,
+  }), value => String(value), async () => {});
+  await assert.rejects(settle(100), /Every captured native API response must decode/);
+  assert.equal(report.nativeResponseDrain.status, 'failed');
+  assert.deepEqual(report.nativeResponseDrain.failedBodies, [{ requestId: 'failed-request',
+    requestCorrelationId: 'failed-correlation', method: 'POST', path: '/authoring/v2/commands',
+    status: 200, bodyReadStatus: 'failed', bodyError: 'body read failed' }]);
+});
+
+test('ONE/ALL label edit checkpoint follows exact current-table rendering and precedes reload', async () => {
+  const workflowSource = await readFile(new URL('../../workflows/verify-cda-related-one-all-browser.mjs', import.meta.url), 'utf8');
+  const currentTableCheck = workflowSource.indexOf('const editedCurrentTable = await inspectPage');
+  const exactRowsCheck = workflowSource.indexOf('assert.deepEqual(orderedRows(editedCurrentTable.rows), orderedRows(addedRows)');
+  const editRecord = workflowSource.indexOf("record('edit-related-field-output-label', editStarted");
+  const reload = workflowSource.indexOf("openTable(addedRows, 'reload-edited-related-field-output-label')");
+  assert(currentTableCheck >= 0 && exactRowsCheck > currentTableCheck && editRecord > exactRowsCheck && reload > editRecord,
+    'the edit timer closes only after exact current-table header and row rendering, with reload kept separate');
+});
+
+test('ONE/ALL diagnostics exempt only the exact classified request on a shared endpoint', async () => {
+  const workflowSource = await readFile(new URL('../../workflows/verify-cda-related-one-all-browser.mjs', import.meta.url), 'utf8');
+  const fixtureSource = await readFile(new URL('../cda-fixtures.mjs', import.meta.url), 'utf8');
+  const predicate = workflowSource.match(/const unexpectedPlaywrightNetwork = cda\.diagnostics\.networkFailures\.filter\(\(failure\) =>([\s\S]*?)\);/)?.[1];
+  assert(predicate, 'network diagnostics must filter by exact classified request identity');
+  assert.match(fixtureSource, /const sameCapturedRequest = entry => entry\.kind === 'network' &&\s*entry\.browserRequestId === capturedEntry\.browserRequestId;[\s\S]*?diagnostic\.expectedCancellation = cancellation/,
+    'fixture classification must stamp the expected marker only on the captured request identity');
+  const isUnexpected = new Function('failure', `return (${predicate.trim()});`);
+  const url = 'http://127.0.0.1:30008/api/v1/projects/project/explorers/explorer/authoring/v2/related-expand-contributors';
+  const classified = { url, browserRequestId: 'browser-request-exact', expected: true,
+    expectedCancellation: { browserRequestId: 'browser-request-exact' } };
+  const unrelatedSamePath = { url, browserRequestId: 'browser-request-unrelated' };
+  const mismatchedClassification = { url, browserRequestId: 'browser-request-third', expected: true,
+    expectedCancellation: { browserRequestId: 'browser-request-exact' } };
+  assert.deepEqual([classified, unrelatedSamePath, mismatchedClassification].filter(isUnexpected),
+    [unrelatedSamePath, mismatchedClassification],
+    'same-path and mismatched-ID failures remain fatal when only the exact captured request was classified');
+});
+
+test('named-cohort proposal report sanitizes only its persisted candidate construction', async () => {
+  const workflowSource = await readFile(new URL('../../workflows/verify-cda-named-cohort-related-count-browser.mjs', import.meta.url), 'utf8');
+  assert.match(workflowSource, /candidateConstruction: sanitizeReportPayload\(response\.candidateConstruction\)/,
+    'candidate construction report evidence must be sanitized and capped');
+  assert.match(workflowSource, /const step = response\.candidateConstruction\.steps\.at\(-1\)/,
+    'protocol assertions must continue using the raw proposal response');
 });
 
 test('request trackers wait only on entries whose exact bodies they own', async () => {
@@ -280,4 +445,193 @@ test('expected HTTP and matching console errors are scoped to the exact owned re
   assert.equal(report.errors.filter(error => error.kind === 'http').length, 1);
   assert.equal(report.errors.filter(error => error.kind === 'console').length, 3);
   assert.equal(report.errors.find(error => error.kind === 'http').requestId, 'unexpected-preserve-policy');
+});
+
+
+test('matching aborted preview is skipped until its decoded replacement response arrives', async () => {
+  const page = new EventEmitter();
+  const report = { nativeRequests: [], errors: [] };
+  const capture = captureCDARequests(page, {
+    apiOrigin: 'http://127.0.0.1:30102',
+    ownedPathPrefix: '/api/v1/projects/isolated/explorers/owned', report,
+    responsePaths: /preview/,
+  });
+  const path = '/api/v1/projects/isolated/explorers/owned/authoring/v2/preview';
+  const makeRequest = requestId => ({
+    url: () => `http://127.0.0.1:30102${path}`,
+    method: () => 'POST', headers: () => ({ 'x-request-id': requestId }),
+    postData: () => JSON.stringify({ outputId: 'out-owned', snapshotToken: 'sha256:owned-snapshot' }),
+    failure: () => ({ errorText: 'net::ERR_ABORTED' }),
+  });
+  const fromIndex = report.nativeRequests.length;
+  let settled = false;
+  const replacementWait = capture.waitFor(entry => entry.path === path && entry.body?.outputId === 'out-owned' &&
+    entry.status === 200 && capture.rawResponseBody(entry)?.receiptId, { fromIndex, timeoutMs: 1000 })
+    .then(entry => { settled = true; return entry; });
+
+  const abortedRequest = makeRequest('preview-aborted');
+  page.emit('request', abortedRequest);
+  page.emit('requestfailed', abortedRequest);
+  await new Promise(resolve => setImmediate(resolve));
+  const abortedEntry = report.nativeRequests[0];
+  assert.equal(abortedEntry.completedAt !== undefined, true);
+  assert.equal(capture.rawResponseBody(abortedEntry), undefined);
+  assert.equal(findCompletedNativeResponse(report.nativeRequests, capture.rawResponseBody,
+    (entry, response) => entry.path === path && entry.body?.outputId === 'out-owned' && response.receiptId,
+    fromIndex), undefined, 'A terminal aborted request is not a completed protocol response');
+  assert.equal(settled, false, 'The matching abort must not satisfy the native preview waiter');
+
+  const replacementRequest = makeRequest('preview-replacement');
+  page.emit('request', replacementRequest);
+  page.emit('response', {
+    request: () => replacementRequest, status: () => 200, headers: () => ({}),
+    text: async () => JSON.stringify({ receiptId: 'receipt-replacement', outputId: 'out-owned', rowCount: 1 }),
+  });
+  const replacementEntry = await replacementWait;
+  assert.equal(replacementEntry, report.nativeRequests[1]);
+  assert.equal(replacementEntry.requestId, 'preview-replacement');
+  assert.equal(findCompletedNativeResponse(report.nativeRequests, capture.rawResponseBody,
+    (entry, response) => entry.path === path && entry.body?.outputId === 'out-owned' && response.receiptId,
+    fromIndex), replacementEntry);
+});
+
+test('oversized expected 422 is classified from the raw protocol body while diagnostics stay bounded', async () => {
+  const page = new EventEmitter();
+  const report = { nativeRequests: [], errors: [] };
+  const capture = captureCDARequests(page, {
+    apiOrigin: 'http://127.0.0.1:30102',
+    ownedPathPrefix: '/api/v1/projects/isolated/explorers/owned', report,
+    responsePaths: /construction-proposals/,
+  });
+  const expected = {
+    outputId: 'out-exact', candidateId: 'candidate-exact', nodeId: 'node-exact',
+    choiceId: 'signed-choice-exact', snapshotToken: 'sha256:fixture-snapshot',
+    resourceType: 'Observation', path: 'id', routeTypes: ['Specimen', 'Patient', 'Observation'],
+  };
+  const requestBody = {
+    outputId: expected.outputId, changedStepId: 'related-step-exact', snapshotToken: expected.snapshotToken,
+    candidateConstruction: { steps: [{ id: 'related-step-exact', operation: { kind: 'RELATED_SOURCE', relatedSource: {
+      source: { candidateId: expected.candidateId, nodeId: expected.nodeId, resourceType: expected.resourceType, path: expected.path },
+      choiceId: expected.choiceId,
+      route: [
+        { fromResourceType: 'Specimen', toResourceType: 'Patient' },
+        { fromResourceType: 'Patient', toResourceType: 'Observation' },
+      ],
+      form: 'ALL', contributorRule: { policy: 'ALL_MATCHES' }, rowValuePolicy: 'ONE',
+    } } }] },
+  };
+  const request = {
+    url: () => 'http://127.0.0.1:30102/api/v1/projects/isolated/explorers/owned/authoring/v2/construction-proposals',
+    method: () => 'POST', headers: () => ({ 'x-request-id': 'oversized-expected-422' }), postData: () => JSON.stringify(requestBody),
+  };
+  page.emit('request', request);
+  const protocolResponse = {
+    error: { code: 'CONSTRUCTION_ROW_VALUE_MULTIPLE_VALUES', message: 'The selected related values disagree.' },
+    accessToken: 'private-test-token', detail: 'x'.repeat(33_000),
+  };
+  const body = JSON.stringify(protocolResponse);
+  assert(body.length > 32_768, 'fixture must cross the bounded capture threshold');
+  page.emit('response', {
+    request: () => request, status: () => 422, headers: () => ({}), text: async () => body,
+  });
+  await capture.flush();
+  const entry = report.nativeRequests[0];
+  const exactEntry = {
+    ...entry, request: capture.rawRequestBody(entry), response: capture.rawResponseBody(entry),
+  };
+  assert.deepEqual(exactEntry.response, protocolResponse,
+    'workflow protocol decisions must retain the full expected validation response');
+  assert.equal(expectedRelatedSourceOneValidation(exactEntry, expected), true,
+    'final expected-422 accounting must classify the complete protocol response');
+  assert.equal(expectedRelatedSourceOneValidation({ ...exactEntry, response: entry.response }, expected), false,
+    'bounded report diagnostics cannot replace the raw response for protocol classification');
+  assert.deepEqual(entry.response, { truncated: true, length: body.length },
+    'the report copy must stay bounded rather than retaining a truncated JSON string');
+  assert(!JSON.stringify(report).includes('x'.repeat(100)), 'the report must not include the oversized body');
+  assert(!JSON.stringify(report).includes('private-test-token'), 'the report must not include the sensitive live protocol value');
+});
+
+test('Apply and reconcile identity checks use retained protocol values beyond the diagnostic body limit', async () => {
+  const workflowSource = await readFile(new URL('../../workflows/verify-cda-related-one-all-browser.mjs', import.meta.url), 'utf8');
+  assert.match(workflowSource, /text\.length > 12_000/, 'the workflow must keep its bounded diagnostic projection');
+  assert.match(workflowSource, /const allCommandResponse = protocolResponse\(allCommand\)/);
+  assert.match(workflowSource, /const acceptedReconcileResponse = protocolResponse\(acceptedReconcile\)/);
+  assert.doesNotMatch(workflowSource, /allCommand\.response\.(?:draftVersion|draftDigest)|acceptedReconcile\.response\.(?:snapshotToken|intentDigest|outputs|receiptId)/,
+    'Apply and reconcile protocol assertions must not read the truncated diagnostic copy');
+
+  const page = new EventEmitter();
+  const report = { nativeRequests: [], errors: [] };
+  const capture = captureCDARequests(page, {
+    apiOrigin: 'http://127.0.0.1:30102',
+    ownedPathPrefix: '/api/v1/projects/isolated/explorers/owned',
+    report,
+    responsePaths: /commands|reconcile/,
+  });
+  const identities = [
+    {
+      path: 'commands', requestId: 'large-apply', response: {
+        draftVersion: 23, draftDigest: 'sha256:applied-draft', detail: 'x'.repeat(40_000),
+      },
+    },
+    {
+      path: 'reconcile', requestId: 'large-reconcile', response: {
+        snapshotToken: 'sha256:accepted-snapshot', intentDigest: 'sha256:applied-draft',
+        receiptId: 'receipt-current', outputs: [{ outputId: 'output-current' }], detail: 'y'.repeat(40_000),
+      },
+    },
+  ];
+  for (const item of identities) {
+    const request = {
+      url: () => `http://127.0.0.1:30102/api/v1/projects/isolated/explorers/owned/authoring/v2/${item.path}`,
+      method: () => 'POST', headers: () => ({ 'x-request-id': item.requestId }), postData: () => '{}',
+    };
+    page.emit('request', request);
+    page.emit('response', {
+      request: () => request, status: () => 200, headers: () => ({}), text: async () => JSON.stringify(item.response),
+    });
+  }
+  await capture.flush();
+
+  const [applyEntry, reconcileEntry] = report.nativeRequests;
+  assert(applyEntry.response.length > 12_000);
+  assert(reconcileEntry.response.length > 12_000);
+  assert.deepEqual(applyEntry.response, { truncated: true, length: JSON.stringify(identities[0].response).length });
+  assert.deepEqual(reconcileEntry.response, { truncated: true, length: JSON.stringify(identities[1].response).length });
+
+  const applyResponse = capture.rawResponseBody(applyEntry);
+  const reconcileResponse = capture.rawResponseBody(reconcileEntry);
+  assert.deepEqual({ draftVersion: applyResponse.draftVersion, draftDigest: applyResponse.draftDigest },
+    { draftVersion: 23, draftDigest: 'sha256:applied-draft' });
+  assert.deepEqual({ snapshotToken: reconcileResponse.snapshotToken, intentDigest: reconcileResponse.intentDigest,
+    receiptId: reconcileResponse.receiptId, outputs: reconcileResponse.outputs }, {
+    snapshotToken: 'sha256:accepted-snapshot', intentDigest: 'sha256:applied-draft',
+    receiptId: 'receipt-current', outputs: [{ outputId: 'output-current' }],
+  });
+  assert(!JSON.stringify(report).includes('x'.repeat(100)) && !JSON.stringify(report).includes('y'.repeat(100)),
+    'large response payloads must remain absent from serialized diagnostics');
+});
+
+test('a proposal captured during its trigger click remains visible to the waiter', async () => {
+  const workflowSource = await readFile(new URL('../../workflows/verify-cda-related-one-all-browser.mjs', import.meta.url), 'utf8');
+  const proposalBody = workflowSource.match(/const proposal = async \(name, started, expectedRows, fromIndex\) => \{([\s\S]*?)\n\};/)?.[1];
+  assert(proposalBody, 'proposal must receive its request boundary from the triggering action');
+  assert.doesNotMatch(proposalBody, /report\.nativeRequests\.length/, 'proposal must not take its index after the click has already happened');
+  const proposalCalls = [...workflowSource.matchAll(/await proposal\(([^;\n]*)\);/g)].map((match) => match[1]);
+  assert.equal(proposalCalls.length, 4, 'all native proposal paths must be checked');
+  assert(proposalCalls.every((call) => /(?:fromIndex|[Pp]roposalFromIndex)/.test(call)),
+    'every proposal wait must receive an index captured before its triggering click');
+
+  const entries = [];
+  const beforeClickIndex = entries.length;
+  const completedProposal = {
+    path: '/construction-proposals', startedAt: 100, complete: true,
+    response: { proposalId: 'proposal-triggered-by-click' },
+  };
+  entries.push(completedProposal);
+  const matchesProposal = (entry, response) => entry.startedAt >= 100 &&
+    entry.path.endsWith('/construction-proposals') && response?.proposalId;
+  assert.equal(findCompletedNativeResponse(entries, entry => entry.response, matchesProposal, beforeClickIndex), completedProposal,
+    'the request that arrives before the click promise resolves must still satisfy the proposal wait');
+  assert.equal(findCompletedNativeResponse(entries, entry => entry.response, matchesProposal, entries.length), undefined,
+    'taking the request boundary after the click would skip the already-recorded proposal');
 });

@@ -35,3 +35,14 @@ export function sanitizeBody(body) {
     return sanitizeText(text);
   }
 }
+
+export function sanitizeReportPayload(value) {
+  const serialized = JSON.stringify(value);
+  if (serialized === undefined) return undefined;
+  if (serialized.length > maxBodyLength) return { truncated: true, length: serialized.length };
+  const sanitized = sanitizePayload(value);
+  const sanitizedSerialized = JSON.stringify(sanitized);
+  return sanitizedSerialized.length > maxBodyLength
+    ? { truncated: true, length: serialized.length }
+    : sanitized;
+}

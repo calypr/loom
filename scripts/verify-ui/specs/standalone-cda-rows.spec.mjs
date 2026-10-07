@@ -6,7 +6,12 @@ import { repeatedRowsWorkflow } from '../workflows/verify-cda-repeated-rows-brow
 
 const relatedMode = process.env.LOOM_RELATED_ONE_ALL_MODE ?? 'cda';
 const relatedField = process.env.LOOM_RELATED_ONE_ALL_FIELD ?? 'id';
-const relatedCaseName = `${relatedMode}-${relatedField}-raw-oracle-one-all-lifecycle`;
+const relatedCaseName = relatedMode === 'cda' && relatedField === 'specimen-reference'
+  ? 'cda-specimen-reference-raw-oracle-one-all-lifecycle'
+  : `${relatedMode}-${relatedField}-raw-oracle-one-all-lifecycle`;
+const relatedScenarioID = relatedMode === 'cda' && relatedField === 'specimen-reference'
+  ? 'cda-related-one-all-specimen-reference'
+  : 'cda-related-one-all';
 const basicRelatedTarget = relatedMode === 'basic' ? {
   ...(process.env.LOOM_DEV_PROJECT ? { cdaProject: process.env.LOOM_DEV_PROJECT } : {}),
   ...(process.env.LOOM_API_ORIGIN ? { cdaApiOrigin: process.env.LOOM_API_ORIGIN } : {}),
@@ -45,7 +50,7 @@ test.describe('CDA related source ONE and ALL values', () => {
     ...(process.env.LOOM_API_ORIGIN ? { cdaApiOrigin: process.env.LOOM_API_ORIGIN } : {}),
     ...(process.env.LOOM_UI_ORIGIN ? { cdaUiOrigin: process.env.LOOM_UI_ORIGIN } : {}),
     ...basicRelatedTarget,
-    cdaScenarioID: 'cda-related-one-all',
+    cdaScenarioID: relatedScenarioID,
     cdaCaseName: relatedCaseName,
   });
 

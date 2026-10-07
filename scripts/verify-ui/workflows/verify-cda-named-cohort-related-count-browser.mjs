@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { captureCDARequests } from '../helpers/cda-playwright-requests.mjs';
+import { sanitizeReportPayload } from '../helpers/playwright-browser.mjs';
 
 export async function namedCohortRelatedCountWorkflow({
   page,
@@ -89,13 +90,13 @@ const api = async (path, body) => {
   });
   const value = await response.json();
   report.requests.push({
-    path, method: body ? 'POST' : 'GET', body, startedAt, completedAt: Date.now(), status: response.status,
-    response: path.endsWith('/builder') ? {
+    path, method: body ? 'POST' : 'GET', body: sanitizeReportPayload(body), startedAt, completedAt: Date.now(), status: response.status,
+    response: sanitizeReportPayload(path.endsWith('/builder') ? {
       draftVersion: value.draftVersion,
       draftDigest: value.draftDigest,
       catalog: { generation: value.catalog?.generation, authorizationScopeDigest: value.catalog?.authorizationScopeDigest },
       workspace: value.workspace,
-    } : value,
+    } : value),
   });
   assert(response.ok, JSON.stringify(value));
   return value;
@@ -409,11 +410,15 @@ const assertTypedNamedGroupRows = (rows, expectedGroupCounts, revisionId, relate
   return evidenceRows;
 };
 
+const protocolResponse = entry => nativeCapture.rawResponseBody(entry);
 const waitNative = async (suffix, startedAt, predicate = () => true) => {
   const deadline = startedAt + 5000;
   while (Date.now() < deadline) {
-    const match = report.nativeRequests.findLast(entry => pathOf(entry).endsWith(suffix) &&
-      entry.startedAt >= startedAt && entry.completedAt && entry.response !== undefined && predicate(entry));
+    const match = report.nativeRequests.findLast(entry => {
+      const response = protocolResponse(entry);
+      return pathOf(entry).endsWith(suffix) && entry.startedAt >= startedAt && entry.completedAt &&
+        response !== undefined && predicate(entry, response);
+    });
     if (match) return match;
     await pause(40);
   }
@@ -439,23 +444,24 @@ const openTable = async (expectedGroupCounts, relatedColumnName) => {
   await click(page, `[data-testid="construction-table-${outputId}"]`);
   await waitForBrowser(page, (args) => { return Boolean((document.querySelector('[data-testid="construction-rows-settings-trigger"]')?.disabled === false)); });
   const table = await waitTable(expectedGroupCounts.length);
-  const nativePreview = await waitNative('/preview', tablePreviewStartedAt, entry =>
-    entry.status === 200 && entry.response?.rows?.length === expectedGroupCounts.length);
-  const protocolRows = assertTypedNamedGroupRows(nativePreview.response.rows, expectedGroupCounts, report.cohort.revisionId, relatedColumnName);
+  const nativePreview = await waitNative('/preview', tablePreviewStartedAt, (entry, response) =>
+    entry.status === 200 && response?.rows?.length === expectedGroupCounts.length);
+  const protocolRows = assertTypedNamedGroupRows(protocolResponse(nativePreview).rows, expectedGroupCounts, report.cohort.revisionId, relatedColumnName);
   record('reload-to-preview', startedAt, { table, protocolRows });
   return table;
 };
 
 const proposalPreview = async (startedAt, expectedGroupCounts) => {
   const request = await waitNative('/construction-proposals', startedAt, entry => entry.status === 200);
+  const response = protocolResponse(request);
   assert.equal(request.status, 200, JSON.stringify(request.response));
-  assert.equal(request.response.previewStatus, 'READY', JSON.stringify(request.response));
-  await waitForBrowser(page, (args) => { return Boolean((document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalId === args[0] && document.querySelector('[data-testid="construction-proposal-ready"]'))); }, [request.response.proposalId]);
+  assert.equal(response.previewStatus, 'READY', JSON.stringify(request.response));
+  await waitForBrowser(page, (args) => { return Boolean((document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalId === args[0] && document.querySelector('[data-testid="construction-proposal-ready"]'))); }, [response.proposalId]);
   const view = await browserEval(page, (args) => { const preview=document.querySelector('[data-testid="construction-proposal-preview"]');return {
     headers:[...preview.querySelectorAll('th')].map(header=>header.firstElementChild?.textContent?.trim()??header.innerText.trim()),
     rows:[...preview.querySelectorAll('[data-testid="construction-proposal-preview-row"]')].map(row=>[...row.querySelectorAll('td')].map(cell=>({text:cell.innerText.trim(),raw:cell.title}))),
   }; });
-  const step = request.response.candidateConstruction.steps.at(-1);
+  const step = response.candidateConstruction.steps.at(-1);
   assert.equal(step?.operation.kind, 'RELATED_SOURCE', 'The Add columns transition must save an authored RELATED_SOURCE step');
   const source = step.operation.relatedSource;
   assert.equal(source.form, relatedForm, `Native chooser must author RELATED_SOURCE ${relatedForm}`);
@@ -469,11 +475,11 @@ const proposalPreview = async (startedAt, expectedGroupCounts) => {
   ]);
   const output = step.outputs.find(column => column.id === source.outputColumnId);
   assert(output, `The candidate related ${relatedForm} must have a terminal authored output column`);
-  const protocolRows = assertTypedNamedGroupRows(request.response.preview?.rows, expectedGroupCounts, report.cohort.revisionId, output.name);
+  const protocolRows = assertTypedNamedGroupRows(response.preview?.rows, expectedGroupCounts, report.cohort.revisionId, output.name);
   assertNamedGroupRows(view, expectedGroupCounts, output.label);
   const durationMs = Date.now() - startedAt;
   assert(durationMs <= 5000, `related ${relatedForm} proposal preview took ${durationMs}ms`);
-  report.cases.push({ name: `related-${relatedFormName}-proposal-preview`, durationMs, headers: view.headers, row: view.rows.map(row => row.map(cell => cell.text)), protocolRows, candidateConstruction: request.response.candidateConstruction });
+  report.cases.push({ name: `related-${relatedFormName}-proposal-preview`, durationMs, headers: view.headers, row: view.rows.map(row => row.map(cell => cell.text)), protocolRows, candidateConstruction: sanitizeReportPayload(response.candidateConstruction) });
   return { request, view, step, output };
 };
 
@@ -526,8 +532,9 @@ const applyConstructionProposal = async (expectedGroupCounts, relatedColumnName)
   const savedCommand = await waitNative('/commands', startedAt, entry => entry.status === 200);
   const previewRequest = await waitNative('/preview', startedAt, entry => entry.status === 200);
   assert(savedCommand, 'Apply must persist through the native authoring command endpoint');
-  assert(previewRequest.response?.receiptId, 'Apply must render a fresh native Preview receipt');
-  const protocolRows = assertTypedNamedGroupRows(previewRequest.response.rows, expectedGroupCounts, report.cohort.revisionId, relatedColumnName);
+  const previewResponse = protocolResponse(previewRequest);
+  assert(previewResponse?.receiptId, 'Apply must render a fresh native Preview receipt');
+  const protocolRows = assertTypedNamedGroupRows(previewResponse.rows, expectedGroupCounts, report.cohort.revisionId, relatedColumnName);
   assert(report.nativeRequests.slice(nativeStartIndex).some(entry => pathOf(entry).endsWith('/commands') && entry.status === 200));
   record('apply-to-render', startedAt, { table, protocolRows });
   builder = await api(base + '/builder');
@@ -728,9 +735,9 @@ try {
   await click(page, '[aria-label="Row definition settings"] button', { name: 'Apply row definition' });
   await waitForBrowser(page, (args) => { return Boolean(([...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].some(header=>header.innerText.trim().toLowerCase()==='members'))); });
   const groupedTable = await waitTable(groupDefinitions.length);
-  const groupedNativePreview = await waitNative('/preview', groupApplyStart, entry =>
-    entry.status === 200 && entry.response?.rows?.length === groupDefinitions.length);
-  const groupedProtocolRows = assertTypedNamedGroupRows(groupedNativePreview.response.rows, expectedGroupCounts, cohort.revisionId);
+  const groupedNativePreview = await waitNative('/preview', groupApplyStart, (entry, response) =>
+    entry.status === 200 && response?.rows?.length === groupDefinitions.length);
+  const groupedProtocolRows = assertTypedNamedGroupRows(protocolResponse(groupedNativePreview).rows, expectedGroupCounts, cohort.revisionId);
   record('apply-named-cohort', rowSettingsStart, { table: groupedTable, protocolRows: groupedProtocolRows });
   builder = await api(base + '/builder');
   const groupedBaselineWorkspace = structuredClone(builder.workspace);
@@ -809,14 +816,15 @@ try {
   const editStart = Date.now();
   await fill(page, labelSelector, editedLabel);
   const editedProposal = await waitNative('/construction-proposals', editStart, entry => entry.status === 200);
-  assert.equal(editedProposal.response.previewStatus, 'READY', JSON.stringify(editedProposal.response));
-  await waitForBrowser(page, (args) => { return Boolean((document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalId === args[0] && document.querySelector('[data-testid="construction-proposal-ready"]'))); }, [editedProposal.response.proposalId]);
-  const editedStep = editedProposal.response.candidateConstruction.steps.find(step => step.id === savedStep.id);
+  const editedResponse = protocolResponse(editedProposal);
+  assert.equal(editedResponse.previewStatus, 'READY', JSON.stringify(editedProposal.response));
+  await waitForBrowser(page, (args) => { return Boolean((document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalId === args[0] && document.querySelector('[data-testid="construction-proposal-ready"]'))); }, [editedResponse.proposalId]);
+  const editedStep = editedResponse.candidateConstruction.steps.find(step => step.id === savedStep.id);
   assert(editedStep);
   assert.deepEqual(editedStep.operation, savedStep.operation, 'Editing the output label must preserve the exact route, source ID and cohort anchor');
   const editedOutput = editedStep.outputs.find(column => column.id === savedStep.operation.relatedSource.outputColumnId);
   assert.equal(editedOutput.label, editedLabel);
-  const editedProtocolRows = assertTypedNamedGroupRows(editedProposal.response.preview?.rows, expectedGroupCounts, cohort.revisionId, editedOutput.name);
+  const editedProtocolRows = assertTypedNamedGroupRows(editedResponse.preview?.rows, expectedGroupCounts, cohort.revisionId, editedOutput.name);
   const editedView = await browserEval(page, (args) => { const preview=document.querySelector('[data-testid="construction-proposal-preview"]');return {
     headers:[...preview.querySelectorAll('th')].map(header=>header.firstElementChild?.textContent?.trim()??header.innerText.trim()),
     rows:[...preview.querySelectorAll('[data-testid="construction-proposal-preview-row"]')].map(row=>[...row.querySelectorAll('td')].map(cell=>({text:cell.innerText.trim(),raw:cell.title}))),
@@ -835,9 +843,10 @@ try {
   const confirmedEditStart = Date.now();
   await fill(page, labelSelector, editedLabel);
   const confirmedEditProposal = await waitNative('/construction-proposals', confirmedEditStart, entry => entry.status === 200);
-  const confirmedEditStep = confirmedEditProposal.response.candidateConstruction.steps.find(step => step.id === savedStep.id);
+  const confirmedEditResponse = protocolResponse(confirmedEditProposal);
+  const confirmedEditStep = confirmedEditResponse.candidateConstruction.steps.find(step => step.id === savedStep.id);
   const confirmedEditOutput = confirmedEditStep.outputs.find(column => column.id === savedStep.operation.relatedSource.outputColumnId);
-  assertTypedNamedGroupRows(confirmedEditProposal.response.preview?.rows, expectedGroupCounts, cohort.revisionId, confirmedEditOutput.name);
+  assertTypedNamedGroupRows(confirmedEditResponse.preview?.rows, expectedGroupCounts, cohort.revisionId, confirmedEditOutput.name);
   await waitForBrowser(page, (args) => { return Boolean((document.querySelector('[data-testid="construction-proposal-ready"]'))); });
   await applyConstructionProposal(expectedGroupCounts, confirmedEditOutput.name);
   record(`apply-related-${relatedFormName}-label-edit`, confirmedEditStart);
@@ -854,11 +863,12 @@ try {
   const removeStart = Date.now();
   await click(page, `[data-testid="construction-remove-step-${savedStep.id}"]`);
   const removeProposal = await waitNative('/construction-proposals', removeStart, entry => entry.status === 200);
-  assert.equal(removeProposal.response.previewStatus, 'READY', JSON.stringify(removeProposal.response));
-  const removeProtocolRows = assertTypedNamedGroupRows(removeProposal.response.preview?.rows, expectedGroupCounts, cohort.revisionId);
+  const removeResponse = protocolResponse(removeProposal);
+  assert.equal(removeResponse.previewStatus, 'READY', JSON.stringify(removeProposal.response));
+  const removeProtocolRows = assertTypedNamedGroupRows(removeResponse.preview?.rows, expectedGroupCounts, cohort.revisionId);
   await waitForBrowser(page, (args) => { return Boolean((document.querySelector('[data-testid="construction-proposal-ready"]'))); });
   const removeView = await browserEval(page, (args) => { const preview=document.querySelector('[data-testid="construction-proposal-preview"]');return {headers:[...preview.querySelectorAll('th')].map(header=>header.firstElementChild?.textContent?.trim()??header.innerText.trim()),rows:[...preview.querySelectorAll('[data-testid="construction-proposal-preview-row"]')].map(row=>[...row.querySelectorAll('td')].map(cell=>cell.innerText.trim()))}; });
-  assert.equal(removeProposal.response.candidateConstruction.steps.length, 0, 'Removing the authored Add column must restore the construction-free cohort');
+  assert.equal(removeResponse.candidateConstruction.steps.length, 0, 'Removing the authored Add column must restore the construction-free cohort');
   assertNamedGroupRows(removeView, expectedGroupCounts);
   record(`remove-related-${relatedFormName}-preview`, removeStart, { headers: removeView.headers, rows: removeView.rows, protocolRows: removeProtocolRows });
   const cancelRemoveStart = Date.now();
@@ -871,7 +881,7 @@ try {
   const confirmedRemoveStart = Date.now();
   await click(page, `[data-testid="construction-remove-step-${savedStep.id}"]`);
   const confirmedRemoveProposal = await waitNative('/construction-proposals', confirmedRemoveStart, entry => entry.status === 200);
-  assertTypedNamedGroupRows(confirmedRemoveProposal.response.preview?.rows, expectedGroupCounts, cohort.revisionId);
+  assertTypedNamedGroupRows(protocolResponse(confirmedRemoveProposal).preview?.rows, expectedGroupCounts, cohort.revisionId);
   await waitForBrowser(page, (args) => { return Boolean((document.querySelector('[data-testid="construction-proposal-ready"]'))); });
   await applyConstructionProposal(expectedGroupCounts);
   record(`apply-related-${relatedFormName}-removal`, confirmedRemoveStart);
