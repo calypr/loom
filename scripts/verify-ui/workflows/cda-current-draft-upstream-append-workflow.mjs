@@ -19,6 +19,7 @@ import {
 import { nativeCombineTargetBindingEvidence } from '../helpers/builder-combine-helpers.mjs';
 import { proposalPreviewReadinessExpression } from '../helpers/proposal-preview-readiness.mjs';
 import { validatedArangoContainer } from '../helpers/native-cda-workflow-tools.mjs';
+import { buildArangoShellInvocation } from '../helpers/owned-arangosh-command.mjs';
 
 const MAX_ACTION_MS = 5_000;
 const ACTION_CHECK = 'all native CDA Group→DERIVE→APPEND lifecycle actions complete within five seconds';
@@ -71,10 +72,9 @@ export const readReloadedSelectionResponse = async (browserRequest, remainingMs,
 
 function runAQL(arangoContainer, query, label) {
   const javascript = `print(JSON.stringify(db._query(${JSON.stringify(query)}).toArray()));`.replaceAll('@', '\\u0040');
-  const result = spawnSync('rtk', [
-    'proxy', 'docker', 'exec', arangoContainer, 'arangosh', '--server.database', 'loom_dev',
-    '--javascript.execute-string', javascript,
-  ], { encoding: 'utf8', timeout: 30_000, maxBuffer: 8 * 1024 * 1024 });
+  const invocation = buildArangoShellInvocation({ container: arangoContainer, database: 'loom_dev', script: javascript });
+  const result = spawnSync(invocation.command, invocation.args,
+    { encoding: 'utf8', timeout: 30_000, maxBuffer: 8 * 1024 * 1024 });
   assert.equal(result.status, 0, `${label} failed: ${normalize(result.stderr || result.stdout).slice(0, 1_800)}`);
   const start = result.stdout.indexOf('[');
   assert(start >= 0, `${label} returned no JSON array: ${normalize(result.stdout).slice(0, 800)}`);
