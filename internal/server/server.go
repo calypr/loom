@@ -327,11 +327,13 @@ func categoryScanReceiptResolutionError(receiptID string, err error) error {
 	return classified
 }
 
+const pivotCategoryScanTimeout = 10 * time.Second
+
 func configuredCategoryScanner(logger *slog.Logger, recipeEngine *dataframeexecution.Engine) lifecycle.CategoryScanner {
 	return func(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, request dataframeexecution.CategoryScanRequest) (dataframeexecution.CategoryScanResult, error) {
-		// Leave time for Arango's server-side preview runtime limit to stop
-		// work that continues after a canceled discovery request.
-		scanCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
+		// Category discovery is a Pivot-only operation. Keep its deadline aligned
+		// with the existing server-side preview runtime limit.
+		scanCtx, cancel := context.WithTimeout(ctx, pivotCategoryScanTimeout)
 		defer cancel()
 		started := time.Now()
 		attrs := []any{"output_id", request.Output, "stage_id", request.StageID, "category_column_id", request.ColumnID, "value_column_id", request.ValueColumnID}

@@ -188,7 +188,18 @@ Record DOM usability, result correctness, persistence, and performance separatel
 with the invocation and evidence path. Distinguish passed, failed, untested,
 skipped, and unreachable. Capture JavaScript exceptions, failed module loads,
 unexpected 4xx/5xx, dead controls, clicks, and action-to-render time including
-discovery and compilation. More than five seconds on CDA fails performance.
+discovery and compilation. More than five seconds on CDA fails performance by
+default. The current user-approved exception is limited to full-population root
+quantity Pivot and related text-only quantity Pivot: category discovery and
+native Pivot action-to-render checkpoints may take up to ten seconds. The
+category scanner has a ten-second server deadline; construction proposal
+preview already uses the existing ten-second preview runtime, and the browser
+request transport allows thirty seconds. The bounded Pivot fixture and every
+other operation retain the five-second acceptance budget. This exception
+changes the threshold, not the evidence: real-CDA Pivot performance remains
+unverified until a fresh registered native run completes within ten seconds
+and passes its independent correctness, lifecycle, and source/API integrity
+checks. Historical reports and synthetic profiles do not establish that pass.
 Expected validation errors must offer an understandable repair path;
 INTERNAL_ERROR always fails. Record incidental asset errors explicitly.
 

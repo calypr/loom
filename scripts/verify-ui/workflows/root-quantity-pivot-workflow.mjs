@@ -15,6 +15,7 @@ import { captureApiBuildFreeze, checkContainerApiBuildStamp } from '../helpers/a
 import { fixtureSourceDigest } from '../../loom-dev.mjs';
 import { browserURL } from './builder-url.mjs';
 import { scenarioCaseFor } from '../registry.mjs';
+import { actionToRenderBudgetMs } from '../helpers/quantity-pivot-budget.mjs';
 
 export function readProposalPanelSnapshot() {
   const panel = document.querySelector('[data-testid="construction-proposal-preview"]');
@@ -319,6 +320,7 @@ export async function rootQuantityPivotWorkflow(page, nativeReport, action, chec
   const isFullCda = !isFixture;
   const reportCase = isFixture ? 'fixture-lifecycle'
     : mode === 'full-population-lifecycle' ? 'full-population-lifecycle' : 'full-population-discovery';
+  const actionRenderBudgetMs = actionToRenderBudgetMs({ scenarioID: 'root-quantity-pivot', caseName: reportCase });
   const requiredChecks = scenarioCaseFor('root-quantity-pivot', reportCase).requiredChecks;
   const sourceRoot = target.sourceRoot ?? env.LOOM_SOURCE_FREEZE_ROOT ?? fileURLToPath(new URL('../../..', import.meta.url));
   const fixtureDirectory = env.LOOM_ROOT_QUANTITY_FIXTURE_DIR ?? resolve(sourceRoot, 'testdata/root-quantity-pivot-fixture');
@@ -369,9 +371,12 @@ export async function rootQuantityPivotWorkflow(page, nativeReport, action, chec
   report.sourceFingerprint = { before: sourceFingerprint(sourceRoot) };
   report.sourceFreeze = { watchedFileCount: sourceFreeze.watchedFileCount };
 const inspectPage = (page, inspect, argument) => page.evaluate(inspect, argument);
-const waitForObservable = (page, predicate, argumentOrTimeout, timeoutArgument = 5000) => {
+const waitForObservable = (page, predicate, argumentOrTimeout, _timeoutArgument = 5000) => {
   const argument = typeof argumentOrTimeout === 'number' ? undefined : argumentOrTimeout;
-  const timeout = typeof argumentOrTimeout === 'number' ? argumentOrTimeout : timeoutArgument;
+  // This workflow is Pivot-only; full-population cases use the approved
+  // 10-second action-to-render ceiling, while the fixture case remains 5s.
+  const requestedTimeout = typeof argumentOrTimeout === 'number' ? argumentOrTimeout : _timeoutArgument;
+  const timeout = isFullCda ? actionRenderBudgetMs : requestedTimeout;
   return page.waitForFunction(predicate, argument, { timeout }).then(() => undefined);
 };
 const gotoPage = (page, url) => page.goto(url, { waitUntil: 'domcontentloaded' });
@@ -390,8 +395,8 @@ const browserEval = (page, source) => page.evaluate(async script => {
   const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
   return new AsyncFunction(script)();
 }, source);
-const waitForBrowser = (page, expression, timeout = 5000) => page.waitForFunction(
-  source => new Function(`return (${source})`)(), expression, { timeout },
+const waitForBrowser = (page, expression, _timeout = 5000) => page.waitForFunction(
+  source => new Function(`return (${source})`)(), expression, { timeout: isFullCda ? actionRenderBudgetMs : _timeout },
 ).then(() => undefined);
 const navigate = (page, url) => gotoPage(page, url);
 const click = (page, selector) => action(`click ${selector}`, page.locator(selector), target => target.click({ timeout: 5000 }));
@@ -689,8 +694,8 @@ const selectPivotSource = async (label, path) => {
 
 const measure = (name, startedAt, finishedAt = Date.now()) => {
   const durationMs = finishedAt - startedAt;
-  assert(durationMs <= 5000, `${name} took ${durationMs}ms`);
-  report.cases.push({ name, durationMs });
+  assert(durationMs <= actionRenderBudgetMs, `${name} took ${durationMs}ms (budget ${actionRenderBudgetMs}ms)`);
+  report.cases.push({ name, durationMs, budgetMs: actionRenderBudgetMs });
 };
 
 const pivotIdentity = key => key?.kind === 'MISSING'
@@ -799,7 +804,7 @@ const assertRendered = async (columns, rows, label) => {
     document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount') === String(rowCount + 1)
       && !document.body.innerText.includes('Loading your table…'),
     { rowCount: rows.length }, 5000);
-  const actual = await collectPreviewRows(page, { timeout: 5000 });
+  const actual = await collectPreviewRows(page, { timeout: actionRenderBudgetMs });
   assert.equal(actual.rowCount, rows.length, `${label} rendered preview must expose every expected row`);
   assert.deepEqual(actual.headers.map(header => header.toLowerCase()), columns.map(column => column.label.toLowerCase()), `${label} headers must match the native output labels`);
   const expectedCells = rows.map(row => columns.map(column => row[column.column] === null || row[column.column] === undefined ? '—' : String(row[column.column])));
@@ -851,7 +856,7 @@ const setPivotDuplicatePolicy = async (policy, requestOffset, name) => {
         requestOffset,
         pathname: `${base}/construction-proposals`,
         name,
-        timeoutMs: 5000,
+        timeoutMs: actionRenderBudgetMs,
         error: waitError,
         visibleState,
       });
@@ -859,7 +864,7 @@ const setPivotDuplicatePolicy = async (policy, requestOffset, name) => {
       report.validationWaitFailures.push(failureEvidence);
       await drainResponseReads();
       refreshValidationWaitFailureRequests(failureEvidence, report.authoringRequests);
-      throw new Error(`${name}: expected cardinality rejection did not render within the existing 5000ms budget; request evidence is recorded as an unexpected failure`);
+      throw new Error(`${name}: expected cardinality rejection did not render within the ${actionRenderBudgetMs}ms budget; request evidence is recorded as an unexpected failure`);
     }
     await drainResponseReads();
     measure(`${name} expected duplicate validation to render`, startedAt);
@@ -1514,9 +1519,9 @@ const runFullPopulationLifecycle = async (discovery, oracle, prePivotWorkspace, 
 
   const lifecycleActions = report.cases.filter(item => typeof item.durationMs === 'number');
   assert.equal(lifecycleActions.length, 14, `Full CDA lifecycle must record all 14 native action and validation timings, found ${lifecycleActions.length}`);
-  assert(lifecycleActions.every(item => item.durationMs <= 5000), 'Every full CDA Pivot lifecycle transition must complete within five seconds');
-  recordRequirement(requiredChecks[8], lifecycleActions.length === 14 && lifecycleActions.every(item => item.durationMs <= 5000),
-    { actionCount: lifecycleActions.length, actions: lifecycleActions });
+  assert(lifecycleActions.every(item => item.durationMs <= actionRenderBudgetMs), `Every full CDA Pivot lifecycle transition must complete within ${actionRenderBudgetMs}ms`);
+  recordRequirement(requiredChecks[8], lifecycleActions.length === 14 && lifecycleActions.every(item => item.durationMs <= actionRenderBudgetMs),
+    { actionCount: lifecycleActions.length, budgetMs: actionRenderBudgetMs, actions: lifecycleActions });
   report.fullPopulationLifecycle.restoredSourceRows = oracle.sourceRows;
   report.fullPopulationLifecycle.restoredPreviewRowsConsumed = boundedCount.boundedPreviewRows;
   report.fullPopulationLifecycle.restoredRawGroupCount = restoredOracle.groups.length;
@@ -1701,7 +1706,7 @@ const editor=document.querySelector('[data-testid="construction-reshape-pivot"]'
   assert.deepEqual(report.browserErrors.runtime, [], `Browser runtime exceptions: ${JSON.stringify(report.browserErrors.runtime)}`);
   assert.deepEqual(report.browserErrors.console, [], `Browser console errors: ${JSON.stringify(report.browserErrors.console)}`);
   assert.deepEqual(report.browserErrors.network, [], `Unexpected browser network failures: ${JSON.stringify(report.browserErrors.network)}`);
-  assert(durationMs <= 5000, `Root quantity category discovery took ${durationMs}ms`);
+  assert(durationMs <= actionRenderBudgetMs, `Root quantity category discovery took ${durationMs}ms (budget ${actionRenderBudgetMs}ms)`);
   report.rawCategoryPresence = {
     missingRows: oracle.missingRows,
     explicitNullRows: oracle.explicitNullRows,
@@ -1750,8 +1755,8 @@ const editor=document.querySelector('[data-testid="construction-reshape-pivot"]'
         && editorState.categoryControls.length === expectedLabels.length
         && editorState.categoryControls.every(item => item.checked),
       { summary: editorState.summary, selectedCount: editorState.categoryControls.filter(item => item.checked).length, categoryLabels: expectedLabels });
-      recordRequirement(requiredChecks[3], durationMs <= 5000,
-        { action: 'typed category discovery to native render', durationMs, rawCategories: expected.length });
+      recordRequirement(requiredChecks[3], durationMs <= actionRenderBudgetMs,
+        { action: 'typed category discovery to native render', durationMs, budgetMs: actionRenderBudgetMs, rawCategories: expected.length });
     } else if (mode === 'full-population-lifecycle') {
       recordRequirement(requiredChecks[2], JSON.stringify(actual) === JSON.stringify(expected)
         && editorState.summary.startsWith(`Selected ${expected.length} of ${expected.length} categories`)
@@ -1785,8 +1790,8 @@ const editor=document.querySelector('[data-testid="construction-reshape-pivot"]'
       assert.deepEqual(failedAuthoringRequests, [], `Unexpected authoring request errors after lifecycle: ${JSON.stringify(failedAuthoringRequests)}`);
       report.fixtureLifecycle.finalErrors = { runtime: [], console: [], network: [], authoringHTTP: [] };
       const timedActions = report.cases.filter(item => typeof item.durationMs === 'number');
-      recordRequirement(requiredChecks[7], timedActions.length === 14 && timedActions.every(item => item.durationMs <= 5000),
-        { actionCount: timedActions.length, actions: timedActions });
+      recordRequirement(requiredChecks[7], timedActions.length === 14 && timedActions.every(item => item.durationMs <= actionRenderBudgetMs),
+        { actionCount: timedActions.length, budgetMs: actionRenderBudgetMs, actions: timedActions });
       report.domainStatus = 'passed';
     } else if (mode === 'full-population-lifecycle') {
       await runFullPopulationLifecycle(discovery, oracle, prePivotWorkspace, prePivotDocument, requestOffset);

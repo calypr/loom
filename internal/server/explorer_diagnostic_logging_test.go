@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	shared "github.com/arangodb/go-driver/v2/arangodb/shared"
 	httpapi "github.com/calypr/loom/internal/api/http"
@@ -225,6 +226,61 @@ func TestConfiguredCategoryScannerSeparatesResolutionAndScanDiagnostics(t *testi
 		if record["request_id"] != "request-category" || record["phase"] != wantPhases[index] || record["success"] != true || record["output_id"] != "patients" {
 			t.Fatalf("category phase %d record = %#v", index, record)
 		}
+	}
+}
+
+func TestConfiguredCategoryScannerUsesPivotTimeoutAndPreservesBackendErrors(t *testing.T) {
+	var output bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&output, nil))
+	request, receiptEngine, service := diagnosticCompileFixture(t, "pivot-timeout")
+	receipt, err := compileExplorerReceipt(context.Background(), request, nil, receiptEngine, service, nil, nil)
+	if err != nil {
+		t.Fatalf("compile receipt fixture: %v", err)
+	}
+	if pivotCategoryScanTimeout != 10*time.Second {
+		t.Fatalf("Pivot category timeout = %s, want 10s", pivotCategoryScanTimeout)
+	}
+	if explorerPreviewTimeout != 10*time.Second {
+		t.Fatalf("existing proposal preview timeout = %s, want unchanged 10s", explorerPreviewTimeout)
+	}
+
+	var queryDeadline time.Time
+	scanEngine, err := dataframeexecution.New(dataframeexecution.Config{
+		Registry: compilerTestRegistry{},
+		QueryRows: func(ctx context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+			var ok bool
+			queryDeadline, ok = ctx.Deadline()
+			if !ok {
+				t.Fatal("Pivot category query has no scanner deadline")
+			}
+			return visit(map[string]any{"present": true, "value": "patient-1"})
+		},
+	})
+	if err != nil {
+		t.Fatalf("create category scan engine: %v", err)
+	}
+	requestScan := dataframeexecution.CategoryScanRequest{Output: "patients", Column: "c_patient", MaxValues: 10}
+	if _, err := configuredCategoryScanner(logger, scanEngine)(context.Background(), receipt, recipeBindingsForDiagnostic(receipt), requestScan); err != nil {
+		t.Fatalf("category scan: %v", err)
+	}
+	remaining := time.Until(queryDeadline)
+	if remaining > pivotCategoryScanTimeout || remaining < pivotCategoryScanTimeout-time.Second {
+		t.Fatalf("category query deadline remaining = %s, want approximately %s", remaining, pivotCategoryScanTimeout)
+	}
+
+	backendFailure := errors.New("synthetic category backend failure")
+	failingEngine, err := dataframeexecution.New(dataframeexecution.Config{
+		Registry: compilerTestRegistry{},
+		QueryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error {
+			return backendFailure
+		},
+	})
+	if err != nil {
+		t.Fatalf("create failing category scan engine: %v", err)
+	}
+	_, err = configuredCategoryScanner(logger, failingEngine)(context.Background(), receipt, recipeBindingsForDiagnostic(receipt), requestScan)
+	if !errors.Is(err, backendFailure) || errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("non-timeout category error = %v, want original backend cause without timeout classification", err)
 	}
 }
 
