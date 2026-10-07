@@ -1,0 +1,246 @@
+{
+  "schemaVersion": 1,
+  "epoch": 124,
+  "status": "CLOSED_PASS",
+  "rawCoordinatorStatus": "CLOSED_INTEGRITY_PASS_BROWSER_PASS",
+  "rawCoordinatorClosurePath": "/private/tmp/loom-native-parallel-wave124/closure.json",
+  "rawCoordinatorClosureSha256": "09310ee3171ba7eba6ea5d0098d9e4e80c6940032ba4994bbbac86ab45c92244",
+  "rootReviewStatus": "ROOT_ACCEPTED_FULL_LIFECYCLE_PASS",
+  "rootAcceptanceReceipt": {
+    "path": "/private/tmp/loom-native-parallel-wave124/root-acceptance.json",
+    "sha256": "2b0c8eb69a710904a5c42d889473ea1c94618f6fd485c426512d982f9eff0beb",
+    "status": "ROOT_ACCEPTED_FULL_LIFECYCLE_PASS",
+    "sourceFreezeReleased": true,
+    "lifecycleAccepted": true
+  },
+  "case": {
+    "scenarioId": "cda-contributor-exists",
+    "caseName": "contributor-exists",
+    "title": "CDA contributor EXISTS",
+    "status": "passed",
+    "requiredChecks": {
+      "passed": 16,
+      "total": 16,
+      "missingOrFailed": 0,
+      "missingOrUnrun": 0,
+      "evidence": [
+        {
+          "name": "Independent scoped CDA oracle supplies exact zero, one, and many Patient-to-Observation witnesses",
+          "status": "passed"
+        },
+        {
+          "name": "Initial source preview matches the exact three raw Patient witnesses",
+          "status": "passed"
+        },
+        {
+          "name": "Unfiltered ALL_MATCHES preview equals every exact raw related Observation row",
+          "status": "passed"
+        },
+        {
+          "name": "Cancel preserves the exact source document, population, and rendered rows",
+          "status": "passed"
+        },
+        {
+          "name": "Native Contributor controls select the exact Observation.id EXISTS condition",
+          "status": "passed"
+        },
+        {
+          "name": "Scoped ERROR validation exposes enabled PRESERVE_PARENT and EXCLUDE repair choices",
+          "status": "passed"
+        },
+        {
+          "name": "PRESERVE_PARENT Apply saves the exact EXISTS rule and raw-oracle rows",
+          "status": "passed"
+        },
+        {
+          "name": "PRESERVE_PARENT rows, EXISTS policy, and source binding survive reload",
+          "status": "passed"
+        },
+        {
+          "name": "EXCLUDE edit preserves the EXISTS binding and renders exactly matching raw rows",
+          "status": "passed"
+        },
+        {
+          "name": "EXCLUDE rows, policy, and source binding survive reload",
+          "status": "passed"
+        },
+        {
+          "name": "Cancel removal preserves saved EXCLUDE rows and the exact Builder workspace",
+          "status": "passed"
+        },
+        {
+          "name": "Removal Apply restores exact source construction, columns, rows, and population",
+          "status": "passed"
+        },
+        {
+          "name": "Restored source schema, population, and exact baseline rows survive reload",
+          "status": "passed"
+        },
+        {
+          "name": "Only the scoped ERROR validation and proven cancellation are expected; unrelated diagnostics remain fatal",
+          "status": "passed"
+        },
+        {
+          "name": "All Contributor EXISTS lifecycle actions finish within five seconds",
+          "status": "passed"
+        },
+        {
+          "name": "CDA watched source and API build stayed unchanged",
+          "status": "passed"
+        }
+      ]
+    }
+  },
+  "integrityClosure": {
+    "status": "PASS",
+    "source": {
+      "before": {
+        "sha256": "1e82afc79c722c3e4a7f9c5ba9a1e11504ea75d1840b53ce485f2df1803e1011",
+        "files": 1553
+      },
+      "after": {
+        "sha256": "1e82afc79c722c3e4a7f9c5ba9a1e11504ea75d1840b53ce485f2df1803e1011",
+        "files": 1553
+      },
+      "manifestsEqual": true,
+      "changedPaths": [],
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave124/source-before.json",
+        "sha256": "ae00fe71bd18a25230ff35189285fee6ccd364493e58280dcb4c19cdad897767"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave124/source-after.json",
+        "sha256": "d56e7289458f3eee77e3f818394025db2028b120a2f28d369b987051cf6fc488"
+      }
+    },
+    "docs": {
+      "before": {
+        "sha256": "337eb2589da0fa4a72fcfb16829940814a5b338433488c7409c563d2d11a4fa6",
+        "files": 270
+      },
+      "after": {
+        "sha256": "337eb2589da0fa4a72fcfb16829940814a5b338433488c7409c563d2d11a4fa6",
+        "files": 270
+      },
+      "manifestsEqual": true,
+      "changedPaths": [],
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave124/docs-before.json",
+        "sha256": "23cdfbae7bb2823c91a92310f2d9b97eaa5f433d31eab854cd079d7d17a2d888"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave124/docs-after.json",
+        "sha256": "d064ebce8cc8d621e3db09a151f13430ab957473ada7ac49a30e495ecb9a8f36"
+      }
+    },
+    "apiBuildIdentity": {
+      "before": "98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:85c11c1b9b88b8ff8cbd1241e8be6dea82f222956cf717e47c11fcb5efc7e135",
+      "after": "98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:85c11c1b9b88b8ff8cbd1241e8be6dea82f222956cf717e47c11fcb5efc7e135",
+      "precheck": "98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:85c11c1b9b88b8ff8cbd1241e8be6dea82f222956cf717e47c11fcb5efc7e135",
+      "unchanged": true,
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave124/api-identity-before.json",
+        "sha256": "8ee9127cd686ee6c52c01bb3656eaef25084f8a10610b841a792c33f6dc5f32c"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave124/api-identity-after.json",
+        "sha256": "83f2ca748775bf93ec8fcda37544a4fef0361ea38b1f1198e8e4e7cca8b808b9"
+      },
+      "precheckArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave124/api-build-precheck.json",
+        "sha256": "6b4c6a150e88c87cfe174355359e6f43a295eb2182829ba476cdeb822e19c834"
+      }
+    },
+    "ownedMounts": {
+      "before": "PASS",
+      "after": "PASS",
+      "targetUnchanged": true,
+      "target": {
+        "project": "loom_dev_cda_fhir",
+        "composeProject": "loom-dev-6d7df93d6a37",
+        "apiContainer": "loom-dev-6d7df93d6a37-loom-api-1",
+        "uiContainer": "loom-dev-6d7df93d6a37-loom-ui-1",
+        "arangoContainer": "loom-dev-6d7df93d6a37-arangodb-1",
+        "clickhouseContainer": "loom-dev-6d7df93d6a37-clickhouse-1",
+        "apiPort": "8188",
+        "uiPort": "30008",
+        "sourceRoot": "/private/tmp/loom-construction-implementation",
+        "generation": "cda-fhir-v1"
+      },
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave124/owned-mounts-before.json",
+        "sha256": "c204ecf29014f10aa222b7250692f741311ae5a187a4c57adbd91c2ed443c3cd"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave124/owned-mounts-after.json",
+        "sha256": "4b72812d62f7e8e7b000ffc98e2d8c183b96cbf4ba7dcab514122cacb2b0a01f"
+      }
+    },
+    "health": {
+      "before": {
+        "status": "PASS",
+        "samples": 3
+      },
+      "after": {
+        "status": "PASS",
+        "samples": 3
+      },
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave124/health-before.json",
+        "sha256": "2062710fb98abaa6cf587651072d895a8f68f57f3304dabb686119d56236e19a"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave124/health-after.json",
+        "sha256": "e1c40449d870af48916666ffd0257260d634c27920b5f0f7e9dd79058869a623"
+      }
+    }
+  },
+  "runner": {
+    "status": "passed",
+    "exitCode": 0,
+    "durationMs": 28770,
+    "suiteDurationMs": 30028.979,
+    "results": {
+      "path": "/private/tmp/loom-native-parallel-wave124/cda-contributor-exists/attempt1/results.json",
+      "sha256": "ae1c6fd2233bfe7d55451cc9248a402f00fa6963b453f1798e311607bedb72d4"
+    },
+    "runnerLog": {
+      "path": "/private/tmp/loom-native-parallel-wave124/cda-contributor-exists/attempt1/runner.log",
+      "sha256": "f1731b5b00e358b143e0fabb7284897c76592a814d1b54295cece4e66f9fff17"
+    },
+    "terminalRecord": {
+      "path": "/private/tmp/loom-native-parallel-wave124/cda-contributor-exists/attempt1/terminal.json",
+      "sha256": "3edd82d4e49f89c30270dee752ac018539f4dc6848d7a33b1553404e6f8b58af"
+    }
+  },
+  "lifecycleReport": {
+    "path": "/private/tmp/loom-native-parallel-wave124/cda-contributor-exists/attempt1/artifacts/standalone-cda-fields-CDA--7cbad-ists-CDA-contributor-exists/cda-report.json",
+    "sha256": "424bdb3635851e6df058836b402631bcc45552a69a85fcaea5bf5f2815e5f94f",
+    "sizeBytes": 341870
+  },
+  "strictIntegrityClosure": {
+    "path": "/private/tmp/loom-native-parallel-wave124/integrity-closure.json",
+    "sha256": "4c47bbac4224de5a488dd663d806e6f237cfcba98326d5b5deb017117186cba9",
+    "sizeBytes": 4500
+  },
+  "checks": {
+    "required": 16,
+    "passed": 16,
+    "failed": 0,
+    "unrun": 0,
+    "assertions": 49,
+    "passedAssertions": 49,
+    "actions": 32,
+    "maxNativeControlMs": 193,
+    "timedCompleteCheckpoints": 19,
+    "maxCheckpointMs": 2133,
+    "budgetMs": 5000
+  },
+  "actualExplorer": {
+    "id": "contributor-exists-browser-1791331182107",
+    "rawReportExplorer": null,
+    "rawTargetExplorer": "contributor-exists-browser-1791331182107"
+  },
+  "noRawPayloadsEmbedded": true,
+  "scope": "CDA Patient-to-Observation Contributor EXISTS on Observation.id; zero/one/many witnesses; ERROR repair, PRESERVE_PARENT/EXCLUDE preview/apply/reload, Cancel, edit/removal/restoration. Other contributor predicates/routes are outside this case."
+}

@@ -1,4 +1,5 @@
 import { sanitizePayload, sanitizeText } from './playwright-browser.mjs';
+import { createPendingResponseReads } from './pending-response-reads.mjs';
 
 const maxBodyLength = 32768;
 const parseBody = body => {
@@ -23,7 +24,8 @@ export function captureCDARequests(page, { apiOrigin, browserRequestOrigin = api
   const appOriginSet = new Set(appOrigins.map(origin => new URL(origin).origin));
   const byRequest = new Map();
   const rawBodies = new WeakMap();
-  const pendingReads = new Set();
+  const responseReads = createPendingResponseReads();
+  const { pendingReads } = responseReads;
   const waiters = new Set();
   let nextBrowserRequestId = 1;
   const findOwnedMatch = (fromIndex, predicate) => report.nativeRequests.slice(fromIndex)
@@ -82,37 +84,39 @@ export function captureCDARequests(page, { apiOrigin, browserRequestOrigin = api
     const expectedHttpFailure = httpFailure && shouldReportHttpError(entry.path, response.status(), entry) === false;
     if (expectedHttpFailure) entry.expectedHttpFailure = true;
     const read = Promise.resolve().then(async () => {
-      try {
-        if (readResponse) {
-          const body = await response.text();
-          rawBodies.get(entry).response = parseRawBody(body);
-          entry.response = parseBody(body);
-        }
-        else entry.response = { bodyNotRead: true };
-      } catch (error) {
-        entry.responseReadError = sanitizeText(error?.message ?? error);
-      } finally {
-        if (!httpFailure) {
-          entry.completedAt = Date.now();
-          pendingReads.delete(read);
-        }
-      }
+      if (readResponse) {
+        const body = await response.text();
+        rawBodies.get(entry).response = parseRawBody(body);
+        entry.response = parseBody(body);
+      } else entry.response = { bodyNotRead: true };
+    }).catch(error => {
+      entry.responseReadError = sanitizeText(error?.message ?? error);
+      throw error;
+    }).finally(() => {
+      if (!httpFailure) entry.completedAt = Date.now();
     });
-    pendingReads.add(read);
+    const trackedRead = responseReads.track(read, {
+      phase: 'response-body', browserRequestId: entry.browserRequestId, requestId: entry.requestId,
+      method: entry.method, path: entry.path, status: entry.status,
+    });
     if (httpFailure) {
       const errorEntry = { kind: 'http', origin: entry.origin, path: entry.path, url: `${entry.origin}${entry.path}`, status: response.status(), requestId: entry.requestId, browserRequestId: entry.browserRequestId, method: entry.method, startedAt: entry.startedAt, request: entry.body };
-      let pendingDiagnostic;
-      pendingDiagnostic = read.then(() => {
+      const pendingDiagnostic = trackedRead.then(() => {
         if (entry.response !== undefined) errorEntry.response = entry.response;
         if (!expectedHttpFailure) report.errors.push(errorEntry);
         entry.completedAt = Date.now();
-        pendingReads.delete(read);
+      }, error => {
+        errorEntry.responseReadError = entry.responseReadError ?? sanitizeText(error?.message ?? error);
+        if (!expectedHttpFailure) report.errors.push(errorEntry);
+        entry.completedAt = Date.now();
       }).finally(() => {
-        pendingReads.delete(pendingDiagnostic);
         notify();
       });
-      pendingReads.add(pendingDiagnostic);
-    } else void read.then(notify, notify);
+      responseReads.track(pendingDiagnostic, {
+        phase: 'http-diagnostic', browserRequestId: entry.browserRequestId, requestId: entry.requestId,
+        method: entry.method, path: entry.path, status: entry.status,
+      });
+    } else void trackedRead.then(notify, notify);
   });
 
   page.on('requestfailed', request => {
@@ -172,6 +176,7 @@ export function captureCDARequests(page, { apiOrigin, browserRequestOrigin = api
         const waiter = { predicate, fromIndex, resolve, timer: undefined };
         waiter.timer = setTimeout(() => {
           waiters.delete(waiter);
+          clearTimeout(waiter.timer);
           const observed = report.nativeRequests.slice(fromIndex).filter(entry => rawBodies.has(entry))
             .map(({ origin, path, method, status, completedAt, failure }) => ({ origin, path, method, status, completed: Boolean(completedAt), failure }));
           reject(new Error(`Timed out waiting for owned CDA request: ${JSON.stringify(observed)}`));
@@ -179,8 +184,8 @@ export function captureCDARequests(page, { apiOrigin, browserRequestOrigin = api
         waiters.add(waiter);
       });
     },
-    async flush() {
-      await Promise.resolve();
+    async flush({ timeoutMs = 5_000 } = {}) {
+      await responseReads.flush({ timeoutMs, label: 'owned CDA response reads' });
       return report.nativeRequests;
     },
   };

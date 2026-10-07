@@ -492,6 +492,8 @@ const BuilderWorkspaceContent = ({
     readonly draftDigest: string;
   }>();
   const [pendingCommands, setPendingCommands] = useState(0);
+  const [cancelingConstructionProposal, setCancelingConstructionProposal] = useState(false);
+  const cancelingConstructionProposalRef = useRef(false);
   const [populationSelectionOverride, setPopulationSelectionOverride] = useState<{
     readonly contextKey: string;
     readonly baseSelectionID: string;
@@ -2858,6 +2860,7 @@ const BuilderWorkspaceContent = ({
     setActiveConstructionFamily(undefined);
   };
   const applyConstructionProposal = async () => {
+    if (cancelingConstructionProposalRef.current) return;
     const proposalId = constructionLifecycle.beginApply();
     if (!proposalId || !table) return;
     const applied = await applyCommands([{
@@ -3057,6 +3060,7 @@ const BuilderWorkspaceContent = ({
     sourceColumns,
   );
   const canApplyConstructionProposal = constructionLifecycle.canApply &&
+    !cancelingConstructionProposal &&
     pendingCommands === 0 &&
     !publishing &&
     state.reconciliation !== 'pending';
@@ -3476,10 +3480,31 @@ const BuilderWorkspaceContent = ({
       canApply={canApplyConstructionProposal}
       onApply={() => void applyConstructionProposal()}
       onCancel={() => {
-        constructionLifecycle.cancel();
-        cancelCombineCatalogRequest();
-        setActiveConstructionFamily(undefined);
-        setEditingConstructionStepId(undefined);
+        const queryOwner = relatedExpandQueryOwnerRef.current;
+        const closeProposal = () => {
+          constructionLifecycle.cancel();
+          cancelCombineCatalogRequest();
+          setActiveConstructionFamily(undefined);
+          setEditingConstructionStepId(undefined);
+        };
+        if (!queryOwner) {
+          closeProposal();
+          return;
+        }
+        if (cancelingConstructionProposalRef.current) return;
+        cancelingConstructionProposalRef.current = true;
+        setCancelingConstructionProposal(true);
+        void (async () => {
+          let ownsEditor = false;
+          try {
+            await queryOwner.pauseAndDrain();
+            ownsEditor = relatedExpandQueryOwnerRef.current === queryOwner;
+          } finally {
+            cancelingConstructionProposalRef.current = false;
+            setCancelingConstructionProposal(false);
+          }
+          if (ownsEditor) closeProposal();
+        })();
       }}
       onRetry={constructionLifecycle.retry}
     />

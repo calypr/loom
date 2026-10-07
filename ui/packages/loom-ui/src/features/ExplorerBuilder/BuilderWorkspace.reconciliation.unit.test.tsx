@@ -1324,6 +1324,34 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     mockLoomClient.proposeConstruction.mockClear();
   });
 
+  it('pauses related-path pagination before closing a canceled construction proposal', async () => {
+    const { view } = await openPivotPresentationProposal();
+    let finishRouteDrain: (() => void) | undefined;
+    const routeDrain = new Promise<void>((resolve) => { finishRouteDrain = resolve; });
+    mockRelatedExpandQueryOwner.pauseAndDrain.mockImplementation(() => {
+      expect(screen.getByTestId('construction-reshape-editor')).toBeInTheDocument();
+      expect(screen.getByTestId('construction-proposal-panel')).toBeInTheDocument();
+      return routeDrain;
+    });
+
+    fireEvent.click(screen.getByTestId('construction-cancel-proposal'));
+
+    expect(mockRelatedExpandQueryOwner.pauseAndDrain).toHaveBeenCalledOnce();
+    expect(screen.getByTestId('construction-reshape-editor')).toBeInTheDocument();
+    expect(screen.getByTestId('construction-proposal-panel')).toBeInTheDocument();
+    expect(screen.getByTestId('construction-apply-proposal')).toBeDisabled();
+    fireEvent.click(screen.getByTestId('construction-apply-proposal'));
+    expect(applyCommands).not.toHaveBeenCalled();
+    await act(async () => finishRouteDrain?.());
+    await waitFor(() => {
+      expect(screen.queryByTestId('construction-reshape-editor')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('construction-proposal-panel')).not.toBeInTheDocument();
+    });
+    expect(mockRelatedExpandQueryOwner.resume).not.toHaveBeenCalled();
+    expect(applyCommands).not.toHaveBeenCalled();
+    view.unmount();
+  });
+
   it('retires the route query owner after a successful command advances the draft', async () => {
     const { view } = await openPivotPresentationProposal();
     fireEvent.click(screen.getByTestId('construction-apply-proposal'));

@@ -45,7 +45,7 @@ test.describe('CDA contributor code', () => {
 });
 
 test.describe('CDA contributor exists', () => {
-  test.use({ cdaScenarioID: 'cda-native', cdaCaseName: 'contributor-exists', cdaRequireSourceFixture: true });
+  test.use({ cdaScenarioID: 'cda-contributor-exists', cdaCaseName: 'contributor-exists', cdaRequireSourceFixture: true });
   test('CDA contributor exists', async ({ page, cda }) => {
     test.setTimeout(300_000);
     await contributorExistsWorkflow({ page, cda, caseOptions: {  } });

@@ -28,6 +28,7 @@ import { classifyNetworkRecord, createReport, finishReport, recordCheck, writeRe
 import { sanitizeBody, sanitizePayload, sanitizeText } from './playwright-browser.mjs';
 import { captureNativeFailureEvidence, MAX_NATIVE_FAILURE_CAPTURE_MS } from './native-failure-evidence.mjs';
 import { correlateRequestFailure } from './network-timing.mjs';
+import { createPendingResponseReads } from './pending-response-reads.mjs';
 
 const ACTION_TIMEOUT_MS = 5_000;
 const MAX_DIAGNOSTICS = 100;
@@ -378,6 +379,8 @@ export const test = base.extend({
     report.fixtureTimings = { setupMs: Math.round(performance.now() - setupStarted) };
 
     const diagnostics = { console: [], pageErrors: [], networkFailures: [], httpFailures: [], assetFailures: [] };
+    const responseReads = createPendingResponseReads();
+    const httpDiagnosticEntries = [];
     const workflowStartedAt = performance.now();
     const ownedOrigins = new Set([apiUrl, uiUrl].map(value => new URL(value).origin));
     const captureFailureEvidence = async details => {
@@ -621,7 +624,8 @@ export const test = base.extend({
       const browserRequestId = entry.browserRequestId;
       const requestID = entry.playwrightRequestId;
       addNetworkDiagnostic(entry);
-      void response.text().then(body => {
+      httpDiagnosticEntries.push(entry);
+      const read = Promise.resolve().then(() => response.text()).then(body => {
         entry.responseBody.captureState = 'completed';
         entry.responseBody.body = sanitizeBody(body);
         diagnostics.httpFailures.push({ url, status: response.status(), body: entry.responseBody.body,
@@ -631,6 +635,11 @@ export const test = base.extend({
         entry.responseBody.error = safeText(error?.message ?? error);
         diagnostics.httpFailures.push({ url, status: response.status(), body: entry.responseBody,
           browserRequestId, playwrightRequestId: requestID });
+        throw error;
+      });
+      responseReads.track(read, {
+        phase: 'fixture-http-response-body', browserRequestId, requestId: entry.requestId,
+        method: entry.method, path: new URL(response.url()).pathname, status: response.status(),
       });
     };
     page.on('request', onRequest);
@@ -640,6 +649,30 @@ export const test = base.extend({
     page.on('pageerror', onPageError);
     page.on('requestfailed', onRequestFailed);
     page.on('response', onResponse);
+
+    const flushHttpDiagnostics = async ({ browserRequestId, timeoutMs = 5_000 } = {}) => {
+      if (browserRequestId !== undefined && (typeof browserRequestId !== 'string' || !browserRequestId)) {
+        throw new TypeError('HTTP diagnostic flush browserRequestId must be a non-empty string.');
+      }
+      const matching = httpDiagnosticEntries.filter(entry =>
+        browserRequestId === undefined || entry.browserRequestId === browserRequestId);
+      if (browserRequestId !== undefined && matching.length === 0) {
+        throw new Error(`No fixture HTTP response diagnostic belongs to browser request ${browserRequestId}.`);
+      }
+      await responseReads.flush({
+        timeoutMs,
+        label: 'fixture HTTP diagnostic bodies',
+        filter: details => browserRequestId === undefined || details.browserRequestId === browserRequestId,
+      });
+      const incomplete = matching.filter(entry => entry.responseBody.captureState !== 'completed');
+      if (incomplete.length) {
+        const observed = incomplete.map(entry => ({ browserRequestId: entry.browserRequestId,
+          requestId: entry.requestId, method: entry.method, path: new URL(entry.rawURL).pathname,
+          status: entry.status, captureState: entry.responseBody.captureState }));
+        throw new Error(`Fixture HTTP diagnostic bodies did not complete: ${JSON.stringify(observed)}`);
+      }
+      return matching;
+    };
 
     let customDialogHandler;
     const onUnexpectedDialog = async dialog => {
@@ -966,6 +999,7 @@ export const test = base.extend({
       expectCanceledRequest,
       expectCapturedCancellation,
       expectHttpFailure,
+      flushHttpDiagnostics,
       withExpectedCancellations,
       step,
       setActionEvidence: (label, locator) => {
@@ -1050,12 +1084,31 @@ export const test = base.extend({
     await use(cda);
 
     let freezeError;
+    let diagnosticDrainError;
     let reportVerificationError;
     let reportAttachmentError;
+    const diagnosticDrainFailures = [];
     try {
       for (const handler of faultHandlers) await page.unroute('**/*', handler);
-      await Promise.all([...trackers].map(tracker => tracker.flush()));
-      includeBrowserDiagnostics(diagnostics, report);
+    } catch (error) {
+      diagnosticDrainFailures.push(error);
+    }
+    const drainResults = await Promise.allSettled([
+      ...[...trackers].map(tracker => tracker.flush({ timeoutMs: 5_000 })),
+      flushHttpDiagnostics({ timeoutMs: 5_000 }),
+    ]);
+    for (const result of drainResults) {
+      if (result.status === 'rejected') diagnosticDrainFailures.push(result.reason);
+    }
+    if (diagnosticDrainFailures.length) {
+      diagnosticDrainError = new Error(diagnosticDrainFailures
+        .map(error => safeText(error?.message ?? error)).join('; '));
+      report.errors.push({ kind: 'browser-diagnostic-drain', message: safeText(diagnosticDrainError.message) });
+      recordCheck(report, 'correctness', 'CDA browser response diagnostics completed before report snapshot', false,
+        { message: safeText(diagnosticDrainError.message) });
+    }
+    includeBrowserDiagnostics(diagnostics, report);
+    try {
       report.navigationTimings = mainFrameNavigations.map(({ id, atMs, url, phase }) => ({ id, atMs, url, phase }));
       report.browserLifecycle = {
         kind: 'official-playwright-page',
@@ -1104,13 +1157,13 @@ export const test = base.extend({
       };
       const runnerSkipped = testInfo.status === 'skipped';
       const failedAssertion = report.assertions.some(assertion => assertion.status === 'failed');
-      if (freezeError || failedAssertion || (!runnerSkipped && testInfo.status !== 'passed')) {
+      if (diagnosticDrainError || freezeError || failedAssertion || (!runnerSkipped && testInfo.status !== 'passed')) {
         report.status = 'failed';
       } else if (runnerSkipped || report.status === 'running') {
         report.status = 'unverified';
       }
       report.finishedAt = new Date().toISOString();
-      if ((testInfo.status === 'passed' || runnerSkipped) && !freezeError) {
+      if ((testInfo.status === 'passed' || runnerSkipped) && !diagnosticDrainError && !freezeError) {
         reportVerificationError = gateFailure(report);
         if (reportVerificationError) {
           report.errors.push({ kind: 'verification-gate', message: safeText(reportVerificationError.message) });
@@ -1123,7 +1176,7 @@ export const test = base.extend({
       if (report.status === 'failed' && !report.failureEvidence) {
         const currentAction = firstFailureActionContext ?? activeActionContext;
         await captureFailureEvidence({
-          reason: testInfo.error?.message ?? freezeError?.message ?? reportVerificationError?.message ??
+          reason: testInfo.error?.message ?? diagnosticDrainError?.message ?? freezeError?.message ?? reportVerificationError?.message ??
             report.errors.at(-1)?.message ?? 'CDA Playwright workflow failed outside the action helper',
           label: currentAction?.label ?? activeAction ?? report.activeAction?.label,
           locator: currentAction?.locator ?? activeLocator,
@@ -1148,6 +1201,7 @@ export const test = base.extend({
     }
     if (reportVerificationError) throw reportVerificationError;
     if (reportAttachmentError && testInfo.status === 'passed') throw reportAttachmentError;
+    if (diagnosticDrainError) throw diagnosticDrainError;
     if (freezeError) throw freezeError;
   },
 });

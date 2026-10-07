@@ -985,6 +985,32 @@ describe('RelatedExpandEditor', () => {
     expect(onCandidateChange).toHaveBeenCalledTimes(changesBeforeRetirement);
   });
 
+  it('drains the active page without starting its next cursor when paused', async () => {
+    let resolveFirstPage: ((value: unknown) => void) | undefined;
+    searchRelatedExpandChoices.mockReset().mockImplementation(() => new Promise((resolve) => {
+      resolveFirstPage = resolve;
+    }));
+    const queryOwnerRef = React.createRef<RelatedExpandQueryOwner>();
+    const view = render(<RelatedExpandEditor
+      project="project" explorerId="explorer" snapshotToken="snapshot-1" outputId="patients"
+      catalog={catalog} construction={capabilities.baseConstruction} capabilities={capabilities}
+      disabled={false} queryOwnerRef={queryOwnerRef} onCandidateChange={vi.fn()}
+    />);
+    fireEvent.change(screen.getByLabelText('Related record type'), { target: { value: 'Encounter' } });
+    await waitFor(() => expect(searchRelatedExpandChoices).toHaveBeenCalledTimes(1));
+
+    const drain = queryOwnerRef.current?.pauseAndDrain();
+    await act(async () => resolveFirstPage?.({
+      snapshotToken: 'snapshot-1', draftVersion: 1, draftDigest: 'draft-1', outputId: 'patients',
+      stageId: 'source_projection', anchorColumnId: '_key', complete: false, truncated: true, nextCursor: 'next-route-page',
+      choices: [],
+    }));
+    await act(async () => drain);
+
+    expect(searchRelatedExpandChoices).toHaveBeenCalledTimes(1);
+    view.unmount();
+  });
+
   it('automatically loads supported routes from later pages with a distinct request owner per page', async () => {
     const requestIds: string[] = [];
     searchRelatedExpandChoices.mockReset().mockImplementation(async (args: { cursor?: string; requestId: string }) => {
