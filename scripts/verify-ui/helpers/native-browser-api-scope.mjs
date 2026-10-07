@@ -46,3 +46,35 @@ export const isSameUiProxyResponse = (requestUrl, responseUrl, options) => {
     request.url.pathname === response.url.pathname &&
     request.url.search === response.url.search;
 };
+
+/** Accept a bound response or a fully classified owner cancellation before response headers. */
+export const nativeRequestsHaveOwnedTransportOutcomes = (entries, uiOrigin) => {
+  if (!Array.isArray(entries) || entries.length === 0 || typeof uiOrigin !== 'string') return false;
+  return entries.every((entry) => {
+    if (!entry || entry.origin !== uiOrigin ||
+        !['owned-project', 'owned-project-explorer'].includes(entry.transportScope) ||
+        entry.authorizationHeaderPresent !== false) return false;
+
+    const response = entry.responseBinding;
+    if (response?.matchesCapturedUiProxyRequest === true) {
+      return response.origin === uiOrigin && response.path === entry.path &&
+        entry.networkTerminal === true && entry.terminalState === 'finished' &&
+        entry.bodyReadStatus === 'decoded' && Number.isInteger(entry.status);
+    }
+
+    return entry.transportScope === 'owned-project-explorer' &&
+      entry.expectedOwnerCancellation?.expected === true &&
+      entry.expectedOwnerCancellation.networkTerminal === true &&
+      entry.expectedOwnerCancellation.bodyReadStatus === 'failed' &&
+      entry.networkTerminal === true && entry.terminalState === 'failed' &&
+      entry.bodyReadStatus === 'failed' && entry.cancelled === true &&
+      entry.loadingFailure?.errorText === 'net::ERR_ABORTED' && entry.loadingFailure?.canceled === true &&
+      entry.loadingFailed?.errorText === 'net::ERR_ABORTED' && entry.loadingFailed?.canceled === true &&
+      !entry.loadingFailed.blockedReason && !entry.loadingFailed.corsErrorStatus &&
+      typeof entry.requestCorrelationId === 'string' && entry.requestCorrelationId.length > 0 &&
+      typeof entry.cdpRequestId === 'string' && entry.cdpRequestId.length > 0 &&
+      entry.cdpRequestMatchCount === 1 && entry.status === undefined &&
+      entry.responseReceivedAt === undefined && entry.responseHeadersAt === undefined &&
+      entry.responseBinding === undefined;
+  });
+};

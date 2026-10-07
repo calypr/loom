@@ -30,6 +30,13 @@ const ownerRules = [
     owner: 'population-route-options',
   },
   {
+    endpoint: 'related-expand-choices',
+    component: '/constructionOperations/RelatedExpandEditor.tsx',
+    apiFunction: 'searchRelatedExpandChoices',
+    requestIdPrefix: 'related-expand-choices-',
+    owner: 'related-expand-choice-editor',
+  },
+  {
     endpoint: 'frame-source-options',
     component: '/constructionWorkspace/FrameSourcePanel.tsx',
     apiFunction: 'browseFrameSourceOptions',
@@ -57,6 +64,24 @@ const hasStackSource = (entry, suffix) => (entry.initiator?.stack ?? [])
 const hasStackFunction = (entry, functionName) => (entry.initiator?.stack ?? [])
   .some((frame) => frame.functionName === functionName);
 
+const constructionChoiceSourceKeys = (source) => {
+  if (source?.kind === 'FIELD') return ['kind', 'candidateId'];
+  if (source?.kind === 'SEMANTIC') return ['kind', 'contextToken', 'buildId', 'conceptId', 'bindingId'];
+  return undefined;
+};
+
+const hasExactConstructionChoiceSourceShape = (source) => {
+  const keys = constructionChoiceSourceKeys(source);
+  return Boolean(keys && Object.keys(source).length === keys.length &&
+    keys.every((key) => typeof source[key] === 'string' && source[key].length > 0));
+};
+
+const matchesConstructionChoiceSource = (actual, expected) => {
+  const keys = constructionChoiceSourceKeys(expected);
+  return hasExactConstructionChoiceSourceShape(actual) && hasExactConstructionChoiceSourceShape(expected) &&
+    keys.every((key) => actual[key] === expected[key]);
+};
+
 const requestHasRequiredShape = (entry, endpoint) => {
   const request = entry.request;
   if (!request || typeof request.snapshotToken !== 'string') return false;
@@ -66,10 +91,67 @@ const requestHasRequiredShape = (entry, endpoint) => {
   }
   if (typeof request.outputId !== 'string') return false;
   if (endpoint === 'population-routes') return typeof request.selectionRevisionId === 'string';
+  if (endpoint === 'related-expand-choices') {
+    return Number.isSafeInteger(request.expectedDraftVersion) && request.expectedDraftVersion >= 0 &&
+      typeof request.expectedDraftDigest === 'string' && request.expectedDraftDigest.length > 0 &&
+      typeof request.stageId === 'string' && request.stageId.length > 0 &&
+      typeof request.anchorColumnId === 'string' && request.anchorColumnId.length > 0 &&
+      typeof request.targetResourceType === 'string' && request.targetResourceType.length > 0;
+  }
   if (endpoint === 'construction-choices') {
-    const source = request.source;
-    return source?.kind === 'SEMANTIC' &&
-      ['contextToken', 'buildId', 'conceptId', 'bindingId'].every((key) => typeof source[key] === 'string');
+    return hasExactConstructionChoiceSourceShape(request.source);
+  }
+  return endpoint === 'frame-source-options';
+};
+
+/** Match a captured background read against the UI's independent owner/CAS state at request start. */
+export const nativeReadRequestMatchesExpectedScope = (entry, expected) => {
+  if (!entry || !expected || typeof entry.path !== 'string' || entry.method !== 'POST' ||
+      typeof expected.project !== 'string' || typeof expected.explorer !== 'string' ||
+      typeof expected.origin !== 'string' || typeof entry.origin !== 'string' ||
+      typeof expected.outputId !== 'string' || typeof expected.snapshotToken !== 'string') return false;
+  try {
+    if (new URL(expected.origin).origin !== expected.origin || entry.origin !== expected.origin) return false;
+  } catch {
+    return false;
+  }
+  const match = /^\/api\/v1\/projects\/([^/]+)\/explorers\/([^/]+)\/authoring\/v2\/([^/]+)$/.exec(entry.path);
+  if (!match) return false;
+  let project;
+  let explorer;
+  try {
+    project = decodeURIComponent(match[1]);
+    explorer = decodeURIComponent(match[2]);
+  } catch {
+    return false;
+  }
+  if (project !== expected.project || explorer !== expected.explorer ||
+      entry.scopeProject !== project || entry.scopeExplorer !== explorer ||
+      entry.request?.outputId !== expected.outputId || entry.request?.snapshotToken !== expected.snapshotToken) return false;
+
+  const endpoint = match[3];
+  if (endpoint === 'population-routes') {
+    return typeof expected.selectionRevisionId === 'string' && expected.selectionRevisionId.length > 0 &&
+      entry.request.selectionRevisionId === expected.selectionRevisionId;
+  }
+  if (endpoint === 'related-expand-choices') {
+    return Number.isSafeInteger(expected.expectedDraftVersion) && expected.expectedDraftVersion >= 0 &&
+      typeof expected.expectedDraftDigest === 'string' && expected.expectedDraftDigest.length > 0 &&
+      typeof expected.stageId === 'string' && expected.stageId.length > 0 &&
+      typeof expected.anchorColumnId === 'string' && expected.anchorColumnId.length > 0 &&
+      typeof expected.targetResourceType === 'string' && expected.targetResourceType.length > 0 &&
+      entry.request.expectedDraftVersion === expected.expectedDraftVersion &&
+      entry.request.expectedDraftDigest === expected.expectedDraftDigest &&
+      entry.request.stageId === expected.stageId &&
+      entry.request.anchorColumnId === expected.anchorColumnId &&
+      entry.request.targetResourceType === expected.targetResourceType;
+  }
+  if (endpoint === 'construction-choices') {
+    const expectedSources = Array.isArray(expected.sources)
+      ? expected.sources
+      : expected.source ? [expected.source] : [];
+    return expectedSources.length > 0 && expectedSources.every(hasExactConstructionChoiceSourceShape) &&
+      expectedSources.some((source) => matchesConstructionChoiceSource(entry.request.source, source));
   }
   return endpoint === 'frame-source-options';
 };
@@ -147,7 +229,9 @@ const sameDocumentOwnerRetirement = (entry, rule) => {
   const failedAt = failureClock.at;
   const correlation = (entry.abortControllerProbeEvidence ?? []).find((candidate) =>
     candidate?.exactRequestSignalCorrelation === true &&
-    candidate?.networkRequestId === entry.requestId &&
+    typeof entry.cdpRequestId === 'string' && entry.cdpRequestId.length > 0 &&
+    entry.cdpRequestMatchCount === 1 &&
+    candidate?.networkRequestId === entry.cdpRequestId &&
     candidate?.networkFailureObservedSeparately === true &&
     candidate?.networkFailureClockBasis === failureClock.basis &&
     candidate?.networkFailureObservedAt === failureClock.at &&
@@ -200,13 +284,30 @@ const sameDocumentOwnerRetirement = (entry, rule) => {
         action.closestButton?.testId !== 'construction-action-related-rows'))) {
     return { ownerRetired: false, reason: 'row-settings-close-action-and-dialog-retirement-not-proven' };
   }
+  if (expectedAction === 'related-expand-proposal-apply' &&
+      (!before.ownerAttributes?.stageId || !before.ownerAttributes?.outputId ||
+       before.ownerAttributes.stageId !== after.ownerAttributes?.stageId ||
+       before.ownerAttributes.outputId !== after.ownerAttributes?.outputId ||
+       entry.request.stageId !== before.ownerAttributes.stageId ||
+       entry.request.outputId !== before.ownerAttributes.outputId ||
+       action.closestButton?.testId !== 'construction-apply-proposal')) {
+    return { ownerRetired: false, reason: 'related-expansion-stage-output-and-apply-action-not-proven' };
+  }
+  if (expectedAction === 'catalog-add-selected-feature' &&
+      action.closestButton?.accessibleLabel !== 'Add 1 selected feature') {
+    return { ownerRetired: false, reason: 'exact-single-feature-catalog-add-action-not-proven' };
+  }
 
 
   return {
     ownerRetired: true,
     reason: expectedAction === 'coded-to-fields-tab'
       ? 'same-document-coded-owner-detached-after-trusted-fields-tab-selection'
-      : 'same-document-population-owner-detached-after-trusted-row-dialog-exit',
+      : expectedAction === 'row-settings-dialog-exit'
+        ? 'same-document-population-owner-detached-after-trusted-row-dialog-exit'
+        : expectedAction === 'related-expand-proposal-apply'
+          ? 'same-document-related-expansion-owner-detached-after-trusted-apply'
+          : 'same-document-catalog-owner-detached-after-trusted-add-selected-feature',
     requestId: entry.requestId,
     requestCorrelationId: entry.requestCorrelationId,
     owner: rule.owner,

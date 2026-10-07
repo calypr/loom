@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { classifyExpectedOwnedCancellation, classifyNativeRequestOwnerRetirement } from '../native-request-ownership.mjs';
+import {
+  classifyExpectedOwnedCancellation,
+  classifyNativeRequestOwnerRetirement,
+  nativeReadRequestMatchesExpectedScope,
+} from '../native-request-ownership.mjs';
 import { nativeAbortNetworkFailureClock } from '../native-abort-probe.mjs';
 
 const ownedRequest = (endpoint = 'semantic-inventory', overrides = {}) => {
@@ -16,6 +20,14 @@ const ownedRequest = (endpoint = 'semantic-inventory', overrides = {}) => {
       apiFunction: 'searchPopulationRoutes',
       prefix: 'population-routes-',
       request: { snapshotToken: 'snapshot-1', outputId: 'output-1', selectionRevisionId: 'selection-1' },
+    },
+    'related-expand-choices': {
+      component: 'http://localhost/ui/constructionOperations/RelatedExpandEditor.tsx',
+      apiFunction: 'searchRelatedExpandChoices',
+      prefix: 'related-expand-choices-',
+      request: { snapshotToken: 'snapshot-1', outputId: 'output-1', expectedDraftVersion: 7,
+        expectedDraftDigest: 'draft-7', stageId: 'related-stage', anchorColumnId: 'anchor-column',
+        targetResourceType: 'Patient', limit: 50 },
     },
     'frame-source-options': {
       component: 'http://localhost/ui/constructionWorkspace/FrameSourcePanel.tsx',
@@ -38,6 +50,7 @@ const ownedRequest = (endpoint = 'semantic-inventory', overrides = {}) => {
     requestCorrelationId: ownerByEndpoint.prefix + 'request',
     method: 'POST',
     path: `/api/v1/projects/p/explorers/e/authoring/v2/${endpoint}`,
+    origin: 'http://127.0.0.1:30008',
     scopeProject: 'p',
     scopeExplorer: 'e',
     request: ownerByEndpoint.request,
@@ -59,6 +72,8 @@ const ownedRequest = (endpoint = 'semantic-inventory', overrides = {}) => {
     ] },
     ...overrides,
   };
+  entry.cdpRequestId ??= `cdp-${entry.requestId}`;
+  entry.cdpRequestMatchCount ??= 1;
   return entry;
 };
 
@@ -130,7 +145,7 @@ const componentOwnerCancellation = (entry, {
     closestButton: button,
   };
   return {
-    networkRequestId: entry.requestId,
+    networkRequestId: entry.cdpRequestId,
     controllerId: 'abort-controller-component-1',
     controllerAbortedAt: abortedAt,
     request: ownerRequest,
@@ -145,6 +160,47 @@ const componentOwnerCancellation = (entry, {
     sameDocumentOwnerRetirement: detached && trusted && (coded
       ? action === 'coded-to-fields-tab'
       : ['row-settings-group-rows', 'row-settings-back-to-table'].includes(action)),
+  };
+};
+
+const relatedExpandOwnerCancellation = (entry, {
+  detached = true,
+  stageId = entry.request.stageId,
+  outputId = entry.request.outputId,
+  actionTestId = 'construction-apply-proposal',
+} = {}) => {
+  const failureAt = nativeAbortNetworkFailureClock(entry).at;
+  const anchorId = 'related-expand-editor-node';
+  const ownerDomAtFetch = {
+    status: 'unique', selector: '[data-testid="construction-related-expand-editor"]', matchCount: 1,
+    capturedAt: entry.startedAt, anchorId, connectedAtFetch: true, ruleOwner: 'related-expand-choice-editor',
+    retirementAction: 'related-expand-proposal-apply',
+    ownerAttributes: { stageId: entry.request.stageId, outputId: entry.request.outputId },
+  };
+  const ownerDomAtAbort = {
+    anchorId, connectedAtAbort: !detached, detachedAtAbort: detached, observedAtAbort: 109,
+    ownerAttributes: { stageId, outputId },
+  };
+  const ownerRetirementAction = {
+    type: 'click', at: 105, isTrusted: true, trustEvidence: 'native-event-isTrusted-true',
+    closestButton: { accessibleLabel: 'Apply', testId: actionTestId },
+  };
+  return {
+    networkRequestId: entry.cdpRequestId,
+    controllerId: 'abort-controller-related-expand-1',
+    controllerAbortedAt: 109,
+    request: {
+      requestId: entry.requestCorrelationId, path: entry.path, method: entry.method,
+      endpoint: 'related-expand-choices', startedAt: entry.startedAt, ownerDomAtFetch, ownerDomAtAbort,
+    },
+    exactRequestSignalCorrelation: true,
+    networkFailureObservedSeparately: true,
+    networkFailureObservedAt: failureAt,
+    networkFailureClockBasis: 'request-wall-time-calibrated-cdp-monotonic',
+    signalWasAlreadyAborted: false,
+    ownerRetirementAction, ownerDomAtFetch, ownerDomAtAbort,
+    sameDocumentOwnerRetirement: detached && stageId === entry.request.stageId &&
+      outputId === entry.request.outputId && actionTestId === 'construction-apply-proposal',
   };
 };
 
@@ -234,6 +290,126 @@ test('semantic-inventory without its required snapshot or row root remains unkno
     const entry = ownedRequest('semantic-inventory', { request });
     assert.equal(classifyNativeRequestOwnerRetirement(entry, retiredOwnerEvidence).ownerRetired, false);
   }
+});
+
+test('captured related-read scope checks output, stage, and draft CAS against independent UI state', () => {
+  const entry = ownedRequest('related-expand-choices');
+  const expected = {
+    origin: 'http://127.0.0.1:30008',
+    project: 'p', explorer: 'e', outputId: 'output-1', snapshotToken: 'snapshot-1',
+    expectedDraftVersion: 7, expectedDraftDigest: 'draft-7', stageId: 'related-stage',
+    anchorColumnId: 'anchor-column', targetResourceType: 'Patient',
+  };
+  assert.equal(nativeReadRequestMatchesExpectedScope(entry, expected), true);
+  for (const mismatch of [
+    { outputId: 'other-output' },
+    { snapshotToken: 'other-snapshot' },
+    { expectedDraftVersion: 8 },
+    { expectedDraftDigest: 'other-digest' },
+    { stageId: 'other-stage' },
+    { anchorColumnId: 'other-anchor' },
+    { targetResourceType: 'Observation' },
+    { project: 'other-project' },
+    { explorer: 'other-explorer' },
+    { origin: 'http://127.0.0.1:30009' },
+  ]) {
+    assert.equal(nativeReadRequestMatchesExpectedScope(entry, { ...expected, ...mismatch }), false,
+      `must reject ${JSON.stringify(mismatch)}`);
+  }
+  assert.equal(nativeReadRequestMatchesExpectedScope({ ...entry, request: { ...entry.request, stageId: 'other-stage' } }, expected), false);
+  assert.equal(nativeReadRequestMatchesExpectedScope({ ...entry, request: { ...entry.request, expectedDraftVersion: '7' } }, expected), false);
+  const { origin: _origin, ...missingOrigin } = expected;
+  assert.equal(nativeReadRequestMatchesExpectedScope(entry, missingOrigin), false, 'independent UI origin is required');
+});
+
+test('population-route cancellation must bind the exact selected source revision', () => {
+  const entry = ownedRequest('population-routes');
+  const expected = {
+    origin: 'http://127.0.0.1:30008',
+    project: 'p', explorer: 'e', outputId: 'output-1', snapshotToken: 'snapshot-1',
+    selectionRevisionId: 'selection-1',
+  };
+  assert.equal(nativeReadRequestMatchesExpectedScope(entry, expected), true);
+  assert.equal(nativeReadRequestMatchesExpectedScope(entry, { ...expected, selectionRevisionId: 'selection-2' }), false);
+  assert.equal(nativeReadRequestMatchesExpectedScope({
+    ...entry, request: { ...entry.request, selectionRevisionId: 'selection-2' },
+  }, expected), false);
+  assert.equal(nativeReadRequestMatchesExpectedScope({
+    ...entry, request: { ...entry.request, outputId: 'output-2' },
+  }, expected), false);
+});
+
+test('construction-choice scope requires the independent complete semantic binding and decoded path identity', () => {
+  const entry = ownedRequest('construction-choices', {
+    path: '/api/v1/projects/p%2F1/explorers/e%20two/authoring/v2/construction-choices',
+    scopeProject: 'p/1',
+    scopeExplorer: 'e two',
+  });
+  const expected = {
+    origin: 'http://127.0.0.1:30008',
+    project: 'p/1', explorer: 'e two', outputId: 'output-1', snapshotToken: 'snapshot-1',
+    source: { kind: 'SEMANTIC', contextToken: 'context-1', buildId: 'build-1', conceptId: 'concept-1', bindingId: 'binding-1' },
+  };
+  assert.equal(nativeReadRequestMatchesExpectedScope(entry, expected), true);
+  assert.equal(nativeReadRequestMatchesExpectedScope(entry, { ...expected, source: undefined }), false,
+    'missing UI semantic binding is not accepted');
+  for (const key of ['kind', 'contextToken', 'buildId', 'conceptId', 'bindingId']) {
+    const incompleteSource = { ...expected.source };
+    delete incompleteSource[key];
+    assert.equal(nativeReadRequestMatchesExpectedScope(entry, { ...expected, source: incompleteSource }), false,
+      `missing UI source ${key} is not accepted`);
+  }
+  assert.equal(nativeReadRequestMatchesExpectedScope({ ...entry, origin: 'http://127.0.0.1:30009' }, expected), false,
+    'request origin must match the active UI origin');
+  assert.equal(nativeReadRequestMatchesExpectedScope({ ...entry, path: '/api/v1/projects/p%ZZ/explorers/e/authoring/v2/construction-choices' }, expected), false,
+    'malformed encoded scope is not accepted');
+});
+
+test('related-expand cancellation needs matching body CAS and the detached same editor after trusted Apply', () => {
+  const entry = ownedRequest('related-expand-choices', {
+    requestId: 'cdp-related-expand-1',
+    requestTimestamp: 1,
+    requestWallTime: 0.1,
+    startedAt: 100,
+    networkTerminal: true,
+    bodyReadStatus: 'failed',
+    loadingFailed: { errorText: 'net::ERR_ABORTED', canceled: true, timestamp: 1.012 },
+  });
+  const expected = {
+    origin: 'http://127.0.0.1:30008',
+    project: 'p', explorer: 'e', outputId: 'output-1', snapshotToken: 'snapshot-1',
+    expectedDraftVersion: 7, expectedDraftDigest: 'draft-7', stageId: 'related-stage',
+    anchorColumnId: 'anchor-column', targetResourceType: 'Patient',
+  };
+  const noNavigation = { frameNavigations: [], executionContextRetirements: [] };
+  const decide = (candidate, proof = relatedExpandOwnerCancellation(candidate)) => {
+    if (!nativeReadRequestMatchesExpectedScope(candidate, expected)) {
+      return { expected: false, reason: 'request-scope-or-CAS-mismatch' };
+    }
+    candidate.abortControllerProbeEvidence = [proof];
+    return classifyExpectedOwnedCancellation(candidate, noNavigation);
+  };
+
+  const accepted = decide(entry);
+  assert.equal(accepted.expected, true, JSON.stringify(accepted));
+  assert.equal(accepted.ownerRetirement.owner, 'related-expand-choice-editor');
+  assert.equal(accepted.ownerRetirement.componentRetirementAction, 'related-expand-proposal-apply');
+
+  for (const mismatch of [
+    { outputId: 'other-output' },
+    { stageId: 'other-stage' },
+    { expectedDraftVersion: 8 },
+    { expectedDraftDigest: 'other-digest' },
+  ]) {
+    assert.equal(decide({ ...entry, request: { ...entry.request, ...mismatch } }).expected, false,
+      `must reject ${JSON.stringify(mismatch)}`);
+  }
+  assert.equal(decide(entry, relatedExpandOwnerCancellation(entry, { actionTestId: 'construction-cancel-proposal' })).expected,
+    false, 'wrong action');
+  assert.equal(decide(entry, relatedExpandOwnerCancellation(entry, { detached: false })).expected,
+    false, 'captured owner remains mounted');
+  assert.equal(decide(entry, relatedExpandOwnerCancellation(entry, { stageId: 'replacement-stage' })).expected,
+    false, 'same node changed stage identity before detaching');
 });
 
 test('navigation without a recognized request owner remains unresolved', () => {
@@ -485,7 +661,7 @@ test('v5 ConceptCatalog 200 headers followed by body abort stays fatal while its
     capturedAt: 1_791_125_730_952,
   };
   entry.abortControllerProbeEvidence = [{
-    networkRequestId: '78821.407',
+    networkRequestId: entry.cdpRequestId,
     controllerId: 'abort-controller-21',
     controllerAbortedAt: 1_791_125_731_124,
     request: {

@@ -2,10 +2,13 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { assertExactMultiset } from '../helpers/group-related-multiset.mjs';
-import { classifyNativeBrowserApiRequest, isSameUiProxyResponse } from '../helpers/native-browser-api-scope.mjs';
+import { classifyNativeBrowserApiRequest, isSameUiProxyResponse, nativeRequestsHaveOwnedTransportOutcomes } from '../helpers/native-browser-api-scope.mjs';
 import { assertReopenedProposalAfterCancel } from '../helpers/proposal-reopen-binding.mjs';
 import { selectSavedPreviewRequest } from '../helpers/saved-preview-binding.mjs';
 import { relatedSourceProposalCandidate } from '../helpers/related-source-capture.mjs';
+import { buildArangoShellInvocation } from '../helpers/owned-arangosh-command.mjs';
+import { classifyExpectedOwnedCancellation, nativeReadRequestMatchesExpectedScope } from '../helpers/native-request-ownership.mjs';
+import { createNativeAbortProbeSource, nativeAbortProbeEvidenceForRequest } from '../helpers/native-abort-probe.mjs';
 
 export async function runGroupEditBeforeRelatedColumnBrowserWorkflow({ page, cda }) {
 const project = cda.project;
@@ -50,15 +53,23 @@ const report = {
   status: 'running', explorer, project, generation, protectedExplorer,
   scope: { apiOrigin, uiOrigin, browserApiTransport: 'same-origin UI /api proxy',
     rawOracle: 'project + dataset generation + explicit selected Specimen ID' },
-  evidence, target, cases: [], errors: [], browserTransportViolations: [], requests: [], nativeRequests: [], started: new Date().toISOString(),
+  evidence, target, cases: [], errors: [], browserTransportViolations: [], requests: [], nativeRequests: [],
+  nativeAbortProbeEvents: [], expectedOwnerCancellations: [], started: new Date().toISOString(),
 };
 let builder, outputId, selection, source, selectedPopulationRoute;
+let activeRelatedChoiceContext;
+let activePairedSemanticSourceState;
+let activeCatalogChoiceSourceState;
 let activeBrowserOwner = 'workspace setup';
 let nativeDrainAttempted = false;
 const nativeById = new Map();
 const pendingNetworkReads = new Set();
 const oracleQueries = [];
 const expectedCancelReceipts = new Map();
+const cdpRequestsById = new Map();
+const cdpRequestsByCorrelationId = new Map();
+const nativeByCorrelationId = new Map();
+let nativeCdpSession;
 const registerProposalCancelOwner = (proposalId, owner) => {
   assert(proposalId, `${owner} must bind to the active proposal receipt`);
   const evidence = {
@@ -71,13 +82,186 @@ const registerProposalCancelOwner = (proposalId, owner) => {
   expectedCancelReceipts.set(proposalId, evidence);
   for (const entry of report.nativeRequests) {
     if (entry.proposalId === proposalId || entry.body?.receiptId === proposalId) {
-      entry.expectedCancelOwner = evidence;
+      entry.proposalCancelReceipt = evidence;
       if (!evidence.requestIds.includes(entry.requestId)) evidence.requestIds.push(entry.requestId);
     }
   }
   return evidence;
 };
 const pause = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+const headerValue = (headers, name) => {
+  const target = name.toLowerCase();
+  for (const [key, value] of Object.entries(headers ?? {})) {
+    if (key.toLowerCase() === target) return String(value);
+  }
+  return undefined;
+};
+const cdpInitiatorFrames = (stack) => {
+  const frames = [];
+  let current = stack;
+  while (current && frames.length < 24) {
+    for (const frame of current.callFrames ?? []) {
+      if (frames.length >= 24) break;
+      frames.push({ url: frame.url, functionName: frame.functionName });
+    }
+    current = current.parent;
+  }
+  return frames;
+};
+const cdpRequestsForCorrelationId = (requestCorrelationId) =>
+  cdpRequestsByCorrelationId.get(requestCorrelationId) ?? [];
+const syncCDPRequestEvidence = (entry) => {
+  if (!entry.requestCorrelationId) return false;
+  const matches = cdpRequestsForCorrelationId(entry.requestCorrelationId).filter((candidate) =>
+    candidate.path === entry.path && candidate.method === entry.method && candidate.origin === entry.origin);
+  entry.cdpRequestMatchCount = matches.length;
+  if (matches.length !== 1) return false;
+  const candidate = matches[0];
+  entry.cdpRequestId = candidate.requestId;
+  entry.requestTimestamp = candidate.requestTimestamp;
+  entry.requestWallTime = candidate.requestWallTime;
+  entry.resourceType = candidate.resourceType;
+  entry.frameId = candidate.frameId;
+  entry.loaderId = candidate.loaderId;
+  entry.initiator = candidate.initiator;
+  if (candidate.loadingFailed) entry.loadingFailed = candidate.loadingFailed;
+  return true;
+};
+const recordCDPRequest = (params) => {
+  let url;
+  try { url = new URL(params.request?.url); } catch { return; }
+  if (url.origin !== uiOrigin || !url.pathname.startsWith(`${base}/`)) return;
+  const requestCorrelationId = headerValue(params.request?.headers, 'x-request-id');
+  if (!requestCorrelationId) return;
+  const candidate = {
+    requestId: params.requestId,
+    requestCorrelationId,
+    origin: url.origin,
+    path: url.pathname,
+    method: String(params.request?.method ?? '').toUpperCase(),
+    requestTimestamp: params.timestamp,
+    requestWallTime: params.wallTime,
+    resourceType: params.type,
+    frameId: params.frameId,
+    loaderId: params.loaderId,
+    initiator: {
+      type: params.initiator?.type,
+      stack: cdpInitiatorFrames(params.initiator?.stack),
+    },
+  };
+  cdpRequestsById.set(candidate.requestId, candidate);
+  const requests = cdpRequestsByCorrelationId.get(requestCorrelationId) ?? [];
+  requests.push(candidate);
+  cdpRequestsByCorrelationId.set(requestCorrelationId, requests);
+  for (const entry of nativeByCorrelationId.get(requestCorrelationId) ?? []) syncCDPRequestEvidence(entry);
+};
+const recordCDPFailure = (params) => {
+  const candidate = cdpRequestsById.get(params.requestId);
+  if (!candidate) return;
+  candidate.loadingFailed = {
+    errorText: params.errorText ?? 'unknown',
+    canceled: params.canceled === true || params.errorText === 'net::ERR_ABORTED',
+    timestamp: params.timestamp,
+    blockedReason: params.blockedReason,
+    corsErrorStatus: params.corsErrorStatus,
+    at: Date.now(),
+  };
+  for (const entry of nativeByCorrelationId.get(candidate.requestCorrelationId) ?? []) syncCDPRequestEvidence(entry);
+};
+const expectedScopeForNativeRequest = (entry) => {
+  const captured = entry.requestStateAtStart;
+  if (!captured?.project || !captured?.explorer || !captured?.outputId || !captured?.snapshotToken) return undefined;
+  const context = {
+    project: captured.project,
+    explorer: captured.explorer,
+    origin: uiOrigin,
+    outputId: captured.outputId,
+    snapshotToken: captured.snapshotToken,
+  };
+  const endpoint = entry.path.startsWith(`${base}/`) ? entry.path.slice(`${base}/`.length) : '';
+  if (endpoint === 'population-routes') {
+    if (!captured.selectionRevisionId) return undefined;
+    context.selectionRevisionId = captured.selectionRevisionId;
+  }
+  if (endpoint === 'related-expand-choices') {
+    if (!captured.relatedExpansionContext || !Number.isInteger(captured.draftVersion) || !captured.draftDigest) return undefined;
+    Object.assign(context, {
+      expectedDraftVersion: captured.draftVersion,
+      expectedDraftDigest: captured.draftDigest,
+      ...captured.relatedExpansionContext,
+    });
+  }
+  if (endpoint === 'construction-choices') {
+    const sourceCandidates = captured.constructionChoiceSourceCandidates;
+    if (!Array.isArray(sourceCandidates) || sourceCandidates.length === 0) return undefined;
+    return sourceCandidates.map(({ source: expectedSource, evidence }) => ({
+      ...context, source: expectedSource, sourceEvidence: evidence,
+    }));
+  }
+  return [context];
+};
+const annotateExpectedOwnedCancellation = (entry) => {
+  if (entry.expectedOwnerCancellation?.expected === true || !entry.cancelled ||
+      entry.bodyReadStatus !== 'failed' || entry.loadingFailed?.errorText !== 'net::ERR_ABORTED' ||
+      entry.loadingFailed?.canceled !== true || entry.status !== undefined || entry.responseHeadersAt !== undefined) return false;
+  const expectedContexts = expectedScopeForNativeRequest(entry);
+  const expectedContext = expectedContexts?.find((candidate) =>
+    nativeReadRequestMatchesExpectedScope(entry, candidate));
+  if (!expectedContext) {
+    const endpoint = entry.path.startsWith(`${base}/`) ? entry.path.slice(`${base}/`.length) : '';
+    entry.expectedOwnerCancellationDecision = {
+      expected: false,
+      reason: endpoint === 'construction-choices' && !entry.requestStateAtStart?.constructionChoiceSourceCandidates?.length
+        ? 'independent current-owner construction-choice source was not captured before fetch'
+        : expectedContexts ? 'native request did not match captured current-scope and source context' : 'independent current request context unavailable',
+    };
+    return false;
+  }
+  if (!syncCDPRequestEvidence(entry)) {
+    entry.expectedOwnerCancellationDecision = { expected: false, reason: 'unique CDP request correlation unavailable' };
+    return false;
+  }
+  entry.abortControllerProbeEvidence = nativeAbortProbeEvidenceForRequest(entry, report.nativeAbortProbeEvents);
+  const classification = classifyExpectedOwnedCancellation(entry);
+  entry.expectedOwnerCancellationDecision = {
+    expected: classification.expected,
+    reason: classification.reason,
+    scopeMatched: true,
+    cdpRequestId: entry.cdpRequestId,
+  };
+  if (!classification.expected) return false;
+  entry.expectedOwnerCancellation = classification;
+  entry.cancelContext = {
+    owner: classification.ownerRetirement.owner,
+    endpoint: classification.ownerRetirement.endpoint,
+    requestId: entry.requestId,
+    requestCorrelationId: entry.requestCorrelationId,
+    transition: classification.ownerRetirement.componentRetirementAction,
+    trustedActionAt: classification.ownerRetirement.trustedActionAt,
+    componentAnchorId: classification.ownerRetirement.componentAnchorId,
+  };
+  report.expectedOwnerCancellations.push({
+    requestId: entry.requestId,
+    requestCorrelationId: entry.requestCorrelationId,
+    cdpRequestId: entry.cdpRequestId,
+    path: entry.path,
+    owner: classification.ownerRetirement.owner,
+      scope: { project: entry.scopeProject, explorer: entry.scopeExplorer, outputId: entry.body.outputId,
+        snapshotToken: entry.body.snapshotToken, selectionRevisionId: entry.body.selectionRevisionId,
+        expectedDraftVersion: entry.body.expectedDraftVersion, expectedDraftDigest: entry.body.expectedDraftDigest,
+      stageId: entry.body.stageId, anchorColumnId: entry.body.anchorColumnId,
+      targetResourceType: entry.body.targetResourceType,
+      source: expectedContext.source,
+      sourceEvidence: expectedContext.sourceEvidence },
+    ownerRetirement: classification.ownerRetirement,
+    probeEvidence: entry.abortControllerProbeEvidence,
+  });
+  const errorIndex = report.errors.findIndex((error) => error.kind === 'native-request' && error.requestId === entry.requestId);
+  if (errorIndex >= 0) report.errors.splice(errorIndex, 1);
+  return true;
+};
+const recordLifecycleCheck = (dimension, name, passed, checkEvidence = {}) =>
+  cda.check(dimension, name, passed, checkEvidence);
 
 const api = async (path, body) => {
   assert(!path.includes(protectedExplorer), `Refusing to address protected Explorer ${protectedExplorer}`);
@@ -96,6 +280,97 @@ const api = async (path, body) => {
 const identity = (state) => ({ snapshotToken: state.catalog.snapshotToken,
   expectedDraftVersion: state.draftVersion, expectedDraftDigest: state.draftDigest });
 const doc = (state = builder) => state.workspace.documents.find((item) => item.output.id === outputId);
+const semanticConceptLabel = (item) => {
+  const label = String(item?.display ?? '').trim() || String(item?.code ?? '').trim() || String(item?.sourcePath ?? '');
+  return /^[a-z][a-z0-9]*(?:_[a-z0-9]+)+$/.test(label)
+    ? label.replaceAll('_', ' ').replace(/^./, (first) => first.toUpperCase())
+    : label;
+};
+// Mirrors PairedColumnSuggestions' eligible-entry, dedupe, authored-label, and route-limit query.
+const pairedColumnRouteSearchLimit = 8;
+const sameSemanticLabel = (left, right) =>
+  String(left).trim().normalize('NFKC').replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').toLocaleLowerCase() ===
+  String(right).trim().normalize('NFKC').replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').toLocaleLowerCase();
+const currentPairedSuggestionAuthoredLabels = () => {
+  if (!builder || !outputId || !builder.catalog?.snapshotToken) return undefined;
+  const currentDocument = doc(builder);
+  if (!currentDocument?.rootResourceType) return undefined;
+  const capabilitiesEntry = report.nativeRequests.findLast((entry) =>
+    entry.path === `${base}/construction-capabilities` && entry.method === 'POST' &&
+    entry.origin === uiOrigin && entry.scopeProject === project && entry.scopeExplorer === explorer &&
+    entry.status === 200 && entry.bodyReadStatus === 'decoded' &&
+    entry.body?.outputId === outputId && entry.body?.snapshotToken === builder.catalog.snapshotToken &&
+    entry.body?.expectedDraftVersion === builder.draftVersion &&
+    entry.body?.expectedDraftDigest === builder.draftDigest &&
+    entry.response?.stages?.at(-1)?.id === entry.body?.stageId &&
+    Array.isArray(entry.response?.stages?.at(-1)?.columns));
+  if (!capabilitiesEntry) return undefined;
+  const stageColumns = capabilitiesEntry.response.stages.at(-1).columns;
+  return [...stageColumns, ...(currentDocument.columns ?? [])]
+    .map((column) => column?.label)
+    .filter((label) => typeof label === 'string' && label.length > 0);
+};
+const pairedSuggestionSourcesFromInventory = (entry) => {
+  if (!entry || entry.path !== `${base}/semantic-inventory` || entry.method !== 'POST' ||
+      entry.origin !== uiOrigin || entry.scopeProject !== project || entry.scopeExplorer !== explorer ||
+      !entry.requestCorrelationId?.startsWith('paired-column-inventory-') ||
+      entry.status !== 200 || entry.bodyReadStatus !== 'decoded' ||
+      entry.body?.snapshotToken !== builder?.catalog?.snapshotToken ||
+      entry.body?.rowRoot !== doc(builder)?.rootResourceType ||
+      entry.requestStateAtStart?.project !== project || entry.requestStateAtStart?.explorer !== explorer ||
+      entry.requestStateAtStart?.outputId !== outputId ||
+      entry.requestStateAtStart?.snapshotToken !== builder?.catalog?.snapshotToken ||
+      entry.requestStateAtStart?.draftVersion !== builder?.draftVersion ||
+      entry.requestStateAtStart?.draftDigest !== builder?.draftDigest ||
+      entry.response?.state !== 'complete' ||
+      typeof entry.response?.contextToken !== 'string' || !entry.response.contextToken ||
+      typeof entry.response?.buildId !== 'string' || !entry.response.buildId ||
+      !Array.isArray(entry.response?.entries)) return undefined;
+  const authoredLabels = currentPairedSuggestionAuthoredLabels();
+  if (!authoredLabels) return undefined;
+  const seen = new Set();
+  const candidates = [];
+  for (const item of entry.response.entries) {
+    if (!String(item?.code ?? '').trim() || !semanticConceptLabel(item) ||
+        !['READY', 'READY_WITH_WARNING'].includes(item?.readiness?.status) ||
+        typeof item.conceptId !== 'string' || !item.conceptId ||
+        typeof item.bindingId !== 'string' || !item.bindingId) continue;
+    const identityKey = `${item.conceptId}\u0000${item.bindingId}`;
+    if (seen.has(identityKey)) continue;
+    seen.add(identityKey);
+    if (authoredLabels.some((label) => sameSemanticLabel(label, semanticConceptLabel(item)))) continue;
+    candidates.push({
+      source: {
+        kind: 'SEMANTIC', contextToken: entry.response.contextToken, buildId: entry.response.buildId,
+        conceptId: item.conceptId, bindingId: item.bindingId,
+      },
+      evidence: 'successful-current-semantic-inventory-entry-before-paired-choice-fetch',
+    });
+  }
+  return {
+    project, explorer, origin: uiOrigin, outputId,
+    snapshotToken: builder.catalog.snapshotToken,
+    draftVersion: builder.draftVersion, draftDigest: builder.draftDigest,
+    inventoryRequestId: entry.requestCorrelationId,
+    capturedAt: Date.now(),
+    sources: candidates.slice(0, pairedColumnRouteSearchLimit),
+  };
+};
+const sourceCandidatesAtRequestStart = (requestCorrelationId) => {
+  const currentMatches = (state) => state && state.project === project && state.explorer === explorer &&
+    state.origin === uiOrigin && state.outputId === outputId &&
+    state.snapshotToken === builder?.catalog?.snapshotToken &&
+    state.draftVersion === builder?.draftVersion && state.draftDigest === builder?.draftDigest &&
+    Array.isArray(state.sources);
+  const expectedOwnerSources = requestCorrelationId?.startsWith('paired-column-choices-')
+    ? activePairedSemanticSourceState
+    : requestCorrelationId?.startsWith('construction-choices-')
+      ? activeCatalogChoiceSourceState
+      : undefined;
+  return currentMatches(expectedOwnerSources)
+    ? expectedOwnerSources.sources.map((candidate) => structuredClone(candidate))
+    : [];
+};
 const recordAction = (name, startedAt, details = {}) => {
   const durationMs = Date.now() - startedAt;
   assert(durationMs <= 5000, `${name} took ${durationMs} ms (limit 5000 ms)`);
@@ -113,10 +388,12 @@ const rawQuery = (query) => {
   assert(query.includes(JSON.stringify(project)), 'Raw oracle query must scope to the CDA project');
   assert(query.includes(JSON.stringify(generation)), 'Raw oracle query must scope to the CDA generation');
   oracleQueries.push(query);
-  const result = spawnSync('rtk', ['proxy', 'docker', 'exec',
-    arangoContainer,
-    'arangosh', '--server.database', 'loom_dev', '--javascript.execute-string',
-    `print(JSON.stringify(db._query(${JSON.stringify(query)}).toArray()));`],
+  const invocation = buildArangoShellInvocation({
+    container: arangoContainer,
+    script: `print(JSON.stringify(db._query(${JSON.stringify(query)}).toArray()));`,
+    database: 'loom_dev',
+  });
+  const result = spawnSync(invocation.command, invocation.args,
   { encoding: 'utf8', timeout: 30000 });
   assert.equal(result.status, 0, `${result.stdout}${result.stderr}`);
   return JSON.parse(result.stdout.slice(result.stdout.indexOf('[')));
@@ -161,21 +438,29 @@ const drainNativeRequests = async () => {
   }
   const pending = report.nativeRequests.filter((entry) => !entry.networkTerminal
     || entry.bodyReadStatus === 'pending' || entry.bodyReadStatus === 'reading');
-  const invalid = report.nativeRequests.filter((entry) => entry.bodyReadStatus !== 'decoded');
-  const unclassifiedAborts = report.nativeRequests.filter((entry) => entry.cancelled && !entry.cancelContext);
+  for (const entry of report.nativeRequests) annotateExpectedOwnedCancellation(entry);
+  const invalid = report.nativeRequests.filter((entry) => entry.bodyReadStatus !== 'decoded'
+    && entry.expectedOwnerCancellation?.expected !== true);
+  const unclassifiedAborts = report.nativeRequests.filter((entry) => entry.cancelled
+    && entry.expectedOwnerCancellation?.expected !== true);
   report.nativeRequestDrain = {
     status: 'checking',
     terminalRequests: report.nativeRequests.length,
     decodedResponses: report.nativeRequests.filter((entry) => entry.bodyReadStatus === 'decoded').length,
     expectedProposalCancelOwners: [...expectedCancelReceipts.values()],
+    classifiedOwnedCancellations: report.expectedOwnerCancellations,
     terminalFailures: invalid.map(({ requestId, path, status, owner, bodyReadStatus, bodyError, loadingFailure, cancelContext }) => ({
       requestId, path, status, owner, bodyReadStatus, bodyError, loadingFailure,
       cancelContext: cancelContext && { proposalId: cancelContext.proposalId, owner: cancelContext.owner, transition: cancelContext.transition },
     })),
-    unclassifiedAborts: unclassifiedAborts.map(({ requestId, path, method, owner, startedAt, loadingFailure, initiator }) => ({ requestId, path, method, owner, startedAt, loadingFailure, initiator })),
+    unclassifiedAborts: unclassifiedAborts.map(({ requestId, requestCorrelationId, cdpRequestId, path, method, owner,
+      startedAt, loadingFailure, loadingFailed, cdpRequestMatchCount, expectedOwnerCancellationDecision,
+      proposalCancelOwnerCandidate }) => ({ requestId, requestCorrelationId, cdpRequestId, path, method, owner,
+      startedAt, loadingFailure, loadingFailed, cdpRequestMatchCount, expectedOwnerCancellationDecision,
+      proposalCancelReceiptId: proposalCancelOwnerCandidate?.proposalId })),
   };
   assert.deepEqual(pending, [], `Native API drain left requests without a terminal event/body result: ${JSON.stringify(pending.map(({ requestId, path, method, owner, status, bodyReadStatus, startedAt }) => ({ requestId, path, method, owner, status, bodyReadStatus, startedAt })))}`);
-  assert.deepEqual(unclassifiedAborts, [], `Native API aborts have no explicit proposal-cancel context: ${JSON.stringify(report.nativeRequestDrain.unclassifiedAborts)}`);
+  assert.deepEqual(unclassifiedAborts, [], `Native API aborts lack exact AbortSignal, scope/CAS, and owner-retirement proof: ${JSON.stringify(report.nativeRequestDrain.unclassifiedAborts)}`);
   assert.deepEqual(invalid, [], `Native API requests failed or had undecoded bodies (terminal aborts remain failures until an authoritative owner/retirement diagnostic proves them): ${JSON.stringify(report.nativeRequestDrain.terminalFailures)}`);
   assert(quietSince && Date.now() - quietSince >= 250,
     `Native API recorder did not reach 250 ms of bounded quiescence before the ${timeoutMs} ms deadline`);
@@ -264,7 +549,18 @@ const mountedRows = async (expectedRows, columnCount = expectedRows[0]?.length ?
 };
 const nativeByRequest = new WeakMap();
 let nextBrowserRequestId = 1;
-const installBrowserCapture = () => {
+const installBrowserCapture = async () => {
+  await page.context().exposeBinding('__loomNativeAbortProbeBinding', (_source, payload) => {
+    let event;
+    try { event = JSON.parse(payload); }
+    catch { report.nativeAbortProbeEvents.push({ kind: 'probe-payload-invalid', payloadLength: String(payload).length }); return; }
+    report.nativeAbortProbeEvents.push(event);
+  });
+  await page.context().addInitScript(createNativeAbortProbeSource({ project, explorer }));
+  nativeCdpSession = await page.context().newCDPSession(page);
+  nativeCdpSession.on('Network.requestWillBeSent', recordCDPRequest);
+  nativeCdpSession.on('Network.loadingFailed', recordCDPFailure);
+  await nativeCdpSession.send('Network.enable');
   page.on('pageerror', error => report.errors.push({ kind: 'runtime', text: error.message }));
   page.on('console', message => {
     if (message.type() !== 'error') return;
@@ -290,18 +586,37 @@ const installBrowserCapture = () => {
     try { body = request.postData() ? JSON.parse(request.postData()) : undefined; }
     catch (error) { body = request.postData(); requestBodyParseError = String(error); }
     const headers = request.headers();
-    const requestId = headers['x-request-id'] ?? `playwright-${nextBrowserRequestId++}`;
+    const requestCorrelationId = headers['x-request-id'];
+    if (url.pathname === `${base}/semantic-inventory` && requestCorrelationId?.startsWith('paired-column-inventory-')) {
+      activePairedSemanticSourceState = undefined;
+    }
+    const requestId = requestCorrelationId ?? `playwright-${nextBrowserRequestId++}`;
     const entry = {
       requestId, path: url.pathname, origin: url.origin, method: request.method(),
       url: request.url(), owner: activeBrowserOwner,
       transportScope: transport.scope, body, requestBodyParseError,
       authorizationHeaderPresent: Object.keys(headers).some(key => key.toLowerCase() === 'authorization'),
-      startedAt: Date.now(), status: null, completedAt: null, networkTerminal: false,
+      requestCorrelationId,
+      scopeProject: project, scopeExplorer: explorer,
+      requestStateAtStart: { project, explorer, outputId, snapshotToken: builder?.catalog?.snapshotToken,
+        draftVersion: builder?.draftVersion, draftDigest: builder?.draftDigest,
+        selectionRevisionId: selection?.id,
+        relatedExpansionContext: activeRelatedChoiceContext ? { ...activeRelatedChoiceContext } : undefined,
+        constructionChoiceSourceCandidates: url.pathname === `${base}/construction-choices`
+          ? sourceCandidatesAtRequestStart(requestCorrelationId) : undefined },
+      request: body,
+      startedAt: Date.now(), status: undefined, completedAt: null, networkTerminal: false,
       bodyReadStatus: 'pending', terminalState: 'pending', cancelled: false,
     };
     report.nativeRequests.push(entry);
     nativeById.set(requestId, entry);
     nativeByRequest.set(request, entry);
+    if (requestCorrelationId) {
+      const entries = nativeByCorrelationId.get(requestCorrelationId) ?? [];
+      entries.push(entry);
+      nativeByCorrelationId.set(requestCorrelationId, entries);
+      syncCDPRequestEvidence(entry);
+    }
   });
   page.on('response', response => {
     const request = response.request();
@@ -326,6 +641,10 @@ const installBrowserCapture = () => {
       try { entry.response = JSON.parse(text); } catch { entry.response = text; }
       entry.proposalId = entry.response?.proposalId ?? entry.body?.receiptId;
       entry.bodyReadStatus = 'decoded';
+      if (entry.path === `${base}/semantic-inventory` &&
+          entry.requestCorrelationId?.startsWith('paired-column-inventory-')) {
+        activePairedSemanticSourceState = pairedSuggestionSourcesFromInventory(entry);
+      }
     }).catch(error => {
       entry.responseReadError = String(error);
       entry.bodyReadStatus = 'failed';
@@ -354,10 +673,7 @@ const installBrowserCapture = () => {
     entry.loadingFailure = { errorText: failure?.errorText ?? 'unknown', canceled: entry.cancelled };
     const proposalId = entry.proposalId ?? entry.body?.receiptId;
     const expectedOwner = proposalId ? expectedCancelReceipts.get(proposalId) : undefined;
-    if (expectedOwner) {
-      entry.cancelContext = expectedOwner;
-      if (!expectedOwner.requestIds.includes(entry.requestId)) expectedOwner.requestIds.push(entry.requestId);
-    }
+    if (expectedOwner) entry.proposalCancelOwnerCandidate = expectedOwner;
     entry.bodyReadStatus = 'failed';
     entry.bodyError = `requestfailed: ${failure?.errorText ?? 'unknown'}`;
     entry.completedAt = Date.now();
@@ -524,6 +840,12 @@ FOR s IN (
   assert.equal(new Set(observationIDs).size, observations.length, 'Raw witness Observation IDs must be unique');
   assert(observationIDs.length >= 2, 'Raw witness must contain at least two distinct Observation IDs');
   assert(observations.length <= 24, 'Raw witness must fit completely in the 25-row preview bound');
+  recordLifecycleCheck('correctness',
+    'bounded real CDA oracle selects exact Specimen→Patient→Observation status witness',
+    source.generation === generation && observationIDs.length === observationStatuses.length &&
+      observationIDs.length >= 2 && observationIDs.length <= 24 && observations.every(({ hasScalarStatus }) => hasScalarStatus),
+    { project, generation, sourceID: source.id, patientID: patient.id, observationIDs,
+      statusValues: observationStatuses });
   report.oracle = { kind: 'bounded real CDA source fixture and exact project/generation-scoped raw fhir_edge witness',
     sourceQuery, searchBounds: { sortedSpecimens: 2000, observationsPerPatientMin: 2, observationsPerPatientMax: 24 },
     source, patient, observations, statusValuesPresent: [...new Set(observationStatuses)].sort(),
@@ -559,7 +881,7 @@ FOR s IN (
   assertSourceBinding(builder, selectedPopulationRoute);
 
   cda.captureRequests(explorerRoot);
-  installBrowserCapture();
+  await installBrowserCapture();
   const sourceRows = [[source.id]];
   await open(sourceRows, 1, 'selected-raw-Specimen-reload');
   let witnesses = [{ anchor: source._id, values: [source.id] }];
@@ -570,6 +892,16 @@ FOR s IN (
   let expectedExpandedRows = sourceRows;
   for (const hop of chain) {
     activeBrowserOwner = `expand-${hop.from}-${hop.to}`;
+    const previousStep = doc(builder).construction.steps.at(-1);
+    activeRelatedChoiceContext = {
+      stageId: previousStep?.id ?? 'source_projection',
+      anchorColumnId: previousStep?.operation.kind === 'RELATED_EXPAND'
+        ? previousStep.operation.relatedExpand.relatedRecordColumnId
+        : '_key',
+      targetResourceType: hop.to,
+    };
+    assert(activeRelatedChoiceContext.anchorColumnId,
+      `Current ${hop.from} related stage must expose a stable anchor column before opening its editor`);
     const next = [];
     for (const witness of witnesses) {
       const endpoint = hop.direction === 'OUTBOUND' ? '_from' : '_to';
@@ -609,6 +941,7 @@ FOR s IN (
     recordAction(`apply-expand-${hop.from}-${hop.to}`, actionStart, { draftVersion: builder.draftVersion, draftDigest: builder.draftDigest });
     assertSourceBinding(builder, selectedPopulationRoute);
   }
+  activeRelatedChoiceContext = undefined;
   assert(witnesses.length > 1, 'The chosen CDA Specimen must reach multiple Observations');
   const contributorIDs = [...new Set(witnesses.map((witness) => witness.values.at(-1)))].sort();
   assert(contributorIDs.length > 1);
@@ -616,6 +949,16 @@ FOR s IN (
   assert(!pipelineObservationIDs.has('—'), 'The selected Specimen must have concrete related Observations');
   assert.deepEqual([...pipelineObservationIDs].sort(), [...observationIDs].sort(),
     'The bounded source finder and exact pipeline edge oracle must identify the same Observation set');
+  const rawRouteRows = observations.map(({ id: observationID }) => {
+    const matching = witnesses.find(({ values }) => values.at(-1) === observationID);
+    assert(matching, `Raw Observation ${observationID} must have one exact native-route witness`);
+    return matching.values;
+  });
+  assertExactMultiset(expectedExpandedRows, rawRouteRows, 'native related rows against raw route oracle');
+  recordLifecycleCheck('correctness',
+    'native Specimen→Patient and Patient→Observation choices preserve exact raw edges',
+    expectedExpandedRows.length === observations.length && !pipelineObservationIDs.has('—'),
+    { chain, expectedRows: expectedExpandedRows, rawObservationIDs: [...pipelineObservationIDs].sort() });
   const groupedRows = [[patient.id, witnesses.length]];
   const distinctRows = [[patient.id, contributorIDs.length]];
 
@@ -634,6 +977,12 @@ FOR s IN (
   assertSourceBinding(builder, selectedPopulationRoute);
   const groupedReload = await open(groupedRows, 2, 'reload-initial-Group');
   assert.deepEqual(doc(groupedReload).construction, groupDocumentBaseline.construction);
+  recordLifecycleCheck('correctness',
+    'initial Group aggregates exact related Observation rows',
+    doc(groupedReload).construction.steps.some((step) => step.operation.kind === 'GROUP') &&
+      JSON.stringify(groupedReload.workspace) === JSON.stringify(groupBaseline.workspace),
+    { outputId, groupStepIDs: doc(groupedReload).construction.steps.filter((step) => step.operation.kind === 'GROUP').map((step) => step.id),
+      groupedRows, draftVersion: groupedReload.draftVersion, draftDigest: groupedReload.draftDigest });
 
   // Distinct uncovered transition: commit the upstream Group edit while the
   // downstream Observation.status column does not exist yet.
@@ -641,6 +990,13 @@ FOR s IN (
   const countDistinctProposal = await editGroupAggregate('COUNT_DISTINCT', distinctRows, builder,
     'edit-Group-to-count-distinct-before-column');
   assert.deepEqual(countDistinctProposal.panel.rows[0].slice(0, 2).map((cell) => cell.text), distinctRows[0].map(String));
+  recordLifecycleCheck('correctness',
+    'COUNT_DISTINCT Group proposal previews the exact bounded raw Observation identity count',
+    countDistinctProposal.response.preview?.rowCount === 1 &&
+      countDistinctProposal.panel.rows.length === 1 &&
+      countDistinctProposal.panel.rows[0].slice(0, 2).map((cell) => cell.text).join('\u0000') === distinctRows[0].map(String).join('\u0000'),
+    { rows: countDistinctProposal.panel.rows, expectedRows: distinctRows,
+      candidateGroup: countDistinctProposal.group, proposalId: countDistinctProposal.response.proposalId });
   const cancelStartedAt = Date.now();
   activeBrowserOwner = 'cancel-Group-edit-before-column';
   registerProposalCancelOwner(countDistinctProposal.response.proposalId, 'cancel the first upstream Group aggregate candidate');
@@ -651,6 +1007,13 @@ FOR s IN (
   assert.equal(afterEditCancel.draftDigest, beforeFirstEdit.draftDigest);
   assert.deepEqual(afterEditCancel.workspace, beforeFirstEdit.workspace, 'Group edit Cancel must preserve the exact source and draft bindings');
   recordAction('cancel-Group-edit-before-column', cancelStartedAt);
+  recordLifecycleCheck('persistence',
+    'Group COUNT_DISTINCT edit Cancel preserves exact prior draft before adding related column',
+    afterEditCancel.draftVersion === beforeFirstEdit.draftVersion &&
+      afterEditCancel.draftDigest === beforeFirstEdit.draftDigest &&
+      JSON.stringify(afterEditCancel.workspace) === JSON.stringify(beforeFirstEdit.workspace),
+    { draftVersion: afterEditCancel.draftVersion, draftDigest: afterEditCancel.draftDigest,
+      workspace: afterEditCancel.workspace });
 
   const appliedDistinctProposal = await editGroupAggregate('COUNT_DISTINCT', distinctRows, afterEditCancel,
     'reapply-Group-count-distinct-before-column');
@@ -663,6 +1026,13 @@ FOR s IN (
   assert.equal(savedGroupStep.operation.group.aggregates[0].operation, 'COUNT_DISTINCT');
   assert.equal(doc(reloadedDistinct).construction.steps.some((step) => step.operation.kind === 'RELATED_SOURCE'), false,
     'The downstream related source must still be absent after the upstream edit reload');
+  recordLifecycleCheck('persistence',
+    'Group COUNT_DISTINCT Apply and reload persist exact pre-column Group without RELATED_SOURCE',
+    doc(reloadedDistinct).construction.steps.find((step) => step.operation.kind === 'GROUP')?.operation.group.aggregates[0]?.operation === 'COUNT_DISTINCT' &&
+      !doc(reloadedDistinct).construction.steps.some((step) => step.operation.kind === 'RELATED_SOURCE') &&
+      JSON.stringify(doc(reloadedDistinct).construction) === JSON.stringify(distinctDocument.construction),
+    { outputId, construction: doc(reloadedDistinct).construction, rows: distinctRows,
+      draftVersion: reloadedDistinct.draftVersion, draftDigest: reloadedDistinct.draftDigest });
 
   // Add the related field only after the upstream Group edit has been saved and reloaded.
   const beforeFieldAdd = structuredClone(builder);
@@ -695,6 +1065,30 @@ FOR s IN (
     await waitForControl(page, `${fieldSelector}:not(:disabled)`);
     const fieldChecked = await browserEval(page, ({ selector }) => document.querySelector(selector)?.checked === true, { selector: fieldSelector });
     if (!fieldChecked) await click(page, fieldSelector);
+    const selectedFieldEvidence = await browserEval(page, ({ selector }) => {
+      const selectedPanel = [...document.querySelectorAll('aside')]
+        .find((panel) => panel.querySelector('h3')?.innerText.trim() === 'Selected features');
+      const heading = selectedPanel?.querySelector('h3');
+      return {
+        checked: document.querySelector(selector)?.checked === true,
+        count: heading?.nextElementSibling?.textContent?.trim(),
+        removeActionCount: selectedPanel?.querySelectorAll('button[aria-label^="Remove "]').length ?? 0,
+      };
+    }, { selector: fieldSelector });
+    const uniqueSelectedField = statusCandidates.length === 1 &&
+      selectedFieldEvidence.checked === true && selectedFieldEvidence.count === '1' &&
+      selectedFieldEvidence.removeActionCount === 1
+      ? statusCandidates[0] : undefined;
+    activeCatalogChoiceSourceState = uniqueSelectedField ? {
+      project, explorer, origin: uiOrigin, outputId,
+      snapshotToken: beforeFieldAdd.catalog.snapshotToken,
+      draftVersion: beforeFieldAdd.draftVersion, draftDigest: beforeFieldAdd.draftDigest,
+      capturedAt: Date.now(),
+      sources: [{
+        source: { kind: 'FIELD', candidateId: uniqueSelectedField.candidateId },
+        evidence: 'unique-current-builder-catalog-candidate-matched-to-checked-Observation.status-and-single-selected-feature',
+      }],
+    } : undefined;
     await click(page, '[aria-label="Add columns editor"] button', { includes: 'Add 1 selected feature' });
     await waitForControl(page, '[role="dialog"]');
     const otherPaths = await browserEval(page, () => [...document.querySelectorAll('[role="dialog"] summary')]
@@ -756,6 +1150,13 @@ FOR s IN (
   };
   const fieldProposal = await proposeRelatedField(beforeFieldAdd, 'automatic-Observation-status-RELATED_SOURCE-preview-after-Group-edit');
   const statusCandidateId = fieldProposal.match.related.source.candidateId;
+  recordLifecycleCheck('correctness',
+    'Observation.status RELATED_SOURCE proposal matches the exact raw status multiset and edited Group input',
+    fieldProposal.response.preview?.rowCount === 1 &&
+      JSON.stringify(fieldProposal.match.step.inputs) === JSON.stringify([{ kind: 'STEP_OUTPUT', stepId: savedGroupStep.id }]) &&
+      fieldProposal.match.related.source.path === 'status',
+    { candidateId: statusCandidateId, relatedSource: fieldProposal.match.related,
+      preview: fieldProposal.response.preview, expectedStatuses: observationStatuses });
 
   const fieldCancelStartedAt = Date.now();
   activeBrowserOwner = 'cancel-related-column-after-Group-edit';
@@ -768,6 +1169,13 @@ FOR s IN (
   assert.equal(afterFieldCancel.draftDigest, beforeFieldAdd.draftDigest);
   assert.deepEqual(afterFieldCancel.workspace, beforeFieldAdd.workspace, 'Related-column Cancel must preserve exact Group edit and source bindings');
   recordAction('cancel-related-column-after-Group-edit', fieldCancelStartedAt);
+  recordLifecycleCheck('persistence',
+    'Related-column Cancel preserves exact COUNT_DISTINCT Group workspace and draft CAS',
+    afterFieldCancel.draftVersion === beforeFieldAdd.draftVersion &&
+      afterFieldCancel.draftDigest === beforeFieldAdd.draftDigest &&
+      JSON.stringify(afterFieldCancel.workspace) === JSON.stringify(beforeFieldAdd.workspace),
+    { draftVersion: afterFieldCancel.draftVersion, draftDigest: afterFieldCancel.draftDigest,
+      workspace: afterFieldCancel.workspace });
 
   // Cancellation clears the proposed candidate. Reopen the same native chooser
   // and capture a new proposal before Apply so receipt and draft bindings are fresh.
@@ -816,9 +1224,21 @@ FOR s IN (
   assert.equal(proposalOutput.label, relatedColumn.label);
   assert.equal(withFieldDocument.population.selectionRevisionId, selection.id);
   assert.deepEqual(withFieldDocument.population.route, selectedPopulationRoute);
+  recordLifecycleCheck('persistence',
+    'Applying Observation.status RELATED_SOURCE retains the edited Group and exact source binding',
+    JSON.stringify(savedGroupAfterRelated) === JSON.stringify(distinctDocument.construction.steps.find((step) => step.id === savedGroupStep.id)) &&
+      relatedStep.id === applyProposal.match.step.id &&
+      relatedStep.operation.relatedSource.source.candidateId === statusCandidateId &&
+      JSON.stringify(relatedStep.inputs) === JSON.stringify([{ kind: 'STEP_OUTPUT', stepId: savedGroupStep.id }]),
+    { groupStep: savedGroupAfterRelated, relatedStep, selectionRevisionId: selection.id,
+      route: withFieldDocument.population.route });
 
   const reloadedField = await open(withFieldTyped, 3, 'reload-related-column-after-Group-edit');
   assert.deepEqual(doc(reloadedField), withFieldDocument, 'Reload must preserve the exact field occurrence, ALL policy, and Group edit');
+  recordLifecycleCheck('persistence',
+    'Reload preserves the exact Group and related Observation.status field construction',
+    JSON.stringify(doc(reloadedField)) === JSON.stringify(withFieldDocument),
+    { construction: doc(reloadedField).construction, columns: doc(reloadedField).columns });
 
   // Round-trip the upstream aggregate with the related source present, then remove
   // its owning native step through an automatic proposal and prove restoration.
@@ -834,6 +1254,13 @@ FOR s IN (
   assert.deepEqual(afterRestoreCancel.workspace, beforeRestoreEdit.workspace);
   assert.equal(afterRestoreCancel.draftDigest, beforeRestoreEdit.draftDigest);
   recordAction('cancel-Group-round-trip-edit', restoreEditCancelStartedAt);
+  recordLifecycleCheck('persistence',
+    'Group round-trip Cancel preserves downstream RELATED_SOURCE and exact saved draft',
+    afterRestoreCancel.draftVersion === beforeRestoreEdit.draftVersion &&
+      afterRestoreCancel.draftDigest === beforeRestoreEdit.draftDigest &&
+      JSON.stringify(afterRestoreCancel.workspace) === JSON.stringify(beforeRestoreEdit.workspace),
+    { draftVersion: afterRestoreCancel.draftVersion, draftDigest: afterRestoreCancel.draftDigest,
+      workspace: afterRestoreCancel.workspace });
 
   const restoreProposal = await editGroupAggregate('COUNT_ROWS', withFieldTyped, afterRestoreCancel,
     'reapply-Group-count-rows-with-related-column');
@@ -848,6 +1275,12 @@ FOR s IN (
   const reloadedCountRows = await open(withFieldTyped, 3, 'reload-Group-round-trip-with-related-column');
   assert.deepEqual(doc(reloadedCountRows), countRowsWithFieldDocument);
   assert.equal(doc(reloadedCountRows).construction.steps.find((step) => step.operation.kind === 'GROUP').operation.group.aggregates[0].operation, 'COUNT_ROWS');
+  recordLifecycleCheck('persistence',
+    'Group round-trip Apply and reload preserve exact downstream related field bindings',
+    JSON.stringify(doc(reloadedCountRows)) === JSON.stringify(countRowsWithFieldDocument) &&
+      doc(reloadedCountRows).construction.steps.find((step) => step.operation.kind === 'GROUP')
+        .operation.group.aggregates[0].operation === 'COUNT_ROWS',
+    { construction: doc(reloadedCountRows).construction, columns: doc(reloadedCountRows).columns });
 
   const proposeRelatedStepRemoval = async (state, label) => {
     activeBrowserOwner = label;
@@ -880,6 +1313,13 @@ FOR s IN (
   assert.deepEqual(afterRemoveCancel.workspace, beforeRemoveCancel.workspace,
     'Canceling related-source removal must preserve its exact step, Group, and source bindings');
   recordAction('cancel-remove-RELATED_SOURCE', removeCancelStartedAt);
+  recordLifecycleCheck('persistence',
+    'Related-source removal Cancel preserves the exact saved Group and related field workspace',
+    afterRemoveCancel.draftVersion === beforeRemoveCancel.draftVersion &&
+      afterRemoveCancel.draftDigest === beforeRemoveCancel.draftDigest &&
+      JSON.stringify(afterRemoveCancel.workspace) === JSON.stringify(beforeRemoveCancel.workspace),
+    { draftVersion: afterRemoveCancel.draftVersion, draftDigest: afterRemoveCancel.draftDigest,
+      workspace: afterRemoveCancel.workspace });
   const removeCancelledAt = Date.now();
 
   const appliedRemovePreview = await proposeRelatedStepRemoval(afterRemoveCancel,
@@ -906,14 +1346,34 @@ FOR s IN (
   const finalReload = await open(groupedRows, 2, 'reload-final-Group-source-restoration');
   assert.deepEqual(finalReload.workspace, groupBaseline.workspace,
     'Final reload must restore the exact Group workspace, source membership, output identity, and column bindings');
+  recordLifecycleCheck('persistence',
+    'Applying related-source removal and reloading restores the exact original Group workspace',
+    JSON.stringify(finalReload.workspace) === JSON.stringify(groupBaseline.workspace) &&
+      JSON.stringify(doc(finalReload).construction) === JSON.stringify(groupDocumentBaseline.construction),
+    { outputId, workspace: finalReload.workspace, construction: doc(finalReload).construction });
 
   await drainNativeRequests();
+  const abortedReads = report.nativeRequests.filter((entry) => entry.cancelled);
+  const cancellationCoverage = abortedReads.length === 0
+    ? 'not-exercised-no-cancellation-observed'
+    : 'observed-and-classified';
+  recordLifecycleCheck('correctness',
+    'Strict drain classifies every observed cancellation with exact current scope, CAS, trusted owner action, and detached DOM proof; zero observed cancellations are marked not exercised',
+    abortedReads.every((entry) => entry.expectedOwnerCancellation?.expected === true) &&
+      report.nativeRequestDrain.unclassifiedAborts.length === 0,
+    { abortedReadCount: abortedReads.length, cancellationCoverage, classified: report.expectedOwnerCancellations,
+      unclassified: report.nativeRequestDrain.unclassifiedAborts });
   assert.deepEqual(report.browserTransportViolations, [], 'Browser API requests and responses must remain on the scoped local UI proxy');
-  assert(report.nativeRequests.every((entry) => entry.origin === uiOrigin &&
-    entry.responseBinding?.matchesCapturedUiProxyRequest === true && !entry.authorizationHeaderPresent),
-  'Every captured native API response must remain bound to the local no-auth UI proxy');
+  const nativeTransportOutcomesBound = nativeRequestsHaveOwnedTransportOutcomes(report.nativeRequests, uiOrigin);
+  assert(nativeTransportOutcomesBound,
+    'Every captured native request must have a response bound to the local no-auth UI proxy or an exact owned pre-response cancellation');
   assert(!report.nativeRequests.some((entry) => entry.path.includes(protectedExplorer)), 'Protected shared Explorer must remain untouched');
   assert.deepEqual(report.errors, [], 'The native lifecycle must have no HTTP, runtime, or console errors');
+  recordLifecycleCheck('correctness',
+    'No unexpected browser, authoring, transport, or native HTTP errors occur',
+    report.errors.length === 0 && report.browserTransportViolations.length === 0 && nativeTransportOutcomesBound,
+    { errors: report.errors, browserTransportViolations: report.browserTransportViolations,
+      nativeRequestCount: report.nativeRequests.length });
   report.rawOracleQueries = oracleQueries;
   report.status = 'passed';
 } catch (error) {
@@ -928,6 +1388,13 @@ FOR s IN (
       report.priorStatus = report.status;
       report.status = 'failed';
       report.error = [report.error, `Strict native request drain failed: ${String(error.stack ?? error)}`].filter(Boolean).join('\n');
+    }
+  }
+  if (nativeCdpSession) {
+    try { await nativeCdpSession.detach(); }
+    catch (error) {
+      report.status = 'failed';
+      report.error = [report.error, `Native CDP session detach failed: ${String(error.stack ?? error)}`].filter(Boolean).join('\n');
     }
   }
   report.finished = new Date().toISOString();

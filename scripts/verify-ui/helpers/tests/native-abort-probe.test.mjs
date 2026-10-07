@@ -6,11 +6,17 @@ import {
   nativeAbortNetworkFailureClock,
   nativeAbortProbeEvidenceForRequest,
 } from '../native-abort-probe.mjs';
+import { classifyExpectedOwnedCancellation, nativeReadRequestMatchesExpectedScope } from '../native-request-ownership.mjs';
 
 const project = 'loom_dev_test';
 const explorer = 'abort-probe-test';
 const apiPath = (endpoint) => `/api/v1/projects/${project}/explorers/${explorer}/authoring/v2/${endpoint}`;
 const requestId = (prefix, tail) => `${prefix}${tail}-0000-4000-8000-000000000000`;
+const withCDPIdentity = (entry) => ({
+  ...entry,
+  cdpRequestId: entry.cdpRequestId ?? `cdp-${entry.requestId}`,
+  cdpRequestMatchCount: entry.cdpRequestMatchCount ?? 1,
+});
 
 const matchesSelector = (element, selector) => {
   if (selector === 'button') return element.tagName === 'BUTTON';
@@ -22,6 +28,7 @@ const matchesSelector = (element, selector) => {
   if (selector === '[data-testid="frame-source-panel"]') return element.getAttribute('data-testid') === 'frame-source-panel';
   if (selector === '[data-testid^="frame-categories-"]') return element.getAttribute('data-testid')?.startsWith('frame-categories-') === true;
   if (selector === '[data-testid="paired-column-suggestions"]') return element.getAttribute('data-testid') === 'paired-column-suggestions';
+  if (selector === '[data-testid="construction-related-expand-editor"]') return element.getAttribute('data-testid') === 'construction-related-expand-editor';
   if (selector === '[aria-label="Starting collection"]') return element.getAttribute('aria-label') === 'Starting collection';
   if (selector === '#feature-catalog-search') return element.getAttribute('id') === 'feature-catalog-search';
   return false;
@@ -86,6 +93,22 @@ const startingCollectionDom = () => {
     'data-testid': 'construction-action-group-rows',
   }, text: 'Combine rows into groups', parent: dialog });
   return { nodes: [dialog, owner, groupAction], dialog, owner, groupAction };
+};
+
+const relatedExpandDom = () => {
+  const owner = fakeNode({ attributes: {
+    'data-testid': 'construction-related-expand-editor',
+    'data-related-stage-id': 'related-stage-1',
+    'data-related-output-id': 'output-1',
+  } });
+  const apply = fakeNode({ tagName: 'BUTTON', attributes: { 'data-testid': 'construction-apply-proposal' }, text: 'Apply' });
+  return { nodes: [owner, apply], owner, apply };
+};
+
+const featureCatalogDom = (label = 'Add 1 selected feature') => {
+  const owner = fakeNode({ attributes: { id: 'feature-catalog-search' } });
+  const add = fakeNode({ tagName: 'BUTTON', text: label });
+  return { nodes: [owner, add], owner, add };
 };
 
 const startProbe = ({ dom } = {}) => {
@@ -253,10 +276,10 @@ test('probe binds the exact captured DOM node to a trusted coded-to-fields tab r
     requestId: 'cdp-coded-request', requestCorrelationId: id, path: apiPath('semantic-inventory'), method: 'POST',
     requestTimestamp: 1, requestWallTime: 0.1, loadingFailed: { timestamp: 1.012, at: 999 },
   };
-  const probeEvidence = nativeAbortProbeEvidenceForRequest(entry, [event]);
+  const probeEvidence = nativeAbortProbeEvidenceForRequest(withCDPIdentity(entry), [event]);
   assert.equal(probeEvidence[0].exactRequestSignalCorrelation, true);
   assert.equal(probeEvidence[0].sameDocumentOwnerRetirement, true);
-  assert.equal(probeEvidence[0].networkRequestId, entry.requestId);
+  assert.equal(probeEvidence[0].networkRequestId, withCDPIdentity(entry).cdpRequestId);
   assert.equal(probeEvidence[0].networkFailureClockBasis, 'request-wall-time-calibrated-cdp-monotonic');
   assert.ok(Math.abs(probeEvidence[0].networkFailureObservedAt - 112) < 1e-6);
   assert.equal(probeEvidence[0].ownerRetirementAction.isTrusted, true);
@@ -295,7 +318,7 @@ test(`probe links Starting collection retirement to trusted ${actionId} inside i
     requestId: 'cdp-population-request', requestCorrelationId: id, path: apiPath('population-routes'), method: 'POST',
     requestTimestamp: 1, requestWallTime: 0.1, loadingFailed: { timestamp: 1.012, at: 999 },
   };
-  const evidence = nativeAbortProbeEvidenceForRequest(entry, [event]);
+  const evidence = nativeAbortProbeEvidenceForRequest(withCDPIdentity(entry), [event]);
   assert.equal(evidence[0].exactRequestSignalCorrelation, true);
   assert.equal(evidence[0].sameDocumentOwnerRetirement, true);
 });
@@ -348,7 +371,7 @@ test('selector replacement cannot substitute for the node captured at fetch star
     requestId: 'cdp-replaced-request', requestCorrelationId: id, path: apiPath('semantic-inventory'), method: 'POST',
     requestTimestamp: 1, requestWallTime: 0.1, loadingFailed: { timestamp: 1.012, at: 999 },
   };
-  assert.equal(nativeAbortProbeEvidenceForRequest(entry, events)[0].sameDocumentOwnerRetirement, false);
+  assert.equal(nativeAbortProbeEvidenceForRequest(withCDPIdentity(entry), events)[0].sameDocumentOwnerRetirement, false);
 });
 
 test('same-document clock calibration requires the exact CDP request and valid monotonic pair', () => {
@@ -372,6 +395,216 @@ test('same-document clock calibration requires the exact CDP request and valid m
   }
   assert.equal(nativeAbortNetworkFailureClock({ ...valid, loadingFailed: { at: 1_700_000_001 } }).basis,
     'host-wall-clock-at-cdp-callback');
+});
+
+test('related-expansion cancellation proves the exact editor node, stage/output, trusted Apply, and request signal', () => {
+  const dom = relatedExpandDom();
+  const { sandbox, events, listeners, advanceTime } = startProbe({ dom });
+  const controller = new sandbox.AbortController();
+  const id = requestId('related-expand-choices-', 'aaaaaaaa');
+  const path = apiPath('related-expand-choices');
+  sandbox.fetch(`http://127.0.0.1:8188${path}`, {
+    method: 'POST', headers: { 'X-Request-ID': id }, signal: controller.signal,
+  });
+  advanceTime(110);
+  listeners.get('click')({ isTrusted: true, target: dom.apply });
+  dom.owner.isConnected = false;
+  advanceTime(111);
+  controller.abort();
+
+  const event = events.find((item) => item.kind === 'abort-controller-call');
+  const request = event.requests[0];
+  assert.equal(request.ownerDomAtFetch.ruleOwner, 'related-expand-choice-editor');
+  assert.equal(request.ownerDomAtFetch.ownerAttributes.stageId, 'related-stage-1');
+  assert.equal(request.ownerDomAtFetch.ownerAttributes.outputId, 'output-1');
+  assert.deepEqual(request.ownerDomAtAbort.ownerAttributes, request.ownerDomAtFetch.ownerAttributes);
+  assert.equal(request.ownerDomAtAbort.anchorId, request.ownerDomAtFetch.anchorId);
+
+  const entry = {
+    requestId: 'cdp-related-expand-request', requestCorrelationId: id, path, method: 'POST',
+    requestTimestamp: 1, requestWallTime: 0.1, loadingFailed: { timestamp: 1.012, at: 999 },
+  };
+  const evidence = nativeAbortProbeEvidenceForRequest(withCDPIdentity(entry), [event]);
+  assert.equal(evidence.length, 1);
+  assert.equal(evidence[0].exactRequestSignalCorrelation, true);
+  assert.equal(evidence[0].sameDocumentOwnerRetirement, true);
+  assert.equal(evidence[0].ownerRetirementAction.closestButton.testId, 'construction-apply-proposal');
+
+  const attached = relatedExpandDom();
+  const attachedRun = startProbe({ dom: attached });
+  const attachedController = new attachedRun.sandbox.AbortController();
+  attachedRun.sandbox.fetch(`http://127.0.0.1:8188${path}`, {
+    method: 'POST', headers: { 'X-Request-ID': id }, signal: attachedController.signal,
+  });
+  attachedRun.advanceTime(110);
+  attachedRun.listeners.get('click')({ isTrusted: true, target: attached.apply });
+  attachedRun.advanceTime(111);
+  attachedController.abort();
+  const attachedEvidence = nativeAbortProbeEvidenceForRequest(withCDPIdentity(entry),
+    [attachedRun.events.find((item) => item.kind === 'abort-controller-call')]);
+  assert.equal(attachedEvidence[0].sameDocumentOwnerRetirement, false, 'same editor node remains attached');
+
+  const wrongAction = relatedExpandDom();
+  wrongAction.apply.attributes['data-testid'] = 'construction-cancel-proposal';
+  const wrongRun = startProbe({ dom: wrongAction });
+  const wrongController = new wrongRun.sandbox.AbortController();
+  wrongRun.sandbox.fetch(`http://127.0.0.1:8188${path}`, {
+    method: 'POST', headers: { 'X-Request-ID': id }, signal: wrongController.signal,
+  });
+  wrongRun.advanceTime(110);
+  wrongRun.listeners.get('click')({ isTrusted: true, target: wrongAction.apply });
+  wrongAction.owner.isConnected = false;
+  wrongRun.advanceTime(111);
+  wrongController.abort();
+  const wrongActionEvidence = nativeAbortProbeEvidenceForRequest(withCDPIdentity(entry),
+    [wrongRun.events.find((item) => item.kind === 'abort-controller-call')]);
+  assert.equal(wrongActionEvidence[0].sameDocumentOwnerRetirement, false, 'unrelated action cannot retire the editor');
+
+  const changedScope = relatedExpandDom();
+  const changedRun = startProbe({ dom: changedScope });
+  const changedController = new changedRun.sandbox.AbortController();
+  changedRun.sandbox.fetch(`http://127.0.0.1:8188${path}`, {
+    method: 'POST', headers: { 'X-Request-ID': id }, signal: changedController.signal,
+  });
+  changedScope.owner.attributes['data-related-stage-id'] = 'different-stage';
+  changedRun.advanceTime(110);
+  changedRun.listeners.get('click')({ isTrusted: true, target: changedScope.apply });
+  changedScope.owner.isConnected = false;
+  changedRun.advanceTime(111);
+  changedController.abort();
+  const changedEvidence = nativeAbortProbeEvidenceForRequest(withCDPIdentity(entry),
+    [changedRun.events.find((item) => item.kind === 'abort-controller-call')]);
+  assert.equal(changedEvidence[0].sameDocumentOwnerRetirement, false, 'stage identity changed before owner retirement');
+});
+
+test('ConceptCatalog read retires only after the exact single-feature Add action closes its captured input', () => {
+  const dom = featureCatalogDom();
+  const { sandbox, events, listeners, advanceTime } = startProbe({ dom });
+  const controller = new sandbox.AbortController();
+  const id = requestId('construction-choices-', 'bbbbbbbb');
+  const path = apiPath('construction-choices');
+  sandbox.fetch(`http://127.0.0.1:8188${path}`, {
+    method: 'POST', headers: { 'X-Request-ID': id }, signal: controller.signal,
+  });
+  advanceTime(110);
+  listeners.get('click')({ isTrusted: true, target: dom.add });
+  dom.owner.isConnected = false;
+  advanceTime(111);
+  controller.abort();
+  const event = events.find((item) => item.kind === 'abort-controller-call');
+  const entry = {
+    requestId: 'cdp-construction-choice-request', requestCorrelationId: id, path, method: 'POST',
+    requestTimestamp: 1, requestWallTime: 0.1, loadingFailed: { timestamp: 1.012, at: 999 },
+  };
+  const evidence = nativeAbortProbeEvidenceForRequest(withCDPIdentity(entry), [event]);
+  assert.equal(evidence[0].sameDocumentOwnerRetirement, true);
+  assert.equal(evidence[0].ownerDomAtFetch.selector, '#feature-catalog-search');
+  assert.equal(evidence[0].ownerDomAtAbort.anchorId, evidence[0].ownerDomAtFetch.anchorId,
+    'the input detached must be the exact input captured when the read started');
+  assert.equal(evidence[0].ownerDomAtAbort.detachedAtAbort, true);
+  assert.equal(evidence[0].ownerRetirementAction.closestButton.accessibleLabel, 'Add 1 selected feature');
+
+  const attachedDom = featureCatalogDom();
+  const attachedRun = startProbe({ dom: attachedDom });
+  const attachedController = new attachedRun.sandbox.AbortController();
+  attachedRun.sandbox.fetch(`http://127.0.0.1:8188${path}`, {
+    method: 'POST', headers: { 'X-Request-ID': id }, signal: attachedController.signal,
+  });
+  attachedRun.advanceTime(110);
+  attachedRun.listeners.get('click')({ isTrusted: true, target: attachedDom.add });
+  attachedRun.advanceTime(111);
+  attachedController.abort();
+  const attachedEvidence = nativeAbortProbeEvidenceForRequest(withCDPIdentity(entry),
+    [attachedRun.events.find((item) => item.kind === 'abort-controller-call')]);
+  assert.equal(attachedEvidence[0].sameDocumentOwnerRetirement, false,
+    'an Add click does not justify abort while the captured search input remains mounted');
+
+  const wrongActionDom = featureCatalogDom('Add 2 selected features');
+  const wrongActionRun = startProbe({ dom: wrongActionDom });
+  const wrongController = new wrongActionRun.sandbox.AbortController();
+  wrongActionRun.sandbox.fetch(`http://127.0.0.1:8188${path}`, {
+    method: 'POST', headers: { 'X-Request-ID': id }, signal: wrongController.signal,
+  });
+  wrongActionRun.advanceTime(110);
+  wrongActionRun.listeners.get('click')({ isTrusted: true, target: wrongActionDom.add });
+  wrongActionDom.owner.isConnected = false;
+  wrongActionRun.advanceTime(111);
+  wrongController.abort();
+  const wrongEvidence = nativeAbortProbeEvidenceForRequest(withCDPIdentity(entry),
+    [wrongActionRun.events.find((item) => item.kind === 'abort-controller-call')]);
+  assert.equal(wrongEvidence[0].sameDocumentOwnerRetirement, false, 'a different catalog action does not count');
+});
+
+test('related-expand rule classifies only the exact scoped request after trusted Apply detaches its same stage/output owner', () => {
+  const stageId = 'related-stage-1';
+  const outputId = 'output-1';
+  const draft = {
+    snapshotToken: 'snapshot-1', outputId, expectedDraftVersion: 7, expectedDraftDigest: 'draft-7',
+    stageId, anchorColumnId: 'anchor-column-1', targetResourceType: 'Patient',
+  };
+  const expected = { origin: 'http://127.0.0.1:8188', project, explorer, ...draft };
+  const id = requestId('related-expand-choices-', 'cccccccc');
+  const path = apiPath('related-expand-choices');
+  const entry = {
+    requestId: 'cdp-related-expand-request', requestCorrelationId: id, origin: expected.origin,
+    path, method: 'POST', resourceType: 'Fetch', scopeProject: project, scopeExplorer: explorer,
+    request: draft, requestTimestamp: 1, requestWallTime: 0.1, startedAt: 100,
+    loadingFailed: { errorText: 'net::ERR_ABORTED', canceled: true, timestamp: 1.012 },
+    networkTerminal: true, bodyReadStatus: 'failed', complete: false,
+    initiator: { type: 'script', stack: [
+      { url: 'http://localhost/ui/api.ts', functionName: 'searchRelatedExpandChoices' },
+      { url: 'http://localhost/ui/constructionOperations/RelatedExpandEditor.tsx', functionName: 'loadChoices' },
+    ] },
+  };
+  const run = ({ detach = true, action = 'construction-apply-proposal', changedStage } = {}) => {
+    const dom = relatedExpandDom();
+    const { sandbox, events, listeners, advanceTime } = startProbe({ dom });
+    const controller = new sandbox.AbortController();
+    sandbox.fetch(`http://127.0.0.1:8188${path}`, {
+      method: 'POST', headers: { 'X-Request-ID': id }, signal: controller.signal,
+    });
+    advanceTime(110);
+    dom.apply.attributes['data-testid'] = action;
+    listeners.get('click')({ isTrusted: true, target: dom.apply });
+    if (changedStage) dom.owner.attributes['data-related-stage-id'] = changedStage;
+    if (detach) dom.owner.isConnected = false;
+    advanceTime(111);
+    controller.abort();
+    const abort = events.find((item) => item.kind === 'abort-controller-call');
+    const probe = nativeAbortProbeEvidenceForRequest(withCDPIdentity(entry), [abort]);
+    const candidate = withCDPIdentity({ ...entry, abortControllerProbeEvidence: probe });
+    const inScope = nativeReadRequestMatchesExpectedScope(candidate, expected);
+    const result = inScope
+      ? classifyExpectedOwnedCancellation(candidate, { frameNavigations: [], executionContextRetirements: [] })
+      : { expected: false, reason: 'request-does-not-match-independent-ui-scope' };
+    return { abort, probe, result, inScope };
+  };
+
+  const accepted = run();
+  assert.equal(accepted.inScope, true);
+  assert.equal(accepted.probe[0].sameDocumentOwnerRetirement, true);
+  assert.equal(accepted.result.expected, true, JSON.stringify(accepted.result));
+  assert.equal(accepted.result.ownerRetirement.owner, 'related-expand-choice-editor');
+
+  for (const mismatch of [
+    { outputId: 'other-output' },
+    { stageId: 'other-stage' },
+    { expectedDraftVersion: 8 },
+    { expectedDraftDigest: 'other-digest' },
+  ]) {
+    const candidate = withCDPIdentity({ ...entry, request: { ...entry.request, ...mismatch } });
+    const probe = nativeAbortProbeEvidenceForRequest(withCDPIdentity(candidate), [accepted.abort]);
+    assert.equal(nativeReadRequestMatchesExpectedScope(candidate, expected), false,
+      `reject request/UI mismatch ${JSON.stringify(mismatch)}`);
+    const gatedResult = nativeReadRequestMatchesExpectedScope(candidate, expected)
+      ? classifyExpectedOwnedCancellation({ ...candidate, abortControllerProbeEvidence: probe }, {})
+      : { expected: false };
+    assert.equal(gatedResult.expected, false,
+      `do not classify request/UI mismatch ${JSON.stringify(mismatch)}`);
+  }
+  assert.equal(run({ action: 'construction-cancel-proposal' }).result.expected, false, 'wrong Apply action');
+  assert.equal(run({ detach: false }).result.expected, false, 'same captured editor remains mounted');
+  assert.equal(run({ changedStage: 'replacement-stage' }).result.expected, false, 'captured owner stage changes before detach');
 });
 
 test('synthetic events are omitted from trusted interaction evidence', () => {
@@ -409,12 +642,12 @@ test('serialized trusted-interaction list remains explicit provenance when older
     requestId: 'cdp-legacy-trust-request', requestCorrelationId: id, path: apiPath('semantic-inventory'), method: 'POST',
     requestTimestamp: 1, requestWallTime: 0.1, loadingFailed: { timestamp: 1.012, at: 999 },
   };
-  const evidence = nativeAbortProbeEvidenceForRequest(entry, [serializedLegacyEvent]);
+  const evidence = nativeAbortProbeEvidenceForRequest(withCDPIdentity(entry), [serializedLegacyEvent]);
   assert.equal(evidence[0].sameDocumentOwnerRetirement, true);
   assert.equal(evidence[0].ownerRetirementAction.trustEvidence, 'trusted-interaction-list-membership');
 
   const withoutTrustedList = { ...serializedLegacyEvent, trustedInteractions: undefined };
-  const unproven = nativeAbortProbeEvidenceForRequest(entry, [withoutTrustedList]);
+  const unproven = nativeAbortProbeEvidenceForRequest(withCDPIdentity(entry), [withoutTrustedList]);
   assert.equal(unproven[0].sameDocumentOwnerRetirement, false);
 });
 
@@ -433,25 +666,28 @@ test('request evidence requires exact ID, path, and abort-before-CDP-failure and
     signalWasAlreadyAborted: false,
     requests: [{ requestId: entry.requestCorrelationId, path: entry.path, method: 'POST', startedAt: 150 }],
   };
-  const evidence = nativeAbortProbeEvidenceForRequest(entry, [abortEvent]);
+  const evidence = nativeAbortProbeEvidenceForRequest(withCDPIdentity(entry), [abortEvent]);
   assert.equal(evidence.length, 1);
   assert.equal(evidence[0].exactRequestSignalCorrelation, true);
   assert.equal(evidence[0].networkFailureObservedSeparately, true);
+  assert.equal(evidence[0].networkRequestId, 'cdp-cdp-correlation-request');
   assert.ok(Math.abs(evidence[0].abortToNetworkFailureMs - 20) < 1e-6);
+  assert.equal(nativeAbortProbeEvidenceForRequest(entry, [abortEvent])[0].sameDocumentOwnerRetirement, false,
+    'the X-Request-ID alone cannot stand in for the CDP Network.requestId');
 
-  assert.deepEqual(nativeAbortProbeEvidenceForRequest(entry, [{
+  assert.deepEqual(nativeAbortProbeEvidenceForRequest(withCDPIdentity(entry), [{
     ...abortEvent,
     abortedAt: 201,
   }]), []);
-  assert.deepEqual(nativeAbortProbeEvidenceForRequest(entry, [{
+  assert.deepEqual(nativeAbortProbeEvidenceForRequest(withCDPIdentity(entry), [{
     ...abortEvent,
     requests: [{ ...abortEvent.requests[0], requestId: 'different-id' }],
   }]), []);
-  assert.deepEqual(nativeAbortProbeEvidenceForRequest(entry, [{
+  assert.deepEqual(nativeAbortProbeEvidenceForRequest(withCDPIdentity(entry), [{
     ...abortEvent,
     requests: [{ ...abortEvent.requests[0], path: apiPath('construction-choices') }],
   }]), []);
-  assert.deepEqual(nativeAbortProbeEvidenceForRequest(entry, [{
+  assert.deepEqual(nativeAbortProbeEvidenceForRequest(withCDPIdentity(entry), [{
     ...abortEvent,
     requests: [{ ...abortEvent.requests[0], startedAt: 181 }],
   }]), []);

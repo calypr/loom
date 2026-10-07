@@ -37,6 +37,17 @@ export const nativeAbortDomOwnerRules = [
     retirementAction: 'coded-to-fields-tab',
   },
   {
+    endpoint: 'related-expand-choices',
+    requestIdPrefix: 'related-expand-choices-',
+    owner: 'related-expand-choice-editor',
+    selector: '[data-testid="construction-related-expand-editor"]',
+    retirementAction: 'related-expand-proposal-apply',
+    ownerAttributes: {
+      stageId: 'data-related-stage-id',
+      outputId: 'data-related-output-id',
+    },
+  },
+  {
     endpoint: 'construction-choices',
     requestIdPrefix: 'paired-column-choices-',
     owner: 'paired-column-choice-suggestions',
@@ -48,6 +59,7 @@ export const nativeAbortDomOwnerRules = [
     requestIdPrefix: 'construction-choices-',
     owner: 'catalog-choice-search',
     selector: '#feature-catalog-search',
+    retirementAction: 'catalog-add-selected-feature',
   },
 ];
 
@@ -55,6 +67,7 @@ const requestPrefixes = {
   'semantic-inventory': ['feature-catalog-', 'frame-categories-', 'paired-column-inventory-'],
   'population-routes': ['population-routes-'],
   'frame-source-options': ['frame-source-options-'],
+  'related-expand-choices': ['related-expand-choices-'],
   'construction-choices': ['paired-column-choices-', 'construction-choices-'],
 };
 
@@ -145,6 +158,9 @@ export const createNativeAbortProbeSource = ({ project, explorer }) => `(() => {
     const contextConnected = rule.owner === 'frame-category-catalog' ? connectedPanel
       : rule.retirementAction === 'row-settings-dialog-exit' ? connectedDialog
         : rule.retirementAction === 'coded-to-fields-tab' ? tabGroup?.isConnected === true : true;
+    const ownerAttributes = Object.fromEntries(Object.entries(rule.ownerAttributes ?? {})
+      .map(([name, attribute]) => [name, element.getAttribute?.(attribute)])
+      .filter(([, value]) => typeof value === 'string' && value.length > 0));
     const record = {
       status: connected && contextConnected ? 'unique' : 'disconnected',
       selector: rule.selector,
@@ -160,8 +176,9 @@ export const createNativeAbortProbeSource = ({ project, explorer }) => `(() => {
       dialogConnectedAtFetch: dialog ? connectedDialog : undefined,
       parentPanelId: domId(panel),
       parentPanelConnectedAtFetch: panel ? connectedPanel : undefined,
+      ...(Object.keys(ownerAttributes).length ? { ownerAttributes } : {}),
     };
-    const refs = { element, tabGroup, dialog, panel, observedDetachedAt: undefined };
+    const refs = { element, tabGroup, dialog, panel, ownerAttributes: rule.ownerAttributes, observedDetachedAt: undefined };
     observedDomOwners.add(refs);
     return { record, refs };
   };
@@ -179,6 +196,11 @@ export const createNativeAbortProbeSource = ({ project, explorer }) => `(() => {
       dialogConnectedAtAbort: refs.dialog ? refs.dialog.isConnected === true : undefined,
       parentPanelId: domId(refs.panel),
       parentPanelConnectedAtAbort: refs.panel ? refs.panel.isConnected === true : undefined,
+      ...(refs.ownerAttributes ? {
+        ownerAttributes: Object.fromEntries(Object.entries(refs.ownerAttributes)
+          .map(([name, attribute]) => [name, refs.element?.getAttribute?.(attribute)])
+          .filter(([, value]) => typeof value === 'string' && value.length > 0)),
+      } : {}),
       observedAtAbort: abortedAt,
     };
   };
@@ -378,6 +400,19 @@ const interactionProvesOwnerRetirementAction = (request, ownerDomAtAbort, intera
         interaction.closestButton?.testId === 'construction-action-related-rows');
   }
 
+  if (rule.retirementAction === 'related-expand-proposal-apply') {
+    const beforeAttributes = request.ownerDomAtFetch.ownerAttributes;
+    const afterAttributes = ownerDomAtAbort.ownerAttributes;
+    return beforeAttributes?.stageId === afterAttributes?.stageId &&
+      beforeAttributes?.outputId === afterAttributes?.outputId &&
+      Boolean(beforeAttributes?.stageId) && Boolean(beforeAttributes?.outputId) &&
+      interaction.closestButton?.testId === 'construction-apply-proposal';
+  }
+
+  if (rule.retirementAction === 'catalog-add-selected-feature') {
+    return interaction.closestButton?.accessibleLabel === 'Add 1 selected feature';
+  }
+
   return false;
 };
 
@@ -410,7 +445,7 @@ export const nativeAbortProbeEvidenceForRequest = (entry, events) => {
         request, request.ownerDomAtAbort, interaction, event.abortedAt,
       ));
       return {
-        networkRequestId: entry.requestId,
+        networkRequestId: entry.cdpRequestId,
         controllerId: event.controllerId,
         controllerCreatedAt: event.createdAt,
         controllerAbortedAt: event.abortedAt,
@@ -431,7 +466,8 @@ export const nativeAbortProbeEvidenceForRequest = (entry, events) => {
         networkFailureObservedSeparately: true,
         signalWasAlreadyAborted: event.signalWasAlreadyAborted,
         sameDocumentOwnerRetirement: Boolean(ownerRetirementAction) &&
-          typeof entry.requestId === 'string' &&
+          typeof entry.cdpRequestId === 'string' && entry.cdpRequestId.length > 0 &&
+          entry.cdpRequestMatchCount === 1 &&
           failureClock.basis === 'request-wall-time-calibrated-cdp-monotonic' &&
           Number.isFinite(failedAt) && event.abortedAt <= failedAt,
       };
