@@ -19,6 +19,7 @@ import {
 import { validatedArangoContainer } from '../helpers/native-cda-workflow-tools.mjs';
 import { proposalPreviewReadinessExpression, readProposalPreviewState } from '../helpers/proposal-preview-readiness.mjs';
 import { cdaMembershipObservationQuery, prepareCdaMembershipOracle } from '../helpers/cda-current-draft-membership-oracle.mjs';
+import { buildArangoShellInvocation } from '../helpers/owned-arangosh-command.mjs';
 
 const ACTION_CHECK = 'all native CDA Membership lifecycle actions complete within five seconds';
 const MAX_ACTION_MS = 5_000;
@@ -32,10 +33,9 @@ const queryString = value => JSON.stringify(value);
 
 function runAQL(arangoContainer, query, description) {
   const javascript = `print(JSON.stringify(db._query(${JSON.stringify(query)}).toArray()));`;
-  const result = spawnSync('rtk', [
-    'proxy', 'docker', 'exec', arangoContainer, 'arangosh', '--server.database', 'loom_dev',
-    '--javascript.execute-string', javascript,
-  ], { encoding: 'utf8', timeout: 30_000, maxBuffer: 16 * 1024 * 1024 });
+  const invocation = buildArangoShellInvocation({ container: arangoContainer, script: javascript, database: 'loom_dev' });
+  const result = spawnSync(invocation.command, invocation.args,
+    { encoding: 'utf8', timeout: 30_000, maxBuffer: 16 * 1024 * 1024 });
   assert.equal(result.status, 0, `${description} failed: ${normalizeText(result.stderr || result.stdout).slice(0, 1800)}`);
   const jsonStart = result.stdout.indexOf('[');
   assert(jsonStart >= 0, `${description} returned no JSON array: ${normalizeText(result.stdout).slice(0, 800)}`);
