@@ -5,6 +5,7 @@ import { isDeepStrictEqual } from 'node:util';
 import {
   cdaNullableEmptyRemovalPreviewEvidence,
   cdaNullableCodeJoinDirectSourceEvidence,
+  cdaNullableNewExplorerIdentityEvidence,
   cdaNullableValueQuantityCodeCandidateEvidence,
   cdaNullableValueQuantityCodeJoinOracle,
   frozenCdaNullableValueQuantityCodeWitness,
@@ -122,7 +123,6 @@ export async function cdaCurrentDraftNullableCodeJoinWorkflow({ page, cda }) {
   const explorer = `cda-nullable-code-join-${randomUUID()}`;
   const title = 'CDA Nullable Code Join QA';
   const created = await api(rootPath, { name: explorer, title });
-  assert.equal(created.explorerId ?? created.id ?? created.explorer?.id, explorer);
   const base = basePath(explorer);
   const authoring = `${base}/authoring/v2`;
   const uiURL = `${uiOrigin}/?project=${encode(project)}&explorer=${encode(explorer)}&mode=builder`;
@@ -142,24 +142,22 @@ export async function cdaCurrentDraftNullableCodeJoinWorkflow({ page, cda }) {
   assert.equal(rootNodes.length, 1);
   const candidateEvidence = cdaNullableValueQuantityCodeCandidateEvidence(builder, generation);
   const builderURL = builderRequestURL(apiOrigin, project, explorer);
-  const builderScopeEvidence = {
-    exactProjectRoute: builderURL.origin === new URL(apiOrigin).origin &&
-      builderURL.pathname === `/api/v1/projects/${encode(project)}/explorers/${encode(explorer)}/authoring/v2/builder`,
-    explorerTitle: builder.workspace?.explorer?.title ?? null,
-    exactExplorerTitle: builder.workspace?.explorer?.title === title,
-    project, explorer, builderURL: builderURL.toString(),
-    generation: builder.catalog.generation, snapshotToken: initialScope.snapshotToken,
-    authorizationScopeDigest: initialScope.authorizationScopeDigest,
-  };
+  const builderPath = `/api/v1/projects/${encode(project)}/explorers/${encode(explorer)}/authoring/v2/builder`;
+  const builderScopeEvidence = cdaNullableNewExplorerIdentityEvidence({ created, builder, project, explorer, title,
+    builderURL: builderURL.toString(), expectedAPIOrigin: apiOrigin, expectedBuilderPath: builderPath, generation });
+  if (builderScopeEvidence.ok) {
+    report.explorer = explorer;
+    if (report.target) report.target.explorer = explorer;
+  }
   cda.check('correctness', 'valueQuantity.code candidate is scalar optional string in the exact project and catalog scope',
-    candidateEvidence.ok && builderScopeEvidence.exactProjectRoute && builderScopeEvidence.exactExplorerTitle,
+    candidateEvidence.ok && builderScopeEvidence.ok,
     { ...candidateEvidence, ...builderScopeEvidence,
       generation, snapshotToken: initialScope.snapshotToken,
       authorizationScopeDigest: initialScope.authorizationScopeDigest,
       nodePopulation: rootNodes[0]?.documentCount ?? null,
       catalogSnapshotBound: Boolean(initialScope.snapshotToken && initialScope.authorizationScopeDigest),
       nullableSourceProof: 'raw exact selected Observations contain absent code members; CatalogCandidate does not expose a nullable boolean' });
-  assert(candidateEvidence.ok && builderScopeEvidence.exactProjectRoute && builderScopeEvidence.exactExplorerTitle,
+  assert(candidateEvidence.ok && builderScopeEvidence.ok,
     `Catalog candidate or exact builder scope is invalid: ${JSON.stringify({ candidateEvidence, builderScopeEvidence })}`);
   const codeCandidate = candidateEvidence.candidate;
   const idCandidates = builder.catalog.candidates.filter(candidate => candidate.nodeId === candidateEvidence.rootNodeId && candidate.fieldPath === 'id');
@@ -184,6 +182,8 @@ export async function cdaCurrentDraftNullableCodeJoinWorkflow({ page, cda }) {
     assert.equal(state.catalog.generation, initialScope.generation);
     assert.equal(state.catalog.snapshotToken, initialScope.snapshotToken);
     assert.equal(state.catalog.authorizationScopeDigest, initialScope.authorizationScopeDigest);
+    if (state.workspace !== null) assert.equal(state.workspace?.explorer?.title, title,
+      'Any initialized Builder workspace must retain the exact title returned by Explorer creation.');
   };
   const command = async commands => {
     const state = builder;
@@ -317,7 +317,7 @@ export async function cdaCurrentDraftNullableCodeJoinWorkflow({ page, cda }) {
   const createSource = async (side, rows) => {
     builder = await readBuilder();
     checkScope(builder);
-    const existing = new Set(builder.workspace.documents.map(document => document.output.id));
+    const existing = new Set((builder.workspace?.documents ?? []).map(document => document.output.id));
     const create = await command([{ type: 'CREATE_TABLE', title: `CDA nullable ${side} raw source`, rootNodeId: candidateEvidence.rootNodeId }]);
     const createdOutput = (create.results ?? []).filter(result => result.type === 'TABLE_CREATED' && !existing.has(result.outputId));
     assert.equal(createdOutput.length, 1);

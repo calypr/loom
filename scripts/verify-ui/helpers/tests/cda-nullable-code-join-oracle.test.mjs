@@ -4,6 +4,7 @@ import test from 'node:test';
 import {
   cdaNullableEmptyRemovalPreviewEvidence,
   cdaNullableCodeJoinDirectSourceEvidence,
+  cdaNullableNewExplorerIdentityEvidence,
   cdaNullableValueQuantityCodeCandidateEvidence,
   cdaNullableValueQuantityCodeJoinOracle,
 } from '../cda-nullable-code-join-oracle.mjs';
@@ -32,6 +33,41 @@ const right = [
   row('bfe79f40-5134-53d0-bcc7-9ec6d0843646', 'd'),
   row('485e2567-b566-56f3-b5bd-5f025f37cd95', null, false),
 ];
+
+test('new Explorer identity binds create summary, exact Builder route, NEW null-workspace state, and catalog scope', () => {
+  const project = 'loom_dev_cda_fhir';
+  const explorer = 'cda-nullable-code-join-123';
+  const title = 'CDA Nullable Code Join QA';
+  const expectedAPIOrigin = 'https://loom.example';
+  const expectedBuilderPath = `/api/v1/projects/${project}/explorers/${explorer}/authoring/v2/builder`;
+  const created = { project, explorerId: explorer, title, management: 'INTERACTIVE' };
+  const builder = {
+    lifecycleState: 'NEW', draftVersion: 0, draftDigest: '', workspace: null,
+    catalog: { generation, snapshotToken: 'snapshot-1', authorizationScopeDigest: 'scope-1' },
+  };
+  const input = { created, builder, project, explorer, title,
+    builderURL: `${expectedAPIOrigin}${expectedBuilderPath}`, expectedAPIOrigin, expectedBuilderPath, generation };
+  const evidence = cdaNullableNewExplorerIdentityEvidence(input);
+  assert.equal(evidence.ok, true);
+  assert(Object.values(evidence.checks).every(Boolean));
+
+  for (const changes of [
+    { created: { ...created, project: 'other-project' } },
+    { created: { ...created, explorerId: 'other-explorer' } },
+    { created: { ...created, title: 'Wrong title' } },
+    { builderURL: `https://other.example${expectedBuilderPath}` },
+    { builderURL: `${expectedAPIOrigin}/wrong/path` },
+    { builderURL: `${expectedAPIOrigin}${expectedBuilderPath}?stale=1` },
+    { builder: { ...builder, lifecycleState: 'READY' } },
+    { builder: { ...builder, lifecycleState: 'READY', workspace: null, draftVersion: 1, draftDigest: 'draft' } },
+    { builder: { ...builder, workspace: { documents: [] } } },
+    { builder: { ...builder, draftVersion: 1, draftDigest: 'draft' } },
+    { builder: { ...builder, catalog: { ...builder.catalog, generation: 'other-generation' } } },
+    { builder: { ...builder, catalog: { generation, snapshotToken: '', authorizationScopeDigest: '' } } },
+  ]) {
+    assert.equal(cdaNullableNewExplorerIdentityEvidence({ ...input, ...changes }).ok, false);
+  }
+});
 
 test('catalog evidence accepts only the scoped scalar optional Observation.valueQuantity.code candidate', () => {
   const builder = { catalog: {
@@ -206,6 +242,14 @@ test('native nullable Join registration binds proposal, LEFT edit, removal, and 
   ]) assert(contract.requiredChecks.includes(check), `registered lifecycle is missing ${check}`);
 
   const workflow = await readFile(new URL('../../workflows/cda-current-draft-nullable-code-join-workflow.mjs', import.meta.url), 'utf8');
+  assert.match(workflow, /cdaNullableNewExplorerIdentityEvidence\(\{ created, builder, project, explorer, title/,
+    'the initial scope check must bind the API create summary without requiring a draft workspace');
+  assert.match(workflow, /builderDraftStateEvidence\(builder, 'empty'\)/,
+    'the fresh Builder state must prove NEW empty-draft CAS before the first command');
+  assert.match(workflow, /if \(state\.workspace !== null\) assert\.equal\(state\.workspace\?\.explorer\?\.title, title/,
+    'later initialized workspace states must retain the create-summary title');
+  assert.match(workflow, /const existing = new Set\(\(builder\.workspace\?\.documents \?\? \[\]\)\.map/,
+    'the first CREATE_TABLE must accept the supported null-workspace NEW state');
   assert.match(workflow, /cda\.check\('correctness', 'Join proposal preview response binds the exact UI route, receipt, output, and draft CAS'/);
   assert.match(workflow, /cda\.check\('persistence', 'Removal proposal binds exact CAS and only removes the saved current-draft KEY_JOIN'/);
   assert.match(workflow, /cda\.check\('correctness', `\$\{joinType\} Join proposal binds exact raw sources, code keys, outputs, and draft CAS`/);
@@ -231,6 +275,7 @@ test('native nullable Join registration binds proposal, LEFT edit, removal, and 
     'the native proposal report must retain direct-source binding evidence');
   assert.doesNotMatch(workflow, /currentDraftSourceEvidence/,
     'the grouped-source contract must not be applied to these raw zero-step inputs');
-  assert.match(workflow, /exactProjectRoute:[\s\S]*builderURL\.pathname === `\/api\/v1\/projects\/\$\{encode\(project\)\}\/explorers\/\$\{encode\(explorer\)\}\/authoring\/v2\/builder`/);
+  assert.match(workflow, /const builderPath = `\/api\/v1\/projects\/\$\{encode\(project\)\}\/explorers\/\$\{encode\(explorer\)\}\/authoring\/v2\/builder`/);
+  assert.match(workflow, /expectedAPIOrigin: apiOrigin, expectedBuilderPath: builderPath, generation/);
   assert.match(workflow, /authorizationScopeDigest: initialScope\.authorizationScopeDigest/);
 });

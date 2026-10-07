@@ -46,6 +46,48 @@ export const cdaNullableValueQuantityCodeCandidateEvidence = (builder, generatio
     rootNodeId: root?.nodeId ?? null, candidate: candidate ?? null };
 };
 
+export const cdaNullableNewExplorerIdentityEvidence = ({ created, builder, project, explorer, title,
+  builderURL, expectedAPIOrigin, expectedBuilderPath, generation }) => {
+  const checks = {
+    createdProject: created?.project === project,
+    createdExplorerID: created?.explorerId === explorer,
+    createdTitle: created?.title === title,
+    exactProjectRoute: (() => {
+      try {
+        const actual = new URL(builderURL);
+        return actual.origin === new URL(expectedAPIOrigin).origin && actual.pathname === expectedBuilderPath &&
+          actual.search === '' && actual.hash === '';
+      } catch {
+        return false;
+      }
+    })(),
+    newLifecycle: builder?.lifecycleState === 'NEW',
+    nullInitialWorkspace: builder?.workspace === null,
+    emptyInitialDraftCAS: builder?.draftVersion === 0 && builder?.draftDigest === '',
+    exactCatalogGeneration: builder?.catalog?.generation === generation,
+    catalogSnapshotBound: nonempty(builder?.catalog?.snapshotToken),
+    authorizationScopeBound: nonempty(builder?.catalog?.authorizationScopeDigest),
+  };
+  return {
+    ok: Object.values(checks).every(Boolean),
+    checks,
+    expected: { project, explorerId: explorer, title, generation, builderURL: builderURL ?? null },
+    actual: {
+      createdProject: created?.project ?? null,
+      createdExplorerId: created?.explorerId ?? null,
+      createdTitle: created?.title ?? null,
+      builderURL: builderURL ?? null,
+      lifecycleState: builder?.lifecycleState ?? null,
+      workspaceIsNull: builder?.workspace === null,
+      draftVersion: builder?.draftVersion ?? null,
+      draftDigest: builder?.draftDigest ?? null,
+      generation: builder?.catalog?.generation ?? null,
+      snapshotToken: builder?.catalog?.snapshotToken ?? null,
+      authorizationScopeDigest: builder?.catalog?.authorizationScopeDigest ?? null,
+    },
+  };
+};
+
 export const cdaNullableCodeJoinDirectSourceEvidence = ({ inputs, expectedOutputIDs, expectedSelectionRevisionIDs, sourceDocuments }) => {
   const expectedIDs = Array.isArray(expectedOutputIDs) ? expectedOutputIDs : [];
   const expectedSelections = Array.isArray(expectedSelectionRevisionIDs) ? expectedSelectionRevisionIDs : [];
