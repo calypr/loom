@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { browserURL } from './builder-url.mjs';
 import { sanitizeBody } from '../helpers/playwright-browser.mjs';
 import { recordCheck } from '../helpers/report.mjs';
-import { appendNullPaddingRows, builderRequestURL, builderResponseIdentity, constructionProposalPreviewEvidence, currentPublishedRevisionForOutput, displayAppendNullPaddingRows, findColumn, isCombineInputIDColumn, isNumericClickHouseType, isScalarStringColumn, joinOracleRows, appendEditorConfigurationEvidence, nativeCombineTargetBindingEvidence, sameSourceDocuments, snapshotSourceDocument, isOwnedConstructionCapabilitiesRequest, rootedEmptyTargetAppliedExpression, rootedEmptyTargetRestorationEvidence } from '../helpers/builder-combine-helpers.mjs';
+import { appendNullPaddingRows, builderRequestURL, builderResponseIdentity, constructionProposalPreviewEvidence, currentPublishedRevisionForOutput, displayAppendNullPaddingRows, findColumn, isCombineInputIDColumn, isNumericClickHouseType, isScalarStringColumn, joinOracleRows, appendEditorConfigurationEvidence, nativeCombineTargetBindingEvidence, sameSourceDocuments, snapshotSourceDocument, isOwnedConstructionCapabilitiesRequest, rootedEmptyTargetAppliedExpression, rootedEmptyTargetRestorationEvidence, savedAppendPreviewAppliedExpression, measureActionToDOMResult, combineCancellationPreservationEvidence } from '../helpers/builder-combine-helpers.mjs';
 
 export const authoredColumn = (document, catalogColumn) => {
   const matches = (document.columns ?? []).filter(column => column.column === catalogColumn.name);
@@ -136,6 +136,13 @@ const exactRows = (report, name, grid, headers, rows) => {
   const expectedRows = [...rows].sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)));
   const ok = grid.ready && JSON.stringify(grid.headers) === JSON.stringify(headers) && JSON.stringify(actualRows) === JSON.stringify(expectedRows);
   check(report, 'correctness', name, ok, { headers: grid.headers, expectedHeaders: headers, rows: actualRows, expectedRows, ariaRowCount: grid.ariaRowCount });
+};
+
+const exactGridMatches = (grid, headers, rows) => {
+  const actualRows = [...grid.rows].sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)));
+  const expectedRows = [...rows].sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)));
+  const ok = grid.ready && JSON.stringify(grid.headers) === JSON.stringify(headers) && JSON.stringify(actualRows) === JSON.stringify(expectedRows);
+  return { ok, headers: grid.headers, expectedHeaders: headers, rows: actualRows, expectedRows, ariaRowCount: grid.ariaRowCount };
 };
 
 const requestJSON = async (url, body) => {
@@ -425,6 +432,30 @@ const selectTargetWithPlaywright = async (page, action, outputId) => {
   }
 };
 
+const appendReloadToVisibleResultWithPlaywright = async ({ page, action, report, name, outputId, headers, rows, rootedEmpty = false }) => {
+  const expression = rootedEmpty
+    ? rootedEmptyTargetAppliedExpression(outputId)
+    : savedAppendPreviewAppliedExpression(outputId, headers, rows);
+  const measurement = await measureActionToDOMResult({
+    action: async () => {
+      await page.reload({ waitUntil: 'domcontentloaded' });
+      await page.getByTestId(`construction-table-${outputId}`).waitFor({ state: 'visible', timeout: 5000 });
+      await selectTargetWithPlaywright(page, action, outputId);
+    },
+    waitForResult: timeoutMs => page.waitForFunction(expression, undefined, { timeout: timeoutMs }),
+  });
+  report.timings[name] = measurement.elapsedMs;
+  check(report, 'performance', name, measurement.withinBudget, {
+    elapsedMs: measurement.elapsedMs,
+    limitMs: measurement.budgetMs,
+    outputId,
+    result: rootedEmpty ? 'exact rooted empty target DOM' : 'exact saved APPEND row/header DOM',
+    rowCount: rootedEmpty ? 0 : rows.length,
+    headers: rootedEmpty ? [] : headers,
+  });
+  return measurement;
+};
+
 const editSavedStepWithPlaywright = async (page, action, stepId) => {
   const history = page.getByTestId(`construction-history-step-${stepId}`);
   await action('select saved Combine step', history, () => history.click(), {
@@ -591,7 +622,7 @@ const createAndPublishSourcesWithPlaywright = async (context, page, action, repo
   return { explorer, docs, api, sourceExplorerTitle: title, sourcePreviewHeaders };
 };
 
-const startCombineTargetWithPlaywright = async (context, page, action, report, explorer, observationOutputId, sourceBuilder) => {
+const startCombineTargetWithPlaywright = async (context, page, action, report, explorer, observationOutputId, sourceBuilder, { recordTargetCheck = true } = {}) => {
   await selectTargetWithPlaywright(page, action, observationOutputId);
   const project = context.target.fixtureProject;
   const commandPath = `/api/v1/projects/${encodeURIComponent(project)}/explorers/${encodeURIComponent(explorer)}/authoring/v2/commands`;
@@ -629,9 +660,11 @@ const startCombineTargetWithPlaywright = async (context, page, action, report, e
     previousOutputIds,
     mountedOutputId,
   });
-  check(report, 'correctness', 'native Combine creates a rooted empty Observation target without adding an authored step or output column', evidence.ok, evidence);
+  if (recordTargetCheck) {
+    check(report, 'correctness', 'native Combine creates a rooted empty Observation target without adding an authored step or output column', evidence.ok, evidence);
+  }
   if (!evidence.ok) throw new Error('Native Combine target identity did not bind its creation command, returned workspace, and mounted editor: ' + JSON.stringify(evidence));
-  return { outputId: evidence.outputId, rootNodeId: evidence.rootNodeId };
+  return { outputId: evidence.outputId, rootNodeId: evidence.rootNodeId, creationEvidence: evidence };
 };
 
 const chooseOperationWithPlaywright = async (page, action, kind, inputs) => {
@@ -712,13 +745,21 @@ const removeCombineAndRestoreEmptyRootWithPlaywright = async (context, page, act
   await applyProposalWithPlaywright(page, action, `Remove ${operation} and restore the rooted empty target`, null, target.outputId);
   const reloadTimingName = operation === 'KEY_JOIN'
     ? 'KEY_JOIN removal reload through exact rooted empty restoration within five seconds'
-    : undefined;
-  const reloadStartedAt = reloadTimingName ? Date.now() : undefined;
-  await page.reload({ waitUntil: 'domcontentloaded' });
-  await page.getByTestId(`construction-table-${target.outputId}`).waitFor({ state: 'visible', timeout: 5000 });
-  await selectTargetWithPlaywright(page, action, target.outputId);
-  if (reloadTimingName) {
-    await page.waitForFunction(rootedEmptyTargetAppliedExpression(target.outputId), undefined, { timeout: 5000 });
+    : operation === 'APPEND'
+      ? 'APPEND removal reload reaches the exact rooted empty target within five seconds'
+      : undefined;
+  const reloadStartedAt = reloadTimingName && operation === 'KEY_JOIN' ? Date.now() : undefined;
+  if (operation === 'APPEND') {
+    await appendReloadToVisibleResultWithPlaywright({
+      page, action, report, name: reloadTimingName, outputId: target.outputId, rootedEmpty: true,
+    });
+  } else {
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await page.getByTestId(`construction-table-${target.outputId}`).waitFor({ state: 'visible', timeout: 5000 });
+    await selectTargetWithPlaywright(page, action, target.outputId);
+    if (reloadTimingName) {
+      await page.waitForFunction(rootedEmptyTargetAppliedExpression(target.outputId), undefined, { timeout: 5000 });
+    }
   }
   const builder = await readBuilder(context, explorer);
   const restored = readTargetDocument(builder, target.outputId);
@@ -727,7 +768,9 @@ const removeCombineAndRestoreEmptyRootWithPlaywright = async (context, page, act
     target, rootResourceType: restored.rootResourceType, columns: restored.columns, construction: restored.construction,
     sameAsPreCombineDocument: restoration.unchanged, expectedDocument: baseline,
   });
-  if (reloadTimingName) recordReloadTiming(report, reloadTimingName, reloadStartedAt, { outputId: target.outputId, stepId });
+  if (reloadTimingName && operation === 'KEY_JOIN') {
+    recordReloadTiming(report, reloadTimingName, reloadStartedAt, { outputId: target.outputId, stepId });
+  }
 };
 
 export const joinWorkflow = async ({ page, report, action }, context) => {
@@ -1014,18 +1057,20 @@ export const appendWorkflow = async ({ page, report, action }, context) => {
   const prepared = await createAndPublishSourcesWithPlaywright(context, page, action, report, true);
   const { explorer, docs, api } = prepared;
   report.target.fixtureRawOracle = { ...report.target.fixtureRawOracle, appendNullPaddingRows: rawAppendOracle };
-  const target = await startCombineTargetWithPlaywright(context, page, action, report, explorer, docs.observation.output.id, api.builder);
+  const initialCancelProbeTarget = await startCombineTargetWithPlaywright(context, page, action, report, explorer, docs.observation.output.id, api.builder);
+  let target = initialCancelProbeTarget;
   report.target.combineTarget = target;
+  report.target.initialCancelProbeTarget = initialCancelProbeTarget;
   const capabilitiesFailures = captureConstructionCapabilitiesFailuresWithPlaywright(page, report, {
     uiUrl: context.target.uiUrl, project: context.target.fixtureProject, explorer,
   });
-  const proposalCapture = captureOwnedConstructionProposals(page, {
-    ...context.target, explorer, outputId: target.outputId,
-  });
+  let proposalCapture;
 
   try {
-    const builderAtTarget = await readBuilder(context, explorer);
-    const emptyTargetBaseline = readTargetDocument(builderAtTarget, target.outputId);
+    let builderAtTarget = await readBuilder(context, explorer);
+    const builderBeforeInitialProbe = builderAtTarget;
+    const initialProbeEmptyTargetBaseline = snapshotSourceDocument(readTargetDocument(builderAtTarget, target.outputId));
+    let emptyTargetBaseline = initialProbeEmptyTargetBaseline;
     const catalogEntries = await readPublishedInputs(context, explorer, builderAtTarget);
     const sourceRevisions = [
       currentRevisionFor(catalogEntries, docs.observation),
@@ -1036,6 +1081,82 @@ export const appendWorkflow = async ({ page, report, action }, context) => {
       sourceRevisions.every((entry, index) => publishedRef(entry) === publishedRef([
         api.revisions.Observation, api.revisions.DiagnosticReport, api.revisions.Patient,
       ][index])), { sourceRevisions, expected: api.revisions });
+
+    const idOnlyRows = appendedRows.map(([id]) => [id]);
+    await chooseOperationWithPlaywright(page, action, 'APPEND', sourceRevisions);
+    await addOutputWithPlaywright(page, action, 1, 'record_id', 'Record ID', [
+      [0, api.columns.observationID.id], [1, api.columns.reportID.id], [2, api.columns.patientID.id],
+    ], 'APPEND');
+    await waitProposalWithPlaywright(page, target.outputId, idOnlyRows.length);
+    const initialProposalGrid = await readGridWithPlaywright(page, 'proposal');
+    const initialProposalEvidence = exactGridMatches(initialProposalGrid, ['Record ID'], idOnlyRows);
+    check(report, 'correctness', 'initial APPEND proposal previews the literal eight-row ID union before Cancel',
+      initialProposalEvidence.ok, initialProposalEvidence);
+    const cancelInitialProposal = page.getByTestId('construction-cancel-proposal');
+    await action('Cancel the initial APPEND proposal before configuring the saved schema', cancelInitialProposal,
+      () => cancelInitialProposal.click(), {
+        after: async () => {
+          await page.getByTestId('construction-proposal-panel').waitFor({ state: 'hidden', timeout: 5000 });
+          await page.getByTestId('construction-combine-editor').waitFor({ state: 'hidden', timeout: 5000 });
+          await page.waitForFunction(rootedEmptyTargetAppliedExpression(target.outputId), undefined, { timeout: 5000 });
+        },
+      });
+    const emptyBeforeCancelReloadBuilder = await readBuilder(context, explorer);
+    const emptyBeforeCancelReload = readTargetDocument(emptyBeforeCancelReloadBuilder, target.outputId);
+    const emptyBeforeCancelReloadEvidence = rootedEmptyTargetRestorationEvidence(emptyBeforeCancelReload,
+      initialProbeEmptyTargetBaseline, target);
+    const initialCancelRootVisible = await page.evaluate(rootedEmptyTargetAppliedExpression(target.outputId));
+    await appendReloadToVisibleResultWithPlaywright({
+      page, action, report,
+      name: 'Initial APPEND proposal Cancel reload reaches the exact rooted empty target within five seconds',
+      outputId: target.outputId,
+      rootedEmpty: true,
+    });
+    const emptyAfterCancelReloadBuilder = await readBuilder(context, explorer);
+    const emptyAfterCancelReload = readTargetDocument(emptyAfterCancelReloadBuilder, target.outputId);
+    const emptyAfterCancelReloadEvidence = rootedEmptyTargetRestorationEvidence(emptyAfterCancelReload,
+      initialProbeEmptyTargetBaseline, target);
+    const restartedTarget = await startCombineTargetWithPlaywright(context, page, action, report, explorer,
+      docs.observation.output.id, emptyAfterCancelReloadBuilder, { recordTargetCheck: false });
+    target = restartedTarget;
+    report.target.combineTarget = target;
+    builderAtTarget = await readBuilder(context, explorer);
+    const reconfiguredTargetBaseline = readTargetDocument(builderAtTarget, target.outputId);
+    emptyTargetBaseline = snapshotSourceDocument(reconfiguredTargetBaseline);
+    const probeAfterRestart = readTargetDocument(builderAtTarget, initialCancelProbeTarget.outputId);
+    const probeAfterRestartEvidence = rootedEmptyTargetRestorationEvidence(
+      probeAfterRestart, initialProbeEmptyTargetBaseline, initialCancelProbeTarget);
+    proposalCapture = captureOwnedConstructionProposals(page, {
+      ...context.target, explorer, outputId: target.outputId,
+    });
+    const initialCancelEvidence = {
+      ok: initialCancelRootVisible && emptyBeforeCancelReloadEvidence.ok && emptyAfterCancelReloadEvidence.ok &&
+        builderBeforeInitialProbe.draftVersion === emptyAfterCancelReloadBuilder.draftVersion &&
+        builderBeforeInitialProbe.draftDigest === emptyAfterCancelReloadBuilder.draftDigest &&
+        restartedTarget.creationEvidence.ok &&
+        restartedTarget.outputId !== initialCancelProbeTarget.outputId && probeAfterRestartEvidence.ok &&
+        reconfiguredTargetBaseline.rootResourceType === 'Observation' &&
+        reconfiguredTargetBaseline.columns?.length === 0 && (reconfiguredTargetBaseline.construction?.steps?.length ?? 0) === 0,
+      rootedEmptyBeforeReload: emptyBeforeCancelReloadEvidence,
+      rootedEmptyAfterReload: emptyAfterCancelReloadEvidence,
+      initialProbeTargetRemainsEmptyAfterStartingFreshTarget: probeAfterRestartEvidence,
+      reconfiguredTargetCreation: restartedTarget.creationEvidence,
+      reconfiguredTargetBaseline: {
+        outputId: target.outputId,
+        rootResourceType: reconfiguredTargetBaseline.rootResourceType,
+        columns: reconfiguredTargetBaseline.columns,
+        construction: reconfiguredTargetBaseline.construction,
+      },
+      draftUnchangedThroughInitialCancelReload: builderBeforeInitialProbe.draftVersion === emptyAfterCancelReloadBuilder.draftVersion &&
+        builderBeforeInitialProbe.draftDigest === emptyAfterCancelReloadBuilder.draftDigest,
+      initialCancelRootVisible,
+      beforeDraftVersion: builderBeforeInitialProbe.draftVersion,
+      afterDraftVersion: emptyAfterCancelReloadBuilder.draftVersion,
+      beforeDraftDigest: builderBeforeInitialProbe.draftDigest,
+      afterDraftDigest: emptyAfterCancelReloadBuilder.draftDigest,
+    };
+    check(report, 'persistence', 'Canceling initial APPEND proposal preserves the exact fresh rooted target before creating a distinct target for reconfiguration',
+      initialCancelEvidence.ok, initialCancelEvidence);
 
     await chooseOperationWithPlaywright(page, action, 'APPEND', sourceRevisions);
     await addOutputWithPlaywright(page, action, 1, 'record_id', 'Record ID', [], 'APPEND');
@@ -1150,11 +1271,25 @@ export const appendWorkflow = async ({ page, report, action }, context) => {
     assertPinnedInputs(report, step, api);
     assertAppendNullPaddingStep(report, 'Apply persists the exact sparse three-input APPEND mapping and nullable outputs', step, api);
     await exactRowsWithPlaywright(report, 'APPEND Apply preserves the exact null-padded row union', page, 'saved', appendHeaders, appendedRows);
-    await page.reload({ waitUntil: 'domcontentloaded' });
-    await page.getByTestId(`construction-table-${target.outputId}`).waitFor({ state: 'visible', timeout: 5000 });
-    await selectTargetWithPlaywright(page, action, target.outputId);
-    await waitSavedPreviewWithPlaywright(page, appendedRows.length);
-    await exactRowsWithPlaywright(report, 'APPEND null padding and complete input union survive Builder reload', page, 'saved', appendHeaders, appendedRows);
+    const appliedDocument = snapshotSourceDocument(targetDocument);
+    await appendReloadToVisibleResultWithPlaywright({
+      page, action, report,
+      name: 'APPEND Apply reload reaches the exact saved rows and headers within five seconds',
+      outputId: target.outputId, headers: appendHeaders, rows: appendedRows,
+    });
+    const appliedReloadBuilder = await readBuilder(context, explorer);
+    const appliedReloadDocument = readTargetDocument(appliedReloadBuilder, target.outputId);
+    const appliedReloadGrid = await readGridWithPlaywright(page);
+    const appliedReloadGridEvidence = exactGridMatches(appliedReloadGrid, appendHeaders, appendedRows);
+    const appliedReloadDocumentUnchanged = sameSourceDocuments(appliedDocument, appliedReloadDocument);
+    check(report, 'persistence', 'APPEND null padding and complete input union survive Builder reload',
+      appliedReloadGridEvidence.ok && appliedReloadDocumentUnchanged, {
+        ...appliedReloadGridEvidence,
+        persistedDocumentUnchanged: appliedReloadDocumentUnchanged,
+        persistedStep: appliedReloadDocument.construction?.steps?.[0] ?? null,
+      });
+    targetDocument = appliedReloadDocument;
+    step = targetDocument.construction?.steps?.[0];
 
     const savedStepId = step.id;
     const savedLabel = step.outputs[2]?.label;
@@ -1184,10 +1319,11 @@ export const appendWorkflow = async ({ page, report, action }, context) => {
         await page.getByTestId('construction-history').waitFor({ state: 'visible' });
       },
     });
-    await page.reload({ waitUntil: 'domcontentloaded' });
-    await page.getByTestId(`construction-table-${target.outputId}`).waitFor({ state: 'visible', timeout: 5000 });
-    await selectTargetWithPlaywright(page, action, target.outputId);
-    await waitSavedPreviewWithPlaywright(page, appendedRows.length);
+    await appendReloadToVisibleResultWithPlaywright({
+      page, action, report,
+      name: 'APPEND saved-edit Cancel reload reaches the exact saved rows and headers within five seconds',
+      outputId: target.outputId, headers: appendHeaders, rows: appendedRows,
+    });
     const cancelled = await readBuilder(context, explorer);
     targetDocument = readTargetDocument(cancelled, target.outputId);
     step = targetDocument.construction?.steps?.[0];
@@ -1212,19 +1348,81 @@ export const appendWorkflow = async ({ page, report, action }, context) => {
       Boolean(step?.id === savedStepId && step.outputs?.[2]?.label === 'Patient sex'),
       { stepId: step?.id, outputLabels: step?.outputs?.map(output => output.label) });
     assertAppendNullPaddingStep(report, 'edited APPEND preserves omitted mappings and nullable outputs', step, api);
-    await page.reload({ waitUntil: 'domcontentloaded' });
-    await page.getByTestId(`construction-table-${target.outputId}`).waitFor({ state: 'visible', timeout: 5000 });
-    await selectTargetWithPlaywright(page, action, target.outputId);
-    await waitSavedPreviewWithPlaywright(page, appendedRows.length);
-    await exactRowsWithPlaywright(report, 'edited APPEND null padding survives reload', page, 'saved', ['Record ID', 'Status', 'Patient sex'], appendedRows);
+    const editedDocument = snapshotSourceDocument(targetDocument);
+    const editedHeaders = ['Record ID', 'Status', 'Patient sex'];
+    await appendReloadToVisibleResultWithPlaywright({
+      page, action, report,
+      name: 'APPEND edit Apply reload reaches the exact saved rows and headers within five seconds',
+      outputId: target.outputId, headers: editedHeaders, rows: appendedRows,
+    });
+    const editedReloadBuilder = await readBuilder(context, explorer);
+    const editedReloadDocument = readTargetDocument(editedReloadBuilder, target.outputId);
+    const editedReloadGrid = await readGridWithPlaywright(page);
+    const editedReloadGridEvidence = exactGridMatches(editedReloadGrid, editedHeaders, appendedRows);
+    const editedReloadDocumentUnchanged = sameSourceDocuments(editedDocument, editedReloadDocument);
+    check(report, 'persistence', 'edited APPEND null padding survives reload',
+      editedReloadGridEvidence.ok && editedReloadDocumentUnchanged, {
+        ...editedReloadGridEvidence,
+        persistedDocumentUnchanged: editedReloadDocumentUnchanged,
+        persistedStep: editedReloadDocument.construction?.steps?.[0] ?? null,
+      });
+    targetDocument = editedReloadDocument;
+    step = targetDocument.construction?.steps?.[0];
+
+    const removalBaselineDocument = snapshotSourceDocument(targetDocument);
+    const removalBaselineBuilder = editedReloadBuilder;
+    const removalHistory = page.getByTestId(`construction-history-step-${savedStepId}`);
+    await action('select APPEND step before previewing a cancellable removal', removalHistory,
+      () => removalHistory.click(), {
+        after: () => page.getByTestId(`construction-remove-step-${savedStepId}`).waitFor({ state: 'visible' }),
+      });
+    const removeBeforeCancel = page.getByTestId(`construction-remove-step-${savedStepId}`);
+    await action('preview APPEND removal before Cancel', removeBeforeCancel, () => removeBeforeCancel.click(), {
+      timeout: 5000,
+      after: async () => {
+        await waitProposalWithPlaywright(page, target.outputId);
+        await page.getByTestId(`construction-removal-step-${savedStepId}`).waitFor({ state: 'visible', timeout: 5000 });
+      },
+    });
+    const cancelRemovalProposal = page.getByTestId('construction-cancel-proposal');
+    await action('Cancel the APPEND removal proposal before actual removal', cancelRemovalProposal,
+      () => cancelRemovalProposal.click(), {
+        after: async () => {
+          await page.getByTestId('construction-proposal-panel').waitFor({ state: 'hidden', timeout: 5000 });
+          await page.getByTestId('construction-history').waitFor({ state: 'visible', timeout: 5000 });
+          await page.waitForFunction(
+            savedAppendPreviewAppliedExpression(target.outputId, editedHeaders, appendedRows), undefined, { timeout: 5000 });
+        },
+      });
+    const removalCancelBuilder = await readBuilder(context, explorer);
+    const removalCancelDocument = readTargetDocument(removalCancelBuilder, target.outputId);
+    const removalCancelGrid = await readGridWithPlaywright(page);
+    const removalCancelGridEvidence = exactGridMatches(removalCancelGrid, editedHeaders, appendedRows);
+    const removalCancelEvidence = combineCancellationPreservationEvidence({
+      beforeDocument: removalBaselineDocument,
+      afterDocument: removalCancelDocument,
+      beforeDraftVersion: removalBaselineBuilder.draftVersion,
+      afterDraftVersion: removalCancelBuilder.draftVersion,
+      beforeDraftDigest: removalBaselineBuilder.draftDigest,
+      afterDraftDigest: removalCancelBuilder.draftDigest,
+      visibleResultMatches: removalCancelGridEvidence.ok,
+    });
+    check(report, 'persistence', 'Canceling APPEND removal preserves the exact saved schema, step, and rows before removal',
+      removalCancelEvidence.ok, {
+        ...removalCancelEvidence,
+        ...removalCancelGridEvidence,
+        savedStepId: removalCancelDocument.construction?.steps?.[0]?.id ?? null,
+        savedOperation: removalCancelDocument.construction?.steps?.[0]?.operation?.combine?.kind ?? null,
+        savedOutputLabels: removalCancelDocument.construction?.steps?.[0]?.outputs?.map(output => output.label) ?? [],
+      });
 
     await removeCombineAndRestoreEmptyRootWithPlaywright(context, page, action, report, explorer, target, emptyTargetBaseline, savedStepId, 'APPEND');
     await assertSourceImmutability(context, explorer, docs, api, report);
     report.target.explorer = explorer;
     report.target.combineTarget = target;
   } finally {
-    proposalCapture.stop();
-    report.nativeAppendProposals = proposalCapture.entries.map(entry => ({
+    proposalCapture?.stop();
+    report.nativeAppendProposals = (proposalCapture?.entries ?? []).map(entry => ({
       requestSequence: entry.sequence,
       url: entry.url,
       requestBody: entry.body,

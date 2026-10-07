@@ -34,6 +34,73 @@ export const rootedEmptyTargetAppliedExpression = (outputId) => {
     '!previewText.includes("Preview did not complete for this draft:"))})()';
 };
 
+export const savedAppendPreviewAppliedExpression = (outputId, headers, rows) => {
+  const expected = JSON.stringify({ outputId, headers, rows });
+  const selected = JSON.stringify('[data-testid="construction-table-' + outputId + '"]');
+  const panelSelector = JSON.stringify('[data-testid="construction-preview"]');
+  const scrollSelector = JSON.stringify('[data-testid="preview-table-scroll"]');
+  return '(()=>{const expected=' + expected + ';' +
+    'const selected=document.querySelector(' + selected + ');' +
+    'const panels=document.querySelectorAll(' + panelSelector + ');' +
+    'const panel=panels.length===1?panels[0]:null;' +
+    'const scrolls=panel?.querySelectorAll(' + scrollSelector + ')??[];' +
+    'const tables=scrolls.length===1?scrolls[0].querySelectorAll("[role=\\"table\\"]"):[];' +
+    'const table=tables.length===1?tables[0]:null;' +
+    'const tidy=value=>String(value??"").replace(/\\s+/g," ").trim();' +
+    'const actualHeaders=table?[...table.querySelectorAll("[role=\\"columnheader\\"]")].map(cell=>tidy(cell.textContent)):[];' +
+    'const actualRows=table?[...table.querySelectorAll("[role=\\"row\\"]")].slice(1).map(row=>[...row.querySelectorAll("[role=\\"cell\\"]")].map(cell=>tidy(cell.innerText))):[];' +
+    'const sortRows=values=>values.map(row=>JSON.stringify(row)).sort();' +
+    'const bodyText=document.body?.innerText??"";' +
+    'return Boolean(selected?.getAttribute("aria-current")==="page"&&panels.length===1&&' +
+    'panel?.getAttribute("data-preview-status")==="ready"&&' +
+    'panel?.getAttribute("data-preview-output-id")===expected.outputId&&scrolls.length===1&&tables.length===1&&' +
+    '!document.querySelector("[data-testid=\\"construction-proposal-panel\\"]")&&' +
+    '!document.querySelector("[data-testid=\\"construction-combine-editor\\"]")&&' +
+    'Boolean(document.querySelector("[data-testid=\\"construction-history\\"]"))&&' +
+    'table?.getAttribute("aria-rowcount")===String(expected.rows.length+1)&&' +
+    'table?.getAttribute("aria-colcount")===String(expected.headers.length)&&' +
+    'JSON.stringify(actualHeaders)===JSON.stringify(expected.headers)&&' +
+    'JSON.stringify(sortRows(actualRows))===JSON.stringify(sortRows(expected.rows))&&' +
+    '!bodyText.includes("Loading your table…")&&!bodyText.includes("Preview did not complete for this draft:"))})()';
+};
+
+export const measureActionToDOMResult = async ({ action, waitForResult, now = () => globalThis.performance.now(), budgetMs = 5000 }) => {
+  if (typeof action !== 'function' || typeof waitForResult !== 'function' || typeof now !== 'function' ||
+      !Number.isFinite(budgetMs) || budgetMs <= 0) {
+    throw new TypeError('A DOM-result measurement requires action, waitForResult, a clock, and a positive budget.');
+  }
+  const startedAt = now();
+  if (!Number.isFinite(startedAt)) throw new TypeError('The DOM-result measurement clock must return a finite monotonic timestamp.');
+  await action();
+  await waitForResult(budgetMs);
+  const elapsedMs = now() - startedAt;
+  return { elapsedMs, budgetMs, withinBudget: Number.isFinite(elapsedMs) && elapsedMs >= 0 && elapsedMs <= budgetMs };
+};
+
+export const combineCancellationPreservationEvidence = ({
+  beforeDocument,
+  afterDocument,
+  beforeDraftVersion,
+  afterDraftVersion,
+  beforeDraftDigest,
+  afterDraftDigest,
+  visibleResultMatches,
+}) => {
+  const documentUnchanged = isDeepStrictEqual(beforeDocument, afterDocument);
+  const draftUnchanged = beforeDraftVersion === afterDraftVersion && beforeDraftDigest === afterDraftDigest;
+  const exactVisibleResult = visibleResultMatches === true;
+  return {
+    ok: documentUnchanged && draftUnchanged && exactVisibleResult,
+    documentUnchanged,
+    draftUnchanged,
+    exactVisibleResult,
+    beforeDraftVersion: beforeDraftVersion ?? null,
+    afterDraftVersion: afterDraftVersion ?? null,
+    beforeDraftDigest: beforeDraftDigest ?? null,
+    afterDraftDigest: afterDraftDigest ?? null,
+  };
+};
+
 export const rootedEmptyTargetRestorationEvidence = (restored, baseline, target) => {
   const emptyRoot = restored?.output?.id === target?.outputId &&
     restored?.rootResourceType === 'Observation' &&
