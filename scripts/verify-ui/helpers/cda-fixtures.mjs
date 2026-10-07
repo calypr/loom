@@ -235,7 +235,7 @@ function finishCdaReport(report) {
   }
 }
 
-export { expect };
+export { expect, finishCdaReport };
 export const test = base.extend({
   cdaProject: [process.env.LOOM_CDA_PROJECT, { option: true }],
   cdaApiOrigin: [process.env.LOOM_CDA_API_ORIGIN, { option: true }],

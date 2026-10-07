@@ -2,8 +2,10 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import { includeBrowserDiagnostics } from '../cda-playwright.mjs';
+import { finishCdaReport } from '../cda-fixtures.mjs';
 import {
   classifyRootQuantityPivotValidationConsoleBatch,
+  markRootQuantityPivotValidationBatchExpected,
   pivotSourceSelectionReady,
 } from '../../workflows/root-quantity-pivot-workflow.mjs';
 
@@ -106,16 +108,20 @@ test('live fixture diagnostics are projected before batch classification and rep
     assetFailures: [],
   };
   const report = {
-    errors: [
-      { kind: 'network', playwrightRequestId: 'cda-request-121' },
-      { kind: 'network', playwrightRequestId: 'cda-request-126' },
-      { kind: 'console-error', message, location: url },
-      { kind: 'console-error', message, location: url },
+    errors: [],
+    network: [
+      { kind: 'network', status: 422, method: 'POST', url, playwrightRequestId: 'cda-request-121' },
+      { kind: 'network', status: 422, method: 'POST', url, playwrightRequestId: 'cda-request-126' },
+      { kind: 'console-error', text: message, location: url },
+      { kind: 'console-error', text: message, location: url },
     ],
   };
   includeBrowserDiagnostics(diagnostics, report);
   assert.equal(report.errors.filter(error => error.kind === 'console' && error.message === message).length, 1);
   assert.equal(report.errors.filter(error => error.kind === 'http' && error.url === url && error.status === 422).length, 1);
+  assert.equal(report.errors.filter(error => error.kind === 'console-error').length, 0,
+    'The live error ledger projects generic console events while raw console-error entries stay in the network ledger');
+  assert.equal(report.network.filter(error => error.kind === 'console-error').length, 2);
   assert.equal(diagnostics.console.length, 2, 'Raw console diagnostics remain available for exact two-event validation');
   const once = structuredClone(report.errors);
   includeBrowserDiagnostics(diagnostics, report);
@@ -232,14 +238,10 @@ const validationBatchFixture = () => {
       playwrightRequestId: fixturePlaywrightRequestId,
       responseBody: { captureState: 'completed', body: JSON.stringify(response) },
     };
-    const fixtureHTTPError = { kind: 'http', url, status: 422, playwrightRequestId: fixturePlaywrightRequestId };
-    const fixtureRequestError = { kind: 'network', url, status: 422, method: 'POST', requestId, playwrightRequestId: fixturePlaywrightRequestId };
     return {
       request,
       validation,
       fixtureNetworkRequest,
-      fixtureHTTPError,
-      fixtureRequestError,
       fixturePlaywrightRequestId,
       consoleError: { kind: 'console-error', text: consoleMessage, location: url },
       fixtureConsoleDiagnostic: { kind: 'console-error', text: consoleMessage, location: url },
@@ -247,6 +249,20 @@ const validationBatchFixture = () => {
       workflowHTTP: { kind: 'http', requestId, browserRequestId, url, status: 422 },
     };
   });
+  const fixtureErrors = [];
+  const fixtureDiagnostics = {
+    pageErrors: [],
+    console: validated.map(item => ({ text: item.consoleError.text, location: item.consoleError.location })),
+    networkFailures: [],
+    httpFailures: validated.map(item => ({
+      url,
+      status: 422,
+      body: JSON.stringify(item.request.response),
+      playwrightRequestId: item.fixturePlaywrightRequestId,
+    })),
+    assetFailures: [],
+  };
+  includeBrowserDiagnostics(fixtureDiagnostics, { errors: fixtureErrors });
   return {
     project,
     explorer,
@@ -258,11 +274,8 @@ const validationBatchFixture = () => {
     authoringRequests: validated.map(item => item.request),
     workflowErrors: validated.flatMap(item => [item.workflowConsole, item.workflowHTTP]),
     fixtureNetwork: validated.flatMap(item => [item.fixtureNetworkRequest, item.consoleError]),
-    fixtureErrors: [
-      validated[0].workflowConsole,
-      validated[0].fixtureHTTPError,
-      ...validated.flatMap(item => [item.fixtureRequestError, item.consoleError]),
-    ],
+    fixtureErrors,
+    fixtureDiagnostics,
     fixtureConsoleDiagnostics: validated.map(item => item.fixtureConsoleDiagnostic),
   };
 };
@@ -277,12 +290,91 @@ test('expected root quantity validation console batch matches two exact ERROR pr
   assert.equal(result.localConsoleIndexes.length, 2);
   assert.equal(result.fixtureConsoleNetworkIndexes.length, 2);
   assert.equal(result.fixtureDiagnosticConsoleIndexes.length, 2);
+  assert.equal(result.fixtureConsoleErrorIndexes.length, 1);
+  assert.deepEqual(result.fixtureConsoleErrorDiagnosticIndexes, []);
+  assert.equal(result.fixtureHTTPIndexes.length, 1);
   assert.equal(result.fixtureRequestPairs.length, 2);
-  assert.deepEqual(result.fixtureRequestPairs.map(({ browserRequestId, playwrightRequestId, httpIndexes, requestErrorIndexes }) => ({ browserRequestId, playwrightRequestId, httpIndexes, requestErrorIndexes })), [
-    { browserRequestId: 'playwright-10', playwrightRequestId: 'cda-request-121', httpIndexes: [1], requestErrorIndexes: [2] },
-    { browserRequestId: 'playwright-11', playwrightRequestId: 'cda-request-122', httpIndexes: [], requestErrorIndexes: [4] },
+  assert.deepEqual(result.fixtureRequestPairs.map(({ browserRequestId, playwrightRequestId, networkIndex }) => ({ browserRequestId, playwrightRequestId, networkIndex })), [
+    { browserRequestId: 'playwright-10', playwrightRequestId: 'cda-request-121', networkIndex: 0 },
+    { browserRequestId: 'playwright-11', playwrightRequestId: 'cda-request-122', networkIndex: 2 },
   ]);
   assert.match(result.association, /console events have no request IDs/);
+});
+
+test('projected expected validation events retain raw evidence and finish without re-emitting failures', () => {
+  const fixture = validationBatchFixture();
+  const result = classifyFixture(fixture);
+  const batchEvidence = { reason: 'exact scoped Pivot ERROR validation pair', requestIDs: result.requestIDs };
+  const originalFixtureNetwork = structuredClone(fixture.fixtureNetwork);
+  const originalFixtureErrors = structuredClone(fixture.fixtureErrors);
+  const originalConsoleDiagnostics = structuredClone(fixture.fixtureDiagnostics.console);
+  const nativeReport = {
+    status: 'running',
+    requiredChecks: ['exact Pivot validation batch is accepted'],
+    assertions: [{ dimension: 'correctness', name: 'exact Pivot validation batch is accepted', status: 'passed', evidence: {} }],
+    dimensions: { correctness: { status: 'passed', evidence: [] } },
+    network: fixture.fixtureNetwork,
+    errors: fixture.fixtureErrors,
+  };
+  const rawNetworkArray = nativeReport.network;
+  const rawErrorArray = nativeReport.errors;
+  const requestEvidence = markRootQuantityPivotValidationBatchExpected({
+    validationBatch: result,
+    batchEvidence,
+    workflowErrors: fixture.workflowErrors,
+    nativeReport,
+    browserConsoleDiagnostics: fixture.fixtureDiagnostics.console,
+  });
+
+  assert.equal(requestEvidence.size, 2);
+  assert.equal(nativeReport.network, rawNetworkArray, 'Classification must retain the original fixture network array');
+  assert.equal(nativeReport.errors, rawErrorArray, 'Classification must retain the original fixture error array');
+  assert.equal(nativeReport.network.length, 4, 'Both HTTP responses and both raw console diagnostics remain in the network ledger');
+  assert.equal(nativeReport.network.filter(entry => entry.kind === 'network' && entry.status === 422 && entry.expectedHttpFailure).length, 2);
+  assert.equal(nativeReport.network.filter(entry => entry.kind === 'console-error' && entry.expectedHttpFailure).length, 2);
+  assert.equal(fixture.fixtureDiagnostics.console.filter(entry => entry.expectedHttpFailure).length, 2);
+  assert.equal(nativeReport.errors.filter(entry => entry.expectedHttpFailure).length, 2,
+    'The projected generic console and deduplicated HTTP records carry the exact batch proof');
+  const stripClassification = entry => {
+    const { expected, expectedHttpFailure, expectedRootQuantityPivotValidation, expectedHttpFailureBatch, ...raw } = entry;
+    return raw;
+  };
+  assert.deepEqual(nativeReport.network.map(stripClassification), originalFixtureNetwork);
+  assert.deepEqual(nativeReport.errors.map(stripClassification), originalFixtureErrors);
+  assert.deepEqual(fixture.fixtureDiagnostics.console.map(stripClassification), originalConsoleDiagnostics);
+  assert.equal(nativeReport.errors.filter(entry => entry.kind === 'console').length, 1);
+  assert.equal(nativeReport.errors.filter(entry => entry.kind === 'http' && entry.status === 422).length, 1);
+  assert.equal(nativeReport.errors.filter(entry => entry.kind === 'console-error').length, 0);
+
+  finishCdaReport(nativeReport);
+  assert.equal(nativeReport.status, 'passed', 'The actual CDA finishReport path must not re-emit the proven expected network events');
+  assert.equal(nativeReport.network.length, 4, 'finishCdaReport must restore retained raw network evidence after status calculation');
+  assert.deepEqual(nativeReport.network.map(stripClassification), originalFixtureNetwork);
+  assert.deepEqual(nativeReport.errors.map(stripClassification), originalFixtureErrors);
+});
+
+test('finishReport still fails on an unrelated unexpected network error after the exact expected batch is classified', () => {
+  const fixture = validationBatchFixture();
+  const result = classifyFixture(fixture);
+  const nativeReport = {
+    status: 'running',
+    requiredChecks: ['exact Pivot validation batch is accepted'],
+    assertions: [{ dimension: 'correctness', name: 'exact Pivot validation batch is accepted', status: 'passed', evidence: {} }],
+    dimensions: { correctness: { status: 'passed', evidence: [] } },
+    network: fixture.fixtureNetwork,
+    errors: fixture.fixtureErrors,
+  };
+  markRootQuantityPivotValidationBatchExpected({
+    validationBatch: result,
+    batchEvidence: { reason: 'exact scoped Pivot ERROR validation pair', requestIDs: result.requestIDs },
+    workflowErrors: fixture.workflowErrors,
+    nativeReport,
+    browserConsoleDiagnostics: fixture.fixtureDiagnostics.console,
+  });
+  nativeReport.network.push({ kind: 'network', method: 'GET', status: 500, url: 'http://127.0.0.1:30008/api/v1/unrelated' });
+  finishCdaReport(nativeReport);
+  assert.equal(nativeReport.status, 'failed', 'An unrelated network failure must remain fatal after batch classification');
+  assert(nativeReport.assertions.some(entry => entry.name === 'no unexpected network, module, or browser errors' && entry.status === 'failed'));
 });
 
 test('expected root quantity validation console batch rejects route, response, CAS, policy, and witness mismatches', () => {
@@ -306,7 +398,10 @@ test('expected root quantity validation console batch rejects an extra matching 
     [fixture => fixture.fixtureNetwork.push({ ...fixture.fixtureNetwork.find(error => error.kind === 'console-error') }), /Fixture network diagnostics must contain exactly two matching console events/],
     [fixture => fixture.fixtureConsoleDiagnostics.push({ ...fixture.fixtureConsoleDiagnostics[0] }), /Fixture console diagnostics must retain exactly two matching console events/],
     [fixture => fixture.fixtureErrors.push({ ...fixture.fixtureErrors.find(error => error.kind === 'console') }), /Fixture error ledger must retain its single matching generic console event/],
-    [fixture => fixture.fixtureErrors.push({ ...fixture.fixtureErrors.find(error => error.kind === 'console-error') }), /Fixture error ledger must retain exactly the two matching console diagnostics/],
+    [fixture => fixture.fixtureErrors.push({ kind: 'console-error', text: 'Failed to load resource: the server responded with a status of 422 (Unprocessable Entity)', location: fixture.origin + fixture.authoringRequests[0].path }), /Live fixture error ledger must not duplicate raw console diagnostics/],
+    [fixture => { fixture.fixtureErrors.find(error => error.kind === 'console').location += '/other'; }, /Fixture error ledger must retain its single matching generic console event/],
+    [fixture => { fixture.fixtureErrors.find(error => error.kind === 'http').status = 500; }, /Fixture error ledger must retain its single deduplicated matching HTTP response event/],
+    [fixture => { fixture.fixtureErrors.find(error => error.kind === 'http').playwrightRequestId = 'cda-request-unrelated'; }, /deduplicated fixture HTTP projection must identify one of the two validated proposal requests/],
     [fixture => fixture.fixtureErrors.push({ ...fixture.fixtureErrors.find(error => error.kind === 'http') }), /Fixture error ledger must retain its single deduplicated matching HTTP response event/],
   ];
   for (const [mutate, message] of mutations) {

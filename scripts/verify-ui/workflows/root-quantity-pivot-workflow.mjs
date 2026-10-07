@@ -169,12 +169,10 @@ export function classifyRootQuantityPivotValidationConsoleBatch({
   const fixtureConsoleErrorDiagnosticIndexes = fixtureErrors.flatMap((entry, index) =>
     entry.kind === 'console-error' && entry.location === url && entry.text === consoleMessage ? [index] : []);
   assert.equal(fixtureConsoleErrorIndexes.length, 1, 'Fixture error ledger must retain its single matching generic console event');
-  assert.equal(fixtureConsoleErrorDiagnosticIndexes.length, 2, 'Fixture error ledger must retain exactly the two matching console diagnostics');
+  assert.equal(fixtureConsoleErrorDiagnosticIndexes.length, 0, 'Live fixture error ledger must not duplicate raw console diagnostics retained in the native network and console ledgers');
   const fixtureHTTPIndexes = fixtureErrors.flatMap((entry, index) =>
     entry.kind === 'http' && entry.url === url && entry.status === 422 ? [index] : []);
   assert.equal(fixtureHTTPIndexes.length, 1, 'Fixture error ledger must retain its single deduplicated matching HTTP response event');
-  const fixtureRequestErrorIndexes = fixtureErrors.flatMap((entry, index) =>
-    entry.kind === 'network' && entry.url === url && entry.method === 'POST' && entry.status === 422 ? [index] : []);
 
   const fixtureRequestPairs = validatedRequests.map(item => {
     const networkIndexes = fixtureRequestNetworkIndexes.filter(index => fixtureNetwork[index].requestId === item.requestId);
@@ -191,25 +189,16 @@ export function classifyRootQuantityPivotValidationConsoleBatch({
     assert.equal(typeof playwrightRequestId, 'string');
     assert.notEqual(playwrightRequestId, item.request.browserRequestId,
       'Fixture and workflow captures keep their separately assigned request IDs distinct');
-    const httpIndexes = fixtureHTTPIndexes.filter(index => fixtureErrors[index].playwrightRequestId === playwrightRequestId);
-    const requestErrorIndexes = fixtureRequestErrorIndexes.filter(index => fixtureErrors[index].playwrightRequestId === playwrightRequestId);
-    assert(httpIndexes.length <= 1, `Fixture HTTP ledger must not duplicate proposal ${item.requestId}`);
-    assert.equal(requestErrorIndexes.length, 1, `Fixture error ledger must retain one network error for proposal ${item.requestId}`);
     return {
       requestId: item.requestId,
       browserRequestId: item.request.browserRequestId,
       playwrightRequestId,
       networkIndex: networkIndexes[0],
-      httpIndexes,
-      requestErrorIndexes,
     };
   });
   const knownFixturePlaywrightRequestIDs = new Set(fixtureRequestPairs.map(pair => pair.playwrightRequestId));
-  for (const index of [...fixtureHTTPIndexes, ...fixtureRequestErrorIndexes]) {
-    const error = fixtureErrors[index];
-    assert(knownFixturePlaywrightRequestIDs.has(error.playwrightRequestId),
-      'Every scoped fixture HTTP/network error must bind to one of the two validated proposal requests');
-  }
+  assert(knownFixturePlaywrightRequestIDs.has(fixtureErrors[fixtureHTTPIndexes[0]].playwrightRequestId),
+    'The deduplicated fixture HTTP projection must identify one of the two validated proposal requests');
 
   return {
     route,
@@ -226,9 +215,58 @@ export function classifyRootQuantityPivotValidationConsoleBatch({
     fixtureConsoleErrorIndexes,
     fixtureConsoleErrorDiagnosticIndexes,
     fixtureHTTPIndexes,
-    fixtureRequestErrorIndexes,
     association: 'The two console events have no request IDs; only the exact two-event route/message/status multiset is associated with the two independently validated request IDs.',
   };
+}
+
+
+export function markRootQuantityPivotValidationBatchExpected({
+  validationBatch,
+  batchEvidence,
+  workflowErrors,
+  nativeReport,
+  browserConsoleDiagnostics,
+}) {
+  const requestEvidence = new Map(validationBatch.fixtureRequestPairs.map(pair => [pair.requestId, {
+    ...batchEvidence,
+    requestId: pair.requestId,
+    browserRequestId: pair.browserRequestId,
+    playwrightRequestId: pair.playwrightRequestId,
+  }]));
+  for (const index of validationBatch.localConsoleIndexes) {
+    Object.assign(workflowErrors[index], {
+      expected: true,
+      expectedRootQuantityPivotValidation: true,
+      expectedHttpFailureBatch: batchEvidence,
+    });
+  }
+  for (const index of validationBatch.localHTTPIndexes) {
+    const error = workflowErrors[index];
+    Object.assign(error, {
+      expected: true,
+      expectedRootQuantityPivotValidation: true,
+      expectedHttpFailureBatch: requestEvidence.get(error.requestId),
+    });
+  }
+  for (const pair of validationBatch.fixtureRequestPairs) {
+    Object.assign(nativeReport.network[pair.networkIndex], {
+      expected: true,
+      expectedHttpFailure: requestEvidence.get(pair.requestId),
+    });
+  }
+  for (const index of validationBatch.fixtureConsoleNetworkIndexes) {
+    Object.assign(nativeReport.network[index], {
+      expected: true,
+      expectedHttpFailure: batchEvidence,
+    });
+  }
+  for (const index of validationBatch.fixtureDiagnosticConsoleIndexes) {
+    Object.assign(browserConsoleDiagnostics[index], { expected: true, expectedHttpFailure: batchEvidence });
+  }
+  for (const index of [...validationBatch.fixtureConsoleErrorIndexes, ...validationBatch.fixtureHTTPIndexes]) {
+    Object.assign(nativeReport.errors[index], { expected: true, expectedHttpFailure: batchEvidence });
+  }
+  return requestEvidence;
 }
 
 export function authoringRequestsFromNative(nativeRequests, requestCapture) {
@@ -1795,53 +1833,13 @@ const editor=document.querySelector('[data-testid="construction-reshape-pivot"]'
         consoleEventsHaveRequestIDs: false,
         association: validationBatch.association,
       };
-      const requestEvidence = new Map(validationBatch.fixtureRequestPairs.map(pair => [pair.requestId, {
-        ...batchEvidence,
-        requestId: pair.requestId,
-        browserRequestId: pair.browserRequestId,
-        playwrightRequestId: pair.playwrightRequestId,
-      }]));
-      for (const index of validationBatch.localConsoleIndexes) {
-        Object.assign(report.errors[index], {
-          expected: true,
-          expectedRootQuantityPivotValidation: true,
-          expectedHttpFailureBatch: batchEvidence,
-        });
-      }
-      for (const index of validationBatch.localHTTPIndexes) {
-        const error = report.errors[index];
-        Object.assign(error, {
-          expected: true,
-          expectedRootQuantityPivotValidation: true,
-          expectedHttpFailureBatch: requestEvidence.get(error.requestId),
-        });
-      }
-      for (const pair of validationBatch.fixtureRequestPairs) {
-        for (const index of [pair.networkIndex]) {
-          Object.assign(nativeReport.network[index], {
-            expected: true,
-            expectedHttpFailure: requestEvidence.get(pair.requestId),
-          });
-        }
-        for (const index of [...pair.httpIndexes, ...pair.requestErrorIndexes]) {
-          Object.assign(nativeReport.errors[index], {
-            expected: true,
-            expectedHttpFailure: requestEvidence.get(pair.requestId),
-          });
-        }
-      }
-      for (const index of [...validationBatch.fixtureConsoleNetworkIndexes]) {
-        Object.assign(nativeReport.network[index], {
-          expected: true,
-          expectedHttpFailure: batchEvidence,
-        });
-      }
-      for (const index of validationBatch.fixtureDiagnosticConsoleIndexes) {
-        Object.assign(context.diagnostics.console[index], { expected: true, expectedHttpFailure: batchEvidence });
-      }
-      for (const index of [...validationBatch.fixtureConsoleErrorIndexes, ...validationBatch.fixtureConsoleErrorDiagnosticIndexes]) {
-        Object.assign(nativeReport.errors[index], { expected: true, expectedHttpFailure: batchEvidence });
-      }
+      const requestEvidence = markRootQuantityPivotValidationBatchExpected({
+        validationBatch,
+        batchEvidence,
+        workflowErrors: report.errors,
+        nativeReport,
+        browserConsoleDiagnostics: context.diagnostics.console,
+      });
       report.fullPopulationLifecycle.expectedValidationConsoleBatch = batchEvidence;
       nativeReport.expectedHttpFailureBatches ??= [];
       nativeReport.expectedHttpFailureBatches.push(batchEvidence);
