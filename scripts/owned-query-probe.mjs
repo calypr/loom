@@ -15,6 +15,20 @@ const PROJECT_SCOPE = 'loom_dev_cda_fhir';
 const GENERATION_SCOPE = 'cda-fhir-v1';
 const MAX_RUNTIME_SECONDS = 8;
 const MAX_MEMORY_BYTES = 268435456;
+const SAFE_INTEGER_COUNT_KEYS = new Set([
+  'scoped_roots',
+  'scoped_patients',
+  'scoped_observations',
+  'valid_root_edges',
+  'roots_with_valid_patient',
+  'reachable_patients',
+  'valid_patient_observation_edges',
+  'patients_with_observations',
+  'reachable_observations',
+  'discovery_category_groups',
+  'reachable_patient_observation_pairs',
+  'pivot_cell_count',
+]);
 const EXPLAIN_HOST_TIMEOUT_MS = 15000;
 const HOST_STARTUP_MARGIN_MS = 2000;
 const MIN_EXECUTE_HOST_TIMEOUT_MS = 2500;
@@ -215,7 +229,7 @@ try {
 }
 
 /** Build the single bounded read-only db._query request script. */
-export function buildExecuteRequestScript({ query, bindVars, maxRuntimeSeconds, memoryLimitBytes }) {
+export function buildExecuteRequestScript({ query, bindVars, maxRuntimeSeconds, memoryLimitBytes, safeIntegerCounts = false }) {
   const queryLiteral = quoteJavaScript(query);
   const bindLiteral = quoteJavaScript(bindVars);
   const marker = quoteJavaScript(MARKER);
@@ -226,7 +240,27 @@ try {
     maxRuntime: ${maxRuntimeSeconds}, memoryLimit: ${memoryLimitBytes}, profile: 2,
   });
   let resultCount = 0;
-  while (cursor.hasNext()) { cursor.next(); resultCount += 1; }
+  let safeIntegerCounts = null;
+  while (cursor.hasNext()) {
+    const row = cursor.next();
+    resultCount += 1;
+    if (${safeIntegerCounts}) {
+      if (resultCount !== 1 || !row || typeof row !== 'object' || Array.isArray(row)) {
+        throw new Error('query did not return one integer-count object');
+      }
+      const entries = Object.entries(row);
+      const allowedKeys = new Set(${JSON.stringify([...SAFE_INTEGER_COUNT_KEYS])});
+      if (entries.length === 0 || entries.length > ${SAFE_INTEGER_COUNT_KEYS.size}
+        || entries.some(([key, value]) => !allowedKeys.has(key) || !Number.isSafeInteger(value) || value < 0)) {
+        throw new Error('query result did not match the safe integer-count schema');
+      }
+      safeIntegerCounts = {};
+      for (const [key, value] of entries) safeIntegerCounts[key] = value;
+    }
+  }
+  if (${safeIntegerCounts} && resultCount !== 1) {
+    throw new Error('query did not return one integer-count object');
+  }
   let stats = null;
   let warnings = [];
   try {
@@ -243,7 +277,9 @@ try {
       executionTime: Number.isFinite(source.executionTime) ? source.executionTime : null,
     };
   } catch (_) {}
-  print(${marker} + JSON.stringify({ok:true, elapsedMs:Date.now()-started, resultCount, stats, warnings}));
+  const result = {ok:true, elapsedMs:Date.now()-started, resultCount, stats, warnings};
+  if (${safeIntegerCounts}) result.safeIntegerCounts = safeIntegerCounts;
+  print(${marker} + JSON.stringify(result));
 } catch (error) {
   print(${marker} + JSON.stringify({
     ok:false, elapsedMs:Date.now()-started,
@@ -256,13 +292,17 @@ try {
 }
 
 function parseArguments(argv) {
-  const options = { execute: false, maxRuntimeSeconds: MAX_RUNTIME_SECONDS, memoryLimitBytes: MAX_MEMORY_BYTES };
+  const options = { execute: false, safeIntegerCounts: false, maxRuntimeSeconds: MAX_RUNTIME_SECONDS, memoryLimitBytes: MAX_MEMORY_BYTES };
   const valueOptions = new Set(['--query', '--bind-vars', '--output', '--max-runtime-seconds', '--memory-limit-bytes', '--expected-index']);
   const seen = new Set();
   for (let index = 0; index < argv.length; index += 1) {
     const option = argv[index];
     if (option === '--execute') {
       options.execute = true;
+      continue;
+    }
+    if (option === '--safe-integer-counts') {
+      options.safeIntegerCounts = true;
       continue;
     }
     if (!valueOptions.has(option) || index + 1 >= argv.length || argv[index + 1].startsWith('--')) {
@@ -290,6 +330,7 @@ function parseArguments(argv) {
 
 function validateCliOptions(options) {
   if (!options.queryPath || !options.bindVarsPath || !options.outputPath) return 'query, bind-vars, and output paths are required';
+  if (options.safeIntegerCounts && !options.execute) return 'safe-integer-counts requires execute';
   if (!Number.isFinite(options.maxRuntimeSeconds) || options.maxRuntimeSeconds <= 0 || options.maxRuntimeSeconds > MAX_RUNTIME_SECONDS) {
     return `max-runtime-seconds must be positive and no greater than ${MAX_RUNTIME_SECONDS}`;
   }
@@ -570,6 +611,7 @@ async function main() {
                   bindVars,
                   maxRuntimeSeconds: options.maxRuntimeSeconds,
                   memoryLimitBytes: options.memoryLimitBytes,
+                  safeIntegerCounts: options.safeIntegerCounts,
                 });
                 const executeInvocation = buildArangoShellInvocation({
                   container: CONTAINER,
@@ -603,10 +645,31 @@ async function main() {
                       ? [...report.response.warnings, ...executeEnvelope.warnings]
                       : report.response.warnings,
                   };
-                  if (executeEnvelope.ok === true && !executeResult.error && executeResult.status === 0) {
-                    report.status = 'query-complete';
-                  } else {
-                    fail(report, 'execute', executeEnvelope.message ?? 'bounded query execution did not complete', executeEnvelope.errorNum, executeEnvelope.errorCode);
+                  if (executeEnvelope.ok !== true) {
+                    fail(report, 'execute', SAFE_ARANGO_ERROR, executeEnvelope.errorNum, executeEnvelope.errorCode);
+                  } else if (options.safeIntegerCounts) {
+                    const counts = executeEnvelope.safeIntegerCounts;
+                    const validCounts = isRecord(counts)
+                      && executeEnvelope.resultCount === 1
+                      && Object.keys(counts).length > 0
+                      && Object.keys(counts).length <= SAFE_INTEGER_COUNT_KEYS.size
+                      && Object.entries(counts).every(([key, value]) => SAFE_INTEGER_COUNT_KEYS.has(key) && Number.isSafeInteger(value) && value >= 0);
+                    if (!validCounts) {
+                      fail(report, 'safe-integer-result', 'query did not return only non-negative safe integer counts');
+                    } else {
+                      report.execution.safeIntegerCounts = Object.fromEntries(
+                        Object.entries(counts).sort(([left], [right]) => left.localeCompare(right)),
+                      );
+                    }
+                  }
+                  if (report.failure === null) {
+                    if (executeEnvelope.ok === true && !executeResult.error && executeResult.status === 0) {
+                      report.status = 'query-complete';
+                    } else {
+                      fail(report, 'execute', executeResult.error
+                        ? safeProcessError(executeResult)
+                        : 'bounded query execution did not complete', executeEnvelope.errorNum, executeEnvelope.errorCode);
+                    }
                   }
                 }
               }

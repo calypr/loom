@@ -137,6 +137,14 @@ if (operation === 'explain') {
     ? { ok: true, elapsedMs: 7, resultCount: 2, stats: null }
     : scenario === 'error'
       ? { ok: false, elapsedMs: 7, errorNum: 32, errorCode: 400, message: 'Arango reported a query error.', rawError: 'PRIVATE_QUERY_ERROR_DETAIL' }
+      : scenario === 'malformed-envelope'
+        ? { elapsedMs: 7, resultCount: 1, safeIntegerCounts: { scoped_roots: 7 }, errorNum: 32, errorCode: 400, message: 'PRIVATE_QUERY_ERROR_DETAIL', rawError: 'PRIVATE_QUERY_ERROR_DETAIL', rows: [{ category: ${JSON.stringify(sensitiveCategory)} }] }
+        : scenario === 'safe-counts-zero'
+          ? { ok: true, elapsedMs: 7, resultCount: 0, safeIntegerCounts: { scoped_roots: 7 } }
+          : scenario === 'safe-counts-many'
+            ? { ok: true, elapsedMs: 7, resultCount: 2, safeIntegerCounts: { scoped_roots: 7 } }
+      : scenario === 'safe-integer-counts'
+        ? { ok: true, elapsedMs: 7, resultCount: 1, safeIntegerCounts: { scoped_roots: 742505, reachable_patients: 81 }, stats: { executionTime: 0.007, scannedIndex: 11, scannedFull: 0, peakMemoryUsage: 123456 } }
       : { ok: true, elapsedMs: 7, resultCount: 2, stats: { executionTime: 0.007, scannedIndex: 11, scannedFull: 0, peakMemoryUsage: 123456 } };
   const marker = [...shellCommand.matchAll(/__LOOM_[A-Z0-9_]+__/g)].map(match => match[0])[0];
   if (!marker) process.exit(22);
@@ -248,6 +256,101 @@ test('execute runs one bounded query only after a safe EXPLAIN and reports scan/
   assert.ok(Object.entries(run.report.timing ?? {}).some(([key, value]) => /HostElapsedMs$/.test(key) && Number.isFinite(value)));
   assert.ok(Object.keys(run.report.timing ?? {}).some(key => /server|arang/i.test(key)));
   assertNoSensitiveValues(run);
+});
+
+test('safe-integer-count mode accepts only one bounded object with approved non-negative integer fields', async (t) => {
+  const run = await runProbe(t, {
+    args: ['--execute', '--safe-integer-counts'],
+    executeScenario: 'safe-integer-counts',
+  });
+  assert.equal(run.command.status, 0, run.command.stderr);
+  assert.equal(run.report.execution.resultCount, 1);
+  assert.deepEqual(run.report.execution.safeIntegerCounts, { reachable_patients: 81, scoped_roots: 742505 });
+  assertNoSensitiveValues(run);
+
+  const failed = await runProbe(t, {
+    args: ['--execute', '--safe-integer-counts'],
+    executeScenario: 'error',
+  });
+  assert.notEqual(failed.command.status, 0);
+  assert.equal(failed.report.failure.stage, 'execute');
+  assert.equal(failed.report.response.errorNum, 32);
+  assertNoSensitiveValues(failed);
+
+  const malformed = await runProbe(t, {
+    args: ['--execute', '--safe-integer-counts'],
+    executeScenario: 'malformed-envelope',
+  });
+  assert.notEqual(malformed.command.status, 0);
+  assert.equal(malformed.report.failure.stage, 'execute');
+  assert.equal(malformed.report.response.errorNum, 32);
+  assert.equal(malformed.report.response.errorCode, 400);
+  assert.equal(malformed.report.response.message, 'Arango reported a query error.');
+  assert.equal(malformed.report.execution.safeIntegerCounts, undefined);
+  assert.equal(JSON.stringify(malformed.report).includes('rows'), false);
+  assertNoSensitiveValues(malformed);
+
+  for (const [executeScenario, expectedResultCount] of [['safe-counts-zero', 0], ['safe-counts-many', 2]]) {
+    const invalidCount = await runProbe(t, {
+      args: ['--execute', '--safe-integer-counts'],
+      executeScenario,
+    });
+    assert.notEqual(invalidCount.command.status, 0);
+    assert.equal(invalidCount.report.failure.stage, 'safe-integer-result');
+    assert.equal(invalidCount.report.execution.resultCount, expectedResultCount);
+    assert.equal(invalidCount.report.execution.safeIntegerCounts, undefined);
+    assertNoSensitiveValues(invalidCount);
+  }
+
+  const withoutExecute = await runProbe(t, { args: ['--safe-integer-counts'] });
+  assert.notEqual(withoutExecute.command.status, 0);
+  assert.equal(withoutExecute.report.failure.stage, 'arguments');
+  assert.equal(withoutExecute.dockerCalls.length, 0);
+  assertNoSensitiveValues(withoutExecute);
+
+  const script = buildExecuteRequestScript({
+    query: 'RETURN {scoped_roots: 2}',
+    bindVars: unrestrictedBinds,
+    maxRuntimeSeconds: 8,
+    memoryLimitBytes: 268435456,
+    safeIntegerCounts: true,
+  });
+  const executeRows = rows => {
+    const printed = [];
+    let offset = 0;
+    vm.runInNewContext(script, {
+      Date,
+      JSON,
+      Number,
+      Object,
+      Array,
+      print: value => printed.push(value),
+      db: {
+        _query: () => ({
+          hasNext: () => offset < rows.length,
+          next: () => rows[offset++],
+          getExtra: () => ({ stats: null }),
+        }),
+      },
+    });
+    return JSON.parse(printed[0].slice(printed[0].indexOf('__LOOM_OWNED_QUERY_PROBE__') + '__LOOM_OWNED_QUERY_PROBE__'.length));
+  };
+  assert.deepEqual(executeRows([{ scoped_roots: 2 }]).safeIntegerCounts, { scoped_roots: 2 });
+  assert.equal(executeRows([]).ok, false, 'zero result rows must fail safe-count mode');
+  assert.equal(executeRows([{ scoped_roots: 2 }, { scoped_roots: 3 }]).ok, false, 'multiple result rows must fail safe-count mode');
+  for (const row of [
+    { scoped_roots: '2' },
+    { scoped_roots: -1 },
+    { scoped_roots: Number.NaN },
+    { scoped_roots: Number.MAX_SAFE_INTEGER + 1 },
+    { unexpected: sensitiveCategory },
+  ]) {
+    const envelope = executeRows([row]);
+    assert.equal(envelope.ok, false);
+    assert.equal(envelope.safeIntegerCounts, undefined);
+    assert.equal(Object.hasOwn(envelope, 'rows'), false);
+  }
+  assertNoSensitiveValues({ command: { stdout: '', stderr: '' }, report: executeRows([{ unexpected: sensitiveCategory }]) });
 });
 
 test('expected-index mismatch and write plans both prevent execution', async (t) => {
