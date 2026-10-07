@@ -72,12 +72,43 @@ const toInputRef = (source: ConstructionCombineSource): ConstructionCombineInput
   ? { kind: 'TABLE_REVISION', tableId: source.tableId, revisionId: source.revisionId, outputId: source.outputId }
   : { kind: 'WORKSPACE_OUTPUT', outputId: source.outputId };
 
-const sourceTitle = (source: ConstructionCombineSource): string =>
-  source.kind === 'TABLE_REVISION' ? source.outputTitle : source.title;
+const opaqueDisplayIdentifier = /^(?:out|col)_[0-9a-f]{24}$/;
+
+const humanDisplayText = (value: string | undefined): string | undefined => {
+  const trimmed = value?.trim();
+  return trimmed && !opaqueDisplayIdentifier.test(trimmed) ? trimmed : undefined;
+};
+
+const displayColumnLabel = (column: ConstructionCombineColumn, index: number): string =>
+  humanDisplayText(column.label) ?? humanDisplayText(column.semanticPath) ?? humanDisplayText(column.name) ?? `Unnamed field ${index + 1}`;
+
+const originalColumnIndex = (
+  columns: ReadonlyArray<ConstructionCombineColumn> | undefined,
+  column: ConstructionCombineColumn,
+  fallbackIndex: number,
+): number => {
+  const index = columns?.findIndex((candidate) => candidate.id === column.id) ?? -1;
+  return index >= 0 ? index : fallbackIndex;
+};
+
+const displaySourceTitle = (source: ConstructionCombineSource): string => {
+  if (source.kind === 'WORKSPACE_OUTPUT') return humanDisplayText(source.title) ?? 'Draft table output';
+  return humanDisplayText(source.outputTitle) ?? humanDisplayText(source.tableTitle) ??
+    humanDisplayText(source.rowMeaning) ?? 'Published table output';
+};
+
+const publishedSourceOptionLabel = (revision: ConstructionCombinePublishedRevision): string => {
+  const titleParts = [revision.tableTitle, revision.rowMeaning, revision.outputTitle]
+    .map(humanDisplayText)
+    .filter((value): value is string => Boolean(value));
+  const metadata = [...new Set(titleParts)];
+  if (metadata.length === 0) metadata.push('Published table output');
+  return `${metadata.join(' · ')} · revision ${revision.revisionId}${revision.isCurrent ? ' · current' : ''}`;
+};
 
 const sourceDescriptor = (source: ConstructionCombineSource): string => source.kind === 'TABLE_REVISION'
-  ? `${source.rowMeaning} · pinned revision ${source.revisionId}`
-  : `${source.title} · current draft`;
+  ? `${humanDisplayText(source.rowMeaning) ?? 'Published table'} · pinned revision ${source.revisionId}`
+  : `${displaySourceTitle(source)} · current draft`;
 
 const emptyDraft = (stepId = createOpaqueId('combine')): CombineDraft => ({
   stepId,
@@ -116,8 +147,8 @@ const draftFromStep = (step: ConstructionCombineStep): CombineDraft => {
   };
 };
 
-const columnLabel = (column: ConstructionCombineColumn): string =>
-  `${column.label || column.name} (${column.type || column.clickhouseType || 'unknown'}${column.nullable ? ', nullable' : ''}${column.repeated ? ', repeated' : ''})`;
+const columnMetadata = (column: ConstructionCombineColumn): string =>
+  `${column.type || column.clickhouseType || 'unknown'}${column.nullable ? ', nullable' : ''}${column.repeated ? ', repeated' : ''}`;
 
 const joinableScalarBaseType = (clickhouseType: string): string | undefined => {
   const type = clickhouseType.trim();
@@ -585,7 +616,7 @@ export const ConstructionCombineEditor = ({
                             <optgroup label="Current draft tables">
                               {workspaceInputs.map((source) => {
                                 const optionKey = workspaceOutputKey(source.outputId);
-                                return <option key={optionKey} value={optionKey} disabled={usedKeys.has(optionKey)}>{source.title} · current draft</option>;
+                                return <option key={optionKey} value={optionKey} disabled={usedKeys.has(optionKey)}>{displaySourceTitle(source)} · current draft</option>;
                               })}
                             </optgroup>
                           ) : null}
@@ -594,7 +625,7 @@ export const ConstructionCombineEditor = ({
                             const isUnavailable = usedKeys.has(optionKey);
                             return (
                               <option key={optionKey} value={optionKey} disabled={isUnavailable}>
-                                {revision.tableTitle} · {revision.rowMeaning} · {revision.outputTitle} · revision {revision.revisionId}{revision.isCurrent ? ' · current' : ''}
+                                {publishedSourceOptionLabel(revision)}
                               </option>
                             );
                           })}</optgroup> : null}
@@ -626,7 +657,7 @@ export const ConstructionCombineEditor = ({
                         <details className="rounded bg-slate-50 px-2.5 py-2">
                           <summary className="cursor-pointer text-xs font-medium text-slate-700">View pinned schema ({pinned.columns.length} fields)</summary>
                           <ul className="mt-2 divide-y divide-slate-200 text-xs text-slate-700">
-                            {pinned.columns.map((column) => <li key={column.id} className="py-1.5"><span className="font-medium">{column.label || column.name}</span><span className="ml-2 text-slate-500">{column.name} · {columnLabel(column)}</span></li>)}
+                            {pinned.columns.map((column, columnIndex) => <li key={column.id} className="py-1.5"><span className="font-medium">{displayColumnLabel(column, columnIndex)}</span><span className="ml-2 text-slate-500">{columnMetadata(column)}</span></li>)}
                           </ul>
                         </details>
                       </div>
@@ -662,18 +693,18 @@ export const ConstructionCombineEditor = ({
               return (
                 <div key={`key-${keyIndex}`} className="grid gap-2 sm:grid-cols-[1fr_auto_1fr_auto] sm:items-end">
                   <label className="text-xs font-medium text-slate-700" htmlFor={`combine-key-left-${keyIndex}`}>
-                    {selected[0] ? sourceTitle(selected[0]) : 'Input 1'} field
+                    {selected[0] ? displaySourceTitle(selected[0]) : 'Input 1'} field
                     <select id={`combine-key-left-${keyIndex}`} aria-label={`Matching pair ${keyIndex + 1} first field`} value={key.leftColumnId} onChange={(event) => updateKey(keyIndex, 'leftColumnId', event.target.value)} className="mt-1 block w-full rounded-md border border-slate-300 bg-white px-2 py-2 text-sm">
                       <option value="">Choose a field</option>
-                      {leftOptions.map((column) => <option key={column.id} value={column.id}>{column.label || column.name} · {joinCompatibilityKey(column)}</option>)}
+                      {leftOptions.map((column, columnIndex) => <option key={column.id} value={column.id}>{displayColumnLabel(column, originalColumnIndex(selected[0]?.columns, column, columnIndex))} · {joinCompatibilityKey(column)}</option>)}
                     </select>
                   </label>
                   <span className="pb-2 text-center text-xs text-slate-500">matches</span>
                   <label className="text-xs font-medium text-slate-700" htmlFor={`combine-key-right-${keyIndex}`}>
-                    {selected[1] ? sourceTitle(selected[1]) : 'Input 2'} field
+                    {selected[1] ? displaySourceTitle(selected[1]) : 'Input 2'} field
                     <select id={`combine-key-right-${keyIndex}`} aria-label={`Matching pair ${keyIndex + 1} second field`} value={key.rightColumnId} onChange={(event) => updateKey(keyIndex, 'rightColumnId', event.target.value)} className="mt-1 block w-full rounded-md border border-slate-300 bg-white px-2 py-2 text-sm">
                       <option value="">Choose a field</option>
-                      {rightOptions.map((column) => <option key={column.id} value={column.id}>{column.label || column.name} · {joinCompatibilityKey(column)}</option>)}
+                      {rightOptions.map((column, columnIndex) => <option key={column.id} value={column.id}>{displayColumnLabel(column, originalColumnIndex(selected[1]?.columns, column, columnIndex))} · {joinCompatibilityKey(column)}</option>)}
                     </select>
                   </label>
                   {draft.keys.length > 1 && (
@@ -748,11 +779,11 @@ export const ConstructionCombineEditor = ({
                         <label key={inputIndex} className="text-xs font-medium text-slate-700" htmlFor={`combine-output-source-${output.id}-${inputIndex}`}>
                           {kind === 'APPEND'
                             ? `Matching field in input ${inputIndex + 1}`
-                            : `Source field in input ${inputIndex + 1}${pinned ? ` · ${sourceTitle(pinned)}` : ''}`}
+                            : `Source field in input ${inputIndex + 1}${pinned ? ` · ${displaySourceTitle(pinned)}` : ''}`}
                           <select id={`combine-output-source-${output.id}-${inputIndex}`} aria-label={kind === 'APPEND' ? `Output field ${outputIndex + 1} matching field in input ${inputIndex + 1}` : `Output field ${outputIndex + 1} source field in input ${inputIndex + 1}`} value={kind === 'APPEND' ? appendOptionValue(sourceId) : typeof sourceId === 'string' ? sourceId : ''} onChange={(event) => mapOutput(output.id, inputIndex, kind === 'APPEND' ? appendSourceId(event.target.value) : event.target.value)} disabled={!pinned} className="mt-1 block w-full rounded-md border border-slate-300 bg-white px-2 py-2 text-sm disabled:bg-slate-100">
                             <option value="">Choose a field</option>
                             {kind === 'APPEND' ? <option value={APPEND_EMPTY_OPTION}>Empty for this table</option> : null}
-                            {choices.map((column) => <option key={column.id} value={kind === 'APPEND' ? `${APPEND_COLUMN_OPTION_PREFIX}${column.id}` : column.id}>{column.label || column.name} · {column.type || column.clickhouseType}{column.nullable ? ' · nullable' : ''}</option>)}
+                            {choices.map((column, columnIndex) => <option key={column.id} value={kind === 'APPEND' ? `${APPEND_COLUMN_OPTION_PREFIX}${column.id}` : column.id}>{displayColumnLabel(column, originalColumnIndex(pinned?.columns, column, columnIndex))} · {column.type || column.clickhouseType}{column.nullable ? ' · nullable' : ''}</option>)}
                           </select>
                         </label>
                       );

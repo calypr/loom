@@ -347,6 +347,7 @@ const assertSourceImmutability = async (context, explorer, docs, before, report)
 
 const expectedInnerRows = joinOracleRows(expectedObservations, expectedReports, 'INNER');
 const expectedLeftRows = joinOracleRows(expectedObservations, expectedReports, 'LEFT');
+const joinHeaders = ['Observation ID', 'Observation status', 'DiagnosticReport ID', 'DiagnosticReport status'];
 const appendHeaders = ['Record ID', 'Status', 'Patient gender'];
 
 const readGridWithPlaywright = async (page, kind = 'saved') => page.evaluate((viewKind) => {
@@ -804,8 +805,8 @@ export const joinWorkflow = async ({ page, report, action }, context) => {
       expectedOutputTitle: docs.observation.output.title,
       previewHeaders: sourcePreviewHeaders.Observation,
       columns: [
-        { name: api.columns.observationID.name, label: api.columns.observationID.label, authoredName: authored.observationID.name, authoredLabel: authored.observationID.label },
-        { name: api.columns.observationStatus.name, label: api.columns.observationStatus.label, authoredName: authored.observationStatus.name, authoredLabel: authored.observationStatus.label },
+        { name: api.columns.observationID.name, label: api.columns.observationID.label, authoredName: authored.observationID.name, authoredLabel: authored.observationID.label, expectedLabel: 'Observation ID' },
+        { name: api.columns.observationStatus.name, label: api.columns.observationStatus.label, authoredName: authored.observationStatus.name, authoredLabel: authored.observationStatus.label, expectedLabel: 'Observation status' },
       ],
     },
     diagnosticReport: {
@@ -815,27 +816,54 @@ export const joinWorkflow = async ({ page, report, action }, context) => {
       expectedOutputTitle: docs.report.output.title,
       previewHeaders: sourcePreviewHeaders.DiagnosticReport,
       columns: [
-        { name: api.columns.reportID.name, label: api.columns.reportID.label, authoredName: authored.reportID.name, authoredLabel: authored.reportID.label },
-        { name: api.columns.reportStatus.name, label: api.columns.reportStatus.label, authoredName: authored.reportStatus.name, authoredLabel: authored.reportStatus.label },
+        { name: api.columns.reportID.name, label: api.columns.reportID.label, authoredName: authored.reportID.name, authoredLabel: authored.reportID.label, expectedLabel: 'DiagnosticReport ID' },
+        { name: api.columns.reportStatus.name, label: api.columns.reportStatus.label, authoredName: authored.reportStatus.name, authoredLabel: authored.reportStatus.label, expectedLabel: 'DiagnosticReport status' },
       ],
     },
   };
+  const opaqueDisplayIdentifier = /^(?:out|col)_[0-9a-f]{24}$/;
   authoredSourceMetadataEvidence.ok = [authoredSourceMetadataEvidence.observation, authoredSourceMetadataEvidence.diagnosticReport].every(source =>
     source.tableTitle === source.expectedTableTitle && source.outputTitle === source.expectedOutputTitle &&
     source.columns.every(column => column.name === column.authoredName && column.label === column.authoredLabel &&
-      Boolean(String(column.authoredLabel ?? '').trim()) && source.previewHeaders.includes(column.authoredLabel)),
+      column.label === column.expectedLabel && Boolean(String(column.authoredLabel ?? '').trim()) &&
+      !opaqueDisplayIdentifier.test(String(column.label ?? '').trim()) && source.previewHeaders.includes(column.authoredLabel)),
   );
   check(report, 'correctness', 'published Join source labels match independently authored columns and source previews',
     authoredSourceMetadataEvidence.ok, authoredSourceMetadataEvidence);
   if (!authoredSourceMetadataEvidence.ok) throw new Error('Published Join source presentation differs from its authored source tables: ' + JSON.stringify(authoredSourceMetadataEvidence));
-  const joinHeaders = [authored.observationID.label, authored.observationStatus.label, authored.reportID.label, authored.reportStatus.label]
-    .map((label, index) => String(label ?? '').trim() || [api.columns.observationID, api.columns.observationStatus, api.columns.reportID, api.columns.reportStatus][index].name);
   check(report, 'correctness', 'native Combine inputs pin the exact current Observation and DiagnosticReport revisions',
     publishedRef(observationRevision) === publishedRef(api.revisions.Observation) &&
     publishedRef(reportRevision) === publishedRef(api.revisions.DiagnosticReport),
     { observationRevision, reportRevision, expected: api.revisions });
 
   await chooseOperationWithPlaywright(page, action, 'KEY_JOIN', [observationRevision, reportRevision]);
+  const schemaDetails = page.locator('[data-testid="construction-combine-editor"] details');
+  for (const [index, resourceType] of ['Observation', 'DiagnosticReport'].entries()) {
+    const details = schemaDetails.nth(index);
+    await action(`open pinned ${resourceType} schema`, details.locator('summary'), () => details.locator('summary').click(), {
+      after: () => details.locator('ul').waitFor({ state: 'visible', timeout: 5000 }),
+    });
+  }
+  const pinnedSchemaDisplayEvidence = await Promise.all([
+    { resourceType: 'Observation', revision: observationRevision },
+    { resourceType: 'DiagnosticReport', revision: reportRevision },
+  ].map(async ({ resourceType, revision }, index) => {
+    const labels = (await schemaDetails.nth(index).locator('li > span.font-medium').allTextContents()).map(label => label.trim());
+    const expectedLabels = revision.columns.map(column => String(column.label ?? '').trim());
+    return {
+      resourceType,
+      labels,
+      expectedLabels,
+      opaqueLabels: labels.filter(label => opaqueDisplayIdentifier.test(label)),
+      ok: labels.length === expectedLabels.length && JSON.stringify(labels) === JSON.stringify(expectedLabels) &&
+        labels.every(label => Boolean(label) && !opaqueDisplayIdentifier.test(label)),
+    };
+  }));
+  const pinnedSchemaLabelsVisible = pinnedSchemaDisplayEvidence.every(source => source.ok);
+  check(report, 'usability', 'pinned Combine schemas show every authored human column label',
+    pinnedSchemaLabelsVisible, { sources: pinnedSchemaDisplayEvidence });
+  if (!pinnedSchemaLabelsVisible) throw new Error('Pinned Combine schemas did not render every authored human label: ' + JSON.stringify(pinnedSchemaDisplayEvidence));
+
   const displayedSources = await Promise.all([
     page.locator('select[aria-label="Input table 1"] option:checked').textContent(),
     page.locator('select[aria-label="Input table 2"] option:checked').textContent(),
@@ -859,6 +887,21 @@ export const joinWorkflow = async ({ page, report, action }, context) => {
   if (!sourceDisplayEvidence.ok) throw new Error('Pinned published source cards did not show their authored labels: ' + JSON.stringify(sourceDisplayEvidence));
   await selectInputWithPlaywright(page, action, 'select[aria-label="Matching pair 1 first field"]', api.columns.observationID.id, 'select Observation ID join key');
   await selectInputWithPlaywright(page, action, 'select[aria-label="Matching pair 1 second field"]', api.columns.reportID.id, 'select DiagnosticReport ID join key');
+  const matchingFieldEvidence = await Promise.all([
+    { selector: 'select[aria-label="Matching pair 1 first field"]', column: api.columns.observationID, label: 'Observation ID' },
+    { selector: 'select[aria-label="Matching pair 1 second field"]', column: api.columns.reportID, label: 'DiagnosticReport ID' },
+  ].map(async ({ selector, column, label }) => {
+    const control = page.locator(selector);
+    const option = control.locator('option:checked');
+    const visibleText = (await option.textContent() ?? '').trim();
+    const value = await control.inputValue();
+    return { label, visibleText, value, expectedValue: column.id,
+      ok: visibleText.startsWith(label + ' ·') && !opaqueDisplayIdentifier.test(visibleText.split(' · ')[0] ?? '') && value === column.id };
+  }));
+  const matchingFieldLabelsVisible = matchingFieldEvidence.every(field => field.ok);
+  check(report, 'usability', 'selected Join key options show human labels and preserve exact column IDs',
+    matchingFieldLabelsVisible, { fields: matchingFieldEvidence });
+  if (!matchingFieldLabelsVisible) throw new Error('Selected Join key options did not show their human labels and exact column IDs: ' + JSON.stringify(matchingFieldEvidence));
   await selectInputWithPlaywright(page, action, 'select[aria-label="If a row in the first table has no match"]', 'INNER', 'select INNER join policy');
   const outputDefaults = [];
   const priorOutputNames = [];
@@ -897,7 +940,26 @@ export const joinWorkflow = async ({ page, report, action }, context) => {
   check(report, 'correctness', 'Join output names and labels default from selected pinned fields without manual entry',
     outputDefaultCheck.ok, outputDefaultCheck);
   if (!outputDefaultCheck.ok) throw new Error('Join output defaults did not match the selected published fields: ' + JSON.stringify(outputDefaultCheck));
-  await exactRowsWithPlaywright(report, 'INNER preview returns the three exact rows matched on shared required IDs',
+
+  const outputSourceDisplayEvidence = await Promise.all([
+    { index: 1, inputIndex: 1, column: api.columns.observationID, label: 'Observation ID' },
+    { index: 2, inputIndex: 1, column: api.columns.observationStatus, label: 'Observation status' },
+    { index: 3, inputIndex: 2, column: api.columns.reportID, label: 'DiagnosticReport ID' },
+    { index: 4, inputIndex: 2, column: api.columns.reportStatus, label: 'DiagnosticReport status' },
+  ].map(async ({ index, inputIndex, column, label }) => {
+    const control = page.locator(`select[aria-label="Output field ${index} source field in input ${inputIndex}"]`);
+    const option = control.locator('option:checked');
+    const visibleText = (await option.textContent() ?? '').trim();
+    const value = await control.inputValue();
+    return { index, inputIndex, label, visibleText, value, expectedValue: column.id,
+      ok: visibleText.startsWith(label + ' ·') && !opaqueDisplayIdentifier.test(visibleText.split(' · ')[0] ?? '') && value === column.id };
+  }));
+  const outputSourceLabelsVisible = outputSourceDisplayEvidence.every(field => field.ok);
+  check(report, 'usability', 'selected Join output-source options show human labels and preserve exact column IDs',
+    outputSourceLabelsVisible, { fields: outputSourceDisplayEvidence });
+  if (!outputSourceLabelsVisible) throw new Error('Selected Join output-source options did not show their human labels and exact column IDs: ' + JSON.stringify(outputSourceDisplayEvidence));
+
+  await exactRowsWithPlaywright(report, 'INNER preview shows literal human headers and the three exact matched rows',
     page, 'proposal', joinHeaders, expectedInnerRows);
 
   await applyProposalWithPlaywright(page, action, 'Apply INNER Join to the new target', expectedInnerRows.length);

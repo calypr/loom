@@ -280,13 +280,13 @@ test('lifecycle phase references point to the named applied, edited, reloaded, a
   const publishedJoinFeature = 'published-table KEY_JOIN basic lifecycle';
   const publishedJoinPhases = {
     choice: [10, /native Combine inputs pin the exact current Observation and DiagnosticReport revisions/],
-    proposal: [14, /INNER preview returns the three exact rows matched on shared required IDs/],
-    cancel: [17, /Canceling the LEFT edit leaves the saved INNER operation unchanged/],
-    apply: [15, /INNER Apply preserves the exact joined rows/],
-    savedRows: [15, /INNER Apply preserves the exact joined rows/],
-    reload: [16, /INNER table reload retains the three exact rows/],
-    edit: [20, /LEFT Apply preserves exact matches and unmatched null fields/],
-    restoration: [23, /removing KEY_JOIN and reloading restores the rooted empty target/],
+    proposal: [17, /INNER preview shows literal human headers and the three exact matched rows/],
+    cancel: [20, /Canceling the LEFT edit leaves the saved INNER operation unchanged/],
+    apply: [18, /INNER Apply preserves the exact joined rows/],
+    savedRows: [18, /INNER Apply preserves the exact joined rows/],
+    reload: [19, /INNER table reload retains the three exact rows/],
+    edit: [23, /LEFT Apply preserves exact matches and unmatched null fields/],
+    restoration: [26, /removing KEY_JOIN and reloading restores the rooted empty target/],
   };
   for (const [phase, [index, expectedText]] of Object.entries(publishedJoinPhases)) {
     const mapped = mappedText('builder-combine', publishedJoinFeature, phase);

@@ -127,6 +127,124 @@ const lastCandidate = (callback: CandidateMock): ConstructionCombineCandidateInt
 afterEach(cleanup);
 
 describe('ConstructionCombineEditor', () => {
+  it('shows available human schema metadata instead of opaque published names', () => {
+    const opaqueColumnId = 'col_0123456789abcdef01234567';
+    const filteredColumnId = 'col_1234567890abcdef12345678';
+    const firstUnnamedColumnId = 'col_abcdef0123456789abcdef01';
+    const secondUnnamedColumnId = 'col_9876543210abcdef01234567';
+    const opaqueOutputId = 'out_0123456789abcdef01234567';
+    const observation: ConstructionCombinePublishedRevision = {
+      ...leftRevision,
+      tableTitle: 'out_results',
+      outputTitle: opaqueOutputId,
+      rowMeaning: 'one row per patient',
+      columns: [
+        {
+          ...column(opaqueColumnId, opaqueColumnId, 'string', 'String'),
+          label: opaqueColumnId,
+          semanticPath: 'Patient.id',
+        },
+        {
+          ...column('stable-visit-date', 'visit_date', 'date', 'Date'),
+          label: opaqueOutputId,
+          semanticPath: ' ',
+        },
+        {
+          ...column('human-height', 'col_height', 'integer', 'Int64'),
+          label: opaqueColumnId,
+          semanticPath: ' ',
+        },
+        {
+          ...column('human-output-name', 'out_results', 'string', 'String'),
+          label: opaqueOutputId,
+          semanticPath: ' ',
+        },
+        {
+          ...column(filteredColumnId, filteredColumnId, 'string', 'Array(String)', { repeated: true }),
+          label: filteredColumnId,
+        },
+        {
+          ...column(firstUnnamedColumnId, firstUnnamedColumnId, 'string', 'String'),
+          label: firstUnnamedColumnId,
+        },
+        {
+          ...column(secondUnnamedColumnId, secondUnnamedColumnId, 'string', 'String'),
+          label: secondUnnamedColumnId,
+        },
+      ],
+    };
+    const report: ConstructionCombinePublishedRevision = {
+      ...rightOldRevision,
+      tableTitle: opaqueColumnId,
+      outputTitle: opaqueOutputId,
+      rowMeaning: firstUnnamedColumnId,
+      columns: [
+        {
+          ...column(opaqueOutputId, opaqueOutputId, 'string', 'String'),
+          label: opaqueColumnId,
+          semanticPath: 'DiagnosticReport.id',
+        },
+      ],
+    };
+
+    renderEditor({ catalog: { kind: 'ready', revisions: [observation, report] } });
+    fireEvent.click(screen.getByRole('button', { name: 'Match rows' }));
+    choose('Input table 1', refKey(observation));
+    choose('Input table 2', refKey(report));
+
+    const selectedInputText = screen.getByLabelText('Input table 1').querySelector('option:checked')?.textContent ?? '';
+    expect(selectedInputText).toContain('out_results');
+    expect(selectedInputText).toContain('one row per patient');
+    const selectedReportText = screen.getByLabelText('Input table 2').querySelector('option:checked')?.textContent ?? '';
+    expect(selectedReportText).toContain('Published table output');
+    expect(selectedReportText).not.toContain(opaqueColumnId);
+    expect(selectedReportText).not.toContain(opaqueOutputId);
+
+    const schemaSummary = screen.getAllByText(/View pinned schema/)[0];
+    if (!schemaSummary) throw new Error('Observation pinned schema summary is missing.');
+    fireEvent.click(schemaSummary);
+    const schema = schemaSummary.parentElement;
+    expect(schema?.textContent).toContain('Patient.id');
+    expect(schema?.textContent).toContain('visit_date');
+    expect(schema?.textContent).toContain('col_height');
+    expect(schema?.textContent).toContain('out_results');
+    expect(schema?.textContent).toContain('Unnamed field 5');
+    expect(schema?.textContent).toContain('Unnamed field 6');
+    expect(schema?.textContent).toContain('Unnamed field 7');
+    expect(schema?.textContent).not.toContain(opaqueColumnId);
+    expect(schema?.textContent).not.toContain(opaqueOutputId);
+
+    const matchingSelector = screen.getByLabelText('Matching pair 1 first field');
+    expect(matchingSelector.closest('label')?.textContent).toContain('out_results field');
+    expect(matchingSelector.textContent).toContain('Patient.id');
+    expect(matchingSelector.textContent).toContain('visit_date');
+    expect(matchingSelector.textContent).toContain('col_height');
+    expect(matchingSelector.textContent).toContain('out_results');
+    expect(matchingSelector.textContent).toContain('Unnamed field 6');
+    expect(matchingSelector.textContent).toContain('Unnamed field 7');
+    expect(matchingSelector.textContent).not.toContain('Unnamed field 5');
+    expect(matchingSelector.querySelector(`option[value="${filteredColumnId}"]`)).toBeNull();
+    expect(matchingSelector.querySelector(`option[value="${opaqueColumnId}"]`)?.textContent).toContain('Patient.id');
+    expect(matchingSelector.querySelector(`option[value="${firstUnnamedColumnId}"]`)?.textContent).toContain('Unnamed field 6');
+    expect(matchingSelector.querySelector(`option[value="${secondUnnamedColumnId}"]`)?.textContent).toContain('Unnamed field 7');
+    expect(matchingSelector.querySelector(`option[value="${opaqueColumnId}"]`)?.getAttribute('value')).toBe(opaqueColumnId);
+    fireEvent.click(screen.getByRole('button', { name: 'Add output field' }));
+    const outputSelector = screen.getByLabelText('Output field 1 source field in input 1');
+    expect(outputSelector.closest('label')?.textContent).toContain('Source field in input 1 · out_results');
+    expect(outputSelector.textContent).toContain('Patient.id');
+    expect(outputSelector.textContent).toContain('visit_date');
+    expect(outputSelector.textContent).toContain('col_height');
+    expect(outputSelector.textContent).toContain('out_results');
+    expect(outputSelector.textContent).toContain('Unnamed field 5');
+    expect(outputSelector.textContent).toContain('Unnamed field 6');
+    expect(outputSelector.textContent).toContain('Unnamed field 7');
+    expect(outputSelector.querySelector(`option[value="${filteredColumnId}"]`)?.textContent).toContain('Unnamed field 5');
+    expect(outputSelector.querySelector(`option[value="${opaqueColumnId}"]`)?.textContent).toContain('Patient.id');
+    expect(outputSelector.querySelector(`option[value="${firstUnnamedColumnId}"]`)?.textContent).toContain('Unnamed field 6');
+    expect(outputSelector.querySelector(`option[value="${secondUnnamedColumnId}"]`)?.textContent).toContain('Unnamed field 7');
+    expect(outputSelector.querySelector(`option[value="${opaqueColumnId}"]`)?.getAttribute('value')).toBe(opaqueColumnId);
+  });
+
   it('defaults Join outputs from the selected field without overwriting later user edits', () => {
     const onCandidateChange = renderEditor();
     fireEvent.click(screen.getByRole('button', { name: 'Match rows' }));
