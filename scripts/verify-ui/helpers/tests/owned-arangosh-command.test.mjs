@@ -14,6 +14,7 @@ test('Arangosh receives exact long script bytes from file and expands its passwo
   await mkdir(binDirectory);
   const capturePath = join(directory, 'arangosh-args.json');
   const failureCapturePath = join(directory, 'arangosh-failure-args.json');
+  const unsetPasswordCapturePath = join(directory, 'arangosh-unset-password-args.json');
   const arangoshPath = join(binDirectory, 'arangosh');
   const arangoshShim = `#!${process.execPath}
 import { readFileSync, statSync, writeFileSync } from 'node:fs';
@@ -48,17 +49,19 @@ print(single + double + slash + dollar + long);
   assert.match(shellCommand, /--server\.password "\$ARANGO_ROOT_PASSWORD"/);
   assert.doesNotMatch(shellCommand, new RegExp(password.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
 
-  const runInvocation = (captureDestination, exitCode = '') => spawnSync('sh', ['-lc', shellCommand], {
-    encoding: 'utf8',
-    env: {
+  const runInvocation = (captureDestination, { exitCode = '', password: containerPassword = password, omitPassword = false } = {}) => {
+    const env = {
       ...process.env,
       PATH: `${binDirectory}:${process.env.PATH}`,
-      ARANGO_ROOT_PASSWORD: password,
       OWNED_ARANGOSH_CAPTURE: captureDestination,
       OWNED_ARANGOSH_EXIT_CODE: exitCode,
-    },
-    timeout: 10000,
-  });
+    };
+    if (omitPassword) delete env.ARANGO_ROOT_PASSWORD;
+    else env.ARANGO_ROOT_PASSWORD = containerPassword;
+    return spawnSync('sh', ['-lc', shellCommand], {
+      encoding: 'utf8', env, timeout: 10000,
+    });
+  };
   const run = runInvocation(capturePath);
   assert.equal(run.status, 0, run.stderr || run.error?.message);
 
@@ -69,7 +72,14 @@ print(single + double + slash + dollar + long);
   assert.equal(captured.fileMode, 0o600);
   assert.equal(existsSync(captured.executePath), false, 'temporary script is removed after a successful invocation');
 
-  const failedRun = runInvocation(failureCapturePath, '23');
+  const missingPasswordRun = runInvocation(unsetPasswordCapturePath, { omitPassword: true });
+  assert.equal(missingPasswordRun.status, 0, missingPasswordRun.stderr || missingPasswordRun.error?.message);
+  const unsetPasswordCapture = JSON.parse(await readFile(unsetPasswordCapturePath, 'utf8'));
+  assert.equal(unsetPasswordCapture.password, '', 'an unset container password expands to empty for the owned no-auth fixture');
+  assert.equal(unsetPasswordCapture.fileMode, 0o600);
+  assert.equal(existsSync(unsetPasswordCapture.executePath), false, 'temporary script is removed after an invocation with no password variable');
+
+  const failedRun = runInvocation(failureCapturePath, { exitCode: '23' });
   assert.equal(failedRun.status, 23, failedRun.stderr || failedRun.error?.message);
   const failedCapture = JSON.parse(await readFile(failureCapturePath, 'utf8'));
   assert.equal(failedCapture.fileMode, 0o600);
