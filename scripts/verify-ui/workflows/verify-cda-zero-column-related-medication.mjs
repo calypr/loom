@@ -408,10 +408,17 @@ FOR specimen IN Specimen
     assert.deepEqual(createTableResponse.workspace, builder.workspace, 'CREATE_TABLE response workspace must match the independently reloaded Builder');
     assert.equal(createTableResponse.draftVersion, builder.draftVersion, 'CREATE_TABLE response draft version must match the reloaded Builder');
     assert.equal(createTableResponse.draftDigest, builder.draftDigest, 'CREATE_TABLE response digest must match the reloaded Builder');
-    assert.deepEqual(createTableResponse.results.map(result => result.type), ['CREATE_TABLE'], 'CREATE_TABLE response must identify the exact initial command');
     assert.equal(builder.workspace.documents.length, 1, 'CREATE_TABLE must produce exactly one isolated Specimen document');
     const initial = builder.workspace.documents[0];
     assert(initial, 'QA table creation failed');
+    const initialTab = builder.workspace.tabs.find(tab => tab.outputId === initial.output.id);
+    assert(initialTab, 'CREATE_TABLE must create a tab for the initial Specimen document');
+    assert.deepEqual(createTableResponse.results, [{
+      type: 'TABLE_CREATED',
+      outputId: initial.output.id,
+      tabId: initialTab.id,
+      occurrenceId: 'base',
+    }], 'CREATE_TABLE response must match the source-emitted result enum and exact initial table IDs');
     outputId = initial.output.id;
     assert.deepEqual(initial.columns, [], 'Starting table must have zero public columns');
     assert(initial.population == null, 'Starting table must have no population attachment before scoped membership is seeded');

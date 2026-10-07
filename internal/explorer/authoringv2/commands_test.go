@@ -36,6 +36,27 @@ func TestApplyCommandsCreatesRecipeSafeBackendIdentities(t *testing.T) {
 	if len(results) != 1 || len(workspace.Documents) != 1 || len(workspace.Tabs) != 1 {
 		t.Fatalf("workspace=%#v results=%#v", workspace, results)
 	}
+	if results[0].Type != "TABLE_CREATED" {
+		t.Fatalf("CREATE_TABLE result type=%q, want TABLE_CREATED", results[0].Type)
+	}
+	if results[0].OutputID != workspace.Documents[0].Output.ID || results[0].TabID != workspace.Tabs[0].ID || results[0].OccurrenceID != "base" {
+		t.Fatalf("CREATE_TABLE result=%#v, workspace document=%#v tab=%#v", results[0], workspace.Documents[0], workspace.Tabs[0])
+	}
+	resultWire, err := json.Marshal(results[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	var resultFields map[string]string
+	if err := json.Unmarshal(resultWire, &resultFields); err != nil {
+		t.Fatal(err)
+	}
+	wantResultFields := map[string]string{
+		"type": "TABLE_CREATED", "outputId": workspace.Documents[0].Output.ID,
+		"tabId": workspace.Tabs[0].ID, "occurrenceId": "base",
+	}
+	if !reflect.DeepEqual(resultFields, wantResultFields) {
+		t.Fatalf("CREATE_TABLE result JSON=%s, want exactly %#v", resultWire, wantResultFields)
+	}
 	safe := regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 	if !safe.MatchString(results[0].OutputID) || results[0].OutputID != workspace.Documents[0].Output.ID {
 		t.Fatalf("backend generated invalid output identity %q", results[0].OutputID)
