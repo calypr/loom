@@ -11,8 +11,18 @@ import { sanitizeBody, sanitizeReportPayload, sanitizeText } from '../helpers/pl
 import { requireUnique } from '../helpers/playwright-actions.mjs';
 import { captureCDARequests } from '../helpers/cda-playwright-requests.mjs';
 import { waitForCondition } from '../helpers/playwright-observations.mjs';
+import {
+  assertCountRowsGroupLabelEditIdentity,
+  assertCountRowsGroupLabelEditProposal,
+  assertBuilderDraftAdvanced,
+  assertNoUnexpectedCdaDiagnostics,
+  assertGroupRemovalCancelRestoration,
+  selectMissingComponentGroupOracle,
+} from '../helpers/missing-component-group-oracle.mjs';
 
-export async function repeatedEmptyWorkflow({ page: nativePage, cda }) {
+export async function repeatedEmptyWorkflow({ page: nativePage, cda, mode = 'literal-empty' }) {
+const missingGroupOnly = mode === 'missing-component-group';
+assert(['literal-empty', 'missing-component-group'].includes(mode), `Unsupported repeated-component workflow mode: ${mode}`);
 const values = {
   'api-origin': cda.apiOrigin,
   'ui-origin': cda.uiOrigin,
@@ -25,7 +35,7 @@ const values = {
 };
 
 const protectedExplorer = 'cda-builder-full-qa-1790440983382';
-const explorer = 'cda-repeated-empty-' + Date.now();
+const explorer = (missingGroupOnly ? 'cda-missing-component-group-' : 'cda-repeated-empty-') + Date.now();
 assert.notEqual(explorer, protectedExplorer);
 const sourceFreezeRoot = cda.target.sourceRoot ?? fileURLToPath(new URL('../../..', import.meta.url));
 const apiBuildTarget = 'local-cda-api';
@@ -35,7 +45,9 @@ const report = {
   errors: [],
   started: new Date().toISOString(),
   target: { apiOrigin: values['api-origin'], uiOrigin: values['ui-origin'], project: values.project, generation: values.generation, protectedExplorer },
-  explorer, scenario: 'Owned CDA Observation.component[] source EXPANDED composed with authored GROUP COUNT_ROWS, with raw-value, preview, cancel, apply, reload, and removal restoration checks.',
+  explorer, scenario: missingGroupOnly
+    ? 'Owned CDA missing-component Observation source EXPANDED composed with authored GROUP COUNT_ROWS and removal-Cancel restoration checks.'
+    : 'Owned CDA Observation.component[] source EXPANDED composed with authored GROUP COUNT_ROWS, with raw-value, preview, cancel, apply, reload, and removal restoration checks.',
   assertions: [], gaps: [], failures: [], timings: [], requests: [], browserRequests: [],
   browserErrors: { exceptions: [], console: [], modules: [], http: [], incidental: [] }, evidencePaths: [],
 };
@@ -144,7 +156,7 @@ const responseEvidence = value => {
 
 const boundedRawOracle = () => {
   const query = 'FOR r IN Observation FILTER r.project == ' + q(values.project) + ' AND r.dataset_generation == ' +
-    q(values.generation) + ' SORT r.id LIMIT 1000 RETURN {id:r.id,generation:r.dataset_generation,payload:r.payload}';
+    q(values.generation) + ' SORT r.id LIMIT 1000 RETURN {id:r.id,project:r.project,generation:r.dataset_generation,payload:r.payload}';
   const result = spawnSync('rtk', [
     'proxy', 'docker', 'exec', values['arango-container'], 'arangosh', '--server.database', 'loom_dev',
     '--javascript.execute-string', 'print(JSON.stringify(db._query(' + q(query) + ').toArray()));',
@@ -154,6 +166,34 @@ const boundedRawOracle = () => {
   assert(jsonStart >= 0, 'Arango oracle returned no JSON array: ' + result.stdout.slice(0, 300));
   const scanned = JSON.parse(result.stdout.slice(jsonStart));
   assert(scanned.length <= 1000, 'Raw source scan exceeded the 1000 Observation bound');
+  if (missingGroupOnly) {
+    const oracle = selectMissingComponentGroupOracle(scanned, {
+      project: values.project,
+      generation: values.generation,
+      scanLimit: 1000,
+    });
+    report.oracle = {
+      source: 'ArangoDB raw Observation payloads',
+      project: values.project,
+      generation: values.generation,
+      queryLimit: 1000,
+      scanned: oracle.scanned,
+      witnessScope: 'one two-item component source plus three records whose component property is absent; bounded sample only',
+      status: oracle.status,
+      ...(oracle.reason ? { reason: oracle.reason } : {}),
+      selected: oracle.selected,
+      ...(oracle.status === 'ready' ? {
+        expectedComponentRows: oracle.expectedComponentRows,
+        expectedRecordIDs: oracle.expectedRecordIDs,
+        expectedPreservedEmptyIDs: oracle.expectedMissingOwnerIDs,
+        expectedExpandedRowCount: oracle.expectedExpandedRowCount,
+        expectedGroupRows: oracle.expectedGroupRows,
+      } : {}),
+      maxSelectedRoots: 4,
+      maxExpectedExpandedRows: 5,
+    };
+    return oracle.selected;
+  }
   const positives = scanned.flatMap(resource => {
     const component = resource.payload?.component;
     if (!Array.isArray(component) || component.length < 2 || component.length > 3) return [];
@@ -384,15 +424,17 @@ const verifyPreview = async (policy, expectedPairs, emptyIDs = []) => {
   return { headers: preview.headers, rowCount: preview.rows.length, positivePairs: sortPairs(actualPairs), preservedEmptyIDs };
 };
 const sortedRows = rows => rows.slice().sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)));
-const expectedGroupRows = () => sortedRows([
-  ...report.oracle.expectedComponentRows.reduce((groups, item) => {
-    const existing = groups.find(group => group[0] === item.id);
-    if (existing) existing[1] += 1;
-    else groups.push([item.id, 1]);
-    return groups;
-  }, []),
-  ...report.oracle.expectedPreservedEmptyIDs.map(id => [id, 1]),
-]);
+const expectedGroupRows = () => missingGroupOnly
+  ? report.oracle.expectedGroupRows
+  : sortedRows([
+    ...report.oracle.expectedComponentRows.reduce((groups, item) => {
+      const existing = groups.find(group => group[0] === item.id);
+      if (existing) existing[1] += 1;
+      else groups.push([item.id, 1]);
+      return groups;
+    }, []),
+    ...report.oracle.expectedPreservedEmptyIDs.map(id => [id, 1]),
+  ]);
 const constructionProposalFor = async (name, startedAt) => {
   await nativePage.waitForFunction(() => {
     const panel = document.querySelector('[data-testid="construction-proposal-panel"]');
@@ -553,13 +595,14 @@ const configureGroup = async () => measure('source-expanded-group-editor-to-key'
   await fastWait(startedAt, { kind: 'present', selector: '[data-testid="construction-reshape-group"]' }, 'Native GROUP editor');
   await chooseOnlyObservationIDGroupKey(startedAt);
 });
-const verifyGroupedTable = async (expected, name) => {
+const verifyGroupedTable = async (expected, name, expectedCountLabel, verifyProtocol = true) => {
   const preview = await fieldPreviewRows();
   const group = document().construction?.steps?.find(step => step.operation?.kind === 'GROUP');
   assert(group, `${name}: saved GROUP step is missing`);
   const keyOutput = group.outputs.find(column => column.id === group.operation.group.keys[0].outputColumnId);
   const countOutput = group.outputs.find(column => column.id === group.operation.group.aggregates.find(item => item.operation === 'COUNT_ROWS')?.outputColumnId);
   assert(keyOutput?.label && countOutput?.label, `${name}: saved GROUP output labels are missing`);
+  if (expectedCountLabel !== undefined) assert.equal(countOutput.label, expectedCountLabel, `${name}: saved COUNT_ROWS label differs`);
   const headerLabel = header => header.split(String.fromCharCode(10))[0].trim().toUpperCase();
   const keyIndex = preview.headers.findIndex(header => headerLabel(header) === keyOutput.label.trim().toUpperCase());
   const countIndex = preview.headers.findIndex(header => headerLabel(header) === countOutput.label.trim().toUpperCase());
@@ -567,20 +610,63 @@ const verifyGroupedTable = async (expected, name) => {
   const visibleRows = sortedRows(preview.rows.map(row => [String(parseCell(row[keyIndex])), Number(parseCell(row[countIndex]))]));
   assert.deepEqual(visibleRows, expected, `${name}: rendered GROUP rows differ from raw component cardinalities`);
   assert.equal(preview.rows.length, expected.length);
-  const request = report.browserRequests.findLast(entry => entry.path.endsWith('/preview') && entry.status === 200 && protocolResponse(entry));
-  const response = protocolResponse(request);
-  assert(response?.rows && response?.columns, `${name}: saved preview protocol is missing`);
-  const keyColumn = response.columns.find(column => column.label === keyOutput.label)?.column;
-  const countColumn = response.columns.find(column => column.label === countOutput.label)?.column;
-  assert(keyColumn && countColumn, `${name}: protocol omitted saved GROUP output metadata`);
-  const protocolRows = sortedRows(response.rows.map(row => [String(row[keyColumn]), Number(row[countColumn])]));
-  assert.deepEqual(protocolRows, expected, `${name}: protocol rows differ from raw component cardinalities`);
-  return { headers: preview.headers, rowCount: preview.rows.length, rows: protocolRows };
+  let protocolRows = visibleRows;
+  if (verifyProtocol) {
+    const request = report.browserRequests.findLast(entry => entry.path.endsWith('/preview') && entry.status === 200 && protocolResponse(entry));
+    const response = protocolResponse(request);
+    assert(response?.rows && response?.columns, `${name}: saved preview protocol is missing`);
+    const keyColumn = response.columns.find(column => column.label === keyOutput.label)?.column;
+    const countColumn = response.columns.find(column => column.label === countOutput.label)?.column;
+    assert(keyColumn && countColumn, `${name}: protocol omitted saved GROUP output metadata`);
+    protocolRows = sortedRows(response.rows.map(row => [String(row[keyColumn]), Number(row[countColumn])]));
+    assert.deepEqual(protocolRows, expected, `${name}: protocol rows differ from raw component cardinalities`);
+  }
+  return {
+    headers: preview.headers, rowCount: preview.rows.length, rows: protocolRows,
+    stepId: group.id, keyOutputId: keyOutput.id, countOutputId: countOutput.id, countOutputLabel: countOutput.label,
+  };
+};
+const verifyGroupLabelEditProposal = async ({ request, beforeStep, expectedRows, expectedLabel, name }) => {
+  const candidateStep = request.body?.candidateConstruction?.steps?.find(step => step.id === beforeStep.id);
+  assert(candidateStep, `${name}: proposal omitted the exact saved GROUP step`);
+  const preview = protocolResponse(request)?.preview;
+  const summary = assertCountRowsGroupLabelEditProposal({
+    beforeStep, editedStep: candidateStep, preview,
+    expectedRows, expectedLabel,
+  });
+  const visible = await fieldPreviewRows();
+  assert.equal(visible.rows.length, report.oracle.expectedGroupRows.length, `${name}: visible proposal row count differs from the raw oracle`);
+  const output = candidateStep.outputs.find(column => column.id === summary.countOutputId);
+  const key = candidateStep.outputs.find(column => column.id === summary.keyOutputId);
+  const headerLabel = header => header.split(String.fromCharCode(10))[0].trim();
+  const keyIndex = visible.headers.findIndex(header => headerLabel(header) === key.label);
+  const countIndex = visible.headers.findIndex(header => headerLabel(header) === expectedLabel);
+  assert(keyIndex >= 0, `${name}: visible proposal omitted the exact GROUP key label`);
+  assert(countIndex >= 0, `${name}: visible proposal omitted the edited COUNT_ROWS label`);
+  const visibleRows = sortedRows(visible.rows.map(row => [String(parseCell(row[keyIndex])), Number(parseCell(row[countIndex]))]));
+  assert.deepEqual(visibleRows, expectedRows, `${name}: visible proposal rows differ from the raw oracle`);
+  return { ...summary, visibleHeaders: visible.headers, visibleRows, receiptId: preview.receiptId };
 };
 const applyConstructionProposal = async (expectedRows, name) => measure(name, async startedAt => {
   await click(nativePage, '[data-testid="construction-apply-proposal"]');
   await fastWait(startedAt, { kind: 'all', conditions: [{ kind: 'hidden', selector: '[data-testid="construction-proposal-panel"]' }, rowsReady(expectedRows)] }, 'Applied authored row operation render');
 });
+const openSavedGroupEditor = async (groupStepId, expectedRows, name) => {
+  await openTable(expectedRows, `${name} select saved GROUP output`);
+  await measure(name, async startedAt => {
+    await click(nativePage, `[data-testid="construction-history-step-${groupStepId}"]`);
+    await fastWait(startedAt, { kind: 'enabled', selector: `[data-testid="construction-edit-step-${groupStepId}"]` }, 'Saved GROUP edit control');
+    await click(nativePage, `[data-testid="construction-edit-step-${groupStepId}"]`);
+    await fastWait(startedAt, { kind: 'present', selector: '[data-testid="construction-reshape-editor"]' }, 'Saved native GROUP editor');
+    const advanced = '[data-testid="construction-reshape-group-advanced"]';
+    await fastWait(startedAt, { kind: 'present', selector: advanced }, 'Saved GROUP advanced label section');
+    if (!await inspectPage(nativePage, `return document.querySelector(${q(advanced)})?.open === true;`)) {
+      await click(nativePage, advanced + ' summary');
+    }
+    await fastWait(startedAt, { kind: 'open', selector: advanced, value: true }, 'Saved GROUP advanced label section open');
+    await fastWait(startedAt, { kind: 'present', selector: 'input[aria-label="Summary output label 1"]' }, 'Saved COUNT_ROWS output label field');
+  });
+};
 const createSelection = async (refs, idempotencyKey) => {
   const selectionsPath = base.replace('/authoring/v2', '/selections');
   const selection = (await api(selectionsPath, {
@@ -651,11 +737,11 @@ const finish = async () => {
   for (const action of [report.activeAction, report.lastAction]) {
     if (action && typeof action === 'object') delete action.targetLocator;
   }
-  cda.report.standaloneCdaRows = report;
-  await cda.attachReport('standalone-cda-repeated-empty.json', report);
+  cda.report[missingGroupOnly ? 'standaloneCdaMissingComponentGroup' : 'standaloneCdaRows'] = report;
+  await cda.attachReport(missingGroupOnly ? 'standalone-cda-missing-component-group.json' : 'standalone-cda-repeated-empty.json', report);
   for (const assertion of report.assertions) cda.check('correctness', assertion.name, assertion.status === 'passed', assertion.evidence ?? {});
   if (report.status === 'failed' || report.status === 'invalidated') {
-    throw new Error(`Repeated-empty workflow ${report.status}: ${JSON.stringify(report.failures ?? report.invalidations)}`);
+    throw new Error(`${missingGroupOnly ? 'Missing-component GROUP' : 'Repeated-empty'} workflow ${report.status}: ${JSON.stringify(report.failures ?? report.invalidations)}`);
   }
 };
 
@@ -682,6 +768,11 @@ const main = async () => {
   const selected = boundedRawOracle();
   const positive = selected.find(resource => resource.componentValues);
   const emptyResources = selected.filter(resource => resource.emptyComponentKind);
+  if (missingGroupOnly && report.oracle?.status !== 'ready') {
+    report.gaps.push({ assertion: 'bounded missing-component GROUP source oracle', status: 'unverified',
+      reason: report.oracle?.reason ?? 'The bounded project/generation scan did not produce the exact missing-component witnesses.' });
+    return;
+  }
   if (!positive || emptyResources.length === 0) {
     report.gaps.push({ assertion: 'bounded positive and zero-component Observation oracle', status: 'unverified',
       reason: 'The bounded 1000-resource scan needs one Observation with 2–3 distinct non-empty component values and at least one zero-component Observation.' });
@@ -690,22 +781,24 @@ const main = async () => {
   assert(selected.length <= 4, 'Raw oracle selected more than four Observation roots');
   assert(report.oracle.expectedComponentRows.length + emptyResources.length <= 6, 'PRESERVE_PARENT expansion exceeds six expected rows');
   assert(selected.every(resource => resource.generation === values.generation && resource.resourceType === 'Observation'));
-  if (!emptyResources.some(resource => resource.emptyComponentKind === 'empty-array')) {
+  if (!missingGroupOnly && !emptyResources.some(resource => resource.emptyComponentKind === 'empty-array')) {
     report.gaps.push({ assertion: 'literal component: [] source shape', status: 'unverified',
       reason: 'Only missing/null/non-array component witnesses were selected; this run does not prove a literal empty-array source.' });
   }
-  recordAssertion('bounded raw CDA oracle selected positive and zero-component Observations', {
+  recordAssertion(missingGroupOnly
+    ? 'bounded raw oracle selects one two-item and three missing-component Observations'
+    : 'bounded raw CDA oracle selected positive and zero-component Observations', {
     roots: selected.length, positiveItems: report.oracle.expectedComponentRows.length,
     emptyWitnesses: emptyResources.map(resource => ({ id: resource.id, kind: resource.emptyComponentKind })),
     expectedPreservedRows: report.oracle.expectedComponentRows.length + emptyResources.length,
   });
 
-  await api(root, { name: explorer, title: 'CDA expanded component group composition QA' });
+  await api(root, { name: explorer, title: missingGroupOnly ? 'CDA missing-component GROUP lifecycle QA' : 'CDA expanded component group composition QA' });
   builder = (await api(base + '/builder')).body;
   assert.equal(builder.catalog.generation, values.generation, 'Fresh QA Explorer must use the requested CDA generation');
   const observationNode = builder.catalog.nodes.find(node => node.resourceType === 'Observation');
   assert(observationNode, 'CDA catalog has no Observation root');
-  await command([{ type: 'CREATE_TABLE', title: 'Expanded component group composition', rootNodeId: observationNode.nodeId }]);
+  await command([{ type: 'CREATE_TABLE', title: missingGroupOnly ? 'Missing component group lifecycle' : 'Expanded component group composition', rootNodeId: observationNode.nodeId }]);
   outputId = builder.workspace.documents[0].output.id;
   const idCandidate = builder.catalog.candidates.find(candidate => candidate.nodeId === observationNode.nodeId && candidate.fieldPath === 'id');
   const valueCandidate = builder.catalog.candidates.find(candidate => candidate.nodeId === observationNode.nodeId && candidate.fieldPath === 'component[].valueString');
@@ -732,13 +825,21 @@ const main = async () => {
   const rootsCount = selected.length;
   const preserveCount = report.oracle.expectedComponentRows.length + emptyResources.length;
   const excludeCount = report.oracle.expectedComponentRows.length;
+  if (missingGroupOnly) {
+    assert.equal(rootsCount, 4, 'Missing-component GROUP source selection must contain one two-item owner and three missing owners');
+    assert.equal(preserveCount, report.oracle.expectedExpandedRowCount, 'Missing-component GROUP expansion must contain exactly five rows');
+    assert.equal(report.oracle.expectedGroupRows.length, 4, 'COUNT_ROWS oracle must contain exactly four Observation IDs');
+  }
   await openTable(rootsCount, 'fresh-owned-explorer-load');
   await saveDOM('source-record-table');
   const initial = await fieldPreviewRows();
   const initialIndexes = columnIndices(initial);
   assert.deepEqual(initial.rows.map(row => String(parseCell(row[initialIndexes.idIndex]))).sort(), report.oracle.expectedRecordIDs.slice().sort(),
     'Initial RECORDS table must contain the exact selected source resources');
-  recordAssertion('seeded table starts with exact selected source records and both field bindings', { headers: initial.headers, rowCount: initial.rows.length, ids: report.oracle.expectedRecordIDs });
+  recordAssertion(missingGroupOnly
+    ? 'fresh owned Explorer and selection preserve the exact scoped Observation IDs'
+    : 'seeded table starts with exact selected source records and both field bindings',
+  { headers: initial.headers, rowCount: initial.rows.length, ids: report.oracle.expectedRecordIDs });
 
   await openRowSettings();
   await selectAndPreview('PRESERVE_PARENT', preserveCount);
@@ -757,10 +858,15 @@ const main = async () => {
   assert.equal(document().rows.expanded.scopePath, 'component[]');
   assert.equal(document().rows.expanded.emptyCollectionPolicy, 'PRESERVE_PARENT');
   report.preserveParentApplied = await verifyPreview('PRESERVE_PARENT', report.oracle.expectedComponentRows, emptyResources.map(resource => resource.id));
+  if (missingGroupOnly) {
+    recordAssertion('PRESERVE_PARENT expansion returns five exact item and missing-owner rows', report.preserveParentApplied);
+  }
   await saveDOM('preserve-parent-applied');
   await openTable(preserveCount, 'reload-preserve-parent');
   report.preserveParentReload = await verifyPreview('PRESERVE_PARENT', report.oracle.expectedComponentRows, emptyResources.map(resource => resource.id));
-  recordAssertion('PRESERVE_PARENT preserves positive item values and one empty row per owner across reload', report.preserveParentReload);
+  recordAssertion(missingGroupOnly
+    ? 'Apply and reload preserve all five raw-oracle EXPANDED rows'
+    : 'PRESERVE_PARENT preserves positive item values and one empty row per owner across reload', report.preserveParentReload);
 
   const expandedSourceState = {
     rows: structuredClone(document().rows), population: structuredClone(document().population),
@@ -773,7 +879,9 @@ const main = async () => {
   await configureGroup();
   const firstGroupProposal = await constructionProposalFor('source-expanded Group COUNT_ROWS Cancel preview', firstGroupStarted);
   report.groupCancelPreview = assertGroupProposal(firstGroupProposal, expectedGroupedRows, cancelGroupInput);
-  recordAssertion('automatic Group COUNT_ROWS proposal matches raw expanded-item cardinalities', report.groupCancelPreview);
+  recordAssertion(missingGroupOnly
+    ? 'COUNT_ROWS Group proposal returns four exact Observation ID cardinalities'
+    : 'automatic Group COUNT_ROWS proposal matches raw expanded-item cardinalities', report.groupCancelPreview);
   const beforeGroupCancel = structuredClone((await api(base + '/builder')).body.workspace);
   await measure('source-expanded Group preview Cancel', async startedAt => {
     await click(nativePage, '[data-testid="construction-cancel-proposal"]');
@@ -808,21 +916,155 @@ const main = async () => {
     sourceRows: document().rows, population: document().population, groupStepId,
     operation: savedGroup.operation, expectedRows: report.expectedGroupedRows,
   });
+  if (missingGroupOnly) {
+    report.groupApplySavedRows = await verifyGroupedTable(expectedGroupedRows, 'source-expanded GROUP after Apply before reload');
+    recordAssertion('applied GROUP renders the exact four-row table before reload', report.groupApplySavedRows);
+  }
   await openTable(expectedGroupedRows.length, 'reload-source-expanded-group');
   builder = (await api(base + '/builder')).body;
   assertSourceColumnBindings(document().columns, groupAppliedSourceColumns, applyGroupInput, 'GROUP reload', true);
   report.groupApplyReload = await verifyGroupedTable(expectedGroupedRows, 'source-expanded GROUP reload');
-  recordAssertion('reloaded GROUP output matches exact raw Observation component counts', report.groupApplyReload);
+  recordAssertion(missingGroupOnly
+    ? 'applied Group survives reload with exact four-row counts'
+    : 'reloaded GROUP output matches exact raw Observation component counts', report.groupApplyReload);
+
+  let groupEditIdentity;
+  let groupEditCountLabel;
+  let groupEditBaselineStep;
+  if (missingGroupOnly) {
+    groupEditBaselineStep = structuredClone(document().construction?.steps?.find(step => step.id === groupStepId));
+    assert(groupEditBaselineStep, 'Reloaded saved GROUP step must be available for edit');
+    const baselineCountOutput = groupEditBaselineStep.outputs.find(column =>
+      column.id === groupEditBaselineStep.operation.group.aggregates.find(item => item.operation === 'COUNT_ROWS')?.outputColumnId);
+    assert(baselineCountOutput?.label, 'Saved COUNT_ROWS output must expose its original label');
+    const originalCountLabel = baselineCountOutput.label;
+    groupEditCountLabel = 'Expanded component owners';
+    assert.notEqual(groupEditCountLabel, originalCountLabel, 'GROUP label edit must change the saved label');
+    const labelSelector = 'input[aria-label="Summary output label 1"]';
+    const proposeLabelEdit = async (name, recordCheck) => {
+      await openSavedGroupEditor(groupStepId, expectedGroupedRows.length, `${name} open saved GROUP editor`);
+      const edited = await measure(name, async startedAt => {
+        await fill(nativePage, labelSelector, groupEditCountLabel);
+        const request = await constructionProposalFor(name, startedAt);
+        const evidence = await verifyGroupLabelEditProposal({
+          request, beforeStep: groupEditBaselineStep, expectedRows: expectedGroupedRows,
+          expectedLabel: groupEditCountLabel, name,
+        });
+        return { request, evidence };
+      });
+      groupEditIdentity = {
+        stepId: edited.evidence.stepId,
+        keyOutputId: edited.evidence.keyOutputId,
+        countOutputId: edited.evidence.countOutputId,
+        countOutputLabel: edited.evidence.countOutputLabel,
+      };
+      if (recordCheck) recordAssertion(
+        'saved GROUP output-label edit proposal preserves exact four COUNT_ROWS rows and stable step/output IDs',
+        { ...edited.evidence, requestId: edited.request.requestId, status: edited.request.status },
+      );
+      return edited;
+    };
+
+    const beforeCancelWorkspace = structuredClone(builder.workspace);
+    await proposeLabelEdit('Preview saved GROUP output-label edit before Cancel', true);
+    await measure('Cancel saved GROUP output-label edit and restore the original table', async startedAt => {
+      await click(nativePage, '[data-testid="construction-cancel-proposal"]');
+      await fastWait(startedAt, { kind: 'all', conditions: [
+        { kind: 'hidden', selector: '[data-testid="construction-proposal-panel"]' },
+        { kind: 'hidden', selector: '[data-testid="construction-reshape-editor"]' },
+        rowsReady(expectedGroupedRows.length),
+      ] }, 'Saved GROUP label-edit Cancel restoration');
+      report.groupLabelEditCancel = await verifyGroupedTable(expectedGroupedRows,
+        'GROUP after output-label edit Cancel', originalCountLabel, false);
+    });
+    builder = (await api(base + '/builder')).body;
+    assert.deepEqual(builder.workspace, beforeCancelWorkspace, 'Canceling saved GROUP label edit changed the saved workspace');
+    assert.deepEqual(document().construction?.steps?.find(step => step.id === groupStepId), groupEditBaselineStep,
+      'Canceling saved GROUP label edit changed the original GROUP step');
+    recordAssertion('Canceling saved GROUP output-label edit preserves the original saved label and exact four-row table', {
+      originalLabel: originalCountLabel, rows: report.groupLabelEditCancel.rows,
+      stepId: report.groupLabelEditCancel.stepId, keyOutputId: report.groupLabelEditCancel.keyOutputId,
+      countOutputId: report.groupLabelEditCancel.countOutputId, countOutputLabel: report.groupLabelEditCancel.countOutputLabel,
+    });
+
+    const beforeApplyBuilder = structuredClone(builder);
+    await proposeLabelEdit('Preview saved GROUP output-label edit before Apply', false);
+    await applyConstructionProposal(expectedGroupedRows.length, 'Apply saved GROUP output-label edit');
+    builder = (await api(base + '/builder')).body;
+    const appliedGroupStep = document().construction?.steps?.find(step => step.id === groupStepId);
+    groupEditIdentity = assertCountRowsGroupLabelEditIdentity(groupEditBaselineStep, appliedGroupStep, groupEditCountLabel);
+    assert.deepEqual(document().rows, expandedSourceState.rows, 'Saved GROUP output-label edit changed the source EXPANDED definition');
+    assert.deepEqual(document().population, expandedSourceState.population, 'Saved GROUP output-label edit changed exact source membership');
+    assertSourceColumnBindings(document().columns, groupAppliedSourceColumns, applyGroupInput, 'GROUP output-label edit', true);
+    assert.equal(document().construction.steps.find(step => step.id === groupStepId).outputs.length,
+      groupEditBaselineStep.outputs.length, 'Saved GROUP output-label edit changed the output count');
+    const draftAdvance = assertBuilderDraftAdvanced(beforeApplyBuilder, builder);
+    report.groupLabelEditApplied = await verifyGroupedTable(expectedGroupedRows,
+      'GROUP after output-label edit Apply before reload', groupEditCountLabel);
+    assert.equal(report.groupLabelEditApplied.stepId, groupEditIdentity.stepId);
+    assert.equal(report.groupLabelEditApplied.keyOutputId, groupEditIdentity.keyOutputId);
+    assert.equal(report.groupLabelEditApplied.countOutputId, groupEditIdentity.countOutputId);
+
+    await openTable(expectedGroupedRows.length, 'reload saved GROUP after output-label edit Apply');
+    builder = (await api(base + '/builder')).body;
+    const reloadedGroupStep = document().construction?.steps?.find(step => step.id === groupStepId);
+    const reloadedEditIdentity = assertCountRowsGroupLabelEditIdentity(groupEditBaselineStep, reloadedGroupStep, groupEditCountLabel);
+    assert.deepEqual(reloadedEditIdentity, groupEditIdentity, 'Reloaded saved GROUP edit changed stable step/output identity');
+    assert.deepEqual(document().rows, expandedSourceState.rows, 'Reloaded saved GROUP output-label edit changed source EXPANDED definition');
+    assert.deepEqual(document().population, expandedSourceState.population, 'Reloaded saved GROUP output-label edit changed exact source membership');
+    assertSourceColumnBindings(document().columns, groupAppliedSourceColumns, applyGroupInput, 'GROUP output-label edit reload', true);
+    report.groupLabelEditApplyReload = await verifyGroupedTable(expectedGroupedRows,
+      'GROUP after output-label edit reload', groupEditCountLabel);
+    assert.equal(report.groupLabelEditApplyReload.stepId, groupEditIdentity.stepId);
+    assert.equal(report.groupLabelEditApplyReload.keyOutputId, groupEditIdentity.keyOutputId);
+    assert.equal(report.groupLabelEditApplyReload.countOutputId, groupEditIdentity.countOutputId);
+    recordAssertion('Applying saved GROUP output-label edit preserves stable step/output IDs and exact rows after reload', {
+      ...reloadedEditIdentity, rows: report.groupLabelEditApplyReload.rows,
+      headers: report.groupLabelEditApplyReload.headers,
+      sourcePopulation: document().population, sourceColumns: document().columns, draftAdvance,
+    });
+  }
 
   await measure('open saved GROUP removal control', async startedAt => {
     await click(nativePage, '[data-testid="construction-rows-settings-trigger"]');
     await fastWait(startedAt, { kind: 'present', selector: `[data-testid="construction-row-remove-${groupStepId}"]` }, 'Saved GROUP removal control');
   });
+  const groupWorkspaceBeforeRemoval = missingGroupOnly ? structuredClone(builder.workspace) : undefined;
+  const groupPreviewBeforeRemoval = missingGroupOnly ? structuredClone(report.groupLabelEditApplyReload) : undefined;
   const removeStarted = Date.now();
   await click(nativePage, '[data-testid="construction-row-remove-' + groupStepId + '"]');
-  const removeProposal = await constructionProposalFor('remove source-expanded GROUP', removeStarted);
+  let removeProposal = await constructionProposalFor('remove source-expanded GROUP', removeStarted);
   assert.deepEqual(removeProposal.body?.candidateConstruction?.steps ?? [], [], 'Removing the only GROUP must restore the source projection construction');
   report.groupRemovalPreview = assertExpandedProposal(removeProposal, preserveCount);
+  if (missingGroupOnly) {
+    const canceledPreview = await measure('Cancel GROUP removal and render saved four-row preview', async startedAt => {
+      await click(nativePage, '[data-testid="construction-cancel-proposal"]');
+      await fastWait(startedAt, { kind: 'all', conditions: [
+        { kind: 'hidden', selector: '[data-testid="construction-proposal-panel"]' },
+        rowsReady(expectedGroupedRows.length),
+      ] }, 'GROUP removal Cancel restoration');
+      return verifyGroupedTable(expectedGroupedRows, 'GROUP preview after removal Cancel');
+    });
+    builder = (await api(base + '/builder')).body;
+    report.groupRemovalCancel = assertGroupRemovalCancelRestoration({
+      beforeWorkspace: groupWorkspaceBeforeRemoval,
+      afterWorkspace: builder.workspace,
+      beforePreview: groupPreviewBeforeRemoval,
+      afterPreview: canceledPreview,
+      expectedRows: expectedGroupedRows,
+    });
+    recordAssertion('Canceling GROUP removal leaves the saved GROUP workspace and exact four-row preview unchanged', report.groupRemovalCancel);
+
+    await measure('reopen saved GROUP removal control after Cancel', async startedAt => {
+      await click(nativePage, '[data-testid="construction-rows-settings-trigger"]');
+      await fastWait(startedAt, { kind: 'present', selector: `[data-testid="construction-row-remove-${groupStepId}"]` }, 'Saved GROUP removal control after Cancel');
+    });
+    const retryRemoveStarted = Date.now();
+    await click(nativePage, '[data-testid="construction-row-remove-' + groupStepId + '"]');
+    removeProposal = await constructionProposalFor('reopened source-expanded GROUP removal', retryRemoveStarted);
+    assert.deepEqual(removeProposal.body?.candidateConstruction?.steps ?? [], [], 'Reopened GROUP removal must restore the source projection construction');
+    report.groupRemovalPreviewAfterCancel = assertExpandedProposal(removeProposal, preserveCount);
+  }
   await applyConstructionProposal(preserveCount, 'remove source-expanded GROUP Apply');
   builder = (await api(base + '/builder')).body;
   assert.deepEqual(document().rows, expandedSourceState.rows, 'Removing GROUP changed source EXPANDED definition');
@@ -833,7 +1075,38 @@ const main = async () => {
   builder = (await api(base + '/builder')).body;
   assertSourceColumnBindings(document().columns, groupAppliedSourceColumns, applyGroupInput, 'GROUP removal reload', true);
   report.groupRemovalReload = await verifyPreview('PRESERVE_PARENT', report.oracle.expectedComponentRows, emptyResources.map(resource => resource.id));
-  recordAssertion('removing GROUP restores exact raw component[] rows and preserved empty owners after reload', report.groupRemovalReload);
+  recordAssertion(missingGroupOnly
+    ? 'applying GROUP removal restores the exact five-row source EXPANDED table after reload'
+    : 'removing GROUP restores exact raw component[] rows and preserved empty owners after reload', report.groupRemovalReload);
+
+  if (missingGroupOnly) {
+    await Promise.all([...browserPending]);
+    await cda.flushHttpDiagnostics({ timeoutMs: 5000 });
+    cda.includeBrowserDiagnostics();
+    const fixtureDiagnostics = assertNoUnexpectedCdaDiagnostics(cda.report);
+    report.browserErrors = {
+      exceptions: cda.diagnostics.pageErrors,
+      console: cda.diagnostics.console,
+      modules: cda.diagnostics.networkFailures.filter(entry => entry.resourceType === 'script'),
+      http: cda.diagnostics.httpFailures,
+      incidental: cda.diagnostics.assetFailures,
+      network: cda.diagnostics.networkFailures,
+    };
+    assert.deepEqual(report.browserErrors.exceptions, [], 'Browser raised JavaScript exceptions');
+    assert.deepEqual(report.browserErrors.console, [], 'Browser logged console errors');
+    assert.deepEqual(report.browserErrors.modules, [], 'Browser failed to load a module');
+    assert.deepEqual(report.browserErrors.http, [], 'Browser received unexpected 4xx/5xx responses');
+    assert.deepEqual(report.errors, [], 'Playwright request capture reported an owned API, runtime, or console failure');
+    const maximumCheckpointMs = Math.max(...report.timings.map(item => item.durationMs));
+    assert(report.timings.length > 0 && report.timings.every(item => item.durationMs <= 5000), 'A native action checkpoint exceeded five seconds');
+    recordAssertion('all native action-to-render checkpoints complete within five seconds', {
+      checkpointCount: report.timings.length, maximumCheckpointMs, timings: report.timings,
+    });
+    recordAssertion('no unexpected browser, module, console, or HTTP errors', {
+      workflow: report.browserErrors, fixture: fixtureDiagnostics,
+    });
+    return;
+  }
 
   await openRowSettings();
   await selectAndPreview('EXCLUDE', excludeCount);

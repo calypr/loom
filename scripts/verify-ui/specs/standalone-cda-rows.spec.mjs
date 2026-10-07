@@ -3,6 +3,7 @@ import { nestedRepeatedWorkflow } from '../workflows/verify-cda-nested-repeated-
 import { relatedOneAllWorkflow } from '../workflows/verify-cda-related-one-all-browser.mjs';
 import { repeatedEmptyWorkflow } from '../workflows/verify-cda-repeated-empty-browser.mjs';
 import { repeatedRowsWorkflow } from '../workflows/verify-cda-repeated-rows-browser.mjs';
+import { missingComponentGroupSkipReason } from '../helpers/missing-component-group-oracle.mjs';
 
 const relatedMode = process.env.LOOM_RELATED_ONE_ALL_MODE ?? 'cda';
 const relatedField = process.env.LOOM_RELATED_ONE_ALL_FIELD ?? 'id';
@@ -71,6 +72,21 @@ test.describe('CDA repeated component empty-list policies', () => {
   test('preserves empty and populated component owners through row policy and GROUP lifecycle', async ({ page, cda }) => {
     const result = await repeatedEmptyWorkflow({ page, cda });
     if (result.status !== 'passed') test.skip(true, result.skipReason ?? `Empty-component coverage is ${result.status}.`);
+    expect(result.assertions.some(assertion => assertion.status === 'passed')).toBe(true);
+    expect(result.status).toBe('passed');
+  });
+});
+
+test.describe('CDA missing-component EXPANDED and GROUP lifecycle', () => {
+  test.use({
+    cdaScenarioID: 'cda-repeated-missing-component-group',
+    cdaCaseName: 'missing-component-expanded-group-cancel-restore',
+  });
+
+  test('preserves missing-component owners through EXPANDED and GROUP removal Cancel', async ({ page, cda }) => {
+    const result = await repeatedEmptyWorkflow({ page, cda, mode: 'missing-component-group' });
+    const skipReason = missingComponentGroupSkipReason(result);
+    if (skipReason) test.skip(true, skipReason);
     expect(result.assertions.some(assertion => assertion.status === 'passed')).toBe(true);
     expect(result.status).toBe('passed');
   });
