@@ -13,8 +13,11 @@ import {
 } from '../helpers/append-option-evidence.mjs';
 import {
   appendGroupedCounts,
+  bindUniqueConstructionOutputTitle,
   builderDraftStateEvidence,
   canceledDraftEvidence,
+  constructionOutputSelectionEvidence,
+  constructionWorkspaceSelectionSnapshot,
   constructionCandidateWireEquivalent,
   currentDraftSourceEvidence,
   groupCounts,
@@ -359,20 +362,34 @@ export const captureOwnedPreviewLifecycle = (page, target, explorer, { diagnosti
   };
   const captureFailureState = (record) => {
     if (!diagnostic || record.retained === false) return;
-    track(new Promise((resolve) => setTimeout(resolve, 0)).then(() => page.evaluate(() => {
-      const selected = document.querySelector('nav[aria-label="Tables"] button[aria-current="page"][data-testid^="construction-table-"]');
-      const preview = document.querySelector('[data-testid="construction-preview"]');
+    track(new Promise((resolve) => setTimeout(resolve, 0)).then(async () => {
+      const selection = await page.evaluate(constructionWorkspaceSelectionSnapshot);
+      const preview = await page.evaluate(() => {
+        const element = document.querySelector('[data-testid="construction-preview"]');
+        return {
+          preview: element ? {
+            status: element.dataset.previewStatus ?? null,
+            outputId: element.dataset.previewOutputId || null,
+            receiptId: element.dataset.previewReceiptId || null,
+            stale: Boolean(document.querySelector('[data-testid="construction-preview-stale-notice"]')),
+          } : null,
+          userVisiblePreviewError: document.body?.innerText?.includes('Preview failed:') ?? false,
+        };
+      });
       return {
-        selectedOutputId: selected?.getAttribute('data-testid')?.replace(/^construction-table-/, '') ?? null,
-        preview: preview ? {
-          status: preview.dataset.previewStatus ?? null,
-          outputId: preview.dataset.previewOutputId || null,
-          receiptId: preview.dataset.previewReceiptId || null,
-          stale: Boolean(document.querySelector('[data-testid="construction-preview-stale-notice"]')),
-        } : null,
-        userVisiblePreviewError: document.body?.innerText?.includes('Preview failed:') ?? false,
+        requestOutputId: record.outputId,
+        selectedOutputId: selection.navigationPresent ? selection.navSelectedOutputId : null,
+        navigationPresent: selection.navigationPresent,
+        editor: {
+          present: selection.editorPresent,
+          visible: selection.editorVisible,
+          outputId: selection.editorOutputId,
+          headingTexts: selection.editorHeadingTexts,
+          visibleHeadingTexts: selection.visibleEditorHeadingTexts,
+        },
+        ...preview,
       };
-    })).then((visible) => { if (!flushExpired) record.visibleAfterFailure = visible; }, (error) => {
+    }).then((visible) => { if (!flushExpired) record.visibleAfterFailure = visible; }, (error) => {
       if (!flushExpired) record.visibleAfterFailure = { captureError: String(error?.message ?? error).slice(0, 240) };
     }), record, 'failure-visible-state');
   };
@@ -1238,13 +1255,17 @@ const assertDraftCandidate = async (report, page, capture, base, target, sources
   };
   const proposalOriginMatched = scopeChecks.validatedUIProxyOriginMatches;
   const scope = Object.values(scopeChecks).every(Boolean);
+  const selectionSnapshot = await page.evaluate(constructionWorkspaceSelectionSnapshot);
+  const outputTitleBinding = bindUniqueConstructionOutputTitle(base.workspace?.documents, target.outputId);
+  const selectionEvidence = constructionOutputSelectionEvidence(outputTitleBinding, selectionSnapshot);
   const domProposal = await evaluate(page, `(()=>({
     proposalId:document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-id')??null,
     receiptId:document.querySelector('[data-testid="construction-proposal-preview"]')?.getAttribute('data-preview-receipt-id')??null,
     outputId:document.querySelector('[data-testid="construction-proposal-preview"]')?.getAttribute('data-preview-output-id')??null,
-    selectedOutputId:document.querySelector('nav[aria-label="Tables"] button[aria-current="page"][data-testid^="construction-table-"]')?.getAttribute('data-testid')?.replace(/^construction-table-/, '')??null,
     userVisiblePreviewError:document.body?.innerText?.includes('Preview failed:')??false
   }))()`);
+  domProposal.selectedOutputId = selectionEvidence.selectedOutputId;
+  domProposal.selectionEvidence = selectionEvidence;
   const responsePreview = event.response?.preview;
   const requestConstruction = event.body.candidateConstruction;
   const responseConstruction = event.response?.candidateConstruction;
@@ -1253,7 +1274,7 @@ const assertDraftCandidate = async (report, page, capture, base, target, sources
     previewReceiptMatchesDOM: responsePreview?.receiptId === domProposal.receiptId,
     previewOutputMatchesTarget: responsePreview?.outputId === target.outputId,
     domOutputMatchesTarget: domProposal.outputId === target.outputId,
-    domSelectedOutputMatchesTarget: !requireSelectedPreview || domProposal.selectedOutputId === target.outputId,
+    domSelectedOutputMatchesTarget: !requireSelectedPreview || selectionEvidence.ok,
     noUserVisiblePreviewError: !requireSelectedPreview || domProposal.userVisiblePreviewError === false,
     responseOutputMatchesTarget: event.response?.outputId === target.outputId,
     snapshotTokenMatchesRequest: event.response?.snapshotToken === event.body.snapshotToken,
@@ -1318,6 +1339,7 @@ const assertDraftCandidate = async (report, page, capture, base, target, sources
     previewStatus: event.response?.previewStatus ?? null,
     domOutputId: domProposal.outputId,
     domSelectedOutputId: domProposal.selectedOutputId,
+    domSelectionEvidence: selectionEvidence,
     domReceiptId: domProposal.receiptId,
     userVisiblePreviewError: domProposal.userVisiblePreviewError,
   };

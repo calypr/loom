@@ -219,3 +219,89 @@ export const sourceRecompileEvidence = ({ before, after, targetOutputId, sourceO
     newReceipt: newReceipt ?? null,
   };
 };
+
+export const bindUniqueConstructionOutputTitle = (documents, targetOutputId) => {
+  const workspaceDocuments = Array.isArray(documents) ? documents : [];
+  const targetDocuments = workspaceDocuments.filter((document) => document?.output?.id === targetOutputId);
+  const rawTitle = targetDocuments.length === 1 ? targetDocuments[0]?.output?.title : undefined;
+  const title = typeof rawTitle === 'string' ? rawTitle.trim() : '';
+  const sameTitleDocuments = title
+    ? workspaceDocuments.filter((document) => typeof document?.output?.title === 'string' && document.output.title.trim() === title)
+    : [];
+  const checks = {
+    targetOutputIdPresent: typeof targetOutputId === 'string' && targetOutputId.length > 0,
+    exactTargetDocument: targetDocuments.length === 1,
+    targetTitleNonempty: title.length > 0,
+    titleUniqueInWorkspace: sameTitleDocuments.length === 1 && sameTitleDocuments[0]?.output?.id === targetOutputId,
+  };
+  return {
+    ok: Object.values(checks).every(Boolean),
+    outputId: targetOutputId ?? null,
+    title: title || null,
+    matchingTargetDocuments: targetDocuments.length,
+    matchingTitleDocuments: sameTitleDocuments.map((document) => document?.output?.id ?? null),
+    checks,
+  };
+};
+
+export const constructionWorkspaceSelectionSnapshot = () => {
+  const navigation = document.querySelector('nav[aria-label="Tables"]');
+  const selected = navigation?.querySelector('button[aria-current="page"][data-testid^="construction-table-"]') ?? null;
+  const editor = document.querySelector('[data-testid="construction-operation-editor"][data-operation-family="COMBINE"][data-output-id]');
+  const workspace = editor?.closest('[data-testid="construction-workspace"]') ?? document.querySelector('[data-testid="construction-workspace"]');
+  const editorHeadingElements = [...(workspace?.querySelectorAll('h1') ?? [])];
+  const editorHeadingTexts = editorHeadingElements.map((heading) => String(heading.textContent ?? '').replace(/\s+/g, ' ').trim());
+  const visibleEditorHeadingTexts = editorHeadingElements.filter((heading) => {
+    const style = getComputedStyle(heading);
+    return heading.getClientRects().length > 0 && style.display !== 'none' && style.visibility !== 'hidden';
+  }).map((heading) => String(heading.textContent ?? '').replace(/\s+/g, ' ').trim());
+  const editorStyle = editor ? getComputedStyle(editor) : null;
+  const editorVisible = Boolean(editor && editor.getClientRects().length > 0 && editorStyle?.display !== 'none' && editorStyle?.visibility !== 'hidden');
+  return {
+    navigationPresent: Boolean(navigation),
+    navSelectedOutputId: selected?.getAttribute('data-testid')?.replace(/^construction-table-/, '') ?? null,
+    editorPresent: Boolean(editor),
+    editorVisible,
+    editorOutputId: editor?.getAttribute('data-output-id') ?? null,
+    editorHeadingTexts,
+    visibleEditorHeadingTexts,
+  };
+};
+
+export const constructionOutputSelectionEvidence = (binding, snapshot) => {
+  const navigationPresent = snapshot?.navigationPresent === true;
+  const navSelectedOutputId = snapshot?.navSelectedOutputId ?? null;
+  const editorHeadingTexts = Array.isArray(snapshot?.editorHeadingTexts) ? snapshot.editorHeadingTexts : [];
+  const visibleEditorHeadingTexts = Array.isArray(snapshot?.visibleEditorHeadingTexts) ? snapshot.visibleEditorHeadingTexts : [];
+  const expectedEditorHeading = binding?.title ? 'Editing ' + binding.title : null;
+  const matchingEditorHeadings = expectedEditorHeading
+    ? visibleEditorHeadingTexts.filter((heading) => heading === expectedEditorHeading).length
+    : 0;
+  const editorHeadingMatchesTitle = binding?.ok === true && matchingEditorHeadings === 1;
+  const editorOutputMatchesTarget = snapshot?.editorPresent === true && snapshot?.editorVisible === true && snapshot?.editorOutputId === binding?.outputId;
+  const editorFallbackMatchesTarget = !navigationPresent && editorOutputMatchesTarget && editorHeadingMatchesTitle;
+  const selectedOutputMatchesTarget = navigationPresent
+    ? navSelectedOutputId === binding?.outputId
+    : editorFallbackMatchesTarget;
+  const selectedOutputId = navigationPresent
+    ? navSelectedOutputId
+    : editorFallbackMatchesTarget ? binding.outputId : null;
+  return {
+    ok: navigationPresent ? selectedOutputMatchesTarget : binding?.ok === true && editorFallbackMatchesTarget,
+    selectedOutputId,
+    selectedOutputMatchesTarget,
+    selectionSource: navigationPresent ? 'table-navigation' : editorFallbackMatchesTarget ? 'combine-editor-heading-and-output-id' : 'none',
+    navigationPresent,
+    navSelectedOutputId,
+    editorPresent: snapshot?.editorPresent === true,
+    editorVisible: snapshot?.editorVisible === true,
+    editorOutputId: snapshot?.editorOutputId ?? null,
+    editorHeadingTexts,
+    visibleEditorHeadingTexts,
+    expectedEditorHeading,
+    matchingEditorHeadings,
+    editorHeadingMatchesTitle,
+    editorOutputMatchesTarget,
+    outputTitleBinding: binding ?? null,
+  };
+};
