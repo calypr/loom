@@ -13,6 +13,19 @@ import { captureApiBuildFreeze, checkContainerApiBuildStamp, ApiBuildFreezeError
 import { captureCDARequests } from '../helpers/cda-playwright-requests.mjs';
 import { assertOwnedCdaTarget } from '../helpers/owned-cda-target.mjs';
 
+export const createRelatedFieldAfterUnpivotChecks = (cda, caseName) => {
+  const recordLifecycleCheck = (name, passed, evidence = {}) =>
+    cda.check('correctness', name, Boolean(passed), evidence);
+  const recordGenderAllLifecycleCheck = (name, passed, evidence = {}) => {
+    if (caseName === 'gender-all') return recordLifecycleCheck(name, passed, evidence);
+  };
+  const recordNoUnexpectedNativeErrorsCheck = report =>
+    recordLifecycleCheck(
+      'No unexpected native HTTP or network errors occurred',
+      report.errors.length === 0,
+      { domainErrors: report.errors });
+  return { recordLifecycleCheck, recordGenderAllLifecycleCheck, recordNoUnexpectedNativeErrorsCheck };
+};
 
 export async function runRelatedFieldAfterUnpivotBrowserWorkflow({ page, cda }, originalArgs = {}) {
   const environment = cda.env ?? process.env;
@@ -117,6 +130,8 @@ const record = (name, startedAt, details = {}) => {
   assert(durationMs <= 5000, `${name} took ${durationMs}ms`);
   report.cases.push({ name, durationMs, ...details });
 };
+const { recordLifecycleCheck, recordGenderAllLifecycleCheck, recordNoUnexpectedNativeErrorsCheck } =
+  createRelatedFieldAfterUnpivotChecks(cda, afterUnpivotCase);
 report.ownedTarget = ownedTarget;
 let requestCapture;
 const inspect = callback => page.evaluate(callback);
@@ -586,7 +601,7 @@ const openRelatedField = async (fieldPath, desiredForm = 'ALL') => {
     await selectUI('[role="dialog"] select[aria-label="Values per grouped row"]', 'ALL');
   }
   await clickUI('[role="dialog"] button', { name: 'Add 1 column' });
-  return startedAt;
+  return { startedAt, selectedRoute: route.aria, selectedForm: formChoice };
 };
 
 const beginUnpivot = async (sourceLabel) => {
@@ -844,6 +859,22 @@ try {
     },
     patientMatches: 1,
   };
+  recordLifecycleCheck(
+    'bounded raw CDA oracle rereads one exact scoped Specimen with one linked Patient',
+    report.oracle.project === project && report.oracle.generation === generation &&
+      report.oracle.exactRereadCount === 1 && source.patientCount === 1 &&
+      Boolean(source.specimen.id) && Boolean(source.patient.id),
+    { project, generation, route: source.route, specimenID: source.specimen.id, patientID: source.patient.id,
+      directPatientCount: source.patientCount, candidateLimit: oracleCandidateLimit,
+      candidateCount: candidates.length, exactRereadCount: exactRows.length });
+  recordGenderAllLifecycleCheck(
+    'bounded raw CDA oracle selects the exact Specimen and one linked Patient with populated gender',
+    report.oracle.source.postUnpivotFieldPath === 'gender' &&
+      source.patient.gender === report.oracle.source.postUnpivotFieldWitness &&
+      typeof source.patient.gender === 'string' && source.patient.gender.length > 0,
+    { project, generation, specimenID: source.specimen.id, patientID: source.patient.id,
+      directPatientCount: source.patientCount, patientGender: source.patient.gender,
+      candidateLimit: oracleCandidateLimit, candidateCount: candidates.length, exactRereadCount: exactRows.length });
 
   await api(apiRoot, { name: explorer, title: afterUnpivotCase === 'id-count' ? 'Related ID count after Unpivot QA' : nullableGenderCase ? 'Related nullable Patient gender after Unpivot QA' : 'Related field after Unpivot QA' });
   builder = await api(base + '/builder');
@@ -900,7 +931,13 @@ try {
   assert.equal(baseline.rowCount, 1);
 
   const initialWorkspace = structuredClone(builder.workspace);
-  let start = await openRelatedField('id');
+  const patientIDChoice = await openRelatedField('id');
+  let start = patientIDChoice.startedAt;
+  recordLifecycleCheck(
+    'Patient.id ALL choice uses the exact Specimen subject-to-Patient route',
+    patientIDChoice.selectedRoute.includes('Specimen -[subject]-> Patient') &&
+      patientIDChoice.selectedForm.includes('Keep all matching values'),
+    { route: patientIDChoice.selectedRoute, form: patientIDChoice.selectedForm });
   let patientIDLabel;
   const addedID = await proposal('add-related-Patient-ID-before-Unpivot-preview', start, (response) => {
     const step = response.candidateConstruction.steps.findLast((candidate) =>
@@ -910,14 +947,24 @@ try {
     patientIDLabel = outputForStep(step, step.operation.relatedSource.outputColumnId).label;
     return [{ 'Specimen ID': source.specimen.id, [patientIDLabel]: [source.patient.id] }];
   });
+  recordLifecycleCheck(
+    'Patient.id ALL proposal previews the exact raw linked Patient ID',
+    addedID.expectedRows[0]['Specimen ID'] === source.specimen.id &&
+      addedID.expectedRows[0][patientIDLabel]?.[0] === source.patient.id && addedID.preview.rowCount === 1,
+    { specimenID: source.specimen.id, patientID: source.patient.id, previewRows: addedID.preview.rows });
   const initialRelatedStep = addedID.request.response.candidateConstruction.steps.findLast((step) =>
     step.operation.kind === 'RELATED_SOURCE' &&
     (step.operation.relatedSource?.source?.path === 'id' || step.operation.relatedSource?.source?.path?.endsWith('.id')));
   assert(initialRelatedStep, 'The related Patient.id proposal did not produce a RELATED_SOURCE step.');
   assertDirectPatientRoute(initialRelatedStep, 'id');
   await cancelProposal(initialWorkspace, 'cancel-related-Patient-ID-preview-restores-source-workspace');
+  recordLifecycleCheck(
+    'Cancel preserves the exact Specimen workspace before applying Patient.id ALL',
+    JSON.stringify(builder.workspace) === JSON.stringify(initialWorkspace),
+    { specimenID: source.specimen.id, workspacePreserved: JSON.stringify(builder.workspace) === JSON.stringify(initialWorkspace) });
 
-  start = await openRelatedField('id');
+  const confirmedPatientIDChoice = await openRelatedField('id');
+  start = confirmedPatientIDChoice.startedAt;
   await proposal('confirm-related-Patient-ID-before-Unpivot-preview', start, [
     { 'Specimen ID': source.specimen.id, [patientIDLabel]: [source.patient.id] },
   ]);
@@ -934,6 +981,14 @@ try {
     `Unexpected Patient ID output label: ${patientIDLabel}`);
   previewRows = [{ 'Specimen ID': source.specimen.id, [patientIDLabel]: [source.patient.id] }];
   await reloadTable(previewRows, 'reload-related-Patient-ID-before-Unpivot');
+  recordLifecycleCheck(
+    'Apply and reload preserve the exact Patient.id ALL source binding and raw value',
+    savedPatientID.operation.relatedSource.form === 'ALL' &&
+      (savedPatientID.operation.relatedSource.source.path === 'id' ||
+      savedPatientID.operation.relatedSource.source.path.endsWith('.id')) &&
+      previewRows[0][patientIDLabel]?.[0] === source.patient.id,
+    { stepID: savedPatientID.id, route: savedPatientID.operation.relatedSource.route,
+      patientID: source.patient.id, savedRows: previewRows });
 
   start = await beginUnpivot('Specimen ID');
   const unpivotPreview = await proposal('Unpivot-with-retained-related-Patient-binding-preview', start, (response) => {
@@ -951,7 +1006,20 @@ try {
   const valueOutput = outputForStep(candidateUnpivot, unpivot.valueOutputColumnId);
   const keyLabel = keyOutput.label;
   const valueLabel = valueOutput.label;
+  recordLifecycleCheck(
+    'Unpivot proposal renders the exact Specimen ID pair and retains Patient.id ALL',
+    unpivotPreview.expectedRows.length === 1 &&
+      unpivotPreview.expectedRows[0][patientIDLabel]?.[0] === source.patient.id &&
+      unpivotPreview.expectedRows[0][keyLabel] === 'Specimen ID' &&
+      unpivotPreview.expectedRows[0][valueLabel] === source.specimen.id && unpivotPreview.preview.rowCount === 1,
+    { rawSpecimenID: source.specimen.id, rawPatientID: source.patient.id, keyLabel, valueLabel,
+      previewRows: unpivotPreview.preview.rows });
   await cancelProposal(relatedBaseline.workspace, 'cancel-Unpivot-preview-preserves-related-source-binding');
+  recordLifecycleCheck(
+    'Cancel preserves the exact Patient.id Related state before Unpivot Apply',
+    JSON.stringify(builder.workspace) === JSON.stringify(relatedBaseline.workspace) &&
+      builder.draftVersion === relatedBaseline.draftVersion && builder.draftDigest === relatedBaseline.draftDigest,
+    { draftVersion: builder.draftVersion, draftDigest: builder.draftDigest, relatedStepIDs: steps().map(step => step.id) });
 
   start = await beginUnpivot('Specimen ID');
   const confirmedUnpivot = await proposal('confirm-Unpivot-with-retained-related-Patient-binding-preview', start, [
@@ -1018,6 +1086,16 @@ try {
   assertDirectPatientRoute(savedPatientID, 'id', 'ALL');
   const savedPatientIDOutput = outputForStep(savedPatientID, retainedPatientIDOutputId);
   assert.equal(savedPatientIDOutput.label, patientIDLabel);
+  recordLifecycleCheck(
+    'Unpivot Apply and reload preserve the exact retained Patient.id binding and transformed rows',
+    savedPatientID.operation.relatedSource.form === 'ALL' &&
+      (savedPatientID.operation.relatedSource.source.path === 'id' ||
+      savedPatientID.operation.relatedSource.source.path.endsWith('.id')) &&
+      savedUnpivot.operation.unpivot.inputs.length === 1 &&
+      savedUnpivot.operation.unpivot.inputs[0].columnId === specimenIDColumnId &&
+      previewRows[0][patientIDLabel]?.[0] === source.patient.id,
+    { unpivotStepID: savedUnpivot.id, retainedPatientStepID: savedPatientID.id,
+      consumedSourceColumnID: specimenIDColumnId, retainedPatientID: source.patient.id, rows: previewRows });
 
   const reshapedRetainedPatientRow = structuredClone(previewRows[0]);
   const postUnpivotValue = nullableGenderCase
@@ -1025,7 +1103,15 @@ try {
     : afterUnpivotCase === 'id-count' ? source.patientCount : [source.patient[afterUnpivotFieldPath]];
   const postUnpivotValueForRow = (label) => ({ ...reshapedRetainedPatientRow, [label]: postUnpivotValue });
   const beforePostUnpivotField = structuredClone(builder);
-  start = await openRelatedField(afterUnpivotFieldPath, afterUnpivotForm);
+  const postUnpivotChoice = await openRelatedField(afterUnpivotFieldPath, afterUnpivotForm);
+  start = postUnpivotChoice.startedAt;
+  recordGenderAllLifecycleCheck(
+    'Post-Unpivot Patient.gender ALL choice remains available on the exact raw Patient route',
+    afterUnpivotCase === 'gender-all' && postUnpivotChoice.selectedRoute.includes('Specimen -[subject]-> Patient') &&
+      postUnpivotChoice.selectedForm.includes('Keep all matching values') &&
+      source.patient.gender === report.oracle.source.postUnpivotFieldWitness,
+    { route: postUnpivotChoice.selectedRoute, form: postUnpivotChoice.selectedForm,
+      rawPatientID: source.patient.id, rawGender: source.patient.gender });
   let postUnpivotLabel;
   const postUnpivotLabelProposal = await proposal(`add-Patient-${afterUnpivotFieldPath}-${afterUnpivotForm}-after-Unpivot-preview`, start, (response) => {
     const step = response.candidateConstruction.steps.findLast((candidate) =>
@@ -1054,9 +1140,23 @@ try {
   assert.equal(outputForStep(postUnpivotStepProposal, postUnpivotStepProposal.operation.relatedSource.outputColumnId).label, postUnpivotLabel);
   assert.notEqual(postUnpivotStepProposal.operation.relatedSource.outputColumnId, retainedPatientIDOutputId,
     'The new source operation must have its own output identity.');
+  recordGenderAllLifecycleCheck(
+    'Post-Unpivot Patient.gender ALL proposal matches the exact populated raw Patient.gender value',
+    afterUnpivotCase === 'gender-all' && postUnpivotLabelProposal.expectedRows.length === 1 &&
+      postUnpivotLabelProposal.expectedRows[0][postUnpivotLabel]?.[0] === source.patient.gender &&
+      postUnpivotLabelProposal.preview.rowCount === 1,
+    { patientID: source.patient.id, rawGender: source.patient.gender,
+      expectedRows: postUnpivotLabelProposal.expectedRows, previewRows: postUnpivotLabelProposal.preview.rows,
+      proposedRoute: postUnpivotStepProposal.operation.relatedSource.route });
   await cancelProposal(beforePostUnpivotField.workspace, `cancel-Patient-${afterUnpivotFieldPath}-${afterUnpivotForm}-after-Unpivot-preserves-existing-binding`);
+  recordGenderAllLifecycleCheck(
+    'Cancel preserves exact saved Unpivot rows before applying Patient.gender ALL',
+    JSON.stringify(builder.workspace) === JSON.stringify(beforePostUnpivotField.workspace) &&
+      builder.draftVersion === beforePostUnpivotField.draftVersion && builder.draftDigest === beforePostUnpivotField.draftDigest,
+    { draftVersion: builder.draftVersion, draftDigest: builder.draftDigest, rows: previewRows });
 
-  start = await openRelatedField(afterUnpivotFieldPath, afterUnpivotForm);
+  const confirmedPostUnpivotChoice = await openRelatedField(afterUnpivotFieldPath, afterUnpivotForm);
+  start = confirmedPostUnpivotChoice.startedAt;
   await proposal(`confirm-Patient-${afterUnpivotFieldPath}-${afterUnpivotForm}-after-Unpivot-preview`, start,
     [postUnpivotValueForRow(postUnpivotLabel)]);
   await applyProposal([postUnpivotValueForRow(postUnpivotLabel)], `apply-Patient-${afterUnpivotFieldPath}-${afterUnpivotForm}-after-Unpivot`);
@@ -1081,6 +1181,19 @@ try {
     'Adding the related source changed the saved Unpivot operation.');
   previewRows = [postUnpivotValueForRow(postUnpivotLabel)];
   await reloadTable(previewRows, `reload-related-Patient-${afterUnpivotFieldPath}-${afterUnpivotForm}-after-Unpivot`);
+  const reloadedPostUnpivotStep = relatedSourceStepFor(builder, afterUnpivotFieldPath);
+  assert(reloadedPostUnpivotStep, 'Reload must retain the post-Unpivot related Patient field.');
+  assertDirectPatientRoute(reloadedPostUnpivotStep, afterUnpivotFieldPath, afterUnpivotForm);
+  recordGenderAllLifecycleCheck(
+    'Apply and reload preserve exact Patient.gender ALL output and raw value',
+    afterUnpivotCase === 'gender-all' && reloadedPostUnpivotStep?.operation.relatedSource.form === 'ALL' &&
+      reloadedPostUnpivotStep.operation.relatedSource.route.length === 1 &&
+      (reloadedPostUnpivotStep.operation.relatedSource.source.path === afterUnpivotFieldPath ||
+        reloadedPostUnpivotStep.operation.relatedSource.source.path.endsWith('.' + afterUnpivotFieldPath)) &&
+      previewRows[0][postUnpivotLabel]?.[0] === source.patient.gender &&
+      steps(builder).some(step => step.id === savedUnpivot.id),
+    { patientID: source.patient.id, rawGender: source.patient.gender,
+      savedStepID: reloadedPostUnpivotStep?.id, route: reloadedPostUnpivotStep?.operation.relatedSource.route, rows: previewRows });
 
   const beforeEdit = structuredClone(builder);
   const editedLabel = `Patient ${afterUnpivotFieldPath} ${afterUnpivotForm.toLowerCase()} after Unpivot`;
@@ -1088,6 +1201,11 @@ try {
   start = await editRelatedLabel(savedPostUnpivotStep, editedLabel);
   await proposal('edit-related-source-label-after-Unpivot-preview', start, [postUnpivotValueForRow(editedLabel)]);
   await cancelProposal(beforeEdit.workspace, 'cancel-related-source-edit-preserves-route-and-output');
+  recordGenderAllLifecycleCheck(
+    'Cancel preserves saved Patient.gender ALL binding after label-edit proposal',
+    JSON.stringify(builder.workspace) === JSON.stringify(beforeEdit.workspace) &&
+      builder.draftVersion === beforeEdit.draftVersion && builder.draftDigest === beforeEdit.draftDigest,
+    { draftVersion: builder.draftVersion, draftDigest: builder.draftDigest, patientID: source.patient.id });
 
   savedPostUnpivotStep = relatedSourceStepFor(builder, afterUnpivotFieldPath);
   start = await editRelatedLabel(savedPostUnpivotStep, editedLabel);
@@ -1105,10 +1223,23 @@ try {
     'Editing the related source changed the saved Unpivot operation.');
   previewRows = [postUnpivotValueForRow(editedLabel)];
   await reloadTable(previewRows, 'reload-edited-related-source-after-Unpivot');
+  const reloadedEditedPostUnpivotStep = relatedSourceStepFor(builder, afterUnpivotFieldPath);
+  recordGenderAllLifecycleCheck(
+    'Edit Apply and reload preserve Patient.gender ALL route and edited label',
+    reloadedEditedPostUnpivotStep?.operation.relatedSource.form === 'ALL' &&
+      outputForStep(reloadedEditedPostUnpivotStep, reloadedEditedPostUnpivotStep.operation.relatedSource.outputColumnId).label === editedLabel &&
+      previewRows[0][editedLabel]?.[0] === source.patient.gender,
+    { patientID: source.patient.id, rawGender: source.patient.gender,
+      stepID: reloadedEditedPostUnpivotStep?.id, label: editedLabel, rows: previewRows });
 
   await removeStep(savedPostUnpivotStep, 'remove-post-Unpivot-related-source-preview', previewRows.map(({ [editedLabel]: _removed, ...row }) => row),
     unpivotBaseline.workspace.documents[0].construction);
   await cancelProposal(postUnpivotBaseline.workspace, 'cancel-post-Unpivot-related-source-removal-preserves-binding');
+  recordGenderAllLifecycleCheck(
+    'Cancel preserves saved Patient.gender ALL after removal preview',
+    JSON.stringify(builder.workspace) === JSON.stringify(postUnpivotBaseline.workspace) &&
+      builder.draftVersion === postUnpivotBaseline.draftVersion && builder.draftDigest === postUnpivotBaseline.draftDigest,
+    { draftVersion: builder.draftVersion, draftDigest: builder.draftDigest, patientID: source.patient.id });
 
   savedPostUnpivotStep = relatedSourceStepFor(builder, afterUnpivotFieldPath);
   const reshapedRowsWithoutPostField = previewRows.map(({ [editedLabel]: _removed, ...row }) => row);
@@ -1120,12 +1251,25 @@ try {
   assert.deepEqual(doc().population, doc(unpivotBaseline).population);
   previewRows = reshapedRowsWithoutPostField;
   await reloadTable(previewRows, 'reload-after-removing-post-Unpivot-field');
+  recordGenderAllLifecycleCheck(
+    'Removing Patient.gender ALL and reloading restores exact Unpivot-only construction and rows',
+    JSON.stringify(doc().construction) === JSON.stringify(doc(unpivotBaseline).construction) &&
+      JSON.stringify(doc().population) === JSON.stringify(doc(unpivotBaseline).population) &&
+      !relatedSourceStepFor(builder, afterUnpivotFieldPath) &&
+      JSON.stringify(previewRows[0][patientIDLabel]) === JSON.stringify([source.patient.id]),
+    { restoredConstruction: doc().construction, rows: previewRows, patientID: source.patient.id });
 
   const currentUnpivot = lastStep(builder, 'UNPIVOT');
+  const beforeUnpivotRemoval = structuredClone(builder);
   await removeStep(currentUnpivot, 'remove-Unpivot-restores-preexisting-related-source-preview', [
     { 'Specimen ID': source.specimen.id, [patientIDLabel]: [source.patient.id] },
   ], relatedBaseline.workspace.documents[0].construction);
-  await cancelProposal(builder.workspace, 'cancel-Unpivot-removal-preserves-related-source-binding');
+  await cancelProposal(beforeUnpivotRemoval.workspace, 'cancel-Unpivot-removal-preserves-related-source-binding');
+  recordLifecycleCheck(
+    'Cancel preserves saved Unpivot state after removal preview',
+    JSON.stringify(builder.workspace) === JSON.stringify(beforeUnpivotRemoval.workspace) &&
+      builder.draftVersion === beforeUnpivotRemoval.draftVersion && builder.draftDigest === beforeUnpivotRemoval.draftDigest,
+    { draftVersion: builder.draftVersion, draftDigest: builder.draftDigest, rows: previewRows });
 
   await removeStep(currentUnpivot, 'confirm-remove-Unpivot-restores-preexisting-related-source-preview', [
     { 'Specimen ID': source.specimen.id, [patientIDLabel]: [source.patient.id] },
@@ -1140,10 +1284,24 @@ try {
     'Removing Unpivot must restore the exact earlier related source column binding.');
   previewRows = [{ 'Specimen ID': source.specimen.id, [patientIDLabel]: [source.patient.id] }];
   await reloadTable(previewRows, 'reload-restored-pre-Unpivot-related-source-binding');
+  recordLifecycleCheck(
+    'Removing Unpivot and reloading restores exact Patient.id Related construction and rows',
+    JSON.stringify(doc().construction) === JSON.stringify(doc(relatedBaseline).construction) &&
+      JSON.stringify(doc().columns) === JSON.stringify(doc(relatedBaseline).columns) &&
+      JSON.stringify(doc().population) === JSON.stringify(doc(relatedBaseline).population) &&
+      previewRows[0][patientIDLabel]?.[0] === source.patient.id,
+    { restoredConstruction: doc().construction, restoredColumns: doc().columns, rows: previewRows, patientID: source.patient.id });
 
   await requestCapture.flush();
   for (const failure of cda.diagnostics.networkFailures) report.errors.push({ kind: 'browser-network', ...failure });
   for (const failure of cda.diagnostics.httpFailures) report.errors.push({ kind: 'browser-http', ...failure });
+  recordLifecycleCheck(
+    'All native action and action-to-render checkpoints complete within five seconds',
+    report.cases.every(item => item.durationMs <= 5000) &&
+      cda.report.actions.every(item => item.status === 'passed' && item.elapsedMs <= 5000),
+    { workflowCheckpoints: report.cases.map(({ name, durationMs }) => ({ name, durationMs })),
+      maximumNativeActionMs: Math.max(0, ...cda.report.actions.map(item => item.elapsedMs)) });
+  recordNoUnexpectedNativeErrorsCheck(report);
   assert.deepEqual(report.errors, [], 'No unexpected native HTTP, runtime, console, or module errors are allowed.');
   assert(report.protectedExplorerUntouched, `A browser request targeted protected Explorer ${protectedExplorer}.`);
   report.status = 'passed';
