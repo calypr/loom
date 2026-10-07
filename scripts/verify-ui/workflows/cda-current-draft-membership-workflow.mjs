@@ -18,7 +18,11 @@ import {
 } from '../helpers/builder-combine-draft-helpers.mjs';
 import { validatedArangoContainer } from '../helpers/native-cda-workflow-tools.mjs';
 import { proposalPreviewReadinessExpression, readProposalPreviewState } from '../helpers/proposal-preview-readiness.mjs';
-import { cdaMembershipObservationQuery, prepareCdaMembershipOracle } from '../helpers/cda-current-draft-membership-oracle.mjs';
+import {
+  cdaMembershipObservationQuery,
+  compareCdaSourceGroupPreview,
+  prepareCdaMembershipOracle,
+} from '../helpers/cda-current-draft-membership-oracle.mjs';
 import { buildArangoShellInvocation } from '../helpers/owned-arangosh-command.mjs';
 
 const ACTION_CHECK = 'all native CDA Membership lifecycle actions complete within five seconds';
@@ -1080,11 +1084,11 @@ export async function cdaCurrentDraftMembershipWorkflow({ page, cda }) {
         assert(sourceStage && typeof groupCapability?.supported === 'boolean',
           'Restored source projection capabilities must include GROUP support state');
         const sourceChoices = capabilitiesResponse.sourceInput?.choices ?? [];
-        const populatedSourceIDChoices = sourceChoices.filter(choice => choice.occurrenceId === 'base' &&
-          choice.fieldPath === 'id' && choice.logicalType === 'string' && choice.isPopulated);
-        assert(capabilitiesResponse.sourceInput?.supported && populatedSourceIDChoices.length === 1,
-          'Restored empty target must expose its exact populated root Observation ID as a source-group key');
-        sourceGroupChoice = populatedSourceIDChoices[0];
+        const populatedSourceStatusChoices = sourceChoices.filter(choice => choice.occurrenceId === 'base' &&
+          choice.fieldPath === 'status' && choice.logicalType === 'string' && choice.isPopulated);
+        assert(capabilitiesResponse.sourceInput?.supported && populatedSourceStatusChoices.length === 1,
+          'Restored empty target must expose its populated root Observation status as a source-group key');
+        sourceGroupChoice = populatedSourceStatusChoices[0];
 
         await page.getByTestId('construction-rows-settings-trigger').click({ timeout: MAX_ACTION_MS });
         await waitSelector('[data-testid="construction-action-group-rows"]');
@@ -1116,8 +1120,8 @@ export async function cdaCurrentDraftMembershipWorkflow({ page, cda }) {
     assertScope(sourceGroupBuilder);
     const sourceGroupPreviewLimit = 25;
     await selectOptionByValue('[data-testid="construction-source-group-field"]', sourceGroupChoice.choiceId,
-      'Group the restored target by its exact raw Observation ID field', async () =>
-        waitFunction(proposalReady(target.outputId, sourceGroupPreviewLimit)));
+      'Group the restored target by its populated raw Observation status field', async () =>
+        waitFunction(proposalReady(target.outputId)));
     const sourceGroupProposalEvent = await capture.waitFor(entry => {
       const body = capture.rawRequestBody(entry);
       const group = body?.candidateConstruction?.steps?.at(-1)?.operation?.group;
@@ -1129,8 +1133,8 @@ export async function cdaCurrentDraftMembershipWorkflow({ page, cda }) {
         group?.keys?.length === 1 && group.keys[0]?.inputColumnId === body.groupSources[0]?.columnId &&
         group?.aggregates?.length === 1 && group.aggregates[0]?.operation === 'COUNT_ROWS';
     }, { fromIndex: sourceGroupFromIndex, timeoutMs: MAX_ACTION_MS });
-   const sourceGroupRequest = capture.rawRequestBody(sourceGroupProposalEvent);
-   const sourceGroupResponse = capture.rawResponseBody(sourceGroupProposalEvent);
+    const sourceGroupRequest = capture.rawRequestBody(sourceGroupProposalEvent);
+    const sourceGroupResponse = capture.rawResponseBody(sourceGroupProposalEvent);
     const sourceGroupStep = sourceGroupRequest?.candidateConstruction?.steps?.at(-1);
     const sourceGroupResponseExact = sourceGroupResponse?.snapshotToken === sourceGroupBuilder.catalog?.snapshotToken &&
       sourceGroupResponse?.draftVersion === sourceGroupBuilder.draftVersion &&
@@ -1139,42 +1143,88 @@ export async function cdaCurrentDraftMembershipWorkflow({ page, cda }) {
       constructionCandidateWireEquivalent(sourceGroupRequest?.candidateConstruction, sourceGroupResponse?.candidateConstruction);
     assert(sourceGroupStep?.inputs?.length === 1 && sourceGroupStep.inputs[0]?.kind === 'SOURCE_PROJECTION',
       'Source-backed Group proposal must add its exact root field projection before grouping');
-   assert(sourceGroupResponseExact && sourceGroupResponse?.previewStatus === 'READY',
-     'Source-backed Group proposal must complete an exact native preview response');
-   const sourceGroupGrid = await readGrid('proposal');
+    assert(sourceGroupResponseExact && sourceGroupResponse?.previewStatus === 'READY',
+      'Source-backed Group proposal must complete an exact native preview response');
+    const sourceGroupGrid = await readGrid('proposal');
     const sourceGroupPreview = sourceGroupResponse.preview;
-    assert(Array.isArray(sourceGroupPreview?.rows) && sourceGroupPreview.rows.length === sourceGroupPreviewLimit &&
-      sourceGroupPreview.rowCount === sourceGroupPreviewLimit && typeof sourceGroupPreview.sampled === 'boolean',
-      'Source-backed Group preview must retain its bounded 25-row sample metadata');
-   const visibleSourceGroupIDs = sourceGroupGrid.rows.map(row => row[0]);
-    assert(sourceGroupGrid.ready && sourceGroupGrid.rows.length === sourceGroupPreviewLimit &&
-      visibleSourceGroupIDs.every(id => typeof id === 'string' && id.trim().length > 0) &&
-      new Set(visibleSourceGroupIDs).size === sourceGroupPreviewLimit,
-      'Source-backed Group preview must expose 25 distinct populated Observation IDs');
-    const sourceGroupRereadQuery = `LET ids = ${JSON.stringify(visibleSourceGroupIDs)} FOR r IN Observation ` +
-      `FILTER r.project == ${JSON.stringify(project)} AND r.dataset_generation == ${JSON.stringify(generation)} ` +
-      `AND r.payload.resourceType == "Observation" AND r.id IN ids ` +
-      `COLLECT id = r.id, project = r.project, generation = r.dataset_generation, ` +
-      `resourceType = r.payload.resourceType WITH COUNT INTO sourceRecords SORT id ASC LIMIT ${sourceGroupPreviewLimit} ` +
-      `RETURN {id, count: sourceRecords, project, generation, resourceType}`;
-    const sourceGroupRereadStartedAt = Date.now();
-    const sourceGroupReread = runAQL(arangoContainer, sourceGroupRereadQuery,
-      'Source-backed Group preview exact raw Observation ID/count reread');
-    const sourceGroupRereadElapsedMs = Date.now() - sourceGroupRereadStartedAt;
-    const sourceGroupRereadIDs = sourceGroupReread.map(row => row?.id);
-    const sourceGroupRereadExact = sourceGroupReread.length === sourceGroupPreviewLimit &&
-      new Set(sourceGroupRereadIDs).size === sourceGroupPreviewLimit &&
-      isDeepStrictEqual([...sourceGroupRereadIDs].sort(), [...visibleSourceGroupIDs].sort()) &&
-      sourceGroupReread.every(row => row?.project === project && row?.generation === generation &&
-        row?.resourceType === 'Observation' && typeof row?.id === 'string' && row.id.trim().length > 0 &&
-        Number.isInteger(row.count) && row.count > 0);
-    const expectedSourceGroupRows = sourceGroupReread.map(row => [row.id, String(row.count)]);
+    assert(Array.isArray(sourceGroupPreview?.columns) && sourceGroupPreview.columns.length === 2 &&
+      Array.isArray(sourceGroupPreview?.rows) && typeof sourceGroupPreview.rowCount === 'number' &&
+      typeof sourceGroupPreview.sampled === 'boolean',
+      'Source-backed Group preview must retain its typed rows and bounded sample metadata');
+    const sourceGroupKeyColumn = sourceGroupPreview.columns[0];
+    const sourceGroupCountColumn = sourceGroupPreview.columns[1];
+    assert.equal(sourceGroupKeyColumn?.label, sourceGroupChoice.label,
+      'Source-backed Group preview must expose the selected status key first');
+    assert.equal(sourceGroupCountColumn?.label, 'Source records',
+      'Source-backed Group preview must expose its COUNT_ROWS aggregate second');
+    const sourceGroupPreviewRows = sourceGroupPreview.rows.map(row => [
+      row?.[sourceGroupKeyColumn.column],
+      row?.[sourceGroupCountColumn.column],
+    ]);
+    assert(sourceGroupGrid.ready && sourceGroupGrid.rows.length === sourceGroupPreviewRows.length &&
+      sourceGroupGrid.rows.every((row, index) => row?.length === 2 &&
+        row[0] === (sourceGroupPreviewRows[index][0] === null ? '—' : String(sourceGroupPreviewRows[index][0])) &&
+        row[1] === String(sourceGroupPreviewRows[index][1])),
+      'Source-backed Group table must render its exact typed status keys and counts');
+
+    const sourceGroupRawQuery = `FOR r IN Observation FILTER r.project == ${JSON.stringify(project)} ` +
+      `AND r.dataset_generation == ${JSON.stringify(generation)} AND r.payload.resourceType == "Observation" ` +
+      `COLLECT status = r.payload.status, project = r.project, generation = r.dataset_generation, ` +
+      `resourceType = r.payload.resourceType WITH COUNT INTO sourceRecords SORT status ASC LIMIT ${sourceGroupPreviewLimit + 1} ` +
+      `RETURN {status, count: sourceRecords, project, generation, resourceType}`;
+    const sourceGroupRawStartedAt = Date.now();
+    const sourceGroupRawGroups = runAQL(arangoContainer, sourceGroupRawQuery,
+      'Source-backed Group bounded raw Observation.status aggregation');
+    const sourceGroupRawElapsedMs = Date.now() - sourceGroupRawStartedAt;
+    const sourceGroupRawScopeExact = sourceGroupRawGroups.length > 0 &&
+      sourceGroupRawGroups.length <= sourceGroupPreviewLimit + 1 &&
+      sourceGroupRawGroups.every(row => row?.project === project && row?.generation === generation &&
+        row?.resourceType === 'Observation' && (row?.status === null || typeof row?.status === 'string') &&
+        Number.isInteger(row?.count) && row.count > 0);
+    assert(sourceGroupRawScopeExact,
+      'Bounded source status GROUP oracle must retain exact project, generation, Observation scope and scalar counts');
+
+    let sourceGroupRereadQuery;
+    let sourceGroupReread = [];
+    let sourceGroupRereadElapsedMs = 0;
+    if (sourceGroupRawGroups.length > sourceGroupPreviewLimit) {
+      const displayedStatusKeys = sourceGroupGrid.rows.map((row, index) => {
+        const [status, count] = sourceGroupPreviewRows[index] ?? [];
+        assert.equal(row?.[0], status === null ? '—' : String(status),
+          'Displayed status key must correspond to its typed proposal response value');
+        assert.equal(row?.[1], String(count), 'Displayed GROUP count must correspond to its proposal response value');
+        return sourceGroupPreviewRows[index][0];
+      });
+      sourceGroupRereadQuery = `LET displayedStatuses = ${JSON.stringify(displayedStatusKeys)} FOR r IN Observation ` +
+        `FILTER r.project == ${JSON.stringify(project)} AND r.dataset_generation == ${JSON.stringify(generation)} ` +
+        `AND r.payload.resourceType == "Observation" LET groupStatus = r.payload.status FILTER groupStatus IN displayedStatuses ` +
+        `COLLECT status = groupStatus, project = r.project, generation = r.dataset_generation, ` +
+        `resourceType = r.payload.resourceType WITH COUNT INTO sourceRecords SORT status ASC ` +
+        `RETURN {status, count: sourceRecords, project, generation, resourceType}`;
+      const sourceGroupRereadStartedAt = Date.now();
+      sourceGroupReread = runAQL(arangoContainer, sourceGroupRereadQuery,
+        'Source-backed Group exact displayed Observation.status/count reread');
+      sourceGroupRereadElapsedMs = Date.now() - sourceGroupRereadStartedAt;
+      assert(sourceGroupReread.every(row => row?.project === project && row?.generation === generation &&
+        row?.resourceType === 'Observation'),
+      'Displayed status reread must retain exact project, generation, and Observation scope');
+    }
+    const sourceGroupOracle = compareCdaSourceGroupPreview({
+      previewRows: sourceGroupPreviewRows,
+      visibleRows: sourceGroupGrid.rows,
+      rawGroupRows: sourceGroupRawGroups,
+      displayedRereadRows: sourceGroupReread,
+      rowCount: sourceGroupPreview.rowCount,
+      sampled: sourceGroupPreview.sampled,
+      limit: sourceGroupPreviewLimit,
+    });
+    const expectedSourceGroupRows = sourceGroupOracle.expectedRows ?? [];
     const sourceGroupHeaders = [sourceGroupChoice.label, 'Source records'];
     const sourceGroupPreviewExact = sourceGroupGrid.ready &&
       isDeepStrictEqual(sourceGroupGrid.headers, sourceGroupHeaders) &&
-      sourceGroupRereadExact && isDeepStrictEqual(sortedRows(sourceGroupGrid.rows), sortedRows(expectedSourceGroupRows));
+      sourceGroupRawScopeExact && sourceGroupOracle.ok;
     assert(sourceGroupPreviewExact,
-      'Source-backed Group preview must match exact scoped raw Observation ID/counts for all 25 displayed rows');
+      'Source-backed Group preview must match the complete or exact displayed-key raw Observation status/count oracle');
     const sourceGroupCancelBase = await readBuilder();
     await action('Cancel source-backed Group preview on the restored Membership target', page.getByTestId('construction-cancel-proposal'),
       locator => locator.click({ timeout: MAX_ACTION_MS }), async () => waitFunction(`!document.querySelector('[data-testid="construction-proposal-panel"]')`));
@@ -1203,16 +1253,25 @@ export async function cdaCurrentDraftMembershipWorkflow({ page, cda }) {
           expectedHeaders: sourceGroupHeaders,
           previewRows: sourceGroupGrid.rows,
           expectedRows: expectedSourceGroupRows,
+          oracle: sourceGroupOracle,
           previewExact: sourceGroupPreviewExact,
-         rawGroupReread: {
-            project, generation, resourceType: 'Observation', query: sourceGroupRereadQuery,
-            rowCount: sourceGroupReread.length, elapsedMs: sourceGroupRereadElapsedMs,
-           visibleSampleCount: visibleSourceGroupIDs.length,
+          rawGroupOracle: {
+            project, generation, resourceType: 'Observation', query: sourceGroupRawQuery,
+            rowCount: sourceGroupRawGroups.length, elapsedMs: sourceGroupRawElapsedMs,
             previewSampled: sourceGroupPreview.sampled,
             previewRowCount: sourceGroupPreview.rowCount,
-            coverage: 'Exact raw scope and count reread for the 25 displayed keys only; no completeness or source-order claim is inferred from this sample check.',
+            displayedKeyRereadQuery: sourceGroupRereadQuery ?? null,
+            rawGroups: sourceGroupRawGroups,
+            displayedKeyRereadGroups: sourceGroupReread,
+            displayedKeyRereadRows: sourceGroupReread.length,
+            displayedKeyRereadElapsedMs: sourceGroupRereadElapsedMs,
+            coverage: sourceGroupOracle.ok
+              ? sourceGroupOracle.comparison === 'complete-raw-group-set'
+                ? 'Complete scoped status GROUP set compared as a multiset.'
+                : 'Capped GROUP scan establishes sampled metadata; each displayed status key is independently reread and compared as a multiset.'
+              : 'The GROUP comparison failed; inspect the bounded raw and displayed-key evidence plus the oracle reason.',
           },
-          rawGroupRereadExact: sourceGroupRereadExact,
+          rawGroupOracleExact: sourceGroupOracle.ok,
         },
         sourceGroupCancelEvidence,
         sourceGroupTargetRestored,
