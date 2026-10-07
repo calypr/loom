@@ -5,6 +5,7 @@ import { scenarioCaseFor } from '../registry.mjs';
 
 const CASE_ID = 'cda-five-hop-related-expansion';
 const CASE_NAME = 'medication-preserve-parent';
+const POSITIVE_FIXTURE_CASE_NAME = 'medication-positive-fixture';
 const ACTION_BUDGET_MS = 5_000;
 const PANEL = '[data-testid="construction-related-expand-editor"]';
 const ROUTE_LABEL = 'Specimen <-[focus]- Observation <-[stage_assessment]- Condition -[subject]-> Patient <-[subject]- MedicationAdministration -[medication_reference]-> Medication';
@@ -16,7 +17,15 @@ const ROUTE_STEPS = [
   ['MedicationAdministration', 'Medication', 'medication_reference_Medication', 'OUTBOUND'],
 ];
 
+export const medicationOracleModeForCase = caseName => {
+  if (caseName === CASE_NAME) return { caseName, expectedScannedRoots: 1000, positiveFixture: false };
+  if (caseName === POSITIVE_FIXTURE_CASE_NAME) return { caseName, expectedScannedRoots: 2, positiveFixture: true };
+  throw new Error(`unsupported related Medication case: ${caseName}`);
+};
+
 export async function zeroColumnRelatedMedicationWorkflow({ page, cda }) {
+  const caseName = cda.caseName ?? CASE_NAME;
+  const oracleMode = medicationOracleModeForCase(caseName);
   const project = cda.project;
   const generation = cda.target.fixtureGeneration ?? cda.target.generation;
   const arangoContainer = cda.target.arangoContainer;
@@ -27,12 +36,15 @@ export async function zeroColumnRelatedMedicationWorkflow({ page, cda }) {
   const explorerRoot = `/api/v1/projects/${encodeURIComponent(project)}/explorers`;
   const explorerPath = `${explorerRoot}/${encodeURIComponent(explorer)}`;
   const authoringPath = `${explorerPath}/authoring/v2`;
-  const requiredChecks = scenarioCaseFor(CASE_ID, CASE_NAME).requiredChecks;
+  const requiredChecks = scenarioCaseFor(CASE_ID, caseName).requiredChecks;
   assert.deepEqual(requiredChecks, cda.report.requiredChecks,
     'The fixture report must use the registered zero-column related Medication contract');
   assert(project && generation && arangoContainer, 'The case requires the owned CDA project, generation, and Arango container');
   assert.equal(generation, 'cda-fhir-v1');
-  assert.equal(requiredChecks.length, 11, 'The registry must define ten lifecycle checks plus watched-source/API integrity');
+  assert.equal(requiredChecks.length, oracleMode.positiveFixture ? 14 : 11,
+    oracleMode.positiveFixture
+      ? 'The positive fixture registry must define ten shared lifecycle checks, two additional cancellation checks, and separate watched-source and API-build integrity checks'
+      : 'The real CDA registry must keep ten lifecycle checks plus its combined source/API integrity check');
 
   const report = Object.assign(cda.report, {
     explorer,
@@ -220,6 +232,47 @@ FOR specimen IN Specimen
     return { ...visible, protocolValues, protocolRowIDs: protocolIdentities, receiptId: receipt.receiptId,
       reconcileRequest, previewRequestStatus: previewRequest.status, previewRequest, protocol };
   };
+  const assertCanceledProposalRestoredRows = async (expectedValues, savedDraft) => {
+    const expectedDisplays = expectedValues.map(value => value === null ? '—' : String(value)).sort();
+    await wait(([expectedOutput, expectedVersion, expectedDigest, expectedCount]) => {
+      const preview = document.querySelector('[data-testid="construction-preview"]');
+      const table = document.querySelector('[data-testid="preview-table-scroll"] [role="table"]');
+      return preview?.dataset.previewStatus === 'ready' && preview.dataset.previewOutputId === expectedOutput &&
+        preview.dataset.currentDraftVersion === expectedVersion && preview.dataset.currentDraftDigest === expectedDigest &&
+        Number(table?.getAttribute('aria-rowcount') ?? 0) === expectedCount + 1 &&
+        Number(table?.getAttribute('aria-colcount') ?? 0) === 1;
+    }, [outputId, String(savedDraft.draftVersion), savedDraft.draftDigest, expectedValues.length]);
+    const rendered = await cda.inspect(() => {
+      const preview = document.querySelector('[data-testid="construction-preview"]');
+      const table = document.querySelector('[data-testid="preview-table-scroll"] [role="table"]');
+      const rows = [...(table?.querySelectorAll('[role="row"]') ?? [])].slice(1).map(row => {
+        const cell = row.querySelector('[role="cell"]');
+        return { text: cell?.textContent.trim() ?? '', title: cell?.querySelector('[title]')?.getAttribute('title') ?? null };
+      });
+      return {
+        status: preview?.dataset.previewStatus,
+        outputId: preview?.dataset.previewOutputId,
+        draftVersion: preview?.dataset.currentDraftVersion,
+        draftDigest: preview?.dataset.currentDraftDigest,
+        headers: [...(table?.querySelectorAll('[role="columnheader"]') ?? [])].map(node => node.textContent.trim()),
+        rowCount: Number(table?.getAttribute('aria-rowcount') ?? 0) - 1,
+        columnCount: Number(table?.getAttribute('aria-colcount') ?? 0),
+        rows,
+      };
+    });
+    assert.equal(rendered.status, 'ready', 'Cancel must restore a ready preview of the saved output');
+    assert.equal(rendered.outputId, outputId);
+    assert.equal(rendered.draftVersion, String(savedDraft.draftVersion));
+    assert.equal(rendered.draftDigest, savedDraft.draftDigest);
+    assert.deepEqual(rendered.headers, ['Medication FHIR resource ID']);
+    assert.equal(rendered.rowCount, expectedValues.length);
+    assert.equal(rendered.columnCount, 1);
+    assert.equal(rendered.rows.length, expectedValues.length,
+      'The small positive fixture must render every saved Medication row after Cancel');
+    assert.deepEqual(rendered.rows.map(row => row.text).sort(), expectedDisplays);
+    assert.deepEqual(rendered.rows.map(row => row.title).sort(), expectedDisplays);
+    return rendered;
+  };
   const proposalEvidence = async (expectedStatus = 'ready') => {
     await wait(([status]) => document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status') === status, [expectedStatus]);
     return cda.inspect(() => {
@@ -239,13 +292,33 @@ FOR specimen IN Specimen
     const positive = scanned.find(root => root.medications.length > 0 && root.medications.length <= 24);
     const noMatches = scanned.filter(root => root.medications.length === 0).slice(0, positive ? 1 : 2);
     const selected = positive ? [positive, ...noMatches] : noMatches;
-    assert.equal(scanned.length, 1000, 'Bounded oracle must scan exactly the first 1,000 project/generation Specimens');
+    assert.equal(scanned.length, oracleMode.expectedScannedRoots,
+      oracleMode.positiveFixture
+        ? 'Positive fixture oracle must see exactly its two project/generation Specimen roots'
+        : 'Bounded oracle must scan exactly the first 1,000 project/generation Specimens');
+    if (oracleMode.positiveFixture) {
+      assert.deepEqual(scanned.map(root => ({ specimen: root.specimen.id, medications: root.medications.map(item => item.id) })), [
+        { specimen: 'positive-specimen', medications: ['medication-a', 'medication-b'] },
+        { specimen: 'unmatched-specimen', medications: [] },
+      ], 'Fixture-bound raw oracle must preserve the exact positive multiplicity and unmatched parent');
+    }
     assert(selected.length >= 1 && selected.length <= 2, 'Oracle must select one positive witness when present plus at most one no-match, or two no-match parents');
     const selectedRefs = selected.map(root => ({ project, generation, resourceType: 'Specimen', id: root.specimen.id })).sort((a, b) => a.id.localeCompare(b.id));
     const expectedValues = selected.flatMap(root => root.medications.length ? root.medications.map(item => item.id) : [null]);
     const excludedRootCount = selected.filter(root => root.medications.length === 0).length;
+    if (oracleMode.positiveFixture) {
+      assert.deepEqual(expectedValues, ['medication-a', 'medication-b', null],
+        'Positive fixture PRESERVE_PARENT rows must contain both exact Medication IDs and one unmatched-parent null');
+      assert.equal(expectedValues.length, 3, 'Positive fixture PRESERVE_PARENT must materialize three rows');
+      assert.equal(expectedValues.filter(value => value !== null).length, 2,
+        'Positive fixture EXCLUDE must retain the two distinct Medication matches');
+      assert.equal(excludedRootCount, 1, 'Positive fixture must have exactly one unmatched parent for the EXCLUDE contrast');
+      assert.equal(expectedValues.length - excludedRootCount, 2,
+        'Positive fixture EXCLUDE rows must equal the two Medication matches');
+    }
     report.rawOracle = {
       project, generation, scannedSpecimenCount: scanned.length,
+      fixtureMode: oracleMode.positiveFixture,
       selectedRoots: selected.map(root => ({ id: root.specimen.id, _id: root.specimen._id, medicationIDs: root.medications.map(item => item.id) })),
       positiveWitnessWithinBound: Boolean(positive),
       unmatchedRootCountWithinBound: scanned.filter(root => root.medications.length === 0).length,
@@ -542,6 +615,7 @@ FOR specimen IN Specimen
       receiptId: reloadedRows.receiptId, reconcileRequestId: reloadedRows.reconcileRequest.requestId,
       previewRequestId: reloadedRows.previewRequest.requestId, savedDraftVersion: builder.draftVersion, savedDraftDigest: builder.draftDigest });
 
+    const preserveParentSavedBuilder = structuredClone(builder);
     const editProposalFromIndex = cda.report.nativeRequests.length;
     const editOpenStart = Date.now();
     await cda.click(`[data-testid="construction-history-step-${savedStep.id}"]`);
@@ -553,16 +627,66 @@ FOR specimen IN Specimen
     const policySelector = `${PANEL} select[aria-label="If a current row has no matches"]`;
     const policyChoiceStart = Date.now();
     await cda.selectOption(policySelector, 'EXCLUDE');
-    const excludedProposal = await proposalEvidence('ready');
-    const excludeProposalRequest = await findProposal((body, response) => body?.outputId === outputId && body?.candidateConstruction?.steps?.some(step =>
+    let excludedProposal = await proposalEvidence('ready');
+    let excludeProposalRequest = await findProposal((body, response) => body?.outputId === outputId && body?.candidateConstruction?.steps?.some(step =>
       step.id === savedStep.id && step.operation?.relatedExpand?.emptyPolicy === 'EXCLUDE') && response?.proposalId, editProposalFromIndex);
     assert.equal(rawResponse(excludeProposalRequest).preview?.rowCount, report.rawOracle.expectedExcludeRowCount);
     assert.equal(excludedProposal.rows.length, report.rawOracle.expectedExcludeRowCount);
     measured('EXCLUDE policy selection to exact automatic proposal', policyChoiceStart);
-    const excludePreview = rawResponse(excludeProposalRequest).preview;
+    let excludePreview = rawResponse(excludeProposalRequest).preview;
     const excludedExpectedValues = report.rawOracle.expectedVisibleMedicationValues.filter(value => value !== null);
     assert.equal(excludePreview.rowCount, excludedExpectedValues.length);
     assert.deepEqual(excludePreview.rows.map(row => row[savedOutput.name]).sort(), [...excludedExpectedValues].sort());
+
+    if (oracleMode.positiveFixture) {
+      const cancelEditStart = Date.now();
+      await cda.click('[data-testid="construction-cancel-proposal"]');
+      await wait(() => !document.querySelector('[data-testid="construction-proposal-panel"]'));
+      const canceledEditRows = await assertCanceledProposalRestoredRows(
+        report.rawOracle.expectedVisibleMedicationValues, preserveParentSavedBuilder);
+      measured('Cancel EXCLUDE edit to exact saved PRESERVE_PARENT rows', cancelEditStart);
+      builder = await api(`${authoringPath}/builder`);
+      assert.deepEqual(builder.workspace, preserveParentSavedBuilder.workspace,
+        'Canceling the positive-fixture EXCLUDE edit must preserve the saved PRESERVE_PARENT workspace');
+      assert.equal(builder.catalog.snapshotToken, preserveParentSavedBuilder.catalog.snapshotToken);
+      assert.equal(builder.draftVersion, preserveParentSavedBuilder.draftVersion);
+      assert.equal(builder.draftDigest, preserveParentSavedBuilder.draftDigest);
+      const canceledEditStep = doc().construction.steps.find(step => step.id === savedStep.id);
+      assert(canceledEditStep);
+      assert.equal(canceledEditStep.operation?.relatedExpand?.emptyPolicy, 'PRESERVE_PARENT');
+      assert.deepEqual(canceledEditStep.operation?.relatedExpand?.route, choice.route);
+      check(10, 'persistence', {
+        savedPolicy: canceledEditStep.operation.relatedExpand.emptyPolicy,
+        savedRoute: canceledEditStep.operation.relatedExpand.route,
+        workspaceUnchanged: true,
+        snapshotToken: builder.catalog.snapshotToken,
+        draftVersion: builder.draftVersion,
+        draftDigest: builder.draftDigest,
+        renderedRows: canceledEditRows.rows,
+        renderedValues: canceledEditRows.rows.map(row => row.text).sort(),
+      });
+
+      const reopenEditStart = Date.now();
+      await cda.click(`[data-testid="construction-history-step-${savedStep.id}"]`);
+      await wait(([id]) => document.querySelector(`[data-testid="construction-edit-step-${id}"]`)?.disabled === false, [savedStep.id]);
+      await cda.click(`[data-testid="construction-edit-step-${savedStep.id}"]`);
+      await wait(([panel]) => document.querySelector(`${panel} select[aria-label="If a current row has no matches"]`)?.disabled === false, [PANEL]);
+      measured('reopen saved RelatedExpand editor after EXCLUDE edit Cancel', reopenEditStart);
+      assert.equal(await cda.inspect(([panel]) => document.querySelector(`${panel} select[aria-label="If a current row has no matches"]`)?.value, [PANEL]),
+        'PRESERVE_PARENT', 'Reopened editor must hydrate the saved policy after canceling EXCLUDE');
+      const reopenedEditFromIndex = cda.report.nativeRequests.length;
+      const reopenedPolicyStart = Date.now();
+      await cda.selectOption(policySelector, 'EXCLUDE');
+      excludedProposal = await proposalEvidence('ready');
+      excludeProposalRequest = await findProposal((body, response) => body?.outputId === outputId && body?.candidateConstruction?.steps?.some(step =>
+        step.id === savedStep.id && step.operation?.relatedExpand?.emptyPolicy === 'EXCLUDE') && response?.proposalId, reopenedEditFromIndex);
+      excludePreview = rawResponse(excludeProposalRequest).preview;
+      assert.equal(excludePreview?.rowCount, report.rawOracle.expectedExcludeRowCount);
+      assert.deepEqual(excludePreview.rows.map(row => row[savedOutput.name]).sort(), [...excludedExpectedValues].sort());
+      assert.equal(excludedProposal.rows.length, report.rawOracle.expectedExcludeRowCount);
+      measured('reopened EXCLUDE edit selection to exact automatic proposal', reopenedPolicyStart);
+    }
+
     const excludeApplyFromIndex = cda.report.nativeRequests.length;
     const excludeApplyStart = Date.now();
     await cda.click('[data-testid="construction-apply-proposal"]');
@@ -592,7 +716,8 @@ FOR specimen IN Specimen
     assert.deepEqual(excludedReload.protocolRowIDs, excludedRows.protocolRowIDs);
     check(7, 'correctness', { editedPolicy: excludedStep.operation.relatedExpand.emptyPolicy, proposalRowCount: report.rawOracle.expectedExcludeRowCount, actualTableRowCount: excludedRows.rowCount, reloadTableRowCount: excludedReload.rowCount });
 
-    const removeFromIndex = cda.report.nativeRequests.length;
+    const excludeSavedBuilder = structuredClone(builder);
+    let removeFromIndex = cda.report.nativeRequests.length;
     const removeEditorStart = Date.now();
     await cda.click(`[data-testid="construction-history-step-${savedStep.id}"]`);
     await wait(([id]) => document.querySelector(`[data-testid="construction-remove-step-${id}"]`)?.disabled === false, [savedStep.id]);
@@ -603,6 +728,48 @@ FOR specimen IN Specimen
     const removeProposal = await findProposal((body, response) => body?.outputId === outputId && body?.removeStepIds?.includes(savedStep.id) && response?.proposalId, removeFromIndex);
     assert(!rawRequest(removeProposal).candidateConstruction.steps.some(step => step.id === savedStep.id));
     measured('native Remove to zero-column restoration proposal', removeProposalStart);
+
+    if (oracleMode.positiveFixture) {
+      const cancelRemovalStart = Date.now();
+      await cda.click('[data-testid="construction-cancel-proposal"]');
+      await wait(() => !document.querySelector('[data-testid="construction-proposal-panel"]'));
+      const canceledRemovalRows = await assertCanceledProposalRestoredRows(excludedExpectedValues, excludeSavedBuilder);
+      measured('Cancel removal to exact saved EXCLUDE Medication rows', cancelRemovalStart);
+      builder = await api(`${authoringPath}/builder`);
+      assert.deepEqual(builder.workspace, excludeSavedBuilder.workspace,
+        'Canceling the positive-fixture removal must preserve the saved EXCLUDE workspace');
+      assert.equal(builder.catalog.snapshotToken, excludeSavedBuilder.catalog.snapshotToken);
+      assert.equal(builder.draftVersion, excludeSavedBuilder.draftVersion);
+      assert.equal(builder.draftDigest, excludeSavedBuilder.draftDigest);
+      const canceledRemovalStep = doc().construction.steps.find(step => step.id === savedStep.id);
+      assert(canceledRemovalStep);
+      assert.equal(canceledRemovalStep.operation?.relatedExpand?.emptyPolicy, 'EXCLUDE');
+      assert.deepEqual(canceledRemovalStep.operation?.relatedExpand?.route, choice.route);
+      check(11, 'persistence', {
+        savedPolicy: canceledRemovalStep.operation.relatedExpand.emptyPolicy,
+        savedRoute: canceledRemovalStep.operation.relatedExpand.route,
+        workspaceUnchanged: true,
+        snapshotToken: builder.catalog.snapshotToken,
+        draftVersion: builder.draftVersion,
+        draftDigest: builder.draftDigest,
+        renderedRows: canceledRemovalRows.rows,
+        renderedValues: canceledRemovalRows.rows.map(row => row.text).sort(),
+      });
+
+      const reopenRemovalStart = Date.now();
+      await cda.click(`[data-testid="construction-history-step-${savedStep.id}"]`);
+      await wait(([id]) => document.querySelector(`[data-testid="construction-remove-step-${id}"]`)?.disabled === false, [savedStep.id]);
+      measured('reopen saved RelatedExpand removal controls after Cancel', reopenRemovalStart);
+      removeFromIndex = cda.report.nativeRequests.length;
+      const reopenRemoveProposalStart = Date.now();
+      await cda.click(`[data-testid="construction-remove-step-${savedStep.id}"]`);
+      await proposalEvidence('ready');
+      const reopenedRemoveProposal = await findProposal((body, response) => body?.outputId === outputId &&
+        body?.removeStepIds?.includes(savedStep.id) && response?.proposalId, removeFromIndex);
+      assert(!rawRequest(reopenedRemoveProposal).candidateConstruction.steps.some(step => step.id === savedStep.id));
+      measured('reopened Remove to zero-column restoration proposal', reopenRemoveProposalStart);
+    }
+
     const removeApplyStart = Date.now();
     await cda.click('[data-testid="construction-apply-proposal"]');
     await wait(() => !document.querySelector('[data-testid="construction-proposal-panel"]'));
@@ -640,17 +807,21 @@ FOR specimen IN Specimen
     check(9, 'performance', { budgetMs: ACTION_BUDGET_MS, checkpoints: report.checkpoints });
 
     await tracker.flush();
-    cda.includeBrowserDiagnostics();
-    assert.deepEqual(cda.diagnostics.pageErrors, [], 'Unexpected JavaScript errors');
-    assert.deepEqual(report.errors, [], 'Unexpected native browser HTTP or workflow errors');
-    report.lifecycle.status = 'passed';
+    if (oracleMode.positiveFixture) {
+      report.lifecycle.status = 'pending-final-adjudication';
+    } else {
+      cda.includeBrowserDiagnostics();
+      assert.deepEqual(cda.diagnostics.pageErrors, [], 'Unexpected JavaScript errors');
+      assert.deepEqual(report.errors, [], 'Unexpected native browser HTTP or workflow errors');
+      report.lifecycle.status = 'passed';
+    }
   } catch (error) {
     fatal = error;
     report.lifecycle.status = 'failed';
     report.lifecycle.failure = { message: String(error?.message ?? error), stack: error?.stack,
       bodyText: await cda.inspect(() => document.body.innerText.slice(-12_000)).catch(inspectError => String(inspectError)),
       builder: outputId ? await api(`${authoringPath}/builder`).catch(apiError => ({ error: String(apiError) })) : undefined };
-    cda.includeBrowserDiagnostics();
+    if (!oracleMode.positiveFixture) cda.includeBrowserDiagnostics();
   } finally {
     await tracker?.flush().catch(() => undefined);
     report.lifecycle.nativeRequests = cda.report.nativeRequests.map(entry => ({ method: entry.method, path: entry.path, status: entry.status, body: entry.body, response: entry.response }));

@@ -77,6 +77,30 @@ export const finishReport = (report) => {
   return report;
 };
 
+export const adjudicatePendingLifecycle = (report) => {
+  if (report.lifecycle?.status !== 'pending-final-adjudication') return report;
+  report.lifecycle.status = report.status === 'passed' ? 'passed' : 'failed';
+  report.lifecycle.finalReportStatus = report.status;
+  if (report.lifecycle.status === 'failed') {
+    const unexpectedNetwork = (report.network ?? [])
+      .filter((record) => classifyNetworkRecord(record) === 'unexpected-error')
+      .map(({ kind, message, status, method, url, errorText }) => ({
+        kind,
+        ...(message === undefined ? {} : { message }),
+        ...(status === undefined ? {} : { status }),
+        ...(method === undefined ? {} : { method }),
+        ...(url === undefined ? {} : { url }),
+        ...(errorText === undefined ? {} : { errorText }),
+      }));
+    report.lifecycle.failure ??= {
+      finalReportStatus: report.status,
+      missingRequiredChecks: [...(report.missingRequiredChecks ?? [])],
+      unexpectedNetwork,
+    };
+  }
+  return report;
+};
+
 export const writeReport = (path, report) => {
   mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
   writeFileSync(path, JSON.stringify(report, null, 2) + '\n', { mode: 0o600 });

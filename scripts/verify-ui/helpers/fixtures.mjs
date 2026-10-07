@@ -18,7 +18,7 @@ import {
   scenarioFor,
   validateScenarioCase,
 } from './fixture-context.mjs';
-import { classifyNetworkRecord, createReport, finishReport, recordCheck, writeReport } from './report.mjs';
+import { adjudicatePendingLifecycle, classifyNetworkRecord, createReport, finishReport, recordCheck, writeReport } from './report.mjs';
 import { scenarioCaseFor } from '../registry.mjs';
 import { sourceFingerprintChangedPaths, sourceFingerprintWithManifest } from './source-fingerprint.mjs';
 import { captureNativeFailureEvidence, MAX_NATIVE_FAILURE_CAPTURE_MS } from './native-failure-evidence.mjs';
@@ -89,14 +89,15 @@ export const test = base.extend({
   scenarioID: ['builder-combine', { option: true }],
   caseName: ['append', { option: true }],
   fixtureDir: [undefined, { option: true }],
+  fixtureGeneration: [undefined, { option: true }],
 
-  loomContext: [async ({ scenarioID, caseName, fixtureDir }, use, testInfo) => {
+  loomContext: [async ({ scenarioID, caseName, fixtureDir, fixtureGeneration }, use, testInfo) => {
     const setupStarted = performance.now();
     const scenario = scenarioFor(scenarioID);
     const caseContract = validateScenarioCase(scenario, caseName);
     const args = { caseName };
     const contextStarted = performance.now();
-    const env = environmentForFixtureDir(process.env, fixtureDir);
+    const env = environmentForFixtureDir(process.env, fixtureDir, fixtureGeneration);
     const context = await createRunContext(args, scenario, { env });
     const contextSetupMs = performance.now() - contextStarted;
     const location = makeReportLocation(context, scenarioID, caseName);
@@ -189,6 +190,7 @@ export const test = base.extend({
     report.fixtureTimings.apiBuildIdentityAfterMs = performance.now() - apiAfterStarted;
 
     finishReport(report);
+    adjudicatePendingLifecycle(report);
     const sanitizedReport = sanitizePayload(report);
     writeReport(location.reportPath, sanitizedReport);
     await testInfo.attach('loom-verification-report.json', {
