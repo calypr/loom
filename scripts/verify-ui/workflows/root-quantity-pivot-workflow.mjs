@@ -16,6 +16,29 @@ import { fixtureSourceDigest } from '../../loom-dev.mjs';
 import { browserURL } from './builder-url.mjs';
 import { scenarioCaseFor } from '../registry.mjs';
 
+export function readProposalPanelSnapshot() {
+  const panel = document.querySelector('[data-testid="construction-proposal-preview"]');
+  const headers = [...(panel?.querySelectorAll('th') ?? [])].map(cell => {
+    const spans = [...cell.querySelectorAll(':scope > span')];
+    return {
+      label: spans[0]?.innerText.trim() ?? '',
+      logicalType: spans[1]?.innerText.trim() ?? null,
+      spanCount: spans.length,
+    };
+  });
+  const rows = [...document.querySelectorAll('[data-testid="construction-proposal-preview-row"]')]
+    .map(row => [...row.querySelectorAll('td')].map(cell => cell.innerText.trim()));
+  return { headers, rows };
+}
+
+export function assertProposalPanelHeaders(actualHeaders, columns, label) {
+  const expectedHeaders = columns.map(column => {
+    const logicalType = column.logicalType || null;
+    return { label: column.label, logicalType, spanCount: logicalType === null ? 1 : 2 };
+  });
+  assert.deepEqual(actualHeaders, expectedHeaders, `${label} proposal headers must show the exact native labels and logical types`);
+}
+
 export function authoringRequestsFromNative(nativeRequests, requestCapture) {
   const endpoints = new Set(['construction-capabilities', 'construction-category-discoveries', 'construction-proposals', 'commands', 'reconcile', 'preview']);
   return nativeRequests
@@ -555,10 +578,8 @@ const assertRendered = async (columns, rows, label) => {
 
 const assertProposalPanel = async (pivot, label) => {
   await waitForObservable(page, ({ rowCount }) => document.querySelectorAll('[data-testid="construction-proposal-preview-row"]').length===rowCount, { rowCount: pivot.expectedRows.length }, 5000);
-  const actual = await inspectPage(page, () => {
-return {headers:[...document.querySelectorAll('[data-testid="construction-proposal-preview"] th')].map(cell=>cell.innerText.trim().split('\\n')[0]),rows:[...document.querySelectorAll('[data-testid="construction-proposal-preview-row"]')].map(row=>[...row.querySelectorAll('td')].map(cell=>cell.innerText.trim()))};
-});
-  assert.deepEqual(actual.headers.map(header => header.toLowerCase()), pivot.columns.map(column => column.label.toLowerCase()), `${label} proposal headers must show the native category labels`);
+  const actual = await inspectPage(page, readProposalPanelSnapshot);
+  assertProposalPanelHeaders(actual.headers, pivot.columns, label);
   const expectedCells = pivot.expectedRows.map(row => pivot.columns.map(column => row[column.column] === null || row[column.column] === undefined ? '—' : String(row[column.column])));
   assert.deepEqual(actual.rows.map(row => JSON.stringify(row)).sort(), expectedCells.map(row => JSON.stringify(row)).sort(), `${label} proposal values must match independent aggregation`);
 };
