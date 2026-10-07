@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
+import { canonicalProjectID } from '../../loom-dev.mjs';
 import { scenarioCaseFor } from '../registry.mjs';
 
 const CASE_ID = 'cda-five-hop-related-expansion';
@@ -21,6 +22,60 @@ export const medicationOracleModeForCase = caseName => {
   if (caseName === CASE_NAME) return { caseName, expectedScannedRoots: 1000, positiveFixture: false };
   if (caseName === POSITIVE_FIXTURE_CASE_NAME) return { caseName, expectedScannedRoots: 2, positiveFixture: true };
   throw new Error(`unsupported related Medication case: ${caseName}`);
+};
+
+const compareResourceRefs = (left, right) =>
+  `${left.project}\u0000${left.generation}\u0000${left.resourceType}\u0000${left.id}`
+    .localeCompare(`${right.project}\u0000${right.generation}\u0000${right.resourceType}\u0000${right.id}`);
+
+export const assertPositiveMedicationSelectionPage = ({
+  project, generation, scopeDigest, idempotencyKey, selectedRefs, selection, selectionPage,
+}) => {
+  assert.equal(typeof project, 'string', 'Positive selection must receive the raw fixture project path');
+  const expectedProject = canonicalProjectID(project);
+  assert(project.startsWith('loom_dev_verify_'), 'Positive selection must be bound to its generated verification namespace');
+  assert.notEqual(expectedProject, project, 'Generated fixture alias must canonicalize before public selection identity checks');
+  assert(expectedProject.startsWith('loom_dev_verify_'), 'Canonical selection must remain in the generated verification namespace');
+  assert(generation === 'cda-fhir-v1', 'Positive selection must use the fixture generation');
+  assert(typeof scopeDigest === 'string' && scopeDigest.length > 0, 'Positive selection requires the exact authorized scope digest');
+  assert(Array.isArray(selectedRefs) && selectedRefs.length > 0, 'Positive selection requires independently observed raw roots');
+  assert(selection && typeof selection.id === 'string' && selection.id.length > 0, 'Selection creation must return an immutable revision ID');
+  for (const ref of selectedRefs) {
+    assert.equal(ref.project, project, 'Raw oracle refs must retain the unmodified API/AQL project alias');
+    assert.equal(ref.generation, generation, 'Raw oracle refs must retain the exact fixture generation');
+    assert.equal(ref.resourceType, 'Specimen', 'Raw oracle refs must retain the exact root resource type');
+    assert(typeof ref.id === 'string' && ref.id.length > 0, 'Raw oracle refs must carry an exact resource ID');
+  }
+
+  const expectedRefs = selectedRefs.map(ref => ({
+    project: expectedProject,
+    generation,
+    resourceType: 'Specimen',
+    id: ref.id,
+  })).sort(compareResourceRefs);
+  const assertHeader = (header, label) => {
+    assert.equal(header.id, selection.id, `${label} must identify the exact created revision`);
+    assert.equal(header.project, expectedProject,
+      `${label} project mismatch ${JSON.stringify({ actualProject: header.project, expectedCanonicalProject: expectedProject, routeProject: project })}`);
+    assert.equal(header.generation, generation, `${label} must remain in the exact fixture generation`);
+    assert.equal(header.resourceType, 'Specimen', `${label} must retain the Specimen membership type`);
+    assert.equal(header.scopeDigest, scopeDigest, `${label} must retain the exact authorized scope digest`);
+    assert.equal(header.memberCount, expectedRefs.length, `${label} must report the exact independently expected membership count`);
+    assert.equal(header.complete, true, `${label} must describe a complete immutable membership`);
+  };
+  assertHeader(selection, 'Selection creation response');
+  assert.equal(selection.idempotencyKey, idempotencyKey, 'Selection creation response must retain its exact idempotency identity');
+  const revision = selectionPage?.revision;
+  assert(revision, 'Selection read must return the immutable revision header');
+  assertHeader(revision, 'Selection GET revision');
+  assert.equal(selectionPage.nextCursor, undefined, 'The exact bounded member page must be complete without a cursor');
+  assert(Array.isArray(selectionPage.members), 'Selection GET must return a members array');
+  assert.equal(selectionPage.members.length, expectedRefs.length, 'Selection GET must return every expected member on this page');
+  assert.equal(revision.memberCount, selectionPage.members.length, 'Complete page length must equal the immutable header count');
+  const actualRefs = selectionPage.members.map(member => member.ref).sort(compareResourceRefs);
+  assert.deepEqual(actualRefs, expectedRefs,
+    'Immutable selected Specimen membership must exactly equal canonicalized project/generation/type/ID refs from the raw oracle');
+  return { expectedProject, refs: actualRefs };
 };
 
 export async function zeroColumnRelatedMedicationWorkflow({ page, cda }) {
@@ -117,8 +172,7 @@ FOR specimen IN Specimen
     return value;
   };
   const command = async commands => {
-    const pre = builder;
-    await api(`${authoringPath}/commands`, {
+    const response = await api(`${authoringPath}/commands`, {
       commandId: randomUUID(), semanticsVersion: builder.workspace?.semanticsVersion ?? 10,
       snapshotToken: builder.catalog.snapshotToken,
       expectedDraftVersion: builder.draftVersion,
@@ -126,7 +180,7 @@ FOR specimen IN Specimen
       commands,
     });
     builder = await api(`${authoringPath}/builder`);
-    return pre;
+    return response;
   };
   const doc = (state = builder) => state.workspace.documents.find(item => item.output.id === outputId);
   const measured = async (name, startAt) => {
@@ -331,16 +385,30 @@ FOR specimen IN Specimen
     };
     check(0, 'correctness', { ...report.rawOracle, queryHashEvidence: 'The embedded bounded AQL checks project+generation on all five edges and all six endpoint documents.' });
 
-    await api(explorerRoot, { name: explorer, title: 'Zero-column Medication related expansion QA' });
+    const createdExplorer = await api(explorerRoot, { name: explorer, title: 'Zero-column Medication related expansion QA' });
+    const canonicalProject = canonicalProjectID(project);
+    assert.equal(createdExplorer.project, canonicalProject,
+      `Create Explorer project mismatch ${JSON.stringify({ actualProject: createdExplorer.project, expectedCanonicalProject: canonicalProject, routeProject: project })}`);
+    assert.equal(createdExplorer.explorerId, explorer, 'Create Explorer response must return the requested exact Explorer ID');
+    assert.equal(createdExplorer.title, 'Zero-column Medication related expansion QA');
     builder = await api(`${authoringPath}/builder`);
     assert.equal(builder.catalog.generation, generation);
+    assert.equal(builder.catalog.complete, true, 'Fresh Builder baseline must expose a complete authorized catalog');
+    assert(builder.catalog.snapshotToken, 'Fresh Builder baseline must carry its exact catalog snapshot token');
+    assert(builder.catalog.authorizationScopeDigest, 'Fresh Builder baseline must carry its authorized scope digest');
     assert.equal(builder.lifecycleState, 'NEW', 'A fresh interactive Explorer must begin in the NEW Builder lifecycle');
     assert.equal(builder.workspace, null, 'A fresh interactive Explorer has no persisted workspace before its first command');
+    assert.equal(builder.draftVersion, 0, 'A fresh interactive Explorer must begin at draft version zero');
+    assert.equal(builder.draftDigest, '', 'A fresh interactive Explorer must begin without a saved draft digest');
     const specimenNode = builder.catalog.nodes.find(node => node.resourceType === 'Specimen');
     assert(specimenNode, 'CDA catalog must expose Specimen as a root');
-    await command([{ type: 'CREATE_TABLE', title: 'Zero-column Specimen', rootNodeId: specimenNode.nodeId }]);
+    const createTableResponse = await command([{ type: 'CREATE_TABLE', title: 'Zero-column Specimen', rootNodeId: specimenNode.nodeId }]);
     assert.equal(builder.lifecycleState, 'READY', 'CREATE_TABLE must initialize the first persisted Builder workspace');
     assert(builder.workspace, 'CREATE_TABLE must return the initialized Builder workspace');
+    assert.deepEqual(createTableResponse.workspace, builder.workspace, 'CREATE_TABLE response workspace must match the independently reloaded Builder');
+    assert.equal(createTableResponse.draftVersion, builder.draftVersion, 'CREATE_TABLE response draft version must match the reloaded Builder');
+    assert.equal(createTableResponse.draftDigest, builder.draftDigest, 'CREATE_TABLE response digest must match the reloaded Builder');
+    assert.deepEqual(createTableResponse.results.map(result => result.type), ['CREATE_TABLE'], 'CREATE_TABLE response must identify the exact initial command');
     assert.equal(builder.workspace.documents.length, 1, 'CREATE_TABLE must produce exactly one isolated Specimen document');
     const initial = builder.workspace.documents[0];
     assert(initial, 'QA table creation failed');
@@ -354,14 +422,22 @@ FOR specimen IN Specimen
       source: { kind: 'resources', resources: { refs: selectedRefs } },
     });
     const selectionPage = await api(`${explorerPath}/selections/${encodeURIComponent(selection.id)}?limit=100`);
-    const actualRefs = selectionPage.members.map(member => member.ref).sort((a, b) => a.id.localeCompare(b.id));
-    assert.equal(selection.project, project);
-    assert.equal(selection.generation, generation);
-    assert.equal(selection.resourceType, 'Specimen');
-    assert.equal(selection.scopeDigest, builder.catalog.authorizationScopeDigest);
-    assert.equal(selection.memberCount, selectedRefs.length);
-    assert.equal(selectionPage.revision.id, selection.id);
-    assert.deepEqual(actualRefs, selectedRefs, 'Immutable selected Specimen membership must exactly equal bounded raw oracle roots');
+    const { refs: actualRefs } = oracleMode.positiveFixture
+      ? assertPositiveMedicationSelectionPage({
+        project, generation, scopeDigest: builder.catalog.authorizationScopeDigest, selectedRefs, selection, selectionPage,
+        idempotencyKey: explorer,
+      })
+      : (() => {
+        const refs = selectionPage.members.map(member => member.ref).sort(compareResourceRefs);
+        assert.equal(selection.project, project);
+        assert.equal(selection.generation, generation);
+        assert.equal(selection.resourceType, 'Specimen');
+        assert.equal(selection.scopeDigest, builder.catalog.authorizationScopeDigest);
+        assert.equal(selection.memberCount, selectedRefs.length);
+        assert.equal(selectionPage.revision.id, selection.id);
+        assert.deepEqual(refs, selectedRefs, 'Immutable selected Specimen membership must exactly equal bounded raw oracle roots');
+        return { refs };
+      })();
     const routeResponse = await api(`${authoringPath}/population-routes`, {
       snapshotToken: builder.catalog.snapshotToken, outputId, selectionRevisionId: selection.id, limit: 50,
     });

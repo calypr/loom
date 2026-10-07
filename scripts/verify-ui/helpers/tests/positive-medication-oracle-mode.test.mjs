@@ -1,7 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { medicationOracleModeForCase } from '../../workflows/verify-cda-zero-column-related-medication.mjs';
+import {
+  assertPositiveMedicationSelectionPage,
+  medicationOracleModeForCase,
+} from '../../workflows/verify-cda-zero-column-related-medication.mjs';
 import { registry } from '../../registry.mjs';
 
 test('fixture oracle bound is separate from the existing owned-CDA 1,000-root bound', () => {
@@ -49,7 +52,20 @@ test('positive fixture lifecycle is a separate registered native case from the r
   assert.match(spec, /zeroColumnRelatedMedicationWorkflow\(\{ page, cda \}\)/);
 
   const lifecycle = readFileSync(new URL('../../workflows/verify-cda-zero-column-related-medication.mjs', import.meta.url), 'utf8');
+  assert.match(lifecycle, /import \{ canonicalProjectID \} from '\.\.\/\.\.\/loom-dev\.mjs'/);
+  assert.match(lifecycle, /const project = cda\.project/);
+  assert.match(lifecycle, /FILTER specimen\.project == \$\{JSON\.stringify\(project\)\} AND specimen\.dataset_generation == \$\{JSON\.stringify\(generation\)\}/);
+  assert.match(lifecycle, /const explorerRoot = `\/api\/v1\/projects\/\$\{encodeURIComponent\(project\)\}\/explorers`/);
+  assert.match(lifecycle, /const selectedRefs = selected\.map\(root => \(\{ project, generation, resourceType: 'Specimen', id: root\.specimen\.id \}\)\)/);
+  assert.match(lifecycle, /createdExplorer\.project, canonicalProject/);
+  assert.match(lifecycle, /builder\.catalog\.complete, true/);
+  assert.match(lifecycle, /builder\.lifecycleState, 'NEW'/);
+  assert.match(lifecycle, /builder\.workspace, null/);
+  assert.match(lifecycle, /createTableResponse\.workspace, builder\.workspace/);
+  assert.match(lifecycle, /createTableResponse\.draftVersion, builder\.draftVersion/);
+  assert.match(lifecycle, /createTableResponse\.draftDigest, builder\.draftDigest/);
   assert.match(lifecycle, /oracleMode\.positiveFixture \? 14 : 11/);
+  assert.match(lifecycle, /assertPositiveMedicationSelectionPage\(\{/);
   assert.match(lifecycle, /assertCanceledProposalRestoredRows\(\s*report\.rawOracle\.expectedVisibleMedicationValues, preserveParentSavedBuilder\)/);
   assert.match(lifecycle, /assertCanceledProposalRestoredRows\(excludedExpectedValues, excludeSavedBuilder\)/);
   assert.match(lifecycle, /await wait\(\(\[expectedOutput, expectedVersion, expectedDigest, expectedCount\]\)/);
@@ -88,4 +104,78 @@ test('positive fixture lifecycle is a separate registered native case from the r
   assert.match(standardFixtureRunner, /sourceAtStart\.fingerprint\.sha256 === sourceAtEnd\.fingerprint\.sha256/);
   assert.match(standardFixtureRunner, /recordCheck\(report, 'correctness', 'API build identity stayed unchanged during browser run'/);
   assert.match(standardFixtureRunner, /apiAtStart\.identity === apiAtEnd\.identity/);
+});
+
+const positiveSelectionEvidence = () => {
+  const project = 'loom_dev_verify_muxtoux5-b2e92fe';
+  const publicProject = 'loom_dev_verify_muxtoux5/b2e92fe';
+  const generation = 'cda-fhir-v1';
+  const scopeDigest = 'scope-digest-from-builder';
+  const idempotencyKey = 'related-medication-positive-fixture';
+  const selectedRefs = [
+    { project, generation, resourceType: 'Specimen', id: 'positive-specimen' },
+    { project, generation, resourceType: 'Specimen', id: 'unmatched-specimen' },
+  ];
+  const selection = {
+    id: 'selection-positive-fixture',
+    project: publicProject,
+    generation,
+    resourceType: 'Specimen',
+    scopeDigest,
+    memberCount: 2,
+    complete: true,
+    idempotencyKey,
+  };
+  const selectionPage = {
+    revision: { ...selection },
+    members: selectedRefs.map(ref => ({ ref: { ...ref, project: publicProject } })),
+  };
+  return { project, publicProject, generation, scopeDigest, idempotencyKey, selectedRefs, selection, selectionPage };
+};
+
+test('positive selection checks canonical public identity while preserving raw fixture refs for the request', () => {
+  const evidence = positiveSelectionEvidence();
+  const result = assertPositiveMedicationSelectionPage(evidence);
+  assert.equal(result.expectedProject, evidence.publicProject);
+  assert.equal(result.expectedProject, 'loom_dev_verify_muxtoux5/b2e92fe',
+    'Generated fixture legacy aliases split at the first project separator without retaining its hyphen');
+  assert.deepEqual(result.refs, evidence.selectedRefs.map(ref => ({ ...ref, project: evidence.publicProject })));
+  assert.deepEqual(evidence.selectedRefs.map(ref => ref.project), [evidence.project, evidence.project],
+    'Expected API refs are derived from raw oracle refs without mutating the API/AQL request aliases');
+});
+
+test('positive selection rejects raw aliases, wrong namespaces, and foreign member projects', () => {
+  const mutations = [
+    ['raw alias in creation header', evidence => { evidence.selection.project = evidence.project; }],
+    ['wrong namespace in creation header', evidence => { evidence.selection.project = 'other_namespace/b2e92fe'; }],
+    ['wrong namespace in GET revision', evidence => { evidence.selectionPage.revision.project = 'other_namespace/b2e92fe'; }],
+    ['foreign project member', evidence => { evidence.selectionPage.members[0].ref.project = 'another_project/resource'; }],
+    ['wrong raw oracle project', evidence => { evidence.selectedRefs[0].project = 'another_project/resource'; }],
+  ];
+  for (const [label, mutate] of mutations) {
+    const evidence = positiveSelectionEvidence();
+    mutate(evidence);
+    assert.throws(() => assertPositiveMedicationSelectionPage(evidence), error => error?.name === 'AssertionError', label);
+  }
+});
+
+test('positive selection rejects generation/type/count/completeness and pagination mismatches', () => {
+  const mutations = [
+    ['wrong generation', evidence => { evidence.selection.generation = 'other-generation'; }],
+    ['wrong GET generation', evidence => { evidence.selectionPage.revision.generation = 'other-generation'; }],
+    ['wrong resource type', evidence => { evidence.selectionPage.revision.resourceType = 'Medication'; }],
+    ['wrong authorization scope', evidence => { evidence.selectionPage.revision.scopeDigest = 'other-scope'; }],
+    ['wrong header count', evidence => { evidence.selection.memberCount = 3; }],
+    ['wrong GET member count', evidence => { evidence.selectionPage.revision.memberCount = 3; }],
+    ['incomplete revision', evidence => { evidence.selectionPage.revision.complete = false; }],
+    ['mismatched revision ID', evidence => { evidence.selectionPage.revision.id = 'other-selection'; }],
+    ['cursor indicates another page', evidence => { evidence.selectionPage.nextCursor = 'next-page'; }],
+    ['short member page', evidence => { evidence.selectionPage.members.pop(); }],
+    ['wrong member resource type', evidence => { evidence.selectionPage.members[0].ref.resourceType = 'Medication'; }],
+  ];
+  for (const [label, mutate] of mutations) {
+    const evidence = positiveSelectionEvidence();
+    mutate(evidence);
+    assert.throws(() => assertPositiveMedicationSelectionPage(evidence), error => error?.name === 'AssertionError', label);
+  }
 });
