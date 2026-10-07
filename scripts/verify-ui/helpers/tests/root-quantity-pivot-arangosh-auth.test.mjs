@@ -23,6 +23,7 @@ test('root quantity CDA oracle callsites use noninteractive owned Arango auth', 
   assert.match(invocation.args[6], /--server\.username root/);
   assert.match(invocation.args[6], /--server\.password "\$ARANGO_ROOT_PASSWORD"/);
   assert.match(invocation.args[6], /--server\.database 'loom_dev'/);
-  assert.match(invocation.args[6], /--javascript\.execute-string 'print\(1\);'/);
+  assert.match(invocation.args[6], /printf '%s' 'print\(1\);' > "\$script_file"/);
+  assert.match(invocation.args[6], /--javascript\.execute "\$script_file"/);
   assert(!invocation.args.some(argument => argument.includes('test-password')), 'credentials stay inside the container environment');
 });

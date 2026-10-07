@@ -14,7 +14,7 @@ test('owned Arango query invocation reads credentials in-container without a pro
   assert.match(shellCommand, /--server\.username root/);
   assert.match(shellCommand, /--server\.password "\$ARANGO_ROOT_PASSWORD"/);
   assert.match(shellCommand, /--server\.database 'loom_dev'/);
-  assert.match(shellCommand, /--javascript\.execute-string /);
+  assert.match(shellCommand, /--javascript\.execute "\$script_file"/);
   assert.match(shellCommand, /a'\\''b/);
   assert(!invocation.args.some(argument => argument.includes('test-password')));
 

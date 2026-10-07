@@ -28,6 +28,7 @@ test('Related Unpivot uses the owned authenticated Arango oracle and persists bo
   const shellCommand = invocation.args.at(-1);
   assert.match(shellCommand, /--server\.username root --server\.password "\$ARANGO_ROOT_PASSWORD"/);
   assert.match(shellCommand, /--server\.database 'loom_dev'/);
+  assert.match(shellCommand, /--javascript\.execute "\$script_file"/);
   assert.match(workflow, /buildArangoShellInvocation\(\{ container: arangoContainer, script, database: 'loom_dev' \}\)/);
   assert.match(workflow, /spawnSync\(invocation\.command, invocation\.args, \{ encoding: 'utf8', timeout: 30000 \}\)/);
 
