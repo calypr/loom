@@ -1,0 +1,627 @@
+{
+  "schemaVersion": 1,
+  "epoch": 141,
+  "scenario": "root-quantity-pivot",
+  "case": "full-population-lifecycle",
+  "title": "Root quantity Pivot full population lifecycle matches SUM and MAX output and restores the full CDA source after reload",
+  "status": "passed",
+  "runnerStatus": "passed",
+  "coverageStatus": "passed",
+  "startedAt": "2026-10-07T04:47:22.258Z",
+  "finishedAt": "2026-10-07T04:48:23.253Z",
+  "durableClosurePath": "docs/verification/playwright/runtime/root-quantity-pivot-epoch141-closure.json",
+  "rootAcceptanceStatus": "ACCEPTED_FULL_LIFECYCLE_PASS",
+  "classification": null,
+  "target": {
+    "kind": "owned-cda",
+    "project": "loom_dev_cda_fhir",
+    "generation": "cda-fhir-v1",
+    "explorer": "root-quantity-category-1791348443978",
+    "apiUrl": "http://127.0.0.1:8188",
+    "uiUrl": "http://127.0.0.1:30008",
+    "composeProject": "loom-dev-6d7df93d6a37",
+    "apiContainer": "loom-dev-6d7df93d6a37-loom-api-1",
+    "arangoContainer": "loom-dev-6d7df93d6a37-arangodb-1",
+    "clickhouseContainer": "loom-dev-6d7df93d6a37-clickhouse-1",
+    "sourceRoot": "$TMP/<path>",
+    "sourceFingerprint": {
+      "sha256": "d8a21c455c2902a768ac6fa98cdec398f5a6fb4d15d8d87a530e1254c04d21c8",
+      "files": 1568
+    },
+    "apiBuildIdentity": "ab11a3b84d44dad4cd628c2a2fdd65065b5f76f53e203186b6134e90a7430df8:ab11a3b84d44dad4cd628c2a2fdd65065b5f76f53e203186b6134e90a7430df8:9c49edecc4e062e3c4e6b9752e24d6b59696d614a9abf18aa3ade24636d169e9"
+  },
+  "ownedStackValidationTarget": {
+    "project": "loom_dev_cda_fhir",
+    "composeProject": "loom-dev-6d7df93d6a37",
+    "apiContainer": "loom-dev-6d7df93d6a37-loom-api-1",
+    "uiContainer": "loom-dev-6d7df93d6a37-loom-ui-1",
+    "arangoContainer": "loom-dev-6d7df93d6a37-arangodb-1",
+    "clickhouseContainer": "loom-dev-6d7df93d6a37-clickhouse-1",
+    "apiPort": "8188",
+    "uiPort": "30008",
+    "sourceRoot": "/private/tmp/loom-construction-implementation",
+    "generation": "cda-fhir-v1"
+  },
+  "apiBuildIdentity": "ab11a3b84d44dad4cd628c2a2fdd65065b5f76f53e203186b6134e90a7430df8:ab11a3b84d44dad4cd628c2a2fdd65065b5f76f53e203186b6134e90a7430df8:9c49edecc4e062e3c4e6b9752e24d6b59696d614a9abf18aa3ade24636d169e9",
+  "requiredChecks": {
+    "total": 10,
+    "passed": 10,
+    "failed": 0,
+    "unrun": 0,
+    "passedNames": [
+      "independent raw Arango oracle groups the complete scoped CDA Observation population by status and typed quantity.code state",
+      "raw oracle proves a duplicate Pivot bucket with at least two numeric values and different SUM and MAX results",
+      "typed category discovery matches the full raw MISSING, NULL, and scalar category domain",
+      "native SUM Pivot preview matches every status/category aggregate from the raw oracle",
+      "Cancel preserves the exact saved full-population workspace and source scope",
+      "Apply and reload preserve the exact root output, source bindings, project, generation, and independent full raw source-scope count",
+      "editing the duplicate bucket from SUM to MAX and renaming its heading matches the raw MAX oracle after reload",
+      "removing Pivot restores the full raw oracle scope and exact bounded source tuples after reload",
+      "all full-population native lifecycle actions complete within five seconds each",
+      "no unexpected browser or authoring errors occur and source, API build, project, and generation remain stable"
+    ],
+    "failedNames": [],
+    "unrunNames": [],
+    "outcomes": [
+      {
+        "name": "independent raw Arango oracle groups the complete scoped CDA Observation population by status and typed quantity.code state",
+        "status": "passed"
+      },
+      {
+        "name": "raw oracle proves a duplicate Pivot bucket with at least two numeric values and different SUM and MAX results",
+        "status": "passed"
+      },
+      {
+        "name": "typed category discovery matches the full raw MISSING, NULL, and scalar category domain",
+        "status": "passed"
+      },
+      {
+        "name": "native SUM Pivot preview matches every status/category aggregate from the raw oracle",
+        "status": "passed"
+      },
+      {
+        "name": "Cancel preserves the exact saved full-population workspace and source scope",
+        "status": "passed"
+      },
+      {
+        "name": "Apply and reload preserve the exact root output, source bindings, project, generation, and independent full raw source-scope count",
+        "status": "passed"
+      },
+      {
+        "name": "editing the duplicate bucket from SUM to MAX and renaming its heading matches the raw MAX oracle after reload",
+        "status": "passed"
+      },
+      {
+        "name": "removing Pivot restores the full raw oracle scope and exact bounded source tuples after reload",
+        "status": "passed"
+      },
+      {
+        "name": "all full-population native lifecycle actions complete within five seconds each",
+        "status": "passed"
+      },
+      {
+        "name": "no unexpected browser or authoring errors occur and source, API build, project, and generation remain stable",
+        "status": "passed"
+      }
+    ]
+  },
+  "assertions": [
+    {
+      "name": "independent raw Arango oracle groups the complete scoped CDA Observation population by status and typed quantity.code state",
+      "status": "passed"
+    },
+    {
+      "name": "raw oracle proves a duplicate Pivot bucket with at least two numeric values and different SUM and MAX results",
+      "status": "passed"
+    },
+    {
+      "name": "typed category discovery matches the full raw MISSING, NULL, and scalar category domain",
+      "status": "passed"
+    },
+    {
+      "name": "native SUM Pivot preview matches every status/category aggregate from the raw oracle",
+      "status": "passed"
+    },
+    {
+      "name": "Cancel preserves the exact saved full-population workspace and source scope",
+      "status": "passed"
+    },
+    {
+      "name": "Apply and reload preserve the exact root output, source bindings, project, generation, and independent full raw source-scope count",
+      "status": "passed"
+    },
+    {
+      "name": "editing the duplicate bucket from SUM to MAX and renaming its heading matches the raw MAX oracle after reload",
+      "status": "passed"
+    },
+    {
+      "name": "removing Pivot restores the full raw oracle scope and exact bounded source tuples after reload",
+      "status": "passed"
+    },
+    {
+      "name": "all full-population native lifecycle actions complete within five seconds each",
+      "status": "passed"
+    },
+    {
+      "name": "no unexpected browser or authoring errors occur and source, API build, project, and generation remain stable",
+      "status": "passed"
+    }
+  ],
+  "assertionSummary": {
+    "passed": 48,
+    "failed": 0,
+    "total": 48
+  },
+  "lifecycle": {
+    "project": "loom_dev_cda_fhir",
+    "generation": "cda-fhir-v1",
+    "explorer": "root-quantity-category-1791348443978",
+    "sourceRows": 815261,
+    "rawGroupCount": 2,
+    "rawCategories": [
+      {
+        "present": true,
+        "value": "d",
+        "rowCount": 37076
+      },
+      {
+        "present": false,
+        "value": null,
+        "rowCount": 778185
+      }
+    ],
+    "rawAggregateGroups": [
+      {
+        "status": "final",
+        "present": false,
+        "value": null,
+        "rowCount": 778185,
+        "numericCount": 0,
+        "valueSum": 0,
+        "valueMax": null
+      },
+      {
+        "status": "final",
+        "present": true,
+        "value": "d",
+        "rowCount": 37076,
+        "numericCount": 37076,
+        "valueSum": 2619628033,
+        "valueMax": 3444672
+      }
+    ],
+    "typedCategoryIdentities": [
+      "MISSING",
+      "{\"kind\":\"STRING\",\"string\":\"d\"}"
+    ],
+    "duplicateWitness": {
+      "status": "final",
+      "category": "{\"kind\":\"STRING\",\"string\":\"d\"}",
+      "rowCount": 37076,
+      "numericCount": 37076,
+      "sum": 2619628033,
+      "max": 3444672
+    },
+    "initialPolicy": "SUM",
+    "initialExpected": [
+      {
+        "status": "final",
+        "missing_value": null,
+        "d": 2619628033
+      }
+    ],
+    "editedPolicy": "MAX",
+    "editedHeading": "d maximum",
+    "editedSum": 2619628033,
+    "editedMax": 3444672,
+    "restoration": {
+      "restoredSourceRows": 815261,
+      "restoredRawGroupCount": 2,
+      "boundedTupleRowsCompared": 25,
+      "boundedTupleLimit": 25,
+      "boundedTupleIDsAndValuesMatched": true
+    },
+    "workflow": [
+      "Preview",
+      "Cancel",
+      "Apply",
+      "reload",
+      "edit heading/policy",
+      "Apply",
+      "reload",
+      "remove",
+      "restore",
+      "reload"
+    ]
+  },
+  "performanceEvidence": {
+    "completeActionToRender": {
+      "source": {
+        "path": "/private/tmp/loom-native-root-quantity-pivot-wave141/root-quantity-pivot/full-population-lifecycle/attempt1/artifacts/root-quantity-pivot-Root-q-8c2b7-ull-CDA-source-after-reload/cda-report.json",
+        "sha256": "025a3cb0c01fdaebe7f638ad141b674c66ded016446d966d0789089f82ee4cb2",
+        "sizeBytes": 15772511
+      },
+      "timedCompleteCheckpoints": 14,
+      "maximumDurationMs": 4456,
+      "thresholdMs": 5000,
+      "withinThreshold": true,
+      "checkpoints": [
+        {
+          "name": "root-quantity-category-discovery-to-render",
+          "durationMs": 2256
+        },
+        {
+          "name": "Initial full CDA Pivot preview expected duplicate validation to render",
+          "durationMs": 2501
+        },
+        {
+          "name": "Initial full CDA Pivot preview automatic preview action to render",
+          "durationMs": 2586
+        },
+        {
+          "name": "full CDA quantity Pivot preview cancel",
+          "durationMs": 779
+        },
+        {
+          "name": "Reopened full CDA Pivot preview expected duplicate validation to render",
+          "durationMs": 2523
+        },
+        {
+          "name": "Reopened full CDA Pivot preview automatic preview action to render",
+          "durationMs": 2574
+        },
+        {
+          "name": "full CDA quantity Pivot Apply to render",
+          "durationMs": 4419
+        },
+        {
+          "name": "full CDA quantity Pivot reload to render",
+          "durationMs": 3735
+        },
+        {
+          "name": "full CDA quantity Pivot edit preview",
+          "durationMs": 2733
+        },
+        {
+          "name": "full CDA quantity Pivot edit Apply to render",
+          "durationMs": 4456
+        },
+        {
+          "name": "full CDA quantity Pivot edited reload to render",
+          "durationMs": 3797
+        },
+        {
+          "name": "full CDA quantity Pivot removal preview",
+          "durationMs": 683
+        },
+        {
+          "name": "full CDA quantity Pivot removal Apply to render",
+          "durationMs": 543
+        },
+        {
+          "name": "full CDA quantity Pivot restoration reload to render",
+          "durationMs": 1484
+        }
+      ]
+    },
+    "nativeControlOnly": {
+      "actionsTotal": 29,
+      "maximumActionElapsedMs": 304,
+      "usedForPerformanceClaim": false
+    }
+  },
+  "nativeActions": {
+    "total": 29,
+    "maximumNativeControlElapsedMs": 304
+  },
+  "integrity": {
+    "closureStatus": "PASS",
+    "sourceBeforeAfter": {
+      "before": {
+        "sha256": "d8a21c455c2902a768ac6fa98cdec398f5a6fb4d15d8d87a530e1254c04d21c8",
+        "files": 1568
+      },
+      "after": {
+        "sha256": "d8a21c455c2902a768ac6fa98cdec398f5a6fb4d15d8d87a530e1254c04d21c8",
+        "files": 1568
+      },
+      "unchanged": true,
+      "manifestsEqual": true,
+      "changedPaths": []
+    },
+    "docsBeforeAfter": {
+      "before": {
+        "sha256": "baf5e4a0d5b80f8ce3c43df6f2b6449f372276d3db59cb41bc7ea1bb475ee1d0",
+        "files": 286
+      },
+      "after": {
+        "sha256": "baf5e4a0d5b80f8ce3c43df6f2b6449f372276d3db59cb41bc7ea1bb475ee1d0",
+        "files": 286
+      },
+      "unchanged": true,
+      "manifestsEqual": true,
+      "changedPaths": []
+    },
+    "apiBuildIdentity": {
+      "before": "ab11a3b84d44dad4cd628c2a2fdd65065b5f76f53e203186b6134e90a7430df8:ab11a3b84d44dad4cd628c2a2fdd65065b5f76f53e203186b6134e90a7430df8:9c49edecc4e062e3c4e6b9752e24d6b59696d614a9abf18aa3ade24636d169e9",
+      "after": "ab11a3b84d44dad4cd628c2a2fdd65065b5f76f53e203186b6134e90a7430df8:ab11a3b84d44dad4cd628c2a2fdd65065b5f76f53e203186b6134e90a7430df8:9c49edecc4e062e3c4e6b9752e24d6b59696d614a9abf18aa3ade24636d169e9",
+      "unchanged": true
+    },
+    "apiBuildIdentityUnchanged": true,
+    "ownedMounts": {
+      "before": "PASS",
+      "after": "PASS",
+      "targetUnchanged": true
+    },
+    "health": {
+      "before": {
+        "status": "PASS",
+        "samples": 3
+      },
+      "after": {
+        "status": "PASS",
+        "samples": 3
+      }
+    }
+  },
+  "rootAcceptanceReceipt": {
+    "path": "/private/tmp/loom-native-root-quantity-pivot-wave141/attempt1/root-acceptance.json",
+    "sha256": "3edf0cc4f7081cae729b04e039007061ecfe0b734157c7e53635d269c1969ea9",
+    "status": "ACCEPTED_FULL_LIFECYCLE_PASS",
+    "lifecycleAccepted": true,
+    "classification": null,
+    "sourceFreezeReleased": true,
+    "decision": "accepted",
+    "reviewer": "foreground Sol",
+    "sourceCommit": "c4a6366666ada77514ebaf5ee4c22f7c818eced2",
+    "reviewedAt": "2026-10-07T04:51:14.042380+00:00"
+  },
+  "postRunCheckout": {
+    "head": "4c7ba1608b8eeadbf9dfddec9404f285e597a512",
+    "sourceFingerprint": {
+      "sha256": "15953950b9bf3116965864e3cf9a40f9ce16f3e31074c37c456813dce94be395",
+      "files": 1573
+    },
+    "apiBuildIdentity": "ab11a3b84d44dad4cd628c2a2fdd65065b5f76f53e203186b6134e90a7430df8:ab11a3b84d44dad4cd628c2a2fdd65065b5f76f53e203186b6134e90a7430df8:9c49edecc4e062e3c4e6b9752e24d6b59696d614a9abf18aa3ade24636d169e9",
+    "readerFreshness": "historical",
+    "note": "The accepted run was captured at source commit c4a6366666ada77514ebaf5ee4c22f7c818eced2. The checkout advanced after that run; this records later source identity without changing the captured result."
+  },
+  "rawArtifacts": {
+    "rootAcceptance": {
+      "path": "/private/tmp/loom-native-root-quantity-pivot-wave141/attempt1/root-acceptance.json",
+      "sha256": "3edf0cc4f7081cae729b04e039007061ecfe0b734157c7e53635d269c1969ea9",
+      "status": "ACCEPTED_FULL_LIFECYCLE_PASS",
+      "lifecycleAccepted": true,
+      "classification": null,
+      "sourceFreezeReleased": true,
+      "decision": "accepted",
+      "reviewer": "foreground Sol",
+      "sourceCommit": "c4a6366666ada77514ebaf5ee4c22f7c818eced2",
+      "reviewedAt": "2026-10-07T04:51:14.042380+00:00"
+    },
+    "lifecycleReport": {
+      "path": "/private/tmp/loom-native-root-quantity-pivot-wave141/root-quantity-pivot/full-population-lifecycle/attempt1/artifacts/root-quantity-pivot-Root-q-8c2b7-ull-CDA-source-after-reload/cda-report.json",
+      "sha256": "025a3cb0c01fdaebe7f638ad141b674c66ded016446d966d0789089f82ee4cb2",
+      "sizeBytes": 15772511,
+      "status": "passed"
+    },
+    "workflowAttachment": {
+      "path": "/private/tmp/loom-native-root-quantity-pivot-wave141/root-quantity-pivot/full-population-lifecycle/attempt1/artifacts/root-quantity-pivot-Root-q-8c2b7-ull-CDA-source-after-reload/attachments/cda-domain-report-json-841df120261b36ab7dadb1810631ea524984c460.json",
+      "sha256": "025a3cb0c01fdaebe7f638ad141b674c66ded016446d966d0789089f82ee4cb2",
+      "sizeBytes": 15772511
+    },
+    "runnerResults": {
+      "path": "/private/tmp/loom-native-root-quantity-pivot-wave141/root-quantity-pivot/full-population-lifecycle/attempt1/results.json",
+      "sha256": "aa35bee5a2b47687c8e51f94342a76fa184becf6404b883d7bddff757aca3d1f",
+      "sizeBytes": 10123
+    },
+    "runnerLog": {
+      "path": "/private/tmp/loom-native-root-quantity-pivot-wave141/root-quantity-pivot/full-population-lifecycle/attempt1/runner.log",
+      "sha256": "b80e5a64c67e073dc655311d0885b41ec55ca443e710e3d0b8736545fb673852",
+      "sizeBytes": 796
+    },
+    "terminalRecord": {
+      "path": "/private/tmp/loom-native-root-quantity-pivot-wave141/root-quantity-pivot/full-population-lifecycle/attempt1/terminal.json",
+      "sha256": "67a2f83890bc77771104a19684432c101e1d00d564d6df70a519e5142e7e984e",
+      "sizeBytes": 1017
+    },
+    "sourceArtifacts": {
+      "before": {
+        "path": "/private/tmp/loom-native-root-quantity-pivot-wave141/attempt1/source-before.json",
+        "sha256": "96a2907e86f30422f89b20f2e3b9154fd229797faf42425a6e1944ced6615932",
+        "sizeBytes": 201889
+      },
+      "after": {
+        "path": "/private/tmp/loom-native-root-quantity-pivot-wave141/attempt1/source-after.json",
+        "sha256": "24821c1342ed25d5734bab7d513b6cea6e0af046ab0242c980dc727461fb54b6",
+        "sizeBytes": 201888
+      },
+      "beforeManifest": {
+        "path": "/private/tmp/loom-native-root-quantity-pivot-wave141/attempt1/source-before.manifest.json",
+        "sha256": "b5d950d38071f265176d21d461b5ca29ccfcbd0cb49390c7058df4c228ecca04",
+        "sizeBytes": 198485
+      },
+      "afterManifest": {
+        "path": "/private/tmp/loom-native-root-quantity-pivot-wave141/attempt1/source-after.manifest.json",
+        "sha256": "b5d950d38071f265176d21d461b5ca29ccfcbd0cb49390c7058df4c228ecca04",
+        "sizeBytes": 198485
+      }
+    },
+    "docsArtifacts": {
+      "before": {
+        "path": "/private/tmp/loom-native-root-quantity-pivot-wave141/attempt1/docs-before.json",
+        "sha256": "538a202b7628a7fd75a6f201cdfe76d93aacdc223454c7e8e4990b4fe6e5d57f",
+        "sizeBytes": 42813
+      },
+      "after": {
+        "path": "/private/tmp/loom-native-root-quantity-pivot-wave141/attempt1/docs-after.json",
+        "sha256": "05ee70a9935e5190a4eccf0a853a577af5bdb9b1a56e3a514bccf38df63f40cf",
+        "sizeBytes": 42812
+      },
+      "beforeManifest": {
+        "path": "/private/tmp/loom-native-root-quantity-pivot-wave141/attempt1/docs-before.manifest.json",
+        "sha256": "450c5344987b31d6f346453ee1949cb1016402b005e20349b2376d0b4f8f834b",
+        "sizeBytes": 41974
+      },
+      "afterManifest": {
+        "path": "/private/tmp/loom-native-root-quantity-pivot-wave141/attempt1/docs-after.manifest.json",
+        "sha256": "450c5344987b31d6f346453ee1949cb1016402b005e20349b2376d0b4f8f834b",
+        "sizeBytes": 41974
+      }
+    },
+    "apiArtifacts": {
+      "before": {
+        "path": "/private/tmp/loom-native-root-quantity-pivot-wave141/attempt1/api-identity-before.json",
+        "sha256": "72d0b464420f6901b4bdc7ec093d50722140bc682f454b99e4707214766f8fcb",
+        "sizeBytes": 2825
+      },
+      "after": {
+        "path": "/private/tmp/loom-native-root-quantity-pivot-wave141/attempt1/api-identity-after.json",
+        "sha256": "636a33abfd784dc2161903b0d19bd264696239892f9e856917a972d52b786958",
+        "sizeBytes": 1857
+      },
+      "precheck": {
+        "path": "/private/tmp/loom-native-root-quantity-pivot-wave141/attempt1/api-build-precheck.json",
+        "sha256": "830eb9b169021877cf5e1b90cf1a78440bccf8aad4927f734d407a647ba4c70f",
+        "sizeBytes": 686
+      },
+      "comparisonBefore": {
+        "path": "/private/tmp/loom-native-root-quantity-pivot-wave141/attempt1/api-before.comparison.json",
+        "sha256": "8f0e98cf1485255d18ab9cfa8d83ae370828d542f3ff0a15056ab78396fbb868",
+        "sizeBytes": 834
+      },
+      "comparisonAfter": {
+        "path": "/private/tmp/loom-native-root-quantity-pivot-wave141/attempt1/api-after.comparison.json",
+        "sha256": "8f0e98cf1485255d18ab9cfa8d83ae370828d542f3ff0a15056ab78396fbb868",
+        "sizeBytes": 834
+      }
+    },
+    "mountArtifacts": {
+      "before": {
+        "path": "/private/tmp/loom-native-root-quantity-pivot-wave141/attempt1/owned-mounts-before.json",
+        "sha256": "0a8d309daaaf5b32bd8b87e4a904a28622a8e8624c0fb70cc8cf1d7afe2980af",
+        "sizeBytes": 734
+      },
+      "after": {
+        "path": "/private/tmp/loom-native-root-quantity-pivot-wave141/attempt1/owned-mounts-after.json",
+        "sha256": "90cd78ab044a9d80227efaaf772673e8f2277da6edf55b4ad72edb40f97fc33c",
+        "sizeBytes": 733
+      },
+      "comparisonBefore": {
+        "path": "/private/tmp/loom-native-root-quantity-pivot-wave141/attempt1/mounts-before.comparison.json",
+        "sha256": "185b94a3af43dac6ba30fb91218d85655f2f64a93a7a9383acabc2126de92dbf",
+        "sizeBytes": 669
+      },
+      "comparisonAfter": {
+        "path": "/private/tmp/loom-native-root-quantity-pivot-wave141/attempt1/mounts-after.comparison.json",
+        "sha256": "185b94a3af43dac6ba30fb91218d85655f2f64a93a7a9383acabc2126de92dbf",
+        "sizeBytes": 669
+      }
+    },
+    "healthArtifacts": {
+      "before": {
+        "path": "/private/tmp/loom-native-root-quantity-pivot-wave141/attempt1/health-before.json",
+        "sha256": "9dca3231e5ba168ada49270759bd7a0038f558d5401db335186588bfcabd2b23",
+        "sizeBytes": 2057
+      },
+      "after": {
+        "path": "/private/tmp/loom-native-root-quantity-pivot-wave141/attempt1/health-after.json",
+        "sha256": "cedaf00774c780e6068e978b4a5cc242c5a3905c3bbf2c05c633cc1d1c54f94b",
+        "sizeBytes": 2057
+      },
+      "comparisonBefore": {
+        "path": "/private/tmp/loom-native-root-quantity-pivot-wave141/attempt1/health-before.comparison.json",
+        "sha256": "f2d34e269fe6db74f9597fb92cd879264dfe60ecf8db7afa9138307bd9b9353b",
+        "sizeBytes": 1679
+      },
+      "comparisonAfter": {
+        "path": "/private/tmp/loom-native-root-quantity-pivot-wave141/attempt1/health-after.comparison.json",
+        "sha256": "f2d34e269fe6db74f9597fb92cd879264dfe60ecf8db7afa9138307bd9b9353b",
+        "sizeBytes": 1679
+      }
+    },
+    "priorAttempts": [
+      {
+        "epoch": 139,
+        "scenario": "root-quantity-pivot",
+        "case": "full-population-lifecycle",
+        "status": "failed_final_diagnostics",
+        "classification": "expected owned-route 422 console/network diagnostics were not yet classified by the final diagnostics gate",
+        "runner": {
+          "status": "failed",
+          "exitCode": 1
+        },
+        "requiredChecks": {
+          "passed": 9,
+          "failed": 1,
+          "unrun": 0,
+          "total": 10
+        },
+        "report": {
+          "path": "/private/tmp/loom-native-root-quantity-pivot-wave139/root-quantity-pivot/full-population-lifecycle/attempt1/artifacts/root-quantity-pivot-Root-q-8c2b7-ull-CDA-source-after-reload/cda-report.json",
+          "sha256": "e605d1ef19352c3ef0cf8be7e727791386a2e83f55d3047cbf3e153d72b5120e",
+          "sizeBytes": 15778719
+        },
+        "results": {
+          "path": "/private/tmp/loom-native-root-quantity-pivot-wave139/root-quantity-pivot/full-population-lifecycle/attempt1/results.json",
+          "sha256": "c09b51b4c7cbd5beb217e4bfb7fc58380f7a6175360101460f264e69f10137f3",
+          "sizeBytes": 18748
+        },
+        "runnerLog": {
+          "path": "/private/tmp/loom-native-root-quantity-pivot-wave139/root-quantity-pivot/full-population-lifecycle/attempt1/runner.log",
+          "sha256": "bc19ecc2dc80d64ebb18df763ae6c82db761a7b28dbc5a2489c93a80140e7678",
+          "sizeBytes": 4579
+        },
+        "note": "Retained as a separate failed diagnostics attempt; it is not overwritten or counted as the epoch141 pass."
+      },
+      {
+        "epoch": 140,
+        "scenario": "root-quantity-pivot",
+        "case": "full-population-lifecycle",
+        "status": "failed_final_diagnostics",
+        "classification": "expected 422 diagnostics were not classified by the then-current final diagnostics gate",
+        "runner": {
+          "status": "failed",
+          "exitCode": 1
+        },
+        "requiredChecks": {
+          "passed": 9,
+          "failed": 1,
+          "unrun": 0,
+          "total": 10
+        },
+        "report": {
+          "path": "/private/tmp/loom-native-root-quantity-pivot-wave140/root-quantity-pivot/full-population-lifecycle/attempt1/artifacts/root-quantity-pivot-Root-q-8c2b7-ull-CDA-source-after-reload/cda-report.json",
+          "sha256": "edc552fadf76b6920a356ce3d0738bcf6c1eb9a36e78d015bfef1afc492b9c08",
+          "sizeBytes": 15775887
+        },
+        "terminal": {
+          "path": "/private/tmp/loom-native-root-quantity-pivot-wave140/root-quantity-pivot/full-population-lifecycle/attempt1/terminal.json",
+          "sha256": "d3bce16df06a9666f99ec923f3a732f8dccb4ff9518c8807bddfb5e14d5902f7",
+          "sizeBytes": 6501
+        },
+        "results": {
+          "path": "/private/tmp/loom-native-root-quantity-pivot-wave140/root-quantity-pivot/full-population-lifecycle/attempt1/results.json",
+          "sha256": "05ed7b1c9f88da56c216c9555e3c9a67e53e8e4ab51c2615c81d3cbccfe88428",
+          "sizeBytes": 14507
+        },
+        "runnerLog": {
+          "path": "/private/tmp/loom-native-root-quantity-pivot-wave140/root-quantity-pivot/full-population-lifecycle/attempt1/runner.log",
+          "sha256": "4a1465a0b26dfe8816acc0e4dd73a7000c7d68a9c7578b3a5506e146ee22b2ab",
+          "sizeBytes": 3489
+        },
+        "performance": {
+          "completeActionToRenderCheckpoints": 14,
+          "maximumDurationMs": 4453,
+          "lifecyclePassClaim": false
+        },
+        "note": "Retained as a separate failed final-diagnostics attempt. It is not overwritten or counted as the epoch141 pass."
+      }
+    ]
+  },
+  "scopeLimitations": [
+    "Restricted authorization and other operation/source transitions remain unverified.",
+    "Historical reports and fixture passes do not prove broader CDA coverage."
+  ],
+  "scopeNote": "root-quantity-pivot/full-population-lifecycle; the independent full-source oracle covered 815,261 Observation rows and restoration compared the exact bounded 25-row preview tuples. Restricted authorization and distinct operation/source transitions remain separate coverage gaps. Waves139 and 140 remain separate failed final-diagnostics attempts, recorded in chronological order in priorAttempts. Wave141 was accepted at source commit c4a6366666ada77514ebaf5ee4c22f7c818eced2; the checkout later advanced to 4c7ba160, so the existing reader now classifies this evidence passed/historical against the current source and passed/current against its captured run baseline."
+}
