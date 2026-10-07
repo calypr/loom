@@ -198,7 +198,10 @@ test('row-operation coverage distinguishes lifecycle acceptance from a runnable 
     'an implemented probe remains visible but cannot close the Group lifecycle gap');
   assert.equal(repeatedExpand.acceptance.kind, 'lifecycle');
   assert.equal(hasLifecycleContract(repeatedExpand), true);
-  assert.equal(unpivotFeature.status, 'untested', 'A declared lifecycle contract does not claim runtime completion');
+  assert.equal(unpivotFeature.status, 'implemented', 'The accepted historical lifecycle pass is represented in the registry');
+  assert.match(unpivotFeature.reason, /Epoch130 passed 17\/17 native lifecycle checks/);
+  assert.match(unpivotFeature.reason, /dfa2bce29c6c102f79bec2dc56eea6b19c484ebf2f19fb4f6335178e37f06800/);
+  assert.match(unpivotFeature.reason, /current-source\/API verification remains pending/);
   assert.equal(unpivotFeature.acceptance.kind, 'lifecycle');
   assert.equal(unpivotFeature.acceptance.scenario, 'standalone-reshape-related-unpivot');
   assert.equal(unpivotFeature.acceptance.case, 'related-unpivot');
@@ -212,7 +215,7 @@ test('row-operation coverage distinguishes lifecycle acceptance from a runnable 
   assert.match(unpivotChecks[6], /exact source-column and compiler-stage binding/);
   assert.match(unpivotChecks[12], /restores exact Related construction, schema, bindings, and rows/);
   assert.equal(hasLifecycleContract(unpivotFeature), true,
-    'The registered native Related→Unpivot phase contract remains runtime-unverified until a passing report exists');
+    'The accepted historical Related→Unpivot lifecycle retains its exact registered phase contract');
 
   const authoring = registry.find((scenario) => scenario.id === 'builder-authoring');
   for (const feature of [

@@ -81,6 +81,6 @@ test.describe('standalone CDA reshape workflows', () => {
 
   register('related-pivot', runRelatedPivotBrowserWorkflow);
   register('related-source-after-pivot', runRelatedSourceAfterPivotBrowserWorkflow, {}, { cdaScenarioID: 'standalone-reshape-related-source-after-pivot', cdaExplorer: `qa-post-pivot-${randomUUID()}` });
-  register('related-unpivot', runRelatedUnpivotBrowserWorkflow);
+  register('related-unpivot', runRelatedUnpivotBrowserWorkflow, {}, { cdaScenarioID: 'standalone-reshape-related-unpivot' });
   register('unpivot', runUnpivotWorkflow);
 });
