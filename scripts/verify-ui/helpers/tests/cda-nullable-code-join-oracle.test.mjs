@@ -457,8 +457,8 @@ test('native nullable Join registration binds proposal, LEFT edit, removal, and 
   assert.match(workflow, /requiredCheck: 'All native nullable Join lifecycle actions complete within five seconds'/);
   assert.match(workflow, /return \{ baseState, stepId: step\?\.id, proposal \}/,
     'saved LEFT edit must return the candidate step identity to the Apply verifier');
-  assert.match(workflow, /const initialTargetDocument = structuredClone\(target\.baselineDocument\)[\s\S]*?target = await makeTarget\(\);/,
-    'after canceling the scratch preview, the Apply lifecycle must create and bind a fresh Combine target');
+  assert.match(workflow, /target = await makeTarget\(\);[\s\S]*?const initialTargetDocument = structuredClone\(target\.baselineDocument\)[\s\S]*?target = await makeTarget\(false\);/,
+    'the scratch target records the native target-binding proof, then Cancel creates a fresh target for the Apply lifecycle');
   const removalBlock = workflow.slice(workflow.indexOf('const removalProposal'), workflow.indexOf('target = await makeTarget(false)'));
   assert.match(removalBlock, /readProposalPreviewState\(page, target\.outputId\)/,
     'removal reads the rendered empty preview state, whose zero-column layout has no table');
@@ -480,8 +480,21 @@ test('native nullable Join registration binds proposal, LEFT edit, removal, and 
     'Apply must use the exact choice token returned from the native field picker');
   assert.match(workflow, /candidateColumnIds: choiceResponse\.candidateColumnIds, savedColumnId: codeColumn\.columnId,[\s\S]*?savedPublicColumnName: codeColumn\.column/,
     'the proposal binds the public column name while Join references use the distinct stable source columnId');
-  assert.match(workflow, /responsePaths: \/commands\|construction-choice-proposals\|construction-proposals\//,
-    'native capture must retain choice proposal and Apply response bodies');
+  assert.match(workflow, /responsePaths: \/commands\|construction-choice-proposals\|construction-proposals\|construction-capabilities\|preview\//,
+    'native capture must retain choice, proposal, capability, and preview response bodies for exact successor binding');
+  assert.match(workflow, /const ownerSwitchCancellationScopes = async/,
+    'only the two observed owner switches may arm scoped cancellation classification');
+  const switchScopes = workflow.slice(workflow.indexOf('const ownerSwitchCancellationScopes'), workflow.indexOf('const addDirectCodeColumn'));
+  assert.match(switchScopes, /method: 'POST',[\s\S]*?paths: \[capabilitiesPath\],[\s\S]*?requestIdPrefixes: \['cda-request-'\]/,
+    'outgoing construction-capability aborts must be classified by exact POST path and request prefix');
+  assert.match(switchScopes, /method: 'GET',[\s\S]*?paths: \[selectionPath\],[\s\S]*?requestIdPrefixes: \['cda-request-'\]/,
+    'outgoing selection aborts must be classified by exact revision path and request prefix');
+  assert.equal((workflow.match(/ownerSwitchCancellationScopes\(\{/g) ?? []).length, 2,
+    'only left-to-right and right-to-Combine native owner transitions receive cancellation scopes');
+  assert.match(workflow, /action: \{ id: actionRecord\.id, label: actionRecord\.label, locator: actionRecord\.locator \}/,
+    'the classifier must bind the specific successful action ID when labels repeat');
+  assert.match(workflow, /validateNullableJoinSwitch\(report, {/,
+    'raw network cancellations must pass the exact scoped owner and successor proof validator');
   assert.doesNotMatch(workflow, /capture\.startIndex\s*\(/,
     'request boundaries use the capture helper report array, which has no startIndex method');
   assert.equal((workflow.match(/report\.nativeRequests\.length/g) ?? []).length, 5,

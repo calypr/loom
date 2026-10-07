@@ -15,12 +15,17 @@ export const isOwnedConstructionCapabilitiesRequest = ({ requestURL, method, uiU
 
 export const rootedEmptyTargetAppliedExpression = (outputId) => {
   const selected = '[data-testid="construction-table-' + outputId + '"]';
+  const previewPanel = '[data-testid="construction-preview"]';
   const previewScroll = '[data-testid="preview-table-scroll"]';
   return '(()=>{const selected=document.querySelector(' + JSON.stringify(selected) + ');' +
-    'const previews=document.querySelectorAll(' + JSON.stringify(previewScroll) + ');' +
+    'const panels=document.querySelectorAll(' + JSON.stringify(previewPanel) + ');' +
+    'const panel=panels.length===1?panels[0]:null;' +
+    'const previews=panel?.querySelectorAll(' + JSON.stringify(previewScroll) + ')??[];' +
     'const preview=previews.length===1?previews[0]:null;' +
     'const previewText=preview?.textContent?.trim()??"";' +
-    'return Boolean(selected?.getAttribute("aria-current")==="page"&&previews.length===1&&' +
+    'return Boolean(selected?.getAttribute("aria-current")==="page"&&panels.length===1&&' +
+    'panel?.getAttribute("data-preview-status")==="empty"&&' +
+    'panel?.getAttribute("data-preview-output-id")===' + JSON.stringify(outputId) + '&&previews.length===1&&' +
     '!document.querySelector(' + JSON.stringify('[data-testid="construction-proposal-panel"]') + ')&&' +
     '!document.querySelector(' + JSON.stringify('[data-testid="construction-history"]') + ')&&' +
     '!document.querySelector(' + JSON.stringify('[data-testid="construction-combine-editor"]') + ')&&' +

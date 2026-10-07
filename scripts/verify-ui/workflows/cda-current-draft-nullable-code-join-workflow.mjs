@@ -27,6 +27,7 @@ import {
 } from '../helpers/builder-combine-helpers.mjs';
 import { validatedArangoContainer } from '../helpers/native-cda-workflow-tools.mjs';
 import { proposalPreviewReadinessExpression, readProposalPreviewState } from '../helpers/proposal-preview-readiness.mjs';
+import { validateNullableJoinSwitch } from '../nullable-join-cancel.mjs';
 
 const generationExpected = 'cda-fhir-v1';
 const tidy = value => String(value ?? '').replace(/\s+/g, ' ').trim();
@@ -127,7 +128,7 @@ export async function cdaCurrentDraftNullableCodeJoinWorkflow({ page, cda }) {
   const base = basePath(explorer);
   const authoring = `${base}/authoring/v2`;
   const uiURL = `${uiOrigin}/?project=${encode(project)}&explorer=${encode(explorer)}&mode=builder`;
-  const capture = cda.captureRequests(authoring, { responsePaths: /commands|construction-choice-proposals|construction-proposals/ });
+  const capture = cda.captureRequests(authoring, { responsePaths: /commands|construction-choice-proposals|construction-proposals|construction-capabilities|preview/ });
   let builder = await api(`${authoring}/builder`);
   const empty = builderDraftStateEvidence(builder, 'empty');
   assert(empty.ok, `Fresh CDA Explorer must start with an empty draft: ${JSON.stringify(empty)}`);
@@ -267,9 +268,80 @@ export async function cdaCurrentDraftNullableCodeJoinWorkflow({ page, cda }) {
     return expected;
   };
   const sourceTables = [];
+  const validateOwnerSwitch = ({ actionRecord, outgoing, next }) => {
+    assert(actionRecord?.id && actionRecord.status === 'passed', 'Expected the exact completed native owner-switch action.');
+    const result = validateNullableJoinSwitch(report, {
+      scope: { project, generation, explorer },
+      action: { id: actionRecord.id, label: actionRecord.label, locator: actionRecord.locator },
+      outgoing,
+      next,
+    });
+    cda.check('correctness', `${actionRecord.label} classifies only exact scoped owner-switch aborts`, result.ok,
+      { actionId: actionRecord.id, actionLabel: actionRecord.label, actionLocator: actionRecord.locator, outgoing, next, result });
+    assert(result.ok, `Owner-switch cancellation evidence is invalid: ${JSON.stringify(result)}`);
+    return result;
+  };
+  const ownerSwitchCancellationScopes = async ({ actionLabel, outgoing, work, retirement }) => {
+    const capabilitiesPath = `${authoring}/construction-capabilities`;
+    const selectionPath = `${base}/selections/${encode(outgoing.selectionId)}`;
+    const proof = {
+      project, explorer, generation,
+      outgoingOutputId: outgoing.outputId,
+      outgoingSelectionRevisionId: outgoing.selectionId,
+      outgoingDraft: outgoing.draft,
+      retirement,
+    };
+    return cda.withExpectedCancellations({
+      origin: uiOrigin,
+      method: 'POST',
+      paths: [capabilitiesPath],
+      requestIdPrefixes: ['cda-request-'],
+      reason: `${actionLabel} retires the outgoing current-draft construction-capabilities request when Builder changes owners.`,
+      proof,
+      actionLabel,
+    }, () => cda.withExpectedCancellations({
+      origin: uiOrigin,
+      method: 'GET',
+      paths: [selectionPath],
+      requestIdPrefixes: ['cda-request-'],
+      reason: `${actionLabel} retires the outgoing current-draft attached-selection read when Builder changes owners.`,
+      proof,
+      actionLabel,
+    }, work));
+  };
   const addDirectCodeColumn = async source => {
     await cda.navigate(uiURL);
-    await selectTable(source.outputId, 3, `Select raw ${source.side} Observation population`);
+    const selectLabel = `Select raw ${source.side} Observation population`;
+    let switchContext;
+    if (source.side === 'right') {
+      await waitSelector('[data-testid^="construction-table-"][aria-current="page"]');
+      const beforeSwitch = structuredClone(await readBuilder());
+      checkScope(beforeSwitch);
+      const selectedOutputId = await page.evaluate(() => {
+        const selected = document.querySelector('[data-testid^="construction-table-"][aria-current="page"]');
+        return selected?.getAttribute('data-testid')?.slice('construction-table-'.length) ?? null;
+      });
+      const previousSource = sourceTables.find(candidate => candidate.outputId === selectedOutputId);
+      assert(previousSource, `The raw right-source switch must start from a previously selected source, got ${selectedOutputId}.`);
+      const previousDocument = getDocument(beforeSwitch, previousSource.outputId);
+      assert.equal(previousDocument.population?.selectionRevisionId, previousSource.selection.id);
+      switchContext = {
+        outgoing: { outputId: previousSource.outputId, selectionId: previousSource.selection.id,
+          draft: { snapshotToken: beforeSwitch.catalog.snapshotToken,
+            version: beforeSwitch.draftVersion, digest: beforeSwitch.draftDigest } },
+      };
+      const switchActionIndex = report.actions.length;
+      await ownerSwitchCancellationScopes({
+        actionLabel: selectLabel,
+        outgoing: switchContext.outgoing,
+        retirement: 'Selecting the right raw source replaces the active left source projection and attached-selection query.',
+        work: () => selectTable(source.outputId, 3, selectLabel),
+      });
+      switchContext.actionRecord = report.actions[switchActionIndex];
+      assert.equal(switchContext.actionRecord?.label, selectLabel);
+    } else {
+      await selectTable(source.outputId, 3, selectLabel);
+    }
     const sourceBaseState = structuredClone(await readBuilder());
     checkScope(sourceBaseState);
     const sourceBaseDocument = getDocument(sourceBaseState, source.outputId);
@@ -369,6 +441,13 @@ export async function cdaCurrentDraftNullableCodeJoinWorkflow({ page, cda }) {
           candidateColumnIds: choiceResponse.candidateColumnIds, savedColumnId: codeColumn.columnId,
           savedPublicColumnName: codeColumn.column, form: appliedChoice.constructionChoice.form,
           applyResult: addedResult[0] } });
+    if (switchContext) {
+      const next = { outputId: source.outputId, selectionId: source.selection.id,
+        draft: { snapshotToken: sourceBaseState.catalog.snapshotToken,
+          version: sourceBaseState.draftVersion, digest: sourceBaseState.draftDigest },
+        proof: { kind: 'visible-rows', selectionId: source.selection.id, expectedRows } };
+      validateOwnerSwitch({ actionRecord: switchContext.actionRecord, outgoing: switchContext.outgoing, next });
+    }
     return source;
   };
   const createSource = async (side, rows) => {
@@ -507,8 +586,39 @@ export async function cdaCurrentDraftNullableCodeJoinWorkflow({ page, cda }) {
       const fromIndex = report.nativeRequests.length;
       await cda.navigate(uiURL);
       const combineAction = page.getByTestId('construction-action-combine');
-      await action('Open native Combine to create the empty nullable Join target', combineAction,
+      const combineLabel = 'Open native Combine to create the empty nullable Join target';
+      await waitSelector('[data-testid^="construction-table-"][aria-current="page"]');
+      const selectedOutputId = await page.evaluate(() => {
+        const selected = document.querySelector('[data-testid^="construction-table-"][aria-current="page"]');
+        return selected?.getAttribute('data-testid')?.slice('construction-table-'.length) ?? null;
+      });
+      const selectedSource = sourceTables.find(source => source.outputId === selectedOutputId);
+      let switchContext;
+      if (selectedSource) {
+        const selectedDocument = getDocument(builder, selectedSource.outputId);
+        assert.equal(selectedDocument.population?.selectionRevisionId, selectedSource.selection.id);
+        switchContext = {
+          outgoing: { outputId: selectedSource.outputId, selectionId: selectedSource.selection.id,
+            draft: { snapshotToken: builder.catalog.snapshotToken,
+              version: builder.draftVersion, digest: builder.draftDigest } },
+        };
+      }
+      const openCombine = () => action(combineLabel, combineAction,
         locator => locator.click({ timeout: 5_000 }), async () => waitSelector('[data-testid="construction-combine-editor"]'));
+      let switchAction;
+      if (switchContext) {
+        const switchActionIndex = report.actions.length;
+        await ownerSwitchCancellationScopes({
+          actionLabel: combineLabel,
+          outgoing: switchContext.outgoing,
+          retirement: 'Opening native Combine replaces the active right raw source projection and attached-selection query with a new current-draft target.',
+          work: openCombine,
+        });
+        switchAction = report.actions[switchActionIndex];
+        assert.equal(switchAction?.label, combineLabel);
+      } else {
+        await openCombine();
+      }
       const event = await capture.waitFor(entry => entry.path === `${authoring}/commands` && entry.method === 'POST' &&
         entry.status === 200 && entry.completedAt && entry.body?.commands?.some(command => command.type === 'CREATE_TABLE'),
       { fromIndex, timeoutMs: 5_000 });
@@ -527,6 +637,13 @@ export async function cdaCurrentDraftNullableCodeJoinWorkflow({ page, cda }) {
         cda.check('correctness', 'Native Combine creates a scoped empty Observation target for the current-draft Join', true,
           { targetBinding, project, generation, snapshotToken: builder.catalog.snapshotToken,
             authorizationScopeDigest: builder.catalog.authorizationScopeDigest });
+      }
+      if (switchContext) {
+        const next = { outputId: target.outputId, selectionId: null,
+          draft: { snapshotToken: builder.catalog.snapshotToken,
+            version: builder.draftVersion, digest: builder.draftDigest },
+          proof: { kind: 'empty-target' } };
+        validateOwnerSwitch({ actionRecord: switchAction, outgoing: switchContext.outgoing, next });
       }
       return target;
     };
@@ -760,7 +877,7 @@ export async function cdaCurrentDraftNullableCodeJoinWorkflow({ page, cda }) {
       return { baseState, proposal };
     };
 
-    target = await makeTarget(false);
+    target = await makeTarget();
     const initialTargetDocument = structuredClone(target.baselineDocument);
     const initialPreviewBase = structuredClone(builder);
     const initialPreview = await configureJoin('INNER', expectedInner);
@@ -770,7 +887,7 @@ export async function cdaCurrentDraftNullableCodeJoinWorkflow({ page, cda }) {
       isDeepStrictEqual(getDocument(afterInitialCancel, target.outputId), initialTargetDocument),
       { targetOutputId: target.outputId, before: initialTargetDocument, after: getDocument(afterInitialCancel, target.outputId) });
 
-    target = await makeTarget();
+    target = await makeTarget(false);
     const preCombineDocument = structuredClone(target.baselineDocument);
     const innerConfig = await configureJoin('INNER', expectedInner);
     const appliedInner = await applyJoin('INNER', expectedInner, innerConfig);

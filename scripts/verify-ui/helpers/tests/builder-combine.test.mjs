@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { URL } from 'node:url';
 import test from 'node:test';
+import { chromium } from '@playwright/test';
 import { registry, scenarioCaseFor } from '../../registry.mjs';
 import { authoredColumn } from '../../workflows/builder-combine.mjs';
 import {
@@ -147,29 +148,75 @@ test('KEY_JOIN lifecycle is exported for the native Playwright spec', () => {
   assert.match(officialSpec, /joinWorkflow\(\{ page, report: workflow\.report, action: workflow\.action \}, loomContext\)/);
 });
 
-test('last-step removal waits for one exact ready zero-column target view', () => {
+test('last-step removal waits for the exact empty target preview identity', () => {
   const outputId = 'out_owned_target';
   const expression = rootedEmptyTargetAppliedExpression(outputId);
-  const evaluate = ({ history = false, scrollTexts = ['Add a column to see your table.'] } = {}) => Function('document', 'return ' + expression)({
+  const evaluate = ({ history = false, scrollTexts = ['Add a column to see your table.'],
+    previewStatus = 'empty', previewOutputId = outputId, previewPanelCount = 1, selected = true } = {}) => Function('document', 'return ' + expression)({
     querySelector(selector) {
-      if (selector === '[data-testid="construction-table-' + outputId + '"]') return { getAttribute: (name) => name === 'aria-current' ? 'page' : null };
+      if (selector === '[data-testid="construction-table-' + outputId + '"]') return selected
+        ? { getAttribute: (name) => name === 'aria-current' ? 'page' : null } : null;
       if (history && selector === '[data-testid="construction-history"]') return {};
       return null;
     },
     querySelectorAll(selector) {
-      assert.equal(selector, '[data-testid="preview-table-scroll"]');
-      return scrollTexts.map(textContent => ({ textContent }));
+      assert.equal(selector, '[data-testid="construction-preview"]');
+      const panels = Array.from({ length: previewPanelCount }, () => ({
+        getAttribute: name => name === 'data-preview-status' ? previewStatus
+          : name === 'data-preview-output-id' ? previewOutputId : null,
+        querySelectorAll(nestedSelector) {
+          assert.equal(nestedSelector, '[data-testid="preview-table-scroll"]');
+          return scrollTexts.map(textContent => ({ textContent }));
+        },
+      }));
+      return panels;
     },
   });
   assert.equal(evaluate(), true);
   assert.equal(evaluate({ history: true }), false);
+  assert.equal(evaluate({ selected: false }), false);
+  assert.equal(evaluate({ previewOutputId: 'out_wrong_target' }), false);
+  assert.equal(evaluate({ previewStatus: 'stale' }), false);
+  assert.equal(evaluate({ previewStatus: 'previewing' }), false);
+  assert.equal(evaluate({ previewStatus: 'ready' }), false);
+  assert.equal(evaluate({ previewPanelCount: 0 }), false);
+  assert.equal(evaluate({ previewPanelCount: 2 }), false);
   assert.equal(evaluate({ scrollTexts: [] }), false);
   assert.equal(evaluate({ scrollTexts: ['Add a column to see your table.', 'Add a column to see your table.'] }), false);
   assert.equal(evaluate({ scrollTexts: ['Loading your table…'] }), false);
   assert.equal(evaluate({ scrollTexts: ['Preview did not complete for this draft: unavailable'] }), false);
   assert.match(expression, /construction-proposal-panel/);
   assert.match(expression, /construction-combine-editor/);
+  assert.match(expression, /data-preview-status/);
+  assert.match(expression, /data-preview-output-id/);
   assert.match(expression, /querySelectorAll/);
+});
+
+test('native page DOM confirms empty-target readiness selectors and identity', async () => {
+  const browser = await chromium.launch({ channel: 'chrome', headless: true });
+  try {
+    const page = await browser.newPage();
+    const outputId = 'out_owned_target';
+    const expression = rootedEmptyTargetAppliedExpression(outputId);
+    const content = ({ status = 'empty', previewOutputId = outputId } = {}) => `<!doctype html>
+      <main>
+        <nav><button data-testid="construction-table-${outputId}" aria-current="page">Observation</button></nav>
+        <section data-testid="construction-preview" data-preview-status="${status}" data-preview-output-id="${previewOutputId}">
+          <div data-testid="preview-table-scroll"><p>Add a column to see your table.</p></div>
+        </section>
+      </main>`;
+
+    await page.setContent(content());
+    assert.equal(await page.evaluate(expression), true, 'the real nested empty preview DOM must satisfy readiness');
+    await page.setContent(content({ previewOutputId: 'out_wrong_target' }));
+    assert.equal(await page.evaluate(expression), false, 'a placeholder for another output must not satisfy readiness');
+    await page.setContent(content({ status: 'stale' }));
+    assert.equal(await page.evaluate(expression), false, 'stale preview DOM must not satisfy readiness');
+    await page.setContent(content({ status: 'previewing' }));
+    assert.equal(await page.evaluate(expression), false, 'previewing DOM must not satisfy readiness');
+  } finally {
+    await browser.close();
+  }
 });
 
 test('reloaded last-step removal matches the full pre-Combine empty target document', () => {
