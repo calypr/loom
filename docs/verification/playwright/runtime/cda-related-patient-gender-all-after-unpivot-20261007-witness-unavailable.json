@@ -1,0 +1,212 @@
+{
+  "schemaVersion": 1,
+  "scenario": "standalone-reshape-related-field-after-unpivot-gender-all",
+  "case": "related-field-after-unpivot-gender-all",
+  "title": "Patient.gender ALL after Unpivot: populated source witness unavailable in bounded CDA scan",
+  "classification": "BOUNDED_POPULATED_GENDER_WITNESS_UNAVAILABLE",
+  "status": "unverified",
+  "runnerStatus": "failed",
+  "coverageStatus": "untested",
+  "recordedAt": "2026-10-07T21:45:07Z",
+  "target": {
+    "kind": "owned-cda",
+    "project": "loom_dev_cda_fhir",
+    "generation": "cda-fhir-v1",
+    "sourceRoot": "/private/tmp/loom-construction-implementation",
+    "gitCommitAtBrowserBracket": "21ef467312857de73347b4cc269a23ecd0b19173",
+    "sourceFingerprint": {
+      "sha256": "a005c8a412f661e198b0afeceab97a51869cecec2456f88b9c10f1ec3f310581",
+      "files": 1612,
+      "unchangedDuringBracket": true,
+      "watchedFileCount": 1127,
+      "changedPaths": []
+    },
+    "docsFingerprint": {
+      "sha256": "7b6de03e2e412ae5ee836ed03c950506dbd502bc199a4c301d552ed324cc32a0",
+      "files": 302,
+      "unchangedDuringBracket": true
+    },
+    "apiBuildIdentity": {
+      "value": "786d08d73d9c6675ab99c45322b96a32efed8aa7c4c8ba8180f19f7ecd872fd8:786d08d73d9c6675ab99c45322b96a32efed8aa7c4c8ba8180f19f7ecd872fd8:ce684c31db8b835d3cbc164086e1e5184df7e3affff5ffa4493c07ea01125ec5",
+      "unchangedDuringBracket": true
+    }
+  },
+  "browserBracket": {
+    "runId": "u7yreG",
+    "runDirectory": "/private/tmp/loom-verification-runs/run-standalone-reshape-related-field-after-unpivot-gender-all-related-field-after-unpivot-gender-all-u7yreG",
+    "startedAt": "2026-10-07T21:34:56.405Z",
+    "finishedAt": "2026-10-07T21:36:15.348Z",
+    "durationMs": 78942,
+    "scenario": "standalone-reshape-related-field-after-unpivot-gender-all",
+    "case": "related-field-after-unpivot-gender-all",
+    "nativeSpec": "scripts/verify-ui/specs/standalone-reshape.spec.mjs",
+    "selectionExact": true,
+    "canonicalCommand": "node scripts/run-native-verification-bracket.mjs --scenario standalone-reshape-related-field-after-unpivot-gender-all --case related-field-after-unpivot-gender-all --grep 'standalone CDA reshape workflows related-field-after-unpivot-gender-all related-field-after-unpivot-gender-all$' --evidence-parent /private/tmp/loom-verification-runs",
+    "browserExitCode": 1,
+    "bracketIntegrity": "PASS",
+    "healthBefore": "PASS",
+    "healthAfter": "PASS",
+    "workflowStatus": "failed",
+    "domainReportStatus": "unverified",
+    "firstFailure": "Error: RawOracleUnavailableError: No direct Patient witness matching the selected mode was found among the first 2000 scoped Specimens by _key; this does not establish absence from the full project generation.",
+    "requiredChecks": {
+      "total": 22,
+      "passed": 1,
+      "failed": 0,
+      "unrun": 21
+    },
+    "nativeActions": 0,
+    "nativeRequests": 0,
+    "failurePageUrl": "about:blank",
+    "browserBehaviorExercised": false
+  },
+  "sourceProvenance": {
+    "workflowPath": "scripts/verify-ui/workflows/verify-cda-related-field-after-unpivot-browser.mjs",
+    "workflowSha256": "cb9ec6d0e6dc19dde46de7c608dfb4682a4c038064d7bc57426b2a5c623d55a8",
+    "selectedMode": "gender-all",
+    "selectedModeProof": "The native spec passes caseName=gender-all; workflow sets requireFieldWitness for gender-all and only accepts a nonempty string at Patient.payload.gender.",
+    "sharedArangoshHelperPath": "scripts/verify-ui/helpers/owned-arangosh-command.mjs",
+    "sharedArangoshHelperSha256": "7483d4fc2b9102d1029da01ae760759767a26f5426e9c450bd49b0975256c8d1",
+    "browserBracketSourceCommit": "21ef467312857de73347b4cc269a23ecd0b19173"
+  },
+  "boundedRawOracleProbe": {
+    "status": "completed",
+    "scope": {
+      "database": "loom_dev",
+      "project": "loom_dev_cda_fhir",
+      "generation": "cda-fhir-v1",
+      "rootCollection": "Specimen",
+      "sort": "_key ascending",
+      "candidateLimit": 2000
+    },
+    "command": {
+      "loaderSequence": [
+        "source /private/tmp/loom-native-combine-join-wave110/browser-environment.sh >/dev/null 2>&1",
+        "source /private/tmp/loom-native-combine-join-wave110/capture-environment.sh >/dev/null 2>&1"
+      ],
+      "executable": "node --input-type=module (inline ESM)",
+      "containerEnvironmentName": "LOOM_CDA_ARANGO_CONTAINER",
+      "invocationHelper": "buildArangoShellInvocation from scripts/verify-ui/helpers/owned-arangosh-command.mjs",
+      "authMode": "The existing helper invokes arangosh with --server.username root and --server.password \"$ARANGO_ROOT_PASSWORD\"; the helper supports empty password in no-auth fixtures. The secret value was not read or recorded.",
+      "database": "loom_dev",
+      "bindVariables": {
+        "project": "loom_dev_cda_fhir",
+        "generation": "cda-fhir-v1"
+      },
+      "output": "aggregate counts only; no resource IDs or raw payloads persisted"
+    },
+    "aqlSha256": "3236b934d9441c9114f6c02830a3360c0966d5227c0e59b7c375a0a77d7ad314",
+    "aql": "LET candidates = (\n  FOR s IN Specimen\n    FILTER s.project == @project AND s.dataset_generation == @generation\n    SORT s._key\n    LIMIT 2000\n    RETURN { key: s._key, id: s._id }\n)\nLET bySpecimen = (\n  FOR candidate IN candidates\n    LET specimen = DOCUMENT(candidate.id)\n    FILTER specimen != null\n      AND specimen.project == @project\n      AND specimen.dataset_generation == @generation\n    LET patients = (\n      FOR edge IN fhir_edge\n        FILTER edge._from == specimen._id\n          AND edge.label == 'subject_Patient'\n          AND edge.project == @project\n          AND edge.dataset_generation == @generation\n          AND STARTS_WITH(edge._to, 'Patient/')\n        LET patient = DOCUMENT(edge._to)\n        FILTER patient != null\n          AND patient.project == @project\n          AND patient.dataset_generation == @generation\n        RETURN DISTINCT {\n          id: patient.payload.id,\n          _id: patient._id,\n          gender: patient.payload.gender,\n          genderOwnProperty: HAS(patient.payload, 'gender'),\n          genderIsNull: IS_NULL(patient.payload.gender),\n          genderValue: (HAS(patient.payload, 'gender') ? patient.payload.gender : null),\n          resourceType: patient.payload.resourceType\n        }\n    )\n    RETURN {\n      anyDirectPatient: LENGTH(patients) > 0,\n      exactlyOneDirectPatient: LENGTH(patients) == 1,\n      onePatientWithValidID: LENGTH(patients) == 1 AND IS_STRING(patients[0].id) AND LENGTH(patients[0].id) > 0,\n      onePatientGenderMissing: LENGTH(patients) == 1 AND patients[0].genderOwnProperty == false,\n      onePatientGenderNull: LENGTH(patients) == 1 AND patients[0].genderOwnProperty == true AND patients[0].genderIsNull == true,\n      onePatientGenderNonemptyString: LENGTH(patients) == 1 AND patients[0].genderOwnProperty == true AND IS_STRING(patients[0].genderValue) AND LENGTH(patients[0].genderValue) > 0,\n      onePatientGenderOther: LENGTH(patients) == 1 AND NOT (patients[0].genderOwnProperty == false OR patients[0].genderIsNull == true OR (IS_STRING(patients[0].genderValue) AND LENGTH(patients[0].genderValue) > 0))\n    }\n)\nRETURN {\n  project: @project,\n  generation: @generation,\n  candidateLimit: 2000,\n  candidateCount: LENGTH(candidates),\n  candidatesWithAnyDirectPatient: LENGTH(FOR row IN bySpecimen FILTER row.anyDirectPatient RETURN 1),\n  candidatesWithExactlyOneDirectPatient: LENGTH(FOR row IN bySpecimen FILTER row.exactlyOneDirectPatient RETURN 1),\n  candidatesWithOneValidPatientID: LENGTH(FOR row IN bySpecimen FILTER row.onePatientWithValidID RETURN 1),\n  candidatesWithOnePatientGenderMissing: LENGTH(FOR row IN bySpecimen FILTER row.onePatientGenderMissing RETURN 1),\n  candidatesWithOnePatientGenderNull: LENGTH(FOR row IN bySpecimen FILTER row.onePatientGenderNull RETURN 1),\n  candidatesWithOnePatientNonemptyStringGender: LENGTH(FOR row IN bySpecimen FILTER row.onePatientGenderNonemptyString RETURN 1),\n  candidatesWithOnePatientOtherGender: LENGTH(FOR row IN bySpecimen FILTER row.onePatientGenderOther RETURN 1)\n}",
+    "result": {
+      "candidateCount": 2000,
+      "candidatesWithAnyDirectPatient": 2000,
+      "candidatesWithExactlyOneDirectPatient": 2000,
+      "candidatesWithOneValidPatientID": 2000,
+      "candidatesWithOnePatientGenderMissing": 2000,
+      "candidatesWithOnePatientGenderNull": 0,
+      "candidatesWithOnePatientNonemptyStringGender": 0,
+      "candidatesWithOnePatientOtherGender": 0
+    },
+    "interpretation": "Every candidate in the bounded slice has exactly one valid scoped subject_Patient target, but each Patient.payload omits gender. The gender-all case therefore has no matching raw witness in this bound. This is not global absence and not a Builder failure.",
+    "executionTimeCaptured": false,
+    "authorizationScope": {
+      "classification": "unrestricted_no_auth_resource_path_filter",
+      "authResourcePathFilterApplied": false,
+      "restrictedAuthCovered": false,
+      "databaseAuthentication": "The shared helper supplies the root username and ARANGO_ROOT_PASSWORD argument; no credential value is recorded."
+    },
+    "replayCommand": {
+      "workingDirectory": "/private/tmp/loom-construction-implementation",
+      "shellCommand": "source /private/tmp/loom-native-combine-join-wave110/browser-environment.sh >/dev/null 2>&1 && source /private/tmp/loom-native-combine-join-wave110/capture-environment.sh >/dev/null 2>&1 && node --input-type=module -e 'import{spawnSync}from\"node:child_process\";import{readFileSync}from\"node:fs\";import{buildArangoShellInvocation}from\"./scripts/verify-ui/helpers/owned-arangosh-command.mjs\";const p=\"docs/verification/playwright/runtime/cda-related-patient-gender-all-after-unpivot-20261007-witness-unavailable.json\";const r=JSON.parse(readFileSync(p,\"utf8\"));const q=r.boundedRawOracleProbe;const container=process.env.LOOM_CDA_ARANGO_CONTAINER;if(!container)throw new Error(\"LOOM_CDA_ARANGO_CONTAINER is required\");const script=`const rows=db._query(${JSON.stringify(q.aql)},${JSON.stringify(q.command.bindVariables)}).toArray();\\nprint(JSON.stringify(rows));\\n`;const invocation=buildArangoShellInvocation({container,script,database:\"loom_dev\"});const result=spawnSync(invocation.command,invocation.args,{encoding:\"utf8\",timeout:30000,maxBuffer:4*1024*1024});if(result.status!==0||result.error){process.stderr.write(JSON.stringify({status:result.status,error:result.error?.message??null,stderr:result.stderr?.slice(-1200)??\"\"})+\"\\n\");process.exit(1)}const line=result.stdout.trim().split(/\\r?\\n/).reverse().find(value=>value.trim().startsWith(\"[\"));if(!line)throw new Error(\"No aggregate JSON array returned\");const rows=JSON.parse(line);if(!Array.isArray(rows)||rows.length!==1)throw new Error(\"Expected one aggregate result\");const mismatch=Object.entries(q.result).filter(([key,value])=>rows[0][key]!==value);if(mismatch.length){process.stderr.write(JSON.stringify({mismatch,actual:rows[0]})+\"\\n\");process.exit(3)}process.stdout.write(JSON.stringify(rows[0])+\"\\n\");'",
+      "shellCommandSha256": "a5ee051dd43ecf9ba4f2e582e86ce32f7b453c3282bfbe61e3af5c7fdbfa8a4b",
+      "usesEmbeddedAql": true,
+      "aqlSha256": "3236b934d9441c9114f6c02830a3360c0966d5227c0e59b7c375a0a77d7ad314",
+      "readOnlyQuery": true,
+      "browserOrMutation": false,
+      "expectedAggregateIsChecked": true
+    }
+  },
+  "rawArtifacts": [
+    {
+      "path": "/private/tmp/loom-verification-runs/run-standalone-reshape-related-field-after-unpivot-gender-all-related-field-after-unpivot-gender-all-u7yreG/summary.json",
+      "sha256": "bb1b1ea846f97e81b17d414d0ada2e10068f4cabb18b75474f91d3c5f5ae09d0",
+      "sizeBytes": 22854
+    },
+    {
+      "path": "/private/tmp/loom-verification-runs/run-standalone-reshape-related-field-after-unpivot-gender-all-related-field-after-unpivot-gender-all-u7yreG/playwright-results/standalone-reshape-standal-2e6c7-ld-after-unpivot-gender-all/cda-evidence/report.json",
+      "sha256": "f66b3c83586283b7a26406a88cce5b0900d9fa3825fde5bc1a2d26ed5a1a0c3e",
+      "sizeBytes": 4751
+    },
+    {
+      "path": "/private/tmp/loom-verification-runs/run-standalone-reshape-related-field-after-unpivot-gender-all-related-field-after-unpivot-gender-all-u7yreG/playwright-results/standalone-reshape-standal-2e6c7-ld-after-unpivot-gender-all/cda-report.json",
+      "sha256": "e7ad7080234bc74d0c9f4cf69aa634f2461b441639103f8bc68af61183dadfc4",
+      "sizeBytes": 10937
+    },
+    {
+      "path": "/private/tmp/loom-verification-runs/run-standalone-reshape-related-field-after-unpivot-gender-all-related-field-after-unpivot-gender-all-u7yreG/playwright-results/standalone-reshape-standal-2e6c7-ld-after-unpivot-gender-all/error-context.md",
+      "sha256": "bceed0087779c996516098f43a9b6f90148798a82259ba36be7dc01a0f5d9f25",
+      "sizeBytes": 15561
+    },
+    {
+      "path": "/private/tmp/loom-verification-runs/run-standalone-reshape-related-field-after-unpivot-gender-all-related-field-after-unpivot-gender-all-u7yreG/source-before.json",
+      "sha256": "9ab8fdee45197c1fb4c65b2661875897be08a2a85061005c993b748610ed4dae",
+      "sizeBytes": 208077
+    },
+    {
+      "path": "/private/tmp/loom-verification-runs/run-standalone-reshape-related-field-after-unpivot-gender-all-related-field-after-unpivot-gender-all-u7yreG/source-after.json",
+      "sha256": "5e9d5733d7fea980148b5ad7dec7229cfa6a1875177a850cf5e20ae7f93b417f",
+      "sizeBytes": 208076
+    },
+    {
+      "path": "/private/tmp/loom-verification-runs/run-standalone-reshape-related-field-after-unpivot-gender-all-related-field-after-unpivot-gender-all-u7yreG/docs-before.json",
+      "sha256": "6b8160041cc08ffcad4c2718a4eaec9c598887f8ba9e552773a883fb77424156",
+      "sizeBytes": 45469
+    },
+    {
+      "path": "/private/tmp/loom-verification-runs/run-standalone-reshape-related-field-after-unpivot-gender-all-related-field-after-unpivot-gender-all-u7yreG/docs-after.json",
+      "sha256": "c7804088372328c040df7bb5f1843fa17aa2b3b164dd18ccef47ed5a397a82c4",
+      "sizeBytes": 45468
+    },
+    {
+      "path": "/private/tmp/loom-verification-runs/run-standalone-reshape-related-field-after-unpivot-gender-all-related-field-after-unpivot-gender-all-u7yreG/api-build-precheck.json",
+      "sha256": "5e33fe5c678e8d96a455e43051e33173bcd758d2e217fcfcaf6ac5a703f2e518",
+      "sizeBytes": 686
+    },
+    {
+      "path": "/private/tmp/loom-verification-runs/run-standalone-reshape-related-field-after-unpivot-gender-all-related-field-after-unpivot-gender-all-u7yreG/health-before.json",
+      "sha256": "c4fcb4db966ee6639d8e427aa9f7c42ca3e0f330e2e3d2041245097b0de6e790",
+      "sizeBytes": 2057
+    },
+    {
+      "path": "/private/tmp/loom-verification-runs/run-standalone-reshape-related-field-after-unpivot-gender-all-related-field-after-unpivot-gender-all-u7yreG/health-after.json",
+      "sha256": "5f0602af73f8d5c4c745f1458d1b1a0a5334c6f1c3d18d2936929b116696d1aa",
+      "sizeBytes": 2057
+    }
+  ],
+  "priorEvidence": [
+    {
+      "label": "prior bounded gender scan",
+      "path": "/private/tmp/loom-related-field-after-unpivot-execute-file-current/report.json",
+      "sha256": "491a07a1f68e08fcc975b441891d072ff04918b55a3b5a9613a4e369b62de309",
+      "sizeBytes": 2180
+    },
+    {
+      "label": "prior populated resourceType lifecycle",
+      "path": "/private/tmp/loom-related-resource-type-after-unpivot-native-complete/report.json",
+      "sha256": "52c28305ea165701298f49cf4a47ea5ddf87a3c17fc95ab0afc9503e18c1297a",
+      "sizeBytes": 16528
+    }
+  ],
+  "noRawPayloadsEmbedded": true,
+  "coverageDisposition": {
+    "patientGenderAll": "untested; preserve the required populated raw string value and exact gender-all mode",
+    "browserLifecycle": "not reached; no Builder actions or native requests occurred",
+    "globalAbsenceClaim": false,
+    "productFailureClaim": false,
+    "sharedLedgerUpdated": false,
+    "relatedResourceType": "separate populated-scalar lifecycle already has a historical pass",
+    "genderNull": "separate missing/null-gender lifecycle already has a historical pass; it is not a substitute for populated gender",
+    "restrictedAuthSameOracleClaim": false
+  },
+  "scopeNote": "The raw probe is bounded to the first 2,000 Specimens in one exact project and generation, sorted by _key. It establishes only that this slice contains no populated Patient.gender witness. It does not establish absence elsewhere in the generation. The browser bracket terminated before UI behavior and is retained as an unverified fixture/witness result, not a product failure. The probe applies no auth_resource_path constraint and does not establish restricted-auth behavior; the explicit root database credential is separate from application authorization."
+}
