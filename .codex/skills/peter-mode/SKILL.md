@@ -1,6 +1,6 @@
 ---
 name: peter-mode
-description: Use when the user invokes $peter-mode or asks to enter Peter mode for a pstack workflow with aggressive Luna delegation, focused verification, and Sol-owned integration.
+description: Use when the user invokes $peter-mode or asks to enter Peter mode for a pstack workflow with aggressive Luna delegation, focused verification, Luna max review and merging, and foreground Sol final checkoffs.
 ---
 
 # Peter mode
@@ -46,35 +46,42 @@ the entry point for the current task.
 
 ## Delegation and models
 
-Delegate independent investigation, implementation, fixtures, tests, and
-verification to `gpt-6-luna` at `xhigh` reasoning by default. Use the maximum
-useful parallelism available; for broad inventories, target at least ten active
-workers when independent work and agent slots permit. There is no fixed worker
-cap. Do not create duplicate tasks or backlog merely to occupy slots.
+Use at most three parallel teams, each with up to three `gpt-6-luna` workers
+at `xhigh` reasoning and one `gpt-6-luna` lead at `max`. Fill teams only with
+distinct useful work. Sol assigns distinct bounded workflows and retains the
+goal, architecture, priorities, product decisions, final checkoffs, and prose.
+Keep configured Sol reasoning; use Sol low when selectable.
 
-The foreground Sol agent retains the goal, architecture, dependencies, and
-evidence; it owns task decomposition, final judgment, review, integration, and
-communication. Keep its configured reasoning effort. Use `gpt-6-luna` at `max`
-for independent reviewers when model selection is available.
+Each Luna max lead divides its workflow among workers with nonoverlapping
+ownership. Workers use separate Git worktrees and own focused checks. The lead
+reviews, coordinates corrections, combines the team's changes, resolves conflicts
+with owners, and verifies the final integrated artifact. Preserve uncommitted
+integration work when preparing bases. Do not duplicate diagnosis to occupy slots.
 
-Give workers clear outcomes, context, invariants, file ownership, and verification
-targets. Workers own their focused checks and return patches with preserved
-preimages and evidence from physically separate staging directories. Sol reviews
-ready units before opening more implementation threads. Serialize shared writes
-and dependent actions, and freeze watched source during browser runs. Handle
-small tasks directly when delegation would cost more than the work.
+When required tests and review pass, Luna max submits the exact diff/commit,
+tested source identity, commands/results, and gaps to Sol. Sol pass/fails it.
+Rejection returns to the same Luna max and its team for corrections, retesting,
+and resubmission. Sol does not routinely perform those corrections or rerun
+passing checks. Acceptance authorizes that Luna max to merge into the designated
+main integration branch; after the merge, Sol assigns the team its next task.
+Use the current agreed integration branch rather than silently changing branches.
+
+Serialize shared-target merges. If a changed target or conflict changes the
+accepted artifact, renew verification and final checkoff. Preserve unrelated
+changes and hold merges during live-source/browser freezes. Teams continue in
+separate worktrees while the live target is frozen. Follow AGENTS.md for ownership
+and the verifier skill for lifecycle evidence; focused checks are not browser
+acceptance. Small direct tasks may stay with Sol when delegation costs more.
 
 Do not create model panels for confidence alone. If executable evidence settles
 a question, stop.
 
 ## Review and verification
 
-Use the connected Codex review workflow as the preferred independent review for
-a material code change when it is available on the current surface. Do not
-duplicate a completed connector review with `pstack:interrogate`,
-`pstack:no-comments`, or another model reviewer unless the user asks or a
-high-risk issue remains unresolved. Treat review findings as claims to check,
-not automatic instructions to churn code.
+Use Luna max as the review and merge stage for delegated changes. Do not add
+duplicate connector or model reviews for confidence alone. Use another review
+workflow when requested or needed for a distinct unresolved risk. Treat findings
+as claims to check, not automatic instructions to churn code.
 
 Review does not prove runtime behavior. Run the cheapest direct check that
 exercises the changed behavior. For documentation, configuration, and skill

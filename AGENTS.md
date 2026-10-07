@@ -24,16 +24,12 @@ outsourcing that understanding or final judgment.
   allowed runtime actions, and a concrete verification target. Workers may
   investigate an open question, but must return material ownership or design
   choices to Sol before committing the project to them.
-- Aggressively delegate menial and bounded work to Luna xhigh. Default to
-  the maximum useful parallelism supported by available agent slots and
-  independent work; there is no fixed worker cap or conservative worker budget.
-  Keep workers supplied with ready tasks as they finish rather than making Sol
-  perform work Luna can handle. Do not create redundant or conflicting work
-  merely to occupy slots. This overrides worker-count limits in inherited
-  workflow guidance, including Peter mode. Keep the configured Sol reasoning
-  effort; delegation does not change the running root model.
-- Parallelize work with disjoint ownership. Sol coordinates shared files,
-  canonical worklists, integration, deployments, and mutable runtime state;
+- Delegate bounded work through at most three teams of three Luna xhigh workers
+  and one Luna max lead, as defined below. Keep assignments distinct; worker
+  count is not a progress metric. This overrides older unbounded worker-count
+  guidance in inherited skills. Keep configured Sol reasoning effort.
+- Parallelize work with disjoint ownership. Luna max coordinates shared-file merges and integration; Sol coordinates
+  canonical priorities, final checkoffs, deployments, and mutable runtime state;
   a worker may perform those actions when explicitly assigned sole ownership.
 - Serialize browser performance runs and shared database verification. Prepare
   incomplete production patches outside the watched deployment and integrate
@@ -42,51 +38,82 @@ outsourcing that understanding or final judgment.
   work, or when the next action requires its current context or judgment.
   Otherwise, prefer giving the work to Luna and reviewing the result.
 
-## Review and correction handoff
+## Parallel teams, review, and merging
 
-Use a Luna max review stage before sending substantial worker changes to the
-foreground Sol agent. This separates implementation iterations from final
-acceptance; Sol still understands the change and owns integration and judgment.
+Run at most three teams in parallel. Each team has up to three `gpt-6-luna`
+workers at `xhigh` reasoning and one `gpt-6-luna` lead at `max` reasoning.
+Use the full team when distinct useful work permits; do not fill slots with
+redundant assignments. Foreground Sol retains priorities, architecture context,
+product decisions, final checkoffs, and completion claims, using its configured
+reasoning effort (Sol low when selectable).
 
-- Luna xhigh workers implement bounded changes in physically separate staging
-  directories and run their focused checks.
-- A `gpt-6-luna` reviewer at `max` reasoning reads the complete proposed patch,
-  relevant contracts, and executable evidence. It owns the initial review and
-  coordinates correction iterations with the implementation workers.
-- On a finding, Luna max gives exact correction instructions to the owning
-  worker, checks the revised artifact and necessary reruns, and repeats until
-  it has no remaining findings. Preserve the rejected patch and preimages so
-  corrections remain reviewable. A changed artifact requires renewed review.
-- Only then hand the foreground Sol agent the final patch and hash, preserved
-  preimages, exact verification commands and results, remaining gaps, and the
-  Luna max verdict with resolved findings. Use the configured foreground Sol
-  agent, with low reasoning when model selection is available, for final review.
-- Sol reads the final diff and consequential source and evidence, then accepts
-  or returns concrete findings to Luna max. Luna max manages the next correction
-  loop and resubmits; Sol does not routinely implement the corrections itself
-  or rerun workers' passing checks.
-- Luna max approval is a prerequisite for substantial worker handoffs, not
-  permission to merge. Sol retains acceptance, integration order, shared writes,
-  product decisions, and completion claims. Small direct changes may stay with
-  Sol when the extra handoff would cost more than the work.
+- Sol assigns each team a distinct bounded workflow from the worklist. The Luna
+  max lead divides it into nonoverlapping implementation, fixture, or test tasks
+  for its workers. One owner per issue and file; no duplicate diagnosis.
+- Workers implement in separate Git worktrees and run their focused checks.
+  Preserve uncommitted integration work when preparing bases. Luna max owns
+  correction iterations, review, and combining its team's work in an integration
+  worktree. It resolves conflicts with the owners and verifies the resolved result.
+- Only after review and required tests pass does Luna max send Sol the exact
+  integrated diff/commit, tested source identity, commands/results, and remaining
+  gaps. Focused tests cannot substitute for a required browser lifecycle.
+- Sol pass/fails that submission. On rejection, send concrete findings back to
+  the same Luna max lead and its team. They correct, retest, and resubmit; Sol
+  does not routinely implement corrections or rerun passing checks.
+- On acceptance, that Luna max lead performs the Git merge into the designated
+  main integration branch and reports the resulting commit. Sol then assigns
+  the team its next task. Use the current agreed integration branch; do not
+  silently switch to a branch named main or publish/deploy elsewhere.
+- Serialize merges into the shared target, not team implementation. Check the
+  target has not changed since acceptance; if conflicts or changed dependencies
+  alter the accepted artifact, return it through verification and Sol checkoff.
+  Preserve unrelated working changes. Never merge into watched source during
+  a browser freeze; hold the accepted merge until the freeze is released.
+
+## Worktree ownership
+
+Separate worktrees are the default for implementation workers and the Luna max
+integration owner. The foreground/live checkout is the accepted runtime target.
+
+- Reserve issue and file ownership before edits. Separate worktrees isolate
+  unfinished code and checks but do not eliminate merge conflicts. Coordinate
+  shared registries, generated files, worklists, and lockfiles with the merge owner.
+- Workers may commit owned changes in their own worktrees. They must not stage,
+  reset, stash, clean, or overwrite another worker's checkout or the live checkout.
+- During browser verification, freeze the live checkout and shared runtime.
+  Workers continue implementation and Luna max continues integration in their
+  separate worktrees. Promotion waits until the freeze is released.
+- A reviewed patch or passing focused check does not establish a full browser
+  lifecycle. Run browser acceptance against the promoted, fingerprinted source.
 
 ## Close workflows before expanding work
 
-Sol owns the integration queue: prioritize reviewing and closing ready units over
-starting more implementation threads. Workers return integration-ready patches
-with preserved preimages from physically separate staging directories. Follow
+Sol owns priorities and final checkoffs; Luna max owns the merge queue. Prioritize
+closing ready units while workers prepare distinct upcoming workflows. Workers
+return integration-ready changes with explicit ownership and source provenance. Follow
 the verifier skill's failure-loop discipline for isolation checks, first-failure
 diagnostics, lifecycle evidence, and repeated harness-failure checkpoints.
 Report reliable workflows and remaining failures separately from testing overhead.
 
 A bottleneck changes worker assignments; it does not suspend useful parallel work.
-Keep at least ten productive Luna xhigh workers on broad inventories when the
-work and available slots permit, with no fixed upper cap. Refill completed
-assignments rather than letting the pool drain while Sol waits on one unit.
+Use up to three teams as defined above. Refill a team with its next distinct
+workflow after its accepted merge, rather than directing idle workers at an
+already-owned problem.
 
-- Identify the limiting step and assign workers to shorten it first: reproduce
-  the failure, inspect independent evidence, prepare the focused fix and tests,
-  review contracts, or prepare the exact deployment and browser invocation.
+- Assign one implementation owner per issue or workflow. That owner handles
+  diagnosis, the fix, and focused tests. Assign one Luna max reviewer; review is
+  a distinct role, not a second implementation or diagnosis assignment.
+- Give remaining workers distinct upcoming workflows from the coverage inventory.
+  They work ahead through reproduction, implementation, focused checks, and Luna
+  max review while Sol closes the current integration priority. Do not send
+  multiple workers to independently rediscover the same cause.
+- Add support to the current issue only for a specific missing deliverable that
+  its owner cannot produce efficiently. Name that deliverable and its boundary;
+  once supplied, return the worker to distinct upcoming work. A bottleneck is
+  not a reason to duplicate diagnosis, fixtures, tests, or evidence packaging.
+- Maintain an assignment list with issue/workflow, owner, reviewer, owned files,
+  deliverable, and dependency. Check it before delegating. Reuse completed findings
+  and redirect overlapping assignments rather than running them to completion.
 - State how each assignment advances the current integration priority or the
   next bounded workflow. Require a patch, executable check, fixture, or decisive
   evidence; do not assign generic audits merely to keep agents occupied.
@@ -97,9 +124,11 @@ assignments rather than letting the pool drain while Sol waits on one unit.
   Sol reviews retained evidence instead of becoming the test runner for every
   worker. Delegate integration preparation, but retain acceptance and shared
   writes with the assigned owner.
-- When review is limiting progress, route independent review and missing-evidence
-  collection to workers and close ready submissions before expanding the queue.
-  Keep next-unit preparation bounded; worker count is not a measure of progress.
+- When review is limiting progress, reviewers close ready submissions while
+  implementation workers continue distinct upcoming workflows. Keep next-unit
+  preparation bounded; worker count is not a measure of progress. Keep handoffs
+  small: the exact patch, preimages, focused command/results, and remaining gaps.
+  Reuse existing evidence formats rather than creating another packaging layer.
 
 - Measure progress by closed user-visible failures and fully verified lifecycles,
   with elapsed time. Commits, scripts, worker activity, and partial assertions
@@ -181,21 +210,18 @@ architecture work.
 ## Parallel execution and integration
 
 For independent verification cases, delegate case ownership to Luna xhigh
-workers by default. Sol owns context, review, integration, and completion claims.
+workers by default. Luna max owns review and merging; Sol owns context, final
+checkoffs, promotion coordination, and completion claims.
 Closing one integration priority does not require serializing independent runs
-or investigations. Workers return reviewable staged patches with preimages;
+or investigations. Workers return reviewed changes from separate worktrees with source provenance;
 they do not edit shared source or runtime during browser runs. Follow the local
 verification skill for isolated evidence paths, source freezing, lifecycle proof,
 and serial confirmation of performance failures observed under contention.
 
-For broad case inventories, target at least 10 active Luna xhigh workers per
-foreground Sol whenever useful independent work and available agent slots permit.
-There is no fixed upper cap. Split the ready work into disjoint owned cases,
-investigations, and staged fixes; refill assignments as workers finish. Do not
-create duplicate work or idle assignments merely to meet the count. Sol owns
-context and priorities, reviews returned evidence and patches, and integrates
-verified coherent units promptly. Serialize shared writes and dependent steps,
-not the independent work that can proceed alongside integration.
+For broad inventories, use the three-team structure above. Sol assigns distinct
+workflows, pass/fails tested submissions, and assigns new work after an accepted
+merge. Team Luna max leads coordinate corrections and accepted merges; serialize
+shared-target writes while independent work proceeds in separate worktrees.
 
 ## Package audit safety
 
