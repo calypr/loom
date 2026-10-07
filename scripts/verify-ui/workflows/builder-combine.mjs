@@ -347,7 +347,7 @@ const assertSourceImmutability = async (context, explorer, docs, before, report)
 
 const expectedInnerRows = joinOracleRows(expectedObservations, expectedReports, 'INNER');
 const expectedLeftRows = joinOracleRows(expectedObservations, expectedReports, 'LEFT');
-const joinHeaders = ['Observation ID', 'Observation status', 'DiagnosticReport ID', 'DiagnosticReport status'];
+const joinHeaders = ['Observation ID', 'Status', 'DiagnosticReport ID', 'Status'];
 const appendHeaders = ['Record ID', 'Status', 'Patient gender'];
 
 const readGridWithPlaywright = async (page, kind = 'saved') => page.evaluate((viewKind) => {
@@ -806,7 +806,7 @@ export const joinWorkflow = async ({ page, report, action }, context) => {
       previewHeaders: sourcePreviewHeaders.Observation,
       columns: [
         { name: api.columns.observationID.name, label: api.columns.observationID.label, authoredName: authored.observationID.name, authoredLabel: authored.observationID.label, expectedLabel: 'Observation ID' },
-        { name: api.columns.observationStatus.name, label: api.columns.observationStatus.label, authoredName: authored.observationStatus.name, authoredLabel: authored.observationStatus.label, expectedLabel: 'Observation status' },
+        { name: api.columns.observationStatus.name, label: api.columns.observationStatus.label, authoredName: authored.observationStatus.name, authoredLabel: authored.observationStatus.label, expectedLabel: 'Status' },
       ],
     },
     diagnosticReport: {
@@ -817,7 +817,7 @@ export const joinWorkflow = async ({ page, report, action }, context) => {
       previewHeaders: sourcePreviewHeaders.DiagnosticReport,
       columns: [
         { name: api.columns.reportID.name, label: api.columns.reportID.label, authoredName: authored.reportID.name, authoredLabel: authored.reportID.label, expectedLabel: 'DiagnosticReport ID' },
-        { name: api.columns.reportStatus.name, label: api.columns.reportStatus.label, authoredName: authored.reportStatus.name, authoredLabel: authored.reportStatus.label, expectedLabel: 'DiagnosticReport status' },
+        { name: api.columns.reportStatus.name, label: api.columns.reportStatus.label, authoredName: authored.reportStatus.name, authoredLabel: authored.reportStatus.label, expectedLabel: 'Status' },
       ],
     },
   };
@@ -943,9 +943,9 @@ export const joinWorkflow = async ({ page, report, action }, context) => {
 
   const outputSourceDisplayEvidence = await Promise.all([
     { index: 1, inputIndex: 1, column: api.columns.observationID, label: 'Observation ID' },
-    { index: 2, inputIndex: 1, column: api.columns.observationStatus, label: 'Observation status' },
+    { index: 2, inputIndex: 1, column: api.columns.observationStatus, label: 'Status' },
     { index: 3, inputIndex: 2, column: api.columns.reportID, label: 'DiagnosticReport ID' },
-    { index: 4, inputIndex: 2, column: api.columns.reportStatus, label: 'DiagnosticReport status' },
+    { index: 4, inputIndex: 2, column: api.columns.reportStatus, label: 'Status' },
   ].map(async ({ index, inputIndex, column, label }) => {
     const control = page.locator(`select[aria-label="Output field ${index} source field in input ${inputIndex}"]`);
     const option = control.locator('option:checked');
