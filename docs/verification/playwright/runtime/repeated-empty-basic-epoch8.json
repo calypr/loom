@@ -1,6 +1,6 @@
 {
-  "schemaVersion": 1,
-  "evidenceKind": "native-browser-runtime-evidence-candidate",
+  "schemaVersion": 2,
+  "evidenceKind": "historical-native-browser-report-projection",
   "epoch": 8,
   "status": "passed",
   "test": {
@@ -253,11 +253,278 @@
       "verify the restored source row definition after reload action-to-render within budget"
     ]
   },
-  "assertions": {
-    "passed": 125,
-    "total": 125,
-    "failed": 0
-  },
+  "assertions": [
+    {
+      "dimension": "correctness",
+      "name": "case started with a fresh owned project and the exact repeated-empty fixture contract",
+      "status": "passed"
+    },
+    {
+      "dimension": "correctness",
+      "name": "native source-row lifecycle remains in the exact isolated project, generation, and Explorer",
+      "status": "passed"
+    },
+    {
+      "dimension": "correctness",
+      "name": "Observation root Preview contains the three exact fixture IDs before source expansion",
+      "status": "passed"
+    },
+    {
+      "dimension": "correctness",
+      "name": "source Preview starts with one direct Observation identity column",
+      "status": "passed"
+    },
+    {
+      "dimension": "correctness",
+      "name": "source EXPANDED chooser exposes the exact Observation.component[] collection",
+      "status": "passed"
+    },
+    {
+      "dimension": "correctness",
+      "name": "source-row preview defaults to PRESERVE_PARENT and predicts four rows from three source records",
+      "status": "passed"
+    },
+    {
+      "dimension": "correctness",
+      "name": "Cancel leaves all three original source Observation IDs unchanged",
+      "status": "passed"
+    },
+    {
+      "dimension": "correctness",
+      "name": "PRESERVE_PARENT keeps the literal-empty and missing parent while expanding both component items",
+      "status": "passed"
+    },
+    {
+      "dimension": "correctness",
+      "name": "source EXPANDED rows expose the scalar component code text field for exact item verification",
+      "status": "passed"
+    },
+    {
+      "dimension": "correctness",
+      "name": "native component code field offers a selectable FIRST scalar form",
+      "status": "passed"
+    },
+    {
+      "dimension": "correctness",
+      "name": "native item-field proposal renders exact alpha, beta, explicit-empty, and missing pairs",
+      "status": "passed"
+    },
+    {
+      "dimension": "correctness",
+      "name": "saved PRESERVE_PARENT source rows show exact Observation/component item multiplicity",
+      "status": "passed"
+    },
+    {
+      "dimension": "correctness",
+      "name": "PRESERVE_PARENT source EXPANDED rows and item values survive Builder reload",
+      "status": "passed"
+    },
+    {
+      "dimension": "correctness",
+      "name": "reload keeps the same authorized fixture project, generation, and Explorer",
+      "status": "passed"
+    },
+    {
+      "dimension": "persistence",
+      "name": "reloaded Rows controls restore component[] and PRESERVE_PARENT with no authored construction step",
+      "status": "passed"
+    },
+    {
+      "dimension": "correctness",
+      "name": "EXCLUDE is available in the saved EXPANDED row definition",
+      "status": "passed"
+    },
+    {
+      "dimension": "correctness",
+      "name": "EXCLUDE row-definition comparison shows four base rows and 2 candidate rows",
+      "status": "passed"
+    },
+    {
+      "dimension": "correctness",
+      "name": "Cancel retains saved PRESERVE_PARENT pairs and all four rows",
+      "status": "passed"
+    },
+    {
+      "dimension": "persistence",
+      "name": "Cancel retains the same source row choice and PRESERVE_PARENT policy",
+      "status": "passed"
+    },
+    {
+      "dimension": "persistence",
+      "name": "Cancel keeps the exact same expanded source row choice",
+      "status": "passed"
+    },
+    {
+      "dimension": "correctness",
+      "name": "EXCLUDE source rows retain the two exact populated component items",
+      "status": "passed"
+    },
+    {
+      "dimension": "correctness",
+      "name": "EXCLUDE source EXPANDED rows and component items survive Builder reload",
+      "status": "passed"
+    },
+    {
+      "dimension": "correctness",
+      "name": "EXCLUDE reload keeps the same authorized fixture project, generation, and Explorer",
+      "status": "passed"
+    },
+    {
+      "dimension": "persistence",
+      "name": "reloaded Rows controls restore component[] and EXCLUDE without authored history",
+      "status": "passed"
+    },
+    {
+      "dimension": "correctness",
+      "name": "Rows settings offers the original one-row-per-source-record shape for removal",
+      "status": "passed"
+    },
+    {
+      "dimension": "correctness",
+      "name": "removing source EXPANDED previews a two-to-three row comparison",
+      "status": "passed"
+    },
+    {
+      "dimension": "correctness",
+      "name": "source RECORDS restoration retains exact Observation/component first-value pairs after Apply",
+      "status": "passed"
+    },
+    {
+      "dimension": "correctness",
+      "name": "source Observation/component first-value pairs survive Builder reload after row restoration",
+      "status": "passed"
+    },
+    {
+      "dimension": "correctness",
+      "name": "final reload keeps the exact fixture project, generation, and Explorer",
+      "status": "passed"
+    },
+    {
+      "dimension": "persistence",
+      "name": "removal persists the source RECORDS row definition without an authored EXPAND step",
+      "status": "passed"
+    },
+    {
+      "dimension": "performance",
+      "name": "choose Observation root and render the three source rows action-to-render within budget",
+      "status": "passed"
+    },
+    {
+      "dimension": "performance",
+      "name": "open row-shape settings for source expansion action-to-render within budget",
+      "status": "passed"
+    },
+    {
+      "dimension": "performance",
+      "name": "open the native repeated-source expansion dialog action-to-render within budget",
+      "status": "passed"
+    },
+    {
+      "dimension": "performance",
+      "name": "preview PRESERVE_PARENT for Observation.component[] without applying it action-to-render within budget",
+      "status": "passed"
+    },
+    {
+      "dimension": "performance",
+      "name": "Cancel the source expansion proposal action-to-render within budget",
+      "status": "passed"
+    },
+    {
+      "dimension": "performance",
+      "name": "return to the table after cancelling source expansion action-to-render within budget",
+      "status": "passed"
+    },
+    {
+      "dimension": "performance",
+      "name": "reopen the native repeated-source expansion dialog action-to-render within budget",
+      "status": "passed"
+    },
+    {
+      "dimension": "performance",
+      "name": "preview the source expansion that will be applied action-to-render within budget",
+      "status": "passed"
+    },
+    {
+      "dimension": "performance",
+      "name": "Apply source EXPANDED row definition with PRESERVE_PARENT action-to-render within budget",
+      "status": "passed"
+    },
+    {
+      "dimension": "performance",
+      "name": "return to the table after applying source expansion action-to-render within budget",
+      "status": "passed"
+    },
+    {
+      "dimension": "performance",
+      "name": "open native source and form choices for the component code text field action-to-render within budget",
+      "status": "passed"
+    },
+    {
+      "dimension": "performance",
+      "name": "preview component code text with the native FIRST form action-to-render within budget",
+      "status": "passed"
+    },
+    {
+      "dimension": "performance",
+      "name": "apply component code text field to the expanded source rows action-to-render within budget",
+      "status": "passed"
+    },
+    {
+      "dimension": "performance",
+      "name": "open source EXPANDED row settings after reload action-to-render within budget",
+      "status": "passed"
+    },
+    {
+      "dimension": "performance",
+      "name": "preview EXCLUDE through the native saved-row policy control before Cancel action-to-render within budget",
+      "status": "passed"
+    },
+    {
+      "dimension": "performance",
+      "name": "Cancel the EXCLUDE row-definition edit action-to-render within budget",
+      "status": "passed"
+    },
+    {
+      "dimension": "performance",
+      "name": "reopen the source EXPANDED row definition after Cancel action-to-render within budget",
+      "status": "passed"
+    },
+    {
+      "dimension": "performance",
+      "name": "preview EXCLUDE again from the same saved source-row definition action-to-render within budget",
+      "status": "passed"
+    },
+    {
+      "dimension": "performance",
+      "name": "apply EXCLUDE to the saved source EXPANDED row definition action-to-render within budget",
+      "status": "passed"
+    },
+    {
+      "dimension": "performance",
+      "name": "open EXCLUDE source row definition after reload action-to-render within budget",
+      "status": "passed"
+    },
+    {
+      "dimension": "performance",
+      "name": "preview removing source expansion by restoring one row per source record action-to-render within budget",
+      "status": "passed"
+    },
+    {
+      "dimension": "performance",
+      "name": "apply source-row removal and restore all three fixture Observation IDs action-to-render within budget",
+      "status": "passed"
+    },
+    {
+      "dimension": "performance",
+      "name": "verify the restored source row definition after reload action-to-render within budget",
+      "status": "passed"
+    },
+    {
+      "dimension": "correctness",
+      "name": "watched source stayed unchanged during browser run",
+      "status": "passed"
+    }
+  ],
   "dimensions": {
     "usability": "passed",
     "correctness": "passed",
@@ -340,7 +607,69 @@
     "ownerCommand": {
       "path": "/private/tmp/loom-native-parallel-wave8/owner-commands.md",
       "sha256": "b02107ea6ed87db22705eebe22827f6515a2be94fc7885d0259425544350acde"
+    },
+    "suiteClosure": {
+      "path": "/private/tmp/loom-native-parallel-wave8/closure.json",
+      "sha256": "76a5cb75712c1766397e6de4018154583335069f0522f03d7e38c74d0fc12148"
     }
   },
-  "createdFrom": "/private/tmp/loom-native-parallel-wave8/empty-basic/artifacts/verify-ui/builder-authoring-repeated-empty-muvibo59-3d279b0.json"
+  "createdFrom": "/private/tmp/loom-native-parallel-wave8/empty-basic/artifacts/verify-ui/builder-authoring-repeated-empty-muvibo59-3d279b0.json",
+  "assertionTotals": {
+    "passed": 125,
+    "total": 125,
+    "failed": 0
+  },
+  "scenario": "builder-authoring",
+  "case": "repeated-empty",
+  "startedAt": "2026-10-05T17:11:49.705Z",
+  "finishedAt": "2026-10-05T17:11:58.991Z",
+  "target": {
+    "kind": "isolated",
+    "uiUrl": "http://127.0.0.1:30008",
+    "sourceRoot": "$TMP/<path>",
+    "project": "loom_dev_verify_muvibo59-3d279b0",
+    "generation": "fixture-v1",
+    "sourceFingerprint": {
+      "sha256": "f617117fa5e22c562dd3fb3996414659e76221b5bdfb1666771d0f12278ac978",
+      "files": 1485
+    },
+    "apiBuildIdentity": "9e0e53a002c2cde544c54a34905fcea04f51a00d5247909f6204e73ccc85fc3c:9e0e53a002c2cde544c54a34905fcea04f51a00d5247909f6204e73ccc85fc3c:1480cbf92c206363ef5f24926e95396d0a25634ff9b9c99a08df3a26db41d114",
+    "fixtureGeneration": "fixture-v1",
+    "explorer": "verify-59-3d279b0-repeated-empty",
+    "sourceExpandedChoice": {
+      "label": "Component results · Occurrence base (root) (component[])",
+      "policy": "PRESERVE_PARENT",
+      "preview": "Effect on rows\n\n3 rows → 4 rows\n\nAffected columns: col_72732ab76479eabc1e32cf9f\n\nAdded · 06c9e40cd205be570b22ba865ce1b044bbbaeaee416b4e78eeee3b10365662e7\nRemoved · 25b9aa3a7967bc51efa802103117652b740a232ff304fdf97461cf9195f5ba69\nAdded · 32b4419d06851b13cba8c581d4da9bce5ca6b657f5171e7a72a131e182431aeb\nAdded · 54db610a35ddac80afee9a2bb9a04f249ddca952487f43980713dacd1139ef9d\nRemoved · c156487956a1f2cce1289c2eeba4de892769c07cd4078cc2ab05833276ebca9e\nAdded · c8c564386e8d3f416f2eda54bd45bf97c5ab1ce092f4cdab87ef34781dcf80cd\nRemoved · d42bb306e5cb232815d29c90f17d5db1c5dd3611e030c3fee485cf548e28aa55"
+    },
+    "componentCodeChoice": "Select Observation.component[].code.text",
+    "sourceFingerprintAfter": {
+      "sha256": "f617117fa5e22c562dd3fb3996414659e76221b5bdfb1666771d0f12278ac978",
+      "files": 1485
+    },
+    "apiBuildIdentityAfter": "9e0e53a002c2cde544c54a34905fcea04f51a00d5247909f6204e73ccc85fc3c:9e0e53a002c2cde544c54a34905fcea04f51a00d5247909f6204e73ccc85fc3c:1480cbf92c206363ef5f24926e95396d0a25634ff9b9c99a08df3a26db41d114"
+  },
+  "apiBuildIdentity": "9e0e53a002c2cde544c54a34905fcea04f51a00d5247909f6204e73ccc85fc3c:9e0e53a002c2cde544c54a34905fcea04f51a00d5247909f6204e73ccc85fc3c:1480cbf92c206363ef5f24926e95396d0a25634ff9b9c99a08df3a26db41d114",
+  "reportProjection": {
+    "sourceReportPath": "/private/tmp/loom-native-parallel-wave8/empty-basic/artifacts/verify-ui/builder-authoring-repeated-empty-muvibo59-3d279b0.json",
+    "sourceReportSha256": "c3c8ddd83ae92bbe92d8fe11dd068a2123dd6116a0f52b87834a7cef4ca232b0",
+    "includedAssertions": 54,
+    "includedRequiredChecks": 53,
+    "omittedNonRequiredAssertions": 71,
+    "selection": "all 53 current registered required checks plus the exact raw source-freeze assertion, projected to name/status/dimension; detailed assertion payloads remain in the externally referenced hash-bound source report"
+  },
+  "integrityLimitations": {
+    "classification": "historical-case-check-pass; full integrity closure not established",
+    "source": "case-bound source fingerprint assertion passed with identical before/after manifests",
+    "api": "case-bound API build identity before/after is identical",
+    "docs": "not fully closed: the epoch8 suite closure records docs stable during capture but has no docs before-manifest",
+    "ownedMounts": "not captured in the case report or suite closure",
+    "health": "no case-bound before/after health bracket; the available suite-level closure was captured after four cases",
+    "suiteClosure": {
+      "path": "/private/tmp/loom-native-parallel-wave8/closure.json",
+      "sha256": "76a5cb75712c1766397e6de4018154583335069f0522f03d7e38c74d0fc12148",
+      "status": "SOURCE_DOCS_API_CLOSED",
+      "terminalCaseCount": 4,
+      "scope": "suite-wide epoch8 closure, not bound to this individual case"
+    }
+  }
 }
