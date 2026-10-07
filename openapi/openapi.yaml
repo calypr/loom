@@ -2610,6 +2610,7 @@ components:
       required: [column, label, occurrenceId, source]
       properties:
         frameId: {type: string, minLength: 1}
+        columnId: {type: string, minLength: 1}
         column: {type: string, pattern: '^[A-Za-z_][A-Za-z0-9_]*$'}
         label: {type: string, minLength: 1}
         logicalType: {type: string}
