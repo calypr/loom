@@ -151,8 +151,12 @@ const compactReportForCoverage = (report, closure, requiredChecks) => {
     sourceFingerprint: sourceAfter,
     apiBuildIdentity: api.after,
   };
-  const assertions = passedChecks.map(({ name, status }) => ({ name, status }));
-  assertions.push({
+  const assertions = passedChecks.map(({ name, status }) => ({
+    name,
+    status,
+    ...(name === sourceFreezeCheck ? { evidence: { before: sourceBefore, after: sourceAfter } } : {}),
+  }));
+  if (!assertions.some(({ name }) => name === sourceFreezeCheck)) assertions.push({
     name: sourceFreezeCheck,
     status: 'passed',
     evidence: { before: sourceBefore, after: sourceAfter },
