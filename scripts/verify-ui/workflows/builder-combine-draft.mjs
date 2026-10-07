@@ -164,7 +164,7 @@ let activeTimedActionStartedAt;
 let activeTimedActionId;
 let timedActionSequence = 0;
 let lastTimedAction;
-const recordBrowserTiming = async (report, page, { name, action, after, timeout = 5000, budget = 5000 }) => {
+const recordBrowserTiming = async (report, page, { name, action, after, verify, timeout = 5000, budget = 5000 }) => {
   const started = Date.now();
   const startedMonotonic = performance.now();
   const actionId = `draft-action-${++timedActionSequence}`;
@@ -176,13 +176,15 @@ const recordBrowserTiming = async (report, page, { name, action, after, timeout 
   activeTimedActionId = actionId;
   report.activeAction = { id: actionId, label: name, startedAt: started };
   let actionDispatched = false;
+  let renderCompleted = false;
+  let elapsedMs;
   try {
     await action();
     actionDispatched = true;
     if (after) await waitFor(page, after, timeout);
     const finishedAtEpochMs = Date.now();
     const finishedMonotonic = performance.now();
-    const elapsedMs = finishedAtEpochMs - started;
+    elapsedMs = finishedAtEpochMs - started;
     report.actions.push({ id: actionId, name, status: 'passed', elapsedMs, startedAtEpochMs: started, finishedAtEpochMs,
       startedAtMs: Math.round(startedMonotonic), finishedAtMs: Math.round(finishedMonotonic),
       renderTimeoutMs: timeout, performanceBudgetMs: budget });
@@ -190,11 +192,28 @@ const recordBrowserTiming = async (report, page, { name, action, after, timeout 
     recordCheck(report, 'usability', name + ' completed', true, { elapsedMs });
     if (after) recordCheck(report, 'performance', name + ' action-to-render within budget', elapsedMs <= budget,
       { elapsedMs, budgetMs: budget, waitTimeoutMs: timeout });
+    renderCompleted = true;
+    lastTimedAction = { id: actionId, name, startedAtEpochMs: started, finishedAtEpochMs,
+      startedAtMs: Math.round(startedMonotonic), finishedAtMs: Math.round(finishedMonotonic) };
+    if (report.activeAction?.id === actionId) delete report.activeAction;
+    activeTimedAction = previousTimedAction;
+    activeTimedActionStartedAt = previousTimedActionStartedAt;
+    activeTimedActionId = previousTimedActionId;
+    if (verify) {
+      try {
+        await verify();
+      } catch (error) {
+        recordCheck(report, 'correctness', name + ' post-render verification completed', false,
+          { error: error instanceof Error ? error.message : String(error) });
+        throw error;
+      }
+    }
     return elapsedMs;
   } catch (error) {
+    if (renderCompleted) throw error;
     const finishedAtEpochMs = Date.now();
     const finishedMonotonic = performance.now();
-    const elapsedMs = finishedAtEpochMs - started;
+    elapsedMs = finishedAtEpochMs - started;
     report.actions.push({ id: actionId, name, status: 'failed', elapsedMs, startedAtEpochMs: started, finishedAtEpochMs,
       startedAtMs: Math.round(startedMonotonic), finishedAtMs: Math.round(finishedMonotonic),
       actionDispatched, error: error instanceof Error ? error.message : String(error) });
@@ -204,10 +223,12 @@ const recordBrowserTiming = async (report, page, { name, action, after, timeout 
     else if (after) recordUntested(report, 'performance', name + ' action-to-render', 'No action was dispatched because the target was not actionable.');
     throw error;
   } finally {
-    const finishedAtEpochMs = Date.now();
-    const finishedMonotonic = performance.now();
-    lastTimedAction = { id: actionId, name, startedAtEpochMs: started, finishedAtEpochMs,
-      startedAtMs: Math.round(startedMonotonic), finishedAtMs: Math.round(finishedMonotonic) };
+    if (!renderCompleted) {
+      const finishedAtEpochMs = Date.now();
+      const finishedMonotonic = performance.now();
+      lastTimedAction = { id: actionId, name, startedAtEpochMs: started, finishedAtEpochMs,
+        startedAtMs: Math.round(startedMonotonic), finishedAtMs: Math.round(finishedMonotonic) };
+    }
     if (report.activeAction?.id === actionId) delete report.activeAction;
     activeTimedAction = previousTimedAction;
     activeTimedActionStartedAt = previousTimedActionStartedAt;
@@ -336,15 +357,25 @@ const readGrid = async (page, kind = 'saved') => evaluate(page, `(()=>{
   return {ready:true,headers,rows,ariaRowCount:table.getAttribute('aria-rowcount')};
 })()`);
 
-const assertRows = (report, name, grid, columns, expectedRows) => {
+const compareRows = (grid, columns, expectedRows) => {
   const canonicalRows = (rows) => [...rows].map((row) => JSON.stringify(row)).sort();
-  const ok = grid.ready && JSON.stringify(grid.headers) === JSON.stringify(columns) &&
-    JSON.stringify(canonicalRows(grid.rows)) === JSON.stringify(canonicalRows(expectedRows));
-  check(report, 'correctness', name, ok, { headers: grid.headers, expectedHeaders: columns, rows: grid.rows, expectedRows, ariaRowCount: grid.ariaRowCount });
+  return {
+    ok: grid.ready && JSON.stringify(grid.headers) === JSON.stringify(columns) &&
+      JSON.stringify(canonicalRows(grid.rows)) === JSON.stringify(canonicalRows(expectedRows)),
+    evidence: { headers: grid.headers, expectedHeaders: columns, rows: grid.rows, expectedRows, ariaRowCount: grid.ariaRowCount },
+  };
+};
+const assertRows = (report, name, grid, columns, expectedRows, extra = {}) => {
+  const rowComparison = compareRows(grid, columns, expectedRows);
+  const ok = rowComparison.ok && extra.additionalPass !== false;
+  const evidence = { ...rowComparison.evidence, ...(extra.evidence ?? {}) };
+  check(report, 'correctness', name, ok, evidence);
+  return { ok, evidence };
 };
 
 const waitSaved = (page, rows) => waitFor(page, savedPreview(rows), 30000);
-const reloadAndSelectSavedTable = async (report, page, outputId, rows, name) => {
+const reloadAndSelectSavedTable = async (report, page, outputId, rows, name, verify) => {
+  let verification;
   await recordBrowserTiming(report, page, {
     name,
     action: async () => {
@@ -352,9 +383,11 @@ const reloadAndSelectSavedTable = async (report, page, outputId, rows, name) => 
       await selectTable(page, outputId);
     },
     after: rows === undefined ? selectedOutputReady(outputId) : savedPreviewOutput(rows, outputId),
+    verify: async () => { if (verify) verification = await verify(); },
     timeout: 5000,
     budget: 5000,
   });
+  return verification;
 };
 const proposalRowsReady = (rows, outputId) => proposalPreviewReadinessExpression(outputId, rows);
 const proposalReady = (outputId) => proposalPreviewReadinessExpression(outputId);
@@ -805,22 +838,29 @@ const chooseWorkspaceInputs = async (page, kind, sources) => {
   }
 };
 
+const APPEND_EMPTY_MAPPING = Object.freeze({ kind: 'append-empty-for-this-table' });
+
 const addCombineOutput = async (page, kind, index, name, label, sourceLabels, leaveFinalMapping = false) => {
   await click(page, 'button', { name: 'Add output field' });
   await waitFor(page, 'Boolean(document.querySelector(' + JSON.stringify('input[aria-label="Output field ' + index + ' name"]') + '))', 10000);
   await fill(page, 'input[aria-label="Output field ' + index + ' name"]', name);
   await fill(page, 'input[aria-label="Output field ' + index + ' label"]', label);
   let finalMapping;
-  const finalInputIndex = sourceLabels.reduce((last, sourceLabel, inputIndex) => sourceLabel ? inputIndex : last, -1);
+  const finalInputIndex = sourceLabels.reduce((last, sourceLabel, inputIndex) =>
+    sourceLabel && sourceLabel !== APPEND_EMPTY_MAPPING ? inputIndex : last, -1);
   for (let inputIndex = 0; inputIndex < sourceLabels.length; inputIndex += 1) {
-    if (!sourceLabels[inputIndex]) continue;
+    const sourceLabel = sourceLabels[inputIndex];
+    if (!sourceLabel && sourceLabel !== APPEND_EMPTY_MAPPING) continue;
     const selector = kind === 'APPEND'
       ? 'select[aria-label="Output field ' + index + ' matching field in input ' + (inputIndex + 1) + '"]'
       : 'select[aria-label="Output field ' + index + ' source field in input ' + (inputIndex + 1) + '"]';
     if (leaveFinalMapping && inputIndex === finalInputIndex) {
-      finalMapping = { selector, label: sourceLabels[inputIndex] };
+      finalMapping = { selector, label: sourceLabel };
+    } else if (sourceLabel === APPEND_EMPTY_MAPPING) {
+      if (kind !== 'APPEND') throw new Error('Explicit Empty for this table mapping is only valid for APPEND.');
+      await chooseOption(page, selector, 'Empty for this table');
     } else {
-      await chooseOption(page, selector, sourceLabels[inputIndex]);
+      await chooseOption(page, selector, sourceLabel);
     }
   }
   return finalMapping;
@@ -926,13 +966,14 @@ const configureAppend = async (page, sources) => {
   return addCombineOutput(page, 'APPEND', 2, 'row_count', 'Row count', countLabels, true);
 };
 
-const renderFinalMapping = async (page, report, name, mapping, rows, outputId) => {
+const renderFinalMapping = async (page, report, name, mapping, rows, outputId, verify) => {
   if (!mapping) throw new Error('Native draft Combine setup did not leave a final source mapping for timed Preview.');
   const value = await optionValueByText(page, mapping.selector, mapping.label);
   await recordBrowserTiming(report, page, {
     name,
     action: () => setSelectValue(page, mapping.selector, value),
     after: proposalRowsReady(rows, outputId),
+    verify,
     timeout: 5000,
     budget: 5000,
   });
@@ -1072,7 +1113,7 @@ const editSavedStep = async (page, report, outputId, stepId, editorSelector) => 
   });
 };
 
-const cancelStepRemovalAndPreserve = async (context, page, report, explorer, target, stepId, savedRows) => {
+const cancelStepRemovalAndPreserve = async (context, page, report, explorer, target, stepId, savedRows, verifyReload) => {
   await selectTable(page, target.outputId);
   const before = await readBuilder(context, explorer);
   await click(page, '[data-testid="construction-history-step-' + stepId + '"]');
@@ -1091,16 +1132,26 @@ const cancelStepRemovalAndPreserve = async (context, page, report, explorer, tar
     timeout: 5000,
     budget: 5000,
   });
-  await reloadAndSelectSavedTable(report, page, target.outputId, savedRows, 'reload saved Combine after canceling removal');
-  const after = await readBuilder(context, explorer);
-  const evidence = canceledDraftEvidence(before, after);
-  const document = documentByOutput(after, target.outputId);
-  const stepStillSaved = document.construction?.steps?.some((step) => step.id === stepId && step.operation.kind === 'COMBINE');
-  check(report, 'persistence', 'Canceling Combine removal preserves its saved step, full workspace, and draft CAS after reload', evidence.ok && stepStillSaved,
-    { evidence, stepStillSaved, targetOutputId: target.outputId, steps: document.construction?.steps?.map((step) => step.id) ?? [] });
+  const verifyAfterReload = async () => {
+    const after = await readBuilder(context, explorer);
+    const evidence = canceledDraftEvidence(before, after);
+    const document = documentByOutput(after, target.outputId);
+    const stepStillSaved = document.construction?.steps?.some((step) => step.id === stepId && step.operation.kind === 'COMBINE');
+    const extra = verifyReload ? await verifyReload(after) : { ok: true };
+    check(report, 'persistence', 'Canceling Combine removal preserves its saved step, full workspace, and draft CAS after reload',
+      evidence.ok && stepStillSaved && extra?.ok !== false,
+      { evidence, stepStillSaved, targetOutputId: target.outputId, steps: document.construction?.steps?.map((step) => step.id) ?? [], reloadVerification: extra?.evidence });
+    return after;
+  };
+  if (verifyReload) {
+    await reloadAndSelectSavedTable(report, page, target.outputId, savedRows, 'reload saved Combine after canceling removal', verifyAfterReload);
+  } else {
+    await reloadAndSelectSavedTable(report, page, target.outputId, savedRows, 'reload saved Combine after canceling removal');
+    await verifyAfterReload();
+  }
 };
 
-const removeStepAndRestoreTarget = async (context, page, report, explorer, target, stepId) => {
+const removeStepAndRestoreTarget = async (context, page, report, explorer, target, stepId, verifyReload) => {
   await selectTable(page, target.outputId);
   await click(page, '[data-testid="construction-history-step-' + stepId + '"]');
   await waitFor(page, 'Boolean(document.querySelector(' + JSON.stringify('[data-testid="construction-remove-step-' + stepId + '"]:not(:disabled)') + '))', 10000);
@@ -1114,21 +1165,30 @@ const removeStepAndRestoreTarget = async (context, page, report, explorer, targe
   await recordBrowserTiming(report, page, {
     name: 'apply Combine removal to restore the empty target',
     action: () => click(page, '[data-testid="construction-apply-proposal"]'),
-    after: '!document.querySelector(\'[data-testid="construction-proposal-panel"]\')&&' + selectedOutputReady(target.outputId),
+    after: "!document.querySelector('[data-testid=\"construction-proposal-panel\"]')&&" + selectedOutputReady(target.outputId),
     timeout: 5000,
     budget: 5000,
   });
+  const verifyRestoredTarget = async () => {
+    const builder = await readBuilder(context, explorer);
+    const document = documentByOutput(builder, target.outputId);
+    const restored = document.rootResourceType === target.rootResourceType && document.columns?.length === 0 &&
+      (document.construction?.steps?.length ?? 0) === 0;
+    const extra = verifyReload ? await verifyReload(builder) : { ok: true };
+    check(report, 'persistence', 'removing Combine and reloading restores its rooted empty target', restored && extra?.ok !== false, {
+      outputId: target.outputId,
+      rootResourceType: document.rootResourceType,
+      columns: document.columns,
+      steps: document.construction?.steps ?? [],
+      reloadVerification: extra?.evidence,
+    });
+    return builder;
+  };
+  if (verifyReload) {
+    return reloadAndSelectSavedTable(report, page, target.outputId, undefined, 'reload removed Combine and select its exact rooted empty output', verifyRestoredTarget);
+  }
   await reloadAndSelectSavedTable(report, page, target.outputId, undefined, 'reload removed Combine and select its exact rooted empty output');
-  const builder = await readBuilder(context, explorer);
-  const document = documentByOutput(builder, target.outputId);
-  const restored = document.rootResourceType === target.rootResourceType && document.columns?.length === 0 &&
-    (document.construction?.steps?.length ?? 0) === 0;
-  check(report, 'persistence', 'removing Combine and reloading restores its rooted empty target', restored, {
-    outputId: target.outputId,
-    rootResourceType: document.rootResourceType,
-    columns: document.columns,
-    steps: document.construction?.steps ?? [],
-  });
+  return verifyRestoredTarget();
 };
 
 const createBlankExplorer = async (page, target, runID, label, report) => {
@@ -1951,5 +2011,303 @@ export const groupPivotJoinWorkflow = async ({ page, report }, context) => {
           final.workspace.documents.every((document) => (document.construction?.steps ?? []).flatMap((item) => item.inputs ?? []).every((input) => input.kind !== 'TABLE_REVISION')),
         { publishRequests: run.publishCount(), sourceSteps: savedSourceShapes });
     } finally { await capture.stop(); }
+  } finally { run.stopPublish(); }
+};
+
+const configureGroupPivotAppend = async (page, sources) => {
+  const finalLabel = sources[1]?.pivotCategoryLabels?.find((item) => item.value === 'final')?.label;
+  const preliminaryLabel = sources[1]?.pivotCategoryLabels?.find((item) => item.value === 'preliminary')?.label;
+  if (sources.length !== 2 || !sources[0].groupKeyLabel || !sources[0].appendCountLabel ||
+    !sources[1].pivotIdentityLabel || !finalLabel || !preliminaryLabel) {
+    throw new Error('Group→Pivot APPEND needs one grouped identity/count source and one exact ID/category Pivot source.');
+  }
+  await chooseWorkspaceInputs(page, 'APPEND', sources);
+  await addCombineOutput(page, 'APPEND', 1, 'record_id', 'Record ID', [sources[0].groupKeyLabel, sources[1].pivotIdentityLabel]);
+  await addCombineOutput(page, 'APPEND', 2, 'observation_rows', 'Observation rows', [sources[0].appendCountLabel, APPEND_EMPTY_MAPPING]);
+  await addCombineOutput(page, 'APPEND', 3, 'report_final', 'Report final', [APPEND_EMPTY_MAPPING, finalLabel]);
+  return addCombineOutput(page, 'APPEND', 4, 'report_preliminary', 'Report preliminary', [APPEND_EMPTY_MAPPING, preliminaryLabel], true);
+};
+
+const groupPivotAppendChoiceEvidence = async (page, sources) => {
+  const finalLabel = sources[1].pivotCategoryLabels.find((item) => item.value === 'final')?.label;
+  const preliminaryLabel = sources[1].pivotCategoryLabels.find((item) => item.value === 'preliminary')?.label;
+  const expectedInputs = sources.map((source) => workspaceOutputOption(source.outputId));
+  const expectedOutputs = [
+    { name: 'record_id', label: 'Record ID', mappings: [sources[0].groupKeyLabel, sources[1].pivotIdentityLabel] },
+    { name: 'observation_rows', label: 'Observation rows', mappings: [sources[0].appendCountLabel, APPEND_EMPTY_MAPPING] },
+    { name: 'report_final', label: 'Report final', mappings: [APPEND_EMPTY_MAPPING, finalLabel] },
+    { name: 'report_preliminary', label: 'Report preliminary', mappings: [APPEND_EMPTY_MAPPING, preliminaryLabel] },
+  ];
+  const controls = await evaluate(page, `(()=>{
+    const normalize=value=>String(value??'').replace(/\s+/g,' ').trim();
+    const state=(element,selector)=>{
+      if(!element)return {selector,exists:false,visible:false,enabled:false};
+      const style=getComputedStyle(element);
+      const visible=element.getClientRects().length>0&&style.display!=='none'&&style.visibility!=='hidden';
+      const enabled=!element.matches(':disabled');
+      if(element instanceof HTMLSelectElement){
+        const option=element.selectedOptions[0]??null;
+        return {selector,exists:true,visible,enabled,value:element.value,selectedLabel:normalize(option?.textContent),selectedGroup:option?.parentElement?.label??null,selectedDisabled:option?.disabled??true,optionCount:element.options.length};
+      }
+      return {selector,exists:true,visible,enabled,value:element.value};
+    };
+    const select=selector=>state(document.querySelector(selector),selector);
+    const input=selector=>state(document.querySelector(selector),selector);
+    return {
+      appendChoice:(()=>{
+        const selector='button[data-testid="construction-combine-choice-append"]';
+        const button=document.querySelector(selector);
+        return button?{...state(button,selector),ariaPressed:button.getAttribute('aria-pressed'),ariaSelected:button.getAttribute('aria-selected'),dataSelected:button.getAttribute('data-selected'),className:String(button.className)}:state(null,selector);
+      })(),
+      inputs:[1,2].map(index=>select('select[aria-label="Input table '+index+'"]')),
+      outputs:[1,2,3,4].map(index=>({
+        name:input('input[aria-label="Output field '+index+' name"]'),
+        label:input('input[aria-label="Output field '+index+' label"]'),
+        mappings:[1,2].map(inputIndex=>select('select[aria-label="Output field '+index+' matching field in input '+inputIndex+'"]')),
+      })),
+    };
+  })()`);
+  const controlsVisibleAndEnabled = [controls.appendChoice, ...controls.inputs, ...controls.outputs.flatMap((output) => [output.name, output.label, ...output.mappings])]
+    .every((control) => control.exists && control.visible && control.enabled);
+  const appendChoiceSelected = controls.appendChoice.ariaPressed === 'true';
+  const exactChoiceControls = controls.outputs.every((output) => output.mappings.length === 2 &&
+    output.mappings.every((mapping) => mapping.selector.includes('matching field in input')));
+  const exactInputs = controls.inputs.every((input, index) => input.value === expectedInputs[index] &&
+    input.selectedGroup === 'Current draft tables' && !input.selectedDisabled && input.optionCount > 1);
+  const exactOutputs = controls.outputs.every((output, index) => {
+    const expected = expectedOutputs[index];
+    return output.name.value === expected.name && output.label.value === expected.label &&
+      output.mappings.every((mapping, inputIndex) => {
+        const expectedMapping = expected.mappings[inputIndex];
+        if (expectedMapping === APPEND_EMPTY_MAPPING) {
+          return mapping.value === 'empty-for-this-table' && mapping.selectedLabel === 'Empty for this table' &&
+            !mapping.selectedDisabled && mapping.optionCount > 1;
+        }
+        return expectedMapping
+          ? mapping.selectedLabel === expectedMapping && !mapping.selectedDisabled && mapping.optionCount > 1
+          : mapping.value === '';
+      });
+  });
+  return { ok: controlsVisibleAndEnabled && appendChoiceSelected && exactChoiceControls && exactInputs && exactOutputs,
+    controlsVisibleAndEnabled, appendChoiceSelected, exactChoiceControls, exactInputs, exactOutputs, expectedInputs, expectedOutputs, controls };
+};
+
+export const groupPivotAppendWorkflow = async ({ page, report }, context) => {
+  const run = await beginOwnedWorkspace(context, page, report, 'group-pivot-append');
+  const sources = [];
+  try {
+    sources.push(await createGroupSource(context, page, report, run.explorer, {
+      resourceType: 'Observation', title: 'Observation ID source', fieldPath: 'status', rawRows: run.raw.observations, groupByID: true,
+    }));
+    sources.push(await createGroupSource(context, page, report, run.explorer, {
+      resourceType: 'DiagnosticReport', title: 'Report grouped pivot source', fieldPath: 'status', rawRows: run.raw.reports, composed: true,
+    }));
+
+    const categories = [...new Set(run.raw.reports.map((row) => String(row.status)))].sort();
+    const observationGroups = groupCounts(run.raw.observations, 'id');
+    const reportPivotRows = groupedPivotRows(run.raw.reports, 'id', 'status', categories);
+    const expectedRows = [
+      ...observationGroups.map(([id, count]) => [String(id), String(count), '—', '—']),
+      ...reportPivotRows.map(([id, finalCount, preliminaryCount]) => [
+        String(id), '—', finalCount === null ? '—' : String(finalCount), preliminaryCount === null ? '—' : String(preliminaryCount),
+      ]),
+    ];
+    const headers = ['Record ID', 'Observation rows', 'Report final', 'Report preliminary'];
+    const sourceIDs = [...observationGroups.map(([id]) => id), ...reportPivotRows.map(([id]) => id)];
+    const expectedMultiplicity = [...sourceIDs.reduce((counts, id) => counts.set(id, (counts.get(id) ?? 0) + 1), new Map())]
+      .map(([id, count]) => [String(id), count]).sort((a, b) => a[0].localeCompare(b[0]));
+    check(report, 'correctness', 'independent Group/Pivot inputs contain seven rows, three shared IDs, and exact source-specific nullability',
+      expectedRows.length === 7 && expectedMultiplicity.filter(([, count]) => count === 2).length === 3 &&
+        expectedMultiplicity.filter(([, count]) => count === 1).length === 1 &&
+        expectedRows.every((row) => row[0] !== '—' && ((row[1] !== '—' && row[2] === '—' && row[3] === '—') ||
+          (row[1] === '—' && (row[2] !== '—' || row[3] !== '—')))),
+      { rawSourceRows: { observations: run.raw.observations.length, reports: run.raw.reports.length }, observationGroups, reportPivotRows, expectedMultiplicity, expectedRows });
+
+    const beforeTarget = await readBuilder(context, run.explorer);
+    let target = await startCombineTarget(context, page, report, run.explorer, sources[0].outputId, beforeTarget);
+    report.target.combineTarget = target;
+    const base = await readBuilder(context, run.explorer);
+    const capture = capturePost(page, '/construction-proposals');
+    let removalApplyBase;
+    let final;
+    const verifyAppendPreview = async (candidateCapture, candidateBase, candidateTarget, includeChoice = false) => {
+      if (includeChoice) {
+        const choiceEvidence = await groupPivotAppendChoiceEvidence(page, sources);
+        check(report, 'correctness', 'Group→Pivot APPEND native choice uses exact current-draft inputs and four output mappings', choiceEvidence.ok, choiceEvidence);
+      }
+      const grid = await readGrid(page, 'proposal');
+      assertRows(report, 'Group→Pivot APPEND preview equals the exact independent union with source-specific null padding', grid, headers, expectedRows);
+      const actualIDIndex = grid.headers.indexOf('Record ID');
+      const actualMultiplicity = [...grid.rows.reduce((counts, row) => counts.set(row[actualIDIndex], (counts.get(row[actualIDIndex]) ?? 0) + 1), new Map())]
+        .sort((a, b) => a[0].localeCompare(b[0]));
+      const exactMultiplicity = actualIDIndex >= 0 && JSON.stringify(actualMultiplicity) === JSON.stringify(expectedMultiplicity);
+      check(report, 'correctness', 'Group→Pivot APPEND preserves exact shared-ID multiplicity', exactMultiplicity,
+        { expectedRowCount: expectedRows.length, actualRowCount: grid.rows.length, actualMultiplicity, expectedMultiplicity, rows: grid.rows });
+      await assertDraftCandidate(report, page, candidateCapture, candidateBase, candidateTarget, sources, 'APPEND');
+    };
+    try {
+      const finalMapping = await configureGroupPivotAppend(page, sources);
+      await renderFinalMapping(page, report, 'Group→Pivot current-draft APPEND auto-preview within five seconds', finalMapping, expectedRows.length, target.outputId,
+        () => verifyAppendPreview(capture, base, target, true));
+
+      const cancelBase = await readBuilder(context, run.explorer);
+      await recordBrowserTiming(report, page, {
+        name: 'Cancel Group→Pivot APPEND proposal without saving',
+        action: () => click(page, '[data-testid="construction-cancel-proposal"]'),
+        after: "!document.querySelector('[data-testid=construction-combine-editor]')&&!document.querySelector('[data-testid=construction-proposal-panel]')&&" + selectedOutputReady(target.outputId),
+        timeout: 5000,
+        budget: 5000,
+      });
+      await reloadAndSelectSavedTable(report, page, target.outputId, undefined, 'reload canceled Group→Pivot APPEND and select its unchanged empty target', async () => {
+        const canceled = canceledDraftEvidence(cancelBase, await readBuilder(context, run.explorer));
+        check(report, 'persistence', 'Cancel preserves both mixed source shapes, the full workspace, and draft CAS after reload', canceled.ok, canceled);
+        return canceled;
+      });
+
+      report.target.canceledCombineTarget = target;
+      const retryBase = await readBuilder(context, run.explorer);
+      target = await startCombineTarget(context, page, report, run.explorer, sources[0].outputId, retryBase);
+      report.target.combineTarget = target;
+      const applyCapture = capturePost(page, '/construction-proposals');
+      let step;
+      let applyBase;
+      try {
+        applyBase = await readBuilder(context, run.explorer);
+        const applyMapping = await configureGroupPivotAppend(page, sources);
+        await renderFinalMapping(page, report, 'Group→Pivot current-draft APPEND apply preview within five seconds', applyMapping, expectedRows.length, target.outputId,
+          () => verifyAppendPreview(applyCapture, applyBase, target));
+        assertRows(report, 'Group→Pivot APPEND apply preview retains exact union rows and null padding', await readGrid(page, 'proposal'), headers, expectedRows);
+        await applyCurrentProposal(page, report, 'Apply Group→Pivot current-draft APPEND', expectedRows.length, target.outputId);
+      } finally { await applyCapture.stop(); }
+
+      let builder = await readBuilder(context, run.explorer);
+      const saved = documentByOutput(builder, target.outputId);
+      step = saved.construction?.steps?.at(-1);
+      const sourceRefs = currentDraftSourceEvidence({ inputs: step?.inputs, expectedOutputIDs: sources.map((source) => source.outputId), sourceDocuments: builder.workspace.documents });
+      const exactAppendStep = step?.operation?.kind === 'COMBINE' && step.operation.combine?.kind === 'APPEND' && step.outputs?.length === 4;
+      const applyCASAdvanced = applyBase && builder.draftVersion > applyBase.draftVersion && builder.draftDigest !== applyBase.draftDigest;
+      check(report, 'persistence', 'Apply Group→Pivot APPEND advances the draft CAS and binds the exact unpublished sources with stable output fields',
+        sourceRefs.ok && exactAppendStep && applyCASAdvanced, { stepId: step?.id, outputIds: step?.outputs?.map((output) => output.id), sourceRefs, operation: step?.operation, applyCASAdvanced, beforeDraftVersion: applyBase?.draftVersion, afterDraftVersion: builder.draftVersion });
+      await reloadAndSelectSavedTable(report, page, target.outputId, expectedRows.length, 'reload applied Group→Pivot APPEND and render exact union rows', async () => {
+        const reloadedGrid = await readGrid(page);
+        const reloadedBuilder = await readBuilder(context, run.explorer);
+        const reloadedDocument = documentByOutput(reloadedBuilder, target.outputId);
+        const reloadedStep = reloadedDocument.construction?.steps?.at(-1);
+        const reloadedSourceRefs = currentDraftSourceEvidence({ inputs: reloadedStep?.inputs, expectedOutputIDs: sources.map((source) => source.outputId), sourceDocuments: reloadedBuilder.workspace.documents });
+        const sameDraft = reloadedBuilder.draftVersion === builder.draftVersion && reloadedBuilder.draftDigest === builder.draftDigest;
+        const sameSavedAppend = reloadedStep?.id === step.id && reloadedStep?.operation?.kind === 'COMBINE' && reloadedStep.operation.combine?.kind === 'APPEND' &&
+          JSON.stringify(reloadedStep.outputs?.map((output) => output.id)) === JSON.stringify(step.outputs?.map((output) => output.id)) && reloadedSourceRefs.ok;
+        assertRows(report, 'Group→Pivot APPEND rows survive reload exactly', reloadedGrid, headers, expectedRows, {
+          additionalPass: sameDraft && sameSavedAppend,
+          evidence: { sameDraft, sameSavedAppend, reloadedStepId: reloadedStep?.id, reloadedOutputIDs: reloadedStep?.outputs?.map((output) => output.id), reloadedSourceRefs,
+            beforeReloadDraftVersion: builder.draftVersion, afterReloadDraftVersion: reloadedBuilder.draftVersion,
+            beforeReloadDraftDigest: builder.draftDigest, afterReloadDraftDigest: reloadedBuilder.draftDigest },
+        });
+      });
+
+      const originalStepId = step.id;
+      const originalOutputIDs = step.outputs.map((output) => output.id);
+      const editedHeaders = ['Unified source ID', ...headers.slice(1)];
+      await editSavedStep(page, report, target.outputId, step.id, '[data-testid="construction-combine-editor"]');
+      const cancelEditBase = await readBuilder(context, run.explorer);
+      const cancelEditCapture = capturePost(page, '/construction-proposals');
+      try {
+        await recordBrowserTiming(report, page, {
+          name: 'preview cancellable Group→Pivot APPEND heading edit with exact union rows',
+          action: () => fill(page, 'input[aria-label="Output field 1 label"]', 'Unified source ID'),
+          after: proposalRowsReady(expectedRows.length, target.outputId),
+          timeout: 5000,
+          budget: 5000,
+        });
+        assertRows(report, 'canceled Group→Pivot APPEND heading edit preview matches exact union rows', await readGrid(page, 'proposal'), editedHeaders, expectedRows);
+        await assertDraftCandidate(report, page, cancelEditCapture, cancelEditBase, target, sources, 'APPEND');
+        await recordBrowserTiming(report, page, {
+          name: 'Cancel saved Group→Pivot APPEND heading edit without saving',
+          action: () => click(page, '[data-testid="construction-cancel-proposal"]'),
+          after: "!document.querySelector('[data-testid=construction-proposal-panel]')&&!document.querySelector('[data-testid=construction-combine-editor]')&&" + selectedOutputReady(target.outputId),
+          timeout: 5000,
+          budget: 5000,
+        });
+      } finally { await cancelEditCapture.stop(); }
+      await reloadAndSelectSavedTable(report, page, target.outputId, expectedRows.length, 'reload canceled Group→Pivot APPEND edit and render its original union', async () => {
+        assertRows(report, 'Cancel preserves original Group→Pivot APPEND heading and values after reload', await readGrid(page), headers, expectedRows);
+        const afterCanceledEdit = await readBuilder(context, run.explorer);
+        const canceledEditEvidence = canceledDraftEvidence(cancelEditBase, afterCanceledEdit);
+        const canceledEditStep = documentByOutput(afterCanceledEdit, target.outputId).construction?.steps?.at(-1);
+        const canceledEditSources = currentDraftSourceEvidence({ inputs: canceledEditStep?.inputs, expectedOutputIDs: sources.map((source) => source.outputId), sourceDocuments: afterCanceledEdit.workspace.documents });
+        const canceledEditPreserved = canceledEditEvidence.ok && canceledEditStep?.id === originalStepId &&
+          JSON.stringify(canceledEditStep.outputs?.map((output) => output.id)) === JSON.stringify(originalOutputIDs) &&
+          canceledEditStep.outputs?.[0]?.label === 'Record ID' && canceledEditSources.ok;
+        check(report, 'persistence', 'Canceling Group→Pivot APPEND edit preserves the original saved step, full workspace, and draft CAS after reload', canceledEditPreserved,
+          { canceledEditEvidence, stepId: canceledEditStep?.id, outputIDs: canceledEditStep.outputs?.map((output) => output.id), outputs: canceledEditStep.outputs, canceledEditSources });
+        return { ok: canceledEditPreserved, evidence: { canceledEditEvidence, canceledEditSources } };
+      });
+
+      await editSavedStep(page, report, target.outputId, originalStepId, '[data-testid="construction-combine-editor"]');
+      const applyEditBase = await readBuilder(context, run.explorer);
+      const applyEditCapture = capturePost(page, '/construction-proposals');
+      try {
+        await recordBrowserTiming(report, page, {
+          name: 'edit Group→Pivot APPEND heading and preview all exact union rows for Apply',
+          action: () => fill(page, 'input[aria-label="Output field 1 label"]', 'Unified source ID'),
+          after: proposalRowsReady(expectedRows.length, target.outputId),
+          timeout: 5000,
+          budget: 5000,
+        });
+        assertRows(report, 'edited Group→Pivot APPEND heading preserves all union values and null padding', await readGrid(page, 'proposal'), editedHeaders, expectedRows);
+        await assertDraftCandidate(report, page, applyEditCapture, applyEditBase, target, sources, 'APPEND');
+        await applyCurrentProposal(page, report, 'Apply Group→Pivot APPEND heading edit', expectedRows.length, target.outputId);
+      } finally { await applyEditCapture.stop(); }
+      builder = await readBuilder(context, run.explorer);
+      const editedStep = documentByOutput(builder, target.outputId).construction?.steps?.at(-1);
+      const editCASAdvanced = builder.draftVersion > applyEditBase.draftVersion && builder.draftDigest !== applyEditBase.draftDigest;
+      const stableEditedOutput = editedStep?.id === originalStepId &&
+        JSON.stringify(editedStep.outputs?.map((output) => output.id)) === JSON.stringify(originalOutputIDs) &&
+        editedStep.outputs?.[0]?.label === 'Unified source ID' && editCASAdvanced &&
+        currentDraftSourceEvidence({ inputs: editedStep?.inputs, expectedOutputIDs: sources.map((source) => source.outputId), sourceDocuments: builder.workspace.documents }).ok;
+      check(report, 'persistence', 'Group→Pivot APPEND edit advances the draft CAS and preserves its step, output columnIDs, and current-draft inputs', stableEditedOutput,
+        { originalStepId, editedStepId: editedStep?.id, originalOutputIDs, editedOutputIDs: editedStep?.outputs?.map((output) => output.id), outputs: editedStep?.outputs, beforeDraftVersion: applyEditBase.draftVersion, afterDraftVersion: builder.draftVersion, editCASAdvanced });
+      await reloadAndSelectSavedTable(report, page, target.outputId, expectedRows.length, 'reload edited Group→Pivot APPEND and render exact union rows', async () => {
+        const reloadedGrid = await readGrid(page);
+        const reloadedBuilder = await readBuilder(context, run.explorer);
+        const reloadedStep = documentByOutput(reloadedBuilder, target.outputId).construction?.steps?.at(-1);
+        const reloadedSourceRefs = currentDraftSourceEvidence({ inputs: reloadedStep?.inputs, expectedOutputIDs: sources.map((source) => source.outputId), sourceDocuments: reloadedBuilder.workspace.documents });
+        const sameDraft = reloadedBuilder.draftVersion === builder.draftVersion && reloadedBuilder.draftDigest === builder.draftDigest;
+        const sameEditedAppend = reloadedStep?.id === originalStepId &&
+          JSON.stringify(reloadedStep.outputs?.map((output) => output.id)) === JSON.stringify(originalOutputIDs) &&
+          reloadedStep.outputs?.[0]?.label === 'Unified source ID' && reloadedSourceRefs.ok;
+        assertRows(report, 'edited Group→Pivot APPEND heading and values survive reload', reloadedGrid, editedHeaders, expectedRows, {
+          additionalPass: sameDraft && sameEditedAppend,
+          evidence: { sameDraft, sameEditedAppend, reloadedStepId: reloadedStep?.id, reloadedOutputIDs: reloadedStep?.outputs?.map((output) => output.id), reloadedSourceRefs,
+            beforeReloadDraftVersion: builder.draftVersion, afterReloadDraftVersion: reloadedBuilder.draftVersion,
+            beforeReloadDraftDigest: builder.draftDigest, afterReloadDraftDigest: reloadedBuilder.draftDigest },
+        });
+      });
+
+      await cancelStepRemovalAndPreserve(context, page, report, run.explorer, target, originalStepId, expectedRows.length, async () => {
+        const rows = compareRows(await readGrid(page), editedHeaders, expectedRows);
+        return { ok: rows.ok, evidence: rows.evidence };
+      });
+      removalApplyBase = await readBuilder(context, run.explorer);
+      final = await removeStepAndRestoreTarget(context, page, report, run.explorer, target, originalStepId, async (builderAfterRemoval) => {
+        const restoredTarget = documentByOutput(builderAfterRemoval, target.outputId);
+        const restoredSources = sources.map((source) => documentByOutput(builderAfterRemoval, source.outputId));
+        const sourceShapes = restoredSources.map((document) => document.construction?.steps?.map((item) => item.operation.kind) ?? []);
+        const sourceStatePreserved = sources.every((source, index) => isDeepStrictEqual(source.document, restoredSources[index]));
+        const removalCASAdvanced = builderAfterRemoval.draftVersion > removalApplyBase.draftVersion && builderAfterRemoval.draftDigest !== removalApplyBase.draftDigest;
+        const restored = removalCASAdvanced && restoredTarget.rootResourceType === target.rootResourceType && restoredTarget.columns?.length === 0 &&
+          restoredTarget.construction?.steps?.length === 0 && JSON.stringify(sourceShapes) === JSON.stringify([['GROUP'], ['GROUP', 'PIVOT']]) && sourceStatePreserved;
+        const evidence = { outputId: target.outputId, rootResourceType: restoredTarget.rootResourceType, columns: restoredTarget.columns,
+          targetSteps: restoredTarget.construction?.steps, sourceShapes, sourceStatePreserved, removalCASAdvanced,
+          beforeDraftVersion: removalApplyBase.draftVersion, afterDraftVersion: builderAfterRemoval.draftVersion };
+        check(report, 'persistence', 'removing Group→Pivot APPEND advances the draft CAS, restores the rooted empty target, and preserves both source constructions', restored, evidence);
+        return { ok: restored, evidence };
+      });
+    } finally { await capture.stop(); }
+
+    const inputs = final.workspace.documents.flatMap((document) => document.construction?.steps?.flatMap((savedStep) => savedStep.inputs ?? []) ?? []);
+    check(report, 'correctness', 'Group→Pivot APPEND lifecycle never publishes or pins source revisions',
+      run.publishCount() === 0 && inputs.every((input) => input.kind !== 'TABLE_REVISION'),
+      { publishRequests: run.publishCount(), inputKinds: inputs.map((input) => input.kind) });
   } finally { run.stopPublish(); }
 };
