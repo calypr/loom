@@ -32,6 +32,7 @@ import {
   membershipOutputNullabilityEvidence,
   nativeCombineTargetBindingEvidence,
 } from '../helpers/builder-combine-helpers.mjs';
+import { markExpectedOwnedPreviewAborts } from '../helpers/network-evidence.mjs';
 
 const expectedPatients = [{ id: 'combine-fixture-patient', gender: 'female' }];
 const expectedObservations = [
@@ -66,6 +67,7 @@ const expectedMembership = {
 };
 const proposalPanel = '[data-testid="construction-proposal-panel"]';
 const proposalPreview = '[data-testid="construction-proposal-preview"][data-preview-status="ready"]';
+let draftPostCaptureSequence = 0;
 const workspaceReady = "Boolean(document.querySelector('[data-testid=construction-workspace]'))";
 const selectedOutputReady = (outputId) => `Boolean(document.querySelector('[data-testid=construction-workspace]'))&&document.querySelector(${JSON.stringify('[data-testid="construction-table-' + outputId + '"]')})?.getAttribute('aria-current')==='page'`;
 const savedPreview = (rows) => `(()=>{const p=document.querySelector('[data-testid="construction-preview"]');const t=document.querySelector('[data-testid="preview-table-scroll"] [role="table"]');return Boolean(p?.dataset.previewStatus==='ready'&&t&&t.getAttribute('aria-rowcount')===${JSON.stringify(String(rows + 1))}&&!document.body.innerText.includes('Loading your table…')&&!document.body.innerText.includes('Preview failed:'))})()`;
@@ -167,6 +169,7 @@ const setSelectValue = async (page, selector, value) => {
 };
 let activeTimedAction;
 let activeTimedActionStartedAt;
+let activeTimedActionStartedAtMonotonicMs;
 let activeTimedActionId;
 let timedActionSequence = 0;
 let lastTimedAction;
@@ -176,9 +179,11 @@ const recordBrowserTiming = async (report, page, { name, action, after, verify, 
   const actionId = `draft-action-${++timedActionSequence}`;
   const previousTimedAction = activeTimedAction;
   const previousTimedActionStartedAt = activeTimedActionStartedAt;
+  const previousTimedActionStartedAtMonotonicMs = activeTimedActionStartedAtMonotonicMs;
   const previousTimedActionId = activeTimedActionId;
   activeTimedAction = name;
   activeTimedActionStartedAt = started;
+  activeTimedActionStartedAtMonotonicMs = startedMonotonic;
   activeTimedActionId = actionId;
   report.activeAction = { id: actionId, label: name, startedAt: started };
   let actionDispatched = false;
@@ -204,6 +209,7 @@ const recordBrowserTiming = async (report, page, { name, action, after, verify, 
     if (report.activeAction?.id === actionId) delete report.activeAction;
     activeTimedAction = previousTimedAction;
     activeTimedActionStartedAt = previousTimedActionStartedAt;
+    activeTimedActionStartedAtMonotonicMs = previousTimedActionStartedAtMonotonicMs;
     activeTimedActionId = previousTimedActionId;
     if (verify) {
       try {
@@ -238,20 +244,30 @@ const recordBrowserTiming = async (report, page, { name, action, after, verify, 
     if (report.activeAction?.id === actionId) delete report.activeAction;
     activeTimedAction = previousTimedAction;
     activeTimedActionStartedAt = previousTimedActionStartedAt;
+    activeTimedActionStartedAtMonotonicMs = previousTimedActionStartedAtMonotonicMs;
     activeTimedActionId = previousTimedActionId;
   }
 };
 
-const captureOwnedPreviewLifecycle = (page, target, explorer) => {
-  const expectedURL = new URL(apiRoot({ target }, explorer) + '/preview', target.apiUrl);
+export const captureOwnedPreviewLifecycle = (page, target, explorer, { diagnostic = false } = {}) => {
+  const apiBase = new URL(apiRoot({ target }, explorer), target.apiUrl);
+  const withPath = (suffix) => new URL(suffix, apiBase.href.endsWith('/') ? apiBase.href : apiBase.href + '/');
+  const expectedURL = withPath('preview');
+  const reconcileURL = withPath('reconcile');
   const ownedOrigins = new Set([target.uiUrl, target.apiUrl].filter(Boolean).map((value) => new URL(value).origin));
   const requests = new Map();
+  const requestRecords = [];
   const events = [];
-  const maxEvents = 256;
+  const pendingReads = new Map();
+  const maxEvents = diagnostic ? 768 : 256;
+  const diagnosticReadFlushTimeoutMs = 1000;
   const startedAt = performance.now();
   let nextRequest = 0;
   let nextEvent = 0;
+  let nextRead = 0;
   let droppedEvents = 0;
+  let droppedRequests = 0;
+  let flushExpired = false;
   const append = (event, request, fields = {}) => {
     const record = {
       sequence: ++nextEvent,
@@ -280,39 +296,138 @@ const captureOwnedPreviewLifecycle = (page, target, explorer) => {
     }
     events.push(record);
   };
+  const requestAction = () => activeTimedAction ? {
+    id: activeTimedActionId,
+    name: activeTimedAction,
+    startedAtMonotonicMs: activeTimedActionStartedAtMonotonicMs,
+  } : lastTimedAction ? {
+    id: lastTimedAction.id,
+    name: lastTimedAction.name,
+    startedAtMonotonicMs: lastTimedAction.startedAtMs,
+    finishedAtMonotonicMs: lastTimedAction.finishedAtMs,
+  } : null;
+  const retain = (record) => {
+    if (requestRecords.length < 256) {
+      requestRecords.push(record);
+      record.retained = true;
+    } else {
+      droppedRequests += 1;
+      record.retained = false;
+    }
+  };
   const requestIdentity = (request) => {
     if (request.method() !== 'POST') return undefined;
     let url;
     try { url = new URL(request.url()); } catch { return undefined; }
-    if (!ownedOrigins.has(url.origin) || url.pathname !== expectedURL.pathname) return undefined;
+    if (!ownedOrigins.has(url.origin)) return undefined;
+    const kind = url.pathname === expectedURL.pathname ? 'preview' :
+      diagnostic && url.pathname === reconcileURL.pathname ? 'reconcile' : undefined;
+    if (!kind) return undefined;
     let body;
     try { body = request.postDataJSON(); } catch { body = undefined; }
-    return {
-      id: 'preview-request-' + (++nextRequest),
+    const identity = {
+      id: `${kind}-request-${++nextRequest}`,
+      kind,
       outputId: typeof body?.outputId === 'string' ? body.outputId : null,
       receiptId: typeof body?.receiptId === 'string' ? body.receiptId : null,
     };
+    let networkRequestId;
+    try {
+      const headers = request.headers();
+      networkRequestId = headers['x-request-id'] ?? body?.requestId ?? body?.requestID ?? null;
+    } catch {}
+    identity.record = {
+      ...identity,
+      networkRequestId: typeof networkRequestId === 'string' ? networkRequestId : null,
+      startedAtMonotonicMs: performance.now(),
+      actionAtStart: requestAction(),
+      ...(kind === 'reconcile' ? {
+        requestCAS: {
+          snapshotToken: body?.snapshotToken ?? null,
+          draftVersion: body?.draftVersion ?? null,
+          draftDigest: body?.draftDigest ?? null,
+        },
+      } : {}),
+    };
+    if (diagnostic) retain(identity.record);
+    return identity;
+  };
+  const track = (promise, record, kind) => {
+    const readId = ++nextRead;
+    pendingReads.set(readId, { promise, record, kind });
+    void promise.finally(() => pendingReads.delete(readId));
+  };
+  const captureFailureState = (record) => {
+    if (!diagnostic || record.retained === false) return;
+    track(new Promise((resolve) => setTimeout(resolve, 0)).then(() => page.evaluate(() => {
+      const selected = document.querySelector('nav[aria-label="Tables"] button[aria-current="page"][data-testid^="construction-table-"]');
+      const preview = document.querySelector('[data-testid="construction-preview"]');
+      return {
+        selectedOutputId: selected?.getAttribute('data-testid')?.replace(/^construction-table-/, '') ?? null,
+        preview: preview ? {
+          status: preview.dataset.previewStatus ?? null,
+          outputId: preview.dataset.previewOutputId || null,
+          receiptId: preview.dataset.previewReceiptId || null,
+          stale: Boolean(document.querySelector('[data-testid="construction-preview-stale-notice"]')),
+        } : null,
+        userVisiblePreviewError: document.body?.innerText?.includes('Preview failed:') ?? false,
+      };
+    })).then((visible) => { if (!flushExpired) record.visibleAfterFailure = visible; }, (error) => {
+      if (!flushExpired) record.visibleAfterFailure = { captureError: String(error?.message ?? error).slice(0, 240) };
+    }), record, 'failure-visible-state');
   };
   const onRequest = (request) => {
     const identity = requestIdentity(request);
     if (!identity) return;
     requests.set(request, identity);
-    append('request', identity);
+    append('request', identity, diagnostic ? {
+      kind: identity.kind,
+      startedAtMonotonicMs: identity.record.startedAtMonotonicMs,
+      actionAtStart: identity.record.actionAtStart,
+      ...(identity.record.requestCAS ? { requestCAS: identity.record.requestCAS } : {}),
+    } : {});
   };
   const onResponse = (response) => {
     const identity = requests.get(response.request());
-    if (identity) append('response', identity, { status: response.status() });
+    if (!identity) return;
+    const status = response.status();
+    append('response', identity, { status });
+    if (!diagnostic || identity.kind !== 'reconcile' || identity.record.retained === false) return;
+    const record = identity.record;
+    record.responseStatus = status;
+    record.responseAtMonotonicMs = performance.now();
+    track(Promise.resolve().then(() => response.json()).then((body) => {
+      if (flushExpired) return;
+      record.response = {
+        receiptId: typeof body?.receiptId === 'string' ? body.receiptId : null,
+        snapshotToken: typeof body?.snapshotToken === 'string' ? body.snapshotToken : null,
+        outputIds: Array.isArray(body?.outputs)
+          ? body.outputs.map((output) => output?.outputId).filter((value) => typeof value === 'string')
+          : [],
+      };
+      record.responseMatchesRequest = status >= 200 && status < 300 && Boolean(record.response.receiptId) &&
+        record.response.snapshotToken === record.requestCAS.snapshotToken;
+    }).catch((error) => {
+      if (!flushExpired) record.responseReadError = String(error?.message ?? error).slice(0, 240);
+    }), record, 'reconcile-response-body');
   };
   const onRequestFinished = (request) => {
     const identity = requests.get(request);
     if (!identity) return;
     append('finished', identity);
+    if (diagnostic && identity.record.retained) identity.record.finishedAtMonotonicMs = performance.now();
     requests.delete(request);
   };
   const onRequestFailed = (request) => {
     const identity = requests.get(request);
     if (!identity) return;
-    append('failed', identity, { errorText: String(request.failure()?.errorText ?? 'request failed').slice(0, 240) });
+    const errorText = String(request.failure()?.errorText ?? 'request failed').slice(0, 240);
+    append('failed', identity, { errorText });
+    if (diagnostic && identity.record.retained) {
+      identity.record.errorText = errorText;
+      identity.record.failedAtMonotonicMs = performance.now();
+      captureFailureState(identity.record);
+    }
     requests.delete(request);
   };
   page.on('request', onRequest);
@@ -321,11 +436,84 @@ const captureOwnedPreviewLifecycle = (page, target, explorer) => {
   page.on('requestfailed', onRequestFailed);
   return {
     stop: () => {
+      const stoppedAtMonotonicMs = performance.now();
       page.off('request', onRequest);
       page.off('response', onResponse);
       page.off('requestfinished', onRequestFinished);
       page.off('requestfailed', onRequestFailed);
-      return { path: expectedURL.pathname, maxEvents, droppedEvents, events };
+      if (!diagnostic) return { path: expectedURL.pathname, maxEvents, droppedEvents, events };
+      return (async () => {
+        const reads = [...pendingReads.entries()];
+        let timeoutHandle;
+        let timedOutReadRecords = [];
+        const readFlushTimedOut = await Promise.race([
+          Promise.all(reads.map(([, read]) => read.promise)).then(() => false),
+          new Promise((resolve) => {
+            timeoutHandle = setTimeout(() => {
+              flushExpired = true;
+              timedOutReadRecords = [...pendingReads.values()];
+              resolve(true);
+            }, diagnosticReadFlushTimeoutMs);
+          }),
+        ]);
+        if (timeoutHandle) clearTimeout(timeoutHandle);
+        const timedOutReads = readFlushTimedOut
+          ? timedOutReadRecords.map(({ record, kind }) => ({
+            requestId: record?.id ?? null,
+            kind,
+          }))
+          : [];
+        if (readFlushTimedOut) {
+          for (const { record, kind } of timedOutReadRecords) {
+            if (!record) continue;
+            record.evidenceReadTimedOut = true;
+            record.evidenceReadError = `${kind} did not finish within ${diagnosticReadFlushTimeoutMs}ms`;
+          }
+        }
+        const receipts = new Map();
+        for (const record of requestRecords.filter((entry) => entry.kind === 'reconcile' && entry.responseMatchesRequest)) {
+          const bindings = receipts.get(record.response.receiptId) ?? [];
+          bindings.push({ ...record.requestCAS, responseSnapshotToken: record.response.snapshotToken,
+            outputIds: record.response.outputIds, reconciledAtMonotonicMs: record.responseAtMonotonicMs });
+          receipts.set(record.response.receiptId, bindings);
+        }
+        for (const record of requestRecords.filter((entry) => entry.kind === 'preview')) {
+          const bindings = (receipts.get(record.receiptId) ?? []).filter((binding) =>
+            Number.isFinite(binding.reconciledAtMonotonicMs) && binding.reconciledAtMonotonicMs <= record.startedAtMonotonicMs);
+          record.receiptBinding = bindings.length === 1 ? bindings[0] : null;
+          record.receiptBindingMatchesOutput = Boolean(record.receiptBinding?.outputIds.includes(record.outputId));
+        }
+        const readErrors = requestRecords.flatMap((record) => {
+          const error = record.evidenceReadError ?? record.responseReadError ?? record.visibleAfterFailure?.captureError;
+          return error ? [{ requestId: record.id, kind: record.kind, error }] : [];
+        });
+        const incompleteEvidence = readFlushTimedOut || readErrors.length > 0 || requestRecords.some((record) =>
+          record.kind === 'reconcile' && record.finishedAtMonotonicMs !== undefined &&
+          record.responseStatus === undefined && record.errorText === undefined);
+        return {
+          path: expectedURL.pathname,
+          maxEvents,
+          droppedEvents,
+          events,
+          captureStartedAtMonotonicMs: startedAt,
+          captureStoppedAtMonotonicMs: stoppedAtMonotonicMs,
+          scope: {
+            projectId: target.fixtureProject,
+            fixtureGeneration: target.fixtureGeneration,
+            explorerId: explorer,
+            origins: [...ownedOrigins],
+            paths: { preview: expectedURL.pathname, reconcile: reconcileURL.pathname },
+          },
+          droppedRequests,
+          diagnosticReadFlushTimeoutMs,
+          pendingReadCountAtStop: reads.length,
+          timedOutReads,
+          readErrors,
+          incompleteEvidence,
+          requests: requestRecords,
+          abortedPreviews: requestRecords.filter((record) => record.kind === 'preview' && record.errorText === 'net::ERR_ABORTED'),
+        };
+      })();
     },
   };
 };
@@ -759,7 +947,13 @@ const capturePost = (page, pathSuffix) => {
     if (!url.pathname.endsWith(pathSuffix)) return;
     let body;
     try { body = request.postDataJSON(); } catch { return; }
-    const entry = { request, url: url.href, path: url.pathname, body, status: null, response: null };
+    const entry = {
+      captureId: `draft-post-${++draftPostCaptureSequence}`,
+      request, url: url.href, path: url.pathname, body, status: null, response: null,
+      startedAtMonotonicMs: performance.now(),
+      actionAtStartId: activeTimedActionId ?? null,
+      actionAtStartName: activeTimedAction ?? null,
+    };
     entries.push(entry);
     byRequest.set(request, entry);
   };
@@ -767,6 +961,7 @@ const capturePost = (page, pathSuffix) => {
     const entry = byRequest.get(response.request());
     if (!entry) return;
     entry.status = response.status();
+    entry.responseAtMonotonicMs = performance.now();
     const read = response.json().then(value => { entry.response = value; }, error => { entry.readError = String(error); });
     pendingReads.push(read);
   };
@@ -831,7 +1026,15 @@ const startCombineTarget = async (context, page, report, explorer, sourceOutputI
     });
     check(report, 'correctness', 'native Combine uses CREATE_TABLE to make an empty rooted target without authoring a source', evidence.ok, evidence);
     if (!evidence.ok) throw new Error('Native Combine target creation did not bind its exact command, response, and editor.');
-    return { outputId: evidence.outputId, rootResourceType: 'Observation' };
+    return {
+      outputId: evidence.outputId,
+      rootResourceType: 'Observation',
+      createCommandCAS: {
+        snapshotToken: command.body?.snapshotToken ?? null,
+        draftVersion: command.body?.expectedDraftVersion ?? null,
+        draftDigest: command.body?.expectedDraftDigest ?? null,
+      },
+    };
   } finally {
     await commands.stop();
   }
@@ -1003,7 +1206,7 @@ const boundedJSONEvidence = (value, limit = 16000) => {
     ? value
     : { truncated: true, serializedLength: serialized.length, jsonPrefix: serialized.slice(0, limit) };
 };
-const assertDraftCandidate = async (report, page, capture, base, target, sources, expectedKind) => {
+const assertDraftCandidate = async (report, page, capture, base, target, sources, expectedKind, { requireSelectedPreview = false } = {}) => {
   const expectedOutputIDs = sources.map((source) => source.outputId);
   const expectedBuilderURL = new URL(report.target.scope.requestURL);
   const expectedProposalPath = expectedBuilderURL.pathname.replace(/\/builder$/, '/construction-proposals');
@@ -1038,7 +1241,9 @@ const assertDraftCandidate = async (report, page, capture, base, target, sources
   const domProposal = await evaluate(page, `(()=>({
     proposalId:document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-id')??null,
     receiptId:document.querySelector('[data-testid="construction-proposal-preview"]')?.getAttribute('data-preview-receipt-id')??null,
-    outputId:document.querySelector('[data-testid="construction-proposal-preview"]')?.getAttribute('data-preview-output-id')??null
+    outputId:document.querySelector('[data-testid="construction-proposal-preview"]')?.getAttribute('data-preview-output-id')??null,
+    selectedOutputId:document.querySelector('nav[aria-label="Tables"] button[aria-current="page"][data-testid^="construction-table-"]')?.getAttribute('data-testid')?.replace(/^construction-table-/, '')??null,
+    userVisiblePreviewError:document.body?.innerText?.includes('Preview failed:')??false
   }))()`);
   const responsePreview = event.response?.preview;
   const requestConstruction = event.body.candidateConstruction;
@@ -1048,6 +1253,8 @@ const assertDraftCandidate = async (report, page, capture, base, target, sources
     previewReceiptMatchesDOM: responsePreview?.receiptId === domProposal.receiptId,
     previewOutputMatchesTarget: responsePreview?.outputId === target.outputId,
     domOutputMatchesTarget: domProposal.outputId === target.outputId,
+    domSelectedOutputMatchesTarget: !requireSelectedPreview || domProposal.selectedOutputId === target.outputId,
+    noUserVisiblePreviewError: !requireSelectedPreview || domProposal.userVisiblePreviewError === false,
     responseOutputMatchesTarget: event.response?.outputId === target.outputId,
     snapshotTokenMatchesRequest: event.response?.snapshotToken === event.body.snapshotToken,
     draftVersionMatchesRequest: event.response?.draftVersion === event.body.expectedDraftVersion,
@@ -1061,7 +1268,11 @@ const assertDraftCandidate = async (report, page, capture, base, target, sources
       path: event.path,
       url: event.url,
       status: event.status,
-      requestId: event.requestId,
+      captureId: event.captureId,
+      startedAtMonotonicMs: event.startedAtMonotonicMs,
+      responseAtMonotonicMs: event.responseAtMonotonicMs,
+      actionAtStartId: event.actionAtStartId,
+      actionAtStartName: event.actionAtStartName,
       project: report.target.scope.project,
       explorer: report.target.scope.explorer,
       generation: report.target.scope.generation,
@@ -1085,17 +1296,35 @@ const assertDraftCandidate = async (report, page, capture, base, target, sources
       evidence,
     });
   if (!evidence.ok || !scope || !responseBound || event.status !== 200) throw new Error('Native Combine candidate did not use the exact current-draft workspace outputs.');
-  report.target.nativeCandidateRequest = {
+  const candidateRequestEvidence = {
     path: event.path,
     url: event.url,
     status: event.status,
-    requestId: event.requestId,
+    captureId: event.captureId,
     outputId: event.body.outputId,
     inputRefs: evidence.actual,
     snapshotToken: event.body.snapshotToken,
     expectedDraftVersion: event.body.expectedDraftVersion,
     expectedDraftDigest: event.body.expectedDraftDigest,
+    startedAtMonotonicMs: event.startedAtMonotonicMs,
+    responseAtMonotonicMs: event.responseAtMonotonicMs,
+    actionAtStartId: event.actionAtStartId,
+    actionAtStartName: event.actionAtStartName,
+    responseMatchesRequest: scope && responseBound && event.status === 200,
+    currentDraftCASBound: scope && responseChecks.snapshotTokenMatchesRequest &&
+      responseChecks.draftVersionMatchesRequest && responseChecks.draftDigestMatchesRequest,
+    responsePreviewOutputId: responsePreview?.outputId ?? null,
+    responsePreviewReceiptId: responsePreview?.receiptId ?? null,
+    previewStatus: event.response?.previewStatus ?? null,
+    domOutputId: domProposal.outputId,
+    domSelectedOutputId: domProposal.selectedOutputId,
+    domReceiptId: domProposal.receiptId,
+    userVisiblePreviewError: domProposal.userVisiblePreviewError,
   };
+  report.target.nativeCandidateRequest = candidateRequestEvidence;
+  if (Array.isArray(report.target.nativeCandidateRequests)) {
+    report.target.nativeCandidateRequests.push(candidateRequestEvidence);
+  }
 };
 
 const readPreviewIdentity = async (page) => evaluate(page, `(()=>{const p=document.querySelector('[data-testid="construction-preview"]');return {status:p?.dataset.previewStatus??null,receipt:p?.dataset.previewReceiptId??null,outputId:p?.dataset.previewOutputId??null,draftVersion:p?.dataset.currentDraftVersion??null,draftDigest:p?.dataset.currentDraftDigest??null,stale:Boolean(document.querySelector('[data-testid="construction-preview-stale-notice"]'))}})()`);
@@ -2061,6 +2290,8 @@ const groupPivotAppendChoiceEvidence = async (page, sources, capabilityEvidence)
 
 export const groupPivotAppendWorkflow = async ({ page, report }, context) => {
   const run = await beginOwnedWorkspace(context, page, report, 'group-pivot-append');
+  report.target.nativeCandidateRequests = [];
+  const previewLifecycle = captureOwnedPreviewLifecycle(page, context.target, run.explorer, { diagnostic: true });
   const sources = [];
   try {
     sources.push(await createGroupSource(context, page, report, run.explorer, {
@@ -2153,7 +2384,7 @@ export const groupPivotAppendWorkflow = async ({ page, report }, context) => {
       const exactMultiplicity = actualIDIndex >= 0 && JSON.stringify(actualMultiplicity) === JSON.stringify(expectedMultiplicity);
       check(report, 'correctness', 'Group→Pivot APPEND preserves exact shared-ID multiplicity', exactMultiplicity,
         { expectedRowCount: expectedRows.length, actualRowCount: grid.rows.length, actualMultiplicity, expectedMultiplicity, rows: grid.rows });
-      await assertDraftCandidate(report, page, candidateCapture, candidateBase, candidateTarget, sources, 'APPEND');
+      await assertDraftCandidate(report, page, candidateCapture, candidateBase, candidateTarget, sources, 'APPEND', { requireSelectedPreview: true });
     };
     try {
       const finalMapping = await configureGroupPivotAppend(page, sources);
@@ -2319,5 +2550,20 @@ export const groupPivotAppendWorkflow = async ({ page, report }, context) => {
     check(report, 'correctness', 'Group→Pivot APPEND lifecycle never publishes or pins source revisions',
       run.publishCount() === 0 && inputs.every((input) => input.kind !== 'TABLE_REVISION'),
       { publishRequests: run.publishCount(), inputKinds: inputs.map((input) => input.kind) });
-  } finally { run.stopPublish(); }
+  } finally {
+    const lifecycle = await previewLifecycle.stop();
+    report.previewRequestLifecycle = lifecycle;
+    report.expectedPreviewCancellationEvidence = markExpectedOwnedPreviewAborts({
+      network: report.network,
+      lifecycle,
+      actions: report.actions,
+      assertions: report.assertions,
+      sourceOutputId: sources[0]?.outputId,
+      successorRequests: report.target.nativeCandidateRequests,
+      targetBindings: [report.target.canceledCombineTarget, report.target.combineTarget]
+        .filter((candidate) => candidate?.outputId)
+        .map(({ outputId, createCommandCAS }) => ({ outputId, createCommandCAS })),
+    });
+    run.stopPublish();
+  }
 };

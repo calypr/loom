@@ -43,12 +43,17 @@ const requestDiagnostic = (request) => {
   try { body = request.postDataJSON(); } catch { body = undefined; }
   const input = body?.variables?.input ?? body ?? {};
   const headers = request.headers();
+  let previewReceiptId;
+  try {
+    if (new URL(request.url()).pathname.endsWith('/authoring/v2/preview')) previewReceiptId = input.receiptId ?? null;
+  } catch {}
   return sanitizePayload({
     requestId: headers['x-request-id'] ?? body?.requestId ?? body?.requestID ?? null,
     draftVersion: input.expectedDraftVersion ?? input.draftVersion ?? null,
     draftDigest: input.expectedDraftDigest ?? input.draftDigest ?? null,
     outputId: input.outputId ?? null,
     stageId: input.stageId ?? null,
+    ...(previewReceiptId === undefined ? {} : { receiptId: previewReceiptId }),
   });
 };
 

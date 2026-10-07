@@ -2,10 +2,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   applyInjectedFaultPolicy,
+  markExpectedOwnedPreviewAborts,
   matchesOwnedFaultRequest,
   matchExpectedHttpConsole,
   ownedFaultTarget,
 } from '../network-evidence.mjs';
+import { classifyNetworkRecord } from '../report.mjs';
 
 const target = { uiUrl: 'http://127.0.0.1:30008', fixtureProject: 'owned' };
 const route = '/api/v1/projects/owned/explorers/editor/authoring/v2/commands';
@@ -199,4 +201,136 @@ test('expected HTTP console handling consumes only one console record for one ex
     diagnostics: [fixtureDiagnostic, { ...fixtureDiagnostic }],
     errors: [],
   }), undefined, 'duplicate console records must remain unexpected');
+});
+
+test('only a source preview abort owned by CREATE_TABLE and followed by its selected APPEND proposal is canceled', () => {
+  const previewPath = '/api/v1/projects/owned/explorers/editor/authoring/v2/preview';
+  const proposalPath = previewPath.replace(/\/authoring\/v2\/preview$/, '/authoring/v2/construction-proposals');
+  const createAction = { id: 'action-create', name: 'open native Combine and create a separate empty target' };
+  const proposalAction = { id: 'action-proposal', name: 'configure Group→Pivot APPEND and render its selected proposal' };
+  const proposal = {
+    captureId: 'proposal-capture-1', outputId: 'target-output', path: proposalPath,
+    url: 'http://127.0.0.1:30008' + proposalPath, status: 200,
+    startedAtMonotonicMs: 200, responseAtMonotonicMs: 300,
+    actionAtStartId: proposalAction.id, actionAtStartName: proposalAction.name,
+    responseMatchesRequest: true, currentDraftCASBound: true,
+    responsePreviewOutputId: 'target-output', responsePreviewReceiptId: 'target-receipt',
+    domOutputId: 'target-output', domSelectedOutputId: 'target-output', domReceiptId: 'target-receipt',
+    previewStatus: 'READY', userVisiblePreviewError: false,
+  };
+  const failed = {
+    id: 'preview-request-2', networkRequestId: 'source-preview-request',
+    kind: 'preview', outputId: 'source-output', receiptId: 'source-receipt',
+    errorText: 'net::ERR_ABORTED', startedAtMonotonicMs: 100, failedAtMonotonicMs: 120,
+    receiptBinding: {
+      snapshotToken: 'source-snapshot', draftVersion: 5, draftDigest: 'source-digest',
+      responseSnapshotToken: 'source-snapshot', outputIds: ['source-output'],
+      reconciledAtMonotonicMs: 90,
+    },
+    receiptBindingMatchesOutput: true,
+    actionAtStart: { ...createAction, startedAtMonotonicMs: 110 },
+    visibleAfterFailure: { selectedOutputId: 'target-output', userVisiblePreviewError: false },
+  };
+  const networkRecord = () => ({
+    kind: 'network', method: 'POST', url: 'http://127.0.0.1:30008' + previewPath,
+    rawURL: 'http://127.0.0.1:30008' + previewPath, errorText: 'net::ERR_ABORTED',
+    requestDetails: { requestId: 'source-preview-request', outputId: 'source-output', receiptId: 'source-receipt' },
+    requestTimeline: { action: { id: 'action-create' } },
+  });
+  const createEvidence = () => ({
+    lifecycle: {
+      scope: {
+        projectId: 'owned', explorerId: 'editor', fixtureGeneration: 'generation-1',
+        origins: ['http://127.0.0.1:30008'], paths: {
+          preview: previewPath,
+          reconcile: previewPath.replace(/\/preview$/, '/reconcile'),
+        },
+      },
+      droppedRequests: 0,
+      droppedEvents: 0,
+      captureStartedAtMonotonicMs: 0,
+      captureStoppedAtMonotonicMs: 400,
+      abortedPreviews: [structuredClone(failed)],
+    },
+    network: [networkRecord()],
+    actions: [
+      { ...createAction, status: 'passed' },
+      { ...proposalAction, status: 'passed' },
+    ],
+    targetBindings: [{ outputId: 'target-output', createCommandCAS: {
+      snapshotToken: 'source-snapshot', draftVersion: 5, draftDigest: 'source-digest',
+    } }],
+    successorRequests: [structuredClone(proposal)],
+    assertions: [
+      {
+        status: 'passed',
+        name: 'native Combine uses CREATE_TABLE to make an empty rooted target without authoring a source',
+        evidence: { outputId: 'target-output' },
+      },
+      {
+        status: 'passed',
+        name: 'automatic Combine proposal is bound to this exact draft CAS and UI proxy scope',
+        evidence: {
+          captureId: proposal.captureId, responseBound: true,
+          scopeChecks: { route: true, snapshot: true }, responseChecks: { response: true, selected: true },
+        },
+      },
+    ],
+  });
+  const classify = (evidence) => markExpectedOwnedPreviewAborts({
+    ...evidence, sourceOutputId: 'source-output',
+  });
+
+  const accepted = createEvidence();
+  assert.deepEqual(classify(accepted), [{
+    failedRequestId: 'preview-request-2', successorRequestId: 'proposal-capture-1', outputId: 'target-output',
+  }]);
+  assert.equal(accepted.network[0].canceled, true);
+  assert.equal(accepted.network[0].errorText, 'net::ERR_ABORTED', 'classification preserves the original browser failure');
+  assert.equal(classifyNetworkRecord(accepted.network[0]), 'cancelled');
+  const reportWithoutBrowserRequestId = createEvidence();
+  reportWithoutBrowserRequestId.lifecycle.abortedPreviews[0].networkRequestId = null;
+  reportWithoutBrowserRequestId.network[0].requestDetails.requestId = null;
+  assert.equal(classify(reportWithoutBrowserRequestId).length, 1,
+    'the retained wave138 request has no browser request ID, so unique route/output/receipt/action evidence remains sufficient');
+
+  const rejectedCases = [
+    ['no selected APPEND proposal', (e) => { e.successorRequests = []; }],
+    ['later proposal did not reach READY', (e) => { e.successorRequests[0].previewStatus = 'FAILED'; }],
+    ['proposal begins before abort', (e) => { e.successorRequests[0].startedAtMonotonicMs = 119; }],
+    ['proposal response is outside collector interval', (e) => { e.successorRequests[0].responseAtMonotonicMs = 401; }],
+    ['wrong proposal route', (e) => { e.successorRequests[0].path = previewPath; }],
+    ['proposal from an unowned origin', (e) => { e.successorRequests[0].url = 'http://elsewhere.invalid' + proposalPath; }],
+    ['visible preview error', (e) => { e.successorRequests[0].userVisiblePreviewError = true; }],
+    ['different selected table', (e) => { e.successorRequests[0].domSelectedOutputId = 'other-output'; }],
+    ['selected proposal has a different preview receipt', (e) => { e.successorRequests[0].domReceiptId = 'other-receipt'; }],
+    ['proposal request/response CAS is not bound', (e) => { e.successorRequests[0].currentDraftCASBound = false; }],
+    ['failed source receipt binding', (e) => { e.lifecycle.abortedPreviews[0].receiptBindingMatchesOutput = false; }],
+    ['source receipt was reconciled after its preview request', (e) => { e.lifecycle.abortedPreviews[0].receiptBinding.reconciledAtMonotonicMs = 101; }],
+    ['unrelated preview abort', (e) => { e.network[0].requestDetails.outputId = 'unrelated-output'; }],
+    ['wrong request receipt', (e) => { e.network[0].requestDetails.receiptId = 'other-receipt'; }],
+    ['wrong network request ID', (e) => { e.network[0].requestDetails.requestId = 'different-request'; }],
+    ['CREATE_TABLE used a different draft CAS', (e) => { e.targetBindings[0].createCommandCAS.draftVersion += 1; }],
+    ['proposal from another target', (e) => { e.successorRequests[0].outputId = 'other-output'; }],
+    ['proposal has a different action owner', (e) => { e.successorRequests[0].actionAtStartId = 'action-unknown'; }],
+    ['failed CREATE_TABLE action', (e) => { e.actions[0].status = 'failed'; }],
+    ['failed CREATE_TABLE assertion', (e) => { e.assertions[0].status = 'failed'; }],
+    ['failed selected proposal action', (e) => { e.actions[1].status = 'failed'; }],
+    ['failed selected proposal assertion', (e) => { e.assertions[1].status = 'failed'; }],
+    ['ambiguous network match', (e) => { e.network.push(networkRecord()); }],
+    ['timed-out or missing diagnostic reads', (e) => {
+      e.lifecycle.incompleteEvidence = true;
+      e.lifecycle.timedOutReads = [{ requestId: 'preview-request-2', kind: 'reconcile-response-body' }];
+    }],
+    ['dropped lifecycle evidence', (e) => { e.lifecycle.droppedRequests = 1; }],
+    ['dropped event evidence', (e) => { e.lifecycle.droppedEvents = 1; }],
+  ];
+  for (const [reason, mutate] of rejectedCases) {
+    const rejected = createEvidence();
+    mutate(rejected);
+    assert.deepEqual(classify(rejected), [], reason);
+    assert.equal(rejected.network[0].canceled, undefined, reason);
+    assert.equal(rejected.network[0].errorText, 'net::ERR_ABORTED', reason);
+    assert.equal(classifyNetworkRecord(rejected.network[0]), 'unexpected-error', reason);
+  }
 });

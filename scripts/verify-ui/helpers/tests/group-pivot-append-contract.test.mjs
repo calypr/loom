@@ -12,6 +12,7 @@ import { lifecycleAcceptanceDrift, registry, scenarioCaseFor } from '../../regis
 
 const workflow = readFileSync(new URL('../../workflows/builder-combine-draft.mjs', import.meta.url), 'utf8');
 const evidence = readFileSync(new URL('../append-option-evidence.mjs', import.meta.url), 'utf8');
+const fixtures = readFileSync(new URL('../fixtures.mjs', import.meta.url), 'utf8');
 const spec = readFileSync(new URL('../../specs/draft-combine.spec.mjs', import.meta.url), 'utf8');
 const scenario = registry.find((entry) => entry.id === 'builder-combine-draft');
 const contract = scenarioCaseFor('builder-combine-draft', 'group-pivot-append');
@@ -19,9 +20,21 @@ const coverage = scenario.coverage.find((entry) => entry.feature === 'APPEND ove
 
 test('Group→Pivot APPEND binds exact restoration checks and compares complete source documents', () => {
   const checks = contract.requiredChecks;
+  const appendWorkflow = workflow.slice(workflow.indexOf('export const groupPivotAppendWorkflow ='));
   assert.equal(contract.playwrightTest, 'scripts/verify-ui/specs/draft-combine.spec.mjs');
   assert.match(spec, /caseName:\s*'group-pivot-append'/);
   assert.match(spec, /await groupPivotAppendWorkflow\(/);
+  assert.equal(checks.length, 31);
+  assert.match(appendWorkflow, /const previewLifecycle = captureOwnedPreviewLifecycle\(page, context\.target, run\.explorer, \{ diagnostic: true \}\)/);
+  assert.match(appendWorkflow, /startCombineTarget\([\s\S]*?beforeTarget\)/);
+  assert.match(appendWorkflow, /startCombineTarget\([\s\S]*?retryBase\)/);
+  assert.match(appendWorkflow, /const lifecycle = await previewLifecycle\.stop\(\)/);
+  assert.match(appendWorkflow, /markExpectedOwnedPreviewAborts\(/);
+  assert.match(workflow, /createCommandCAS:[\s\S]*?expectedDraftVersion/);
+  assert.match(appendWorkflow, /report\.target\.nativeCandidateRequests = \[\]/);
+  assert.match(appendWorkflow, /successorRequests: report\.target\.nativeCandidateRequests/);
+  assert.match(appendWorkflow, /targetBindings:\s*\[report\.target\.canceledCombineTarget, report\.target\.combineTarget\]/);
+  assert.match(fixtures, /pathname\.endsWith\('\/authoring\/v2\/preview'\)[\s\S]*?receiptId: previewReceiptId/);
 
   assert.ok(checks.includes('removing Combine and reloading restores its rooted empty target'));
   assert.equal(checks.includes('removing Combine and reloading restores its rooted empty output'), false);
@@ -106,7 +119,7 @@ test('Group→Pivot APPEND times exact proposal rows, multiplicity, and receipt/
   assert.match(verify[0], /assertRows\(report, 'Group→Pivot APPEND preview equals the exact independent union with source-specific null padding'/);
   assert.match(verify[0], /Group→Pivot APPEND preserves exact shared-ID multiplicity/);
   assert.match(verify[0], /expectedRowCount: expectedRows.length, actualRowCount: grid.rows.length/);
-  assert.match(verify[0], /await assertDraftCandidate\(report, page, candidateCapture, candidateBase, candidateTarget, sources, 'APPEND'\)/);
+  assert.match(verify[0], /await assertDraftCandidate\(report, page, candidateCapture, candidateBase, candidateTarget, sources, 'APPEND', \{ requireSelectedPreview: true \}\)/);
   assert.match(workflow, /const parseNDJSON = \(path\) => readFileSync\(path, 'utf8'\)\.split/);
   assert.match(workflow, /assert\.deepEqual\(observations, expectedObservations\)/);
   assert.match(append, /expectedRows\.length === 7/);

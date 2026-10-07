@@ -35,6 +35,148 @@ export function supersedingCapabilityRequest(failed, requests) {
     JSON.stringify(replacement.binding) !== JSON.stringify(failed.binding)) ?? null;
 }
 
+export function markExpectedOwnedPreviewAborts({
+  network = [],
+  lifecycle,
+  actions = [],
+  assertions = [],
+  sourceOutputId,
+  targetBindings = [],
+  successorRequests = [],
+} = {}) {
+  const scope = lifecycle?.scope;
+  const previewPath = scope?.paths?.preview;
+  const reconcilePath = scope?.paths?.reconcile;
+  const expectedPath = scope?.projectId && scope?.explorerId
+    ? `/api/v1/projects/${encodeURIComponent(scope.projectId)}/explorers/${encodeURIComponent(scope.explorerId)}/authoring/v2/preview`
+    : null;
+  const expectedReconcilePath = scope?.projectId && scope?.explorerId
+    ? `/api/v1/projects/${encodeURIComponent(scope.projectId)}/explorers/${encodeURIComponent(scope.explorerId)}/authoring/v2/reconcile`
+    : null;
+  if (!expectedPath || previewPath !== expectedPath || !scope.fixtureGeneration ||
+      reconcilePath !== expectedReconcilePath || lifecycle.droppedRequests > 0 || lifecycle.droppedEvents > 0 ||
+      lifecycle.incompleteEvidence === true || lifecycle.timedOutReads?.length > 0 || lifecycle.readErrors?.length > 0 ||
+      !Number.isFinite(lifecycle.captureStartedAtMonotonicMs) ||
+      !Number.isFinite(lifecycle.captureStoppedAtMonotonicMs)) return [];
+
+  const expectedProposalPath = `/api/v1/projects/${encodeURIComponent(scope.projectId)}/explorers/${encodeURIComponent(scope.explorerId)}/authoring/v2/construction-proposals`;
+  const classified = [];
+  for (const failed of lifecycle.abortedPreviews ?? []) {
+    const sourceCAS = failed.receiptBinding;
+    if (failed.kind !== 'preview' || failed.errorText !== 'net::ERR_ABORTED' || failed.outputId !== sourceOutputId ||
+        failed.receiptBindingMatchesOutput !== true ||
+        !sourceCAS?.snapshotToken || !Number.isInteger(sourceCAS.draftVersion) || !sourceCAS.draftDigest ||
+        !Number.isFinite(sourceCAS.reconciledAtMonotonicMs) ||
+        sourceCAS.responseSnapshotToken !== sourceCAS.snapshotToken || !sourceCAS.outputIds?.includes(sourceOutputId) ||
+        failed.actionAtStart?.name !== 'open native Combine and create a separate empty target' ||
+        !failed.actionAtStart?.id || !Number.isFinite(failed.startedAtMonotonicMs) ||
+        !Number.isFinite(failed.failedAtMonotonicMs) || failed.failedAtMonotonicMs < failed.startedAtMonotonicMs ||
+        sourceCAS.reconciledAtMonotonicMs > failed.startedAtMonotonicMs ||
+        failed.failedAtMonotonicMs < lifecycle.captureStartedAtMonotonicMs ||
+        failed.failedAtMonotonicMs > lifecycle.captureStoppedAtMonotonicMs ||
+        failed.visibleAfterFailure?.userVisiblePreviewError !== false) continue;
+
+    const matchingFailures = network.filter((entry) => {
+      if (entry.kind !== 'network' || entry.method !== 'POST' || entry.errorText !== 'net::ERR_ABORTED' ||
+          entry.requestDetails?.outputId !== failed.outputId ||
+          entry.requestDetails?.receiptId !== failed.receiptId ||
+          entry.requestTimeline?.action?.id !== failed.actionAtStart.id ||
+          (failed.networkRequestId && entry.requestDetails?.requestId !== failed.networkRequestId)) return false;
+      try {
+        const url = new URL(entry.rawURL ?? entry.url);
+        return scope.origins.includes(url.origin) && url.pathname === previewPath;
+      } catch { return false; }
+    });
+    if (matchingFailures.length !== 1) continue;
+
+    for (const successorRequest of successorRequests) {
+      const targetOutputId = successorRequest?.outputId;
+      const targetBinding = targetBindings.find((binding) => binding.outputId === targetOutputId);
+      const createCAS = targetBinding?.createCommandCAS;
+      const sourceCASMatchesCreate = Boolean(createCAS &&
+        createCAS.snapshotToken === sourceCAS.snapshotToken &&
+        createCAS.draftVersion === sourceCAS.draftVersion &&
+        createCAS.draftDigest === sourceCAS.draftDigest);
+      const createActionPassed = actions.some((action) => action.id === failed.actionAtStart.id &&
+        action.name === failed.actionAtStart.name && action.status === 'passed');
+      const targetCreated = Boolean(targetBinding && targetOutputId !== sourceOutputId && sourceCASMatchesCreate &&
+        assertions.some((assertion) => assertion.status === 'passed' &&
+          assertion.name === 'native Combine uses CREATE_TABLE to make an empty rooted target without authoring a source' &&
+          assertion.evidence?.outputId === targetOutputId));
+      let successorOrigin;
+      let successorPath;
+      try {
+        const parsedSuccessorURL = new URL(successorRequest?.url);
+        successorOrigin = parsedSuccessorURL.origin;
+        successorPath = parsedSuccessorURL.pathname;
+      } catch {}
+      const successorAssertion = assertions.find((assertion) => assertion.status === 'passed' &&
+        assertion.name === 'automatic Combine proposal is bound to this exact draft CAS and UI proxy scope' &&
+        assertion.evidence?.captureId === successorRequest?.captureId);
+      const allChecksPassed = (checks) => Boolean(checks && Object.keys(checks).length > 0 &&
+        Object.values(checks).every((value) => value === true));
+      const successorAssertionPassed = Boolean(successorAssertion?.evidence?.responseBound &&
+        allChecksPassed(successorAssertion.evidence.scopeChecks) &&
+        allChecksPassed(successorAssertion.evidence.responseChecks));
+      const successorActionPassed = actions.some((action) => action.id === successorRequest?.actionAtStartId &&
+        action.name === successorRequest?.actionAtStartName && action.status === 'passed');
+      const successorAfterAbort = Number.isFinite(successorRequest?.startedAtMonotonicMs) &&
+        Number.isFinite(successorRequest?.responseAtMonotonicMs) &&
+        successorRequest.responseAtMonotonicMs >= successorRequest.startedAtMonotonicMs &&
+        successorRequest.startedAtMonotonicMs > failed.failedAtMonotonicMs &&
+        successorRequest.responseAtMonotonicMs > failed.failedAtMonotonicMs &&
+        successorRequest.startedAtMonotonicMs >= lifecycle.captureStartedAtMonotonicMs &&
+        successorRequest.responseAtMonotonicMs <= lifecycle.captureStoppedAtMonotonicMs;
+      const exactSelectedProposal = successorRequest?.path === expectedProposalPath &&
+        successorPath === expectedProposalPath &&
+        scope.origins.includes(successorOrigin) && successorRequest.status >= 200 && successorRequest.status < 300 &&
+        successorRequest.responseMatchesRequest === true && successorRequest.currentDraftCASBound === true &&
+        successorRequest.domOutputId === targetOutputId && successorRequest.domSelectedOutputId === targetOutputId &&
+        successorRequest.responsePreviewOutputId === targetOutputId && successorRequest.responsePreviewReceiptId &&
+        successorRequest.domReceiptId === successorRequest.responsePreviewReceiptId &&
+        successorRequest.previewStatus === 'READY' && successorRequest.userVisiblePreviewError === false;
+      if (!createActionPassed || !targetCreated || !successorActionPassed || !successorAfterAbort ||
+          !successorAssertionPassed || !exactSelectedProposal) continue;
+
+      const [entry] = matchingFailures;
+      entry.canceled = true;
+      entry.cancellationReason = 'native Combine CREATE_TABLE changed preview ownership; its later exact selected APPEND proposal completed successfully';
+      entry.previewSuccessor = {
+        captureId: successorRequest.captureId,
+        outputId: targetOutputId,
+        path: successorRequest.path,
+        status: successorRequest.status,
+        selectedOutputId: successorRequest.domSelectedOutputId,
+        previewStatus: successorRequest.previewStatus,
+        responseMatchedRequest: successorRequest.responseMatchesRequest,
+      };
+      entry.cancellationProof = {
+        sourceOutputId: failed.outputId,
+        sourceReceiptId: failed.receiptId,
+        createCommandOutputId: targetOutputId,
+        sourceReceiptCASMatchesCreateCommand: {
+          snapshotIdentity: createCAS.snapshotToken === sourceCAS.snapshotToken,
+          draftVersion: createCAS.draftVersion === sourceCAS.draftVersion,
+          draftDigest: createCAS.draftDigest === sourceCAS.draftDigest,
+        },
+        createActionId: failed.actionAtStart.id,
+        successorActionId: successorRequest.actionAtStartId,
+        successorCaptureId: successorRequest.captureId,
+        successorStartedAfterAbort: successorAfterAbort,
+        successorRequestAndResponseBound: successorRequest.responseMatchesRequest,
+        successorCurrentDraftCASBound: successorRequest.currentDraftCASBound,
+        successorAssertionPassed,
+        selectedOutputId: successorRequest.domSelectedOutputId,
+        previewStatus: successorRequest.previewStatus,
+        userVisiblePreviewError: successorRequest.userVisiblePreviewError,
+      };
+      classified.push({ failedRequestId: failed.id, successorRequestId: successorRequest.captureId, outputId: targetOutputId });
+      break;
+    }
+  }
+  return classified;
+}
+
 export function isIncidentalFavicon(url, target, status) {
   try {
     const parsed = new URL(url);
