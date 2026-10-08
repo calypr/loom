@@ -13,6 +13,58 @@ export function assertVisibleListCell(cell, expectedValues, description) {
   assert.equal(cell?.text, expectedVisibleListText(expectedValues), description);
 }
 
+export function buildFullScopeMultiCodingWitnessQuery({ project, generation } = {}) {
+  assert(typeof project === 'string' && project.length > 0, 'Raw CDA oracle project is required');
+  assert(typeof generation === 'string' && generation.length > 0, 'Raw CDA oracle generation is required');
+
+  return `FOR r IN Observation
+FILTER r.project == ${JSON.stringify(project)}
+  AND r.dataset_generation == ${JSON.stringify(generation)}
+  AND r.payload.resourceType == "Observation"
+  AND IS_ARRAY(r.payload.component)
+  AND LENGTH(r.payload.component) > 0
+  AND LENGTH(r.payload.component) <= 8
+LET codingCounts = (
+  FOR component IN r.payload.component
+  RETURN IS_ARRAY(component.code.coding) ? LENGTH(component.code.coding) : 0
+)
+FILTER SUM(codingCounts) >= 2 AND SUM(codingCounts) <= 25
+LET multiCodingComponents = (
+  FOR count IN codingCounts
+  FILTER count >= 2
+  RETURN 1
+)
+FILTER LENGTH(multiCodingComponents) > 0
+LET invalidLabels = (
+  FOR component IN r.payload.component
+  FILTER NOT IS_STRING(component.valueString) OR LENGTH(TRIM(component.valueString)) == 0
+  RETURN 1
+)
+FILTER LENGTH(invalidLabels) == 0
+LET oversizedCodingLists = (
+  FOR component IN r.payload.component
+  FILTER IS_ARRAY(component.code.coding) AND LENGTH(component.code.coding) > 6
+  RETURN 1
+)
+FILTER LENGTH(oversizedCodingLists) == 0
+LET invalidCodingValues = (
+  FOR component IN r.payload.component
+  FOR coding IN (IS_ARRAY(component.code.coding) ? component.code.coding : [])
+  FILTER NOT IS_STRING(coding.code) OR LENGTH(TRIM(coding.code)) == 0
+  RETURN 1
+)
+FILTER LENGTH(invalidCodingValues) == 0
+LIMIT 1
+RETURN {
+  id: r.id,
+  sourceKey: r._key,
+  project: r.project,
+  generation: r.dataset_generation,
+  resourceType: r.payload.resourceType,
+  components: r.payload.component
+}`;
+}
+
 function inspectObservation(resource, project, generation) {
   if (resource?.resourceType !== 'Observation' || resource?.generation !== generation) return undefined;
   if (typeof resource.id !== 'string' || !resource.id || typeof resource.sourceKey !== 'string' || !resource.sourceKey) return undefined;
@@ -101,6 +153,7 @@ export function selectNestedAuthoredExpandWitnesses(rows, {
   generation,
   scanLimit = 1000,
   witnessMode = 'multi-coding-component',
+  searchScope = 'bounded-sample',
 } = {}) {
   assert(Array.isArray(rows), 'Raw CDA Observation scan must be an array');
   assert(typeof project === 'string' && project.length > 0, 'Raw CDA oracle project is required');
@@ -108,6 +161,8 @@ export function selectNestedAuthoredExpandWitnesses(rows, {
   assert(Number.isInteger(scanLimit) && scanLimit > 0 && scanLimit <= 1000, 'Raw CDA scan limit must be between one and 1000');
   assert(['multi-coding-component', 'single-coding-per-component'].includes(witnessMode),
     'Raw CDA nested EXPAND witness mode must be multi-coding-component or single-coding-per-component');
+  assert(['bounded-sample', 'full-scope-candidate'].includes(searchScope),
+    'Raw CDA nested EXPAND search scope must be bounded-sample or full-scope-candidate');
   assert(rows.length <= scanLimit, `Raw CDA scan returned more than its ${scanLimit}-Observation bound`);
 
   const ids = new Set();
@@ -132,9 +187,13 @@ export function selectNestedAuthoredExpandWitnesses(rows, {
       : !record.hasMultiCodingComponent && record.codingShapes.every(shape => shape.state !== 'present' || shape.count === 1))
     && record.codings.length + (empty ? 1 : 0) <= 25);
 
-  const missingWitness = witnessMode === 'multi-coding-component'
-    ? 'No bounded Observation has a populated nested coding list with a multi-coding component'
-    : 'No bounded Observation has at least two nested coding values with one coding per populated component';
+  const missingWitness = searchScope === 'full-scope-candidate'
+    ? witnessMode === 'multi-coding-component'
+      ? 'No eligible full-scope candidate Observation has a populated nested coding list with a multi-coding component'
+      : 'No eligible full-scope candidate Observation has at least two nested coding values with one coding per populated component'
+    : witnessMode === 'multi-coding-component'
+      ? 'No bounded Observation has a populated nested coding list with a multi-coding component'
+      : 'No bounded Observation has at least two nested coding values with one coding per populated component';
   assert(populated, `${missingWitness} (scanned ${rows.length})`);
 
   const selected = [populated, ...(empty ? [empty] : [])].map(record => ({
@@ -173,14 +232,18 @@ export function selectNestedAuthoredExpandWitnesses(rows, {
   ];
   assert(expectedRows.length <= 25, 'Raw CDA nested EXPAND witness exceeds the complete preview row limit');
   assert(expectedRows.some(row => row.itemPresent && row.ordinal === 0), 'Populated witness has no first nested coding value');
+  const emptyParentGap = searchScope === 'full-scope-candidate'
+    ? 'The full-scope query selects a populated witness only; it does not search for an all-empty parent.'
+    : `The bounded ${scanLimit}-Observation scan found no second root whose nested coding arrays are all empty or missing.`;
   const gaps = empty ? [] : [{
     assertion: 'PRESERVE_PARENT emits an explicit row when the nested coding list is empty',
     status: 'untested',
-    reason: `The bounded ${scanLimit}-Observation scan found no second root whose nested coding arrays are all empty or missing.`,
+    reason: emptyParentGap,
   }];
 
   return {
     source: 'project/generation-scoped raw Arango Observation payloads',
+    searchScope,
     scanLimit,
     scanned: rows.length,
     selected,

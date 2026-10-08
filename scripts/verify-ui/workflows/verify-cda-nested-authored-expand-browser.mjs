@@ -8,7 +8,7 @@ import { requireUnique } from '../helpers/playwright-actions.mjs';
 import { waitForCondition } from '../helpers/playwright-observations.mjs';
 import { buildArangoShellInvocation, buildBoundedArangoQueryScript, summarizeArangoShellResult } from '../helpers/owned-arangosh-command.mjs';
 import { waitForAppliedSourceCapabilities, waitForSourceCapabilities } from './verify-cda-authored-expand-browser.mjs';
-import { assertVisibleListCell, selectNestedAuthoredExpandWitnesses } from '../helpers/nested-authored-expand-oracle.mjs';
+import { assertVisibleListCell, buildFullScopeMultiCodingWitnessQuery, selectNestedAuthoredExpandWitnesses } from '../helpers/nested-authored-expand-oracle.mjs';
 import { selectCanceledSavedPreviewRequest } from '../helpers/saved-preview-binding.mjs';
 
 export async function nestedAuthoredExpandWorkflow({ page, cda }) {
@@ -186,14 +186,32 @@ const waitForSavedPreviewDraft = async (startedAt, state, phase) => {
 };
 
 const boundedRawOracle = () => {
-  const query = `FOR r IN Observation FILTER r.project == ${JSON.stringify(values.project)} AND r.dataset_generation == ${JSON.stringify(values.generation)} AND r.payload.resourceType == "Observation" FILTER IS_ARRAY(r.payload.component) SORT r.id LIMIT 1000 RETURN {id:r.id,sourceKey:r._key,project:r.project,generation:r.dataset_generation,resourceType:r.payload.resourceType,components:r.payload.component}`;
+  const fullScopeMultiCoding = witnessMode === 'multi-coding-component';
+  const query = fullScopeMultiCoding
+    ? buildFullScopeMultiCodingWitnessQuery({ project: values.project, generation: values.generation })
+    : `FOR r IN Observation FILTER r.project == ${JSON.stringify(values.project)} AND r.dataset_generation == ${JSON.stringify(values.generation)} AND r.payload.resourceType == "Observation" FILTER IS_ARRAY(r.payload.component) SORT r.id LIMIT 1000 RETURN {id:r.id,sourceKey:r._key,project:r.project,generation:r.dataset_generation,resourceType:r.payload.resourceType,components:r.payload.component}`;
+  const scanLimit = fullScopeMultiCoding ? 1 : 1000;
+  const searchScope = fullScopeMultiCoding ? 'full-scope-candidate' : 'bounded-sample';
   const script = buildBoundedArangoQueryScript({
     query, maxRuntimeSeconds: 8, memoryLimitBytes: 256 * 1024 * 1024,
   });
   const invocation = buildArangoShellInvocation({ container: values['arango-container'], script, database: 'loom_dev' });
+  report.oracleQuery = {
+    scope: fullScopeMultiCoding
+      ? 'all Observation records in the requested project and generation'
+      : 'the first 1000 Observation records in the requested project and generation, sorted by public id',
+    witnessMode,
+    resultLimit: scanLimit,
+    maxRuntimeMs: 8000,
+    query,
+  };
+  const queryStartedAt = Date.now();
   const result = spawnSync(invocation.command, invocation.args, { encoding: 'utf8', timeout: 30000, maxBuffer: 8 * 1024 * 1024 });
   const processEvidence = summarizeArangoShellResult(result, { project: values.project, generation: values.generation });
   report.oracleProcess = {
+    queryElapsedMs: Date.now() - queryStartedAt,
+    queryRuntimeLimitMs: 8000,
+    resultRowLimit: scanLimit,
     processSucceeded: processEvidence.processSucceeded,
     exitStatus: processEvidence.exitStatus,
     signal: processEvidence.signal,
@@ -201,10 +219,12 @@ const boundedRawOracle = () => {
     stderrBytes: processEvidence.stderrBytes,
     stdoutJsonComplete: processEvidence.stdoutJsonComplete,
     stdoutRowCount: processEvidence.stdoutRowCount,
-    ...(processEvidence.processSucceeded ? {} : {
+    ...(!processEvidence.processSucceeded || !processEvidence.stdoutJsonComplete ? {
       spawnError: processEvidence.spawnError,
+      stdoutExcerpt: processEvidence.stdoutExcerpt,
+      stdoutTailExcerpt: processEvidence.stdoutTailExcerpt,
       stderrExcerpt: processEvidence.stderrExcerpt,
-    }),
+    } : {}),
   };
   assert(processEvidence.processSucceeded && processEvidence.stdoutJsonComplete,
     `Bounded raw CDA query failed: ${processEvidence.spawnError ?? processEvidence.stderrExcerpt ?? 'incomplete JSON output'}`);
@@ -212,7 +232,7 @@ const boundedRawOracle = () => {
   assert(jsonStart >= 0, `Arango oracle returned no JSON array: ${processEvidence.stdoutTailExcerpt}`);
   const scanned = JSON.parse(result.stdout.slice(jsonStart));
   const oracle = selectNestedAuthoredExpandWitnesses(scanned, {
-    project: values.project, generation: values.generation, scanLimit: 1000, witnessMode,
+    project: values.project, generation: values.generation, scanLimit, witnessMode, searchScope,
   });
   report.oracle = oracle;
   return oracle.selected;

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { getScenario } from '../../registry.mjs';
-import { assertVisibleListCell, selectNestedAuthoredExpandWitnesses } from '../nested-authored-expand-oracle.mjs';
+import { assertVisibleListCell, buildFullScopeMultiCodingWitnessQuery, selectNestedAuthoredExpandWitnesses } from '../nested-authored-expand-oracle.mjs';
 import { createReport, finishReport, recordCheck } from '../report.mjs';
 
 const project = 'loom_cda_fixture';
@@ -85,6 +85,26 @@ test('nested EXPAND oracle preserves flattened code values, duplicate order, sou
     'Duplicate coded values remain separate rows with distinct literal ordinals');
 });
 
+test('full-scope nested EXPAND query binds source scope and selects the requested nested coding cardinality', () => {
+  const multi = buildFullScopeMultiCodingWitnessQuery({ project: 'loom "fixture"', generation });
+  assert(multi.includes('r.project == "loom \\"fixture\\""'));
+  assert(multi.includes('r.dataset_generation == "cda-fhir-v1"'));
+  assert(multi.includes('r.payload.resourceType == "Observation"'));
+  assert(multi.includes('LENGTH(r.payload.component) <= 8'));
+  assert(multi.includes('FILTER LENGTH(invalidLabels) == 0'));
+  assert(multi.includes('FILTER LENGTH(oversizedCodingLists) == 0'));
+  assert(multi.includes('FILTER LENGTH(invalidCodingValues) == 0'));
+  assert(multi.includes('FILTER SUM(codingCounts) >= 2 AND SUM(codingCounts) <= 25'));
+  assert(multi.indexOf('FILTER LENGTH(multiCodingComponents) > 0') < multi.indexOf('LET invalidLabels'),
+    'The selective multi-coding witness filter must run before detailed shape validation');
+  assert(multi.includes('FILTER LENGTH(multiCodingComponents) > 0\nLET invalidLabels'));
+  assert(!multi.includes('SORT '), 'The candidate query must not sort the full matching scope before LIMIT');
+  assert(multi.includes('LIMIT 1'));
+  assert(multi.includes('sourceKey: r._key'));
+  assert.throws(() => buildFullScopeMultiCodingWitnessQuery({ project: '', generation }), /project is required/);
+  assert.throws(() => buildFullScopeMultiCodingWitnessQuery({ project, generation: '' }), /generation is required/);
+});
+
 test('default nested EXPAND mode rejects a single-coding-per-component witness', () => {
   assert.throws(() => selectNestedAuthoredExpandWitnesses([
     observation('only-flat', [
@@ -92,6 +112,25 @@ test('default nested EXPAND mode rejects a single-coding-per-component witness',
       { valueString: 'two', code: { coding: [{ system: 'sys-two', code: 'blue' }] } },
     ]),
   ], { project, generation }), /No bounded Observation has a populated nested coding list with a multi-coding component/);
+});
+
+test('full-scope witness selection reports the empty-parent branch as unsearched', () => {
+  const result = selectNestedAuthoredExpandWitnesses([
+    observation('obs-multi', [{ valueString: 'alpha', code: { coding: [
+      { system: 'sys-one', code: 'red' }, { system: 'sys-two', code: 'blue' },
+    ] } }]),
+  ], { project, generation, scanLimit: 1, searchScope: 'full-scope-candidate' });
+
+  assert.equal(result.searchScope, 'full-scope-candidate');
+  assert.equal(result.witness.hasMultiCodingComponent, true);
+  assert.equal(result.gaps[0].assertion, 'PRESERVE_PARENT emits an explicit row when the nested coding list is empty');
+  assert.match(result.gaps[0].reason, /does not search for an all-empty parent/);
+});
+
+test('full-scope candidate failure only rules out the bounded candidate shape', () => {
+  assert.throws(() => selectNestedAuthoredExpandWitnesses([], {
+    project, generation, scanLimit: 1, searchScope: 'full-scope-candidate',
+  }), /No eligible full-scope candidate Observation has a populated nested coding list with a multi-coding component/);
 });
 
 test('single-coding-per-component mode preserves exact flat value order and source/ordinal tuples', () => {
