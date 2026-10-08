@@ -1,9 +1,15 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { execFileSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
+import {
+  buildArangoShellInvocation,
+  buildBoundedArangoQueryScript,
+  summarizeArangoShellResult,
+} from '../helpers/owned-arangosh-command.mjs';
 
 export const rootRebaseOracleBounds = Object.freeze({
-  patientCandidateLimit: 2000,
+  observationSampleLimit: 10_000,
+  candidatePatientLimit: 25,
   observationSentinelLimit: 26,
   maxRuntimeSeconds: 8,
   memoryLimitBytes: 256 * 1024 * 1024,
@@ -11,18 +17,107 @@ export const rootRebaseOracleBounds = Object.freeze({
   visiblePreviewLimit: 25,
 });
 
-export function buildRootRebaseOracleMetadata(witness) {
-  const { patientCandidateLimit, observationSentinelLimit, maxRuntimeSeconds, memoryLimitBytes, hostTimeoutMs, visiblePreviewLimit } = rootRebaseOracleBounds;
+export function selectRootRebaseWitness(candidates, rereadCandidate, expectedScope) {
+  if (!Array.isArray(candidates)) throw new TypeError('Root-rebase candidates must be an array.');
+  if (typeof rereadCandidate !== 'function') throw new TypeError('Root-rebase candidate rereader must be a function.');
+  if (!expectedScope || typeof expectedScope.project !== 'string' || typeof expectedScope.generation !== 'string') {
+    throw new TypeError('Root-rebase candidate validation requires an expected project and generation.');
+  }
+
+  const { candidatePatientLimit } = rootRebaseOracleBounds;
+  const boundedCandidates = candidates.slice(0, candidatePatientLimit);
+  const attempts = [];
+  let witness = null;
+
+  for (const candidate of boundedCandidates) {
+    const patientId = candidate?.patientId;
+    const sampledObservationCount = candidate?.sampledObservationCount;
+    if (typeof patientId !== 'string' || !patientId) {
+      attempts.push({ patientId: null, sampledObservationCount: sampledObservationCount ?? null, outcome: 'invalid-sample-candidate' });
+      continue;
+    }
+    if (!Number.isInteger(sampledObservationCount) || sampledObservationCount < 2 || sampledObservationCount > 25) {
+      attempts.push({ patientId, sampledObservationCount: sampledObservationCount ?? null, outcome: 'sample-count-out-of-range' });
+      continue;
+    }
+
+    const exactRows = rereadCandidate(patientId);
+    const exact = Array.isArray(exactRows) && exactRows.length === 1 ? exactRows[0] : null;
+    const observations = Array.isArray(exact?.observations) ? exact.observations : [];
+    const observationIDs = observations.map(observation => observation?.id);
+    const duplicateObservationIDs = new Set(observationIDs).size !== observationIDs.length;
+    let outcome = 'accepted';
+
+    if (!Array.isArray(exactRows) || exactRows.length !== 1) outcome = 'patient-row-count';
+    else if (exact.patientId !== patientId) outcome = 'patient-identity-mismatch';
+    else if (exact.project !== expectedScope.project || exact.generation !== expectedScope.generation) outcome = 'patient-scope-mismatch';
+    else if (!Array.isArray(exact.observations)) outcome = 'observation-rows-missing';
+    else if (observations.some(observation => observation?.project !== expectedScope.project
+      || observation?.generation !== expectedScope.generation)) outcome = 'observation-scope-mismatch';
+    else if (observationIDs.length === rootRebaseOracleBounds.observationSentinelLimit
+      || observationIDs.length > rootRebaseOracleBounds.observationSentinelLimit) outcome = 'observation-sentinel-exceeded';
+    else if (observationIDs.length < 2) outcome = 'too-few-observations';
+    else if (observationIDs.some(id => typeof id !== 'string' || !id) || duplicateObservationIDs) outcome = 'invalid-observation-identities';
+
+    const attempt = {
+      patientId,
+      sampledObservationCount: candidate.sampledObservationCount ?? null,
+      exactPatientRows: Array.isArray(exactRows) ? exactRows.length : null,
+      exactObservationCount: observationIDs.length,
+      outcome,
+    };
+    attempts.push(attempt);
+
+    if (outcome === 'accepted' && typeof exact.patientKey === 'string'
+      && exact.patientKey.startsWith('Patient/')) {
+      witness = {
+        patientId: exact.patientId,
+        patientKey: exact.patientKey,
+        project: exact.project,
+        generation: exact.generation,
+        observationIDs,
+      };
+      break;
+    }
+    if (outcome === 'accepted') attempt.outcome = 'invalid-patient-key';
+  }
+
+  return {
+    witness,
+    attempts,
+    sampledCandidateCount: candidates.length,
+    candidatePatientLimit,
+    candidateLimitReached: !witness && boundedCandidates.length === candidatePatientLimit,
+  };
+}
+
+export function buildRootRebaseOracleMetadata(witness, selection) {
+  const {
+    observationSampleLimit,
+    candidatePatientLimit,
+    observationSentinelLimit,
+    maxRuntimeSeconds,
+    memoryLimitBytes,
+    hostTimeoutMs,
+    visiblePreviewLimit,
+  } = rootRebaseOracleBounds;
   return {
     patientId: witness.patientId,
+    patientKey: witness.patientKey,
     observationIDs: witness.observationIDs,
     observationCount: witness.observationIDs.length,
-    candidatePatientLimit: patientCandidateLimit,
-    candidatePatientSort: 'patient.id',
+    observationSampleLimit,
+    candidatePatientLimit,
+    candidateSelectionAttempts: selection.attempts,
+    candidateLimitReached: selection.candidateLimitReached,
+    sampleSelection: 'First 10,000 scoped Observation rows sorted by id; grouped Patient.subject counts only propose candidates.',
+    candidateSort: 'Patient subject reference',
     perPatientObservationSentinelLimit: observationSentinelLimit,
-    sentinelMeaning: 'A 26-row result is at least 26 matches and is excluded; only exact rereads with 2–25 rows are accepted.',
+    sentinelMeaning: 'A 26-row exact result is at least 26 matches and is excluded; only exact scoped rereads with 2–25 rows are accepted.',
     queryCaps: { maxRuntimeSeconds, memoryLimitBytes, hostTimeoutMs },
     exactSelectedPatientReread: true,
+    expectedProject: witness.project,
+    expectedGeneration: witness.generation,
     expectedPatientRows: [witness.patientId],
     expectedObservationRows: witness.observationIDs,
     expectedRestoredPatientRows: [witness.patientId],
@@ -149,12 +244,34 @@ export async function rootRebaseWorkflow({ page, cda }) {
     };
     state.rawOracleQueries.push(identity);
     try {
-      const script = `const rows = db._query(${JSON.stringify(query)}, {}, { maxRuntime: ${identity.maxRuntimeSeconds}, memoryLimit: ${identity.memoryLimitBytes} }).toArray(); print(JSON.stringify(rows));`;
-      const output = execFileSync('rtk', ['docker', 'exec', container, 'arangosh', '--server.database', process.env.LOOM_CDA_DATABASE ?? 'loom_dev', '--javascript.execute-string', script], {
-        encoding: 'utf8', timeout: identity.hostTimeoutMs, maxBuffer: 200000,
+      const script = buildBoundedArangoQueryScript({
+        query,
+        maxRuntimeSeconds: identity.maxRuntimeSeconds,
+        memoryLimitBytes: identity.memoryLimitBytes,
       });
+      const invocation = buildArangoShellInvocation({
+        container,
+        script,
+        database: process.env.LOOM_CDA_DATABASE ?? 'loom_dev',
+      });
+      const result = spawnSync(invocation.command, invocation.args, {
+        encoding: 'utf8',
+        timeout: identity.hostTimeoutMs,
+        maxBuffer: 200000,
+      });
+      const processEvidence = summarizeArangoShellResult(result, { project, generation: 'cda-fhir-v1' });
+      Object.assign(identity, processEvidence);
+      if (!processEvidence.processSucceeded || !processEvidence.stdoutJsonComplete) {
+        identity.status = 'failed';
+        identity.error = processEvidence.spawnError
+          || processEvidence.stderrExcerpt
+          || processEvidence.stdoutTailExcerpt
+          || 'Arangosh did not return a complete JSON row array.';
+        throw new Error(`Scoped Arango query failed (${processEvidence.exitStatus ?? 'no exit status'}${processEvidence.signal ? `, ${processEvidence.signal}` : ''}): ${identity.error}`);
+      }
+      const output = String(result.stdout ?? '');
       const resultStart = output.indexOf('[');
-      assert(resultStart >= 0, `Arangosh returned no JSON rows for ${phase}: ${output.slice(-2000)}`);
+      assert(resultStart >= 0, `Arangosh returned no JSON rows for ${phase}: ${processEvidence.stdoutTailExcerpt}`);
       const rows = JSON.parse(output.slice(resultStart));
       assert(Array.isArray(rows), `Arango ${phase} must return an array`);
       identity.status = 'passed';
@@ -162,7 +279,7 @@ export async function rootRebaseWorkflow({ page, cda }) {
       return rows;
     } catch (error) {
       identity.status = 'failed';
-      identity.error = error instanceof Error ? error.message : String(error);
+      identity.error ??= error instanceof Error ? error.message : String(error);
       throw error;
     } finally {
       identity.durationMs = Date.now() - identity.startedAt;
@@ -170,9 +287,13 @@ export async function rootRebaseWorkflow({ page, cda }) {
   };
   const rawPatients = ids => rawQuery(`FOR d IN Patient FILTER d.project == ${JSON.stringify(project)} AND d.dataset_generation == "cda-fhir-v1" AND d.id IN ${JSON.stringify(ids)} RETURN d.id`, 'exact-patient-row-reread');
   const rawObservationSubjects = ids => rawQuery(`FOR d IN Observation FILTER d.project == ${JSON.stringify(project)} AND d.dataset_generation == "cda-fhir-v1" AND d.id IN ${JSON.stringify(ids)} RETURN {id:d.id,subject:d.payload.subject.reference}`, 'exact-observation-row-reread');
-  const { patientCandidateLimit, observationSentinelLimit } = rootRebaseOracleBounds;
-  const rawPatientObservationWitness = () => rawQuery(`LET patients = (FOR patient IN Patient FILTER patient.project == ${JSON.stringify(project)} AND patient.dataset_generation == "cda-fhir-v1" AND patient.resourceType == "Patient" AND patient.payload.resourceType == "Patient" SORT patient.id LIMIT ${patientCandidateLimit} RETURN {patientId:patient.id,patientKey:patient._id}) FOR patient IN patients LET observationIDs = (FOR observation IN Observation FILTER observation.project == ${JSON.stringify(project)} AND observation.dataset_generation == "cda-fhir-v1" AND observation.resourceType == "Observation" AND observation.payload.resourceType == "Observation" AND observation.payload.subject.reference == CONCAT("Patient/", patient.patientId) SORT observation.id LIMIT ${observationSentinelLimit} RETURN observation.id) FILTER LENGTH(observationIDs) >= 2 AND LENGTH(observationIDs) <= 25 SORT patient.patientId LIMIT 1 RETURN {patientId:patient.patientId,patientKey:patient.patientKey,observationIDs}`, 'bounded-patient-observation-witness')[0];
-  const rawPatientObservationExactReread = patientId => rawQuery(`FOR patient IN Patient FILTER patient.project == ${JSON.stringify(project)} AND patient.dataset_generation == "cda-fhir-v1" AND patient.resourceType == "Patient" AND patient.payload.resourceType == "Patient" AND patient.id == ${JSON.stringify(patientId)} LIMIT 2 LET observationIDs = (FOR observation IN Observation FILTER observation.project == ${JSON.stringify(project)} AND observation.dataset_generation == "cda-fhir-v1" AND observation.resourceType == "Observation" AND observation.payload.resourceType == "Observation" AND observation.payload.subject.reference == CONCAT("Patient/", patient.id) SORT observation.id LIMIT ${observationSentinelLimit} RETURN observation.id) RETURN {patientId:patient.id,patientKey:patient._id,observationIDs}`, 'exact-selected-patient-observation-reread');
+  const {
+    observationSampleLimit,
+    candidatePatientLimit,
+    observationSentinelLimit,
+  } = rootRebaseOracleBounds;
+  const rawPatientObservationWitnessCandidates = () => rawQuery(`FOR observation IN Observation FILTER observation.project == ${JSON.stringify(project)} AND observation.dataset_generation == "cda-fhir-v1" AND observation.resourceType == "Observation" AND observation.payload.resourceType == "Observation" AND IS_STRING(observation.payload.subject.reference) AND STARTS_WITH(observation.payload.subject.reference, "Patient/") SORT observation.id LIMIT ${observationSampleLimit} COLLECT patientReference = observation.payload.subject.reference WITH COUNT INTO sampledObservationCount FILTER sampledObservationCount >= 2 AND sampledObservationCount <= 25 SORT patientReference LIMIT ${candidatePatientLimit} RETURN {patientId:SUBSTRING(patientReference, 8),sampledObservationCount}`, 'bounded-observation-subject-candidate-sample');
+  const rawPatientObservationExactReread = patientId => rawQuery(`FOR patient IN Patient FILTER patient.project == ${JSON.stringify(project)} AND patient.dataset_generation == "cda-fhir-v1" AND patient.resourceType == "Patient" AND patient.payload.resourceType == "Patient" AND patient.id == ${JSON.stringify(patientId)} LIMIT 2 LET observations = (FOR observation IN Observation FILTER observation.project == ${JSON.stringify(project)} AND observation.dataset_generation == "cda-fhir-v1" AND observation.resourceType == "Observation" AND observation.payload.resourceType == "Observation" AND observation.payload.subject.reference == CONCAT("Patient/", patient.id) SORT observation.id LIMIT ${observationSentinelLimit} RETURN {id:observation.id,project:observation.project,generation:observation.dataset_generation}) RETURN {patientId:patient.id,patientKey:patient._id,project:patient.project,generation:patient.dataset_generation,observations}`, 'exact-candidate-patient-observation-reread');
   const command = async commands => {
     const before = await builder();
     const response = await fetch(`${authoringURL}/commands`, {
@@ -390,33 +511,28 @@ export async function rootRebaseWorkflow({ page, cda }) {
   };
 
   try {
-    const witnessCandidate = rawPatientObservationWitness();
-    const exactWitnessRows = witnessCandidate
-      ? rawPatientObservationExactReread(witnessCandidate.patientId)
-      : [];
-    const exactWitness = exactWitnessRows[0];
-    const witnessValid = Boolean(witnessCandidate?.patientId && exactWitnessRows.length === 1
-      && exactWitness?.patientId === witnessCandidate.patientId
-      && exactWitness?.patientKey === witnessCandidate.patientKey
-      && Array.isArray(witnessCandidate.observationIDs)
-      && witnessCandidate.observationIDs.length >= 2
-      && witnessCandidate.observationIDs.length <= 25
-      && Array.isArray(exactWitness.observationIDs)
-      && exactWitness.observationIDs.length >= 2
-      && exactWitness.observationIDs.length <= 25
-      && JSON.stringify(exactWitness.observationIDs) === JSON.stringify(witnessCandidate.observationIDs));
+    const witnessCandidates = rawPatientObservationWitnessCandidates();
+    const witnessSelection = selectRootRebaseWitness(
+      witnessCandidates,
+      patientId => rawPatientObservationExactReread(patientId),
+      { project, generation: 'cda-fhir-v1' },
+    );
+    const witness = witnessSelection.witness;
+    const witnessValid = Boolean(witness);
+    state.oracleCandidateSelection = witnessSelection;
     recordRequiredCheck(0, 'correctness', witnessValid, {
-      candidate: witnessCandidate, exactReread: exactWitness,
-      candidateRows: exactWitnessRows.length,
-      candidatePatientLimit: patientCandidateLimit,
+      candidateCount: witnessCandidates.length,
+      candidateLimit: candidatePatientLimit,
+      observationSampleLimit,
+      selectionAttempts: witnessSelection.attempts,
+      exactWitness: witness,
       perPatientObservationSentinelLimit: observationSentinelLimit,
       queryCaps: { maxRuntimeSeconds: 8, memoryLimitBytes: 256 * 1024 * 1024, hostTimeoutMs: 30_000 },
       project, generation: 'cda-fhir-v1', visiblePreviewLimit: 25,
     });
     assert(witnessValid,
-      `The bounded project/generation raw oracle must find one Patient with 2–25 Observations and an exact nontruncated reread; a 26-row sentinel is rejected: ${JSON.stringify({ witnessCandidate, exactWitnessRows })}`);
-    const witness = exactWitness;
-    state.oracle = buildRootRebaseOracleMetadata(witness);
+      `The bounded project/generation raw oracle must find one Patient with 2–25 exact Observations among its first ${candidatePatientLimit} sampled candidates; a 26-row sentinel and any query failure are rejected: ${JSON.stringify(witnessSelection)}`);
+    state.oracle = buildRootRebaseOracleMetadata(witness, witnessSelection);
     await cda.navigate( pageURL);
     await cda.wait( () => document.body.innerText.includes('DATASET WORKSPACE'));
     state.tablesBefore = await cda.inspect( () => [...document.querySelectorAll('button[data-testid^="construction-table-"]')].map(button => button.innerText.trim().split(String.fromCharCode(10)).at(-1)));
