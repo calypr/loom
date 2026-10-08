@@ -60,7 +60,9 @@ test.describe('standalone CDA reshape workflows', () => {
   register('group-related-values', runGroupRelatedValuesBrowserWorkflow);
   register('related-group', runRelatedGroupBrowserWorkflow);
   register('group-related-summary', runGroupRelatedSummaryBrowserWorkflow);
-  register('group-edit-before-related-column', runGroupEditBeforeRelatedColumnBrowserWorkflow);
+  register('group-edit-before-related-column', runGroupEditBeforeRelatedColumnBrowserWorkflow, {}, {
+    cdaUiRouting: 'explicit-query',
+  });
 
   register('pivot-category-cycle', runPivotCategoryCycleBrowserWorkflow);
   register('pivot-related-apply-only', runPivotCategoryCycleBrowserWorkflow, { relatedApplyOnly: true });

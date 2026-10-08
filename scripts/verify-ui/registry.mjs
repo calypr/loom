@@ -1718,8 +1718,18 @@ export const registry = Object.freeze([
           {
             id: 'group-edit-server-explorer-id',
             cwd: '.',
-            command: ['node-test', 'scripts/verify-ui/helpers/tests/created-explorer-scope.test.mjs'],
-            sourceFiles: ['scripts/verify-ui/helpers/created-explorer-scope.mjs'],
+            command: [
+              'node-test',
+              'scripts/verify-ui/helpers/tests/created-explorer-scope.test.mjs',
+              'scripts/verify-ui/helpers/tests/cda-explicit-ui-route.test.mjs',
+            ],
+            sourceFiles: [
+              'scripts/verify-ui/helpers/created-explorer-scope.mjs',
+              'scripts/loom-dev.mjs',
+              'scripts/verify-ui/helpers/cda-fixtures.mjs',
+              'scripts/verify-ui/specs/standalone-reshape.spec.mjs',
+              'ui/apps/demo/src/main.tsx',
+            ],
           },
         ],
         requiredChecks: [
@@ -2094,6 +2104,20 @@ export const registry = Object.freeze([
         playwrightGrep: 'native INCLUDE and EXCLUDE Membership use two exact grouped Observation ID populations',
         expectedIdentity: { project: 'loom_dev_cda_fhir', generation: 'cda-fhir-v1' },
         focusedChecks: [
+          {
+            id: 'membership-ui-route-identity',
+            cwd: '.',
+            command: [
+              'node-test', 'scripts/verify-ui/helpers/tests/cda-explicit-ui-route.test.mjs',
+            ],
+            sourceFiles: [
+              'scripts/loom-dev.mjs',
+              'scripts/verify-ui/helpers/cda-fixtures.mjs',
+              'scripts/verify-ui/specs/cda-current-draft-membership.spec.mjs',
+              'scripts/verify-ui/specs/standalone-reshape.spec.mjs',
+              'ui/apps/demo/src/main.tsx',
+            ],
+          },
           {
             id: 'membership-source-group',
             cwd: 'ui/packages/loom-ui',

@@ -235,6 +235,38 @@ function finishCdaReport(report) {
   }
 }
 
+export const assertCdaExplicitUIRoute = (rawURL, target) => {
+  let url;
+  try { url = new URL(rawURL); }
+  catch { throw new Error('CDA explicit UI route must be an absolute URL'); }
+  const expectedOrigin = new URL(target.uiUrl).origin;
+  assert.equal(url.origin, expectedOrigin, 'CDA explicit UI route must use the owned UI origin');
+  assert.equal(url.username, '', 'CDA explicit UI route must not include credentials');
+  assert.equal(url.password, '', 'CDA explicit UI route must not include credentials');
+  assert.equal(url.pathname, '/', 'CDA explicit UI route must use the demo root');
+  assert.equal(url.hash, '', 'CDA explicit UI route must not include a fragment');
+
+  const projects = url.searchParams.getAll('project');
+  assert.equal(projects.length, 1, 'CDA explicit UI route must contain one project query value');
+  assert.equal(projects[0], target.fixtureProject, 'CDA explicit UI route must select the owned fixture project');
+  const explorers = url.searchParams.getAll('explorer');
+  assert.equal(explorers.length, 1, 'CDA explicit UI route must contain one Explorer query value');
+  assert.match(explorers[0], /^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/, 'CDA explicit UI route must select a valid Explorer identity');
+  const modes = url.searchParams.getAll('mode');
+  assert.equal(modes.length, 1, 'CDA explicit UI route must contain one mode query value');
+  assert.equal(modes[0], 'builder', 'CDA explicit UI route must select Builder mode');
+  return { project: projects[0], explorer: explorers[0], mode: modes[0] };
+};
+
+export const createCdaNavigator = ({ target, uiRouting = 'defaults', navigateTo }) => {
+  if (!['defaults', 'explicit-query'].includes(uiRouting)) throw new Error(`unsupported CDA UI routing mode: ${uiRouting}`);
+  if (typeof navigateTo !== 'function') throw new TypeError('CDA navigator requires a page navigation function');
+  return rawURL => {
+    if (uiRouting === 'explicit-query') assertCdaExplicitUIRoute(rawURL, target);
+    return navigateTo(rawURL);
+  };
+};
+
 export { expect, finishCdaReport };
 export const test = base.extend({
   cdaProject: [process.env.LOOM_CDA_PROJECT, { option: true }],
@@ -252,6 +284,7 @@ export const test = base.extend({
   cdaExplorer: [process.env.LOOM_CDA_EXPLORER_ID ?? process.env.LOOM_CDA_EXPLORER ?? process.env.LOOM_QA_EXPLORER, { option: true }],
   cdaScenarioID: ['cda-native', { option: true }],
   cdaCaseName: ['workflow', { option: true }],
+  cdaUiRouting: ['defaults', { option: true }],
   cdaRequireClickhouse: [false, { option: true }],
   cdaRequireSourceFixture: [false, { option: true }],
 
@@ -272,6 +305,7 @@ export const test = base.extend({
     cdaExplorer,
     cdaScenarioID,
     cdaCaseName,
+    cdaUiRouting,
     cdaRequireClickhouse,
     cdaRequireSourceFixture,
   }, use, testInfo) => {
@@ -327,7 +361,7 @@ export const test = base.extend({
         LOOM_DEV_GENERATION: env.LOOM_CDA_GENERATION,
         LOOM_DEV_ARTIFACTS: resolve(configuredSourceRoot, '.artifacts/cda-playwright'),
       }, configuredSourceRoot);
-      await assertOwnedDevSession(devTarget);
+      await assertOwnedDevSession(devTarget, { uiRouting: cdaUiRouting });
       const apiContainerLabels = execFileSync('docker', [
         'inspect', '--format', '{{index .Config.Labels "com.docker.compose.project"}}|{{index .Config.Labels "com.docker.compose.service"}}',
         env.LOOM_CDA_API_CONTAINER,
@@ -1054,7 +1088,11 @@ export const test = base.extend({
       press: (selector, key, timeout) => press(page, selector, key, timeout, context),
       selectOption: (selector, value, options) => selectOption(page, selector, value, options, context),
       scrollIntoView: (selector, identity, timeout) => scrollIntoView(page, selector, identity, timeout, context),
-      navigate: url => navigate(page, url, context),
+      navigate: createCdaNavigator({
+        target,
+        uiRouting: cdaUiRouting,
+        navigateTo: url => navigate(page, url, context),
+      }),
       inspect: (callback, args) => browserEval(page, callback, args),
       wait: (callback, args, timeout) => waitForBrowser(page, callback, args, timeout),
       captureRequests: (ownedPathPrefix, options = {}) => {

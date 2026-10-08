@@ -820,13 +820,30 @@ const compose = (target, args, options = {}) => run('docker', ['compose', '--pro
 
 const docker = (target, args, options = {}) => run('docker', args, { env: commandEnvironment(target), ...options });
 
-const inspectOwnedResources = async (target, { requirePorts = false } = {}) => {
-  const listed = await compose(target, ['ps', '-aq']);
+const DEV_UI_ROUTING_MODES = new Set(['defaults', 'explicit-query']);
+
+const assertDevUIRoutingConfiguration = (target, environment, routing = 'defaults') => {
+  if (!DEV_UI_ROUTING_MODES.has(routing)) throw new Error(`unsupported development UI routing mode: ${routing}`);
+  if (routing === 'explicit-query') return;
+  if (environment.VITE_LOOM_PROJECT !== target.fixtureProject || environment.VITE_LOOM_EXPLORER !== BOOTSTRAP_EXPLORER_NAME) {
+    throw new Error('development UI defaults do not target this session fixture and bootstrap Explorer');
+  }
+};
+
+const inspectOwnedResources = async (target, {
+  requirePorts = false,
+  uiRouting = 'defaults',
+  resourceCommands,
+} = {}) => {
+  if (!DEV_UI_ROUTING_MODES.has(uiRouting)) throw new Error(`unsupported development UI routing mode: ${uiRouting}`);
+  const runCompose = (args) => resourceCommands?.compose ? resourceCommands.compose(args) : compose(target, args);
+  const runDocker = (args) => resourceCommands?.docker ? resourceCommands.docker(args) : docker(target, args);
+  const listed = await runCompose(['ps', '-aq']);
   if (listed.code !== 0) throw new Error(`cannot inspect Compose ownership: ${listed.stderr || listed.stdout}`);
   const ids = listed.stdout.split(/\s+/).filter(Boolean);
   const services = new Set();
   if (ids.length > 0) {
-    const inspected = await docker(target, ['inspect', ...ids]);
+    const inspected = await runDocker(['inspect', ...ids]);
     if (inspected.code !== 0) throw new Error(`cannot inspect development containers: ${inspected.stderr || inspected.stdout}`);
     let containers;
     try { containers = JSON.parse(inspected.stdout); } catch { throw new Error('docker inspect returned invalid JSON'); }
@@ -856,20 +873,18 @@ const inspectOwnedResources = async (target, { requirePorts = false } = {}) => {
           const separator = entry.indexOf('=');
           return separator < 0 ? [entry, ''] : [entry.slice(0, separator), entry.slice(separator + 1)];
         }));
-        if (environment.VITE_LOOM_PROJECT !== target.fixtureProject || environment.VITE_LOOM_EXPLORER !== BOOTSTRAP_EXPLORER_NAME) {
-          throw new Error('development UI defaults do not target this session fixture and bootstrap Explorer');
-        }
+        assertDevUIRoutingConfiguration(target, environment, uiRouting);
       }
     }
   }
   if (requirePorts && (services.size !== OWNED_SERVICES.size || [...OWNED_SERVICES].some((service) => !services.has(service)))) {
     throw new Error(`development Compose is missing an owned service (found: ${[...services].sort().join(', ') || 'none'})`);
   }
-  const volumesListed = await docker(target, ['volume', 'ls', '-q', '--filter', `label=com.docker.compose.project=${target.composeProject}`]);
+  const volumesListed = await runDocker(['volume', 'ls', '-q', '--filter', `label=com.docker.compose.project=${target.composeProject}`]);
   if (volumesListed.code !== 0) throw new Error(`cannot inspect development volumes: ${volumesListed.stderr || volumesListed.stdout}`);
   const volumes = volumesListed.stdout.split(/\s+/).filter(Boolean);
   if (volumes.length > 0) {
-    const volumeInspect = await docker(target, ['volume', 'inspect', ...volumes]);
+    const volumeInspect = await runDocker(['volume', 'inspect', ...volumes]);
     if (volumeInspect.code !== 0) throw new Error(`cannot inspect development volumes: ${volumeInspect.stderr || volumeInspect.stdout}`);
     let volumeValues;
     try { volumeValues = JSON.parse(volumeInspect.stdout); } catch { throw new Error('docker volume inspect returned invalid JSON'); }
@@ -880,7 +895,8 @@ const inspectOwnedResources = async (target, { requirePorts = false } = {}) => {
   return { ids, volumes };
 };
 
-export const assertOwnedDevSession = async (target) => inspectOwnedResources(target, { requirePorts: true });
+export const assertOwnedDevSession = async (target, { uiRouting = 'defaults', resourceCommands } = {}) =>
+  inspectOwnedResources(target, { requirePorts: true, uiRouting, resourceCommands });
 
 const request = async (url, options = {}) => {
   const controller = new AbortController();

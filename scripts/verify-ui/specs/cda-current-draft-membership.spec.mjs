@@ -5,6 +5,7 @@ test.describe('CDA current-draft GROUP to GROUP Membership', () => {
   test.use({
     cdaScenarioID: 'cda-current-draft-membership',
     cdaCaseName: 'membership',
+    cdaUiRouting: 'explicit-query',
     cdaRequireSourceFixture: true,
   });
 
