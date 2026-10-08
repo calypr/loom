@@ -55,7 +55,9 @@ test.describe('standalone CDA reshape workflows', () => {
     register(`implicit-pivot-${mode}`, runImplicitPivotWorkflow, { mode });
   }
 
-  register('group-add-fields', runGroupAddFieldsBrowserWorkflow);
+  register('group-add-fields', runGroupAddFieldsBrowserWorkflow, {}, {
+    cdaUiRouting: 'explicit-query',
+  });
   register('group-one-conflict', runGroupOneConflictBrowserWorkflow);
   register('group-related-values', runGroupRelatedValuesBrowserWorkflow);
   register('related-group', runRelatedGroupBrowserWorkflow);
