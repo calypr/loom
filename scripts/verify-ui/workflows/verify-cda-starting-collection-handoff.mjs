@@ -121,6 +121,42 @@ export const startingCollectionRenderedPreviewDraftEvidence = ({ preview, expect
   return { ok: failures.length === 0, failures };
 };
 
+export async function waitForStartingCollectionConfigurationRequests({
+  browserEvents,
+  explorerPath,
+  selectionId,
+  outputId,
+  fromIndex,
+  startedAt,
+  now = Date.now,
+  timeoutMs = ACTION_BUDGET_MS,
+}) {
+  const deadline = startedAt + timeoutMs;
+  const waitForOwnedRequest = async (method, path, label, matchesRequest = () => true) => {
+    const remainingMs = deadline - now();
+    assert(remainingMs > 0, `Configure rows exceeded its ${timeoutMs} ms request-completion deadline before ${label}`);
+    const request = await browserEvents.waitFor(entry =>
+      entry.method === method && entry.path === path && entry.startedAt >= startedAt &&
+        entry.triggerAction === 'Configure rows' && matchesRequest(entry),
+    { fromIndex, timeoutMs: remainingMs });
+    assert(Number.isFinite(request.completedAt) && request.completedAt <= deadline,
+      `Configure rows ${label} did not reach captured terminal completion before its ${timeoutMs} ms deadline`);
+    assert.equal(request.failure, undefined,
+      `Configure rows ${label} failed: ${request.failure ?? 'request failure was not recorded'}`);
+    assert(Number.isInteger(request.status) && request.status >= 200 && request.status < 300,
+      `Configure rows ${label} returned HTTP ${request.status ?? 'without a successful status'}`);
+    return request;
+  };
+
+  const selectionPath = `${explorerPath}/selections/${encodeURIComponent(selectionId)}`;
+  const populationRoutesPath = `${explorerPath}/authoring/v2/population-routes`;
+  const selectionRead = await waitForOwnedRequest('GET', selectionPath, 'exact selection revision GET',
+    entry => entry.query?.limit === '100');
+  const populationRoutes = await waitForOwnedRequest('POST', populationRoutesPath, 'population-routes POST',
+    entry => entry.body?.selectionRevisionId === selectionId && entry.body?.outputId === outputId);
+  return { selectionRead, populationRoutes, deadline };
+}
+
 export async function startingCollectionHandoffWorkflow({ page, cda }) {
   const project = cda.project;
   const generation = cda.target.fixtureGeneration ?? cda.target.generation;
@@ -221,12 +257,53 @@ export async function startingCollectionHandoffWorkflow({ page, cda }) {
     await wait(([selector]) => Boolean(document.querySelector(selector)), [outputSelector]);
     await cda.click(outputSelector);
     await wait(() => document.querySelector('[data-testid="construction-rows-settings-trigger"]')?.disabled === false);
-    await cda.click('[data-testid="construction-rows-settings-trigger"]');
-    await wait(([id]) => {
-      const panel = document.querySelector('section[aria-label="Starting collection"]');
-      return panel?.getAttribute('data-selection-revision-id') === id &&
-        !panel.innerText.includes('Loading the saved selection…');
-    }, [selectionId]);
+    const configureRowsStartedAt = Date.now();
+    const configureRowsRequestFromIndex = cda.report.nativeRequests.length;
+    const remainingConfigureRowsMs = () => {
+      const remainingMs = configureRowsStartedAt + ACTION_BUDGET_MS - Date.now();
+      assert(remainingMs > 0,
+        `Configure rows exceeded its ${ACTION_BUDGET_MS} ms deadline before the starting collection was ready`);
+      return remainingMs;
+    };
+    let requests;
+    const settingsTrigger = page.getByTestId('construction-rows-settings-trigger');
+    await cda.action('Configure rows', settingsTrigger,
+      locator => locator.click({ timeout: remainingConfigureRowsMs() }), {
+        timeout: remainingConfigureRowsMs(),
+        after: async () => {
+          await wait(([id]) => {
+            const panel = document.querySelector('section[aria-label="Starting collection"]');
+            return panel?.getAttribute('data-selection-revision-id') === id &&
+              !panel.innerText.includes('Loading the saved selection…');
+          }, [selectionId], remainingConfigureRowsMs());
+          requests = await waitForStartingCollectionConfigurationRequests({
+            browserEvents,
+            explorerPath,
+            selectionId,
+            outputId,
+            fromIndex: configureRowsRequestFromIndex,
+            startedAt: configureRowsStartedAt,
+          });
+        },
+      });
+    const elapsedMs = Date.now() - configureRowsStartedAt;
+    addCheckpoint('Configure rows to captured starting-collection requests', elapsedMs);
+    (report.lifecycle.configureRows ??= []).push({
+      selectionRevisionId: selectionId,
+      startedAt: configureRowsStartedAt,
+      deadline: requests.deadline,
+      elapsedMs,
+      requests: [requests.selectionRead, requests.populationRoutes].map(request => ({
+        browserRequestId: request.browserRequestId,
+        requestId: request.requestId,
+        method: request.method,
+        path: request.path,
+        status: request.status,
+        startedAt: request.startedAt,
+        completedAt: request.completedAt,
+        responseBodyCaptured: browserEvents.rawResponseBody(request) !== undefined,
+      })),
+    });
   };
 
   try {
