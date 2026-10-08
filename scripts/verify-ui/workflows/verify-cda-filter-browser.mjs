@@ -22,6 +22,53 @@ export function assertFilterBrowserDefaultMode(env = process.env) {
   assert.notEqual(env.LOOM_GROUP_FILTER_UPSTREAM_EDIT, '1', 'The registered filter-lifecycle case must not enable upstream Group edit');
 }
 
+const filterLifecycleChecks = [
+  ['choice', 'usability', 'native Filter rows controls expose an enabled source column and typed condition'],
+  ['proposal', 'correctness', 'filter proposals and rendered result values match an independent scoped CDA source oracle within five seconds'],
+  ['cancel', 'persistence', 'Cancel preserves the exact pre-proposal construction and rendered rows within five seconds'],
+  ['apply', 'persistence', 'Apply persists the filter construction and exact result rows within five seconds'],
+  ['savedRows', 'correctness', 'saved filter rows match the independent scoped CDA oracle'],
+  ['reload', 'persistence', 'reload restores the saved filter and exact rendered rows'],
+  ['edit', 'persistence', 'edit reopens the exact saved column and condition before applying a replacement within five seconds'],
+  ['restoration', 'persistence', 'filter removal restores the exact source columns, population, and rows after reload'],
+];
+
+export const FILTER_PERFORMANCE_CHECK = 'All native Filter actions and action-to-render checkpoints complete within five seconds';
+
+export function recordFilterLifecycleChecks(cda, lifecycle) {
+  for (const [phase, dimension, name] of filterLifecycleChecks) {
+    assert(lifecycle[phase]?.status === 'passed', `Filter lifecycle phase ${phase} did not complete`);
+    const evidence = { ...lifecycle[phase] };
+    if (/within five seconds|within budget|action-to-render/i.test(name)) delete evidence.durationMs;
+    cda.check(dimension, name, true, evidence);
+  }
+}
+
+export function recordFilterPerformanceCheck(cda, cases, actions) {
+  const workflowCheckpoints = Array.isArray(cases)
+    ? cases.map(item => ({ name: item?.name, durationMs: item?.durationMs }))
+    : [];
+  const nativeActions = Array.isArray(actions) ? actions : [];
+  const validCheckpoints = workflowCheckpoints.length > 0 && workflowCheckpoints.every(checkpoint =>
+    typeof checkpoint.name === 'string' && checkpoint.name.trim().length > 0 &&
+    Number.isFinite(checkpoint.durationMs) && checkpoint.durationMs >= 0 && checkpoint.durationMs <= 5000);
+  const validActions = nativeActions.length > 0 && nativeActions.every(action =>
+    action?.status === 'passed' && Number.isFinite(action.elapsedMs) && action.elapsedMs >= 0 && action.elapsedMs <= 5000);
+  const finiteCheckpointDurations = workflowCheckpoints.map(checkpoint => checkpoint.durationMs)
+    .filter(durationMs => Number.isFinite(durationMs) && durationMs >= 0);
+  const finiteActionDurations = nativeActions.map(action => action?.elapsedMs)
+    .filter(durationMs => Number.isFinite(durationMs) && durationMs >= 0);
+  const evidence = {
+    workflowCheckpoints,
+    workflowCheckpointCount: workflowCheckpoints.length,
+    maximumWorkflowCheckpointMs: finiteCheckpointDurations.length ? Math.max(...finiteCheckpointDurations) : null,
+    nativeActionCount: nativeActions.length,
+    maximumNativeActionMs: finiteActionDurations.length ? Math.max(...finiteActionDurations) : null,
+    budgetMs: 5000,
+  };
+  return cda.check('performance', FILTER_PERFORMANCE_CHECK, validCheckpoints && validActions, evidence);
+}
+
 export async function filterBrowserWorkflow({ page, cda }) {
   const savedOperator = process.env.LOOM_SAVED_FILTER_OPERATOR;
   assert(!savedOperator || ['NOT_EQUALS', 'IN', 'CONTAINS_TEXT', 'GT'].includes(savedOperator), 'Saved operator regression covers scalar inequality, list membership, text matching and numeric comparison');
@@ -523,20 +570,8 @@ export async function filterBrowserWorkflow({ page, cda }) {
       assert.deepEqual(final.population, doc(baseline).population);
       assert.deepEqual(final.columns, doc(baseline).columns, 'Native filter removal must preserve every source column field, including its stable ID');
     }
-    const requiredChecks = [
-      ['choice', 'usability', 'native Filter rows controls expose an enabled source column and typed condition'],
-      ['proposal', 'correctness', 'filter proposals and rendered result values match an independent scoped CDA source oracle within five seconds'],
-      ['cancel', 'persistence', 'Cancel preserves the exact pre-proposal construction and rendered rows within five seconds'],
-      ['apply', 'persistence', 'Apply persists the filter construction and exact result rows within five seconds'],
-      ['savedRows', 'correctness', 'saved filter rows match the independent scoped CDA oracle'],
-      ['reload', 'persistence', 'reload restores the saved filter and exact rendered rows'],
-      ['edit', 'persistence', 'edit reopens the exact saved column and condition before applying a replacement within five seconds'],
-      ['restoration', 'persistence', 'filter removal restores the exact source columns, population, and rows after reload'],
-    ];
-    for (const [phase, dimension, name] of requiredChecks) {
-      assert(lifecycle[phase]?.status === 'passed', `Filter lifecycle phase ${phase} did not complete`);
-      cda.check(dimension, name, true, lifecycle[phase]);
-    }
+    recordFilterLifecycleChecks(cda, lifecycle);
+    recordFilterPerformanceCheck(cda, report.cases, cda.report.actions);
     cda.includeBrowserDiagnostics();
     assert.deepEqual(report.errors, []);
     report.status = 'passed';

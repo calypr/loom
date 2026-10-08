@@ -334,7 +334,23 @@ test('lifecycle phase references point to the named applied, edited, reloaded, a
     'reload restores the saved filter and exact rendered rows',
     'edit reopens the exact saved column and condition before applying a replacement within five seconds',
     'filter removal restores the exact source columns, population, and rows after reload',
+    'All native Filter actions and action-to-render checkpoints complete within five seconds',
   ]);
+});
+
+test('Filter rows registry requires the full lifecycle and native performance check', () => {
+  const owner = registry.find((entry) => entry.id === 'builder-authoring');
+  const coverage = owner.coverage.find((entry) => entry.feature === 'Filter rows');
+  const scenario = registry.find((entry) => entry.id === 'cda-filter-browser');
+  const requiredChecks = scenarioCaseFor(scenario, 'filter-lifecycle').requiredChecks;
+
+  assert.equal(coverage.status, 'implemented');
+  assert.match(coverage.reason, /Current native source-table Filter lifecycle passed 9\/9 registered checks/);
+  assert.deepEqual(coverage.acceptance.checks,
+    { choice: 0, proposal: 1, cancel: 2, apply: 3, savedRows: 4, reload: 5, edit: 6, restoration: 7 });
+  assert.equal(requiredChecks.length, 9);
+  assert.equal(requiredChecks[8], 'All native Filter actions and action-to-render checkpoints complete within five seconds');
+  assert.equal(hasLifecycleContract(coverage, owner), true);
 });
 
 test('row-operation gate rejects missing lifecycle links and invalid named-check references', () => {
