@@ -5,11 +5,14 @@ import test from 'node:test';
 import { captureCDARequests } from '../cda-playwright-requests.mjs';
 import { waitForStartingCollectionConfigurationRequests } from '../../workflows/verify-cda-starting-collection-handoff.mjs';
 
-const origin = 'http://127.0.0.1:8188';
+const origin = 'http://127.0.0.1:30008';
+const apiOrigin = 'http://127.0.0.1:8188';
 const explorerPath = '/api/v1/projects/owned/explorers/explorer-1';
 const selectionId = 'selection-revision-1';
 const outputId = 'output-1';
+const snapshotToken = `sha256:${'a'.repeat(64)}`;
 const selectionPath = `${explorerPath}/selections/${selectionId}`;
+const rowDefinitionChoicesPath = `${explorerPath}/authoring/v2/row-definition-choices`;
 const populationRoutesPath = `${explorerPath}/authoring/v2/population-routes`;
 
 const makeRequest = (path, method, requestId, { query = '', body } = {}) => ({
@@ -32,16 +35,18 @@ const makeCapture = () => {
   const report = { nativeRequests: [], errors: [] };
   let currentAction = 'Configure rows';
   const capture = captureCDARequests(page, {
-    apiOrigin: origin,
+    apiOrigin,
+    browserRequestOrigin: origin,
+    appOrigins: [apiOrigin, origin],
     ownedPathPrefix: explorerPath,
     report,
     currentAction: () => currentAction,
-    responsePaths: /selections|population-routes/,
+    responsePaths: /selections|row-definition-choices|population-routes/,
   });
   return { page, report, capture, setCurrentAction: value => { currentAction = value; } };
 };
 
-test('the native Configure rows action keeps panel readiness and request capture in its original budget', async () => {
+test('each starting-collection opener declares its native state and keeps terminal reads in the action budget', async () => {
   const source = await readFile(new URL('../../workflows/verify-cda-starting-collection-handoff.mjs', import.meta.url), 'utf8');
   const openStart = source.indexOf('const openStartingCollection = async');
   const openEnd = source.indexOf('\n  try {', openStart);
@@ -60,79 +65,68 @@ test('the native Configure rows action keeps panel readiness and request capture
     'the native action must await panel readiness and exact captured request completion before recording its duration');
   assert.match(openAction.slice(action), /after:\s*async\s*\(\)\s*=>\s*\{/,
     'both waits must stay in the existing cda.action after phase');
+  const initialOpen = source.indexOf("await openStartingCollection(selection.id, outputSelector, 'unattached-handoff');");
+  const restoredOpen = source.indexOf("await openStartingCollection(selection.id, outputSelector, 'saved-attachment-after-reload');");
+  assert(initialOpen >= 0 && restoredOpen > initialOpen,
+    'the initial and restored collection opens must declare their distinct native states explicitly');
+  assert(openAction.includes('snapshotToken: builder.catalog.snapshotToken'),
+    'both request variants must be bound to the exact saved draft snapshot');
 });
 
-test('Configure rows waits for exact selection and population-route response bodies before returning', async () => {
+test('the unattached handoff accepts its captured route-choice and route request shape', async () => {
   const { page, report, capture, setCurrentAction } = makeCapture();
   const startedAt = Date.now();
+  setCurrentAction(undefined);
+  const initialSelectionRequest = makeRequest(selectionPath, 'GET', 'initial-selection-get', { query: '?limit=1' });
+  page.emit('request', initialSelectionRequest);
+  page.emit('response', makeResponse(initialSelectionRequest, 200,
+    async () => '{"revision":{"id":"selection-revision-1","memberCount":2},"members":[{}]}'));
+  await capture.waitFor(entry => entry.requestId === 'initial-selection-get' && entry.completedAt);
+
+  const fromIndex = report.nativeRequests.length;
+  setCurrentAction('Configure rows');
   const waiting = waitForStartingCollectionConfigurationRequests({
     browserEvents: capture,
     explorerPath,
     selectionId,
     outputId,
-    fromIndex: report.nativeRequests.length,
+    snapshotToken,
+    phase: 'unattached-handoff',
+    fromIndex,
     startedAt,
   });
   let resolved = false;
   waiting.then(() => { resolved = true; });
-
   setCurrentAction('Unrelated native action');
-  const wrongActionRequest = makeRequest(selectionPath, 'GET', 'wrong-selection-action', { query: '?limit=100' });
-  page.emit('request', wrongActionRequest);
-  page.emit('response', makeResponse(wrongActionRequest, 200, async () => '{"revision":{"id":"selection-revision-1"}}'));
+  const wrongActionChoicesRequest = makeRequest(rowDefinitionChoicesPath, 'GET', 'wrong-route-choice-action', {
+    query: `?outputId=${outputId}&snapshotToken=${encodeURIComponent(snapshotToken)}`,
+  });
+  page.emit('request', wrongActionChoicesRequest);
+  page.emit('response', makeResponse(wrongActionChoicesRequest, 200, async () => '{"choices":[]}'));
   await new Promise(resolve => setImmediate(resolve));
-  assert.equal(resolved, false, 'an exact endpoint completed under another native action must not satisfy Configure rows');
+  assert.equal(resolved, false, 'an exact route-choice request under a different native action must not satisfy Configure rows');
   setCurrentAction('Configure rows');
-
-  for (const wrongSelection of [
-    makeRequest(`${explorerPath}/selections/another-revision`, 'GET', 'wrong-selection-revision', { query: '?limit=100' }),
-    makeRequest(selectionPath, 'POST', 'wrong-selection-method', {
-      query: '?limit=100', body: { selectionRevisionId: selectionId, outputId },
-    }),
-    makeRequest(selectionPath, 'GET', 'wrong-selection-limit', { query: '?limit=1' }),
-  ]) {
-    page.emit('request', wrongSelection);
-    page.emit('response', makeResponse(wrongSelection, 200, async () => '{"revision":{"id":"selection-revision-1"}}'));
-    await new Promise(resolve => setImmediate(resolve));
-    assert.equal(resolved, false,
-      'another revision, method, or page size must not satisfy the exact Configure rows selection read');
-  }
-
-  const selectionRequest = makeRequest(selectionPath, 'GET', 'selection-get', { query: '?limit=100' });
-  page.emit('request', selectionRequest);
-  let finishSelectionBody;
-  page.emit('response', makeResponse(selectionRequest, 200, () => new Promise(resolve => {
-    finishSelectionBody = resolve;
+  const wrongSnapshotChoicesRequest = makeRequest(rowDefinitionChoicesPath, 'GET', 'wrong-route-choice-snapshot', {
+    query: `?outputId=${outputId}&snapshotToken=sha256%3Awrong-snapshot`,
+  });
+  page.emit('request', wrongSnapshotChoicesRequest);
+  page.emit('response', makeResponse(wrongSnapshotChoicesRequest, 200, async () => '{"choices":[]}'));
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(resolved, false, 'route choices for a different saved draft must not satisfy the unattached handoff');
+  const routeChoicesRequest = makeRequest(rowDefinitionChoicesPath, 'GET', 'row-definition-choices-get', {
+    query: `?outputId=${outputId}&snapshotToken=${encodeURIComponent(snapshotToken)}`,
+  });
+  page.emit('request', routeChoicesRequest);
+  let finishRouteChoicesBody;
+  page.emit('response', makeResponse(routeChoicesRequest, 200, () => new Promise(resolve => {
+    finishRouteChoicesBody = resolve;
   })));
   await new Promise(resolve => setImmediate(resolve));
-  const capturedSelection = report.nativeRequests.find(entry => entry.requestId === 'selection-get');
-  assert.equal(capturedSelection.status, 200);
-  assert.equal(capturedSelection.completedAt, undefined,
-    'response headers alone must not count as captured terminal evidence');
-  assert.equal(resolved, false);
-
-  finishSelectionBody('{"revision":{"id":"selection-revision-1"}}');
-  await new Promise(resolve => setImmediate(resolve));
-  assert.equal(resolved, false,
-    'the first endpoint alone must not let Configure rows return before the population-routes request');
-
-  const wrongRevisionRoutesRequest = makeRequest(populationRoutesPath, 'POST', 'wrong-population-routes-revision', {
-    body: { selectionRevisionId: 'another-selection', outputId },
-  });
-  page.emit('request', wrongRevisionRoutesRequest);
-  page.emit('response', makeResponse(wrongRevisionRoutesRequest, 200, async () => '{"routes":[]}'));
-  await new Promise(resolve => setImmediate(resolve));
-  assert.equal(resolved, false, 'a population-route response for another selection must not satisfy the action');
-  const wrongOutputRoutesRequest = makeRequest(populationRoutesPath, 'POST', 'wrong-population-routes-output', {
-    body: { selectionRevisionId: selectionId, outputId: 'another-output' },
-  });
-  page.emit('request', wrongOutputRoutesRequest);
-  page.emit('response', makeResponse(wrongOutputRoutesRequest, 200, async () => '{"routes":[]}'));
-  await new Promise(resolve => setImmediate(resolve));
-  assert.equal(resolved, false, 'a population-route response for another output must not satisfy the action');
+  assert.equal(report.nativeRequests.find(entry => entry.requestId === 'row-definition-choices-get').completedAt, undefined,
+    'response headers alone must not satisfy the initial route-choice read');
 
   const routesRequest = makeRequest(populationRoutesPath, 'POST', 'population-routes-post', {
-    body: { selectionRevisionId: selectionId, outputId },
+    body: { snapshotToken, selectionRevisionId: selectionId, outputId, limit: 50 },
   });
   page.emit('request', routesRequest);
   let finishRoutesBody;
@@ -141,23 +135,108 @@ test('Configure rows waits for exact selection and population-route response bod
   })));
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(report.nativeRequests.find(entry => entry.requestId === 'population-routes-post').completedAt, undefined);
-  assert.equal(resolved, false,
-    'the route endpoint must also finish response-body capture before Configure rows returns');
-
-  finishRoutesBody('{"routes":[]}');
+  const wrongSelectionRoutesRequest = makeRequest(populationRoutesPath, 'POST', 'wrong-population-routes-selection', {
+    body: { snapshotToken, selectionRevisionId: 'another-selection', outputId, limit: 50 },
+  });
+  page.emit('request', wrongSelectionRoutesRequest);
+  page.emit('response', makeResponse(wrongSelectionRoutesRequest, 200, async () => '{"choices":[]}'));
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(resolved, false, 'a population route for a different selection must not satisfy the unattached handoff');
+  finishRouteChoicesBody('{"choices":[]}');
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(report.nativeRequests.find(entry => entry.requestId === 'row-definition-choices-get').completedAt !== undefined, true);
+  finishRoutesBody(JSON.stringify({ snapshotToken, outputId, selectionRevisionId: selectionId, choices: [] }));
   const result = await waiting;
   await capture.flush();
 
-  assert.equal(result.selectionRead, report.nativeRequests.find(entry => entry.requestId === 'selection-get'));
+  assert.equal(result.phase, 'unattached-handoff');
+  assert.equal(result.phaseRequest, report.nativeRequests.find(entry => entry.requestId === 'row-definition-choices-get'));
   assert.equal(result.populationRoutes, report.nativeRequests.find(entry => entry.requestId === 'population-routes-post'));
   assert.equal(result.deadline, startedAt + 5_000);
-  assert.equal(capture.rawResponseBody(result.selectionRead).revision.id, selectionId);
-  assert.deepEqual(capture.rawResponseBody(result.populationRoutes), { routes: [] });
+  assert.deepEqual(capture.rawResponseBody(result.phaseRequest), { choices: [] });
+  assert.deepEqual(capture.rawResponseBody(result.populationRoutes), {
+    snapshotToken,
+    outputId,
+    selectionRevisionId: selectionId,
+    choices: [],
+  });
   assert(report.nativeRequests.every(entry => Number.isFinite(entry.completedAt) && entry.status === 200));
   assert.deepEqual(report.errors, []);
 });
 
-test('Configure rows spends one original deadline across both exact requests', async () => {
+test('the restored attached state waits for its exact full-page selection read and population route', async () => {
+  const { page, report, capture, setCurrentAction } = makeCapture();
+  const startedAt = Date.now();
+  const waiting = waitForStartingCollectionConfigurationRequests({
+    browserEvents: capture,
+    explorerPath,
+    selectionId,
+    outputId,
+    snapshotToken,
+    phase: 'saved-attachment-after-reload',
+    fromIndex: 0,
+    startedAt,
+  });
+  let resolved = false;
+  waiting.then(() => { resolved = true; });
+  setCurrentAction('Unrelated native action');
+  const wrongActionSelectionRequest = makeRequest(selectionPath, 'GET', 'wrong-restored-selection-action', { query: '?limit=100' });
+  page.emit('request', wrongActionSelectionRequest);
+  page.emit('response', makeResponse(wrongActionSelectionRequest, 200,
+    async () => '{"revision":{"id":"selection-revision-1","memberCount":2},"members":[{},{}]}'));
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(resolved, false, 'a full-page selection read under a different action must not satisfy the restored panel');
+  setCurrentAction('Configure rows');
+  const wrongLimitSelectionRequest = makeRequest(selectionPath, 'GET', 'wrong-restored-selection-limit', { query: '?limit=1' });
+  page.emit('request', wrongLimitSelectionRequest);
+  page.emit('response', makeResponse(wrongLimitSelectionRequest, 200,
+    async () => '{"revision":{"id":"selection-revision-1","memberCount":2},"members":[{}]}'));
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(resolved, false, 'the first-page handoff read must not stand in for the restored full-page read');
+  const selectionRequest = makeRequest(selectionPath, 'GET', 'restored-selection-get', { query: '?limit=100' });
+  page.emit('request', selectionRequest);
+  let finishSelectionBody;
+  page.emit('response', makeResponse(selectionRequest, 200, () => new Promise(resolve => {
+    finishSelectionBody = resolve;
+  })));
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(report.nativeRequests.find(entry => entry.requestId === 'restored-selection-get').completedAt, undefined,
+    'selection response headers alone must not count as terminal response-body capture');
+  finishSelectionBody('{"revision":{"id":"selection-revision-1","memberCount":2},"members":[{},{}]}');
+  await new Promise(resolve => setImmediate(resolve));
+
+  const routesRequest = makeRequest(populationRoutesPath, 'POST', 'restored-population-routes-post', {
+    body: { snapshotToken, selectionRevisionId: selectionId, outputId, limit: 50 },
+  });
+  page.emit('request', routesRequest);
+  page.emit('response', makeResponse(routesRequest, 200, async () => JSON.stringify({
+    snapshotToken, outputId, selectionRevisionId: selectionId, choices: [],
+  })));
+  const result = await waiting;
+  await capture.flush();
+
+  assert.equal(result.phase, 'saved-attachment-after-reload');
+  assert.equal(result.phaseRequest, report.nativeRequests.find(entry => entry.requestId === 'restored-selection-get'));
+  assert.equal(result.populationRoutes, report.nativeRequests.find(entry => entry.requestId === 'restored-population-routes-post'));
+  assert.equal(capture.rawResponseBody(result.phaseRequest).revision.id, selectionId);
+  assert.equal(capture.rawResponseBody(result.phaseRequest).members.length, 2);
+  assert.deepEqual(report.errors, []);
+});
+
+test('unknown starting-collection request phases fail closed', async () => {
+  await assert.rejects(waitForStartingCollectionConfigurationRequests({
+    browserEvents: { waitFor: () => assert.fail('unknown phases must not start request matching') },
+    explorerPath,
+    selectionId,
+    outputId,
+    snapshotToken,
+    phase: 'unknown-reopen-state',
+    fromIndex: 0,
+    startedAt: Date.now(),
+  }), /Unknown starting-collection configuration phase/);
+});
+
+test('Configure rows spends one original deadline across the restored state exact requests', async () => {
   const startedAt = 10_000;
   const calls = [];
   let clock = startedAt;
@@ -170,7 +249,7 @@ test('Configure rows spends one original deadline across both exact requests', a
   ];
   entries[0].query = { limit: '100' };
   entries[0].triggerAction = 'Configure rows';
-  entries[1].body = { selectionRevisionId: selectionId, outputId };
+  entries[1].body = { snapshotToken, selectionRevisionId: selectionId, outputId };
   entries[1].triggerAction = 'Configure rows';
   const browserEvents = {
     waitFor(predicate, options) {
@@ -187,6 +266,8 @@ test('Configure rows spends one original deadline across both exact requests', a
     explorerPath,
     selectionId,
     outputId,
+    snapshotToken,
+    phase: 'saved-attachment-after-reload',
     fromIndex: 3,
     startedAt,
     now: () => clock,
@@ -197,7 +278,7 @@ test('Configure rows spends one original deadline across both exact requests', a
     'both requests remain scoped to events recorded after the Configure rows click');
 });
 
-test('a terminal failed exact request remains fatal instead of satisfying Configure rows', async () => {
+test('a terminal failed population-routes request remains fatal in restored attached state', async () => {
   const { page, report, capture } = makeCapture();
   const startedAt = Date.now();
   const waiting = waitForStartingCollectionConfigurationRequests({
@@ -205,6 +286,8 @@ test('a terminal failed exact request remains fatal instead of satisfying Config
     explorerPath,
     selectionId,
     outputId,
+    snapshotToken,
+    phase: 'saved-attachment-after-reload',
     fromIndex: 0,
     startedAt,
   });
@@ -215,7 +298,7 @@ test('a terminal failed exact request remains fatal instead of satisfying Config
   await capture.waitFor(entry => entry.path === selectionPath && entry.status === 200);
 
   const routesRequest = makeRequest(populationRoutesPath, 'POST', 'population-routes-post', {
-    body: { selectionRevisionId: selectionId, outputId },
+    body: { snapshotToken, selectionRevisionId: selectionId, outputId },
   });
   page.emit('request', routesRequest);
   page.emit('response', makeResponse(routesRequest, 503, async () => '{"error":"unavailable"}'));

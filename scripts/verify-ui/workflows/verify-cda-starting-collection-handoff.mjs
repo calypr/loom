@@ -126,11 +126,31 @@ export async function waitForStartingCollectionConfigurationRequests({
   explorerPath,
   selectionId,
   outputId,
+  snapshotToken,
+  phase,
   fromIndex,
   startedAt,
   now = Date.now,
   timeoutMs = ACTION_BUDGET_MS,
 }) {
+  const phaseRequest = phase === 'unattached-handoff'
+    ? {
+      method: 'GET',
+      path: `${explorerPath}/authoring/v2/row-definition-choices`,
+      label: 'row-definition-choices GET',
+      matches: entry => entry.query?.outputId === outputId && entry.query?.snapshotToken === snapshotToken,
+    }
+    : phase === 'saved-attachment-after-reload'
+      ? {
+        method: 'GET',
+        path: `${explorerPath}/selections/${encodeURIComponent(selectionId)}`,
+        label: 'exact selection revision GET',
+        matches: entry => entry.query?.limit === '100',
+      }
+      : null;
+  assert(phaseRequest, `Unknown starting-collection configuration phase: ${phase}`);
+  assert(typeof snapshotToken === 'string' && snapshotToken.length > 0,
+    'Starting-collection configuration requests require the exact saved snapshot token');
   const deadline = startedAt + timeoutMs;
   const waitForOwnedRequest = async (method, path, label, matchesRequest = () => true) => {
     const remainingMs = deadline - now();
@@ -148,13 +168,13 @@ export async function waitForStartingCollectionConfigurationRequests({
     return request;
   };
 
-  const selectionPath = `${explorerPath}/selections/${encodeURIComponent(selectionId)}`;
   const populationRoutesPath = `${explorerPath}/authoring/v2/population-routes`;
-  const selectionRead = await waitForOwnedRequest('GET', selectionPath, 'exact selection revision GET',
-    entry => entry.query?.limit === '100');
+  const firstRequest = await waitForOwnedRequest(phaseRequest.method, phaseRequest.path, phaseRequest.label,
+    phaseRequest.matches);
   const populationRoutes = await waitForOwnedRequest('POST', populationRoutesPath, 'population-routes POST',
-    entry => entry.body?.selectionRevisionId === selectionId && entry.body?.outputId === outputId);
-  return { selectionRead, populationRoutes, deadline };
+    entry => entry.body?.selectionRevisionId === selectionId && entry.body?.outputId === outputId &&
+      entry.body?.snapshotToken === snapshotToken);
+  return { phase, phaseRequest: firstRequest, populationRoutes, deadline };
 }
 
 export async function startingCollectionHandoffWorkflow({ page, cda }) {
@@ -253,7 +273,7 @@ export async function startingCollectionHandoffWorkflow({ page, cda }) {
     return cda.inspect(startingCollectionVisiblePreviewSnapshot);
   };
 
-  const openStartingCollection = async (selectionId, outputSelector) => {
+  const openStartingCollection = async (selectionId, outputSelector, phase) => {
     await wait(([selector]) => Boolean(document.querySelector(selector)), [outputSelector]);
     await cda.click(outputSelector);
     await wait(() => document.querySelector('[data-testid="construction-rows-settings-trigger"]')?.disabled === false);
@@ -281,19 +301,22 @@ export async function startingCollectionHandoffWorkflow({ page, cda }) {
             explorerPath,
             selectionId,
             outputId,
+            snapshotToken: builder.catalog.snapshotToken,
+            phase,
             fromIndex: configureRowsRequestFromIndex,
             startedAt: configureRowsStartedAt,
           });
         },
       });
     const elapsedMs = Date.now() - configureRowsStartedAt;
-    addCheckpoint('Configure rows to captured starting-collection requests', elapsedMs);
+    addCheckpoint(`Configure rows ${phase} to terminal starting-collection requests`, elapsedMs);
     (report.lifecycle.configureRows ??= []).push({
+      phase,
       selectionRevisionId: selectionId,
       startedAt: configureRowsStartedAt,
       deadline: requests.deadline,
       elapsedMs,
-      requests: [requests.selectionRead, requests.populationRoutes].map(request => ({
+      requests: [requests.phaseRequest, requests.populationRoutes].map(request => ({
         browserRequestId: request.browserRequestId,
         requestId: request.requestId,
         method: request.method,
@@ -401,7 +424,7 @@ export async function startingCollectionHandoffWorkflow({ page, cda }) {
     pageURL.searchParams.set('selection', selection.id);
     report.lifecycle.handoffIngress = { host: pageURL.origin, queryParameter: 'selection' };
     browserEvents = cda.captureRequests(explorerPath, {
-      responsePaths: /selections|population-routes|commands|reconcile|preview/,
+      responsePaths: /selections|row-definition-choices|population-routes|commands|reconcile|preview/,
     });
     const initialRequestIndex = cda.report.nativeRequests.length;
     const initialLoadStarted = Date.now();
@@ -422,7 +445,7 @@ export async function startingCollectionHandoffWorkflow({ page, cda }) {
     assert.deepEqual(initialSelectionResponse.members[0].ref, selectedRefs.find(ref => ref.id === initialSelectionResponse.members[0].ref.id),
       'The browser page must contain an exact scoped member of the independently verified immutable selection');
     const outputSelector = `[data-testid="construction-table-${outputId}"]`;
-    await openStartingCollection(selection.id, outputSelector);
+    await openStartingCollection(selection.id, outputSelector, 'unattached-handoff');
     const handoffLoadMs = Date.now() - initialLoadStarted;
     addCheckpoint('standalone URL handoff to visible starting collection', handoffLoadMs);
     const initialSelectionReads = cda.report.nativeRequests.filter(request =>
@@ -663,7 +686,7 @@ export async function startingCollectionHandoffWorkflow({ page, cda }) {
     report.lifecycle.reloadPreviewRenderMs = reloadRenderMs;
     assert.equal(new URL(page.url()).searchParams.get('selection'), selection.id,
       'Reload must preserve the standalone selection handoff URL');
-    await openStartingCollection(selection.id, outputSelector);
+    await openStartingCollection(selection.id, outputSelector, 'saved-attachment-after-reload');
     const reloadedSelectionRead = await browserEvents.waitFor(request =>
       request.method === 'GET' && request.path === selectionReadPath && request.status === 200,
     { fromIndex: reloadRequestIndex, timeoutMs: ACTION_BUDGET_MS });
