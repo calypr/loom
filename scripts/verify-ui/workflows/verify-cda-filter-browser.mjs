@@ -1,6 +1,12 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
+import {
+  CDA_COMPOSITE_GROUP_FILTER_SCOPE,
+  prepareCdaCompositeGroupFilterOracle,
+  validateCdaCompositeScalarFieldCandidate,
+  validateCdaCompositeGroupCandidate,
+} from '../helpers/cda-composite-group-filter-oracle.mjs';
 
 export function buildFilterBrowserOracleQuery({ project, generation, numeric = false, booleanCase = false }) {
   assert.equal(typeof project, 'string', 'The raw filter oracle requires a project identity');
@@ -35,8 +41,9 @@ const filterLifecycleChecks = [
 
 export const FILTER_PERFORMANCE_CHECK = 'All native Filter actions and action-to-render checkpoints complete within five seconds';
 
-export function recordFilterLifecycleChecks(cda, lifecycle) {
+export function recordFilterLifecycleChecks(cda, lifecycle, { includeRestoration = true } = {}) {
   for (const [phase, dimension, name] of filterLifecycleChecks) {
+    if (phase === 'restoration' && !includeRestoration) continue;
     assert(lifecycle[phase]?.status === 'passed', `Filter lifecycle phase ${phase} did not complete`);
     const evidence = { ...lifecycle[phase] };
     if (/within five seconds|within budget|action-to-render/i.test(name)) delete evidence.durationMs;
@@ -71,6 +78,10 @@ export function recordFilterPerformanceCheck(cda, cases, actions) {
 
 export async function filterBrowserWorkflow({ page, cda }) {
   const savedOperator = process.env.LOOM_SAVED_FILTER_OPERATOR;
+  const compositeGroupShape = process.env.LOOM_FILTER_GROUP_SHAPE;
+  assert(!compositeGroupShape || compositeGroupShape === 'COMPOSITE_ID_SUBJECT', 'Unsupported composite Group Filter shape');
+  assert(!compositeGroupShape || (!savedOperator && !process.env.LOOM_FILTER_VALUE_TYPE && process.env.LOOM_GROUP_FILTER_UPSTREAM_EDIT !== '1'),
+    'Composite ID/subject lifecycle owns the saved Filter and Group shape');
   assert(!savedOperator || ['NOT_EQUALS', 'IN', 'CONTAINS_TEXT', 'GT'].includes(savedOperator), 'Saved operator regression covers scalar inequality, list membership, text matching and numeric comparison');
   const numeric = savedOperator === 'GT';
   const booleanCase = process.env.LOOM_FILTER_VALUE_TYPE === 'BOOLEAN';
@@ -91,7 +102,9 @@ export async function filterBrowserWorkflow({ page, cda }) {
   const root = `/api/v1/projects/${project}/explorers`;
   const base = `${root}/${explorer}/authoring/v2`;
   const report = cda.report;
-  Object.assign(report, { savedOperator, booleanCase, integerGroup, upstreamGroupEdit, explorer, cases: [], errors: report.errors ?? [], requests: [], started: new Date().toISOString() });
+  Object.assign(report, { savedOperator, booleanCase, integerGroup, upstreamGroupEdit, explorer,
+    ...(compositeGroupShape ? { compositeGroupShape } : {}),
+    cases: [], errors: report.errors ?? [], requests: [], started: new Date().toISOString() });
   const lifecycle = report.lifecycle = { choice: null, proposal: null, cancel: null, apply: null, savedRows: null, reload: null, edit: null, restoration: null };
   let builder, outputId, savedValues, sourceValue, sourceCell, sourceRow, filterColumnId, browserEvents, fatal, lastRenderedRows;
   let lastProposedState;
@@ -142,6 +155,7 @@ export async function filterBrowserWorkflow({ page, cda }) {
     builder = await api(base + '/builder');
   };
   const doc = state => state.workspace.documents.find(d => d.output.id === outputId);
+  const comparableRows = rows => compositeGroupShape ? rows.map(row => JSON.stringify(row)).sort() : rows;
   const restoredSourceDocument = document => ({
     ...document,
     construction: document.construction ?? { version: 1, steps: [] },
@@ -160,7 +174,9 @@ export async function filterBrowserWorkflow({ page, cda }) {
     await cda.wait(() => Boolean(['ready','error','needs-repair'].includes(document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalStatus)), []);
     const result = await cda.inspect(() => { const p=document.querySelector('[data-testid="construction-proposal-panel"]');return {status:p?.dataset.proposalStatus,proposalId:p?.dataset.proposalId,text:p?.innerText,rows:[...document.querySelectorAll('[data-testid="construction-proposal-preview-row"]')].map(r=>[...r.querySelectorAll('td')].map(c=>c.innerText))}; });
     assert.equal(result.status, 'ready', result.text);
-    assert.deepEqual(result.rows, expectedRows, 'Preview must match the independently selected CDA record');
+    assert.deepEqual(comparableRows(result.rows), comparableRows(expectedRows), compositeGroupShape
+      ? 'Preview must match the exact composite CDA tuples'
+      : 'Preview must match the independently selected CDA record');
     lastProposedState = {
       construction: response.response?.candidateConstruction,
       digest: response.response?.candidateWorkspaceDigest,
@@ -228,10 +244,366 @@ export async function filterBrowserWorkflow({ page, cda }) {
   const rendered = async expectedRows => {
     await cda.wait(([__arg0]) => Boolean(document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount') === __arg0 && !document.body.innerText.includes('Loading your table…')), [String(expectedRows.length + 1)]);
     const rows = await cda.inspect(() => { return [...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]')].slice(1).map(r=>[...r.querySelectorAll('[role="cell"]')].map(c=>c.innerText.trim())).filter(r=>r.length); });
-    assert.deepEqual(rows, expectedRows, 'Saved rendered rows must match the CDA oracle');
+    assert.deepEqual(comparableRows(rows), comparableRows(expectedRows), 'Saved rendered rows must match the CDA oracle');
     return rows;
   };
+  const runCompositeGroupShape = async () => {
+    const { project, generation } = CDA_COMPOSITE_GROUP_FILTER_SCOPE;
+    assert.equal(cda.project, project, 'Composite Group Filter requires the retained CDA project.');
+    assert.equal(cda.generation, generation, 'Composite Group Filter requires the retained CDA generation.');
+    report.target = cda.target;
+
+    const documentKeys = [
+      'Observation/g_002482914ae97ded29d46c1544fe91cfe27045c3bad2f6c2aa47c78d1aceba8a',
+      'Observation/g_0085ddbf0da77b57206f4b61163804ed6bf8acfd753ab0df2cfed281467795e4',
+      'Observation/g_00949cd27ee02ff9d84c2ec3f7bbbd0310ec111549529630f72612193c5a7676',
+      'Observation/g_2cf7f289f769d5ee33f965257888b111d64234e442fc59d5552868583265ff61',
+    ];
+    const query = `FOR r IN Observation FILTER r._id IN ${JSON.stringify(documentKeys)}
+      AND r.project == ${JSON.stringify(project)} AND r.dataset_generation == ${JSON.stringify(generation)}
+      AND r.payload.resourceType == "Observation" SORT r._id
+      RETURN {_id:r._id,id:r.id,project:r.project,generation:r.dataset_generation,
+        resourceType:r.payload.resourceType,subjectReference:r.payload.subject.reference}`;
+    const raw = spawnSync('rtk', ['proxy', 'docker', 'exec', cda.target.arangoContainer, 'arangosh',
+      '--server.database', 'loom_dev', '--javascript.execute-string',
+      `print(JSON.stringify(db._query(${JSON.stringify(query)}).toArray()));`], { encoding: 'utf8', timeout: 30000 });
+    assert.equal(raw.status, 0, raw.stderr);
+    const rawStart = raw.stdout.indexOf('[');
+    assert(rawStart >= 0, `Composite Group Filter oracle returned no JSON array: ${raw.stdout.slice(-800)}`);
+    const sourceRecords = JSON.parse(raw.stdout.slice(rawStart));
+    const oracle = prepareCdaCompositeGroupFilterOracle(sourceRecords, { project, generation });
+    const sourceRows = [...sourceRecords].sort((left, right) => JSON.stringify([left.id, left.subjectReference]).localeCompare(JSON.stringify([right.id, right.subjectReference])))
+      .map(row => [row.id, row.subjectReference]);
+    report.oracle = {
+      query, source: { project, generation, resourceType: 'Observation', records: sourceRecords },
+      groupRows: oracle.groupRows, sharedSubjectRows: oracle.sharedSubjectRows,
+      leftOnlySubjectRows: oracle.leftOnlySubjectRows,
+    };
+    assert.equal(sourceRows.length, 4);
+    assert.equal(oracle.groupRows.length, 4);
+    assert.equal(oracle.sharedSubjectRows.length, 3);
+    assert.equal(oracle.leftOnlySubjectRows.length, 1);
+
+    await api(root, { name: explorer, title: 'Composite Group Filter lifecycle QA' });
+    builder = await api(base + '/builder');
+    assert.equal(builder.catalog.generation, generation);
+    const roots = builder.catalog.nodes.filter(node => node.resourceType === 'Observation' && node.rowRootEligible);
+    assert.equal(roots.length, 1, 'The retained CDA catalog must expose one eligible Observation source.');
+    const rootNode = roots[0];
+    await command([{ type: 'CREATE_TABLE', title: 'Composite Group Filter source', rootNodeId: rootNode.nodeId }]);
+    outputId = builder.workspace.documents[0].output.id;
+
+    const candidatesFor = fieldPath => builder.catalog.candidates.filter(candidate =>
+      candidate.nodeId === rootNode.nodeId && candidate.fieldPath === fieldPath);
+    const idCandidates = candidatesFor('id');
+    const subjectCandidates = candidatesFor('subject.reference');
+    assert.equal(idCandidates.length, 1, 'Observation.id must have one exact direct-field candidate.');
+    assert.equal(subjectCandidates.length, 1, 'Observation.subject.reference must have one exact direct-field candidate.');
+    const idCandidate = idCandidates[0];
+    const subjectCandidate = subjectCandidates[0];
+    const idCandidateId = validateCdaCompositeScalarFieldCandidate(idCandidate, 'id', 'Observation.id');
+    const subjectCandidateId = validateCdaCompositeScalarFieldCandidate(subjectCandidate, 'subject.reference', 'Observation.subject.reference');
+    assert.notEqual(idCandidateId, subjectCandidateId);
+    const candidateEvidence = [idCandidate, subjectCandidate].map(candidate => ({
+      candidateId: candidate.candidateId, fieldPath: candidate.fieldPath, cardinality: candidate.cardinality,
+      shape: candidate.shape, logicalType: candidate.logicalType, valueType: candidate.valueType,
+    }));
+    await command([
+      { type: 'ADD_COLUMN', outputId, occurrenceId: 'base', candidateId: idCandidateId,
+        projectionMode: 'VALUE', initialPresentation: 'TABLE', title: 'Observation ID' },
+      { type: 'ADD_COLUMN', outputId, occurrenceId: 'base', candidateId: subjectCandidateId,
+        projectionMode: 'VALUE', initialPresentation: 'TABLE', title: 'Subject reference' },
+    ]);
+    const selection = await api(base.replace('/authoring/v2', '/selections'), {
+      snapshotToken: builder.catalog.snapshotToken, idempotencyKey: explorer,
+      source: { kind: 'resources', resources: { refs: sourceRecords.map(row => ({
+        project, generation, resourceType: 'Observation', id: row.id,
+      })) } },
+    });
+    assert.equal(selection.project, project);
+    assert.equal(selection.generation, generation);
+    assert.equal(selection.resourceType, 'Observation');
+    assert.equal(selection.memberCount, 4);
+    const routes = await api(base + '/population-routes', {
+      snapshotToken: builder.catalog.snapshotToken, outputId, selectionRevisionId: selection.id, limit: 50,
+    });
+    const direct = routes.choices.find(choice => choice.route.length === 0);
+    assert(direct, 'The exact four-Observation fixture selection must use the direct source population.');
+    await command([{ type: 'SET_TABLE_POPULATION', outputId, selectionRevisionId: selection.id, routeChoiceId: direct.routeChoiceId }]);
+
+    const sourceBaseline = await api(base + '/builder');
+    builder = sourceBaseline;
+    const sourceDocument = doc(sourceBaseline);
+    assert.equal(sourceDocument.columns.length, 2, 'The source must retain exactly the two selected scalar columns.');
+    const sourceIDColumn = sourceDocument.columns.find(column => column.source?.field?.path === 'id');
+    const sourceSubjectColumn = sourceDocument.columns.find(column => column.source?.field?.path === 'subject.reference');
+    assert(sourceIDColumn && sourceSubjectColumn);
+    assert.equal(sourceIDColumn.source.field.projectionMode, 'VALUE');
+    assert.equal(sourceSubjectColumn.source.field.projectionMode, 'VALUE');
+    assert.equal(sourceIDColumn.logicalType, 'string');
+    assert.equal(sourceSubjectColumn.logicalType, 'string');
+    assert.notEqual(sourceIDColumn.columnId, sourceSubjectColumn.columnId);
+    assert.deepEqual(sourceDocument.columns.map(column => column.source?.field?.path), ['id', 'subject.reference']);
+    assert(!sourceDocument.columns.some(column => column.source?.field?.path === 'code.coding.code'));
+    const sourceCandidateBindings = {
+      candidates: candidateEvidence,
+      columns: [sourceIDColumn, sourceSubjectColumn].map(column => ({
+        columnId: column.columnId, label: column.label, logicalType: column.logicalType,
+        source: column.source,
+      })),
+    };
+    report.compositeGroupOracle = {
+      selectionId: selection.id, selectedDocumentIDs: sourceRecords.map(row => row._id),
+      scalarSourceBindings: sourceCandidateBindings, groupRows: oracle.groupRows,
+      sharedSubject: oracle.sharedSubject, sharedSubjectRows: oracle.sharedSubjectRows,
+      leftOnlySubject: oracle.leftOnlySubject, leftOnlySubjectRows: oracle.leftOnlySubjectRows,
+    };
+    const check = (dimension, name, checkEvidence) => cda.check(dimension, name, true, checkEvidence);
+    check('correctness', 'scoped Observation oracle returns the exact four source records and scalar id/reference keys', {
+      query, project, generation, records: sourceRecords, sourceRows,
+      candidates: candidateEvidence, sourceColumns: sourceCandidateBindings.columns,
+    });
+    browserEvents = cda.captureRequests(base);
+    await open(sourceRows);
+    builder = await api(base + '/builder');
+    const expectedSourceDocument = restoredSourceDocument(doc(builder));
+    const sourceWorkspace = structuredClone(builder.workspace);
+
+    const groupCheckbox = column => `input[type="checkbox"][aria-label=${JSON.stringify(`Group by ${column.label}`)}]`;
+    const configureGroup = async name => {
+      const started = Date.now();
+      await cda.click('[data-testid="construction-rows-settings-trigger"]');
+      await cda.wait(() => Boolean(document.querySelector('[data-testid="construction-action-group-rows"]:not(:disabled)')), [], 5000);
+      await cda.click('[data-testid="construction-action-group-rows"]');
+      await cda.wait(() => Boolean(document.querySelector('select[aria-label="Summary 1"]:not(:disabled)')), []);
+      assert.equal(await cda.inspect(() => document.querySelector('select[aria-label="Summary 1"]')?.value), 'COUNT_ROWS');
+      for (const column of [sourceIDColumn, sourceSubjectColumn]) {
+        const selector = groupCheckbox(column);
+        await cda.wait(([target]) => Boolean(document.querySelector(target) && !document.querySelector(target).disabled), [selector]);
+        await cda.click(selector);
+      }
+      await proposal(name, started, oracle.groupRows);
+      const candidate = validateCdaCompositeGroupCandidate({
+        candidateConstruction: lastProposedState.construction, sourceIDColumn, sourceSubjectColumn,
+      });
+      report.compositeGroupOracle.groupCandidate = candidate;
+      return { started, candidate };
+    };
+
+    const initialGroupPreview = await configureGroup('composite-id-subject-group-preview');
+    check('correctness', 'Group preview returns the exact four literal id/subject/count tuples', {
+      candidate: initialGroupPreview.candidate, expectedRows: oracle.groupRows,
+      previewRows: report.cases.at(-1)?.result?.rows,
+    });
+    const cancelGroupStarted = Date.now();
+    await cda.click('[data-testid="construction-cancel-proposal"]');
+    await cda.wait(() => Boolean(!document.querySelector('[data-testid="construction-proposal-panel"]')), []);
+    const afterGroupCancel = await api(base + '/builder');
+    assert.deepEqual(afterGroupCancel.workspace, sourceWorkspace, 'Group Cancel must preserve the exact source workspace.');
+    const groupCancelRows = await rendered(sourceRows);
+    const groupCancelDurationMs = recordRender('composite-group-cancel-to-source-rows', cancelGroupStarted);
+    check('persistence', 'Group Cancel preserves the exact source construction and rendered rows within five seconds', {
+      draftDigest: afterGroupCancel.draftDigest, sourceRows, actualRows: groupCancelRows, durationMs: groupCancelDurationMs,
+    });
+
+    await configureGroup('confirmed-composite-id-subject-group-preview');
+    await apply(oracle.groupRows);
+    await open(oracle.groupRows);
+    builder = await api(base + '/builder');
+    const savedGroupDocument = structuredClone(doc(builder));
+    const groupStep = savedGroupDocument.construction.steps.find(step => step.operation.kind === 'GROUP');
+    assert(groupStep);
+    assert.equal(savedGroupDocument.construction.steps.length, 1);
+    const groupCandidate = validateCdaCompositeGroupCandidate({
+      candidateConstruction: savedGroupDocument.construction, sourceIDColumn, sourceSubjectColumn,
+    });
+    assert.deepEqual(savedGroupDocument.columns, sourceDocument.columns,
+      'The Group must retain the exact two direct scalar source columns.');
+    assert.deepEqual(comparableRows(lastRenderedRows), comparableRows(oracle.groupRows));
+    check('persistence', 'Group Apply persists the exact composite key tuples and count rows within five seconds', {
+      candidate: groupCandidate, construction: savedGroupDocument.construction,
+      expectedRows: oracle.groupRows, actualRows: lastRenderedRows,
+    });
+    check('persistence', 'Group reload restores the exact composite Group snapshot and rows within five seconds', {
+      draftDigest: builder.draftDigest, construction: savedGroupDocument.construction,
+      expectedRows: oracle.groupRows, actualRows: lastRenderedRows,
+    });
+
+    const groupSubjectKey = groupStep.operation.group.keys.find(key => key.inputColumnId === sourceSubjectColumn.columnId);
+    assert(groupSubjectKey);
+    const subjectOutput = groupStep.outputs.find(column => column.id === groupSubjectKey.outputColumnId);
+    assert(subjectOutput, 'The generated Group output must retain the direct subject.reference key.');
+    const groupBaseline = structuredClone(builder);
+    const groupBaselineDocument = structuredClone(savedGroupDocument);
+    const waitForFilterEditor = () => cda.wait(() => Boolean(
+      document.querySelector('[data-testid="construction-filter-editor"] select[aria-label="Column"]:not(:disabled)')), []);
+    const openMissingFilter = async () => {
+      const started = Date.now();
+      await cda.click('[data-testid="construction-action-keep-rows"]');
+      await waitForFilterEditor();
+      const selector = '[data-testid="construction-filter-editor"] select[aria-label="Column"]';
+      await cda.wait(([target, value]) => Boolean([...document.querySelector(target).options]
+        .some(option => option.value === value && !option.disabled)), [selector, subjectOutput.id]);
+      await cda.selectOption(selector, subjectOutput.id);
+      await cda.selectOption('[data-testid="construction-filter-editor"] select[aria-label="Condition"]', 'MISSING');
+      await recordFilterChoice();
+      lifecycle.choice.durationMs = recordRender('open-composite-filter-editor', started);
+    };
+    const validateFilterCandidate = (operator, value) => {
+      const steps = lastProposedState?.construction?.steps;
+      assert(Array.isArray(steps) && steps.length === 2, 'Composite Filter must retain one Group and append one Filter step.');
+      assert.deepEqual(steps[0], groupStep, 'Composite Filter must preserve the exact saved Group step.');
+      const filterStep = steps[1];
+      assert.equal(filterStep.operation.kind, 'FILTER');
+      assert.deepEqual(filterStep.inputs, [{ kind: 'STEP_OUTPUT', stepId: groupStep.id }]);
+      assert.equal(filterStep.operation.filter.columnId, subjectOutput.id);
+      assert.equal(filterStep.operation.filter.operator, operator);
+      if (value !== undefined) assert.deepEqual(filterStep.operation.filter.values, [{ kind: 'STRING', string: value }]);
+      assert.deepEqual(filterStep.outputs, groupStep.outputs, 'The Filter must preserve both Group keys and COUNT_ROWS output.');
+      return { stepId: filterStep.id, input: filterStep.inputs[0], columnId: subjectOutput.id,
+        operator, values: filterStep.operation.filter.values ?? [], outputs: filterStep.outputs };
+    };
+
+    await openMissingFilter();
+    let filterStarted = Date.now();
+    await proposal('composite-subject-missing-preview', filterStarted, []);
+    const missingCandidate = validateFilterCandidate('MISSING');
+    const missingCancelStarted = Date.now();
+    await cda.click('[data-testid="construction-cancel-proposal"]');
+    await cda.wait(() => Boolean(!document.querySelector('[data-testid="construction-proposal-panel"]')), []);
+    const afterMissingCancel = await api(base + '/builder');
+    assert.deepEqual(afterMissingCancel.workspace, groupBaseline.workspace, 'MISSING Cancel must preserve the exact saved Group snapshot.');
+    const missingCancelRows = await rendered(oracle.groupRows);
+    const missingCancelDurationMs = recordRender('composite-missing-cancel-to-group-rows', missingCancelStarted);
+    lifecycle.cancel = { status: 'passed', preservedDraftDigest: groupBaseline.draftDigest,
+      expectedRows: oracle.groupRows, actualRows: missingCancelRows, durationMs: missingCancelDurationMs };
+    await openMissingFilter();
+    filterStarted = Date.now();
+    await proposal('confirmed-composite-subject-missing-preview', filterStarted, []);
+    const confirmedMissingCandidate = validateFilterCandidate('MISSING');
+    await apply([]);
+    const missingApply = structuredClone(lifecycle.apply);
+    await open([]);
+    builder = await api(base + '/builder');
+    const missingReload = structuredClone(lifecycle.reload);
+    assert.deepEqual(lastRenderedRows, []);
+    report.compositeGroupOracle.missingFilter = {
+      candidate: confirmedMissingCandidate, previewRows: [], cancelRows: missingCancelRows,
+      appliedRows: missingApply.actualRows, reloadedRows: missingReload.actualRows,
+      candidateBeforeCancel: missingCandidate,
+    };
+    check('correctness', 'MISSING on generated subject key previews, cancels, applies, and reloads exactly zero rows within five seconds', {
+      columnId: subjectOutput.id, previewRows: [], cancelRows: missingCancelRows,
+      appliedRows: missingApply.actualRows, reloadedRows: missingReload.actualRows,
+      durationsMs: [lifecycle.choice.durationMs, lifecycle.proposal.durationMs, missingCancelDurationMs,
+        missingApply.durationMs, missingReload.durationMs],
+    });
+
+    const editSavedFilter = async ({ value, expectedRows, expectedSavedCondition, expectedSavedValue, name }) => {
+      const filter = doc(builder).construction.steps.find(step => step.operation.kind === 'FILTER');
+      assert(filter);
+      const editStarted = Date.now();
+      await cda.click(`[data-testid="construction-history-step-${filter.id}"]`);
+      await cda.click(`[data-testid="construction-edit-step-${filter.id}"]`);
+      await waitForFilterEditor();
+      const reopened = await cda.inspect(() => ({
+        columnId: document.querySelector('[data-testid="construction-filter-editor"] select[aria-label="Column"]')?.value,
+        condition: document.querySelector('[data-testid="construction-filter-editor"] select[aria-label="Condition"]')?.value,
+        value: document.querySelector('[data-testid="construction-filter-editor"] input[aria-label="Value"]')?.value,
+      }));
+      assert.equal(reopened.columnId, subjectOutput.id);
+      assert.equal(reopened.condition, expectedSavedCondition);
+      if (expectedSavedValue !== undefined) assert.equal(reopened.value, expectedSavedValue);
+      const controlsDurationMs = recordRender('composite-edit-filter-to-controls', editStarted);
+      const started = Date.now();
+      await cda.selectOption('[data-testid="construction-filter-editor"] select[aria-label="Condition"]', 'EQUALS');
+      await setFilterValue('Value', value);
+      await proposal(name, started, expectedRows);
+      const candidate = validateFilterCandidate('EQUALS', value);
+      await apply(expectedRows);
+      const applied = structuredClone(lifecycle.apply);
+      await open(expectedRows);
+      builder = await api(base + '/builder');
+      const reloaded = structuredClone(lifecycle.reload);
+      const saved = doc(builder).construction.steps.find(step => step.id === filter.id);
+      assert(saved);
+      assert.equal(saved.operation.filter.operator, 'EQUALS');
+      assert.deepEqual(saved.operation.filter.values, [{ kind: 'STRING', string: value }]);
+      assert.deepEqual(comparableRows(applied.actualRows), comparableRows(expectedRows));
+      assert.deepEqual(comparableRows(reloaded.actualRows), comparableRows(expectedRows));
+      lifecycle.edit = { status: 'passed', stepId: filter.id, ...reopened, controlsDurationMs,
+        candidate, applied: { draftDigest: applied.draftDigest, durationMs: applied.durationMs, rows: applied.actualRows },
+        reloaded: { draftDigest: reloaded.draftDigest, durationMs: reloaded.durationMs, rows: reloaded.actualRows } };
+      return { candidate, applied, reloaded };
+    };
+
+    const sharedEquality = await editSavedFilter({ value: oracle.sharedSubject, expectedRows: oracle.sharedSubjectRows,
+      expectedSavedCondition: 'MISSING', name: 'composite-subject-equals-shared-preview' });
+    check('correctness', 'EQUALS shared Patient reference preserves exactly three composite rows after Apply and reload', {
+      subjectReference: oracle.sharedSubject, expectedRows: oracle.sharedSubjectRows,
+      appliedRows: sharedEquality.applied.actualRows, reloadedRows: sharedEquality.reloaded.actualRows,
+      filter: sharedEquality.candidate,
+    });
+
+    const distinctEquality = await editSavedFilter({ value: oracle.leftOnlySubject, expectedRows: oracle.leftOnlySubjectRows,
+      expectedSavedCondition: 'EQUALS', expectedSavedValue: oracle.sharedSubject,
+      name: 'composite-subject-equals-distinct-preview' });
+    check('correctness', 'EQUALS distinct Patient reference preserves exactly one composite row after Apply and reload', {
+      subjectReference: oracle.leftOnlySubject, expectedRows: oracle.leftOnlySubjectRows,
+      appliedRows: distinctEquality.applied.actualRows, reloadedRows: distinctEquality.reloaded.actualRows,
+      filter: distinctEquality.candidate,
+    });
+
+    const savedFilter = doc(builder).construction.steps.find(step => step.operation.kind === 'FILTER');
+    assert(savedFilter);
+    await cda.click(`[data-testid="construction-history-step-${savedFilter.id}"]`);
+    const removeFilterStarted = Date.now();
+    await cda.click(`[data-testid="construction-remove-step-${savedFilter.id}"]`);
+    await proposal('composite-filter-removal-preview', removeFilterStarted, oracle.groupRows);
+    assert.deepEqual(lastProposedState.construction.steps, [groupStep]);
+    await apply(oracle.groupRows);
+    await open(oracle.groupRows, restored => {
+      assert.deepEqual(doc(restored), groupBaselineDocument,
+        'Filter removal must restore the exact saved composite Group document.');
+      return { name: 'filter-removal-to-composite-group-snapshot', restoration: {
+        status: 'passed', baselineDraftDigest: groupBaseline.draftDigest,
+        restoredDraftDigest: restored.draftDigest, construction: doc(restored).construction,
+        columns: doc(restored).columns, population: doc(restored).population,
+        expectedRows: oracle.groupRows, actualRows: lastRenderedRows,
+      } };
+    });
+    builder = await api(base + '/builder');
+    assert.deepEqual(doc(builder), groupBaselineDocument);
+    check('persistence', 'Filter removal restores the exact composite Group snapshot and rows', {
+      construction: doc(builder).construction, expectedRows: oracle.groupRows, actualRows: lastRenderedRows,
+    });
+
+    const restoredGroup = doc(builder).construction.steps.find(step => step.operation.kind === 'GROUP');
+    assert(restoredGroup);
+    await cda.click(`[data-testid="construction-history-step-${restoredGroup.id}"]`);
+    const removeGroupStarted = Date.now();
+    await cda.click(`[data-testid="construction-remove-step-${restoredGroup.id}"]`);
+    await proposal('composite-group-removal-preview', removeGroupStarted, sourceRows);
+    assert.deepEqual(lastProposedState.construction.steps, [], 'Group removal must restore the source construction with zero steps.');
+    await apply(sourceRows);
+    await open(sourceRows);
+    builder = await api(base + '/builder');
+    assert.deepEqual(doc(builder), expectedSourceDocument,
+      'Group removal reload must restore the exact original source document structure.');
+    assert.deepEqual(doc(builder).columns, sourceDocument.columns);
+    assert.deepEqual(doc(builder).population, sourceDocument.population);
+    assert.deepEqual(comparableRows(lastRenderedRows), comparableRows(sourceRows));
+    check('persistence', 'Group removal Apply restores the exact four source Observation rows', {
+      expectedRows: sourceRows, actualRows: lastRenderedRows, construction: doc(builder).construction,
+    });
+    check('persistence', 'Group removal reload restores the exact original source structure and four rows', {
+      expectedDocument: expectedSourceDocument, actualDocument: doc(builder),
+      expectedRows: sourceRows, actualRows: lastRenderedRows,
+    });
+  };
   try {
+    if (compositeGroupShape) await runCompositeGroupShape();
+    else {
     report.target = cda.target;
     const query = buildFilterBrowserOracleQuery({ project, generation: cda.generation, numeric, booleanCase });
     const raw = spawnSync('rtk', ['proxy', 'docker', 'exec', cda.target.arangoContainer, 'arangosh', '--server.database', 'loom_dev', '--javascript.execute-string', `print(JSON.stringify(db._query(${JSON.stringify(query)}).toArray()));`], { encoding: 'utf8', timeout: 30000 });
@@ -570,7 +942,8 @@ export async function filterBrowserWorkflow({ page, cda }) {
       assert.deepEqual(final.population, doc(baseline).population);
       assert.deepEqual(final.columns, doc(baseline).columns, 'Native filter removal must preserve every source column field, including its stable ID');
     }
-    recordFilterLifecycleChecks(cda, lifecycle);
+    }
+    recordFilterLifecycleChecks(cda, lifecycle, { includeRestoration: !compositeGroupShape });
     recordFilterPerformanceCheck(cda, report.cases, cda.report.actions);
     cda.includeBrowserDiagnostics();
     assert.deepEqual(report.errors, []);

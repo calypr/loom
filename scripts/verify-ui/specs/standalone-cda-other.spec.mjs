@@ -96,6 +96,26 @@ test.describe('CDA filter lifecycle', () => {
   });
 });
 
+test.describe('CDA composite Group filter lifecycle', () => {
+  test.use({
+    cdaScenarioID: 'cda-filter-browser',
+    cdaCaseName: 'composite-group-filter',
+    cdaUiRouting: 'explicit-query',
+  });
+
+  test('filter two-key Observation Group output by subject reference through Cancel, Apply, edit, removal, and reload', async ({ page, cda }) => {
+    assertFilterBrowserDefaultMode();
+    const previousShape = process.env.LOOM_FILTER_GROUP_SHAPE;
+    process.env.LOOM_FILTER_GROUP_SHAPE = 'COMPOSITE_ID_SUBJECT';
+    try {
+      await filterBrowserWorkflow({ page, cda });
+    } finally {
+      if (previousShape === undefined) delete process.env.LOOM_FILTER_GROUP_SHAPE;
+      else process.env.LOOM_FILTER_GROUP_SHAPE = previousShape;
+    }
+  });
+});
+
 
 test.describe('CDA root row settings', () => {
   test.use({
