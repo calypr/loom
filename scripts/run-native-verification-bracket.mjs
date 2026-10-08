@@ -1302,6 +1302,74 @@ export async function main(argv, {
     }
   }
   const summary = await runBracket(options);
+  const focusedGroups = Array.isArray(summary.focusedChecks?.groups)
+    ? summary.focusedChecks.groups
+    : [];
+  const focusedChecks = summary.focusedChecks
+    ? {
+      status: summary.focusedChecks.status ?? null,
+      groups: focusedGroups.map(({ stdoutPreview, stderrPreview, ...group }) => group),
+    }
+    : null;
+  const sourceDimension = summary.integrity?.dimensions?.source;
+  const apiIdentityDimension = summary.integrity?.dimensions?.apiBuildIdentity;
+  const sourceIntegrity = sourceDimension ? {
+    status: sourceDimension.status ?? 'unknown',
+    before: sourceDimension.before ?? null,
+    after: sourceDimension.after ?? null,
+    changedPaths: sourceDimension.changedPaths ?? null,
+    evidence: {
+      before: summary.evidence?.sourceBefore ?? null,
+      after: summary.evidence?.sourceAfter ?? null,
+    },
+  } : null;
+  const apiBuildIdentity = apiIdentityDimension ? {
+    status: apiIdentityDimension.status ?? 'unknown',
+    before: apiIdentityDimension.before ?? null,
+    after: apiIdentityDimension.after ?? null,
+    precheckMatches: apiIdentityDimension.precheckMatches ?? null,
+    targetUnchanged: apiIdentityDimension.targetUnchanged ?? null,
+    evidence: {
+      before: summary.evidence?.apiBefore ?? null,
+      after: summary.evidence?.apiAfter ?? null,
+      precheck: summary.evidence?.precheck ?? null,
+    },
+  } : null;
+  const commandPhases = Object.fromEntries(Object.entries(summary.commands ?? {}).map(([name, command]) => [name, {
+    durationMs: command.durationMs ?? null,
+    exitCode: command.exitCode ?? null,
+    timedOut: Boolean(command.timedOut),
+    stdoutPath: command.stdoutPath ?? null,
+    stderrPath: command.stderrPath ?? null,
+  }]));
+  const browserCommand = summary.commands?.playwright;
+  const replayArgv = {
+    browser: browserCommand ? {
+      referenceOnly: true,
+      executable: browserCommand.executable ?? null,
+      argv: browserCommand.arguments ?? null,
+      cwd: browserCommand.cwd ?? null,
+      environment: {
+        requiredNames: requiredCaptureEnvironment,
+        overrideNames: Object.keys(browserCommand.environmentOverrides ?? {}),
+        valuesIncluded: false,
+      },
+    } : null,
+    focusedChecks: summary.focusedCheckCoverage === 'registered'
+      ? focusedGroups.map((group) => {
+        const command = summary.commands?.['focused-' + group.id];
+        return {
+          id: group.id,
+          referenceOnly: true,
+          executable: command?.executable ?? null,
+          argv: command?.arguments ?? null,
+          cwd: command?.cwd ?? null,
+          declaredInputsHash: group.declaredInputsHash ?? null,
+          inputs: group.inputs ?? [],
+        };
+      })
+      : null,
+  };
   write(JSON.stringify({
     status: summary.status,
     scenario: summary.scenario,
@@ -1311,9 +1379,20 @@ export async function main(argv, {
     summary: summary.evidence.summary,
     report: summary.evidence.domainReport,
     integrity: summary.integrity?.status ?? 'NOT_RUN',
+    sourceIntegrity,
+    apiBuildIdentity,
     targetValidation: summary.targetValidation,
     focusedCheckCoverage: summary.focusedCheckCoverage,
-    focusedChecks: summary.focusedChecks,
+    focusedChecks,
+    replayArgv,
+    commandPhases,
+    humanPhaseTimings: {
+      diagnosisMs: null,
+      implementationMs: null,
+      reviewMs: null,
+      status: 'unmeasured',
+    },
+    reviewPacket: summary.reviewPacket ?? null,
     failureCategory: summary.failureCategory,
     firstFailureReason: summary.reviewPacket.firstFailureReason,
     failureContext: summary.reviewPacket.failureContext,

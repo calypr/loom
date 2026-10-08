@@ -20,12 +20,7 @@ export async function runGroupRelatedValuesBrowserWorkflow({ page, cda }) {
 const base = `${root}/${explorer}/authoring/v2`;
 const report = { explorer, evidence, target: cda.target, cases: [], errors: cda.report.errors, requests: [], nativeRequests: cda.report.nativeRequests, started: new Date().toISOString() };
 let builder, outputId;
-const click = (...args) => cda.click(...args);
-const selectOption = (...args) => cda.selectOption(...args);
-const fill = (...args) => cda.fill(...args);
-const browserEval = (...args) => cda.inspect(...args);
-const waitForBrowser = (...args) => cda.wait(...args);
-const navigate = (...args) => cda.navigate(...args);
+const { click, selectOption, fill, inspect: browserEval, wait: waitForBrowser, navigate } = cda;
 const sensitiveName = /authorization|cookie|password|passwd|token|secret|credential|session|api[_-]?key/i;
 const sanitizeText = value => String(value ?? '')
   .replaceAll(process.cwd(), '$CHECKOUT')

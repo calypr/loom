@@ -15,10 +15,16 @@ import {
 
 const root = resolve(fileURLToPath(new URL('../../../..', import.meta.url)));
 const buildIdentity = 'a'.repeat(64) + ':' + 'a'.repeat(64) + ':' + 'b'.repeat(64);
+const retainedRootQuantityLifecycle = JSON.parse(readFileSync(
+  join(root, 'docs/verification/playwright/runtime/root-quantity-pivot-epoch141-report.json'), 'utf8'));
 const retainedCda = JSON.parse(readFileSync(new URL('./fixtures/native-bracket-retained-cda-report.json', import.meta.url), 'utf8'));
 const retainedBasic = JSON.parse(readFileSync(new URL('./fixtures/native-bracket-retained-basic-report.json', import.meta.url), 'utf8'));
 const retainedPostPivotCountTimings = JSON.parse(readFileSync(new URL('./fixtures/post-pivot-count-qzzOck-timings.json', import.meta.url), 'utf8'));
 const wave152Failure = JSON.parse(readFileSync(new URL('./fixtures/wave152-root-quantity-pivot-failure.json', import.meta.url), 'utf8'));
+
+function wave152FailureForCase(caseName) {
+  return { ...structuredClone(wave152Failure), caseName };
+}
 const groupAddFieldsPerformanceCheckName = 'All native Group-add-fields lifecycle actions complete within five seconds';
 const groupAddFieldsLifecycleCheckpoints = [
   { name: 'load-to-render', durationMs: 1356 },
@@ -369,6 +375,107 @@ function fakeRunner({ scenarioID, caseName, rootDir, browserExit = 0, browserRep
 
 function evidenceParent() {
   return mkdtempSync(join(tmpdir(), 'native-bracket-test-'));
+}
+
+function commandPhaseProjection(commands) {
+  return Object.fromEntries(Object.entries(commands).map(([name, stage]) => [name, {
+    durationMs: stage.durationMs,
+    exitCode: stage.exitCode,
+    timedOut: Boolean(stage.timedOut),
+    stdoutPath: stage.stdoutPath,
+    stderrPath: stage.stderrPath,
+  }]));
+}
+
+function sourceIntegrityProjection(summary) {
+  const source = summary.integrity.dimensions.source;
+  return {
+    status: source.status,
+    before: source.before,
+    after: source.after,
+    changedPaths: source.changedPaths,
+    evidence: { before: summary.evidence.sourceBefore, after: summary.evidence.sourceAfter },
+  };
+}
+
+function apiBuildIdentityProjection(summary) {
+  const api = summary.integrity.dimensions.apiBuildIdentity;
+  return {
+    status: api.status,
+    before: api.before,
+    after: api.after,
+    precheckMatches: api.precheckMatches,
+    targetUnchanged: api.targetUnchanged,
+    evidence: {
+      before: summary.evidence.apiBefore,
+      after: summary.evidence.apiAfter,
+      precheck: summary.evidence.precheck,
+    },
+  };
+}
+
+function expectedBrowserReplayReference(command) {
+  return {
+    referenceOnly: true,
+    executable: command.executable,
+    argv: command.arguments,
+    cwd: command.cwd,
+    environment: {
+      requiredNames: [
+        'LOOM_CDA_SOURCE_ROOT',
+        'LOOM_CDA_PROJECT',
+        'LOOM_CDA_API_ORIGIN',
+        'LOOM_CDA_UI_ORIGIN',
+        'LOOM_CDA_API_CONTAINER',
+        'LOOM_CDA_COMPOSE_PROJECT',
+        'LOOM_CDA_ARANGO_CONTAINER',
+        'LOOM_CDA_CLICKHOUSE_CONTAINER',
+      ],
+      overrideNames: ['PLAYWRIGHT_JSON_OUTPUT_FILE'],
+      valuesIncluded: false,
+    },
+  };
+}
+
+async function invokeMainWithFakeBracket(t, {
+  scenarioID = 'root-quantity-pivot',
+  caseName = 'full-population-lifecycle',
+  browserReport = 'cda',
+  browserExit = 0,
+  sourceChanged = false,
+  domainReportOverride,
+} = {}) {
+  const parent = evidenceParent();
+  t.after(() => rmSync(parent, { recursive: true, force: true }));
+  const fake = fakeRunner({ scenarioID, caseName, rootDir: root, browserReport, browserExit,
+    sourceChanged, domainReportOverride });
+  const contract = scenarioCaseFor(scenarioID, caseName);
+  const output = [];
+  let summary;
+  const exitCode = await main([
+    '--scenario', scenarioID,
+    '--case', caseName,
+    '--target-from-environment',
+    '--grep', contract.playwrightGrep ?? 'native handoff projection',
+  ], {
+    env: fake.env,
+    targetLoader: async () => { throw new Error('environment target must bypass target loading'); },
+    runBracket: async (options) => {
+      summary = await runNativeVerificationBracket({
+        ...options,
+        evidenceParent: parent,
+        root,
+        commandRunner: async (command, args, runnerOptions) => ({
+          ...await fake.commandRunner(command, args, runnerOptions),
+          durationMs: 17,
+        }),
+      });
+      return summary;
+    },
+    write: (value) => output.push(value),
+  });
+  assert.equal(output.length, 1);
+  return { exitCode, summary, packet: JSON.parse(output[0]), stdout: output[0] };
 }
 
 test('official Playwright list must resolve exactly one test from the registered spec', () => {
@@ -1129,14 +1236,14 @@ test('wave152 timeout appears in the review packet and CLI with the last action 
   const parent = evidenceParent();
   t.after(() => rmSync(parent, { recursive: true, force: true }));
   const scenarioID = 'root-quantity-pivot';
-  const caseName = 'related-text-only-full-population-lifecycle';
+  const caseName = 'full-population-lifecycle';
   const fake = fakeRunner({
     scenarioID,
     caseName,
     rootDir: root,
     browserExit: 1,
     browserReport: 'cda',
-    domainReportOverride: wave152Failure,
+    domainReportOverride: wave152FailureForCase(caseName),
   });
   let runSummary;
   const cliOutput = [];
@@ -1196,13 +1303,27 @@ test('a pending owned request does not invent a failure on a passing report', as
   const parent = evidenceParent();
   t.after(() => rmSync(parent, { recursive: true, force: true }));
   const scenarioID = 'root-quantity-pivot';
-  const caseName = 'related-text-only-full-population-lifecycle';
+  const caseName = 'full-population-lifecycle';
+  const contract = scenarioCaseFor(scenarioID, caseName);
+  assert.deepEqual(retainedRootQuantityLifecycle.requiredChecks.passedNames, contract.requiredChecks);
+  const retainedPerformance = retainedRootQuantityLifecycle.performanceEvidence.completeActionToRender;
+  assert.equal(retainedPerformance.thresholdMs, 5000);
+  assert.equal(retainedPerformance.withinThreshold, true);
+  const assertions = structuredClone(retainedRootQuantityLifecycle.assertions);
+  const performanceAssertion = assertions.find(({ name }) => name === contract.performanceCheckName);
+  assert.ok(performanceAssertion);
+  performanceAssertion.evidence = { actions: retainedPerformance.checkpoints };
   const fake = fakeRunner({
     scenarioID,
     caseName,
     rootDir: root,
     browserReport: 'cda',
     domainReportOverride: {
+      ...structuredClone(retainedRootQuantityLifecycle),
+      schemaVersion: 2,
+      requiredChecks: contract.requiredChecks,
+      missingRequiredChecks: [],
+      assertions,
       target: wave152Failure.target,
       actions: [{ label: 'Select SUM', status: 'passed' }],
       nativeRequests: wave152Failure.nativeRequests,
@@ -1218,10 +1339,16 @@ test('a pending owned request does not invent a failure on a passing report', as
     commandRunner: fake.commandRunner,
   });
 
-  assert.equal(summary.status, 'passed');
+  assert.equal(summary.status, 'passed', JSON.stringify({
+    lifecycle: summary.lifecycle,
+    integrity: summary.integrity,
+    notes: summary.notes,
+  }, null, 2));
   assert.equal(summary.reviewPacket.firstFailureReason, null);
   assert.equal(summary.reviewPacket.failedAction, null);
   assert.deepEqual(summary.reviewPacket.lastCompletedAction, { label: 'Select SUM', status: 'passed' });
+  assert.equal(summary.lifecycle.renderCheckpointCount, retainedPerformance.timedCompleteCheckpoints);
+  assert.equal(summary.lifecycle.maximumRenderCheckpointLatencyMs, retainedPerformance.maximumDurationMs);
   assert.equal(summary.reviewPacket.pendingOwnedRequests.length, 1);
   assert.equal(summary.reviewPacket.pendingOwnedRequests[0].status, 'pending');
 });
@@ -1231,12 +1358,12 @@ test('preparation failure reports a sanitized reason and empty domain diagnostic
   t.after(() => rmSync(parent, { recursive: true, force: true }));
   const fake = fakeRunner({
     scenarioID: 'root-quantity-pivot',
-    caseName: 'related-text-only-full-population-lifecycle',
+    caseName: 'full-population-lifecycle',
     rootDir: root,
   });
   const summary = await runNativeVerificationBracket({
     scenarioID: 'root-quantity-pivot',
-    caseName: 'related-text-only-full-population-lifecycle',
+    caseName: 'full-population-lifecycle',
     grep: 'preparation failure',
     evidenceParent: parent,
     root,
@@ -1257,7 +1384,7 @@ test('failed action is separate from the last completed action', async (t) => {
   const parent = evidenceParent();
   t.after(() => rmSync(parent, { recursive: true, force: true }));
   const scenarioID = 'root-quantity-pivot';
-  const caseName = 'related-text-only-full-population-lifecycle';
+  const caseName = 'full-population-lifecycle';
   const fake = fakeRunner({
     scenarioID,
     caseName,
@@ -1265,7 +1392,7 @@ test('failed action is separate from the last completed action', async (t) => {
     browserExit: 1,
     browserReport: 'cda',
     domainReportOverride: {
-      ...wave152Failure,
+      ...wave152FailureForCase(caseName),
       failureEvidence: {
         action: { label: 'Apply Pivot', status: 'failed', error: 'Error: Apply Pivot failed' },
       },
@@ -1294,7 +1421,7 @@ test('request ID reuse keeps only requests whose status is pending', async (t) =
   const parent = evidenceParent();
   t.after(() => rmSync(parent, { recursive: true, force: true }));
   const scenarioID = 'root-quantity-pivot';
-  const caseName = 'related-text-only-full-population-lifecycle';
+  const caseName = 'full-population-lifecycle';
   const original = wave152Failure.nativeRequests[0];
   const fake = fakeRunner({
     scenarioID,
@@ -1303,7 +1430,7 @@ test('request ID reuse keeps only requests whose status is pending', async (t) =
     browserExit: 1,
     browserReport: 'cda',
     domainReportOverride: {
-      ...wave152Failure,
+      ...wave152FailureForCase(caseName),
       nativeRequests: [
         { ...original, status: 200, completedAt: '2026-10-07T12:00:01.000Z' },
         { ...original, status: 'pending' },
@@ -1333,8 +1460,8 @@ test('review diagnostics do not expose paths, bodies, tokens, auth, or query val
   const parent = evidenceParent();
   t.after(() => rmSync(parent, { recursive: true, force: true }));
   const scenarioID = 'root-quantity-pivot';
-  const caseName = 'related-text-only-full-population-lifecycle';
-  const report = structuredClone(wave152Failure);
+  const caseName = 'full-population-lifecycle';
+  const report = wave152FailureForCase(caseName);
   report.failureEvidence.reason = 'Error: token=TOKEN_SENTINEL query=QUERY_SENTINEL body=BODY_SENTINEL authorization=AUTH_SENTINEL path=/private/secret/file at $CHECKOUT/scripts/private.mjs';
   report.failureEvidence.action = { label: 'Choose source:cc2.SENSITIVE_TOKEN_VALUE', status: 'failed' };
   report.failureEvidence.locator = {
@@ -1389,7 +1516,7 @@ test('review diagnostics do not expose paths, bodies, tokens, auth, or query val
   assert.equal(summary.reviewPacket.failureContext.containers[0].text, 'Failure details contained sensitive values.');
   assert.match(diagnostics, /\[redacted token\]/);
 
-  const pathOnlyReport = structuredClone(wave152Failure);
+  const pathOnlyReport = wave152FailureForCase(caseName);
   pathOnlyReport.failureEvidence.reason = 'Error: failed at scripts/private.mjs';
   const pathOnlyFake = fakeRunner({
     scenarioID,
@@ -1457,6 +1584,33 @@ test('checks-only runs the registered focused groups without loading a target or
   assert.equal(summary.commands.playwright, undefined);
   assert.equal(summary.commands.captureAfter, undefined);
   assert.equal(JSON.parse(output[0]).focusedCheckCoverage, 'registered');
+  const handoff = JSON.parse(output[0]);
+  assert.deepEqual(handoff.reviewPacket, summary.reviewPacket);
+  assert.deepEqual(handoff.commandPhases, commandPhaseProjection(summary.commands));
+  assert.equal(handoff.replayArgv.browser, null);
+  assert.deepEqual(handoff.replayArgv.focusedChecks.map(({ id, referenceOnly, executable, argv, cwd, declaredInputsHash, inputs }) => ({
+    id, referenceOnly, executable, argv, cwd, declaredInputsHash, inputs,
+  })), summary.focusedChecks.groups.map(({ id, declaredInputsHash, inputs }) => ({
+    id,
+    referenceOnly: true,
+    executable: summary.commands['focused-' + id].executable,
+    argv: summary.commands['focused-' + id].arguments,
+    cwd: summary.commands['focused-' + id].cwd,
+    declaredInputsHash,
+    inputs,
+  })));
+  assert.ok(handoff.replayArgv.focusedChecks.length > 0);
+  assert.ok(handoff.replayArgv.focusedChecks.every((group) => group.argv.length > 0 && group.inputs.length > 0));
+  assert.equal(handoff.humanPhaseTimings.status, 'unmeasured');
+  assert.deepEqual(handoff.humanPhaseTimings, {
+    diagnosisMs: null,
+    implementationMs: null,
+    reviewMs: null,
+    status: 'unmeasured',
+  });
+  assert.equal(output[0].includes('focused group passed'), false);
+  assert.ok(summary.focusedChecks.groups.every((group) =>
+    readFileSync(group.evidence.stdout, 'utf8').includes('focused group passed')));
 });
 
 test('checks-only names browser-only cases instead of reporting an empty pass', async (t) => {
@@ -1481,7 +1635,13 @@ test('checks-only names browser-only cases instead of reporting an empty pass', 
   assert.equal(summary.status, 'browser-only');
   assert.equal(summary.focusedCheckCoverage, 'browser-only');
   assert.match(summary.reviewPacket.firstFailureReason, /no focused prerequisite group/);
-  assert.equal(JSON.parse(output[0]).focusedCheckCoverage, 'browser-only');
+  const handoff = JSON.parse(output[0]);
+  assert.equal(handoff.focusedCheckCoverage, 'browser-only');
+  assert.equal(handoff.replayArgv.focusedChecks, null);
+  assert.equal(handoff.replayArgv.browser, null);
+  assert.deepEqual(handoff.commandPhases, {});
+  assert.equal(output[0].includes('no focused prerequisite group'), true);
+  assert.equal(output[0].includes('stdoutPreview'), false);
 });
 
 test('a failed focused prerequisite prevents all browser bracket commands', async (t) => {
@@ -1706,6 +1866,86 @@ test('lifecycle summary retains dimension statuses without duplicating dimension
   });
   assert.equal(JSON.stringify(summary).includes(huge), false);
   assert.ok(summary.evidence.domainReport);
+});
+
+test('main stdout handoff projects the passed bracket, identities, phase refs, and registered replay argv', async (t) => {
+  const { exitCode, summary, packet, stdout } = await invokeMainWithFakeBracket(t);
+
+  assert.equal(exitCode, 0);
+  assert.equal(summary.status, 'passed');
+  assert.equal(packet.status, summary.status);
+  assert.equal(packet.scenario, summary.scenario);
+  assert.equal(packet.case, summary.case);
+  assert.deepEqual(packet.reviewPacket, summary.reviewPacket);
+  assert.equal(packet.reviewPacket.requiredCheckCount, summary.lifecycle.requiredCheckCount);
+  assert.equal(packet.reviewPacket.passedCheckCount, summary.lifecycle.passedCheckCount);
+  assert.deepEqual(packet.reviewPacket.failedCheckNames, []);
+  assert.deepEqual(packet.reviewPacket.missingCheckNames, []);
+  assert.deepEqual(packet.sourceIntegrity, sourceIntegrityProjection(summary));
+  assert.equal(packet.sourceIntegrity.status, 'PASS');
+  assert.deepEqual(packet.sourceIntegrity.changedPaths, []);
+  assert.deepEqual(packet.apiBuildIdentity, apiBuildIdentityProjection(summary));
+  assert.equal(packet.apiBuildIdentity.before, buildIdentity);
+  assert.equal(packet.apiBuildIdentity.after, buildIdentity);
+  assert.deepEqual(packet.commandPhases, commandPhaseProjection(summary.commands));
+  assert.ok(packet.commandPhases.playwright.durationMs >= 0);
+  assert.equal(packet.commandPhases.playwright.exitCode, 0);
+  assert.equal(packet.commandPhases.playwright.stdoutPath, summary.commands.playwright.stdoutPath);
+  assert.deepEqual(packet.replayArgv.browser, expectedBrowserReplayReference(summary.commands.playwright));
+  assert.equal(packet.replayArgv.focusedChecks, null);
+  assert.deepEqual(packet.humanPhaseTimings, {
+    diagnosisMs: null,
+    implementationMs: null,
+    reviewMs: null,
+    status: 'unmeasured',
+  });
+  assert.equal(stdout.includes('Listing tests:'), false);
+  assert.equal(stdout.includes('registered node tests passed'), false);
+  assert.match(readFileSync(summary.commands.selectionList.stdoutPath, 'utf8'), /Listing tests:/);
+});
+
+test('main stdout handoff preserves failed check gaps and changed source paths', async (t) => {
+  const scenarioID = 'root-quantity-pivot';
+  const caseName = 'full-population-lifecycle';
+  const contract = scenarioCaseFor(scenarioID, caseName);
+  const failedCheck = contract.requiredChecks[0];
+  const missingCheck = contract.requiredChecks.at(-1);
+  const assertions = contract.requiredChecks.slice(0, -1).map((name) => ({
+    name,
+    status: name === failedCheck ? 'failed' : 'passed',
+  }));
+  const { exitCode, summary, packet, stdout } = await invokeMainWithFakeBracket(t, {
+    scenarioID,
+    caseName,
+    browserReport: 'failed',
+    browserExit: 1,
+    sourceChanged: true,
+    domainReportOverride: { assertions, missingRequiredChecks: [missingCheck] },
+  });
+
+  assert.equal(exitCode, 1);
+  assert.equal(summary.status, 'failed');
+  assert.equal(packet.status, summary.status);
+  assert.deepEqual(packet.reviewPacket, summary.reviewPacket);
+  assert.equal(packet.reviewPacket.requiredCheckCount, contract.requiredChecks.length);
+  assert.equal(packet.reviewPacket.passedCheckCount, contract.requiredChecks.length - 2);
+  assert.deepEqual(packet.reviewPacket.failedCheckNames, [failedCheck]);
+  assert.deepEqual(packet.reviewPacket.missingCheckNames, [missingCheck]);
+  assert.deepEqual(packet.sourceIntegrity, sourceIntegrityProjection(summary));
+  assert.equal(packet.sourceIntegrity.status, 'FAIL');
+  assert.ok(packet.sourceIntegrity.changedPaths.some(({ path }) => path === 'internal/changed.go'));
+  assert.deepEqual(packet.apiBuildIdentity, apiBuildIdentityProjection(summary));
+  assert.equal(packet.apiBuildIdentity.status, 'PASS');
+  assert.equal(packet.apiBuildIdentity.before, buildIdentity);
+  assert.equal(packet.apiBuildIdentity.after, buildIdentity);
+  assert.deepEqual(packet.commandPhases, commandPhaseProjection(summary.commands));
+  assert.equal(packet.commandPhases.playwright.exitCode, 1);
+  assert.equal(packet.commandPhases.playwright.stderrPath, summary.commands.playwright.stderrPath);
+  assert.deepEqual(packet.replayArgv.browser, expectedBrowserReplayReference(summary.commands.playwright));
+  assert.equal(packet.replayArgv.focusedChecks, null);
+  assert.equal(stdout.includes('Listing tests:'), false);
+  assert.equal(stdout.includes('registered node tests passed'), false);
+  assert.match(readFileSync(summary.commands.selectionList.stdoutPath, 'utf8'), /Listing tests:/);
 });
 
 test('normal selected-case CLI loads the explicit target against registered identity before the bracket', async () => {

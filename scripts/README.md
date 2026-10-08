@@ -9,42 +9,54 @@ maps each workflow and case name to its Playwright spec at
 live under `scripts/verify-ui/helpers/`. The main suite uses
 `scripts/playwright.config.mjs`.
 
-## Owned-stack precheck, capture, and health
+## Run one native browser case
 
-Set `REPORT_DIR` to a fresh run-specific directory, then source the validated
-`LOOM_CDA_*` environment. Use the canonical precheck and health CLI around
-`capture-owned-verification.mjs`. This keeps Docker stamp and owned-target
-checks in repository code instead of copying temporary helpers into each run
-directory:
+Run from the repository root with the owned local stack ready. For a
+registered case, the runner loads the validated owned environment from its
+target config and binds its project and generation to the selected case:
 
 ```sh
-mkdir -p "$REPORT_DIR"
-node scripts/owned-stack-verification.mjs --mode precheck --output "$REPORT_DIR/api-build-precheck.json"
-node scripts/capture-owned-verification.mjs --phase before \
-  --precheck-input "$REPORT_DIR/api-build-precheck.json" \
-  --source-output "$REPORT_DIR/source-before.json" \
-  --docs-output "$REPORT_DIR/docs-before.json" \
-  --api-output "$REPORT_DIR/api-identity-before.json" \
-  --mount-output "$REPORT_DIR/owned-mounts-before.json"
-node scripts/owned-stack-verification.mjs --mode health \
-  --output "$REPORT_DIR/health-before.json" \
-  --identity "$REPORT_DIR/api-identity-before.json"
+node scripts/run-native-verification-bracket.mjs \
+  --scenario cda-current-draft-membership \
+  --case membership \
+  --target .codex/owned-cda-target.json
 ```
 
-The capture coordinator alone performs Docker-backed precheck, capture, and
-health operations. Keep the watched source and running API unchanged from the
-before capture through the after capture and final health check. Before-phase
-capture requires the precheck artifact, verifies its fresh/current-source flags
-and owned API container, then confirms its three-part identity still matches
-the captured API. It records that checked precheck in
-`api.apiBuildPrecheck`. The durable closure's
-`integrityClosure.apiBuildIdentity.precheck` must come from
-`api.apiBuildPrecheck.apiBuildIdentity` in the before API artifact.
+The stdout `replayArgv.browser` field is a reference (`referenceOnly: true`)
+with the browser executable, exact argv, working directory, and required and
+overridden environment variable names. Inherited environment values are
+omitted. It does not execute a command; rerun the combined command above with
+its target config.
 
-After the browser run, capture with `--phase after` and four distinct
-`*-after.json` paths, then run health mode again with the same before-capture
-identity via `--identity`. See the [verification skill](../.codex/skills/verify/SKILL.md)
-for the complete before/after sequence and acceptance rules.
+The target config must resolve `sourceRoot` to this checkout. Its validation is
+configuration-only and does not prove runtime data identity or expected-value
+independence; review the case report and separate source evidence.
+The runner selects the registered Playwright test by default, runs registered
+focused checks, and writes a fresh `summary.json` outside watched source. Use
+`--help` for an explicit `--grep`, `--target-from-environment` for a case with
+no registry identity, or `--checks-only` to run focused checks without Docker
+or Playwright. The environment mode requires a validated owned environment and
+an explicit selection; registered cases use `--target`. Do not run a second
+manual precheck, capture, and health around the same case. The stdout summary
+includes focused checks and gaps, failure context, source fingerprint, API
+build identity, command timings, and log paths; it links logs instead of
+embedding them.
+
+For diagnosis, the low-level components are
+`owned-stack-verification.mjs` (`--mode precheck|health`) and
+`capture-owned-verification.mjs` (`--phase before|after`). Before capture also
+requires the precheck artifact; both phases write four distinct source, docs,
+API, and mount artifacts. The normal browser workflow is the combined runner
+above.
+
+`summary.durationMs` measures the full bracket process, and each
+`commands[*].durationMs` measures a child process. They do not measure human
+environment setup, diagnosis, implementation, review, or integration; record
+those phases separately or mark them unknown.
+
+After partial staging from a dirty worktree, verify the exact staged or
+committed snapshot; a dirty-worktree pass does not prove the delivered artifact.
+See the [verification skill](../.codex/skills/verify/SKILL.md) for the required check.
 
 Run the main suite with:
 

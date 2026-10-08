@@ -133,13 +133,7 @@ export async function runGroupAddFieldsBrowserWorkflow({ page, cda }) {
     requests: [], nativeRequests: cda.report.nativeRequests, started: new Date().toISOString(),
   };
   let builder, outputId;
-  const click = (...args) => cda.click(...args);
-  const selectOption = (...args) => cda.selectOption(...args);
-  const fill = (...args) => cda.fill(...args);
-  const press = (...args) => cda.press(...args);
-  const browserEval = (...args) => cda.inspect(...args);
-  const waitForBrowser = (...args) => cda.wait(...args);
-  const navigate = (...args) => cda.navigate(...args);
+  const { click, selectOption, fill, press, inspect: browserEval, wait: waitForBrowser, navigate } = cda;
   const recordLifecycleCheck = (dimension, name, passed, checkEvidence = {}) =>
     cda.check(dimension, name, passed, checkEvidence);
 const sensitiveName = /authorization|cookie|password|passwd|token|secret|credential|session|api[_-]?key/i;

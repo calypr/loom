@@ -108,46 +108,46 @@ Retain per-file hashes, aggregate fingerprint, and API build identity before a
 browser run. Compare afterward and identify changed paths. Source mutation
 invalidates the run; its apparent UI failures are not reproduced product bugs.
 
-Set `REPORT_DIR` to a fresh run-specific directory and load the validated
-`LOOM_CDA_*` environment. Use the canonical precheck, capture, and health
-commands below. Do not copy health or build-stamp helpers into a per-run
-temporary directory.
-
-```bash
-mkdir -p "$REPORT_DIR"
-node scripts/owned-stack-verification.mjs --mode precheck --output "$REPORT_DIR/api-build-precheck.json"
-node scripts/capture-owned-verification.mjs --phase before \
-  --precheck-input "$REPORT_DIR/api-build-precheck.json" \
-  --source-output "$REPORT_DIR/source-before.json" \
-  --docs-output "$REPORT_DIR/docs-before.json" \
-  --api-output "$REPORT_DIR/api-identity-before.json" \
-  --mount-output "$REPORT_DIR/owned-mounts-before.json"
-node scripts/owned-stack-verification.mjs --mode health \
-  --output "$REPORT_DIR/health-before.json" \
-  --identity "$REPORT_DIR/api-identity-before.json"
-```
-
-The capture coordinator alone performs Docker-backed precheck, capture, and
-health operations. Keep the watched source and running API unchanged from the
-before capture through the after capture and final health check. Before-phase
-capture requires the precheck artifact, verifies its freshness flags and owned
-API container, then confirms its three-part identity still matches the captured
-API. It records the checked precheck in `api.apiBuildPrecheck`. Set the durable
-closure's `integrityClosure.apiBuildIdentity.precheck` from
-`api.apiBuildPrecheck.apiBuildIdentity` in the before API artifact.
-
-After the browser run, capture the same four dimensions with `--phase after`
-and distinct `*-after.json` paths. Run health mode again against the same
-`api-identity-before.json`; it revalidates the captured owned target and checks
-three API/UI/build-identity samples. The capture reuses the canonical
-owned-target and source/API helpers and records a stable per-file docs
-manifest. Compare before/after manifests and API identity before accepting a
-run. Do not recreate Docker mount validation in inline scripts.
+After partial staging from a dirty worktree, inspect the staged diff and run
+the focused check against an isolated snapshot of the index tree or resulting
+commit. A dirty-worktree pass does not prove the staged artifact.
 
 Capture diagnostics on the first failing action: elapsed time, control values,
 DOM, console exception, exact owned request scope and draft/stage identity,
 HTTP status, and response diagnostic body. Exclude credentials and unrelated
 traffic. Unexpected network failures remain fatal.
+
+For a failed native bracket, extract the retained request into focused test
+input:
+
+```bash
+node scripts/verify-ui/helpers/extract-native-failure-input.mjs \
+  --summary /path/to/summary.json \
+  --browser-request-id browser-request-id-from-report \
+  --request-id native-request-id-from-report \
+  --out /private/tmp/native-failure-input.json
+```
+
+The extractor reads the domain and Playwright report paths from native
+`summary.json`. It hashes artifacts at extraction when the summary has no
+recorded hash; declared hashes are checked against the retained file.
+Without `--check`, one failed assertion is selected automatically; multiple
+failures require an exact name, while no failed assertion retains first-failure
+context without an asserted check. The selected request and check do not
+establish causal linkage. `--expected` takes a v1 `value-expectation` with a
+matching source fingerprint and target, but its provenance declaration does not
+prove independence. The output records `missing-independent-oracle` without
+that file or `separately-supplied-provenance-unverified` with it; both set
+`independenceVerified` to false. A captured response is observed output, not an
+expected value.
+
+Use the retained input in a focused regression, repeat the focused Node test
+until it passes, then rerun the same bracket command in the Verification
+bracket section with the same case, target, selection, and environment:
+
+```bash
+node --test /path/to/focused-regression.test.mjs
+```
 
 For each workflow, record preview correctness against independent source data,
 native controls, Apply/Cancel where applicable, edit, removal/restoration, reload,
@@ -178,62 +178,43 @@ oracle, lifecycle scope, and latency budget; do not weaken assertions.
 
 ### Verification bracket and compact handoff
 
-Keep run orchestration in repository code. The selected-case command runs the
-registered focused prerequisites first, validates the explicit target against
-the selected case's independent registry identity, then reuses the canonical
-precheck, capture, health, and native Playwright commands. It must not introduce
-another browser driver or duplicate Docker checks. Focused checks use fixed
-command arrays from the registry and run before Docker/browser setup. They retain
-bounded stdout/stderr previews, input hashes, timings, and log links. Cases
-without focused prerequisites are reported as `browser-only`; do not imply that
-this fast layer covers every registered case.
-
-Run only registered fast prerequisites with `make verify-case-checks` when a
-guarded assigned-worktree invocation is not required. The guarded form above
-uses the same checks-only runner without loading target configuration, Docker,
-or Playwright. A successful focused check is not a browser pass, and a
-browser-only case returns a visible non-pass because it has no focused
-prerequisite group.
-
-The normal command selects one scenario/case and a machine-local target config.
-The case's registered Playwright selection is used by default;
-`PLAYWRIGHT_GREP` can override it when a deliberate exact selection is needed. Use a fresh evidence
-directory outside watched source. After a browser failure, always attempt
-after-capture and health, compare source, docs, API identity and owned mounts,
-and report missing closure as unverified.
-
-Cases without an independent registry identity can use the explicit
-`TARGET_FROM_ENV=1` mode after loading the validated owned browser and capture
-environments. The summary labels this mode `environment-only` and
-`registry-unbound`; runtime identity remains `not-checked` until the selected
-case's own oracle validates it. Supply `PLAYWRIGHT_GREP` when the case has no
-registered default selection. This is a remaining metadata migration, not
-registry-bound target coverage for the full case inventory.
+Keep run orchestration in repository code. Ensure the owned stack is ready.
+Use the combined command for a registered native case:
 
 ```bash
-make verify-case \
-  SCENARIO=cda-current-draft-membership \
-  CASE=membership \
-  TARGET=.codex/owned-cda-target.json
+node scripts/run-native-verification-bracket.mjs \
+  --scenario cda-current-draft-membership \
+  --case membership \
+  --target .codex/owned-cda-target.json
 ```
 
-Run the prerequisite layer independently when diagnosing a known quick failure.
-For an assigned worker, use the guard form above with the case under diagnosis;
-the direct Make target remains a convenience for other contexts:
+The runner loads the validated owned environment from the target config,
+uses the registered Playwright selection by default, runs registered focused
+checks, binds the target config to the case identity, then performs
+precheck, before/after capture, health, and one native Playwright test. It
+creates a fresh summary outside watched source, forces one worker and zero
+retries, validates one discovered test, and attempts after-capture and health
+even after browser failure. Do not run a second manual bracket for the same
+case.
 
-```bash
-make verify-case-checks SCENARIO=cda-current-draft-membership CASE=membership
-```
+For a case without a registered target identity, load the validated owned
+browser and capture environments, then use `--target-from-environment` with the
+explicit native selection shown by `--help`. If the browser loader clears
+`LOOM_CDA_*`, load capture environment after it. That mode is registry-unbound,
+and the summary marks runtime dataset identity as not checked. Inspect the
+case report and separate source evidence before accepting correctness.
 
-The runner creates a fresh run directory, forces one Playwright worker and zero
-retries, validates exactly one discovered test, and writes `summary.json`. It
-runs after-capture and health after browser failure. Do not run a second manual
-bracket around the same case. Accept a pass only when the summary reports a
-passed lifecycle and integrity, all registered checks pass, and the selected
-native test exits successfully. Read the linked domain report for correctness
-and consequential failure evidence. Target config validation checks the
-configuration identity only; the case's bounded oracle still verifies active
-data project, generation, and source scope before lifecycle actions.
+Use `--checks-only` to run registered focused prerequisites without Docker or
+Playwright. A case with no focused prerequisites is reported as `browser-only`;
+a passing focused check is not a browser pass. The low-level
+`owned-stack-verification.mjs` and `capture-owned-verification.mjs` commands
+are for diagnosis. After a browser failure, compare source, docs, API identity,
+and owned mounts, and report missing closure as unverified.
+
+Accept a pass only when the summary reports passed lifecycle and integrity,
+all registered focused checks pass, and the selected native test exits
+successfully. Read the linked domain report for correctness and consequential
+failure evidence.
 
 The first live proof passed the Group-to-Pivot Append lifecycle at source commit
 `d120b68c7bf172ef2a0979052802f7108158363b`: 31/31 required checks, no retries,
