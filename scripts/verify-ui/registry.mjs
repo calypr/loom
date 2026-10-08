@@ -2162,6 +2162,28 @@ export const registry = Object.freeze([
       },
       "nullable-code-join": {
         playwrightTest: "scripts/verify-ui/specs/cda-current-draft-nullable-code-join.spec.mjs",
+        playwrightGrep: 'raw Observation selections preserve duplicate-key and missing-code Join semantics',
+        expectedIdentity: { project: 'loom_dev_cda_fhir', generation: 'cda-fhir-v1' },
+        focusedChecks: [
+          {
+            id: 'nullable-code-join-literal-oracle',
+            cwd: '.',
+            command: [
+              'node-test',
+              'scripts/verify-ui/helpers/tests/cda-nullable-code-join-oracle.test.mjs',
+              'scripts/verify-ui/helpers/tests/cda-explicit-ui-route.test.mjs',
+            ],
+            sourceFiles: [
+              'scripts/run-native-verification-bracket.mjs',
+              'scripts/verify-ui/registry.mjs',
+              'scripts/verify-ui/helpers/focused-check-groups.mjs',
+              'scripts/verify-ui/helpers/cda-fixtures.mjs',
+              'scripts/verify-ui/specs/cda-current-draft-nullable-code-join.spec.mjs',
+              'scripts/verify-ui/workflows/cda-current-draft-nullable-code-join-workflow.mjs',
+              'scripts/verify-ui/helpers/cda-nullable-code-join-oracle.mjs',
+            ],
+          },
+        ],
         requiredChecks: [
           "Frozen exact-scope raw witness proves disjoint 2x2 code=d keys and one missing code per side",
           "valueQuantity.code candidate is scalar optional string in the exact project and catalog scope",
@@ -2206,6 +2228,7 @@ export const registry = Object.freeze([
     coverage: [
       { feature: 'owned CDA current-draft Group-to-Group KEY_JOIN Cancel, Apply, edit, upstream recompute, removal, and reload lifecycle', acceptance: {"intent":"row-lifecycle","kind":"lifecycle","case":"group-join","checks":{"choice":3,"proposal":5,"cancel":6,"apply":7,"savedRows":7,"reload":7,"edit":9,"restoration":12}}, status: 'implemented', reason: 'Epoch58 verified the full native CDA Group-to-Group lifecycle: 16 required checks, 107 actions, max 1472ms, no unexpected errors; independent scoped raw oracle and unchanged source/API/mounts. Durable report: docs/verification/playwright/runtime/current-draft-cda-group-join-epoch58-report.json; closure: docs/verification/playwright/runtime/current-draft-cda-group-join-epoch58-closure.json. Other transition classes remain separate.' },
       { feature: 'owned CDA current-draft Group-to-Pivot KEY_JOIN Cancel, Apply, LEFT-to-INNER edit, removal, restoration, and reload lifecycle', acceptance: {"intent":"row-lifecycle","kind":"lifecycle","case":"group-pivot-join","checks":{"choice":15,"proposal":14,"cancel":16,"apply":17,"savedRows":17,"reload":17,"edit":22,"restoration":25}}, status: 'implemented', reason: 'Epoch93 passed all 30 registered checks, 204 assertions, and 113 native actions (maximum 1412ms; category discovery and exact preview 1428ms). Independent scoped Observation IDs prove left Group counts 3/1 and right code-category Pivot counts 2/1, LEFT unmatched nulls, and INNER matched rows. Cancel, Apply, edit, removal, exact empty-target restoration, reload, and preserved Group/Pivot source selections passed without Publish or TABLE_REVISION inputs. Actual fresh API precheck and before/after source, docs, API identity, owned mounts, and health all passed. One stale selection read cancellation is request-proven; four background requests have no recorded status and favicon404 is incidental. Report: docs/verification/playwright/runtime/current-draft-cda-group-pivot-join-epoch93-lifecycle-report.json; closure: docs/verification/playwright/runtime/current-draft-cda-group-pivot-join-epoch93-lifecycle-closure.json. This proves the exact subject/first-code Group-Pivot shape; other transition classes remain separate.' },
+      { feature: 'owned CDA nullable valueQuantity.code KEY_JOIN duplicate-key and missing-code Cancel, Apply, edit, removal, restoration, and reload lifecycle', acceptance: { intent: 'row-lifecycle', kind: 'lifecycle', case: 'nullable-code-join', checks: { choice: 8, proposal: 10, cancel: 11, apply: 15, savedRows: 16, reload: 16, edit: 17, restoration: 30 } }, status: 'untested', reason: 'The exact six-ID raw witness and literal nullable Join oracle are bounded, and the registered native case has 37 required lifecycle checks. No full native CDA browser lifecycle has been recorded yet; the dedicated Playwright case must pass before coverage closes.' },
     ],
   }),
   Object.freeze({

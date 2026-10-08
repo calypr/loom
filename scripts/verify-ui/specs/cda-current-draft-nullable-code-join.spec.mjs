@@ -5,6 +5,7 @@ test.describe('CDA current-draft nullable valueQuantity.code Join', () => {
   test.use({
     cdaScenarioID: 'cda-workspace-combine',
     cdaCaseName: 'nullable-code-join',
+    cdaUiRouting: 'explicit-query',
     cdaRequireSourceFixture: true,
   });
 
