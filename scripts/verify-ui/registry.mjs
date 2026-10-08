@@ -1146,7 +1146,8 @@ export const registry = Object.freeze([
     requiredTransitions: [
       'find two mapped Specimens and one unmapped child-bearing Specimen from bounded project/generation-scoped CDA records',
       'create an immutable selection of those exact Specimen references and preserve project, generation, and authorization scope',
-      'save the exact Observation → Specimen → parent population route',
+      'save the exact Observation → Specimen → parent population route and natively Apply a FILTER EXISTS over the bound Observation ID output',
+      'Cancel a changed construction proposal, prove the source workspace and scoped rows unchanged, then Apply the exact nonempty FILTER EXISTS construction',
       'remove only the unmapped Specimen while retaining the two mapped members, saved route, columns, and construction',
       'reload the repaired population, clear it to inspect scoped authorized Observation rows, and natively reattach the saved route',
     ],
@@ -1160,10 +1161,28 @@ export const registry = Object.freeze([
     cases: {
       "partial-long-route-repair-and-reload": {
         playwrightTest: "scripts/verify-ui/specs/standalone-cda-other.spec.mjs",
+        playwrightGrep: 'remove an unmapped selected resource, verify the saved route, and reload$',
+        expectedIdentity: { project: 'loom_dev_cda_fhir', generation: 'cda-fhir-v1' },
+        focusedChecks: [
+          {
+            id: 'partial-collection-repair-cancel-preservation',
+            cwd: '.',
+            command: [
+              'node-test',
+              'scripts/verify-ui/helpers/tests/verify-cda-collection-repair-reload-budget.test.mjs',
+            ],
+            sourceFiles: [
+              'scripts/verify-ui/helpers/collection-repair-preview-schema.mjs',
+              'scripts/verify-ui/workflows/verify-cda-collection-repair.mjs',
+              'scripts/verify-ui/specs/standalone-cda-other.spec.mjs',
+              'scripts/verify-ui/registry.mjs',
+            ],
+          },
+        ],
         requiredChecks: [
           "bounded raw CDA oracle contains two mapped and one unmapped project/generation-scoped Specimens with exact Observation IDs",
           "initial immutable selection preserves exact Specimen IDs, project, generation, and authorization scope",
-          "saved population preserves the exact two-hop Observation → Specimen → parent route",
+          "native FILTER EXISTS Apply preserves the exact Observation ID binding, nonempty construction, selected population, and two-hop Observation → Specimen → parent route",
           "native preview and coverage match exact mapped/unmapped raw membership",
           "removing the unmapped Specimen preserves mapped membership, route, columns, and construction",
           "repaired route, immutable selection, and preview survive Builder reload",
@@ -1172,11 +1191,12 @@ export const registry = Object.freeze([
           "all measured native actions and workflow checkpoints complete within five seconds",
           "no unexpected HTTP or workflow errors occur",
           "CDA watched source and API build stayed unchanged",
+          "Cancel before Apply preserves the exact source workspace, selected membership, route, output bindings, and scoped raw preview before the same FILTER EXISTS operation and preview are applied",
         ],
       },
     },
     coverage: [
-      { feature: 'partial long-route starting-collection repair with exact scoped Specimen membership, removal, clear, native reattachment, and reload', status: 'implemented', reason: 'Epoch72 passed all 11 registered checks, 28 assertions, and 16 native actions (max action 247 ms; max workflow checkpoint 2,652 ms). The bounded scoped raw oracle identified two mapped Specimens with distinct Observation IDs and one unmapped Specimen. Native removal retained the exact mapped membership and two-hop Observation → Specimen → parent route; clear, reattachment, and reload passed. Initial fixture/selection setup used the API; remove, clear, reattach, and reload were native Builder actions. The starting construction was absent, so nonempty-construction preservation is not covered; this broad-scope fixture does not establish restricted-authorization behavior. Source/docs/API/mount integrity and 3/3 health samples before and after passed; no unexpected HTTP/workflow errors (incidental favicon 404 only). Report docs/verification/playwright/runtime/cda-collection-repair-epoch72-report.json; closure docs/verification/playwright/runtime/cda-collection-repair-epoch72-closure.json.' },
+      { feature: 'partial long-route starting-collection repair preserves a native FILTER EXISTS construction, scoped Specimen membership, bindings, route, removal, clear, reattachment, and reload', status: 'untested', reason: 'Epoch72 passed 11 checks, 28 assertions, and 16 native actions (max action 247 ms; max workflow checkpoint 2,652 ms) for an empty-construction repair. The current driver natively proposes and Applies a FILTER EXISTS over the saved Observation ID binding before repair, then checks exact columns, construction, route, and independent scoped raw membership through removal, clear, reattachment, and reload. This case adds Cancel-before-Apply and requires a fresh native run to prove the nonempty-construction lifecycle; Epoch72 does not cover these assertions. The broad-scope fixture does not establish restricted-authorization behavior. Historical report docs/verification/playwright/runtime/cda-collection-repair-epoch72-report.json; closure docs/verification/playwright/runtime/cda-collection-repair-epoch72-closure.json.' },
     ],
   }),
   Object.freeze({

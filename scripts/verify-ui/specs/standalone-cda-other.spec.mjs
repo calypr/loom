@@ -161,6 +161,7 @@ test.describe('CDA collection repair', () => {
     cdaScenarioID: partialLongRoute ? 'cda-collection-repair-partial' : 'cda-collection-repair',
     cdaCaseName: partialLongRoute ? 'partial-long-route-repair-and-reload' : longRoute ? 'long-route-repair-and-reload' : 'unmapped-parent-repair-and-reload',
     cdaRequireSourceFixture: true,
+    cdaUiRouting: 'explicit-query',
   });
 
   test('remove an unmapped selected resource, verify the saved route, and reload', async ({ page, cda }) => {

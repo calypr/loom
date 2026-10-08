@@ -168,9 +168,16 @@ const seedNonEmptyConstruction = async () => {
   assert(!before.construction?.steps?.length,
     'The case must start from the empty epoch72 construction baseline before seeding one native step');
   const beforeDigest = builder.draftDigest;
-  const seedStartedAt = Date.now();
+  const beforeWorkspace = builder.workspace;
 
+  const returnToTableStartedAt = Date.now();
   await returnToTable();
+  const returnToTableDurationMs = Date.now() - returnToTableStartedAt;
+  assert(returnToTableDurationMs <= 5000,
+    `Returning to the table before the construction seed took ${returnToTableDurationMs}ms`);
+  recordCase({ name: 'return-to-table-before-nonempty-construction-seed', durationMs: returnToTableDurationMs });
+
+  const filterEditorStartedAt = Date.now();
   await click(page, '[data-testid="construction-action-keep-rows"]');
   const conditionSelector = '[data-testid="construction-filter-editor"] select[aria-label="Condition"]';
   const columnSelector = '[data-testid="construction-filter-editor"] select[aria-label="Column"]';
@@ -183,7 +190,14 @@ const seedNonEmptyConstruction = async () => {
   }, { columnSelector });
   assert(sourceColumn.id && sourceColumn.label?.startsWith('Observation ID'),
     `The native seed must filter the displayed Observation ID column: ${JSON.stringify(sourceColumn)}`);
+  const filterEditorDurationMs = Date.now() - filterEditorStartedAt;
+  assert(filterEditorDurationMs <= 5000,
+    `Opening the native row filter editor took ${filterEditorDurationMs}ms`);
+  recordCase({ name: 'open-nonempty-construction-filter-editor', durationMs: filterEditorDurationMs,
+    sourceColumnId: sourceColumn.id });
+
   const proposalFromIndex = report.browserRequests.length;
+  const proposalStartedAt = Date.now();
   await selectOption(page, conditionSelector, 'EXISTS');
   const proposalEntry = await requestMonitor.waitFor(entry => {
     const candidateSteps = entry.body?.candidateConstruction?.steps ?? [];
@@ -194,7 +208,7 @@ const seedNonEmptyConstruction = async () => {
       && entry.body?.outputId === outputId && entry.body?.expectedDraftDigest === beforeDigest
       && entry.body?.expectedDraftVersion === builder.draftVersion
       && candidateSteps.length === 1 && filterStep;
-  }, { fromIndex: proposalFromIndex, timeoutMs: Math.max(1, seedStartedAt + 5000 - Date.now()) });
+  }, { fromIndex: proposalFromIndex, timeoutMs: Math.max(1, proposalStartedAt + 5000 - Date.now()) });
   assert.equal(proposalEntry.status, 200, JSON.stringify(proposalEntry));
   const proposalResponse = proposalEntry.response;
   assert(proposalResponse?.proposalId, 'The native EXISTS seed request must return its proposal identity');
@@ -224,7 +238,7 @@ const seedNonEmptyConstruction = async () => {
     const panel = document.querySelector('[data-testid="construction-proposal-panel"]');
     return panel?.dataset.proposalId === proposalId
       && ['ready', 'error', 'needs-repair'].includes(panel.dataset.proposalStatus);
-  }, { proposalId: proposalResponse.proposalId }, { timeout: Math.max(1, seedStartedAt + 5000 - Date.now()) });
+  }, { proposalId: proposalResponse.proposalId }, { timeout: Math.max(1, proposalStartedAt + 5000 - Date.now()) });
   const proposal = await inspectPage(page, () => {
     const panel = document.querySelector('[data-testid="construction-proposal-panel"]');
     return {
@@ -240,18 +254,154 @@ const seedNonEmptyConstruction = async () => {
   assert.equal(proposal.status, 'ready', proposal.text);
   assert.deepEqual(proposal.rows.map(row => row[0]).sort(), [...expectedObservationIDs].sort(),
     'The EXISTS seed preview must preserve every raw-oracle Observation ID');
+  const proposalDurationMs = Date.now() - proposalStartedAt;
+  assert(proposalDurationMs <= 5000,
+    `The native EXISTS proposal and exact preview took ${proposalDurationMs}ms`);
+  const proposalStepId = proposalResponse.candidateConstruction.steps[0].id;
+  recordCase({ name: 'nonempty-exists-proposal-and-preview', durationMs: proposalDurationMs,
+    proposalId: proposalResponse.proposalId, stepId: proposalStepId,
+    candidateWorkspaceDigest: proposalResponse.candidateWorkspaceDigest,
+    observationIDs: expectedObservationIDs });
 
+  const cancelStartedAt = Date.now();
+  await click(page, '[data-testid="construction-cancel-proposal"]');
+  await page.waitForFunction(() => !document.querySelector('[data-testid="construction-proposal-panel"]'),
+    null, { timeout: 5000 });
+  const cancelled = await api(base + '/builder');
+  const cancelledDocument = cancelled.workspace.documents.find(document => document.output.id === outputId);
+  assert(cancelledDocument, 'Cancel must retain the population-bound output');
+  assert.equal(cancelled.draftDigest, beforeDigest,
+    'Cancel must leave the starting collection draft digest unchanged');
+  assert.deepEqual(cancelled.workspace, beforeWorkspace,
+    'Cancel must leave the exact source workspace unchanged before the construction is applied');
+  assert.deepEqual(cancelledDocument?.population, before.population,
+    'Cancel must preserve the exact selected membership and population route');
+  assert.deepEqual(cancelledDocument?.columns, before.columns,
+    'Cancel must preserve the exact output column bindings');
+  assert.deepEqual(cancelledDocument?.construction, before.construction,
+    'Cancel must leave the source construction empty');
+  await assertPreviewIDs('cancelled-nonempty-construction-seed-preview');
+  const cancelDurationMs = Date.now() - cancelStartedAt;
+  assert(cancelDurationMs <= 5000, 'Cancel must restore scoped source rows within five seconds (' + cancelDurationMs + 'ms)');
+  recordCase({ name: 'cancel-nonempty-construction-seed-before-apply', durationMs: cancelDurationMs,
+    draftDigest: cancelled.draftDigest, observationIDs: expectedObservationIDs });
+  recordRequirement(11, 'persistence', true, {
+    draftDigest: cancelled.draftDigest,
+    workspacePreserved: true,
+    population: cancelledDocument.population,
+    columns: cancelledDocument.columns,
+    construction: cancelledDocument.construction,
+    previewObservationIDs: expectedObservationIDs,
+  });
+
+  const appliedProposalFromIndex = report.browserRequests.length;
+  const reopenFilterStartedAt = Date.now();
+  await click(page, '[data-testid="construction-action-keep-rows"]');
+  await page.locator(conditionSelector).waitFor({ state: 'visible', timeout: 5000 });
+  await page.waitForFunction(({ columnSelector }) => Boolean(document.querySelector(columnSelector)?.value),
+    { columnSelector }, { timeout: 5000 });
+  const appliedSourceColumnId = await inspectPage(page, ({ columnSelector }) =>
+    document.querySelector(columnSelector)?.value ?? null, { columnSelector });
+  assert.equal(appliedSourceColumnId, sourceColumn.id,
+    'Reopening the filter editor must retain the exact Observation ID binding');
+  const reopenFilterDurationMs = Date.now() - reopenFilterStartedAt;
+  assert(reopenFilterDurationMs <= 5000,
+    `Reopening the native row filter editor took ${reopenFilterDurationMs}ms`);
+  recordCase({ name: 'reopen-nonempty-construction-filter-editor-after-cancel',
+    durationMs: reopenFilterDurationMs, sourceColumnId: appliedSourceColumnId });
+
+  const reopenedCondition = await inspectPage(page, ({ conditionSelector }) =>
+    document.querySelector(conditionSelector)?.value ?? null, { conditionSelector });
+  assert.notEqual(reopenedCondition, 'EXISTS',
+    'Cancel must close the proposal editor so reopening starts from the empty saved construction');
+  const appliedProposalStartedAt = Date.now();
+  await selectOption(page, conditionSelector, 'EXISTS');
+  const appliedProposalEntry = await requestMonitor.waitFor(entry => {
+    const candidateSteps = entry.body?.candidateConstruction?.steps ?? [];
+    const filterStep = candidateSteps.find(step =>
+      step.operation?.kind === 'FILTER' && step.operation?.filter?.operator === 'EXISTS'
+      && step.operation?.filter?.columnId === sourceColumn.id);
+    return entry.path === base + '/construction-proposals' && entry.method === 'POST'
+      && entry.body?.outputId === outputId && entry.body?.expectedDraftDigest === beforeDigest
+      && entry.body?.expectedDraftVersion === builder.draftVersion
+      && candidateSteps.length === 1 && filterStep;
+  }, { fromIndex: appliedProposalFromIndex, timeoutMs: Math.max(1, appliedProposalStartedAt + 5000 - Date.now()) });
+  assert.equal(appliedProposalEntry.status, 200, JSON.stringify(appliedProposalEntry));
+  const appliedProposalResponse = appliedProposalEntry.response;
+  assert(appliedProposalResponse.proposalId, 'The recreated seed proposal must have an identity');
+  const constructionSemantics = construction => ({
+    version: construction?.version,
+    steps: (construction?.steps ?? []).map(({ id, ...step }) => step),
+  });
+  assert.deepEqual(constructionSemantics(appliedProposalResponse.candidateConstruction),
+    constructionSemantics(proposalResponse.candidateConstruction),
+    'The fresh proposal must recreate the same FILTER EXISTS operation, source binding, inputs, and output schema');
+  const appliedProposalStepId = appliedProposalResponse.candidateConstruction.steps[0]?.id;
+  assert(appliedProposalStepId, 'The recreated candidate must carry its own construction step identity');
+  assert.equal(appliedProposalEntry.body?.changedStepId, appliedProposalStepId,
+    'The recreated proposal request must identify the exact candidate step it applies');
+  assert.equal(appliedProposalResponse.preview?.receiptId, appliedProposalResponse.proposalId,
+    'The recreated EXISTS preview must be bound to its fresh proposal receipt');
+  assert.deepEqual(appliedProposalResponse.preview?.columns.map(({ column, label }) => ({ column, label })),
+    proposalResponse.preview?.columns.map(({ column, label }) => ({ column, label })),
+    'The recreated proposal must retain the exact saved output preview schema');
+  assert.equal(appliedProposalResponse.preview?.rowCount, expectedObservationIDs.length);
+  assert.equal(appliedProposalResponse.preview?.sampled, false);
+  const appliedPreviewColumn = appliedProposalResponse.preview?.columns.find(column => column.column === previewColumn.column);
+  assert(appliedPreviewColumn, 'The recreated preview must retain the selected Observation ID wire column');
+  assert.deepEqual(appliedProposalResponse.preview.rows
+    .map(row => String(row[appliedPreviewColumn.column])).sort(), [...expectedObservationIDs].sort(),
+  'The recreated proposal must reproduce every scoped raw Observation ID');
+  await page.waitForFunction(({ proposalId }) => {
+    const panel = document.querySelector('[data-testid="construction-proposal-panel"]');
+    return panel?.dataset.proposalId === proposalId
+      && ['ready', 'error', 'needs-repair'].includes(panel.dataset.proposalStatus);
+  }, { proposalId: appliedProposalResponse.proposalId }, { timeout: Math.max(1, appliedProposalStartedAt + 5000 - Date.now()) });
+  const appliedProposal = await inspectPage(page, () => {
+    const panel = document.querySelector('[data-testid="construction-proposal-panel"]');
+    return {
+      status: panel?.dataset.proposalStatus,
+      proposalId: panel?.dataset.proposalId,
+      text: panel?.innerText ?? '',
+      rows: [...document.querySelectorAll('[data-testid="construction-proposal-preview-row"]')]
+        .map(row => [...row.querySelectorAll('td')].map(cell => cell.innerText.trim())),
+    };
+  });
+  assert.equal(appliedProposal.proposalId, appliedProposalResponse.proposalId);
+  assert.equal(appliedProposal.status, 'ready', appliedProposal.text);
+  assert.deepEqual(appliedProposal.rows.map(row => row[0]).sort(), [...expectedObservationIDs].sort(),
+    'The fresh Apply proposal must render every raw-oracle Observation ID');
+  const appliedProposalDurationMs = Date.now() - appliedProposalStartedAt;
+  assert(appliedProposalDurationMs <= 5000,
+    `The recreated EXISTS proposal and exact preview took ${appliedProposalDurationMs}ms`);
+  recordCase({ name: 'recreated-nonempty-exists-proposal-and-preview-after-cancel',
+    durationMs: appliedProposalDurationMs, previousProposalId: proposalResponse.proposalId,
+    proposalId: appliedProposalResponse.proposalId, previousStepId: proposalStepId,
+    stepId: appliedProposalStepId,
+    previousCandidateWorkspaceDigest: proposalResponse.candidateWorkspaceDigest,
+    candidateWorkspaceDigest: appliedProposalResponse.candidateWorkspaceDigest,
+    observationIDs: expectedObservationIDs });
+
+  const applyStartedAt = Date.now();
   await click(page, '[data-testid="construction-apply-proposal"]');
   await page.waitForFunction(() => !document.querySelector('[data-testid="construction-proposal-panel"]'),
     null, { timeout: 5000 });
   await assertPreviewIDs('nonempty-construction-seed-preview');
+  const applyDurationMs = Date.now() - applyStartedAt;
+  assert(applyDurationMs <= 5000,
+    `Applying the native nonempty construction and rendering its exact rows took ${applyDurationMs}ms`);
+  recordCase({ name: 'apply-nonempty-exists-construction-before-repair', durationMs: applyDurationMs,
+    proposalId: appliedProposalResponse.proposalId, stepId: appliedProposalStepId,
+    candidateWorkspaceDigest: appliedProposalResponse.candidateWorkspaceDigest,
+    observationIDs: expectedObservationIDs });
+
   builder = await api(base + '/builder');
   const seeded = builder.workspace.documents.find(document => document.output.id === outputId);
   assert(seeded);
-  assert.equal(builder.draftDigest, proposalResponse.candidateWorkspaceDigest,
+  assert.equal(builder.draftDigest, appliedProposalResponse.candidateWorkspaceDigest,
     'Applying the native seed must persist the exact accepted proposal digest');
   assert.notEqual(builder.draftDigest, beforeDigest, 'Applying the native seed must persist a changed draft');
-  assert.deepEqual(seeded.construction, proposalResponse.candidateConstruction,
+  assert.deepEqual(seeded.construction, appliedProposalResponse.candidateConstruction,
     'Applying the native seed must persist the exact accepted construction');
   assert.deepEqual(seeded.population, before.population, 'The seed must leave the exact 2+1 source selection and route unchanged');
   assert.deepEqual(seeded.columns, before.columns, 'The seed must retain the existing Observation ID output column');
@@ -263,15 +413,24 @@ const seedNonEmptyConstruction = async () => {
   assert.equal(step.operation.filter?.columnId, sourceColumn.id);
   assert.deepEqual(step.inputs, [{ kind: 'SOURCE_PROJECTION' }]);
 
+  const settingsStartedAt = Date.now();
   await openRowSettings();
-  const durationMs = Date.now() - seedStartedAt;
-  assert(durationMs <= 5000, `Native nonempty-construction seed took ${durationMs}ms`);
+  const settingsDurationMs = Date.now() - settingsStartedAt;
+  assert(settingsDurationMs <= 5000,
+    `Opening the row settings with the saved nonempty construction took ${settingsDurationMs}ms`);
+  recordCase({ name: 'open-row-settings-with-nonempty-construction', durationMs: settingsDurationMs,
+    stepId: step.id });
   report.constructionSeed = {
-    status: 'passed', stepId: step.id, operation: step.operation,
+    status: 'passed', stepId: step.id, proposalId: appliedProposalResponse.proposalId,
+    proposalStepId, appliedProposalStepId, candidateWorkspaceDigest: builder.draftDigest,
+    cancelledCandidateWorkspaceDigest: proposalResponse.candidateWorkspaceDigest,
+    operation: step.operation,
     input: step.inputs, selectedColumn: sourceColumn, previewObservationIDs: expectedObservationIDs,
-    preservedPopulation: true, durationMs,
+    preservedPopulation: true, proposalDurationMs, cancelDurationMs, reopenFilterDurationMs,
+    appliedProposalDurationMs, applyDurationMs, settingsDurationMs,
   };
-  recordCase({ name: 'seed-nonempty-exists-construction-before-repair', durationMs, stepId: step.id,
+  recordCase({ name: 'seed-nonempty-exists-construction-before-repair', durationMs: applyDurationMs,
+    stepId: step.id, proposalId: appliedProposalResponse.proposalId,
     previewObservationIDs: expectedObservationIDs });
 };
 const open = async (previewName='partial-long-route-preview') => {
