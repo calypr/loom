@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { runInNewContext } from 'node:vm';
 import { scenarioCaseFor } from '../../registry.mjs';
-import { assertSavedPreviewIdentity, cdaExplorerSelectionsPath, isPostPivotRawOracleUnavailable, matchesSavedPreviewRequest, readPivotSelectOptions, readProposalPreviewDocument, relatedRouteChoice, proveSourceBinding, relatedSourceEditEvidence, sameWorkspace, uniqueEnabledSelectValue, waitForCdaCapturedResponse, withoutRelatedSourceFromWorkspace } from '../../workflows/verify-cda-related-source-after-pivot-browser.mjs';
+import { assertRelatedSourceStepAfterUpstreamChange, assertSavedPreviewIdentity, cdaExplorerSelectionsPath, isPostPivotRawOracleUnavailable, matchesSavedPreviewRequest, navigateAfterOwnedConstructionCapabilities, readPivotSelectOptions, readProposalPreviewDocument, relatedRouteChoice, proveSourceBinding, relatedSourceEditEvidence, sameConstructionIgnoringPivotCategoryOutputIDs, sameWorkspace, sameWorkspaceIgnoringEmptySourceConstruction, sameWorkspaceIgnoringPivotCategoryOutputIDs, uniqueEnabledSelectValue, waitForCdaCapturedResponse, withoutRelatedSourceFromWorkspace } from '../../workflows/verify-cda-related-source-after-pivot-browser.mjs';
 import { choosePostPivotRelatedSourcePair, verifyPostPivotRelatedSourceWitness } from '../post-pivot-related-source-oracle.mjs';
 import { assertVisibleRowsMatchOracle } from '../cda-row-oracle.mjs';
 
@@ -210,7 +210,7 @@ test('upstream Pivot role-split case registers its exact retained CDA identity a
     'standalone CDA reshape workflows related-resource-type-after-pivot-group-split related-resource-type-after-pivot-group-split$');
   assert.deepEqual(contract.expectedIdentity, { project, generation });
   assert(contract.requiredChecks.includes('Applied upstream Pivot split preserves two exact partitions and the authored Patient.resourceType ALL binding after reload'));
-  assert(contract.requiredChecks.includes('Applying Pivot role restoration returns the exact original coalesced workspace and values'));
+  assert(contract.requiredChecks.includes('Applying Pivot role restoration returns original coalesced workspace with regenerated category output IDs'));
   assert(contract.focusedChecks.some(check => check.command.includes('scripts/verify-ui/helpers/tests/post-pivot-related-source-oracle.test.mjs')));
   assert.match(spec, /register\('related-resource-type-after-pivot-group-split',\s*runRelatedSourceAfterPivotBrowserWorkflow/);
   const allWorkflow = workflow
@@ -221,6 +221,137 @@ test('upstream Pivot role-split case registers its exact retained CDA identity a
   for (const check of contract.requiredChecks.filter(name => name !== 'CDA watched source and API build stayed unchanged')) {
     assert(allWorkflow.includes(check), `Registered upstream-split check is not emitted by the workflow: ${check}`);
   }
+});
+
+test('upstream Pivot schema changes refresh RELATED_SOURCE passthroughs and preserve its authored binding', () => {
+  const before = savedRelatedStep();
+  before.inputs = [{ kind: 'STEP_OUTPUT', stepId: 'pivot-step' }];
+  before.operation.relatedSource = {
+    anchorColumnId: 'pivot-row-id',
+    choiceId: 'patient-resource-type-choice',
+    contributorRule: { policy: 'ALL_MATCHES' },
+    form: 'ALL',
+    outputColumnId: 'patient-id-column',
+    route: [{ relationship: 'subject_Patient' }],
+    source: { path: 'resourceType', resourceType: 'Patient' },
+  };
+  const authoredOutput = before.outputs.find(output => output.id === 'patient-id-column');
+  const candidatePivot = {
+    id: 'pivot-step',
+    outputs: [
+      { id: 'observation-id', name: 'observation_id', label: 'Observation.id', type: 'string' },
+      { id: 'patient-ref-a', name: 'patient_ref_a', label: 'Patient/a', type: 'string' },
+      { id: 'patient-ref-b', name: 'patient_ref_b', label: 'Patient/b', type: 'string' },
+    ],
+  };
+  const after = structuredClone(before);
+  after.outputs = [...candidatePivot.outputs, authoredOutput];
+
+  assert.doesNotThrow(() => assertRelatedSourceStepAfterUpstreamChange(before, after, candidatePivot));
+
+  const changedSource = structuredClone(after);
+  changedSource.operation.relatedSource.source.path = 'id';
+  assert.throws(() => assertRelatedSourceStepAfterUpstreamChange(before, changedSource, candidatePivot),
+    /full authored RELATED_SOURCE binding/);
+
+  const changedRoute = structuredClone(after);
+  changedRoute.operation.relatedSource.route[0].relationship = 'focus_Patient';
+  assert.throws(() => assertRelatedSourceStepAfterUpstreamChange(before, changedRoute, candidatePivot),
+    /full authored RELATED_SOURCE binding/);
+
+  const changedOutput = structuredClone(after);
+  changedOutput.operation.relatedSource.outputColumnId = 'replacement-output';
+  assert.throws(() => assertRelatedSourceStepAfterUpstreamChange(before, changedOutput, candidatePivot),
+    /full authored RELATED_SOURCE binding/);
+
+  const changedDependency = structuredClone(after);
+  changedDependency.inputs[0].stepId = 'another-pivot-step';
+  assert.throws(() => assertRelatedSourceStepAfterUpstreamChange(before, changedDependency, candidatePivot),
+    /dependency identity/);
+});
+
+test('Pivot restoration comparison ignores only regenerated category output IDs', () => {
+  const before = {
+    workspace: {
+      documents: [{
+        output: { id: 'table-output' },
+        construction: {
+          version: 1,
+          steps: [{
+            id: 'pivot-step',
+            operation: { kind: 'PIVOT', pivot: {
+              groupKeyIds: ['source-status'], categoryColumnId: 'source-patient-reference', valueColumnId: 'source-id',
+              categories: [
+                { key: { kind: 'STRING', string: 'Patient/a' }, outputColumnId: 'old-pivot-a' },
+                { key: { kind: 'STRING', string: 'Patient/b' }, outputColumnId: 'old-pivot-b' },
+              ],
+            } },
+            outputs: [
+              { id: 'source-status', name: 'status', label: 'status', type: 'string' },
+              { id: 'old-pivot-a', name: 'patient_a', label: 'Patient/a', type: 'string' },
+              { id: 'old-pivot-b', name: 'patient_b', label: 'Patient/b', type: 'string' },
+            ],
+          }],
+        },
+        columns: [{ columnId: 'source-status', label: 'status' }],
+        population: { selectionRevisionId: 'selection-one' },
+      }],
+    },
+  };
+  const restored = structuredClone(before);
+  const pivotConstruction = restored.workspace.documents[0].construction;
+  const pivot = pivotConstruction.steps[0];
+  pivot.operation.pivot.categories[0].outputColumnId = 'new-pivot-a';
+  pivot.operation.pivot.categories[1].outputColumnId = 'new-pivot-b';
+  pivot.outputs[1].id = 'new-pivot-a';
+  pivot.outputs[2].id = 'new-pivot-b';
+  assert.equal(sameConstructionIgnoringPivotCategoryOutputIDs(
+    before.workspace.documents[0].construction, pivotConstruction,
+  ), true);
+  assert.equal(sameWorkspaceIgnoringPivotCategoryOutputIDs(before, restored), true,
+    'All other construction and workspace fields must remain exact across regenerated category IDs.');
+
+  const changedGroup = structuredClone(restored);
+  changedGroup.workspace.documents[0].construction.steps[0].operation.pivot.groupKeyIds = ['source-id'];
+  assert.equal(sameWorkspaceIgnoringPivotCategoryOutputIDs(before, changedGroup), false,
+    'Role binding changes must not be normalized away.');
+
+  const changedKey = structuredClone(restored);
+  changedKey.workspace.documents[0].construction.steps[0].operation.pivot.categories[0].key.string = 'Patient/c';
+  assert.equal(sameWorkspaceIgnoringPivotCategoryOutputIDs(before, changedKey), false,
+    'Typed category key changes must remain visible.');
+
+  const changedValue = structuredClone(restored);
+  changedValue.workspace.documents[0].construction.steps[0].operation.pivot.valueColumnId = 'source-status';
+  assert.equal(sameWorkspaceIgnoringPivotCategoryOutputIDs(before, changedValue), false,
+    'Value binding changes must remain visible.');
+
+  const missingKey = structuredClone(restored);
+  missingKey.workspace.documents[0].construction.steps[0].operation.pivot.categories.pop();
+  assert.equal(sameWorkspaceIgnoringPivotCategoryOutputIDs(before, missingKey), false,
+    'Missing categories must remain visible.');
+
+  const extraKey = structuredClone(restored);
+  const extraPivot = extraKey.workspace.documents[0].construction.steps[0];
+  extraPivot.operation.pivot.categories.push({ key: { kind: 'STRING', string: 'Patient/c' }, outputColumnId: 'new-pivot-c' });
+  extraPivot.outputs.push({ id: 'new-pivot-c', name: 'patient_c', label: 'Patient/c', type: 'string' });
+  assert.equal(sameWorkspaceIgnoringPivotCategoryOutputIDs(before, extraKey), false,
+    'Extra categories must remain visible.');
+
+  const changedPopulation = structuredClone(restored);
+  changedPopulation.workspace.documents[0].population.selectionRevisionId = 'selection-other';
+  assert.equal(sameWorkspaceIgnoringPivotCategoryOutputIDs(before, changedPopulation), false,
+    'Population changes must remain visible.');
+
+  const changedSource = structuredClone(restored);
+  changedSource.workspace.documents[0].columns[0].columnId = 'another-source-column';
+  assert.equal(sameWorkspaceIgnoringPivotCategoryOutputIDs(before, changedSource), false,
+    'Source-column changes must remain visible.');
+
+  const changedOperation = structuredClone(restored);
+  changedOperation.workspace.documents[0].construction.steps[0].operation.pivot.duplicatePolicy = 'KEEP_FIRST';
+  assert.equal(sameWorkspaceIgnoringPivotCategoryOutputIDs(before, changedOperation), false,
+    'Pivot operation changes must remain visible.');
 });
 
 test('RELATED_SOURCE binding proves the authoring wire contributor rule and exact saved identities', () => {
@@ -364,6 +495,49 @@ test('full pre-source workspace restoration detects mutations outside the constr
   const changedSibling = structuredClone(before);
   changedSibling.workspace.documents[1].output.label = 'Changed sibling';
   assert.equal(sameWorkspace(before, changedSibling), false);
+});
+
+test('original source workspace permits only an omitted or canonical empty construction default', () => {
+  const before = { workspace: {
+    selectedOutputId: 'source-output',
+    documents: [{
+      output: { id: 'source-output' },
+      columns: [{ columnId: 'source-id', label: 'id' }],
+      population: { selectionRevisionId: 'selection-1' },
+      rows: [{ source: 'Observation/one' }],
+    }, { output: { id: 'sibling-output' }, construction: undefined }],
+  } };
+  const emptyDefault = structuredClone(before);
+  emptyDefault.workspace.documents[0].construction = { version: 1, steps: [] };
+  assert.equal(sameWorkspaceIgnoringEmptySourceConstruction(before, emptyDefault, 'source-output'), true);
+
+  const nullDefault = structuredClone(before);
+  nullDefault.workspace.documents[0].construction = null;
+  assert.equal(sameWorkspaceIgnoringEmptySourceConstruction(before, nullDefault, 'source-output'), true);
+
+  for (const construction of [
+    { version: 2, steps: [] },
+    { version: 1, steps: [], extra: true },
+    { version: 1, steps: [{ id: 'unexpected-step' }] },
+  ]) {
+    const changed = structuredClone(before);
+    changed.workspace.documents[0].construction = construction;
+    assert.equal(sameWorkspaceIgnoringEmptySourceConstruction(before, changed, 'source-output'), false);
+  }
+
+  const changedRows = structuredClone(emptyDefault);
+  changedRows.workspace.documents[0].rows[0].source = 'Observation/two';
+  assert.equal(sameWorkspaceIgnoringEmptySourceConstruction(before, changedRows, 'source-output'), false);
+  const changedColumns = structuredClone(emptyDefault);
+  changedColumns.workspace.documents[0].columns[0].columnId = 'replacement-id';
+  assert.equal(sameWorkspaceIgnoringEmptySourceConstruction(before, changedColumns, 'source-output'), false);
+  const changedPopulation = structuredClone(emptyDefault);
+  changedPopulation.workspace.documents[0].population.selectionRevisionId = 'selection-2';
+  assert.equal(sameWorkspaceIgnoringEmptySourceConstruction(before, changedPopulation, 'source-output'), false);
+  const changedSibling = structuredClone(emptyDefault);
+  changedSibling.workspace.documents[1].construction = { version: 1, steps: [] };
+  assert.equal(sameWorkspaceIgnoringEmptySourceConstruction(before, changedSibling, 'source-output'), false,
+    'Only the selected source output may normalize its empty construction representation.');
 });
 
 test('related-source removal baseline removes only its selected step and output', () => {
@@ -514,7 +688,78 @@ test('CDA request capture uses the three-argument fixture facade', async () => {
   const fixtureSource = await readFile(new URL('../cda-fixtures.mjs', import.meta.url), 'utf8');
   const workflow = await readFile(relatedWorkflowPath, 'utf8');
   assert.match(fixtureSource, /waitForCapturedResponse: \(tracker, predicate, timeout\) => waitForCapturedResponse\(page, tracker, predicate, timeout\)/);
-  assert.equal((workflow.match(/waitForCdaCapturedResponse\(cda, requestCapture,/g) ?? []).length, 2);
+  assert.equal((workflow.match(/waitForCdaCapturedResponse\(cda, requestCapture,/g) ?? []).length, 3);
+});
+
+test('owned construction-capabilities requests reach a terminal result before full-page navigation', async () => {
+  const tracker = {};
+  const capabilityPath = '/api/v1/projects/loom_dev_cda_fhir/explorers/qa/authoring/v2/construction-capabilities';
+  const pending = { path: capabilityPath, method: 'POST', requestId: 'capabilities-pending', startedAt: 100 };
+  const alreadyComplete = { path: capabilityPath, method: 'POST', requestId: 'capabilities-complete', completedAt: 90, status: 200 };
+  const wrongMethod = { path: capabilityPath, method: 'GET', requestId: 'capabilities-get' };
+  const unrelated = { path: `${capabilityPath}/other`, method: 'POST', requestId: 'other-endpoint' };
+  const entries = [alreadyComplete, wrongMethod, unrelated, pending];
+  let releasePending;
+  let waitCalls = 0;
+  const cda = {
+    waitForCapturedResponse(actualTracker, predicate, timeout) {
+      assert.equal(actualTracker, tracker);
+      assert(timeout > 0);
+      const matched = entries.find(predicate);
+      assert.equal(matched, pending, 'Only the exact unfinished capabilities POST should be awaited.');
+      waitCalls += 1;
+      return new Promise(resolve => {
+        releasePending = () => {
+          pending.status = 200;
+          pending.completedAt = Date.now();
+          resolve(pending);
+        };
+      });
+    },
+  };
+  let navigated = false;
+  const navigation = navigateAfterOwnedConstructionCapabilities(
+    cda, tracker, () => entries, capabilityPath, 5000,
+    async () => {
+      assert(Number.isFinite(pending.completedAt), 'Navigation must wait until the captured request has completed.');
+      navigated = true;
+      return 'reloaded';
+    },
+  );
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(waitCalls, 1);
+  assert.equal(navigated, false, 'A full-page reload must not retire the still-pending owned request.');
+  releasePending();
+  const result = await navigation;
+  assert.equal(result.navigationResult, 'reloaded');
+  assert.deepEqual(result.settledEntries, [pending]);
+  assert.equal(navigated, true);
+});
+
+test('an in-flight owned capabilities transport failure blocks navigation without inventing an HTTP status', async () => {
+  const tracker = {};
+  const capabilityPath = '/api/v1/projects/loom_dev_cda_fhir/explorers/qa/authoring/v2/construction-capabilities';
+  const failed = {
+    path: capabilityPath, method: 'POST', requestId: 'capabilities-aborted', startedAt: 100,
+  };
+  const cda = {
+    waitForCapturedResponse(actualTracker, predicate) {
+      assert.equal(actualTracker, tracker);
+      assert(predicate(failed));
+      return Promise.resolve().then(() => {
+        failed.completedAt = Date.now();
+        failed.failure = 'net::ERR_ABORTED';
+        return failed;
+      });
+    },
+  };
+  let navigated = false;
+  await assert.rejects(navigateAfterOwnedConstructionCapabilities(
+    cda, tracker, () => [failed], capabilityPath, 5000,
+    async () => { navigated = true; },
+  ), /successful terminal response before navigation/);
+  assert.equal(failed.status, undefined, 'A transport failure must remain distinct from an HTTP response.');
+  assert.equal(navigated, false, 'A failed owned request must be reported before the page is replaced.');
 });
 
 test('saved-preview wait binds the native POST request and response receipt to the exact output', () => {
@@ -607,4 +852,27 @@ test('a rendered proposal row mismatch fails despite ready receipt and output ow
     label: 'proposal preview disagreement', exactWindow: true,
   }), /mismatch|different|expected|actual/i,
   'Receipt and output ownership must not substitute for matching visible cells.');
+});
+
+test('split Pivot preview compares complete contributor rows without imposing an unauthored order', () => {
+  const expectedSourceOrder = [
+    ['52f5e622-0181-5feb-936c-e9992ab26616', 'final', '—', 'Patient'],
+    ['485e2567-b566-56f3-b5bd-5f025f37cd95', '—', 'final', 'Patient'],
+  ];
+  const renderedGroupOrder = [...expectedSourceOrder].reverse();
+
+  assertVisibleRowsMatchOracle(renderedGroupOrder, expectedSourceOrder, {
+    label: 'split Pivot proposal preview',
+    exactWindow: false,
+  });
+  assert.throws(() => assertVisibleRowsMatchOracle([
+    expectedSourceOrder[0],
+    expectedSourceOrder[0],
+  ], expectedSourceOrder, { label: 'split Pivot proposal preview', exactWindow: false }), /not present/,
+  'An unordered comparison must preserve contributor multiplicity.');
+  assert.throws(() => assertVisibleRowsMatchOracle([
+    ['52f5e622-0181-5feb-936c-e9992ab26616', '—', 'final', 'Patient'],
+    expectedSourceOrder[1],
+  ], expectedSourceOrder, { label: 'split Pivot proposal preview', exactWindow: false }), /not present/,
+  'An unordered comparison must preserve each Observation-to-Patient cell association.');
 });

@@ -102,7 +102,7 @@ test.describe('standalone CDA reshape workflows', () => {
         patientReference: 'Patient/da65b4e6-3946-50d9-ab1a-65af2e560b1c',
       },
     },
-  }, { cdaScenarioID: 'standalone-reshape-related-source-after-pivot', cdaExplorer: `qa-post-pivot-resource-type-split-${randomUUID()}` });
+  }, { cdaScenarioID: 'standalone-reshape-related-source-after-pivot', cdaExplorer: `qa-post-pivot-resource-type-${randomUUID()}` });
   register('related-unpivot', runRelatedUnpivotBrowserWorkflow, {}, { cdaScenarioID: 'standalone-reshape-related-unpivot', cdaUiRouting: 'explicit-query' });
   register('unpivot', runUnpivotWorkflow);
 });
