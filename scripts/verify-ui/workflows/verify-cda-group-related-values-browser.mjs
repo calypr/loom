@@ -3,6 +3,8 @@ import { randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { assertVisibleRowsMatchOracle } from '../helpers/cda-row-oracle.mjs';
 
+export const groupRelatedValuesRawFieldsSummarySelector = '[data-testid="feature-catalog-raw-fields"] > summary';
+
 export async function runGroupRelatedValuesBrowserWorkflow({ page, cda }) {
   const project = cda.project;
   assert(project, 'CDA fixture must provide the isolated project');
@@ -184,7 +186,7 @@ try {
   report.addFieldsUI=await browserEval(() => { return {text:document.querySelector('[aria-label="Add columns editor"]').innerText,controls:[...document.querySelectorAll('[aria-label="Add columns editor"] input,[aria-label="Add columns editor"] select,[aria-label="Add columns editor"] button')].map(e=>({tag:e.tagName,label:e.getAttribute('aria-label'),testId:e.dataset.testid,text:e.innerText,disabled:e.disabled}))}; });
   await click('[aria-label="Related resources"] summary');
   await click('[data-testid="construction-add-columns-source-option"][aria-label="Observation, Related resource"]');
-  await click('[data-testid="feature-catalog-raw-fields"] summary');
+  await click(groupRelatedValuesRawFieldsSummarySelector);
   await waitForBrowser(() => (document.querySelector('input[aria-label="Select Observation.id"]:not(:disabled)')));
   const beforeField=builder;
   const contributorIDs=[...new Set(witnesses.map(witness=>witness.values.at(-1)))].sort();

@@ -3,6 +3,8 @@ import { randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { assertVisibleRowsMatchOracle } from '../helpers/cda-row-oracle.mjs';
 
+export const groupAddFieldsRawFieldsSummarySelector = '[data-testid="feature-catalog-raw-fields"] > summary';
+
 export async function runGroupAddFieldsBrowserWorkflow({ page, cda }) {
   const project = cda.project;
   assert(project, 'CDA fixture must provide the isolated project');
@@ -186,7 +188,7 @@ try {
   const withField=[[...grouped[0],source.resourceType]];
   const beforeField=builder;
   const chooseField=async()=>{
-    await click('[data-testid="feature-catalog-raw-fields"] summary');
+    await click(groupAddFieldsRawFieldsSummarySelector);
     await waitForBrowser(() => (document.querySelector('input[aria-label="Select Specimen.resourceType"]:not(:disabled)')));
     start=Date.now();
     await click('input[aria-label="Select Specimen.resourceType"]');
@@ -202,7 +204,7 @@ try {
   await click('[data-testid="construction-choice-proposal-panel"] button',{name:'Cancel'});
   await rendered(grouped);
   assert.deepEqual((await api(base+'/builder')).workspace,beforeField.workspace);
-  await click('[data-testid="feature-catalog-raw-fields"] summary');
+  await click(groupAddFieldsRawFieldsSummarySelector);
   await chooseField();
   start=Date.now();
   await click('[data-testid="construction-choice-proposal-panel"] button',{name:'Apply columns'});

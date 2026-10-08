@@ -4,6 +4,8 @@ import { spawnSync } from 'node:child_process';
 import { assertVisibleRowsMatchOracle } from '../helpers/cda-row-oracle.mjs';
 import { captureCDARequests } from '../helpers/cda-playwright-requests.mjs';
 
+export const groupOneConflictRawFieldsSummarySelector = '[data-testid="feature-catalog-raw-fields"] > summary';
+
 export async function runGroupOneConflictBrowserWorkflow({ page, cda }) {
   const project = cda.project;
   assert(project, 'CDA fixture must provide the isolated project');
@@ -191,7 +193,7 @@ try {
   report.addFieldsUI=await browserEval(() => { return {text:document.querySelector('[aria-label="Add columns editor"]').innerText,controls:[...document.querySelectorAll('[aria-label="Add columns editor"] input,[aria-label="Add columns editor"] select,[aria-label="Add columns editor"] button')].map(e=>({tag:e.tagName,label:e.getAttribute('aria-label'),testId:e.dataset.testid,text:e.innerText,disabled:e.disabled}))}; });
   const beforeField=builder;
   await selectOption('select[aria-label="Values per grouped row"]','ONE');
-  await click('[data-testid="feature-catalog-raw-fields"] summary');
+  await click(groupOneConflictRawFieldsSummarySelector);
   await waitForBrowser(() => (document.querySelector('input[aria-label="Select Specimen.id"]:not(:disabled)')));
   start=Date.now();
   await click('input[aria-label="Select Specimen.id"]');

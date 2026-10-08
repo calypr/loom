@@ -12,6 +12,8 @@ import { captureApiBuildFreeze, checkContainerApiBuildStamp } from '../helpers/a
 import { sourceFingerprint } from '../helpers/source-fingerprint.mjs';
 import { waitForCondition } from '../helpers/playwright-observations.mjs';
 
+export const nestedRepeatedRawFieldsSummarySelector = '[data-testid="feature-catalog-raw-fields"] > summary';
+
 export async function nestedRepeatedWorkflow({ page, cda }) {
 const values = {
   'api-origin': cda.apiOrigin,
@@ -326,7 +328,7 @@ const addFieldAndPreview = async () => {
   await click(page, '[data-testid="construction-action-add-columns"]');
   await click(page, '[aria-label="Column types"] button', { includes: 'Fields and related data' });
   await waitForBrowser(page, { kind: 'present', selector: '[data-testid="construction-add-columns-source"]' }, 5000);
-  await click(page, '[data-testid="feature-catalog-raw-fields"] summary');
+  await click(page, nestedRepeatedRawFieldsSummarySelector);
   const checkbox = 'input[aria-label="Select Observation.component[].valueString"]';
   await waitForBrowser(page, { kind: 'present', selector: checkbox }, 5000);
   const offered = await inspectPage(page, `const input=document.querySelector(${JSON.stringify(checkbox)});return {disabled:input?.disabled,checked:input?.checked,label:input?.getAttribute('aria-label')};`);

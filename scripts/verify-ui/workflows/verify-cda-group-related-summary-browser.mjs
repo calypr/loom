@@ -4,6 +4,8 @@ import { spawnSync } from 'node:child_process';
 import { captureCDARequests } from '../helpers/cda-playwright-requests.mjs';
 import { sanitizeReportPayload } from '../helpers/playwright-browser.mjs';
 
+export const groupRelatedSummaryRawFieldsSummarySelector = '[data-testid="feature-catalog-raw-fields"] > summary';
+
 export async function runGroupRelatedSummaryBrowserWorkflow({ page, cda }) {
 const env = cda.env ?? {};
 const project = cda.project;
@@ -266,8 +268,8 @@ const runUnmappedMemberRepair = async () => {
       await click(page,'[aria-label="Related resources"] summary');
     }
     await click(page,'[data-testid="construction-add-columns-source-option"][aria-label="Specimen, Related resource"]');
-    if(!await browserEval(page, (args) => { return document.querySelector('[data-testid="feature-catalog-raw-fields"] summary')?.parentElement.open===true; })){
-      await click(page,'[data-testid="feature-catalog-raw-fields"] summary');
+    if(!await browserEval(page, ({ selector }) => { return document.querySelector(selector)?.parentElement.open===true; }, { selector: groupRelatedSummaryRawFieldsSummarySelector })){
+      await click(page, groupRelatedSummaryRawFieldsSummarySelector);
     }
     await waitForBrowser(page, (args) => { return Boolean((document.querySelector('input[aria-label="Select Specimen.id"]:not(:disabled)'))); });
   };
@@ -732,8 +734,8 @@ try {
     await click(page,'[aria-label="Related resources"] summary');
   }
   await click(page,'[data-testid="construction-add-columns-source-option"][aria-label="Observation, Related resource"]');
-  if(!await browserEval(page, (args) => { return document.querySelector('[data-testid="feature-catalog-raw-fields"] summary')?.parentElement.open; })){
-    await click(page,'[data-testid="feature-catalog-raw-fields"] summary');
+  if(!await browserEval(page, ({ selector }) => { return document.querySelector(selector)?.parentElement.open; }, { selector: groupRelatedSummaryRawFieldsSummarySelector })){
+    await click(page, groupRelatedSummaryRawFieldsSummarySelector);
   }
   await waitForBrowser(page, (args) => { return Boolean((document.querySelector('input[aria-label="Select Observation.id"]:not(:disabled)'))); });
   };
