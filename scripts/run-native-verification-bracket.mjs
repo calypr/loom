@@ -40,12 +40,13 @@ const usage = [
   'Usage:',
   '  node scripts/run-native-verification-bracket.mjs --scenario <id> --case <name> --target <config-path> [--grep <native-test-regex>]',
   '  node scripts/run-native-verification-bracket.mjs --scenario <id> --case <name> --target-from-environment --grep <native-test-regex>',
-  '  node scripts/run-native-verification-bracket.mjs --scenario <id> --case <name> --checks-only',
+  '  node scripts/run-native-verification-bracket.mjs --scenario <id> --case <name> --checks-only [--target <config-path>]',
   '',
   'Use --target for cases with a registered identity. --target-from-environment is',
   'explicitly registry-unbound and relies on the selected case to validate scope.',
   'Registered focused checks run before the native bracket; checks-only runs them',
-  'without Docker or Playwright.',
+  'without Docker or a browser. With --target, it validates target identity and',
+  'the exact registered Playwright selection first.',
 ].join('\n');
 
 function isWithin(parent, candidate) {
@@ -270,7 +271,8 @@ function parseCli(argv) {
   const targetPath = parsed.values.target?.trim();
   const targetFromEnvironment = parsed.values['target-from-environment'] === true;
   if (checksOnly) {
-    assert(!targetPath && !targetFromEnvironment, '--checks-only does not accept target options.');
+    assert(!targetFromEnvironment, '--checks-only does not accept --target-from-environment.');
+    assert(parsed.values.target === undefined || Boolean(targetPath), '--target requires a config path.');
   } else {
     assert(Boolean(targetPath) !== targetFromEnvironment,
       'Choose exactly one of --target <config-path> or --target-from-environment.');
@@ -873,7 +875,7 @@ export async function runNativeVerificationBracket({
   assert(isWithin(canonicalRoot, specAbsolute), 'Registered Playwright spec must be inside the repository root.');
   assert(existsSync(specAbsolute), 'Registered Playwright spec is missing: ' + specPath);
   const resolvedGrep = typeof grep === 'string' && grep.trim() ? grep.trim() : contract.playwrightGrep;
-  if (!checksOnly) assert(typeof resolvedGrep === 'string' && resolvedGrep.trim(),
+  if (!checksOnly || targetPath) assert(typeof resolvedGrep === 'string' && resolvedGrep.trim(),
     'Case has no registered default Playwright selection; provide --grep.');
 
   const runDirectory = createEvidenceDirectory(canonicalRoot, evidenceParent, scenarioID, caseName);
@@ -1042,7 +1044,7 @@ export async function runNativeVerificationBracket({
   };
 
   let browserPreparationError = null;
-  if (!checksOnly) {
+  if (!checksOnly || targetPath) {
     try {
       const sourceRootEnv = env.LOOM_CDA_SOURCE_ROOT;
       assert(sourceRootEnv?.trim(), 'Set LOOM_CDA_SOURCE_ROOT in the validated owned environment.');
@@ -1132,6 +1134,10 @@ export async function runNativeVerificationBracket({
     return writeEarlySummary('failed', 'focused-check', reason);
   }
   if (checksOnly) {
+    if (browserPreparationError) {
+      const reason = String(browserPreparationError?.message ?? browserPreparationError);
+      return writeEarlySummary('unverified', 'preparation', reason);
+    }
     if (!focusedPlans.length) {
       const reason = 'This registered case is browser-only; it has no focused prerequisite group.';
       summary.notes.push(reason);
@@ -1326,7 +1332,7 @@ export async function main(argv, {
     write(usage);
     return 0;
   }
-  if (!options.checksOnly) {
+  if (!options.checksOnly || options.targetPath) {
     const scenario = registry.find((candidate) => candidate.id === options.scenarioID);
     assert(scenario, 'Unknown registered scenario: ' + options.scenarioID);
     const contract = scenarioCaseFor(scenario, options.caseName);

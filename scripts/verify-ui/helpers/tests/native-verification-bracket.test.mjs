@@ -1685,6 +1685,209 @@ test('checks-only runs the registered focused groups without loading a target or
     readFileSync(group.evidence.stdout, 'utf8').includes('focused group passed')));
 });
 
+test('target-bound checks-only validates the registered identity and exact test before focused checks', async (t) => {
+  const parent = evidenceParent();
+  t.after(() => rmSync(parent, { recursive: true, force: true }));
+  const scenarioID = 'cda-current-draft-membership';
+  const caseName = 'membership';
+  const contract = scenarioCaseFor(scenarioID, caseName);
+  const fake = fakeRunner({ scenarioID, caseName, rootDir: root });
+  const calls = [];
+  const output = [];
+  let loadedTarget;
+  let summary;
+  const exitCode = await main([
+    '--scenario', scenarioID,
+    '--case', caseName,
+    '--checks-only',
+    '--target', '.codex/owned-cda-target.json',
+  ], {
+    env: fake.env,
+    targetLoader: async (input) => {
+      loadedTarget = input;
+      return {
+        target: makeTarget(root, input.expectedIdentity),
+        environment: {
+          ...fake.env,
+          LOOM_CDA_GENERATION: input.expectedIdentity.generation,
+        },
+        configPath: '/machine-local/owned-cda-target.json',
+        validationScope: 'configuration-only',
+        runtimeDatasetIdentity: 'not-checked',
+      };
+    },
+    runBracket: async (options) => {
+      summary = await runNativeVerificationBracket({
+        ...options,
+        evidenceParent: parent,
+        root,
+        commandRunner: async (...args) => {
+          calls.push(args[1][0] === 'scripts/node_modules/@playwright/test/cli.js'
+            ? args[1].includes('--list') ? 'selectionList' : 'playwright'
+            : args[1][0] === '--test' ? 'focusedNodeTest' : 'other');
+          if (args[1][0] !== 'scripts/node_modules/@playwright/test/cli.js') {
+            return { exitCode: 0, stdoutText: 'focused group passed\n', stderrText: '' };
+          }
+          return fake.commandRunner(...args);
+        },
+      });
+      return summary;
+    },
+    write: (value) => output.push(value),
+  });
+
+  assert.equal(exitCode, 0);
+  assert.deepEqual(loadedTarget.expectedIdentity, contract.expectedIdentity);
+  assert.equal(summary.status, 'checks-passed');
+  assert.equal(summary.selection.exact, true);
+  assert.equal(summary.targetValidation.registryBinding, 'bound');
+  assert.equal(summary.targetValidation.project, contract.expectedIdentity.project);
+  assert.equal(summary.targetValidation.generation, contract.expectedIdentity.generation);
+  assert.ok(calls.includes('selectionList'));
+  assert.ok(calls.includes('focusedNodeTest'));
+  assert.equal(calls.includes('playwright'), false);
+  assert.equal(summary.commands.precheck, undefined);
+  assert.equal(summary.commands.captureBefore, undefined);
+  assert.equal(summary.commands.healthBefore, undefined);
+  assert.equal(summary.commands.playwright, undefined);
+  assert.equal(summary.commands.captureAfter, undefined);
+  assert.equal(summary.commands.healthAfter, undefined);
+  assert.equal(JSON.parse(output[0]).targetValidation.registryBinding, 'bound');
+});
+
+test('checks-only rejects a target without registry identity or an exact registered selection', async (t) => {
+  const parent = evidenceParent();
+  t.after(() => rmSync(parent, { recursive: true, force: true }));
+  let targetLoads = 0;
+  let bracketCalls = 0;
+  await assert.rejects(main([
+    '--scenario', 'builder-controls',
+    '--case', 'tables',
+    '--checks-only',
+    '--target', '.codex/owned-cda-target.json',
+  ], {
+    targetLoader: async () => { targetLoads += 1; throw new Error('target must not load'); },
+    runBracket: async () => { bracketCalls += 1; },
+    write: () => {},
+  }), /case has no registered target identity/i);
+  assert.equal(targetLoads, 0);
+  assert.equal(bracketCalls, 0);
+
+  const boundContract = scenarioCaseFor('cda-current-draft-membership', 'membership');
+  const fake = fakeRunner({
+    scenarioID: 'cda-current-draft-membership',
+    caseName: 'membership',
+    rootDir: root,
+  });
+  const validConfig = {
+    schemaVersion: 1,
+    sourceRoot: root,
+    datasetDir: parent,
+    composeProject: 'owned-compose',
+    project: boundContract.expectedIdentity.project,
+    generation: boundContract.expectedIdentity.generation,
+    apiOrigin: 'http://127.0.0.1:8188',
+    uiOrigin: 'http://127.0.0.1:30008',
+    apiContainer: 'owned-api',
+    arangoContainer: 'owned-arango',
+    clickhouseContainer: 'owned-clickhouse',
+    noAuth: false,
+  };
+  for (const [field, value] of [
+    ['project', 'different-project'],
+    ['generation', 'different-generation'],
+  ]) {
+    const configPath = join(parent, 'target-' + field + '.json');
+    writeJson(configPath, { ...validConfig, [field]: value });
+    let mismatchedTargetReachedChecks = false;
+    await assert.rejects(main([
+      '--scenario', 'cda-current-draft-membership',
+      '--case', 'membership',
+      '--checks-only',
+      '--target', configPath,
+    ], {
+      env: fake.env,
+      runBracket: async () => { mismatchedTargetReachedChecks = true; },
+      write: () => {},
+    }), /Target (project|generation) does not match the selected case registry targetIdentity/);
+    assert.equal(mismatchedTargetReachedChecks, false, field);
+  }
+
+  const registeredCase = registry.find((scenario) => scenario.id === 'cda-current-draft-membership').cases.membership;
+  const originalGrep = registeredCase.playwrightGrep;
+  delete registeredCase.playwrightGrep;
+  try {
+    await assert.rejects(main([
+      '--scenario', 'cda-current-draft-membership',
+      '--case', 'membership',
+      '--checks-only',
+      '--target', '.codex/owned-cda-target.json',
+    ], {
+      env: fake.env,
+      targetLoader: async ({ expectedIdentity }) => ({
+        target: makeTarget(root, expectedIdentity),
+        environment: fake.env,
+        configPath: '/machine-local/owned-cda-target.json',
+      }),
+      runBracket: async (options) => runNativeVerificationBracket({
+        ...options,
+        evidenceParent: parent,
+        root,
+        commandRunner: fake.commandRunner,
+      }),
+      write: () => {},
+    }), /no registered default Playwright selection/i);
+    assert.deepEqual(fake.commands, []);
+  } finally {
+    registeredCase.playwrightGrep = originalGrep;
+  }
+});
+
+test('target-bound checks-only stops before focused checks when Playwright selection is not exact', async (t) => {
+  const parent = evidenceParent();
+  t.after(() => rmSync(parent, { recursive: true, force: true }));
+  const scenarioID = 'cda-current-draft-membership';
+  const caseName = 'membership';
+  const fake = fakeRunner({ scenarioID, caseName, rootDir: root, listTotal: 2 });
+  const output = [];
+  let bracketSummary;
+  const exitCode = await main([
+    '--scenario', scenarioID,
+    '--case', caseName,
+    '--checks-only',
+    '--target', '.codex/owned-cda-target.json',
+  ], {
+    env: fake.env,
+    targetLoader: async ({ expectedIdentity }) => ({
+      target: makeTarget(root, expectedIdentity),
+      environment: fake.env,
+      configPath: '/machine-local/owned-cda-target.json',
+    }),
+    runBracket: async (options) => {
+      bracketSummary = await runNativeVerificationBracket({
+        ...options,
+        evidenceParent: parent,
+        root,
+        commandRunner: fake.commandRunner,
+      });
+      return bracketSummary;
+    },
+    write: (value) => output.push(value),
+  });
+  const summary = JSON.parse(output[0]);
+
+  assert.equal(exitCode, 1);
+  assert.equal(summary.status, 'unverified');
+  assert.equal(summary.failureCategory, 'preparation');
+  assert.equal(bracketSummary.selection.exact, false);
+  assert.match(summary.firstFailureReason, /must select exactly one test/);
+  assert.equal(summary.focusedChecks.status, 'not-run');
+  assert.ok(summary.focusedChecks.groups.every((group) => group.status === 'not-run'));
+  assert.deepEqual(fake.commands, ['selectionList']);
+  assert.equal(summary.commandPhases.precheck, undefined);
+  assert.equal(summary.commandPhases.playwright, undefined);
+});
+
 test('checks-only names browser-only cases instead of reporting an empty pass', async (t) => {
   const parent = evidenceParent();
   t.after(() => rmSync(parent, { recursive: true, force: true }));
