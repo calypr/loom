@@ -134,3 +134,13 @@ test('every registered focused-check group is valid before its commands are sche
   }
   assert.ok(checkedCases > 0, 'the registry declares focused checks for validation');
 });
+
+test('every registered scenario has only string requiredTransitions', () => {
+  const placementGuidance = 'move nested scenario declarations out of requiredTransitions and keep them as top-level registry entries';
+  for (const scenario of registry) {
+    assert.ok(Array.isArray(scenario.requiredTransitions), `${scenario.id} must declare requiredTransitions as an array; ${placementGuidance}`);
+    for (const [index, transition] of scenario.requiredTransitions.entries()) {
+      assert.equal(typeof transition, 'string', `${scenario.id}.requiredTransitions[${index}] must be a string; ${placementGuidance}`);
+    }
+  }
+});

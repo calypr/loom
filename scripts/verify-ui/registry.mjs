@@ -2946,29 +2946,6 @@ export const registry = Object.freeze([
     ],
   }),
   Object.freeze({
-    id: 'cda-authored-expand-filter',
-    workflow: 'native-cda-authored-expand-filter-upstream-edit-cascade',
-    hooks: [
-      'useGetExplorerBuilderStateV2Query',
-      'useCreateExplorerAuthoringMutation',
-      'useApplyExplorerBuilderCommandsV2Mutation',
-      'usePreviewExplorerAuthoringV2Mutation',
-    ],
-    endpoints: [
-      'POST /api/v1/projects/{project}/explorers',
-      'GET /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/builder',
-      'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/commands',
-      'POST /api/v1/projects/{project}/explorers/{explorer}/selections',
-      'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/population-routes',
-      'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/construction-proposals',
-      'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/preview',
-    ],
-    requiredTransitions: [
-      'select up to three project/generation-scoped Observations with at most six distinct nonempty component.valueString items and a strict-subset equality witness',
-      'create a fresh source table with RECORDS rows and compare its initial preview with the independent raw Observation oracle',
-      'natively author EXPAND and compare item values, source identities, ordinals, and stable row IDs with the exact raw tuples',
-      'natively author an equality Filter bound to the EXPAND item output and verify its strict-subset rows through Cancel, Apply, and reload',
-  Object.freeze({
     id: 'cda-group-numeric-filter',
     workflow: 'native-cda-group-numeric-filter-lifecycle',
     hooks: [
@@ -3067,6 +3044,29 @@ export const registry = Object.freeze([
       },
     ],
   }),
+  Object.freeze({
+    id: 'cda-authored-expand-filter',
+    workflow: 'native-cda-authored-expand-filter-upstream-edit-cascade',
+    hooks: [
+      'useGetExplorerBuilderStateV2Query',
+      'useCreateExplorerAuthoringMutation',
+      'useApplyExplorerBuilderCommandsV2Mutation',
+      'usePreviewExplorerAuthoringV2Mutation',
+    ],
+    endpoints: [
+      'POST /api/v1/projects/{project}/explorers',
+      'GET /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/builder',
+      'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/commands',
+      'POST /api/v1/projects/{project}/explorers/{explorer}/selections',
+      'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/population-routes',
+      'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/construction-proposals',
+      'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/preview',
+    ],
+    requiredTransitions: [
+      'select up to three project/generation-scoped Observations with at most six distinct nonempty component.valueString items and a strict-subset equality witness',
+      'create a fresh source table with RECORDS rows and compare its initial preview with the independent raw Observation oracle',
+      'natively author EXPAND and compare item values, source identities, ordinals, and stable row IDs with the exact raw tuples',
+      'natively author an equality Filter bound to the EXPAND item output and verify its strict-subset rows through Cancel, Apply, and reload',
       'edit the upstream EXPAND presentation while preserving the saved Filter binding and exact filtered rows',
       'cancel upstream removal, then confirm cascade removal and reload to restore the exact source RECORDS rows and columns',
     ],
