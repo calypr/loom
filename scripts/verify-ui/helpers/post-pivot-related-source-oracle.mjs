@@ -90,5 +90,8 @@ export function verifyPostPivotRelatedSourceWitness(pair, linkedSources, { proje
     patientIDsInCompilerOrder: [...resolved]
       .sort((left, right) => left.patient._id.localeCompare(right.patient._id))
       .map(entry => entry.patient.id),
+    patientResourceTypesInCompilerOrder: [...resolved]
+      .sort((left, right) => left.patient._id.localeCompare(right.patient._id))
+      .map(entry => entry.patient.resourceType),
   };
 }

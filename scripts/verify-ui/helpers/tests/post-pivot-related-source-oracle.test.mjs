@@ -39,6 +39,17 @@ test('post-Pivot source oracle requires two same-key Observation roots with dist
   assert.equal(oracle.members.length, 2);
 });
 
+test('post-Pivot ALL oracle preserves both linked Patient resource types in compiler order', () => {
+  const pair = choosePostPivotRelatedSourcePair(rows, { project, generation });
+  const oracle = verifyPostPivotRelatedSourceWitness(pair, linked(pair), { project, generation });
+
+  assert.deepEqual(oracle.patientResourceTypesInCompilerOrder, ['Patient', 'Patient']);
+  assert.equal(oracle.patientResourceTypesInCompilerOrder.length, 2,
+    'Both linked Patient values must remain present even when their resourceType values match.');
+  assert.equal(new Set(oracle.patientResourceTypesInCompilerOrder).size, 1,
+    'The repeated Patient resourceType must not be collapsed into a distinct-value set.');
+});
+
 test('post-Pivot source oracle leaves a bounded scan without a coalescible pair unverified', () => {
   const noPair = rows.map((row, index) => ({ ...row, status: `unique-${index}` }));
   assert.equal(choosePostPivotRelatedSourcePair(noPair, { project, generation }), undefined);
@@ -112,6 +123,7 @@ test('related-source native registration binds its real registry contract and ex
   assert.match(spec, /register\('related-source-after-pivot',\s*runRelatedSourceAfterPivotBrowserWorkflow(?:\s*,[^)]*)?\)/);
   assert.equal(contract.requiredChecks.length, 25);
   const allWorkflow = workflow
+    .replaceAll('${sourceFieldLabel}', 'Patient.id')
     .replaceAll('${relatedForm}', 'ALL')
     .replaceAll('${outputValueLabel}', 'values')
     .replaceAll('${formValueLabel}', 'ALL values');
@@ -127,6 +139,7 @@ test('related-source COUNT after Pivot registers its distinct source-Pivot lifec
   const spec = await readFile(reshapeSpecPath, 'utf8');
   const workflow = await readFile(relatedWorkflowPath, 'utf8');
   const countWorkflow = workflow
+    .replaceAll('${sourceFieldLabel}', 'Patient.id')
     .replaceAll('${relatedForm}', 'COUNT')
     .replaceAll('${outputValueLabel}', 'count')
     .replaceAll('${formValueLabel}', 'count');
@@ -185,6 +198,19 @@ test('RELATED_SOURCE binding proves the authoring wire contributor rule and exac
   const binding = proveSourceBinding(step, 'pivot-row-id', 'Patient ID');
   assert.equal(binding.related, step.operation.relatedSource);
   assert.equal(binding.output, step.outputs[0]);
+
+  const resourceTypeStep = structuredClone(step);
+  resourceTypeStep.operation.relatedSource.source.path = 'resourceType';
+  resourceTypeStep.outputs[0].label = 'Patient resource types';
+  const resourceTypeBinding = proveSourceBinding(
+    resourceTypeStep, 'pivot-row-id', 'Patient resource types', 'ALL', 'resourceType',
+  );
+  assert.equal(resourceTypeBinding.related.source.path, 'resourceType');
+  assert.throws(
+    () => proveSourceBinding(resourceTypeStep, 'pivot-row-id', 'Patient resource types'),
+    /exact selected Patient field path/,
+    'An id assertion must reject a resourceType source binding.',
+  );
 
   const privateRecipeOnly = structuredClone(step);
   delete privateRecipeOnly.operation.relatedSource.contributorRule;
@@ -373,7 +399,8 @@ test('raw witness absence is skipped only for this case and remains an unverifie
   const spec = await readFile(reshapeSpecPath, 'utf8');
   assert.match(workflow, /report\.status = 'unverified'/);
   assert.match(workflow, /error\.rawOracleFailure = true/);
-  assert.match(spec, /\['related-source-after-pivot', 'related-source-count-after-pivot'\]\.includes\(name\) && isPostPivotRawOracleUnavailable\(error\)[\s\S]*?test\.skip\(true, error\.message\)/);
+  assert(spec.includes("['related-source-after-pivot', 'related-source-count-after-pivot', 'related-resource-type-after-pivot'].includes(name) && isPostPivotRawOracleUnavailable(error)"));
+  assert(spec.includes('test.skip(true, error.message);'));
   assert.match(spec, /throw error;/, 'All non-witness failures must continue to fail the registered test.');
 });
 
