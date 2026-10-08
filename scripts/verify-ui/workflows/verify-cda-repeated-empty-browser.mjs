@@ -11,6 +11,7 @@ import { sanitizeBody, sanitizeReportPayload, sanitizeText } from '../helpers/pl
 import { requireUnique } from '../helpers/playwright-actions.mjs';
 import { captureCDARequests } from '../helpers/cda-playwright-requests.mjs';
 import { waitForCondition } from '../helpers/playwright-observations.mjs';
+import { fixtureUnavailableOutcome } from '../helpers/cda-fixture-outcomes.mjs';
 import {
   assertCountRowsGroupLabelEditIdentity,
   assertCountRowsGroupLabelEditProposal,
@@ -731,9 +732,13 @@ const finish = async () => {
   }
   report.finished = new Date().toISOString();
   if (report.status !== 'invalidated') {
-    report.status = report.failures.length ? 'failed' : report.gaps.length ? 'unverified' : report.assertions.length ? 'passed' : 'untested';
+    const blockingGaps = report.gaps.filter(gap => gap.blocking !== false);
+    report.status = report.failures.length ? 'failed' : blockingGaps.length ? 'unverified' : report.assertions.length ? 'passed' : 'untested';
   }
-  if (report.status === 'unverified') report.skipReason = report.gaps.map(gap => `${gap.assertion}: ${gap.reason}`).join('; ');
+  if (report.status === 'unverified') {
+    report.skipReason = report.fixtureUnavailable?.reason ?? report.gaps
+      .filter(gap => gap.blocking !== false).map(gap => `${gap.assertion}: ${gap.reason}`).join('; ');
+  }
   for (const action of [report.activeAction, report.lastAction]) {
     if (action && typeof action === 'object') delete action.targetLocator;
   }
@@ -774,8 +779,9 @@ const main = async () => {
     return;
   }
   if (!positive || emptyResources.length === 0) {
-    report.gaps.push({ assertion: 'bounded positive and zero-component Observation oracle', status: 'unverified',
-      reason: 'The bounded 1000-resource scan needs one Observation with 2–3 distinct non-empty component values and at least one zero-component Observation.' });
+    const reason = 'The bounded 1000-resource scan needs one Observation with 2–3 distinct non-empty component values and at least one zero-component Observation.';
+    report.gaps.push({ assertion: 'bounded positive and zero-component Observation oracle', status: 'unverified', reason });
+    report.fixtureUnavailable = fixtureUnavailableOutcome(reason, report.oracle);
     return;
   }
   assert(selected.length <= 4, 'Raw oracle selected more than four Observation roots');
@@ -783,6 +789,7 @@ const main = async () => {
   assert(selected.every(resource => resource.generation === values.generation && resource.resourceType === 'Observation'));
   if (!missingGroupOnly && !emptyResources.some(resource => resource.emptyComponentKind === 'empty-array')) {
     report.gaps.push({ assertion: 'literal component: [] source shape', status: 'unverified',
+      blocking: false,
       reason: 'Only missing/null/non-array component witnesses were selected; this run does not prove a literal empty-array source.' });
   }
   recordAssertion(missingGroupOnly

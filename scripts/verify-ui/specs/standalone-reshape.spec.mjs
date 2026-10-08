@@ -38,7 +38,7 @@ test.describe('standalone CDA reshape workflows', () => {
         try {
           await workflow({ page, cda }, args);
         } catch (error) {
-          if (name === 'related-source-after-pivot' && isPostPivotRawOracleUnavailable(error)) {
+          if (['related-source-after-pivot', 'related-source-count-after-pivot'].includes(name) && isPostPivotRawOracleUnavailable(error)) {
             test.skip(true, error.message);
           }
           throw error;
@@ -87,6 +87,7 @@ test.describe('standalone CDA reshape workflows', () => {
 
   register('related-pivot', runRelatedPivotBrowserWorkflow);
   register('related-source-after-pivot', runRelatedSourceAfterPivotBrowserWorkflow, {}, { cdaScenarioID: 'standalone-reshape-related-source-after-pivot', cdaExplorer: `qa-post-pivot-${randomUUID()}` });
+  register('related-source-count-after-pivot', runRelatedSourceAfterPivotBrowserWorkflow, { form: 'COUNT' }, { cdaScenarioID: 'standalone-reshape-related-source-after-pivot', cdaExplorer: `qa-post-pivot-count-${randomUUID()}`, cdaUiRouting: 'explicit-query' });
   register('related-unpivot', runRelatedUnpivotBrowserWorkflow, {}, { cdaScenarioID: 'standalone-reshape-related-unpivot', cdaUiRouting: 'explicit-query' });
   register('unpivot', runUnpivotWorkflow);
 });

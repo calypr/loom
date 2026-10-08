@@ -71,6 +71,7 @@ export function proveSourceBinding(step, anchorColumnId, outputLabel, expectedFo
   const output = step.outputs.find(column => column.id === related.outputColumnId);
   assert(output, 'RELATED_SOURCE output identity must be present on its authored step.');
   assert.equal(output.label, outputLabel);
+  if (expectedForm === 'COUNT') assert.equal(output.type, 'integer', 'Related-source COUNT output must retain its integer type.');
   return { related, output };
 }
 
@@ -139,7 +140,13 @@ export function readProposalPreviewDocument() {
   };
 }
 
-export async function runRelatedSourceAfterPivotBrowserWorkflow({ page, cda }) {
+export async function runRelatedSourceAfterPivotBrowserWorkflow({ page, cda }, originalArgs = {}) {
+  const relatedForm = originalArgs.form ?? 'ALL';
+  assert(['ALL', 'COUNT'].includes(relatedForm), `Unsupported post-Pivot RELATED_SOURCE form ${relatedForm}`);
+  const chooserFormLabel = relatedForm === 'COUNT' ? 'Count matching records' : 'Keep all matching values';
+  const outputLabel = relatedForm === 'COUNT' ? 'Patient count from Pivot contributors' : 'Patient IDs from Pivot contributors';
+  const outputValueLabel = relatedForm === 'COUNT' ? 'count' : 'values';
+  const formValueLabel = relatedForm === 'COUNT' ? 'count' : 'ALL values';
   const project = cda.project;
   const explorer = cda.explorer;
   const apiOrigin = cda.apiOrigin;
@@ -155,7 +162,7 @@ export async function runRelatedSourceAfterPivotBrowserWorkflow({ page, cda }) {
   report.nativeRequests ??= cda.nativeRequests;
   report.errors ??= [];
   report.cases ??= [];
-  report.phase = 'post-Pivot RELATED_SOURCE ALL lifecycle';
+  report.phase = `post-Pivot RELATED_SOURCE ${relatedForm} lifecycle`;
   report.scope = { project, generation, rawScanLimit };
 
   let builder;
@@ -400,11 +407,11 @@ export async function runRelatedSourceAfterPivotBrowserWorkflow({ page, cda }) {
     const startedAt = Date.now();
     if (route) await click(`[role="dialog"] input[aria-label=${JSON.stringify(route.label)}]`);
     await wait(({ label }) => [...document.querySelectorAll('[role="dialog"] input[type="radio"]')]
-      .some(input => (input.getAttribute('aria-label') ?? '').includes(label)), { label: 'Keep all matching values' });
+      .some(input => (input.getAttribute('aria-label') ?? '').includes(label)), { label: chooserFormLabel });
     const formChoices = await page.getByRole('dialog').locator('input[type="radio"]').evaluateAll(inputs => inputs.map(input => input.getAttribute('aria-label') ?? ''));
-    const allForm = formChoices.find(label => label.includes('Keep all matching values'));
-    assert(allForm, `Post-Pivot related source must provide ALL: ${JSON.stringify(formChoices)}`);
-    await click(`[role="dialog"] input[aria-label=${JSON.stringify(allForm)}]`);
+    const selectedForm = formChoices.find(label => label.includes(chooserFormLabel));
+    assert(selectedForm, `Post-Pivot related source must provide ${relatedForm}: ${JSON.stringify(formChoices)}`);
+    await click(`[role="dialog"] input[aria-label=${JSON.stringify(selectedForm)}]`);
     const groupedPolicy = page.getByRole('dialog').locator('select[aria-label="Values per grouped row"]');
     if (await groupedPolicy.count()) await select('[role="dialog"] select[aria-label="Values per grouped row"]', 'ALL');
     await click('[role="dialog"] button', { name: 'Add 1 column' });
@@ -478,12 +485,19 @@ export async function runRelatedSourceAfterPivotBrowserWorkflow({ page, cda }) {
       }`;
     const linked = rawQuery(edgeQuery, { sourceIDs: selectedIDs, project, generation });
     const oracle = verifyPostPivotRelatedSourceWitness(pair, linked, { project, generation });
+    const expectedRelatedValue = relatedForm === 'COUNT'
+      ? new Set(oracle.members.map(({ patient }) => patient._id)).size
+      : oracle.patientIDsInCompilerOrder;
+    if (relatedForm === 'COUNT') {
+      assert.equal(expectedRelatedValue, 2, 'The raw oracle must prove two distinct Patient documents for COUNT.');
+    }
     report.oracle = {
       query: { boundedScan: observationScanQuery, exactEdgeRead: edgeQuery },
       scope: { project, generation, maxObservationRows: rawScanLimit },
       status: oracle.status,
       members: oracle.members.map(({ observation, patient }) => ({ observation, patient })),
       expectedPatientIDs: oracle.patientIDsInCompilerOrder,
+      expectedRelatedValue,
       expectedPivotRows: 'One final-status row with two patient-reference categories whose cells equal the corresponding Observation IDs.',
     };
     recordCheck('CDA raw oracle selects two same-status Observation roots with distinct Patient references', true, {
@@ -601,23 +615,26 @@ export async function runRelatedSourceAfterPivotBrowserWorkflow({ page, cda }) {
     });
 
     let relatedStart = await startRelatedField();
-    const relatedCancelProposal = await nativeProposal('Post-Pivot Patient.id ALL proposal retains both source contributors', relatedStart, [], response => {
+    const relatedCancelProposal = await nativeProposal(`Post-Pivot Patient.id ${relatedForm} proposal retains both source contributors`, relatedStart, [], response => {
       const candidate = response.candidateConstruction;
       const sourceStep = candidate.steps.find(step => step.operation.kind === 'RELATED_SOURCE');
-      const { related, output } = proveSourceBinding(sourceStep, capabilities.selectedStage.rowIdentityColumn, outputLabelOf(sourceStep));
-      const expected = [{ ...pivotRows[0], [output.label]: oracle.patientIDsInCompilerOrder }];
-      assertProtocolRows(response.preview, expected, 'Post-Pivot Patient.id ALL proposal');
+      const { related, output } = proveSourceBinding(sourceStep, capabilities.selectedStage.rowIdentityColumn, outputLabelOf(sourceStep), relatedForm);
+      const expected = [{ ...pivotRows[0], [output.label]: expectedRelatedValue }];
+      assertProtocolRows(response.preview, expected, `Post-Pivot Patient.id ${relatedForm} proposal`);
       return { expectedRows: expected, step: sourceStep, related, output };
     });
     const relatedRows = relatedCancelProposal.expectedRows;
-    recordCheck('Native chooser and candidate bind Patient.id ALL through exact Observation.subject → Patient', true, {
+    recordCheck(`Native chooser and candidate bind Patient.id ${relatedForm} through exact Observation.subject → Patient`, true, {
       source: relatedCancelProposal.related.source, route: relatedCancelProposal.related.route,
       form: relatedCancelProposal.related.form, anchorColumnId: relatedCancelProposal.related.anchorColumnId,
       rowIdentityColumn: capabilities.selectedStage.rowIdentityColumn,
     });
-    recordCheck('Post-Pivot ALL returns both independently resolved Patient IDs on one Pivot row', true, {
+    recordCheck(relatedForm === 'COUNT'
+      ? 'Post-Pivot COUNT returns the exact distinct Patient count on one Pivot row'
+      : 'Post-Pivot ALL returns both independently resolved Patient IDs on one Pivot row', true, {
       pivotRowCount: relatedCancelProposal.preview.rowCount,
       expectedPatientIDs: oracle.patientIDsInCompilerOrder,
+      expectedRelatedValue,
       actual: previewValues(relatedCancelProposal.preview),
     });
     await cancel(pivotBaseline, pivotRows, 'Canceling related-source proposal preserves Pivot after reload');
@@ -627,26 +644,27 @@ export async function runRelatedSourceAfterPivotBrowserWorkflow({ page, cda }) {
       { draftVersion: builder.draftVersion, pivotStepId: savedPivotStep.id });
 
     relatedStart = await startRelatedField();
-    const relatedApplyProposal = await nativeProposal('Confirmed post-Pivot Patient.id ALL preview', relatedStart, [], response => {
+    const relatedApplyProposal = await nativeProposal(`Confirmed post-Pivot Patient.id ${relatedForm} preview`, relatedStart, [], response => {
       const candidate = response.candidateConstruction;
       const sourceStep = candidate.steps.find(step => step.operation.kind === 'RELATED_SOURCE');
-      const { related, output } = proveSourceBinding(sourceStep, capabilities.selectedStage.rowIdentityColumn, outputLabelOf(sourceStep));
-      const expected = [{ ...pivotRows[0], [output.label]: oracle.patientIDsInCompilerOrder }];
-      assertProtocolRows(response.preview, expected, 'Confirmed post-Pivot Patient.id ALL proposal');
+      const { related, output } = proveSourceBinding(sourceStep, capabilities.selectedStage.rowIdentityColumn, outputLabelOf(sourceStep), relatedForm);
+      const expected = [{ ...pivotRows[0], [output.label]: expectedRelatedValue }];
+      assertProtocolRows(response.preview, expected, `Confirmed post-Pivot Patient.id ${relatedForm} proposal`);
       return { expectedRows: expected, step: sourceStep, related, output };
     });
-    await apply(relatedApplyProposal.expectedRows, 'Apply post-Pivot Patient.id ALL and reload exact values');
+    await apply(relatedApplyProposal.expectedRows, `Apply post-Pivot Patient.id ${relatedForm} and reload exact values`);
     let savedRelated = steps(builder).find(step => step.operation.kind === 'RELATED_SOURCE');
     assert(savedRelated, 'Applied post-Pivot RELATED_SOURCE must persist.');
-    proveSourceBinding(savedRelated, capabilities.selectedStage.rowIdentityColumn, relatedApplyProposal.output.label);
-    recordCheck('Applied post-Pivot RELATED_SOURCE retains exact ALL binding and contributors after reload', true, {
+    proveSourceBinding(savedRelated, capabilities.selectedStage.rowIdentityColumn, relatedApplyProposal.output.label, relatedForm);
+    recordCheck(`Applied post-Pivot RELATED_SOURCE retains exact ${relatedForm} binding and contributors after reload`, true, {
       stepId: savedRelated.id, anchorColumnId: savedRelated.operation.relatedSource.anchorColumnId,
       outputColumnId: savedRelated.operation.relatedSource.outputColumnId,
       expectedPatientIDs: oracle.patientIDsInCompilerOrder,
+      expectedRelatedValue,
     });
     const relatedBaseline = structuredClone(builder);
 
-    const editedLabel = 'Patient IDs from Pivot contributors';
+    const editedLabel = outputLabel;
     const editRelatedLabel = async () => {
       await click(`[data-testid="construction-history-step-${savedRelated.id}"]`);
       await click(`[data-testid="construction-edit-step-${savedRelated.id}"]`);
@@ -657,15 +675,15 @@ export async function runRelatedSourceAfterPivotBrowserWorkflow({ page, cda }) {
       return startedAt;
     };
     let editStart = await editRelatedLabel();
-    const editCancelProposal = await nativeProposal('Edited related-source label keeps exact contributor values', editStart, [], response => {
+    const editCancelProposal = await nativeProposal(`Edited related-source label keeps exact contributor ${outputValueLabel}`, editStart, [], response => {
       const sourceStep = response.candidateConstruction.steps.find(step => step.operation.kind === 'RELATED_SOURCE');
-      const { related, output } = proveSourceBinding(sourceStep, capabilities.selectedStage.rowIdentityColumn, editedLabel);
-      const expected = [{ ...pivotRows[0], [editedLabel]: oracle.patientIDsInCompilerOrder }];
+      const { related, output } = proveSourceBinding(sourceStep, capabilities.selectedStage.rowIdentityColumn, editedLabel, relatedForm);
+      const expected = [{ ...pivotRows[0], [editedLabel]: expectedRelatedValue }];
       assertProtocolRows(response.preview, expected, 'Related-source edit cancel proposal');
       return { expectedRows: expected, step: sourceStep, related, output };
     });
-    await cancel(relatedBaseline, relatedRows, 'Cancel related-source edit and reload unchanged ALL binding');
-    recordCheck('Editing the saved related source and Cancel preserves its exact construction and ALL values',
+    await cancel(relatedBaseline, relatedRows, `Cancel related-source edit and reload unchanged ${relatedForm} binding`);
+    recordCheck(`Editing the saved related source and Cancel preserves its exact construction and ${formValueLabel}`,
       builder.draftDigest === relatedBaseline.draftDigest && steps(builder).some(step => step.id === savedRelated.id),
       { draftVersion: builder.draftVersion, sourceStepId: savedRelated.id });
 
@@ -673,23 +691,23 @@ export async function runRelatedSourceAfterPivotBrowserWorkflow({ page, cda }) {
     editStart = await editRelatedLabel();
     const editApplyProposal = await nativeProposal('Apply related-source edit preserves the post-Pivot binding', editStart, [], response => {
       const sourceStep = response.candidateConstruction.steps.find(step => step.operation.kind === 'RELATED_SOURCE');
-      const { related, output } = proveSourceBinding(sourceStep, capabilities.selectedStage.rowIdentityColumn, editedLabel);
-      const expected = [{ ...pivotRows[0], [editedLabel]: oracle.patientIDsInCompilerOrder }];
+      const { related, output } = proveSourceBinding(sourceStep, capabilities.selectedStage.rowIdentityColumn, editedLabel, relatedForm);
+      const expected = [{ ...pivotRows[0], [editedLabel]: expectedRelatedValue }];
       assertProtocolRows(response.preview, expected, 'Related-source edit apply proposal');
       const editEvidence = relatedSourceEditEvidence(savedRelated, sourceStep, editedLabel);
       assert(editEvidence.ok, `Label-only proposal changed more than the output label: ${JSON.stringify(editEvidence)}`);
       return { expectedRows: expected, step: sourceStep, related, output, editEvidence };
     });
-    await apply(editApplyProposal.expectedRows, 'Apply edited related-source label and reload exact contributor values');
+    await apply(editApplyProposal.expectedRows, `Apply edited related-source label and reload exact contributor ${outputValueLabel}`);
     savedRelated = steps(builder).find(step => step.operation.kind === 'RELATED_SOURCE');
     assert.equal(savedRelated.operation.relatedSource.outputColumnId, relatedBaseline.workspace.documents[0].construction.steps.find(step => step.operation.kind === 'RELATED_SOURCE').operation.relatedSource.outputColumnId);
-    proveSourceBinding(savedRelated, capabilities.selectedStage.rowIdentityColumn, editedLabel);
+    proveSourceBinding(savedRelated, capabilities.selectedStage.rowIdentityColumn, editedLabel, relatedForm);
     const appliedEditEvidence = relatedSourceEditEvidence(
       relatedBaseline.workspace.documents[0].construction.steps.find(step => step.operation.kind === 'RELATED_SOURCE'),
       savedRelated,
       editedLabel,
     );
-    recordCheck('Applied related-source edit changes only the label and survives reload with exact Patient values', appliedEditEvidence.ok, {
+    recordCheck(`Applied related-source edit changes only the label and survives reload with exact Patient ${outputValueLabel}`, appliedEditEvidence.ok, {
       ...appliedEditEvidence, stepId: savedRelated.id,
       outputColumnId: savedRelated.operation.relatedSource.outputColumnId,
       label: outputLabelOf(savedRelated), form: savedRelated.operation.relatedSource.form,
@@ -712,7 +730,7 @@ export async function runRelatedSourceAfterPivotBrowserWorkflow({ page, cda }) {
       return { restoredStepCount: response.candidateConstruction.steps.length };
     });
     await cancel(editedBaseline, editApplyProposal.expectedRows, 'Cancel related-source removal preserves edited binding after reload');
-    recordCheck('Related-source removal Cancel preserves the edited binding and exact ALL values after reload',
+    recordCheck(`Related-source removal Cancel preserves the edited binding and exact ${formValueLabel} after reload`,
       builder.draftDigest === editedBaseline.draftDigest && steps(builder).some(step => step.operation.kind === 'RELATED_SOURCE'),
       { sourceStepId: savedRelated.id, draftVersion: builder.draftVersion });
 
@@ -744,22 +762,21 @@ export async function runRelatedSourceAfterPivotBrowserWorkflow({ page, cda }) {
     });
     const actionRecords = cda.report.actions ?? [];
     const actionTimings = report.cases ?? [];
-    const withinBudget = actionRecords.every(action => action.status === 'passed' && action.elapsedMs <= 5000)
+    const withinBudget = actionRecords.length > 0 && actionTimings.length > 0
+      && actionRecords.every(action => action.status === 'passed' && action.elapsedMs <= 5000)
       && actionTimings.every(action => action.elapsedMs <= 5000);
     recordCheck('All native lifecycle actions complete within five seconds', withinBudget, {
       actionCount: actionRecords.length,
       measuredTransitionCount: actionTimings.length,
-      maxActionMs: Math.max(
-        actionRecords.reduce((max, action) => Math.max(max, action.elapsedMs ?? 0), 0),
-        actionTimings.reduce((max, action) => Math.max(max, action.elapsedMs ?? 0), 0),
-      ),
+      workflowCheckpoints: actionTimings.map(({ name, elapsedMs }) => ({ name, durationMs: elapsedMs })),
+      maxActionMs: actionRecords.reduce((max, action) => Math.max(max, action.elapsedMs ?? 0), 0),
     });
     report.status = 'passed';
   } finally {
     await requestCapture.flush();
     report.nativeRequestCount = cda.report.nativeRequests.length;
     report.finished = new Date().toISOString();
-    await cda.attachReport('related-source-after-pivot', report);
+    await cda.attachReport(relatedForm === 'COUNT' ? 'related-source-count-after-pivot' : 'related-source-after-pivot', report);
   }
 }
 

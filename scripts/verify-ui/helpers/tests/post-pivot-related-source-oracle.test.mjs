@@ -111,11 +111,40 @@ test('related-source native registration binds its real registry contract and ex
   assert.match(spec, /cdaCaseName: name/);
   assert.match(spec, /register\('related-source-after-pivot',\s*runRelatedSourceAfterPivotBrowserWorkflow(?:\s*,[^)]*)?\)/);
   assert.equal(contract.requiredChecks.length, 25);
+  const allWorkflow = workflow
+    .replaceAll('${relatedForm}', 'ALL')
+    .replaceAll('${outputValueLabel}', 'values')
+    .replaceAll('${formValueLabel}', 'ALL values');
   for (const check of contract.requiredChecks.filter(name => name !== 'CDA watched source and API build stayed unchanged')) {
-    assert(workflow.includes(check), `Registered check is not emitted by this workflow: ${check}`);
+    assert(allWorkflow.includes(check), `Registered check is not emitted by the ALL workflow: ${check}`);
   }
   assert(contract.requiredChecks.includes('Related-source Cancel preserves the exact saved Pivot and its raw values after reload'));
   assert(!contract.requiredChecks.includes('Canceling related-source proposal preserves the exact saved Pivot and its raw values after reload'));
+});
+
+test('related-source COUNT after Pivot registers its distinct source-Pivot lifecycle', async () => {
+  const contract = scenarioCaseFor('standalone-reshape-related-source-after-pivot', 'related-source-count-after-pivot');
+  const spec = await readFile(reshapeSpecPath, 'utf8');
+  const workflow = await readFile(relatedWorkflowPath, 'utf8');
+  const countWorkflow = workflow
+    .replaceAll('${relatedForm}', 'COUNT')
+    .replaceAll('${outputValueLabel}', 'count')
+    .replaceAll('${formValueLabel}', 'count');
+  assert.equal(contract.requiredChecks.length, 25);
+  assert(contract.requiredChecks.includes('Native chooser and candidate bind Patient.id COUNT through exact Observation.subject → Patient'));
+  assert(contract.requiredChecks.includes('Post-Pivot COUNT returns the exact distinct Patient count on one Pivot row'));
+  assert(contract.requiredChecks.includes('Related-source removal Cancel preserves the edited binding and exact count after reload'));
+  assert(!contract.requiredChecks.some(check => check.includes('ALL returns')));
+  assert.equal(contract.playwrightGrep, 'standalone CDA reshape workflows related-source-count-after-pivot related-source-count-after-pivot$');
+  assert.deepEqual(contract.expectedIdentity, { project, generation });
+  assert(contract.focusedChecks.some(check => check.command.includes('scripts/verify-ui/helpers/tests/post-pivot-related-source-oracle.test.mjs')),
+    'The registered case must run the bounded source-oracle prerequisite.');
+  for (const check of contract.requiredChecks.filter(name => name !== 'CDA watched source and API build stayed unchanged')) {
+    assert(countWorkflow.includes(check), `Registered check is not emitted by the COUNT workflow: ${check}`);
+  }
+  assert.match(spec, /register\('related-source-count-after-pivot',\s*runRelatedSourceAfterPivotBrowserWorkflow,\s*\{\s*form:\s*'COUNT'\s*\},\s*\{[\s\S]*?cdaUiRouting:\s*'explicit-query'\s*\}\s*\)/);
+  assert.match(workflow, /relatedForm === 'COUNT'\s*\? new Set\(oracle\.members\.map\(\(\{ patient \}\) => patient\._id\)\)\.size/);
+  assert.match(workflow, /expectedForm === 'COUNT'.*output\.type, 'integer'/);
 });
 
 test('RELATED_SOURCE binding proves the authoring wire contributor rule and exact saved identities', () => {
@@ -162,6 +191,47 @@ test('RELATED_SOURCE binding proves the authoring wire contributor rule and exac
   privateRecipeOnly.operation.relatedSource.contributorPolicy = 'ALL_MATCHES';
   assert.throws(() => proveSourceBinding(privateRecipeOnly, 'pivot-row-id', 'Patient ID'), /ALL_MATCHES/,
     'The private recipe-only flat policy must not satisfy the public authoring wire contract.');
+});
+
+test('RELATED_SOURCE COUNT stays anchored to the exact Pivot row and exposes an integer output', () => {
+  const step = {
+    id: 'step-related-source',
+    operation: {
+      kind: 'RELATED_SOURCE',
+      relatedSource: {
+        anchorColumnId: 'pivot-row-id',
+        choiceId: 'choice-related-patient-id',
+        sourceOccurrenceId: 'occurrence-patient-id',
+        source: {
+          candidateId: 'candidate-patient-id',
+          cardinality: 'optional_one',
+          kind: 'FIELD',
+          logicalType: 'string',
+          nodeId: 'patient-node',
+          path: 'id',
+          resourceType: 'Patient',
+        },
+        route: [{
+          edgeId: 'subject-patient-edge',
+          fromNodeId: 'observation-node',
+          fromResourceType: 'Observation',
+          matchMode: 'OPTIONAL',
+          relationship: 'subject_Patient',
+          storageDirection: 'OUTBOUND',
+          toNodeId: 'patient-node',
+          toResourceType: 'Patient',
+        }],
+        contributorRule: { policy: 'ALL_MATCHES' },
+        form: 'COUNT',
+        outputColumnId: 'patient-count-output',
+      },
+    },
+    outputs: [{ id: 'patient-count-output', label: 'Patient count', type: 'integer' }],
+  };
+  const binding = proveSourceBinding(step, 'pivot-row-id', 'Patient count', 'COUNT');
+  assert.equal(binding.related, step.operation.relatedSource);
+  assert.equal(binding.output.type, 'integer');
+  assert.throws(() => proveSourceBinding(step, 'some-other-column', 'Patient count', 'COUNT'), /row identity/);
 });
 
 test('saved related-source edit permits only the output label to change', () => {
@@ -303,7 +373,7 @@ test('raw witness absence is skipped only for this case and remains an unverifie
   const spec = await readFile(reshapeSpecPath, 'utf8');
   assert.match(workflow, /report\.status = 'unverified'/);
   assert.match(workflow, /error\.rawOracleFailure = true/);
-  assert.match(spec, /name === 'related-source-after-pivot' && isPostPivotRawOracleUnavailable\(error\)[\s\S]*?test\.skip\(true, error\.message\)/);
+  assert.match(spec, /\['related-source-after-pivot', 'related-source-count-after-pivot'\]\.includes\(name\) && isPostPivotRawOracleUnavailable\(error\)[\s\S]*?test\.skip\(true, error\.message\)/);
   assert.match(spec, /throw error;/, 'All non-witness failures must continue to fail the registered test.');
 });
 

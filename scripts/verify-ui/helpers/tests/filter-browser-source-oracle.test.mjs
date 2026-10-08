@@ -106,7 +106,10 @@ test('Filter performance evidence normalizes every retained render checkpoint an
   assert.equal(assertions.find(({ name }) => name.startsWith('Cancel preserves')).evidence.durationMs, undefined);
   assert.equal(assertions.find(({ name }) => name.startsWith('Apply persists')).evidence.durationMs, undefined);
 
-  const normalized = summarizeRenderCheckpoints({ assertions }, contract.requiredChecks);
+  const normalized = summarizeRenderCheckpoints({ assertions }, {
+    performanceCheckNames: [FILTER_PERFORMANCE_CHECK],
+    requiredCheckNames: contract.requiredChecks,
+  });
   assert.equal(normalized.count, 14);
   assert.equal(normalized.maximumDurationMs, 1836);
   assert.deepEqual(normalized.checkpoints.map(({ name, durationMs }) => ({ name, durationMs })), retainedCheckpoints);

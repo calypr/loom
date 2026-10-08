@@ -11,7 +11,11 @@ import { parseArgs } from 'node:util';
 import { registry, scenarioCaseFor } from './verify-ui/registry.mjs';
 import { assertCapturedTargetMatches, parseCapturedBuildIdentity } from './verify-ui/helpers/owned-stack-health.mjs';
 import { sourceFingerprintChangedPaths } from './verify-ui/helpers/source-fingerprint.mjs';
-import { classifyEvidence } from './verify-ui/helpers/coverage-status.mjs';
+import {
+  classifyEvidence,
+  summarizeLifecycleEvidence,
+  summarizeRenderCheckpoints,
+} from './verify-ui/helpers/coverage-status.mjs';
 import { planFocusedCheckGroups } from './verify-ui/helpers/focused-check-groups.mjs';
 
 const repositoryRoot = realpathSync(resolve(dirname(fileURLToPath(import.meta.url)), '..'));
@@ -587,66 +591,7 @@ function summarizeFailureContext(report) {
   };
 }
 
-export function summarizeRenderCheckpoints(report, registeredChecks) {
-  const registered = new Set(Array.isArray(registeredChecks) ? registeredChecks : []);
-  const checkpoints = [];
-  for (const assertion of Array.isArray(report?.assertions) ? report.assertions : []) {
-    if (!registered.has(assertion?.name)) continue;
-    if (!/within five seconds|within budget|action-to-render/i.test(assertion.name)) continue;
-    const evidence = assertion.evidence;
-    const checkpointField = evidence && typeof evidence === 'object'
-      ? ['lifecycleCheckpointDurations', 'timingCheckpoints', 'workflowCheckpoints']
-        .find((field) => Object.hasOwn(evidence, field))
-      : null;
-    if (checkpointField) {
-      const renderCheckpoints = evidence[checkpointField];
-      const validRenderCheckpoints = Array.isArray(renderCheckpoints)
-        && renderCheckpoints.length > 0
-        && renderCheckpoints.every((checkpoint) => checkpoint
-          && typeof checkpoint.name === 'string'
-          && checkpoint.name.trim().length > 0
-          && Number.isFinite(checkpoint.durationMs)
-          && checkpoint.durationMs >= 0);
-      if (!validRenderCheckpoints) continue;
-      for (const checkpoint of renderCheckpoints) {
-        checkpoints.push({
-          checkName: assertion.name,
-          name: checkpoint.name,
-          durationMs: checkpoint.durationMs,
-          evidencePath: `assertions[].evidence.${checkpointField}[].durationMs`,
-        });
-      }
-      continue;
-    }
-    if (Array.isArray(evidence?.actions)) {
-      for (const action of evidence.actions) {
-        if (!Number.isFinite(action?.durationMs) || action.durationMs < 0) continue;
-        checkpoints.push({
-          checkName: assertion.name,
-          name: typeof action.name === 'string' ? action.name : null,
-          durationMs: action.durationMs,
-          evidencePath: 'assertions[].evidence.actions[].durationMs',
-        });
-      }
-    } else if (Number.isFinite(evidence?.elapsedMs ?? evidence?.durationMs)
-      && (evidence.elapsedMs ?? evidence.durationMs) >= 0) {
-      const durationMs = evidence.elapsedMs ?? evidence.durationMs;
-      checkpoints.push({
-        checkName: assertion.name,
-        name: assertion.name,
-        durationMs,
-        evidencePath: Number.isFinite(evidence.elapsedMs)
-          ? 'assertions[].evidence.elapsedMs'
-          : 'assertions[].evidence.durationMs',
-      });
-    }
-  }
-  return {
-    count: checkpoints.length,
-    maximumDurationMs: checkpoints.length ? Math.max(...checkpoints.map((checkpoint) => checkpoint.durationMs)) : null,
-    checkpoints,
-  };
-}
+export { summarizeRenderCheckpoints };
 
 function summarizeLifecycle(report, expectedScenarioID, expectedCaseName) {
   if (!report) return { status: 'unverified', reason: 'No domain verification report was attached or found.' };
@@ -660,12 +605,13 @@ function summarizeLifecycle(report, expectedScenarioID, expectedCaseName) {
   }
 
   const custom = report.target?.kind === 'read-only-custom';
-  let requiredChecks;
+  let caseContract;
   try {
-    requiredChecks = scenarioCaseFor(expectedScenarioID, expectedCaseName, custom).requiredChecks;
+    caseContract = scenarioCaseFor(expectedScenarioID, expectedCaseName, custom);
   } catch (error) {
     return { status: 'unverified', reason: 'Could not resolve registered required checks: ' + String(error?.message ?? error) };
   }
+  const requiredChecks = caseContract.requiredChecks;
   const assertions = Array.isArray(report.assertions) ? report.assertions : [];
   const reportedChecks = report.requiredChecks;
   const reportedNames = Array.isArray(reportedChecks) ? reportedChecks : null;
@@ -676,7 +622,8 @@ function summarizeLifecycle(report, expectedScenarioID, expectedCaseName) {
     && reportedNames.length === requiredChecks.length
     && reportedNames.every((name, index) => name === requiredChecks[index])
     && new Set(reportedNames).size === requiredChecks.length;
-  const evidenceStatus = classifyEvidence(report, requiredChecks);
+  const lifecycleEvidence = summarizeLifecycleEvidence(report, caseContract);
+  const evidenceStatus = classifyEvidence(report, requiredChecks, caseContract, lifecycleEvidence);
   const missingReported = Array.isArray(report.missingRequiredChecks) ? report.missingRequiredChecks : null;
   const passed = report.status === 'passed'
     && evidenceStatus === 'passed'
@@ -689,7 +636,14 @@ function summarizeLifecycle(report, expectedScenarioID, expectedCaseName) {
   const actionDurations = (Array.isArray(report.actions) ? report.actions : [])
     .map((action) => action?.elapsedMs)
     .filter((value) => Number.isFinite(value) && value >= 0);
-  const renderCheckpoints = summarizeRenderCheckpoints(report, requiredChecks);
+  const summarizedDimensions = compactDimensions(report.dimensions);
+  Object.assign(summarizedDimensions, lifecycleEvidence.dimensions);
+  const renderCheckpoints = caseContract.lifecycleEvidence?.performance
+    ? lifecycleEvidence.renderCheckpoints
+    : summarizeRenderCheckpoints(report, {
+      performanceCheckNames: caseContract.performanceCheckName ? [caseContract.performanceCheckName] : [],
+      requiredCheckNames: requiredChecks,
+    });
   return {
     status: passed ? 'passed' : report.status === 'failed' || evidenceStatus === 'failed' ? 'failed' : 'unverified',
     reportStatus: report.status ?? null,
@@ -701,7 +655,8 @@ function summarizeLifecycle(report, expectedScenarioID, expectedCaseName) {
     missingCheckNames: missingNames,
     requiredCheckListMatchesRegistry: exactCheckList,
     missingRequiredCheckCount: missingReported?.length ?? null,
-    dimensions: compactDimensions(report.dimensions),
+    dimensions: summarizedDimensions,
+    dimensionEvidence: lifecycleEvidence.dimensionEvidence,
     actionCount: Array.isArray(report.actions) ? report.actions.length : null,
     maximumMeasuredActionLatencyMs: actionDurations.length ? Math.max(...actionDurations) : null,
     renderCheckpointCount: renderCheckpoints.count,

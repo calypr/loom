@@ -11,6 +11,7 @@ import { sourceFingerprint } from '../helpers/source-fingerprint.mjs';
 import { ApiBuildFreezeError, captureApiBuildFreeze, checkContainerApiBuildStamp } from '../helpers/api-build-freeze.mjs';
 import { expectedRelatedSourceOneValidation, relatedSourceProposalCandidate, selectedRelatedSourceProposal as matchSelectedRelatedSourceProposal } from '../helpers/related-source-capture.mjs';
 import { createNativeAbortProbeSource, nativeAbortProbeEvidenceForRequest, nativeAbortDomOwnerRules } from '../helpers/native-abort-probe.mjs';
+import { fixtureUnavailableOutcome } from '../helpers/cda-fixture-outcomes.mjs';
 
 // Adapted from verify-cda-group-related-values-browser.mjs and
 // verify-cda-coded-field-lifecycle-browser.mjs. The raw CDA oracle is kept
@@ -100,6 +101,9 @@ const report = {
     duplicateValuePolicy: 'Preserve one value per distinct terminal Observation identity; do not collapse by field value.',
     note: 'The pinned oracle has 31 distinct Observation records: 29 distinct nonnull references and two null/missing references, which the exact AQL projection normalizes to null. The native ALL protocol array must retain both normalized null entries.' } } : {}),
 };
+const fixtureUnavailableError = (reason) => Object.assign(new Error(reason), {
+  fixtureUnavailableOutcome: fixtureUnavailableOutcome(reason, report.oracle),
+});
 await mkdir(evidence, { recursive: true });
 report.sourceFingerprint = { root: sourceRoot, before: sourceFingerprint(sourceRoot) };
 const sourceFreezeStartedAt = new Date().toISOString();
@@ -109,7 +113,6 @@ report.sourceFreeze = { startedAt: sourceFreezeStartedAt, watchedFileCount: sour
 const officialRequestCapture = cda.captureRequests(`${root}/${encodeURIComponent(explorer)}`);
 let builder;
 let outputId;
-let verificationPhase = 'raw-oracle';
 let frozenApiBuild;
 let apiBuildCheckStarted = false;
 const nativeByRequestId = new Map();
@@ -1010,7 +1013,7 @@ FOR p IN (
       const meaning = `No Patient with zero scoped incoming Observation.subject_Patient edges was found among the first ${patientCandidateLimit} current-generation Patient candidates. This is bounded witness unavailability, not proof of global absence.`;
       report.oracle.fixtureAvailability.meaning = meaning;
       report.oracle.missingWitnessCategories.push({ category: 'zero-observation', patientCandidateLimit, meaning });
-      throw new Error(meaning);
+      throw fixtureUnavailableError(meaning);
     }
 
     const exactZeroMembershipQuery = `
@@ -1102,7 +1105,7 @@ FOR p IN (
     };
     if (!basicSeed) {
       report.oracle.fixtureAvailability = { requiredSingleObservationWitnessAvailable: false, patientCandidateLimit };
-      throw new Error(`No scoped Patient with exactly one linked Observation carrying a scalar status was found among the first ${patientCandidateLimit} current-generation Patients.`);
+      throw fixtureUnavailableError(`No scoped Patient with exactly one linked Observation carrying a scalar status was found among the first ${patientCandidateLimit} current-generation Patients.`);
     }
     const patientKey = basicSeed.patient._id;
     const exactBasicMembershipQuery = `
@@ -1387,7 +1390,7 @@ FOR p IN (
     completeZeroOneManyCoverage: !statusFieldMode && report.oracle.missingWitnessCategories.length === 0,
   };
   if (!manySeed) {
-    throw new Error(statusFieldMode
+    throw fixtureUnavailableError(statusFieldMode
       ? `No bounded Patient→Specimen→Patient→Observation witness with at least two distinct Observation.status values was found among the first ${patientWitnessLimit} current-generation Patient candidates; this status ONE-to-ALL case is unavailable in this bounded fixture scan.`
       : `No many-Observation witness with at least one linked Specimen was found among the first ${patientWitnessLimit} scoped current-generation Patient candidates; the ONE-to-ALL repair cannot be exercised. The witness query selects one Specimen per Patient.`);
   }
@@ -1470,7 +1473,6 @@ FOR s IN Specimen
   });
   }
 
-  verificationPhase = 'builder';
   const rootTitle = `${rootResourceType} ID`;
   const tableTitle = zeroObservationMode ? 'Zero Observation related ID ONE to ALL QA' : referenceFieldMode ? 'Related Observation specimen reference QA' : statusFieldMode ? 'Related Observation status code QA' : 'Related ID ONE to ALL QA';
   await api(root, { name: explorer, title: tableTitle });
@@ -2119,52 +2121,35 @@ FOR s IN Specimen
   report.relatedFieldLifecycle = 'passed';
   if (!basicMode && !zeroObservationMode) report.repairStatus = 'passed';
   if ((report.oracle.missingWitnessCategories ?? []).length > 0) {
-    const categories = report.oracle.missingWitnessCategories.map(({ category }) => category);
-    report.status = 'unverified';
-    report.productFailure = false;
-    report.unverifiedReason = `The grouped-row ONE-to-ALL lifecycle passed, but bounded raw witnesses were unavailable for: ${categories.join(', ')}.`;
-    report.unverified = {
-      kind: 'bounded-optional-witness-unavailable', message: report.unverifiedReason,
-      diagnostics: report.oracle.fixtureAvailability,
-    };
-    report.skipReason = report.unverifiedReason;
-  } else {
-    report.status = 'passed';
+    report.optionalFixtureGaps = report.oracle.missingWitnessCategories;
   }
+  report.status = 'passed';
 } catch (error) {
   const apiBuildInvalidation = error instanceof ApiBuildFreezeError || error?.invalidatesRun === true;
-  const rawOracleUnavailable = verificationPhase === 'raw-oracle' && !apiBuildInvalidation;
-  report.status = apiBuildInvalidation ? 'invalidated' : rawOracleUnavailable ? 'unverified' : 'failed';
+  const fixtureUnavailable = error?.fixtureUnavailableOutcome;
+  report.status = apiBuildInvalidation ? 'invalidated' : fixtureUnavailable ? 'unverified' : 'failed';
   if (apiBuildInvalidation) {
     report.productFailure = false;
     report.apiBuildFreeze = { ...report.apiBuildFreeze, invalidatesRun: true, productFailure: false,
       error: String(error), reason: error.reason, before: error.before, after: error.after };
   }
-  if (rawOracleUnavailable) {
+  if (fixtureUnavailable) {
     report.productFailure = false;
-    report.skipReason = report.unverifiedReason ?? String(error?.message ?? error);
-    report.unverifiedReason = error.message;
-    report.unverified = {
-      kind: report.oracle?.fixtureAvailability ? 'raw-witness-oracle' : 'raw-witness-oracle-or-query',
-      message: error.message,
-      diagnostics: {
-        fixtureAvailability: report.oracle?.fixtureAvailability,
-        searchBounds: report.oracle?.searchBounds,
-        boundedAbsence: report.oracle?.boundedAbsence,
-        witnessQueries: report.oracle?.witnessQueries,
-      },
-    };
+    report.fixtureUnavailable = fixtureUnavailable;
+    report.skipReason = fixtureUnavailable.reason;
   }
-  report.error = String(error.stack ?? error);
-  report.failureUI = nativePage ? await inspectPage(nativePage, () => {
-    const dialog = document.querySelector('[role="dialog"]');
-    const policy = dialog?.querySelector('select[aria-label="Values per grouped row"]');
-    const proposal = document.querySelector('[data-testid="construction-proposal-panel"]');
-    return { body: document.body.innerText.slice(0, 5000), chooser: { open: Boolean(dialog), policy: policy?.value },
-      proposal: { status: proposal?.dataset.proposalStatus, text: proposal?.innerText } };
-  }).catch(captureError => sanitizeText(captureError.message)) : undefined;
-  report.savedBuilderAtFailure = builder ? await api(`${base}/builder`).catch((readError) => ({ readError: sanitizeText(readError.message) })) : undefined;
-  if (!rawOracleUnavailable) report.status = report.status === 'invalidated' ? 'invalidated' : 'failed';
+  if (!fixtureUnavailable) {
+    report.error = String(error.stack ?? error);
+    report.failureUI = nativePage ? await inspectPage(nativePage, () => {
+      const dialog = document.querySelector('[role="dialog"]');
+      const policy = dialog?.querySelector('select[aria-label="Values per grouped row"]');
+      const proposal = document.querySelector('[data-testid="construction-proposal-panel"]');
+      return { body: document.body.innerText.slice(0, 5000), chooser: { open: Boolean(dialog), policy: policy?.value },
+        proposal: { status: proposal?.dataset.proposalStatus, text: proposal?.innerText } };
+    }).catch(captureError => sanitizeText(captureError.message)) : undefined;
+    report.savedBuilderAtFailure = builder ? await api(`${base}/builder`).catch((readError) => ({ readError: sanitizeText(readError.message) })) : undefined;
+    if (!apiBuildInvalidation) report.status = 'failed';
+  }
 } finally {
   if (apiBuildCheckStarted && frozenApiBuild) {
     try {

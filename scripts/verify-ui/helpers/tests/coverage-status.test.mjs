@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { mkdtempSync, mkdirSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, relative, sep } from 'node:path';
-import { classifyEvidence, classifyFreshness, readReports, summarizeCoverage } from '../coverage-status.mjs';
+import { classifyEvidence, classifyFreshness, lifecycleEvidenceContractIssues, readReports, summarizeCoverage } from '../coverage-status.mjs';
 import { caseNamesFor, coverageDrift, hasLifecycleContract, registry, requiresLifecycleAcceptance, scenarioCaseFor } from '../../registry.mjs';
 import { buildArangoShellInvocation } from '../owned-arangosh-command.mjs';
 import { finalOutputSchema, sourceColumnSchema } from '../unpivot-schema.mjs';
@@ -17,6 +17,33 @@ const freezeAssertion = (before, after = before, status = 'passed') => ({
   status,
   evidence: { before, after },
 });
+const retainedPostPivotCountTimings = JSON.parse(readFileSync(
+  new URL('./fixtures/post-pivot-count-qzzOck-timings.json', import.meta.url), 'utf8',
+));
+const postPivotCountContract = scenarioCaseFor(
+  'standalone-reshape-related-source-after-pivot',
+  'related-source-count-after-pivot',
+);
+const postPivotCountReport = () => {
+  const assertions = postPivotCountContract.requiredChecks.map((name) => ({ name, status: 'passed' }));
+  assertions.find((assertion) => assertion.name === postPivotCountContract.lifecycleEvidence.performance.check).evidence = {
+    actionCount: retainedPostPivotCountTimings.actionCount,
+    measuredTransitionCount: retainedPostPivotCountTimings.cases.length,
+    maxActionMs: retainedPostPivotCountTimings.maxActionMs,
+    workflowCheckpoints: retainedPostPivotCountTimings.cases.map(({ name, elapsedMs }) => ({ name, durationMs: elapsedMs })),
+  };
+  return {
+    schemaVersion: 2,
+    status: 'passed',
+    dimensions: {
+      usability: { status: 'passed' },
+      correctness: { status: 'passed' },
+      persistence: { status: 'untested' },
+      performance: { status: 'untested' },
+    },
+    assertions,
+  };
+};
 
 
 
@@ -181,6 +208,8 @@ test('every registry case resolves its Playwright mapping and owned/custom check
     assert.ok(contract.playwrightTest, `${scenario.id}/${caseName} has a native Playwright mapping`);
     assert.deepEqual(scenarioCaseFor(scenario, caseName).requiredChecks, ownedChecks);
     assert.deepEqual(scenarioCaseFor(scenario, caseName, true).requiredChecks, customChecks);
+    assert.deepEqual(lifecycleEvidenceContractIssues(contract), [],
+      `${scenario.id}/${caseName} has valid declared lifecycle evidence`);
   }
   assert.throws(() => scenarioCaseFor('builder-load', 'unknown'), /unknown case for builder-load: unknown/);
   assert.throws(() => scenarioCaseFor('unknown-scenario', 'case'), /unknown scenario: unknown-scenario/);
@@ -201,9 +230,6 @@ test('row-operation coverage distinguishes lifecycle acceptance from a runnable 
   assert.equal(repeatedExpand.acceptance.kind, 'lifecycle');
   assert.equal(hasLifecycleContract(repeatedExpand), true);
   assert.equal(unpivotFeature.status, 'implemented', 'The accepted historical lifecycle pass is represented in the registry');
-  assert.match(unpivotFeature.reason, /Epoch130 passed 17\/17 native lifecycle checks/);
-  assert.match(unpivotFeature.reason, /dfa2bce29c6c102f79bec2dc56eea6b19c484ebf2f19fb4f6335178e37f06800/);
-  assert.match(unpivotFeature.reason, /current-source\/API verification remains pending/);
   assert.equal(unpivotFeature.acceptance.kind, 'lifecycle');
   assert.equal(unpivotFeature.acceptance.scenario, 'standalone-reshape-related-unpivot');
   assert.equal(unpivotFeature.acceptance.case, 'related-unpivot');
@@ -319,12 +345,12 @@ test('lifecycle phase references point to the named applied, edited, reloaded, a
   const filterOwner = registry.find((entry) => entry.id === 'builder-authoring');
   const filterCoverage = filterOwner.coverage.find((entry) => entry.feature === 'Filter rows');
   const filterScenario = registry.find((entry) => entry.id === 'cda-filter-browser');
-  assert.equal(filterCoverage.status, 'untested', 'a complete contract does not imply a fresh browser pass');
+  assert.equal(filterCoverage.status, 'implemented', 'the current native lifecycle pass closes the registered Filter rows coverage');
   assert.equal(filterCoverage.acceptance.kind, 'lifecycle');
   assert.deepEqual(filterCoverage.acceptance.checks,
     { choice: 0, proposal: 1, cancel: 2, apply: 3, savedRows: 4, reload: 5, edit: 6, restoration: 7 });
   assert.equal(hasLifecycleContract(filterCoverage, filterOwner), true,
-    'Filter rows must link all lifecycle phases to a registered native CDA case while remaining runtime-unverified');
+    'Filter rows must link all lifecycle phases to the registered native CDA case');
   assert.deepEqual(scenarioCaseFor(filterScenario, 'filter-lifecycle').requiredChecks, [
     'native Filter rows controls expose an enabled source column and typed condition',
     'filter proposals and rendered result values match an independent scoped CDA source oracle within five seconds',
@@ -336,6 +362,18 @@ test('lifecycle phase references point to the named applied, edited, reloaded, a
     'filter removal restores the exact source columns, population, and rows after reload',
     'All native Filter actions and action-to-render checkpoints complete within five seconds',
   ]);
+});
+
+test('post-Pivot COUNT coverage records historical derived lifecycle evidence without claiming freshness', () => {
+  const scenario = registry.find((entry) => entry.id === 'standalone-reshape-related-source-after-pivot');
+  const coverage = scenario.coverage.find((entry) => entry.feature.includes('Patient.id COUNT'));
+  assert.equal(coverage.status, 'implemented');
+  assert.equal(coverage.acceptance.case, 'related-source-count-after-pivot');
+  assert.match(coverage.reason, /Historical qzzOck COUNT lifecycle passed 25\/25 registered checks/);
+  assert.match(coverage.reason, /26 action-to-render checkpoints/);
+  assert.match(coverage.reason, /qzzOck-count-lifecycle-evidence\.json/);
+  assert.match(coverage.reason, /historical freshness/);
+  assert.match(coverage.reason, /no current-source browser pass is claimed/);
 });
 
 test('Filter rows registry requires the full lifecycle and native performance check', () => {
@@ -429,8 +467,16 @@ test('partial long-route collection repair owns one registered case while legacy
   assert.ok(scenario, 'the exact partial long-route variant has a registry contract');
   const contract = scenarioCaseFor(scenario, 'partial-long-route-repair-and-reload');
   assert.equal(contract.playwrightTest, 'scripts/verify-ui/specs/standalone-cda-other.spec.mjs');
-  assert.equal(contract.requiredChecks.length, 11);
+  const preApplyCancelCheck = 'Cancel before Apply preserves the exact source workspace, selected membership, route, output bindings, and scoped raw preview before the same FILTER EXISTS operation and preview are applied';
+  assert.ok(contract.requiredChecks.includes(preApplyCancelCheck));
   assert.equal(new Set(contract.requiredChecks).size, contract.requiredChecks.length);
+  assert.equal(classifyEvidence({
+    schemaVersion: 2,
+    status: 'passed',
+    assertions: contract.requiredChecks
+      .filter((name) => name !== preApplyCancelCheck)
+      .map((name) => ({ name, status: 'passed' })),
+  }, contract.requiredChecks), 'partial', 'the added Cancel transition is required to classify the registered case as passed');
   assert.equal(registry.some((entry) => entry.id === 'cda-collection-repair'), false,
     'legacy default and long-route reports retain their previously unregistered scenario identity');
   assert.throws(() => scenarioCaseFor(scenario, 'long-route-repair-and-reload'), /unknown case/);
@@ -449,6 +495,45 @@ test('current reports use passing named requirements while keeping optional dime
     assertions: [{ name: 'required transition', status: 'passed' }],
     dimensions: { ...complete, persistence: { status: 'untested' } },
   }, ['required transition']), 'passed');
+});
+
+test('declared lifecycle dimensions require exact persistence checks and complete timing evidence', () => {
+  const base = postPivotCountReport();
+  assert.equal(retainedPostPivotCountTimings.sourceSummarySha256,
+    '19262bd541a31ae09a0134c9b02e04476ff8b04121edfde59253536deffb309c');
+  assert.equal(retainedPostPivotCountTimings.sourceReportSha256,
+    '5587cd186fbb00f1c8bd34470e9799522d8c7974c8faa6deb4603b6bd553b829');
+  assert.equal(retainedPostPivotCountTimings.actionCount, 60);
+  assert.equal(retainedPostPivotCountTimings.maxActionMs, 225);
+  assert.equal(Math.max(...retainedPostPivotCountTimings.cases.map(({ elapsedMs }) => elapsedMs)), 1417);
+  assert.equal(classifyEvidence(base, postPivotCountContract.requiredChecks, postPivotCountContract), 'passed');
+
+  const missingPersistence = structuredClone(base);
+  missingPersistence.assertions = missingPersistence.assertions.filter((assertion) =>
+    assertion.name !== postPivotCountContract.lifecycleEvidence.persistence.checks[0]);
+  assert.equal(classifyEvidence(missingPersistence, postPivotCountContract.requiredChecks, postPivotCountContract), 'partial');
+
+  const missingTiming = structuredClone(base);
+  delete missingTiming.assertions.find((assertion) =>
+    assertion.name === postPivotCountContract.lifecycleEvidence.performance.check).evidence.workflowCheckpoints;
+  assert.equal(classifyEvidence(missingTiming, postPivotCountContract.requiredChecks, postPivotCountContract), 'partial');
+
+  const failedDimension = structuredClone(base);
+  failedDimension.dimensions.performance.status = 'failed';
+  assert.equal(classifyEvidence(failedDimension, postPivotCountContract.requiredChecks, postPivotCountContract), 'failed');
+  const failedStringDimension = structuredClone(base);
+  failedStringDimension.dimensions.performance = 'failed';
+  assert.equal(classifyEvidence(failedStringDimension, postPivotCountContract.requiredChecks, postPivotCountContract), 'failed');
+
+  const unknownDimension = structuredClone(base);
+  unknownDimension.dimensions.persistence.status = 'unknown';
+  unknownDimension.assertions = unknownDimension.assertions.filter((assertion) =>
+    assertion.name !== postPivotCountContract.lifecycleEvidence.persistence.checks[1]);
+  assert.equal(classifyEvidence(unknownDimension, postPivotCountContract.requiredChecks, postPivotCountContract), 'partial');
+
+  const unexpectedFailure = structuredClone(base);
+  unexpectedFailure.assertions.find((assertion) => assertion.name === 'No unexpected native network, module, or browser errors occurred').status = 'failed';
+  assert.equal(classifyEvidence(unexpectedFailure, postPivotCountContract.requiredChecks, postPivotCountContract), 'failed');
 });
 
 test('latest case result controls coverage and missing cases remain untested', () => {

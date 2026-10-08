@@ -9,6 +9,222 @@ const dimensions = ['usability', 'correctness', 'persistence', 'performance'];
 const sourceFreezeCheck = 'watched source stayed unchanged during browser run';
 const apiBuildIdentityPattern = /^[a-f0-9]{64}(?::[a-f0-9]{64}){2}$/i;
 
+const finiteDuration = (value) => Number.isFinite(value) && value >= 0;
+const reportDimensionStatus = (report, dimension) => {
+  const value = report?.dimensions?.[dimension];
+  return typeof value === 'string' ? value : value?.status;
+};
+
+const validCheckpointList = (value, durationField) => Array.isArray(value)
+  && value.length > 0
+  && value.every((checkpoint) => checkpoint
+    && typeof checkpoint.name === 'string'
+    && checkpoint.name.trim().length > 0
+    && finiteDuration(checkpoint[durationField]));
+
+export const summarizeRenderCheckpoints = (report, {
+  performanceCheckNames = [],
+  requiredCheckNames = [],
+} = {}) => {
+  const declared = new Set(Array.isArray(performanceCheckNames) ? performanceCheckNames : []);
+  const required = new Set(Array.isArray(requiredCheckNames) ? requiredCheckNames : []);
+  const checkpoints = [];
+  for (const assertion of Array.isArray(report?.assertions) ? report.assertions : []) {
+    const checkName = assertion?.name;
+    const evidence = assertion.evidence;
+    const checkpointField = evidence && typeof evidence === 'object'
+      ? (['lifecycleCheckpointDurations', 'timingCheckpoints', 'workflowCheckpoints']
+        .find((field) => Object.hasOwn(evidence, field)) ?? null)
+      : null;
+    const isRegisteredPerformanceEvidence = required.has(checkName)
+      && (assertion.dimension === 'performance' || declared.has(checkName) || checkpointField !== null);
+    if (!isRegisteredPerformanceEvidence) continue;
+    if (checkpointField) {
+      const renderCheckpoints = evidence[checkpointField];
+      if (!validCheckpointList(renderCheckpoints, 'durationMs')) continue;
+      for (const checkpoint of renderCheckpoints) {
+        checkpoints.push({
+          checkName: assertion.name,
+          name: checkpoint.name,
+          durationMs: checkpoint.durationMs,
+          evidencePath: `assertions[].evidence.${checkpointField}[].durationMs`,
+        });
+      }
+      continue;
+    }
+    if (Array.isArray(evidence?.actions)) {
+      for (const action of evidence.actions) {
+        if (!finiteDuration(action?.durationMs)) continue;
+        checkpoints.push({
+          checkName: assertion.name,
+          name: typeof action.name === 'string' ? action.name : null,
+          durationMs: action.durationMs,
+          evidencePath: 'assertions[].evidence.actions[].durationMs',
+        });
+      }
+      continue;
+    }
+    const elapsedMs = evidence?.elapsedMs ?? evidence?.durationMs;
+    if (finiteDuration(elapsedMs)) {
+      checkpoints.push({
+        checkName: assertion.name,
+        name: assertion.name,
+        durationMs: elapsedMs,
+        evidencePath: Number.isFinite(evidence.elapsedMs)
+          ? 'assertions[].evidence.elapsedMs'
+          : 'assertions[].evidence.durationMs',
+      });
+      continue;
+    }
+  }
+  return {
+    count: checkpoints.length,
+    maximumDurationMs: checkpoints.length ? Math.max(...checkpoints.map((checkpoint) => checkpoint.durationMs)) : null,
+    checkpoints,
+  };
+};
+
+export const lifecycleEvidenceContractIssues = (contract) => {
+  const declaration = contract?.lifecycleEvidence;
+  const issues = [];
+  const requiredChecks = contract?.requiredChecks ?? [];
+  if (contract?.performanceCheckName !== undefined
+    && (typeof contract.performanceCheckName !== 'string' || !requiredChecks.includes(contract.performanceCheckName))) {
+    issues.push({ dimension: 'performanceCheckName', reason: 'Performance check name must match a registered required check.' });
+  }
+  if (declaration === undefined) return issues;
+  if (!declaration || typeof declaration !== 'object' || Array.isArray(declaration)) {
+    issues.push({ dimension: 'lifecycleEvidence', reason: 'Lifecycle evidence must be an object.' });
+    return issues;
+  }
+  if (Object.keys(declaration).length === 0) {
+    issues.push({ dimension: 'lifecycleEvidence', reason: 'Lifecycle evidence must declare at least one dimension.' });
+    return issues;
+  }
+
+  for (const [dimension, rule] of Object.entries(declaration)) {
+    if (!['persistence', 'performance'].includes(dimension)) {
+      issues.push({ dimension, reason: 'Unsupported declared lifecycle dimension.' });
+    } else if (dimension === 'persistence') {
+      const checkNames = rule?.checks;
+      const validNames = Array.isArray(checkNames) && checkNames.length > 0
+        && new Set(checkNames).size === checkNames.length
+        && checkNames.every((name) => typeof name === 'string' && requiredChecks.includes(name));
+      if (!validNames) issues.push({
+        dimension,
+        reason: 'Persistence checks must be unique registered required checks.',
+      });
+    } else if (dimension === 'performance') {
+      const checkName = rule?.check;
+      const budgetMs = rule?.checkpointBudgetMs;
+      if (typeof checkName !== 'string' || !requiredChecks.includes(checkName)
+        || !Number.isFinite(budgetMs) || budgetMs <= 0) issues.push({
+        dimension,
+        reason: 'Performance must name a required check and positive checkpoint budget.',
+      });
+    }
+  }
+  return issues;
+};
+
+const assertionStatus = (report, checkName) => {
+  const matches = (Array.isArray(report?.assertions) ? report.assertions : [])
+    .filter((assertion) => assertion?.name === checkName);
+  if (matches.some((assertion) => assertion.status === 'failed')) return 'failed';
+  return matches.length === 1 && matches[0].status === 'passed' ? 'passed' : 'unverified';
+};
+
+export const summarizeLifecycleEvidence = (report, contract) => {
+  const declaration = contract?.lifecycleEvidence;
+  const assertions = Array.isArray(report?.assertions) ? report.assertions : [];
+  const declaredPerformanceChecks = declaration?.performance?.check
+    ? [declaration.performance.check]
+    : [];
+  const requiredChecks = contract?.requiredChecks ?? [];
+  const renderCheckpoints = summarizeRenderCheckpoints(report, {
+    performanceCheckNames: declaredPerformanceChecks,
+    requiredCheckNames: requiredChecks,
+  });
+  const dimensionEvidence = {};
+
+  if (declaration === undefined) {
+    return { status: 'not-required', dimensions: {}, dimensionEvidence, renderCheckpoints };
+  }
+
+  const contractIssues = lifecycleEvidenceContractIssues(contract);
+  if (!declaration || typeof declaration !== 'object' || Array.isArray(declaration)) {
+    return {
+      status: 'unverified',
+      dimensions: {},
+      dimensionEvidence,
+      renderCheckpoints,
+      contractIssues,
+    };
+  }
+  for (const [dimension, rule] of Object.entries(declaration)) {
+    const rawStatus = reportDimensionStatus(report, dimension);
+    const contractIssue = contractIssues.find((issue) => issue.dimension === dimension);
+    if (contractIssue) {
+      dimensionEvidence[dimension] = { status: 'unverified', reason: contractIssue.reason };
+      continue;
+    }
+    if (rawStatus === 'failed') {
+      dimensionEvidence[dimension] = { status: 'failed', reason: 'The domain report marks this dimension failed.' };
+      continue;
+    }
+    if (dimension === 'persistence') {
+      const checkNames = rule.checks;
+      const statuses = checkNames.map((name) => ({ name, status: assertionStatus(report, name) }));
+      const status = statuses.some((check) => check.status === 'failed')
+        ? 'failed'
+        : statuses.every((check) => check.status === 'passed') ? 'passed' : 'unverified';
+      dimensionEvidence[dimension] = { status, checks: statuses };
+      continue;
+    }
+    if (dimension === 'performance') {
+      const checkName = rule.check;
+      const budgetMs = rule.checkpointBudgetMs;
+      const check = assertions.find((assertion) => assertion?.name === checkName);
+      const evidence = check?.evidence;
+      const status = assertionStatus(report, checkName);
+      const checkpointCountMatches = Number.isSafeInteger(evidence?.measuredTransitionCount)
+        && evidence.measuredTransitionCount === renderCheckpoints.count;
+      const actionEvidenceValid = Number.isSafeInteger(evidence?.actionCount)
+        && evidence.actionCount > 0
+        && finiteDuration(evidence.maxActionMs);
+      const overBudget = finiteDuration(evidence?.maxActionMs) && evidence.maxActionMs > budgetMs
+        || renderCheckpoints.checkpoints.some((checkpoint) => checkpoint.durationMs > budgetMs);
+      const complete = status === 'passed'
+        && renderCheckpoints.count > 0
+        && checkpointCountMatches
+        && actionEvidenceValid
+        && evidence.maxActionMs <= budgetMs
+        && renderCheckpoints.checkpoints.every((checkpoint) => checkpoint.durationMs <= budgetMs);
+      dimensionEvidence[dimension] = {
+        status: status === 'failed' || overBudget ? 'failed' : complete ? 'passed' : 'unverified',
+        check: checkName,
+        checkpointBudgetMs: budgetMs,
+        checkpointCount: renderCheckpoints.count,
+        maximumCheckpointDurationMs: renderCheckpoints.maximumDurationMs,
+        measuredTransitionCount: Number.isSafeInteger(evidence?.measuredTransitionCount)
+          ? evidence.measuredTransitionCount : null,
+        actionCount: Number.isSafeInteger(evidence?.actionCount) ? evidence.actionCount : null,
+        maximumActionDurationMs: finiteDuration(evidence?.maxActionMs) ? evidence.maxActionMs : null,
+        evidencePaths: [...new Set(renderCheckpoints.checkpoints.map((checkpoint) => checkpoint.evidencePath))],
+      };
+    }
+  }
+
+  const statuses = Object.values(dimensionEvidence).map((evidence) => evidence.status);
+  const status = statuses.includes('failed') ? 'failed'
+    : contractIssues.length > 0 || statuses.includes('unverified') || statuses.length === 0 ? 'unverified'
+      : 'passed';
+  const summarizedDimensions = Object.fromEntries(
+    Object.entries(dimensionEvidence).map(([dimension, evidence]) => [dimension, evidence.status]),
+  );
+  return { status, dimensions: summarizedDimensions, dimensionEvidence, contractIssues, renderCheckpoints };
+};
+
 const isFingerprint = (value) =>
   typeof value?.sha256 === 'string'
   && /^[a-f0-9]{64}$/i.test(value.sha256)
@@ -377,23 +593,24 @@ const readLegacySiblingClosure = ({ path, report, root, directory, evidenceRoots
   }
 };
 
-const registeredChecksFor = (scenario, caseName, report) => {
+const registeredContractFor = (scenario, caseName, report) => {
   try {
-    return scenarioCaseFor(scenario, caseName, report.target?.kind === 'read-only-custom').requiredChecks;
+    return scenarioCaseFor(scenario, caseName, report.target?.kind === 'read-only-custom');
   } catch (error) {
     if (error instanceof Error && (error.message === `missing required checks for ${scenario.id}/${caseName}` || error.message === `unknown case for ${scenario.id}: ${caseName}`)) return undefined;
     throw error;
   }
 };
 
-export const classifyEvidence = (report, requiredChecks) => {
+export const classifyEvidence = (report, requiredChecks, contract, lifecycleEvidence = summarizeLifecycleEvidence(report, contract)) => {
   if (report.status !== 'passed') return report.status;
+  if (dimensions.some((dimension) => reportDimensionStatus(report, dimension) === 'failed')) return 'failed';
   if (report.schemaVersion >= 2) {
     if (!Array.isArray(requiredChecks) || requiredChecks.length === 0 || !Array.isArray(report.assertions)) return 'partial';
     if (requiredChecks.some((name) => report.assertions.some((assertion) => assertion?.name === name && assertion?.status === 'failed'))) return 'failed';
-    return requiredChecks.every((name) => report.assertions.some((assertion) => assertion?.name === name && assertion?.status === 'passed'))
-      ? 'passed'
-      : 'partial';
+    if (!requiredChecks.every((name) => report.assertions.some((assertion) => assertion?.name === name && assertion?.status === 'passed'))) return 'partial';
+    if (lifecycleEvidence.status === 'failed') return 'failed';
+    return lifecycleEvidence.status === 'unverified' ? 'partial' : 'passed';
   }
   return dimensions.every((dimension) => report.dimensions?.[dimension]?.status === 'passed')
     ? 'passed'
@@ -407,10 +624,11 @@ export const summarizeCoverage = (scenarios, reports, baseline = {}) => {
     const key = `${report.scenario}/${report.case}`;
     const compact = compactReport(report);
     const legacy = !compact && legacyPair?.candidate === true;
-    const requiredChecks = (() => {
+    const contract = (() => {
       const scenario = scenarios.find((item) => item.id === report.scenario);
-      return scenario ? registeredChecksFor(scenario, report.case, report) : undefined;
+      return scenario ? registeredContractFor(scenario, report.case, report) : undefined;
     })();
+    const requiredChecks = contract?.requiredChecks;
     const legacyResult = legacy ? normalizeLegacyPairedReport({ report, closure, legacyPair }, requiredChecks) : null;
     const normalized = compact ? compactReportForCoverage(report, closure, requiredChecks)
       : legacy ? legacyResult?.report ?? null : report;
@@ -437,7 +655,10 @@ export const summarizeCoverage = (scenarios, reports, baseline = {}) => {
   }
   return scenarios.flatMap((scenario) => caseNamesFor(scenario).map((caseName) => {
     const evidence = latest.get(`${scenario.id}/${caseName}`);
-    const requiredChecks = evidence ? registeredChecksFor(scenario, caseName, evidence.normalized ?? evidence.report) : undefined;
+    const contract = evidence
+      ? registeredContractFor(scenario, caseName, evidence.normalized ?? evidence.report)
+      : undefined;
+    const requiredChecks = contract?.requiredChecks;
     return {
       path: `${scenario.id}/${caseName}`,
       status: evidence
@@ -445,7 +666,7 @@ export const summarizeCoverage = (scenarios, reports, baseline = {}) => {
           || (evidence.legacy && evidence.report.status === 'passed'
             && (!evidence.normalized || evidence.note !== null))
           ? 'partial'
-          : classifyEvidence(evidence.normalized ?? evidence.report, requiredChecks)
+          : classifyEvidence(evidence.normalized ?? evidence.report, requiredChecks, contract)
         : 'untested',
       freshness: evidence && !evidence.ambiguousOrder && evidence.normalized
         ? classifyFreshness(evidence.normalized, baseline)

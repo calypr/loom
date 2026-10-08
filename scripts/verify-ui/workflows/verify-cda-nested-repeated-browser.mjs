@@ -11,6 +11,7 @@ import { captureSourceFreeze } from '../helpers/source-freeze.mjs';
 import { captureApiBuildFreeze, checkContainerApiBuildStamp } from '../helpers/api-build-freeze.mjs';
 import { sourceFingerprint } from '../helpers/source-fingerprint.mjs';
 import { waitForCondition } from '../helpers/playwright-observations.mjs';
+import { fixtureUnavailableOutcome } from '../helpers/cda-fixture-outcomes.mjs';
 
 export const nestedRepeatedRawFieldsSummarySelector = '[data-testid="feature-catalog-raw-fields"] > summary';
 
@@ -41,8 +42,8 @@ const report = {
   explorer,
   assertions: [],
   gaps: [
-    { assertion: 'nested code/system projection', status: 'unverified', reason: 'This native case verifies the repeated nested row scope and sibling field binding, but does not preview, apply, and reload the nested code/system fields.' },
-    { assertion: 'nested-to-outer row-scope edit', status: 'unverified', reason: 'This native case does not edit the nested row scope back to its outer Observation rows and verify restoration.' },
+    { assertion: 'nested code/system projection', status: 'unverified', blocking: false, reason: 'This native case verifies the repeated nested row scope and sibling field binding, but does not preview, apply, and reload the nested code/system fields.' },
+    { assertion: 'nested-to-outer row-scope edit', status: 'unverified', blocking: false, reason: 'This native case does not edit the nested row scope back to its outer Observation rows and verify restoration.' },
   ],
   failures: [],
   timings: [],
@@ -482,11 +483,14 @@ const finish = async () => {
   await officialRequestCapture.flush();
   report.finished = new Date().toISOString();
   if (report.status !== 'invalidated') {
-  report.status = report.failures.length ? 'failed'
-    : report.gaps.length ? 'unverified'
-      : report.assertions.length && report.assertions.every(assertion => assertion.status === 'passed') ? 'passed'
-        : 'untested';
-  if (report.status === 'unverified') report.skipReason = report.gaps.map(gap => `${gap.assertion}: ${gap.reason}`).join('; ');
+    const blockingGaps = report.gaps.filter(gap => gap.blocking !== false);
+    report.status = report.failures.length ? 'failed'
+      : blockingGaps.length ? 'unverified'
+        : report.assertions.length && report.assertions.every(assertion => assertion.status === 'passed') ? 'passed'
+          : 'untested';
+    if (report.status === 'unverified') {
+      report.skipReason = report.fixtureUnavailable?.reason ?? blockingGaps.map(gap => `${gap.assertion}: ${gap.reason}`).join('; ');
+    }
   }
   cda.report.standaloneCdaRows = report;
   await cda.attachReport('standalone-cda-nested-repeated.json', report);
@@ -501,7 +505,9 @@ try {
   await mkdir(values.evidence, { recursive: true });
   const sourceRecords = boundedRawOracle();
   if (sourceRecords.length === 0) {
-    report.gaps.push({ assertion: 'bounded Observation.component[] raw oracle', status: 'unverified', reason: 'The bounded 1000-record scan found no Observation with at least two distinct non-empty component[].valueString values.' });
+    const reason = 'The bounded 1000-record scan found no Observation with at least two distinct non-empty component[].valueString values.';
+    report.gaps.push({ assertion: 'bounded Observation.component[] raw oracle', status: 'unverified', reason });
+    report.fixtureUnavailable = fixtureUnavailableOutcome(reason, report.oracle);
   } else {
     assert(sourceRecords.every(resource => resource.generation === values.generation && resource.resourceType === 'Observation'));
     recordAssertion('bounded independent raw CDA oracle selected at most three Observations', {

@@ -4,6 +4,7 @@ import { spawnSync } from 'node:child_process';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { browserEval, click as clickPage, navigate as navigatePage, selectOption as selectPageOption, waitForBrowser, captureRequests, includeBrowserDiagnostics } from '../helpers/cda-playwright.mjs';
+import { fixtureUnavailableOutcome } from '../helpers/cda-fixture-outcomes.mjs';
 
 export async function repeatedRowsWorkflow({ page, cda }) {
 const values = {
@@ -391,12 +392,16 @@ const finish = async () => {
   await officialRequestCapture.flush();
   report.finished = new Date().toISOString();
   if (report.status !== 'invalidated') {
+    const blockingGaps = report.gaps.filter(gap => gap.blocking !== false);
     report.status = report.failures.length ? 'failed'
-      : report.gaps.length ? 'unverified'
+      : blockingGaps.length ? 'unverified'
         : report.assertions.length && report.assertions.every(assertion => assertion.status === 'passed') ? 'passed'
           : 'untested';
   }
-  if (report.status === 'unverified') report.skipReason = report.gaps.map(gap => `${gap.assertion}: ${gap.reason}`).join('; ');
+  if (report.status === 'unverified') {
+    report.skipReason = report.fixtureUnavailable?.reason ?? report.gaps
+      .filter(gap => gap.blocking !== false).map(gap => `${gap.assertion}: ${gap.reason}`).join('; ');
+  }
   cda.report.standaloneCdaRows = report;
   await cda.attachReport('standalone-cda-repeated-rows.json', report);
   for (const assertion of report.assertions) {
@@ -412,7 +417,9 @@ try {
   await mkdir(values.evidence, { recursive: true });
   const sourceRecords = boundedRawOracle();
   if (sourceRecords.length === 0) {
-    report.gaps.push({ assertion: 'bounded Observation.component[] raw oracle', status: 'unverified', reason: 'The bounded 1000-record scan found no Observation with at least two distinct non-empty component[].valueString values.' });
+    const reason = 'The bounded 1000-record scan found no Observation with at least two distinct non-empty component[].valueString values.';
+    report.gaps.push({ assertion: 'bounded Observation.component[] raw oracle', status: 'unverified', reason });
+    report.fixtureUnavailable = fixtureUnavailableOutcome(reason, report.oracle);
   } else {
     assert(sourceRecords.every(resource => resource.generation === values.generation && resource.resourceType === 'Observation'));
     recordAssertion('bounded independent raw CDA oracle selected at most three Observations', {

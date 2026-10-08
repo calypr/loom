@@ -4,6 +4,7 @@ import { relatedOneAllWorkflow } from '../workflows/verify-cda-related-one-all-b
 import { repeatedEmptyWorkflow } from '../workflows/verify-cda-repeated-empty-browser.mjs';
 import { repeatedRowsWorkflow } from '../workflows/verify-cda-repeated-rows-browser.mjs';
 import { missingComponentGroupSkipReason } from '../helpers/missing-component-group-oracle.mjs';
+import { fixtureUnavailableSkipReason } from '../helpers/cda-fixture-outcomes.mjs';
 
 const relatedMode = process.env.LOOM_RELATED_ONE_ALL_MODE ?? 'cda';
 const relatedField = process.env.LOOM_RELATED_ONE_ALL_FIELD ?? 'id';
@@ -40,7 +41,8 @@ test.describe('CDA nested repeated component values', () => {
 
   test('expands nested component coding items and verifies exact raw source identities', async ({ page, cda }) => {
     const result = await nestedRepeatedWorkflow({ page, cda });
-    if (result.status !== 'passed') test.skip(true, result.skipReason ?? `Nested coverage is ${result.status}.`);
+    const skipReason = fixtureUnavailableSkipReason(result);
+    if (skipReason) test.skip(true, skipReason);
     expect(result.assertions.some(assertion => assertion.status === 'passed')).toBe(true);
     expect(result.status).toBe('passed');
   });
@@ -57,7 +59,8 @@ test.describe('CDA related source ONE and ALL values', () => {
 
   test(`preserves ${relatedMode} ${relatedField} behavior against raw related records`, async ({ page, cda }) => {
     const result = await relatedOneAllWorkflow({ page, cda });
-    if (result.status !== 'passed') test.skip(true, result.skipReason ?? `Related ONE/ALL coverage is ${result.status}.`);
+    const skipReason = fixtureUnavailableSkipReason(result);
+    if (skipReason) test.skip(true, skipReason);
     expect(result.cases.length).toBeGreaterThan(0);
     expect(result.status).toBe('passed');
   });
@@ -73,7 +76,8 @@ test.describe('CDA zero Observation related source ONE and ALL', () => {
 
   test('keeps an exact zero-match Patient through native ONE/ALL and restoration', async ({ page, cda }) => {
     const result = await relatedOneAllWorkflow({ page, cda, mode: 'cda', fieldMode: 'id', witnessMode: 'zero' });
-    if (result.status !== 'passed') test.skip(true, result.skipReason ?? `Zero Observation ONE/ALL coverage is ${result.status}.`);
+    const skipReason = fixtureUnavailableSkipReason(result);
+    if (skipReason) test.skip(true, skipReason);
     expect(result.cases.length).toBeGreaterThan(0);
     expect(result.status).toBe('passed');
   });
@@ -87,7 +91,8 @@ test.describe('CDA repeated component empty-list policies', () => {
 
   test('preserves empty and populated component owners through row policy and GROUP lifecycle', async ({ page, cda }) => {
     const result = await repeatedEmptyWorkflow({ page, cda });
-    if (result.status !== 'passed') test.skip(true, result.skipReason ?? `Empty-component coverage is ${result.status}.`);
+    const skipReason = fixtureUnavailableSkipReason(result);
+    if (skipReason) test.skip(true, skipReason);
     expect(result.assertions.some(assertion => assertion.status === 'passed')).toBe(true);
     expect(result.status).toBe('passed');
   });
@@ -116,7 +121,8 @@ test.describe('CDA repeated component rows', () => {
 
   test('applies source expansion, verifies item values, and restores original Observation rows', async ({ page, cda }) => {
     const result = await repeatedRowsWorkflow({ page, cda });
-    if (result.status !== 'passed') test.skip(true, result.skipReason ?? `Repeated-component coverage is ${result.status}.`);
+    const skipReason = fixtureUnavailableSkipReason(result);
+    if (skipReason) test.skip(true, skipReason);
     expect(result.assertions.some(assertion => assertion.status === 'passed')).toBe(true);
     expect(result.status).toBe('passed');
   });

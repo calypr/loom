@@ -10,6 +10,39 @@ Compose project. It does not drive the canonical `loom-demo` deployment.
 
 ## Failure-loop discipline
 
+### Own and close the complete lifecycle
+
+One assigned Luna lead owns a case through diagnosis, focused regression,
+correction, same-case browser reruns, and final evidence. In-scope harness repairs
+do not require a foreground handoff for every predicate or selector. Escalate
+product decisions, shared architecture changes, or unexplained failures; Sol
+reviews the complete verified unit before the lead commits or merges it.
+
+Use actual retained request/response shapes and native event ordering as the
+regression fixture. Exercise the driver's production helper, including negative
+identity cases, rather than copying its matcher into a test. Distinguish browser
+request IDs from diagnostic IDs and response arrival from evidence-body capture.
+Do not impose a new wire contract merely to satisfy a test assumption.
+
+Audit the remaining workflow actions and batch demonstrated driver corrections
+before the next full rerun. Preserve independent data expectations, complete
+lifecycle checks, and the original latency budget. Keep common evidence rules in
+shared helpers rather than rebuilding them in each case.
+
+Review the final artifact once; renew review for consequential corrections, not
+unchanged passing checks or evidence-only bookkeeping. Record the pass in the
+existing coverage matrix and commit the scoped unit promptly. Optional prose and
+extra evidence packaging must not hold the next ready runtime case. Continue
+independent implementation in isolated worktrees while runtime access is owned.
+
+Measure elapsed diagnosis, implementation, focused checks, browser execution,
+review, and integration separately where available; mark unmeasured time unknown.
+Judge throughput by verified user lifecycles and closed product failures per
+elapsed time. Harness repairs remain testing overhead. Reuse historical evidence
+when its behavior and relevant source remain applicable; a different scenario
+name or HEAD alone does not justify another browser run. Identify the concrete
+changed behavior or missing proof before scheduling related cases.
+
 ### Worker-owned checks and bottlenecks
 
 The assigned Luna worker runs and diagnoses its case, including reruns after

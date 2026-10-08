@@ -17,6 +17,7 @@ const root = resolve(fileURLToPath(new URL('../../../..', import.meta.url)));
 const buildIdentity = 'a'.repeat(64) + ':' + 'a'.repeat(64) + ':' + 'b'.repeat(64);
 const retainedCda = JSON.parse(readFileSync(new URL('./fixtures/native-bracket-retained-cda-report.json', import.meta.url), 'utf8'));
 const retainedBasic = JSON.parse(readFileSync(new URL('./fixtures/native-bracket-retained-basic-report.json', import.meta.url), 'utf8'));
+const retainedPostPivotCountTimings = JSON.parse(readFileSync(new URL('./fixtures/post-pivot-count-qzzOck-timings.json', import.meta.url), 'utf8'));
 const wave152Failure = JSON.parse(readFileSync(new URL('./fixtures/wave152-root-quantity-pivot-failure.json', import.meta.url), 'utf8'));
 const groupAddFieldsPerformanceCheckName = 'All native Group-add-fields lifecycle actions complete within five seconds';
 const groupAddFieldsLifecycleCheckpoints = [
@@ -132,10 +133,10 @@ const retainedMembershipSetupFailure = {
   }],
 };
 
-function makeTarget(sourceRoot) {
+function makeTarget(sourceRoot, expectedIdentity) {
   return {
-    project: 'owned-project',
-    generation: 'generation-1',
+    project: expectedIdentity?.project ?? 'owned-project',
+    generation: expectedIdentity?.generation ?? 'generation-1',
     composeProject: 'owned-compose',
     apiContainer: 'owned-api',
     uiContainer: 'owned-ui',
@@ -166,18 +167,19 @@ function fakeRunner({ scenarioID, caseName, rootDir, browserExit = 0, browserRep
   afterCaptureExit = 0, afterCaptureWritesArtifacts = true, afterHealthExit = 0, afterHealthWritesArtifact = true,
   sourceChanged = false, malformedAfterSource = false, afterHealthIdentity = buildIdentity, reportScenarioID,
   reportedChecksOverride, officialTestStatus, officialTestOutcome, officialTestResultStatuses, officialTestResultRetries,
-  domainReportOverride, playwrightReportOverride, listedTestLine } = {}) {
+  domainReportOverride, playwrightReportOverride, listedTestLine, unrelatedTimingAssertion = false } = {}) {
   const commands = [];
   const playwrightArgs = [];
   const scenario = registry.find((entry) => entry.id === scenarioID);
-  const checks = scenarioCaseFor(scenario, caseName).requiredChecks;
+  const contract = scenarioCaseFor(scenario, caseName);
+  const checks = contract.requiredChecks;
   const title = 'Selected native case for ' + caseName;
   const spec = scenarioCaseFor(scenario, caseName).playwrightTest;
   const specFile = basename(spec);
   const testLine = listedTestLine ?? specFile + ':12:3 › Test suite › ' + title;
   const baseEnv = {
     LOOM_CDA_SOURCE_ROOT: rootDir,
-    LOOM_CDA_PROJECT: 'owned-project',
+    LOOM_CDA_PROJECT: contract.expectedIdentity?.project ?? 'owned-project',
     LOOM_CDA_API_ORIGIN: 'http://127.0.0.1:8188',
     LOOM_CDA_UI_ORIGIN: 'http://127.0.0.1:30008',
     LOOM_CDA_API_CONTAINER: 'owned-api',
@@ -228,6 +230,9 @@ function fakeRunner({ scenarioID, caseName, rootDir, browserExit = 0, browserRep
                 { name: 'full CDA quantity Pivot edit Apply to render', durationMs: 4456 },
               ],
             };
+          }
+          if (unrelatedTimingAssertion) {
+            assertions[0].evidence = { elapsedMs: 9001 };
           }
           const baseDomainReport = {
             schemaVersion: 2,
@@ -319,7 +324,7 @@ function fakeRunner({ scenarioID, caseName, rootDir, browserExit = 0, browserRep
     if (args[0] === 'scripts/capture-owned-verification.mjs') {
       const phase = option(args, '--phase');
       if (phase === 'after' && !afterCaptureWritesArtifacts) return { exitCode: afterCaptureExit || 1, stdoutText: '', stderrText: '' };
-      const target = makeTarget(rootDir);
+      const target = makeTarget(rootDir, contract.expectedIdentity);
       const outputNames = phase === 'before'
         ? [['--source-output', 'source'], ['--docs-output', 'docs'], ['--api-output', 'api'], ['--mount-output', 'mounts']]
         : [['--source-output', 'source'], ['--docs-output', 'docs'], ['--api-output', 'api'], ['--mount-output', 'mounts']];
@@ -339,12 +344,13 @@ function fakeRunner({ scenarioID, caseName, rootDir, browserExit = 0, browserRep
       };
       for (const [flag, name] of outputNames) {
         const outputPath = option(args, flag);
-        const key = phase === 'before' ? outputPath.includes('source-before') ? 'source'
-          : outputPath.includes('docs-before') ? 'docs'
-            : outputPath.includes('api-identity-before') ? 'api' : 'mounts'
-          : outputPath.includes('source-after') ? 'source'
-            : outputPath.includes('docs-after') ? 'docs'
-              : outputPath.includes('api-identity-after') ? 'api' : 'mounts';
+        const filename = basename(outputPath);
+        const key = phase === 'before' ? filename.includes('source-before') ? 'source'
+          : filename.includes('docs-before') ? 'docs'
+            : filename.includes('api-identity-before') ? 'api' : 'mounts'
+          : filename.includes('source-after') ? 'source'
+            : filename.includes('docs-after') ? 'docs'
+              : filename.includes('api-identity-after') ? 'api' : 'mounts';
         writeJson(outputPath, payloads[key]);
       }
       return { exitCode: phase === 'after' ? afterCaptureExit : 0, stdoutText: '', stderrText: '' };
@@ -395,7 +401,10 @@ test('official Playwright list must resolve exactly one test from the registered
 
 test('retained CDA report shape exposes its recorded render checkpoints', () => {
   const checks = retainedCda.report.requiredChecks;
-  const summary = summarizeRenderCheckpoints(retainedCda.report, checks);
+  const summary = summarizeRenderCheckpoints(retainedCda.report, {
+    performanceCheckNames: [retainedCda.report.assertions[0].name],
+    requiredCheckNames: checks,
+  });
 
   assert.equal(retainedCda.source.sha256,
     '025a3cb0c01fdaebe7f638ad141b674c66ded016446d966d0789089f82ee4cb2');
@@ -403,6 +412,69 @@ test('retained CDA report shape exposes its recorded render checkpoints', () => 
   assert.equal(summary.count, 14);
   assert.equal(summary.maximumDurationMs, 4456);
   assert.equal(summary.checkpoints.at(-1).evidencePath, 'assertions[].evidence.actions[].durationMs');
+});
+
+test('COUNT lifecycle summary derives declared dimensions from the retained qzzOck timings', async (t) => {
+  const parent = evidenceParent();
+  t.after(() => rmSync(parent, { recursive: true, force: true }));
+  const scenarioID = 'standalone-reshape-related-source-after-pivot';
+  const caseName = 'related-source-count-after-pivot';
+  const contract = scenarioCaseFor(scenarioID, caseName);
+  const assertions = contract.requiredChecks.map((name) => ({ name, status: 'passed' }));
+  assertions.find((assertion) => assertion.name === contract.lifecycleEvidence.performance.check).evidence = {
+    actionCount: retainedPostPivotCountTimings.actionCount,
+    measuredTransitionCount: retainedPostPivotCountTimings.cases.length,
+    maxActionMs: retainedPostPivotCountTimings.maxActionMs,
+    workflowCheckpoints: retainedPostPivotCountTimings.cases.map(({ name, elapsedMs }) => ({ name, durationMs: elapsedMs })),
+  };
+  const fake = fakeRunner({
+    scenarioID,
+    caseName,
+    rootDir: root,
+    browserReport: 'cda',
+    domainReportOverride: {
+      schemaVersion: 2,
+      scenario: scenarioID,
+      case: caseName,
+      status: 'passed',
+      target: { kind: 'owned-cda' },
+      dimensions: {
+        usability: { status: 'passed' },
+        correctness: { status: 'passed' },
+        persistence: { status: 'untested' },
+        performance: { status: 'untested' },
+      },
+      requiredChecks: contract.requiredChecks,
+      missingRequiredChecks: [],
+      assertions,
+      cases: retainedPostPivotCountTimings.cases,
+    },
+  });
+  const summary = await runNativeVerificationBracket({
+    scenarioID,
+    caseName,
+    grep: contract.playwrightGrep,
+    evidenceParent: parent,
+    root,
+    env: fake.env,
+    commandRunner: fake.commandRunner,
+  });
+
+  assert.equal(retainedPostPivotCountTimings.sourceReportSha256,
+    '5587cd186fbb00f1c8bd34470e9799522d8c7974c8faa6deb4603b6bd553b829');
+  assert.equal(retainedPostPivotCountTimings.sourceSummarySha256,
+    '19262bd541a31ae09a0134c9b02e04476ff8b04121edfde59253536deffb309c');
+  assert.equal(retainedPostPivotCountTimings.cases.length, 26);
+  assert.equal(summary.status, 'passed', JSON.stringify({ lifecycle: summary.lifecycle, integrity: summary.integrity, notes: summary.notes }, null, 2));
+  assert.equal(summary.lifecycle.dimensions.persistence, 'passed');
+  assert.equal(summary.lifecycle.dimensions.performance, 'passed');
+  assert.equal(summary.lifecycle.renderCheckpointCount, 26);
+  assert.equal(summary.lifecycle.maximumRenderCheckpointLatencyMs, 1417);
+  assert.deepEqual(summary.lifecycle.dimensionEvidence.persistence.checks.map(({ status }) => status),
+    ['passed', 'passed', 'passed', 'passed']);
+  assert.equal(summary.lifecycle.dimensionEvidence.performance.evidencePaths[0],
+    'assertions[].evidence.workflowCheckpoints[].durationMs');
+  assert.equal(JSON.parse(readFileSync(summary.evidence.summary, 'utf8')).lifecycle.renderCheckpointCount, 26);
 });
 
 test('Group-add-fields performance evidence contributes its complete lifecycle checkpoint list', () => {
@@ -416,7 +488,10 @@ test('Group-add-fields performance evidence contributes its complete lifecycle c
     }],
   };
   const checks = scenarioCaseFor('standalone-reshape-group-add-fields', 'group-add-fields').requiredChecks;
-  const summary = summarizeRenderCheckpoints(report, checks);
+  const summary = summarizeRenderCheckpoints(report, {
+    performanceCheckNames: [checkName],
+    requiredCheckNames: checks,
+  });
 
   assert.ok(checks.includes(checkName));
   assert.equal(summary.count, 20);
@@ -441,7 +516,10 @@ test('Group ONE timingCheckpoints contribute the declared action-to-render measu
       },
     }],
   };
-  const summary = summarizeRenderCheckpoints(report, [groupOnePerformanceCheckName]);
+  const summary = summarizeRenderCheckpoints(report, {
+    performanceCheckNames: [groupOnePerformanceCheckName],
+    requiredCheckNames: [groupOnePerformanceCheckName],
+  });
 
   assert.equal(summary.count, 14);
   assert.equal(summary.maximumDurationMs, 1323);
@@ -463,7 +541,10 @@ test('Related Unpivot workflowCheckpoints contribute their exact render measurem
       },
     }],
   };
-  const summary = summarizeRenderCheckpoints(report, [relatedUnpivotPerformanceCheckName]);
+  const summary = summarizeRenderCheckpoints(report, {
+    performanceCheckNames: [relatedUnpivotPerformanceCheckName],
+    requiredCheckNames: [relatedUnpivotPerformanceCheckName],
+  });
 
   assert.equal(summary.count, 31);
   assert.equal(summary.maximumDurationMs, 1624);
@@ -485,7 +566,10 @@ test('malformed or negative timingCheckpoints remain unverified', () => {
   for (const evidence of invalidEvidence) {
     const summary = summarizeRenderCheckpoints({
       assertions: [{ name: groupOnePerformanceCheckName, evidence }],
-    }, [groupOnePerformanceCheckName]);
+    }, {
+      performanceCheckNames: [groupOnePerformanceCheckName],
+      requiredCheckNames: [groupOnePerformanceCheckName],
+    });
     assert.equal(summary.count, 0);
     assert.equal(summary.maximumDurationMs, null);
     assert.deepEqual(summary.checkpoints, []);
@@ -507,7 +591,10 @@ test('missing or malformed checkpoint lists remain unverified', () => {
   ];
 
   for (const evidence of invalidEvidence) {
-    const summary = summarizeRenderCheckpoints({ assertions: [{ name: checkName, evidence }] }, checks);
+    const summary = summarizeRenderCheckpoints({ assertions: [{ name: checkName, evidence }] }, {
+      performanceCheckNames: [checkName],
+      requiredCheckNames: checks,
+    });
     assert.equal(summary.count, 0);
     assert.equal(summary.maximumDurationMs, null);
     assert.deepEqual(summary.checkpoints, []);
@@ -516,7 +603,10 @@ test('missing or malformed checkpoint lists remain unverified', () => {
 
 test('retained basic report shape exposes registered render timings without claiming lifecycle success', () => {
   const checks = scenarioCaseFor('builder-combine-draft', 'group-pivot-append').requiredChecks;
-  const summary = summarizeRenderCheckpoints(retainedBasic.report, checks);
+  const summary = summarizeRenderCheckpoints(retainedBasic.report, {
+    performanceCheckNames: retainedBasic.report.assertions.map(({ name }) => name),
+    requiredCheckNames: checks,
+  });
 
   assert.equal(retainedBasic.source.sha256,
     'a63584160a1aad33328c18498b7eca1b99da386bdd359527c1ce6f0895574192');
@@ -535,6 +625,7 @@ test('CDA report shape closes only when all registered lifecycle checks and the 
     caseName: 'full-population-lifecycle',
     rootDir: root,
     browserReport: 'cda',
+    unrelatedTimingAssertion: true,
   });
   const summary = await runNativeVerificationBracket({
     scenarioID: 'root-quantity-pivot',
@@ -553,8 +644,11 @@ test('CDA report shape closes only when all registered lifecycle checks and the 
   assert.deepEqual(fake.commands.slice(-2), ['captureAfter', 'healthAfter']);
   assert.equal(summary.commands.playwright.environmentOverrides.PLAYWRIGHT_JSON_OUTPUT_FILE,
     summary.evidence.playwrightReport);
-  assert.equal(summary.lifecycle.renderCheckpointCount, 2);
+  assert.equal(summary.lifecycle.renderCheckpointCount, 2, JSON.stringify(summary.lifecycle.renderCheckpoints, null, 2));
   assert.equal(summary.lifecycle.maximumRenderCheckpointLatencyMs, 4456);
+  assert.equal(summary.lifecycle.renderCheckpoints.some(({ checkName }) => checkName ===
+    scenarioCaseFor('root-quantity-pivot', 'full-population-lifecycle').requiredChecks[0]), false,
+  'Elapsed time on the required raw-oracle assertion is setup evidence, not a render checkpoint.');
   assert.equal(summary.lifecycle.maximumMeasuredActionLatencyMs, 842,
     'Top-level click action latency remains separate from nested render checkpoint latency.');
   assert.equal(summary.reviewPacket.maximumRenderCheckpointLatencyMs, 4456);

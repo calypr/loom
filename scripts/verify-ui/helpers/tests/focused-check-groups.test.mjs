@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { caseNamesFor, registry, scenarioCaseFor } from '../../registry.mjs';
 import { planFocusedCheckGroups } from '../focused-check-groups.mjs';
 
 const repoRoot = '/workspace/loom';
@@ -119,4 +120,17 @@ test('validates recorded implementation source paths without turning them into c
     command: ['node-test', 'scripts/safe.test.mjs'],
     sourceFiles: ['../outside.mjs'],
   }], repoRoot), /sourceFiles/);
+});
+
+test('every registered focused-check group is valid before its commands are scheduled', () => {
+  let checkedCases = 0;
+  for (const scenario of registry) {
+    for (const caseName of caseNamesFor(scenario)) {
+      const contract = scenarioCaseFor(scenario, caseName);
+      if (contract.focusedChecks === undefined) continue;
+      checkedCases += 1;
+      assert.doesNotThrow(() => planFocusedCheckGroups(contract.focusedChecks, repoRoot));
+    }
+  }
+  assert.ok(checkedCases > 0, 'the registry declares focused checks for validation');
 });
