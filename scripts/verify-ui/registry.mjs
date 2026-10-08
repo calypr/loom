@@ -1712,6 +1712,16 @@ export const registry = Object.freeze([
     cases: {
       'group-edit-before-related-column': {
         playwrightTest: 'scripts/verify-ui/specs/standalone-reshape.spec.mjs',
+        playwrightGrep: 'group-edit-before-related-column',
+        expectedIdentity: { project: 'loom_dev_cda_fhir', generation: 'cda-fhir-v1' },
+        focusedChecks: [
+          {
+            id: 'group-edit-server-explorer-id',
+            cwd: '.',
+            command: ['node-test', 'scripts/verify-ui/helpers/tests/created-explorer-scope.test.mjs'],
+            sourceFiles: ['scripts/verify-ui/helpers/created-explorer-scope.mjs'],
+          },
+        ],
         requiredChecks: [
           'bounded real CDA oracle selects exact Specimen→Patient→Observation status witness',
           'native Specimen→Patient and Patient→Observation choices preserve exact raw edges',
@@ -2081,6 +2091,35 @@ export const registry = Object.freeze([
     cases: {
       membership: {
         playwrightTest: 'scripts/verify-ui/specs/cda-current-draft-membership.spec.mjs',
+        playwrightGrep: 'native INCLUDE and EXCLUDE Membership use two exact grouped Observation ID populations',
+        expectedIdentity: { project: 'loom_dev_cda_fhir', generation: 'cda-fhir-v1' },
+        focusedChecks: [
+          {
+            id: 'membership-source-group',
+            cwd: 'ui/packages/loom-ui',
+            command: [
+              'vitest', 'run', '--config', 'vitest.config.ts',
+              'ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.unit.test.tsx',
+            ],
+            sourceFiles: [
+              'ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx',
+              'ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/constructionStages.ts',
+            ],
+          },
+          {
+            id: 'membership-source-stage-mapping',
+            cwd: 'ui/packages/loom-ui',
+            command: [
+              'vitest', 'run', '--config', 'vitest.config.ts',
+              'ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionOperationEditor.unit.test.tsx',
+              'ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/constructionStages.unit.test.ts',
+            ],
+            sourceFiles: [
+              'ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionOperationEditor.tsx',
+              'ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/constructionStages.ts',
+            ],
+          },
+        ],
         requiredChecks: [
           'bounded raw CDA oracle derives exact overlapping ID groups and independent INCLUDE/EXCLUDE rows',
           'fresh CDA Membership Explorer matches project, generation, snapshot, scope, and empty draft',

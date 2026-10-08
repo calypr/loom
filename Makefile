@@ -1,4 +1,4 @@
-.PHONY: build build-cli build-server clean compiler-bench dataframe-demo dataframe-profile dataframe-boundaries dataframe-test conformance generate generate-openapi generate-fhir generate-graphql graphql-check gqlgen-check openapi-check test dev-test docker-build docker-run acceptance-real acceptance-performance demo-up demo-down demo-smoke demo-browser-smoke repository-up release-ui dev dev-rebuild dev-doctor verify-current verify-fast verify-full verify-j01 verify-j02 verify-j03 verify-j04 verify-j04-patient verify-j05 dev-down
+.PHONY: build build-cli build-server clean compiler-bench dataframe-demo dataframe-profile dataframe-boundaries dataframe-test conformance generate generate-openapi generate-fhir generate-graphql graphql-check gqlgen-check openapi-check test dev-test docker-build docker-run acceptance-real acceptance-performance demo-up demo-down demo-smoke demo-browser-smoke repository-up release-ui dev dev-rebuild dev-doctor verify-current verify-fast verify-full verify-j01 verify-j02 verify-j03 verify-j04 verify-j04-patient verify-j05 verify-case verify-case-checks dev-down
 
 GO ?= go
 GO_VERSION ?= 1.26.5
@@ -165,6 +165,17 @@ verify-fast:
 
 verify-full:
 	npm --prefix scripts run test:browser -- verify-ui/specs/dev-journeys.spec.mjs --grep '@dev-journey:verify-full$$'
+
+# Run one registry-selected native case after its registered cheap prerequisites.
+verify-case:
+	@test -n "$(SCENARIO)" -a -n "$(CASE)" || { echo 'Usage: make verify-case SCENARIO=<id> CASE=<name> TARGET=<config-path> or TARGET_FROM_ENV=1'; exit 2; }
+	@test \( -n "$(TARGET)" -a -z "$(TARGET_FROM_ENV)" \) -o \( -z "$(TARGET)" -a "$(TARGET_FROM_ENV)" = 1 \) || { echo 'Choose exactly one of TARGET=<config-path> or TARGET_FROM_ENV=1'; exit 2; }
+	node scripts/run-native-verification-bracket.mjs --scenario "$(SCENARIO)" --case "$(CASE)" $(if $(TARGET),--target "$(TARGET)",--target-from-environment) $(if $(PLAYWRIGHT_GREP),--grep "$(PLAYWRIGHT_GREP)",)
+
+# Run only registry-selected focused prerequisites; browser-only cases return a visible non-pass.
+verify-case-checks:
+	@test -n "$(SCENARIO)" -a -n "$(CASE)" || { echo 'Usage: make verify-case-checks SCENARIO=<id> CASE=<name>'; exit 2; }
+	node scripts/run-native-verification-bracket.mjs --scenario "$(SCENARIO)" --case "$(CASE)" --checks-only
 
 verify-j01:
 	npm --prefix scripts run test:browser -- verify-ui/specs/dev-journeys.spec.mjs --grep '@dev-journey:verify-j01$$'

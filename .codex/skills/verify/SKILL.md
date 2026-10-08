@@ -39,6 +39,22 @@ Require physically distinct source files and preserve preimages for patch review
 A deployed checkout under `/tmp` is not an isolated stage. Follow `AGENTS.md`
 for team-lead integration after Sol accepts the final artifact.
 
+Before an isolated focused check, invoke the assigned-check guard from the owned
+worktree with its absolute `--expected-root` and the live checkout's absolute
+`--forbidden-root`, then pass only the check argv after `--`. For example:
+
+```bash
+node scripts/verify-ui/helpers/run-assigned-check.mjs \
+  --expected-root /private/tmp/owned-stage \
+  --forbidden-root /private/tmp/loom-construction-implementation \
+  -- node --test scripts/verify-ui/helpers/tests/native-verification-bracket.test.mjs
+```
+
+The guard checks the physical working directory, Git top-level, and test path;
+it permits only `node --check`, `node --test`, and `git diff --check`. It guards
+where the command runs, not direct file edits. Edit only absolute paths in the
+assigned worktree and set the command's working directory there.
+
 Retain per-file hashes, aggregate fingerprint, and API build identity before a
 browser run. Compare afterward and identify changed paths. Source mutation
 invalidates the run; its apparent UI failures are not reproduced product bugs.
@@ -113,33 +129,65 @@ oracle, lifecycle scope, and latency budget; do not weaken assertions.
 
 ### Verification bracket and compact handoff
 
-Keep run orchestration in repository code. The combined entrypoint must reuse
-the canonical precheck, capture, health, and native Playwright commands below;
-it must not introduce another browser driver or duplicate Docker checks.
-Select one registered case explicitly and validate its discovered selection and
-report identity. Use a fresh evidence directory outside watched source.
-Always attempt after-capture and health after a browser failure, compare source,
-docs, API identity and owned mounts, and report missing closure as unverified.
-Use the verified single-command bracket for a registered native browser case.
-Load the validated browser and capture environments first. If the browser loader
-unsets `LOOM_CDA_*`, load it before the capture loader. Keep both scopes available
-and use a fresh artifact directory outside watched source.
+Keep run orchestration in repository code. The selected-case command runs the
+registered focused prerequisites first, validates the explicit target against
+the selected case's independent registry identity, then reuses the canonical
+precheck, capture, health, and native Playwright commands. It must not introduce
+another browser driver or duplicate Docker checks. Focused checks use fixed
+command arrays from the registry and run before Docker/browser setup. They retain
+bounded stdout/stderr previews, input hashes, timings, and log links. Cases
+without focused prerequisites are reported as `browser-only`; do not imply that
+this fast layer covers every registered case.
+
+Known fast-gate gap: the registered Membership checks include the reshape editor
+unit file, but the current target version of that file does not yet include the
+backend-shaped `SOURCE_PROJECTION` regression. The held regression exercises a
+selected stage whose operation is explicitly `SOURCE_PROJECTION`; a green run of
+the current focused group does not prove that contract until this test change is
+promoted into the registered file.
+
+Run only registered fast prerequisites with `make verify-case-checks`. This mode
+does not load target configuration, Docker, or Playwright. A successful focused
+check is not a browser pass, and a browser-only case returns a visible non-pass
+because it has no focused prerequisite group.
+
+The normal command selects one scenario/case and a machine-local target config.
+The case's registered Playwright selection is used by default;
+`PLAYWRIGHT_GREP` can override it when a deliberate exact selection is needed. Use a fresh evidence
+directory outside watched source. After a browser failure, always attempt
+after-capture and health, compare source, docs, API identity and owned mounts,
+and report missing closure as unverified.
+
+Cases without an independent registry identity can use the explicit
+`TARGET_FROM_ENV=1` mode after loading the validated owned browser and capture
+environments. The summary labels this mode `environment-only` and
+`registry-unbound`; runtime identity remains `not-checked` until the selected
+case's own oracle validates it. Supply `PLAYWRIGHT_GREP` when the case has no
+registered default selection. This is a remaining metadata migration, not
+registry-bound target coverage for the full case inventory.
 
 ```bash
-node scripts/run-native-verification-bracket.mjs \
-  --scenario builder-combine-draft --case group-pivot-append \
-  --grep 'GROUP-to-PIVOT current-draft APPEND supports cancel, apply, edit, removal, and reload$' \
-  --evidence-parent /private/tmp/loom-verification-runs
+make verify-case \
+  SCENARIO=cda-current-draft-membership \
+  CASE=membership \
+  TARGET=.codex/owned-cda-target.json
 ```
 
-Replace the scenario, case, and exact test selection together for another
-registered workflow. The runner creates a fresh run directory, forces one worker
-and zero retries, validates exactly one discovered test, and writes `summary.json`.
-It runs the component commands above and below, including after-capture and health
-on browser failure. Do not run a second manual bracket around the same case.
-Accept a pass only when the summary reports a passed lifecycle and integrity,
-all registered checks pass, and the selected native test exits successfully.
-Read the linked domain report for correctness and consequential failure evidence.
+Run the prerequisite layer independently when diagnosing a known quick failure:
+
+```bash
+make verify-case-checks SCENARIO=cda-current-draft-membership CASE=membership
+```
+
+The runner creates a fresh run directory, forces one Playwright worker and zero
+retries, validates exactly one discovered test, and writes `summary.json`. It
+runs after-capture and health after browser failure. Do not run a second manual
+bracket around the same case. Accept a pass only when the summary reports a
+passed lifecycle and integrity, all registered checks pass, and the selected
+native test exits successfully. Read the linked domain report for correctness
+and consequential failure evidence. Target config validation checks the
+configuration identity only; the case's bounded oracle still verifies active
+data project, generation, and source scope before lifecycle actions.
 
 The first live proof passed the Group-to-Pivot Append lifecycle at source commit
 `d120b68c7bf172ef2a0979052802f7108158363b`: 31/31 required checks, no retries,

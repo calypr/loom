@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { createWriteStream, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
 import { finished } from 'node:stream/promises';
@@ -11,6 +12,7 @@ import { registry, scenarioCaseFor } from './verify-ui/registry.mjs';
 import { assertCapturedTargetMatches, parseCapturedBuildIdentity } from './verify-ui/helpers/owned-stack-health.mjs';
 import { sourceFingerprintChangedPaths } from './verify-ui/helpers/source-fingerprint.mjs';
 import { classifyEvidence } from './verify-ui/helpers/coverage-status.mjs';
+import { planFocusedCheckGroups } from './verify-ui/helpers/focused-check-groups.mjs';
 
 const repositoryRoot = realpathSync(resolve(dirname(fileURLToPath(import.meta.url)), '..'));
 const requiredCaptureEnvironment = [
@@ -23,13 +25,23 @@ const requiredCaptureEnvironment = [
   'LOOM_CDA_ARANGO_CONTAINER',
   'LOOM_CDA_CLICKHOUSE_CONTAINER',
 ];
+const FOCUSED_CHECK_TIMEOUT_MS = 60_000;
+const PREPARATION_STAGE_TIMEOUT_MS = 90_000;
+const BROWSER_STAGE_TIMEOUT_MS = 15 * 60_000;
+const FOCUSED_CHECK_OUTPUT_PREVIEW_BYTES = 8 * 1024;
+const MAX_FOCUSED_CHECK_GROUPS = 2;
+const lifecycleDimensionNames = ['usability', 'correctness', 'persistence', 'performance'];
 
 const usage = [
   'Usage:',
-  '  node scripts/run-native-verification-bracket.mjs --scenario <id> --case <name> --grep <native-test-regex>',
+  '  node scripts/run-native-verification-bracket.mjs --scenario <id> --case <name> --target <config-path> [--grep <native-test-regex>]',
+  '  node scripts/run-native-verification-bracket.mjs --scenario <id> --case <name> --target-from-environment --grep <native-test-regex>',
+  '  node scripts/run-native-verification-bracket.mjs --scenario <id> --case <name> --checks-only',
   '',
-  'Load the validated owned LOOM_CDA_* environment before running. The wrapper',
-  'requires the official Playwright --list result to select exactly one test.',
+  'Use --target for cases with a registered identity. --target-from-environment is',
+  'explicitly registry-unbound and relies on the selected case to validate scope.',
+  'Registered focused checks run before the native bracket; checks-only runs them',
+  'without Docker or Playwright.',
 ].join('\n');
 
 function isWithin(parent, candidate) {
@@ -69,39 +81,108 @@ function retainPreview(chunks, state, chunk, limit = 1024 * 1024) {
   state.bytes += retained.length;
 }
 
-async function runProcess(command, args, { cwd, env, stdoutPath, stderrPath }) {
+function signalOwnedProcessTree(child, signal) {
+  if (process.platform !== 'win32' && Number.isInteger(child?.pid) && child.pid > 0) {
+    try {
+      process.kill(-child.pid, signal);
+      return;
+    } catch {
+      // If a process group is already gone or unavailable, fall back to the owned child.
+    }
+  }
+  try { child?.kill(signal); } catch { /* The child may have exited between timeout and signal. */ }
+}
+
+function ownedProcessGroupExists(child) {
+  if (process.platform === 'win32' || !Number.isInteger(child?.pid) || child.pid <= 0) return false;
+  try {
+    process.kill(-child.pid, 0);
+    return true;
+  } catch (error) {
+    return error?.code === 'EPERM';
+  }
+}
+
+export async function runProcess(command, args, {
+  cwd, env, stdoutPath, stderrPath, timeoutMs = PREPARATION_STAGE_TIMEOUT_MS,
+  outputPreviewLimit = 1024 * 1024,
+}) {
   mkdirSync(dirname(stdoutPath), { recursive: true, mode: 0o700 });
   const stdoutFile = createWriteStream(stdoutPath, { flags: 'wx', mode: 0o600 });
   const stderrFile = createWriteStream(stderrPath, { flags: 'wx', mode: 0o600 });
   const stdoutChunks = [];
   const stderrChunks = [];
-  const stdoutState = { bytes: 0 };
-  const stderrState = { bytes: 0 };
+  const stdoutState = { bytes: 0, totalBytes: 0 };
+  const stderrState = { bytes: 0, totalBytes: 0 };
   const started = performance.now();
   let child;
+  let timedOut = false;
+  let timeoutHandle;
+  let killHandle;
+  let killEscalation;
+  let finishKillEscalation;
   try {
-    child = spawn(command, args, { cwd, env, stdio: ['ignore', 'pipe', 'pipe'] });
+    child = spawn(command, args, {
+      cwd,
+      env,
+      detached: process.platform !== 'win32',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
   } catch (error) {
     stdoutFile.end();
     stderrFile.end();
     await Promise.allSettled([finished(stdoutFile), finished(stderrFile)]);
-    return { exitCode: null, durationMs: performance.now() - started, error: String(error?.message ?? error), stdoutText: '', stderrText: '' };
+    return { exitCode: null, durationMs: performance.now() - started, error: String(error?.message ?? error), stdoutText: '', stderrText: '', timedOut: false };
   }
 
   child.stdout.pipe(stdoutFile);
   child.stderr.pipe(stderrFile);
-  child.stdout.on('data', (chunk) => retainPreview(stdoutChunks, stdoutState, chunk));
-  child.stderr.on('data', (chunk) => retainPreview(stderrChunks, stderrState, chunk));
-  const closed = await new Promise((resolveClose) => {
-    child.once('error', (error) => resolveClose({ exitCode: null, error: String(error?.message ?? error) }));
-    child.once('close', (code, signal) => resolveClose({ exitCode: code, signal }));
+  child.stdout.on('data', (chunk) => {
+    stdoutState.totalBytes += Buffer.byteLength(chunk);
+    retainPreview(stdoutChunks, stdoutState, chunk, outputPreviewLimit);
   });
+  child.stderr.on('data', (chunk) => {
+    stderrState.totalBytes += Buffer.byteLength(chunk);
+    retainPreview(stderrChunks, stderrState, chunk, outputPreviewLimit);
+  });
+  const closed = await new Promise((resolveClose) => {
+    let spawnError = null;
+    child.once('error', (error) => { spawnError = String(error?.message ?? error); });
+    child.once('close', (code, signal) => resolveClose({
+      exitCode: spawnError ? null : code,
+      signal,
+      ...(spawnError ? { error: spawnError } : {}),
+    }));
+    if (Number.isFinite(timeoutMs) && timeoutMs > 0) {
+      timeoutHandle = setTimeout(() => {
+        timedOut = true;
+        signalOwnedProcessTree(child, 'SIGTERM');
+        killEscalation = new Promise((resolveKill) => { finishKillEscalation = resolveKill; });
+        killHandle = setTimeout(() => {
+          signalOwnedProcessTree(child, 'SIGKILL');
+          finishKillEscalation?.();
+        }, 1000);
+      }, timeoutMs);
+    }
+  });
+  clearTimeout(timeoutHandle);
+  if (killHandle) {
+    if (ownedProcessGroupExists(child)) await killEscalation;
+    else {
+      clearTimeout(killHandle);
+      finishKillEscalation?.();
+    }
+  }
+  clearTimeout(killHandle);
   await Promise.allSettled([finished(stdoutFile), finished(stderrFile)]);
   return {
     ...closed,
     durationMs: performance.now() - started,
     stdoutText: Buffer.concat(stdoutChunks).toString('utf8'),
     stderrText: Buffer.concat(stderrChunks).toString('utf8'),
+    stdoutTruncated: stdoutState.totalBytes > outputPreviewLimit,
+    stderrTruncated: stderrState.totalBytes > outputPreviewLimit,
+    timedOut,
   };
 }
 
@@ -152,7 +233,10 @@ function parseCli(argv) {
     options: {
       scenario: { type: 'string' },
       case: { type: 'string' },
+      target: { type: 'string' },
+      'target-from-environment': { type: 'boolean' },
       grep: { type: 'string' },
+      'checks-only': { type: 'boolean' },
       'evidence-parent': { type: 'string' },
       help: { type: 'boolean', short: 'h' },
     },
@@ -162,17 +246,78 @@ function parseCli(argv) {
   if (parsed.values.help) return { help: true };
   assert(parsed.values.scenario?.trim(), 'Provide --scenario.');
   assert(parsed.values.case?.trim(), 'Provide --case.');
-  assert(parsed.values.grep?.trim(), 'Provide an explicit --grep native-test regex.');
+  const checksOnly = parsed.values['checks-only'] === true;
+  const targetPath = parsed.values.target?.trim();
+  const targetFromEnvironment = parsed.values['target-from-environment'] === true;
+  if (checksOnly) {
+    assert(!targetPath && !targetFromEnvironment, '--checks-only does not accept target options.');
+  } else {
+    assert(Boolean(targetPath) !== targetFromEnvironment,
+      'Choose exactly one of --target <config-path> or --target-from-environment.');
+  }
   return {
     scenarioID: parsed.values.scenario.trim(),
     caseName: parsed.values.case.trim(),
-    grep: parsed.values.grep,
+    targetPath,
+    targetFromEnvironment,
+    grep: parsed.values.grep?.trim() || undefined,
+    checksOnly,
     evidenceParent: parsed.values['evidence-parent'],
   };
 }
 
 function readJson(path) {
   return JSON.parse(readFileSync(path, 'utf8'));
+}
+
+function focusedFilesForGroup(group) {
+  const testFiles = group.command[0] === 'node-test' ? group.command.slice(1) : group.command.slice(4);
+  return [...testFiles, ...(group.sourceFiles ?? [])];
+}
+
+function sha256File(path) {
+  if (!existsSync(path) || !statSync(path).isFile()) return null;
+  return createHash('sha256').update(readFileSync(path)).digest('hex');
+}
+
+function boundedText(value, limit = 4000) {
+  const text = String(value ?? '').replace(/\u0000/g, '\\0');
+  return text.length > limit ? text.slice(0, limit) + '\n[truncated]' : text;
+}
+
+function focusedPlansForContract(contract, root) {
+  const groups = Array.isArray(contract.focusedChecks) ? contract.focusedChecks : [];
+  assert(groups.length <= MAX_FOCUSED_CHECK_GROUPS,
+    'Registered focused check groups exceed the runner limit of ' + MAX_FOCUSED_CHECK_GROUPS + '.');
+  const plans = planFocusedCheckGroups(groups, root);
+  return plans.map((plan, index) => {
+    const files = focusedFilesForGroup(groups[index]);
+    const inputs = files.map((file) => {
+      const absolute = resolve(root, file);
+      assert(isWithin(root, absolute), 'Focused check input must remain inside the repository: ' + file);
+      assert(existsSync(absolute) && statSync(absolute).isFile(), 'Focused check input is missing: ' + file);
+      return { path: file, sha256: sha256File(absolute) };
+    });
+    const declaredInputsHash = createHash('sha256').update(JSON.stringify(inputs)).digest('hex');
+    return { ...plan, inputs, declaredInputsHash };
+  });
+}
+
+function focusedCheckFailureReason(group) {
+  if (group.timedOut) return 'Focused check ' + group.id + ' timed out after ' + group.timeoutMs + 'ms.';
+  const lines = [group.stderrPreview, group.stdoutPreview]
+    .filter(Boolean)
+    .join('\n')
+    .split(/\r?\n/)
+    .filter((line) => line.trim());
+  const failureLine = lines.find((line) => /^\s*FAIL\s+\S+.*\s>\s/.test(line))
+    ?? lines.find((line) => /^\s*not ok\s+\d+\s*-/.test(line))
+    ?? lines.find((line) => /\b(?:AssertionError|Error:|Expected:|Received:)\b/i.test(line))
+    ?? lines.find((line) => /\b(?:FAIL|FAILED)\b/i.test(line));
+  const firstLine = failureLine ?? lines[0];
+  return firstLine
+    ? 'Focused check ' + group.id + ' exited ' + (group.exitCode ?? 'unknown') + ': ' + diagnosticLine(firstLine)
+    : 'Focused check ' + group.id + ' exited ' + (group.exitCode ?? 'unknown') + '.';
 }
 
 function collectSpecs(suites, result = []) {
@@ -207,6 +352,17 @@ function testPassed(test) {
   if (results.length !== 1) return false;
   if (results[0]?.status !== 'passed' || results[0]?.retry !== 0) return false;
   return identities.includes('expected') || results.length === 1;
+}
+
+function compactDimensions(dimensions) {
+  const compact = {};
+  for (const name of lifecycleDimensionNames) {
+    const value = dimensions?.[name];
+    compact[name] = value && typeof value === 'object' && !Array.isArray(value)
+      ? value.status ?? 'unknown'
+      : value ?? 'unknown';
+  }
+  return compact;
 }
 
 function attachmentReports(selectionRecord, playwrightReportPath, root) {
@@ -394,6 +550,29 @@ function summarizeFirstFailureReason(report, workflowFailure) {
   return null;
 }
 
+function summarizeFailureContext(report) {
+  const context = report?.failureEvidence?.locator?.context;
+  if (!context || typeof context !== 'object' || Array.isArray(context)) return null;
+  const containers = (Array.isArray(context.containers) ? context.containers : [])
+    .slice(0, 3)
+    .map((container) => ({
+      ...(diagnosticLine(container?.kind) ? { kind: diagnosticLine(container.kind) } : {}),
+      ...(diagnosticLine(container?.text) ? { text: diagnosticLine(container.text) } : {}),
+    }))
+    .filter((container) => Object.keys(container).length);
+  const alerts = (Array.isArray(context.alerts) ? context.alerts : [])
+    .slice(0, 3)
+    .map(diagnosticLine)
+    .filter(Boolean);
+  const state = diagnosticLine(context.state);
+  if (!state && containers.length === 0 && alerts.length === 0) return null;
+  return {
+    ...(state ? { state } : {}),
+    containers,
+    alerts,
+  };
+}
+
 export function summarizeRenderCheckpoints(report, registeredChecks) {
   const registered = new Set(Array.isArray(registeredChecks) ? registeredChecks : []);
   const checkpoints = [];
@@ -484,7 +663,7 @@ function summarizeLifecycle(report, expectedScenarioID, expectedCaseName) {
     missingCheckNames: missingNames,
     requiredCheckListMatchesRegistry: exactCheckList,
     missingRequiredCheckCount: missingReported?.length ?? null,
-    dimensions: report.dimensions ?? null,
+    dimensions: compactDimensions(report.dimensions),
     actionCount: Array.isArray(report.actions) ? report.actions.length : null,
     maximumMeasuredActionLatencyMs: actionDurations.length ? Math.max(...actionDurations) : null,
     renderCheckpointCount: renderCheckpoints.count,
@@ -636,6 +815,7 @@ function loadJsonIfPresent(path) {
 }
 
 function stageSuccess(stage, name) {
+  if (stage?.timedOut) throw new Error(name + ' stage timed out after ' + stage.timeoutMs + 'ms.');
   if (!stage || stage.exitCode !== 0) throw new Error(name + ' stage did not exit successfully (exit=' + (stage?.exitCode ?? 'unknown') + ').');
 }
 
@@ -662,6 +842,9 @@ export async function runNativeVerificationBracket({
   scenarioID,
   caseName,
   grep,
+  targetPath,
+  checksOnly = false,
+  targetValidation = null,
   evidenceParent,
   root = repositoryRoot,
   env = process.env,
@@ -669,15 +852,18 @@ export async function runNativeVerificationBracket({
 } = {}) {
   assert(typeof scenarioID === 'string' && scenarioID.trim(), 'Provide --scenario.');
   assert(typeof caseName === 'string' && caseName.trim(), 'Provide --case.');
-  assert(typeof grep === 'string' && grep.trim(), 'Provide an explicit --grep native-test regex.');
   const canonicalRoot = realpathSync(resolve(root));
   const scenario = registry.find((candidate) => candidate.id === scenarioID);
   assert(scenario, 'Unknown registered scenario: ' + scenarioID);
   const contract = scenarioCaseFor(scenario, caseName);
+  const focusedPlans = focusedPlansForContract(contract, canonicalRoot);
   const specPath = contract.playwrightTest;
   const specAbsolute = resolve(canonicalRoot, specPath);
   assert(isWithin(canonicalRoot, specAbsolute), 'Registered Playwright spec must be inside the repository root.');
   assert(existsSync(specAbsolute), 'Registered Playwright spec is missing: ' + specPath);
+  const resolvedGrep = typeof grep === 'string' && grep.trim() ? grep.trim() : contract.playwrightGrep;
+  if (!checksOnly) assert(typeof resolvedGrep === 'string' && resolvedGrep.trim(),
+    'Case has no registered default Playwright selection; provide --grep.');
 
   const runDirectory = createEvidenceDirectory(canonicalRoot, evidenceParent, scenarioID, caseName);
   const paths = expectedCommandPaths(runDirectory);
@@ -690,7 +876,15 @@ export async function runNativeVerificationBracket({
     scenario: scenarioID,
     case: caseName,
     nativeSpec: specPath,
-    explicitGrep: grep,
+    explicitGrep: grep ?? null,
+    resolvedGrep: resolvedGrep ?? null,
+    mode: checksOnly ? 'checks-only' : 'browser',
+    targetIdentity: contract.expectedIdentity ?? null,
+    targetConfigPath: targetPath ?? null,
+    targetValidation: targetValidation ?? (checksOnly ? null : {
+      scope: 'environment-only',
+      runtimeDatasetIdentity: 'not-checked',
+    }),
     runDirectory,
     commands: {},
     evidence: {
@@ -710,6 +904,8 @@ export async function runNativeVerificationBracket({
       healthAfter: paths.healthAfter,
     },
     selection: null,
+    focusedCheckCoverage: focusedPlans.length ? 'registered' : 'browser-only',
+    focusedChecks: { status: focusedPlans.length ? 'pending' : 'browser-only', groups: [] },
     integrity: { status: 'UNVERIFIED', dimensions: {} },
     lifecycle: { status: 'unverified', reason: 'Browser case has not produced a domain report.' },
     failureCategory: null,
@@ -728,18 +924,21 @@ export async function runNativeVerificationBracket({
   let browserStage = null;
   let domainReportPath = null;
   let workflowFailure = null;
-  const baseEnv = { ...env };
-  const exec = async (name, args, overrides = {}) => {
+  let baseEnv = { ...env };
+  const exec = async (name, args, overrides = {}, { cwd = canonicalRoot, timeoutMs = PREPARATION_STAGE_TIMEOUT_MS,
+    outputPreviewLimit = 1024 * 1024 } = {}) => {
     const stdoutPath = join(logsDirectory, name + '.stdout.log');
     const stderrPath = join(logsDirectory, name + '.stderr.log');
     const runStarted = performance.now();
     let result;
     try {
       result = await commandRunner(process.execPath, args, {
-        cwd: canonicalRoot,
+        cwd,
         env: { ...baseEnv, ...overrides },
         stdoutPath,
         stderrPath,
+        timeoutMs,
+        outputPreviewLimit,
       });
     } catch (error) {
       result = { exitCode: null, error: String(error?.message ?? error) };
@@ -748,16 +947,28 @@ export async function runNativeVerificationBracket({
     const stage = {
       executable: process.execPath,
       arguments: args,
+      cwd,
+      timeoutMs,
       ...(Object.keys(overrides).length ? { environmentOverrides: overrides } : {}),
       exitCode: Number.isInteger(result?.exitCode) ? result.exitCode : null,
       ...(result?.signal ? { signal: result.signal } : {}),
+      ...(result?.timedOut ? { timedOut: true } : {}),
+      ...(result?.stdoutTruncated ? { stdoutTruncated: true } : {}),
+      ...(result?.stderrTruncated ? { stderrTruncated: true } : {}),
       durationMs: Math.round(Number.isFinite(result?.durationMs) ? result.durationMs : performance.now() - runStarted),
       stdoutPath,
       stderrPath,
       ...(result?.error ? { spawnError: String(result.error).slice(0, 400) } : {}),
     };
     summary.commands[name] = stage;
-    return { ...result, exitCode: stage.exitCode, stdoutText: String(result?.stdoutText ?? result?.stdout ?? ''), stderrText: String(result?.stderrText ?? result?.stderr ?? '') };
+    return {
+      ...result,
+      exitCode: stage.exitCode,
+      timeoutMs: stage.timeoutMs,
+      timedOut: Boolean(stage.timedOut),
+      stdoutText: String(result?.stdoutText ?? result?.stdout ?? ''),
+      stderrText: String(result?.stderrText ?? result?.stderr ?? ''),
+    };
   };
   const captureArgs = (phase) => [
     'scripts/capture-owned-verification.mjs', '--phase', phase,
@@ -787,6 +998,80 @@ export async function runNativeVerificationBracket({
     if (healthStage?.exitCode !== 0) summary.notes.push('After health did not exit successfully.');
   };
 
+  const writeEarlySummary = (status, failureCategory, firstFailureReason = null) => {
+    summary.status = status;
+    summary.failureCategory = failureCategory;
+    summary.finishedAt = new Date().toISOString();
+    summary.durationMs = Math.round(performance.now() - started);
+    summary.workflowError = firstFailureReason;
+    summary.reviewPacket = {
+      status,
+      scenario: scenarioID,
+      case: caseName,
+      focusedCheckCoverage: summary.focusedCheckCoverage,
+      focusedChecks: summary.focusedChecks,
+      firstFailureReason,
+      pendingOwnedRequests: [],
+      report: null,
+      playwrightJson: null,
+      summary: summary.evidence.summary,
+    };
+    writeFileSync(summary.evidence.summary, JSON.stringify(summary, null, 2) + '\n', { mode: 0o600 });
+    return summary;
+  };
+
+  if (focusedPlans.length) {
+    const focusedResults = await Promise.all(focusedPlans.map(async (plan) => {
+      const stageName = 'focused-' + plan.id;
+      const result = await exec(stageName, plan.args, {}, {
+        cwd: plan.cwd,
+        timeoutMs: FOCUSED_CHECK_TIMEOUT_MS,
+        outputPreviewLimit: FOCUSED_CHECK_OUTPUT_PREVIEW_BYTES,
+      });
+      const stage = summary.commands[stageName];
+      const stdoutPreview = boundedText(result.stdoutText, 3000);
+      const stderrPreview = boundedText(result.stderrText, 3000);
+      const inputsUnchanged = plan.inputs.every((input) => sha256File(resolve(canonicalRoot, input.path)) === input.sha256);
+      const passed = stage.exitCode === 0 && !stage.timedOut && inputsUnchanged;
+      return {
+        id: plan.id,
+        runner: plan.runner,
+        status: passed ? 'passed' : 'failed',
+        exitCode: stage.exitCode,
+        durationMs: stage.durationMs,
+        timeoutMs: stage.timeoutMs,
+        timedOut: stage.timedOut ?? false,
+        declaredInputsHash: plan.declaredInputsHash,
+        inputs: plan.inputs,
+        inputsUnchanged,
+        evidence: { stdout: stage.stdoutPath, stderr: stage.stderrPath },
+        ...(!passed && stdoutPreview ? { stdoutPreview } : {}),
+        ...(!passed && stderrPreview ? { stderrPreview } : {}),
+      };
+    }));
+    summary.focusedChecks = {
+      status: focusedResults.every((result) => result.status === 'passed') ? 'passed' : 'failed',
+      groups: focusedResults,
+    };
+  }
+
+  const failedFocusedCheck = summary.focusedChecks.groups.find((group) => group.status === 'failed');
+  if (failedFocusedCheck) {
+    const reason = !failedFocusedCheck.inputsUnchanged
+      ? 'Focused check inputs changed while the group was running: ' + failedFocusedCheck.id + '.'
+      : focusedCheckFailureReason(failedFocusedCheck);
+    summary.notes.push(reason);
+    return writeEarlySummary('failed', 'focused-check', reason);
+  }
+  if (checksOnly) {
+    if (!focusedPlans.length) {
+      const reason = 'This registered case is browser-only; it has no focused prerequisite group.';
+      summary.notes.push(reason);
+      return writeEarlySummary('browser-only', 'no-focused-checks', reason);
+    }
+    return writeEarlySummary('checks-passed', null);
+  }
+
   try {
     const sourceRootEnv = env.LOOM_CDA_SOURCE_ROOT;
     assert(sourceRootEnv?.trim(), 'Set LOOM_CDA_SOURCE_ROOT in the validated owned environment.');
@@ -801,7 +1086,7 @@ export async function runNativeVerificationBracket({
       'scripts/node_modules/@playwright/test/cli.js',
       'test', '--config', 'scripts/playwright.config.mjs',
       '--workers', '1', '--retries', '0',
-      specPath, '--grep', grep, '--list',
+      specPath, '--grep', resolvedGrep, '--list',
     ];
     const selectionStage = await exec('selectionList', selectionArgs);
     stageSuccess(selectionStage, 'Official Playwright --list');
@@ -844,8 +1129,8 @@ export async function runNativeVerificationBracket({
       'test', '--config', 'scripts/playwright.config.mjs',
       '--workers', '1', '--retries', '0',
       '--output', paths.playwrightOutputPath, '--reporter=json',
-      specPath, '--grep', grep,
-    ], { PLAYWRIGHT_JSON_OUTPUT_FILE: playwrightEnvPath });
+      specPath, '--grep', resolvedGrep,
+    ], { PLAYWRIGHT_JSON_OUTPUT_FILE: playwrightEnvPath }, { timeoutMs: BROWSER_STAGE_TIMEOUT_MS });
     if (browserStage.exitCode !== 0) {
       summary.failureCategory = 'browser';
       summary.notes.push('Official Playwright test exited with code ' + (browserStage.exitCode ?? 'unknown') + '.');
@@ -948,6 +1233,7 @@ export async function runNativeVerificationBracket({
     lifecycleStatus: summary.lifecycle.status,
     integrityStatus: summary.integrity.status,
     firstFailureReason: summarizeFirstFailureReason(domainReportData, workflowFailure),
+    failureContext: summarizeFailureContext(domainReportData),
     failedAction,
     lastCompletedAction: summarizeLastCompletedAction(domainReportData),
     pendingOwnedRequests: summarizePendingOwnedRequests(domainReportData, scenario),
@@ -966,11 +1252,56 @@ export async function runNativeVerificationBracket({
   return summary;
 }
 
-export async function main(argv, { runBracket = runNativeVerificationBracket, write = console.log } = {}) {
+export async function main(argv, {
+  runBracket = runNativeVerificationBracket,
+  write = console.log,
+  env = process.env,
+  targetLoader = async (input) => {
+    const { loadOwnedCdaTargetConfig } = await import('./verify-ui/helpers/owned-cda-target-config.mjs');
+    return loadOwnedCdaTargetConfig(input);
+  },
+} = {}) {
   const options = parseCli(argv);
   if (options.help) {
-    console.log(usage);
+    write(usage);
     return 0;
+  }
+  if (!options.checksOnly) {
+    const scenario = registry.find((candidate) => candidate.id === options.scenarioID);
+    assert(scenario, 'Unknown registered scenario: ' + options.scenarioID);
+    const contract = scenarioCaseFor(scenario, options.caseName);
+    if (options.targetPath) {
+      assert(contract.expectedIdentity,
+        'This case has no registered target identity. Use --target-from-environment only when its case oracle validates scope.');
+      const loadedTarget = await targetLoader({
+        targetPath: options.targetPath,
+        repositoryRoot,
+        env,
+        expectedIdentity: contract.expectedIdentity,
+      });
+      options.env = { ...env, ...loadedTarget.environment };
+      options.targetValidation = {
+        scope: loadedTarget.validationScope ?? 'configuration-only',
+        registryBinding: 'bound',
+        runtimeDatasetIdentity: loadedTarget.runtimeDatasetIdentity ?? 'not-checked',
+        configPath: loadedTarget.configPath ?? options.targetPath,
+        project: loadedTarget.target?.project ?? contract.expectedIdentity.project,
+        generation: loadedTarget.target?.generation ?? contract.expectedIdentity.generation,
+      };
+    } else {
+      assert(options.targetFromEnvironment, 'Choose an explicit target mode.');
+      assert(!contract.expectedIdentity,
+        'This case has a registered target identity and must use --target <config-path>.');
+      options.env = { ...env };
+      options.targetValidation = {
+        scope: 'environment-only',
+        registryBinding: 'unbound',
+        runtimeDatasetIdentity: 'not-checked',
+        configPath: null,
+        project: null,
+        generation: null,
+      };
+    }
   }
   const summary = await runBracket(options);
   write(JSON.stringify({
@@ -981,13 +1312,18 @@ export async function main(argv, { runBracket = runNativeVerificationBracket, wr
     runDirectory: summary.runDirectory,
     summary: summary.evidence.summary,
     report: summary.evidence.domainReport,
-    integrity: summary.integrity.status,
+    integrity: summary.integrity?.status ?? 'NOT_RUN',
+    targetValidation: summary.targetValidation,
+    focusedCheckCoverage: summary.focusedCheckCoverage,
+    focusedChecks: summary.focusedChecks,
+    failureCategory: summary.failureCategory,
     firstFailureReason: summary.reviewPacket.firstFailureReason,
+    failureContext: summary.reviewPacket.failureContext,
     failedAction: summary.reviewPacket.failedAction,
     lastCompletedAction: summary.reviewPacket.lastCompletedAction,
     pendingOwnedRequests: summary.reviewPacket.pendingOwnedRequests,
   }, null, 2));
-  return summary.status === 'passed' ? 0 : 1;
+  return summary.status === 'passed' || summary.status === 'checks-passed' ? 0 : 1;
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

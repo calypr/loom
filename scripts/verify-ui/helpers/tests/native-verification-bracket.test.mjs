@@ -9,6 +9,7 @@ import {
   runNativeVerificationBracket,
   parseOfficialPlaywrightList,
   summarizeRenderCheckpoints,
+  runProcess,
   main,
 } from '../../../run-native-verification-bracket.mjs';
 
@@ -105,7 +106,8 @@ function fakeRunner({ scenarioID, caseName, rootDir, browserExit = 0, browserRep
           const assertions = browserReport === 'failed'
             ? checks.map((name, index) => ({ name, status: index === 0 ? 'failed' : 'passed' }))
             : checks.map((name) => ({ name, status: 'passed' }));
-          const renderAssertion = assertions.find((assertion) => assertion.name === 'all full-population native lifecycle actions complete within five seconds each');
+          const renderAssertion = assertions.find((assertion) =>
+            /full-population/i.test(assertion.name) && /action-to-render|within five seconds|within budget/i.test(assertion.name));
           if (renderAssertion) {
             renderAssertion.evidence = {
               actions: [
@@ -274,8 +276,8 @@ test('official Playwright list must resolve exactly one test from the registered
   ).exact, false);
 });
 
-test('retained CDA report shape exposes the registered render checkpoints', () => {
-  const checks = scenarioCaseFor('root-quantity-pivot', 'full-population-lifecycle').requiredChecks;
+test('retained CDA report shape exposes its recorded render checkpoints', () => {
+  const checks = retainedCda.report.requiredChecks;
   const summary = summarizeRenderCheckpoints(retainedCda.report, checks);
 
   assert.equal(retainedCda.source.sha256,
@@ -705,8 +707,17 @@ test('wave152 timeout appears in the review packet and CLI with the last action 
   const exitCode = await main([
     '--scenario', scenarioID,
     '--case', caseName,
+    '--target-from-environment',
     '--grep', 'wave152 retained failure',
   ], {
+    env: fake.env,
+    targetLoader: async () => ({
+      environment: fake.env,
+      target: makeTarget(root),
+      configPath: '/tmp/test-owned-cda-target.json',
+      validationScope: 'configuration-only',
+      runtimeDatasetIdentity: 'not-checked',
+    }),
     runBracket: async (options) => {
       runSummary = await runNativeVerificationBracket({
         ...options,
@@ -737,6 +748,8 @@ test('wave152 timeout appears in the review packet and CLI with the last action 
   const printed = JSON.parse(cliOutput[0]);
   assert.equal(printed.status, 'failed');
   assert.equal(printed.integrity, 'PASS');
+  assert.equal(printed.targetValidation.registryBinding, 'unbound');
+  assert.equal(printed.targetValidation.runtimeDatasetIdentity, 'not-checked');
   assert.equal(printed.firstFailureReason, 'Timeout 5000ms exceeded.');
   assert.equal(printed.failedAction, null);
   assert.deepEqual(printed.lastCompletedAction, { label: 'Select SUM', status: 'passed' });
@@ -888,6 +901,13 @@ test('review diagnostics do not expose paths, bodies, tokens, auth, or query val
   const report = structuredClone(wave152Failure);
   report.failureEvidence.reason = 'Error: token=TOKEN_SENTINEL query=QUERY_SENTINEL body=BODY_SENTINEL authorization=AUTH_SENTINEL path=/private/secret/file at $CHECKOUT/scripts/private.mjs';
   report.failureEvidence.action = { label: 'Choose source:cc2.SENSITIVE_TOKEN_VALUE', status: 'failed' };
+  report.failureEvidence.locator = {
+    context: {
+      state: 'visible',
+      containers: [{ kind: 'dialog', text: 'Editor error token=CONTEXT_TOKEN_SENTINEL path=/private/context/file' }],
+      alerts: ['Alert query=CONTEXT_QUERY_SENTINEL'],
+    },
+  };
   report.nativeRequests[0] = {
     ...report.nativeRequests[0],
     path: report.nativeRequests[0].path + '?query=URL_QUERY_SENTINEL&token=URL_TOKEN_SENTINEL',
@@ -915,6 +935,7 @@ test('review diagnostics do not expose paths, bodies, tokens, auth, or query val
   });
   const diagnostics = JSON.stringify({
     firstFailureReason: summary.reviewPacket.firstFailureReason,
+    failureContext: summary.reviewPacket.failureContext,
     failedAction: summary.reviewPacket.failedAction,
     lastCompletedAction: summary.reviewPacket.lastCompletedAction,
     pendingOwnedRequests: summary.reviewPacket.pendingOwnedRequests,
@@ -924,9 +945,12 @@ test('review diagnostics do not expose paths, bodies, tokens, auth, or query val
     'TOKEN_SENTINEL', 'QUERY_SENTINEL', 'BODY_SENTINEL', 'AUTH_SENTINEL',
     'SENSITIVE_TOKEN_VALUE', 'URL_QUERY_SENTINEL', 'URL_TOKEN_SENTINEL',
     'QUERY_OBJECT_SENTINEL', 'AUTH_OBJECT_SENTINEL', 'BODY_OBJECT_SENTINEL',
+    'CONTEXT_TOKEN_SENTINEL', 'CONTEXT_QUERY_SENTINEL',
     '$CHECKOUT', '/private/secret/file', 'scripts/private.mjs',
   ]) assert.equal(diagnostics.includes(secret), false, secret);
   assert.equal(summary.reviewPacket.firstFailureReason, 'Failure details contained sensitive values.');
+  assert.equal(summary.reviewPacket.failureContext.state, 'visible');
+  assert.equal(summary.reviewPacket.failureContext.containers[0].text, 'Failure details contained sensitive values.');
   assert.match(diagnostics, /\[redacted token\]/);
 
   const pathOnlyReport = structuredClone(wave152Failure);
@@ -950,4 +974,429 @@ test('review diagnostics do not expose paths, bodies, tokens, auth, or query val
   });
   assert.equal(pathOnlySummary.reviewPacket.firstFailureReason, 'Error: failed at [redacted path]');
   assert.equal(pathOnlySummary.reviewPacket.firstFailureReason.includes('scripts/private.mjs'), false);
+});
+
+test('checks-only runs the registered focused groups without loading a target or launching Playwright', async (t) => {
+  const parent = evidenceParent();
+  t.after(() => rmSync(parent, { recursive: true, force: true }));
+  const calls = [];
+  const output = [];
+  let summary;
+  const exitCode = await main([
+    '--scenario', 'cda-current-draft-membership',
+    '--case', 'membership',
+    '--checks-only',
+  ], {
+    targetLoader: async () => { throw new Error('checks-only must bypass target loading'); },
+    runBracket: async (options) => {
+      summary = await runNativeVerificationBracket({
+        ...options,
+        evidenceParent: parent,
+        root,
+        commandRunner: async (_command, args, options) => {
+          calls.push({ args, cwd: options.cwd });
+          return { exitCode: 0, stdoutText: 'focused group passed\n', stderrText: '' };
+        },
+      });
+      return summary;
+    },
+    write: (value) => output.push(value),
+  });
+
+  assert.equal(exitCode, 0);
+  assert.equal(summary.status, 'checks-passed');
+  assert.equal(summary.mode, 'checks-only');
+  assert.equal(summary.focusedCheckCoverage, 'registered');
+  assert.equal(summary.focusedChecks.groups.length, 2);
+  assert.ok(summary.focusedChecks.groups.every((group) => group.status === 'passed' && group.declaredInputsHash));
+  assert.equal(calls.length, 2);
+  assert.ok(calls.every(({ args }) => args[0] === '../../node_modules/vitest/vitest.mjs'));
+  assert.equal(summary.commands.selectionList, undefined);
+  assert.equal(summary.commands.precheck, undefined);
+  assert.equal(summary.commands.playwright, undefined);
+  assert.equal(summary.commands.captureAfter, undefined);
+  assert.equal(JSON.parse(output[0]).focusedCheckCoverage, 'registered');
+});
+
+test('checks-only names browser-only cases instead of reporting an empty pass', async (t) => {
+  const parent = evidenceParent();
+  t.after(() => rmSync(parent, { recursive: true, force: true }));
+  const output = [];
+  let summary;
+  const exitCode = await main([
+    '--scenario', 'root-quantity-pivot',
+    '--case', 'full-population-lifecycle',
+    '--checks-only',
+  ], {
+    targetLoader: async () => { throw new Error('checks-only must bypass target loading'); },
+    runBracket: async (options) => {
+      summary = await runNativeVerificationBracket({ ...options, evidenceParent: parent, root });
+      return summary;
+    },
+    write: (value) => output.push(value),
+  });
+
+  assert.equal(exitCode, 1);
+  assert.equal(summary.status, 'browser-only');
+  assert.equal(summary.focusedCheckCoverage, 'browser-only');
+  assert.match(summary.reviewPacket.firstFailureReason, /no focused prerequisite group/);
+  assert.equal(JSON.parse(output[0]).focusedCheckCoverage, 'browser-only');
+});
+
+test('a failed focused prerequisite prevents all browser bracket commands', async (t) => {
+  const parent = evidenceParent();
+  t.after(() => rmSync(parent, { recursive: true, force: true }));
+  const calls = [];
+  const summary = await runNativeVerificationBracket({
+    scenarioID: 'cda-current-draft-membership',
+    caseName: 'membership',
+    evidenceParent: parent,
+    root,
+    commandRunner: async (_command, args) => {
+      calls.push(args);
+      const broken = args.some((arg) => arg.endsWith('ConstructionReshapeEditor.unit.test.tsx'));
+      return {
+        exitCode: broken ? 1 : 0,
+        stdoutText: broken ? 'SOURCE_PROJECTION regression\n' : '',
+        stderrText: '',
+      };
+    },
+  });
+
+  assert.equal(summary.status, 'failed');
+  assert.equal(summary.failureCategory, 'focused-check');
+  assert.match(summary.reviewPacket.firstFailureReason, /membership-source-group exited 1/);
+  assert.equal(summary.commands.precheck, undefined);
+  assert.equal(summary.commands.selectionList, undefined);
+  assert.equal(summary.commands.playwright, undefined);
+  assert.equal(summary.commands.captureAfter, undefined);
+  assert.equal(calls.length, 2);
+});
+
+test('a stalled preparation stage is bounded and still attempts after-capture and health', async (t) => {
+  const parent = evidenceParent();
+  t.after(() => rmSync(parent, { recursive: true, force: true }));
+  const fake = fakeRunner({
+    scenarioID: 'root-quantity-pivot',
+    caseName: 'full-population-lifecycle',
+    rootDir: root,
+  });
+  const commandRunner = async (command, args, options) => {
+    if (args[0] === 'scripts/owned-stack-verification.mjs'
+      && option(args, '--mode') === 'health'
+      && option(args, '--output')?.includes('health-before')) {
+      return { exitCode: null, timedOut: true, durationMs: options.timeoutMs, stdoutText: '', stderrText: '' };
+    }
+    return fake.commandRunner(command, args, options);
+  };
+  const summary = await runNativeVerificationBracket({
+    scenarioID: 'root-quantity-pivot',
+    caseName: 'full-population-lifecycle',
+    grep: 'preparation timeout',
+    evidenceParent: parent,
+    root,
+    env: fake.env,
+    commandRunner,
+  });
+
+  assert.equal(summary.status, 'unverified');
+  assert.equal(summary.commands.healthBefore.timedOut, true);
+  assert.equal(summary.commands.healthBefore.timeoutMs, 90_000);
+  assert.equal(summary.commands.playwright, undefined);
+  assert.equal(summary.commands.captureAfter.exitCode, 0);
+  assert.equal(summary.commands.healthAfter.exitCode, 0);
+  assert.match(summary.workflowError, /Before health stage timed out after 90000ms/);
+});
+
+test('runProcess terminates a stalled child within its own timeout', async (t) => {
+  const directory = mkdtempSync(join(tmpdir(), 'native-bracket-process-timeout-'));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const result = await runProcess(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {
+    cwd: root,
+    env: process.env,
+    stdoutPath: join(directory, 'stdout.log'),
+    stderrPath: join(directory, 'stderr.log'),
+    timeoutMs: 75,
+    outputPreviewLimit: 100,
+  });
+
+  assert.equal(result.timedOut, true);
+  assert.ok(result.durationMs < 3000);
+  assert.notEqual(result.exitCode, 0);
+});
+
+test('runProcess kills an inherited-pipe grandchild with its owned process group', { skip: process.platform === 'win32' }, async (t) => {
+  const directory = mkdtempSync(join(tmpdir(), 'native-bracket-process-group-'));
+  const pidPath = join(directory, 'grandchild.pid');
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const parent = [
+    "const { spawn } = require('node:child_process');",
+    "const { writeFileSync } = require('node:fs');",
+    "const grandchild = spawn(process.execPath, ['-e', 'process.on(\"SIGTERM\", () => {}); setInterval(() => {}, 1000);'], { stdio: 'inherit' });",
+    'writeFileSync(process.env.OWNED_TEST_GRANDCHILD_PID, String(grandchild.pid));',
+    "process.on('SIGTERM', () => process.exit(0));",
+    'setInterval(() => {}, 1000);',
+  ].join('\n');
+  const result = await runProcess(process.execPath, ['-e', parent], {
+    cwd: root,
+    env: { ...process.env, OWNED_TEST_GRANDCHILD_PID: pidPath },
+    stdoutPath: join(directory, 'stdout.log'),
+    stderrPath: join(directory, 'stderr.log'),
+    timeoutMs: 250,
+    outputPreviewLimit: 100,
+  });
+
+  assert.equal(result.timedOut, true);
+  assert.ok(result.durationMs >= 900 && result.durationMs < 3000);
+  assert.ok(existsSync(pidPath), 'the test must create an inherited-pipe grandchild');
+  const grandchildPID = Number(readFileSync(pidPath, 'utf8'));
+  assert.ok(Number.isInteger(grandchildPID) && grandchildPID > 0);
+  let processGone = false;
+  const deadline = Date.now() + 1500;
+  while (Date.now() < deadline) {
+    try {
+      process.kill(grandchildPID, 0);
+      await new Promise((resolveWait) => setTimeout(resolveWait, 25));
+    } catch (error) {
+      if (error?.code !== 'ESRCH') throw error;
+      processGone = true;
+      break;
+    }
+  }
+  assert.equal(processGone, true, 'the inherited-pipe grandchild must be gone after timeout cleanup');
+});
+
+test('runProcess escalates after the child closes when a stdio-ignored grandchild remains', { skip: process.platform === 'win32' }, async (t) => {
+  const directory = mkdtempSync(join(tmpdir(), 'native-bracket-process-group-ignore-'));
+  const pidPath = join(directory, 'grandchild.pid');
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const parent = [
+    "const { spawn } = require('node:child_process');",
+    "const { writeFileSync } = require('node:fs');",
+    "const grandchild = spawn(process.execPath, ['-e', 'process.on(\"SIGTERM\", () => {}); setInterval(() => {}, 1000);'], { stdio: 'ignore' });",
+    'writeFileSync(process.env.OWNED_TEST_GRANDCHILD_PID, String(grandchild.pid));',
+    "process.on('SIGTERM', () => process.exit(0));",
+    'setInterval(() => {}, 1000);',
+  ].join('\n');
+  const result = await runProcess(process.execPath, ['-e', parent], {
+    cwd: root,
+    env: { ...process.env, OWNED_TEST_GRANDCHILD_PID: pidPath },
+    stdoutPath: join(directory, 'stdout.log'),
+    stderrPath: join(directory, 'stderr.log'),
+    timeoutMs: 250,
+    outputPreviewLimit: 100,
+  });
+
+  assert.equal(result.timedOut, true);
+  assert.ok(result.durationMs >= 900 && result.durationMs < 3000);
+  assert.ok(existsSync(pidPath), 'the test must create a stdio-ignored grandchild');
+  const grandchildPID = Number(readFileSync(pidPath, 'utf8'));
+  assert.ok(Number.isInteger(grandchildPID) && grandchildPID > 0);
+  let processGone = false;
+  const deadline = Date.now() + 1500;
+  while (Date.now() < deadline) {
+    try {
+      process.kill(grandchildPID, 0);
+      await new Promise((resolveWait) => setTimeout(resolveWait, 25));
+    } catch (error) {
+      if (error?.code !== 'ESRCH') throw error;
+      processGone = true;
+      break;
+    }
+  }
+  assert.equal(processGone, true, 'the stdio-ignored grandchild must be gone after timeout cleanup');
+});
+
+test('runProcess closes output logs after an executable cannot be started', async (t) => {
+  const directory = mkdtempSync(join(tmpdir(), 'native-bracket-spawn-error-'));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const stdoutPath = join(directory, 'stdout.log');
+  const stderrPath = join(directory, 'stderr.log');
+  const result = await runProcess(join(directory, 'missing-executable'), [], {
+    cwd: root,
+    env: process.env,
+    stdoutPath,
+    stderrPath,
+    timeoutMs: 1000,
+  });
+
+  assert.equal(result.exitCode, null);
+  assert.match(result.error, /ENOENT/);
+  assert.equal(result.timedOut, false);
+  assert.ok(result.durationMs < 1000);
+  assert.equal(readFileSync(stdoutPath, 'utf8'), '');
+  assert.equal(readFileSync(stderrPath, 'utf8'), '');
+});
+
+test('lifecycle summary retains dimension statuses without duplicating dimension evidence', async (t) => {
+  const parent = evidenceParent();
+  t.after(() => rmSync(parent, { recursive: true, force: true }));
+  const scenarioID = 'root-quantity-pivot';
+  const caseName = 'full-population-lifecycle';
+  const huge = 'x'.repeat(50_000);
+  const fake = fakeRunner({
+    scenarioID,
+    caseName,
+    rootDir: root,
+    browserReport: 'cda',
+    domainReportOverride: {
+      dimensions: Object.fromEntries(['usability', 'correctness', 'persistence', 'performance']
+        .map((name) => [name, { status: 'passed', evidence: huge }])),
+    },
+  });
+  const summary = await runNativeVerificationBracket({
+    scenarioID,
+    caseName,
+    grep: 'compact dimensions',
+    evidenceParent: parent,
+    root,
+    env: fake.env,
+    commandRunner: fake.commandRunner,
+  });
+
+  assert.deepEqual(summary.lifecycle.dimensions, {
+    usability: 'passed',
+    correctness: 'passed',
+    persistence: 'passed',
+    performance: 'passed',
+  });
+  assert.equal(JSON.stringify(summary).includes(huge), false);
+  assert.ok(summary.evidence.domainReport);
+});
+
+test('normal selected-case CLI loads the explicit target against registered identity before the bracket', async () => {
+  const output = [];
+  let loaderInput;
+  let bracketOptions;
+  const exitCode = await main([
+    '--scenario', 'cda-current-draft-membership',
+    '--case', 'membership',
+    '--target', '.codex/owned-cda-target.json',
+  ], {
+    targetLoader: async (input) => {
+      loaderInput = input;
+      return {
+        target: { project: 'loom_dev_cda_fhir', generation: 'cda-fhir-v1' },
+        environment: { LOOM_CDA_PROJECT: 'loom_dev_cda_fhir', LOOM_CDA_GENERATION: 'cda-fhir-v1' },
+        configPath: '/machine-local/owned-cda-target.json',
+        validationScope: 'configuration-only',
+        runtimeDatasetIdentity: 'not-checked',
+      };
+    },
+    runBracket: async (options) => {
+      bracketOptions = options;
+      return {
+        status: 'checks-passed',
+        scenario: options.scenarioID,
+        case: options.caseName,
+        durationMs: 0,
+        runDirectory: null,
+        evidence: { summary: null, domainReport: null },
+        integrity: { status: 'UNVERIFIED' },
+        targetValidation: options.targetValidation,
+        focusedCheckCoverage: 'registered',
+        focusedChecks: { status: 'passed', groups: [] },
+        failureCategory: null,
+        reviewPacket: {
+          firstFailureReason: null,
+          failureContext: null,
+          failedAction: null,
+          lastCompletedAction: null,
+          pendingOwnedRequests: [],
+        },
+      };
+    },
+    write: (value) => output.push(value),
+  });
+
+  assert.equal(exitCode, 0);
+  assert.equal(loaderInput.targetPath, '.codex/owned-cda-target.json');
+  assert.deepEqual(loaderInput.expectedIdentity, {
+    project: 'loom_dev_cda_fhir',
+    generation: 'cda-fhir-v1',
+  });
+  assert.equal(bracketOptions.env.LOOM_CDA_PROJECT, 'loom_dev_cda_fhir');
+  assert.equal(bracketOptions.env.LOOM_CDA_GENERATION, 'cda-fhir-v1');
+  assert.deepEqual(bracketOptions.targetValidation, {
+    scope: 'configuration-only',
+    registryBinding: 'bound',
+    runtimeDatasetIdentity: 'not-checked',
+    configPath: '/machine-local/owned-cda-target.json',
+    project: 'loom_dev_cda_fhir',
+    generation: 'cda-fhir-v1',
+  });
+  assert.equal(bracketOptions.grep, undefined);
+  assert.equal(JSON.parse(output[0]).targetValidation.runtimeDatasetIdentity, 'not-checked');
+});
+
+test('explicit environment mode keeps a browser-only case registry-unbound and reaches selection and precheck', async (t) => {
+  const parent = evidenceParent();
+  t.after(() => rmSync(parent, { recursive: true, force: true }));
+  const scenarioID = 'builder-controls';
+  const caseName = 'tables';
+  const fake = fakeRunner({ scenarioID, caseName, rootDir: root });
+  const output = [];
+  let runOptions;
+  const exitCode = await main([
+    '--scenario', scenarioID,
+    '--case', caseName,
+    '--target-from-environment',
+    '--grep', 'explicit environment target smoke selection',
+  ], {
+    env: fake.env,
+    targetLoader: async () => { throw new Error('environment mode must not load a registry-bound target file'); },
+    runBracket: async (options) => {
+      runOptions = options;
+      return runNativeVerificationBracket({
+        ...options,
+        evidenceParent: parent,
+        root,
+        commandRunner: fake.commandRunner,
+      });
+    },
+    write: (value) => output.push(value),
+  });
+
+  assert.equal(exitCode, 0);
+  assert.deepEqual(runOptions.targetValidation, {
+    scope: 'environment-only',
+    registryBinding: 'unbound',
+    runtimeDatasetIdentity: 'not-checked',
+    configPath: null,
+    project: null,
+    generation: null,
+  });
+  assert.equal(runOptions.env.LOOM_CDA_SOURCE_ROOT, root);
+  assert.ok(fake.commands.includes('selectionList'));
+  assert.ok(fake.commands.includes('precheck'));
+  assert.equal(JSON.parse(output[0]).targetValidation.registryBinding, 'unbound');
+});
+
+test('environment mode rejects missing or wrong source ownership before selection or precheck', async (t) => {
+  const scenarioID = 'builder-controls';
+  const caseName = 'tables';
+  const fake = fakeRunner({ scenarioID, caseName, rootDir: root });
+  const parent = evidenceParent();
+  t.after(() => rmSync(parent, { recursive: true, force: true }));
+
+  for (const [name, env, expected] of [
+    ['missing source root', {}, /Set LOOM_CDA_SOURCE_ROOT/],
+    ['wrong source root', { ...fake.env, LOOM_CDA_SOURCE_ROOT: tmpdir() }, /must resolve to the repository/],
+  ]) {
+    const result = await runNativeVerificationBracket({
+      scenarioID,
+      caseName,
+      grep: 'explicit environment target smoke selection',
+      evidenceParent: parent,
+      root,
+      env,
+      commandRunner: fake.commandRunner,
+    });
+    assert.equal(result.status, 'unverified', name);
+    assert.equal(result.failureCategory, 'preparation', name);
+    assert.match(result.workflowError, expected, name);
+    assert.equal(result.commands.selectionList, undefined, name);
+    assert.equal(result.commands.precheck, undefined, name);
+  }
+  assert.deepEqual(fake.commands, []);
 });

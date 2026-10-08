@@ -75,6 +75,11 @@ reasoning effort (Sol low when selectable).
 Separate worktrees are the default for implementation workers and the Luna max
 integration owner. The foreground/live checkout is the accepted runtime target.
 
+- Before an implementation worker writes or runs checks, require the assigned
+  worktree preflight in `.codex/skills/verify/SKILL.md`; its expected and
+  forbidden roots come from the lead. Use absolute owned edit paths and explicit
+  command working directories.
+
 - Reserve issue and file ownership before edits. Separate worktrees isolate
   unfinished code and checks but do not eliminate merge conflicts. Coordinate
   shared registries, generated files, worklists, and lockfiles with the merge owner.
