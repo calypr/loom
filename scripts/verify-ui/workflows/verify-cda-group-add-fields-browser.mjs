@@ -5,7 +5,7 @@ import { assertVisibleRowsMatchOracle } from '../helpers/cda-row-oracle.mjs';
 import { createdExplorerScope } from '../helpers/created-explorer-scope.mjs';
 
 export const groupAddFieldsRawFieldsSummarySelector = '[data-testid="feature-catalog-raw-fields"] > summary';
-export const groupAddFieldsPreviewHeaders = ['Specimen ID', 'Resource Type', 'Row count'];
+export const groupAddFieldsPreviewHeaders = ['Specimen ID', 'Row count', 'Resource Type'];
 
 export function rawCdaRelatedHopBinding({ from, to, direction }) {
   assert(['OUTBOUND', 'INBOUND'].includes(direction), `Unsupported raw CDA relationship direction: ${direction}`);
@@ -21,8 +21,8 @@ export function rawCdaRelatedHopBinding({ from, to, direction }) {
 export function expectedGroupAddFieldsRows(groupedRows, rawResourceType) {
   return groupedRows.map(([rawSpecimenID, rawObservationCount]) => [
     rawSpecimenID,
-    rawResourceType,
     rawObservationCount,
+    rawResourceType,
   ]);
 }
 

@@ -1742,6 +1742,19 @@ export const registry = Object.freeze([
               'ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx',
             ],
           },
+          {
+            id: 'group-add-fields-preview-presentation-order',
+            cwd: 'ui/packages/loom-ui',
+            command: [
+              'vitest', 'run', '--config', 'vitest.config.ts',
+              'ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.reconciliation.unit.test.tsx',
+            ],
+            sourceFiles: [
+              'ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx',
+              'ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/ConstructionProposalPreview.tsx',
+              'ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx',
+            ],
+          },
         ],
         requiredChecks: [
           'Bounded raw CDA oracle selects one Specimen, one Patient, and exact related Observation identities',

@@ -5,7 +5,7 @@ import {
   groupAddFieldsPreviewHeaders,
 } from '../../workflows/verify-cda-group-add-fields-browser.mjs';
 
-test('Group Add Columns expectations follow the three-column proposal schema and retain raw counts', () => {
+test('Group Add Columns expectations follow the applied presentation order and retain raw counts', () => {
   const rawGroupedRows = [
     ['raw-specimen-1', '12'],
     ['raw-specimen-2', '3'],
@@ -13,14 +13,14 @@ test('Group Add Columns expectations follow the three-column proposal schema and
 
   const expected = expectedGroupAddFieldsRows(rawGroupedRows, 'Specimen');
 
-  assert.deepEqual(groupAddFieldsPreviewHeaders, ['Specimen ID', 'Resource Type', 'Row count']);
+  assert.deepEqual(groupAddFieldsPreviewHeaders, ['Specimen ID', 'Row count', 'Resource Type']);
   assert.deepEqual(expected, [
-    ['raw-specimen-1', 'Specimen', '12'],
-    ['raw-specimen-2', 'Specimen', '3'],
-  ]);
-  assert(expected.every(row => row.length === groupAddFieldsPreviewHeaders.length), 'Expected rows must match all three proposal columns');
-  assert.notDeepEqual(expected, [
     ['raw-specimen-1', '12', 'Specimen'],
     ['raw-specimen-2', '3', 'Specimen'],
-  ], 'The new source field precedes the Group aggregate in proposal order');
+  ]);
+  assert(expected.every(row => row.length === groupAddFieldsPreviewHeaders.length), 'Expected rows must match all three displayed columns');
+  assert.notDeepEqual(expected, [
+    ['raw-specimen-1', 'Specimen', '12'],
+    ['raw-specimen-2', 'Specimen', '3'],
+  ], 'The applied Group aggregate precedes the row-value field in output order');
 });

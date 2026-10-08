@@ -3579,15 +3579,17 @@ const BuilderWorkspaceContent = ({
   const proposalResponse = 'response' in constructionLifecycle.proposal
     ? constructionLifecycle.proposal.response
     : undefined;
-  const proposalPresentationTable = !choicePreview && table && proposalResponse
-    ? {
-        ...table,
-        document: {
-          ...table.document,
-          construction: proposalResponse.candidateConstruction,
-        },
-      }
-    : undefined;
+  const proposalPresentationTable = choicePreview && table
+    ? table
+    : table && proposalResponse
+      ? {
+          ...table,
+          document: {
+            ...table.document,
+            construction: proposalResponse.candidateConstruction,
+          },
+        }
+      : undefined;
   const workspacePreview = candidatePreview ?? tablePreview;
   const workspacePreviewIsCurrent = Boolean(candidatePreview) || previewIsCurrent;
   const workspacePreviewStatus = candidatePreview

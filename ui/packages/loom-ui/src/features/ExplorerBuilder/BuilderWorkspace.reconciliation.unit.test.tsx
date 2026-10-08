@@ -197,6 +197,16 @@ vi.mock('./components/ConceptCatalog', () => ({
       >
         Add catalog fixture
       </button>
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() => void onAddSelected?.([{
+          constructionChoice: { choiceId: 'resource-type-choice', form: 'VALUE' },
+          title: 'Resource Type',
+        }])}
+      >
+        Add Group row-value fixture
+      </button>
       {disabled && disabledReason ? <p role="status">{disabledReason}</p> : null}
     </>
   ),
@@ -892,6 +902,86 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
         },
       ],
     }));
+  });
+
+  it('renders a Group choice proposal in the current table output order', async () => {
+    const groupedWorkspace = {
+      ...workspace,
+      documents: workspace.documents.map((document) => ({
+        ...document,
+        construction: {
+          version: 1,
+          steps: [{
+            id: 'group-rows',
+            inputs: [],
+            operation: { kind: 'GROUP', group: {
+              constructionId: 'group-rows',
+              missingKeyPolicy: 'GROUP',
+              keys: [{ inputColumnId: 'specimen-id-output', outputColumnId: 'specimen-id-output' }],
+              aggregates: [{ operation: 'COUNT_ROWS', outputColumnId: 'row-count-output' }],
+            } },
+            outputs: [
+              { id: 'specimen-id-output', name: 'specimen_id', label: 'Specimen ID', type: 'string', table: { order: 0 } },
+              { id: 'row-count-output', name: 'row_count', label: 'Row count', type: 'integer', table: { order: 1 } },
+            ],
+          }],
+        } as unknown as Construction,
+      })),
+    };
+    (useGetExplorerBuilderStateV2Query as Mock).mockReturnValue({
+      data: { ...builderState, workspace: groupedWorkspace },
+      isLoading: false,
+      refetch: vi.fn(),
+    });
+    reconcile.mockReturnValue(resolvedRequest({ ...receipt, builder: groupedWorkspace }));
+    mockLoomClient.proposeConstructionChoices.mockImplementation(async (args: ProposeConstructionChoicesArgs) => ({
+      commandId: args.commandId,
+      snapshotToken: args.snapshotToken,
+      draftVersion: args.expectedDraftVersion,
+      draftDigest: args.expectedDraftDigest,
+      outputId: args.outputId,
+      constructionChoices: args.constructionChoices,
+      candidateColumnIds: ['resource_type'],
+      candidateWorkspaceDigest: 'sha256:group-choice-candidate',
+      previewStatus: 'READY' as const,
+      previewDurationMs: 4,
+      preview: {
+        apiVersion,
+        kind: 'ExplorerBuilderPreview' as const,
+        rowLineageCapability: { status: 'UNAVAILABLE' as const, reasonCode: 'TEST_FIXTURE' },
+        receiptId: 'group-choice-preview',
+        outputId: args.outputId,
+        columns: [
+          { column: 'specimen_id', label: 'Specimen ID', logicalType: 'string', filterable: true, chartable: false },
+          { column: 'resource_type', label: 'Resource Type', logicalType: 'string', filterable: true, chartable: false },
+          { column: 'row_count', label: 'Row count', logicalType: 'integer', filterable: true, chartable: false },
+        ],
+        rows: [{ specimen_id: '00001c68-…', resource_type: 'Specimen', row_count: 12 }],
+        rowCount: 1,
+        diagnostics: [],
+      },
+    }));
+
+    render(
+      <BuilderWorkspace
+        organization="HTAN_INT"
+        project="BForePC"
+        explorerId="test"
+      />,
+    );
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Add Group row-value fixture' }));
+    const proposalPreview = await screen.findByTestId('construction-proposal-preview');
+    expect(within(proposalPreview).getAllByRole('columnheader').map((header) => header.firstElementChild?.textContent)).toEqual([
+      'Specimen ID',
+      'Row count',
+      'Resource Type',
+    ]);
+    expect(within(proposalPreview).getAllByRole('cell').map((cell) => cell.textContent)).toEqual([
+      '00001c68-…',
+      '12',
+      'Specimen',
+    ]);
   });
 
   it('explains that source choices are unavailable while the previous draft update is pending', async () => {
