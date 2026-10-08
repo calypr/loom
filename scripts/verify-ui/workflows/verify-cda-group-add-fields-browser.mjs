@@ -6,6 +6,17 @@ import { createdExplorerScope } from '../helpers/created-explorer-scope.mjs';
 
 export const groupAddFieldsRawFieldsSummarySelector = '[data-testid="feature-catalog-raw-fields"] > summary';
 
+export function rawCdaRelatedHopBinding({ from, to, direction }) {
+  assert(['OUTBOUND', 'INBOUND'].includes(direction), `Unsupported raw CDA relationship direction: ${direction}`);
+  const outbound = direction === 'OUTBOUND';
+  return {
+    anchorEndpoint: outbound ? '_from' : '_to',
+    targetEndpoint: outbound ? '_to' : '_from',
+    fromType: outbound ? from : to,
+    toType: outbound ? to : from,
+  };
+}
+
 export async function runGroupAddFieldsBrowserWorkflow({ page, cda }) {
   const project = cda.project;
   assert(project, 'CDA fixture must provide the isolated project');
@@ -272,16 +283,15 @@ FOR source IN (
   for(const hop of chain){
     const next=[];
     for(const witness of witnesses){
-      const endpoint=hop.direction==='OUTBOUND'?'_from':'_to';
-      const target=hop.direction==='OUTBOUND'?'_to':'_from';
-      const query=`FOR e IN fhir_edge FILTER e.${endpoint} == ${JSON.stringify(witness.anchor)} AND e.label == ${JSON.stringify(hop.label)} AND e.from_type == ${JSON.stringify(hop.from)} AND e.to_type == ${JSON.stringify(hop.to)} AND e.project == ${JSON.stringify(project)} AND e.dataset_generation == ${JSON.stringify(generation)} FILTER STARTS_WITH(e.${target}, ${JSON.stringify(hop.to+'/')}) LET d=DOCUMENT(e.${target}) FILTER d.project==${JSON.stringify(project)} AND d.dataset_generation==${JSON.stringify(generation)} AND d.resourceType==${JSON.stringify(hop.to)} AND d.payload.resourceType==${JSON.stringify(hop.to)} RETURN DISTINCT {id:d.id,_id:d._id}`;
+      const binding = rawCdaRelatedHopBinding(hop);
+      const query=`FOR e IN fhir_edge FILTER e.${binding.anchorEndpoint} == ${JSON.stringify(witness.anchor)} AND e.label == ${JSON.stringify(hop.label)} AND e.from_type == ${JSON.stringify(binding.fromType)} AND e.to_type == ${JSON.stringify(binding.toType)} AND e.project == ${JSON.stringify(project)} AND e.dataset_generation == ${JSON.stringify(generation)} FILTER STARTS_WITH(e.${binding.targetEndpoint}, ${JSON.stringify(hop.to+'/')}) LET d=DOCUMENT(e.${binding.targetEndpoint}) FILTER d.project==${JSON.stringify(project)} AND d.dataset_generation==${JSON.stringify(generation)} AND d.resourceType==${JSON.stringify(hop.to)} AND d.payload.resourceType==${JSON.stringify(hop.to)} RETURN DISTINCT {id:d.id,_id:d._id}`;
       const matches=witness.anchor?rawQuery(query):[];
       if(matches.length)for(const match of matches)next.push({anchor:match._id,values:[...witness.values,match.id]});
       else next.push({anchor:null,values:[...witness.values,'—']});
     }
     assert(next.length<=1000,'Use a bounded CDA chain fixture');
     witnesses=next;expected=witnesses.map(w=>w.values);
-    report.oracle.chain??=[];report.oracle.chain.push({hop,witnesses});
+    report.oracle.chain??=[];report.oracle.chain.push({hop,binding:rawCdaRelatedHopBinding(hop),witnesses});
     await click('[data-testid="construction-rows-settings-trigger"]');
     await waitForBrowser(() => (document.querySelector('[data-testid="construction-action-related-rows"]')?.disabled===false));
     await click('[data-testid="construction-action-related-rows"]');
