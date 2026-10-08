@@ -54,44 +54,262 @@ const sourceSubjectColumn = {
   logicalType: 'string',
   source: { kind: 'field', field: { path: 'subject.reference', projectionMode: 'VALUE' } },
 };
-const sourceIDCandidate = {
-  candidateId: 'candidate-observation-id',
-  fieldPath: 'id',
-  cardinality: 'optional_one',
-  nodeId: 'observation-node',
-  logicalType: 'string',
-  defaultProjectionMode: 'VALUE',
-  projectionModes: ['FIRST', 'VALUE'],
-  repeated: false,
-  source: {
-    kind: 'FIELD', candidateId: 'candidate-observation-id', nodeId: 'observation-node',
-    resourceType: 'Observation', path: 'id', cardinality: 'optional_one',
+const [sourceIDCandidate, sourceSubjectCandidate] = [
+  {
+    "aggregateOperations": [],
+    "candidateId": "fixture-observation-id",
+    "cardinality": "optional_one",
+    "chartable": true,
+    "constructionChoice": {
+      "choiceId": "REDACTED_CONSTRUCTION_CHOICE_CAPABILITY",
+      "options": [
+        {
+          "decision": "DEFAULT",
+          "form": "VALUE",
+          "preservation": "PRESERVING",
+          "reason": "The compiler proved this output form for the exact field path.",
+          "rowEffect": "PRESERVES_ROW_GRAIN",
+          "shape": "SCALAR",
+          "support": "SUPPORTED"
+        }
+      ],
+      "presentation": {
+        "facts": [
+          {
+            "label": "FHIR field",
+            "value": "Observation.id"
+          },
+          {
+            "label": "Value type",
+            "value": "string"
+          },
+          {
+            "label": "Repetition",
+            "value": "Single value"
+          }
+        ],
+        "summary": "id"
+      },
+      "route": [],
+      "source": {
+        "kind": "FIELD",
+        "candidateId": "fixture-observation-id",
+        "nodeId": "fixture-observation-node",
+        "resourceType": "Observation",
+        "path": "id",
+        "cardinality": "optional_one"
+      }
+    },
+    "defaultProjectionMode": "VALUE",
+    "fieldPath": "id",
+    "filterable": true,
+    "label": "id",
+    "logicalType": "string",
+    "nodeId": "fixture-observation-node",
+    "projectionModes": [
+      "FIRST",
+      "VALUE"
+    ],
+    "repeated": false,
+    "transformations": {
+      "temporalReduction": {
+        "anchorFields": [],
+        "available": false,
+        "reason": "the candidate resource has no advertised scalar date_time fields",
+        "reasonCode": "NO_TIMESTAMP_FIELDS",
+        "timestampFields": []
+      },
+      "unitNormalization": {
+        "available": false,
+        "presets": [
+          {
+            "available": false,
+            "policyId": "to-celsius",
+            "reason": "unit normalization requires a scalar numeric value with Quantity system and code fields",
+            "reasonCode": "QUANTITY_VALUE_REQUIRED",
+            "target": {
+              "code": "Cel",
+              "system": "http://unitsofmeasure.org"
+            },
+            "version": "1"
+          },
+          {
+            "available": false,
+            "policyId": "to-centimeters",
+            "reason": "unit normalization requires a scalar numeric value with Quantity system and code fields",
+            "reasonCode": "QUANTITY_VALUE_REQUIRED",
+            "target": {
+              "code": "cm",
+              "system": "http://unitsofmeasure.org"
+            },
+            "version": "1"
+          },
+          {
+            "available": false,
+            "policyId": "to-fahrenheit",
+            "reason": "unit normalization requires a scalar numeric value with Quantity system and code fields",
+            "reasonCode": "QUANTITY_VALUE_REQUIRED",
+            "target": {
+              "code": "[degF]",
+              "system": "http://unitsofmeasure.org"
+            },
+            "version": "1"
+          },
+          {
+            "available": false,
+            "policyId": "to-kilograms",
+            "reason": "unit normalization requires a scalar numeric value with Quantity system and code fields",
+            "reasonCode": "QUANTITY_VALUE_REQUIRED",
+            "target": {
+              "code": "kg",
+              "system": "http://unitsofmeasure.org"
+            },
+            "version": "1"
+          }
+        ],
+        "reason": "unit normalization requires a scalar numeric value with Quantity system and code fields",
+        "reasonCode": "QUANTITY_VALUE_REQUIRED"
+      }
+    },
+    "valueTransformations": {
+      "codedValueRecoding": {
+        "available": false,
+        "reason": "coded value recoding is unavailable because this scalar transformation cannot preserve both Coding.system and Coding.code",
+        "reasonCode": "CODED_VALUE_RECODE_UNAVAILABLE"
+      },
+      "exactCategoryRecode": {
+        "available": true
+      }
+    }
   },
-  constructionChoice: {
-    choiceId: 'observation-id-choice',
-    options: [{ decision: 'DEFAULT', form: 'VALUE', preservation: 'PRESERVING',
-      rowEffect: 'PRESERVES_ROW_GRAIN', shape: 'SCALAR', support: 'SUPPORTED' }],
-  },
-};
-const sourceSubjectCandidate = {
-  candidateId: 'candidate-observation-subject-reference',
-  fieldPath: 'subject.reference',
-  cardinality: 'optional_one',
-  nodeId: 'observation-node',
-  logicalType: 'string',
-  defaultProjectionMode: 'VALUE',
-  projectionModes: ['FIRST', 'VALUE'],
-  repeated: false,
-  source: {
-    kind: 'FIELD', candidateId: 'candidate-observation-subject-reference', nodeId: 'observation-node',
-    resourceType: 'Observation', path: 'subject.reference', cardinality: 'optional_one',
-  },
-  constructionChoice: {
-    choiceId: 'observation-subject-reference-choice',
-    options: [{ decision: 'DEFAULT', form: 'VALUE', preservation: 'PRESERVING',
-      rowEffect: 'PRESERVES_ROW_GRAIN', shape: 'SCALAR', support: 'SUPPORTED' }],
-  },
-};
+  {
+    "aggregateOperations": [],
+    "candidateId": "fixture-observation-subject-reference",
+    "cardinality": "optional_one",
+    "chartable": true,
+    "constructionChoice": {
+      "choiceId": "REDACTED_CONSTRUCTION_CHOICE_CAPABILITY",
+      "options": [
+        {
+          "decision": "DEFAULT",
+          "form": "VALUE",
+          "preservation": "PRESERVING",
+          "reason": "The compiler proved this output form for the exact field path.",
+          "rowEffect": "PRESERVES_ROW_GRAIN",
+          "shape": "SCALAR",
+          "support": "SUPPORTED"
+        }
+      ],
+      "presentation": {
+        "facts": [
+          {
+            "label": "FHIR field",
+            "value": "Observation.subject.reference"
+          },
+          {
+            "label": "Value type",
+            "value": "string"
+          },
+          {
+            "label": "Repetition",
+            "value": "Single value"
+          }
+        ],
+        "summary": "subject.reference"
+      },
+      "route": [],
+      "source": {
+        "kind": "FIELD",
+        "candidateId": "fixture-observation-subject-reference",
+        "nodeId": "fixture-observation-node",
+        "resourceType": "Observation",
+        "path": "subject.reference",
+        "cardinality": "optional_one"
+      }
+    },
+    "defaultProjectionMode": "VALUE",
+    "fieldPath": "subject.reference",
+    "filterable": true,
+    "label": "subject.reference",
+    "logicalType": "string",
+    "nodeId": "fixture-observation-node",
+    "projectionModes": [
+      "FIRST",
+      "VALUE"
+    ],
+    "repeated": false,
+    "transformations": {
+      "temporalReduction": {
+        "anchorFields": [],
+        "available": false,
+        "reason": "the candidate resource has no advertised scalar date_time fields",
+        "reasonCode": "NO_TIMESTAMP_FIELDS",
+        "timestampFields": []
+      },
+      "unitNormalization": {
+        "available": false,
+        "presets": [
+          {
+            "available": false,
+            "policyId": "to-celsius",
+            "reason": "unit normalization requires a scalar numeric value with Quantity system and code fields",
+            "reasonCode": "QUANTITY_VALUE_REQUIRED",
+            "target": {
+              "code": "Cel",
+              "system": "http://unitsofmeasure.org"
+            },
+            "version": "1"
+          },
+          {
+            "available": false,
+            "policyId": "to-centimeters",
+            "reason": "unit normalization requires a scalar numeric value with Quantity system and code fields",
+            "reasonCode": "QUANTITY_VALUE_REQUIRED",
+            "target": {
+              "code": "cm",
+              "system": "http://unitsofmeasure.org"
+            },
+            "version": "1"
+          },
+          {
+            "available": false,
+            "policyId": "to-fahrenheit",
+            "reason": "unit normalization requires a scalar numeric value with Quantity system and code fields",
+            "reasonCode": "QUANTITY_VALUE_REQUIRED",
+            "target": {
+              "code": "[degF]",
+              "system": "http://unitsofmeasure.org"
+            },
+            "version": "1"
+          },
+          {
+            "available": false,
+            "policyId": "to-kilograms",
+            "reason": "unit normalization requires a scalar numeric value with Quantity system and code fields",
+            "reasonCode": "QUANTITY_VALUE_REQUIRED",
+            "target": {
+              "code": "kg",
+              "system": "http://unitsofmeasure.org"
+            },
+            "version": "1"
+          }
+        ],
+        "reason": "unit normalization requires a scalar numeric value with Quantity system and code fields",
+        "reasonCode": "QUANTITY_VALUE_REQUIRED"
+      }
+    },
+    "valueTransformations": {
+      "codedValueRecoding": {
+        "available": false,
+        "reason": "coded value recoding is unavailable because this scalar transformation cannot preserve both Coding.system and Coding.code",
+        "reasonCode": "CODED_VALUE_RECODE_UNAVAILABLE"
+      },
+      "exactCategoryRecode": {
+        "available": true
+      }
+    }
+  }
+];
 const candidateConstruction = {
   version: 1,
   steps: [{
@@ -151,22 +369,23 @@ test('composite Group candidate binds the exact two scalar source IDs and COUNT_
 
 test('composite Group source candidates require an explicit supported scalar VALUE field binding', () => {
   assert.equal(validateCdaCompositeScalarFieldCandidate(sourceIDCandidate, 'id', 'Observation.id', 'Observation'),
-    'candidate-observation-id');
+    'fixture-observation-id');
   assert.equal(validateCdaCompositeScalarFieldCandidate(
     sourceSubjectCandidate, 'subject.reference', 'Observation.subject.reference', 'Observation'),
-  'candidate-observation-subject-reference');
+  'fixture-observation-subject-reference');
 
   const repeatedCandidate = {
     ...sourceSubjectCandidate,
     fieldPath: 'code.coding.code',
     cardinality: 'many',
     repeated: true,
-    source: { ...sourceSubjectCandidate.source, path: 'code.coding.code', cardinality: 'many' },
+    constructionChoice: {
+      ...sourceSubjectCandidate.constructionChoice,
+      source: { ...sourceSubjectCandidate.constructionChoice.source, path: 'code.coding.code', cardinality: 'many' },
+      options: [{ form: 'ALL', shape: 'LIST', support: 'SUPPORTED', rowEffect: 'PRESERVES_ROW_GRAIN' }],
+    },
     defaultProjectionMode: 'ALL',
     projectionModes: ['ALL'],
-    constructionChoice: { ...sourceSubjectCandidate.constructionChoice, options: [
-      { form: 'ALL', shape: 'LIST', support: 'SUPPORTED', rowEffect: 'PRESERVES_ROW_GRAIN' },
-    ] },
   };
   assert.throws(() => validateCdaCompositeScalarFieldCandidate(
     repeatedCandidate, 'code.coding.code', 'Observation.code.coding.code', 'Observation'),
@@ -190,11 +409,11 @@ test('composite Group source candidates require an explicit supported scalar VAL
   }, 'subject.reference', 'Observation.subject.reference', 'Observation'), /exactly one VALUE option/);
   assert.throws(() => validateCdaCompositeScalarFieldCandidate({
     ...sourceSubjectCandidate,
-    source: { ...sourceSubjectCandidate.source, path: 'subject' },
+    constructionChoice: { ...sourceSubjectCandidate.constructionChoice, source: { ...sourceSubjectCandidate.constructionChoice.source, path: 'subject' } },
   }, 'subject.reference', 'Observation.subject.reference', 'Observation'), /source binding must target subject\.reference/);
   assert.throws(() => validateCdaCompositeScalarFieldCandidate({
     ...sourceSubjectCandidate,
-    source: { ...sourceSubjectCandidate.source, resourceType: 'Patient' },
+    constructionChoice: { ...sourceSubjectCandidate.constructionChoice, source: { ...sourceSubjectCandidate.constructionChoice.source, resourceType: 'Patient' } },
   }, 'subject.reference', 'Observation.subject.reference', 'Observation'), /must bind to Observation/);
 });
 

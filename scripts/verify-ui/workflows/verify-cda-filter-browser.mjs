@@ -309,7 +309,7 @@ export async function filterBrowserWorkflow({ page, cda }) {
       return {
         candidateId: candidate.candidateId, fieldPath: candidate.fieldPath, cardinality: candidate.cardinality,
         repeated: candidate.repeated, logicalType: candidate.logicalType, defaultProjectionMode: candidate.defaultProjectionMode,
-        source: candidate.source,
+        source: candidate.constructionChoice.source, route: candidate.constructionChoice.route,
         scalarValueOption: { form: valueOption.form, shape: valueOption.shape, support: valueOption.support,
           rowEffect: valueOption.rowEffect },
       };

@@ -44,14 +44,16 @@ function validateSourceColumn(column, expectedPath, label) {
 export function validateCdaCompositeScalarFieldCandidate(candidate, expectedPath, label, expectedResourceType) {
   assert(nonempty(candidate?.candidateId), `${label} must have an exact catalog candidate ID.`);
   assert.equal(candidate.fieldPath, expectedPath, `${label} must resolve to ${expectedPath}.`);
-  assert.equal(candidate.source?.kind, 'FIELD', `${label} must bind to a direct source field.`);
-  assert.equal(candidate.source?.candidateId, candidate.candidateId, `${label} source binding must retain its candidate ID.`);
+  const source = candidate.constructionChoice?.source;
+  assert.equal(source?.kind, 'FIELD', `${label} must bind to a direct source field.`);
+  assert.equal(source?.candidateId, candidate.candidateId, `${label} source binding must retain its candidate ID.`);
   assert(nonempty(candidate.nodeId), `${label} must bind to an exact catalog node.`);
-  assert.equal(candidate.source?.nodeId, candidate.nodeId, `${label} source binding must retain its catalog node.`);
-  assert.equal(candidate.source?.resourceType, expectedResourceType, `${label} must bind to ${expectedResourceType}.`);
-  assert.equal(candidate.source?.path, expectedPath, `${label} source binding must target ${expectedPath}.`);
+  assert.equal(source?.nodeId, candidate.nodeId, `${label} source binding must retain its catalog node.`);
+  assert.equal(source?.resourceType, expectedResourceType, `${label} must bind to ${expectedResourceType}.`);
+  assert.equal(source?.path, expectedPath, `${label} source binding must target ${expectedPath}.`);
+  assert.deepEqual(candidate.constructionChoice?.route, [], `${label} must bind directly without a relationship route.`);
   assert(['one', 'optional_one'].includes(candidate.cardinality), `${label} must have one-valued source cardinality.`);
-  assert.equal(candidate.source?.cardinality, candidate.cardinality, `${label} source binding must retain its declared cardinality.`);
+  assert.equal(source?.cardinality, candidate.cardinality, `${label} source binding must retain its declared cardinality.`);
   assert.equal(candidate.repeated, false, `${label} must be a non-repeated source field.`);
   assert.equal(candidate.logicalType, 'string', `${label} must remain a string candidate.`);
   assert.equal(candidate.defaultProjectionMode, 'VALUE', `${label} must default to scalar VALUE projection.`);
