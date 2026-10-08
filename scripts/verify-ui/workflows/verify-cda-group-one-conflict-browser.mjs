@@ -3,13 +3,62 @@ import { randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { assertVisibleRowsMatchOracle } from '../helpers/cda-row-oracle.mjs';
 import { captureCDARequests } from '../helpers/cda-playwright-requests.mjs';
+import { createdExplorerScope } from '../helpers/created-explorer-scope.mjs';
 
 export const groupOneConflictRawFieldsSummarySelector = '[data-testid="feature-catalog-raw-fields"] > summary';
+export const groupOneConflictOperationPolicySelector = '[aria-label="Add columns editor"] select[aria-label="Values per grouped row"]';
+export const groupOneConflictChoiceDialogSelector = '[role="dialog"][aria-labelledby="catalog-selection-dialog-title"]';
+export const groupOneConflictChoicePolicySelector = `${groupOneConflictChoiceDialogSelector} select[aria-label="Values per grouped row"]`;
+export const groupOneConflictSelectedFieldSelector = '[aria-label="Add columns editor"] input[aria-label="Select Specimen.id"]';
+
+export function inspectGroupOneConflictChooserState({ dialogSelector, selectedFieldSelector }) {
+  const dialog = document.querySelector(dialogSelector);
+  const policy = dialog?.querySelector('select[aria-label="Values per grouped row"]');
+  const field = document.querySelector(selectedFieldSelector);
+  return {
+    dialogOpen: Boolean(dialog),
+    fieldSelected: field?.checked === true,
+    policy: policy?.value,
+    allAvailable: Array.from(policy?.options ?? []).some(option => option.value === 'ALL'),
+  };
+}
+
+export function buildGroupOneConflictRawWitnessQuery(project, generation) {
+  return `FOR s IN Specimen
+    FILTER s.project == ${JSON.stringify(project)} AND s.dataset_generation == ${JSON.stringify(generation)}
+    SORT s._id LIMIT 1
+    FOR e IN fhir_edge
+      FILTER e._from == s._id AND e.label == "subject_Patient"
+        AND e.project == s.project AND e.dataset_generation == s.dataset_generation
+        AND STARTS_WITH(e._to, "Patient/")
+      LET patient = DOCUMENT(e._to)
+      FILTER patient.project == s.project AND patient.dataset_generation == s.dataset_generation
+      LET members = (
+        FOR se IN fhir_edge
+          FILTER se._to == e._to AND se.label == "subject_Patient"
+            AND se.project == s.project AND se.dataset_generation == s.dataset_generation
+            AND STARTS_WITH(se._from, "Specimen/")
+          COLLECT specimenKey = se._from
+          SORT specimenKey
+          LIMIT 2
+          LET d = DOCUMENT(specimenKey)
+          FILTER d.project == s.project AND d.dataset_generation == s.dataset_generation
+            AND IS_STRING(d.id) AND LENGTH(TRIM(d.id)) > 0
+          RETURN {id: d.id, _id: d._id}
+      )
+      FILTER LENGTH(members) == 2
+      RETURN {patientID: patient.id, patientResourceID: patient._id,
+        resourceType: "Specimen", generation: s.dataset_generation, sources: members}`;
+}
 
 export async function runGroupOneConflictBrowserWorkflow({ page, cda }) {
   const project = cda.project;
   assert(project, 'CDA fixture must provide the isolated project');
-  const explorer = cda.explorer;
+  const requestedExplorerName = cda.explorer;
+  assert(requestedExplorerName, 'CDA fixture must provide an isolated requested Explorer name');
+  const generation = cda.generation;
+  assert.equal(generation, 'cda-fhir-v1', 'Group ONE requires the pinned CDA fixture generation');
+  let explorer;
   const evidence = cda.evidence;
   const apiOrigin = cda.apiOrigin;
   const uiOrigin = cda.uiOrigin;
@@ -17,9 +66,15 @@ export async function runGroupOneConflictBrowserWorkflow({ page, cda }) {
   const arangoContainer = cda.target?.arangoContainer ?? env.LOOM_ARANGO_CONTAINER;
   cda.report.errors ??= [];
   cda.report.nativeRequests ??= [];
-  const root = `/api/v1/projects/${project}/explorers`;
-const base = `${root}/${explorer}/authoring/v2`;
-const report = { explorer, evidence, target: cda.target, cases: [], errors: [], requests: [], nativeRequests: [], started: new Date().toISOString() };
+const explorerCollection = `/api/v1/projects/${encodeURIComponent(project)}/explorers`;
+let explorerRoot;
+let base;
+const report = { requestedExplorerName, evidence, target: cda.target, cases: [], errors: [], requests: [], nativeRequests: [], started: new Date().toISOString(),
+  workflowBoundary: {
+    intent: 'ONE rejects a scalar field when the two independent Specimen IDs disagree; ALL is the same-dialog recovery that preserves the selected field.',
+    notCovered: 'Editing a pre-existing saved related-field policy is a separate future workflow.',
+  },
+};
 let builder, outputId;
 const click = (...args) => cda.click(...args);
 const selectOption = (...args) => cda.selectOption(...args);
@@ -27,6 +82,7 @@ const fill = (...args) => cda.fill(...args);
 const browserEval = (...args) => cda.inspect(...args);
 const waitForBrowser = (...args) => cda.wait(...args);
 const navigate = (...args) => cda.navigate(...args);
+const recordCheck = (dimension, name, passed, checkEvidence = {}) => cda.check(dimension, name, passed, checkEvidence);
 const sensitiveName = /authorization|cookie|password|passwd|token|secret|credential|session|api[_-]?key/i;
 const sanitizeText = value => String(value ?? '')
   .replaceAll(process.cwd(), '$CHECKOUT')
@@ -75,22 +131,23 @@ const recordRender = (name, start) => {
   assert(durationMs <= 5000, `${name} took ${durationMs}ms`);
   report.cases.push({ name, durationMs });
 };
-const apply = async expectedRows => {
+const apply = async (expectedRows, name) => {
   const start = Date.now();
   await click( '[data-testid="construction-apply-proposal"]');
   await waitForBrowser(() => (!document.querySelector('[data-testid="construction-proposal-panel"]')));
   await rendered(expectedRows);
-  recordRender('apply-to-render', start);
+  recordRender(`${name}-apply-to-render`, start);
   builder = await api(base + '/builder');
 };
-const open = async expectedRows => {
+const open = async (expectedRows, name) => {
   const start = Date.now();
-  await navigate( `${uiOrigin}/?project=${project}&explorer=${explorer}&mode=builder`);
+  const query = new URLSearchParams({ project, explorer, mode: 'builder' });
+  await navigate(`${uiOrigin}/?${query}`);
   await waitForBrowser(({ selector }) => Boolean(document.querySelector(selector)), { selector: `[data-testid="construction-table-${outputId}"]` });
   await click( `[data-testid="construction-table-${outputId}"]`);
   await waitForBrowser(() => (document.querySelector('[data-testid="construction-rows-settings-trigger"]')?.disabled === false));
   await rendered(expectedRows);
-  recordRender('load-to-render', start);
+  recordRender(`${name}-load-to-render`, start);
 };
 const rendered = async expectedRows => {
   await waitForBrowser(({ rowCount, columnCount }) => {
@@ -102,36 +159,64 @@ const rendered = async expectedRows => {
   assertVisibleRowsMatchOracle(rows, savedRows, { label: 'saved table' });
 };
 try {
-  const query = `FOR s IN Specimen FILTER s.project == "${project}" AND s.dataset_generation == "cda-fhir-v1" LIMIT 1 FOR e IN fhir_edge FILTER e._from == s._id AND e.label == "subject_Patient" AND e.project == s.project AND e.dataset_generation == s.dataset_generation FILTER STARTS_WITH(e._to,"Patient/") LET members=(FOR se IN fhir_edge FILTER se._to == e._to AND se.label == "subject_Patient" AND se.project == s.project AND se.dataset_generation == s.dataset_generation FILTER STARTS_WITH(se._from,"Specimen/") LIMIT 2 LET d=DOCUMENT(se._from) FILTER d.project == s.project AND d.dataset_generation == s.dataset_generation RETURN {id:d.id,_id:d._id}) FILTER LENGTH(members)==2 RETURN {id:members[0].id,_id:members[0]._id,resourceType:"Specimen",generation:s.dataset_generation,sources:members}`;
+  const query = buildGroupOneConflictRawWitnessQuery(project, generation);
   const raw = spawnSync('rtk', ['proxy', 'docker', 'exec', arangoContainer, 'arangosh', '--server.database', 'loom_dev', '--javascript.execute-string', `print(JSON.stringify(db._query(${JSON.stringify(query)}).toArray()));`], { encoding: 'utf8', timeout: 30000 });
   assert.equal(raw.status, 0, raw.stderr);
   const [source] = JSON.parse(raw.stdout.slice(raw.stdout.indexOf('[')));
-  assert(source?.id);
+  assert(source?.patientID && source?.patientResourceID);
   report.oracle = { query, source };
-  await api(root, { name: explorer, title: 'Group Add fields QA' });
+  assert.equal(source.sources.length, 2, 'Raw Group ONE witness must contain exactly two distinct Specimens');
+  assert.equal(new Set(source.sources.map(member => member._id)).size, 2, 'Raw Group ONE witness must use distinct Specimen resources');
+  assert.equal(new Set(source.sources.map(member => member.id)).size, 2, 'Raw Group ONE witness must have distinct Specimen IDs');
+  assert(source.patientID && source.patientResourceID, 'Raw Group ONE witness must identify its shared Patient');
+  recordCheck('correctness', 'scoped raw oracle proves two distinct Specimen IDs share one Patient', true, {
+    patientID: source.patientID,
+    patientResourceID: source.patientResourceID,
+    specimenIDs: source.sources.map(member => member.id),
+    specimenResourceIDs: source.sources.map(member => member._id),
+    generation: source.generation,
+  });
+  const createdExplorer = await api(explorerCollection, { name: requestedExplorerName, title: 'Group ONE conflict QA' });
+  const creationRequest = report.requests.at(-1);
+  assert.equal(creationRequest?.path, explorerCollection);
+  assert.equal(creationRequest?.status, 201);
+  assert.equal(creationRequest?.body?.name, requestedExplorerName);
+  const createdScope = createdExplorerScope(project, createdExplorer);
+  explorer = createdScope.explorerId;
+  explorerRoot = createdScope.explorerRoot;
+  base = createdScope.authoringBase;
+  report.explorer = explorer;
+  report.target = { ...report.target, explorer };
+  report.explorerProvisioning = {
+    requestedName: requestedExplorerName,
+    createStatus: creationRequest.status,
+    returnedProject: createdExplorer.project,
+    returnedExplorerId: explorer,
+  };
   builder = await api(base + '/builder');
-  assert.equal(builder.catalog.generation, source.generation);
+  assert.equal(source.generation, generation, 'Raw source witness must match the pinned CDA fixture generation');
+  assert.equal(builder.catalog.generation, generation);
   const node = builder.catalog.nodes.find(n => n.resourceType === 'Specimen');
   await command([{ type: 'CREATE_TABLE', title: 'Related Group QA', rootNodeId: node.nodeId }]);
   outputId = builder.workspace.documents[0].output.id;
   const field = builder.catalog.candidates.find(c => c.nodeId === node.nodeId && c.fieldPath === 'id');
   await command([{ type: 'ADD_COLUMN', outputId, occurrenceId: 'base', candidateId: field.candidateId, projectionMode: 'VALUE', initialPresentation: 'TABLE', title: 'Specimen ID' }]);
-  const selection = await api(base.replace('/authoring/v2', '/selections'), { snapshotToken: builder.catalog.snapshotToken, idempotencyKey: explorer,
+  const selection = await api(explorerRoot + '/selections', { snapshotToken: builder.catalog.snapshotToken, idempotencyKey: explorer,
     source: { kind: 'resources', resources: { refs: source.sources.map(member=>({ project, generation: source.generation, resourceType: 'Specimen', id: member.id })) } } });
   const routes = await api(base + '/population-routes', { snapshotToken: builder.catalog.snapshotToken, outputId, selectionRevisionId: selection.id, limit: 50 });
   const direct = routes.choices.find(c => c.route.length === 0);
   assert(direct);
   await command([{ type: 'SET_TABLE_POPULATION', outputId, selectionRevisionId: selection.id, routeChoiceId: direct.routeChoiceId }]);
-  const fixtureCapture = cda.captureRequests(`${root}/${explorer}`);
-  const nativeCapture = captureCDARequests(page, { apiOrigin: uiOrigin, appOrigins: [uiOrigin], ownedPathPrefix: `${root}/${explorer}`, report });
+  const fixtureCapture = cda.captureRequests(explorerRoot);
+  const nativeCapture = captureCDARequests(page, { apiOrigin: uiOrigin, appOrigins: [uiOrigin], ownedPathPrefix: explorerRoot, report });
   const rawQuery = query => {
     const r=spawnSync('rtk',['proxy','docker','exec',arangoContainer,'arangosh','--server.database','loom_dev','--javascript.execute-string',`print(JSON.stringify(db._query(${JSON.stringify(query)}).toArray()));`],{encoding:'utf8',timeout:30000});
     assert.equal(r.status,0,r.stderr);return JSON.parse(r.stdout.slice(r.stdout.indexOf('[')));
   };
-  assert.equal(source.sources.length,2);
+  assert.equal(source.sources.length, 2);
   let witnesses=source.sources.map(member=>({anchor:member._id,values:[member.id]}));
   let expected=witnesses.map(w=>w.values);
-  await open(expected);
+  await open(expected, 'initial-specimen');
   const chain=[
     {from:'Specimen',to:'Patient',label:'subject_Patient',field:'subject',direction:'OUTBOUND'},
   ];
@@ -140,7 +225,7 @@ try {
     for(const witness of witnesses){
       const endpoint=hop.direction==='OUTBOUND'?'_from':'_to';
       const target=hop.direction==='OUTBOUND'?'_to':'_from';
-      const query=`FOR e IN fhir_edge FILTER e.${endpoint} == ${JSON.stringify(witness.anchor)} AND e.label == ${JSON.stringify(hop.label)} AND e.project == "${project}" AND e.dataset_generation == "cda-fhir-v1" FILTER STARTS_WITH(e.${target}, ${JSON.stringify(hop.to+'/')}) LET d=DOCUMENT(e.${target}) FILTER d.project=="${project}" AND d.dataset_generation=="cda-fhir-v1" RETURN DISTINCT {id:d.id,_id:d._id}`;
+      const query=`FOR e IN fhir_edge FILTER e.${endpoint} == ${JSON.stringify(witness.anchor)} AND e.label == ${JSON.stringify(hop.label)} AND e.project == ${JSON.stringify(project)} AND e.dataset_generation == ${JSON.stringify(generation)} FILTER STARTS_WITH(e.${target}, ${JSON.stringify(hop.to+'/')}) LET d=DOCUMENT(e.${target}) FILTER d.project==${JSON.stringify(project)} AND d.dataset_generation==${JSON.stringify(generation)} RETURN DISTINCT {id:d.id,_id:d._id}`;
       const matches=witness.anchor?rawQuery(query):[];
       if(matches.length)for(const match of matches)next.push({anchor:match._id,values:[...witness.values,match.id]});
       else next.push({anchor:null,values:[...witness.values,'—']});
@@ -158,14 +243,15 @@ try {
     const label=hop.from+(hop.direction==='INBOUND'?` <-[${hop.field}]- `:` -[${hop.field}]-> `)+hop.to;
     await waitForBrowser(({ selector }) => Boolean(document.querySelector(selector)), { selector: `${panel} input[aria-label="${label}"]` }, 5000);
     await click(panel+' input[aria-label="'+label+'"]');
-    await proposal('expand-'+hop.from+'-'+hop.to,start,expected);
-    await apply(expected);
+    await proposal('specimen-to-patient-preview',start,expected);
+    await apply(expected, 'specimen-to-patient');
   }
   const expanded=builder;
   assert(expected.length>1,'CDA fixture must exercise many related records before grouping');
   assert.equal(new Set(witnesses.map(w=>w.values.at(-1))).size,1);
+  assert.equal(witnesses[0].values.at(-1), source.patientID, 'Expanded source rows must resolve to the raw witness Patient');
   const grouped=[[witnesses[0].values.at(-1),String(expected.length)]];
-  await open(expected);
+  await open(expected, 'after-expansion');
   const configureGroup=async()=>{
     await click('[data-testid="construction-rows-settings-trigger"]');
     await click('[data-testid="construction-action-group-rows"]');
@@ -175,14 +261,32 @@ try {
   };
   let start;
   await configureGroup();
-  await proposal('related-many-group-preview',start,grouped);
+  await proposal('patient-group-preview-cancelled',start,grouped);
   await click('[data-testid="construction-cancel-proposal"]');
   await waitForBrowser(() => (!document.querySelector('[data-testid="construction-proposal-panel"]')));
-  assert.deepEqual((await api(base+'/builder')).workspace,expanded.workspace);
+  const afterGroupCancel = await api(base+'/builder');
+  assert.deepEqual(afterGroupCancel.workspace,expanded.workspace);
+  recordCheck('persistence', 'Group Cancel preserves the exact expanded workspace before Group Apply', true, {
+    draftVersion: afterGroupCancel.draftVersion,
+    draftDigest: afterGroupCancel.draftDigest,
+  });
   await configureGroup();
-  await proposal('confirmed-related-many-group-preview',start,grouped);
-  await apply(grouped);
-  await open(grouped);
+  await proposal('patient-group-preview-confirmed',start,grouped);
+  recordCheck('correctness', 'Group by Patient preview matches the exact independent raw rows', true, {
+    expectedRows: grouped,
+    rawPatientID: source.patientID,
+    contributingSpecimenIDs: source.sources.map(member => member.id),
+  });
+  await apply(grouped, 'patient-group');
+  const appliedGroupConstruction = doc(builder).construction;
+  assert(appliedGroupConstruction, 'Applied Patient Group must have a saved construction');
+  await open(grouped, 'after-group');
+  builder = await api(base + '/builder');
+  assert.deepEqual(doc(builder).construction, appliedGroupConstruction, 'Applied Patient Group construction must persist after Builder reload');
+  recordCheck('persistence', 'Applied Patient Group construction and rows persist after Builder reload', true, {
+    expectedRows: grouped,
+    construction: appliedGroupConstruction,
+  });
   await click('button',{name:'Columns'});
   const consumedControls=await browserEval(() => { return [...document.querySelectorAll('button[aria-label="Remove Specimen ID column"]')].length; });
   assert.equal(consumedControls,0,'Columns must manage final grouped outputs, not a consumed upstream Specimen ID');
@@ -192,15 +296,21 @@ try {
   await waitForBrowser(() => (document.querySelector('[data-testid="construction-add-columns-source"]')));
   report.addFieldsUI=await browserEval(() => { return {text:document.querySelector('[aria-label="Add columns editor"]').innerText,controls:[...document.querySelectorAll('[aria-label="Add columns editor"] input,[aria-label="Add columns editor"] select,[aria-label="Add columns editor"] button')].map(e=>({tag:e.tagName,label:e.getAttribute('aria-label'),testId:e.dataset.testid,text:e.innerText,disabled:e.disabled}))}; });
   const beforeField=builder;
-  await selectOption('select[aria-label="Values per grouped row"]','ONE');
+  await selectOption(groupOneConflictOperationPolicySelector,'ONE');
   await click(groupOneConflictRawFieldsSummarySelector);
   await waitForBrowser(() => (document.querySelector('input[aria-label="Select Specimen.id"]:not(:disabled)')));
   start=Date.now();
   await click('input[aria-label="Select Specimen.id"]');
   await click('[aria-label="Add columns editor"] button',{includes:'Add 1 selected feature'});
   await waitForBrowser(() => (['ready','error'].includes(document.querySelector('[data-testid="construction-choice-proposal-panel"]')?.dataset.proposalStatus)));
-  report.oneResult=await browserEval(() => { const p=document.querySelector('[data-testid="construction-choice-proposal-panel"]');return {status:p.dataset.proposalStatus,text:p.innerText}; });
+  report.oneResult=await browserEval(() => {
+    const panel=document.querySelector('[data-testid="construction-choice-proposal-panel"]');
+    const alert=panel?.querySelector('[role="alert"]');
+    return {status:panel?.dataset.proposalStatus,text:panel?.innerText,alertText:alert?.innerText,
+      alertVisible:Boolean(alert && alert.getClientRects().length && getComputedStyle(alert).visibility!=='hidden')};
+  });
   assert.equal(report.oneResult.status,'error','ONE must reject two distinct contributing Specimen IDs');
+  assert.equal(report.oneResult.alertVisible,true,'ONE failure must be visible in the chooser as an alert');
   assert(!/INTERNAL_ERROR|internal server error/i.test(report.oneResult.text),report.oneResult.text);
   assert.deepEqual((await api(base+'/builder')).workspace,beforeField.workspace);
   recordRender('one-disagreement-diagnostic',start);
@@ -214,6 +324,13 @@ try {
   assert(expectedFailure.requestId && expectedFailure.browserRequestId, 'Expected choice failure must have an exact browser request identity');
   assert.equal(expectedFailure.status, 422);
   assert.equal(expectedFailure.response.error.code, 'CONSTRUCTION_ROW_VALUE_MULTIPLE_VALUES');
+  recordCheck('correctness', 'ONE reports the multiple-values 422 and leaves the saved Group unchanged', true, {
+    status: expectedFailure.status,
+    code: expectedFailure.response.error.code,
+    proposalStatus: report.oneResult.status,
+    proposalText: report.oneResult.text,
+    savedWorkspaceUnchanged: true,
+  });
   await cda.expectHttpFailure(expectedFailure, 'The ONE grouping mode must reject multiple contributor IDs.', {
     expectedStatus: 422,
     expectedCode: 'CONSTRUCTION_ROW_VALUE_MULTIPLE_VALUES',
@@ -227,8 +344,22 @@ try {
   const contributorIDs=source.sources.map(member=>member.id).sort();
   const withField=[[...grouped[0],contributorIDs.join('; ')]];
   // Repair the existing selection instead of forcing the user to select it again.
+  const chooserStateArgs = {
+    dialogSelector: groupOneConflictChoiceDialogSelector,
+    selectedFieldSelector: groupOneConflictSelectedFieldSelector,
+  };
+  report.oneFailureState=await browserEval(inspectGroupOneConflictChooserState, chooserStateArgs);
+  assert.deepEqual(report.oneFailureState,{dialogOpen:true,fieldSelected:true,policy:'ONE',allAvailable:true},
+    'The failed ONE proposal must leave its field selected in the open chooser');
   start=Date.now();
-  await selectOption('select[aria-label="Values per grouped row"]','ALL');
+  await selectOption(groupOneConflictChoicePolicySelector,'ALL');
+  report.recoveryState=await browserEval(inspectGroupOneConflictChooserState, chooserStateArgs);
+  assert.deepEqual(report.recoveryState,{dialogOpen:true,fieldSelected:true,policy:'ALL',allAvailable:true},
+    'The selected field and ALL repair must remain available in the same chooser after ONE fails');
+  recordCheck('usability', 'failed ONE keeps the selected Specimen.id field and ALL recovery in the same editor', true, {
+    afterONE: report.oneFailureState,
+    afterSwitchToALL: report.recoveryState,
+  });
   await click('[aria-label="Add columns editor"] button',{includes:'Add 1 selected feature'});
   await waitForBrowser(() => (['ready','error'].includes(document.querySelector('[data-testid="construction-choice-proposal-panel"]')?.dataset.proposalStatus)));
   const repaired=await browserEval(() => { const p=document.querySelector('[data-testid="construction-choice-proposal-panel"]');return {status:p.dataset.proposalStatus,text:p.innerText}; });
@@ -236,14 +367,27 @@ try {
   const cells=await browserEval(() => { return [...document.querySelector('[data-testid="construction-proposal-preview-row"]').querySelectorAll('td')].map(cell=>({text:cell.innerText,raw:cell.title})); });
   assert.deepEqual(cells.slice(0,2).map(cell=>cell.text),grouped[0]);
   assert.deepEqual(JSON.parse(cells[2].raw),contributorIDs);
-  recordRender('repair-one-to-all-preview',start);
+  recordRender('all-repair-preview',start);
+  recordCheck('correctness', 'ALL preview contains exactly the two raw Specimen IDs', true, {
+    patientID: source.patientID,
+    specimenIDs: contributorIDs,
+    previewRow: cells.map(cell => cell.text),
+    rawContributorIDs: JSON.parse(cells[2].raw),
+  });
   start=Date.now();
   await click('[data-testid="construction-choice-proposal-panel"] button',{name:'Apply columns'});
   await waitForBrowser(() => (!document.querySelector('[data-testid="construction-choice-proposal-panel"]')));
   await rendered(withField);
-  recordRender('repair-all-apply-to-render',start);
+  recordRender('all-repair-apply-to-render',start);
   builder=await api(base+'/builder');
-  await open(withField);
+  const appliedConstruction = doc(builder).construction;
+  await open(withField, 'after-all-repair');
+  const reloadedBuilder = await api(base+'/builder');
+  assert.deepEqual(doc(reloadedBuilder).construction, appliedConstruction, 'Applied ALL construction must persist after Builder reload');
+  recordCheck('persistence', 'applied ALL field renders and persists after Builder reload', true, {
+    expectedRows: withField,
+    construction: appliedConstruction,
+  });
   await click('button',{name:'Columns'});
   assert.equal(await browserEval(() => { return document.querySelectorAll('button[aria-label="Remove Specimen ID column"]').length; }),1,'Added field must have one unambiguous removal control');
   start=Date.now();
@@ -251,16 +395,58 @@ try {
   await rendered(grouped);
   recordRender('remove-repaired-field',start);
   builder=await api(base+'/builder');
-  await open(grouped);
-  assert.deepEqual(doc(builder).construction,doc(beforeField).construction);
+  const restoredConstruction = doc(builder).construction;
+  await open(grouped, 'after-removal');
+  const reloadedRestoredBuilder = await api(base+'/builder');
+  assert.deepEqual(doc(reloadedRestoredBuilder).construction,doc(beforeField).construction);
+  assert.deepEqual(doc(reloadedRestoredBuilder).construction,restoredConstruction);
+  recordCheck('persistence', 'removing the field and reloading restores the original Group', true, {
+    expectedRows: grouped,
+    restoredConstruction,
+  });
   await nativeCapture.flush();
   assert.deepEqual(report.errors,[]);
+  const expectedRenderCheckpoints = [
+    'initial-specimen-load-to-render',
+    'specimen-to-patient-preview',
+    'specimen-to-patient-apply-to-render',
+    'after-expansion-load-to-render',
+    'patient-group-preview-cancelled',
+    'patient-group-preview-confirmed',
+    'patient-group-apply-to-render',
+    'after-group-load-to-render',
+    'one-disagreement-diagnostic',
+    'all-repair-preview',
+    'all-repair-apply-to-render',
+    'after-all-repair-load-to-render',
+    'remove-repaired-field',
+    'after-removal-load-to-render',
+  ];
+  const actualRenderCheckpoints = report.cases.map(checkpoint => checkpoint.name);
+  const maxRenderMs = Math.max(...report.cases.map(checkpoint => checkpoint.durationMs));
+  const renderCheckpointsComplete = expectedRenderCheckpoints.length === actualRenderCheckpoints.length &&
+    expectedRenderCheckpoints.every(name => actualRenderCheckpoints.includes(name));
+  const renderBudgetPassed = renderCheckpointsComplete && report.cases.every(checkpoint => checkpoint.durationMs <= 5000);
+  recordCheck('performance', 'all Group ONE action-to-render checkpoints complete within five seconds', renderBudgetPassed, {
+    expectedCheckpoints: expectedRenderCheckpoints,
+    actualCheckpoints: actualRenderCheckpoints,
+    timingCheckpoints: report.cases.map(checkpoint => ({
+      name: checkpoint.name,
+      durationMs: checkpoint.durationMs,
+      budgetMs: 5000,
+      passed: checkpoint.durationMs <= 5000,
+    })),
+    maximumDurationMs: maxRenderMs,
+    budgetMs: 5000,
+  });
   report.expectedDiagnostics=disagreement;
   report.status='passed';
 } catch (error) {
   report.status = 'failed';
   report.error = String(error.stack ?? error);
-  report.savedBuilderAtFailure = await api(base + '/builder').catch(readError => ({ readError: String(readError) }));
+  report.savedBuilderAtFailure = base
+    ? await api(base + '/builder').catch(readError => ({ readError: String(readError) }))
+    : { unavailable: 'Explorer creation did not return a usable server-assigned scope' };
   report.failureUI = await browserEval(() => document.body.innerText).catch(String);
   throw error;
 } finally {

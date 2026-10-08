@@ -58,7 +58,9 @@ test.describe('standalone CDA reshape workflows', () => {
   register('group-add-fields', runGroupAddFieldsBrowserWorkflow, {}, {
     cdaUiRouting: 'explicit-query',
   });
-  register('group-one-conflict', runGroupOneConflictBrowserWorkflow);
+  register('group-one-conflict', runGroupOneConflictBrowserWorkflow, {}, {
+    cdaUiRouting: 'explicit-query',
+  });
   register('group-related-values', runGroupRelatedValuesBrowserWorkflow);
   register('related-group', runRelatedGroupBrowserWorkflow);
   register('group-related-summary', runGroupRelatedSummaryBrowserWorkflow);
