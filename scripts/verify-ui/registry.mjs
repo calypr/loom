@@ -441,6 +441,7 @@ export const registry = Object.freeze([
       },
       "full-population-lifecycle": {
         playwrightTest: "scripts/verify-ui/specs/root-quantity-pivot.spec.mjs",
+        performanceCheckName: "all full-population native lifecycle actions complete within five seconds each",
         requiredChecks: [
           "independent raw Arango oracle groups the complete scoped CDA Observation population by status and typed quantity.code state",
           "raw oracle proves a duplicate Pivot bucket with at least two numeric values and different SUM and MAX results",
@@ -1867,30 +1868,6 @@ export const registry = Object.freeze([
           'CDA watched source and API build stayed unchanged',
         ],
       },
-    },
-    coverage: [
-      { feature: 'native post-Pivot RELATED_SOURCE Patient.id ALL with coalesced Observation contributors, edit, removal, and reload', acceptance: {"intent":"row-lifecycle","kind":"lifecycle","case":"related-source-after-pivot","checks":{"choice":9,"proposal":12,"cancel":11,"apply":13,"savedRows":13,"reload":13,"edit":16,"restoration":21}}, status: 'implemented', reason: 'Epoch 87 passed 25/25 registered checks, 86 assertions, 60 native actions, and 26 measured lifecycle transitions. The exact two-Patient raw oracle matched the single coalesced Pivot row through Preview/Cancel/Apply, edit/Cancel/Apply, removal/Cancel/Apply, and reload; maximum checkpoint was 1,468 ms and maximum native action was 239 ms. Project, generation, Explorer, request, and source/API scope checks passed; the report records only incidental favicon 404s. Restricted-authorization behavior is not claimed. Report: docs/verification/playwright/runtime/post-pivot-related-source-epoch87-lifecycle-report.json; closure: docs/verification/playwright/runtime/post-pivot-related-source-epoch87-closure.json.' },
-    ],
-  }),
-  Object.freeze({
-    id: 'standalone-reshape-group-add-fields',
-    workflow: 'owned-cda-group-add-source-fields-to-related-group-lifecycle',
-    hooks: [
-      'useGetExplorerBuilderStateV2Query',
-      'useCreateExplorerAuthoringMutation',
-      'useApplyExplorerBuilderCommandsV2Mutation',
-      'usePreviewExplorerAuthoringV2Mutation',
-    ],
-    endpoints: [
-      'POST /api/v1/projects/{project}/explorers',
-      'GET /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/builder',
-      'POST /api/v1/projects/{project}/explorers/{explorer}/selections',
-      'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/population-routes',
-      'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/related-expand-choices',
-      'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/construction-proposals',
-      'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/commands',
-    ],
-    requiredTransitions: [
       'related-source-count-after-pivot': {
         playwrightTest: 'scripts/verify-ui/specs/standalone-reshape.spec.mjs',
         playwrightGrep: 'standalone CDA reshape workflows related-source-count-after-pivot related-source-count-after-pivot$',
@@ -1954,10 +1931,34 @@ export const registry = Object.freeze([
           },
         },
       },
+    },
+    coverage: [
+      { feature: 'native post-Pivot RELATED_SOURCE Patient.id ALL with coalesced Observation contributors, edit, removal, and reload', acceptance: {"intent":"row-lifecycle","kind":"lifecycle","case":"related-source-after-pivot","checks":{"choice":9,"proposal":12,"cancel":11,"apply":13,"savedRows":13,"reload":13,"edit":16,"restoration":21}}, status: 'implemented', reason: 'Epoch 87 passed 25/25 registered checks, 86 assertions, 60 native actions, and 26 measured lifecycle transitions. The exact two-Patient raw oracle matched the single coalesced Pivot row through Preview/Cancel/Apply, edit/Cancel/Apply, removal/Cancel/Apply, and reload; maximum checkpoint was 1,468 ms and maximum native action was 239 ms. Project, generation, Explorer, request, and source/API scope checks passed; the report records only incidental favicon 404s. Restricted-authorization behavior is not claimed. Report: docs/verification/playwright/runtime/post-pivot-related-source-epoch87-lifecycle-report.json; closure: docs/verification/playwright/runtime/post-pivot-related-source-epoch87-closure.json.' },
+      { feature: 'native post-Pivot RELATED_SOURCE Patient.id COUNT with coalesced Observation contributors, edit, removal, and reload', acceptance: { intent: 'row-lifecycle', kind: 'lifecycle', case: 'related-source-count-after-pivot', checks: { choice: 9, proposal: 12, cancel: 11, apply: 13, savedRows: 13, reload: 13, edit: 16, restoration: 21 } }, status: 'implemented', reason: 'Historical qzzOck COUNT lifecycle passed 25/25 registered checks and 86 assertions for the exact two-Observation/two-Patient fixture, including COUNT 2 on the coalesced Pivot row and Cancel/Apply/edit/removal/reload. It recorded 60 actions (max 225 ms) and 26 action-to-render checkpoints (max 1,417 ms). The one-time derived report /private/tmp/qzzOck-lifecycle-derived-20261008/qzzOck-count-lifecycle-evidence.json (SHA-256 e3fff497b57bb0e084b30b12bcfe3c36840b6b2835b94b32d217d2aedbd9da8c) preserves original report SHA-256 5587cd186fbb00f1c8bd34470e9799522d8c7974c8faa6deb4603b6bd553b829 and summary SHA-256 19262bd541a31ae09a0134c9b02e04476ff8b04121edfde59253536deffb309c; the registered-contract coverage CLI classified all four dimensions passed with historical freshness. Source fingerprint 9f832251e1a6468109a547775bf2ac07351450f994b51637e7b1c584fd063833 (1,663 files); no current-source browser pass is claimed.' },
+    ],
+  }),
+  Object.freeze({
+    id: 'standalone-reshape-group-add-fields',
+    workflow: 'owned-cda-group-add-source-fields-to-related-group-lifecycle',
+    hooks: [
+      'useGetExplorerBuilderStateV2Query',
+      'useCreateExplorerAuthoringMutation',
+      'useApplyExplorerBuilderCommandsV2Mutation',
+      'usePreviewExplorerAuthoringV2Mutation',
+    ],
+    endpoints: [
+      'POST /api/v1/projects/{project}/explorers',
+      'GET /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/builder',
+      'POST /api/v1/projects/{project}/explorers/{explorer}/selections',
+      'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/population-routes',
+      'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/related-expand-choices',
+      'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/construction-proposals',
+      'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/commands',
+    ],
+    requiredTransitions: [
       'select one bounded project/generation-scoped Specimen with one Patient and two through twenty-four exact related Observation records, then verify the raw relationship edges',
       'author Specimen→Patient→Observation rows through the native Related editor and verify every visible row against the exact raw identities',
       'preview Group by Specimen ID with COUNT_ROWS, Cancel while preserving the exact expanded draft, then Apply and reload the exact grouped row',
-      { feature: 'native post-Pivot RELATED_SOURCE Patient.id COUNT with coalesced Observation contributors, edit, removal, and reload', acceptance: { intent: 'row-lifecycle', kind: 'lifecycle', case: 'related-source-count-after-pivot', checks: { choice: 9, proposal: 12, cancel: 11, apply: 13, savedRows: 13, reload: 13, edit: 16, restoration: 21 } }, status: 'implemented', reason: 'Historical qzzOck COUNT lifecycle passed 25/25 registered checks and 86 assertions for the exact two-Observation/two-Patient fixture, including COUNT 2 on the coalesced Pivot row and Cancel/Apply/edit/removal/reload. It recorded 60 actions (max 225 ms) and 26 action-to-render checkpoints (max 1,417 ms). The one-time derived report /private/tmp/qzzOck-lifecycle-derived-20261008/qzzOck-count-lifecycle-evidence.json (SHA-256 e3fff497b57bb0e084b30b12bcfe3c36840b6b2835b94b32d217d2aedbd9da8c) preserves original report SHA-256 5587cd186fbb00f1c8bd34470e9799522d8c7974c8faa6deb4603b6bd553b829 and summary SHA-256 19262bd541a31ae09a0134c9b02e04476ff8b04121edfde59253536deffb309c; the registered-contract coverage CLI classified all four dimensions passed with historical freshness. Source fingerprint 9f832251e1a6468109a547775bf2ac07351450f994b51637e7b1c584fd063833 (1,663 files); no current-source browser pass is claimed.' },
       'add Specimen.resourceType through the native Fields and related data chooser, compare its proposal with the raw source value, Cancel to preserve Group, then Apply and reload',
       'edit the saved field label through the native Columns control while preserving the exact field binding and column identity, reload, then remove it and restore the original Group construction and rows',
       'complete each native lifecycle action within five seconds; drain owned-origin browser/network diagnostics, capture native requests only under the server-assigned Explorer path, and verify unchanged source/API identity',
@@ -2820,6 +2821,27 @@ export const registry = Object.freeze([
     cases: {
       'zero-patient-observation-one-all-stable-parent-lifecycle': {
         playwrightTest: 'scripts/verify-ui/specs/standalone-cda-rows.spec.mjs',
+        focusedChecks: [
+          {
+            id: 'standalone-cda-row-fixture-gaps-fail-closed',
+            cwd: '.',
+            command: [
+              'node-test',
+              'scripts/verify-ui/helpers/tests/cda-fixture-outcomes.test.mjs',
+              'scripts/verify-ui/helpers/tests/zero-observation-witness.test.mjs',
+            ],
+            sourceFiles: [
+              'scripts/verify-ui/helpers/cda-fixture-outcomes.mjs',
+              'scripts/verify-ui/helpers/missing-component-group-oracle.mjs',
+              'scripts/verify-ui/specs/standalone-cda-rows.spec.mjs',
+              'scripts/verify-ui/workflows/verify-cda-nested-repeated-browser.mjs',
+              'scripts/verify-ui/workflows/verify-cda-related-one-all-browser.mjs',
+              'scripts/verify-ui/workflows/verify-cda-repeated-empty-browser.mjs',
+              'scripts/verify-ui/workflows/verify-cda-repeated-rows-browser.mjs',
+              'scripts/verify-ui/registry.mjs',
+            ],
+          },
+        ],
         requiredChecks: [
           'zero Patient Observation ONE/ALL preserves the exact scoped parent through the native lifecycle',
           'CDA watched source and API build stayed unchanged',
@@ -2844,27 +2866,7 @@ export const registry = Object.freeze([
       'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/related-expand-choices',
       'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/related-expand-contributors',
       'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/preview',
-        focusedChecks: [
-          {
-            id: 'standalone-cda-row-fixture-gaps-fail-closed',
-            cwd: '.',
-            command: [
-              'node-test',
-              'scripts/verify-ui/helpers/tests/cda-fixture-outcomes.test.mjs',
-              'scripts/verify-ui/helpers/tests/zero-observation-witness.test.mjs',
-            ],
-            sourceFiles: [
-              'scripts/verify-ui/helpers/cda-fixture-outcomes.mjs',
-              'scripts/verify-ui/helpers/missing-component-group-oracle.mjs',
-              'scripts/verify-ui/specs/standalone-cda-rows.spec.mjs',
-              'scripts/verify-ui/workflows/verify-cda-nested-repeated-browser.mjs',
-              'scripts/verify-ui/workflows/verify-cda-related-one-all-browser.mjs',
-              'scripts/verify-ui/workflows/verify-cda-repeated-empty-browser.mjs',
-              'scripts/verify-ui/workflows/verify-cda-repeated-rows-browser.mjs',
-              'scripts/verify-ui/registry.mjs',
-            ],
-          },
-        ],
+
     ],
     requiredTransitions: [
       'select exactly scoped zero, one, and many Patient-to-Observation witnesses from the CDA source oracle',
