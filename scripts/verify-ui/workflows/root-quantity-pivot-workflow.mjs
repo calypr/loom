@@ -353,6 +353,8 @@ export async function rootQuantityPivotWorkflow(page, nativeReport, action, chec
   report.expectedGeneration = expectedGeneration;
   report.resourceType = resourceType;
   report.explorer = explorer;
+  nativeReport.explorer = explorer;
+  nativeReport.target = { ...(nativeReport.target ?? {}), explorer };
   report.requiredChecks = requiredChecks;
   nativeReport.requiredChecks = requiredChecks;
   report.assertions ??= [];
@@ -413,10 +415,10 @@ const syncAuthoringRequests = () => {
   const allFailures = browserNetworkFailures.map(failure => ({ pathname: new URL(failure.url, apiOrigin).pathname, errorText: failure.failure, canceled: failure.failure === 'net::ERR_ABORTED' }));
   report.browserErrors.network = [...ownedFailures, ...allFailures.filter(failure => !ownedFailures.some(owned => owned.pathname === failure.pathname && owned.errorText === failure.errorText))];
 };const parseJSON = value => { try { return JSON.parse(value); } catch { return value; } };
-const recordRequirement = (name, condition, evidence = {}) => {
+const recordRequirement = (name, condition, evidence = {}, dimension = 'correctness') => {
   const passed = Boolean(condition);
-  report.assertions.push({ dimension: 'correctness', name, status: passed ? 'passed' : 'failed', evidence });
-  return check('correctness', name, passed, evidence);
+  report.assertions.push({ dimension, name, status: passed ? 'passed' : 'failed', evidence });
+  return check(dimension, name, passed, evidence);
 };
 const recordFact = (name, condition, evidence = {}) => {
   try { recordRequirement(name, condition, evidence); return Boolean(condition); }
@@ -1061,7 +1063,7 @@ const runFixtureLifecycle = async (discovery, oracle, prePivotWorkspace, prePivo
     && savedSourceBindings.groupKeyIds.length === 1
     && savedSourceBindings.categoryColumnId === applyPivot.operation.categoryColumnId
     && savedSourceBindings.valueColumnId === applyPivot.operation.valueColumnId,
-  { project, generation: builder.catalog.generation, outputId, sourceBindings: savedSourceBindings, sourceRowCount: oracle.sourceRows });
+  { project, generation: builder.catalog.generation, outputId, sourceBindings: savedSourceBindings, sourceRowCount: oracle.sourceRows }, 'persistence');
   measure('quantity Pivot reload to render', reloadStarted);
 
   const history = await inspectPage(page, () => {
@@ -1134,7 +1136,7 @@ return document.querySelector('[data-testid="construction-proposal-panel"]')?.da
   recordRequirement(requiredChecks[5], document.construction.steps.find(step => step.operation.kind === 'PIVOT')?.operation.pivot.duplicatePolicy === 'MAX'
     && document.construction.steps.find(step => step.operation.kind === 'PIVOT')?.outputs.some(output => output.label === 'd maximum')
     && document.output.id === outputId && builder.catalog.generation === expectedGeneration,
-  { policy: 'MAX', editedHeading: 'd maximum', generation: builder.catalog.generation, sourceBindings: savedSourceBindings });
+  { policy: 'MAX', editedHeading: 'd maximum', generation: builder.catalog.generation, sourceBindings: savedSourceBindings }, 'persistence');
   measure('quantity Pivot edited reload to render', editReloadStarted);
 
   const removeHistory = await inspectPage(page, () => {
@@ -1201,7 +1203,7 @@ return [...document.querySelectorAll('[data-testid^="construction-history-step-"
     && JSON.stringify(document.rows) === JSON.stringify(prePivotDocument.rows)
     && JSON.stringify(oracle.fixtureRows.map(row => row.id).sort()) === JSON.stringify(sourceRecords.map(row => row.id).sort())
     && document.construction.steps.length === 0,
-  { project, generation: builder.catalog.generation, outputId, sourceIDs: sourceRecords.map(row => row.id).sort(), restoredColumnIDs });
+  { project, generation: builder.catalog.generation, outputId, sourceIDs: sourceRecords.map(row => row.id).sort(), restoredColumnIDs }, 'persistence');
   report.fixtureLifecycle.restoredSourceRows = sourceRecords.map(row => ({ id: row.id, category: row.category, value: row.value }));
   report.fixtureLifecycle.editedDuplicatePolicy = 'MAX';
   report.fixtureLifecycle.editedDValue = 4;
@@ -1319,7 +1321,7 @@ const runFullPopulationLifecycle = async (discovery, oracle, prePivotWorkspace, 
     && savedSourceBindings.groupKeyIds.length === 1
     && savedSourceBindings.categoryColumnId === applyPivot.operation.categoryColumnId
     && savedSourceBindings.valueColumnId === applyPivot.operation.valueColumnId,
-  { project, generation: builder.catalog.generation, outputId, sourceRows: oracle.sourceRows, savedSourceBindings });
+  { project, generation: builder.catalog.generation, outputId, sourceRows: oracle.sourceRows, savedSourceBindings }, 'persistence');
   measure('full CDA quantity Pivot reload to render', reloadStarted);
 
   const history = await browserEval(page, `return [...document.querySelectorAll('[data-testid^="construction-history-step-"]')].map(button=>({testId:button.getAttribute('data-testid'),text:button.innerText}));`);
@@ -1389,7 +1391,7 @@ const runFullPopulationLifecycle = async (discovery, oracle, prePivotWorkspace, 
   recordRequirement(requiredChecks[6], witnessSum === witness.valueSum && witnessMax === witness.valueMax
     && document.construction.steps.find(step => step.operation.kind === 'PIVOT')?.operation.pivot.duplicatePolicy === 'MAX'
     && document.construction.steps.find(step => step.operation.kind === 'PIVOT')?.outputs.some(output => output.name === editedCategory.output.name && output.label === editedHeading),
-  { duplicateWitness: report.fullPopulationLifecycle.duplicateWitness, sum: witnessSum, max: witnessMax, persistedHeading: editedHeading, generation: builder.catalog.generation });
+  { duplicateWitness: report.fullPopulationLifecycle.duplicateWitness, sum: witnessSum, max: witnessMax, persistedHeading: editedHeading, generation: builder.catalog.generation }, 'persistence');
   measure('full CDA quantity Pivot edited reload to render', editReloadStarted);
 
   const removeHistory = await browserEval(page, `return [...document.querySelectorAll('[data-testid^="construction-history-step-"]')].map(button=>({testId:button.getAttribute('data-testid'),text:button.innerText}));`);
@@ -1515,7 +1517,7 @@ const runFullPopulationLifecycle = async (discovery, oracle, prePivotWorkspace, 
     && restoredOracle.sourceRows === oracle.sourceRows
     && JSON.stringify(restoredOracle.groups) === JSON.stringify(oracle.groups)
     && restoredBoundedRawTuples.length === reloadPreviewIDs.length,
-  { rawSourceRows: oracle.sourceRows, removalPreviewRows: removePreview.rowCount, removalPreviewIDs: boundedIDs, reloadPreviewRows: reloadPreview.rowCount, reloadPreviewIDs, restoredRowsDefinition: document.rows, generation: builder.catalog.generation, snapshotToken: builder.catalog.snapshotToken, draftVersion: builder.draftVersion, draftDigest: builder.draftDigest, rawGroupsUnchanged: true, reloadedRawBoundedTuples: restoredBoundedRawTuples });
+  { rawSourceRows: oracle.sourceRows, removalPreviewRows: removePreview.rowCount, removalPreviewIDs: boundedIDs, reloadPreviewRows: reloadPreview.rowCount, reloadPreviewIDs, restoredRowsDefinition: document.rows, generation: builder.catalog.generation, snapshotToken: builder.catalog.snapshotToken, draftVersion: builder.draftVersion, draftDigest: builder.draftDigest, rawGroupsUnchanged: true, reloadedRawBoundedTuples: restoredBoundedRawTuples }, 'persistence');
 
   const lifecycleActions = report.cases.filter(item => typeof item.durationMs === 'number');
   assert.equal(lifecycleActions.length, 14, `Full CDA lifecycle must record all 14 native action and validation timings, found ${lifecycleActions.length}`);
