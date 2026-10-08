@@ -125,13 +125,40 @@ export function buildRootRebaseOracleMetadata(witness, selection) {
   };
 }
 
+export async function createAndNavigateRootRebaseExplorer({ apiOrigin, pageURL, navigate, fetchImpl = fetch }) {
+  assert.equal(typeof navigate, 'function', 'Root-rebase setup requires the native route navigator');
+  const route = new URL(pageURL);
+  const projects = route.searchParams.getAll('project');
+  const explorers = route.searchParams.getAll('explorer');
+  const modes = route.searchParams.getAll('mode');
+  assert.equal(projects.length, 1, 'Root-rebase route must name one project');
+  assert.equal(explorers.length, 1, 'Root-rebase route must name one Explorer');
+  assert.deepEqual(modes, ['builder'], 'Root-rebase route must open Builder mode');
+
+  const [project] = projects;
+  const [explorerId] = explorers;
+  const collectionPath = `/api/v1/projects/${encodeURIComponent(project)}/explorers`;
+  const response = await fetchImpl(`${apiOrigin.replace(/\/$/, '')}${collectionPath}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ name: explorerId, title: 'CDA root rebase verification' }),
+    signal: AbortSignal.timeout(30_000),
+  });
+  const body = await response.json();
+  assert(response.ok, `Failed to create scoped root-rebase Explorer (${response.status}): ${JSON.stringify(body)}`);
+  await navigate(pageURL);
+  return { project, explorerId, pageURL, collectionPath, createStatus: response.status };
+}
+
 export async function rootRebaseWorkflow({ page, cda }) {
   const project = cda.project;
   const explorerId = `cda-root-rebase-${Date.now()}`;
   const uiOrigin = cda.uiOrigin.replace(/\/$/, '');
   const apiOrigin = cda.apiOrigin.replace(/\/$/, '');
-  const pageURL = `${uiOrigin}/?project=${project}&explorer=${explorerId}&mode=builder`;
-  const authoringURL = `${apiOrigin}/api/v1/projects/${project}/explorers/${explorerId}/authoring/v2`;
+  const routeProject = encodeURIComponent(project);
+  const routeExplorer = encodeURIComponent(explorerId);
+  const pageURL = `${uiOrigin}/?project=${routeProject}&explorer=${routeExplorer}&mode=builder`;
+  const authoringURL = `${apiOrigin}/api/v1/projects/${routeProject}/explorers/${routeExplorer}/authoring/v2`;
   const tableName = `CDA root rebase QA ${Date.now()}`;
   const state = cda.report;
   Object.assign(state, { project, explorer: explorerId, pageURL, tableName, actions: [], timingsMs: {}, rawOracleQueries: [], errors: state.errors ?? [], started: new Date().toISOString() });
@@ -533,7 +560,11 @@ export async function rootRebaseWorkflow({ page, cda }) {
     assert(witnessValid,
       `The bounded project/generation raw oracle must find one Patient with 2–25 exact Observations among its first ${candidatePatientLimit} sampled candidates; a 26-row sentinel and any query failure are rejected: ${JSON.stringify(witnessSelection)}`);
     state.oracle = buildRootRebaseOracleMetadata(witness, witnessSelection);
-    await cda.navigate( pageURL);
+    state.explorerSetup = await createAndNavigateRootRebaseExplorer({
+      apiOrigin,
+      pageURL,
+      navigate: url => cda.navigate(url),
+    });
     await cda.wait( () => document.body.innerText.includes('DATASET WORKSPACE'));
     state.tablesBefore = await cda.inspect( () => [...document.querySelectorAll('button[data-testid^="construction-table-"]')].map(button => button.innerText.trim().split(String.fromCharCode(10)).at(-1)));
     await actClick('button', 'New table', { name: 'New table' });

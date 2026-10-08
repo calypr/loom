@@ -4,6 +4,7 @@ import test from 'node:test';
 import { scenarioCaseFor } from '../../registry.mjs';
 import {
   buildRootRebaseOracleMetadata,
+  createAndNavigateRootRebaseExplorer,
   rootRebaseOracleBounds,
   selectRootRebaseWitness,
 } from '../../workflows/verify-cda-root-rebase.mjs';
@@ -25,6 +26,43 @@ test('CDA root rebase is registered to its explicit-query native case and focuse
   assert.match(describe, /cdaScenarioID:\s*'cda-root-rebase'/);
   assert.match(describe, /cdaCaseName:\s*'preserve-patient-values-through-observation-and-restore'/);
   assert.match(describe, /cdaUiRouting:\s*'explicit-query'/);
+});
+
+test('root-rebase creates the Explorer named by the explicit route before navigating to it', async () => {
+  const explorerId = 'cda-root-rebase-fixture-identity';
+  const pageURL = `http://127.0.0.1:30008/?project=loom_dev_cda_fhir&explorer=${explorerId}&mode=builder`;
+  const calls = [];
+  const setup = await createAndNavigateRootRebaseExplorer({
+    apiOrigin: 'http://127.0.0.1:8188/',
+    pageURL,
+    fetchImpl: async (url, options) => {
+      calls.push({
+        kind: 'create',
+        url,
+        method: options.method,
+        body: JSON.parse(options.body),
+      });
+      return { ok: true, status: 201, json: async () => ({}) };
+    },
+    navigate: async url => calls.push({ kind: 'navigate', url }),
+  });
+
+  assert.deepEqual(calls, [
+    {
+      kind: 'create',
+      url: 'http://127.0.0.1:8188/api/v1/projects/loom_dev_cda_fhir/explorers',
+      method: 'POST',
+      body: { name: explorerId, title: 'CDA root rebase verification' },
+    },
+    { kind: 'navigate', url: pageURL },
+  ]);
+  assert.deepEqual(setup, {
+    project: 'loom_dev_cda_fhir',
+    explorerId,
+    pageURL,
+    collectionPath: '/api/v1/projects/loom_dev_cda_fhir/explorers',
+    createStatus: 201,
+  });
 });
 
 test('root-rebase exact rereads reject partial samples and accept only one scoped 2–25-row Patient', () => {
