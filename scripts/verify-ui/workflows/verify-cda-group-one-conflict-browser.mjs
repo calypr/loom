@@ -23,6 +23,41 @@ export function inspectGroupOneConflictChooserState({ dialogSelector, selectedFi
   };
 }
 
+export async function classifyGroupOneExpectedONEFailure({
+  fixtureEntry,
+  workflowEntry,
+  expectedPath,
+  outputId,
+  expectedDraftVersion,
+  expectedDraftDigest,
+  expectedSnapshotToken,
+  classify,
+}) {
+  assert.equal(typeof classify, 'function', 'ONE failure needs the fixture-owned classifier callback');
+  for (const [source, entry] of [['fixture', fixtureEntry], ['workflow', workflowEntry]]) {
+    assert(entry && typeof entry === 'object', `${source} ONE failure capture must be an object`);
+    assert.equal(entry.method, 'POST', `${source} ONE failure must be a POST`);
+    assert.equal(entry.path, expectedPath, `${source} ONE failure must use the exact owned choice-proposal path`);
+    assert.equal(entry.status, 422, `${source} ONE failure must have exact HTTP 422 status`);
+    assert.equal(entry.response?.error?.code, 'CONSTRUCTION_ROW_VALUE_MULTIPLE_VALUES',
+      `${source} ONE failure must carry the typed multiple-values diagnostic`);
+    assert.equal(entry.body?.outputId, outputId, `${source} ONE failure must target the exact saved Group output`);
+    assert.equal(entry.body?.expectedDraftVersion, expectedDraftVersion, `${source} ONE failure must use the current draft version`);
+    assert.equal(entry.body?.expectedDraftDigest, expectedDraftDigest, `${source} ONE failure must use the current draft digest`);
+    assert.equal(entry.body?.snapshotToken, expectedSnapshotToken, `${source} ONE failure must use the current catalog snapshot`);
+    assert.equal(entry.body?.constructionChoices?.length, 1, `${source} ONE failure must submit one selected field`);
+    assert.equal(entry.body.constructionChoices[0].rowValuePolicy, 'ONE', `${source} ONE failure must be the exact scalar policy`);
+    assert.equal(entry.body.constructionChoices[0].title, 'Specimen ID', `${source} ONE failure must target Specimen.id`);
+  }
+  assert.equal(fixtureEntry.requestId, workflowEntry.requestId, 'Both capture views must identify the same server request');
+  assert.equal(fixtureEntry.browserRequestId, workflowEntry.browserRequestId, 'Both capture views must identify the same browser request');
+  assert.equal(typeof fixtureEntry.requestId, 'string', 'ONE failure must have a concrete request identity');
+  assert(fixtureEntry.requestId, 'ONE failure request identity must not be empty');
+  assert.equal(typeof fixtureEntry.browserRequestId, 'string', 'ONE failure must have a concrete browser request identity');
+  assert(fixtureEntry.browserRequestId, 'ONE failure browser identity must not be empty');
+  return classify(fixtureEntry);
+}
+
 export function buildGroupOneConflictRawWitnessQuery(project, generation) {
   return `FOR s IN Specimen
     FILTER s.project == ${JSON.stringify(project)} AND s.dataset_generation == ${JSON.stringify(generation)}
@@ -331,16 +366,41 @@ try {
     proposalText: report.oneResult.text,
     savedWorkspaceUnchanged: true,
   });
-  await cda.expectHttpFailure(expectedFailure, 'The ONE grouping mode must reject multiple contributor IDs.', {
+  const expectedFailureReason = 'The ONE grouping mode must reject multiple contributor IDs.';
+  const expectedFailureProof = {
     expectedStatus: 422,
     expectedCode: 'CONSTRUCTION_ROW_VALUE_MULTIPLE_VALUES',
+    outputId,
+    expectedDraftVersion: beforeField.draftVersion,
+    expectedDraftDigest: beforeField.draftDigest,
+    expectedSnapshotToken: beforeField.catalog.snapshotToken,
     proposal: report.oneResult,
+  };
+  const fixtureClassification = await classifyGroupOneExpectedONEFailure({
+    fixtureEntry: fixtureFailure,
+    workflowEntry: expectedFailure,
+    expectedPath,
+    outputId,
+    expectedDraftVersion: beforeField.draftVersion,
+    expectedDraftDigest: beforeField.draftDigest,
+    expectedSnapshotToken: beforeField.catalog.snapshotToken,
+    classify: entry => cda.expectHttpFailure(entry, expectedFailureReason, expectedFailureProof),
   });
-  const failureIndex = report.errors.findIndex(error => error.kind === 'http' && error.requestId === expectedFailure.requestId && error.browserRequestId === expectedFailure.browserRequestId && error.method === expectedFailure.method && error.path === expectedFailure.path && error.status === expectedFailure.status);
-  assert.notEqual(failureIndex, -1, 'The expected 422 must first be recorded as an unexpected HTTP failure');
+  const failureErrors = report.errors.filter(error => error.kind === 'http' &&
+    error.requestId === expectedFailure.requestId && error.browserRequestId === expectedFailure.browserRequestId &&
+    error.method === expectedFailure.method && error.path === expectedFailure.path && error.status === expectedFailure.status);
+  assert.equal(failureErrors.length, 1, 'The exact workflow-capture 422 must be recorded once before classification');
+  const consoleErrors = report.errors.filter(error => error.kind === 'console' &&
+    error.location === `${uiOrigin}${expectedPath}` &&
+    /status of 422 \(Unprocessable Entity\)/.test(error.message));
+  assert.equal(consoleErrors.length, 1, 'The exact workflow-capture 422 console diagnostic must be recorded once');
   report.expectedFailures ??= [];
-  report.expectedFailures.push({ requestId: expectedFailure.requestId, browserRequestId: expectedFailure.browserRequestId, method: expectedFailure.method, path: expectedFailure.path, status: expectedFailure.status, code: expectedFailure.response.error.code, reason: 'The ONE grouping mode must reject multiple contributor IDs.' });
-  report.errors.splice(failureIndex, 1);
+  report.expectedFailures.push({ requestId: expectedFailure.requestId, browserRequestId: expectedFailure.browserRequestId,
+    method: expectedFailure.method, path: expectedFailure.path, status: expectedFailure.status,
+    code: expectedFailure.response.error.code, reason: expectedFailureReason,
+    fixtureClassification,
+  });
+  for (const error of [...failureErrors, ...consoleErrors]) report.errors.splice(report.errors.indexOf(error), 1);
   const contributorIDs=source.sources.map(member=>member.id).sort();
   const withField=[[...grouped[0],contributorIDs.join('; ')]];
   // Repair the existing selection instead of forcing the user to select it again.

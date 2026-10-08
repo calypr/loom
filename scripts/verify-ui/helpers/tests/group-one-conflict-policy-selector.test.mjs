@@ -8,6 +8,7 @@ import {
   groupOneConflictOperationPolicySelector,
   groupOneConflictSelectedFieldSelector,
   inspectGroupOneConflictChooserState,
+  classifyGroupOneExpectedONEFailure,
 } from '../../workflows/verify-cda-group-one-conflict-browser.mjs';
 
 test('Group ONE retry selects ALL in the chooser when both policy controls are mounted', async () => {
@@ -61,4 +62,63 @@ test('Group ONE retry selects ALL in the chooser when both policy controls are m
   } finally {
     await browser.close();
   }
+});
+
+
+test('ONE failure classification uses the exact fixture capture after cross-checking the workflow capture', async () => {
+  const expectedPath = '/api/v1/projects/loom_dev_cda_fhir/explorers/owned-explorer/authoring/v2/construction-choice-proposals';
+  const outputId = 'out_group_1';
+  const expectedDraftVersion = 7;
+  const expectedDraftDigest = 'sha256:draft-7';
+  const expectedSnapshotToken = 'sha256:catalog-7';
+  const makeEntry = (overrides = {}) => ({
+    method: 'POST',
+    path: expectedPath,
+    status: 422,
+    requestId: 'server-request-9',
+    browserRequestId: 'playwright-9',
+    completedAt: 123,
+    body: {
+      outputId,
+      expectedDraftVersion,
+      expectedDraftDigest,
+      snapshotToken: expectedSnapshotToken,
+      constructionChoices: [{ rowValuePolicy: 'ONE', title: 'Specimen ID' }],
+    },
+    response: { error: { code: 'CONSTRUCTION_ROW_VALUE_MULTIPLE_VALUES' } },
+    ...overrides,
+  });
+  const fixtureEntry = makeEntry();
+  const workflowEntry = structuredClone(fixtureEntry);
+  assert.notStrictEqual(fixtureEntry, workflowEntry, 'the two capture trackers own different objects for one request');
+  let classifiedEntry;
+  const args = {
+    fixtureEntry,
+    workflowEntry,
+    expectedPath,
+    outputId,
+    expectedDraftVersion,
+    expectedDraftDigest,
+    expectedSnapshotToken,
+    classify: entry => { classifiedEntry = entry; return 'fixture-classified'; },
+  };
+  assert.equal(await classifyGroupOneExpectedONEFailure(args), 'fixture-classified');
+  assert.strictEqual(classifiedEntry, fixtureEntry, 'the fixture-owned classifier receives its exact captured object');
+
+  const rejects = async (badFixture, badWorkflow, pattern) => {
+    await assert.rejects(classifyGroupOneExpectedONEFailure({
+      ...args,
+      fixtureEntry: badFixture,
+      workflowEntry: badWorkflow,
+      classify: () => { throw new Error('invalid captures must not reach the classifier'); },
+    }), pattern);
+  };
+  await rejects(fixtureEntry, makeEntry({ browserRequestId: 'foreign-browser-request' }), /same browser request/);
+  await rejects(fixtureEntry, makeEntry({ response: { error: { code: 'INTERNAL_ERROR' } } }), /typed multiple-values diagnostic/);
+  await rejects(fixtureEntry, makeEntry({ requestId: 'foreign-server-request' }), /same server request/);
+  await rejects(fixtureEntry, makeEntry({ body: { ...workflowEntry.body, expectedDraftVersion: 6 } }), /current draft version/);
+  await rejects(fixtureEntry, makeEntry({ body: { ...workflowEntry.body, expectedDraftDigest: 'sha256:stale-draft' } }), /current draft digest/);
+  await rejects(fixtureEntry, makeEntry({ body: { ...workflowEntry.body, snapshotToken: 'sha256:stale-catalog' } }), /current catalog snapshot/);
+  await rejects(fixtureEntry, makeEntry({ body: { ...workflowEntry.body, outputId: 'out_foreign' } }), /exact saved Group output/);
+  await rejects(fixtureEntry, makeEntry({ path: '/api/v1/projects/foreign/explorers/other/authoring/v2/construction-choice-proposals' }), /exact owned choice-proposal path/);
 });
