@@ -6,7 +6,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'no
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { extractNativeFailureInput } from '../extract-native-failure-input.mjs';
+import { extractNativeFailureInput, listNativeFailureRequests } from '../extract-native-failure-input.mjs';
 import { prepareCdaMembershipOracle } from '../cda-current-draft-membership-oracle.mjs';
 import { validateCdaGroupCandidate } from '../cda-group-numeric-filter-oracle.mjs';
 
@@ -229,6 +229,13 @@ function extract(input, overrides = {}) {
   });
 }
 
+function runListCli(summaryPath, extraArgs = []) {
+  return spawnSync(process.execPath, [cliPath,
+    '--summary', summaryPath,
+    '--list-requests',
+    ...extraArgs], { encoding: 'utf8' });
+}
+
 function runCli(input, outputPath, { browserRequestId = input.request.browserRequestId,
   requestId = input.request.requestId, stateBrowserRequestId, checkName, expectedPath } = {}) {
   return spawnSync(process.execPath, [cliPath,
@@ -279,8 +286,131 @@ test('native bracket summary hashes retained evidence at extraction and preserve
   assert.equal(fixture.expectation.status, 'missing-independent-oracle');
 });
 
+test('request inventory lists every validated preceding state for multiple proposals without selecting one', t => {
+  const input = makeBracketInputs(t);
+  const secondState = structuredClone(input.stateRequest);
+  secondState.browserRequestId = 'playwright-17';
+  secondState.requestId = 'builder-reconcile-second';
+  secondState.startedAt = 2_500;
+  secondState.responseReceivedAt = 2_550;
+  secondState.completedAt = 2_560;
+  const secondProposal = structuredClone(input.request);
+  secondProposal.browserRequestId = 'playwright-25';
+  secondProposal.requestId = 'construction-proposal-second';
+  secondProposal.startedAt = 3_000;
+  const report = {
+    ...input.report,
+    nativeRequests: [input.stateRequest, input.request, secondState, secondProposal],
+  };
+  writeJson(input.paths.report, report);
+
+  const inventory = listNativeFailureRequests({ summaryPath: input.paths.summary });
+  assert.equal(inventory.kind, 'construction-proposal-request-inventory');
+  assert.equal(inventory.scope, 'validated-construction-proposal-requests-only');
+  assert.equal(inventory.selectionRequired, true);
+  assert.equal(inventory.causalLinkageToFailure, 'not-established-by-extractor');
+  assert.deepEqual(inventory.proposals.map(({ browserRequestId, requestId, stateSelectionStatus, stateMatches }) => ({
+    browserRequestId,
+    requestId,
+    stateSelectionStatus,
+    stateBrowserRequestIds: stateMatches.map(state => state.browserRequestId),
+  })), [
+    {
+      browserRequestId: 'playwright-24',
+      requestId: 'construction-proposal-literal',
+      stateSelectionStatus: 'options-available',
+      stateBrowserRequestIds: ['playwright-16'],
+    },
+    {
+      browserRequestId: 'playwright-25',
+      requestId: 'construction-proposal-second',
+      stateSelectionStatus: 'options-available',
+      stateBrowserRequestIds: ['playwright-16', 'playwright-17'],
+    },
+  ]);
+  assert.deepEqual(inventory.proposals[1].checkpoint, {
+    snapshotToken: 'snapshot-literal',
+    draftVersion: 4,
+    draftDigest: 'draft-digest-literal',
+    outputId: 'out-observed',
+  });
+  assert.deepEqual(inventory.proposals[1].stateMatches[1].checkpoint, {
+    snapshotToken: 'snapshot-literal',
+    draftVersion: 4,
+    draftDigest: 'draft-digest-literal',
+    outputId: 'out-observed',
+  });
+  assert.deepEqual(inventory.proposals[0].stateMatches[0].extractorArgs, [
+    '--summary', input.paths.summary,
+    '--browser-request-id', 'playwright-24',
+    '--request-id', 'construction-proposal-literal',
+    '--state-browser-request-id', 'playwright-16',
+    '--out', '<output-path>',
+  ]);
+  const json = JSON.stringify(inventory);
+  assert.equal(json.includes('candidateConstruction'), false);
+  assert.equal(Object.hasOwn(inventory.proposals[0], 'body'), false);
+  assert.equal(Object.hasOwn(inventory.proposals[0].stateMatches[0], 'response'), false);
+  assert.equal(json.includes('authorization'), false);
+  assert.equal(json.includes('request body'), false);
+  assert.equal(json.includes('Bearer bracket-secret-value'), false);
+
+  const cli = runListCli(input.paths.summary);
+  assert.equal(cli.status, 0, cli.stderr);
+  const cliInventory = JSON.parse(cli.stdout);
+  assert.equal(cliInventory.proposals[1].stateMatches.length, 2);
+  assert.deepEqual(cliInventory.proposals[0].stateMatches[0].extractorArgs, inventory.proposals[0].stateMatches[0].extractorArgs);
+});
+
+test('request inventory marks a proposal unmatched when no preceding reconcile passes validation', t => {
+  const input = makeBracketInputs(t);
+  const report = structuredClone(input.report);
+  report.nativeRequests[0].response.outputs = [];
+  writeJson(input.paths.report, report);
+
+  const inventory = listNativeFailureRequests({ summaryPath: input.paths.summary });
+  assert.equal(inventory.proposals.length, 1);
+  assert.equal(inventory.proposals[0].stateSelectionStatus, 'unmatched');
+  assert.equal(inventory.proposals[0].stateSelectionReason,
+    'no-preceding-reconcile-passed-the-existing-checkpoint-validator');
+  assert.deepEqual(inventory.proposals[0].stateMatches, []);
+  assert.equal(Object.hasOwn(inventory.proposals[0], 'extractorArgs'), false);
+  const cli = runListCli(input.paths.summary);
+  assert.equal(cli.status, 0, cli.stderr);
+  assert.equal(JSON.parse(cli.stdout).proposals[0].stateSelectionStatus, 'unmatched');
+});
+
+test('malformed proposal checkpoints produce an explicitly scoped empty inventory', t => {
+  const malformedCheckpoints = [
+    ['snapshotToken', body => { body.snapshotToken = { unexpected: 'object-valued-token' }; }],
+    ['expectedDraftVersion', body => { body.expectedDraftVersion = -1; }],
+    ['expectedDraftDigest', body => { body.expectedDraftDigest = 4; }],
+    ['outputId', body => { body.outputId = ''; }],
+  ];
+
+  for (const [field, mutate] of malformedCheckpoints) {
+    const input = makeBracketInputs(t);
+    const report = structuredClone(input.report);
+    mutate(report.nativeRequests[1].body);
+    writeJson(input.paths.report, report);
+
+    const inventory = listNativeFailureRequests({ summaryPath: input.paths.summary });
+    assert.deepEqual(inventory.proposals, [], field);
+    assert.equal(inventory.inventoryStatus, 'empty-within-scope', field);
+    assert.equal(inventory.scope, 'validated-construction-proposal-requests-only', field);
+    assert.equal(inventory.failureSelection.selectionMethod, 'retained-first-failure-context', field);
+    assert.equal(inventory.selectionRequired, true, field);
+    assert.equal(inventory.causalLinkageToFailure, 'not-established-by-extractor', field);
+  }
+});
+
 test('explicit prerequisite selection extracts the real retained DTO needed by the candidate validator', t => {
   const input = makeRetainedCdaInputs(t);
+  const inventory = listNativeFailureRequests({ summaryPath: input.paths.summary });
+  assert.equal(inventory.proposals.length, 1);
+  assert.equal(inventory.proposals[0].stateMatches.length, 1);
+  assert.equal(inventory.selectionRequired, true);
+  assert.equal(Object.hasOwn(inventory.proposals[0], 'selectedState'), false);
   const fixture = extract(input, { stateBrowserRequestId: input.retained.capture.sourceStateBrowserRequestId });
   const state = fixture.requestEvidence.prerequisiteState;
   const sourceSubjectColumn = state.document.columns.find(column => column.source?.field?.path === 'subject.reference');

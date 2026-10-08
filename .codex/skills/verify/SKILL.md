@@ -117,8 +117,29 @@ DOM, console exception, exact owned request scope and draft/stage identity,
 HTTP status, and response diagnostic body. Exclude credentials and unrelated
 traffic. Unexpected network failures remain fatal.
 
-For a failed native bracket, extract the retained request into focused test
-input:
+For a failed native bracket, list validated construction-proposal and
+prerequisite-state choices before extracting a focused test input:
+
+```bash
+node scripts/verify-ui/helpers/extract-native-failure-input.mjs \
+  --summary /path/to/summary.json \
+  --list-requests
+```
+
+The JSON lists each validated construction proposal and every preceding
+reconcile that passes the extractor's owner, chronology, checkpoint, output, and
+document checks. Each pair includes the extractor CLI argument array with
+`--out <output-path>` left for the operator. It omits full request bodies and
+response documents, while showing the checkpoint fields the validator matched.
+`selectionRequired` stays true even when one pair is available, and
+`causalLinkageToFailure` remains
+`not-established-by-extractor`. An empty inventory has
+`inventoryStatus: "empty-within-scope"`: no retained request matched this
+inventory's validated construction-proposal shape, which does not mean there was
+no failure. Choose the pair that matches the failed action, then run
+its argument array with an output path.
+
+To extract the retained request into focused test input:
 
 ```bash
 node scripts/verify-ui/helpers/extract-native-failure-input.mjs \

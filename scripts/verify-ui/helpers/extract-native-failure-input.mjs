@@ -107,6 +107,52 @@ function selectFailure(summary, report, checkName) {
   return { name: null, assertion: null, selectionMethod: 'retained-first-failure-context', firstFailureReason };
 }
 
+function loadRetainedFailureContext(summaryPath) {
+  const summaryInput = readJsonInput(summaryPath, 'Summary');
+  const summary = summaryInput.value;
+  assert.equal(summary.status, 'failed', 'Summary must identify a failed retained case');
+  const references = reportReferences(summary);
+  const summaryDirectory = dirname(summaryInput.path);
+  const domainArtifact = captureArtifact(references.domainReportPath, 'domainReport', {
+    basePath: summaryDirectory,
+    declaredSha256: references.domainReportSha256,
+    required: true,
+  });
+  const playwrightArtifact = captureArtifact(references.playwrightReportPath, 'playwrightReport', {
+    basePath: summaryDirectory,
+    declaredSha256: references.playwrightReportSha256,
+    required: true,
+  });
+  const runnerLogArtifact = references.runnerLogPath
+    ? captureArtifact(references.runnerLogPath, 'runnerLog', {
+      basePath: summaryDirectory,
+      declaredSha256: references.runnerLogSha256,
+    })
+    : null;
+  const report = JSON.parse(readFileSync(domainArtifact.path, 'utf8'));
+  assert.equal(report.status, 'failed', 'Domain report must identify a failed retained case');
+  assert.equal(report.scenario, summary.scenario, 'Domain report scenario does not match summary');
+  assert.equal(report.case ?? report.caseName, summary.case, 'Domain report case does not match summary');
+  const sourceFingerprint = sourceFingerprintFor(summary, report);
+  const target = {
+    project: report.target?.project ?? summary.targetIdentity?.project ?? null,
+    generation: report.target?.generation ?? summary.targetIdentity?.generation ?? null,
+    explorer: report.target?.explorer ?? null,
+  };
+  assert(target.project && target.generation, 'Domain report project and generation are required');
+  return {
+    summaryInput,
+    summary,
+    summaryDirectory,
+    domainArtifact,
+    playwrightArtifact,
+    runnerLogArtifact,
+    report,
+    sourceFingerprint,
+    target,
+  };
+}
+
 function supplementalArtifacts(summary, basePath, excludedPaths) {
   const artifacts = [];
   const seen = new Set(excludedPaths.map(path => resolve(path)));
@@ -142,6 +188,29 @@ function authoringV2Path(project, explorer, endpoint) {
   return `/api/v1/projects/${encodeURIComponent(project)}/explorers/${encodeURIComponent(explorer)}/authoring/v2/${endpoint}`;
 }
 
+function selectedProposalCheckpoint(target, selectedRequest) {
+  assert(target.explorer, 'Domain report explorer is required to select prerequisite state');
+  assert.equal(selectedRequest.method, 'POST', 'Selected proposal must be POST');
+  assert.equal(selectedRequest.path, authoringV2Path(target.project, target.explorer, 'construction-proposals'),
+    'Selected proposal must use the exact retained explorer authoring-v2 path');
+  assert(Number.isFinite(selectedRequest.startedAt), 'Selected proposal start time is missing');
+  const body = selectedRequest.body;
+  assert(body && typeof body === 'object' && !Array.isArray(body), 'Selected proposal request body is missing');
+  assert(typeof body.snapshotToken === 'string' && body.snapshotToken.trim(),
+    'Selected proposal snapshotToken must be a nonempty string');
+  assert(Number.isInteger(body.expectedDraftVersion) && body.expectedDraftVersion >= 0,
+    'Selected proposal expectedDraftVersion must be a nonnegative integer');
+  assert(typeof body.expectedDraftDigest === 'string' && body.expectedDraftDigest.trim(),
+    'Selected proposal expectedDraftDigest must be a nonempty string');
+  assert(typeof body.outputId === 'string' && body.outputId.trim(), 'Selected proposal outputId must be a nonempty string');
+  return {
+    snapshotToken: body.snapshotToken,
+    draftVersion: body.expectedDraftVersion,
+    draftDigest: body.expectedDraftDigest,
+    outputId: body.outputId,
+  };
+}
+
 function selectPrerequisiteState(report, target, selectedRequest, selectedIndex, browserRequestId) {
   if (browserRequestId === undefined) {
     return {
@@ -160,10 +229,7 @@ function selectPrerequisiteState(report, target, selectedRequest, selectedIndex,
   const stateIndex = requests.indexOf(state);
   const owner = { project: target.project, explorer: target.explorer };
   const reconcilePath = authoringV2Path(target.project, target.explorer, 'reconcile');
-  const proposalPath = authoringV2Path(target.project, target.explorer, 'construction-proposals');
-  assert(target.explorer, 'Domain report explorer is required to select prerequisite state');
-  assert.equal(selectedRequest.method, 'POST', 'Selected proposal must be POST');
-  assert.equal(selectedRequest.path, proposalPath, 'Selected proposal must use the exact retained explorer authoring-v2 path');
+  const selectedCheckpoint = selectedProposalCheckpoint(target, selectedRequest);
   assert.equal(state.method, 'POST', 'Prerequisite state must be POST');
   assert.equal(state.path, reconcilePath, 'Prerequisite state must use the exact same-owner reconcile path');
   assert.equal(state.status, 200, 'Prerequisite reconcile must have a successful HTTP 200 response');
@@ -180,25 +246,21 @@ function selectPrerequisiteState(report, target, selectedRequest, selectedIndex,
   assert(stateIndex < selectedIndex && state.completedAt < selectedRequest.startedAt,
     'Prerequisite reconcile must precede the selected proposal in report order and time');
 
-  const selectedBody = selectedRequest.body;
   const stateBody = state.body;
   const response = state.response;
   assert(stateBody && typeof stateBody === 'object' && !Array.isArray(stateBody),
     'Prerequisite reconcile request body is missing');
-  assert(selectedBody && typeof selectedBody === 'object' && !Array.isArray(selectedBody),
-    'Selected proposal request body is missing');
   for (const [label, value] of [
     ['snapshotToken', stateBody.snapshotToken],
     ['draftVersion', stateBody.draftVersion],
     ['draftDigest', stateBody.draftDigest],
   ]) assert(value !== undefined && value !== null, `Prerequisite reconcile ${label} is missing`);
-  assert.equal(stateBody.snapshotToken, selectedBody.snapshotToken, 'Prerequisite reconcile snapshotToken differs from selected proposal');
-  assert.equal(stateBody.draftVersion, selectedBody.expectedDraftVersion, 'Prerequisite reconcile draftVersion differs from selected proposal');
-  assert.equal(stateBody.draftDigest, selectedBody.expectedDraftDigest, 'Prerequisite reconcile draftDigest differs from selected proposal');
+  assert.equal(stateBody.snapshotToken, selectedCheckpoint.snapshotToken, 'Prerequisite reconcile snapshotToken differs from selected proposal');
+  assert.equal(stateBody.draftVersion, selectedCheckpoint.draftVersion, 'Prerequisite reconcile draftVersion differs from selected proposal');
+  assert.equal(stateBody.draftDigest, selectedCheckpoint.draftDigest, 'Prerequisite reconcile draftDigest differs from selected proposal');
   assert.equal(response.snapshotToken, stateBody.snapshotToken, 'Prerequisite reconcile response snapshotToken differs from its request');
 
-  const outputId = selectedBody.outputId;
-  assert(typeof outputId === 'string' && outputId, 'Selected proposal outputId is missing');
+  const outputId = selectedCheckpoint.outputId;
   const matchingOutputs = (Array.isArray(response.outputs) ? response.outputs : [])
     .filter(output => output?.outputId === outputId);
   assert.equal(matchingOutputs.length, 1, 'Prerequisite reconcile must retain exactly one matching output');
@@ -246,39 +308,17 @@ function selectPrerequisiteState(report, target, selectedRequest, selectedIndex,
 export function extractNativeFailureInput({ summaryPath, browserRequestId, requestId, stateBrowserRequestId, checkName, expectedPath }) {
   assert(typeof browserRequestId === 'string' && browserRequestId.trim(), 'browserRequestId is required');
   assert(typeof requestId === 'string' && requestId.trim(), 'requestId is required');
-  const summaryInput = readJsonInput(summaryPath, 'Summary');
-  const summary = summaryInput.value;
-  assert.equal(summary.status, 'failed', 'Summary must identify a failed retained case');
-  const references = reportReferences(summary);
-  const summaryDirectory = dirname(summaryInput.path);
-  const domainArtifact = captureArtifact(references.domainReportPath, 'domainReport', {
-    basePath: summaryDirectory,
-    declaredSha256: references.domainReportSha256,
-    required: true,
-  });
-  const playwrightArtifact = captureArtifact(references.playwrightReportPath, 'playwrightReport', {
-    basePath: summaryDirectory,
-    declaredSha256: references.playwrightReportSha256,
-    required: true,
-  });
-  const runnerLogArtifact = references.runnerLogPath
-    ? captureArtifact(references.runnerLogPath, 'runnerLog', {
-      basePath: summaryDirectory,
-      declaredSha256: references.runnerLogSha256,
-    })
-    : null;
-  const report = JSON.parse(domainArtifact && readFileSync(domainArtifact.path, 'utf8'));
-  assert.equal(report.status, 'failed', 'Domain report must identify a failed retained case');
-  assert.equal(report.scenario, summary.scenario, 'Domain report scenario does not match summary');
-  assert.equal(report.case ?? report.caseName, summary.case, 'Domain report case does not match summary');
-  const sourceFingerprint = sourceFingerprintFor(summary, report);
-  const target = {
-    project: report.target?.project ?? summary.targetIdentity?.project ?? null,
-    generation: report.target?.generation ?? summary.targetIdentity?.generation ?? null,
-    explorer: report.target?.explorer ?? null,
-  };
-  assert(target.project && target.generation, 'Domain report project and generation are required');
-
+  const {
+    summaryInput,
+    summary,
+    summaryDirectory,
+    domainArtifact,
+    playwrightArtifact,
+    runnerLogArtifact,
+    report,
+    sourceFingerprint,
+    target,
+  } = loadRetainedFailureContext(summaryPath);
   const failure = selectFailure(summary, report, checkName);
   const nativeRequests = report.nativeRequests ?? [];
   const browserMatches = nativeRequests.filter(entry => entry.browserRequestId === browserRequestId);
@@ -358,6 +398,95 @@ export function extractNativeFailureInput({ summaryPath, browserRequestId, reque
   };
 }
 
+export function listNativeFailureRequests({ summaryPath, checkName }) {
+  const context = loadRetainedFailureContext(summaryPath);
+  const { summaryInput, summary, report, target } = context;
+  const failure = selectFailure(summary, report, checkName);
+  assert(target.explorer, 'Domain report explorer is required to list prerequisite state requests');
+  const proposalPath = authoringV2Path(target.project, target.explorer, 'construction-proposals');
+  const reconcilePath = authoringV2Path(target.project, target.explorer, 'reconcile');
+  const requests = Array.isArray(report.nativeRequests) ? report.nativeRequests : [];
+  const proposals = [];
+
+  for (const [proposalIndex, proposal] of requests.entries()) {
+    if (proposal.method !== 'POST' || proposal.path !== proposalPath) continue;
+    if (typeof proposal.browserRequestId !== 'string' || !proposal.browserRequestId.trim()) continue;
+    if (typeof proposal.requestId !== 'string' || !proposal.requestId.trim()) continue;
+    if (requests.filter(entry => entry.browserRequestId === proposal.browserRequestId).length !== 1) continue;
+
+    let checkpoint;
+    try {
+      checkpoint = selectedProposalCheckpoint(target, proposal);
+    } catch (error) {
+      if (error.code === 'ERR_ASSERTION') continue;
+      throw error;
+    }
+
+    const stateMatches = [];
+    for (const [stateIndex, state] of requests.entries()) {
+      if (state.method !== 'POST' || state.path !== reconcilePath || stateIndex >= proposalIndex) continue;
+      if (typeof state.browserRequestId !== 'string' || !state.browserRequestId.trim()) continue;
+      try {
+        const retained = selectPrerequisiteState(report, target, proposal, proposalIndex, state.browserRequestId);
+        stateMatches.push({
+          browserRequestId: retained.browserRequestId,
+          requestId: retained.requestId,
+          method: retained.method,
+          path: retained.path,
+          statusCode: retained.statusCode,
+          startedAt: retained.startedAt,
+          responseReceivedAt: retained.responseReceivedAt,
+          completedAt: retained.completedAt,
+          checkpoint: retained.checkpoint,
+          extractorArgs: [
+            '--summary', summaryInput.path,
+            '--browser-request-id', proposal.browserRequestId,
+            '--request-id', proposal.requestId,
+            ...(checkName ? ['--check', checkName] : []),
+            '--state-browser-request-id', retained.browserRequestId,
+            '--out', '<output-path>',
+          ],
+        });
+      } catch (error) {
+        if (error.code === 'ERR_ASSERTION') continue;
+        throw error;
+      }
+    }
+
+    proposals.push({
+      browserRequestId: proposal.browserRequestId,
+      requestId: proposal.requestId,
+      method: proposal.method,
+      path: proposal.path,
+      statusCode: proposal.status ?? null,
+      startedAt: Number.isFinite(proposal.startedAt) ? proposal.startedAt : null,
+      checkpoint,
+      stateSelectionStatus: stateMatches.length === 0 ? 'unmatched' : 'options-available',
+      ...(stateMatches.length === 0
+        ? { stateSelectionReason: 'no-preceding-reconcile-passed-the-existing-checkpoint-validator' }
+        : {}),
+      stateMatches,
+    });
+  }
+
+  return {
+    schemaVersion: 1,
+    kind: 'construction-proposal-request-inventory',
+    scope: 'validated-construction-proposal-requests-only',
+    summary: {
+      path: summaryInput.path,
+      sha256: summaryInput.sha256,
+      scenario: summary.scenario,
+      case: summary.case,
+    },
+    failureSelection: { selectionMethod: failure.selectionMethod },
+    inventoryStatus: proposals.length === 0 ? 'empty-within-scope' : 'validated-proposals-found',
+    selectionRequired: true,
+    causalLinkageToFailure: 'not-established-by-extractor',
+    proposals,
+  };
+}
+
 function parseCli(argv) {
   const parsed = parseArgs({
     args: argv,
@@ -369,12 +498,20 @@ function parseCli(argv) {
       check: { type: 'string' },
       expected: { type: 'string' },
       out: { type: 'string' },
+      'list-requests': { type: 'boolean' },
       help: { type: 'boolean', short: 'h' },
     },
     allowPositionals: false,
     strict: true,
   });
   if (parsed.values.help) return { help: true };
+  if (parsed.values['list-requests']) {
+    assert(parsed.values.summary?.trim(), '--summary is required');
+    for (const option of ['browser-request-id', 'request-id', 'state-browser-request-id', 'expected', 'out']) {
+      assert(parsed.values[option] === undefined, `--${option} cannot be combined with --list-requests`);
+    }
+    return { mode: 'list-requests', summaryPath: parsed.values.summary, checkName: parsed.values.check };
+  }
   for (const option of ['summary', 'browser-request-id', 'request-id', 'out']) {
     assert(parsed.values[option]?.trim(), `--${option} is required`);
   }
@@ -393,6 +530,11 @@ export function main(argv = process.argv.slice(2)) {
   const options = parseCli(argv);
   if (options.help) {
     process.stdout.write('Usage: node scripts/verify-ui/helpers/extract-native-failure-input.mjs --summary <summary.json> --browser-request-id <id> --request-id <id> [--state-browser-request-id <reconcile-id>] [--check <failed-assertion-name>] [--expected <value-expectation.json>] --out <fixture.json>\n');
+    process.stdout.write('       node scripts/verify-ui/helpers/extract-native-failure-input.mjs --summary <summary.json> --list-requests [--check <failed-assertion-name>]\n');
+    return 0;
+  }
+  if (options.mode === 'list-requests') {
+    process.stdout.write(`${JSON.stringify(listNativeFailureRequests(options), null, 2)}\n`);
     return 0;
   }
   const bundle = extractNativeFailureInput(options);
