@@ -15,6 +15,79 @@ import { relatedChoiceStageContext } from '../helpers/related-choice-stage-conte
 
 export const groupEditRawFieldsDisclosureSelector = '[data-testid="feature-catalog-raw-fields"]';
 export const groupEditRawFieldsSummarySelector = `${groupEditRawFieldsDisclosureSelector} > summary`;
+export const groupEditRenderBudgetMs = 5000;
+export const groupEditRenderCheckpointNames = Object.freeze([
+  'selected-raw-Specimen-reload',
+  'expand-Specimen-Patient',
+  'apply-expand-Specimen-Patient',
+  'expand-Patient-Observation',
+  'apply-expand-Patient-Observation',
+  'group-by-Specimen-ID-count-rows',
+  'apply-initial-Group',
+  'reload-initial-Group',
+  'edit-Group-to-count-distinct-before-column',
+  'cancel-Group-edit-before-column',
+  'reapply-Group-count-distinct-before-column',
+  'apply-Group-edit-before-column',
+  'reload-Group-edit-before-column',
+  'automatic-Observation-status-RELATED_SOURCE-preview-after-Group-edit',
+  'cancel-related-column-after-Group-edit',
+  'reopened-Observation-status-RELATED_SOURCE-preview-before-Apply',
+  'apply-related-column-after-Group-edit',
+  'reload-related-column-after-Group-edit',
+  'edit-Group-back-to-count-rows-with-related-column',
+  'cancel-Group-round-trip-edit',
+  'reapply-Group-count-rows-with-related-column',
+  'apply-Group-round-trip-with-related-column',
+  'reload-Group-round-trip-with-related-column',
+  'automatic-remove-RELATED_SOURCE-preview-cancel-target',
+  'cancel-remove-RELATED_SOURCE',
+  'reopened-remove-RELATED_SOURCE-preview-before-Apply',
+  'apply-remove-RELATED_SOURCE-to-restore-Group',
+  'reload-final-Group-source-restoration',
+]);
+
+export function recordGroupEditActionToRender(report, name, startedAt, details = {}, now = Date.now) {
+  const durationMs = now() - startedAt;
+  assert(Number.isFinite(durationMs) && durationMs >= 0, `${name} must have a valid action-to-render duration`);
+  assert(durationMs <= groupEditRenderBudgetMs,
+    `${name} took ${durationMs} ms (limit ${groupEditRenderBudgetMs} ms)`);
+  report.cases.push({ name, durationMs, ...details });
+  return durationMs;
+}
+
+export function groupEditRenderCheckpointSummary(cases) {
+  const expected = new Set(groupEditRenderCheckpointNames);
+  const byName = new Map();
+  for (const entry of cases) {
+    const matches = byName.get(entry.name) ?? [];
+    matches.push(entry);
+    byName.set(entry.name, matches);
+  }
+  const missing = groupEditRenderCheckpointNames.filter(name => !byName.has(name));
+  const duplicates = groupEditRenderCheckpointNames.filter(name => byName.get(name)?.length !== 1 && byName.has(name));
+  const unexpected = cases.filter(entry => !expected.has(entry.name)).map(({ name }) => name);
+  const overBudget = cases.filter(({ durationMs }) => !Number.isFinite(durationMs) || durationMs < 0 || durationMs > groupEditRenderBudgetMs)
+    .map(({ name, durationMs }) => ({ name, durationMs }));
+  const checkpoints = groupEditRenderCheckpointNames.map(name => ({
+    name,
+    durationMs: byName.get(name)?.[0]?.durationMs ?? null,
+  }));
+  const passed = cases.length === groupEditRenderCheckpointNames.length && missing.length === 0 &&
+    duplicates.length === 0 && unexpected.length === 0 && overBudget.length === 0;
+  return {
+    status: passed ? 'passed' : 'failed',
+    budgetMs: groupEditRenderBudgetMs,
+    checkpointCount: cases.length,
+    requiredCheckpointCount: groupEditRenderCheckpointNames.length,
+    checkpoints,
+    missing,
+    duplicates,
+    unexpected,
+    overBudget,
+    maximumDurationMs: Math.max(0, ...cases.map(({ durationMs }) => Number.isFinite(durationMs) ? durationMs : 0)),
+  };
+}
 
 export async function runGroupEditBeforeRelatedColumnBrowserWorkflow({ page, cda }) {
 const project = cda.project;
@@ -378,12 +451,8 @@ const sourceCandidatesAtRequestStart = (requestCorrelationId) => {
     ? expectedOwnerSources.sources.map((candidate) => structuredClone(candidate))
     : [];
 };
-const recordAction = (name, startedAt, details = {}) => {
-  const durationMs = Date.now() - startedAt;
-  assert(durationMs <= 5000, `${name} took ${durationMs} ms (limit 5000 ms)`);
-  report.cases.push({ name, durationMs, ...details });
-  return durationMs;
-};
+const recordAction = (name, startedAt, details = {}) =>
+  recordGroupEditActionToRender(report, name, startedAt, details);
 const command = async (commands) => {
   await api(base + '/commands', {
     ...identity(builder), commandId: randomUUID(),
@@ -546,6 +615,7 @@ const open = async (expectedRows, columnCount = expectedRows[0]?.length ?? 2, la
     const table = document.querySelector('[data-testid="preview-table-scroll"] [role="table"]');
     return table?.getAttribute('aria-colcount') === count && !document.body.innerText.includes('Loading your table…');
   }, 5000, { columnCount: String(columnCount) });
+  await mountedRows(expectedRows, columnCount);
   builder = await api(base + '/builder');
   const binding = assertSourceBinding(builder, selectedPopulationRoute);
   assert.equal(binding.output.id, outputId);
@@ -1049,6 +1119,7 @@ FOR s IN (
   registerProposalCancelOwner(countDistinctProposal.response.proposalId, 'cancel the first upstream Group aggregate candidate');
   await click(page, '[data-testid="construction-cancel-proposal"]');
   await waitForControl(page, '[data-testid="construction-proposal-panel"]', { hidden: true });
+  await mountedRows(groupedRows, 2);
   const afterEditCancel = await api(base + '/builder');
   assert.equal(afterEditCancel.draftVersion, beforeFirstEdit.draftVersion);
   assert.equal(afterEditCancel.draftDigest, beforeFirstEdit.draftDigest);
@@ -1297,6 +1368,7 @@ FOR s IN (
   registerProposalCancelOwner(countRowsProposal.response.proposalId, 'cancel the Group round-trip candidate while RELATED_SOURCE is saved');
   await click(page, '[data-testid="construction-cancel-proposal"]');
   await waitForControl(page, '[data-testid="construction-proposal-panel"]', { hidden: true });
+  await mountedRows(withFieldTyped, 3);
   const afterRestoreCancel = await api(base + '/builder');
   assert.deepEqual(afterRestoreCancel.workspace, beforeRestoreEdit.workspace);
   assert.equal(afterRestoreCancel.draftDigest, beforeRestoreEdit.draftDigest);
@@ -1354,6 +1426,7 @@ FOR s IN (
   registerProposalCancelOwner(removePreview.response.proposalId, 'cancel the downstream RELATED_SOURCE removal candidate');
   await click(page, '[data-testid="construction-cancel-proposal"]');
   await waitForControl(page, '[data-testid="construction-proposal-panel"]', { timeout: 5000, hidden: true });
+  await mountedRows(withFieldTyped, 3);
   const afterRemoveCancel = await api(base + '/builder');
   assert.equal(afterRemoveCancel.draftVersion, beforeRemoveCancel.draftVersion);
   assert.equal(afterRemoveCancel.draftDigest, beforeRemoveCancel.draftDigest);
@@ -1421,6 +1494,10 @@ FOR s IN (
     report.errors.length === 0 && report.browserTransportViolations.length === 0 && nativeTransportOutcomesBound,
     { errors: report.errors, browserTransportViolations: report.browserTransportViolations,
       nativeRequestCount: report.nativeRequests.length });
+  const renderCheckpointSummary = groupEditRenderCheckpointSummary(report.cases);
+  recordLifecycleCheck('performance',
+    'All Group edit action-to-render checkpoints complete within five seconds',
+    renderCheckpointSummary.status === 'passed', renderCheckpointSummary);
   report.rawOracleQueries = oracleQueries;
   report.status = 'passed';
 } catch (error) {

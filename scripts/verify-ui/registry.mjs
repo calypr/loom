@@ -1724,6 +1724,7 @@ export const registry = Object.freeze([
               'scripts/verify-ui/helpers/tests/cda-explicit-ui-route.test.mjs',
               'scripts/verify-ui/helpers/tests/related-choice-stage-context.test.mjs',
               'scripts/verify-ui/helpers/tests/group-edit-raw-fields-summary.test.mjs',
+              'scripts/verify-ui/helpers/tests/group-edit-render-checkpoints.test.mjs',
             ],
             sourceFiles: [
               'scripts/verify-ui/helpers/created-explorer-scope.mjs',
@@ -1752,6 +1753,7 @@ export const registry = Object.freeze([
           'Group round-trip Apply and reload preserve exact downstream related field bindings',
           'Related-source removal Cancel preserves the exact saved Group and related field workspace',
           'Applying related-source removal and reloading restores the exact original Group workspace',
+          'All Group edit action-to-render checkpoints complete within five seconds',
           'Strict drain classifies every observed cancellation with exact current scope, CAS, trusted owner action, and detached DOM proof; zero observed cancellations are marked not exercised',
           'No unexpected browser, authoring, transport, or native HTTP errors occur',
         ],
