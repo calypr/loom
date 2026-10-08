@@ -2914,7 +2914,7 @@ export const registry = Object.freeze([
     gateReasons: [
       'the case requires the explicitly owned CDA project, pinned cda-fhir-v1 generation, API/UI stack, and validated Arango container',
       'the bounded raw oracle is limited to the first 2,000 current-generation scoped Patients, and exact selected-Patient rereads prove zero inbound typed Observation.subject_Patient edges',
-      'registration does not establish browser coverage; coverage remains untested until this exact native case passes',
+      'the exact registered native case passed all nine lifecycle checks, including the saved empty-policy edit and source restoration',
     ],
     script: 'verify-cda-related-one-all-browser.mjs',
     cases: {
@@ -2946,9 +2946,64 @@ export const registry = Object.freeze([
           'CDA watched source and API build stayed unchanged',
         ],
       },
+      'zero-patient-observation-exclude-policy-edit-cancel-apply-restoration': {
+        playwrightTest: 'scripts/verify-ui/specs/standalone-cda-rows.spec.mjs',
+        playwrightGrep: 'edits a saved zero-match RelatedExpand from PRESERVE_PARENT to EXCLUDE$',
+        expectedIdentity: { project: 'loom_dev_cda_fhir', generation: 'cda-fhir-v1' },
+        focusedChecks: [
+          {
+            id: 'zero-observation-policy-candidate-wire',
+            cwd: 'ui/packages/loom-ui',
+            command: [
+              'vitest', 'run', '--config', 'vitest.config.ts',
+              'ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/RelatedExpandEditor.unit.test.tsx',
+            ],
+            sourceFiles: [
+              'ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/RelatedExpandEditor.tsx',
+            ],
+          },
+          {
+            id: 'zero-observation-policy-fixture-outcome',
+            cwd: '.',
+            command: [
+              'node-test',
+              'scripts/verify-ui/helpers/tests/cda-fixture-outcomes.test.mjs',
+              'scripts/verify-ui/helpers/tests/zero-observation-witness.test.mjs',
+              'scripts/verify-ui/helpers/tests/cda-playwright-requests.test.mjs',
+            ],
+            sourceFiles: [
+              'scripts/verify-ui/helpers/cda-fixture-outcomes.mjs',
+              'scripts/verify-ui/helpers/cda-playwright-requests.mjs',
+              'scripts/verify-ui/specs/standalone-cda-rows.spec.mjs',
+              'scripts/verify-ui/workflows/verify-cda-related-one-all-browser.mjs',
+              'scripts/verify-ui/registry.mjs',
+            ],
+          },
+        ],
+        requiredChecks: [
+          'bounded zero-match Patient stays in the exact authorized project/generation with the signed Patient→Observation route',
+          'initial PRESERVE_PARENT expansion saves one exact Patient row with a null related Observation ID',
+          'saved EXCLUDE edit preserves step/route/target/output IDs, clears output nullability, and previews exactly zero rows',
+          'Cancel restores the saved PRESERVE_PARENT construction, population, and exact rendered rows',
+          'Apply saves EXCLUDE and renders exactly zero rows',
+          'reload retains the saved EXCLUDE policy and zero-row result',
+          'removing the saved expansion restores the exact Patient source row after reload and final raw reread',
+          'policy edit, Apply/reload, and removal/restoration checkpoints each finish within five seconds',
+          'CDA watched source and API build stayed unchanged',
+        ],
+      },
     },
     coverage: [
-      { feature: 'zero Observation Patient ONE/ALL and exact parent restoration through the native lifecycle', status: 'untested', reason: 'The bounded raw witness and native case are staged; no browser lifecycle has run against the exact scoped zero-match Patient.' },
+      { feature: 'zero Observation Patient ONE/ALL, saved EXCLUDE policy, and exact parent restoration through the native lifecycle', status: 'implemented', reason: 'The registered native case passed all nine required checks: PRESERVE_PARENT retained one exact Patient with a null related Observation ID; EXCLUDE preview, Apply, and reload returned zero rows; removal restored the Patient with the retained COUNT_ROWS=1 Group. The exact run and raw report hashes are recorded in docs/BUILDER_VERIFICATION.tsv.' },
+      {
+        feature: 'saved zero-match RelatedExpand policy edit from PRESERVE_PARENT to EXCLUDE with Cancel, Apply, reload, and exact Patient restoration',
+        acceptance: {
+          intent: 'row-lifecycle', kind: 'lifecycle', case: 'zero-patient-observation-exclude-policy-edit-cancel-apply-restoration',
+          checks: { choice: 0, proposal: 2, cancel: 3, apply: 4, savedRows: 4, reload: 5, edit: 2, restoration: 6 },
+        },
+        status: 'untested',
+        reason: 'The case is staged separately from the retained zero-match ONE/ALL lifecycle because that historical case edits only the output label. No browser lifecycle has yet verified the saved empty-policy transition against the current source/API identity.',
+      },
     ],
   }),
   Object.freeze({

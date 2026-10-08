@@ -4,7 +4,10 @@ import { spawnSync } from 'node:child_process';
 import { mkdir, readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { sanitizeBody, sanitizePayload, sanitizeText } from '../helpers/playwright-browser.mjs';
-import { findCompletedNativeResponse } from '../helpers/cda-playwright-requests.mjs';
+import {
+  findCompletedNativeResponse,
+  matchesNativeConstructionRemovalProposal,
+} from '../helpers/cda-playwright-requests.mjs';
 import { createPendingResponseReads } from '../helpers/pending-response-reads.mjs';
 import { captureSourceFreeze } from '../helpers/source-freeze.mjs';
 import { sourceFingerprint } from '../helpers/source-fingerprint.mjs';
@@ -18,6 +21,7 @@ import { fixtureUnavailableOutcome } from '../helpers/cda-fixture-outcomes.mjs';
 // separate from Explorer previews and bounds independent witnesses.
 export async function relatedOneAllWorkflow({
   page: nativePage, cda, mode: requestedMode, fieldMode: requestedFieldMode, witnessMode: requestedWitnessMode,
+  savedEmptyPolicyEdit: requestedSavedEmptyPolicyEdit,
 }) {
 const mode = requestedMode ?? process.env.LOOM_RELATED_ONE_ALL_MODE ?? 'cda';
 assert(['basic', 'cda'].includes(mode), 'LOOM_RELATED_ONE_ALL_MODE must be basic or cda');
@@ -30,8 +34,12 @@ assert(['id', 'status', 'specimen-reference'].includes(fieldMode),
 const witnessMode = requestedWitnessMode ?? process.env.LOOM_RELATED_ONE_ALL_WITNESS ?? 'default';
 assert(['default', 'zero'].includes(witnessMode), 'LOOM_RELATED_ONE_ALL_WITNESS must be default or zero');
 const zeroObservationMode = witnessMode === 'zero';
+const savedEmptyPolicyEdit = requestedSavedEmptyPolicyEdit ?? false;
+assert.equal(typeof savedEmptyPolicyEdit, 'boolean', 'savedEmptyPolicyEdit must be a boolean');
 assert(!zeroObservationMode || (mode === 'cda' && fieldMode === 'id'),
   'The zero Observation witness mode requires the CDA Observation.id workflow');
+assert(!savedEmptyPolicyEdit || zeroObservationMode,
+  'The saved RelatedExpand empty-policy edit requires the exact zero Observation witness workflow');
 const statusFieldMode = fieldMode === 'status';
 const referenceFieldMode = fieldMode === 'specimen-reference';
 assert(!basicMode || statusFieldMode, 'The basic fixture mode is only defined for Observation.status');
@@ -62,20 +70,26 @@ const explorer = `related-one-all-${Date.now()}`;
 const evidence = cda.evidence;
 const apiOrigin = process.env.LOOM_API_ORIGIN ?? cda.apiOrigin;
 const uiOrigin = process.env.LOOM_UI_ORIGIN ?? cda.uiOrigin;
-const apiBuildContainer = process.env.LOOM_CDA_API_CONTAINER;
-const arangoContainer = process.env.LOOM_ARANGO_CONTAINER;
-const arangoDatabase = process.env.LOOM_ARANGO_DATABASE;
+const apiBuildContainer = cda.target?.apiContainer ?? cda.env?.LOOM_CDA_API_CONTAINER ?? process.env.LOOM_CDA_API_CONTAINER;
+const arangoContainer = cda.target?.arangoContainer ?? cda.env?.LOOM_CDA_ARANGO_CONTAINER
+  ?? process.env.LOOM_CDA_ARANGO_CONTAINER ?? process.env.LOOM_ARANGO_CONTAINER;
+const arangoDatabase = cda.target?.arangoDatabase ?? cda.env?.LOOM_ARANGO_DATABASE
+  ?? process.env.LOOM_ARANGO_DATABASE ?? (cda.target ? 'loom_dev' : undefined);
+const composeProject = cda.target?.composeProject ?? cda.env?.LOOM_CDA_COMPOSE_PROJECT ?? process.env.LOOM_CDA_COMPOSE_PROJECT;
 const root = `/api/v1/projects/${project}/explorers`;
 const base = `${root}/${explorer}/authoring/v2`;
 assert(project && generation && apiOrigin && uiOrigin, 'Set the explicit isolated project, generation, API origin, and UI origin.');
-assert(apiBuildContainer && arangoContainer && arangoDatabase && process.env.LOOM_CDA_COMPOSE_PROJECT,
+assert(apiBuildContainer && arangoContainer && arangoDatabase && composeProject,
   'Set explicit isolated CDA API/Arango containers, Arango database, and Compose project.');
 const sourceRoot = cda.target.sourceRoot ?? fileURLToPath(new URL('../../..', import.meta.url));
 const report = {
   explorer, project, generation, protectedExplorerUntouched: true, relatedChoiceAssertions: [],
   mode: basicMode ? 'basic-fixture' : 'cda', fieldMode, witnessMode,
+  ...(savedEmptyPolicyEdit ? { savedEmptyPolicyEdit: true } : {}),
   scenario: zeroObservationMode
-    ? 'Bounded exact project/generation Patient root with an independently reread empty incoming typed Observation.subject_Patient edge set; native ONE/ALL is checked through the current PRESERVE_PARENT expansion and full saved lifecycle.'
+    ? savedEmptyPolicyEdit
+      ? 'Bounded exact project/generation Patient root with an independently reread empty incoming typed Observation.subject_Patient edge set; native ONE/ALL and label lifecycle are followed by a saved RelatedExpand PRESERVE_PARENT-to-EXCLUDE edit, Cancel, Apply/reload, and upstream restoration.'
+      : 'Bounded exact project/generation Patient root with an independently reread empty incoming typed Observation.subject_Patient edge set; native ONE/ALL is checked through the current PRESERVE_PARENT expansion and full saved lifecycle.'
     : referenceFieldMode
     ? 'Pinned current-generation Specimen→Patient→Observation witness with 29 distinct nonnull Observation.specimen.reference values and two null/missing references; native grouped-row ONE rejection and same-chooser ALL repair preserve one protocol value per terminal Observation identity.'
     : statusFieldMode
@@ -670,8 +684,9 @@ const openTable = async (expectedRows, name) => {
   record(name, started, { receiptId: response.receiptId, rowCount: response.rowCount });
   return response;
 };
-const proposal = async (name, started, expectedRows, fromIndex) => {
-  const adopted = await waitNative((entry, response) => entry.startedAt >= started && entry.path.endsWith('/construction-proposals') && response?.proposalId, fromIndex, 5000);
+const proposal = async (name, started, expectedRows, fromIndex, matchesRequest = () => true) => {
+  const adopted = await waitNative((entry, response) => entry.startedAt >= started && entry.path.endsWith('/construction-proposals') &&
+    response?.proposalId && matchesRequest(entry, response), fromIndex, 5000);
   const response = protocolResponse(adopted);
   await waitForObservable(nativePage, ({ proposalId }) => {
     const panel=document.querySelector('[data-testid="construction-proposal-panel"]');
@@ -773,7 +788,22 @@ const expand = async (hop, witnesses, expectedRows, sourcePopulationBaseline) =>
     const expansionOutput = expansionStep.outputs?.find((output) =>
       output.id === expansionStep.operation.relatedExpand.relatedRecordColumnId);
     assert(expansionOutput, 'The PRESERVE_PARENT proposal must expose its nullable Observation identity output');
+    const normalizedExpansionStep = expansionResponse?.candidateConstruction?.steps?.find((step) =>
+      step.id === expansionStep.id);
+    assert(normalizedExpansionStep,
+      'The PRESERVE_PARENT proposal response must retain the selected expansion step');
+    const normalizedExpansionOutput = normalizedExpansionStep.outputs?.find((output) =>
+      output.id === expansionOutput.id);
+    assert(normalizedExpansionOutput,
+      'The PRESERVE_PARENT proposal response must retain the related Observation identity output');
     const preview = expansionResponse?.preview;
+    const previewExpansionColumn = preview?.columns?.find((column) => column.column === expansionOutput.name);
+    if (savedEmptyPolicyEdit) {
+      assert.equal(normalizedExpansionOutput.nullable, true,
+        'The normalized PRESERVE_PARENT related Observation identity output must be nullable');
+      assert.equal(previewExpansionColumn?.nullable, true,
+        'The compiled PRESERVE_PARENT preview schema must mark the related Observation identity nullable');
+    }
     assert.equal(preview?.rowCount, 1, 'The native PRESERVE_PARENT proposal must retain the exact zero-match Patient row');
     assert.equal(preview?.rows?.length, 1, 'The zero-match proposal must return the retained parent row');
     const parentColumn = preview.columns.find((column) => column.label === 'Patient ID');
@@ -786,8 +816,21 @@ const expand = async (hop, witnesses, expectedRows, sourcePopulationBaseline) =>
       row[column.column] === null || row[column.column] === undefined ? '—' : String(row[column.column])));
     assert.deepEqual(rowsFromProposal, expectedRows,
       'The native proposal rows must agree with the independently reread Patient root and zero-edge oracle');
-    zeroExpandEvidence = { emptyPolicy: expansionStep.operation.relatedExpand.emptyPolicy,
-      previewRowCount: preview.rowCount, unmatchedObservationOutputIsNull: true };
+    zeroExpandEvidence = savedEmptyPolicyEdit
+      ? { stepId: expansionStep.id,
+        patientId: witnesses[0].patient.id,
+        routeChoiceId: expansionStep.operation.relatedExpand.choiceId,
+        targetNodeId: expansionStep.operation.relatedExpand.targetNodeId,
+        targetResourceType: expansionStep.operation.relatedExpand.targetResourceType,
+        route: expansionStep.operation.relatedExpand.route,
+        relatedRecordColumnId: expansionStep.operation.relatedExpand.relatedRecordColumnId,
+        outputNullable: normalizedExpansionOutput.nullable,
+        previewSchemaNullable: previewExpansionColumn?.nullable,
+        emptyPolicy: expansionStep.operation.relatedExpand.emptyPolicy,
+        previewRowCount: preview.rowCount,
+        unmatchedObservationOutputIsNull: preview.rows[0][expansionOutput.name] === null }
+      : { emptyPolicy: expansionStep.operation.relatedExpand.emptyPolicy,
+        previewRowCount: preview.rowCount, unmatchedObservationOutputIsNull: true };
   }
   const value = await proposal(`expand-${hop.from}-${hop.to}-preview`, proposalStarted, rowsFromProposal, proposalFromIndex);
   assert(report.nativeRequests.slice(proposalFromIndex).some((entry) => protocolResponse(entry)?.proposalId === value.proposalId), 'The displayed expansion preview must match its captured native proposal');
@@ -799,7 +842,13 @@ const expand = async (hop, witnesses, expectedRows, sourcePopulationBaseline) =>
       'Applying the zero-match expansion must save the proposal’s PRESERVE_PARENT policy');
     assert.deepEqual(doc().population, sourcePopulationBaseline,
       'Applying the zero-match expansion must preserve the exact one-Patient source population');
-    report.zeroObservationExpansion = { ...zeroExpandEvidence, savedPolicy: savedExpansion.operation.relatedExpand.emptyPolicy };
+    report.zeroObservationExpansion = savedEmptyPolicyEdit
+      ? { ...zeroExpandEvidence,
+        savedPolicy: savedExpansion.operation.relatedExpand.emptyPolicy,
+        savedStepId: savedExpansion.id,
+        savedOutputNullable: savedExpansion.outputs?.find((output) =>
+          output.id === savedExpansion.operation.relatedExpand.relatedRecordColumnId)?.nullable }
+      : { ...zeroExpandEvidence, savedPolicy: savedExpansion.operation.relatedExpand.emptyPolicy };
   }
 };
 const openRelatedFieldChooser = async () => {
@@ -1067,6 +1116,7 @@ RETURN {
         authorizationScope: 'unrestricted local Arango scope' },
       fixtureAvailability: { zeroIncomingObservationWitnessAvailable: true, patientCandidateLimit },
       witnessSummary: { category: witness.category, rootResourceType: 'Patient', rootCount: 1,
+        ...(savedEmptyPolicyEdit ? { patientId: witness.patient.id, patientKey: witness.patient._id } : {}),
         distinctIncomingObservationCount: 0 },
     });
   } else if (basicMode) {
@@ -2011,6 +2061,114 @@ FOR s IN Specimen
     activeRelatedColumnLabel = renamedLabel;
   }
 
+  if (savedEmptyPolicyEdit) {
+    const beforeCancelEdit = await api(`${base}/builder`);
+    const beforeCancelDocument = doc(beforeCancelEdit);
+    const preserveSteps = beforeCancelDocument.construction.steps.filter((step) =>
+      step.operation?.kind === 'RELATED_EXPAND' &&
+      step.operation.relatedExpand?.targetResourceType === 'Observation');
+    assert.equal(preserveSteps.length, 1, 'The saved Patient→Observation expansion must be unique before its policy edit');
+    const preserveStep = preserveSteps[0];
+    const preserveExpand = preserveStep.operation.relatedExpand;
+    const preserveOutput = preserveStep.outputs.find((output) => output.id === preserveExpand.relatedRecordColumnId);
+    assert(preserveOutput, 'The saved PRESERVE_PARENT expansion must retain its Observation identity output');
+    assert.equal(preserveExpand.emptyPolicy, 'PRESERVE_PARENT');
+    assert.equal(preserveOutput.nullable, true);
+    assert.deepEqual(beforeCancelDocument.population, doc(sourceBaseline).population,
+      'The policy edit must start from the exact selected Patient population');
+    const beforeCancelConstruction = structuredClone(beforeCancelDocument.construction);
+
+    const editStarted = Date.now();
+    const editFromIndex = report.nativeRequests.length;
+    await clickNative(nativePage, `[data-testid="construction-history-step-${preserveStep.id}"]`);
+    await clickNative(nativePage, `[data-testid="construction-edit-step-${preserveStep.id}"]`);
+    const policySelector = '[data-testid="construction-related-expand-editor"] select[aria-label="If a current row has no matches"]';
+    await waitForObservable(nativePage, ({ selector }) => {
+      const policy = document.querySelector(selector);
+      return Boolean(policy && !policy.disabled && policy.value === 'PRESERVE_PARENT');
+    }, { selector: policySelector }, 5000);
+    await selectNative(nativePage, policySelector, 'EXCLUDE');
+    const excludePanel = await proposal('edit-saved-related-expand-exclude-cancel-preview', editStarted, [], editFromIndex);
+    const cancelProposal = report.nativeRequests.findLast((entry) => entry.startedAt >= editStarted && entry.complete &&
+      entry.path.endsWith('/construction-proposals') && protocolResponse(entry)?.proposalId === excludePanel.proposalId);
+    assert(cancelProposal, 'The saved RelatedExpand EXCLUDE preview must match a captured native proposal request');
+    assert.equal(cancelProposal.status, 200, JSON.stringify(cancelProposal.response));
+    const cancelProposalResponse = protocolResponse(cancelProposal);
+    assert.equal(cancelProposal.request?.outputId, outputId);
+    assert.equal(cancelProposalResponse?.previewStatus, 'READY', JSON.stringify(cancelProposalResponse));
+    assert.equal(cancelProposalResponse?.preview?.rowCount, 0,
+      'The zero-match EXCLUDE candidate must preview a literal zero-row result');
+    assert.deepEqual(cancelProposalResponse?.preview?.rows, [],
+      'The zero-match EXCLUDE candidate must return no fabricated parent or related rows');
+    const expectedExcludeConstruction = structuredClone(beforeCancelConstruction);
+    const expectedExcludeStep = expectedExcludeConstruction.steps.find((step) => step.id === preserveStep.id);
+    assert(expectedExcludeStep, 'The candidate construction must retain the saved RelatedExpand step identity');
+    expectedExcludeStep.operation.relatedExpand.emptyPolicy = 'EXCLUDE';
+    const expectedExcludeOutput = expectedExcludeStep.outputs.find((output) =>
+      output.id === preserveExpand.relatedRecordColumnId);
+    assert(expectedExcludeOutput, 'The EXCLUDE candidate must retain the related Observation output identity');
+    expectedExcludeOutput.nullable = false;
+    assert.deepEqual(cancelProposal.request?.candidateConstruction?.steps, expectedExcludeConstruction.steps,
+      'The actual candidate wire must preserve every saved step and binding except the EXCLUDE policy and required output nullability');
+    const cancelCandidateStep = cancelProposal.request.candidateConstruction.steps.find((step) => step.id === preserveStep.id);
+    const cancelCandidateExpand = cancelCandidateStep.operation.relatedExpand;
+    const cancelResponseStep = cancelProposalResponse.candidateConstruction?.steps?.find((step) => step.id === preserveStep.id);
+    const cancelResponseOutput = cancelResponseStep?.outputs?.find((output) => output.id === preserveOutput.id);
+    assert(cancelResponseOutput, 'The normalized EXCLUDE proposal must retain the related Observation output');
+    assert.equal(Object.hasOwn(cancelResponseOutput, 'nullable'), false,
+      'The normalized EXCLUDE output must serialize typed false nullable as omitted');
+    assert.equal(cancelCandidateStep.id, preserveStep.id);
+    assert.equal(cancelCandidateExpand.choiceId, preserveExpand.choiceId);
+    assert.equal(cancelCandidateExpand.targetNodeId, preserveExpand.targetNodeId);
+    assert.equal(cancelCandidateExpand.targetResourceType, preserveExpand.targetResourceType);
+    assert.deepEqual(cancelCandidateExpand.route, preserveExpand.route);
+    assert.equal(cancelCandidateExpand.relatedRecordColumnId, preserveExpand.relatedRecordColumnId);
+    assert.equal(cancelCandidateExpand.emptyPolicy, 'EXCLUDE');
+    assert.equal(cancelCandidateStep.outputs.find((output) => output.id === preserveOutput.id)?.nullable, false);
+
+    const cancelStarted = Date.now();
+    await clickNative(nativePage, '[data-testid="construction-cancel-proposal"]');
+    await waitForHidden(nativePage, '[data-testid="construction-proposal-panel"]', 5000);
+    await rendered(addedRows);
+    builder = await api(`${base}/builder`);
+    assert.deepEqual(doc().construction, beforeCancelConstruction,
+      'Cancel must preserve the exact saved PRESERVE_PARENT and related ALL construction');
+    assert.deepEqual(doc().population, beforeCancelDocument.population,
+      'Cancel must preserve the exact selected Patient population');
+    const afterCancelExpansion = doc().construction.steps.find((step) => step.id === preserveStep.id);
+    assert.equal(afterCancelExpansion?.operation.relatedExpand.emptyPolicy, 'PRESERVE_PARENT');
+    assert.equal(afterCancelExpansion?.outputs.find((output) => output.id === preserveOutput.id)?.nullable, true);
+    const afterCancelRelated = doc().construction.steps.find((step) => step.id === savedRelatedStep.id);
+    assert.equal(afterCancelRelated?.operation.relatedSource?.form, 'ALL',
+      'Cancel must preserve the previously applied related-source ALL state');
+    assert.equal(afterCancelRelated?.operation.relatedSource?.outputColumnId, relatedColumn.columnId);
+    const canceledReload = await openTable(addedRows, 'reload-canceled-exclude-preserves-related-all');
+    assert.equal(canceledReload.rowCount, 1, 'Cancel/reload must retain the exact unmatched Patient parent row');
+    assert.equal(canceledReload.rows.length, 1);
+    assert.equal(canceledReload.rows[0][groupKeyName], witnesses[0].patient.id);
+    assert.deepEqual(canceledReload.rows[0][relatedColumn.column], [],
+      'Cancel/reload must preserve the applied related ALL empty array for the exact zero-match Patient');
+    record('cancel-saved-related-expand-exclude-preserves-parent-and-all-after-reload', cancelStarted, {
+      rowCount: canceledReload.rowCount, parentId: witnesses[0].patient.id,
+      preserveParentPolicy: afterCancelExpansion.operation.relatedExpand.emptyPolicy,
+      relatedAllValues: canceledReload.rows[0][relatedColumn.column],
+    });
+    report.savedEmptyPolicyEvidence = {
+      cancelCandidate: { status: cancelProposal.status, previewStatus: cancelProposalResponse.previewStatus,
+        rowCount: cancelProposalResponse.preview.rowCount, rows: cancelProposalResponse.preview.rows,
+        candidateWireExact: true, stepId: preserveStep.id, routeChoiceId: cancelCandidateExpand.choiceId,
+        route: cancelCandidateExpand.route,
+        targetNodeId: cancelCandidateExpand.targetNodeId, targetResourceType: cancelCandidateExpand.targetResourceType,
+        relatedRecordColumnId: cancelCandidateExpand.relatedRecordColumnId, outputNullable: false,
+        responseNullableFieldOmitted: !Object.hasOwn(cancelResponseOutput, 'nullable') },
+      cancel: { constructionUnchanged: true, populationUnchanged: true,
+        parentRowCount: canceledReload.rowCount, parentId: witnesses[0].patient.id,
+        savedPolicy: afterCancelExpansion.operation.relatedExpand.emptyPolicy,
+        relatedOutputNullable: afterCancelExpansion.outputs.find((output) => output.id === preserveOutput.id)?.nullable,
+        relatedAllValues: canceledReload.rows[0][relatedColumn.column] },
+    };
+  }
+
   const removeStarted = Date.now();
   const removeFromIndex = report.nativeRequests.length;
   let removeCommand;
@@ -2057,6 +2215,220 @@ FOR s IN Specimen
     assert(row, `Reloaded Group preview omitted ${witness.category} witness`);
     assert.equal(row.row_count, witness.expectedContributorRows, `${witness.category} grouped count differs from the raw CDA oracle`);
     assert.equal(Object.hasOwn(row, relatedColumn.column), false, `${witness.category} restored row still contains the removed related value`);
+  }
+
+  if (savedEmptyPolicyEdit) {
+    const beforeApplyEdit = await api(`${base}/builder`);
+    const beforeApplyDocument = doc(beforeApplyEdit);
+    const preserveSteps = beforeApplyDocument.construction.steps.filter((step) =>
+      step.operation?.kind === 'RELATED_EXPAND' &&
+      step.operation.relatedExpand?.targetResourceType === 'Observation');
+    assert.equal(preserveSteps.length, 1, 'The saved Patient→Observation expansion must be unique before Apply');
+    const preserveStep = preserveSteps[0];
+    const preserveExpand = preserveStep.operation.relatedExpand;
+    const preserveOutput = preserveStep.outputs.find((output) => output.id === preserveExpand.relatedRecordColumnId);
+    assert(preserveOutput, 'The saved expansion must retain its related Observation identity output before Apply');
+    assert.equal(preserveExpand.emptyPolicy, 'PRESERVE_PARENT');
+    assert.equal(preserveOutput.nullable, true);
+    const beforeApplyConstruction = structuredClone(beforeApplyDocument.construction);
+
+    const editStarted = Date.now();
+    const editFromIndex = report.nativeRequests.length;
+    await clickNative(nativePage, `[data-testid="construction-history-step-${preserveStep.id}"]`);
+    await clickNative(nativePage, `[data-testid="construction-edit-step-${preserveStep.id}"]`);
+    const policySelector = '[data-testid="construction-related-expand-editor"] select[aria-label="If a current row has no matches"]';
+    await waitForObservable(nativePage, ({ selector }) => {
+      const policy = document.querySelector(selector);
+      return Boolean(policy && !policy.disabled && policy.value === 'PRESERVE_PARENT');
+    }, { selector: policySelector }, 5000);
+    await selectNative(nativePage, policySelector, 'EXCLUDE');
+    const excludePanel = await proposal('edit-saved-related-expand-exclude-apply-preview', editStarted, [], editFromIndex);
+    const applyProposalEntry = report.nativeRequests.findLast((entry) => entry.startedAt >= editStarted && entry.complete &&
+      entry.path.endsWith('/construction-proposals') && protocolResponse(entry)?.proposalId === excludePanel.proposalId);
+    assert(applyProposalEntry, 'The saved RelatedExpand EXCLUDE Apply preview must match a captured native proposal request');
+    assert.equal(applyProposalEntry.status, 200, JSON.stringify(applyProposalEntry.response));
+    const applyProposalResponse = protocolResponse(applyProposalEntry);
+    assert.equal(applyProposalEntry.request?.outputId, outputId);
+    assert.equal(applyProposalResponse?.previewStatus, 'READY', JSON.stringify(applyProposalResponse));
+    assert.equal(applyProposalResponse?.preview?.rowCount, 0);
+    assert.deepEqual(applyProposalResponse?.preview?.rows, []);
+    const expectedExcludeConstruction = structuredClone(beforeApplyConstruction);
+    const expectedExcludeStep = expectedExcludeConstruction.steps.find((step) => step.id === preserveStep.id);
+    assert(expectedExcludeStep, 'The Apply candidate wire must retain the saved RelatedExpand step identity');
+    expectedExcludeStep.operation.relatedExpand.emptyPolicy = 'EXCLUDE';
+    const expectedExcludeOutput = expectedExcludeStep.outputs.find((output) =>
+      output.id === preserveExpand.relatedRecordColumnId);
+    assert(expectedExcludeOutput, 'The Apply candidate wire must retain the Observation output identity');
+    expectedExcludeOutput.nullable = false;
+    assert.deepEqual(applyProposalEntry.request?.candidateConstruction?.steps, expectedExcludeConstruction.steps,
+      'The Apply candidate wire must preserve saved steps and bindings except the EXCLUDE policy and required output nullability');
+    const applyCandidateStep = applyProposalEntry.request.candidateConstruction.steps.find((step) => step.id === preserveStep.id);
+    const applyCandidateExpand = applyCandidateStep.operation.relatedExpand;
+    const applyResponseStep = applyProposalResponse.candidateConstruction?.steps?.find((step) => step.id === preserveStep.id);
+    const applyResponseOutput = applyResponseStep?.outputs?.find((output) => output.id === preserveOutput.id);
+    assert(applyResponseOutput, 'The normalized EXCLUDE proposal must retain the related Observation output');
+    assert.equal(Object.hasOwn(applyResponseOutput, 'nullable'), false,
+      'The normalized EXCLUDE output must serialize typed false nullable as omitted');
+    assert.equal(applyCandidateStep.id, preserveStep.id);
+    assert.equal(applyCandidateExpand.choiceId, preserveExpand.choiceId);
+    assert.equal(applyCandidateExpand.targetNodeId, preserveExpand.targetNodeId);
+    assert.equal(applyCandidateExpand.targetResourceType, preserveExpand.targetResourceType);
+    assert.deepEqual(applyCandidateExpand.route, preserveExpand.route);
+    assert.equal(applyCandidateExpand.relatedRecordColumnId, preserveExpand.relatedRecordColumnId);
+    assert.equal(applyCandidateExpand.emptyPolicy, 'EXCLUDE');
+    assert.equal(applyCandidateStep.outputs.find((output) => output.id === preserveOutput.id)?.nullable, false);
+
+    const applyReloadStarted = Date.now();
+    await applyProposal([], 'apply-saved-related-expand-exclude-to-zero-rows');
+    const appliedDomRows = await inspectPage(nativePage, () =>
+      [...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]')]
+        .slice(1).map((row) => [...row.querySelectorAll('[role="cell"]')].map((cell) => cell.innerText.trim()))
+        .filter((row) => row.length));
+    assert.deepEqual(appliedDomRows, [], 'Applying EXCLUDE must render exactly zero table rows');
+    builder = await api(`${base}/builder`);
+    const appliedExpansion = doc().construction.steps.find((step) => step.id === preserveStep.id);
+    assert.equal(appliedExpansion?.operation.relatedExpand.emptyPolicy, 'EXCLUDE',
+      'Applying the saved edit must persist EXCLUDE on the same RelatedExpand step');
+    const appliedOutput = appliedExpansion?.outputs.find((output) => output.id === preserveOutput.id);
+    assert(appliedOutput, 'The persisted EXCLUDE step must retain its related Observation output');
+    assert.equal(Object.hasOwn(appliedOutput, 'nullable'), false,
+      'The persisted EXCLUDE output must serialize typed false nullable as omitted');
+    assert.deepEqual(doc().population, beforeApplyDocument.population,
+      'Applying EXCLUDE must preserve the exact selected Patient population');
+    const appliedPolicyEvidence = {
+      savedPolicy: appliedExpansion?.operation.relatedExpand.emptyPolicy,
+      outputNullable: false,
+      outputNullableFieldOmitted: !Object.hasOwn(appliedOutput, 'nullable'),
+    };
+    const excludedPreview = await openTable([], 'reload-saved-related-expand-exclude-zero-rows');
+    assert.equal(excludedPreview.rowCount, 0, 'Reload must retain the exact zero-row EXCLUDE result');
+    assert.deepEqual(excludedPreview.rows, [], 'Reload must not fabricate a parent row or related value');
+    const reloadedDomRows = await inspectPage(nativePage, () =>
+      [...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]')]
+        .slice(1).map((row) => [...row.querySelectorAll('[role="cell"]')].map((cell) => cell.innerText.trim()))
+        .filter((row) => row.length));
+    assert.deepEqual(reloadedDomRows, [], 'Reload must render exactly zero table rows for the saved EXCLUDE expansion');
+    builder = await api(`${base}/builder`);
+    const reloadedExpansion = doc().construction.steps.find((step) => step.id === preserveStep.id);
+    assert.equal(reloadedExpansion?.operation.relatedExpand.emptyPolicy, 'EXCLUDE',
+      'Reload must retain the saved EXCLUDE policy');
+    const reloadedOutput = reloadedExpansion?.outputs.find((output) => output.id === preserveOutput.id);
+    assert(reloadedOutput, 'Reload must retain the EXCLUDE related Observation output');
+    assert.equal(Object.hasOwn(reloadedOutput, 'nullable'), false,
+      'Reloaded EXCLUDE output must serialize typed false nullable as omitted');
+    record('apply-and-reload-saved-related-expand-exclude-zero-rows', applyReloadStarted, {
+      rowCount: excludedPreview.rowCount, rows: excludedPreview.rows,
+      domRowsAfterApply: appliedDomRows, domRowsAfterReload: reloadedDomRows,
+      savedPolicy: reloadedExpansion.operation.relatedExpand.emptyPolicy,
+      outputNullable: false, outputNullableFieldOmitted: !Object.hasOwn(reloadedOutput, 'nullable'),
+    });
+
+    const beforeRemoval = await api(`${base}/builder`);
+    const beforeRemovalDocument = doc(beforeRemoval);
+    const excludedExpansion = beforeRemovalDocument.construction.steps.find((step) => step.id === preserveStep.id);
+    assert.equal(excludedExpansion?.operation.relatedExpand.emptyPolicy, 'EXCLUDE');
+    const removeStarted = Date.now();
+    await clickNative(nativePage, `[data-testid="construction-history-step-${preserveStep.id}"]`);
+    const removeButton = nativePage.locator(`[data-testid="construction-remove-step-${preserveStep.id}"]`);
+    await removeButton.waitFor({ state: 'visible', timeout: 5000 });
+    assert.equal(await removeButton.count(), 1, 'The saved RelatedExpand removal control must be unique');
+    assert.equal(await removeButton.isEnabled(), true);
+    const removalFromIndex = report.nativeRequests.length;
+    await clickNative(nativePage, `[data-testid="construction-remove-step-${preserveStep.id}"]`);
+    const removalIdentity = {
+      stepId: preserveStep.id,
+      outputId,
+      snapshotToken: beforeRemoval.catalog.snapshotToken,
+      draftVersion: beforeRemoval.draftVersion,
+      draftDigest: beforeRemoval.draftDigest,
+    };
+    const removalPanel = await proposal('remove-saved-exclude-related-expand-restores-patient-preview', removeStarted, groupedRows,
+      removalFromIndex, (entry, response) => matchesNativeConstructionRemovalProposal(entry, response, removalIdentity));
+    const removalProposalEntry = report.nativeRequests.findLast((entry) => entry.startedAt >= removeStarted && entry.complete &&
+      matchesNativeConstructionRemovalProposal(entry, protocolResponse(entry), removalIdentity) &&
+      protocolResponse(entry)?.proposalId === removalPanel.proposalId);
+    assert(removalProposalEntry, 'Removing the saved EXCLUDE expansion must match a captured native proposal');
+    assert.deepEqual(removalProposalEntry.request?.removeStepIds, [preserveStep.id],
+      'The restoration proposal must target the exact saved RelatedExpand step');
+    const removalResponse = protocolResponse(removalProposalEntry);
+    assert.equal(removalResponse?.previewStatus, 'READY', JSON.stringify(removalResponse));
+    assert.equal(removalResponse?.preview?.rowCount, 1,
+      'Removing the upstream expansion must restore the exact selected Patient row in its proposal');
+    assert.equal(removalResponse?.preview?.rows?.length, 1);
+    const expectedRestoredConstruction = structuredClone(beforeRemovalDocument.construction);
+    expectedRestoredConstruction.steps = expectedRestoredConstruction.steps.filter((step) => step.id !== preserveStep.id);
+    for (const step of expectedRestoredConstruction.steps) {
+      for (const input of step.inputs) {
+        if (input.kind === 'STEP_OUTPUT' && input.stepId === preserveStep.id) {
+          input.kind = 'SOURCE_PROJECTION';
+          delete input.stepId;
+        }
+      }
+    }
+    const restoredGroupStep = expectedRestoredConstruction.steps.find((step) => step.operation.kind === 'GROUP');
+    assert(restoredGroupStep, 'Removing the expansion must preserve the independent Patient Group step');
+    assert.deepEqual(restoredGroupStep.inputs, [{ kind: 'SOURCE_PROJECTION' }],
+      'The surviving Group step must read directly from the Patient source projection');
+    const restoredGroupCount = restoredGroupStep.outputs.find((output) => output.id ===
+      restoredGroupStep.operation.group.aggregates.find((aggregate) => aggregate.operation === 'COUNT_ROWS')?.outputColumnId);
+    assert(restoredGroupCount, 'The surviving Patient Group step must retain its COUNT_ROWS output');
+    const rootOutput = doc(sourceBaseline).columns.find((column) => column.label === rootTitle);
+    assert(rootOutput, 'The original Patient source ID column must remain available as the restoration oracle');
+    assert.equal(removalResponse.preview.rows[0][rootOutput.column], witnesses[0].patient.id,
+      'The removal preview must restore the exact independently selected Patient identity');
+    assert.deepEqual(removalResponse.candidateConstruction?.steps, expectedRestoredConstruction.steps,
+      'Removing the expansion must preserve the valid Patient Group and rebind it to the original source projection');
+
+    const restoreStarted = Date.now();
+    await applyProposal(groupedRows, 'apply-remove-saved-related-expand-restores-patient');
+    builder = await api(`${base}/builder`);
+    assert.deepEqual(doc().construction, expectedRestoredConstruction,
+      'Removing the saved expansion must retain only the source-backed Patient Group construction');
+    assert.deepEqual(doc().columns, doc(sourceBaseline).columns,
+      'Removing the saved expansion must restore the original Patient source columns');
+    assert.deepEqual(doc().population, doc(sourceBaseline).population,
+      'Removing the saved expansion must restore the exact original Patient population');
+    const restoredPatientPreview = await openTable(groupedRows, 'reload-restored-exact-patient-source-row');
+    assert.equal(restoredPatientPreview.rowCount, 1);
+    assert.equal(restoredPatientPreview.rows.length, 1);
+    assert.equal(restoredPatientPreview.rows[0][rootOutput.column], witnesses[0].patient.id,
+      'Reload after expansion removal must render the exact selected Patient source identity');
+    assert.equal(restoredPatientPreview.rows[0][restoredGroupCount.name], witnesses[0].expectedContributorRows,
+      'Reload after expansion removal must retain the exact independently counted Patient Group result');
+    record('remove-saved-related-expand-restores-exact-patient-after-reload', removeStarted, {
+      proposalRowCount: removalResponse.preview.rowCount,
+      restoredRowCount: restoredPatientPreview.rowCount,
+      parentId: restoredPatientPreview.rows[0][rootOutput.column],
+    });
+    record('apply-and-reload-remove-expansion-restoration', restoreStarted, {
+      restoredRowCount: restoredPatientPreview.rowCount,
+      parentId: restoredPatientPreview.rows[0][rootOutput.name],
+    });
+    report.savedEmptyPolicyEvidence.apply = {
+      candidateWireExact: true, previewRowCount: applyProposalResponse.preview.rowCount,
+      previewRows: applyProposalResponse.preview.rows,
+      responseNullableFieldOmitted: !Object.hasOwn(applyResponseOutput, 'nullable'),
+      stepId: applyCandidateStep.id, routeChoiceId: applyCandidateExpand.choiceId,
+      route: applyCandidateExpand.route, targetNodeId: applyCandidateExpand.targetNodeId,
+      targetResourceType: applyCandidateExpand.targetResourceType,
+      relatedRecordColumnId: applyCandidateExpand.relatedRecordColumnId,
+      savedPolicyAfterApply: appliedPolicyEvidence.savedPolicy,
+      outputNullableAfterApply: appliedPolicyEvidence.outputNullable,
+      outputNullableFieldOmittedAfterApply: appliedPolicyEvidence.outputNullableFieldOmitted,
+      savedPolicyAfterReload: reloadedExpansion.operation.relatedExpand.emptyPolicy,
+      outputNullableAfterReload: false,
+      outputNullableFieldOmittedAfterReload: !Object.hasOwn(reloadedOutput, 'nullable'),
+      reloadRowCount: excludedPreview.rowCount, reloadRows: excludedPreview.rows,
+      domRowsAfterApply: appliedDomRows, domRowsAfterReload: reloadedDomRows,
+    };
+    report.savedEmptyPolicyEvidence.restoration = {
+      removeStepIds: removalProposalEntry.request.removeStepIds,
+      restoredConstruction: true, retainedGroupStepId: restoredGroupStep.id,
+      restoredGroupCountOutput: restoredGroupCount.name,
+      restoredColumns: true, restoredPopulation: true,
+      rowCount: restoredPatientPreview.rowCount, parentId: restoredPatientPreview.rows[0][rootOutput.column],
+      groupCount: restoredPatientPreview.rows[0][restoredGroupCount.name],
+    };
   }
 
   if (zeroObservationMode) {
@@ -2200,21 +2572,118 @@ FOR s IN Specimen
   cda.report.standaloneCdaRows = report;
   await cda.attachReport('standalone-cda-related-one-all.json', report);
   if (report.status === 'passed' || (report.status === 'unverified' && report.relatedFieldLifecycle === 'passed')) {
-    const checkName = zeroObservationMode
-      ? 'zero Patient Observation ONE/ALL preserves the exact scoped parent through the native lifecycle'
-      : 'related ONE/ALL lifecycle preserves exact raw-source values and row identities';
-    cda.check('correctness', checkName, true, {
-      mode, fieldMode, witnessMode, cases: report.cases.map(({ name }) => name),
-      ...(zeroObservationMode ? {
-        scopedZeroMatch: report.oracle.finalScopedRereadMatched === true,
-        emptyPolicy: report.zeroObservationExpansion?.savedPolicy,
-        oneValueIsNull: report.zeroObservationOne?.nullableValueIsNull === true,
-        allValueIsEmptyArray: report.zeroObservationAll?.previewValueIsEmptyArray === true,
-        parentRowCount: report.oracle.witnessSummary?.rootCount,
-        expectedOneValidationCount: 0,
-      } : {}),
-      exactRawOracle: true, oneValidationCount: report.nativeRequests.filter(entry => entry.status === 422).length,
-    });
+    if (savedEmptyPolicyEdit) {
+      const timingNames = [
+        'edit-saved-related-expand-exclude-cancel-preview',
+        'cancel-saved-related-expand-exclude-preserves-parent-and-all-after-reload',
+        'edit-saved-related-expand-exclude-apply-preview',
+        'apply-and-reload-saved-related-expand-exclude-zero-rows',
+        'remove-saved-exclude-related-expand-restores-patient-preview',
+        'remove-saved-related-expand-restores-exact-patient-after-reload',
+        'apply-and-reload-remove-expansion-restoration',
+      ];
+      const policyTimings = report.cases.filter(({ name }) => timingNames.includes(name))
+        .map(({ name, durationMs }) => ({ name, durationMs, limitMs: 5000 }));
+      const allTimingsWithinBudget = policyTimings.length === timingNames.length &&
+        policyTimings.every(({ durationMs }) => Number.isFinite(durationMs) && durationMs <= 5000);
+      const initialExpansion = report.zeroObservationExpansion;
+      const policyEvidence = report.savedEmptyPolicyEvidence;
+      cda.check('correctness',
+        'bounded zero-match Patient stays in the exact authorized project/generation with the signed Patient→Observation route',
+        report.oracle.finalScopedRereadMatched === true && report.oracle.witnessSummary?.rootCount === 1 &&
+          report.oracle.exactMembershipScope?.project === project && report.oracle.exactMembershipScope?.generation === generation &&
+          report.currentRelatedChoiceId && report.relatedFieldCandidate?.nodeId &&
+          JSON.stringify(report.relatedChoiceAssertions.at(-1)?.route) === JSON.stringify(expectedPatientObservationRoute),
+        { project, generation, exactPatient: report.oracle.witnessSummary, exactScope: report.oracle.exactMembershipScope,
+          relatedChoiceId: report.currentRelatedChoiceId, relatedCandidate: report.relatedFieldCandidate,
+          signedRoute: report.relatedChoiceAssertions.at(-1)?.route,
+          expansionRoute: initialExpansion?.route, finalRawRereadMatched: report.oracle.finalScopedRereadMatched });
+      cda.check('correctness',
+        'initial PRESERVE_PARENT expansion saves one exact Patient row with a null related Observation ID',
+        initialExpansion?.savedPolicy === 'PRESERVE_PARENT' && initialExpansion?.savedOutputNullable === true &&
+          initialExpansion?.outputNullable === true && initialExpansion?.previewSchemaNullable === true &&
+          initialExpansion?.previewRowCount === 1 && initialExpansion?.unmatchedObservationOutputIsNull === true &&
+          initialExpansion?.patientId === report.oracle.witnessSummary?.patientId,
+        { ...initialExpansion,
+          rowCount: report.oracle.witnessSummary?.rootCount });
+      cda.check('correctness',
+        'saved EXCLUDE edit preserves step/route/target/output IDs, clears output nullability, and previews exactly zero rows',
+        policyEvidence?.cancelCandidate?.candidateWireExact === true && policyEvidence?.cancelCandidate?.stepId === initialExpansion?.savedStepId &&
+          policyEvidence?.cancelCandidate?.routeChoiceId === initialExpansion?.routeChoiceId &&
+          policyEvidence?.cancelCandidate?.targetNodeId === initialExpansion?.targetNodeId &&
+          policyEvidence?.cancelCandidate?.targetResourceType === initialExpansion?.targetResourceType &&
+          policyEvidence?.cancelCandidate?.relatedRecordColumnId === initialExpansion?.relatedRecordColumnId &&
+          JSON.stringify(policyEvidence?.cancelCandidate?.route) === JSON.stringify(initialExpansion?.route) &&
+          policyEvidence?.cancelCandidate?.outputNullable === false && policyEvidence?.cancelCandidate?.responseNullableFieldOmitted === true &&
+          policyEvidence?.cancelCandidate?.rowCount === 0 &&
+          Array.isArray(policyEvidence?.cancelCandidate?.rows) && policyEvidence.cancelCandidate.rows.length === 0 &&
+          policyEvidence?.apply?.candidateWireExact === true && policyEvidence?.apply?.stepId === initialExpansion?.savedStepId &&
+          policyEvidence?.apply?.routeChoiceId === initialExpansion?.routeChoiceId &&
+          policyEvidence?.apply?.targetNodeId === initialExpansion?.targetNodeId &&
+          policyEvidence?.apply?.targetResourceType === initialExpansion?.targetResourceType &&
+          policyEvidence?.apply?.relatedRecordColumnId === initialExpansion?.relatedRecordColumnId &&
+          policyEvidence?.apply?.responseNullableFieldOmitted === true &&
+          JSON.stringify(policyEvidence?.apply?.route) === JSON.stringify(initialExpansion?.route) &&
+          policyEvidence?.apply?.previewRowCount === 0 &&
+          Array.isArray(policyEvidence?.apply?.previewRows) && policyEvidence.apply.previewRows.length === 0,
+        { cancelCandidate: policyEvidence?.cancelCandidate, applyCandidate: policyEvidence?.apply,
+          preserveParentExpansion: initialExpansion });
+      cda.check('correctness',
+        'Cancel restores the saved PRESERVE_PARENT construction, population, and exact rendered rows',
+        policyEvidence?.cancel?.constructionUnchanged === true && policyEvidence?.cancel?.populationUnchanged === true &&
+          policyEvidence?.cancel?.parentRowCount === 1 && policyEvidence?.cancel?.parentId === report.oracle.witnessSummary?.patientId &&
+          policyEvidence?.cancel?.savedPolicy === 'PRESERVE_PARENT' && policyEvidence?.cancel?.relatedOutputNullable === true &&
+          Array.isArray(policyEvidence?.cancel?.relatedAllValues) && policyEvidence.cancel.relatedAllValues.length === 0,
+        { cancel: policyEvidence?.cancel });
+      cda.check('correctness', 'Apply saves EXCLUDE and renders exactly zero rows',
+        policyEvidence?.apply?.savedPolicyAfterApply === 'EXCLUDE' && policyEvidence?.apply?.outputNullableAfterApply === false &&
+          policyEvidence?.apply?.outputNullableFieldOmittedAfterApply === true &&
+          policyEvidence?.apply?.previewRowCount === 0 && Array.isArray(policyEvidence?.apply?.previewRows) &&
+          policyEvidence.apply.previewRows.length === 0 && Array.isArray(policyEvidence?.apply?.domRowsAfterApply) &&
+          policyEvidence.apply.domRowsAfterApply.length === 0,
+        { apply: policyEvidence?.apply });
+      cda.check('persistence', 'reload retains the saved EXCLUDE policy and zero-row result',
+        policyEvidence?.apply?.savedPolicyAfterReload === 'EXCLUDE' &&
+          policyEvidence?.apply?.outputNullableAfterReload === false &&
+          policyEvidence?.apply?.outputNullableFieldOmittedAfterReload === true && policyEvidence?.apply?.reloadRowCount === 0 &&
+          Array.isArray(policyEvidence?.apply?.reloadRows) && policyEvidence.apply.reloadRows.length === 0 &&
+          Array.isArray(policyEvidence?.apply?.domRowsAfterReload) && policyEvidence.apply.domRowsAfterReload.length === 0,
+        { apply: policyEvidence?.apply });
+      cda.check('persistence',
+        'removing the saved expansion restores the exact Patient source row after reload and final raw reread',
+        policyEvidence?.restoration?.restoredConstruction === true && policyEvidence?.restoration?.restoredColumns === true &&
+          policyEvidence?.restoration?.restoredPopulation === true && policyEvidence?.restoration?.rowCount === 1 &&
+          policyEvidence?.restoration?.parentId === report.oracle.witnessSummary?.patientId &&
+          report.oracle.finalScopedRereadMatched === true,
+        { restoration: policyEvidence?.restoration, finalRawRereadMatched: report.oracle.finalScopedRereadMatched });
+      cda.check('performance',
+        'policy edit, Apply/reload, and removal/restoration checkpoints each finish within five seconds',
+        allTimingsWithinBudget,
+        { timings: policyTimings, expectedTimingCount: timingNames.length, limitMs: 5000 });
+      cda.check('correctness', 'CDA watched source and API build stayed unchanged',
+        report.sourceFreeze?.unchanged === true && report.sourceFingerprint?.unchanged === true &&
+          report.apiBuildFreeze?.unchanged === true,
+        { sourceFreezeUnchanged: report.sourceFreeze?.unchanged,
+          sourceFingerprintUnchanged: report.sourceFingerprint?.unchanged,
+          apiBuildUnchanged: report.apiBuildFreeze?.unchanged,
+          sourceFingerprint: report.sourceFingerprint, apiBuildFreeze: report.apiBuildFreeze });
+    } else {
+      const checkName = zeroObservationMode
+        ? 'zero Patient Observation ONE/ALL preserves the exact scoped parent through the native lifecycle'
+        : 'related ONE/ALL lifecycle preserves exact raw-source values and row identities';
+      cda.check('correctness', checkName, true, {
+        mode, fieldMode, witnessMode, cases: report.cases.map(({ name }) => name),
+        ...(zeroObservationMode ? {
+          scopedZeroMatch: report.oracle.finalScopedRereadMatched === true,
+          emptyPolicy: report.zeroObservationExpansion?.savedPolicy,
+          oneValueIsNull: report.zeroObservationOne?.nullableValueIsNull === true,
+          allValueIsEmptyArray: report.zeroObservationAll?.previewValueIsEmptyArray === true,
+          parentRowCount: report.oracle.witnessSummary?.rootCount,
+          expectedOneValidationCount: 0,
+        } : {}),
+        exactRawOracle: true, oneValidationCount: report.nativeRequests.filter(entry => entry.status === 422).length,
+      });
+    }
   }
   if (report.status === 'failed' || report.status === 'invalidated') {
     throw new Error(`Related ONE/ALL workflow ${report.status}: ${report.error ?? JSON.stringify(report.apiBuildFreeze ?? report.sourceFreeze)}`);

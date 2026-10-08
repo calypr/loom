@@ -83,6 +83,24 @@ test.describe('CDA zero Observation related source ONE and ALL', () => {
   });
 });
 
+test.describe('CDA zero Observation saved RelatedExpand empty-policy edit', () => {
+  test.use({
+    ...(process.env.LOOM_API_ORIGIN ? { cdaApiOrigin: process.env.LOOM_API_ORIGIN } : {}),
+    ...(process.env.LOOM_UI_ORIGIN ? { cdaUiOrigin: process.env.LOOM_UI_ORIGIN } : {}),
+    cdaScenarioID: 'cda-related-one-all-zero-observation',
+    cdaCaseName: 'zero-patient-observation-exclude-policy-edit-cancel-apply-restoration',
+  });
+
+  test('edits a saved zero-match RelatedExpand from PRESERVE_PARENT to EXCLUDE', async ({ page, cda }) => {
+    const result = await relatedOneAllWorkflow({ page, cda, mode: 'cda', fieldMode: 'id', witnessMode: 'zero',
+      savedEmptyPolicyEdit: true });
+    const skipReason = fixtureUnavailableSkipReason(result);
+    if (skipReason) test.skip(true, skipReason);
+    expect(result.cases.length).toBeGreaterThan(0);
+    expect(result.status).toBe('passed');
+  });
+});
+
 test.describe('CDA repeated component empty-list policies', () => {
   test.use({
     cdaScenarioID: 'cda-repeated-empty',

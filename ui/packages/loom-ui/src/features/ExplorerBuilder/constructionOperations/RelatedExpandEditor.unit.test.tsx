@@ -716,6 +716,106 @@ describe('RelatedExpandEditor', () => {
     });
   });
 
+  it('updates a saved related-record output nullability when its no-match policy changes', async () => {
+    const observationRoute = [{
+      ...route[0], edgeId: 'patient-observation', toNodeId: 'observation-node', toResourceType: 'Observation',
+    }];
+    searchRelatedExpandChoices.mockReset().mockResolvedValue({
+      snapshotToken: 'snapshot-1', draftVersion: 1, draftDigest: 'draft-1',
+      outputId: 'patients', stageId: 'source_projection', anchorColumnId: '_key', complete: true, truncated: false,
+      choices: [{ ...rootAnchor, choiceId: 'observation-route', targetNodeId: 'observation-node',
+        targetResourceType: 'Observation', route: observationRoute }],
+    });
+    const saved = {
+      id: 'expand-observations',
+      inputs: [{ kind: 'SOURCE_PROJECTION' as const }],
+      operation: {
+        kind: 'RELATED_EXPAND' as const,
+        relatedExpand: {
+          anchorColumnId: '_key',
+          choiceId: 'observation-route',
+          targetNodeId: 'observation-node',
+          targetResourceType: 'Observation',
+          route: observationRoute,
+          contributorRule: { policy: 'ALL_MATCHES' as const },
+          emptyPolicy: 'PRESERVE_PARENT' as const,
+          relatedRecordColumnId: 'observation-id',
+        },
+      },
+      outputs: [
+        { id: 'patient-id', name: 'patient_id', label: 'Patient ID', type: 'string', nullable: false },
+        { id: 'observation-id', name: 'observation_id', label: 'Observation ID', type: 'string', nullable: true },
+      ],
+    };
+    const onCandidateChange = vi.fn();
+    render(<RelatedExpandEditor
+      project="project" explorerId="explorer" snapshotToken="snapshot-1" outputId="patients"
+      catalog={catalog} construction={{ version: 1, steps: [saved] }} capabilities={capabilities}
+      step={saved} disabled={false} onCandidateChange={onCandidateChange}
+    />);
+
+    await screen.findByRole('radio', { name: 'Patient <-[subject]- Observation' });
+    expect((screen.getByLabelText('If a current row has no matches') as HTMLSelectElement).value)
+      .toBe('PRESERVE_PARENT');
+    fireEvent.change(screen.getByLabelText('If a current row has no matches'), { target: { value: 'EXCLUDE' } });
+
+    const excludedCandidate = onCandidateChange.mock.lastCall?.[0];
+    expect(excludedCandidate).toBeDefined();
+    if (!excludedCandidate) throw new Error('Changing the saved no-match policy did not produce a candidate.');
+    expect(excludedCandidate.changedStepId).toBe('expand-observations');
+    expect(excludedCandidate.candidateConstruction.steps).toHaveLength(1);
+    const excludedStep = excludedCandidate.candidateConstruction.steps[0];
+    expect(excludedStep).toMatchObject({
+      id: 'expand-observations',
+      inputs: [{ kind: 'SOURCE_PROJECTION' }],
+      operation: {
+        kind: 'RELATED_EXPAND',
+        relatedExpand: {
+          anchorColumnId: '_key',
+          choiceId: 'observation-route',
+          targetNodeId: 'observation-node',
+          targetResourceType: 'Observation',
+          route: observationRoute,
+          emptyPolicy: 'EXCLUDE',
+          relatedRecordColumnId: 'observation-id',
+        },
+      },
+      outputs: [
+        { id: 'patient-id', name: 'patient_id', label: 'Patient ID', type: 'string', nullable: false },
+        { id: 'observation-id', name: 'observation_id', label: 'Observation ID', type: 'string', nullable: false },
+      ],
+    });
+
+    fireEvent.change(screen.getByLabelText('If a current row has no matches'), { target: { value: 'PRESERVE_PARENT' } });
+    const preservedCandidate = onCandidateChange.mock.lastCall?.[0];
+    expect(preservedCandidate).toBeDefined();
+    if (!preservedCandidate) throw new Error('Restoring the saved no-match policy did not produce a candidate.');
+    expect(preservedCandidate.changedStepId).toBe('expand-observations');
+    expect(preservedCandidate.candidateConstruction.steps).toHaveLength(1);
+    const preservedStep = preservedCandidate.candidateConstruction.steps[0];
+    expect(preservedStep).toMatchObject({
+      id: 'expand-observations',
+      inputs: [{ kind: 'SOURCE_PROJECTION' }],
+      operation: {
+        kind: 'RELATED_EXPAND',
+        relatedExpand: {
+          anchorColumnId: '_key',
+          choiceId: 'observation-route',
+          targetNodeId: 'observation-node',
+          targetResourceType: 'Observation',
+          route: observationRoute,
+          emptyPolicy: 'PRESERVE_PARENT',
+          relatedRecordColumnId: 'observation-id',
+        },
+      },
+      outputs: [
+        { id: 'patient-id', name: 'patient_id', label: 'Patient ID', type: 'string', nullable: false },
+        { id: 'observation-id', name: 'observation_id', label: 'Observation ID', type: 'string', nullable: true },
+      ],
+    });
+    expect(preservedStep.id).toBe(excludedStep.id);
+  });
+
   it('keeps route discovery source-scoped and does not restart it when Apply disables editing', async () => {
     let resolveRoute: ((value: unknown) => void) | undefined;
     searchRelatedExpandChoices.mockReset().mockImplementation(() => new Promise((resolve) => { resolveRoute = resolve; }));

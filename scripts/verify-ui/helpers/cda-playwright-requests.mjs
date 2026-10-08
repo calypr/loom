@@ -24,6 +24,18 @@ export const findCompletedNativeResponse = (entries, responseFor, predicate, fro
     return response !== undefined && predicate(entry, response);
   });
 
+export const matchesNativeConstructionRemovalProposal = (entry, response, expected) => {
+  const request = entry?.request;
+  return entry?.method === 'POST' && entry.path?.endsWith('/construction-proposals') &&
+    typeof response?.proposalId === 'string' && response.proposalId.length > 0 &&
+    request?.outputId === expected.outputId && request.snapshotToken === expected.snapshotToken &&
+    request.expectedDraftVersion === expected.draftVersion && request.expectedDraftDigest === expected.draftDigest &&
+    Array.isArray(request.removeStepIds) && request.removeStepIds.length === 1 &&
+    request.removeStepIds[0] === expected.stepId && response.outputId === expected.outputId &&
+    response.snapshotToken === expected.snapshotToken && response.draftVersion === expected.draftVersion &&
+    response.draftDigest === expected.draftDigest;
+};
+
 export function captureCDARequests(page, { apiOrigin, browserRequestOrigin = apiOrigin, appOrigins = [apiOrigin], ownedPathPrefix, report, currentAction = () => undefined, responsePaths = /commands|selections|explicit-groups|row-definition-proposals|construction-choice-proposals|construction-proposals|construction-capabilities|row-lineage|population-mapping|preview/, shouldReportHttpError = () => true } = {}) {
   if (!apiOrigin || !ownedPathPrefix || !report || !Array.isArray(report.nativeRequests)) {
     throw new TypeError('CDA request capture needs an API origin, owned path prefix, and nativeRequests report array');

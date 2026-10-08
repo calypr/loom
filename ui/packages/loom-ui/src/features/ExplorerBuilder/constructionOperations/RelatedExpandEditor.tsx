@@ -98,7 +98,7 @@ const candidateFor = (
   const priorOutput = step?.outputs.find((column) => column.id === outputColumnId);
   const outputs = step
     ? step.outputs.map((column) => column.id === outputColumnId
-      ? { ...column, name, label, type: 'string' }
+      ? { ...column, name, label, type: 'string', nullable: emptyPolicy === 'PRESERVE_PARENT' }
       : column)
     : [
       ...stage.columns.map(({ id, name: columnName, label: columnLabel, type }) => ({

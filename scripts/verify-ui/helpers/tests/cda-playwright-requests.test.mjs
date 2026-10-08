@@ -2,11 +2,47 @@ import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
-import { captureCDARequests, findCompletedNativeResponse } from '../cda-playwright-requests.mjs';
+import {
+  captureCDARequests,
+  findCompletedNativeResponse,
+  matchesNativeConstructionRemovalProposal,
+} from '../cda-playwright-requests.mjs';
 import { sanitizePayload, sanitizeReportPayload } from '../playwright-browser.mjs';
 import { createPendingResponseReads } from '../pending-response-reads.mjs';
 import { expectedRelatedSourceOneValidation } from '../related-source-capture.mjs';
 import { classifyExpectedCdaCancellation } from '../cda-fixtures.mjs';
+
+test('completed proposal selection skips an unrelated removal and binds the exact step, output, and draft', () => {
+  const expected = {
+    stepId: 'related_expand_patient_observation', outputId: 'out-owned', snapshotToken: 'snapshot-owned',
+    draftVersion: 9, draftDigest: 'digest-owned',
+  };
+  const makeEntry = (stepId) => ({
+    complete: true,
+    method: 'POST',
+    path: '/api/v1/projects/owned/explorers/owned/authoring/v2/construction-proposals',
+    request: {
+      removeStepIds: [stepId], outputId: expected.outputId, snapshotToken: expected.snapshotToken,
+      expectedDraftVersion: expected.draftVersion, expectedDraftDigest: expected.draftDigest,
+    },
+  });
+  const unrelated = makeEntry('step-unrelated');
+  const exact = makeEntry(expected.stepId);
+  const responseFor = (entry) => ({
+    proposalId: entry === exact ? 'proposal-exact' : 'proposal-unrelated',
+    outputId: expected.outputId, snapshotToken: expected.snapshotToken,
+    draftVersion: expected.draftVersion, draftDigest: expected.draftDigest,
+  });
+  const matches = (entry, response) => matchesNativeConstructionRemovalProposal(entry, response, expected);
+
+  assert.equal(matchesNativeConstructionRemovalProposal(exact, responseFor(exact), expected), true);
+  assert.equal(matchesNativeConstructionRemovalProposal(unrelated, responseFor(unrelated), expected), false);
+  assert.equal(findCompletedNativeResponse([unrelated, exact], responseFor, matches), exact);
+  assert.equal(findCompletedNativeResponse([unrelated], responseFor, matches), undefined);
+  assert.equal(matchesNativeConstructionRemovalProposal(exact, {
+    ...responseFor(exact), draftDigest: 'digest-stale',
+  }, expected), false);
+});
 
 test('owned requests correlate sanitized responses and reject sibling explorer prefixes', async () => {
   const page = new EventEmitter();
@@ -809,12 +845,12 @@ test('Apply and reconcile identity checks use retained protocol values beyond th
 
 test('a proposal captured during its trigger click remains visible to the waiter', async () => {
   const workflowSource = await readFile(new URL('../../workflows/verify-cda-related-one-all-browser.mjs', import.meta.url), 'utf8');
-  const proposalBody = workflowSource.match(/const proposal = async \(name, started, expectedRows, fromIndex\) => \{([\s\S]*?)\n\};/)?.[1];
+  const proposalBody = workflowSource.match(/const proposal = async \(name, started, expectedRows, fromIndex(?:, matchesRequest = \(\) => true)?\) => \{([\s\S]*?)\n\};/)?.[1];
   assert(proposalBody, 'proposal must receive its request boundary from the triggering action');
   assert.doesNotMatch(proposalBody, /report\.nativeRequests\.length/, 'proposal must not take its index after the click has already happened');
-  const proposalCalls = [...workflowSource.matchAll(/await proposal\(([^;\n]*)\);/g)].map((match) => match[1]);
-  assert.equal(proposalCalls.length, 4, 'all native proposal paths must be checked');
-  assert(proposalCalls.every((call) => /(?:fromIndex|[Pp]roposalFromIndex)/.test(call)),
+  const proposalCalls = [...workflowSource.matchAll(/await proposal\(([\s\S]*?)\);/g)].map((match) => match[1]);
+  assert.equal(proposalCalls.length, 7, 'all native proposal paths must be checked');
+  assert(proposalCalls.every((call) => /fromIndex/i.test(call)),
     'every proposal wait must receive an index captured before its triggering click');
 
   const entries = [];
