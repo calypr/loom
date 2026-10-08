@@ -48,6 +48,23 @@ const groupAddFieldsPerformanceEvidence = {
   lifecycleCheckpointDurations: groupAddFieldsLifecycleCheckpoints,
   maximumCheckpointDurationMs: 1356,
 };
+const groupOnePerformanceCheckName = 'all Group ONE action-to-render checkpoints complete within five seconds';
+const groupOneTimingCheckpoints = [
+  { name: 'initial-specimen-load-to-render', durationMs: 1323, budgetMs: 5000, passed: true },
+  { name: 'specimen-to-patient-preview', durationMs: 914, budgetMs: 5000, passed: true },
+  { name: 'specimen-to-patient-apply-to-render', durationMs: 561, budgetMs: 5000, passed: true },
+  { name: 'after-expansion-load-to-render', durationMs: 1312, budgetMs: 5000, passed: true },
+  { name: 'patient-group-preview-cancelled', durationMs: 699, budgetMs: 5000, passed: true },
+  { name: 'patient-group-preview-confirmed', durationMs: 696, budgetMs: 5000, passed: true },
+  { name: 'patient-group-apply-to-render', durationMs: 493, budgetMs: 5000, passed: true },
+  { name: 'after-group-load-to-render', durationMs: 1310, budgetMs: 5000, passed: true },
+  { name: 'one-disagreement-diagnostic', durationMs: 1015, budgetMs: 5000, passed: true },
+  { name: 'all-repair-preview', durationMs: 413, budgetMs: 5000, passed: true },
+  { name: 'all-repair-apply-to-render', durationMs: 530, budgetMs: 5000, passed: true },
+  { name: 'after-all-repair-load-to-render', durationMs: 1292, budgetMs: 5000, passed: true },
+  { name: 'remove-repaired-field', durationMs: 402, budgetMs: 5000, passed: true },
+  { name: 'after-removal-load-to-render', durationMs: 1278, budgetMs: 5000, passed: true },
+];
 const retainedMembershipSetupFailure = {
   errors: [],
   suites: [{
@@ -373,6 +390,50 @@ test('Group-add-fields performance evidence contributes its complete lifecycle c
   assert.deepEqual(summary.checkpoints.map(({ name, durationMs }) => ({ name, durationMs })), groupAddFieldsLifecycleCheckpoints);
   assert.equal(summary.checkpoints[0].evidencePath,
     'assertions[].evidence.lifecycleCheckpointDurations[].durationMs');
+});
+
+test('Group ONE timingCheckpoints contribute the declared action-to-render measurements', () => {
+  const report = {
+    assertions: [{
+      name: groupOnePerformanceCheckName,
+      dimension: 'performance',
+      status: 'passed',
+      evidence: {
+        expectedCheckpoints: groupOneTimingCheckpoints.map(({ name }) => name),
+        actualCheckpoints: groupOneTimingCheckpoints.map(({ name }) => name),
+        timingCheckpoints: groupOneTimingCheckpoints,
+        maximumDurationMs: 1323,
+        budgetMs: 5000,
+      },
+    }],
+  };
+  const summary = summarizeRenderCheckpoints(report, [groupOnePerformanceCheckName]);
+
+  assert.equal(summary.count, 14);
+  assert.equal(summary.maximumDurationMs, 1323);
+  assert.deepEqual(summary.checkpoints.map(({ name, durationMs }) => ({ name, durationMs })),
+    groupOneTimingCheckpoints.map(({ name, durationMs }) => ({ name, durationMs })));
+  assert.equal(summary.checkpoints[0].evidencePath,
+    'assertions[].evidence.timingCheckpoints[].durationMs');
+});
+
+test('malformed or negative timingCheckpoints remain unverified', () => {
+  const invalidEvidence = [
+    { timingCheckpoints: '14 timing checkpoints' },
+    { timingCheckpoints: [] },
+    { timingCheckpoints: [{ name: 'valid', durationMs: 50, budgetMs: 5000, passed: true }, { durationMs: 40 }] },
+    { timingCheckpoints: [{ name: 'negative duration', durationMs: -1, budgetMs: 5000, passed: false }] },
+    { timingCheckpoints: [{ name: 'invalid duration', durationMs: 'fast', budgetMs: 5000, passed: true }] },
+  ];
+
+  for (const evidence of invalidEvidence) {
+    const summary = summarizeRenderCheckpoints({
+      assertions: [{ name: groupOnePerformanceCheckName, evidence }],
+    }, [groupOnePerformanceCheckName]);
+    assert.equal(summary.count, 0);
+    assert.equal(summary.maximumDurationMs, null);
+    assert.deepEqual(summary.checkpoints, []);
+  }
 });
 
 test('missing or malformed lifecycle checkpoint lists remain unverified', () => {
