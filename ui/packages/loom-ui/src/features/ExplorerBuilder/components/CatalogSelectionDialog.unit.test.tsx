@@ -35,12 +35,19 @@ const allOption: ConstructionChoice['options'][number] = {
   preservation: 'PRESERVING',
 };
 
+const presenceOption: ConstructionChoice['options'][number] = {
+  ...countOption,
+  form: 'PRESENCE',
+  reason: 'Show whether a matching Observation record exists.',
+};
+
 const routeChoice = (
   choiceId: string,
   relationship: string,
   options: ReadonlyArray<ConstructionChoice['options'][number]> = [countOption],
   routeMetadata: Partial<ConstructionChoice['route'][number]> = {},
   direct = false,
+  routeOverride?: ConstructionChoice['route'],
 ): FieldChoice => ({
   choiceId,
   source: {
@@ -51,7 +58,7 @@ const routeChoice = (
     path: 'id',
     cardinality: 'optional_one',
   },
-  route: direct ? [] : [{
+  route: direct ? [] : routeOverride ?? [{
     edgeId: `${choiceId}-edge`,
     fromNodeId: routeMetadata.fromNodeId ?? 'patient-node',
     toNodeId: routeMetadata.toNodeId ?? 'observation-node',
@@ -78,8 +85,10 @@ const createDialog = (
   options: ReadonlyArray<ConstructionChoice['options'][number]> = [countOption],
   initialForm: 'COUNT' | 'ALL' = 'COUNT',
   directField = false,
+  rowRoot = 'Patient',
+  savedChoiceRoute?: ConstructionChoice['route'],
 ) => {
-  const subjectChoice = routeChoice('saved-subject-choice', 'subject_Patient', options, routeMetadata, directField);
+  const subjectChoice = routeChoice('saved-subject-choice', 'subject_Patient', options, routeMetadata, directField, savedChoiceRoute);
   const focusChoice = routeChoice('focus-choice', 'focus_Patient', options.map(option => ({
     ...option,
     contributorPredicateOperators: focusOperators,
@@ -133,7 +142,7 @@ const createDialog = (
   const dialog = (
     <CatalogSelectionDialog
       groups={[group]}
-      rowRoot="Patient"
+      rowRoot={rowRoot}
       initialSelection={{
         choiceId: subjectChoice.choiceId,
         form: initialForm,
@@ -149,7 +158,7 @@ const createDialog = (
   );
   render(insideClosedDetails ? <details><summary>Source setup</summary>{dialog}</details> : dialog);
 
-  return { focusChoice, onConfirm };
+  return { subjectChoice, focusChoice, onConfirm };
 };
 
 describe('CatalogSelectionDialog', () => {
@@ -208,6 +217,48 @@ describe('CatalogSelectionDialog', () => {
 
     await waitFor(() => expect(inspect).toHaveBeenCalledTimes(2));
     expect(inspect.mock.calls.map(([selection]) => selection.constructionChoice.form)).toEqual(['ALL', 'ALL']);
+  });
+
+  it('offers Observation.id PRESENCE on the named-cohort route and retains its exact route choice', () => {
+    const namedCohortRoute: ConstructionChoice['route'] = [{
+      edgeId: 'specimen-subject-patient',
+      fromNodeId: 'specimen-node',
+      toNodeId: 'patient-node',
+      fromResourceType: 'Specimen',
+      toResourceType: 'Patient',
+      relationship: 'subject_Patient',
+      storageDirection: 'OUTBOUND',
+      matchMode: 'OPTIONAL',
+    }, {
+      edgeId: 'patient-observation-subject',
+      fromNodeId: 'patient-node',
+      toNodeId: 'observation-node',
+      fromResourceType: 'Patient',
+      toResourceType: 'Observation',
+      relationship: 'subject_Patient',
+      storageDirection: 'INBOUND',
+      matchMode: 'OPTIONAL',
+    }];
+    const { subjectChoice, onConfirm } = createDialog(
+      [], {}, false, undefined, false, undefined, [countOption, presenceOption], 'COUNT', false, 'Specimen', namedCohortRoute,
+    );
+    const dialog = screen.getByRole('dialog', { name: 'Choose how to add these fields' });
+
+    expect(subjectChoice.route).toEqual(namedCohortRoute);
+    expect(within(dialog).getByRole('radio', { name: 'Observation ID: Specimen -[subject]-> Patient <-[subject]- Observation' }))
+      .toHaveProperty('checked', true);
+    expect(within(dialog).getByRole('radio', { name: 'Observation ID: Show whether a match exists' }))
+      .toBeInTheDocument();
+    expect(within(dialog).getByText('Each row shows whether a match exists (false if none).'))
+      .toBeInTheDocument();
+
+    fireEvent.click(within(dialog).getByRole('radio', { name: 'Observation ID: Show whether a match exists' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Add 1 column' }));
+
+    expect(onConfirm).toHaveBeenCalledWith([{
+      constructionChoice: { choiceId: subjectChoice.choiceId, form: 'PRESENCE' },
+      title: 'Observation ID',
+    }]);
   });
 
   it('keeps grouped root ALL as a root choice with its grouped value policy', async () => {

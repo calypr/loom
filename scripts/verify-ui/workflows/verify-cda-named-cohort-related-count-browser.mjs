@@ -9,6 +9,7 @@ export async function namedCohortRelatedCountWorkflow({
   cda,
   relatedForm = process.env.LOOM_CDA_NAMED_COHORT_FORM ?? 'COUNT',
   includeEmptyGroup = process.env.LOOM_CDA_NAMED_COHORT_EMPTY_GROUP === '1',
+  nonemptyZeroMatch = false,
 }) {
 const project = cda.project;
 const generation = 'cda-fhir-v1';
@@ -16,7 +17,8 @@ const protectedExplorer = 'cda-builder-full-qa-1790440983382';
 const resourceType = 'Specimen';
 const patientType = 'Patient';
 const observationType = 'Observation';
-assert(['COUNT', 'ALL'].includes(relatedForm), 'LOOM_CDA_NAMED_COHORT_FORM must be COUNT or ALL');
+assert(['COUNT', 'ALL', 'PRESENCE'].includes(relatedForm), 'LOOM_CDA_NAMED_COHORT_FORM must be COUNT, ALL, or PRESENCE');
+assert(!nonemptyZeroMatch || (relatedForm === 'PRESENCE' && !includeEmptyGroup), 'A nonempty zero-match root is a standalone PRESENCE case');
 const relatedFormName = relatedForm.toLowerCase();
 const explorer = `named-cohort-related-${relatedFormName}-${Date.now()}-${randomUUID().slice(0, 8)}`;
 const apiOrigin = cda.apiOrigin;
@@ -25,16 +27,17 @@ const arangoContainer = cda.target.arangoContainer;
 const witnessPatientLimit = 2000;
 const observationDocumentCap = 11;
 const maxExactObservations = observationDocumentCap - 1;
-const groupLabel = 'Two sibling Specimens';
+const groupLabel = nonemptyZeroMatch ? 'Nonempty group with no matching Observations' : 'Two sibling Specimens';
 const emptyGroupId = 'qa-empty-declared-group';
 const emptyGroupLabel = 'Empty declared group';
+const populatedGroupId = nonemptyZeroMatch ? 'qa-nonempty-zero-match-group' : 'qa-sibling-specimens';
 const routeLabel = 'Observation ID: Specimen -[subject]-> Patient <-[subject]- Observation';
 const root = `/api/v1/projects/${project}/explorers`;
 const base = `${root}/${explorer}/authoring/v2`;
 const selections = base.replace('/authoring/v2', '/selections');
 const report = Object.assign(cda.report, {
   project, generation, resourceType, explorer, protectedExplorer, protectedExplorerUntouched: true, groupLabel, routeLabel,
-  mode: includeEmptyGroup ? 'empty-declared-group' : 'nonempty-only', relatedForm,
+  mode: nonemptyZeroMatch ? 'nonempty-root-zero-related-matches' : includeEmptyGroup ? 'empty-declared-group' : 'nonempty-only', relatedForm, nonemptyZeroMatch,
   witnessBounds: { scopedSpecimens: witnessPatientLimit, distinctObservationDocuments: observationDocumentCap, maxSelectedObservationDocuments: maxExactObservations },
   cases: [], errors: [], requests: [], nativeRequests: cda.nativeRequests, started: new Date().toISOString(),
 });
@@ -78,6 +81,12 @@ const record = (name, startedAt, evidenceValue) => {
   const durationMs = Date.now() - startedAt;
   assert(durationMs <= 5000, `${name} took ${durationMs}ms`);
   report.cases.push({ name, durationMs, ...(evidenceValue ? { evidence: evidenceValue } : {}) });
+};
+const recordedPresenceChecks = new Set();
+const recordPresenceCheck = (dimension, name, passed, evidence = {}) => {
+  if (relatedForm !== 'PRESENCE' || recordedPresenceChecks.has(name)) return;
+  cda.check(dimension, name, Boolean(passed), evidence);
+  recordedPresenceChecks.add(name);
 };
 
 const api = async (path, body) => {
@@ -124,6 +133,10 @@ const rawQuery = query => {
   return JSON.parse(result.stdout.slice(opening));
 };
 
+const witnessMemberCount = nonemptyZeroMatch ? 1 : 2;
+const observationCountPredicate = nonemptyZeroMatch
+  ? 'LENGTH(observations) == 0'
+  : `LENGTH(observations) >= 1 AND LENGTH(observations) <= ${maxExactObservations}`;
 const sourceWitnessQuery = `
 LET scopedSpecimens = (
   FOR specimen IN Specimen
@@ -160,11 +173,11 @@ FOR seed IN scopedSpecimens
           AND member.resourceType == ${JSON.stringify(resourceType)}
         COLLECT memberKey = member._key INTO memberDocs = member
         SORT memberKey
-        LIMIT 2
+        LIMIT ${witnessMemberCount}
         LET selected = FIRST(memberDocs)
         RETURN { id: selected.id, _id: selected._id, resourceType: selected.resourceType, project: selected.project, generation: selected.dataset_generation }
     )
-    FILTER LENGTH(members) == 2
+    FILTER LENGTH(members) == ${witnessMemberCount}
     LET observations = (
       FOR observationEdge IN fhir_edge
         FILTER observationEdge._to == patient._id
@@ -183,7 +196,7 @@ FOR seed IN scopedSpecimens
         LET selected = FIRST(observationDocs)
         RETURN { id: selected.id, _id: selected._id, resourceType: selected.resourceType, project: selected.project, generation: selected.dataset_generation }
     )
-    FILTER LENGTH(observations) >= 1 AND LENGTH(observations) <= ${maxExactObservations}
+    FILTER ${observationCountPredicate}
     SORT patient._key
     LIMIT 1
     RETURN {
@@ -298,9 +311,11 @@ RETURN { definitions, memberships }
   return { query, ...roster };
 };
 
-const expectedRelatedValue = group => relatedForm === 'COUNT'
-  ? group.expectedObservationCount
-  : group.observations.slice().sort((left, right) => left._id.localeCompare(right._id)).map(observation => observation.id);
+const expectedRelatedValue = (group, form = relatedForm) => {
+  if (form === 'COUNT') return group.expectedObservationCount;
+  if (form === 'PRESENCE') return group.expectedObservationCount > 0;
+  return group.observations.slice().sort((left, right) => left._id.localeCompare(right._id)).map(observation => observation.id);
+};
 
 const assertNamedGroupRows = (view, expectedGroupCounts, relatedLabel, form = relatedForm) => {
   const headerIndex = label => view.headers.findIndex(header => header.trim().toLowerCase() === label);
@@ -336,8 +351,10 @@ const assertNamedGroupRows = (view, expectedGroupCounts, relatedLabel, form = re
     if (relatedIndex >= 0) {
       if (form === 'COUNT') {
         assert.equal(row[relatedIndex], String(group.expectedObservationCount), `Related COUNT must match the independent raw oracle for ${group.label}`);
+      } else if (form === 'PRESENCE') {
+        assert.equal(row[relatedIndex], String(expectedRelatedValue(group, form)), `Related PRESENCE must match the independent raw oracle for ${group.label}`);
       } else {
-        const expectedIDs = expectedRelatedValue(group);
+        const expectedIDs = expectedRelatedValue(group, form);
         const expectedText = expectedIDs.length === 0 ? '—' : expectedIDs.join('; ');
         assert.equal(row[relatedIndex], expectedText,
           `Formatted related ALL cell must contain exactly the independently ordered IDs for ${group.label}`);
@@ -392,8 +409,12 @@ const assertTypedNamedGroupRows = (rows, expectedGroupCounts, revisionId, relate
       if (form === 'COUNT') {
         assert.equal(row[relatedColumnName], group.expectedObservationCount,
           `Native Preview related COUNT must match the independent raw oracle for ${group.label}`);
+      } else if (form === 'PRESENCE') {
+        assert.equal(typeof row[relatedColumnName], 'boolean', `Native Preview related PRESENCE must be boolean for ${group.label}`);
+        assert.equal(row[relatedColumnName], expectedRelatedValue(group, form),
+          `Native Preview related PRESENCE must match the independent raw oracle for ${group.label}`);
       } else {
-        const expectedIDs = expectedRelatedValue(group);
+        const expectedIDs = expectedRelatedValue(group, form);
         assert(Array.isArray(row[relatedColumnName]), `Native Preview related ALL must return a typed array for ${group.label}`);
         assert.deepEqual(row[relatedColumnName], expectedIDs,
           `Native Preview related ALL must equal the exact distinct raw IDs for ${group.label}`);
@@ -475,11 +496,17 @@ const proposalPreview = async (startedAt, expectedGroupCounts) => {
   ]);
   const output = step.outputs.find(column => column.id === source.outputColumnId);
   assert(output, `The candidate related ${relatedForm} must have a terminal authored output column`);
+  if (relatedForm === 'PRESENCE') assert.equal(output.type, 'boolean', 'Native PRESENCE must author a Boolean output column');
   const protocolRows = assertTypedNamedGroupRows(response.preview?.rows, expectedGroupCounts, report.cohort.revisionId, output.name);
   assertNamedGroupRows(view, expectedGroupCounts, output.label);
   const durationMs = Date.now() - startedAt;
   assert(durationMs <= 5000, `related ${relatedForm} proposal preview took ${durationMs}ms`);
   report.cases.push({ name: `related-${relatedFormName}-proposal-preview`, durationMs, headers: view.headers, row: view.rows.map(row => row.map(cell => cell.text)), protocolRows, candidateConstruction: sanitizeReportPayload(response.candidateConstruction) });
+  recordPresenceCheck('correctness', 'PRESENCE proposal declares a Boolean output and typed rows match the literal raw oracle', true, {
+    route: source.route, output: output.name, outputType: output.type,
+    expected: expectedGroupCounts.map(({ id, label, expectedRelatedValue }) => ({ id, label, value: expectedRelatedValue })),
+    protocolRows,
+  });
   return { request, view, step, output };
 };
 
@@ -508,7 +535,11 @@ const addRelatedObservation = async expectedGroupCounts => {
     throw new UnsupportedCapabilityError('The native related-source chooser cannot select Observation.id on the Specimen → Patient ← Observation route after the named cohort.', { routeOptions });
   }
   await click(page, routeSelector);
-  const formLabel = relatedForm === 'COUNT' ? 'Observation ID: Count matching records' : 'Observation ID: Keep all matching values';
+  const formLabel = relatedForm === 'COUNT'
+    ? 'Observation ID: Count matching records'
+    : relatedForm === 'PRESENCE'
+      ? 'Observation ID: Show whether a match exists'
+      : 'Observation ID: Keep all matching values';
   const formSelector = `[role="dialog"] input[aria-label=${JSON.stringify(formLabel)}]`;
   await waitForBrowser(page, (args) => { return Boolean((document.querySelector(args[0]))); }, [formSelector]);
   const formOptions = await browserEval(page, (args) => { return [...document.querySelectorAll(args[0])].map(input=>({disabled:input.disabled,label:input.getAttribute('aria-label')})); }, [formSelector]);
@@ -519,6 +550,9 @@ const addRelatedObservation = async expectedGroupCounts => {
   await click(page, formSelector);
   const selectedChoice = await browserEval(page, (args) => { const dialog=document.querySelector('[role="dialog"]');return {route:dialog?.querySelector('input[aria-label="' + args[0] + '"]')?.checked,form:dialog?.querySelector('input[aria-label="' + args[1] + '"]')?.checked}; }, [routeLabel, formLabel]);
   assert.deepEqual(selectedChoice, { route: true, form: true }, `Native chooser must retain the exact route and ${relatedForm} source form`);
+  recordPresenceCheck('usability', 'Native chooser enables Observation.id PRESENCE on the exact cohort relationship route', true, {
+    routeLabel, formLabel, selectedChoice, enabled: formOptions.some(option => !option.disabled),
+  });
   await click(page, '[role="dialog"] button', { name: 'Add 1 column' });
   return proposalPreview(startedAt, expectedGroupCounts);
 };
@@ -544,34 +578,41 @@ const applyConstructionProposal = async (expectedGroupCounts, relatedColumnName)
 try {
   const [seed] = rawQuery(sourceWitnessQuery);
   if (!seed) {
+    const expectedWitness = nonemptyZeroMatch
+      ? 'one scoped nonempty Specimen group member with zero matching Observations'
+      : `two sibling Specimen group members with 1-${maxExactObservations} distinct matching Observations`;
     report.status = 'bounded-absence';
     report.oracle = {
       status: 'bounded-absence',
       query: sourceWitnessQuery,
       witnessBounds: report.witnessBounds,
-      explanation: `No two-member Specimen cohort sharing a Patient with 1-${maxExactObservations} distinct Observations was found among the first ${witnessPatientLimit} scoped Specimens. This does not establish absence elsewhere in the project or generation.`,
+      explanation: `No ${expectedWitness} was found among the first ${witnessPatientLimit} scoped Specimens. This does not establish absence elsewhere in the project or generation.`,
     };
     throw new BoundedAbsenceError(report.oracle.explanation, report.oracle);
   }
   const memberIDs = sorted(seed.members.map(member => member.id));
-  assert.equal(memberIDs.length, 2);
-  assert.equal(new Set(memberIDs).size, 2);
+  assert.equal(memberIDs.length, witnessMemberCount);
+  assert.equal(new Set(memberIDs).size, witnessMemberCount);
   assert(seed.members.every(member => member.project === project && member.generation === generation && member.resourceType === resourceType));
   assert.equal(seed.patient.project, project);
   assert.equal(seed.patient.generation, generation);
   assert.equal(seed.patient.resourceType, patientType);
-  assert(seed.observations.length >= 1 && seed.observations.length <= maxExactObservations);
+  if (nonemptyZeroMatch) assert.equal(seed.observations.length, 0, 'The nonempty root witness must have no matching Observation records');
+  else assert(seed.observations.length >= 1 && seed.observations.length <= maxExactObservations);
   const exactSourcesQuery = `FOR specimen IN Specimen FILTER specimen.id IN ${JSON.stringify(memberIDs)} AND specimen.project == ${JSON.stringify(project)} AND specimen.dataset_generation == ${JSON.stringify(generation)} AND specimen.resourceType == ${JSON.stringify(resourceType)} RETURN {id:specimen.id,_id:specimen._id,project:specimen.project,generation:specimen.dataset_generation,resourceType:specimen.resourceType}`;
   const exactSources = rawQuery(exactSourcesQuery);
-  assert.deepEqual(sorted(exactSources.map(source => source.id)), memberIDs, 'The independent exact-membership reread must resolve both scoped source IDs');
+  assert.deepEqual(sorted(exactSources.map(source => source.id)), memberIDs, 'The independent exact-membership reread must resolve every scoped source ID');
   const exactOracle = exactObservationOracle(memberIDs);
   assert(exactOracle.observations.length <= maxExactObservations, 'The exact selected witness exceeds the distinct Observation document cap');
+  if (nonemptyZeroMatch) assert.equal(exactOracle.observations.length, 0, 'The exact nonempty source selection must have zero matching Observations');
   assert.equal(new Set(exactOracle.observations.map(observation => observation._id)).size, exactOracle.observations.length,
     'The exact raw Observation witness must contain distinct FHIR documents only');
   assert.deepEqual(sorted(exactOracle.observations.map(observation => observation.id)), sorted(seed.observations.map(observation => observation.id)), 'Bounded finder and exact-member route oracle disagree');
   const memberObservationSets = memberIDs.map(memberID => ({ memberID, ...exactMemberObservationOracle(memberID) }));
   for (const memberSet of memberObservationSets) {
-    assert(memberSet.observations.length >= 1 && memberSet.observations.length <= maxExactObservations,
+    if (nonemptyZeroMatch) assert.equal(memberSet.observations.length, 0,
+      `Selected Specimen ${memberSet.memberID} must independently have zero matching Observations`);
+    else assert(memberSet.observations.length >= 1 && memberSet.observations.length <= maxExactObservations,
       `Selected Specimen ${memberSet.memberID} must independently reach a bounded nonempty Observation set`);
     assert.equal(new Set(memberSet.observations.map(observation => observation._id)).size, memberSet.observations.length,
       `Selected Specimen ${memberSet.memberID} raw source set must be distinct by FHIR document`);
@@ -594,7 +635,9 @@ try {
   const sharedObservationIDs = [...observationOccurrences.values()]
     .filter(entry => entry.members.length === memberIDs.length)
     .map(entry => entry.observation.id);
-  assert(sharedObservationIDs.length > 0,
+  if (nonemptyZeroMatch) assert.equal(sharedObservationIDs.length, 0,
+    'The nonempty zero-match source must not have a related Observation to report');
+  else assert(sharedObservationIDs.length > 0,
     'Both independently selected sibling Specimens must contribute the same Observation, exercising related ALL deduplication');
   report.oracle = {
     status: 'selected',
@@ -651,7 +694,7 @@ try {
   const memberByID = new Map(selectionPage.members.map(member => [member.ref.id, member.memberKey]));
   assert(memberIDs.every(id => memberByID.get(id)), 'Each exact selected FHIR ID must have a cohort member key');
   const groupDefinitions = [
-    { id: 'qa-sibling-specimens', label: groupLabel, ordinal: 0, memberIDs },
+    { id: populatedGroupId, label: groupLabel, ordinal: 0, memberIDs },
     ...(includeEmptyGroup ? [{ id: emptyGroupId, label: emptyGroupLabel, ordinal: 1, memberIDs: [] }] : []),
   ];
   const cohort = await api(`${selections}/${selection.id}/explicit-groups`, {
@@ -682,23 +725,28 @@ try {
     assert.deepEqual(sorted(rawMembers), sorted(group.memberIDs), `Raw group roster differs for ${group.label}`);
     const groupObservationOracle = exactObservationOracle(rawMembers);
     const expectedObservationCount = groupObservationOracle.observations.length;
-    if (group.id === 'qa-sibling-specimens') {
+    if (group.id === populatedGroupId) {
       assert.deepEqual(sorted(groupObservationOracle.observations.map(item => item.id)), sorted(exactOracle.observations.map(item => item.id)),
         'Nonempty group count oracle must match the original independent route oracle');
     }
     if (group.memberIDs.length === 0) assert.equal(expectedObservationCount, 0, 'The independently empty raw group must have zero related Observations');
-    expectedGroupCounts.push({
+    const groupOracle = {
       id: group.id, label: group.label, ordinal: group.ordinal, memberIDs: rawMembers,
       expectedObservationCount, observationQuery: groupObservationOracle.query,
       observations: groupObservationOracle.observations,
-      expectedRelatedValue: relatedForm === 'COUNT'
-        ? expectedObservationCount
-        : groupObservationOracle.observations.slice().sort((left, right) => left._id.localeCompare(right._id)).map(observation => observation.id),
-    });
+    };
+    groupOracle.expectedRelatedValue = expectedRelatedValue(groupOracle);
+    expectedGroupCounts.push(groupOracle);
   }
   report.oracle.groups = expectedGroupCounts;
   report.oracle.groupRoster = rawGroupRoster;
   report.cohort = { ...cohort, scopeDigest, selectionRevisionId: selection.id, rawMemberIDs: memberIDs, rawGroupRoster };
+  recordPresenceCheck('correctness', 'Raw scoped CDA oracle and explicit-group roster prove exact member identities and related results', true, {
+    project, generation, selectionRevisionId: selection.id, groupRevisionId: cohort.revisionId,
+    groups: expectedGroupCounts.map(({ id, label, memberIDs: groupMemberIDs, expectedObservationCount, expectedRelatedValue: expected }) => ({
+      id, label, memberIDs: groupMemberIDs, expectedObservationCount, expectedPresence: expected,
+    })),
+  });
 
   nativeCapture = captureCDARequests(page, {
     apiOrigin: uiOrigin, appOrigins: [apiOrigin, uiOrigin], ownedPathPrefix: base, report,
@@ -748,6 +796,9 @@ try {
   assert.equal(groupedBaselineDocument.construction?.steps.length ?? 0, 0);
   assertNamedGroupRows(groupedTable, expectedGroupCounts);
   report.nativeCohortRows = { headers: groupedTable.headers, rows: groupedTable.rows, groups: expectedGroupCounts, revisionId: cohort.revisionId };
+  recordPresenceCheck('correctness', 'Native cohort preview preserves exact revision-bound group identities and scoped members', true, {
+    revisionId: cohort.revisionId, rows: groupedProtocolRows,
+  });
 
   const capabilities = await api(base + '/construction-capabilities', {
     snapshotToken: builder.catalog.snapshotToken, expectedDraftVersion: builder.draftVersion,
@@ -770,6 +821,9 @@ try {
   await waitForBrowser(page, (args) => { return Boolean((!document.querySelector('[data-testid="construction-proposal-panel"]'))); });
   assert.deepEqual((await api(base + '/builder')).workspace, groupedBaselineWorkspace, 'Cancel must keep named-cohort membership and authored schema unchanged');
   record(`cancel-related-${relatedFormName}-proposal`, cancelStart);
+  recordPresenceCheck('persistence', 'Proposal Cancel preserves the exact saved cohort and source draft', true, {
+    groupRevisionId: cohort.revisionId, selectionRevisionId: selection.id, memberIDs,
+  });
 
   const second = await addRelatedObservation(expectedGroupCounts);
   const relatedIntent = operation => {
@@ -806,6 +860,9 @@ try {
   let savedTable = await openTable(expectedGroupCounts, savedStep.outputs.find(column => column.id === savedStep.operation.relatedSource.outputColumnId).name);
   const relatedLabel = savedStep.outputs.find(column => column.id === savedStep.operation.relatedSource.outputColumnId).label;
   assertNamedGroupRows(savedTable, expectedGroupCounts, relatedLabel);
+  recordPresenceCheck('persistence', 'Apply and reload preserve the exact PRESENCE operation, values, and source bindings', true, {
+    operation: savedStep.operation, rows: savedTable.rows, groupRevisionId: cohort.revisionId,
+  });
 
   const beforeEditWorkspace = structuredClone(builder.workspace);
   await click(page, `[data-testid="construction-history-step-${savedStep.id}"]`);
@@ -836,6 +893,9 @@ try {
   await waitForBrowser(page, (args) => { return Boolean((!document.querySelector('[data-testid="construction-proposal-panel"]'))); });
   assert.deepEqual((await api(base + '/builder')).workspace, beforeEditWorkspace, `Cancel edit must retain the saved related ${relatedForm} operation`);
   record(`cancel-related-${relatedFormName}-label-edit`, cancelEditStart);
+  recordPresenceCheck('persistence', 'Label edit Cancel preserves the saved PRESENCE operation and draft', true, {
+    stepID: savedStep.id, operation: savedStep.operation, label: relatedLabel,
+  });
 
   await click(page, `[data-testid="construction-history-step-${savedStep.id}"]`);
   await click(page, `[data-testid="construction-edit-step-${savedStep.id}"]`);
@@ -857,6 +917,9 @@ try {
   assert.deepEqual(reloadedStep.operation, savedStep.operation);
   assert.equal(reloadedStep.outputs.find(column => column.id === savedStep.operation.relatedSource.outputColumnId).label, editedLabel);
   assertNamedGroupRows(savedTable, expectedGroupCounts, editedLabel);
+  recordPresenceCheck('persistence', 'Label edit Apply and reload preserve exact PRESENCE values and source binding', true, {
+    stepID: reloadedStep.id, operation: reloadedStep.operation, label: editedLabel, rows: savedTable.rows,
+  });
 
   const editedWorkspace = structuredClone(builder.workspace);
   await click(page, `[data-testid="construction-history-step-${savedStep.id}"]`);
@@ -876,6 +939,9 @@ try {
   await waitForBrowser(page, (args) => { return Boolean((!document.querySelector('[data-testid="construction-proposal-panel"]'))); });
   assert.deepEqual((await api(base + '/builder')).workspace, editedWorkspace, `Cancel removal must retain the renamed related ${relatedForm} output`);
   record(`cancel-related-${relatedFormName}-removal`, cancelRemoveStart);
+  recordPresenceCheck('persistence', 'Removal Cancel preserves the saved PRESENCE output and cohort draft', true, {
+    stepID: savedStep.id, outputColumnId: savedStep.operation.relatedSource.outputColumnId,
+  });
 
   await click(page, `[data-testid="construction-history-step-${savedStep.id}"]`);
   const confirmedRemoveStart = Date.now();
@@ -903,6 +969,18 @@ try {
   assert.deepEqual(doc(builder).construction?.steps ?? [], []);
   assert.deepEqual(report.errors, [], 'The lifecycle must have no unexpected UI/API errors');
   assert.equal(report.protectedExplorerUntouched, true, 'The protected full-QA Explorer must remain untouched');
+  recordPresenceCheck('persistence', 'Removal Apply and reload restore the exact cohort-only rows and source selection', true, {
+    groupRevisionId: cohort.revisionId, selectionRevisionId: selection.id, memberIDs, rows: restored.rows,
+  });
+  const measuredActions = report.cases.filter(entry => Number.isFinite(entry.durationMs)).map(entry => entry.durationMs);
+  recordPresenceCheck('performance', 'All PRESENCE lifecycle actions complete within five seconds',
+    measuredActions.length > 0 && measuredActions.every(durationMs => durationMs <= 5000), {
+      count: measuredActions.length, maximumMs: Math.max(...measuredActions),
+    });
+  recordPresenceCheck('correctness', 'No unexpected UI or API errors occur during the PRESENCE lifecycle',
+    report.errors.length === 0 && report.protectedExplorerUntouched, {
+      errors: report.errors, protectedExplorerUntouched: report.protectedExplorerUntouched,
+    });
   report.status = 'passed';
 } catch (error) {
   fatal = error;

@@ -320,21 +320,29 @@ test.describe('CDA active-related Contributor ANY', () => {
   });
 });
 
-for (const { relatedForm, includeEmptyGroup, caseName } of [
+for (const { relatedForm, includeEmptyGroup, nonemptyZeroMatch = false, caseName } of [
   { relatedForm: 'COUNT', includeEmptyGroup: false, caseName: 'related-count-nonempty-groups' },
   { relatedForm: 'COUNT', includeEmptyGroup: true, caseName: 'related-count-including-empty-group' },
   { relatedForm: 'ALL', includeEmptyGroup: false, caseName: 'related-all-nonempty-groups' },
   { relatedForm: 'ALL', includeEmptyGroup: true, caseName: 'related-all-including-empty-group' },
+  { relatedForm: 'PRESENCE', includeEmptyGroup: true, nonemptyZeroMatch: false, caseName: 'related-presence-including-empty-group' },
+  { relatedForm: 'PRESENCE', includeEmptyGroup: false, nonemptyZeroMatch: true, caseName: 'related-presence-nonempty-zero-match' },
 ]) {
-  test.describe(`CDA named-cohort related ${relatedForm} ${includeEmptyGroup ? 'with' : 'without'} empty group`, () => {
+  const variant = relatedForm === 'PRESENCE'
+    ? nonemptyZeroMatch ? 'with nonempty root and zero matches' : 'with empty declared group'
+    : `${includeEmptyGroup ? 'with' : 'without'} empty group`;
+  test.describe(`CDA named-cohort related ${relatedForm} ${variant}`, () => {
     test.use({
-      cdaScenarioID: 'cda-named-cohort-related-count',
+      cdaScenarioID: relatedForm === 'PRESENCE' ? 'cda-named-cohort-related-presence' : 'cda-named-cohort-related-count',
       cdaCaseName: caseName,
       cdaRequireSourceFixture: true,
     });
 
-    test(`author and restore the exact named-cohort ${relatedForm} contributor lifecycle`, async ({ page, cda }) => {
-      const report = await namedCohortRelatedCountWorkflow({ page, cda, relatedForm, includeEmptyGroup });
+    const testTitle = relatedForm === 'PRESENCE'
+      ? `author and restore exact named-cohort PRESENCE lifecycle for ${caseName}`
+      : `author and restore the exact named-cohort ${relatedForm} contributor lifecycle`;
+    test(testTitle, async ({ page, cda }) => {
+      const report = await namedCohortRelatedCountWorkflow({ page, cda, relatedForm, includeEmptyGroup, nonemptyZeroMatch });
       expect(report.status).toBe('passed');
     });
   });
