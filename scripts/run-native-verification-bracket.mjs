@@ -595,7 +595,7 @@ export function summarizeRenderCheckpoints(report, registeredChecks) {
     if (!/within five seconds|within budget|action-to-render/i.test(assertion.name)) continue;
     const evidence = assertion.evidence;
     const checkpointField = evidence && typeof evidence === 'object'
-      ? ['lifecycleCheckpointDurations', 'timingCheckpoints']
+      ? ['lifecycleCheckpointDurations', 'timingCheckpoints', 'workflowCheckpoints']
         .find((field) => Object.hasOwn(evidence, field))
       : null;
     if (checkpointField) {

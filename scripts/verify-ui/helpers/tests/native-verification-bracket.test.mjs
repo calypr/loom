@@ -65,6 +65,40 @@ const groupOneTimingCheckpoints = [
   { name: 'remove-repaired-field', durationMs: 402, budgetMs: 5000, passed: true },
   { name: 'after-removal-load-to-render', durationMs: 1278, budgetMs: 5000, passed: true },
 ];
+const relatedUnpivotPerformanceCheckName = 'All native action and action-to-render checkpoints complete within five seconds';
+const relatedUnpivotWorkflowCheckpoints = [
+  { name: 'load-to-render', durationMs: 1368 },
+  { name: 'expand-Specimen-Patient', durationMs: 1129 },
+  { name: 'apply-to-render', durationMs: 558 },
+  { name: 'expand-Patient-Condition', durationMs: 1123 },
+  { name: 'apply-to-render', durationMs: 571 },
+  { name: 'expand-Condition-Observation', durationMs: 1159 },
+  { name: 'apply-to-render', durationMs: 591 },
+  { name: 'expand-Observation-Patient', durationMs: 1198 },
+  { name: 'apply-to-render', durationMs: 613 },
+  { name: 'load-to-render', durationMs: 1299 },
+  { name: 'related-chain-unpivot-preview', durationMs: 939 },
+  { name: 'Cancel Unpivot to exact Related rows', durationMs: 726 },
+  { name: 'confirmed-related-chain-unpivot-preview', durationMs: 865 },
+  { name: 'apply-to-render', durationMs: 510 },
+  { name: 'load-to-render', durationMs: 1306 },
+  { name: 'edit-unpivot-policy-preview', durationMs: 1188 },
+  { name: 'apply-to-render', durationMs: 514 },
+  { name: 'load-to-render', durationMs: 1315 },
+  { name: 'unpivot-value-missing-preview', durationMs: 961 },
+  { name: 'Cancel Unpivot Value Filter to exact saved Unpivot rows', durationMs: 726 },
+  { name: 'confirmed-unpivot-value-missing-preview', durationMs: 975 },
+  { name: 'apply-to-render', durationMs: 546 },
+  { name: 'load-to-render', durationMs: 1323 },
+  { name: 'unpivot-value-equality-preview', durationMs: 1248 },
+  { name: 'apply-to-render', durationMs: 512 },
+  { name: 'load-to-render', durationMs: 1325 },
+  { name: 'remove-unpivot-and-dependent-filter-preview', durationMs: 868 },
+  { name: 'Cancel Unpivot removal to exact saved rows', durationMs: 1624 },
+  { name: 'remove-unpivot-and-dependent-filter-preview', durationMs: 858 },
+  { name: 'apply-to-render', durationMs: 454 },
+  { name: 'load-to-render', durationMs: 1291 },
+];
 const retainedMembershipSetupFailure = {
   errors: [],
   suites: [{
@@ -417,6 +451,28 @@ test('Group ONE timingCheckpoints contribute the declared action-to-render measu
     'assertions[].evidence.timingCheckpoints[].durationMs');
 });
 
+test('Related Unpivot workflowCheckpoints contribute their exact render measurements', () => {
+  const report = {
+    assertions: [{
+      name: relatedUnpivotPerformanceCheckName,
+      dimension: 'performance',
+      status: 'passed',
+      evidence: {
+        workflowCheckpoints: relatedUnpivotWorkflowCheckpoints,
+        maximumNativeActionMs: 206,
+      },
+    }],
+  };
+  const summary = summarizeRenderCheckpoints(report, [relatedUnpivotPerformanceCheckName]);
+
+  assert.equal(summary.count, 31);
+  assert.equal(summary.maximumDurationMs, 1624);
+  assert.deepEqual(summary.checkpoints.map(({ name, durationMs }) => ({ name, durationMs })),
+    relatedUnpivotWorkflowCheckpoints);
+  assert.equal(summary.checkpoints[0].evidencePath,
+    'assertions[].evidence.workflowCheckpoints[].durationMs');
+});
+
 test('malformed or negative timingCheckpoints remain unverified', () => {
   const invalidEvidence = [
     { timingCheckpoints: '14 timing checkpoints' },
@@ -436,7 +492,7 @@ test('malformed or negative timingCheckpoints remain unverified', () => {
   }
 });
 
-test('missing or malformed lifecycle checkpoint lists remain unverified', () => {
+test('missing or malformed checkpoint lists remain unverified', () => {
   const checkName = groupAddFieldsPerformanceCheckName;
   const checks = scenarioCaseFor('standalone-reshape-group-add-fields', 'group-add-fields').requiredChecks;
   const invalidEvidence = [
@@ -444,6 +500,10 @@ test('missing or malformed lifecycle checkpoint lists remain unverified', () => 
     { lifecycleCheckpointDurations: '20 lifecycle checkpoints', maximumCheckpointDurationMs: 1356 },
     { lifecycleCheckpointDurations: [] },
     { lifecycleCheckpointDurations: [{ name: 'valid', durationMs: 50 }, { name: 'invalid', durationMs: 'slow' }] },
+    { workflowCheckpoints: '31 workflow checkpoints' },
+    { workflowCheckpoints: [] },
+    { workflowCheckpoints: [{ name: 'valid', durationMs: 50 }, { name: 'negative', durationMs: -1 }] },
+    { workflowCheckpoints: [{ name: 'invalid', durationMs: 'slow' }] },
   ];
 
   for (const evidence of invalidEvidence) {
