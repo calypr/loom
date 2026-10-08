@@ -19,9 +19,11 @@ import {
 import { validatedArangoContainer } from '../helpers/native-cda-workflow-tools.mjs';
 import { proposalPreviewReadinessExpression, readProposalPreviewState } from '../helpers/proposal-preview-readiness.mjs';
 import {
+  cdaSourceGroupCandidateResponseEquivalent,
   cdaMembershipObservationQuery,
   compareCdaSourceGroupPreview,
   prepareCdaMembershipOracle,
+  proveCdaSourceGroupSupersededChoiceCancellation,
 } from '../helpers/cda-current-draft-membership-oracle.mjs';
 import { buildArangoShellInvocation } from '../helpers/owned-arangosh-command.mjs';
 
@@ -1017,6 +1019,7 @@ export async function cdaCurrentDraftMembershipWorkflow({ page, cda }) {
     let appliedRemovalCapabilityEvidence;
     let sourceGroupButton;
     let sourceGroupChoice;
+    let initialSourceGroupChoice;
     await action('Apply Membership removal to restore the rooted empty target', page.getByTestId('construction-apply-proposal'),
       locator => locator.click({ timeout: MAX_ACTION_MS }), async () => {
         await waitFunction(`!document.querySelector('[data-testid="construction-proposal-panel"]')&&${selectedOutputReady(target.outputId)}`);
@@ -1084,11 +1087,14 @@ export async function cdaCurrentDraftMembershipWorkflow({ page, cda }) {
         assert(sourceStage && typeof groupCapability?.supported === 'boolean',
           'Restored source projection capabilities must include GROUP support state');
         const sourceChoices = capabilitiesResponse.sourceInput?.choices ?? [];
+        initialSourceGroupChoice = sourceChoices.find(choice => choice.isPopulated);
         const populatedSourceStatusChoices = sourceChoices.filter(choice => choice.occurrenceId === 'base' &&
           choice.fieldPath === 'status' && choice.logicalType === 'string' && choice.isPopulated);
         assert(capabilitiesResponse.sourceInput?.supported && populatedSourceStatusChoices.length === 1,
           'Restored empty target must expose its populated root Observation status as a source-group key');
         sourceGroupChoice = populatedSourceStatusChoices[0];
+        assert(initialSourceGroupChoice?.choiceId && initialSourceGroupChoice.choiceId !== sourceGroupChoice.choiceId,
+          'The automatic source GROUP choice must be distinct from the explicitly selected raw status choice');
 
         await page.getByTestId('construction-rows-settings-trigger').click({ timeout: MAX_ACTION_MS });
         await waitSelector('[data-testid="construction-action-group-rows"]');
@@ -1114,25 +1120,76 @@ export async function cdaCurrentDraftMembershipWorkflow({ page, cda }) {
         };
       });
     const sourceGroupFromIndex = report.nativeRequests.length;
+    const sourceGroupProposalPath = `${explorerBase}/authoring/v2/construction-proposals`;
+    const initialSourceGroupRequestOutcome = page.waitForRequest(request => {
+      let body;
+      try { body = request.postDataJSON(); } catch { return false; }
+      return request.method() === 'POST' && new URL(request.url()).origin === new URL(uiOrigin).origin &&
+        new URL(request.url()).pathname === sourceGroupProposalPath && body?.outputId === target.outputId &&
+        body?.groupSources?.length === 1 && body.groupSources[0]?.rowChoiceId === initialSourceGroupChoice.choiceId;
+    }, { timeout: MAX_ACTION_MS }).then(request => ({ request }), error => ({ error }));
     await action('Open source-backed GROUP from the restored empty target', sourceGroupButton,
-      locator => locator.click({ timeout: MAX_ACTION_MS }), async () => waitSelector('[data-testid="construction-source-group-field"]'));
+      locator => locator.click({ timeout: MAX_ACTION_MS }), async () => {
+        await waitSelector('[data-testid="construction-source-group-field"]');
+        const outcome = await initialSourceGroupRequestOutcome;
+        if (outcome.error) throw new Error(`Automatic initial source GROUP proposal did not start: ${normalizeText(outcome.error.message).slice(0, 800)}`);
+      });
+    const initialSourceGroupRequest = (await initialSourceGroupRequestOutcome).request;
+    const initialSourceGroupProposalEvent = capture.byRequest.get(initialSourceGroupRequest);
+    assert(initialSourceGroupProposalEvent, 'The automatic initial source GROUP request must have a retained native capture');
     const sourceGroupBuilder = await readBuilder();
     assertScope(sourceGroupBuilder);
+    const initialSourceGroupRequestBody = capture.rawRequestBody(initialSourceGroupProposalEvent);
+    const initialSourceGroupStep = initialSourceGroupRequestBody?.candidateConstruction?.steps?.at(-1);
+    const initialSourceColumnId = initialSourceGroupRequestBody?.groupSources?.[0]?.columnId;
+    assert(typeof initialSourceColumnId === 'string' && initialSourceColumnId.length > 0,
+      'The automatic source GROUP proposal must retain its source column identity');
+    assert.deepEqual({
+      outputId: initialSourceGroupRequestBody?.outputId,
+      snapshotToken: initialSourceGroupRequestBody?.snapshotToken,
+      expectedDraftVersion: initialSourceGroupRequestBody?.expectedDraftVersion,
+      expectedDraftDigest: initialSourceGroupRequestBody?.expectedDraftDigest,
+      rowChoiceId: initialSourceGroupRequestBody?.groupSources?.[0]?.rowChoiceId,
+      columnId: initialSourceGroupRequestBody?.groupSources?.[0]?.columnId,
+      inputColumnId: initialSourceGroupStep?.operation?.group?.keys?.[0]?.inputColumnId,
+      outputLabel: initialSourceGroupStep?.outputs?.[0]?.label,
+    }, {
+      outputId: target.outputId,
+      snapshotToken: sourceGroupBuilder.catalog?.snapshotToken,
+      expectedDraftVersion: sourceGroupBuilder.draftVersion,
+      expectedDraftDigest: sourceGroupBuilder.draftDigest,
+      rowChoiceId: initialSourceGroupChoice.choiceId,
+      columnId: initialSourceColumnId,
+      inputColumnId: initialSourceColumnId,
+      outputLabel: initialSourceGroupChoice.label,
+    }, 'The automatic source GROUP preview must bind its first populated signed choice to this exact draft and output');
     const sourceGroupPreviewLimit = 25;
+    const sourceGroupActionLabel = 'Group the restored target by its populated raw Observation status field';
+    const sourceGroupTransitionStartedAt = Date.now();
+    const cancellationStart = report.expectedCancellations?.length ?? 0;
+    let sourceGroupProposalEvent;
+    let initialSourceGroupCompletedEvent;
     await selectOptionByValue('[data-testid="construction-source-group-field"]', sourceGroupChoice.choiceId,
-      'Group the restored target by its populated raw Observation status field', async () =>
-        waitFunction(proposalReady(target.outputId)));
-    const sourceGroupProposalEvent = await capture.waitFor(entry => {
-      const body = capture.rawRequestBody(entry);
-      const group = body?.candidateConstruction?.steps?.at(-1)?.operation?.group;
-      return entry.origin === new URL(uiOrigin).origin && entry.path === `${explorerBase}/authoring/v2/construction-proposals` &&
-        entry.method === 'POST' && entry.status === 200 && Number.isFinite(entry.completedAt) &&
-        body?.outputId === target.outputId && body?.snapshotToken === sourceGroupBuilder.catalog?.snapshotToken &&
-        body?.expectedDraftVersion === sourceGroupBuilder.draftVersion && body?.expectedDraftDigest === sourceGroupBuilder.draftDigest &&
-        body?.groupSources?.length === 1 && body.groupSources[0]?.rowChoiceId === sourceGroupChoice.choiceId &&
-        group?.keys?.length === 1 && group.keys[0]?.inputColumnId === body.groupSources[0]?.columnId &&
-        group?.aggregates?.length === 1 && group.aggregates[0]?.operation === 'COUNT_ROWS';
-    }, { fromIndex: sourceGroupFromIndex, timeoutMs: MAX_ACTION_MS });
+      sourceGroupActionLabel, async () => {
+        await waitFunction(proposalReady(target.outputId));
+        const timeoutMs = MAX_ACTION_MS - (Date.now() - sourceGroupTransitionStartedAt);
+        assert(timeoutMs > 0, 'Selecting the raw status GROUP field exhausted its action-to-preview budget');
+        [sourceGroupProposalEvent, initialSourceGroupCompletedEvent] = await Promise.all([
+          capture.waitFor(entry => {
+            const body = capture.rawRequestBody(entry);
+            const group = body?.candidateConstruction?.steps?.at(-1)?.operation?.group;
+            return entry.origin === new URL(uiOrigin).origin && entry.path === sourceGroupProposalPath &&
+              entry.method === 'POST' && entry.status === 200 && Number.isFinite(entry.completedAt) &&
+              body?.outputId === target.outputId && body?.snapshotToken === sourceGroupBuilder.catalog?.snapshotToken &&
+              body?.expectedDraftVersion === sourceGroupBuilder.draftVersion && body?.expectedDraftDigest === sourceGroupBuilder.draftDigest &&
+              body?.groupSources?.length === 1 && body.groupSources[0]?.rowChoiceId === sourceGroupChoice.choiceId &&
+              group?.keys?.length === 1 && group.keys[0]?.inputColumnId === body.groupSources[0]?.columnId &&
+              group?.aggregates?.length === 1 && group.aggregates[0]?.operation === 'COUNT_ROWS';
+          }, { fromIndex: sourceGroupFromIndex, timeoutMs }),
+          capture.waitFor(entry => entry.browserRequestId === initialSourceGroupProposalEvent.browserRequestId &&
+            Number.isFinite(entry.completedAt), { fromIndex: sourceGroupFromIndex, timeoutMs }),
+        ]);
+      });
     const sourceGroupRequest = capture.rawRequestBody(sourceGroupProposalEvent);
     const sourceGroupResponse = capture.rawResponseBody(sourceGroupProposalEvent);
     const sourceGroupStep = sourceGroupRequest?.candidateConstruction?.steps?.at(-1);
@@ -1140,11 +1197,56 @@ export async function cdaCurrentDraftMembershipWorkflow({ page, cda }) {
       sourceGroupResponse?.draftVersion === sourceGroupBuilder.draftVersion &&
       sourceGroupResponse?.draftDigest === sourceGroupBuilder.draftDigest &&
       sourceGroupResponse?.outputId === target.outputId && sourceGroupResponse?.proposalId === sourceGroupResponse?.preview?.receiptId &&
-      constructionCandidateWireEquivalent(sourceGroupRequest?.candidateConstruction, sourceGroupResponse?.candidateConstruction);
+      cdaSourceGroupCandidateResponseEquivalent({
+        request: sourceGroupRequest, response: sourceGroupResponse, selectedChoice: sourceGroupChoice,
+      });
     assert(sourceGroupStep?.inputs?.length === 1 && sourceGroupStep.inputs[0]?.kind === 'SOURCE_PROJECTION',
       'Source-backed Group proposal must add its exact root field projection before grouping');
     assert(sourceGroupResponseExact && sourceGroupResponse?.previewStatus === 'READY',
       'Source-backed Group proposal must complete an exact native preview response');
+
+    if (initialSourceGroupCompletedEvent.failure === 'net::ERR_ABORTED') {
+      const matchingFailureDiagnostics = (report.network ?? []).filter(entry =>
+        entry.browserRequestId === initialSourceGroupCompletedEvent.browserRequestId && entry.errorText === 'net::ERR_ABORTED');
+      assert.equal(matchingFailureDiagnostics.length, 1,
+        'The superseded source GROUP proposal must have exactly one matching native CDA failure diagnostic');
+      const cancellationEvidence = proveCdaSourceGroupSupersededChoiceCancellation({
+        supersededEvent: initialSourceGroupCompletedEvent,
+        supersededBody: initialSourceGroupRequestBody,
+        failureDiagnostic: matchingFailureDiagnostics[0],
+        replacementEvent: sourceGroupProposalEvent,
+        replacementBody: sourceGroupRequest,
+        replacementResponse: sourceGroupResponse,
+        project, explorer, generation,
+        uiOrigin,
+        outputId: target.outputId,
+        snapshotToken: sourceGroupBuilder.catalog?.snapshotToken,
+        draftVersion: sourceGroupBuilder.draftVersion,
+        draftDigest: sourceGroupBuilder.draftDigest,
+        supersededChoice: initialSourceGroupChoice,
+        replacementChoice: sourceGroupChoice,
+        actionLabel: sourceGroupActionLabel,
+        actionStartedAt: sourceGroupTransitionStartedAt,
+      });
+      assert(cancellationEvidence.ok, `Superseded source GROUP proposal lacks exact native cancellation proof: ${cancellationEvidence.reason}`);
+      const cancellation = cda.expectCapturedCancellation(initialSourceGroupCompletedEvent,
+        cancellationEvidence.proof.reason, cancellationEvidence.proof);
+      assert.equal(cancellation.requestId, initialSourceGroupCompletedEvent.requestId,
+        'Expected cancellation must classify the exact superseded source GROUP request ID');
+    } else {
+      assert.equal(initialSourceGroupCompletedEvent.failure, undefined,
+        'The automatic source GROUP proposal may complete or be aborted, but any other native failure is unexpected');
+      assert.equal(initialSourceGroupCompletedEvent.status, 200,
+        'A completed automatic source GROUP preview must have HTTP 200');
+      assert.equal(cdaSourceGroupCandidateResponseEquivalent({
+        request: initialSourceGroupRequestBody,
+        response: capture.rawResponseBody(initialSourceGroupCompletedEvent),
+        selectedChoice: initialSourceGroupChoice,
+      }), true, 'A completed automatic source GROUP preview must exactly match its first populated choice');
+    }
+    const sourceGroupCancellations = (report.expectedCancellations ?? []).slice(cancellationStart);
+    assert.equal(sourceGroupCancellations.length, initialSourceGroupCompletedEvent.failure === 'net::ERR_ABORTED' ? 1 : 0,
+      'Only the exact automatic source GROUP proposal may be classified as canceled in this field-selection transition');
     const sourceGroupGrid = await readGrid('proposal');
     const sourceGroupPreview = sourceGroupResponse.preview;
     assert(Array.isArray(sourceGroupPreview?.columns) && sourceGroupPreview.columns.length === 2 &&

@@ -1,7 +1,160 @@
 import assert from 'node:assert/strict';
+import { isDeepStrictEqual } from 'node:util';
+import { constructionCandidateWireEquivalent } from './builder-combine-draft-helpers.mjs';
 
 export const MAX_CDA_MEMBERSHIP_SCAN = 2_000;
 export const CDA_SOURCE_GROUP_PREVIEW_LIMIT = 25;
+
+export function cdaSourceGroupCandidateResponseEquivalent({ request, response, selectedChoice }) {
+  const requestCandidate = request?.candidateConstruction;
+  const responseCandidate = response?.candidateConstruction;
+  const groupSources = request?.groupSources;
+  const step = requestCandidate?.steps?.at(-1);
+  const group = step?.operation?.group;
+  if (!requestCandidate || !responseCandidate || !Array.isArray(requestCandidate.steps) ||
+    requestCandidate.steps.length !== 1 || Object.hasOwn(requestCandidate, 'sourceProjections') ||
+    !Array.isArray(groupSources) || groupSources.length !== 1 ||
+    typeof selectedChoice?.choiceId !== 'string' || !selectedChoice.choiceId.startsWith('rc1.') ||
+    selectedChoice.isPopulated !== true ||
+    !['fieldPath', 'fhirType', 'logicalType', 'label', 'occurrenceId'].every(key =>
+      typeof selectedChoice[key] === 'string' && selectedChoice[key].length > 0)) return false;
+
+  const [source] = groupSources;
+  if (source?.rowChoiceId !== selectedChoice.choiceId || typeof source.columnId !== 'string' || !source.columnId ||
+    step?.operation?.kind !== 'GROUP' || step.inputs?.length !== 1 ||
+    step.inputs[0]?.kind !== 'SOURCE_PROJECTION' || group?.keys?.length !== 1 ||
+    group.keys[0]?.inputColumnId !== source.columnId) return false;
+
+  const expectedProjection = {
+    columnId: source.columnId,
+    fhirType: selectedChoice.fhirType,
+    fieldPath: selectedChoice.fieldPath,
+    label: selectedChoice.label,
+    logicalType: selectedChoice.logicalType,
+    occurrenceId: selectedChoice.occurrenceId,
+    ownerStepId: step.id,
+  };
+  if (!isDeepStrictEqual(responseCandidate.sourceProjections, [expectedProjection])) return false;
+
+  const { sourceProjections: _serverDerivedSourceProjections, ...canonicalCandidate } = responseCandidate;
+  return constructionCandidateWireEquivalent(requestCandidate, canonicalCandidate);
+}
+
+export function proveCdaSourceGroupSupersededChoiceCancellation({
+  supersededEvent,
+  supersededBody,
+  failureDiagnostic,
+  replacementEvent,
+  replacementBody,
+  replacementResponse,
+  project,
+  explorer,
+  generation,
+  uiOrigin,
+  outputId,
+  snapshotToken,
+  draftVersion,
+  draftDigest,
+  supersededChoice,
+  replacementChoice,
+  actionLabel,
+  actionStartedAt,
+}) {
+  const fail = reason => ({ ok: false, reason });
+  if (![project, explorer, generation, outputId, snapshotToken, draftDigest, actionLabel].every(value =>
+    typeof value === 'string' && value.length > 0) || !Number.isInteger(draftVersion) ||
+    !Number.isFinite(actionStartedAt) ||
+    !supersededEvent || !replacementEvent || !failureDiagnostic) return fail('invalid source GROUP cancellation identity');
+
+  const proposalPath = `/api/v1/projects/${encodeURIComponent(project)}/explorers/${encodeURIComponent(explorer)}/authoring/v2/construction-proposals`;
+  const origin = new URL(uiOrigin).origin;
+  const expectedScope = {
+    expectedProject: project,
+    generation,
+    configuredExplorer: explorer,
+    requestProject: project,
+    requestExplorer: explorer,
+  };
+  if (supersededEvent.origin !== origin || supersededEvent.path !== proposalPath || supersededEvent.method !== 'POST' ||
+    supersededEvent.failure !== 'net::ERR_ABORTED' || supersededEvent.status !== undefined ||
+    supersededEvent.response !== undefined || !Number.isFinite(supersededEvent.startedAt) ||
+    !Number.isFinite(supersededEvent.completedAt) ||
+    !supersededEvent.requestId || !supersededEvent.browserRequestId) return fail('superseded request is not one exact response-free native abort');
+  if (failureDiagnostic.errorText !== 'net::ERR_ABORTED' || failureDiagnostic.method !== 'POST' ||
+    failureDiagnostic.requestId !== supersededEvent.requestId ||
+    failureDiagnostic.browserRequestId !== supersededEvent.browserRequestId ||
+    failureDiagnostic.url !== `${origin}${proposalPath}` || failureDiagnostic.failureAction?.label !== actionLabel ||
+    !isDeepStrictEqual(failureDiagnostic.requestScope, expectedScope)) return fail('native failure does not bind the exact owned action and explorer');
+
+  const sourceStep = body => body?.candidateConstruction?.steps?.at(-1);
+  const hasExactSourceChoice = (body, choice) => {
+    const step = sourceStep(body);
+    return body?.outputId === outputId && body?.snapshotToken === snapshotToken &&
+      body?.expectedDraftVersion === draftVersion && body?.expectedDraftDigest === draftDigest &&
+      body?.groupSources?.length === 1 && body.groupSources[0]?.rowChoiceId === choice?.choiceId &&
+      typeof body.groupSources[0]?.columnId === 'string' && body.groupSources[0].columnId.length > 0 &&
+      step?.id === body?.changedStepId && step.operation?.kind === 'GROUP' &&
+      step.inputs?.length === 1 && step.inputs[0]?.kind === 'SOURCE_PROJECTION' &&
+      step.operation.group?.keys?.length === 1 &&
+      step.operation.group.keys[0]?.inputColumnId === body.groupSources[0].columnId;
+  };
+  if (!supersededChoice || !replacementChoice || supersededChoice.choiceId === replacementChoice.choiceId ||
+    !hasExactSourceChoice(supersededBody, supersededChoice) ||
+    !hasExactSourceChoice(replacementBody, replacementChoice) ||
+    supersededBody.changedStepId !== replacementBody.changedStepId) return fail('proposal bodies do not bind the two exact source choices to the same draft GROUP');
+  if (replacementEvent.origin !== origin || replacementEvent.path !== proposalPath || replacementEvent.method !== 'POST' ||
+    replacementEvent.status !== 200 || !Number.isFinite(replacementEvent.startedAt) || !Number.isFinite(replacementEvent.completedAt) ||
+    !replacementEvent.requestId || !replacementEvent.browserRequestId ||
+    replacementEvent.browserRequestId === supersededEvent.browserRequestId || replacementEvent.triggerAction !== actionLabel ||
+    supersededEvent.startedAt >= actionStartedAt || supersededEvent.completedAt < actionStartedAt ||
+    replacementEvent.startedAt < actionStartedAt ||
+    supersededEvent.completedAt > replacementEvent.completedAt) return fail('replacement is not the later exact action-scoped proposal response');
+  if (replacementResponse?.snapshotToken !== snapshotToken || replacementResponse?.draftVersion !== draftVersion ||
+    replacementResponse?.draftDigest !== draftDigest || replacementResponse?.outputId !== outputId ||
+    replacementResponse?.proposalId !== replacementResponse?.preview?.receiptId ||
+    replacementResponse?.previewStatus !== 'READY' ||
+    !cdaSourceGroupCandidateResponseEquivalent({ request: replacementBody, response: replacementResponse, selectedChoice: replacementChoice })) {
+    return fail('replacement Status proposal is not an exact READY response for its selected source choice');
+  }
+
+  const reason = 'Selecting the explicit raw Observation status choice supersedes the automatic first-choice source GROUP preview.';
+  return {
+    ok: true,
+    proof: {
+      project, explorer, generation, outputId, snapshotToken, draftVersion, draftDigest,
+      supersededAction: actionLabel,
+      actionStartedAt,
+      supersededRequest: {
+        requestId: supersededEvent.requestId,
+        browserRequestId: supersededEvent.browserRequestId,
+        method: supersededEvent.method,
+        path: supersededEvent.path,
+        startedAt: supersededEvent.startedAt,
+        completedAt: supersededEvent.completedAt,
+        failure: supersededEvent.failure,
+        choiceId: supersededBody.groupSources[0].rowChoiceId,
+        fieldPath: supersededChoice.fieldPath,
+        occurrenceId: supersededChoice.occurrenceId,
+      },
+      replacement: {
+        requestId: replacementEvent.requestId,
+        browserRequestId: replacementEvent.browserRequestId,
+        startedAt: replacementEvent.startedAt,
+        completedAt: replacementEvent.completedAt,
+        status: replacementEvent.status,
+        action: actionLabel,
+        choiceId: replacementBody.groupSources[0].rowChoiceId,
+        fieldPath: replacementChoice.fieldPath,
+        occurrenceId: replacementChoice.occurrenceId,
+        previewStatus: replacementResponse.previewStatus,
+        responseExact: true,
+        sourceProjections: replacementResponse.candidateConstruction.sourceProjections,
+      },
+      transition: 'the exact native source GROUP request for the automatic first populated choice was aborted when the user selected Status; the replacement request for that same output, snapshot, and draft completed with an exact READY preview',
+      reason,
+    },
+  };
+}
 
 export const cdaMembershipObservationQuery = ({ project, generation }) => {
   assert.equal(typeof project, 'string');

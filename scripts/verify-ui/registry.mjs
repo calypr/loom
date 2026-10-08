@@ -2108,9 +2108,14 @@ export const registry = Object.freeze([
             id: 'membership-ui-route-identity',
             cwd: '.',
             command: [
-              'node-test', 'scripts/verify-ui/helpers/tests/cda-explicit-ui-route.test.mjs',
+              'node-test',
+              'scripts/verify-ui/helpers/tests/cda-explicit-ui-route.test.mjs',
+              'scripts/verify-ui/helpers/tests/cda-current-draft-membership-source-projection.test.mjs',
             ],
             sourceFiles: [
+              'scripts/verify-ui/helpers/cda-current-draft-membership-oracle.mjs',
+              'scripts/verify-ui/helpers/builder-combine-draft-helpers.mjs',
+              'scripts/verify-ui/workflows/cda-current-draft-membership-workflow.mjs',
               'scripts/loom-dev.mjs',
               'scripts/verify-ui/helpers/cda-fixtures.mjs',
               'scripts/verify-ui/specs/cda-current-draft-membership.spec.mjs',
