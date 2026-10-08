@@ -474,7 +474,7 @@ const rawMembership = selectionId => rawQuery(`FOR member IN loom_explorer_selec
     dialog: true, selectionId: baseSelection.id, attachedSelectionId: baseSelection.id, memberList: true,
   });
   if (mappedGroupCountChange) {
-    assert.deepEqual(collectionControls, refs.map(ref => `Review removal of Specimen/${ref.id}`).sort(),
+    assert.deepEqual([...collectionControls].sort(), refs.map(ref => `Review removal of Specimen/${ref.id}`).sort(),
       'Native Rows settings must show every exact starting-collection member, including the mapped survivor and orphan');
   }
   mark(requiredChecks[2]);
