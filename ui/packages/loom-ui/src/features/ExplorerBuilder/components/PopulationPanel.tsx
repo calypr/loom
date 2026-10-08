@@ -145,7 +145,9 @@ export const PopulationPanel = ({
   const selectedChoice = routeOptions[pathIndex]?.choice;
   const directRouteFirst = routeOptions[0]?.isDirectSameResource === true;
   const directSameResourceRouteSelected = selection?.resourceType === table.document.rootResourceType && (
-    attached ? attached.route.length === 0 : routeOptions[pathIndex]?.isDirectSameResource === true
+    attached && attached.selectionRevisionId === selection.id
+      ? attached.route.length === 0
+      : routeOptions[pathIndex]?.isDirectSameResource === true
   );
   const checkCoverage = () => {
     if (!receiptId || !project || !explorerId || !attached || !selection) return;
@@ -183,6 +185,34 @@ export const PopulationPanel = ({
         error: error instanceof Error ? error.message : 'Coverage check failed.' });
     });
   };
+  const routeOptionsControl = routeOptions.length > 1 ? (
+    <>
+      {directRouteFirst ? (
+        <>
+          <span className="text-xs text-slate-600">{routeOptions[pathIndex]?.label}</span>
+          <button type="button" aria-expanded={otherConnectionsOpen} onClick={() => setRouteSelection({
+            ...currentRouteSelection,
+            otherConnectionsOpen: !currentRouteSelection.otherConnectionsOpen,
+          })} className="rounded-md border border-slate-300 bg-white px-3 py-2 font-semibold hover:bg-slate-50">
+            Other connections
+          </button>
+        </>
+      ) : null}
+      {!directRouteFirst || otherConnectionsOpen ? (
+        <label className="flex w-full min-w-0 items-center gap-2">
+          <span className="font-medium">Connection</span>
+          <select aria-label="Population connection" value={pathIndex} onChange={(event) => setRouteSelection({
+            ...currentRouteSelection,
+            pathIndex: Number(event.currentTarget.value),
+          })} className="min-w-0 flex-1 rounded border border-slate-300 bg-white px-2 py-2">
+            {routeOptions.map((option, index) => <option key={option.choice.routeChoiceId} value={index}>{option.label}</option>)}
+          </select>
+        </label>
+      ) : null}
+    </>
+  ) : (
+    <span className="text-xs text-slate-600">{routeOptions[0]?.label}</span>
+  );
   return (
     <section
       aria-label="Starting collection"
@@ -197,43 +227,46 @@ export const PopulationPanel = ({
         </div>
         {attached ? (
           <div className="flex flex-wrap items-center gap-2">
-            <button type="button" disabled={disabled} onClick={onClear} className="rounded-md border border-slate-300 bg-white px-3 py-2 font-semibold hover:bg-slate-50 disabled:opacity-40">
-              Use all authorized rows
-            </button>
-            {receiptId && selection ? (
-              <button type="button" disabled={disabled || currentCoverage?.loading === true} onClick={checkCoverage} className="rounded-md border border-indigo-400 bg-white px-3 py-2 font-semibold text-indigo-800 hover:bg-indigo-50 disabled:opacity-40">
-                {currentCoverage?.loading ? 'Checking selected-resource coverage…' : 'Check selected-resource coverage'}
+            {selection && attached.selectionRevisionId !== selection.id ? (
+              <p role="status" className="text-xs text-slate-600">
+                Current collection stays attached until you replace it. New selection: {selection.memberCount.toLocaleString()} {selection.resourceType} resources.
+              </p>
+            ) : null}
+            <div className="flex flex-wrap items-center gap-2">
+              <button type="button" disabled={disabled} onClick={onClear} className="rounded-md border border-slate-300 bg-white px-3 py-2 font-semibold hover:bg-slate-50 disabled:opacity-40">
+                Use all authorized rows
               </button>
+              {receiptId && selection && attached.selectionRevisionId === selection.id ? (
+                <button type="button" disabled={disabled || currentCoverage?.loading === true} onClick={checkCoverage} className="rounded-md border border-indigo-400 bg-white px-3 py-2 font-semibold text-indigo-800 hover:bg-indigo-50 disabled:opacity-40">
+                  {currentCoverage?.loading ? 'Checking selected-resource coverage…' : 'Check selected-resource coverage'}
+                </button>
+              ) : null}
+              {selection && attached.selectionRevisionId !== selection.id &&
+               routeLoadState.status === 'ready' && selectedChoice ? (
+                <>
+                  {routeOptionsControl}
+                  <button type="button" disabled={disabled} onClick={() => onAttach(selectedChoice.routeChoiceId)} className="rounded-md bg-indigo-700 px-3 py-2 font-semibold text-white hover:bg-indigo-800 disabled:opacity-40">
+                    Replace current collection
+                  </button>
+                </>
+              ) : null}
+            </div>
+            {selection && attached.selectionRevisionId !== selection.id && routeLoadState.status === 'loading' ? (
+              <p className="text-xs text-slate-600">Finding connections for the new selection…</p>
+            ) : null}
+            {selection && attached.selectionRevisionId !== selection.id && routeLoadState.status === 'error' ? (
+              <p role="alert" className="text-xs text-red-700">{routeLoadState.message}</p>
+            ) : null}
+            {selection && attached.selectionRevisionId !== selection.id &&
+             routeLoadState.status === 'ready' && routeOptions.length === 0 && !routeLoadState.truncated ? (
+              <p role="alert" className="text-xs text-amber-800">
+                No supported path connects {table.document.rootResourceType} rows to {selection.resourceType}.
+              </p>
             ) : null}
           </div>
         ) : selection && routeOptions.length > 0 ? (
           <div className="flex w-full min-w-0 flex-wrap items-center gap-2">
-            {routeOptions.length > 1 ? (
-              <>
-                {directRouteFirst ? (
-                  <>
-                    <span className="text-xs text-slate-600">{routeOptions[pathIndex]?.label}</span>
-                    <button type="button" aria-expanded={otherConnectionsOpen} onClick={() => setRouteSelection({
-                      ...currentRouteSelection,
-                      otherConnectionsOpen: !otherConnectionsOpen,
-                    })} className="rounded-md border border-slate-300 bg-white px-3 py-2 font-semibold hover:bg-slate-50">
-                      Other connections
-                    </button>
-                  </>
-                ) : null}
-                {!directRouteFirst || otherConnectionsOpen ? (
-                  <label className="flex w-full min-w-0 items-center gap-2">
-                    <span className="font-medium">Connection</span>
-                  <select aria-label="Population connection" value={pathIndex} onChange={(event) => setRouteSelection({
-                    ...currentRouteSelection,
-                    pathIndex: Number(event.currentTarget.value),
-                  })} className="min-w-0 flex-1 rounded border border-slate-300 bg-white px-2 py-2">
-                      {routeOptions.map((option, index) => <option key={option.choice.routeChoiceId} value={index}>{option.label}</option>)}
-                    </select>
-                  </label>
-                ) : null}
-              </>
-            ) : <span className="text-xs text-slate-600">{routeOptions[0]?.label}</span>}
+            {routeOptionsControl}
             <button type="button" disabled={disabled || !selectedChoice} onClick={() => selectedChoice && onAttach(selectedChoice.routeChoiceId)} className="rounded-md bg-indigo-700 px-3 py-2 font-semibold text-white hover:bg-indigo-800 disabled:opacity-40">
               Use selected resources
             </button>

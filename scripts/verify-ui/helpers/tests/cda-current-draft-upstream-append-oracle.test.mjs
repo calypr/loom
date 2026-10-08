@@ -9,6 +9,7 @@ import {
   cdaUpstreamAppendRereadQuery,
   cdaUpstreamAppendScanQuery,
   prepareCdaUpstreamAppendOracle,
+  prepareCdaUpstreamAppendPatientSubsetOracle,
   proveObservedSupersededEmptyGroupProposals,
   proveSupersededEmptyGroupProposal,
 } from '../cda-current-draft-upstream-append-oracle.mjs';
@@ -95,6 +96,82 @@ test('oracle derives two disjoint Observation pairs, Patient ID counts, and dupl
     [scans().Patient[1], scans().Patient[0]], oracle.exactExpected['patient-id'],
     { project, generation, resourceType: 'Patient' },
   );
+});
+
+test('current-draft Patient subset narrows GROUP→DERIVE→APPEND from four rows to three and restores four', () => {
+  const oracle = prepareCdaUpstreamAppendOracle(scans(), { project, generation });
+  const patientA = oracle.sources['patient-id'][0];
+  const subset = prepareCdaUpstreamAppendPatientSubsetOracle(oracle, [patientA]);
+
+  const expectedPatientA = {
+    project: 'loom-cda-oracle',
+    generation: 'cda-fhir-v1',
+    resourceType: 'Patient',
+    id: 'patient-a',
+    _id: 'Patient/patient-doc-01',
+    fieldPresent: true,
+    fieldValue: 'patient-a',
+    key: 'patient-a',
+  };
+  const expectedPatientB = {
+    project: 'loom-cda-oracle',
+    generation: 'cda-fhir-v1',
+    resourceType: 'Patient',
+    id: 'patient-b',
+    _id: 'Patient/patient-doc-02',
+    fieldPresent: true,
+    fieldValue: 'patient-b',
+    key: 'patient-b',
+  };
+  const expectedFullAppend = [
+    ['final', '2'],
+    ['final', '2'],
+    ['patient-a', '2'],
+    ['patient-b', '2'],
+  ];
+
+  assert.deepEqual(subset.startingCollection, {
+    before: [expectedPatientA, expectedPatientB],
+    selected: expectedPatientA,
+    afterNarrowing: [expectedPatientA],
+    afterRestoration: [expectedPatientA, expectedPatientB],
+  });
+  assert.deepEqual(subset.grouped, {
+    before: [['patient-a', 1], ['patient-b', 1]],
+    afterNarrowing: [['patient-a', 1]],
+    afterRestoration: [['patient-a', 1], ['patient-b', 1]],
+  });
+  assert.deepEqual(subset.derived, {
+    before: [['patient-a', 1, 2], ['patient-b', 1, 2]],
+    afterNarrowing: [['patient-a', 1, 2]],
+    afterRestoration: [['patient-a', 1, 2], ['patient-b', 1, 2]],
+  });
+  assert.deepEqual(subset.append, {
+    before: expectedFullAppend,
+    afterNarrowing: [['final', '2'], ['final', '2'], ['patient-a', '2']],
+    afterRestoration: expectedFullAppend,
+    rowCounts: { before: 4, afterNarrowing: 3, afterRestoration: 4 },
+    duplicateFinalRowsAfterNarrowing: 2,
+  });
+});
+
+test('current-draft Patient subset rejects invalid, nonmember, and wrong-scope rows', () => {
+  const oracle = prepareCdaUpstreamAppendOracle(scans(), { project, generation });
+  const patientA = oracle.sources['patient-id'][0];
+  const invalidSubsets = [
+    ['missing selection', []],
+    ['multiple selected Patients', oracle.sources['patient-id']],
+    ['malformed selection', [null]],
+    ['nonmember Patient', [row('Patient', 'patient-doc-03', 'patient-c', true, 'patient-c')]],
+    ['wrong project', [{ ...patientA, project: 'other-project' }]],
+    ['wrong generation', [{ ...patientA, generation: 'other-generation' }]],
+    ['wrong resource type', [{ ...patientA, resourceType: 'Observation' }]],
+    ['changed source id field', [{ ...patientA, fieldValue: 'patient-other' }]],
+  ];
+
+  for (const [label, subset] of invalidSubsets) {
+    assert.throws(() => prepareCdaUpstreamAppendPatientSubsetOracle(oracle, subset), undefined, label);
+  }
 });
 
 test('oracle reports honest bounded unavailability without four final Observations or two Patient IDs', () => {

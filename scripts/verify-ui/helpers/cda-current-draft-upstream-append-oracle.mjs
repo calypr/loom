@@ -170,6 +170,87 @@ export function prepareCdaUpstreamAppendOracle(scans, { project, generation }) {
   };
 }
 
+export function prepareCdaUpstreamAppendPatientSubsetOracle(oracle, patientSubset) {
+  assert(typeof oracle?.project === 'string' && oracle.project.length > 0,
+    'Patient subset APPEND needs the prepared current-draft oracle');
+  assert(typeof oracle?.generation === 'string' && oracle.generation.length > 0,
+    'Patient subset APPEND needs the prepared current-draft oracle generation');
+  assert(Array.isArray(patientSubset) && patientSubset.length === 1,
+    'Patient starting-collection subset must contain exactly one selected witness');
+
+  const selected = patientSubset[0];
+  assert(selected && typeof selected === 'object' && !Array.isArray(selected),
+    'Patient starting-collection subset must contain a raw Patient witness');
+  assert.equal(selected.project, oracle.project,
+    'Selected Patient subset escaped its exact project');
+  assert.equal(selected.generation, oracle.generation,
+    'Selected Patient subset escaped its exact generation');
+  assert.equal(selected.resourceType, 'Patient',
+    'Selected starting-collection subset must be a Patient');
+
+  const witnesses = oracle.sources?.['patient-id'];
+  assert(Array.isArray(witnesses) && witnesses.length === 2,
+    'Prepared current-draft oracle must contain the two Patient.id witnesses');
+  const witness = witnesses.find(row => row?._id === selected._id && row?.id === selected.id);
+  assert(witness, 'Selected Patient subset must be a member of the exact two-row Patient witness');
+  const identity = row => ({
+    project: row.project,
+    generation: row.generation,
+    resourceType: row.resourceType,
+    id: row.id,
+    _id: row._id,
+    fieldPresent: row.fieldPresent,
+    fieldValue: row.fieldValue,
+    key: row.key,
+  });
+  assert.deepEqual(identity(selected), identity(witness),
+    'Selected Patient subset must preserve the exact source identity and id field');
+
+  const selectedPatient = identity(witness);
+  const grouped = countRows([{ key: selectedPatient.key }]);
+  const derived = grouped.map(([id, count]) => [id, count, count + 1]);
+  const narrowedAppend = [
+    ...oracle.grouped['observation-left'],
+    ...oracle.grouped['observation-right'],
+    ...derived.map(([id, , count]) => [id, count]),
+  ].map(([category, count]) => [String(category), String(count)]);
+  const baselineAppend = oracle.append?.plusOne;
+  assert(Array.isArray(baselineAppend), 'Prepared current-draft oracle must contain its APPEND');
+  assert.equal(baselineAppend.length, 4, 'Prepared current-draft oracle must contain its four-row APPEND');
+
+  return {
+    project: oracle.project,
+    generation: oracle.generation,
+    startingCollection: {
+      before: witnesses.map(identity),
+      selected: selectedPatient,
+      afterNarrowing: [selectedPatient],
+      afterRestoration: witnesses.map(identity),
+    },
+    grouped: {
+      before: oracle.grouped['patient-id'],
+      afterNarrowing: grouped,
+      afterRestoration: oracle.grouped['patient-id'],
+    },
+    derived: {
+      before: oracle.patientDerived.plusOne,
+      afterNarrowing: derived,
+      afterRestoration: oracle.patientDerived.plusOne,
+    },
+    append: {
+      before: baselineAppend,
+      afterNarrowing: narrowedAppend,
+      afterRestoration: baselineAppend,
+      rowCounts: {
+        before: baselineAppend.length,
+        afterNarrowing: narrowedAppend.length,
+        afterRestoration: baselineAppend.length,
+      },
+      duplicateFinalRowsAfterNarrowing: narrowedAppend.filter(([category]) => category === 'final').length,
+    },
+  };
+}
+
 export function assertCdaUpstreamAppendReread(actualRows, expectedRows, { project, generation, resourceType }) {
   assert(Array.isArray(actualRows) && Array.isArray(expectedRows));
   const normalize = rows => [...rows].map(row => ({

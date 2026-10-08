@@ -2708,9 +2708,70 @@ export const registry = Object.freeze([
           'CDA watched source and API build stayed unchanged',
         ],
       },
+      'patient-membership-handoff': {
+        playwrightTest: 'scripts/verify-ui/specs/cda-current-draft-upstream-append.spec.mjs',
+        expectedIdentity: { project: 'loom_dev_cda_fhir', generation: 'cda-fhir-v1' },
+        playwrightGrep: 'native Patient attachment narrows and restores Group→DERIVE→APPEND rows$',
+        focusedChecks: [
+          {
+            id: 'patient-membership-subset-raw-oracle',
+            cwd: '.',
+            command: [
+              'node-test',
+              'scripts/verify-ui/helpers/tests/cda-current-draft-upstream-append-oracle.test.mjs',
+            ],
+            sourceFiles: [
+              'scripts/verify-ui/registry.mjs',
+              'scripts/verify-ui/specs/cda-current-draft-upstream-append.spec.mjs',
+              'scripts/verify-ui/workflows/cda-current-draft-upstream-append-workflow.mjs',
+              'scripts/verify-ui/helpers/cda-current-draft-upstream-append-oracle.mjs',
+            ],
+          },
+          {
+            id: 'patient-membership-report-dimension-contract',
+            cwd: '.',
+            command: [
+              'node-test',
+              'scripts/verify-ui/helpers/tests/cda-current-draft-upstream-append-browser-context.test.mjs',
+            ],
+            sourceFiles: [
+              'scripts/verify-ui/registry.mjs',
+              'scripts/verify-ui/helpers/report.mjs',
+              'scripts/verify-ui/workflows/cda-current-draft-upstream-append-workflow.mjs',
+            ],
+          },
+          {
+            id: 'patient-membership-panel-replacement',
+            cwd: 'ui/packages/loom-ui',
+            command: [
+              'vitest',
+              'run',
+              '--config',
+              'vitest.config.ts',
+              'ui/packages/loom-ui/src/features/ExplorerBuilder/components/PopulationPanel.unit.test.tsx',
+            ],
+            sourceFiles: [
+              'scripts/verify-ui/registry.mjs',
+              'ui/packages/loom-ui/src/features/ExplorerBuilder/components/PopulationPanel.tsx',
+            ],
+          },
+        ],
+        requiredChecks: [
+          'unattached one-member Patient handoff leaves the saved two-member source and four-row APPEND unchanged',
+          'source attachment commits immediately without a proposal',
+          'handoff abandonment has no source Cancel action',
+          'native source attachment has no separate Apply action',
+          'native direct Patient selection replacement recomputes exact three-row APPEND and preserves output/step identities',
+          'one-member Patient source and exact three-row APPEND persist after reload',
+          'source handoff has no proposal edit lifecycle',
+          'native two-member Patient handoff restores exact four-row APPEND and identities after reload',
+          'all native CDA Group→DERIVE→APPEND lifecycle actions complete within five seconds',
+        ],
+      },
     },
     coverage: [
       { feature: 'real-CDA exact-population Group→DERIVE→APPEND with upstream edit, Cancel/Apply, dependent receipt recompute, removal, restoration, and reload', acceptance: {"intent":"row-lifecycle","kind":"lifecycle","case":"upstream-append","checks":{"choice":11,"proposal":14,"cancel":16,"apply":15,"savedRows":15,"reload":20,"edit":18,"restoration":21}}, status: 'implemented', reason: 'Epoch78 passed all 26 registered checks and 215 assertions; all 93 native actions passed within the five-second budget (maximum 1,858 ms), all four dimensions passed, and the strict network gate recorded zero unexpected failures. The bounded raw oracle selected two Patient.id witnesses and two disjoint two-row Observation.status=final populations, then verified Group→DERIVE→APPEND with duplicate-category multiplicity, edit-driven recompute, Cancel/Apply, removal, empty-target restoration, and reload without Publish or TABLE_REVISION inputs. Source, docs, API build, and owned mounts remained unchanged; health passed 3/3 before and after. This closes only the Patient.id plus disjoint Observation.status=final case; DiagnosticReport-backed and published-source APPEND remain unverified. Report: docs/verification/playwright/runtime/current-draft-cda-upstream-append-epoch78-report.json (domain report SHA-256 46ca0259df931df57fc8d39ff10321c92c557c7153104067ee1520b5f360d94a); closure: docs/verification/playwright/runtime/current-draft-cda-upstream-append-epoch78-closure.json (SHA-256 38125743af667fbc838991f35b86b9c71b68dac4ce64cf97e381029e496143c8).' },
+      { feature: 'native Patient starting-collection handoff narrows Group→DERIVE→APPEND from four to three raw rows and restores four', acceptance: { intent: 'row-lifecycle', kind: 'lifecycle', case: 'patient-membership-handoff', checks: { choice: 0, savedRows: 4, reload: 5, restoration: 7 }, notApplicable: { proposal: 'Starting-collection attachment commits immediately and has no source proposal preview; the downstream APPEND proposal lifecycle remains covered by upstream-append.', cancel: 'There is no pending source-membership proposal to cancel. Navigating away from an unattached handoff is not a proposal Cancel; preservation is checked by the choice assertion.', apply: 'The native attachment commits immediately, with no separate source Apply action; its result and persistence are checked under savedRows and reload.', edit: 'This case changes root membership only. Saved-operation editing and its Cancel/Apply lifecycle remain covered by upstream-append.' } }, status: 'untested', reason: 'Registered for the queued runtime slot. It exercises the exact same-scope 2→1→2 Patient attachment handoff and raw 4→3→4 APPEND rows; no browser lifecycle has run for this case.' },
     ],
   }),
   Object.freeze({

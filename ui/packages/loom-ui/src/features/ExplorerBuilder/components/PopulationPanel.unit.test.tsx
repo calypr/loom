@@ -224,6 +224,101 @@ it('preserves an attached non-direct route when a direct route is also available
   expect(screen.getByRole('button', { name: 'Use all authorized rows' })).toBeTruthy();
   expect(screen.queryByRole('combobox', { name: 'Population connection' })).toBeNull();
   expect(await screen.findByText(/automatic route-search limit/)).toBeTruthy();
+  expect(screen.queryByRole('button', { name: 'Replace current collection' })).toBeNull();
+});
+
+it('keeps the attached collection visible and replaces it with the selected route for a different selection', async () => {
+  const alternateChoice: PopulationRouteChoice = {
+    ...populationChoice,
+    routeChoiceId: 'alternate-population-route',
+    route: [{ ...populationChoice.route[0]!, relationship: 'encounter' }],
+    presentation: { summary: 'Specimen through encounter', facts: [] },
+  };
+  searchPopulationRoutes.mockImplementationOnce(async (request: { selectionRevisionId: string }) => ({
+    snapshotToken: 'snapshot',
+    outputId: table.outputId,
+    selectionRevisionId: request.selectionRevisionId,
+    complete: true,
+    truncated: false,
+    choices: [populationChoice, alternateChoice],
+  }));
+  const onAttach = vi.fn();
+  const onClear = vi.fn();
+  const nextSelection = { ...selection, id: 'selection-2', memberCount: 5, membershipDigest: 'members-2' };
+  render(<PopulationPanel table={attachedTable()} selection={nextSelection} loading={false} disabled={false} project="project" explorerId="patients" snapshotToken="snapshot" receiptId="receipt-1" onAttach={onAttach} onClear={onClear} />);
+
+  const panel = screen.getByRole('region', { name: 'Starting collection' });
+  expect(panel).toHaveAttribute('data-attached-selection-revision-id', 'selection-1');
+  expect(panel).toHaveAttribute('data-selection-revision-id', 'selection-2');
+  const replace = await screen.findByRole('button', { name: 'Replace current collection' });
+  expect(await screen.findByText('Current collection stays attached until you replace it. New selection: 5 DocumentReference resources.')).toBeTruthy();
+  const connection = screen.getByRole('combobox', { name: 'Population connection' });
+  expect((connection as HTMLSelectElement).value).toBe('0');
+  expect(screen.getAllByRole('option')).toHaveLength(2);
+  expect(screen.queryByRole('button', { name: 'Check selected-resource coverage' })).toBeNull();
+
+  fireEvent.change(connection, { target: { value: '1' } });
+  fireEvent.click(replace);
+
+  expect(onAttach).toHaveBeenCalledTimes(1);
+  expect(onAttach).toHaveBeenCalledWith('alternate-population-route');
+  expect(onClear).not.toHaveBeenCalled();
+  expect(triggerPopulation).not.toHaveBeenCalled();
+  expect(panel).toHaveAttribute('data-attached-selection-revision-id', 'selection-1');
+  expect(screen.getByText(/Current collection stays attached until you replace it/)).toBeTruthy();
+});
+
+it('keeps both revisions visible but withholds replacement while the handoff routes are loading', async () => {
+  let resolveRoutes: (value: unknown) => void = () => undefined;
+  const pendingRoutes = new Promise((resolve) => { resolveRoutes = resolve; });
+  searchPopulationRoutes.mockReturnValueOnce(pendingRoutes);
+  const nextSelection = { ...selection, id: 'selection-2', memberCount: 5, membershipDigest: 'members-2' };
+  render(<PopulationPanel table={attachedTable()} selection={nextSelection} loading={false} disabled={false} project="project" explorerId="patients" snapshotToken="snapshot" onAttach={vi.fn()} onClear={vi.fn()} />);
+
+  await waitFor(() => expect(searchPopulationRoutes).toHaveBeenCalledTimes(1));
+  expect(screen.getByText(/Current collection stays attached until you replace it\. New selection: 5 DocumentReference resources/)).toBeTruthy();
+  expect(screen.getByText(/Finding connections for the new selection/)).toBeTruthy();
+  expect(screen.queryByRole('button', { name: 'Replace current collection' })).toBeNull();
+
+  await act(async () => {
+    resolveRoutes({
+      snapshotToken: 'snapshot', outputId: table.outputId, selectionRevisionId: nextSelection.id,
+      complete: true, truncated: false, choices: [populationChoice],
+    });
+    await pendingRoutes;
+  });
+});
+
+it('withholds replacement when route lookup fails or finds no supported path', async () => {
+  const nextSelection = { ...selection, id: 'selection-2', memberCount: 5, membershipDigest: 'members-2' };
+  searchPopulationRoutes.mockRejectedValueOnce(new Error('Route lookup failed.'));
+  const onAttach = vi.fn();
+  const { unmount } = render(<PopulationPanel table={attachedTable()} selection={nextSelection} loading={false} disabled={false} project="project" explorerId="patients" snapshotToken="snapshot" onAttach={onAttach} onClear={vi.fn()} />);
+
+  expect(await screen.findByRole('alert')).toHaveTextContent('Route lookup failed.');
+  expect(screen.queryByRole('button', { name: 'Replace current collection' })).toBeNull();
+  unmount();
+
+  searchPopulationRoutes.mockResolvedValueOnce({
+    snapshotToken: 'snapshot', outputId: table.outputId, selectionRevisionId: nextSelection.id,
+    complete: true, truncated: false, choices: [],
+  });
+  const noRoutePanel = render(<PopulationPanel table={attachedTable()} selection={nextSelection} loading={false} disabled={false} project="project" explorerId="patients" snapshotToken="snapshot" onAttach={onAttach} onClear={vi.fn()} />);
+
+  expect(await screen.findByRole('alert')).toHaveTextContent('No supported path connects Specimen rows to DocumentReference.');
+  expect(screen.queryByRole('button', { name: 'Replace current collection' })).toBeNull();
+  expect(onAttach).not.toHaveBeenCalled();
+  noRoutePanel.unmount();
+
+  searchPopulationRoutes.mockResolvedValueOnce({
+    snapshotToken: 'snapshot', outputId: table.outputId, selectionRevisionId: nextSelection.id,
+    complete: true, truncated: true, choices: [],
+  });
+  render(<PopulationPanel table={attachedTable()} selection={nextSelection} loading={false} disabled={false} project="project" explorerId="patients" snapshotToken="snapshot" onAttach={onAttach} onClear={vi.fn()} />);
+
+  expect(await screen.findByText(/automatic route-search limit/)).toBeTruthy();
+  expect(screen.queryByText(/No supported path connects/)).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Replace current collection' })).toBeNull();
 });
 
 it('keeps an unselected table as an all-authorized-resource workflow', () => {

@@ -10,6 +10,7 @@ import {
   cdaUpstreamAppendRereadQuery,
   cdaUpstreamAppendScanQuery,
   prepareCdaUpstreamAppendOracle,
+  prepareCdaUpstreamAppendPatientSubsetOracle,
   proveObservedSupersededEmptyGroupProposals,
 } from '../helpers/cda-current-draft-upstream-append-oracle.mjs';
 import {
@@ -38,7 +39,6 @@ const proposalReady = (outputId, rowCount) => proposalPreviewReadinessExpression
 export const readSelectOptionsInPage = selectElement => [...selectElement.options].map(option => ({
   value: option.value, text: option.textContent, disabled: option.disabled,
 }));
-
 const savedReady = (outputId, rowCount) => `(()=>{const p=document.querySelector('[data-testid="construction-preview"]');const t=document.querySelector(${JSON.stringify(TABLE_SELECTOR)});return Boolean(p?.dataset.previewStatus==='ready'&&p.dataset.previewOutputId===${JSON.stringify(outputId)}&&t&&t.getAttribute('aria-rowcount')===${JSON.stringify(String(rowCount + 1))}&&!document.body.innerText.includes('Loading your table…')&&!document.body.innerText.includes('Preview failed:'))})()`;
 export const selectedSavedReady = (outputId, rowCount) => `Boolean(document.querySelector(${JSON.stringify(`[data-testid="construction-table-${outputId}"][aria-current="page"]`)})&&${savedReady(outputId, rowCount)})`;
 export const emptyTargetReady = outputId => `(()=>{const selected=document.querySelector(${JSON.stringify(`[data-testid="construction-table-${outputId}"][aria-current="page"]`)});const preview=document.querySelector('[data-testid="construction-preview"]');return Boolean(selected&&!document.querySelector('[data-testid="construction-proposal-panel"]')&&!document.querySelector('[data-testid="construction-operation-editor"]')&&!document.querySelector('[data-testid="construction-history"]')&&preview?.dataset.previewStatus==='empty'&&preview.dataset.previewOutputId===${JSON.stringify(outputId)}&&!preview.querySelector('[role="table"]'))})()`;
@@ -84,7 +84,16 @@ function runAQL(arangoContainer, query, label) {
   return rows;
 }
 
-export async function cdaCurrentDraftUpstreamAppendWorkflow({ page, cda }) {
+export async function cdaCurrentDraftUpstreamAppendWorkflow(context) {
+  return runCdaCurrentDraftUpstreamAppendWorkflow(context);
+}
+
+export async function cdaCurrentDraftPatientMembershipHandoffWorkflow(context) {
+  return runCdaCurrentDraftUpstreamAppendWorkflow(context, { membershipOnly: true });
+}
+
+async function runCdaCurrentDraftUpstreamAppendWorkflow({ page, cda: baseCda }, { membershipOnly = false } = {}) {
+  const cda = baseCda;
   const { target, request, report } = cda;
   const project = cda.project;
   const generation = cda.generation;
@@ -144,7 +153,8 @@ export async function cdaCurrentDraftUpstreamAppendWorkflow({ page, cda }) {
   };
   page.on('request', onRequest);
 
-  const requireCheck = (dimension, name, passed, evidence = {}) => cda.check(dimension, name, passed, evidence);
+  const requireCheck = (dimension, name, passed, evidence = {}) =>
+    cda.check(dimension, name, passed, evidence);
   const waitFunction = (predicate, timeout = MAX_ACTION_MS) => page.waitForFunction(predicate, undefined, { timeout: Math.min(MAX_ACTION_MS, timeout) });
   const waitSelector = (selector, timeout = MAX_ACTION_MS) => page.locator(selector).waitFor({ state: 'visible', timeout: Math.min(MAX_ACTION_MS, timeout) });
   const timedAction = (label, locator, perform, after, editable = false) => cda.action(label, locator, perform, {
@@ -304,7 +314,12 @@ export async function cdaCurrentDraftUpstreamAppendWorkflow({ page, cda }) {
     explorer = created.explorerId ?? created.id ?? created.explorer?.id ?? rawExplorer;
     assert.equal(explorer, rawExplorer, 'Fresh owned Explorer must retain its unique requested identity');
     explorerBase = apiRoot(project, explorer);
-    requestCapture = cda.captureRequests(`${explorerBase}/authoring/v2`, { responsePaths: /commands|construction-proposals|preview/ });
+    requestCapture = cda.captureRequests(
+      membershipOnly ? explorerBase : `${explorerBase}/authoring/v2`,
+      { responsePaths: membershipOnly
+        ? /selections|population-routes|commands|construction-proposals|reconcile|preview/
+        : /commands|construction-proposals|preview/ },
+    );
     report.target.explorer = explorer;
     const list = await api(`/api/v1/projects/${encoded(project)}/explorers`);
     const summaries = Array.isArray(list) ? list : list.explorers ?? list.value ?? [];
@@ -791,23 +806,563 @@ export async function cdaCurrentDraftUpstreamAppendWorkflow({ page, cda }) {
       return { target, step: savedStep, state: savedState, receipt, base };
     };
 
-    const canceledTarget = await createAppendTarget();
-    const cancelBase = await readBuilder();
-    const canceledPreview = await configureAppend(canceledTarget);
-    await click('Cancel APPEND proposal without saving', page.getByTestId('construction-cancel-proposal'),
-      async () => waitEmptyTarget(canceledTarget.outputId));
-    await reloadSelectTable(canceledTarget.outputId, undefined, 'Reload canceled APPEND and unchanged empty target');
-    const afterCancel = await readBuilder();
-    checkBuilderScope(afterCancel);
-    const canceledEmptyTarget = documentByOutput(afterCancel, canceledTarget.outputId);
-    const cancelUnchanged = afterCancel.draftVersion === cancelBase.draftVersion && afterCancel.draftDigest === cancelBase.draftDigest &&
-      isDeepStrictEqual(afterCancel.workspace.documents, cancelBase.workspace.documents) &&
-      canceledEmptyTarget.columns.length === 0 && (canceledEmptyTarget.construction?.steps?.length ?? 0) === 0;
-    requireCheck('persistence', 'Cancel leaves exact APPEND candidate, source workspace, empty target, and draft CAS unchanged after reload', cancelUnchanged,
-      { before: { draftVersion: cancelBase.draftVersion, draftDigest: cancelBase.draftDigest },
-        after: { draftVersion: afterCancel.draftVersion, draftDigest: afterCancel.draftDigest },
-        candidateStepId: canceledPreview.step.id, targetOutputId: canceledTarget.outputId });
-    assert(cancelUnchanged);
+    const runPatientMembershipHandoff = async () => {
+      const originalSelection = patient.selection;
+      const retainedPatient = patient.rawRows[0];
+      const removedPatient = patient.rawRows[1];
+      assert(retainedPatient && removedPatient && retainedPatient.id !== removedPatient.id);
+      const membershipOracle = prepareCdaUpstreamAppendPatientSubsetOracle(oracle, [retainedPatient]);
+      assert.deepEqual(membershipOracle.startingCollection.selected, {
+        project: retainedPatient.project,
+        generation: retainedPatient.generation,
+        resourceType: retainedPatient.resourceType,
+        id: retainedPatient.id,
+        _id: retainedPatient._id,
+        fieldPresent: retainedPatient.fieldPresent,
+        fieldValue: retainedPatient.fieldValue,
+        key: retainedPatient.key,
+      }, 'The subset oracle must bind the exact retained raw Patient witness');
+      assert.equal(membershipOracle.startingCollection.before.length, 2);
+      assert.equal(membershipOracle.startingCollection.afterNarrowing.length, 1);
+      assert.equal(membershipOracle.startingCollection.afterRestoration.length, 2);
+      assert.deepEqual(membershipOracle.grouped.afterNarrowing, [[retainedPatient.id, 1]]);
+      assert.deepEqual(membershipOracle.derived.afterNarrowing, [[retainedPatient.id, 1, 2]]);
+      assert.deepEqual(membershipOracle.append.rowCounts, { before: 4, afterNarrowing: 3, afterRestoration: 4 });
+      assert.equal(membershipOracle.append.duplicateFinalRowsAfterNarrowing, 2);
+      assert.deepEqual(membershipOracle.startingCollection.afterRestoration, membershipOracle.startingCollection.before);
+      assert.deepEqual(membershipOracle.grouped.afterRestoration, membershipOracle.grouped.before);
+      assert.deepEqual(membershipOracle.derived.afterRestoration, membershipOracle.derived.before);
+      assert.deepEqual(membershipOracle.append.afterRestoration, membershipOracle.append.before);
+      assert.deepEqual(membershipOracle.append.before, oracle.append.plusOne);
+      const oneMemberRefs = [{ project, generation, resourceType: 'Patient', id: retainedPatient.id }];
+      const oneMemberSelection = await api(`${explorerBase}/selections`, {
+        snapshotToken: builder.catalog.snapshotToken,
+        idempotencyKey: `cda-patient-membership-${randomUUID()}`,
+        source: { kind: 'resources', resources: { refs: oneMemberRefs } },
+      });
+      assert.equal(oneMemberSelection.project, project);
+      assert.equal(oneMemberSelection.generation, generation);
+      assert.equal(oneMemberSelection.resourceType, 'Patient');
+      assert.equal(oneMemberSelection.scopeDigest, initialScope.authorizationScopeDigest);
+      assert.equal(oneMemberSelection.memberCount, 1);
+      const oneMemberRead = await api(`${explorerBase}/selections/${encoded(oneMemberSelection.id)}?limit=100`);
+      assert.equal(oneMemberRead.revision?.id, oneMemberSelection.id);
+      assert.equal(oneMemberRead.revision?.memberCount, 1);
+      assert.equal(oneMemberRead.revision?.scopeDigest, initialScope.authorizationScopeDigest);
+      assert.deepEqual(sortedSelectionRefs(oneMemberRead.members ?? []), [selectionRef(oneMemberRefs[0])],
+        'The one-member fixture revision must contain exactly one original raw Patient FHIR ID');
+
+      const expectedOnePatient = membershipOracle.derived.afterNarrowing;
+      const expectedOneAppend = membershipOracle.append.afterNarrowing;
+      assert.equal(membershipOracle.append.rowCounts.before, membershipOracle.append.before.length,
+        'The original two-member Patient source must drive four APPEND rows');
+      assert.equal(expectedOneAppend.length, membershipOracle.append.rowCounts.afterNarrowing,
+        'The one-member Patient source must drive exactly three APPEND rows');
+
+      const sourceIdentity = document => ({
+        outputId: document.output.id,
+        rootResourceType: document.rootResourceType,
+        columns: (document.columns ?? []).map(column => ({ id: column.id, name: column.name, label: column.label })),
+        steps: (document.construction?.steps ?? []).map(step => ({
+          id: step.id,
+          operation: step.operation?.kind,
+          inputBindings: (step.inputs ?? []).map(input => ({ kind: input.kind, outputId: input.outputId, stepId: input.stepId, columnId: input.columnId })),
+          outputs: (step.outputs ?? []).map(output => ({ id: output.id, name: output.name, label: output.label })),
+        })),
+      });
+      const appendIdentityBefore = sourceIdentity(documentByOutput(originalPatientState, target.outputId));
+      const patientIdentityBefore = sourceIdentity(documentByOutput(originalPatientState, patient.outputId));
+      const baselineDraft = { draftVersion: originalPatientState.draftVersion, draftDigest: originalPatientState.draftDigest };
+      assert.equal(appendIdentityBefore.steps.at(-1)?.id, appliedAppend.step.id);
+      assert.deepEqual(patientIdentityBefore.steps.map(step => step.operation), ['GROUP', 'DERIVE']);
+
+      const membershipStartIndex = report.nativeRequests.length;
+      const selectionURL = selectionId => {
+        const url = new URL(`${uiOrigin}/`);
+        url.searchParams.set('project', project);
+        url.searchParams.set('explorer', explorer);
+        url.searchParams.set('mode', 'builder');
+        url.searchParams.set('selection', selectionId);
+        return url.toString();
+      };
+      const navigateToHandoff = async selection => {
+        const fromIndex = report.nativeRequests.length;
+        const url = selectionURL(selection.id);
+        await cda.navigate(url);
+        await waitSelector(`[data-testid="construction-table-${patient.outputId}"]`);
+        const selectionPath = `${explorerBase}/selections/${encoded(selection.id)}`;
+        const browserRead = await requestCapture.waitFor(entry =>
+          entry.method === 'GET' && entry.path === selectionPath && entry.status === 200,
+        { fromIndex, timeoutMs: MAX_ACTION_MS });
+        const browserBody = requestCapture.rawResponseBody(browserRead);
+        assert.equal(browserBody?.revision?.id, selection.id,
+          'Standalone Builder handoff must load the exact immutable Patient selection revision');
+        assert.equal(browserBody.revision.project, project);
+        assert.equal(browserBody.revision.generation, generation);
+        assert.equal(browserBody.revision.scopeDigest, initialScope.authorizationScopeDigest);
+        assert.equal(browserBody.revision.resourceType, 'Patient');
+        assert.equal(browserBody.revision.memberCount, selection.memberCount);
+        const allowedIDs = selection.id === originalSelection.id
+          ? new Set(patient.rawRows.map(row => row.id))
+          : new Set([retainedPatient.id]);
+        assert(browserBody.members?.length > 0, 'Browser handoff must read at least one immutable selection member');
+        assert(browserBody.members.every(member => allowedIDs.has(member.ref?.id) &&
+          member.ref?.project === project && member.ref?.generation === generation && member.ref?.resourceType === 'Patient'),
+        'Browser handoff member page must contain only the exact raw-witness Patient IDs');
+        return { url, fromIndex, browserRead, browserBody };
+      };
+      const readStartingCollectionPanel = () => page.evaluate(() => {
+        const settings = document.querySelector('section[aria-label="Starting collection settings"]');
+        const panel = settings?.querySelector('section[aria-label="Starting collection"]');
+        const title = settings?.querySelector('h4')?.textContent?.trim() ?? '';
+        const summary = settings?.querySelector(':scope > p')?.textContent?.trim() ?? '';
+        return {
+          summary: title + ': ' + summary,
+          panelText: panel?.innerText?.replace(/\s+/g, ' ').trim() ?? '',
+          selectionRevisionId: panel?.getAttribute('data-selection-revision-id') ?? null,
+          attachedSelectionRevisionId: panel?.getAttribute('data-attached-selection-revision-id') ?? null,
+          hasProposalPanel: Boolean(document.querySelector('[data-testid="construction-proposal-panel"]')),
+          hasProposalCancel: Boolean(document.querySelector('[data-testid="construction-cancel-proposal"]')),
+          hasProposalApply: Boolean(document.querySelector('[data-testid="construction-apply-proposal"]')),
+        };
+      });
+      const openPatientHandoff = async (selection, expectedCurrentRows, fromIndex) => {
+        await selectTable(patient.outputId, expectedCurrentRows, 'Open Patient table for starting collection handoff');
+        await click('Open native Patient row definition settings', page.getByTestId('construction-rows-settings-trigger'),
+          async () => waitSelector('[aria-label="Row definition settings"]'));
+        await waitFunction(`(()=>{const p=document.querySelector('section[aria-label="Starting collection"]');return p?.getAttribute('data-selection-revision-id')===${JSON.stringify(selection.id)}})()`);
+        const panel = await readStartingCollectionPanel();
+        assert.equal(panel.selectionRevisionId, selection.id);
+        const routePath = `${explorerBase}/authoring/v2/population-routes`;
+        const routeEvent = await requestCapture.waitFor(entry => {
+          const body = requestCapture.rawRequestBody(entry);
+          return entry.method === 'POST' && entry.path === routePath && entry.status === 200 &&
+            body?.outputId === patient.outputId && body?.selectionRevisionId === selection.id &&
+            Array.isArray(requestCapture.rawResponseBody(entry)?.choices);
+        }, { fromIndex, timeoutMs: MAX_ACTION_MS });
+        const routeBody = requestCapture.rawRequestBody(routeEvent);
+        const routeResponse = requestCapture.rawResponseBody(routeEvent);
+        assert.equal(routeBody.snapshotToken, initialScope.snapshotToken);
+        assert.equal(routeResponse.snapshotToken, initialScope.snapshotToken);
+        assert.equal(routeResponse.outputId, patient.outputId);
+        assert.equal(routeResponse.selectionRevisionId, selection.id);
+        const directChoices = routeResponse.choices.filter(choice => choice.route.length === 0);
+        assert.equal(directChoices.length, 1,
+          'Patient handoff must expose exactly one direct same-resource route in native Row Definition Settings');
+        return { panel, routeEvent, routeBody, routeResponse, routeChoice: directChoices[0] };
+      };
+      const commandRequest = (entry, type, selectionId) => {
+        const body = requestCapture.rawRequestBody(entry);
+        const matching = (body?.commands ?? []).filter(item => item.type === type && item.outputId === patient.outputId &&
+          (selectionId === undefined || item.selectionRevisionId === selectionId));
+        assert.equal(entry.method, 'POST');
+        assert.equal(entry.path, `${explorerBase}/authoring/v2/commands`);
+        assert.equal(entry.status, 200);
+        assert.equal(matching.length, 1, 'Native population control must save exactly one matching current-draft command');
+        return { body, command: matching[0] };
+      };
+      const waitForAutoAppendPreview = async (fromIndex, expectedRows, expectedBuilder, phase) => {
+        const reconcilePath = `${explorerBase}/authoring/v2/reconcile`;
+        const reconcile = await requestCapture.waitFor(entry => {
+          const body = requestCapture.rawRequestBody(entry);
+          return entry.method === 'POST' && entry.path === reconcilePath && entry.status === 200 &&
+            body?.snapshotToken === expectedBuilder.catalog.snapshotToken &&
+            body?.draftVersion === expectedBuilder.draftVersion && body?.draftDigest === expectedBuilder.draftDigest;
+        }, { fromIndex, timeoutMs: MAX_ACTION_MS });
+        const reconcileBody = requestCapture.rawRequestBody(reconcile);
+        const receipt = requestCapture.rawResponseBody(reconcile);
+        assert.equal(receipt?.kind, 'ExplorerBuilderReceipt');
+        assert.equal(receipt.snapshotToken, expectedBuilder.catalog.snapshotToken);
+        assert.equal(receipt.generation, generation);
+        assert.equal(receipt.authorizationScopeDigest, initialScope.authorizationScopeDigest);
+        assert.equal(receipt.outputs?.filter(output => output.outputId === target.outputId).length, 1,
+          'Native reconciliation receipt must retain the exact APPEND output once');
+        const previewPath = `${explorerBase}/authoring/v2/preview`;
+        const previewRequest = await requestCapture.waitFor(entry => {
+          const body = requestCapture.rawRequestBody(entry);
+          return entry.method === 'POST' && entry.path === previewPath && entry.status === 200 &&
+            body?.receiptId === receipt.receiptId && body?.outputId === target.outputId;
+        }, { fromIndex: report.nativeRequests.indexOf(reconcile) + 1, timeoutMs: MAX_ACTION_MS });
+        const previewBody = requestCapture.rawRequestBody(previewRequest);
+        const previewResponse = requestCapture.rawResponseBody(previewRequest);
+        assert.equal(previewBody.receiptId, receipt.receiptId);
+        assert.equal(previewResponse?.receiptId, receipt.receiptId);
+        assert.equal(previewResponse?.outputId, target.outputId);
+        await waitSaved(target.outputId, expectedRows.length);
+        const grid = await readGrid('saved');
+        const actualRows = grid.rows.map(row => row.map(normalize));
+        const wantedRows = expectedRows.map(row => row.map(normalize));
+        const visible = await previewIdentity();
+        const exactRows = grid.ready && grid.headers.join('|') === 'Category|Row count' &&
+          Number(grid.ariaRowCount) === expectedRows.length + 1 && isDeepStrictEqual(sortRows(actualRows), sortRows(wantedRows));
+        const exactPreview = visible.status === 'ready' && !visible.stale && visible.outputId === target.outputId &&
+          visible.receipt === receipt.receiptId && Number(visible.draftVersion) === expectedBuilder.draftVersion &&
+          visible.draftDigest === expectedBuilder.draftDigest;
+        return {
+          ok: exactRows && exactPreview,
+          phase,
+          grid,
+          expectedRows: wantedRows,
+          actualRows,
+          visible,
+          draftVersion: expectedBuilder.draftVersion,
+          draftDigest: expectedBuilder.draftDigest,
+          reconcile: { status: reconcile.status, requestBody: reconcileBody, receiptId: receipt.receiptId },
+          preview: { status: previewRequest.status, requestBody: previewBody, response: previewResponse },
+        };
+      };
+      const currentBase = await readBuilder();
+      checkBuilderScope(currentBase);
+      const beforePatient = documentByOutput(currentBase, patient.outputId);
+      const beforeAppend = documentByOutput(currentBase, target.outputId);
+      assert.equal(beforePatient.population?.selectionRevisionId, originalSelection.id);
+      assert.equal(originalSelection.memberCount, 2);
+      assert.equal(currentBase.draftVersion, baselineDraft.draftVersion);
+      assert.equal(currentBase.draftDigest, baselineDraft.draftDigest);
+
+      const handoff = await navigateToHandoff(oneMemberSelection);
+      const handoffSettings = await openPatientHandoff(oneMemberSelection, membershipOracle.derived.before.length, handoff.fromIndex);
+      const unattachedPanel = await readStartingCollectionPanel();
+      assert.match(unattachedPanel.panelText, /\bNew selection:\s+1 Patient resources\./i,
+        'The pending handoff must visibly identify the one-member Patient selection');
+      assert.match(unattachedPanel.panelText, /Current collection stays attached until you replace it\./i,
+        'The handoff must state that the current source stays attached until replacement');
+      assert.equal(unattachedPanel.attachedSelectionRevisionId, originalSelection.id);
+      assert.equal(unattachedPanel.selectionRevisionId, oneMemberSelection.id);
+      const replacementButton = page.getByRole('button', { name: 'Replace current collection', exact: true });
+      await replacementButton.waitFor({ state: 'visible', timeout: MAX_ACTION_MS });
+      assert.equal(await replacementButton.count(), 1,
+        'A different pending selection must expose the native Replace current collection action');
+      assert.equal(unattachedPanel.hasProposalPanel, false);
+      assert.equal(unattachedPanel.hasProposalCancel, false);
+      assert.equal(unattachedPanel.hasProposalApply, false);
+      await click('Dismiss unattached Patient handoff and return to table', page.getByRole('button', { name: 'Back to table', exact: true }),
+        async () => waitFunction(`!document.querySelector('[aria-label="Row definition settings"]')`));
+      await cda.navigate(`${uiOrigin}/?project=${encoded(project)}&explorer=${encoded(explorer)}&mode=builder`);
+      await waitSelector(`[data-testid="construction-table-${patient.outputId}"]`);
+      const afterAbandonment = await readBuilder();
+      checkBuilderScope(afterAbandonment);
+      const abandonedPatient = documentByOutput(afterAbandonment, patient.outputId);
+      const abandonedAppend = documentByOutput(afterAbandonment, target.outputId);
+      const abandonmentUnchanged = afterAbandonment.draftVersion === baselineDraft.draftVersion &&
+        afterAbandonment.draftDigest === baselineDraft.draftDigest &&
+        abandonedPatient.population?.selectionRevisionId === originalSelection.id &&
+        abandonedPatient.population?.selectionRevisionId !== oneMemberSelection.id &&
+        isDeepStrictEqual(abandonedPatient, beforePatient) && isDeepStrictEqual(abandonedAppend, beforeAppend);
+      assert(abandonmentUnchanged,
+        'Dismissing the detached selection handoff must leave the saved two-member Patient source and APPEND document unchanged');
+      const abandonmentCommandEvents = report.nativeRequests.slice(membershipStartIndex).filter(entry =>
+        entry.path === `${explorerBase}/authoring/v2/commands` && requestCapture.rawRequestBody(entry) !== undefined);
+      const abandonmentCommands = abandonmentCommandEvents.flatMap(entry => requestCapture.rawRequestBody(entry)?.commands ?? []);
+      assert.equal(abandonmentCommands.length, 0,
+        'Abandoning the detached handoff must issue no source command, including no clear or attach');
+      await selectTable(target.outputId, membershipOracle.append.rowCounts.before, 'Read the unchanged four-row APPEND after handoff abandonment');
+      const abandonedGrid = await readGrid('saved');
+      const abandonmentRows = abandonedGrid.ready && abandonedGrid.headers.join('|') === 'Category|Row count' &&
+        Number(abandonedGrid.ariaRowCount) === membershipOracle.append.rowCounts.before + 1 &&
+        isDeepStrictEqual(sortRows(abandonedGrid.rows.map(row => row.map(normalize))), sortRows(membershipOracle.append.before));
+      assert(abandonmentRows);
+      requireCheck('usability', 'unattached one-member Patient handoff leaves the saved two-member source and four-row APPEND unchanged',
+        abandonmentUnchanged && abandonmentRows, {
+          handoffURL: handoff.url,
+          handoffSelectionId: oneMemberSelection.id,
+          attachedSelectionId: unattachedPanel.attachedSelectionRevisionId,
+          pendingSelectionId: unattachedPanel.selectionRevisionId,
+          pendingMemberCount: oneMemberSelection.memberCount,
+          savedAttachedSelectionAfterAbandonment: abandonedPatient.population.selectionRevisionId,
+          abandonmentCommands,
+          clearCommands: abandonmentCommands.filter(item => item.type === 'CLEAR_TABLE_POPULATION').length,
+          dismissal: 'Back to table; no source proposal existed, so this is not proposal Cancel',
+          draftBefore: baselineDraft,
+          draftAfter: { draftVersion: afterAbandonment.draftVersion, draftDigest: afterAbandonment.draftDigest },
+          patientOutputId: patient.outputId,
+          appendOutputId: target.outputId,
+          appendStepId: appliedAppend.step.id,
+          rowCount: abandonedGrid.rows.length,
+          rawExpectedRows: membershipOracle.append.before,
+          visiblePendingSelection: unattachedPanel.panelText,
+          apiBrowserSelectionRead: { status: handoff.browserRead.status, revision: handoff.browserBody.revision },
+          routeChoiceId: handoffSettings.routeChoice.routeChoiceId,
+        });
+
+      const attachSelection = async ({ selection, previousSelectionId, currentPatientRows, expectedAppendRows, label }) => {
+        const entered = await navigateToHandoff(selection);
+        const opened = await openPatientHandoff(selection, currentPatientRows, entered.fromIndex);
+        assert.equal(opened.panel.attachedSelectionRevisionId, previousSelectionId);
+        assert.equal(opened.panel.selectionRevisionId, selection.id);
+        const route = opened.routeChoice;
+        const preAttachCommandEvents = report.nativeRequests.slice(entered.fromIndex).filter(entry =>
+          entry.path === `${explorerBase}/authoring/v2/commands` && requestCapture.rawRequestBody(entry) !== undefined);
+        const preAttachCommands = preAttachCommandEvents.flatMap(entry => requestCapture.rawRequestBody(entry)?.commands ?? []);
+        assert.equal(preAttachCommands.length, 0,
+          'Opening or abandoning an attached replacement handoff must not mutate the saved source before Replace current collection is clicked');
+        const attachFromIndex = report.nativeRequests.length;
+        const replaceButton = page.getByRole('button', { name: 'Replace current collection', exact: true });
+        await replaceButton.waitFor({ state: 'visible', timeout: MAX_ACTION_MS });
+        assert.equal(await replaceButton.count(), 1,
+          'An attached different selection must expose the native Replace current collection action');
+        await click('Replace the saved Patient collection with the native selection handoff',
+          replaceButton,
+          async () => waitFunction(`(()=>{const p=document.querySelector('section[aria-label="Starting collection"]');return p?.getAttribute('data-attached-selection-revision-id')===${JSON.stringify(selection.id)}})()`));
+        const attachEvent = await requestCapture.waitFor(entry => {
+          const body = requestCapture.rawRequestBody(entry);
+          return entry.method === 'POST' && entry.path === `${explorerBase}/authoring/v2/commands` &&
+            body?.commands?.some(item => item.type === 'SET_TABLE_POPULATION' && item.outputId === patient.outputId &&
+              item.selectionRevisionId === selection.id);
+        }, { fromIndex: attachFromIndex, timeoutMs: MAX_ACTION_MS });
+        const nativeAttach = commandRequest(attachEvent, 'SET_TABLE_POPULATION', selection.id);
+        assert.equal(nativeAttach.command.routeChoiceId, route.routeChoiceId,
+          'The native attach command must use the direct route exposed by the browser route response');
+        const attachedState = await readBuilder();
+        checkBuilderScope(attachedState);
+        const attachedPatient = documentByOutput(attachedState, patient.outputId);
+        const attachedAppend = documentByOutput(attachedState, target.outputId);
+        assert.equal(attachedPatient.population?.selectionRevisionId, selection.id);
+        assert.deepEqual(attachedPatient.population.route, []);
+        const patientIdentity = sourceIdentity(attachedPatient);
+        const appendIdentity = sourceIdentity(attachedAppend);
+        assert.deepEqual(patientIdentity, patientIdentityBefore);
+        assert.deepEqual(appendIdentity, appendIdentityBefore);
+        assert.equal(attachedAppend.output.id, target.outputId);
+        assert.equal(attachedAppend.construction.steps.at(-1).id, appliedAppend.step.id);
+        const summary = await readStartingCollectionPanel();
+        assert.equal(summary.summary, `Starting collection: ${selection.memberCount} Patient resources attached`);
+
+        await click('Return to the saved draft after immediate source attachment',
+          page.getByRole('button', { name: 'Back to table', exact: true }),
+          async () => waitFunction(`!document.querySelector('[aria-label="Row definition settings"]')`));
+        await selectTable(target.outputId, expectedAppendRows.length, 'Inspect automatically previewed APPEND after Patient membership change');
+        const autoPreview = await waitForAutoAppendPreview(attachFromIndex, expectedAppendRows, attachedState, label);
+        assert(autoPreview.ok,
+          `${label} must render the exact raw-driven APPEND row multiset under the current draft receipt: ${JSON.stringify(autoPreview)}`);
+        const sourceProposalRequests = report.nativeRequests.slice(membershipStartIndex).filter(entry =>
+          entry.path === `${explorerBase}/authoring/v2/construction-proposals` &&
+          requestCapture.rawRequestBody(entry) !== undefined);
+        return {
+          handoff: entered,
+          route: { status: opened.routeEvent.status, outputId: opened.routeResponse.outputId,
+            selectionRevisionId: opened.routeResponse.selectionRevisionId, routeChoiceId: route.routeChoiceId,
+            route: route.route },
+          attach: { command: nativeAttach.command, draftVersion: attachedState.draftVersion,
+            draftDigest: attachedState.draftDigest, selectionSummary: summary.summary },
+          preAttachCommands,
+          autoPreview,
+          identitiesPreserved: isDeepStrictEqual(patientIdentity, patientIdentityBefore) &&
+            isDeepStrictEqual(appendIdentity, appendIdentityBefore),
+          sourceProposalRequestCount: sourceProposalRequests.length,
+        };
+      };
+
+      const narrowed = await attachSelection({
+        selection: oneMemberSelection,
+        previousSelectionId: originalSelection.id,
+        currentPatientRows: membershipOracle.derived.before.length,
+        expectedAppendRows: expectedOneAppend,
+        label: 'one-member Patient attachment',
+      });
+      const afterNarrow = await readBuilder();
+      checkBuilderScope(afterNarrow);
+      const narrowPatient = documentByOutput(afterNarrow, patient.outputId);
+      const narrowAppend = documentByOutput(afterNarrow, target.outputId);
+      assert.equal(narrowPatient.population?.selectionRevisionId, oneMemberSelection.id);
+      assert.equal(narrowPatient.population.selectionRevisionId === oneMemberSelection.id ? oneMemberSelection.memberCount : 0, 1);
+      const narrowIdentityStable = isDeepStrictEqual(sourceIdentity(narrowPatient), patientIdentityBefore) &&
+        isDeepStrictEqual(sourceIdentity(narrowAppend), appendIdentityBefore);
+      const narrowedRowsExact = narrowed.autoPreview.ok && narrowed.autoPreview.actualRows.length === 3 &&
+        isDeepStrictEqual(sortRows(narrowed.autoPreview.actualRows), sortRows(expectedOneAppend));
+      requireCheck('usability', 'source attachment commits immediately without a proposal', true, {
+        status: 'not-applicable',
+        reason: 'The native “Replace current collection” action commits through the current-draft command path immediately. PopulationPanel has no source-specific Preview proposal or Cancel proposal; the Builder reconcile and automatic APPEND preview are asserted separately.',
+        standaloneURL: narrowed.handoff.url,
+        sourcePreview: 'not-applicable',
+      });
+      requireCheck('usability', 'handoff abandonment has no source Cancel action', true, {
+        status: 'not-applicable',
+        reason: 'The unattached handoff was abandoned with the native “Back to table” control before any source write. No proposal was open, so dismissal is not proposal Cancel.',
+        dismissal: 'Back to table',
+      });
+      requireCheck('usability', 'native source attachment has no separate Apply action', true, {
+        status: 'not-applicable',
+        reason: '“Replace current collection” commits the population directly; there is no separate source Apply action.',
+        attachCommandType: 'SET_TABLE_POPULATION',
+      });
+      requireCheck('usability', 'source handoff has no proposal edit lifecycle', true, {
+        status: 'not-applicable',
+        reason: 'Membership replacement is an immediate source attachment. The existing upstream-append case already covers downstream DERIVE edit, proposal Cancel, and Apply.',
+      });
+      const narrowedSaved = narrowedRowsExact && narrowIdentityStable &&
+        narrowPatient.population?.selectionRevisionId === oneMemberSelection.id &&
+        narrowAppend.output.id === target.outputId && narrowAppend.construction.steps.at(-1)?.id === appliedAppend.step.id;
+      requireCheck('correctness', 'native direct Patient selection replacement recomputes exact three-row APPEND and preserves output/step identities',
+        narrowedSaved, {
+          originalSelectionId: originalSelection.id,
+          attachedSelectionId: oneMemberSelection.id,
+          exactMemberId: retainedPatient.id,
+          excludedOriginalMemberId: removedPatient.id,
+          patientOutputId: patient.outputId,
+          patientStepIDs: narrowPatient.construction.steps.map(step => step.id),
+          appendOutputId: narrowAppend.output.id,
+          appendStepId: narrowAppend.construction.steps.at(-1)?.id,
+          expectedAppendStepId: appliedAppend.step.id,
+          expectedRawRows: expectedOneAppend,
+          startingCollection: membershipOracle.startingCollection,
+          groupedAfterNarrowing: membershipOracle.grouped.afterNarrowing,
+          derivedAfterNarrowing: membershipOracle.derived.afterNarrowing,
+          appendRowCounts: membershipOracle.append.rowCounts,
+          duplicateFinalRowsAfterNarrowing: membershipOracle.append.duplicateFinalRowsAfterNarrowing,
+          native: narrowed,
+        });
+      assert(narrowedSaved);
+
+      const narrowReloadFromIndex = report.nativeRequests.length;
+      await reloadSelectTable(target.outputId, expectedOneAppend.length,
+        'Reload one-member Patient selection and exact three-row APPEND', oneMemberSelection.id);
+      const reloadedNarrow = await readBuilder();
+      checkBuilderScope(reloadedNarrow);
+      const reloadedNarrowPatient = documentByOutput(reloadedNarrow, patient.outputId);
+      const reloadedNarrowAppend = documentByOutput(reloadedNarrow, target.outputId);
+      const reloadedNarrowGrid = await readGrid('saved');
+      const narrowReloadExact = reloadedNarrowPatient.population?.selectionRevisionId === oneMemberSelection.id &&
+        isDeepStrictEqual(sourceIdentity(reloadedNarrowPatient), patientIdentityBefore) &&
+        isDeepStrictEqual(sourceIdentity(reloadedNarrowAppend), appendIdentityBefore) &&
+        reloadedNarrowGrid.ready && Number(reloadedNarrowGrid.ariaRowCount) === 4 &&
+        isDeepStrictEqual(sortRows(reloadedNarrowGrid.rows.map(row => row.map(normalize))), sortRows(expectedOneAppend));
+      requireCheck('persistence', 'one-member Patient source and exact three-row APPEND persist after reload', narrowReloadExact, {
+        selectionId: oneMemberSelection.id,
+        patientOutputId: reloadedNarrowPatient.output.id,
+        appendOutputId: reloadedNarrowAppend.output.id,
+        appendStepId: reloadedNarrowAppend.construction.steps.at(-1)?.id,
+        expectedAppendStepId: appliedAppend.step.id,
+        rowCount: reloadedNarrowGrid.rows.length,
+        expectedRows: expectedOneAppend,
+        selectionRead: report.nativeRequests.slice(narrowReloadFromIndex).filter(entry =>
+          entry.method === 'GET' && entry.path === `${explorerBase}/selections/${encoded(oneMemberSelection.id)}` && entry.status === 200)
+          .map(entry => ({ path: entry.path, status: entry.status })),
+      });
+      assert(narrowReloadExact);
+
+      const restored = await attachSelection({
+        selection: originalSelection,
+        previousSelectionId: oneMemberSelection.id,
+        currentPatientRows: membershipOracle.derived.afterNarrowing.length,
+        expectedAppendRows: membershipOracle.append.afterRestoration,
+        label: 'restored two-member Patient attachment',
+      });
+      const restorationReloadFromIndex = report.nativeRequests.length;
+      await reloadSelectTable(target.outputId, membershipOracle.append.rowCounts.afterRestoration,
+        'Reload restored two-member Patient selection and exact four-row APPEND', originalSelection.id);
+      const restoredState = await readBuilder();
+      checkBuilderScope(restoredState);
+      const restoredPatient = documentByOutput(restoredState, patient.outputId);
+      const restoredAppend = documentByOutput(restoredState, target.outputId);
+      const restoredGrid = await readGrid('saved');
+      const restoredExact = restoredPatient.population?.selectionRevisionId === originalSelection.id &&
+        originalSelection.memberCount === 2 && isDeepStrictEqual(sourceIdentity(restoredPatient), patientIdentityBefore) &&
+        isDeepStrictEqual(sourceIdentity(restoredAppend), appendIdentityBefore) &&
+        restoredAppend.construction.steps.at(-1)?.id === appliedAppend.step.id && restoredGrid.ready &&
+        Number(restoredGrid.ariaRowCount) === membershipOracle.append.rowCounts.afterRestoration + 1 &&
+        isDeepStrictEqual(sortRows(restoredGrid.rows.map(row => row.map(normalize))), sortRows(membershipOracle.append.afterRestoration));
+      requireCheck('persistence', 'native two-member Patient handoff restores exact four-row APPEND and identities after reload',
+        restoredExact && restored.autoPreview.ok && restored.autoPreview.actualRows.length === 4, {
+          restoredSelectionId: originalSelection.id,
+          memberCount: originalSelection.memberCount,
+          patientOutputId: restoredPatient.output.id,
+          patientStepIDs: restoredPatient.construction.steps.map(step => step.id),
+          appendOutputId: restoredAppend.output.id,
+          appendStepId: restoredAppend.construction.steps.at(-1)?.id,
+          expectedAppendStepId: appliedAppend.step.id,
+          expectedRows: membershipOracle.append.afterRestoration,
+          selectionRead: report.nativeRequests.slice(restorationReloadFromIndex).filter(entry =>
+            entry.method === 'GET' && entry.path === `${explorerBase}/selections/${encoded(originalSelection.id)}` && entry.status === 200)
+            .map(entry => ({ path: entry.path, status: entry.status })),
+          groupedAfterNarrowing: membershipOracle.grouped.afterNarrowing,
+          derivedAfterNarrowing: membershipOracle.derived.afterNarrowing,
+          appendRowCounts: membershipOracle.append.rowCounts,
+          duplicateFinalRowsAfterNarrowing: membershipOracle.append.duplicateFinalRowsAfterNarrowing,
+          visibleRows: restoredGrid.rows,
+          native: restored,
+        });
+      assert(restoredExact && restored.autoPreview.ok,
+        'Original two-member Patient handoff must restore exact raw-driven APPEND output and stable identities after reload');
+
+      const allActionsWithinBudget = report.actions.length > 0 && report.actions.every(item =>
+        item.status === 'passed' && item.elapsedMs <= MAX_ACTION_MS);
+      requireCheck('performance', ACTION_CHECK, allActionsWithinBudget, {
+        actions: report.actions.length,
+        maxActionMs: report.actions.reduce((maximum, item) => Math.max(maximum, item.elapsedMs ?? 0), 0),
+        exceeded: report.actions.filter(item => item.elapsedMs > MAX_ACTION_MS),
+      });
+      assert(allActionsWithinBudget, 'A native CDA membership lifecycle action did not complete within five seconds');
+      const proposalRequests = report.nativeRequests.slice(membershipStartIndex).filter(entry =>
+        entry.path === `${explorerBase}/authoring/v2/construction-proposals` &&
+        requestCapture.rawRequestBody(entry) !== undefined);
+      assert.equal(proposalRequests.length, 0,
+        'Native starting collection membership handoff must not open a source construction proposal');
+      const membershipCommandEvents = report.nativeRequests.slice(membershipStartIndex).filter(entry =>
+        entry.path === `${explorerBase}/authoring/v2/commands` && requestCapture.rawRequestBody(entry) !== undefined);
+      const membershipCommands = membershipCommandEvents.flatMap(entry => requestCapture.rawRequestBody(entry)?.commands ?? []);
+      const replacementCommands = membershipCommands.filter(item => item.type === 'SET_TABLE_POPULATION' &&
+        item.outputId === patient.outputId && [oneMemberSelection.id, originalSelection.id].includes(item.selectionRevisionId));
+      const clearCommands = membershipCommands.filter(item => item.type === 'CLEAR_TABLE_POPULATION');
+      assert.equal(membershipCommands.length, 2,
+        'The membership handoff must issue no source command beyond the two direct native replacements');
+      assert.equal(replacementCommands.length, 2,
+        'The one-member change and two-member restoration must each use one native replacement command');
+      assert(membershipCommands.every(item => item.type === 'SET_TABLE_POPULATION' && item.outputId === patient.outputId &&
+        [oneMemberSelection.id, originalSelection.id].includes(item.selectionRevisionId)),
+      'Every membership-window source command must be one of the two expected Patient replacement commands');
+      assert.equal(clearCommands.length, 0,
+        'The native handoff lifecycle must not clear the collection or enter an all-authorized intermediate state');
+      report.lifecycle.patientMembershipHandoff = {
+        standaloneURL: 'project + explorer + mode=builder + selection',
+        originalSelectionId: originalSelection.id,
+        oneMemberSelectionId: oneMemberSelection.id,
+        retainedPatientFHIRID: retainedPatient.id,
+        removedPatientFHIRID: removedPatient.id,
+        startingCollection: membershipOracle.startingCollection,
+        grouped: membershipOracle.grouped,
+        derived: membershipOracle.derived,
+        appendRowCounts: membershipOracle.append.rowCounts,
+        duplicateFinalRowsAfterNarrowing: membershipOracle.append.duplicateFinalRowsAfterNarrowing,
+        patientOutputId: patient.outputId,
+        patientGroupStepId: patient.group.groupStep.id,
+        patientDeriveStepId: patient.derive.step.id,
+        appendOutputId: target.outputId,
+        appendStepId: appliedAppend.step.id,
+        rawDrivenRows: { twoMembers: membershipOracle.append.before, oneMember: membershipOracle.append.afterNarrowing,
+          restored: membershipOracle.append.afterRestoration },
+        abandonment: { unchanged: abandonmentUnchanged && abandonmentRows, pendingPresentation: unattachedPanel.panelText },
+        narrow: narrowed,
+        narrowReload: { exact: narrowReloadExact, rowCount: reloadedNarrowGrid.rows.length },
+        restoration: restored,
+        nativeCommands: membershipCommands,
+        proposalRequests: proposalRequests.length,
+        sourcePreview: { status: 'not-applicable', reason: 'Attachment commits directly; current-draft APPEND preview is automatic and asserted.' },
+        sourceApply: { status: 'not-applicable', reason: 'Replace current collection commits directly.' },
+        sourceCancel: { status: 'not-applicable', reason: 'No source proposal exists; unattached handoff dismissal uses Back to table.' },
+        allActionsWithinBudget,
+      };
+    };
+
+    if (!membershipOnly) {
+      const canceledTarget = await createAppendTarget();
+      const cancelBase = await readBuilder();
+      const canceledPreview = await configureAppend(canceledTarget);
+      await click('Cancel APPEND proposal without saving', page.getByTestId('construction-cancel-proposal'),
+        async () => waitEmptyTarget(canceledTarget.outputId));
+      await reloadSelectTable(canceledTarget.outputId, undefined, 'Reload canceled APPEND and unchanged empty target');
+      const afterCancel = await readBuilder();
+      checkBuilderScope(afterCancel);
+      const canceledEmptyTarget = documentByOutput(afterCancel, canceledTarget.outputId);
+      const cancelUnchanged = afterCancel.draftVersion === cancelBase.draftVersion && afterCancel.draftDigest === cancelBase.draftDigest &&
+        isDeepStrictEqual(afterCancel.workspace.documents, cancelBase.workspace.documents) &&
+        canceledEmptyTarget.columns.length === 0 && (canceledEmptyTarget.construction?.steps?.length ?? 0) === 0;
+      requireCheck('persistence', 'Cancel leaves exact APPEND candidate, source workspace, empty target, and draft CAS unchanged after reload', cancelUnchanged,
+        { before: { draftVersion: cancelBase.draftVersion, draftDigest: cancelBase.draftDigest },
+          after: { draftVersion: afterCancel.draftVersion, draftDigest: afterCancel.draftDigest },
+          candidateStepId: canceledPreview.step.id, targetOutputId: canceledTarget.outputId });
+      assert(cancelUnchanged);
+    }
 
     const target = await createAppendTarget();
     const applyPreview = await configureAppend(target);
@@ -817,6 +1372,10 @@ export async function cdaCurrentDraftUpstreamAppendWorkflow({ page, cda }) {
     const originalDerive = originalPatientDocument.construction?.steps?.find(step => step.operation?.kind === 'DERIVE');
     assert(originalDerive && patient.derive?.step.id === originalDerive.id);
     const originalAppendPreview = appliedAppend.receipt;
+    if (membershipOnly) {
+      await runPatientMembershipHandoff();
+      return;
+    }
     const beforeEditRows = oracle.append.plusOne;
     const afterEditRows = oracle.append.plusTwo;
     const editStep = async (outputId, stepId, family, editorSelector) => {
