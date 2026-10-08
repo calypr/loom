@@ -10,13 +10,15 @@ import { buildArangoShellInvocation } from '../helpers/owned-arangosh-command.mj
 import { assertCdaNoAuthRuntime } from '../helpers/cda-no-auth-runtime.mjs';
 import { classifyExpectedOwnedCancellation, nativeReadRequestMatchesExpectedScope } from '../helpers/native-request-ownership.mjs';
 import { createNativeAbortProbeSource, nativeAbortProbeEvidenceForRequest } from '../helpers/native-abort-probe.mjs';
+import { createdExplorerScope } from '../helpers/created-explorer-scope.mjs';
 
 export async function runGroupEditBeforeRelatedColumnBrowserWorkflow({ page, cda }) {
 const project = cda.project;
 assert(project, 'CDA fixture must provide the isolated project');
 const env = cda.env ?? {};
 const target = cda.target ?? {};
-const explorer = cda.explorer;
+let explorer = cda.explorer;
+const requestedExplorerName = explorer;
 const evidence = cda.evidence;
 const apiOrigin = cda.apiOrigin;
 const uiOrigin = cda.uiOrigin;
@@ -26,8 +28,8 @@ const protectedExplorer = 'cda-builder-full-qa-1790440983382';
 assert.notEqual(explorer, protectedExplorer);
 
 
-const explorerRoot = `/api/v1/projects/${project}/explorers/${explorer}`;
-const base = `${explorerRoot}/authoring/v2`;
+let explorerRoot;
+let base;
 const root = `/api/v1/projects/${project}/explorers`;
 const click = (_page, ...args) => cda.click(...args);
 const selectOption = (_page, ...args) => cda.selectOption(...args);
@@ -878,7 +880,26 @@ FOR s IN (
     source, patient, observations, statusValuesPresent: [...new Set(observationStatuses)].sort(),
     statusMultiplicityPreserved: true, chain: [] };
 
-  await api(root, { name: explorer, title: 'Group edit before related column QA' });
+  const createdExplorer = await api(root, { name: requestedExplorerName, title: 'Group edit before related column QA' });
+  const creationRequest = report.requests.at(-1);
+  assert.equal(creationRequest?.path, root);
+  assert.equal(creationRequest?.status, 201);
+  assert.equal(creationRequest?.body?.name, requestedExplorerName);
+  const createdScope = createdExplorerScope(project, createdExplorer);
+  explorer = createdScope.explorerId;
+  assert.notEqual(explorer, protectedExplorer, 'The server-assigned Explorer must remain isolated from the protected shared Explorer');
+  explorerRoot = createdScope.explorerRoot;
+  base = createdScope.authoringBase;
+  browserTransportScope.explorer = explorer;
+  report.explorer = explorer;
+  report.target = { ...report.target, explorer };
+  report.explorerProvisioning = {
+    requestedName: requestedExplorerName,
+    createRequestId: creationRequest.requestId,
+    createStatus: creationRequest.status,
+    returnedProject: createdExplorer.project,
+    returnedExplorerId: explorer,
+  };
   builder = await api(base + '/builder');
   assert.equal(builder.catalog.generation, generation);
   const node = builder.catalog.nodes.find((item) => item.resourceType === 'Specimen' && item.rowRootEligible);
