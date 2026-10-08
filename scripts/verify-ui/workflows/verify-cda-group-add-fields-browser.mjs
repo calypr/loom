@@ -5,6 +5,7 @@ import { assertVisibleRowsMatchOracle } from '../helpers/cda-row-oracle.mjs';
 import { createdExplorerScope } from '../helpers/created-explorer-scope.mjs';
 
 export const groupAddFieldsRawFieldsSummarySelector = '[data-testid="feature-catalog-raw-fields"] > summary';
+export const groupAddFieldsPreviewHeaders = ['Specimen ID', 'Resource Type', 'Row count'];
 
 export function rawCdaRelatedHopBinding({ from, to, direction }) {
   assert(['OUTBOUND', 'INBOUND'].includes(direction), `Unsupported raw CDA relationship direction: ${direction}`);
@@ -15,6 +16,14 @@ export function rawCdaRelatedHopBinding({ from, to, direction }) {
     fromType: outbound ? from : to,
     toType: outbound ? to : from,
   };
+}
+
+export function expectedGroupAddFieldsRows(groupedRows, rawResourceType) {
+  return groupedRows.map(([rawSpecimenID, rawObservationCount]) => [
+    rawSpecimenID,
+    rawResourceType,
+    rawObservationCount,
+  ]);
 }
 
 export async function runGroupAddFieldsBrowserWorkflow({ page, cda }) {
@@ -362,7 +371,7 @@ FOR source IN (
   await waitForBrowser(() => (document.querySelector('[data-testid="construction-add-columns-source"]')));
   report.addFieldsUI=await browserEval(() => { return {text:document.querySelector('[aria-label="Add columns editor"]').innerText,controls:[...document.querySelectorAll('[aria-label="Add columns editor"] input,[aria-label="Add columns editor"] select,[aria-label="Add columns editor"] button')].map(e=>({tag:e.tagName,label:e.getAttribute('aria-label'),testId:e.dataset.testid,text:e.innerText,disabled:e.disabled}))}; });
   assert.equal(source.resourceType,'Specimen');
-  const withField=[[...grouped[0],source.resourceType]];
+  const withField=expectedGroupAddFieldsRows(grouped, source.resourceType);
   const chooseField=async()=>{
     await click(groupAddFieldsRawFieldsSummarySelector);
     await waitForBrowser(() => (document.querySelector('input[aria-label="Select Specimen.resourceType"]:not(:disabled)')));
@@ -372,16 +381,21 @@ FOR source IN (
     await waitForBrowser(() => (['ready','error'].includes(document.querySelector('[data-testid="construction-choice-proposal-panel"]')?.dataset.proposalStatus)));
     const panel=await browserEval(() => { const e=document.querySelector('[data-testid="construction-choice-proposal-panel"]');return {status:e.dataset.proposalStatus,text:e.innerText}; });
     assert.equal(panel.status,'ready',panel.text);
+    const headers=await browserEval(() => [...document.querySelectorAll('[data-testid="construction-proposal-preview"] thead th')]
+      .map(header => header.querySelector('span')?.innerText.trim()));
+    assert.deepEqual(headers,groupAddFieldsPreviewHeaders);
     const rows=await browserEval(() => { return [...document.querySelectorAll('[data-testid="construction-proposal-preview-row"]')].map(r=>[...r.querySelectorAll('td')].map(c=>c.innerText)); });
     assert.deepEqual(rows,withField);
     recordRender('group-source-field-preview',start);
-    return { ...panel, rows };
+    return { ...panel, headers, rows };
   };
   const fieldPreview = await chooseField();
   recordLifecycleCheck('correctness',
     'Specimen.resourceType choice preview matches the raw value on the grouped row',
-    fieldPreview.status === 'ready' && JSON.stringify(fieldPreview.rows) === JSON.stringify(withField),
-    { previewRows: fieldPreview.rows, expectedRows: withField, rawResourceType: source.resourceType });
+    fieldPreview.status === 'ready' && JSON.stringify(fieldPreview.headers) === JSON.stringify(groupAddFieldsPreviewHeaders) &&
+      JSON.stringify(fieldPreview.rows) === JSON.stringify(withField),
+    { headers: fieldPreview.headers, expectedHeaders: groupAddFieldsPreviewHeaders,
+      previewRows: fieldPreview.rows, expectedRows: withField, rawResourceType: source.resourceType });
   start = Date.now();
   await click('[data-testid="construction-choice-proposal-panel"] button',{name:'Cancel'});
   await rendered(grouped);

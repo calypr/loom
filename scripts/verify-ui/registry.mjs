@@ -1722,6 +1722,7 @@ export const registry = Object.freeze([
               'scripts/verify-ui/helpers/tests/cda-explicit-ui-route.test.mjs',
               'scripts/verify-ui/helpers/tests/group-workflow-raw-fields-selectors.test.mjs',
               'scripts/verify-ui/helpers/tests/group-add-fields-raw-hop-binding.test.mjs',
+              'scripts/verify-ui/helpers/tests/group-add-fields-preview-rows.test.mjs',
             ],
             sourceFiles: [
               'scripts/verify-ui/helpers/created-explorer-scope.mjs',
