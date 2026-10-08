@@ -7,6 +7,7 @@ import {
   validateCdaCompositeScalarFieldCandidate,
   validateCdaCompositeGroupCandidate,
 } from '../helpers/cda-composite-group-filter-oracle.mjs';
+import { navigateAfterOwnedConstructionCapabilities } from '../helpers/cda-playwright-requests.mjs';
 
 export function buildFilterBrowserOracleQuery({ project, generation, numeric = false, booleanCase = false }) {
   assert.equal(typeof project, 'string', 'The raw filter oracle requires a project identity');
@@ -222,7 +223,31 @@ export async function filterBrowserWorkflow({ page, cda }) {
     const expectedDigest = builder?.draftDigest;
     const expectedConstruction = doc(builder)?.construction;
     assert(expectedDigest, 'Reload must start from a persisted Builder digest');
-    await cda.navigate( `${uiOrigin}/?project=${project}&explorer=${explorer}&mode=builder`);
+    const destination = `${uiOrigin}/?project=${project}&explorer=${explorer}&mode=builder`;
+    if (compositeGroupShape) {
+      const navigation = await navigateAfterOwnedConstructionCapabilities(
+        cda,
+        browserEvents,
+        () => report.nativeRequests,
+        `${base}/construction-capabilities`,
+        Math.max(1, start + 5000 - Date.now()),
+        () => cda.navigate(destination),
+      );
+      if (navigation.settledEntries.length) {
+        (report.preNavigationCapabilitySettlements ??= []).push({
+          observedAt: new Date().toISOString(),
+          requests: navigation.settledEntries.map(entry => ({
+            requestId: entry.requestId,
+            browserRequestId: entry.browserRequestId,
+            status: entry.status,
+            startedAt: entry.startedAt,
+            completedAt: entry.completedAt,
+          })),
+        });
+      }
+    } else {
+      await cda.navigate(destination);
+    }
     await cda.wait(([__arg0]) => Boolean(document.querySelector('[data-testid="construction-table-'+String(__arg0)+'"]')), [outputId]);
     await cda.click(`[data-testid="construction-table-${outputId}"]`);
     await cda.wait(() => Boolean(document.querySelector('[data-testid="construction-rows-settings-trigger"]')?.disabled === false), []);

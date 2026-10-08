@@ -4,6 +4,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { spawnSync } from 'node:child_process';
 import { assertVisibleRowsMatchOracle } from '../helpers/cda-row-oracle.mjs';
 import { proposalPreviewReadinessExpression } from '../helpers/proposal-preview-readiness.mjs';
+import { navigateAfterOwnedConstructionCapabilities } from '../helpers/cda-playwright-requests.mjs';
 import { choosePostPivotRelatedSourcePair, verifyPostPivotRelatedSourceWitness } from '../helpers/post-pivot-related-source-oracle.mjs';
 
 const generation = 'cda-fhir-v1';
@@ -27,31 +28,6 @@ export function buildRawQueryExecuteString(query, bindVars = {}) {
 
 export function waitForCdaCapturedResponse(cda, tracker, predicate, timeout) {
   return cda.waitForCapturedResponse(tracker, predicate, timeout);
-}
-
-export async function navigateAfterOwnedConstructionCapabilities(cda, tracker, getNativeRequests, capabilityPath, timeout, navigate) {
-  const waitStartedAt = Date.now();
-  const deadline = waitStartedAt + timeout;
-  const settled = new Set();
-  for (;;) {
-    const pending = getNativeRequests().filter(entry => entry.path === capabilityPath
-      && entry.method === 'POST' && !Number.isFinite(entry.completedAt));
-    if (pending.length === 0) break;
-    for (const entry of pending) settled.add(entry);
-    const remaining = deadline - Date.now();
-    assert(remaining > 0, 'The navigation budget expired before owned construction-capabilities requests settled.');
-    await Promise.all(pending.map(entry =>
-      waitForCdaCapturedResponse(cda, tracker, candidate => candidate === entry, remaining)));
-  }
-  for (const entry of settled) {
-    assert(!entry.failure && Number.isInteger(entry.status) && entry.status >= 200 && entry.status < 300,
-      `Owned construction-capabilities request must reach a successful terminal response before navigation: ${JSON.stringify({
-        requestId: entry.requestId, browserRequestId: entry.browserRequestId,
-        status: entry.status, failure: entry.failure,
-      })}`);
-  }
-  const navigationResult = await navigate();
-  return { navigationResult, settledEntries: [...settled] };
 }
 
 export function matchesSavedPreviewRequest(entry, { path, outputId, startedAt }) {

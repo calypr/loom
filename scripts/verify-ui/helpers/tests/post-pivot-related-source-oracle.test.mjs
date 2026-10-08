@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { runInNewContext } from 'node:vm';
 import { scenarioCaseFor } from '../../registry.mjs';
-import { assertRelatedSourceStepAfterUpstreamChange, assertSavedPreviewIdentity, cdaExplorerSelectionsPath, isPostPivotRawOracleUnavailable, matchesSavedPreviewRequest, navigateAfterOwnedConstructionCapabilities, readPivotSelectOptions, readProposalPreviewDocument, relatedRouteChoice, proveSourceBinding, relatedSourceEditEvidence, sameConstructionIgnoringPivotCategoryOutputIDs, sameWorkspace, sameWorkspaceIgnoringEmptySourceConstruction, sameWorkspaceIgnoringPivotCategoryOutputIDs, uniqueEnabledSelectValue, waitForCdaCapturedResponse, withoutRelatedSourceFromWorkspace } from '../../workflows/verify-cda-related-source-after-pivot-browser.mjs';
+import { assertRelatedSourceStepAfterUpstreamChange, assertSavedPreviewIdentity, cdaExplorerSelectionsPath, isPostPivotRawOracleUnavailable, matchesSavedPreviewRequest, readPivotSelectOptions, readProposalPreviewDocument, relatedRouteChoice, proveSourceBinding, relatedSourceEditEvidence, sameConstructionIgnoringPivotCategoryOutputIDs, sameWorkspace, sameWorkspaceIgnoringEmptySourceConstruction, sameWorkspaceIgnoringPivotCategoryOutputIDs, uniqueEnabledSelectValue, waitForCdaCapturedResponse, withoutRelatedSourceFromWorkspace } from '../../workflows/verify-cda-related-source-after-pivot-browser.mjs';
+import { navigateAfterOwnedConstructionCapabilities } from '../cda-playwright-requests.mjs';
 import { choosePostPivotRelatedSourcePair, verifyPostPivotRelatedSourceWitness } from '../post-pivot-related-source-oracle.mjs';
 import { assertVisibleRowsMatchOracle } from '../cda-row-oracle.mjs';
 
