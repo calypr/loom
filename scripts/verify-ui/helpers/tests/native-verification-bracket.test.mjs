@@ -458,11 +458,17 @@ async function invokeMainWithFakeBracket(t, {
   const exitCode = await main([
     '--scenario', scenarioID,
     '--case', caseName,
-    '--target-from-environment',
+    '--target', '.codex/owned-cda-target.json',
     '--grep', contract.playwrightGrep ?? 'native handoff projection',
   ], {
     env: fake.env,
-    targetLoader: async () => { throw new Error('environment target must bypass target loading'); },
+    targetLoader: async ({ expectedIdentity }) => ({
+      environment: fake.env,
+      target: makeTarget(root, expectedIdentity),
+      configPath: '/tmp/test-owned-cda-target.json',
+      validationScope: 'configuration-only',
+      runtimeDatasetIdentity: 'not-checked',
+    }),
     runBracket: async (options) => {
       summary = await runNativeVerificationBracket({
         ...options,
@@ -1248,6 +1254,7 @@ test('wave152 timeout appears in the review packet and CLI with the last action 
   t.after(() => rmSync(parent, { recursive: true, force: true }));
   const scenarioID = 'root-quantity-pivot';
   const caseName = 'full-population-lifecycle';
+  const contract = scenarioCaseFor(scenarioID, caseName);
   const fake = fakeRunner({
     scenarioID,
     caseName,
@@ -1261,13 +1268,13 @@ test('wave152 timeout appears in the review packet and CLI with the last action 
   const exitCode = await main([
     '--scenario', scenarioID,
     '--case', caseName,
-    '--target-from-environment',
+    '--target', '.codex/owned-cda-target.json',
     '--grep', 'wave152 retained failure',
   ], {
     env: fake.env,
-    targetLoader: async () => ({
+    targetLoader: async ({ expectedIdentity }) => ({
       environment: fake.env,
-      target: makeTarget(root),
+      target: makeTarget(root, expectedIdentity),
       configPath: '/tmp/test-owned-cda-target.json',
       validationScope: 'configuration-only',
       runtimeDatasetIdentity: 'not-checked',
@@ -1302,8 +1309,10 @@ test('wave152 timeout appears in the review packet and CLI with the last action 
   const printed = JSON.parse(cliOutput[0]);
   assert.equal(printed.status, 'failed');
   assert.equal(printed.integrity, 'PASS');
-  assert.equal(printed.targetValidation.registryBinding, 'unbound');
+  assert.equal(printed.targetValidation.registryBinding, 'bound');
   assert.equal(printed.targetValidation.runtimeDatasetIdentity, 'not-checked');
+  assert.equal(printed.targetValidation.project, contract.expectedIdentity.project);
+  assert.equal(printed.targetValidation.generation, contract.expectedIdentity.generation);
   assert.equal(printed.firstFailureReason, 'Timeout 5000ms exceeded.');
   assert.equal(printed.failedAction, null);
   assert.deepEqual(printed.lastCompletedAction, { label: 'Select SUM', status: 'passed' });
@@ -2164,7 +2173,7 @@ test('environment mode rejects missing or wrong source ownership before focused 
 
 test('main aborts its owned child on SIGINT, writes an interrupted summary, and returns 130', { skip: process.platform === 'win32' }, async (t) => {
   const directory = mkdtempSync(join(tmpdir(), 'native-bracket-process-sigint-'));
-  const contract = scenarioCaseFor('root-quantity-pivot', 'full-population-lifecycle');
+  const contract = scenarioCaseFor('root-quantity-pivot', 'fixture-lifecycle');
   const specFile = basename(contract.playwrightTest);
   const startedPath = join(directory, 'child.started');
   const sentinelPath = join(directory, 'child.survived');
@@ -2261,7 +2270,7 @@ test('main aborts its owned child on SIGINT, writes an interrupted summary, and 
     let summary;
     const exitCode = await main([
       '--scenario', 'root-quantity-pivot',
-      '--case', 'full-population-lifecycle',
+      '--case', 'fixture-lifecycle',
       '--target-from-environment',
       '--grep', 'controlled SIGINT browser child',
       '--evidence-parent', process.env.OWNED_TEST_EVIDENCE_PARENT,
