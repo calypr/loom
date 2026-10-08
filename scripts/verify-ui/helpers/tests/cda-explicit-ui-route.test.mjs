@@ -23,6 +23,8 @@ const sessionTarget = {
 };
 const explicitMembershipRoute =
   'http://127.0.0.1:30008/?project=loom_dev_cda_fhir&explorer=qa-membership&mode=builder';
+const explicitViewerRoute =
+  'http://127.0.0.1:30008/?project=loom_dev_cda_fhir&explorer=qa-membership&mode=viewer';
 
 const fakeOwnedResourceCommands = (uiDefaults = otherSessionDefaults) => {
   const labels = service => ({
@@ -82,20 +84,39 @@ test('owned session allows mismatched UI defaults only for explicit-query mode w
     explorer: 'qa-membership',
     mode: 'builder',
   });
+  assert.deepEqual(assertCdaExplicitUIRoute(explicitViewerRoute, target), {
+    project: 'loom_dev_cda_fhir',
+    explorer: 'qa-membership',
+    mode: 'viewer',
+  });
 });
 
-test('Membership fixture navigator rejects bad route identity before calling Playwright', () => {
+test('default fixture navigator enforces explicit owned routes before calling Playwright', () => {
   const visits = [];
   const navigate = createCdaNavigator({
     target,
-    uiRouting: 'explicit-query',
     navigateTo: url => { visits.push(url); return 'navigated'; },
   });
 
   assert.equal(navigate(explicitMembershipRoute), 'navigated');
-  assert.deepEqual(visits, [explicitMembershipRoute]);
+  assert.equal(navigate(explicitViewerRoute), 'navigated');
+  assert.deepEqual(visits, [explicitMembershipRoute, explicitViewerRoute]);
   assert.throws(() => navigate('http://127.0.0.1:30008/?explorer=qa-membership&mode=builder'));
-  assert.deepEqual(visits, [explicitMembershipRoute]);
+  assert.deepEqual(visits, [explicitMembershipRoute, explicitViewerRoute]);
+});
+
+test('default fixture navigator passes through only exact about:blank', () => {
+  const visits = [];
+  const navigate = createCdaNavigator({
+    target,
+    navigateTo: url => { visits.push(url); return 'navigated'; },
+  });
+
+  assert.equal(navigate('about:blank'), 'navigated');
+  assert.deepEqual(visits, ['about:blank']);
+  assert.throws(() => navigate('about:blank?reset=1'));
+  assert.throws(() => navigate('about:blank#reset'));
+  assert.deepEqual(visits, ['about:blank']);
 });
 
 test('default-route session still requires the fixture project and bootstrap Explorer', async () => {
@@ -105,7 +126,15 @@ test('default-route session still requires the fixture project and bootstrap Exp
       VITE_LOOM_EXPLORER: 'another-bootstrap',
     }),
   }), /development UI defaults do not target this session fixture and bootstrap Explorer/);
+  await assert.rejects(assertOwnedDevSession(sessionTarget, {
+    uiRouting: 'defaults',
+    resourceCommands: fakeOwnedResourceCommands({
+      VITE_LOOM_PROJECT: target.fixtureProject,
+      VITE_LOOM_EXPLORER: 'another-bootstrap',
+    }),
+  }), /development UI defaults do not target this session fixture and bootstrap Explorer/);
   await assert.doesNotReject(assertOwnedDevSession(sessionTarget, {
+    uiRouting: 'defaults',
     resourceCommands: fakeOwnedResourceCommands({
       VITE_LOOM_PROJECT: target.fixtureProject,
       VITE_LOOM_EXPLORER: 'loom-dev-bootstrap',
@@ -113,10 +142,25 @@ test('default-route session still requires the fixture project and bootstrap Exp
   }));
 });
 
+test('defaults routing can be explicitly selected to pass through caller routes', () => {
+  const visits = [];
+  const navigate = createCdaNavigator({
+    target,
+    uiRouting: 'defaults',
+    navigateTo: url => { visits.push(url); return 'navigated'; },
+  });
+  const defaultRoute = 'http://127.0.0.1:30008/';
+
+  assert.equal(navigate(defaultRoute), 'navigated');
+  assert.deepEqual(visits, [defaultRoute]);
+});
+
 test('explicit CDA UI routing rejects malformed, missing, duplicate, or wrong scope values', async (t) => {
   const invalidRoutes = [
     ['malformed URL', 'not a URL'],
     ['foreign UI origin', explicitMembershipRoute.replace('127.0.0.1:30008', '127.0.0.1:30009')],
+    ['foreign UI scheme', explicitMembershipRoute.replace('http:', 'https:')],
+    ['credentialed UI origin', explicitMembershipRoute.replace('127.0.0.1:30008', 'user@127.0.0.1:30008')],
     ['missing project', 'http://127.0.0.1:30008/?explorer=qa-membership&mode=builder'],
     ['wrong project', explicitMembershipRoute.replace('loom_dev_cda_fhir', 'loom_dev_other')],
     ['duplicate project', `${explicitMembershipRoute}&project=loom_dev_cda_fhir`],
@@ -124,8 +168,10 @@ test('explicit CDA UI routing rejects malformed, missing, duplicate, or wrong sc
     ['invalid Explorer', 'http://127.0.0.1:30008/?project=loom_dev_cda_fhir&explorer=bad%20id&mode=builder'],
     ['duplicate Explorer', `${explicitMembershipRoute}&explorer=another-explorer`],
     ['missing mode', 'http://127.0.0.1:30008/?project=loom_dev_cda_fhir&explorer=qa-membership'],
-    ['non-Builder mode', explicitMembershipRoute.replace('mode=builder', 'mode=viewer')],
+    ['duplicate mode', `${explicitMembershipRoute}&mode=builder`],
+    ['unsupported mode', explicitMembershipRoute.replace('mode=builder', 'mode=edit')],
     ['nested route', explicitMembershipRoute.replace('/?', '/nested?')],
+    ['fragment', `${explicitMembershipRoute}#section`],
   ];
 
   for (const [name, route] of invalidRoutes) {

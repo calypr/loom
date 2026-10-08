@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { performance } from 'node:perf_hooks';
 import { checkContainerApiBuildStamp } from './api-build-freeze.mjs';
 
 const digestPattern = /^[a-f0-9]{64}$/i;
@@ -71,17 +72,31 @@ export async function runOwnedStackHealth({
   readStamp = checkContainerApiBuildStamp,
   sleep = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds)),
   now = () => new Date().toISOString(),
+  monotonicNow = () => performance.now(),
 }) {
   const identity = parseCapturedBuildIdentity(expectedIdentity);
   const samples = [];
+  let previousSampleStartedAt;
   for (let index = 0; index < 3; index += 1) {
-    const [apiResponse, uiResponse, stamp] = await Promise.all([
-      fetchImpl(`${apiURL.replace(/\/$/, '')}/readyz`, { signal: AbortSignal.timeout(5000) }),
-      fetchImpl(`${uiURL.replace(/\/$/, '')}/`, { signal: AbortSignal.timeout(5000) }),
+    if (index > 0) {
+      const earliestStart = previousSampleStartedAt + 2000;
+      while (true) {
+        const remaining = earliestStart - monotonicNow();
+        if (remaining <= 0) break;
+        await sleep(remaining);
+      }
+    }
+    const sampleStartedAt = monotonicNow();
+    previousSampleStartedAt = sampleStartedAt;
+    const [api, ui, stamp] = await Promise.all([
+      fetchImpl(`${apiURL.replace(/\/$/, '')}/readyz`, { signal: AbortSignal.timeout(5000) })
+        .then(async response => ({ response, body: await response.text() })),
+      fetchImpl(`${uiURL.replace(/\/$/, '')}/`, { signal: AbortSignal.timeout(5000) })
+        .then(async response => ({ response, body: await response.text() })),
       readStamp(apiContainer),
     ]);
-    const apiBody = await apiResponse.text();
-    const uiBody = await uiResponse.text();
+    const { response: apiResponse, body: apiBody } = api;
+    const { response: uiResponse, body: uiBody } = ui;
     const observation = inspectBuildStamp(stamp);
     const sample = {
       at: now(),
@@ -98,7 +113,6 @@ export async function runOwnedStackHealth({
     assert(sample.uiHasDocument, `Owned UI document check failed at sample ${index + 1}`);
     assert(observation.fresh, `Owned API build stamp is stale or invalid at sample ${index + 1}`);
     assert.equal(observation.apiBuildIdentity, identity, `Owned API build identity changed at sample ${index + 1}`);
-    if (index < 2) await sleep(2000);
   }
   return { status: 'PASS', apiBuildIdentity: identity, samples };
 }

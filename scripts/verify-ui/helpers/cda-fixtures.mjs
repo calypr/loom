@@ -262,15 +262,17 @@ export const assertCdaExplicitUIRoute = (rawURL, target) => {
   assert.match(explorers[0], /^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/, 'CDA explicit UI route must select a valid Explorer identity');
   const modes = url.searchParams.getAll('mode');
   assert.equal(modes.length, 1, 'CDA explicit UI route must contain one mode query value');
-  assert.equal(modes[0], 'builder', 'CDA explicit UI route must select Builder mode');
+  assert.ok(['builder', 'viewer'].includes(modes[0]), 'CDA explicit UI route must select Builder or Viewer mode');
   return { project: projects[0], explorer: explorers[0], mode: modes[0] };
 };
 
-export const createCdaNavigator = ({ target, uiRouting = 'defaults', navigateTo }) => {
+const DEFAULT_CDA_UI_ROUTING = 'explicit-query';
+
+export const createCdaNavigator = ({ target, uiRouting = DEFAULT_CDA_UI_ROUTING, navigateTo }) => {
   if (!['defaults', 'explicit-query'].includes(uiRouting)) throw new Error(`unsupported CDA UI routing mode: ${uiRouting}`);
   if (typeof navigateTo !== 'function') throw new TypeError('CDA navigator requires a page navigation function');
   return rawURL => {
-    if (uiRouting === 'explicit-query') assertCdaExplicitUIRoute(rawURL, target);
+    if (uiRouting === 'explicit-query' && rawURL !== 'about:blank') assertCdaExplicitUIRoute(rawURL, target);
     return navigateTo(rawURL);
   };
 };
@@ -292,7 +294,7 @@ export const test = base.extend({
   cdaExplorer: [process.env.LOOM_CDA_EXPLORER_ID ?? process.env.LOOM_CDA_EXPLORER ?? process.env.LOOM_QA_EXPLORER, { option: true }],
   cdaScenarioID: ['cda-native', { option: true }],
   cdaCaseName: ['workflow', { option: true }],
-  cdaUiRouting: ['defaults', { option: true }],
+  cdaUiRouting: [DEFAULT_CDA_UI_ROUTING, { option: true }],
   cdaRequireClickhouse: [false, { option: true }],
   cdaRequireSourceFixture: [false, { option: true }],
 

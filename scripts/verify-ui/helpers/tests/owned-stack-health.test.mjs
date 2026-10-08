@@ -72,43 +72,139 @@ test('precheck stamp requires a successful fresh three-digest result', () => {
   assert.throws(() => parseCapturedBuildIdentity(`${source}:${binary}:${binary}`), /current mounted source/);
 });
 
-test('health takes three owned samples, keeps exact identity, and waits between them', async () => {
+test('health takes three owned samples on a two-second cadence over a four-second window', async () => {
   const calls = [];
   const delays = [];
+  const sampleStarts = [];
+  let elapsed = 0;
+  let stampChecks = 0;
   const health = await runOwnedStackHealth({
     apiURL: 'http://127.0.0.1:8188/',
     uiURL: 'http://127.0.0.1:30008',
     apiContainer: 'owned-api',
     expectedIdentity: identity,
     now: () => 'fixed-time',
-    sleep: async milliseconds => delays.push(milliseconds),
+    monotonicNow: () => elapsed,
+    sleep: async milliseconds => {
+      delays.push(milliseconds);
+      elapsed += milliseconds;
+    },
     fetchImpl: async url => {
       calls.push(url);
+      if (url.endsWith('/readyz')) sampleStarts.push(elapsed);
       return url.endsWith('/readyz') ? response(200, '{"status":"ready"}') : response(200, '<!doctype html>');
     },
     readStamp: async container => {
       assert.equal(container, 'owned-api');
+      stampChecks += 1;
+      elapsed += 350;
       return { status: 0, stdout: stamp };
     },
   });
   assert.equal(health.status, 'PASS');
   assert.equal(health.samples.length, 3);
-  assert.deepEqual(delays, [2000, 2000]);
+  assert.deepEqual(delays, [1650, 1650]);
+  assert.deepEqual(sampleStarts, [0, 2000, 4000]);
+  assert.equal(stampChecks, 3);
   assert.equal(calls.filter(url => url.endsWith('/readyz')).length, 3);
   assert.equal(calls.filter(url => url === 'http://127.0.0.1:30008/').length, 3);
   assert(health.samples.every(sample => sample.apiBuildIdentity === identity && sample.at === 'fixed-time'));
 });
 
+test('slow health samples stay serial and do not trigger catch-up starts', async () => {
+  const sampleStarts = [];
+  const delays = [];
+  const durations = [2500, 100, 2100];
+  let elapsed = 0;
+  let checks = 0;
+  let stampPending = false;
+  const health = await runOwnedStackHealth({
+    apiURL: 'http://127.0.0.1:8188', uiURL: 'http://127.0.0.1:30008', apiContainer: 'owned-api',
+    expectedIdentity: identity,
+    monotonicNow: () => elapsed,
+    sleep: async milliseconds => {
+      delays.push(milliseconds);
+      elapsed += milliseconds;
+    },
+    fetchImpl: async url => {
+      if (url.endsWith('/readyz')) {
+        assert.equal(stampPending, false, 'a health sample overlapped the previous identity check');
+        sampleStarts.push(elapsed);
+      }
+      return url.endsWith('/readyz') ? response(200, '{"status":"ready"}') : response(200, '<!doctype html>');
+    },
+    readStamp: async () => {
+      assert.equal(stampPending, false);
+      stampPending = true;
+      elapsed += durations[checks++];
+      await Promise.resolve();
+      stampPending = false;
+      return { status: 0, stdout: stamp };
+    },
+  });
+  assert.equal(health.status, 'PASS');
+  assert.deepEqual(sampleStarts, [0, 2500, 4500]);
+  assert.deepEqual(delays, [1900]);
+  assert(sampleStarts.slice(1).every((start, index) => start - sampleStarts[index] >= 2000));
+  assert(sampleStarts[2] - sampleStarts[0] >= 4000);
+  assert.equal(checks, 3);
+});
+
+test('health drains each HTTP body while its sample stamp check is pending', async () => {
+  let releaseFirstStamp;
+  let firstStampSettled = false;
+  let bodiesReadBeforeStamp = 0;
+  let elapsed = 0;
+  let checks = 0;
+  const firstStamp = new Promise(resolve => {
+    releaseFirstStamp = () => {
+      firstStampSettled = true;
+      resolve({ status: 0, stdout: stamp });
+    };
+  });
+  const healthPromise = runOwnedStackHealth({
+    apiURL: 'http://127.0.0.1:8188', uiURL: 'http://127.0.0.1:30008', apiContainer: 'owned-api',
+    expectedIdentity: identity,
+    monotonicNow: () => elapsed,
+    sleep: async milliseconds => { elapsed += milliseconds; },
+    fetchImpl: async url => ({
+      status: 200,
+      text: async () => {
+        if (!firstStampSettled) bodiesReadBeforeStamp += 1;
+        return url.endsWith('/readyz') ? '{"status":"ready"}' : '<!doctype html>';
+      },
+    }),
+    readStamp: () => checks++ === 0 ? firstStamp : Promise.resolve({ status: 0, stdout: stamp }),
+  });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(bodiesReadBeforeStamp, 2);
+  releaseFirstStamp();
+  const health = await healthPromise;
+  assert.equal(health.status, 'PASS');
+  assert.equal(checks, 3);
+});
+
 test('health stops on an identity change and target comparison rejects owner drift', async () => {
   let checks = 0;
+  let elapsed = 0;
+  const sampleStarts = [];
   await assert.rejects(runOwnedStackHealth({
     apiURL: 'http://127.0.0.1:8188', uiURL: 'http://127.0.0.1:30008', apiContainer: 'owned-api',
     expectedIdentity: identity,
-    fetchImpl: async url => url.endsWith('/readyz') ? response(200, '{"status":"ready"}') : response(200, '<!doctype html>'),
-    readStamp: async () => ({ status: 0, stdout: ++checks === 1 ? stamp : `${source} ${source} ${'c'.repeat(64)}\n` }),
-    sleep: async () => {},
+    monotonicNow: () => elapsed,
+    fetchImpl: async url => {
+      if (url.endsWith('/readyz')) sampleStarts.push(elapsed);
+      return url.endsWith('/readyz') ? response(200, '{"status":"ready"}') : response(200, '<!doctype html>');
+    },
+    readStamp: async () => {
+      checks += 1;
+      elapsed += 2500;
+      return { status: 0, stdout: checks === 1 ? stamp : `${source} ${source} ${'c'.repeat(64)}\n` };
+    },
+    sleep: async milliseconds => { elapsed += milliseconds; },
   }), /identity changed at sample 2/);
   assert.equal(checks, 2);
+  assert.deepEqual(sampleStarts, [0, 2500]);
   const target = { project: 'p', generation: 'g1', composeProject: 'c', apiContainer: 'a', uiContainer: 'u', apiPort: '8188', uiPort: '30008', sourceRoot: '/repo' };
   assertCapturedTargetMatches(target, { ...target });
   assert.throws(() => assertCapturedTargetMatches(target, { ...target, project: 'other' }), /Owned target changed.*project/);

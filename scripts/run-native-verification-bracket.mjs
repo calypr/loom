@@ -1013,7 +1013,49 @@ export async function runNativeVerificationBracket({
     return summary;
   };
 
-  if (focusedPlans.length) {
+  let browserPreparationError = null;
+  if (!checksOnly) {
+    try {
+      const sourceRootEnv = env.LOOM_CDA_SOURCE_ROOT;
+      assert(sourceRootEnv?.trim(), 'Set LOOM_CDA_SOURCE_ROOT in the validated owned environment.');
+      assert.equal(realpathSync(resolve(sourceRootEnv)), canonicalRoot,
+        'LOOM_CDA_SOURCE_ROOT must resolve to the repository containing this runner.');
+      const missingEnv = requiredEnvironmentError(env);
+      if (missingEnv) throw new Error(missingEnv);
+
+      const playwrightCli = join(canonicalRoot, 'scripts/node_modules/@playwright/test/cli.js');
+      assert(existsSync(playwrightCli), 'Install the existing scripts workspace dependencies before running Playwright.');
+      const selectionArgs = [
+        'scripts/node_modules/@playwright/test/cli.js',
+        'test', '--config', 'scripts/playwright.config.mjs',
+        '--workers', '1', '--retries', '0',
+        specPath, '--grep', resolvedGrep, '--list',
+      ];
+      const selectionStage = await exec('selectionList', selectionArgs);
+      stageSuccess(selectionStage, 'Official Playwright --list');
+      selection = parseListedSelection(selectionStage.stdoutText, specPath);
+      summary.selection = selection;
+      if (!selection.exact) throw new Error(selection.reason);
+    } catch (error) {
+      browserPreparationError = error;
+      summary.focusedChecks = focusedPlans.length
+        ? {
+          status: 'not-run',
+          groups: focusedPlans.map((plan) => ({
+            id: plan.id,
+            runner: plan.runner,
+            status: 'not-run',
+            declaredInputsHash: plan.declaredInputsHash,
+            inputs: plan.inputs,
+            reason: 'Skipped because browser preparation failed.',
+          })),
+        }
+        : { status: 'browser-only', groups: [] };
+      if (focusedPlans.length) summary.notes.push('Focused checks were not run because browser preparation failed.');
+    }
+  }
+
+  if (!browserPreparationError && focusedPlans.length) {
     const focusedResults = [];
     for (let offset = 0; offset < focusedPlans.length; offset += MAX_CONCURRENT_FOCUSED_CHECKS) {
       const batch = focusedPlans.slice(offset, offset + MAX_CONCURRENT_FOCUSED_CHECKS);
@@ -1071,27 +1113,7 @@ export async function runNativeVerificationBracket({
   }
 
   try {
-    const sourceRootEnv = env.LOOM_CDA_SOURCE_ROOT;
-    assert(sourceRootEnv?.trim(), 'Set LOOM_CDA_SOURCE_ROOT in the validated owned environment.');
-    assert.equal(realpathSync(resolve(sourceRootEnv)), canonicalRoot,
-      'LOOM_CDA_SOURCE_ROOT must resolve to the repository containing this runner.');
-    const missingEnv = requiredEnvironmentError(env);
-    assert.equal(missingEnv, null, missingEnv ?? 'Owned environment validation failed.');
-
-    const playwrightCli = join(canonicalRoot, 'scripts/node_modules/@playwright/test/cli.js');
-    assert(existsSync(playwrightCli), 'Install the existing scripts workspace dependencies before running Playwright.');
-    const selectionArgs = [
-      'scripts/node_modules/@playwright/test/cli.js',
-      'test', '--config', 'scripts/playwright.config.mjs',
-      '--workers', '1', '--retries', '0',
-      specPath, '--grep', resolvedGrep, '--list',
-    ];
-    const selectionStage = await exec('selectionList', selectionArgs);
-    stageSuccess(selectionStage, 'Official Playwright --list');
-    selection = parseListedSelection(selectionStage.stdoutText, specPath);
-    summary.selection = selection;
-    if (!selection.exact) throw new Error(selection.reason);
-
+    if (browserPreparationError) throw browserPreparationError;
     shouldCloseBracket = true;
     const precheckStage = await exec('precheck', [
       'scripts/owned-stack-verification.mjs', '--mode', 'precheck', '--output', paths.precheck,
@@ -1356,7 +1378,7 @@ export async function main(argv, {
       },
     } : null,
     focusedChecks: summary.focusedCheckCoverage === 'registered'
-      ? focusedGroups.map((group) => {
+      ? focusedGroups.filter((group) => summary.commands?.['focused-' + group.id]).map((group) => {
         const command = summary.commands?.['focused-' + group.id];
         return {
           id: group.id,

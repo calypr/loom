@@ -188,14 +188,13 @@ node scripts/run-native-verification-bracket.mjs \
   --target .codex/owned-cda-target.json
 ```
 
-The runner loads the validated owned environment from the target config,
-uses the registered Playwright selection by default, runs registered focused
-checks, binds the target config to the case identity, then performs
-precheck, before/after capture, health, and one native Playwright test. It
-creates a fresh summary outside watched source, forces one worker and zero
-retries, validates one discovered test, and attempts after-capture and health
-even after browser failure. Do not run a second manual bracket for the same
-case.
+The runner loads the validated owned environment from the target config and
+uses official Playwright `--list` to require exactly one registered test before
+it runs focused checks. It binds the target config to the case identity, then
+performs precheck, before/after capture, health, and one native Playwright test.
+It creates a fresh summary outside watched source, forces one worker and zero
+retries, and attempts after-capture and health even after browser failure. Do
+not run a second manual bracket for the same case.
 
 For a case without a registered target identity, load the validated owned
 browser and capture environments, then use `--target-from-environment` with the
@@ -210,6 +209,14 @@ a passing focused check is not a browser pass. The low-level
 `owned-stack-verification.mjs` and `capture-owned-verification.mjs` commands
 are for diagnosis. After a browser failure, compare source, docs, API identity,
 and owned mounts, and report missing closure as unverified.
+
+CDA fixture navigation defaults to `cdaUiRouting: 'explicit-query'`. Its
+navigator requires the owned UI origin and root, one project matching the
+fixture, one valid Explorer, and one `mode=builder` or `mode=viewer`; it passes
+through only the exact raw URL `'about:blank'` for a page reset. A test that
+intentionally verifies Vite-provided routing defaults must opt in with
+`cdaUiRouting: 'defaults'`, which retains the existing project and bootstrap
+Explorer checks.
 
 Accept a pass only when the summary reports passed lifecycle and integrity,
 all registered focused checks pass, and the selected native test exits

@@ -211,7 +211,9 @@ function fakeRunner({ scenarioID, caseName, rootDir, browserExit = 0, browserRep
         const total = listTotal;
         return {
           exitCode: 0,
-          stdoutText: 'Listing tests:\n  ' + testLine + '\nTotal: ' + total + ' test' + (total === 1 ? '' : 's') + ' in 1 file\n',
+          stdoutText: 'Listing tests:\n'
+            + (total ? Array.from({ length: total }, () => '  ' + testLine).join('\n') + '\n' : '')
+            + 'Total: ' + total + ' test' + (total === 1 ? '' : 's') + ' in 1 file\n',
           stderrText: '',
         };
       }
@@ -1207,29 +1209,37 @@ test('source fingerprint changes invalidate an otherwise passing lifecycle', asy
   ]);
 });
 
-test('ambiguous official selection prevents the browser launch', async (t) => {
+test('missing or ambiguous official selection skips focused checks and prevents the browser launch', async (t) => {
   const parent = evidenceParent();
   t.after(() => rmSync(parent, { recursive: true, force: true }));
-  const fake = fakeRunner({
-    scenarioID: 'root-quantity-pivot',
-    caseName: 'full-population-lifecycle',
-    rootDir: root,
-    listTotal: 2,
-  });
-  const summary = await runNativeVerificationBracket({
-    scenarioID: 'root-quantity-pivot',
-    caseName: 'full-population-lifecycle',
-    grep: 'lifecycle',
-    evidenceParent: parent,
-    root,
-    env: fake.env,
-    commandRunner: fake.commandRunner,
-  });
+  for (const listTotal of [0, 2]) {
+    const fake = fakeRunner({
+      scenarioID: 'cda-current-draft-membership',
+      caseName: 'membership',
+      rootDir: root,
+      listTotal,
+    });
+    const summary = await runNativeVerificationBracket({
+      scenarioID: 'cda-current-draft-membership',
+      caseName: 'membership',
+      grep: 'native INCLUDE and EXCLUDE Membership use two exact grouped Observation ID populations',
+      evidenceParent: parent,
+      root,
+      env: fake.env,
+      commandRunner: fake.commandRunner,
+    });
 
-  assert.equal(summary.status, 'unverified');
-  assert.equal(summary.commands.precheck, undefined);
-  assert.equal(summary.commands.playwright, undefined);
-  assert.deepEqual(fake.commands, ['selectionList']);
+    assert.equal(summary.status, 'unverified', 'selection count ' + listTotal);
+    assert.equal(summary.failureCategory, 'preparation', 'selection count ' + listTotal);
+    assert.equal(summary.selection.exact, false, 'selection count ' + listTotal);
+    assert.equal(summary.selection.total, listTotal, 'selection count ' + listTotal);
+    assert.equal(summary.focusedChecks.status, 'not-run', 'selection count ' + listTotal);
+    assert.ok(summary.focusedChecks.groups.every((group) => group.status === 'not-run'), 'selection count ' + listTotal);
+    assert.equal(summary.notes.includes('Focused checks were not run because browser preparation failed.'), true);
+    assert.equal(summary.commands.precheck, undefined);
+    assert.equal(summary.commands.playwright, undefined);
+    assert.deepEqual(fake.commands, ['selectionList']);
+  }
 });
 
 test('wave152 timeout appears in the review packet and CLI with the last action and pending owned endpoint', async (t) => {
@@ -1357,13 +1367,13 @@ test('preparation failure reports a sanitized reason and empty domain diagnostic
   const parent = evidenceParent();
   t.after(() => rmSync(parent, { recursive: true, force: true }));
   const fake = fakeRunner({
-    scenarioID: 'root-quantity-pivot',
-    caseName: 'full-population-lifecycle',
+    scenarioID: 'cda-current-draft-membership',
+    caseName: 'membership',
     rootDir: root,
   });
   const summary = await runNativeVerificationBracket({
-    scenarioID: 'root-quantity-pivot',
-    caseName: 'full-population-lifecycle',
+    scenarioID: 'cda-current-draft-membership',
+    caseName: 'membership',
     grep: 'preparation failure',
     evidenceParent: parent,
     root,
@@ -1377,7 +1387,59 @@ test('preparation failure reports a sanitized reason and empty domain diagnostic
   assert.equal(summary.reviewPacket.failedAction, null);
   assert.equal(summary.reviewPacket.lastCompletedAction, null);
   assert.deepEqual(summary.reviewPacket.pendingOwnedRequests, []);
+  assert.equal(summary.focusedChecks.status, 'not-run');
+  assert.ok(summary.focusedChecks.groups.every((group) => group.status === 'not-run'));
   assert.deepEqual(fake.commands, []);
+});
+
+test('valid browser preparation selects exactly one native test before focused checks', async (t) => {
+  const parent = evidenceParent();
+  t.after(() => rmSync(parent, { recursive: true, force: true }));
+  const scenarioID = 'cda-current-draft-membership';
+  const caseName = 'membership';
+  const fake = fakeRunner({ scenarioID, caseName, rootDir: root });
+  const calls = [];
+  const commandRunner = async (command, args, options) => {
+    const phase = args[0] === 'scripts/node_modules/@playwright/test/cli.js'
+      ? args.includes('--list') ? 'selectionList' : 'playwright'
+      : args[0] === '--test' || args[0] === '../../node_modules/vitest/vitest.mjs' ? 'focused'
+        : args[0] === 'scripts/owned-stack-verification.mjs'
+          ? option(args, '--mode') === 'precheck' ? 'precheck'
+            : option(args, '--output')?.includes('health-before') ? 'healthBefore' : 'healthAfter'
+          : args[0] === 'scripts/capture-owned-verification.mjs'
+            ? option(args, '--phase') === 'before' ? 'captureBefore' : 'captureAfter'
+            : 'unknown';
+    calls.push(phase);
+    if (phase === 'focused') return { exitCode: 0, stdoutText: '', stderrText: '' };
+    return fake.commandRunner(command, args, options);
+  };
+  const summary = await runNativeVerificationBracket({
+    scenarioID,
+    caseName,
+    evidenceParent: parent,
+    root,
+    env: fake.env,
+    commandRunner,
+  });
+
+  const focusedCount = scenarioCaseFor(scenarioID, caseName).focusedChecks.length;
+  assert.equal(summary.status, 'passed', JSON.stringify({
+    failureCategory: summary.failureCategory,
+    workflowError: summary.workflowError,
+    notes: summary.notes,
+    selection: summary.selection,
+    focusedChecks: summary.focusedChecks,
+    commands: summary.commands,
+    lifecycle: summary.lifecycle,
+    integrity: summary.integrity,
+  }, null, 2));
+  assert.equal(summary.selection.exact, true);
+  assert.equal(summary.focusedChecks.status, 'passed');
+  assert.equal(calls[0], 'selectionList');
+  assert.deepEqual(calls.slice(1, focusedCount + 1), Array(focusedCount).fill('focused'));
+  assert.deepEqual(calls.slice(focusedCount + 1), [
+    'precheck', 'captureBefore', 'healthBefore', 'playwright', 'captureAfter', 'healthAfter',
+  ]);
 });
 
 test('failed action is separate from the last completed action', async (t) => {
@@ -1647,21 +1709,30 @@ test('checks-only names browser-only cases instead of reporting an empty pass', 
 test('a failed focused prerequisite prevents all browser bracket commands', async (t) => {
   const parent = evidenceParent();
   t.after(() => rmSync(parent, { recursive: true, force: true }));
-  const calls = [];
   const expectedGroupIDs = scenarioCaseFor('cda-current-draft-membership', 'membership')
     .focusedChecks.map((group) => group.id);
+  const fake = fakeRunner({
+    scenarioID: 'cda-current-draft-membership',
+    caseName: 'membership',
+    rootDir: root,
+  });
+  const calls = [];
   const summary = await runNativeVerificationBracket({
     scenarioID: 'cda-current-draft-membership',
     caseName: 'membership',
     evidenceParent: parent,
     root,
-    commandRunner: async (_command, args) => {
+    env: fake.env,
+    commandRunner: async (command, args, options) => {
       calls.push(args);
       const broken = args.some((arg) => arg.endsWith('ConstructionReshapeEditor.unit.test.tsx'));
+      const focused = args[0] === '--test' || args[0] === '../../node_modules/vitest/vitest.mjs';
+      if (focused && broken) {
+        return { exitCode: 1, stdoutText: 'SOURCE_PROJECTION regression\n', stderrText: '' };
+      }
+      if (focused) return { exitCode: 0, stdoutText: '', stderrText: '' };
       return {
-        exitCode: broken ? 1 : 0,
-        stdoutText: broken ? 'SOURCE_PROJECTION regression\n' : '',
-        stderrText: '',
+        ...await fake.commandRunner(command, args, options),
       };
     },
   });
@@ -1669,12 +1740,15 @@ test('a failed focused prerequisite prevents all browser bracket commands', asyn
   assert.equal(summary.status, 'failed');
   assert.equal(summary.failureCategory, 'focused-check');
   assert.match(summary.reviewPacket.firstFailureReason, /membership-source-group exited 1/);
+  assert.equal(summary.commands.selectionList.exitCode, 0);
   assert.equal(summary.commands.precheck, undefined);
-  assert.equal(summary.commands.selectionList, undefined);
   assert.equal(summary.commands.playwright, undefined);
   assert.equal(summary.commands.captureAfter, undefined);
   assert.deepEqual(summary.focusedChecks.groups.map((group) => group.id), expectedGroupIDs);
-  assert.equal(calls.length, expectedGroupIDs.length);
+  assert.equal(calls.length, expectedGroupIDs.length + 1);
+  assert.ok(calls[0].includes('--list'));
+  assert.ok(calls.slice(1).every((args) => args[0] === '--test'
+    || args[0] === '../../node_modules/vitest/vitest.mjs'));
 });
 
 test('a stalled preparation stage is bounded and still attempts after-capture and health', async (t) => {
@@ -2056,9 +2130,9 @@ test('explicit environment mode keeps a browser-only case registry-unbound and r
   assert.equal(JSON.parse(output[0]).targetValidation.registryBinding, 'unbound');
 });
 
-test('environment mode rejects missing or wrong source ownership before selection or precheck', async (t) => {
-  const scenarioID = 'builder-controls';
-  const caseName = 'tables';
+test('environment mode rejects missing or wrong source ownership before focused checks or selection', async (t) => {
+  const scenarioID = 'cda-current-draft-membership';
+  const caseName = 'membership';
   const fake = fakeRunner({ scenarioID, caseName, rootDir: root });
   const parent = evidenceParent();
   t.after(() => rmSync(parent, { recursive: true, force: true }));
@@ -2079,6 +2153,8 @@ test('environment mode rejects missing or wrong source ownership before selectio
     assert.equal(result.status, 'unverified', name);
     assert.equal(result.failureCategory, 'preparation', name);
     assert.match(result.workflowError, expected, name);
+    assert.equal(result.focusedChecks.status, 'not-run', name);
+    assert.ok(result.focusedChecks.groups.every((group) => group.status === 'not-run'), name);
     assert.equal(result.commands.selectionList, undefined, name);
     assert.equal(result.commands.precheck, undefined, name);
   }

@@ -9,6 +9,10 @@ maps each workflow and case name to its Playwright spec at
 live under `scripts/verify-ui/helpers/`. The main suite uses
 `scripts/playwright.config.mjs`.
 
+The native runner and test suite use the existing `scripts` workspace
+dependencies. If `scripts/node_modules` is absent, install them with
+`npm ci --prefix scripts`.
+
 ## Run one native browser case
 
 Run from the repository root with the owned local stack ready. For a
@@ -30,9 +34,12 @@ its target config.
 
 The target config must resolve `sourceRoot` to this checkout. Its validation is
 configuration-only and does not prove runtime data identity or expected-value
-independence; review the case report and separate source evidence.
-The runner selects the registered Playwright test by default, runs registered
-focused checks, and writes a fresh `summary.json` outside watched source. Use
+independence; review the case report and separate source evidence. Before it
+runs focused checks, the runner resolves the registered spec and test title,
+then uses official Playwright `--list` to require exactly one selected test. A
+missing or ambiguous selection is a preparation failure and does not start the
+focused checks or stack health stages. The runner writes a fresh `summary.json`
+outside watched source. Use
 `--help` for an explicit `--grep`, `--target-from-environment` for a case with
 no registry identity, or `--checks-only` to run focused checks without Docker
 or Playwright. The environment mode requires a validated owned environment and
