@@ -225,6 +225,27 @@ It creates a fresh summary outside watched source, forces one worker and zero
 retries, and attempts after-capture and health even after browser failure. Do
 not run a second manual bracket for the same case.
 
+When adding or changing a target-bound case registration or owned target config,
+run that case from the owned live checkout in target-bound checks-only mode
+before its next full bracket:
+
+```bash
+node scripts/run-native-verification-bracket.mjs \
+  --scenario cda-current-draft-membership \
+  --case membership \
+  --checks-only \
+  --target .codex/owned-cda-target.json
+```
+
+This uses the same source-root and registry-identity binding plus official
+Playwright `--list` exact-selection check as the full run, then executes the
+registered focused groups. It does not contact Docker or launch a browser, and
+runtime dataset identity remains `not-checked`; treat `checks-passed` as
+configuration, selection, and prerequisite evidence only. Once this preflight
+passes, do not repeat it on same-case reruns while the binding and config remain
+unchanged; the full bracket repeats exact selection and registered focused
+checks.
+
 For a case without a registered target identity, load the validated owned
 browser and capture environments, then use `--target-from-environment` with the
 explicit native selection shown by `--help`. If the browser loader clears
@@ -232,9 +253,10 @@ explicit native selection shown by `--help`. If the browser loader clears
 and the summary marks runtime dataset identity as not checked. Inspect the
 case report and separate source evidence before accepting correctness.
 
-Use `--checks-only` to run registered focused prerequisites without Docker or
-Playwright. A case with no focused prerequisites is reported as `browser-only`;
-a passing focused check is not a browser pass. The low-level
+Use `--checks-only` without `--target` to run registered focused prerequisites
+without loading a target, Docker, or Playwright. A case with no focused
+prerequisites is reported as `browser-only`; a passing focused check is not a
+browser pass. The low-level
 `owned-stack-verification.mjs` and `capture-owned-verification.mjs` commands
 are for diagnosis. After a browser failure, compare source, docs, API identity,
 and owned mounts, and report missing closure as unverified.
