@@ -93,5 +93,14 @@ export function verifyPostPivotRelatedSourceWitness(pair, linkedSources, { proje
     patientResourceTypesInCompilerOrder: [...resolved]
       .sort((left, right) => left.patient._id.localeCompare(right.patient._id))
       .map(entry => entry.patient.resourceType),
+    expectedSplitRowsByObservationID: Object.fromEntries(resolved.map(({ observation, patient }) => [
+      observation.id,
+      {
+        status: observation.status,
+        patientReference: observation.patientReference,
+        patientIDsInCompilerOrder: [patient.id],
+        patientResourceTypesInCompilerOrder: [patient.resourceType],
+      },
+    ])),
   };
 }

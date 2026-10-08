@@ -38,7 +38,7 @@ test.describe('standalone CDA reshape workflows', () => {
         try {
           await workflow({ page, cda }, args);
         } catch (error) {
-          if (['related-source-after-pivot', 'related-source-count-after-pivot', 'related-resource-type-after-pivot'].includes(name) && isPostPivotRawOracleUnavailable(error)) {
+          if (['related-source-after-pivot', 'related-source-count-after-pivot', 'related-resource-type-after-pivot', 'related-resource-type-after-pivot-group-split'].includes(name) && isPostPivotRawOracleUnavailable(error)) {
             test.skip(true, error.message);
           }
           throw error;
@@ -89,6 +89,20 @@ test.describe('standalone CDA reshape workflows', () => {
   register('related-source-after-pivot', runRelatedSourceAfterPivotBrowserWorkflow, {}, { cdaScenarioID: 'standalone-reshape-related-source-after-pivot', cdaExplorer: `qa-post-pivot-${randomUUID()}` });
   register('related-source-count-after-pivot', runRelatedSourceAfterPivotBrowserWorkflow, { form: 'COUNT' }, { cdaScenarioID: 'standalone-reshape-related-source-after-pivot', cdaExplorer: `qa-post-pivot-count-${randomUUID()}`, cdaUiRouting: 'explicit-query' });
   register('related-resource-type-after-pivot', runRelatedSourceAfterPivotBrowserWorkflow, { sourcePath: 'resourceType' }, { cdaScenarioID: 'standalone-reshape-related-source-after-pivot', cdaExplorer: `qa-post-pivot-resource-type-${randomUUID()}` });
+  register('related-resource-type-after-pivot-group-split', runRelatedSourceAfterPivotBrowserWorkflow, {
+    sourcePath: 'resourceType',
+    splitGroupKey: true,
+    expectedRetainedWitness: {
+      '52f5e622-0181-5feb-936c-e9992ab26616': {
+        observationID: 'Observation/g_00002bde584b7d0d363ce5595bd1cc7f2abfbe104957c328c2ffc5d7eb15b4c7',
+        patientReference: 'Patient/a6a10252-092e-5b93-976a-a625d478dca6',
+      },
+      '485e2567-b566-56f3-b5bd-5f025f37cd95': {
+        observationID: 'Observation/g_00005e873383a29c3283f8b4e768ceb746474dd19041546de3553e97e52764be',
+        patientReference: 'Patient/da65b4e6-3946-50d9-ab1a-65af2e560b1c',
+      },
+    },
+  }, { cdaScenarioID: 'standalone-reshape-related-source-after-pivot', cdaExplorer: `qa-post-pivot-resource-type-split-${randomUUID()}` });
   register('related-unpivot', runRelatedUnpivotBrowserWorkflow, {}, { cdaScenarioID: 'standalone-reshape-related-unpivot', cdaUiRouting: 'explicit-query' });
   register('unpivot', runUnpivotWorkflow);
 });

@@ -110,6 +110,27 @@ export function relatedSourceEditEvidence(before, after, expectedLabel) {
 
 export const sameWorkspace = (before, after) => isDeepStrictEqual(before?.workspace, after?.workspace);
 
+export function withoutRelatedSourceFromWorkspace(workspace, { outputId, stepId, outputColumnId }) {
+  assert(Array.isArray(workspace?.documents), 'The saved Builder workspace must contain documents.');
+  const expected = structuredClone(workspace);
+  const documents = expected.documents.filter(document => document.output?.id === outputId);
+  assert.equal(documents.length, 1, 'The related-source removal baseline must identify exactly one saved output.');
+  const [document] = documents;
+  const stepMatches = (document.construction?.steps ?? []).filter(step => step.id === stepId);
+  assert.equal(stepMatches.length, 1, 'The removal baseline must contain exactly the selected construction step.');
+  const [step] = stepMatches;
+  assert.equal(step.operation?.kind, 'RELATED_SOURCE', 'The selected removal step must be RELATED_SOURCE.');
+  assert.equal(step.operation.relatedSource?.outputColumnId, outputColumnId,
+    'The selected RELATED_SOURCE must own the output column being removed.');
+  assert.equal(step.outputs?.filter(output => output.id === outputColumnId).length, 1,
+    'The selected RELATED_SOURCE step must expose its exact output once.');
+  document.construction.steps = document.construction.steps.filter(candidate => candidate.id !== stepId);
+  document.columns = (document.columns ?? []).filter(column => column.columnId !== outputColumnId);
+  assert(!document.construction.steps.some(candidate => candidate.id === stepId));
+  assert(!document.columns.some(column => column.columnId === outputColumnId));
+  return expected;
+}
+
 export const readPivotSelectOptions = select => Array.from(select.options, option => ({
   value: option.value,
   label: option.textContent.trim(),
@@ -143,9 +164,12 @@ export function readProposalPreviewDocument() {
 export async function runRelatedSourceAfterPivotBrowserWorkflow({ page, cda }, originalArgs = {}) {
   const relatedForm = originalArgs.form ?? 'ALL';
   const sourcePath = originalArgs.sourcePath ?? 'id';
+  const splitGroupKey = originalArgs.splitGroupKey === true;
   assert(['ALL', 'COUNT'].includes(relatedForm), `Unsupported post-Pivot RELATED_SOURCE form ${relatedForm}`);
   assert(['id', 'resourceType'].includes(sourcePath), `Unsupported post-Pivot Patient field ${sourcePath}`);
   assert(sourcePath === 'id' || relatedForm === 'ALL', 'Patient.resourceType coverage uses the ALL form only.');
+  assert(!splitGroupKey || (sourcePath === 'resourceType' && relatedForm === 'ALL'),
+    'Upstream Pivot group-key splitting is scoped to the Patient.resourceType ALL lifecycle.');
   const sourceFieldLabel = `Patient.${sourcePath}`;
   const chooserFormLabel = relatedForm === 'COUNT' ? 'Count matching records' : 'Keep all matching values';
   const outputLabel = relatedForm === 'COUNT'
@@ -168,7 +192,9 @@ export async function runRelatedSourceAfterPivotBrowserWorkflow({ page, cda }, o
   report.nativeRequests ??= cda.nativeRequests;
   report.errors ??= [];
   report.cases ??= [];
-  report.phase = sourcePath === 'id'
+  report.phase = splitGroupKey
+    ? 'post-Pivot upstream group-key split with Patient.resourceType ALL lifecycle'
+    : sourcePath === 'id'
     ? `post-Pivot RELATED_SOURCE ${relatedForm} lifecycle`
     : `post-Pivot RELATED_SOURCE ${sourceFieldLabel} ${relatedForm} lifecycle`;
   report.scope = { project, generation, rawScanLimit };
@@ -371,6 +397,12 @@ export async function runRelatedSourceAfterPivotBrowserWorkflow({ page, cda }, o
     return { pivotStep, expectedRows: [expectedRow] };
   };
 
+  const selectPivotField = async (selector, columnId) => {
+    const options = await page.locator(selector).evaluate(readPivotSelectOptions);
+    const match = uniqueEnabledSelectValue(options, columnId, selector);
+    await select(selector, match.value);
+  };
+
   let sourceColumns;
   const doPivot = async () => {
     await click('[data-testid="construction-rows-settings-trigger"]');
@@ -380,14 +412,30 @@ export async function runRelatedSourceAfterPivotBrowserWorkflow({ page, cda }, o
     await wait(() => document.querySelector('select[aria-label="Pivot category field"]:not(:disabled)'));
     const groupSelector = `input[aria-label=${JSON.stringify(`Pivot group ${sourceColumns.status.label}`)}]`;
     await click(groupSelector);
-    const chooseInput = async (selector, columnId) => {
-      const options = await page.locator(selector).evaluate(readPivotSelectOptions);
-      const match = uniqueEnabledSelectValue(options, columnId, selector);
-      await select(selector, match.value);
-    };
-    await chooseInput('select[aria-label="Pivot category field"]', sourceColumns.patientReference.columnId);
+    await selectPivotField('select[aria-label="Pivot category field"]', sourceColumns.patientReference.columnId);
     const startedAt = Date.now();
-    await chooseInput('select[aria-label="Pivot values field"]', sourceColumns.id.columnId);
+    await selectPivotField('select[aria-label="Pivot values field"]', sourceColumns.id.columnId);
+    return startedAt;
+  };
+
+  const editPivotRoles = async ({ fromGroup, toGroup, toValue }) => {
+    const startedAt = Date.now();
+    const pivotStep = steps(builder).find(step => step.operation.kind === 'PIVOT');
+    assert(pivotStep, 'A saved Pivot step must exist before changing its native roles.');
+    await click(`[data-testid="construction-history-step-${pivotStep.id}"]`);
+    await click(`[data-testid="construction-edit-step-${pivotStep.id}"]`);
+    await wait(({ selector }) => Boolean(document.querySelector(selector)), {
+      selector: '[data-testid="construction-reshape-pivot"] select[aria-label="Pivot values field"]',
+    });
+    const fromGroupSelector = `input[aria-label=${JSON.stringify(`Pivot group ${fromGroup.label}`)}]`;
+    await wait(({ selector }) => Boolean(document.querySelector(selector + ':not(:disabled)')), { selector: fromGroupSelector });
+    assert.equal(await page.locator(fromGroupSelector).isChecked(), true, `${fromGroup.label} must be the current Pivot group key.`);
+    await click(fromGroupSelector);
+    await selectPivotField('select[aria-label="Pivot values field"]', toValue.columnId);
+    const toGroupSelector = `input[aria-label=${JSON.stringify(`Pivot group ${toGroup.label}`)}]`;
+    await wait(({ selector }) => Boolean(document.querySelector(selector + ':not(:disabled)')), { selector: toGroupSelector });
+    assert.equal(await page.locator(toGroupSelector).isChecked(), false, `${toGroup.label} must be available as the replacement group key.`);
+    await click(toGroupSelector);
     return startedAt;
   };
 
@@ -493,6 +541,17 @@ export async function runRelatedSourceAfterPivotBrowserWorkflow({ page, cda }, o
       }`;
     const linked = rawQuery(edgeQuery, { sourceIDs: selectedIDs, project, generation });
     const oracle = verifyPostPivotRelatedSourceWitness(pair, linked, { project, generation });
+    if (splitGroupKey) {
+      const expectedWitness = originalArgs.expectedRetainedWitness;
+      assert(expectedWitness && typeof expectedWitness === 'object',
+        'The upstream split case must bind to its retained two-Observation witness.');
+      const retainedWitness = Object.fromEntries(oracle.members.map(({ observation }) => [
+        observation.id,
+        { observationID: observation._id, patientReference: observation.patientReference },
+      ]));
+      assert.deepEqual(retainedWitness, expectedWitness,
+        'The bounded raw scan must select the exact retained Observation-to-Patient witness for this case.');
+    }
     const expectedRelatedValue = relatedForm === 'COUNT'
       ? new Set(oracle.members.map(({ patient }) => patient._id)).size
       : sourcePath === 'id' ? oracle.patientIDsInCompilerOrder : oracle.patientResourceTypesInCompilerOrder;
@@ -507,6 +566,7 @@ export async function runRelatedSourceAfterPivotBrowserWorkflow({ page, cda }, o
       expectedPatientIDs: oracle.patientIDsInCompilerOrder,
       expectedRelatedValue,
       expectedPivotRows: 'One final-status row with two patient-reference categories whose cells equal the corresponding Observation IDs.',
+      ...(splitGroupKey ? { expectedSplitRowsByObservationID: oracle.expectedSplitRowsByObservationID } : {}),
     };
     recordCheck('CDA raw oracle selects two same-status Observation roots with distinct Patient references', true, {
       scannedRows: scan.length, selectedObservationIDs: oracle.members.map(({ observation }) => observation.id), status: oracle.status,
@@ -592,9 +652,10 @@ export async function runRelatedSourceAfterPivotBrowserWorkflow({ page, cda }, o
       currentPreview = verified.expectedRows;
       return { expectedRows: verified.expectedRows, pivotStepId: verified.pivotStep.id, categories: pair.members.map(member => member.patientReference) };
     });
-    const pivotRows = currentPreview;
+    let pivotRows = currentPreview;
+    const coalescedPivotRows = pivotRows;
     await apply(pivotRows, 'Apply Pivot and render exact coalesced row');
-    const savedPivotStep = steps(builder).find(step => step.operation.kind === 'PIVOT');
+    let savedPivotStep = steps(builder).find(step => step.operation.kind === 'PIVOT');
     assert(savedPivotStep, 'Applied workspace must retain the native Pivot step.');
     assert.deepEqual(savedPivotStep.operation.pivot.groupKeyIds, [sourceColumns.status.columnId]);
     assert.equal(savedPivotStep.operation.pivot.categoryColumnId, sourceColumns.patientReference.columnId);
@@ -606,7 +667,7 @@ export async function runRelatedSourceAfterPivotBrowserWorkflow({ page, cda }, o
     });
     const pivotBaseline = structuredClone(builder);
 
-    const capabilities = await api(base + '/construction-capabilities', {
+    let capabilities = await api(base + '/construction-capabilities', {
       snapshotToken: builder.catalog.snapshotToken,
       expectedDraftVersion: builder.draftVersion,
       expectedDraftDigest: builder.draftDigest,
@@ -631,7 +692,7 @@ export async function runRelatedSourceAfterPivotBrowserWorkflow({ page, cda }, o
       assertProtocolRows(response.preview, expected, `Post-Pivot ${sourceFieldLabel} ${relatedForm} proposal`);
       return { expectedRows: expected, step: sourceStep, related, output };
     });
-    const relatedRows = relatedCancelProposal.expectedRows;
+    let relatedRows = relatedCancelProposal.expectedRows;
     recordCheck(`Native chooser and candidate bind ${sourceFieldLabel} ${relatedForm} through exact Observation.subject → Patient`, true, {
       source: relatedCancelProposal.related.source, route: relatedCancelProposal.related.route,
       form: relatedCancelProposal.related.form, anchorColumnId: relatedCancelProposal.related.anchorColumnId,
@@ -672,7 +733,133 @@ export async function runRelatedSourceAfterPivotBrowserWorkflow({ page, cda }, o
       expectedPatientIDs: oracle.patientIDsInCompilerOrder,
       expectedRelatedValue,
     });
-    const relatedBaseline = structuredClone(builder);
+    let relatedBaseline = structuredClone(builder);
+    let expectedSplitPivotWorkspace;
+
+    if (splitGroupKey) {
+      const coalescedRelatedBaseline = structuredClone(builder);
+      const originalRelatedStep = structuredClone(savedRelated);
+      const originalRelatedOperation = structuredClone(savedRelated.operation.relatedSource);
+      const expectedSplitRows = (construction, { requireRelatedSource = true } = {}) => {
+        const pivotStep = construction.steps.find(step => step.operation.kind === 'PIVOT');
+        assert(pivotStep, 'The upstream role-swap proposal must retain the Pivot step.');
+        const pivot = pivotStep.operation.pivot;
+        assert.deepEqual(pivot.groupKeyIds, [sourceColumns.id.columnId], 'Pivot must group by Observation.id after the role swap.');
+        assert.equal(pivot.categoryColumnId, sourceColumns.patientReference.columnId, 'Pivot categories must remain bound to subject.reference.');
+        assert.equal(pivot.valueColumnId, sourceColumns.status.columnId, 'Pivot values must become the raw Observation.status field.');
+        assert.deepEqual(pivot.categories.map(category => category.key.string).sort(),
+          oracle.members.map(({ observation }) => observation.patientReference).sort(),
+          'Pivot category domain must preserve the exact two raw Patient references.');
+        const groupOutput = pivotStep.outputs.find(output => output.id === sourceColumns.id.columnId);
+        assert(groupOutput, 'Split Pivot must expose the exact Observation.id group output.');
+        const categoryOutputs = pivot.categories.map(category => {
+          const output = pivotStep.outputs.find(column => column.id === category.outputColumnId);
+          assert(output, `Split Pivot category ${category.key.string} must retain its output identity.`);
+          return { key: category.key.string, label: output.label };
+        });
+        assert.equal(new Set(categoryOutputs.map(({ key }) => key)).size, 2);
+        assert.equal(new Set(categoryOutputs.map(({ label }) => label)).size, 2);
+
+        const relatedStep = construction.steps.find(step => step.operation.kind === 'RELATED_SOURCE');
+        if (requireRelatedSource) {
+          assert(relatedStep, 'The upstream Pivot role swap must preserve the downstream RELATED_SOURCE step.');
+          assert.deepEqual(relatedStep, originalRelatedStep,
+            'The upstream Pivot role swap must preserve the full authored RELATED_SOURCE step and output identity.');
+          assert.deepEqual(relatedStep.operation.relatedSource, originalRelatedOperation,
+            'The upstream Pivot role swap must preserve the exact authored RELATED_SOURCE source, route, form, anchor, and output binding.');
+          const { related } = proveSourceBinding(
+            relatedStep,
+            capabilities.selectedStage.rowIdentityColumn,
+            outputLabelOf(relatedStep),
+            'ALL',
+            'resourceType',
+          );
+          assert.deepEqual(related, originalRelatedOperation);
+        } else {
+          assert.equal(relatedStep, undefined, 'The restored split Pivot must not retain RELATED_SOURCE.');
+        }
+
+        return oracle.members.map(({ observation }) => {
+          const contributor = oracle.expectedSplitRowsByObservationID[observation.id];
+          assert(contributor, `Raw split oracle must contain Observation ${observation.id}.`);
+          const row = { [groupOutput.label]: observation.id };
+          for (const category of categoryOutputs) {
+            row[category.label] = category.key === contributor.patientReference ? contributor.status : null;
+          }
+          if (relatedStep) {
+            const output = relatedStep.outputs.find(column => column.id === relatedStep.operation.relatedSource.outputColumnId);
+            assert(output, 'RELATED_SOURCE must retain the exact authored output identity.');
+            row[output.label] = contributor.patientResourceTypesInCompilerOrder;
+          }
+          return row;
+        });
+      };
+      const splitPivotProposal = async name => {
+        const startedAt = await editPivotRoles({
+          fromGroup: sourceColumns.status,
+          toGroup: sourceColumns.id,
+          toValue: sourceColumns.status,
+        });
+        return nativeProposal(name, startedAt, [], response => {
+          const expectedRows = expectedSplitRows(response.candidateConstruction);
+          return { expectedRows, pivotRowCount: expectedRows.length, contributorIDs: expectedRows.map(row => row[sourceColumns.id.label]) };
+        });
+      };
+
+      await splitPivotProposal('Upstream Pivot role-swap preview splits the coalesced row by exact Observation IDs');
+      await cancel(coalescedRelatedBaseline, relatedRows, 'Canceling upstream Pivot split preserves the coalesced related-source workspace and values');
+      recordCheck('Upstream Pivot split Cancel preserves the exact coalesced row and downstream binding after reload',
+        builder.draftDigest === coalescedRelatedBaseline.draftDigest
+          && isDeepStrictEqual(steps(builder).find(step => step.operation.kind === 'RELATED_SOURCE')?.operation.relatedSource, originalRelatedOperation),
+        { draftVersion: builder.draftVersion, draftDigest: builder.draftDigest, relatedSource: originalRelatedOperation });
+
+      const splitApplyProposal = await splitPivotProposal('Confirmed upstream Pivot role-swap preview preserves exact per-contributor Patient values');
+      const relatedOutputLabel = outputLabelOf(savedRelated);
+      pivotRows = splitApplyProposal.expectedRows.map(row => Object.fromEntries(
+        Object.entries(row).filter(([label]) => label !== relatedOutputLabel),
+      ));
+      relatedRows = splitApplyProposal.expectedRows;
+      await apply(relatedRows, 'Apply upstream Pivot split and reload one exact Patient resourceType per partition');
+      savedPivotStep = steps(builder).find(step => step.operation.kind === 'PIVOT');
+      savedRelated = steps(builder).find(step => step.operation.kind === 'RELATED_SOURCE');
+      assert(savedPivotStep && savedRelated, 'Applied upstream Pivot split must retain Pivot and RELATED_SOURCE steps.');
+      assert.deepEqual(savedPivotStep.operation.pivot.groupKeyIds, [sourceColumns.id.columnId]);
+      assert.equal(savedPivotStep.operation.pivot.valueColumnId, sourceColumns.status.columnId);
+      assert.deepEqual(savedRelated.operation.relatedSource, originalRelatedOperation);
+      const splitCapabilities = await api(base + '/construction-capabilities', {
+        snapshotToken: builder.catalog.snapshotToken,
+        expectedDraftVersion: builder.draftVersion,
+        expectedDraftDigest: builder.draftDigest,
+        outputId,
+        stageId: savedPivotStep.id,
+      });
+      assert.equal(splitCapabilities.selectedStage.rowIdentityColumn, capabilities.selectedStage.rowIdentityColumn,
+        'The upstream split must preserve the Pivot stage identity used by the authored RELATED_SOURCE anchor.');
+      proveSourceBinding(savedRelated, splitCapabilities.selectedStage.rowIdentityColumn, outputLabelOf(savedRelated), 'ALL', 'resourceType');
+      capabilities = splitCapabilities;
+      relatedBaseline = structuredClone(builder);
+      expectedSplitPivotWorkspace = withoutRelatedSourceFromWorkspace(relatedBaseline.workspace, {
+        outputId,
+        stepId: savedRelated.id,
+        outputColumnId: savedRelated.operation.relatedSource.outputColumnId,
+      });
+      recordCheck('Applied upstream Pivot split preserves two exact partitions and the authored Patient.resourceType ALL binding after reload', true, {
+        pivotStepId: savedPivotStep.id,
+        rowCount: relatedRows.length,
+        observationIDs: oracle.members.map(({ observation }) => observation.id),
+        patientReferences: oracle.members.map(({ observation }) => observation.patientReference),
+        relatedSource: savedRelated.operation.relatedSource,
+        rowIdentityColumn: capabilities.selectedStage.rowIdentityColumn,
+      });
+    }
+
+    const expectedRelatedRows = (rows, label) => rows.map(row => {
+      if (!splitGroupKey) return { ...row, [label]: expectedRelatedValue };
+      const observationID = row[sourceColumns.id.label];
+      const contributor = oracle.expectedSplitRowsByObservationID[observationID];
+      assert(contributor, `Expected split oracle must contain Pivot group ${observationID}.`);
+      return { ...row, [label]: contributor.patientResourceTypesInCompilerOrder };
+    });
 
     const editedLabel = outputLabel;
     const editRelatedLabel = async () => {
@@ -688,7 +875,7 @@ export async function runRelatedSourceAfterPivotBrowserWorkflow({ page, cda }, o
     const editCancelProposal = await nativeProposal(`Edited related-source label keeps exact contributor ${outputValueLabel}`, editStart, [], response => {
       const sourceStep = response.candidateConstruction.steps.find(step => step.operation.kind === 'RELATED_SOURCE');
       const { related, output } = proveSourceBinding(sourceStep, capabilities.selectedStage.rowIdentityColumn, editedLabel, relatedForm, sourcePath);
-      const expected = [{ ...pivotRows[0], [editedLabel]: expectedRelatedValue }];
+      const expected = expectedRelatedRows(pivotRows, editedLabel);
       assertProtocolRows(response.preview, expected, 'Related-source edit cancel proposal');
       return { expectedRows: expected, step: sourceStep, related, output };
     });
@@ -702,7 +889,7 @@ export async function runRelatedSourceAfterPivotBrowserWorkflow({ page, cda }, o
     const editApplyProposal = await nativeProposal('Apply related-source edit preserves the post-Pivot binding', editStart, [], response => {
       const sourceStep = response.candidateConstruction.steps.find(step => step.operation.kind === 'RELATED_SOURCE');
       const { related, output } = proveSourceBinding(sourceStep, capabilities.selectedStage.rowIdentityColumn, editedLabel, relatedForm, sourcePath);
-      const expected = [{ ...pivotRows[0], [editedLabel]: expectedRelatedValue }];
+      const expected = expectedRelatedRows(pivotRows, editedLabel);
       assertProtocolRows(response.preview, expected, 'Related-source edit apply proposal');
       const editEvidence = relatedSourceEditEvidence(savedRelated, sourceStep, editedLabel);
       assert(editEvidence.ok, `Label-only proposal changed more than the output label: ${JSON.stringify(editEvidence)}`);
@@ -732,11 +919,25 @@ export async function runRelatedSourceAfterPivotBrowserWorkflow({ page, cda }, o
       return startedAt;
     };
     let removeStart = await removeRelated();
-    const removeCancelProposal = await nativeProposal('Related-source removal preview restores exact Pivot values', removeStart, pivotRows, response => {
+    const removeCancelProposal = await nativeProposal(
+      splitGroupKey
+        ? 'Related-source removal preview restores the exact two-partition Pivot values'
+        : 'Related-source removal preview restores exact Pivot values',
+      removeStart,
+      pivotRows,
+      response => {
       assert(!response.candidateConstruction.steps.some(step => step.operation.kind === 'RELATED_SOURCE'),
         'Removal candidate must omit only the selected post-Pivot RELATED_SOURCE.');
-      assert.deepEqual(response.candidateConstruction, restoredPivot,
-        'Removal candidate must restore the exact saved Pivot construction.');
+      if (splitGroupKey) {
+        assert.deepEqual(expectedSplitRows(response.candidateConstruction, { requireRelatedSource: false }), pivotRows,
+          'Removing RELATED_SOURCE must restore the exact two-partition Pivot values.');
+        const expectedDocument = expectedSplitPivotWorkspace.documents.find(document => document.output?.id === outputId);
+        assert.deepEqual(response.candidateConstruction, expectedDocument.construction,
+          'Removal proposal must restore the complete saved split Pivot construction after deleting only RELATED_SOURCE.');
+      } else {
+        assert.deepEqual(response.candidateConstruction, restoredPivot,
+          'Removal candidate must restore the exact saved Pivot construction.');
+      }
       return { restoredStepCount: response.candidateConstruction.steps.length };
     });
     await cancel(editedBaseline, editApplyProposal.expectedRows, 'Cancel related-source removal preserves edited binding after reload');
@@ -746,21 +947,149 @@ export async function runRelatedSourceAfterPivotBrowserWorkflow({ page, cda }, o
 
     savedRelated = steps(builder).find(step => step.operation.kind === 'RELATED_SOURCE');
     removeStart = await removeRelated();
-    const removeApplyProposal = await nativeProposal('Confirmed related-source removal restores the exact Pivot row', removeStart, pivotRows, response => {
+    const removeApplyProposal = await nativeProposal(
+      splitGroupKey
+        ? 'Confirmed related-source removal restores both exact Pivot partitions'
+        : 'Confirmed related-source removal restores the exact Pivot row',
+      removeStart,
+      pivotRows,
+      response => {
       assert(!response.candidateConstruction.steps.some(step => step.operation.kind === 'RELATED_SOURCE'));
-      assert.deepEqual(response.candidateConstruction, restoredPivot);
+      if (splitGroupKey) {
+        assert.deepEqual(expectedSplitRows(response.candidateConstruction, { requireRelatedSource: false }), pivotRows);
+        const expectedDocument = expectedSplitPivotWorkspace.documents.find(document => document.output?.id === outputId);
+        assert.deepEqual(response.candidateConstruction, expectedDocument.construction,
+          'Confirmed removal must preserve every split Pivot step and output after deleting RELATED_SOURCE.');
+      } else {
+        assert.deepEqual(response.candidateConstruction, restoredPivot);
+      }
       return { restoredStepCount: response.candidateConstruction.steps.length };
     });
     await apply(pivotRows, 'Apply related-source removal and restore exact Pivot output');
-    assert.deepEqual(doc(builder).construction, restoredPivot,
-      'Applying related-source removal must restore the saved Pivot construction exactly.');
-    const fullWorkspaceRestored = sameWorkspace(pivotBaseline, builder);
-    recordCheck('Applying related-source removal restores the exact pre-source Pivot workspace and values', fullWorkspaceRestored, {
+    if (splitGroupKey) {
+      assert.deepEqual(expectedSplitRows(doc(builder).construction, { requireRelatedSource: false }), pivotRows,
+        'Applying related-source removal must restore both exact split Pivot partitions.');
+      const expectedDocument = expectedSplitPivotWorkspace.documents.find(document => document.output?.id === outputId);
+      assert.deepEqual(doc(builder).construction, expectedDocument.construction,
+        'Applying related-source removal must restore the exact split Pivot construction.');
+      assert.deepEqual(doc(builder).columns, expectedDocument.columns,
+        'Removing RELATED_SOURCE must preserve every authored source column and remove only its output column.');
+      assert.deepEqual(doc(builder).population, expectedDocument.population,
+        'Removing RELATED_SOURCE must preserve the exact selected source population.');
+      assert.deepEqual(doc(builder).rows, expectedDocument.rows,
+        'Removing RELATED_SOURCE must preserve the exact authored row definition.');
+    } else {
+      assert.deepEqual(doc(builder).construction, restoredPivot,
+        'Applying related-source removal must restore the saved Pivot construction exactly.');
+    }
+    const fullWorkspaceRestored = splitGroupKey
+      ? sameWorkspace({ workspace: expectedSplitPivotWorkspace }, builder)
+      : sameWorkspace(pivotBaseline, builder);
+    recordCheck(splitGroupKey
+      ? 'Applying related-source removal restores the exact two-partition Pivot workspace and values'
+      : 'Applying related-source removal restores the exact pre-source Pivot workspace and values', fullWorkspaceRestored, {
       pivotStepId: savedPivotStep.id, constructionStepCount: doc(builder).construction.steps.length,
       removedRelatedStepId: savedRelated.id, restoredRows: pivotRows,
       fullWorkspaceRestored,
     });
-    await openTable(pivotRows, 'Final reload restores exact Pivot categories and rows');
+    await openTable(pivotRows, splitGroupKey
+      ? 'Reload after RELATED_SOURCE removal restores both exact Pivot partitions'
+      : 'Final reload restores exact Pivot categories and rows');
+
+    if (splitGroupKey) {
+      const restoreStart = await editPivotRoles({
+        fromGroup: sourceColumns.id,
+        toGroup: sourceColumns.status,
+        toValue: sourceColumns.id,
+      });
+      const restoreProposal = await nativeProposal(
+        'Pivot role restoration preview coalesces the exact original contributors',
+        restoreStart,
+        [],
+        response => {
+          assert(!response.candidateConstruction.steps.some(step => step.operation.kind === 'RELATED_SOURCE'),
+            'Final Pivot restoration must not recreate the removed RELATED_SOURCE step.');
+          const verified = assertPivotProposal(response, pair, sourceColumns.id.label);
+          return { expectedRows: verified.expectedRows, restoredRowCount: verified.expectedRows.length };
+        },
+      );
+      await apply(coalescedPivotRows, 'Apply Pivot role restoration and reload the exact coalesced row');
+      assert.deepEqual(doc(builder).construction, restoredPivot,
+        'Final Pivot role restoration must reproduce the exact original saved Pivot construction.');
+      const originalWorkspaceRestored = sameWorkspace(pivotBaseline, builder);
+      recordCheck('Applying Pivot role restoration returns the exact original coalesced workspace and values',
+        originalWorkspaceRestored && canonicalRows(restoreProposal.expectedRows).join() === canonicalRows(coalescedPivotRows).join(), {
+          restoredRows: restoreProposal.expectedRows,
+          originalRows: coalescedPivotRows,
+          originalWorkspaceRestored,
+        });
+      await openTable(coalescedPivotRows, 'Final reload restores the original coalesced Pivot row');
+
+      const originalSourceDocument = doc(beforePivot);
+      const removePivot = async () => {
+        const pivotStep = steps(builder).find(step => step.operation.kind === 'PIVOT');
+        assert(pivotStep, 'The restored original Pivot step must exist before its removal lifecycle.');
+        await click(`[data-testid="construction-history-step-${pivotStep.id}"]`);
+        const startedAt = Date.now();
+        await click(`[data-testid="construction-remove-step-${pivotStep.id}"]`);
+        return startedAt;
+      };
+      const pivotRemovalBaseline = structuredClone(builder);
+      let pivotRemovalStart = await removePivot();
+      await nativeProposal(
+        'Pivot removal preview restores exact Observation source construction and original raw rows',
+        pivotRemovalStart,
+        sourceRows,
+        response => {
+          assert.deepEqual(response.candidateConstruction, originalSourceDocument.construction,
+            'Pivot removal preview must restore the exact original Observation source construction.');
+          return { restoredSourceStepCount: response.candidateConstruction.steps.length, sourceColumns: originalSourceDocument.columns };
+        },
+      );
+      await cancel(pivotRemovalBaseline, coalescedPivotRows,
+        'Pivot removal Cancel preserves the coalesced Pivot workspace and rows after reload');
+      recordCheck('Pivot removal Cancel preserves the exact coalesced Pivot workspace and rows after reload',
+        sameWorkspace(pivotRemovalBaseline, builder)
+          && canonicalRows(coalescedPivotRows).length === 1,
+        { draftVersion: builder.draftVersion, draftDigest: builder.draftDigest });
+
+      pivotRemovalStart = await removePivot();
+      await nativeProposal(
+        'Confirmed Pivot removal restores exact Observation source construction and original raw rows',
+        pivotRemovalStart,
+        sourceRows,
+        response => {
+          assert.deepEqual(response.candidateConstruction, originalSourceDocument.construction,
+            'Confirmed Pivot removal must restore the exact original Observation source construction.');
+          return { restoredSourceStepCount: response.candidateConstruction.steps.length };
+        },
+      );
+      await apply(sourceRows, 'Apply Pivot removal and reload exact original Observation source rows');
+      const restoredSourceDocument = doc(builder);
+      const sourceWorkspaceRestored = sameWorkspace(beforePivot, builder)
+        && isDeepStrictEqual(restoredSourceDocument.construction, originalSourceDocument.construction)
+        && isDeepStrictEqual(restoredSourceDocument.columns, originalSourceDocument.columns)
+        && isDeepStrictEqual(restoredSourceDocument.population, originalSourceDocument.population)
+        && isDeepStrictEqual(restoredSourceDocument.rows, originalSourceDocument.rows);
+      recordCheck('Applying Pivot removal restores exact Observation source construction, columns, population, and rows',
+        sourceWorkspaceRestored, {
+          sourceWorkspaceRestored,
+          restoredSourceColumnCount: restoredSourceDocument.columns.length,
+          restoredPopulation: restoredSourceDocument.population,
+          restoredRows: sourceRows,
+        });
+      await openTable(sourceRows, 'Final reload restores the exact original Observation source rows and schema');
+      builder = await api(base + '/builder');
+      assert(sameWorkspace(beforePivot, builder), 'Final source-table reload must restore the exact pre-Pivot Builder workspace.');
+      recordCheck('Final reload restores the exact original Observation source rows and schema',
+        sameWorkspace(beforePivot, builder)
+          && isDeepStrictEqual(doc(builder).columns, originalSourceDocument.columns)
+          && isDeepStrictEqual(doc(builder).population, originalSourceDocument.population)
+          && isDeepStrictEqual(doc(builder).rows, originalSourceDocument.rows), {
+          sourceWorkspaceRestored: sameWorkspace(beforePivot, builder),
+          restoredRows: sourceRows,
+        });
+    }
 
     await requestCapture.flush();
     await new Promise(resolve => setImmediate(resolve));
@@ -786,9 +1115,11 @@ export async function runRelatedSourceAfterPivotBrowserWorkflow({ page, cda }, o
     await requestCapture.flush();
     report.nativeRequestCount = cda.report.nativeRequests.length;
     report.finished = new Date().toISOString();
-    const caseName = relatedForm === 'COUNT'
-      ? 'related-source-count-after-pivot'
-      : sourcePath === 'id' ? 'related-source-after-pivot' : 'related-resource-type-after-pivot';
+    const caseName = splitGroupKey
+      ? 'related-resource-type-after-pivot-group-split'
+      : relatedForm === 'COUNT'
+        ? 'related-source-count-after-pivot'
+        : sourcePath === 'id' ? 'related-source-after-pivot' : 'related-resource-type-after-pivot';
     await cda.attachReport(caseName, report);
   }
 }

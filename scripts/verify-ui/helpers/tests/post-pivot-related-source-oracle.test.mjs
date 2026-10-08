@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { runInNewContext } from 'node:vm';
 import { scenarioCaseFor } from '../../registry.mjs';
-import { assertSavedPreviewIdentity, cdaExplorerSelectionsPath, isPostPivotRawOracleUnavailable, matchesSavedPreviewRequest, readPivotSelectOptions, readProposalPreviewDocument, relatedRouteChoice, proveSourceBinding, relatedSourceEditEvidence, sameWorkspace, uniqueEnabledSelectValue, waitForCdaCapturedResponse } from '../../workflows/verify-cda-related-source-after-pivot-browser.mjs';
+import { assertSavedPreviewIdentity, cdaExplorerSelectionsPath, isPostPivotRawOracleUnavailable, matchesSavedPreviewRequest, readPivotSelectOptions, readProposalPreviewDocument, relatedRouteChoice, proveSourceBinding, relatedSourceEditEvidence, sameWorkspace, uniqueEnabledSelectValue, waitForCdaCapturedResponse, withoutRelatedSourceFromWorkspace } from '../../workflows/verify-cda-related-source-after-pivot-browser.mjs';
 import { choosePostPivotRelatedSourcePair, verifyPostPivotRelatedSourceWitness } from '../post-pivot-related-source-oracle.mjs';
 import { assertVisibleRowsMatchOracle } from '../cda-row-oracle.mjs';
 
@@ -14,6 +14,27 @@ const rows = [
   { _id: 'Observation/a', id: 'obs-a', project, generation, resourceType: 'Observation', status: 'final', patientReference: 'Patient/p-a' },
   { _id: 'Observation/b', id: 'obs-b', project, generation, resourceType: 'Observation', status: 'final', patientReference: 'Patient/p-b' },
   { _id: 'Observation/c', id: 'obs-c', project, generation, resourceType: 'Observation', status: 'preliminary', patientReference: 'Patient/p-c' },
+];
+
+const retainedEpoch87Rows = [
+  {
+    _id: 'Observation/g_00002bde584b7d0d363ce5595bd1cc7f2abfbe104957c328c2ffc5d7eb15b4c7',
+    id: '52f5e622-0181-5feb-936c-e9992ab26616',
+    project,
+    generation,
+    resourceType: 'Observation',
+    status: 'final',
+    patientReference: 'Patient/a6a10252-092e-5b93-976a-a625d478dca6',
+  },
+  {
+    _id: 'Observation/g_00005e873383a29c3283f8b4e768ceb746474dd19041546de3553e97e52764be',
+    id: '485e2567-b566-56f3-b5bd-5f025f37cd95',
+    project,
+    generation,
+    resourceType: 'Observation',
+    status: 'final',
+    patientReference: 'Patient/da65b4e6-3946-50d9-ab1a-65af2e560b1c',
+  },
 ];
 
 const linked = pair => pair.members.flatMap(member => {
@@ -37,6 +58,27 @@ test('post-Pivot source oracle requires two same-key Observation roots with dist
   assert.equal(oracle.status, 'final');
   assert.deepEqual(oracle.patientIDsInCompilerOrder, ['p-a', 'p-b']);
   assert.equal(oracle.members.length, 2);
+});
+
+test('post-Pivot upstream split oracle preserves the retained Observation-to-Patient rows', () => {
+  const pair = choosePostPivotRelatedSourcePair(retainedEpoch87Rows, { project, generation });
+  const oracle = verifyPostPivotRelatedSourceWitness(pair, linked(pair), { project, generation });
+
+  assert.deepEqual(oracle.patientResourceTypesInCompilerOrder, ['Patient', 'Patient']);
+  assert.deepEqual(oracle.expectedSplitRowsByObservationID, {
+    '485e2567-b566-56f3-b5bd-5f025f37cd95': {
+      status: 'final',
+      patientReference: 'Patient/da65b4e6-3946-50d9-ab1a-65af2e560b1c',
+      patientIDsInCompilerOrder: ['da65b4e6-3946-50d9-ab1a-65af2e560b1c'],
+      patientResourceTypesInCompilerOrder: ['Patient'],
+    },
+    '52f5e622-0181-5feb-936c-e9992ab26616': {
+      status: 'final',
+      patientReference: 'Patient/a6a10252-092e-5b93-976a-a625d478dca6',
+      patientIDsInCompilerOrder: ['a6a10252-092e-5b93-976a-a625d478dca6'],
+      patientResourceTypesInCompilerOrder: ['Patient'],
+    },
+  });
 });
 
 test('post-Pivot ALL oracle preserves both linked Patient resource types in compiler order', () => {
@@ -158,6 +200,27 @@ test('related-source COUNT after Pivot registers its distinct source-Pivot lifec
   assert.match(spec, /register\('related-source-count-after-pivot',\s*runRelatedSourceAfterPivotBrowserWorkflow,\s*\{\s*form:\s*'COUNT'\s*\},\s*\{[\s\S]*?cdaUiRouting:\s*'explicit-query'\s*\}\s*\)/);
   assert.match(workflow, /relatedForm === 'COUNT'\s*\? new Set\(oracle\.members\.map\(\(\{ patient \}\) => patient\._id\)\)\.size/);
   assert.match(workflow, /expectedForm === 'COUNT'.*output\.type, 'integer'/);
+});
+
+test('upstream Pivot role-split case registers its exact retained CDA identity and lifecycle checks', async () => {
+  const contract = scenarioCaseFor('standalone-reshape-related-source-after-pivot', 'related-resource-type-after-pivot-group-split');
+  const workflow = await readFile(relatedWorkflowPath, 'utf8');
+  const spec = await readFile(reshapeSpecPath, 'utf8');
+  assert.equal(contract.playwrightGrep,
+    'standalone CDA reshape workflows related-resource-type-after-pivot-group-split related-resource-type-after-pivot-group-split$');
+  assert.deepEqual(contract.expectedIdentity, { project, generation });
+  assert(contract.requiredChecks.includes('Applied upstream Pivot split preserves two exact partitions and the authored Patient.resourceType ALL binding after reload'));
+  assert(contract.requiredChecks.includes('Applying Pivot role restoration returns the exact original coalesced workspace and values'));
+  assert(contract.focusedChecks.some(check => check.command.includes('scripts/verify-ui/helpers/tests/post-pivot-related-source-oracle.test.mjs')));
+  assert.match(spec, /register\('related-resource-type-after-pivot-group-split',\s*runRelatedSourceAfterPivotBrowserWorkflow/);
+  const allWorkflow = workflow
+    .replaceAll('${sourceFieldLabel}', 'Patient.resourceType')
+    .replaceAll('${relatedForm}', 'ALL')
+    .replaceAll('${outputValueLabel}', 'resourceType values')
+    .replaceAll('${formValueLabel}', 'ALL resourceType values');
+  for (const check of contract.requiredChecks.filter(name => name !== 'CDA watched source and API build stayed unchanged')) {
+    assert(allWorkflow.includes(check), `Registered upstream-split check is not emitted by the workflow: ${check}`);
+  }
 });
 
 test('RELATED_SOURCE binding proves the authoring wire contributor rule and exact saved identities', () => {
@@ -303,6 +366,34 @@ test('full pre-source workspace restoration detects mutations outside the constr
   assert.equal(sameWorkspace(before, changedSibling), false);
 });
 
+test('related-source removal baseline removes only its selected step and output', () => {
+  const pivotStep = { id: 'pivot-step', operation: { kind: 'PIVOT' }, outputs: [{ id: 'source-column' }] };
+  const relatedStep = savedRelatedStep();
+  const workspace = {
+    selectedOutputId: 'pivot-output',
+    documents: [
+      {
+        output: { id: 'pivot-output' },
+        columns: [{ columnId: 'source-column' }, { columnId: 'patient-id-column' }],
+        construction: { steps: [pivotStep, relatedStep] },
+        rows: [{ count: 2 }],
+        population: { selectionRevisionId: 'exact-two-roots' },
+      },
+      { output: { id: 'sibling-output', label: 'Untouched sibling' }, columns: [], construction: { steps: [] } },
+    ],
+  };
+  const expected = withoutRelatedSourceFromWorkspace(workspace, {
+    outputId: 'pivot-output', stepId: relatedStep.id, outputColumnId: 'patient-id-column',
+  });
+
+  assert.deepEqual(expected.documents[0].construction.steps, [pivotStep]);
+  assert.deepEqual(expected.documents[0].columns, [{ columnId: 'source-column' }]);
+  assert.deepEqual(expected.documents[0].rows, [{ count: 2 }]);
+  assert.deepEqual(expected.documents[0].population, { selectionRevisionId: 'exact-two-roots' });
+  assert.deepEqual(expected.documents[1], workspace.documents[1]);
+  assert.deepEqual(workspace.documents[0].construction.steps, [pivotStep, relatedStep], 'Expected-state construction must not mutate the saved baseline.');
+});
+
 
 test('Pivot chooser matches stable column IDs despite typed option labels', async () => {
   const browserCallback = runInNewContext(`(${readPivotSelectOptions.toString()})`);
@@ -399,7 +490,7 @@ test('raw witness absence is skipped only for this case and remains an unverifie
   const spec = await readFile(reshapeSpecPath, 'utf8');
   assert.match(workflow, /report\.status = 'unverified'/);
   assert.match(workflow, /error\.rawOracleFailure = true/);
-  assert(spec.includes("['related-source-after-pivot', 'related-source-count-after-pivot', 'related-resource-type-after-pivot'].includes(name) && isPostPivotRawOracleUnavailable(error)"));
+  assert(spec.includes("['related-source-after-pivot', 'related-source-count-after-pivot', 'related-resource-type-after-pivot', 'related-resource-type-after-pivot-group-split'].includes(name) && isPostPivotRawOracleUnavailable(error)"));
   assert(spec.includes('test.skip(true, error.message);'));
   assert.match(spec, /throw error;/, 'All non-witness failures must continue to fail the registered test.');
 });
