@@ -6,6 +6,13 @@ import {
   buildBoundedArangoQueryScript,
   summarizeArangoShellResult,
 } from '../helpers/owned-arangosh-command.mjs';
+import {
+  matchesRootRebaseAssessment,
+  rootRebaseColumnChoiceIdentity,
+  rootRebasePreservesAuthoredDocument,
+  rootRebasePreservesFilterWhenAddingColumn,
+  waitForRootRebaseColumnApply,
+} from '../helpers/root-rebase-preservation.mjs';
 
 export const rootRebaseOracleBounds = Object.freeze({
   observationSampleLimit: 10_000,
@@ -183,45 +190,76 @@ export async function rootRebaseWorkflow({ page, cda }) {
     assert.equal(value.workspace.documents.find(document => document.output.id === targetId)?.rootResourceType, root);
     return value;
   };
-  const waitForRowAssessment = async (after) => {
-    const response = state.nativeRequests.slice(after).find(candidate => candidate.path.endsWith('/row-change') && candidate.response);
-    const entry = response ?? await cda.waitForCapturedResponse(browserEvents,
-      candidate => candidate.path.endsWith('/row-change'), 5000);
+  const rowAssessmentIdentity = (draft, candidateRootResourceType) => {
+    const document = draft.workspace.documents.find(candidate => candidate.output.id === outputId);
+    const candidateOccurrence = document?.route?.children?.[0];
+    assert(document, `Cannot bind row assessment to missing output ${outputId}`);
+    assert.equal(candidateOccurrence?.resourceType, candidateRootResourceType,
+      `The ${candidateRootResourceType} root assessment must use the current output route`);
+    return {
+      outputId,
+      snapshotToken: draft.catalog.snapshotToken,
+      draftVersion: draft.draftVersion,
+      draftDigest: draft.draftDigest,
+      currentRootResourceType: document.rootResourceType,
+      candidateRootResourceType,
+      rootOccurrenceId: candidateOccurrence.occurrenceId,
+    };
+  };
+  const waitForRowAssessment = async (after, expected) => {
+    const entry = await browserEvents.waitFor(
+      candidate => matchesRootRebaseAssessment(candidate, expected),
+      { fromIndex: after, timeoutMs: 5000 },
+    );
     return entry.response;
   };
-  const actClick = async (selector, name, identity = { name }) => {
+  const actClick = async (selector, name, identity = {}) => {
+    const startedAt = Date.now();
     await cda.click( selector, identity);
     state.actions.push(name);
+    return startedAt;
   };
   const selectTable = async () => {
     const locator = page.locator('button[data-testid^="construction-table-"]');
     await cda.wait( ([title]) => [...document.querySelectorAll('button[data-testid^="construction-table-"]')]
       .some(button => button.innerText.trim().endsWith(title)), [tableName]);
-    await actClick('button[data-testid^="construction-table-"]', 'Select temporary table', { includes: tableName });
+    return actClick('button[data-testid^="construction-table-"]', 'Select temporary table', { includes: tableName });
   };
-  const openRowControl = async () => {
-    const details = page.locator('[data-testid="construction-source-setup"]');
-    if (!await details.evaluate(element => element.open)) await actClick('[data-testid="construction-source-setup"] summary', 'Open source and column setup');
-    await cda.wait( () => Boolean(document.querySelector('select[aria-label="One row per"]')));
+  const reloadAndSelectTable = async () => {
+    const startedAt = Date.now();
+    await cda.navigate(pageURL);
+    await selectTable();
+    return startedAt;
+  };
+  const openRowControl = async stage => {
+    const startedAt = Date.now();
+    await actClick('[data-testid="construction-rows-settings-trigger"]', `Open row definition settings ${stage}`);
+    await cda.wait(() => Boolean(document.querySelector(
+      '[role="dialog"][aria-label="Row definition settings"] select[aria-label="Record type"]',
+    )), [], 5000);
+    state.timingsMs[`${stage}RootControl`] = Date.now() - startedAt;
+    assert(state.timingsMs[`${stage}RootControl`] < 5000,
+      `${stage} row-root control took ${state.timingsMs[`${stage}RootControl`]} ms to render`);
     return cda.inspect( () => {
-      const select = document.querySelector('select[aria-label="One row per"]');
+      const select = document.querySelector(
+        '[role="dialog"][aria-label="Row definition settings"] select[aria-label="Record type"]',
+      );
       return { disabled: select.disabled, options: [...select.options].map(option => ({ value: option.value, label: option.textContent, disabled: option.disabled })) };
     });
   };
-  const preview = async (stage, expectation) => {
-    const started = Date.now();
-    await actClick('button', `Preview ${stage}`, { name: 'Preview' });
+  const preview = async (stage, expectation, startedAt) => {
+    assert(Number.isFinite(startedAt), `${stage} preview requires its preceding native action timestamp`);
     await waitForVisiblePreviewRows(expectation);
     const value = await cda.inspect( () => ({
       headers: [...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].map(cell => cell.innerText.trim()),
       rows: [...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]')].slice(1).map(row => [...row.querySelectorAll('[role="cell"]')].map(cell => cell.innerText.trim())).filter(row => row.length),
     }));
-    state.timingsMs[stage] = Date.now() - started;
+    state.timingsMs[stage] = Date.now() - startedAt;
     assert(state.timingsMs[stage] < 5000, `${stage} preview took ${state.timingsMs[stage]} ms`);
     state[stage] = value;
     return value;
   };
-  const waitForVisiblePreviewRows = async expectation => {
+  const waitForVisiblePreviewRows = async (expectation, timeoutMs = 5000) => {
     await cda.wait(({ rowCount, exactRows, cells = [], headerIncludes = [], headerColumnValues = [], panelClosed = false }) => {
       const table = document.querySelector('[data-testid="preview-table-scroll"]');
       if (!table) return false;
@@ -240,7 +278,7 @@ export async function rootRebaseWorkflow({ page, cda }) {
             === JSON.stringify(sort ? [...values].sort() : values);
         })
         && (!panelClosed || !document.querySelector('[data-testid="row-change-preview-panel"]'));
-    }, expectation, 5000);
+    }, expectation, Math.min(5000, timeoutMs));
   };
   const waitForRowChangePreviewRows = async ({ rowCount, patientId }) => {
     await cda.wait(({ rowCount: expectedCount, patientId: expectedPatientId }) => {
@@ -357,7 +395,7 @@ export async function rootRebaseWorkflow({ page, cda }) {
       'The root-rebase case must author one native construction step from an empty starting state');
 
     let started = Date.now();
-    await actClick('[data-testid="construction-action-keep-rows"]', 'Open Patient row filter', { name: 'Filter rows' });
+    await actClick('[data-testid="construction-action-keep-rows"]', 'Open Patient row filter', { includes: 'Filter rows' });
     const columnSelector = '[data-testid="construction-filter-editor"] select[aria-label="Column"]';
     const conditionSelector = '[data-testid="construction-filter-editor"] select[aria-label="Condition"]';
     await cda.wait(([column, condition]) => Boolean(document.querySelector(`${column}:not(:disabled)`) && document.querySelector(`${condition}:not(:disabled)`)), [columnSelector, conditionSelector], 5000);
@@ -413,8 +451,10 @@ export async function rootRebaseWorkflow({ page, cda }) {
       operator: 'EQUALS',
       values: [{ kind: 'STRING', string: witness.patientId }],
     });
-    await cda.navigate(pageURL);
-    await selectTable();
+    const previewStartedAt = await reloadAndSelectTable();
+    const reloadedPreview = await preview('patientPreview', {
+      rowCount: 1, exactRows: [[witness.patientId]], headerIncludes: ['PATIENT ID'],
+    }, previewStartedAt);
     const reloaded = await builder();
     const reloadedDocument = reloaded.workspace.documents.find(document => document.output.id === outputId);
     assert.equal(reloadedDocument.rootResourceType, 'Patient');
@@ -422,9 +462,6 @@ export async function rootRebaseWorkflow({ page, cda }) {
       'Reload must preserve the authored Patient ID filter before root rebase');
     assert.deepEqual(reloadedDocument.columns, beforeDocument.columns);
     assert.deepEqual(reloadedDocument.population, beforeDocument.population);
-    const reloadedPreview = await preview('patientPreview', {
-      rowCount: 1, exactRows: [[witness.patientId]], headerIncludes: ['PATIENT ID'],
-    });
     assert.deepEqual(reloadedPreview.headers, ['PATIENT ID']);
     assert.deepEqual(reloadedPreview.rows, [[witness.patientId]],
       'Reload must render the exact Patient ID selected by the authored filter');
@@ -442,16 +479,21 @@ export async function rootRebaseWorkflow({ page, cda }) {
     });
     return { reloaded, document: reloadedDocument, preview: reloadedPreview };
   };
-  const proposeObservationRoot = async (stage, witness) => {
-    const controls = await openRowControl();
+  const proposeObservationRoot = async (stage, witness, currentDraft = state.before) => {
+    const controls = await openRowControl(stage);
+    state.beforeControl ??= controls;
     assert.equal(controls.disabled, false, 'Row-root control must remain enabled with the authored filter');
-    const observationChoice = controls.options.find(option => option.label.includes('Observation'));
+    const observationChoice = controls.options.find(option => option.label.startsWith('Observation'));
     assert(observationChoice && !observationChoice.disabled, 'Related Observation cannot be chosen as rows');
+    const expectedAssessment = rowAssessmentIdentity(currentDraft, 'Observation');
     const assessmentStart = state.nativeRequests.length;
     const started = Date.now();
-    await cda.selectOption('select[aria-label="One row per"]', observationChoice.value);
+    await cda.selectOption(
+      '[role="dialog"][aria-label="Row definition settings"] select[aria-label="Record type"]',
+      observationChoice.value,
+    );
     state.actions.push(`Choose Observation rows ${stage}`);
-    const assessment = await waitForRowAssessment(assessmentStart);
+    const assessment = await waitForRowAssessment(assessmentStart, expectedAssessment);
     state[`${stage}Assessment`] = assessment;
     state.timingsMs[`${stage}Assessment`] = Date.now() - started;
     assert(state.timingsMs[`${stage}Assessment`] < 5000,
@@ -472,7 +514,7 @@ export async function rootRebaseWorkflow({ page, cda }) {
       const repairStarted = state.nativeRequests.length;
       const repairChoiceStarted = Date.now();
       await actClick('section button', `Preserve Patient ID through Observation Subject ${stage}`, { name: repairButton.text });
-      state[`${stage}RepairedAssessment`] = await waitForRowAssessment(repairStarted);
+      state[`${stage}RepairedAssessment`] = await waitForRowAssessment(repairStarted, expectedAssessment);
       state[`${stage}Preview`] = await waitForRowChangePreviewRows({
         rowCount: witness.observationIDs.length, patientId: witness.patientId,
       });
@@ -565,10 +607,11 @@ export async function rootRebaseWorkflow({ page, cda }) {
       pageURL,
       navigate: url => cda.navigate(url),
     });
-    await cda.wait( () => document.body.innerText.includes('DATASET WORKSPACE'));
+    await cda.wait(() => Boolean(
+      document.querySelector('#first-table-name')
+      && document.querySelector('button[aria-label="Choose Patient rows"]:not(:disabled)'),
+    ), [], 5000);
     state.tablesBefore = await cda.inspect( () => [...document.querySelectorAll('button[data-testid^="construction-table-"]')].map(button => button.innerText.trim().split(String.fromCharCode(10)).at(-1)));
-    await actClick('button', 'New table', { name: 'New table' });
-    await cda.wait( () => Boolean(document.querySelector('button[aria-label="Choose Patient rows"]') && !document.querySelector('button[aria-label="Choose Patient rows"]').disabled));
     await cda.fill( '#first-table-name', tableName);
     await actClick('button[aria-label="Choose Patient rows"]', 'Choose Patient rows');
     await cda.wait( () => document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]').length > 1);
@@ -589,8 +632,6 @@ export async function rootRebaseWorkflow({ page, cda }) {
     await selectTable();
     const seeded = await seedPatientFilter(witness);
     state.before = { ...seeded.reloaded, document: seeded.document };
-    state.beforeControl = await openRowControl();
-    assert.equal(state.beforeControl.disabled, false, 'Row-root control is disabled after adding a related Observation');
     const originalPreview = seeded.preview;
     assert.deepEqual(originalPreview.headers, ['PATIENT ID']);
     assert.deepEqual(originalPreview.rows, [[witness.patientId]], 'The authored Patient filter must select the exact raw witness');
@@ -598,20 +639,21 @@ export async function rootRebaseWorkflow({ page, cda }) {
 
     const cancelledProposalStart = await proposeObservationRoot('cancelledObservationRootProposal', witness);
     await cancelReviewedRowChange('cancelledObservationRootProposal', cancelledProposalStart, state.before, witness, originalPreview);
-    await cda.navigate(pageURL);
-    await selectTable();
+    const cancelledPreviewStartedAt = await reloadAndSelectTable();
+    const cancelledPreview = await preview('cancelledPatientPreview', {
+      rowCount: 1, exactRows: [[witness.patientId]], headerIncludes: ['PATIENT ID'],
+    }, cancelledPreviewStartedAt);
     const cancelledReload = await builder();
     const cancelledReloadDocument = cancelledReload.workspace.documents.find(document => document.output.id === outputId);
     assert.equal(cancelledReloadDocument.rootResourceType, 'Patient');
     assert.deepEqual(cancelledReload.workspace, state.before.workspace,
       'Reload after root-change Cancel must preserve the exact authored filter, columns, population, and route');
-    const cancelledPreview = await preview('cancelledPatientPreview', {
-      rowCount: 1, exactRows: [[witness.patientId]], headerIncludes: ['PATIENT ID'],
-    });
     assert.deepEqual(cancelledPreview.rows, originalPreview.rows,
       'Reload after root-change Cancel must render the exact filtered Patient row');
 
-    const assessmentStart = await proposeObservationRoot('observationRootProposal', witness);
+    const assessmentStart = await proposeObservationRoot('observationRootProposal', witness, {
+      ...cancelledReload, document: cancelledReloadDocument,
+    });
     const observationApplyStartedAt = await applyReviewedRowChange('observationRootProposal', assessmentStart);
     const observationRows = witness.observationIDs.map(() => [witness.patientId]);
     await waitForVisiblePreviewRows({
@@ -626,66 +668,147 @@ export async function rootRebaseWorkflow({ page, cda }) {
     assert.equal(state.changed.document?.rootResourceType, 'Observation', 'Apply did not change the root resource');
     assert.deepEqual(state.changed.document.construction, state.before.document.construction,
       'Applying Observation rows must preserve the exact authored Patient ID filter');
-    assert.deepEqual(state.changed.document.columns, state.before.document.columns,
-      'Root change must preserve the exact authored Patient ID output column');
-    assert.deepEqual(state.changed.document.population, state.before.document.population,
-      'Root change must preserve the selected Patient population and route');
+    const observationAssessment = state.observationRootProposalRepairedAssessment ?? state.observationRootProposalAssessment;
+    assert.equal(rootRebasePreservesAuthoredDocument(state.before.document, state.changed.document, {
+      selectedOccurrenceId: observationAssessment.proposal.rootOccurrenceId,
+      routeRebase: observationAssessment.proposal.routeRebase,
+      catalogEdges: state.before.catalog.edges,
+    }), true, 'Observation root change must preserve authored fields while rebinding occurrence routes');
     recordRequiredCheck(3, 'persistence', true, {
       rootResourceType: state.changed.document.rootResourceType,
       construction: state.changed.document.construction,
       columns: state.changed.document.columns, population: state.changed.document.population,
     });
-    await cda.navigate( pageURL);
-    await selectTable();
+    const observationPreviewStartedAt = await reloadAndSelectTable();
+    const observationPreview = await preview('observationPreview', {
+      rowCount: witness.observationIDs.length,
+      exactRows: witness.observationIDs.map(() => [witness.patientId]),
+      headerIncludes: ['PATIENT ID'],
+    }, observationPreviewStartedAt);
     const observationReload = await builder();
     const observationReloadDocument = observationReload.workspace.documents.find(document => document.output.id === outputId);
     assert.equal(observationReloadDocument.rootResourceType, 'Observation');
     assert.deepEqual(observationReloadDocument.construction, state.before.document.construction,
       'Observation-root reload must preserve the exact authored Patient filter');
-    assert.deepEqual(observationReloadDocument.columns, state.before.document.columns);
-    assert.deepEqual(observationReloadDocument.population, state.before.document.population);
-    const observationPreview = await preview('observationPreview', {
-      rowCount: witness.observationIDs.length,
-      exactRows: witness.observationIDs.map(() => [witness.patientId]),
-      headerIncludes: ['PATIENT ID'],
-    });
+    assert.deepEqual(observationReloadDocument.columns, state.changed.document.columns,
+      'Observation-root reload must preserve the rebased authored output columns');
+    assert.deepEqual(observationReloadDocument.population, state.changed.document.population,
+      'Observation-root reload must preserve the rebased population route');
     assert.equal(observationPreview.rows.length, witness.observationIDs.length,
       'The Observation-root preview must preserve the raw Patient-to-Observation multiplicity');
     assert.deepEqual(observationPreview.rows.map(row => row[0]), witness.observationIDs.map(() => witness.patientId),
       'The authored Patient ID filter must retain the exact parent Patient on every Observation row');
     assert.deepEqual(new Set(observationPreview.rows.map(row => row[0])), new Set(rawPatients(observationPreview.rows.map(row => row[0]))), 'Rebased Patient IDs differ from CDA source');
-    await actClick('button[aria-label^="Add columns:"]', 'Open Add columns on Observation rows', { includes: 'Add columns' });
-    await cda.wait( () => Boolean(document.querySelector('input[aria-label="Select Observation.id"]') && !document.querySelector('input[aria-label="Select Observation.id"]').disabled));
+    const observationFieldPickerStartedAt = await actClick(
+      'button[aria-label^="Add columns:"]', 'Open Add columns on Observation rows', { includes: 'Add columns' },
+    );
+    const observationSchemaStart = state.nativeRequests.length;
+    await actClick('[role="group"][aria-label="Column types"] button',
+      'Switch to fields and related data', { name: 'Fields and related data' });
+    await cda.wait(() => Boolean(document.querySelector('[data-testid="feature-catalog-raw-fields"] summary')), [], 5000);
+    await actClick('[data-testid="feature-catalog-raw-fields"] summary',
+      'Expand raw FHIR fields', { name: 'Raw FHIR fields (advanced)' });
+    await cda.wait(() => {
+      const field = document.querySelector('input[aria-label="Select Observation.id"]');
+      return Boolean(field && !field.disabled);
+    }, [], 5000);
+    state.observationSchemaStart = observationSchemaStart;
+    state.timingsMs.observationIDFieldPicker = Date.now() - observationFieldPickerStartedAt;
+    assert(state.timingsMs.observationIDFieldPicker < 5000,
+      `Opening the Observation ID field picker took ${state.timingsMs.observationIDFieldPicker} ms`);
     await actClick('input[aria-label="Select Observation.id"]', 'Select Observation ID');
-    await actClick('[aria-label="Add columns editor"] button', 'Preview Observation ID column', { name: 'Add 1 selected feature' });
-    await cda.wait( () => document.querySelector('[data-testid="construction-choice-proposal-panel"]')?.dataset.proposalStatus === 'ready');
-    state.observationColumnProposal = await cda.inspect( () => document.querySelector('[data-testid="construction-choice-proposal-panel"]')?.innerText.slice(0, 1000));
+    const observationColumnChoiceStart = state.nativeRequests.length;
+    const observationColumnProposalStartedAt = await actClick(
+      '[aria-label="Add columns editor"] button', 'Preview Observation ID column', { name: 'Add 1 selected feature' },
+    );
+    await cda.wait(() => ['ready', 'error'].includes(
+      document.querySelector('[data-testid="construction-choice-proposal-panel"]')?.dataset.proposalStatus,
+    ), [], 5000);
+    state.timingsMs.observationColumnProposal = Date.now() - observationColumnProposalStartedAt;
+    assert(state.timingsMs.observationColumnProposal < 5000,
+      `Observation ID choice-to-preview took ${state.timingsMs.observationColumnProposal} ms`);
+    state.observationColumnProposal = await cda.inspect(() => {
+      const panel = document.querySelector('[data-testid="construction-choice-proposal-panel"]');
+      return { status: panel?.dataset.proposalStatus, text: panel?.innerText.slice(0, 1000) };
+    });
+    assert.equal(state.observationColumnProposal.status, 'ready',
+      `Observation ID choice did not render a ready proposal: ${state.observationColumnProposal.text ?? 'no proposal text'}`);
+    const observationColumnChoice = rootRebaseColumnChoiceIdentity(state.nativeRequests, {
+      fromIndex: observationColumnChoiceStart,
+      outputId,
+      snapshotToken: observationReload.catalog.snapshotToken,
+      draftVersion: observationReload.draftVersion,
+      draftDigest: observationReload.draftDigest,
+    });
     const columnApplyStart = state.nativeRequests.length;
-    await actClick('[data-testid="construction-choice-proposal-panel"] button', 'Apply Observation ID column', { name: 'Apply columns' });
-    const commandResponse = await cda.waitForCapturedResponse(browserEvents,
-      request => request.path.endsWith('/commands') && request.method === 'POST', 30_000);
-    assert.equal(commandResponse.status, 200, 'Applying Observation ID failed');
+    const columnApplyStartedAt = await actClick(
+      '[data-testid="construction-choice-proposal-panel"] button',
+      'Apply Observation ID column', { name: 'Apply columns' },
+    );
+    const columnApply = await waitForRootRebaseColumnApply({
+      requests: state.nativeRequests,
+      errors: state.errors,
+      fromIndex: columnApplyStart,
+      schemaFromIndex: state.observationSchemaStart,
+      expected: observationColumnChoice,
+      schemaIdentity: {
+        snapshotToken: observationReload.catalog.snapshotToken,
+        nodeId: observationNode.nodeId,
+      },
+      deadlineAt: columnApplyStartedAt + 5000,
+      waitForRequest: (predicate, options) => browserEvents.waitFor(predicate, options),
+      closeCatalog: async timeoutMs => {
+        await cda.click('[data-testid="construction-close-operation-editor"]',
+          { name: 'Close operation editor' }, timeoutMs);
+        state.actions.push('Back to table after applying Observation ID');
+      },
+      waitForPairedRows: timeoutMs => waitForVisiblePreviewRows({
+        rowCount: witness.observationIDs.length,
+        headerColumnValues: [
+          { headerIncludes: 'PATIENT ID', values: witness.observationIDs.map(() => witness.patientId) },
+          { headerIncludes: 'OBSERVATION ID', values: witness.observationIDs, sort: true },
+        ],
+      }, timeoutMs),
+    });
+    state.timingsMs.observationColumnApply = Date.now() - columnApplyStartedAt;
+    assert(state.timingsMs.observationColumnApply < 5000,
+      `Applying Observation ID took ${state.timingsMs.observationColumnApply} ms through field discovery completion`);
+    assert.equal(columnApply.command.status, 200, 'Applying Observation ID failed');
+    state.observationColumnApply = {
+      requestId: columnApply.command.requestId,
+      browserRequestId: columnApply.command.browserRequestId,
+      status: columnApply.command.status,
+      schemaRequests: columnApply.schemaRequests.map(({ browserRequestId, status, completedAt }) => ({
+        browserRequestId, status, completedAt,
+      })),
+    };
+    state.observationColumnApplyPreview = await cda.inspect(() => ({
+      headers: [...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')]
+        .map(cell => cell.innerText.trim()),
+      rows: [...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]')].slice(1)
+        .map(row => [...row.querySelectorAll('[role="cell"]')].map(cell => cell.innerText.trim())).filter(row => row.length),
+    }));
     const withObservationID = await builder();
     state.withObservationID = withObservationID.workspace.documents.find(document => document.output.id === outputId);
-    assert.deepEqual(state.withObservationID.construction, state.before.document.construction,
-      'Adding Observation ID must preserve the authored Patient filter');
-    assert.deepEqual(state.withObservationID.population, state.before.document.population,
+    assert.equal(rootRebasePreservesFilterWhenAddingColumn(state.before.document, state.withObservationID), true,
+      'Adding Observation ID must preserve the exact authored Patient filter and append only its output definition');
+    assert.deepEqual(state.withObservationID.population, state.changed.document.population,
       'Adding Observation ID must preserve the selected Patient population and route');
-    await cda.navigate( pageURL);
-    await selectTable();
-    const pairedReload = await builder();
-    const pairedReloadDocument = pairedReload.workspace.documents.find(document => document.output.id === outputId);
-    assert.equal(pairedReloadDocument.rootResourceType, 'Observation');
-    assert.deepEqual(pairedReloadDocument.construction, state.before.document.construction);
-    assert.deepEqual(pairedReloadDocument.population, state.before.document.population);
-    assert.deepEqual(pairedReloadDocument.columns, state.withObservationID.columns);
+    const pairedPreviewStartedAt = await reloadAndSelectTable();
     const pairedPreview = await preview('pairedPreview', {
       rowCount: witness.observationIDs.length,
       headerColumnValues: [
         { headerIncludes: 'PATIENT ID', values: witness.observationIDs.map(() => witness.patientId) },
         { headerIncludes: 'OBSERVATION ID', values: witness.observationIDs, sort: true },
       ],
-    });
+    }, pairedPreviewStartedAt);
+    const pairedReload = await builder();
+    const pairedReloadDocument = pairedReload.workspace.documents.find(document => document.output.id === outputId);
+    assert.equal(pairedReloadDocument.rootResourceType, 'Observation');
+    assert.deepEqual(pairedReloadDocument.construction, state.withObservationID.construction,
+      'Reload must preserve the saved Patient filter and its two column output definitions');
+    assert.deepEqual(pairedReloadDocument.population, state.withObservationID.population);
+    assert.deepEqual(pairedReloadDocument.columns, state.withObservationID.columns);
     const patientIndex = pairedPreview.headers.findIndex(header => header === 'PATIENT ID');
     const observationIndex = pairedPreview.headers.findIndex((header, index) => index !== patientIndex && header.endsWith('ID'));
     assert(patientIndex >= 0 && observationIndex >= 0, 'The rebased preview lacks Patient and Observation identifiers');
@@ -705,14 +828,18 @@ export async function rootRebaseWorkflow({ page, cda }) {
       patientId: witness.patientId, observationIDs: displayedObservationIDs,
       subjects: observations, rows: pairedPreview.rows,
     });
-    state.afterControl = await openRowControl();
-    const patientChoice = state.afterControl.options.find(option => option.label.includes('Patient'));
+    state.afterControl = await openRowControl('restoringPatientRoot');
+    const patientChoice = state.afterControl.options.find(option => option.label.startsWith('Patient'));
     assert(patientChoice && !patientChoice.disabled, 'Patient rows cannot be restored');
+    const expectedRestorationAssessment = rowAssessmentIdentity(pairedReload, 'Patient');
     const restorationAssessmentStart = state.nativeRequests.length;
     const restorationStartedAt = Date.now();
-    await cda.selectOption( 'select[aria-label="One row per"]', patientChoice.value);
+    await cda.selectOption(
+      '[role="dialog"][aria-label="Row definition settings"] select[aria-label="Record type"]',
+      patientChoice.value,
+    );
     state.actions.push('Restore Patient rows');
-    state.patientAssessment = await waitForRowAssessment(restorationAssessmentStart);
+    state.patientAssessment = await waitForRowAssessment(restorationAssessmentStart, expectedRestorationAssessment);
     state.timingsMs.patientRootAssessment = Date.now() - restorationStartedAt;
     assert(state.timingsMs.patientRootAssessment < 5000,
       `Patient root choice-to-assessment took ${state.timingsMs.patientRootAssessment} ms`);
@@ -731,7 +858,7 @@ export async function rootRebaseWorkflow({ page, cda }) {
       const repairStarted = state.nativeRequests.length;
       const repairChoiceStarted = Date.now();
       await actClick('section button', 'Restore Subject relationship', { name: repairButton.text });
-      state.restorationRepairedAssessment = await waitForRowAssessment(repairStarted);
+      state.restorationRepairedAssessment = await waitForRowAssessment(repairStarted, expectedRestorationAssessment);
       await waitForRowChangePreviewRows({ rowCount: 1, patientId: witness.patientId });
       state.timingsMs.patientRootRepairChoiceToPreview = Date.now() - repairChoiceStarted;
       assert(state.timingsMs.patientRootRepairChoiceToPreview < 5000,
@@ -753,26 +880,27 @@ export async function rootRebaseWorkflow({ page, cda }) {
       `Applying Patient rows took ${state.timingsMs.patientRootApply} ms to render the exact restored Patient row`);
     const restoredState = await waitForRoot(outputId, 'Patient');
     const restoredDocument = restoredState.workspace.documents.find(document => document.output.id === outputId);
-    assert.deepEqual(restoredDocument.construction, state.before.document.construction,
-      'Restoring Patient rows must preserve the authored Patient ID filter');
-    assert.deepEqual(restoredDocument.population, state.before.document.population,
-      'Restoring Patient rows must preserve the selected population and route');
-    assert.deepEqual(restoredDocument.columns, state.withObservationID.columns,
-      'Restoring Patient rows must preserve both authored output columns');
+    assert.equal(rootRebasePreservesFilterWhenAddingColumn(state.before.document, restoredDocument), true,
+      'Restoring Patient rows must preserve the authored Patient filter and both output definitions');
+    const restorationAssessment = state.restorationRepairedAssessment ?? state.patientAssessment;
+    assert.equal(rootRebasePreservesAuthoredDocument(state.withObservationID, restoredDocument, {
+      selectedOccurrenceId: restorationAssessment.proposal.rootOccurrenceId,
+      routeRebase: restorationAssessment.proposal.routeRebase,
+      catalogEdges: state.before.catalog.edges,
+    }), true, 'Patient root restoration must preserve authored fields while restoring occurrence routes');
     state.restorationRequests = state.nativeRequests.slice(restorationAssessmentStart).map(({ path, status }) => ({ path, status }));
-    await cda.navigate( pageURL);
-    await selectTable();
-    const restored = await builder();
-    state.restored = { draftVersion: restored.draftVersion, document: restored.workspace.documents.find(document => document.output.id === outputId) };
-    assert.equal(state.restored.document?.rootResourceType, 'Patient');
-    assert.deepEqual(state.restored.document.construction, state.before.document.construction,
-      'Reload after restoration must preserve the exact authored Patient filter');
-    assert.deepEqual(state.restored.document.population, state.before.document.population);
-    assert.deepEqual(state.restored.document.columns, state.withObservationID.columns);
+    const restoredPreviewStartedAt = await reloadAndSelectTable();
     const restoredPreview = await preview('restoredPreview', {
       rowCount: 1,
       headerColumnValues: [{ headerIncludes: 'PATIENT ID', values: [witness.patientId] }],
-    });
+    }, restoredPreviewStartedAt);
+    const restored = await builder();
+    state.restored = { draftVersion: restored.draftVersion, document: restored.workspace.documents.find(document => document.output.id === outputId) };
+    assert.equal(state.restored.document?.rootResourceType, 'Patient');
+    assert.deepEqual(state.restored.document.construction, restoredDocument.construction,
+      'Reload after restoration must preserve the exact authored Patient filter and both output definitions');
+    assert.deepEqual(state.restored.document.population, restoredDocument.population);
+    assert.deepEqual(state.restored.document.columns, restoredDocument.columns);
     const restoredPatientIndex = restoredPreview.headers.indexOf('PATIENT ID');
     assert(restoredPatientIndex >= 0, 'Restored Patient ID column is missing');
     assert.deepEqual(restoredPreview.rows.map(row => row[restoredPatientIndex]), originalPreview.rows.map(row => row[0]));

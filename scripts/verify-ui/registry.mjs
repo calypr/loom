@@ -1198,9 +1198,11 @@ export const registry = Object.freeze([
             command: [
               'node-test',
               'scripts/verify-ui/helpers/tests/verify-cda-root-rebase-contract.test.mjs',
+              'scripts/verify-ui/helpers/tests/root-rebase-preservation.test.mjs',
             ],
             sourceFiles: [
               'scripts/verify-ui/workflows/verify-cda-root-rebase.mjs',
+              'scripts/verify-ui/helpers/root-rebase-preservation.mjs',
               'scripts/verify-ui/specs/standalone-cda-other.spec.mjs',
               'scripts/verify-ui/registry.mjs',
             ],
@@ -1219,7 +1221,7 @@ export const registry = Object.freeze([
       },
     },
     coverage: [
-      { feature: 'CDA authored construction preservation through Patient → Observation root rebase and Patient restoration', status: 'untested', reason: 'The native case now has an independent Patient-to-Observation multiplicity oracle and complete Cancel/Apply/reload/restore assertions; no full browser lifecycle has run yet.' },
+      { feature: 'CDA authored construction preservation through Patient → Observation root rebase and Patient restoration', status: 'implemented', reason: 'The registered native lifecycle passed 8/8 checks across all four dimensions. The exact 18 raw Observation IDs and Patient IDs matched; the authored Patient filter, columns, population, and route persisted through Cancel, Observation Apply/reload, and Patient restore/reload. All 91 owned requests reached terminal HTTP 200 with zero errors. All 23 domain action-to-render timings were under five seconds (maximum 1,713 ms; Observation column Apply 1,006 ms; paired preview 1,713 ms). Source fingerprint 38fa8f6898eb75668d40f8febba0b1ab55de4dc48cb93a8dff26b86ce73be37c, API build identity, owned mounts, and before/after health passed. Summary: /private/var/folders/v_/j3zplgbs155cgwtqjftj377nd_4gyt/T/loom-verification-brackets/run-cda-root-rebase-preserve-patient-values-through-observation-and-restore-jFyjfk/summary.json. Restricted-authorization and other root-rebase variants remain unverified.' },
     ],
   }),
   Object.freeze({
