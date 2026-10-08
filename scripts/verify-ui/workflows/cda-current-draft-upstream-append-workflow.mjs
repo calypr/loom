@@ -1313,6 +1313,7 @@ async function runCdaCurrentDraftUpstreamAppendWorkflow({ page, cda: baseCda }, 
       'Every membership-window source command must be one of the two expected Patient replacement commands');
       assert.equal(clearCommands.length, 0,
         'The native handoff lifecycle must not clear the collection or enter an all-authorized intermediate state');
+      report.lifecycle ??= {};
       report.lifecycle.patientMembershipHandoff = {
         standaloneURL: 'project + explorer + mode=builder + selection',
         originalSelectionId: originalSelection.id,
