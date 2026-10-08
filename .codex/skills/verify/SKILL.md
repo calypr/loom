@@ -155,13 +155,6 @@ bounded stdout/stderr previews, input hashes, timings, and log links. Cases
 without focused prerequisites are reported as `browser-only`; do not imply that
 this fast layer covers every registered case.
 
-Known fast-gate gap: the registered Membership checks include the reshape editor
-unit file, but the current target version of that file does not yet include the
-backend-shaped `SOURCE_PROJECTION` regression. The held regression exercises a
-selected stage whose operation is explicitly `SOURCE_PROJECTION`; a green run of
-the current focused group does not prove that contract until this test change is
-promoted into the registered file.
-
 Run only registered fast prerequisites with `make verify-case-checks` when a
 guarded assigned-worktree invocation is not required. The guarded form above
 uses the same checks-only runner without loading target configuration, Docker,

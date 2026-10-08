@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import type { Construction, ConstructionStageDescriptor, ExplorerBuilderDocument } from '../../../types';
-import { constructionAppendStageFor, constructionInputStageFor } from './constructionStages';
+import {
+  constructionAppendStageFor,
+  constructionInputForStage,
+  constructionInputStageFor,
+  isSourceProjectionStage,
+  sourceInputMatchesStage,
+} from './constructionStages';
 
 const prefix: Construction = { version: 1, steps: [{
   id: 'source_filter', inputs: [{ kind: 'SOURCE_PROJECTION' }],
@@ -13,6 +19,38 @@ const cohort: ExplorerBuilderDocument['rows'] = { kind: 'GROUPS', groups: {
 } };
 
 describe('construction operation stages', () => {
+  it('maps the explicit source stage to source projection and constructed operations to their exact predecessor step', () => {
+    const source: ConstructionStageDescriptor = {
+      id: 'source_projection', inputStageId: '', operation: 'SOURCE_PROJECTION', columns: [], capabilities: [],
+    };
+    expect(constructionInputForStage(source)).toEqual({ kind: 'SOURCE_PROJECTION' });
+    expect(isSourceProjectionStage(source)).toBe(true);
+    expect(sourceInputMatchesStage('source_projection', source)).toBe(true);
+
+    for (const operation of ['FILTER', 'DERIVE', 'GROUP']) {
+      const stage: ConstructionStageDescriptor = {
+        id: `${operation.toLowerCase()}-stage`, inputStageId: 'source_projection', operation, columns: [], capabilities: [],
+      };
+      expect(constructionInputForStage(stage)).toEqual({ kind: 'STEP_OUTPUT', stepId: stage.id });
+      expect(isSourceProjectionStage(stage)).toBe(false);
+      expect(sourceInputMatchesStage('source_projection', stage)).toBe(false);
+    }
+  });
+
+  it('does not treat a constructed or mismatched stage as source input', () => {
+    const source: ConstructionStageDescriptor = {
+      id: 'source_projection', inputStageId: '', operation: 'SOURCE_PROJECTION', columns: [], capabilities: [],
+    };
+    const wrongSourceOperation = { ...source, operation: 'GROUP' };
+    const constructedGroup: ConstructionStageDescriptor = {
+      id: 'group-status', inputStageId: 'source_projection', operation: 'GROUP', columns: [], capabilities: [],
+    };
+
+    expect(sourceInputMatchesStage('group-status', source)).toBe(false);
+    expect(sourceInputMatchesStage('source_projection', wrongSourceOperation)).toBe(false);
+    expect(sourceInputMatchesStage('source_projection', constructedGroup)).toBe(false);
+  });
+
   it('appends after a cohort inserted after the last authored step', () => {
     expect(constructionAppendStageFor(prefix, cohort)).toBe('group_rows');
   });

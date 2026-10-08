@@ -25,6 +25,7 @@ const columns: ConstructionStageDescriptor['columns'] = [
 const sourceStage: ConstructionStageDescriptor = {
   id: 'source_projection',
   inputStageId: '',
+  operation: 'SOURCE_PROJECTION',
   columns,
   capabilities: [
     { kind: 'FILTER', supported: true },

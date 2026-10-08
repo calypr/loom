@@ -7,6 +7,7 @@ import type {
   ConstructionStageDescriptor,
   ConstructionStep,
 } from '../../../types';
+import { constructionInputForStage } from '../constructionWorkspace/constructionStages';
 
 type CandidateIntent = Pick<
   ConstructionProposalRequest,
@@ -147,11 +148,6 @@ const editorContextKey = (
   capabilities.stageId,
   editingStep?.id ?? 'new',
 ].join(':');
-
-const stepInputFor = (stage: ConstructionStageDescriptor): ConstructionStep['inputs'][number] =>
-  !stage.operation
-    ? { kind: 'SOURCE_PROJECTION' }
-    : { kind: 'STEP_OUTPUT', stepId: stage.id };
 
 const constructionOutputsForStage = (
   stage: ConstructionStageDescriptor,
@@ -429,7 +425,7 @@ const buildFilterCandidate = (args: {
 
   const step = {
     id: editingStep?.id ?? stepId,
-    inputs: [stepInputFor(stage)],
+    inputs: [constructionInputForStage(stage)],
     operation: { kind: 'FILTER', filter },
     outputs: constructionOutputsForStage(stage),
   } satisfies ConstructionStep;
@@ -679,7 +675,7 @@ const buildDeriveCandidate = (args: {
   };
   const step = {
     id: editingStep?.id ?? stepId,
-    inputs: [stepInputFor(stage)],
+    inputs: [constructionInputForStage(stage)],
     operation: { kind: 'DERIVE', derive },
     outputs: [...constructionOutputsForStage(stage), output],
   } satisfies ConstructionStep;

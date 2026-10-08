@@ -15,6 +15,11 @@ import { constructionSchema } from '../../../types';
 import { RelatedExpandEditor, type RelatedExpandQueryOwner } from './RelatedExpandEditor';
 import { CodedPivotEditor } from './CodedPivotEditor';
 import { semanticConceptLabel } from '../catalogItems';
+import {
+  constructionInputForStage,
+  isSourceProjectionStage,
+  sourceInputMatchesStage,
+} from '../constructionWorkspace/constructionStages';
 
 export type CandidateIntent = Pick<
   ConstructionProposalRequest,
@@ -611,11 +616,6 @@ const unpivotOperationFor = (form: UnpivotForm): UnpivotOperation => ({
   },
 });
 
-const stepInputFor = (stage: ReshapeStage): ConstructionStep['inputs'][number] =>
-  !stage.operation
-    ? { kind: 'SOURCE_PROJECTION' }
-    : { kind: 'STEP_OUTPUT', stepId: stage.id };
-
 type CandidateEvaluation =
   | { readonly kind: 'ready'; readonly intent: CandidateIntent }
   | { readonly kind: 'incomplete' }
@@ -747,7 +747,7 @@ const groupStepFromForm = (args: {
     id: editingStep?.id ?? form.stepId,
     inputs: form.codedCategories.length > 0
       ? [{ kind: 'STEP_OUTPUT', stepId: form.codedPivotStepId }]
-      : [stepInputFor(stage)],
+      : [constructionInputForStage(stage)],
     operation: groupOperationFor(form),
     ...(form.rowValues.length ? {
       rowValues: form.rowValues.map((value) => ({
@@ -863,10 +863,10 @@ const sourceGroupStepFromForm = (
   choice: SourceInputChoice,
 ): ConstructionReshapeStep | undefined => {
   const outputs = [form.keyOutput, ...(form.additionalKeys ?? []).map((key) => key.keyOutput), form.countOutput];
-  if (stage.operation || !outputNamesAreValid(outputs)) return undefined;
+  if (!isSourceProjectionStage(stage) || !outputNamesAreValid(outputs)) return undefined;
   return {
     id: form.stepId,
-    inputs: [stepInputFor(stage)],
+    inputs: [constructionInputForStage(stage)],
     operation: {
       kind: 'GROUP',
       group: {
@@ -918,7 +918,7 @@ const codedGroupStepFromForm = (
   const [system, version, code, count] = form.outputs;
   return {
     id: editingStep?.id ?? form.stepId,
-    inputs: [stepInputFor(stage)],
+    inputs: [constructionInputForStage(stage)],
     operation: {
       kind: 'CODED_GROUP',
       codedGroup: {
@@ -956,7 +956,7 @@ const expandStepFromForm = (args: {
   if (!operation || !input || outputs.length === 0 || !outputNamesAreValid(outputs)) return undefined;
   const step: ConstructionReshapeStep = {
     id: editingStep?.id ?? form.stepId,
-    inputs: [stepInputFor(stage)],
+    inputs: [constructionInputForStage(stage)],
     operation,
     outputs,
   };
@@ -983,7 +983,7 @@ const pivotStepFromForm = (args: {
   if (new Set(outputIDs).size !== outputIDs.length || !outputNamesAreValid(outputs)) return undefined;
   const step: ConstructionReshapeStep = {
     id: editingStep?.id ?? form.stepId,
-    inputs: [stepInputFor(stage)],
+    inputs: [constructionInputForStage(stage)],
     operation: pivotOperationFor(form),
     outputs,
   };
@@ -1006,7 +1006,7 @@ const unpivotStepFromForm = (args: {
   if (form.keyOutputColumnId === form.valueOutputColumnId || !outputNamesAreValid(outputs)) return undefined;
   const step: ConstructionReshapeStep = {
     id: editingStep?.id ?? form.stepId,
-    inputs: [stepInputFor(stage)],
+    inputs: [constructionInputForStage(stage)],
     operation: unpivotOperationFor(form),
     outputs,
   };
@@ -1427,7 +1427,8 @@ const candidateFor = (args: {
   const { form, construction, capabilities, stage, editingStep, pivotCategoriesKnown } = args;
   if (form.kind === 'source-group') {
     const choice = capabilities.sourceInput?.choices.find((candidate) => candidate.choiceId === form.choiceId);
-    if (!capabilities.sourceInput?.supported || !choice?.isPopulated) return { kind: 'incomplete' };
+    if (!capabilities.sourceInput?.supported || !sourceInputMatchesStage(capabilities.sourceInput.stageId, stage) ||
+      !choice?.isPopulated) return { kind: 'incomplete' };
     const step = sourceGroupStepFromForm(form, stage, choice);
     return step ? candidateIntentFor({
       construction, editingStep, step,
@@ -1486,15 +1487,26 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
   const id = useId();
   const { construction, capabilities, editingStep, disabled, onCandidateChange } = props;
   const stage = capabilities.selectedStage;
-  const rootStage = capabilities.stages.find((candidate) => candidate.id === 'source_projection' || !candidate.operation) ?? stage;
+  const rootStage = capabilities.stages.find(isSourceProjectionStage) ?? stage;
   const savedOwnedCodedInput = editingStep?.operation.kind === 'GROUP'
     ? construction.steps.find((candidate) => candidate.ownerStepId === editingStep.id
       && candidate.operation.kind === 'CODED_PIVOT'
       && candidate.inputs[0]?.kind === 'SOURCE_PROJECTION')
     : undefined;
   const groupStage = savedOwnedCodedInput ? rootStage : stage;
+  const sourceInput = capabilities.sourceInput;
+  const sourceGroupChoices = sourceInput?.choices ?? [];
+  const sourceGroupStageMatches = sourceInputMatchesStage(sourceInput?.stageId, groupStage);
+  const sourceGroupHasPopulatedChoice = sourceGroupChoices.some((choice) => choice.isPopulated);
+  const sourceGroupSupported = Boolean(sourceInput?.supported && sourceGroupStageMatches && sourceGroupHasPopulatedChoice);
+  const sourceGroupReason = !sourceGroupStageMatches
+    ? 'Source field grouping is available only at the starting source stage.'
+    : sourceInput?.supported
+      ? sourceGroupHasPopulatedChoice ? '' : 'No source field with recorded values is available for grouping.'
+      : sourceInput?.reason ?? 'No source field is available for grouping.';
   const groupCodedPivotCapability = capabilityFor(groupStage, 'CODED_PIVOT');
-  const groupCodedValuesSupported = Boolean(savedOwnedCodedInput || groupCodedPivotCapability.supported) && !groupStage.operation;
+  const groupCodedValuesSupported = Boolean(savedOwnedCodedInput || groupCodedPivotCapability.supported) &&
+    isSourceProjectionStage(groupStage);
   const contextKey = editorContextKey(capabilities, editingStep);
   const [form, setForm] = useState<ReshapeForm>(() => props.initialEntry?.form
     ?? formForStep(construction, capabilities, editingStep, groupStage, props.selectedColumns ?? [], props.initialKind));
@@ -1528,7 +1540,7 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
     setContractUnavailable(false);
     const initialCandidate = !editingStep && (
       initialForm.kind === 'coded-group' && codedGroupSupport.supported
-      || initialForm.kind === 'source-group' && capabilities.sourceInput?.supported
+      || initialForm.kind === 'source-group' && sourceGroupSupported
       || initialForm.kind === 'unpivot' && unpivotSupport.supported
     )
       ? candidateFor({
@@ -1546,7 +1558,7 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
   const capabilityForForm = (next: ReshapeForm) => {
     switch (next.kind) {
       case 'group': return groupCodedValuesSupported ? { supported: true, reason: '' } : groupSupport;
-      case 'source-group': return { supported: capabilities.sourceInput?.supported ?? false, reason: capabilities.sourceInput?.reason ?? 'No source field is available.' };
+      case 'source-group': return { supported: sourceGroupSupported, reason: sourceGroupReason };
       case 'coded-group': return codedGroupSupport;
       case 'expand': return expandSupport;
       case 'related-expand': return relatedExpandSupport;
@@ -1705,7 +1717,7 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
             rows="Count source records for each code."
             columns="Replace current columns with system, version, code, and source record count."
             supported={codedGroupSupport.supported && Boolean(stage.codedGroupChoices?.length)}
-            reason={stage.operation && !codedGroupSupport.supported
+            reason={!isSourceProjectionStage(stage) && !codedGroupSupport.supported
               ? 'Available on starting records before other table changes.'
               : codedGroupSupport.reason || (stage.codedGroupChoices?.length ? '' : 'No Coding fields are available here.')}
             disabled={disabled}
@@ -1716,10 +1728,8 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
             title="Group by a source field"
             rows="Count records for each value of a field in the starting records."
             columns="Show the chosen field and its source record count."
-            supported={Boolean(capabilities.sourceInput?.supported && capabilities.sourceInput.choices.some((choice) => choice.isPopulated))}
-            reason={capabilities.sourceInput?.supported && capabilities.sourceInput.choices.some((choice) => choice.isPopulated)
-              ? ''
-              : capabilities.sourceInput?.reason ?? 'No source field with recorded values is available for grouping.'}
+            supported={sourceGroupSupported}
+            reason={sourceGroupReason}
             disabled={disabled}
             onChoose={() => {
               const next = initialSourceGroupForm(construction, capabilities.sourceInput?.choices ?? []);
@@ -1838,8 +1848,8 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
         <SourceGroupEditor
           form={form}
           choices={capabilities.sourceInput?.choices ?? []}
-          supported={capabilities.sourceInput?.supported ?? false}
-          reason={capabilities.sourceInput?.reason ?? 'No source field is available for grouping.'}
+          supported={sourceGroupSupported}
+          reason={sourceGroupReason}
           disabled={disabled}
           onChange={updateForm}
         />

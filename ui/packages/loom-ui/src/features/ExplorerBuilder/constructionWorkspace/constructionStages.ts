@@ -1,4 +1,20 @@
-import type { Construction, ExplorerBuilderDocument } from '../../../types';
+import type { Construction, ConstructionStageDescriptor, ConstructionStep, ExplorerBuilderDocument } from '../../../types';
+
+type ConstructionInputStage = Pick<ConstructionStageDescriptor, 'id' | 'operation'>;
+
+export const isSourceProjectionStage = (stage: ConstructionInputStage): boolean =>
+  stage.id === 'source_projection' &&
+  (stage.operation === undefined || stage.operation === 'SOURCE_PROJECTION');
+
+export const constructionInputForStage = (stage: ConstructionInputStage): ConstructionStep['inputs'][number] =>
+  isSourceProjectionStage(stage)
+    ? { kind: 'SOURCE_PROJECTION' }
+    : { kind: 'STEP_OUTPUT', stepId: stage.id };
+
+export const sourceInputMatchesStage = (
+  sourceInputStageId: string | undefined,
+  stage: ConstructionInputStage,
+): boolean => isSourceProjectionStage(stage) && sourceInputStageId === stage.id;
 
 export const constructionInputStageFor = (
   construction: Construction | undefined,
