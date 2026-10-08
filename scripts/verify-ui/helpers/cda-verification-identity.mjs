@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { realpath } from 'node:fs/promises';
 import { captureSourceFreeze } from './source-freeze.mjs';
-import { sourceFingerprint } from './source-fingerprint.mjs';
+import { sourceFingerprintWithManifest } from './source-fingerprint.mjs';
 
 export function readBuildIdentity(apiContainer) {
   const value = execFileSync('docker', ['exec', apiContainer, '/workspace/loom-dev-build-stamp.sh', '--check'], {
@@ -15,18 +15,20 @@ export function readBuildIdentity(apiContainer) {
 export async function startVerificationIdentity(sourceRoot, apiContainer) {
   const root = await realpath(sourceRoot);
   const sourceFreeze = await captureSourceFreeze(root);
+  const sourceCapture = sourceFingerprintWithManifest(root);
   return {
     root,
     sourceFreeze,
-    sourceFingerprint: sourceFingerprint(root),
+    sourceFingerprint: sourceCapture.fingerprint,
+    sourceCapture,
     apiBuildIdentity: readBuildIdentity(apiContainer),
     async finish() {
       const freezeResult = await sourceFreeze.assertUnchanged();
-      const fingerprintAfter = sourceFingerprint(root);
-      assert.deepEqual(fingerprintAfter, this.sourceFingerprint, 'Source fingerprint changed during CDA browser verification');
       const buildAfter = readBuildIdentity(apiContainer);
       assert.equal(buildAfter, this.apiBuildIdentity, 'API build identity changed during CDA browser verification');
-      return { sourceFingerprint: { before: this.sourceFingerprint, after: fingerprintAfter }, apiBuildIdentity: { before: this.apiBuildIdentity, after: buildAfter }, sourceFreeze: freezeResult };
+      const finalSourceCapture = sourceFingerprintWithManifest(root);
+      assert.deepEqual(finalSourceCapture, sourceCapture, 'Source manifest changed during CDA browser verification');
+      return { sourceFingerprint: { before: this.sourceFingerprint, after: finalSourceCapture.fingerprint }, apiBuildIdentity: { before: this.apiBuildIdentity, after: buildAfter }, sourceFreeze: freezeResult };
     },
   };
 }

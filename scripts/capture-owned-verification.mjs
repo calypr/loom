@@ -64,12 +64,10 @@ const importCanonical = async path => import(pathToFileURL(join(sourceRoot, path
 const [
   { assertOwnedCdaTarget },
   { startVerificationIdentity },
-  { sourceFingerprintWithManifest },
   { assertFreshApiBuildPrecheck },
 ] = await Promise.all([
   importCanonical('scripts/verify-ui/helpers/owned-cda-target.mjs'),
   importCanonical('scripts/verify-ui/helpers/cda-verification-identity.mjs'),
-  importCanonical('scripts/verify-ui/helpers/source-fingerprint.mjs'),
   importCanonical('scripts/verify-ui/helpers/owned-stack-health.mjs'),
 ]);
 
@@ -123,13 +121,12 @@ if (precheckIdentity) {
     apiBuildIdentity: identity.apiBuildIdentity,
   });
 }
-const source = sourceFingerprintWithManifest(sourceRoot);
+const source = identity.sourceCapture;
+assert(source, 'Verification identity must include the requested source manifest capture.');
 assert.deepEqual(source.fingerprint, identity.sourceFingerprint,
   'Source manifest and verification identity must describe the same watched tree.');
 const docs = docsFingerprint(sourceRoot);
 const identityCheck = await identity.finish();
-assert.deepEqual(sourceFingerprintWithManifest(sourceRoot).fingerprint, source.fingerprint,
-  'Source changed while the capture wrapper was running.');
 assert.deepEqual(docsFingerprint(sourceRoot), docs,
   'Docs changed while the capture wrapper was running.');
 
