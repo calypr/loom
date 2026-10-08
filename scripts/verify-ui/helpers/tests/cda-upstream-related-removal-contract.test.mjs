@@ -6,6 +6,7 @@ import {
   authoredStepOperations,
   expectedPreserveParentRelatedEdit,
 } from '../related-policy-construction.mjs';
+import { buildBoundedArangoQueryScript, summarizeArangoShellResult } from '../owned-arangosh-command.mjs';
 import { selectRelatedRouteOption } from '../related-route-disclosure.mjs';
 import { coverageDrift, hasLifecycleContract, registry, scenarioCaseFor } from '../../registry.mjs';
 
@@ -125,10 +126,10 @@ test('dedicated COMPOSED_RELATED upstream edit case binds a complete untested li
     'the attempted AQL must be retained before the process starts');
   assert.ok(rawQuerySource.indexOf('oracleQueryAttempts.push(attempt)') < rawQuerySource.indexOf('spawnSync('),
     'the first-query attempt record must be attached before the process starts');
-  assert.match(rawQuerySource, /attempt\.spawnError = safeOracleDiagnostic\(result\.error\.message\)/);
-  assert.match(rawQuerySource, /attempt\.signal = result\.signal/);
-  assert.match(rawQuerySource, /attempt\.stdoutExcerpt = safeOracleDiagnostic\(result\.stdout\)/);
-  assert.match(rawQuerySource, /attempt\.stderrExcerpt = safeOracleDiagnostic\(result\.stderr\)/);
+  assert.match(rawQuerySource, /buildBoundedArangoQueryScript\(\{ query, maxRuntimeSeconds: 8, memoryLimitBytes: 256 \* 1024 \* 1024 \}\)/);
+  assert.match(rawQuerySource, /summarizeArangoShellResult\(result, \{ project, generation \}\)/);
+  assert.match(rawQuerySource, /if \(!processEvidence\.processSucceeded\)/,
+    'a timeout must remain a failure even if its partial stdout happens to contain valid JSON');
   assert.match(workflow, /const stage1Rows = relatedRows\(rootParents, stageOneBoundedQuery[\s\S]*?const stage2Rows = relatedRows\(stage1Rows, stageTwoBoundedQuery[\s\S]*?const stage3Rows = relatedRows\(stage2Rows, stageThreeBoundedQuery/);
   assert.match(workflow, /COLLECT parentPath = prior\.pathKey, terminalID = specimen\._id INTO bridgeIDs = observation\._id\s+SORT parentPath, terminalID\s+LIMIT \$\{candidateStageRowSentinel\}\s+LET terminal = DOCUMENT\(terminalID\)[\s\S]*?LET bridgeID = MIN\(bridgeIDs\)/);
   assert.match(workflow, /stage1Count: LENGTH\(stage1\), stage2Count: LENGTH\(stage2\), stage3Count: LENGTH\(stage3\)/);
@@ -308,4 +309,62 @@ test('related route chooser opens the disclosure only for an absent exact route'
     'wait exact route enabled',
     'click exact route',
   ]);
+});
+
+test('bounded raw oracle records redacted stdout completeness without accepting a nonzero process exit', () => {
+  const query = 'FOR candidate IN @@root_collection FILTER candidate.project == @project RETURN candidate';
+  const script = buildBoundedArangoQueryScript({
+    query,
+    maxRuntimeSeconds: 8,
+    memoryLimitBytes: 256 * 1024 * 1024,
+  });
+  assert(script.includes(JSON.stringify(query)));
+  assert.match(script, /maxRuntime: 8, memoryLimit: 268435456/);
+
+  const project = 'loom_dev_cda_fhir';
+  const generation = 'cda-fhir-v1';
+  const rows = [{
+    root: {
+      _id: 'Patient/g_abcdef0123456789abcdef0123456789',
+      _key: 'g_1234567890abcdef1234567890abcdef',
+      id: 'b7cad184-db67-5542-a975-10fffa3e89e7',
+      project,
+      dataset_generation: generation,
+      auth_resource_path: null,
+    },
+  }];
+  const stdout = JSON.stringify(rows);
+  const scope = { project, generation };
+  const timedOut = summarizeArangoShellResult({
+    status: null,
+    signal: 'SIGTERM',
+    error: Object.assign(new Error('spawnSync rtk ETIMEDOUT'), { code: 'ETIMEDOUT' }),
+    stdout,
+    stderr: '',
+  }, scope);
+  assert.equal(timedOut.processSucceeded, false);
+  assert.equal(timedOut.stdoutJsonComplete, true);
+  assert.equal(timedOut.stdoutRowCount, 1);
+  assert.equal(timedOut.stdoutBytes, Buffer.byteLength(stdout));
+  for (const secret of [project, generation, rows[0].root._id, rows[0].root._key, rows[0].root.id]) {
+    assert(!timedOut.stdoutExcerpt.includes(secret));
+    assert(!timedOut.stdoutTailExcerpt.includes(secret));
+  }
+  assert.match(timedOut.stdoutExcerpt, /\[PROJECT\]/);
+  assert.match(timedOut.stdoutTailExcerpt, /\[GENERATION\]/);
+  assert.match(timedOut.stdoutTailExcerpt, /\[ID\]/);
+  assert.match(timedOut.stdoutTailExcerpt, /\[KEY\]/);
+  assert.match(timedOut.stdoutTailExcerpt, /\[FHIR_RESOURCE\]/);
+
+  const incomplete = summarizeArangoShellResult({ status: null, signal: 'SIGTERM', stdout: `${stdout.slice(0, -2)}`, stderr: '' }, scope);
+  assert.equal(incomplete.processSucceeded, false);
+  assert.equal(incomplete.stdoutJsonComplete, false);
+  assert.equal(incomplete.stdoutRowCount, null);
+
+  const exited = summarizeArangoShellResult({ status: 0, stdout, stderr: '' }, scope);
+  assert.equal(exited.processSucceeded, true);
+  assert.equal(exited.stdoutJsonComplete, true);
+  const nonzeroExitWithCompleteJSON = summarizeArangoShellResult({ status: 1, stdout, stderr: '' }, scope);
+  assert.equal(nonzeroExitWithCompleteJSON.stdoutJsonComplete, true);
+  assert.equal(nonzeroExitWithCompleteJSON.processSucceeded, false);
 });

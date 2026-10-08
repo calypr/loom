@@ -1456,6 +1456,7 @@ export const registry = Object.freeze([
       'the dedicated browser case uses the already-loaded owned CDA project and creates a fresh Explorer on the pinned cda-fhir-v1 generation',
       'the independent scoped raw oracle scans at most 25 repeated-leaf root candidates, classifies all three exact path-key counts with a 25th-row sentinel before materializing rows, chooses a member with 1–24 rows at every stage, and retains a distinct valid decoy under the same bound; otherwise the fixture gate fails and the lifecycle remains unverified',
       'all Builder choices, proposals, Apply, Cancel, edit, removal, and reload use the native UI; scoped Arango queries provide the independent source oracle',
+      'the dedicated fixture oracle has an eight-second Arango runtime cap, a 256 MiB memory cap, and a 30-second host timeout; redacted stdout tail and JSON-completeness evidence are retained, while any nonzero process exit remains a failure',
     ],
     script: 'verify-cda-composed-row-lineage-browser.mjs',
     cases: {
@@ -1524,7 +1525,7 @@ export const registry = Object.freeze([
       },
     },
     coverage: [
-      { feature: 'CDA upstream Related policy edit preserves complete dependent rows and cascade removal restores the rooted source', acceptance: { intent: 'row-lifecycle', kind: 'lifecycle', case: 'upstream-edit-cascade', checks: { choice: 1, proposal: 4, cancel: 3, apply: 6, savedRows: 7, reload: 8, edit: 5, restoration: 11 } }, status: 'untested', reason: 'The isolated native driver, bounded candidate selector, and named-check contract are prepared; the raw fixture query and full browser lifecycle have not run. Keep untested until the dedicated COMPOSED_RELATED native case passes against the already-loaded owned CDA project with a fresh Explorer.' },
+      { feature: 'CDA upstream Related policy edit preserves complete dependent rows and cascade removal restores the rooted source', acceptance: { intent: 'row-lifecycle', kind: 'lifecycle', case: 'upstream-edit-cascade', checks: { choice: 1, proposal: 4, cancel: 3, apply: 6, savedRows: 7, reload: 8, edit: 5, restoration: 11 } }, status: 'untested', reason: 'The first full browser bracket on source cec03c19 failed before any native action during bounded fixture discovery: `spawnSync rtk ETIMEDOUT` after its 30-second host timeout; bracket integrity and health passed. A later exact literal-query reproduction completed with the new eight-second/256 MiB server caps in 3,054 ms and returned 25 rows, but the original run retained no stdout tail or JSON-completeness flag, so its timeout cause remains unattributed. The driver now retains redacted stdout prefix/tail and JSON completeness while requiring process exit 0. Keep this lifecycle untested until a fresh same-case browser run passes against the owned CDA target.' },
     ],
   }),
   Object.freeze({

@@ -1,4 +1,8 @@
-import { buildArangoShellInvocation } from '../helpers/owned-arangosh-command.mjs';
+import {
+  buildArangoShellInvocation,
+  buildBoundedArangoQueryScript,
+  summarizeArangoShellResult,
+} from '../helpers/owned-arangosh-command.mjs';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
@@ -165,12 +169,6 @@ const command = async commands => {
 };
 const doc = state => state.workspace.documents.find(item => item.output.id === outputId);
 const scopedDocument = alias => `${alias}.project == ${JSON.stringify(project)} AND ${alias}.dataset_generation == ${JSON.stringify(generation)}`;
-const safeOracleDiagnostic = value => String(value ?? '')
-  .replaceAll(project, '[PROJECT]')
-  .replaceAll(generation, '[GENERATION]')
-  .replace(/\b(?:Patient|Specimen|Observation)\/[A-Za-z0-9._-]+/g, '[FHIR_RESOURCE]')
-  .replace(/\b[0-9a-f]{16,}\b/gi, '[ID]')
-  .slice(0, 500);
 const rawQuery = query => {
   assert(query.includes(JSON.stringify(project)), 'Every raw oracle query must bind the CDA project');
   assert(query.includes(JSON.stringify(generation)), 'Every raw oracle query must bind the CDA dataset generation');
@@ -180,20 +178,17 @@ const rawQuery = query => {
     index: oracleQueryAttempts.length, status: 'running', queryIndex: oracleQueries.length - 1,
   } : null;
   if (attempt) oracleQueryAttempts.push(attempt);
-  const script = `print(JSON.stringify(db._query(${JSON.stringify(query)}).toArray()));`;
+  const script = focusedUpstreamRelatedRemovalCase
+    ? buildBoundedArangoQueryScript({ query, maxRuntimeSeconds: 8, memoryLimitBytes: 256 * 1024 * 1024 })
+    : `print(JSON.stringify(db._query(${JSON.stringify(query)}).toArray()));`;
   const invocation = buildArangoShellInvocation({ container: arangoContainer, script });
   const result = spawnSync(invocation.command, invocation.args, { encoding: 'utf8', timeout: 30000 });
   if (attempt) {
-    attempt.exitStatus = result.status;
-    attempt.signal = result.signal ?? null;
-    attempt.stdoutBytes = Buffer.byteLength(result.stdout ?? '');
-    attempt.stderrBytes = Buffer.byteLength(result.stderr ?? '');
-    if (result.error) attempt.spawnError = safeOracleDiagnostic(result.error.message);
-    if (result.status !== 0) {
+    const processEvidence = summarizeArangoShellResult(result, { project, generation });
+    Object.assign(attempt, processEvidence);
+    if (!processEvidence.processSucceeded) {
       attempt.status = 'failed';
-      attempt.stdoutExcerpt = safeOracleDiagnostic(result.stdout);
-      attempt.stderrExcerpt = safeOracleDiagnostic(result.stderr);
-      throw new Error(`Scoped Arango query failed (${result.status}${attempt.signal ? `, ${attempt.signal}` : ''}): ${attempt.spawnError ?? attempt.stderrExcerpt ?? attempt.stdoutExcerpt ?? 'no process diagnostic'}`);
+      throw new Error(`Scoped Arango query failed (${processEvidence.exitStatus}${processEvidence.signal ? `, ${processEvidence.signal}` : ''}): ${processEvidence.spawnError ?? processEvidence.stderrExcerpt ?? processEvidence.stdoutExcerpt ?? 'no process diagnostic'}`);
     }
   } else {
     assert.equal(result.status, 0, result.stderr);
@@ -209,7 +204,6 @@ const rawQuery = query => {
     if (attempt) {
       attempt.status = 'failed';
       attempt.parseError = String(error.message ?? error).slice(0, 300);
-      attempt.stdoutExcerpt = safeOracleDiagnostic(result.stdout);
     }
     throw error;
   }
