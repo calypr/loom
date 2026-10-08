@@ -59,6 +59,100 @@ test('owned requests correlate sanitized responses and reject sibling explorer p
   assert.deepEqual(report.errors[0].response, report.nativeRequests[0].response);
 });
 
+test('native request chronology records exact Playwright events and diagnoses response correlation misses', async () => {
+  const draft6Body = {
+    stageId: 'source_projection',
+    expectedDraftVersion: 6,
+    expectedDraftDigest: 'sha256:317a5915b25e30e75ef906a2727a18b7d7e409efbbe344e16129aeacd9d9b37f',
+    outputId: 'out_56995fbd74c5cc10579a1fd2',
+  };
+
+  const page = new EventEmitter();
+  const report = { nativeRequests: [], errors: [] };
+  const capture = captureCDARequests(page, {
+    apiOrigin: 'http://127.0.0.1:8188',
+    ownedPathPrefix: '/api/v1/projects/loom_dev_cda_fhir/explorers/owned',
+    report,
+  });
+  const path = 'http://127.0.0.1:8188/api/v1/projects/loom_dev_cda_fhir/explorers/owned/authoring/v2/construction-capabilities';
+  const body = JSON.stringify(draft6Body);
+  const makeRequest = (requestId) => ({
+    url: () => path,
+    method: () => 'POST',
+    headers: () => ({ 'x-request-id': requestId, authorization: 'Bearer private-header' }),
+    postData: () => body,
+    failure: () => ({ errorText: 'net::ERR_ABORTED' }),
+  });
+
+  const successfulRequest = makeRequest('draft6-success');
+  page.emit('request', successfulRequest);
+  page.emit('response', {
+    request: () => successfulRequest,
+    status: () => 200,
+    headers: () => ({ 'x-request-id': 'server-private-id', 'set-cookie': 'private-cookie' }),
+    text: async () => '{"draftVersion":6,"private":"response-payload"}',
+  });
+  page.emit('requestfinished', successfulRequest);
+
+  const failedRequest = makeRequest('draft6-aborted');
+  page.emit('request', failedRequest);
+  page.emit('requestfailed', failedRequest);
+
+  const mismatchedRequest = makeRequest('draft6-mismatch');
+  page.emit('request', mismatchedRequest);
+  const responseTwin = makeRequest('response-object-twin');
+  page.emit('response', {
+    request: () => responseTwin,
+    status: () => 200,
+    headers: () => ({ 'x-request-id': 'unmatched-private-id' }),
+    text: async () => '{"private":"unmatched-response-payload"}',
+  });
+
+  await capture.flush();
+
+  const [successfulEntry, failedEntry, mismatchedEntry] = report.nativeRequests;
+  assert.equal(successfulEntry.status, 200);
+  assert(Number.isFinite(successfulEntry.completedAt), 'a matched successful response must reach the completion path');
+  assert.deepEqual(successfulEntry.nativeEventChronology.map(({ event, browserRequestId, objectMatch }) => ({ event, browserRequestId, objectMatch })), [
+    { event: 'request', browserRequestId: 'playwright-1', objectMatch: true },
+    { event: 'response', browserRequestId: 'playwright-1', objectMatch: true },
+    { event: 'requestfinished', browserRequestId: 'playwright-1', objectMatch: true },
+  ]);
+
+  assert.equal(failedEntry.failure, 'net::ERR_ABORTED');
+  assert(Number.isFinite(failedEntry.completedAt), 'requestfailed must retire a captured request');
+  assert.deepEqual(failedEntry.nativeEventChronology.map(({ event, browserRequestId, objectMatch }) => ({ event, browserRequestId, objectMatch })), [
+    { event: 'request', browserRequestId: 'playwright-2', objectMatch: true },
+    { event: 'requestfailed', browserRequestId: 'playwright-2', objectMatch: true },
+  ]);
+
+  assert.equal(mismatchedEntry.status, undefined, 'a response from a different Request object must not be attached by URL alone');
+  const correlationMiss = report.errors.find(error => error.kind === 'request-capture-correlation' && error.event === 'response');
+  assert.deepEqual({
+    kind: correlationMiss?.kind,
+    event: correlationMiss?.event,
+    browserRequestId: correlationMiss?.browserRequestId,
+    method: correlationMiss?.method,
+    path: correlationMiss?.path,
+    objectMatch: correlationMiss?.objectMatch,
+  }, {
+    kind: 'request-capture-correlation',
+    event: 'response',
+    browserRequestId: null,
+    method: 'POST',
+    path: '/api/v1/projects/loom_dev_cda_fhir/explorers/owned/authoring/v2/construction-capabilities',
+    objectMatch: false,
+  });
+
+  const diagnostics = JSON.stringify({
+    chronology: report.nativeRequests.flatMap(entry => entry.nativeEventChronology ?? []),
+    correlationMiss,
+  });
+  for (const privateValue of ['private-header', 'private-cookie', 'private-response-payload', 'unmatched-response-payload', 'draft6-success', 'server-private-id']) {
+    assert(!diagnostics.includes(privateValue), `native event diagnostics must not expose ${privateValue}`);
+  }
+});
+
 test('related expand choice responses are retained as sanitized diagnostics', async () => {
   const page = new EventEmitter();
   const report = { nativeRequests: [], errors: [] };

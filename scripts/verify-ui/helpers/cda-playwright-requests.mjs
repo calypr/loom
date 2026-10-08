@@ -55,6 +55,36 @@ export function captureCDARequests(page, { apiOrigin, browserRequestOrigin = api
       return false;
     }
   };
+  const recordNativeEvent = (event, request, entry) => {
+    const observedAt = Date.now();
+    if (entry) {
+      (entry.nativeEventChronology ??= []).push({
+        event,
+        browserRequestId: entry.browserRequestId,
+        observedAt,
+        objectMatch: true,
+      });
+      return;
+    }
+    let url;
+    try {
+      url = new URL(request.url());
+    } catch {
+      return;
+    }
+    if (!owns(url.href)) return;
+    const diagnostic = {
+      kind: 'request-capture-correlation',
+      event,
+      browserRequestId: null,
+      method: sanitizeText(request.method()),
+      path: sanitizeText(url.pathname),
+      observedAt,
+      objectMatch: false,
+      message: `Playwright ${event} request object did not match an exact captured request object`,
+    };
+    (report.errors ??= []).push(diagnostic);
+  };
 
   page.on('request', request => {
     if (!owns(request.url())) return;
@@ -78,11 +108,17 @@ export function captureCDARequests(page, { apiOrigin, browserRequestOrigin = api
     byRequest.set(request, entry);
     rawBodies.set(entry, { request: request.postData() === null ? undefined : parseRawBody(request.postData()) });
     report.nativeRequests.push(entry);
+    recordNativeEvent('request', request, entry);
   });
 
   page.on('response', response => {
-    const entry = byRequest.get(response.request());
-    if (!entry) return;
+    const request = response.request();
+    const entry = byRequest.get(request);
+    if (!entry) {
+      recordNativeEvent('response', request);
+      return;
+    }
+    recordNativeEvent('response', request, entry);
     const headers = response.headers();
     entry.status = response.status();
     entry.responseReceivedAt = Date.now();
@@ -127,9 +163,22 @@ export function captureCDARequests(page, { apiOrigin, browserRequestOrigin = api
     } else void trackedRead.then(notify, notify);
   });
 
+  page.on('requestfinished', request => {
+    const entry = byRequest.get(request);
+    if (!entry) {
+      recordNativeEvent('requestfinished', request);
+      return;
+    }
+    recordNativeEvent('requestfinished', request, entry);
+  });
+
   page.on('requestfailed', request => {
     const entry = byRequest.get(request);
-    if (!entry) return;
+    if (!entry) {
+      recordNativeEvent('requestfailed', request);
+      return;
+    }
+    recordNativeEvent('requestfailed', request, entry);
     entry.completedAt = Date.now();
     entry.failure = sanitizeText(request.failure()?.errorText);
     report.errors.push({ kind: 'network', origin: entry.origin, path: entry.path, url: `${entry.origin}${entry.path}`, requestId: entry.requestId, browserRequestId: entry.browserRequestId, method: entry.method, startedAt: entry.startedAt, error: entry.failure,
