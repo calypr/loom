@@ -27,7 +27,7 @@ const requiredChecks = [
   'root cascade Apply and reload restore the exact rooted starting row within five seconds',
 ];
 
-test('dedicated COMPOSED_RELATED upstream edit case binds a complete untested lifecycle contract', async () => {
+test('dedicated COMPOSED_RELATED upstream edit case binds verified lifecycle acceptance and browser evidence', async () => {
   const scenario = registry.find(entry => entry.id === scenarioID);
   assert(scenario, 'the dedicated upstream Related edit scenario must be registered');
   const contract = scenarioCaseFor(scenario, caseName);
@@ -37,7 +37,8 @@ test('dedicated COMPOSED_RELATED upstream edit case binds a complete untested li
 
   const coverage = scenario.coverage.find(entry => entry.feature === 'CDA upstream Related policy edit preserves complete dependent rows and cascade removal restores the rooted source');
   assert(coverage, 'the upstream edit/cascade feature must remain in the coverage inventory');
-  assert.equal(coverage.status, 'untested', 'a staged contract cannot claim a browser pass');
+  assert.equal(coverage.status, 'implemented', 'coverage status follows the passing owned-target lifecycle evidence');
+  assert(coverage.reason?.trim(), 'implemented coverage must retain its evidence and scope reason');
   assert.equal(hasLifecycleContract(coverage, scenario), true);
   assert.deepEqual(coverage.acceptance.checks, {
     choice: 1, proposal: 4, cancel: 3, apply: 6, savedRows: 7, reload: 8, edit: 5, restoration: 11,
