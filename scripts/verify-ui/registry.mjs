@@ -351,6 +351,7 @@ export const registry = Object.freeze([
       'click removal on the mapped attached member and auto-preview the exact candidate',
       'Cancel without changing the saved draft, selection, route, or construction',
       'reopen a fresh proposal, Apply only its proposal ID, and reload the exact candidate',
+      'remove one of two mapped starting-collection members that share a Patient reference, retain a nonempty lower COUNT_ROWS group, and restore the original group after Undo and reload',
     ],
     gateReasons: [
       'the CDA fixture must expose a bounded mapped Specimen and an orphan Specimen with no parent route',
@@ -373,10 +374,42 @@ export const registry = Object.freeze([
           "native removal, Apply, and reload stay within five seconds; product API errors fail and incidental favicon 404s are recorded separately",
         ],
       },
+      "mapped-contributor-removal-preserves-group-counts": {
+        playwrightTest: "scripts/verify-ui/specs/population-member-removal.spec.mjs",
+        playwrightGrep: 'removes one mapped contributor, preserves the lower nonempty GROUP, and restores the exact baseline$',
+        expectedIdentity: { project: 'loom_dev_cda_fhir', generation: 'cda-fhir-v1' },
+        focusedChecks: [
+          {
+            id: 'population-member-group-count-raw-oracle',
+            cwd: '.',
+            command: ['node-test', 'scripts/verify-ui/helpers/tests/population-member-group-oracle.test.mjs'],
+            sourceFiles: [
+              'scripts/verify-ui/registry.mjs',
+              'scripts/verify-ui/specs/population-member-removal.spec.mjs',
+              'scripts/verify-ui/workflows/population-member-removal-workflow.mjs',
+              'scripts/verify-ui/helpers/population-member-group-oracle.mjs',
+            ],
+          },
+        ],
+        requiredChecks: [
+          "bounded independent CDA oracle proves two mapped Specimens share one Patient reference, removing one strictly lowers a nonempty COUNT_ROWS group, and one orphan remains in scope",
+          "authored subject.reference GROUP COUNT_ROWS and related Specimen COUNT match exact raw baseline values and save their bindings",
+          "native Rows settings exposes the exact attached mapped member, mapped survivor, and orphan within five seconds",
+          "mapped-member proposal previews the exact raw candidate with the same Group key and a lower nonzero COUNT_ROWS value",
+          "Cancel preserves the exact saved workspace, draft CAS, attached selection, and baseline Group rows",
+          "reopening issues a fresh proposal request bound to the same exact base selection and draft",
+          "Apply sends only the exact proposal command and preserves route, GROUP, RELATED_SOURCE, and output identities",
+          "candidate membership is exactly the immutable base minus the removed mapped member and retains the mapped survivor and orphan",
+          "reload preserves the exact nonempty changed GROUP and related counts with the authored source bindings",
+          "Undo and restoration reload recover the original collection, GROUP, RELATED_SOURCE, and exact raw baseline counts",
+          "native removal, Apply, reload, and restoration stay within five seconds with no unexpected product or browser errors",
+        ],
+      },
     },
     coverage: [
       { feature: 'mapped-plus-orphan member removal to an empty GROUP→RELATED_SOURCE output', acceptance: {"intent":"row-lifecycle","kind":"lifecycle","case":"mapped-plus-orphan-to-empty","checks":{"choice":2,"proposal":3,"cancel":4,"apply":6,"savedRows":8,"reload":8},"contractGaps":{"restoration":"Epoch96 report verifies Undo restoration, but the registered requiredChecks omit a named restoration assertion."},"notApplicable":{"edit":"This case removes the mapped member from a saved MEMBERSHIP operation; it does not edit a saved MEMBERSHIP policy or other editable construction."}}, status: 'implemented', reason: 'Epoch96 passed all 10 required checks, 40 assertions, and 27 native actions (maximum lifecycle checkpoint 2,382 ms). The independent scoped raw oracle selected the mapped and orphan membership witnesses. Native Cancel, exact proposal Apply, reload, and Undo restored the original workspace, member route, and columns. This evidence covers this exact mapped-plus-orphan empty-output transition. Report: docs/verification/playwright/runtime/current-draft-cda-population-member-removal-epoch96-lifecycle-report.json; lifecycle closure: docs/verification/playwright/runtime/current-draft-cda-population-member-removal-epoch96-lifecycle-closure.json.' },
       { feature: 'Cancel and exact proposal Apply for mapped-plus-orphan removal to an empty output', acceptance: {"intent":"row-lifecycle","kind":"lifecycle","case":"mapped-plus-orphan-to-empty","checks":{"choice":2,"proposal":3,"cancel":4,"apply":6,"savedRows":8,"reload":8},"contractGaps":{"restoration":"Epoch96 report verifies Undo restoration, but the registered requiredChecks omit a named restoration assertion."},"notApplicable":{"edit":"This case removes the mapped member from a saved MEMBERSHIP operation; it does not edit a saved MEMBERSHIP policy or other editable construction."}}, status: 'implemented', reason: 'Epoch96 verified Cancel preserved the saved membership and draft, then a fresh exact proposal Apply removed the mapped member and reloaded the empty result; Undo restored the original workspace, route, and columns. These transitions passed within the 10 required checks, 40 assertions, and 27 native actions (maximum lifecycle checkpoint 2,382 ms), against the independent scoped mapped-plus-orphan raw oracle. Report: docs/verification/playwright/runtime/current-draft-cda-population-member-removal-epoch96-lifecycle-report.json; lifecycle closure: docs/verification/playwright/runtime/current-draft-cda-population-member-removal-epoch96-lifecycle-closure.json.' },
+      { feature: 'mapped-contributor removal that changes a nonempty authored GROUP count', acceptance: { intent: 'row-lifecycle', kind: 'lifecycle', scenario: 'builder-population-member-removal', case: 'mapped-contributor-removal-preserves-group-counts', checks: { choice: 2, proposal: 3, cancel: 4, apply: 6, savedRows: 7, reload: 8, restoration: 9 }, notApplicable: { edit: 'This transition removes an attached starting-collection member and does not edit a saved construction operation.' } }, status: 'untested', reason: 'The native case and independent raw COUNT_ROWS oracle are prepared in this isolated checkout. Existing clear/reattach and mapped-plus-orphan-to-empty evidence do not cover removal of one contributing member while the authored GROUP remains nonempty. Runtime verification is pending the shared CDA stack lease.' },
     ],
   }),
   Object.freeze({
@@ -441,6 +474,8 @@ export const registry = Object.freeze([
       },
       "full-population-lifecycle": {
         playwrightTest: "scripts/verify-ui/specs/root-quantity-pivot.spec.mjs",
+        playwrightGrep: 'matches SUM and MAX output and restores the full CDA source after reload$',
+        expectedIdentity: { project: 'loom_dev_cda_fhir', generation: 'cda-fhir-v1' },
         performanceCheckName: "all full-population native lifecycle actions complete within five seconds each",
         requiredChecks: [
           "independent raw Arango oracle groups the complete scoped CDA Observation population by status and typed quantity.code state",

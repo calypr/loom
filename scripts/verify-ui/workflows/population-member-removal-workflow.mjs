@@ -7,6 +7,7 @@ import { captureCDARequests } from '../helpers/cda-playwright-requests.mjs';
 import { captureSourceFreeze } from '../helpers/source-freeze.mjs';
 import { sourceFingerprint } from '../helpers/source-fingerprint.mjs';
 import { captureApiBuildFreeze, checkContainerApiBuildStamp, ApiBuildFreezeError } from '../helpers/api-build-freeze.mjs';
+import { deriveGroupRowsFromCdaWitnesses, findMappedMemberRemovalWithGroupCountChange } from '../helpers/population-member-group-oracle.mjs';
 import { scenarioCaseFor } from '../registry.mjs';
 
 export const populationMemberRemovalRawFieldsSummarySelector = '[data-testid="construction-operation-editor"] [data-testid="feature-catalog-raw-fields"] > summary';
@@ -70,11 +71,18 @@ export async function populationMemberRemovalWorkflow(page, nativeReport, action
   const authoring = `${explorerRoot}/${encodeURIComponent(explorer)}/authoring/v2`;
   const selections = authoring.replace('/authoring/v2', '/selections');
   const scenario = 'builder-population-member-removal';
-  const caseName = 'mapped-plus-orphan-to-empty';
+  const caseName = context.caseName ?? 'mapped-plus-orphan-to-empty';
+  const mappedGroupCountChange = caseName === 'mapped-contributor-removal-preserves-group-counts';
+  assert(['mapped-plus-orphan-to-empty', 'mapped-contributor-removal-preserves-group-counts'].includes(caseName),
+    `Unsupported population-member-removal case: ${caseName}`);
   const requiredChecks = scenarioCaseFor(scenario, caseName).requiredChecks;
   const report = nativeReport.populationMemberRemoval ?? (nativeReport.populationMemberRemoval = {});
   Object.assign(report, {
-    scenario, case: caseName, title: 'Mapped-plus-orphan source removal to empty GROUP→RELATED_SOURCE output', project, explorer,
+    scenario, case: caseName,
+    title: mappedGroupCountChange
+      ? 'Mapped-member removal changes a nonempty GROUP→RELATED_SOURCE count'
+      : 'Mapped-plus-orphan source removal to empty GROUP→RELATED_SOURCE output',
+    project, explorer,
     assertions: [], cases: [], requests: [], nativeRequests: [], errors: [], incidentalErrors: [], oracle: {}, started: new Date().toISOString(),
   });
   nativeReport.scenario = scenario;
@@ -206,24 +214,59 @@ const rawMembership = selectionId => rawQuery(`FOR member IN loom_explorer_selec
   frozenApiBuild = await captureApiBuildFreeze(() => checkContainerApiBuildStamp(apiBuildContainer));
   report.apiBuildFreeze = { container: apiBuildContainer, initial: frozenApiBuild.initial, invalidatesRun: true, productFailure: false };
 
-  const query = `LET seeds=(FOR s IN Specimen FILTER s.resourceType=="Specimen" AND s.project==${JSON.stringify(project)} AND s.dataset_generation==${JSON.stringify(generation)} SORT s.id LIMIT 2000 RETURN s) FOR s IN seeds LET parents=(FOR e IN fhir_edge FILTER e._from==s._id AND e.label=="parent" AND e.from_type=="Specimen" AND e.to_type=="Specimen" AND e.project==${JSON.stringify(project)} AND e.dataset_generation==${JSON.stringify(generation)} LET parent=DOCUMENT(e._to) FILTER parent!=null AND parent.resourceType=="Specimen" AND parent.project==${JSON.stringify(project)} AND parent.dataset_generation==${JSON.stringify(generation)} RETURN parent._id) LET children=(FOR e IN fhir_edge FILTER e._to==s._id AND e.label=="parent" AND e.from_type=="Specimen" AND e.to_type=="Specimen" AND e.project==${JSON.stringify(project)} AND e.dataset_generation==${JSON.stringify(generation)} LET child=DOCUMENT(e._from) FILTER child!=null AND child.resourceType=="Specimen" AND child.project==${JSON.stringify(project)} AND child.dataset_generation==${JSON.stringify(generation)} RETURN child.id) LET routeRows=(FOR parentEdge IN fhir_edge FILTER parentEdge._from==s._id AND parentEdge.label=="parent" AND parentEdge.from_type=="Specimen" AND parentEdge.to_type=="Specimen" AND parentEdge.project==${JSON.stringify(project)} AND parentEdge.dataset_generation==${JSON.stringify(generation)} LET parent=DOCUMENT(parentEdge._to) FILTER parent!=null AND parent.resourceType=="Specimen" AND parent.project==${JSON.stringify(project)} AND parent.dataset_generation==${JSON.stringify(generation)} FOR specimenEdge IN fhir_edge FILTER specimenEdge._to==parent._id AND specimenEdge.label=="specimen_Specimen" AND specimenEdge.from_type=="Observation" AND specimenEdge.to_type=="Specimen" AND specimenEdge.project==${JSON.stringify(project)} AND specimenEdge.dataset_generation==${JSON.stringify(generation)} LET observation=DOCUMENT(specimenEdge._from) FILTER observation!=null AND observation.resourceType=="Observation" AND observation.project==${JSON.stringify(project)} AND observation.dataset_generation==${JSON.stringify(generation)} RETURN DISTINCT observation.id) RETURN {id:s.id,_id:s._id,parents,children,routeRows}`;
+  const query = `LET seeds=(FOR s IN Specimen FILTER s.resourceType=="Specimen" AND s.project==${JSON.stringify(project)} AND s.dataset_generation==${JSON.stringify(generation)} SORT s.id LIMIT 2000 RETURN s) FOR s IN seeds LET parents=(FOR e IN fhir_edge FILTER e._from==s._id AND e.label=="parent" AND e.from_type=="Specimen" AND e.to_type=="Specimen" AND e.project==${JSON.stringify(project)} AND e.dataset_generation==${JSON.stringify(generation)} LET parent=DOCUMENT(e._to) FILTER parent!=null AND parent.resourceType=="Specimen" AND parent.project==${JSON.stringify(project)} AND parent.dataset_generation==${JSON.stringify(generation)} RETURN parent._id) LET children=(FOR e IN fhir_edge FILTER e._to==s._id AND e.label=="parent" AND e.from_type=="Specimen" AND e.to_type=="Specimen" AND e.project==${JSON.stringify(project)} AND e.dataset_generation==${JSON.stringify(generation)} LET child=DOCUMENT(e._from) FILTER child!=null AND child.resourceType=="Specimen" AND child.project==${JSON.stringify(project)} AND child.dataset_generation==${JSON.stringify(generation)} RETURN child.id) LET routeRows=(FOR parentEdge IN fhir_edge FILTER parentEdge._from==s._id AND parentEdge.label=="parent" AND parentEdge.from_type=="Specimen" AND parentEdge.to_type=="Specimen" AND parentEdge.project==${JSON.stringify(project)} AND parentEdge.dataset_generation==${JSON.stringify(generation)} LET parent=DOCUMENT(parentEdge._to) FILTER parent!=null AND parent.resourceType=="Specimen" AND parent.project==${JSON.stringify(project)} AND parent.dataset_generation==${JSON.stringify(generation)} FOR specimenEdge IN fhir_edge FILTER specimenEdge._to==parent._id AND specimenEdge.label=="specimen_Specimen" AND specimenEdge.from_type=="Observation" AND specimenEdge.to_type=="Specimen" AND specimenEdge.project==${JSON.stringify(project)} AND specimenEdge.dataset_generation==${JSON.stringify(generation)} LET observation=DOCUMENT(specimenEdge._from) FILTER observation!=null AND observation.resourceType=="Observation" AND observation.project==${JSON.stringify(project)} AND observation.dataset_generation==${JSON.stringify(generation)} RETURN DISTINCT {id:observation.id,subjectReference:observation.payload.subject.reference}) RETURN {id:s.id,_id:s._id,parents,children,routeRows}`;
   const candidates = rawQuery(query);
-  const mapped = candidates.find(candidate => candidate.parents.length > 0 && candidate.routeRows.length > 0 && candidate.routeRows.length <= 24);
-  const mappedIds = new Set(mapped?.routeRows ?? []);
-  const orphan = candidates.find(candidate => candidate.id !== mapped?.id && candidate.parents.length === 0 && candidate.children.length > 0 && candidate.routeRows.length === 0);
-  assert(mapped && orphan, `Bounded project/generation oracle did not find a mapped+orphan Specimen pair: ${JSON.stringify(candidates.slice(0, 10))}`);
-  const roots = rawQuery(`FOR o IN Observation FILTER o.id IN ${JSON.stringify(mapped.routeRows)} AND o.resourceType=="Observation" AND o.project==${JSON.stringify(project)} AND o.dataset_generation==${JSON.stringify(generation)} SORT o.id LET specimens=(FOR edge IN fhir_edge FILTER edge._from==o._id AND edge.label=="specimen_Specimen" AND edge.from_type=="Observation" AND edge.to_type=="Specimen" AND edge.project==o.project AND edge.dataset_generation==o.dataset_generation LET specimen=DOCUMENT(edge._to) FILTER specimen!=null AND specimen.resourceType=="Specimen" AND specimen.project==o.project AND specimen.dataset_generation==o.dataset_generation RETURN DISTINCT specimen.id) RETURN {id:o.id,_id:o._id,specimenIDs:SORTED_UNIQUE(specimens)}`);
-  assert.deepEqual(roots.map(row => row.id).sort(), [...mappedIds].sort(), 'The independent root query must recover exactly the mapped member route rows');
+  const mappedGroupWitness = mappedGroupCountChange
+    ? findMappedMemberRemovalWithGroupCountChange(candidates, { maxPreviewRows: 24 })
+    : undefined;
+  const mapped = mappedGroupCountChange
+    ? mappedGroupWitness?.removedMember
+    : candidates.find(candidate => candidate.parents.length > 0 && candidate.routeRows.length > 0 && candidate.routeRows.length <= 24);
+  const survivingMapped = mappedGroupWitness?.survivingMember;
+  const selectedMapped = [mapped, ...(survivingMapped ? [survivingMapped] : [])].filter(Boolean);
+  const mappedObservationIDs = [...new Set(selectedMapped.flatMap(member => member.routeRows.map(row => typeof row === 'string' ? row : row.id)))].sort();
+  const orphan = candidates.find(candidate => !selectedMapped.some(member => member.id === candidate.id) &&
+    candidate.parents.length === 0 && candidate.children.length > 0 && candidate.routeRows.length === 0);
+  assert(mapped && orphan && (!mappedGroupCountChange || (survivingMapped && mappedGroupWitness)),
+    `Bounded project/generation oracle did not find the required mapped membership witness: ${JSON.stringify(candidates.slice(0, 10))}`);
+  const roots = rawQuery(`FOR o IN Observation FILTER o.id IN ${JSON.stringify(mappedObservationIDs)} AND o.resourceType=="Observation" AND o.project==${JSON.stringify(project)} AND o.dataset_generation==${JSON.stringify(generation)} SORT o.id LET specimens=(FOR edge IN fhir_edge FILTER edge._from==o._id AND edge.label=="specimen_Specimen" AND edge.from_type=="Observation" AND edge.to_type=="Specimen" AND edge.project==o.project AND edge.dataset_generation==o.dataset_generation LET specimen=DOCUMENT(edge._to) FILTER specimen!=null AND specimen.resourceType=="Specimen" AND specimen.project==o.project AND specimen.dataset_generation==o.dataset_generation RETURN DISTINCT specimen.id) RETURN {id:o.id,_id:o._id,subjectReference:o.payload.subject.reference,specimenIDs:SORTED_UNIQUE(specimens)}`);
+  assert.deepEqual(roots.map(row => row.id).sort(), mappedObservationIDs, 'The independent root query must recover exactly the selected members’ Observation IDs');
   assert(roots.every(row => row.specimenIDs.length > 0), 'Every baseline Group row needs an exact related Specimen witness');
-  source = { mapped, orphan, roots };
+  source = { mapped, survivingMapped, mappedGroupWitness, orphan, roots };
   const mappedRef = { project, generation, resourceType: 'Specimen', id: mapped.id };
+  const survivingMappedRef = survivingMapped && { project, generation, resourceType: 'Specimen', id: survivingMapped.id };
   const orphanRef = { project, generation, resourceType: 'Specimen', id: orphan.id };
-  const refs = [mappedRef, orphanRef].sort((a, b) => a.id.localeCompare(b.id));
-  const baselineRows = roots.map(row => [row.id, '1', String(row.specimenIDs.length)]);
-  const candidateRows = [];
-  report.oracle = { query, mapped: { id: mapped.id, parentIDs: mapped.parents, rootObservationIDs: mapped.routeRows }, orphan: { id: orphan.id, childIDs: orphan.children }, roots, baselineRows, candidateRows, sourceRefs: refs };
+  const refs = [mappedRef, ...(survivingMappedRef ? [survivingMappedRef] : []), orphanRef].sort((a, b) => a.id.localeCompare(b.id));
+  const baselineSourceRows = mappedGroupCountChange
+    ? roots.map(row => [row.id, row.subjectReference])
+    : roots.map(row => [row.id]);
+  const baselineGroupRows = mappedGroupCountChange
+    ? deriveGroupRowsFromCdaWitnesses(selectedMapped, roots)
+    : roots.map(row => [row.id, '1', String(row.specimenIDs.length)]);
+  const groupPreviewRows = mappedGroupCountChange
+    ? baselineGroupRows.map(([key, rowCount]) => [key, rowCount])
+    : roots.map(row => [row.id, '1']);
+  const baselineRows = baselineGroupRows;
+  const candidateRows = mappedGroupCountChange
+    ? deriveGroupRowsFromCdaWitnesses([survivingMapped], roots)
+    : [];
+  if (mappedGroupCountChange) {
+    assert(candidateRows.length > 0, 'Mapped-member removal must leave at least one authored GROUP row');
+    assert.notDeepEqual(candidateRows, baselineRows, 'Mapped-member removal must change the nonempty authored GROUP count');
+    assert.equal(candidateRows[0][0], baselineRows[0][0], 'The remaining member must preserve the same exact GROUP key');
+    assert(Number(candidateRows[0][1]) < Number(baselineRows[0][1]), 'The raw GROUP COUNT_ROWS value must decrease after removal');
+  }
+  report.oracle = {
+    query, mapped: { id: mapped.id, parentIDs: mapped.parents, rootObservationIDs: mapped.routeRows },
+    ...(survivingMapped ? { survivingMapped: { id: survivingMapped.id, parentIDs: survivingMapped.parents, rootObservationIDs: survivingMapped.routeRows } } : {}),
+    ...(mappedGroupWitness ? { groupCountWitness: mappedGroupWitness } : {}),
+    orphan: { id: orphan.id, childIDs: orphan.children }, roots, baselineSourceRows, baselineRows, candidateRows, sourceRefs: refs,
+  };
   mark(requiredChecks[0]);
 
+  nativeReport.target ??= {};
+  nativeReport.target.explorer = explorer;
+  nativeReport.explorer = explorer;
   await api(explorerRoot, { name: explorer, title: 'Mapped population member removal under Group related summary' });
   builder = await refreshBuilder();
   assert.equal(builder.catalog.generation, generation);
@@ -239,7 +282,18 @@ const rawMembership = selectionId => rawQuery(`FOR member IN loom_explorer_selec
   outputId = createdOutputs[0].output.id;
   const idCandidate = builder.catalog.candidates.find(item => item.nodeId === observation.nodeId && item.fieldPath === 'id');
   assert(idCandidate, 'Observation.id must be available as a stable Group key');
-  await command([{ type: 'ADD_COLUMN', outputId, occurrenceId: 'base', candidateId: idCandidate.candidateId, projectionMode: 'VALUE', initialPresentation: 'TABLE', title: 'Observation ID' }]);
+  const subjectReferenceCandidate = mappedGroupCountChange && builder.catalog.candidates.find(item => item.nodeId === observation.nodeId && item.fieldPath === 'subject.reference');
+  if (mappedGroupCountChange) assert(subjectReferenceCandidate, 'Observation.subject.reference must be available as the independent patient grouping key');
+  const addColumns = [{ type: 'ADD_COLUMN', outputId, occurrenceId: 'base', candidateId: idCandidate.candidateId, projectionMode: 'VALUE', initialPresentation: 'TABLE', title: 'Observation ID' }];
+  if (subjectReferenceCandidate) addColumns.push({ type: 'ADD_COLUMN', outputId, occurrenceId: 'base', candidateId: subjectReferenceCandidate.candidateId, projectionMode: 'VALUE', initialPresentation: 'TABLE', title: 'Patient reference' });
+  await command(addColumns);
+  const sourceKeyColumn = currentDocument(builder).columns.find(column =>
+    column.source?.field?.path === (mappedGroupCountChange ? 'subject.reference' : 'id'));
+  assert(sourceKeyColumn, 'The authored source must expose the exact native GROUP key output column');
+  if (mappedGroupCountChange) {
+    assert.equal(sourceKeyColumn.label, 'Patient reference');
+    assert.equal(sourceKeyColumn.source.field.path, 'subject.reference');
+  }
   baseSelection = await api(selections, {
     snapshotToken: builder.catalog.snapshotToken, idempotencyKey: explorer,
     source: { kind: 'resources', resources: { refs } },
@@ -255,7 +309,7 @@ const rawMembership = selectionId => rawQuery(`FOR member IN loom_explorer_selec
   await command([{ type: 'SET_TABLE_POPULATION', outputId, selectionRevisionId: baseSelection.id, routeChoiceId: routeChoice.routeChoiceId }]);
   const pinnedBaseSelection = currentDocument(builder).population.selectionRevisionId;
   assert.equal(pinnedBaseSelection, baseSelection.id);
-  assert.deepEqual(await rawMembership(baseSelection.id), refs, 'The independent persisted membership must be the exact two source refs');
+  assert.deepEqual(await rawMembership(baseSelection.id), refs, `The independent persisted membership must be the exact ${refs.length} source refs`);
   const selectionPage = await api(`${selections}/${baseSelection.id}?limit=10`);
   assert.deepEqual(selectionPage.members.map(member => member.ref).sort((a, b) => a.id.localeCompare(b.id)), refs);
   report.oracle.baseSelection = selectionPage.revision;
@@ -319,15 +373,16 @@ const rawMembership = selectionId => rawQuery(`FOR member IN loom_explorer_selec
     await refreshBuilder();
   };
 
-  await openBuilder(roots.map(row => [row.id]));
+  await openBuilder(baselineSourceRows);
   let started = Date.now();
   await click('[data-testid="construction-rows-settings-trigger"]');
   await page.locator('[data-testid="construction-action-group-rows"]').waitFor({ state: 'visible', timeout: 30000 });
   await click('[data-testid="construction-action-group-rows"]');
-  await page.locator('input[aria-label="Group by Observation ID"]').waitFor({ state: 'visible', timeout: 30000 });
-  await click('input[aria-label="Group by Observation ID"]');
-  await expectProposalForConstruction(started, roots.map(row => [row.id, '1']));
-  await applyConstruction(roots.map(row => [row.id, '1']));
+  const groupKeySelector = `input[aria-label=${JSON.stringify(`Group by ${sourceKeyColumn.label}`)}]`;
+  await page.locator(groupKeySelector).waitFor({ state: 'visible', timeout: 30000 });
+  await click(groupKeySelector);
+  await expectProposalForConstruction(started, groupPreviewRows);
+  await applyConstruction(groupPreviewRows);
 
   const openRelatedFieldChooser = async () => {
     await click('[data-testid="construction-action-add-columns"]');
@@ -379,6 +434,14 @@ const rawMembership = selectionId => rawQuery(`FOR member IN loom_explorer_selec
   assert.equal(relatedStep.operation.relatedSource.form, 'COUNT');
   assert.equal(relatedStep.operation.relatedSource.source.resourceType, 'Specimen');
   assert.equal(relatedStep.operation.relatedSource.source.path, 'id');
+  if (mappedGroupCountChange) {
+    const groupKey = groupStep.operation.group.keys.find(key => key.inputColumnId === sourceKeyColumn.columnId);
+    const countRows = groupStep.operation.group.aggregates.find(aggregate => aggregate.operation === 'COUNT_ROWS');
+    assert(groupKey, 'Authored GROUP must bind the exact Patient reference source column');
+    assert(countRows, 'Authored GROUP must retain COUNT_ROWS');
+    assert.deepEqual(deriveGroupRowsFromCdaWitnesses(selectedMapped, roots), baselineRows,
+      'The independently derived grouped Observation and related Specimen counts must equal the saved baseline Preview');
+  }
   assert.deepEqual(savedDocument.population.route, currentDocument(builder).population.route);
   mark(requiredChecks[1]);
   const baseHeader = (await api(`${selections}/${baseSelection.id}?limit=10`)).revision;
@@ -394,10 +457,26 @@ const rawMembership = selectionId => rawQuery(`FOR member IN loom_explorer_selec
   const rowSettingsDeadline = rowSettingsStarted + 5000;
   await click('[data-testid="construction-rows-settings-trigger"]', { name: 'Configure rows' }, Math.max(1, rowSettingsDeadline - Date.now()));
   await waitFor(name => { const dialog=document.querySelector('[role="dialog"][aria-label="Row definition settings"]'); const collection=dialog?.querySelector('section[aria-label="Starting collection"]'); const members=collection?.querySelector('[data-testid="population-member-list"]'); return Boolean(dialog && collection && members && [...members.querySelectorAll('button')].some(button => (button.getAttribute('aria-label') || button.innerText).trim() === name)); }, removeName, Math.max(1, rowSettingsDeadline - Date.now()));
-  const collectionState = await inspect(() => { const dialog=document.querySelector('[role="dialog"][aria-label="Row definition settings"]'); const collection=dialog?.querySelector('section[aria-label="Starting collection"]'); return { dialog:Boolean(dialog), selectionId:collection?.dataset.selectionRevisionId, attachedSelectionId:collection?.dataset.attachedSelectionRevisionId, memberList:Boolean(collection?.querySelector('[data-testid="population-member-list"]')) }; });
+  const collectionState = await inspect(() => {
+    const dialog=document.querySelector('[role="dialog"][aria-label="Row definition settings"]');
+    const collection=dialog?.querySelector('section[aria-label="Starting collection"]');
+    const members=collection?.querySelector('[data-testid="population-member-list"]');
+    return {
+      dialog:Boolean(dialog), selectionId:collection?.dataset.selectionRevisionId,
+      attachedSelectionId:collection?.dataset.attachedSelectionRevisionId, memberList:Boolean(members),
+      controls:members ? [...members.querySelectorAll('button')].map(button => (button.getAttribute('aria-label') || button.innerText).trim()) : [],
+    };
+  });
   const rowSettingsDurationMs = Date.now() - rowSettingsStarted;
   assert(rowSettingsDurationMs <= 5000, `Rows settings to attached mapped-member control took ${rowSettingsDurationMs}ms`);
-  assert.deepEqual(collectionState, { dialog: true, selectionId: baseSelection.id, attachedSelectionId: baseSelection.id, memberList: true });
+  const { controls: collectionControls, ...collectionStateWithoutControls } = collectionState;
+  assert.deepEqual(collectionStateWithoutControls, {
+    dialog: true, selectionId: baseSelection.id, attachedSelectionId: baseSelection.id, memberList: true,
+  });
+  if (mappedGroupCountChange) {
+    assert.deepEqual(collectionControls, refs.map(ref => `Review removal of Specimen/${ref.id}`).sort(),
+      'Native Rows settings must show every exact starting-collection member, including the mapped survivor and orphan');
+  }
   mark(requiredChecks[2]);
   report.cases.push({ name: 'open-row-settings-to-attached-mapped-member', durationMs: rowSettingsDurationMs, selectionId: baseSelection.id });
   const expectedBaseBinding = {
@@ -474,10 +553,13 @@ const rawMembership = selectionId => rawQuery(`FOR member IN loom_explorer_selec
   });
   assert.deepEqual(applyEntry.body.commands, [{ type: 'APPLY_POPULATION_MEMBER_PROPOSAL', outputId, proposalId: secondProposal.value.proposalId }], 'Apply must send only the purpose-bound member-removal command');
   mark(requiredChecks[6]);
-  report.cases.push({ name: 'apply-exact-proposal-to-empty-related-source', durationMs: Date.now() - applyStarted, selectionId: secondProposal.candidate.id });
+  report.cases.push({
+    name: mappedGroupCountChange ? 'apply-exact-proposal-to-changed-nonempty-group' : 'apply-exact-proposal-to-empty-related-source',
+    durationMs: Date.now() - applyStarted, selectionId: secondProposal.candidate.id,
+  });
 
   const candidatePage = await api(`${selections}/${secondProposal.candidate.id}?limit=10`);
-  const expectedRemaining = [orphanRef];
+  const expectedRemaining = refs.filter(ref => ref.id !== mapped.id).sort((a, b) => a.id.localeCompare(b.id));
   assert.equal(candidatePage.revision.id, secondProposal.candidate.id);
   assert.equal(candidatePage.revision.source.kind, 'SELECTION_REVISION');
   assert.equal(candidatePage.revision.source.revisionId, baseHeader.id);
@@ -487,8 +569,8 @@ const rawMembership = selectionId => rawQuery(`FOR member IN loom_explorer_selec
   assert.equal(candidatePage.revision.project, project);
   assert.equal(candidatePage.revision.generation, generation);
   assert.equal(candidatePage.revision.resourceType, 'Specimen');
-  assert.equal(candidatePage.revision.memberCount, 1);
-  assert.deepEqual(candidatePage.members.map(member => member.ref), expectedRemaining);
+  assert.equal(candidatePage.revision.memberCount, expectedRemaining.length);
+  assert.deepEqual(candidatePage.members.map(member => member.ref).sort((a, b) => a.id.localeCompare(b.id)), expectedRemaining);
   assert.deepEqual(await rawMembership(baseSelection.id), refs, 'Base immutable membership must remain unchanged after applying its derived revision');
   assert.deepEqual(await rawMembership(secondProposal.candidate.id), expectedRemaining, 'Candidate membership must be exactly the original set minus the mapped source');
   mark(requiredChecks[7]);
@@ -516,8 +598,12 @@ const rawMembership = selectionId => rawQuery(`FOR member IN loom_explorer_selec
   const reread = await api(`${authoring}/preview`, { receiptId: visible.receiptId, outputId, limit: 100 });
   assert.equal(reread.receiptId, visible.receiptId);
   assert.equal(reread.outputId, outputId);
-  assert.equal(reread.rowCount, 0);
-  assert.deepEqual(reread.rows, [], 'Receipt-bound reload preview must contain no surviving related-source rows');
+  assert.equal(reread.rowCount, candidateRows.length);
+  const rereadRows = reread.rows.map(row => reread.columns.map(column => row[column.column] == null ? '—' : String(row[column.column])));
+  assertExactPreviewMultiset(rereadRows, candidateRows,
+    mappedGroupCountChange
+      ? 'Receipt-bound reload preview must retain the exact changed nonempty GROUP and RELATED_SOURCE counts'
+      : 'Receipt-bound reload preview must contain no surviving related-source rows');
   mark(requiredChecks[8]);
   const undoStarted = Date.now();
   await click('button', { name: 'Undo last saved draft change' });
@@ -544,16 +630,20 @@ const rawMembership = selectionId => rawQuery(`FOR member IN loom_explorer_selec
   const restorationReloadMs = Date.now() - restorationReloadStarted;
   assert(restorationReloadMs <= 5000, `Restoration reload took ${restorationReloadMs}ms`);
   report.cases.push({ name: 'reload-restored-original-collection-and-rows', durationMs: restorationReloadMs });
-  mark('Undo restores the original population and its exact attached selection');
+  mark(mappedGroupCountChange
+    ? requiredChecks[9]
+    : 'Undo restores the original population and its exact attached selection');
   await drainNativeNetwork();
   report.networkRequests = report.nativeRequests.map(({ requestId, browserRequestId, path, method, startedAt, completedAt, status, failure, expectedCancellation }) => ({ requestId, browserRequestId, path, method, startedAt, completedAt, status, failure, expectedCancellation }));
   report.networkFailures = report.nativeRequests.filter(request => request.failure).map(({ requestId, path, method, failure }) => ({ requestId, path, method, failure }));
   assert.deepEqual(report.errors, [], 'Native browser path must not issue unexpected failed requests or console/runtime errors');
   assert.deepEqual(report.requests.filter(request => request.status >= 400), [], 'No direct product API request may fail in the removal lifecycle');
   assert(report.cases.some(testCase => testCase.name === 'mapped-member-auto-impact-preview' && testCase.durationMs <= 5000));
-  assert(report.cases.some(testCase => testCase.name === 'apply-exact-proposal-to-empty-related-source' && testCase.durationMs <= 5000));
+  assert(report.cases.some(testCase => testCase.name === (mappedGroupCountChange
+    ? 'apply-exact-proposal-to-changed-nonempty-group'
+    : 'apply-exact-proposal-to-empty-related-source') && testCase.durationMs <= 5000));
   assert(report.cases.some(testCase => testCase.name === 'reload-applied-candidate-to-render' && testCase.durationMs <= 5000));
-  mark(requiredChecks[9]);
+  mark(mappedGroupCountChange ? requiredChecks[10] : requiredChecks[9]);
   report.status = 'passed';
   };
 

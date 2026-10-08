@@ -11,3 +11,14 @@ test.describe('Builder population member removal', () => {
     await populationMemberRemovalWorkflow(page, cda.report, cda.action, cda.check, cda.fault, cda);
   });
 });
+
+test.describe('Builder population member removal with a nonempty GROUP', () => {
+  test.use({
+    cdaScenarioID: 'builder-population-member-removal',
+    cdaCaseName: 'mapped-contributor-removal-preserves-group-counts',
+  });
+
+  test('removes one mapped contributor, preserves the lower nonempty GROUP, and restores the exact baseline', async ({ page, cda }) => {
+    await populationMemberRemovalWorkflow(page, cda.report, cda.action, cda.check, cda.fault, cda);
+  });
+});
