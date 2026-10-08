@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 import { execFileSync } from 'node:child_process';
-import { realpathSync } from 'node:fs';
+import { lstatSync, realpathSync } from 'node:fs';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
+
+const CHECKS_ONLY_ENTRYPOINT = 'scripts/run-native-verification-bracket.mjs';
 
 function reject(message) {
   console.error(`refusing check: ${message}`);
@@ -17,7 +19,7 @@ for (let index = 0; index < optionArgs.length; index += 2) {
   const name = optionArgs[index];
   const value = optionArgs[index + 1];
   if (!['--expected-root', '--forbidden-root'].includes(name) || !value || options.has(name)) {
-    reject('usage: run-assigned-check.mjs --expected-root <path> --forbidden-root <path> [-- node --check|--test <file> | git diff --check]');
+    reject('usage: run-assigned-check.mjs --expected-root <path> --forbidden-root <path> [-- node --check|--test <file> | git diff --check | node scripts/run-native-verification-bracket.mjs --scenario <id> --case <name> --checks-only]');
   }
   options.set(name, value);
 }
@@ -71,4 +73,70 @@ if (command === 'git' && commandArgs.length === 2 && commandArgs[0] === 'diff' &
   execFileSync('git', ['diff', '--check'], { cwd: expectedRoot, stdio: 'inherit' });
   process.exit(0);
 }
-reject('only node --check, node --test, and git diff --check may run through this entrypoint');
+
+if ((command === 'node' || command === process.execPath)
+  && commandArgs[0]?.endsWith('run-native-verification-bracket.mjs')) {
+  if (commandArgs[0] !== CHECKS_ONLY_ENTRYPOINT) {
+    reject(`the registered checks-only entrypoint must be the relative path ${CHECKS_ONLY_ENTRYPOINT}`);
+  }
+
+  const entrypointPath = resolve(expectedRoot, CHECKS_ONLY_ENTRYPOINT);
+  let entrypointInfo;
+  let realEntrypoint;
+  try {
+    entrypointInfo = lstatSync(entrypointPath);
+    realEntrypoint = realpathSync(entrypointPath);
+  } catch (error) {
+    reject(`registered checks-only entrypoint must exist in the assigned worktree: ${error.message}`);
+  }
+  if (entrypointInfo.isSymbolicLink() || realEntrypoint !== entrypointPath) {
+    reject('registered checks-only entrypoint must be a regular file in the assigned worktree, not a symlink');
+  }
+  if (!entrypointInfo.isFile()) {
+    reject('registered checks-only entrypoint must be a regular file in the assigned worktree');
+  }
+  if (!commandArgs.slice(1).includes('--checks-only')) {
+    reject('browser mode is not permitted through the assigned-check guard; pass --checks-only');
+  }
+
+  let scenario;
+  let caseName;
+  let checksOnly = false;
+  for (let index = 1; index < commandArgs.length; index += 1) {
+    const name = commandArgs[index];
+    if (name === '--checks-only') {
+      if (checksOnly) reject('--checks-only may be supplied only once');
+      checksOnly = true;
+      continue;
+    }
+    if (name === '--scenario' || name === '--case') {
+      const value = commandArgs[index + 1];
+      if (!value || value.startsWith('--')) reject(`${name} requires a value`);
+      const normalized = value.trim();
+      if (!normalized) reject(`${name} requires a non-empty value`);
+      if (name === '--scenario') {
+        if (scenario !== undefined) reject('--scenario may be supplied only once');
+        scenario = normalized;
+      } else {
+        if (caseName !== undefined) reject('--case may be supplied only once');
+        caseName = normalized;
+      }
+      index += 1;
+      continue;
+    }
+    reject(`unsupported checks-only argument ${name}`);
+  }
+
+  if (!checksOnly) reject('registered checks-only mode requires --checks-only');
+  if (!scenario || !caseName) reject('registered checks-only mode requires --scenario and --case');
+
+  execFileSync(process.execPath, [
+    entrypointPath,
+    '--scenario', scenario,
+    '--case', caseName,
+    '--checks-only',
+  ], { cwd: expectedRoot, stdio: 'inherit' });
+  process.exit(0);
+}
+
+reject('only node --check, node --test, git diff --check, and the registered checks-only entrypoint may run through this entrypoint');

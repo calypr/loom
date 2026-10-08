@@ -51,9 +51,25 @@ node scripts/verify-ui/helpers/run-assigned-check.mjs \
 ```
 
 The guard checks the physical working directory, Git top-level, and test path;
-it permits only `node --check`, `node --test`, and `git diff --check`. It guards
-where the command runs, not direct file edits. Edit only absolute paths in the
-assigned worktree and set the command's working directory there.
+it permits `node --check`, `node --test`, `git diff --check`, and the registered
+runner in checks-only mode. The runner route accepts only its exact in-repository
+entrypoint, an explicit scenario and case, and `--checks-only`; it rejects a
+symlinked or escaped entrypoint and every browser-mode option. The runner then
+uses the selected registry case and its existing focused-check planner, including
+registered Vitest groups. This keeps the Vitest argv policy in one place. It
+guards where the command runs, not direct file edits. Edit only absolute paths in
+the assigned worktree and set the command's working directory there.
+
+For a registered fast gate such as Membership, put the runner invocation after
+the guard's `--`:
+
+```bash
+node scripts/verify-ui/helpers/run-assigned-check.mjs \
+  --expected-root /private/tmp/owned-stage \
+  --forbidden-root /private/tmp/loom-construction-implementation \
+  -- node scripts/run-native-verification-bracket.mjs \
+    --scenario cda-current-draft-membership --case membership --checks-only
+```
 
 Retain per-file hashes, aggregate fingerprint, and API build identity before a
 browser run. Compare afterward and identify changed paths. Source mutation
@@ -146,10 +162,12 @@ selected stage whose operation is explicitly `SOURCE_PROJECTION`; a green run of
 the current focused group does not prove that contract until this test change is
 promoted into the registered file.
 
-Run only registered fast prerequisites with `make verify-case-checks`. This mode
-does not load target configuration, Docker, or Playwright. A successful focused
-check is not a browser pass, and a browser-only case returns a visible non-pass
-because it has no focused prerequisite group.
+Run only registered fast prerequisites with `make verify-case-checks` when a
+guarded assigned-worktree invocation is not required. The guarded form above
+uses the same checks-only runner without loading target configuration, Docker,
+or Playwright. A successful focused check is not a browser pass, and a
+browser-only case returns a visible non-pass because it has no focused
+prerequisite group.
 
 The normal command selects one scenario/case and a machine-local target config.
 The case's registered Playwright selection is used by default;
@@ -173,7 +191,9 @@ make verify-case \
   TARGET=.codex/owned-cda-target.json
 ```
 
-Run the prerequisite layer independently when diagnosing a known quick failure:
+Run the prerequisite layer independently when diagnosing a known quick failure.
+For an assigned worker, use the guard form above with the case under diagnosis;
+the direct Make target remains a convenience for other contexts:
 
 ```bash
 make verify-case-checks SCENARIO=cda-current-draft-membership CASE=membership
