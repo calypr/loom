@@ -5,6 +5,8 @@ import test from 'node:test';
 import {
   captureCDARequests,
   findCompletedNativeResponse,
+  matchesExpectedEmptyCollectionValidation,
+  matchesExpectedEmptyCollectionValidationConsole,
   matchesNativeConstructionRemovalProposal,
 } from '../cda-playwright-requests.mjs';
 import { sanitizePayload, sanitizeReportPayload } from '../playwright-browser.mjs';
@@ -42,6 +44,57 @@ test('completed proposal selection skips an unrelated removal and binds the exac
   assert.equal(matchesNativeConstructionRemovalProposal(exact, {
     ...responseFor(exact), draftDigest: 'digest-stale',
   }, expected), false);
+});
+
+test('empty-collection validation classification binds the exact draft, row choice, output, policy, and diagnostic', () => {
+  const expected = {
+    path: '/api/v1/projects/owned/explorers/owned/authoring/v2/row-definition-proposals',
+    snapshotToken: 'snapshot-owned', expectedDraftVersion: 8, expectedDraftDigest: 'digest-owned',
+    outputId: 'out-owned', rowChoiceId: 'choice-owned', code: 'EMPTY_COLLECTION_ERROR',
+    stage: 'row-definition-proposal',
+  };
+  const exact = {
+    method: 'POST', path: expected.path, origin: 'http://127.0.0.1:30102',
+    browserRequestId: 'playwright-expected', status: 422,
+    body: {
+      snapshotToken: expected.snapshotToken, expectedDraftVersion: expected.expectedDraftVersion,
+      expectedDraftDigest: expected.expectedDraftDigest, outputId: expected.outputId,
+      selection: { kind: 'EXPANDED', expanded: { rowChoiceId: expected.rowChoiceId, emptyCollectionPolicy: 'ERROR' } },
+    },
+    response: {
+      error: { code: expected.code, diagnostic: { code: expected.code, stage: expected.stage } },
+    },
+  };
+  assert.equal(matchesExpectedEmptyCollectionValidation(exact, expected), true);
+  const consoleError = {
+    kind: 'console', location: exact.origin + exact.path,
+    message: 'Failed to load resource: the server responded with a status of 422 (Unprocessable Entity)',
+  };
+  assert.equal(matchesExpectedEmptyCollectionValidationConsole(consoleError, exact, [exact], expected), true);
+  const competingDraft = structuredClone(exact);
+  competingDraft.browserRequestId = 'playwright-other-draft';
+  competingDraft.body.expectedDraftVersion -= 1;
+  assert.equal(matchesExpectedEmptyCollectionValidationConsole(consoleError, exact, [exact, competingDraft], expected), false,
+    'A same-path/status console line cannot be assigned when another draft response has the same URL and status');
+  const unfinishedRequest = { origin: exact.origin, path: exact.path, status: undefined };
+  assert.equal(matchesExpectedEmptyCollectionValidationConsole(consoleError, exact, [exact, unfinishedRequest], expected), false,
+    'A same-path request with no terminal response makes console ownership ambiguous');
+
+  const mutations = [
+    entry => { entry.body.expectedDraftVersion += 1; },
+    entry => { entry.body.expectedDraftDigest = 'digest-stale'; },
+    entry => { entry.body.selection.expanded.emptyCollectionPolicy = 'PRESERVE_PARENT'; },
+    entry => { entry.response.error.code = 'INTERNAL_ERROR'; },
+    entry => { entry.response.error.diagnostic.code = 'OTHER_VALIDATION'; },
+    entry => { entry.body.outputId = 'out-other'; },
+    entry => { entry.body.selection.expanded.rowChoiceId = 'choice-other'; },
+    entry => { entry.status = 400; },
+  ];
+  for (const mutate of mutations) {
+    const unrelated = structuredClone(exact);
+    mutate(unrelated);
+    assert.equal(matchesExpectedEmptyCollectionValidation(unrelated, expected), false);
+  }
 });
 
 test('owned requests correlate sanitized responses and reject sibling explorer prefixes', async () => {

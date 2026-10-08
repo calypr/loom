@@ -9,8 +9,13 @@ import { ApiBuildFreezeError, captureApiBuildFreeze, checkContainerApiBuildStamp
 import { sourceFingerprint } from '../helpers/source-fingerprint.mjs';
 import { sanitizeBody, sanitizeReportPayload, sanitizeText } from '../helpers/playwright-browser.mjs';
 import { requireUnique } from '../helpers/playwright-actions.mjs';
-import { captureCDARequests } from '../helpers/cda-playwright-requests.mjs';
+import {
+  captureCDARequests,
+  matchesExpectedEmptyCollectionValidation,
+  matchesExpectedEmptyCollectionValidationConsole,
+} from '../helpers/cda-playwright-requests.mjs';
 import { waitForCondition } from '../helpers/playwright-observations.mjs';
+import { CDA_ACTION_TO_RENDER_BUDGET_MS, summarizeCdaActionToRenderTimings } from '../helpers/cda-action-to-render-budget.mjs';
 import { fixtureUnavailableOutcome } from '../helpers/cda-fixture-outcomes.mjs';
 import {
   assertCountRowsGroupLabelEditIdentity,
@@ -63,6 +68,7 @@ let outputId;
 let sourceFreeze;
 let frozenApiBuild;
 let requestMonitor;
+let expectedEmptyValidationBinding;
 const protocolResponse = entry => requestMonitor.rawResponseBody(entry);
 const inspectPage = (page, body) => page.evaluate(`(()=>{${body}})()`);
 const waitForBrowser = (page, condition, timeout = 5000) => waitForCondition(page, condition, Math.min(5000, timeout));
@@ -112,7 +118,6 @@ const selectOption = async (page, selector, value, timeout = 5000) => {
 };
 const navigate = (_page, url) => cda.navigate(url);
 let browserPending = new Set();
-let expectedEmptyErrorMode = false;
 
 const q = value => JSON.stringify(value);
 const recordAssertion = (name, evidence) => report.assertions.push({ name, status: 'passed', evidence });
@@ -241,13 +246,6 @@ const monitorBrowser = () => {
     appOrigins: [values['api-origin'], values['ui-origin']],
     ownedPathPrefix: `${root}/${encodeURIComponent(explorer)}`,
     report: { nativeRequests: report.browserRequests, errors: report.errors },
-    shouldReportHttpError: (path, status, entry) => !(
-      path === `${root}/${encodeURIComponent(explorer)}/authoring/v2/row-definition-proposals` &&
-      expectedEmptyErrorMode && [400, 422].includes(status) && entry.method === 'POST' &&
-      entry.body?.outputId === outputId && entry.body?.selection?.kind === 'EXPANDED' &&
-      entry.body?.selection?.expanded?.rowChoiceId === report.choice?.choiceId &&
-      entry.body?.selection?.expanded?.emptyCollectionPolicy === 'ERROR'
-    ),
     shouldReportRequestFailure: (entry, request) => {
       const replacement = laterSamePathRequest(entry);
       return request.failure()?.errorText === 'net::ERR_ABORTED'
@@ -260,15 +258,11 @@ const monitorBrowser = () => {
   nativePage.on('response', response => {
     const url = new URL(response.url());
     if (url.origin !== new URL(values['ui-origin']).origin || response.status() < 400) return;
-    const incident = { url: sanitizeText(response.url()), status: response.status() };
-    if (url.pathname === `${root}/${encodeURIComponent(explorer)}/authoring/v2/row-definition-proposals`
-      && expectedEmptyErrorMode && [400, 422].includes(response.status())) {
-      const request = report.browserRequests.findLast(entry => entry.path === url.pathname && entry.status === response.status());
-      report.expectedEmptyValidationResponses ??= [];
-      report.expectedEmptyValidationResponses.push({ status: response.status(), requestId: request?.requestId, path: url.pathname,
-        response: request?.response, reason: 'The current ERROR-policy preview intentionally validates an empty collection.' });
-      return;
-    }
+    const request = requestMonitor.byRequest.get(response.request());
+    const incident = {
+      url: sanitizeText(response.url()), status: response.status(),
+      ...(request ? { browserRequestId: request.browserRequestId, requestId: request.requestId } : {}),
+    };
     if (url.pathname.endsWith('/favicon.ico')) report.browserErrors.incidental.push(incident);
     else report.browserErrors.http.push(incident);
   });
@@ -287,8 +281,8 @@ const measure = async (name, action) => {
   const startedAt = Date.now();
   const result = await action(startedAt);
   const durationMs = Date.now() - startedAt;
-  report.timings.push({ name, durationMs, limitMs: 5000 });
-  assert(durationMs <= 5000, name + ' took ' + durationMs + 'ms');
+  report.timings.push({ name, durationMs, limitMs: CDA_ACTION_TO_RENDER_BUDGET_MS });
+  assert(durationMs <= CDA_ACTION_TO_RENDER_BUDGET_MS, name + ' took ' + durationMs + 'ms');
   return result;
 };
 const tableURL = () => values['ui-origin'] + '/?project=' + encodeURIComponent(values.project) + '&explorer=' + encodeURIComponent(explorer) + '&mode=builder';
@@ -317,7 +311,16 @@ const awaitRequestBody = async (entry, startedAt) => {
   assert(entry && protocolResponse(entry) !== undefined, 'Native row proposal response was not captured: ' + JSON.stringify(entry));
 };
 const selectAndPreview = async (policy, expectedRows, emptyError = false) => measure('row-definition-preview-' + policy, async startedAt => {
-  expectedEmptyErrorMode = emptyError;
+  expectedEmptyValidationBinding = emptyError ? {
+    path: `${base}/row-definition-proposals`,
+    snapshotToken: builder.catalog.snapshotToken,
+    expectedDraftVersion: builder.draftVersion,
+    expectedDraftDigest: builder.draftDigest,
+    outputId,
+    rowChoiceId: report.choice.choiceId,
+    code: 'EMPTY_COLLECTION_ERROR',
+    stage: 'row-definition-proposal',
+  } : undefined;
   const selectedShape = await inspectPage(nativePage, 'return document.querySelector(' + q(shapeSelect) + ')?.value;');
   if (selectedShape !== 'expanded:' + report.choice.choiceId) {
     await selectOption(nativePage, shapeSelect, 'expanded:' + report.choice.choiceId);
@@ -694,11 +697,16 @@ const saveDOM = async name => {
 };
 const verifyEmptyError = async request => {
   assert(request, 'No native ERROR-policy row proposal was captured');
-  assert([400, 422].includes(request.status), 'Empty-only ERROR must return 400/422, got ' + request.status + ': ' + JSON.stringify(request.response));
+  assert.equal(request.status, 422, 'Empty-only ERROR must return the observed HTTP 422 validation response: ' + JSON.stringify(request.response));
+  assert(expectedEmptyValidationBinding, 'ERROR-policy request has no captured draft binding');
+  assert(matchesExpectedEmptyCollectionValidation(request, expectedEmptyValidationBinding),
+    'ERROR-policy response did not match the exact owned draft, row choice, output, policy, and EMPTY_COLLECTION_ERROR contract: ' + JSON.stringify(request));
   const alertText = await inspectPage(nativePage, 'return document.querySelector(\'[aria-label="Row definition settings"] [role="alert"]\')?.innerText ?? "";');
   const responseText = JSON.stringify(request.response) + ' ' + alertText;
   const rawResponse = protocolResponse(request);
   const code = rawResponse?.error?.code ?? rawResponse?.code ?? rawResponse?.errorCode ?? rawResponse?.error?.errorCode;
+  assert.equal(code, 'EMPTY_COLLECTION_ERROR', 'Empty-only ERROR must return the specific EMPTY_COLLECTION_ERROR diagnostic: ' + responseText);
+  assert.equal(rawResponse?.error?.diagnostic?.stage, 'row-definition-proposal', 'Empty-only ERROR must originate from row-definition proposal validation');
   assert.notEqual(code, 'INTERNAL_ERROR', 'Empty-only ERROR returned INTERNAL_ERROR: ' + responseText);
   assert(/empty|no values|at least one|collection/i.test(responseText), 'Validation did not explain the empty collection: ' + responseText);
   const policy = await inspectPage(nativePage,
@@ -706,30 +714,72 @@ const verifyEmptyError = async request => {
   assert.equal(policy.disabled, false, 'Policy repair control must remain enabled after ERROR validation');
   assert(policy.options.some(option => option.value.endsWith(':PRESERVE_PARENT') && !option.disabled), 'PRESERVE_PARENT repair choice must remain enabled');
   assert(policy.options.some(option => option.value.endsWith(':EXCLUDE') && !option.disabled), 'EXCLUDE repair choice must remain enabled');
-  report.expectedEmptyError = { status: request.status, code, response: request.response, message: alertText, repairOptions: policy.options };
+
+  const officialMatches = cda.nativeRequests.filter(entry => entry.path === expectedEmptyValidationBinding.path &&
+    entry.method === 'POST' && entry.status === request.status &&
+    entry.body?.snapshotToken === expectedEmptyValidationBinding.snapshotToken &&
+    entry.body?.expectedDraftVersion === expectedEmptyValidationBinding.expectedDraftVersion &&
+    entry.body?.expectedDraftDigest === expectedEmptyValidationBinding.expectedDraftDigest &&
+    entry.body?.outputId === expectedEmptyValidationBinding.outputId &&
+    entry.body?.selection?.kind === 'EXPANDED' &&
+    entry.body?.selection?.expanded?.rowChoiceId === expectedEmptyValidationBinding.rowChoiceId &&
+    entry.body?.selection?.expanded?.emptyCollectionPolicy === 'ERROR');
+  assert.equal(officialMatches.length, 1, 'Expected validation must bind to exactly one official native request capture');
+  const officialEntry = officialMatches[0];
+  await cda.waitForCapturedResponse(officialRequestCapture, candidate => candidate === officialEntry, 5000);
+  assert(matchesExpectedEmptyCollectionValidation(officialEntry, expectedEmptyValidationBinding),
+    'Official native capture did not retain the exact EMPTY_COLLECTION_ERROR response body');
+  const rawOracle = report.oracle?.selected?.filter(resource => resource.emptyComponentKind)
+    .map(({ id, emptyComponentKind }) => ({ id, emptyComponentKind }));
+  assert(rawOracle?.length > 0, 'Expected validation classification needs the independent raw empty-component oracle');
+  const proof = {
+    outputPath: request.path,
+    method: request.method,
+    status: request.status,
+    requestId: request.requestId,
+    snapshotToken: expectedEmptyValidationBinding.snapshotToken,
+    expectedDraftVersion: expectedEmptyValidationBinding.expectedDraftVersion,
+    expectedDraftDigest: expectedEmptyValidationBinding.expectedDraftDigest,
+    outputId: expectedEmptyValidationBinding.outputId,
+    rowChoiceId: expectedEmptyValidationBinding.rowChoiceId,
+    diagnosticCode: code,
+    rawOracle,
+    policy: 'ERROR',
+    reason: 'The UI case deliberately previews the empty-only source selection with ERROR before exercising the enabled PRESERVE_PARENT repair.',
+  };
+  const classification = cda.expectHttpFailure(officialEntry,
+    'The raw CDA oracle predicts empty-only ERROR row-definition validation', proof, { status: officialEntry.status });
+  const localHttp = report.errors.filter(error => error.kind === 'http' && error.browserRequestId === request.browserRequestId &&
+    error.path === request.path && error.status === request.status);
+  assert.equal(localHttp.length, 1, 'Expected validation must match one local native HTTP diagnostic by exact request ID');
+  for (const error of localHttp) {
+    error.expected = true;
+    error.expectedHttpFailure = classification;
+  }
+  const localConsole = report.errors.filter(error => error.kind === 'console' && error.location === request.origin + request.path &&
+    error.message === 'Failed to load resource: the server responded with a status of 422 (Unprocessable Entity)');
+  assert(localConsole.length <= 1, 'Expected validation must not consume ambiguous console diagnostics');
+  if (localConsole.length === 1 && matchesExpectedEmptyCollectionValidationConsole(
+    localConsole[0], request, report.browserRequests, expectedEmptyValidationBinding)) {
+    localConsole[0].expected = true;
+    localConsole[0].expectedHttpFailure = classification;
+  }
+  const browserHttp = report.browserErrors.http.filter(error => error.browserRequestId === request.browserRequestId && error.status === request.status);
+  assert.equal(browserHttp.length, 1, 'Expected validation must match one browser HTTP diagnostic by exact request ID');
+  for (const error of browserHttp) {
+    error.expected = true;
+    error.expectedHttpFailure = classification;
+  }
+
+  report.expectedEmptyError = {
+    status: request.status, code, response: request.response, message: alertText, repairOptions: policy.options,
+    requestBinding: expectedEmptyValidationBinding, officialRequestId: officialEntry.browserRequestId,
+    classification,
+  };
   recordAssertion('ERROR policy gives understandable empty-only validation and keeps repair choices enabled', report.expectedEmptyError);
 };
 const finish = async () => {
   await officialRequestCapture.flush();
-  for (const expected of report.expectedEmptyValidationResponses ?? []) {
-    const entry = cda.nativeRequests.findLast(candidate => candidate.path === expected.path &&
-      candidate.requestId === expected.requestId && candidate.status === expected.status);
-    assert(entry, 'The official CDA fixture must capture the exact expected empty-only validation response');
-    await cda.waitForCapturedResponse(officialRequestCapture, candidate => candidate === entry, 5000);
-    const proof = {
-      outputPath: expected.path,
-      method: entry.method,
-      status: entry.status,
-      requestId: entry.requestId,
-      rawOracle: report.oracle?.selected?.filter(resource => resource.emptyComponentKind)
-        .map(({ id, emptyComponentKind }) => ({ id, emptyComponentKind })),
-      policy: 'ERROR',
-      reason: expected.reason,
-    };
-    cda.expectHttpFailure(entry, 'The independent raw CDA oracle predicts empty-only ERROR validation', proof, {
-      status: entry.status,
-    });
-  }
   report.finished = new Date().toISOString();
   if (report.status !== 'invalidated') {
     const blockingGaps = report.gaps.filter(gap => gap.blocking !== false);
@@ -1102,8 +1152,8 @@ const main = async () => {
     assert.deepEqual(report.browserErrors.exceptions, [], 'Browser raised JavaScript exceptions');
     assert.deepEqual(report.browserErrors.console, [], 'Browser logged console errors');
     assert.deepEqual(report.browserErrors.modules, [], 'Browser failed to load a module');
-    assert.deepEqual(report.browserErrors.http, [], 'Browser received unexpected 4xx/5xx responses');
-    assert.deepEqual(report.errors, [], 'Playwright request capture reported an owned API, runtime, or console failure');
+    assert.deepEqual(report.browserErrors.http.filter(error => error.expected !== true), [], 'Browser received unexpected 4xx/5xx responses');
+    assert.deepEqual(report.errors.filter(error => error.expected !== true), [], 'Playwright request capture reported an owned API, runtime, or console failure');
     const maximumCheckpointMs = Math.max(...report.timings.map(item => item.durationMs));
     assert(report.timings.length > 0 && report.timings.every(item => item.durationMs <= 5000), 'A native action checkpoint exceeded five seconds');
     recordAssertion('all native action-to-render checkpoints complete within five seconds', {
@@ -1132,7 +1182,6 @@ const main = async () => {
   await openRowSettings();
   const errorProposal = await selectAndPreview('ERROR', undefined, true);
   await verifyEmptyError(errorProposal);
-  expectedEmptyErrorMode = false;
   await measure('repair-policy-after-error', async startedAt => {
     await selectOption(nativePage, policySelect, 'expanded:' + report.choice.choiceId + ':PRESERVE_PARENT');
     await fastWait(startedAt, { kind: 'text-includes', selector: '[aria-label="Row definition preview"]', text: '→ ' + emptyResources.length + ' rows' }, 'Actionable empty-collection policy repair');
@@ -1175,8 +1224,23 @@ const main = async () => {
   assert.deepEqual(report.browserErrors.exceptions, [], 'Browser raised JavaScript exceptions');
   assert.deepEqual(report.browserErrors.console, [], 'Browser logged console errors');
   assert.deepEqual(report.browserErrors.modules, [], 'Browser failed to load a module');
-  assert.deepEqual(report.browserErrors.http, [], 'Browser received unexpected 4xx/5xx responses');
-  assert.deepEqual(report.errors, [], 'Playwright request capture reported an owned API, runtime, or console failure');
+  assert.deepEqual(report.browserErrors.http.filter(error => error.expected !== true), [], 'Browser received unexpected 4xx/5xx responses');
+  assert.deepEqual(report.errors.filter(error => error.expected !== true), [], 'Playwright request capture reported an owned API, runtime, or console failure');
+  const timingSummary = summarizeCdaActionToRenderTimings(report.timings);
+  const actionDurations = (cda.report.actions ?? []).map(action => action.elapsedMs);
+  const actionDurationsValid = actionDurations.length > 0 && actionDurations.every(Number.isFinite);
+  const maxActionMs = actionDurationsValid ? Math.max(...actionDurations) : null;
+  const timingEvidence = {
+    measuredTransitionCount: timingSummary.checkpointCount,
+    actionCount: actionDurations.length,
+    maxActionMs,
+    maximumActionToRenderMs: timingSummary.maximumDurationMs,
+    checkpointBudgetMs: CDA_ACTION_TO_RENDER_BUDGET_MS,
+    timingCheckpoints: timingSummary.checkpoints,
+  };
+  cda.check('performance', 'all native action-to-render checkpoints complete within five seconds',
+    timingSummary.withinBudget && actionDurationsValid && maxActionMs <= CDA_ACTION_TO_RENDER_BUDGET_MS, timingEvidence);
+  report.performance = timingEvidence;
   recordAssertion('native row-policy lifecycle had no browser, module, console, or unexpected HTTP errors', report.browserErrors);
 };
 

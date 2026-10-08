@@ -62,6 +62,34 @@ export const matchesNativeConstructionRemovalProposal = (entry, response, expect
     response.draftDigest === expected.draftDigest;
 };
 
+export function matchesExpectedEmptyCollectionValidation(entry, expected) {
+  const request = entry?.body;
+  const selection = request?.selection;
+  const expanded = selection?.expanded;
+  const response = entry?.response;
+  const error = response?.error;
+  const diagnostic = error?.diagnostic ?? response?.diagnostics?.find(item => item?.code === expected?.code);
+  return entry?.method === 'POST' && entry.path === expected?.path &&
+    entry.status === 422 &&
+    request?.snapshotToken === expected?.snapshotToken &&
+    request.expectedDraftVersion === expected?.expectedDraftVersion &&
+    request.expectedDraftDigest === expected?.expectedDraftDigest &&
+    request.outputId === expected?.outputId &&
+    selection?.kind === 'EXPANDED' && expanded?.rowChoiceId === expected?.rowChoiceId &&
+    expanded.emptyCollectionPolicy === 'ERROR' &&
+    error?.code === expected?.code && diagnostic?.code === expected?.code &&
+    diagnostic?.stage === expected?.stage;
+}
+
+export function matchesExpectedEmptyCollectionValidationConsole(consoleError, entry, nativeRequests, expected) {
+  if (!matchesExpectedEmptyCollectionValidation(entry, expected)) return false;
+  const competingRequests = nativeRequests.filter(candidate => candidate.origin === entry.origin &&
+    candidate.path === entry.path && (candidate.status === entry.status || candidate.status === undefined));
+  return competingRequests.length === 1 && competingRequests[0] === entry &&
+    consoleError?.kind === 'console' && consoleError.location === `${entry.origin}${entry.path}` &&
+    consoleError.message === 'Failed to load resource: the server responded with a status of 422 (Unprocessable Entity)';
+}
+
 export function captureCDARequests(page, { apiOrigin, browserRequestOrigin = apiOrigin, appOrigins = [apiOrigin], ownedPathPrefix, report, currentAction = () => undefined, responsePaths = /commands|selections|explicit-groups|row-definition-proposals|construction-choice-proposals|construction-proposals|construction-capabilities|row-lineage|population-mapping|preview/, shouldReportHttpError = () => true } = {}) {
   if (!apiOrigin || !ownedPathPrefix || !report || !Array.isArray(report.nativeRequests)) {
     throw new TypeError('CDA request capture needs an API origin, owned path prefix, and nativeRequests report array');
