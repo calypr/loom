@@ -1562,6 +1562,43 @@ export const registry = Object.freeze([
     cases: {
       'related-unpivot': {
         playwrightTest: 'scripts/verify-ui/specs/standalone-reshape.spec.mjs',
+        playwrightGrep: 'related-unpivot$',
+        expectedIdentity: { project: 'loom_dev_cda_fhir', generation: 'cda-fhir-v1' },
+        focusedChecks: [
+          {
+            id: 'related-unpivot-oracle-and-lifecycle-contract',
+            cwd: '.',
+            command: [
+              'node-test',
+              'scripts/verify-ui/helpers/tests/coverage-status.test.mjs',
+              'scripts/verify-ui/helpers/tests/cda-row-oracle.test.mjs',
+              'scripts/verify-ui/helpers/tests/owned-arangosh-command.test.mjs',
+              'scripts/verify-ui/helpers/tests/source-freeze.test.mjs',
+              'scripts/verify-ui/helpers/tests/api-build-freeze.test.mjs',
+              'scripts/verify-ui/helpers/tests/cda-explicit-ui-route.test.mjs',
+            ],
+            sourceFiles: [
+              'scripts/run-native-verification-bracket.mjs',
+              'scripts/verify-ui/registry.mjs',
+              'scripts/verify-ui/helpers/owned-stack-health.mjs',
+              'scripts/verify-ui/helpers/focused-check-groups.mjs',
+              'scripts/verify-ui/specs/standalone-reshape.spec.mjs',
+              'scripts/verify-ui/workflows/verify-cda-related-unpivot-browser.mjs',
+              'scripts/verify-ui/helpers/cda-fixtures.mjs',
+              'scripts/verify-ui/helpers/cda-playwright.mjs',
+              'scripts/verify-ui/helpers/owned-arangosh-command.mjs',
+              'scripts/verify-ui/helpers/source-freeze.mjs',
+              'scripts/verify-ui/helpers/api-build-freeze.mjs',
+              'scripts/verify-ui/helpers/source-fingerprint.mjs',
+              'scripts/verify-ui/helpers/playwright-browser.mjs',
+              'scripts/verify-ui/helpers/cda-row-oracle.mjs',
+              'scripts/verify-ui/helpers/owned-cda-target.mjs',
+              'scripts/verify-ui/helpers/unpivot-schema.mjs',
+              'scripts/verify-ui/helpers/coverage-status.mjs',
+              'scripts/loom-dev.mjs',
+            ],
+          },
+        ],
         requiredChecks: [
           'bounded raw CDA oracle selects a complete two-to-twenty-four-row Specimen Related chain',
           'fresh Explorer and direct Specimen ID column bind the exact project and generation-scoped source',
