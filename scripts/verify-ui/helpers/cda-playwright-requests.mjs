@@ -15,6 +15,7 @@ const parseRawBody = body => {
   try { return JSON.parse(String(body ?? '')); }
   catch { return String(body ?? ''); }
 };
+const retiredResponseBodyReadError = /^response\.text: Protocol error \(Network\.getResponseBody\): No data found for resource with given identifier\nResponse body is not available for a response that was navigated away from\. Read response\.body\(\) before triggering any navigation\.$/;
 
 export const findCompletedNativeResponse = (entries, responseFor, predicate, fromIndex = 0) =>
   entries.slice(fromIndex).find(entry => {
@@ -192,7 +193,33 @@ export function captureCDARequests(page, { apiOrigin, browserRequestOrigin = api
       });
     },
     async flush({ timeoutMs = 5_000 } = {}) {
-      await responseReads.flush({ timeoutMs, label: 'owned CDA response reads' });
+      await responseReads.flush({
+        timeoutMs,
+        label: 'owned CDA response reads',
+        filter: details => {
+          if (details.phase !== 'response-body' || details.status !== 200) return true;
+          const matching = report.nativeRequests.filter(entry => entry.browserRequestId === details.browserRequestId);
+          if (matching.length !== 1) return true;
+          const entry = matching[0];
+          const cancellation = entry.expectedCancellation;
+          const exactRetirement = entry.expected === true
+            && entry.canceled === true
+            && entry.failure === 'net::ERR_ABORTED'
+            && cancellation?.browserRequestId === entry.browserRequestId
+            && cancellation.requestId === entry.requestId
+            && cancellation.method === entry.method
+            && cancellation.url === `${entry.origin}${entry.path}`
+            && typeof cancellation.reason === 'string' && cancellation.reason.trim().length > 0
+            && cancellation.proof !== null && typeof cancellation.proof === 'object'
+            && !Array.isArray(cancellation.proof)
+            && details.requestId === entry.requestId
+            && details.method === entry.method
+            && details.path === entry.path
+            && details.status === entry.status
+            && retiredResponseBodyReadError.test(entry.responseReadError ?? '');
+          return !exactRetirement;
+        },
+      });
       return report.nativeRequests;
     },
   };

@@ -6,6 +6,7 @@ import { captureCDARequests, findCompletedNativeResponse } from '../cda-playwrig
 import { sanitizePayload, sanitizeReportPayload } from '../playwright-browser.mjs';
 import { createPendingResponseReads } from '../pending-response-reads.mjs';
 import { expectedRelatedSourceOneValidation } from '../related-source-capture.mjs';
+import { classifyExpectedCdaCancellation } from '../cda-fixtures.mjs';
 
 test('owned requests correlate sanitized responses and reject sibling explorer prefixes', async () => {
   const page = new EventEmitter();
@@ -735,4 +736,145 @@ test('a proposal captured during its trigger click remains visible to the waiter
     'the request that arrives before the click promise resolves must still satisfy the proposal wait');
   assert.equal(findCompletedNativeResponse(entries, entry => entry.response, matchesProposal, entries.length), undefined,
     'taking the request boundary after the click would skip the already-recorded proposal');
+});
+
+const navigationBodyReadError = new Error('response.text: Protocol error (Network.getResponseBody): No data found for resource with given identifier\nResponse body is not available for a response that was navigated away from. Read response.body() before triggering any navigation.');
+
+function makeResponseReadFailureHarness() {
+  const page = new EventEmitter();
+  const report = { nativeRequests: [], errors: [] };
+  const requestFailures = new WeakMap();
+  const capture = captureCDARequests(page, {
+    apiOrigin: 'http://127.0.0.1:30102',
+    ownedPathPrefix: '/api/v1/projects/isolated/explorers/owned',
+    report,
+    responsePaths: /commands/,
+  });
+  const trackers = new Set([capture]);
+  let nextRequestId = 1;
+
+  const requestFor = () => {
+    const id = nextRequestId++;
+    let observedFailure = null;
+    const request = {
+      url: () => 'http://127.0.0.1:30102/api/v1/projects/isolated/explorers/owned/authoring/v2/commands',
+      method: () => 'POST',
+      headers: () => ({ 'x-request-id': `body-read-${id}` }),
+      postData: () => '{}',
+      failure: () => observedFailure,
+    };
+    page.emit('request', request);
+    const entry = capture.byRequest.get(request);
+    return {
+      request,
+      entry,
+      respond(status = 200, text = () => Promise.reject(navigationBodyReadError)) {
+        page.emit('response', {
+          request: () => request,
+          status: () => status,
+          headers: () => ({}),
+          text,
+        });
+      },
+      fail(errorText = 'net::ERR_ABORTED') {
+        observedFailure = { errorText };
+        const failure = {
+          errorText,
+          method: request.method(),
+          url: request.url(),
+          requestId: request.headers()['x-request-id'],
+          playwrightRequestId: `cda-request-${entry.browserRequestId}`,
+        };
+        requestFailures.set(request, failure);
+        page.emit('requestfailed', request);
+      },
+    };
+  };
+
+  return { capture, report, requestFailures, trackers, requestFor };
+}
+
+const classifyBodyReadCancellation = (harness, request) => classifyExpectedCdaCancellation({
+  request,
+  reason: 'A replacement navigation canceled this response body read.',
+  proof: { action: 'Replace the current page after its command response.' },
+  report: harness.report,
+  requestFailures: harness.requestFailures,
+  trackers: harness.trackers,
+});
+
+test('an exact classified net::ERR_ABORTED accepts the HTTP 200 navigation body-read failure', async () => {
+  const harness = makeResponseReadFailureHarness();
+  const failed = harness.requestFor();
+  failed.respond();
+  await new Promise(resolve => setImmediate(resolve));
+  failed.fail();
+
+  const cancellation = classifyBodyReadCancellation(harness, failed.request);
+  assert.equal(failed.entry.status, 200);
+  assert.equal(failed.entry.responseReadError, navigationBodyReadError.message,
+    'the protocol body-read failure must remain available as request evidence');
+  assert.equal(failed.entry.expectedCancellation, cancellation);
+  assert.equal(cancellation.browserRequestId, failed.entry.browserRequestId);
+  await assert.doesNotReject(harness.capture.flush());
+
+  const internalFailure = harness.requestFor();
+  internalFailure.respond(500, async () => JSON.stringify({ error: { code: 'INTERNAL' } }));
+  await harness.capture.flush();
+  assert(harness.report.errors.some(error => error.kind === 'http' && error.status === 500 &&
+    error.browserRequestId === internalFailure.entry.browserRequestId && error.response?.error?.code === 'INTERNAL'),
+  'classifying the exact 200 cancellation must leave a distinct HTTP 500 INTERNAL diagnostic fatal');
+});
+
+test('an unclassified net::ERR_ABORTED response-body read remains fatal', async () => {
+  const harness = makeResponseReadFailureHarness();
+  const failed = harness.requestFor();
+  failed.respond();
+  await new Promise(resolve => setImmediate(resolve));
+  failed.fail();
+
+  assert.equal(failed.entry.failure, 'net::ERR_ABORTED');
+  assert.equal(failed.entry.responseReadError, navigationBodyReadError.message);
+  await assert.rejects(harness.capture.flush(), /Failed owned CDA response reads/);
+});
+
+test('classifying a different request does not excuse the failed response-body read', async () => {
+  const harness = makeResponseReadFailureHarness();
+  const bodyReadFailure = harness.requestFor();
+  const classifiedRequest = harness.requestFor();
+  bodyReadFailure.respond();
+  await new Promise(resolve => setImmediate(resolve));
+  bodyReadFailure.fail();
+  classifiedRequest.fail();
+  classifyBodyReadCancellation(harness, classifiedRequest.request);
+
+  assert.notEqual(bodyReadFailure.entry.browserRequestId, classifiedRequest.entry.browserRequestId);
+  assert.equal(bodyReadFailure.entry.expectedCancellation, undefined);
+  assert.equal(classifiedRequest.entry.expectedCancellation.browserRequestId, classifiedRequest.entry.browserRequestId);
+  await assert.rejects(harness.capture.flush(), /Failed owned CDA response reads/);
+});
+
+test('a classified abort with a different response-body error remains fatal', async () => {
+  const harness = makeResponseReadFailureHarness();
+  const failed = harness.requestFor();
+  const differentReadError = new Error('response.text: Protocol error (Network.getResponseBody): response body is unavailable for another reason.');
+  failed.respond(200, () => Promise.reject(differentReadError));
+  await new Promise(resolve => setImmediate(resolve));
+  failed.fail();
+  classifyBodyReadCancellation(harness, failed.request);
+
+  assert.equal(failed.entry.expectedCancellation.browserRequestId, failed.entry.browserRequestId);
+  assert.equal(failed.entry.responseReadError, differentReadError.message);
+  await assert.rejects(harness.capture.flush(), /Failed owned CDA response reads/);
+});
+
+test('non-abort response-body failures cannot be classified and remain fatal', async () => {
+  const harness = makeResponseReadFailureHarness();
+  const failed = harness.requestFor();
+  failed.respond();
+  await new Promise(resolve => setImmediate(resolve));
+  failed.fail('net::ERR_FAILED');
+
+  assert.throws(() => classifyBodyReadCancellation(harness, failed.request), /Only a native net::ERR_ABORTED/);
+  await assert.rejects(harness.capture.flush(), /Failed owned CDA response reads/);
 });

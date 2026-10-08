@@ -20,7 +20,7 @@ const selectionIsBound = (report, scope, owner) =>
     && assertion.evidence.selectionRefs.every(ref => typeof ref === 'string'
       && ref.startsWith(`${scope.project}/${scope.generation}/`))) === true;
 
-const proofIsBound = (report, { scope, action, outgoing, next }, failedAt) => {
+const proofIsBound = (report, { scope, action, outgoing, next }) => {
   if (next.proof.kind === 'visible-rows') {
     if (!Array.isArray(next.proof.expectedRows) || next.proof.expectedRows.length === 0) return false;
     const expected = next.proof.expectedRows.map(row => JSON.stringify(row)).sort();
@@ -80,7 +80,6 @@ const proofIsBound = (report, { scope, action, outgoing, next }, failedAt) => {
         && request.response?.draftDigest === next.draft.digest
         && Number.isFinite(request.responseReceivedAt)
         && request.completedAt >= request.responseReceivedAt
-        && request.completedAt >= failedAt
         && created?.length === 1
         && created[0].outputId === next.outputId
         && documents?.length === 1
@@ -245,7 +244,7 @@ const validateSwitchAbortEvidence = (report, expected, record) => {
     && (entry.path.endsWith('/preview')
       ? present(entry.body?.receiptId)
       : entry.response?.previewStatus === 'READY' && present(entry.response?.proposalId)));
-  const successorProof = proofIsBound(report, expected, failedAt);
+  const successorProof = proofIsBound(report, expected);
   if (!nextCapability || !successorProof || (next.proof.kind === 'visible-rows' && !preview)) {
     return reject('later next-owner capability and visible-row or empty-target proof are not all present');
   }

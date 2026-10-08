@@ -188,6 +188,27 @@ const makeFixture = salt => {
   return { report, contexts, network, ownerSwitches };
 };
 
+const makeCreateTableRace = salt => {
+  const fixture = makeFixture(salt);
+  const report = structuredClone(fixture.report);
+  const context = fixture.contexts[1];
+  const command = report.nativeRequests.find(entry =>
+    entry.path.endsWith('/commands')
+    && entry.triggerAction === context.action.label
+    && entry.body?.commands?.some(command => command.type === 'CREATE_TABLE'));
+  const commandCompletedMs = command.completedAt - Date.parse(report.startedAt);
+  report.network = report.network.filter(record =>
+    record.failureAction?.id !== context.action.id || record.method === 'GET');
+  const selectionAbort = report.network.find(record => record.failureAction?.id === context.action.id);
+  selectionAbort.requestTimeline = {
+    ...selectionAbort.requestTimeline,
+    requestStartedMs: commandCompletedMs,
+    failedAtMs: commandCompletedMs + 1,
+    durationMs: 1,
+  };
+  return { report, context, commandCompletedMs };
+};
+
 test('validates remapped run-local scope, owner, CAS, request, and receipt IDs', () => {
   for (const salt of ['original', 'remapped']) {
     const fixture = makeFixture(salt);
@@ -267,6 +288,48 @@ test('accepts zero-abort switches only with exact action, successor response, an
     network: fixture.report.network.filter(entry => entry.failureAction?.id !== targetContext.action.id),
     assertions: withoutTargetBinding,
   }, targetContext).ok, false);
+});
+
+test('accepts an exact selection abort 1 ms after the action-bound CREATE_TABLE completes', () => {
+  const { report, context, commandCompletedMs } = makeCreateTableRace('create-before-abort');
+  const command = report.nativeRequests.find(entry =>
+    entry.path.endsWith('/commands') && entry.triggerAction === context.action.label);
+  const selectionAbort = report.network.find(record => record.failureAction?.id === context.action.id);
+  assert.equal(selectionAbort.method, 'GET');
+  assert.equal(selectionAbort.requestTimeline.failedAtMs - commandCompletedMs, 1);
+  assert.equal(command.body.expectedDraftVersion, context.outgoing.draft.version);
+  assert.equal(command.body.expectedDraftDigest, context.outgoing.draft.digest);
+
+  const result = validateNullableJoinSwitch(report, context);
+  assert.equal(result.ok, true, result.reason);
+  assert.equal(result.evidence.abortCount, 1);
+  assert.equal(result.evidence.aborts[0].method, 'GET');
+});
+
+test('rejects a post-CREATE_TABLE selection abort when its command or successor loses causal bindings', () => {
+  const { report, context } = makeCreateTableRace('create-race-causal-negative');
+  const commandIndex = report.nativeRequests.findIndex(entry =>
+    entry.path.endsWith('/commands') && entry.triggerAction === context.action.label);
+  const successorIndex = report.nativeRequests.findIndex(entry =>
+    entry.path.endsWith('/construction-capabilities')
+    && entry.body?.outputId === context.next.outputId
+    && entry.status === 200);
+
+  const wrongCommandAction = structuredClone(report);
+  wrongCommandAction.nativeRequests[commandIndex].triggerAction = 'another action';
+  assert.equal(validateNullableJoinSwitch(wrongCommandAction, context).ok, false);
+
+  const wrongCommandCas = structuredClone(report);
+  wrongCommandCas.nativeRequests[commandIndex].body.expectedDraftDigest = 'wrong-outgoing-digest';
+  assert.equal(validateNullableJoinSwitch(wrongCommandCas, context).ok, false);
+
+  const wrongSuccessorAction = structuredClone(report);
+  wrongSuccessorAction.nativeRequests[successorIndex].triggerAction = 'another action';
+  assert.equal(validateNullableJoinSwitch(wrongSuccessorAction, context).ok, false);
+
+  const wrongSuccessorCas = structuredClone(report);
+  wrongSuccessorCas.nativeRequests[successorIndex].body.expectedDraftDigest = 'wrong-successor-digest';
+  assert.equal(validateNullableJoinSwitch(wrongSuccessorCas, context).ok, false);
 });
 
 test('rejects legacy empty-target evidence without the current fresh target binding on abort paths', () => {
