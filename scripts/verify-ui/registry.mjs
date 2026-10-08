@@ -1730,7 +1730,6 @@ export const registry = Object.freeze([
               'scripts/verify-ui/helpers/cda-playwright.mjs',
               'scripts/verify-ui/helpers/cda-row-oracle.mjs',
               'scripts/verify-ui/helpers/cda-fixtures.mjs',
-              'scripts/verify-ui/helpers/tests/group-add-fields-preview-rows.test.mjs',
               'scripts/verify-ui/workflows/verify-cda-group-add-fields-browser.mjs',
               'scripts/verify-ui/workflows/verify-cda-nested-repeated-browser.mjs',
               'scripts/verify-ui/workflows/verify-cda-group-related-summary-browser.mjs',
