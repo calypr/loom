@@ -185,6 +185,10 @@ type PhysicalGroupMemberValue struct {
 type PhysicalRootScan struct {
 	Variable          string
 	CollectionBindKey string
+	// PageCandidateSeed is an optional, typed candidate-only prefilter for root
+	// key discovery. It must never replace the exact root predicates that
+	// follow ROOT_SCAN, and it cannot be combined with Population or CohortSource.
+	PageCandidateSeed *PhysicalRootPageCandidateSeed
 	// Population replaces the full root collection scan with an indexed scan
 	// that starts from persisted selection members. The renderer deduplicates
 	// RootKey before restoring Variable from CollectionBindKey.
@@ -192,6 +196,14 @@ type PhysicalRootScan struct {
 	// CohortSource replaces a full scan with pinned assigned and selection
 	// members when lowering proves the input rows retain exact root identity.
 	CohortSource *PhysicalCohortRootSource
+}
+
+// PhysicalRootPageCandidateSeed starts from a scoped related-resource lookup
+// and walks the inverse relationship to candidate roots. It is a superset
+// seed only: the root plan must re-evaluate its exact related SET reduction
+// and filter before applying the root-key execution window.
+type PhysicalRootPageCandidateSeed struct {
+	Subplan PhysicalSubplan
 }
 
 // PhysicalCohortRootSource bounds a typed cohort's source rows to the union

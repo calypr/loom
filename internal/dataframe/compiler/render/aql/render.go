@@ -469,8 +469,15 @@ func renderPhysicalPlanWithOptions(plan ir.PhysicalPlan, options physicalRenderO
 		}
 		lines = append(lines, line...)
 	}
+	rootSetIndex := 0
 	for index, operation := range layout.rootPredicates {
-		line, err := renderer.renderScopeOperation(operation, "  ")
+		var line []string
+		if operation.Kind == ir.PhysicalSetOp {
+			rootSetIndex++
+			line, err = renderer.renderSet(*operation.Set, rootSetIndex)
+		} else {
+			line, err = renderer.renderScopeOperation(operation, "  ")
+		}
 		if err != nil {
 			return RenderedPhysicalPlan{}, fmt.Errorf("render root predicate %d (%s): %w", index, operation.Kind, err)
 		}
@@ -490,7 +497,7 @@ func renderPhysicalPlanWithOptions(plan ir.PhysicalPlan, options physicalRenderO
 		}
 		lines = append(lines, line...)
 	}
-	traversalIndex, setIndex, expressionLetIndex := 0, 0, 0
+	traversalIndex, setIndex, expressionLetIndex := 0, rootSetIndex, 0
 	for _, item := range layout.postWindow {
 		var line []string
 		switch item.operation.Kind {
@@ -580,14 +587,29 @@ func renderPhysicalPlanWithOptions(plan ir.PhysicalPlan, options physicalRenderO
 }
 
 func (r *physicalPlanRenderer) renderRootScan(root ir.PhysicalRootScan) ([]string, error) {
+	if root.PageCandidateSeed != nil && (root.Population != nil || root.CohortSource != nil) {
+		return nil, fmt.Errorf("root page candidate seed requires a direct root scan")
+	}
 	if r.previewRootKeyWindowVariable != "" {
-		if root.Population != nil || root.CohortSource != nil {
+		if root.Population != nil || root.CohortSource != nil || root.PageCandidateSeed != nil {
 			return nil, fmt.Errorf("preview root-key window requires a direct root scan")
 		}
 		rootKeyVariable := r.newInternalVariable("preview_root_key")
 		return []string{
 			fmt.Sprintf("FOR %s IN %s", rootKeyVariable, r.previewRootKeyWindowVariable),
 			fmt.Sprintf("LET %s = DOCUMENT(@@%s, %s)", root.Variable, root.CollectionBindKey, rootKeyVariable),
+			fmt.Sprintf("FILTER %s != null", root.Variable),
+		}, nil
+	}
+	if seed := root.PageCandidateSeed; seed != nil {
+		candidateKey := r.newInternalVariable("root_page_candidate_key")
+		candidateKeys, err := r.renderSubplan(seed.Subplan, "  ", false)
+		if err != nil {
+			return nil, fmt.Errorf("render root page candidate seed: %w", err)
+		}
+		return []string{
+			fmt.Sprintf("FOR %s IN %s", candidateKey, candidateKeys),
+			fmt.Sprintf("LET %s = DOCUMENT(@@%s, %s)", root.Variable, root.CollectionBindKey, candidateKey),
 			fmt.Sprintf("FILTER %s != null", root.Variable),
 		}, nil
 	}

@@ -48,15 +48,91 @@ func buildNavigationRenderLayout(plan ir.PhysicalPlan) (physicalNavigationRender
 	}
 
 	index := 5
+	keysetSeen := false
+	pageSets := make(map[string]*ir.PhysicalSet)
+	usedPageSets := make(map[string]bool)
+	pageExpressionLets := make([]ir.PhysicalOperation, 0)
+rootPredicates:
 	for index < last {
-		if plan.Operations[index].Kind != ir.PhysicalFilterOp && plan.Operations[index].Kind != ir.PhysicalExpressionLetOp {
-			break
+		operation := plan.Operations[index]
+		switch operation.Kind {
+		case ir.PhysicalFilterOp:
+			if rootPageKeysetFilter(operation, layout.root.Variable) {
+				if keysetSeen {
+					return physicalNavigationRenderLayout{}, fmt.Errorf("root pre-window predicates contain more than one root-page keyset filter")
+				}
+				keysetSeen = true
+			} else if keysetSeen {
+				if operation.Filter == nil || operation.Filter.Expression != nil || operation.Filter.Predicate.LeftExpression != nil {
+					return physicalNavigationRenderLayout{}, fmt.Errorf("root pre-window page filter must use a projected scalar value")
+				}
+				for reductionVariable, set := range pageSets {
+					if operation.Filter.Predicate.Left.Variable == set.Variable {
+						return physicalNavigationRenderLayout{}, fmt.Errorf("root pre-window filter must use a SET reduction field, not the set array")
+					}
+					if !rootPageFilterUsesReduction(operation, set) {
+						continue
+					}
+					if !rootPageFilterMatchesReduction(operation, set) {
+						return physicalNavigationRenderLayout{}, fmt.Errorf("root pre-window filter does not match SET reduction %q", reductionVariable)
+					}
+					usedPageSets[reductionVariable] = true
+				}
+				if hasUnusedRootPageSet(pageSets, usedPageSets) {
+					return physicalNavigationRenderLayout{}, fmt.Errorf("root pre-window SET must be followed by a filter over its projected reduction field")
+				}
+			}
+			layout.rootPredicates = append(layout.rootPredicates, operation)
+			index++
+		case ir.PhysicalExpressionLetOp:
+			if hasUnusedRootPageSet(pageSets, usedPageSets) {
+				return physicalNavigationRenderLayout{}, fmt.Errorf("root pre-window SET must be filtered before an expression LET")
+			}
+			if keysetSeen {
+				pageExpressionLets = append(pageExpressionLets, operation)
+			}
+			// Compiler-owned expression LETs may establish a typed value for a
+			// root predicate. Keep them in the pre-window block so the value is
+			// computed once per root and before SORT/LIMIT.
+			layout.rootPredicates = append(layout.rootPredicates, operation)
+			index++
+		case ir.PhysicalSortOp:
+			break rootPredicates
+		case ir.PhysicalSetOp:
+			if !keysetSeen {
+				// Preserve the ordinary post-window set path for plans without a
+				// root-page cursor predicate.
+				break rootPredicates
+			}
+			if hasUnusedRootPageSet(pageSets, usedPageSets) {
+				return physicalNavigationRenderLayout{}, fmt.Errorf("root pre-window SET must be filtered before another producer")
+			}
+			if err := validateRootPageRelatedSet(operation, layout.root.Variable); err != nil {
+				return physicalNavigationRenderLayout{}, fmt.Errorf("root pre-window SET at operation %d: %w", index, err)
+			}
+			reductionVariable := operation.Set.Reduction.Variable
+			if _, duplicate := pageSets[reductionVariable]; duplicate {
+				return physicalNavigationRenderLayout{}, fmt.Errorf("root pre-window SET reduction %q is duplicated", reductionVariable)
+			}
+			pageSets[reductionVariable] = operation.Set
+			layout.rootPredicates = append(layout.rootPredicates, operation)
+			index++
+		default:
+			if len(pageSets) != 0 {
+				return physicalNavigationRenderLayout{}, fmt.Errorf("root pre-window related SET segment cannot contain %s", operation.Kind)
+			}
+			break rootPredicates
 		}
-		// Compiler-owned expression LETs may establish a typed value for a
-		// root predicate. Keep them in the pre-window block so the value is
-		// computed once per root and before SORT/LIMIT.
-		layout.rootPredicates = append(layout.rootPredicates, plan.Operations[index])
-		index++
+	}
+	if len(pageSets) != 0 {
+		if !keysetSeen || hasUnusedRootPageSet(pageSets, usedPageSets) || index >= last || plan.Operations[index].Kind != ir.PhysicalSortOp {
+			return physicalNavigationRenderLayout{}, fmt.Errorf("root pre-window related SET segment must be consumed before the root sort")
+		}
+		for _, operation := range pageExpressionLets {
+			if !rootPageExpressionLetRootSafe(operation, layout.root.Variable) {
+				return physicalNavigationRenderLayout{}, fmt.Errorf("root pre-window expression LET must depend only on the root")
+			}
+		}
 	}
 	// UNNEST is a cardinality boundary. It is kept after root predicates and
 	// before the execution window so a row-grain-aware compiler can put a
@@ -84,6 +160,9 @@ func buildNavigationRenderLayout(plan ir.PhysicalPlan) (physicalNavigationRender
 		}
 	} else if index < last && plan.Operations[index].Kind == ir.PhysicalLimitOp {
 		return physicalNavigationRenderLayout{}, fmt.Errorf("root execution window at operation %d: LIMIT requires deterministic root SORT", index)
+	}
+	if len(pageSets) != 0 && (len(layout.rootWindow) != 2 || layout.rootWindow[1].Limit == nil || layout.rootWindow[1].Limit.BindKey != genericPhysicalExecutionLimitBind) {
+		return physicalNavigationRenderLayout{}, fmt.Errorf("root pre-window related SET segment requires the bounded root page window")
 	}
 	for index < last {
 		operation := plan.Operations[index]
@@ -182,6 +261,108 @@ func buildNavigationRenderLayout(plan ir.PhysicalPlan) (physicalNavigationRender
 		}
 	}
 	return layout, nil
+}
+
+func validateRootPageRelatedSet(operation ir.PhysicalOperation, rootVariable string) error {
+	if operation.Set == nil {
+		return fmt.Errorf("missing payload")
+	}
+	set := operation.Set
+	if !set.Unique || !set.SortByKey || set.SourceSetVariable != "" || set.Reduction == nil ||
+		set.Reduction.SourceSetVariable != set.Variable || len(set.Subplan.Captures) != 1 || set.Subplan.Captures[0] != rootVariable || len(set.Subplan.Operations) == 0 {
+		return fmt.Errorf("must be a sorted, unique direct root-correlated reduction")
+	}
+	traversalCount := 0
+	for _, operation := range set.Subplan.Operations {
+		switch operation.Kind {
+		case ir.PhysicalTraversalOp:
+			traversalCount++
+			if operation.Traversal == nil || operation.Traversal.SourceVariable != rootVariable {
+				return fmt.Errorf("must use one traversal directly from the root")
+			}
+		case ir.PhysicalFilterOp, ir.PhysicalDerivedLetOp, ir.PhysicalExpressionLetOp:
+			// These retain the child's typed project, generation, authorization,
+			// and authored filter scopes inside the correlated set.
+		default:
+			return fmt.Errorf("contains unsupported subplan operation %s", operation.Kind)
+		}
+	}
+	first := set.Subplan.Operations[0]
+	if traversalCount != 1 || first.Kind != ir.PhysicalTraversalOp || first.Traversal == nil || first.Traversal.SourceVariable != rootVariable {
+		return fmt.Errorf("must begin with one traversal directly from the root")
+	}
+	return nil
+}
+
+func rootPageFilterUsesReduction(operation ir.PhysicalOperation, set *ir.PhysicalSet) bool {
+	return operation.Kind == ir.PhysicalFilterOp && operation.Filter != nil && operation.Filter.Expression == nil &&
+		operation.Filter.Predicate.LeftExpression == nil && set != nil && set.Reduction != nil &&
+		operation.Filter.Predicate.Left.Variable == set.Reduction.Variable
+}
+
+func rootPageFilterMatchesReduction(operation ir.PhysicalOperation, set *ir.PhysicalSet) bool {
+	if !rootPageFilterUsesReduction(operation, set) {
+		return false
+	}
+	left := operation.Filter.Predicate.Left
+	if left.BindKey != "" || len(left.Path) != 1 {
+		return false
+	}
+	matchedField := false
+	for _, field := range set.Reduction.Fields {
+		if field.Name != left.Path[0] {
+			continue
+		}
+		if matchedField || field.Mode != ir.PhysicalSetReductionFirst {
+			return false
+		}
+		matchedField = true
+	}
+	return matchedField
+}
+
+func rootPageExpressionLetRootSafe(operation ir.PhysicalOperation, rootVariable string) bool {
+	if operation.Kind != ir.PhysicalExpressionLetOp || operation.ExpressionLet == nil {
+		return false
+	}
+	expression := operation.ExpressionLet.Expression
+	switch expression.Kind {
+	case ir.PhysicalValueExpression:
+		return expression.Value != nil && expression.Value.Variable == rootVariable && expression.Value.BindKey == ""
+	case ir.PhysicalExtractExpression:
+		if expression.Extract == nil || expression.Extract.Prepared != nil ||
+			expression.Extract.Source.Variable != rootVariable || expression.Extract.Source.BindKey != "" {
+			return false
+		}
+		for _, fallback := range expression.Extract.Fallbacks {
+			if fallback.Source.Variable != rootVariable || fallback.Source.BindKey != "" {
+				return false
+			}
+		}
+		return true
+	default:
+		return false
+	}
+}
+
+func hasUnusedRootPageSet(sets map[string]*ir.PhysicalSet, used map[string]bool) bool {
+	for variable := range sets {
+		if !used[variable] {
+			return true
+		}
+	}
+	return false
+}
+
+func rootPageKeysetFilter(operation ir.PhysicalOperation, rootVariable string) bool {
+	if operation.Kind != ir.PhysicalFilterOp || operation.Filter == nil || operation.Filter.Expression != nil {
+		return false
+	}
+	predicate := operation.Filter.Predicate
+	return predicate.Operator == "GT" && predicate.LeftExpression == nil && predicate.Left.Variable == rootVariable &&
+		predicate.Left.BindKey == "" && len(predicate.Left.Path) == 1 && predicate.Left.Path[0] == "_key" &&
+		predicate.Right != nil && predicate.Right.BindKey == "loom_root_page_after_key" &&
+		predicate.Right.Variable == "" && len(predicate.Right.Path) == 0
 }
 
 func reshapedOutputVariable(items []physicalNavigationRenderItem) (string, bool) {

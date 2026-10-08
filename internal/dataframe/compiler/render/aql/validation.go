@@ -26,6 +26,11 @@ func collectionBindKeys(plan ir.PhysicalPlan) (map[string]struct{}, error) {
 			switch operation.Kind {
 			case ir.PhysicalRootScanOp:
 				keys[operation.RootScan.CollectionBindKey] = struct{}{}
+				if seed := operation.RootScan.PageCandidateSeed; seed != nil {
+					if err := collectOperations(seed.Subplan.Operations, owner+" ROOT_PAGE_CANDIDATE_SEED"); err != nil {
+						return err
+					}
+				}
 				if cohort := operation.RootScan.CohortSource; cohort != nil {
 					for _, key := range []string{
 						cohort.RevisionCollectionBindKey,
@@ -239,6 +244,13 @@ func validateRenderableOperation(operation ir.PhysicalOperation, collectionKeys 
 
 	switch operation.Kind {
 	case ir.PhysicalRootScanOp:
+		if seed := operation.RootScan.PageCandidateSeed; seed != nil {
+			for index, suboperation := range seed.Subplan.Operations {
+				if err := validateRenderableOperation(suboperation, collectionKeys); err != nil {
+					return fmt.Errorf("root page candidate seed operation %d: %w", index, err)
+				}
+			}
+		}
 		return nil
 	case ir.PhysicalCollectionScanOp:
 		return nil

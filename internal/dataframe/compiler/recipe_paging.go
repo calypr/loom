@@ -11,9 +11,11 @@ import (
 )
 
 const (
-	RootPageAfterKeyBind = "loom_root_page_after_key"
-	RootPageSizeBind     = genericPhysicalExecutionLimitBind
-	RootPageKeysBind     = "loom_root_page_keys"
+	RootPageAfterKeyBind           = "loom_root_page_after_key"
+	RootPageSizeBind               = genericPhysicalExecutionLimitBind
+	RootPageKeysBind               = "loom_root_page_keys"
+	rootPageDatasetGenerationField = "dataset_generation"
+	rootPageDatasetGenerationBind  = "dataset_generation"
 )
 
 // CompiledOutputPage contains immutable query templates for bounded root
@@ -111,14 +113,9 @@ func rootKeysPagePlan(plan ir.PhysicalPlan, pageSize int) (ir.PhysicalPlan, erro
 	}
 	out := clonePhysicalPlan(plan)
 	root := out.Operations[0].RootScan.Variable
-	rootPageFilters := rootPageConstructionFilters(out)
-	if len(rootPageFilters) != 0 {
-		insertAt := rootPageInsertionIndex(out.Operations)
-		operations := make([]ir.PhysicalOperation, 0, len(out.Operations)+len(rootPageFilters))
-		operations = append(operations, out.Operations[:insertAt]...)
-		operations = append(operations, rootPageFilters...)
-		operations = append(operations, out.Operations[insertAt:]...)
-		out.Operations = operations
+	rootPageFilters, candidateSeed := rootPageConstructionFilters(out)
+	if candidateSeed != nil {
+		out.Operations[0].RootScan.PageCandidateSeed = candidateSeed
 	}
 	insertAt := rootPageInsertionIndex(out.Operations)
 	out.BindVars[RootPageAfterKeyBind] = ""
@@ -126,12 +123,17 @@ func rootKeysPagePlan(plan ir.PhysicalPlan, pageSize int) (ir.PhysicalPlan, erro
 	source := ir.PhysicalSource{SemanticNode: out.Source.SemanticNode, ResourceType: out.Source.ResourceType, SemanticField: "_key"}
 	left := ir.PhysicalValue{Variable: root, Path: []string{"_key"}}
 	right := ir.PhysicalValue{BindKey: RootPageAfterKeyBind}
-	out.Operations = append(append([]ir.PhysicalOperation(nil), out.Operations[:insertAt]...),
+	pageOperations := make([]ir.PhysicalOperation, 0, len(rootPageFilters)+4)
+	pageOperations = append(pageOperations,
 		ir.PhysicalOperation{Kind: ir.PhysicalFilterOp, Source: source, Filter: &ir.PhysicalFilter{Predicate: ir.PhysicalPredicate{Operator: "GT", Left: left, Right: &right}}},
+	)
+	pageOperations = append(pageOperations, rootPageFilters...)
+	pageOperations = append(pageOperations,
 		ir.PhysicalOperation{Kind: ir.PhysicalSortOp, Source: source, Sort: &ir.PhysicalSort{Keys: []ir.PhysicalValue{left}}},
 		ir.PhysicalOperation{Kind: ir.PhysicalLimitOp, Source: source, Limit: &ir.PhysicalLimit{BindKey: RootPageSizeBind}},
 		ir.PhysicalOperation{Kind: ir.PhysicalReturnOp, Source: source, Return: &ir.PhysicalReturn{Projections: []ir.PhysicalProjection{{Name: "_key", Value: left}}}},
 	)
+	out.Operations = append(append([]ir.PhysicalOperation(nil), out.Operations[:insertAt]...), pageOperations...)
 	// Root-key discovery deliberately stops before the typed construction
 	// stages. Its RETURN contains only _key, so carrying the final row schema
 	// through validation would incorrectly require every source-stage column.
@@ -144,15 +146,16 @@ func rootKeysPagePlan(plan ir.PhysicalPlan, pageSize int) (ir.PhysicalPlan, erro
 }
 
 // rootPageConstructionFilters moves only a leading run of FILTER stages over
-// source-projection columns into root-key discovery. Those filters preserve
-// row identity and cardinality, so applying them before the root key window
-// avoids paging through roots that the construction immediately discards.
+// source-projection columns into root-key discovery. Their producers and
+// filters run after the keyset predicate and before the sort/limit, so a
+// root-correlated related set is evaluated only for roots after the cursor.
 // Filters after a transforming stage, or filters whose source projection is
-// not available at root scope, remain in the selected-root query.
-func rootPageConstructionFilters(plan ir.PhysicalPlan) []ir.PhysicalOperation {
+// not available directly from the root or one exact root-correlated set,
+// remain in the selected-root query.
+func rootPageConstructionFilters(plan ir.PhysicalPlan) ([]ir.PhysicalOperation, *ir.PhysicalRootPageCandidateSeed) {
 	sequence := plan.StageSequence
 	if sequence == nil || len(sequence.Stages) == 0 || len(plan.Operations) == 0 {
-		return nil
+		return nil, nil
 	}
 	var sourceProjections map[string]ir.PhysicalProjection
 	for index := len(plan.Operations) - 1; index >= 0; index-- {
@@ -167,18 +170,28 @@ func rootPageConstructionFilters(plan ir.PhysicalPlan) []ir.PhysicalOperation {
 		break
 	}
 	if len(sourceProjections) == 0 {
-		return nil
+		return nil, nil
 	}
 	root := plan.Operations[0].RootScan.Variable
 	operations := make([]ir.PhysicalOperation, 0, len(sequence.Stages)*2)
+	includedSetProducers := make(map[string]bool)
+	var candidateSeed *ir.PhysicalRootPageCandidateSeed
 	priorStageID := sequence.SourceStageID
 	for _, stage := range sequence.Stages {
 		if stage.Kind != ir.PhysicalStageFilterOp || stage.Filter == nil || len(stage.DerivedLets) != 0 || stage.InputStageID != priorStageID {
 			break
 		}
-		filter, projection, ok := rootPageConstructionFilter(stage, sourceProjections, root)
+		filter, projection, producer, ok := rootPageConstructionFilter(stage, sourceProjections, plan.Operations, root)
 		if !ok {
 			break
+		}
+		rootScan := plan.Operations[0].RootScan
+		if candidateSeed == nil && producer != nil && rootScan != nil && rootScan.Population == nil && rootScan.CohortSource == nil {
+			candidateSeed = rootPageRelatedCandidateSeed(&plan, stage, projection, producer, root)
+		}
+		if producer != nil && !includedSetProducers[producer.Set.Variable] {
+			operations = append(operations, ir.ClonePhysicalOperation(*producer))
+			includedSetProducers[producer.Set.Variable] = true
 		}
 		if projection.Expression != nil {
 			operations = append(operations, ir.PhysicalOperation{
@@ -201,40 +214,351 @@ func rootPageConstructionFilters(plan ir.PhysicalPlan) []ir.PhysicalOperation {
 		sourceProjections = rootPagePassThroughProjections(stage, sourceProjections)
 		priorStageID = stage.ID
 	}
-	return operations
+	return operations, candidateSeed
 }
 
-func rootPageConstructionFilter(stage ir.PhysicalConstructionStage, projections map[string]ir.PhysicalProjection, root string) (ir.PhysicalFilter, ir.PhysicalProjection, bool) {
+// rootPageRelatedCandidateSeed builds a candidate-only reverse lookup for a
+// positive filter over one directly related FIRST reduction. The root-key
+// query retains the original correlated SET and filter, so this subplan may
+// overproduce keys but cannot decide row membership.
+func rootPageRelatedCandidateSeed(plan *ir.PhysicalPlan, stage ir.PhysicalConstructionStage, projection ir.PhysicalProjection, producer *ir.PhysicalOperation, root string) *ir.PhysicalRootPageCandidateSeed {
+	if plan == nil || producer == nil || producer.Set == nil || producer.Set.Projection == nil || producer.Set.Reduction == nil || stage.Filter == nil ||
+		stage.Filter.Expression != nil || stage.Filter.Predicate.Operator != "EQUALS" ||
+		stage.Filter.Predicate.Correlation != nil || stage.Filter.Predicate.LeftExpression != nil || stage.Filter.Predicate.Right == nil || stage.Filter.Predicate.Right.BindKey == "" {
+		return nil
+	}
+	set := producer.Set
+	reduced := projection.Value
+	if projection.Expression != nil || reduced.Variable != set.Reduction.Variable || reduced.BindKey != "" || len(reduced.Path) != 1 {
+		return nil
+	}
+	var sourceField string
+	for _, field := range set.Reduction.Fields {
+		if field.Name != reduced.Path[0] || field.Mode != ir.PhysicalSetReductionFirst {
+			continue
+		}
+		if sourceField != "" {
+			return nil
+		}
+		sourceField = field.SourceField
+	}
+	if sourceField == "" {
+		return nil
+	}
+	var selected ir.PhysicalSetProjectionField
+	for _, field := range set.Projection.Fields {
+		if field.Name == sourceField {
+			selected = field
+			break
+		}
+	}
+	if selected.Name == "" || selected.ExecutionMode != ir.PhysicalSelectorDirectScalar || len(selected.Selector.Steps) == 0 || selected.Selector.Filter != nil {
+		return nil
+	}
+	selectorPath := []string{"payload"}
+	for _, step := range selected.Selector.Steps {
+		if step.Iterate || step.Index != nil {
+			return nil
+		}
+		selectorPath = append(selectorPath, step.Field)
+	}
+	traversalIndex := -1
+	for index, operation := range set.Subplan.Operations {
+		if operation.Kind == ir.PhysicalTraversalOp {
+			if traversalIndex != -1 || operation.Traversal == nil || operation.Traversal.SourceVariable != root ||
+				operation.Traversal.Direction != ir.PhysicalInbound && operation.Traversal.Direction != ir.PhysicalOutbound {
+				return nil
+			}
+			traversalIndex = index
+		}
+	}
+	if traversalIndex != 0 {
+		return nil
+	}
+	traversal := *set.Subplan.Operations[traversalIndex].Traversal
+	childType, ok := plan.BindVars[traversal.TargetTypeBindKey].(string)
+	if !ok || childType == "" || selected.ResourceType != childType || plan.Source.ResourceType == "" {
+		return nil
+	}
+	collectionBind := nextRootPageBindKey(plan.BindVars, "loom_root_page_candidate_collection")
+	rootTypeBind := nextRootPageBindKey(plan.BindVars, "loom_root_page_candidate_root_type")
+	plan.BindVars[collectionBind] = childType
+	plan.BindVars[rootTypeBind] = plan.Source.ResourceType
+
+	childVariable := traversal.TargetVariable
+	rootCandidateVariable := traversal.SourceVariable
+	seedOperations := []ir.PhysicalOperation{{
+		Kind:           ir.PhysicalCollectionScanOp,
+		Source:         ir.PhysicalSource{SemanticNode: set.Subplan.Operations[traversalIndex].Source.SemanticNode, ResourceType: childType},
+		CollectionScan: &ir.PhysicalCollectionScan{Variable: childVariable, CollectionBindKey: collectionBind},
+	}}
+	childProjectScoped, childGenerationScoped, childAuthScoped := false, false, false
+	var childAuth *ir.PhysicalDerivedLet
+	var childAuthFilter *ir.PhysicalFilter
+	for _, operation := range set.Subplan.Operations[traversalIndex+1:] {
+		if isRootPageDirectScopeFilter(operation, childVariable, "project", "project") {
+			seedOperations = append(seedOperations, ir.ClonePhysicalOperation(operation))
+			childProjectScoped = true
+		}
+		if isRootPageDirectScopeFilter(operation, childVariable, rootPageDatasetGenerationField, rootPageDatasetGenerationBind) {
+			seedOperations = append(seedOperations, ir.ClonePhysicalOperation(operation))
+			childGenerationScoped = true
+		}
+		if operation.Kind != ir.PhysicalDerivedLetOp || operation.DerivedLet == nil || operation.DerivedLet.Operator != "AUTH_RESOURCE_PATH_ALLOWED" {
+			continue
+		}
+		for _, input := range operation.DerivedLet.Inputs {
+			if input.Variable != childVariable || len(input.Path) != 1 || input.Path[0] != "auth_resource_path" {
+				continue
+			}
+			clone := *operation.DerivedLet
+			clone.Variable = nextRootPageSeedVariable(plan, "__loom_root_page_candidate_child_auth")
+			clone.Inputs = []ir.PhysicalValue{
+				{Variable: childVariable, Path: []string{"auth_resource_path"}},
+				{BindKey: "auth_resource_paths"}, {BindKey: "auth_resource_paths_unrestricted"},
+			}
+			childAuth = &clone
+			childAuthFilter = &ir.PhysicalFilter{Predicate: ir.PhysicalPredicate{
+				Operator: "EQUALS", Left: ir.PhysicalValue{Variable: clone.Variable}, Right: &ir.PhysicalValue{BindKey: "scope_allowed"},
+			}}
+			childAuthScoped = true
+			break
+		}
+	}
+	if !childProjectScoped || !childGenerationScoped || !childAuthScoped {
+		return nil
+	}
+	seedOperations = append(seedOperations,
+		ir.PhysicalOperation{Kind: ir.PhysicalDerivedLetOp, Source: ir.PhysicalSource{ResourceType: childType, SemanticField: "auth_resource_path"}, DerivedLet: childAuth},
+		ir.PhysicalOperation{Kind: ir.PhysicalFilterOp, Source: ir.PhysicalSource{ResourceType: childType, SemanticField: "auth_resource_path"}, Filter: childAuthFilter},
+	)
+	seedPredicate := ir.PhysicalPredicate{
+		Operator:  stage.Filter.Predicate.Operator,
+		Left:      ir.PhysicalValue{Variable: childVariable, Path: selectorPath},
+		ValueKind: stage.Filter.Predicate.ValueKind,
+	}
+	right := *stage.Filter.Predicate.Right
+	right.Path = append([]string(nil), right.Path...)
+	seedPredicate.Right = &right
+	seedOperations = append(seedOperations, ir.PhysicalOperation{
+		Kind:   ir.PhysicalFilterOp,
+		Source: ir.PhysicalSource{SemanticNode: stage.ID, ResourceType: childType, SemanticField: projection.Name},
+		Filter: &ir.PhysicalFilter{Expression: &ir.PhysicalPredicateExpression{Kind: ir.PhysicalComparisonPredicate, Comparison: &seedPredicate}},
+	})
+	traversal.SourceVariable = childVariable
+	traversal.TargetVariable = rootCandidateVariable
+	traversal.SourceTypeBindKey = set.Subplan.Operations[traversalIndex].Traversal.TargetTypeBindKey
+	traversal.TargetTypeBindKey = rootTypeBind
+	traversal.Direction = reversePhysicalTraversalDirection(traversal.Direction)
+	if traversal.Direction == ir.PhysicalOutbound {
+		traversal.EdgeTargetTypeField = "to_type"
+	} else {
+		traversal.EdgeTargetTypeField = "from_type"
+	}
+	if traversal.Strategy == ir.PhysicalTraversalEndpointLookup {
+		indexTypeField := "from_type"
+		traversal.EndpointField, traversal.EndpointJoinField = "_to", "_from"
+		if traversal.Direction == ir.PhysicalOutbound {
+			traversal.EndpointField, traversal.EndpointJoinField = "_from", "_to"
+			indexTypeField = "to_type"
+		}
+		traversal.EndpointIndexFields = []string{traversal.EndpointField, "project", rootPageDatasetGenerationField, "label", indexTypeField}
+	}
+	seedOperations = append(seedOperations, ir.PhysicalOperation{
+		Kind: ir.PhysicalTraversalOp, Source: set.Subplan.Operations[traversalIndex].Source, Traversal: &traversal,
+	})
+	for _, operation := range set.Subplan.Operations[traversalIndex+1:] {
+		seedOperations = append(seedOperations, remapRootPageReverseScope(operation, childVariable, rootCandidateVariable))
+	}
+	return &ir.PhysicalRootPageCandidateSeed{Subplan: ir.PhysicalSubplan{
+		Operations: seedOperations,
+		Return: ir.PhysicalExpression{
+			Kind: ir.PhysicalValueExpression, Cardinality: ir.PhysicalScalarCardinality, NullBehavior: ir.PhysicalPreserveNull,
+			Value: &ir.PhysicalValue{Variable: rootCandidateVariable, Path: []string{"_key"}},
+		},
+		Sort: &ir.PhysicalValue{Variable: rootCandidateVariable, Path: []string{"_key"}}, Unique: true,
+	}}
+}
+
+func isRootPageDirectScopeFilter(operation ir.PhysicalOperation, variable, field, bindKey string) bool {
+	if operation.Kind != ir.PhysicalFilterOp || operation.Filter == nil || operation.Filter.Expression != nil || operation.Filter.Predicate.LeftExpression != nil {
+		return false
+	}
+	predicate := operation.Filter.Predicate
+	return predicate.Operator == "EQUALS" && predicate.Left.Variable == variable && predicate.Left.BindKey == "" && len(predicate.Left.Path) == 1 && predicate.Left.Path[0] == field &&
+		predicate.Right != nil && predicate.Right.BindKey == bindKey && predicate.Right.Variable == "" && len(predicate.Right.Path) == 0
+}
+
+func remapRootPageReverseScope(operation ir.PhysicalOperation, childVariable, rootVariable string) ir.PhysicalOperation {
+	clone := ir.ClonePhysicalOperation(operation)
+	if isRootPageDirectScopeFilter(clone, childVariable, "project", "project") ||
+		isRootPageDirectScopeFilter(clone, childVariable, rootPageDatasetGenerationField, rootPageDatasetGenerationBind) {
+		clone.Filter.Predicate.Left.Variable = rootVariable
+		return clone
+	}
+	if clone.Kind == ir.PhysicalDerivedLetOp && clone.DerivedLet != nil && clone.DerivedLet.Operator == "AUTH_RESOURCE_PATH_ALLOWED" {
+		for index := range clone.DerivedLet.Inputs {
+			input := &clone.DerivedLet.Inputs[index]
+			if input.Variable == childVariable && len(input.Path) == 1 && input.Path[0] == "auth_resource_path" {
+				input.Variable = rootVariable
+			}
+		}
+	}
+	return clone
+}
+
+func nextRootPageSeedVariable(plan *ir.PhysicalPlan, base string) string {
+	used := make(map[string]bool, len(plan.Operations)*2)
+	for _, operation := range plan.Operations {
+		if operation.Kind == ir.PhysicalRootScanOp && operation.RootScan != nil {
+			used[operation.RootScan.Variable] = true
+		}
+		if operation.Kind == ir.PhysicalSetOp && operation.Set != nil {
+			used[operation.Set.Variable] = true
+			if operation.Set.Reduction != nil {
+				used[operation.Set.Reduction.Variable] = true
+			}
+		}
+	}
+	if !used[base] {
+		return base
+	}
+	for index := 1; ; index++ {
+		candidate := fmt.Sprintf("%s_%d", base, index)
+		if !used[candidate] {
+			return candidate
+		}
+	}
+}
+
+func nextRootPageBindKey(bindVars map[string]any, base string) string {
+	if _, exists := bindVars[base]; !exists {
+		return base
+	}
+	for index := 1; ; index++ {
+		key := fmt.Sprintf("%s_%d", base, index)
+		if _, exists := bindVars[key]; !exists {
+			return key
+		}
+	}
+}
+
+func reversePhysicalTraversalDirection(direction ir.PhysicalTraversalDirection) ir.PhysicalTraversalDirection {
+	if direction == ir.PhysicalInbound {
+		return ir.PhysicalOutbound
+	}
+	return ir.PhysicalInbound
+}
+
+func rootPageConstructionFilter(stage ir.PhysicalConstructionStage, projections map[string]ir.PhysicalProjection, physicalOperations []ir.PhysicalOperation, root string) (ir.PhysicalFilter, ir.PhysicalProjection, *ir.PhysicalOperation, bool) {
 	if stage.Filter.Expression != nil {
-		return ir.PhysicalFilter{}, ir.PhysicalProjection{}, false
+		return ir.PhysicalFilter{}, ir.PhysicalProjection{}, nil, false
 	}
 	left := stage.Filter.Predicate.Left
 	if left.Variable != stage.InputRowVariable || left.BindKey != "" || len(left.Path) != 1 {
-		return ir.PhysicalFilter{}, ir.PhysicalProjection{}, false
+		return ir.PhysicalFilter{}, ir.PhysicalProjection{}, nil, false
 	}
 	projection, ok := projections[left.Path[0]]
-	if !ok || !rootPageProjectionAvailable(projection, root) {
-		return ir.PhysicalFilter{}, ir.PhysicalProjection{}, false
+	if !ok {
+		return ir.PhysicalFilter{}, ir.PhysicalProjection{}, nil, false
+	}
+	var producer *ir.PhysicalOperation
+	if !rootPageProjectionAvailable(projection, root) {
+		producer = rootPageProjectionSetProducer(projection, physicalOperations, root)
+		if producer == nil {
+			return ir.PhysicalFilter{}, ir.PhysicalProjection{}, nil, false
+		}
 	}
 	filter := ir.ClonePhysicalOperation(ir.PhysicalOperation{Kind: ir.PhysicalFilterOp, Filter: stage.Filter}).Filter
 	if filter == nil {
-		return ir.PhysicalFilter{}, ir.PhysicalProjection{}, false
+		return ir.PhysicalFilter{}, ir.PhysicalProjection{}, nil, false
 	}
-	return *filter, projection, true
+	return *filter, projection, producer, true
+}
+
+// rootPageProjectionSetProducer finds the single typed set reduction that
+// supplies this projection and is correlated directly to the root. Requiring
+// the reduction field itself to match prevents a neighboring set or another
+// projected value from being pulled into root-key discovery.
+func rootPageProjectionSetProducer(projection ir.PhysicalProjection, operations []ir.PhysicalOperation, root string) *ir.PhysicalOperation {
+	if projection.Expression != nil || projection.Value.Variable == "" || projection.Value.BindKey != "" || len(projection.Value.Path) != 1 {
+		return nil
+	}
+	var match *ir.PhysicalOperation
+	for index := range operations {
+		operation := &operations[index]
+		if operation.Kind != ir.PhysicalSetOp || operation.Set == nil || operation.Set.Reduction == nil {
+			continue
+		}
+		set := operation.Set
+		if set.SourceSetVariable != "" || len(set.Subplan.Captures) != 1 || set.Subplan.Captures[0] != root ||
+			set.Reduction.Variable != projection.Value.Variable || set.Reduction.SourceSetVariable != set.Variable {
+			continue
+		}
+		matchedField := false
+		for _, field := range set.Reduction.Fields {
+			if field.Name == projection.Value.Path[0] {
+				if matchedField {
+					return nil
+				}
+				if field.Mode != ir.PhysicalSetReductionFirst {
+					return nil
+				}
+				matchedField = true
+			}
+		}
+		if !matchedField || !rootCorrelatedPhysicalSet(set, root) {
+			continue
+		}
+		if match != nil {
+			return nil
+		}
+		match = operation
+	}
+	return match
+}
+
+func rootCorrelatedPhysicalSet(set *ir.PhysicalSet, root string) bool {
+	if set == nil || root == "" || set.SourceSetVariable != "" || len(set.Subplan.Captures) != 1 || set.Subplan.Captures[0] != root || len(set.Subplan.Operations) == 0 {
+		return false
+	}
+	first := set.Subplan.Operations[0]
+	if first.Kind != ir.PhysicalTraversalOp || first.Traversal == nil || first.Traversal.SourceVariable != root {
+		return false
+	}
+	traversals := 0
+	for _, operation := range set.Subplan.Operations {
+		if operation.Kind == ir.PhysicalTraversalOp {
+			traversals++
+			if operation.Traversal == nil || operation.Traversal.SourceVariable != root {
+				return false
+			}
+		}
+	}
+	return traversals == 1
 }
 
 func rootPageProjectionAvailable(projection ir.PhysicalProjection, root string) bool {
 	if projection.Expression != nil {
 		expression := projection.Expression
 		if expression.Kind == ir.PhysicalExtractExpression && expression.Extract != nil {
-			return expression.Extract.Prepared == nil && expression.Extract.Source.Variable == root
+			extract := expression.Extract
+			if extract.Prepared != nil || extract.Source.Variable != root || extract.Source.BindKey != "" {
+				return false
+			}
+			for _, fallback := range extract.Fallbacks {
+				if fallback.Source.Variable != root || fallback.Source.BindKey != "" {
+					return false
+				}
+			}
+			return true
 		}
 		if expression.Kind == ir.PhysicalValueExpression && expression.Value != nil {
-			return expression.Value.Variable == root
+			return expression.Value.Variable == root && expression.Value.BindKey == ""
 		}
 		return false
 	}
-	return projection.Value.Variable == root
+	return projection.Value.Variable == root && projection.Value.BindKey == ""
 }
 
 func rootPagePassThroughProjections(stage ir.PhysicalConstructionStage, projections map[string]ir.PhysicalProjection) map[string]ir.PhysicalProjection {

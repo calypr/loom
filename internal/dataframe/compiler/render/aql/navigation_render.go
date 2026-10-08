@@ -498,6 +498,24 @@ func physicalPlanVariableNames(plan ir.PhysicalPlan) map[string]struct{} {
 		switch operation.Kind {
 		case ir.PhysicalRootScanOp:
 			variables[operation.RootScan.Variable] = struct{}{}
+			if seed := operation.RootScan.PageCandidateSeed; seed != nil {
+				for _, seedOperation := range seed.Subplan.Operations {
+					switch seedOperation.Kind {
+					case ir.PhysicalCollectionScanOp:
+						variables[seedOperation.CollectionScan.Variable] = struct{}{}
+					case ir.PhysicalTraversalOp:
+						variables[seedOperation.Traversal.SourceVariable] = struct{}{}
+						variables[seedOperation.Traversal.TargetVariable] = struct{}{}
+						if seedOperation.Traversal.EdgeVariable != "" {
+							variables[seedOperation.Traversal.EdgeVariable] = struct{}{}
+						}
+					case ir.PhysicalDerivedLetOp:
+						variables[seedOperation.DerivedLet.Variable] = struct{}{}
+					case ir.PhysicalExpressionLetOp:
+						variables[seedOperation.ExpressionLet.Variable] = struct{}{}
+					}
+				}
+			}
 			if population := operation.RootScan.Population; population != nil {
 				variables[population.MemberScan.Variable] = struct{}{}
 				if population.CollectMembersVariable != "" {

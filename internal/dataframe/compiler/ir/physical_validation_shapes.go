@@ -102,8 +102,22 @@ func validatePhysicalPredicateExpressionValidated(predicate PhysicalPredicateExp
 }
 
 func validatePhysicalSubplan(subplan PhysicalSubplan, parent map[string]bool, bindVars map[string]any) error {
-	if len(subplan.Captures) == 0 {
+	return validatePhysicalSubplanWithCapturePolicy(subplan, parent, bindVars, false)
+}
+
+func validatePhysicalUncorrelatedSubplan(subplan PhysicalSubplan, bindVars map[string]any) error {
+	if len(subplan.Captures) != 0 {
+		return fmt.Errorf("uncorrelated subplan cannot declare captures")
+	}
+	return validatePhysicalSubplanWithCapturePolicy(subplan, nil, bindVars, true)
+}
+
+func validatePhysicalSubplanWithCapturePolicy(subplan PhysicalSubplan, parent map[string]bool, bindVars map[string]any, allowUncorrelated bool) error {
+	if len(subplan.Captures) == 0 && !allowUncorrelated {
 		return fmt.Errorf("subplan requires at least one explicit capture")
+	}
+	if len(subplan.Captures) > 0 && allowUncorrelated {
+		return fmt.Errorf("uncorrelated subplan cannot declare captures")
 	}
 	defined := make(map[string]bool, len(subplan.Captures))
 	for _, capture := range subplan.Captures {

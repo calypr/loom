@@ -76,6 +76,11 @@ func (walker *physicalScopeWalker) operationChildren(operation *PhysicalOperatio
 	if operation == nil {
 		return nil
 	}
+	if operation.RootScan != nil && operation.RootScan.PageCandidateSeed != nil {
+		if err := walker.subplan(&operation.RootScan.PageCandidateSeed.Subplan, owner+" root page candidate seed"); err != nil {
+			return err
+		}
+	}
 	if operation.Filter != nil {
 		if err := walker.predicate(operation.Filter.Expression, owner+" filter"); err != nil {
 			return err

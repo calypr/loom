@@ -162,6 +162,14 @@ func (p PhysicalPlan) Validate() error {
 					return fmt.Errorf("operation %d cohort root source: %w", i, err)
 				}
 			}
+			if seed := operation.RootScan.PageCandidateSeed; seed != nil {
+				if operation.RootScan.Population != nil || operation.RootScan.CohortSource != nil {
+					return fmt.Errorf("operation %d root page candidate seed cannot be combined with population or cohort root sources", i)
+				}
+				if err := validatePhysicalUncorrelatedSubplan(seed.Subplan, p.BindVars); err != nil {
+					return fmt.Errorf("operation %d root page candidate seed: %w", i, err)
+				}
+			}
 			if err := definePhysicalVariable(defined, operation.RootScan.Variable); err != nil {
 				return fmt.Errorf("operation %d: %w", i, err)
 			}

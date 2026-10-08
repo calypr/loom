@@ -282,6 +282,70 @@ func TestCompileRecipeOutputPageFiltersConstructionRowsBeforeRootWindow(t *testi
 	}
 }
 
+func TestCompileRecipeOutputPageFiltersRelatedConstructionRowsBeforeRootWindow(t *testing.T) {
+	patientID := "patient-that-matches-the-filter"
+	output := relatedTraversalIDFilterPageOutput(patientID)
+	bundle := recipe.Bundle{
+		RecipeSchemaVersion: recipe.CurrentSchemaVersion,
+		Name:                "related-construction-filter-root-page",
+		TranslationVersion:  "related-construction-filter-root-page",
+		Outputs:             []recipe.Output{output},
+	}
+	bindings := recipe.RuntimeBindings{Project: "project-a", SelectionProject: "project/a", DatasetGeneration: "generation-a"}
+	semanticPlan, err := semantic.BuildRecipePlan(bundle, bindings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := semantic.ResolveRecipePlan(semanticPlan, "scope-a", bindings.DatasetGeneration)
+	if err != nil {
+		t.Fatal(err)
+	}
+	compiled, err := lower.CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	page, err := CompileRecipeOutputPageWithPolicy(compiled.Outputs[0], bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	window := strings.Index(page.RootKeysQuery, "SORT root._key ASC")
+	limit := strings.Index(page.RootKeysQuery, "LIMIT @limit")
+	filter := strings.Index(page.RootKeysQuery, "@construction_filter_value")
+	if filter < 0 || window < 0 || limit < 0 || filter > window || window > limit {
+		t.Fatalf("source-projection Patient.id construction filter must run before the root-key window: filter=%d sort=%d limit=%d\n%s", filter, window, limit, page.RootKeysQuery)
+	}
+	if got := page.RootKeysBindVars["construction_filter_value"]; got != patientID {
+		t.Fatalf("root-key related construction filter bind = %#v, want %q", got, patientID)
+	}
+}
+
+func relatedTraversalIDFilterPageOutput(patientID string) recipe.Output {
+	patientColumn := recipe.StageColumn{ID: "patient-id", Name: "patient_id", Label: "Patient ID", Type: "string"}
+	return recipe.Output{
+		Name: "observations", RootResourceType: "Observation", RootOccurrenceID: "base", RowGrain: "observation",
+		TraversalColumnNaming: recipe.TraversalColumnNamingExact,
+		Traversals: []recipe.Traversal{{
+			Name: "subject_Patient", OccurrenceID: "patient-occurrence", Alias: "patient-occurrence", ToResourceType: "Patient",
+			MatchMode: recipe.MatchOptional,
+			Fields: []recipe.Field{{
+				Name: "patient_id", ColumnID: "patient-id", Label: "Patient ID", FieldRef: "id",
+				Expr: recipe.Expression{Select: "patient-occurrence.id"}, ValueMode: recipe.ValueModeAuto,
+			}},
+		}},
+		Construction: &recipe.Construction{
+			Version: 1, SourceColumns: []recipe.StageColumn{patientColumn},
+			Steps: []recipe.ConstructionStep{{
+				ID: "keep_matching_patient", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
+				Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionFilterOp, Filter: &recipe.ConstructionFilter{
+					ColumnID: "patient-id", Operator: recipe.FilterEquals,
+					Values: []recipe.FilterValue{{Kind: recipe.FilterString, String: &patientID}},
+				}},
+				Outputs: []recipe.StageColumn{patientColumn},
+			}},
+		},
+	}
+}
+
 func TestCompileRecipeOutputPageFiltersMissingConstructionRowsBeforeRootWindow(t *testing.T) {
 	for _, tc := range []struct {
 		name       string

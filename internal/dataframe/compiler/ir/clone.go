@@ -221,6 +221,10 @@ func canonicalizePhysicalOperations(operations []PhysicalOperation) {
 			}
 			canonicalizePhysicalOperations(operation.RootScan.Population.ResourceOperations)
 		}
+		if operation.RootScan != nil && operation.RootScan.PageCandidateSeed != nil {
+			seed := operation.RootScan.PageCandidateSeed
+			canonicalizePhysicalSubplan(&seed.Subplan)
+		}
 		if operation.Set != nil {
 			canonicalizePhysicalSubplan(&operation.Set.Subplan)
 		}
@@ -405,6 +409,11 @@ func clonePhysicalOperation(operation PhysicalOperation) PhysicalOperation {
 	copy := operation
 	if operation.RootScan != nil {
 		rootScanCopy := *operation.RootScan
+		if operation.RootScan.PageCandidateSeed != nil {
+			seedCopy := *operation.RootScan.PageCandidateSeed
+			seedCopy.Subplan = clonePhysicalSubplan(operation.RootScan.PageCandidateSeed.Subplan)
+			rootScanCopy.PageCandidateSeed = &seedCopy
+		}
 		if operation.RootScan.Population != nil {
 			populationCopy := *operation.RootScan.Population
 			populationCopy.MemberFilters = make([]PhysicalFilter, len(operation.RootScan.Population.MemberFilters))
