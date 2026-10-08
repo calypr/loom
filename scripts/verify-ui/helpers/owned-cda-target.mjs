@@ -69,9 +69,10 @@ export async function assertOwnedCdaTarget({
   const source = await realpathImpl(sourceRoot);
   const composeFile = await realpathImpl(`${source}/compose.dev.yaml`);
   const api = byName.get(apiContainer);
-  const ui = containers.find(container => container.Config.Labels['com.docker.compose.service'] === 'loom-ui');
+  const uiServices = containers.filter(container => container.Config.Labels['com.docker.compose.service'] === 'loom-ui');
   assert(api, 'The named API container is missing from the isolated Compose project');
-  assert(ui, 'The isolated Compose project must have a Loom UI container');
+  assert.equal(uiServices.length, 1, 'The isolated Compose project must have exactly one Loom UI container');
+  const [ui] = uiServices;
   const extras = [
     ...(arangoContainer ? [[arangoContainer, 'arangodb']] : []),
     ...(clickhouseContainer ? [[clickhouseContainer, 'clickhouse']] : []),

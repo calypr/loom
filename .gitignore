@@ -24,3 +24,6 @@ META/
 /scripts/node_modules/
 /ui/apps/*/dist/
 /ui/packages/*/dist/
+
+# Explicit machine-local native CDA target configuration.
+/.codex/owned-cda-target.json

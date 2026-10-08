@@ -99,6 +99,16 @@ test('foreign Compose working directories, ports, and source mounts are refused'
   }), /UI container must be mounted from this isolated source checkout/);
 });
 
+test('ambiguous Compose UI ownership is refused before a browser can select an origin', async () => {
+  const duplicateUI = [
+    ...containers,
+    makeContainer(`${composeProject}-loom-ui-extra`, 'loom-ui', 30009, [['/checkout/ui/packages/loom-ui/src', '/workspace/packages/loom-ui/src']]),
+  ];
+  await assert.rejects(assertOwnedCdaTarget(target(), {
+    docker: dockerFixture(duplicateUI), realpathImpl: async value => value,
+  }), /exactly one Loom UI container/);
+});
+
 test('database primary mounts reject foreign names, projects, and logical volume labels', async () => {
   const foreignMount = containers.map(container => container.Config.Labels['com.docker.compose.service'] === 'arangodb'
     ? { ...container, Mounts: container.Mounts.map(mount => mount.Destination === '/var/lib/arangodb3'

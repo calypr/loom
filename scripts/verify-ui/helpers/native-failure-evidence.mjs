@@ -5,6 +5,10 @@ export const MAX_NATIVE_FAILURE_CAPTURE_MS = 1_000;
 const MAX_BODY_TEXT = 12_000;
 const MAX_CONTROL_TEXT = 500;
 const MAX_CONTROL_VALUE = 1_000;
+const MAX_CONTEXTS = 3;
+const MAX_CONTEXT_TEXT = 1_600;
+const MAX_VISIBLE_ALERTS = 4;
+const MAX_ALERT_TEXT = 800;
 const sensitiveControlName = /authorization|cookie|password|passwd|token|secret|credential|session|api[_-]?key|csrf/i;
 
 const safeText = (value, limit) => {
@@ -14,7 +18,8 @@ const safeText = (value, limit) => {
 
 function failureText(value, limit, ownedOrigins) {
   const text = safeText(value, Math.max(limit, 2_000));
-  return text.replace(/\bhttps?:\/\/[^\s"'<>)}\]]+/gi, rawURL => {
+  return text.replace(/\b((?:authorization|cookie|password|passwd|token|secret|credential|session|api[_-]?key|csrf)[\w-]*)\s*([=:])\s*("[^"]*"|'[^']*'|[^\s,;}\]]+)/gi, '$1$2[REDACTED]')
+    .replace(/\bhttps?:\/\/[^\s"'<>)}\]]+/gi, rawURL => {
     try {
       const url = new URL(rawURL);
       return ownedOrigins.has(url.origin) ? `${url.origin}${url.pathname}` : '[external URL]';
@@ -64,6 +69,84 @@ function redactUnownedURLs(value, ownedOrigins) {
     return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, redactUnownedURLs(item, ownedOrigins)]));
   }
   return value;
+}
+
+/** Collect only visible text near the active native action and visible alerts. */
+export function captureNativeActionContext(element) {
+  const contextLimit = 1_600;
+  const alertLimit = 800;
+  const contexts = [];
+  const seenContexts = new Set();
+  const document = element?.ownerDocument;
+
+  const isVisible = node => {
+    if (!node || node.hidden || node.getAttribute?.('aria-hidden') === 'true') return false;
+    if (typeof node.getClientRects === 'function' && node.getClientRects().length === 0) return false;
+    for (let ancestor = node; ancestor; ancestor = ancestor.parentElement) {
+      if (ancestor.hidden || ancestor.getAttribute?.('aria-hidden') === 'true') return false;
+      const style = ancestor.ownerDocument?.defaultView?.getComputedStyle?.(ancestor);
+      if (style && (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0')) return false;
+    }
+    return true;
+  };
+
+  const textOf = (node, limit) => String(node?.innerText ?? node?.textContent ?? '')
+    .slice(0, limit * 2).replace(/\s+/g, ' ').trim().slice(0, limit);
+
+  const addContext = (kind, node) => {
+    if (!node || seenContexts.has(node) || !isVisible(node)) return;
+    seenContexts.add(node);
+    const text = textOf(node, contextLimit);
+    if (text) contexts.push({ kind, text });
+  };
+
+  const dialog = element?.closest?.('[role="dialog"], dialog');
+  const form = element?.closest?.('form');
+  const editorSelector = '[data-testid*="editor"], .monaco-editor, [contenteditable="true"], [role="textbox"]';
+  addContext('dialog', dialog);
+  addContext('form', form);
+  let editor = element?.closest?.(editorSelector);
+  if (!editor) {
+    for (const root of [form, dialog]) {
+      const candidates = root?.querySelectorAll?.(editorSelector) ?? [];
+      for (let index = 0; index < Math.min(candidates.length, 50); index++) {
+        if (isVisible(candidates[index])) {
+          editor = candidates[index];
+          break;
+        }
+      }
+      if (editor) break;
+    }
+  }
+  addContext('editor', editor);
+
+  const alerts = [];
+  const alertNodes = document?.querySelectorAll?.('[role="alert"], [aria-live="assertive"], [aria-live="polite"]') ?? [];
+  let examinedAlerts = 0;
+  for (const node of alertNodes) {
+    if (examinedAlerts++ >= 50) break;
+    if (!isVisible(node)) continue;
+    const text = textOf(node, alertLimit);
+    if (text && !alerts.includes(text)) alerts.push(text);
+    if (alerts.length >= 4) break;
+  }
+
+  return { containers: contexts.slice(0, 3), alerts };
+}
+
+function capturedNativeContext(result, ownedOrigins) {
+  if (result.state !== 'captured') return captureState(result);
+  const value = result.value && typeof result.value === 'object' ? result.value : {};
+  const containers = Array.isArray(value.containers) ? value.containers.slice(0, MAX_CONTEXTS) : [];
+  const alerts = Array.isArray(value.alerts) ? value.alerts.slice(0, MAX_VISIBLE_ALERTS) : [];
+  return {
+    state: 'captured',
+    containers: containers.map(item => ({
+      kind: safeText(item?.kind ?? 'nearby', 40),
+      text: failureText(item?.text ?? '', MAX_CONTEXT_TEXT, ownedOrigins),
+    })).filter(item => item.text),
+    alerts: alerts.map(text => failureText(text, MAX_ALERT_TEXT, ownedOrigins)).filter(Boolean),
+  };
 }
 
 /** Read a compact failure-only snapshot from the active native Playwright page. */
@@ -126,7 +209,7 @@ export async function captureNativeFailureEvidence({
       if (!Number.isFinite(count)) return { state: 'error', error: 'Locator count was not numeric.' };
       if (count !== 1) return { state: 'captured', count };
 
-      const [visible, enabled, editable, control] = await Promise.all([
+      const [visible, enabled, editable, control, context] = await Promise.all([
         boundedRead(() => locator.isVisible(), deadline),
         boundedRead(() => locator.isEnabled(), deadline),
         boundedRead(() => locator.isEditable(), deadline),
@@ -156,6 +239,7 @@ export async function captureNativeFailureEvidence({
             checked: 'checked' in element ? Boolean(element.checked) : undefined,
           };
         }), deadline),
+        boundedRead(() => locator.evaluate(captureNativeActionContext), deadline),
       ]);
 
       const target = {
@@ -164,6 +248,7 @@ export async function captureNativeFailureEvidence({
         enabled: captureState(enabled),
         editable: captureState(editable),
         control: captureState(control),
+        context: capturedNativeContext(context, allowedOrigins),
       };
       if (target.control.state === 'captured' && target.control.value) {
         const value = target.control.value;
@@ -178,8 +263,9 @@ export async function captureNativeFailureEvidence({
       return { state: 'captured', ...target };
     };
 
-    const [body, target] = await Promise.all([captureBody(), captureTarget()]);
-      evidence.page.bodyText = body.state === 'captured'
+    const target = await captureTarget();
+    const body = await captureBody();
+    evidence.page.bodyText = body.state === 'captured'
       ? failureText(body.value, MAX_BODY_TEXT, allowedOrigins)
       : undefined;
     evidence.page.bodyTextState = body.state;
