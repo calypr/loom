@@ -7,6 +7,51 @@ import { createdExplorerScope } from '../helpers/created-explorer-scope.mjs';
 export const groupAddFieldsRawFieldsSummarySelector = '[data-testid="feature-catalog-raw-fields"] > summary';
 export const groupAddFieldsPreviewHeaders = ['Specimen ID', 'Row count', 'Resource Type'];
 
+export function groupAddFieldsPreviewWaitState({ dataRowCount, columnCount, header, diagnostic = false }) {
+  const previewScrolls = [...document.querySelectorAll('[data-testid="preview-table-scroll"]')];
+  const tables = [...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="table"]')];
+  const previewScroll = previewScrolls[0];
+  const table = tables[0];
+  const headerCells = [...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')];
+  const headers = headerCells.map(cell => cell.textContent?.trim() ?? '');
+  const visibleHeaders = headerCells.map(cell => cell.innerText.trim());
+  const bodyText = document.body.innerText;
+  const expectedAriaRowCount = String(Math.min(25, dataRowCount) + 1);
+  const actualAriaRowCount = table?.getAttribute('aria-rowcount') ?? null;
+  const actualAriaColumnCount = table?.getAttribute('aria-colcount') ?? null;
+  const rowCountMatches = actualAriaRowCount === expectedAriaRowCount;
+  const columnCountMatches = actualAriaColumnCount === String(columnCount);
+  const headerMatches = !header || headers.includes(header);
+  const globalLoadingSentinel = bodyText.includes('Loading your table…');
+  const globalPreviewErrorSentinel = bodyText.includes('Preview failed:');
+  const previewLoadingSentinel = previewScroll?.innerText.includes('Loading your table…') ?? false;
+  const previewErrorSentinel = previewScroll?.innerText.includes('Preview failed:') ?? false;
+  const ready = Boolean(table && rowCountMatches && columnCountMatches && headerMatches &&
+    !globalLoadingSentinel && !globalPreviewErrorSentinel);
+  if (!diagnostic) return ready;
+  return {
+    ready,
+    previewScrollCount: previewScrolls.length,
+    tableCount: tables.length,
+    selectedPreviewVisible: Boolean(previewScroll && previewScroll.getBoundingClientRect().width > 0 &&
+      previewScroll.getBoundingClientRect().height > 0),
+    actualAriaRowCount,
+    expectedAriaRowCount,
+    rowCountMatches,
+    actualAriaColumnCount,
+    expectedAriaColumnCount: String(columnCount),
+    columnCountMatches,
+    expectedHeader: header ?? null,
+    headers,
+    visibleHeaders,
+    headerMatches,
+    globalLoadingSentinel,
+    globalPreviewErrorSentinel,
+    previewLoadingSentinel,
+    previewErrorSentinel,
+  };
+}
+
 export function rawCdaRelatedHopBinding({ from, to, direction }) {
   assert(['OUTBOUND', 'INBOUND'].includes(direction), `Unsupported raw CDA relationship direction: ${direction}`);
   const outbound = direction === 'OUTBOUND';
@@ -139,19 +184,28 @@ const open = async (expectedRows, expectedHeader) => {
   recordRender('load-to-render', start);
 };
 const rendered = async (expectedRows, expectedHeader) => {
-  await waitForBrowser(({ rowCount, columnCount, header }) => {
-    const table = document.querySelector('[data-testid="preview-table-scroll"] [role="table"]');
-    const headers = [...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')]
-      .map(cell => cell.innerText.trim());
-    return table?.getAttribute('aria-rowcount') === String(Math.min(25, rowCount) + 1) &&
-      table?.getAttribute('aria-colcount') === String(columnCount) &&
-      (!header || headers.includes(header)) &&
-      !document.body.innerText.includes('Loading your table…') &&
-      !document.body.innerText.includes('Preview failed:');
-  }, { rowCount: expectedRows.length, columnCount: expectedRows[0]?.length ?? 2, header: expectedHeader });
+  const waitState = {
+    dataRowCount: expectedRows.length,
+    columnCount: expectedRows[0]?.length ?? 2,
+    header: expectedHeader,
+  };
+  try {
+    await waitForBrowser(groupAddFieldsPreviewWaitState, waitState);
+  } catch (error) {
+    let diagnostic;
+    try {
+      diagnostic = await browserEval(groupAddFieldsPreviewWaitState, { ...waitState, diagnostic: true });
+    } catch (captureError) {
+      diagnostic = { captureError: String(captureError?.message ?? captureError) };
+    }
+    report.previewRenderWaitFailure = diagnostic;
+    throw new Error(`${error?.message ?? String(error)}; Group-add-fields preview wait state: ${JSON.stringify(diagnostic)}`, {
+      cause: error,
+    });
+  }
   const view = await browserEval(() => ({
     headers: [...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')]
-      .map(cell => cell.innerText.trim()),
+      .map(cell => cell.textContent?.trim() ?? ''),
     rows: [...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]')]
       .slice(1).map(row => [...row.querySelectorAll('[role="cell"]')].map(cell => cell.innerText.trim())).filter(row => row.length),
   }));

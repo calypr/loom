@@ -1730,6 +1730,7 @@ export const registry = Object.freeze([
               'scripts/verify-ui/helpers/cda-playwright.mjs',
               'scripts/verify-ui/helpers/cda-row-oracle.mjs',
               'scripts/verify-ui/helpers/cda-fixtures.mjs',
+              'scripts/verify-ui/helpers/tests/group-add-fields-preview-rows.test.mjs',
               'scripts/verify-ui/workflows/verify-cda-group-add-fields-browser.mjs',
               'scripts/verify-ui/workflows/verify-cda-nested-repeated-browser.mjs',
               'scripts/verify-ui/workflows/verify-cda-group-related-summary-browser.mjs',
@@ -1775,7 +1776,7 @@ export const registry = Object.freeze([
       },
     },
     coverage: [
-      { feature: 'CDA Group add Specimen.resourceType with native preview, Cancel/Apply, edit, removal, and reload', acceptance: { intent: 'row-lifecycle', kind: 'lifecycle', case: 'group-add-fields', checks: { choice: 5, proposal: 2, cancel: 6, apply: 7, savedRows: 7, reload: 8, edit: 9, restoration: 10 } }, status: 'untested', reason: 'The bounded raw oracle and native lifecycle are registered. No fresh browser lifecycle or current source/API identity run has been performed. Keep untested until the exact case passes with all named checks.' },
+      { feature: 'CDA Group add Specimen.resourceType with native preview, Cancel/Apply, edit, removal, and reload', acceptance: { intent: 'row-lifecycle', kind: 'lifecycle', case: 'group-add-fields', checks: { choice: 5, proposal: 2, cancel: 6, apply: 7, savedRows: 7, reload: 8, edit: 9, restoration: 10 } }, status: 'failed', reason: 'The exact case on source 9b9e4e09 passed 9/14 required checks before its reload header wait timed out. Raw oracle/rows, Group and Add Columns Cancel/Apply, the applied field binding/value, and source/API integrity passed; 33 native actions completed. A read-only replay of the saved Explorer showed aria-rowcount=2, aria-colcount=3, and no loading/error sentinels. The literal header textContent was "Resource Type", while CSS-transformed innerText was "RESOURCE TYPE", so the verifier comparison failed; no product reload defect is established. The reload binding proof, rename/reload, field removal/restoration, aggregate timing, and final strict no-error check remain unverified. Summary: /private/var/folders/v_/j3zplgbs155cgwtqjftj377nd_4gyt/T/loom-verification-brackets/run-standalone-reshape-group-add-fields-group-add-fields-YuDqoG/summary.json; report: /private/var/folders/v_/j3zplgbs155cgwtqjftj377nd_4gyt/T/loom-verification-brackets/run-standalone-reshape-group-add-fields-group-add-fields-YuDqoG/playwright-results/standalone-reshape-standal-87538-add-fields-group-add-fields/attachments/cda-domain-report-json-497153c61d66ad6ffe28ec4f7cd3241a3e42b2a3.json. Fix the semantic header reader and rerun the same full 14-check lifecycle before claiming coverage.' },
     ],
   }),
   Object.freeze({
