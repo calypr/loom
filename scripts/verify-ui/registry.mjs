@@ -1890,14 +1890,14 @@ export const registry = Object.freeze([
     requiredTransitions: [
       'use the project/generation-scoped raw oracle to identify two distinct Specimen IDs and resource identities linked to one Patient',
       'create a fresh server-assigned Explorer, root a Specimen table, and author the related Patient and grouped COUNT_ROWS result through native Builder controls',
-      'open Fields and related data, choose Specimen.id with ONE, and verify the exact 422 leaves the saved Group unchanged and the same field selected in the open chooser',
-      'switch that chooser to ALL, compare its preview with the exact two raw Specimen IDs, Apply, and verify the saved result after reload',
+      'open Fields and related data, choose Specimen.id with ONE, and verify the exact 422 leaves the saved Group unchanged while the field and policy remain in the open Add Columns editor',
+      'switch the same Add Columns editor to ALL, compare its preview with the exact two raw Specimen IDs, Apply, and verify the saved result after reload',
       'remove the added field and reload the exact original Group, with all native action-to-render checkpoints under five seconds',
     ],
     gateReasons: [
       'the independent AQL oracle scopes Specimen, Patient, and subject edges to the owned project and pinned generation, and retains distinct source resource IDs and FHIR IDs',
       'the browser route and native request capture use the server-assigned Explorer ID returned by createExplorerScope, not the requested display name',
-      'ONE is an expected conflict only for the two exact distinct IDs; ALL recovery must retain the selected Specimen.id field in the same chooser dialog',
+      'ONE is an expected conflict only for the two exact distinct IDs; its inline error must preserve the selected Specimen.id field and expose the ALL option in the same Add Columns editor',
       'the isolated Playwright regression uses the real strict selector and inspection helpers; it is a fast prerequisite, not full browser evidence',
       'saved-policy editing remains a separate workflow and is not claimed by this case',
     ],
@@ -1944,7 +1944,7 @@ export const registry = Object.freeze([
     },
     coverage: [
       {
-        feature: 'CDA Group ONE conflict and same-dialog ALL recovery with reload and removal restoration',
+        feature: 'CDA Group ONE conflict and same-editor ALL recovery with reload and removal restoration',
         acceptance: {
           intent: 'row-lifecycle',
           kind: 'lifecycle',
@@ -1952,7 +1952,7 @@ export const registry = Object.freeze([
           checks: { choice: 0, proposal: 2, cancel: 1, apply: 3, savedRows: 3, reload: 7, edit: 5, restoration: 8 },
         },
         status: 'failed',
-        reason: 'The first full run on promoted source 9044da13 closed with integrity PASS but stopped at 5/10 checks when the harness passed a workflow-capture object to the fixture-owned HTTP classifier. The retained captures show the exact owned POST 422 and CONSTRUCTION_ROW_VALUE_MULTIPLE_VALUES; the fixture classifier rejected object identity before classifying it, so no product failure is established. The correction correlates both capture views by request/browser IDs, method, owned Explorer path, typed diagnostic, output, catalog snapshot, and current draft CAS, then passes the exact fixture entry to its classifier. Same-dialog ALL recovery, exact preview, Apply/reload, removal/reload, and all 14 render checkpoints remain unverified; this row records the failed/incomplete attempt and closes only after the corrected same case passes all ten checks, strict request drain, and integrity. Summary: /private/var/folders/v_/j3zplgbs155cgwtqjftj377nd_4gyt/T/loom-verification-brackets/run-standalone-reshape-group-one-conflict-group-one-conflict-y9crTl/summary.json.',
+        reason: 'The first full run on promoted source 9044da13 closed with integrity PASS but stopped at 5/10 when the harness passed a workflow-capture object to the fixture-owned HTTP classifier; the exact owned POST 422 and CONSTRUCTION_ROW_VALUE_MULTIPLE_VALUES were present, and no product failure was established. The corrected classifier now correlates both capture views by request/browser IDs, method, owned Explorer path, typed diagnostic, output, catalog snapshot, and current draft CAS and passes the exact fixture entry. The second full run on 4cf73021 also stopped at 5/10 with integrity PASS: the retained page state was dialogOpen=false and fieldSelected=true, while the snapshot shows the inline Preview new columns error and still-open Add Columns editor with ONE selected. The harness had incorrectly required a portal dialog; BuilderWorkspace.tsx keeps the actual native policy select and selected field in the editor. Recovery is now scoped to change that same editor to ALL without reselecting. Exact ALL preview, Apply/reload, removal/reload, and all 14 render checkpoints remain unverified. Keep this coverage failed/incomplete until the corrected same case passes all ten checks, strict request drain, and integrity. First summary: /private/var/folders/v_/j3zplgbs155cgwtqjftj377nd_4gyt/T/loom-verification-brackets/run-standalone-reshape-group-one-conflict-group-one-conflict-y9crTl/summary.json; second summary: /private/var/folders/v_/j3zplgbs155cgwtqjftj377nd_4gyt/T/loom-verification-brackets/run-standalone-reshape-group-one-conflict-group-one-conflict-s3BnlC/summary.json.',
       },
     ],
   }),

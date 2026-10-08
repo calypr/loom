@@ -7,16 +7,16 @@ import { createdExplorerScope } from '../helpers/created-explorer-scope.mjs';
 
 export const groupOneConflictRawFieldsSummarySelector = '[data-testid="feature-catalog-raw-fields"] > summary';
 export const groupOneConflictOperationPolicySelector = '[aria-label="Add columns editor"] select[aria-label="Values per grouped row"]';
-export const groupOneConflictChoiceDialogSelector = '[role="dialog"][aria-labelledby="catalog-selection-dialog-title"]';
-export const groupOneConflictChoicePolicySelector = `${groupOneConflictChoiceDialogSelector} select[aria-label="Values per grouped row"]`;
 export const groupOneConflictSelectedFieldSelector = '[aria-label="Add columns editor"] input[aria-label="Select Specimen.id"]';
 
-export function inspectGroupOneConflictChooserState({ dialogSelector, selectedFieldSelector }) {
-  const dialog = document.querySelector(dialogSelector);
-  const policy = dialog?.querySelector('select[aria-label="Values per grouped row"]');
+export function inspectGroupOneConflictRecoveryState({ editorSelector, proposalSelector, selectedFieldSelector }) {
+  const editor = document.querySelector(editorSelector);
+  const policy = editor?.querySelector('select[aria-label="Values per grouped row"]');
   const field = document.querySelector(selectedFieldSelector);
+  const proposal = document.querySelector(proposalSelector);
   return {
-    dialogOpen: Boolean(dialog),
+    editorOpen: Boolean(editor),
+    proposalStatus: proposal?.dataset.proposalStatus,
     fieldSelected: field?.checked === true,
     policy: policy?.value,
     allAvailable: Array.from(policy?.options ?? []).some(option => option.value === 'ALL'),
@@ -49,7 +49,7 @@ export async function classifyGroupOneExpectedONEFailure({
     assert.equal(entry.body.constructionChoices[0].rowValuePolicy, 'ONE', `${source} ONE failure must be the exact scalar policy`);
     assert.equal(entry.body.constructionChoices[0].title, 'Specimen ID', `${source} ONE failure must target Specimen.id`);
   }
-  assert.equal(fixtureEntry.requestId, workflowEntry.requestId, 'Both capture views must identify the same server request');
+  assert.equal(fixtureEntry.requestId, workflowEntry.requestId, 'Both capture views must identify the same captured request');
   assert.equal(fixtureEntry.browserRequestId, workflowEntry.browserRequestId, 'Both capture views must identify the same browser request');
   assert.equal(typeof fixtureEntry.requestId, 'string', 'ONE failure must have a concrete request identity');
   assert(fixtureEntry.requestId, 'ONE failure request identity must not be empty');
@@ -106,7 +106,7 @@ let explorerRoot;
 let base;
 const report = { requestedExplorerName, evidence, target: cda.target, cases: [], errors: [], requests: [], nativeRequests: [], started: new Date().toISOString(),
   workflowBoundary: {
-    intent: 'ONE rejects a scalar field when the two independent Specimen IDs disagree; ALL is the same-dialog recovery that preserves the selected field.',
+    intent: 'ONE rejects a scalar field when the two independent Specimen IDs disagree; the inline error leaves the Add Columns editor and selected field available for changing to ALL.',
     notCovered: 'Editing a pre-existing saved related-field policy is a separate future workflow.',
   },
 };
@@ -345,7 +345,7 @@ try {
       alertVisible:Boolean(alert && alert.getClientRects().length && getComputedStyle(alert).visibility!=='hidden')};
   });
   assert.equal(report.oneResult.status,'error','ONE must reject two distinct contributing Specimen IDs');
-  assert.equal(report.oneResult.alertVisible,true,'ONE failure must be visible in the chooser as an alert');
+  assert.equal(report.oneResult.alertVisible,true,'ONE failure must be visible in the inline proposal as an alert');
   assert(!/INTERNAL_ERROR|internal server error/i.test(report.oneResult.text),report.oneResult.text);
   assert.deepEqual((await api(base+'/builder')).workspace,beforeField.workspace);
   recordRender('one-disagreement-diagnostic',start);
@@ -404,18 +404,19 @@ try {
   const contributorIDs=source.sources.map(member=>member.id).sort();
   const withField=[[...grouped[0],contributorIDs.join('; ')]];
   // Repair the existing selection instead of forcing the user to select it again.
-  const chooserStateArgs = {
-    dialogSelector: groupOneConflictChoiceDialogSelector,
+  const recoveryStateArgs = {
+    editorSelector: '[aria-label="Add columns editor"]',
+    proposalSelector: '[data-testid="construction-choice-proposal-panel"]',
     selectedFieldSelector: groupOneConflictSelectedFieldSelector,
   };
-  report.oneFailureState=await browserEval(inspectGroupOneConflictChooserState, chooserStateArgs);
-  assert.deepEqual(report.oneFailureState,{dialogOpen:true,fieldSelected:true,policy:'ONE',allAvailable:true},
-    'The failed ONE proposal must leave its field selected in the open chooser');
+  report.oneFailureState=await browserEval(inspectGroupOneConflictRecoveryState, recoveryStateArgs);
+  assert.deepEqual(report.oneFailureState,{editorOpen:true,proposalStatus:'error',fieldSelected:true,policy:'ONE',allAvailable:true},
+    'The inline ONE error must leave the selected field and policy control in the Add Columns editor');
   start=Date.now();
-  await selectOption(groupOneConflictChoicePolicySelector,'ALL');
-  report.recoveryState=await browserEval(inspectGroupOneConflictChooserState, chooserStateArgs);
-  assert.deepEqual(report.recoveryState,{dialogOpen:true,fieldSelected:true,policy:'ALL',allAvailable:true},
-    'The selected field and ALL repair must remain available in the same chooser after ONE fails');
+  await selectOption(groupOneConflictOperationPolicySelector,'ALL');
+  report.recoveryState=await browserEval(inspectGroupOneConflictRecoveryState, recoveryStateArgs);
+  assert.deepEqual(report.recoveryState,{editorOpen:true,proposalStatus:'error',fieldSelected:true,policy:'ALL',allAvailable:true},
+    'Changing to ALL must preserve the selected field in the same Add Columns editor');
   recordCheck('usability', 'failed ONE keeps the selected Specimen.id field and ALL recovery in the same editor', true, {
     afterONE: report.oneFailureState,
     afterSwitchToALL: report.recoveryState,

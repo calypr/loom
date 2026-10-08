@@ -1,69 +1,66 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { chromium } from 'playwright';
-import { browserEval, selectOption } from '../cda-playwright.mjs';
+import { selectOption } from '../cda-playwright.mjs';
 import {
-  groupOneConflictChoicePolicySelector,
-  groupOneConflictChoiceDialogSelector,
   groupOneConflictOperationPolicySelector,
   groupOneConflictSelectedFieldSelector,
-  inspectGroupOneConflictChooserState,
+  inspectGroupOneConflictRecoveryState,
   classifyGroupOneExpectedONEFailure,
 } from '../../workflows/verify-cda-group-one-conflict-browser.mjs';
 
-test('Group ONE retry selects ALL in the chooser when both policy controls are mounted', async () => {
+test('Group ONE retry switches to ALL in the open Add Columns editor after its inline error', async () => {
   const browser = await chromium.launch({ channel: 'chrome', headless: true });
   try {
     const page = await browser.newPage();
-    await page.setContent(`<section aria-label="Add columns editor">
-      <input type="checkbox" aria-label="Select Specimen.id" checked>
-      <select aria-label="Values per grouped row"><option value="ONE" selected>Require one distinct value</option><option value="ALL">Keep all distinct values</option></select>
-    </section>
-    <section role="dialog" aria-labelledby="catalog-selection-dialog-title">
-      <h2 id="catalog-selection-dialog-title">Choose how to add these fields</h2>
-      <select aria-label="Values per grouped row"><option value="ONE" selected>Require one distinct value</option><option value="ALL">Keep all distinct values</option></select>
+    await page.setContent(`<section aria-label="Change editor">
+      <section data-testid="construction-choice-proposal-panel" data-proposal-status="error">
+        <h3>Preview new columns</h3>
+        <p role="alert">Some grouped records have different values for this column.</p>
+        <button>Cancel</button>
+      </section>
+      <section aria-label="Add columns editor">
+        <input type="checkbox" aria-label="Select Specimen.id" checked>
+        <select aria-label="Values per grouped row"><option value="ALL">Keep all distinct values</option><option value="ONE" selected>Require one distinct value</option></select>
+        <button>Add 1 selected feature</button>
+      </section>
     </section>`);
 
     const broadSelector = 'select[aria-label="Values per grouped row"]';
-    assert.equal(await page.locator(broadSelector).count(), 2,
-      'the operation editor and failed-choice dialog both expose this label');
-    await assert.rejects(
-      selectOption(page, broadSelector, 'ALL', {}, { action: async (_label, _locator, perform) => perform() }),
-      /Expected exactly one target/,
-    );
+    assert.equal(await page.locator(broadSelector).count(), 1,
+      'the actual recovery policy remains in the Add Columns editor, not a chooser dialog');
+    assert.equal(await page.locator('[role="dialog"]').count(), 0, 'the failed preview is inline, not a dialog');
     assert.equal(await page.locator(groupOneConflictOperationPolicySelector).count(), 1);
-    assert.equal(await page.locator(groupOneConflictChoicePolicySelector).count(), 1);
-    assert.equal(await page.locator(`${groupOneConflictChoiceDialogSelector} input[aria-label="Select Specimen.id"]`).count(), 0,
-      'the field checkbox remains in the operation editor outside the chooser portal');
     assert.equal(await page.locator(groupOneConflictSelectedFieldSelector).isChecked(), true);
 
     const stateArgs = {
-      dialogSelector: groupOneConflictChoiceDialogSelector,
+      editorSelector: '[aria-label="Add columns editor"]',
+      proposalSelector: '[data-testid="construction-choice-proposal-panel"]',
       selectedFieldSelector: groupOneConflictSelectedFieldSelector,
     };
-    assert.deepEqual(await browserEval(page, inspectGroupOneConflictChooserState, stateArgs), {
-      dialogOpen: true,
+    assert.deepEqual(await page.evaluate(inspectGroupOneConflictRecoveryState, stateArgs), {
+      editorOpen: true,
+      proposalStatus: 'error',
       fieldSelected: true,
       policy: 'ONE',
       allAvailable: true,
-    }, 'ONE failure state must read the exact selected field from the operation editor');
+    }, 'the exact failure leaves the editor, selected field, and recovery policy mounted');
 
-    await selectOption(page, groupOneConflictChoicePolicySelector, 'ALL', {}, {
+    await selectOption(page, groupOneConflictOperationPolicySelector, 'ALL', {}, {
       action: async (_label, _locator, perform) => perform(),
     });
-    const values = await page.locator(broadSelector).evaluateAll(selects => selects.map(select => select.value));
-    assert.deepEqual(values, ['ONE', 'ALL'], 'the scoped native action changes only the chooser policy');
-    assert.deepEqual(await browserEval(page, inspectGroupOneConflictChooserState, stateArgs), {
-      dialogOpen: true,
+    assert.deepEqual(await page.evaluate(inspectGroupOneConflictRecoveryState, stateArgs), {
+      editorOpen: true,
+      proposalStatus: 'error',
       fieldSelected: true,
       policy: 'ALL',
       allAvailable: true,
-    }, 'ALL recovery keeps the exact Specimen.id field selected');
+    }, 'native ALL selection preserves the exact field for retry without re-selection');
+    assert.equal(await page.getByRole('button', { name: 'Add 1 selected feature' }).isEnabled(), true);
   } finally {
     await browser.close();
   }
 });
-
 
 test('ONE failure classification uses the exact fixture capture after cross-checking the workflow capture', async () => {
   const expectedPath = '/api/v1/projects/loom_dev_cda_fhir/explorers/owned-explorer/authoring/v2/construction-choice-proposals';
@@ -115,7 +112,7 @@ test('ONE failure classification uses the exact fixture capture after cross-chec
   };
   await rejects(fixtureEntry, makeEntry({ browserRequestId: 'foreign-browser-request' }), /same browser request/);
   await rejects(fixtureEntry, makeEntry({ response: { error: { code: 'INTERNAL_ERROR' } } }), /typed multiple-values diagnostic/);
-  await rejects(fixtureEntry, makeEntry({ requestId: 'foreign-server-request' }), /same server request/);
+  await rejects(fixtureEntry, makeEntry({ requestId: 'foreign-server-request' }), /same captured request/);
   await rejects(fixtureEntry, makeEntry({ body: { ...workflowEntry.body, expectedDraftVersion: 6 } }), /current draft version/);
   await rejects(fixtureEntry, makeEntry({ body: { ...workflowEntry.body, expectedDraftDigest: 'sha256:stale-draft' } }), /current draft digest/);
   await rejects(fixtureEntry, makeEntry({ body: { ...workflowEntry.body, snapshotToken: 'sha256:stale-catalog' } }), /current catalog snapshot/);
