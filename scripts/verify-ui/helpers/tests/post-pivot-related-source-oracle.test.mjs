@@ -737,6 +737,59 @@ test('owned construction-capabilities requests reach a terminal result before fu
   assert.equal(navigated, true);
 });
 
+test('retained repeated-empty source-projection request is settled before saved-table navigation', async () => {
+  const retained = JSON.parse(await readFile(
+    new URL('./fixtures/retained-repeat-empty-capabilities-request.json', import.meta.url), 'utf8',
+  ));
+  const pending = structuredClone(retained);
+  const capabilityPath = '/api/v1/projects/loom_dev_cda_fhir/explorers/cda-repeated-empty-1791501485973/authoring/v2/construction-capabilities';
+  const tracker = {};
+  let releaseResponse;
+  let waitCalls = 0;
+  let navigationCalls = 0;
+  const cda = {
+    waitForCapturedResponse(actualTracker, predicate, timeout) {
+      assert.equal(actualTracker, tracker);
+      assert(timeout > 0);
+      assert.equal(predicate(pending), true);
+      waitCalls += 1;
+      return new Promise(resolve => {
+        releaseResponse = () => {
+          pending.status = 200;
+          pending.completedAt = Date.now();
+          resolve(pending);
+        };
+      });
+    },
+  };
+  const startedAt = Date.now();
+  const navigation = navigateAfterOwnedConstructionCapabilities(
+    cda,
+    tracker,
+    () => [pending],
+    capabilityPath,
+    Math.max(1, startedAt + 5000 - Date.now()),
+    async () => {
+      assert.equal(pending.status, 200);
+      assert(Number.isFinite(pending.completedAt));
+      assert.equal(pending.body.stageId, 'source_projection');
+      assert.equal(pending.body.expectedDraftVersion, 10);
+      navigationCalls += 1;
+      return 'saved-table-reloaded';
+    },
+  );
+
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(waitCalls, 1);
+  assert.equal(navigationCalls, 0, 'navigation must not retire the retained request-only capabilities call');
+  releaseResponse();
+
+  const result = await navigation;
+  assert.equal(result.navigationResult, 'saved-table-reloaded');
+  assert.deepEqual(result.settledEntries, [pending]);
+  assert.equal(navigationCalls, 1);
+});
+
 test('an in-flight owned capabilities transport failure blocks navigation without inventing an HTTP status', async () => {
   const tracker = {};
   const capabilityPath = '/api/v1/projects/loom_dev_cda_fhir/explorers/qa/authoring/v2/construction-capabilities';

@@ -1580,6 +1580,7 @@ export const registry = Object.freeze([
               'scripts/verify-ui/helpers/cda-row-oracle.mjs',
               'scripts/verify-ui/helpers/post-pivot-related-source-oracle.mjs',
               'scripts/verify-ui/helpers/tests/fixtures/retained-empty-collection-error.json',
+              'scripts/verify-ui/helpers/tests/fixtures/retained-repeat-empty-capabilities-request.json',
               'scripts/verify-ui/workflows/verify-cda-repeated-empty-browser.mjs',
               'scripts/verify-ui/workflows/verify-cda-filter-browser.mjs',
               'scripts/verify-ui/workflows/verify-cda-related-source-after-pivot-browser.mjs',

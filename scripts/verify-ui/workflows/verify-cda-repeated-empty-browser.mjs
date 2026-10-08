@@ -13,6 +13,7 @@ import {
   captureCDARequests,
   matchesExpectedEmptyCollectionValidation,
   matchesExpectedEmptyCollectionValidationConsole,
+  navigateAfterOwnedConstructionCapabilities,
 } from '../helpers/cda-playwright-requests.mjs';
 import { waitForCondition } from '../helpers/playwright-observations.mjs';
 import { CDA_ACTION_TO_RENDER_BUDGET_MS, summarizeCdaActionToRenderTimings } from '../helpers/cda-action-to-render-budget.mjs';
@@ -116,7 +117,6 @@ const selectOption = async (page, selector, value, timeout = 5000) => {
   report.lastAction = { label, locator: locator.toString(), targetLocator: locator, elapsedMs, startedAt: Date.now() - elapsedMs };
   return elapsedMs;
 };
-const navigate = (_page, url) => cda.navigate(url);
 let browserPending = new Set();
 
 const q = value => JSON.stringify(value);
@@ -287,7 +287,26 @@ const measure = async (name, action) => {
 };
 const tableURL = () => values['ui-origin'] + '/?project=' + encodeURIComponent(values.project) + '&explorer=' + encodeURIComponent(explorer) + '&mode=builder';
 const openTable = async (expectedRows, name) => measure(name, async startedAt => {
-  await navigate(nativePage, tableURL());
+  const navigation = await navigateAfterOwnedConstructionCapabilities(
+    cda,
+    requestMonitor,
+    () => report.browserRequests,
+    base + '/construction-capabilities',
+    Math.max(1, startedAt + CDA_ACTION_TO_RENDER_BUDGET_MS - Date.now()),
+    () => cda.navigate(tableURL()),
+  );
+  if (navigation.settledEntries.length) {
+    (report.preNavigationCapabilitySettlements ??= []).push({
+      observedAt: new Date().toISOString(),
+      requests: navigation.settledEntries.map(entry => ({
+        requestId: entry.requestId,
+        browserRequestId: entry.browserRequestId,
+        status: entry.status,
+        startedAt: entry.startedAt,
+        completedAt: entry.completedAt,
+      })),
+    });
+  }
   const table = '[data-testid="construction-table-' + outputId + '"]';
   await fastWait(startedAt, { kind: 'present', selector: table }, 'Explorer table discovery');
   await click(nativePage, table);
