@@ -22,8 +22,9 @@ import { nativeCombineTargetBindingEvidence } from '../helpers/builder-combine-h
 import { proposalPreviewReadinessExpression, proposalPreviewStateInPage } from '../helpers/proposal-preview-readiness.mjs';
 import { validatedArangoContainer } from '../helpers/native-cda-workflow-tools.mjs';
 import { buildArangoShellInvocation } from '../helpers/owned-arangosh-command.mjs';
+import { CDA_ACTION_TO_RENDER_BUDGET_MS, summarizeCdaActionToRenderTimings } from '../helpers/cda-action-to-render-budget.mjs';
 
-const MAX_ACTION_MS = 5_000;
+const MAX_ACTION_MS = CDA_ACTION_TO_RENDER_BUDGET_MS;
 const ACTION_CHECK = 'all native CDA Group→DERIVE→APPEND lifecycle actions complete within five seconds';
 const TABLE_SELECTOR = '[data-testid="preview-table-scroll"] [role="table"]';
 const normalize = value => String(value ?? '').replace(/\s+/g, ' ').trim();
@@ -877,6 +878,10 @@ async function runCdaCurrentDraftUpstreamAppendWorkflow({ page, cda: baseCda }, 
       assert.deepEqual(patientIdentityBefore.steps.map(step => step.operation), ['GROUP', 'DERIVE']);
 
       const membershipStartIndex = report.nativeRequests.length;
+      const attachmentToGridTimings = [];
+      report.lifecycle ??= {};
+      report.lifecycle.patientMembershipHandoff ??= {};
+      report.lifecycle.patientMembershipHandoff.attachmentToGridTimings = attachmentToGridTimings;
       const selectionURL = selectionId => {
         const url = new URL(`${uiOrigin}/`);
         url.searchParams.set('project', project);
@@ -1101,6 +1106,16 @@ async function runCdaCurrentDraftUpstreamAppendWorkflow({ page, cda: baseCda }, 
         await replaceButton.waitFor({ state: 'visible', timeout: MAX_ACTION_MS });
         assert.equal(await replaceButton.count(), 1,
           'An attached different selection must expose the native Replace current collection action');
+        const transitionTiming = {
+          name: `${label} Replace click through exact APPEND grid`,
+          startEvent: 'Replace current collection click',
+          startedAtMonotonicMs: performance.now(),
+          endEvent: 'exact APPEND grid and current preview receipt are ready',
+          completedAtMonotonicMs: null,
+          durationMs: null,
+          budgetMs: MAX_ACTION_MS,
+        };
+        attachmentToGridTimings.push(transitionTiming);
         await click('Replace the saved Patient collection with the native selection handoff',
           replaceButton,
           async () => waitFunction(`(()=>{const p=document.querySelector('section[aria-label="Starting collection"]');return p?.getAttribute('data-attached-selection-revision-id')===${JSON.stringify(selection.id)}})()`));
@@ -1133,6 +1148,9 @@ async function runCdaCurrentDraftUpstreamAppendWorkflow({ page, cda: baseCda }, 
           async () => waitFunction(`!document.querySelector('[aria-label="Row definition settings"]')`));
         await selectTable(target.outputId, expectedAppendRows.length, 'Inspect automatically previewed APPEND after Patient membership change');
         const autoPreview = await waitForAutoAppendPreview(attachFromIndex, expectedAppendRows, attachedState, label);
+        transitionTiming.completedAtMonotonicMs = performance.now();
+        transitionTiming.durationMs = transitionTiming.completedAtMonotonicMs - transitionTiming.startedAtMonotonicMs;
+        transitionTiming.withinBudget = transitionTiming.durationMs <= transitionTiming.budgetMs;
         assert(autoPreview.ok,
           `${label} must render the exact raw-driven APPEND row multiset under the current draft receipt: ${JSON.stringify(autoPreview)}`);
         const sourceProposalRequests = report.nativeRequests.slice(membershipStartIndex).filter(entry =>
@@ -1147,6 +1165,7 @@ async function runCdaCurrentDraftUpstreamAppendWorkflow({ page, cda: baseCda }, 
             draftDigest: attachedState.draftDigest, selectionSummary: summary.summary },
           preAttachCommands,
           autoPreview,
+          transitionTiming,
           identitiesPreserved: isDeepStrictEqual(patientIdentity, patientIdentityBefore) &&
             isDeepStrictEqual(appendIdentity, appendIdentityBefore),
           sourceProposalRequestCount: sourceProposalRequests.length,
@@ -1285,6 +1304,11 @@ async function runCdaCurrentDraftUpstreamAppendWorkflow({ page, cda: baseCda }, 
       assert(restoredExact && restored.autoPreview.ok,
         'Original two-member Patient handoff must restore exact raw-driven APPEND output and stable identities after reload');
 
+      const attachmentToGridBudget = summarizeCdaActionToRenderTimings(attachmentToGridTimings.map(({ name, durationMs }) => ({ name, durationMs })));
+      const attachmentToGridEvidence = {
+        ...attachmentToGridBudget,
+        checkpoints: attachmentToGridTimings.map(timing => ({ ...timing })),
+      };
       const allActionsWithinBudget = report.actions.length > 0 && report.actions.every(item =>
         item.status === 'passed' && item.elapsedMs <= MAX_ACTION_MS);
       requireCheck('performance', ACTION_CHECK, allActionsWithinBudget, {
@@ -1293,6 +1317,10 @@ async function runCdaCurrentDraftUpstreamAppendWorkflow({ page, cda: baseCda }, 
         exceeded: report.actions.filter(item => item.elapsedMs > MAX_ACTION_MS),
       });
       assert(allActionsWithinBudget, 'A native CDA membership lifecycle action did not complete within five seconds');
+      requireCheck('performance', 'both Patient collection replacement click-to-grid transitions complete within five seconds',
+        attachmentToGridBudget.withinBudget && attachmentToGridTimings.length === 2, attachmentToGridEvidence);
+      assert(attachmentToGridBudget.withinBudget,
+        'Each Patient Replace click through the exact APPEND grid must complete within five seconds');
       const proposalRequests = report.nativeRequests.slice(membershipStartIndex).filter(entry =>
         entry.path === `${explorerBase}/authoring/v2/construction-proposals` &&
         requestCapture.rawRequestBody(entry) !== undefined);
@@ -1341,6 +1369,7 @@ async function runCdaCurrentDraftUpstreamAppendWorkflow({ page, cda: baseCda }, 
         sourcePreview: { status: 'not-applicable', reason: 'Attachment commits directly; current-draft APPEND preview is automatic and asserted.' },
         sourceApply: { status: 'not-applicable', reason: 'Replace current collection commits directly.' },
         sourceCancel: { status: 'not-applicable', reason: 'No source proposal exists; unattached handoff dismissal uses Back to table.' },
+        attachmentToGrid: attachmentToGridEvidence,
         allActionsWithinBudget,
       };
     };
