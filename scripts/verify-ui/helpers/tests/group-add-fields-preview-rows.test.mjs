@@ -5,7 +5,38 @@ import {
   expectedGroupAddFieldsRows,
   groupAddFieldsPreviewHeaders,
   groupAddFieldsPreviewWaitState,
+  matchesGroupAddFieldsRemovalRequest,
+  matchesGroupAddFieldsRenameRequest,
 } from '../../workflows/verify-cda-group-add-fields-browser.mjs';
+
+const commandPath = '/api/v1/projects/loom_dev_cda_fhir/explorers/qa-reshape-group-add-fields-f3a413a5-cd66-4085-b83e-878076cc1238/authoring/v2/commands';
+const renameExpected = {
+  commandPath,
+  draftVersion: 7,
+  draftDigest: 'sha256:9bf00f78ea3660f3277e38161a5ba0734226bcb9e72b47809cdd2583953f1c46',
+  outputId: 'out_0ce2ec4739afb2d74801b704',
+  stepId: 'group_6ef5835a-5b06-4b98-89f8-5343fdcb850d',
+  sourceColumnId: 'source_b40816f95982f462646f7c04',
+  outputColumnId: 'row_value_e885c152162968a4b1a6fb70',
+  label: 'Specimen Resource Type',
+};
+const renameRequest = {
+  method: 'POST',
+  path: commandPath,
+  body: {
+    expectedDraftVersion: renameExpected.draftVersion,
+    expectedDraftDigest: renameExpected.draftDigest,
+    commands: [{
+      type: 'UPDATE_CONSTRUCTION_OUTPUT',
+      outputId: renameExpected.outputId,
+      constructionOutput: {
+        stepId: renameExpected.stepId,
+        columnId: renameExpected.outputColumnId,
+        label: renameExpected.label,
+      },
+    }],
+  },
+};
 
 test('Group Add Columns expectations follow the applied presentation order and retain raw counts', () => {
   const rawGroupedRows = [
@@ -25,6 +56,66 @@ test('Group Add Columns expectations follow the applied presentation order and r
     ['raw-specimen-1', 'Specimen', '12'],
     ['raw-specimen-2', 'Specimen', '3'],
   ], 'The applied Group aggregate precedes the row-value field in output order');
+});
+
+test('Group Add Fields correlates native rename and removal with distinct source and Group output identities', () => {
+  assert.equal(matchesGroupAddFieldsRenameRequest(renameRequest, renameExpected), true,
+    'The retained successful UPDATE_CONSTRUCTION_OUTPUT command must match its derived row-value output');
+  assert.equal(matchesGroupAddFieldsRenameRequest(renameRequest, {
+    ...renameExpected, outputColumnId: renameExpected.sourceColumnId,
+  }), false, 'The authored source field identity must not be mistaken for the derived Group output identity');
+  assert.equal(matchesGroupAddFieldsRenameRequest(renameRequest, {
+    ...renameExpected, outputId: 'out-other',
+  }), false, 'A command for another output must not satisfy the rename wait');
+  assert.equal(matchesGroupAddFieldsRenameRequest(renameRequest, {
+    ...renameExpected, stepId: 'group-other',
+  }), false, 'A command for another Group step must not satisfy the rename wait');
+  assert.equal(matchesGroupAddFieldsRenameRequest(renameRequest, {
+    ...renameExpected, draftVersion: 6,
+  }), false, 'A stale draft version must not satisfy the rename wait');
+  assert.equal(matchesGroupAddFieldsRenameRequest(renameRequest, {
+    ...renameExpected, draftDigest: 'sha256:stale',
+  }), false, 'A stale draft digest must not satisfy the rename wait');
+  assert.equal(matchesGroupAddFieldsRenameRequest(renameRequest, {
+    ...renameExpected, commandPath: '/api/v1/projects/other/explorers/qa/authoring/v2/commands',
+  }), false, 'A command from another Explorer must not satisfy the rename wait');
+
+  const removalExpected = {
+    commandPath,
+    draftVersion: 8,
+    draftDigest: 'sha256:32f286b1a37f44962c611d9694522e42c91d4d1074848a6c6bac680f8f99dc5a',
+    outputId: renameExpected.outputId,
+    sourceColumn: 'col_cc83aceeefd5acaaad33fc87',
+    sourceColumnId: renameExpected.sourceColumnId,
+    outputColumnId: renameExpected.outputColumnId,
+  };
+  const removalRequest = {
+    method: 'POST',
+    path: commandPath,
+    body: {
+      expectedDraftVersion: removalExpected.draftVersion,
+      expectedDraftDigest: removalExpected.draftDigest,
+      commands: [{
+        type: 'REMOVE_COLUMN',
+        outputId: removalExpected.outputId,
+        column: removalExpected.sourceColumn,
+      }],
+    },
+  };
+  assert.equal(matchesGroupAddFieldsRemovalRequest(removalRequest, removalExpected), true,
+    'Removing the Group row-value must target its exact authored source column');
+  assert.equal(matchesGroupAddFieldsRemovalRequest(removalRequest, {
+    ...removalExpected, sourceColumn: removalExpected.outputColumnId,
+  }), false, 'The remove adapter must use the authored physical column name, not the derived output ID');
+  assert.equal(matchesGroupAddFieldsRemovalRequest(removalRequest, {
+    ...removalExpected, outputId: 'out-other',
+  }), false, 'A removal for another output must not satisfy the removal wait');
+  assert.equal(matchesGroupAddFieldsRemovalRequest(removalRequest, {
+    ...removalExpected, draftVersion: 7,
+  }), false, 'A stale draft version must not satisfy the removal wait');
+  assert.equal(matchesGroupAddFieldsRemovalRequest(removalRequest, {
+    ...removalExpected, draftDigest: 'sha256:stale',
+  }), false, 'A stale draft digest must not satisfy the removal wait');
 });
 
 test('Group Add Fields reload wait matches semantic headers and rejects stale or incomplete previews', async () => {

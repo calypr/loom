@@ -71,6 +71,46 @@ export function expectedGroupAddFieldsRows(groupedRows, rawResourceType) {
   ]);
 }
 
+export function matchesGroupAddFieldsRenameRequest(entry, expected) {
+  if (entry?.method !== 'POST' || entry.path !== expected.commandPath ||
+      entry.body?.expectedDraftVersion !== expected.draftVersion ||
+      entry.body?.expectedDraftDigest !== expected.draftDigest ||
+      entry.body?.commands?.length !== 1) return false;
+  const [command] = entry.body.commands;
+  return command.type === 'UPDATE_CONSTRUCTION_OUTPUT' &&
+    command.outputId === expected.outputId &&
+    command.constructionOutput?.stepId === expected.stepId &&
+    command.constructionOutput?.columnId === expected.outputColumnId &&
+    command.constructionOutput?.label === expected.label;
+}
+
+export function matchesGroupAddFieldsRemovalRequest(entry, expected) {
+  if (entry?.method !== 'POST' || entry.path !== expected.commandPath ||
+      entry.body?.expectedDraftVersion !== expected.draftVersion ||
+      entry.body?.expectedDraftDigest !== expected.draftDigest ||
+      entry.body?.commands?.length !== 1) return false;
+  const [command] = entry.body.commands;
+  return command.type === 'REMOVE_COLUMN' &&
+    command.outputId === expected.outputId &&
+    command.column === expected.sourceColumn;
+}
+
+const groupAddFieldsRowValueOutput = (document, sourceColumnId, stepId) => {
+  const step = document.construction.steps.find(candidate =>
+    candidate.operation.kind === 'GROUP' && (!stepId || candidate.id === stepId));
+  const rowValue = step?.rowValues?.find(candidate => candidate.inputColumnId === sourceColumnId);
+  const output = step?.outputs?.find(candidate => candidate.id === rowValue?.outputColumnId);
+  if (!step || !rowValue || !output) return undefined;
+  return {
+    stepId: step.id,
+    inputColumnId: rowValue.inputColumnId,
+    outputColumnId: rowValue.outputColumnId,
+    outputName: output.name,
+    label: output.label,
+    policy: rowValue.policy,
+  };
+};
+
 export async function runGroupAddFieldsBrowserWorkflow({ page, cda }) {
   const project = cda.project;
   assert(project, 'CDA fixture must provide the isolated project');
@@ -476,30 +516,43 @@ FOR source IN (
   assert.equal(savedField.source?.field?.path, 'resourceType');
   assert.equal(savedField.source?.field?.projectionMode, 'VALUE');
   const savedFieldBinding = {
-    columnId: savedField.column ?? savedField.id,
+    sourceColumnId: savedField.columnId,
+    sourceColumn: savedField.column,
     label: savedField.label,
     occurrenceId: savedField.occurrenceId,
     source: structuredClone(savedField.source),
   };
+  assert(savedFieldBinding.sourceColumnId, 'Saved source field must retain its authored column identity');
+  assert(savedFieldBinding.sourceColumn, 'Saved source field must retain its projected column name');
+  const groupOutputBinding = groupAddFieldsRowValueOutput(doc(builder), savedFieldBinding.sourceColumnId);
+  assert(groupOutputBinding, 'The Group must bind the selected source field to its own row-value output');
   report.fieldBinding = savedFieldBinding;
+  report.groupOutputBinding = groupOutputBinding;
   recordLifecycleCheck('persistence',
     'Applied Specimen.resourceType retains the exact direct field binding and grouped value',
     savedField.label === 'Resource Type' && savedFieldBinding.source.field.path === 'resourceType' &&
-      savedFieldBinding.source.field.projectionMode === 'VALUE',
-    { fieldBinding: savedFieldBinding, rows: withField });
-  await open(withField, savedFieldBinding.label);
+      savedFieldBinding.source.field.projectionMode === 'VALUE' &&
+      groupOutputBinding.inputColumnId === savedFieldBinding.sourceColumnId &&
+      groupOutputBinding.outputName === savedFieldBinding.sourceColumn,
+    { fieldBinding: savedFieldBinding, groupOutputBinding, rows: withField });
+  await open(withField, groupOutputBinding.label);
   builder = await api(base + '/builder');
-  const reloadedField = doc(builder).columns.find(column => (column.column ?? column.id) === savedFieldBinding.columnId);
+  const reloadedField = doc(builder).columns.find(column => column.columnId === savedFieldBinding.sourceColumnId);
   assert(reloadedField);
   assert.equal(reloadedField.label, savedFieldBinding.label);
   assert.equal(reloadedField.occurrenceId, savedFieldBinding.occurrenceId);
   assert.deepEqual(reloadedField.source, savedFieldBinding.source);
+  const reloadedGroupOutput = groupAddFieldsRowValueOutput(doc(builder), savedFieldBinding.sourceColumnId, groupOutputBinding.stepId);
+  assert(reloadedGroupOutput);
+  assert.deepEqual(reloadedGroupOutput, groupOutputBinding);
   recordLifecycleCheck('persistence',
     'Reload preserves the Group and exact Specimen.resourceType binding and value',
     JSON.stringify(reloadedField.source) === JSON.stringify(savedFieldBinding.source) &&
-      reloadedField.label === savedFieldBinding.label,
-    { fieldBinding: { columnId: reloadedField.column ?? reloadedField.id, label: reloadedField.label,
-      occurrenceId: reloadedField.occurrenceId, source: reloadedField.source }, rows: withField });
+      reloadedField.label === savedFieldBinding.label &&
+      JSON.stringify(reloadedGroupOutput) === JSON.stringify(groupOutputBinding),
+    { fieldBinding: { sourceColumnId: reloadedField.columnId, sourceColumn: reloadedField.column,
+      label: reloadedField.label, occurrenceId: reloadedField.occurrenceId, source: reloadedField.source },
+      groupOutputBinding: reloadedGroupOutput, rows: withField });
   const editedLabel = 'Specimen Resource Type';
   const renameBase = builder;
   const renameStartedAt = Date.now();
@@ -509,33 +562,39 @@ FOR source IN (
   await waitForBrowser(({ selector }) => Boolean(document.querySelector(selector)), { selector: labelSelector }, 5000);
   await fill(labelSelector, editedLabel);
   await press(labelSelector, 'Enter');
-  const matchesRenameRequest = entry =>
-    entry.method === 'POST' && entry.path === `${base}/commands` &&
-    entry.body?.expectedDraftVersion === renameBase.draftVersion &&
-    entry.body?.expectedDraftDigest === renameBase.draftDigest &&
-    entry.body?.commands?.some(change =>
-      (change.type === 'UPDATE_COLUMN' && change.column === savedFieldBinding.columnId &&
-        change.columnValue?.label === editedLabel) ||
-      (change.type === 'UPDATE_CONSTRUCTION_OUTPUT' && change.constructionOutput?.columnId === savedFieldBinding.columnId &&
-        change.constructionOutput?.label === editedLabel));
+  const renameExpectation = {
+    commandPath: `${base}/commands`,
+    draftVersion: renameBase.draftVersion,
+    draftDigest: renameBase.draftDigest,
+    outputId,
+    stepId: groupOutputBinding.stepId,
+    outputColumnId: groupOutputBinding.outputColumnId,
+    label: editedLabel,
+  };
   const renameDeadline = renameStartedAt + 5000;
-  const renameRequest = await nativeCapture.waitFor(matchesRenameRequest, {
+  const renameRequest = await nativeCapture.waitFor(entry => matchesGroupAddFieldsRenameRequest(entry, renameExpectation), {
     fromIndex: renameRequestStart, timeoutMs: Math.max(1, renameDeadline - Date.now()),
   });
   const rename = await cda.waitForCapturedResponse(nativeCapture, entry => entry === renameRequest,
     Math.max(1, renameDeadline - Date.now()));
   assert.equal(rename.status, 200, JSON.stringify(rename.response));
-  const renameCommand = rename.body.commands.find(change =>
-    (change.type === 'UPDATE_COLUMN' && change.column === savedFieldBinding.columnId) ||
-    (change.type === 'UPDATE_CONSTRUCTION_OUTPUT' && change.constructionOutput?.columnId === savedFieldBinding.columnId));
-  assert(renameCommand, 'The native rename command must target the exact saved field column');
+  const renameCommand = rename.body.commands[0];
+  assert(renameCommand, 'The native rename command must target the exact Group row-value output');
   assert.equal(rename.body.expectedDraftVersion, renameBase.draftVersion);
   assert.equal(rename.body.expectedDraftDigest, renameBase.draftDigest);
   builder = await api(base + '/builder');
-  const renamedField = doc(builder).columns.find(column => (column.column ?? column.id) === savedFieldBinding.columnId);
-  assert.equal(renamedField?.label, editedLabel);
-  assert.deepEqual(renamedField?.source, savedFieldBinding.source,
-    'Editing the display label must preserve the exact Specimen.resourceType source binding');
+  const renamedSourceField = doc(builder).columns.find(column => column.columnId === savedFieldBinding.sourceColumnId);
+  assert(renamedSourceField);
+  assert.equal(renamedSourceField.label, savedFieldBinding.label,
+    'Editing the Group output must preserve the source field label');
+  assert.deepEqual(renamedSourceField.source, savedFieldBinding.source,
+    'Editing the Group output must preserve the exact Specimen.resourceType source binding');
+  const renamedGroupOutput = groupAddFieldsRowValueOutput(doc(builder), savedFieldBinding.sourceColumnId, groupOutputBinding.stepId);
+  assert(renamedGroupOutput);
+  assert.equal(renamedGroupOutput.outputColumnId, groupOutputBinding.outputColumnId);
+  assert.equal(renamedGroupOutput.outputName, groupOutputBinding.outputName);
+  assert.equal(renamedGroupOutput.label, editedLabel);
+  assert.equal(renamedGroupOutput.policy, groupOutputBinding.policy);
   await rendered(withField, editedLabel);
   recordRender('native-label-edit-to-exact-rows', renameStartedAt);
   report.labelEdit = {
@@ -546,26 +605,64 @@ FOR source IN (
     beforeDraftDigest: renameBase.draftDigest,
     afterDraftVersion: builder.draftVersion,
     afterDraftDigest: builder.draftDigest,
+    sourceFieldBinding: savedFieldBinding,
+    groupOutputBinding: renamedGroupOutput,
   };
   await open(withField, editedLabel);
   builder = await api(base + '/builder');
-  const reloadedRenamedField = doc(builder).columns.find(column => (column.column ?? column.id) === savedFieldBinding.columnId);
-  assert.equal(reloadedRenamedField?.label, editedLabel);
-  assert.deepEqual(reloadedRenamedField?.source, savedFieldBinding.source);
+  const reloadedRenamedField = doc(builder).columns.find(column => column.columnId === savedFieldBinding.sourceColumnId);
+  assert(reloadedRenamedField);
+  assert.equal(reloadedRenamedField.label, savedFieldBinding.label);
+  assert.deepEqual(reloadedRenamedField.source, savedFieldBinding.source);
+  const reloadedRenamedOutput = groupAddFieldsRowValueOutput(doc(builder), savedFieldBinding.sourceColumnId, groupOutputBinding.stepId);
+  assert(reloadedRenamedOutput);
+  assert.equal(reloadedRenamedOutput.outputColumnId, groupOutputBinding.outputColumnId);
+  assert.equal(reloadedRenamedOutput.outputName, groupOutputBinding.outputName);
+  assert.equal(reloadedRenamedOutput.label, editedLabel);
+  assert.equal(reloadedRenamedOutput.policy, groupOutputBinding.policy);
   recordLifecycleCheck('persistence',
-    'Native label edit preserves the same Specimen.resourceType column and binding after reload',
-    (reloadedRenamedField.column ?? reloadedRenamedField.id) === savedFieldBinding.columnId &&
-      reloadedRenamedField.label === editedLabel &&
-      JSON.stringify(reloadedRenamedField.source) === JSON.stringify(savedFieldBinding.source),
-    { fieldBinding: { columnId: reloadedRenamedField.column ?? reloadedRenamedField.id,
+    'Native label edit preserves the source field binding and edits the exact Group row-value output after reload',
+    reloadedRenamedField.label === savedFieldBinding.label &&
+      JSON.stringify(reloadedRenamedField.source) === JSON.stringify(savedFieldBinding.source) &&
+      JSON.stringify(reloadedRenamedOutput) === JSON.stringify({ ...groupOutputBinding, label: editedLabel }),
+    { fieldBinding: { sourceColumnId: reloadedRenamedField.columnId, sourceColumn: reloadedRenamedField.column,
       label: reloadedRenamedField.label, occurrenceId: reloadedRenamedField.occurrenceId,
-      source: reloadedRenamedField.source }, rows: withField });
+      source: reloadedRenamedField.source }, groupOutputBinding: reloadedRenamedOutput, rows: withField });
+  builder = await api(base + '/builder');
+  const removeBase = builder;
   await click('button',{name:'Columns'});
   start=Date.now();
+  const removeRequestStart = report.nativeRequests.length;
   await click(`button[aria-label=${JSON.stringify(`Remove ${editedLabel} column`)}]`);
+  const removeExpectation = {
+    commandPath: `${base}/commands`,
+    draftVersion: removeBase.draftVersion,
+    draftDigest: removeBase.draftDigest,
+    outputId,
+    sourceColumn: savedFieldBinding.sourceColumn,
+  };
+  const removeDeadline = start + 5000;
+  const removeRequest = await nativeCapture.waitFor(entry => matchesGroupAddFieldsRemovalRequest(entry, removeExpectation), {
+    fromIndex: removeRequestStart, timeoutMs: Math.max(1, removeDeadline - Date.now()),
+  });
+  const remove = await cda.waitForCapturedResponse(nativeCapture, entry => entry === removeRequest,
+    Math.max(1, removeDeadline - Date.now()));
+  assert.equal(remove.status, 200, JSON.stringify(remove.response));
+  const removeCommand = remove.body.commands[0];
+  assert.equal(removeCommand.type, 'REMOVE_COLUMN');
+  assert.equal(removeCommand.outputId, outputId);
+  assert.equal(removeCommand.column, savedFieldBinding.sourceColumn,
+    'Removing a Group row-value output must remove its exact authored source column');
+  assert.equal(remove.body.expectedDraftVersion, removeBase.draftVersion);
+  assert.equal(remove.body.expectedDraftDigest, removeBase.draftDigest);
   await rendered(grouped);
   recordRender('remove-group-source-field',start);
   builder=await api(base+'/builder');
+  assert(!doc(builder).columns.some(column => column.columnId === savedFieldBinding.sourceColumnId),
+    'Removing the Group row-value must remove its authored source field');
+  const groupAfterRemove = doc(builder).construction.steps.find(step => step.id === groupOutputBinding.stepId);
+  assert(!groupAfterRemove?.rowValues?.some(rowValue => rowValue.inputColumnId === savedFieldBinding.sourceColumnId),
+    'Removing the Group row-value must remove the exact source-to-output binding');
   await open(grouped);
   builder=await api(base+'/builder');
   assert.deepEqual(doc(builder).construction,doc(beforeField).construction);
