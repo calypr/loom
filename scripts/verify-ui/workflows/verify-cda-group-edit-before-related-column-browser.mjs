@@ -13,6 +13,9 @@ import { createNativeAbortProbeSource, nativeAbortProbeEvidenceForRequest } from
 import { createdExplorerScope } from '../helpers/created-explorer-scope.mjs';
 import { relatedChoiceStageContext } from '../helpers/related-choice-stage-context.mjs';
 
+export const groupEditRawFieldsDisclosureSelector = '[data-testid="feature-catalog-raw-fields"]';
+export const groupEditRawFieldsSummarySelector = `${groupEditRawFieldsDisclosureSelector} > summary`;
+
 export async function runGroupEditBeforeRelatedColumnBrowserWorkflow({ page, cda }) {
 const project = cda.project;
 assert(project, 'CDA fixture must provide the isolated project');
@@ -1104,7 +1107,7 @@ FOR s IN (
     if (!relatedOpen) await click(page, '[aria-label="Related resources"] summary');
     await click(page, '[data-testid="construction-add-columns-source-option"][aria-label="Observation, Related resource"]');
     const rawFieldsOpen = await browserEval(page, () => document.querySelector('[data-testid="feature-catalog-raw-fields"]')?.open === true);
-    if (!rawFieldsOpen) await click(page, '[data-testid="feature-catalog-raw-fields"] summary');
+    if (!rawFieldsOpen) await click(page, groupEditRawFieldsSummarySelector);
     const fieldSelector = 'input[aria-label="Select Observation.status"]';
     await waitForControl(page, `${fieldSelector}:not(:disabled)`);
     const fieldChecked = await browserEval(page, ({ selector }) => document.querySelector(selector)?.checked === true, { selector: fieldSelector });

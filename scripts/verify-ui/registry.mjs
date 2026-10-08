@@ -1723,10 +1723,12 @@ export const registry = Object.freeze([
               'scripts/verify-ui/helpers/tests/created-explorer-scope.test.mjs',
               'scripts/verify-ui/helpers/tests/cda-explicit-ui-route.test.mjs',
               'scripts/verify-ui/helpers/tests/related-choice-stage-context.test.mjs',
+              'scripts/verify-ui/helpers/tests/group-edit-raw-fields-summary.test.mjs',
             ],
             sourceFiles: [
               'scripts/verify-ui/helpers/created-explorer-scope.mjs',
               'scripts/verify-ui/helpers/related-choice-stage-context.mjs',
+              'scripts/verify-ui/helpers/cda-playwright.mjs',
               'scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs',
               'scripts/loom-dev.mjs',
               'scripts/verify-ui/helpers/cda-fixtures.mjs',
