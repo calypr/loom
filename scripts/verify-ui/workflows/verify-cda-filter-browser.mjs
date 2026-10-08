@@ -2,6 +2,26 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 
+export function buildFilterBrowserOracleQuery({ project, generation, numeric = false, booleanCase = false }) {
+  assert.equal(typeof project, 'string', 'The raw filter oracle requires a project identity');
+  assert(project.length > 0, 'The raw filter oracle requires a project identity');
+  assert.equal(typeof generation, 'string', 'The raw filter oracle requires the pinned source generation');
+  assert(generation.length > 0, 'The raw filter oracle requires the pinned source generation');
+  assert(!(numeric && booleanCase), 'The raw filter oracle cannot select two typed resource modes');
+
+  const resourceType = numeric ? 'Observation' : booleanCase ? 'Substance' : 'Specimen';
+  const valuePath = numeric ? 's.payload.valueQuantity.value' : booleanCase ? 's.payload.instance' : 's.id';
+  const typePredicate = numeric ? ` FILTER IS_NUMBER(${valuePath})`
+    : booleanCase ? ` FILTER IS_BOOL(${valuePath})` : '';
+  return `FOR s IN ${resourceType} FILTER s.project == ${JSON.stringify(project)} AND s.dataset_generation == ${JSON.stringify(generation)}${typePredicate} LIMIT 1 RETURN {id:s.id,generation:s.dataset_generation,value:${valuePath}}`;
+}
+
+export function assertFilterBrowserDefaultMode(env = process.env) {
+  assert(!env.LOOM_SAVED_FILTER_OPERATOR, 'The registered filter-lifecycle case must use its default filter operator');
+  assert(!env.LOOM_FILTER_VALUE_TYPE, 'The registered filter-lifecycle case must use the default Specimen ID type');
+  assert.notEqual(env.LOOM_GROUP_FILTER_UPSTREAM_EDIT, '1', 'The registered filter-lifecycle case must not enable upstream Group edit');
+}
+
 export async function filterBrowserWorkflow({ page, cda }) {
   const savedOperator = process.env.LOOM_SAVED_FILTER_OPERATOR;
   assert(!savedOperator || ['NOT_EQUALS', 'IN', 'CONTAINS_TEXT', 'GT'].includes(savedOperator), 'Saved operator regression covers scalar inequality, list membership, text matching and numeric comparison');
@@ -166,7 +186,7 @@ export async function filterBrowserWorkflow({ page, cda }) {
   };
   try {
     report.target = cda.target;
-    const query = `FOR s IN ${resourceType} FILTER s.project == "${project}" AND s.dataset_generation == "cda-fhir-v1" ${numeric ? 'FILTER IS_NUMBER(s.payload.valueQuantity.value)' : booleanCase ? 'FILTER IS_BOOL(s.payload.instance)' : ''} LIMIT 1 RETURN {id:s.id,generation:s.dataset_generation,value:${numeric ? 's.payload.valueQuantity.value' : booleanCase ? 's.payload.instance' : 's.id'}}`;
+    const query = buildFilterBrowserOracleQuery({ project, generation: cda.generation, numeric, booleanCase });
     const raw = spawnSync('rtk', ['proxy', 'docker', 'exec', cda.target.arangoContainer, 'arangosh', '--server.database', 'loom_dev', '--javascript.execute-string', `print(JSON.stringify(db._query(${JSON.stringify(query)}).toArray()));`], { encoding: 'utf8', timeout: 30000 });
     assert.equal(raw.status, 0, raw.stderr);
     const [source] = JSON.parse(raw.stdout.slice(raw.stdout.indexOf('[')));

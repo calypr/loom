@@ -1,5 +1,5 @@
 import { test, expect } from '../helpers/cda-fixtures.mjs';
-import { filterBrowserWorkflow } from '../workflows/verify-cda-filter-browser.mjs';
+import { assertFilterBrowserDefaultMode, filterBrowserWorkflow } from '../workflows/verify-cda-filter-browser.mjs';
 import { rootSettingsWorkflow } from '../workflows/verify-cda-root-settings.mjs';
 import { filterLifecycleWorkflow } from '../workflows/verify-cda-filter-lifecycle.mjs';
 import { rootRebaseWorkflow } from '../workflows/verify-cda-root-rebase.mjs';
@@ -87,9 +87,11 @@ test.describe('CDA filter lifecycle', () => {
   test.use({
     cdaScenarioID: 'cda-filter-browser',
     cdaCaseName: 'filter-lifecycle',
+    cdaUiRouting: 'explicit-query',
   });
 
   test('create, edit, cancel, apply, and remove a typed CDA filter', async ({ page, cda }) => {
+    assertFilterBrowserDefaultMode();
     await filterBrowserWorkflow({ page, cda });
   });
 });

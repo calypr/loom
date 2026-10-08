@@ -1117,6 +1117,27 @@ export const registry = Object.freeze([
     cases: {
       'filter-lifecycle': {
         playwrightTest: 'scripts/verify-ui/specs/standalone-cda-other.spec.mjs',
+        playwrightGrep: 'create, edit, cancel, apply, and remove a typed CDA filter$',
+        expectedIdentity: { project: 'loom_dev_cda_fhir', generation: 'cda-fhir-v1' },
+        focusedChecks: [
+          {
+            id: 'filter-lifecycle-generation-scoped-source-oracle',
+            cwd: '.',
+            command: [
+              'node-test',
+              'scripts/verify-ui/helpers/tests/filter-browser-source-oracle.test.mjs',
+              'scripts/verify-ui/helpers/tests/cda-explicit-ui-route.test.mjs',
+            ],
+            sourceFiles: [
+              'scripts/verify-ui/workflows/verify-cda-filter-browser.mjs',
+              'scripts/verify-ui/helpers/cda-fixtures.mjs',
+              'scripts/verify-ui/registry.mjs',
+              'scripts/verify-ui/specs/standalone-cda-other.spec.mjs',
+              'scripts/loom-dev.mjs',
+              'scripts/verify-ui/helpers/pending-response-reads.mjs',
+            ],
+          },
+        ],
         requiredChecks: [
           'native Filter rows controls expose an enabled source column and typed condition',
           'filter proposals and rendered result values match an independent scoped CDA source oracle within five seconds',
