@@ -61,7 +61,10 @@ for (const lineageMode of [
 }
 
 test.describe('CDA upstream Related edit and cascade', () => {
-  test.use(fixtureOptions('upstream-edit-cascade', 'cda-upstream-related-edit-cascade'));
+  test.use({
+    ...fixtureOptions('upstream-edit-cascade', 'cda-upstream-related-edit-cascade'),
+    cdaUiRouting: 'explicit-query',
+  });
 
   test('edit a saved upstream Related expansion while preserving dependent rows, then cascade-remove it', async ({ page, cda }) => {
     await composedRowLineageWorkflow({ page, cda, lineageMode: 'COMPOSED_RELATED' });
