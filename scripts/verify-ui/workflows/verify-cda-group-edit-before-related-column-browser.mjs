@@ -11,6 +11,7 @@ import { assertCdaNoAuthRuntime } from '../helpers/cda-no-auth-runtime.mjs';
 import { classifyExpectedOwnedCancellation, nativeReadRequestMatchesExpectedScope } from '../helpers/native-request-ownership.mjs';
 import { createNativeAbortProbeSource, nativeAbortProbeEvidenceForRequest } from '../helpers/native-abort-probe.mjs';
 import { createdExplorerScope } from '../helpers/created-explorer-scope.mjs';
+import { relatedChoiceStageContext } from '../helpers/related-choice-stage-context.mjs';
 
 export async function runGroupEditBeforeRelatedColumnBrowserWorkflow({ page, cda }) {
 const project = cda.project;
@@ -934,20 +935,15 @@ FOR s IN (
   await open(sourceRows, 1, 'selected-raw-Specimen-reload');
   let witnesses = [{ anchor: source._id, values: [source.id] }];
   const chain = [
-    { from: 'Specimen', to: 'Patient', label: 'subject_Patient', field: 'subject', direction: 'OUTBOUND' },
-    { from: 'Patient', to: 'Observation', label: 'subject_Patient', field: 'subject', direction: 'INBOUND' },
+    { from: 'Specimen', to: 'Patient', label: 'subject_Patient', field: 'subject', direction: 'OUTBOUND',
+      expectedStage: 'source_projection' },
+    { from: 'Patient', to: 'Observation', label: 'subject_Patient', field: 'subject', direction: 'INBOUND',
+      expectedStage: 'authored_construction' },
   ];
   let expectedExpandedRows = sourceRows;
   for (const hop of chain) {
     activeBrowserOwner = `expand-${hop.from}-${hop.to}`;
-    const previousStep = doc(builder).construction.steps.at(-1);
-    activeRelatedChoiceContext = {
-      stageId: previousStep?.id ?? 'source_projection',
-      anchorColumnId: previousStep?.operation.kind === 'RELATED_EXPAND'
-        ? previousStep.operation.relatedExpand.relatedRecordColumnId
-        : '_key',
-      targetResourceType: hop.to,
-    };
+    activeRelatedChoiceContext = { ...relatedChoiceStageContext(doc(builder), hop.expectedStage), targetResourceType: hop.to };
     assert(activeRelatedChoiceContext.anchorColumnId,
       `Current ${hop.from} related stage must expose a stable anchor column before opening its editor`);
     const next = [];
