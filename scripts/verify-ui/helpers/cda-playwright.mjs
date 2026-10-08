@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
 
 const sourceRoot = resolve(fileURLToPath(new URL('../../..', import.meta.url)));
-const forbiddenInspection = /\.(?:click|focus|blur|select|dispatchEvent|setAttribute|removeAttribute|scrollIntoView|submit|requestSubmit|remove|append|prepend|replaceWith|insertAdjacentHTML|on[A-Z]\w*|handle[A-Z]\w*)\s*\(|\[['"](?:click|focus|blur|select|dispatchEvent|setAttribute|removeAttribute|submit|requestSubmit)['"]\]\s*\(|\b(?:eval|Function)\s*\(|(?:^|[^\w$])(?:value|checked|selected|open|scrollTop|scrollLeft|innerHTML|outerHTML|textContent|innerText|dataset\.\w+|location(?:\.href)?)\s*=(?![=>])|\[['"][^\]]+['"]\]\s*=(?!=)|\+\+|--/i;
+const forbiddenInspection = /\.(?:click|focus|blur|select|dispatchEvent|setAttribute|removeAttribute|scrollIntoView|submit|requestSubmit|remove|append|prepend|replaceWith|insertAdjacentHTML|addEventListener|removeEventListener|on[A-Z]\w*|handle[A-Z]\w*)\s*\(|\[['"](?:click|focus|blur|select|dispatchEvent|setAttribute|removeAttribute|submit|requestSubmit)['"]\]\s*\(|\b(?:eval|Function)\s*\(|\.\s*(?:value|checked|selected|open|scrollTop|scrollLeft|innerHTML|outerHTML|textContent|innerText|dataset\.\w+|on[a-z]\w*|location(?:\s*\.\s*href)?)\s*=(?![=>])|(?:^|[^\w$.])(?:window|document|globalThis)\s*\.\s*location(?:\s*\.\s*href)?\s*=(?![=>])|(?:^|[^\w$.])location\s*\.\s*href\s*=(?![=>])|(?:^|[^\w$.])(?:window\s*\.\s*)?location\s*\.\s*(?:assign|replace)\s*\(|(?:^|[;{}]|\)|=>|\breturn\b|\belse\b)\s*location\s*=(?!=)|[\w$)\]](?<!\b(?:const|let|var))\s*\[[^\]]+\]\s*=(?!=)|\+\+|--/i;
 
 function requireInspectionCallback(callback, label) {
   if (typeof callback !== 'function') throw new TypeError(`${label} requires a function callback.`);

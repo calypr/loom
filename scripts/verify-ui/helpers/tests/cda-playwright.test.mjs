@@ -69,6 +69,30 @@ test('browser inspection and waits require callbacks with explicit serializable 
   ]);
 });
 
+test('browser inspection allows local checked/value declarations and read comparisons', async () => {
+  const page = {
+    async evaluate(callback, args) { return callback(args); },
+    async waitForFunction(callback, args) { return callback(args); },
+  };
+  const readState = ({ node, expected }) => {
+    const checked = node.checked;
+    const value = node.value;
+    return checked === true && value === expected;
+  };
+
+  assert.equal(await browserEval(page, readState, { node: { checked: true, value: 'selected' }, expected: 'selected' }), true);
+  await waitForBrowser(page, readState, { node: { checked: true, value: 'selected' }, expected: 'selected' });
+  for (const source of [
+    'const  checked = args.node.checked; return checked;',
+    'const\n  checked = args.node.checked; return checked;',
+    'var first = 1, checked = args.node.checked; return first === 1 && checked;',
+    'const [checked] = args.values; return checked;',
+  ]) {
+    const predicate = Function('args', source);
+    await waitForBrowser(page, predicate, { node: { checked: true }, values: [true] });
+  }
+});
+
 test('native Pivot preview inspection callback passes the read-only browser guard', async () => {
   let forwarded;
   const page = {
@@ -92,6 +116,16 @@ test('browser inspection rejects source strings and obvious control mutations', 
   await assert.rejects(waitForBrowser(page, 'document.querySelector("button")'), /function callback/);
   await assert.rejects(waitForBrowser(page, () => { document.querySelector('input').value = 'false pass'; return true; }), /inspect results only/);
   await assert.rejects(waitForBrowser(page, () => { document.querySelector('input')['value'] = 'false pass'; return true; }), /inspect results only/);
+  await assert.rejects(waitForBrowser(page, ({ node }) => { node.checked = true; return true; }, { node: {} }), /inspect results only/);
+  await assert.rejects(waitForBrowser(page, ({ node }) => { node.value = 'false pass'; return true; }, { node: {} }), /inspect results only/);
+  await assert.rejects(browserEval(page, ({ node, property }) => { node[property] = 'false pass'; return true; }, { node: {}, property: 'checked' }), /inspect results only/);
+  await assert.rejects(browserEval(page, ({ node }) => { node.onclick = () => {}; return true; }, { node: {} }), /inspect results only/);
+  await assert.rejects(browserEval(page, ({ node }) => node.addEventListener('click', () => {}), { node: {} }), /inspect results only/);
+  await assert.rejects(browserEval(page, ({ node }) => node.onClick(), { node: {} }), /inspect results only/);
+  await assert.rejects(browserEval(page, () => { window.location = '/changed'; return true; }), /inspect results only/);
+  await assert.rejects(browserEval(page, () => { location = '/changed'; return true; }), /inspect results only/);
+  await assert.rejects(browserEval(page, () => { location.href = '/changed'; return true; }), /inspect results only/);
+  await assert.rejects(browserEval(page, () => { const doc = document; doc.location.href = '/changed'; return true; }), /inspect results only/);
   assert.equal(evaluated, false, 'Rejected inspections must never reach Playwright evaluate.');
 });
 
