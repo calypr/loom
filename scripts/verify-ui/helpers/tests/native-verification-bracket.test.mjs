@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
@@ -2159,4 +2160,256 @@ test('environment mode rejects missing or wrong source ownership before focused 
     assert.equal(result.commands.precheck, undefined, name);
   }
   assert.deepEqual(fake.commands, []);
+});
+
+test('main aborts its owned child on SIGINT, writes an interrupted summary, and returns 130', { skip: process.platform === 'win32' }, async (t) => {
+  const directory = mkdtempSync(join(tmpdir(), 'native-bracket-process-sigint-'));
+  const contract = scenarioCaseFor('root-quantity-pivot', 'full-population-lifecycle');
+  const specFile = basename(contract.playwrightTest);
+  const startedPath = join(directory, 'child.started');
+  const sentinelPath = join(directory, 'child.survived');
+  const finishedPath = join(directory, 'child.finished');
+  const returnedPath = join(directory, 'main.returned');
+  let wrapper;
+  let childPID;
+  const waitForPath = async (path, timeoutMs) => {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      if (existsSync(path)) return true;
+      await new Promise((resolveWait) => setTimeout(resolveWait, 10));
+    }
+    return existsSync(path);
+  };
+  const childSource = [
+    "const { writeFileSync } = require('node:fs');",
+    'writeFileSync(process.env.OWNED_TEST_CHILD_STARTED, String(process.pid));',
+    "setTimeout(() => writeFileSync(process.env.OWNED_TEST_CHILD_SENTINEL, 'survived'), 350);",
+    "setTimeout(() => { writeFileSync(process.env.OWNED_TEST_CHILD_FINISHED, 'finished'); process.exit(0); }, 900);",
+  ].join('\n');
+  const helperURL = new URL('../../../run-native-verification-bracket.mjs', import.meta.url).href;
+  const wrapperSource = `
+    import { main, runNativeVerificationBracket, runProcess } from ${JSON.stringify(helperURL)};
+    import { dirname } from 'node:path';
+    import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+    const flag = (args, name) => args[args.indexOf(name) + 1];
+    const writeJson = (path, value) => {
+      mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+      writeFileSync(path, JSON.stringify(value) + '\\n', { mode: 0o600 });
+    };
+    const buildIdentity = 'a'.repeat(64) + ':' + 'a'.repeat(64) + ':' + 'b'.repeat(64);
+    const target = {
+      project: process.env.LOOM_CDA_PROJECT,
+      generation: 'generation-1',
+      composeProject: process.env.LOOM_CDA_COMPOSE_PROJECT,
+      apiContainer: process.env.LOOM_CDA_API_CONTAINER,
+      uiContainer: 'owned-ui',
+      arangoContainer: process.env.LOOM_CDA_ARANGO_CONTAINER,
+      clickhouseContainer: process.env.LOOM_CDA_CLICKHOUSE_CONTAINER,
+      apiPort: 8188,
+      uiPort: 30008,
+      sourceRoot: process.env.LOOM_CDA_SOURCE_ROOT,
+    };
+    const commandRunner = async (_command, args, processOptions) => {
+      if (args[0] === 'scripts/node_modules/@playwright/test/cli.js') {
+        if (args.includes('--list')) {
+          return {
+            exitCode: 0,
+            stdoutText: 'Listing tests:\\n  ' + ${JSON.stringify(specFile)}
+              + ':12:3 › Test suite › Controlled SIGINT browser child\\nTotal: 1 test in 1 file\\n',
+            stderrText: '',
+          };
+        }
+        return runProcess(process.execPath, ['-e', ${JSON.stringify(childSource)}], processOptions);
+      }
+      if (args[0] === 'scripts/owned-stack-verification.mjs') {
+        const output = flag(args, '--output');
+        if (flag(args, '--mode') === 'precheck') {
+          writeJson(output, {
+            exitCode: 0,
+            fresh: true,
+            sourceDigestMatchesCurrentMountedSource: true,
+            runningBinaryMatchesRecordedBuild: true,
+            targetContainer: process.env.LOOM_CDA_API_CONTAINER,
+            apiBuildIdentity: buildIdentity,
+          });
+        } else {
+          writeJson(output, {
+            status: 'PASS',
+            apiBuildIdentity: buildIdentity,
+            samples: Array.from({ length: 3 }, () => ({
+              apiStatus: 200, uiStatus: 200, uiHasDocument: true, apiBuildIdentity: buildIdentity,
+            })),
+          });
+        }
+        return { exitCode: 0, stdoutText: '', stderrText: '' };
+      }
+      if (args[0] === 'scripts/capture-owned-verification.mjs') {
+        const phase = flag(args, '--phase');
+        const artifacts = [
+          ['--source-output', { phase, root: process.env.LOOM_CDA_SOURCE_ROOT,
+            fingerprint: { sha256: 'c'.repeat(64), files: 1 }, manifest: { 'internal/fake.go': 'd'.repeat(64) } }],
+          ['--docs-output', { phase, root: process.env.LOOM_CDA_SOURCE_ROOT,
+            fingerprint: { sha256: 'e'.repeat(64), files: 1 }, manifest: { 'docs/fake.md': 'f'.repeat(64) } }],
+          ['--api-output', { phase, apiBuildIdentity: buildIdentity, target }],
+          ['--mount-output', { phase, status: 'PASS', target }],
+        ];
+        for (const [name, value] of artifacts) writeJson(flag(args, name), value);
+        return { exitCode: 0, stdoutText: '', stderrText: '' };
+      }
+      throw new Error('Unexpected controlled command: ' + args[0]);
+    };
+    let summary;
+    const exitCode = await main([
+      '--scenario', 'root-quantity-pivot',
+      '--case', 'full-population-lifecycle',
+      '--target-from-environment',
+      '--grep', 'controlled SIGINT browser child',
+      '--evidence-parent', process.env.OWNED_TEST_EVIDENCE_PARENT,
+    ], {
+      runBracket: async (options) => {
+        summary = await runNativeVerificationBracket({
+          ...options,
+          commandRunner,
+        });
+        return summary;
+      },
+      write: (value) => writeFileSync(process.env.OWNED_TEST_RETURNED, value),
+    });
+    const stage = Object.values(summary.commands).find((command) => command.aborted);
+    const childPid = Number(readFileSync(process.env.OWNED_TEST_CHILD_STARTED, 'utf8'));
+    let childAlive = false;
+    try { process.kill(childPid, 0); childAlive = true; } catch (error) { if (error?.code !== 'ESRCH') throw error; }
+    writeFileSync(process.env.OWNED_TEST_RETURNED, JSON.stringify({
+      exitCode,
+      childAlive,
+      interrupted: summary.interrupted,
+      commandAborted: Boolean(stage),
+      summaryPath: summary.evidence.summary,
+    }));
+  `;
+
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  try {
+    wrapper = spawn(process.execPath, ['--input-type=module', '-e', wrapperSource], {
+      cwd: root,
+      env: {
+        ...process.env,
+        OWNED_TEST_CHILD_STARTED: startedPath,
+        OWNED_TEST_CHILD_SENTINEL: sentinelPath,
+        OWNED_TEST_CHILD_FINISHED: finishedPath,
+        OWNED_TEST_RETURNED: returnedPath,
+        OWNED_TEST_EVIDENCE_PARENT: directory,
+        LOOM_CDA_SOURCE_ROOT: root,
+        LOOM_CDA_PROJECT: 'owned-project',
+        LOOM_CDA_API_ORIGIN: 'http://127.0.0.1:8188',
+        LOOM_CDA_UI_ORIGIN: 'http://127.0.0.1:30008',
+        LOOM_CDA_API_CONTAINER: 'owned-api',
+        LOOM_CDA_COMPOSE_PROJECT: 'owned-compose',
+        LOOM_CDA_ARANGO_CONTAINER: 'owned-arango',
+        LOOM_CDA_CLICKHOUSE_CONTAINER: 'owned-clickhouse',
+      },
+      detached: true,
+      stdio: 'ignore',
+    });
+    const wrapperClosed = new Promise((resolveClose) => {
+      wrapper.once('close', (code, signal) => resolveClose({ code, signal }));
+    });
+    assert.equal(await waitForPath(startedPath, 3000), true, 'the runner-owned child must start before SIGINT');
+    childPID = Number(readFileSync(startedPath, 'utf8'));
+    assert.ok(Number.isInteger(childPID) && childPID > 0);
+
+    process.kill(-wrapper.pid, 'SIGINT');
+    let closeTimeout;
+    await Promise.race([
+      wrapperClosed,
+      new Promise((_, reject) => {
+        closeTimeout = setTimeout(() => reject(new Error('wrapper did not close after SIGINT')), 4000);
+      }),
+    ]).finally(() => clearTimeout(closeTimeout));
+
+    if (!existsSync(returnedPath)) {
+      // On the baseline path, let the bounded child finish before failing so it cannot leak.
+      await waitForPath(finishedPath, 1500);
+      assert.fail(existsSync(sentinelPath)
+        ? 'the detached child survived after its wrapper exited and wrote its sentinel'
+        : 'the wrapper exited before main returned after SIGINT');
+    }
+
+    const result = JSON.parse(readFileSync(returnedPath, 'utf8'));
+    assert.equal(result.exitCode, 130, 'SIGINT must map to the conventional interrupted exit code');
+    assert.equal(result.interrupted, true);
+    assert.equal(result.commandAborted, true, 'the runner must record the interrupted child command');
+    assert.equal(result.childAlive, false, 'the owned child must be gone before main returns');
+    const summary = JSON.parse(readFileSync(result.summaryPath, 'utf8'));
+    assert.equal(summary.interrupted, true, 'the retained summary must record the interruption');
+    assert.equal(summary.failureCategory, 'interrupted');
+    assert.match(summary.workflowError, /aborted by SIGINT or cancellation/);
+    assert.equal(summary.commands.captureAfter.exitCode, 0, 'after-capture must run after browser cancellation');
+    assert.equal(summary.commands.healthAfter.exitCode, 0, 'after-health must run after browser cancellation');
+    assert.equal(summary.status, 'unverified', 'an interrupted browser case cannot claim lifecycle success');
+    assert.equal(summary.lifecycle.status, 'unverified');
+    await new Promise((resolveWait) => setTimeout(resolveWait, 400));
+    assert.equal(existsSync(sentinelPath), false, 'the owned child must not write its delayed sentinel');
+  } finally {
+    if (wrapper && wrapper.exitCode === null && wrapper.signalCode === null) {
+      try { process.kill(-wrapper.pid, 'SIGKILL'); } catch { /* The wrapper group may already be gone. */ }
+    }
+    if (Number.isInteger(childPID) && childPID > 0) {
+      try { process.kill(-childPID, 'SIGKILL'); } catch { /* The child group may already be gone. */ }
+    }
+  }
+});
+
+test('abort during after-capture retains a passed lifecycle but leaves the final summary unverified', async (t) => {
+  const parent = evidenceParent();
+  t.after(() => rmSync(parent, { recursive: true, force: true }));
+  const scenarioID = 'root-quantity-pivot';
+  const caseName = 'full-population-lifecycle';
+  const fake = fakeRunner({ scenarioID, caseName, rootDir: root });
+  const controller = new AbortController();
+  let afterCaptureStarted;
+  const started = new Promise((resolveStarted) => { afterCaptureStarted = resolveStarted; });
+  let releaseAfterCapture;
+  const afterCaptureGate = new Promise((resolveGate) => { releaseAfterCapture = resolveGate; });
+  const commandRunner = async (command, args, options) => {
+    if (args[0] === 'scripts/capture-owned-verification.mjs' && option(args, '--phase') === 'after') {
+      afterCaptureStarted();
+      await afterCaptureGate;
+    }
+    return fake.commandRunner(command, args, options);
+  };
+  const summaryPromise = runNativeVerificationBracket({
+    scenarioID,
+    caseName,
+    grep: 'controlled after-capture interruption',
+    evidenceParent: parent,
+    root,
+    env: fake.env,
+    commandRunner,
+    signal: controller.signal,
+  });
+
+  await started;
+  controller.abort();
+  releaseAfterCapture();
+  const summary = await summaryPromise;
+
+  assert.equal(summary.commands.playwright.exitCode, 0);
+  assert.equal(summary.lifecycle.status, 'passed', 'the successful browser lifecycle evidence must remain intact');
+  assert.ok(summary.evidence.domainReport, 'the successful browser report must remain attached');
+  assert.equal(summary.commands.captureAfter.exitCode, 0);
+  assert.equal(summary.commands.healthAfter.exitCode, 0);
+  assert.equal(summary.integrity.status, 'PASS', 'the completed after bracket must remain recorded');
+  assert.equal(summary.status, 'unverified');
+  assert.equal(summary.failureCategory, 'interrupted');
+  assert.equal(summary.interrupted, true);
+  assert.match(summary.workflowError, /Run was interrupted by SIGINT or an abort request/);
+  assert.equal(summary.reviewPacket.status, 'unverified');
+  assert.equal(summary.reviewPacket.lifecycleStatus, 'passed');
+  assert.equal(summary.reviewPacket.integrityStatus, 'PASS');
+  const saved = JSON.parse(readFileSync(summary.evidence.summary, 'utf8'));
+  assert.equal(saved.status, 'unverified');
+  assert.equal(saved.lifecycle.status, 'passed');
+  assert.equal(saved.integrity.status, 'PASS');
+  assert.equal(saved.failureCategory, 'interrupted');
 });

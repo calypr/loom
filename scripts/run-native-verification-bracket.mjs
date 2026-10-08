@@ -109,7 +109,7 @@ function ownedProcessGroupExists(child) {
 
 export async function runProcess(command, args, {
   cwd, env, stdoutPath, stderrPath, timeoutMs = PREPARATION_STAGE_TIMEOUT_MS,
-  outputPreviewLimit = 1024 * 1024,
+  outputPreviewLimit = 1024 * 1024, signal,
 }) {
   mkdirSync(dirname(stdoutPath), { recursive: true, mode: 0o700 });
   const stdoutFile = createWriteStream(stdoutPath, { flags: 'wx', mode: 0o600 });
@@ -121,6 +121,9 @@ export async function runProcess(command, args, {
   const started = performance.now();
   let child;
   let timedOut = false;
+  let aborted = false;
+  let terminationStarted = false;
+  let abortHandler;
   let timeoutHandle;
   let killHandle;
   let killEscalation;
@@ -151,24 +154,36 @@ export async function runProcess(command, args, {
   });
   const closed = await new Promise((resolveClose) => {
     let spawnError = null;
+    const terminate = (reason) => {
+      if (terminationStarted) return;
+      terminationStarted = true;
+      timedOut = reason === 'timeout';
+      aborted = reason === 'abort';
+      signalOwnedProcessTree(child, 'SIGTERM');
+      killEscalation = new Promise((resolveKill) => { finishKillEscalation = resolveKill; });
+      killHandle = setTimeout(() => {
+        signalOwnedProcessTree(child, 'SIGKILL');
+        finishKillEscalation?.();
+      }, 1000);
+    };
     child.once('error', (error) => { spawnError = String(error?.message ?? error); });
     child.once('close', (code, signal) => resolveClose({
       exitCode: spawnError ? null : code,
       signal,
       ...(spawnError ? { error: spawnError } : {}),
     }));
+    if (signal) {
+      abortHandler = () => terminate('abort');
+      if (signal.aborted) abortHandler();
+      else signal.addEventListener('abort', abortHandler, { once: true });
+    }
     if (Number.isFinite(timeoutMs) && timeoutMs > 0) {
       timeoutHandle = setTimeout(() => {
-        timedOut = true;
-        signalOwnedProcessTree(child, 'SIGTERM');
-        killEscalation = new Promise((resolveKill) => { finishKillEscalation = resolveKill; });
-        killHandle = setTimeout(() => {
-          signalOwnedProcessTree(child, 'SIGKILL');
-          finishKillEscalation?.();
-        }, 1000);
+        terminate('timeout');
       }, timeoutMs);
     }
   });
+  if (signal && abortHandler) signal.removeEventListener('abort', abortHandler);
   clearTimeout(timeoutHandle);
   if (killHandle) {
     if (ownedProcessGroupExists(child)) await killEscalation;
@@ -187,6 +202,7 @@ export async function runProcess(command, args, {
     stdoutTruncated: stdoutState.totalBytes > outputPreviewLimit,
     stderrTruncated: stderrState.totalBytes > outputPreviewLimit,
     timedOut,
+    ...(aborted ? { aborted: true } : {}),
   };
 }
 
@@ -808,6 +824,7 @@ function loadJsonIfPresent(path) {
 }
 
 function stageSuccess(stage, name) {
+  if (stage?.aborted) throw new Error(name + ' stage was aborted by SIGINT or cancellation.');
   if (stage?.timedOut) throw new Error(name + ' stage timed out after ' + stage.timeoutMs + 'ms.');
   if (!stage || stage.exitCode !== 0) throw new Error(name + ' stage did not exit successfully (exit=' + (stage?.exitCode ?? 'unknown') + ').');
 }
@@ -842,6 +859,7 @@ export async function runNativeVerificationBracket({
   root = repositoryRoot,
   env = process.env,
   commandRunner = runProcess,
+  signal,
 } = {}) {
   assert(typeof scenarioID === 'string' && scenarioID.trim(), 'Provide --scenario.');
   assert(typeof caseName === 'string' && caseName.trim(), 'Provide --case.');
@@ -919,20 +937,25 @@ export async function runNativeVerificationBracket({
   let workflowFailure = null;
   let baseEnv = { ...env };
   const exec = async (name, args, overrides = {}, { cwd = canonicalRoot, timeoutMs = PREPARATION_STAGE_TIMEOUT_MS,
-    outputPreviewLimit = 1024 * 1024 } = {}) => {
+    outputPreviewLimit = 1024 * 1024, signal: commandSignal = signal } = {}) => {
     const stdoutPath = join(logsDirectory, name + '.stdout.log');
     const stderrPath = join(logsDirectory, name + '.stderr.log');
     const runStarted = performance.now();
     let result;
     try {
-      result = await commandRunner(process.execPath, args, {
-        cwd,
-        env: { ...baseEnv, ...overrides },
-        stdoutPath,
-        stderrPath,
-        timeoutMs,
-        outputPreviewLimit,
-      });
+      if (commandSignal?.aborted) {
+        result = { exitCode: null, aborted: true, error: 'Process start aborted.' };
+      } else {
+        result = await commandRunner(process.execPath, args, {
+          cwd,
+          env: { ...baseEnv, ...overrides },
+          stdoutPath,
+          stderrPath,
+          timeoutMs,
+          outputPreviewLimit,
+          ...(commandSignal ? { signal: commandSignal } : {}),
+        });
+      }
     } catch (error) {
       result = { exitCode: null, error: String(error?.message ?? error) };
     }
@@ -946,6 +969,7 @@ export async function runNativeVerificationBracket({
       exitCode: Number.isInteger(result?.exitCode) ? result.exitCode : null,
       ...(result?.signal ? { signal: result.signal } : {}),
       ...(result?.timedOut ? { timedOut: true } : {}),
+      ...(result?.aborted ? { aborted: true } : {}),
       ...(result?.stdoutTruncated ? { stdoutTruncated: true } : {}),
       ...(result?.stderrTruncated ? { stderrTruncated: true } : {}),
       durationMs: Math.round(Number.isFinite(result?.durationMs) ? result.durationMs : performance.now() - runStarted),
@@ -974,7 +998,7 @@ export async function runNativeVerificationBracket({
   const runAfterClosure = async () => {
     let captureStage;
     try {
-      captureStage = await exec('captureAfter', captureArgs('after'));
+      captureStage = await exec('captureAfter', captureArgs('after'), {}, { signal: null });
     } catch (error) {
       summary.notes.push('After capture failed: ' + String(error?.message ?? error).slice(0, 300));
     }
@@ -983,7 +1007,7 @@ export async function runNativeVerificationBracket({
       healthStage = await exec('healthAfter', [
         'scripts/owned-stack-verification.mjs', '--mode', 'health',
         '--output', paths.healthAfter, '--identity', paths.apiBefore,
-      ]);
+      ], {}, { signal: null });
     } catch (error) {
       summary.notes.push('After health failed: ' + String(error?.message ?? error).slice(0, 300));
     }
@@ -994,6 +1018,10 @@ export async function runNativeVerificationBracket({
   const writeEarlySummary = (status, failureCategory, firstFailureReason = null) => {
     summary.status = status;
     summary.failureCategory = failureCategory;
+    if (signal?.aborted) {
+      summary.interrupted = true;
+      summary.notes.push('Run was interrupted by SIGINT or an abort request.');
+    }
     summary.finishedAt = new Date().toISOString();
     summary.durationMs = Math.round(performance.now() - started);
     summary.workflowError = firstFailureReason;
@@ -1151,7 +1179,11 @@ export async function runNativeVerificationBracket({
       '--output', paths.playwrightOutputPath, '--reporter=json',
       specPath, '--grep', resolvedGrep,
     ], { PLAYWRIGHT_JSON_OUTPUT_FILE: playwrightEnvPath }, { timeoutMs: BROWSER_STAGE_TIMEOUT_MS });
-    if (browserStage.exitCode !== 0) {
+    if (browserStage.aborted) {
+      workflowFailure = 'Browser stage was aborted by SIGINT or cancellation.';
+      summary.failureCategory = 'interrupted';
+      summary.notes.push(workflowFailure);
+    } else if (browserStage.exitCode !== 0) {
       summary.failureCategory = 'browser';
       summary.notes.push('Official Playwright test exited with code ' + (browserStage.exitCode ?? 'unknown') + '.');
     }
@@ -1223,7 +1255,10 @@ export async function runNativeVerificationBracket({
     && summary.commands.captureAfter?.exitCode === 0
     && summary.commands.healthAfter?.exitCode === 0
     && summary.integrity.status !== 'UNVERIFIED';
-  if (!browserAttempted || !afterEvidenceComplete || summary.lifecycle.status === 'unverified') {
+  if (signal?.aborted) {
+    summary.status = 'unverified';
+    summary.failureCategory = 'interrupted';
+  } else if (!browserAttempted || !afterEvidenceComplete || summary.lifecycle.status === 'unverified') {
     summary.status = 'unverified';
   } else if (!browserPassed || summary.lifecycle.status === 'failed' || summary.integrity.status === 'FAIL' || !allCommandsSucceeded) {
     summary.status = 'failed';
@@ -1242,6 +1277,11 @@ export async function runNativeVerificationBracket({
 
   summary.finishedAt = new Date().toISOString();
   summary.durationMs = Math.round(performance.now() - started);
+  if (signal?.aborted) {
+    summary.interrupted = true;
+    workflowFailure ??= 'Run was interrupted by SIGINT or an abort request.';
+    summary.notes.push('Run was interrupted by SIGINT or an abort request.');
+  }
   summary.workflowError = workflowFailure;
   const failedAction = summarizeFailedAction(domainReportData);
   summary.reviewPacket = {
@@ -1323,7 +1363,23 @@ export async function main(argv, {
       };
     }
   }
-  const summary = await runBracket(options);
+  const interruptController = new AbortController();
+  const handleInterrupt = () => interruptController.abort();
+  process.on('SIGINT', handleInterrupt);
+  options.signal = interruptController.signal;
+  let summary;
+  try {
+    summary = await runBracket(options);
+  } finally {
+    process.off('SIGINT', handleInterrupt);
+  }
+  if (interruptController.signal.aborted) {
+    summary.interrupted = true;
+    summary.notes ??= [];
+    if (!summary.notes.some((note) => /interrupted by SIGINT or an abort request/.test(note))) {
+      summary.notes.push('Run was interrupted by SIGINT or an abort request.');
+    }
+  }
   const focusedGroups = Array.isArray(summary.focusedChecks?.groups)
     ? summary.focusedChecks.groups
     : [];
@@ -1422,7 +1478,8 @@ export async function main(argv, {
     lastCompletedAction: summary.reviewPacket.lastCompletedAction,
     pendingOwnedRequests: summary.reviewPacket.pendingOwnedRequests,
   }, null, 2));
-  return summary.status === 'passed' || summary.status === 'checks-passed' ? 0 : 1;
+  return interruptController.signal.aborted ? 130
+    : summary.status === 'passed' || summary.status === 'checks-passed' ? 0 : 1;
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
