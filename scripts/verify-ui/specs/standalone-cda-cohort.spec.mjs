@@ -1,5 +1,5 @@
 import { test, expect } from '../helpers/cda-fixtures.mjs';
-import { authoredExpandWorkflow } from '../workflows/verify-cda-authored-expand-browser.mjs';
+import { authoredExpandWorkflow, authoredExpandFilterWorkflow } from '../workflows/verify-cda-authored-expand-browser.mjs';
 import { cohortMembershipRevisionWorkflow } from '../workflows/verify-cda-cohort-membership-revision-browser.mjs';
 import { cohortRowSourcesWorkflow } from '../workflows/verify-cda-cohort-row-sources-browser.mjs';
 import { composedRowLineageWorkflow } from '../workflows/verify-cda-composed-row-lineage-browser.mjs';
@@ -15,6 +15,19 @@ test.describe('CDA authored EXPAND lifecycle', () => {
 
   test('preserve RECORDS rows while applying, editing, reloading, and removing EXPAND', async ({ page, cda }) => {
     const result = await authoredExpandWorkflow({ page, cda, expect });
+    if (result?.skipReason) test.skip(true, result.skipReason);
+    expect(cda.report.status).toBe('passed');
+  });
+});
+
+test.describe('CDA authored EXPAND with downstream Filter', () => {
+  test.use({
+    ...fixtureOptions('expand-filter-upstream-edit-cascade', 'cda-authored-expand-filter'),
+    cdaUiRouting: 'explicit-query',
+  });
+
+  test('preserve expanded item rows through Filter, upstream edit, and cascade removal', async ({ page, cda }) => {
+    const result = await authoredExpandFilterWorkflow({ page, cda, expect });
     if (result?.skipReason) test.skip(true, result.skipReason);
     expect(cda.report.status).toBe('passed');
   });

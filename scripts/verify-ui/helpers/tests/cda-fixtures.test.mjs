@@ -4,7 +4,181 @@ import { readFileSync } from 'node:fs';
 import { correlateRequestFailure } from '../network-timing.mjs';
 import test from 'node:test';
 import { captureCDARequests } from '../cda-playwright-requests.mjs';
-import { classifyExpectedCdaCancellation, finalizeCdaExplorerMetadata } from '../cda-fixtures.mjs';
+import { classifyExpectedCdaCancellation, environmentSnapshot, finalizeCdaExplorerMetadata, gateFailure } from '../cda-fixtures.mjs';
+
+const greenCdaReport = (nativeRequests = []) => ({
+  runnerStatus: 'passed',
+  requiredChecks: ['required interaction completed'],
+  missingRequiredChecks: [],
+  assertions: [{ name: 'required interaction completed', status: 'passed' }],
+  network: [],
+  errors: [],
+  nativeRequests,
+});
+
+test('CDA environment snapshot retains the explicit oracle database without forwarding host credentials', () => {
+  const keys = ['LOOM_ARANGO_DATABASE', 'LOOM_ARANGO_USER', 'LOOM_ARANGO_PASSWORD', 'UNRELATED_SECRET'];
+  const original = new Map(keys.map(key => [key, process.env[key]]));
+  try {
+    process.env.LOOM_ARANGO_DATABASE = 'synthetic_oracle_database';
+    process.env.LOOM_ARANGO_USER = 'synthetic_user';
+    process.env.LOOM_ARANGO_PASSWORD = 'synthetic_password';
+    process.env.UNRELATED_SECRET = 'synthetic_unrelated_secret';
+    const snapshot = environmentSnapshot({ project: 'synthetic_cda_project', generation: '' });
+
+    assert.equal(snapshot.LOOM_ARANGO_DATABASE, 'synthetic_oracle_database');
+    assert.equal(snapshot.LOOM_CDA_PROJECT, 'synthetic_cda_project');
+    assert.equal(Object.isFrozen(snapshot), true);
+    for (const key of ['LOOM_ARANGO_USER', 'LOOM_ARANGO_PASSWORD', 'UNRELATED_SECRET', 'LOOM_CDA_GENERATION', 'LOOM_CDA_DATASET_DIR']) {
+      assert.equal(Object.hasOwn(snapshot, key), false, `Snapshot must omit ${key}`);
+    }
+
+    process.env.LOOM_ARANGO_DATABASE = '';
+    assert.equal(Object.hasOwn(environmentSnapshot({}), 'LOOM_ARANGO_DATABASE'), false);
+    delete process.env.LOOM_ARANGO_DATABASE;
+    assert.equal(Object.hasOwn(environmentSnapshot({}), 'LOOM_ARANGO_DATABASE'), false);
+    assert.equal(snapshot.LOOM_ARANGO_DATABASE, 'synthetic_oracle_database');
+  } finally {
+    for (const [key, value] of original) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+});
+
+test('green CDA evidence rejects the retained WoYfih request with no terminal outcome', () => {
+  const report = greenCdaReport();
+  report.nativeRequests = new Array(75);
+  report.nativeRequests[74] = {
+    requestId: 'playwright-75',
+    browserRequestId: 'playwright-75',
+    method: 'POST',
+    path: '/api/v1/projects/loom_dev_cda_fhir/explorers/cda-authored-expand-1791465817471/authoring/v2/construction-capabilities',
+    startedAt: 1791465845711,
+    authorizationHeaderPresent: false,
+  };
+
+  const failure = gateFailure(report);
+  assert(failure, 'a passing assertion and empty errors array must not validate an unfinished native request');
+  const details = JSON.parse(failure.message.replace(/^CDA verification evidence is incomplete: /, ''));
+  assert.deepEqual(details.unfinishedNativeRequests, [{
+    index: 74,
+    requestId: 'playwright-75',
+    path: '/api/v1/projects/loom_dev_cda_fhir/explorers/cda-authored-expand-1791465817471/authoring/v2/construction-capabilities',
+  }]);
+});
+
+test('completed native responses have terminal status and completion time', () => {
+  const report = greenCdaReport([{
+    requestId: 'playwright-1',
+    path: '/construction-capabilities',
+    status: 200,
+    completedAt: 1791465845711,
+  }]);
+
+  assert.equal(gateFailure(report), undefined);
+});
+
+test('an explicit completed request failure remains fatal through the existing errors gate', () => {
+  const report = greenCdaReport([{
+    requestId: 'playwright-1',
+    path: '/construction-capabilities',
+    failure: 'net::ERR_ABORTED',
+    completedAt: 1791465845711,
+  }]);
+  report.errors.push({ kind: 'network', requestId: 'playwright-1', error: 'net::ERR_ABORTED' });
+
+  const failure = gateFailure(report);
+  assert(failure);
+  const details = JSON.parse(failure.message.replace(/^CDA verification evidence is incomplete: /, ''));
+  assert.deepEqual(details.unfinishedNativeRequests, []);
+  assert.equal(details.unexpectedErrors.length, 1);
+  assert.equal(details.unexpectedErrors[0].kind, 'network');
+});
+
+test('malformed status, completion time, or empty failure is not terminal evidence', () => {
+  const report = greenCdaReport([
+    { requestId: 'string-status', path: '/string-status', status: '200', completedAt: 1 },
+    { requestId: 'invalid-status', path: '/invalid-status', status: 99, completedAt: 1 },
+    { requestId: 'infinite-time', path: '/infinite-time', status: 200, completedAt: Infinity },
+    { requestId: 'empty-failure', path: '/empty-failure', failure: '  ', completedAt: 1 },
+  ]);
+
+  const failure = gateFailure(report);
+  assert(failure);
+  const details = JSON.parse(failure.message.replace(/^CDA verification evidence is incomplete: /, ''));
+  assert.deepEqual(details.unfinishedNativeRequests.map(entry => entry.index), [0, 1, 2, 3]);
+});
+
+test('response headers followed by requestfailed need exact retirement proof at the final gate', async () => {
+  const captureRetiredResponse = async classifyRetirement => {
+    const page = new EventEmitter();
+    const report = greenCdaReport();
+    const requestFailures = new WeakMap();
+    const trackers = new Set();
+    const url = 'http://127.0.0.1:8188/api/v1/projects/loom_dev_cda_fhir/explorers/owned/authoring/v2/construction-capabilities';
+    const reason = 'This exact request was retired by the next native navigation.';
+    const proof = { action: 'navigate after the accepted operation', nextAction: 'open saved Builder state' };
+    let capture;
+    const request = {
+      url: () => url,
+      method: () => 'POST',
+      headers: () => ({ 'x-request-id': 'retired-capabilities-request' }),
+      postData: () => JSON.stringify({ outputId: 'output-exact' }),
+      failure: () => ({ errorText: 'net::ERR_ABORTED' }),
+    };
+
+    page.on('requestfailed', failedRequest => {
+      const entry = capture.byRequest.get(failedRequest);
+      const failure = {
+        method: failedRequest.method(),
+        url: failedRequest.url(),
+        requestId: entry.requestId,
+        playwrightRequestId: `cda-request-${entry.browserRequestId}`,
+        errorText: failedRequest.failure().errorText,
+      };
+      requestFailures.set(failedRequest, failure);
+      report.network.push({ kind: 'network', browserRequestId: entry.browserRequestId, errorText: failure.errorText });
+      if (classifyRetirement) {
+        classifyExpectedCdaCancellation({ request: failedRequest, reason, proof, report, requestFailures, trackers });
+      }
+    });
+
+    capture = captureCDARequests(page, {
+      apiOrigin: 'http://127.0.0.1:8188',
+      ownedPathPrefix: '/api/v1/projects/loom_dev_cda_fhir/explorers/owned',
+      report,
+      responsePaths: /construction-capabilities/,
+    });
+    trackers.add(capture);
+    page.emit('request', request);
+    page.emit('response', {
+      request: () => request,
+      status: () => 200,
+      headers: () => ({}),
+      text: () => Promise.reject(new Error('response.text: Protocol error (Network.getResponseBody): No data found for resource with given identifier\nResponse body is not available for a response that was navigated away from. Read response.body() before triggering any navigation.')),
+    });
+    page.emit('requestfailed', request);
+    return { capture, report, entry: report.nativeRequests[0], reason };
+  };
+
+  const unclassified = await captureRetiredResponse(false);
+  assert.equal(unclassified.entry.status, 200);
+  assert.equal(unclassified.entry.failure, 'net::ERR_ABORTED');
+  await assert.rejects(unclassified.capture.flush(), /Failed owned CDA response reads/);
+  const unclassifiedFailure = gateFailure(unclassified.report);
+  assert(unclassifiedFailure);
+  const unclassifiedDetails = JSON.parse(unclassifiedFailure.message.replace(/^CDA verification evidence is incomplete: /, ''));
+  assert.deepEqual(unclassifiedDetails.unfinishedNativeRequests, [], 'status plus requestfailed is terminally observed');
+  assert.equal(unclassifiedDetails.unexpectedErrors.length, 1, 'the unclassified owned failure remains fatal');
+
+  const classified = await captureRetiredResponse(true);
+  assert.equal(classified.entry.status, 200);
+  assert.equal(classified.entry.failure, 'net::ERR_ABORTED');
+  await classified.capture.flush();
+  assert.equal(classified.entry.expectedCancellation.reason, classified.reason);
+  assert.equal(gateFailure(classified.report), undefined, 'only the exact, body-read-proven cancellation may retire this response');
+});
 
 test('CDA report retains explicitly workflow-owned Explorer identity at teardown', () => {
   const fixtureSource = readFileSync(new URL('../cda-fixtures.mjs', import.meta.url), 'utf8');

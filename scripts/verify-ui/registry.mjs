@@ -2857,6 +2857,87 @@ export const registry = Object.freeze([
       { feature: 'CDA named-cohort member-field Apply, Cancel, reload, removal, and restoration lifecycle', status: 'implemented', reason: 'The dedicated wave3 serial native run passed all seven required checks and the exact lifecycle. Independent serial transition timings peaked at 1,645 ms, within the 5 s per-transition budget. The fixture aggregate performance dimension remains untested report metadata and is not a separate acceptance gate. Evidence: docs/verification/playwright/runtime/cohort-fields-epoch3.json.' },
     ],
   }),
+  Object.freeze({
+    id: 'cda-authored-expand-filter',
+    workflow: 'native-cda-authored-expand-filter-upstream-edit-cascade',
+    hooks: [
+      'useGetExplorerBuilderStateV2Query',
+      'useCreateExplorerAuthoringMutation',
+      'useApplyExplorerBuilderCommandsV2Mutation',
+      'usePreviewExplorerAuthoringV2Mutation',
+    ],
+    endpoints: [
+      'POST /api/v1/projects/{project}/explorers',
+      'GET /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/builder',
+      'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/commands',
+      'POST /api/v1/projects/{project}/explorers/{explorer}/selections',
+      'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/population-routes',
+      'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/construction-proposals',
+      'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/preview',
+    ],
+    requiredTransitions: [
+      'select up to three project/generation-scoped Observations with at most six distinct nonempty component.valueString items and a strict-subset equality witness',
+      'create a fresh source table with RECORDS rows and compare its initial preview with the independent raw Observation oracle',
+      'natively author EXPAND and compare item values, source identities, ordinals, and stable row IDs with the exact raw tuples',
+      'natively author an equality Filter bound to the EXPAND item output and verify its strict-subset rows through Cancel, Apply, and reload',
+      'edit the upstream EXPAND presentation while preserving the saved Filter binding and exact filtered rows',
+      'cancel upstream removal, then confirm cascade removal and reload to restore the exact source RECORDS rows and columns',
+    ],
+    gateReasons: [
+      'the case uses the owned CDA project and pinned cda-fhir-v1 generation, with a fresh per-run Explorer and explicit native Builder navigation',
+      'the bounded raw Arango oracle is independent of the UI; the fixture gate requires a nonempty strict-subset exact-value predicate before Explorer setup, otherwise the case remains unverified',
+      'Filter input and expansion identities are checked against the saved construction and exact raw Observation/component ordinal/valueString tuples across reload and upstream edit',
+      'EXPAND removal must name the dependent Filter before Apply; every native action and render checkpoint is limited to five seconds and unexpected errors remain fatal',
+    ],
+    script: 'verify-cda-authored-expand-browser.mjs',
+    cases: {
+      'expand-filter-upstream-edit-cascade': {
+        playwrightTest: 'scripts/verify-ui/specs/standalone-cda-cohort.spec.mjs',
+        playwrightGrep: 'preserve expanded item rows through Filter, upstream edit, and cascade removal$',
+        expectedIdentity: { project: 'loom_dev_cda_fhir', generation: 'cda-fhir-v1' },
+        focusedChecks: [
+          {
+            id: 'authored-expand-filter-exact-tuple-oracle',
+            cwd: '.',
+            command: [
+              'node-test',
+              'scripts/verify-ui/helpers/tests/cda-authored-expand-filter-oracle.test.mjs',
+              'scripts/verify-ui/helpers/tests/cda-explicit-ui-route.test.mjs',
+              'scripts/verify-ui/helpers/tests/saved-preview-binding.test.mjs',
+              'scripts/verify-ui/helpers/tests/cda-authored-expand-filter-removal.test.mjs',
+            ],
+            sourceFiles: [
+              'scripts/run-native-verification-bracket.mjs',
+              'scripts/verify-ui/registry.mjs',
+              'scripts/verify-ui/specs/standalone-cda-cohort.spec.mjs',
+              'scripts/verify-ui/workflows/verify-cda-authored-expand-browser.mjs',
+              'scripts/verify-ui/helpers/cda-authored-expand-filter-oracle.mjs',
+              'scripts/verify-ui/helpers/saved-preview-binding.mjs',
+              'scripts/verify-ui/helpers/cda-fixtures.mjs',
+            ],
+          },
+        ],
+        requiredChecks: [
+          'bounded raw CDA oracle contains a nonempty strict-subset exact-value predicate over expanded items',
+          'initial source preview preserves exact scoped Observation identities, list values, and RECORDS row definition',
+          'native EXPAND proposal exposes the projected list and exact item/value/ordinal tuples',
+          'Cancel restores exact source RECORDS rows without persisting EXPAND',
+          'EXPAND Apply and reload preserve exact item tuples and stable row identities',
+          'native Filter binds the authored EXPAND item output column by stable column identity',
+          'Filter proposal previews exactly the strict-subset tuples and stable item identities',
+          'Filter Cancel preserves the full expanded rows and does not save the Filter',
+          'Filter Apply and reload preserve exact matching tuples and stable row identities',
+          'upstream EXPAND presentation edit Cancel and Apply/reload preserve Filter binding and exact rows',
+          'upstream EXPAND removal warning names Filter and Cancel preserves both operations and exact rows',
+          'confirmed EXPAND cascade removal and reload restore exact source RECORDS rows and columns',
+          'all native actions and lifecycle checkpoints complete within five seconds with no unexpected browser or network errors',
+        ],
+      },
+    },
+    coverage: [
+      { feature: 'CDA authored component-list EXPAND composed with downstream Filter, upstream edit, and cascade restoration', status: 'implemented', reason: 'Canonical native case passed 13/13 required checks across all four dimensions, with 68 assertions and 53 native actions (max 277 ms). The independent raw CDA oracle selected three scoped Observations and six component items; the strict Filter matched one exact Observation/ordinal tuple whose stable row identity persisted through Preview, Cancel, Apply, reload, upstream label edit, cascade Cancel/Apply, and final reload. Exact three source RECORDS rows and columns were restored. All 25 action/render checkpoints were finite and <= 5,000 ms (max 1,887 ms); all 85 owned requests returned HTTP 200 and reached terminal completion, with no unexpected errors or pending requests. Tested from base commit 082aa2c3f01bbe0aececad7d136132080a415d73 with frozen working-tree fingerprint cc18a29bc11748986d3955ea3a5f2e73aef73dc2abc545779afe25a690988de9 (1,654 files), API build identity 4e9ca8a6c37df7fd7a0a364c6ce4bc0c2d90c499bfc079f656ac3d40dbdff7c2:4e9ca8a6c37df7fd7a0a364c6ce4bc0c2d90c499bfc079f656ac3d40dbdff7c2:029c776da909b2a647b42d675a361e3f8abfae9e1adc47b691e65ee0d25d23e1, docs, mounts, and before/after health were unchanged or passed. Summary: /private/var/folders/v_/j3zplgbs155cgwtqjftj377nd_4gyt/T/loom-verification-brackets/run-cda-authored-expand-filter-expand-filter-upstream-edit-cascade-H8jMML/summary.json (SHA-256 749e56fdea7cfb535a7e4f03b78b9b1bcd197ea808766c64fd231ccb5a9374d0); report: /private/var/folders/v_/j3zplgbs155cgwtqjftj377nd_4gyt/T/loom-verification-brackets/run-cda-authored-expand-filter-expand-filter-upstream-edit-cascade-H8jMML/playwright-results/standalone-cda-cohort-CDA--3a015-am-edit-and-cascade-removal/attachments/cda-domain-report-json-04927868ea790aa28fef827b64b6c049c57b6923.json (SHA-256 48ba99bd73cba6324ccab0b2f2a1b576d607a4b6e79cd8171298f32620356e57).'},
+    ],
+  }),
 ]);
 
 export const getScenario = (id) => {

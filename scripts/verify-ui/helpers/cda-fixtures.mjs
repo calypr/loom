@@ -44,7 +44,7 @@ function safeURL(raw) {
   }
 }
 
-function environmentSnapshot(overrides) {
+export function environmentSnapshot(overrides) {
   const env = {
     LOOM_CDA_PROJECT: overrides.project,
     LOOM_CDA_API_ORIGIN: overrides.apiOrigin,
@@ -52,6 +52,7 @@ function environmentSnapshot(overrides) {
     LOOM_CDA_COMPOSE_PROJECT: overrides.composeProject,
     LOOM_CDA_API_CONTAINER: overrides.apiContainer,
     LOOM_CDA_ARANGO_CONTAINER: overrides.arangoContainer,
+    LOOM_ARANGO_DATABASE: process.env.LOOM_ARANGO_DATABASE,
     LOOM_CDA_CLICKHOUSE_CONTAINER: overrides.clickhouseContainer,
     LOOM_CDA_GENERATION: overrides.generation,
     LOOM_CDA_DATASET_DIR: overrides.datasetDir,
@@ -117,21 +118,28 @@ function safeAttachmentPath(testInfo, name) {
   return testInfo.outputPath('attachments', safeName);
 }
 
-function gateFailure(report) {
+export function gateFailure(report) {
   const missing = report.runnerStatus === 'skipped' ? [] : report.missingRequiredChecks ?? [];
   const failedAssertions = (report.assertions ?? []).filter(entry => entry.status === 'failed');
   const unexpectedNetwork = (report.network ?? []).filter(entry =>
     !entry.expectedHttpFailure && classifyNetworkRecord(entry) === 'unexpected-error');
+  const unfinishedNativeRequests = (report.nativeRequests ?? []).flatMap((entry, index) => {
+    const hasStatus = Number.isInteger(entry?.status) && entry.status >= 100 && entry.status <= 599;
+    const hasFailure = typeof entry?.failure === 'string' && entry.failure.trim().length > 0;
+    if (Number.isFinite(entry?.completedAt) && (hasStatus || hasFailure)) return [];
+    return [{ index, requestId: entry?.requestId ?? null, path: entry?.path ?? null }];
+  });
   const unexpectedErrors = (report.errors ?? []).filter(entry => {
     if (entry.expected === true || entry.expectedCancellation || entry.expectedInjectedFault || entry.expectedHttpFailure) return false;
     if (entry.kind === 'expected-injected' && entry.injectedFault === true) return false;
     return true;
   });
-  if (!missing.length && !failedAssertions.length && !unexpectedNetwork.length && !unexpectedErrors.length) return undefined;
+  if (!missing.length && !failedAssertions.length && !unexpectedNetwork.length && !unfinishedNativeRequests.length && !unexpectedErrors.length) return undefined;
   return new Error(`CDA verification evidence is incomplete: ${JSON.stringify({
     missingRequiredChecks: missing,
     failedAssertions: failedAssertions.map(({ dimension, name, evidence }) => ({ dimension, name, evidence })),
     unexpectedNetwork: unexpectedNetwork.map(({ kind, method, url, status, errorText, message }) => ({ kind, method, url, status, errorText, message })),
+    unfinishedNativeRequests,
     unexpectedErrors: unexpectedErrors.map(({ kind, method, url, status, message, error }) => ({ kind, method, url, status, message, error })),
   })}`);
 }
