@@ -29,7 +29,7 @@ const FOCUSED_CHECK_TIMEOUT_MS = 60_000;
 const PREPARATION_STAGE_TIMEOUT_MS = 90_000;
 const BROWSER_STAGE_TIMEOUT_MS = 15 * 60_000;
 const FOCUSED_CHECK_OUTPUT_PREVIEW_BYTES = 8 * 1024;
-const MAX_FOCUSED_CHECK_GROUPS = 2;
+const MAX_CONCURRENT_FOCUSED_CHECKS = 2;
 const lifecycleDimensionNames = ['usability', 'correctness', 'persistence', 'performance'];
 
 const usage = [
@@ -287,8 +287,6 @@ function boundedText(value, limit = 4000) {
 
 function focusedPlansForContract(contract, root) {
   const groups = Array.isArray(contract.focusedChecks) ? contract.focusedChecks : [];
-  assert(groups.length <= MAX_FOCUSED_CHECK_GROUPS,
-    'Registered focused check groups exceed the runner limit of ' + MAX_FOCUSED_CHECK_GROUPS + '.');
   const plans = planFocusedCheckGroups(groups, root);
   return plans.map((plan, index) => {
     const files = focusedFilesForGroup(groups[index]);
@@ -352,6 +350,21 @@ function testPassed(test) {
   if (results.length !== 1) return false;
   if (results[0]?.status !== 'passed' || results[0]?.retry !== 0) return false;
   return identities.includes('expected') || results.length === 1;
+}
+
+function selectedPlaywrightFailureReason(test) {
+  for (const result of Array.isArray(test?.results) ? test.results : []) {
+    if (!['failed', 'timedOut', 'interrupted'].includes(result?.status)) continue;
+    const messages = [
+      result.error?.message,
+      ...(Array.isArray(result.errors) ? result.errors.map((error) => error?.message) : []),
+    ];
+    for (const message of messages) {
+      const reason = diagnosticLine(message);
+      if (reason) return reason;
+    }
+  }
+  return null;
 }
 
 function compactDimensions(dimensions) {
@@ -528,7 +541,7 @@ function summarizePendingOwnedRequests(report, scenario) {
   return requests;
 }
 
-function summarizeFirstFailureReason(report, workflowFailure) {
+function summarizeFirstFailureReason(report, workflowFailure, selectedTest) {
   const failedReportAction = (Array.isArray(report?.actions) ? report.actions : [])
     .filter((action) => ['failed', 'running', 'current'].includes(String(action?.status ?? '').toLowerCase()))
     .at(-1);
@@ -542,6 +555,7 @@ function summarizeFirstFailureReason(report, workflowFailure) {
     failedReportAction?.error,
     failedReportAction?.message,
     workflowFailure,
+    report ? null : selectedPlaywrightFailureReason(selectedTest),
   ];
   for (const candidate of candidates) {
     const reason = diagnosticLine(candidate);
@@ -1021,34 +1035,39 @@ export async function runNativeVerificationBracket({
   };
 
   if (focusedPlans.length) {
-    const focusedResults = await Promise.all(focusedPlans.map(async (plan) => {
-      const stageName = 'focused-' + plan.id;
-      const result = await exec(stageName, plan.args, {}, {
-        cwd: plan.cwd,
-        timeoutMs: FOCUSED_CHECK_TIMEOUT_MS,
-        outputPreviewLimit: FOCUSED_CHECK_OUTPUT_PREVIEW_BYTES,
-      });
-      const stage = summary.commands[stageName];
-      const stdoutPreview = boundedText(result.stdoutText, 3000);
-      const stderrPreview = boundedText(result.stderrText, 3000);
-      const inputsUnchanged = plan.inputs.every((input) => sha256File(resolve(canonicalRoot, input.path)) === input.sha256);
-      const passed = stage.exitCode === 0 && !stage.timedOut && inputsUnchanged;
-      return {
-        id: plan.id,
-        runner: plan.runner,
-        status: passed ? 'passed' : 'failed',
-        exitCode: stage.exitCode,
-        durationMs: stage.durationMs,
-        timeoutMs: stage.timeoutMs,
-        timedOut: stage.timedOut ?? false,
-        declaredInputsHash: plan.declaredInputsHash,
-        inputs: plan.inputs,
-        inputsUnchanged,
-        evidence: { stdout: stage.stdoutPath, stderr: stage.stderrPath },
-        ...(!passed && stdoutPreview ? { stdoutPreview } : {}),
-        ...(!passed && stderrPreview ? { stderrPreview } : {}),
-      };
-    }));
+    const focusedResults = [];
+    for (let offset = 0; offset < focusedPlans.length; offset += MAX_CONCURRENT_FOCUSED_CHECKS) {
+      const batch = focusedPlans.slice(offset, offset + MAX_CONCURRENT_FOCUSED_CHECKS);
+      const batchResults = await Promise.all(batch.map(async (plan) => {
+        const stageName = 'focused-' + plan.id;
+        const result = await exec(stageName, plan.args, {}, {
+          cwd: plan.cwd,
+          timeoutMs: FOCUSED_CHECK_TIMEOUT_MS,
+          outputPreviewLimit: FOCUSED_CHECK_OUTPUT_PREVIEW_BYTES,
+        });
+        const stage = summary.commands[stageName];
+        const stdoutPreview = boundedText(result.stdoutText, 3000);
+        const stderrPreview = boundedText(result.stderrText, 3000);
+        const inputsUnchanged = plan.inputs.every((input) => sha256File(resolve(canonicalRoot, input.path)) === input.sha256);
+        const passed = stage.exitCode === 0 && !stage.timedOut && inputsUnchanged;
+        return {
+          id: plan.id,
+          runner: plan.runner,
+          status: passed ? 'passed' : 'failed',
+          exitCode: stage.exitCode,
+          durationMs: stage.durationMs,
+          timeoutMs: stage.timeoutMs,
+          timedOut: stage.timedOut ?? false,
+          declaredInputsHash: plan.declaredInputsHash,
+          inputs: plan.inputs,
+          inputsUnchanged,
+          evidence: { stdout: stage.stdoutPath, stderr: stage.stderrPath },
+          ...(!passed && stdoutPreview ? { stdoutPreview } : {}),
+          ...(!passed && stderrPreview ? { stderrPreview } : {}),
+        };
+      }));
+      focusedResults.push(...batchResults);
+    }
     summary.focusedChecks = {
       status: focusedResults.every((result) => result.status === 'passed') ? 'passed' : 'failed',
       groups: focusedResults,
@@ -1232,7 +1251,7 @@ export async function runNativeVerificationBracket({
     browserExitCode: browserStage?.exitCode ?? null,
     lifecycleStatus: summary.lifecycle.status,
     integrityStatus: summary.integrity.status,
-    firstFailureReason: summarizeFirstFailureReason(domainReportData, workflowFailure),
+    firstFailureReason: summarizeFirstFailureReason(domainReportData, workflowFailure, attachmentData.matchedTest?.test),
     failureContext: summarizeFailureContext(domainReportData),
     failedAction,
     lastCompletedAction: summarizeLastCompletedAction(domainReportData),

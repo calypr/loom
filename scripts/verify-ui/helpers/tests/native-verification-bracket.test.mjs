@@ -18,6 +18,38 @@ const buildIdentity = 'a'.repeat(64) + ':' + 'a'.repeat(64) + ':' + 'b'.repeat(6
 const retainedCda = JSON.parse(readFileSync(new URL('./fixtures/native-bracket-retained-cda-report.json', import.meta.url), 'utf8'));
 const retainedBasic = JSON.parse(readFileSync(new URL('./fixtures/native-bracket-retained-basic-report.json', import.meta.url), 'utf8'));
 const wave152Failure = JSON.parse(readFileSync(new URL('./fixtures/wave152-root-quantity-pivot-failure.json', import.meta.url), 'utf8'));
+const retainedMembershipSetupFailure = {
+  errors: [],
+  suites: [{
+    title: 'cda-current-draft-membership.spec.mjs',
+    file: 'cda-current-draft-membership.spec.mjs',
+    specs: [],
+    suites: [{
+      title: 'CDA current-draft GROUP to GROUP Membership',
+      file: 'cda-current-draft-membership.spec.mjs',
+      specs: [{
+        title: 'native INCLUDE and EXCLUDE Membership use two exact grouped Observation ID populations',
+        file: 'cda-current-draft-membership.spec.mjs',
+        line: 11,
+        column: 3,
+        tests: [{
+          status: 'unexpected',
+          results: [{
+            status: 'failed',
+            retry: 0,
+            error: {
+              message: 'Error: development UI defaults do not target this session fixture and bootstrap Explorer',
+              stack: 'Error: development UI defaults do not target this session fixture and bootstrap Explorer\n    at inspectOwnedResources (/private/tmp/loom-construction-implementation/scripts/loom-dev.mjs:860:17)\n    at Object.cda (/private/tmp/loom-construction-implementation/scripts/verify-ui/helpers/cda-fixtures.mjs:331:7)',
+            },
+            errors: [{
+              message: 'Error: development UI defaults do not target this session fixture and bootstrap Explorer',
+            }],
+          }],
+        }],
+      }],
+    }],
+  }],
+};
 
 function makeTarget(sourceRoot) {
   return {
@@ -53,7 +85,7 @@ function fakeRunner({ scenarioID, caseName, rootDir, browserExit = 0, browserRep
   afterCaptureExit = 0, afterCaptureWritesArtifacts = true, afterHealthExit = 0, afterHealthWritesArtifact = true,
   sourceChanged = false, malformedAfterSource = false, afterHealthIdentity = buildIdentity, reportScenarioID,
   reportedChecksOverride, officialTestStatus, officialTestOutcome, officialTestResultStatuses, officialTestResultRetries,
-  domainReportOverride } = {}) {
+  domainReportOverride, playwrightReportOverride, listedTestLine } = {}) {
   const commands = [];
   const playwrightArgs = [];
   const scenario = registry.find((entry) => entry.id === scenarioID);
@@ -61,7 +93,7 @@ function fakeRunner({ scenarioID, caseName, rootDir, browserExit = 0, browserRep
   const title = 'Selected native case for ' + caseName;
   const spec = scenarioCaseFor(scenario, caseName).playwrightTest;
   const specFile = basename(spec);
-  const testLine = specFile + ':12:3 › Test suite › ' + title;
+  const testLine = listedTestLine ?? specFile + ':12:3 › Test suite › ' + title;
   const baseEnv = {
     LOOM_CDA_SOURCE_ROOT: rootDir,
     LOOM_CDA_PROJECT: 'owned-project',
@@ -98,7 +130,7 @@ function fakeRunner({ scenarioID, caseName, rootDir, browserExit = 0, browserRep
       playwrightArgs.push(args);
       const outputDirectory = option(args, '--output');
       const reportPath = env.PLAYWRIGHT_JSON_OUTPUT_FILE;
-      if (browserReport !== 'missing') {
+      if (browserReport !== 'missing' || playwrightReportOverride) {
         const officialStatus = browserExit === 0 ? 'expected' : 'unexpected';
         const resultStatus = browserExit === 0 ? 'passed' : 'failed';
         const domainPath = join(outputDirectory, browserReport === 'cda' ? 'cda-report.json' : 'loom-verification-report.json');
@@ -134,7 +166,7 @@ function fakeRunner({ scenarioID, caseName, rootDir, browserExit = 0, browserRep
             : baseDomainReport;
           writeJson(domainPath, domainReport);
         }
-        writeJson(reportPath, {
+        writeJson(reportPath, playwrightReportOverride ?? {
           errors: [],
           suites: [{
             title: specFile,
@@ -531,6 +563,120 @@ test('missing domain report remains unverified after the bracket closes', async 
   assert.equal(summary.reviewPacket.lastCompletedAction, null);
   assert.deepEqual(summary.reviewPacket.pendingOwnedRequests, []);
   assert.deepEqual(fake.commands.slice(-2), ['captureAfter', 'healthAfter']);
+});
+
+test('focused checks run every registered group with at most two groups in flight', async (t) => {
+  const parent = evidenceParent();
+  t.after(() => rmSync(parent, { recursive: true, force: true }));
+  const contract = scenarioCaseFor('cda-current-draft-membership', 'membership');
+  const focusedGroups = contract.focusedChecks;
+  const originalGroups = focusedGroups.slice();
+  while (focusedGroups.length < 3) {
+    focusedGroups.push({ ...focusedGroups.at(-1), id: 'membership-batch-regression-' + focusedGroups.length });
+  }
+  t.after(() => focusedGroups.splice(0, focusedGroups.length, ...originalGroups));
+
+  const expectedIDs = focusedGroups.map((group) => group.id);
+  let active = 0;
+  let maximumActive = 0;
+  const started = [];
+  const summary = await runNativeVerificationBracket({
+    scenarioID: 'cda-current-draft-membership',
+    caseName: 'membership',
+    checksOnly: true,
+    evidenceParent: parent,
+    root,
+    commandRunner: async (_command, args) => {
+      active += 1;
+      maximumActive = Math.max(maximumActive, active);
+      started.push(args.at(-1));
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      active -= 1;
+      return { exitCode: 0, stdoutText: '', stderrText: '' };
+    },
+  });
+
+  assert.equal(summary.status, 'checks-passed');
+  assert.equal(summary.focusedChecks.status, 'passed');
+  assert.deepEqual(summary.focusedChecks.groups.map((group) => group.id), expectedIDs);
+  assert.equal(started.length, expectedIDs.length);
+  assert.equal(maximumActive, 2);
+  assert.equal(active, 0);
+});
+
+test('selected Playwright setup failure appears in the summary and CLI without a domain report', async (t) => {
+  const parent = evidenceParent();
+  t.after(() => rmSync(parent, { recursive: true, force: true }));
+  const scenarioID = 'cda-current-draft-membership';
+  const caseName = 'membership';
+  const selectedError = 'Error: development UI defaults do not target this session fixture and bootstrap Explorer';
+  const playwrightReport = structuredClone(retainedMembershipSetupFailure);
+  playwrightReport.suites[0].suites[0].specs.unshift({
+    title: 'unselected setup helper test',
+    file: 'cda-current-draft-membership.spec.mjs',
+    line: 8,
+    column: 3,
+    tests: [{
+      status: 'unexpected',
+      results: [{ status: 'failed', retry: 0, error: { message: 'Error: unrelated unselected test failure' } }],
+    }],
+  });
+  const listedTestLine = 'cda-current-draft-membership.spec.mjs:11:3 › CDA current-draft GROUP to GROUP Membership › native INCLUDE and EXCLUDE Membership use two exact grouped Observation ID populations';
+  const fake = fakeRunner({
+    scenarioID,
+    caseName,
+    rootDir: root,
+    browserExit: 1,
+    browserReport: 'missing',
+    playwrightReportOverride: playwrightReport,
+    listedTestLine,
+  });
+  const targetEnvironment = {
+    ...fake.env,
+    LOOM_CDA_PROJECT: 'loom_dev_cda_fhir',
+    LOOM_CDA_GENERATION: 'cda-fhir-v1',
+  };
+  let runSummary;
+  const cliOutput = [];
+  const exitCode = await main([
+    '--scenario', scenarioID,
+    '--case', caseName,
+    '--target', '.codex/owned-cda-target.json',
+  ], {
+    env: fake.env,
+    targetLoader: async () => ({
+      environment: targetEnvironment,
+      target: { ...makeTarget(root), project: 'loom_dev_cda_fhir', generation: 'cda-fhir-v1' },
+      configPath: '/tmp/test-owned-cda-target.json',
+      validationScope: 'configuration-only',
+      runtimeDatasetIdentity: 'not-checked',
+    }),
+    runBracket: async (options) => {
+      runSummary = await runNativeVerificationBracket({
+        ...options,
+        evidenceParent: parent,
+        root,
+        env: options.env,
+        commandRunner: (command, args, details) => details.cwd === root
+          ? fake.commandRunner(command, args, details)
+          : { exitCode: 0, stdoutText: '', stderrText: '' },
+      });
+      return runSummary;
+    },
+    write: (value) => cliOutput.push(value),
+  });
+
+  assert.equal(exitCode, 1);
+  assert.equal(runSummary.status, 'unverified');
+  assert.equal(runSummary.lifecycle.status, 'unverified');
+  assert.equal(runSummary.integrity.status, 'PASS');
+  assert.equal(runSummary.evidence.domainReport, null);
+  assert.equal(runSummary.reviewPacket.firstFailureReason, selectedError);
+  assert.equal(JSON.stringify(runSummary.reviewPacket).includes('unrelated unselected test failure'), false);
+  assert.equal(JSON.stringify(runSummary.reviewPacket).includes('/private/tmp/loom-construction-implementation'), false);
+  assert.equal(JSON.parse(readFileSync(runSummary.evidence.summary, 'utf8')).reviewPacket.firstFailureReason, selectedError);
+  assert.equal(cliOutput.length, 1);
+  assert.equal(JSON.parse(cliOutput[0]).firstFailureReason, selectedError);
 });
 
 test('missing after-capture evidence stays unverified and does not skip after health', async (t) => {
