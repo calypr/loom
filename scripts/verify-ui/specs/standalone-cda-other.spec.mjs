@@ -125,6 +125,7 @@ test.describe('CDA root rebase lifecycle', () => {
   test.use({
     cdaScenarioID: 'cda-root-rebase',
     cdaCaseName: 'preserve-patient-values-through-observation-and-restore',
+    cdaUiRouting: 'explicit-query',
   });
 
   test('rebase Patient rows through Observation and restore the original route and values', async ({ page, cda }) => {

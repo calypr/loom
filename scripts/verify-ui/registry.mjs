@@ -1153,6 +1153,76 @@ export const registry = Object.freeze([
     coverage: [],
   }),
   Object.freeze({
+    id: 'cda-root-rebase',
+    workflow: 'native-cda-root-rebase-with-authored-filter',
+    hooks: [
+      'useGetExplorerBuilderStateV2Query',
+      'useApplyExplorerBuilderCommandsV2Mutation',
+      'useAssessExplorerRowChangeMutation',
+      'usePreviewExplorerAuthoringV2Mutation',
+      'useResolvePopulationSelectionQuery',
+      'usePopulationMappingMutation',
+    ],
+    endpoints: [
+      'POST /api/v1/projects/{project}/explorers',
+      'GET /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/builder',
+      'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/commands',
+      'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/construction-proposals',
+      'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/row-change',
+      'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/preview',
+    ],
+    requiredTransitions: [
+      'find one project/generation-scoped Patient with between two and 25 raw Observation Subject records',
+      'author a native Patient ID equality filter for that exact raw Patient and preserve its columns and routed population',
+      'Cancel the first Observation root proposal and reload the unchanged saved filter, columns, population, and route',
+      'Apply a fresh Observation root proposal without removing or changing the authored filter',
+      'render the exact raw Observation IDs and Patient ID multiplicity after rebase and reload',
+      'restore Patient rows, then reload the authored filter, both output columns, population route, and exact Patient row',
+    ],
+    gateReasons: [
+      'the case requires the owned CDA Builder stack and its pinned cda-fhir-v1 source generation',
+      'the independent raw Arango oracle chooses one Patient with two to 25 Subject Observations so the rebase remains fully visible and preserves identity',
+      'the row-root Cancel and Apply paths must preserve the exact saved workspace and meet separate five-second action-to-render budgets',
+      'native construction, route, columns, preview rows, reload, and root restoration remain unverified until the full browser case passes',
+    ],
+    script: 'verify-cda-root-rebase.mjs',
+    cases: {
+      'preserve-patient-values-through-observation-and-restore': {
+        playwrightTest: 'scripts/verify-ui/specs/standalone-cda-other.spec.mjs',
+        playwrightGrep: 'rebase Patient rows through Observation and restore the original route and values$',
+        expectedIdentity: { project: 'loom_dev_cda_fhir', generation: 'cda-fhir-v1' },
+        focusedChecks: [
+          {
+            id: 'cda-root-rebase-construction-preservation',
+            cwd: '.',
+            command: [
+              'node-test',
+              'scripts/verify-ui/helpers/tests/verify-cda-root-rebase-contract.test.mjs',
+            ],
+            sourceFiles: [
+              'scripts/verify-ui/workflows/verify-cda-root-rebase.mjs',
+              'scripts/verify-ui/specs/standalone-cda-other.spec.mjs',
+              'scripts/verify-ui/registry.mjs',
+            ],
+          },
+        ],
+        requiredChecks: [
+          'raw project/generation CDA oracle selects one Patient with two to 25 exact Observation Subject records',
+          'native Patient ID equality filter proposal and Apply preserve the exact selected Patient, output columns, population, and route',
+          'Canceling the first Observation root proposal leaves the complete saved workspace unchanged before reload',
+          'fresh Observation root Apply preserves the authored Patient filter, output columns, and population route',
+          'Observation-root preview renders exact raw Observation IDs and one matching Patient ID for every raw child',
+          'Patient-root restoration and reload preserve the exact filter, both output columns, route, and filtered Patient row',
+          'each filter, root choice, Cancel, Apply, and restore render checkpoint completes within five seconds',
+          'no unexpected authoring API or browser errors occur',
+        ],
+      },
+    },
+    coverage: [
+      { feature: 'CDA authored construction preservation through Patient → Observation root rebase and Patient restoration', status: 'untested', reason: 'The native case now has an independent Patient-to-Observation multiplicity oracle and complete Cancel/Apply/reload/restore assertions; no full browser lifecycle has run yet.' },
+    ],
+  }),
+  Object.freeze({
     id: 'cda-collection-repair-partial',
     workflow: 'owned-cda-partial-long-route-collection-repair',
     hooks: [],
