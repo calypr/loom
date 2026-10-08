@@ -299,6 +299,10 @@ function fakeRunner({ scenarioID, caseName, rootDir, browserExit = 0, browserRep
       return { exitCode: phase === 'after' ? afterCaptureExit : 0, stdoutText: '', stderrText: '' };
     }
 
+    if (args[0] === '--test') {
+      return { exitCode: 0, stdoutText: 'registered node tests passed\n', stderrText: '' };
+    }
+
     if (stdoutPath && !existsSync(stdoutPath)) writeFileSync(stdoutPath, '', { mode: 0o600 });
     if (stderrPath && !existsSync(stderrPath)) writeFileSync(stderrPath, '', { mode: 0o600 });
     return { exitCode: 99, stdoutText: '', stderrText: '' };
@@ -739,6 +743,8 @@ test('selected Playwright setup failure appears in the summary and CLI without a
   assert.equal(runSummary.status, 'unverified');
   assert.equal(runSummary.lifecycle.status, 'unverified');
   assert.equal(runSummary.integrity.status, 'PASS');
+  assert.equal(runSummary.commands.playwright.exitCode, 1);
+  assert.equal(runSummary.failureCategory, 'browser');
   assert.equal(runSummary.evidence.domainReport, null);
   assert.equal(runSummary.reviewPacket.firstFailureReason, selectedError);
   assert.equal(JSON.stringify(runSummary.reviewPacket).includes('unrelated unselected test failure'), false);
@@ -1197,6 +1203,9 @@ test('checks-only runs the registered focused groups without loading a target or
   const calls = [];
   const output = [];
   let summary;
+  const registeredGroups = scenarioCaseFor('cda-current-draft-membership', 'membership').focusedChecks;
+  const expectedGroupIDs = registeredGroups.map((group) => group.id);
+  const expectedRunners = registeredGroups.map((group) => group.command[0]).sort();
   const exitCode = await main([
     '--scenario', 'cda-current-draft-membership',
     '--case', 'membership',
@@ -1222,10 +1231,12 @@ test('checks-only runs the registered focused groups without loading a target or
   assert.equal(summary.status, 'checks-passed');
   assert.equal(summary.mode, 'checks-only');
   assert.equal(summary.focusedCheckCoverage, 'registered');
-  assert.equal(summary.focusedChecks.groups.length, 2);
+  assert.deepEqual(summary.focusedChecks.groups.map((group) => group.id), expectedGroupIDs);
   assert.ok(summary.focusedChecks.groups.every((group) => group.status === 'passed' && group.declaredInputsHash));
-  assert.equal(calls.length, 2);
-  assert.ok(calls.every(({ args }) => args[0] === '../../node_modules/vitest/vitest.mjs'));
+  assert.equal(calls.length, expectedGroupIDs.length);
+  const actualRunners = calls.map(({ args }) => args[0] === '--test' ? 'node-test'
+    : args[0] === '../../node_modules/vitest/vitest.mjs' ? 'vitest' : 'unknown').sort();
+  assert.deepEqual(actualRunners, expectedRunners);
   assert.equal(summary.commands.selectionList, undefined);
   assert.equal(summary.commands.precheck, undefined);
   assert.equal(summary.commands.playwright, undefined);
@@ -1262,6 +1273,8 @@ test('a failed focused prerequisite prevents all browser bracket commands', asyn
   const parent = evidenceParent();
   t.after(() => rmSync(parent, { recursive: true, force: true }));
   const calls = [];
+  const expectedGroupIDs = scenarioCaseFor('cda-current-draft-membership', 'membership')
+    .focusedChecks.map((group) => group.id);
   const summary = await runNativeVerificationBracket({
     scenarioID: 'cda-current-draft-membership',
     caseName: 'membership',
@@ -1285,7 +1298,8 @@ test('a failed focused prerequisite prevents all browser bracket commands', asyn
   assert.equal(summary.commands.selectionList, undefined);
   assert.equal(summary.commands.playwright, undefined);
   assert.equal(summary.commands.captureAfter, undefined);
-  assert.equal(calls.length, 2);
+  assert.deepEqual(summary.focusedChecks.groups.map((group) => group.id), expectedGroupIDs);
+  assert.equal(calls.length, expectedGroupIDs.length);
 });
 
 test('a stalled preparation stage is bounded and still attempts after-capture and health', async (t) => {
