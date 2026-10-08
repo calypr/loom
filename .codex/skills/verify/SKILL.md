@@ -125,6 +125,7 @@ node scripts/verify-ui/helpers/extract-native-failure-input.mjs \
   --summary /path/to/summary.json \
   --browser-request-id browser-request-id-from-report \
   --request-id native-request-id-from-report \
+  --state-browser-request-id reconcile-browser-request-id-from-report \
   --out /private/tmp/native-failure-input.json
 ```
 
@@ -139,7 +140,14 @@ matching source fingerprint and target, but its provenance declaration does not
 prove independence. The output records `missing-independent-oracle` without
 that file or `separately-supplied-provenance-unverified` with it; both set
 `independenceVerified` to false. A captured response is observed output, not an
-expected value.
+expected value. `--state-browser-request-id` is optional; when supplied, it
+must select a completed successful `/reconcile` request from the same explorer
+before the proposal, with matching snapshot, draft version/digest, and output.
+The extractor retains that request's IDs and checkpoint, the matching output,
+and only the matching document's columns. Without the option, prerequisite
+state is marked `missing-at-extraction`; a nearby request is never inferred.
+This association does not establish that the request caused the failed check or
+provide an independent value oracle.
 
 Use the retained input in a focused regression, repeat the focused Node test
 until it passes, then rerun the same bracket command in the Verification

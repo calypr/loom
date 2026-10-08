@@ -8,6 +8,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { extractNativeFailureInput } from '../extract-native-failure-input.mjs';
 import { prepareCdaMembershipOracle } from '../cda-current-draft-membership-oracle.mjs';
+import { validateCdaGroupCandidate } from '../cda-group-numeric-filter-oracle.mjs';
 
 const scope = { project: 'loom_dev_cda_fhir', generation: 'cda-fhir-v1' };
 const fingerprint = { sha256: 'a'.repeat(64), files: 1508 };
@@ -99,8 +100,37 @@ function makeBracketInputs(t, { responseAvailable = false } = {}) {
     path: '/api/v1/projects/loom_dev_cda_fhir/explorers/explorer-literal/authoring/v2/construction-proposals',
     triggerAction: 'apply Group operation',
     authorization: 'Bearer bracket-secret-value',
+    startedAt: 2_000,
     status: 200,
+    body: {
+      snapshotToken: 'snapshot-literal',
+      expectedDraftVersion: 4,
+      expectedDraftDigest: 'draft-digest-literal',
+      outputId: 'out-observed',
+      candidateConstruction: { version: 1, steps: [] },
+    },
     ...(responseAvailable ? { response: { outputId: 'out-observed', preview: { rows: [{ count: 3 }] } } } : {}),
+  };
+  const sourceSubjectColumn = {
+    columnId: 'source-subject-reference',
+    column: 'subject-reference',
+    source: { kind: 'field', field: { path: 'subject.reference', projectionMode: 'VALUE' } },
+  };
+  const stateRequest = {
+    browserRequestId: 'playwright-16',
+    requestId: 'builder-reconcile-literal',
+    method: 'POST',
+    path: '/api/v1/projects/loom_dev_cda_fhir/explorers/explorer-literal/authoring/v2/reconcile',
+    startedAt: 1_000,
+    responseReceivedAt: 1_050,
+    completedAt: 1_060,
+    status: 200,
+    body: { snapshotToken: 'snapshot-literal', draftVersion: 4, draftDigest: 'draft-digest-literal' },
+    response: {
+      snapshotToken: 'snapshot-literal',
+      outputs: [{ outputId: 'out-observed', rootResourceType: 'Observation', columns: [{ column: 'subject-reference' }] }],
+      builder: { documents: [{ output: { id: 'out-observed', title: 'Observed output' }, rootResourceType: 'Observation', columns: [sourceSubjectColumn] }] },
+    },
   };
   const report = {
     schemaVersion: 1,
@@ -112,7 +142,7 @@ function makeBracketInputs(t, { responseAvailable = false } = {}) {
     verificationIdentity: { sourceFingerprint: { before: fingerprint, after: fingerprint }, sourceFreeze: { unchanged: true } },
     assertions: [],
     missingRequiredChecks: [checkName],
-    nativeRequests: [request],
+    nativeRequests: [stateRequest, request],
     failureEvidence: { reason: 'Browser action failed after the retained native request.', page: { url: 'http://127.0.0.1:30008/', bodyText: 'No failed assertion row was recorded.' } },
   };
   const reportSha = writeJson(paths.report, report);
@@ -143,7 +173,51 @@ function makeBracketInputs(t, { responseAvailable = false } = {}) {
     },
   };
   writeJson(paths.summary, summary);
-  return { directory, paths, report, request, sourceFingerprint: fingerprint, summary };
+  return { directory, paths, report, request, stateRequest, sourceFingerprint: fingerprint, summary };
+}
+
+function makeRetainedCdaInputs(t) {
+  const directory = registerCleanup(t, mkdtempSync(join(tmpdir(), 'native-failure-cda-retained-')));
+  const paths = Object.fromEntries(['report', 'playwright', 'summary', 'out']
+    .map(name => [name, join(directory, `${name}.json`)]));
+  const retained = JSON.parse(readFileSync(new URL('./fixtures/cda-group-numeric-filter-retained-candidate.json', import.meta.url), 'utf8'));
+  const target = {
+    project: 'loom_dev_cda_fhir',
+    generation: 'cda-fhir-v1',
+    explorer: 'cda-group-numeric-filter-cc35787b-a133-4898-95e9-a090be5cafec',
+    sourceFingerprint: fingerprint,
+  };
+  const report = {
+    schemaVersion: 1,
+    scenario: 'cda-group-numeric-filter',
+    case: 'numeric-filter-after-group',
+    status: 'failed',
+    target,
+    assertions: [],
+    nativeRequests: [retained.retainedRequests.state, retained.retainedRequests.proposal],
+    failureEvidence: { reason: 'Retained failure request sequence; causal association remains unproven.' },
+  };
+  const reportSha = writeJson(paths.report, report);
+  const playwrightSha = writeJson(paths.playwright, { status: 'failed', suites: [] });
+  writeJson(paths.summary, {
+    schemaVersion: 1,
+    status: 'failed',
+    scenario: report.scenario,
+    case: report.case,
+    sourceFingerprint: fingerprint,
+    rawReportPath: paths.report,
+    rawReportSha256: reportSha,
+    playwrightResultsPath: paths.playwright,
+    playwrightResultsSha256: playwrightSha,
+  });
+  return {
+    directory,
+    paths,
+    retained,
+    report,
+    stateRequest: retained.retainedRequests.state,
+    request: retained.retainedRequests.proposal,
+  };
 }
 
 function extract(input, overrides = {}) {
@@ -156,12 +230,13 @@ function extract(input, overrides = {}) {
 }
 
 function runCli(input, outputPath, { browserRequestId = input.request.browserRequestId,
-  requestId = input.request.requestId, checkName, expectedPath } = {}) {
+  requestId = input.request.requestId, stateBrowserRequestId, checkName, expectedPath } = {}) {
   return spawnSync(process.execPath, [cliPath,
     '--summary', input.paths.summary,
     '--browser-request-id', browserRequestId,
     '--request-id', requestId,
     '--out', outputPath,
+    ...(stateBrowserRequestId ? ['--state-browser-request-id', stateBrowserRequestId] : []),
     ...(checkName ? ['--check', checkName] : []),
     ...(expectedPath ? ['--expected', expectedPath] : [])], { encoding: 'utf8' });
 }
@@ -198,7 +273,61 @@ test('native bracket summary hashes retained evidence at extraction and preserve
   assert.equal(fixture.failureSelection.assertionName, null);
   assert.equal(fixture.requestEvidence.responseState, 'not-retained');
   assert.equal(Object.hasOwn(fixture.requestEvidence.nativeRequest, 'response'), false);
+  assert.equal(fixture.requestEvidence.prerequisiteState.status, 'missing-at-extraction');
+  assert.equal(fixture.requestEvidence.prerequisiteState.selectionMethod, 'not-selected');
+  assert.match(fixture.requestEvidence.prerequisiteState.reason, /not inferred/);
   assert.equal(fixture.expectation.status, 'missing-independent-oracle');
+});
+
+test('explicit prerequisite selection extracts the real retained DTO needed by the candidate validator', t => {
+  const input = makeRetainedCdaInputs(t);
+  const fixture = extract(input, { stateBrowserRequestId: input.retained.capture.sourceStateBrowserRequestId });
+  const state = fixture.requestEvidence.prerequisiteState;
+  const sourceSubjectColumn = state.document.columns.find(column => column.source?.field?.path === 'subject.reference');
+  const candidateConstruction = fixture.requestEvidence.nativeRequest.body.candidateConstruction;
+
+  assert.equal(state.status, 'retained');
+  assert.equal(state.requestId, input.retained.capture.sourceStateRequestId);
+  assert.equal(state.browserRequestId, 'playwright-16');
+  assert.equal(state.checkpoint.draftVersion, 4);
+  assert.equal(state.checkpoint.draftDigest, fixture.requestEvidence.nativeRequest.body.expectedDraftDigest);
+  assert.equal(state.output.outputId, fixture.requestEvidence.nativeRequest.body.outputId);
+  assert.equal(state.document.output.id, fixture.requestEvidence.nativeRequest.body.outputId);
+  assert.deepEqual(validateCdaGroupCandidate({ candidateConstruction, sourceSubjectColumn }), {
+    stepId: 'group_586b9249-cf53-4385-be8a-9cf842a37133',
+    keyInputColumnId: 'source_50da1012a2b5d01596d07a6d',
+    aggregate: { operation: 'COUNT_ROWS', outputColumnId: 'group-column_2fdd0358-774c-414b-bcdd-d9cf430127ee' },
+  });
+  assert.equal(fixture.requestSelection.causalLinkageToFailure, 'not-established-by-extractor');
+  assert.equal(state.causalLinkageToFailure, 'not-established-by-extractor');
+  assert.equal(fixture.expectation.status, 'missing-independent-oracle');
+
+  const cliOutput = join(input.directory, 'state-selected.json');
+  const cli = runCli({
+    request: input.retained.retainedRequests.proposal,
+    paths: input.paths,
+  }, cliOutput, { stateBrowserRequestId: input.retained.capture.sourceStateBrowserRequestId });
+  assert.equal(cli.status, 0, cli.stderr);
+  assert.equal(JSON.parse(readFileSync(cliOutput, 'utf8')).requestEvidence.prerequisiteState.status, 'retained');
+});
+
+test('selected prerequisite state rejects another owner, checkpoint, order, missing body, and missing terminal events', t => {
+  const rejectState = (mutate, expectedMessage) => {
+    const input = makeBracketInputs(t);
+    const report = structuredClone(input.report);
+    const state = report.nativeRequests[0];
+    mutate(state, report.nativeRequests[1]);
+    writeJson(input.paths.report, report);
+    assert.throws(() => extract(input, { stateBrowserRequestId: state.browserRequestId }), expectedMessage);
+  };
+
+  rejectState(state => { state.path += '/unexpected'; }, /exact same-owner reconcile path/);
+  rejectState(state => { state.body.draftDigest = 'another-digest'; }, /draftDigest differs/);
+  rejectState((state, proposal) => { state.completedAt = proposal.startedAt + 1; }, /must precede/);
+  rejectState(state => { delete state.body; }, /request body is missing/);
+  rejectState(state => { delete state.startedAt; }, /start time is missing/);
+  rejectState(state => { delete state.responseReceivedAt; }, /response event is missing/);
+  rejectState(state => { delete state.completedAt; }, /completion event is missing/);
 });
 
 test('uses the real Membership raw oracle with literal expected values, while leaving derivation unverified', t => {

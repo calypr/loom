@@ -87,6 +87,17 @@ export function hasExactAuthoredColumnRestoration(sourceColumns, restoredColumns
     isDeepStrictEqual(sourceIds, restoredIds) && isDeepStrictEqual(sourceColumns, restoredColumns);
 }
 
+export function validateCdaGroupCandidate({ candidateConstruction, sourceSubjectColumn }) {
+  const steps = candidateConstruction?.steps ?? [];
+  assert.equal(steps.length, 1);
+  const step = steps[0];
+  assert.equal(step.operation.kind, 'GROUP');
+  assert.deepEqual(step.operation.group.keys.map(key => key.inputColumnId), [sourceSubjectColumn.columnId]);
+  assert.equal(step.operation.group.aggregates.length, 1);
+  assert.equal(step.operation.group.aggregates[0].operation, 'COUNT_ROWS');
+  return { stepId: step.id, keyInputColumnId: sourceSubjectColumn.columnId, aggregate: step.operation.group.aggregates[0] };
+}
+
 function assertSourceScope({ project, generation }) {
   assert(nonempty(project), 'A numeric Group Filter oracle requires the exact project.');
   assert(nonempty(generation), 'A numeric Group Filter oracle requires the pinned generation.');

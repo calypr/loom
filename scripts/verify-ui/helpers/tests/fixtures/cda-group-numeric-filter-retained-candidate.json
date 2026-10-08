@@ -1,0 +1,252 @@
+{
+  "capture": {
+    "failureInput": "loom-bracket-D1Ts4f.failure-input-v2.json",
+    "domainReportSha256": "cba4d3aa78649e13c60ae021f14c541425f9c0255589fbee61179a00738cbc9b",
+    "sourceStateRequestId": "builder-3-1",
+    "proposalBrowserRequestId": "playwright-24",
+    "failureSite": "verifyCandidate",
+    "sourceStateBrowserRequestId": "playwright-16",
+    "retainedRequestsProjection": "Exact selected request fields and matching output/document DTOs copied from the hashed domain report; unrelated response payloads and rows omitted."
+  },
+  "sourceSubjectColumn": {
+    "columnId": "source_50da1012a2b5d01596d07a6d",
+    "column": "col_62e1e1a39febb78130fb0c45",
+    "label": "Subject Reference",
+    "logicalType": "string",
+    "occurrenceId": "base",
+    "source": {
+      "kind": "field",
+      "field": {
+        "path": "subject.reference",
+        "projectionMode": "VALUE"
+      }
+    },
+    "table": {
+      "visible": true,
+      "order": 1
+    }
+  },
+  "candidateConstruction": {
+    "version": 1,
+    "steps": [
+      {
+        "id": "group_586b9249-cf53-4385-be8a-9cf842a37133",
+        "inputs": [
+          {
+            "kind": "SOURCE_PROJECTION"
+          }
+        ],
+        "operation": {
+          "kind": "GROUP",
+          "group": {
+            "constructionId": "group_586b9249-cf53-4385-be8a-9cf842a37133",
+            "missingKeyPolicy": "GROUP",
+            "keys": [
+              {
+                "inputColumnId": "source_50da1012a2b5d01596d07a6d",
+                "outputColumnId": "group-key_acf1967a-0883-4a24-90ce-b7688e3b6ce1"
+              }
+            ],
+            "aggregates": [
+              {
+                "operation": "COUNT_ROWS",
+                "outputColumnId": "group-column_2fdd0358-774c-414b-bcdd-d9cf430127ee"
+              }
+            ]
+          }
+        },
+        "outputs": [
+          {
+            "id": "group-key_acf1967a-0883-4a24-90ce-b7688e3b6ce1",
+            "name": "col_62e1e1a39febb78130fb0c45",
+            "label": "Subject Reference",
+            "type": "string"
+          },
+          {
+            "id": "group-column_2fdd0358-774c-414b-bcdd-d9cf430127ee",
+            "name": "row_count",
+            "label": "Row count",
+            "type": "integer"
+          }
+        ]
+      }
+    ]
+  },
+  "retainedRequests": {
+    "state": {
+      "requestId": "builder-3-1",
+      "browserRequestId": "playwright-16",
+      "method": "POST",
+      "path": "/api/v1/projects/loom_dev_cda_fhir/explorers/cda-group-numeric-filter-cc35787b-a133-4898-95e9-a090be5cafec/authoring/v2/reconcile",
+      "startedAt": 1791472113134,
+      "responseReceivedAt": 1791472113213,
+      "completedAt": 1791472113244,
+      "status": 200,
+      "body": {
+        "snapshotToken": "sha256:7e9a025ec2555033fd138a3cbf9eaecebb24f870a6b37cf5e86e0355c84b40f7",
+        "draftVersion": 4,
+        "draftDigest": "sha256:7d54e36ec4f9c99a064a7b79366de5c90adb96064b4256c2dbc59e9e6986762a"
+      },
+      "response": {
+        "snapshotToken": "sha256:7e9a025ec2555033fd138a3cbf9eaecebb24f870a6b37cf5e86e0355c84b40f7",
+        "outputs": [
+          {
+            "columns": [
+              {
+                "authoredColumns": [
+                  "col_029415ff4f36bf0ad4fdba3d"
+                ],
+                "chartable": false,
+                "column": "col_029415ff4f36bf0ad4fdba3d",
+                "filterable": false,
+                "label": "Observation ID",
+                "logicalType": "string",
+                "lossless": true,
+                "mlReady": false,
+                "nullable": true,
+                "shape": "scalar",
+                "sourcePath": "id",
+                "sourceResourceType": "Observation",
+                "structuralSuitability": "scalar"
+              },
+              {
+                "authoredColumns": [
+                  "col_62e1e1a39febb78130fb0c45"
+                ],
+                "chartable": false,
+                "column": "col_62e1e1a39febb78130fb0c45",
+                "filterable": false,
+                "label": "Subject Reference",
+                "logicalType": "string",
+                "lossless": true,
+                "mlReady": false,
+                "nullable": true,
+                "shape": "scalar",
+                "sourcePath": "subject.reference",
+                "sourceResourceType": "Observation",
+                "structuralSuitability": "scalar"
+              }
+            ],
+            "lossless": true,
+            "mlReady": false,
+            "outputId": "out_22c97e2afa87d6e1b65dd27b",
+            "rootResourceType": "Observation",
+            "rowGrain": "observation",
+            "rowMultiplication": "none",
+            "structuralSuitability": "scalar",
+            "title": "Numeric COUNT_ROWS source"
+          }
+        ],
+        "builder": {
+          "documents": [
+            {
+              "output": {
+                "id": "out_22c97e2afa87d6e1b65dd27b",
+                "title": "Numeric COUNT_ROWS source"
+              },
+              "rootResourceType": "Observation",
+              "columns": [
+                {
+                  "columnId": "source_e920885000a91e87ebe6c96a",
+                  "column": "col_029415ff4f36bf0ad4fdba3d",
+                  "label": "Observation ID",
+                  "logicalType": "string",
+                  "occurrenceId": "base",
+                  "source": {
+                    "kind": "field",
+                    "field": {
+                      "path": "id",
+                      "projectionMode": "VALUE"
+                    }
+                  },
+                  "table": {
+                    "visible": true,
+                    "order": 0
+                  }
+                },
+                {
+                  "columnId": "source_50da1012a2b5d01596d07a6d",
+                  "column": "col_62e1e1a39febb78130fb0c45",
+                  "label": "Subject Reference",
+                  "logicalType": "string",
+                  "occurrenceId": "base",
+                  "source": {
+                    "kind": "field",
+                    "field": {
+                      "path": "subject.reference",
+                      "projectionMode": "VALUE"
+                    }
+                  },
+                  "table": {
+                    "visible": true,
+                    "order": 1
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    "proposal": {
+      "requestId": "construction-proposal-a595c639-6dfe-49b1-86c3-d1d8cd4e1611",
+      "browserRequestId": "playwright-24",
+      "method": "POST",
+      "path": "/api/v1/projects/loom_dev_cda_fhir/explorers/cda-group-numeric-filter-cc35787b-a133-4898-95e9-a090be5cafec/authoring/v2/construction-proposals",
+      "startedAt": 1791472115634,
+      "status": 200,
+      "body": {
+        "snapshotToken": "sha256:7e9a025ec2555033fd138a3cbf9eaecebb24f870a6b37cf5e86e0355c84b40f7",
+        "expectedDraftVersion": 4,
+        "expectedDraftDigest": "sha256:7d54e36ec4f9c99a064a7b79366de5c90adb96064b4256c2dbc59e9e6986762a",
+        "outputId": "out_22c97e2afa87d6e1b65dd27b",
+        "candidateConstruction": {
+          "version": 1,
+          "steps": [
+            {
+              "id": "group_586b9249-cf53-4385-be8a-9cf842a37133",
+              "inputs": [
+                {
+                  "kind": "SOURCE_PROJECTION"
+                }
+              ],
+              "operation": {
+                "kind": "GROUP",
+                "group": {
+                  "constructionId": "group_586b9249-cf53-4385-be8a-9cf842a37133",
+                  "missingKeyPolicy": "GROUP",
+                  "keys": [
+                    {
+                      "inputColumnId": "source_50da1012a2b5d01596d07a6d",
+                      "outputColumnId": "group-key_acf1967a-0883-4a24-90ce-b7688e3b6ce1"
+                    }
+                  ],
+                  "aggregates": [
+                    {
+                      "operation": "COUNT_ROWS",
+                      "outputColumnId": "group-column_2fdd0358-774c-414b-bcdd-d9cf430127ee"
+                    }
+                  ]
+                }
+              },
+              "outputs": [
+                {
+                  "id": "group-key_acf1967a-0883-4a24-90ce-b7688e3b6ce1",
+                  "name": "col_62e1e1a39febb78130fb0c45",
+                  "label": "Subject Reference",
+                  "type": "string"
+                },
+                {
+                  "id": "group-column_2fdd0358-774c-414b-bcdd-d9cf430127ee",
+                  "name": "row_count",
+                  "label": "Row count",
+                  "type": "integer"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    }
+  }
+}

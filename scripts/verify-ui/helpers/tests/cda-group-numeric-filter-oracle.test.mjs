@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { readFileSync } from 'node:fs';
 import {
   buildCdaGroupNumericFilterInitialQuery,
   buildCdaGroupNumericFilterExactReadQuery,
@@ -7,10 +8,10 @@ import {
   authoredColumnIds,
   hasExactAuthoredColumnRestoration,
   prepareCdaGroupNumericFilterOracle,
+  validateCdaGroupCandidate,
 } from '../cda-group-numeric-filter-oracle.mjs';
 import { chooseCdaGroupPivotJoinWitness } from '../cda-group-pivot-join-oracle.mjs';
 import { getScenario, scenarioCaseFor } from '../../registry.mjs';
-import { waitForSourceCapabilities } from '../../workflows/verify-cda-authored-expand-browser.mjs';
 
 const project = 'loom_dev_cda_fhir';
 const generation = 'cda-fhir-v1';
@@ -20,6 +21,19 @@ const rawRows = [
   { _id: 'Observation/c', id: 'c', project, generation, resourceType: 'Observation', subjectReference: 'Patient/shared', status: 'final', codeCodingCodes: ['B'] },
   { _id: 'Observation/d', id: 'd', project, generation, resourceType: 'Observation', subjectReference: 'Patient/left', status: 'final', codeCodingCodes: ['C'] },
 ];
+
+test('validates a retained Group candidate against the V2 source columnId DTO', () => {
+  const fixture = JSON.parse(readFileSync(new URL('./fixtures/cda-group-numeric-filter-retained-candidate.json', import.meta.url), 'utf8'));
+  assert.equal(fixture.sourceSubjectColumn.source.field.path, 'subject.reference');
+  assert.deepEqual(validateCdaGroupCandidate({
+    candidateConstruction: fixture.candidateConstruction,
+    sourceSubjectColumn: fixture.sourceSubjectColumn,
+  }), {
+    stepId: 'group_586b9249-cf53-4385-be8a-9cf842a37133',
+    keyInputColumnId: 'source_50da1012a2b5d01596d07a6d',
+    aggregate: { operation: 'COUNT_ROWS', outputColumnId: 'group-column_2fdd0358-774c-414b-bcdd-d9cf430127ee' },
+  });
+});
 
 test('numeric COUNT_ROWS Filter derives exact 3/1 groups and a strict GT 1 subset from raw identities', () => {
   const witness = chooseCdaGroupPivotJoinWitness(rawRows, { project, generation });
@@ -40,6 +54,7 @@ test('numeric COUNT_ROWS Filter oracle rejects invalid scope, threshold, and non
 });
 
 test('numeric Filter reuses the terminal exact Group-stage capability captured before the editor opens', async () => {
+  const { waitForSourceCapabilities } = await import('../../workflows/verify-cda-authored-expand-browser.mjs');
   const snapshotToken = 'sha256:7e9a025ec2555033fd138a3cbf9eaecebb24f870a6b37cf5e86e0355c84b40f7';
   const outputId = 'out_7ee0ed073a29895cc948ee64';
   const stageId = 'group_eed1dd26-e2ab-4d64-aa57-b5e41d34a363';

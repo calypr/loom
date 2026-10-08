@@ -20,6 +20,7 @@ import {
   authoredColumnIds,
   hasExactAuthoredColumnRestoration,
   prepareCdaGroupNumericFilterOracle,
+  validateCdaGroupCandidate,
 } from '../helpers/cda-group-numeric-filter-oracle.mjs';
 import {
   chooseCdaGroupPivotJoinWitness,
@@ -561,15 +562,9 @@ export async function cdaGroupNumericFilterWorkflow({ page, cda }) {
     name: 'native Group COUNT_ROWS preview matches exact 3/1 raw numeric tuples',
     started: groupWindow.started, fromIndex: groupWindow.fromIndex, expectedRows: oracle.groupRows,
     verifyCandidate: request => {
-      const construction = request.candidateConstruction;
-      const steps = construction?.steps ?? [];
-      assert.equal(steps.length, 1);
-      const step = steps[0];
-      assert.equal(step.operation.kind, 'GROUP');
-      assert.deepEqual(step.operation.group.keys.map(key => key.inputColumnId), [sourceSubjectColumn.columnId]);
-      assert.equal(step.operation.group.aggregates.length, 1);
-      assert.equal(step.operation.group.aggregates[0].operation, 'COUNT_ROWS');
-      report.groupCandidate = { stepId: step.id, keyInputColumnId: sourceSubjectColumn.columnId, aggregate: step.operation.group.aggregates[0] };
+      report.groupCandidate = validateCdaGroupCandidate({
+        candidateConstruction: request.candidateConstruction, sourceSubjectColumn,
+      });
     },
   });
   check('correctness', 'Native Group by subject.reference previews exact COUNT_ROWS values 3 and 1', true, {
