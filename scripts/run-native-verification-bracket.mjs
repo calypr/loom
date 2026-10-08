@@ -594,6 +594,26 @@ export function summarizeRenderCheckpoints(report, registeredChecks) {
     if (!registered.has(assertion?.name)) continue;
     if (!/within five seconds|within budget|action-to-render/i.test(assertion.name)) continue;
     const evidence = assertion.evidence;
+    if (evidence && typeof evidence === 'object' && Object.hasOwn(evidence, 'lifecycleCheckpointDurations')) {
+      const lifecycleCheckpoints = evidence.lifecycleCheckpointDurations;
+      const validLifecycleCheckpoints = Array.isArray(lifecycleCheckpoints)
+        && lifecycleCheckpoints.length > 0
+        && lifecycleCheckpoints.every((checkpoint) => checkpoint
+          && typeof checkpoint.name === 'string'
+          && checkpoint.name.trim().length > 0
+          && Number.isFinite(checkpoint.durationMs)
+          && checkpoint.durationMs >= 0);
+      if (!validLifecycleCheckpoints) continue;
+      for (const checkpoint of lifecycleCheckpoints) {
+        checkpoints.push({
+          checkName: assertion.name,
+          name: checkpoint.name,
+          durationMs: checkpoint.durationMs,
+          evidencePath: 'assertions[].evidence.lifecycleCheckpointDurations[].durationMs',
+        });
+      }
+      continue;
+    }
     if (Array.isArray(evidence?.actions)) {
       for (const action of evidence.actions) {
         if (!Number.isFinite(action?.durationMs) || action.durationMs < 0) continue;

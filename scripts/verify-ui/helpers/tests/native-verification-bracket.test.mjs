@@ -18,6 +18,36 @@ const buildIdentity = 'a'.repeat(64) + ':' + 'a'.repeat(64) + ':' + 'b'.repeat(6
 const retainedCda = JSON.parse(readFileSync(new URL('./fixtures/native-bracket-retained-cda-report.json', import.meta.url), 'utf8'));
 const retainedBasic = JSON.parse(readFileSync(new URL('./fixtures/native-bracket-retained-basic-report.json', import.meta.url), 'utf8'));
 const wave152Failure = JSON.parse(readFileSync(new URL('./fixtures/wave152-root-quantity-pivot-failure.json', import.meta.url), 'utf8'));
+const groupAddFieldsPerformanceCheckName = 'All native Group-add-fields lifecycle actions complete within five seconds';
+const groupAddFieldsLifecycleCheckpoints = [
+  { name: 'load-to-render', durationMs: 1356 },
+  { name: 'expand-Specimen-Patient', durationMs: 913 },
+  { name: 'apply-to-render', durationMs: 589 },
+  { name: 'expand-Patient-Observation', durationMs: 939 },
+  { name: 'apply-to-render', durationMs: 565 },
+  { name: 'load-to-render', durationMs: 1297 },
+  { name: 'related-many-group-preview', durationMs: 723 },
+  { name: 'group-cancel-to-render', durationMs: 228 },
+  { name: 'confirmed-related-many-group-preview', durationMs: 715 },
+  { name: 'apply-to-render', durationMs: 477 },
+  { name: 'load-to-render', durationMs: 1289 },
+  { name: 'group-source-field-preview', durationMs: 468 },
+  { name: 'add-fields-cancel-to-render', durationMs: 196 },
+  { name: 'group-source-field-preview', durationMs: 595 },
+  { name: 'group-source-field-apply', durationMs: 505 },
+  { name: 'load-to-render', durationMs: 1298 },
+  { name: 'native-label-edit-to-exact-rows', durationMs: 940 },
+  { name: 'load-to-render', durationMs: 1293 },
+  { name: 'remove-group-source-field', durationMs: 406 },
+  { name: 'load-to-render', durationMs: 1279 },
+];
+const groupAddFieldsPerformanceEvidence = {
+  nativeActionCount: 40,
+  maximumNativeActionDurationMs: 217,
+  failedActions: [],
+  lifecycleCheckpointDurations: groupAddFieldsLifecycleCheckpoints,
+  maximumCheckpointDurationMs: 1356,
+};
 const retainedMembershipSetupFailure = {
   errors: [],
   suites: [{
@@ -318,6 +348,45 @@ test('retained CDA report shape exposes its recorded render checkpoints', () => 
   assert.equal(summary.count, 14);
   assert.equal(summary.maximumDurationMs, 4456);
   assert.equal(summary.checkpoints.at(-1).evidencePath, 'assertions[].evidence.actions[].durationMs');
+});
+
+test('Group-add-fields performance evidence contributes its complete lifecycle checkpoint list', () => {
+  const checkName = groupAddFieldsPerformanceCheckName;
+  const report = {
+    assertions: [{
+      name: checkName,
+      dimension: 'performance',
+      status: 'passed',
+      evidence: groupAddFieldsPerformanceEvidence,
+    }],
+  };
+  const checks = scenarioCaseFor('standalone-reshape-group-add-fields', 'group-add-fields').requiredChecks;
+  const summary = summarizeRenderCheckpoints(report, checks);
+
+  assert.ok(checks.includes(checkName));
+  assert.equal(summary.count, 20);
+  assert.equal(summary.maximumDurationMs, 1356);
+  assert.deepEqual(summary.checkpoints.map(({ name, durationMs }) => ({ name, durationMs })), groupAddFieldsLifecycleCheckpoints);
+  assert.equal(summary.checkpoints[0].evidencePath,
+    'assertions[].evidence.lifecycleCheckpointDurations[].durationMs');
+});
+
+test('missing or malformed lifecycle checkpoint lists remain unverified', () => {
+  const checkName = groupAddFieldsPerformanceCheckName;
+  const checks = scenarioCaseFor('standalone-reshape-group-add-fields', 'group-add-fields').requiredChecks;
+  const invalidEvidence = [
+    { maximumCheckpointDurationMs: 1356 },
+    { lifecycleCheckpointDurations: '20 lifecycle checkpoints', maximumCheckpointDurationMs: 1356 },
+    { lifecycleCheckpointDurations: [] },
+    { lifecycleCheckpointDurations: [{ name: 'valid', durationMs: 50 }, { name: 'invalid', durationMs: 'slow' }] },
+  ];
+
+  for (const evidence of invalidEvidence) {
+    const summary = summarizeRenderCheckpoints({ assertions: [{ name: checkName, evidence }] }, checks);
+    assert.equal(summary.count, 0);
+    assert.equal(summary.maximumDurationMs, null);
+    assert.deepEqual(summary.checkpoints, []);
+  }
 });
 
 test('retained basic report shape exposes registered render timings without claiming lifecycle success', () => {
