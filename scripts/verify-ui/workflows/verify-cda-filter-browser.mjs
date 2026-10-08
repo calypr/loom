@@ -301,13 +301,19 @@ export async function filterBrowserWorkflow({ page, cda }) {
     assert.equal(subjectCandidates.length, 1, 'Observation.subject.reference must have one exact direct-field candidate.');
     const idCandidate = idCandidates[0];
     const subjectCandidate = subjectCandidates[0];
-    const idCandidateId = validateCdaCompositeScalarFieldCandidate(idCandidate, 'id', 'Observation.id');
-    const subjectCandidateId = validateCdaCompositeScalarFieldCandidate(subjectCandidate, 'subject.reference', 'Observation.subject.reference');
+    const idCandidateId = validateCdaCompositeScalarFieldCandidate(idCandidate, 'id', 'Observation.id', 'Observation');
+    const subjectCandidateId = validateCdaCompositeScalarFieldCandidate(subjectCandidate, 'subject.reference', 'Observation.subject.reference', 'Observation');
     assert.notEqual(idCandidateId, subjectCandidateId);
-    const candidateEvidence = [idCandidate, subjectCandidate].map(candidate => ({
-      candidateId: candidate.candidateId, fieldPath: candidate.fieldPath, cardinality: candidate.cardinality,
-      shape: candidate.shape, logicalType: candidate.logicalType, valueType: candidate.valueType,
-    }));
+    const candidateEvidence = [idCandidate, subjectCandidate].map(candidate => {
+      const valueOption = candidate.constructionChoice.options.find(option => option.form === 'VALUE');
+      return {
+        candidateId: candidate.candidateId, fieldPath: candidate.fieldPath, cardinality: candidate.cardinality,
+        repeated: candidate.repeated, logicalType: candidate.logicalType, defaultProjectionMode: candidate.defaultProjectionMode,
+        source: candidate.source,
+        scalarValueOption: { form: valueOption.form, shape: valueOption.shape, support: valueOption.support,
+          rowEffect: valueOption.rowEffect },
+      };
+    });
     await command([
       { type: 'ADD_COLUMN', outputId, occurrenceId: 'base', candidateId: idCandidateId,
         projectionMode: 'VALUE', initialPresentation: 'TABLE', title: 'Observation ID' },

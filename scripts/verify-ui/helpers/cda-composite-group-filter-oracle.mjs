@@ -41,13 +41,26 @@ function validateSourceColumn(column, expectedPath, label) {
   return column.columnId;
 }
 
-export function validateCdaCompositeScalarFieldCandidate(candidate, expectedPath, label) {
+export function validateCdaCompositeScalarFieldCandidate(candidate, expectedPath, label, expectedResourceType) {
   assert(nonempty(candidate?.candidateId), `${label} must have an exact catalog candidate ID.`);
   assert.equal(candidate.fieldPath, expectedPath, `${label} must resolve to ${expectedPath}.`);
-  assert.equal(candidate.cardinality, 'ONE', `${label} must have one-valued source cardinality.`);
-  assert.equal(candidate.shape, 'SCALAR', `${label} must use the scalar field form.`);
+  assert.equal(candidate.source?.kind, 'FIELD', `${label} must bind to a direct source field.`);
+  assert.equal(candidate.source?.candidateId, candidate.candidateId, `${label} source binding must retain its candidate ID.`);
+  assert(nonempty(candidate.nodeId), `${label} must bind to an exact catalog node.`);
+  assert.equal(candidate.source?.nodeId, candidate.nodeId, `${label} source binding must retain its catalog node.`);
+  assert.equal(candidate.source?.resourceType, expectedResourceType, `${label} must bind to ${expectedResourceType}.`);
+  assert.equal(candidate.source?.path, expectedPath, `${label} source binding must target ${expectedPath}.`);
+  assert(['one', 'optional_one'].includes(candidate.cardinality), `${label} must have one-valued source cardinality.`);
+  assert.equal(candidate.source?.cardinality, candidate.cardinality, `${label} source binding must retain its declared cardinality.`);
+  assert.equal(candidate.repeated, false, `${label} must be a non-repeated source field.`);
   assert.equal(candidate.logicalType, 'string', `${label} must remain a string candidate.`);
-  assert.equal(candidate.valueType, 'STRING', `${label} must use the string value type.`);
+  assert.equal(candidate.defaultProjectionMode, 'VALUE', `${label} must default to scalar VALUE projection.`);
+  assert(candidate.projectionModes?.includes('VALUE'), `${label} must advertise scalar VALUE projection.`);
+  const valueOptions = candidate.constructionChoice?.options?.filter(option => option.form === 'VALUE') ?? [];
+  assert.equal(valueOptions.length, 1, `${label} must advertise exactly one VALUE option.`);
+  assert.equal(valueOptions[0].shape, 'SCALAR', `${label} VALUE option must use the scalar form.`);
+  assert.equal(valueOptions[0].support, 'SUPPORTED', `${label} scalar VALUE option must be supported.`);
+  assert.equal(valueOptions[0].rowEffect, 'PRESERVES_ROW_GRAIN', `${label} scalar VALUE option must preserve row grain.`);
   return candidate.candidateId;
 }
 

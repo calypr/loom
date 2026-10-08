@@ -57,18 +57,40 @@ const sourceSubjectColumn = {
 const sourceIDCandidate = {
   candidateId: 'candidate-observation-id',
   fieldPath: 'id',
-  cardinality: 'ONE',
-  shape: 'SCALAR',
+  cardinality: 'optional_one',
+  nodeId: 'observation-node',
   logicalType: 'string',
-  valueType: 'STRING',
+  defaultProjectionMode: 'VALUE',
+  projectionModes: ['FIRST', 'VALUE'],
+  repeated: false,
+  source: {
+    kind: 'FIELD', candidateId: 'candidate-observation-id', nodeId: 'observation-node',
+    resourceType: 'Observation', path: 'id', cardinality: 'optional_one',
+  },
+  constructionChoice: {
+    choiceId: 'observation-id-choice',
+    options: [{ decision: 'DEFAULT', form: 'VALUE', preservation: 'PRESERVING',
+      rowEffect: 'PRESERVES_ROW_GRAIN', shape: 'SCALAR', support: 'SUPPORTED' }],
+  },
 };
 const sourceSubjectCandidate = {
   candidateId: 'candidate-observation-subject-reference',
   fieldPath: 'subject.reference',
-  cardinality: 'ONE',
-  shape: 'SCALAR',
+  cardinality: 'optional_one',
+  nodeId: 'observation-node',
   logicalType: 'string',
-  valueType: 'STRING',
+  defaultProjectionMode: 'VALUE',
+  projectionModes: ['FIRST', 'VALUE'],
+  repeated: false,
+  source: {
+    kind: 'FIELD', candidateId: 'candidate-observation-subject-reference', nodeId: 'observation-node',
+    resourceType: 'Observation', path: 'subject.reference', cardinality: 'optional_one',
+  },
+  constructionChoice: {
+    choiceId: 'observation-subject-reference-choice',
+    options: [{ decision: 'DEFAULT', form: 'VALUE', preservation: 'PRESERVING',
+      rowEffect: 'PRESERVES_ROW_GRAIN', shape: 'SCALAR', support: 'SUPPORTED' }],
+  },
 };
 const candidateConstruction = {
   version: 1,
@@ -127,26 +149,53 @@ test('composite Group candidate binds the exact two scalar source IDs and COUNT_
   });
 });
 
-test('composite Group source candidates require explicit ONE/SCALAR fields', () => {
-  assert.equal(validateCdaCompositeScalarFieldCandidate(sourceIDCandidate, 'id', 'Observation.id'),
+test('composite Group source candidates require an explicit supported scalar VALUE field binding', () => {
+  assert.equal(validateCdaCompositeScalarFieldCandidate(sourceIDCandidate, 'id', 'Observation.id', 'Observation'),
     'candidate-observation-id');
-  assert.equal(validateCdaCompositeScalarFieldCandidate(sourceSubjectCandidate, 'subject.reference', 'Observation.subject.reference'),
-    'candidate-observation-subject-reference');
+  assert.equal(validateCdaCompositeScalarFieldCandidate(
+    sourceSubjectCandidate, 'subject.reference', 'Observation.subject.reference', 'Observation'),
+  'candidate-observation-subject-reference');
+
+  const repeatedCandidate = {
+    ...sourceSubjectCandidate,
+    fieldPath: 'code.coding.code',
+    cardinality: 'many',
+    repeated: true,
+    source: { ...sourceSubjectCandidate.source, path: 'code.coding.code', cardinality: 'many' },
+    defaultProjectionMode: 'ALL',
+    projectionModes: ['ALL'],
+    constructionChoice: { ...sourceSubjectCandidate.constructionChoice, options: [
+      { form: 'ALL', shape: 'LIST', support: 'SUPPORTED', rowEffect: 'PRESERVES_ROW_GRAIN' },
+    ] },
+  };
+  assert.throws(() => validateCdaCompositeScalarFieldCandidate(
+    repeatedCandidate, 'code.coding.code', 'Observation.code.coding.code', 'Observation'),
+  /one-valued source cardinality/);
 
   assert.throws(() => validateCdaCompositeScalarFieldCandidate({
     ...sourceSubjectCandidate,
-    fieldPath: 'code.coding.code',
-    cardinality: 'MANY',
-    shape: 'REPEATED',
-  }, 'subject.reference', 'Observation.subject.reference'), /must resolve to subject\.reference/);
+    repeated: true,
+  }, 'subject.reference', 'Observation.subject.reference', 'Observation'), /non-repeated source field/);
   assert.throws(() => validateCdaCompositeScalarFieldCandidate({
     ...sourceSubjectCandidate,
-    cardinality: 'MANY',
-  }, 'subject.reference', 'Observation.subject.reference'), /one-valued source cardinality/);
+    constructionChoice: { ...sourceSubjectCandidate.constructionChoice, options: [
+      { ...sourceSubjectCandidate.constructionChoice.options[0], support: 'UNSUPPORTED' },
+    ] },
+  }, 'subject.reference', 'Observation.subject.reference', 'Observation'), /must be supported/);
   assert.throws(() => validateCdaCompositeScalarFieldCandidate({
     ...sourceSubjectCandidate,
-    shape: 'REPEATED',
-  }, 'subject.reference', 'Observation.subject.reference'), /scalar field form/);
+    constructionChoice: { ...sourceSubjectCandidate.constructionChoice, options: [
+      { ...sourceSubjectCandidate.constructionChoice.options[0], form: 'ALL', shape: 'LIST' },
+    ] },
+  }, 'subject.reference', 'Observation.subject.reference', 'Observation'), /exactly one VALUE option/);
+  assert.throws(() => validateCdaCompositeScalarFieldCandidate({
+    ...sourceSubjectCandidate,
+    source: { ...sourceSubjectCandidate.source, path: 'subject' },
+  }, 'subject.reference', 'Observation.subject.reference', 'Observation'), /source binding must target subject\.reference/);
+  assert.throws(() => validateCdaCompositeScalarFieldCandidate({
+    ...sourceSubjectCandidate,
+    source: { ...sourceSubjectCandidate.source, resourceType: 'Patient' },
+  }, 'subject.reference', 'Observation.subject.reference', 'Observation'), /must bind to Observation/);
 });
 
 test('composite Group oracle rejects bad scope, duplicate IDs, and a missing second key', () => {
