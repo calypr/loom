@@ -6,7 +6,8 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { browserURL } from './builder-url.mjs';
 import { recordCheck } from '../helpers/report.mjs';
-import { builderCancelStateEvidence, nativeResponseScopeEvidence, removalProposalEvidence } from '../helpers/builder-combine-nullable-helpers.mjs';
+import { captureCDARequests } from '../helpers/cda-playwright-requests.mjs';
+import { assertNullableNativeRequestLedgerComplete, buildNullableNativeRequestLedger, builderCancelStateEvidence, nativeResponseScopeEvidence, removalProposalEvidence, retainNullableNativeCaptureErrors } from '../helpers/builder-combine-nullable-helpers.mjs';
 import { classifyNativeBrowserApiRequest } from '../helpers/native-browser-api-scope.mjs';
 import {
   builderRequestURL,
@@ -551,7 +552,7 @@ const createAndPublishSources = async (context, page, report, _includePatient, r
 };
 const currentRevisionForOutput = (builder, outputId, entries) => currentPublishedRevisionForOutput(entries, outputId);
 
-export const nullableJoinWorkflow = async ({ page, report, action }, context) => {
+const performNullableJoinLifecycle = async ({ page, report, action }, context) => {
   assert.equal(context.custom, false, 'nullable Combine authoring requires an owned isolated fixture.');
   assert.equal(context.seed?.fresh, true, 'nullable Combine authoring requires a fresh verification project.');
   const rawObservations = fixtureRows(context.target.fixtureDir, 'Observation.ndjson');
@@ -786,4 +787,60 @@ export const nullableJoinWorkflow = async ({ page, report, action }, context) =>
   report.target.explorer = explorer;
   report.target.nullableCombineTarget = target;
   } finally { proposalCapture.stop(); }
+};
+
+export const nullableJoinWorkflow = async ({ page, report, action }, context) => {
+  const workflow = { page, report, action };
+  const uiOrigin = new URL(context.target.uiUrl).origin;
+  const projectPath = `/api/v1/projects/${encodeURIComponent(context.target.fixtureProject)}/explorers`;
+  const captureReport = { nativeRequests: [], errors: [] };
+  const capture = captureCDARequests(page, {
+    apiOrigin: uiOrigin,
+    browserRequestOrigin: uiOrigin,
+    appOrigins: [uiOrigin],
+    ownedPathPrefix: projectPath,
+    report: captureReport,
+  });
+
+  let workflowError;
+  try {
+    await performNullableJoinLifecycle(workflow, context);
+  } catch (error) {
+    workflowError = error;
+  }
+
+  let captureError;
+  try {
+    await capture.flush({ timeoutMs: 5000, waitForNativeRequestTerminals: true });
+  } catch (error) {
+    captureError = error;
+  }
+
+  const ledger = buildNullableNativeRequestLedger({
+    project: context.target.fixtureProject,
+    explorer: report.target?.explorer,
+    nativeRequests: captureReport.nativeRequests,
+    nativeRequestDrainEvidence: captureReport.nativeRequestDrainEvidence,
+  });
+  report.nativeRequests = ledger.nativeRequests;
+  report.nativeRequestDrainEvidence = ledger.nativeRequestDrainEvidence;
+  report.nativeRequestTerminalLedger = ledger.nativeRequestTerminalLedger;
+  report.nativeRequestCaptureScope = {
+    observedPathPrefix: projectPath,
+    observedScope: 'all Explorer routes inside the fresh fixture project, including other Explorers seen by the prefix-wide flush',
+    terminalLedgerScope: ledger.nativeRequestTerminalLedger.scope,
+    excludedFromSelectedExplorerLedger: {
+      meaning: 'Other same-project Explorer requests are retained as diagnostic context but are not evidence about the selected Explorer lifecycle.',
+      requests: ledger.excludedNativeRequests.map(({ requestId, browserRequestId, method, path, status, failure, nativeEventChronology }) => ({
+        requestId, browserRequestId, method, path, status: status ?? null, failure: failure ?? null,
+        terminalEvent: (nativeEventChronology ?? []).find(({ event }) => event === 'requestfinished' || event === 'requestfailed')?.event ?? null,
+      })),
+      drainEvidence: ledger.excludedNativeRequestDrainEvidence,
+    },
+  };
+  retainNullableNativeCaptureErrors(report, captureReport.errors);
+
+  if (workflowError) throw workflowError;
+  if (captureError) throw captureError;
+  assertNullableNativeRequestLedgerComplete(ledger);
 };
