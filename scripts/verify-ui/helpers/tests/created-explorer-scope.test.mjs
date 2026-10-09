@@ -39,6 +39,58 @@ test('created Explorer scope uses the observed truncated related ONE/ALL ID', ()
   'Native request classification must reject the original long requested name after creation');
 });
 
+test('coded Pivot setup follows the server-assigned ExplorerSummary ID for later routes', () => {
+  const project = 'loom_dev_cda_fhir';
+  const cases = [
+    {
+      mode: 'integer',
+      requestedName: 'qa-reshape-coded-pivot-integer-15abebd3-2038-4f39-964e-b46773b13918',
+      explorerId: 'qa-reshape-coded-pivot-integer-15abebd3-2038-4f39-964e-b46773b13',
+      updatedAt: '2026-10-09T04:32:24.798046221Z',
+    },
+    {
+      mode: 'string',
+      requestedName: 'qa-reshape-coded-pivot-string-453c9397-7af9-4370-834c-89ade12c27ce',
+      explorerId: 'qa-reshape-coded-pivot-string-453c9397-7af9-4370-834c-89ade12c27',
+      updatedAt: '2026-10-09T04:33:12.983779632Z',
+    },
+  ];
+
+  for (const { mode, requestedName, explorerId, updatedAt } of cases) {
+    const response = {
+      project,
+      explorerId,
+      title: `CDA coded pivot ${mode} verification`,
+      management: 'INTERACTIVE',
+      updatedAt,
+    };
+    const scope = createdExplorerScope(project, response);
+
+    assert.equal(requestedName.length > 64, true);
+    assert.notEqual(requestedName, scope.explorerId);
+    assert.equal(scope.explorerId, explorerId);
+    assert.equal(scope.explorerRoot, `/api/v1/projects/${project}/explorers/${explorerId}`);
+    assert.equal(scope.authoringBase, `/api/v1/projects/${project}/explorers/${explorerId}/authoring/v2`);
+    assert.deepEqual([
+      `${scope.authoringBase}/builder`,
+      `${scope.explorerRoot}/selections`,
+      `${scope.explorerRoot}/authoring/v2/frame-source-options`,
+      `${scope.explorerRoot}/authoring/v2/semantic-inventory`,
+      `${scope.explorerRoot}/authoring/v2/construction-proposals`,
+      `${scope.explorerRoot}/authoring/v2/commands`,
+      `${scope.explorerRoot}/authoring/v2/preview`,
+    ], [
+      `/api/v1/projects/${project}/explorers/${explorerId}/authoring/v2/builder`,
+      `/api/v1/projects/${project}/explorers/${explorerId}/selections`,
+      `/api/v1/projects/${project}/explorers/${explorerId}/authoring/v2/frame-source-options`,
+      `/api/v1/projects/${project}/explorers/${explorerId}/authoring/v2/semantic-inventory`,
+      `/api/v1/projects/${project}/explorers/${explorerId}/authoring/v2/construction-proposals`,
+      `/api/v1/projects/${project}/explorers/${explorerId}/authoring/v2/commands`,
+      `/api/v1/projects/${project}/explorers/${explorerId}/authoring/v2/preview`,
+    ]);
+  }
+});
+
 test('created Explorer scope rejects missing IDs, wrong projects, and path-shaped IDs', () => {
   assert.throws(() => createdExplorerScope('loom_dev_cda_fhir', { project: 'loom_dev_cda_fhir' }),
     /valid server-assigned Explorer ID/);

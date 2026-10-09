@@ -8,6 +8,7 @@ import { startVerificationIdentity } from '../helpers/cda-verification-identity.
 import { captureCDARequests } from '../helpers/cda-playwright-requests.mjs';
 import { DEFAULT_ACTION_TO_RENDER_BUDGET_MS, recordPivotActionToRender } from '../helpers/quantity-pivot-budget.mjs';
 import { summarizeCodedPivotNativeRequests } from '../helpers/coded-pivot-native-evidence.mjs';
+import { createdExplorerScope } from '../helpers/created-explorer-scope.mjs';
 import { scenarioCaseFor } from '../registry.mjs';
 import {
   CODED_PIVOT_OBSERVATION_ID,
@@ -48,14 +49,13 @@ const observationId = CODED_PIVOT_OBSERVATION_ID;
 const mode = originalArgs.mode ?? originalArgs[0];
 const expected = codedPivotFixtureFor(mode);
 const requiredChecks = scenarioCaseFor('standalone-reshape-coded-pivot', `coded-pivot-${mode}`).requiredChecks;
-const explorerId = cda.explorer;
+const requestedExplorerName = cda.explorer;
+let explorerId;
 const tableName = `Coded pivot ${mode} QA ${Date.now()}`;
 const evidence = cda.evidence;
 const artifact = join(evidence, `bounded-coded-pivot-${mode}.json`);
 const root = `/api/v1/projects/${encodeURIComponent(project)}/explorers`;
-const base = `${root}/${encodeURIComponent(explorerId)}`;
-const report = { explorerId, tableName, observationId, project, mode, expected, clicks: 0, timingsMs: {}, timingCheckpoints: [], requests: [], nativeRequests: [], errors: [], failures: [] };
-const fixtureRequestCapture = cda.captureRequests(base, { apiOrigin: uiOrigin });
+const report = { requestedExplorerName, explorerId: null, tableName, observationId, project, mode, expected, clicks: 0, timingsMs: {}, timingCheckpoints: [], requests: [], nativeRequests: [], errors: [], failures: [] };
 
 let requestCapture;
 let created = false;
@@ -160,16 +160,34 @@ const rawObservation = () => {
 
 await mkdir(evidence, { recursive: true });
 try {
-  const createdExplorer = await api(root, { name: explorerId, title: `CDA coded pivot ${mode} verification` });
-  assert.equal(createdExplorer.name, explorerId);
-  const builder = await api(`${base}/authoring/v2/builder`);
+  const createdExplorer = await api(root, { name: requestedExplorerName, title: `CDA coded pivot ${mode} verification` });
+  const creationRequest = report.requests.at(-1);
+  assert.equal(creationRequest?.path, root);
+  assert.equal(creationRequest?.status, 201);
+  assert.equal(creationRequest?.request?.name, requestedExplorerName);
+  const createdScope = createdExplorerScope(project, createdExplorer);
+  explorerId = createdScope.explorerId;
+  report.explorerId = explorerId;
+  report.explorer = explorerId;
+  report.target = { ...(cda.report?.target ?? {}), explorer: explorerId };
+  if (cda.report?.target) cda.report.target.explorer = explorerId;
+  report.explorerProvisioning = {
+    requestedName: requestedExplorerName,
+    createRequestId: creationRequest.requestId,
+    createStatus: creationRequest.status,
+    returnedProject: createdExplorer.project,
+    returnedExplorerId: explorerId,
+    explorerRoot: createdScope.explorerRoot,
+  };
+  cda.captureRequests(createdScope.explorerRoot, { apiOrigin: uiOrigin });
+  const builder = await api(`${createdScope.authoringBase}/builder`);
   report.generation = builder.catalog.generation;
   assert(report.generation, 'The isolated project must have a loaded dataset generation');
   rawObservation();
   recordCheck(0, 'correctness', report.oracle.project === project && report.oracle.generation === report.generation && report.oracle.id === observationId &&
     report.oracle.values.length === expected.length && report.oracle.values.every((entry, index) => entry.code === expected[index].code && entry.value === expected[index].value),
   { project, generation: report.generation, observationId, values: report.oracle.values, expected });
-  const selection = await api(`${base}/selections`, {
+  const selection = await api(`${createdScope.explorerRoot}/selections`, {
     snapshotToken: builder.catalog.snapshotToken,
     idempotencyKey: explorerId,
     source: { kind: 'resources', resources: { refs: [{ project, generation: report.generation, resourceType: 'Observation', id: observationId }] } },
@@ -178,7 +196,7 @@ try {
   const baseURL = `${uiOrigin}/?project=${encodeURIComponent(project)}&explorer=${encodeURIComponent(explorerId)}&mode=builder`;
   selectedURL = `${baseURL}&selection=${encodeURIComponent(selection.id)}`;
 
-  requestCapture = captureCDARequests(page, { apiOrigin: uiOrigin, appOrigins: [apiOrigin, uiOrigin], ownedPathPrefix: root, report, responsePaths: /frame-source-options|semantic-inventory|construction-proposals|commands|builder|selections|preview/ });
+  requestCapture = captureCDARequests(page, { apiOrigin: uiOrigin, appOrigins: [apiOrigin, uiOrigin], ownedPathPrefix: createdScope.explorerRoot, report, responsePaths: /frame-source-options|semantic-inventory|construction-proposals|commands|builder|selections|preview/ });
   await cda.navigate( baseURL);
   await waitNative( () => document.body.innerText.includes('DATASET WORKSPACE'), {}, 5000);
   assert.equal(await cda.inspect( () => [...document.querySelectorAll('button')].some(button => button.innerText.trim() === 'Preview')), false, 'Manual Preview button should not exist');
@@ -283,7 +301,7 @@ try {
   timing('category-selection-to-proposal-render', proposalStarted);
   recordCheck(2, 'correctness', report.proposal.status === 'ready' && report.proposalAssociation.length === expected.length,
     { mode, proposalId: proposal.response.proposalId, proposal: report.proposal, categoryHeaderValues: report.proposalAssociation });
-  const prePivotBuilder = await api(`${base}/authoring/v2/builder`);
+  const prePivotBuilder = await api(`${createdScope.authoringBase}/builder`);
   const prePivotDocument = documentFor(prePivotBuilder);
   assert(prePivotDocument, `The saved source table ${tableName} must exist before coded Pivot Apply`);
   report.tableOutputId = prePivotDocument.output.id;
@@ -307,7 +325,7 @@ try {
   assert.deepEqual(report.savedOutputAssociation, report.proposalAssociation);
   timing('open-table-to-render', previewStarted);
   timing('reload-to-render', reloadStarted);
-  const appliedBuilder = await api(`${base}/authoring/v2/builder`);
+  const appliedBuilder = await api(`${createdScope.authoringBase}/builder`);
   const appliedDocument = documentFor(appliedBuilder);
   assert(appliedDocument, 'Reloaded Builder must preserve the coded Pivot table');
   const codedStep = appliedDocument.construction.steps.find(step => step.operation.kind === 'CODED_PIVOT');
@@ -332,7 +350,7 @@ try {
   assert.equal(report.reopened.source.length, 1, JSON.stringify(report.reopened));
   const section = page.locator('section[aria-label="Coded values as columns"]');
   await action('Expand coded pivot options', section.locator('details summary'));
-  const beforeEdit = await api(`${base}/authoring/v2/builder`);
+  const beforeEdit = await api(`${createdScope.authoringBase}/builder`);
   const beforeEditDocument = documentFor(beforeEdit);
   assert(beforeEditDocument);
   assert.equal(beforeEditDocument.construction.steps.find(step => step.operation.kind === 'CODED_PIVOT')?.operation.codedPivot.missingCellPolicy, 'NULL');
@@ -375,7 +393,7 @@ try {
   report.canceledOutputAssociation = codedPivotRenderedValuesFor(canceledRows, codedStep, expected);
   assert.deepEqual(report.canceledOutputAssociation, report.outputAssociation);
   timing('cancel-edit-to-closed-proposal', cancelStarted);
-  const afterCancel = await api(`${base}/authoring/v2/builder`);
+  const afterCancel = await api(`${createdScope.authoringBase}/builder`);
   const afterCancelDocument = documentFor(afterCancel);
   assert.equal(afterCancel.draftVersion, beforeEdit.draftVersion, 'Cancel must preserve the saved coded Pivot draft version');
   assert.equal(afterCancel.draftDigest, beforeEdit.draftDigest, 'Cancel must preserve the saved coded Pivot draft digest');
@@ -395,7 +413,7 @@ try {
   await action('Reopen coded pivot editor after Cancel', page.locator('[data-testid^="construction-edit-step-"]:not(:disabled)'));
   await waitNative( () => document.querySelectorAll('section[aria-label="Coded values as columns"] select')[1]?.value === 'NULL', {}, 5000);
   timing('cancel-reload-restores-null-policy', cancelReloadStarted);
-  const cancelReloadBuilder = await api(`${base}/authoring/v2/builder`);
+  const cancelReloadBuilder = await api(`${createdScope.authoringBase}/builder`);
   const cancelReloadDocument = documentFor(cancelReloadBuilder);
   assert.deepEqual(cancelReloadDocument, beforeEditDocument, 'Reload after Cancel must retain the exact saved coded Pivot construction');
   assert.equal(cancelReloadBuilder.draftVersion, beforeEdit.draftVersion);
@@ -447,7 +465,7 @@ try {
   report.editedSaved = await waitForRenderedTable(reapplyCodedStep);
   assert.deepEqual(report.editedSaved, report.saved, 'Changing missing-value handling changed populated CDA values');
   timing('back-to-edited-render', editedPreviewStarted);
-  const editedBuilder = await api(`${base}/authoring/v2/builder`);
+  const editedBuilder = await api(`${createdScope.authoringBase}/builder`);
   const editedDocument = documentFor(editedBuilder);
   const editedCodedStep = editedDocument.construction.steps.find(step => step.operation.kind === 'CODED_PIVOT');
   assert.equal(editedCodedStep?.operation.codedPivot.missingCellPolicy, 'ERROR', 'The edited missing-cell policy must persist as ERROR');
@@ -488,7 +506,7 @@ try {
   report.restored.headers = await cda.inspect( () => [...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].map(cell => cell.innerText));
   assert.deepEqual(report.restored.headers, ['OBSERVATION ID']);
   timing('restoration-reload-to-source-render', restorationReloadStarted);
-  const restoredBuilder = await api(`${base}/authoring/v2/builder`);
+  const restoredBuilder = await api(`${createdScope.authoringBase}/builder`);
   const restoredDocument = documentFor(restoredBuilder);
   assert.deepEqual(restoredDocument, prePivotDocument, 'Removing the coded Pivot must restore the exact pre-Pivot source construction');
   assert.deepEqual(report.restored.headers, ['OBSERVATION ID']);
