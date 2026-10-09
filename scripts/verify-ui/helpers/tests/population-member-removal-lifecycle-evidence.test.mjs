@@ -4,6 +4,7 @@ import test from 'node:test';
 import { registry, scenarioCaseFor } from '../../registry.mjs';
 import {
   buildPopulationMemberRemovalLifecycleEvidence,
+  populationMemberRemovalTimingCheck,
   recordPopulationMemberRemovalLifecycleCheckpoint,
 } from '../../workflows/population-member-removal-workflow.mjs';
 
@@ -53,6 +54,15 @@ test('registers the retained Undo restoration assertion as a required lifecycle 
     .filter(({ acceptance }) => acceptance?.case === caseName);
   assert.ok(coverage.length > 0);
   assert.ok(coverage.every(({ acceptance }) => acceptance.checks.restoration === 9));
+});
+
+test('selects the registered timing check after the required Undo restoration check', () => {
+  const requiredChecks = scenarioCaseFor('builder-population-member-removal', 'mapped-plus-orphan-to-empty').requiredChecks;
+  const timingName = 'native removal, Apply, and reload stay within five seconds; product API errors fail and incidental favicon 404s are recorded separately';
+
+  assert.equal(requiredChecks[9], 'Undo restores the original population and its exact attached selection');
+  assert.equal(requiredChecks[10], timingName);
+  assert.equal(populationMemberRemovalTimingCheck(requiredChecks), timingName);
 });
 
 test('builds performance evidence from the exact seven required rendered transitions', () => {

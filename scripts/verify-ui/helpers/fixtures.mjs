@@ -29,6 +29,7 @@ import { includeBrowserDiagnostics } from './cda-playwright.mjs';
 import {
   createFixtureNativeRequestLedger,
   finalizeFixtureNativeRequestReport,
+  openBasicFixtureNativeRequestScope,
   projectFixtureNetworkDiagnostics,
 } from './native-request-ledger.mjs';
 
@@ -311,6 +312,7 @@ export const test = base.extend({
     const requestIDs = new WeakMap();
     const requestMetadata = new WeakMap();
     const nativeRequestLedger = createFixtureNativeRequestLedger();
+    openBasicFixtureNativeRequestScope(nativeRequestLedger, target);
     const browserDiagnostics = createFixtureBrowserDiagnostics(report);
     const mainFrameNavigations = [];
     let navigationSequence = 0;
@@ -693,7 +695,13 @@ export const test = base.extend({
         id, sequence, atMs, url, phase, pageId, frameId, frameIsMainFrame, frameIdentityStatus,
         ...(browserRequestId ? { browserRequestId } : {}),
       }));
-      finalizeFixtureNativeRequestReport({ report, ledger: nativeRequestLedger, project: target.fixtureProject });
+      await finalizeFixtureNativeRequestReport({
+        report,
+        ledger: nativeRequestLedger,
+        project: target.fixtureProject,
+        explorer: report.target?.explorer ?? report.explorer,
+        timeoutMs: 5_000,
+      });
       if (report.assetFailures.length) recordCheck(report, 'correctness', 'incidental asset failures are explicitly recorded', true, { failures: report.assetFailures });
       report.browserLifecycle = {
         kind: 'official-playwright-page',

@@ -146,7 +146,7 @@ test('nullable AbortSignal correlations survive fixture finalization without cha
   }
   const requestRowsBeforeFinalization = report.nativeRequests;
 
-  finalizeFixtureNativeRequestReport({ report, ledger, project });
+  await finalizeFixtureNativeRequestReport({ report, ledger, project });
 
   assert.notEqual(report.nativeRequests, requestRowsBeforeFinalization,
     'fixture finalization replaces the preliminary request array with its final project snapshot');

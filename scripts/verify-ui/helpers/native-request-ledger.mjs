@@ -71,6 +71,23 @@ const serializedRequest = (entry) => {
   return safeClone(result);
 };
 
+export function openBasicFixtureNativeRequestScope(ledger, target) {
+  const project = target?.fixtureProject;
+  if (target?.kind !== 'isolated' || typeof project !== 'string' ||
+      !/^loom_dev_verify_[a-z0-9][a-z0-9-]{0,24}$/.test(project)) return null;
+  if (!ledger || typeof ledger.openScope !== 'function' || typeof target.uiUrl !== 'string') {
+    throw new TypeError('Basic verification scope requires its fixture ledger and owned UI origin.');
+  }
+  return ledger.openScope({
+    project,
+    origin: new URL(target.uiUrl).origin,
+    automatic: true,
+    requireProjectCreate: false,
+    ...(typeof target.bootstrapExplorerId === 'string' && target.bootstrapExplorerId.trim()
+      ? { defaultExplorer: target.bootstrapExplorerId } : {}),
+  });
+}
+
 export function createFixtureNativeRequestLedger() {
   const recordByRequest = new WeakMap();
   const requestByDiagnostic = new WeakMap();
@@ -79,6 +96,7 @@ export function createFixtureNativeRequestLedger() {
   const waiters = new Set();
   const frameIDs = new WeakMap();
   let frameIDSequence = 0;
+  let revision = 0;
 
   const notify = () => {
     for (const resolve of [...waiters]) resolve();
@@ -111,6 +129,17 @@ export function createFixtureNativeRequestLedger() {
 
   const requestBelongsToScope = (entry, scope) => (!scope.origin || entry.origin === scope.origin) &&
     pathBelongsToProject(entry.path, scope.projectPath);
+
+  const observedExplorerIDs = (scope) => [...new Set(records
+    .filter(entry => requestBelongsToScope(entry, scope))
+    .flatMap(entry => {
+      const prefix = `${scope.projectPath}/`;
+      if (!entry.path.startsWith(prefix)) return [];
+      const encodedID = entry.path.slice(prefix.length).split('/')[0];
+      if (!encodedID) return [];
+      try { return [decodeURIComponent(encodedID)]; }
+      catch { return []; }
+    }))];
 
   const selectedEntries = (scope) => {
     const explorerPath = typeof scope.explorer === 'string' && scope.explorer.trim()
@@ -193,7 +222,10 @@ export function createFixtureNativeRequestLedger() {
       : undefined;
     const hasExplorerRequest = Boolean(explorerPath) && selected.some(entry =>
       entry.path === explorerPath || entry.path.startsWith(`${explorerPath}/`));
-    const complete = Boolean(explorerPath) && hasCreateRequest && hasExplorerRequest &&
+    const observedIDs = observedExplorerIDs(scope);
+    const explorerSelection = scope.explorer ? 'selected' : observedIDs.length > 1 ? 'ambiguous' :
+      observedIDs.length === 1 ? 'unresolved' : 'not-observed';
+    const complete = Boolean(explorerPath) && (!scope.requireProjectCreate || hasCreateRequest) && hasExplorerRequest &&
       selected.length > 0 && incompleteRequests.length === 0 && ownedDrainEvidence.length === 0 &&
       scope.correlationErrors.length === 0;
 
@@ -204,9 +236,16 @@ export function createFixtureNativeRequestLedger() {
       excludedNativeRequestDrainEvidence: safeClone(excludedDrainEvidence),
       nativeRequestCorrelationErrors: safeClone(scope.correlationErrors),
       nativeRequestTerminalLedger: {
-        scope: 'fresh Explorer native routes and its project-scoped create request',
+        scope: scope.requireProjectCreate
+          ? 'fresh Explorer native routes and its project-scoped create request'
+          : 'selected Explorer native routes in the preseeded fresh fixture project',
         project: scope.project,
         explorer: scope.explorer ?? null,
+        automaticScope: scope.automatic,
+        projectCreateRequestRequired: scope.requireProjectCreate,
+        explorerSelection,
+        observedExplorerCount: observedIDs.length,
+        applicable: Boolean(scope.explorer) || observedIDs.length > 0,
         complete,
         counts: {
           total: ledgerRequests.length,
@@ -249,7 +288,7 @@ export function createFixtureNativeRequestLedger() {
       }
     },
 
-    openScope({ project, origin } = {}) {
+    openScope({ project, origin, automatic = false, requireProjectCreate = true, defaultExplorer } = {}) {
       if (typeof project !== 'string' || !project.trim()) {
         throw new TypeError('Native request ledger scope needs a project ID.');
       }
@@ -261,10 +300,22 @@ export function createFixtureNativeRequestLedger() {
           throw new TypeError('Native request ledger origin must be an absolute HTTP(S) origin without a path, query, or fragment.');
         }
       }
+      if (typeof automatic !== 'boolean' || typeof requireProjectCreate !== 'boolean') {
+        throw new TypeError('Native request ledger scope flags must be booleans.');
+      }
+      if (defaultExplorer !== undefined && (typeof defaultExplorer !== 'string' || !defaultExplorer.trim())) {
+        throw new TypeError('Native request ledger default Explorer must be a non-empty string when supplied.');
+      }
+      if (defaultExplorer !== undefined && !automatic) {
+        throw new TypeError('Only an automatic Basic scope may declare its preseeded default Explorer.');
+      }
       const scope = {
         owner: ledger,
         project,
         origin,
+        automatic,
+        requireProjectCreate,
+        defaultExplorer,
         projectPath: projectExplorerCollectionPath(project),
         explorer: undefined,
         drainEvidence: [],
@@ -276,14 +327,17 @@ export function createFixtureNativeRequestLedger() {
 
     recordRequest(request, details = {}) {
       const route = routeFrom(request);
-      const scope = route && scopes.find(candidate => belongsToScope(request, candidate));
-      if (!scope) return undefined;
+      const matchingScopes = route ? scopes.filter(candidate => belongsToScope(request, candidate)) : [];
+      if (!matchingScopes.length) return undefined;
       if (recordByRequest.has(request)) {
-        scope.correlationErrors.push({
-          kind: 'request-capture-correlation', event: 'request', origin: route.origin, path: route.path,
-          method: details.method ?? null, observedAt: Date.now(), objectMatch: false,
-          message: 'Playwright emitted a duplicate request event for the same Request object.',
-        });
+        for (const scope of matchingScopes) {
+          scope.correlationErrors.push({
+            kind: 'request-capture-correlation', event: 'request', origin: route.origin, path: route.path,
+            method: details.method ?? null, observedAt: Date.now(), objectMatch: false,
+            message: 'Playwright emitted a duplicate request event for the same Request object.',
+          });
+        }
+        revision += 1;
         notify();
         return recordByRequest.get(request);
       }
@@ -302,6 +356,7 @@ export function createFixtureNativeRequestLedger() {
       appendEvent(entry, 'request', entry.startedAt);
       recordByRequest.set(request, entry);
       records.push(entry);
+      revision += 1;
       notify();
       return entry;
     },
@@ -316,6 +371,7 @@ export function createFixtureNativeRequestLedger() {
       if (serverRequestId !== undefined) entry.serverRequestId = serverRequestId;
       entry.responseReceivedAt = observedAt;
       appendEvent(entry, 'response', observedAt, { status });
+      revision += 1;
       notify();
       return entry;
     },
@@ -327,6 +383,7 @@ export function createFixtureNativeRequestLedger() {
         return undefined;
       }
       appendEvent(entry, 'requestfinished', observedAt);
+      revision += 1;
       notify();
       return entry;
     },
@@ -339,6 +396,7 @@ export function createFixtureNativeRequestLedger() {
       }
       entry.failure = failure ?? null;
       appendEvent(entry, 'requestfailed', observedAt, { failure: entry.failure });
+      revision += 1;
       notify();
       return entry;
     },
@@ -415,6 +473,34 @@ export function createFixtureNativeRequestLedger() {
         const fresh = unresolved.filter(entry => !known.has(entry.browserRequestId));
         if (fresh.length) scope.drainEvidence.push(...drainEvidenceFor(fresh, projectEntries, timeoutMs, startedAt, deadlineAt));
       }
+      scope.lastFlushedRevision = revision;
+      return snapshot(scope);
+    },
+
+    async finalizeScope({ project, explorer, timeoutMs = 5_000 } = {}) {
+      if (typeof project !== 'string' || !project.trim()) {
+        throw new TypeError('Native request ledger finalization needs a project ID.');
+      }
+      const candidates = scopes.filter(scope => scope.project === project);
+      const explicit = candidates.filter(scope => !scope.automatic);
+      const scope = (typeof explorer === 'string' && explorer.trim()
+        ? explicit.find(candidate => candidate.explorer === explorer)
+        : undefined) ?? explicit.at(-1) ?? candidates.find(candidate => candidate.automatic);
+      if (!scope) return null;
+      let selectedExplorer = typeof explorer === 'string' && explorer.trim() ? explorer : scope.explorer;
+      if (!selectedExplorer && scope.automatic && scope.defaultExplorer) {
+        const observedIDs = observedExplorerIDs(scope);
+        if (observedIDs.length === 1 && observedIDs[0] === scope.defaultExplorer) {
+          selectedExplorer = scope.defaultExplorer;
+        }
+      }
+      if (selectedExplorer && scope.explorer && scope.explorer !== selectedExplorer) {
+        throw new Error('Native request ledger finalization cannot change its selected Explorer.');
+      }
+      if (selectedExplorer && !scope.explorer) scope.explorer = selectedExplorer;
+      if (scope.lastFlushedRevision !== revision) {
+        await ledger.flush(scope, { explorer: scope.explorer, timeoutMs });
+      }
       return snapshot(scope);
     },
 
@@ -454,11 +540,12 @@ export function projectFixtureNetworkDiagnostics({ report, ledger, faults }) {
   return projected;
 }
 
-export function finalizeFixtureNativeRequestReport({ report, ledger, project }) {
-  if (!report || !ledger?.snapshotAll || typeof project !== 'string' || !project.trim()) {
+export async function finalizeFixtureNativeRequestReport({ report, ledger, project, explorer, timeoutMs = 5_000 }) {
+  if (!report || !ledger?.finalizeScope || typeof project !== 'string' || !project.trim()) {
     throw new TypeError('Fixture native request finalization requires a report, fixture ledger, and project ID.');
   }
-  const snapshot = ledger.snapshotAll().find(entry => entry.nativeRequestTerminalLedger.project === project);
+  const selectedExplorer = explorer ?? report.target?.explorer ?? report.explorer;
+  const snapshot = await ledger.finalizeScope({ project, explorer: selectedExplorer, timeoutMs });
   if (!snapshot) return null;
 
   report.nativeRequests = snapshot.nativeRequests;
@@ -473,6 +560,19 @@ export function finalizeFixtureNativeRequestReport({ report, ledger, project }) 
   }
   for (const request of report.nativeRequestTerminalLedger.requests) {
     request.sameFrameNavigationEventsAfterStart = sameFrameNavigationEventsAfterStart(request, navigationTimings);
+  }
+  if (snapshot.nativeRequestTerminalLedger.automaticScope && snapshot.nativeRequestTerminalLedger.applicable) {
+    const complete = snapshot.nativeRequestTerminalLedger.complete === true;
+    recordCheck(report, 'correctness', 'basic fixture native request ledger observed a complete selected Explorer lifecycle', complete, {
+      project, explorer: snapshot.nativeRequestTerminalLedger.explorer,
+      explorerSelection: snapshot.nativeRequestTerminalLedger.explorerSelection,
+      observedExplorerCount: snapshot.nativeRequestTerminalLedger.observedExplorerCount,
+      requestCount: snapshot.nativeRequestTerminalLedger.counts.total,
+      finished: snapshot.nativeRequestTerminalLedger.counts.finished,
+      failed: snapshot.nativeRequestTerminalLedger.counts.failed,
+      pending: snapshot.nativeRequestTerminalLedger.counts.pending,
+      projectCreateRequestRequired: snapshot.nativeRequestTerminalLedger.projectCreateRequestRequired,
+    });
   }
   if (snapshot.nativeRequestCorrelationErrors.length) {
     report.errors ??= [];

@@ -73,6 +73,13 @@ export const recordPopulationMemberRemovalLifecycleCheckpoint = (checkpoints, na
   };
 };
 
+export const populationMemberRemovalTimingCheck = requiredChecks => {
+  assert(Array.isArray(requiredChecks), 'Population member removal required checks must be an array');
+  const timingChecks = requiredChecks.filter(name => typeof name === 'string' && name.startsWith('native removal, Apply,'));
+  assert.equal(timingChecks.length, 1, 'Population member removal must register exactly one timing check');
+  return timingChecks[0];
+};
+
 const sensitiveName = /authorization|cookie|password|passwd|token|secret|credential|session|api[_-]?key/i;
 const sanitizeText = value => String(value ?? '')
   .replaceAll(process.cwd(), '$CHECKOUT')
@@ -732,7 +739,7 @@ const rawMembership = selectionId => rawQuery(`FOR member IN loom_explorer_selec
       actionDurationsMs: report.cases.map(testCase => testCase.durationMs),
     });
   }
-  mark(mappedGroupCountChange ? requiredChecks[10] : requiredChecks[9]);
+  mark(populationMemberRemovalTimingCheck(requiredChecks));
   report.status = 'passed';
   };
 

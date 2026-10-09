@@ -237,7 +237,7 @@ test('fixture finalization keeps injected faults request-scoped and same-path st
     }],
   });
   await ledger.flush(scope, { explorer, timeoutMs: 20 });
-  finalizeFixtureNativeRequestReport({ report, ledger, project });
+  await finalizeFixtureNativeRequestReport({ report, ledger, project });
   finishReport(report);
 
   const expected = report.network.find(entry => entry.kind === 'network' && entry.playwrightRequestId === 'browser-expected-422');
