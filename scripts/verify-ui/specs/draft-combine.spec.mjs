@@ -44,6 +44,7 @@ test.describe('Builder Combine Draft Group Pivot Join', () => {
   test('GROUP-to-PIVOT current-draft Join supports cancel, apply, edit, removal, and reload', async ({ page, workflow, loomContext }) => {
     await groupPivotJoinWorkflow({
       page, report: workflow.report, action: workflow.action, check: workflow.check, fault: workflow.fault,
+      nativeRequestLedger: workflow.nativeRequestLedger,
     }, loomContext);
   });
 });

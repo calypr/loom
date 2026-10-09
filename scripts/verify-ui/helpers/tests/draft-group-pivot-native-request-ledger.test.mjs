@@ -3,13 +3,13 @@ import test from 'node:test';
 import { createFixtureNativeRequestLedger } from '../native-request-ledger.mjs';
 import {
   flushDraftCombineNativeRequestScope,
-  draftAppendWorkflow,
+  groupPivotJoinWorkflow,
   openDraftCombineNativeRequestScope,
 } from '../../workflows/builder-combine-draft.mjs';
 
 const origin = 'http://127.0.0.1:30008';
-const project = 'draft-append-ledger-project';
-const explorer = 'fresh-draft-append-explorer';
+const project = 'loom_dev_verify_group_pivot_ledger';
+const explorer = 'fresh-group-pivot-ledger-explorer';
 const projectPath = `/api/v1/projects/${project}/explorers`;
 const explorerPath = `${projectPath}/${explorer}`;
 const target = { fixtureProject: project, uiUrl: `${origin}/builder` };
@@ -33,19 +33,13 @@ const recordFinished = (ledger, capturedRequest, requestId, status = 200) => {
   ledger.recordFinished(capturedRequest, { observedAt: 3 });
 };
 
-test('current-draft Append flush retains only the exact fresh Explorer request ledger', async () => {
+test('Group/Pivot flush retains only the selected fixture project and Explorer ledger', async () => {
   const ledger = createFixtureNativeRequestLedger();
-  const scope = openDraftCombineNativeRequestScope(ledger, target, 'Draft APPEND');
-  recordFinished(ledger, request(projectPath, 'POST'), 'append-explorer-create', 201);
-  recordFinished(ledger, request(`${explorerPath}/authoring/v2/builder`), 'append-builder-read');
-  recordFinished(ledger, request(`${explorerPath}/authoring/v2/construction-proposals`, 'POST'), 'append-preview');
-  recordFinished(ledger, request(`${projectPath}/bootstrap/authoring/v2/builder`), 'other-explorer-builder');
-  assert.equal(ledger.recordRequest(request('/api/v1/projects/another-project/explorers/foreign/authoring/v2/builder'), {
-    requestId: 'other-project', browserRequestId: 'browser-other-project', method: 'GET',
-  }), undefined);
-  assert.equal(ledger.recordRequest(request(`${explorerPath}/authoring/v2/builder`, 'GET', 'http://127.0.0.1:8188'), {
-    requestId: 'other-origin', browserRequestId: 'browser-other-origin', method: 'GET',
-  }), undefined);
+  const scope = openDraftCombineNativeRequestScope(ledger, target, 'Draft Group/Pivot');
+  recordFinished(ledger, request(projectPath, 'POST'), 'group-pivot-explorer-create', 201);
+  recordFinished(ledger, request(`${explorerPath}/authoring/v2/builder`), 'group-pivot-builder-read');
+  recordFinished(ledger, request(`${explorerPath}/authoring/v2/construction-proposals`, 'POST'), 'group-pivot-preview');
+  recordFinished(ledger, request(`${projectPath}/sibling-explorer/authoring/v2/builder`), 'group-pivot-sibling-read');
   const report = {};
 
   const snapshot = await flushDraftCombineNativeRequestScope({
@@ -54,28 +48,28 @@ test('current-draft Append flush retains only the exact fresh Explorer request l
     explorer,
     report,
     timeoutMs: 20,
-    label: 'Draft APPEND',
+    label: 'Draft Group/Pivot',
   });
 
   assert.equal(snapshot.nativeRequestTerminalLedger.project, project);
   assert.equal(snapshot.nativeRequestTerminalLedger.explorer, explorer);
   assert.equal(snapshot.nativeRequestTerminalLedger.complete, true);
   assert.deepEqual(snapshot.nativeRequestTerminalLedger.requests.map(entry => entry.requestId), [
-    'append-explorer-create', 'append-builder-read', 'append-preview',
+    'group-pivot-explorer-create', 'group-pivot-builder-read', 'group-pivot-preview',
   ]);
-  assert.deepEqual(snapshot.excludedNativeRequests.map(entry => entry.requestId), ['other-explorer-builder']);
+  assert.deepEqual(snapshot.excludedNativeRequests.map(entry => entry.requestId), ['group-pivot-sibling-read']);
   assert.equal(report.nativeRequestTerminalLedger, snapshot.nativeRequestTerminalLedger);
 });
 
-test('current-draft Append fails when an owned Explorer request remains pending', async () => {
+test('Group/Pivot flush fails when an owned request remains pending', async () => {
   const ledger = createFixtureNativeRequestLedger();
-  const scope = openDraftCombineNativeRequestScope(ledger, target, 'Draft APPEND');
-  recordFinished(ledger, request(projectPath, 'POST'), 'append-explorer-create', 201);
-  recordFinished(ledger, request(`${explorerPath}/authoring/v2/builder`), 'append-builder-read');
+  const scope = openDraftCombineNativeRequestScope(ledger, target, 'Draft Group/Pivot');
+  recordFinished(ledger, request(projectPath, 'POST'), 'group-pivot-explorer-create', 201);
+  recordFinished(ledger, request(`${explorerPath}/authoring/v2/builder`), 'group-pivot-builder-read');
   const pending = request(`${explorerPath}/authoring/v2/construction-proposals`, 'POST');
   ledger.recordRequest(pending, {
-    requestId: 'append-preview-pending',
-    browserRequestId: 'browser-append-preview-pending',
+    requestId: 'group-pivot-preview-pending',
+    browserRequestId: 'browser-group-pivot-preview-pending',
     method: 'POST',
     resourceType: 'fetch',
     url: pending.url(),
@@ -89,34 +83,37 @@ test('current-draft Append fails when an owned Explorer request remains pending'
     explorer,
     report,
     timeoutMs: 10,
-    label: 'Draft APPEND',
-  }), /Draft APPEND native request ledger did not reach a complete terminal state/);
+    label: 'Draft Group/Pivot',
+  }), /Draft Group\/Pivot native request ledger did not reach a complete terminal state/);
 
   assert.equal(report.nativeRequestTerminalLedger.complete, false);
   assert.equal(report.nativeRequestTerminalLedger.counts.pending, 1);
   assert.equal(report.nativeRequestTerminalLedger.requests.find(entry =>
-    entry.requestId === 'append-preview-pending')?.state, 'pending');
+    entry.requestId === 'group-pivot-preview-pending')?.state, 'pending');
 });
 
-test('current-draft Append opens and flushes its scope even when fixture setup fails before Explorer creation', async () => {
+test('Group/Pivot workflow flushes its native scope if setup fails before Explorer creation', async () => {
   const ledger = createFixtureNativeRequestLedger();
   const report = { target: {} };
   const context = {
     custom: false,
     seed: { fresh: true },
-    runID: 'draft-append-setup-failure',
+    runID: 'group-pivot-setup-failure',
     target: {
       ...target,
-      fixtureDir: '/private/tmp/missing-case020-append-fixture',
-      fixtureGeneration: 'draft-append-fixture-v1',
+      fixtureDir: '/private/tmp/loom-case022-missing-fixture',
+      fixtureGeneration: 'draft-combine-fixture-v1',
     },
   };
 
-  await assert.rejects(draftAppendWorkflow({ page: {}, report, nativeRequestLedger: ledger }, context), /ENOENT/);
+  await assert.rejects(
+    groupPivotJoinWorkflow({ page: {}, report, nativeRequestLedger: ledger }, context),
+    /ENOENT/,
+  );
 
   const [scope] = ledger.snapshotAll();
   assert.equal(scope.nativeRequestTerminalLedger.project, project);
   assert.equal(scope.nativeRequestTerminalLedger.explorer, null);
   assert.equal(scope.nativeRequestTerminalLedger.complete, false);
-  assert.deepEqual(report.nativeRequestFlushFailure.terminalLedger, scope.nativeRequestTerminalLedger);
+  assert.equal(report.nativeRequestFlushFailure.terminalLedger.complete, false);
 });

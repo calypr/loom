@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import { performance } from 'node:perf_hooks';
 import { readFileSync } from 'node:fs';
+import { EventEmitter } from 'node:events';
 import test from 'node:test';
+import { test as workflowTest } from '../fixtures.mjs';
 import {
   createFixtureNativeRequestLedger,
   finalizeFixtureNativeRequestReport,
@@ -34,6 +36,12 @@ const requestDetails = (request, requestId, overrides = {}) => ({
   startedAt: 1,
   ...overrides,
 });
+
+const productionWorkflowFixture = () => {
+  const testTypeSymbol = Object.getOwnPropertySymbols(workflowTest)
+    .find(symbol => String(symbol) === 'Symbol(testType)');
+  return workflowTest[testTypeSymbol]?.fixtures?.at(-1)?.fixtures?.workflow;
+};
 
 const recordSuccessful = (ledger, request, details, { status = 200, serverRequestId = `server-${details.requestId}` } = {}) => {
   ledger.recordRequest(request, details);
@@ -111,6 +119,222 @@ test('the Basic scope is opened by the production workflow fixture before the te
   assert(scopeIndex >= 0, 'the real workflow fixture opens the Basic scope');
   assert(bodyIndex > scopeIndex, 'the default scope exists before the test can perform its first page action');
   assert(finalizerIndex > bodyIndex, 'the real workflow fixture finalizes after the case body');
+});
+
+test('the production workflow fixture captures a request terminal emitted during native finalization', async () => {
+  const workflowFixture = productionWorkflowFixture();
+  assert.equal(typeof workflowFixture, 'function', 'the official Playwright workflow fixture is available');
+
+  const fixtureProject = 'loom_dev_verify_case007finalizer';
+  const selectedExplorer = 'explicit-selected-explorer';
+  const target = {
+    kind: 'isolated',
+    fixtureProject,
+    fixtureGeneration: 'devloop-v1',
+    uiUrl: origin,
+    apiUrl: 'http://127.0.0.1:8188',
+    bootstrapExplorerId: explorer,
+  };
+  const report = createReport({
+    scenario: 'builder-authoring',
+    caseName: 'recompile',
+    target: { kind: 'isolated', uiUrl: origin, project: fixtureProject, explorer: selectedExplorer },
+    evidenceDirectory: '/tmp/case007-native-finalizer-test',
+    requiredChecks: [],
+  });
+  const frame = { url: () => `${origin}/builder` };
+  const page = new EventEmitter();
+  page.mainFrame = () => frame;
+  let faultRouteHandler;
+  page.route = async (_pattern, handler) => { faultRouteHandler = handler; };
+  page.unroute = async () => {};
+  const request = fakeRequest({
+    path: `/api/v1/projects/${fixtureProject}/explorers/${selectedExplorer}/authoring/v2/reconcile`,
+    method: 'POST',
+    requestId: 'faulted-request-during-finalizer',
+    frame,
+  });
+  request.postDataJSON = () => ({ projectId: fixtureProject, draftVersion: 3 });
+  request.isNavigationRequest = () => false;
+  const response = {
+    request: () => request,
+    status: () => 422,
+    headers: () => ({ 'x-request-id': 'server-reconcile-failure' }),
+    ok: () => false,
+    url: () => request.url(),
+    text: async () => '{"error":{"code":"VERIFY_COMPILE_REJECTED"}}',
+  };
+
+  let flushStarted = false;
+  let flushCalls = 0;
+  const finalizedScopes = [];
+  let flushBudgetMs;
+  let terminalEmittedAt;
+  await workflowFixture({ loomContext: { report, target }, page }, async ({ fault, nativeRequestLedger }) => {
+    nativeRequestLedger.openScope({ project: fixtureProject, origin, requireProjectCreate: false });
+    await fault({
+      method: 'POST',
+      path: `/api/v1/projects/${fixtureProject}/explorers/${selectedExplorer}/authoring/v2/reconcile`,
+      matchesRequest: body => body?.projectId === fixtureProject,
+      response: { status: 422 },
+    });
+    page.emit('request', request);
+    await faultRouteHandler({ request: () => request, fallback: async () => {}, fulfill: async () => {} });
+    const finalizeScope = nativeRequestLedger.finalizeScope;
+    nativeRequestLedger.finalizeScope = async options => {
+      const snapshot = await finalizeScope(options);
+      finalizedScopes.push({ options, snapshot });
+      return snapshot;
+    };
+    const flush = nativeRequestLedger.flush;
+    nativeRequestLedger.flush = async (scope, options) => {
+      flushStarted = true;
+      flushCalls += 1;
+      flushBudgetMs = options.timeoutMs;
+      const pending = flush(scope, { ...options, timeoutMs: 100 });
+      setTimeout(() => {
+        terminalEmittedAt = Date.now();
+        page.emit('response', response);
+        page.emit('framenavigated', frame);
+        page.emit('requestfinished', request);
+      }, 10);
+      return pending;
+    };
+  }, { status: 'passed' });
+
+  assert.equal(flushStarted, true, 'the finalizer entered the strict native drain');
+  assert.equal(flushCalls, 1, 'the fixture uses exactly one bounded native drain');
+  assert.equal(flushBudgetMs, 5_000, 'production retains the registered five-second native drain budget');
+  assert.equal(finalizedScopes.length, 2, 'pre-detach drain and report projection finalize the same selected scope');
+  for (const { options, snapshot } of finalizedScopes) {
+    assert.equal(options.project, fixtureProject);
+    assert.equal(options.explorer, selectedExplorer, 'explicit Explorer selection outranks the automatic Basic scope');
+    assert.equal(snapshot.nativeRequestTerminalLedger.automaticScope, false, 'the explicit scope owns the selected report');
+    assert.equal(snapshot.nativeRequestTerminalLedger.explorer, selectedExplorer);
+    assert.equal(snapshot.nativeRequestTerminalLedger.counts.finished, 1);
+  }
+  assert.equal(Number.isInteger(terminalEmittedAt), true, 'the Page terminal event fired during the drain');
+  assert.equal(report.nativeRequestTerminalLedger.complete, true);
+  assert.equal(report.nativeRequestTerminalLedger.counts.finished, 1);
+  assert.equal(report.nativeRequestTerminalLedger.counts.pending, 0);
+  assert.equal(report.nativeRequests[0].requestId, 'faulted-request-during-finalizer');
+  assert.equal(report.nativeRequests[0].browserRequestId, 'request-1');
+  assert.equal(report.nativeRequests[0].status, 422);
+  assert.equal(report.nativeRequests[0].terminalEvent, 'requestfinished');
+  assert.equal(report.nativeRequests[0].injectedFault, true);
+  assert.equal(report.nativeRequests[0].injectedRequestId, 'injected-1');
+  assert.equal(report.nativeRequests[0].injectedStatus, 422);
+  const failure = report.network.find(entry => entry.playwrightRequestId === 'request-1');
+  assert.equal(failure.kind, 'network');
+  assert.equal(failure.injectedFault, true);
+  assert.equal(failure.injectedRequestId, 'injected-1');
+  assert.equal(failure.injectedStatus, 422);
+  assert.equal(failure.responseBody.captureState, 'completed');
+  assert.match(failure.responseBody.body, /VERIFY_COMPILE_REJECTED/);
+  assert.equal(classifyNetworkRecord(failure), 'expected-injected', 'the report retains the injected HTTP failure policy classification');
+  assert.deepEqual(report.navigationTimings.map(({ sequence, phase }) => ({ sequence, phase })), [
+    { sequence: 1, phase: 'frame-navigated' },
+  ]);
+  assert.deepEqual(report.nativeRequests[0].sameFrameNavigationEventsAfterStart, [
+    { id: 'navigation-1', sequence: 1, phase: 'frame-navigated' },
+  ]);
+  assert.equal(page.listenerCount('requestfinished'), 0, 'fixture listeners are detached after finalization');
+});
+
+test('the production workflow fixture keeps a single timed-out native drain pending and fatal', async () => {
+  const workflowFixture = productionWorkflowFixture();
+  assert.equal(typeof workflowFixture, 'function', 'the official Playwright workflow fixture is available');
+
+  const fixtureProject = 'loom_dev_verify_case007pending';
+  const target = {
+    kind: 'isolated',
+    fixtureProject,
+    fixtureGeneration: 'devloop-v1',
+    uiUrl: origin,
+    apiUrl: 'http://127.0.0.1:8188',
+    bootstrapExplorerId: explorer,
+  };
+  const report = createReport({
+    scenario: 'builder-authoring',
+    caseName: 'recompile',
+    target: { kind: 'isolated', uiUrl: origin, project: fixtureProject, explorer },
+    evidenceDirectory: '/tmp/case007-native-finalizer-pending-test',
+    requiredChecks: [],
+  });
+  report.failureEvidence = { reason: 'fixture-only pending assertion' };
+  const frame = { url: () => `${origin}/builder` };
+  const page = new EventEmitter();
+  page.mainFrame = () => frame;
+  const request = fakeRequest({
+    path: `/api/v1/projects/${fixtureProject}/explorers/${explorer}/authoring/v2/builder`,
+    requestId: 'request-remains-pending',
+    frame,
+  });
+  request.postDataJSON = () => undefined;
+  request.isNavigationRequest = () => false;
+
+  let flushCalls = 0;
+  let finalizeScopeCalls = 0;
+  let requestedTimeoutMs;
+  await workflowFixture({ loomContext: { report, target }, page }, async ({ nativeRequestLedger }) => {
+    page.emit('request', request);
+    const finalizeScope = nativeRequestLedger.finalizeScope;
+    nativeRequestLedger.finalizeScope = async options => {
+      finalizeScopeCalls += 1;
+      return finalizeScope(options);
+    };
+    const flush = nativeRequestLedger.flush;
+    nativeRequestLedger.flush = async (scope, options) => {
+      flushCalls += 1;
+      requestedTimeoutMs = options.timeoutMs;
+      return flush(scope, { ...options, timeoutMs: 30 });
+    };
+  }, { status: 'passed' });
+
+  assert.equal(requestedTimeoutMs, 5_000, 'production requests the unchanged five-second budget');
+  assert.equal(flushCalls, 1, 'a timeout is not followed by a second drain');
+  assert.equal(finalizeScopeCalls, 2, 'the timed-out report reuses the same finalized scope without draining again');
+  assert.equal(report.nativeRequestTerminalLedger.complete, false);
+  assert.equal(report.nativeRequestTerminalLedger.counts.pending, 1);
+  assert.equal(report.nativeRequestDrainEvidence.length, 1);
+  assert.equal(report.nativeRequestDrainEvidence[0].status, 'timed-out');
+  assert.equal(report.nativeRequestDrainEvidence[0].unresolvedRequests[0].requestId, 'request-remains-pending');
+  assert.equal(report.assertions.find(assertion =>
+    assertion.name === 'basic fixture native request ledger observed a complete selected Explorer lifecycle').status, 'failed');
+});
+
+test('the production workflow fixture detaches Page listeners when teardown fails', async () => {
+  const workflowFixture = productionWorkflowFixture();
+  assert.equal(typeof workflowFixture, 'function', 'the official Playwright workflow fixture is available');
+
+  const fixtureProject = 'loom_dev_verify_case007cleanup';
+  const target = {
+    kind: 'isolated',
+    fixtureProject,
+    fixtureGeneration: 'devloop-v1',
+    uiUrl: origin,
+    apiUrl: 'http://127.0.0.1:8188',
+    bootstrapExplorerId: explorer,
+  };
+  const report = createReport({
+    scenario: 'builder-authoring',
+    caseName: 'recompile',
+    target: { kind: 'isolated', uiUrl: origin, project: fixtureProject, explorer },
+    evidenceDirectory: '/tmp/case007-native-finalizer-cleanup-test',
+    requiredChecks: [],
+  });
+  const page = new EventEmitter();
+  page.mainFrame = () => ({});
+  page.route = async () => {};
+  page.unroute = async () => {};
+
+  await assert.rejects(workflowFixture({ loomContext: { report, target }, page }, async ({ nativeRequestLedger }) => {
+    nativeRequestLedger.flush = async () => { throw new Error('test native drain failure'); };
+  }, { status: 'passed' }), /test native drain failure/);
+
+  for (const event of ['requestfinished', 'framenavigated', 'request', 'console', 'pageerror', 'response', 'requestfailed']) {
+    assert.equal(page.listenerCount(event), 0, `the ${event} listener is detached after teardown failure`);
+  }
 });
 
 test('automatic Basic fixture scope is limited to fresh isolated verification projects', () => {

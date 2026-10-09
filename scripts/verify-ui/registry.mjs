@@ -1098,6 +1098,23 @@ export const registry = Object.freeze([
       },
       "group-pivot": {
         playwrightTest: "scripts/verify-ui/specs/draft-combine.spec.mjs",
+        focusedChecks: [
+          {
+            id: 'draft-combine-native-request-ledger',
+            cwd: '.',
+            command: [
+              'node-test',
+              'scripts/verify-ui/helpers/tests/draft-group-pivot-native-request-ledger.test.mjs',
+              'scripts/verify-ui/helpers/tests/draft-append-native-request-ledger.test.mjs',
+            ],
+            sourceFiles: [
+              'scripts/verify-ui/helpers/fixtures.mjs',
+              'scripts/verify-ui/helpers/native-request-ledger.mjs',
+              'scripts/verify-ui/workflows/builder-combine-draft.mjs',
+              'scripts/verify-ui/specs/draft-combine.spec.mjs',
+            ],
+          },
+        ],
         requiredChecks: [
           "independent fixture contains one Patient, four Observations, and three DiagnosticReports",
           "draft Combine uses the exact project, generation, Builder snapshot, and authorization scope",
@@ -3459,11 +3476,14 @@ export const registry = Object.freeze([
               'node-test',
               'scripts/verify-ui/helpers/cda-current-draft-group-join-workflow.test.mjs',
               'scripts/verify-ui/helpers/tests/cda-playwright-requests.test.mjs',
+              'scripts/verify-ui/helpers/tests/native-abort-probe.test.mjs',
+              'scripts/verify-ui/helpers/tests/native-abort-cross-format-report.test.mjs',
             ],
             sourceFiles: [
               'scripts/verify-ui/workflows/cda-current-draft-group-join-workflow.mjs',
               'scripts/verify-ui/helpers/native-abort-probe.mjs',
               'scripts/verify-ui/helpers/cda-fixtures.mjs',
+              'scripts/verify-ui/helpers/report.mjs',
               'scripts/verify-ui/helpers/cda-playwright.mjs',
               'scripts/verify-ui/helpers/cda-playwright-requests.mjs',
             ],

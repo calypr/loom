@@ -85,19 +85,19 @@ const check = (report, dimension, name, passed, evidence = {}) => {
   if (!passed) throw new Error('required draft Combine check failed: ' + name + '; evidence=' + JSON.stringify(evidence).slice(0, 1600));
 };
 
-export const openDraftAppendNativeRequestScope = (nativeRequestLedger, target) => {
+export const openDraftCombineNativeRequestScope = (nativeRequestLedger, target, label = 'Draft Combine') => {
   if (!nativeRequestLedger?.openScope || typeof target?.fixtureProject !== 'string' ||
       !target.fixtureProject.trim() || typeof target.uiUrl !== 'string') {
-    throw new TypeError('Draft APPEND native request scope requires the fixture project, UI URL, and fixture request ledger.');
+    throw new TypeError(`${label} native request scope requires the fixture project, UI URL, and fixture request ledger.`);
   }
   return nativeRequestLedger.openScope({ project: target.fixtureProject, origin: new URL(target.uiUrl).origin });
 };
 
-export const flushDraftAppendNativeRequestScope = async ({
-  nativeRequestLedger, scope, explorer, report, timeoutMs = 5000,
+export const flushDraftCombineNativeRequestScope = async ({
+  nativeRequestLedger, scope, explorer, report, timeoutMs = 5000, label = 'Draft Combine',
 } = {}) => {
   if (!nativeRequestLedger?.flush || !scope || !report || typeof report !== 'object') {
-    throw new TypeError('Draft APPEND native request flush requires its ledger scope and workflow report.');
+    throw new TypeError(`${label} native request flush requires its ledger scope and workflow report.`);
   }
   const snapshot = await nativeRequestLedger.flush(scope, { explorer, timeoutMs });
   Object.assign(report, {
@@ -109,7 +109,7 @@ export const flushDraftAppendNativeRequestScope = async ({
     nativeRequestTerminalLedger: snapshot.nativeRequestTerminalLedger,
   });
   if (!snapshot.nativeRequestTerminalLedger.complete) {
-    const error = new Error('Draft APPEND native request ledger did not reach a complete terminal state: ' +
+    const error = new Error(`${label} native request ledger did not reach a complete terminal state: ` +
       JSON.stringify(snapshot.nativeRequestTerminalLedger));
     error.nativeRequestSnapshot = snapshot;
     throw error;
@@ -1909,7 +1909,7 @@ export const draftMembershipWorkflow = async ({ page, report }, context) => {
 };
 
 export const draftAppendWorkflow = async ({ page, report, nativeRequestLedger }, context, { upstreamDeriveEdit = false } = {}) => {
-  const nativeRequestScope = upstreamDeriveEdit ? undefined : openDraftAppendNativeRequestScope(nativeRequestLedger, context.target);
+  const nativeRequestScope = upstreamDeriveEdit ? undefined : openDraftCombineNativeRequestScope(nativeRequestLedger, context.target, 'Draft APPEND');
   let run;
   let previewLifecycle;
   const sources = [];
@@ -2229,7 +2229,7 @@ export const draftAppendWorkflow = async ({ page, report, nativeRequestLedger },
     if (previewLifecycle) report.previewRequestLifecycle = previewLifecycle.stop();
     if (nativeRequestScope) {
       try {
-        await flushDraftAppendNativeRequestScope({ nativeRequestLedger, scope: nativeRequestScope, explorer: run?.explorer, report });
+        await flushDraftCombineNativeRequestScope({ nativeRequestLedger, scope: nativeRequestScope, explorer: run?.explorer, report, label: 'Draft APPEND' });
       } catch (error) {
         report.nativeRequestFlushFailure = {
           message: error instanceof Error ? error.message : String(error),
@@ -2241,10 +2241,13 @@ export const draftAppendWorkflow = async ({ page, report, nativeRequestLedger },
   }
 };
 
-export const groupPivotJoinWorkflow = async ({ page, report }, context) => {
-  const run = await beginOwnedWorkspace(context, page, report, 'group-pivot');
+export const groupPivotJoinWorkflow = async ({ page, report, nativeRequestLedger }, context) => {
+  const nativeRequestScope = openDraftCombineNativeRequestScope(nativeRequestLedger, context.target, 'Draft Group/Pivot');
+  let run;
+  let workflowFailed = false;
   const sources = [];
   try {
+    run = await beginOwnedWorkspace(context, page, report, 'group-pivot');
     sources.push(await createGroupSource(context, page, report, run.explorer, {
       resourceType: 'Observation', title: 'Observation ID source', fieldPath: 'status', rawRows: run.raw.observations, groupByID: true,
     }));
@@ -2329,7 +2332,24 @@ export const groupPivotJoinWorkflow = async ({ page, report }, context) => {
           final.workspace.documents.every((document) => (document.construction?.steps ?? []).flatMap((item) => item.inputs ?? []).every((input) => input.kind !== 'TABLE_REVISION')),
         { publishRequests: run.publishCount(), sourceSteps: savedSourceShapes });
     } finally { await capture.stop(); }
-  } finally { run.stopPublish(); }
+  } catch (error) {
+    workflowFailed = true;
+    throw error;
+  } finally {
+    run?.stopPublish();
+    try {
+      await flushDraftCombineNativeRequestScope({
+        nativeRequestLedger, scope: nativeRequestScope, explorer: run?.explorer, report,
+        label: 'Draft Group/Pivot',
+      });
+    } catch (error) {
+      report.nativeRequestFlushFailure = {
+        message: error instanceof Error ? error.message : String(error),
+        terminalLedger: error?.nativeRequestSnapshot?.nativeRequestTerminalLedger ?? report.nativeRequestTerminalLedger ?? null,
+      };
+      if (!workflowFailed) throw error;
+    }
+  }
 };
 
 const configureGroupPivotAppend = async (page, sources) => {

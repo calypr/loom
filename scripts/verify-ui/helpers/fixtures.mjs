@@ -673,14 +673,25 @@ export const test = base.extend({
     try {
       await use({ ...loomContext, ...browserDiagnostics, page, check, action, fault, nativeRequestLedger });
     } finally {
-      for (const handler of faultRouteHandlers) await page.unroute('**/*', handler);
-      page.removeListener('requestfinished', onRequestFinished);
-      page.removeListener('framenavigated', onFrameNavigated);
-      page.removeListener('request', onRequest);
-      page.removeListener('console', onConsole);
-      page.removeListener('pageerror', onPageError);
-      page.removeListener('response', onResponse);
-      page.removeListener('requestfailed', onRequestFailed);
+      try {
+        try {
+          for (const handler of faultRouteHandlers) await page.unroute('**/*', handler);
+        } finally {
+          await nativeRequestLedger.finalizeScope({
+            project: target.fixtureProject,
+            explorer: report.target?.explorer ?? report.explorer,
+            timeoutMs: 5_000,
+          });
+        }
+      } finally {
+        page.removeListener('requestfinished', onRequestFinished);
+        page.removeListener('framenavigated', onFrameNavigated);
+        page.removeListener('request', onRequest);
+        page.removeListener('console', onConsole);
+        page.removeListener('pageerror', onPageError);
+        page.removeListener('response', onResponse);
+        page.removeListener('requestfailed', onRequestFailed);
+      }
       await browserDiagnostics.finalize({ timeoutMs: 5_000 });
       projectFixtureNetworkDiagnostics({ report, ledger: nativeRequestLedger, faults: faultAttempts });
       for (const failure of report.network) {
