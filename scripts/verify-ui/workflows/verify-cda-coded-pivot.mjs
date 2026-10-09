@@ -392,6 +392,7 @@ try {
   }));
   await action('Select coded pivot history', page.locator('[data-testid^="construction-history-step-"]'));
   await waitNative( () => Boolean(document.querySelector('[data-testid^="construction-edit-step-"]:not(:disabled)')), {}, 5000);
+  const editRequestWindowStart = report.nativeRequests.length;
   await action('Edit coded pivot', page.locator('[data-testid^="construction-edit-step-"]:not(:disabled)'));
   await waitNative( () => Boolean(document.querySelector('section[aria-label="Coded values as columns"] select')), {}, 5000);
   await waitNative( ({ count }) => document.querySelectorAll('section[aria-label="Coded values as columns"] input[type="checkbox"]:checked').length === count, { count: expected.length }, 5000);
@@ -405,7 +406,6 @@ try {
   assert(beforeEditDocument);
   assert.equal(beforeEditDocument.construction.steps.find(step => step.operation.kind === 'CODED_PIVOT')?.operation.codedPivot.missingCellPolicy, 'NULL');
   const editStarted = Date.now();
-  const editRequestStart = report.nativeRequests.length;
   const policyAction = { label: 'Set missing value policy', startedAt: Date.now() };
   const policyReplacementProof = {
     contract: 'coded-pivot-policy-replacement',
@@ -442,10 +442,10 @@ try {
       outputId: report.tableOutputId, snapshotToken: report.snapshotToken, sourceChoiceId: selectedSourceOption.choiceId,
       missingCellPolicy: 'ERROR', categories: persistedProposalCategories, stepId: codedStep.id,
       }),
-    { fromIndex: editRequestStart, timeoutMs: 5000 });
+    { fromIndex: editRequestWindowStart, timeoutMs: 5000 });
   });
   const policyReplacementEvidence = codedPivotPolicyReplacementCancellationEvidenceFor({
-    requests: report.nativeRequests.slice(editRequestStart),
+    requests: report.nativeRequests.slice(editRequestWindowStart),
     expectedCancellations: policyReplacementCancellationsFor(policyAction.label),
     replacementRequest: editProposal,
     policyAction,
@@ -528,6 +528,7 @@ try {
   assert.deepEqual(report.cancelReloadAssociation, report.outputAssociation, 'Cancel reload must retain each exact coded header/value pair');
   await action('Select coded pivot history after Cancel', page.locator('[data-testid^="construction-history-step-"]'));
   await waitNative( () => Boolean(document.querySelector('[data-testid^="construction-edit-step-"]:not(:disabled)')), {}, 5000);
+  const reapplyRequestWindowStart = report.nativeRequests.length;
   await action('Reopen coded pivot editor after Cancel', page.locator('[data-testid^="construction-edit-step-"]:not(:disabled)'));
   await waitNative( () => document.querySelectorAll('section[aria-label="Coded values as columns"] select')[1]?.value === 'NULL', {}, 5000);
   timing('cancel-reload-restores-null-policy', cancelReloadStarted);
@@ -544,7 +545,6 @@ try {
   await action('Expand coded pivot options after Cancel', page.locator('section[aria-label="Coded values as columns"] details summary'));
   const reopenedSection = page.locator('section[aria-label="Coded values as columns"]');
   const reapplyStarted = Date.now();
-  const reapplyRequestStart = report.nativeRequests.length;
   const reapplyPolicyAction = { label: 'Set missing value policy after Cancel', startedAt: Date.now() };
   const reapplyPolicyReplacementProof = {
     ...policyReplacementProof,
@@ -568,10 +568,10 @@ try {
         outputId: report.tableOutputId, snapshotToken: report.snapshotToken, sourceChoiceId: selectedSourceOption.choiceId,
         missingCellPolicy: 'ERROR', categories: persistedProposalCategories, stepId: codedStep.id,
       }),
-    { fromIndex: reapplyRequestStart, timeoutMs: 5000 });
+    { fromIndex: reapplyRequestWindowStart, timeoutMs: 5000 });
   });
   const reapplyPolicyReplacementEvidence = codedPivotPolicyReplacementCancellationEvidenceFor({
-    requests: report.nativeRequests.slice(reapplyRequestStart),
+    requests: report.nativeRequests.slice(reapplyRequestWindowStart),
     expectedCancellations: policyReplacementCancellationsFor(reapplyPolicyAction.label),
     replacementRequest: reapplyProposal,
     policyAction: reapplyPolicyAction,

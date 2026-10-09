@@ -1,11 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { EventEmitter } from 'node:events';
 import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
 import { chromium } from 'playwright';
 import { hasLifecycleContract, registry, scenarioCaseFor } from '../../registry.mjs';
 import { captureCDARequests } from '../cda-playwright-requests.mjs';
 import { createCdaInspector } from '../cda-playwright.mjs';
+import { classifyExpectedCdaCancellation } from '../cda-fixtures.mjs';
 import { DEFAULT_ACTION_TO_RENDER_BUDGET_MS, recordPivotActionToRender } from '../quantity-pivot-budget.mjs';
 import {
   CODED_PIVOT_OBSERVATION_ID,
@@ -491,6 +493,277 @@ test('coded Pivot policy replacement admits only the retained NULL abort paired 
   assert.throws(() => summarizeCodedPivotNativeRequests([{ ...canceledRequest, expectedCancellation: undefined }], {
     acceptedExpectedCancellationRequestIds: [canceledRequest.requestId],
   }), /validated policy-replacement marker/);
+});
+
+test('coded Pivot policy request window starts before editor open and binds the retained NULL abort', async () => {
+  // Retained bounded runs prove the ordering and native cancellation contract. Integer report:
+  // /private/tmp/loom-verification-brackets/coded-pivot-integer-d4fe-retry/run-standalone-reshape-coded-pivot-coded-pivot-integer-ggeOwY/playwright-results/standalone-reshape-standal-1295a-integer-coded-pivot-integer/cda-report.json
+  // SHA-256 accee4affacc0cb1a73bd0ccee0d6c889a6f487856889365187716661e82f06a (NULL [44], ERROR [45]);
+  // string report:
+  // /private/tmp/loom-verification-brackets/coded-pivot-string-d4fe-retry/run-standalone-reshape-coded-pivot-coded-pivot-string-0Z8u9F/playwright-results/standalone-reshape-standal-3ee65-t-string-coded-pivot-string/cda-report.json
+  // SHA-256 00fbdca5f02c1f49f9cd5cc16ee8f121345d943b113d0020162969db7b05ca86 (NULL [59], ERROR [60]).
+  // Persisted values below are reduced literals; run-scoped snapshot/draft/choice/step/request IDs are stand-ins.
+  const scenarios = [
+    {
+      mode: 'integer', candidateIndex: 44, replacementIndex: 45, actionLabel: 'Set missing value policy',
+      explorerId: 'qa-reshape-coded-pivot-integer-retained-run',
+      outputId: 'out_<retained-integer-output>', stepId: 'coded-pivot_<retained-integer-step>',
+      sourceChoiceId: 'cc2.<retained-integer-source-choice>', draftDigest: `sha256:${'1'.repeat(64)}`,
+      categories: [{ system: 'https://cda.readthedocs.io', code: 'days_to_collection', label: 'Days to collection',
+        outputColumnId: 'coded-column_<days_to_collection>' }],
+      nullRequestId: 'construction-proposal-retained-integer-null',
+      errorRequestId: 'construction-proposal-retained-integer-error',
+    },
+    {
+      mode: 'string', candidateIndex: 59, replacementIndex: 60, actionLabel: 'Set missing value policy after Cancel',
+      explorerId: 'qa-reshape-coded-pivot-string-retained-run',
+      outputId: 'out_<retained-string-output>', stepId: 'coded-pivot_<retained-string-step>',
+      sourceChoiceId: 'cc2.<retained-string-source-choice>', draftDigest: `sha256:${'2'.repeat(64)}`,
+      categories: [
+        { system: 'https://cda.readthedocs.io', code: 'specimen_type', label: 'Specimen type',
+          outputColumnId: 'coded-column_<specimen_type>' },
+        { system: 'https://cda.readthedocs.io', code: 'primary_disease_type', label: 'Primary disease type',
+          outputColumnId: 'coded-column_<primary_disease_type>' },
+      ],
+      nullRequestId: 'construction-proposal-retained-string-null',
+      errorRequestId: 'construction-proposal-retained-string-error',
+    },
+  ];
+  const origin = 'http://127.0.0.1:30008';
+  const project = 'loom_dev_cda_fhir';
+  const generation = 'cda-fhir-v1';
+  const snapshotToken = `sha256:${'a'.repeat(64)}`;
+  const reason = 'Selecting ERROR superseded the exact in-flight NULL candidate for this coded Pivot edit.';
+
+  const originalDateNow = Date.now;
+  let now = 1_000;
+  Date.now = () => now;
+  try {
+    for (const scenario of scenarios) {
+      const {
+        mode, candidateIndex, replacementIndex, actionLabel, explorerId, outputId, stepId, sourceChoiceId,
+        draftDigest, categories, nullRequestId, errorRequestId,
+      } = scenario;
+      const path = `/api/v1/projects/${project}/explorers/${explorerId}/authoring/v2/construction-proposals`;
+      const page = new EventEmitter();
+      const report = { nativeRequests: [], errors: [] };
+      const requestFailures = new WeakMap();
+      const capture = captureCDARequests(page, {
+        apiOrigin: origin,
+        ownedPathPrefix: `/api/v1/projects/${project}/explorers/${explorerId}`,
+        report,
+        responsePaths: /construction-proposals/,
+      });
+      const trackers = new Set([capture]);
+
+      const requestFor = ({ requestId, requestPath = path, body }) => {
+        let observedFailure = null;
+        const request = {
+          url: () => `${origin}${requestPath}`,
+          method: () => 'POST',
+          headers: () => ({ 'x-request-id': requestId }),
+          postData: () => JSON.stringify(body),
+          failure: () => observedFailure,
+        };
+        page.emit('request', request);
+        return {
+          request,
+          entry: capture.byRequest.get(request),
+          respond(status, responseBody) {
+            page.emit('response', {
+              request: () => request,
+              status: () => status,
+              headers: () => ({}),
+              text: async () => JSON.stringify(responseBody),
+            });
+          },
+          finish() { page.emit('requestfinished', request); },
+          abort() {
+            observedFailure = { errorText: 'net::ERR_ABORTED' };
+            const entry = capture.byRequest.get(request);
+            requestFailures.set(request, {
+              errorText: 'net::ERR_ABORTED', method: request.method(), url: request.url(),
+              requestId: entry.requestId, playwrightRequestId: `cda-request-${entry.browserRequestId}`,
+            });
+            page.emit('requestfailed', request);
+          },
+        };
+      };
+      const bodyFor = missingCellPolicy => ({
+        snapshotToken,
+        expectedDraftVersion: 4,
+        expectedDraftDigest: draftDigest,
+        outputId,
+        changedStepId: stepId,
+        candidateConstruction: {
+          version: 1,
+          steps: [{
+            id: stepId,
+            inputs: [{ kind: 'SOURCE_PROJECTION' }],
+            operation: { kind: 'CODED_PIVOT', codedPivot: {
+              constructionId: stepId,
+              sourceChoiceId,
+              categories: categories.map(({ system: categorySystem, code, outputColumnId }) => ({
+                system: categorySystem, code, outputColumnId,
+              })),
+              duplicatePolicy: 'ERROR', missingCellPolicy,
+            } },
+            outputs: categories.map(({ code, label, outputColumnId }) => ({
+              id: outputColumnId, name: code, label, type: 'INFER',
+            })),
+          }],
+        },
+        limit: 25,
+      });
+
+      // An unrelated earlier proposal abort is captured and classified under another action. It
+      // must stay outside the current window and must not consume the current action's NULL match.
+      const earlierAbort = requestFor({ requestId: 'construction-proposal-prior-action-null', body: bodyFor('NULL') });
+      earlierAbort.abort();
+      const earlierCancellation = classifyExpectedCdaCancellation({
+        request: earlierAbort.request,
+        reason: 'The earlier policy action retired its own proposal.',
+        proof: { contract: 'coded-pivot-policy-replacement', actionLabel: 'Earlier policy action' },
+        report,
+        requestFailures,
+        trackers,
+      });
+      assert.equal(earlierCancellation.browserRequestId, 'playwright-1');
+
+      // Prepopulate through the real collector so the retained array indices and browser IDs line up.
+      for (let index = 1; index < candidateIndex; index += 1) {
+        now += 1;
+        const prior = requestFor({
+          requestId: `owned-prior-${index}`,
+          requestPath: `/api/v1/projects/${project}/explorers/${explorerId}/authoring/v2/commands`,
+          body: {},
+        });
+        prior.respond(204, {});
+        prior.finish();
+      }
+      await capture.flush({ waitForNativeRequestTerminals: true });
+      const policyWindowStart = report.nativeRequests.length; // Capture immediately before opening the editor.
+      assert.equal(policyWindowStart, candidateIndex, `${mode}: retained proposal index boundary`);
+
+      const nullCandidate = requestFor({ requestId: nullRequestId, body: bodyFor('NULL') });
+      assert.equal(report.nativeRequests.indexOf(nullCandidate.entry), candidateIndex,
+        `${mode}: opening the editor starts the retained NULL proposal at its recorded index`);
+      assert.equal(nullCandidate.entry.browserRequestId, `playwright-${candidateIndex + 1}`,
+        `${mode}: captured browser request ID follows the retained native index`);
+      now += 10;
+      const policyActionStartedAt = now + 10;
+      now += 10;
+      assert(nullCandidate.entry.startedAt < policyActionStartedAt,
+        `${mode}: the NULL proposal begins before the exact policy action`);
+
+      const proof = {
+        contract: 'coded-pivot-policy-replacement', actionLabel, mode, project, generation, explorerId,
+        outputId, snapshotToken, draftVersion: 4, draftDigest, stepId, sourceChoiceId, categories,
+        fromPolicy: 'NULL', toPolicy: 'ERROR',
+        scopeAction: actionLabel,
+        scopeRequest: { requestId: nullCandidate.entry.requestId, draftVersion: 4, draftDigest, outputId, stageId: null },
+      };
+      now += 10;
+      nullCandidate.abort();
+      const cancellation = classifyExpectedCdaCancellation({
+        request: nullCandidate.request,
+        reason,
+        proof,
+        report,
+        requestFailures,
+        trackers,
+      });
+      now += 10;
+      const replacement = requestFor({ requestId: errorRequestId, body: bodyFor('ERROR') });
+      assert.equal(report.nativeRequests.indexOf(replacement.entry), replacementIndex,
+        `${mode}: the ERROR replacement follows at its retained native request index`);
+      assert.equal(replacement.entry.browserRequestId, `playwright-${replacementIndex + 1}`,
+        `${mode}: replacement browser request ID follows the retained native index`);
+      assert(replacement.entry.startedAt >= policyActionStartedAt);
+      now += 5;
+      const policyActionCompletedAt = Date.now();
+      now += 5;
+      replacement.respond(200, {
+        proposalId: `receipt_<retained-${mode}-replacement>`, previewStatus: 'READY', outputId, snapshotToken,
+      });
+      now += 1;
+      replacement.finish();
+      now += 10;
+      await capture.flush({ waitForNativeRequestTerminals: true });
+      const policyAction = { label: actionLabel, startedAt: policyActionStartedAt, completedAt: policyActionCompletedAt };
+
+      const expected = {
+        origin, path, project, generation, explorerId, mode, outputId, snapshotToken,
+        draftVersion: 4, draftDigest, stepId, sourceChoiceId, categories,
+        fromPolicy: 'NULL', toPolicy: 'ERROR', actionLabel, reason,
+      };
+      const windowRequests = report.nativeRequests.slice(policyWindowStart);
+      const evidence = (requests = windowRequests, cancellations = report.expectedCancellations,
+        selectedReplacement = replacement.entry, action = policyAction, expectedProof = expected) =>
+        codedPivotPolicyReplacementCancellationEvidenceFor({
+          requests, expectedCancellations: cancellations ?? [], replacementRequest: selectedReplacement,
+          policyAction: action, expected: expectedProof,
+        });
+
+      assert.equal(cancellation.requestId, nullCandidate.entry.requestId);
+      assert.equal(cancellation.browserRequestId, nullCandidate.entry.browserRequestId);
+      assert.equal(cancellation.method, 'POST');
+      assert.equal(cancellation.url, `${origin}${path}`);
+      assert.equal(cancellation.proof.actionLabel, actionLabel);
+      assert.equal(cancellation.proof.scopeAction, actionLabel);
+      assert.equal(nullCandidate.entry.failure, 'net::ERR_ABORTED');
+      assert.equal(nullCandidate.entry.completedAt > policyAction.startedAt, true);
+      const matched = evidence();
+      assert.equal(matched.status, 'matched-cancellation', `${mode}: captured pre-action request and exact action proof`);
+      assert.equal(matched.canceledRequestId, nullRequestId);
+      assert.equal(matched.replacementRequestId, errorRequestId);
+      assert.equal(matched.canceledAt, nullCandidate.entry.completedAt);
+      assert.equal(matched.canceledAt < matched.replacementStartedAt, true,
+        `${mode}: terminal cancellation strictly precedes the replacement request`);
+      assert.equal(evidence(windowRequests, report.expectedCancellations).status, 'matched-cancellation',
+        `${mode}: the unrelated earlier abort is ignored outside this window/action`);
+      assert.equal(evidence(report.nativeRequests, report.expectedCancellations).status, 'invalid',
+        `${mode}: a broad ledger match cannot sweep in the unrelated earlier NULL abort`);
+
+      assert.equal(evidence(report.nativeRequests.slice(policyWindowStart + 1)).status, 'invalid',
+        `${mode}: the prior late slice omits the editor-open NULL proposal and is invalid`);
+      const wrongAction = structuredClone(cancellation);
+      wrongAction.proof.actionLabel = 'Set another policy';
+      wrongAction.proof.scopeAction = 'Set another policy';
+      assert.equal(evidence(windowRequests, [wrongAction]).status, 'invalid', `${mode}: wrong cancellation action is fatal`);
+      const wrongRequestIdentity = structuredClone(cancellation);
+      wrongRequestIdentity.requestId = 'construction-proposal_<different-request>';
+      wrongRequestIdentity.proof.scopeRequest.requestId = wrongRequestIdentity.requestId;
+      assert.equal(evidence(windowRequests, [wrongRequestIdentity]).status, 'invalid', `${mode}: wrong canceled request identity is fatal`);
+
+      const noAbortCandidate = {
+        ...nullCandidate.entry, failure: undefined, status: 200, completedAt: policyAction.startedAt - 1,
+      };
+      assert.equal(evidence([noAbortCandidate, replacement.entry], [cancellation]).status, 'invalid',
+        `${mode}: a recorded cancellation without the matching native abort is fatal`);
+      assert.equal(evidence([noAbortCandidate, replacement.entry], []).status, 'no-cancellation',
+        `${mode}: a completed NULL candidate needs no cancellation waiver`);
+
+      const mismatchedReplacement = structuredClone(replacement.entry);
+      mismatchedReplacement.body.candidateConstruction.steps[0].operation.codedPivot.missingCellPolicy = 'NULL';
+      assert.equal(evidence([nullCandidate.entry, mismatchedReplacement], [cancellation], mismatchedReplacement).status, 'invalid',
+        `${mode}: a replacement with the wrong policy cannot complete the pair`);
+      assert.equal(summarizeCodedPivotNativeRequests(windowRequests).passed, false,
+        `${mode}: the native abort remains fatal until the evidence matcher validates and wraps it`);
+      assert.throws(() => summarizeCodedPivotNativeRequests(windowRequests, {
+        acceptedExpectedCancellationRequestIds: [nullCandidate.entry.requestId],
+      }), /validated policy-replacement marker/,
+      `${mode}: the generic classifier marker is insufficient before pair validation`);
+      nullCandidate.entry.expectedCancellation = {
+        contract: 'coded-pivot-policy-replacement', requestId: nullCandidate.entry.requestId,
+      };
+      assert.equal(summarizeCodedPivotNativeRequests(windowRequests, {
+        acceptedExpectedCancellationRequestIds: [nullCandidate.entry.requestId],
+      }).passed, true, `${mode}: validated cancellation marker permits the exact captured pair`);
+    }
+  } finally {
+    Date.now = originalDateNow;
+  }
 });
 
 test('coded Pivot action-after-Cancel validates its own retained NULL abort and ERROR replacement', () => {
