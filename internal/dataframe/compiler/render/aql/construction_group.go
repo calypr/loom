@@ -34,8 +34,9 @@ func (r *physicalPlanRenderer) renderConstructionGroupStage(stage ir.PhysicalCon
 	if len(group.RowValues) != 0 && !aggregateRowValues {
 		countRowsOnly = false
 	}
-	if input.SourceRowInScope && (input.RowsVariable != "" || len(group.Keys) == 0) {
-		return nil, fmt.Errorf("in-scope source row requires a keyed Group")
+	if input.SourceRowInScope && (input.RowsVariable != "" ||
+		(len(group.Keys) == 0 && !(countRowsOnly && aggregateRowValues))) {
+		return nil, fmt.Errorf("in-scope source row requires a keyed Group or a keyless COUNT_ROWS Group with row values")
 	}
 	lines := make([]string, 0, 8+len(group.Keys)*2+len(group.Aggregates)+len(group.RowValues))
 	rowSource := input.RowsVariable
@@ -60,7 +61,7 @@ func (r *physicalPlanRenderer) renderConstructionGroupStage(stage ir.PhysicalCon
 			}
 		}
 	}
-	if aggregateRowValues && len(group.Keys) == 0 {
+	if aggregateRowValues && len(group.Keys) == 0 && input.RowsVariable != "" {
 		rowSource = fmt.Sprintf("(LENGTH(%s) == 0 ? [null] : %s)", input.RowsVariable, input.RowsVariable)
 	}
 	if input.RowsVariable != "" {

@@ -487,9 +487,10 @@ func renderPhysicalStageSequence(plan ir.PhysicalPlan, options physicalRenderOpt
 }
 
 // groupSourceRowVariable returns the first Group input row variable when a
-// terminal keyed COUNT_ROWS Group can consume its direct root source in scope.
-// The generic source RETURN is rendered as a LET before the Group COLLECT, so
-// source rows are never collected into an intermediate array.
+// terminal COUNT_ROWS Group can consume its direct root source in scope. A
+// keyless Group uses this path only when it aggregates row values. The generic
+// source RETURN is rendered as a LET before the Group COLLECT, so source rows
+// are never collected into an intermediate array.
 func groupSourceRowVariable(sourcePlan ir.PhysicalPlan, sequence *ir.PhysicalStageSequence, stages []ir.PhysicalConstructionStage, options physicalRenderOptions) string {
 	if sequence == nil || len(stages) != 1 || sequence.RowLineageReturn != nil || sequence.CellTraceReturn != nil ||
 		sequence.PreviewSourceWindowByRootID || sequence.PreviewTerminalPivotWindow || sequence.OutputAuthResourcePathBindKey != "" ||
@@ -500,8 +501,9 @@ func groupSourceRowVariable(sourcePlan ir.PhysicalPlan, sequence *ir.PhysicalSta
 	}
 	stage := stages[0]
 	group := stage.Group
+	keylessRowValueGroup := group != nil && len(group.Keys) == 0 && len(group.RowValues) > 0
 	if stage.ID != sequence.FinalStageID || stage.InputStageID != sequence.SourceStageID ||
-		stage.Kind != ir.PhysicalStageGroupOp || group == nil || len(group.Keys) == 0 ||
+		stage.Kind != ir.PhysicalStageGroupOp || group == nil || (len(group.Keys) == 0 && !keylessRowValueGroup) ||
 		group.RootContributorInputColumn != "" ||
 		!constructionGroupCountsOnlyRows(group) ||
 		(len(group.RowValues) > 0 && !constructionGroupRowValuesCanAggregate(group.RowValues)) {

@@ -146,6 +146,49 @@ func TestKeylessGroupAllValuesAggregatesZeroRowsThroughSentinel(t *testing.T) {
 	}
 }
 
+func TestKeylessGroupOneValuesAggregatesCurrentSourceScope(t *testing.T) {
+	renderer := &physicalPlanRenderer{
+		bindVars:       map[string]any{"construction_id": "group"},
+		reservedVars:   map[string]struct{}{},
+		internalPrefix: "test_",
+	}
+	stage := ir.PhysicalConstructionStage{
+		InputRowVariable:  "input_row",
+		OutputRowVariable: "output_row",
+		OutputProjections: []ir.PhysicalProjection{
+			{Name: "rows", Value: ir.PhysicalValue{Variable: "row_count"}},
+			{Name: "patient_id", Value: ir.PhysicalValue{Variable: "patient_id_value"}},
+		},
+		Group: &ir.PhysicalStageGroup{
+			IdentityVariable:      "row_id",
+			ConstructionIDBindKey: "construction_id",
+			MissingKeyPolicy:      ir.PhysicalStageGroupMissingKeyGroup,
+			Aggregates:            []ir.PhysicalStageGroupAggregate{{Operation: "COUNT_ROWS", Output: "rows", Variable: "row_count"}},
+			RowValues: []ir.PhysicalStageRowValue{{
+				InputColumn: "patient_id", InputKind: "STRING", Output: "patient_id", Policy: "ONE", Variable: "patient_id_value",
+			}},
+		},
+	}
+	lines, err := renderer.renderConstructionGroupStage(stage, constructionGroupInput{SourceRowInScope: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	query := strings.Join(lines, "\n")
+	for _, want := range []string{
+		"COLLECT AGGREGATE __loom_physical_test_construction_group_count_rows = SUM(input_row != null ? 1 : 0)",
+		"= UNIQUE((input_row[@",
+		"ASSERT(LENGTH(__loom_physical_test_construction_group_row_value_unique_0) <= 1, \"CONSTRUCTION_ROW_VALUE_MULTIPLE_VALUES\")",
+		"LENGTH(__loom_physical_test_construction_group_row_value_unique_0) == 0 ? null : FIRST(__loom_physical_test_construction_group_row_value_unique_0)",
+	} {
+		if !strings.Contains(query, want) {
+			t.Errorf("keyless source-scope ONE Group query missing %q:\n%s", want, query)
+		}
+	}
+	if strings.Contains(query, "only keyless COUNT_ROWS groups") || strings.Contains(query, " INTO ") {
+		t.Fatalf("keyless source-scope ONE Group query did not aggregate directly:\n%s", query)
+	}
+}
+
 func TestKeyedGroupOneRowValueStreamsDistinctValues(t *testing.T) {
 	renderer := &physicalPlanRenderer{
 		bindVars:       map[string]any{"construction_id": "group"},
