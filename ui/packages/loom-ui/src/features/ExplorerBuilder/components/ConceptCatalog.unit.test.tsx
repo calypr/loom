@@ -1660,6 +1660,78 @@ it('offers a compiler-issued missing schema field in the existing related-field 
   expect(JSON.parse(String(request?.[1]?.body))).toMatchObject({ snapshotToken: 'snapshot-a', nodeId: 'patient-node' });
 });
 
+it('aborts the pending generated-field cursor request when its catalog owner unmounts', async () => {
+  const pendingSchemaRequests: Array<{
+    readonly body: string;
+    readonly signal: AbortSignal | null | undefined;
+    readonly resolve: (response: Response) => void;
+  }> = [];
+  const fetch = vi.fn<typeof globalThis.fetch>((input, init) => {
+    if (!String(input).endsWith('/schema-fields')) {
+      return Promise.resolve(new Response(JSON.stringify(page([])), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }));
+    }
+    return new Promise<Response>((resolve, reject) => {
+      const signal = init?.signal;
+      pendingSchemaRequests.push({ body: String(init?.body), signal, resolve });
+      signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true });
+    });
+  });
+  const client = createFullLoomClient({ fetch });
+  const view = render(
+    <LoomProvider client={client}>
+      <ConceptCatalog
+        project="project-a"
+        explorerId="explorer-a"
+        snapshotToken="snapshot-a"
+        outputId="patients"
+        rowRoot="Patient"
+        resourceType="Patient"
+        sourceNodeId="patient-node"
+        catalog={catalog}
+        schemaDiscoveryEnabled={true}
+        onAddSelected={vi.fn().mockResolvedValue(undefined)}
+      />
+    </LoomProvider>,
+  );
+
+  await waitFor(() => expect(pendingSchemaRequests).toHaveLength(1));
+  const firstPage = pendingSchemaRequests[0];
+  if (!firstPage) throw new Error('The first generated-field page was not requested.');
+  const firstPageRequest = JSON.parse(firstPage.body);
+  expect(firstPageRequest).toMatchObject({ limit: 50, nodeId: 'patient-node', snapshotToken: 'snapshot-a' });
+  expect(firstPageRequest).not.toHaveProperty('cursor');
+  firstPage.resolve(new Response(JSON.stringify({
+    apiVersion: 'loom.calypr.org/explorer-authoring/v2',
+    kind: 'ExplorerBuilderGeneratedSchemaFields',
+    snapshotToken: 'snapshot-a',
+    schemaDigest: 'a'.repeat(64),
+    nodeId: 'patient-node',
+    resourceType: 'Patient',
+    query: '',
+    fields: [],
+    complete: false,
+    truncated: true,
+    nextCursor: 'schema-fields-cursor-page-2',
+  }), { status: 200, headers: { 'content-type': 'application/json' } }));
+
+  await waitFor(() => expect(pendingSchemaRequests).toHaveLength(2));
+  const secondPage = pendingSchemaRequests[1];
+  if (!secondPage) throw new Error('The generated-field cursor page was not requested.');
+  const secondPageRequest = JSON.parse(secondPage.body);
+  expect(secondPageRequest).toMatchObject({
+    cursor: 'schema-fields-cursor-page-2',
+    nodeId: 'patient-node',
+    snapshotToken: 'snapshot-a',
+  });
+  expect(secondPage.signal).toBe(firstPage.signal);
+
+  view.unmount();
+  await waitFor(() => expect(secondPage.signal?.aborted).toBe(true));
+});
+
 it('starts generated-field discovery only when its containing panel is opened', async () => {
   const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(async (url) =>
     new Response(JSON.stringify(String(url).endsWith('/schema-fields') ? {

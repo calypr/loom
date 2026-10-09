@@ -4229,6 +4229,20 @@ export const registry = Object.freeze([
               'scripts/verify-ui/registry.mjs',
             ],
           },
+          {
+            id: 'cohort-fields-paginated-query-owner-unmount',
+            cwd: 'ui/packages/loom-ui',
+            command: [
+              'vitest', 'run', '--config', 'vitest.config.ts',
+              'ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.unit.test.tsx',
+            ],
+            sourceFiles: [
+              'ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.tsx',
+              'ui/packages/loom-ui/src/api.ts',
+              'ui/packages/loom-ui/src/react.tsx',
+              'scripts/verify-ui/registry.mjs',
+            ],
+          },
         ],
         performanceCheckName: 'native cohort Apply and member-field Apply render exact scoped rows within five seconds',
         lifecycleEvidence: {
