@@ -896,6 +896,103 @@ test('retained EXISTS expected errors remain in the report without becoming a fa
   assert.deepEqual(attachedReport.errors, retainedExpectedErrors);
 });
 
+test('CASE-002 Recompile summary honors the network policy for its injected 422 errors', async (t) => {
+  const parent = evidenceParent();
+  t.after(() => rmSync(parent, { recursive: true, force: true }));
+  const scenarioID = 'builder-controls';
+  const caseName = 'recompile';
+  const injectedRequestId = 'injected-1';
+  const playwrightRequestId = 'playwright-request-1';
+  const reconcilePath = '/api/v1/projects/owned-project/explorers/recompile-explorer/authoring/v2/reconcile';
+  const reconcileURL = `http://127.0.0.1:30008${reconcilePath}`;
+  const expectedErrors = () => [
+    {
+      kind: 'network',
+      method: 'POST',
+      status: 422,
+      injectedFault: true,
+      injectedStatus: 422,
+      injectedAction: 'fulfill',
+      injectedRequestId,
+      playwrightRequestId,
+      url: reconcileURL,
+      responseBody: {
+        captureState: 'completed',
+        body: JSON.stringify({ code: 'VERIFY_COMPILE_REJECTED' }),
+      },
+    },
+    {
+      kind: 'network',
+      observedAs: 'console-error',
+      text: 'Failed to load resource: the server responded with a status of 422 (Unprocessable Entity)',
+      method: 'POST',
+      status: 422,
+      injectedFault: true,
+      injectedStatus: 422,
+      injectedAction: 'fulfill',
+      injectedRequestId,
+      url: reconcileURL,
+    },
+  ];
+  const runSummary = async errors => {
+    const fake = fakeRunner({
+      scenarioID,
+      caseName,
+      rootDir: root,
+      domainReportOverride: {
+        errors,
+        target: { project: 'owned-project', explorer: 'recompile-explorer' },
+        injectedRequests: [{
+          id: injectedRequestId,
+          matched: true,
+          origin: 'http://127.0.0.1:30008',
+          path: reconcilePath,
+          method: 'POST',
+          action: 'fulfill',
+          configuredResponseStatus: 422,
+          playwrightRequestId,
+          url: reconcileURL,
+        }],
+      },
+    });
+    return runNativeVerificationBracket({
+      scenarioID,
+      caseName,
+      grep: 'Recompile recovers from automatic compilation failure$',
+      evidenceParent: parent,
+      root,
+      env: fake.env,
+      commandRunner: fake.commandRunner,
+    });
+  };
+
+  const validErrors = expectedErrors();
+  const accepted = await runSummary(validErrors);
+  assert.equal(accepted.status, 'passed');
+  assert.equal(accepted.reviewPacket.firstFailureReason, null);
+  const attachedReport = JSON.parse(readFileSync(accepted.reviewPacket.report, 'utf8'));
+  assert.deepEqual(attachedReport.errors, validErrors, 'summary classification must preserve the raw domain errors');
+
+  const unmarkedErrors = expectedErrors();
+  unmarkedErrors[0].injectedFault = false;
+  const mismatchedStatusErrors = expectedErrors();
+  mismatchedStatusErrors[0].injectedStatus = 400;
+  const negatives = [
+    ['unmarked 422', [unmarkedErrors[0]]],
+    ['mismatched injected status', [mismatchedStatusErrors[0]]],
+    ['mismatched HTTP status', [{ ...validErrors[0], status: 400 }]],
+    ['unrelated 500', [{ ...validErrors[0], status: 500, injectedStatus: 500 }]],
+    ['aborted request', [{ kind: 'network', errorText: 'net::ERR_ABORTED', canceled: false }]],
+    ['internal network error', [{ ...validErrors[0], internalError: true }]],
+    ['exception kind', [{ ...validErrors[0], kind: 'exception' }]],
+    ['console-error kind', [{ ...validErrors[1], kind: 'console-error' }]],
+  ];
+  for (const [label, errors] of negatives) {
+    const summary = await runSummary(errors);
+    assert(summary.reviewPacket.firstFailureReason, `${label} must remain a fatal report error`);
+  }
+});
+
 test('expected fault and HTTP markers match the CDA error gate', async (t) => {
   const parent = evidenceParent();
   t.after(() => rmSync(parent, { recursive: true, force: true }));

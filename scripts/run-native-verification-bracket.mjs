@@ -11,6 +11,7 @@ import { parseArgs } from 'node:util';
 import { coverageDrift, registry, scenarioCaseFor, unmappedLifecycleCoverage } from './verify-ui/registry.mjs';
 import { assertCapturedTargetMatches, parseCapturedBuildIdentity } from './verify-ui/helpers/owned-stack-health.mjs';
 import { sourceFingerprintChangedPaths } from './verify-ui/helpers/source-fingerprint.mjs';
+import { classifyNetworkRecord } from './verify-ui/helpers/report.mjs';
 import {
   classifyEvidence,
   summarizeLifecycleEvidence,
@@ -597,6 +598,7 @@ function isExpectedReportError(error) {
     || Boolean(error?.expectedCancellation)
     || Boolean(error?.expectedInjectedFault)
     || Boolean(error?.expectedHttpFailure)
+    || (error?.kind === 'network' && classifyNetworkRecord(error) === 'expected-injected')
     || (error?.kind === 'expected-injected' && error?.injectedFault === true);
 }
 
