@@ -11,6 +11,7 @@ import { captureSourceFreeze } from '../helpers/source-freeze.mjs';
 import { assertBoundedPreviewCount, assertPreviewRowsMatchRawObservations, assertReloadPreviewContext } from '../helpers/root-quantity-raw-preview.mjs';
 import { captureValidationWaitFailure, refreshValidationWaitFailureRequests } from '../helpers/validation-wait-evidence.mjs';
 import { installNativeAbortProbe } from '../helpers/native-abort-probe.mjs';
+import { builderCapabilitiesIdentityFromState, readBuilderCapabilitiesIdentity, watchConstructionCapabilitiesReadiness } from '../helpers/construction-capabilities-readiness.mjs';
 import { sourceFingerprint } from '../helpers/source-fingerprint.mjs';
 import { captureApiBuildFreeze, checkContainerApiBuildStamp } from '../helpers/api-build-freeze.mjs';
 import { fixtureSourceDigest } from '../../loom-dev.mjs';
@@ -525,12 +526,12 @@ const recordFact = (name, condition, evidence = {}) => {
   catch (error) { workflowError ??= error; return false; }
 };
 const drainResponseReads = async () => { await browserRequestCapture?.flush(); syncAuthoringRequests(); };
-const api = async (path, body) => {
+const api = async (path, body, timeoutMs = 30000) => {
   const response = await fetch(apiOrigin + path, {
     method: body ? 'POST' : 'GET',
     headers: { 'Content-Type': 'application/json', 'X-Request-ID': `root-quantity-category-${randomUUID()}` },
     ...(body ? { body: JSON.stringify(body) } : {}),
-    signal: AbortSignal.timeout(30000),
+    signal: AbortSignal.timeout(Math.max(1, Math.min(30000, Math.floor(timeoutMs)))),
   });
   const value = await response.json();
   report.requests.push({ path, body, status: response.status, response: value });
@@ -901,12 +902,12 @@ const expectedPivot = (request, oracle, duplicatePolicy, labelOverrides = {}) =>
   return { step, operation, preview, columns, expectedRows, categories, outputByIdentity: categoryByIdentity };
 };
 
-const assertRendered = async (columns, rows, label) => {
+const assertRendered = async (columns, rows, label, timeoutMs = actionRenderBudgetMs) => {
   await waitForObservable(page, ({ rowCount }) =>
     document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount') === String(rowCount + 1)
       && !document.body.innerText.includes('Loading your table…'),
-    { rowCount: rows.length }, 5000);
-  const actual = await collectPreviewRows(page, { timeout: actionRenderBudgetMs });
+    { rowCount: rows.length }, timeoutMs);
+  const actual = await collectPreviewRows(page, { timeout: timeoutMs });
   assert.equal(actual.rowCount, rows.length, `${label} rendered preview must expose every expected row`);
   assert.deepEqual(actual.headers.map(header => header.toLowerCase()), columns.map(column => column.label.toLowerCase()), `${label} headers must match the native output labels`);
   const expectedCells = rows.map(row => columns.map(column => row[column.column] === null || row[column.column] === undefined ? '—' : String(row[column.column])));
@@ -1274,14 +1275,43 @@ return [...document.querySelectorAll('[data-testid^="construction-history-step-"
   await assertProposalPanel({ columns: sourceColumns, expectedRows: expectedSourceRows }, 'Quantity Pivot removal preview');
   measure('quantity Pivot removal preview', removeStarted);
   const removeApplyStarted = Date.now();
-  await clickNative(page, '[data-testid="construction-apply-proposal"]');
-  await waitForObservable(page, () => Boolean(!document.querySelector('[data-testid="construction-proposal-panel"]')&&document.querySelectorAll('[data-testid^="construction-history-step-"]').length===0), 5000);
-  await assertRendered(sourceColumns, expectedSourceRows, 'Restored raw quantity source rows');
+  const remainingRemovalApplyBudget = () => {
+    const remaining = actionRenderBudgetMs - (Date.now() - removeApplyStarted);
+    if (remaining <= 0) throw new Error('Pivot removal Apply exhausted its five-second action-to-settled budget.');
+    return remaining;
+  };
+  const capabilitiesReadiness = watchConstructionCapabilitiesReadiness({
+    page,
+    project,
+    explorer,
+    apiOrigin: uiOrigin,
+  });
+  try {
+    await action('Apply Pivot removal, render exact raw rows, and settle capabilities',
+      page.locator('[data-testid="construction-apply-proposal"]'),
+      targetLocator => {
+        capabilitiesReadiness.markActionStarted();
+        return targetLocator.click({ timeout: remainingRemovalApplyBudget() });
+      }, {
+        timeout: actionRenderBudgetMs,
+        budget: actionRenderBudgetMs,
+        after: async () => {
+          await waitForObservable(page, () => Boolean(!document.querySelector('[data-testid="construction-proposal-panel"]')
+            && document.querySelectorAll('[data-testid^="construction-history-step-"]').length === 0), remainingRemovalApplyBudget());
+          await assertRendered(sourceColumns, expectedSourceRows, 'Restored raw quantity source rows', remainingRemovalApplyBudget());
+          builder = await api(base + '/builder', undefined, remainingRemovalApplyBudget());
+          document = assertBuilderScope(builder, 'After Pivot removal Apply');
+          assert.deepEqual(document.construction.steps, [], 'Pivot removal must restore the original root table definition');
+          assert.deepEqual(document.rows, prePivotDocument.rows, 'Pivot removal must restore the exact root Observation population definition');
+          const identity = builderCapabilitiesIdentityFromState(builder, { outputId });
+          const readiness = await capabilitiesReadiness.waitFor(identity, { timeoutMs: remainingRemovalApplyBudget() });
+          report.fixtureLifecycle.finalRemovalCapabilitiesReadiness = readiness;
+        },
+      });
+  } finally {
+    capabilitiesReadiness.dispose();
+  }
   measure('quantity Pivot removal Apply to render', removeApplyStarted);
-  builder = await api(base + '/builder');
-  document = assertBuilderScope(builder, 'After Pivot removal Apply');
-  assert.deepEqual(document.construction.steps, [], 'Pivot removal must restore the original root table definition');
-  assert.deepEqual(document.rows, prePivotDocument.rows, 'Pivot removal must restore the exact root Observation population definition');
   const restoredColumnIDs = assertSourceBindingsRestored(prePivotDocument.columns, document.columns, 'Pivot removal');
   const finalReloadStarted = Date.now();
   await gotoPage(page, browserURL({ uiUrl: uiOrigin }, project, explorer, 'builder'));

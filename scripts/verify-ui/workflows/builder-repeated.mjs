@@ -2,6 +2,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { browserURL } from './builder-url.mjs';
 import { click, configureNativePage, evaluate, fill, recordPlaywrightTiming, reload, waitFor, goto } from '../helpers/playwright-authoring-page.mjs';
+import { readBuilderCapabilitiesIdentity, watchConstructionCapabilitiesReadiness } from '../helpers/construction-capabilities-readiness.mjs';
 import { installNativeAbortProbe, nativeAbortSignalObservationForRequest } from '../helpers/native-abort-probe.mjs';
 import { recordCheck } from '../helpers/report.mjs';
 
@@ -485,17 +486,50 @@ const runRepeatedEmptyWorkflow = async (workflow, context) => {
       baseRows: 2,
       candidateRows: 3,
     });
-    await recordPlaywrightTiming(report, page, workflow, {
-      name: 'apply source-row removal and restore all three fixture Observation IDs',
-      action: () => click(workflow, '[aria-label="Row definition settings"] button', { name: 'Apply row definition' }),
-      after: mainReadyExpression(3),
-      timeout: 5000,
-      budget: 5000,
+    const capabilitiesReadiness = watchConstructionCapabilitiesReadiness({
+      page,
+      project: context.target.fixtureProject,
+      explorer,
+      apiOrigin: context.target.uiUrl,
     });
-    await requirePairs(report, page, {
-      name: 'source RECORDS restoration retains exact Observation/component first-value pairs after Apply',
-      expected: restoredSourcePairs,
-    });
+    try {
+      await recordPlaywrightTiming(report, page, workflow, {
+        name: 'apply source-row removal and restore all three fixture Observation IDs',
+        action: async () => workflow.action(
+          'Apply row-definition restoration',
+          page.getByRole('button', { name: 'Apply row definition', exact: true }),
+          locator => {
+            capabilitiesReadiness.markActionStarted();
+            return locator.click();
+          },
+        ),
+        after: mainReadyExpression(3),
+        settle: async ({ remainingMs }) => {
+          await requirePairs(report, page, {
+            name: 'source RECORDS restoration retains exact Observation/component first-value pairs after Apply',
+            expected: restoredSourcePairs,
+          });
+          const selectedOutputIDs = await evaluate(page, `([...document.querySelectorAll('[data-testid^="construction-table-"][aria-current="page"]')]
+            .map(element => element.getAttribute('data-testid')?.slice('construction-table-'.length) ?? '').filter(Boolean))`);
+          if (selectedOutputIDs.length !== 1) {
+            throw new Error(`The exact post-Apply capabilities request requires one selected source output; found ${selectedOutputIDs.length}.`);
+          }
+          const identity = await readBuilderCapabilitiesIdentity({
+            apiOrigin: context.target.apiUrl,
+            project: context.target.fixtureProject,
+            explorer,
+            outputId: selectedOutputIDs[0],
+            timeoutMs: remainingMs(),
+          });
+          const readiness = await capabilitiesReadiness.waitFor(identity, { timeoutMs: remainingMs() });
+          report.finalApplyCapabilitiesReadiness = readiness;
+        },
+        timeout: 5000,
+        budget: 5000,
+      });
+    } finally {
+      capabilitiesReadiness.dispose();
+    }
 
     await reload(page, mainReadyExpression(3));
     await requirePairs(report, page, {

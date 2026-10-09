@@ -147,3 +147,21 @@ test('CASE-010 keeps pending and failed native requests fatal', () => {
     nativeRequestTerminalLedger: { complete: true, requests: [{ state: 'failed', requestId: 'failed-request' }] },
   }), /observed failed native requests/);
 });
+
+test('CASE-010 waits for the exact restored-draft capabilities response inside the Apply-to-render budget before reload', () => {
+  const apply = workflowSource.indexOf("name: 'apply source-row removal and restore all three fixture Observation IDs'");
+  const reload = workflowSource.indexOf('await reload(page, mainReadyExpression(3));', apply);
+  const applyBlock = workflowSource.slice(apply, reload);
+  const watcher = workflowSource.lastIndexOf('const capabilitiesReadiness = watchConstructionCapabilitiesReadiness({', apply);
+  const watcherEnd = workflowSource.indexOf('});', watcher) + 3;
+  const watcherBlock = workflowSource.slice(watcher, watcherEnd);
+  assert(apply >= 0 && reload > apply);
+  assert(watcher >= 0 && watcher < apply && watcherEnd > watcher);
+  assert.match(workflowSource, /import\s*\{[^}]*readBuilderCapabilitiesIdentity[^}]*watchConstructionCapabilitiesReadiness[^}]*\}\s*from\s*['"]\.\.\/helpers\/construction-capabilities-readiness\.mjs['"]/);
+  assert.match(watcherBlock, /page,[\s\S]*?project:\s*context\.target\.fixtureProject[\s\S]*?explorer,[\s\S]*?apiOrigin:\s*context\.target\.uiUrl/);
+  assert.match(applyBlock, /capabilitiesReadiness\.markActionStarted\(\)[\s\S]*?locator\.click\(\)/);
+  assert.match(applyBlock, /after:\s*mainReadyExpression\(3\)/);
+  assert.match(applyBlock, /settle:\s*async\s*\(\{\s*remainingMs\s*\}\)[\s\S]*?requirePairs\([\s\S]*?readBuilderCapabilitiesIdentity\([\s\S]*?timeoutMs:\s*remainingMs\(\)[\s\S]*?capabilitiesReadiness\.waitFor\([\s\S]*?timeoutMs:\s*remainingMs\(\)/);
+  assert.match(applyBlock, /capabilitiesReadiness\.dispose\(\)/);
+  assert.match(applyBlock, /budget:\s*5000/);
+});

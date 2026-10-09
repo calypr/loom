@@ -110,14 +110,25 @@ export const goto = async (page, url, waitForExpression) => {
 };
 
 export const recordPlaywrightTiming = async (report, page, workflow, {
-  name, action, after, timeout = ACTION_TIMEOUT_MS, budget = ACTION_TIMEOUT_MS, dimension = 'usability',
+  name, action, after, settle, timeout = ACTION_TIMEOUT_MS, budget = ACTION_TIMEOUT_MS, dimension = 'usability',
 }) => {
   const waitTimeoutMs = Math.min(ACTION_TIMEOUT_MS, timeout);
   const budgetMs = Math.min(ACTION_TIMEOUT_MS, budget);
   const started = Date.now();
+  const remainingMs = () => Math.max(0, budgetMs - (Date.now() - started));
+  const requireRemainingMs = phase => {
+    const remaining = remainingMs();
+    if (remaining <= 0) throw new Error(`${name} exhausted its ${budgetMs} ms budget before ${phase}.`);
+    return remaining;
+  };
   try {
     await action();
-    if (after) await waitFor(page, after, waitTimeoutMs);
+    if (after) await waitFor(page, after, settle ? Math.min(waitTimeoutMs, requireRemainingMs('the render checkpoint')) : waitTimeoutMs);
+    if (settle) {
+      if (typeof settle !== 'function') throw new TypeError(`${name} settlement must be a function.`);
+      await settle({ deadlineAt: started + budgetMs, remainingMs, timeoutMs: requireRemainingMs('settlement') });
+      requireRemainingMs('settlement completion');
+    }
     const elapsedMs = Date.now() - started;
     report.actions.push({ name, status: 'passed', elapsedMs, renderTimeoutMs: waitTimeoutMs, performanceBudgetMs: budgetMs });
     report.timings[name] = elapsedMs;

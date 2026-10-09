@@ -176,6 +176,27 @@ test('CASE-016 installs exact abort diagnostics before Builder navigation and ke
   assert.equal(report.status, 'failed');
 });
 
+test('CASE-016 waits for exact restored-draft capabilities settlement within the removal Apply-to-render budget before reload', async () => {
+  const workflow = await readFile(new URL('../../workflows/root-quantity-pivot-workflow.mjs', import.meta.url), 'utf8');
+  const apply = workflow.indexOf("Apply Pivot removal, render exact raw rows, and settle capabilities");
+  const reload = workflow.indexOf("await gotoPage(page, browserURL({ uiUrl: uiOrigin }, project, explorer, 'builder'));", apply);
+  const applyBlock = workflow.slice(apply, reload);
+  const watcher = workflow.lastIndexOf('const capabilitiesReadiness = watchConstructionCapabilitiesReadiness({', apply);
+  const watcherEnd = workflow.indexOf('});', watcher) + 3;
+  const watcherBlock = workflow.slice(watcher, watcherEnd);
+  assert(apply >= 0 && reload > apply);
+  assert(watcher >= 0 && watcher < apply && watcherEnd > watcher);
+  assert.match(workflow, /import\s*\{[^}]*readBuilderCapabilitiesIdentity[^}]*watchConstructionCapabilitiesReadiness[^}]*\}\s*from\s*['"]\.\.\/helpers\/construction-capabilities-readiness\.mjs['"]/);
+  assert.match(watcherBlock, /page,[\s\S]*?project,[\s\S]*?explorer,[\s\S]*?apiOrigin:\s*uiOrigin/);
+  assert.match(applyBlock, /capabilitiesReadiness\.markActionStarted\(\)[\s\S]*?targetLocator\.click/);
+  assert.match(applyBlock, /budget:\s*actionRenderBudgetMs/);
+  assert.match(applyBlock, /after:\s*async\s*\(\)[\s\S]*?assertRendered\(sourceColumns, expectedSourceRows,[\s\S]*?remainingRemovalApplyBudget\(\)[\s\S]*?api\(base \+ '\/builder', undefined, remainingRemovalApplyBudget\(\)\)[\s\S]*?capabilitiesReadiness\.waitFor\([\s\S]*?timeoutMs:\s*remainingRemovalApplyBudget\(\)/);
+  assert.match(applyBlock, /builderCapabilitiesIdentityFromState\(builder,\s*\{\s*outputId\s*\}\)/);
+  assert.doesNotMatch(applyBlock, /readBuilderCapabilitiesIdentity\(/,
+    'reuse the exact Builder response already read for post-removal lifecycle validation');
+  assert.match(applyBlock, /capabilitiesReadiness\.dispose\(\)/);
+});
+
 test('fixture workflow diagnostics drain owned HTTP bodies and keep raw browser projection explicit', async () => {
   let resolveBody;
   const body = new Promise(resolve => { resolveBody = resolve; });
