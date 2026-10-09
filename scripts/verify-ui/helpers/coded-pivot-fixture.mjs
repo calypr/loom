@@ -1,7 +1,27 @@
 export const CODED_PIVOT_OBSERVATION_ID = '485e2567-b566-56f3-b5bd-5f025f37cd95';
 
 export function codedPivotRestoredSourceRowVisible({ id }) {
-  return document.querySelector('[data-testid="preview-table-scroll"]')?.innerText.includes(id);
+  if (typeof id !== 'string' || id.length === 0) return false;
+  const previewContainers = document.querySelectorAll('[data-testid="preview-table-scroll"]');
+  if (previewContainers.length !== 1) return false;
+
+  const preview = previewContainers[0];
+  if (preview.innerText.includes('Loading your table…')) return false;
+  const tables = preview.querySelectorAll('[role="table"]');
+  if (tables.length !== 1) return false;
+
+  const table = tables[0];
+  if (table.getAttribute('aria-rowcount') !== '2' || table.getAttribute('aria-colcount') !== '1') return false;
+  const headers = [...table.querySelectorAll('[role="columnheader"]')];
+  if (headers.length !== 1 || headers[0].innerText.replace(/\s+/g, ' ').trim().toUpperCase() !== 'OBSERVATION ID') {
+    return false;
+  }
+
+  const bodyRows = [...table.querySelectorAll('[role="row"]')]
+    .filter(row => !row.querySelector('[role="columnheader"]'));
+  if (bodyRows.length !== 1) return false;
+  const cells = [...bodyRows[0].querySelectorAll('[role="cell"]')];
+  return cells.length === 1 && cells[0].innerText.trim() === id;
 }
 
 export function codedPivotRemovalProposalReady({ id }) {

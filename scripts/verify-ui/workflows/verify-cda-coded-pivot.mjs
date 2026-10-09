@@ -738,7 +738,9 @@ try {
   timing('remove-action-to-restoration-proposal', removalProposalStarted);
   const removalApplyStarted = Date.now();
   await action('Apply coded pivot removal', page.locator('[data-testid="construction-apply-proposal"]'));
-  await waitNative( () => document.querySelectorAll('[data-testid^="construction-history-step-"]').length === 0, {}, 5000);
+  await waitNative(() => document.querySelectorAll('[data-testid^="construction-history-step-"]').length === 0, {}, 5000);
+  const remainingRestoreBudgetMs = Math.max(1, DEFAULT_ACTION_TO_RENDER_BUDGET_MS - (Date.now() - removalApplyStarted));
+  await waitNative(codedPivotRestoredSourceRowVisible, { id: observationId }, remainingRestoreBudgetMs);
   const removedRows = await cda.inspect(() => ({
     headers: [...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].map(cell => cell.innerText),
     rows: [...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]')].slice(1)
@@ -754,8 +756,15 @@ try {
   report.restored = await cda.inspect( () => ({ historyCount: document.querySelectorAll('[data-testid^="construction-history-step-"]').length, body: document.body.innerText.slice(0, 900) }));
   assert.equal(report.restored.historyCount, 0);
   await waitNative(codedPivotRestoredSourceRowVisible, { id: observationId }, 5000);
-  report.restored.headers = await cda.inspect( () => [...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].map(cell => cell.innerText));
+  const restoredRows = await cda.inspect(() => ({
+    headers: [...document.querySelectorAll('[data-testid="preview-table-scroll"] [role=columnheader]')].map(cell => cell.innerText),
+    rows: [...document.querySelectorAll('[data-testid="preview-table-scroll"] [role=row]')].slice(1)
+      .map(row => [...row.querySelectorAll('[role=cell]')].map(cell => cell.innerText)),
+  }));
+  report.restored.headers = restoredRows.headers;
+  report.restored.rows = restoredRows.rows;
   assert.deepEqual(report.restored.headers, ['OBSERVATION ID']);
+  assert.deepEqual(report.restored.rows, [[observationId]]);
   timing('restoration-reload-to-source-render', restorationReloadStarted);
   const restoredBuilder = await api(`${createdScope.authoringBase}/builder`);
   const restoredDocument = documentFor(restoredBuilder);

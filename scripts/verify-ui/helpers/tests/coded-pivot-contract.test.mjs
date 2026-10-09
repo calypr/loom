@@ -1059,23 +1059,50 @@ test('rendered coded values bind each exact Coding to its persisted output heade
   assert.throws(() => codedPivotRenderedValuesFor({ ...rendered, rows: [[CODED_PIVOT_OBSERVATION_ID, 'Ductal and lobular neoplasms', 'analyte']] }, codedStep, expected), /specimen_type value must be "analyte" under "Specimen type"/);
 });
 
-test('serialized browser predicates bind readiness to their explicit ID and linked preview rows', () => {
-  const restorationCalls = [];
-  const browserRestorationPredicate = runInNewContext(`(${codedPivotRestoredSourceRowVisible.toString()})`, {
-    document: {
-      querySelector(selector) {
-        restorationCalls.push(selector);
-        return { innerText: `Observation ${CODED_PIVOT_OBSERVATION_ID}` };
-      },
-    },
-  });
-  assert.equal(browserRestorationPredicate({ id: CODED_PIVOT_OBSERVATION_ID }), true);
-  assert.equal(browserRestorationPredicate({ id: 'different-observation' }), false);
-  assert.deepEqual(restorationCalls, [
-    '[data-testid="preview-table-scroll"]',
-    '[data-testid="preview-table-scroll"]',
-  ]);
+test('coded Pivot restoration wait requires one exact source preview row in native Playwright', async t => {
+  const browser = await chromium.launch({ channel: 'chrome', headless: true });
+  t.after(() => browser.close());
+  const page = await browser.newPage();
+  const previewMarkup = ({
+    headers = ['Observation ID'],
+    rows = [[CODED_PIVOT_OBSERVATION_ID]],
+    tableCount = 1,
+    loading = false,
+    includePreview = true,
+  } = {}) => `<!doctype html><html><body>
+    ${includePreview ? `<div data-testid="preview-table-scroll">
+      ${loading ? '<p>Loading your table…</p>' : ''}
+      ${Array.from({ length: tableCount }, () => `<div role="table" aria-rowcount="${rows.length + 1}" aria-colcount="${headers.length}">
+        <div role="row">${headers.map(header => `<div role="columnheader">${header}</div>`).join('')}</div>
+        ${rows.map(values => `<div role="row"><button type="button" aria-label="Inspect row 1 identity">1</button>
+          ${values.map(value => `<div role="cell"><div>${value}</div></div>`).join('')}
+        </div>`).join('')}
+      </div>`).join('')}
+    </div>` : ''}
+  </body></html>`;
+  const ready = () => page.evaluate(codedPivotRestoredSourceRowVisible, { id: CODED_PIVOT_OBSERVATION_ID });
 
+  await page.setContent(previewMarkup({ includePreview: false }));
+  assert.equal(await ready(), false, 'A missing preview is not restoration evidence.');
+  await page.setContent(previewMarkup({ rows: [], loading: true }));
+  assert.equal(await ready(), false, 'The transitional loading preview is not restoration evidence.');
+
+  await page.setContent(previewMarkup());
+  assert.equal(await ready(), true, 'The exact single-row Observation preview is restoration evidence.');
+  assert.equal(await page.evaluate(codedPivotRestoredSourceRowVisible, { id: 'different-observation' }), false,
+    'A different requested source ID cannot satisfy the wait.');
+
+  await page.setContent(previewMarkup({ rows: [['different-observation']] }));
+  assert.equal(await ready(), false, 'A preview row with the wrong ID is rejected.');
+  await page.setContent(previewMarkup({ rows: [[CODED_PIVOT_OBSERVATION_ID], ['extra-observation']] }));
+  assert.equal(await ready(), false, 'An extra body row is rejected even when the expected ID is present.');
+  await page.setContent(previewMarkup({ headers: ['Observation ID', 'Unexpected column'], rows: [[CODED_PIVOT_OBSERVATION_ID, 'extra']] }));
+  assert.equal(await ready(), false, 'An extra header is rejected.');
+  await page.setContent(previewMarkup({ tableCount: 2 }));
+  assert.equal(await ready(), false, 'Multiple preview tables are rejected.');
+});
+
+test('serialized removal predicate binds readiness to the exact proposal and preview rows', () => {
   const removalPredicateFor = ({
     panelStatus = 'ready',
     proposalId = 'receipt-1',
