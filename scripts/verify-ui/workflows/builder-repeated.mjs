@@ -2,6 +2,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { browserURL } from './builder-url.mjs';
 import { click, configureNativePage, evaluate, fill, recordPlaywrightTiming, reload, waitFor, goto } from '../helpers/playwright-authoring-page.mjs';
+import { installNativeAbortProbe, nativeAbortSignalObservationForRequest } from '../helpers/native-abort-probe.mjs';
 import { recordCheck } from '../helpers/report.mjs';
 
 
@@ -216,7 +217,7 @@ const openRowPanel = async (report, page, workflow, name, after) => {
 const openRowDefinition = (report, page, workflow, name) =>
   openRowPanel(report, page, workflow, name, rowDefinitionReadyExpression);
 
-export const repeatedEmptyWorkflow = async (workflow, context = workflow) => {
+const runRepeatedEmptyWorkflow = async (workflow, context) => {
   const { page, report } = workflow;
   configureNativePage(page);
   const contract = fixtureContract(context);
@@ -226,6 +227,13 @@ export const repeatedEmptyWorkflow = async (workflow, context = workflow) => {
 
     const { explorer } = await createBlankExplorer(page, workflow, context.target, context.runID, 'repeated-empty', report);
     report.target.explorer = explorer;
+    await installNativeAbortProbe({
+      page,
+      report,
+      project: context.target.fixtureProject,
+      explorer,
+      apiOrigin: new URL(page.url()).origin,
+    });
     const assertScope = async (name) => {
       const scope = await evaluate(page, `(()=>{const query=new URLSearchParams(location.search);return {project:query.get('project'),explorer:query.get('explorer'),mode:query.get('mode')}})()`);
       const passed = scope.project === context.target.fixtureProject && scope.explorer === explorer && scope.mode === 'builder' &&
@@ -501,4 +509,103 @@ export const repeatedEmptyWorkflow = async (workflow, context = workflow) => {
       restoredShape.value === 'records' && !restoredShape.history, restoredShape);
     report.target.explorer = explorer;
     report.target.componentCodeChoice = componentCodeChoice;
+};
+
+export const retainRepeatedEmptyNativeRequestLedger = ({ report, ledger, project, origin, explorer }) => {
+  if (!report || !ledger || typeof project !== 'string' || typeof origin !== 'string' || typeof explorer !== 'string') {
+    throw new TypeError('Repeated-empty native request retention requires the exact report, ledger, project, origin, and Explorer.');
+  }
+  report.nativeRequests = ledger.nativeRequests;
+  report.nativeRequestDrainEvidence = ledger.nativeRequestDrainEvidence;
+  report.excludedNativeRequests = ledger.excludedNativeRequests;
+  report.excludedNativeRequestDrainEvidence = ledger.excludedNativeRequestDrainEvidence;
+  report.nativeRequestCorrelationErrors = ledger.nativeRequestCorrelationErrors;
+  report.nativeRequestTerminalLedger = ledger.nativeRequestTerminalLedger;
+  report.nativeRequestIncompleteRequests = ledger.incompleteRequests;
+  report.nativeRequestCaptureScope = {
+    project,
+    origin,
+    explorer,
+    terminalLedgerScope: ledger.nativeRequestTerminalLedger?.scope ?? null,
+  };
+
+  const schemaFieldsPath = `/api/v1/projects/${encodeURIComponent(project)}/explorers/${encodeURIComponent(explorer)}/authoring/v2/schema-fields`;
+  report.nativeAbortProbeCorrelations = [];
+  for (const [nativeRequestIndex, entry] of report.nativeRequests.entries()) {
+    if (entry.origin !== origin || entry.path !== schemaFieldsPath || entry.method !== 'POST') continue;
+    const requestId = entry.requestDetails?.requestId;
+    const requestIdentityMatchCount = typeof requestId === 'string'
+      ? report.nativeRequests.filter(candidate => candidate.requestDetails?.requestId === requestId &&
+        candidate.origin === entry.origin && candidate.path === entry.path && candidate.method === entry.method).length
+      : 0;
+    report.nativeAbortProbeCorrelations.push({
+      nativeRequestIndex,
+      requestId: requestId ?? null,
+      origin: entry.origin,
+      path: entry.path,
+      method: entry.method,
+      requestIdentityMatchCount,
+      observation: nativeAbortSignalObservationForRequest(
+        { ...entry, requestIdentityMatchCount }, report.nativeAbortProbeEvents ?? [],
+      ),
+    });
+  }
+  return report.nativeAbortProbeCorrelations;
+};
+
+export const assertRepeatedEmptyNativeRequestLedgerComplete = (ledger) => {
+  if (!ledger?.nativeRequestTerminalLedger?.complete) {
+    throw new Error('Repeated-empty native request ledger did not reach a complete terminal state: ' +
+      JSON.stringify({ incompleteRequests: ledger?.incompleteRequests ?? [],
+        nativeRequestDrainEvidence: ledger?.nativeRequestDrainEvidence ?? [],
+        nativeRequestCorrelationErrors: ledger?.nativeRequestCorrelationErrors ?? [] }));
+  }
+  const failedRequests = (ledger.nativeRequestTerminalLedger.requests ?? []).filter(entry => entry.state === 'failed');
+  if (failedRequests.length) {
+    throw new Error('Repeated-empty observed failed native requests: ' + JSON.stringify(failedRequests.map(({ requestId, browserRequestId, method, path, failure }) => ({ requestId, browserRequestId, method, path, failure }))));
+  }
+  return true;
+};
+
+export const repeatedEmptyWorkflow = async (workflow, context = workflow) => {
+  const { report, nativeRequestLedger } = workflow;
+  if (!nativeRequestLedger?.openScope || !nativeRequestLedger?.flush) {
+    throw new TypeError('Repeated-empty requires the fixture-owned native request ledger.');
+  }
+  const project = context.target.fixtureProject;
+  const origin = new URL(context.target.uiUrl).origin;
+  const scope = nativeRequestLedger.openScope({ project, origin });
+
+  let workflowError;
+  try {
+    await runRepeatedEmptyWorkflow(workflow, context);
+  } catch (error) {
+    workflowError = error;
+  }
+
+  let captureError;
+  let ledger;
+  try {
+    ledger = await nativeRequestLedger.flush(scope, {
+      explorer: report.target?.explorer,
+      timeoutMs: 5000,
+    });
+  } catch (error) {
+    captureError = error;
+    report.nativeRequestCaptureError = error instanceof Error ? error.message : String(error);
+  }
+
+  if (ledger && report.target?.explorer) {
+    retainRepeatedEmptyNativeRequestLedger({
+      report,
+      ledger,
+      project,
+      origin,
+      explorer: report.target.explorer,
+    });
+  }
+  if (workflowError) throw workflowError;
+  if (captureError) throw captureError;
+  if (!ledger) throw new Error('Repeated-empty native request ledger was not finalized.');
+  assertRepeatedEmptyNativeRequestLedgerComplete(ledger);
 };

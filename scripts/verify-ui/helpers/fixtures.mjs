@@ -24,6 +24,8 @@ import { sourceFingerprintChangedPaths, sourceFingerprintWithManifest } from './
 import { captureNativeFailureEvidence, MAX_NATIVE_FAILURE_CAPTURE_MS } from './native-failure-evidence.mjs';
 import { correlateRequestFailure } from './network-timing.mjs';
 import { captureConstructionChoiceProposalRequest } from './construction-choice-request.mjs';
+import { createPendingResponseReads } from './pending-response-reads.mjs';
+import { includeBrowserDiagnostics } from './cda-playwright.mjs';
 import {
   createFixtureNativeRequestLedger,
   finalizeFixtureNativeRequestReport,
@@ -34,6 +36,84 @@ const ACTION_TIMEOUT_MS = 5_000;
 const CONTEXT_SETUP_TIMEOUT_MS = 120_000;
 const MAX_DIAGNOSTICS = 100;
 const safeText = (value) => sanitizeText(value).slice(0, 4_000);
+
+export function createFixtureBrowserDiagnostics(report) {
+  if (!report || typeof report !== 'object') {
+    throw new TypeError('Fixture browser diagnostics require a report object.');
+  }
+  const channels = ['pageErrors', 'console', 'networkFailures', 'httpFailures', 'assetFailures'];
+  const diagnostics = Object.fromEntries(channels.map(channel => [channel, []]));
+  const droppedCounts = Object.fromEntries(channels.map(channel => [channel, 0]));
+  diagnostics.droppedCounts = droppedCounts;
+  const responseReads = createPendingResponseReads();
+  let overflowError;
+  const reportCaptureCounts = () => {
+    const retainedCounts = Object.fromEntries(channels.map(channel => [channel, diagnostics[channel].length]));
+    report.browserDiagnostics = { retainedCounts, droppedCounts: { ...droppedCounts } };
+    if (Object.values(droppedCounts).some(count => count > 0)) {
+      report.errors ??= [];
+      if (!overflowError) {
+        overflowError = {
+          kind: 'browser-diagnostic-overflow',
+          message: 'Fixture browser diagnostics exceeded a per-channel capture limit.',
+          droppedCounts: { ...droppedCounts },
+        };
+        report.errors.push(overflowError);
+        recordCheck(report, 'correctness', 'fixture browser diagnostic channels stayed within capture limits', false,
+          { retainedCounts, droppedCounts: { ...droppedCounts }, limitPerChannel: MAX_DIAGNOSTICS });
+      } else {
+        overflowError.droppedCounts = { ...droppedCounts };
+        const assertion = report.assertions?.find(item => item.name === 'fixture browser diagnostic channels stayed within capture limits'
+          && item.status === 'failed');
+        if (assertion) assertion.evidence = { retainedCounts, droppedCounts: { ...droppedCounts }, limitPerChannel: MAX_DIAGNOSTICS };
+      }
+    }
+  };
+  const project = () => {
+    includeBrowserDiagnostics(diagnostics, report);
+    reportCaptureCounts();
+  };
+  const flushHttpDiagnostics = ({ timeoutMs = 5_000 } = {}) =>
+    responseReads.flush({ timeoutMs, label: 'fixture HTTP diagnostic bodies' });
+  return {
+    diagnostics,
+    record(channel, entry) {
+      const entries = diagnostics[channel];
+      if (!Array.isArray(entries)) throw new TypeError(`Unknown fixture browser diagnostic channel: ${channel}`);
+      if (entries.length >= MAX_DIAGNOSTICS) {
+        droppedCounts[channel] += 1;
+        return false;
+      }
+      entries.push(entry);
+      return true;
+    },
+    trackHttpDiagnosticRead(read, details) {
+      return responseReads.track(read, { phase: 'fixture-http-response-body', ...details });
+    },
+    flushHttpDiagnostics,
+    includeBrowserDiagnostics() {
+      project();
+    },
+    async finalize({ timeoutMs = 5_000 } = {}) {
+      let drainError;
+      try {
+        await flushHttpDiagnostics({ timeoutMs });
+      } catch (error) {
+        drainError = safeText(error?.message ?? error);
+        report.errors ??= [];
+        report.errors.push({ kind: 'browser-diagnostic-drain', message: drainError });
+        recordCheck(report, 'correctness', 'fixture HTTP response diagnostics drained before report finalization', false,
+          { message: drainError, timeoutMs });
+      }
+      reportCaptureCounts();
+      if (!drainError) {
+        recordCheck(report, 'correctness', 'fixture HTTP response diagnostics drained before report finalization', true,
+          { timeoutMs, retainedHttpDiagnostics: diagnostics.httpFailures.length });
+      }
+      return { drainError, droppedCounts: { ...droppedCounts } };
+    },
+  };
+}
 
 const safeURL = (raw) => {
   try {
@@ -231,6 +311,7 @@ export const test = base.extend({
     const requestIDs = new WeakMap();
     const requestMetadata = new WeakMap();
     const nativeRequestLedger = createFixtureNativeRequestLedger();
+    const browserDiagnostics = createFixtureBrowserDiagnostics(report);
     const mainFrameNavigations = [];
     let navigationSequence = 0;
     let droppedNavigationTimings = 0;
@@ -343,9 +424,11 @@ export const test = base.extend({
     const onConsole = (message) => {
       if (message.type() !== 'error') return;
       if (isIncidentalFavicon(message.location().url, target, 404) && message.text().includes('404')) {
-        report.assetFailures.push({ kind: 'asset-failure', url: safeURL(message.location().url), status: 404 });
+        const failure = { kind: 'asset-failure', url: safeURL(message.location().url), status: 404 };
+        if (browserDiagnostics.record('assetFailures', failure)) report.assetFailures.push(failure);
         return;
       }
+      browserDiagnostics.record('console', { text: safeText(message.text()), location: safeURL(message.location().url) });
       addDiagnostic({
         kind: 'console-error',
         text: safeText(message.text()),
@@ -353,9 +436,11 @@ export const test = base.extend({
         rawLocation: message.location().url,
       });
     };
-    const onPageError = (error) => addDiagnostic({
-      kind: 'exception', message: safeText(error.message), stack: safeText(error.stack),
-    });
+    const onPageError = (error) => {
+      const failure = { message: safeText(error.message), stack: safeText(error.stack) };
+      browserDiagnostics.record('pageErrors', failure);
+      addDiagnostic({ kind: 'exception', ...failure });
+    };
     const onResponse = (response) => {
       nativeRequestLedger.recordResponse(response.request(), {
         status: response.status(),
@@ -370,7 +455,8 @@ export const test = base.extend({
       }
       if (response.status() < 400 || !belongsToTarget(response.request())) return;
       if (isIncidentalFavicon(response.url(), target, response.status())) {
-        report.assetFailures.push({ kind: 'asset-failure', url: safeURL(response.url()), status: 404 });
+        const failure = { kind: 'asset-failure', url: safeURL(response.url()), status: 404 };
+        if (browserDiagnostics.record('assetFailures', failure)) report.assetFailures.push(failure);
         return;
       }
       const request = response.request();
@@ -391,12 +477,24 @@ export const test = base.extend({
       };
       nativeRequestLedger.associateDiagnostic(request, entry);
       if (!addDiagnostic(entry)) return;
-      void response.text().then(body => {
+      const read = Promise.resolve().then(() => response.text()).then(body => {
         responseBody.captureState = 'completed';
         responseBody.body = sanitizeBody(body);
+        browserDiagnostics.record('httpFailures', { url: entry.url, status: entry.status, body: responseBody.body,
+          browserRequestId: entry.playwrightRequestId, playwrightRequestId: entry.playwrightRequestId });
       }, error => {
         responseBody.captureState = 'readfailed';
         responseBody.error = safeText(error?.message ?? error);
+        browserDiagnostics.record('httpFailures', { url: entry.url, status: entry.status, body: responseBody,
+          browserRequestId: entry.playwrightRequestId, playwrightRequestId: entry.playwrightRequestId });
+        throw error;
+      });
+      browserDiagnostics.trackHttpDiagnosticRead(read, {
+        browserRequestId: entry.playwrightRequestId,
+        requestId: entry.requestDetails.requestId,
+        method: entry.method,
+        path: new URL(entry.rawURL).pathname,
+        status: entry.status,
       });
     };
     const onRequestFailed = (request) => {
@@ -424,6 +522,8 @@ export const test = base.extend({
         }) } : { failedAtMs: Math.round(failedAt - workflowStartedAt) }),
         ...capabilityRequests.get(request), triggerAction: metadata?.action?.label ?? null,
       };
+      browserDiagnostics.record('networkFailures', { url: entry.url, errorText: entry.errorText,
+        browserRequestId: entry.playwrightRequestId, playwrightRequestId: entry.playwrightRequestId });
       nativeRequestLedger.associateDiagnostic(request, entry);
       addDiagnostic(entry);
     };
@@ -569,7 +669,7 @@ export const test = base.extend({
     };
 
     try {
-      await use({ ...loomContext, page, check, action, fault, nativeRequestLedger });
+      await use({ ...loomContext, ...browserDiagnostics, page, check, action, fault, nativeRequestLedger });
     } finally {
       for (const handler of faultRouteHandlers) await page.unroute('**/*', handler);
       page.removeListener('requestfinished', onRequestFinished);
@@ -579,6 +679,7 @@ export const test = base.extend({
       page.removeListener('pageerror', onPageError);
       page.removeListener('response', onResponse);
       page.removeListener('requestfailed', onRequestFailed);
+      await browserDiagnostics.finalize({ timeoutMs: 5_000 });
       projectFixtureNetworkDiagnostics({ report, ledger: nativeRequestLedger, faults: faultAttempts });
       for (const failure of report.network) {
         const replacement = supersedingCapabilityRequest(failure, [...capabilityRequests.values()]);

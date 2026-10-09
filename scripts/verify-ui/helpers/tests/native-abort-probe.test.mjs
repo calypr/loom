@@ -3,6 +3,7 @@ import test from 'node:test';
 import vm from 'node:vm';
 import {
   createNativeAbortProbeSource,
+  installNativeAbortProbe,
   nativeAbortNetworkFailureClock,
   nativeAbortProbeEvidenceForRequest,
   nativeAbortSignalObservationForRequest,
@@ -12,7 +13,9 @@ import { classifyExpectedOwnedCancellation, nativeReadRequestMatchesExpectedScop
 const project = 'loom_dev_test';
 const explorer = 'abort-probe-test';
 const apiOrigin = 'http://127.0.0.1:8188';
-const apiPath = (endpoint) => `/api/v1/projects/${project}/explorers/${explorer}/authoring/v2/${endpoint}`;
+const apiPathFor = (scopeProject, scopeExplorer, endpoint) =>
+  `/api/v1/projects/${encodeURIComponent(scopeProject)}/explorers/${encodeURIComponent(scopeExplorer)}/authoring/v2/${endpoint}`;
+const apiPath = (endpoint) => apiPathFor(project, explorer, endpoint);
 const requestId = (prefix, tail) => `${prefix}${tail}-0000-4000-8000-000000000000`;
 const withCDPIdentity = (entry) => ({
   ...entry,
@@ -127,7 +130,7 @@ const constructionCapabilitiesDom = (outputId = 'out_fcb5bc77cf3b4ac9b41498b4') 
   return { nodes: [table], table };
 };
 
-const startProbe = ({ dom, origin = apiOrigin } = {}) => {
+const startProbe = ({ dom, origin = apiOrigin, scopeProject = project, scopeExplorer = explorer, source, bindingCallback } = {}) => {
   const events = [];
   const listeners = new Map();
   let now = 100;
@@ -190,12 +193,15 @@ const startProbe = ({ dom, origin = apiOrigin } = {}) => {
       promise.catch(() => {});
       return promise;
     },
-    __loomNativeAbortProbeBinding: (payload) => events.push(JSON.parse(payload)),
+    __loomNativeAbortProbeBinding: (payload) => {
+      events.push(JSON.parse(payload));
+      bindingCallback?.({}, payload);
+    },
   };
   sandbox.globalThis = sandbox;
-  const source = createNativeAbortProbeSource({ project, explorer, apiOrigin: origin });
-  assert.doesNotThrow(() => new Function(source));
-  vm.runInNewContext(source, sandbox);
+  const probeSource = source ?? createNativeAbortProbeSource({ project: scopeProject, explorer: scopeExplorer, apiOrigin: origin });
+  assert.doesNotThrow(() => new Function(probeSource));
+  vm.runInNewContext(probeSource, sandbox);
   return { sandbox, events, listeners, fetchCalls, advanceTime: (value) => { now = value; } };
 };
 
@@ -273,6 +279,270 @@ test('probe ignores wrong-scope, unknown-endpoint, and unrecognized-request-id f
   const event = events.find((item) => item.kind === 'abort-controller-call');
   assert(event);
   assert.deepEqual(event.requests, []);
+});
+
+test('shared installer captures retained schema-fields IDs on the active page and rejects scope or owner mismatches', async () => {
+  const uiOrigin = 'http://127.0.0.1:30008';
+  const retainedCases = [
+    {
+      project: 'loom_dev_verify_mv0tf40v-45d6120',
+      explorer: 'verify-0v-45d6120-cohort-recode',
+      requestId: 'schema-fields-33875306-8d49-4e3d-8baf-e0f0155eee4e',
+    },
+    {
+      project: 'loom_dev_verify_mv0tf56y-4add698',
+      explorer: 'verify-6y-4add698-cohort-expand',
+      requestId: 'schema-fields-a355125f-9b3f-4854-9582-7dc8aa54cbe8',
+    },
+  ];
+  const installOnCurrentPage = async ({ scope, dom = featureCatalogDom() }) => {
+    const calls = [];
+    let binding;
+    let currentPageSource;
+    const browserContext = {
+      exposeBinding: async (name, callback) => {
+        calls.push(['binding', name]);
+        binding = callback;
+      },
+      addInitScript: async (source) => calls.push(['init', source]),
+    };
+    const page = {
+      context: () => browserContext,
+      evaluate: async (source) => {
+        calls.push(['current-page', source]);
+        currentPageSource = source;
+      },
+    };
+    const report = {};
+    const events = await installNativeAbortProbe({
+      page,
+      report,
+      project: scope.project,
+      explorer: scope.explorer,
+      apiOrigin: `${uiOrigin}/ignored-path`,
+    });
+    assert.deepEqual(calls.map(([kind]) => kind), ['binding', 'init', 'current-page']);
+    assert.equal(calls[0][1], '__loomNativeAbortProbeBinding');
+    assert.equal(calls[1][1], currentPageSource);
+    assert.equal(events, report.nativeAbortProbeEvents);
+
+    const probe = startProbe({
+      dom,
+      origin: uiOrigin,
+      scopeProject: scope.project,
+      scopeExplorer: scope.explorer,
+      source: currentPageSource,
+      bindingCallback: binding,
+    });
+    return { probe, report };
+  };
+
+  for (const retained of retainedCases) {
+    const { probe, report } = await installOnCurrentPage({ scope: retained });
+    const path = apiPathFor(retained.project, retained.explorer, 'schema-fields');
+    const controller = new probe.sandbox.AbortController();
+    probe.sandbox.fetch(`${uiOrigin}${path}`, {
+      method: 'POST', headers: { 'X-Request-ID': retained.requestId }, signal: controller.signal,
+    });
+    controller.abort();
+
+    const abortEvent = probe.events.find((event) => event.kind === 'abort-controller-call');
+    const observation = nativeAbortSignalObservationForRequest({
+      requestCorrelationId: retained.requestId,
+      requestIdentityMatchCount: 1,
+      origin: uiOrigin,
+      path,
+      method: 'POST',
+    }, [abortEvent]);
+    assert.equal(observation.exactRequestSignalCorrelation, true);
+    assert.equal(observation.requestId, retained.requestId);
+    assert.equal(observation.ownerDomAtFetch.ruleOwner, 'feature-catalog-generated-fields');
+    assert.equal(observation.ownerDomAtFetch.status, 'unique');
+    assert(report.nativeAbortProbeEvents.some((event) => event.kind === 'probe-installed'));
+    assert(report.nativeAbortProbeEvents.some((event) => event.kind === 'abort-controller-call'));
+
+    const wrongScopeFetches = [
+      `${apiOrigin}${path}`,
+      `${uiOrigin}${apiPathFor('other-project', retained.explorer, 'schema-fields')}`,
+      `${uiOrigin}${apiPathFor(retained.project, 'other-explorer', 'schema-fields')}`,
+    ];
+    for (const url of wrongScopeFetches) {
+      const unownedController = new probe.sandbox.AbortController();
+      probe.sandbox.fetch(url, {
+        method: 'POST', headers: { 'X-Request-ID': retained.requestId }, signal: unownedController.signal,
+      });
+      unownedController.abort();
+      const mismatchEvent = probe.events.at(-1);
+      assert.equal(mismatchEvent.kind, 'abort-controller-call');
+      assert.deepEqual(mismatchEvent.requests, [], `request escaped the configured page/project/Explorer scope: ${url}`);
+      assert.equal(nativeAbortSignalObservationForRequest({
+        requestCorrelationId: retained.requestId,
+        requestIdentityMatchCount: 1,
+        origin: uiOrigin,
+        path,
+        method: 'POST',
+      }, [mismatchEvent]).exactRequestSignalCorrelation, false);
+    }
+  }
+
+  const retained = retainedCases[0];
+  const domWithoutGeneratedFieldOwner = { nodes: [] };
+  const closeEditor = fakeNode({ tagName: 'BUTTON', attributes: {
+    'data-testid': 'construction-close-operation-editor',
+  }, text: 'Close operation editor' });
+  domWithoutGeneratedFieldOwner.nodes.push(closeEditor);
+  const { probe } = await installOnCurrentPage({ scope: retained, dom: domWithoutGeneratedFieldOwner });
+  const path = apiPathFor(retained.project, retained.explorer, 'schema-fields');
+  const controller = new probe.sandbox.AbortController();
+  probe.sandbox.fetch(`${uiOrigin}${path}`, {
+    method: 'POST', headers: { 'X-Request-ID': retained.requestId }, signal: controller.signal,
+  });
+  probe.advanceTime(101);
+  probe.listeners.get('click')({ isTrusted: true, target: closeEditor });
+  probe.advanceTime(102);
+  controller.abort();
+
+  const abortEvent = probe.events.find((event) => event.kind === 'abort-controller-call');
+  const entry = withCDPIdentity({
+    requestId: 'request-retained-case008-schema-fields',
+    requestCorrelationId: retained.requestId,
+    origin: uiOrigin,
+    path,
+    method: 'POST',
+    requestTimestamp: 1,
+    requestWallTime: 0.1,
+    cdpRequestMatchCount: 1,
+    loadingFailed: { timestamp: 1.012, errorText: 'net::ERR_ABORTED', canceled: true },
+  });
+  const evidence = nativeAbortProbeEvidenceForRequest(entry, [abortEvent]);
+  assert.equal(evidence.length, 1, 'the exact request signal remains observable without an owner');
+  assert.equal(evidence[0].exactRequestSignalCorrelation, true);
+  assert.equal(evidence[0].ownerDomAtFetch.status, 'missing');
+  assert.equal(evidence[0].sameDocumentOwnerRetirement, false,
+    'a matching request ID and close action do not prove retirement when the request had no unique captured owner');
+});
+
+test('configured-column-context capture is scoped and remains diagnostic without an owner rule', async () => {
+  const scopedProject = 'loom_dev_verify_configured_context';
+  const scopedExplorer = 'verify-configured-context';
+  const configuredRequestId = 'configured-column-context-11111111-2222-4333-8444-555555555555';
+  const uiOrigin = 'http://127.0.0.1:30008';
+  const path = apiPathFor(scopedProject, scopedExplorer, 'configured-column-context');
+  let binding;
+  let source;
+  const browserContext = {
+    exposeBinding: async (_name, callback) => { binding = callback; },
+    addInitScript: async (initSource) => { source = initSource; },
+  };
+  const page = {
+    context: () => browserContext,
+    evaluate: async (currentSource) => { source = currentSource; },
+  };
+  const report = {};
+  await installNativeAbortProbe({
+    page,
+    report,
+    project: scopedProject,
+    explorer: scopedExplorer,
+    apiOrigin: uiOrigin,
+  });
+
+  const probe = startProbe({
+    dom: { nodes: [] },
+    origin: uiOrigin,
+    scopeProject: scopedProject,
+    scopeExplorer: scopedExplorer,
+    source,
+    bindingCallback: binding,
+  });
+  const controller = new probe.sandbox.AbortController();
+  probe.sandbox.fetch(`${uiOrigin}${path}`, {
+    method: 'POST', headers: { 'X-Request-ID': configuredRequestId }, signal: controller.signal,
+  });
+  controller.abort();
+
+  const abortEvent = probe.events.find((event) => event.kind === 'abort-controller-call');
+  assert.equal(abortEvent.requests.length, 1);
+  assert.equal(abortEvent.requests[0].requestId, configuredRequestId);
+  assert.equal(abortEvent.requests[0].endpoint, 'configured-column-context');
+  assert.equal(abortEvent.requests[0].ownerDomAtFetch, undefined,
+    'this request has no proven page owner selector');
+  assert.equal(abortEvent.requests[0].ownerDomAtAbort, undefined,
+    'this request has no proven owner retirement action');
+
+  const nativeEntry = withCDPIdentity({
+    requestId: 'request-configured-column-context',
+    requestCorrelationId: configuredRequestId,
+    origin: uiOrigin,
+    path,
+    method: 'POST',
+    requestTimestamp: 1,
+    requestWallTime: 0.1,
+    cdpRequestMatchCount: 1,
+    loadingFailed: { timestamp: 1.012, errorText: 'net::ERR_ABORTED', canceled: true },
+  });
+  const signalObservation = nativeAbortSignalObservationForRequest({
+    requestCorrelationId: configuredRequestId,
+    requestIdentityMatchCount: 1,
+    origin: uiOrigin,
+    path,
+    method: 'POST',
+  }, [abortEvent]);
+  assert.equal(signalObservation.exactRequestSignalCorrelation, true);
+  assert.equal(signalObservation.ownerDomAtFetch, undefined);
+  assert.equal(signalObservation.classificationEffect, 'diagnostic only; does not make an unfinished native request terminal or expected');
+
+  const failureEvidence = nativeAbortProbeEvidenceForRequest(nativeEntry, [abortEvent]);
+  assert.equal(failureEvidence.length, 1);
+  assert.equal(failureEvidence[0].exactRequestSignalCorrelation, true);
+  assert.equal(failureEvidence[0].sameDocumentOwnerRetirement, false,
+    'an exact signal without an owner rule cannot be classified as an expected cancellation');
+
+  const mismatches = [
+    {
+      url: `${uiOrigin}${apiPathFor(scopedProject, scopedExplorer, 'schema-fields')}`,
+      requestId: configuredRequestId,
+      label: 'wrong endpoint',
+    },
+    {
+      url: `${uiOrigin}${path}`,
+      requestId: 'schema-fields-11111111-2222-4333-8444-555555555555',
+      label: 'wrong request ID prefix',
+    },
+    {
+      url: `${uiOrigin}${apiPathFor('other-project', scopedExplorer, 'configured-column-context')}`,
+      requestId: configuredRequestId,
+      label: 'wrong project',
+    },
+    {
+      url: `${uiOrigin}${apiPathFor(scopedProject, 'other-explorer', 'configured-column-context')}`,
+      requestId: configuredRequestId,
+      label: 'wrong Explorer',
+    },
+    {
+      url: `${apiOrigin}${path}`,
+      requestId: configuredRequestId,
+      label: 'wrong origin',
+    },
+  ];
+  for (const mismatch of mismatches) {
+    const unownedController = new probe.sandbox.AbortController();
+    probe.sandbox.fetch(mismatch.url, {
+      method: 'POST', headers: { 'X-Request-ID': mismatch.requestId }, signal: unownedController.signal,
+    });
+    unownedController.abort();
+    const mismatchEvent = probe.events.at(-1);
+    assert.equal(mismatchEvent.kind, 'abort-controller-call');
+    assert.deepEqual(mismatchEvent.requests, [], `${mismatch.label} must not be captured`);
+    assert.equal(nativeAbortSignalObservationForRequest({
+      requestCorrelationId: configuredRequestId,
+      requestIdentityMatchCount: 1,
+      origin: uiOrigin,
+      path,
+      method: 'POST',
+    }, [mismatchEvent]).exactRequestSignalCorrelation, false, `${mismatch.label} must not match the retained request`);
+  }
+  assert(report.nativeAbortProbeEvents.some((event) => event.kind === 'abort-controller-call'));
 });
 
 test('probe assigns a scoped exact ID to an untagged capabilities signal and reports it without terminal classification', async () => {

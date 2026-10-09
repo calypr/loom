@@ -93,6 +93,8 @@ test('a fulfilled 422 consumes only the matching console diagnostic once', () =>
   assert.equal(result[1].kind, 'network');
   assert.equal(result[1].status, 422);
   assert.equal(result[1].injectedRequestId, 'injected-422');
+  assert.equal(result[1].playwrightRequestId, 'request-422',
+    'the uniquely paired console observation retains the exact native Request identity');
   assert.equal(result[2].kind, 'console-error', 'a duplicate console diagnostic remains a failure');
   assert.equal(result[3].kind, 'console-error', 'a different URL is not attributed to the injected response');
   assert.equal(result[4].kind, 'console-error', 'a 500 diagnostic remains a failure');

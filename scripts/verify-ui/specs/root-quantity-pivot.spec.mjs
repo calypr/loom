@@ -9,9 +9,9 @@ devTest.describe('Root quantity Pivot fixture lifecycle', () => {
     fixtureDir: 'testdata/root-quantity-pivot-fixture',
   });
 
-  devTest('discovers typed categories and completes the SUM, edit, removal, and reload lifecycle', async ({ page, workflow, loomContext }) => {
+  devTest('discovers typed categories and completes the SUM, edit, removal, and reload lifecycle', async ({ page, workflow }) => {
     await rootQuantityPivotWorkflow(page, workflow.report, workflow.action, workflow.check, workflow.fault, {
-      ...loomContext,
+      ...workflow,
       caseName: 'fixture-lifecycle',
     });
   });

@@ -81,6 +81,7 @@ const requestPrefixes = {
   'construction-capabilities': ['cda-request-'],
   'semantic-inventory': ['feature-catalog-', 'frame-categories-', 'paired-column-inventory-'],
   'schema-fields': ['schema-fields-'],
+  'configured-column-context': ['configured-column-context-'],
   'population-routes': ['population-routes-'],
   'frame-source-options': ['frame-source-options-'],
   'related-expand-choices': ['related-expand-choices-'],
@@ -431,6 +432,44 @@ export const createNativeAbortProbeSource = ({ project, explorer, apiOrigin }) =
   }
   send({ kind: 'probe-installed', at: wallNow(), project: scope.project, explorer: scope.explorer });
 })();`;
+
+/** Install the probe for the current document and future navigations in its browser context. */
+export const installNativeAbortProbe = async ({ page, report, project, explorer, apiOrigin }) => {
+  if (!page || typeof page.context !== 'function' || typeof page.evaluate !== 'function' ||
+      !report || typeof report !== 'object' || typeof project !== 'string' || project.length === 0 ||
+      typeof explorer !== 'string' || explorer.length === 0 || typeof apiOrigin !== 'string') {
+    throw new TypeError('Native abort capture requires a Playwright page, report, project, Explorer, and API origin.');
+  }
+
+  let scopedApiOrigin;
+  try { scopedApiOrigin = new URL(apiOrigin).origin; }
+  catch { throw new TypeError('Native abort capture requires a valid API origin URL.'); }
+
+  if (report.nativeAbortProbeEvents === undefined) report.nativeAbortProbeEvents = [];
+  else if (!Array.isArray(report.nativeAbortProbeEvents)) {
+    throw new TypeError('Native abort capture report events must be an array.');
+  }
+
+  const browserContext = page.context();
+  if (!browserContext || typeof browserContext.exposeBinding !== 'function' ||
+      typeof browserContext.addInitScript !== 'function') {
+    throw new TypeError('Native abort capture requires a Playwright browser context.');
+  }
+
+  await browserContext.exposeBinding(bindingName, (_source, payload) => {
+    let event;
+    try { event = JSON.parse(payload); }
+    catch {
+      report.nativeAbortProbeEvents.push({ kind: 'probe-payload-invalid', payloadLength: String(payload).length });
+      return;
+    }
+    report.nativeAbortProbeEvents.push(event);
+  });
+  const source = createNativeAbortProbeSource({ project, explorer, apiOrigin: scopedApiOrigin });
+  await browserContext.addInitScript(source);
+  await page.evaluate(source);
+  return report.nativeAbortProbeEvents;
+};
 
 const ownerRetirementActionForRule = (owner) =>
   nativeAbortDomOwnerRules.find((rule) => rule.owner === owner)?.retirementAction;

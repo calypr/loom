@@ -337,6 +337,8 @@ export function applyInjectedFaultPolicy(entries, faults) {
       injectedFault: true,
       injectedAction: failure.injectedAction,
       injectedRequestId: failure.injectedRequestId,
+      ...(failure.browserRequestId ? { browserRequestId: failure.browserRequestId } : {}),
+      ...(failure.playwrightRequestId ? { playwrightRequestId: failure.playwrightRequestId } : {}),
     };
   }
 

@@ -6,56 +6,9 @@ import { join } from 'node:path';
 import assert from 'node:assert/strict';
 import { assertCohortGroupProvenance, assertCohortPatientIDColumns } from '../helpers/cohort-identities.mjs';
 import { createBuilderAuthoringRequestEntries } from '../helpers/builder-authoring-request-entries.mjs';
+import { installNativeAbortProbe, nativeAbortSignalObservationForRequest } from '../helpers/native-abort-probe.mjs';
 import { configureNativePage } from '../helpers/playwright-authoring-page.mjs';
 
-
-const withExpectedCancellations = async (page, report, specification, work) => {
-  const pending = new WeakMap();
-  let active = true;
-  const onRequest = request => {
-    try {
-      const url = new URL(request.url());
-      const headers = request.headers();
-      let body;
-      try { body = request.postDataJSON(); } catch { body = undefined; }
-      const input = body?.variables?.input ?? body?.input ?? body;
-      const requestId = headers['x-request-id'] ?? input?.requestId ?? input?.requestID ?? '';
-      if (active && url.origin === specification.origin && request.method() === specification.method
-        && specification.paths.includes(url.pathname)
-        && specification.requestIdPrefixes.some(prefix => requestId.startsWith(prefix))) {
-        pending.set(request, requestId);
-      }
-    } catch { /* unrelated requests stay in the official network report */ }
-  };
-  const onRequestFailed = request => {
-    const requestId = pending.get(request);
-    if (!active || !requestId || request.failure()?.errorText !== 'net::ERR_ABORTED') return;
-    const rawURL = request.url();
-    const entry = report.network.find(item => item.kind === 'network'
-      && item.rawURL === rawURL && item.method === specification.method
-      && item.errorText === 'net::ERR_ABORTED'
-      && item.requestDetails?.requestId === requestId
-      && item.triggerAction === specification.actionLabel);
-    if (!entry) return;
-    entry.canceled = true;
-    entry.cancellationReason = specification.reason;
-    entry.actionLabel = specification.actionLabel;
-    report.target.expectedCancellations ??= [];
-    report.target.expectedCancellations.push({
-      method: specification.method, path: new URL(rawURL).pathname, rawURL, requestId,
-      playwrightRequestId: entry.playwrightRequestId,
-      triggerAction: entry.triggerAction, reason: specification.reason, actionLabel: specification.actionLabel,
-    });
-  };
-  page.on('request', onRequest);
-  page.on('requestfailed', onRequestFailed);
-  try { return await work(); }
-  finally {
-    active = false;
-    page.removeListener('request', onRequest);
-    page.removeListener('requestfailed', onRequestFailed);
-  }
-};
 
 const readPatientOracle = async fixtureDir => {
   const sourcePath = join(fixtureDir, 'Patient.ndjson');
@@ -84,7 +37,7 @@ const readPatientOracle = async fixtureDir => {
   return { sourcePath, sha256: hash.digest('hex'), patientRecordCount, sourceIDs };
 };
 
-export const cohortRecodeWorkflow = async ({ page, report, check, action }, context) => {
+const performCohortRecodeLifecycle = async ({ page, report, check, action }, context) => {
   configureNativePage(page);
   const oracleBefore = await readPatientOracle(context.target.fixtureDir);
   const sourceIDs = oracleBefore.sourceIDs;
@@ -139,16 +92,13 @@ export const cohortRecodeWorkflow = async ({ page, report, check, action }, cont
   const explorer = await explorerControl.inputValue();
   assert(explorer && explorer !== context.target.bootstrapExplorerId, 'cohort recode requires a newly created Explorer');
   report.target.explorer = explorer;
-  const catalogUnmountCancellation = (endpoints, requestIdPrefixes, actionLabel, reason) => ({
-      origin: new URL(context.target.uiUrl).origin,
-      method: 'POST',
-      paths: endpoints.map(endpoint =>
-        `/api/v1/projects/${encodeURIComponent(context.target.fixtureProject)}/explorers/${encodeURIComponent(explorer)}/authoring/v2/${endpoint}`),
-      requestIdPrefixes,
-      actionLabel,
-      reason,
-    });
-
+  await installNativeAbortProbe({
+    page,
+    report,
+    project: context.target.fixtureProject,
+    explorer,
+    apiOrigin: new URL(context.target.uiUrl).origin,
+  });
   const tableName = page.locator('#first-table-name');
   await action('name Patient table', tableName, () => tableName.fill('Patients'), { editable: true });
   const choosePatients = page.getByRole('button', { name: 'Choose Patient rows', exact: true });
@@ -393,12 +343,9 @@ export const cohortRecodeWorkflow = async ({ page, report, check, action }, cont
     after: async () => page.locator('[aria-label="Add columns editor"]').waitFor({ state: 'visible' }),
   });
   const fieldsRelated = page.getByRole('button', { name: 'Fields and related data', exact: true });
-  await withExpectedCancellations(page, report, catalogUnmountCancellation(['semantic-inventory', 'frame-source-options'],
-    ['paired-column-inventory-', 'frame-source-options-'], 'choose Fields and related data',
-    'catalog component unmounted when Fields and related data opened'),
-  () => action('choose Fields and related data', fieldsRelated, () => fieldsRelated.click(), {
+  await action('choose Fields and related data', fieldsRelated, () => fieldsRelated.click(), {
     after: async () => page.getByTestId('construction-add-columns-source').waitFor({ state: 'visible' }),
-  }));
+  });
   const groupedPolicy = page.getByRole('combobox', { name: 'Values per grouped row', exact: true });
   const groupedPolicyOptions = await groupedPolicy.locator('option').evaluateAll(options => options.map(option => ({ value: option.value, disabled: option.disabled })));
   assert(groupedPolicyOptions.some(option => option.value === 'ALL' && !option.disabled),
@@ -454,16 +401,61 @@ export const cohortRecodeWorkflow = async ({ page, report, check, action }, cont
   const fieldCommandIndex = commandEntries.length;
   const fieldReconcileIndex = reconciliationEntries.length;
   let fieldPreview;
+  let patientIDPerformanceColumn;
   const applyColumns = proposalPanel.getByRole('button', { name: 'Apply columns', exact: true });
   await applyColumns.waitFor({ state: 'visible' });
   await action('apply Patient.id member field with ALL', applyColumns, () => applyColumns.click(), {
     after: async () => {
       fieldPreview = await waitAcceptedChoicePreview(fieldChoiceProposalIndex, fieldCommandIndex, fieldReconcileIndex,
         'Native ALL Patient.id member-field Preview');
-      await page.waitForFunction(() => !document.querySelector('[data-testid="construction-choice-proposal-panel"]')
-        && !document.body.innerText.includes('Loading your table…')
-        && document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount') === '2');
+      const candidateColumns = fieldPreview.response.columns.filter(column => {
+        const values = fieldPreview.response.rows[0]?.[column.column];
+        return Array.isArray(values) && JSON.stringify(values) === JSON.stringify(rawIDs);
+      });
+      assert.equal(candidateColumns.length, 1,
+        `Accepted Patient.id preview must identify one physical column containing the exact fixture array: ${JSON.stringify(candidateColumns)}`);
+      patientIDPerformanceColumn = candidateColumns[0];
+      const typedColumns = fieldPreview.response.columns.map(column => ({ column: column.column, label: column.label }));
+      await page.waitForFunction(data => {
+        const normalize = value => String(value ?? '').replace(/\s+/g, ' ').trim();
+        const table = document.querySelector('[data-testid="preview-table-scroll"] [role="table"]');
+        if (!table || table.getAttribute('aria-rowcount') !== '2'
+          || document.querySelector('[data-testid="construction-choice-proposal-panel"]')
+          || document.body.innerText.includes('Loading your table…')) return false;
+        const rows = [...table.querySelectorAll('[role="row"]')];
+        const headers = [...(rows[0]?.querySelectorAll('[role="columnheader"]') ?? [])].map(cell => normalize(cell.innerText));
+        const cells = [...(rows[1]?.querySelectorAll('[role="cell"]') ?? [])];
+        const index = data.typedColumns.findIndex(column => column.column === data.physicalColumn);
+        const typedColumn = index < 0 ? null : data.typedColumns[index];
+        return rows.length === 2 && data.typedColumns.filter(column => column.column === data.physicalColumn).length === 1
+          && typedColumn?.label === 'Patient ID' && data.typedColumns.length === headers.length
+          && cells.length === headers.length && headers[index]?.toLowerCase() === typedColumn.label.toLowerCase()
+          && normalize(cells[index]?.innerText) === data.expectedText;
+      }, {
+        typedColumns,
+        physicalColumn: patientIDPerformanceColumn.column,
+        expectedText: rawIDs.join('; '),
+      }, { timeout: 5000 });
     },
+  });
+  const patientIDApplyAction = report.actions.findLast(item => item.label === 'apply Patient.id member field with ALL');
+  assert(patientIDApplyAction, 'Patient.id Apply must retain its measured native action record');
+  const patientIDApplyMs = patientIDApplyAction.elapsedMs;
+  const patientIDApplyCheck = 'native Patient.id ALL Apply renders the exact two fixture values in its physical column within five seconds';
+  check('performance', patientIDApplyCheck, patientIDApplyAction.status === 'passed' && patientIDApplyMs <= 5000, {
+    timingCheckpoints: [{
+      name: 'Apply Patient.id ALL to the exact visible physical-column cell',
+      durationMs: patientIDApplyMs,
+      budgetMs: 5000,
+      passed: patientIDApplyAction.status === 'passed' && patientIDApplyMs <= 5000,
+    }],
+    measuredTransitionCount: 1,
+    actionCount: 1,
+    maxActionMs: patientIDApplyMs,
+    physicalColumn: patientIDPerformanceColumn.column,
+    columnId: patientIDPerformanceColumn.columnId ?? null,
+    expectedValues: rawIDs,
+    renderedValue: rawIDs.join('; '),
   });
   report.target.patientIdMemberPreviewDelivery = {
     delivery: fieldPreview.delivery,
@@ -476,12 +468,9 @@ export const cohortRecodeWorkflow = async ({ page, report, check, action }, cont
     intentDigest: fieldPreview.acceptedByReceipt.intentDigest,
   };
   const closeEditor = page.getByRole('button', { name: 'Close operation editor', exact: true });
-  await withExpectedCancellations(page, report, catalogUnmountCancellation(['semantic-inventory'], ['feature-catalog-'],
-    'close operation editor',
-    'feature catalog unmounted when operation editor closed'),
-  () => action('close operation editor', closeEditor, () => closeEditor.click(), {
+  await action('close operation editor', closeEditor, () => closeEditor.click(), {
     after: async () => page.getByTestId('construction-add-columns-source').waitFor({ state: 'hidden' }),
-  }));
+  });
   builder = await readBuilder();
   document = builder.workspace.documents.find(item => item.output.id === outputId);
   const { legacy: preservedLegacyIDColumn, member: firstMemberIDColumn, binding: idBinding } =
@@ -857,4 +846,58 @@ export const cohortRecodeWorkflow = async ({ page, report, check, action }, cont
   report.target.browserRequestEvidence = [...bootstrapRequestEvidence, ...previewEntries, ...choiceProposalEntries, ...commandEntries, ...reconciliationEntries]
     .map(entry => ({ identity: entry.identity, requestObjectIdentity: entry.requestObjectIdentity, requestId: entry.requestId, method: entry.method, path: entry.path, origin: entry.origin, status: entry.status, failure: entry.failure, outputId: entry.outputId }));
   report.target.uncoveredAdjacentBehavior = 'Raw ALL→ONE rejection for distinct Patient IDs is not exercised in this basic fixture cycle; the CDA transformed-category driver retains its raw disagreement rejection assertion.';
+};
+
+export const cohortRecodeWorkflow = async (workflow, context) => {
+  const { report, nativeRequestLedger } = workflow;
+  if (!nativeRequestLedger?.openScope || !nativeRequestLedger?.flush) {
+    throw new TypeError('Cohort recode requires the fixture-owned native request ledger.');
+  }
+  const project = context.target.fixtureProject;
+  const origin = new URL(context.target.uiUrl).origin;
+  const scope = nativeRequestLedger.openScope({ project, origin });
+  let workflowError;
+  try {
+    await performCohortRecodeLifecycle(workflow, context);
+  } catch (error) {
+    workflowError = error;
+  }
+
+  let captureError;
+  let ledger;
+  try {
+    ledger = await nativeRequestLedger.flush(scope, { explorer: report.target?.explorer, timeoutMs: 5000 });
+  } catch (error) {
+    captureError = error;
+  }
+
+  if (ledger) {
+    report.nativeRequests = ledger.nativeRequests;
+    report.nativeRequestDrainEvidence = ledger.nativeRequestDrainEvidence;
+    report.excludedNativeRequests = ledger.excludedNativeRequests;
+    report.excludedNativeRequestDrainEvidence = ledger.excludedNativeRequestDrainEvidence;
+    report.nativeRequestCorrelationErrors = ledger.nativeRequestCorrelationErrors;
+    report.nativeRequestTerminalLedger = ledger.nativeRequestTerminalLedger;
+    report.nativeRequestCaptureScope = {
+      observedPathPrefix: `/api/v1/projects/${encodeURIComponent(project)}/explorers`,
+      selectedExplorer: report.target?.explorer ?? null,
+      terminalLedgerScope: ledger.nativeRequestTerminalLedger.scope,
+    };
+    report.nativeAbortSignalObservations = ledger.nativeRequests.flatMap(entry => {
+      if (!entry.path?.endsWith('/authoring/v2/schema-fields')) return [];
+      const requestId = entry.requestDetails?.requestId ?? null;
+      const requestIdentityMatchCount = typeof requestId === 'string'
+        ? ledger.nativeRequests.filter(candidate => candidate.requestDetails?.requestId === requestId
+          && candidate.origin === entry.origin && candidate.path === entry.path && candidate.method === entry.method).length
+        : 0;
+      const observation = nativeAbortSignalObservationForRequest(
+        { ...entry, requestIdentityMatchCount }, report.nativeAbortProbeEvents ?? [],
+      );
+      return [{ requestId, origin: entry.origin, path: entry.path, method: entry.method, requestIdentityMatchCount, observation }];
+    });
+  }
+
+  if (workflowError) throw workflowError;
+  if (captureError) throw captureError;
+  if (!ledger) throw new Error('Cohort recode native request ledger was not finalized.');
 };

@@ -2,9 +2,14 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { caseNamesFor, hasLifecycleContract, registry, scenarioCaseFor } from '../../registry.mjs';
-import { builderCancelStateEvidence, nativeResponseScopeEvidence, removalProposalEvidence, targetDocumentStateEvidence } from '../builder-combine-nullable-helpers.mjs';
+import { assertNullableNativeRequestLedgerComplete, builderCancelStateEvidence, nativeResponseScopeEvidence, removalProposalEvidence, targetDocumentStateEvidence } from '../builder-combine-nullable-helpers.mjs';
 import { classifyNativeBrowserApiRequest } from '../native-browser-api-scope.mjs';
-import { installNullableNativeAbortProbe } from '../../workflows/builder-combine-nullable.mjs';
+import { installNativeAbortProbe } from '../native-abort-probe.mjs';
+import { createFixtureNativeRequestLedger, finalizeFixtureNativeRequestReport } from '../native-request-ledger.mjs';
+import {
+  projectNullableNativeAbortProbeCorrelations,
+  recordNullableNativeAbortProbeCorrelations,
+} from '../../workflows/builder-combine-nullable.mjs';
 
 const driver = readFileSync(new URL('../../workflows/builder-combine-nullable.mjs', import.meta.url), 'utf8');
 
@@ -14,6 +19,8 @@ test('nullable KEY_JOIN is registered as a separate owned native lifecycle', () 
   assert.equal(scenario.script, 'builder-combine-nullable.mjs');
   assert.deepEqual(caseNamesFor(scenario), ['lifecycle']);
   const required = scenarioCaseFor(scenario, 'lifecycle').requiredChecks;
+  assert.equal(required.length, 63);
+  assert.equal(required.length, new Set(required).size);
   for (const name of [
     'both published subject.reference fields are nullable scalar strings',
     'source schemas expose compatible nullable scalar ID keys, scalar status fields, and a numeric Observation value',
@@ -23,7 +30,10 @@ test('nullable KEY_JOIN is registered as a separate owned native lifecycle', () 
     'INNER nullable Join preserves all four pairs from the 2x2 duplicate key and never matches NULL to NULL',
     'INNER applied rows preserve all four duplicate-key pairs',
     'INNER duplicate-key pairs survive Builder reload',
-    'LEFT preview receipt binds the exact UI proxy route, target, nullable key pair, output columns, and raw rows',
+    'INNER saved step after Apply retains exact current revisions and the nullable subject.reference key pair',
+    'INNER saved step after LEFT Cancel reload retains exact current revisions and the nullable subject.reference key pair',
+    'LEFT preview receipt before Cancel binds the exact UI proxy route, target, nullable key pair, output columns, and raw rows',
+    'LEFT preview receipt before Apply binds the exact UI proxy route, target, nullable key pair, output columns, and raw rows',
     'LEFT preview preserves four duplicate-key pairs, both unmatched left rows, and NULL non-equality',
     'LEFT applied output preserves duplicate-key multiplicity and both unmatched left rows',
     'LEFT duplicate-key multiplicity and null projections survive Builder reload',
@@ -54,9 +64,11 @@ test('nullable lifecycle is discovered by the official Playwright Test runner', 
 
 test('the registered nullable spec installs its probe on the selected Explorer and UI proxy origin', async () => {
   const spec = readFileSync(new URL('../../specs/nullable-combine.spec.mjs', import.meta.url), 'utf8');
-  const installAt = driver.indexOf('await installNullableNativeAbortProbe(');
+  const installAt = driver.indexOf('await installNativeAbortProbe({');
   assert.ok(installAt > driver.indexOf('report.target.explorer = explorer'));
   assert.ok(installAt < driver.indexOf('const addRoot = async'));
+  const installCall = driver.slice(installAt, driver.indexOf('});', installAt) + 3);
+  assert.ok(installCall.includes('apiOrigin: new URL(context.target.uiUrl).origin'));
   assert.match(spec, /nullableJoinWorkflow\(/);
 
   let binding;
@@ -70,9 +82,9 @@ test('the registered nullable spec installs its probe on the selected Explorer a
     evaluate: async (source) => calls.push(['current-page', source]),
   };
   const report = {};
-  await installNullableNativeAbortProbe({
+  await installNativeAbortProbe({
     page, report, project: 'loom_dev_verify_case027', explorer: 'verify-case027-combine',
-    uiProxyOrigin: 'http://127.0.0.1:30008/path-is-ignored',
+    apiOrigin: 'http://127.0.0.1:30008/path-is-ignored',
   });
 
   assert.deepEqual(calls.map(([kind]) => kind), ['binding', 'init', 'current-page']);
@@ -86,6 +98,115 @@ test('the registered nullable spec installs its probe on the selected Explorer a
   const installed = { kind: 'probe-installed', project: 'loom_dev_verify_case027', explorer: 'verify-case027-combine' };
   binding({}, JSON.stringify(installed));
   assert.deepEqual(report.nativeAbortProbeEvents, [installed]);
+});
+
+test('nullable AbortSignal correlations survive fixture finalization without changing pending terminal status', async () => {
+  const project = 'fixture-abort-observation-project';
+  const explorer = 'selected-combine-explorer';
+  const requestId = 'configured-column-context-11111111-2222-4333-8444-555555555555';
+  const origin = 'http://127.0.0.1:30008';
+  const path = `/api/v1/projects/${project}/explorers/${explorer}/authoring/v2/configured-column-context`;
+  const ledger = createFixtureNativeRequestLedger();
+  const scope = ledger.openScope({ project, origin });
+  const request = {
+    url: () => `${origin}${path}`,
+    method: () => 'POST',
+    headers: () => ({ 'x-request-id': requestId }),
+    resourceType: () => 'fetch',
+  };
+  ledger.recordRequest(request, {
+    requestId: 'browser-request-1',
+    browserRequestId: 'browser-request-1',
+    requestDetails: { requestId },
+    method: 'POST',
+    startedAt: 1,
+  });
+  const ledgerSnapshot = await ledger.flush(scope, { explorer, timeoutMs: 5 });
+  const finalLedgerRows = ledgerSnapshot.nativeRequests;
+  const abortEvent = {
+    kind: 'abort-controller-call',
+    controllerId: 'controller-1',
+    createdAt: 10,
+    abortedAt: 20,
+    requests: [{ requestId, origin, path, method: 'POST', requestIdSource: 'request-header' }],
+  };
+  const report = {
+    nativeRequests: finalLedgerRows,
+    nativeAbortProbeEvents: [abortEvent],
+    navigationTimings: [],
+  };
+  const correlations = recordNullableNativeAbortProbeCorrelations({
+    report,
+    nativeRequests: finalLedgerRows,
+    probeEvents: report.nativeAbortProbeEvents,
+  });
+  assert.equal(correlations.length, 1);
+  for (const key of ['abortControllerSignalObservation', 'expected', 'canceled', 'expectedCancellation']) {
+    assert.equal(Object.hasOwn(finalLedgerRows[0], key), false, `diagnostic projection must not mutate raw ${key} state`);
+  }
+  const requestRowsBeforeFinalization = report.nativeRequests;
+
+  finalizeFixtureNativeRequestReport({ report, ledger, project });
+
+  assert.notEqual(report.nativeRequests, requestRowsBeforeFinalization,
+    'fixture finalization replaces the preliminary request array with its final project snapshot');
+  for (const key of ['abortControllerSignalObservation', 'expected', 'canceled', 'expectedCancellation']) {
+    assert.equal(Object.hasOwn(report.nativeRequests[0], key), false, `final native row must not acquire ${key} from diagnostics`);
+  }
+  assert.equal(report.nativeAbortProbeCorrelations, correlations,
+    'report-local AbortSignal evidence survives replacement of nativeRequests');
+  assert.deepEqual(
+    (({ nativeRequestIndex, requestId: actualID, origin: actualOrigin, path: actualPath, method, requestIdentityMatchCount }) =>
+      ({ nativeRequestIndex, requestId: actualID, origin: actualOrigin, path: actualPath, method, requestIdentityMatchCount }))(report.nativeAbortProbeCorrelations[0]),
+    { nativeRequestIndex: 0, requestId, origin, path, method: 'POST', requestIdentityMatchCount: 1 },
+    'the observation preserves exact request ID, origin, path, and method');
+  const signalObservation = report.nativeAbortProbeCorrelations[0].observation;
+  assert.equal(signalObservation.exactRequestSignalCorrelation, true);
+  assert.equal(signalObservation.requestId, requestId);
+  assert.equal(signalObservation.nativeTerminalObserved, false);
+  assert.equal(report.nativeRequestTerminalLedger.complete, false);
+  assert.equal(report.nativeRequestTerminalLedger.counts.pending, 1);
+  assert.throws(() => assertNullableNativeRequestLedgerComplete(ledgerSnapshot),
+    /did not reach a complete owned terminal ledger/,
+    'signal observation cannot satisfy the terminal request gate');
+  assert.equal(signalObservation.classificationEffect,
+    'diagnostic only; does not make an unfinished native request terminal or expected');
+
+  const routeRoot = path.slice(0, path.lastIndexOf('/') + 1);
+  const diagnosticRows = [
+    '/construction-capabilities',
+    '/semantic-inventory',
+    '/configured-column-context',
+    '/schema-fields',
+  ].map((suffix, index) => ({
+    ...finalLedgerRows[0],
+    path: `${routeRoot}${suffix.slice(1)}`,
+    requestDetails: { requestId: `diagnostic-route-${index}` },
+  }));
+  assert.deepEqual(projectNullableNativeAbortProbeCorrelations(diagnosticRows, []).map(({ path: observedPath }) => observedPath),
+    diagnosticRows.map(({ path: observedPath }) => observedPath),
+    'the explicit projection retains capabilities, inventory, configured-context, and schema-fields rows');
+
+  const ambiguousRows = projectNullableNativeAbortProbeCorrelations(
+    [finalLedgerRows[0], structuredClone(finalLedgerRows[0])], [abortEvent],
+  );
+  assert.equal(ambiguousRows[0].requestIdentityMatchCount, 2);
+  assert.equal(ambiguousRows[0].observation.exactRequestSignalCorrelation, false,
+    'duplicate exact ledger identities must not borrow one AbortSignal event');
+
+  const missingIDRow = structuredClone(finalLedgerRows[0]);
+  delete missingIDRow.requestDetails;
+  const missingIDObservation = projectNullableNativeAbortProbeCorrelations([missingIDRow], [abortEvent])[0];
+  assert.equal(missingIDObservation.requestId, null);
+  assert.equal(missingIDObservation.requestIdentityMatchCount, 0);
+  assert.equal(missingIDObservation.observation.exactRequestSignalCorrelation, false,
+    'browser fallback identity cannot replace a missing exact request ID');
+
+  const ambiguousEvents = projectNullableNativeAbortProbeCorrelations(
+    [finalLedgerRows[0]], [abortEvent, structuredClone(abortEvent)],
+  );
+  assert.equal(ambiguousEvents[0].observation.exactRequestSignalCorrelation, false);
+  assert.equal(ambiguousEvents[0].observation.matchCount, 2);
 });
 
 test('nullable native case authors the exact optional source paths and checks the bound proposal receipt', () => {

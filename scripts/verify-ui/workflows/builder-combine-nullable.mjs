@@ -8,7 +8,7 @@ import { browserURL } from './builder-url.mjs';
 import { recordCheck } from '../helpers/report.mjs';
 import { assertNullableNativeRequestLedgerComplete, builderCancelStateEvidence, nativeResponseScopeEvidence, removalProposalEvidence } from '../helpers/builder-combine-nullable-helpers.mjs';
 import { classifyNativeBrowserApiRequest } from '../helpers/native-browser-api-scope.mjs';
-import { createNativeAbortProbeSource, nativeAbortSignalObservationForRequest } from '../helpers/native-abort-probe.mjs';
+import { installNativeAbortProbe, nativeAbortSignalObservationForRequest } from '../helpers/native-abort-probe.mjs';
 import {
   builderRequestURL,
   builderResponseIdentity,
@@ -45,25 +45,42 @@ const check = (report, dimension, name, condition, evidence = {}) => {
   if (!condition) throw new Error('required nullable KEY_JOIN check failed: ' + name + '; evidence=' + JSON.stringify(evidence).slice(0, 1400));
 };
 
-export const installNullableNativeAbortProbe = async ({ page, report, project, explorer, uiProxyOrigin }) => {
-  if (!page?.context || !report || typeof project !== 'string' || typeof explorer !== 'string') {
-    throw new TypeError('Nullable native abort capture requires its page, report, project, and selected Explorer.');
+export const projectNullableNativeAbortProbeCorrelations = (nativeRequests, probeEvents = []) => {
+  if (!Array.isArray(nativeRequests)) throw new TypeError('Nullable abort correlations require final native ledger rows.');
+  const events = Array.isArray(probeEvents) ? probeEvents : [];
+  const diagnosticPathSuffixes = [
+    '/construction-capabilities',
+    '/semantic-inventory',
+    '/configured-column-context',
+    '/schema-fields',
+  ];
+  const correlations = [];
+  for (const [nativeRequestIndex, entry] of nativeRequests.entries()) {
+    if (typeof entry?.path !== 'string' || !diagnosticPathSuffixes.some((suffix) => entry.path.endsWith(suffix))) continue;
+    const requestId = entry.requestDetails?.requestId;
+    const requestIdentityMatchCount = typeof requestId === 'string'
+      ? nativeRequests.filter((candidate) => candidate?.requestDetails?.requestId === requestId &&
+        candidate.origin === entry.origin && candidate.path === entry.path && candidate.method === entry.method).length
+      : 0;
+    correlations.push({
+      nativeRequestIndex,
+      requestId: typeof requestId === 'string' ? requestId : null,
+      origin: entry.origin ?? null,
+      path: entry.path,
+      method: entry.method ?? null,
+      requestIdentityMatchCount,
+      observation: nativeAbortSignalObservationForRequest(
+        { ...entry, requestIdentityMatchCount }, events,
+      ),
+    });
   }
-  const apiOrigin = new URL(uiProxyOrigin).origin;
-  const browserContext = page.context();
-  report.nativeAbortProbeEvents ??= [];
-  await browserContext.exposeBinding('__loomNativeAbortProbeBinding', (_source, payload) => {
-    let event;
-    try { event = JSON.parse(payload); }
-    catch {
-      report.nativeAbortProbeEvents.push({ kind: 'probe-payload-invalid', payloadLength: String(payload).length });
-      return;
-    }
-    report.nativeAbortProbeEvents.push(event);
-  });
-  const source = createNativeAbortProbeSource({ project, explorer, apiOrigin });
-  await browserContext.addInitScript(source);
-  await page.evaluate(source);
+  return correlations;
+};
+
+export const recordNullableNativeAbortProbeCorrelations = ({ report, nativeRequests, probeEvents = [] }) => {
+  if (!report || typeof report !== 'object') throw new TypeError('Nullable abort correlation recording requires a report object.');
+  report.nativeAbortProbeCorrelations = projectNullableNativeAbortProbeCorrelations(nativeRequests, probeEvents);
+  return report.nativeAbortProbeCorrelations;
 };
 
 const nativeApiScope = (context, explorer) => ({
@@ -259,7 +276,7 @@ const captureProposalRequests = (page, outputId, scope) => {
   };
 };
 
-const checkProposalBinding = async (report, page, capture, afterIndex, joinType, targetOutputId, columns, rows, expectedKeyIDs) => {
+const checkProposalBinding = async (report, page, capture, afterIndex, joinType, targetOutputId, columns, rows, expectedKeyIDs, checkName = joinType + ' preview receipt binds the exact UI proxy route, target, nullable key pair, output columns, and raw rows') => {
   const entry = await capture.find(joinType, afterIndex);
   const dom = await evaluate(page, `(()=>({
     proposalId:document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-id')??null,
@@ -278,7 +295,7 @@ const checkProposalBinding = async (report, page, capture, afterIndex, joinType,
   const combineKeys = entry.body?.candidateConstruction?.steps?.at(-1)?.operation?.combine?.keys ?? [];
   const keyPairBound = combineKeys.length === 1 && combineKeys[0]?.leftColumnId === expectedKeyIDs[0] && combineKeys[0]?.rightColumnId === expectedKeyIDs[1];
   const transportBound = entry.transportEvidence?.ok === true;
-  check(report, 'correctness', joinType + ' preview receipt binds the exact UI proxy route, target, nullable key pair, output columns, and raw rows', evidence.ok && keyPairBound && transportBound,
+  check(report, 'correctness', checkName, evidence.ok && keyPairBound && transportBound,
     { ...evidence, transportEvidence: entry.transportEvidence, transportBound, keyPairBound, combineKeys, expectedKeyIDs, requestId: entry.requestId, outputId: entry.body.outputId, proposalId: dom.proposalId, receiptId: dom.receiptId });
 };
 
@@ -443,7 +460,7 @@ const editSavedStep = async (page, stepId) => {
   await waitFor(page, "Boolean(document.querySelector('[data-testid=\"construction-combine-editor\"]'))", 10000);
 };
 
-const assertSavedStep = (report, builder, target, expectedInputRefs, observationKeyID, reportKeyID, expectedJoinType, expectedStepID) => {
+const assertSavedStep = (report, builder, target, expectedInputRefs, observationKeyID, reportKeyID, expectedJoinType, expectedStepID, checkName = expectedJoinType + ' saved step retains exact current revisions and the nullable subject.reference key pair') => {
   const document = documentByOutput(builder, target.outputId);
   const steps = document.construction?.steps ?? [];
   const step = steps[0];
@@ -455,7 +472,7 @@ const assertSavedStep = (report, builder, target, expectedInputRefs, observation
     (!expectedStepID || step.id === expectedStepID) &&
     JSON.stringify(actualInputs) === JSON.stringify(actualRefs) && keys.length === 1 &&
     keys[0]?.leftColumnId === observationKeyID && keys[0]?.rightColumnId === reportKeyID;
-  check(report, 'persistence', expectedJoinType + ' saved step retains exact current revisions and the nullable subject.reference key pair', ok,
+  check(report, 'persistence', checkName, ok,
     { stepId: step?.id, expectedStepId: expectedStepID ?? null, inputs: actualInputs, expectedInputs: actualRefs, keys, expectedKeys: [{ leftColumnId: observationKeyID, rightColumnId: reportKeyID }], joinType: step?.operation?.combine?.joinType, expectedJoinType });
   return { document, step };
 };
@@ -496,12 +513,12 @@ const createAndPublishSources = async (context, page, report, _includePatient, r
   check(report, 'persistence', 'created a fresh Explorer distinct from the bootstrap',
     Boolean(explorer) && explorer !== context.target.bootstrapExplorerId,
     { explorer, bootstrapExplorerId: context.target.bootstrapExplorerId });
-  await installNullableNativeAbortProbe({
+  await installNativeAbortProbe({
     page,
     report,
     project: context.target.fixtureProject,
     explorer,
-    uiProxyOrigin: new URL(context.target.uiUrl).origin,
+    apiOrigin: new URL(context.target.uiUrl).origin,
   });
 
   const addRoot = async (resourceType, tableTitle, rows) => {
@@ -693,7 +710,8 @@ const performNullableJoinLifecycle = async ({ page, report, action }, context) =
     timeout: 5000,
   });
   const appliedInner = await readBuilder(context, explorer);
-  const innerSaved = assertSavedStep(report, appliedInner, target, [observationRevision, reportRevision], observationKey.id, reportKey.id, 'INNER');
+  const innerSaved = assertSavedStep(report, appliedInner, target, [observationRevision, reportRevision], observationKey.id, reportKey.id, 'INNER', undefined,
+    'INNER saved step after Apply retains exact current revisions and the nullable subject.reference key pair');
   const savedStepID = innerSaved.step.id;
   exactRows(report, 'INNER applied rows preserve all four duplicate-key pairs', await readGrid(page), ['Observation ID', 'Report ID'], innerRows);
   await reloadTarget(report, page, target.outputId, innerRows, 'reload INNER nullable-key table', 'INNER duplicate-key pairs survive Builder reload');
@@ -708,7 +726,8 @@ const performNullableJoinLifecycle = async ({ page, report, action }, context) =
     timeout: 5000,
   });
   await checkProposalBinding(report, page, proposalCapture, leftCancelRequestStart, 'LEFT', target.outputId,
-    ['observation_id', 'report_id'], leftPreviewRows, [observationKey.id, reportKey.id]);
+    ['observation_id', 'report_id'], leftPreviewRows, [observationKey.id, reportKey.id],
+    'LEFT preview receipt before Cancel binds the exact UI proxy route, target, nullable key pair, output columns, and raw rows');
   exactRows(report, 'LEFT preview preserves four duplicate-key pairs, both unmatched left rows, and NULL non-equality', await readGrid(page, 'proposal'), ['Observation ID', 'Report ID'], leftRows);
   await recordBrowserTiming(report, page, {
     name: 'Cancel LEFT nullable Join edit',
@@ -720,7 +739,8 @@ const performNullableJoinLifecycle = async ({ page, report, action }, context) =
     const cancelledBuilder = await readBuilder(context, explorer);
     const cancelState = builderCancelStateEvidence(beforeCancelBuilder, cancelledBuilder);
     check(report, 'persistence', 'Cancel leaves the full Builder workspace, draft version, and digest unchanged after reload', cancelState.ok, cancelState);
-    assertSavedStep(report, cancelledBuilder, target, [observationRevision, reportRevision], observationKey.id, reportKey.id, 'INNER', savedStepID);
+    assertSavedStep(report, cancelledBuilder, target, [observationRevision, reportRevision], observationKey.id, reportKey.id, 'INNER', savedStepID,
+      'INNER saved step after LEFT Cancel reload retains exact current revisions and the nullable subject.reference key pair');
   });
 
   await openSavedEdit(report, page, savedStepID, 'reopen saved INNER nullable Join for LEFT Apply');
@@ -732,7 +752,8 @@ const performNullableJoinLifecycle = async ({ page, report, action }, context) =
     timeout: 5000,
   });
   await checkProposalBinding(report, page, proposalCapture, leftApplyRequestStart, 'LEFT', target.outputId,
-    ['observation_id', 'report_id'], leftPreviewRows, [observationKey.id, reportKey.id]);
+    ['observation_id', 'report_id'], leftPreviewRows, [observationKey.id, reportKey.id],
+    'LEFT preview receipt before Apply binds the exact UI proxy route, target, nullable key pair, output columns, and raw rows');
   exactRows(report, 'LEFT preview before Apply preserves duplicate-key multiplicity and both unmatched-null rows', await readGrid(page, 'proposal'), ['Observation ID', 'Report ID'], leftRows);
   await recordBrowserTiming(report, page, {
     name: 'Apply LEFT nullable Join edit',
@@ -853,18 +874,11 @@ export const nullableJoinWorkflow = async ({ page, report, action, nativeRequest
     report.excludedNativeRequestDrainEvidence = ledger.excludedNativeRequestDrainEvidence;
     report.nativeRequestCorrelationErrors = ledger.nativeRequestCorrelationErrors;
     report.nativeRequestTerminalLedger = ledger.nativeRequestTerminalLedger;
-    for (const entry of report.nativeRequests) {
-      if (!entry.path?.endsWith('/construction-capabilities') && !entry.path?.endsWith('/semantic-inventory')) continue;
-      const requestId = entry.requestDetails?.requestId;
-      const requestIdentityMatchCount = typeof requestId === 'string'
-        ? report.nativeRequests.filter((candidate) => candidate.requestDetails?.requestId === requestId &&
-          candidate.origin === entry.origin && candidate.path === entry.path &&
-          candidate.method === entry.method).length
-        : 0;
-      entry.abortControllerSignalObservation = nativeAbortSignalObservationForRequest(
-        { ...entry, requestIdentityMatchCount }, report.nativeAbortProbeEvents ?? [],
-      );
-    }
+    recordNullableNativeAbortProbeCorrelations({
+      report,
+      nativeRequests: ledger.nativeRequests,
+      probeEvents: report.nativeAbortProbeEvents ?? [],
+    });
     report.nativeRequestCaptureScope = {
       observedPathPrefix: projectPath,
       observedScope: 'all Explorer routes inside the fresh fixture project, including other Explorers seen by the prefix-wide flush',

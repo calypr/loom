@@ -1450,6 +1450,35 @@ test('conflicting scenario identity aliases cannot pass an attached report', asy
   assert.equal(summary.status, 'unverified');
 });
 
+test('a report with duplicated required-check names cannot pass a unique registry contract', async (t) => {
+  const contract = scenarioCaseFor('root-quantity-pivot', 'full-population-lifecycle');
+  assert.equal(new Set(contract.requiredChecks).size, contract.requiredChecks.length);
+  const duplicatedReportedChecks = [...contract.requiredChecks];
+  duplicatedReportedChecks[1] = duplicatedReportedChecks[0];
+  const parent = evidenceParent();
+  t.after(() => rmSync(parent, { recursive: true, force: true }));
+  const fake = fakeRunner({
+    scenarioID: 'root-quantity-pivot',
+    caseName: 'full-population-lifecycle',
+    rootDir: root,
+    browserReport: 'cda',
+    reportedChecksOverride: duplicatedReportedChecks,
+  });
+  const summary = await runNativeVerificationBracket({
+    scenarioID: 'root-quantity-pivot',
+    caseName: 'full-population-lifecycle',
+    grep: 'lifecycle',
+    evidenceParent: parent,
+    root,
+    env: fake.env,
+    commandRunner: fake.commandRunner,
+  });
+
+  assert.equal(summary.lifecycle.requiredCheckListMatchesRegistry, false);
+  assert.equal(summary.lifecycle.status, 'unverified');
+  assert.equal(summary.status, 'unverified');
+});
+
 test('a report with the wrong registry required-check list cannot pass', async (t) => {
   const parent = evidenceParent();
   t.after(() => rmSync(parent, { recursive: true, force: true }));

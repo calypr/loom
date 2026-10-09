@@ -188,7 +188,8 @@ export const useResolveConfiguredColumnContextsQuery = (
   return useQuery(
     (signal) => {
       if (!args) throw new Error('Configured column context query started without a saved draft identity.');
-      return client.resolveConfiguredColumnContexts(args, signal);
+      const requestId = `configured-column-context-${window.crypto.randomUUID()}`;
+      return client.resolveConfiguredColumnContexts({ ...args, requestId }, signal);
     },
     [
       client,

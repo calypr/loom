@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { browserURL } from './builder-url.mjs';
 import { click, configureNativePage, evaluate, fill, inspectAction, isActionable, recordPlaywrightTiming, reload, waitFor, goto } from '../helpers/playwright-authoring-page.mjs';
 import { addColumnsRawFieldsDisclosureSelector, addColumnsRawFieldsSummarySelector } from '../helpers/add-columns-raw-fields-selectors.mjs';
+import { installNativeAbortProbe, nativeAbortSignalObservationForRequest } from '../helpers/native-abort-probe.mjs';
 import { recordCheck } from '../helpers/report.mjs';
 
 
@@ -15,6 +16,24 @@ const rowTableReady = (count) => `(()=>{const table=document.querySelector(${JSO
 const proposalReady = `Boolean(document.querySelector('[data-testid="construction-proposal-panel"][data-proposal-status="ready"]'))`;
 const proposalTableReady = (count) => `(()=>{const proposal=document.querySelector('[data-testid="construction-proposal-preview"][data-preview-status="ready"]');const table=proposal?.querySelector('table');return Boolean(table&&table.querySelectorAll('tbody tr[data-testid="construction-proposal-preview-row"]').length===${count})})()`;
 const normalize = (value) => String(value ?? '').replace(/\s+/g, ' ').trim();
+const exactGroupPairsReady = (expectedIDs, itemLabel) => {
+  const expectedPairs = expectedIDs.map(id => [cohortLabel, id])
+    .sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)));
+  return `(()=>{
+    const table=document.querySelector(${JSON.stringify(tableSelector)});
+    if(!table||table.getAttribute('aria-rowcount')!==${JSON.stringify(String(expectedIDs.length + 1))}
+      ||document.body.innerText.includes('Loading your table…')||document.body.innerText.includes('Preview failed:'))return false;
+    const normalize=value=>String(value??'').replace(/\\s+/g,' ').trim();
+    const rows=[...table.querySelectorAll('[role="row"]')];
+    const headers=[...(rows[0]?.querySelectorAll('[role="columnheader"]')??[])].map(cell=>normalize(cell.innerText));
+    const groupIndex=headers.findIndex(header=>header.toLowerCase()==='group label');
+    const itemIndex=headers.findIndex(header=>header.toLowerCase()===${JSON.stringify(itemLabel.toLowerCase())});
+    if(rows.length!==${expectedIDs.length + 1}||groupIndex<0||itemIndex<0)return false;
+    const pairs=rows.slice(1).map(row=>{const cells=[...row.querySelectorAll('[role="cell"]')];return [normalize(cells[groupIndex]?.innerText),normalize(cells[itemIndex]?.innerText)]})
+      .sort((left,right)=>JSON.stringify(left).localeCompare(JSON.stringify(right)));
+    return JSON.stringify(pairs)===${JSON.stringify(JSON.stringify(expectedPairs))};
+  })()`;
+};
 
 const createBlankExplorer = async (page, workflow, target, runID, label, report) => {
   await goto(page, browserURL(target, target.fixtureProject, target.bootstrapExplorerId, 'builder'),
@@ -86,7 +105,7 @@ const assertGroupPairs = (grid, expectedIDs, expectedItemLabel, phase) => {
   return { headers: grid.headers, rowCount: grid.rows.length, pairs };
 };
 
-export const cohortExpandWorkflow = async (workflow, context = workflow) => {
+const performCohortExpandLifecycle = async (workflow, context = workflow) => {
   const { page, report } = workflow;
   configureNativePage(page);
   assert.equal(context.custom, false, 'This authoring case requires an owned isolated fixture project.');
@@ -110,6 +129,13 @@ export const cohortExpandWorkflow = async (workflow, context = workflow) => {
 
   const { explorer } = await createBlankExplorer(page, workflow, context.target, context.runID, 'cohort-expand', report);
   report.target.explorer = explorer;
+  await installNativeAbortProbe({
+    page,
+    report,
+    project: context.target.fixtureProject,
+    explorer,
+    apiOrigin: new URL(context.target.uiUrl).origin,
+  });
   await addPatientTableRoot(page, workflow, report, 'Patients');
 
   const project = context.target.fixtureProject;
@@ -372,10 +398,10 @@ export const cohortExpandWorkflow = async (workflow, context = workflow) => {
   assert.equal(builder.draftDigest, cohortBaseline.draftDigest, 'Proposal preview must not alter the saved Builder digest.');
   const applyProposal = await inspectAction(page, '[data-testid="construction-apply-proposal"]');
   requireCheck(report, 'usability', 'native EXPAND proposal exposes an actionable Apply control after exact preview', isActionable(applyProposal), applyProposal);
-  await recordPlaywrightTiming(report, page, workflow, {
+  const expandApplyMs = await recordPlaywrightTiming(report, page, workflow, {
     name: 'apply authored list EXPAND',
     action: () => click(workflow, '[data-testid="construction-apply-proposal"]'),
-    after: `!document.querySelector('[data-testid="construction-proposal-panel"]')&&${rowTableReady(2)}`,
+    after: `!document.querySelector('[data-testid="construction-proposal-panel"]')&&${exactGroupPairsReady(sourceIDs, editedOutputLabel)}`,
     timeout: 5000,
     budget: 5000,
   });
@@ -396,6 +422,28 @@ export const cohortExpandWorkflow = async (workflow, context = workflow) => {
     emptyPolicy: savedStep.operation.expand.emptyPolicy,
     preview: proposedRows,
   };
+  const expandApplyCheck = 'native EXPAND Apply renders both exact Patient IDs in the settled output column within five seconds';
+  const expandApplyPassed = expandApplyMs <= 5000 && applied.rendered.rowCount === 2
+    && savedStep.operation.expand.inputColumnId === actualInput.value
+    && savedOutput?.id === savedStep.operation.expand.outputColumnId
+    && savedOutput?.label === editedOutputLabel;
+  requireCheck(report, 'performance', expandApplyCheck, expandApplyPassed, {
+    timingCheckpoints: [{
+      name: 'Apply authored EXPAND to the exact visible Patient ID output rows',
+      durationMs: expandApplyMs,
+      budgetMs: 5000,
+      passed: expandApplyPassed,
+    }],
+    measuredTransitionCount: 1,
+    actionCount: 1,
+    maxActionMs: expandApplyMs,
+    physicalSourceColumn: idColumn.column,
+    inputColumnId: savedStep.operation.expand.inputColumnId,
+    outputColumnId: savedOutput.id,
+    outputLabel: savedOutput.label,
+    expectedRows: sourceIDs.map(id => [cohortLabel, id]),
+    renderedRows: applied.rendered.pairs,
+  });
   requireCheck(report, 'correctness', 'Apply saves EXPAND from the exact member ID list with retained cohort rows', true, { applied: report.target.appliedExpansion, source: applied.document.rows.groups.source.explicit });
 
   const reloadAndCheckExpansion = async (timingName, label) => {
@@ -521,4 +569,58 @@ export const cohortExpandWorkflow = async (workflow, context = workflow) => {
   assert.equal(grid.rows[0][grid.headers.findIndex(header => header.toLowerCase() === 'group label')], cohortLabel);
   assert.equal(grid.rows[0][grid.headers.findIndex(header => header.toLowerCase() === 'patient id')], sourceIDs.join('; '));
   requireCheck(report, 'persistence', 'final reload restores the exact cohort source and raw ALL member values', true, { grid, revisionId: cohort.revisionId, sourceIDs, memberColumnId: idColumn.columnId, constructionStepCount: finalDocument.construction?.steps?.length ?? 0 });
+};
+
+export const cohortExpandWorkflow = async (workflow, context = workflow) => {
+  const { report, nativeRequestLedger } = workflow;
+  if (!nativeRequestLedger?.openScope || !nativeRequestLedger?.flush) {
+    throw new TypeError('Cohort expand requires the fixture-owned native request ledger.');
+  }
+  const project = context.target.fixtureProject;
+  const origin = new URL(context.target.uiUrl).origin;
+  const scope = nativeRequestLedger.openScope({ project, origin });
+  let workflowError;
+  try {
+    await performCohortExpandLifecycle(workflow, context);
+  } catch (error) {
+    workflowError = error;
+  }
+
+  let captureError;
+  let ledger;
+  try {
+    ledger = await nativeRequestLedger.flush(scope, { explorer: report.target?.explorer, timeoutMs: 5000 });
+  } catch (error) {
+    captureError = error;
+  }
+
+  if (ledger) {
+    report.nativeRequests = ledger.nativeRequests;
+    report.nativeRequestDrainEvidence = ledger.nativeRequestDrainEvidence;
+    report.excludedNativeRequests = ledger.excludedNativeRequests;
+    report.excludedNativeRequestDrainEvidence = ledger.excludedNativeRequestDrainEvidence;
+    report.nativeRequestCorrelationErrors = ledger.nativeRequestCorrelationErrors;
+    report.nativeRequestTerminalLedger = ledger.nativeRequestTerminalLedger;
+    report.nativeRequestCaptureScope = {
+      observedPathPrefix: `/api/v1/projects/${encodeURIComponent(project)}/explorers`,
+      selectedExplorer: report.target?.explorer ?? null,
+      terminalLedgerScope: ledger.nativeRequestTerminalLedger.scope,
+    };
+    report.nativeAbortSignalObservations = ledger.nativeRequests.flatMap(entry => {
+      if (!entry.path?.endsWith('/authoring/v2/schema-fields')) return [];
+      const requestId = entry.requestDetails?.requestId ?? null;
+      const requestIdentityMatchCount = typeof requestId === 'string'
+        ? ledger.nativeRequests.filter(candidate => candidate.requestDetails?.requestId === requestId
+          && candidate.origin === entry.origin && candidate.path === entry.path && candidate.method === entry.method).length
+        : 0;
+      const observation = nativeAbortSignalObservationForRequest(
+        { ...entry, requestIdentityMatchCount }, report.nativeAbortProbeEvents ?? [],
+      );
+      return [{ requestId, origin: entry.origin, path: entry.path, method: entry.method, requestIdentityMatchCount, observation }];
+    });
+  }
+
+  if (workflowError) throw workflowError;
+  if (captureError) throw captureError;
+  if (!ledger) throw new Error('Cohort expand native request ledger was not finalized.');
 };

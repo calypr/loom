@@ -3,12 +3,26 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import { includeBrowserDiagnostics } from '../cda-playwright.mjs';
 import { finishCdaReport } from '../cda-fixtures.mjs';
+import { createFixtureBrowserDiagnostics } from '../fixtures.mjs';
+import {
+  createFixtureNativeRequestLedger,
+  finalizeFixtureNativeRequestReport,
+  projectFixtureNetworkDiagnostics,
+} from '../native-request-ledger.mjs';
+import { classifyNetworkRecord, createReport, finishReport } from '../report.mjs';
 import {
   classifyRootQuantityPivotValidationConsoleBatch,
   markRootQuantityPivotValidationBatchExpected,
   pivotSourceSelectionReady,
   unexpectedRootQuantityPivotConsoleErrors,
 } from '../../workflows/root-quantity-pivot-workflow.mjs';
+
+const fixtureDiagnosticsReport = () => ({
+  errors: [],
+  assertions: [],
+  assetFailures: [],
+  dimensions: { correctness: { status: 'untested', evidence: [] } },
+});
 
 const installDocument = ({ controls, checkboxes = [] }) => {
   const previous = globalThis.document;
@@ -85,6 +99,296 @@ test('workflow times the role-aware selection postcondition instead of requiring
   assert.match(workflow, /after:\s*\(\)\s*=>\s*waitForObservable\(page,\s*pivotSourceSelectionReady/);
   assert.match(workflow, /const selectPivotSource = async \(label, path\) =>[\s\S]*?await action\(/);
   assert.doesNotMatch(workflow, /const selectPivotSource = async \(label, path\) =>[\s\S]*?await selectNative\(page, selector, matches\[0\]\.value\)/);
+});
+
+test('fixture workflow diagnostics drain owned HTTP bodies and keep raw browser projection explicit', async () => {
+  let resolveBody;
+  const body = new Promise(resolve => { resolveBody = resolve; });
+  const report = fixtureDiagnosticsReport();
+  const adapter = createFixtureBrowserDiagnostics(report);
+  let drainFinished = false;
+  adapter.record('console', {
+    text: 'Failed to load resource: the server responded with a status of 422 (Unprocessable Entity)',
+    location: 'http://127.0.0.1:30008/api/v1/projects/fixture/explorers/root/authoring/v2/construction-proposals',
+  });
+  adapter.trackHttpDiagnosticRead(body.then(responseBody => {
+    adapter.record('httpFailures', {
+      url: 'http://127.0.0.1:30008/api/v1/projects/fixture/explorers/root/authoring/v2/construction-proposals',
+      status: 422,
+      body: responseBody,
+      browserRequestId: 'fixture-playwright-422',
+      playwrightRequestId: 'fixture-playwright-422',
+    });
+  }), {
+    browserRequestId: 'fixture-playwright-422',
+    requestId: 'fixture-request-422',
+    method: 'POST',
+    path: '/api/v1/projects/fixture/explorers/root/authoring/v2/construction-proposals',
+    status: 422,
+  });
+
+  const draining = adapter.finalize({ timeoutMs: 500 }).then(result => {
+    drainFinished = true;
+    return result;
+  });
+  await new Promise(resolve => setTimeout(resolve, 10));
+  assert.equal(drainFinished, false, 'the fixture lifecycle drain must wait for its captured response body');
+  resolveBody('{"error":{"code":"TABLE_PIVOT_CELL_CARDINALITY"}}');
+  const outcome = await draining;
+  assert.equal(outcome.drainError, undefined);
+
+  assert.equal(report.errors.length, 0,
+    'fixture finalization retains raw diagnostics without duplicating them into the generic report error gate');
+  adapter.includeBrowserDiagnostics();
+  assert.equal(report.errors.filter(error => error.kind === 'console').length, 1);
+  assert.equal(report.errors.filter(error => error.kind === 'http').length, 1);
+  assert.equal(report.errors.find(error => error.kind === 'http').playwrightRequestId, 'fixture-playwright-422');
+  assert.equal(report.browserDiagnostics.retainedCounts.httpFailures, 1);
+  assert.equal(report.assertions.find(assertion => assertion.name === 'fixture HTTP response diagnostics drained before report finalization').status, 'passed');
+
+  const fixtures = await readFile(new URL('../fixtures.mjs', import.meta.url), 'utf8');
+  const spec = await readFile(new URL('../../specs/root-quantity-pivot.spec.mjs', import.meta.url), 'utf8');
+  assert.match(fixtures, /\.\.\.browserDiagnostics, page, check, action, fault, nativeRequestLedger/);
+  assert.match(fixtures, /browserDiagnostics\.record\('console'/);
+  assert.match(fixtures, /browserDiagnostics\.record\('httpFailures'/);
+  assert.match(fixtures, /browserDiagnostics\.record\('networkFailures'/);
+  assert.match(fixtures, /includeBrowserDiagnostics\(\)\s*\{\s*project\(\);/);
+  const teardownDrain = fixtures.indexOf('await browserDiagnostics.finalize({ timeoutMs: 5_000 });');
+  const nativeReportFinalization = fixtures.indexOf('finalizeFixtureNativeRequestReport(', teardownDrain);
+  assert(teardownDrain >= 0 && nativeReportFinalization > teardownDrain,
+    'fixture teardown must drain and project response bodies before native report finalization');
+  assert.match(spec, /\.\.\.workflow,\s*caseName: 'fixture-lifecycle'/);
+});
+
+test('fixture finalization keeps injected faults request-scoped and same-path status peers fatal', async () => {
+  const project = 'fixture-owned';
+  const explorer = 'editor';
+  const origin = 'http://127.0.0.1:30008';
+  const url = `${origin}/api/v1/projects/${project}/explorers/${explorer}/authoring/v2/construction-proposals`;
+  const message = 'Failed to load resource: the server responded with a status of 422 (Unprocessable Entity)';
+  const ledger = createFixtureNativeRequestLedger();
+  const scope = ledger.openScope({ project, origin });
+  const report = createReport({
+    scenario: 'fixture-ledger-test',
+    caseName: 'fixture-request-scoped-injected-fault',
+    target: { fixtureProject: project },
+  });
+  const requests = ['browser-expected-422', 'browser-unexpected-422'].map((browserRequestId, index) => {
+    const requestId = `server-request-${index + 1}`;
+    const request = {
+      url: () => url,
+      method: () => 'POST',
+      headers: () => ({ 'x-request-id': requestId }),
+      resourceType: () => 'fetch',
+    };
+    ledger.recordRequest(request, {
+      requestId,
+      browserRequestId,
+      method: 'POST',
+      resourceType: 'fetch',
+      url,
+      startedAt: index + 1,
+    });
+    ledger.recordResponse(request, { status: 422, serverRequestId: requestId, observedAt: index + 2 });
+    ledger.recordFinished(request, { observedAt: index + 3 });
+    const diagnostic = {
+      kind: 'network',
+      status: 422,
+      method: 'POST',
+      url,
+      rawURL: url,
+      browserRequestId,
+      playwrightRequestId: browserRequestId,
+      responseBody: {
+        captureState: 'completed',
+        body: index === 0 ? '{"error":"injected"}' : '{"error":"unexpected"}',
+      },
+    };
+    ledger.associateDiagnostic(request, diagnostic);
+    return diagnostic;
+  });
+  report.network.push(...requests, {
+    kind: 'console-error', text: message, location: url, rawLocation: url,
+  });
+  const adapter = createFixtureBrowserDiagnostics(report);
+  adapter.record('httpFailures', {
+    url, status: 422, body: { captureState: 'completed', body: '{"error":"injected"}' },
+    browserRequestId: 'browser-expected-422', playwrightRequestId: 'browser-expected-422',
+  });
+  adapter.record('httpFailures', {
+    url, status: 422, body: { captureState: 'completed', body: '{"error":"unexpected"}' },
+    browserRequestId: 'browser-unexpected-422', playwrightRequestId: 'browser-unexpected-422',
+  });
+  adapter.record('console', { text: message, location: url });
+
+  await adapter.finalize({ timeoutMs: 500 });
+  assert.equal(report.errors.length, 0, 'teardown keeps browser diagnostics in their raw channels');
+  projectFixtureNetworkDiagnostics({
+    report,
+    ledger,
+    faults: [{
+      id: 'injected-422',
+      matched: true,
+      action: 'fulfill',
+      responseStatus: 422,
+      playwrightRequestId: 'browser-expected-422',
+      method: 'POST',
+      rawURL: url,
+    }],
+  });
+  await ledger.flush(scope, { explorer, timeoutMs: 20 });
+  finalizeFixtureNativeRequestReport({ report, ledger, project });
+  finishReport(report);
+
+  const expected = report.network.find(entry => entry.kind === 'network' && entry.playwrightRequestId === 'browser-expected-422');
+  const unexpected = report.network.find(entry => entry.kind === 'network' && entry.playwrightRequestId === 'browser-unexpected-422');
+  const pairedConsole = report.network.find(entry => entry.observedAs === 'console-error');
+  assert.equal(classifyNetworkRecord(expected), 'expected-injected');
+  assert.equal(expected.injectedRequestId, 'injected-422');
+  assert.equal(classifyNetworkRecord(unexpected), 'unexpected-error',
+    'same method, path, and status cannot transfer the policy to another browser request');
+  assert.equal(expected.responseBody.captureState, 'completed');
+  assert.equal(expected.responseBody.body, '{"error":"injected"}',
+    'the exact request’s completed response body remains in the native network evidence');
+  assert.equal(pairedConsole.injectedFault, true);
+  assert.equal(pairedConsole.playwrightRequestId, 'browser-expected-422',
+    'the unique exact console pairing retains the injected Request identity');
+  assert.equal(adapter.diagnostics.httpFailures.length, 2,
+    'both raw HTTP responses remain available with their distinct browser IDs');
+  assert.deepEqual(adapter.diagnostics.httpFailures.map(entry => entry.playwrightRequestId), [
+    'browser-expected-422', 'browser-unexpected-422',
+  ]);
+  assert.equal(adapter.diagnostics.console.length, 1, 'the raw console evidence remains retained');
+  assert.equal(report.nativeRequests.find(entry => entry.browserRequestId === 'browser-expected-422').injectedFault, true);
+  assert.equal(report.status, 'failed', 'the same-path, same-status request with another identity remains fatal');
+
+  const explicitlyProjectedReport = { errors: [] };
+  const explicitAdapter = createFixtureBrowserDiagnostics(explicitlyProjectedReport);
+  explicitAdapter.record('console', { text: 'Pivot workflow diagnostic', location: url });
+  explicitAdapter.includeBrowserDiagnostics();
+  assert.equal(explicitlyProjectedReport.errors[0].message, 'Pivot workflow diagnostic',
+    'Pivot workflows can still explicitly project raw browser diagnostics when needed');
+});
+
+test('an extra console error remains fatal when exact request policy consumes only one record', async () => {
+  const url = 'http://127.0.0.1:30008/api/v1/projects/fixture-owned/explorers/editor/authoring/v2/construction-proposals';
+  const message = 'Failed to load resource: the server responded with a status of 422 (Unprocessable Entity)';
+  const report = createReport({ scenario: 'fixture-ledger-test', caseName: 'extra-console-remains-fatal' });
+  report.network.push(
+    { kind: 'network', status: 422, method: 'POST', url, rawURL: url, playwrightRequestId: 'browser-expected-422' },
+    { kind: 'console-error', text: message, location: url, rawLocation: url },
+    { kind: 'console-error', text: message, location: url, rawLocation: url },
+  );
+  const adapter = createFixtureBrowserDiagnostics(report);
+  adapter.record('console', { text: message, location: url });
+  adapter.record('console', { text: message, location: url });
+  await adapter.finalize({ timeoutMs: 500 });
+  projectFixtureNetworkDiagnostics({
+    report,
+    ledger: { linkProjectedDiagnostics() {} },
+    faults: [{
+      id: 'injected-422', matched: true, action: 'fulfill', responseStatus: 422,
+      playwrightRequestId: 'browser-expected-422', method: 'POST', rawURL: url,
+    }],
+  });
+  finishReport(report);
+
+  assert.equal(adapter.diagnostics.console.length, 2, 'both ambiguous raw console observations remain captured');
+  assert.equal(report.network.filter(entry => entry.observedAs === 'console-error' && entry.injectedFault).length, 1,
+    'the exact request policy consumes at most one console record');
+  assert.equal(report.network.filter(entry => entry.kind === 'console-error').length, 1,
+    'the additional console error remains unclassified and fatal');
+  assert.equal(report.status, 'failed');
+});
+
+test('fixture teardown projects a failed response-body read and records it without throwing', async () => {
+  const report = fixtureDiagnosticsReport();
+  const adapter = createFixtureBrowserDiagnostics(report);
+  const responseBody = { captureState: 'pending' };
+  const read = Promise.resolve().then(() => { throw new Error('retained response body read failed'); }).catch(error => {
+    responseBody.captureState = 'readfailed';
+    responseBody.error = error.message;
+    adapter.record('httpFailures', {
+      url: 'http://127.0.0.1:30008/api/v1/projects/fixture/explorers/root/authoring/v2/construction-proposals',
+      status: 422,
+      body: responseBody,
+      browserRequestId: 'fixture-playwright-failed-body',
+      playwrightRequestId: 'fixture-playwright-failed-body',
+    });
+    throw error;
+  });
+  adapter.trackHttpDiagnosticRead(read, {
+    browserRequestId: 'fixture-playwright-failed-body',
+    requestId: 'fixture-request-failed-body',
+    method: 'POST',
+    path: '/api/v1/projects/fixture/explorers/root/authoring/v2/construction-proposals',
+    status: 422,
+  });
+
+  const outcome = await adapter.finalize({ timeoutMs: 500 });
+
+  assert.match(outcome.drainError, /Failed fixture HTTP diagnostic bodies/);
+  assert.equal(responseBody.captureState, 'readfailed');
+  assert.equal(adapter.diagnostics.httpFailures[0].body.captureState, 'readfailed',
+    'the failed response body remains in the retained raw HTTP channel');
+  assert.match(report.errors.find(error => error.kind === 'browser-diagnostic-drain').message, /retained response body read failed/);
+  assert.equal(report.assertions.find(assertion => assertion.name === 'fixture HTTP response diagnostics drained before report finalization').status, 'failed');
+});
+
+test('fixture teardown times out pending response reads without masking an earlier workflow failure', async () => {
+  const report = fixtureDiagnosticsReport();
+  const adapter = createFixtureBrowserDiagnostics(report);
+  adapter.trackHttpDiagnosticRead(new Promise(() => {}), {
+    browserRequestId: 'fixture-playwright-pending-body',
+    requestId: 'fixture-request-pending-body',
+    method: 'POST',
+    path: '/api/v1/projects/fixture/explorers/root/authoring/v2/construction-proposals',
+    status: 422,
+  });
+  const workflowError = new Error('earlier workflow assertion failed');
+
+  const observedError = await (async () => {
+    try {
+      throw workflowError;
+    } finally {
+      const outcome = await adapter.finalize({ timeoutMs: 15 });
+      assert.match(outcome.drainError, /Timed out flushing fixture HTTP diagnostic bodies/);
+    }
+  })().then(() => undefined, error => error);
+
+  assert.equal(observedError, workflowError);
+  assert.match(report.errors.find(error => error.kind === 'browser-diagnostic-drain').message, /fixture-playwright-pending-body/);
+  assert.equal(report.assertions.find(assertion => assertion.name === 'fixture HTTP response diagnostics drained before report finalization').status, 'failed');
+});
+
+test('fixture diagnostic channels cap every event class and report exact drop counts', async () => {
+  const report = fixtureDiagnosticsReport();
+  const adapter = createFixtureBrowserDiagnostics(report);
+  const channels = ['pageErrors', 'console', 'networkFailures', 'httpFailures', 'assetFailures'];
+  for (const channel of channels) {
+    for (let index = 0; index < 100; index += 1) {
+      assert.equal(adapter.record(channel, {
+        message: `event-${channel}-${index}`,
+        text: `event-${channel}-${index}`,
+        url: `http://127.0.0.1/${channel}/${index}`,
+        browserRequestId: `${channel}-${index}`,
+        playwrightRequestId: `${channel}-${index}`,
+        status: 422,
+      }), true);
+    }
+    assert.equal(adapter.record(channel, { message: `overflow-${channel}` }), false);
+  }
+
+  const outcome = await adapter.finalize({ timeoutMs: 500 });
+
+  for (const channel of channels) {
+    assert.equal(adapter.diagnostics[channel].length, 100);
+    assert.equal(outcome.droppedCounts[channel], 1);
+    assert.equal(report.browserDiagnostics.retainedCounts[channel], 100);
+    assert.equal(report.browserDiagnostics.droppedCounts[channel], 1);
+  }
+  assert.equal(report.errors.find(error => error.kind === 'browser-diagnostic-overflow').droppedCounts.httpFailures, 1);
+  assert.equal(report.assertions.find(assertion => assertion.name === 'fixture browser diagnostic channels stayed within capture limits').status, 'failed');
 });
 
 test('live fixture diagnostics are projected before batch classification and repeated teardown projection is idempotent', async () => {
