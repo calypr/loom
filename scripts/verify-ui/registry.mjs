@@ -912,6 +912,7 @@ export const registry = Object.freeze([
               'scripts/verify-ui/helpers/tests/related-quantity-pivot-oracle.test.mjs',
               'scripts/verify-ui/helpers/tests/related-quantity-pivot-discovery-parity.test.mjs',
               'scripts/verify-ui/helpers/tests/related-quantity-pivot-discovery-process.test.mjs',
+              'scripts/verify-ui/helpers/tests/related-quantity-pivot-discovery-artifact.test.mjs',
               'scripts/verify-ui/helpers/tests/owned-arangosh-command.test.mjs',
             ],
             sourceFiles: [
@@ -919,6 +920,7 @@ export const registry = Object.freeze([
               'scripts/verify-ui/specs/root-quantity-pivot.spec.mjs',
               'scripts/verify-ui/workflows/verify-cda-quantity-pivot-native-drag-browser.mjs',
               'scripts/verify-ui/helpers/related-quantity-pivot-oracle.mjs',
+              'scripts/verify-ui/helpers/related-quantity-pivot-discovery-artifact.mjs',
               'scripts/verify-ui/helpers/related-quantity-pivot-discovery-process.mjs',
               'scripts/verify-ui/helpers/owned-arangosh-command.mjs',
               'scripts/verify-ui/helpers/cda-playwright.mjs',
