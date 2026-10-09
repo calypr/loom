@@ -450,11 +450,17 @@ export const finishReport = (report) => {
   if (expectedOwnerRetirements.length) report.expectedOwnerRetirements = expectedOwnerRetirements;
   else delete report.expectedOwnerRetirements;
   const unexpected = report.network.filter((record) => classifyReportNetworkRecord(report, record) === 'unexpected-error');
+  const finalNetworkCheckName = typeof report.finalNetworkCheckName === 'string' && report.finalNetworkCheckName.trim()
+    ? report.finalNetworkCheckName : null;
   if (unexpected.length) {
     report.errors.push(...unexpected.map((record) => ({ kind: 'unexpected-network', ...record })));
-    recordCheck(report, 'correctness', 'no unexpected network, module, or browser errors', false, { count: unexpected.length });
-  } else if (report.network.some((record) => classifyReportNetworkRecord(report, record) === 'expected-injected')) {
-    report.errors.push(...report.network.filter((record) => classifyReportNetworkRecord(report, record) === 'expected-injected').map((record) => ({ kind: 'expected-injected', ...record })));
+    recordCheck(report, 'correctness', finalNetworkCheckName ?? 'no unexpected network, module, or browser errors', false,
+      { count: unexpected.length });
+  } else {
+    if (finalNetworkCheckName) recordCheck(report, 'correctness', finalNetworkCheckName, true, { count: 0 });
+    if (report.network.some((record) => classifyReportNetworkRecord(report, record) === 'expected-injected')) {
+      report.errors.push(...report.network.filter((record) => classifyReportNetworkRecord(report, record) === 'expected-injected').map((record) => ({ kind: 'expected-injected', ...record })));
+    }
   }
   const failed = report.assertions.some((assertion) => assertion.status === 'failed');
   const passed = report.assertions.some((assertion) => assertion.status === 'passed');

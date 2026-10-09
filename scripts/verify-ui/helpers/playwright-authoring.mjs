@@ -65,11 +65,25 @@ const checkUnexpectedDiagnostics = (report, target) => {
     } catch { return false; }
   });
   report.cancelledOwnedReads = cancelledReads;
-  const unexpected = report.network.filter(item => !cancelledReads.includes(item));
-  recordCheck(report, 'correctness', 'no unexpected network, API, or browser errors', unexpected.length === 0,
-    { console: unexpected.filter(item => item.kind === 'console-error'),
-      pageErrors: unexpected.filter(item => item.kind === 'exception'),
-      networkFailures: unexpected.filter(item => item.kind === 'network') });
+};
+
+export const setAuthoringNativeRequestScope = (report, target, explorer) => {
+  const reportTarget = report?.target;
+  const project = reportTarget?.project;
+  const selectedExplorer = explorer ?? reportTarget?.explorer;
+  let origin = null;
+  let reportOrigin = null;
+  try {
+    if (typeof target?.uiUrl === 'string') origin = new URL(target.uiUrl).origin;
+    if (typeof reportTarget?.uiUrl === 'string') reportOrigin = new URL(reportTarget.uiUrl).origin;
+  } catch {}
+  if (typeof project !== 'string' || project !== target?.fixtureProject ||
+      typeof selectedExplorer !== 'string' || !selectedExplorer.trim() ||
+      selectedExplorer !== reportTarget?.explorer || !origin || origin !== reportOrigin) {
+    throw new TypeError('Basic authoring report scope requires its exact fixture project, UI origin, and selected Explorer.');
+  }
+  report.nativeRequestCaptureScope = { project, origin, explorer: selectedExplorer };
+  return report.nativeRequestCaptureScope;
 };
 
 const waitVisible = (locator, timeout = 5000) => locator.waitFor({ state: 'visible', timeout: Math.min(5000, timeout) });
@@ -161,6 +175,7 @@ export const builderAuthoringWorkflow = async (workflow, context) => {
   const { page, report, action, check } = workflow;
   configureNativePage(page);
   const target = context.target;
+  report.finalNetworkCheckName = 'no unexpected network, API, or browser errors';
   await installNativeAbortProbe({
     page,
     report,
@@ -204,6 +219,7 @@ export const builderAuthoringWorkflow = async (workflow, context) => {
   const explorer = await page.getByRole('combobox', { name: 'Explorer' }).inputValue();
   assert(explorer && explorer !== target.bootstrapExplorerId, 'Explorer creation must select a fresh Explorer');
   report.target.explorer = explorer;
+  setAuthoringNativeRequestScope(report, target, explorer);
   await act('name Patient table', page.locator('#first-table-name'),
     () => page.locator('#first-table-name').fill('Patients'));
   const rootStarted = Date.now();

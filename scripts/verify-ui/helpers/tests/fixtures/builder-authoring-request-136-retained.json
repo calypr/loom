@@ -1,0 +1,659 @@
+{
+  "target": {
+    "kind": "isolated",
+    "uiUrl": "http://127.0.0.1:30008",
+    "project": "loom_dev_verify_mv138hi7-e0132ec",
+    "explorer": "verify-i7-e0132ec-authoring"
+  },
+  "network": [
+    {
+      "kind": "network",
+      "method": "POST",
+      "url": "http://127.0.0.1:30008/api/v1/projects/loom_dev_verify_mv138hi7-e0132ec/explorers/verify-i7-e0132ec-authoring/authoring/v2/schema-fields",
+      "resourceType": "fetch",
+      "errorText": "net::ERR_ABORTED",
+      "playwrightRequestId": "request-136",
+      "requestDetails": {
+        "requestId": "schema-fields-08ecbd51-a999-4b2c-b1d1-1fbc536f9f91",
+        "draftVersion": null,
+        "draftDigest": null,
+        "outputId": null,
+        "stageId": null
+      },
+      "requestTimeline": {
+        "requestStartedMs": 4398,
+        "failedAtMs": 4552,
+        "durationMs": 155,
+        "action": null,
+        "mainFrameNavigations": []
+      },
+      "triggerAction": null
+    }
+  ],
+  "actions": [
+    {
+      "id": "action-1",
+      "startedAtMs": 1412,
+      "endedAtMs": 1475,
+      "startedAtEpochMs": 1791557767161,
+      "finishedAtEpochMs": 1791557767223,
+      "label": "open Explorer creation",
+      "status": "passed",
+      "elapsedMs": 62,
+      "locator": "getByText('New explorer', { exact: true })"
+    },
+    {
+      "id": "action-2",
+      "startedAtMs": 1475,
+      "endedAtMs": 1514,
+      "startedAtEpochMs": 1791557767223,
+      "finishedAtEpochMs": 1791557767262,
+      "label": "name Explorer",
+      "status": "passed",
+      "elapsedMs": 38,
+      "locator": "locator('#new-explorer-name')"
+    },
+    {
+      "id": "action-3",
+      "startedAtMs": 1514,
+      "endedAtMs": 1594,
+      "startedAtEpochMs": 1791557767262,
+      "finishedAtEpochMs": 1791557767342,
+      "label": "create blank Explorer",
+      "status": "passed",
+      "elapsedMs": 79,
+      "locator": "getByRole('button', { name: 'Create blank' })"
+    },
+    {
+      "id": "action-4",
+      "startedAtMs": 1797,
+      "endedAtMs": 1831,
+      "startedAtEpochMs": 1791557767545,
+      "finishedAtEpochMs": 1791557767579,
+      "label": "name Patient table",
+      "status": "passed",
+      "elapsedMs": 33,
+      "locator": "locator('#first-table-name')"
+    },
+    {
+      "id": "action-5",
+      "startedAtMs": 1831,
+      "endedAtMs": 1913,
+      "startedAtEpochMs": 1791557767579,
+      "finishedAtEpochMs": 1791557767661,
+      "label": "choose Patient rows",
+      "status": "passed",
+      "elapsedMs": 82,
+      "locator": "getByRole('button', { name: 'Choose Patient rows' })"
+    },
+    {
+      "id": "action-6",
+      "startedAtMs": 3044,
+      "endedAtMs": 3117,
+      "startedAtEpochMs": 1791557768792,
+      "finishedAtEpochMs": 1791557768866,
+      "label": "open Add columns",
+      "status": "passed",
+      "elapsedMs": 73,
+      "locator": "getByRole('button', { name: /Add columns:/ })"
+    },
+    {
+      "id": "action-7",
+      "startedAtMs": 3121,
+      "endedAtMs": 3218,
+      "startedAtEpochMs": 1791557768869,
+      "finishedAtEpochMs": 1791557768966,
+      "label": "choose Fields and related data",
+      "status": "passed",
+      "elapsedMs": 97,
+      "locator": "getByRole('button', { name: 'Fields and related data' })"
+    },
+    {
+      "id": "action-8",
+      "startedAtMs": 3218,
+      "endedAtMs": 3276,
+      "startedAtEpochMs": 1791557768966,
+      "finishedAtEpochMs": 1791557769025,
+      "label": "open raw FHIR fields",
+      "status": "passed",
+      "elapsedMs": 58,
+      "locator": "getByText('Raw FHIR fields (advanced)', { exact: true })"
+    },
+    {
+      "id": "action-9",
+      "startedAtMs": 3277,
+      "endedAtMs": 3351,
+      "startedAtEpochMs": 1791557769025,
+      "finishedAtEpochMs": 1791557769100,
+      "label": "select Patient.gender",
+      "status": "passed",
+      "elapsedMs": 74,
+      "locator": "getByRole('checkbox', { name: 'Select Patient.gender' })"
+    },
+    {
+      "id": "action-10",
+      "startedAtMs": 3352,
+      "endedAtMs": 3580,
+      "startedAtEpochMs": 1791557769100,
+      "finishedAtEpochMs": 1791557769328,
+      "label": "add selected feature",
+      "status": "passed",
+      "elapsedMs": 227,
+      "locator": "getByRole('button', { name: 'Add 1 selected feature' })"
+    },
+    {
+      "id": "action-11",
+      "startedAtMs": 3893,
+      "endedAtMs": 4047,
+      "startedAtEpochMs": 1791557769641,
+      "finishedAtEpochMs": 1791557769795,
+      "label": "apply Gender column",
+      "status": "passed",
+      "elapsedMs": 153,
+      "locator": "getByRole('button', { name: 'Apply columns' })"
+    },
+    {
+      "id": "action-12",
+      "startedAtMs": 4435,
+      "endedAtMs": 4554,
+      "startedAtEpochMs": 1791557770183,
+      "finishedAtEpochMs": 1791557770302,
+      "label": "close operation editor",
+      "status": "passed",
+      "elapsedMs": 119,
+      "locator": "getByRole('button', { name: 'Close operation editor' })"
+    },
+    {
+      "id": "action-13",
+      "startedAtMs": 4562,
+      "endedAtMs": 4630,
+      "startedAtEpochMs": 1791557770310,
+      "finishedAtEpochMs": 1791557770378,
+      "label": "publish Explorer",
+      "status": "passed",
+      "elapsedMs": 68,
+      "locator": "getByRole('button', { name: 'Publish', exact: true })"
+    }
+  ],
+  "nativeAbortProbeEvents": [
+    {
+      "kind": "abort-controller-call",
+      "controllerId": "abort-controller-26",
+      "createdAt": 1791557768953,
+      "abortedAt": 1791557770296,
+      "abortCount": 1,
+      "signalWasAlreadyAborted": false,
+      "createdStack": [
+        {
+          "path": "/@fs/workspace/packages/loom-ui/src/react.tsx",
+          "line": 46,
+          "column": 31
+        },
+        {
+          "path": "/@fs/workspace/packages/loom-ui/src/react.tsx",
+          "line": 71,
+          "column": 37
+        },
+        {
+          "path": "/node_modules/.vite/deps/react-dom_client.js",
+          "line": 6089,
+          "column": 16
+        },
+        {
+          "path": "/node_modules/.vite/deps/react-dom_client.js",
+          "line": 18567,
+          "column": 20
+        },
+        {
+          "path": "/node_modules/.vite/deps/react-dom_client.js",
+          "line": 997,
+          "column": 72
+        },
+        {
+          "path": "/node_modules/.vite/deps/react-dom_client.js",
+          "line": 9411,
+          "column": 163
+        }
+      ],
+      "abortStack": [
+        {
+          "path": "/@fs/workspace/packages/loom-ui/src/react.tsx",
+          "line": 76,
+          "column": 23
+        }
+      ],
+      "requests": [
+        {
+          "requestId": "schema-fields-7a8df566-7e51-4fa0-bc7e-4a57edd5a02b",
+          "origin": "http://127.0.0.1:30008",
+          "path": "/api/v1/projects/loom_dev_verify_mv138hi7-e0132ec/explorers/verify-i7-e0132ec-authoring/authoring/v2/schema-fields",
+          "method": "POST",
+          "endpoint": "schema-fields",
+          "explorer": "verify-i7-e0132ec-authoring",
+          "requestIdSource": "request-header",
+          "startedAt": 1791557768953,
+          "fetchStateAtAbort": "fulfilled",
+          "ownerDomAtFetch": {
+            "status": "unique",
+            "selector": "#feature-catalog-search",
+            "matchCount": 1,
+            "capturedAt": 1791557768953,
+            "anchorId": "dom-node-8",
+            "connectedAtFetch": true,
+            "ruleOwner": "feature-catalog-generated-fields",
+            "retirementAction": "close-operation-editor"
+          },
+          "settledAt": 1791557769337,
+          "ownerDomAtAbort": {
+            "anchorId": "dom-node-8",
+            "connectedAtAbort": false,
+            "detachedAtAbort": true,
+            "detachedObservedAt": 1791557770295,
+            "observedAtAbort": 1791557770296
+          }
+        },
+        {
+          "requestId": "schema-fields-3978ef58-0482-4459-a1cf-0969d7ad264f",
+          "origin": "http://127.0.0.1:30008",
+          "path": "/api/v1/projects/loom_dev_verify_mv138hi7-e0132ec/explorers/verify-i7-e0132ec-authoring/authoring/v2/schema-fields",
+          "method": "POST",
+          "endpoint": "schema-fields",
+          "explorer": "verify-i7-e0132ec-authoring",
+          "requestIdSource": "request-header",
+          "startedAt": 1791557769338,
+          "fetchStateAtAbort": "fulfilled",
+          "ownerDomAtFetch": {
+            "status": "unique",
+            "selector": "#feature-catalog-search",
+            "matchCount": 1,
+            "capturedAt": 1791557769338,
+            "anchorId": "dom-node-8",
+            "connectedAtFetch": true,
+            "ruleOwner": "feature-catalog-generated-fields",
+            "retirementAction": "close-operation-editor"
+          },
+          "settledAt": 1791557769701,
+          "ownerDomAtAbort": {
+            "anchorId": "dom-node-8",
+            "connectedAtAbort": false,
+            "detachedAtAbort": true,
+            "detachedObservedAt": 1791557770295,
+            "observedAtAbort": 1791557770296
+          }
+        },
+        {
+          "requestId": "schema-fields-9a3cefa6-0697-4a57-bfab-13a084cfb3b6",
+          "origin": "http://127.0.0.1:30008",
+          "path": "/api/v1/projects/loom_dev_verify_mv138hi7-e0132ec/explorers/verify-i7-e0132ec-authoring/authoring/v2/schema-fields",
+          "method": "POST",
+          "endpoint": "schema-fields",
+          "explorer": "verify-i7-e0132ec-authoring",
+          "requestIdSource": "request-header",
+          "startedAt": 1791557769702,
+          "fetchStateAtAbort": "fulfilled",
+          "ownerDomAtFetch": {
+            "status": "unique",
+            "selector": "#feature-catalog-search",
+            "matchCount": 1,
+            "capturedAt": 1791557769702,
+            "anchorId": "dom-node-8",
+            "connectedAtFetch": true,
+            "ruleOwner": "feature-catalog-generated-fields",
+            "retirementAction": "close-operation-editor"
+          },
+          "settledAt": 1791557770097,
+          "ownerDomAtAbort": {
+            "anchorId": "dom-node-8",
+            "connectedAtAbort": false,
+            "detachedAtAbort": true,
+            "detachedObservedAt": 1791557770295,
+            "observedAtAbort": 1791557770296
+          }
+        },
+        {
+          "requestId": "schema-fields-08ecbd51-a999-4b2c-b1d1-1fbc536f9f91",
+          "origin": "http://127.0.0.1:30008",
+          "path": "/api/v1/projects/loom_dev_verify_mv138hi7-e0132ec/explorers/verify-i7-e0132ec-authoring/authoring/v2/schema-fields",
+          "method": "POST",
+          "endpoint": "schema-fields",
+          "explorer": "verify-i7-e0132ec-authoring",
+          "requestIdSource": "request-header",
+          "startedAt": 1791557770145,
+          "fetchStateAtAbort": "pending",
+          "ownerDomAtFetch": {
+            "status": "unique",
+            "selector": "#feature-catalog-search",
+            "matchCount": 1,
+            "capturedAt": 1791557770145,
+            "anchorId": "dom-node-8",
+            "connectedAtFetch": true,
+            "ruleOwner": "feature-catalog-generated-fields",
+            "retirementAction": "close-operation-editor"
+          },
+          "ownerDomAtAbort": {
+            "anchorId": "dom-node-8",
+            "connectedAtAbort": false,
+            "detachedAtAbort": true,
+            "detachedObservedAt": 1791557770295,
+            "observedAtAbort": 1791557770296
+          }
+        }
+      ],
+      "trustedInteractions": [
+        {
+          "type": "click",
+          "at": 1791557767220,
+          "isTrusted": true,
+          "target": {
+            "tag": "SUMMARY"
+          }
+        },
+        {
+          "type": "input",
+          "at": 1791557767260,
+          "isTrusted": true,
+          "target": {
+            "tag": "INPUT"
+          }
+        },
+        {
+          "type": "change",
+          "at": 1791557767336,
+          "isTrusted": true,
+          "target": {
+            "tag": "INPUT"
+          }
+        },
+        {
+          "type": "click",
+          "at": 1791557767337,
+          "isTrusted": true,
+          "target": {
+            "tag": "BUTTON"
+          },
+          "closestButton": {
+            "id": "dom-node-1",
+            "accessibleLabel": "Create blank"
+          }
+        },
+        {
+          "type": "input",
+          "at": 1791557767575,
+          "isTrusted": true,
+          "target": {
+            "tag": "INPUT"
+          }
+        },
+        {
+          "type": "change",
+          "at": 1791557767654,
+          "isTrusted": true,
+          "target": {
+            "tag": "INPUT"
+          }
+        },
+        {
+          "type": "click",
+          "at": 1791557767654,
+          "isTrusted": true,
+          "target": {
+            "tag": "SPAN"
+          },
+          "closestButton": {
+            "id": "dom-node-2",
+            "accessibleLabel": "Choose Patient rows"
+          }
+        },
+        {
+          "type": "click",
+          "at": 1791557768854,
+          "isTrusted": true,
+          "target": {
+            "tag": "BUTTON",
+            "testId": "construction-action-add-columns",
+            "ariaLabel": "Add columns: Bring more information into each row."
+          },
+          "closestButton": {
+            "id": "dom-node-5",
+            "accessibleLabel": "Add columns: Bring more information into each row.",
+            "testId": "construction-action-add-columns",
+            "ariaPressed": false
+          }
+        },
+        {
+          "type": "click",
+          "at": 1791557768937,
+          "isTrusted": true,
+          "target": {
+            "tag": "BUTTON"
+          },
+          "closestButton": {
+            "id": "dom-node-6",
+            "accessibleLabel": "Fields and related data",
+            "ariaPressed": false,
+            "tabGroupId": "dom-node-7"
+          }
+        },
+        {
+          "type": "click",
+          "at": 1791557769021,
+          "isTrusted": true,
+          "target": {
+            "tag": "SUMMARY"
+          }
+        },
+        {
+          "type": "click",
+          "at": 1791557769087,
+          "isTrusted": true,
+          "target": {
+            "tag": "INPUT",
+            "ariaLabel": "Select Patient.gender"
+          }
+        },
+        {
+          "type": "input",
+          "at": 1791557769096,
+          "isTrusted": true,
+          "target": {
+            "tag": "INPUT",
+            "ariaLabel": "Select Patient.gender"
+          }
+        },
+        {
+          "type": "change",
+          "at": 1791557769096,
+          "isTrusted": true,
+          "target": {
+            "tag": "INPUT",
+            "ariaLabel": "Select Patient.gender"
+          }
+        },
+        {
+          "type": "click",
+          "at": 1791557769237,
+          "isTrusted": true,
+          "target": {
+            "tag": "BUTTON"
+          },
+          "closestButton": {
+            "id": "dom-node-9",
+            "accessibleLabel": "Add 1 selected feature"
+          }
+        },
+        {
+          "type": "click",
+          "at": 1791557769733,
+          "isTrusted": true,
+          "target": {
+            "tag": "BUTTON"
+          },
+          "closestButton": {
+            "id": "dom-node-10",
+            "accessibleLabel": "Apply columns"
+          }
+        },
+        {
+          "type": "click",
+          "at": 1791557770269,
+          "isTrusted": true,
+          "target": {
+            "tag": "BUTTON",
+            "testId": "construction-close-operation-editor",
+            "ariaLabel": "Close operation editor"
+          },
+          "closestButton": {
+            "id": "dom-node-11",
+            "accessibleLabel": "Close operation editor",
+            "testId": "construction-close-operation-editor"
+          }
+        }
+      ],
+      "lastTrustedInteraction": {
+        "type": "click",
+        "at": 1791557770269,
+        "isTrusted": true,
+        "target": {
+          "tag": "BUTTON",
+          "testId": "construction-close-operation-editor",
+          "ariaLabel": "Close operation editor"
+        },
+        "closestButton": {
+          "id": "dom-node-11",
+          "accessibleLabel": "Close operation editor",
+          "testId": "construction-close-operation-editor"
+        }
+      }
+    },
+    {
+      "kind": "abort-controller-fetch-settlement",
+      "controllerId": "abort-controller-26",
+      "observedAt": 1791557770296,
+      "requests": [
+        {
+          "requestId": "schema-fields-7a8df566-7e51-4fa0-bc7e-4a57edd5a02b",
+          "origin": "http://127.0.0.1:30008",
+          "path": "/api/v1/projects/loom_dev_verify_mv138hi7-e0132ec/explorers/verify-i7-e0132ec-authoring/authoring/v2/schema-fields",
+          "method": "POST",
+          "fetchStateAfterAbort": "fulfilled",
+          "settledAt": 1791557769337
+        },
+        {
+          "requestId": "schema-fields-3978ef58-0482-4459-a1cf-0969d7ad264f",
+          "origin": "http://127.0.0.1:30008",
+          "path": "/api/v1/projects/loom_dev_verify_mv138hi7-e0132ec/explorers/verify-i7-e0132ec-authoring/authoring/v2/schema-fields",
+          "method": "POST",
+          "fetchStateAfterAbort": "fulfilled",
+          "settledAt": 1791557769701
+        },
+        {
+          "requestId": "schema-fields-9a3cefa6-0697-4a57-bfab-13a084cfb3b6",
+          "origin": "http://127.0.0.1:30008",
+          "path": "/api/v1/projects/loom_dev_verify_mv138hi7-e0132ec/explorers/verify-i7-e0132ec-authoring/authoring/v2/schema-fields",
+          "method": "POST",
+          "fetchStateAfterAbort": "fulfilled",
+          "settledAt": 1791557770097
+        },
+        {
+          "requestId": "schema-fields-08ecbd51-a999-4b2c-b1d1-1fbc536f9f91",
+          "origin": "http://127.0.0.1:30008",
+          "path": "/api/v1/projects/loom_dev_verify_mv138hi7-e0132ec/explorers/verify-i7-e0132ec-authoring/authoring/v2/schema-fields",
+          "method": "POST",
+          "fetchStateAfterAbort": "rejected",
+          "settledAt": 1791557770296
+        }
+      ]
+    }
+  ],
+  "nativeRequestTerminalLedger": {
+    "scope": "selected Explorer native routes in the preseeded fresh fixture project",
+    "project": "loom_dev_verify_mv138hi7-e0132ec",
+    "explorer": "verify-i7-e0132ec-authoring",
+    "automaticScope": true,
+    "complete": true,
+    "counts": {
+      "total": 31,
+      "finished": 30,
+      "failed": 1,
+      "pending": 0
+    },
+    "requests": [
+      {
+        "requestId": "schema-fields-08ecbd51-a999-4b2c-b1d1-1fbc536f9f91",
+        "browserRequestId": "request-136",
+        "method": "POST",
+        "origin": "http://127.0.0.1:30008",
+        "path": "/api/v1/projects/loom_dev_verify_mv138hi7-e0132ec/explorers/verify-i7-e0132ec-authoring/authoring/v2/schema-fields",
+        "status": null,
+        "failure": "net::ERR_ABORTED",
+        "terminalEvent": "requestfailed",
+        "state": "failed",
+        "complete": true,
+        "pageId": "playwright-page-1",
+        "frameId": "playwright-frame-1",
+        "frameIsMainFrame": true,
+        "frameIdentityStatus": "exact",
+        "navigationSequenceAtStart": 3,
+        "requestTimeline": {
+          "requestStartedMs": 4398,
+          "failedAtMs": 4552,
+          "durationMs": 155,
+          "action": null,
+          "mainFrameNavigations": []
+        },
+        "nativeEventChronology": [
+          {
+            "event": "request",
+            "browserRequestId": "request-136",
+            "observedAt": 1791557770146,
+            "objectMatch": true
+          },
+          {
+            "event": "requestfailed",
+            "browserRequestId": "request-136",
+            "observedAt": 1791557770301,
+            "objectMatch": true,
+            "failure": "net::ERR_ABORTED"
+          }
+        ],
+        "sameFrameNavigationEventsAfterStart": [
+          {
+            "id": "navigation-4",
+            "sequence": 4,
+            "phase": "request-start"
+          },
+          {
+            "id": "navigation-5",
+            "sequence": 5,
+            "phase": "frame-navigated"
+          }
+        ]
+      }
+    ]
+  },
+  "navigationTimings": [
+    {
+      "id": "navigation-4",
+      "sequence": 4,
+      "atMs": 4792,
+      "url": "http://127.0.0.1:30008/",
+      "phase": "request-start",
+      "pageId": "playwright-page-1",
+      "frameId": "playwright-frame-1",
+      "frameIsMainFrame": true,
+      "frameIdentityStatus": "exact",
+      "browserRequestId": "request-139"
+    },
+    {
+      "id": "navigation-5",
+      "sequence": 5,
+      "atMs": 4799,
+      "url": "http://127.0.0.1:30008/",
+      "phase": "frame-navigated",
+      "pageId": "playwright-page-1",
+      "frameId": "playwright-frame-1",
+      "frameIsMainFrame": true,
+      "frameIdentityStatus": "exact"
+    }
+  ]
+}

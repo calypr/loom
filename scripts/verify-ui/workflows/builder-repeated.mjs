@@ -4,7 +4,7 @@ import { browserURL } from './builder-url.mjs';
 import { click, configureNativePage, evaluate, fill, recordPlaywrightTiming, reload, waitFor, goto } from '../helpers/playwright-authoring-page.mjs';
 import { readBuilderCapabilitiesIdentity, watchConstructionCapabilitiesReadiness } from '../helpers/construction-capabilities-readiness.mjs';
 import { installNativeAbortProbe, nativeAbortSignalObservationForRequest } from '../helpers/native-abort-probe.mjs';
-import { recordCheck } from '../helpers/report.mjs';
+import { finishReport, recordCheck } from '../helpers/report.mjs';
 
 
 const sourceIDs = ['verify-repeat-empty', 'verify-repeat-missing', 'verify-repeat-two'];
@@ -587,16 +587,45 @@ export const retainRepeatedEmptyNativeRequestLedger = ({ report, ledger, project
   return report.nativeAbortProbeCorrelations;
 };
 
-export const assertRepeatedEmptyNativeRequestLedgerComplete = (ledger) => {
+export const assertRepeatedEmptyNativeRequestLedgerComplete = (ledger, report) => {
   if (!ledger?.nativeRequestTerminalLedger?.complete) {
     throw new Error('Repeated-empty native request ledger did not reach a complete terminal state: ' +
       JSON.stringify({ incompleteRequests: ledger?.incompleteRequests ?? [],
         nativeRequestDrainEvidence: ledger?.nativeRequestDrainEvidence ?? [],
         nativeRequestCorrelationErrors: ledger?.nativeRequestCorrelationErrors ?? [] }));
   }
-  const failedRequests = (ledger.nativeRequestTerminalLedger.requests ?? []).filter(entry => entry.state === 'failed');
-  if (failedRequests.length) {
-    throw new Error('Repeated-empty observed failed native requests: ' + JSON.stringify(failedRequests.map(({ requestId, browserRequestId, method, path, failure }) => ({ requestId, browserRequestId, method, path, failure }))));
+  const requests = ledger.nativeRequestTerminalLedger.requests ?? [];
+  const failedRequests = requests.filter(entry => entry.state === 'failed');
+  const classifiedReport = report ? structuredClone(report) : null;
+  if (classifiedReport) finishReport(classifiedReport);
+  const ownerRetirements = classifiedReport?.expectedOwnerRetirements ?? [];
+  const captureScope = classifiedReport?.nativeRequestCaptureScope;
+  const consumedRetirements = new Set();
+  const failuresWithoutExactRetirement = failedRequests.filter(entry => {
+    const identityMatches = requests.filter(candidate => candidate.requestId === entry.requestId ||
+      candidate.browserRequestId === entry.browserRequestId);
+    const retirementMatches = ownerRetirements
+      .map((retirement, index) => ({ retirement, index }))
+      .filter(({ retirement }) => retirement.kind === 'same-document-owner-retirement' &&
+        retirement.endpoint === 'schema-fields' && retirement.owner === 'feature-catalog-generated-fields' &&
+        retirement.selector === '#feature-catalog-search' &&
+        retirement.requestId === entry.requestId && retirement.browserRequestId === entry.browserRequestId &&
+        retirement.project === captureScope?.project && retirement.explorer === captureScope?.explorer);
+    const expectedPath = typeof captureScope?.project === 'string' && typeof captureScope?.explorer === 'string'
+      ? `/api/v1/projects/${encodeURIComponent(captureScope.project)}/explorers/${encodeURIComponent(captureScope.explorer)}/authoring/v2/schema-fields`
+      : null;
+    if (identityMatches.length !== 1 || identityMatches[0] !== entry || retirementMatches.length !== 1 ||
+        consumedRetirements.has(retirementMatches[0].index) || entry.origin !== captureScope?.origin ||
+        entry.path !== expectedPath || entry.method !== 'POST' || entry.failure !== 'net::ERR_ABORTED' ||
+        entry.terminalEvent !== 'requestfailed' || ![null, 200].includes(entry.status) || entry.complete !== true ||
+        entry.frameIdentityStatus !== 'exact' || entry.frameIsMainFrame !== true) return true;
+    consumedRetirements.add(retirementMatches[0].index);
+    return false;
+  });
+  if (failuresWithoutExactRetirement.length || consumedRetirements.size !== ownerRetirements.length) {
+    const unmatched = failuresWithoutExactRetirement.length ? failuresWithoutExactRetirement : failedRequests;
+    throw new Error('Repeated-empty observed failed native requests without an exact production owner-retirement classification: ' +
+      JSON.stringify(unmatched.map(({ requestId, browserRequestId, method, path, failure }) => ({ requestId, browserRequestId, method, path, failure }))));
   }
   return true;
 };
@@ -641,5 +670,5 @@ export const repeatedEmptyWorkflow = async (workflow, context = workflow) => {
   if (workflowError) throw workflowError;
   if (captureError) throw captureError;
   if (!ledger) throw new Error('Repeated-empty native request ledger was not finalized.');
-  assertRepeatedEmptyNativeRequestLedgerComplete(ledger);
+  assertRepeatedEmptyNativeRequestLedgerComplete(ledger, report);
 };

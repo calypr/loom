@@ -5,8 +5,80 @@ import {
   assertRepeatedEmptyNativeRequestLedgerComplete,
   retainRepeatedEmptyNativeRequestLedger,
 } from '../../workflows/builder-repeated.mjs';
+import { createReport, finishReport } from '../report.mjs';
 
 const workflowSource = readFileSync(new URL('../../workflows/builder-repeated.mjs', import.meta.url), 'utf8');
+
+const repeatedEmptyOwnerRetirementFixture = () => {
+  const project = 'loom_dev_verify_mv138hht-da1741c';
+  const explorer = 'verify-ht-da1741c-repeated-empty';
+  const origin = 'http://127.0.0.1:30008';
+  const path = `/api/v1/projects/${project}/explorers/${explorer}/authoring/v2/schema-fields`;
+  const requestId = 'schema-fields-328c1a11-3f1d-453c-8264-8078388f0d46';
+  const browserRequestId = 'request-139';
+  const action = { id: 'action-16', label: 'click Fields and related data', mainFrameNavigations: [] };
+  const request = {
+    requestId, browserRequestId, origin, path, method: 'POST', status: null,
+    failure: 'net::ERR_ABORTED', terminalEvent: 'requestfailed', state: 'failed', complete: true,
+    frameIdentityStatus: 'exact', frameIsMainFrame: true, pageId: 'page-1', frameId: 'frame-1',
+    requestTimeline: { action, mainFrameNavigations: [] },
+    nativeEventChronology: [
+      { event: 'request', browserRequestId, observedAt: 1791557767995, objectMatch: true },
+      { event: 'requestfailed', browserRequestId, observedAt: 1791557768736, objectMatch: true, failure: 'net::ERR_ABORTED' },
+    ],
+  };
+  const nativeEntry = {
+    requestDetails: { requestId }, origin, path, method: 'POST',
+    terminalEvent: 'requestfailed', failure: 'net::ERR_ABORTED',
+  };
+  const report = createReport({
+    scenario: 'builder-authoring', caseName: 'repeated-empty',
+    target: { uiUrl: origin, project, explorer }, requiredChecks: ['fixture check'],
+  });
+  report.network.push({
+    kind: 'network', method: 'POST', url: `${origin}${path}`, resourceType: 'fetch',
+    errorText: 'net::ERR_ABORTED', playwrightRequestId: browserRequestId,
+    requestDetails: { requestId }, requestTimeline: structuredClone(request.requestTimeline),
+  });
+  report.actions.push(
+    { id: 'action-16', label: 'click Fields and related data', status: 'passed', startedAtEpochMs: 1791557767895, finishedAtEpochMs: 1791557767998 },
+    { id: 'action-23', label: 'click Close operation editor', status: 'passed', startedAtEpochMs: 1791557768611, finishedAtEpochMs: 1791557768744 },
+  );
+  const ownerAtFetch = {
+    status: 'unique', selector: '#feature-catalog-search', matchCount: 1,
+    capturedAt: 1791557767983, anchorId: 'dom-node-17', connectedAtFetch: true,
+    ruleOwner: 'feature-catalog-generated-fields', retirementAction: 'close-operation-editor',
+  };
+  const ownerAtAbort = {
+    anchorId: 'dom-node-17', detachedAtAbort: true, connectedAtAbort: false,
+    detachedObservedAt: 1791557768724, observedAtAbort: 1791557768731,
+  };
+  report.nativeAbortProbeEvents = [
+    {
+      kind: 'abort-controller-call', controllerId: 'abort-controller-36', createdAt: 1791557767983,
+      abortedAt: 1791557768731, signalWasAlreadyAborted: false,
+      requests: [{
+        requestId, origin, path, method: 'POST', requestIdSource: 'request-header', startedAt: 1791557767983,
+        fetchStateAtAbort: 'pending', ownerDomAtFetch: ownerAtFetch, ownerDomAtAbort: ownerAtAbort,
+      }],
+      trustedInteractions: [{
+        type: 'click', at: 1791557768687, isTrusted: true,
+        closestButton: { testId: 'construction-close-operation-editor', accessibleLabel: 'Close operation editor' },
+      }],
+    },
+    {
+      kind: 'abort-controller-fetch-settlement', controllerId: 'abort-controller-36', observedAt: 1791557768731,
+      requests: [{ requestId, origin, path, method: 'POST', fetchStateAfterAbort: 'rejected', settledAt: 1791557768731 }],
+    },
+  ];
+  const ledger = {
+    nativeRequests: [nativeEntry], nativeRequestDrainEvidence: [], excludedNativeRequests: [],
+    excludedNativeRequestDrainEvidence: [], nativeRequestCorrelationErrors: [], incompleteRequests: [],
+    nativeRequestTerminalLedger: { scope: 'exact Explorer', complete: true, requests: [request] },
+  };
+  retainRepeatedEmptyNativeRequestLedger({ report, ledger, project, origin, explorer });
+  return { report, ledger, nativeEntry, project, explorer, origin, path, requestId, browserRequestId };
+};
 
 test('CASE-010 installs the exact-project probe before the Builder document constructs its client', () => {
   assert.match(workflowSource, /import\s*\{[^}]*\binstallNativeAbortProbe\b[^}]*\}\s*from\s*['"]\.\.\/helpers\/native-abort-probe\.mjs['"]/);
@@ -136,16 +208,65 @@ test('CASE-010 persists exact schema-fields signal correlations separately witho
   ]);
 });
 
-test('CASE-010 keeps pending and failed native requests fatal', () => {
+test('CASE-010 accepts only the exact production-classified schema-fields Close retirement', () => {
+  const positive = repeatedEmptyOwnerRetirementFixture();
+  const originalNetwork = structuredClone(positive.report.network);
+  const classifiedReport = structuredClone(positive.report);
+  finishReport(classifiedReport);
+  assert.deepEqual(classifiedReport.expectedOwnerRetirements?.map(({ requestId, browserRequestId, project, explorer, closeActionId }) => ({
+    requestId, browserRequestId, project, explorer, closeActionId,
+  })), [{
+    requestId: positive.requestId,
+    browserRequestId: positive.browserRequestId,
+    project: positive.project,
+    explorer: positive.explorer,
+    closeActionId: 'action-23',
+  }], 'the existing report finalizer recognizes this exact retained Close retirement');
+  assert.equal(assertRepeatedEmptyNativeRequestLedgerComplete(positive.ledger, positive.report), true);
+  assert.deepEqual(positive.report.network, originalNetwork, 'the live report keeps the raw ERR_ABORTED network row unchanged');
+  assert.equal(Object.hasOwn(positive.report, 'expectedOwnerRetirements'), false,
+    'classification is derived without finalizing or mutating the live report');
+
   assert.equal(assertRepeatedEmptyNativeRequestLedgerComplete({
     nativeRequestTerminalLedger: { complete: true, requests: [{ state: 'finished' }] },
   }), true);
   assert.throws(() => assertRepeatedEmptyNativeRequestLedgerComplete({
     nativeRequestTerminalLedger: { complete: false, requests: [{ state: 'pending' }] }, incompleteRequests: [{ state: 'pending' }],
   }), /complete terminal state/);
+
+  const noProof = repeatedEmptyOwnerRetirementFixture();
+  noProof.report.nativeAbortProbeEvents = [];
+  assert.throws(() => assertRepeatedEmptyNativeRequestLedgerComplete(noProof.ledger, noProof.report), /failed native requests/,
+    'a failed schema-fields row remains fatal without complete production owner evidence');
+
+  const wrongRoute = repeatedEmptyOwnerRetirementFixture();
+  wrongRoute.ledger.nativeRequestTerminalLedger.requests[0].path = `${wrongRoute.path}/commands`;
+  assert.throws(() => assertRepeatedEmptyNativeRequestLedgerComplete(wrongRoute.ledger, wrongRoute.report), /failed native requests/,
+    'the retirement cannot be borrowed by a different failed endpoint');
+
+  const wrongBrowserRequest = repeatedEmptyOwnerRetirementFixture();
+  wrongBrowserRequest.ledger.nativeRequestTerminalLedger.requests[0].browserRequestId = 'request-140';
+  assert.throws(() => assertRepeatedEmptyNativeRequestLedgerComplete(wrongBrowserRequest.ledger, wrongBrowserRequest.report), /failed native requests/,
+    'a different browser Request object cannot borrow the report classification');
+
+  const duplicateIdentity = repeatedEmptyOwnerRetirementFixture();
+  duplicateIdentity.ledger.nativeRequestTerminalLedger.requests.push(
+    structuredClone(duplicateIdentity.ledger.nativeRequestTerminalLedger.requests[0]),
+  );
+  assert.throws(() => assertRepeatedEmptyNativeRequestLedgerComplete(duplicateIdentity.ledger, duplicateIdentity.report), /failed native requests/,
+    'the same report proof cannot be reused for an ambiguous native request identity');
+
+  const unrelatedFailure = repeatedEmptyOwnerRetirementFixture();
+  unrelatedFailure.ledger.nativeRequestTerminalLedger.requests.push({
+    ...structuredClone(unrelatedFailure.ledger.nativeRequestTerminalLedger.requests[0]),
+    requestId: 'builder-command-140', browserRequestId: 'request-140', path: '/api/v1/projects/other/commands',
+  });
+  assert.throws(() => assertRepeatedEmptyNativeRequestLedgerComplete(unrelatedFailure.ledger, unrelatedFailure.report), /failed native requests/,
+    'a separately failed request remains fatal even when the exact schema-fields retirement is present');
+
   assert.throws(() => assertRepeatedEmptyNativeRequestLedgerComplete({
     nativeRequestTerminalLedger: { complete: true, requests: [{ state: 'failed', requestId: 'failed-request' }] },
-  }), /observed failed native requests/);
+  }), /failed native requests/);
 });
 
 test('CASE-010 waits for the exact restored-draft capabilities response inside the Apply-to-render budget before reload', () => {
