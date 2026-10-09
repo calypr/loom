@@ -1690,6 +1690,8 @@ export const registry = Object.freeze([
     cases: {
       'initial-selection-handoff-route-preview-apply-reload': {
         playwrightTest: 'scripts/verify-ui/specs/standalone-cda-other.spec.mjs',
+        playwrightGrep: 'CDA starting collection handoff hand off a starting collection, attach its route, preview, and reload$',
+        expectedIdentity: { project: 'loom_dev_cda_fhir', generation: 'cda-fhir-v1' },
         focusedChecks: [
           {
             id: 'starting-collection-terminal-request-completion',
@@ -1698,6 +1700,15 @@ export const registry = Object.freeze([
             sourceFiles: [
               'scripts/verify-ui/workflows/verify-cda-starting-collection-handoff.mjs',
               'scripts/verify-ui/helpers/cda-playwright-requests.mjs',
+            ],
+          },
+          {
+            id: 'starting-collection-handoff-target-binding',
+            cwd: '.',
+            command: ['node-test', 'scripts/verify-ui/helpers/tests/starting-collection-handoff-binding-contract.test.mjs'],
+            sourceFiles: [
+              'scripts/verify-ui/registry.mjs',
+              'scripts/verify-ui/specs/standalone-cda-other.spec.mjs',
             ],
           },
         ],
@@ -1715,7 +1726,23 @@ export const registry = Object.freeze([
       },
     },
     coverage: [
-      { feature: 'initial standalone selection handoff through native route apply, exact preview, and reload', status: 'implemented', reason: 'Current-source native bracket cH8FxT passed all 9 registered checks, 16 assertions, and 6 native actions (maximum 782 ms). The bounded raw Observation-to-Patient oracle matched the rendered preview and reload on the two exact Patient IDs. The corrected phase-specific terminal gate captured HTTP 200 bodies for row-definition-choices GET plus exact population-routes POST during the unattached handoff (765 ms), and selection GET limit=100 plus exact population-routes POST after reload (783 ms), using one original action deadline; no owned requests remained pending and no unexpected errors occurred. URL handoff, Apply, and reload checkpoints were 2,168/830/2,375 ms, within 5,000 ms. Source fingerprint and API identity, owned mounts, and before/after health passed. Target validation was environment-only, registry-unbound, and runtime dataset identity not checked; this run does not establish a registry-bound target identity. Direct attachment has no Cancel action. Other routes and selection variants remain separate. Summary SHA-256 19668b9893492bf1299bacc494e64fce082db36dbff2f0404ba2bd0f5027a2be at /private/var/folders/v_/j3zplgbs155cgwtqjftj377nd_4gyt/T/loom-verification-brackets/run-cda-starting-collection-handoff-initial-selection-handoff-route-preview-apply-reload-cH8FxT/summary.json; domain report SHA-256 306cef7a7b854caf4e6bd20299cf2fcde4f7adc2ca7bd286cf6cd62faeddab3d at /private/var/folders/v_/j3zplgbs155cgwtqjftj377nd_4gyt/T/loom-verification-brackets/run-cda-starting-collection-handoff-initial-selection-handoff-route-preview-apply-reload-cH8FxT/playwright-results/standalone-cda-other-CDA-s-80298-ts-route-preview-and-reload/attachments/cda-domain-report-json-417650b262989c9ee965d17328e09c067f7e40eb.json.' },
+      {
+        feature: 'initial standalone selection handoff through native route apply, exact preview, and reload',
+        acceptance: {
+          intent: 'row-lifecycle',
+          kind: 'lifecycle',
+          case: 'initial-selection-handoff-route-preview-apply-reload',
+          checks: { choice: 2, apply: 3, savedRows: 4, reload: 5 },
+          notApplicable: {
+            proposal: 'The starting selection is immutable and attaches directly; this case has no source proposal preview.',
+            cancel: 'Direct attachment has no Cancel action.',
+            edit: 'This case verifies initial handoff and route apply/reload; saved-operation editing is separate coverage.',
+            restoration: 'This case ends with reload preservation and does not remove the route or restore a prior collection.',
+          },
+        },
+        status: 'implemented',
+        reason: 'Current-source native bracket cH8FxT passed all 9 registered checks, 16 assertions, and 6 native actions (maximum 782 ms). The bounded raw Observation-to-Patient oracle matched the rendered preview and reload on the two exact Patient IDs. The corrected phase-specific terminal gate captured HTTP 200 bodies for row-definition-choices GET plus exact population-routes POST during the unattached handoff (765 ms), and selection GET limit=100 plus exact population-routes POST after reload (783 ms), using one original action deadline; no owned requests remained pending and no unexpected errors occurred. URL handoff, Apply, and reload checkpoints were 2,168/830/2,375 ms, within 5,000 ms. Source fingerprint and API identity, owned mounts, and before/after health passed. Target validation was environment-only, registry-unbound, and runtime dataset identity not checked; this run does not establish a registry-bound target identity. Direct attachment has no Cancel action. Other routes and selection variants remain separate. Summary SHA-256 19668b9893492bf1299bacc494e64fce082db36dbff2f0404ba2bd0f5027a2be at /private/var/folders/v_/j3zplgbs155cgwtqjftj377nd_4gyt/T/loom-verification-brackets/run-cda-starting-collection-handoff-initial-selection-handoff-route-preview-apply-reload-cH8FxT/summary.json; domain report SHA-256 306cef7a7b854caf4e6bd20299cf2fcde4f7adc2ca7bd286cf6cd62faeddab3d at /private/var/folders/v_/j3zplgbs155cgwtqjftj377nd_4gyt/T/loom-verification-brackets/run-cda-starting-collection-handoff-initial-selection-handoff-route-preview-apply-reload-cH8FxT/playwright-results/standalone-cda-other-CDA-s-80298-ts-route-preview-and-reload/attachments/cda-domain-report-json-417650b262989c9ee965d17328e09c067f7e40eb.json.',
+      },
     ],
   }),
   Object.freeze({
