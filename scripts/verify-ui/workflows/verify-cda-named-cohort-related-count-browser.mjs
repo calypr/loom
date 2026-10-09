@@ -2,7 +2,36 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { captureCDARequests } from '../helpers/cda-playwright-requests.mjs';
-import { sanitizeReportPayload } from '../helpers/playwright-browser.mjs';
+import { sanitizeReportPayload, sanitizeText } from '../helpers/playwright-browser.mjs';
+
+const rawQueryOutputLimit = 1000;
+const boundedRawQueryText = value => {
+  const text = sanitizeText(Buffer.isBuffer(value) ? value.toString('utf8') : String(value ?? ''));
+  if (text.length <= rawQueryOutputLimit) return text;
+  return `${text.slice(0, rawQueryOutputLimit)}… [truncated ${text.length - rawQueryOutputLimit} chars]`;
+};
+
+const formatRawQueryFailure = (result, elapsedMs) => [
+  `Arango raw query failed (elapsedMs=${elapsedMs}, status=${result.status ?? 'null'}, signal=${result.signal ?? 'none'})`,
+  `error: code=${boundedRawQueryText(result.error?.code ?? 'none')} message=${boundedRawQueryText(result.error?.message ?? 'none')}`,
+  `stdout: ${boundedRawQueryText(result.stdout)}`,
+  `stderr: ${boundedRawQueryText(result.stderr)}`,
+].join('\n');
+
+export function createRawQuery(arangoContainer, { spawn = spawnSync, now = Date.now } = {}) {
+  return query => {
+    const startedAt = now();
+    const result = spawn('rtk', [
+      'proxy', 'docker', 'exec', arangoContainer, 'arangosh', '--server.database', 'loom_dev',
+      '--javascript.execute-string', `print(JSON.stringify(db._query(${JSON.stringify(query)}).toArray()));`,
+    ], { encoding: 'utf8', timeout: 30000 });
+    const elapsedMs = now() - startedAt;
+    if (result.status !== 0) throw new Error(formatRawQueryFailure(result, elapsedMs));
+    const opening = result.stdout.indexOf('[');
+    assert(opening >= 0, `Arango did not return a JSON array: ${result.stdout.slice(0, 500)}`);
+    return JSON.parse(result.stdout.slice(opening));
+  };
+}
 
 export async function namedCohortRelatedCountWorkflow({
   page,
@@ -122,16 +151,7 @@ const command = async commands => {
   assert.equal(builder.catalog.generation, before.catalog.generation);
 };
 
-const rawQuery = query => {
-  const result = spawnSync('rtk', [
-    'proxy', 'docker', 'exec', arangoContainer, 'arangosh', '--server.database', 'loom_dev',
-    '--javascript.execute-string', `print(JSON.stringify(db._query(${JSON.stringify(query)}).toArray()));`,
-  ], { encoding: 'utf8', timeout: 30000 });
-  assert.equal(result.status, 0, result.stderr);
-  const opening = result.stdout.indexOf('[');
-  assert(opening >= 0, `Arango did not return a JSON array: ${result.stdout.slice(0, 500)}`);
-  return JSON.parse(result.stdout.slice(opening));
-};
+const rawQuery = createRawQuery(arangoContainer);
 
 const witnessMemberCount = nonemptyZeroMatch ? 1 : 2;
 const observationCountPredicate = nonemptyZeroMatch
